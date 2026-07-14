@@ -1,0 +1,4 @@
+interface:
+  display_name: "Better Workflows"
+  short_description: "Route work through evidence-driven Codex workflows"
+  default_prompt: "Use $better-workflows to execute this task with the appropriate risk mode and evidence gates."

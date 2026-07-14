@@ -1,0 +1,4 @@
+interface:
+  display_name: "Git Check Issues"
+  short_description: "Route issue fixing through root-owned workflows"
+  default_prompt: "Use $git-check-issues to inspect and fix open issues with root-owned integration."

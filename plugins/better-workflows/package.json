@@ -1,0 +1,12 @@
+{
+  "name": "better-workflows",
+  "version": "1.0.0",
+  "description": "Native-first, evidence-driven workflows for Codex.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test scripts/tests/*.test.mjs",
+    "validate": "node scripts/dw.mjs eval"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "name": "review-to-issues",
+  "description": "Read-only review followed by root-owned deduplicated issue creation.",
+  "defaultMode": "verified",
+  "requiredEvidence": ["base-revision", "review-findings", "duplicate-check", "current-revision"],
+  "acceptance": [
+    {"id": "scope-reviewed", "description": "The declared scope was reviewed at the recorded revision.", "critical": true},
+    {"id": "issues-deduplicated", "description": "Every issue candidate was checked against current issues.", "critical": true}
+  ],
+  "policyGates": ["reviewers-read-only", "root-only-issue-creation", "latest-sha-before-side-effect"],
+  "actionGates": {
+    "issue.create": ["base-revision", "review-findings", "duplicate-check", "current-revision"]
+  },
+  "domainSkills": [],
+  "rootOnlyActions": ["gh issue create"]
+}

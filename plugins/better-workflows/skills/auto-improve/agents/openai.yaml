@@ -1,0 +1,4 @@
+interface:
+  display_name: "autoImprove compatibility"
+  short_description: "Route legacy autoImprove requests safely"
+  default_prompt: "Use $auto-improve to run the legacy autoImprove intent through the verified workflow."

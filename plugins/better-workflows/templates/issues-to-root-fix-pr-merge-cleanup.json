@@ -1,0 +1,20 @@
+{
+  "name": "issues-to-root-fix-pr-merge-cleanup",
+  "description": "Revalidate issues, let root implement fixes, verify, publish, merge, and clean only run-owned resources.",
+  "defaultMode": "deep",
+  "requiredEvidence": ["issue-state", "base-revision", "patch-review", "repo-gates", "pr-state", "cleanup-manifest"],
+  "acceptance": [
+    {"id": "issues-current", "description": "Assigned issues remain open and applicable.", "critical": true},
+    {"id": "root-integrated", "description": "The root owns every edit and integration decision.", "critical": true},
+    {"id": "cleanup-owned", "description": "Cleanup targets only resources created by this run.", "critical": true}
+  ],
+  "policyGates": ["root-only-mutation", "serialized-shared-resources", "current-pr-before-merge", "exact-cleanup"],
+  "actionGates": {
+    "git.push": ["issue-state", "patch-review", "repo-gates"],
+    "pr.create": ["issue-state", "patch-review", "repo-gates"],
+    "pr.merge": ["pr-state", "repo-gates"],
+    "worktree.cleanup": ["pr-state", "cleanup-manifest"]
+  },
+  "domainSkills": ["gh-fix-ci", "gh-address-comments", "git-check-pr"],
+  "rootOnlyActions": ["git commit", "git push", "gh pr create", "gh pr merge", "git worktree remove"]
+}

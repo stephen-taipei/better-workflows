@@ -1,0 +1,4 @@
+interface:
+  display_name: "autoIssues compatibility"
+  short_description: "Route legacy autoIssues review requests safely"
+  default_prompt: "Use $auto-issues to review the requested scope and create deduplicated issues through the verified workflow."

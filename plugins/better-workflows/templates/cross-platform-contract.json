@@ -1,0 +1,17 @@
+{
+  "name": "cross-platform-contract",
+  "description": "Keep backend, Web, iOS, and Android API contracts compatible.",
+  "defaultMode": "deep",
+  "requiredEvidence": ["server-contract", "ios-model", "android-model", "web-client", "contract-tests", "compatibility-review"],
+  "acceptance": [
+    {"id": "wire-compatible", "description": "Wire fields, optionality, enums, and naming match all affected clients.", "critical": true},
+    {"id": "legacy-compatible", "description": "Existing v1 and neutral API routes remain compatible.", "critical": true}
+  ],
+  "policyGates": ["mobile-contract-headers", "build-gate-for-new-features", "two-phase-breaking-change"],
+  "actionGates": {
+    "migration.apply": ["server-contract", "contract-tests", "compatibility-review"],
+    "api.deploy": ["server-contract", "contract-tests", "compatibility-review"]
+  },
+  "domainSkills": [],
+  "rootOnlyActions": ["schema migration", "API deploy"]
+}

@@ -1,0 +1,17 @@
+{
+  "name": "browser-simulator-qa",
+  "description": "Perform current-state browser or simulator QA with reproducible artifacts.",
+  "defaultMode": "verified",
+  "requiredEvidence": ["environment-state", "current-page-or-app-state", "qa-artifacts", "observed-result"],
+  "acceptance": [
+    {"id": "current-state", "description": "Results came from the current page or application state.", "critical": true},
+    {"id": "artifact-backed", "description": "Material claims have screenshots, logs, or reproducible steps.", "critical": false}
+  ],
+  "policyGates": ["webwright-first", "agent-browser-fallback-disclosed", "no-stale-snapshot"],
+  "actionGates": {
+    "external.submit": ["current-page-or-app-state", "observed-result"],
+    "account.mutate": ["current-page-or-app-state", "observed-result"]
+  },
+  "domainSkills": ["webwright:webwright"],
+  "rootOnlyActions": ["external form submission", "account mutation"]
+}

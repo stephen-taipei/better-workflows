@@ -1,0 +1,13 @@
+{
+  "name": "research-deliberation",
+  "description": "Use independent perspectives and model critics to reach an evidence-based decision.",
+  "defaultMode": "deep",
+  "requiredEvidence": ["source-inventory", "independent-review", "refutation", "claim-reconciliation", "final-verdict"],
+  "acceptance": [
+    {"id": "independent", "description": "Reviewers received bounded questions without the intended answer.", "critical": true},
+    {"id": "evidence-reconciled", "description": "The root reconciled contradictions against evidence rather than votes.", "critical": true}
+  ],
+  "policyGates": ["no-majority-vote", "no-claude", "agy-egress-policy", "root-final-verdict"],
+  "domainSkills": [],
+  "rootOnlyActions": ["accept risk", "declare final decision"]
+}

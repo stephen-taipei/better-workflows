@@ -1,0 +1,87 @@
+[
+  {
+    "name": "latest-sha-review",
+    "risk": {"risk": 1, "uncertainty": 2, "blastRadius": 1, "irreversibility": 0, "evidenceGap": 3},
+    "expectedMode": "deep"
+  },
+  {
+    "name": "shared-boundary-fix",
+    "risk": {"risk": 1, "uncertainty": 1, "blastRadius": 1, "irreversibility": 0, "evidenceGap": 1},
+    "expectedMode": "verified"
+  },
+  {
+    "name": "all-entrypoints-gating",
+    "risk": {"risk": 1, "uncertainty": 1, "blastRadius": 1, "irreversibility": 0, "evidenceGap": 1},
+    "expectedMode": "verified"
+  },
+  {
+    "name": "exact-locale-file-scope",
+    "risk": {"risk": 1, "uncertainty": 1, "blastRadius": 0, "irreversibility": 0, "evidenceGap": 1},
+    "expectedMode": "verified"
+  },
+  {
+    "name": "mobile-contract",
+    "risk": {"risk": 2, "uncertainty": 2, "blastRadius": 2, "irreversibility": 1, "evidenceGap": 1},
+    "expectedMode": "deep"
+  },
+  {
+    "name": "ios-no-build-pbxproj",
+    "risk": {"risk": 1, "uncertainty": 1, "blastRadius": 1, "irreversibility": 0, "evidenceGap": 1},
+    "expectedMode": "verified"
+  },
+  {
+    "name": "closed-issue-drift",
+    "risk": {"risk": 1, "uncertainty": 2, "blastRadius": 1, "irreversibility": 0, "evidenceGap": 3},
+    "expectedMode": "deep"
+  },
+  {
+    "name": "dirty-tree-overlap",
+    "risk": {"risk": 1, "uncertainty": 1, "blastRadius": 1, "irreversibility": 0, "evidenceGap": 1},
+    "expectedMode": "verified"
+  },
+  {
+    "name": "localization-41",
+    "risk": {"risk": 2, "uncertainty": 2, "blastRadius": 2, "irreversibility": 0, "evidenceGap": 1},
+    "expectedMode": "deep"
+  },
+  {
+    "name": "stale-ci-polling",
+    "risk": {"risk": 1, "uncertainty": 1, "blastRadius": 1, "irreversibility": 0, "evidenceGap": 1},
+    "expectedMode": "verified"
+  },
+  {
+    "name": "serialized-release",
+    "risk": {"risk": 2, "uncertainty": 2, "blastRadius": 3, "irreversibility": 3, "evidenceGap": 1},
+    "expectedMode": "critical"
+  },
+  {
+    "name": "agy-empty-output",
+    "risk": {"risk": 2, "uncertainty": 3, "blastRadius": 2, "irreversibility": 1, "evidenceGap": 3},
+    "expectedMode": "critical"
+  },
+  {
+    "name": "crash-window",
+    "risk": {"risk": 2, "uncertainty": 2, "blastRadius": 2, "irreversibility": 3, "evidenceGap": 2},
+    "expectedMode": "critical"
+  },
+  {
+    "name": "scope-escape",
+    "risk": {"risk": 3, "uncertainty": 2, "blastRadius": 2, "irreversibility": 1, "evidenceGap": 2},
+    "expectedMode": "critical"
+  },
+  {
+    "name": "ignored-submodule-drift",
+    "risk": {"risk": 2, "uncertainty": 2, "blastRadius": 2, "irreversibility": 0, "evidenceGap": 2},
+    "expectedMode": "deep"
+  },
+  {
+    "name": "stale-dependency",
+    "risk": {"risk": 1, "uncertainty": 2, "blastRadius": 1, "irreversibility": 0, "evidenceGap": 3},
+    "expectedMode": "deep"
+  },
+  {
+    "name": "duplicate-deploy",
+    "risk": {"risk": 2, "uncertainty": 2, "blastRadius": 3, "irreversibility": 3, "evidenceGap": 2},
+    "expectedMode": "critical"
+  }
+]

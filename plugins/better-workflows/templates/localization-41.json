@@ -1,0 +1,13 @@
+{
+  "name": "localization-41",
+  "description": "Update all 41 locales with regional style and deterministic key/order validation.",
+  "defaultMode": "deep",
+  "requiredEvidence": ["locale-inventory", "all-locale-update", "key-count", "key-order", "json-or-strings-parse", "regional-review"],
+  "acceptance": [
+    {"id": "all-41", "description": "All 41 required locales were updated or explicitly proven unaffected.", "critical": true},
+    {"id": "keys-aligned", "description": "Locale keys and ordering match the source locale.", "critical": true}
+  ],
+  "policyGates": ["no-perl-utf8", "max-200-lines-per-agent-output", "root-only-final-ordering"],
+  "domainSkills": [],
+  "rootOnlyActions": ["final locale integration"]
+}

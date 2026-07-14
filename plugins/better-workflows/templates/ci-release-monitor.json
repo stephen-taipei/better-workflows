@@ -1,0 +1,20 @@
+{
+  "name": "ci-release-monitor",
+  "description": "Monitor and reconcile serialized CI, deploy, release, and promotion operations.",
+  "defaultMode": "critical",
+  "requiredEvidence": ["workflow-inventory", "queue-state", "target-revision", "run-result", "provider-reconciliation"],
+  "acceptance": [
+    {"id": "serialized", "description": "No conflicting Web/Admin deploy was queued or running.", "critical": true},
+    {"id": "revision-bound", "description": "The action targeted the verified branch and revision.", "critical": true},
+    {"id": "reconciled", "description": "The final provider state is known.", "critical": true}
+  ],
+  "policyGates": ["one-deploy-at-a-time", "dev-staging-main", "no-fast-forward-release", "action-token"],
+  "actionGates": {
+    "workflow.dispatch": ["queue-state", "target-revision"],
+    "deploy": ["queue-state", "target-revision"],
+    "release": ["queue-state", "target-revision"],
+    "branch.promote": ["queue-state", "target-revision"]
+  },
+  "domainSkills": ["release-app"],
+  "rootOnlyActions": ["workflow dispatch", "deploy", "release", "branch promotion"]
+}

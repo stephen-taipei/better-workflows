@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "maxNativeChildren": 3,
+  "maxCodexCritics": 2,
+  "thirdCriticOnContradictionOnly": true,
+  "sentinel": {
+    "maxFiles": 5000,
+    "maxBytes": 52428800,
+    "maxSingleFileBytes": 2097152,
+    "volatileExclusions": ["node_modules", "DerivedData", ".derivedData", "dist", "build", ".nx/cache", ".cache"]
+  },
+  "providers": {
+    "codex": {
+      "fast_critic": {"model": "gpt-5.6-terra", "effort": "high"},
+      "deep_verifier": {"model": "gpt-5.6-sol", "effort": "xhigh"},
+      "fresh_critic": {"model": "gpt-5.5", "effort": "xhigh"}
+    },
+    "agy": {
+      "enabled": true,
+      "transport": "argv",
+      "maxPromptBytes": 24000,
+      "timeoutSeconds": 90,
+      "primaryModel": "Gemini 3.1 Pro (High)",
+      "secondaryModel": "GPT-OSS 120B (Medium)",
+      "allowedSensitivities": ["public", "internal"]
+    }
+  },
+  "actionToken": {"ttlSeconds": 300},
+  "retentionDays": 30
+}

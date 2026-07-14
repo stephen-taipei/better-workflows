@@ -1,0 +1,13 @@
+{
+  "name": "ios-static-pbxproj",
+  "description": "Review Swift statically and serialize project.pbxproj membership without local builds.",
+  "defaultMode": "verified",
+  "requiredEvidence": ["swift-static-review", "access-modifiers", "imports", "pbxproj-membership", "hardening-lint"],
+  "acceptance": [
+    {"id": "no-local-build", "description": "No prohibited iOS build or dependency-resolution command ran.", "critical": true},
+    {"id": "pbxproj-complete", "description": "Every new Swift file is included in project.pbxproj.", "critical": true}
+  ],
+  "policyGates": ["no-xcodebuild", "root-only-pbxproj", "no-new-force-unwrap", "no-service-ui-main-hop"],
+  "domainSkills": ["swiftui-expert-skill"],
+  "rootOnlyActions": ["project.pbxproj edit"]
+}
