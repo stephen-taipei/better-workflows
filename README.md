@@ -26,10 +26,25 @@ Start a new Codex task after installation so the skill catalog refreshes.
 
 ## Use in Codex
 
-The canonical, shareable entry is:
+Restart Codex or open a new task after installation. Type `/skills` and choose
+`List skills`, or press `@` and search `better`, to open the built-in Skill
+dropdown. Choose one automatic router, one of eight task types, or one of four
+review strengths. The picker inserts the selected `$better-workflows:<name>`
+reference. The recommended entry is:
 
 ```text
-$better-workflows review this API contract in deep mode
+$better-workflows:auto <describe the outcome you need>
+```
+
+Every selector starts or continues a persistent Codex Goal before substantial
+work, including the fast `direct` selector. Goal mode controls persistence;
+Better Workflows mode controls verification depth. Template names and model
+aliases remain internal.
+
+For example:
+
+```text
+$better-workflows:cross-platform Check the backend, iOS, and Android contact sync contract, fix issues, and create a PR.
 ```
 
 Better Workflows chooses one of four modes:
@@ -52,10 +67,8 @@ Eight workflow templates are included:
 - `browser-simulator-qa`
 - `research-deliberation`
 
-Custom slash-command prompts are not shipped. Codex CLI 0.144.3 rejected the
-deprecated custom-prompt command during a clean-session forward test, while the
-`$better-workflows` skill loaded successfully. The skill is therefore the single
-supported entry point.
+Current Codex builds expose plugin Skills through the built-in `/skills` menu.
+No custom prompt installer or separate command layer is required.
 
 ## Deterministic helper
 

@@ -50,10 +50,23 @@ test("skills have no placeholders and compatibility aliases route to the main sk
   const skillNames = (await readdir(skillsRoot)).sort();
   assert.deepEqual(skillNames, [
     "ai-meeting-tw",
+    "auto",
     "auto-improve",
     "auto-issues",
     "better-workflows",
-    "git-check-issues"
+    "browser-qa",
+    "ci-release",
+    "critical",
+    "cross-platform",
+    "deep",
+    "direct",
+    "fix-issues-pr",
+    "git-check-issues",
+    "ios-static",
+    "localization",
+    "research",
+    "review-issues",
+    "verified"
   ]);
   for (const name of skillNames) {
     const contents = await readFile(path.join(skillsRoot, name, "SKILL.md"), "utf8");

@@ -1,0 +1,83 @@
+{
+  "schemaVersion": 1,
+  "skills": [
+    {
+      "id": "auto",
+      "description": "Better Workflows：自動選擇任務流程與審查強度（推薦）",
+      "template": "auto",
+      "mode": "auto"
+    },
+    {
+      "id": "review-issues",
+      "description": "唯讀 Review、去重並建立 GitHub issues",
+      "template": "review-to-issues",
+      "mode": "auto"
+    },
+    {
+      "id": "fix-issues-pr",
+      "description": "重驗 issues、修復、建立 PR，並依授權 merge/cleanup",
+      "template": "issues-to-root-fix-pr-merge-cleanup",
+      "mode": "auto"
+    },
+    {
+      "id": "cross-platform",
+      "description": "檢查或修改 Backend、iOS、Android、Web 合約",
+      "template": "cross-platform-contract",
+      "mode": "auto"
+    },
+    {
+      "id": "ios-static",
+      "description": "iOS 靜態 Review 與序列化 pbxproj 檢查",
+      "template": "ios-static-pbxproj",
+      "mode": "auto"
+    },
+    {
+      "id": "localization",
+      "description": "41 語系更新、key 數量與順序驗證",
+      "template": "localization-41",
+      "mode": "auto"
+    },
+    {
+      "id": "ci-release",
+      "description": "CI、deploy、release 的序列化監控與修復",
+      "template": "ci-release-monitor",
+      "mode": "auto"
+    },
+    {
+      "id": "browser-qa",
+      "description": "Webwright／模擬器 QA 與當前畫面證據",
+      "template": "browser-simulator-qa",
+      "mode": "auto"
+    },
+    {
+      "id": "research",
+      "description": "多觀點研究、反證與架構決策",
+      "template": "research-deliberation",
+      "mode": "auto"
+    },
+    {
+      "id": "direct",
+      "description": "快速模式：Root 直接執行，不建立 workflow journal",
+      "template": "auto",
+      "mode": "direct"
+    },
+    {
+      "id": "verified",
+      "description": "驗證模式：加入 1–3 個唯讀研究／Review agents",
+      "template": "auto",
+      "mode": "verified"
+    },
+    {
+      "id": "deep",
+      "description": "深度模式：驗證 wave 加獨立 Codex critics",
+      "template": "auto",
+      "mode": "deep"
+    },
+    {
+      "id": "critical",
+      "description": "關鍵模式：完整 fail-closed gate 與必要外部 reviewer",
+      "template": "auto",
+      "mode": "critical"
+    }
+  ]
+}

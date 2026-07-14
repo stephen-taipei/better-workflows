@@ -7,6 +7,37 @@ description: Route complex Codex work through native-first, evidence-driven work
 
 Keep the root agent as the only authority that edits files, integrates changes, runs Git or GitHub mutations, deploys, accepts risk, or declares completion. Treat native subagent read-only behavior as an orchestration contract, not an OS sandbox.
 
+## Preferred user entrypoints
+
+Prefer the searchable Codex Skill menu. The user can type `/skills` and choose
+`List skills`, or press `@` and search `better`, then select a human-readable
+task or review-strength entry. The picker inserts `$better-workflows:<name>`;
+`$better-workflows:auto` is the recommended default. Do not require the user to
+remember template, mode, or model alias names.
+
+A selector-fixed template or minimum mode is authoritative; never lower it.
+Selectors with `auto` still use the routing rules below. Natural-language
+`$better-workflows` invocation remains supported.
+
+## Goal-first entry contract
+
+Every Better Workflows selector and compatibility alias defaults to persistent
+Goal mode, including `direct`:
+
+1. Before substantial work, inspect the current Codex goal.
+2. If no goal exists, create one from the user's requested outcome.
+3. If the active goal describes the same outcome, continue it instead of
+   creating a duplicate.
+4. If an unrelated unfinished goal exists, do not replace it silently. Tell the
+   user to use `/goal edit` or `/goal clear`, then stop this workflow.
+5. Keep working across turns until the acceptance gates are satisfied. Mark the
+   goal complete only after the workflow completion rules pass. `inconclusive`,
+   stale, indeterminate, or unknown outcomes are not complete.
+
+Goal mode controls persistence; the Better Workflows mode controls verification
+depth. They are independent. `direct` therefore uses a persistent goal without
+creating a Better Workflows journal.
+
 ## Resolve the helper
 
 Use `dw` when `command -v dw` succeeds. Otherwise resolve the plugin root as two directories above this `SKILL.md` and run `node <plugin-root>/scripts/dw.mjs`. In the examples below, `dw` means whichever form was resolved. Do not install packages or create a global symlink automatically.
