@@ -1,5 +1,7 @@
 # Better Workflows
 
+[English](README.md) | [繁體中文](docs/README.zh-TW.md) | [简体中文](docs/README.zh-CN.md) | [日本語](docs/README.ja.md) | [한국어](docs/README.ko.md)
+
 Native-first, evidence-driven workflow orchestration for Codex.
 
 Better Workflows keeps one root agent responsible for edits and side effects, uses small bounded waves of native subagents for research and review, and adds deterministic state, freshness, evidence, and action-token gates for higher-risk tasks.
@@ -26,26 +28,82 @@ Start a new Codex task after installation so the skill catalog refreshes.
 
 ## Use in Codex
 
-Restart Codex or open a new task after installation. Type `/skills` and choose
-`List skills`, or press `@` and search `better`, to open the built-in Skill
-dropdown. Choose one automatic router, one of eight task types, or one of four
-review strengths. The picker inserts the selected `$better-workflows:<name>`
-reference. The recommended entry is:
+Restart Codex or open a new task after installation. Press `@` and search
+`better`, or type `/skills` and choose `List skills`, to open the built-in Skill
+picker.
+
+![Better Workflows entries in the Codex Skill picker](docs/assets/better-workflows-skill-picker.png)
+
+Choose an entry, then describe the outcome. The picker inserts the selected
+`$better-workflows:<name>` reference. You do not need to type `/goal`, remember
+template names, or choose model aliases. The recommended default is:
 
 ```text
 $better-workflows:auto <describe the outcome you need>
 ```
-
-Every selector starts or continues a persistent Codex Goal before substantial
-work, including the fast `direct` selector. Goal mode controls persistence;
-Better Workflows mode controls verification depth. Template names and model
-aliases remain internal.
 
 For example:
 
 ```text
 $better-workflows:cross-platform Check the backend, iOS, and Android contact sync contract, fix issues, and create a PR.
 ```
+
+Every entry starts or continues a persistent Codex Goal before substantial
+work, including `direct`. If an unrelated unfinished Goal already exists, the
+workflow stops and asks you to use `/goal edit` or `/goal clear` instead of
+silently replacing it.
+
+### Choose quickly
+
+- Unsure which workflow to use: choose `auto`.
+- Know the task category: choose one of the eight task entries.
+- Care mainly about review depth: choose `direct`, `verified`, `deep`, or `critical`.
+- Already use a legacy command: choose its compatibility alias.
+
+### Automatic and task entries
+
+| Entry | Recommended use | Example |
+| --- | --- | --- |
+| `$better-workflows:auto` | Best default for most work. Codex selects the template, verification mode, and critics from risk and evidence. | `$better-workflows:auto Review the current repository, fix verified defects, and create a PR.` |
+| `$better-workflows:review-issues` | Read-only repository audit, finding deduplication, and authorized GitHub issue creation. It does not fix code. | `$better-workflows:review-issues Review the latest dev SHA and create deduplicated P0/P1/P2 issues.` |
+| `$better-workflows:fix-issues-pr` | Re-check open issues, implement root-owned fixes, create a PR, then merge and clean up only when authorized. | `$better-workflows:fix-issues-pr Fix open dev issues, create a PR, wait for fresh checks, merge, and clean up.` |
+| `$better-workflows:cross-platform` | Backend and mobile/web contract work: schemas, optional fields, enums, sync behavior, version gates, and headers. | `$better-workflows:cross-platform Check the backend, iOS, and Android contact sync contract, fix issues, and create a PR.` |
+| `$better-workflows:ios-static` | Swift/iOS static review and serialized `project.pbxproj` verification when local builds are prohibited or undesirable. | `$better-workflows:ios-static Review the iOS changes without building, verify new Swift files are in pbxproj, and fix static issues.` |
+| `$better-workflows:localization` | Multi-locale changes, especially 41-locale key counts, ordering, exact scope, and regional variants. | `$better-workflows:localization Add these keys to all 41 locales and verify identical key order.` |
+| `$better-workflows:ci-release` | CI failures, runner queues, serialized deploys, releases, remote monitoring, and receipt-based verification. | `$better-workflows:ci-release Diagnose the failing PR checks, fix them, and monitor the serialized dev deployment.` |
+| `$better-workflows:browser-qa` | Webwright or simulator QA requiring current UI evidence, screenshots, and a reproducible action log. | `$better-workflows:browser-qa Verify signup and contact sync in the browser and attach screenshot evidence.` |
+| `$better-workflows:research` | Evidence-backed research, architecture comparison, independent perspectives, and refutation without majority voting. | `$better-workflows:research Compare three sync architectures, challenge each one, and recommend a decision.` |
+
+### Review-strength entries
+
+These entries let Codex choose the task template while you set the minimum
+verification depth.
+
+| Entry | Recommended use | Example |
+| --- | --- | --- |
+| `$better-workflows:direct` | Small, reversible, well-understood work where speed matters. Uses a persistent Goal but no workflow journal or critics. | `$better-workflows:direct Fix this one-line documentation typo and verify the diff.` |
+| `$better-workflows:verified` | Normal engineering work that benefits from 1–3 read-only research/review/refutation agents and freshness evidence. | `$better-workflows:verified Review and fix the pagination bug, then create a PR.` |
+| `$better-workflows:deep` | Architecture, security, broad refactors, or uncertain changes needing verified work plus independent Codex critics. | `$better-workflows:deep Review the auth redesign, fix verified issues, and produce a migration-safe PR.` |
+| `$better-workflows:critical` | Releases, migrations, production operations, destructive cleanup, or irreversible side effects requiring fail-closed gates and mandatory independent evidence. | `$better-workflows:critical Run the production release only after all policy, remote-SHA, and reconciliation gates pass.` |
+
+### Compatibility aliases
+
+Use these when migrating existing habits. They route into the same Goal-first,
+root-owned Better Workflows engine; they do not revive retired parallel-writing
+workflows.
+
+| Entry | Recommended use | Equivalent route |
+| --- | --- | --- |
+| `$better-workflows:auto-improve` | Legacy `autoImprove`: review, verify findings, fix, create PR, and converge safely. | Fix issues to PR, `deep` by default |
+| `$better-workflows:auto-issues` | Legacy `autoIssues`: read-only review plus deduplicated issue creation. | Review to issues, `verified` by default |
+| `$better-workflows:ai-meeting-tw` | Legacy AI meeting: multi-perspective research and model critics without Claude or vote counting. | Research deliberation, `deep` by default |
+| `$better-workflows:git-check-issues` | Legacy issue repair: re-fetch issue state, fix active issues, create PR, and clean up precisely. | Fix issues to PR, `deep` by default |
+| `$better-workflows` | Natural-language router when you do not select a specific menu entry. | Automatic template and mode routing |
+
+## Modes and templates
+
+Goal mode controls persistence; Better Workflows mode controls verification
+depth. They are independent.
 
 Better Workflows chooses one of four modes:
 
