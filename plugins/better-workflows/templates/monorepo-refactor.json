@@ -1,0 +1,47 @@
+{
+  "name": "monorepo-refactor",
+  "description": "Audit and execute bounded monorepo refactor slices with goal checkpoints, behavior preservation, validation evidence, and rollback gates.",
+  "defaultMode": "deep",
+  "requiredEvidence": [
+    "task-contract",
+    "workspace-inventory",
+    "architecture-risk-map",
+    "baseline",
+    "validation-capability-matrix",
+    "slice-plan",
+    "slice-checkpoint",
+    "final-validation"
+  ],
+  "acceptance": [
+    {
+      "id": "bounded-scope",
+      "description": "Every implemented slice stays within its approved scope and configured limits.",
+      "critical": true
+    },
+    {
+      "id": "behavior-preserved",
+      "description": "Declared behavior invariants and applicable public/runtime contracts remain compatible.",
+      "critical": true
+    },
+    {
+      "id": "rollback-ready",
+      "description": "Each slice has an atomic commit and a documented, independently usable rollback path.",
+      "critical": true
+    }
+  ],
+  "policyGates": [
+    "goal-first-persistence",
+    "root-only-mutation",
+    "approval-before-each-slice",
+    "protected-branch-isolation",
+    "no-secret-or-production-io",
+    "explicit-path-staging",
+    "per-slice-rollback"
+  ],
+  "actionGates": {
+    "git.commit": ["slice-plan", "slice-validation", "diff-review", "rollback-plan"],
+    "git.push": ["final-validation", "remote-authorization", "current-branch"]
+  },
+  "domainSkills": [],
+  "rootOnlyActions": ["git branch", "git commit", "git push"]
+}

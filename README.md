@@ -13,6 +13,7 @@ Better Workflows keeps one root agent responsible for edits and side effects, us
 - Native fan-out is limited to three direct children with no recursive delegation.
 - Independent model critics run sequentially after the native wave.
 - Side effects fail closed when evidence, freshness, authorization, or reconciliation is incomplete.
+- Better Workflows selectors and compatibility aliases use persistent Codex `/goal` checkpoints by default.
 - `direct` mode creates no workflow journal and preserves fast everyday operation.
 
 ## Install
@@ -56,7 +57,7 @@ silently replacing it.
 ### Choose quickly
 
 - Unsure which workflow to use: choose `auto`.
-- Know the task category: choose one of the eight task entries.
+- Know the task category: choose one of the nine task entries.
 - Care mainly about review depth: choose `direct`, `verified`, `deep`, or `critical`.
 - Already use a legacy command: choose its compatibility alias.
 
@@ -73,6 +74,7 @@ silently replacing it.
 | `$better-workflows:ci-release` | CI failures, runner queues, serialized deploys, releases, remote monitoring, and receipt-based verification. | `$better-workflows:ci-release Diagnose the failing PR checks, fix them, and monitor the serialized dev deployment.` |
 | `$better-workflows:browser-qa` | Webwright or simulator QA requiring current UI evidence, screenshots, and a reproducible action log. | `$better-workflows:browser-qa Verify signup and contact sync in the browser and attach screenshot evidence.` |
 | `$better-workflows:research` | Evidence-backed research, architecture comparison, independent perspectives, and refutation without majority voting. | `$better-workflows:research Compare three sync architectures, challenge each one, and recommend a decision.` |
+| `$better-workflows:monorepo-refactor` | Bounded monorepo refactoring with workspace inventory, slice plans, behavior invariants, validation, and rollback evidence. | `$better-workflows:monorepo-refactor Extract this package boundary without changing its public contract.` |
 
 ### Review-strength entries
 
@@ -104,6 +106,16 @@ workflows.
 
 Goal mode controls persistence; Better Workflows mode controls verification
 depth. They are independent.
+For a bounded monorepo refactor, choose `$better-workflows:monorepo-refactor`
+from the Skill picker. It uses the native persistent Goal flow and supports
+`AUDIT_ONLY`, `APPROVAL_GATED`, and `AUTONOMOUS` execution contracts:
+
+```text
+$better-workflows:monorepo-refactor Refactor the shared package boundary without changing public behavior.
+```
+
+The skill inspects or continues the active goal, pauses at approval checkpoints,
+and marks the goal complete only after validation and rollback evidence pass.
 
 Better Workflows chooses one of four modes:
 
@@ -114,7 +126,7 @@ Better Workflows chooses one of four modes:
 | `deep` | Verified work followed by up to two sequential Codex critics. |
 | `critical` | Full evidence and side-effect gates plus a required external reviewer when policy demands it. |
 
-Eight workflow templates are included:
+Nine workflow templates are included:
 
 - `review-to-issues`
 - `issues-to-root-fix-pr-merge-cleanup`
@@ -124,6 +136,7 @@ Eight workflow templates are included:
 - `ci-release-monitor`
 - `browser-simulator-qa`
 - `research-deliberation`
+- `monorepo-refactor`
 
 Current Codex builds expose plugin Skills through the built-in `/skills` menu.
 No custom prompt installer or separate command layer is required.

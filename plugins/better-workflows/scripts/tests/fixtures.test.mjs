@@ -18,7 +18,7 @@ test("all historical and adversarial routing fixtures select the expected mode",
   }
 });
 
-test("all eight templates are valid and side-effect templates declare action gates", async () => {
+test("all nine templates are valid and side-effect templates declare action gates", async () => {
   const directory = path.join(pluginRoot(), "templates");
   const names = (await readdir(directory))
     .filter((name) => name.endsWith(".json"))
@@ -30,6 +30,7 @@ test("all eight templates are valid and side-effect templates declare action gat
     "ios-static-pbxproj.json",
     "issues-to-root-fix-pr-merge-cleanup.json",
     "localization-41.json",
+    "monorepo-refactor.json",
     "research-deliberation.json",
     "review-to-issues.json"
   ]);
@@ -64,6 +65,7 @@ test("skills have no placeholders and compatibility aliases route to the main sk
     "git-check-issues",
     "ios-static",
     "localization",
+    "monorepo-refactor",
     "research",
     "review-issues",
     "verified"
@@ -80,6 +82,8 @@ test("skills have no placeholders and compatibility aliases route to the main sk
     "utf8"
   );
   assert.match(main, /root agent as the only authority/);
+  assert.match(main, /Goal-first entry contract/);
+  assert.match(main, /\$monorepo-refactor/);
   assert.match(main, /direct.*do not invoke .*dw/s);
   assert.match(main, /at most three direct native children/);
   assert.match(main, /Never decide by vote/);

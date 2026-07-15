@@ -56,6 +56,12 @@
       "mode": "auto"
     },
     {
+      "id": "monorepo-refactor",
+      "description": "大型 monorepo 的 bounded refactor、驗證與 rollback evidence",
+      "template": "monorepo-refactor",
+      "mode": "deep"
+    },
+    {
       "id": "direct",
       "description": "快速模式：Root 直接執行，不建立 workflow journal",
       "template": "auto",

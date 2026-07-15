@@ -7,9 +7,9 @@ const pluginRoot = path.resolve(import.meta.dirname, "../..");
 const skillsRoot = path.join(pluginRoot, "skills");
 const catalogPath = path.join(pluginRoot, "config", "entrypoint-catalog.json");
 
-test("exposes 13 selectable goal-first Better Workflows skills", async () => {
+test("exposes 14 selectable goal-first Better Workflows skills", async () => {
   const catalog = JSON.parse(await readFile(catalogPath, "utf8"));
-  assert.equal(catalog.skills.length, 13);
+  assert.equal(catalog.skills.length, 14);
 
   const directories = new Set(await readdir(skillsRoot));
   for (const entry of catalog.skills) {

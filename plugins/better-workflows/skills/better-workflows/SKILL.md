@@ -1,6 +1,6 @@
 ---
 name: better-workflows
-description: Route complex Codex work through native-first, evidence-driven workflows with root-only mutation, bounded read-only subagent waves, model-pinned critics, freshness checks, and fail-closed side-effect gates. Use when the user says better workflows, dynamic workflow, verified workflow, deep review, critical review, multi-agent review, multi-model review, review then fix, review to issues, fix issues then PR/merge, cross-platform contract, localization, iOS pbxproj review, CI/release monitoring, browser QA, research deliberation, or explicitly invokes $better-workflows.
+description: Route complex Codex work through native-first, evidence-driven workflows with root-only mutation, persistent /goal checkpoints, bounded read-only subagent waves, model-pinned critics, freshness checks, and fail-closed side-effect gates. Use when the user says better workflows, dynamic workflow, verified workflow, deep review, critical review, multi-agent review, multi-model review, review then fix, review to issues, fix issues then PR/merge, monorepo refactor, cross-platform contract, localization, iOS pbxproj review, CI/release monitoring, browser QA, research deliberation, or explicitly invokes $better-workflows.
 ---
 
 # Better Workflows
@@ -18,6 +18,7 @@ remember template, mode, or model alias names.
 A selector-fixed template or minimum mode is authoritative; never lower it.
 Selectors with `auto` still use the routing rules below. Natural-language
 `$better-workflows` invocation remains supported.
+`$monorepo-refactor` for bounded monorepo architecture refactors.
 
 ## Goal-first entry contract
 

@@ -14,7 +14,9 @@
     "workflow",
     "subagents",
     "review",
-    "evidence"
+    "evidence",
+    "monorepo",
+    "refactor"
   ],
   "skills": "./skills/",
   "interface": {
@@ -31,6 +33,7 @@
     "websiteURL": "https://github.com/stephen-taipei/better-workflows",
     "defaultPrompt": [
       "Use $better-workflows to handle this task safely.",
+      "Use $monorepo-refactor to execute a bounded monorepo refactor with persistent goal checkpoints.",
       "Review this repository with verified evidence.",
       "Run a multi-model architecture deliberation."
     ],
