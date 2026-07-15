@@ -28,3 +28,13 @@ test("main skill defines persistent goal lifecycle", async () => {
   assert.match(content, /Mark the\s+goal complete only after/);
   assert.match(content, /Goal mode controls persistence/);
 });
+
+test("monorepo refactor keeps its exact picker name", async () => {
+  const metadata = await readFile(
+    path.join(skillsRoot, "monorepo-refactor", "agents", "openai.yaml"),
+    "utf8"
+  );
+  assert.match(metadata, /display_name: "monorepo-refactor"/);
+  assert.match(metadata, /default_prompt: .*\$monorepo-refactor/);
+  assert.doesNotMatch(metadata, /Add monorepo-refactor skill/);
+});
