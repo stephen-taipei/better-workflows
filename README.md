@@ -74,7 +74,7 @@ silently replacing it.
 | `$better-workflows:ci-release` | CI failures, runner queues, serialized deploys, releases, remote monitoring, and receipt-based verification. | `$better-workflows:ci-release Diagnose the failing PR checks, fix them, and monitor the serialized dev deployment.` |
 | `$better-workflows:browser-qa` | Webwright or simulator QA requiring current UI evidence, screenshots, and a reproducible action log. | `$better-workflows:browser-qa Verify signup and contact sync in the browser and attach screenshot evidence.` |
 | `$better-workflows:research` | Evidence-backed research, architecture comparison, independent perspectives, and refutation without majority voting. | `$better-workflows:research Compare three sync architectures, challenge each one, and recommend a decision.` |
-| `$better-workflows:monorepo-refactor` | Bounded monorepo refactoring with workspace inventory, slice plans, behavior invariants, validation, and rollback evidence. | `$better-workflows:monorepo-refactor Extract this package boundary without changing its public contract.` |
+| `$better-workflows:monorepo-refactor` | Full workspace inventory followed by direct implementation of every eligible bounded refactor recommendation, with behavior invariants, validation, and rollback evidence. | `$better-workflows:monorepo-refactor Inventory the monorepo and implement all eligible boundary-cleanup recommendations without changing its public contract.` |
 
 ### Review-strength entries
 
@@ -114,8 +114,19 @@ from the Skill picker. It uses the native persistent Goal flow and supports
 $better-workflows:monorepo-refactor Refactor the shared package boundary without changing public behavior.
 ```
 
-The skill inspects or continues the active goal, pauses at approval checkpoints,
-and marks the goal complete only after validation and rollback evidence pass.
+The skill inspects or continues the active goal, inventories the full workspace,
+and then implements every recommendation that is inside scope and passes the
+safety gates. It continues through validated slices instead of stopping at a
+recommendation list. `AUDIT_ONLY` and `APPROVAL_GATED` remain explicit modes
+when you want a read-only result or approval between slices. The goal is marked
+complete only after the eligible recommendation queue is empty and validation
+and rollback evidence pass.
+
+For example:
+
+```text
+$better-workflows:monorepo-refactor Inventory the monorepo, then directly implement all eligible boundary-cleanup recommendations without changing public behavior.
+```
 
 Better Workflows chooses one of four modes:
 

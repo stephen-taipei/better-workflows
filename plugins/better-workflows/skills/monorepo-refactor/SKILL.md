@@ -1,6 +1,6 @@
 ---
 name: monorepo-refactor
-description: Safely audit, plan, execute, validate, and document bounded refactoring slices in large monorepos while preserving behavior, contracts, data integrity, security boundaries, and rollback capability. Use for monorepo architecture refactors, package or module extraction, dependency-boundary cleanup, workspace migrations, and requests that require persistent /goal checkpoints.
+description: Safely inventory, plan, implement, validate, and document all eligible bounded refactoring recommendations in large monorepos while preserving behavior, contracts, data integrity, security boundaries, and rollback capability. Use for monorepo architecture refactors, package or module extraction, dependency-boundary cleanup, workspace migrations, and requests that require persistent /goal checkpoints.
 ---
 
 # Monorepo Refactor
@@ -20,7 +20,9 @@ Use Codex's persistent `/goal` flow for every invocation:
 4. Stop and ask the user to use `/goal edit` or `/goal clear` when an unrelated
    unfinished goal exists; never replace it silently.
 5. Keep the goal active across checkpoints and turns. Mark it complete only
-   after final validation, rollback evidence, and the final report pass.
+   after every eligible recommendation is implemented and validated (or an
+   explicit fail-closed condition is recorded), rollback evidence exists, and
+   the final report pass succeeds.
 
 Use the `monorepo-refactor` workflow template with `verified` for audit-only
 work, `deep` for approval-gated implementation, and `critical` when the risk
@@ -29,22 +31,32 @@ verification depth; do not confuse them with the execution modes below.
 
 ## Execution modes
 
-Default to `APPROVAL_GATED` when the user does not specify a mode.
+Default to `AUTONOMOUS` for an implementation request, including requests to
+"盤點完所有項目後直接實作所有建議" or equivalent wording. Use
+`APPROVAL_GATED` when the user asks to review a plan first, withholds
+implementation authority, or the mission contract is ambiguous. Use
+`AUDIT_ONLY` only when the user explicitly requests a read-only audit.
 
 - `AUDIT_ONLY`: inspect and build private audit artifacts, architecture maps,
   candidate rankings, and slice plans. Do not edit product files, stage, commit,
   install packages, migrate databases, or perform remote operations.
 - `APPROVAL_GATED`: complete pre-flight, inventory, risk map, baseline,
   capability map, and slice plan; stop at the first checkpoint. After approval,
-  execute one slice, validate it, commit it atomically, and stop again.
+  execute one slice, validate it, commit it atomically, and stop again. Do not
+  treat the approved plan as completion; continue only after each next slice is
+  approved.
 - `AUTONOMOUS`: continue between machine-verifiable checkpoints only when the
   mission contract, scope, invariants, validation capability, isolation, and
-  side-effect authority are explicit. Stop at every configured limit or any
-  fail-closed condition.
+  side-effect authority are explicit. After the complete inventory and
+  candidate ranking, turn every eligible recommendation into the implementation
+  queue and execute the queue to exhaustion. Stop at every configured limit or
+  any fail-closed condition, but never stop merely because a recommendation list
+  or slice plan has been produced.
 
-If `PRIMARY_GOAL`, `TARGET_SCOPE`, or `BEHAVIOR_INVARIANTS` is missing, perform
-an audit and propose a mission contract. Treat the run as `AUDIT_ONLY`; do not
-choose a high-impact product direction for the user.
+If `PRIMARY_GOAL`, `TARGET_SCOPE`, or `BEHAVIOR_INVARIANTS` is missing and
+cannot be derived without choosing a high-impact product direction, perform an
+audit and request the missing contract. Treat that run as `AUDIT_ONLY`; do not
+invent authority in order to implement a recommendation.
 
 ## Mission contract and limits
 
@@ -59,6 +71,7 @@ MAX_FILES_PER_SLICE=25
 MAX_CHANGED_LINES_PER_SLICE=1500
 MAX_SCOPE_EXPANSIONS=1
 MAX_COMMAND_RETRIES=2
+RECOMMENDATION_DISPOSITION=IMPLEMENT_ALL_ELIGIBLE
 
 ALLOW_LOCAL_BRANCH_CREATION=true
 ALLOW_LOCAL_COMMITS=true
@@ -104,6 +117,34 @@ PHASE_9_FINAL_REPORT
 At every phase boundary, update private persistent state. Store audit material
 under `git rev-parse --git-path ai-refactor-runs`; never add it to the product
 commit unless the user explicitly requests that documentation.
+
+## Inventory-to-implementation contract
+
+The inventory and recommendation register are execution inputs, not the final
+deliverable. In `AUTONOMOUS` mode, after `PHASE_4_CANDIDATE_RANKING`:
+
+1. Convert every recommendation that is inside `TARGET_SCOPE`, `NON_GOALS`,
+   authority flags, and safety gates into an implementation queue. Ranking sets
+   order and slice boundaries; it does not silently discard lower-ranked work.
+2. Give every queued item a concrete action, expected files, behavior
+   invariants, acceptance checks, rollback, and a disposition of
+   `IMPLEMENT_NEXT`, `IMPLEMENT_AFTER_DEPENDENCY`, `BLOCKED`, or `REJECTED`.
+3. Execute each eligible item through the complete slice contract. After every
+   validated checkpoint, refresh status and dependencies, then continue with
+   the next eligible item until the queue has no implementable item left.
+4. Do not return a recommendation-only report. A recommendation may remain
+   unimplemented only when it is outside scope, explicitly non-goal, blocked by
+   a fail-closed gate, rejected with evidence, or the user has explicitly
+   selected `AUDIT_ONLY`/`APPROVAL_GATED`. Record the exact reason and the
+   authority or evidence needed to resume it.
+5. Do not pre-defer broad renames, style cleanup, or speculative abstractions
+   merely because they are broad or inconvenient. Split them into bounded
+   slices and implement them when they are authorized, behavior-safe, and
+   verifiable. Defer only for a recorded gate, not for preference.
+
+Completion requires an empty eligible queue. Any remaining eligible item makes
+the run `PARTIAL` or `BLOCKED`; it must never be hidden in a final suggestions
+list or treated as completed work.
 
 ## Pre-flight and isolation
 
@@ -155,11 +196,13 @@ schema/migration safety, event/queue/serialization compatibility,
 authorization/payment behavior, and artifact comparison. A missing checker is
 `UNSUPPORTED` or `UNKNOWN`, never a passing result.
 
-Rank candidates by value, feasibility, and risk, but let hard stop conditions
-override scores. Prefer a bounded concern with evidence, clear boundaries,
-tests, independent validation, and independent rollback. Defer broad renames,
-style-only work, speculative abstractions, framework upgrades, and uncertain
-core-flow changes.
+Rank candidates by value, feasibility, and risk to choose implementation order,
+but let hard stop conditions override scores. Prefer a bounded concern with
+evidence, clear boundaries, tests, independent validation, and independent
+rollback. Record all candidates, including lower-ranked ones, in the
+implementation queue; split broad renames, style-only work, speculative
+abstractions, framework upgrades, and uncertain core-flow changes into smaller
+slices when possible instead of merely listing them as suggestions.
 
 ## Slice contract
 
@@ -170,11 +213,15 @@ contracts/runtime flows, non-goals, behavior invariants, expected files and
 changed lines, risk level, validation, rollback, stop conditions, and required
 capabilities. Do not edit product code without this plan.
 
-For each slice: capture `SLICE_BASE_SHA`, re-check `HEAD` and status, add or
+For each queued slice: capture `SLICE_BASE_SHA`, re-check `HEAD` and status, add or
 complete characterization tests, establish the seam/contract, migrate bounded
 consumers, retain only a tested compatibility bridge when necessary, validate,
 review the complete diff, stage explicit paths, create an atomic commit, run
 affected validation, and produce a machine-verifiable checkpoint.
+
+In `AUTONOMOUS`, repeat this sequence for every eligible queue item. A
+successful checkpoint authorizes continuation to the next planned slice; it is
+not a reason to stop after the first recommendation.
 
 Never introduce unproven `any`, unchecked casts, lint suppression, weakened
 strictness, deleted tests, dependency/lockfile changes, database writes,
@@ -226,6 +273,7 @@ evidence, scope, diff/commits, validation state, rollback instructions, and safe
 next actions.
 
 At completion, report mode, run ID, task base SHA, final HEAD, branch, mission,
+the full recommendation register with implementation evidence for each item,
 completed/deferred/blocked/rejected items, commits/files, validation and
 baseline comparison, architecture/data/state/contract impact, remaining risks,
 rollback instructions, unverified areas, and one of:

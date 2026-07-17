@@ -47,6 +47,7 @@ Accept either natural-language input or an explicit contract. Normalize it to:
 
 ```text
 EXECUTION_MODE=AUDIT_ONLY|APPROVAL_GATED|AUTONOMOUS
+RECOMMENDATION_DISPOSITION=IMPLEMENT_ALL_ELIGIBLE|AUDIT_ONLY|APPROVAL_GATED
 PRIMARY_GOAL=
 TARGET_SCOPE=
 KNOWN_PAIN_POINTS=
@@ -61,6 +62,13 @@ Record authority flags separately from goals. A missing goal, scope, or behavior
 invariant forces audit-only work. A user request to refactor a named module is
 not permission to change neighboring modules, contracts, schemas, or deploy
 configuration.
+
+For an explicit implementation request, normalize
+`RECOMMENDATION_DISPOSITION=IMPLEMENT_ALL_ELIGIBLE` and
+`EXECUTION_MODE=AUTONOMOUS` unless the user selected a stricter mode. This means
+the recommendation register is an execution queue, not a report of possible
+future work. Keep `AUDIT_ONLY` and `APPROVAL_GATED` as explicit ways to stop
+before implementation or between approved slices.
 
 ## Architecture and runtime evidence
 
@@ -114,11 +122,40 @@ slice, add characterization coverage, repair it, or stop that slice.
 
 ## Candidate and slice schemas
 
-Score candidates by average value, feasibility, and risk only for ordering:
+Score candidates by average value, feasibility, and risk only for ordering. Do
+not silently drop a lower-ranked recommendation; either queue it or record a
+gate-backed disposition.
 
 ```text
 PRIORITY_SCORE = VALUE_SCORE + FEASIBILITY_SCORE - RISK_SCORE
 ```
+
+The recommendation register must preserve the complete inventory-to-action
+mapping:
+
+```json
+{
+  "recommendationId": "stable-id",
+  "sourceEvidence": [],
+  "summary": "",
+  "scope": {"projects": [], "paths": [], "contracts": [], "runtimeFlows": []},
+  "priorityScore": 0,
+  "implementationOrder": 0,
+  "disposition": "IMPLEMENT_NEXT|IMPLEMENT_AFTER_DEPENDENCY|BLOCKED|REJECTED|AUDIT_ONLY|APPROVAL_GATED",
+  "action": "",
+  "acceptance": [],
+  "rollback": [],
+  "blockingEvidence": [],
+  "requiredAuthority": [],
+  "sliceIds": []
+}
+```
+
+In `AUTONOMOUS`, every recommendation whose disposition is
+`IMPLEMENT_NEXT` or `IMPLEMENT_AFTER_DEPENDENCY` must produce one or more
+slice IDs and be executed. `BLOCKED`, `REJECTED`, `AUDIT_ONLY`, and
+`APPROVAL_GATED` require a concrete evidence-backed reason; they are not
+successful completion states.
 
 Hard stop conditions and missing evidence override the score. A slice plan uses
 this shape:
@@ -145,11 +182,15 @@ this shape:
 
 Keep each slice within three projects, 25 files, and 1,500 changed lines by
 default. If it cannot be split, record why, expected size, migration and
-rollback strategy, then wait for approval or stop autonomous execution.
+rollback strategy, then wait for approval or stop autonomous execution. If a
+recommendation needs multiple slices, keep it in the queue until all of its
+slice IDs reach validated completion.
 
 ## Slice execution and commit evidence
 
-Use this order and do not mix unrelated cleanup into the slice:
+Use this order and do not mix unrelated cleanup into the slice. Repeat the
+sequence for every eligible recommendation; a successful slice checkpoint
+authorizes the next queue item in `AUTONOMOUS` mode:
 
 1. Capture `SLICE_BASE_SHA`, expected HEAD, and working-tree status.
 2. Add or complete characterization tests for existing behavior.
@@ -161,7 +202,8 @@ Use this order and do not mix unrelated cleanup into the slice:
 7. Review the complete explicit-path diff and `git diff --check`.
 8. Stage explicit paths only and create a Conventional Commit.
 9. Run affected validation against `SLICE_BASE_SHA..HEAD`.
-10. Write a checkpoint and stop or continue according to its evidence.
+10. Write a checkpoint, update the recommendation disposition, refresh the
+    queue, and stop or continue according to its evidence.
 
 Do not use `git add .` or `git add -A`. A commit must contain one coherent
 architecture concern, have no secrets or unrelated formatting, preserve a
@@ -213,13 +255,22 @@ map, and proposed slice. After each approved slice, stop again after
 implementation, validation, diff review, atomic local commit, and checkpoint.
 Do not infer approval from silence or from a previously approved slice.
 
+In `AUTONOMOUS`, do not stop after candidate ranking. Proceed through the
+implementation queue without per-slice user approval when the mission contract,
+authority flags, validation capability, and rollback evidence remain valid.
+Stop only for configured limits, concurrent tree drift, unknown/high-risk
+validation, or another fail-closed condition. `AUTONOMOUS` still cannot grant
+production I/O, public breaking changes, dependency installation, database
+writes, remote operations, or other authority not present in the contract.
+
 ## Final report and status
 
 The final report must identify mode, run ID, task and final SHA, branch,
-mission, invariants, non-goals, completed slices, files and commits, commands
-and results, baseline comparison, architecture/boundary/data/state/contract
-impact, risks, rollback, deferred/blocked/rejected items, and unverified
-areas. Use exactly one final status:
+mission, invariants, non-goals, the full recommendation register, completed
+slices, files and commits, commands and results, baseline comparison,
+architecture/boundary/data/state/contract impact, risks, rollback,
+deferred/blocked/rejected items, and unverified areas. Use exactly one final
+status:
 
 ```text
 PASS
@@ -232,4 +283,7 @@ AUDIT_ONLY_COMPLETE
 
 Do not declare completion with open critical findings, stale/indeterminate
 evidence, unknown reconciliation, missing acceptance evidence, invalid current
-tree sentinels, or an unfinished required slice.
+tree sentinels, an unfinished required slice, or an eligible recommendation
+that has not been implemented. `PASS` and
+`PASS_WITH_BASELINE_FAILURES` require an empty eligible queue; otherwise use
+`PARTIAL`, `BLOCKED`, `STOPPED`, or `AUDIT_ONLY_COMPLETE` as appropriate.

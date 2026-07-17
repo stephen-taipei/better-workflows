@@ -38,3 +38,15 @@ test("monorepo refactor keeps its exact picker name", async () => {
   assert.match(metadata, /default_prompt: .*\$monorepo-refactor/);
   assert.doesNotMatch(metadata, /Add monorepo-refactor skill/);
 });
+
+test("monorepo refactor implements the eligible recommendation queue", async () => {
+  const content = await readFile(
+    path.join(skillsRoot, "monorepo-refactor", "SKILL.md"),
+    "utf8"
+  );
+  assert.match(content, /RECOMMENDATION_DISPOSITION=IMPLEMENT_ALL_ELIGIBLE/);
+  assert.match(content, /turn every eligible recommendation into the implementation\s+queue/);
+  assert.match(content, /never stop merely because a recommendation list/);
+  assert.match(content, /Completion requires an empty eligible queue/);
+  assert.match(content, /Do not return a recommendation-only report/);
+});

@@ -1,4 +1,4 @@
 interface:
   display_name: "monorepo-refactor"
   short_description: "Refactor monorepos with guarded evidence gates"
-  default_prompt: "Use $monorepo-refactor to plan and execute a bounded monorepo refactor with goal checkpoints, validation, and rollback evidence."
+  default_prompt: "Use $monorepo-refactor to inventory the monorepo, implement every eligible refactor recommendation, and validate each slice with goal checkpoints and rollback evidence."

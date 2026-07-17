@@ -57,7 +57,7 @@
     },
     {
       "id": "monorepo-refactor",
-      "description": "大型 monorepo 的 bounded refactor、驗證與 rollback evidence",
+      "description": "盤點大型 monorepo，直接實作所有合格 refactor 建議並驗證 rollback evidence",
       "template": "monorepo-refactor",
       "mode": "deep"
     },

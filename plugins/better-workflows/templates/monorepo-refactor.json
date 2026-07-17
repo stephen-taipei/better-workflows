@@ -1,6 +1,6 @@
 {
   "name": "monorepo-refactor",
-  "description": "Audit and execute bounded monorepo refactor slices with goal checkpoints, behavior preservation, validation evidence, and rollback gates.",
+  "description": "Inventory the full monorepo, then implement every eligible bounded refactor recommendation with goal checkpoints, behavior preservation, validation evidence, and rollback gates.",
   "defaultMode": "deep",
   "requiredEvidence": [
     "task-contract",
@@ -8,8 +8,11 @@
     "architecture-risk-map",
     "baseline",
     "validation-capability-matrix",
+    "recommendation-register",
+    "implementation-queue",
     "slice-plan",
     "slice-checkpoint",
+    "recommendation-disposition",
     "final-validation"
   ],
   "acceptance": [
@@ -27,19 +30,30 @@
       "id": "rollback-ready",
       "description": "Each slice has an atomic commit and a documented, independently usable rollback path.",
       "critical": true
+    },
+    {
+      "id": "recommendations-implemented",
+      "description": "Every eligible recommendation is implemented and validated, or has an evidence-backed fail-closed disposition.",
+      "critical": true
+    },
+    {
+      "id": "no-silent-deferrals",
+      "description": "No recommendation is silently left as a suggestion after inventory and ranking.",
+      "critical": true
     }
   ],
   "policyGates": [
     "goal-first-persistence",
     "root-only-mutation",
-    "approval-before-each-slice",
+    "implement-all-eligible-recommendations",
+    "approval-before-each-slice-when-gated",
     "protected-branch-isolation",
     "no-secret-or-production-io",
     "explicit-path-staging",
     "per-slice-rollback"
   ],
   "actionGates": {
-    "git.commit": ["slice-plan", "slice-validation", "diff-review", "rollback-plan"],
+    "git.commit": ["slice-plan", "slice-validation", "diff-review", "rollback-plan", "recommendation-disposition"],
     "git.push": ["final-validation", "remote-authorization", "current-branch"]
   },
   "domainSkills": [],

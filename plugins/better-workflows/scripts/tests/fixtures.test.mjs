@@ -46,6 +46,26 @@ test("all nine templates are valid and side-effect templates declare action gate
   }
 });
 
+test("monorepo refactor requires implementation of every eligible recommendation", async () => {
+  const template = JSON.parse(
+    await readFile(
+      path.join(pluginRoot(), "templates", "monorepo-refactor.json"),
+      "utf8"
+    )
+  );
+  assert.ok(template.requiredEvidence.includes("recommendation-register"));
+  assert.ok(template.requiredEvidence.includes("implementation-queue"));
+  assert.ok(
+    template.policyGates.includes("implement-all-eligible-recommendations")
+  );
+  assert.ok(
+    template.acceptance.some((item) => item.id === "recommendations-implemented")
+  );
+  assert.ok(
+    template.acceptance.some((item) => item.id === "no-silent-deferrals")
+  );
+});
+
 test("skills have no placeholders and compatibility aliases route to the main skill", async () => {
   const skillsRoot = path.join(pluginRoot(), "skills");
   const skillNames = (await readdir(skillsRoot)).sort();
