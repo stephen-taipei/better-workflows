@@ -9,9 +9,10 @@ Keep the root agent as the only authority that edits files, integrates changes, 
 
 ## Preferred user entrypoints
 
-Prefer the searchable Codex Skill menu. The user can type `/skills` and choose
-`List skills`, or press `@` and search `better`, then select a human-readable
-task or review-strength entry. The picker inserts `$better-workflows:<name>`;
+Prefer the native searchable picker for the current Codex surface. In Codex CLI,
+the user starts with `@` and searches `better`; in the Codex App, the user starts
+with `/` and searches `better` to call a command. Select a human-readable task or
+review-strength entry. The picker inserts `$better-workflows:<name>`;
 `$better-workflows:auto` is the recommended default. Do not require the user to
 remember template, mode, or model alias names.
 

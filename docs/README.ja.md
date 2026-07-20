@@ -52,11 +52,19 @@ codex plugin add better-workflows@better-workflows
 
 ## Codex での使い方
 
-`@` を押して `better` を検索するか、`/skills` → `List skills` を選ぶと Skill picker が開きます。
+### Codex CLI
 
-![Codex Skill picker の Better Workflows](assets/better-workflows-skill-picker.png)
+Codex CLI では `@` から始めて `better` を検索し、CLI picker から Better Workflows の skill または入口を選びます。
 
-入口を選んで目的を記述するだけです。Picker が `$better-workflows:<name>` を挿入します。`/goal`、template 名、mode 名、model alias を覚える必要はありません。推奨デフォルト：
+![Codex CLI Skill picker の Better Workflows](assets/better-workflows-skill-picker-cli.png)
+
+### Codex App
+
+Codex App では `/` から始めて `better` を検索し、App picker から対応する command または skill の入口を選びます。
+
+![Codex App command picker の Better Workflows](assets/better-workflows-skill-picker-app.png)
+
+どちらの画面でも入口を選んで目的を記述するだけです。Picker が `$better-workflows:<name>` を挿入します。`/goal`、template 名、mode 名、model alias を覚える必要はありません。推奨デフォルト：
 
 ```text
 $better-workflows:auto <達成したい結果を記述>

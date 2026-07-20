@@ -52,11 +52,19 @@ codex plugin add better-workflows@better-workflows
 
 ## 在 Codex 使用
 
-按 `@` 後搜尋 `better`，或輸入 `/skills` → `List skills`，即可開啟 Skill 下拉選單。
+### Codex CLI
 
-![Codex Skill 選單中的 Better Workflows](assets/better-workflows-skill-picker.png)
+在 Codex CLI 中，請以 `@` 開頭搜尋 `better`，再從 CLI 選單選擇 Better Workflows skill 或入口。
 
-選擇入口後直接描述成果即可。選單會自動插入 `$better-workflows:<name>`；不需要手動輸入 `/goal`，也不用記住 template、mode 或 model alias。最推薦的預設入口是：
+![Codex CLI Skill 選單中的 Better Workflows](assets/better-workflows-skill-picker-cli.png)
+
+### Codex App
+
+在 Codex App 中，請以 `/` 開頭搜尋 `better`，再從 App 選單選擇對應的 command 或 skill 入口。
+
+![Codex App command 選單中的 Better Workflows](assets/better-workflows-skill-picker-app.png)
+
+在任一介面選擇入口後直接描述成果即可。選單會自動插入 `$better-workflows:<name>`；不需要手動輸入 `/goal`，也不用記住 template、mode 或 model alias。最推薦的預設入口是：
 
 ```text
 $better-workflows:auto <描述你要完成的成果>

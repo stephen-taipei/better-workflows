@@ -87,15 +87,26 @@ Start a new Codex task after installation so the skill catalog refreshes.
 
 ## Use in Codex
 
-Restart Codex or open a new task after installation. Press `@` and search
-`better`, or type `/skills` and choose `List skills`, to open the built-in Skill
-picker.
+Restart Codex or open a new task after installation.
 
-![Better Workflows entries in the Codex Skill picker](docs/assets/better-workflows-skill-picker.png)
+### Codex CLI
 
-Choose an entry, then describe the outcome. The picker inserts the selected
-`$better-workflows:<name>` reference. You do not need to type `/goal`, remember
-template names, or choose model aliases. The recommended default is:
+In Codex CLI, start with `@` and search `better`, then select a Better Workflows
+skill or entry from the CLI picker.
+
+![Better Workflows entries in the Codex CLI skill picker](docs/assets/better-workflows-skill-picker-cli.png)
+
+### Codex App
+
+In the Codex App, start with `/` and search `better`, then choose the matching
+command or skill entry from the App picker.
+
+![Better Workflows commands in the Codex App command picker](docs/assets/better-workflows-skill-picker-app.png)
+
+On either surface, choose an entry and describe the outcome. The picker inserts
+the selected `$better-workflows:<name>` reference. You do not need to type
+`/goal`, remember template names, or choose model aliases. The recommended
+default is:
 
 ```text
 $better-workflows:auto <describe the outcome you need>
@@ -207,8 +218,9 @@ Nine workflow templates are included:
 - `research-deliberation`
 - `monorepo-refactor`
 
-Current Codex builds expose plugin Skills through the built-in `/skills` menu.
-No custom prompt installer or separate command layer is required.
+Current Codex surfaces expose plugin Skills through native pickers: Codex CLI
+uses `@` search, while the Codex App uses `/` command search. No custom prompt
+installer or separate command layer is required.
 
 ## Deterministic helper
 
