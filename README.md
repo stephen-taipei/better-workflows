@@ -45,34 +45,97 @@ checked on 2026-07-20: [Introducing dynamic workflows in Claude Code](https://cl
 [A harness for every task](https://claude.com/blog/a-harness-for-every-task-dynamic-workflows-in-claude-code),
 and [Claude Code's parallel-agent documentation](https://code.claude.com/docs/en/agents).
 
+> **One-line positioning:** Dynamic Workflows expands the search space when a task needs adaptive breadth; Better Workflows makes the accepted path bounded, evidence-backed, and safe to integrate.
+
+> **Important boundary:** The collaboration model below is a human- or automation-mediated operating model, not a native integration. There is no claim of shared runtime state, automatic handoff, or protocol compatibility between the two products.
+
+### The maximum practical difference
+
+The key difference is orchestration posture and authority:
+
+- **Dynamic Workflows optimizes for adaptive breadth.** It can write a task-specific JavaScript harness, fan out many agents, choose models/worktrees, verify results, and loop until a task-specific stop condition is met.
+- **Better Workflows optimizes for governed convergence.** It keeps mutation with Root, bounds delegated research, records deterministic state and evidence, and fails closed when freshness, authority, reconciliation, or completion evidence is missing.
+
+Neither capability is exclusive. Better Workflows includes research and deep-review routes, while Dynamic Workflows can also implement and release changes. The distinction is what each system optimizes first: **runtime exploration scale versus deterministic mutation control**.
+
+### Why these capabilities are not built in
+
+This is a deliberate boundary, not an unfinished feature checklist. Better
+Workflows is a governance/control plane around Codex work, not a runtime that
+lets a model generate an unbounded agent harness. The `dw` helper records and
+validates state, evidence, and action gates; it does not spawn agents or execute
+model-generated commands.
+
+| Capability | What this repo provides | Why the boundary is intentional |
+| --- | --- | --- |
+| Task-specific JavaScript harness | Explicit templates, modes, and deterministic helper logic. | A generated harness can adapt faster, but it also changes the execution plan at runtime; Better Workflows keeps the control plane inspectable before mutation. |
+| Large or unbounded fan-out | At most three direct native children; no recursive delegation. | Bounds token cost, shared-file conflicts, and blast radius. |
+| Adversarial verification | Refutation, research findings, and up to two sequential model-pinned critics. | Verification is preserved, but the number and order of critics remain auditable instead of expanding per generated subtask. |
+| Loop-until-done | Persistent Goals, implementation queues, checkpoints, and explicit completion gates. | Work can continue across validated slices, but it cannot silently widen scope or spawn forever without fresh evidence. |
+| Automatic worktree swarm | Branch/protected-branch and cleanup gates; no automatic worktree per generated subtask. | Root retains ownership of integration and cleanup, avoiding ambiguous ownership of parallel mutations. |
+| Unattended long-running execution | Durable run state and resumable Goals, with explicit authority and reconciliation. | Resumability is useful; an autonomous daemon would require a separate lease, resource, cancellation, and side-effect protocol. |
+
+**So is it unsuitable?** No. Better Workflows is the better fit when the
+contract is known and the cost of an incorrect mutation is asymmetric: releases,
+protected branches, API changes, security-sensitive refactors, reviews, and
+maintenance. Dynamic Workflows is the better first tool when uncertainty and
+scale dominate. Using both is often strongest: explore broadly, normalize a
+versioned handoff, then let Better Workflows independently validate and govern
+the implementation. This is an operating pattern, not native interoperability.
+
 | Dimension | Better Workflows | Claude Dynamic Workflows |
 | --- | --- | --- |
-| Orchestration | Selectors, templates, explicit modes, and a deterministic local control plane. | Claude dynamically writes a JavaScript harness for the task, then coordinates the run. |
-| Parallelism | Small bounded native waves: at most three direct children, with sequential critics. | Designed for large fan-out and long-running work; Anthropic describes tens to hundreds of parallel subagents. |
-| State and completion | Persistent `/goal`, private run state, sentinels, evidence, action tokens, reconciliation, and fail-closed completion. | Workflow progress is saved so interrupted runs can resume; the generated harness determines much of the run shape. |
-| Mutation governance | Root-only mutation and integration; delegated agents are read-only by contract. | Supports subagents, worktrees, model selection, and permission controls, but the workflow itself is dynamically authored for the task. |
-| Adaptability | Lower runtime freedom, but the behavior is easier to review before side effects and easier to reproduce from templates. | Higher runtime adaptability and better fit for unknown-size, highly parallel, adversarial, or multi-day work. |
-| Throughput and cost | Intentionally conservative; fewer parallel workers can mean lower peak throughput, but the cost and blast radius are easier to bound. | Higher throughput potential, with a documented warning that dynamic workflows can consume substantially more tokens. |
-| Portability | Codex-native plugin and Node.js helper; portable across repositories that can run the plugin. | Claude Code CLI, Desktop, VS Code extension, API, and supported cloud providers. |
-| Best fit | Contract-sensitive refactors, reviews, releases, and Git/GitHub operations where evidence and rollback matter. | Large migrations, codebase-wide exploration, massive verification, and tasks where dynamically generated orchestration is the main advantage. |
+| Orchestration posture | Explicit selectors, templates, modes, and a deterministic local control plane. | A task-specific JavaScript harness is generated and composed at runtime. |
+| Breadth and iteration | Small bounded waves: at most three direct children; independent critics run sequentially. | Large fan-out, adversarial verification, dynamic loops, and long-running runs when justified. |
+| Mutation boundary | Root owns edits, integration, Git/GitHub, deploy, risk acceptance, and completion. Delegated agents are read-only by contract. | Models can choose subagent shape, model, and worktree isolation inside the generated harness; the task script determines the run's governance. |
+| State and completion | Persistent Goal, private state, sentinels, evidence, leases, action tokens, reconciliation, and fail-closed completion. | Progress is saved and resumable; the harness coordinates convergence and returns a single result. |
+| Cost and blast radius | Deliberately conservative; easier to bound cost, mutation surface, and stop conditions. | Higher scale potential, with an official warning that workflows can use substantially more tokens. |
+| Best starting point | Known contract, release, refactor, review, or any change with asymmetric downside risk. | Unknown-size exploration, broad migration, codebase-wide audit, or work that earns massive parallelism. |
 
-### Practical trade-offs
+### Explore → Gate → Execute → Maintain
 
-Better Workflows is stronger when the primary risk is uncontrolled mutation,
-unclear authority, stale evidence, or an irreversible side effect. Its explicit
-queues, checkpoints, and fail-closed gates make it easier to explain why a run
-stopped and what must be reconciled before it can continue.
+Use this as a collaboration SOP. It is a recommended operating pattern, not an automatic product handoff.
 
-Claude Dynamic Workflows is stronger when the primary bottleneck is orchestration
-scale: many independent subtasks, long-running execution, dynamic loops, or
-large migrations. Anthropic's own guidance also says workflows are not needed
-for every task and may use significantly more tokens, so that scale is a
-deliberate cost/latency trade-off rather than a universal improvement.
+```mermaid
+flowchart LR
+  A["Uncertain or broad problem"] --> B["Dynamic Workflows<br/>adaptive exploration"]
+  B --> C{"Versioned handoff gate<br/>goal · scope · invariants · evidence · ownership"}
+  C -- "stale, drift, conflict, or missing authority" --> B
+  C -- "accepted" --> D["Better Workflows<br/>root-controlled execution"]
+  D --> E["Fresh validation<br/>contracts · tests · rollback"]
+  E --> F["Authorized integration or release"]
+  F --> G["Bounded maintenance<br/>with auditable state"]
+  G -- "new uncertainty or scope expansion" --> B
+```
 
-These are different optimization targets, not a claim that one system wins every
-benchmark. Better Workflows optimizes for governed, reviewable progress inside
-Codex; Claude Dynamic Workflows optimizes for dynamically generated, highly
-parallel harnesses inside Claude Code.
+### The versioned handoff package
+
+Before Better Workflows accepts exploratory output, normalize it into a
+versioned handoff package. This is the anti-drift boundary:
+
+| Gate | Required artifact | Reject and return to exploration when |
+| --- | --- | --- |
+| Goal | Problem statement, non-goals, chosen option, rejected alternatives. | The goal or scope is still ambiguous. |
+| Contract | Invariants, interfaces, acceptance tests, reproducible commands. | A public behavior or success condition is unowned. |
+| Evidence | Source index, provenance, timestamps, baseline checks, unresolved findings. | Evidence is stale, unknown, or cannot be reproduced. |
+| Ownership | Repository, branch, commit/worktree identity, component owners, mutation boundary. | Baseline drift, ownership conflict, or shared-file collision exists. |
+| Risk and action | Dependency/security risk register, side-effect inventory, rollback plan, required authority/action tokens. | A side effect lacks authorization, reconciliation, or rollback. |
+
+Better Workflows then independently validates the package, converts it into
+its Goal/contract/evidence state, and executes only the accepted scope. If the
+scope expands, the baseline changes, or a gate becomes stale, stop and send the
+work back through exploration instead of silently widening the mutation surface.
+
+### When to use one or both
+
+| Situation | Recommended path | Why |
+| --- | --- | --- |
+| Small, reversible, well-understood change | Better Workflows `direct` | Dynamic orchestration cost is not earned. |
+| Known contract with meaningful verification or release risk | Better Workflows `verified`, `deep`, or `critical` | Fresh evidence and authority gates matter more than fan-out. |
+| Unknown architecture, many independent hypotheses, or large migration | Dynamic Workflows first, then the handoff gate | Use breadth to reduce uncertainty; do not let exploratory output bypass integration controls. |
+| Production maintenance after the design is settled | Better Workflows | Preserve the contract, evidence, rollback, and auditable ownership over time. |
+
+**Mental model:** explore wide, gate explicitly, execute narrow, maintain audibly.
 
 ## Install
 
