@@ -4,6 +4,43 @@
 
 Better Workflows は、Codex 向けのネイティブ優先・証拠駆動ワークフローです。Root だけがコード変更、Git/GitHub 操作、deploy、リスク受容、完了宣言を行い、subagents は調査、Review、テスト証拠、反証を担当します。
 
+## 設計原則
+
+Better Workflows は無制限の agent swarm ではなく、ガバナンスを備えた orchestration layer です。主な原則は次のとおりです。
+
+- **Root-owned mutation：** Root だけが変更、統合、Git/GitHub mutation、deploy、リスク受容、完了宣言を行います。
+- **Evidence before side effects：** side effect の前に evidence、freshness、権限、provider reconciliation を要求し、unknown outcome は fail closed にします。
+- **Bounded delegation：** native subagents は調査、Review、テスト証拠、反証に限定します。direct children は最大 3 つ、再帰 delegation は禁止し、独立 critics は順番に実行します。
+- **Persistent intent：** `/goal` は turn をまたいでユーザーの目標を保持します。template と mode は検証の深さだけを決め、目標を暗黙に変更しません。
+- **Deterministic control plane：** `dw` は contract、private state、sentinel、evidence、findings、lease、action token、reconciliation を記録しますが、model が生成した command は実行しません。
+- **Explicit completion：** 最新の acceptance evidence、必要なチェック、利用可能な rollback がそろい、高リスクまたは unknown state が残っていない場合だけ完了とします。
+- **Fast path remains explicit：** 小さく可逆な作業には `direct` を使い、完全な workflow journal のコストを明示的に省略できます。
+
+この設計は最大の並列スループットの一部を、検査しやすい mutation surface と予測可能な停止条件に交換します。証拠やユーザー権限を待つために停止しても、安全でない進捗が隠れないことを優先します。
+
+## Better Workflows と Claude Dynamic Workflows の比較
+
+ここでいう「Claude Dynamic Workflows」は Anthropic の Claude Code 機能を指し、第三者パッケージを指しません。比較は 2026-07-20 に確認した Anthropic の公開資料、[Introducing dynamic workflows in Claude Code](https://claude.com/blog/introducing-dynamic-workflows-in-claude-code)、[A harness for every task](https://claude.com/blog/a-harness-for-every-task-dynamic-workflows-in-claude-code)、および [Claude Code の並列 agent ドキュメント](https://code.claude.com/docs/en/agents) に基づきます。
+
+| 観点 | Better Workflows | Claude Dynamic Workflows |
+| --- | --- | --- |
+| Orchestration | Selector、template、明示的な mode、deterministic local control plane。 | Claude がタスクごとに JavaScript harness を動的に作成し、run を調整します。 |
+| 並列処理 | 小さく bounded な native wave：direct children は最大 3、critics は順次実行。 | 大規模 fan-out と長時間実行向け。Anthropic は数十から数百の subagents を並列実行する形を説明しています。 |
+| State と完了条件 | Persistent `/goal`、private run state、sentinel、evidence、action token、reconciliation、fail-closed completion。 | workflow progress を保存し、中断後に再開できます。実際の run の形は動的に生成された harness が大きく決めます。 |
+| Mutation governance | Root-only mutation/integration。delegated agents は contract 上 read-only。 | subagents、worktree、model 選択、permission control を利用できますが、workflow 自体はタスクごとに動的生成されます。 |
+| 適応性 | Runtime freedom は低めですが、side effect 前に Review しやすく、template から再現しやすい設計です。 | Runtime adaptability が高く、作業量が未知、高並列、adversarial verification、多日タスクに向きます。 |
+| スループットとコスト | 意図的に保守的。並列 worker が少ないため最大スループットは下がり得ますが、コストと blast radius を管理しやすいです。 | 高いスループットが期待できますが、公式に通常より大幅に token を消費する可能性が示されています。 |
+| 可搬性 | Codex-native plugin と Node.js helper。plugin を実行できる repository に適用できます。 | Claude Code CLI、Desktop、VS Code extension、API、対応する cloud providers。 |
+| 得意な用途 | Contract-sensitive refactor、Review、release、Git/GitHub 操作など、evidence と rollback を重視する作業。 | 大規模 migration、codebase 全体の探索、大規模 verification、動的 orchestration が主な利点になる作業。 |
+
+### 実務上のトレードオフ
+
+主なリスクが uncontrolled mutation、曖昧な権限、古い evidence、不可逆 side effect の場合、Better Workflows が適しています。明示的な queue、checkpoint、fail-closed gates により、なぜ停止したか、再開にどの reconciliation が必要かを説明しやすくなります。
+
+主なボトルネックが orchestration scale、つまり多数の独立した subtask、長時間実行、動的 loop、大規模 migration の場合、Claude Dynamic Workflows が有利です。ただし Anthropic 自身もすべてのタスクに必要ではなく、token 使用量が大きくなる可能性を説明しています。規模には cost/latency のトレードオフがあります。
+
+両者は異なるものを最適化します。Better Workflows は Codex 内の governed で Review 可能な進捗を、Claude Dynamic Workflows は Claude Code 内で動的に生成される高並列 harness を優先します。
+
 ## インストール
 
 ```bash
@@ -30,7 +67,7 @@ $better-workflows:auto <達成したい結果を記述>
 ### すばやい選び方
 
 - 迷った場合：`auto`。
-- タスク種別が明確：8 つの task entry から選択。
+- タスク種別が明確：9 つの task entry から選択。
 - 検証強度だけ指定：`direct`、`verified`、`deep`、`critical`。
 - 旧コマンドを継続：compatibility alias。
 
@@ -47,6 +84,7 @@ $better-workflows:auto <達成したい結果を記述>
 | `$better-workflows:ci-release` | CI failure、runner queue、直列 deploy、release、遠隔監視、receipt 検証。 | `$better-workflows:ci-release 失敗した PR checks を修正し、直列 dev deploy を監視。` |
 | `$better-workflows:browser-qa` | 最新 UI 証拠、screenshots、再現可能な action log が必要な Webwright／simulator QA。 | `$better-workflows:browser-qa signup と contact sync を検証し、screenshot evidence を添付。` |
 | `$better-workflows:research` | 証拠駆動調査、設計比較、独立視点、反証。多数決では決めない。 | `$better-workflows:research 3 つの sync architecture を比較・反証し、推奨案を提示。` |
+| `$better-workflows:monorepo-refactor` | monorepo 全体を調査し、適格な bounded refactor 提案を直接実装。behavior invariants、validation、rollback evidence を保持します。 | `$better-workflows:monorepo-refactor monorepo を調査し、public contract を変えずに適格な boundary cleanup を実装。` |
 
 ### Review 強度入口
 

@@ -4,6 +4,43 @@
 
 Better Workflows 是為 Codex 設計的原生優先、證據驅動工作流。Root 是唯一能修改程式碼、執行 Git/GitHub、deploy、接受風險與宣告完成的 authority；subagents 專注於研究、Review、測試證據與反證。
 
+## 設計原理
+
+Better Workflows 是治理型的 orchestration layer，不是無限制的 agent swarm。核心原則是：
+
+- **Root-owned mutation：** Root 是唯一能修改、整合、執行 Git/GitHub mutation、deploy、接受風險與宣告完成的 authority。
+- **Evidence before side effects：** side effect 前必須有證據、freshness、授權與 provider reconciliation；unknown outcome 一律 fail closed。
+- **Bounded delegation：** native subagents 只負責研究、Review、測試證據與反證；最多三個 direct children，禁止遞迴 delegation，獨立 critics 依序執行。
+- **Persistent intent：** `/goal` 跨 turn 保存使用者目標；template 與 mode 只決定驗證深度，不會偷偷改變目標。
+- **Deterministic control plane：** `dw` 記錄 contract、private state、sentinel、evidence、findings、lease、action token 與 reconciliation，但不執行 model 生成的 command。
+- **Explicit completion：** 只有 acceptance evidence 仍然新鮮、必要檢查通過、rollback 可用，且沒有未解決的高風險或 unknown state，才能完成。
+- **Fast path remains explicit：** 小型且可逆的工作可使用 `direct`，不必承擔完整 workflow journal 成本。
+
+這個取捨是用部分最高平行吞吐量，換取較小、可檢查的 mutation surface 與可預期的停止條件。目的是讓不安全的進度難以被隱藏，即使因此需要暫停等待證據或使用者授權。
+
+## Better Workflows 與 Claude Dynamic Workflows 比較
+
+這裡的「Claude Dynamic Workflows」指 Anthropic 的 Claude Code 功能，不是第三方套件。比較依據是 2026-07-20 查閱的 Anthropic 公開資料：[Introducing dynamic workflows in Claude Code](https://claude.com/blog/introducing-dynamic-workflows-in-claude-code)、[A harness for every task](https://claude.com/blog/a-harness-for-every-task-dynamic-workflows-in-claude-code)，以及 [Claude Code 平行 agent 文件](https://code.claude.com/docs/en/agents)。
+
+| 面向 | Better Workflows | Claude Dynamic Workflows |
+| --- | --- | --- |
+| Orchestration | Selector、template、明確 mode 與 deterministic local control plane。 | Claude 依任務動態撰寫 JavaScript harness，再協調整個 run。 |
+| 平行處理 | 小型 bounded native wave：最多三個 direct children，critics 依序執行。 | 以大量 fan-out 與長時間工作為目標；Anthropic 描述可平行啟動數十到數百個 subagents。 |
+| State 與完成條件 | Persistent `/goal`、private run state、sentinel、evidence、action token、reconciliation 與 fail-closed completion。 | 保存 workflow progress，中斷後可繼續；實際 run 形狀主要由動態產生的 harness 決定。 |
+| Mutation governance | Root-only mutation/integration；delegated agents 依 contract 唯讀。 | 支援 subagents、worktree、model 選擇與 permission control，但 workflow 本身是為任務動態產生。 |
+| 適應性 | Runtime freedom 較低，但 side effect 前較容易 review，也較容易從 template 重現。 | Runtime adaptability 較高，適合未知數量、高平行、對抗驗證或多日任務。 |
+| 吞吐與成本 | 刻意保守；較少平行 worker 可能降低最高吞吐，但成本與 blast radius 較容易界定。 | 吞吐潛力較高，但官方提醒 dynamic workflows 可能消耗明顯更多 token。 |
+| 可攜性 | Codex-native plugin 與 Node.js helper；可套用到能執行 plugin 的 repositories。 | Claude Code CLI、Desktop、VS Code extension、API 與支援的 cloud providers。 |
+| 最適情境 | Contract-sensitive refactor、Review、release、Git/GitHub 操作，重視證據與 rollback。 | 大型 migration、全 codebase exploration、大規模 verification，以及需要動態 orchestration 的任務。 |
+
+### 實務取捨
+
+當主要風險是 uncontrolled mutation、授權不清、證據過期或不可逆 side effect 時，Better Workflows 更合適。明確的 queue、checkpoint 與 fail-closed gates 讓人容易解釋流程為何停止，以及繼續前需要補哪些 reconciliation。
+
+當瓶頸是 orchestration scale，例如大量獨立子任務、長時間執行、動態 loop 或大型 migration 時，Claude Dynamic Workflows 更有優勢。不過 Anthropic 也提醒它不適合每個任務，且可能顯著增加 token 使用量；規模換來的是成本與 latency trade-off，而不是所有任務的普遍提升。
+
+兩者優化的目標不同：Better Workflows 優先追求 Codex 內可治理、可 Review 的進度；Claude Dynamic Workflows 優先追求 Claude Code 內動態產生且高度平行的 harness。
+
 ## 安裝
 
 ```bash
@@ -36,7 +73,7 @@ $better-workflows:cross-platform 檢查 backend、iOS 和 Android 的 contact sy
 ### 快速選擇
 
 - 不確定選哪個：使用 `auto`。
-- 已知道任務類型：從八個任務入口選擇。
+- 已知道任務類型：從九個任務入口選擇。
 - 只想指定審查強度：使用 `direct`、`verified`、`deep` 或 `critical`。
 - 習慣舊指令：使用 compatibility alias。
 
@@ -53,6 +90,7 @@ $better-workflows:cross-platform 檢查 backend、iOS 和 Android 的 contact sy
 | `$better-workflows:ci-release` | CI failure、runner queue、序列化 deploy、release、遠端監控與 receipt 驗證。 | `$better-workflows:ci-release 診斷失敗的 PR checks、修復並監控序列化 dev deploy。` |
 | `$better-workflows:browser-qa` | 需要最新 UI 證據、截圖與可重現 action log 的 Webwright／模擬器 QA。 | `$better-workflows:browser-qa 驗證 signup 與 contact sync，並附上 screenshot evidence。` |
 | `$better-workflows:research` | 證據驅動研究、架構比較、獨立觀點與反證；不以多數決決策。 | `$better-workflows:research 比較三種 sync 架構、反證每個方案並提出建議。` |
+| `$better-workflows:monorepo-refactor` | 完整盤點 monorepo，直接實作所有合格的 bounded refactor 建議，並保留 behavior invariants、validation 與 rollback evidence。 | `$better-workflows:monorepo-refactor 盤點 monorepo，直接實作所有合格的 boundary cleanup 建議，不改變 public contract。` |
 
 ### 審查強度入口
 

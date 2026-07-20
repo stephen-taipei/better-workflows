@@ -8,13 +8,71 @@ Better Workflows keeps one root agent responsible for edits and side effects, us
 
 ## Design
 
-- Root is the only authority that edits, integrates, performs Git/GitHub mutations, deploys, accepts risk, or declares completion.
-- Native subagents are bounded to research, review, testing evidence, and refutation. They are a trusted orchestration contract, not an OS sandbox.
-- Native fan-out is limited to three direct children with no recursive delegation.
-- Independent model critics run sequentially after the native wave.
-- Side effects fail closed when evidence, freshness, authorization, or reconciliation is incomplete.
-- Better Workflows selectors and compatibility aliases use persistent Codex `/goal` checkpoints by default.
-- `direct` mode creates no workflow journal and preserves fast everyday operation.
+Better Workflows is deliberately a governed orchestration layer, not an
+unbounded agent swarm. Its design principles are:
+
+- **Root-owned mutation:** the root agent is the only authority that edits,
+  integrates, performs Git/GitHub mutations, deploys, accepts risk, or declares
+  completion.
+- **Evidence before side effects:** evidence, freshness, authorization, and
+  provider reconciliation are required before an irreversible action; unknown
+  outcomes fail closed.
+- **Bounded delegation:** native subagents are limited to research, review,
+  testing evidence, and refutation. Fan-out is capped at three direct children
+  with no recursive delegation, and independent model critics run sequentially.
+- **Persistent intent:** `/goal` preserves the requested outcome across turns;
+  templates and modes define verification depth without silently changing the
+  goal.
+- **Deterministic control plane:** the `dw` helper records contracts, private
+  state, sentinels, evidence, findings, leases, action tokens, and
+  reconciliation; it does not execute model-generated commands.
+- **Explicit completion:** a run is complete only when acceptance evidence is
+  current, required checks pass, rollback is usable, and no unresolved
+  high-risk or unknown state remains.
+- **Fast path remains explicit:** `direct` avoids workflow journaling for small,
+  reversible work instead of making every task pay the full orchestration cost.
+
+This trades some peak parallel throughput for a smaller, inspectable mutation
+surface and predictable stop conditions. The trade-off is intentional: the
+workflow should make unsafe progress difficult to hide, even when that means
+pausing for evidence or user authority.
+
+## Better Workflows vs. Claude Dynamic Workflows
+
+This comparison treats “Claude Dynamic Workflows” as Anthropic's Claude Code
+feature, not a third-party package. It is based on Anthropic's public material
+checked on 2026-07-20: [Introducing dynamic workflows in Claude Code](https://claude.com/blog/introducing-dynamic-workflows-in-claude-code),
+[A harness for every task](https://claude.com/blog/a-harness-for-every-task-dynamic-workflows-in-claude-code),
+and [Claude Code's parallel-agent documentation](https://code.claude.com/docs/en/agents).
+
+| Dimension | Better Workflows | Claude Dynamic Workflows |
+| --- | --- | --- |
+| Orchestration | Selectors, templates, explicit modes, and a deterministic local control plane. | Claude dynamically writes a JavaScript harness for the task, then coordinates the run. |
+| Parallelism | Small bounded native waves: at most three direct children, with sequential critics. | Designed for large fan-out and long-running work; Anthropic describes tens to hundreds of parallel subagents. |
+| State and completion | Persistent `/goal`, private run state, sentinels, evidence, action tokens, reconciliation, and fail-closed completion. | Workflow progress is saved so interrupted runs can resume; the generated harness determines much of the run shape. |
+| Mutation governance | Root-only mutation and integration; delegated agents are read-only by contract. | Supports subagents, worktrees, model selection, and permission controls, but the workflow itself is dynamically authored for the task. |
+| Adaptability | Lower runtime freedom, but the behavior is easier to review before side effects and easier to reproduce from templates. | Higher runtime adaptability and better fit for unknown-size, highly parallel, adversarial, or multi-day work. |
+| Throughput and cost | Intentionally conservative; fewer parallel workers can mean lower peak throughput, but the cost and blast radius are easier to bound. | Higher throughput potential, with a documented warning that dynamic workflows can consume substantially more tokens. |
+| Portability | Codex-native plugin and Node.js helper; portable across repositories that can run the plugin. | Claude Code CLI, Desktop, VS Code extension, API, and supported cloud providers. |
+| Best fit | Contract-sensitive refactors, reviews, releases, and Git/GitHub operations where evidence and rollback matter. | Large migrations, codebase-wide exploration, massive verification, and tasks where dynamically generated orchestration is the main advantage. |
+
+### Practical trade-offs
+
+Better Workflows is stronger when the primary risk is uncontrolled mutation,
+unclear authority, stale evidence, or an irreversible side effect. Its explicit
+queues, checkpoints, and fail-closed gates make it easier to explain why a run
+stopped and what must be reconciled before it can continue.
+
+Claude Dynamic Workflows is stronger when the primary bottleneck is orchestration
+scale: many independent subtasks, long-running execution, dynamic loops, or
+large migrations. Anthropic's own guidance also says workflows are not needed
+for every task and may use significantly more tokens, so that scale is a
+deliberate cost/latency trade-off rather than a universal improvement.
+
+These are different optimization targets, not a claim that one system wins every
+benchmark. Better Workflows optimizes for governed, reviewable progress inside
+Codex; Claude Dynamic Workflows optimizes for dynamically generated, highly
+parallel harnesses inside Claude Code.
 
 ## Install
 
