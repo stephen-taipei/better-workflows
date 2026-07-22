@@ -159,6 +159,38 @@ $better-workflows:cross-platform 檢查 backend、iOS 和 Android 的 contact sy
 | `$better-workflows:research` | 證據驅動研究、架構比較、獨立觀點與反證；不以多數決決策。 | `$better-workflows:research 比較三種 sync 架構、反證每個方案並提出建議。` |
 | `$better-workflows:monorepo-refactor` | 完整盤點 monorepo，直接實作所有合格的 bounded refactor 建議，並保留 behavior invariants、validation 與 rollback evidence。 | `$better-workflows:monorepo-refactor 盤點 monorepo，直接實作所有合格的 boundary cleanup 建議，不改變 public contract。` |
 
+### Template-only：Dependabot consolidation SOP
+
+Dependabot consolidation 是專用 template，不新增 picker Skill。需要固定
+contract 時，可直接執行：
+
+```bash
+node plugins/better-workflows/scripts/dw.mjs run \
+  --template dependabot-consolidation-pr-cleanup \
+  --mode critical \
+  --goal "盤點 Dependabot PR，合併相容更新，建立並 merge 一個 consolidation PR，只清理本次產生的來源。" \
+  --scope .
+```
+
+SOP 會依序完成：
+
+```mermaid
+flowchart LR
+  A["新鮮 Dependabot inventory"] --> B["逐一分類\nconsolidate · separate · defer · exclude"]
+  B --> C["相容性矩陣\npeer · runtime · lockfile · security"]
+  C --> D["單一 consolidation branch 與 bounded diff"]
+  D --> E["install、lockfile、lint、typecheck、test、audit"]
+  E --> F["目前 revision 的單一 PR"]
+  F --> G{"merge 且 reconciliation 完成？"}
+  G -- "否／unknown" --> H["停止並查詢 provider 或處理 blocker"]
+  G -- "是" --> I["只關閉／刪除本次擁有的來源 PR／branch"]
+```
+
+必要證據包含 `dependabot-inventory`、`compatibility-matrix`、
+`consolidation-diff`、`lockfile-validation`、`merge-result` 與
+`cleanup-manifest`。每個 Dependabot PR 都必須有 disposition；在
+consolidation PR 沒有 terminal reconciliation 前，不允許清理來源。
+
 ### 審查強度入口
 
 這四個入口會讓 Codex 自動判斷任務 template，但固定最低驗證強度。

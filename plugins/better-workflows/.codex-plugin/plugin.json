@@ -16,7 +16,8 @@
     "review",
     "evidence",
     "monorepo",
-    "refactor"
+    "refactor",
+    "dependabot"
   ],
   "skills": "./skills/",
   "interface": {

@@ -153,6 +153,38 @@ $better-workflows:auto <완료하려는 결과를 설명>
 | `$better-workflows:research` | 증거 기반 조사, architecture 비교, 독립 관점, 반증. 다수결로 결정하지 않음. | `$better-workflows:research 세 가지 sync architecture를 비교·반증하고 권장안 제시.` |
 | `$better-workflows:monorepo-refactor` | monorepo 전체를 조사한 뒤 적격한 bounded refactor 제안을 직접 구현하고 behavior invariants, validation, rollback evidence를 유지합니다. | `$better-workflows:monorepo-refactor monorepo를 조사하고 public contract를 바꾸지 않으면서 적격한 boundary cleanup을 구현.` |
 
+### Template-only: Dependabot consolidation SOP
+
+Dependabot consolidation은 전용 template이며 picker Skill을 추가하지 않습니다.
+고정된 contract가 필요할 때는 다음처럼 직접 실행합니다.
+
+```bash
+node plugins/better-workflows/scripts/dw.mjs run \
+  --template dependabot-consolidation-pr-cleanup \
+  --mode critical \
+  --goal "Dependabot PR을 inventory하고 호환 업데이트를 통합해 하나의 PR을 merge하며 이 run이 소유한 source만 cleanup한다." \
+  --scope .
+```
+
+SOP 순서는 다음과 같습니다.
+
+```mermaid
+flowchart LR
+  A["Fresh Dependabot inventory"] --> B["모든 PR 분류\nconsolidate · separate · defer · exclude"]
+  B --> C["호환성 매트릭스\npeer · runtime · lockfile · security"]
+  C --> D["하나의 consolidation branch와 bounded diff"]
+  D --> E["install、lockfile、lint、typecheck、test、audit"]
+  E --> F["current revision의 하나의 PR"]
+  F --> G{"merge와 reconciliation 완료?"}
+  G -- "No / unknown" --> H["중지하고 provider를 조회하거나 blocker 해결"]
+  G -- "Yes" --> I["이 run이 소유한 source PR/branch만 close/delete"]
+```
+
+필수 evidence는 `dependabot-inventory`, `compatibility-matrix`,
+`consolidation-diff`, `lockfile-validation`, `merge-result`,
+`cleanup-manifest`입니다. 모든 Dependabot PR에 disposition을 부여하며,
+consolidation PR의 terminal reconciliation 전에는 source를 cleanup하지 않습니다.
+
 ### Review 강도 항목
 
 | 항목 | 권장 상황 | 예시 |

@@ -153,6 +153,38 @@ $better-workflows:auto <描述需要完成的目标>
 | `$better-workflows:research` | 证据驱动研究、架构比较、独立观点与反证；不以多数票决策。 | `$better-workflows:research 比较三种 sync 架构、反证每个方案并提出建议。` |
 | `$better-workflows:monorepo-refactor` | 完整盘点 monorepo，直接实现所有合格的 bounded refactor 建议，并保留 behavior invariants、validation 与 rollback evidence。 | `$better-workflows:monorepo-refactor 盘点 monorepo，直接实现所有合格的 boundary cleanup 建议，不改变 public contract。` |
 
+### Template-only：Dependabot consolidation SOP
+
+Dependabot consolidation 是专用 template，不新增 picker Skill。需要固定
+contract 时，可以直接运行：
+
+```bash
+node plugins/better-workflows/scripts/dw.mjs run \
+  --template dependabot-consolidation-pr-cleanup \
+  --mode critical \
+  --goal "盘点 Dependabot PR，合并兼容更新，创建并 merge 一个 consolidation PR，只清理本次产生的来源。" \
+  --scope .
+```
+
+SOP 按以下顺序执行：
+
+```mermaid
+flowchart LR
+  A["新鲜 Dependabot inventory"] --> B["逐一分类\nconsolidate · separate · defer · exclude"]
+  B --> C["兼容性矩阵\npeer · runtime · lockfile · security"]
+  C --> D["单一 consolidation branch 与 bounded diff"]
+  D --> E["install、lockfile、lint、typecheck、test、audit"]
+  E --> F["当前 revision 的单一 PR"]
+  F --> G{"merge 且 reconciliation 完成？"}
+  G -- "否／unknown" --> H["停止并查询 provider 或处理 blocker"]
+  G -- "是" --> I["只关闭／删除本次拥有的来源 PR／branch"]
+```
+
+必要证据包括 `dependabot-inventory`、`compatibility-matrix`、
+`consolidation-diff`、`lockfile-validation`、`merge-result` 与
+`cleanup-manifest`。每个 Dependabot PR 都必须有 disposition；在
+consolidation PR 没有 terminal reconciliation 前，不允许清理来源。
+
 ### 审查强度入口
 
 | 入口 | 推荐场景 | 示例 |

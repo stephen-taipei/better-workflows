@@ -208,6 +208,41 @@ silently replacing it.
 | `$better-workflows:research` | Evidence-backed research, architecture comparison, independent perspectives, and refutation without majority voting. | `$better-workflows:research Compare three sync architectures, challenge each one, and recommend a decision.` |
 | `$better-workflows:monorepo-refactor` | Full workspace inventory followed by direct implementation of every eligible bounded refactor recommendation, with behavior invariants, validation, and rollback evidence. | `$better-workflows:monorepo-refactor Inventory the monorepo and implement all eligible boundary-cleanup recommendations without changing its public contract.` |
 
+### Template-only operational routes
+
+Dependabot consolidation is intentionally a template rather than another picker
+Skill: it is a narrowly governed operational procedure that should be selected
+from the current task context, while `auto` may route to it when the evidence
+matches. Run it directly when you need the exact contract:
+
+```bash
+node plugins/better-workflows/scripts/dw.mjs run \
+  --template dependabot-consolidation-pr-cleanup \
+  --mode critical \
+  --goal "Inventory Dependabot PRs, consolidate compatible updates, merge one PR, and clean only run-owned sources." \
+  --scope .
+```
+
+The SOP is deliberately fail-closed:
+
+```mermaid
+flowchart LR
+  A["Fresh Dependabot inventory"] --> B["Classify every PR\nconsolidate · separate · defer · exclude"]
+  B --> C["Compatibility matrix\npeer · runtime · lockfile · security"]
+  C --> D["One consolidation branch and bounded diff"]
+  D --> E["Native install, lockfile, lint, typecheck, test, audit"]
+  E --> F["One PR with current revision and fresh checks"]
+  F --> G{"Merged and reconciled?"}
+  G -- "No / unknown" --> H["Stop; query provider or resolve blocker"]
+  G -- "Yes" --> I["Close/delete only run-owned source PRs/branches"]
+```
+
+Its required evidence is `dependabot-inventory`, `compatibility-matrix`,
+`consolidation-diff`, `lockfile-validation`, `merge-result`, and
+`cleanup-manifest`. The template does not assume that every Dependabot PR is
+safe to combine: each candidate must receive a disposition, and cleanup is
+allowed only after the consolidation PR is terminally reconciled.
+
 ### Review-strength entries
 
 These entries let Codex choose the task template while you set the minimum
@@ -269,7 +304,7 @@ Better Workflows chooses one of four modes:
 | `deep` | Verified work followed by up to two sequential Codex critics. |
 | `critical` | Full evidence and side-effect gates plus a required external reviewer when policy demands it. |
 
-Nine workflow templates are included:
+Ten workflow templates are included:
 
 - `review-to-issues`
 - `issues-to-root-fix-pr-merge-cleanup`
@@ -277,6 +312,7 @@ Nine workflow templates are included:
 - `ios-static-pbxproj`
 - `localization-41`
 - `ci-release-monitor`
+- `dependabot-consolidation-pr-cleanup`
 - `browser-simulator-qa`
 - `research-deliberation`
 - `monorepo-refactor`

@@ -18,7 +18,7 @@ test("all historical and adversarial routing fixtures select the expected mode",
   }
 });
 
-test("all nine templates are valid and side-effect templates declare action gates", async () => {
+test("all ten templates are valid and side-effect templates declare action gates", async () => {
   const directory = path.join(pluginRoot(), "templates");
   const names = (await readdir(directory))
     .filter((name) => name.endsWith(".json"))
@@ -27,6 +27,7 @@ test("all nine templates are valid and side-effect templates declare action gate
     "browser-simulator-qa.json",
     "ci-release-monitor.json",
     "cross-platform-contract.json",
+    "dependabot-consolidation-pr-cleanup.json",
     "ios-static-pbxproj.json",
     "issues-to-root-fix-pr-merge-cleanup.json",
     "localization-41.json",
@@ -64,6 +65,41 @@ test("monorepo refactor requires implementation of every eligible recommendation
   assert.ok(
     template.acceptance.some((item) => item.id === "no-silent-deferrals")
   );
+});
+
+test("Dependabot consolidation requires classification, compatibility, and exact cleanup gates", async () => {
+  const template = JSON.parse(
+    await readFile(
+      path.join(pluginRoot(), "templates", "dependabot-consolidation-pr-cleanup.json"),
+      "utf8"
+    )
+  );
+  assert.equal(template.defaultMode, "critical");
+  for (const evidence of [
+    "dependabot-inventory",
+    "compatibility-matrix",
+    "consolidation-diff",
+    "lockfile-validation",
+    "merge-result",
+    "cleanup-manifest"
+  ]) {
+    assert.ok(template.requiredEvidence.includes(evidence), evidence);
+  }
+  for (const policy of [
+    "explicit-eligibility-classification",
+    "one-consolidation-pr-per-run",
+    "compatibility-before-consolidation",
+    "exact-run-owned-cleanup",
+    "unknown-provider-state-fails-closed"
+  ]) {
+    assert.ok(template.policyGates.includes(policy), policy);
+  }
+  for (const action of ["pr.create", "pr.merge", "pr.close", "branch.delete"]) {
+    assert.ok(Object.hasOwn(template.actionGates, action), action);
+    assert.ok(template.actionGates[action].length > 0, action);
+  }
+  assert.ok(template.acceptance.some((item) => item.id === "eligibility-classified"));
+  assert.ok(template.acceptance.some((item) => item.id === "cleanup-exact"));
 });
 
 test("skills have no placeholders and compatibility aliases route to the main skill", async () => {

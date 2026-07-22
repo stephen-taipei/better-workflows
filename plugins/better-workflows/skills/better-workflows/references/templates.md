@@ -10,6 +10,7 @@ Choose exactly one primary template. Existing domain skills remain authoritative
 | `ios-static-pbxproj` | Swift static review and serialized pbxproj membership |
 | `localization-41` | Complete 41-locale updates and key/order validation |
 | `ci-release-monitor` | Serialized CI, deploy, promotion, and reconciliation |
+| `dependabot-consolidation-pr-cleanup` | Inventory Dependabot PRs, consolidate compatible updates, validate lockfiles, merge one PR, and clean only run-owned sources |
 | `browser-simulator-qa` | Current-state browser or simulator QA with artifacts |
 | `research-deliberation` | Multi-perspective research, refutation, and evidence-based decision |
 
