@@ -80,7 +80,10 @@ test("Dependabot consolidation requires classification, compatibility, and exact
     "compatibility-matrix",
     "consolidation-diff",
     "lockfile-validation",
+    "repository-actions-inventory",
+    "actions-cleanup-plan",
     "merge-result",
+    "actions-cancelled",
     "cleanup-manifest"
   ]) {
     assert.ok(template.requiredEvidence.includes(evidence), evidence);
@@ -89,16 +92,22 @@ test("Dependabot consolidation requires classification, compatibility, and exact
     "explicit-eligibility-classification",
     "one-consolidation-pr-per-run",
     "compatibility-before-consolidation",
+    "repository-actions-existence-check",
+    "cancel-actions-before-source-cleanup",
+    "preserve-current-consolidation-actions",
+    "unknown-action-state-fails-closed",
     "exact-run-owned-cleanup",
     "unknown-provider-state-fails-closed"
   ]) {
     assert.ok(template.policyGates.includes(policy), policy);
   }
-  for (const action of ["pr.create", "pr.merge", "pr.close", "branch.delete"]) {
+  for (const action of ["actions.inventory", "pr.create", "pr.merge", "actions.cancel", "pr.close", "branch.delete", "worktree.cleanup"]) {
     assert.ok(Object.hasOwn(template.actionGates, action), action);
     assert.ok(template.actionGates[action].length > 0, action);
   }
   assert.ok(template.acceptance.some((item) => item.id === "eligibility-classified"));
+  assert.ok(template.acceptance.some((item) => item.id === "actions-inventory-current"));
+  assert.ok(template.acceptance.some((item) => item.id === "actions-cancelled-before-cleanup"));
   assert.ok(template.acceptance.some((item) => item.id === "cleanup-exact"));
 });
 

@@ -177,13 +177,18 @@ flowchart LR
   E --> F["当前 revision 的单一 PR"]
   F --> G{"merge 且 reconciliation 完成？"}
   G -- "否／unknown" --> H["停止并查询 provider 或处理 blocker"]
-  G -- "是" --> I["只关闭／删除本次拥有的来源 PR／branch"]
+  G -- "是" --> J["盘点 repo workflows 与 Actions runs"]
+  J --> K["取消本次拥有的 queued/in-progress Actions 并 reconciliation"]
+  K --> I["只关闭／删除本次拥有的来源 PR／branch／worktree"]
 ```
 
 必要证据包括 `dependabot-inventory`、`compatibility-matrix`、
-`consolidation-diff`、`lockfile-validation`、`merge-result` 与
-`cleanup-manifest`。每个 Dependabot PR 都必须有 disposition；在
-consolidation PR 没有 terminal reconciliation 前，不允许清理来源。
+`consolidation-diff`、`lockfile-validation`、
+`repository-actions-inventory`、`actions-cancelled`、`merge-result` 与
+`cleanup-manifest`。流程会检查 repo workflow 与相关 Actions runs 是否仍
+存在，并明确记录 missing、disabled、queued、running、terminal 状态；查询
+失败就停止。每个 Dependabot PR 都必须有 disposition；在本次来源 Actions
+取消且 consolidation PR 完成 terminal reconciliation 前，不允许清理来源。
 
 ### 审查强度入口
 

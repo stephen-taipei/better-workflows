@@ -177,13 +177,18 @@ flowchart LR
   E --> F["current revision의 하나의 PR"]
   F --> G{"merge와 reconciliation 완료?"}
   G -- "No / unknown" --> H["중지하고 provider를 조회하거나 blocker 해결"]
-  G -- "Yes" --> I["이 run이 소유한 source PR/branch만 close/delete"]
+  G -- "Yes" --> J["repo workflows와 Actions runs inventory"]
+  J --> K["이 run이 소유한 queued/in-progress Actions를 cancel하고 reconcile"]
+  K --> I["이 run이 소유한 source PR/branch/worktree만 close/delete"]
 ```
 
 필수 evidence는 `dependabot-inventory`, `compatibility-matrix`,
-`consolidation-diff`, `lockfile-validation`, `merge-result`,
-`cleanup-manifest`입니다. 모든 Dependabot PR에 disposition을 부여하며,
-consolidation PR의 terminal reconciliation 전에는 source를 cleanup하지 않습니다.
+`consolidation-diff`, `lockfile-validation`, `repository-actions-inventory`,
+`actions-cancelled`, `merge-result`, `cleanup-manifest`입니다. repo workflow와
+관련 Actions runs의 존재를 확인하고 missing, disabled, queued, running,
+terminal 상태를 명시합니다. provider를 조회할 수 없으면 중지합니다. 모든
+Dependabot PR에 disposition을 부여하고 run 소유 Actions를 cancel한 뒤
+consolidation PR의 terminal reconciliation이 완료되기 전에는 source를 cleanup하지 않습니다.
 
 ### Review 강도 항목
 

@@ -177,13 +177,18 @@ flowchart LR
   E --> F["current revisionの1つのPR"]
   F --> G{"mergeとreconciliationが完了？"}
   G -- "No / unknown" --> H["停止し、providerを照会またはblockerを解消"]
-  G -- "Yes" --> I["このrunが所有するsource PR/branchだけをclose/delete"]
+  G -- "Yes" --> J["repo workflowsとActions runsを棚卸し"]
+  J --> K["このrunが所有するqueued/in-progress Actionsをcancelしreconcile"]
+  K --> I["このrunが所有するsource PR/branch/worktreeだけをclose/delete"]
 ```
 
 必須 evidence は `dependabot-inventory`、`compatibility-matrix`、
-`consolidation-diff`、`lockfile-validation`、`merge-result`、
-`cleanup-manifest` です。すべての Dependabot PR に disposition を付け、
-consolidation PR の terminal reconciliation 前には source を cleanup しません。
+`consolidation-diff`、`lockfile-validation`、`repository-actions-inventory`、
+`actions-cancelled`、`merge-result`、`cleanup-manifest` です。repo workflow と
+関連 Actions runs の存在を確認し、missing、disabled、queued、running、
+terminal を明示します。providerを照会できない場合は停止します。すべての
+Dependabot PR に disposition を付け、run所有の Actions を cancel して
+consolidation PR の terminal reconciliation が完了する前には source を cleanup しません。
 
 ### Review 強度入口
 

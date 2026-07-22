@@ -234,14 +234,21 @@ flowchart LR
   E --> F["One PR with current revision and fresh checks"]
   F --> G{"Merged and reconciled?"}
   G -- "No / unknown" --> H["Stop; query provider or resolve blocker"]
-  G -- "Yes" --> I["Close/delete only run-owned source PRs/branches"]
+  G -- "Yes" --> J["Inventory repository workflows and Actions runs"]
+  J --> K["Cancel run-owned queued/in-progress Actions and reconcile"]
+  K --> I["Close/delete only run-owned source PRs/branches/worktrees"]
 ```
 
 Its required evidence is `dependabot-inventory`, `compatibility-matrix`,
-`consolidation-diff`, `lockfile-validation`, `merge-result`, and
-`cleanup-manifest`. The template does not assume that every Dependabot PR is
-safe to combine: each candidate must receive a disposition, and cleanup is
-allowed only after the consolidation PR is terminally reconciled.
+`consolidation-diff`, `lockfile-validation`, `repository-actions-inventory`,
+`actions-cancelled`, `merge-result`, and `cleanup-manifest`. It checks that the
+repository's workflow definitions and related Actions runs still exist and
+records missing, disabled, queued, running, and terminal states. If the
+provider cannot answer, the workflow stops. The template does not assume that
+every Dependabot PR is safe to combine: each candidate must receive a
+disposition, and cleanup is allowed only after run-owned Actions are cancelled
+and the consolidation PR is terminally reconciled. The current consolidation
+run and unrelated runs are never cancelled by this cleanup gate.
 
 ### Review-strength entries
 
