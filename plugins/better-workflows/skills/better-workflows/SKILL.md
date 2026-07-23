@@ -55,6 +55,13 @@ Use `dw` when `command -v dw` succeeds. Otherwise resolve the plugin root as two
 3. Never lower a user-requested mode. Model output may raise risk but may not lower it.
 4. Select one template from [templates.md](references/templates.md).
 
+For `research-deliberation`, also read
+[deliberation-roster.md](references/deliberation-roster.md). It defines the
+CLI-proven participant roster, model-bound roles, Agy-based Gemini route, and
+capability-ranked final-arbiter fallback. Apply the contextual `medium`/`high`
+reasoning-effort policy to every model and record its actual transport. The
+former separate AI-meeting alias is intentionally not used.
+
 ## Start a verified run
 
 For `verified`, `deep`, or `critical`, initialize a run:

@@ -51,7 +51,7 @@
     },
     {
       "id": "research",
-      "description": "多觀點研究、反證與架構決策",
+      "description": "CLI 實測多模型角色、反證、共識校準與可執行決策計畫",
       "template": "research-deliberation",
       "mode": "auto"
     },

@@ -1,0 +1,92 @@
+{
+  "name": "pr-to-dev",
+  "description": "Partition in-scope changes into atomic commits, publish one PR targeting dev, wait for fresh required checks, merge through protected policy, reconcile the remote, and clean only run-owned resources.",
+  "defaultMode": "critical",
+  "requiredEvidence": [
+    "base-revision",
+    "change-inventory",
+    "commit-plan",
+    "commit-manifest",
+    "commit-history",
+    "patch-review",
+    "repo-gates",
+    "target-branch-dev",
+    "pr-state",
+    "required-checks",
+    "merge-result",
+    "remote-sync",
+    "cleanup-manifest",
+    "provider-reconciliation"
+  ],
+  "acceptance": [
+    {
+      "id": "batched-commits-complete",
+      "description": "Every in-scope change is included in an intentional atomic commit batch, or an explicit exclusion is recorded; no silent leftovers remain.",
+      "critical": true
+    },
+    {
+      "id": "commit-integrity",
+      "description": "Each commit has a reviewed scope, passes applicable validation, and preserves a usable rollback sequence.",
+      "critical": true
+    },
+    {
+      "id": "pr-targets-dev",
+      "description": "The current PR targets the exact protected dev branch and its head revision matches the reviewed commit history.",
+      "critical": true
+    },
+    {
+      "id": "fresh-checks-passed",
+      "description": "All required checks for the current PR head pass or are otherwise reconciled according to repository policy; stale checks do not authorize merge.",
+      "critical": true
+    },
+    {
+      "id": "merged-to-dev",
+      "description": "The PR is merged through the repository's protected policy without admin bypass, and the provider reports a terminal merge result.",
+      "critical": true
+    },
+    {
+      "id": "remote-reconciled",
+      "description": "The local and remote dev revisions are reconciled after merge, with the provider receipt and final revision recorded.",
+      "critical": true
+    },
+    {
+      "id": "cleanup-exact",
+      "description": "Only branches, worktrees, temporary artifacts, or PR resources owned by this run are cleaned after merge and remote reconciliation.",
+      "critical": true
+    }
+  ],
+  "policyGates": [
+    "root-only-mutation",
+    "explicit-target-branch-dev",
+    "atomic-commit-batches",
+    "explicit-path-staging",
+    "no-empty-or-unreviewed-commit",
+    "serialized-pr-publication",
+    "current-pr-head-before-merge",
+    "fresh-required-checks",
+    "protected-merge-no-admin-bypass",
+    "remote-reconciliation-before-cleanup",
+    "exact-run-owned-cleanup",
+    "unknown-provider-state-fails-closed"
+  ],
+  "actionGates": {
+    "git.commit": ["change-inventory", "commit-plan", "patch-review", "repo-gates"],
+    "git.push": ["commit-manifest", "commit-history", "repo-gates", "target-branch-dev", "remote-authorization", "current-branch"],
+    "pr.create": ["commit-manifest", "commit-history", "patch-review", "repo-gates", "target-branch-dev"],
+    "pr.merge": ["pr-state", "required-checks", "repo-gates", "target-branch-dev", "remote-authorization"],
+    "remote.sync": ["merge-result", "target-branch-dev", "provider-reconciliation"],
+    "worktree.cleanup": ["merge-result", "remote-sync", "cleanup-manifest", "provider-reconciliation"]
+  },
+  "domainSkills": ["git-check-pr", "gh-address-comments", "gh-fix-ci"],
+  "rootOnlyActions": [
+    "git add",
+    "git commit",
+    "git push",
+    "git fetch",
+    "git switch",
+    "git pull --ff-only",
+    "gh pr create",
+    "gh pr merge",
+    "git worktree remove"
+  ]
+}

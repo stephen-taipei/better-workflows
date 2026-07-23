@@ -1,4 +1,0 @@
-interface:
-  display_name: "AI Meeting TW compatibility"
-  short_description: "Run evidence-based multi-model deliberation"
-  default_prompt: "Use $ai-meeting-tw to deliberate on this decision with independent critics and a final evidence-based verdict."

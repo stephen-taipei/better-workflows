@@ -17,13 +17,15 @@
     "evidence",
     "monorepo",
     "refactor",
-    "dependabot"
+    "dependabot",
+    "deliberation",
+    "multi-model"
   ],
   "skills": "./skills/",
   "interface": {
     "displayName": "Better Workflows",
     "shortDescription": "Evidence-driven native Codex workflow routing.",
-    "longDescription": "Native-first workflows with root-owned mutation, bounded subagent waves, freshness checks, independent critics, and fail-closed side-effect gates.",
+    "longDescription": "Native-first workflows with root-owned mutation, bounded subagent waves, CLI-proven multi-model deliberation, freshness checks, independent critics, and fail-closed side-effect gates.",
     "developerName": "Stephen Chuang",
     "category": "Productivity",
     "capabilities": [

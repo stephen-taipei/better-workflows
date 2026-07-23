@@ -150,8 +150,32 @@ $better-workflows:auto <描述需要完成的目标>
 | `$better-workflows:localization` | 多语言更新，尤其是 41 语言 key 数量、顺序、精确 scope 与区域变体。 | `$better-workflows:localization 将这些 keys 添加到全部 41 个语言，并验证 key 顺序一致。` |
 | `$better-workflows:ci-release` | CI failure、runner queue、串行 deploy、release、远端监控与 receipt 验证。 | `$better-workflows:ci-release 诊断失败的 PR checks、修复并监控串行 dev deploy。` |
 | `$better-workflows:browser-qa` | 需要最新 UI 证据、截图与可复现 action log 的 Webwright／模拟器 QA。 | `$better-workflows:browser-qa 验证 signup 与 contact sync，并附上 screenshot evidence。` |
-| `$better-workflows:research` | 证据驱动研究、架构比较、独立观点与反证；不以多数票决策。 | `$better-workflows:research 比较三种 sync 架构、反证每个方案并提出建议。` |
+| `$better-workflows:research` | CLI 实测的多模型角色、证据驱动架构比较、反证与可执行 Plan；不以多数票决策。 | `$better-workflows:research 比较三种 sync 架构、反证每个方案并产出可实现的 Plan。` |
 | `$better-workflows:monorepo-refactor` | 完整盘点 monorepo，直接实现所有合格的 bounded refactor 建议，并保留 behavior invariants、validation 与 rollback evidence。 | `$better-workflows:monorepo-refactor 盘点 monorepo，直接实现所有合格的 boundary cleanup 建议，不改变 public contract。` |
+
+### CLI 实测的多模型协商
+
+`research-deliberation` 保留完整配置的品牌名单：Codex、Claude、Gemini（经 Agy）、Agy、Grok、Cursor、Kimi、Qwen、Kiro；只有通过安全 semantic CLI probe 的模型／指令组合才能加入本次决策组。缺少 binary、登录失效或必须交互登录时会明确标为 unavailable，绝不静默替代。
+
+完整名单的每个 reasoning-effort profile 最多各自缓存 24 小时；到期、`--refresh`、roster 配置变化，或 CLI 路径／binary digest 变化时重新检查。指定单一 provider 的 probe 不会覆写完整缓存。外部 CLI 必须获得用户授权且输入必须去敏、非机密；本 runtime 的 Gemini 通过 `agy` transport 调用，不使用独立 `gemini` 命令。
+
+每个 participant 都应用相同的 contextual reasoning-effort：有界的 `direct`／`verified` 默认 `medium`，`auto`／`deep`／`critical` 默认 `high`，可依证据明确覆写。Codex 会收到原生设置；Agy 实际选择 `gemini-3.6-flash-medium` 或 `gemini-3.6-flash-high`，且仅在该 model 支持时传入原生 `--effort`；拒绝此标记的 model 会如实标为 high／medium-only variant。其他 CLI 以 prompt-guidance 请求并如实记录，不假称 provider 已验证。
+
+```mermaid
+flowchart LR
+  A["去敏决策 dossier"] --> B["完整品牌 roster\n新 probe 或有效 24h cache"]
+  B --> C["已验证模型角色\n独立意见"]
+  C --> D["Root 证据校准\n不采用多数票"]
+  D --> E["最高已验证裁决者\nSol → Terra → Luna → Fable → Opus"]
+  E --> F["可执行 Plan\nowner · dependencies · validation · rollback"]
+  B -->|"不可用或不安全"| G["记录排除\nfail closed"]
+```
+
+```bash
+node plugins/better-workflows/scripts/dw.mjs deliberation deliberate \
+  --prompt-file sanitized-case.md \
+  --allow-external-providers --sanitized
+```
 
 ### Template-only：Dependabot consolidation SOP
 
@@ -190,6 +214,25 @@ flowchart LR
 失败就停止。每个 Dependabot PR 都必须有 disposition；在本次来源 Actions
 取消且 consolidation PR 完成 terminal reconciliation 前，不允许清理来源。
 
+### Template-only：PR 合并至 `dev`
+
+`pr-to-dev` 专门处理分批 atomic commit、创建唯一 target 为 `dev` 的 PR、
+fresh required checks、受保护 merge、同步 remote `dev`，以及最后只清理本次
+run 拥有的资源。它是专用 template，不新增 picker Skill。
+
+```bash
+node plugins/better-workflows/scripts/dw.mjs run \
+  --template pr-to-dev \
+  --mode critical \
+  --goal "将范围内修改拆成 atomic commits，创建 PR 合并至 dev，fresh checks 通过后 merge、同步 remote dev，再清理本次 worktree。" \
+  --scope .
+```
+
+必要 gate 包括 `commit-plan`、`commit-manifest`、`target-branch-dev`、
+`required-checks`、`merge-result`、`remote-sync` 与 `cleanup-manifest`。
+禁止 admin bypass、stale checks、未 review commit，以及 remote reconciliation
+前的 cleanup。
+
 ### 审查强度入口
 
 | 入口 | 推荐场景 | 示例 |
@@ -205,7 +248,6 @@ flowchart LR
 | --- | --- | --- |
 | `$better-workflows:auto-improve` | 旧 `autoImprove`：Review、验证 findings、修复、创建 PR 并安全收敛。 | Fix issues to PR，默认 `deep` |
 | `$better-workflows:auto-issues` | 旧 `autoIssues`：只读 Review 与去重 issue 创建。 | Review to issues，默认 `verified` |
-| `$better-workflows:ai-meeting-tw` | 旧 AI meeting：多观点研究与 model critics，不使用 Claude 或票数决策。 | Research deliberation，默认 `deep` |
 | `$better-workflows:git-check-issues` | 旧 issue repair：重新获取 issue 状态、修复、创建 PR 与精确 cleanup。 | Fix issues to PR，默认 `deep` |
 | `$better-workflows` | 未指定菜单入口时的自然语言 router。 | 自动判断 template 与 mode |
 

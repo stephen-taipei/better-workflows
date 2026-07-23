@@ -11,7 +11,8 @@ Choose exactly one primary template. Existing domain skills remain authoritative
 | `localization-41` | Complete 41-locale updates and key/order validation |
 | `ci-release-monitor` | Serialized CI, deploy, promotion, and reconciliation |
 | `dependabot-consolidation-pr-cleanup` | Inventory Dependabot PRs, consolidate compatible updates, validate lockfiles, merge one PR, and clean only run-owned sources |
+| `pr-to-dev` | Partition changes into atomic commits, create one PR targeting `dev`, merge after fresh checks, reconcile remote state, and clean owned resources |
 | `browser-simulator-qa` | Current-state browser or simulator QA with artifacts |
-| `research-deliberation` | Multi-perspective research, refutation, and evidence-based decision |
+| `research-deliberation` | CLI-proven multi-model roles, refutation, evidence reconciliation, and executable decision plan |
 
 Use the JSON definitions under the plugin `templates/` directory as the machine-readable source of required evidence and policy gates.

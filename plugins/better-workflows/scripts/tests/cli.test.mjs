@@ -116,5 +116,5 @@ test("CLI lists exactly the installed workflow templates", async () => {
   const cwd = await repository();
   const stateRoot = await mkdtemp(path.join(os.tmpdir(), "dw-cli-list-"));
   const result = await cli(cwd, stateRoot, ["templates"]);
-  assert.equal(result.json.templates.length, 10);
+  assert.equal(result.json.templates.length, 11);
 });

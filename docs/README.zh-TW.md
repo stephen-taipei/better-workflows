@@ -156,8 +156,32 @@ $better-workflows:cross-platform 檢查 backend、iOS 和 Android 的 contact sy
 | `$better-workflows:localization` | 多語系更新，特別是 41 語系 key 數量、順序、精準 scope 與區域變體。 | `$better-workflows:localization 將這些 keys 加到全部 41 語系，並驗證 key 順序一致。` |
 | `$better-workflows:ci-release` | CI failure、runner queue、序列化 deploy、release、遠端監控與 receipt 驗證。 | `$better-workflows:ci-release 診斷失敗的 PR checks、修復並監控序列化 dev deploy。` |
 | `$better-workflows:browser-qa` | 需要最新 UI 證據、截圖與可重現 action log 的 Webwright／模擬器 QA。 | `$better-workflows:browser-qa 驗證 signup 與 contact sync，並附上 screenshot evidence。` |
-| `$better-workflows:research` | 證據驅動研究、架構比較、獨立觀點與反證；不以多數決決策。 | `$better-workflows:research 比較三種 sync 架構、反證每個方案並提出建議。` |
+| `$better-workflows:research` | CLI 實測的多模型角色、證據驅動架構比較、反證與可執行 Plan；不以多數決決策。 | `$better-workflows:research 比較三種 sync 架構、反證每個方案並產出可實作的 Plan。` |
 | `$better-workflows:monorepo-refactor` | 完整盤點 monorepo，直接實作所有合格的 bounded refactor 建議，並保留 behavior invariants、validation 與 rollback evidence。 | `$better-workflows:monorepo-refactor 盤點 monorepo，直接實作所有合格的 boundary cleanup 建議，不改變 public contract。` |
+
+### CLI 實測的多模型討論
+
+`research-deliberation` 會保留完整設定的品牌名單：Codex、Claude、Gemini（經 Agy）、Agy、Grok、Cursor、Kimi、Qwen、Kiro；但只有通過安全 semantic CLI probe 的模型／指令組合，才能加入本次決策群。找不到 binary、登入失效或必須互動登入時，都會明確列為 unavailable，不會偷偷替代。
+
+完整名單的每個 reasoning-effort profile 最多各自快取 24 小時；到期、`--refresh`、roster 設定變動，或 CLI 路徑／binary digest 變動時重新檢查。指定單一 provider 的 probe 不會覆寫完整快取。外部 CLI 一律需要使用者授權，且輸入必須是去敏、非機密資料；本 runtime 的 Gemini 以 `agy` transport 呼叫，不使用獨立 `gemini` 指令。
+
+每個 participant 都套用相同的 contextual reasoning-effort：有界的 `direct`／`verified` 預設 `medium`，`auto`／`deep`／`critical` 預設 `high`，可依證據明確覆寫。Codex 會收到原生設定；Agy 會實際選擇 `gemini-3.6-flash-medium` 或 `gemini-3.6-flash-high`，且僅在該 model 支援時傳入原生 `--effort`；拒絕此旗標的 model 則如實標為 high／medium-only variant。其他 CLI 以 prompt-guidance 請求並如實記錄，不假稱 provider 已驗證。
+
+```mermaid
+flowchart LR
+  A["去敏決策 dossier"] --> B["完整品牌 roster\n新 probe 或有效 24h cache"]
+  B --> C["已驗證的模型角色\n獨立意見"]
+  C --> D["Root 證據校準\n不採多數決"]
+  D --> E["最高已驗證裁決者\nSol → Terra → Luna → Fable → Opus"]
+  E --> F["可執行 Plan\nowner · dependencies · validation · rollback"]
+  B -->|"不可用或不安全"| G["記錄排除\nfail closed"]
+```
+
+```bash
+node plugins/better-workflows/scripts/dw.mjs deliberation deliberate \
+  --prompt-file sanitized-case.md \
+  --allow-external-providers --sanitized
+```
 
 ### Template-only：Dependabot consolidation SOP
 
@@ -196,6 +220,25 @@ flowchart LR
 失敗就停止。每個 Dependabot PR 都必須有 disposition；在本次來源 Actions
 取消且 consolidation PR 完成 terminal reconciliation 前，不允許清理來源。
 
+### Template-only：PR 合併至 `dev`
+
+`pr-to-dev` 專門處理分批 atomic commit、建立唯一 target 為 `dev` 的 PR、
+fresh required checks、受保護 merge、同步 remote `dev`，以及最後只清理本次
+run 擁有的資源。它是專用 template，不新增 picker Skill。
+
+```bash
+node plugins/better-workflows/scripts/dw.mjs run \
+  --template pr-to-dev \
+  --mode critical \
+  --goal "將範圍內修改分成 atomic commits，建立 PR 合併至 dev，fresh checks 通過後 merge、同步 remote dev，再清理本次 worktree。" \
+  --scope .
+```
+
+必要 gate 包含 `commit-plan`、`commit-manifest`、`target-branch-dev`、
+`required-checks`、`merge-result`、`remote-sync` 與 `cleanup-manifest`。
+禁止 admin bypass、stale checks、未 review commit，以及 remote reconciliation
+前的 cleanup。
+
 ### 審查強度入口
 
 這四個入口會讓 Codex 自動判斷任務 template，但固定最低驗證強度。
@@ -215,7 +258,6 @@ flowchart LR
 | --- | --- | --- |
 | `$better-workflows:auto-improve` | 舊 `autoImprove`：Review、驗證 findings、修復、建立 PR 並安全收斂。 | Fix issues to PR，預設 `deep` |
 | `$better-workflows:auto-issues` | 舊 `autoIssues`：唯讀 Review 與去重 issue 建立。 | Review to issues，預設 `verified` |
-| `$better-workflows:ai-meeting-tw` | 舊 AI meeting：多觀點研究與 model critics，不使用 Claude 或票數決策。 | Research deliberation，預設 `deep` |
 | `$better-workflows:git-check-issues` | 舊 issue repair：重新取得 issue 狀態、修復、建立 PR 與精準 cleanup。 | Fix issues to PR，預設 `deep` |
 | `$better-workflows` | 沒有指定選單入口時的自然語言 router。 | 自動判斷 template 與 mode |
 
@@ -233,6 +275,7 @@ flowchart LR
 - Root 是唯一修改、Git/GitHub、deploy、接受風險與宣告完成的 authority。
 - Side effects 在 freshness、授權或 reconciliation 不完整時 fail closed。
 - Agy 只允許經授權、去敏且非機密的資料。
+- 多模型 roster 保留所有設定品牌，但只使用最多 24 小時的 CLI 實測結果；到期、`--refresh`、roster 設定或 CLI 身分變動時必須重新驗證。
 - Unknown provider outcome 必須先 query reconciliation，不會盲目重試。
 
 ## 開發驗證

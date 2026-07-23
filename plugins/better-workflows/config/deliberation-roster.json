@@ -1,0 +1,130 @@
+{
+  "schemaVersion": 2,
+  "probeMarker": "DW_DELIBERATION_PROBE_OK",
+  "probeTimeoutSeconds": 45,
+  "rosterCacheHours": 24,
+  "maxParticipants": 24,
+  "reasoningEffort": {
+    "default": "auto",
+    "allowed": ["medium", "high"],
+    "modeDefaults": {
+      "direct": "medium",
+      "verified": "medium",
+      "auto": "high",
+      "deep": "high",
+      "critical": "high"
+    }
+  },
+  "providers": [
+    {
+      "id": "codex",
+      "command": "codex",
+      "probe": "codex",
+      "external": false,
+      "reasoningEfforts": ["medium", "high"],
+      "effortTransport": "native",
+      "models": [
+        {"model": "gpt-5.6-sol", "role": "final-arbiter", "capabilityRank": 1},
+        {"model": "gpt-5.6-terra", "role": "adversarial-systems-critic", "capabilityRank": 2},
+        {"model": "gpt-5.6-luna", "role": "implementation-planner", "capabilityRank": 3}
+      ]
+    },
+    {
+      "id": "claude",
+      "command": "claude",
+      "probe": "claude",
+      "external": true,
+      "reasoningEfforts": ["medium", "high"],
+      "effortTransport": "prompt-guidance",
+      "models": [
+        {"model": "fable", "displayModel": "Claude Fable 5", "role": "strategic-synthesizer", "capabilityRank": 4},
+        {"model": "opus", "displayModel": "Claude Opus 5", "role": "risk-and-safety-critic", "capabilityRank": 5}
+      ]
+    },
+    {
+      "id": "gemini",
+      "command": "agy",
+      "probe": "agy",
+      "external": true,
+      "effortTransport": "native",
+      "models": [
+        {"model": "gemini-3.6-flash-high", "displayModel": "Gemini 3.6 Flash (High) via Agy", "brand": "Gemini", "role": "high-velocity-analyst", "capabilityRank": 19, "reasoningEffort": "high", "effortGroup": "gemini-3.6-flash"},
+        {"model": "gemini-3.6-flash-medium", "displayModel": "Gemini 3.6 Flash (Medium) via Agy", "brand": "Gemini", "role": "rapid-evidence-scout", "capabilityRank": 20, "reasoningEffort": "medium", "effortGroup": "gemini-3.6-flash"},
+        {"model": "gemini-3.1-pro-high", "displayModel": "Gemini 3.1 Pro (High) via Agy", "brand": "Gemini", "role": "independent-researcher", "capabilityRank": 21, "reasoningEffort": "high"}
+      ]
+    },
+    {
+      "id": "agy",
+      "command": "agy",
+      "probe": "agy",
+      "external": true,
+      "effortTransport": "native",
+      "models": [
+        {"model": "claude-opus-4-6-thinking", "displayModel": "Claude Opus 4.6 Thinking via Agy", "brand": "Agy", "role": "risk-and-safety-critic", "capabilityRank": 22, "reasoningEffort": "high", "effortTransport": "model-variant"},
+        {"model": "gpt-oss-120b-medium", "displayModel": "GPT-OSS 120B (Medium) via Agy", "brand": "Agy", "role": "cost-and-operability-reviewer", "capabilityRank": 23, "reasoningEffort": "medium"}
+      ]
+    },
+    {
+      "id": "grok",
+      "command": "grok",
+      "probe": "text",
+      "external": true,
+      "reasoningEfforts": ["medium", "high"],
+      "effortTransport": "prompt-guidance",
+      "models": [
+        {"model": "default", "role": "counterfactual-analyst", "capabilityRank": 30}
+      ]
+    },
+    {
+      "id": "cursor",
+      "command": "cursor-agent",
+      "probe": "cursor",
+      "external": true,
+      "reasoningEfforts": ["medium", "high"],
+      "effortTransport": "prompt-guidance",
+      "models": [
+        {"model": "gpt-5", "role": "code-change-reviewer", "capabilityRank": 31}
+      ]
+    },
+    {
+      "id": "kimi",
+      "command": "kimi",
+      "probe": "text",
+      "external": true,
+      "reasoningEfforts": ["medium", "high"],
+      "effortTransport": "prompt-guidance",
+      "models": [
+        {"model": "default", "role": "long-context-researcher", "capabilityRank": 32}
+      ]
+    },
+    {
+      "id": "qwen",
+      "command": "qwen",
+      "probe": "text",
+      "external": true,
+      "reasoningEfforts": ["medium", "high"],
+      "effortTransport": "prompt-guidance",
+      "models": [
+        {"model": "default", "role": "open-model-compatibility-reviewer", "capabilityRank": 33}
+      ]
+    },
+    {
+      "id": "kiro",
+      "command": "kiro-cli",
+      "probe": "unsupported",
+      "external": true,
+      "reasoningEfforts": ["medium", "high"],
+      "effortTransport": "prompt-guidance",
+      "models": [
+        {"model": "default", "role": "developer-experience-planner", "capabilityRank": 34}
+      ]
+    }
+  ],
+  "arbiterPriority": [
+    {"provider": "codex", "model": "gpt-5.6-sol", "displayModel": "GPT-5.6 Sol"},
+    {"provider": "codex", "model": "gpt-5.6-terra", "displayModel": "GPT-5.6 Terra"},
+    {"provider": "codex", "model": "gpt-5.6-luna", "displayModel": "GPT-5.6 Luna"},
+    {"provider": "claude", "model": "fable", "displayModel": "Claude Fable 5"},
+    {"provider": "claude", "model": "opus", "displayModel": "Claude Opus 5"}
+  ]
+}
