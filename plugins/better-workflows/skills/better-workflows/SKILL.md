@@ -42,7 +42,13 @@ creating a Better Workflows journal.
 
 ## Resolve the helper
 
-Use `dw` when `command -v dw` succeeds. Otherwise resolve the plugin root as two directories above this `SKILL.md` and run `node <plugin-root>/scripts/dw.mjs`. In the examples below, `dw` means whichever form was resolved. Do not install packages or create a global symlink automatically.
+Use `dw` only when `command -v dw` succeeds and `dw templates` lists the selected
+template. If the command fails or its inventory lacks that template, treat the
+global helper as stale: resolve the plugin root as two directories above this
+`SKILL.md` and run `node <plugin-root>/scripts/dw.mjs`. Verify that fallback with
+the same template inventory check before starting a run. In the examples below,
+`dw` means whichever form was verified. Do not install packages or create a
+global symlink automatically.
 
 ## Route the task
 

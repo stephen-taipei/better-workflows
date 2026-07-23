@@ -410,6 +410,10 @@ node plugins/better-workflows/scripts/dw.mjs doctor
 node plugins/better-workflows/scripts/dw.mjs eval
 ```
 
+A global `dw` command is optional. Before a workflow uses one, it verifies that
+`dw templates` contains the selected template; a stale helper automatically
+falls back to the runner bundled with the active plugin.
+
 ## Security model
 
 - State directories use mode `0700`; state files use `0600`.

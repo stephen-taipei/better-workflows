@@ -27,6 +27,8 @@ test("main skill defines persistent goal lifecycle", async () => {
   assert.match(content, /create one from the user's requested outcome/);
   assert.match(content, /Mark the\s+goal complete only after/);
   assert.match(content, /Goal mode controls persistence/);
+  assert.match(content, /dw templates.*selected\s+template/s);
+  assert.match(content, /global helper as stale/);
 });
 
 test("monorepo refactor keeps its exact picker name", async () => {
