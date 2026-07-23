@@ -109,6 +109,82 @@ codex plugin add better-workflows@better-workflows
 
 安装后请打开新的 Codex task，让 Skill catalog 重新加载。
 
+## 渐进式路由：Snapshot → Preview → Execute
+
+> **核心价值：** 在工作开始前说明“为什么这条路由现在可用”。仅看到已安装
+> 的名称，并不能证明 command、support skill、provider 或 host capability
+> 当前确实可调用。
+
+```bash
+# 只读；不会启动 provider 登录或 semantic model probe。
+dw doctor --capabilities
+
+dw route preview \
+  --goal "整合 Dependabot 更新并清理本次拥有的资源" \
+  --scope . \
+  --domain maintenance \
+  --tag dependabot
+```
+
+每项 capability 都会显示 `available`、`unavailable`、`unverified`、
+`unsupported` 或 `requires-authority`，并附原因与 fallback。Model 可用性
+只会复用未变化且仍在 24 小时内的 semantic roster cache；cache miss 或过期
+不会自动 probe。Node-only v1 无法证明 Codex host 的 MCP exposure，因此明确
+显示 `unsupported`，由 host 回报。
+
+### 一条 primary route、一份 Profile
+
+Routing Profile 只能选择一个 primary entry 或 template；可设置最低 mode、
+required capabilities，以及最多三个**仅提供建议**的 support skills。它不能
+安装工具、授予权限、新增 side effects、降低 mode，或覆盖用户明确选择的入口。
+
+| 优先级 | 来源 | 规则 |
+| ---: | --- | --- |
+| 1 | Host hard constraints | 本地配置不能降低；host 未提供输入时显示 `unverified`。 |
+| 2 | 明确 entry/template/mode | 用户的 picker 或 CLI 选择优先。 |
+| 3 | Workspace Profile | `<repo>/.codex/better-workflows.json`；匹配时取代 personal route。 |
+| 4 | Personal Profile | `$DW_STATE_ROOT/routing/profile.json`。 |
+| 5 | 内置 `auto` | 在证据选出真实 template 前返回 `template: null`。 |
+
+同一 Profile 先比较 priority，同分保持文件顺序。不同 match category 使用
+AND；同一 category 内的值使用 OR。Workspace 与 personal rule 不做 deep
+merge。参见严格 schema 的
+[Profile 示例](../plugins/better-workflows/config/routing-profile.example.json)。
+
+```bash
+dw route profile validate --file my-routing-profile.json
+dw route profile install --file my-routing-profile.json
+dw route profile show
+```
+
+### 可审查、单次使用的 route receipt
+
+```bash
+dw route preview \
+  --goal "不改变 public contract，重构 monorepo" \
+  --scope . \
+  --entry monorepo-refactor \
+  --record
+
+dw run --route-receipt <route-receipt-id>
+```
+
+```mermaid
+flowchart LR
+  A["Capability snapshot<br/>只读 roster cache"] --> B["Route preview<br/>explicit → workspace → personal → auto"]
+  B --> C{"已有真实 template<br/>且 required capabilities 可用？"}
+  C -- "否" --> D["Fail closed<br/>列出 blocker 或先选择真实 template"]
+  C -- "是" --> E["Private route receipt<br/>0600 · 24h · bundle digest"]
+  E --> F{"Workspace、Profile、scope、<br/>catalog、capability 或 bundle 漂移？"}
+  F -- "是" --> D
+  F -- "否" --> G["单次 dw run<br/>保留 mode floor"]
+  G --> H["Template-bound action gates<br/>新鲜证据与 reconciliation"]
+```
+
+Receipt 会绑定 goal/scope、选定路由、catalog、workspace/personal Profiles、
+capability fingerprint 与完整 plugin bundle digest；24 小时过期且只能使用
+一次。重放、篡改或任何 binding 漂移都会 fail closed。
+
 ## 在 Codex 中使用
 
 ### Codex CLI
@@ -134,7 +210,7 @@ $better-workflows:auto <描述需要完成的目标>
 ### 快速选择
 
 - 不确定选哪个：使用 `auto`。
-- 已知道任务类别：选择九个任务入口之一。
+- 已知道任务类别：选择十个任务入口之一。
 - 只想指定审查强度：使用 `direct`、`verified`、`deep` 或 `critical`。
 - 仍在使用旧命令：选择 compatibility alias。
 
@@ -145,6 +221,7 @@ $better-workflows:auto <描述需要完成的目标>
 | `$better-workflows:auto` | 大多数任务的推荐默认值。根据风险与证据自动选择 template、mode 与 critics。 | `$better-workflows:auto Review 当前 repo、修复已验证问题并创建 PR。` |
 | `$better-workflows:review-issues` | 只读 audit、finding 去重与经授权的 GitHub issue 创建；不修改代码。 | `$better-workflows:review-issues Review 最新 dev SHA，创建去重后的 P0/P1/P2 issues。` |
 | `$better-workflows:fix-issues-pr` | 重新验证 open issues、由 Root 修复并创建 PR；仅在获授权时 merge 与 cleanup。 | `$better-workflows:fix-issues-pr 修复 dev 的 open issues，创建 PR，等待 fresh checks 后 merge 并 cleanup。` |
+| `$better-workflows:pr-to-dev` | 将范围内修改拆成 atomic commits，创建唯一 target 为 `dev` 的 PR，fresh checks 后 merge、同步 remote 并精确清理。 | `$better-workflows:pr-to-dev 分批 commit 当前修改，发 PR 到 dev，checks 通过后 merge、同步 remote dev 并清理本次 worktree。` |
 | `$better-workflows:cross-platform` | Backend、iOS、Android、Web 的 schema、optional 字段、enum、sync、version gate 与 headers。 | `$better-workflows:cross-platform 检查 backend、iOS 和 Android 的 contact sync contract，修复问题并创建 PR。` |
 | `$better-workflows:ios-static` | 不适合本地 build 时的 Swift/iOS 静态 Review，以及串行 `project.pbxproj` 验证。 | `$better-workflows:ios-static 不做 build，Review iOS 变更、检查新 Swift 文件已加入 pbxproj 并修复静态问题。` |
 | `$better-workflows:localization` | 多语言更新，尤其是 41 语言 key 数量、顺序、精确 scope 与区域变体。 | `$better-workflows:localization 将这些 keys 添加到全部 41 个语言，并验证 key 顺序一致。` |
@@ -266,7 +343,14 @@ node plugins/better-workflows/scripts/dw.mjs run \
 ```bash
 npm test --prefix plugins/better-workflows
 node plugins/better-workflows/scripts/dw.mjs eval
+node scripts/plugin-cache.mjs check
 ```
+
+Plugin cache version 是 immutable。任何内容变更都必须使用新的 build
+version；`node scripts/plugin-cache.mjs sync` 只会 stage 尚不存在的版本，
+验证完整 file manifest 与 digest 后原子发布。同版本内容不同时会拒绝原地
+覆盖。通过正常 Codex plugin refresh 启用前，还应从最终 cache path 执行
+`dw eval`。
 
 ## License
 
