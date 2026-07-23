@@ -214,11 +214,12 @@ flowchart LR
 失败就停止。每个 Dependabot PR 都必须有 disposition；在本次来源 Actions
 取消且 consolidation PR 完成 terminal reconciliation 前，不允许清理来源。
 
-### Template-only：PR 合并至 `dev`
+### Picker 流程：PR 合并至 `dev`
 
 `pr-to-dev` 专门处理分批 atomic commit、创建唯一 target 为 `dev` 的 PR、
 fresh required checks、受保护 merge、同步 remote `dev`，以及最后只清理本次
-run 拥有的资源。它是专用 template，不新增 picker Skill。
+run 拥有的资源。可从原生 picker 选择 `$better-workflows:pr-to-dev`，或直接
+启动相同 template：
 
 ```bash
 node plugins/better-workflows/scripts/dw.mjs run \

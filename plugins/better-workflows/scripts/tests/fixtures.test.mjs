@@ -210,6 +210,7 @@ test("skills have no placeholders and retired AI-meeting alias is absent", async
     "ios-static",
     "localization",
     "monorepo-refactor",
+    "pr-to-dev",
     "research",
     "review-issues",
     "verified"

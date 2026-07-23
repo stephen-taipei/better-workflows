@@ -290,11 +290,12 @@ disposition, and cleanup is allowed only after run-owned Actions are cancelled
 and the consolidation PR is terminally reconciled. The current consolidation
 run and unrelated runs are never cancelled by this cleanup gate.
 
-### Template-only: PR to `dev`
+### Picker workflow: PR to `dev`
 
 `pr-to-dev` governs atomic commit batches, one PR targeting `dev`, fresh required
 checks, protected merge, remote `dev` reconciliation, and cleanup of only
-run-owned resources. It is a template rather than another picker Skill.
+run-owned resources. Select `$better-workflows:pr-to-dev` from the native picker,
+or start the same template directly:
 
 ```bash
 node plugins/better-workflows/scripts/dw.mjs run \

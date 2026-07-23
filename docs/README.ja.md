@@ -214,12 +214,12 @@ terminal を明示します。providerを照会できない場合は停止しま
 Dependabot PR に disposition を付け、run所有の Actions を cancel して
 consolidation PR の terminal reconciliation が完了する前には source を cleanup しません。
 
-### Template-only：PR を `dev` に merge
+### Picker workflow：PR を `dev` に merge
 
 `pr-to-dev` は atomic commit batch への分割、target が `dev` の 1 つの PR、
 fresh required checks、protected merge、remote `dev` の reconciliation、
-run 所有 resource の cleanup を固定する専用 template です。picker Skill は
-追加しません。
+run 所有 resource の cleanup を固定する workflow です。native picker から
+`$better-workflows:pr-to-dev` を選択するか、同じ template を直接起動できます。
 
 ```bash
 node plugins/better-workflows/scripts/dw.mjs run \
