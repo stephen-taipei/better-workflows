@@ -19,6 +19,7 @@ import {
   addEvidence,
   addFinding,
   atomicWriteJson,
+  bindLegacyRunTemplate,
   buildContract,
   cleanupRuns,
   consumeActionToken,
@@ -36,6 +37,7 @@ import {
   pluginRoot,
   readJson,
   reconcileAction,
+  routeMode,
   safeJoin,
   setRunStatus,
   sha256,
@@ -55,11 +57,26 @@ import {
   loadDeliberationRoster,
   probeDeliberationRoster
 } from "./lib/deliberation.mjs";
+import {
+  capabilitySnapshot,
+  claimRouteReceipt,
+  installPersonalRoutingProfile,
+  markRouteReceiptUsed,
+  pluginBundleDigest,
+  previewRoute,
+  recordRouteReceipt,
+  showRoutingProfiles,
+  validateRouteReceipt,
+  validateRoutingProfileFile
+} from "./lib/routing.mjs";
 
 const execFileAsync = promisify(execFile);
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const TEMPLATE_DIR = path.join(pluginRoot(), "templates");
 const SAFE_LABEL = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+const RUN_MODE_RANK = new Map(
+  ["direct", "verified", "deep", "critical"].map((mode, index) => [mode, index])
+);
 
 function print(value) {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
@@ -118,6 +135,22 @@ function parseArgs(argv) {
 function values(value, fallback = []) {
   if (value === undefined) return fallback;
   return Array.isArray(value) ? value : [value];
+}
+
+function assertKnownOptions(options, allowed) {
+  const unknown = Object.keys(options).filter((key) => !allowed.includes(key));
+  if (unknown.length > 0) throw new Error(`Unknown option(s): ${unknown.map((key) => `--${key}`).join(", ")}`);
+}
+
+function strongestRunMode(...modes) {
+  for (const mode of modes) {
+    if (mode && mode !== "auto" && !RUN_MODE_RANK.has(mode)) {
+      throw new Error(`Unknown mode: ${mode}`);
+    }
+  }
+  const concrete = modes.filter((mode) => RUN_MODE_RANK.has(mode));
+  if (concrete.length === 0) return "auto";
+  return concrete.sort((left, right) => RUN_MODE_RANK.get(right) - RUN_MODE_RANK.get(left))[0];
 }
 
 function contextualReasoningEffort(mode, requested = "auto") {
@@ -384,7 +417,46 @@ async function providerEvidence(root, runId, result, prompt, acceptanceIds) {
 }
 
 async function commandRun(root, options) {
-  const templateName = String(options.template ?? "");
+  assertKnownOptions(options, [
+    "template",
+    "mode",
+    "goal",
+    "scope",
+    "contract",
+    "risk",
+    "uncertainty",
+    "blast-radius",
+    "irreversibility",
+    "evidence-gap",
+    "sensitivity",
+    "authority",
+    "allow-agy",
+    "sanitized",
+    "require-agy",
+    "volatile-exclusion",
+    "high-risk-ignored",
+    "remote-revision",
+    "route-receipt"
+  ]);
+  let receiptBinding = null;
+  if (options["route-receipt"]) {
+    for (const conflicting of ["template", "entry", "goal", "scope", "mode"]) {
+      if (options[conflicting] !== undefined) {
+        throw new Error(`--route-receipt cannot be combined with --${conflicting}`);
+      }
+    }
+    receiptBinding = await validateRouteReceipt({
+      stateRoot: root,
+      cwd: process.cwd(),
+      receiptId: String(options["route-receipt"])
+    });
+    if (!receiptBinding.preview.primary.template) {
+      throw new Error("Route receipt does not resolve a concrete template");
+    }
+  }
+  const templateName = receiptBinding
+    ? receiptBinding.preview.primary.template
+    : String(options.template ?? "");
   const template = await loadTemplate(templateName);
   let contract;
   if (options.contract) {
@@ -394,8 +466,12 @@ async function commandRun(root, options) {
     contract = buildContract({
       template: templateName,
       templateDefinition: template,
-      goal: String(options.goal ?? `${templateName} workflow`),
-      scope: values(options.scope, ["."]).map(String),
+      goal: receiptBinding
+        ? receiptBinding.preview.input.goal
+        : String(options.goal ?? `${templateName} workflow`),
+      scope: receiptBinding
+        ? receiptBinding.preview.input.scope
+        : values(options.scope, ["."]).map(String),
       risk: {
         risk: integer(options.risk),
         uncertainty: integer(options.uncertainty),
@@ -415,16 +491,47 @@ async function commandRun(root, options) {
       contract.agy.required = true;
     }
   }
+  const currentTemplateDigest = digestObject(template);
+  if (contract.templateDigest && contract.templateDigest !== currentTemplateDigest) {
+    throw new Error("TaskContract template digest does not match the installed template");
+  }
+  contract.templateDigest = currentTemplateDigest;
+  contract.actionGates = structuredClone(template.actionGates ?? {});
+  const riskMode = routeMode(contract, "auto");
+  const requestedMode = receiptBinding
+    ? receiptBinding.preview.effectiveMode
+    : strongestRunMode(
+        template.defaultMode,
+        riskMode,
+        String(options.mode ?? "auto")
+      );
+  if (receiptBinding) {
+    if (await pluginBundleDigest() !== receiptBinding.receipt.bindings.bundleDigest) {
+      throw new Error("Plugin bundle drifted after route receipt validation");
+    }
+    await claimRouteReceipt({
+      stateRoot: root,
+      receiptId: receiptBinding.receipt.receiptId
+    });
+  }
   const result = await createRun({
     root,
     contract,
-    requestedMode: String(options.mode ?? "auto"),
+    requestedMode,
     cwd: process.cwd()
   });
+  if (receiptBinding) {
+    await markRouteReceiptUsed({
+      stateRoot: root,
+      receiptId: receiptBinding.receipt.receiptId,
+      runId: result.runId
+    });
+  }
   if (result.direct) {
     return {
       ok: true,
       ...result,
+      routeReceipt: receiptBinding?.receipt.receiptId ?? null,
       instruction: "Direct mode: continue in the root without helper state or subagents."
     };
   }
@@ -432,11 +539,25 @@ async function commandRun(root, options) {
   return {
     ok: true,
     ...result,
+    routeReceipt: receiptBinding?.receipt.receiptId ?? null,
     sentinel: summarizeSentinel(initial.sentinel, initial.target)
   };
 }
 
 async function commandDoctor(root, options) {
+  if (optionEnabled(options.capabilities)) {
+    const snapshot = await capabilitySnapshot({
+      cwd: process.cwd(),
+      stateRoot: root,
+      includeInventory: true
+    });
+    return {
+      ok: snapshot.blockers.length === 0,
+      version: VERSION,
+      providerProbeStarted: false,
+      ...snapshot
+    };
+  }
   await ensureStateRoot(root);
   const info = await stat(root);
   const defaults = await loadDefaults();
@@ -460,6 +581,70 @@ async function commandDoctor(root, options) {
       maxPromptBytes: defaults.providers.agy.maxPromptBytes
     }
   };
+}
+
+async function commandRoute(root, subcommand, action, options) {
+  if (subcommand === "preview") {
+    assertKnownOptions(options, [
+      "goal",
+      "scope",
+      "entry",
+      "template",
+      "mode",
+      "domain",
+      "tag",
+      "record"
+    ]);
+    const preview = await previewRoute({
+      cwd: process.cwd(),
+      stateRoot: root,
+      goal: String(options.goal ?? ""),
+      scope: values(options.scope, ["."]).map(String),
+      entry: options.entry ? String(options.entry) : null,
+      template: options.template ? String(options.template) : null,
+      mode: String(options.mode ?? "auto"),
+      domains: values(options.domain).map(String),
+      tags: values(options.tag).map(String)
+    });
+    if (optionEnabled(options.record)) {
+      const receipt = await recordRouteReceipt({
+        stateRoot: root,
+        cwd: process.cwd(),
+        preview
+      });
+      return { ...preview, receipt: { id: receipt.receiptId, path: receipt.path } };
+    }
+    return preview;
+  }
+  if (subcommand === "profile") {
+    if (action === "show") {
+      assertKnownOptions(options, []);
+      return { ok: true, ...(await showRoutingProfiles({ cwd: process.cwd(), stateRoot: root })) };
+    }
+    if (action === "validate") {
+      assertKnownOptions(options, ["file"]);
+      return {
+        ok: true,
+        ...(await validateRoutingProfileFile({
+          cwd: process.cwd(),
+          file: String(options.file ?? "")
+        }))
+      };
+    }
+    if (action === "install") {
+      assertKnownOptions(options, ["file"]);
+      return {
+        ok: true,
+        ...(await installPersonalRoutingProfile({
+          cwd: process.cwd(),
+          stateRoot: root,
+          file: String(options.file ?? "")
+        }))
+      };
+    }
+    throw new Error("route profile subcommand must be validate, show, or install");
+  }
+  throw new Error("route subcommand must be preview or profile");
 }
 
 function optionEnabled(value) {
@@ -529,6 +714,10 @@ function help() {
   return {
     usage: [
       "dw run --template <name> --mode <auto|direct|verified|deep|critical> --goal <text> [--scope <path>]",
+      "dw run --route-receipt <route-receipt-id>",
+      "dw route preview --goal <text> [--scope <path>] [--entry <id>|--template <name>] [--mode <mode>] [--domain <name>] [--tag <name>] [--record]",
+      "dw route profile validate|install --file <profile.json>",
+      "dw route profile show",
       "dw status <run-id>",
       "dw inspect <run-id>",
       "dw resume <run-id>",
@@ -543,6 +732,7 @@ function help() {
       "dw action issue|consume|reconcile <run-id> ...",
       "dw complete <run-id>",
       "dw doctor [--agy --model <model>]",
+      "dw doctor --capabilities",
       "dw eval",
       "dw cleanup [--older-than-days 30] [--apply]",
       "dw templates"
@@ -557,6 +747,7 @@ async function main() {
   if (!command || command === "help" || options.help) return help();
   if (command === "templates") return { ok: true, templates: await listTemplates() };
   if (command === "run") return commandRun(root, options);
+  if (command === "route") return commandRoute(root, subcommand, runId, options);
   if (command === "deliberation") return commandDeliberation(subcommand, options);
   if (command === "status") {
     const run = await loadRun(root, subcommand);
@@ -581,17 +772,33 @@ async function main() {
     };
   }
   if (command === "resume") {
-    const run = await loadRun(root, subcommand);
+    let run = await loadRun(root, subcommand);
+    let migration = { migrated: false };
+    if (!run.contract.templateDigest || !run.contract.actionGates) {
+      const template = await loadTemplate(run.manifest.template);
+      migration = await bindLegacyRunTemplate(root, subcommand, {
+        templateDigest: digestObject(template),
+        actionGates: template.actionGates ?? {}
+      });
+      run = await loadRun(root, subcommand);
+    }
     const freshness = await refreshEvidence(root, subcommand);
     const sentinel = await captureForRun(root, subcommand);
     const same = run.state.lastSentinel?.digest === sentinel.digest;
-    const status = same ? "running" : "stale";
+    const status = same && freshness.stale.length === 0 ? "running" : "stale";
     await setRunStatus(root, subcommand, status, {
       lastSentinelVerified: same,
       lastSentinelComplete: same && sentinel.complete,
       resumeFreshness: freshness
     });
-    return { ok: same, runId: subcommand, status, freshness, currentDigest: sentinel.digest };
+    return {
+      ok: same && freshness.stale.length === 0,
+      runId: subcommand,
+      status,
+      freshness,
+      migration,
+      currentDigest: sentinel.digest
+    };
   }
   if (command === "sentinel") {
     if (!runId || !options.label) throw new Error("sentinel requires run id and --label");
@@ -674,8 +881,14 @@ async function main() {
     if (subcommand === "issue") {
       const run = await loadRun(root, runId);
       const template = await loadTemplate(run.manifest.template);
+      if (!run.contract.templateDigest || !run.contract.actionGates) {
+        throw new Error(`Legacy run is unbound; run dw resume ${runId} before issuing actions`);
+      }
+      if (run.contract.templateDigest !== digestObject(template)) {
+        throw new Error("Workflow template drifted after run creation");
+      }
       const action = String(options.action ?? "");
-      const requiredEvidence = template.actionGates?.[action];
+      const requiredEvidence = run.contract.actionGates?.[action];
       if (!Array.isArray(requiredEvidence) || requiredEvidence.length === 0) {
         throw new Error(`No pre-action evidence gate is defined for: ${action}`);
       }
