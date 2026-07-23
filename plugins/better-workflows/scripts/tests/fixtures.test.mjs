@@ -18,7 +18,7 @@ test("all historical and adversarial routing fixtures select the expected mode",
   }
 });
 
-test("all nine templates are valid and side-effect templates declare action gates", async () => {
+test("all eleven templates are valid and side-effect templates declare action gates", async () => {
   const directory = path.join(pluginRoot(), "templates");
   const names = (await readdir(directory))
     .filter((name) => name.endsWith(".json"))
@@ -27,10 +27,12 @@ test("all nine templates are valid and side-effect templates declare action gate
     "browser-simulator-qa.json",
     "ci-release-monitor.json",
     "cross-platform-contract.json",
+    "dependabot-consolidation-pr-cleanup.json",
     "ios-static-pbxproj.json",
     "issues-to-root-fix-pr-merge-cleanup.json",
     "localization-41.json",
     "monorepo-refactor.json",
+    "pr-to-dev.json",
     "research-deliberation.json",
     "review-to-issues.json"
   ]);
@@ -43,6 +45,31 @@ test("all nine templates are valid and side-effect templates declare action gate
     if (template.rootOnlyActions.some((action) => /deploy|release|issue create|pr create|pr merge/i.test(action))) {
       assert.ok(template.actionGates && Object.keys(template.actionGates).length > 0, name);
     }
+  }
+});
+
+test("pr-to-dev enforces batched commits, a dev-targeted PR, and remote reconciliation", async () => {
+  const template = JSON.parse(
+    await readFile(path.join(pluginRoot(), "templates", "pr-to-dev.json"), "utf8")
+  );
+  assert.equal(template.defaultMode, "critical");
+  for (const evidence of [
+    "commit-plan",
+    "commit-manifest",
+    "commit-history",
+    "target-branch-dev",
+    "required-checks",
+    "merge-result",
+    "remote-sync"
+  ]) {
+    assert.ok(template.requiredEvidence.includes(evidence), evidence);
+  }
+  for (const action of ["git.commit", "git.push", "pr.create", "pr.merge", "remote.sync", "worktree.cleanup"]) {
+    assert.ok(Object.hasOwn(template.actionGates, action), action);
+    assert.ok(template.actionGates[action].length > 0, action);
+  }
+  for (const acceptance of ["batched-commits-complete", "pr-targets-dev", "fresh-checks-passed", "merged-to-dev", "remote-reconciled", "cleanup-exact"]) {
+    assert.ok(template.acceptance.some((item) => item.id === acceptance), acceptance);
   }
 });
 
@@ -66,11 +93,108 @@ test("monorepo refactor requires implementation of every eligible recommendation
   );
 });
 
-test("skills have no placeholders and compatibility aliases route to the main skill", async () => {
+test("research deliberation requires CLI-proven roles and an executable arbiter plan", async () => {
+  const template = JSON.parse(
+    await readFile(path.join(pluginRoot(), "templates", "research-deliberation.json"), "utf8")
+  );
+  for (const evidence of [
+    "deliberation-roster",
+    "role-perspective-matrix",
+    "decision-record",
+    "executable-plan",
+    "arbiter-verdict"
+  ]) {
+    assert.ok(template.requiredEvidence.includes(evidence), evidence);
+  }
+  for (const policy of [
+    "provider-probe-before-roster",
+    "model-bound-role-assignment",
+    "role-duplication-across-brands-allowed",
+    "capability-ranked-arbiter-fallback"
+  ]) {
+    assert.ok(template.policyGates.includes(policy), policy);
+  }
+  for (const acceptance of ["providers-probed", "roles-separated", "plan-executable", "arbiter-resolved"]) {
+    assert.ok(template.acceptance.some((item) => item.id === acceptance), acceptance);
+  }
+});
+
+test("deliberation roster keeps every brand and routes Gemini through Agy with a 24-hour lease", async () => {
+  const roster = JSON.parse(
+    await readFile(path.join(pluginRoot(), "config", "deliberation-roster.json"), "utf8")
+  );
+  assert.equal(roster.rosterCacheHours, 24);
+  const providers = new Map(roster.providers.map((provider) => [provider.id, provider]));
+  for (const id of ["codex", "claude", "gemini", "agy", "grok", "cursor", "kimi", "qwen", "kiro"]) {
+    assert.ok(providers.has(id), id);
+  }
+  assert.equal(providers.get("gemini").command, "agy");
+  assert.equal(providers.get("gemini").probe, "agy");
+  assert.equal(providers.get("gemini").effortTransport, "native");
+  assert.equal(
+    providers.get("agy").models.find((model) => model.model === "claude-opus-4-6-thinking").effortTransport,
+    "model-variant"
+  );
+  assert.deepEqual(roster.reasoningEffort.allowed, ["medium", "high"]);
+  assert.equal(roster.reasoningEffort.modeDefaults.verified, "medium");
+  assert.equal(roster.reasoningEffort.modeDefaults.deep, "high");
+  assert.deepEqual(
+    providers.get("gemini").models
+      .filter((model) => model.model.startsWith("gemini-3.6-flash-"))
+      .map((model) => model.reasoningEffort)
+      .sort(),
+    ["high", "medium"]
+  );
+});
+
+test("Dependabot consolidation requires classification, compatibility, and exact cleanup gates", async () => {
+  const template = JSON.parse(
+    await readFile(
+      path.join(pluginRoot(), "templates", "dependabot-consolidation-pr-cleanup.json"),
+      "utf8"
+    )
+  );
+  assert.equal(template.defaultMode, "critical");
+  for (const evidence of [
+    "dependabot-inventory",
+    "compatibility-matrix",
+    "consolidation-diff",
+    "lockfile-validation",
+    "repository-actions-inventory",
+    "actions-cleanup-plan",
+    "merge-result",
+    "actions-cancelled",
+    "cleanup-manifest"
+  ]) {
+    assert.ok(template.requiredEvidence.includes(evidence), evidence);
+  }
+  for (const policy of [
+    "explicit-eligibility-classification",
+    "one-consolidation-pr-per-run",
+    "compatibility-before-consolidation",
+    "repository-actions-existence-check",
+    "cancel-actions-before-source-cleanup",
+    "preserve-current-consolidation-actions",
+    "unknown-action-state-fails-closed",
+    "exact-run-owned-cleanup",
+    "unknown-provider-state-fails-closed"
+  ]) {
+    assert.ok(template.policyGates.includes(policy), policy);
+  }
+  for (const action of ["actions.inventory", "pr.create", "pr.merge", "actions.cancel", "pr.close", "branch.delete", "worktree.cleanup"]) {
+    assert.ok(Object.hasOwn(template.actionGates, action), action);
+    assert.ok(template.actionGates[action].length > 0, action);
+  }
+  assert.ok(template.acceptance.some((item) => item.id === "eligibility-classified"));
+  assert.ok(template.acceptance.some((item) => item.id === "actions-inventory-current"));
+  assert.ok(template.acceptance.some((item) => item.id === "actions-cancelled-before-cleanup"));
+  assert.ok(template.acceptance.some((item) => item.id === "cleanup-exact"));
+});
+
+test("skills have no placeholders and retired AI-meeting alias is absent", async () => {
   const skillsRoot = path.join(pluginRoot(), "skills");
   const skillNames = (await readdir(skillsRoot)).sort();
   assert.deepEqual(skillNames, [
-    "ai-meeting-tw",
     "auto",
     "auto-improve",
     "auto-issues",
@@ -86,6 +210,7 @@ test("skills have no placeholders and compatibility aliases route to the main sk
     "ios-static",
     "localization",
     "monorepo-refactor",
+    "pr-to-dev",
     "research",
     "review-issues",
     "verified"
@@ -107,6 +232,8 @@ test("skills have no placeholders and compatibility aliases route to the main sk
   assert.match(main, /direct.*do not invoke .*dw/s);
   assert.match(main, /at most three direct native children/);
   assert.match(main, /Never decide by vote/);
+  assert.match(main, /CLI-proven participant roster/);
+  assert.doesNotMatch(await readFile(path.join(pluginRoot(), "templates", "research-deliberation.json"), "utf8"), /no-claude/);
 });
 
 test("plugin has zero runtime dependencies", async () => {

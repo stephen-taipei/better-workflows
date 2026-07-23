@@ -150,8 +150,89 @@ $better-workflows:auto <완료하려는 결과를 설명>
 | `$better-workflows:localization` | 다국어 변경, 특히 41 locales의 key 수, 순서, 정확한 scope, 지역 변형. | `$better-workflows:localization 41개 locales에 keys를 추가하고 동일한 순서인지 검증.` |
 | `$better-workflows:ci-release` | CI failure, runner queue, 직렬 deploy, release, 원격 모니터링, receipt 검증. | `$better-workflows:ci-release 실패한 PR checks를 수정하고 직렬 dev deploy를 모니터링.` |
 | `$better-workflows:browser-qa` | 최신 UI 증거, screenshots, 재현 가능한 action log가 필요한 Webwright／simulator QA. | `$better-workflows:browser-qa signup과 contact sync를 검증하고 screenshot evidence 첨부.` |
-| `$better-workflows:research` | 증거 기반 조사, architecture 비교, 독립 관점, 반증. 다수결로 결정하지 않음. | `$better-workflows:research 세 가지 sync architecture를 비교·반증하고 권장안 제시.` |
+| `$better-workflows:research` | CLI로 검증한 multi-model 역할, 증거 기반 architecture 비교, 반증 및 실행 가능한 Plan. 다수결로 결정하지 않음. | `$better-workflows:research 세 가지 sync architecture를 비교·반증하고 구현 가능한 Plan 생성.` |
 | `$better-workflows:monorepo-refactor` | monorepo 전체를 조사한 뒤 적격한 bounded refactor 제안을 직접 구현하고 behavior invariants, validation, rollback evidence를 유지합니다. | `$better-workflows:monorepo-refactor monorepo를 조사하고 public contract를 바꾸지 않으면서 적격한 boundary cleanup을 구현.` |
+
+### CLI로 검증한 multi-model deliberation
+
+`research-deliberation`은 Codex, Claude, Gemini(Agy 경유), Agy, Grok, Cursor, Kimi, Qwen, Kiro의 전체 설정 브랜드 목록을 유지합니다. 하지만 안전한 semantic CLI probe에 성공한 CLI/model 조합만 이번 의사결정 그룹에 참여합니다. binary 부재, 만료된 로그인, 대화형 로그인 필요 상태는 unavailable로 기록하며 조용히 대체하지 않습니다.
+
+전체 roster의 reasoning-effort profile별 probe는 최대 24시간 cache됩니다. 만료, `--refresh`, roster 설정 변경, CLI path/binary digest 변경 시 재검증합니다. 단일 provider probe는 전체 cache를 덮어쓰지 않습니다. 외부 CLI는 명시적 사용자 권한과 sanitize된 비기밀 input이 필요합니다. 이 runtime에서 Gemini는 standalone `gemini` 대신 `agy` transport로 호출됩니다.
+
+모든 participant에 같은 contextual reasoning-effort를 적용합니다. bounded `direct`／`verified`는 기본 `medium`, `auto`／`deep`／`critical`는 기본 `high`이며 evidence에 따라 명시적으로 override할 수 있습니다. Codex에는 native setting을 전달하고, Agy는 실제 `gemini-3.6-flash-medium` 또는 `gemini-3.6-flash-high`를 선택하며 해당 model이 지원할 때만 native `--effort`를 전달합니다. flag를 거부하는 model은 high／medium-only variant로 정직하게 기록합니다. 다른 CLI는 prompt-guidance로 기록하며 provider attestation을 가장하지 않습니다.
+
+```mermaid
+flowchart LR
+  A["sanitize된 decision dossier"] --> B["전체 brand roster\n새 probe 또는 유효한 24h cache"]
+  B --> C["검증된 model role\n독립 memo"]
+  C --> D["Root evidence reconciliation\n다수결 금지"]
+  D --> E["가장 높은 검증 arbiter\nSol → Terra → Luna → Fable → Opus"]
+  E --> F["실행 가능한 Plan\nowner · dependencies · validation · rollback"]
+  B -->|"unavailable 또는 unsafe"| G["제외 기록\nfail closed"]
+```
+
+```bash
+node plugins/better-workflows/scripts/dw.mjs deliberation deliberate \
+  --prompt-file sanitized-case.md \
+  --allow-external-providers --sanitized
+```
+
+### Template-only: Dependabot consolidation SOP
+
+Dependabot consolidation은 전용 template이며 picker Skill을 추가하지 않습니다.
+고정된 contract가 필요할 때는 다음처럼 직접 실행합니다.
+
+```bash
+node plugins/better-workflows/scripts/dw.mjs run \
+  --template dependabot-consolidation-pr-cleanup \
+  --mode critical \
+  --goal "Dependabot PR을 inventory하고 호환 업데이트를 통합해 하나의 PR을 merge하며 이 run이 소유한 source만 cleanup한다." \
+  --scope .
+```
+
+SOP 순서는 다음과 같습니다.
+
+```mermaid
+flowchart LR
+  A["Fresh Dependabot inventory"] --> B["모든 PR 분류\nconsolidate · separate · defer · exclude"]
+  B --> C["호환성 매트릭스\npeer · runtime · lockfile · security"]
+  C --> D["하나의 consolidation branch와 bounded diff"]
+  D --> E["install、lockfile、lint、typecheck、test、audit"]
+  E --> F["current revision의 하나의 PR"]
+  F --> G{"merge와 reconciliation 완료?"}
+  G -- "No / unknown" --> H["중지하고 provider를 조회하거나 blocker 해결"]
+  G -- "Yes" --> J["repo workflows와 Actions runs inventory"]
+  J --> K["이 run이 소유한 queued/in-progress Actions를 cancel하고 reconcile"]
+  K --> I["이 run이 소유한 source PR/branch/worktree만 close/delete"]
+```
+
+필수 evidence는 `dependabot-inventory`, `compatibility-matrix`,
+`consolidation-diff`, `lockfile-validation`, `repository-actions-inventory`,
+`actions-cancelled`, `merge-result`, `cleanup-manifest`입니다. repo workflow와
+관련 Actions runs의 존재를 확인하고 missing, disabled, queued, running,
+terminal 상태를 명시합니다. provider를 조회할 수 없으면 중지합니다. 모든
+Dependabot PR에 disposition을 부여하고 run 소유 Actions를 cancel한 뒤
+consolidation PR의 terminal reconciliation이 완료되기 전에는 source를 cleanup하지 않습니다.
+
+### Picker workflow: PR을 `dev`에 merge
+
+`pr-to-dev`는 atomic commit batch 분할, target이 `dev`인 하나의 PR 생성,
+fresh required checks, protected merge, remote `dev` reconciliation, 그리고
+run 소유 resource만 cleanup하는 workflow입니다. native picker에서
+`$better-workflows:pr-to-dev`를 선택하거나 같은 template을 직접 실행할 수 있습니다.
+
+```bash
+node plugins/better-workflows/scripts/dw.mjs run \
+  --template pr-to-dev \
+  --mode critical \
+  --goal "범위 내 변경을 atomic commits로 나누고 dev 대상 PR을 생성한 뒤 fresh checks 후 merge, remote dev 동기화, 소유 worktree cleanup을 수행한다." \
+  --scope .
+```
+
+필수 gate는 `commit-plan`, `commit-manifest`, `target-branch-dev`,
+`required-checks`, `merge-result`, `remote-sync`, `cleanup-manifest`입니다.
+admin bypass, stale checks, 미검토 commit, remote reconciliation 전 cleanup은
+거부됩니다.
 
 ### Review 강도 항목
 
@@ -168,7 +249,6 @@ $better-workflows:auto <완료하려는 결과를 설명>
 | --- | --- | --- |
 | `$better-workflows:auto-improve` | 기존 `autoImprove`: Review, finding 검증, 수정, PR, 안전한 수렴. | Fix issues to PR, 기본 `deep` |
 | `$better-workflows:auto-issues` | 기존 `autoIssues`: 읽기 전용 Review와 중복 없는 issue 생성. | Review to issues, 기본 `verified` |
-| `$better-workflows:ai-meeting-tw` | 기존 AI meeting: Claude나 투표 없이 다중 관점 조사와 model critics. | Research deliberation, 기본 `deep` |
 | `$better-workflows:git-check-issues` | 기존 issue repair: 상태 재조회, 수정, PR, 정확한 cleanup. | Fix issues to PR, 기본 `deep` |
 | `$better-workflows` | 특정 항목을 선택하지 않은 자연어 router. | Template과 mode 자동 선택 |
 

@@ -205,8 +205,121 @@ silently replacing it.
 | `$better-workflows:localization` | Multi-locale changes, especially 41-locale key counts, ordering, exact scope, and regional variants. | `$better-workflows:localization Add these keys to all 41 locales and verify identical key order.` |
 | `$better-workflows:ci-release` | CI failures, runner queues, serialized deploys, releases, remote monitoring, and receipt-based verification. | `$better-workflows:ci-release Diagnose the failing PR checks, fix them, and monitor the serialized dev deployment.` |
 | `$better-workflows:browser-qa` | Webwright or simulator QA requiring current UI evidence, screenshots, and a reproducible action log. | `$better-workflows:browser-qa Verify signup and contact sync in the browser and attach screenshot evidence.` |
-| `$better-workflows:research` | Evidence-backed research, architecture comparison, independent perspectives, and refutation without majority voting. | `$better-workflows:research Compare three sync architectures, challenge each one, and recommend a decision.` |
+| `$better-workflows:research` | CLI-proven multi-model roles, evidence-backed architecture comparison, refutation, and an executable plan without majority voting. | `$better-workflows:research Compare three sync architectures, challenge each one, and produce an implementation-ready plan.` |
 | `$better-workflows:monorepo-refactor` | Full workspace inventory followed by direct implementation of every eligible bounded refactor recommendation, with behavior invariants, validation, and rollback evidence. | `$better-workflows:monorepo-refactor Inventory the monorepo and implement all eligible boundary-cleanup recommendations without changing its public contract.` |
+
+### CLI-proven multi-model deliberation
+
+`research-deliberation` keeps the complete configured brand roster—Codex,
+Claude, Gemini (through Agy), Agy, Grok, Cursor, Kimi, Qwen, and Kiro—but only
+adds a CLI/model pair to the decision group after a safe semantic probe passes.
+That means a missing binary, expired login, or unsafe interactive flow is
+reported as unavailable, never silently substituted.
+
+Each normal full-roster reasoning-effort profile is cached for at most 24 hours.
+The cache is invalidated by expiry, `--refresh`, roster changes, or a CLI
+path/binary-digest change; a targeted provider probe does not replace it.
+External probes require
+explicit authorization and sanitized, non-confidential material. Gemini uses
+the `agy` transport in this runtime rather than a standalone `gemini` command.
+
+Every participant also receives the same contextual reasoning-effort policy:
+`medium` for bounded `direct`/`verified` work and `high` for
+`auto`/`deep`/`critical` work, unless explicitly overridden. Codex receives a
+native setting; Agy selects the actual `gemini-3.6-flash-medium` or
+`gemini-3.6-flash-high` model variant and passes its native `--effort` flag
+when supported. Agy models that reject the flag remain explicitly high- or
+medium-only variants; other CLIs record prompt-guided effort without pretending
+it was provider-attested.
+
+```mermaid
+flowchart LR
+  A["Sanitized decision dossier"] --> B["Full brand roster\nfresh probe or valid 24h cache"]
+  B --> C["Active model-bound roles\nindependent memos"]
+  C --> D["Root evidence reconciliation\nno majority vote"]
+  D --> E["Highest proven arbiter\nSol → Terra → Luna → Fable → Opus"]
+  E --> F["Executable plan\nowner · dependencies · validation · rollback"]
+  B -->|"unavailable or unsafe"| G["Record exclusion\nfail closed"]
+```
+
+```bash
+node plugins/better-workflows/scripts/dw.mjs deliberation deliberate \
+  --prompt-file sanitized-case.md \
+  --allow-external-providers --sanitized
+```
+
+### Template-only operational routes
+
+Dependabot consolidation is intentionally a template rather than another picker
+Skill: it is a narrowly governed operational procedure that should be selected
+from the current task context, while `auto` may route to it when the evidence
+matches. Run it directly when you need the exact contract:
+
+```bash
+node plugins/better-workflows/scripts/dw.mjs run \
+  --template dependabot-consolidation-pr-cleanup \
+  --mode critical \
+  --goal "Inventory Dependabot PRs, consolidate compatible updates, merge one PR, and clean only run-owned sources." \
+  --scope .
+```
+
+The SOP is deliberately fail-closed:
+
+```mermaid
+flowchart LR
+  A["Fresh Dependabot inventory"] --> B["Classify every PR\nconsolidate · separate · defer · exclude"]
+  B --> C["Compatibility matrix\npeer · runtime · lockfile · security"]
+  C --> D["One consolidation branch and bounded diff"]
+  D --> E["Native install, lockfile, lint, typecheck, test, audit"]
+  E --> F["One PR with current revision and fresh checks"]
+  F --> G{"Merged and reconciled?"}
+  G -- "No / unknown" --> H["Stop; query provider or resolve blocker"]
+  G -- "Yes" --> J["Inventory repository workflows and Actions runs"]
+  J --> K["Cancel run-owned queued/in-progress Actions and reconcile"]
+  K --> I["Close/delete only run-owned source PRs/branches/worktrees"]
+```
+
+Its required evidence is `dependabot-inventory`, `compatibility-matrix`,
+`consolidation-diff`, `lockfile-validation`, `repository-actions-inventory`,
+`actions-cancelled`, `merge-result`, and `cleanup-manifest`. It checks that the
+repository's workflow definitions and related Actions runs still exist and
+records missing, disabled, queued, running, and terminal states. If the
+provider cannot answer, the workflow stops. The template does not assume that
+every Dependabot PR is safe to combine: each candidate must receive a
+disposition, and cleanup is allowed only after run-owned Actions are cancelled
+and the consolidation PR is terminally reconciled. The current consolidation
+run and unrelated runs are never cancelled by this cleanup gate.
+
+### Picker workflow: PR to `dev`
+
+`pr-to-dev` governs atomic commit batches, one PR targeting `dev`, fresh required
+checks, protected merge, remote `dev` reconciliation, and cleanup of only
+run-owned resources. Select `$better-workflows:pr-to-dev` from the native picker,
+or start the same template directly:
+
+```bash
+node plugins/better-workflows/scripts/dw.mjs run \
+  --template pr-to-dev \
+  --mode critical \
+  --goal "Split in-scope changes into atomic commits, create one PR to dev, merge after fresh checks, sync remote dev, and clean owned worktrees." \
+  --scope .
+```
+
+```mermaid
+flowchart LR
+  A["Inventory and commit manifest"] --> B["Review atomic commit batches"]
+  B --> C["Push current head and create PR → dev"]
+  C --> D["Verify current head and fresh required checks"]
+  D --> E{"Protected merge succeeds?"}
+  E -- "No / unknown" --> F["Stop and reconcile provider state"]
+  E -- "Yes" --> G["Fetch and reconcile remote dev"]
+  G --> H["Cleanup only run-owned resources"]
+```
+
+The gates are `commit-plan`, `commit-manifest`, `target-branch-dev`,
+`required-checks`, `merge-result`, `remote-sync`, and `cleanup-manifest`.
+Admin bypass, stale checks, unreviewed commits, and cleanup before remote
+reconciliation are rejected.
 
 ### Review-strength entries
 
@@ -230,7 +343,6 @@ workflows.
 | --- | --- | --- |
 | `$better-workflows:auto-improve` | Legacy `autoImprove`: review, verify findings, fix, create PR, and converge safely. | Fix issues to PR, `deep` by default |
 | `$better-workflows:auto-issues` | Legacy `autoIssues`: read-only review plus deduplicated issue creation. | Review to issues, `verified` by default |
-| `$better-workflows:ai-meeting-tw` | Legacy AI meeting: multi-perspective research and model critics without Claude or vote counting. | Research deliberation, `deep` by default |
 | `$better-workflows:git-check-issues` | Legacy issue repair: re-fetch issue state, fix active issues, create PR, and clean up precisely. | Fix issues to PR, `deep` by default |
 | `$better-workflows` | Natural-language router when you do not select a specific menu entry. | Automatic template and mode routing |
 
@@ -269,7 +381,7 @@ Better Workflows chooses one of four modes:
 | `deep` | Verified work followed by up to two sequential Codex critics. |
 | `critical` | Full evidence and side-effect gates plus a required external reviewer when policy demands it. |
 
-Nine workflow templates are included:
+Eleven workflow templates are included:
 
 - `review-to-issues`
 - `issues-to-root-fix-pr-merge-cleanup`
@@ -277,9 +389,11 @@ Nine workflow templates are included:
 - `ios-static-pbxproj`
 - `localization-41`
 - `ci-release-monitor`
+- `dependabot-consolidation-pr-cleanup`
 - `browser-simulator-qa`
 - `research-deliberation`
 - `monorepo-refactor`
+- `pr-to-dev`
 
 Current Codex surfaces expose plugin Skills through native pickers: Codex CLI
 uses `@` search, while the Codex App uses `/` command search. No custom prompt
@@ -296,11 +410,16 @@ node plugins/better-workflows/scripts/dw.mjs doctor
 node plugins/better-workflows/scripts/dw.mjs eval
 ```
 
+A global `dw` command is optional. Before a workflow uses one, it verifies that
+`dw templates` contains the selected template; a stale helper automatically
+falls back to the runner bundled with the active plugin.
+
 ## Security model
 
 - State directories use mode `0700`; state files use `0600`.
 - Agy review is limited to explicitly authorized, sanitized, non-confidential bundles.
 - Agy argv transport is treated as exposed metadata and is not allowed for confidential workflows.
+- The multi-model roster retains every configured brand, but only uses a CLI-proven result from a separate `medium` or `high` cache profile lasting at most 24 hours; expiry, `--refresh`, roster changes, and CLI identity changes force revalidation.
 - Unknown provider outcomes require query reconciliation and are never blindly retried.
 - The project assumes trusted local repositories and does not claim to sandbox malicious repository code.
 

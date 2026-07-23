@@ -259,12 +259,20 @@ export async function runCodexCritic({ model, effort, prompt, timeoutMs = 120_00
 
 export async function runAgyCritic({
   model,
+  effort = "high",
+  effortTransport = "native",
   prompt,
   contract,
   config,
   timeoutMs,
   command = "agy"
 }) {
+  if (!["medium", "high"].includes(effort)) {
+    throw new Error("Agy reasoning effort must be medium or high");
+  }
+  if (!["native", "model-variant"].includes(effortTransport)) {
+    throw new Error("Agy effort transport must be native or model-variant");
+  }
   if (!contract.agy?.allowed || !contract.agy?.sanitized) {
     throw new Error("Agy requires explicit egress authorization and a sanitized bundle");
   }
@@ -281,20 +289,24 @@ export async function runAgyCritic({
   const identity = await binaryIdentity(command);
   const startedAt = new Date().toISOString();
   try {
+    const args = [
+      "--log-file",
+      path.join(bundle, "agy.log"),
+      `--prompt=${fullPrompt}`,
+      "--sandbox",
+      "--mode",
+      "plan",
+      "--model",
+      model
+    ];
+    if (effortTransport === "native") args.push("--effort", effort);
+    args.push(
+      "--print-timeout",
+      `${Math.ceil((timeoutMs ?? config.providers.agy.timeoutSeconds * 1000) / 1000)}s`
+    );
     const result = await spawnCapture(
       command,
-      [
-        "--log-file",
-        path.join(bundle, "agy.log"),
-        `--prompt=${fullPrompt}`,
-        "--sandbox",
-        "--mode",
-        "plan",
-        "--model",
-        model,
-        "--print-timeout",
-        `${Math.ceil((timeoutMs ?? config.providers.agy.timeoutSeconds * 1000) / 1000)}s`
-      ],
+      args,
       {
         cwd: bundle,
         timeoutMs: timeoutMs ?? config.providers.agy.timeoutSeconds * 1000,
@@ -312,6 +324,8 @@ export async function runAgyCritic({
         requestedModel: model,
         reportedModel: model,
         modelAssurance: "requested-not-attested",
+        reasoningEffort: effort,
+        effortTransport,
         binary: identity,
         startedAt,
         finishedAt: new Date().toISOString(),
@@ -340,25 +354,38 @@ export async function doctorCodex() {
   };
 }
 
-export async function doctorAgy({ model, command = "agy", timeoutMs = 45_000 }) {
+export async function doctorAgy({
+  model,
+  effort = "high",
+  effortTransport = "native",
+  command = "agy",
+  timeoutMs = 45_000
+}) {
+  if (!["medium", "high"].includes(effort)) {
+    throw new Error("Agy reasoning effort must be medium or high");
+  }
+  if (!["native", "model-variant"].includes(effortTransport)) {
+    throw new Error("Agy effort transport must be native or model-variant");
+  }
   const identity = await binaryIdentity(command);
   const bundle = await mkdtemp(path.join(os.tmpdir(), "dw-agy-doctor-"));
   await chmod(bundle, 0o700);
   try {
+    const args = [
+      "--log-file",
+      path.join(bundle, "agy.log"),
+      "--prompt=Reply with exactly AGY_DOCTOR_OK and nothing else.",
+      "--sandbox",
+      "--mode",
+      "plan",
+      "--model",
+      model
+    ];
+    if (effortTransport === "native") args.push("--effort", effort);
+    args.push("--print-timeout", `${Math.ceil(timeoutMs / 1000)}s`);
     const result = await spawnCapture(
       command,
-      [
-        "--log-file",
-        path.join(bundle, "agy.log"),
-        "--prompt=Reply with exactly AGY_DOCTOR_OK and nothing else.",
-        "--sandbox",
-        "--mode",
-        "plan",
-        "--model",
-        model,
-        "--print-timeout",
-        `${Math.ceil(timeoutMs / 1000)}s`
-      ],
+      args,
       { cwd: bundle, timeoutMs, maxOutputBytes: 256 * 1024 }
     );
     return {
@@ -366,6 +393,8 @@ export async function doctorAgy({ model, command = "agy", timeoutMs = 45_000 }) 
       output: result.stdout.trim(),
       stderr: result.stderr.trim(),
       requestedModel: model,
+      reasoningEffort: effort,
+      effortTransport,
       binary: identity,
       transport: "argv",
       argvExposure: true

@@ -1,0 +1,102 @@
+{
+  "name": "dependabot-consolidation-pr-cleanup",
+  "description": "Inventory Dependabot PRs, classify compatible updates, consolidate them into one governed PR, validate lockfiles, merge, and clean only run-owned source PRs and branches.",
+  "defaultMode": "critical",
+  "requiredEvidence": [
+    "dependabot-inventory",
+    "base-revision",
+    "compatibility-matrix",
+    "dependency-risk-review",
+    "consolidation-diff",
+    "lockfile-validation",
+    "repo-gates",
+    "repository-actions-inventory",
+    "actions-cleanup-plan",
+    "pr-state",
+    "merge-readiness",
+    "merge-result",
+    "actions-cancelled",
+    "cleanup-manifest",
+    "provider-reconciliation"
+  ],
+  "acceptance": [
+    {
+      "id": "inventory-complete",
+      "description": "All in-scope Dependabot PRs and source branches are inventoried at a fresh remote revision, including package manager, base branch, checks, linked updates, and ownership.",
+      "critical": true
+    },
+    {
+      "id": "eligibility-classified",
+      "description": "Every candidate is classified as consolidate, keep separate, defer, or exclude with an evidence-backed reason; no candidate is silently dropped.",
+      "critical": true
+    },
+    {
+      "id": "compatibility-verified",
+      "description": "The compatibility matrix proves which selected updates can share one consolidation change, including peer, runtime, package-manager, security, and ordering constraints.",
+      "critical": true
+    },
+    {
+      "id": "consolidated-diff-bounded",
+      "description": "The consolidation diff contains only selected Dependabot updates and required manifests or lockfiles; unrelated source changes are rejected.",
+      "critical": true
+    },
+    {
+      "id": "lockfile-valid",
+      "description": "Every applicable package-manager lockfile is regenerated and validated with repository-native install, lint, typecheck, test, and audit gates.",
+      "critical": true
+    },
+    {
+      "id": "merge-reconciled",
+      "description": "The consolidation PR is merged only from the current reviewed revision with passing required checks, and the provider reports a terminal merged state.",
+      "critical": true
+    },
+    {
+      "id": "actions-inventory-current",
+      "description": "Repository workflow definitions and Actions runs related to the source PRs and branches are inventoried at the current revision; missing, renamed, disabled, queued, running, and terminal states are explicit.",
+      "critical": true
+    },
+    {
+      "id": "actions-cancelled-before-cleanup",
+      "description": "Run-owned queued or in-progress Actions runs for source PRs and branches are cancelled and reconciled to a terminal state before source PR, branch, or worktree cleanup; the current consolidation run and unrelated runs are preserved.",
+      "critical": true
+    },
+    {
+      "id": "cleanup-exact",
+      "description": "Only run-owned source Dependabot PRs, branches, and temporary artifacts are closed or deleted after merge; uncertain ownership or provider state fails closed.",
+      "critical": true
+    }
+  ],
+  "policyGates": [
+    "goal-first-persistence",
+    "root-only-mutation",
+    "fresh-dependabot-inventory",
+    "explicit-eligibility-classification",
+    "one-consolidation-pr-per-run",
+    "compatibility-before-consolidation",
+    "lockfile-and-native-validation",
+    "current-pr-before-merge",
+    "serialized-pr-merge",
+    "repository-actions-existence-check",
+    "run-owned-actions-only",
+    "cancel-actions-before-source-cleanup",
+    "preserve-current-consolidation-actions",
+    "unknown-action-state-fails-closed",
+    "exact-run-owned-cleanup",
+    "unknown-provider-state-fails-closed",
+    "no-production-io"
+  ],
+  "actionGates": {
+    "git.fetch": ["base-revision", "dependabot-inventory"],
+    "git.commit": ["consolidation-diff", "lockfile-validation", "repo-gates"],
+    "git.push": ["consolidation-diff", "lockfile-validation", "repo-gates", "remote-authorization", "current-branch"],
+    "actions.inventory": ["base-revision", "dependabot-inventory", "repository-actions-inventory"],
+    "pr.create": ["dependabot-inventory", "eligibility-classified", "compatibility-matrix", "consolidation-diff", "lockfile-validation", "repo-gates"],
+    "pr.merge": ["pr-state", "merge-readiness", "repo-gates", "remote-authorization"],
+    "actions.cancel": ["merge-result", "repository-actions-inventory", "actions-cleanup-plan", "cleanup-manifest"],
+    "pr.close": ["merge-result", "actions-cancelled", "cleanup-manifest", "provider-reconciliation"],
+    "branch.delete": ["merge-result", "actions-cancelled", "cleanup-manifest", "provider-reconciliation"],
+    "worktree.cleanup": ["merge-result", "actions-cancelled", "cleanup-manifest", "provider-reconciliation"]
+  },
+  "domainSkills": ["git-check-pr", "gh-address-comments", "gh-fix-ci"],
+  "rootOnlyActions": ["git fetch", "git commit", "git push", "gh workflow list", "gh run cancel", "gh pr create", "gh pr merge", "gh pr close", "git branch delete", "git worktree remove"]
+}

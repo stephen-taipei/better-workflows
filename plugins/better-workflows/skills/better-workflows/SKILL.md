@@ -42,7 +42,13 @@ creating a Better Workflows journal.
 
 ## Resolve the helper
 
-Use `dw` when `command -v dw` succeeds. Otherwise resolve the plugin root as two directories above this `SKILL.md` and run `node <plugin-root>/scripts/dw.mjs`. In the examples below, `dw` means whichever form was resolved. Do not install packages or create a global symlink automatically.
+Use `dw` only when `command -v dw` succeeds and `dw templates` lists the selected
+template. If the command fails or its inventory lacks that template, treat the
+global helper as stale: resolve the plugin root as two directories above this
+`SKILL.md` and run `node <plugin-root>/scripts/dw.mjs`. Verify that fallback with
+the same template inventory check before starting a run. In the examples below,
+`dw` means whichever form was verified. Do not install packages or create a
+global symlink automatically.
 
 ## Route the task
 
@@ -54,6 +60,13 @@ Use `dw` when `command -v dw` succeeds. Otherwise resolve the plugin root as two
    - `critical`: require independent external evidence and all fail-closed gates.
 3. Never lower a user-requested mode. Model output may raise risk but may not lower it.
 4. Select one template from [templates.md](references/templates.md).
+
+For `research-deliberation`, also read
+[deliberation-roster.md](references/deliberation-roster.md). It defines the
+CLI-proven participant roster, model-bound roles, Agy-based Gemini route, and
+capability-ranked final-arbiter fallback. Apply the contextual `medium`/`high`
+reasoning-effort policy to every model and record its actual transport. The
+former separate AI-meeting alias is intentionally not used.
 
 ## Start a verified run
 

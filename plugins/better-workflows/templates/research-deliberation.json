@@ -1,13 +1,17 @@
 {
   "name": "research-deliberation",
-  "description": "Use independent perspectives and model critics to reach an evidence-based decision.",
+  "description": "Probe available AI CLIs, assign model-bound roles, reconcile independent views, and produce an evidence-based executable plan.",
   "defaultMode": "deep",
-  "requiredEvidence": ["source-inventory", "independent-review", "refutation", "claim-reconciliation", "final-verdict"],
+  "requiredEvidence": ["source-inventory", "deliberation-roster", "role-perspective-matrix", "independent-review", "cross-examination", "refutation", "claim-reconciliation", "decision-record", "executable-plan", "arbiter-verdict"],
   "acceptance": [
+    {"id": "providers-probed", "description": "Only models that passed a safe semantic CLI probe were included as active participants.", "critical": true},
+    {"id": "roles-separated", "description": "Every active participant has a model-bound role; equivalent roles may be assigned across different brands.", "critical": true},
     {"id": "independent", "description": "Reviewers received bounded questions without the intended answer.", "critical": true},
-    {"id": "evidence-reconciled", "description": "The root reconciled contradictions against evidence rather than votes.", "critical": true}
+    {"id": "evidence-reconciled", "description": "The root reconciled contradictions against evidence rather than votes.", "critical": true},
+    {"id": "plan-executable", "description": "The final plan gives every step an owner, dependencies, validation, and rollback.", "critical": true},
+    {"id": "arbiter-resolved", "description": "The final summary used the highest-ranked active arbiter in the configured fallback order, or failed closed.", "critical": true}
   ],
-  "policyGates": ["no-majority-vote", "no-claude", "agy-egress-policy", "root-final-verdict"],
+  "policyGates": ["goal-first-persistence", "provider-probe-before-roster", "sanitized-external-cli-egress", "model-bound-role-assignment", "role-duplication-across-brands-allowed", "bounded-native-delegation", "sequential-critics", "no-majority-vote", "root-claim-reconciliation", "capability-ranked-arbiter-fallback", "root-final-verdict", "no-mutation-before-plan-approval"],
   "domainSkills": [],
-  "rootOnlyActions": ["accept risk", "declare final decision"]
+  "rootOnlyActions": ["declare active deliberation roster", "accept risk", "declare final decision", "approve executable plan"]
 }

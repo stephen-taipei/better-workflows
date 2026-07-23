@@ -49,6 +49,12 @@ import {
   runAgyCritic,
   runCodexCritic
 } from "./lib/providers.mjs";
+import {
+  arbitrateDeliberation,
+  deliberate,
+  loadDeliberationRoster,
+  probeDeliberationRoster
+} from "./lib/deliberation.mjs";
 
 const execFileAsync = promisify(execFile);
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -112,6 +118,22 @@ function parseArgs(argv) {
 function values(value, fallback = []) {
   if (value === undefined) return fallback;
   return Array.isArray(value) ? value : [value];
+}
+
+function contextualReasoningEffort(mode, requested = "auto") {
+  if (["medium", "high"].includes(requested)) return requested;
+  if (requested !== "auto") throw new Error("reasoning effort must be auto, medium, or high");
+  return ["direct", "verified"].includes(mode) ? "medium" : "high";
+}
+
+async function agyEffortTransportForModel(model) {
+  const roster = await loadDeliberationRoster();
+  for (const provider of roster.providers) {
+    if (provider.command !== "agy") continue;
+    const configured = provider.models.find((candidate) => candidate.model === model);
+    if (configured) return configured.effortTransport ?? provider.effortTransport ?? "native";
+  }
+  return "native";
 }
 
 function integer(value, fallback = 0) {
@@ -440,6 +462,48 @@ async function commandDoctor(root, options) {
   };
 }
 
+function optionEnabled(value) {
+  return value === true || value === "true";
+}
+
+async function commandDeliberation(subcommand, options) {
+  const providers = values(options.provider).map(String);
+  const timeoutSeconds = options["timeout-seconds"] === undefined
+    ? undefined
+    : integer(options["timeout-seconds"]);
+  const common = {
+    providers,
+    allowExternalProviders: optionEnabled(options["allow-external-providers"]),
+    sanitized: optionEnabled(options.sanitized),
+    refresh: optionEnabled(options.refresh),
+    reasoningEffort: String(options["reasoning-effort"] ?? "auto"),
+    mode: String(options.mode ?? "deep"),
+    timeoutSeconds
+  };
+  if (subcommand === "roster") return probeDeliberationRoster(common);
+  if (subcommand === "arbitrate") {
+    if (!options["prompt-file"]) {
+      throw new Error("deliberation arbitrate requires --prompt-file <sanitized-file>");
+    }
+    const prompt = await readFile(path.resolve(String(options["prompt-file"])), "utf8");
+    const roster = await probeDeliberationRoster(common);
+    const arbitration = await arbitrateDeliberation({
+      ...common,
+      prompt,
+      activeParticipants: roster.activeParticipants
+    });
+    return { ...arbitration, roster };
+  }
+  if (subcommand === "deliberate") {
+    if (!options["prompt-file"]) {
+      throw new Error("deliberation deliberate requires --prompt-file <sanitized-file>");
+    }
+    const prompt = await readFile(path.resolve(String(options["prompt-file"])), "utf8");
+    return deliberate({ ...common, prompt });
+  }
+  throw new Error("deliberation subcommand must be roster, deliberate, or arbitrate");
+}
+
 async function commandEval() {
   const tests = (await readdir(path.join(SCRIPT_DIR, "tests")))
     .filter((name) => name.endsWith(".test.mjs"))
@@ -472,7 +536,10 @@ function help() {
       "dw sentinel capture|verify <run-id> --label <label>",
       "dw evidence add <run-id> --file <json>",
       "dw finding add|update <run-id> --file <json>",
-      "dw critic codex|agy <run-id> --model <model> --prompt-file <file>",
+      "dw critic codex|agy <run-id> --model <model> --prompt-file <file> [--effort <auto|medium|high>] [--effort-transport <native|model-variant>]",
+      "dw deliberation roster [--mode <auto|direct|verified|deep|critical>] [--reasoning-effort <auto|medium|high>] [--refresh] [--provider <id>] [--allow-external-providers --sanitized]",
+      "dw deliberation deliberate --prompt-file <sanitized-file> [--mode <auto|direct|verified|deep|critical>] [--reasoning-effort <auto|medium|high>] [--refresh] [--allow-external-providers --sanitized]",
+      "dw deliberation arbitrate --prompt-file <sanitized-file> [--mode <auto|direct|verified|deep|critical>] [--reasoning-effort <auto|medium|high>] [--allow-external-providers --sanitized]",
       "dw action issue|consume|reconcile <run-id> ...",
       "dw complete <run-id>",
       "dw doctor [--agy --model <model>]",
@@ -490,6 +557,7 @@ async function main() {
   if (!command || command === "help" || options.help) return help();
   if (command === "templates") return { ok: true, templates: await listTemplates() };
   if (command === "run") return commandRun(root, options);
+  if (command === "deliberation") return commandDeliberation(subcommand, options);
   if (command === "status") {
     const run = await loadRun(root, subcommand);
     return {
@@ -564,6 +632,7 @@ async function main() {
     const prompt = await readFile(path.resolve(String(options["prompt-file"])), "utf8");
     const acceptanceIds = values(options.acceptance, run.contract.acceptance.map((item) => item.id)).map(String);
     const defaults = await loadDefaults();
+    const effort = contextualReasoningEffort(run.manifest.mode, String(options.effort ?? "auto"));
     try {
       if (subcommand === "codex" && !options.model) {
         throw new Error("Codex critic requires --model");
@@ -572,15 +641,23 @@ async function main() {
         subcommand === "codex"
           ? await runCodexCritic({
               model: String(options.model),
-              effort: String(options.effort ?? "high"),
+              effort,
               prompt
             })
-          : await runAgyCritic({
-              model: String(options.model ?? defaults.providers.agy.primaryModel),
-              prompt,
-              contract: run.contract,
-              config: defaults
-            });
+          : await (async () => {
+              const model = String(options.model ?? defaults.providers.agy.primaryModel);
+              const effortTransport = String(
+                options["effort-transport"] ?? await agyEffortTransportForModel(model)
+              );
+              return runAgyCritic({
+                model,
+                effort,
+                effortTransport,
+                prompt,
+                contract: run.contract,
+                config: defaults
+              });
+            })();
       const evidence = await providerEvidence(root, runId, result, prompt, acceptanceIds);
       return { ok: true, evidence, review: result.review, metadata: result.metadata };
     } catch (error) {

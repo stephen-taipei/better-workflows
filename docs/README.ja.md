@@ -150,8 +150,89 @@ $better-workflows:auto <達成したい結果を記述>
 | `$better-workflows:localization` | 多言語更新、特に 41 locales の key 数、順序、正確な scope、地域差。 | `$better-workflows:localization 全 41 locales に keys を追加し、順序が一致することを検証。` |
 | `$better-workflows:ci-release` | CI failure、runner queue、直列 deploy、release、遠隔監視、receipt 検証。 | `$better-workflows:ci-release 失敗した PR checks を修正し、直列 dev deploy を監視。` |
 | `$better-workflows:browser-qa` | 最新 UI 証拠、screenshots、再現可能な action log が必要な Webwright／simulator QA。 | `$better-workflows:browser-qa signup と contact sync を検証し、screenshot evidence を添付。` |
-| `$better-workflows:research` | 証拠駆動調査、設計比較、独立視点、反証。多数決では決めない。 | `$better-workflows:research 3 つの sync architecture を比較・反証し、推奨案を提示。` |
+| `$better-workflows:research` | CLI で実証した複数 model の役割、証拠駆動の設計比較、反証、実行可能な Plan。多数決では決めない。 | `$better-workflows:research 3 つの sync architecture を比較・反証し、実装可能な Plan を作成。` |
 | `$better-workflows:monorepo-refactor` | monorepo 全体を調査し、適格な bounded refactor 提案を直接実装。behavior invariants、validation、rollback evidence を保持します。 | `$better-workflows:monorepo-refactor monorepo を調査し、public contract を変えずに適格な boundary cleanup を実装。` |
+
+### CLI 実証の複数 model deliberation
+
+`research-deliberation` は Codex、Claude、Gemini（Agy 経由）、Agy、Grok、Cursor、Kimi、Qwen、Kiro の設定済みブランド一覧を保持します。ただし安全な semantic CLI probe に成功した CLI/model の組だけが今回の意思決定グループに参加します。binary 不在、認証切れ、対話ログイン必須は unavailable として記録し、暗黙に代替しません。
+
+完全 roster の reasoning-effort profile ごとの probe は最大 24 時間 cache されます。期限切れ、`--refresh`、roster 設定変更、CLI path/binary digest の変更で再検証します。単一 provider の probe は完全 cache を置き換えません。外部 CLI は明示的なユーザー許可と sanitize 済み・非機密 input が必要です。この runtime の Gemini は standalone `gemini` ではなく `agy` transport を使用します。
+
+すべての participant に同じ contextual reasoning-effort を適用します。bounded な `direct`／`verified` は既定で `medium`、`auto`／`deep`／`critical` は既定で `high` で、evidence により明示的に上書きできます。Codex には native setting を渡し、Agy は `gemini-3.6-flash-medium` または `gemini-3.6-flash-high` を実際に選択し、model が対応する場合だけ native `--effort` を渡します。flag を拒否する model は high／medium-only variant として正直に記録します。他の CLI は prompt-guidance として記録し、provider による attestation を偽りません。
+
+```mermaid
+flowchart LR
+  A["sanitize 済み decision dossier"] --> B["完全 brand roster\n新 probe または有効な 24h cache"]
+  B --> C["実証済み model role\n独立 memo"]
+  C --> D["Root の evidence reconciliation\n多数決なし"]
+  D --> E["最高順位の実証済み arbiter\nSol → Terra → Luna → Fable → Opus"]
+  E --> F["実行可能 Plan\nowner · dependencies · validation · rollback"]
+  B -->|"利用不可または unsafe"| G["除外を記録\nfail closed"]
+```
+
+```bash
+node plugins/better-workflows/scripts/dw.mjs deliberation deliberate \
+  --prompt-file sanitized-case.md \
+  --allow-external-providers --sanitized
+```
+
+### Template-only：Dependabot consolidation SOP
+
+Dependabot consolidation は専用 template であり、picker Skill は追加しません。
+固定した contract が必要な場合は、次のように直接実行します。
+
+```bash
+node plugins/better-workflows/scripts/dw.mjs run \
+  --template dependabot-consolidation-pr-cleanup \
+  --mode critical \
+  --goal "Dependabot PRを棚卸しし、互換性のある更新を統合して1つのPRをmergeし、このrunが所有するsourceだけをcleanupする。" \
+  --scope .
+```
+
+SOP の順序は次のとおりです。
+
+```mermaid
+flowchart LR
+  A["Fresh Dependabot inventory"] --> B["全PRを分類\nconsolidate · separate · defer · exclude"]
+  B --> C["互換性マトリクス\npeer · runtime · lockfile · security"]
+  C --> D["1つのconsolidation branchとbounded diff"]
+  D --> E["install、lockfile、lint、typecheck、test、audit"]
+  E --> F["current revisionの1つのPR"]
+  F --> G{"mergeとreconciliationが完了？"}
+  G -- "No / unknown" --> H["停止し、providerを照会またはblockerを解消"]
+  G -- "Yes" --> J["repo workflowsとActions runsを棚卸し"]
+  J --> K["このrunが所有するqueued/in-progress Actionsをcancelしreconcile"]
+  K --> I["このrunが所有するsource PR/branch/worktreeだけをclose/delete"]
+```
+
+必須 evidence は `dependabot-inventory`、`compatibility-matrix`、
+`consolidation-diff`、`lockfile-validation`、`repository-actions-inventory`、
+`actions-cancelled`、`merge-result`、`cleanup-manifest` です。repo workflow と
+関連 Actions runs の存在を確認し、missing、disabled、queued、running、
+terminal を明示します。providerを照会できない場合は停止します。すべての
+Dependabot PR に disposition を付け、run所有の Actions を cancel して
+consolidation PR の terminal reconciliation が完了する前には source を cleanup しません。
+
+### Picker workflow：PR を `dev` に merge
+
+`pr-to-dev` は atomic commit batch への分割、target が `dev` の 1 つの PR、
+fresh required checks、protected merge、remote `dev` の reconciliation、
+run 所有 resource の cleanup を固定する workflow です。native picker から
+`$better-workflows:pr-to-dev` を選択するか、同じ template を直接起動できます。
+
+```bash
+node plugins/better-workflows/scripts/dw.mjs run \
+  --template pr-to-dev \
+  --mode critical \
+  --goal "対象変更を atomic commits に分け、dev 向け PR を作成し、fresh checks 後に merge、remote dev を同期して所有 worktree を cleanupする。" \
+  --scope .
+```
+
+必須 gate は `commit-plan`、`commit-manifest`、`target-branch-dev`、
+`required-checks`、`merge-result`、`remote-sync`、`cleanup-manifest` です。
+admin bypass、stale checks、未 review commit、remote reconciliation 前の
+cleanup は拒否します。
 
 ### Review 強度入口
 
@@ -168,7 +249,6 @@ $better-workflows:auto <達成したい結果を記述>
 | --- | --- | --- |
 | `$better-workflows:auto-improve` | 旧 `autoImprove`：Review、finding 検証、修正、PR、収束。 | Fix issues to PR、既定 `deep` |
 | `$better-workflows:auto-issues` | 旧 `autoIssues`：読み取り専用 Review と重複なし issue 作成。 | Review to issues、既定 `verified` |
-| `$better-workflows:ai-meeting-tw` | 旧 AI meeting：Claude や投票を使わない多視点調査と model critics。 | Research deliberation、既定 `deep` |
 | `$better-workflows:git-check-issues` | 旧 issue repair：状態再取得、修正、PR、正確な cleanup。 | Fix issues to PR、既定 `deep` |
 | `$better-workflows` | 特定の入口を選ばない自然言語 router。 | Template と mode を自動判定 |
 
