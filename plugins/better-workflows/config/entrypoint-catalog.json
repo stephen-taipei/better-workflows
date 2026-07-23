@@ -20,6 +20,12 @@
       "mode": "auto"
     },
     {
+      "id": "pr-to-dev",
+      "description": "分批 atomic commits、建立 target 為 dev 的 PR，fresh checks 後 merge、同步並清理",
+      "template": "pr-to-dev",
+      "mode": "critical"
+    },
+    {
       "id": "cross-platform",
       "description": "檢查或修改 Backend、iOS、Android、Web 合約",
       "template": "cross-platform-contract",

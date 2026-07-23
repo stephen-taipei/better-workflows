@@ -1,6 +1,6 @@
 {
   "name": "better-workflows",
-  "version": "1.0.0+codex.20260714085929",
+  "version": "1.1.0+codex.20260723075123",
   "description": "Native-first, evidence-driven Codex workflows with deterministic safety gates.",
   "author": {
     "name": "Stephen Chuang",

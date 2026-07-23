@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "rules": [
+    {
+      "id": "dependabot-maintenance",
+      "priority": 100,
+      "match": {
+        "keywords": ["dependabot", "dependency update"],
+        "tags": ["maintenance"]
+      },
+      "route": {
+        "template": "dependabot-consolidation-pr-cleanup",
+        "minimumMode": "critical",
+        "supportSkills": ["git-check-pr", "gh-fix-ci"],
+        "requiredCapabilities": ["command:git", "command:gh"]
+      }
+    },
+    {
+      "id": "monorepo-refactor",
+      "priority": 50,
+      "match": {
+        "keywords": ["refactor", "architecture"],
+        "domains": ["monorepo"]
+      },
+      "route": {
+        "entry": "monorepo-refactor",
+        "minimumMode": "deep",
+        "supportSkills": []
+      }
+    }
+  ]
+}

@@ -148,6 +148,87 @@ codex plugin add better-workflows@better-workflows
 
 Start a new Codex task after installation so the skill catalog refreshes.
 
+## Progressive routing: Snapshot → Preview → Execute
+
+> **Value:** Better Workflows now explains *why* a route is usable before work
+> begins. It never treats an installed name as proof that its command, support
+> skill, provider, or host capability is currently callable.
+
+```bash
+# Read-only: never starts provider login or a semantic model probe.
+dw doctor --capabilities
+
+# Read-only route decision.
+dw route preview \
+  --goal "Consolidate Dependabot updates and clean owned resources" \
+  --scope . \
+  --domain maintenance \
+  --tag dependabot
+```
+
+Each capability is reported as `available`, `unavailable`, `unverified`,
+`unsupported`, or `requires-authority`, with its reason and fallback. Model
+availability may reuse an unchanged 24-hour semantic roster cache; a miss or
+expiry does not trigger a probe. Node-only v1 reports host MCP exposure as
+`unsupported` and leaves that attestation to Codex.
+
+### One primary route, one Profile
+
+A Routing Profile selects exactly one primary entry or template. It may set a
+minimum mode, require capabilities, and attach up to three **advisory-only**
+support skills. It cannot install tools, grant authority, add side effects,
+lower the mode, or replace an explicit picker choice.
+
+| Precedence | Source | Rule |
+| ---: | --- | --- |
+| 1 | Host hard constraints | Never lowered by local configuration; absent host input is reported `unverified`. |
+| 2 | Explicit entry/template/mode | The user's picker or CLI choice wins. |
+| 3 | Workspace Profile | `<repo>/.codex/better-workflows.json`; a matching rule replaces personal routing. |
+| 4 | Personal Profile | `$DW_STATE_ROOT/routing/profile.json`. |
+| 5 | Built-in `auto` | Returns `template: null` until current evidence selects a real template. |
+
+Inside one Profile, higher priority wins and ties keep file order. Match
+categories are ANDed; values inside each category are ORed. Workspace and
+personal rules are never deep-merged. See the strict
+[example Profile](plugins/better-workflows/config/routing-profile.example.json).
+
+```bash
+dw route profile validate --file my-routing-profile.json
+dw route profile install --file my-routing-profile.json
+dw route profile show
+```
+
+### Reviewable, single-use route receipts
+
+Use `--record` when preview and execution must be bound across a handoff:
+
+```bash
+dw route preview \
+  --goal "Refactor the monorepo without changing public contracts" \
+  --scope . \
+  --entry monorepo-refactor \
+  --record
+
+dw run --route-receipt <route-receipt-id>
+```
+
+```mermaid
+flowchart LR
+  A["Capability snapshot<br/>cache-only provider state"] --> B["Route preview<br/>explicit → workspace → personal → auto"]
+  B --> C{"Concrete template<br/>and required capabilities available?"}
+  C -- "No" --> D["Fail closed<br/>report blocker or select a real template"]
+  C -- "Yes" --> E["Private route receipt<br/>0600 · 24h · bundle digest"]
+  E --> F{"Workspace, Profile, scope,<br/>catalog, capability, or bundle drift?"}
+  F -- "Yes" --> D
+  F -- "No" --> G["Single-use dw run<br/>mode floor preserved"]
+  G --> H["Template-bound action gates<br/>fresh evidence and reconciliation"]
+```
+
+Receipts bind the goal/scope, selected route, catalog, workspace and personal
+Profiles, capability fingerprint, and exact plugin bundle digest. They expire
+after 24 hours and are single-use. Replay, tampering, or any binding drift fails
+closed.
+
 ## Use in Codex
 
 Restart Codex or open a new task after installation.
@@ -189,7 +270,7 @@ silently replacing it.
 ### Choose quickly
 
 - Unsure which workflow to use: choose `auto`.
-- Know the task category: choose one of the nine task entries.
+- Know the task category: choose one of the ten task entries.
 - Care mainly about review depth: choose `direct`, `verified`, `deep`, or `critical`.
 - Already use a legacy command: choose its compatibility alias.
 
@@ -200,6 +281,7 @@ silently replacing it.
 | `$better-workflows:auto` | Best default for most work. Codex selects the template, verification mode, and critics from risk and evidence. | `$better-workflows:auto Review the current repository, fix verified defects, and create a PR.` |
 | `$better-workflows:review-issues` | Read-only repository audit, finding deduplication, and authorized GitHub issue creation. It does not fix code. | `$better-workflows:review-issues Review the latest dev SHA and create deduplicated P0/P1/P2 issues.` |
 | `$better-workflows:fix-issues-pr` | Re-check open issues, implement root-owned fixes, create a PR, then merge and clean up only when authorized. | `$better-workflows:fix-issues-pr Fix open dev issues, create a PR, wait for fresh checks, merge, and clean up.` |
+| `$better-workflows:pr-to-dev` | Split all in-scope changes into atomic commits, create one PR targeting `dev`, wait for fresh checks, merge, reconcile remote state, and clean owned resources. | `$better-workflows:pr-to-dev Commit current changes in batches, open a PR to dev, merge after fresh checks, sync remote dev, and clean this run's worktree.` |
 | `$better-workflows:cross-platform` | Backend and mobile/web contract work: schemas, optional fields, enums, sync behavior, version gates, and headers. | `$better-workflows:cross-platform Check the backend, iOS, and Android contact sync contract, fix issues, and create a PR.` |
 | `$better-workflows:ios-static` | Swift/iOS static review and serialized `project.pbxproj` verification when local builds are prohibited or undesirable. | `$better-workflows:ios-static Review the iOS changes without building, verify new Swift files are in pbxproj, and fix static issues.` |
 | `$better-workflows:localization` | Multi-locale changes, especially 41-locale key counts, ordering, exact scope, and regional variants. | `$better-workflows:localization Add these keys to all 41 locales and verify identical key order.` |
@@ -290,11 +372,12 @@ disposition, and cleanup is allowed only after run-owned Actions are cancelled
 and the consolidation PR is terminally reconciled. The current consolidation
 run and unrelated runs are never cancelled by this cleanup gate.
 
-### Template-only: PR to `dev`
+### Picker workflow: PR to `dev`
 
 `pr-to-dev` governs atomic commit batches, one PR targeting `dev`, fresh required
 checks, protected merge, remote `dev` reconciliation, and cleanup of only
-run-owned resources. It is a template rather than another picker Skill.
+run-owned resources. Select `$better-workflows:pr-to-dev` from the native picker,
+or start the same template directly:
 
 ```bash
 node plugins/better-workflows/scripts/dw.mjs run \
@@ -406,8 +489,15 @@ Run it directly from a checkout:
 
 ```bash
 node plugins/better-workflows/scripts/dw.mjs doctor
+node plugins/better-workflows/scripts/dw.mjs doctor --capabilities
+node plugins/better-workflows/scripts/dw.mjs route preview --goal "Review this repo" --scope .
 node plugins/better-workflows/scripts/dw.mjs eval
 ```
+
+A global `dw` command is optional. Before a workflow uses one, it verifies that
+`dw templates` contains the selected template, `dw help` lists `route preview`,
+and `dw doctor --capabilities` works without provider probes. A stale helper
+automatically falls back to the runner bundled with the active plugin.
 
 ## Security model
 
@@ -423,9 +513,17 @@ node plugins/better-workflows/scripts/dw.mjs eval
 ```bash
 npm test --prefix plugins/better-workflows
 node plugins/better-workflows/scripts/dw.mjs eval
+node scripts/plugin-cache.mjs check
 ```
 
 The runtime uses only Node.js standard-library modules.
+
+Plugin cache versions are immutable. Every content change must use a new build
+version; `node scripts/plugin-cache.mjs sync` stages a missing version, verifies
+the exact file manifest and digest, then atomically publishes it. It refuses to
+overwrite a same-version cache with different contents. Run `dw eval` from the
+final cache path before activating that version through the normal Codex plugin
+refresh.
 
 ## License
 

@@ -109,6 +109,86 @@ codex plugin add better-workflows@better-workflows
 
 インストール後、新しい Codex task を開いて Skill catalog を再読み込みしてください。
 
+## 段階的ルーティング：Snapshot → Preview → Execute
+
+> **価値：** 作業前に「なぜ今この route を使用できるか」を説明します。
+> インストール済みの名前だけでは、command、support skill、provider、
+> host capability が実際に呼び出せる証拠にはなりません。
+
+```bash
+# 読み取り専用。provider login や semantic model probe は開始しません。
+dw doctor --capabilities
+
+dw route preview \
+  --goal "Dependabot update を統合し、この run が所有する resource を cleanup" \
+  --scope . \
+  --domain maintenance \
+  --tag dependabot
+```
+
+各 capability は `available`、`unavailable`、`unverified`、`unsupported`、
+`requires-authority` のいずれかと、理由・fallback を返します。Model の
+可用性は変更のない有効な 24 時間 semantic roster cache だけを再利用し、
+cache miss や期限切れで自動 probe はしません。Node-only v1 は Codex host
+の MCP exposure を証明できないため `unsupported` とし、host の判断に
+委ねます。
+
+### Primary route は一つ、Profile も一つ
+
+Routing Profile は primary entry または template を一つだけ選択します。
+最低 mode、required capabilities、最大 3 個の**助言専用** support skills
+を指定できます。Tool の install、権限付与、side effect の追加、mode の
+引き下げ、明示的 picker 選択の上書きはできません。
+
+| 優先順位 | Source | Rule |
+| ---: | --- | --- |
+| 1 | Host hard constraints | Local config では下げられず、host input がなければ `unverified`。 |
+| 2 | 明示的 entry/template/mode | User の picker／CLI 選択が優先。 |
+| 3 | Workspace Profile | `<repo>/.codex/better-workflows.json`。Match した rule が personal route を置換。 |
+| 4 | Personal Profile | `$DW_STATE_ROOT/routing/profile.json`。 |
+| 5 | Built-in `auto` | Evidence が実 template を選ぶまで `template: null`。 |
+
+同じ Profile では priority が高い rule を選び、同点なら file order を保持
+します。Match category 間は AND、category 内の値は OR。Workspace と
+personal rule は deep merge しません。厳格な
+[Profile 例](../plugins/better-workflows/config/routing-profile.example.json)
+を参照してください。
+
+```bash
+dw route profile validate --file my-routing-profile.json
+dw route profile install --file my-routing-profile.json
+dw route profile show
+```
+
+### Review 可能な single-use route receipt
+
+```bash
+dw route preview \
+  --goal "Public contract を変えずに monorepo を refactor" \
+  --scope . \
+  --entry monorepo-refactor \
+  --record
+
+dw run --route-receipt <route-receipt-id>
+```
+
+```mermaid
+flowchart LR
+  A["Capability snapshot<br/>cache-only roster"] --> B["Route preview<br/>explicit → workspace → personal → auto"]
+  B --> C{"実 template があり<br/>required capability は available？"}
+  C -- "No" --> D["Fail closed<br/>blocker を表示または実 template を選択"]
+  C -- "Yes" --> E["Private route receipt<br/>0600 · 24h · bundle digest"]
+  E --> F{"Workspace、Profile、scope、<br/>catalog、capability、bundle に drift？"}
+  F -- "Yes" --> D
+  F -- "No" --> G["Single-use dw run<br/>mode floor を保持"]
+  G --> H["Template-bound action gates<br/>fresh evidence と reconciliation"]
+```
+
+Receipt は goal/scope、route、catalog、workspace/personal Profiles、
+capability fingerprint、plugin bundle digest を binding します。24 時間で
+期限切れになり、一度だけ使用できます。Replay、改ざん、binding drift は
+fail closed です。
+
 ## Codex での使い方
 
 ### Codex CLI
@@ -134,7 +214,7 @@ $better-workflows:auto <達成したい結果を記述>
 ### すばやい選び方
 
 - 迷った場合：`auto`。
-- タスク種別が明確：9 つの task entry から選択。
+- タスク種別が明確：10 個の task entry から選択。
 - 検証強度だけ指定：`direct`、`verified`、`deep`、`critical`。
 - 旧コマンドを継続：compatibility alias。
 
@@ -145,6 +225,7 @@ $better-workflows:auto <達成したい結果を記述>
 | `$better-workflows:auto` | ほとんどのタスクに推奨。リスクと証拠から template、mode、critics を自動選択。 | `$better-workflows:auto 現在の repo を Review し、検証済みの問題を修正して PR を作成。` |
 | `$better-workflows:review-issues` | 読み取り専用 audit、finding の重複排除、許可済み GitHub issue 作成。コードは変更しない。 | `$better-workflows:review-issues 最新 dev SHA を Review し、重複のない P0/P1/P2 issues を作成。` |
 | `$better-workflows:fix-issues-pr` | Open issues を再確認し Root が修正、PR 作成。許可がある場合のみ merge/cleanup。 | `$better-workflows:fix-issues-pr dev の open issues を修正し、fresh checks 後に merge と cleanup。` |
+| `$better-workflows:pr-to-dev` | Scope 内の変更を atomic commit に分割し、`dev` 向け PR を一つ作成。Fresh checks 後に merge、remote 同期、所有 resource の cleanup。 | `$better-workflows:pr-to-dev 現在の変更を分割 commit し、dev PR を checks 後に merge、remote dev を同期して worktree を cleanup。` |
 | `$better-workflows:cross-platform` | Backend、iOS、Android、Web の schema、optional、enum、sync、version gate、headers。 | `$better-workflows:cross-platform backend、iOS、Android の contact sync contract を確認し、修正して PR を作成。` |
 | `$better-workflows:ios-static` | ローカル build を避ける Swift/iOS 静的 Review と直列化された `project.pbxproj` 検証。 | `$better-workflows:ios-static build せず iOS 変更を Review し、新規 Swift ファイルの pbxproj 登録を確認。` |
 | `$better-workflows:localization` | 多言語更新、特に 41 locales の key 数、順序、正確な scope、地域差。 | `$better-workflows:localization 全 41 locales に keys を追加し、順序が一致することを検証。` |
@@ -214,12 +295,12 @@ terminal を明示します。providerを照会できない場合は停止しま
 Dependabot PR に disposition を付け、run所有の Actions を cancel して
 consolidation PR の terminal reconciliation が完了する前には source を cleanup しません。
 
-### Template-only：PR を `dev` に merge
+### Picker workflow：PR を `dev` に merge
 
 `pr-to-dev` は atomic commit batch への分割、target が `dev` の 1 つの PR、
 fresh required checks、protected merge、remote `dev` の reconciliation、
-run 所有 resource の cleanup を固定する専用 template です。picker Skill は
-追加しません。
+run 所有 resource の cleanup を固定する workflow です。native picker から
+`$better-workflows:pr-to-dev` を選択するか、同じ template を直接起動できます。
 
 ```bash
 node plugins/better-workflows/scripts/dw.mjs run \
@@ -266,7 +347,14 @@ cleanup は拒否します。
 ```bash
 npm test --prefix plugins/better-workflows
 node plugins/better-workflows/scripts/dw.mjs eval
+node scripts/plugin-cache.mjs check
 ```
+
+Plugin cache version は immutable です。Content を変更するたびに新しい build
+version が必要です。`node scripts/plugin-cache.mjs sync` は未存在の version
+だけを stage し、完全な file manifest と digest を検証して atomic publish
+します。同じ version の異なる内容は上書きしません。通常の Codex plugin
+refresh で有効化する前に、最終 cache path から `dw eval` を実行します。
 
 ## License
 

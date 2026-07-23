@@ -18,7 +18,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const VERSION = "1.0.0";
+export const VERSION = "1.1.0";
 export const MODES = new Set(["auto", "direct", "verified", "deep", "critical"]);
 export const RUN_STATES = new Set([
   "pending",
@@ -443,6 +443,68 @@ export async function withRunLock(root, runId, callback, options = {}) {
     const existing = await readJson(root, lockPath).catch(() => null);
     if (existing?.token === token) await unlink(lockPath).catch(() => undefined);
   }
+}
+
+export async function bindLegacyRunTemplate(
+  root,
+  runId,
+  { templateDigest, actionGates }
+) {
+  if (typeof templateDigest !== "string" || templateDigest.length < 16) {
+    throw new Error("Legacy run migration requires a template digest");
+  }
+  return withRunLock(root, runId, async ({ runDir }) => {
+    const contractPath = safeJoin(runDir, "contract.json");
+    const manifestPath = safeJoin(runDir, "manifest.json");
+    const statePath = safeJoin(runDir, "state.json");
+    const contract = await readJson(root, contractPath);
+    const manifest = await readJson(root, manifestPath);
+    const state = await readJson(root, statePath);
+    if (contract.templateDigest && contract.actionGates) {
+      return { migrated: false, contract, manifest, state };
+    }
+    if (manifest.version !== "1.0.0") {
+      throw new Error(
+        `Run ${runId} lacks a template binding but was not created by workflow 1.0.0`
+      );
+    }
+    const nextContract = {
+      ...contract,
+      templateDigest,
+      actionGates: structuredClone(actionGates ?? {})
+    };
+    const migratedAt = nowIso();
+    const nextManifest = {
+      ...manifest,
+      version: VERSION,
+      migratedFromVersion: manifest.version,
+      migratedAt,
+      contractDigest: digestObject(nextContract)
+    };
+    const nextState = {
+      ...state,
+      status: "stale",
+      updatedAt: migratedAt,
+      lastSentinelVerified: false,
+      lastSentinelComplete: false,
+      migration: {
+        kind: "legacy-template-binding",
+        fromVersion: manifest.version,
+        toVersion: VERSION,
+        migratedAt
+      }
+    };
+    await atomicWriteJson(root, contractPath, nextContract);
+    await atomicWriteJson(root, manifestPath, nextManifest);
+    await atomicWriteJson(root, statePath, nextState);
+    await appendJournal(root, runDir, "run.migrated", nextState.migration);
+    return {
+      migrated: true,
+      contract: nextContract,
+      manifest: nextManifest,
+      state: nextState
+    };
+  });
 }
 
 export async function updateState(root, runId, mutator, event = "state.updated") {

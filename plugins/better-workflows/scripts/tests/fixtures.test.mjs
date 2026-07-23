@@ -210,6 +210,7 @@ test("skills have no placeholders and retired AI-meeting alias is absent", async
     "ios-static",
     "localization",
     "monorepo-refactor",
+    "pr-to-dev",
     "research",
     "review-issues",
     "verified"
@@ -239,4 +240,14 @@ test("plugin has zero runtime dependencies", async () => {
   const manifest = JSON.parse(await readFile(path.join(pluginRoot(), "package.json"), "utf8"));
   assert.equal(manifest.dependencies, undefined);
   assert.equal(manifest.optionalDependencies, undefined);
+});
+
+test("plugin runtime and Codex build versions are aligned", async () => {
+  const manifest = JSON.parse(
+    await readFile(path.join(pluginRoot(), ".codex-plugin", "plugin.json"), "utf8")
+  );
+  const packageManifest = JSON.parse(
+    await readFile(path.join(pluginRoot(), "package.json"), "utf8")
+  );
+  assert.equal(manifest.version.split("+")[0], packageManifest.version);
 });

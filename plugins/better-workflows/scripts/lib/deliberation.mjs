@@ -1,4 +1,5 @@
-import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { constants as fsConstants } from "node:fs";
+import { chmod, lstat, mkdtemp, open, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
@@ -12,8 +13,7 @@ import {
   digestObject,
   ensurePrivateDir,
   getStateRoot,
-  pluginRoot,
-  readJson
+  pluginRoot
 } from "./core.mjs";
 
 const ROSTER_PATH = path.join(pluginRoot(), "config", "deliberation-roster.json");
@@ -481,6 +481,31 @@ function rosterConfigDigest(config) {
   });
 }
 
+export async function inspectCachedDeliberationRoster(options = {}) {
+  const config = options.config ?? await loadDeliberationRoster();
+  const reasoningEffort = resolveReasoningEffort(options, config);
+  const fingerprints = await providerFingerprints(config);
+  const inspection = await inspectRosterCache(
+    config,
+    {
+      allowExternalProviders: true,
+      sanitized: true,
+      refresh: false,
+      stateRoot: options.stateRoot,
+      env: options.env
+    },
+    [],
+    fingerprints,
+    reasoningEffort
+  );
+  return {
+    reasoningEffort,
+    activeParticipants: inspection.cachedResult?.activeParticipants ?? [],
+    unavailable: inspection.cachedResult?.unavailable ?? [],
+    cache: inspection.cache
+  };
+}
+
 async function providerFingerprints(config) {
   const entries = await Promise.all(config.providers.map(async (provider) => [
     provider.id,
@@ -491,6 +516,26 @@ async function providerFingerprints(config) {
 
 function cachePath(stateRoot, reasoningEffort) {
   return path.join(stateRoot, `${ROSTER_CACHE_FILE}-${reasoningEffort}.json`);
+}
+
+async function readRosterCacheOnly(stateRoot, target) {
+  const rootInfo = await lstat(stateRoot);
+  if (rootInfo.isSymbolicLink() || !rootInfo.isDirectory()) {
+    throw new Error(`Unsafe roster cache root: ${stateRoot}`);
+  }
+  const handle = await open(
+    target,
+    fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0)
+  );
+  try {
+    const info = await handle.stat();
+    if (!info.isFile() || info.nlink !== 1) {
+      throw new Error(`Unsafe roster cache path: ${target}`);
+    }
+    return JSON.parse(await handle.readFile("utf8"));
+  } finally {
+    await handle.close();
+  }
 }
 
 function cacheState({ status, reason, checkedAt, expiresAt }) {
@@ -506,7 +551,7 @@ async function inspectRosterCache(config, options, selected, fingerprints, reaso
   const stateRoot = options.stateRoot ?? getStateRoot(options.env);
   let cache;
   try {
-    cache = await readJson(stateRoot, cachePath(stateRoot, reasoningEffort));
+    cache = await readRosterCacheOnly(stateRoot, cachePath(stateRoot, reasoningEffort));
   } catch (error) {
     return { stateRoot, cache: cacheState({ status: "miss", reason: error.code === "ENOENT" ? "no prior cache" : errorSummary(error) }) };
   }

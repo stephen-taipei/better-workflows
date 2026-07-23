@@ -40,9 +40,70 @@ Goal mode controls persistence; the Better Workflows mode controls verification
 depth. They are independent. `direct` therefore uses a persistent goal without
 creating a Better Workflows journal.
 
+## Preview the route
+
+For `$better-workflows:auto`, natural-language `$better-workflows`, and every
+task selector except the explicit `direct` fast path, run a capability snapshot
+and route preview before substantial work. An explicit selector is the highest
+user-controlled route and Profiles may not replace it:
+
+~~~bash
+dw doctor --capabilities
+dw route preview --goal "<goal>" --scope <path> [--entry <selector>] [--mode <mode>]
+~~~
+
+Report the selected source, primary entry/template, effective mode, excluded
+optional support skills, and blockers. The Node-only snapshot must not start
+provider login or semantic probes. It may reuse a valid 24-hour deliberation
+roster cache; otherwise provider capabilities remain `requires-authority`.
+Host-exposed MCP availability is `unsupported` in this helper and must be
+reported by the Codex host.
+
+Routing precedence is:
+
+1. host hard constraints;
+2. explicit entry, template, and mode;
+3. the first matching workspace Profile at
+   `<repo>/.codex/better-workflows.json`;
+4. the first matching personal Profile at
+   `$DW_STATE_ROOT/routing/profile.json`;
+5. built-in `auto`.
+
+Profiles select exactly one primary entry or template. They may set a minimum
+mode, declare required capabilities, and name at most three advisory support
+skills. A matching workspace rule replaces the personal rule; Profiles are
+never deep-merged. Within one Profile, highest priority wins and equal priority
+keeps file order. Match categories are ANDed while values inside a category are
+ORed. A Profile cannot grant authority, install capabilities, add side effects,
+lower a mode, or replace an explicit selector.
+
+If the route remains built-in `auto`, `template` is intentionally null. Select
+one real template from current evidence and preview again with `--template`;
+never invent an `auto` template. For a stable handoff, record and consume one
+private, single-use receipt:
+
+~~~bash
+dw route preview --goal "<goal>" --scope <path> --template <template> --record
+dw run --route-receipt <route-receipt-id>
+~~~
+
+The receipt binds the workspace, scope, catalog, Profiles, capabilities,
+selected route, and full plugin bundle digest. Expiry, replay, or any binding
+drift fails closed.
+
 ## Resolve the helper
 
-Use `dw` when `command -v dw` succeeds. Otherwise resolve the plugin root as two directories above this `SKILL.md` and run `node <plugin-root>/scripts/dw.mjs`. In the examples below, `dw` means whichever form was resolved. Do not install packages or create a global symlink automatically.
+Use `dw` only when `command -v dw` succeeds, `dw templates` lists the selected
+template, `dw help` lists `route preview`, and `dw doctor --capabilities`
+succeeds without starting provider probes. If any check fails, or the inventory
+lacks that template, treat the global helper as stale: resolve the plugin root
+as two directories above this `SKILL.md` and run
+`node <plugin-root>/scripts/dw.mjs`. Verify the fallback with the same command
+and template checks before starting a run. In the examples below, `dw` means
+whichever form was verified. Do not install packages or create a global symlink
+automatically. Plugin cache versions are immutable: if the same version has
+different contents, do not overwrite it. Require a new build version and exact
+source/cache digest verification.
 
 ## Route the task
 
