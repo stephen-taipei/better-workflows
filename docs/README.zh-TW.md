@@ -109,6 +109,86 @@ codex plugin add better-workflows@better-workflows
 
 安裝後請開新的 Codex task，讓 Skill catalog 重新載入。
 
+## 漸進式路由：Snapshot → Preview → Execute
+
+> **核心價值：** 工作開始前先說明「為什麼這條路由現在可用」。只看到已安裝
+> 的名稱，不等於 command、support skill、provider 或 host capability
+> 目前真的可以呼叫。
+
+```bash
+# 唯讀；不會啟動 provider 登入或 semantic model probe。
+dw doctor --capabilities
+
+# 唯讀路由預覽。
+dw route preview \
+  --goal "整合 Dependabot 更新並清理本次擁有的資源" \
+  --scope . \
+  --domain maintenance \
+  --tag dependabot
+```
+
+每項 capability 都會顯示 `available`、`unavailable`、`unverified`、
+`unsupported` 或 `requires-authority`，並附理由與 fallback。Model 可用性
+只會重用未變更且仍在 24 小時內的 semantic roster cache；cache miss 或過期
+不會自動 probe。Node-only v1 無法證明 Codex host 的 MCP exposure，因此明確
+標示 `unsupported`，交由 host 回報。
+
+### 一條 primary route、一份 Profile
+
+Routing Profile 只能選一個 primary entry 或 template；可設定最低 mode、
+required capabilities，以及最多三個**只提供建議**的 support skills。它不能
+安裝工具、授予權限、新增 side effects、降低 mode，或覆蓋使用者明確選擇的
+picker 入口。
+
+| 優先序 | 來源 | 規則 |
+| ---: | --- | --- |
+| 1 | Host hard constraints | 本機設定不可降低；host 沒提供輸入時顯示 `unverified`。 |
+| 2 | 明確 entry/template/mode | 使用者的 picker 或 CLI 選擇優先。 |
+| 3 | Workspace Profile | `<repo>/.codex/better-workflows.json`；匹配時取代 personal route。 |
+| 4 | Personal Profile | `$DW_STATE_ROOT/routing/profile.json`。 |
+| 5 | 內建 `auto` | 在證據選出真實 template 前回傳 `template: null`。 |
+
+同一份 Profile 先比較 priority，同分維持檔案順序。不同 match category
+採 AND；同一 category 內的值採 OR。Workspace 與 personal rule 不做
+deep merge。可參考嚴格 schema 的
+[Profile 範例](../plugins/better-workflows/config/routing-profile.example.json)。
+
+```bash
+dw route profile validate --file my-routing-profile.json
+dw route profile install --file my-routing-profile.json
+dw route profile show
+```
+
+### 可審查、單次使用的 route receipt
+
+需要把 preview 與後續執行綁在一起時，使用 `--record`：
+
+```bash
+dw route preview \
+  --goal "不改 public contract，重構 monorepo" \
+  --scope . \
+  --entry monorepo-refactor \
+  --record
+
+dw run --route-receipt <route-receipt-id>
+```
+
+```mermaid
+flowchart LR
+  A["Capability snapshot<br/>只讀 roster cache"] --> B["Route preview<br/>explicit → workspace → personal → auto"]
+  B --> C{"已有真實 template<br/>且 required capabilities 可用？"}
+  C -- "否" --> D["Fail closed<br/>列出 blocker 或先選真實 template"]
+  C -- "是" --> E["Private route receipt<br/>0600 · 24h · bundle digest"]
+  E --> F{"Workspace、Profile、scope、<br/>catalog、capability 或 bundle 漂移？"}
+  F -- "是" --> D
+  F -- "否" --> G["單次 dw run<br/>保留 mode floor"]
+  G --> H["Template-bound action gates<br/>新鮮證據與 reconciliation"]
+```
+
+Receipt 會綁定 goal/scope、選定路由、catalog、workspace/personal Profiles、
+capability fingerprint 與完整 plugin bundle digest；24 小時到期且只能使用
+一次。重放、竄改或任何 binding 漂移都會 fail closed。
+
 ## 在 Codex 使用
 
 ### Codex CLI
@@ -140,7 +220,7 @@ $better-workflows:cross-platform 檢查 backend、iOS 和 Android 的 contact sy
 ### 快速選擇
 
 - 不確定選哪個：使用 `auto`。
-- 已知道任務類型：從九個任務入口選擇。
+- 已知道任務類型：從十個任務入口選擇。
 - 只想指定審查強度：使用 `direct`、`verified`、`deep` 或 `critical`。
 - 習慣舊指令：使用 compatibility alias。
 
@@ -151,6 +231,7 @@ $better-workflows:cross-platform 檢查 backend、iOS 和 Android 的 contact sy
 | `$better-workflows:auto` | 大多數任務的推薦預設。依風險與證據自動選 template、mode 與 critics。 | `$better-workflows:auto Review 目前 repo、修復已驗證問題並建立 PR。` |
 | `$better-workflows:review-issues` | 唯讀 audit、finding 去重，以及經授權的 GitHub issue 建立；不修改 code。 | `$better-workflows:review-issues Review 最新 dev SHA，建立去重後的 P0/P1/P2 issues。` |
 | `$better-workflows:fix-issues-pr` | 重驗 open issues、由 Root 修復、建立 PR；只有獲授權時才 merge 與 cleanup。 | `$better-workflows:fix-issues-pr 修復 dev 的 open issues，建立 PR，等待 fresh checks 後 merge 並 cleanup。` |
+| `$better-workflows:pr-to-dev` | 將範圍內修改分成 atomic commits，建立唯一 target 為 `dev` 的 PR，fresh checks 後 merge、同步 remote 並精準清理。 | `$better-workflows:pr-to-dev 分批 commit 目前修改，發 PR 至 dev，checks 通過後 merge、同步 remote dev 並清理本次 worktree。` |
 | `$better-workflows:cross-platform` | Backend、iOS、Android、Web 的 schema、optional 欄位、enum、sync、version gate 與 headers。 | `$better-workflows:cross-platform 檢查 backend、iOS 和 Android 的 contact sync contract，修復問題並建立 PR。` |
 | `$better-workflows:ios-static` | 不適合本機 build 時的 Swift/iOS 靜態 Review，以及序列化 `project.pbxproj` 驗證。 | `$better-workflows:ios-static 不做 build，Review iOS 變更、檢查新 Swift 檔已加入 pbxproj 並修復靜態問題。` |
 | `$better-workflows:localization` | 多語系更新，特別是 41 語系 key 數量、順序、精準 scope 與區域變體。 | `$better-workflows:localization 將這些 keys 加到全部 41 語系，並驗證 key 順序一致。` |
@@ -284,9 +365,16 @@ node plugins/better-workflows/scripts/dw.mjs run \
 ```bash
 npm test --prefix plugins/better-workflows
 node plugins/better-workflows/scripts/dw.mjs eval
+node scripts/plugin-cache.mjs check
 ```
 
 Runtime 只使用 Node.js standard library。
+
+Plugin cache version 是 immutable。任何內容變更都必須使用新的 build
+version；`node scripts/plugin-cache.mjs sync` 只會 stage 尚不存在的版本，
+驗證完整 file manifest 與 digest 後原子發布。若同版本內容不同會拒絕原地
+覆寫。用正常 Codex plugin refresh 啟用前，還要從最終 cache path 執行
+`dw eval`。
 
 ## License
 

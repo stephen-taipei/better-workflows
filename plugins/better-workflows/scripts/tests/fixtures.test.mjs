@@ -241,3 +241,13 @@ test("plugin has zero runtime dependencies", async () => {
   assert.equal(manifest.dependencies, undefined);
   assert.equal(manifest.optionalDependencies, undefined);
 });
+
+test("plugin runtime and Codex build versions are aligned", async () => {
+  const manifest = JSON.parse(
+    await readFile(path.join(pluginRoot(), ".codex-plugin", "plugin.json"), "utf8")
+  );
+  const packageManifest = JSON.parse(
+    await readFile(path.join(pluginRoot(), "package.json"), "utf8")
+  );
+  assert.equal(manifest.version.split("+")[0], packageManifest.version);
+});

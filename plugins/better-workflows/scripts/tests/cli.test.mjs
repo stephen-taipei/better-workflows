@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { access, mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -66,6 +66,13 @@ test("CLI creates a verified run and returns nonzero on authority drift", async 
   assert.equal(typeof started.json.sentinel.manifest, "string");
   assert.equal("skipped" in started.json.sentinel, false);
   const runId = started.json.runId;
+  const contract = JSON.parse(
+    await readFile(path.join(stateRoot, "runs", runId, "contract.json"), "utf8")
+  );
+  assert.equal(typeof contract.templateDigest, "string");
+  assert.deepEqual(contract.actionGates, {
+    "issue.create": ["base-revision", "review-findings", "duplicate-check", "current-revision"]
+  });
 
   const status = await cli(cwd, stateRoot, ["status", runId]);
   assert.equal(status.json.status, "running");
@@ -93,7 +100,7 @@ test("CLI creates a verified run and returns nonzero on authority drift", async 
   assert.ok(verification.json.changed.includes("statusDigest"));
 });
 
-test("CLI direct mode does not create durable state", async () => {
+test("CLI template mode floor prevents an explicit direct downgrade", async () => {
   const cwd = await repository();
   const parent = await mkdtemp(path.join(os.tmpdir(), "dw-cli-direct-"));
   const stateRoot = path.join(parent, "missing");
@@ -108,7 +115,32 @@ test("CLI direct mode does not create durable state", async () => {
     "--scope",
     "src"
   ]);
-  assert.equal(result.json.direct, true);
+  assert.equal(result.json.direct, false);
+  assert.equal(result.json.mode, "verified");
+  await access(stateRoot);
+});
+
+test("CLI rejects an unknown run mode instead of silently applying a lower floor", async () => {
+  const cwd = await repository();
+  const stateRoot = path.join(await mkdtemp(path.join(os.tmpdir(), "dw-cli-mode-")), "state");
+  const result = await cli(
+    cwd,
+    stateRoot,
+    [
+      "run",
+      "--template",
+      "review-to-issues",
+      "--mode",
+      "critcal",
+      "--goal",
+      "Create issues",
+      "--scope",
+      "src"
+    ],
+    { allowFailure: true }
+  );
+  assert.notEqual(result.code, 0);
+  assert.match(result.stderr, /Unknown mode: critcal/);
   await assert.rejects(access(stateRoot));
 });
 
@@ -117,4 +149,116 @@ test("CLI lists exactly the installed workflow templates", async () => {
   const stateRoot = await mkdtemp(path.join(os.tmpdir(), "dw-cli-list-"));
   const result = await cli(cwd, stateRoot, ["templates"]);
   assert.equal(result.json.templates.length, 11);
+});
+
+test("CLI previews, records, and consumes a fail-closed route receipt", async () => {
+  const cwd = await repository();
+  const stateRoot = path.join(await mkdtemp(path.join(os.tmpdir(), "dw-cli-route-")), "state");
+  const preview = await cli(cwd, stateRoot, [
+    "route",
+    "preview",
+    "--goal",
+    "Review src and create issues",
+    "--scope",
+    "src",
+    "--entry",
+    "review-issues",
+    "--record"
+  ]);
+  assert.equal(preview.json.ok, true);
+  assert.equal(preview.json.primary.template, "review-to-issues");
+  assert.equal(typeof preview.json.receipt.id, "string");
+
+  const run = await cli(cwd, stateRoot, [
+    "run",
+    "--route-receipt",
+    preview.json.receipt.id
+  ]);
+  assert.equal(run.json.mode, "verified");
+  assert.equal(run.json.routeReceipt, preview.json.receipt.id);
+
+  const replay = await cli(
+    cwd,
+    stateRoot,
+    ["run", "--route-receipt", preview.json.receipt.id],
+    { allowFailure: true }
+  );
+  assert.notEqual(replay.code, 0);
+  assert.match(replay.stderr, /already claimed/);
+});
+
+test("CLI read-only routing commands neither create state nor accept misspelled options", async () => {
+  const cwd = await repository();
+  const stateRoot = path.join(await mkdtemp(path.join(os.tmpdir(), "dw-cli-readonly-")), "missing");
+  const snapshot = await cli(cwd, stateRoot, ["doctor", "--capabilities"]);
+  assert.equal(snapshot.json.providerProbeStarted, false);
+  await assert.rejects(access(stateRoot));
+
+  const typo = await cli(
+    cwd,
+    stateRoot,
+    ["route", "preview", "--goal", "Review src", "--templat", "review-to-issues"],
+    { allowFailure: true }
+  );
+  assert.notEqual(typo.code, 0);
+  assert.match(typo.stderr, /Unknown option/);
+  await assert.rejects(access(stateRoot));
+});
+
+test("CLI built-in auto receipt remains reviewable but cannot start without a concrete template", async () => {
+  const cwd = await repository();
+  const stateRoot = path.join(await mkdtemp(path.join(os.tmpdir(), "dw-cli-auto-route-")), "state");
+  const preview = await cli(cwd, stateRoot, [
+    "route",
+    "preview",
+    "--goal",
+    "Do the right workflow",
+    "--scope",
+    "src",
+    "--record"
+  ]);
+  assert.equal(preview.json.needsSelection, true);
+  assert.equal(preview.json.primary.template, null);
+  const run = await cli(
+    cwd,
+    stateRoot,
+    ["run", "--route-receipt", preview.json.receipt.id],
+    { allowFailure: true }
+  );
+  assert.notEqual(run.code, 0);
+  assert.match(run.stderr, /does not resolve a concrete template/);
+});
+
+test("CLI resume migrates a legacy 1.0 run to template-bound action gates", async () => {
+  const cwd = await repository();
+  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "dw-cli-legacy-"));
+  const started = await cli(cwd, stateRoot, [
+    "run",
+    "--template",
+    "review-to-issues",
+    "--mode",
+    "verified",
+    "--goal",
+    "Review legacy run",
+    "--scope",
+    "src"
+  ]);
+  const runDir = path.join(stateRoot, "runs", started.json.runId);
+  const contractPath = path.join(runDir, "contract.json");
+  const manifestPath = path.join(runDir, "manifest.json");
+  const contract = JSON.parse(await readFile(contractPath, "utf8"));
+  delete contract.templateDigest;
+  delete contract.actionGates;
+  await writeFile(contractPath, `${JSON.stringify(contract, null, 2)}\n`);
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+  manifest.version = "1.0.0";
+  await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+
+  const resumed = await cli(cwd, stateRoot, ["resume", started.json.runId]);
+  assert.equal(resumed.json.migration.migrated, true);
+  const migrated = JSON.parse(await readFile(contractPath, "utf8"));
+  assert.equal(typeof migrated.templateDigest, "string");
+  assert.deepEqual(migrated.actionGates, {
+    "issue.create": ["base-revision", "review-findings", "duplicate-check", "current-revision"]
+  });
 });
