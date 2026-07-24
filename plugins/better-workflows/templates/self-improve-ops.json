@@ -1,0 +1,108 @@
+{
+  "name": "self-improve-ops",
+  "description": "Turn recent workflow evidence into a bounded Better Workflows change-or-no-change decision, synchronize every affected plugin surface, validate it, and gate immutable cache publication and remote delivery independently.",
+  "defaultMode": "critical",
+  "requiredEvidence": [
+    "retrospective-source-inventory",
+    "recurrence-matrix",
+    "coverage-gap-analysis",
+    "decision-record",
+    "change-inventory",
+    "sync-matrix",
+    "patch-review",
+    "repo-gates",
+    "plugin-version",
+    "cache-check",
+    "commit-manifest",
+    "cache-publication",
+    "remote-authorization",
+    "current-branch",
+    "remote-reconciliation",
+    "provider-reconciliation"
+  ],
+  "acceptance": [
+    {
+      "id": "retrospective-bounded",
+      "description": "Only recent, relevant, sanitized evidence was used, with recurrence, confidence, current coverage, and counterarguments recorded.",
+      "critical": true
+    },
+    {
+      "id": "outcome-explicit",
+      "description": "Every candidate has an evidence-backed IMPLEMENT, NO_CHANGE, BLOCKED, or REJECTED_WITH_EVIDENCE disposition; no-change is a successful terminal outcome.",
+      "critical": true
+    },
+    {
+      "id": "workflow-thin",
+      "description": "The change does not duplicate research, refactor, PR, routing, publication, or repository-specific operational mechanics.",
+      "critical": true
+    },
+    {
+      "id": "surfaces-synchronized",
+      "description": "Every affected selector, template, catalog, command, test, localized document, and manifest is synchronized or explicitly proven unaffected.",
+      "critical": true
+    },
+    {
+      "id": "validated",
+      "description": "Baseline and final repository gates are recorded, with infrastructure failures kept distinct from product regressions.",
+      "critical": true
+    },
+    {
+      "id": "cache-immutable",
+      "description": "A changed plugin uses a new semantic/build version, preserves existing cache versions, and reconciles exact source and target digests; no-change records publication as not applicable.",
+      "critical": true
+    },
+    {
+      "id": "delivery-reconciled",
+      "description": "Every authorized commit, cache publication, and push has a known terminal result and exact revision or digest; unauthorized merge, deploy, or cleanup did not occur.",
+      "critical": true
+    }
+  ],
+  "policyGates": [
+    "goal-first-persistence",
+    "root-only-mutation",
+    "bounded-retrospective-sources",
+    "sanitized-external-deliberation",
+    "first-class-no-change",
+    "thin-workflow-composition",
+    "stale-versioned-link-resolution",
+    "no-mutation-of-stale-cache",
+    "selector-template-catalog-test-doc-sync",
+    "baseline-before-change",
+    "infrastructure-not-product-failure",
+    "new-version-before-publication",
+    "immutable-cache-exact-digest",
+    "explicit-path-atomic-commit",
+    "independent-action-authority",
+    "remote-reconciliation",
+    "no-implicit-merge-deploy-cleanup"
+  ],
+  "actionGates": {
+    "git.commit": [
+      "change-inventory",
+      "sync-matrix",
+      "patch-review",
+      "repo-gates",
+      "plugin-version"
+    ],
+    "plugin.cache.publish": [
+      "commit-manifest",
+      "repo-gates",
+      "plugin-version",
+      "cache-check"
+    ],
+    "git.push": [
+      "commit-manifest",
+      "cache-publication",
+      "repo-gates",
+      "remote-authorization",
+      "current-branch"
+    ]
+  },
+  "domainSkills": [],
+  "rootOnlyActions": [
+    "git add",
+    "git commit",
+    "immutable plugin cache publication",
+    "git push"
+  ]
+}

@@ -63,7 +63,7 @@ test("auto routing follows risk and explicit modes never downgrade", () => {
 });
 
 test("direct mode creates no state directory", async () => {
-  const parent = await mkdtemp(path.join(os.tmpdir(), "dw-direct-"));
+  const parent = await mkdtemp(path.join(os.tmpdir(), "sbw-direct-"));
   const root = path.join(parent, "state-that-must-not-exist");
   const result = await createRun({
     root,
@@ -77,8 +77,21 @@ test("direct mode creates no state directory", async () => {
   await assert.rejects(access(root));
 });
 
+test("the SBW state root and generated run IDs use the canonical command name", async () => {
+  assert.equal(getStateRoot({ CODEX_HOME: "/tmp/codex-home" }), "/tmp/codex-home/sbw");
+  assert.equal(getStateRoot({ SBW_STATE_ROOT: "/tmp/custom-sbw-state" }), "/tmp/custom-sbw-state");
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-name-contract-"));
+  const result = await createRun({
+    root,
+    contract: contract(),
+    requestedMode: "verified",
+    cwd: root
+  });
+  assert.match(result.runId, /^sbw-/);
+});
+
 test("run state is private and action tokens are one-shot with reconciliation", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "dw-core-"));
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-core-"));
   const result = await createRun({
     root,
     contract: contract(),
@@ -161,7 +174,7 @@ test("run state is private and action tokens are one-shot with reconciliation", 
 });
 
 test("state root symlinks and hardlinked JSON are rejected", async () => {
-  const parent = await mkdtemp(path.join(os.tmpdir(), "dw-links-"));
+  const parent = await mkdtemp(path.join(os.tmpdir(), "sbw-links-"));
   const actual = path.join(parent, "actual");
   const alias = path.join(parent, "alias");
   await mkdir(actual, { mode: 0o700 });

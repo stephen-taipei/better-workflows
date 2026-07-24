@@ -23,7 +23,7 @@ unbounded agent swarm. Its design principles are:
 - **Persistent intent:** `/goal` preserves the requested outcome across turns;
   templates and modes define verification depth without silently changing the
   goal.
-- **Deterministic control plane:** the `dw` helper records contracts, private
+- **Deterministic control plane:** the `sbw` helper records contracts, private
   state, sentinels, evidence, findings, leases, action tokens, and
   reconciliation; it does not execute model-generated commands.
 - **Explicit completion:** a run is complete only when acceptance evidence is
@@ -62,7 +62,7 @@ Neither capability is exclusive. Better Workflows includes research and deep-rev
 
 This is a deliberate boundary, not an unfinished feature checklist. Better
 Workflows is a governance/control plane around Codex work, not a runtime that
-lets a model generate an unbounded agent harness. The `dw` helper records and
+lets a model generate an unbounded agent harness. The `sbw` helper records and
 validates state, evidence, and action gates; it does not spawn agents or execute
 model-generated commands.
 
@@ -156,10 +156,10 @@ Start a new Codex task after installation so the skill catalog refreshes.
 
 ```bash
 # Read-only: never starts provider login or a semantic model probe.
-dw doctor --capabilities
+sbw doctor --capabilities
 
 # Read-only route decision.
-dw route preview \
+sbw route preview \
   --goal "Consolidate Dependabot updates and clean owned resources" \
   --scope . \
   --domain maintenance \
@@ -184,7 +184,7 @@ lower the mode, or replace an explicit picker choice.
 | 1 | Host hard constraints | Never lowered by local configuration; absent host input is reported `unverified`. |
 | 2 | Explicit entry/template/mode | The user's picker or CLI choice wins. |
 | 3 | Workspace Profile | `<repo>/.codex/better-workflows.json`; a matching rule replaces personal routing. |
-| 4 | Personal Profile | `$DW_STATE_ROOT/routing/profile.json`. |
+| 4 | Personal Profile | `$SBW_STATE_ROOT/routing/profile.json`. |
 | 5 | Built-in `auto` | Returns `template: null` until current evidence selects a real template. |
 
 Inside one Profile, higher priority wins and ties keep file order. Match
@@ -193,9 +193,9 @@ personal rules are never deep-merged. See the strict
 [example Profile](plugins/better-workflows/config/routing-profile.example.json).
 
 ```bash
-dw route profile validate --file my-routing-profile.json
-dw route profile install --file my-routing-profile.json
-dw route profile show
+sbw route profile validate --file my-routing-profile.json
+sbw route profile install --file my-routing-profile.json
+sbw route profile show
 ```
 
 ### Reviewable, single-use route receipts
@@ -203,13 +203,13 @@ dw route profile show
 Use `--record` when preview and execution must be bound across a handoff:
 
 ```bash
-dw route preview \
+sbw route preview \
   --goal "Refactor the monorepo without changing public contracts" \
   --scope . \
   --entry monorepo-refactor \
   --record
 
-dw run --route-receipt <route-receipt-id>
+sbw run --route-receipt <route-receipt-id>
 ```
 
 ```mermaid
@@ -220,7 +220,7 @@ flowchart LR
   C -- "Yes" --> E["Private route receipt<br/>0600 · 24h · bundle digest"]
   E --> F{"Workspace, Profile, scope,<br/>catalog, capability, or bundle drift?"}
   F -- "Yes" --> D
-  F -- "No" --> G["Single-use dw run<br/>mode floor preserved"]
+  F -- "No" --> G["Single-use sbw run<br/>mode floor preserved"]
   G --> H["Template-bound action gates<br/>fresh evidence and reconciliation"]
 ```
 
@@ -270,7 +270,7 @@ silently replacing it.
 ### Choose quickly
 
 - Unsure which workflow to use: choose `auto`.
-- Know the task category: choose one of the ten task entries.
+- Know the task category: choose one of the eleven task entries.
 - Care mainly about review depth: choose `direct`, `verified`, `deep`, or `critical`.
 - Already use a legacy command: choose its compatibility alias.
 
@@ -288,7 +288,14 @@ silently replacing it.
 | `$better-workflows:ci-release` | CI failures, runner queues, serialized deploys, releases, remote monitoring, and receipt-based verification. | `$better-workflows:ci-release Diagnose the failing PR checks, fix them, and monitor the serialized dev deployment.` |
 | `$better-workflows:browser-qa` | Webwright or simulator QA requiring current UI evidence, screenshots, and a reproducible action log. | `$better-workflows:browser-qa Verify signup and contact sync in the browser and attach screenshot evidence.` |
 | `$better-workflows:research` | CLI-proven multi-model roles, evidence-backed architecture comparison, refutation, and an executable plan without majority voting. | `$better-workflows:research Compare three sync architectures, challenge each one, and produce an implementation-ready plan.` |
+| `$better-workflows:self-improve` | Improve Better Workflows itself from bounded recent evidence, including synchronized selectors, templates, tests, docs, versions, immutable cache, and authorized remote delivery. | `$better-workflows:self-improve Review recent workflow outcomes, implement only recurring verified improvements, validate, publish a new cache version, and push the atomic commit.` |
 | `$better-workflows:monorepo-refactor` | Full workspace inventory followed by direct implementation of every eligible bounded refactor recommendation, with behavior invariants, validation, and rollback evidence. | `$better-workflows:monorepo-refactor Inventory the monorepo and implement all eligible boundary-cleanup recommendations without changing its public contract.` |
+
+`self-improve-ops` is intentionally a thin orchestration template. It composes
+the existing research, refactor, routing, publication, and delivery controls,
+accepts a justified no-change result, and independently gates commit, cache
+publication, and push. A missing versioned cache link is resolved to a verified
+current bundle; the stale path is never recreated or mutated.
 
 ### CLI-proven multi-model deliberation
 
@@ -325,7 +332,7 @@ flowchart LR
 ```
 
 ```bash
-node plugins/better-workflows/scripts/dw.mjs deliberation deliberate \
+node plugins/better-workflows/scripts/sbw.mjs deliberation deliberate \
   --prompt-file sanitized-case.md \
   --allow-external-providers --sanitized
 ```
@@ -338,7 +345,7 @@ from the current task context, while `auto` may route to it when the evidence
 matches. Run it directly when you need the exact contract:
 
 ```bash
-node plugins/better-workflows/scripts/dw.mjs run \
+node plugins/better-workflows/scripts/sbw.mjs run \
   --template dependabot-consolidation-pr-cleanup \
   --mode critical \
   --goal "Inventory Dependabot PRs, consolidate compatible updates, merge one PR, and clean only run-owned sources." \
@@ -380,7 +387,7 @@ run-owned resources. Select `$better-workflows:pr-to-dev` from the native picker
 or start the same template directly:
 
 ```bash
-node plugins/better-workflows/scripts/dw.mjs run \
+node plugins/better-workflows/scripts/sbw.mjs run \
   --template pr-to-dev \
   --mode critical \
   --goal "Split in-scope changes into atomic commits, create one PR to dev, merge after fresh checks, sync remote dev, and clean owned worktrees." \
@@ -463,7 +470,7 @@ Better Workflows chooses one of four modes:
 | `deep` | Verified work followed by up to two sequential Codex critics. |
 | `critical` | Full evidence and side-effect gates plus a required external reviewer when policy demands it. |
 
-Eleven workflow templates are included:
+Twelve workflow templates are included:
 
 - `review-to-issues`
 - `issues-to-root-fix-pr-merge-cleanup`
@@ -474,6 +481,7 @@ Eleven workflow templates are included:
 - `dependabot-consolidation-pr-cleanup`
 - `browser-simulator-qa`
 - `research-deliberation`
+- `self-improve-ops`
 - `monorepo-refactor`
 - `pr-to-dev`
 
@@ -483,20 +491,20 @@ installer or separate command layer is required.
 
 ## Deterministic helper
 
-The plugin bundles a zero-runtime-dependency Node.js helper. It manages contracts, private run state, evidence, findings, bounded Git sentinels, leases, action tokens, reconciliation, doctor checks, and evaluations. It does not spawn agents, execute model-generated commands, assign severity, or perform side effects.
+The plugin bundles a zero-runtime-dependency Node.js helper. Its official command is `sbw` (Stephen Better Workflows). It manages contracts, private run state, evidence, findings, bounded Git sentinels, leases, action tokens, reconciliation, doctor checks, and evaluations. It does not spawn agents, execute model-generated commands, assign severity, or perform side effects.
 
 Run it directly from a checkout:
 
 ```bash
-node plugins/better-workflows/scripts/dw.mjs doctor
-node plugins/better-workflows/scripts/dw.mjs doctor --capabilities
-node plugins/better-workflows/scripts/dw.mjs route preview --goal "Review this repo" --scope .
-node plugins/better-workflows/scripts/dw.mjs eval
+node plugins/better-workflows/scripts/sbw.mjs doctor
+node plugins/better-workflows/scripts/sbw.mjs doctor --capabilities
+node plugins/better-workflows/scripts/sbw.mjs route preview --goal "Review this repo" --scope .
+node plugins/better-workflows/scripts/sbw.mjs eval
 ```
 
-A global `dw` command is optional. Before a workflow uses one, it verifies that
-`dw templates` contains the selected template, `dw help` lists `route preview`,
-and `dw doctor --capabilities` works without provider probes. A stale helper
+A global `sbw` command is optional. Before a workflow uses one, it verifies that
+`sbw templates` contains the selected template, `sbw help` lists `route preview`,
+and `sbw doctor --capabilities` works without provider probes. A stale helper
 automatically falls back to the runner bundled with the active plugin.
 
 ## Security model
@@ -512,7 +520,7 @@ automatically falls back to the runner bundled with the active plugin.
 
 ```bash
 npm test --prefix plugins/better-workflows
-node plugins/better-workflows/scripts/dw.mjs eval
+node plugins/better-workflows/scripts/sbw.mjs eval
 node scripts/plugin-cache.mjs check
 ```
 
@@ -521,7 +529,7 @@ The runtime uses only Node.js standard-library modules.
 Plugin cache versions are immutable. Every content change must use a new build
 version; `node scripts/plugin-cache.mjs sync` stages a missing version, verifies
 the exact file manifest and digest, then atomically publishes it. It refuses to
-overwrite a same-version cache with different contents. Run `dw eval` from the
+overwrite a same-version cache with different contents. Run `sbw eval` from the
 final cache path before activating that version through the normal Codex plugin
 refresh.
 

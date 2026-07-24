@@ -713,29 +713,29 @@ async function commandEval() {
 function help() {
   return {
     usage: [
-      "dw run --template <name> --mode <auto|direct|verified|deep|critical> --goal <text> [--scope <path>]",
-      "dw run --route-receipt <route-receipt-id>",
-      "dw route preview --goal <text> [--scope <path>] [--entry <id>|--template <name>] [--mode <mode>] [--domain <name>] [--tag <name>] [--record]",
-      "dw route profile validate|install --file <profile.json>",
-      "dw route profile show",
-      "dw status <run-id>",
-      "dw inspect <run-id>",
-      "dw resume <run-id>",
-      "dw cancel <run-id> [--reason <text>]",
-      "dw sentinel capture|verify <run-id> --label <label>",
-      "dw evidence add <run-id> --file <json>",
-      "dw finding add|update <run-id> --file <json>",
-      "dw critic codex|agy <run-id> --model <model> --prompt-file <file> [--effort <auto|medium|high>] [--effort-transport <native|model-variant>]",
-      "dw deliberation roster [--mode <auto|direct|verified|deep|critical>] [--reasoning-effort <auto|medium|high>] [--refresh] [--provider <id>] [--allow-external-providers --sanitized]",
-      "dw deliberation deliberate --prompt-file <sanitized-file> [--mode <auto|direct|verified|deep|critical>] [--reasoning-effort <auto|medium|high>] [--refresh] [--allow-external-providers --sanitized]",
-      "dw deliberation arbitrate --prompt-file <sanitized-file> [--mode <auto|direct|verified|deep|critical>] [--reasoning-effort <auto|medium|high>] [--allow-external-providers --sanitized]",
-      "dw action issue|consume|reconcile <run-id> ...",
-      "dw complete <run-id>",
-      "dw doctor [--agy --model <model>]",
-      "dw doctor --capabilities",
-      "dw eval",
-      "dw cleanup [--older-than-days 30] [--apply]",
-      "dw templates"
+      "sbw run --template <name> --mode <auto|direct|verified|deep|critical> --goal <text> [--scope <path>]",
+      "sbw run --route-receipt <route-receipt-id>",
+      "sbw route preview --goal <text> [--scope <path>] [--entry <id>|--template <name>] [--mode <mode>] [--domain <name>] [--tag <name>] [--record]",
+      "sbw route profile validate|install --file <profile.json>",
+      "sbw route profile show",
+      "sbw status <run-id>",
+      "sbw inspect <run-id>",
+      "sbw resume <run-id>",
+      "sbw cancel <run-id> [--reason <text>]",
+      "sbw sentinel capture|verify <run-id> --label <label>",
+      "sbw evidence add <run-id> --file <json>",
+      "sbw finding add|update <run-id> --file <json>",
+      "sbw critic codex|agy <run-id> --model <model> --prompt-file <file> [--effort <auto|medium|high>] [--effort-transport <native|model-variant>]",
+      "sbw deliberation roster [--mode <auto|direct|verified|deep|critical>] [--reasoning-effort <auto|medium|high>] [--refresh] [--provider <id>] [--allow-external-providers --sanitized]",
+      "sbw deliberation deliberate --prompt-file <sanitized-file> [--mode <auto|direct|verified|deep|critical>] [--reasoning-effort <auto|medium|high>] [--refresh] [--allow-external-providers --sanitized]",
+      "sbw deliberation arbitrate --prompt-file <sanitized-file> [--mode <auto|direct|verified|deep|critical>] [--reasoning-effort <auto|medium|high>] [--allow-external-providers --sanitized]",
+      "sbw action issue|consume|reconcile <run-id> ...",
+      "sbw complete <run-id>",
+      "sbw doctor [--agy --model <model>]",
+      "sbw doctor --capabilities",
+      "sbw eval",
+      "sbw cleanup [--older-than-days 30] [--apply]",
+      "sbw templates"
     ]
   };
 }
@@ -816,14 +816,14 @@ async function main() {
   }
   if (command === "evidence") {
     if (subcommand !== "add" || !runId || !options.file) {
-      throw new Error("evidence usage: dw evidence add <run-id> --file <json>");
+      throw new Error("evidence usage: sbw evidence add <run-id> --file <json>");
     }
     const record = JSON.parse(await readFile(path.resolve(String(options.file)), "utf8"));
     return { ok: true, evidence: await addEvidence(root, runId, await enrichEvidence(root, runId, record)) };
   }
   if (command === "finding") {
     if (!["add", "update"].includes(subcommand) || !runId || !options.file) {
-      throw new Error("finding usage: dw finding add|update <run-id> --file <json>");
+      throw new Error("finding usage: sbw finding add|update <run-id> --file <json>");
     }
     const record = JSON.parse(await readFile(path.resolve(String(options.file)), "utf8"));
     return {
@@ -833,7 +833,7 @@ async function main() {
   }
   if (command === "critic") {
     if (!["codex", "agy"].includes(subcommand) || !runId || !options["prompt-file"]) {
-      throw new Error("critic usage: dw critic codex|agy <run-id> --model <model> --prompt-file <file>");
+      throw new Error("critic usage: sbw critic codex|agy <run-id> --model <model> --prompt-file <file>");
     }
     const run = await loadRun(root, runId);
     const prompt = await readFile(path.resolve(String(options["prompt-file"])), "utf8");
@@ -882,7 +882,7 @@ async function main() {
       const run = await loadRun(root, runId);
       const template = await loadTemplate(run.manifest.template);
       if (!run.contract.templateDigest || !run.contract.actionGates) {
-        throw new Error(`Legacy run is unbound; run dw resume ${runId} before issuing actions`);
+        throw new Error(`Legacy run is unbound; run sbw resume ${runId} before issuing actions`);
       }
       if (run.contract.templateDigest !== digestObject(template)) {
         throw new Error("Workflow template drifted after run creation");

@@ -18,7 +18,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const VERSION = "1.1.0";
+export const VERSION = "2.0.0";
 export const MODES = new Set(["auto", "direct", "verified", "deep", "critical"]);
 export const RUN_STATES = new Set([
   "pending",
@@ -41,7 +41,7 @@ export const FINDING_STATES = new Set([
   "rejected-with-evidence"
 ]);
 
-const RUN_ID = /^dw-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{12}$/;
+const RUN_ID = /^sbw-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{12}$/;
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const PLUGIN_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const DEFAULTS_PATH = path.join(PLUGIN_ROOT, "config", "defaults.json");
@@ -81,11 +81,11 @@ export function digestObject(value) {
 }
 
 export function getStateRoot(env = process.env) {
-  if (env.DW_STATE_ROOT) return path.resolve(env.DW_STATE_ROOT);
+  if (env.SBW_STATE_ROOT) return path.resolve(env.SBW_STATE_ROOT);
   const codexHome = env.CODEX_HOME
     ? path.resolve(env.CODEX_HOME)
     : path.join(os.homedir(), ".codex");
-  return path.join(codexHome, "dynamic-workflows");
+  return path.join(codexHome, "sbw");
 }
 
 async function pathExists(target) {
@@ -311,7 +311,7 @@ export function buildContract({
 
 function generateRunId(date = new Date()) {
   const stamp = date.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
-  return `dw-${stamp}-${randomBytes(6).toString("hex")}`;
+  return `sbw-${stamp}-${randomBytes(6).toString("hex")}`;
 }
 
 export function runDirectory(root, runId) {
@@ -718,7 +718,7 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
       remoteRevision: request.remoteRevision,
       treeDigest: currentTreeDigest,
       contractDigest: digestObject(contract),
-      idempotencyKey: `dw-${runId}-${randomUUID()}`
+      idempotencyKey: `sbw-${runId}-${randomUUID()}`
     };
     await atomicWriteJson(root, safeJoin(runDir, "actions", `${tokenHash}.json`), record);
     await appendJournal(root, runDir, "action.issued", {
