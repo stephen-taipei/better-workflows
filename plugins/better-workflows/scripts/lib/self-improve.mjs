@@ -10,6 +10,12 @@ const DISPOSITIONS = new Set(["IMPLEMENT", "NO_CHANGE", "BLOCKED", "REJECTED_WIT
 const SECRET_PATTERN = /(?:api[_-]?key|password|passwd|secret|token|authorization)\s*[:=]\s*[^\s]+/i;
 export const SELF_IMPROVE_CANONICAL_CORPUS = "plugins/better-workflows/fixtures/self-improve-ops-evals.json";
 
+function allowedCandidateMaterial(file) {
+  return file === "README.md" ||
+    /^docs\/README\.(?:zh-TW|zh-CN|ja|ko)\.md$/.test(file) ||
+    /^plugins\/better-workflows\/(?:scripts\/.+\.mjs|skills\/.+\.md|templates\/.+\.json|fixtures\/.+\.json|config\/.+\.json|package\.json|\.codex-plugin\/plugin\.json)$/.test(file);
+}
+
 function assertString(value, label) {
   if (typeof value !== "string" || !value.trim()) throw new Error(`${label} must be a non-empty string`);
   if (value.length > 4_000) throw new Error(`${label} exceeds the bounded evaluation limit`);
@@ -136,6 +142,9 @@ export async function readSanitizedCandidateMaterial({ cwd, snapshot, maxFiles =
   let used = 0;
   for (const file of snapshot.files) {
     if (file.state !== "file" || material.length >= maxFiles || used >= maxBytes) continue;
+    if (!allowedCandidateMaterial(file.path)) {
+      throw new Error(`Candidate material path is outside the sanitized allowlist: ${file.path}`);
+    }
     const content = await readFile(path.join(root, file.path));
     if (content.includes(0)) throw new Error(`Candidate material is not text: ${file.path}`);
     const text = content.toString("utf8");
@@ -146,6 +155,42 @@ export async function readSanitizedCandidateMaterial({ cwd, snapshot, maxFiles =
     used += Buffer.byteLength(bounded, "utf8");
   }
   if (snapshot.files.some((file) => file.state === "file") && material.length === 0) throw new Error("Candidate has no bounded sanitized text material");
+  return material;
+}
+
+export async function snapshotBaselineForCandidate({ cwd, snapshot }) {
+  const repository = await realpath(cwd);
+  const files = [];
+  for (const file of snapshot.files) {
+    try {
+      const content = await gitBytes(repository, ["show", `${snapshot.baselineRevision}:${file.path}`]);
+      files.push({ path: file.path, state: "file", digest: sha256(content), size: content.length });
+    } catch {
+      files.push({ path: file.path, state: "missing", digest: null });
+    }
+  }
+  const baseline = { baselineRevision: snapshot.baselineRevision, candidateRoot: snapshot.candidateRoot, files };
+  return { ...baseline, digest: digestObject(baseline) };
+}
+
+export async function readSanitizedBaselineMaterial({ cwd, snapshot, maxFiles = 24, maxBytes = 96 * 1024 }) {
+  const repository = await realpath(cwd);
+  const material = [];
+  let used = 0;
+  for (const file of snapshot.files) {
+    if (file.state !== "file" || material.length >= maxFiles || used >= maxBytes) continue;
+    if (!allowedCandidateMaterial(file.path)) {
+      throw new Error(`Baseline material path is outside the sanitized allowlist: ${file.path}`);
+    }
+    const content = await gitBytes(repository, ["show", `${snapshot.baselineRevision}:${file.path}`]);
+    if (content.includes(0)) throw new Error(`Baseline material is not text: ${file.path}`);
+    const text = content.toString("utf8");
+    if (Buffer.byteLength(text, "utf8") !== content.length) throw new Error(`Baseline material is not valid UTF-8: ${file.path}`);
+    if (SECRET_PATTERN.test(text)) throw new Error(`Baseline material contains secret-shaped content: ${file.path}`);
+    const bounded = Buffer.from(text, "utf8").subarray(0, maxBytes - used).toString("utf8");
+    material.push({ path: file.path, content: bounded, digest: file.digest });
+    used += Buffer.byteLength(bounded, "utf8");
+  }
   return material;
 }
 

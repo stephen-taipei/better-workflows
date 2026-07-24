@@ -1,10 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { access, chmod, mkdtemp, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
+import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
-import { buildContract, loadDefaults } from "../lib/core.mjs";
-import { doctorAgy, runAgyCritic, spawnCapture } from "../lib/providers.mjs";
+import { buildContract, canonicalJson, loadDefaults } from "../lib/core.mjs";
+import { doctorAgy, runAgyCritic, runCodexEvaluation, spawnCapture } from "../lib/providers.mjs";
 import {
   probeDeliberationRoster,
   resolveReasoningEffort,
@@ -45,6 +46,32 @@ test("spawnCapture enforces nonzero exit and output capture without a shell", as
     timeoutMs: 5_000
   });
   assert.equal(failure.code, 7);
+});
+
+test("Codex evaluation requires a host-signed binary and model attestation, never PATH", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "sbw-attested-codex-"));
+  const evaluationRoot = path.join(directory, "evaluation");
+  await mkdir(evaluationRoot);
+  const fake = await realpath(await executable(directory, "codex-from-host", "printf '%s\\n' '{\"results\":[]}'"));
+  const digest = createHash("sha256").update(await (await import("node:fs/promises")).readFile(fake)).digest("hex");
+  const pair = generateKeyPairSync("ed25519");
+  const publicKey = pair.publicKey.export({ format: "der", type: "spki" }).toString("base64");
+  const payload = {
+    schemaVersion: 1, issuer: "test-host", keyId: "test-key", issuedAt: new Date(Date.now() - 1_000).toISOString(),
+    expiresAt: new Date(Date.now() + 60_000).toISOString(), provider: "codex", model: "attested-test-model", binary: { path: fake, digest }
+  };
+  const attestation = { ...payload, signature: sign(null, Buffer.from(canonicalJson(payload)), pair.privateKey).toString("base64") };
+  const attestationPath = path.join(directory, "attestation.json");
+  const trustRootPath = path.join(directory, "trust-root.json");
+  await writeFile(attestationPath, `${JSON.stringify(attestation)}\n`, { mode: 0o600 });
+  await writeFile(trustRootPath, `${JSON.stringify({ schemaVersion: 1, issuer: "test-host", publicKeys: [{ keyId: "test-key", algorithm: "ed25519", publicKey }] })}\n`, { mode: 0o600 });
+  const result = await runCodexEvaluation({ model: "attested-test-model", prompt: "safe", evaluationRoot, attestationPath, trustRootPath, timeoutMs: 5_000 });
+  assert.equal(result.metadata.modelAssurance, "host-signed-attestation");
+  assert.equal(result.metadata.binary.path, fake);
+  await assert.rejects(
+    runCodexEvaluation({ model: "other-model", prompt: "safe", evaluationRoot, attestationPath, trustRootPath, timeoutMs: 5_000 }),
+    /requested model/
+  );
 });
 
 test("Agy adapter uses argv without shell injection and validates structured output", async () => {

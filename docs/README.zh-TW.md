@@ -243,6 +243,8 @@ $better-workflows:cross-platform 檢查 backend、iOS 和 Android 的 contact sy
 
 `self-improve-ops` 是薄型 orchestration template：沿用既有 research、refactor、routing、publication 與 delivery controls，允許有證據的 no-change，並分別 gate commit、cache publication 與 push。缺失的版本化 cache link 只能解析到已驗證的 current bundle，不得重建或修改 stale path。
 
+自我改善 evaluation 只使用已 checked-in、sanitized 且在 immutable baseline 凍結的 train/holdout corpus。candidate 必須先 staging；三次 read-only Codex holdout replay 必須在沒有 safety failure 或 regression 下，嚴格超過 baseline median。Codex replay 需要 host-signed attestation，將精確 binary 與 model 綁定到 repository 外、由 host 管理的 trust root；`PATH`、自行計算 hash 或 model 自述都不是 provider attestation。tie、noise、缺少 evidence 或 fixture-only 結果都不會 auto-adopt。
+
 ### CLI 實測的多模型討論
 
 `research-deliberation` 會保留完整設定的品牌名單：Codex、Claude、Gemini（經 Agy）、Agy、Grok、Cursor、Kimi、Qwen、Kiro；但只有通過安全 semantic CLI probe 的模型／指令組合，才能加入本次決策群。找不到 binary、登入失效或必須互動登入時，都會明確列為 unavailable，不會偷偷替代。

@@ -4,6 +4,10 @@
   "defaultMode": "critical",
   "requiredEvidence": [
     "retrospective-source-inventory",
+    "evaluation-suite",
+    "training-replay",
+    "candidate-staging",
+    "holdout-comparison",
     "recurrence-matrix",
     "coverage-gap-analysis",
     "decision-record",
@@ -29,6 +33,21 @@
     {
       "id": "outcome-explicit",
       "description": "Every candidate has an evidence-backed IMPLEMENT, NO_CHANGE, BLOCKED, or REJECTED_WITH_EVIDENCE disposition; no-change is a successful terminal outcome.",
+      "critical": true
+    },
+    {
+      "id": "replay-bounded",
+      "description": "Evaluation replays only the checked-in sanitized corpus; no session history or transcript harvesting is used.",
+      "critical": true
+    },
+    {
+      "id": "candidate-staged",
+      "description": "A candidate is bound to an immutable baseline and explicit changed-file snapshot before it can be compared.",
+      "critical": true
+    },
+    {
+      "id": "heldout-gated",
+      "description": "Delivery requires three trusted read-only Codex holdout replays with every hard safety assertion passing, strict median improvement, and no regression.",
       "critical": true
     },
     {
@@ -61,6 +80,12 @@
     "goal-first-persistence",
     "root-only-mutation",
     "bounded-retrospective-sources",
+    "sanitized-evaluation-suite",
+    "train-holdout-isolation",
+    "staged-candidate-before-commit",
+    "strict-holdout-improvement",
+    "host-attested-codex-only",
+    "no-automatic-adoption",
     "sanitized-external-deliberation",
     "first-class-no-change",
     "thin-workflow-composition",
@@ -79,6 +104,10 @@
   "actionGates": {
     "git.commit": [
       "change-inventory",
+      "evaluation-suite",
+      "training-replay",
+      "candidate-staging",
+      "holdout-comparison",
       "sync-matrix",
       "patch-review",
       "repo-gates",

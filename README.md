@@ -297,6 +297,14 @@ accepts a justified no-change result, and independently gates commit, cache
 publication, and push. A missing versioned cache link is resolved to a verified
 current bundle; the stale path is never recreated or mutated.
 
+Self-improvement evaluation is bounded to a checked-in, sanitized train/holdout
+corpus frozen in the immutable baseline. A candidate is staged before replay;
+three read-only Codex holdout replays must strictly beat the baseline median
+without any safety failure or regression. Codex replay requires a host-signed
+attestation binding the exact binary and model to a host-owned trust root;
+`PATH`, a self-hash, and model self-report are not provider attestation. Ties,
+noise, missing evidence, and fixture-only results never auto-adopt a change.
+
 ### CLI-proven multi-model deliberation
 
 `research-deliberation` keeps the complete configured brand roster—Codex,

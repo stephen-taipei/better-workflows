@@ -27,6 +27,41 @@ routing, or the immutable cache publisher.
 4. Treat `NO_CHANGE` as a valid successful outcome. Never create churn merely
    to justify a self-improvement run.
 
+## Freeze, stage, and validate candidates
+
+Before candidate work, freeze the checked-in sanitized suite at
+`fixtures/self-improve-ops-evals.json` in an immutable baseline commit. The
+suite has distinct `train` and `holdout` cases. Never derive cases from session
+history, transcripts, schedules, or any unsanitized source.
+
+Iterate only with the training split. Stage the entire candidate root and bind
+it to the exact baseline revision. Then run the holdout split exactly three
+times for the baseline and three times for the candidate. Every hard safety
+assertion must pass in every replay; the candidate median must strictly exceed
+the baseline median; and no case may regress. Ties, instability, malformed
+output, missing evidence, or no measurable gain are `NO_CHANGE` or
+`REJECTED_WITH_EVIDENCE`, never adoption.
+
+Real replays require separate, per-run authority and use only a read-only,
+ephemeral Codex invocation. They also require a host-signed attestation for the
+exact Codex binary and requested model plus a host-owned trust root outside the
+evaluated repository. `PATH`, a self-reported model, or a binary digest supplied
+without a verifiable host signature is not trusted. A fixture backend exists
+only for deterministic tests and cannot authorize delivery.
+
+```sh
+sbw self-improve evaluate <run-id> \
+  --cases plugins/better-workflows/fixtures/self-improve-ops-evals.json \
+  --baseline <immutable-baseline> --candidate-root . \
+  --backend codex --model <attested-model> --allow-codex --sanitized \
+  --trusted-codex-attestation /host/attestation.json \
+  --trusted-codex-trust-root /host/trust-root.json --split train
+```
+
+Use `--split holdout` only after training is frozen. This selector never
+automatically adopts a candidate, commits, publishes a cache, pushes, merges,
+deploys, or performs cleanup.
+
 ## Keep the workflow thin and synchronized
 
 For every accepted change, prove whether each surface is affected:

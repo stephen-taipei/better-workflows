@@ -48,6 +48,9 @@ test("self improve is a critical thin workflow with stale-link and independent a
   const content = await readFile(path.join(skillsRoot, "self-improve", "SKILL.md"), "utf8");
   assert.match(content, /template `self-improve-ops` with minimum mode `critical`/);
   assert.match(content, /Treat `NO_CHANGE` as a valid successful outcome/);
+  assert.match(content, /train` and `holdout`/);
+  assert.match(content, /host-signed attestation/);
+  assert.match(content, /never\s+automatically adopts/);
   assert.match(content, /missing versioned plugin-cache\s+path/);
   assert.match(content, /Commit, cache publication, push, merge, deploy, and cleanup are independent/);
 
