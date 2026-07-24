@@ -23,7 +23,7 @@ import {
 } from "../lib/routing.mjs";
 
 async function workspace() {
-  return mkdtemp(path.join(os.tmpdir(), "dw-routing-workspace-"));
+  return mkdtemp(path.join(os.tmpdir(), "sbw-routing-workspace-"));
 }
 
 async function writeProfile(root, profile) {
@@ -62,7 +62,7 @@ function rule(id, {
 
 test("route precedence is explicit, workspace, personal, then built-in auto", async () => {
   const cwd = await workspace();
-  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "dw-routing-state-"));
+  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-routing-state-"));
   await writeProfile(
     cwd,
     profile([
@@ -124,7 +124,7 @@ test("route precedence is explicit, workspace, personal, then built-in auto", as
 
 test("workspace non-match falls back to personal and matching uses category AND with value OR", async () => {
   const cwd = await workspace();
-  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "dw-routing-personal-"));
+  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-routing-personal-"));
   await writeProfile(
     cwd,
     profile([

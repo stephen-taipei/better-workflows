@@ -9,7 +9,7 @@ import {
 } from "../lib/publication.mjs";
 
 async function sourceFixture(version = "1.1.0+test.1") {
-  const sourceRoot = await mkdtemp(path.join(os.tmpdir(), "dw-publication-source-"));
+  const sourceRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-publication-source-"));
   await mkdir(path.join(sourceRoot, ".codex-plugin"));
   await writeFile(
     path.join(sourceRoot, ".codex-plugin", "plugin.json"),
@@ -21,7 +21,7 @@ async function sourceFixture(version = "1.1.0+test.1") {
 
 test("plugin cache publication stages a new immutable version and verifies exact content", async () => {
   const sourceRoot = await sourceFixture();
-  const parent = await mkdtemp(path.join(os.tmpdir(), "dw-publication-cache-"));
+  const parent = await mkdtemp(path.join(os.tmpdir(), "sbw-publication-cache-"));
   const cacheRoot = path.join(parent, "better-workflows");
   const before = await checkPluginCache({ sourceRoot, cacheRoot });
   assert.equal(before.status, "missing");
@@ -38,7 +38,7 @@ test("plugin cache publication stages a new immutable version and verifies exact
 
 test("plugin cache publication refuses same-version content drift", async () => {
   const sourceRoot = await sourceFixture("1.1.0+test.2");
-  const parent = await mkdtemp(path.join(os.tmpdir(), "dw-publication-drift-"));
+  const parent = await mkdtemp(path.join(os.tmpdir(), "sbw-publication-drift-"));
   const cacheRoot = path.join(parent, "better-workflows");
   await publishPluginCache({ sourceRoot, cacheRoot });
   await writeFile(path.join(sourceRoot, "payload.txt"), "two\n");
@@ -54,7 +54,7 @@ test("plugin cache publication refuses same-version content drift", async () => 
 test("plugin cache publication rejects hardlinked bundle files", async () => {
   const sourceRoot = await sourceFixture("1.1.0+test.3");
   await link(path.join(sourceRoot, "payload.txt"), path.join(sourceRoot, "payload-hardlink.txt"));
-  const parent = await mkdtemp(path.join(os.tmpdir(), "dw-publication-hardlink-"));
+  const parent = await mkdtemp(path.join(os.tmpdir(), "sbw-publication-hardlink-"));
   await assert.rejects(
     checkPluginCache({ sourceRoot, cacheRoot: path.join(parent, "cache") }),
     /Unsafe plugin bundle file/

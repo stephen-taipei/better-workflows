@@ -22,10 +22,10 @@ test("all README languages explain progressive routing, Profiles, receipts, and 
   }
   for (const file of documents) {
     const content = await readFile(file, "utf8");
-    assert.match(content, /dw doctor --capabilities/, file);
-    assert.match(content, /dw route preview/, file);
-    assert.match(content, /dw route profile validate/, file);
-    assert.match(content, /dw run --route-receipt/, file);
+    assert.match(content, /sbw doctor --capabilities/, file);
+    assert.match(content, /sbw route preview/, file);
+    assert.match(content, /sbw route profile validate/, file);
+    assert.match(content, /sbw run --route-receipt/, file);
     assert.match(content, /plugin-cache\.mjs check/, file);
     assert.match(content, /immutable/, file);
     assert.match(content, /pr-to-dev/, file);

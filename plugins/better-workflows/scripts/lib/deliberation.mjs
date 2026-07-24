@@ -172,7 +172,7 @@ export async function loadDeliberationRoster() {
 }
 
 async function withProbeDir(callback) {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "dw-deliberation-"));
+  const directory = await mkdtemp(path.join(os.tmpdir(), "sbw-deliberation-"));
   await chmod(directory, 0o700);
   try {
     return await callback(directory);

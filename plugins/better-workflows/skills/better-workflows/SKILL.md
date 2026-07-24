@@ -50,8 +50,8 @@ and route preview before substantial work. An explicit selector is the highest
 user-controlled route and Profiles may not replace it:
 
 ~~~bash
-dw doctor --capabilities
-dw route preview --goal "<goal>" --scope <path> [--entry <selector>] [--mode <mode>]
+sbw doctor --capabilities
+sbw route preview --goal "<goal>" --scope <path> [--entry <selector>] [--mode <mode>]
 ~~~
 
 Report the selected source, primary entry/template, effective mode, excluded
@@ -68,7 +68,7 @@ Routing precedence is:
 3. the first matching workspace Profile at
    `<repo>/.codex/better-workflows.json`;
 4. the first matching personal Profile at
-   `$DW_STATE_ROOT/routing/profile.json`;
+   `$SBW_STATE_ROOT/routing/profile.json`;
 5. built-in `auto`.
 
 Profiles select exactly one primary entry or template. They may set a minimum
@@ -85,8 +85,8 @@ never invent an `auto` template. For a stable handoff, record and consume one
 private, single-use receipt:
 
 ~~~bash
-dw route preview --goal "<goal>" --scope <path> --template <template> --record
-dw run --route-receipt <route-receipt-id>
+sbw route preview --goal "<goal>" --scope <path> --template <template> --record
+sbw run --route-receipt <route-receipt-id>
 ~~~
 
 The receipt binds the workspace, scope, catalog, Profiles, capabilities,
@@ -102,13 +102,13 @@ entry, record the plugin manifest name, exact version, and resolved path, then
 verify its selector/template inventory and helper capabilities. If no current
 matching bundle can be proven, fail closed.
 
-Use `dw` only when `command -v dw` succeeds, `dw templates` lists the selected
-template, `dw help` lists `route preview`, and `dw doctor --capabilities`
+Use `sbw` only when `command -v sbw` succeeds, `sbw templates` lists the selected
+template, `sbw help` lists `route preview`, and `sbw doctor --capabilities`
 succeeds without starting provider probes. If any check fails, or the inventory
 lacks that template, treat the global helper as stale: resolve the plugin root
 as two directories above this `SKILL.md` and run
-`node <plugin-root>/scripts/dw.mjs`. Verify the fallback with the same command
-and template checks before starting a run. In the examples below, `dw` means
+`node <plugin-root>/scripts/sbw.mjs`. Verify the fallback with the same command
+and template checks before starting a run. In the examples below, `sbw` means
 whichever form was verified. Do not install packages or create a global symlink
 automatically. Plugin cache versions are immutable: if the same version has
 different contents, do not overwrite it. Require a new build version and exact
@@ -118,7 +118,7 @@ source/cache digest verification.
 
 1. Read all applicable `AGENTS.md` files and repo-local skills before acting.
 2. Classify the task using risk, uncertainty, blast radius, irreversibility, and evidence gap:
-   - `direct`: trivial, reversible, well-understood work. Continue normally and do not invoke `dw`.
+   - `direct`: trivial, reversible, well-understood work. Continue normally and do not invoke `sbw`.
    - `verified`: use one to three native research/review/refutation agents.
    - `deep`: run `verified`, then one or two sequential model-pinned Codex critics.
    - `critical`: require independent external evidence and all fail-closed gates.
@@ -137,7 +137,7 @@ former separate AI-meeting alias is intentionally not used.
 For `verified`, `deep`, or `critical`, initialize a run:
 
 ~~~bash
-dw run --template <template> --mode <mode> --goal "<goal>" --scope <path>
+sbw run --template <template> --mode <mode> --goal "<goal>" --scope <path>
 ~~~
 
 Pass repeated `--scope` arguments for disjoint paths. Add `--contract <json>` when exact acceptance items, ignored paths, remote revision, or side-effect authority must be preserved.
@@ -145,8 +145,8 @@ Pass repeated `--scope` arguments for disjoint paths. Add `--contract <json>` wh
 Before and after every native wave:
 
 ~~~bash
-dw sentinel capture <run-id> --label <label>
-dw sentinel verify <run-id> --label <label>
+sbw sentinel capture <run-id> --label <label>
+sbw sentinel verify <run-id> --label <label>
 ~~~
 
 If verification reports drift, mark the run `indeterminate`, discard that wave's conclusions, do not restore files automatically, and report the changed surfaces.
@@ -167,8 +167,8 @@ For `critical`, do not delegate to a native child unless the current surface can
 Use sequential critics only when evidence is missing, contradictory, or required by mode:
 
 ~~~bash
-dw critic codex <run-id> --model gpt-5.6-terra --effort high --prompt-file <sanitized-file>
-dw critic codex <run-id> --model gpt-5.6-sol --effort xhigh --prompt-file <sanitized-file>
+sbw critic codex <run-id> --model gpt-5.6-terra --effort high --prompt-file <sanitized-file>
+sbw critic codex <run-id> --model gpt-5.6-sol --effort xhigh --prompt-file <sanitized-file>
 ~~~
 
 When the parent Codex sandbox blocks the child CLI from reading its own local auth/runtime state, request scoped approval for this exact critic command. Never replace the child `--sandbox read-only` setting with a bypass flag.
@@ -176,7 +176,7 @@ When the parent Codex sandbox blocks the child CLI from reading its own local au
 Use Agy only when the user authorized external egress and the bundle is sanitized, non-confidential, and within the byte limit:
 
 ~~~bash
-dw critic agy <run-id> --model "Gemini 3.1 Pro (High)" --prompt-file <sanitized-file>
+sbw critic agy <run-id> --model "Gemini 3.1 Pro (High)" --prompt-file <sanitized-file>
 ~~~
 
 Never send secrets, regulated data, private source, raw history, or confidential prompts through Agy argv transport. If critical policy requires Agy and it is unavailable, finish as `inconclusive`.
@@ -186,10 +186,10 @@ Never send secrets, regulated data, private source, raw history, or confidential
 Read [evidence-and-state.md](references/evidence-and-state.md) before adding evidence, resolving findings, resuming a run, or declaring completion.
 
 ~~~bash
-dw evidence add <run-id> --file <evidence.json>
-dw finding add <run-id> --file <finding.json>
-dw finding update <run-id> --file <finding.json>
-dw complete <run-id>
+sbw evidence add <run-id> --file <evidence.json>
+sbw finding add <run-id> --file <finding.json>
+sbw finding update <run-id> --file <finding.json>
+sbw complete <run-id>
 ~~~
 
 Do not complete with open P0/P1 findings, stale evidence, expired accepted risk, unknown reconciliation, missing acceptance evidence, or an invalid current-tree sentinel.
@@ -199,10 +199,10 @@ Do not complete with open P0/P1 findings, stale evidence, expired accepted risk,
 Only the root may request an action token, and only for authority already granted by the user:
 
 ~~~bash
-dw action issue <run-id> --action <kind> --provider <provider> --resource <exact-id> --remote-revision <revision>
-dw action consume <run-id> --token <token>
+sbw action issue <run-id> --action <kind> --provider <provider> --resource <exact-id> --remote-revision <revision>
+sbw action consume <run-id> --token <token>
 # Perform the one authorized side effect.
-dw action reconcile <run-id> --attempt <attempt-id> --outcome <success|failure|unknown> --receipt <provider-receipt>
+sbw action reconcile <run-id> --attempt <attempt-id> --outcome <success|failure|unknown> --receipt <provider-receipt>
 ~~~
 
 Never retry an `unknown` outcome without provider-side query reconciliation.

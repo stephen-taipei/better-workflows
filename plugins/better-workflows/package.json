@@ -1,12 +1,15 @@
 {
   "name": "better-workflows",
-  "version": "1.2.0",
+  "version": "2.0.0",
   "description": "Native-first, evidence-driven workflows for Codex.",
   "license": "MIT",
   "private": true,
   "type": "module",
+  "bin": {
+    "sbw": "scripts/sbw.mjs"
+  },
   "scripts": {
     "test": "node --test scripts/tests/*.test.mjs",
-    "validate": "node scripts/dw.mjs eval"
+    "validate": "node scripts/sbw.mjs eval"
   }
 }

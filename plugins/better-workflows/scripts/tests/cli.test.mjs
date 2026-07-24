@@ -8,17 +8,17 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const execFileAsync = promisify(execFile);
-const CLI = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "dw.mjs");
+const CLI = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "sbw.mjs");
 
 async function git(cwd, ...args) {
   await execFileAsync("git", args, { cwd, encoding: "utf8" });
 }
 
 async function repository() {
-  const cwd = await mkdtemp(path.join(os.tmpdir(), "dw-cli-repo-"));
+  const cwd = await mkdtemp(path.join(os.tmpdir(), "sbw-cli-repo-"));
   await git(cwd, "init", "-q", "-b", "dev");
-  await git(cwd, "config", "user.name", "Dynamic Workflow Tests");
-  await git(cwd, "config", "user.email", "dw-tests@example.invalid");
+  await git(cwd, "config", "user.name", "Stephen Better Workflows Tests");
+  await git(cwd, "config", "user.email", "sbw-tests@example.invalid");
   await mkdir(path.join(cwd, "src"));
   await writeFile(path.join(cwd, "src", "value.txt"), "one\n");
   await git(cwd, "add", ".");
@@ -31,7 +31,7 @@ async function cli(cwd, stateRoot, args, { allowFailure = false } = {}) {
     const result = await execFileAsync(process.execPath, [CLI, ...args], {
       cwd,
       encoding: "utf8",
-      env: { ...process.env, DW_STATE_ROOT: stateRoot },
+      env: { ...process.env, SBW_STATE_ROOT: stateRoot },
       maxBuffer: 8 * 1024 * 1024
     });
     return { code: 0, stdout: result.stdout, stderr: result.stderr, json: JSON.parse(result.stdout) };
@@ -48,7 +48,7 @@ async function cli(cwd, stateRoot, args, { allowFailure = false } = {}) {
 
 test("CLI creates a verified run and returns nonzero on authority drift", async () => {
   const cwd = await repository();
-  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "dw-cli-state-"));
+  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-cli-state-"));
   const started = await cli(cwd, stateRoot, [
     "run",
     "--template",
@@ -61,6 +61,7 @@ test("CLI creates a verified run and returns nonzero on authority drift", async 
     "src"
   ]);
   assert.equal(started.json.ok, true);
+  assert.match(started.json.runId, /^sbw-/);
   assert.equal(started.json.mode, "verified");
   assert.equal(typeof started.json.sentinel.counts.tracked, "number");
   assert.equal(typeof started.json.sentinel.manifest, "string");
@@ -102,7 +103,7 @@ test("CLI creates a verified run and returns nonzero on authority drift", async 
 
 test("CLI template mode floor prevents an explicit direct downgrade", async () => {
   const cwd = await repository();
-  const parent = await mkdtemp(path.join(os.tmpdir(), "dw-cli-direct-"));
+  const parent = await mkdtemp(path.join(os.tmpdir(), "sbw-cli-direct-"));
   const stateRoot = path.join(parent, "missing");
   const result = await cli(cwd, stateRoot, [
     "run",
@@ -122,7 +123,7 @@ test("CLI template mode floor prevents an explicit direct downgrade", async () =
 
 test("CLI rejects an unknown run mode instead of silently applying a lower floor", async () => {
   const cwd = await repository();
-  const stateRoot = path.join(await mkdtemp(path.join(os.tmpdir(), "dw-cli-mode-")), "state");
+  const stateRoot = path.join(await mkdtemp(path.join(os.tmpdir(), "sbw-cli-mode-")), "state");
   const result = await cli(
     cwd,
     stateRoot,
@@ -146,14 +147,14 @@ test("CLI rejects an unknown run mode instead of silently applying a lower floor
 
 test("CLI lists exactly the installed workflow templates", async () => {
   const cwd = await repository();
-  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "dw-cli-list-"));
+  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-cli-list-"));
   const result = await cli(cwd, stateRoot, ["templates"]);
   assert.equal(result.json.templates.length, 12);
 });
 
 test("CLI routes the self-improve selector to its critical template", async () => {
   const cwd = await repository();
-  const stateRoot = path.join(await mkdtemp(path.join(os.tmpdir(), "dw-cli-self-improve-")), "missing");
+  const stateRoot = path.join(await mkdtemp(path.join(os.tmpdir(), "sbw-cli-self-improve-")), "missing");
   const result = await cli(cwd, stateRoot, [
     "route",
     "preview",
@@ -172,7 +173,7 @@ test("CLI routes the self-improve selector to its critical template", async () =
 
 test("CLI previews, records, and consumes a fail-closed route receipt", async () => {
   const cwd = await repository();
-  const stateRoot = path.join(await mkdtemp(path.join(os.tmpdir(), "dw-cli-route-")), "state");
+  const stateRoot = path.join(await mkdtemp(path.join(os.tmpdir(), "sbw-cli-route-")), "state");
   const preview = await cli(cwd, stateRoot, [
     "route",
     "preview",
@@ -208,7 +209,7 @@ test("CLI previews, records, and consumes a fail-closed route receipt", async ()
 
 test("CLI read-only routing commands neither create state nor accept misspelled options", async () => {
   const cwd = await repository();
-  const stateRoot = path.join(await mkdtemp(path.join(os.tmpdir(), "dw-cli-readonly-")), "missing");
+  const stateRoot = path.join(await mkdtemp(path.join(os.tmpdir(), "sbw-cli-readonly-")), "missing");
   const snapshot = await cli(cwd, stateRoot, ["doctor", "--capabilities"]);
   assert.equal(snapshot.json.providerProbeStarted, false);
   await assert.rejects(access(stateRoot));
@@ -226,7 +227,7 @@ test("CLI read-only routing commands neither create state nor accept misspelled 
 
 test("CLI built-in auto receipt remains reviewable but cannot start without a concrete template", async () => {
   const cwd = await repository();
-  const stateRoot = path.join(await mkdtemp(path.join(os.tmpdir(), "dw-cli-auto-route-")), "state");
+  const stateRoot = path.join(await mkdtemp(path.join(os.tmpdir(), "sbw-cli-auto-route-")), "state");
   const preview = await cli(cwd, stateRoot, [
     "route",
     "preview",
@@ -250,7 +251,7 @@ test("CLI built-in auto receipt remains reviewable but cannot start without a co
 
 test("CLI resume migrates a legacy 1.0 run to template-bound action gates", async () => {
   const cwd = await repository();
-  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "dw-cli-legacy-"));
+  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-cli-legacy-"));
   const started = await cli(cwd, stateRoot, [
     "run",
     "--template",

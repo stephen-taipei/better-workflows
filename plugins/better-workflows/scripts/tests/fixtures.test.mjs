@@ -270,7 +270,7 @@ test("skills have no placeholders and retired AI-meeting alias is absent", async
   assert.match(main, /root agent as the only authority/);
   assert.match(main, /Goal-first entry contract/);
   assert.match(main, /\$monorepo-refactor/);
-  assert.match(main, /direct.*do not invoke .*dw/s);
+  assert.match(main, /direct.*do not invoke .*sbw/s);
   assert.match(main, /at most three direct native children/);
   assert.match(main, /Never decide by vote/);
   assert.match(main, /CLI-proven participant roster/);
@@ -281,6 +281,11 @@ test("plugin has zero runtime dependencies", async () => {
   const manifest = JSON.parse(await readFile(path.join(pluginRoot(), "package.json"), "utf8"));
   assert.equal(manifest.dependencies, undefined);
   assert.equal(manifest.optionalDependencies, undefined);
+});
+
+test("plugin exposes sbw as its sole executable", async () => {
+  const manifest = JSON.parse(await readFile(path.join(pluginRoot(), "package.json"), "utf8"));
+  assert.deepEqual(manifest.bin, { sbw: "scripts/sbw.mjs" });
 });
 
 test("plugin runtime and Codex build versions are aligned", async () => {

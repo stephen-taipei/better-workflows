@@ -48,7 +48,7 @@ test("spawnCapture enforces nonzero exit and output capture without a shell", as
 });
 
 test("Agy adapter uses argv without shell injection and validates structured output", async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "dw-provider-"));
+  const directory = await mkdtemp(path.join(os.tmpdir(), "sbw-provider-"));
   const marker = path.join(directory, "must-not-exist");
   const fake = await executable(
     directory,
@@ -72,7 +72,7 @@ test("Agy adapter uses argv without shell injection and validates structured out
 });
 
 test("Agy adapter fails closed for empty output, confidential data, and byte overflow", async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "dw-provider-fail-"));
+  const directory = await mkdtemp(path.join(os.tmpdir(), "sbw-provider-fail-"));
   const empty = await executable(directory, "agy-empty", "exit 0");
   const defaults = await loadDefaults();
   await assert.rejects(
@@ -117,7 +117,7 @@ test("Agy adapter fails closed for empty output, confidential data, and byte ove
 });
 
 test("Agy semantic doctor requires the exact response", async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "dw-doctor-"));
+  const directory = await mkdtemp(path.join(os.tmpdir(), "sbw-doctor-"));
   const pass = await executable(directory, "agy-pass", "printf 'AGY_DOCTOR_OK\n'");
   const fail = await executable(directory, "agy-fail", "printf 'almost ok\n'");
   const variant = await executable(
@@ -140,11 +140,11 @@ test("Agy semantic doctor requires the exact response", async () => {
 });
 
 test("deliberation roster caches only a fresh, CLI-proven full external roster", async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "dw-deliberation-cache-"));
-  const fake = await executable(directory, "provider", "printf 'DW_TEST_MARKER\\n'");
+  const directory = await mkdtemp(path.join(os.tmpdir(), "sbw-deliberation-cache-"));
+  const fake = await executable(directory, "provider", "printf 'SBW_TEST_MARKER\\n'");
   const config = {
     schemaVersion: 1,
-    probeMarker: "DW_TEST_MARKER",
+    probeMarker: "SBW_TEST_MARKER",
     probeTimeoutSeconds: 5,
     rosterCacheHours: 24,
     maxParticipants: 3,
@@ -175,7 +175,7 @@ test("deliberation roster caches only a fresh, CLI-proven full external roster",
   assert.equal(second.activeParticipants.length, 1);
   assert.equal(second.cache.status, "hit");
 
-  await writeFile(fake, "#!/bin/sh\nprintf 'DW_TEST_MARKER\\n'\n# changed binary identity\n", { mode: 0o700 });
+  await writeFile(fake, "#!/bin/sh\nprintf 'SBW_TEST_MARKER\\n'\n# changed binary identity\n", { mode: 0o700 });
   await chmod(fake, 0o700);
   const third = await probeDeliberationRoster(options);
   assert.equal(third.activeParticipants.length, 1);
@@ -217,14 +217,14 @@ test("reasoning effort is contextual for every model and selects matching Agy va
       modeDefaults: { verified: "medium", deep: "high" }
     },
     arbiterPriority: [],
-    probeMarker: "DW_TEST_MARKER",
+    probeMarker: "SBW_TEST_MARKER",
     probeTimeoutSeconds: 5,
     rosterCacheHours: 24,
     maxParticipants: 4,
     providers: [
       {
         id: "fake",
-        command: await executable(await mkdtemp(path.join(os.tmpdir(), "dw-effort-")), "provider", "printf 'DW_TEST_MARKER\\n'"),
+        command: await executable(await mkdtemp(path.join(os.tmpdir(), "sbw-effort-")), "provider", "printf 'SBW_TEST_MARKER\\n'"),
         probe: "text",
         external: true,
         effortTransport: "model-variant",
@@ -239,7 +239,7 @@ test("reasoning effort is contextual for every model and selects matching Agy va
   assert.equal(resolveReasoningEffort({ mode: "deep" }, config), "high");
   const roster = await probeDeliberationRoster({
     config,
-    stateRoot: await mkdtemp(path.join(os.tmpdir(), "dw-effort-state-")),
+    stateRoot: await mkdtemp(path.join(os.tmpdir(), "sbw-effort-state-")),
     allowExternalProviders: true,
     sanitized: true,
     reasoningEffort: "medium"

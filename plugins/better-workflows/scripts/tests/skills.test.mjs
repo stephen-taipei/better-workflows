@@ -27,20 +27,20 @@ test("main skill defines persistent goal lifecycle", async () => {
   assert.match(content, /create one from the user's requested outcome/);
   assert.match(content, /Mark the\s+goal complete only after/);
   assert.match(content, /Goal mode controls persistence/);
-  assert.match(content, /dw templates.*selected\s+template/s);
-  assert.match(content, /dw help.*route preview/s);
-  assert.match(content, /dw doctor --capabilities/);
+  assert.match(content, /sbw templates.*selected\s+template/s);
+  assert.match(content, /sbw help.*route preview/s);
+  assert.match(content, /sbw doctor --capabilities/);
   assert.match(content, /global helper as stale/);
-  assert.match(content, /dw doctor --capabilities/);
-  assert.match(content, /dw route preview/);
+  assert.match(content, /sbw doctor --capabilities/);
+  assert.match(content, /sbw route preview/);
   assert.match(content, /workspace Profile/);
   assert.match(content, /single-use receipt/);
 });
 
 test("auto entry requires capability snapshot and route preview before selection", async () => {
   const content = await readFile(path.join(skillsRoot, "auto", "SKILL.md"), "utf8");
-  assert.match(content, /dw doctor --capabilities/);
-  assert.match(content, /dw route preview/);
+  assert.match(content, /sbw doctor --capabilities/);
+  assert.match(content, /sbw route preview/);
   assert.match(content, /never fabricate an `auto` template/);
 });
 

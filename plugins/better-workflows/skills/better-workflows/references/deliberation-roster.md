@@ -47,7 +47,7 @@ prompt guidance and report that transport honestly in their metadata.
 For a safe roster probe:
 
 ~~~bash
-dw deliberation roster \
+sbw deliberation roster \
   --allow-external-providers --sanitized \
   --reasoning-effort auto --mode deep --refresh
 ~~~
@@ -56,7 +56,7 @@ To collect role-specific independent memos and get the final plan in one
 bounded invocation, place only sanitized case material in a file:
 
 ~~~bash
-dw deliberation deliberate \
+sbw deliberation deliberate \
   --prompt-file <sanitized-case.md> \
   --mode deep --reasoning-effort auto \
   --allow-external-providers --sanitized
