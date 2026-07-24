@@ -301,7 +301,8 @@ Self-improvement evaluation is bounded to a checked-in, sanitized train/holdout
 corpus frozen in the immutable baseline. A candidate is staged before replay;
 three read-only Codex holdout replays must strictly beat the baseline median
 without any safety failure or regression. Codex replay requires a host-signed
-attestation binding the exact binary and model to a host-owned trust root;
+attestation binding the exact binary and model to the administrator-owned fixed
+host trust root at `/etc/better-workflows/codex-trust-root.json`;
 `PATH`, a self-hash, and model self-report are not provider attestation. Ties,
 noise, missing evidence, and fixture-only results never auto-adopt a change.
 

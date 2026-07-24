@@ -237,7 +237,7 @@ $better-workflows:auto <완료하려는 결과를 설명>
 
 `self-improve-ops`는 얇은 orchestration template입니다. 기존 research, refactor, routing, publication, delivery controls를 재사용하고 근거 있는 no-change를 허용하며 commit, cache publication, push를 각각 gate합니다. 존재하지 않는 versioned cache link는 검증된 current bundle로만 해석하고 stale path를 다시 만들거나 수정하지 않습니다.
 
-자기 개선 evaluation은 immutable baseline에 동결된 checked-in, sanitized train/holdout corpus만 사용합니다. candidate를 먼저 staging한 뒤 세 번의 read-only Codex holdout replay가 safety failure 및 regression 없이 baseline median을 엄격히 넘어야 합니다. Codex replay에는 정확한 binary와 model을 repository 밖의 host 관리 trust root에 묶는 host-signed attestation이 필요합니다. `PATH`, 자체 hash, model 자기 보고는 provider attestation이 아닙니다. tie, noise, evidence 부족, fixture-only 결과는 auto-adopt하지 않습니다.
+자기 개선 evaluation은 immutable baseline에 동결된 checked-in, sanitized train/holdout corpus만 사용합니다. candidate를 먼저 staging한 뒤 세 번의 read-only Codex holdout replay가 safety failure 및 regression 없이 baseline median을 엄격히 넘어야 합니다. Codex replay에는 정확한 binary와 model을 고정된 `/etc/better-workflows/codex-trust-root.json`에 묶는 host-signed attestation이 필요합니다. 이 file과 상위 directory는 administrator 소유이고 호출자가 쓸 수 없어야 합니다. `PATH`, 자체 hash, CLI에서 선택한 trust root, model 자기 보고는 provider attestation이 아닙니다. tie, noise, evidence 부족, fixture-only 결과는 auto-adopt하지 않습니다.
 
 ### CLI로 검증한 multi-model deliberation
 
