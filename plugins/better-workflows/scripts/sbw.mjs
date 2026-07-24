@@ -446,7 +446,7 @@ function assertExplicitCodexEvaluationAuthority(options) {
   }
 }
 
-async function evaluationReplay({ backend, fixture, role, cases, prompt, options, cwd }) {
+async function evaluationReplay({ backend, fixture, role, cases, prompt, options, cwd, attestationPath, execution }) {
   if (backend === "fixture") {
     const response = fixture?.[role];
     if (!response) throw new Error(`Fixture result file is missing ${role} response`);
@@ -457,8 +457,9 @@ async function evaluationReplay({ backend, fixture, role, cases, prompt, options
     model: String(options.model),
     prompt,
     timeoutMs: options["timeout-seconds"] === undefined ? undefined : integer(options["timeout-seconds"]) * 1_000,
-    attestationPath: String(options["trusted-codex-attestation"]),
-    evaluationRoot: cwd
+    attestationPath,
+    evaluationRoot: cwd,
+    execution
   });
   return { score: scoreEvaluation(result.response, cases), metadata: result.metadata };
 }
@@ -472,7 +473,7 @@ function structuredReplay(replay) {
     attestationDigest: replay.metadata.attestationDigest ?? null, binaryDigest: replay.metadata.binary?.digest ?? null,
     attestationPath: replay.metadata.attestationPath ?? null, trustRootDigest: replay.metadata.trustRootDigest ?? null,
     issuer: replay.metadata.issuer ?? null, keyId: replay.metadata.keyId ?? null, expiresAt: replay.metadata.expiresAt ?? null,
-    model: replay.metadata.requestedModel ?? null, sandbox: replay.metadata.sandbox };
+    execution: replay.metadata.execution ?? null, model: replay.metadata.requestedModel ?? null, sandbox: replay.metadata.sandbox };
 }
 
 async function commandSelfImprove(root, subcommand, options) {
@@ -511,19 +512,37 @@ async function commandSelfImprove(root, subcommand, options) {
   const candidatePrompt = buildEvaluationPrompt({ suite: { ...frozen.suite, cases }, candidate, materials: candidateMaterial });
   const baselinePrompt = buildEvaluationPrompt({ suite: { ...frozen.suite, cases }, candidate: baseline, materials: baselineMaterial });
   const fixture = backend === "fixture" ? JSON.parse(await readFile(path.resolve(cwd, String(options["result-file"])), "utf8")) : null;
+  const attestationPaths = values(options["trusted-codex-attestation"]).map(String);
+  const requiredAttestations = backend === "codex" ? (split === "train" ? 1 : 6) : 0;
+  if (backend === "codex" && attestationPaths.length !== requiredAttestations) {
+    throw new Error(`Codex ${split} evaluation requires exactly ${requiredAttestations} distinct host-signed attestation file(s)`);
+  }
+  if (backend === "codex" && new Set(attestationPaths).size !== attestationPaths.length) {
+    throw new Error("Codex evaluation attestation files must be distinct for every replay");
+  }
   const dependencyFiles = [...new Set([frozen.relativePath, ...candidate.files.map((item) => item.path)])].sort();
   const common = {
     sourceDigest: digestObject({ suite: frozen.sourceDigest, baseline: frozen.baselineRevision, candidate: candidate.digest }),
     dependencyInputs: { files: dependencyFiles },
     evaluation: { backend, split, suiteDigest: frozen.sourceDigest, suitePath: frozen.relativePath, baselineRevision: frozen.baselineRevision, candidate, baseline }
   };
+  const execution = (role, attempt) => ({
+    id: `${runId}-${split}-${role}-${attempt}`,
+    runId,
+    suiteDigest: frozen.sourceDigest,
+    baselineRevision: frozen.baselineRevision,
+    candidateDigest: candidate.digest,
+    role,
+    attempt
+  });
   const prior = await listJsonRecords(root, safeJoin(run.runDir, "evidence"));
   if (split === "holdout") {
     const training = prior.find((item) => item.kind === "training-replay" && !item.stale && item.evaluation?.suiteDigest === frozen.sourceDigest && item.evaluation?.candidate?.digest === candidate.digest && item.evaluation?.baselineRevision === frozen.baselineRevision);
     if (!training) throw new Error("Holdout evaluation requires a fresh training replay bound to the same suite, baseline, and candidate");
   }
   if (split === "train") {
-    const replay = await evaluationReplay({ backend, fixture, role: "candidate", cases, prompt: candidatePrompt, options, cwd });
+    const replay = await evaluationReplay({ backend, fixture, role: "candidate", cases, prompt: candidatePrompt, options, cwd,
+      attestationPath: attestationPaths[0], execution: execution("train-candidate", 1) });
     const suiteEvidence = await addSelfImproveEvidence(root, runId, {
       id: evaluationEvidenceId("suite"), kind: "evaluation-suite", summary: "Frozen sanitized evaluation suite bound to the immutable baseline.", status: "complete",
       acceptanceIds: ["replay-bounded"], ...common
@@ -541,8 +560,10 @@ async function commandSelfImprove(root, subcommand, options) {
   }
   const candidateReplays = [];
   const baselineReplays = [];
-  for (let index = 0; index < 3; index += 1) candidateReplays.push(await evaluationReplay({ backend, fixture, role: "candidate", cases, prompt: candidatePrompt, options, cwd }));
-  for (let index = 0; index < 3; index += 1) baselineReplays.push(await evaluationReplay({ backend, fixture, role: "baseline", cases, prompt: baselinePrompt, options, cwd }));
+  for (let index = 0; index < 3; index += 1) candidateReplays.push(await evaluationReplay({ backend, fixture, role: "candidate", cases, prompt: candidatePrompt, options, cwd,
+    attestationPath: attestationPaths[index], execution: execution("candidate", index + 1) }));
+  for (let index = 0; index < 3; index += 1) baselineReplays.push(await evaluationReplay({ backend, fixture, role: "baseline", cases, prompt: baselinePrompt, options, cwd,
+    attestationPath: attestationPaths[index + 3], execution: execution("baseline", index + 1) }));
   const comparison = compareHoldout({ baseline: baselineReplays.map((item) => item.score), candidate: candidateReplays.map((item) => item.score) });
   const trusted = backend === "codex" && [...candidateReplays, ...baselineReplays].every((item) => item.metadata.trustAttested === true && item.metadata.provider === "codex");
   const evidence = await addSelfImproveEvidence(root, runId, {
@@ -571,23 +592,37 @@ async function assertAcceptedSelfImproveHoldout(root, runId, action) {
     ...(accepted.evaluation?.candidateReplays ?? []),
     ...(accepted.evaluation?.baselineReplays ?? [])
   ];
-  if (replays.length !== 7 || replays.some((item) => item.provider !== "codex" || item.trustAttested !== true || !item.attestationDigest || !item.attestationPath || !item.binaryDigest || !item.trustRootDigest || !item.model || !item.expiresAt)) {
+  if (replays.length !== 7 || replays.some((item) => item.provider !== "codex" || item.trustAttested !== true || !item.attestationDigest || !item.attestationPath || !item.binaryDigest || !item.trustRootDigest || !item.model || !item.expiresAt || !item.execution)) {
     throw new Error("Self-improve delivery requires seven host-attested Codex replays");
   }
   const bindings = new Set(replays.map((item) => digestObject({
-    attestationDigest: item.attestationDigest, binaryDigest: item.binaryDigest, trustRootDigest: item.trustRootDigest,
-    issuer: item.issuer, keyId: item.keyId, model: item.model, attestationPath: item.attestationPath
+    binaryDigest: item.binaryDigest, trustRootDigest: item.trustRootDigest, issuer: item.issuer, keyId: item.keyId, model: item.model
   })));
-  if (bindings.size !== 1) throw new Error("Self-improve delivery requires one consistent host attestation, binary, and model across every replay");
-  const replay = replays[0];
-  const revalidated = await verifyTrustedCodexAttestation({
-    attestationPath: replay.attestationPath,
-    evaluationRoot: run.manifest.cwd,
-    model: replay.model
-  });
-  if (revalidated.metadata.attestationDigest !== replay.attestationDigest || revalidated.metadata.binary.digest !== replay.binaryDigest || revalidated.metadata.trustRootDigest !== replay.trustRootDigest || revalidated.metadata.issuer !== replay.issuer || revalidated.metadata.keyId !== replay.keyId) {
-    throw new Error("Self-improve delivery attestation binding changed after replay");
+  if (bindings.size !== 1) throw new Error("Self-improve delivery requires one consistent host binary, trust root, issuer, key, and model across every replay");
+  const executionIds = new Set(replays.map((item) => item.execution.id));
+  const attestationPaths = new Set(replays.map((item) => item.attestationPath));
+  if (executionIds.size !== 7 || attestationPaths.size !== 7) {
+    throw new Error("Self-improve delivery requires seven distinct signed executions and attestation files");
   }
+  const expectedExecutions = new Set([
+    "train-candidate:1", "candidate:1", "candidate:2", "candidate:3", "baseline:1", "baseline:2", "baseline:3"
+  ]);
+  for (const replay of replays) {
+    const execution = replay.execution;
+    if (execution.runId !== runId || execution.suiteDigest !== accepted.evaluation.suiteDigest || execution.baselineRevision !== accepted.evaluation.baselineRevision || execution.candidateDigest !== accepted.evaluation.candidate?.digest || !expectedExecutions.delete(`${execution.role}:${execution.attempt}`)) {
+      throw new Error("Self-improve delivery execution binding is incomplete, duplicated, or mismatched");
+    }
+    const revalidated = await verifyTrustedCodexAttestation({
+      attestationPath: replay.attestationPath,
+      evaluationRoot: run.manifest.cwd,
+      model: replay.model,
+      execution
+    });
+    if (revalidated.metadata.attestationDigest !== replay.attestationDigest || revalidated.metadata.binary.digest !== replay.binaryDigest || revalidated.metadata.trustRootDigest !== replay.trustRootDigest || revalidated.metadata.issuer !== replay.issuer || revalidated.metadata.keyId !== replay.keyId) {
+      throw new Error("Self-improve delivery attestation binding changed after replay");
+    }
+  }
+  if (expectedExecutions.size !== 0) throw new Error("Self-improve delivery is missing a required signed replay execution");
   const evaluation = accepted.evaluation;
   if (evaluation.baselineRevision !== run.manifest.baselineRevision) {
     throw new Error("Self-improve held-out evidence is not bound to the run-start baseline");

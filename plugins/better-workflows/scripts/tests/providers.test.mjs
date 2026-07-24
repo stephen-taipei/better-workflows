@@ -52,7 +52,8 @@ test("Codex evaluation rejects an unanchored caller-provided trust root", async 
   const attestationPath = path.join(directory, "attestation.json");
   await writeFile(attestationPath, "{}\n", { mode: 0o600 });
   await assert.rejects(
-    runCodexEvaluation({ model: "attested-test-model", prompt: "safe", evaluationRoot: directory, attestationPath, timeoutMs: 5_000 }),
+    runCodexEvaluation({ model: "attested-test-model", prompt: "safe", evaluationRoot: directory, attestationPath, timeoutMs: 5_000,
+      execution: { id: "test-execution-1", runId: "run", suiteDigest: "suite", baselineRevision: "baseline", candidateDigest: "candidate", role: "candidate", attempt: 1 } }),
     /Host Codex trust root is not provisioned/
   );
 });

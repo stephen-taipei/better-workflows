@@ -51,6 +51,12 @@ self-reported model, a CLI-selected trust root, or a binary digest supplied
 without a verifiable host signature is not trusted. A fixture backend exists
 only for deterministic tests and cannot authorize delivery.
 
+Each real replay also needs a distinct host-signed execution binding: its unique
+execution ID, run ID, corpus digest, baseline revision, candidate digest, role,
+and attempt number are all signed. Training takes one attestation; holdout takes
+six distinct attestations (candidate 1–3, then baseline 1–3). Replayed or
+duplicated attestation files cannot authorize delivery.
+
 ```sh
 sbw self-improve evaluate <run-id> \
   --cases plugins/better-workflows/fixtures/self-improve-ops-evals.json \
