@@ -201,12 +201,36 @@ function unsignedAttestation(attestation) {
   return payload;
 }
 
+function validateExecution(attestationExecution, expectedExecution) {
+  if (!expectedExecution || typeof expectedExecution !== "object") {
+    throw new Error("Codex evaluation requires an expected signed execution binding");
+  }
+  if (!attestationExecution || typeof attestationExecution !== "object") {
+    throw new Error("Trusted Codex attestation requires an execution binding");
+  }
+  for (const key of ["id", "runId", "suiteDigest", "baselineRevision", "candidateDigest", "role", "attempt"]) {
+    if (attestationExecution[key] === undefined || expectedExecution[key] === undefined) {
+      throw new Error(`Trusted Codex execution binding is missing ${key}`);
+    }
+  }
+  if (typeof attestationExecution.id !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]{7,127}$/.test(attestationExecution.id)) {
+    throw new Error("Trusted Codex execution id is invalid");
+  }
+  if (!Number.isInteger(attestationExecution.attempt) || attestationExecution.attempt < 1 || attestationExecution.attempt > 3) {
+    throw new Error("Trusted Codex execution attempt is invalid");
+  }
+  if (canonicalJson(attestationExecution) !== canonicalJson(expectedExecution)) {
+    throw new Error("Trusted Codex execution binding does not match this replay");
+  }
+  return attestationExecution;
+}
+
 /**
  * Trust is not inferred from PATH, a self-hash, or a model response. The host
  * supplies a signed binding of the exact binary and requested model, verified
  * against a separately protected root outside the evaluated repository.
  */
-export async function verifyTrustedCodexAttestation({ attestationPath, evaluationRoot, model }) {
+export async function verifyTrustedCodexAttestation({ attestationPath, evaluationRoot, model, execution }) {
   if (!attestationPath) throw new Error("Codex evaluation requires --trusted-codex-attestation");
   const evaluation = await realpath(evaluationRoot);
   const [attestationFile, trustRootFile] = await Promise.all([
@@ -227,6 +251,7 @@ export async function verifyTrustedCodexAttestation({ attestationPath, evaluatio
   const publicKey = createPublicKey({ key: Buffer.from(key.publicKey, "base64"), format: "der", type: "spki" });
   const signature = Buffer.from(requiredString(attestation.signature, "Trusted Codex attestation signature"), "base64");
   if (!verify(null, Buffer.from(canonicalJson(unsignedAttestation(attestation)), "utf8"), publicKey, signature)) throw new Error("Trusted Codex attestation signature is invalid");
+  const signedExecution = validateExecution(attestation.execution, execution);
   const binary = attestation.binary;
   if (!binary || typeof binary.path !== "string" || !path.isAbsolute(binary.path) || !/^[a-f0-9]{64}$/.test(binary.digest ?? "")) throw new Error("Trusted Codex attestation requires an absolute binary path and SHA-256 digest");
   const binaryInfo = await lstat(binary.path);
@@ -239,7 +264,7 @@ export async function verifyTrustedCodexAttestation({ attestationPath, evaluatio
   return { command, metadata: {
     provider: "codex", requestedModel: model, reportedModel: model, modelAssurance: "host-signed-attestation", trustAttested: true,
     attestationDigest: sha256(canonicalJson(unsignedAttestation(attestation))), trustRootDigest: sha256(canonicalJson(trustRoot)),
-    attestationPath: attestationFile.path, issuer: attestation.issuer, keyId: attestation.keyId, expiresAt: attestation.expiresAt, binary: { path: command, digest }
+    attestationPath: attestationFile.path, issuer: attestation.issuer, keyId: attestation.keyId, expiresAt: attestation.expiresAt, execution: signedExecution, binary: { path: command, digest }
   } };
 }
 
@@ -353,9 +378,9 @@ export async function runCodexCritic({ model, effort, prompt, timeoutMs = 120_00
   }
 }
 
-export async function runCodexEvaluation({ model, prompt, timeoutMs = 120_000, attestationPath, evaluationRoot }) {
-  if (!model || !prompt || !evaluationRoot) throw new Error("Codex evaluation requires model, prompt, and evaluation root");
-  const trusted = await verifyTrustedCodexAttestation({ attestationPath, evaluationRoot, model });
+export async function runCodexEvaluation({ model, prompt, timeoutMs = 120_000, attestationPath, evaluationRoot, execution }) {
+  if (!model || !prompt || !evaluationRoot || !execution) throw new Error("Codex evaluation requires model, prompt, evaluation root, and execution binding");
+  const trusted = await verifyTrustedCodexAttestation({ attestationPath, evaluationRoot, model, execution });
   const bundle = await mkdtemp(path.join(os.tmpdir(), "sbw-codex-evaluation-"));
   await chmod(bundle, 0o700);
   const schemaPath = path.join(bundle, "evaluation.schema.json");
