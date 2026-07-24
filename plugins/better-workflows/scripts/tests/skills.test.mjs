@@ -7,9 +7,9 @@ const pluginRoot = path.resolve(import.meta.dirname, "../..");
 const skillsRoot = path.join(pluginRoot, "skills");
 const catalogPath = path.join(pluginRoot, "config", "entrypoint-catalog.json");
 
-test("exposes 15 selectable goal-first Better Workflows skills", async () => {
+test("exposes 16 selectable goal-first Better Workflows skills", async () => {
   const catalog = JSON.parse(await readFile(catalogPath, "utf8"));
-  assert.equal(catalog.skills.length, 15);
+  assert.equal(catalog.skills.length, 16);
 
   const directories = new Set(await readdir(skillsRoot));
   for (const entry of catalog.skills) {
@@ -42,6 +42,18 @@ test("auto entry requires capability snapshot and route preview before selection
   assert.match(content, /dw doctor --capabilities/);
   assert.match(content, /dw route preview/);
   assert.match(content, /never fabricate an `auto` template/);
+});
+
+test("self improve is a critical thin workflow with stale-link and independent action gates", async () => {
+  const content = await readFile(path.join(skillsRoot, "self-improve", "SKILL.md"), "utf8");
+  assert.match(content, /template `self-improve-ops` with minimum mode `critical`/);
+  assert.match(content, /Treat `NO_CHANGE` as a valid successful outcome/);
+  assert.match(content, /missing versioned plugin-cache\s+path/);
+  assert.match(content, /Commit, cache publication, push, merge, deploy, and cleanup are independent/);
+
+  const main = await readFile(path.join(skillsRoot, "better-workflows", "SKILL.md"), "utf8");
+  assert.match(main, /versioned plugin-cache skill\s+path that no longer exists/);
+  assert.match(main, /do not recreate or mutate that stale path/);
 });
 
 test("monorepo refactor keeps its exact picker name", async () => {

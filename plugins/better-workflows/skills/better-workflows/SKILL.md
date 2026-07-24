@@ -1,6 +1,6 @@
 ---
 name: better-workflows
-description: Route complex Codex work through native-first, evidence-driven workflows with root-only mutation, persistent /goal checkpoints, bounded read-only subagent waves, model-pinned critics, freshness checks, and fail-closed side-effect gates. Use when the user says better workflows, dynamic workflow, verified workflow, deep review, critical review, multi-agent review, multi-model review, review then fix, review to issues, fix issues then PR/merge, monorepo refactor, cross-platform contract, localization, iOS pbxproj review, CI/release monitoring, browser QA, research deliberation, or explicitly invokes $better-workflows.
+description: Route complex Codex work through native-first, evidence-driven workflows with root-only mutation, persistent /goal checkpoints, bounded read-only subagent waves, model-pinned critics, freshness checks, and fail-closed side-effect gates. Use when the user says better workflows, dynamic workflow, verified workflow, deep review, critical review, multi-agent review, multi-model review, review then fix, review to issues, fix issues then PR/merge, monorepo refactor, cross-platform contract, localization, iOS pbxproj review, CI/release monitoring, browser QA, research deliberation, Better Workflows self improvement, or explicitly invokes $better-workflows.
 ---
 
 # Better Workflows
@@ -20,6 +20,8 @@ A selector-fixed template or minimum mode is authoritative; never lower it.
 Selectors with `auto` still use the routing rules below. Natural-language
 `$better-workflows` invocation remains supported.
 `$monorepo-refactor` for bounded monorepo architecture refactors.
+`$better-workflows:self-improve` for governed improvement of this plugin from
+recent workflow evidence.
 
 ## Goal-first entry contract
 
@@ -92,6 +94,13 @@ selected route, and full plugin bundle digest. Expiry, replay, or any binding
 drift fails closed.
 
 ## Resolve the helper
+
+If a user or automation supplies a hyperlink to a versioned plugin-cache skill
+path that no longer exists, do not recreate or mutate that stale path. Resolve
+the current bundle through the host skill catalog or a verified matching cache
+entry, record the plugin manifest name, exact version, and resolved path, then
+verify its selector/template inventory and helper capabilities. If no current
+matching bundle can be proven, fail closed.
 
 Use `dw` only when `command -v dw` succeeds, `dw templates` lists the selected
 template, `dw help` lists `route preview`, and `dw doctor --capabilities`

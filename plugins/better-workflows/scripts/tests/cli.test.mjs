@@ -148,7 +148,26 @@ test("CLI lists exactly the installed workflow templates", async () => {
   const cwd = await repository();
   const stateRoot = await mkdtemp(path.join(os.tmpdir(), "dw-cli-list-"));
   const result = await cli(cwd, stateRoot, ["templates"]);
-  assert.equal(result.json.templates.length, 11);
+  assert.equal(result.json.templates.length, 12);
+});
+
+test("CLI routes the self-improve selector to its critical template", async () => {
+  const cwd = await repository();
+  const stateRoot = path.join(await mkdtemp(path.join(os.tmpdir(), "dw-cli-self-improve-")), "missing");
+  const result = await cli(cwd, stateRoot, [
+    "route",
+    "preview",
+    "--goal",
+    "Improve Better Workflows from recent evidence",
+    "--scope",
+    "src",
+    "--entry",
+    "self-improve"
+  ]);
+  assert.equal(result.json.source, "explicit-entry");
+  assert.equal(result.json.primary.template, "self-improve-ops");
+  assert.equal(result.json.effectiveMode, "critical");
+  await assert.rejects(access(stateRoot));
 });
 
 test("CLI previews, records, and consumes a fail-closed route receipt", async () => {

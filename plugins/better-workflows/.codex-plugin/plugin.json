@@ -1,6 +1,6 @@
 {
   "name": "better-workflows",
-  "version": "1.1.0+codex.20260723075123",
+  "version": "1.2.0+codex.20260724022313",
   "description": "Native-first, evidence-driven Codex workflows with deterministic safety gates.",
   "author": {
     "name": "Stephen Chuang",
@@ -19,7 +19,8 @@
     "refactor",
     "dependabot",
     "deliberation",
-    "multi-model"
+    "multi-model",
+    "self-improvement"
   ],
   "skills": "./skills/",
   "interface": {
@@ -36,6 +37,7 @@
     "websiteURL": "https://github.com/stephen-taipei/better-workflows",
     "defaultPrompt": [
       "Use $better-workflows to handle this task safely.",
+      "Use $better-workflows:self-improve to turn recent workflow evidence into a synchronized, validated Better Workflows improvement or an explicit no-change decision.",
       "Use $monorepo-refactor to inventory the monorepo, implement every eligible refactor recommendation, and validate each slice with persistent goal checkpoints.",
       "Review this repository with verified evidence.",
       "Run a multi-model architecture deliberation."

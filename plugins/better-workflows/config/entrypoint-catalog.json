@@ -62,6 +62,12 @@
       "mode": "auto"
     },
     {
+      "id": "self-improve",
+      "description": "以近期工作證據改善 Better Workflows，並同步驗證 version、cache 與 remote delivery",
+      "template": "self-improve-ops",
+      "mode": "critical"
+    },
+    {
       "id": "monorepo-refactor",
       "description": "盤點大型 monorepo，直接實作所有合格 refactor 建議並驗證 rollback evidence",
       "template": "monorepo-refactor",

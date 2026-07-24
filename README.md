@@ -270,7 +270,7 @@ silently replacing it.
 ### Choose quickly
 
 - Unsure which workflow to use: choose `auto`.
-- Know the task category: choose one of the ten task entries.
+- Know the task category: choose one of the eleven task entries.
 - Care mainly about review depth: choose `direct`, `verified`, `deep`, or `critical`.
 - Already use a legacy command: choose its compatibility alias.
 
@@ -288,7 +288,14 @@ silently replacing it.
 | `$better-workflows:ci-release` | CI failures, runner queues, serialized deploys, releases, remote monitoring, and receipt-based verification. | `$better-workflows:ci-release Diagnose the failing PR checks, fix them, and monitor the serialized dev deployment.` |
 | `$better-workflows:browser-qa` | Webwright or simulator QA requiring current UI evidence, screenshots, and a reproducible action log. | `$better-workflows:browser-qa Verify signup and contact sync in the browser and attach screenshot evidence.` |
 | `$better-workflows:research` | CLI-proven multi-model roles, evidence-backed architecture comparison, refutation, and an executable plan without majority voting. | `$better-workflows:research Compare three sync architectures, challenge each one, and produce an implementation-ready plan.` |
+| `$better-workflows:self-improve` | Improve Better Workflows itself from bounded recent evidence, including synchronized selectors, templates, tests, docs, versions, immutable cache, and authorized remote delivery. | `$better-workflows:self-improve Review recent workflow outcomes, implement only recurring verified improvements, validate, publish a new cache version, and push the atomic commit.` |
 | `$better-workflows:monorepo-refactor` | Full workspace inventory followed by direct implementation of every eligible bounded refactor recommendation, with behavior invariants, validation, and rollback evidence. | `$better-workflows:monorepo-refactor Inventory the monorepo and implement all eligible boundary-cleanup recommendations without changing its public contract.` |
+
+`self-improve-ops` is intentionally a thin orchestration template. It composes
+the existing research, refactor, routing, publication, and delivery controls,
+accepts a justified no-change result, and independently gates commit, cache
+publication, and push. A missing versioned cache link is resolved to a verified
+current bundle; the stale path is never recreated or mutated.
 
 ### CLI-proven multi-model deliberation
 
@@ -463,7 +470,7 @@ Better Workflows chooses one of four modes:
 | `deep` | Verified work followed by up to two sequential Codex critics. |
 | `critical` | Full evidence and side-effect gates plus a required external reviewer when policy demands it. |
 
-Eleven workflow templates are included:
+Twelve workflow templates are included:
 
 - `review-to-issues`
 - `issues-to-root-fix-pr-merge-cleanup`
@@ -474,6 +481,7 @@ Eleven workflow templates are included:
 - `dependabot-consolidation-pr-cleanup`
 - `browser-simulator-qa`
 - `research-deliberation`
+- `self-improve-ops`
 - `monorepo-refactor`
 - `pr-to-dev`
 

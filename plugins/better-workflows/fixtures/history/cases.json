@@ -83,5 +83,15 @@
     "name": "duplicate-deploy",
     "risk": {"risk": 2, "uncertainty": 2, "blastRadius": 3, "irreversibility": 3, "evidenceGap": 2},
     "expectedMode": "critical"
+  },
+  {
+    "name": "stale-versioned-skill-link",
+    "risk": {"risk": 1, "uncertainty": 2, "blastRadius": 2, "irreversibility": 1, "evidenceGap": 3},
+    "expectedMode": "deep"
+  },
+  {
+    "name": "self-improve-cache-publication",
+    "risk": {"risk": 2, "uncertainty": 2, "blastRadius": 2, "irreversibility": 3, "evidenceGap": 2},
+    "expectedMode": "critical"
   }
 ]

@@ -214,7 +214,7 @@ $better-workflows:auto <達成したい結果を記述>
 ### すばやい選び方
 
 - 迷った場合：`auto`。
-- タスク種別が明確：10 個の task entry から選択。
+- タスク種別が明確：11 個の task entry から選択。
 - 検証強度だけ指定：`direct`、`verified`、`deep`、`critical`。
 - 旧コマンドを継続：compatibility alias。
 
@@ -232,7 +232,10 @@ $better-workflows:auto <達成したい結果を記述>
 | `$better-workflows:ci-release` | CI failure、runner queue、直列 deploy、release、遠隔監視、receipt 検証。 | `$better-workflows:ci-release 失敗した PR checks を修正し、直列 dev deploy を監視。` |
 | `$better-workflows:browser-qa` | 最新 UI 証拠、screenshots、再現可能な action log が必要な Webwright／simulator QA。 | `$better-workflows:browser-qa signup と contact sync を検証し、screenshot evidence を添付。` |
 | `$better-workflows:research` | CLI で実証した複数 model の役割、証拠駆動の設計比較、反証、実行可能な Plan。多数決では決めない。 | `$better-workflows:research 3 つの sync architecture を比較・反証し、実装可能な Plan を作成。` |
+| `$better-workflows:self-improve` | 直近の bounded evidence から Better Workflows 自体を改善し、selector、template、tests、docs、version、immutable cache、許可済み remote delivery を同期します。 | `$better-workflows:self-improve 最近の workflow 結果を Review し、反復する検証済み改善だけを実装、検証後に新 cache version を公開して atomic commit を push。` |
 | `$better-workflows:monorepo-refactor` | monorepo 全体を調査し、適格な bounded refactor 提案を直接実装。behavior invariants、validation、rollback evidence を保持します。 | `$better-workflows:monorepo-refactor monorepo を調査し、public contract を変えずに適格な boundary cleanup を実装。` |
+
+`self-improve-ops` は薄い orchestration template です。既存の research、refactor、routing、publication、delivery controls を再利用し、根拠のある no-change を認め、commit、cache publication、push を個別に gate します。存在しない versioned cache link は検証済み current bundle にだけ解決し、stale path を再作成・変更しません。
 
 ### CLI 実証の複数 model deliberation
 

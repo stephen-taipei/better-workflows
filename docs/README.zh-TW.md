@@ -220,7 +220,7 @@ $better-workflows:cross-platform 檢查 backend、iOS 和 Android 的 contact sy
 ### 快速選擇
 
 - 不確定選哪個：使用 `auto`。
-- 已知道任務類型：從十個任務入口選擇。
+- 已知道任務類型：從十一個任務入口選擇。
 - 只想指定審查強度：使用 `direct`、`verified`、`deep` 或 `critical`。
 - 習慣舊指令：使用 compatibility alias。
 
@@ -238,7 +238,10 @@ $better-workflows:cross-platform 檢查 backend、iOS 和 Android 的 contact sy
 | `$better-workflows:ci-release` | CI failure、runner queue、序列化 deploy、release、遠端監控與 receipt 驗證。 | `$better-workflows:ci-release 診斷失敗的 PR checks、修復並監控序列化 dev deploy。` |
 | `$better-workflows:browser-qa` | 需要最新 UI 證據、截圖與可重現 action log 的 Webwright／模擬器 QA。 | `$better-workflows:browser-qa 驗證 signup 與 contact sync，並附上 screenshot evidence。` |
 | `$better-workflows:research` | CLI 實測的多模型角色、證據驅動架構比較、反證與可執行 Plan；不以多數決決策。 | `$better-workflows:research 比較三種 sync 架構、反證每個方案並產出可實作的 Plan。` |
+| `$better-workflows:self-improve` | 依近期且有界的證據改善 Better Workflows 本身，同步 selector、template、tests、docs、version、immutable cache 與經授權的 remote delivery。 | `$better-workflows:self-improve Review 近期 workflow 結果，只實作重複且已驗證的改善，完整驗證後發佈新 cache version 並 push atomic commit。` |
 | `$better-workflows:monorepo-refactor` | 完整盤點 monorepo，直接實作所有合格的 bounded refactor 建議，並保留 behavior invariants、validation 與 rollback evidence。 | `$better-workflows:monorepo-refactor 盤點 monorepo，直接實作所有合格的 boundary cleanup 建議，不改變 public contract。` |
+
+`self-improve-ops` 是薄型 orchestration template：沿用既有 research、refactor、routing、publication 與 delivery controls，允許有證據的 no-change，並分別 gate commit、cache publication 與 push。缺失的版本化 cache link 只能解析到已驗證的 current bundle，不得重建或修改 stale path。
 
 ### CLI 實測的多模型討論
 

@@ -214,7 +214,7 @@ $better-workflows:auto <완료하려는 결과를 설명>
 ### 빠른 선택
 
 - 무엇을 선택할지 모르겠다면 `auto`.
-- 작업 유형을 알고 있다면 10개 task entry 중 선택.
+- 작업 유형을 알고 있다면 11개 task entry 중 선택.
 - 검증 강도만 정하려면 `direct`, `verified`, `deep`, `critical`.
 - 기존 명령 습관을 유지하려면 compatibility alias.
 
@@ -232,7 +232,10 @@ $better-workflows:auto <완료하려는 결과를 설명>
 | `$better-workflows:ci-release` | CI failure, runner queue, 직렬 deploy, release, 원격 모니터링, receipt 검증. | `$better-workflows:ci-release 실패한 PR checks를 수정하고 직렬 dev deploy를 모니터링.` |
 | `$better-workflows:browser-qa` | 최신 UI 증거, screenshots, 재현 가능한 action log가 필요한 Webwright／simulator QA. | `$better-workflows:browser-qa signup과 contact sync를 검증하고 screenshot evidence 첨부.` |
 | `$better-workflows:research` | CLI로 검증한 multi-model 역할, 증거 기반 architecture 비교, 반증 및 실행 가능한 Plan. 다수결로 결정하지 않음. | `$better-workflows:research 세 가지 sync architecture를 비교·반증하고 구현 가능한 Plan 생성.` |
+| `$better-workflows:self-improve` | 최근의 bounded evidence로 Better Workflows 자체를 개선하고 selector, template, tests, docs, version, immutable cache, 승인된 remote delivery를 동기화합니다. | `$better-workflows:self-improve 최근 workflow 결과를 Review하고 반복되는 검증된 개선만 구현한 뒤 새 cache version을 게시하고 atomic commit을 push.` |
 | `$better-workflows:monorepo-refactor` | monorepo 전체를 조사한 뒤 적격한 bounded refactor 제안을 직접 구현하고 behavior invariants, validation, rollback evidence를 유지합니다. | `$better-workflows:monorepo-refactor monorepo를 조사하고 public contract를 바꾸지 않으면서 적격한 boundary cleanup을 구현.` |
+
+`self-improve-ops`는 얇은 orchestration template입니다. 기존 research, refactor, routing, publication, delivery controls를 재사용하고 근거 있는 no-change를 허용하며 commit, cache publication, push를 각각 gate합니다. 존재하지 않는 versioned cache link는 검증된 current bundle로만 해석하고 stale path를 다시 만들거나 수정하지 않습니다.
 
 ### CLI로 검증한 multi-model deliberation
 

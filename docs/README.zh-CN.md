@@ -210,7 +210,7 @@ $better-workflows:auto <描述需要完成的目标>
 ### 快速选择
 
 - 不确定选哪个：使用 `auto`。
-- 已知道任务类别：选择十个任务入口之一。
+- 已知道任务类别：选择十一个任务入口之一。
 - 只想指定审查强度：使用 `direct`、`verified`、`deep` 或 `critical`。
 - 仍在使用旧命令：选择 compatibility alias。
 
@@ -228,7 +228,10 @@ $better-workflows:auto <描述需要完成的目标>
 | `$better-workflows:ci-release` | CI failure、runner queue、串行 deploy、release、远端监控与 receipt 验证。 | `$better-workflows:ci-release 诊断失败的 PR checks、修复并监控串行 dev deploy。` |
 | `$better-workflows:browser-qa` | 需要最新 UI 证据、截图与可复现 action log 的 Webwright／模拟器 QA。 | `$better-workflows:browser-qa 验证 signup 与 contact sync，并附上 screenshot evidence。` |
 | `$better-workflows:research` | CLI 实测的多模型角色、证据驱动架构比较、反证与可执行 Plan；不以多数票决策。 | `$better-workflows:research 比较三种 sync 架构、反证每个方案并产出可实现的 Plan。` |
+| `$better-workflows:self-improve` | 根据近期且有界的证据改进 Better Workflows 本身，同步 selector、template、tests、docs、version、immutable cache 与经授权的 remote delivery。 | `$better-workflows:self-improve Review 近期 workflow 结果，只实现重复且已验证的改进，完整验证后发布新 cache version 并 push atomic commit。` |
 | `$better-workflows:monorepo-refactor` | 完整盘点 monorepo，直接实现所有合格的 bounded refactor 建议，并保留 behavior invariants、validation 与 rollback evidence。 | `$better-workflows:monorepo-refactor 盘点 monorepo，直接实现所有合格的 boundary cleanup 建议，不改变 public contract。` |
+
+`self-improve-ops` 是薄型 orchestration template：复用现有 research、refactor、routing、publication 与 delivery controls，允许有证据的 no-change，并分别 gate commit、cache publication 与 push。缺失的版本化 cache link 只能解析到已验证的 current bundle，不得重建或修改 stale path。
 
 ### CLI 实测的多模型协商
 
