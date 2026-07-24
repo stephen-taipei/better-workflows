@@ -44,8 +44,10 @@ output, missing evidence, or no measurable gain are `NO_CHANGE` or
 
 Real replays require separate, per-run authority and use only a read-only,
 ephemeral Codex invocation. They also require a host-signed attestation for the
-exact Codex binary and requested model plus a host-owned trust root outside the
-evaluated repository. `PATH`, a self-reported model, or a binary digest supplied
+exact Codex binary and requested model. The trust root is fixed at
+`/etc/better-workflows/codex-trust-root.json`; it and every parent directory
+must be administrator-owned and non-writable by the invoking user. `PATH`, a
+self-reported model, a CLI-selected trust root, or a binary digest supplied
 without a verifiable host signature is not trusted. A fixture backend exists
 only for deterministic tests and cannot authorize delivery.
 
@@ -54,8 +56,7 @@ sbw self-improve evaluate <run-id> \
   --cases plugins/better-workflows/fixtures/self-improve-ops-evals.json \
   --baseline <immutable-baseline> --candidate-root . \
   --backend codex --model <attested-model> --allow-codex --sanitized \
-  --trusted-codex-attestation /host/attestation.json \
-  --trusted-codex-trust-root /host/trust-root.json --split train
+  --trusted-codex-attestation /host/attestation.json --split train
 ```
 
 Use `--split holdout` only after training is frozen. This selector never

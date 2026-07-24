@@ -325,7 +325,7 @@ export async function ensureStateRoot(root = getStateRoot()) {
   return root;
 }
 
-export async function createRun({ root = getStateRoot(), contract, requestedMode = "auto", cwd }) {
+export async function createRun({ root = getStateRoot(), contract, requestedMode = "auto", cwd, baselineRevision = null }) {
   validateContract(contract);
   const mode = routeMode(contract, requestedMode);
   if (mode === "direct") {
@@ -357,6 +357,7 @@ export async function createRun({ root = getStateRoot(), contract, requestedMode
     mode,
     requestedMode,
     cwd: path.resolve(cwd),
+    baselineRevision,
     createdAt,
     contractDigest: digestObject(contract),
     authority: {

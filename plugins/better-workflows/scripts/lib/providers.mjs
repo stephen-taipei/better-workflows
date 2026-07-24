@@ -39,6 +39,7 @@ const EVALUATION_SCHEMA = {
       passedAssertions: { type: "array", items: { type: "string" } }
     } } } }
 };
+const HOST_TRUST_ROOT_PATH = "/etc/better-workflows/codex-trust-root.json";
 
 function safeEnvironment(extra = {}) {
   const allowed = [
@@ -173,7 +174,26 @@ async function secureJsonFile(file, label) {
   const info = await lstat(file);
   if (info.isSymbolicLink() || !info.isFile()) throw new Error(`${label} must be a regular non-symlink file`);
   if (((info.mode & 0o777) & 0o022) !== 0) throw new Error(`${label} must not be group/world writable`);
-  return { path: await realpath(file), value: JSON.parse(await readFile(file, "utf8")) };
+  return { path: await realpath(file), info, value: JSON.parse(await readFile(file, "utf8")) };
+}
+
+async function hostAnchoredTrustRoot() {
+  const trustRoot = await secureJsonFile(HOST_TRUST_ROOT_PATH, "Host Codex trust root").catch((error) => {
+    if (error.code === "ENOENT") throw new Error("Host Codex trust root is not provisioned");
+    throw error;
+  });
+  if (trustRoot.info.uid !== 0) throw new Error("Host Codex trust root must be owned by the host administrator");
+  let directory = path.dirname(trustRoot.path);
+  while (true) {
+    const info = await lstat(directory);
+    if (info.isSymbolicLink() || !info.isDirectory() || info.uid !== 0 || ((info.mode & 0o777) & 0o022) !== 0) {
+      throw new Error("Host Codex trust-root directory is not administrator-owned and immutable");
+    }
+    const parent = path.dirname(directory);
+    if (parent === directory) break;
+    directory = parent;
+  }
+  return trustRoot;
 }
 
 function unsignedAttestation(attestation) {
@@ -186,14 +206,14 @@ function unsignedAttestation(attestation) {
  * supplies a signed binding of the exact binary and requested model, verified
  * against a separately protected root outside the evaluated repository.
  */
-export async function verifyTrustedCodexAttestation({ attestationPath, trustRootPath, evaluationRoot, model }) {
-  if (!attestationPath || !trustRootPath) throw new Error("Codex evaluation requires --trusted-codex-attestation and --trusted-codex-trust-root");
+export async function verifyTrustedCodexAttestation({ attestationPath, evaluationRoot, model }) {
+  if (!attestationPath) throw new Error("Codex evaluation requires --trusted-codex-attestation");
   const evaluation = await realpath(evaluationRoot);
   const [attestationFile, trustRootFile] = await Promise.all([
     secureJsonFile(path.resolve(attestationPath), "Trusted Codex attestation"),
-    secureJsonFile(path.resolve(trustRootPath), "Trusted Codex trust root")
+    hostAnchoredTrustRoot()
   ]);
-  if (isWithin(evaluation, attestationFile.path) || isWithin(evaluation, trustRootFile.path)) throw new Error("Trusted Codex attestation and trust root must be host-owned files outside the evaluated repository");
+  if (isWithin(evaluation, attestationFile.path)) throw new Error("Trusted Codex attestation must be a host-provided file outside the evaluated repository");
   const attestation = attestationFile.value;
   const trustRoot = trustRootFile.value;
   if (attestation?.schemaVersion !== 1 || trustRoot?.schemaVersion !== 1) throw new Error("Trusted Codex attestation and trust root schemaVersion must be 1");
@@ -219,7 +239,7 @@ export async function verifyTrustedCodexAttestation({ attestationPath, trustRoot
   return { command, metadata: {
     provider: "codex", requestedModel: model, reportedModel: model, modelAssurance: "host-signed-attestation", trustAttested: true,
     attestationDigest: sha256(canonicalJson(unsignedAttestation(attestation))), trustRootDigest: sha256(canonicalJson(trustRoot)),
-    issuer: attestation.issuer, keyId: attestation.keyId, expiresAt: attestation.expiresAt, binary: { path: command, digest }
+    attestationPath: attestationFile.path, issuer: attestation.issuer, keyId: attestation.keyId, expiresAt: attestation.expiresAt, binary: { path: command, digest }
   } };
 }
 
@@ -333,9 +353,9 @@ export async function runCodexCritic({ model, effort, prompt, timeoutMs = 120_00
   }
 }
 
-export async function runCodexEvaluation({ model, prompt, timeoutMs = 120_000, attestationPath, trustRootPath, evaluationRoot }) {
+export async function runCodexEvaluation({ model, prompt, timeoutMs = 120_000, attestationPath, evaluationRoot }) {
   if (!model || !prompt || !evaluationRoot) throw new Error("Codex evaluation requires model, prompt, and evaluation root");
-  const trusted = await verifyTrustedCodexAttestation({ attestationPath, trustRootPath, evaluationRoot, model });
+  const trusted = await verifyTrustedCodexAttestation({ attestationPath, evaluationRoot, model });
   const bundle = await mkdtemp(path.join(os.tmpdir(), "sbw-codex-evaluation-"));
   await chmod(bundle, 0o700);
   const schemaPath = path.join(bundle, "evaluation.schema.json");

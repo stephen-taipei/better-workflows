@@ -50,7 +50,8 @@ import {
   doctorCodex,
   runAgyCritic,
   runCodexCritic,
-  runCodexEvaluation
+  runCodexEvaluation,
+  verifyTrustedCodexAttestation
 } from "./lib/providers.mjs";
 import {
   buildEvaluationPrompt,
@@ -440,8 +441,8 @@ function assertExplicitCodexEvaluationAuthority(options) {
     throw new Error("Codex evaluation requires explicit --allow-codex and --sanitized authority");
   }
   if (!options.model) throw new Error("Codex evaluation requires --model bound by the trusted attestation");
-  if (!options["trusted-codex-attestation"] || !options["trusted-codex-trust-root"]) {
-    throw new Error("Codex evaluation requires a host-signed attestation and host trust root");
+  if (!options["trusted-codex-attestation"]) {
+    throw new Error("Codex evaluation requires a host-signed attestation anchored by the host trust root");
   }
 }
 
@@ -457,7 +458,6 @@ async function evaluationReplay({ backend, fixture, role, cases, prompt, options
     prompt,
     timeoutMs: options["timeout-seconds"] === undefined ? undefined : integer(options["timeout-seconds"]) * 1_000,
     attestationPath: String(options["trusted-codex-attestation"]),
-    trustRootPath: String(options["trusted-codex-trust-root"]),
     evaluationRoot: cwd
   });
   return { score: scoreEvaluation(result.response, cases), metadata: result.metadata };
@@ -470,6 +470,8 @@ async function addSelfImproveEvidence(root, runId, record) {
 function structuredReplay(replay) {
   return { score: redactedScore(replay.score), provider: replay.metadata.provider, trustAttested: replay.metadata.trustAttested === true,
     attestationDigest: replay.metadata.attestationDigest ?? null, binaryDigest: replay.metadata.binary?.digest ?? null,
+    attestationPath: replay.metadata.attestationPath ?? null, trustRootDigest: replay.metadata.trustRootDigest ?? null,
+    issuer: replay.metadata.issuer ?? null, keyId: replay.metadata.keyId ?? null, expiresAt: replay.metadata.expiresAt ?? null,
     model: replay.metadata.requestedModel ?? null, sandbox: replay.metadata.sandbox };
 }
 
@@ -477,7 +479,7 @@ async function commandSelfImprove(root, subcommand, options) {
   if (subcommand !== "evaluate") throw new Error("self-improve subcommand must be evaluate");
   assertKnownOptions(options, [
     "run", "cases", "baseline", "candidate-root", "backend", "split", "result-file", "model", "allow-codex", "sanitized",
-    "timeout-seconds", "trusted-codex-attestation", "trusted-codex-trust-root"
+    "timeout-seconds", "trusted-codex-attestation"
   ]);
   if (!options.run || !options.cases || !options.baseline || !options["candidate-root"] || !options.backend || !options.split) {
     throw new Error("self-improve evaluate requires --run, --cases, --baseline, --candidate-root, --backend, and --split");
@@ -485,6 +487,9 @@ async function commandSelfImprove(root, subcommand, options) {
   const runId = String(options.run);
   const run = await loadRun(root, runId);
   if (run.manifest.template !== "self-improve-ops") throw new Error("self-improve evaluation requires a self-improve-ops run");
+  if (typeof run.manifest.baselineRevision !== "string" || !run.manifest.baselineRevision) {
+    throw new Error("self-improve evaluation requires a run-start baseline revision");
+  }
   const backend = String(options.backend);
   const split = String(options.split);
   if (!["codex", "fixture"].includes(backend) || !["train", "holdout"].includes(split)) throw new Error("Invalid self-improve backend or split");
@@ -495,6 +500,9 @@ async function commandSelfImprove(root, subcommand, options) {
   if (backend === "fixture" && !options["result-file"]) throw new Error("Fixture evaluation requires --result-file");
   const cwd = run.manifest.cwd;
   const frozen = await loadFrozenEvaluationSuite({ cwd, casesFile: path.resolve(cwd, String(options.cases)), baselineRevision: String(options.baseline), canonical: backend === "codex" });
+  if (frozen.baselineRevision !== run.manifest.baselineRevision) {
+    throw new Error("Evaluation baseline must equal the immutable run-start baseline revision");
+  }
   const cases = frozen.suite.cases.filter((item) => item.split === split);
   const candidate = await snapshotCandidate({ cwd, baselineRevision: frozen.baselineRevision, candidateRoot: String(options["candidate-root"]) });
   const baseline = await snapshotBaselineForCandidate({ cwd, snapshot: candidate });
@@ -563,10 +571,27 @@ async function assertAcceptedSelfImproveHoldout(root, runId, action) {
     ...(accepted.evaluation?.candidateReplays ?? []),
     ...(accepted.evaluation?.baselineReplays ?? [])
   ];
-  if (replays.length !== 7 || replays.some((item) => item.provider !== "codex" || item.trustAttested !== true || !item.attestationDigest || !item.binaryDigest)) {
+  if (replays.length !== 7 || replays.some((item) => item.provider !== "codex" || item.trustAttested !== true || !item.attestationDigest || !item.attestationPath || !item.binaryDigest || !item.trustRootDigest || !item.model || !item.expiresAt)) {
     throw new Error("Self-improve delivery requires seven host-attested Codex replays");
   }
+  const bindings = new Set(replays.map((item) => digestObject({
+    attestationDigest: item.attestationDigest, binaryDigest: item.binaryDigest, trustRootDigest: item.trustRootDigest,
+    issuer: item.issuer, keyId: item.keyId, model: item.model, attestationPath: item.attestationPath
+  })));
+  if (bindings.size !== 1) throw new Error("Self-improve delivery requires one consistent host attestation, binary, and model across every replay");
+  const replay = replays[0];
+  const revalidated = await verifyTrustedCodexAttestation({
+    attestationPath: replay.attestationPath,
+    evaluationRoot: run.manifest.cwd,
+    model: replay.model
+  });
+  if (revalidated.metadata.attestationDigest !== replay.attestationDigest || revalidated.metadata.binary.digest !== replay.binaryDigest || revalidated.metadata.trustRootDigest !== replay.trustRootDigest || revalidated.metadata.issuer !== replay.issuer || revalidated.metadata.keyId !== replay.keyId) {
+    throw new Error("Self-improve delivery attestation binding changed after replay");
+  }
   const evaluation = accepted.evaluation;
+  if (evaluation.baselineRevision !== run.manifest.baselineRevision) {
+    throw new Error("Self-improve held-out evidence is not bound to the run-start baseline");
+  }
   await loadFrozenEvaluationSuite({
     cwd: run.manifest.cwd,
     casesFile: path.join(run.manifest.cwd, evaluation.suitePath),
@@ -681,11 +706,17 @@ async function commandRun(root, options) {
       receiptId: receiptBinding.receipt.receiptId
     });
   }
+  const baselineRevision = templateName === "self-improve-ops"
+    ? (await execFileAsync("git", ["rev-parse", "--verify", "HEAD^{commit}"], {
+        cwd: process.cwd(), encoding: "utf8"
+      })).stdout.trim()
+    : null;
   const result = await createRun({
     root,
     contract,
     requestedMode,
-    cwd: process.cwd()
+    cwd: process.cwd(),
+    baselineRevision
   });
   if (receiptBinding) {
     await markRouteReceiptUsed({
