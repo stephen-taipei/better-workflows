@@ -1,9 +1,10 @@
 import { spawn } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, createPublicKey, verify } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { chmod, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { canonicalJson, sha256 } from "./core.mjs";
 
 const REVIEW_SCHEMA = {
   type: "object",
@@ -27,6 +28,16 @@ const REVIEW_SCHEMA = {
       }
     }
   }
+};
+
+const EVALUATION_SCHEMA = {
+  type: "object", additionalProperties: false, required: ["results"],
+  properties: { results: { type: "array", items: { type: "object", additionalProperties: false,
+    required: ["id", "disposition", "passedAssertions"], properties: {
+      id: { type: "string" },
+      disposition: { type: "string", enum: ["IMPLEMENT", "NO_CHANGE", "BLOCKED", "REJECTED_WITH_EVIDENCE"] },
+      passedAssertions: { type: "array", items: { type: "string" } }
+    } } } }
 };
 
 function safeEnvironment(extra = {}) {
@@ -147,6 +158,71 @@ async function hashFile(target) {
   });
 }
 
+function isWithin(root, target) {
+  const relative = path.relative(root, target);
+  return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative));
+}
+
+function requiredString(value, label) {
+  if (typeof value !== "string" || !value) throw new Error(`${label} is required`);
+  return value;
+}
+
+async function secureJsonFile(file, label) {
+  if (!path.isAbsolute(file)) throw new Error(`${label} must be an absolute host path`);
+  const info = await lstat(file);
+  if (info.isSymbolicLink() || !info.isFile()) throw new Error(`${label} must be a regular non-symlink file`);
+  if (((info.mode & 0o777) & 0o022) !== 0) throw new Error(`${label} must not be group/world writable`);
+  return { path: await realpath(file), value: JSON.parse(await readFile(file, "utf8")) };
+}
+
+function unsignedAttestation(attestation) {
+  const { signature, ...payload } = attestation;
+  return payload;
+}
+
+/**
+ * Trust is not inferred from PATH, a self-hash, or a model response. The host
+ * supplies a signed binding of the exact binary and requested model, verified
+ * against a separately protected root outside the evaluated repository.
+ */
+export async function verifyTrustedCodexAttestation({ attestationPath, trustRootPath, evaluationRoot, model }) {
+  if (!attestationPath || !trustRootPath) throw new Error("Codex evaluation requires --trusted-codex-attestation and --trusted-codex-trust-root");
+  const evaluation = await realpath(evaluationRoot);
+  const [attestationFile, trustRootFile] = await Promise.all([
+    secureJsonFile(path.resolve(attestationPath), "Trusted Codex attestation"),
+    secureJsonFile(path.resolve(trustRootPath), "Trusted Codex trust root")
+  ]);
+  if (isWithin(evaluation, attestationFile.path) || isWithin(evaluation, trustRootFile.path)) throw new Error("Trusted Codex attestation and trust root must be host-owned files outside the evaluated repository");
+  const attestation = attestationFile.value;
+  const trustRoot = trustRootFile.value;
+  if (attestation?.schemaVersion !== 1 || trustRoot?.schemaVersion !== 1) throw new Error("Trusted Codex attestation and trust root schemaVersion must be 1");
+  if (attestation.provider !== "codex" || attestation.model !== model) throw new Error("Trusted Codex attestation must bind provider codex and the requested model");
+  if (attestation.issuer !== trustRoot.issuer) throw new Error("Trusted Codex attestation issuer is not trusted");
+  const key = Array.isArray(trustRoot.publicKeys) ? trustRoot.publicKeys.find((item) => item?.keyId === attestation.keyId && item.algorithm === "ed25519") : null;
+  if (!key || typeof key.publicKey !== "string") throw new Error("Trusted Codex attestation key is not available in the trust root");
+  const issuedAt = Date.parse(requiredString(attestation.issuedAt, "Trusted Codex attestation issuedAt"));
+  const expiresAt = Date.parse(requiredString(attestation.expiresAt, "Trusted Codex attestation expiresAt"));
+  if (!Number.isFinite(issuedAt) || !Number.isFinite(expiresAt) || issuedAt > Date.now() + 300_000 || expiresAt <= Date.now()) throw new Error("Trusted Codex attestation is not currently valid");
+  const publicKey = createPublicKey({ key: Buffer.from(key.publicKey, "base64"), format: "der", type: "spki" });
+  const signature = Buffer.from(requiredString(attestation.signature, "Trusted Codex attestation signature"), "base64");
+  if (!verify(null, Buffer.from(canonicalJson(unsignedAttestation(attestation)), "utf8"), publicKey, signature)) throw new Error("Trusted Codex attestation signature is invalid");
+  const binary = attestation.binary;
+  if (!binary || typeof binary.path !== "string" || !path.isAbsolute(binary.path) || !/^[a-f0-9]{64}$/.test(binary.digest ?? "")) throw new Error("Trusted Codex attestation requires an absolute binary path and SHA-256 digest");
+  const binaryInfo = await lstat(binary.path);
+  if (binaryInfo.isSymbolicLink() || !binaryInfo.isFile()) throw new Error("Trusted Codex binary must be a regular non-symlink file");
+  if ((((await stat(binary.path)).mode & 0o777) & 0o022) !== 0) throw new Error("Trusted Codex binary must not be group/world writable");
+  const command = await realpath(binary.path);
+  if (command !== binary.path) throw new Error("Trusted Codex attestation binary path must already be canonical");
+  const digest = await hashFile(command);
+  if (digest !== binary.digest) throw new Error("Trusted Codex binary digest does not match the signed attestation");
+  return { command, metadata: {
+    provider: "codex", requestedModel: model, reportedModel: model, modelAssurance: "host-signed-attestation", trustAttested: true,
+    attestationDigest: sha256(canonicalJson(unsignedAttestation(attestation))), trustRootDigest: sha256(canonicalJson(trustRoot)),
+    issuer: attestation.issuer, keyId: attestation.keyId, expiresAt: attestation.expiresAt, binary: { path: command, digest }
+  } };
+}
+
 export async function binaryIdentity(command) {
   const target = await commandPath(command);
   return { path: target, digest: await hashFile(target) };
@@ -252,6 +328,28 @@ export async function runCodexCritic({ model, effort, prompt, timeoutMs = 120_00
         ephemeral: true
       }
     };
+  } finally {
+    await rm(bundle, { recursive: true, force: true });
+  }
+}
+
+export async function runCodexEvaluation({ model, prompt, timeoutMs = 120_000, attestationPath, trustRootPath, evaluationRoot }) {
+  if (!model || !prompt || !evaluationRoot) throw new Error("Codex evaluation requires model, prompt, and evaluation root");
+  const trusted = await verifyTrustedCodexAttestation({ attestationPath, trustRootPath, evaluationRoot, model });
+  const bundle = await mkdtemp(path.join(os.tmpdir(), "sbw-codex-evaluation-"));
+  await chmod(bundle, 0o700);
+  const schemaPath = path.join(bundle, "evaluation.schema.json");
+  await writeFile(schemaPath, `${JSON.stringify(EVALUATION_SCHEMA, null, 2)}\n`, { mode: 0o600 });
+  const startedAt = new Date().toISOString();
+  try {
+    const result = await spawnCapture(trusted.command, [
+      "exec", "--ignore-user-config", "--ignore-rules", "--ephemeral", "--sandbox", "read-only", "--skip-git-repo-check",
+      "-C", bundle, "--output-schema", schemaPath, "-m", model, "-c", "model_reasoning_effort=\"high\"", "-"
+    ], { cwd: bundle, input: prompt, timeoutMs, maxOutputBytes: 2 * 1024 * 1024 });
+    if (result.code !== 0) throw new Error(`Codex evaluation failed with exit ${result.code}: ${result.stderr.trim()}`);
+    const response = extractJson(result.stdout);
+    if (!response || !Array.isArray(response.results)) throw new Error("Codex evaluation returned malformed structured output");
+    return { response, metadata: { ...trusted.metadata, startedAt, finishedAt: new Date().toISOString(), transport: "stdin", sandbox: "read-only", ephemeral: true, outputSchema: "evaluation-v1" } };
   } finally {
     await rm(bundle, { recursive: true, force: true });
   }
