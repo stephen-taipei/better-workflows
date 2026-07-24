@@ -7,8 +7,8 @@ description: Goal-first 自動入口（推薦）；自動選 template、mode 與
 
 Read `../better-workflows/SKILL.md` completely and follow it, including the Goal-first entry contract.
 
-Before substantial work, run `dw doctor --capabilities` and
-`dw route preview --goal "<goal>" --scope <path>`. Report the route source,
+Before substantial work, run `sbw doctor --capabilities` and
+`sbw route preview --goal "<goal>" --scope <path>`. Report the route source,
 primary entry/template, effective mode, optional support exclusions, and
 blockers. If the preview returns built-in `auto` with no concrete template,
 select exactly one template from current evidence and preview it explicitly;

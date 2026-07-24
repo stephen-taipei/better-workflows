@@ -15,10 +15,10 @@ async function git(cwd, ...args) {
 }
 
 async function repository() {
-  const cwd = await mkdtemp(path.join(os.tmpdir(), "dw-git-"));
+  const cwd = await mkdtemp(path.join(os.tmpdir(), "sbw-git-"));
   await git(cwd, "init", "-q", "-b", "dev");
-  await git(cwd, "config", "user.name", "Dynamic Workflow Tests");
-  await git(cwd, "config", "user.email", "dw-tests@example.invalid");
+  await git(cwd, "config", "user.name", "Stephen Better Workflows Tests");
+  await git(cwd, "config", "user.email", "sbw-tests@example.invalid");
   await mkdir(path.join(cwd, "src"));
   await writeFile(path.join(cwd, "src", "a.txt"), "alpha\n");
   await writeFile(path.join(cwd, "src", "b.txt"), "beta\n");

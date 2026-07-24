@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "probeMarker": "DW_DELIBERATION_PROBE_OK",
+  "probeMarker": "SBW_DELIBERATION_PROBE_OK",
   "probeTimeoutSeconds": 45,
   "rosterCacheHours": 24,
   "maxParticipants": 24,

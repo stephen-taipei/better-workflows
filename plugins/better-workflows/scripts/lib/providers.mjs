@@ -198,7 +198,7 @@ function criticPrompt(prompt) {
 
 export async function runCodexCritic({ model, effort, prompt, timeoutMs = 120_000 }) {
   if (!model || !effort || !prompt) throw new Error("Codex critic requires model, effort, and prompt");
-  const bundle = await mkdtemp(path.join(os.tmpdir(), "dw-codex-critic-"));
+  const bundle = await mkdtemp(path.join(os.tmpdir(), "sbw-codex-critic-"));
   await chmod(bundle, 0o700);
   const schemaPath = path.join(bundle, "review.schema.json");
   await writeFile(schemaPath, `${JSON.stringify(REVIEW_SCHEMA, null, 2)}\n`, { mode: 0o600 });
@@ -284,7 +284,7 @@ export async function runAgyCritic({
   if (bytes > config.providers.agy.maxPromptBytes) {
     throw new Error(`Agy prompt exceeds byte limit: ${bytes}`);
   }
-  const bundle = await mkdtemp(path.join(os.tmpdir(), "dw-agy-critic-"));
+  const bundle = await mkdtemp(path.join(os.tmpdir(), "sbw-agy-critic-"));
   await chmod(bundle, 0o700);
   const identity = await binaryIdentity(command);
   const startedAt = new Date().toISOString();
@@ -368,7 +368,7 @@ export async function doctorAgy({
     throw new Error("Agy effort transport must be native or model-variant");
   }
   const identity = await binaryIdentity(command);
-  const bundle = await mkdtemp(path.join(os.tmpdir(), "dw-agy-doctor-"));
+  const bundle = await mkdtemp(path.join(os.tmpdir(), "sbw-agy-doctor-"));
   await chmod(bundle, 0o700);
   try {
     const args = [

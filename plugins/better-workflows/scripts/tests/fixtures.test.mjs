@@ -18,7 +18,7 @@ test("all historical and adversarial routing fixtures select the expected mode",
   }
 });
 
-test("all eleven templates are valid and side-effect templates declare action gates", async () => {
+test("all twelve templates are valid and side-effect templates declare action gates", async () => {
   const directory = path.join(pluginRoot(), "templates");
   const names = (await readdir(directory))
     .filter((name) => name.endsWith(".json"))
@@ -34,7 +34,8 @@ test("all eleven templates are valid and side-effect templates declare action ga
     "monorepo-refactor.json",
     "pr-to-dev.json",
     "research-deliberation.json",
-    "review-to-issues.json"
+    "review-to-issues.json",
+    "self-improve-ops.json"
   ]);
   for (const name of names) {
     const template = JSON.parse(await readFile(path.join(directory, name), "utf8"));
@@ -117,6 +118,45 @@ test("research deliberation requires CLI-proven roles and an executable arbiter 
   for (const acceptance of ["providers-probed", "roles-separated", "plan-executable", "arbiter-resolved"]) {
     assert.ok(template.acceptance.some((item) => item.id === acceptance), acceptance);
   }
+});
+
+test("self improve keeps no-change, synchronization, cache, commit, and push fail closed", async () => {
+  const template = JSON.parse(
+    await readFile(path.join(pluginRoot(), "templates", "self-improve-ops.json"), "utf8")
+  );
+  assert.equal(template.defaultMode, "critical");
+  for (const evidence of [
+    "retrospective-source-inventory",
+    "recurrence-matrix",
+    "decision-record",
+    "sync-matrix",
+    "plugin-version",
+    "cache-check",
+    "cache-publication",
+    "remote-reconciliation"
+  ]) {
+    assert.ok(template.requiredEvidence.includes(evidence), evidence);
+  }
+  for (const policy of [
+    "first-class-no-change",
+    "thin-workflow-composition",
+    "stale-versioned-link-resolution",
+    "no-mutation-of-stale-cache",
+    "selector-template-catalog-test-doc-sync",
+    "new-version-before-publication",
+    "immutable-cache-exact-digest",
+    "independent-action-authority"
+  ]) {
+    assert.ok(template.policyGates.includes(policy), policy);
+  }
+  assert.deepEqual(Object.keys(template.actionGates).sort(), [
+    "git.commit",
+    "git.push",
+    "plugin.cache.publish"
+  ]);
+  assert.ok(template.acceptance.some((item) => item.id === "outcome-explicit"));
+  assert.ok(template.acceptance.some((item) => item.id === "cache-immutable"));
+  assert.ok(template.acceptance.some((item) => item.id === "delivery-reconciled"));
 });
 
 test("deliberation roster keeps every brand and routes Gemini through Agy with a 24-hour lease", async () => {
@@ -213,6 +253,7 @@ test("skills have no placeholders and retired AI-meeting alias is absent", async
     "pr-to-dev",
     "research",
     "review-issues",
+    "self-improve",
     "verified"
   ]);
   for (const name of skillNames) {
@@ -229,7 +270,7 @@ test("skills have no placeholders and retired AI-meeting alias is absent", async
   assert.match(main, /root agent as the only authority/);
   assert.match(main, /Goal-first entry contract/);
   assert.match(main, /\$monorepo-refactor/);
-  assert.match(main, /direct.*do not invoke .*dw/s);
+  assert.match(main, /direct.*do not invoke .*sbw/s);
   assert.match(main, /at most three direct native children/);
   assert.match(main, /Never decide by vote/);
   assert.match(main, /CLI-proven participant roster/);
@@ -240,6 +281,11 @@ test("plugin has zero runtime dependencies", async () => {
   const manifest = JSON.parse(await readFile(path.join(pluginRoot(), "package.json"), "utf8"));
   assert.equal(manifest.dependencies, undefined);
   assert.equal(manifest.optionalDependencies, undefined);
+});
+
+test("plugin exposes sbw as its sole executable", async () => {
+  const manifest = JSON.parse(await readFile(path.join(pluginRoot(), "package.json"), "utf8"));
+  assert.deepEqual(manifest.bin, { sbw: "scripts/sbw.mjs" });
 });
 
 test("plugin runtime and Codex build versions are aligned", async () => {
