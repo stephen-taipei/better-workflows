@@ -49,8 +49,20 @@ import {
   doctorAgy,
   doctorCodex,
   runAgyCritic,
-  runCodexCritic
+  runCodexCritic,
+  runCodexEvaluation
 } from "./lib/providers.mjs";
+import {
+  buildEvaluationPrompt,
+  compareHoldout,
+  loadFrozenEvaluationSuite,
+  readSanitizedBaselineMaterial,
+  readSanitizedCandidateMaterial,
+  redactedScore,
+  scoreEvaluation,
+  snapshotBaselineForCandidate,
+  snapshotCandidate
+} from "./lib/self-improve.mjs";
 import {
   arbitrateDeliberation,
   deliberate,
@@ -416,6 +428,161 @@ async function providerEvidence(root, runId, result, prompt, acceptanceIds) {
   return addEvidence(root, runId, await enrichEvidence(root, runId, record));
 }
 
+let selfImproveEvidenceSequence = 0;
+
+function evaluationEvidenceId(kind) {
+  selfImproveEvidenceSequence += 1;
+  return `self-improve-${kind}-${Date.now()}-${selfImproveEvidenceSequence}`;
+}
+
+function assertExplicitCodexEvaluationAuthority(options) {
+  if (!optionEnabled(options["allow-codex"]) || !optionEnabled(options.sanitized)) {
+    throw new Error("Codex evaluation requires explicit --allow-codex and --sanitized authority");
+  }
+  if (!options.model) throw new Error("Codex evaluation requires --model bound by the trusted attestation");
+  if (!options["trusted-codex-attestation"] || !options["trusted-codex-trust-root"]) {
+    throw new Error("Codex evaluation requires a host-signed attestation and host trust root");
+  }
+}
+
+async function evaluationReplay({ backend, fixture, role, cases, prompt, options, cwd }) {
+  if (backend === "fixture") {
+    const response = fixture?.[role];
+    if (!response) throw new Error(`Fixture result file is missing ${role} response`);
+    const score = scoreEvaluation({ ...response, results: response.results?.filter((item) => cases.some((entry) => entry.id === item.id)) }, cases);
+    return { score, metadata: { provider: "fixture", trustAttested: false, sandbox: "deterministic-test" } };
+  }
+  const result = await runCodexEvaluation({
+    model: String(options.model),
+    prompt,
+    timeoutMs: options["timeout-seconds"] === undefined ? undefined : integer(options["timeout-seconds"]) * 1_000,
+    attestationPath: String(options["trusted-codex-attestation"]),
+    trustRootPath: String(options["trusted-codex-trust-root"]),
+    evaluationRoot: cwd
+  });
+  return { score: scoreEvaluation(result.response, cases), metadata: result.metadata };
+}
+
+async function addSelfImproveEvidence(root, runId, record) {
+  return addEvidence(root, runId, await enrichEvidence(root, runId, record));
+}
+
+function structuredReplay(replay) {
+  return { score: redactedScore(replay.score), provider: replay.metadata.provider, trustAttested: replay.metadata.trustAttested === true,
+    attestationDigest: replay.metadata.attestationDigest ?? null, binaryDigest: replay.metadata.binary?.digest ?? null,
+    model: replay.metadata.requestedModel ?? null, sandbox: replay.metadata.sandbox };
+}
+
+async function commandSelfImprove(root, subcommand, options) {
+  if (subcommand !== "evaluate") throw new Error("self-improve subcommand must be evaluate");
+  assertKnownOptions(options, [
+    "run", "cases", "baseline", "candidate-root", "backend", "split", "result-file", "model", "allow-codex", "sanitized",
+    "timeout-seconds", "trusted-codex-attestation", "trusted-codex-trust-root"
+  ]);
+  if (!options.run || !options.cases || !options.baseline || !options["candidate-root"] || !options.backend || !options.split) {
+    throw new Error("self-improve evaluate requires --run, --cases, --baseline, --candidate-root, --backend, and --split");
+  }
+  const runId = String(options.run);
+  const run = await loadRun(root, runId);
+  if (run.manifest.template !== "self-improve-ops") throw new Error("self-improve evaluation requires a self-improve-ops run");
+  const backend = String(options.backend);
+  const split = String(options.split);
+  if (!["codex", "fixture"].includes(backend) || !["train", "holdout"].includes(split)) throw new Error("Invalid self-improve backend or split");
+  if (backend === "fixture" && process.env.SBW_TEST_FIXTURE_BACKEND !== "1") {
+    throw new Error("Fixture evaluation backend is test-only and requires SBW_TEST_FIXTURE_BACKEND=1");
+  }
+  if (backend === "codex") assertExplicitCodexEvaluationAuthority(options);
+  if (backend === "fixture" && !options["result-file"]) throw new Error("Fixture evaluation requires --result-file");
+  const cwd = run.manifest.cwd;
+  const frozen = await loadFrozenEvaluationSuite({ cwd, casesFile: path.resolve(cwd, String(options.cases)), baselineRevision: String(options.baseline), canonical: backend === "codex" });
+  const cases = frozen.suite.cases.filter((item) => item.split === split);
+  const candidate = await snapshotCandidate({ cwd, baselineRevision: frozen.baselineRevision, candidateRoot: String(options["candidate-root"]) });
+  const baseline = await snapshotBaselineForCandidate({ cwd, snapshot: candidate });
+  const candidateMaterial = await readSanitizedCandidateMaterial({ cwd, snapshot: candidate });
+  const baselineMaterial = await readSanitizedBaselineMaterial({ cwd, snapshot: baseline });
+  const candidatePrompt = buildEvaluationPrompt({ suite: { ...frozen.suite, cases }, candidate, materials: candidateMaterial });
+  const baselinePrompt = buildEvaluationPrompt({ suite: { ...frozen.suite, cases }, candidate: baseline, materials: baselineMaterial });
+  const fixture = backend === "fixture" ? JSON.parse(await readFile(path.resolve(cwd, String(options["result-file"])), "utf8")) : null;
+  const dependencyFiles = [...new Set([frozen.relativePath, ...candidate.files.map((item) => item.path)])].sort();
+  const common = {
+    sourceDigest: digestObject({ suite: frozen.sourceDigest, baseline: frozen.baselineRevision, candidate: candidate.digest }),
+    dependencyInputs: { files: dependencyFiles },
+    evaluation: { backend, split, suiteDigest: frozen.sourceDigest, suitePath: frozen.relativePath, baselineRevision: frozen.baselineRevision, candidate, baseline }
+  };
+  const prior = await listJsonRecords(root, safeJoin(run.runDir, "evidence"));
+  if (split === "holdout") {
+    const training = prior.find((item) => item.kind === "training-replay" && !item.stale && item.evaluation?.suiteDigest === frozen.sourceDigest && item.evaluation?.candidate?.digest === candidate.digest && item.evaluation?.baselineRevision === frozen.baselineRevision);
+    if (!training) throw new Error("Holdout evaluation requires a fresh training replay bound to the same suite, baseline, and candidate");
+  }
+  if (split === "train") {
+    const replay = await evaluationReplay({ backend, fixture, role: "candidate", cases, prompt: candidatePrompt, options, cwd });
+    const suiteEvidence = await addSelfImproveEvidence(root, runId, {
+      id: evaluationEvidenceId("suite"), kind: "evaluation-suite", summary: "Frozen sanitized evaluation suite bound to the immutable baseline.", status: "complete",
+      acceptanceIds: ["replay-bounded"], ...common
+    });
+    const staging = await addSelfImproveEvidence(root, runId, {
+      id: evaluationEvidenceId("staging"), kind: "candidate-staging", summary: "Candidate snapshot is explicitly staged against the immutable baseline.", status: "complete",
+      acceptanceIds: ["candidate-staged"], ...common
+    });
+    const training = await addSelfImproveEvidence(root, runId, {
+      id: evaluationEvidenceId("training"), kind: "training-replay", summary: "One bounded training replay completed; it cannot authorize delivery.", status: "complete",
+      acceptanceIds: ["outcome-explicit", "replay-bounded"], ...common,
+      evaluation: { ...common.evaluation, replays: [structuredReplay(replay)] }
+    });
+    return { ok: true, runId, split, backend, evidence: [suiteEvidence.id, staging.id, training.id], score: redactedScore(replay.score) };
+  }
+  const candidateReplays = [];
+  const baselineReplays = [];
+  for (let index = 0; index < 3; index += 1) candidateReplays.push(await evaluationReplay({ backend, fixture, role: "candidate", cases, prompt: candidatePrompt, options, cwd }));
+  for (let index = 0; index < 3; index += 1) baselineReplays.push(await evaluationReplay({ backend, fixture, role: "baseline", cases, prompt: baselinePrompt, options, cwd }));
+  const comparison = compareHoldout({ baseline: baselineReplays.map((item) => item.score), candidate: candidateReplays.map((item) => item.score) });
+  const trusted = backend === "codex" && [...candidateReplays, ...baselineReplays].every((item) => item.metadata.trustAttested === true && item.metadata.provider === "codex");
+  const evidence = await addSelfImproveEvidence(root, runId, {
+    id: evaluationEvidenceId("holdout"), kind: "holdout-comparison", status: "complete",
+    summary: comparison.accepted && trusted ? "Trusted held-out comparison passed strict improvement and safety gates." : `Held-out comparison did not authorize adoption: ${comparison.reason}.`,
+    acceptanceIds: comparison.accepted && trusted ? ["heldout-gated", "outcome-explicit", "validated"] : ["outcome-explicit"], ...common,
+    evaluation: { ...common.evaluation, comparison, candidateReplays: candidateReplays.map(structuredReplay), baselineReplays: baselineReplays.map(structuredReplay) }
+  });
+  return { ok: true, runId, split, backend, comparison, evidence: [evidence.id] };
+}
+
+async function assertAcceptedSelfImproveHoldout(root, runId, action) {
+  if (!["git.commit", "plugin.cache.publish", "git.push"].includes(action)) return;
+  const run = await loadRun(root, runId);
+  if (run.manifest.template !== "self-improve-ops") return;
+  const evidence = await listJsonRecords(root, safeJoin(run.runDir, "evidence"));
+  const accepted = evidence.find((item) => item.kind === "holdout-comparison" && item.status === "complete" && !item.stale && item.acceptanceIds?.includes("heldout-gated"));
+  if (!accepted?.evaluation?.comparison?.accepted || accepted.evaluation.backend !== "codex") {
+    throw new Error("Self-improve delivery requires an accepted trusted Codex held-out comparison");
+  }
+  const staging = evidence.find((item) => item.kind === "candidate-staging" && item.status === "complete" && !item.stale && item.evaluation?.candidate?.digest === accepted.evaluation.candidate?.digest);
+  const training = evidence.find((item) => item.kind === "training-replay" && item.status === "complete" && !item.stale && item.evaluation?.candidate?.digest === accepted.evaluation.candidate?.digest);
+  if (!staging || !training) throw new Error("Self-improve delivery requires fresh candidate staging and training replay evidence");
+  const replays = [
+    ...(training.evaluation?.replays ?? []),
+    ...(accepted.evaluation?.candidateReplays ?? []),
+    ...(accepted.evaluation?.baselineReplays ?? [])
+  ];
+  if (replays.length !== 7 || replays.some((item) => item.provider !== "codex" || item.trustAttested !== true || !item.attestationDigest || !item.binaryDigest)) {
+    throw new Error("Self-improve delivery requires seven host-attested Codex replays");
+  }
+  const evaluation = accepted.evaluation;
+  await loadFrozenEvaluationSuite({
+    cwd: run.manifest.cwd,
+    casesFile: path.join(run.manifest.cwd, evaluation.suitePath),
+    baselineRevision: evaluation.baselineRevision,
+    canonical: true
+  });
+  const currentCandidate = await snapshotCandidate({
+    cwd: run.manifest.cwd,
+    baselineRevision: evaluation.baselineRevision,
+    candidateRoot: evaluation.candidate.candidateRoot
+  });
+  if (currentCandidate.digest !== evaluation.candidate.digest) {
+    throw new Error("Self-improve candidate changed after held-out evaluation");
+  }
+}
+
 async function commandRun(root, options) {
   assertKnownOptions(options, [
     "template",
@@ -724,6 +891,7 @@ function help() {
       "sbw cancel <run-id> [--reason <text>]",
       "sbw sentinel capture|verify <run-id> --label <label>",
       "sbw evidence add <run-id> --file <json>",
+      "sbw self-improve evaluate --run <run-id> --cases <file> --baseline <git-revision> --candidate-root <path> --backend <codex|fixture> --split <train|holdout>",
       "sbw finding add|update <run-id> --file <json>",
       "sbw critic codex|agy <run-id> --model <model> --prompt-file <file> [--effort <auto|medium|high>] [--effort-transport <native|model-variant>]",
       "sbw deliberation roster [--mode <auto|direct|verified|deep|critical>] [--reasoning-effort <auto|medium|high>] [--refresh] [--provider <id>] [--allow-external-providers --sanitized]",
@@ -747,6 +915,7 @@ async function main() {
   if (!command || command === "help" || options.help) return help();
   if (command === "templates") return { ok: true, templates: await listTemplates() };
   if (command === "run") return commandRun(root, options);
+  if (command === "self-improve") return commandSelfImprove(root, subcommand, options);
   if (command === "route") return commandRoute(root, subcommand, runId, options);
   if (command === "deliberation") return commandDeliberation(subcommand, options);
   if (command === "status") {
@@ -892,6 +1061,8 @@ async function main() {
       if (!Array.isArray(requiredEvidence) || requiredEvidence.length === 0) {
         throw new Error(`No pre-action evidence gate is defined for: ${action}`);
       }
+      await refreshEvidence(root, runId);
+      await assertAcceptedSelfImproveHoldout(root, runId, action);
       const digest = await currentVerifiedDigest(root, runId);
       const defaults = await loadDefaults();
       return {

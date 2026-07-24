@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { access, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -26,12 +26,12 @@ async function repository() {
   return cwd;
 }
 
-async function cli(cwd, stateRoot, args, { allowFailure = false } = {}) {
+async function cli(cwd, stateRoot, args, { allowFailure = false, env = {} } = {}) {
   try {
     const result = await execFileAsync(process.execPath, [CLI, ...args], {
       cwd,
       encoding: "utf8",
-      env: { ...process.env, SBW_STATE_ROOT: stateRoot },
+      env: { ...process.env, SBW_STATE_ROOT: stateRoot, ...env },
       maxBuffer: 8 * 1024 * 1024
     });
     return { code: 0, stdout: result.stdout, stderr: result.stderr, json: JSON.parse(result.stdout) };
@@ -44,6 +44,28 @@ async function cli(cwd, stateRoot, args, { allowFailure = false } = {}) {
       json: error.stdout ? JSON.parse(error.stdout) : null
     };
   }
+}
+
+async function selfImproveRepository() {
+  const cwd = await repository();
+  const corpus = await readFile(path.resolve(path.dirname(CLI), "..", "fixtures", "self-improve-ops-evals.json"), "utf8");
+  await mkdir(path.join(cwd, "plugins", "better-workflows", "fixtures"), { recursive: true });
+  await mkdir(path.join(cwd, "plugins", "better-workflows", "scripts"), { recursive: true });
+  await writeFile(path.join(cwd, "plugins", "better-workflows", "fixtures", "self-improve-ops-evals.json"), corpus);
+  await git(cwd, "add", ".");
+  await git(cwd, "commit", "-qm", "freeze corpus");
+  return cwd;
+}
+
+async function fixtureResult(cwd) {
+  const suite = JSON.parse(await readFile(path.join(cwd, "plugins", "better-workflows", "fixtures", "self-improve-ops-evals.json"), "utf8"));
+  const response = (all) => ({ results: suite.cases.map((item) => ({
+    id: item.id, disposition: item.expectedDisposition,
+    passedAssertions: all ? item.assertions.map((assertion) => assertion.id) : item.assertions.filter((assertion) => assertion.hardSafety).map((assertion) => assertion.id)
+  })) });
+  const target = path.join(await mkdtemp(path.join(os.tmpdir(), "sbw-fixture-results-")), "results.json");
+  await writeFile(target, `${JSON.stringify({ baseline: response(false), candidate: response(true) })}\n`);
+  return target;
 }
 
 test("CLI creates a verified run and returns nonzero on authority drift", async () => {
@@ -169,6 +191,44 @@ test("CLI routes the self-improve selector to its critical template", async () =
   assert.equal(result.json.primary.template, "self-improve-ops");
   assert.equal(result.json.effectiveMode, "critical");
   await assert.rejects(access(stateRoot));
+});
+
+test("self-improve fixture evaluation is explicit, private, and never grants delivery", async () => {
+  const cwd = await selfImproveRepository();
+  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-cli-self-improve-state-"));
+  await writeFile(path.join(cwd, "plugins", "better-workflows", "scripts", "candidate.mjs"), "export const candidate = 'safe';\n");
+  const started = await cli(cwd, stateRoot, [
+    "run", "--template", "self-improve-ops", "--mode", "critical", "--goal", "Improve validation", "--scope", ".", "--authority", "git.commit"
+  ]);
+  const fixture = await fixtureResult(cwd);
+  const common = ["self-improve", "evaluate", "--run", started.json.runId, "--cases", "plugins/better-workflows/fixtures/self-improve-ops-evals.json", "--baseline", "HEAD", "--candidate-root", ".", "--backend", "fixture", "--result-file", fixture];
+  const missingFlag = await cli(cwd, stateRoot, [...common, "--split", "train"], { allowFailure: true });
+  assert.match(missingFlag.stderr, /test-only/);
+  const train = await cli(cwd, stateRoot, [...common, "--split", "train"], { env: { SBW_TEST_FIXTURE_BACKEND: "1" } });
+  assert.equal(train.json.ok, true);
+  const holdout = await cli(cwd, stateRoot, [...common, "--split", "holdout"], { env: { SBW_TEST_FIXTURE_BACKEND: "1" } });
+  assert.equal(holdout.json.comparison.accepted, true);
+  const evidenceDir = path.join(stateRoot, "runs", started.json.runId, "evidence");
+  const evidence = await Promise.all((await readdir(evidenceDir)).map(async (name) => readFile(path.join(evidenceDir, name), "utf8")));
+  assert.doesNotMatch(evidence.join("\n"), /sensitive operational material/);
+  const delivery = await cli(cwd, stateRoot, ["action", "issue", started.json.runId, "--action", "git.commit", "--provider", "git", "--resource", "fixture", "--remote-revision", "none"], { allowFailure: true, env: { SBW_TEST_FIXTURE_BACKEND: "1" } });
+  assert.match(delivery.stderr, /trusted Codex held-out comparison/);
+});
+
+test("self-improve evaluation fails closed when its suite or staged candidate changes", async () => {
+  const cwd = await selfImproveRepository();
+  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-cli-self-improve-drift-"));
+  await writeFile(path.join(cwd, "plugins", "better-workflows", "scripts", "candidate.mjs"), "export const candidate = 'safe';\n");
+  const started = await cli(cwd, stateRoot, ["run", "--template", "self-improve-ops", "--mode", "critical", "--goal", "Improve validation", "--scope", "."]);
+  const fixture = await fixtureResult(cwd);
+  const common = ["self-improve", "evaluate", "--run", started.json.runId, "--cases", "plugins/better-workflows/fixtures/self-improve-ops-evals.json", "--baseline", "HEAD", "--candidate-root", ".", "--backend", "fixture", "--result-file", fixture];
+  await cli(cwd, stateRoot, [...common, "--split", "train"], { env: { SBW_TEST_FIXTURE_BACKEND: "1" } });
+  await writeFile(path.join(cwd, "plugins", "better-workflows", "scripts", "candidate.mjs"), "export const candidate = 'changed';\n");
+  const changedCandidate = await cli(cwd, stateRoot, [...common, "--split", "holdout"], { allowFailure: true, env: { SBW_TEST_FIXTURE_BACKEND: "1" } });
+  assert.match(changedCandidate.stderr, /fresh training replay/);
+  await writeFile(path.join(cwd, "plugins", "better-workflows", "fixtures", "self-improve-ops-evals.json"), "{}\n");
+  const changedSuite = await cli(cwd, stateRoot, [...common, "--split", "train"], { allowFailure: true, env: { SBW_TEST_FIXTURE_BACKEND: "1" } });
+  assert.match(changedSuite.stderr, /drifted from the immutable baseline/);
 });
 
 test("CLI previews, records, and consumes a fail-closed route receipt", async () => {

@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
-import { pluginRoot, routeMode } from "../lib/core.mjs";
+import { pluginRoot, routeMode, VERSION } from "../lib/core.mjs";
 
 test("all historical and adversarial routing fixtures select the expected mode", async () => {
   const cases = JSON.parse(
@@ -127,6 +127,10 @@ test("self improve keeps no-change, synchronization, cache, commit, and push fai
   assert.equal(template.defaultMode, "critical");
   for (const evidence of [
     "retrospective-source-inventory",
+    "evaluation-suite",
+    "training-replay",
+    "candidate-staging",
+    "holdout-comparison",
     "recurrence-matrix",
     "decision-record",
     "sync-matrix",
@@ -139,6 +143,12 @@ test("self improve keeps no-change, synchronization, cache, commit, and push fai
   }
   for (const policy of [
     "first-class-no-change",
+    "sanitized-evaluation-suite",
+    "train-holdout-isolation",
+    "staged-candidate-before-commit",
+    "strict-holdout-improvement",
+    "host-attested-codex-only",
+    "no-automatic-adoption",
     "thin-workflow-composition",
     "stale-versioned-link-resolution",
     "no-mutation-of-stale-cache",
@@ -155,8 +165,12 @@ test("self improve keeps no-change, synchronization, cache, commit, and push fai
     "plugin.cache.publish"
   ]);
   assert.ok(template.acceptance.some((item) => item.id === "outcome-explicit"));
+  assert.ok(template.acceptance.some((item) => item.id === "heldout-gated"));
   assert.ok(template.acceptance.some((item) => item.id === "cache-immutable"));
   assert.ok(template.acceptance.some((item) => item.id === "delivery-reconciled"));
+  for (const kind of ["evaluation-suite", "training-replay", "candidate-staging", "holdout-comparison"]) {
+    assert.ok(template.actionGates["git.commit"].includes(kind), kind);
+  }
 });
 
 test("deliberation roster keeps every brand and routes Gemini through Agy with a 24-hour lease", async () => {
@@ -296,4 +310,5 @@ test("plugin runtime and Codex build versions are aligned", async () => {
     await readFile(path.join(pluginRoot(), "package.json"), "utf8")
   );
   assert.equal(manifest.version.split("+")[0], packageManifest.version);
+  assert.equal(VERSION, packageManifest.version);
 });

@@ -30,5 +30,7 @@ test("all README languages explain progressive routing, Profiles, receipts, and 
     assert.match(content, /immutable/, file);
     assert.match(content, /pr-to-dev/, file);
     assert.match(content, /\$better-workflows:self-improve/, file);
+    assert.match(content, /train\/holdout/, file);
+    assert.match(content, /host-signed/, file);
   }
 });

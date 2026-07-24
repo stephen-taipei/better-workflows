@@ -233,6 +233,8 @@ $better-workflows:auto <描述需要完成的目标>
 
 `self-improve-ops` 是薄型 orchestration template：复用现有 research、refactor、routing、publication 与 delivery controls，允许有证据的 no-change，并分别 gate commit、cache publication 与 push。缺失的版本化 cache link 只能解析到已验证的 current bundle，不得重建或修改 stale path。
 
+自我改进 evaluation 只使用已 checked-in、sanitized 且在 immutable baseline 冻结的 train/holdout corpus。candidate 必须先 staging；三次 read-only Codex holdout replay 必须在没有 safety failure 或 regression 的前提下严格超过 baseline median。Codex replay 需要 host-signed attestation，把精确 binary 与 model 绑定到 repository 外、由 host 管理的 trust root；`PATH`、自行计算 hash 或 model 自述都不是 provider attestation。tie、noise、缺少 evidence 或 fixture-only 结果都不会 auto-adopt。
+
 ### CLI 实测的多模型协商
 
 `research-deliberation` 保留完整配置的品牌名单：Codex、Claude、Gemini（经 Agy）、Agy、Grok、Cursor、Kimi、Qwen、Kiro；只有通过安全 semantic CLI probe 的模型／指令组合才能加入本次决策组。缺少 binary、登录失效或必须交互登录时会明确标为 unavailable，绝不静默替代。
