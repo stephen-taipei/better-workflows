@@ -233,11 +233,48 @@ $better-workflows:auto <達成したい結果を記述>
 | `$better-workflows:browser-qa` | 最新 UI 証拠、screenshots、再現可能な action log が必要な Webwright／simulator QA。 | `$better-workflows:browser-qa signup と contact sync を検証し、screenshot evidence を添付。` |
 | `$better-workflows:research` | CLI で実証した複数 model の役割、証拠駆動の設計比較、反証、実行可能な Plan。多数決では決めない。 | `$better-workflows:research 3 つの sync architecture を比較・反証し、実装可能な Plan を作成。` |
 | `$better-workflows:self-improve` | 直近の bounded evidence から Better Workflows 自体を改善し、selector、template、tests、docs、version、immutable cache、許可済み remote delivery を同期します。 | `$better-workflows:self-improve 最近の workflow 結果を Review し、反復する検証済み改善だけを実装、検証後に新 cache version を公開して atomic commit を push。` |
+| `$better-workflows:workspace-recipe` | 安定した決定論的 SOP を、明示的な digest trust と制限された artifacts を持つ workspace 内の governed Node.js recipe にします。 | `$better-workflows:workspace-recipe 反復可能な JSON audit を作り、検証後に現在の digest を明示的 promotion 用に準備。` |
 | `$better-workflows:monorepo-refactor` | monorepo 全体を調査し、適格な bounded refactor 提案を直接実装。behavior invariants、validation、rollback evidence を保持します。 | `$better-workflows:monorepo-refactor monorepo を調査し、public contract を変えずに適格な boundary cleanup を実装。` |
 
 `self-improve-ops` は薄い orchestration template です。既存の research、refactor、routing、publication、delivery controls を再利用し、根拠のある no-change を認め、commit、cache publication、push を個別に gate します。存在しない versioned cache link は検証済み current bundle にだけ解決し、stale path を再作成・変更しません。
 
+新しい workflow を提案する前に、現在の coverage を記録します。既存 workflow が必要な safeguards をすでに備えている場合は `NO_CHANGE` を返し、重複する workflow を作りません。recurrence や永続的な operational value が実証されていない one-off request も `NO_CHANGE` とし、evidence、outcome、counterargument を記録します。唯一の evidence が sanitized できない private history や sensitive material に依存する場合は `REJECTED_WITH_EVIDENCE` を返します。raw source を読み取り、送信、保存せず、redacted rejection rationale だけを記録します。
+
 自己改善 evaluation は、immutable baseline で凍結した checked-in・sanitized の train/holdout corpus だけを使います。candidate は先に staging し、3 回の read-only Codex holdout replay が safety failure と regression なしで baseline median を厳密に上回る必要があります。Codex replay には、正確な binary と model を固定の `/etc/better-workflows/codex-trust-root.json` に結び付ける host-signed attestation が必要です。この file と親 directory は administrator 所有で、呼び出し元が書き込めない必要があります。`PATH`、自己 hash、CLI で選ぶ trust root、model の自己申告は provider attestation ではありません。tie、noise、evidence 不足、fixture-only の結果は auto-adopt しません。
+
+通常の clone や workspace recipe の実行には host trust root は**不要**です。実 Codex self-improve replay で commit、cache publication、delivery を許可する maintainer だけが、各 host で administrator により一度だけ実行します：
+
+```bash
+sudo "$(command -v node)" plugins/better-workflows/scripts/host-trust.mjs provision
+node plugins/better-workflows/scripts/sbw.mjs self-improve host status
+```
+
+Provision は既存 key を上書き・暗黙 rotate しません。trust root は root-owned の公開 JSON、private Ed25519 key は repo 外で `0600` です。JSON 検証に `plutil` は使いません。candidate 固定後、次で repo 外に七つの request、manifest digest、単一 batch 用の正確な `signCommand` を生成します：
+
+```bash
+node plugins/better-workflows/scripts/sbw.mjs \
+  self-improve attestation request \
+  --run <run-id> --baseline <sha> --candidate-root . \
+  --model <model> --output <new-outside-repo-directory>
+```
+
+### Governed workspace recipes
+
+Recipe は決定論的な機械手順だけを保存し、model judgment、agent orchestration、risk acceptance、source mutation、external side effects を担いません。Node 24 Permission Model は第二防御層で、主要 trust は workspace、manifest、script、plugin bundle、Node major に私的に binding されます。作成と実行はすべて明示的です：
+
+```bash
+node plugins/better-workflows/scripts/sbw.mjs recipe init
+node plugins/better-workflows/scripts/sbw.mjs recipe scaffold json-keyset-audit
+node plugins/better-workflows/scripts/sbw.mjs recipe validate json-keyset-audit
+node plugins/better-workflows/scripts/sbw.mjs recipe promote <id> \
+  --run <run-id> --attempt <attempt-id> --confirm-digest <sha256>
+node plugins/better-workflows/scripts/sbw.mjs recipe run <id> \
+  --input-file <input.json> --dry-run
+node plugins/better-workflows/scripts/sbw.mjs recipe run <id> \
+  --input-file <input.json>
+```
+
+Git root の `.codex/better-workflows/` だけを解決し、routing Profile `.codex/better-workflows.json` は recipe を許可できません。clone 後は必ず untrusted で再 promotion が必要です。dry-run は trusted program を実行して staging を破棄し、通常 run だけが宣言済み・既定 ignored artifacts を atomic publish します。単一 artifact の tracked source への promotion は別の `artifact.promote` action が必要です。private receipt は digests、時刻、artifact metadata、reconciliation のみを保存し、raw input、conversation、credentials、secrets、provider receipts は保存しません。
 
 ### CLI 実証の複数 model deliberation
 

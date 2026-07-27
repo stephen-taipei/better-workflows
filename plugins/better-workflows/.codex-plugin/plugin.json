@@ -1,6 +1,6 @@
 {
   "name": "better-workflows",
-  "version": "2.0.1+codex.20260724103000",
+  "version": "2.1.0+codex.20260727072948",
   "description": "Native-first, evidence-driven Codex workflows with deterministic safety gates.",
   "author": {
     "name": "Stephen Chuang",
@@ -20,13 +20,14 @@
     "dependabot",
     "deliberation",
     "multi-model",
-    "self-improvement"
+    "self-improvement",
+    "workspace-recipes"
   ],
   "skills": "./skills/",
   "interface": {
     "displayName": "Better Workflows",
     "shortDescription": "Evidence-driven native Codex workflow routing.",
-    "longDescription": "Native-first workflows with root-owned mutation, bounded subagent waves, CLI-proven multi-model deliberation, freshness checks, independent critics, and fail-closed side-effect gates.",
+    "longDescription": "Native-first workflows with root-owned mutation, bounded subagent waves, governed workspace recipes, CLI-proven multi-model deliberation, freshness checks, independent critics, and fail-closed side-effect gates.",
     "developerName": "Stephen Chuang",
     "category": "Productivity",
     "capabilities": [
@@ -38,6 +39,7 @@
     "defaultPrompt": [
       "Use $better-workflows to handle this task safely.",
       "Use $better-workflows:self-improve to turn recent workflow evidence into a synchronized, validated Better Workflows improvement or an explicit no-change decision.",
+      "Use $better-workflows:workspace-recipe to turn a stable deterministic SOP into an explicitly trusted workspace recipe.",
       "Use $monorepo-refactor to inventory the monorepo, implement every eligible refactor recommendation, and validate each slice with persistent goal checkpoints.",
       "Review this repository with verified evidence.",
       "Run a multi-model architecture deliberation."

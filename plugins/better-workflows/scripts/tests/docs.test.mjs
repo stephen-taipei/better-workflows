@@ -32,5 +32,11 @@ test("all README languages explain progressive routing, Profiles, receipts, and 
     assert.match(content, /\$better-workflows:self-improve/, file);
     assert.match(content, /train\/holdout/, file);
     assert.match(content, /host-signed/, file);
+    assert.match(content, /\$better-workflows:workspace-recipe/, file);
+    assert.match(content, /self-improve host status/, file);
+    assert.match(content, /self-improve attestation request/, file);
+    assert.match(content, /recipe scaffold json-keyset-audit/, file);
+    assert.match(content, /recipe promote <id>/, file);
+    assert.match(content, /artifact\.promote/, file);
   }
 });

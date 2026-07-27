@@ -233,11 +233,48 @@ $better-workflows:auto <완료하려는 결과를 설명>
 | `$better-workflows:browser-qa` | 최신 UI 증거, screenshots, 재현 가능한 action log가 필요한 Webwright／simulator QA. | `$better-workflows:browser-qa signup과 contact sync를 검증하고 screenshot evidence 첨부.` |
 | `$better-workflows:research` | CLI로 검증한 multi-model 역할, 증거 기반 architecture 비교, 반증 및 실행 가능한 Plan. 다수결로 결정하지 않음. | `$better-workflows:research 세 가지 sync architecture를 비교·반증하고 구현 가능한 Plan 생성.` |
 | `$better-workflows:self-improve` | 최근의 bounded evidence로 Better Workflows 자체를 개선하고 selector, template, tests, docs, version, immutable cache, 승인된 remote delivery를 동기화합니다. | `$better-workflows:self-improve 최근 workflow 결과를 Review하고 반복되는 검증된 개선만 구현한 뒤 새 cache version을 게시하고 atomic commit을 push.` |
+| `$better-workflows:workspace-recipe` | 안정적이고 결정적인 SOP를 명시적 digest trust와 제한된 artifacts를 가진 workspace 내 governed Node.js recipe로 만듭니다. | `$better-workflows:workspace-recipe 반복 가능한 JSON audit를 만들고 검증 후 현재 digest를 명시적 promotion용으로 준비.` |
 | `$better-workflows:monorepo-refactor` | monorepo 전체를 조사한 뒤 적격한 bounded refactor 제안을 직접 구현하고 behavior invariants, validation, rollback evidence를 유지합니다. | `$better-workflows:monorepo-refactor monorepo를 조사하고 public contract를 바꾸지 않으면서 적격한 boundary cleanup을 구현.` |
 
 `self-improve-ops`는 얇은 orchestration template입니다. 기존 research, refactor, routing, publication, delivery controls를 재사용하고 근거 있는 no-change를 허용하며 commit, cache publication, push를 각각 gate합니다. 존재하지 않는 versioned cache link는 검증된 current bundle로만 해석하고 stale path를 다시 만들거나 수정하지 않습니다.
 
+새 workflow를 제안하기 전에 현재 coverage를 기록합니다. 기존 workflow에 필요한 safeguards가 이미 있으면 `NO_CHANGE`를 반환하고 중복 workflow를 만들지 않습니다. recurrence나 지속적인 operational value가 입증되지 않은 one-off request도 `NO_CHANGE`로 처리하고 evidence, outcome, counterargument를 기록합니다. 유일한 evidence가 sanitized할 수 없는 private history 또는 sensitive material에 의존하면 `REJECTED_WITH_EVIDENCE`를 반환합니다. raw source를 읽거나 전송하거나 저장하지 않고 redacted rejection rationale만 기록합니다.
+
 자기 개선 evaluation은 immutable baseline에 동결된 checked-in, sanitized train/holdout corpus만 사용합니다. candidate를 먼저 staging한 뒤 세 번의 read-only Codex holdout replay가 safety failure 및 regression 없이 baseline median을 엄격히 넘어야 합니다. Codex replay에는 정확한 binary와 model을 고정된 `/etc/better-workflows/codex-trust-root.json`에 묶는 host-signed attestation이 필요합니다. 이 file과 상위 directory는 administrator 소유이고 호출자가 쓸 수 없어야 합니다. `PATH`, 자체 hash, CLI에서 선택한 trust root, model 자기 보고는 provider attestation이 아닙니다. tie, noise, evidence 부족, fixture-only 결과는 auto-adopt하지 않습니다.
+
+일반 clone 또는 workspace recipe 실행에는 host trust root가 **필요하지 않습니다**. 실제 Codex self-improve replay로 commit, cache publication, delivery를 승인하려는 maintainer만 각 host에서 administrator가 한 번 실행합니다:
+
+```bash
+sudo "$(command -v node)" plugins/better-workflows/scripts/host-trust.mjs provision
+node plugins/better-workflows/scripts/sbw.mjs self-improve host status
+```
+
+Provision은 기존 key를 덮어쓰거나 암묵적으로 rotate하지 않습니다. trust root는 root-owned 공개 JSON이고 private Ed25519 key는 repo 밖에서 `0600`입니다. JSON 검증에 `plutil`을 사용하지 마십시오. candidate 고정 후 아래 명령은 repo 밖에 일곱 request, manifest digest, 한 번에 서명하는 정확한 `signCommand`를 생성합니다:
+
+```bash
+node plugins/better-workflows/scripts/sbw.mjs \
+  self-improve attestation request \
+  --run <run-id> --baseline <sha> --candidate-root . \
+  --model <model> --output <new-outside-repo-directory>
+```
+
+### Governed workspace recipes
+
+Recipe는 결정적인 기계 단계만 저장하며 model judgment, agent orchestration, risk acceptance, source mutation, external side effects를 담당하지 않습니다. Node 24 Permission Model은 두 번째 방어층이고 주 trust는 workspace, manifest, script, plugin bundle, Node major에 비공개로 binding됩니다. 생성과 실행은 모두 명시적입니다:
+
+```bash
+node plugins/better-workflows/scripts/sbw.mjs recipe init
+node plugins/better-workflows/scripts/sbw.mjs recipe scaffold json-keyset-audit
+node plugins/better-workflows/scripts/sbw.mjs recipe validate json-keyset-audit
+node plugins/better-workflows/scripts/sbw.mjs recipe promote <id> \
+  --run <run-id> --attempt <attempt-id> --confirm-digest <sha256>
+node plugins/better-workflows/scripts/sbw.mjs recipe run <id> \
+  --input-file <input.json> --dry-run
+node plugins/better-workflows/scripts/sbw.mjs recipe run <id> \
+  --input-file <input.json>
+```
+
+Git root의 `.codex/better-workflows/`만 사용하며 routing Profile `.codex/better-workflows.json`은 recipe를 승인할 수 없습니다. clone 후에는 항상 untrusted이므로 다시 promotion해야 합니다. dry-run은 trusted program을 실행한 뒤 staging을 버리고, 일반 run만 선언되고 기본 ignored인 artifacts를 atomic publish합니다. 단일 artifact를 tracked source로 promotion하려면 별도 `artifact.promote` action이 필요합니다. private receipt에는 digests, 시간, artifact metadata, reconciliation만 저장하며 raw input, conversation, credentials, secrets, provider receipts는 저장하지 않습니다.
 
 ### CLI로 검증한 multi-model deliberation
 

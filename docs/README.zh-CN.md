@@ -229,9 +229,46 @@ $better-workflows:auto <描述需要完成的目标>
 | `$better-workflows:browser-qa` | 需要最新 UI 证据、截图与可复现 action log 的 Webwright／模拟器 QA。 | `$better-workflows:browser-qa 验证 signup 与 contact sync，并附上 screenshot evidence。` |
 | `$better-workflows:research` | CLI 实测的多模型角色、证据驱动架构比较、反证与可执行 Plan；不以多数票决策。 | `$better-workflows:research 比较三种 sync 架构、反证每个方案并产出可实现的 Plan。` |
 | `$better-workflows:self-improve` | 根据近期且有界的证据改进 Better Workflows 本身，同步 selector、template、tests、docs、version、immutable cache 与经授权的 remote delivery。 | `$better-workflows:self-improve Review 近期 workflow 结果，只实现重复且已验证的改进，完整验证后发布新 cache version 并 push atomic commit。` |
+| `$better-workflows:workspace-recipe` | 将稳定、确定性的 SOP 固化为 workspace 内受治理的 Node.js recipe，以明确 digest trust 与受限 artifacts 重复执行。 | `$better-workflows:workspace-recipe 建立可重复执行的 JSON audit，验证后准备当前 digest 供明确 promotion。` |
 | `$better-workflows:monorepo-refactor` | 完整盘点 monorepo，直接实现所有合格的 bounded refactor 建议，并保留 behavior invariants、validation 与 rollback evidence。 | `$better-workflows:monorepo-refactor 盘点 monorepo，直接实现所有合格的 boundary cleanup 建议，不改变 public contract。` |
 
 `self-improve-ops` 是薄型 orchestration template：复用现有 research、refactor、routing、publication 与 delivery controls，允许有证据的 no-change，并分别 gate commit、cache publication 与 push。缺失的版本化 cache link 只能解析到已验证的 current bundle，不得重建或修改 stale path。
+
+提出新 workflow 前，必须先记录当前的 coverage。若现有 workflow 已具备所需 safeguards，应返回 `NO_CHANGE`，不得建立重复流程。没有已证明 recurrence 或长期 operational value 的 one-off request 也应返回 `NO_CHANGE`，并记录 evidence、outcome 与 counterargument。若唯一证据依赖无法 sanitized 的 private history 或 sensitive material，应返回 `REJECTED_WITH_EVIDENCE`：不得读取、传输或保存 raw source，只能记录 redacted rejection rationale。
+
+普通 clone 或执行 workspace recipe **不需要** host trust root；只有要用真实 Codex self-improve replay 授权 commit、cache publication 或 delivery 的 maintainer，才需要 administrator 在每台 host 一次性执行：
+
+```bash
+sudo "$(command -v node)" plugins/better-workflows/scripts/host-trust.mjs provision
+node plugins/better-workflows/scripts/sbw.mjs self-improve host status
+```
+
+Provision 不会覆盖或暗中 rotate 现有 key。trust root 是 root-owned 公共 JSON；private Ed25519 key 以 `0600` 保存在 repo 外。不要用 `plutil` 验证 JSON。candidate 固定后，执行下列命令，在 repo 外生成七份 request、manifest digest 与可一次签完的精确 `signCommand`：
+
+```bash
+node plugins/better-workflows/scripts/sbw.mjs \
+  self-improve attestation request \
+  --run <run-id> --baseline <sha> --candidate-root . \
+  --model <model> --output <new-outside-repo-directory>
+```
+
+### 受治理的 workspace recipes
+
+Recipe 只保存确定性的机械步骤，不接管模型判断、agent orchestration、risk acceptance、source mutation 或外部 side effects。Node 24 Permission Model 是第二层防护；主要 trust 私密绑定 workspace、manifest、script、plugin bundle 与 Node major。所有建立和执行都必须明确触发：
+
+```bash
+node plugins/better-workflows/scripts/sbw.mjs recipe init
+node plugins/better-workflows/scripts/sbw.mjs recipe scaffold json-keyset-audit
+node plugins/better-workflows/scripts/sbw.mjs recipe validate json-keyset-audit
+node plugins/better-workflows/scripts/sbw.mjs recipe promote <id> \
+  --run <run-id> --attempt <attempt-id> --confirm-digest <sha256>
+node plugins/better-workflows/scripts/sbw.mjs recipe run <id> \
+  --input-file <input.json> --dry-run
+node plugins/better-workflows/scripts/sbw.mjs recipe run <id> \
+  --input-file <input.json>
+```
+
+只解析 Git root 的 `.codex/better-workflows/`；routing Profile `.codex/better-workflows.json` 不能授权 recipe。clone 后一律视为不可信并重新 promotion。dry-run 执行已信任程序但丢弃 staging；正式 run 才原子发布已声明且默认 ignored 的 artifacts。提升单一 artifact 另需 `artifact.promote` action。私密 receipt 只保存 digests、时间、artifact metadata 与 reconciliation，不保存 raw input、conversation、credentials、secrets 或 provider receipts。
 
 自我改进 evaluation 只使用已 checked-in、sanitized 且在 immutable baseline 冻结的 train/holdout corpus。candidate 必须先 staging；三次 read-only Codex holdout replay 必须在没有 safety failure 或 regression 的前提下严格超过 baseline median。Codex replay 需要 host-signed attestation，把精确 binary 与 model 绑定到固定的 `/etc/better-workflows/codex-trust-root.json`；该文件和父目录必须由 administrator 拥有且调用者不可写入。`PATH`、自行计算 hash、CLI 选择 trust root 或 model 自述都不是 provider attestation。tie、noise、缺少 evidence 或 fixture-only 结果都不会 auto-adopt。
 

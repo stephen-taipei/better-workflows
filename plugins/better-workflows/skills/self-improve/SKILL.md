@@ -57,8 +57,22 @@ and attempt number are all signed. Training takes one attestation; holdout takes
 six distinct attestations (candidate 1–3, then baseline 1–3). Replayed or
 duplicated attestation files cannot authorize delivery.
 
+Ordinary clones and workspace recipes do not require this host trust root. A
+maintainer who will run real self-improvement delivery replays must first use
+`sbw self-improve host status`. If the host is unprovisioned, an administrator
+reviews a pinned checkout and runs the fail-closed one-time Node provisioner
+documented in the repository README. Never use `plutil` to validate this JSON,
+and never overwrite or implicitly rotate an existing host key.
+
+After the candidate is frozen, use `sbw self-improve attestation request` with
+the exact run, baseline, candidate root, model, and a new directory outside the
+repository. It produces all seven distinct requests, their manifest digest,
+and an exact batch `signCommand`. The administrator must review the manifest
+and confirmed digest before signing.
+
 ```sh
-sbw self-improve evaluate <run-id> \
+sbw self-improve evaluate \
+  --run <run-id> \
   --cases plugins/better-workflows/fixtures/self-improve-ops-evals.json \
   --baseline <immutable-baseline> --candidate-root . \
   --backend codex --model <attested-model> --allow-codex --sanitized \

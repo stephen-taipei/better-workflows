@@ -171,7 +171,7 @@ test("CLI lists exactly the installed workflow templates", async () => {
   const cwd = await repository();
   const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-cli-list-"));
   const result = await cli(cwd, stateRoot, ["templates"]);
-  assert.equal(result.json.templates.length, 12);
+  assert.equal(result.json.templates.length, 13);
 });
 
 test("CLI routes the self-improve selector to its critical template", async () => {
@@ -237,6 +237,54 @@ test("self-improve evaluation fails closed when its suite or staged candidate ch
   await writeFile(path.join(cwd, "plugins", "better-workflows", "fixtures", "self-improve-ops-evals.json"), "{}\n");
   const changedSuite = await cli(cwd, stateRoot, [...pinnedCommon, "--split", "train"], { allowFailure: true, env: { SBW_TEST_FIXTURE_BACKEND: "1" } });
   assert.match(changedSuite.stderr, /drifted from the immutable baseline/);
+});
+
+test("self-improve attestation request freezes seven distinct requests outside the repository", async () => {
+  const cwd = await selfImproveRepository();
+  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-attestation-state-"));
+  const baseline = (await execFileAsync("git", ["rev-parse", "HEAD"], {
+    cwd,
+    encoding: "utf8"
+  })).stdout.trim();
+  const started = await cli(cwd, stateRoot, [
+    "run",
+    "--template",
+    "self-improve-ops",
+    "--mode",
+    "critical",
+    "--goal",
+    "Prepare signed evaluation requests",
+    "--scope",
+    "."
+  ]);
+  const parent = await mkdtemp(path.join(os.tmpdir(), "sbw-attestation-output-"));
+  const output = path.join(parent, "requests");
+  const requested = await cli(cwd, stateRoot, [
+    "self-improve",
+    "attestation",
+    "request",
+    "--run",
+    started.json.runId,
+    "--baseline",
+    baseline,
+    "--candidate-root",
+    ".",
+    "--model",
+    "gpt-5.6-sol",
+    "--binary",
+    process.execPath,
+    "--output",
+    output
+  ]);
+  assert.equal(requested.json.requests.length, 7);
+  assert.equal(new Set(requested.json.requests.map((item) => item.executionId)).size, 7);
+  assert.equal(requested.json.manifestPath, path.join(output, "attestation-requests.json"));
+  assert.match(requested.json.manifestDigest, /^[a-f0-9]{64}$/);
+  assert.equal(requested.json.signCommand.at(-1), requested.json.manifestDigest);
+  for (const item of requested.json.requests) {
+    assert.equal(path.dirname(item.request), output);
+    assert.match(item.requestDigest, /^[a-f0-9]{64}$/);
+  }
 });
 
 test("CLI previews, records, and consumes a fail-closed route receipt", async () => {
@@ -317,6 +365,37 @@ test("CLI built-in auto receipt remains reviewable but cannot start without a co
   assert.match(run.stderr, /does not resolve a concrete template/);
 });
 
+test("CLI custom contracts cannot remove template required evidence minimums", async () => {
+  const cwd = await repository();
+  const stateRoot = path.join(await mkdtemp(path.join(os.tmpdir(), "sbw-cli-contract-minimum-")), "state");
+  const contractPath = path.join(cwd, "custom-contract.json");
+  await writeFile(contractPath, `${JSON.stringify({
+    schemaVersion: 1,
+    goal: "Review with a custom contract",
+    template: "review-to-issues",
+    scope: { include: ["src"], exclude: [] },
+    acceptance: [{ id: "custom-review", description: "Custom review is complete.", critical: true }],
+    requiredEvidence: [],
+    authority: { rootOnlyMutation: true, externalSideEffects: [] },
+    risk: { risk: 1, uncertainty: 1, blastRadius: 1, irreversibility: 0, evidenceGap: 1 },
+    sensitivity: "internal",
+    agy: { allowed: false, sanitized: false },
+    volatileExclusions: [],
+    highRiskIgnored: [],
+    remoteRevision: null
+  }, null, 2)}\n`);
+
+  const result = await cli(
+    cwd,
+    stateRoot,
+    ["run", "--template", "review-to-issues", "--contract", contractPath],
+    { allowFailure: true }
+  );
+  assert.notEqual(result.code, 0);
+  assert.match(result.stderr, /cannot remove template required evidence/);
+  await assert.rejects(access(stateRoot));
+});
+
 test("CLI resume migrates a legacy 1.0 run to template-bound action gates", async () => {
   const cwd = await repository();
   const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-cli-legacy-"));
@@ -337,16 +416,35 @@ test("CLI resume migrates a legacy 1.0 run to template-bound action gates", asyn
   const contract = JSON.parse(await readFile(contractPath, "utf8"));
   delete contract.templateDigest;
   delete contract.actionGates;
+  delete contract.requiredEvidence;
   await writeFile(contractPath, `${JSON.stringify(contract, null, 2)}\n`);
   const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
   manifest.version = "1.0.0";
   await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 
-  const resumed = await cli(cwd, stateRoot, ["resume", started.json.runId]);
+  const resumed = await cli(
+    cwd,
+    stateRoot,
+    ["resume", started.json.runId],
+    { allowFailure: true }
+  );
+  assert.notEqual(resumed.code, 0);
   assert.equal(resumed.json.migration.migrated, true);
+  assert.equal(resumed.json.ok, false);
+  assert.equal(resumed.json.status, "stale");
   const migrated = JSON.parse(await readFile(contractPath, "utf8"));
   assert.equal(typeof migrated.templateDigest, "string");
+  assert.deepEqual(migrated.requiredEvidence, [
+    "base-revision",
+    "review-findings",
+    "duplicate-check",
+    "current-revision"
+  ]);
   assert.deepEqual(migrated.actionGates, {
     "issue.create": ["base-revision", "review-findings", "duplicate-check", "current-revision"]
   });
+  const resumedAgain = await cli(cwd, stateRoot, ["resume", started.json.runId]);
+  assert.equal(resumedAgain.json.migration.migrated, false);
+  assert.equal(resumedAgain.json.ok, true);
+  assert.equal(resumedAgain.json.status, "running");
 });

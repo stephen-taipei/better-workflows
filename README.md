@@ -289,6 +289,7 @@ silently replacing it.
 | `$better-workflows:browser-qa` | Webwright or simulator QA requiring current UI evidence, screenshots, and a reproducible action log. | `$better-workflows:browser-qa Verify signup and contact sync in the browser and attach screenshot evidence.` |
 | `$better-workflows:research` | CLI-proven multi-model roles, evidence-backed architecture comparison, refutation, and an executable plan without majority voting. | `$better-workflows:research Compare three sync architectures, challenge each one, and produce an implementation-ready plan.` |
 | `$better-workflows:self-improve` | Improve Better Workflows itself from bounded recent evidence, including synchronized selectors, templates, tests, docs, versions, immutable cache, and authorized remote delivery. | `$better-workflows:self-improve Review recent workflow outcomes, implement only recurring verified improvements, validate, publish a new cache version, and push the atomic commit.` |
+| `$better-workflows:workspace-recipe` | Turn a stable, deterministic SOP into a governed workspace-local Node.js recipe with explicit digest trust and bounded artifacts. | `$better-workflows:workspace-recipe Scaffold a repeatable JSON audit, validate it, and prepare its current digest for explicit promotion.` |
 | `$better-workflows:monorepo-refactor` | Full workspace inventory followed by direct implementation of every eligible bounded refactor recommendation, with behavior invariants, validation, and rollback evidence. | `$better-workflows:monorepo-refactor Inventory the monorepo and implement all eligible boundary-cleanup recommendations without changing its public contract.` |
 
 `self-improve-ops` is intentionally a thin orchestration template. It composes
@@ -296,6 +297,15 @@ the existing research, refactor, routing, publication, and delivery controls,
 accepts a justified no-change result, and independently gates commit, cache
 publication, and push. A missing versioned cache link is resolved to a verified
 current bundle; the stale path is never recreated or mutated.
+
+Before proposing a new workflow, record the current coverage. If an existing
+workflow already provides the required safeguards, return `NO_CHANGE` and do
+not create a duplicate. A one-off request without demonstrated recurrence or
+durable operational value also returns `NO_CHANGE`; record the evidence,
+outcome, and counterargument. If the only evidence depends on private history
+or sensitive material that cannot be sanitized, return
+`REJECTED_WITH_EVIDENCE`: do not read, transmit, or store the raw source, and
+record only a redacted rejection rationale.
 
 Self-improvement evaluation is bounded to a checked-in, sanitized train/holdout
 corpus frozen in the immutable baseline. A candidate is staged before replay;
@@ -305,6 +315,85 @@ attestation binding the exact binary and model to the administrator-owned fixed
 host trust root at `/etc/better-workflows/codex-trust-root.json`;
 `PATH`, a self-hash, and model self-report are not provider attestation. Ties,
 noise, missing evidence, and fixture-only results never auto-adopt a change.
+
+The host trust root is **not required for ordinary clones or workspace recipe
+execution**. It is required only for maintainers who want real Codex
+self-improvement replays to authorize commit, cache publication, or delivery.
+On each host, an administrator reviews a pinned checkout and provisions it once:
+
+```bash
+sudo "$(command -v node)" \
+  plugins/better-workflows/scripts/host-trust.mjs provision
+
+node plugins/better-workflows/scripts/sbw.mjs \
+  self-improve host status
+```
+
+Provisioning is fail-closed and never overwrites or silently rotates an
+existing key. The trust root is public and root-owned; the private Ed25519 key
+remains mode `0600` outside the repository. Do not use `plutil` to validate the
+JSON trust root—use `self-improve host status`.
+
+After a candidate is frozen, generate all seven distinct requests outside the
+repository. The output includes a manifest digest and an exact `signCommand`;
+the administrator reviews both before running that one batch-sign command:
+
+```bash
+node plugins/better-workflows/scripts/sbw.mjs \
+  self-improve attestation request \
+  --run <run-id> \
+  --baseline <sha> \
+  --candidate-root . \
+  --model <model> \
+  --output <new-outside-repo-directory>
+```
+
+### Governed workspace recipes
+
+Workspace recipes preserve deterministic mechanical work, not model judgment
+or agent orchestration. They cannot grant themselves source mutation, shell,
+network, worker, child-process, evidence acceptance, or external side effects.
+Root may scaffold one on an explicit user request. An automatic suggestion
+requires two completed structured runs with the same recurrence fingerprint
+within 90 days; raw session history and memory transcripts are never mined.
+Node 24 Permission Model is defense in depth; the primary authority is an
+explicit private trust record bound to the workspace, manifest, entry script,
+plugin bundle, and Node major.
+
+Nothing is created implicitly. From the Git worktree root:
+
+```bash
+node plugins/better-workflows/scripts/sbw.mjs recipe init
+node plugins/better-workflows/scripts/sbw.mjs recipe scaffold json-keyset-audit
+node plugins/better-workflows/scripts/sbw.mjs recipe validate json-keyset-audit
+```
+
+This creates `.codex/better-workflows/` at that Git root. The separate
+`.codex/better-workflows.json` remains a routing Profile and cannot authorize a
+recipe. A recipe cloned from Git is always untrusted on the new workspace.
+Promotion requires a `workspace-recipe` run, complete evidence, a current
+sentinel, no open P0/P1 finding, fixture parity, a consumed `recipe.promote`
+action, and the user's exact digest confirmation:
+
+```bash
+node plugins/better-workflows/scripts/sbw.mjs recipe promote <id> \
+  --run <run-id> \
+  --attempt <attempt-id> \
+  --confirm-digest <sha256>
+
+node plugins/better-workflows/scripts/sbw.mjs recipe run <id> \
+  --input-file <input.json> --dry-run
+
+node plugins/better-workflows/scripts/sbw.mjs recipe run <id> \
+  --input-file <input.json>
+```
+
+Dry-run executes only an already trusted program and discards staging.
+Normal execution atomically publishes declared artifacts under the ignored
+workspace artifact directory. Promoting one artifact into tracked source needs
+an independent `artifact.promote` action. Receipts store only digests,
+timestamps, bounded artifact metadata, and reconciliation—not raw input,
+conversation, credentials, secrets, or provider receipts.
 
 ### CLI-proven multi-model deliberation
 
@@ -479,7 +568,7 @@ Better Workflows chooses one of four modes:
 | `deep` | Verified work followed by up to two sequential Codex critics. |
 | `critical` | Full evidence and side-effect gates plus a required external reviewer when policy demands it. |
 
-Twelve workflow templates are included:
+Thirteen workflow templates are included:
 
 - `review-to-issues`
 - `issues-to-root-fix-pr-merge-cleanup`
@@ -491,6 +580,7 @@ Twelve workflow templates are included:
 - `browser-simulator-qa`
 - `research-deliberation`
 - `self-improve-ops`
+- `workspace-recipe`
 - `monorepo-refactor`
 - `pr-to-dev`
 

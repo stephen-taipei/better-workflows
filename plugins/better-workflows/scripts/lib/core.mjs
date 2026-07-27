@@ -18,7 +18,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const VERSION = "2.0.1";
+export const VERSION = "2.1.0";
 export const MODES = new Set(["auto", "direct", "verified", "deep", "critical"]);
 export const RUN_STATES = new Set([
   "pending",
@@ -243,6 +243,17 @@ export function validateContract(contract) {
   if (!Array.isArray(contract.acceptance) || contract.acceptance.length === 0) {
     throw new Error("TaskContract.acceptance must be a non-empty array");
   }
+  if (!Array.isArray(contract.requiredEvidence)) {
+    throw new Error("TaskContract.requiredEvidence must be an array");
+  }
+  const requiredEvidence = new Set();
+  for (const kind of contract.requiredEvidence) {
+    if (typeof kind !== "string" || !SAFE_ID.test(kind)) {
+      throw new Error("Every required evidence kind must be a safe id");
+    }
+    if (requiredEvidence.has(kind)) throw new Error(`Duplicate required evidence kind: ${kind}`);
+    requiredEvidence.add(kind);
+  }
   const acceptanceIds = new Set();
   for (const item of contract.acceptance) {
     if (!item || typeof item.id !== "string" || !SAFE_ID.test(item.id)) {
@@ -449,10 +460,13 @@ export async function withRunLock(root, runId, callback, options = {}) {
 export async function bindLegacyRunTemplate(
   root,
   runId,
-  { templateDigest, actionGates }
+  { templateDigest, actionGates, requiredEvidence }
 ) {
   if (typeof templateDigest !== "string" || templateDigest.length < 16) {
     throw new Error("Legacy run migration requires a template digest");
+  }
+  if (!Array.isArray(requiredEvidence) || requiredEvidence.length === 0) {
+    throw new Error("Legacy run migration requires template evidence minimums");
   }
   return withRunLock(root, runId, async ({ runDir }) => {
     const contractPath = safeJoin(runDir, "contract.json");
@@ -461,18 +475,21 @@ export async function bindLegacyRunTemplate(
     const contract = await readJson(root, contractPath);
     const manifest = await readJson(root, manifestPath);
     const state = await readJson(root, statePath);
-    if (contract.templateDigest && contract.actionGates) {
+    const currentEvidence = new Set(contract.requiredEvidence ?? []);
+    const missingEvidence = requiredEvidence.filter((kind) => !currentEvidence.has(kind));
+    if (contract.templateDigest && contract.actionGates && missingEvidence.length === 0) {
       return { migrated: false, contract, manifest, state };
     }
-    if (manifest.version !== "1.0.0") {
+    if (!["1.0.0", "2.0.1"].includes(manifest.version)) {
       throw new Error(
-        `Run ${runId} lacks a template binding but was not created by workflow 1.0.0`
+        `Run ${runId} lacks current template minimums but was not created by a migratable workflow version`
       );
     }
     const nextContract = {
       ...contract,
       templateDigest,
-      actionGates: structuredClone(actionGates ?? {})
+      actionGates: structuredClone(actionGates ?? {}),
+      requiredEvidence: [...new Set([...(contract.requiredEvidence ?? []), ...requiredEvidence])]
     };
     const migratedAt = nowIso();
     const nextManifest = {
@@ -635,6 +652,14 @@ export async function evaluateCompletion(root, runId) {
   );
   for (const item of contract.acceptance) {
     if (!covered.has(item.id)) blockers.push(`missing-acceptance:${item.id}`);
+  }
+  const availableEvidence = new Set(
+    evidence
+      .filter((item) => item.status === "complete" && !item.stale)
+      .map((item) => item.kind)
+  );
+  for (const kind of contract.requiredEvidence) {
+    if (!availableEvidence.has(kind)) blockers.push(`missing-required-evidence:${kind}`);
   }
   if (!state.lastSentinelVerified) blockers.push("current-sentinel-not-verified");
   if (state.lastSentinelComplete !== true) blockers.push("bounded-sentinel-incomplete");

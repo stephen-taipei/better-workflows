@@ -1,10 +1,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { access, chmod, mkdtemp, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, mkdtemp, realpath, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { buildContract, loadDefaults } from "../lib/core.mjs";
-import { doctorAgy, runAgyCritic, runCodexEvaluation, spawnCapture } from "../lib/providers.mjs";
+import {
+  binaryIdentity,
+  doctorAgy,
+  runAgyCritic,
+  runCodexEvaluation,
+  spawnCapture
+} from "../lib/providers.mjs";
 import {
   probeDeliberationRoster,
   resolveReasoningEffort,
@@ -47,14 +53,26 @@ test("spawnCapture enforces nonzero exit and output capture without a shell", as
   assert.equal(failure.code, 7);
 });
 
-test("Codex evaluation rejects an unanchored caller-provided trust root", async () => {
+test("provider binary identity resolves symlink commands to a canonical regular file", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "sbw-provider-identity-"));
+  const target = await executable(directory, "provider-target", "exit 0");
+  const linked = path.join(directory, "provider-linked");
+  await symlink(target, linked);
+  const identity = await binaryIdentity(linked);
+  assert.equal(identity.path, await realpath(target));
+  assert.match(identity.digest, /^[a-f0-9]{64}$/);
+});
+
+test("Codex evaluation rejects a caller attestation without valid host anchoring", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "sbw-attested-codex-"));
+  const evaluationRoot = path.join(directory, "evaluation");
+  await mkdir(evaluationRoot);
   const attestationPath = path.join(directory, "attestation.json");
   await writeFile(attestationPath, "{}\n", { mode: 0o600 });
   await assert.rejects(
-    runCodexEvaluation({ model: "attested-test-model", prompt: "safe", evaluationRoot: directory, attestationPath, timeoutMs: 5_000,
+    runCodexEvaluation({ model: "attested-test-model", prompt: "safe", evaluationRoot, attestationPath, timeoutMs: 5_000,
       execution: { id: "test-execution-1", runId: "run", suiteDigest: "suite", baselineRevision: "baseline", candidateDigest: "candidate", role: "candidate", attempt: 1 } }),
-    /Host Codex trust root is not provisioned/
+    /Host Codex trust root is not provisioned|Trusted Codex attestation and trust root schemaVersion must be 1/
   );
 });
 
