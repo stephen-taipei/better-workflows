@@ -5,6 +5,7 @@
   "requiredEvidence": [
     "dependabot-inventory",
     "base-revision",
+    "eligibility-classified",
     "compatibility-matrix",
     "dependency-risk-review",
     "consolidation-diff",
@@ -17,7 +18,9 @@
     "merge-result",
     "actions-cancelled",
     "cleanup-manifest",
-    "provider-reconciliation"
+    "provider-reconciliation",
+    "remote-authorization",
+    "current-branch"
   ],
   "acceptance": [
     {

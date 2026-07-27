@@ -44,6 +44,15 @@ test("all thirteen templates are valid and side-effect templates declare action 
     assert.ok(template.requiredEvidence.length > 0);
     assert.ok(template.acceptance.length > 0);
     assert.ok(template.policyGates.length > 0);
+    const evidenceMinimum = new Set(template.requiredEvidence);
+    for (const [action, prerequisites] of Object.entries(template.actionGates ?? {})) {
+      for (const prerequisite of prerequisites) {
+        assert.ok(
+          evidenceMinimum.has(prerequisite),
+          `${name} ${action} prerequisite is absent from requiredEvidence: ${prerequisite}`
+        );
+      }
+    }
     if (template.rootOnlyActions.some((action) => /deploy|release|issue create|pr create|pr merge/i.test(action))) {
       assert.ok(template.actionGates && Object.keys(template.actionGates).length > 0, name);
     }
