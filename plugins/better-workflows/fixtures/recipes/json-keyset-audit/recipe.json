@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "id": "json-keyset-audit",
+  "version": "1.0.0",
+  "description": "Compare key sets and key order across supplied JSON documents and emit deterministic JSON and Markdown reports.",
+  "entry": "run.mjs",
+  "readPaths": [],
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "documents": {
+        "type": "array",
+        "minItems": 2,
+        "maxItems": 100,
+        "items": {
+          "type": "object",
+          "properties": {
+            "label": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "json": {
+              "type": "string",
+              "minLength": 2,
+              "maxLength": 1048576
+            }
+          },
+          "required": [
+            "label",
+            "json"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "required": [
+      "documents"
+    ],
+    "additionalProperties": false
+  },
+  "artifacts": [
+    {
+      "id": "report-json",
+      "filename": "keyset-report.json",
+      "mediaType": "application/json",
+      "maxBytes": 4194304,
+      "promotable": true
+    },
+    {
+      "id": "report-markdown",
+      "filename": "keyset-report.md",
+      "mediaType": "text/markdown",
+      "maxBytes": 4194304,
+      "promotable": true
+    }
+  ],
+  "timeoutSeconds": 60,
+  "maxStdoutBytes": 1048576,
+  "maxTotalArtifactBytes": 8388608
+}

@@ -18,7 +18,7 @@ test("all historical and adversarial routing fixtures select the expected mode",
   }
 });
 
-test("all twelve templates are valid and side-effect templates declare action gates", async () => {
+test("all thirteen templates are valid and side-effect templates declare action gates", async () => {
   const directory = path.join(pluginRoot(), "templates");
   const names = (await readdir(directory))
     .filter((name) => name.endsWith(".json"))
@@ -35,7 +35,8 @@ test("all twelve templates are valid and side-effect templates declare action ga
     "pr-to-dev.json",
     "research-deliberation.json",
     "review-to-issues.json",
-    "self-improve-ops.json"
+    "self-improve-ops.json",
+    "workspace-recipe.json"
   ]);
   for (const name of names) {
     const template = JSON.parse(await readFile(path.join(directory, name), "utf8"));
@@ -47,6 +48,30 @@ test("all twelve templates are valid and side-effect templates declare action ga
       assert.ok(template.actionGates && Object.keys(template.actionGates).length > 0, name);
     }
   }
+});
+
+test("workspace recipes require explicit trust and independently gated artifact promotion", async () => {
+  const template = JSON.parse(
+    await readFile(path.join(pluginRoot(), "templates", "workspace-recipe.json"), "utf8")
+  );
+  assert.equal(template.defaultMode, "verified");
+  for (const evidence of [
+    "recipe-contract",
+    "fixture-test",
+    "candidate-dry-run",
+    "digest-confirmation",
+    "current-sentinel",
+    "artifact-receipt",
+    "promotion-decision"
+  ]) {
+    assert.ok(template.requiredEvidence.includes(evidence), evidence);
+  }
+  assert.deepEqual(Object.keys(template.actionGates).sort(), [
+    "artifact.promote",
+    "recipe.promote"
+  ]);
+  assert.ok(template.policyGates.includes("no-untrusted-execution"));
+  assert.ok(template.policyGates.includes("no-automatic-scaffold-promotion-or-execution"));
 });
 
 test("pr-to-dev enforces batched commits, a dev-targeted PR, and remote reconciliation", async () => {
@@ -268,7 +293,8 @@ test("skills have no placeholders and retired AI-meeting alias is absent", async
     "research",
     "review-issues",
     "self-improve",
-    "verified"
+    "verified",
+    "workspace-recipe"
   ]);
   for (const name of skillNames) {
     const contents = await readFile(path.join(skillsRoot, name, "SKILL.md"), "utf8");

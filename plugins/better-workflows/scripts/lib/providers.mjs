@@ -269,7 +269,12 @@ export async function verifyTrustedCodexAttestation({ attestationPath, evaluatio
 }
 
 export async function binaryIdentity(command) {
-  const target = await commandPath(command);
+  const supplied = await commandPath(command);
+  const target = await realpath(supplied);
+  const info = await lstat(target);
+  if (info.isSymbolicLink() || !info.isFile()) {
+    throw new Error(`Provider command must resolve to a regular file: ${command}`);
+  }
   return { path: target, digest: await hashFile(target) };
 }
 

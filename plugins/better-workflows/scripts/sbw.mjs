@@ -70,6 +70,19 @@ import {
   loadDeliberationRoster,
   probeDeliberationRoster
 } from "./lib/deliberation.mjs";
+import { generateAttestationRequests } from "./lib/attestations.mjs";
+import {
+  recipeArtifactPromote,
+  recipeInit,
+  recipeList,
+  recipePromote,
+  recipePrune,
+  recipeRun,
+  recipeScaffold,
+  recipeStatus,
+  recipeUntrust,
+  recipeValidate
+} from "./lib/recipes.mjs";
 import {
   capabilitySnapshot,
   claimRouteReceipt,
@@ -86,6 +99,7 @@ import {
 const execFileAsync = promisify(execFile);
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const TEMPLATE_DIR = path.join(pluginRoot(), "templates");
+const HOST_TRUST_TOOL = path.join(SCRIPT_DIR, "host-trust.mjs");
 const SAFE_LABEL = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const RUN_MODE_RANK = new Map(
   ["direct", "verified", "deep", "critical"].map((mode, index) => [mode, index])
@@ -476,8 +490,56 @@ function structuredReplay(replay) {
     execution: replay.metadata.execution ?? null, model: replay.metadata.requestedModel ?? null, sandbox: replay.metadata.sandbox };
 }
 
-async function commandSelfImprove(root, subcommand, options) {
-  if (subcommand !== "evaluate") throw new Error("self-improve subcommand must be evaluate");
+async function commandSelfImprove(root, subcommand, options, nestedCommand = null) {
+  if (subcommand === "host") {
+    if (nestedCommand !== "status") {
+      throw new Error("self-improve host subcommand must be status");
+    }
+    assertKnownOptions(options, []);
+    const result = await execFileAsync(process.execPath, [HOST_TRUST_TOOL, "status"], {
+      encoding: "utf8",
+      maxBuffer: 1024 * 1024
+    });
+    return JSON.parse(result.stdout);
+  }
+  if (subcommand === "attestation") {
+    if (nestedCommand !== "request") {
+      throw new Error("self-improve attestation subcommand must be request");
+    }
+    assertKnownOptions(options, [
+      "run",
+      "baseline",
+      "candidate-root",
+      "model",
+      "output",
+      "binary"
+    ]);
+    for (const required of ["run", "baseline", "candidate-root", "model", "output"]) {
+      if (!options[required]) throw new Error(`attestation request requires --${required}`);
+    }
+    const run = await loadRun(root, String(options.run));
+    if (run.manifest.template !== "self-improve-ops") {
+      throw new Error("attestation request requires a self-improve-ops run");
+    }
+    if (
+      run.manifest.baselineRevision !== String(options.baseline) ||
+      run.manifest.cwd !== path.resolve(process.cwd())
+    ) {
+      throw new Error("attestation request baseline or workspace does not match the run");
+    }
+    return generateAttestationRequests({
+      repo: process.cwd(),
+      runId: String(options.run),
+      baselineRevision: String(options.baseline),
+      candidateRoot: String(options["candidate-root"]),
+      model: String(options.model),
+      outputDirectory: String(options.output),
+      binaryPath: options.binary ? String(options.binary) : null
+    });
+  }
+  if (subcommand !== "evaluate") {
+    throw new Error("self-improve subcommand must be evaluate, host, or attestation");
+  }
   assertKnownOptions(options, [
     "run", "cases", "baseline", "candidate-root", "backend", "split", "result-file", "model", "allow-codex", "sanitized",
     "timeout-seconds", "trusted-codex-attestation"
@@ -967,12 +1029,23 @@ function help() {
       "sbw sentinel capture|verify <run-id> --label <label>",
       "sbw evidence add <run-id> --file <json>",
       "sbw self-improve evaluate --run <run-id> --cases <file> --baseline <git-revision> --candidate-root <path> --backend <codex|fixture> --split <train|holdout>",
+      "sbw self-improve host status",
+      "sbw self-improve attestation request --run <run-id> --baseline <sha> --candidate-root <path> --model <model> --output <outside-repo-directory>",
       "sbw finding add|update <run-id> --file <json>",
       "sbw critic codex|agy <run-id> --model <model> --prompt-file <file> [--effort <auto|medium|high>] [--effort-transport <native|model-variant>]",
       "sbw deliberation roster [--mode <auto|direct|verified|deep|critical>] [--reasoning-effort <auto|medium|high>] [--refresh] [--provider <id>] [--allow-external-providers --sanitized]",
       "sbw deliberation deliberate --prompt-file <sanitized-file> [--mode <auto|direct|verified|deep|critical>] [--reasoning-effort <auto|medium|high>] [--refresh] [--allow-external-providers --sanitized]",
       "sbw deliberation arbitrate --prompt-file <sanitized-file> [--mode <auto|direct|verified|deep|critical>] [--reasoning-effort <auto|medium|high>] [--allow-external-providers --sanitized]",
       "sbw action issue|consume|reconcile <run-id> ...",
+      "sbw recipe init",
+      "sbw recipe scaffold <id>",
+      "sbw recipe list",
+      "sbw recipe validate <id>",
+      "sbw recipe promote <id> --run <run-id> --attempt <attempt-id> --confirm-digest <sha256>",
+      "sbw recipe run <id> --input-file <json> [--dry-run]",
+      "sbw recipe status|untrust <id>",
+      "sbw recipe artifact promote <receipt-id> --artifact <id> --to <relative-path>",
+      "sbw recipe prune [--apply]",
       "sbw complete <run-id>",
       "sbw doctor [--agy --model <model>]",
       "sbw doctor --capabilities",
@@ -985,14 +1058,80 @@ function help() {
 
 async function main() {
   const { positional, options } = parseArgs(process.argv.slice(2));
-  const [command, subcommand, runId] = positional;
+  const [command, subcommand, runId, fourth] = positional;
   const root = getStateRoot();
   if (!command || command === "help" || options.help) return help();
   if (command === "templates") return { ok: true, templates: await listTemplates() };
   if (command === "run") return commandRun(root, options);
-  if (command === "self-improve") return commandSelfImprove(root, subcommand, options);
+  if (command === "self-improve") return commandSelfImprove(root, subcommand, options, runId);
   if (command === "route") return commandRoute(root, subcommand, runId, options);
   if (command === "deliberation") return commandDeliberation(subcommand, options);
+  if (command === "recipe") {
+    if (subcommand === "init") {
+      assertKnownOptions(options, []);
+      return recipeInit(process.cwd());
+    }
+    if (subcommand === "scaffold") {
+      assertKnownOptions(options, []);
+      if (!runId) throw new Error("recipe scaffold requires <id>");
+      return recipeScaffold(process.cwd(), runId);
+    }
+    if (subcommand === "list") {
+      assertKnownOptions(options, []);
+      return recipeList(process.cwd());
+    }
+    if (subcommand === "validate") {
+      assertKnownOptions(options, []);
+      if (!runId) throw new Error("recipe validate requires <id>");
+      return recipeValidate(process.cwd(), runId);
+    }
+    if (subcommand === "promote") {
+      assertKnownOptions(options, ["run", "attempt", "confirm-digest"]);
+      if (!runId) throw new Error("recipe promote requires <id>");
+      return recipePromote(process.cwd(), runId, {
+        run: options.run ? String(options.run) : null,
+        attempt: options.attempt ? String(options.attempt) : null,
+        confirmDigest: options["confirm-digest"] ? String(options["confirm-digest"]) : null
+      });
+    }
+    if (subcommand === "run") {
+      assertKnownOptions(options, ["input-file", "dry-run"]);
+      if (!runId) throw new Error("recipe run requires <id>");
+      return recipeRun(
+        process.cwd(),
+        runId,
+        options["input-file"] ? String(options["input-file"]) : null,
+        { dryRun: optionEnabled(options["dry-run"]) }
+      );
+    }
+    if (subcommand === "status") {
+      assertKnownOptions(options, []);
+      if (!runId) throw new Error("recipe status requires <id>");
+      return recipeStatus(process.cwd(), runId);
+    }
+    if (subcommand === "untrust") {
+      assertKnownOptions(options, []);
+      if (!runId) throw new Error("recipe untrust requires <id>");
+      return recipeUntrust(process.cwd(), runId);
+    }
+    if (subcommand === "artifact" && runId === "promote") {
+      assertKnownOptions(options, ["artifact", "to"]);
+      if (!fourth) throw new Error("recipe artifact promote requires <receipt-id>");
+      return recipeArtifactPromote(
+        process.cwd(),
+        fourth,
+        options.artifact ? String(options.artifact) : null,
+        options.to ? String(options.to) : null
+      );
+    }
+    if (subcommand === "prune") {
+      assertKnownOptions(options, ["apply"]);
+      return recipePrune(process.cwd(), { apply: optionEnabled(options.apply) });
+    }
+    throw new Error(
+      "recipe subcommand must be init, scaffold, list, validate, promote, run, status, untrust, artifact, or prune"
+    );
+  }
   if (command === "status") {
     const run = await loadRun(root, subcommand);
     return {

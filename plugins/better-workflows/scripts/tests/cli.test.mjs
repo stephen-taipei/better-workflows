@@ -171,7 +171,7 @@ test("CLI lists exactly the installed workflow templates", async () => {
   const cwd = await repository();
   const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-cli-list-"));
   const result = await cli(cwd, stateRoot, ["templates"]);
-  assert.equal(result.json.templates.length, 12);
+  assert.equal(result.json.templates.length, 13);
 });
 
 test("CLI routes the self-improve selector to its critical template", async () => {
@@ -237,6 +237,54 @@ test("self-improve evaluation fails closed when its suite or staged candidate ch
   await writeFile(path.join(cwd, "plugins", "better-workflows", "fixtures", "self-improve-ops-evals.json"), "{}\n");
   const changedSuite = await cli(cwd, stateRoot, [...pinnedCommon, "--split", "train"], { allowFailure: true, env: { SBW_TEST_FIXTURE_BACKEND: "1" } });
   assert.match(changedSuite.stderr, /drifted from the immutable baseline/);
+});
+
+test("self-improve attestation request freezes seven distinct requests outside the repository", async () => {
+  const cwd = await selfImproveRepository();
+  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-attestation-state-"));
+  const baseline = (await execFileAsync("git", ["rev-parse", "HEAD"], {
+    cwd,
+    encoding: "utf8"
+  })).stdout.trim();
+  const started = await cli(cwd, stateRoot, [
+    "run",
+    "--template",
+    "self-improve-ops",
+    "--mode",
+    "critical",
+    "--goal",
+    "Prepare signed evaluation requests",
+    "--scope",
+    "."
+  ]);
+  const parent = await mkdtemp(path.join(os.tmpdir(), "sbw-attestation-output-"));
+  const output = path.join(parent, "requests");
+  const requested = await cli(cwd, stateRoot, [
+    "self-improve",
+    "attestation",
+    "request",
+    "--run",
+    started.json.runId,
+    "--baseline",
+    baseline,
+    "--candidate-root",
+    ".",
+    "--model",
+    "gpt-5.6-sol",
+    "--binary",
+    process.execPath,
+    "--output",
+    output
+  ]);
+  assert.equal(requested.json.requests.length, 7);
+  assert.equal(new Set(requested.json.requests.map((item) => item.executionId)).size, 7);
+  assert.equal(requested.json.manifestPath, path.join(output, "attestation-requests.json"));
+  assert.match(requested.json.manifestDigest, /^[a-f0-9]{64}$/);
+  assert.equal(requested.json.signCommand.at(-1), requested.json.manifestDigest);
+  for (const item of requested.json.requests) {
+    assert.equal(path.dirname(item.request), output);
+    assert.match(item.requestDigest, /^[a-f0-9]{64}$/);
+  }
 });
 
 test("CLI previews, records, and consumes a fail-closed route receipt", async () => {

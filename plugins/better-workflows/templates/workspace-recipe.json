@@ -1,0 +1,71 @@
+{
+  "name": "workspace-recipe",
+  "description": "Review, promote, execute, and selectively publish a deterministic workspace-owned Node.js SOP without granting it source-mutation or external-side-effect authority.",
+  "defaultMode": "verified",
+  "requiredEvidence": [
+    "recipe-contract",
+    "fixture-test",
+    "candidate-dry-run",
+    "digest-confirmation",
+    "current-sentinel",
+    "artifact-receipt",
+    "promotion-decision"
+  ],
+  "acceptance": [
+    {
+      "id": "recipe-bounded",
+      "description": "The recipe has a strict manifest, declared reads and artifacts, bounded inputs and outputs, and no prohibited capability.",
+      "critical": true
+    },
+    {
+      "id": "candidate-repeatable",
+      "description": "Fixture validation and two candidate dry-runs produce identical result and artifact digests.",
+      "critical": true
+    },
+    {
+      "id": "trust-explicit",
+      "description": "Root explicitly confirms the current execution digest and promotion action binding.",
+      "critical": true
+    },
+    {
+      "id": "artifact-governed",
+      "description": "Recipe artifacts remain ignored unless one exact receipt artifact is separately authorized for promotion.",
+      "critical": true
+    }
+  ],
+  "policyGates": [
+    "explicit-workspace-initialization",
+    "git-root-only-resolution",
+    "strict-manifest-no-unknown-fields",
+    "no-untrusted-execution",
+    "digest-bound-private-trust",
+    "node-permission-defense-in-depth",
+    "no-network-child-worker-or-source-write",
+    "candidate-dry-run-parity",
+    "evidence-candidates-not-acceptance",
+    "proposals-not-side-effects",
+    "atomic-artifact-publication",
+    "independent-artifact-promotion-authority",
+    "no-automatic-scaffold-promotion-or-execution"
+  ],
+  "actionGates": {
+    "recipe.promote": [
+      "recipe-contract",
+      "fixture-test",
+      "candidate-dry-run",
+      "digest-confirmation",
+      "current-sentinel",
+      "promotion-decision"
+    ],
+    "artifact.promote": [
+      "artifact-receipt",
+      "current-sentinel",
+      "promotion-decision"
+    ]
+  },
+  "domainSkills": [],
+  "rootOnlyActions": [
+    "recipe trust promotion",
+    "artifact promotion to tracked source"
+  ]
+}

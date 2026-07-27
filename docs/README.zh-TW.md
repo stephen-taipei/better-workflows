@@ -239,11 +239,48 @@ $better-workflows:cross-platform 檢查 backend、iOS 和 Android 的 contact sy
 | `$better-workflows:browser-qa` | 需要最新 UI 證據、截圖與可重現 action log 的 Webwright／模擬器 QA。 | `$better-workflows:browser-qa 驗證 signup 與 contact sync，並附上 screenshot evidence。` |
 | `$better-workflows:research` | CLI 實測的多模型角色、證據驅動架構比較、反證與可執行 Plan；不以多數決決策。 | `$better-workflows:research 比較三種 sync 架構、反證每個方案並產出可實作的 Plan。` |
 | `$better-workflows:self-improve` | 依近期且有界的證據改善 Better Workflows 本身，同步 selector、template、tests、docs、version、immutable cache 與經授權的 remote delivery。 | `$better-workflows:self-improve Review 近期 workflow 結果，只實作重複且已驗證的改善，完整驗證後發佈新 cache version 並 push atomic commit。` |
+| `$better-workflows:workspace-recipe` | 將穩定、確定性的 SOP 固化為 workspace 內受治理的 Node.js recipe，以明確 digest trust 與受限 artifacts 重複執行。 | `$better-workflows:workspace-recipe 建立可重複執行的 JSON audit，驗證後準備目前 digest 供明確 promotion。` |
 | `$better-workflows:monorepo-refactor` | 完整盤點 monorepo，直接實作所有合格的 bounded refactor 建議，並保留 behavior invariants、validation 與 rollback evidence。 | `$better-workflows:monorepo-refactor 盤點 monorepo，直接實作所有合格的 boundary cleanup 建議，不改變 public contract。` |
 
 `self-improve-ops` 是薄型 orchestration template：沿用既有 research、refactor、routing、publication 與 delivery controls，允許有證據的 no-change，並分別 gate commit、cache publication 與 push。缺失的版本化 cache link 只能解析到已驗證的 current bundle，不得重建或修改 stale path。
 
+提出新 workflow 前，必須先記錄目前的 coverage。若既有 workflow 已具備所需 safeguards，應回傳 `NO_CHANGE`，不得建立重複流程。沒有已證明 recurrence 或長期 operational value 的 one-off request 也應回傳 `NO_CHANGE`，並記錄 evidence、outcome 與 counterargument。若唯一證據依賴無法 sanitized 的 private history 或 sensitive material，應回傳 `REJECTED_WITH_EVIDENCE`：不得讀取、傳送或保存 raw source，只能記錄 redacted rejection rationale。
+
 自我改善 evaluation 只使用已 checked-in、sanitized 且在 immutable baseline 凍結的 train/holdout corpus。candidate 必須先 staging；三次 read-only Codex holdout replay 必須在沒有 safety failure 或 regression 下，嚴格超過 baseline median。Codex replay 需要 host-signed attestation，將精確 binary 與 model 綁定到固定的 `/etc/better-workflows/codex-trust-root.json`；該檔與父目錄必須由 administrator 擁有且不可由呼叫者寫入。`PATH`、自行計算 hash、CLI 選擇 trust root 或 model 自述都不是 provider attestation。tie、noise、缺少 evidence 或 fixture-only 結果都不會 auto-adopt。
+
+一般 clone 或執行 workspace recipe **不需要** host trust root；只有要以真實 Codex self-improve replay 授權 commit、cache publication 或 delivery 的 maintainer，才需由 administrator 在每台 host 一次性執行：
+
+```bash
+sudo "$(command -v node)" plugins/better-workflows/scripts/host-trust.mjs provision
+node plugins/better-workflows/scripts/sbw.mjs self-improve host status
+```
+
+Provision 不會覆寫或暗中 rotate 既有 key。trust root 是 root-owned 公開 JSON；private Ed25519 key 以 `0600` 保存在 repo 外。不要用 `plutil` 驗證 JSON，請用上述 status。candidate 固定後，以下命令會在 repo 外產生七份 request、manifest digest 與可一次簽完的精確 `signCommand`：
+
+```bash
+node plugins/better-workflows/scripts/sbw.mjs \
+  self-improve attestation request \
+  --run <run-id> --baseline <sha> --candidate-root . \
+  --model <model> --output <new-outside-repo-directory>
+```
+
+### 受治理的 workspace recipes
+
+Recipe 只保存確定性的機械步驟，不接管模型判斷、agent orchestration、risk acceptance、source mutation 或外部 side effects。Node 24 Permission Model 是第二層防護；主要 trust 會私密綁定 workspace、manifest、script、plugin bundle 與 Node major。所有建立與執行都必須明確觸發：
+
+```bash
+node plugins/better-workflows/scripts/sbw.mjs recipe init
+node plugins/better-workflows/scripts/sbw.mjs recipe scaffold json-keyset-audit
+node plugins/better-workflows/scripts/sbw.mjs recipe validate json-keyset-audit
+node plugins/better-workflows/scripts/sbw.mjs recipe promote <id> \
+  --run <run-id> --attempt <attempt-id> --confirm-digest <sha256>
+node plugins/better-workflows/scripts/sbw.mjs recipe run <id> \
+  --input-file <input.json> --dry-run
+node plugins/better-workflows/scripts/sbw.mjs recipe run <id> \
+  --input-file <input.json>
+```
+
+只解析 Git root 的 `.codex/better-workflows/`；routing Profile `.codex/better-workflows.json` 不能授權 recipe。clone 後一律視為不可信並重新 promotion。dry-run 仍會執行已信任程式，但丟棄 staging；正式 run 才原子發布已宣告且預設 ignored 的 artifacts。提升單一 artifact 另需 `artifact.promote` action。私密 receipt 只保存 digests、時間、artifact metadata 與 reconciliation，不保存 raw input、conversation、credentials、secrets 或 provider receipts。
 
 ### CLI 實測的多模型討論
 

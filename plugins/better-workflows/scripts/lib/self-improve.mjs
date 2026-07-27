@@ -7,13 +7,13 @@ import { digestObject, sha256 } from "./core.mjs";
 const execFileAsync = promisify(execFile);
 const CASE_ID = /^[a-z0-9][a-z0-9-]{2,79}$/;
 const DISPOSITIONS = new Set(["IMPLEMENT", "NO_CHANGE", "BLOCKED", "REJECTED_WITH_EVIDENCE"]);
-const SECRET_PATTERN = /(?:api[_-]?key|password|passwd|secret|token|authorization)\s*[:=]\s*[^\s]+/i;
+const SECRET_PATTERN = /(?:api[_-]?key|password|passwd|secret|token|authorization)\s*[:=]\s*(?:"[^"\s]{4,}"|'[^'\s]{4,}'|(?=[A-Za-z0-9+/_-]{8,}(?:\s|$))(?=[A-Za-z0-9+/_-]*[0-9+/_-])[A-Za-z0-9+/_-]+)/i;
 export const SELF_IMPROVE_CANONICAL_CORPUS = "plugins/better-workflows/fixtures/self-improve-ops-evals.json";
 
 function allowedCandidateMaterial(file) {
   return file === "README.md" ||
     /^docs\/README\.(?:zh-TW|zh-CN|ja|ko)\.md$/.test(file) ||
-    /^plugins\/better-workflows\/(?:scripts\/.+\.mjs|skills\/.+\.md|templates\/.+\.json|fixtures\/.+\.json|config\/.+\.json|package\.json|\.codex-plugin\/plugin\.json)$/.test(file);
+    /^plugins\/better-workflows\/(?:scripts\/.+\.mjs|skills\/.+\.md|templates\/.+\.json|fixtures\/.+\.(?:json|md|mjs)|config\/.+\.json|package\.json|\.codex-plugin\/plugin\.json)$/.test(file);
 }
 
 function assertString(value, label) {
