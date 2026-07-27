@@ -689,6 +689,15 @@ async function commandRun(root, options) {
   if (options.contract) {
     contract = validateContract(JSON.parse(await readFile(path.resolve(String(options.contract)), "utf8")));
     if (contract.template !== templateName) throw new Error("Contract template does not match --template");
+    const customEvidence = new Set(contract.requiredEvidence);
+    const missingMinimums = (template.requiredEvidence ?? []).filter(
+      (kind) => !customEvidence.has(kind)
+    );
+    if (missingMinimums.length > 0) {
+      throw new Error(
+        `TaskContract cannot remove template required evidence: ${missingMinimums.join(", ")}`
+      );
+    }
   } else {
     contract = buildContract({
       template: templateName,
@@ -1009,25 +1018,34 @@ async function main() {
   if (command === "resume") {
     let run = await loadRun(root, subcommand);
     let migration = { migrated: false };
-    if (!run.contract.templateDigest || !run.contract.actionGates) {
-      const template = await loadTemplate(run.manifest.template);
+    const template = await loadTemplate(run.manifest.template);
+    const templateEvidence = template.requiredEvidence ?? [];
+    const boundEvidence = new Set(run.contract.requiredEvidence ?? []);
+    if (
+      !run.contract.templateDigest ||
+      !run.contract.actionGates ||
+      templateEvidence.some((kind) => !boundEvidence.has(kind))
+    ) {
       migration = await bindLegacyRunTemplate(root, subcommand, {
         templateDigest: digestObject(template),
-        actionGates: template.actionGates ?? {}
+        actionGates: template.actionGates ?? {},
+        requiredEvidence: templateEvidence
       });
       run = await loadRun(root, subcommand);
     }
     const freshness = await refreshEvidence(root, subcommand);
     const sentinel = await captureForRun(root, subcommand);
     const same = run.state.lastSentinel?.digest === sentinel.digest;
-    const status = same && freshness.stale.length === 0 ? "running" : "stale";
+    const status = !migration.migrated && same && freshness.stale.length === 0
+      ? "running"
+      : "stale";
     await setRunStatus(root, subcommand, status, {
-      lastSentinelVerified: same,
-      lastSentinelComplete: same && sentinel.complete,
+      lastSentinelVerified: !migration.migrated && same,
+      lastSentinelComplete: !migration.migrated && same && sentinel.complete,
       resumeFreshness: freshness
     });
     return {
-      ok: same && freshness.stale.length === 0,
+      ok: !migration.migrated && same && freshness.stale.length === 0,
       runId: subcommand,
       status,
       freshness,
@@ -1116,7 +1134,12 @@ async function main() {
     if (subcommand === "issue") {
       const run = await loadRun(root, runId);
       const template = await loadTemplate(run.manifest.template);
-      if (!run.contract.templateDigest || !run.contract.actionGates) {
+      const boundEvidence = new Set(run.contract.requiredEvidence ?? []);
+      if (
+        !run.contract.templateDigest ||
+        !run.contract.actionGates ||
+        (template.requiredEvidence ?? []).some((kind) => !boundEvidence.has(kind))
+      ) {
         throw new Error(`Legacy run is unbound; run sbw resume ${runId} before issuing actions`);
       }
       if (run.contract.templateDigest !== digestObject(template)) {
