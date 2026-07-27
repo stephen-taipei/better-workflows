@@ -276,6 +276,39 @@ node plugins/better-workflows/scripts/sbw.mjs recipe run <id> \
 
 Git root の `.codex/better-workflows/` だけを解決し、routing Profile `.codex/better-workflows.json` は recipe を許可できません。clone 後は必ず untrusted で再 promotion が必要です。dry-run は trusted program を実行して staging を破棄し、通常 run だけが宣言済み・既定 ignored artifacts を atomic publish します。単一 artifact の tracked source への promotion は別の `artifact.promote` action が必要です。private receipt は digests、時刻、artifact metadata、reconciliation のみを保存し、raw input、conversation、credentials、secrets、provider receipts は保存しません。
 
+### Derived Graph View
+
+Graph View は installed workflow templates または 1 つの live run から typed
+read-only graph を導出します。これは cross-record validator であり、
+Dynamic Workflow runtime、policy input、scheduler、authority source、
+persisted graph、agent runtime ではありません。権限を付与・緩和せず、客観的な
+structural error は `eval`、run 作成、action-token issue、completion を追加で
+fail closed にします。Heuristic diagnostics は warning のみです。
+各 gate は installed template または private run records から structural
+validation を再計算します。graph envelope、graph digest、Mermaid、persisted
+graph を policy input として受け取らず、presentation failure が authority を
+付与・緩和することはありません。
+
+```bash
+node plugins/better-workflows/scripts/sbw.mjs graph validate
+node plugins/better-workflows/scripts/sbw.mjs graph validate --template <name>
+node plugins/better-workflows/scripts/sbw.mjs graph validate --run <run-id>
+node plugins/better-workflows/scripts/sbw.mjs graph inspect \
+  --template <name> --format json
+node plugins/better-workflows/scripts/sbw.mjs graph inspect \
+  --run <run-id> --format mermaid
+```
+
+`inspect` は target をちょうど 1 つ指定します。JSON が canonical interface
+で、Mermaid は JSON envelope の `content` に入り、暗黙には file を作りません。
+Graph は typed IDs、relative provenance、digests、diagnostics、安全な labels
+だけを含み、raw input、evidence summary、conversation、token hash、
+credentials、provider receipt は除外します。成功は exit `0`、structural
+diagnostic は exit `2`、usage/system error は exit `1` です。
+Live-run provenance digest は allowlist 済みの non-sensitive structural
+projection のみを対象にします。省略された private fields は source/graph
+digest に影響せず、その値の推測確認に output を利用できません。
+
 ### CLI 実証の複数 model deliberation
 
 `research-deliberation` は Codex、Claude、Gemini（Agy 経由）、Agy、Grok、Cursor、Kimi、Qwen、Kiro の設定済みブランド一覧を保持します。ただし安全な semantic CLI probe に成功した CLI/model の組だけが今回の意思決定グループに参加します。binary 不在、認証切れ、対話ログイン必須は unavailable として記録し、暗黙に代替しません。

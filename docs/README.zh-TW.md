@@ -282,6 +282,37 @@ node plugins/better-workflows/scripts/sbw.mjs recipe run <id> \
 
 只解析 Git root 的 `.codex/better-workflows/`；routing Profile `.codex/better-workflows.json` 不能授權 recipe。clone 後一律視為不可信並重新 promotion。dry-run 仍會執行已信任程式，但丟棄 staging；正式 run 才原子發布已宣告且預設 ignored 的 artifacts。提升單一 artifact 另需 `artifact.promote` action。私密 receipt 只保存 digests、時間、artifact metadata 與 reconciliation，不保存 raw input、conversation、credentials、secrets 或 provider receipts。
 
+### 衍生 Graph View
+
+Graph View 會從已安裝 workflow templates 或單一 live run 衍生 typed、唯讀
+graph。它是跨 records validator，不是 Dynamic Workflow runtime，也不是
+policy input、scheduler、authority source、persisted graph 或 agent runtime。
+它不會授權或放寬任何行為。客觀結構錯誤會對 `eval`、run 建立、action-token
+issue 與 completion 額外 fail closed；啟發式 diagnostics 只會 warning。
+每個 gate 都會從已安裝 template 或私密 run records 重新計算結構驗證，不接受
+graph envelope、graph digest、Mermaid 或 persisted graph 作為 policy input；
+presentation 失敗不能授權或放寬 authority。
+
+```bash
+node plugins/better-workflows/scripts/sbw.mjs graph validate
+node plugins/better-workflows/scripts/sbw.mjs graph validate --template <name>
+node plugins/better-workflows/scripts/sbw.mjs graph validate --run <run-id>
+node plugins/better-workflows/scripts/sbw.mjs graph inspect \
+  --template <name> --format json
+node plugins/better-workflows/scripts/sbw.mjs graph inspect \
+  --run <run-id> --format mermaid
+```
+
+`inspect` 必須且只能指定一個 target。JSON 是 canonical interface；Mermaid
+只會放在 JSON envelope 的 `content`，不會暗中寫檔。Graph 只包含 typed IDs、
+相對 provenance、digests、diagnostics 與安全 labels；不包含 raw input、
+evidence summary、conversation、token hash、credentials 或 provider receipt。
+成功 exit `0`，結構錯誤 exit `2`，非法參數或系統錯誤 exit `1`。
+Live-run provenance digest 只涵蓋 allowlist 的非敏感結構
+（non-sensitive structural projection）；被省略的
+私密欄位不會影響任何 source 或 graph digest，因此輸出不能用來確認對這些值的
+猜測。
+
 ### CLI 實測的多模型討論
 
 `research-deliberation` 會保留完整設定的品牌名單：Codex、Claude、Gemini（經 Agy）、Agy、Grok、Cursor、Kimi、Qwen、Kiro；但只有通過安全 semantic CLI probe 的模型／指令組合，才能加入本次決策群。找不到 binary、登入失效或必須互動登入時，都會明確列為 unavailable，不會偷偷替代。

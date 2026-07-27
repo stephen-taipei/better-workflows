@@ -395,6 +395,39 @@ an independent `artifact.promote` action. Receipts store only digests,
 timestamps, bounded artifact metadata, and reconciliation—not raw input,
 conversation, credentials, secrets, or provider receipts.
 
+### Derived Graph View
+
+Graph View derives a typed, read-only graph from installed workflow templates
+or one live run. It is a cross-record validator, not a Dynamic Workflow
+runtime, policy input, scheduler, authority source, persisted graph, or agent
+runtime. It never grants or relaxes behavior. Objective structural errors add a
+fail-closed block to `eval`, run creation, action-token issue, and completion;
+heuristic diagnostics remain warnings.
+Those gates recompute structural validation from the installed template or
+private run records. They never accept a graph envelope, graph digest, Mermaid,
+or persisted graph as policy input; presentation failure cannot grant or relax
+authority.
+
+```bash
+node plugins/better-workflows/scripts/sbw.mjs graph validate
+node plugins/better-workflows/scripts/sbw.mjs graph validate --template <name>
+node plugins/better-workflows/scripts/sbw.mjs graph validate --run <run-id>
+node plugins/better-workflows/scripts/sbw.mjs graph inspect \
+  --template <name> --format json
+node plugins/better-workflows/scripts/sbw.mjs graph inspect \
+  --run <run-id> --format mermaid
+```
+
+`inspect` accepts exactly one target. JSON is canonical; Mermaid is returned
+inside the JSON envelope's `content` field and is never written implicitly.
+The graph contains only typed IDs, relative provenance, digests, diagnostics,
+and safe labels. It excludes raw input, evidence summaries, conversation,
+token hashes, credentials, and provider receipts. Success exits `0`,
+structural diagnostics exit `2`, and usage or system errors exit `1`.
+Live-run provenance digests cover an allowlisted non-sensitive structural
+projection only. Omitted private fields do not influence any source or graph
+digest, so the output cannot be used to confirm guesses about those values.
+
 ### CLI-proven multi-model deliberation
 
 `research-deliberation` keeps the complete configured brand roster—Codex,

@@ -276,6 +276,39 @@ node plugins/better-workflows/scripts/sbw.mjs recipe run <id> \
 
 Git root의 `.codex/better-workflows/`만 사용하며 routing Profile `.codex/better-workflows.json`은 recipe를 승인할 수 없습니다. clone 후에는 항상 untrusted이므로 다시 promotion해야 합니다. dry-run은 trusted program을 실행한 뒤 staging을 버리고, 일반 run만 선언되고 기본 ignored인 artifacts를 atomic publish합니다. 단일 artifact를 tracked source로 promotion하려면 별도 `artifact.promote` action이 필요합니다. private receipt에는 digests, 시간, artifact metadata, reconciliation만 저장하며 raw input, conversation, credentials, secrets, provider receipts는 저장하지 않습니다.
 
+### Derived Graph View
+
+Graph View는 installed workflow templates 또는 하나의 live run에서 typed
+read-only graph를 도출합니다. 이것은 cross-record validator이며 Dynamic
+Workflow runtime, policy input, scheduler, authority source, persisted graph,
+agent runtime이 아닙니다. 권한을 부여하거나 완화하지 않습니다. 객관적
+structural error는 `eval`, run 생성, action-token issue, completion을 추가로
+fail closed하고 heuristic diagnostics는 warning만 생성합니다.
+각 gate는 installed template 또는 private run records에서 structural
+validation을 다시 계산합니다. graph envelope, graph digest, Mermaid,
+persisted graph를 policy input으로 받지 않으며 presentation failure은
+authority를 부여하거나 완화할 수 없습니다.
+
+```bash
+node plugins/better-workflows/scripts/sbw.mjs graph validate
+node plugins/better-workflows/scripts/sbw.mjs graph validate --template <name>
+node plugins/better-workflows/scripts/sbw.mjs graph validate --run <run-id>
+node plugins/better-workflows/scripts/sbw.mjs graph inspect \
+  --template <name> --format json
+node plugins/better-workflows/scripts/sbw.mjs graph inspect \
+  --run <run-id> --format mermaid
+```
+
+`inspect`는 target을 정확히 하나만 받습니다. JSON이 canonical interface이며
+Mermaid는 JSON envelope의 `content`에만 포함되고 암묵적으로 file을 쓰지
+않습니다. Graph에는 typed IDs, relative provenance, digests, diagnostics,
+안전한 labels만 포함하며 raw input, evidence summary, conversation, token hash,
+credentials, provider receipt는 제외합니다. 성공은 exit `0`, structural
+diagnostic은 exit `2`, usage/system error는 exit `1`입니다.
+Live-run provenance digest는 allowlist된 non-sensitive structural
+projection만 포함합니다. 생략된 private fields는 source/graph digest에 영향을
+주지 않으므로 output으로 해당 값에 대한 추측을 확인할 수 없습니다.
+
 ### CLI로 검증한 multi-model deliberation
 
 `research-deliberation`은 Codex, Claude, Gemini(Agy 경유), Agy, Grok, Cursor, Kimi, Qwen, Kiro의 전체 설정 브랜드 목록을 유지합니다. 하지만 안전한 semantic CLI probe에 성공한 CLI/model 조합만 이번 의사결정 그룹에 참여합니다. binary 부재, 만료된 로그인, 대화형 로그인 필요 상태는 unavailable로 기록하며 조용히 대체하지 않습니다.
