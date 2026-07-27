@@ -18,7 +18,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const VERSION = "2.1.0";
+export const VERSION = "2.2.0";
 export const MODES = new Set(["auto", "direct", "verified", "deep", "critical"]);
 export const RUN_STATES = new Set([
   "pending",
@@ -480,7 +480,7 @@ export async function bindLegacyRunTemplate(
     if (contract.templateDigest && contract.actionGates && missingEvidence.length === 0) {
       return { migrated: false, contract, manifest, state };
     }
-    if (!["1.0.0", "2.0.1"].includes(manifest.version)) {
+    if (!["1.0.0", "2.0.1", "2.1.0"].includes(manifest.version)) {
       throw new Error(
         `Run ${runId} lacks current template minimums but was not created by a migratable workflow version`
       );

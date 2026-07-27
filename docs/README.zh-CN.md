@@ -272,6 +272,37 @@ node plugins/better-workflows/scripts/sbw.mjs recipe run <id> \
 
 自我改进 evaluation 只使用已 checked-in、sanitized 且在 immutable baseline 冻结的 train/holdout corpus。candidate 必须先 staging；三次 read-only Codex holdout replay 必须在没有 safety failure 或 regression 的前提下严格超过 baseline median。Codex replay 需要 host-signed attestation，把精确 binary 与 model 绑定到固定的 `/etc/better-workflows/codex-trust-root.json`；该文件和父目录必须由 administrator 拥有且调用者不可写入。`PATH`、自行计算 hash、CLI 选择 trust root 或 model 自述都不是 provider attestation。tie、noise、缺少 evidence 或 fixture-only 结果都不会 auto-adopt。
 
+### 衍生 Graph View
+
+Graph View 从已安装 workflow templates 或单个 live run 衍生 typed、只读
+graph。它是跨 records validator，不是 Dynamic Workflow runtime，也不是
+policy input、scheduler、authority source、persisted graph 或 agent runtime。
+它不会授权或放宽任何行为。客观结构错误会对 `eval`、run 创建、action-token
+issue 与 completion 额外 fail closed；启发式 diagnostics 只会 warning。
+每个 gate 都从已安装 template 或私密 run records 重新计算结构验证，不接受
+graph envelope、graph digest、Mermaid 或 persisted graph 作为 policy input；
+presentation 失败不能授权或放宽 authority。
+
+```bash
+node plugins/better-workflows/scripts/sbw.mjs graph validate
+node plugins/better-workflows/scripts/sbw.mjs graph validate --template <name>
+node plugins/better-workflows/scripts/sbw.mjs graph validate --run <run-id>
+node plugins/better-workflows/scripts/sbw.mjs graph inspect \
+  --template <name> --format json
+node plugins/better-workflows/scripts/sbw.mjs graph inspect \
+  --run <run-id> --format mermaid
+```
+
+`inspect` 必须且只能指定一个 target。JSON 是 canonical interface；Mermaid
+只放在 JSON envelope 的 `content` 中，不会隐式写文件。Graph 只包含 typed
+IDs、相对 provenance、digests、diagnostics 与安全 labels；不包含 raw input、
+evidence summary、conversation、token hash、credentials 或 provider receipt。
+成功 exit `0`，结构错误 exit `2`，非法参数或系统错误 exit `1`。
+Live-run provenance digest 只覆盖 allowlist 的非敏感结构
+（non-sensitive structural projection）；被省略的
+私密字段不会影响任何 source 或 graph digest，因此输出不能用于确认对这些值的
+猜测。
+
 ### CLI 实测的多模型协商
 
 `research-deliberation` 保留完整配置的品牌名单：Codex、Claude、Gemini（经 Agy）、Agy、Grok、Cursor、Kimi、Qwen、Kiro；只有通过安全 semantic CLI probe 的模型／指令组合才能加入本次决策组。缺少 binary、登录失效或必须交互登录时会明确标为 unavailable，绝不静默替代。

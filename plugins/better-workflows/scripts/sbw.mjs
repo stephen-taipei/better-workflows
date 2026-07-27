@@ -95,6 +95,13 @@ import {
   validateRouteReceipt,
   validateRoutingProfileFile
 } from "./lib/routing.mjs";
+import {
+  buildRunGraph,
+  buildTemplateCatalogGraph,
+  buildTemplateGraph,
+  graphHasErrors,
+  renderGraphMermaid
+} from "./lib/graph.mjs";
 
 const execFileAsync = promisify(execFile);
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -104,6 +111,7 @@ const SAFE_LABEL = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const RUN_MODE_RANK = new Map(
   ["direct", "verified", "deep", "critical"].map((mode, index) => [mode, index])
 );
+const GRAPH_ENFORCEMENT_ENABLED = true;
 
 function print(value) {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
@@ -212,6 +220,80 @@ async function loadTemplate(name) {
 async function listTemplates() {
   const files = (await readdir(TEMPLATE_DIR)).filter((name) => name.endsWith(".json")).sort();
   return Promise.all(files.map((name) => loadTemplate(name.slice(0, -5))));
+}
+
+function graphEnvelope(graph, format = "json") {
+  return {
+    ok: !graphHasErrors(graph),
+    format,
+    ...graph,
+    ...(format === "mermaid" ? { content: renderGraphMermaid(graph) } : {})
+  };
+}
+
+async function templateGraph(name) {
+  const template = await loadTemplate(name);
+  return buildTemplateGraph({
+    template,
+    sourcePath: `templates/${template.name}.json`
+  });
+}
+
+async function runGraph(root, runId) {
+  const run = await inspectRun(root, runId);
+  const template = await loadTemplate(run.manifest.template);
+  return buildRunGraph({
+    template,
+    manifest: run.manifest,
+    contract: run.contract,
+    state: run.state,
+    evidence: run.evidence,
+    findings: run.findings,
+    actions: run.actions
+  });
+}
+
+async function installedTemplateGraph() {
+  return buildTemplateCatalogGraph(await listTemplates());
+}
+
+function graphStructuralFailure(graph, operation) {
+  return {
+    ...graphEnvelope(graph),
+    status: "graph-invalid",
+    operation
+  };
+}
+
+async function commandGraph(root, subcommand, positionalTarget, options) {
+  if (positionalTarget) {
+    throw new Error("graph targets must use --template or --run");
+  }
+  if (!["validate", "inspect"].includes(subcommand)) {
+    throw new Error("graph subcommand must be validate or inspect");
+  }
+  assertKnownOptions(
+    options,
+    subcommand === "inspect" ? ["template", "run", "format"] : ["template", "run"]
+  );
+  const template = options.template ? String(options.template) : null;
+  const run = options.run ? String(options.run) : null;
+  if (template && run) {
+    throw new Error("graph accepts exactly one of --template or --run");
+  }
+  if (subcommand === "inspect" && !template && !run) {
+    throw new Error("graph inspect requires exactly one of --template or --run");
+  }
+  const format = String(options.format ?? "json");
+  if (!["json", "mermaid"].includes(format)) {
+    throw new Error("graph format must be json or mermaid");
+  }
+  const graph = template
+    ? await templateGraph(template)
+    : run
+      ? await runGraph(root, run)
+      : await installedTemplateGraph();
+  return graphEnvelope(graph, format);
 }
 
 async function writeSentinel(root, runId, label, sentinel, suffix = "") {
@@ -747,6 +829,13 @@ async function commandRun(root, options) {
     ? receiptBinding.preview.primary.template
     : String(options.template ?? "");
   const template = await loadTemplate(templateName);
+  if (GRAPH_ENFORCEMENT_ENABLED) {
+    const graph = buildTemplateGraph({
+      template,
+      sourcePath: `templates/${template.name}.json`
+    });
+    if (graphHasErrors(graph)) return graphStructuralFailure(graph, "run.create");
+  }
   let contract;
   if (options.contract) {
     contract = validateContract(JSON.parse(await readFile(path.resolve(String(options.contract)), "utf8")));
@@ -994,6 +1083,10 @@ async function commandDeliberation(subcommand, options) {
 }
 
 async function commandEval() {
+  if (GRAPH_ENFORCEMENT_ENABLED) {
+    const graph = await installedTemplateGraph();
+    if (graphHasErrors(graph)) return graphStructuralFailure(graph, "eval");
+  }
   const tests = (await readdir(path.join(SCRIPT_DIR, "tests")))
     .filter((name) => name.endsWith(".test.mjs"))
     .sort()
@@ -1036,6 +1129,8 @@ function help() {
       "sbw deliberation roster [--mode <auto|direct|verified|deep|critical>] [--reasoning-effort <auto|medium|high>] [--refresh] [--provider <id>] [--allow-external-providers --sanitized]",
       "sbw deliberation deliberate --prompt-file <sanitized-file> [--mode <auto|direct|verified|deep|critical>] [--reasoning-effort <auto|medium|high>] [--refresh] [--allow-external-providers --sanitized]",
       "sbw deliberation arbitrate --prompt-file <sanitized-file> [--mode <auto|direct|verified|deep|critical>] [--reasoning-effort <auto|medium|high>] [--allow-external-providers --sanitized]",
+      "sbw graph validate [--template <name>|--run <run-id>]",
+      "sbw graph inspect (--template <name>|--run <run-id>) [--format json|mermaid]",
       "sbw action issue|consume|reconcile <run-id> ...",
       "sbw recipe init",
       "sbw recipe scaffold <id>",
@@ -1063,6 +1158,7 @@ async function main() {
   if (!command || command === "help" || options.help) return help();
   if (command === "templates") return { ok: true, templates: await listTemplates() };
   if (command === "run") return commandRun(root, options);
+  if (command === "graph") return commandGraph(root, subcommand, runId, options);
   if (command === "self-improve") return commandSelfImprove(root, subcommand, options, runId);
   if (command === "route") return commandRoute(root, subcommand, runId, options);
   if (command === "deliberation") return commandDeliberation(subcommand, options);
@@ -1173,6 +1269,22 @@ async function main() {
       run = await loadRun(root, subcommand);
     }
     const freshness = await refreshEvidence(root, subcommand);
+    if (GRAPH_ENFORCEMENT_ENABLED) {
+      const graph = await runGraph(root, subcommand);
+      if (graphHasErrors(graph)) {
+        await setRunStatus(root, subcommand, "stale", {
+          lastSentinelVerified: false,
+          lastSentinelComplete: false,
+          resumeFreshness: freshness
+        });
+        return {
+          ...graphStructuralFailure(graph, "run.resume"),
+          runId: subcommand,
+          migration,
+          freshness
+        };
+      }
+    }
     const sentinel = await captureForRun(root, subcommand);
     const same = run.state.lastSentinel?.digest === sentinel.digest;
     const status = !migration.migrated && same && freshness.stale.length === 0
@@ -1281,15 +1393,19 @@ async function main() {
       ) {
         throw new Error(`Legacy run is unbound; run sbw resume ${runId} before issuing actions`);
       }
-      if (run.contract.templateDigest !== digestObject(template)) {
-        throw new Error("Workflow template drifted after run creation");
-      }
       const action = String(options.action ?? "");
       const requiredEvidence = run.contract.actionGates?.[action];
       if (!Array.isArray(requiredEvidence) || requiredEvidence.length === 0) {
         throw new Error(`No pre-action evidence gate is defined for: ${action}`);
       }
+      if (GRAPH_ENFORCEMENT_ENABLED) {
+        const graph = await runGraph(root, runId);
+        if (graphHasErrors(graph)) return graphStructuralFailure(graph, "action.issue");
+      }
       await refreshEvidence(root, runId);
+      if (run.contract.templateDigest !== digestObject(template)) {
+        throw new Error("Workflow template drifted after run creation");
+      }
       await assertAcceptedSelfImproveHoldout(root, runId, action);
       const digest = await currentVerifiedDigest(root, runId);
       const defaults = await loadDefaults();
@@ -1339,6 +1455,12 @@ async function main() {
   }
   if (command === "complete") {
     const run = await loadRun(root, subcommand);
+    if (GRAPH_ENFORCEMENT_ENABLED) {
+      const graph = await runGraph(root, subcommand);
+      if (graphHasErrors(graph)) {
+        return graphStructuralFailure(graph, "run.complete");
+      }
+    }
     if (!run.state.lastSentinel?.label) throw new Error("No sentinel is available for completion");
     const current = await verifyCommand(root, subcommand, run.state.lastSentinel.label);
     if (!current.ok) return { ok: false, status: "indeterminate", changed: current.changed };

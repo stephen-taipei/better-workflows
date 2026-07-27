@@ -38,5 +38,15 @@ test("all README languages explain progressive routing, Profiles, receipts, and 
     assert.match(content, /recipe scaffold json-keyset-audit/, file);
     assert.match(content, /recipe promote <id>/, file);
     assert.match(content, /artifact\.promote/, file);
+    assert.match(content, /graph validate/, file);
+    assert.match(content, /graph inspect/, file);
+    assert.match(content, /Dynamic\s+Workflow[\s\S]{0,20}runtime/, file);
+    assert.match(content, /policy\s+input/, file);
+    assert.match(content, /authority\s+source/, file);
+    assert.match(content, /agent\s+runtime/, file);
+    assert.match(content, /graph envelope/, file);
+    assert.match(content, /presentation/, file);
+    assert.match(content, /non-sensitive\s+structural[\s\S]{0,20}projection/, file);
+    assert.match(content, /exit `2`/, file);
   }
 });
