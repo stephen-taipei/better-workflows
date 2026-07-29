@@ -50,7 +50,7 @@ async function selfImproveRepository() {
   const cwd = await repository();
   await mkdir(path.join(cwd, "plugins", "better-workflows", "fixtures"), { recursive: true });
   await mkdir(path.join(cwd, "plugins", "better-workflows", "scripts"), { recursive: true });
-  for (const name of ["self-improve-ops-evals.json", "self-improve-ops-evals-v2.json"]) {
+  for (const name of ["self-improve-ops-evals.json", "self-improve-ops-evals-v2.json", "self-improve-ops-evals-v2.1.json"]) {
     const corpus = await readFile(path.resolve(path.dirname(CLI), "..", "fixtures", name), "utf8");
     await writeFile(path.join(cwd, "plugins", "better-workflows", "fixtures", name), corpus);
   }
@@ -59,8 +59,8 @@ async function selfImproveRepository() {
   return cwd;
 }
 
-async function fixtureResult(cwd) {
-  const suite = JSON.parse(await readFile(path.join(cwd, "plugins", "better-workflows", "fixtures", "self-improve-ops-evals.json"), "utf8"));
+async function fixtureResult(cwd, name = "self-improve-ops-evals.json") {
+  const suite = JSON.parse(await readFile(path.join(cwd, "plugins", "better-workflows", "fixtures", name), "utf8"));
   const response = (all) => ({ results: suite.cases.map((item) => ({
     id: item.id, disposition: item.expectedDisposition,
     passedAssertions: all ? item.assertions.map((assertion) => assertion.id) : item.assertions.filter((assertion) => assertion.hardSafety).map((assertion) => assertion.id)
@@ -217,19 +217,19 @@ test("self-improve fixture evaluation is explicit, private, and never grants del
   assert.match(delivery.stderr, /trusted Codex held-out comparison/);
 });
 
-test("evaluator migration binds immutable v1, current v2, calibration, and a dedicated comparison policy", async () => {
+test("evaluator migration binds immutable source and target suites, calibration, and a dedicated comparison policy", async () => {
   const cwd = await selfImproveRepository();
   const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-cli-evaluator-migration-"));
   await writeFile(path.join(cwd, "plugins", "better-workflows", "scripts", "sbw.mjs"), "export const candidate = 'evaluation-v2';\n");
   const started = await cli(cwd, stateRoot, [
     "run", "--template", "self-improve-ops", "--mode", "critical", "--goal", "Migrate evaluator", "--scope", ".", "--authority", "git.commit"
   ]);
-  const fixture = await fixtureResult(cwd);
+  const fixture = await fixtureResult(cwd, "self-improve-ops-evals-v2.json");
   const common = [
     "self-improve", "evaluate",
     "--run", started.json.runId,
-    "--cases", "plugins/better-workflows/fixtures/self-improve-ops-evals.json",
-    "--next-cases", "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.json",
+    "--cases", "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.json",
+    "--next-cases", "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.1.json",
     "--purpose", "evaluator-migration",
     "--baseline", "HEAD",
     "--candidate-root", ".",
@@ -308,7 +308,7 @@ test("self-improve attestation request freezes seven distinct requests outside t
   assert.equal(requested.json.requests.length, 7);
   assert.equal(new Set(requested.json.requests.map((item) => item.executionId)).size, 7);
   assert.equal(requested.json.purpose, "ordinary");
-  assert.equal(requested.json.suitePath, "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.json");
+  assert.equal(requested.json.suitePath, "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.1.json");
   assert.equal(requested.json.targetSuiteDigest, null);
   assert.equal(requested.json.manifestPath, path.join(output, "attestation-requests.json"));
   assert.match(requested.json.manifestDigest, /^[a-f0-9]{64}$/);
@@ -317,6 +317,32 @@ test("self-improve attestation request freezes seven distinct requests outside t
     assert.equal(path.dirname(item.request), output);
     assert.match(item.requestDigest, /^[a-f0-9]{64}$/);
   }
+
+  await mkdir(path.join(cwd, "plugins", "better-workflows", "scripts", "lib"), { recursive: true });
+  await writeFile(
+    path.join(cwd, "plugins", "better-workflows", "scripts", "lib", "providers.mjs"),
+    "export const token = \"12345678\";\n"
+  );
+  const rejectedOutput = path.join(parent, "rejected-requests");
+  const rejected = await cli(cwd, stateRoot, [
+    "self-improve",
+    "attestation",
+    "request",
+    "--run",
+    started.json.runId,
+    "--baseline",
+    baseline,
+    "--candidate-root",
+    ".",
+    "--model",
+    "gpt-5.6-sol",
+    "--binary",
+    process.execPath,
+    "--output",
+    rejectedOutput
+  ], { allowFailure: true });
+  assert.match(rejected.stderr, /secret-shaped content/);
+  await assert.rejects(access(rejectedOutput), { code: "ENOENT" });
 });
 
 test("CLI previews, records, and consumes a fail-closed route receipt", async () => {
