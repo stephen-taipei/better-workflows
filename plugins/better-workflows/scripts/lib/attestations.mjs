@@ -3,9 +3,12 @@ import { mkdir, realpath, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  evaluationBindingDigest,
   loadFrozenEvaluationSuite,
+  loadMigrationTargetSuite,
   snapshotCandidate,
-  SELF_IMPROVE_CANONICAL_CORPUS
+  SELF_IMPROVE_CANONICAL_CORPUS,
+  SELF_IMPROVE_LEGACY_CORPUS
 } from "./self-improve.mjs";
 import { binaryIdentity } from "./providers.mjs";
 
@@ -18,7 +21,10 @@ export async function generateAttestationRequests({
   candidateRoot,
   model,
   outputDirectory,
-  binaryPath = null
+  binaryPath = null,
+  casesFile = null,
+  purpose = "ordinary",
+  nextCasesFile = null
 }) {
   const resolvedRepo = await realpath(repo);
   const resolvedBinary = binaryPath
@@ -36,9 +42,24 @@ export async function generateAttestationRequests({
   }
   const frozen = await loadFrozenEvaluationSuite({
     cwd: resolvedRepo,
-    casesFile: path.join(resolvedRepo, SELF_IMPROVE_CANONICAL_CORPUS),
+    casesFile: path.resolve(
+      resolvedRepo,
+      casesFile ?? (purpose === "evaluator-migration" ? SELF_IMPROVE_LEGACY_CORPUS : SELF_IMPROVE_CANONICAL_CORPUS)
+    ),
     baselineRevision,
-    canonical: true
+    canonical: true,
+    purpose
+  });
+  const target = purpose === "evaluator-migration"
+    ? await loadMigrationTargetSuite({
+      cwd: resolvedRepo,
+      casesFile: path.resolve(resolvedRepo, nextCasesFile ?? SELF_IMPROVE_CANONICAL_CORPUS)
+    })
+    : null;
+  const suiteDigest = evaluationBindingDigest({
+    purpose,
+    sourceSuiteDigest: frozen.sourceDigest,
+    targetSuiteDigest: target?.sourceDigest
   });
   const candidate = await snapshotCandidate({
     cwd: resolvedRepo,
@@ -60,7 +81,7 @@ export async function generateAttestationRequests({
     const execution = {
       id: `${runId}-${item.split}-${item.role}-${item.attempt}`,
       runId,
-      suiteDigest: frozen.sourceDigest,
+      suiteDigest,
       baselineRevision: frozen.baselineRevision,
       candidateDigest: candidate.digest,
       role: item.role,
@@ -86,7 +107,12 @@ export async function generateAttestationRequests({
     runId,
     model,
     binaryPath: resolvedBinary,
-    suiteDigest: frozen.sourceDigest,
+    purpose,
+    suitePath: frozen.relativePath,
+    sourceSuiteDigest: frozen.sourceDigest,
+    targetSuitePath: target?.relativePath ?? null,
+    targetSuiteDigest: target?.sourceDigest ?? null,
+    suiteDigest,
     baselineRevision: frozen.baselineRevision,
     candidateDigest: candidate.digest,
     candidateFiles: candidate.files,
