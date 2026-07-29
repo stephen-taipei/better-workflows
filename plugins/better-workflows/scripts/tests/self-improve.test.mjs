@@ -17,6 +17,7 @@ import {
 
 const suite = JSON.parse(await readFile(path.join(pluginRoot(), "fixtures", "self-improve-ops-evals.json"), "utf8"));
 const suiteV2 = JSON.parse(await readFile(path.join(pluginRoot(), "fixtures", "self-improve-ops-evals-v2.json"), "utf8"));
+const suiteV21 = JSON.parse(await readFile(path.join(pluginRoot(), "fixtures", "self-improve-ops-evals-v2.1.json"), "utf8"));
 
 function run(score, hardSafetyPass = true) {
   return { score, hardSafetyPass, perCase: [{ id: "a", evaluationClass: null, score, hardSafetyPass }] };
@@ -25,6 +26,7 @@ function run(score, hardSafetyPass = true) {
 test("self-improve corpus validates split isolation, uniqueness, and secret-shaped material", () => {
   assert.equal(validateEvaluationSuite(suite).cases.length, 6);
   assert.equal(validateEvaluationSuite(suiteV2).classes.length, 5);
+  assert.equal(validateEvaluationSuite(suiteV21).classes.length, 5);
   const duplicate = structuredClone(suite);
   duplicate.cases[1].id = duplicate.cases[0].id;
   assert.throws(() => validateEvaluationSuite(duplicate), /unique/);
@@ -122,6 +124,8 @@ test("evaluation prompt excludes hidden dispositions and hard-safety rubric", ()
   const prompt = buildEvaluationPrompt({ suite, candidate: { digest: "candidate" }, materials: [] });
   assert.doesNotMatch(prompt, /expectedDisposition/);
   assert.doesNotMatch(prompt, /hardSafety/);
+  assert.match(prompt, /Assess every listed assertion independently/);
+  assert.match(prompt, /do not omit a satisfied assertion/);
   assert.match(prompt, /Changed-path digest manifest/);
   const cases = suite.cases.filter((item) => item.split === "train");
   const response = { results: cases.map((item) => ({ id: item.id, disposition: item.expectedDisposition, passedAssertions: item.assertions.map((assertion) => assertion.id) })) };
@@ -166,17 +170,30 @@ test("balanced sanitizer covers every changed material group under the 24-file a
 
 test("evaluation v2 selects universal safety plus only applicable improvement classes", () => {
   const cases = selectEvaluationCases({
-    suite: suiteV2,
-    snapshot: { files: [{ path: "README.md", state: "file" }] },
+    suite: suiteV21,
+    snapshot: {
+      files: [
+        { path: "README.md", state: "file" },
+        { path: "plugins/better-workflows/package.json", state: "file" },
+        { path: "plugins/better-workflows/.codex-plugin/plugin.json", state: "file" },
+        { path: "plugins/better-workflows/scripts/tests/docs.test.mjs", state: "file" },
+        { path: "plugins/better-workflows/scripts/tests/fixtures.test.mjs", state: "file" }
+      ]
+    },
     split: "holdout"
   });
   assert.deepEqual(
     [...new Set(cases.map((item) => item.evaluationClass))].sort(),
-    ["documentation-information-architecture", "universal-safety"]
+    [
+      "deliberation-roster-terminology",
+      "documentation-information-architecture",
+      "universal-safety"
+    ]
   );
+  assert.equal(cases.some((item) => item.evaluationClass === "evaluation-engineering"), false);
   assert.throws(
     () => selectEvaluationCases({
-      suite: suiteV2,
+      suite: suiteV21,
       snapshot: { files: [{ path: "plugins/better-workflows/templates/unclassified.json", state: "file" }] },
       split: "holdout"
     }),
@@ -192,8 +209,8 @@ test("evaluator migration calibration binds v1, v2, balanced groups, and both sp
     ]
   };
   const calibration = calibrateEvaluatorMigration({
-    source: suite,
-    target: suiteV2,
+    source: suiteV2,
+    target: suiteV21,
     snapshot,
     materials: [
       { materialGroup: "runtime" },

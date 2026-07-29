@@ -29,17 +29,17 @@ routing, or the immutable cache publisher.
 
 ## Freeze, stage, and validate candidates
 
-Before candidate work, freeze the checked-in sanitized Evaluation v2 suite at
-`fixtures/self-improve-ops-evals-v2.json` in an immutable baseline commit. The
-legacy v1 suite remains checked in and immutable only for the one-time,
-host-attested v1-to-v2 migration safety replay. Never edit a known corpus in
-place, or derive cases from session history, transcripts, schedules, or any
-unsanitized source. Every suite keeps isolated `train` and `holdout` splits.
+Before candidate work, freeze the current checked-in sanitized Evaluation
+suite at `fixtures/self-improve-ops-evals-v2.1.json` in an immutable baseline
+commit. Earlier v1 and v2 suites remain checked in and immutable for
+host-attested evaluator migrations. Never edit a known corpus in place, or
+derive cases from session history, transcripts, schedules, or any unsanitized
+source. Every suite keeps isolated `train` and `holdout` splits.
 
 Iterate only with the training split. Stage the entire candidate root and bind
 it to the exact baseline revision. Then run the holdout split exactly three
 times for the baseline and three times for the candidate. Every hard safety
-assertion must pass in every replay. Evaluation v2 always includes the universal
+assertion must pass in every replay. Evaluation v2.1 always includes the universal
 safety class and selects improvement classes from the complete changed-path
 manifest. The applicable improvement-class median must strictly exceed the
 baseline median; no case may regress; and no candidate replay may fall below a
@@ -48,14 +48,14 @@ rejected. Ties, instability, malformed output, missing evidence, or no
 measurable gain are `NO_CHANGE` or `REJECTED_WITH_EVIDENCE`, never ordinary
 adoption.
 
-An evaluator migration is a separate, one-time governance path. It freezes the
-legacy corpus at the run-start baseline, binds a distinct v2 corpus digest into
-all seven signed executions, and requires deterministic class applicability,
-balanced-sampling coverage, and saturation-policy calibration. Legacy replays
-may tie only on this migration path, and only when every hard-safety assertion,
-every case median, and every individual candidate replay is non-regressing.
-After the migration is merged, all ordinary candidates use v2 and the strict
-improvement rule above.
+An evaluator migration is a separate governance path. It freezes the previous
+versioned corpus at the run-start baseline, binds a distinct target corpus
+digest into all seven signed executions, and requires deterministic class
+applicability, balanced-sampling coverage, and saturation-policy calibration.
+Source-suite replays may tie only on this migration path, and only when every
+hard-safety assertion, every case median, and every individual candidate replay
+is non-regressing. After a migration is merged, all ordinary candidates use the
+new canonical corpus and the strict improvement rule above.
 
 Real replays require separate, per-run authority and use only a read-only,
 ephemeral Codex invocation. They also require a host-signed attestation for the
@@ -96,18 +96,18 @@ and confirmed digest before signing.
 ```sh
 sbw self-improve evaluate \
   --run <run-id> \
-  --cases plugins/better-workflows/fixtures/self-improve-ops-evals-v2.json \
+  --cases plugins/better-workflows/fixtures/self-improve-ops-evals-v2.1.json \
   --baseline <immutable-baseline> --candidate-root . \
   --backend codex --model <attested-model> --allow-codex --sanitized \
   --trusted-codex-attestation /host/attestation.json --split train
 ```
 
-For the one-time v1-to-v2 migration only, add:
+For a versioned evaluator migration, replace the ordinary cases path with the
+immutable previous corpus and add:
 
 ```sh
---cases plugins/better-workflows/fixtures/self-improve-ops-evals.json \
 --purpose evaluator-migration \
---next-cases plugins/better-workflows/fixtures/self-improve-ops-evals-v2.json
+--next-cases plugins/better-workflows/fixtures/self-improve-ops-evals-v2.1.json
 ```
 
 Use `--split holdout` only after training is frozen. This selector never

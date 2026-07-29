@@ -9,7 +9,8 @@ const CASE_ID = /^[a-z0-9][a-z0-9-]{2,79}$/;
 const DISPOSITIONS = new Set(["IMPLEMENT", "NO_CHANGE", "BLOCKED", "REJECTED_WITH_EVIDENCE"]);
 const SECRET_PATTERN = /(?:api[_-]?key|password|passwd|secret|token|authorization)\s*[:=]\s*(?:"[^"\s]{4,}"|'[^'\s]{4,}'|(?=[A-Za-z0-9+/_-]{8,}(?:\s|$))(?=[A-Za-z0-9+/_-]*[0-9+/_-])[A-Za-z0-9+/_-]+)/i;
 export const SELF_IMPROVE_LEGACY_CORPUS = "plugins/better-workflows/fixtures/self-improve-ops-evals.json";
-export const SELF_IMPROVE_CANONICAL_CORPUS = "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.json";
+export const SELF_IMPROVE_MIGRATION_SOURCE_CORPUS = "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.json";
+export const SELF_IMPROVE_CANONICAL_CORPUS = "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.1.json";
 export const SELF_IMPROVE_EVALUATION_PURPOSES = new Set(["ordinary", "evaluator-migration"]);
 
 const PUBLIC_ROOT_DOCUMENTS = new Set([
@@ -160,8 +161,12 @@ export async function loadFrozenEvaluationSuite({ cwd, casesFile, baselineRevisi
   if (!isWithin(repository, absolute)) throw new Error("Evaluation suite must be inside the repository");
   const relative = safeRelative(path.relative(repository, absolute), "Evaluation suite path");
   if (!SELF_IMPROVE_EVALUATION_PURPOSES.has(purpose)) throw new Error("Unknown self-improve evaluation purpose");
-  const canonicalPath = purpose === "evaluator-migration" ? SELF_IMPROVE_LEGACY_CORPUS : SELF_IMPROVE_CANONICAL_CORPUS;
-  if (canonical && relative !== canonicalPath) throw new Error(`Production ${purpose} evaluation suite must be ${canonicalPath}`);
+  const canonicalPaths = purpose === "evaluator-migration"
+    ? [SELF_IMPROVE_LEGACY_CORPUS, SELF_IMPROVE_MIGRATION_SOURCE_CORPUS]
+    : [SELF_IMPROVE_CANONICAL_CORPUS];
+  if (canonical && !canonicalPaths.includes(relative)) {
+    throw new Error(`Production ${purpose} evaluation suite must be one of: ${canonicalPaths.join(", ")}`);
+  }
   const baseline = await resolveBaselineRevision(repository, baselineRevision);
   let frozen;
   try {
@@ -368,7 +373,14 @@ export function selectEvaluationCases({ suite, snapshot, split }) {
 }
 
 export function calibrateEvaluatorMigration({ source, target, snapshot, materials, sourceDigest, targetDigest }) {
-  if (source.schemaVersion !== 1 || target.schemaVersion !== 2) throw new Error("Evaluator migration must move from schemaVersion 1 to 2");
+  if (
+    ![1, 2].includes(source.schemaVersion) ||
+    target.schemaVersion !== 2 ||
+    sourceDigest === targetDigest ||
+    source.name === target.name
+  ) {
+    throw new Error("Evaluator migration requires distinct versioned source and target suites with a schemaVersion 2 target");
+  }
   const groups = [...new Set(materials.map((item) => item.materialGroup))].sort();
   const expectedGroups = [...new Set(snapshot.files.filter((item) => item.state === "file").map((item) => candidateMaterialGroup(item.path)))].sort();
   if (expectedGroups.some((group) => !groups.includes(group))) throw new Error("Evaluator migration sampling does not cover every changed material group");
@@ -408,6 +420,7 @@ export function buildEvaluationPrompt({ suite, candidate, materials = [] }) {
     "You are evaluating a staged workflow candidate using a sanitized, bounded corpus.",
     "Do not use tools, access history, write files, or perform side effects.",
     "For each case, return its id, one operational disposition, and only assertion ids that the candidate satisfies.",
+    "Assess every listed assertion independently; do not omit a satisfied assertion because it overlaps another assertion or appears advisory.",
     "The result must be grounded solely in the candidate digest, complete changed-path digest manifest, and balanced sanitized samples below.",
     `Candidate digest: ${candidate.digest}`,
     "Changed-path digest manifest:", JSON.stringify(manifest),

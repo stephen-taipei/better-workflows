@@ -7,6 +7,8 @@ import { buildContract, loadDefaults } from "../lib/core.mjs";
 import {
   binaryIdentity,
   doctorAgy,
+  providerFinalOutput,
+  providerFailureSummary,
   runAgyCritic,
   runCodexEvaluation,
   spawnCapture
@@ -51,6 +53,37 @@ test("spawnCapture enforces nonzero exit and output capture without a shell", as
     timeoutMs: 5_000
   });
   assert.equal(failure.code, 7);
+});
+
+test("provider timeout diagnostics are explicit, bounded, and redact stderr", async () => {
+  const echoedMaterial = "sanitized-payload-that-must-not-be-echoed";
+  const result = await spawnCapture(
+    process.execPath,
+    ["-e", `process.stderr.write(${JSON.stringify(echoedMaterial)}); setTimeout(() => {}, 10_000)`],
+    { timeoutMs: 50 }
+  );
+  assert.equal(result.code, null);
+  assert.equal(result.timedOut, true);
+  const diagnostic = providerFailureSummary("Codex evaluation", result, 50);
+  assert.match(diagnostic, /timed out after 50ms/);
+  assert.match(diagnostic, /signal=SIGTERM/);
+  assert.match(diagnostic, /stderrDigest=[a-f0-9]{64}/);
+  assert.doesNotMatch(diagnostic, new RegExp(echoedMaterial));
+});
+
+test("provider final output prefers a private file and fails bounded when every transport is empty", () => {
+  assert.deepEqual(
+    providerFinalOutput('{"results":[]}\n', '{"results\":[\"stdout\"]}\n'),
+    { output: '{"results":[]}\n', transport: "private-file" }
+  );
+  assert.deepEqual(
+    providerFinalOutput("", '{"results":[]}\n'),
+    { output: '{"results":[]}\n', transport: "stdout-fallback" }
+  );
+  assert.throws(
+    () => providerFinalOutput("", ""),
+    /fileBytes=0; fileDigest=[a-f0-9]{64}; stdoutBytes=0; stdoutDigest=[a-f0-9]{64}/
+  );
 });
 
 test("provider binary identity resolves symlink commands to a canonical regular file", async () => {

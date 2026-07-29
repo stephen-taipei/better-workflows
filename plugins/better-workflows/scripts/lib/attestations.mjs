@@ -6,9 +6,10 @@ import {
   evaluationBindingDigest,
   loadFrozenEvaluationSuite,
   loadMigrationTargetSuite,
+  readSanitizedCandidateMaterial,
   snapshotCandidate,
   SELF_IMPROVE_CANONICAL_CORPUS,
-  SELF_IMPROVE_LEGACY_CORPUS
+  SELF_IMPROVE_MIGRATION_SOURCE_CORPUS
 } from "./self-improve.mjs";
 import { binaryIdentity } from "./providers.mjs";
 
@@ -44,7 +45,7 @@ export async function generateAttestationRequests({
     cwd: resolvedRepo,
     casesFile: path.resolve(
       resolvedRepo,
-      casesFile ?? (purpose === "evaluator-migration" ? SELF_IMPROVE_LEGACY_CORPUS : SELF_IMPROVE_CANONICAL_CORPUS)
+      casesFile ?? (purpose === "evaluator-migration" ? SELF_IMPROVE_MIGRATION_SOURCE_CORPUS : SELF_IMPROVE_CANONICAL_CORPUS)
     ),
     baselineRevision,
     canonical: true,
@@ -65,6 +66,10 @@ export async function generateAttestationRequests({
     cwd: resolvedRepo,
     baselineRevision: frozen.baselineRevision,
     candidateRoot
+  });
+  await readSanitizedCandidateMaterial({
+    cwd: resolvedRepo,
+    snapshot: candidate
   });
   const executions = [
     { split: "train", role: "train-candidate", attempt: 1 },
