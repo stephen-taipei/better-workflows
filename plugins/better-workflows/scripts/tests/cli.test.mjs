@@ -48,10 +48,12 @@ async function cli(cwd, stateRoot, args, { allowFailure = false, env = {} } = {}
 
 async function selfImproveRepository() {
   const cwd = await repository();
-  const corpus = await readFile(path.resolve(path.dirname(CLI), "..", "fixtures", "self-improve-ops-evals.json"), "utf8");
   await mkdir(path.join(cwd, "plugins", "better-workflows", "fixtures"), { recursive: true });
   await mkdir(path.join(cwd, "plugins", "better-workflows", "scripts"), { recursive: true });
-  await writeFile(path.join(cwd, "plugins", "better-workflows", "fixtures", "self-improve-ops-evals.json"), corpus);
+  for (const name of ["self-improve-ops-evals.json", "self-improve-ops-evals-v2.json"]) {
+    const corpus = await readFile(path.resolve(path.dirname(CLI), "..", "fixtures", name), "utf8");
+    await writeFile(path.join(cwd, "plugins", "better-workflows", "fixtures", name), corpus);
+  }
   await git(cwd, "add", ".");
   await git(cwd, "commit", "-qm", "freeze corpus");
   return cwd;
@@ -215,6 +217,33 @@ test("self-improve fixture evaluation is explicit, private, and never grants del
   assert.match(delivery.stderr, /trusted Codex held-out comparison/);
 });
 
+test("evaluator migration binds immutable v1, current v2, calibration, and a dedicated comparison policy", async () => {
+  const cwd = await selfImproveRepository();
+  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-cli-evaluator-migration-"));
+  await writeFile(path.join(cwd, "plugins", "better-workflows", "scripts", "sbw.mjs"), "export const candidate = 'evaluation-v2';\n");
+  const started = await cli(cwd, stateRoot, [
+    "run", "--template", "self-improve-ops", "--mode", "critical", "--goal", "Migrate evaluator", "--scope", ".", "--authority", "git.commit"
+  ]);
+  const fixture = await fixtureResult(cwd);
+  const common = [
+    "self-improve", "evaluate",
+    "--run", started.json.runId,
+    "--cases", "plugins/better-workflows/fixtures/self-improve-ops-evals.json",
+    "--next-cases", "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.json",
+    "--purpose", "evaluator-migration",
+    "--baseline", "HEAD",
+    "--candidate-root", ".",
+    "--backend", "fixture",
+    "--result-file", fixture
+  ];
+  const train = await cli(cwd, stateRoot, [...common, "--split", "train"], { env: { SBW_TEST_FIXTURE_BACKEND: "1" } });
+  assert.equal(train.json.calibration.materialGroups.includes("runtime"), true);
+  assert.equal(train.json.evidence.length, 4);
+  const holdout = await cli(cwd, stateRoot, [...common, "--split", "holdout"], { env: { SBW_TEST_FIXTURE_BACKEND: "1" } });
+  assert.equal(holdout.json.comparison.accepted, true);
+  assert.equal(holdout.json.comparison.policy, "evaluator-migration");
+});
+
 test("self-improve evaluation fails closed when its suite or staged candidate changes", async () => {
   const cwd = await selfImproveRepository();
   const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-cli-self-improve-drift-"));
@@ -278,6 +307,9 @@ test("self-improve attestation request freezes seven distinct requests outside t
   ]);
   assert.equal(requested.json.requests.length, 7);
   assert.equal(new Set(requested.json.requests.map((item) => item.executionId)).size, 7);
+  assert.equal(requested.json.purpose, "ordinary");
+  assert.equal(requested.json.suitePath, "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.json");
+  assert.equal(requested.json.targetSuiteDigest, null);
   assert.equal(requested.json.manifestPath, path.join(output, "attestation-requests.json"));
   assert.match(requested.json.manifestDigest, /^[a-f0-9]{64}$/);
   assert.equal(requested.json.signCommand.at(-1), requested.json.manifestDigest);

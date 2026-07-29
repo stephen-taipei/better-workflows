@@ -307,10 +307,15 @@ or sensitive material that cannot be sanitized, return
 `REJECTED_WITH_EVIDENCE`: do not read, transmit, or store the raw source, and
 record only a redacted rejection rationale.
 
-Self-improvement evaluation is bounded to a checked-in, sanitized train/holdout
-corpus frozen in the immutable baseline. A candidate is staged before replay;
-three read-only Codex holdout replays must strictly beat the baseline median
-without any safety failure or regression. Codex replay requires a host-signed
+Self-improvement Evaluation v2 is bounded to a checked-in, sanitized
+train/holdout corpus frozen in the immutable baseline. It always evaluates
+universal safety plus improvement classes selected from the complete
+changed-path digest manifest. Balanced samples cover runtime, tests, config,
+skills, templates, fixtures, metadata, and docs. Ordinary candidates require
+strict relevant-class median improvement, no regression, and a non-saturated
+suite. The immutable v1 corpus is retained only for a separately calibrated,
+host-attested v1-to-v2 migration that permits safety equality but never safety
+regression. Codex replay requires a host-signed
 attestation binding the exact binary and model to the administrator-owned fixed
 host trust root at `/etc/better-workflows/codex-trust-root.json`;
 `PATH`, a self-hash, and model self-report are not provider attestation. Ties,

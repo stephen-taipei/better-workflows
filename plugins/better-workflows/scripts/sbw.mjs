@@ -55,12 +55,17 @@ import {
 } from "./lib/providers.mjs";
 import {
   buildEvaluationPrompt,
+  calibrateEvaluatorMigration,
+  compareEvaluatorMigration,
   compareHoldout,
+  evaluationBindingDigest,
   loadFrozenEvaluationSuite,
+  loadMigrationTargetSuite,
   readSanitizedBaselineMaterial,
   readSanitizedCandidateMaterial,
   redactedScore,
   scoreEvaluation,
+  selectEvaluationCases,
   snapshotBaselineForCandidate,
   snapshotCandidate
 } from "./lib/self-improve.mjs";
@@ -594,7 +599,10 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
       "candidate-root",
       "model",
       "output",
-      "binary"
+      "binary",
+      "cases",
+      "purpose",
+      "next-cases"
     ]);
     for (const required of ["run", "baseline", "candidate-root", "model", "output"]) {
       if (!options[required]) throw new Error(`attestation request requires --${required}`);
@@ -616,7 +624,10 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
       candidateRoot: String(options["candidate-root"]),
       model: String(options.model),
       outputDirectory: String(options.output),
-      binaryPath: options.binary ? String(options.binary) : null
+      binaryPath: options.binary ? String(options.binary) : null,
+      casesFile: options.cases ? String(options.cases) : null,
+      purpose: String(options.purpose ?? "ordinary"),
+      nextCasesFile: options["next-cases"] ? String(options["next-cases"]) : null
     });
   }
   if (subcommand !== "evaluate") {
@@ -624,7 +635,7 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
   }
   assertKnownOptions(options, [
     "run", "cases", "baseline", "candidate-root", "backend", "split", "result-file", "model", "allow-codex", "sanitized",
-    "timeout-seconds", "trusted-codex-attestation"
+    "timeout-seconds", "trusted-codex-attestation", "purpose", "next-cases"
   ]);
   if (!options.run || !options.cases || !options.baseline || !options["candidate-root"] || !options.backend || !options.split) {
     throw new Error("self-improve evaluate requires --run, --cases, --baseline, --candidate-root, --backend, and --split");
@@ -637,22 +648,49 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
   }
   const backend = String(options.backend);
   const split = String(options.split);
+  const purpose = String(options.purpose ?? "ordinary");
   if (!["codex", "fixture"].includes(backend) || !["train", "holdout"].includes(split)) throw new Error("Invalid self-improve backend or split");
+  if (!["ordinary", "evaluator-migration"].includes(purpose)) throw new Error("Invalid self-improve evaluation purpose");
+  if (purpose === "evaluator-migration" && !options["next-cases"]) throw new Error("Evaluator migration requires --next-cases");
   if (backend === "fixture" && process.env.SBW_TEST_FIXTURE_BACKEND !== "1") {
     throw new Error("Fixture evaluation backend is test-only and requires SBW_TEST_FIXTURE_BACKEND=1");
   }
   if (backend === "codex") assertExplicitCodexEvaluationAuthority(options);
   if (backend === "fixture" && !options["result-file"]) throw new Error("Fixture evaluation requires --result-file");
   const cwd = run.manifest.cwd;
-  const frozen = await loadFrozenEvaluationSuite({ cwd, casesFile: path.resolve(cwd, String(options.cases)), baselineRevision: String(options.baseline), canonical: backend === "codex" });
+  const frozen = await loadFrozenEvaluationSuite({
+    cwd,
+    casesFile: path.resolve(cwd, String(options.cases)),
+    baselineRevision: String(options.baseline),
+    canonical: backend === "codex",
+    purpose
+  });
   if (frozen.baselineRevision !== run.manifest.baselineRevision) {
     throw new Error("Evaluation baseline must equal the immutable run-start baseline revision");
   }
-  const cases = frozen.suite.cases.filter((item) => item.split === split);
   const candidate = await snapshotCandidate({ cwd, baselineRevision: frozen.baselineRevision, candidateRoot: String(options["candidate-root"]) });
   const baseline = await snapshotBaselineForCandidate({ cwd, snapshot: candidate });
   const candidateMaterial = await readSanitizedCandidateMaterial({ cwd, snapshot: candidate });
   const baselineMaterial = await readSanitizedBaselineMaterial({ cwd, snapshot: baseline });
+  const target = purpose === "evaluator-migration"
+    ? await loadMigrationTargetSuite({ cwd, casesFile: path.resolve(cwd, String(options["next-cases"])) })
+    : null;
+  const suiteDigest = evaluationBindingDigest({
+    purpose,
+    sourceSuiteDigest: frozen.sourceDigest,
+    targetSuiteDigest: target?.sourceDigest
+  });
+  const cases = selectEvaluationCases({ suite: frozen.suite, snapshot: candidate, split });
+  const calibration = target
+    ? calibrateEvaluatorMigration({
+      source: frozen.suite,
+      target: target.suite,
+      snapshot: candidate,
+      materials: candidateMaterial,
+      sourceDigest: frozen.sourceDigest,
+      targetDigest: target.sourceDigest
+    })
+    : null;
   const candidatePrompt = buildEvaluationPrompt({ suite: { ...frozen.suite, cases }, candidate, materials: candidateMaterial });
   const baselinePrompt = buildEvaluationPrompt({ suite: { ...frozen.suite, cases }, candidate: baseline, materials: baselineMaterial });
   const fixture = backend === "fixture" ? JSON.parse(await readFile(path.resolve(cwd, String(options["result-file"])), "utf8")) : null;
@@ -664,16 +702,28 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
   if (backend === "codex" && new Set(attestationPaths).size !== attestationPaths.length) {
     throw new Error("Codex evaluation attestation files must be distinct for every replay");
   }
-  const dependencyFiles = [...new Set([frozen.relativePath, ...candidate.files.map((item) => item.path)])].sort();
+  const dependencyFiles = [...new Set([frozen.relativePath, target?.relativePath, ...candidate.files.map((item) => item.path)].filter(Boolean))].sort();
   const common = {
-    sourceDigest: digestObject({ suite: frozen.sourceDigest, baseline: frozen.baselineRevision, candidate: candidate.digest }),
+    sourceDigest: digestObject({ suite: suiteDigest, baseline: frozen.baselineRevision, candidate: candidate.digest }),
     dependencyInputs: { files: dependencyFiles },
-    evaluation: { backend, split, suiteDigest: frozen.sourceDigest, suitePath: frozen.relativePath, baselineRevision: frozen.baselineRevision, candidate, baseline }
+    evaluation: {
+      backend,
+      split,
+      purpose,
+      suiteDigest,
+      suitePath: frozen.relativePath,
+      sourceSuiteDigest: frozen.sourceDigest,
+      targetSuitePath: target?.relativePath ?? null,
+      targetSuiteDigest: target?.sourceDigest ?? null,
+      baselineRevision: frozen.baselineRevision,
+      candidate,
+      baseline
+    }
   };
   const execution = (role, attempt) => ({
     id: `${runId}-${split}-${role}-${attempt}`,
     runId,
-    suiteDigest: frozen.sourceDigest,
+    suiteDigest,
     baselineRevision: frozen.baselineRevision,
     candidateDigest: candidate.digest,
     role,
@@ -681,7 +731,7 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
   });
   const prior = await listJsonRecords(root, safeJoin(run.runDir, "evidence"));
   if (split === "holdout") {
-    const training = prior.find((item) => item.kind === "training-replay" && !item.stale && item.evaluation?.suiteDigest === frozen.sourceDigest && item.evaluation?.candidate?.digest === candidate.digest && item.evaluation?.baselineRevision === frozen.baselineRevision);
+    const training = prior.find((item) => item.kind === "training-replay" && !item.stale && item.evaluation?.suiteDigest === suiteDigest && item.evaluation?.candidate?.digest === candidate.digest && item.evaluation?.baselineRevision === frozen.baselineRevision);
     if (!training) throw new Error("Holdout evaluation requires a fresh training replay bound to the same suite, baseline, and candidate");
   }
   if (split === "train") {
@@ -700,7 +750,20 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
       acceptanceIds: ["outcome-explicit", "replay-bounded"], ...common,
       evaluation: { ...common.evaluation, replays: [structuredReplay(replay)] }
     });
-    return { ok: true, runId, split, backend, evidence: [suiteEvidence.id, staging.id, training.id], score: redactedScore(replay.score) };
+    const evidenceIds = [suiteEvidence.id, staging.id, training.id];
+    if (calibration) {
+      const migration = await addSelfImproveEvidence(root, runId, {
+        id: evaluationEvidenceId("migration"),
+        kind: "evaluation-migration",
+        summary: "Versioned evaluator migration has deterministic class, sampling, and saturation-policy calibration.",
+        status: "complete",
+        acceptanceIds: ["replay-bounded", "candidate-staged", "validated"],
+        ...common,
+        evaluation: { ...common.evaluation, calibration }
+      });
+      evidenceIds.push(migration.id);
+    }
+    return { ok: true, runId, split, backend, purpose, evidence: evidenceIds, calibration, score: redactedScore(replay.score) };
   }
   const candidateReplays = [];
   const baselineReplays = [];
@@ -708,11 +771,17 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
     attestationPath: attestationPaths[index], execution: execution("candidate", index + 1) }));
   for (let index = 0; index < 3; index += 1) baselineReplays.push(await evaluationReplay({ backend, fixture, role: "baseline", cases, prompt: baselinePrompt, options, cwd,
     attestationPath: attestationPaths[index + 3], execution: execution("baseline", index + 1) }));
-  const comparison = compareHoldout({ baseline: baselineReplays.map((item) => item.score), candidate: candidateReplays.map((item) => item.score) });
+  const comparison = purpose === "evaluator-migration"
+    ? compareEvaluatorMigration({ baseline: baselineReplays.map((item) => item.score), candidate: candidateReplays.map((item) => item.score) })
+    : compareHoldout({ baseline: baselineReplays.map((item) => item.score), candidate: candidateReplays.map((item) => item.score), suite: frozen.suite });
   const trusted = backend === "codex" && [...candidateReplays, ...baselineReplays].every((item) => item.metadata.trustAttested === true && item.metadata.provider === "codex");
   const evidence = await addSelfImproveEvidence(root, runId, {
     id: evaluationEvidenceId("holdout"), kind: "holdout-comparison", status: "complete",
-    summary: comparison.accepted && trusted ? "Trusted held-out comparison passed strict improvement and safety gates." : `Held-out comparison did not authorize adoption: ${comparison.reason}.`,
+    summary: comparison.accepted && trusted
+      ? (purpose === "evaluator-migration"
+        ? "Trusted legacy held-out comparison passed evaluator-migration safety non-regression gates."
+        : "Trusted held-out comparison passed strict relevant-class improvement and safety gates.")
+      : `Held-out comparison did not authorize adoption: ${comparison.reason}.`,
     acceptanceIds: comparison.accepted && trusted ? ["heldout-gated", "outcome-explicit", "validated"] : ["outcome-explicit"], ...common,
     evaluation: { ...common.evaluation, comparison, candidateReplays: candidateReplays.map(structuredReplay), baselineReplays: baselineReplays.map(structuredReplay) }
   });
@@ -771,11 +840,13 @@ async function assertAcceptedSelfImproveHoldout(root, runId, action) {
   if (evaluation.baselineRevision !== run.manifest.baselineRevision) {
     throw new Error("Self-improve held-out evidence is not bound to the run-start baseline");
   }
-  await loadFrozenEvaluationSuite({
+  const purpose = evaluation.purpose ?? "ordinary";
+  const frozen = await loadFrozenEvaluationSuite({
     cwd: run.manifest.cwd,
     casesFile: path.join(run.manifest.cwd, evaluation.suitePath),
     baselineRevision: evaluation.baselineRevision,
-    canonical: true
+    canonical: true,
+    purpose
   });
   const currentCandidate = await snapshotCandidate({
     cwd: run.manifest.cwd,
@@ -784,6 +855,45 @@ async function assertAcceptedSelfImproveHoldout(root, runId, action) {
   });
   if (currentCandidate.digest !== evaluation.candidate.digest) {
     throw new Error("Self-improve candidate changed after held-out evaluation");
+  }
+  if (purpose === "evaluator-migration") {
+    if (evaluation.comparison?.policy !== "evaluator-migration") {
+      throw new Error("Evaluator migration delivery requires the dedicated safety non-regression policy");
+    }
+    const migration = evidence.find((item) =>
+      item.kind === "evaluation-migration" &&
+      item.status === "complete" &&
+      !item.stale &&
+      item.evaluation?.suiteDigest === evaluation.suiteDigest &&
+      item.evaluation?.candidate?.digest === evaluation.candidate?.digest &&
+      item.evaluation?.calibration?.digest
+    );
+    if (!migration) throw new Error("Evaluator migration delivery requires fresh deterministic migration calibration");
+    const target = await loadMigrationTargetSuite({
+      cwd: run.manifest.cwd,
+      casesFile: path.join(run.manifest.cwd, evaluation.targetSuitePath)
+    });
+    if (target.sourceDigest !== evaluation.targetSuiteDigest) throw new Error("Evaluator migration target suite changed after replay");
+    const binding = evaluationBindingDigest({
+      purpose,
+      sourceSuiteDigest: frozen.sourceDigest,
+      targetSuiteDigest: target.sourceDigest
+    });
+    if (binding !== evaluation.suiteDigest) throw new Error("Evaluator migration suite binding changed after replay");
+    const materials = await readSanitizedCandidateMaterial({ cwd: run.manifest.cwd, snapshot: currentCandidate });
+    const calibration = calibrateEvaluatorMigration({
+      source: frozen.suite,
+      target: target.suite,
+      snapshot: currentCandidate,
+      materials,
+      sourceDigest: frozen.sourceDigest,
+      targetDigest: target.sourceDigest
+    });
+    if (calibration.digest !== migration.evaluation.calibration.digest) {
+      throw new Error("Evaluator migration calibration changed after replay");
+    }
+  } else if (evaluation.comparison?.policy !== "strict-class-improvement") {
+    throw new Error("Ordinary self-improve delivery requires strict relevant-class improvement");
   }
 }
 
@@ -1121,9 +1231,9 @@ function help() {
       "sbw cancel <run-id> [--reason <text>]",
       "sbw sentinel capture|verify <run-id> --label <label>",
       "sbw evidence add <run-id> --file <json>",
-      "sbw self-improve evaluate --run <run-id> --cases <file> --baseline <git-revision> --candidate-root <path> --backend <codex|fixture> --split <train|holdout>",
+      "sbw self-improve evaluate --run <run-id> --cases <file> --baseline <git-revision> --candidate-root <path> --backend <codex|fixture> --split <train|holdout> [--purpose ordinary|evaluator-migration] [--next-cases <v2-file>]",
       "sbw self-improve host status",
-      "sbw self-improve attestation request --run <run-id> --baseline <sha> --candidate-root <path> --model <model> --output <outside-repo-directory>",
+      "sbw self-improve attestation request --run <run-id> --baseline <sha> --candidate-root <path> --model <model> --output <outside-repo-directory> [--cases <file>] [--purpose ordinary|evaluator-migration] [--next-cases <v2-file>]",
       "sbw finding add|update <run-id> --file <json>",
       "sbw critic codex|agy <run-id> --model <model> --prompt-file <file> [--effort <auto|medium|high>] [--effort-transport <native|model-variant>]",
       "sbw deliberation roster [--mode <auto|direct|verified|deep|critical>] [--reasoning-effort <auto|medium|high>] [--refresh] [--provider <id>] [--allow-external-providers --sanitized]",
