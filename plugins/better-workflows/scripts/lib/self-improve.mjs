@@ -22,6 +22,17 @@ const PUBLIC_ROOT_DOCUMENTS = new Set([
   "SUPPORT.md"
 ]);
 const MATERIAL_GROUPS = ["runtime", "tests", "config", "skills", "templates", "fixtures", "metadata", "docs"];
+const PUBLIC_DOCUMENT_SAMPLE_PRIORITY = new Map([
+  "README.md",
+  "docs/README.zh-TW.md",
+  "docs/README.zh-CN.md",
+  "docs/README.ja.md",
+  "docs/README.ko.md",
+  "SECURITY.md",
+  "docs/guide/security.md",
+  "docs/guide/architecture.md",
+  "docs/assets/better-workflows-engineering-stack.svg"
+].map((file, index) => [file, index]));
 
 function allowedCandidateMaterial(file) {
   return PUBLIC_ROOT_DOCUMENTS.has(file) ||
@@ -274,7 +285,16 @@ function safeUtf8Prefix(content, limit) {
 function selectBalancedMaterialFiles(files, maxFiles) {
   const grouped = new Map(MATERIAL_GROUPS.map((group) => [group, []]));
   for (const file of files.filter((item) => item.state === "file")) grouped.get(candidateMaterialGroup(file.path)).push(file);
-  for (const values of grouped.values()) values.sort((left, right) => left.path.localeCompare(right.path));
+  for (const [group, values] of grouped) {
+    values.sort((left, right) => {
+      if (group === "docs") {
+        const leftPriority = PUBLIC_DOCUMENT_SAMPLE_PRIORITY.get(left.path) ?? Number.MAX_SAFE_INTEGER;
+        const rightPriority = PUBLIC_DOCUMENT_SAMPLE_PRIORITY.get(right.path) ?? Number.MAX_SAFE_INTEGER;
+        if (leftPriority !== rightPriority) return leftPriority - rightPriority;
+      }
+      return left.path.localeCompare(right.path);
+    });
+  }
   const selected = [];
   for (let index = 0; selected.length < maxFiles; index += 1) {
     let added = false;
@@ -420,6 +440,11 @@ export function buildEvaluationPrompt({ suite, candidate, materials = [] }) {
     "You are evaluating a staged workflow candidate using a sanitized, bounded corpus.",
     "Do not use tools, access history, write files, or perform side effects.",
     "For each case, return its id, one operational disposition, and only assertion ids that the candidate satisfies.",
+    "Each case is an independent case-specific decision: choose the disposition for that case's proposed change or evidence source, never for the staged candidate as a whole.",
+    "Use the staged candidate only to determine whether and how it safely addresses the individual case.",
+    "Disposition semantics: IMPLEMENT means the candidate contains a warranted case-specific material change; NO_CHANGE means the case does not warrant a material product change; BLOCKED means a warranted product change cannot be implemented because a named dependency or authority is unavailable; REJECTED_WITH_EVIDENCE means visible evidence shows the case-specific proposal is unsafe, inapplicable, or cannot be supported without prohibited evidence.",
+    "Disposition precedence: when the scenario says its only proposed evidence source is prohibited, sensitive, or cannot be sanitized, choose REJECTED_WITH_EVIDENCE; do not substitute a different source or the staged candidate's existing safeguards.",
+    "An existing safeguard may satisfy an assertion, but it does not make an inadmissible case-specific proposal safe, supported, or eligible for another disposition.",
     "Assess every listed assertion independently; do not omit a satisfied assertion because it overlaps another assertion or appears advisory.",
     "The result must be grounded solely in the candidate digest, complete changed-path digest manifest, and balanced sanitized samples below.",
     `Candidate digest: ${candidate.digest}`,

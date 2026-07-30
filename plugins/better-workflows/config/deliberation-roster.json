@@ -60,8 +60,8 @@
       "external": true,
       "effortTransport": "native",
       "models": [
-        {"model": "claude-opus-4-6-thinking", "displayModel": "Claude Opus 4.6 Thinking via Agy", "brand": "Agy", "role": "risk-and-safety-critic", "capabilityRank": 22, "reasoningEffort": "high", "effortTransport": "model-variant"},
-        {"model": "gpt-oss-120b-medium", "displayModel": "GPT-OSS 120B (Medium) via Agy", "brand": "Agy", "role": "cost-and-operability-reviewer", "capabilityRank": 23, "reasoningEffort": "medium"}
+        {"model": "claude-opus-4-6-thinking", "displayModel": "Claude Opus 4.6 Thinking via Agy", "brand": "Claude", "role": "risk-and-safety-critic", "capabilityRank": 22, "reasoningEffort": "high", "effortTransport": "model-variant"},
+        {"model": "gpt-oss-120b-medium", "displayModel": "GPT-OSS 120B (Medium) via Agy", "brand": "GPT-OSS", "role": "cost-and-operability-reviewer", "capabilityRank": 23, "reasoningEffort": "medium"}
       ]
     },
     {

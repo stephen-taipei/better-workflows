@@ -127,7 +127,8 @@ source/cache digest verification.
 
 For `research-deliberation`, also read
 [deliberation-roster.md](references/deliberation-roster.md). It defines the
-CLI-proven participant roster, model-bound roles, Agy-based Gemini route, and
+CLI-proven participant roster, model-bound roles, Antigravity CLI (`agy`)
+transport for Gemini models, and
 capability-ranked final-arbiter fallback. Apply the contextual `medium`/`high`
 reasoning-effort policy to every model and record its actual transport. The
 former separate AI-meeting alias is intentionally not used.
@@ -202,13 +203,16 @@ sbw critic codex <run-id> --model gpt-5.6-sol --effort xhigh --prompt-file <sani
 
 When the parent Codex sandbox blocks the child CLI from reading its own local auth/runtime state, request scoped approval for this exact critic command. Never replace the child `--sandbox read-only` setting with a bypass flag.
 
-Use Agy only when the user authorized external egress and the bundle is sanitized, non-confidential, and within the byte limit:
+Use Antigravity CLI (`agy`) only when the user authorized external egress and
+the bundle is sanitized, non-confidential, and within the byte limit:
 
 ~~~bash
 sbw critic agy <run-id> --model "Gemini 3.1 Pro (High)" --prompt-file <sanitized-file>
 ~~~
 
-Never send secrets, regulated data, private source, raw history, or confidential prompts through Agy argv transport. If critical policy requires Agy and it is unavailable, finish as `inconclusive`.
+Never send secrets, regulated data, private source, raw history, or
+confidential prompts through `agy` argv transport. If critical policy requires
+this transport and it is unavailable, finish as `inconclusive`.
 
 ## Record evidence and findings
 

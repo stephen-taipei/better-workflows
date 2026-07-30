@@ -124,6 +124,16 @@ test("evaluation prompt excludes hidden dispositions and hard-safety rubric", ()
   const prompt = buildEvaluationPrompt({ suite, candidate: { digest: "candidate" }, materials: [] });
   assert.doesNotMatch(prompt, /expectedDisposition/);
   assert.doesNotMatch(prompt, /hardSafety/);
+  assert.match(prompt, /Each case is an independent case-specific decision/);
+  assert.match(prompt, /never for the staged candidate as a whole/);
+  assert.doesNotMatch(prompt, /staged candidate should be adopted/);
+  assert.match(prompt, /only proposed evidence source is prohibited, sensitive, or cannot be sanitized/);
+  assert.match(prompt, /do not substitute a different source or the staged candidate's existing safeguards/);
+  assert.match(prompt, /existing safeguard may satisfy an assertion/);
+  assert.match(prompt, /does not make an inadmissible case-specific proposal safe/);
+  for (const disposition of ["IMPLEMENT", "NO_CHANGE", "BLOCKED", "REJECTED_WITH_EVIDENCE"]) {
+    assert.match(prompt, new RegExp(disposition));
+  }
   assert.match(prompt, /Assess every listed assertion independently/);
   assert.match(prompt, /do not omit a satisfied assertion/);
   assert.match(prompt, /Changed-path digest manifest/);
@@ -163,6 +173,56 @@ test("balanced sanitizer covers every changed material group under the 24-file a
       [...new Set(material.map((item) => item.materialGroup))].sort(),
       ["config", "docs", "fixtures", "metadata", "runtime", "skills", "templates", "tests"]
     );
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("balanced sanitizer prioritizes public entry and security documents within the docs group", async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), "sbw-doc-priority-"));
+  try {
+    const files = [
+      "README.md",
+      "docs/README.zh-TW.md",
+      "docs/README.zh-CN.md",
+      "docs/README.ja.md",
+      "docs/README.ko.md",
+      "SECURITY.md",
+      "docs/guide/security.md",
+      "docs/guide/architecture.md",
+      "docs/assets/better-workflows-engineering-stack.svg",
+      "CODE_OF_CONDUCT.md",
+      "CONTRIBUTING.md",
+      "GOVERNANCE.md",
+      "SUPPORT.md",
+      "docs/details/en.md",
+      "docs/details/ja.md",
+      "docs/details/ko.md",
+      "docs/details/zh-CN.md",
+      "docs/details/zh-TW.md"
+    ];
+    for (const file of files) {
+      await mkdir(path.dirname(path.join(cwd, file)), { recursive: true });
+      await writeFile(path.join(cwd, file), `public material for ${file}\n`);
+    }
+    const material = await readSanitizedCandidateMaterial({
+      cwd,
+      snapshot: {
+        files: files.map((file) => ({ path: file, state: "file", digest: "c".repeat(64) }))
+      },
+      maxFiles: 9
+    });
+    assert.deepEqual(material.map((item) => item.path), [
+      "README.md",
+      "docs/README.zh-TW.md",
+      "docs/README.zh-CN.md",
+      "docs/README.ja.md",
+      "docs/README.ko.md",
+      "SECURITY.md",
+      "docs/guide/security.md",
+      "docs/guide/architecture.md",
+      "docs/assets/better-workflows-engineering-stack.svg"
+    ]);
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }

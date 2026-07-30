@@ -207,7 +207,7 @@ test("self improve keeps no-change, synchronization, cache, commit, and push fai
   }
 });
 
-test("deliberation roster keeps every brand and routes Gemini through Agy with a 24-hour lease", async () => {
+test("deliberation roster separates model brands from the Agy transport with a 24-hour lease", async () => {
   const roster = JSON.parse(
     await readFile(path.join(pluginRoot(), "config", "deliberation-roster.json"), "utf8")
   );
@@ -219,6 +219,15 @@ test("deliberation roster keeps every brand and routes Gemini through Agy with a
   assert.equal(providers.get("gemini").command, "agy");
   assert.equal(providers.get("gemini").probe, "agy");
   assert.equal(providers.get("gemini").effortTransport, "native");
+  assert.equal(
+    providers.get("agy").models.find((model) => model.model === "claude-opus-4-6-thinking").brand,
+    "Claude"
+  );
+  assert.equal(
+    providers.get("agy").models.find((model) => model.model === "gpt-oss-120b-medium").brand,
+    "GPT-OSS"
+  );
+  assert.ok(providers.get("agy").models.every((model) => model.brand !== "Agy"));
   assert.equal(
     providers.get("agy").models.find((model) => model.model === "claude-opus-4-6-thinking").effortTransport,
     "model-variant"

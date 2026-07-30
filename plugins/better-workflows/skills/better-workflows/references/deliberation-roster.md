@@ -19,9 +19,10 @@ unbounded loop.
    explicit user authorization for external egress and a sanitized,
    non-confidential prompt. Never send source, secrets, private history, or
    regulated data through argv-based providers.
-4. In this runtime, Gemini is reached through `agy`; do not invoke a standalone
-   `gemini` CLI. Agy can expose Gemini-, Claude-, or GPT-OSS-branded models,
-   but the evidence records Agy as the transport and the model brand separately.
+4. In this runtime, Gemini is reached through Antigravity CLI (`agy`); do not
+   invoke a standalone `gemini` CLI. `agy` can expose Gemini-, Claude-, or
+   GPT-OSS-branded models, but it is not itself a model brand. Evidence records
+   the `agy` transport and actual model brand separately.
 5. The cache is invalidated on expiry, `--refresh`, roster configuration change,
    or CLI path/binary digest change. Each reasoning-effort profile has a
    separate cache. Targeted `--provider` probes never replace the complete
