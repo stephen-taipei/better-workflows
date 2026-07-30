@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="760" viewBox="0 0 1600 760" role="img" aria-labelledby="title desc">
+  <title id="title">Better Workflows engineering stack</title>
+  <desc id="desc">Five governed layers: Prompt, Context, Harness, Loop, and Graph.</desc>
+  <defs>
+    <pattern id="grid" width="80" height="80" patternUnits="userSpaceOnUse">
+      <path d="M 80 0 L 0 0 0 80" fill="none" stroke="#173049" stroke-width="1"/>
+    </pattern>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#020817" flood-opacity=".55"/>
+    </filter>
+    <style>
+      .sans { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; }
+      .mono { font-family: SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+      .eyebrow { font-size: 20px; font-weight: 700; letter-spacing: 6px; fill: #67e8f9; }
+      .headline { font-size: 48px; font-weight: 700; fill: #f8fafc; }
+      .subhead { font-size: 22px; font-weight: 400; fill: #94a3b8; }
+      .number { font-size: 18px; font-weight: 700; }
+      .card-title { font-size: 31px; font-weight: 700; fill: #f8fafc; }
+      .question { font-size: 19px; font-weight: 700; }
+      .detail { font-size: 17px; font-weight: 400; fill: #94a3b8; }
+      .footer { font-size: 21px; font-weight: 500; fill: #cbd5e1; }
+      .arrow { font-size: 32px; font-weight: 400; fill: #64748b; }
+    </style>
+  </defs>
+
+  <rect x="16" y="16" width="1568" height="728" rx="38" fill="#07111f" stroke="#334155" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="16" y="16" width="1568" height="728" rx="38" fill="url(#grid)" opacity=".48"/>
+
+  <text x="88" y="88" class="eyebrow mono" fill="#67e8f9" font-family="Menlo, Consolas, monospace" font-size="20" font-weight="700" letter-spacing="6">BETTER WORKFLOWS</text>
+  <text x="88" y="148" class="headline sans" fill="#f8fafc" font-family="Arial, sans-serif" font-size="48" font-weight="700">From one prompt to governed completion.</text>
+  <text x="88" y="190" class="subhead sans" fill="#94a3b8" font-family="Arial, sans-serif" font-size="22">Reliability is distributed across intent, state, execution, feedback, and structure.</text>
+
+  <g transform="translate(74 242)">
+    <rect width="250" height="318" rx="28" fill="#151a1e" stroke="#7c6b2a" stroke-width="2"/>
+    <text x="30" y="48" class="number mono" fill="#fde68a" font-family="Menlo, Consolas, monospace" font-size="18" font-weight="700">01</text>
+    <text x="30" y="116" class="card-title mono" fill="#f8fafc" font-family="Menlo, Consolas, monospace" font-size="31" font-weight="700">Prompt</text>
+    <text x="30" y="162" class="question sans" fill="#fde68a" font-family="Arial, sans-serif" font-size="19" font-weight="700">What outcome?</text>
+    <path d="M30 194 H220" stroke="#334155"/>
+    <text x="30" y="236" class="detail sans" fill="#94a3b8" font-family="Arial, sans-serif" font-size="17">Goal</text>
+    <text x="30" y="268" class="detail sans" fill="#94a3b8" font-family="Arial, sans-serif" font-size="17">TaskContract</text>
+  </g>
+
+  <text x="336" y="412" class="arrow sans" fill="#64748b" font-family="Arial, sans-serif" font-size="32">→</text>
+
+  <g transform="translate(362 242)">
+    <rect width="250" height="318" rx="28" fill="#0d2029" stroke="#256b7c" stroke-width="2"/>
+    <text x="30" y="48" class="number mono" fill="#8be9f2" font-family="Menlo, Consolas, monospace" font-size="18" font-weight="700">02</text>
+    <text x="30" y="116" class="card-title mono" fill="#f8fafc" font-family="Menlo, Consolas, monospace" font-size="31" font-weight="700">Context</text>
+    <text x="30" y="162" class="question sans" fill="#8be9f2" font-family="Arial, sans-serif" font-size="19" font-weight="700">What is true now?</text>
+    <path d="M30 194 H220" stroke="#334155"/>
+    <text x="30" y="236" class="detail sans" fill="#94a3b8" font-family="Arial, sans-serif" font-size="17">Profile · Sentinel</text>
+    <text x="30" y="268" class="detail sans" fill="#94a3b8" font-family="Arial, sans-serif" font-size="17">Evidence · Findings</text>
+  </g>
+
+  <text x="624" y="412" class="arrow sans" fill="#64748b" font-family="Arial, sans-serif" font-size="32">→</text>
+
+  <g transform="translate(650 242)">
+    <rect width="250" height="318" rx="28" fill="#171a2b" stroke="#55517d" stroke-width="2"/>
+    <text x="30" y="48" class="number mono" fill="#c4b5fd" font-family="Menlo, Consolas, monospace" font-size="18" font-weight="700">03</text>
+    <text x="30" y="116" class="card-title mono" fill="#f8fafc" font-family="Menlo, Consolas, monospace" font-size="31" font-weight="700">Harness</text>
+    <text x="30" y="162" class="question sans" fill="#c4b5fd" font-family="Arial, sans-serif" font-size="19" font-weight="700">Who may do what?</text>
+    <path d="M30 194 H220" stroke="#334155"/>
+    <text x="30" y="236" class="detail sans" fill="#94a3b8" font-family="Arial, sans-serif" font-size="17">Root · Template</text>
+    <text x="30" y="268" class="detail sans" fill="#94a3b8" font-family="Arial, sans-serif" font-size="17">sbw · Trusted recipe</text>
+  </g>
+
+  <text x="912" y="412" class="arrow sans" fill="#64748b" font-family="Arial, sans-serif" font-size="32">→</text>
+
+  <g transform="translate(938 242)">
+    <rect width="250" height="318" rx="28" fill="#201821" stroke="#76505e" stroke-width="2"/>
+    <text x="30" y="48" class="number mono" fill="#fecdd3" font-family="Menlo, Consolas, monospace" font-size="18" font-weight="700">04</text>
+    <text x="30" y="116" class="card-title mono" fill="#f8fafc" font-family="Menlo, Consolas, monospace" font-size="31" font-weight="700">Loop</text>
+    <text x="30" y="162" class="question sans" fill="#fecdd3" font-family="Arial, sans-serif" font-size="19" font-weight="700">Continue or stop?</text>
+    <path d="M30 194 H220" stroke="#334155"/>
+    <text x="30" y="236" class="detail sans" fill="#94a3b8" font-family="Arial, sans-serif" font-size="17">Checkpoint · Freshness</text>
+    <text x="30" y="268" class="detail sans" fill="#94a3b8" font-family="Arial, sans-serif" font-size="17">Reconcile · Complete</text>
+  </g>
+
+  <text x="1200" y="412" class="arrow sans" fill="#64748b" font-family="Arial, sans-serif" font-size="32">→</text>
+
+  <g transform="translate(1226 242)">
+    <rect width="250" height="318" rx="28" fill="#0c2424" stroke="#286b5c" stroke-width="2"/>
+    <text x="30" y="48" class="number mono" fill="#a7f3d0" font-family="Menlo, Consolas, monospace" font-size="18" font-weight="700">05</text>
+    <text x="30" y="116" class="card-title mono" fill="#f8fafc" font-family="Menlo, Consolas, monospace" font-size="31" font-weight="700">Graph</text>
+    <text x="30" y="162" class="question sans" fill="#a7f3d0" font-family="Arial, sans-serif" font-size="19" font-weight="700">How does it relate?</text>
+    <path d="M30 194 H220" stroke="#334155"/>
+    <text x="30" y="236" class="detail sans" fill="#94a3b8" font-family="Arial, sans-serif" font-size="17">Typed Graph View</text>
+    <text x="30" y="268" class="detail sans" fill="#94a3b8" font-family="Arial, sans-serif" font-size="17">Structure · Gates</text>
+  </g>
+
+  <rect x="74" y="606" width="1402" height="82" rx="22" fill="#111827" stroke="#334155"/>
+  <text x="112" y="656" class="footer mono" fill="#cbd5e1" font-family="Menlo, Consolas, monospace" font-size="21" font-weight="500">Longer prompts do not create reliability. Governed layers do.</text>
+</svg>

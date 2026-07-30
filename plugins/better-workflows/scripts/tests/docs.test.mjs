@@ -5,48 +5,165 @@ import test from "node:test";
 import { pluginRoot } from "../lib/core.mjs";
 
 const repoRoot = path.resolve(pluginRoot(), "../..");
-const documents = [
-  path.join(repoRoot, "README.md"),
-  path.join(repoRoot, "docs", "README.zh-TW.md"),
-  path.join(repoRoot, "docs", "README.zh-CN.md"),
-  path.join(repoRoot, "docs", "README.ja.md"),
-  path.join(repoRoot, "docs", "README.ko.md")
+const overview = path.join(repoRoot, "README.md");
+const localizedDocuments = [
+  {
+    overview: path.join(repoRoot, "docs", "README.zh-TW.md"),
+    details: path.join(repoRoot, "docs", "details", "zh-TW.md")
+  },
+  {
+    overview: path.join(repoRoot, "docs", "README.zh-CN.md"),
+    details: path.join(repoRoot, "docs", "details", "zh-CN.md")
+  },
+  {
+    overview: path.join(repoRoot, "docs", "README.ja.md"),
+    details: path.join(repoRoot, "docs", "details", "ja.md")
+  },
+  {
+    overview: path.join(repoRoot, "docs", "README.ko.md"),
+    details: path.join(repoRoot, "docs", "details", "ko.md")
+  }
+];
+const guideDocuments = [
+  path.join(repoRoot, "docs", "details", "en.md"),
+  path.join(repoRoot, "docs", "guide", "getting-started.md"),
+  path.join(repoRoot, "docs", "guide", "workflows.md"),
+  path.join(repoRoot, "docs", "guide", "architecture.md"),
+  path.join(repoRoot, "docs", "guide", "security.md"),
+  path.join(repoRoot, "docs", "guide", "cli-reference.md")
 ];
 
-test("all README languages explain progressive routing, Profiles, receipts, and immutable cache", async (context) => {
+function assertDetailedCoverage(content, file) {
+  assert.match(content, /sbw doctor --capabilities/, file);
+  assert.match(content, /sbw route preview/, file);
+  assert.match(content, /sbw route profile validate/, file);
+  assert.match(content, /sbw run --route-receipt/, file);
+  assert.match(content, /plugin-cache\.mjs check/, file);
+  assert.match(content, /immutable/, file);
+  assert.match(content, /pr-to-dev/, file);
+  assert.match(content, /\$better-workflows:self-improve/, file);
+  assert.match(content, /train\/holdout/, file);
+  assert.match(content, /host-signed/, file);
+  assert.match(content, /\$better-workflows:workspace-recipe/, file);
+  assert.match(content, /self-improve host status/, file);
+  assert.match(content, /self-improve attestation request/, file);
+  assert.match(content, /recipe scaffold json-keyset-audit/, file);
+  assert.match(content, /recipe promote <id>/, file);
+  assert.match(content, /artifact\.promote/, file);
+  assert.match(content, /graph validate/, file);
+  assert.match(content, /graph inspect/, file);
+  assert.match(content, /Dynamic\s+Workflow[\s\S]{0,20}runtime/, file);
+  assert.match(content, /policy\s+input/, file);
+  assert.match(content, /authority\s+source/, file);
+  assert.match(content, /agent\s+runtime/, file);
+  assert.match(content, /graph envelope/, file);
+  assert.match(content, /presentation/, file);
+  assert.match(content, /non-sensitive\s+structural[\s\S]{0,20}projection/, file);
+  assert.match(content, /exit `2`/, file);
+}
+
+test("English README is concise, visual, and routes details into focused guides", async (context) => {
   try {
-    await access(documents[0]);
+    await access(overview);
   } catch {
     context.skip("repository README files are not part of the installed plugin cache bundle");
     return;
   }
-  for (const file of documents) {
-    const content = await readFile(file, "utf8");
-    assert.match(content, /sbw doctor --capabilities/, file);
-    assert.match(content, /sbw route preview/, file);
-    assert.match(content, /sbw route profile validate/, file);
-    assert.match(content, /sbw run --route-receipt/, file);
-    assert.match(content, /plugin-cache\.mjs check/, file);
-    assert.match(content, /immutable/, file);
-    assert.match(content, /pr-to-dev/, file);
-    assert.match(content, /\$better-workflows:self-improve/, file);
-    assert.match(content, /train\/holdout/, file);
-    assert.match(content, /host-signed/, file);
-    assert.match(content, /\$better-workflows:workspace-recipe/, file);
-    assert.match(content, /self-improve host status/, file);
-    assert.match(content, /self-improve attestation request/, file);
-    assert.match(content, /recipe scaffold json-keyset-audit/, file);
-    assert.match(content, /recipe promote <id>/, file);
-    assert.match(content, /artifact\.promote/, file);
-    assert.match(content, /graph validate/, file);
-    assert.match(content, /graph inspect/, file);
-    assert.match(content, /Dynamic\s+Workflow[\s\S]{0,20}runtime/, file);
-    assert.match(content, /policy\s+input/, file);
-    assert.match(content, /authority\s+source/, file);
-    assert.match(content, /agent\s+runtime/, file);
-    assert.match(content, /graph envelope/, file);
-    assert.match(content, /presentation/, file);
-    assert.match(content, /non-sensitive\s+structural[\s\S]{0,20}projection/, file);
-    assert.match(content, /exit `2`/, file);
+
+  const content = await readFile(overview, "utf8");
+  assert.ok(content.split("\n").length <= 200, "README should remain under 200 lines");
+  assert.match(content, /better-workflows-engineering-stack\.svg/);
+  assert.match(content, /\| Item \| \*\*Prompt\*\* \| \*\*Context\*\* \| \*\*Harness\*\* \| \*\*Loop\*\* \| \*\*Graph\*\* \|/);
+  for (const brand of ["Codex", "Claude", "Gemini", "GPT-OSS", "Grok", "Cursor", "Kimi", "Qwen", "Kiro"]) {
+    assert.match(content, new RegExp(brand), `README model roster: ${brand}`);
   }
+  assert.match(content, /agy` is transport metadata, not\s+another model brand/);
+  for (const name of [
+    "getting-started.md",
+    "workflows.md",
+    "architecture.md",
+    "security.md",
+    "cli-reference.md",
+    "details/en.md"
+  ]) {
+    assert.match(content, new RegExp(name.replace(".", "\\.")), name);
+  }
+});
+
+test("every localized README is a concise visual overview with a same-language details page", async (context) => {
+  try {
+    await access(overview);
+  } catch {
+    context.skip("repository README files are not part of the installed plugin cache bundle");
+    return;
+  }
+  for (const document of localizedDocuments) {
+    const content = await readFile(document.overview, "utf8");
+    assert.ok(
+      content.split("\n").length <= 200,
+      `${document.overview} should remain under 200 lines`
+    );
+    assert.match(content, /better-workflows-engineering-stack\.svg/, document.overview);
+    for (const layer of ["Prompt", "Context", "Harness", "Loop", "Graph"]) {
+      assert.match(content, new RegExp(`\\*\\*${layer}\\*\\*`), `${document.overview}: ${layer}`);
+    }
+    assert.match(
+      content,
+      new RegExp(`details/${path.basename(document.details).replace(".", "\\.")}`),
+      document.overview
+    );
+    for (const brand of ["Codex", "Claude", "Gemini", "GPT-OSS", "Grok", "Cursor", "Kimi", "Qwen", "Kiro"]) {
+      assert.match(content, new RegExp(brand), `${document.overview}: ${brand}`);
+    }
+  }
+});
+
+test("split English guides preserve the complete detailed contract", async (context) => {
+  try {
+    await access(overview);
+  } catch {
+    context.skip("repository guide files are not part of the installed plugin cache bundle");
+    return;
+  }
+  const content = (
+    await Promise.all([overview, ...guideDocuments].map((file) => readFile(file, "utf8")))
+  ).join("\n");
+  assertDetailedCoverage(content, "English overview and guides");
+  assert.match(content, /Antigravity CLI \(`agy`\)/);
+  assert.match(content, /transport[\s\S]{0,80}not a second model brand/);
+});
+
+test("localized details pages preserve complete detailed coverage", async (context) => {
+  try {
+    await access(overview);
+  } catch {
+    context.skip("repository README files are not part of the installed plugin cache bundle");
+    return;
+  }
+  for (const document of localizedDocuments) {
+    const content = await readFile(document.details, "utf8");
+    assertDetailedCoverage(content, document.details);
+    assert.doesNotMatch(content, /Gemini[（(](?:經|经|Agy 経由|Agy 경유).*Agy.*Grok/);
+  }
+});
+
+test("GitHub community tabs and supporting documents are repository-local", async (context) => {
+  try {
+    await access(overview);
+  } catch {
+    context.skip("repository community files are not part of the installed plugin cache bundle");
+    return;
+  }
+  for (const name of [
+    "CONTRIBUTING.md",
+    "CODE_OF_CONDUCT.md",
+    "SECURITY.md",
+    "GOVERNANCE.md",
+    "SUPPORT.md"
+  ]) {
+    const content = await readFile(path.join(repoRoot, name), "utf8");
+    assert.match(content, /\[README\]\(README\.md\)/, name);
+  }
+  const security = await readFile(path.join(repoRoot, "SECURITY.md"), "utf8");
+  assert.match(security, /redacted `REJECTED_WITH_EVIDENCE` rationale/);
 });
