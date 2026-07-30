@@ -7,9 +7,9 @@ const pluginRoot = path.resolve(import.meta.dirname, "../..");
 const skillsRoot = path.join(pluginRoot, "skills");
 const catalogPath = path.join(pluginRoot, "config", "entrypoint-catalog.json");
 
-test("exposes 16 selectable goal-first Better Workflows skills", async () => {
+test("exposes 17 selectable goal-first Better Workflows skills", async () => {
   const catalog = JSON.parse(await readFile(catalogPath, "utf8"));
-  assert.equal(catalog.skills.length, 16);
+  assert.equal(catalog.skills.length, 17);
 
   const directories = new Set(await readdir(skillsRoot));
   for (const entry of catalog.skills) {
@@ -19,6 +19,16 @@ test("exposes 16 selectable goal-first Better Workflows skills", async () => {
     assert.match(content, /Goal-first/);
     assert.match(content, /Goal-first entry contract/);
   }
+});
+
+test("workspace recipe selector keeps initialization, trust, and artifact authority explicit", async () => {
+  const content = await readFile(path.join(skillsRoot, "workspace-recipe", "SKILL.md"), "utf8");
+  assert.match(content, /template `workspace-recipe` with minimum mode `verified`/);
+  assert.match(content, /Do not automatically initialize/);
+  assert.match(content, /same recurrence\s+fingerprint in the preceding 90 days/);
+  assert.match(content, /recipe\.promote/);
+  assert.match(content, /artifact\.promote/);
+  assert.match(content, /Evidence candidates remain candidates/);
 });
 
 test("main skill defines persistent goal lifecycle", async () => {

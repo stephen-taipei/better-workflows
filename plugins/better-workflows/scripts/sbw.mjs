@@ -55,12 +55,17 @@ import {
 } from "./lib/providers.mjs";
 import {
   buildEvaluationPrompt,
+  calibrateEvaluatorMigration,
+  compareEvaluatorMigration,
   compareHoldout,
+  evaluationBindingDigest,
   loadFrozenEvaluationSuite,
+  loadMigrationTargetSuite,
   readSanitizedBaselineMaterial,
   readSanitizedCandidateMaterial,
   redactedScore,
   scoreEvaluation,
+  selectEvaluationCases,
   snapshotBaselineForCandidate,
   snapshotCandidate
 } from "./lib/self-improve.mjs";
@@ -70,6 +75,19 @@ import {
   loadDeliberationRoster,
   probeDeliberationRoster
 } from "./lib/deliberation.mjs";
+import { generateAttestationRequests } from "./lib/attestations.mjs";
+import {
+  recipeArtifactPromote,
+  recipeInit,
+  recipeList,
+  recipePromote,
+  recipePrune,
+  recipeRun,
+  recipeScaffold,
+  recipeStatus,
+  recipeUntrust,
+  recipeValidate
+} from "./lib/recipes.mjs";
 import {
   capabilitySnapshot,
   claimRouteReceipt,
@@ -82,14 +100,23 @@ import {
   validateRouteReceipt,
   validateRoutingProfileFile
 } from "./lib/routing.mjs";
+import {
+  buildRunGraph,
+  buildTemplateCatalogGraph,
+  buildTemplateGraph,
+  graphHasErrors,
+  renderGraphMermaid
+} from "./lib/graph.mjs";
 
 const execFileAsync = promisify(execFile);
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const TEMPLATE_DIR = path.join(pluginRoot(), "templates");
+const HOST_TRUST_TOOL = path.join(SCRIPT_DIR, "host-trust.mjs");
 const SAFE_LABEL = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const RUN_MODE_RANK = new Map(
   ["direct", "verified", "deep", "critical"].map((mode, index) => [mode, index])
 );
+const GRAPH_ENFORCEMENT_ENABLED = true;
 
 function print(value) {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
@@ -198,6 +225,80 @@ async function loadTemplate(name) {
 async function listTemplates() {
   const files = (await readdir(TEMPLATE_DIR)).filter((name) => name.endsWith(".json")).sort();
   return Promise.all(files.map((name) => loadTemplate(name.slice(0, -5))));
+}
+
+function graphEnvelope(graph, format = "json") {
+  return {
+    ok: !graphHasErrors(graph),
+    format,
+    ...graph,
+    ...(format === "mermaid" ? { content: renderGraphMermaid(graph) } : {})
+  };
+}
+
+async function templateGraph(name) {
+  const template = await loadTemplate(name);
+  return buildTemplateGraph({
+    template,
+    sourcePath: `templates/${template.name}.json`
+  });
+}
+
+async function runGraph(root, runId) {
+  const run = await inspectRun(root, runId);
+  const template = await loadTemplate(run.manifest.template);
+  return buildRunGraph({
+    template,
+    manifest: run.manifest,
+    contract: run.contract,
+    state: run.state,
+    evidence: run.evidence,
+    findings: run.findings,
+    actions: run.actions
+  });
+}
+
+async function installedTemplateGraph() {
+  return buildTemplateCatalogGraph(await listTemplates());
+}
+
+function graphStructuralFailure(graph, operation) {
+  return {
+    ...graphEnvelope(graph),
+    status: "graph-invalid",
+    operation
+  };
+}
+
+async function commandGraph(root, subcommand, positionalTarget, options) {
+  if (positionalTarget) {
+    throw new Error("graph targets must use --template or --run");
+  }
+  if (!["validate", "inspect"].includes(subcommand)) {
+    throw new Error("graph subcommand must be validate or inspect");
+  }
+  assertKnownOptions(
+    options,
+    subcommand === "inspect" ? ["template", "run", "format"] : ["template", "run"]
+  );
+  const template = options.template ? String(options.template) : null;
+  const run = options.run ? String(options.run) : null;
+  if (template && run) {
+    throw new Error("graph accepts exactly one of --template or --run");
+  }
+  if (subcommand === "inspect" && !template && !run) {
+    throw new Error("graph inspect requires exactly one of --template or --run");
+  }
+  const format = String(options.format ?? "json");
+  if (!["json", "mermaid"].includes(format)) {
+    throw new Error("graph format must be json or mermaid");
+  }
+  const graph = template
+    ? await templateGraph(template)
+    : run
+      ? await runGraph(root, run)
+      : await installedTemplateGraph();
+  return graphEnvelope(graph, format);
 }
 
 async function writeSentinel(root, runId, label, sentinel, suffix = "") {
@@ -476,11 +577,65 @@ function structuredReplay(replay) {
     execution: replay.metadata.execution ?? null, model: replay.metadata.requestedModel ?? null, sandbox: replay.metadata.sandbox };
 }
 
-async function commandSelfImprove(root, subcommand, options) {
-  if (subcommand !== "evaluate") throw new Error("self-improve subcommand must be evaluate");
+async function commandSelfImprove(root, subcommand, options, nestedCommand = null) {
+  if (subcommand === "host") {
+    if (nestedCommand !== "status") {
+      throw new Error("self-improve host subcommand must be status");
+    }
+    assertKnownOptions(options, []);
+    const result = await execFileAsync(process.execPath, [HOST_TRUST_TOOL, "status"], {
+      encoding: "utf8",
+      maxBuffer: 1024 * 1024
+    });
+    return JSON.parse(result.stdout);
+  }
+  if (subcommand === "attestation") {
+    if (nestedCommand !== "request") {
+      throw new Error("self-improve attestation subcommand must be request");
+    }
+    assertKnownOptions(options, [
+      "run",
+      "baseline",
+      "candidate-root",
+      "model",
+      "output",
+      "binary",
+      "cases",
+      "purpose",
+      "next-cases"
+    ]);
+    for (const required of ["run", "baseline", "candidate-root", "model", "output"]) {
+      if (!options[required]) throw new Error(`attestation request requires --${required}`);
+    }
+    const run = await loadRun(root, String(options.run));
+    if (run.manifest.template !== "self-improve-ops") {
+      throw new Error("attestation request requires a self-improve-ops run");
+    }
+    if (
+      run.manifest.baselineRevision !== String(options.baseline) ||
+      run.manifest.cwd !== path.resolve(process.cwd())
+    ) {
+      throw new Error("attestation request baseline or workspace does not match the run");
+    }
+    return generateAttestationRequests({
+      repo: process.cwd(),
+      runId: String(options.run),
+      baselineRevision: String(options.baseline),
+      candidateRoot: String(options["candidate-root"]),
+      model: String(options.model),
+      outputDirectory: String(options.output),
+      binaryPath: options.binary ? String(options.binary) : null,
+      casesFile: options.cases ? String(options.cases) : null,
+      purpose: String(options.purpose ?? "ordinary"),
+      nextCasesFile: options["next-cases"] ? String(options["next-cases"]) : null
+    });
+  }
+  if (subcommand !== "evaluate") {
+    throw new Error("self-improve subcommand must be evaluate, host, or attestation");
+  }
   assertKnownOptions(options, [
     "run", "cases", "baseline", "candidate-root", "backend", "split", "result-file", "model", "allow-codex", "sanitized",
-    "timeout-seconds", "trusted-codex-attestation"
+    "timeout-seconds", "trusted-codex-attestation", "purpose", "next-cases"
   ]);
   if (!options.run || !options.cases || !options.baseline || !options["candidate-root"] || !options.backend || !options.split) {
     throw new Error("self-improve evaluate requires --run, --cases, --baseline, --candidate-root, --backend, and --split");
@@ -493,22 +648,49 @@ async function commandSelfImprove(root, subcommand, options) {
   }
   const backend = String(options.backend);
   const split = String(options.split);
+  const purpose = String(options.purpose ?? "ordinary");
   if (!["codex", "fixture"].includes(backend) || !["train", "holdout"].includes(split)) throw new Error("Invalid self-improve backend or split");
+  if (!["ordinary", "evaluator-migration"].includes(purpose)) throw new Error("Invalid self-improve evaluation purpose");
+  if (purpose === "evaluator-migration" && !options["next-cases"]) throw new Error("Evaluator migration requires --next-cases");
   if (backend === "fixture" && process.env.SBW_TEST_FIXTURE_BACKEND !== "1") {
     throw new Error("Fixture evaluation backend is test-only and requires SBW_TEST_FIXTURE_BACKEND=1");
   }
   if (backend === "codex") assertExplicitCodexEvaluationAuthority(options);
   if (backend === "fixture" && !options["result-file"]) throw new Error("Fixture evaluation requires --result-file");
   const cwd = run.manifest.cwd;
-  const frozen = await loadFrozenEvaluationSuite({ cwd, casesFile: path.resolve(cwd, String(options.cases)), baselineRevision: String(options.baseline), canonical: backend === "codex" });
+  const frozen = await loadFrozenEvaluationSuite({
+    cwd,
+    casesFile: path.resolve(cwd, String(options.cases)),
+    baselineRevision: String(options.baseline),
+    canonical: backend === "codex",
+    purpose
+  });
   if (frozen.baselineRevision !== run.manifest.baselineRevision) {
     throw new Error("Evaluation baseline must equal the immutable run-start baseline revision");
   }
-  const cases = frozen.suite.cases.filter((item) => item.split === split);
   const candidate = await snapshotCandidate({ cwd, baselineRevision: frozen.baselineRevision, candidateRoot: String(options["candidate-root"]) });
   const baseline = await snapshotBaselineForCandidate({ cwd, snapshot: candidate });
   const candidateMaterial = await readSanitizedCandidateMaterial({ cwd, snapshot: candidate });
   const baselineMaterial = await readSanitizedBaselineMaterial({ cwd, snapshot: baseline });
+  const target = purpose === "evaluator-migration"
+    ? await loadMigrationTargetSuite({ cwd, casesFile: path.resolve(cwd, String(options["next-cases"])) })
+    : null;
+  const suiteDigest = evaluationBindingDigest({
+    purpose,
+    sourceSuiteDigest: frozen.sourceDigest,
+    targetSuiteDigest: target?.sourceDigest
+  });
+  const cases = selectEvaluationCases({ suite: frozen.suite, snapshot: candidate, split });
+  const calibration = target
+    ? calibrateEvaluatorMigration({
+      source: frozen.suite,
+      target: target.suite,
+      snapshot: candidate,
+      materials: candidateMaterial,
+      sourceDigest: frozen.sourceDigest,
+      targetDigest: target.sourceDigest
+    })
+    : null;
   const candidatePrompt = buildEvaluationPrompt({ suite: { ...frozen.suite, cases }, candidate, materials: candidateMaterial });
   const baselinePrompt = buildEvaluationPrompt({ suite: { ...frozen.suite, cases }, candidate: baseline, materials: baselineMaterial });
   const fixture = backend === "fixture" ? JSON.parse(await readFile(path.resolve(cwd, String(options["result-file"])), "utf8")) : null;
@@ -520,16 +702,28 @@ async function commandSelfImprove(root, subcommand, options) {
   if (backend === "codex" && new Set(attestationPaths).size !== attestationPaths.length) {
     throw new Error("Codex evaluation attestation files must be distinct for every replay");
   }
-  const dependencyFiles = [...new Set([frozen.relativePath, ...candidate.files.map((item) => item.path)])].sort();
+  const dependencyFiles = [...new Set([frozen.relativePath, target?.relativePath, ...candidate.files.map((item) => item.path)].filter(Boolean))].sort();
   const common = {
-    sourceDigest: digestObject({ suite: frozen.sourceDigest, baseline: frozen.baselineRevision, candidate: candidate.digest }),
+    sourceDigest: digestObject({ suite: suiteDigest, baseline: frozen.baselineRevision, candidate: candidate.digest }),
     dependencyInputs: { files: dependencyFiles },
-    evaluation: { backend, split, suiteDigest: frozen.sourceDigest, suitePath: frozen.relativePath, baselineRevision: frozen.baselineRevision, candidate, baseline }
+    evaluation: {
+      backend,
+      split,
+      purpose,
+      suiteDigest,
+      suitePath: frozen.relativePath,
+      sourceSuiteDigest: frozen.sourceDigest,
+      targetSuitePath: target?.relativePath ?? null,
+      targetSuiteDigest: target?.sourceDigest ?? null,
+      baselineRevision: frozen.baselineRevision,
+      candidate,
+      baseline
+    }
   };
   const execution = (role, attempt) => ({
     id: `${runId}-${split}-${role}-${attempt}`,
     runId,
-    suiteDigest: frozen.sourceDigest,
+    suiteDigest,
     baselineRevision: frozen.baselineRevision,
     candidateDigest: candidate.digest,
     role,
@@ -537,7 +731,7 @@ async function commandSelfImprove(root, subcommand, options) {
   });
   const prior = await listJsonRecords(root, safeJoin(run.runDir, "evidence"));
   if (split === "holdout") {
-    const training = prior.find((item) => item.kind === "training-replay" && !item.stale && item.evaluation?.suiteDigest === frozen.sourceDigest && item.evaluation?.candidate?.digest === candidate.digest && item.evaluation?.baselineRevision === frozen.baselineRevision);
+    const training = prior.find((item) => item.kind === "training-replay" && !item.stale && item.evaluation?.suiteDigest === suiteDigest && item.evaluation?.candidate?.digest === candidate.digest && item.evaluation?.baselineRevision === frozen.baselineRevision);
     if (!training) throw new Error("Holdout evaluation requires a fresh training replay bound to the same suite, baseline, and candidate");
   }
   if (split === "train") {
@@ -556,7 +750,20 @@ async function commandSelfImprove(root, subcommand, options) {
       acceptanceIds: ["outcome-explicit", "replay-bounded"], ...common,
       evaluation: { ...common.evaluation, replays: [structuredReplay(replay)] }
     });
-    return { ok: true, runId, split, backend, evidence: [suiteEvidence.id, staging.id, training.id], score: redactedScore(replay.score) };
+    const evidenceIds = [suiteEvidence.id, staging.id, training.id];
+    if (calibration) {
+      const migration = await addSelfImproveEvidence(root, runId, {
+        id: evaluationEvidenceId("migration"),
+        kind: "evaluation-migration",
+        summary: "Versioned evaluator migration has deterministic class, sampling, and saturation-policy calibration.",
+        status: "complete",
+        acceptanceIds: ["replay-bounded", "candidate-staged", "validated"],
+        ...common,
+        evaluation: { ...common.evaluation, calibration }
+      });
+      evidenceIds.push(migration.id);
+    }
+    return { ok: true, runId, split, backend, purpose, evidence: evidenceIds, calibration, score: redactedScore(replay.score) };
   }
   const candidateReplays = [];
   const baselineReplays = [];
@@ -564,11 +771,17 @@ async function commandSelfImprove(root, subcommand, options) {
     attestationPath: attestationPaths[index], execution: execution("candidate", index + 1) }));
   for (let index = 0; index < 3; index += 1) baselineReplays.push(await evaluationReplay({ backend, fixture, role: "baseline", cases, prompt: baselinePrompt, options, cwd,
     attestationPath: attestationPaths[index + 3], execution: execution("baseline", index + 1) }));
-  const comparison = compareHoldout({ baseline: baselineReplays.map((item) => item.score), candidate: candidateReplays.map((item) => item.score) });
+  const comparison = purpose === "evaluator-migration"
+    ? compareEvaluatorMigration({ baseline: baselineReplays.map((item) => item.score), candidate: candidateReplays.map((item) => item.score) })
+    : compareHoldout({ baseline: baselineReplays.map((item) => item.score), candidate: candidateReplays.map((item) => item.score), suite: frozen.suite });
   const trusted = backend === "codex" && [...candidateReplays, ...baselineReplays].every((item) => item.metadata.trustAttested === true && item.metadata.provider === "codex");
   const evidence = await addSelfImproveEvidence(root, runId, {
     id: evaluationEvidenceId("holdout"), kind: "holdout-comparison", status: "complete",
-    summary: comparison.accepted && trusted ? "Trusted held-out comparison passed strict improvement and safety gates." : `Held-out comparison did not authorize adoption: ${comparison.reason}.`,
+    summary: comparison.accepted && trusted
+      ? (purpose === "evaluator-migration"
+        ? "Trusted legacy held-out comparison passed evaluator-migration safety non-regression gates."
+        : "Trusted held-out comparison passed strict relevant-class improvement and safety gates.")
+      : `Held-out comparison did not authorize adoption: ${comparison.reason}.`,
     acceptanceIds: comparison.accepted && trusted ? ["heldout-gated", "outcome-explicit", "validated"] : ["outcome-explicit"], ...common,
     evaluation: { ...common.evaluation, comparison, candidateReplays: candidateReplays.map(structuredReplay), baselineReplays: baselineReplays.map(structuredReplay) }
   });
@@ -627,11 +840,13 @@ async function assertAcceptedSelfImproveHoldout(root, runId, action) {
   if (evaluation.baselineRevision !== run.manifest.baselineRevision) {
     throw new Error("Self-improve held-out evidence is not bound to the run-start baseline");
   }
-  await loadFrozenEvaluationSuite({
+  const purpose = evaluation.purpose ?? "ordinary";
+  const frozen = await loadFrozenEvaluationSuite({
     cwd: run.manifest.cwd,
     casesFile: path.join(run.manifest.cwd, evaluation.suitePath),
     baselineRevision: evaluation.baselineRevision,
-    canonical: true
+    canonical: true,
+    purpose
   });
   const currentCandidate = await snapshotCandidate({
     cwd: run.manifest.cwd,
@@ -640,6 +855,45 @@ async function assertAcceptedSelfImproveHoldout(root, runId, action) {
   });
   if (currentCandidate.digest !== evaluation.candidate.digest) {
     throw new Error("Self-improve candidate changed after held-out evaluation");
+  }
+  if (purpose === "evaluator-migration") {
+    if (evaluation.comparison?.policy !== "evaluator-migration") {
+      throw new Error("Evaluator migration delivery requires the dedicated safety non-regression policy");
+    }
+    const migration = evidence.find((item) =>
+      item.kind === "evaluation-migration" &&
+      item.status === "complete" &&
+      !item.stale &&
+      item.evaluation?.suiteDigest === evaluation.suiteDigest &&
+      item.evaluation?.candidate?.digest === evaluation.candidate?.digest &&
+      item.evaluation?.calibration?.digest
+    );
+    if (!migration) throw new Error("Evaluator migration delivery requires fresh deterministic migration calibration");
+    const target = await loadMigrationTargetSuite({
+      cwd: run.manifest.cwd,
+      casesFile: path.join(run.manifest.cwd, evaluation.targetSuitePath)
+    });
+    if (target.sourceDigest !== evaluation.targetSuiteDigest) throw new Error("Evaluator migration target suite changed after replay");
+    const binding = evaluationBindingDigest({
+      purpose,
+      sourceSuiteDigest: frozen.sourceDigest,
+      targetSuiteDigest: target.sourceDigest
+    });
+    if (binding !== evaluation.suiteDigest) throw new Error("Evaluator migration suite binding changed after replay");
+    const materials = await readSanitizedCandidateMaterial({ cwd: run.manifest.cwd, snapshot: currentCandidate });
+    const calibration = calibrateEvaluatorMigration({
+      source: frozen.suite,
+      target: target.suite,
+      snapshot: currentCandidate,
+      materials,
+      sourceDigest: frozen.sourceDigest,
+      targetDigest: target.sourceDigest
+    });
+    if (calibration.digest !== migration.evaluation.calibration.digest) {
+      throw new Error("Evaluator migration calibration changed after replay");
+    }
+  } else if (evaluation.comparison?.policy !== "strict-class-improvement") {
+    throw new Error("Ordinary self-improve delivery requires strict relevant-class improvement");
   }
 }
 
@@ -685,10 +939,26 @@ async function commandRun(root, options) {
     ? receiptBinding.preview.primary.template
     : String(options.template ?? "");
   const template = await loadTemplate(templateName);
+  if (GRAPH_ENFORCEMENT_ENABLED) {
+    const graph = buildTemplateGraph({
+      template,
+      sourcePath: `templates/${template.name}.json`
+    });
+    if (graphHasErrors(graph)) return graphStructuralFailure(graph, "run.create");
+  }
   let contract;
   if (options.contract) {
     contract = validateContract(JSON.parse(await readFile(path.resolve(String(options.contract)), "utf8")));
     if (contract.template !== templateName) throw new Error("Contract template does not match --template");
+    const customEvidence = new Set(contract.requiredEvidence);
+    const missingMinimums = (template.requiredEvidence ?? []).filter(
+      (kind) => !customEvidence.has(kind)
+    );
+    if (missingMinimums.length > 0) {
+      throw new Error(
+        `TaskContract cannot remove template required evidence: ${missingMinimums.join(", ")}`
+      );
+    }
   } else {
     contract = buildContract({
       template: templateName,
@@ -923,6 +1193,10 @@ async function commandDeliberation(subcommand, options) {
 }
 
 async function commandEval() {
+  if (GRAPH_ENFORCEMENT_ENABLED) {
+    const graph = await installedTemplateGraph();
+    if (graphHasErrors(graph)) return graphStructuralFailure(graph, "eval");
+  }
   const tests = (await readdir(path.join(SCRIPT_DIR, "tests")))
     .filter((name) => name.endsWith(".test.mjs"))
     .sort()
@@ -957,13 +1231,26 @@ function help() {
       "sbw cancel <run-id> [--reason <text>]",
       "sbw sentinel capture|verify <run-id> --label <label>",
       "sbw evidence add <run-id> --file <json>",
-      "sbw self-improve evaluate --run <run-id> --cases <file> --baseline <git-revision> --candidate-root <path> --backend <codex|fixture> --split <train|holdout>",
+      "sbw self-improve evaluate --run <run-id> --cases <file> --baseline <git-revision> --candidate-root <path> --backend <codex|fixture> --split <train|holdout> [--purpose ordinary|evaluator-migration] [--next-cases <v2-file>]",
+      "sbw self-improve host status",
+      "sbw self-improve attestation request --run <run-id> --baseline <sha> --candidate-root <path> --model <model> --output <outside-repo-directory> [--cases <file>] [--purpose ordinary|evaluator-migration] [--next-cases <v2-file>]",
       "sbw finding add|update <run-id> --file <json>",
       "sbw critic codex|agy <run-id> --model <model> --prompt-file <file> [--effort <auto|medium|high>] [--effort-transport <native|model-variant>]",
       "sbw deliberation roster [--mode <auto|direct|verified|deep|critical>] [--reasoning-effort <auto|medium|high>] [--refresh] [--provider <id>] [--allow-external-providers --sanitized]",
       "sbw deliberation deliberate --prompt-file <sanitized-file> [--mode <auto|direct|verified|deep|critical>] [--reasoning-effort <auto|medium|high>] [--refresh] [--allow-external-providers --sanitized]",
       "sbw deliberation arbitrate --prompt-file <sanitized-file> [--mode <auto|direct|verified|deep|critical>] [--reasoning-effort <auto|medium|high>] [--allow-external-providers --sanitized]",
+      "sbw graph validate [--template <name>|--run <run-id>]",
+      "sbw graph inspect (--template <name>|--run <run-id>) [--format json|mermaid]",
       "sbw action issue|consume|reconcile <run-id> ...",
+      "sbw recipe init",
+      "sbw recipe scaffold <id>",
+      "sbw recipe list",
+      "sbw recipe validate <id>",
+      "sbw recipe promote <id> --run <run-id> --attempt <attempt-id> --confirm-digest <sha256>",
+      "sbw recipe run <id> --input-file <json> [--dry-run]",
+      "sbw recipe status|untrust <id>",
+      "sbw recipe artifact promote <receipt-id> --artifact <id> --to <relative-path>",
+      "sbw recipe prune [--apply]",
       "sbw complete <run-id>",
       "sbw doctor [--agy --model <model>]",
       "sbw doctor --capabilities",
@@ -976,14 +1263,81 @@ function help() {
 
 async function main() {
   const { positional, options } = parseArgs(process.argv.slice(2));
-  const [command, subcommand, runId] = positional;
+  const [command, subcommand, runId, fourth] = positional;
   const root = getStateRoot();
   if (!command || command === "help" || options.help) return help();
   if (command === "templates") return { ok: true, templates: await listTemplates() };
   if (command === "run") return commandRun(root, options);
-  if (command === "self-improve") return commandSelfImprove(root, subcommand, options);
+  if (command === "graph") return commandGraph(root, subcommand, runId, options);
+  if (command === "self-improve") return commandSelfImprove(root, subcommand, options, runId);
   if (command === "route") return commandRoute(root, subcommand, runId, options);
   if (command === "deliberation") return commandDeliberation(subcommand, options);
+  if (command === "recipe") {
+    if (subcommand === "init") {
+      assertKnownOptions(options, []);
+      return recipeInit(process.cwd());
+    }
+    if (subcommand === "scaffold") {
+      assertKnownOptions(options, []);
+      if (!runId) throw new Error("recipe scaffold requires <id>");
+      return recipeScaffold(process.cwd(), runId);
+    }
+    if (subcommand === "list") {
+      assertKnownOptions(options, []);
+      return recipeList(process.cwd());
+    }
+    if (subcommand === "validate") {
+      assertKnownOptions(options, []);
+      if (!runId) throw new Error("recipe validate requires <id>");
+      return recipeValidate(process.cwd(), runId);
+    }
+    if (subcommand === "promote") {
+      assertKnownOptions(options, ["run", "attempt", "confirm-digest"]);
+      if (!runId) throw new Error("recipe promote requires <id>");
+      return recipePromote(process.cwd(), runId, {
+        run: options.run ? String(options.run) : null,
+        attempt: options.attempt ? String(options.attempt) : null,
+        confirmDigest: options["confirm-digest"] ? String(options["confirm-digest"]) : null
+      });
+    }
+    if (subcommand === "run") {
+      assertKnownOptions(options, ["input-file", "dry-run"]);
+      if (!runId) throw new Error("recipe run requires <id>");
+      return recipeRun(
+        process.cwd(),
+        runId,
+        options["input-file"] ? String(options["input-file"]) : null,
+        { dryRun: optionEnabled(options["dry-run"]) }
+      );
+    }
+    if (subcommand === "status") {
+      assertKnownOptions(options, []);
+      if (!runId) throw new Error("recipe status requires <id>");
+      return recipeStatus(process.cwd(), runId);
+    }
+    if (subcommand === "untrust") {
+      assertKnownOptions(options, []);
+      if (!runId) throw new Error("recipe untrust requires <id>");
+      return recipeUntrust(process.cwd(), runId);
+    }
+    if (subcommand === "artifact" && runId === "promote") {
+      assertKnownOptions(options, ["artifact", "to"]);
+      if (!fourth) throw new Error("recipe artifact promote requires <receipt-id>");
+      return recipeArtifactPromote(
+        process.cwd(),
+        fourth,
+        options.artifact ? String(options.artifact) : null,
+        options.to ? String(options.to) : null
+      );
+    }
+    if (subcommand === "prune") {
+      assertKnownOptions(options, ["apply"]);
+      return recipePrune(process.cwd(), { apply: optionEnabled(options.apply) });
+    }
+    throw new Error(
+      "recipe subcommand must be init, scaffold, list, validate, promote, run, status, untrust, artifact, or prune"
+    );
+  }
   if (command === "status") {
     const run = await loadRun(root, subcommand);
     return {
@@ -1009,25 +1363,50 @@ async function main() {
   if (command === "resume") {
     let run = await loadRun(root, subcommand);
     let migration = { migrated: false };
-    if (!run.contract.templateDigest || !run.contract.actionGates) {
-      const template = await loadTemplate(run.manifest.template);
+    const template = await loadTemplate(run.manifest.template);
+    const templateEvidence = template.requiredEvidence ?? [];
+    const boundEvidence = new Set(run.contract.requiredEvidence ?? []);
+    if (
+      !run.contract.templateDigest ||
+      !run.contract.actionGates ||
+      templateEvidence.some((kind) => !boundEvidence.has(kind))
+    ) {
       migration = await bindLegacyRunTemplate(root, subcommand, {
         templateDigest: digestObject(template),
-        actionGates: template.actionGates ?? {}
+        actionGates: template.actionGates ?? {},
+        requiredEvidence: templateEvidence
       });
       run = await loadRun(root, subcommand);
     }
     const freshness = await refreshEvidence(root, subcommand);
+    if (GRAPH_ENFORCEMENT_ENABLED) {
+      const graph = await runGraph(root, subcommand);
+      if (graphHasErrors(graph)) {
+        await setRunStatus(root, subcommand, "stale", {
+          lastSentinelVerified: false,
+          lastSentinelComplete: false,
+          resumeFreshness: freshness
+        });
+        return {
+          ...graphStructuralFailure(graph, "run.resume"),
+          runId: subcommand,
+          migration,
+          freshness
+        };
+      }
+    }
     const sentinel = await captureForRun(root, subcommand);
     const same = run.state.lastSentinel?.digest === sentinel.digest;
-    const status = same && freshness.stale.length === 0 ? "running" : "stale";
+    const status = !migration.migrated && same && freshness.stale.length === 0
+      ? "running"
+      : "stale";
     await setRunStatus(root, subcommand, status, {
-      lastSentinelVerified: same,
-      lastSentinelComplete: same && sentinel.complete,
+      lastSentinelVerified: !migration.migrated && same,
+      lastSentinelComplete: !migration.migrated && same && sentinel.complete,
       resumeFreshness: freshness
     });
     return {
-      ok: same && freshness.stale.length === 0,
+      ok: !migration.migrated && same && freshness.stale.length === 0,
       runId: subcommand,
       status,
       freshness,
@@ -1116,18 +1495,27 @@ async function main() {
     if (subcommand === "issue") {
       const run = await loadRun(root, runId);
       const template = await loadTemplate(run.manifest.template);
-      if (!run.contract.templateDigest || !run.contract.actionGates) {
+      const boundEvidence = new Set(run.contract.requiredEvidence ?? []);
+      if (
+        !run.contract.templateDigest ||
+        !run.contract.actionGates ||
+        (template.requiredEvidence ?? []).some((kind) => !boundEvidence.has(kind))
+      ) {
         throw new Error(`Legacy run is unbound; run sbw resume ${runId} before issuing actions`);
-      }
-      if (run.contract.templateDigest !== digestObject(template)) {
-        throw new Error("Workflow template drifted after run creation");
       }
       const action = String(options.action ?? "");
       const requiredEvidence = run.contract.actionGates?.[action];
       if (!Array.isArray(requiredEvidence) || requiredEvidence.length === 0) {
         throw new Error(`No pre-action evidence gate is defined for: ${action}`);
       }
+      if (GRAPH_ENFORCEMENT_ENABLED) {
+        const graph = await runGraph(root, runId);
+        if (graphHasErrors(graph)) return graphStructuralFailure(graph, "action.issue");
+      }
       await refreshEvidence(root, runId);
+      if (run.contract.templateDigest !== digestObject(template)) {
+        throw new Error("Workflow template drifted after run creation");
+      }
       await assertAcceptedSelfImproveHoldout(root, runId, action);
       const digest = await currentVerifiedDigest(root, runId);
       const defaults = await loadDefaults();
@@ -1177,6 +1565,12 @@ async function main() {
   }
   if (command === "complete") {
     const run = await loadRun(root, subcommand);
+    if (GRAPH_ENFORCEMENT_ENABLED) {
+      const graph = await runGraph(root, subcommand);
+      if (graphHasErrors(graph)) {
+        return graphStructuralFailure(graph, "run.complete");
+      }
+    }
     if (!run.state.lastSentinel?.label) throw new Error("No sentinel is available for completion");
     const current = await verifyCommand(root, subcommand, run.state.lastSentinel.label);
     if (!current.ok) return { ok: false, status: "indeterminate", changed: current.changed };

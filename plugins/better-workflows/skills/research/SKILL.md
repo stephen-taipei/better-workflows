@@ -17,7 +17,8 @@ Run one bounded, role-based deliberation rather than an unbounded discussion:
    risk assessment requires `critical`.
 2. Build a sanitized decision dossier. Probe the configured roster first; only
    models that pass the semantic CLI probe in this invocation may participate.
-   Gemini is routed through Agy in this runtime. Apply `medium` reasoning to
+   Gemini is routed through Antigravity CLI (`agy`) in this runtime; `agy` is
+   the transport, not a separate model brand. Apply `medium` reasoning to
    bounded `direct`/`verified` work and `high` reasoning to `auto`/`deep`/
    `critical` work unless current evidence justifies an explicit override.
 3. Give every active model one bounded role and the same dossier. Independent

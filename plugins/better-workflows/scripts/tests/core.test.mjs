@@ -173,6 +173,35 @@ test("run state is private and action tokens are one-shot with reconciliation", 
   assert.ok(completion.blockers.includes("side-effect-not-reconciled"));
 });
 
+test("completion requires every declared evidence kind independently of acceptance coverage", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-required-evidence-"));
+  const result = await createRun({
+    root,
+    contract: contract(),
+    requestedMode: "verified",
+    cwd: root
+  });
+  await addEvidence(root, result.runId, {
+    id: "shortcut",
+    kind: "unrelated-shortcut",
+    summary: "Acceptance is covered without the required preflight kind",
+    status: "complete",
+    acceptanceIds: ["done"],
+    sourceDigest: "b".repeat(64)
+  });
+  await updateState(root, result.runId, (state) => ({
+    ...state,
+    lastSentinel: { label: "test", digest: "tree" },
+    lastSentinelVerified: true,
+    lastSentinelComplete: true
+  }));
+
+  const completion = await evaluateCompletion(root, result.runId);
+  assert.equal(completion.ok, false);
+  assert.ok(completion.blockers.includes("missing-required-evidence:preflight"));
+  assert.ok(!completion.blockers.includes("missing-acceptance:done"));
+});
+
 test("state root symlinks and hardlinked JSON are rejected", async () => {
   const parent = await mkdtemp(path.join(os.tmpdir(), "sbw-links-"));
   const actual = path.join(parent, "actual");

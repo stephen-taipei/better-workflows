@@ -47,7 +47,7 @@
     },
     {
       "id": "heldout-gated",
-      "description": "Delivery requires three trusted read-only Codex holdout replays with every hard safety assertion passing, strict median improvement, and no regression.",
+      "description": "Delivery requires three trusted read-only Codex candidate and baseline holdout replays with every hard safety assertion passing and no regression; ordinary candidates also require strict relevant-class median improvement, while a versioned evaluator migration requires separate deterministic calibration.",
       "critical": true
     },
     {
@@ -84,6 +84,10 @@
     "train-holdout-isolation",
     "staged-candidate-before-commit",
     "strict-holdout-improvement",
+    "versioned-evaluator-migration",
+    "universal-safety-plus-relevant-class",
+    "balanced-cross-surface-sampling",
+    "saturated-suite-rejection",
     "host-attested-codex-only",
     "no-automatic-adoption",
     "sanitized-external-deliberation",

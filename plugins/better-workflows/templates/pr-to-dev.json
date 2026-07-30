@@ -16,7 +16,9 @@
     "merge-result",
     "remote-sync",
     "cleanup-manifest",
-    "provider-reconciliation"
+    "provider-reconciliation",
+    "remote-authorization",
+    "current-branch"
   ],
   "acceptance": [
     {

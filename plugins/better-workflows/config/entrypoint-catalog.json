@@ -68,6 +68,12 @@
       "mode": "critical"
     },
     {
+      "id": "workspace-recipe",
+      "description": "將穩定且可驗證的 SOP 固化為 workspace 內受治理、可重複執行的 Node.js recipe",
+      "template": "workspace-recipe",
+      "mode": "verified"
+    },
+    {
       "id": "monorepo-refactor",
       "description": "盤點大型 monorepo，直接實作所有合格 refactor 建議並驗證 rollback evidence",
       "template": "monorepo-refactor",

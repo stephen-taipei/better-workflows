@@ -1,0 +1,36 @@
+{
+  "result": {
+    "summary": "Compared 2 JSON documents across 5 key paths.",
+    "evidenceCandidates": [
+      {
+        "kind": "json-keyset-audit",
+        "reportDigestSubject": "keyset-report.json"
+      }
+    ],
+    "artifacts": [
+      {
+        "id": "report-json"
+      },
+      {
+        "id": "report-markdown"
+      }
+    ],
+    "proposals": []
+  },
+  "artifacts": [
+    {
+      "id": "report-json",
+      "filename": "keyset-report.json",
+      "mediaType": "application/json",
+      "bytes": 682,
+      "sha256": "55506ac2baea6403613d191e1676c8f10d886b89155401f62d7c8b93c6a3601d"
+    },
+    {
+      "id": "report-markdown",
+      "filename": "keyset-report.md",
+      "mediaType": "text/markdown",
+      "bytes": 254,
+      "sha256": "b233becff18b40e0921b156d0f12b77f37533138d7784652704a43379fad1a6d"
+    }
+  ]
+}

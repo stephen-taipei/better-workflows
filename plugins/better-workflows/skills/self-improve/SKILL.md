@@ -29,18 +29,33 @@ routing, or the immutable cache publisher.
 
 ## Freeze, stage, and validate candidates
 
-Before candidate work, freeze the checked-in sanitized suite at
-`fixtures/self-improve-ops-evals.json` in an immutable baseline commit. The
-suite has distinct `train` and `holdout` cases. Never derive cases from session
-history, transcripts, schedules, or any unsanitized source.
+Before candidate work, freeze the current checked-in sanitized Evaluation
+suite at `fixtures/self-improve-ops-evals-v2.1.json` in an immutable baseline
+commit. Earlier v1 and v2 suites remain checked in and immutable for
+host-attested evaluator migrations. Never edit a known corpus in place, or
+derive cases from session history, transcripts, schedules, or any unsanitized
+source. Every suite keeps isolated `train` and `holdout` splits.
 
 Iterate only with the training split. Stage the entire candidate root and bind
 it to the exact baseline revision. Then run the holdout split exactly three
 times for the baseline and three times for the candidate. Every hard safety
-assertion must pass in every replay; the candidate median must strictly exceed
-the baseline median; and no case may regress. Ties, instability, malformed
-output, missing evidence, or no measurable gain are `NO_CHANGE` or
-`REJECTED_WITH_EVIDENCE`, never adoption.
+assertion must pass in every replay. Evaluation v2.1 always includes the universal
+safety class and selects improvement classes from the complete changed-path
+manifest. The applicable improvement-class median must strictly exceed the
+baseline median; no case may regress; and no candidate replay may fall below a
+baseline case median. A fully saturated applicable improvement suite is
+rejected. Ties, instability, malformed output, missing evidence, or no
+measurable gain are `NO_CHANGE` or `REJECTED_WITH_EVIDENCE`, never ordinary
+adoption.
+
+An evaluator migration is a separate governance path. It freezes the previous
+versioned corpus at the run-start baseline, binds a distinct target corpus
+digest into all seven signed executions, and requires deterministic class
+applicability, balanced-sampling coverage, and saturation-policy calibration.
+Source-suite replays may tie only on this migration path, and only when every
+hard-safety assertion, every case median, and every individual candidate replay
+is non-regressing. After a migration is merged, all ordinary candidates use the
+new canonical corpus and the strict improvement rule above.
 
 Real replays require separate, per-run authority and use only a read-only,
 ephemeral Codex invocation. They also require a host-signed attestation for the
@@ -51,18 +66,48 @@ self-reported model, a CLI-selected trust root, or a binary digest supplied
 without a verifiable host signature is not trusted. A fixture backend exists
 only for deterministic tests and cannot authorize delivery.
 
+Before applying file-count or byte sampling, the sanitizer validates every
+changed path against the fixed plugin and repository-public-document allowlist.
+A path outside that allowlist rejects the replay even when it would sort beyond
+the sampling limit. The prompt includes a complete path, state, size, and digest
+manifest, then allocates bounded content samples across runtime, tests, config,
+skills, templates, fixtures, metadata, and docs. Only valid UTF-8,
+non-secret-shaped content from approved paths is sent to Codex.
+
 Each real replay also needs a distinct host-signed execution binding: its unique
 execution ID, run ID, corpus digest, baseline revision, candidate digest, role,
 and attempt number are all signed. Training takes one attestation; holdout takes
 six distinct attestations (candidate 1–3, then baseline 1–3). Replayed or
 duplicated attestation files cannot authorize delivery.
 
+Ordinary clones and workspace recipes do not require this host trust root. A
+maintainer who will run real self-improvement delivery replays must first use
+`sbw self-improve host status`. If the host is unprovisioned, an administrator
+reviews a pinned checkout and runs the fail-closed one-time Node provisioner
+documented in the repository README. Never use `plutil` to validate this JSON,
+and never overwrite or implicitly rotate an existing host key.
+
+After the candidate is frozen, use `sbw self-improve attestation request` with
+the exact run, baseline, candidate root, model, and a new directory outside the
+repository. It produces all seven distinct requests, their manifest digest,
+and an exact batch `signCommand`. The administrator must review the manifest
+and confirmed digest before signing.
+
 ```sh
-sbw self-improve evaluate <run-id> \
-  --cases plugins/better-workflows/fixtures/self-improve-ops-evals.json \
+sbw self-improve evaluate \
+  --run <run-id> \
+  --cases plugins/better-workflows/fixtures/self-improve-ops-evals-v2.1.json \
   --baseline <immutable-baseline> --candidate-root . \
   --backend codex --model <attested-model> --allow-codex --sanitized \
   --trusted-codex-attestation /host/attestation.json --split train
+```
+
+For a versioned evaluator migration, replace the ordinary cases path with the
+immutable previous corpus and add:
+
+```sh
+--purpose evaluator-migration \
+--next-cases plugins/better-workflows/fixtures/self-improve-ops-evals-v2.1.json
 ```
 
 Use `--split holdout` only after training is frozen. This selector never

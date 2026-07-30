@@ -11,9 +11,14 @@
     "recommendation-register",
     "implementation-queue",
     "slice-plan",
+    "slice-validation",
+    "diff-review",
+    "rollback-plan",
     "slice-checkpoint",
     "recommendation-disposition",
-    "final-validation"
+    "final-validation",
+    "remote-authorization",
+    "current-branch"
   ],
   "acceptance": [
     {

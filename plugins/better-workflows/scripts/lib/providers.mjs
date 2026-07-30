@@ -99,6 +99,7 @@ export async function spawnCapture(command, args, options = {}) {
     const stderr = [];
     let outputBytes = 0;
     let settled = false;
+    let timedOut = false;
     const finish = (error, result) => {
       if (settled) return;
       settled = true;
@@ -123,15 +124,37 @@ export async function spawnCapture(command, args, options = {}) {
       finish(null, {
         code,
         signal,
+        timedOut,
         stdout: Buffer.concat(stdout).toString("utf8"),
         stderr: Buffer.concat(stderr).toString("utf8")
       });
     });
     if (input !== undefined) child.stdin.end(input);
     else child.stdin.end();
-    const timeout = setTimeout(() => terminateTree(child, "SIGTERM"), timeoutMs);
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      terminateTree(child, "SIGTERM");
+    }, timeoutMs);
     const forceKill = setTimeout(() => terminateTree(child, "SIGKILL"), timeoutMs + 2_000);
   });
+}
+
+export function providerFailureSummary(provider, result, timeoutMs) {
+  const stderr = String(result.stderr ?? "");
+  const outcome = result.timedOut
+    ? `timed out after ${timeoutMs}ms`
+    : `failed with exit ${result.code ?? "null"}`;
+  return `${provider} ${outcome}; signal=${result.signal ?? "none"}; stderrBytes=${Buffer.byteLength(stderr)}; stderrDigest=${sha256(stderr)}`;
+}
+
+export function providerFinalOutput(fileOutput, stdout) {
+  const fileText = String(fileOutput ?? "");
+  if (fileText.trim()) return { output: fileText, transport: "private-file" };
+  const stdoutText = String(stdout ?? "");
+  if (stdoutText.trim()) return { output: stdoutText, transport: "stdout-fallback" };
+  throw new Error(
+    `Provider returned empty final output; fileBytes=${Buffer.byteLength(fileText)}; fileDigest=${sha256(fileText)}; stdoutBytes=${Buffer.byteLength(stdoutText)}; stdoutDigest=${sha256(stdoutText)}`
+  );
 }
 
 async function commandPath(command) {
@@ -269,7 +292,12 @@ export async function verifyTrustedCodexAttestation({ attestationPath, evaluatio
 }
 
 export async function binaryIdentity(command) {
-  const target = await commandPath(command);
+  const supplied = await commandPath(command);
+  const target = await realpath(supplied);
+  const info = await lstat(target);
+  if (info.isSymbolicLink() || !info.isFile()) {
+    throw new Error(`Provider command must resolve to a regular file: ${command}`);
+  }
   return { path: target, digest: await hashFile(target) };
 }
 
@@ -384,17 +412,36 @@ export async function runCodexEvaluation({ model, prompt, timeoutMs = 120_000, a
   const bundle = await mkdtemp(path.join(os.tmpdir(), "sbw-codex-evaluation-"));
   await chmod(bundle, 0o700);
   const schemaPath = path.join(bundle, "evaluation.schema.json");
+  const responsePath = path.join(bundle, "evaluation.response.json");
   await writeFile(schemaPath, `${JSON.stringify(EVALUATION_SCHEMA, null, 2)}\n`, { mode: 0o600 });
   const startedAt = new Date().toISOString();
   try {
     const result = await spawnCapture(trusted.command, [
       "exec", "--ignore-user-config", "--ignore-rules", "--ephemeral", "--sandbox", "read-only", "--skip-git-repo-check",
-      "-C", bundle, "--output-schema", schemaPath, "-m", model, "-c", "model_reasoning_effort=\"high\"", "-"
+      "-C", bundle, "--output-schema", schemaPath, "--output-last-message", responsePath,
+      "-m", model, "-c", "model_reasoning_effort=\"high\"", "-"
     ], { cwd: bundle, input: prompt, timeoutMs, maxOutputBytes: 2 * 1024 * 1024 });
-    if (result.code !== 0) throw new Error(`Codex evaluation failed with exit ${result.code}: ${result.stderr.trim()}`);
-    const response = extractJson(result.stdout);
+    if (result.code !== 0) throw new Error(providerFailureSummary("Codex evaluation", result, timeoutMs));
+    const fileOutput = await readFile(responsePath, "utf8").catch((error) => {
+      if (error.code === "ENOENT") return "";
+      throw error;
+    });
+    const finalOutput = providerFinalOutput(fileOutput, result.stdout);
+    const response = extractJson(finalOutput.output);
     if (!response || !Array.isArray(response.results)) throw new Error("Codex evaluation returned malformed structured output");
-    return { response, metadata: { ...trusted.metadata, startedAt, finishedAt: new Date().toISOString(), transport: "stdin", sandbox: "read-only", ephemeral: true, outputSchema: "evaluation-v1" } };
+    return {
+      response,
+      metadata: {
+        ...trusted.metadata,
+        startedAt,
+        finishedAt: new Date().toISOString(),
+        transport: "stdin",
+        resultTransport: finalOutput.transport,
+        sandbox: "read-only",
+        ephemeral: true,
+        outputSchema: "evaluation-v1"
+      }
+    };
   } finally {
     await rm(bundle, { recursive: true, force: true });
   }

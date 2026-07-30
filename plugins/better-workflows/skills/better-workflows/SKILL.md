@@ -127,7 +127,8 @@ source/cache digest verification.
 
 For `research-deliberation`, also read
 [deliberation-roster.md](references/deliberation-roster.md). It defines the
-CLI-proven participant roster, model-bound roles, Agy-based Gemini route, and
+CLI-proven participant roster, model-bound roles, Antigravity CLI (`agy`)
+transport for Gemini models, and
 capability-ranked final-arbiter fallback. Apply the contextual `medium`/`high`
 reasoning-effort policy to every model and record its actual transport. The
 former separate AI-meeting alias is intentionally not used.
@@ -151,6 +152,35 @@ sbw sentinel verify <run-id> --label <label>
 
 If verification reports drift, mark the run `indeterminate`, discard that wave's conclusions, do not restore files automatically, and report the changed surfaces.
 
+## Inspect the derived graph
+
+Graph View is a typed, read-only projection of installed templates or one live
+run. It is a cross-record validator, not a policy input, scheduler, authority
+source, persisted graph, Dynamic Workflow runtime, or agent runtime. It may only
+add a fail-closed structural rejection; it never authorizes, schedules, or
+relaxes behavior.
+Every enforcement point recomputes validation from the installed template or
+private run records. Never accept a graph envelope, graph digest, Mermaid, or
+persisted graph as policy input. Presentation failure cannot grant or relax
+authority.
+
+~~~bash
+sbw graph validate
+sbw graph validate --template <name>
+sbw graph validate --run <run-id>
+sbw graph inspect --template <name> [--format json|mermaid]
+sbw graph inspect --run <run-id> [--format json|mermaid]
+~~~
+
+JSON is canonical. Mermaid remains inside the JSON `content` field and is never
+written implicitly. Structural errors exit `2` and block `eval`, run creation,
+action-token issue, and completion. Warnings do not block. Graph output must not
+contain raw evidence summaries, inputs, conversations, token hashes,
+credentials, provider receipts, or absolute paths.
+Live-run provenance digests must cover only the allowlisted non-sensitive
+structural projection. Omitted private fields must not affect source or graph
+digests.
+
 ## Delegate bounded read-only work
 
 - Spawn at most three direct native children. Do not allow children to spawn descendants.
@@ -173,13 +203,16 @@ sbw critic codex <run-id> --model gpt-5.6-sol --effort xhigh --prompt-file <sani
 
 When the parent Codex sandbox blocks the child CLI from reading its own local auth/runtime state, request scoped approval for this exact critic command. Never replace the child `--sandbox read-only` setting with a bypass flag.
 
-Use Agy only when the user authorized external egress and the bundle is sanitized, non-confidential, and within the byte limit:
+Use Antigravity CLI (`agy`) only when the user authorized external egress and
+the bundle is sanitized, non-confidential, and within the byte limit:
 
 ~~~bash
 sbw critic agy <run-id> --model "Gemini 3.1 Pro (High)" --prompt-file <sanitized-file>
 ~~~
 
-Never send secrets, regulated data, private source, raw history, or confidential prompts through Agy argv transport. If critical policy requires Agy and it is unavailable, finish as `inconclusive`.
+Never send secrets, regulated data, private source, raw history, or
+confidential prompts through `agy` argv transport. If critical policy requires
+this transport and it is unavailable, finish as `inconclusive`.
 
 ## Record evidence and findings
 

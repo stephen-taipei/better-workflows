@@ -18,7 +18,7 @@ test("all historical and adversarial routing fixtures select the expected mode",
   }
 });
 
-test("all twelve templates are valid and side-effect templates declare action gates", async () => {
+test("all thirteen templates are valid and side-effect templates declare action gates", async () => {
   const directory = path.join(pluginRoot(), "templates");
   const names = (await readdir(directory))
     .filter((name) => name.endsWith(".json"))
@@ -35,7 +35,8 @@ test("all twelve templates are valid and side-effect templates declare action ga
     "pr-to-dev.json",
     "research-deliberation.json",
     "review-to-issues.json",
-    "self-improve-ops.json"
+    "self-improve-ops.json",
+    "workspace-recipe.json"
   ]);
   for (const name of names) {
     const template = JSON.parse(await readFile(path.join(directory, name), "utf8"));
@@ -43,10 +44,43 @@ test("all twelve templates are valid and side-effect templates declare action ga
     assert.ok(template.requiredEvidence.length > 0);
     assert.ok(template.acceptance.length > 0);
     assert.ok(template.policyGates.length > 0);
+    const evidenceMinimum = new Set(template.requiredEvidence);
+    for (const [action, prerequisites] of Object.entries(template.actionGates ?? {})) {
+      for (const prerequisite of prerequisites) {
+        assert.ok(
+          evidenceMinimum.has(prerequisite),
+          `${name} ${action} prerequisite is absent from requiredEvidence: ${prerequisite}`
+        );
+      }
+    }
     if (template.rootOnlyActions.some((action) => /deploy|release|issue create|pr create|pr merge/i.test(action))) {
       assert.ok(template.actionGates && Object.keys(template.actionGates).length > 0, name);
     }
   }
+});
+
+test("workspace recipes require explicit trust and independently gated artifact promotion", async () => {
+  const template = JSON.parse(
+    await readFile(path.join(pluginRoot(), "templates", "workspace-recipe.json"), "utf8")
+  );
+  assert.equal(template.defaultMode, "verified");
+  for (const evidence of [
+    "recipe-contract",
+    "fixture-test",
+    "candidate-dry-run",
+    "digest-confirmation",
+    "current-sentinel",
+    "artifact-receipt",
+    "promotion-decision"
+  ]) {
+    assert.ok(template.requiredEvidence.includes(evidence), evidence);
+  }
+  assert.deepEqual(Object.keys(template.actionGates).sort(), [
+    "artifact.promote",
+    "recipe.promote"
+  ]);
+  assert.ok(template.policyGates.includes("no-untrusted-execution"));
+  assert.ok(template.policyGates.includes("no-automatic-scaffold-promotion-or-execution"));
 });
 
 test("pr-to-dev enforces batched commits, a dev-targeted PR, and remote reconciliation", async () => {
@@ -173,7 +207,7 @@ test("self improve keeps no-change, synchronization, cache, commit, and push fai
   }
 });
 
-test("deliberation roster keeps every brand and routes Gemini through Agy with a 24-hour lease", async () => {
+test("deliberation roster separates model brands from the Agy transport with a 24-hour lease", async () => {
   const roster = JSON.parse(
     await readFile(path.join(pluginRoot(), "config", "deliberation-roster.json"), "utf8")
   );
@@ -185,6 +219,15 @@ test("deliberation roster keeps every brand and routes Gemini through Agy with a
   assert.equal(providers.get("gemini").command, "agy");
   assert.equal(providers.get("gemini").probe, "agy");
   assert.equal(providers.get("gemini").effortTransport, "native");
+  assert.equal(
+    providers.get("agy").models.find((model) => model.model === "claude-opus-4-6-thinking").brand,
+    "Claude"
+  );
+  assert.equal(
+    providers.get("agy").models.find((model) => model.model === "gpt-oss-120b-medium").brand,
+    "GPT-OSS"
+  );
+  assert.ok(providers.get("agy").models.every((model) => model.brand !== "Agy"));
   assert.equal(
     providers.get("agy").models.find((model) => model.model === "claude-opus-4-6-thinking").effortTransport,
     "model-variant"
@@ -268,7 +311,8 @@ test("skills have no placeholders and retired AI-meeting alias is absent", async
     "research",
     "review-issues",
     "self-improve",
-    "verified"
+    "verified",
+    "workspace-recipe"
   ]);
   for (const name of skillNames) {
     const contents = await readFile(path.join(skillsRoot, name, "SKILL.md"), "utf8");
