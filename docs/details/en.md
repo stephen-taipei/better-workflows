@@ -319,6 +319,12 @@ host trust root at `/etc/better-workflows/codex-trust-root.json`;
 `PATH`, a self-hash, and model self-report are not provider attestation. Ties,
 noise, missing evidence, and fixture-only results never auto-adopt a change.
 
+Evaluation v2.2 preserves the existing safety, documentation, deliberation,
+sanitizer, and evaluation-engineering coverage, and adds isolated train/holdout
+classes for typed-evidence integrity, execution-ledger replay, bounded review
+convergence, and direct-work cost. Its one-time migration freezes v2.1 as the
+source and binds both immutable suite digests into all seven signed executions.
+
 The host trust root is **not required for ordinary clones or workspace recipe
 execution**. It is required only for maintainers who want real Codex
 self-improvement replays to authorize commit, cache publication, or delivery.

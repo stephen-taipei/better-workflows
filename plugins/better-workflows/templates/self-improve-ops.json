@@ -85,6 +85,7 @@
     "staged-candidate-before-commit",
     "strict-holdout-improvement",
     "versioned-evaluator-migration",
+    "control-plane-v2-evaluator-coverage",
     "universal-safety-plus-relevant-class",
     "balanced-cross-surface-sampling",
     "saturated-suite-rejection",

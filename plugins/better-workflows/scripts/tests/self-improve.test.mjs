@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -9,15 +10,20 @@ import {
   calibrateEvaluatorMigration,
   compareEvaluatorMigration,
   compareHoldout,
+  evaluationBindingDigest,
   readSanitizedCandidateMaterial,
   scoreEvaluation,
   selectEvaluationCases,
-  validateEvaluationSuite
+  validateEvaluationSuite,
+  SELF_IMPROVE_MIGRATION_SOURCE_CORPORA,
+  SELF_IMPROVE_ORDINARY_CORPORA
 } from "../lib/self-improve.mjs";
 
 const suite = JSON.parse(await readFile(path.join(pluginRoot(), "fixtures", "self-improve-ops-evals.json"), "utf8"));
 const suiteV2 = JSON.parse(await readFile(path.join(pluginRoot(), "fixtures", "self-improve-ops-evals-v2.json"), "utf8"));
-const suiteV21 = JSON.parse(await readFile(path.join(pluginRoot(), "fixtures", "self-improve-ops-evals-v2.1.json"), "utf8"));
+const suiteV21Bytes = await readFile(path.join(pluginRoot(), "fixtures", "self-improve-ops-evals-v2.1.json"));
+const suiteV21 = JSON.parse(suiteV21Bytes.toString("utf8"));
+const suiteV22 = JSON.parse(await readFile(path.join(pluginRoot(), "fixtures", "self-improve-ops-evals-v2.2.json"), "utf8"));
 
 function run(score, hardSafetyPass = true) {
   return { score, hardSafetyPass, perCase: [{ id: "a", evaluationClass: null, score, hardSafetyPass }] };
@@ -27,6 +33,8 @@ test("self-improve corpus validates split isolation, uniqueness, and secret-shap
   assert.equal(validateEvaluationSuite(suite).cases.length, 6);
   assert.equal(validateEvaluationSuite(suiteV2).classes.length, 5);
   assert.equal(validateEvaluationSuite(suiteV21).classes.length, 5);
+  assert.equal(validateEvaluationSuite(suiteV22).classes.length, 9);
+  assert.equal(validateEvaluationSuite(suiteV22).cases.length, 18);
   const duplicate = structuredClone(suite);
   duplicate.cases[1].id = duplicate.cases[0].id;
   assert.throws(() => validateEvaluationSuite(duplicate), /unique/);
@@ -48,6 +56,42 @@ test("evaluation v2 rejects unknown fields, missing class splits, and unsafe pat
   const traversal = structuredClone(suiteV2);
   traversal.classes.find((item) => item.kind === "improvement").paths = ["../private"];
   assert.throws(() => validateEvaluationSuite(traversal), /escapes/);
+});
+
+test("evaluation v2.2 uniquely covers every control-plane improvement class in train and holdout", () => {
+  const expected = ["direct-work-cost", "evidence-integrity", "execution-ledger", "review-convergence"];
+  const classes = suiteV22.classes.filter((item) => expected.includes(item.id));
+  assert.deepEqual(classes.map((item) => item.id).sort(), expected);
+  for (const classId of expected) {
+    const cases = suiteV22.cases.filter((item) => item.evaluationClass === classId);
+    assert.deepEqual(cases.map((item) => item.split).sort(), ["holdout", "train"]);
+    assert.equal(new Set(cases.map((item) => item.id)).size, 2);
+    assert.equal(cases.every((item) => item.assertions.some((assertion) => assertion.hardSafety)), true);
+  }
+  for (const legacyCase of suiteV21.cases) {
+    assert.deepEqual(suiteV22.cases.find((item) => item.id === legacyCase.id), legacyCase);
+  }
+  assert.equal(createHash("sha256").update(suiteV21Bytes).digest("hex"), "42f61f3f416d0c28ccd419e6aa52aa07923889b944906b0de922f12b67c0401c");
+  assert.deepEqual(SELF_IMPROVE_MIGRATION_SOURCE_CORPORA, [
+    "plugins/better-workflows/fixtures/self-improve-ops-evals.json",
+    "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.json",
+    "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.1.json"
+  ]);
+});
+
+test("evaluator migration binding changes with either immutable suite digest", () => {
+  const base = evaluationBindingDigest({ purpose: "evaluator-migration", sourceSuiteDigest: "a".repeat(64), targetSuiteDigest: "b".repeat(64) });
+  assert.notEqual(base, evaluationBindingDigest({ purpose: "evaluator-migration", sourceSuiteDigest: "c".repeat(64), targetSuiteDigest: "b".repeat(64) }));
+  assert.notEqual(base, evaluationBindingDigest({ purpose: "evaluator-migration", sourceSuiteDigest: "a".repeat(64), targetSuiteDigest: "d".repeat(64) }));
+});
+
+test("ordinary evaluator readers prefer the newest corpus present in the immutable baseline", () => {
+  assert.deepEqual(SELF_IMPROVE_ORDINARY_CORPORA, [
+    "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.2.json",
+    "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.1.json",
+    "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.json",
+    "plugins/better-workflows/fixtures/self-improve-ops-evals.json"
+  ]);
 });
 
 test("holdout aggregation fails closed for safety failure, tie, regression, and noisy runs", () => {
@@ -261,28 +305,37 @@ test("evaluation v2 selects universal safety plus only applicable improvement cl
   );
 });
 
-test("evaluator migration calibration binds v1, v2, balanced groups, and both splits", () => {
+test("evaluator migration calibration binds v2.1, v2.2, balanced groups, and both splits", () => {
   const snapshot = {
     files: [
+      { path: "plugins/better-workflows/config/evidence-contracts-v1.json", state: "file" },
+      { path: "plugins/better-workflows/scripts/lib/core.mjs", state: "file" },
+      { path: "plugins/better-workflows/scripts/lib/ledger.mjs", state: "file" },
+      { path: "plugins/better-workflows/scripts/lib/review.mjs", state: "file" },
       { path: "plugins/better-workflows/scripts/lib/self-improve.mjs", state: "file" },
       { path: "plugins/better-workflows/scripts/tests/self-improve.test.mjs", state: "file" }
     ]
   };
   const calibration = calibrateEvaluatorMigration({
-    source: suiteV2,
-    target: suiteV21,
+    source: suiteV21,
+    target: suiteV22,
     snapshot,
     materials: [
+      { materialGroup: "config" },
       { materialGroup: "runtime" },
       { materialGroup: "tests" }
     ],
     sourceDigest: "a".repeat(64),
     targetDigest: "b".repeat(64)
   });
-  assert.deepEqual(calibration.materialGroups, ["runtime", "tests"]);
+  assert.deepEqual(calibration.materialGroups, ["config", "runtime", "tests"]);
   assert.match(calibration.digest, /^[a-f0-9]{64}$/);
   assert.ok(calibration.trainClasses.includes("universal-safety"));
   assert.ok(calibration.holdoutClasses.includes("evaluation-engineering"));
+  for (const classId of ["direct-work-cost", "evidence-integrity", "execution-ledger", "review-convergence"]) {
+    assert.ok(calibration.trainClasses.includes(classId));
+    assert.ok(calibration.holdoutClasses.includes(classId));
+  }
 });
 
 test("candidate sanitizer admits declared public docs and checks all paths before sampling", async () => {

@@ -181,6 +181,7 @@ test("self improve keeps no-change, synchronization, cache, commit, and push fai
     "train-holdout-isolation",
     "staged-candidate-before-commit",
     "strict-holdout-improvement",
+    "control-plane-v2-evaluator-coverage",
     "host-attested-codex-only",
     "no-automatic-adoption",
     "thin-workflow-composition",

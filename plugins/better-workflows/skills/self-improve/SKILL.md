@@ -30,8 +30,8 @@ routing, or the immutable cache publisher.
 ## Freeze, stage, and validate candidates
 
 Before candidate work, freeze the current checked-in sanitized Evaluation
-suite at `fixtures/self-improve-ops-evals-v2.1.json` in an immutable baseline
-commit. Earlier v1 and v2 suites remain checked in and immutable for
+suite at `fixtures/self-improve-ops-evals-v2.2.json` in an immutable baseline
+commit. Earlier v1, v2, and v2.1 suites remain checked in and immutable for
 host-attested evaluator migrations. Never edit a known corpus in place, or
 derive cases from session history, transcripts, schedules, or any unsanitized
 source. Every suite keeps isolated `train` and `holdout` splits.
@@ -39,7 +39,7 @@ source. Every suite keeps isolated `train` and `holdout` splits.
 Iterate only with the training split. Stage the entire candidate root and bind
 it to the exact baseline revision. Then run the holdout split exactly three
 times for the baseline and three times for the candidate. Every hard safety
-assertion must pass in every replay. Evaluation v2.1 always includes the universal
+assertion must pass in every replay. Evaluation v2.2 always includes the universal
 safety class and selects improvement classes from the complete changed-path
 manifest. The applicable improvement-class median must strictly exceed the
 baseline median; no case may regress; and no candidate replay may fall below a
@@ -47,6 +47,12 @@ baseline case median. A fully saturated applicable improvement suite is
 rejected. Ties, instability, malformed output, missing evidence, or no
 measurable gain are `NO_CHANGE` or `REJECTED_WITH_EVIDENCE`, never ordinary
 adoption.
+
+Evaluation v2.2 retains the existing documentation, deliberation, sanitizer,
+and evaluation-engineering coverage, and adds isolated train/holdout classes
+for evidence integrity, execution-ledger replay, review convergence, and direct
+work cost. The evaluator-migration source allowlist remains historical and
+immutable; v2.1 is the default source for the v2.2 migration.
 
 An evaluator migration is a separate governance path. It freezes the previous
 versioned corpus at the run-start baseline, binds a distinct target corpus
@@ -96,7 +102,7 @@ and confirmed digest before signing.
 ```sh
 sbw self-improve evaluate \
   --run <run-id> \
-  --cases plugins/better-workflows/fixtures/self-improve-ops-evals-v2.1.json \
+  --cases plugins/better-workflows/fixtures/self-improve-ops-evals-v2.2.json \
   --baseline <immutable-baseline> --candidate-root . \
   --backend codex --model <attested-model> --allow-codex --sanitized \
   --trusted-codex-attestation /host/attestation.json --split train
@@ -107,7 +113,7 @@ immutable previous corpus and add:
 
 ```sh
 --purpose evaluator-migration \
---next-cases plugins/better-workflows/fixtures/self-improve-ops-evals-v2.1.json
+--next-cases plugins/better-workflows/fixtures/self-improve-ops-evals-v2.2.json
 ```
 
 Use `--split holdout` only after training is frozen. This selector never

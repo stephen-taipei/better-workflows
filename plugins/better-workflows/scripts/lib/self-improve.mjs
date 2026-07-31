@@ -9,8 +9,17 @@ const CASE_ID = /^[a-z0-9][a-z0-9-]{2,79}$/;
 const DISPOSITIONS = new Set(["IMPLEMENT", "NO_CHANGE", "BLOCKED", "REJECTED_WITH_EVIDENCE"]);
 const SECRET_PATTERN = /(?:api[_-]?key|password|passwd|secret|token|authorization)\s*[:=]\s*(?:"[^"\s]{4,}"|'[^'\s]{4,}'|(?=[A-Za-z0-9+/_-]{8,}(?:\s|$))(?=[A-Za-z0-9+/_-]*[0-9+/_-])[A-Za-z0-9+/_-]+)/i;
 export const SELF_IMPROVE_LEGACY_CORPUS = "plugins/better-workflows/fixtures/self-improve-ops-evals.json";
-export const SELF_IMPROVE_MIGRATION_SOURCE_CORPUS = "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.json";
-export const SELF_IMPROVE_CANONICAL_CORPUS = "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.1.json";
+export const SELF_IMPROVE_MIGRATION_SOURCE_CORPUS = "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.1.json";
+export const SELF_IMPROVE_CANONICAL_CORPUS = "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.2.json";
+export const SELF_IMPROVE_MIGRATION_SOURCE_CORPORA = Object.freeze([
+  SELF_IMPROVE_LEGACY_CORPUS,
+  "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.json",
+  SELF_IMPROVE_MIGRATION_SOURCE_CORPUS
+]);
+export const SELF_IMPROVE_ORDINARY_CORPORA = Object.freeze([
+  SELF_IMPROVE_CANONICAL_CORPUS,
+  ...SELF_IMPROVE_MIGRATION_SOURCE_CORPORA.toReversed()
+]);
 export const SELF_IMPROVE_EVALUATION_PURPOSES = new Set(["ordinary", "evaluator-migration"]);
 
 const PUBLIC_ROOT_DOCUMENTS = new Set([
@@ -119,7 +128,7 @@ export function validateEvaluationSuite(suite) {
     return suite;
   }
   assertExactKeys(suite, new Set(["schemaVersion", "name", "classes", "cases"]), "Evaluation suite v2");
-  if (!Array.isArray(suite.classes) || suite.classes.length < 2 || suite.classes.length > 8) throw new Error("Evaluation suite v2 must contain 2..8 classes");
+  if (!Array.isArray(suite.classes) || suite.classes.length < 2 || suite.classes.length > 12) throw new Error("Evaluation suite v2 must contain 2..12 classes");
   const classIds = new Set();
   let invariantCount = 0;
   let improvementCount = 0;
@@ -166,19 +175,37 @@ export async function resolveBaselineRevision(cwd, revision) {
   return (await git(cwd, ["rev-parse", "--verify", `${revision}^{commit}`])).trim();
 }
 
+async function ordinaryCorpusAtResolvedBaseline(repository, baseline) {
+  for (const corpus of SELF_IMPROVE_ORDINARY_CORPORA) {
+    try {
+      await gitBytes(repository, ["show", `${baseline}:${corpus}`]);
+      return corpus;
+    } catch {
+      // Continue through the immutable historical reader order.
+    }
+  }
+  throw new Error("Immutable baseline contains no supported self-improve evaluation corpus");
+}
+
+export async function ordinaryCorpusForBaseline({ cwd, baselineRevision }) {
+  const repository = await realpath(cwd);
+  const baseline = await resolveBaselineRevision(repository, baselineRevision);
+  return ordinaryCorpusAtResolvedBaseline(repository, baseline);
+}
+
 export async function loadFrozenEvaluationSuite({ cwd, casesFile, baselineRevision, canonical = true, purpose = "ordinary" }) {
   const repository = await realpath(cwd);
   const absolute = path.resolve(casesFile);
   if (!isWithin(repository, absolute)) throw new Error("Evaluation suite must be inside the repository");
   const relative = safeRelative(path.relative(repository, absolute), "Evaluation suite path");
   if (!SELF_IMPROVE_EVALUATION_PURPOSES.has(purpose)) throw new Error("Unknown self-improve evaluation purpose");
+  const baseline = await resolveBaselineRevision(repository, baselineRevision);
   const canonicalPaths = purpose === "evaluator-migration"
-    ? [SELF_IMPROVE_LEGACY_CORPUS, SELF_IMPROVE_MIGRATION_SOURCE_CORPUS]
-    : [SELF_IMPROVE_CANONICAL_CORPUS];
+    ? SELF_IMPROVE_MIGRATION_SOURCE_CORPORA
+    : [await ordinaryCorpusAtResolvedBaseline(repository, baseline)];
   if (canonical && !canonicalPaths.includes(relative)) {
     throw new Error(`Production ${purpose} evaluation suite must be one of: ${canonicalPaths.join(", ")}`);
   }
-  const baseline = await resolveBaselineRevision(repository, baselineRevision);
   let frozen;
   try {
     frozen = await gitBytes(repository, ["show", `${baseline}:${relative}`]);

@@ -9,7 +9,8 @@ import {
   readSanitizedCandidateMaterial,
   snapshotCandidate,
   SELF_IMPROVE_CANONICAL_CORPUS,
-  SELF_IMPROVE_MIGRATION_SOURCE_CORPUS
+  SELF_IMPROVE_MIGRATION_SOURCE_CORPUS,
+  ordinaryCorpusForBaseline
 } from "./self-improve.mjs";
 import { binaryIdentity } from "./providers.mjs";
 
@@ -41,11 +42,14 @@ export async function generateAttestationRequests({
   ) {
     throw new Error("Attestation requests must be written outside the repository");
   }
+  const defaultCasesFile = purpose === "evaluator-migration"
+    ? SELF_IMPROVE_MIGRATION_SOURCE_CORPUS
+    : await ordinaryCorpusForBaseline({ cwd: resolvedRepo, baselineRevision });
   const frozen = await loadFrozenEvaluationSuite({
     cwd: resolvedRepo,
     casesFile: path.resolve(
       resolvedRepo,
-      casesFile ?? (purpose === "evaluator-migration" ? SELF_IMPROVE_MIGRATION_SOURCE_CORPUS : SELF_IMPROVE_CANONICAL_CORPUS)
+      casesFile ?? defaultCasesFile
     ),
     baselineRevision,
     canonical: true,

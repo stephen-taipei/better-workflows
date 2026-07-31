@@ -280,6 +280,8 @@ node plugins/better-workflows/scripts/sbw.mjs recipe run <id> \
 
 自我改进 evaluation 只使用已 checked-in、sanitized 且在 immutable baseline 冻结的 train/holdout corpus。candidate 必须先 staging；三次 read-only Codex holdout replay 必须在没有 safety failure 或 regression 的前提下严格超过 baseline median。Codex replay 需要 host-signed attestation，把精确 binary 与 model 绑定到固定的 `/etc/better-workflows/codex-trust-root.json`；该文件和父目录必须由 administrator 拥有且调用者不可写入。`PATH`、自行计算 hash、CLI 选择 trust root 或 model 自述都不是 provider attestation。tie、noise、缺少 evidence 或 fixture-only 结果都不会 auto-adopt。
 
+Evaluation v2.2 保留现有 safety、documentation、deliberation、sanitizer 与 evaluation-engineering coverage，并增加 typed-evidence integrity、execution-ledger replay、bounded review convergence 与 direct-work cost 的独立 train/holdout classes。一次性 migration 以 immutable v2.1 为 source，并将 source/target 两份 suite digest 绑定到全部七份 signed executions。
+
 ### 衍生 Graph View
 
 Graph View 从已安装 workflow templates 或单个 live run 衍生 typed、只读

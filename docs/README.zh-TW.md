@@ -6,11 +6,21 @@
 
 Codex 的受治理工作流編排：小改動保持快速，重要 side effects 保持嚴謹。
 
+| Primitive | 治理內容 | 證據邊界 |
+| --- | --- | --- |
+| **Prompt** | 成果 | 文字不授予權限 |
+| **Context** | 輸入 | 必須有 fresh digests |
+| **Harness** | 工具 | 只信任 allowlisted producers |
+| **Loop** | 嘗試 | 重試保持有界 |
+| **Graph** | 狀態 | 唯讀；不是 scheduler 或授權來源 |
+
+絕不擷取敏感或私人歷史；只能以經遮蔽的 `REJECTED_WITH_EVIDENCE` disposition 拒絕。
+
 **模型品牌名單：** Codex · Claude · Gemini（透過 Antigravity `agy`）·
 GPT-OSS（透過 `agy`）· Grok · Cursor · Kimi · Qwen · Kiro。`agy` 是
 transport metadata，不是另一個模型品牌；是否可用仍須通過最新 semantic roster probe。
 
-[![Version](https://img.shields.io/badge/version-2.5.0-2563EB?style=flat-square)](../plugins/better-workflows/package.json)
+[![Version](https://img.shields.io/badge/version-2.6.0-2563EB?style=flat-square)](../plugins/better-workflows/package.json)
 [![Node](https://img.shields.io/badge/Node.js-%E2%89%A524-3C873A?style=flat-square)](../plugins/better-workflows/package.json)
 [![Dependencies](https://img.shields.io/badge/runtime_dependencies-0-0F766E?style=flat-square)](../plugins/better-workflows/package.json)
 [![License](https://img.shields.io/badge/license-MIT-64748B?style=flat-square)](../LICENSE)
