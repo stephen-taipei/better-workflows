@@ -245,6 +245,8 @@ $better-workflows:auto <達成したい結果を記述>
 
 自己改善 evaluation は、immutable baseline で凍結した checked-in・sanitized の train/holdout corpus だけを使います。candidate は先に staging し、3 回の read-only Codex holdout replay が safety failure と regression なしで baseline median を厳密に上回る必要があります。Codex replay には、正確な binary と model を固定の `/etc/better-workflows/codex-trust-root.json` に結び付ける host-signed attestation が必要です。この file と親 directory は administrator 所有で、呼び出し元が書き込めない必要があります。`PATH`、自己 hash、CLI で選ぶ trust root、model の自己申告は provider attestation ではありません。tie、noise、evidence 不足、fixture-only の結果は auto-adopt しません。
 
+Evaluation v2.2 は既存の safety、documentation、deliberation、sanitizer、evaluation-engineering coverage を維持し、typed-evidence integrity、execution-ledger replay、bounded review convergence、direct-work cost の独立 train/holdout classes を追加します。一度限りの migration は immutable v2.1 を source とし、source/target 両 suite digest を七つすべての signed executions に結び付けます。
+
 通常の clone や workspace recipe の実行には host trust root は**不要**です。実 Codex self-improve replay で commit、cache publication、delivery を許可する maintainer だけが、各 host で administrator により一度だけ実行します：
 
 ```bash

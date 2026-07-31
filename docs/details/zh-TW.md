@@ -251,6 +251,8 @@ $better-workflows:cross-platform 檢查 backend、iOS 和 Android 的 contact sy
 
 自我改善 evaluation 只使用已 checked-in、sanitized 且在 immutable baseline 凍結的 train/holdout corpus。candidate 必須先 staging；三次 read-only Codex holdout replay 必須在沒有 safety failure 或 regression 下，嚴格超過 baseline median。Codex replay 需要 host-signed attestation，將精確 binary 與 model 綁定到固定的 `/etc/better-workflows/codex-trust-root.json`；該檔與父目錄必須由 administrator 擁有且不可由呼叫者寫入。`PATH`、自行計算 hash、CLI 選擇 trust root 或 model 自述都不是 provider attestation。tie、noise、缺少 evidence 或 fixture-only 結果都不會 auto-adopt。
 
+Evaluation v2.2 保留既有 safety、documentation、deliberation、sanitizer 與 evaluation-engineering coverage，並增加 typed-evidence integrity、execution-ledger replay、bounded review convergence 與 direct-work cost 的獨立 train/holdout classes。一次性的 migration 以 immutable v2.1 為 source，並將 source/target 兩份 suite digest 綁入全部七份 signed executions。
+
 一般 clone 或執行 workspace recipe **不需要** host trust root；只有要以真實 Codex self-improve replay 授權 commit、cache publication 或 delivery 的 maintainer，才需由 administrator 在每台 host 一次性執行：
 
 ```bash

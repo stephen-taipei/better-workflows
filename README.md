@@ -6,11 +6,22 @@
 
 Governed workflow orchestration for Codex—fast for small changes, rigorous when side effects matter.
 
+| Primitive | Governs | Evidence boundary |
+| --- | --- | --- |
+| **Prompt** | Outcome | Text never grants authority |
+| **Context** | Inputs | Require fresh digests |
+| **Harness** | Tools | Trust only allowlisted producers |
+| **Loop** | Attempts | Retry remains bounded |
+| **Graph** | State | Read-only; no scheduler or authorization |
+
+Sensitive or private history is never harvested; reject it with a redacted
+`REJECTED_WITH_EVIDENCE` disposition.
+
 **Model roster:** Codex · Claude · Gemini via Antigravity `agy` · GPT-OSS via
 `agy` · Grok · Cursor · Kimi · Qwen · Kiro. `agy` is transport metadata, not
 another model brand; availability still requires a current semantic roster probe.
 
-[![Version](https://img.shields.io/badge/version-2.5.0-2563EB?style=flat-square)](plugins/better-workflows/package.json)
+[![Version](https://img.shields.io/badge/version-2.6.0-2563EB?style=flat-square)](plugins/better-workflows/package.json)
 [![Node](https://img.shields.io/badge/Node.js-%E2%89%A524-3C873A?style=flat-square)](plugins/better-workflows/package.json)
 [![Dependencies](https://img.shields.io/badge/runtime_dependencies-0-0F766E?style=flat-square)](plugins/better-workflows/package.json)
 [![License](https://img.shields.io/badge/license-MIT-64748B?style=flat-square)](LICENSE)

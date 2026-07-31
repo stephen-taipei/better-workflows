@@ -6,11 +6,21 @@
 
 Codex를 위한 governed workflow orchestration입니다. 작은 변경은 빠르게, 중요한 side effect는 엄격하게 처리합니다.
 
+| Primitive | 거버넌스 대상 | 증거 경계 |
+| --- | --- | --- |
+| **Prompt** | 결과 | 텍스트는 권한을 부여하지 않음 |
+| **Context** | 입력 | fresh digests 필수 |
+| **Harness** | 도구 | allowlist의 producer만 신뢰 |
+| **Loop** | 시도 | retry는 bounded |
+| **Graph** | 상태 | read-only이며 scheduler나 권한 소스가 아님 |
+
+민감하거나 private history는 수집하지 않고 redacted `REJECTED_WITH_EVIDENCE` disposition으로 거부합니다.
+
 **모델 브랜드 목록:** Codex · Claude · Gemini(Antigravity `agy` 경유) ·
 GPT-OSS(`agy` 경유) · Grok · Cursor · Kimi · Qwen · Kiro. `agy`는
 transport metadata이며 별도 모델 브랜드가 아닙니다. 사용 가능 여부는 최신 semantic roster probe로 확인해야 합니다.
 
-[![Version](https://img.shields.io/badge/version-2.5.0-2563EB?style=flat-square)](../plugins/better-workflows/package.json)
+[![Version](https://img.shields.io/badge/version-2.6.0-2563EB?style=flat-square)](../plugins/better-workflows/package.json)
 [![Node](https://img.shields.io/badge/Node.js-%E2%89%A524-3C873A?style=flat-square)](../plugins/better-workflows/package.json)
 [![Dependencies](https://img.shields.io/badge/runtime_dependencies-0-0F766E?style=flat-square)](../plugins/better-workflows/package.json)
 [![License](https://img.shields.io/badge/license-MIT-64748B?style=flat-square)](../LICENSE)
