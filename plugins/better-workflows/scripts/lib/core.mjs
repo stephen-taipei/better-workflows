@@ -8,6 +8,7 @@ import {
   open,
   readdir,
   readFile,
+  realpath,
   rename,
   rm,
   stat,
@@ -761,7 +762,9 @@ function assertProviderReceiptShape(record, providerReceipt, outcome = record.ou
       providerReceipt.invocationId !== record.providerInvocation?.id ||
       JSON.stringify(providerReceipt.mergeCommand) !== JSON.stringify(record.mergeCommand) ||
       typeof providerReceipt.head !== "string" || !providerReceipt.head ||
-      typeof providerReceipt.mergeCommit !== "string" || !providerReceipt.mergeCommit)
+      typeof providerReceipt.mergeCommit !== "string" || !providerReceipt.mergeCommit ||
+      providerReceipt.mergeBase !== record.remoteRevision ||
+      providerReceipt.providerExecutableDigest !== record.providerExecutable?.digest)
   ) {
     throw new Error("GitHub pull request merge proof is incomplete");
   }
@@ -1328,6 +1331,43 @@ async function currentGitProviderIdentity(cwd) {
   })).stdout.trim();
 }
 
+async function currentProviderExecutableIdentity(command) {
+  const supplied = (await execFileAsync("which", [command], { encoding: "utf8" })).stdout.trim();
+  if (!supplied) throw new Error(`Provider executable is not available: ${command}`);
+  const target = await realpath(supplied);
+  const info = await lstat(target);
+  if (info.isSymbolicLink() || !info.isFile()) {
+    throw new Error(`Provider executable must resolve to a regular file: ${command}`);
+  }
+  return { path: target, digest: sha256(await readFile(target)) };
+}
+
+async function verifyGitHubProviderAuthorization(cwd, repository) {
+  if (!repository.startsWith("github.com/")) throw new Error("GitHub provider authorization requires a GitHub repository");
+  const repositoryPath = repository.slice("github.com/".length);
+  const actor = JSON.parse((await execFileAsync("gh", ["api", "user"], { cwd, encoding: "utf8" })).stdout);
+  const metadata = JSON.parse((await execFileAsync("gh", ["api", `repos/${repositoryPath}`], { cwd, encoding: "utf8" })).stdout);
+  const permissions = metadata.permissions ?? {};
+  const authorization = {
+    provider: "github-cli",
+    actor: actor.login,
+    repository,
+    permissions: {
+      admin: permissions.admin === true,
+      maintain: permissions.maintain === true,
+      push: permissions.push === true
+    }
+  };
+  if (
+    typeof authorization.actor !== "string" || !authorization.actor ||
+    metadata.full_name !== repositoryPath ||
+    !Object.values(authorization.permissions).some(Boolean)
+  ) {
+    throw new Error("GitHub provider authorization is not bound to an authenticated actor with repository access");
+  }
+  return authorization;
+}
+
 async function verifyPullRequestBeforeMerge(cwd, record) {
   if (record.targetRef === "dev" && !/^[a-f0-9]{40}$/i.test(record.remoteRevision ?? "")) {
     throw new Error("Protected dev merge requires the exact reviewed base revision");
@@ -1652,12 +1692,18 @@ async function verifyProviderReceipt(manifest, record, receipt) {
     ], { cwd, encoding: "utf8" })).stdout);
     const mergeCommit = typeof actual.mergeCommit === "string" ? actual.mergeCommit : actual.mergeCommit?.oid;
     const repository = await currentRepositoryIdentity(cwd);
+    const mergeDetails = JSON.parse((await execFileAsync("gh", [
+      "api", `repos/${repository.slice("github.com/".length)}/commits/${mergeCommit}`
+    ], { cwd, encoding: "utf8" })).stdout);
+    const mergeBase = mergeDetails.parents?.[0]?.sha;
     const response = {
       number: actual.number,
       state: actual.state,
       head: actual.headRefOid,
       baseRefName: actual.baseRefName,
-      mergeCommit
+      mergeCommit,
+      mergeBase,
+      providerExecutableDigest: record.providerExecutable?.digest
     };
     assertRecomputedProviderReceipt(
       providerReceipt,
@@ -1671,6 +1717,7 @@ async function verifyProviderReceipt(manifest, record, receipt) {
         targetRef: record.targetRef ?? null,
         mergeMethod: record.mergeMethod,
         adminBypass: record.adminBypass,
+        providerExecutable: record.providerExecutable,
         mergeCommand: record.mergeCommand
       },
       response,
@@ -1683,7 +1730,10 @@ async function verifyProviderReceipt(manifest, record, receipt) {
       actual.headRefOid !== providerReceipt.head ||
       actual.baseRefName !== providerReceipt.baseRefName ||
       mergeCommit !== providerReceipt.mergeCommit ||
-      providerReceipt.repository !== repository
+      providerReceipt.repository !== repository ||
+      providerReceipt.mergeBase !== record.remoteRevision ||
+      mergeBase !== record.remoteRevision ||
+      providerReceipt.providerExecutableDigest !== record.providerExecutable?.digest
     ) throw new Error("GitHub pull request merge proof does not match provider state");
     return;
   }
@@ -1785,11 +1835,25 @@ export async function verifyRequiredChecksProvider(cwd, payload) {
   const repositoryPath = repository.slice(prefix.length);
   const protection = JSON.parse((await execFileAsync("gh", [
     "api",
+    `repos/${repositoryPath}/branches/${encodeURIComponent(payload.baseRefName)}/protection`
+  ], { cwd, encoding: "utf8" })).stdout);
+  if (protection.enforce_admins?.enabled !== true || !protection.required_status_checks) {
+    throw new Error("Protected branch policy is missing enforce-admins or required status checks");
+  }
+  const branchRules = JSON.parse((await execFileAsync("gh", [
+    "api",
+    `repos/${repositoryPath}/rules/branches/${encodeURIComponent(payload.baseRefName)}`
+  ], { cwd, encoding: "utf8" })).stdout);
+  if (!Array.isArray(branchRules)) {
+    throw new Error("Protected branch rules could not be verified completely");
+  }
+  const requiredStatusProtection = JSON.parse((await execFileAsync("gh", [
+    "api",
     `repos/${repositoryPath}/branches/${encodeURIComponent(payload.baseRefName)}/protection/required_status_checks`
   ], { cwd, encoding: "utf8" })).stdout);
   const requiredStatusChecks = [...new Set([
-    ...(Array.isArray(protection.contexts) ? protection.contexts : []),
-    ...(Array.isArray(protection.checks) ? protection.checks.map((check) => check?.context ?? check?.name) : [])
+    ...(Array.isArray(requiredStatusProtection.contexts) ? requiredStatusProtection.contexts : []),
+    ...(Array.isArray(requiredStatusProtection.checks) ? requiredStatusProtection.checks.map((check) => check?.context ?? check?.name) : [])
   ].filter((value) => typeof value === "string" && value))].sort();
   if (digestObject(requiredStatusChecks) !== digestObject([...payload.requiredStatusChecks].sort())) {
     throw new Error("Required checks evidence does not match the protected branch status-check set");
@@ -1866,6 +1930,26 @@ function assertTargetBranchEvidence(admittedEvidence, request, expectedRepositor
     );
   });
   if (!exact) throw new Error("Action token denied until target-branch-dev is bound to the selected repository and dev revision");
+}
+
+function assertRemoteAuthorizationEvidence(admittedEvidence, request, providerAuthorization) {
+  const exact = admittedEvidence.some((record) => {
+    if (record.kind !== "remote-authorization" || record.status !== "complete" || record.stale) return false;
+    const payload = record.receipt?.payload;
+    return (
+      payload?.action === request.action &&
+      payload?.provider === request.provider &&
+      payload?.resource === request.resource &&
+      payload?.remoteRevision === request.remoteRevision &&
+      typeof payload?.repository === "string" && payload.repository.length > 0 &&
+      typeof payload?.actor === "string" && payload.actor.length > 0 &&
+      (!providerAuthorization || (
+        payload.repository === providerAuthorization.repository &&
+        payload.actor === providerAuthorization.actor
+      ))
+    );
+  });
+  if (!exact) throw new Error("Action token denied until remote authorization is bound to the exact actor, provider, resource, and revision");
 }
 
 function assertRemoteSyncMergeBinding(admittedEvidence, reviewPackage, contract, expectedRepository) {
@@ -1964,9 +2048,18 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
       throw new Error(`Action provider pair is not supported by a live receipt verifier: ${request.action}:${request.provider}`);
     }
     let repository = null;
-    if (request.requiredEvidence.includes("target-branch-dev") || request.action === "pr.merge") {
+    const needsProviderAuthorization = request.requiredEvidence.includes("remote-authorization") || request.action === "pr.merge";
+    if (request.requiredEvidence.includes("target-branch-dev") || request.action === "pr.merge" || needsProviderAuthorization) {
       repository = await currentRepositoryIdentity(manifest.cwd);
-      assertTargetBranchEvidence(admittedEvidence, request, repository, contract.remoteRevision ?? null);
+      if (request.requiredEvidence.includes("target-branch-dev") || request.action === "pr.merge") {
+        assertTargetBranchEvidence(admittedEvidence, request, repository, contract.remoteRevision ?? null);
+      }
+    }
+    const providerAuthorization = needsProviderAuthorization && request.provider === "github-cli"
+      ? await verifyGitHubProviderAuthorization(manifest.cwd, repository)
+      : null;
+    if (request.requiredEvidence.includes("remote-authorization")) {
+      assertRemoteAuthorizationEvidence(admittedEvidence, request, providerAuthorization);
     }
     let actionBinding = {};
     if (request.action === "git.push") {
@@ -2024,9 +2117,11 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
         ...(contract.template === "pr-to-dev" ? { targetRef: "dev" } : {}),
         mergeMethod: "merge",
         adminBypass: false,
+        providerExecutable: await currentProviderExecutableIdentity("gh"),
         mergeCommand: ["gh", "pr", "merge", String(pullRequest), "--merge", "--delete-branch=false"]
       };
     }
+    if (providerAuthorization) actionBinding.providerAuthorization = providerAuthorization;
     if (request.action === "remote.sync" && contract.template === "pr-to-dev" && request.resource !== "refs/heads/dev") {
       throw new Error("pr-to-dev remote synchronization is restricted to refs/heads/dev");
     }
@@ -2192,6 +2287,19 @@ export async function consumeActionToken(root, runId, token, currentTreeDigest) 
     const contract = await readJson(root, safeJoin(runDir, "contract.json"));
     if (record.contractDigest !== digestObject(contract)) throw new Error("Action token contract binding changed");
     const manifest = await readJson(root, safeJoin(runDir, "manifest.json"));
+    if (record.provider === "github-cli") {
+      const repository = await currentRepositoryIdentity(manifest.cwd);
+      const authorization = await verifyGitHubProviderAuthorization(manifest.cwd, repository);
+      if (digestObject(authorization) !== digestObject(record.providerAuthorization)) {
+        throw new Error("Action consumption denied because GitHub provider authorization changed");
+      }
+    }
+    if (record.action === "pr.merge") {
+      const executable = await currentProviderExecutableIdentity("gh");
+      if (digestObject(executable) !== digestObject(record.providerExecutable)) {
+        throw new Error("Action consumption denied because the governed provider executable changed");
+      }
+    }
     if (record.action === "pr.merge") {
       await verifyPullRequestBeforeMerge(manifest.cwd, record);
       if (contract.actionGates?.[record.action]?.includes("required-checks")) {
@@ -2255,6 +2363,10 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
     throw new Error("PR merge execution command is not the fixed non-admin invocation");
   }
   const manifest = await readJson(root, safeJoin(runDirectory(root, runId), "manifest.json"));
+  const executable = await currentProviderExecutableIdentity("gh");
+  if (digestObject(executable) !== digestObject(consumed.providerExecutable)) {
+    throw new Error("PR merge execution denied because the governed provider executable changed");
+  }
   const startedAt = nowIso();
   let exitCode = 0;
   try {
@@ -2269,6 +2381,7 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
     provider: "github-cli",
     command: expectedCommand,
     adminBypass: false,
+    providerExecutable: executable,
     startedAt,
     finishedAt: nowIso(),
     exitCode
@@ -2375,6 +2488,7 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
         record.providerInvocation.provider !== "github-cli" ||
         record.providerInvocation.adminBypass !== false ||
         record.providerInvocation.exitCode !== 0 ||
+        digestObject(record.providerInvocation.providerExecutable) !== digestObject(record.providerExecutable) ||
         JSON.stringify(record.providerInvocation.command) !== JSON.stringify(record.mergeCommand) ||
         receipt.providerReceipt.invocationId !== record.providerInvocation.id)
     ) {
@@ -2452,11 +2566,24 @@ export async function cleanupRuns(root, { olderThanDays, apply = false }) {
     const runDir = runDirectory(root, entry.name);
     await assertNoSymlinkUnder(root, runDir);
     const state = await readJson(root, safeJoin(runDir, "state.json")).catch(() => null);
+    const manifest = await readJson(root, safeJoin(runDir, "manifest.json")).catch(() => null);
+    const actions = await listJsonRecords(root, safeJoin(runDir, "actions")).catch(() => []);
     const info = await stat(runDir);
+    const ownedResources = Array.isArray(manifest?.ownedResources) ? manifest.ownedResources : [];
+    const ownedResourcesCleared = ownedResources.every((entry) => actions.some((action) => (
+      action.resource === entry.resource &&
+      DESTRUCTIVE_CLEANUP_ACTIONS.has(action.action) &&
+      action.status === "spent" &&
+      action.outcome === "success" &&
+      action.receipt?.providerReceipt?.resource === entry.resource
+    )));
+    const pendingSideEffect = actions.some((action) => action.status === "spent" && ["pending", "unknown"].includes(action.outcome));
     if (
       state &&
       ["completed", "no_op", "cancelled_superseded", "cancelled_evidence_sufficient"].includes(state.status) &&
-      info.mtimeMs < cutoff
+      info.mtimeMs < cutoff &&
+      ownedResourcesCleared &&
+      !pendingSideEffect
     ) {
       candidates.push(entry.name);
     }

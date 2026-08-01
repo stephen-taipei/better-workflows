@@ -555,6 +555,8 @@ async function providerEvidence(root, runId, result, prompt, acceptanceIds) {
   const providerExecution = {
     provider: result.metadata.provider,
     model: result.metadata.requestedModel,
+    modelAssurance: result.metadata.modelAssurance ?? "requested-not-attested",
+    trustAttested: result.metadata.trustAttested === true,
     promptDigest: sha256(prompt),
     reviewDigest: digestObject(result.review),
     transport: result.metadata.transport ?? "provider",
@@ -562,6 +564,8 @@ async function providerEvidence(root, runId, result, prompt, acceptanceIds) {
     executionDigest: digestObject({
       provider: result.metadata.provider,
       model: result.metadata.requestedModel,
+      modelAssurance: result.metadata.modelAssurance ?? "requested-not-attested",
+      trustAttested: result.metadata.trustAttested === true,
       promptDigest: sha256(prompt),
       reviewDigest: digestObject(result.review),
       transport: result.metadata.transport ?? "provider",
@@ -1693,6 +1697,8 @@ async function main() {
       const providerExecution = {
         provider: "codex-native-subagent",
         model: attestation.model,
+        modelAssurance: "host-signed-attestation",
+        trustAttested: true,
         promptDigest: binding.promptDigest,
         reviewDigest: binding.reviewDigest,
         transport: "native-subagent",
@@ -1700,6 +1706,8 @@ async function main() {
         executionDigest: digestObject({
           provider: "codex-native-subagent",
           model: attestation.model,
+          modelAssurance: "host-signed-attestation",
+          trustAttested: true,
           promptDigest: binding.promptDigest,
           reviewDigest: binding.reviewDigest,
           transport: "native-subagent",

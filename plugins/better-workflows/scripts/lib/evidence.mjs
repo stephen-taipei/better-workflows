@@ -191,6 +191,8 @@ function assertIndependentCriticBinding(record, run) {
   if (
     execution.provider !== producerId(record.receipt?.producer) ||
     execution.model !== record.dependencies?.model ||
+    execution.modelAssurance !== "host-signed-attestation" ||
+    execution.trustAttested !== true ||
     execution.promptDigest !== record.dependencies?.promptDigest ||
     execution.reviewDigest !== digestObject(record.review) ||
     execution.sandbox !== "read-only" ||
@@ -198,6 +200,8 @@ function assertIndependentCriticBinding(record, run) {
     execution.executionDigest !== digestObject({
       provider: execution.provider,
       model: execution.model,
+      modelAssurance: execution.modelAssurance,
+      trustAttested: execution.trustAttested,
       promptDigest: execution.promptDigest,
       reviewDigest: execution.reviewDigest,
       transport: execution.transport,
@@ -205,6 +209,9 @@ function assertIndependentCriticBinding(record, run) {
     })
   ) {
     throw new Error("Typed evidence independent-critic provider execution is invalid");
+  }
+  if (execution.provider === "codex-native-subagent" && !record.nativeReviewer?.attestationDigest) {
+    throw new Error("Typed evidence native critic attestation is missing");
   }
   if (run.contract.controlPlane?.reviewPolicy === "code-v1" && record.dependencies.promptDigest !== binding.instructionDigest) {
     throw new Error("Typed evidence independent-critic prompt is not bound to the review instruction");
@@ -377,6 +384,17 @@ export async function validateTypedEvidenceRecord(record, run) {
   if (!EVIDENCE_ID.test(String(record.id ?? ""))) {
     throw new Error("Typed evidence id is invalid");
   }
+  const expectedProducer = producerId(record.receipt?.producer);
+  const expectedIndependent = record.sourceKind === "independent-critic";
+  if (
+    record.typedAdmission.contractId !== record.receipt?.contractId ||
+    record.typedAdmission.contractVersion !== 1 ||
+    record.typedAdmission.producer !== expectedProducer ||
+    (expectedIndependent && record.typedAdmission.independentCritic !== true) ||
+    (!expectedIndependent && record.typedAdmission.independentCritic === true)
+  ) {
+    throw new Error("Persisted typed evidence admission provenance is invalid");
+  }
   const admitted = await admitTypedEvidence(record, run, { persisted: true });
   if (admitted.sourceDigest !== record.sourceDigest || admitted.receipt.payloadDigest !== record.receipt.payloadDigest) {
     throw new Error("Typed evidence admission changed after persistence");
@@ -410,6 +428,8 @@ export function isIndependentCriticEvidence(record, expectedBinding = null) {
     INDEPENDENT_CRITIC_PRODUCERS.has(record.typedAdmission?.producer) &&
     record.receipt?.payload?.verdict === "PASS" &&
     record.review?.verdict === "PASS" &&
+    record.providerExecution?.modelAssurance === "host-signed-attestation" &&
+    record.providerExecution?.trustAttested === true &&
     Boolean(record.dependencies?.promptDigest) &&
     Boolean(record.dependencies?.model) &&
     (!expected || (binding && Object.entries(expected).every(([key, value]) => binding[key] === value)))

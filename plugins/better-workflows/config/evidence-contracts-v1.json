@@ -603,7 +603,12 @@
       ],
       "payloadFamily": "authorization",
       "requiredFields": [
-        "action"
+        "action",
+        "provider",
+        "resource",
+        "remoteRevision",
+        "repository",
+        "actor"
       ],
       "freshnessBinding": [
         "runId",

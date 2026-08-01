@@ -361,7 +361,8 @@ export async function reviewStatus(root, runId) {
       value.schemaVersion !== 1 ||
       value.immutable !== true ||
       value.contractDigest !== expectedContractDigest ||
-      value.templateDigest !== run.contract.templateDigest
+      value.templateDigest !== run.contract.templateDigest ||
+      (run.contract.remoteRevision && value.base !== run.contract.remoteRevision)
     ) {
       throw new Error("Review package is bound to a different contract or template");
     }
