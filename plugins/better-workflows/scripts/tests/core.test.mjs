@@ -223,7 +223,12 @@ test("destructive cleanup actions require an immutable run-owned resource receip
         attemptId: "forged-attempt",
         outcome: "success",
         provider: "git",
-        providerReceipt: { created: true },
+        providerReceipt: {
+          action: "branch.create",
+          resource: deniedResource,
+          outcome: "success",
+          created: true
+        },
         createdAt: "2026-08-01T00:00:00.000Z"
       }
     }),
@@ -264,7 +269,13 @@ test("destructive cleanup actions require an immutable run-owned resource receip
     requiredEvidence: ["preflight"]
   }, "tree", await loadDefaults());
   const creationSpent = await consumeActionToken(root, registeredRun.runId, creationIssued.token, "tree");
-  const providerReceipt = { provider: "git", created: true };
+  const providerReceipt = {
+    provider: "git",
+    action: "branch.create",
+    resource,
+    outcome: "success",
+    created: true
+  };
   await reconcileAction(root, registeredRun.runId, creationSpent.attemptId, "success", providerReceipt);
   const creationReceipt = {
     ownerRunId: registeredRun.runId,

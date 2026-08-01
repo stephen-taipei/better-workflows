@@ -161,7 +161,9 @@ function assertFreshBinding(receipt, run, definition, kind) {
     if (
       binding.reviewHead !== payload?.head ||
       binding.reviewBase !== payload?.base ||
-      String(binding.pullRequest) !== String(payload?.pr)
+      String(binding.pullRequest) !== String(payload?.pr) ||
+      binding.repository !== payload?.repository ||
+      binding.baseRefName !== payload?.baseRefName
     ) {
       throw new Error(`Typed evidence ${kind} PR review binding is stale`);
     }

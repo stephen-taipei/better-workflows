@@ -74,7 +74,9 @@ async function gateRecord(run, kind, payload, id = kind) {
     ? {
         reviewHead: payload.head,
         reviewBase: payload.base,
-        pullRequest: payload.pr
+        pullRequest: payload.pr,
+        repository: payload.repository,
+        baseRefName: payload.baseRefName
       }
     : {};
   return {
@@ -166,7 +168,13 @@ test("typed gate evidence rejects a failed result even when its shape is valid",
   });
   const started = await createRun({ root, contract, requestedMode: "verified", cwd: root });
   const run = await inspectRun(root, started.runId);
-  const pullEvidence = { pr: 1, head: "a".repeat(40), base: "b".repeat(40) };
+  const pullEvidence = {
+    pr: 1,
+    head: "a".repeat(40),
+    base: "b".repeat(40),
+    repository: "github.com/example/test",
+    baseRefName: "dev"
+  };
   await assert.rejects(
     addEvidence(root, started.runId, await gateRecord(run, "required-checks", { ...pullEvidence, command: "false", result: false })),
     /result failed its success predicate/

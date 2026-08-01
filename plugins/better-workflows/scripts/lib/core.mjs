@@ -55,6 +55,12 @@ const DESTRUCTIVE_CLEANUP_ACTIONS = new Set([
   "branch.delete",
   "worktree.cleanup"
 ]);
+const OWNED_RESOURCE_CREATION_ACTIONS = new Set([
+  "branch.create",
+  "worktree.create",
+  "pr.create",
+  "actions.dispatch"
+]);
 const OWNED_RESOURCE = /^[^\0\r\n]{1,512}$/;
 
 export function pluginRoot() {
@@ -588,6 +594,7 @@ export async function registerOwnedResource(root, runId, { resource, creationRec
     creationReceipt.resource !== resource ||
     typeof creationReceipt.action !== "string" ||
     !creationReceipt.action ||
+    !OWNED_RESOURCE_CREATION_ACTIONS.has(creationReceipt.action) ||
     typeof creationReceipt.attemptId !== "string" ||
     !creationReceipt.attemptId ||
     creationReceipt.outcome !== "success" ||
@@ -595,7 +602,13 @@ export async function registerOwnedResource(root, runId, { resource, creationRec
     !creationReceipt.provider ||
     typeof creationReceipt.createdAt !== "string" ||
     Number.isNaN(Date.parse(creationReceipt.createdAt)) ||
-    !Object.hasOwn(creationReceipt, "providerReceipt")
+    !Object.hasOwn(creationReceipt, "providerReceipt") ||
+    !creationReceipt.providerReceipt ||
+    typeof creationReceipt.providerReceipt !== "object" ||
+    creationReceipt.providerReceipt.created !== true ||
+    creationReceipt.providerReceipt.action !== creationReceipt.action ||
+    creationReceipt.providerReceipt.resource !== resource ||
+    creationReceipt.providerReceipt.outcome !== "success"
   ) {
     throw new Error("Owned resource creation receipt is not bound to this run and resource");
   }
@@ -991,9 +1004,33 @@ function assertCleanupResourceBinding(manifest, runId, request, cleanupPlan) {
   }
 }
 
-function assertPullEvidenceBinding(admittedEvidence, request, reviewPackage) {
+function repositoryIdentity(value) {
+  const raw = String(value ?? "").trim().replace(/\.git$/, "");
+  if (!raw) return "";
+  const ssh = raw.match(/^([^@]+)@([^:]+):(.+)$/);
+  if (ssh) return `${ssh[2].toLowerCase()}/${ssh[3]}`;
+  try {
+    const parsed = new URL(raw);
+    return `${parsed.hostname.toLowerCase()}${parsed.pathname}`.replace(/\/$/, "");
+  } catch {
+    return raw.toLowerCase();
+  }
+}
+
+async function currentRepositoryIdentity(cwd) {
+  const remote = (await execFileAsync("git", ["remote", "get-url", "origin"], {
+    cwd,
+    encoding: "utf8"
+  })).stdout.trim();
+  const identity = repositoryIdentity(remote);
+  if (!identity) throw new Error("PR merge requires a canonical origin repository identity");
+  return identity;
+}
+
+async function assertPullEvidenceBinding(admittedEvidence, request, reviewPackage, contract, expectedRepository) {
   const pullMatch = /^pull\/(\d+)$/.exec(request.resource);
   if (!pullMatch) throw new Error("PR merge resources must use pull/<number>");
+  const expectedBaseRef = contract.template === "pr-to-dev" ? "dev" : null;
   for (const kind of ["pr-state", "required-checks"]) {
     if (!request.requiredEvidence.includes(kind)) continue;
     const records = admittedEvidence.filter((item) => item.kind === kind && item.status === "complete" && !item.stale);
@@ -1003,11 +1040,23 @@ function assertPullEvidenceBinding(admittedEvidence, request, reviewPackage) {
       return (
         String(payload?.pr) === pullMatch[1] &&
         payload?.head === reviewPackage.head &&
-        payload?.base === reviewPackage.base
+        payload?.base === reviewPackage.base &&
+        payload?.repository === expectedRepository &&
+        (expectedBaseRef === null || payload?.baseRefName === expectedBaseRef)
       );
     });
     if (!exact) {
       throw new Error(`Action token denied until ${kind} is bound to the exact reviewed PR head`);
+    }
+  }
+  if (request.requiredEvidence.includes("target-branch-dev")) {
+    const targetRecords = admittedEvidence.filter((item) => item.kind === "target-branch-dev" && item.status === "complete" && !item.stale);
+    const exactTarget = targetRecords.some((record) => {
+      const payload = record.receipt?.payload;
+      return payload?.revision === reviewPackage.base && payload?.repository === expectedRepository && payload?.ref === "dev";
+    });
+    if (targetRecords.length > 0 && !exactTarget) {
+      throw new Error("Action token denied until target-branch-dev is bound to the selected repository and review base");
     }
   }
 }
@@ -1058,7 +1107,8 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
         sentinelDigest: state.lastSentinel?.digest
       }));
       if (!hasIndependentCritic) throw new Error("Action token denied until the exact independent critic is admitted");
-      assertPullEvidenceBinding(admittedEvidence, request, review.package);
+      const repository = await currentRepositoryIdentity(manifest.cwd);
+      await assertPullEvidenceBinding(admittedEvidence, request, review.package, contract, repository);
     }
     const availableEvidence = new Set(
       admittedEvidence
