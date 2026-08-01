@@ -18,6 +18,7 @@ import {
   addEvidence,
   buildContract,
   consumeActionToken,
+  completeRun,
   createRun,
   digestObject,
   ensureStateRoot,
@@ -33,6 +34,7 @@ import {
   safeJoin,
   updateState
 } from "../lib/core.mjs";
+import { captureSentinel } from "../lib/git.mjs";
 
 const execFileAsync = promisify(execFile);
 
@@ -320,8 +322,16 @@ test("destructive cleanup actions require an immutable run-owned resource receip
     requiredEvidence: ["preflight"]
   }, "tree", await loadDefaults());
   const creationSpent = await consumeActionToken(root, registeredRun.runId, creationIssued.token, "tree");
-  await execFileAsync("git", ["branch", resource.slice("branch:".length)], { cwd: providerRepo });
+  const creationMarker = `sbw:${creationSpent.attemptId}:${creationSpent.idempotencyKey}`;
   const providerRevision = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: providerRepo })).stdout.trim();
+  await execFileAsync("git", [
+    "update-ref",
+    "-m",
+    creationMarker,
+    `refs/heads/${resource.slice("branch:".length)}`,
+    providerRevision,
+    "0".repeat(40)
+  ], { cwd: providerRepo });
   const providerIdentity = (await execFileAsync("git", ["rev-parse", "--show-toplevel"], { cwd: providerRepo })).stdout.trim();
   const providerReceipt = {
     provider: "git",
@@ -339,8 +349,12 @@ test("destructive cleanup actions require an immutable run-owned resource receip
     verifiedAt: "2026-08-01T00:00:00.000Z",
     terminalState: "success",
     created: true,
-    beforeState: "absent",
-    createdByActionAttemptId: creationSpent.attemptId,
+    creationProof: {
+      attemptId: creationSpent.attemptId,
+      idempotencyKey: creationSpent.idempotencyKey,
+      marker: creationMarker,
+      providerObjectId: `${resource.slice("branch:".length)}:${providerRevision}`
+    },
     creationPreconditionDigest: digestObject(creationSpent.creationPrecondition),
     ref: resource.slice("branch:".length),
     revision: providerRevision
@@ -442,6 +456,41 @@ test("completion requires every declared evidence kind independently of acceptan
   assert.equal(completion.ok, false);
   assert.ok(completion.blockers.includes("missing-required-evidence:preflight"));
   assert.ok(!completion.blockers.includes("missing-acceptance:done"));
+});
+
+test("completion re-captures the sentinel inside the final gate", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-completion-sentinel-"));
+  const repository = path.join(root, "repository");
+  await mkdir(repository, { recursive: true });
+  await execFileAsync("git", ["init", "-q"], { cwd: repository });
+  await execFileAsync("git", ["config", "user.email", "sbw@example.invalid"], { cwd: repository });
+  await execFileAsync("git", ["config", "user.name", "SBW Test"], { cwd: repository });
+  await writeFile(path.join(repository, "README.md"), "stable\n");
+  await execFileAsync("git", ["add", "README.md"], { cwd: repository });
+  await execFileAsync("git", ["commit", "-qm", "baseline"], { cwd: repository });
+  const taskContract = contract();
+  const run = await createRun({ root: path.join(root, "state"), contract: taskContract, requestedMode: "verified", cwd: repository });
+  const runRoot = path.join(root, "state");
+  const sentinel = await captureSentinel(repository, taskContract, await loadDefaults());
+  await updateState(runRoot, run.runId, (state) => ({
+    ...state,
+    lastSentinel: { label: "initial", digest: sentinel.digest },
+    lastSentinelVerified: true,
+    lastSentinelComplete: true
+  }));
+  await addEvidence(runRoot, run.runId, {
+    id: "preflight",
+    kind: "preflight",
+    summary: "Final-gate sentinel test evidence",
+    status: "complete",
+    acceptanceIds: ["done"],
+    sourceDigest: "d".repeat(64)
+  });
+  await writeFile(path.join(repository, "README.md"), "drifted\n");
+  const completed = await completeRun(runRoot, run.runId, { decision: "complete" });
+  assert.equal(completed.ok, false);
+  assert.equal(completed.status, "inconclusive");
+  assert.ok(completed.blockers.includes("current-sentinel-drift"));
 });
 
 test("state root symlinks and hardlinked JSON are rejected", async () => {

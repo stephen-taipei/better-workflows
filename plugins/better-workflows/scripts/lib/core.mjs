@@ -1,5 +1,5 @@
 import { constants as fsConstants } from "node:fs";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import {
   appendFile,
   chmod,
@@ -678,6 +678,20 @@ function assertProviderReceiptShape(record, providerReceipt, outcome = record.ou
   if (!schema && providerReceipt.proofKind !== `${record.provider}:${record.action}`) {
     throw new Error("Provider receipt proof kind does not match the action and provider");
   }
+  if (OWNED_RESOURCE_CREATION_ACTIONS.has(record.action) && outcome === "success") {
+    const proof = providerReceipt.creationProof;
+    if (
+      !proof ||
+      typeof proof !== "object" ||
+      Array.isArray(proof) ||
+      proof.attemptId !== record.attemptId ||
+      proof.idempotencyKey !== record.idempotencyKey ||
+      typeof proof.marker !== "string" ||
+      proof.marker !== `sbw:${record.attemptId}:${record.idempotencyKey}`
+    ) {
+      throw new Error("Owned resource creation requires a provider-native idempotency proof");
+    }
+  }
   if (
     record.action === "branch.create" &&
     (!providerReceipt.created || typeof providerReceipt.ref !== "string" || !providerReceipt.ref ||
@@ -812,11 +826,9 @@ function assertProviderReceiptShape(record, providerReceipt, outcome = record.ou
     typeof record.attemptId === "string" &&
     (!record.creationPrecondition ||
       record.creationPrecondition.state !== "absent" ||
-      providerReceipt.beforeState !== "absent" ||
-      providerReceipt.createdByActionAttemptId !== record.attemptId ||
       providerReceipt.creationPreconditionDigest !== digestObject(record.creationPrecondition))
   ) {
-    throw new Error("Owned resource creation proof is not bound to an observed absent precondition");
+    throw new Error("Owned resource creation proof is not bound to the reserved absent precondition");
   }
 }
 
@@ -947,6 +959,8 @@ export async function registerOwnedResource(root, runId, { resource, creationRec
         remoteRevision: creationReceipt.remoteRevision,
         idempotencyKey: creationReceipt.idempotencyKey,
         attemptId: creationReceipt.attemptId,
+        spentAt: creationAction.spentAt,
+        providerAuthorization: creationAction.providerAuthorization,
         creationPrecondition: creationAction.creationPrecondition
       },
       { providerReceipt: creationReceipt.providerReceipt }
@@ -1100,9 +1114,31 @@ export async function setRunStatus(root, runId, status, details = {}) {
 
 export async function completeRun(root, runId, completionDecision) {
   return withRunLock(root, runId, async ({ runDir }) => {
-    const result = await evaluateCompletion(root, runId);
     const target = safeJoin(runDir, "state.json");
     const current = await readJson(root, target);
+    const manifest = await readJson(root, safeJoin(runDir, "manifest.json"));
+    const contract = await readJson(root, safeJoin(runDir, "contract.json"));
+    const { captureSentinel } = await import("./git.mjs");
+    const freshSentinel = await captureSentinel(manifest.cwd, contract, await loadDefaults());
+    if (!freshSentinel.complete || freshSentinel.digest !== current.lastSentinel?.digest) {
+      const next = {
+        ...current,
+        status: "inconclusive",
+        lastSentinelVerified: false,
+        lastSentinelComplete: false,
+        completionBlockers: [
+          ...(freshSentinel.complete ? [] : ["bounded-sentinel-incomplete"]),
+          ...(freshSentinel.digest === current.lastSentinel?.digest ? [] : ["current-sentinel-drift"])
+        ],
+        sentinelDrift: freshSentinel.digest === current.lastSentinel?.digest
+          ? current.sentinelDrift ?? null
+          : { label: current.lastSentinel?.label ?? null, digest: freshSentinel.digest }
+      };
+      await atomicWriteJson(root, target, next);
+      await appendJournal(root, runDir, "run.status", { from: current.status, to: next.status });
+      return { ok: false, status: next.status, blockers: next.completionBlockers, state: next };
+    }
+    const result = await evaluateCompletion(root, runId);
     if (!result.ok) {
       const next = {
         ...current,
@@ -1114,7 +1150,6 @@ export async function completeRun(root, runId, completionDecision) {
       await appendJournal(root, runDir, "run.status", { from: current.status, to: next.status });
       return { ok: false, status: next.status, blockers: result.blockers, state: next };
     }
-    const contract = await readJson(root, safeJoin(runDir, "contract.json"));
     const reviewDigest = contract.schemaVersion === 2 && contract.controlPlane?.reviewPolicy !== "none"
       ? digestObject(await (async () => {
         const { reviewStatus } = await import("./review.mjs");
@@ -1134,7 +1169,7 @@ export async function completeRun(root, runId, completionDecision) {
         ? digestObject(await readJson(root, safeJoin(runDir, "ledger.json")))
         : null,
       reviewDigest,
-      sentinelDigest: current.lastSentinel?.digest ?? null
+      sentinelDigest: freshSentinel.digest
     };
     const next = {
       ...current,
@@ -1453,6 +1488,95 @@ async function currentProviderExecutableIdentity(command) {
   return { path: target, digest: sha256(await readFile(target)) };
 }
 
+function readGitCredential(cwd, input) {
+  return new Promise((resolve, reject) => {
+    const child = spawn("git", ["credential", "fill"], {
+      cwd,
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+      stdio: ["pipe", "pipe", "pipe"]
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.once("error", reject);
+    child.once("close", (code) => {
+      if (code !== 0) {
+        reject(new Error(`Git credential helper failed${stderr.trim() ? `: ${stderr.trim()}` : ""}`));
+        return;
+      }
+      const values = {};
+      for (const line of stdout.split("\n")) {
+        const separator = line.indexOf("=");
+        if (separator > 0) values[line.slice(0, separator)] = line.slice(separator + 1);
+      }
+      resolve(values);
+    });
+    child.stdin.end(input);
+  });
+}
+
+async function verifyGitHubCredentialActor(cwd, remoteUrl, repository) {
+  let parsed;
+  try {
+    parsed = new URL(remoteUrl);
+  } catch {
+    throw new Error("Git push credential binding requires a parseable HTTPS remote");
+  }
+  if (parsed.protocol !== "https:" || parsed.hostname.toLowerCase() !== "github.com") {
+    throw new Error("Git push credential binding requires the canonical github.com HTTPS remote");
+  }
+  const credential = await readGitCredential(
+    cwd,
+    [
+      "protocol=https",
+      "host=github.com",
+      `path=${parsed.pathname.replace(/^\//, "")}`,
+      ...(parsed.username ? [`username=${decodeURIComponent(parsed.username)}`] : []),
+      "",
+      ""
+    ].join("\n")
+  );
+  if (typeof credential.username !== "string" || !credential.username ||
+      typeof credential.password !== "string" || !credential.password) {
+    throw new Error("Git push credential helper did not return an HTTPS credential");
+  }
+  const authorization = `Basic ${Buffer.from(`${credential.username}:${credential.password}`).toString("base64")}`;
+  const headers = {
+    accept: "application/vnd.github+json",
+    authorization,
+    "user-agent": "better-workflows"
+  };
+  const userResponse = await fetch("https://api.github.com/user", { headers });
+  if (!userResponse.ok) throw new Error(`Git credential actor lookup failed: HTTP ${userResponse.status}`);
+  const user = await userResponse.json();
+  const repositoryPath = repository.slice("github.com/".length);
+  const repositoryResponse = await fetch(`https://api.github.com/repos/${repositoryPath}`, { headers });
+  if (!repositoryResponse.ok) throw new Error(`Git credential repository lookup failed: HTTP ${repositoryResponse.status}`);
+  const metadata = await repositoryResponse.json();
+  const permissions = metadata.permissions ?? {};
+  if (
+    typeof user.login !== "string" || !user.login ||
+    !Number.isInteger(user.id) ||
+    metadata.full_name !== repositoryPath ||
+    permissions.push !== true
+  ) {
+    throw new Error("Git credential is not bound to a GitHub actor with repository push permission");
+  }
+  return {
+    actor: user.login,
+    actorId: user.id,
+    permissions: {
+      admin: permissions.admin === true,
+      maintain: permissions.maintain === true,
+      push: permissions.push === true
+    },
+    source: "git-credential-helper"
+  };
+}
+
 async function captureCreationPrecondition(cwd, action, resource) {
   if (action === "branch.create") {
     const ref = resource.slice("branch:".length);
@@ -1531,22 +1655,37 @@ async function verifyGitHubProviderAuthorization(cwd, repository) {
   return authorization;
 }
 
-async function verifyGitPushCredential(cwd, remote, ref, revision, repository) {
+async function verifyGitPushCredential(cwd, remote, ref, revision, repository, expectedActor = null) {
   if (!repository.startsWith("github.com/")) {
     throw new Error("Git push authorization requires a GitHub-bound controlled push provider");
+  }
+  const remoteUrl = (await execFileAsync("git", ["remote", "get-url", remote], {
+    cwd,
+    encoding: "utf8"
+  })).stdout.trim();
+  if (repositoryIdentity(remoteUrl) !== repository) {
+    throw new Error("Git push credential binding does not match the authorized repository");
   }
   await execFileAsync("git", ["push", "--dry-run", "--porcelain", remote, `${revision}:${ref}`], {
     cwd,
     encoding: "utf8",
     env: { ...process.env, GIT_TERMINAL_PROMPT: "0" }
   });
+  const credentialActor = await verifyGitHubCredentialActor(cwd, remoteUrl, repository);
+  if (expectedActor && credentialActor.actor !== expectedActor) {
+    throw new Error("Git push credential actor does not match the authorized GitHub actor");
+  }
   return {
     provider: "git",
     repository,
     remote,
     ref,
     revision,
-    credentialCheck: "git-push-dry-run"
+    credentialCheck: "git-credential-actor",
+    actor: credentialActor.actor,
+    actorId: credentialActor.actorId,
+    permissions: credentialActor.permissions,
+    credentialSource: credentialActor.source
   };
 }
 
@@ -1575,6 +1714,42 @@ async function verifyPullRequestBeforeMerge(cwd, record) {
   }
 }
 
+async function verifyMergeProviderAtInvocation(root, runId, record, manifest) {
+  const repository = await currentRepositoryIdentity(manifest.cwd);
+  if (repository !== record.mergeRepository) {
+    throw new Error("PR merge provider repository changed before invocation");
+  }
+  const authorization = await verifyGitHubProviderAuthorization(manifest.cwd, repository);
+  if (digestObject(authorization) !== digestObject(record.providerAuthorization)) {
+    throw new Error("PR merge provider actor or permission changed before invocation");
+  }
+  await verifyPullRequestBeforeMerge(manifest.cwd, record);
+  const contract = await readJson(root, safeJoin(runDirectory(root, runId), "contract.json"));
+  if (!contract.actionGates?.[record.action]?.includes("required-checks")) return;
+  const run = await loadRun(root, runId);
+  const evidence = await listJsonRecords(root, safeJoin(run.runDir, "evidence"));
+  const requiredChecks = evidence.find((item) => {
+    const payload = item.kind === "required-checks" ? item.receipt?.payload : null;
+    return (
+      item.status === "complete" &&
+      item.stale !== true &&
+      payload?.head === record.reviewedHead &&
+      payload?.base === record.remoteRevision &&
+      payload?.repository === repository
+    );
+  });
+  if (!requiredChecks) throw new Error("PR merge invocation requires exact required-check evidence");
+  const { validateTypedEvidenceRecord } = await import("./evidence.mjs");
+  await validateTypedEvidenceRecord(requiredChecks, {
+    manifest: run.manifest,
+    contract: run.contract,
+    root,
+    runDir: run.runDir,
+    requireReconciled: true
+  });
+  await verifyRequiredChecksProvider(manifest.cwd, requiredChecks.receipt.payload);
+}
+
 function assertRecomputedProviderReceipt(receipt, request, response, executionId) {
   if (
     receipt.requestDigest !== digestObject(request) ||
@@ -1585,11 +1760,121 @@ function assertRecomputedProviderReceipt(receipt, request, response, executionId
   }
 }
 
+async function verifyOwnedResourceCreationProof(manifest, record, providerReceipt) {
+  if (!OWNED_RESOURCE_CREATION_ACTIONS.has(record.action) || record.outcome !== "success") return;
+  const proof = providerReceipt.creationProof;
+  const marker = `sbw:${record.attemptId}:${record.idempotencyKey}`;
+  const spentAt = Date.parse(record.spentAt ?? "");
+  if (!Number.isFinite(spentAt)) throw new Error("Owned resource creation action lacks a valid consumed timestamp");
+  if (proof.marker !== marker || proof.attemptId !== record.attemptId || proof.idempotencyKey !== record.idempotencyKey) {
+    throw new Error("Owned resource provider-native marker is not bound to the consumed action");
+  }
+  // GitHub and Git provider timestamps are commonly second-granular.
+  const minimumObservedAt = spentAt - 2000;
+  const assertObservedAt = (value, label) => {
+    const observedAt = Date.parse(value ?? "");
+    if (!Number.isFinite(observedAt) || observedAt < minimumObservedAt) {
+      throw new Error(`${label} was not created after the action was consumed`);
+    }
+    return observedAt;
+  };
+  if (record.action === "branch.create" && record.provider === "git") {
+    const ref = record.resource.slice("branch:".length);
+    const actual = (await execFileAsync("git", ["rev-parse", "--verify", `refs/heads/${ref}^{commit}`], {
+      cwd: manifest.cwd,
+      encoding: "utf8"
+    })).stdout.trim();
+    const reflog = (await execFileAsync("git", [
+      "reflog", "show", "--format=%H%x00%gs%x00%cI", "-1", `refs/heads/${ref}`
+    ], { cwd: manifest.cwd, encoding: "utf8" })).stdout.trim();
+    const [revision, subject, observedAt] = reflog.split("\0");
+    if (
+      actual !== providerReceipt.revision ||
+      revision !== actual ||
+      !subject?.includes(marker) ||
+      !Number.isFinite(Date.parse(observedAt)) ||
+      Date.parse(observedAt) < minimumObservedAt ||
+      proof.providerObjectId !== `${ref}:${actual}`
+    ) {
+      throw new Error("Git branch creation proof is missing the provider-native marked reflog event");
+    }
+    return;
+  }
+  if (record.action === "worktree.create" && record.provider === "git") {
+    const worktreePath = record.resource.slice("worktree:".length);
+    const output = (await execFileAsync("git", ["worktree", "list", "--porcelain"], {
+      cwd: manifest.cwd,
+      encoding: "utf8"
+    })).stdout;
+    const match = output.split(/\n\n+/).map((block) => Object.fromEntries(
+      block.split("\n").filter(Boolean).map((line) => {
+        const separator = line.indexOf(" ");
+        return [line.slice(0, separator), line.slice(separator + 1)];
+      })
+    )).find((item) => item.worktree === worktreePath);
+    if (!match || match.HEAD !== providerReceipt.revision || proof.providerObjectId !== `${worktreePath}:${match.HEAD}`) {
+      throw new Error("Git worktree creation proof does not match the live provider object");
+    }
+    const markerValue = (await execFileAsync("git", ["-C", worktreePath, "config", "--local", "--get", "sbw.creation-marker"], {
+      cwd: manifest.cwd,
+      encoding: "utf8"
+    })).stdout.trim();
+    const attemptValue = (await execFileAsync("git", ["-C", worktreePath, "config", "--local", "--get", "sbw.action-attempt"], {
+      cwd: manifest.cwd,
+      encoding: "utf8"
+    })).stdout.trim();
+    const worktreeMtime = (await stat(path.resolve(manifest.cwd, worktreePath))).mtimeMs;
+    assertObservedAt(proof.observedAt, "Git worktree");
+    if (markerValue !== marker || attemptValue !== record.attemptId || worktreeMtime < minimumObservedAt) {
+      throw new Error("Git worktree creation proof lacks the provider-native marker and creation timestamp");
+    }
+    return;
+  }
+  if (record.action === "pr.create" && record.provider === "github-cli") {
+    const repository = await currentRepositoryIdentity(manifest.cwd);
+    const actual = JSON.parse((await execFileAsync("gh", [
+      "api", `repos/${repository.slice("github.com/".length)}/pulls/${providerReceipt.number}`
+    ], { cwd: manifest.cwd, encoding: "utf8" })).stdout);
+    const createdAt = assertObservedAt(actual.created_at, "GitHub pull request");
+    const actor = record.providerAuthorization?.actor;
+    if (
+      actual.node_id !== proof.providerObjectId ||
+      actual.user?.login !== actor ||
+      typeof actual.body !== "string" ||
+      !actual.body.includes(`<!-- ${marker} -->`) ||
+      providerReceipt.url !== actual.html_url ||
+      proof.observedAt !== actual.created_at ||
+      createdAt < minimumObservedAt
+    ) {
+      throw new Error("GitHub pull request creation proof lacks provider-native actor, timestamp, or idempotency marker");
+    }
+    return;
+  }
+  if (record.action === "actions.dispatch" && record.provider === "github-cli") {
+    const actual = JSON.parse((await execFileAsync("gh", [
+      "run", "view", String(providerReceipt.runId), "--json",
+      "databaseId,workflowName,url,status,conclusion,headSha,createdAt,displayTitle,actor"
+    ], { cwd: manifest.cwd, encoding: "utf8" })).stdout);
+    const createdAt = assertObservedAt(actual.createdAt, "GitHub Actions run");
+    if (
+      String(actual.databaseId) !== String(proof.providerObjectId) ||
+      actual.actor?.login !== record.providerAuthorization?.actor ||
+      typeof actual.displayTitle !== "string" ||
+      !actual.displayTitle.includes(marker) ||
+      proof.observedAt !== actual.createdAt ||
+      createdAt < minimumObservedAt
+    ) {
+      throw new Error("GitHub Actions creation proof lacks provider-native actor, timestamp, or idempotency marker");
+    }
+  }
+}
+
 async function verifyProviderReceipt(manifest, record, receipt) {
   if (record.outcome !== "success") return;
   const providerReceipt = receipt.providerReceipt;
   const cwd = manifest.cwd;
   const key = `${record.action}:${record.provider}`;
+  await verifyOwnedResourceCreationProof(manifest, record, providerReceipt);
   if (key === "recipe.promote:local-workspace" || key === "artifact.promote:local-workspace") {
     assertRecomputedProviderReceipt(
       providerReceipt,
@@ -2135,11 +2420,28 @@ export async function verifyRequiredChecksProvider(cwd, payload) {
     "api",
     `repos/${repositoryPath}/branches/${encodeURIComponent(payload.baseRefName)}/protection/required_status_checks`
   ], { cwd, encoding: "utf8" })).stdout);
+  if (
+    requiredStatusProtection.contexts !== undefined &&
+    (!Array.isArray(requiredStatusProtection.contexts) ||
+      requiredStatusProtection.contexts.some((context) => typeof context !== "string" || !context))
+  ) {
+    throw new Error("Protected branch status-check contexts contain malformed entries");
+  }
+  if (
+    requiredStatusProtection.checks !== undefined &&
+    (!Array.isArray(requiredStatusProtection.checks) ||
+      requiredStatusProtection.checks.some((check) => {
+        const name = check?.context ?? check?.name;
+        return !check || typeof check !== "object" || typeof name !== "string" || !name;
+      }))
+  ) {
+    throw new Error("Protected branch status-check objects contain malformed entries");
+  }
   const requiredStatusChecks = [...new Set([
     ...(Array.isArray(requiredStatusProtection.contexts) ? requiredStatusProtection.contexts : []),
-    ...(Array.isArray(requiredStatusProtection.checks) ? requiredStatusProtection.checks.map((check) => check?.context ?? check?.name) : []),
+    ...(Array.isArray(requiredStatusProtection.checks) ? requiredStatusProtection.checks.map((check) => check.context ?? check.name) : []),
     ...rulesetRequiredStatusChecks
-  ].filter((value) => typeof value === "string" && value))].sort();
+  ])].sort();
   if (digestObject(requiredStatusChecks) !== digestObject([...payload.requiredStatusChecks].sort())) {
     throw new Error("Required checks evidence does not match the protected branch status-check set");
   }
@@ -2243,7 +2545,7 @@ function assertRemoteAuthorizationEvidence(admittedEvidence, request, providerAu
         payload.repository === expectedRepository &&
         payload.remote === gitPush[1] &&
         payload.ref === gitPush[2] &&
-        payload.credentialCheck === "git-push-dry-run"
+        payload.credentialCheck === "git-credential-actor"
       )) &&
       (!providerAuthorization || (
         payload.repository === providerAuthorization.repository &&
@@ -2350,7 +2652,9 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
       throw new Error(`Action provider pair is not supported by a live receipt verifier: ${request.action}:${request.provider}`);
     }
     let repository = null;
-    const needsProviderAuthorization = request.requiredEvidence.includes("remote-authorization") || request.action === "pr.merge";
+    const needsProviderAuthorization = request.requiredEvidence.includes("remote-authorization") ||
+      request.action === "pr.merge" ||
+      (OWNED_RESOURCE_CREATION_ACTIONS.has(request.action) && request.provider === "github-cli");
     if (request.requiredEvidence.includes("target-branch-dev") || request.action === "pr.merge" || needsProviderAuthorization) {
       repository = await currentRepositoryIdentity(manifest.cwd);
       if (request.requiredEvidence.includes("target-branch-dev") || request.action === "pr.merge") {
@@ -2400,7 +2704,8 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
           remote,
           ref,
           expectedRevision,
-          remoteRepository
+          remoteRepository,
+          providerAuthorization.actor
         );
         assertRemoteAuthorizationEvidence(admittedEvidence, request, providerAuthorization, repository);
       }
@@ -2470,13 +2775,7 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
         remoteUrlDigest: sha256(remoteUrl)
       };
     }
-    if (OWNED_RESOURCE_CREATION_ACTIONS.has(request.action)) {
-      const creationPrecondition = await captureCreationPrecondition(manifest.cwd, request.action, request.resource);
-      if (!creationPrecondition || creationPrecondition.state !== "absent") {
-        throw new Error("Owned resource creation requires an observed absent precondition");
-      }
-      actionBinding.creationPrecondition = creationPrecondition;
-    }
+    let creationPrecondition = null;
     if (request.action === "pr.merge" && contract.controlPlane?.reviewPolicy !== "none") {
       const { isIndependentCriticEvidence } = await import("./evidence.mjs");
       const { reviewStatus } = await import("./review.mjs");
@@ -2584,36 +2883,49 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
     if (!Number.isFinite(ttlSeconds) || ttlSeconds < 1 || ttlSeconds > 3600) {
       throw new Error("Action token TTL must be 1..3600 seconds");
     }
-    if (OWNED_RESOURCE_CREATION_ACTIONS.has(request.action)) {
-      await reserveCreationResource(root, runId, request.resource, tokenHash);
+    let reservationHeld = false;
+    try {
+      if (OWNED_RESOURCE_CREATION_ACTIONS.has(request.action)) {
+        // Reserve before observing absence so an external creator cannot win the gap.
+        await reserveCreationResource(root, runId, request.resource, tokenHash);
+        reservationHeld = true;
+        creationPrecondition = await captureCreationPrecondition(manifest.cwd, request.action, request.resource);
+        if (!creationPrecondition || creationPrecondition.state !== "absent") {
+          throw new Error("Owned resource creation requires an observed absent precondition after reservation");
+        }
+      }
+      const issuedAt = nowIso();
+      const record = {
+        schemaVersion: 1,
+        tokenHash,
+        status: "issued",
+        outcome: null,
+        issuedAt,
+        expiresAt: new Date(Date.now() + ttlSeconds * 1000).toISOString(),
+        runId,
+        action: request.action,
+        provider: request.provider,
+        resource: request.resource,
+        scope: request.scope ?? request.resource,
+        remoteRevision: request.remoteRevision,
+        ...actionBinding,
+        ...(creationPrecondition ? { creationPrecondition } : {}),
+        treeDigest: currentTreeDigest,
+        contractDigest: digestObject(contract),
+        idempotencyKey: `sbw-${runId}-${randomUUID()}`
+      };
+      await atomicWriteJson(root, safeJoin(runDir, "actions", `${tokenHash}.json`), record);
+      await appendJournal(root, runDir, "action.issued", {
+        action: record.action,
+        provider: record.provider,
+        resource: record.resource,
+        tokenHash
+      });
+      return { token, ...record };
+    } catch (error) {
+      if (reservationHeld) await releaseCreationResource(root, runId, request.resource);
+      throw error;
     }
-    const issuedAt = nowIso();
-    const record = {
-      schemaVersion: 1,
-      tokenHash,
-      status: "issued",
-      outcome: null,
-      issuedAt,
-      expiresAt: new Date(Date.now() + ttlSeconds * 1000).toISOString(),
-      runId,
-      action: request.action,
-      provider: request.provider,
-      resource: request.resource,
-      scope: request.scope ?? request.resource,
-      remoteRevision: request.remoteRevision,
-      ...actionBinding,
-      treeDigest: currentTreeDigest,
-      contractDigest: digestObject(contract),
-      idempotencyKey: `sbw-${runId}-${randomUUID()}`
-    };
-    await atomicWriteJson(root, safeJoin(runDir, "actions", `${tokenHash}.json`), record);
-    await appendJournal(root, runDir, "action.issued", {
-      action: record.action,
-      provider: record.provider,
-      resource: record.resource,
-      tokenHash
-    });
-    return { token, ...record };
   });
 }
 
@@ -2641,7 +2953,8 @@ export async function consumeActionToken(root, runId, token, currentTreeDigest) 
         record.gitCredentialCheck.remote,
         record.gitCredentialCheck.ref,
         record.gitCredentialCheck.revision,
-        record.gitCredentialCheck.repository
+        record.gitCredentialCheck.repository,
+        record.providerAuthorization?.actor ?? null
       );
       if (digestObject(credentialCheck) !== digestObject(record.gitCredentialCheck)) {
         throw new Error("Action consumption denied because the controlled Git credential check changed");
@@ -2724,6 +3037,8 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
   if (digestObject(executable) !== digestObject(consumed.providerExecutable)) {
     throw new Error("PR merge execution denied because the governed provider executable changed");
   }
+  // Re-check provider actor, branch policy, PR head, and fresh checks immediately before gh invocation.
+  await verifyMergeProviderAtInvocation(root, runId, consumed, manifest);
   const startedAt = nowIso();
   let exitCode = 0;
   try {
