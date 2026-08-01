@@ -5,6 +5,7 @@ import { assertMutableRun, atomicWriteJson, canonicalizeScope, digestObject, lis
 const execFileAsync = promisify(execFile);
 const SHA = /^[0-9a-f]{40}$/;
 const DIGEST = /^[0-9a-f]{64}$/;
+const REPAIR_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 
 function packageDirectory(runDir) {
   return safeJoin(runDir, "review-packages");
@@ -34,6 +35,10 @@ const REVIEW_PACKAGE_IDENTITY_FIELDS = [
 
 function reviewPackageIdentity(value) {
   return Object.fromEntries(REVIEW_PACKAGE_IDENTITY_FIELDS.map((field) => [field, value[field]]));
+}
+
+export function reviewPackageDigest(value) {
+  return digestObject(reviewPackageIdentity(value));
 }
 
 function normalizeDiffManifest(value) {
@@ -474,11 +479,38 @@ export async function recordRepairRound(root, runId, packageIdValue, result) {
     assertMutableRun(run, "Review repair");
     const target = safeJoin(packageDirectory(runDir), `${packageIdValue}.json`);
     const value = await readJson(root, target);
+    if (!result || typeof result !== "object" || Array.isArray(result)) {
+      throw new Error("Review repair result must be an object");
+    }
+    const { repairAttemptId, idempotencyKey, packageDigest } = result;
+    if (!REPAIR_ID.test(String(repairAttemptId ?? "")) || !REPAIR_ID.test(String(idempotencyKey ?? ""))) {
+      throw new Error("Review repair requires stable repairAttemptId and idempotencyKey");
+    }
+    if (!DIGEST.test(String(packageDigest ?? "")) || packageDigest !== reviewPackageDigest(value)) {
+      throw new Error("Review repair package digest does not match the immutable package");
+    }
+    const requestDigest = digestObject(result);
+    const priorAttempts = Array.isArray(value.repairAttempts) ? value.repairAttempts : [];
+    const existing = priorAttempts.find((attempt) => attempt.repairAttemptId === repairAttemptId);
+    if (existing) {
+      if (
+        existing.idempotencyKey !== idempotencyKey ||
+        existing.packageDigest !== packageDigest ||
+        existing.requestDigest !== requestDigest
+      ) {
+        throw new Error("Review repair retry conflicts with the existing repair attempt");
+      }
+      return value;
+    }
     const nextRound = Number(value.repairRounds ?? 0) + 1;
     if (nextRound > 5) throw new Error("Scoped review repair budget exhausted");
     const next = {
       ...value,
       repairRounds: nextRound,
+      repairAttempts: [
+        ...priorAttempts,
+        { repairAttemptId, idempotencyKey, packageDigest, requestDigest, recordedAt: nowIso() }
+      ],
       lastRepair: { at: nowIso(), ...result }
     };
     await atomicWriteJson(root, target, next);

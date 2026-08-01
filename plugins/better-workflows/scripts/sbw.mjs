@@ -509,32 +509,35 @@ async function enrichEvidence(root, runId, record) {
 }
 
 async function refreshEvidence(root, runId) {
-  const run = await loadRun(root, runId);
-  const evidence = await listJsonRecords(root, safeJoin(run.runDir, "evidence"));
-  const stale = [];
-  const fresh = [];
-  for (const record of evidence) {
-    let current = [];
-    let isStale =
-      record.dependencies?.contractDigest !== run.manifest.contractDigest ||
-      record.dependencies?.workflowVersion !== VERSION;
-    if (!Array.isArray(record.dependencyInputs?.files)) isStale = true;
-    else {
-      for (const candidate of record.dependencyInputs.files) {
-        current.push(await fingerprintPath(run.manifest.cwd, candidate));
+  return withRunLock(root, runId, async ({ runDir }) => {
+    const run = await loadRun(root, runId);
+    assertMutableRun(run, "Evidence freshness");
+    const evidence = await listJsonRecords(root, safeJoin(runDir, "evidence"));
+    const stale = [];
+    const fresh = [];
+    for (const record of evidence) {
+      let current = [];
+      let isStale =
+        record.dependencies?.contractDigest !== run.manifest.contractDigest ||
+        record.dependencies?.workflowVersion !== VERSION;
+      if (!Array.isArray(record.dependencyInputs?.files)) isStale = true;
+      else {
+        for (const candidate of record.dependencyInputs.files) {
+          current.push(await fingerprintPath(run.manifest.cwd, candidate));
+        }
+        if (digestObject(current) !== digestObject(record.dependencies?.files ?? [])) isStale = true;
       }
-      if (digestObject(current) !== digestObject(record.dependencies?.files ?? [])) isStale = true;
+      const next = {
+        ...record,
+        stale: isStale,
+        freshnessCheckedAt: nowIso(),
+        currentDependencyFiles: current
+      };
+      await atomicWriteJson(root, safeJoin(runDir, "evidence", `${record.id}.json`), next);
+      (isStale ? stale : fresh).push(record.id);
     }
-    const next = {
-      ...record,
-      stale: isStale,
-      freshnessCheckedAt: nowIso(),
-      currentDependencyFiles: current
-    };
-    await atomicWriteJson(root, safeJoin(run.runDir, "evidence", `${record.id}.json`), next);
-    (isStale ? stale : fresh).push(record.id);
-  }
-  return { stale, fresh };
+    return { stale, fresh };
+  });
 }
 
 async function currentVerifiedDigest(root, runId) {
@@ -1589,6 +1592,7 @@ async function main() {
   }
   if (command === "resume") {
     let run = await loadRun(root, subcommand);
+    assertMutableRun(run, "Run resume");
     let migration = { migrated: false };
     const template = await loadTemplate(run.manifest.template);
     const templateEvidence = template.requiredEvidence ?? [];

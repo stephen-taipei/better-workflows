@@ -36,7 +36,9 @@ import {
   routeMode,
   safeJoin,
   sha256,
-  updateState
+  setRunStatus,
+  updateState,
+  withRunLock
 } from "../lib/core.mjs";
 import { captureSentinel } from "../lib/git.mjs";
 
@@ -687,6 +689,60 @@ test("terminal runs reject owned resource registration before manifest mutation"
       }
     }),
     /Owned resource registration cannot mutate a terminal run/
+  );
+});
+
+test("terminal status rejects pending governed provider execution", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-pending-provider-"));
+  const run = await createRun({
+    root,
+    contract: buildContract({
+      template: "test-pending-provider",
+      templateDefinition: { requiredEvidence: [], acceptance: [{ id: "done", description: "Provider execution is governed.", critical: true }] },
+      goal: "Block cancellation during provider execution",
+      scope: ["."],
+      risk: { risk: 1, uncertainty: 1, blastRadius: 1, irreversibility: 1, evidenceGap: 1 },
+      sensitivity: "internal",
+      authority: ["pr.merge"],
+      remoteRevision: "abc"
+    }),
+    requestedMode: "verified",
+    cwd: root
+  });
+  const runDir = path.join(root, "runs", run.runId);
+  await writeFile(path.join(runDir, "actions", "pending.json"), `${JSON.stringify({
+    action: "pr.merge",
+    provider: "github-cli",
+    status: "spent",
+    outcome: "pending",
+    attemptId: "pending-provider-attempt"
+  })}\n`);
+  await assert.rejects(
+    setRunStatus(root, run.runId, "cancelled_superseded"),
+    /pending reconciliation/
+  );
+  assert.equal((await inspectRun(root, run.runId)).state.status, "running");
+});
+
+test("expired leases from another host are not reclaimed", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-foreign-lease-"));
+  const run = await createRun({
+    root,
+    contract: contract(),
+    requestedMode: "verified",
+    cwd: root
+  });
+  const runDir = path.join(root, "runs", run.runId);
+  await writeFile(path.join(runDir, ".lease"), `${JSON.stringify({
+    token: "foreign-token",
+    pid: 1,
+    host: "foreign-host",
+    createdAt: "2020-01-01T00:00:00.000Z",
+    expiresAt: "2020-01-01T00:00:01.000Z"
+  })}\n`);
+  await assert.rejects(
+    withRunLock(root, run.runId, async () => undefined),
+    /refusing cross-host lease reclamation/
   );
 });
 

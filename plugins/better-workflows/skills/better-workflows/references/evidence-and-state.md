@@ -36,8 +36,10 @@ An event may include an `expectedLedgerDigest`; stale values and non-root
 actors are rejected.
 
 Code-review templates additionally use immutable review packages and stable
-finding IDs. Scoped repair is bounded to five rounds and must be followed by a
-final broad review before an action token can be issued.
+finding IDs. Scoped repair is bounded to five unique rounds and each repair
+result must bind `repairAttemptId`, `idempotencyKey`, and the immutable
+`packageDigest`; an identical retry is idempotent. A final broad review is
+required before an action token can be issued.
 
 Findings use only `open`, `resolved`, `accepted-risk` with owner/reason/future expiry, or `rejected-with-evidence`. P0 findings cannot be accepted automatically.
 

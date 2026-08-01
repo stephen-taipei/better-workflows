@@ -667,7 +667,10 @@ export async function withRunLock(root, runId, callback, options = {}) {
       if (error.code !== "EEXIST") throw error;
       const existing = await readJson(root, lockPath).catch(() => null);
       const expired = existing && Date.parse(existing.expiresAt) < Date.now();
-      if (!expired || processAlive(existing?.pid)) {
+      if (!expired || existing?.host !== os.hostname() || processAlive(existing?.pid)) {
+        if (expired && existing?.host && existing.host !== os.hostname()) {
+          throw new Error(`Run lease expired on host ${existing.host}; refusing cross-host lease reclamation`);
+        }
         throw new Error(`Run is leased by pid ${existing?.pid ?? "unknown"}`);
       }
       await rename(lockPath, safeJoin(runDir, `.lease.stale.${randomUUID()}`));
@@ -1163,6 +1166,7 @@ export async function updateState(root, runId, mutator, event = "state.updated")
     assertMutableRun({ state: current }, "Run state");
     const next = await mutator(structuredClone(current));
     if (!RUN_STATES.has(next.status)) throw new Error(`Invalid run state: ${next.status}`);
+    await assertNoPendingProviderExecution(root, runId, runDir, next.status);
     next.updatedAt = nowIso();
     await atomicWriteJson(root, target, next);
     await appendJournal(root, runDir, event, { from: current.status, to: next.status });
@@ -1174,6 +1178,19 @@ export function assertMutableRun(run, operation = "Run mutation") {
   const status = run?.state?.status ?? run?.status;
   if (TERMINAL_RUN_STATES.has(status)) {
     throw new Error(`${operation} cannot mutate a terminal run`);
+  }
+}
+
+async function assertNoPendingProviderExecution(root, runId, runDir, nextStatus) {
+  if (!TERMINAL_RUN_STATES.has(nextStatus)) return;
+  const actions = await listJsonRecords(root, safeJoin(runDir, "actions"));
+  const pending = actions.find((action) => (
+    action.status === "spent" &&
+    ["pending", "unknown"].includes(action.outcome) &&
+    EXECUTABLE_ACTION_PROVIDERS.has(`${action.action}:${action.provider}`)
+  ));
+  if (pending) {
+    throw new Error(`Run status transition blocked while provider action ${pending.attemptId ?? pending.tokenHash} is pending reconciliation`);
   }
 }
 
@@ -3300,6 +3317,7 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
     if (currentRevision !== consumed.expectedRevision) {
       throw new Error("Git push execution denied because the candidate revision changed");
     }
+    assertMutableRun(await loadRun(root, runId), "Action provider execution");
     const startedAt = nowIso();
     let exitCode = 0;
     try {
@@ -3367,6 +3385,7 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
   }
   // Re-check provider actor, branch policy, PR head, and fresh checks immediately before gh invocation.
   const providerAuthorization = await verifyMergeProviderAtInvocation(root, runId, consumed, manifest);
+  assertMutableRun(await loadRun(root, runId), "Action provider execution");
   const startedAt = nowIso();
   let exitCode = 0;
   try {

@@ -19,7 +19,7 @@ import {
 import { loadEvidenceContracts } from "../lib/evidence.mjs";
 import { compileLedger, deriveLedgerStatus, transitionLedger } from "../lib/ledger.mjs";
 import { deliberateForRun } from "../lib/deliberation-receipt.mjs";
-import { addReviewFinding, createReviewPackage, markBroadReviewComplete, recordRepairRound, reviewStatus, stableFindingId } from "../lib/review.mjs";
+import { addReviewFinding, createReviewPackage, markBroadReviewComplete, recordRepairRound, reviewPackageDigest, reviewStatus, stableFindingId } from "../lib/review.mjs";
 import { updateState } from "../lib/core.mjs";
 import { captureSentinel } from "../lib/git.mjs";
 
@@ -614,13 +614,23 @@ test("review packages prove the Git manifest and dispositions fail closed", asyn
     },
     "review-proof"
   ));
-  for (let round = 0; round < 5; round += 1) await recordRepairRound(root, started.runId, first.packageId, { round });
+  const packageDigest = reviewPackageDigest(first);
+  const repairResult = (round) => ({
+    repairAttemptId: `repair-${round}`,
+    idempotencyKey: `repair-key-${round}`,
+    packageDigest,
+    round
+  });
+  const firstRepair = await recordRepairRound(root, started.runId, first.packageId, repairResult(0));
+  const retriedRepair = await recordRepairRound(root, started.runId, first.packageId, repairResult(0));
+  assert.equal(retriedRepair.repairRounds, firstRepair.repairRounds);
+  for (let round = 1; round < 5; round += 1) await recordRepairRound(root, started.runId, first.packageId, repairResult(round));
   const status = await reviewStatus(root, started.runId);
   assert.equal(status.repairBudgetExhausted, true);
   assert.equal(status.complete, false);
   const repairRetry = await createReviewPackage(input);
   assert.equal(repairRetry.packageId, first.packageId);
-  await assert.rejects(recordRepairRound(root, started.runId, first.packageId, {}), /budget exhausted/);
+  await assert.rejects(recordRepairRound(root, started.runId, first.packageId, repairResult(5)), /budget exhausted/);
   await addReviewFinding(root, started.runId, {
     packageId: first.packageId,
     path: "src/a.ts",
