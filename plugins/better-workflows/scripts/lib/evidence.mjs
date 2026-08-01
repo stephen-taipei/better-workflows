@@ -151,10 +151,44 @@ async function assertActionProofPayload(payload, kind, run, evidenceId) {
   }
 }
 
+const ARRAY_FIELDS = new Set([
+  "acceptanceIds", "batches", "checkSet", "checks", "commits", "conclusions", "files", "items",
+  "providerRunIds", "requiredStatusCheckApps", "requiredStatusChecks", "resources", "roles", "scope", "tasks"
+]);
+const OBJECT_FIELDS = new Set([
+  "artifact", "authorization", "counts", "diffManifest", "metadata", "permissions",
+  "providerAuthorization", "receipt", "scopeDigest", "summary", "target", "workflow"
+]);
+const INTEGER_FIELDS = new Set(["number", "pr", "providerRunId"]);
+const BOOLEAN_FIELDS = new Set(["adminBypass", "protected", "result", "success", "valid"]);
+const DATE_FIELDS = new Set(["createdAt", "expiresAt", "observedAt", "verifiedAt"]);
+
 function assertPayloadFields(payload, requiredFields, kind) {
   for (const field of requiredFields) {
     if (!(field in payload) || payload[field] === null || payload[field] === "") {
       throw new Error(`Typed evidence ${kind} payload is missing required field: ${field}`);
+    }
+    const value = payload[field];
+    if (ARRAY_FIELDS.has(field) && !Array.isArray(value)) {
+      throw new Error(`Typed evidence ${kind} payload field ${field} must be an array`);
+    }
+    if (OBJECT_FIELDS.has(field) && (typeof value !== "object" || Array.isArray(value))) {
+      throw new Error(`Typed evidence ${kind} payload field ${field} must be an object`);
+    }
+    if (INTEGER_FIELDS.has(field) && (!Number.isInteger(value) || value < 0)) {
+      throw new Error(`Typed evidence ${kind} payload field ${field} must be a non-negative integer`);
+    }
+    if (BOOLEAN_FIELDS.has(field) && typeof value !== "boolean") {
+      throw new Error(`Typed evidence ${kind} payload field ${field} must be boolean`);
+    }
+    if (DATE_FIELDS.has(field) && (typeof value !== "string" || Number.isNaN(Date.parse(value)))) {
+      throw new Error(`Typed evidence ${kind} payload field ${field} must be an ISO date`);
+    }
+    if (
+      !ARRAY_FIELDS.has(field) && !OBJECT_FIELDS.has(field) && !INTEGER_FIELDS.has(field) &&
+      !BOOLEAN_FIELDS.has(field) && !DATE_FIELDS.has(field) && typeof value !== "string"
+    ) {
+      throw new Error(`Typed evidence ${kind} payload field ${field} must be a string`);
     }
   }
 }

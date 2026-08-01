@@ -851,17 +851,31 @@ function creationReservationPath(root, resource) {
   return safeJoin(root, "creation-reservations", `${sha256(resource)}.json`);
 }
 
-async function reserveCreationResource(root, runId, resource, tokenHash) {
+async function reserveCreationResource(root, runId, resource, tokenHash, expiresAt) {
   const directory = safeJoin(root, "creation-reservations");
   await mkdir(directory, { recursive: true, mode: 0o700 });
   const target = creationReservationPath(root, resource);
   try {
     const handle = await open(target, "wx", 0o600);
-    await handle.writeFile(`${JSON.stringify({ runId, resource, tokenHash, reservedAt: nowIso() })}\n`);
+    await handle.writeFile(`${JSON.stringify({ runId, resource, tokenHash, reservedAt: nowIso(), expiresAt })}\n`);
     await handle.sync();
     await handle.close();
   } catch (error) {
-    if (error.code === "EEXIST") throw new Error("Owned resource creation is already reserved by another action");
+    if (error.code === "EEXIST") {
+      const existing = await readJson(root, target).catch(() => null);
+      const existingAction = existing?.runId && existing?.tokenHash
+        ? await readJson(safeJoin(runDirectory(root, existing.runId), "actions", `${existing.tokenHash}.json`)).catch(() => null)
+        : null;
+      if (
+        existingAction?.status === "issued" &&
+        Number.isFinite(Date.parse(existing?.expiresAt ?? "")) &&
+        Date.parse(existing.expiresAt) <= Date.now()
+      ) {
+        await unlink(target).catch(() => undefined);
+        return reserveCreationResource(root, runId, resource, tokenHash, expiresAt);
+      }
+      throw new Error("Owned resource creation is already reserved by another action");
+    }
     throw error;
   }
 }
@@ -1150,16 +1164,64 @@ export async function completeRun(root, runId, completionDecision) {
       await appendJournal(root, runDir, "run.status", { from: current.status, to: next.status });
       return { ok: false, status: next.status, blockers: result.blockers, state: next };
     }
+    const terminalSentinel = await captureSentinel(manifest.cwd, contract, await loadDefaults());
+    if (!terminalSentinel.complete || terminalSentinel.digest !== freshSentinel.digest) {
+      const blockers = [
+        ...(terminalSentinel.complete ? [] : ["bounded-sentinel-incomplete"]),
+        ...(terminalSentinel.digest === freshSentinel.digest ? [] : ["current-sentinel-drift"])
+      ];
+      const next = {
+        ...current,
+        status: "inconclusive",
+        lastSentinelVerified: false,
+        lastSentinelComplete: false,
+        completionBlockers: blockers,
+        sentinelDrift: { label: current.lastSentinel?.label ?? null, digest: terminalSentinel.digest }
+      };
+      await atomicWriteJson(root, target, next);
+      await appendJournal(root, runDir, "run.status", { from: current.status, to: next.status });
+      return { ok: false, status: next.status, blockers, state: next };
+    }
+    const terminalResult = await evaluateCompletion(root, runId);
+    if (!terminalResult.ok) {
+      const next = {
+        ...current,
+        status: "inconclusive",
+        completionBlockers: terminalResult.blockers,
+        updatedAt: nowIso()
+      };
+      await atomicWriteJson(root, target, next);
+      await appendJournal(root, runDir, "run.status", { from: current.status, to: next.status });
+      return { ok: false, status: next.status, blockers: terminalResult.blockers, state: next };
+    }
     const reviewDigest = contract.schemaVersion === 2 && contract.controlPlane?.reviewPolicy !== "none"
       ? digestObject(await (async () => {
         const { reviewStatus } = await import("./review.mjs");
         return reviewStatus(root, runId);
       })())
       : null;
+    const finalWriteSentinel = await captureSentinel(manifest.cwd, contract, await loadDefaults());
+    if (!finalWriteSentinel.complete || finalWriteSentinel.digest !== terminalSentinel.digest) {
+      const blockers = [
+        ...(finalWriteSentinel.complete ? [] : ["bounded-sentinel-incomplete"]),
+        ...(finalWriteSentinel.digest === terminalSentinel.digest ? [] : ["current-sentinel-drift"])
+      ];
+      const next = {
+        ...current,
+        status: "inconclusive",
+        lastSentinelVerified: false,
+        lastSentinelComplete: false,
+        completionBlockers: blockers,
+        sentinelDrift: { label: current.lastSentinel?.label ?? null, digest: finalWriteSentinel.digest }
+      };
+      await atomicWriteJson(root, target, next);
+      await appendJournal(root, runDir, "run.status", { from: current.status, to: next.status });
+      return { ok: false, status: next.status, blockers, state: next };
+    }
     const finalDecision = {
       ...completionDecision,
       evaluatedAt: nowIso(),
-      evidenceDigest: digestObject(result.evidence.map((item) => ({
+      evidenceDigest: digestObject(terminalResult.evidence.map((item) => ({
         id: item.id,
         kind: item.kind,
         sourceDigest: item.sourceDigest,
@@ -1169,7 +1231,7 @@ export async function completeRun(root, runId, completionDecision) {
         ? digestObject(await readJson(root, safeJoin(runDir, "ledger.json")))
         : null,
       reviewDigest,
-      sentinelDigest: freshSentinel.digest
+      sentinelDigest: finalWriteSentinel.digest
     };
     const next = {
       ...current,
@@ -1725,7 +1787,7 @@ async function verifyMergeProviderAtInvocation(root, runId, record, manifest) {
   }
   await verifyPullRequestBeforeMerge(manifest.cwd, record);
   const contract = await readJson(root, safeJoin(runDirectory(root, runId), "contract.json"));
-  if (!contract.actionGates?.[record.action]?.includes("required-checks")) return;
+  if (!contract.actionGates?.[record.action]?.includes("required-checks")) return authorization;
   const run = await loadRun(root, runId);
   const evidence = await listJsonRecords(root, safeJoin(run.runDir, "evidence"));
   const requiredChecks = evidence.find((item) => {
@@ -1748,6 +1810,7 @@ async function verifyMergeProviderAtInvocation(root, runId, record, manifest) {
     requireReconciled: true
   });
   await verifyRequiredChecksProvider(manifest.cwd, requiredChecks.receipt.payload);
+  return authorization;
 }
 
 function assertRecomputedProviderReceipt(receipt, request, response, executionId) {
@@ -2442,6 +2505,24 @@ export async function verifyRequiredChecksProvider(cwd, payload) {
     ...(Array.isArray(requiredStatusProtection.checks) ? requiredStatusProtection.checks.map((check) => check.context ?? check.name) : []),
     ...rulesetRequiredStatusChecks
   ])].sort();
+  const protectedCheckApps = (Array.isArray(requiredStatusProtection.checks)
+    ? requiredStatusProtection.checks.map((check) => ({
+        context: check.context ?? check.name,
+        appId: check.app_id
+      }))
+    : []);
+  if (
+    requiredStatusChecks.length > 0 &&
+    (protectedCheckApps.length === 0 || protectedCheckApps.some((check) => !Number.isInteger(check.appId)))
+  ) {
+    throw new Error("Protected required checks lack a verifiable GitHub App identity");
+  }
+  if (
+    digestObject(protectedCheckApps.sort((left, right) => left.context.localeCompare(right.context))) !==
+    digestObject([...(payload.requiredStatusCheckApps ?? [])].sort((left, right) => String(left?.context).localeCompare(String(right?.context))))
+  ) {
+    throw new Error("Required check evidence does not match protected GitHub App identities");
+  }
   if (digestObject(requiredStatusChecks) !== digestObject([...payload.requiredStatusChecks].sort())) {
     throw new Error("Required checks evidence does not match the protected branch status-check set");
   }
@@ -2505,12 +2586,15 @@ export async function verifyRequiredChecksProvider(cwd, payload) {
   for (const check of payload.checks) {
     const checkRun = checkRuns.find((candidate) => String(candidate.id) === String(check.providerRunId));
     const completedAt = checkRun?.completed_at ?? checkRun?.updated_at;
+    const protectedApp = protectedCheckApps.find((candidate) => candidate.context === checkRun?.name);
     if (
       !checkRun ||
       checkRun.head_sha !== payload.head ||
       checkRun.status !== "completed" ||
       checkRun.conclusion !== "success" ||
       check.providerName !== checkRun.name ||
+      !protectedApp ||
+      checkRun.app?.id !== protectedApp.appId ||
       check.name !== `${checkRun.name}#${checkRun.id}` ||
       !Number.isFinite(Date.parse(completedAt ?? "")) ||
       Date.parse(completedAt) > observedAt
@@ -2705,6 +2789,9 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
     }
     let actionBinding = {};
     if (request.action === "git.push") {
+      if (!request.requiredEvidence.includes("remote-authorization")) {
+        throw new Error("Governed git.push requires remote-authorization evidence");
+      }
       const [, remote, ref] = GIT_PUSH_RESOURCE.exec(request.resource) ?? [];
       if (!remote) throw new Error("Git push resources must use remote:<name>:refs/heads/<branch>");
       if (contract.template === "pr-to-dev" && ref === "refs/heads/dev") {
@@ -2728,7 +2815,9 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
         remoteRepository,
         remoteUrlDigest: sha256(remoteUrl),
         expectedBranch,
-        expectedRevision
+        expectedRevision,
+        providerExecutable: await currentProviderExecutableIdentity("git"),
+        pushCommand: ["git", "push", "--porcelain", remote, `${expectedRevision}:${ref}`]
       };
       if (request.requiredEvidence.includes("remote-authorization")) {
         if (!providerAuthorization || request.provider !== "git") {
@@ -2922,7 +3011,8 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
     try {
       if (OWNED_RESOURCE_CREATION_ACTIONS.has(request.action)) {
         // Reserve before observing absence so an external creator cannot win the gap.
-        await reserveCreationResource(root, runId, request.resource, tokenHash);
+        const expiresAt = new Date(Date.now() + ttlSeconds * 1000).toISOString();
+        await reserveCreationResource(root, runId, request.resource, tokenHash, expiresAt);
         reservationHeld = true;
         creationPrecondition = await captureCreationPrecondition(manifest.cwd, request.action, request.resource);
         if (!creationPrecondition || creationPrecondition.state !== "absent") {
@@ -2995,8 +3085,8 @@ export async function consumeActionToken(root, runId, token, currentTreeDigest) 
         throw new Error("Action consumption denied because the controlled Git credential check changed");
       }
     }
-    if (record.action === "pr.merge") {
-      const executable = await currentProviderExecutableIdentity("gh");
+    if (record.action === "pr.merge" || record.action === "git.push") {
+      const executable = await currentProviderExecutableIdentity(record.action === "pr.merge" ? "gh" : "git");
       if (digestObject(executable) !== digestObject(record.providerExecutable)) {
         throw new Error("Action consumption denied because the governed provider executable changed");
       }
@@ -3049,8 +3139,78 @@ export async function consumeActionToken(root, runId, token, currentTreeDigest) 
 
 export async function executeActionToken(root, runId, token, currentTreeDigest) {
   const consumed = await consumeActionToken(root, runId, token, currentTreeDigest);
+  if (consumed.action === "git.push" && consumed.provider === "git") {
+    const expectedCommand = consumed.pushCommand;
+    if (!Array.isArray(expectedCommand) || expectedCommand.length !== 5 || expectedCommand[0] !== "git") {
+      throw new Error("Git push execution command is not the fixed non-force invocation");
+    }
+    const manifest = await readJson(root, safeJoin(runDirectory(root, runId), "manifest.json"));
+    const executable = await currentProviderExecutableIdentity("git");
+    if (digestObject(executable) !== digestObject(consumed.providerExecutable)) {
+      throw new Error("Git push execution denied because the governed provider executable changed");
+    }
+    const remote = consumed.remote;
+    const ref = `refs/heads/${consumed.expectedBranch}`;
+    const credentialCheck = await verifyGitPushCredential(
+      manifest.cwd,
+      remote,
+      ref,
+      consumed.expectedRevision,
+      consumed.remoteRepository,
+      consumed.providerAuthorization?.actor ?? null
+    );
+    if (digestObject(credentialCheck) !== digestObject(consumed.gitCredentialCheck)) {
+      throw new Error("Git push execution denied because the credential actor changed");
+    }
+    const currentRevision = (await execFileAsync("git", ["rev-parse", "--verify", `${ref}^{commit}`], {
+      cwd: manifest.cwd,
+      encoding: "utf8"
+    })).stdout.trim();
+    if (currentRevision !== consumed.expectedRevision) {
+      throw new Error("Git push execution denied because the candidate revision changed");
+    }
+    const startedAt = nowIso();
+    let exitCode = 0;
+    try {
+      await execFileAsync(executable.path, expectedCommand.slice(1), {
+        cwd: manifest.cwd,
+        encoding: "utf8",
+        env: { ...process.env, GIT_TERMINAL_PROMPT: "0" }
+      });
+    } catch (error) {
+      exitCode = Number.isInteger(error?.code) ? error.code : 1;
+    }
+    const invocation = {
+      schemaVersion: 1,
+      id: `git-push-wrapper:${runId}:${consumed.attemptId}`,
+      actionAttemptId: consumed.attemptId,
+      provider: "git",
+      command: expectedCommand,
+      providerExecutable: executable,
+      providerAuthorization: consumed.providerAuthorization,
+      credentialActor: credentialCheck.actor,
+      startedAt,
+      finishedAt: nowIso(),
+      exitCode
+    };
+    return withRunLock(root, runId, async ({ runDir }) => {
+      const target = safeJoin(runDir, "actions", `${consumed.tokenHash}.json`);
+      const current = await readJson(root, target);
+      if (current.status !== "spent" || current.attemptId !== consumed.attemptId) {
+        throw new Error("Git push provider invocation is not bound to the consumed action attempt");
+      }
+      const next = { ...current, providerInvocation: invocation };
+      await atomicWriteJson(root, target, next);
+      await appendJournal(root, runDir, "action.provider-invoked", {
+        attemptId: consumed.attemptId,
+        invocationId: invocation.id,
+        exitCode
+      });
+      return next;
+    });
+  }
   if (consumed.action !== "pr.merge" || consumed.provider !== "github-cli") {
-    throw new Error("The governed provider execution path only supports github-cli pr.merge");
+    throw new Error("The governed provider execution path only supports github-cli pr.merge and git.push");
   }
   const expectedCommand = [
     "gh",
@@ -3073,7 +3233,7 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
     throw new Error("PR merge execution denied because the governed provider executable changed");
   }
   // Re-check provider actor, branch policy, PR head, and fresh checks immediately before gh invocation.
-  await verifyMergeProviderAtInvocation(root, runId, consumed, manifest);
+  const providerAuthorization = await verifyMergeProviderAtInvocation(root, runId, consumed, manifest);
   const startedAt = nowIso();
   let exitCode = 0;
   try {
@@ -3089,6 +3249,7 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
     command: expectedCommand,
     adminBypass: false,
     providerExecutable: executable,
+    providerAuthorization,
     startedAt,
     finishedAt: nowIso(),
     exitCode
@@ -3201,6 +3362,19 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
     ) {
       throw new Error("Successful PR merge reconciliation requires the governed non-admin provider wrapper");
     }
+    if (
+      record.action === "git.push" &&
+      outcome === "success" &&
+      (!record.providerInvocation ||
+        record.providerInvocation.provider !== "git" ||
+        record.providerInvocation.exitCode !== 0 ||
+        digestObject(record.providerInvocation.providerExecutable) !== digestObject(record.providerExecutable) ||
+        digestObject(record.providerInvocation.providerAuthorization) !== digestObject(record.providerAuthorization) ||
+        record.providerInvocation.credentialActor !== record.gitCredentialCheck?.actor ||
+        JSON.stringify(record.providerInvocation.command) !== JSON.stringify(record.pushCommand))
+    ) {
+      throw new Error("Successful Git push reconciliation requires the governed actor-bound provider wrapper");
+    }
     const duplicateExecution = records.some((candidate) => (
       candidate.tokenHash !== record.tokenHash &&
       candidate.receipt?.providerReceipt?.executionId === receipt.providerReceipt.executionId
@@ -3262,8 +3436,24 @@ export async function inspectRun(root, runId) {
   };
 }
 
+async function reapExpiredCreationReservations(root) {
+  const directory = safeJoin(root, "creation-reservations");
+  if (!(await pathExists(directory))) return;
+  await assertNoSymlinkUnder(root, directory);
+  const entries = await readdir(directory, { withFileTypes: true });
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+    const target = safeJoin(directory, entry.name);
+    const reservation = await readJson(root, target).catch(() => null);
+    if (!reservation?.runId || !reservation?.tokenHash || Date.parse(reservation.expiresAt ?? "") > Date.now()) continue;
+    const action = await readJson(safeJoin(runDirectory(root, reservation.runId), "actions", `${reservation.tokenHash}.json`)).catch(() => null);
+    if (!action || action.status === "issued") await unlink(target).catch(() => undefined);
+  }
+}
+
 export async function cleanupRuns(root, { olderThanDays, apply = false }) {
   await ensureStateRoot(root);
+  await reapExpiredCreationReservations(root);
   const runsRoot = safeJoin(root, "runs");
   const entries = await readdir(runsRoot, { withFileTypes: true });
   const cutoff = Date.now() - olderThanDays * 86_400_000;
