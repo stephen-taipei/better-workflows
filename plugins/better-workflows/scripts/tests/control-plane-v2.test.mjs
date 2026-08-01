@@ -17,7 +17,7 @@ import {
   sha256
 } from "../lib/core.mjs";
 import { loadEvidenceContracts } from "../lib/evidence.mjs";
-import { deriveLedgerStatus, transitionLedger } from "../lib/ledger.mjs";
+import { compileLedger, deriveLedgerStatus, transitionLedger } from "../lib/ledger.mjs";
 import { deliberateForRun } from "../lib/deliberation-receipt.mjs";
 import { addReviewFinding, createReviewPackage, markBroadReviewComplete, recordRepairRound, reviewStatus, stableFindingId } from "../lib/review.mjs";
 import { updateState } from "../lib/core.mjs";
@@ -397,6 +397,40 @@ test("generic finding dispositions and terminal mutations fail closed", async ()
       summary: "post-terminal mutation"
     }, { update: true }),
     /Finding cannot mutate a terminal run/
+  );
+});
+
+test("ledger compilation rejects a terminal run", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-terminal-ledger-"));
+  const started = await createRun({
+    root,
+    contract: buildContract({
+      template: "test-terminal-ledger",
+      templateDefinition: {
+        ...contractTemplate,
+        controlPlane: { ...contractTemplate.controlPlane, designPacketPolicy: "pilot-v1" }
+      },
+      goal: "terminal ledger mutation",
+      scope: ["."],
+      risk: { risk: 1, uncertainty: 0, blastRadius: 1, irreversibility: 0, evidenceGap: 0 },
+      sensitivity: "internal",
+      authority: ["git.commit"],
+      remoteRevision: "remote"
+    }),
+    requestedMode: "verified",
+    cwd: root
+  });
+  await updateState(root, started.runId, (state) => ({ ...state, status: "completed" }));
+  await assert.rejects(
+    compileLedger(root, started.runId, {
+      schemaVersion: 1,
+      id: "terminal-packet",
+      objective: "Must not mutate a completed run",
+      constraints: [],
+      acceptanceIds: [],
+      tasks: []
+    }),
+    /Ledger compilation cannot mutate a terminal run/
   );
 });
 

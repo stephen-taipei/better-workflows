@@ -325,6 +325,10 @@ export async function transitionLedger(root, runId, event) {
 }
 
 export async function compileLedger(root, runId, packet) {
+  return withRunLock(root, runId, async () => compileLedgerLocked(root, runId, packet));
+}
+
+async function compileLedgerLocked(root, runId, packet) {
   const run = await loadRun(root, runId);
   assertMutableRun(run, "Ledger compilation");
   if (run.contract.schemaVersion !== 2 || run.contract.controlPlane?.designPacketPolicy !== "pilot-v1") {
