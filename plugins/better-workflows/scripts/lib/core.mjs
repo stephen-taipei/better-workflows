@@ -758,6 +758,7 @@ function assertProviderReceiptShape(record, providerReceipt, outcome = record.ou
       (record.targetRef && providerReceipt.baseRefName !== record.targetRef) ||
       providerReceipt.mergeMethod !== record.mergeMethod ||
       providerReceipt.adminBypass !== false ||
+      providerReceipt.invocationId !== record.providerInvocation?.id ||
       JSON.stringify(providerReceipt.mergeCommand) !== JSON.stringify(record.mergeCommand) ||
       typeof providerReceipt.head !== "string" || !providerReceipt.head ||
       typeof providerReceipt.mergeCommit !== "string" || !providerReceipt.mergeCommit)
@@ -2237,6 +2238,58 @@ export async function consumeActionToken(root, runId, token, currentTreeDigest) 
   });
 }
 
+export async function executeActionToken(root, runId, token, currentTreeDigest) {
+  const consumed = await consumeActionToken(root, runId, token, currentTreeDigest);
+  if (consumed.action !== "pr.merge" || consumed.provider !== "github-cli") {
+    throw new Error("The governed provider execution path only supports github-cli pr.merge");
+  }
+  const expectedCommand = [
+    "gh",
+    "pr",
+    "merge",
+    String(consumed.pullRequest),
+    "--merge",
+    "--delete-branch=false"
+  ];
+  if (JSON.stringify(consumed.mergeCommand) !== JSON.stringify(expectedCommand)) {
+    throw new Error("PR merge execution command is not the fixed non-admin invocation");
+  }
+  const manifest = await readJson(root, safeJoin(runDirectory(root, runId), "manifest.json"));
+  const startedAt = nowIso();
+  let exitCode = 0;
+  try {
+    await execFileAsync("gh", expectedCommand.slice(1), { cwd: manifest.cwd, encoding: "utf8" });
+  } catch (error) {
+    exitCode = Number.isInteger(error?.code) ? error.code : 1;
+  }
+  const invocation = {
+    schemaVersion: 1,
+    id: `github-pr-merge-wrapper:${runId}:${consumed.attemptId}`,
+    actionAttemptId: consumed.attemptId,
+    provider: "github-cli",
+    command: expectedCommand,
+    adminBypass: false,
+    startedAt,
+    finishedAt: nowIso(),
+    exitCode
+  };
+  return withRunLock(root, runId, async ({ runDir }) => {
+    const target = safeJoin(runDir, "actions", `${consumed.tokenHash}.json`);
+    const current = await readJson(root, target);
+    if (current.status !== "spent" || current.attemptId !== consumed.attemptId) {
+      throw new Error("PR merge provider invocation is not bound to the consumed action attempt");
+    }
+    const next = { ...current, providerInvocation: invocation };
+    await atomicWriteJson(root, target, next);
+    await appendJournal(root, runDir, "action.provider-invoked", {
+      attemptId: consumed.attemptId,
+      invocationId: invocation.id,
+      exitCode
+    });
+    return next;
+  });
+}
+
 function validateActionReceipt(record, outcome, receipt) {
   if (!receipt || typeof receipt !== "object" || Array.isArray(receipt)) {
     throw new Error("Action reconciliation requires a structured provider receipt");
@@ -2315,6 +2368,18 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
       throw new Error("Action attempt was already reconciled");
     }
     validateActionReceipt(record, outcome, receipt);
+    if (
+      record.action === "pr.merge" &&
+      outcome === "success" &&
+      (!record.providerInvocation ||
+        record.providerInvocation.provider !== "github-cli" ||
+        record.providerInvocation.adminBypass !== false ||
+        record.providerInvocation.exitCode !== 0 ||
+        JSON.stringify(record.providerInvocation.command) !== JSON.stringify(record.mergeCommand) ||
+        receipt.providerReceipt.invocationId !== record.providerInvocation.id)
+    ) {
+      throw new Error("Successful PR merge reconciliation requires the governed non-admin provider wrapper");
+    }
     const duplicateExecution = records.some((candidate) => (
       candidate.tokenHash !== record.tokenHash &&
       candidate.receipt?.providerReceipt?.executionId === receipt.providerReceipt.executionId

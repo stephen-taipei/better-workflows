@@ -27,6 +27,7 @@ import {
   digestObject,
   ensureStateRoot,
   evaluateCompletion,
+  executeActionToken,
   getStateRoot,
   inspectRun,
   issueActionToken,
@@ -1446,7 +1447,7 @@ function help() {
       "sbw deliberation arbitrate --prompt-file <sanitized-file> [--mode <auto|direct|verified|deep|critical>] [--reasoning-effort <auto|medium|high>] [--allow-external-providers --sanitized]",
       "sbw graph validate [--template <name>|--run <run-id>]",
       "sbw graph inspect (--template <name>|--run <run-id>) [--format json|mermaid]",
-      "sbw action issue|consume|reconcile <run-id> ...",
+      "sbw action issue|consume|execute|reconcile <run-id> ...",
       "sbw resource register <run-id> --resource <id> --receipt <creation-receipt.json>",
       "sbw ledger status <run-id>",
       "sbw ledger transition <run-id> --file <event.json>",
@@ -1864,6 +1865,14 @@ async function main() {
         action: await consumeActionToken(root, runId, String(options.token), digest)
       };
     }
+    if (subcommand === "execute") {
+      if (!options.token) throw new Error("action execute requires --token");
+      const digest = await currentVerifiedDigest(root, runId);
+      return {
+        ok: true,
+        action: await executeActionToken(root, runId, String(options.token), digest)
+      };
+    }
     if (subcommand === "reconcile") {
       if (!options.attempt || !options.outcome) {
         throw new Error("action reconcile requires --attempt and --outcome");
@@ -1881,7 +1890,7 @@ async function main() {
         )
       };
     }
-    throw new Error("action subcommand must be issue, consume, or reconcile");
+    throw new Error("action subcommand must be issue, consume, execute, or reconcile");
   }
   if (command === "resource") {
     if (subcommand !== "register" || !runId) {
