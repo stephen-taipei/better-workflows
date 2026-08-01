@@ -586,11 +586,16 @@ export async function registerOwnedResource(root, runId, { resource, creationRec
   if (
     creationReceipt.ownerRunId !== runId ||
     creationReceipt.resource !== resource ||
+    typeof creationReceipt.action !== "string" ||
+    !creationReceipt.action ||
+    typeof creationReceipt.attemptId !== "string" ||
+    !creationReceipt.attemptId ||
     creationReceipt.outcome !== "success" ||
     typeof creationReceipt.provider !== "string" ||
     !creationReceipt.provider ||
     typeof creationReceipt.createdAt !== "string" ||
-    Number.isNaN(Date.parse(creationReceipt.createdAt))
+    Number.isNaN(Date.parse(creationReceipt.createdAt)) ||
+    !Object.hasOwn(creationReceipt, "providerReceipt")
   ) {
     throw new Error("Owned resource creation receipt is not bound to this run and resource");
   }
@@ -598,6 +603,18 @@ export async function registerOwnedResource(root, runId, { resource, creationRec
   return withRunLock(root, runId, async ({ runDir }) => {
     const manifestPath = safeJoin(runDir, "manifest.json");
     const manifest = await readJson(root, manifestPath);
+    const actions = await listJsonRecords(root, safeJoin(runDir, "actions"));
+    const creationAction = actions.find((action) => (
+      action.attemptId === creationReceipt.attemptId &&
+      action.status === "spent" &&
+      action.outcome === "success" &&
+      action.action === creationReceipt.action &&
+      action.resource === resource &&
+      digestObject(action.receipt) === digestObject(creationReceipt.providerReceipt)
+    ));
+    if (!creationAction) {
+      throw new Error("Owned resource registration requires a reconciled successful run action");
+    }
     if (!Array.isArray(manifest.ownedResources)) {
       throw new Error("Run manifest has no owned resource registry");
     }
@@ -612,6 +629,14 @@ export async function registerOwnedResource(root, runId, { resource, creationRec
       resource,
       ownerRunId: runId,
       receiptDigest,
+      creationAttemptId: creationReceipt.attemptId,
+      creationActionDigest: digestObject({
+        attemptId: creationAction.attemptId,
+        action: creationAction.action,
+        resource: creationAction.resource,
+        outcome: creationAction.outcome,
+        receipt: creationAction.receipt
+      }),
       registeredAt: nowIso()
     };
     const nextManifest = {
@@ -971,14 +996,17 @@ function assertPullEvidenceBinding(admittedEvidence, request, reviewPackage) {
   if (!pullMatch) throw new Error("PR merge resources must use pull/<number>");
   for (const kind of ["pr-state", "required-checks"]) {
     if (!request.requiredEvidence.includes(kind)) continue;
-    const record = admittedEvidence.find((item) => item.kind === kind && item.status === "complete" && !item.stale);
-    if (!record) continue;
-    const payload = record.receipt?.payload;
-    if (
-      String(payload?.pr) !== pullMatch[1] ||
-      payload?.head !== reviewPackage.head ||
-      payload?.base !== reviewPackage.base
-    ) {
+    const records = admittedEvidence.filter((item) => item.kind === kind && item.status === "complete" && !item.stale);
+    if (records.length === 0) continue;
+    const exact = records.some((record) => {
+      const payload = record.receipt?.payload;
+      return (
+        String(payload?.pr) === pullMatch[1] &&
+        payload?.head === reviewPackage.head &&
+        payload?.base === reviewPackage.base
+      );
+    });
+    if (!exact) {
       throw new Error(`Action token denied until ${kind} is bound to the exact reviewed PR head`);
     }
   }

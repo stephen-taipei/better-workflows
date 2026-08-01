@@ -187,7 +187,7 @@ test("destructive cleanup actions require an immutable run-owned resource receip
     scope: ["."],
     risk: { risk: 1, uncertainty: 1, blastRadius: 1, irreversibility: 1, evidenceGap: 1 },
     sensitivity: "internal",
-    authority: ["branch.delete"],
+    authority: ["branch.create", "branch.delete"],
     remoteRevision: "abc"
   });
   const addPlan = async (run, plan) => addEvidence(root, run.runId, {
@@ -214,6 +214,22 @@ test("destructive cleanup actions require an immutable run-owned resource receip
     resources: [{ resource: deniedResource, ownerRunId: denied.runId, receiptDigest: "0".repeat(64) }]
   });
   await assert.rejects(
+    registerOwnedResource(root, denied.runId, {
+      resource: deniedResource,
+      creationReceipt: {
+        ownerRunId: denied.runId,
+        resource: deniedResource,
+        action: "branch.create",
+        attemptId: "forged-attempt",
+        outcome: "success",
+        provider: "git",
+        providerReceipt: { created: true },
+        createdAt: "2026-08-01T00:00:00.000Z"
+      }
+    }),
+    /reconciled successful run action/
+  );
+  await assert.rejects(
     issueActionToken(root, denied.runId, {
       action: "branch.delete",
       provider: "git",
@@ -232,11 +248,32 @@ test("destructive cleanup actions require an immutable run-owned resource receip
     lastSentinelComplete: true
   }));
   const resource = "branch:feature/registered";
+  await addEvidence(root, registeredRun.runId, {
+    id: "preflight",
+    kind: "preflight",
+    summary: "Creation action preflight",
+    status: "complete",
+    acceptanceIds: [],
+    sourceDigest: "b".repeat(64)
+  });
+  const creationIssued = await issueActionToken(root, registeredRun.runId, {
+    action: "branch.create",
+    provider: "git",
+    resource,
+    remoteRevision: "abc",
+    requiredEvidence: ["preflight"]
+  }, "tree", await loadDefaults());
+  const creationSpent = await consumeActionToken(root, registeredRun.runId, creationIssued.token, "tree");
+  const providerReceipt = { provider: "git", created: true };
+  await reconcileAction(root, registeredRun.runId, creationSpent.attemptId, "success", providerReceipt);
   const creationReceipt = {
     ownerRunId: registeredRun.runId,
     resource,
+    action: "branch.create",
+    attemptId: creationSpent.attemptId,
     outcome: "success",
     provider: "git",
+    providerReceipt,
     createdAt: "2026-08-01T00:00:00.000Z"
   };
   const registered = await registerOwnedResource(root, registeredRun.runId, { resource, creationReceipt });
