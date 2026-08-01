@@ -915,7 +915,7 @@ test("warning-only run graphs do not block resume, authorized action issue, or c
     return cli(cwd, stateRoot, args);
   }
 
-  async function seed(runId, prefix) {
+  async function seed(runId, prefix, packageId, head) {
     const records = [
       ["base-revision", ["scope-reviewed"]],
       ["review-findings", ["scope-reviewed"]],
@@ -942,8 +942,10 @@ test("warning-only run graphs do not block resume, authorized action issue, or c
             acceptanceIds,
             sourceDigest: digestObject(kind === "base-revision" || kind === "current-revision"
               ? { revision: "a".repeat(40) }
-              : kind === "review-findings" || kind === "diff-review"
+              : kind === "review-findings"
                 ? { verdict: "PASS" }
+                : kind === "diff-review"
+                  ? { verdict: "PASS", packageId, head }
                 : kind === "run-result"
                   ? { items: [] }
                   : { command: "true", result: true }),
@@ -956,15 +958,19 @@ test("warning-only run graphs do not block resume, authorized action issue, or c
               inputBinding: { runId, contractDigest: digestObject(contract), remoteRevision: null },
               payload: kind === "base-revision" || kind === "current-revision"
                 ? { revision: "a".repeat(40) }
-                : kind === "review-findings" || kind === "diff-review"
+                : kind === "review-findings"
                   ? { verdict: "PASS" }
+                  : kind === "diff-review"
+                    ? { verdict: "PASS", packageId, head }
                   : kind === "run-result"
                     ? { items: [] }
                     : { command: "true", result: true },
               payloadDigest: digestObject(kind === "base-revision" || kind === "current-revision"
                 ? { revision: "a".repeat(40) }
-                : kind === "review-findings" || kind === "diff-review"
+                : kind === "review-findings"
                   ? { verdict: "PASS" }
+                  : kind === "diff-review"
+                    ? { verdict: "PASS", packageId, head }
                   : kind === "run-result"
                     ? { items: [] }
                     : { command: "true", result: true }),
@@ -986,7 +992,6 @@ test("warning-only run graphs do not block resume, authorized action issue, or c
   }
 
   const authorized = await start(true);
-  await seed(authorized.json.runId, "authorized");
   const head = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd, encoding: "utf8" })).stdout.trim();
   const review = await createReviewPackage({
     root: stateRoot,
@@ -998,6 +1003,7 @@ test("warning-only run graphs do not block resume, authorized action issue, or c
     instructionDigest: DIGEST,
     sentinelDigest: authorized.json.sentinel.digest
   });
+  await seed(authorized.json.runId, "authorized", review.packageId, head);
   await markBroadReviewComplete(stateRoot, authorized.json.runId, review.packageId, head, authorized.json.sentinel.digest);
   const ledgerPath = path.join(stateRoot, "runs", authorized.json.runId, "ledger.json");
   const transition = async (eventId, type, taskId, evidenceKinds = []) => {
@@ -1058,7 +1064,6 @@ test("warning-only run graphs do not block resume, authorized action issue, or c
   assert.match(completed.json.blockers.join("\n"), /side-effect-not-reconciled|ledger:not-complete/);
 
   const unauthorized = await start(false);
-  await seed(unauthorized.json.runId, "unauthorized");
   const unauthorizedHead = head;
   const unauthorizedReview = await createReviewPackage({
     root: stateRoot,
@@ -1070,6 +1075,7 @@ test("warning-only run graphs do not block resume, authorized action issue, or c
     instructionDigest: DIGEST,
     sentinelDigest: unauthorized.json.sentinel.digest
   });
+  await seed(unauthorized.json.runId, "unauthorized", unauthorizedReview.packageId, unauthorizedHead);
   await markBroadReviewComplete(stateRoot, unauthorized.json.runId, unauthorizedReview.packageId, unauthorizedHead, unauthorized.json.sentinel.digest);
   const unauthorizedLedgerPath = path.join(stateRoot, "runs", unauthorized.json.runId, "ledger.json");
   const unauthorizedTransition = async (eventId, type, taskId, evidenceKinds = []) => {

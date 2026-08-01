@@ -490,7 +490,7 @@ test("review packages prove the Git manifest and dispositions fail closed", asyn
   await addEvidence(root, started.runId, await gateRecord(
     { runId: started.runId, contract: (await inspectRun(root, started.runId)).contract },
     "patch-review",
-    { verdict: "PASS", findingCount: 0 },
+    { verdict: "PASS", findingCount: 0, findingIds: [finding.id, accepted.id] },
     "review-proof"
   ));
   for (let round = 0; round < 5; round += 1) await recordRepairRound(root, started.runId, first.packageId, { round });
@@ -521,6 +521,12 @@ test("review packages prove the Git manifest and dispositions fail closed", asyn
     summary: "accepted risk expired by policy"
   }, { update: true });
   assert.equal((await reviewStatus(root, started.runId)).scopedClosed, true);
+  await addEvidence(root, started.runId, await gateRecord(
+    { runId: started.runId, contract: (await inspectRun(root, started.runId)).contract },
+    "diff-review",
+    { verdict: "PASS", findingCount: 0, packageId: first.packageId, head },
+    "diff-review-proof"
+  ));
   await markBroadReviewComplete(root, started.runId, first.packageId, head, digest);
   assert.equal((await reviewStatus(root, started.runId)).complete, true);
 });

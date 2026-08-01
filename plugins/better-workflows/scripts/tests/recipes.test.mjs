@@ -58,17 +58,17 @@ async function cli(cwd, stateRoot, args, { allowFailure = false } = {}) {
   }
 }
 
-async function addEvidence(cwd, stateRoot, runId, kind, acceptanceIds) {
+async function addEvidence(cwd, stateRoot, runId, kind, acceptanceIds, payloadOverride = null) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "sbw-recipe-evidence-"));
   const target = path.join(directory, `${kind}.json`);
   const run = JSON.parse(await readFile(path.join(stateRoot, "runs", runId, "contract.json"), "utf8"));
-  const payload = kind === "current-sentinel"
+  const payload = payloadOverride ?? (kind === "current-sentinel"
     ? { items: [] }
     : kind === "artifact-receipt"
       ? { artifact: { digest: "b".repeat(64) } }
       : kind === "promotion-decision"
         ? { outcome: "success" }
-        : { command: "recipe-fixture", result: true };
+        : { command: "recipe-fixture", result: true });
   const receipt = {
     contractId: `evidence-contracts-v1:${kind}`,
     contractVersion: 1,
@@ -176,6 +176,12 @@ async function governedRun(cwd, stateRoot) {
     diffManifest: { files: [] },
     instructionDigest: "c".repeat(64),
     sentinelDigest: started.json.sentinel.digest
+  });
+  await addEvidence(cwd, stateRoot, started.json.runId, "diff-review", [], {
+    verdict: "PASS",
+    findingCount: 0,
+    packageId: review.packageId,
+    head
   });
   await markBroadReviewComplete(stateRoot, started.json.runId, review.packageId, head, started.json.sentinel.digest);
   await ledgerTransition(stateRoot, started.json.runId, "contract-start", "start", "contract");

@@ -214,6 +214,40 @@ async function assertFindingEvidence(root, run, finding) {
   }
   const { validateTypedEvidenceRecord } = await import("./evidence.mjs");
   await validateTypedEvidenceRecord(evidence, run);
+  if (evidence.kind !== "patch-review") {
+    throw new Error(`Review finding ${finding.id ?? "unknown"} must reference patch-review evidence`);
+  }
+  const payload = evidence.receipt?.payload;
+  const bound = Array.isArray(payload?.findingIds) && payload.findingIds.includes(finding.id);
+  if (!bound) {
+    throw new Error(`Review finding ${finding.id ?? "unknown"} is not bound to its patch-review evidence`);
+  }
+}
+
+async function assertBroadReviewEvidence(root, run, reviewPackage) {
+  if (run.contract.controlPlane?.reviewPolicy === "none") return;
+  const evidence = await listJsonRecords(root, safeJoin(run.runDir, "evidence"));
+  const { isIndependentCriticEvidence, validateTypedEvidenceRecord } = await import("./evidence.mjs");
+  const diff = evidence.find((item) => (
+    item.kind === "diff-review" &&
+    item.status === "complete" &&
+    !item.stale &&
+    item.receipt?.payload?.verdict === "PASS" &&
+    item.receipt?.payload?.packageId === reviewPackage.packageId &&
+    item.receipt?.payload?.head === reviewPackage.head
+  ));
+  if (!diff) throw new Error("Broad review requires final package-bound diff-review evidence");
+  await validateTypedEvidenceRecord(diff, run);
+  if (run.manifest.mode === "critical") {
+    const critic = evidence.find((item) => (
+      isIndependentCriticEvidence(item, {
+        reviewPackage,
+        sentinelDigest: run.state.lastSentinel?.digest
+      })
+    ));
+    if (!critic) throw new Error("Critical broad review requires an exact independent critic receipt");
+    await validateTypedEvidenceRecord(critic, run);
+  }
 }
 
 export async function addReviewFinding(root, runId, finding, { update = false } = {}) {
@@ -229,8 +263,8 @@ export async function addReviewFinding(root, runId, finding, { update = false } 
     throw new Error("Review finding package is bound to a different contract or template");
   }
   const status = validateFindingDisposition(finding);
-  await assertFindingEvidence(root, run, { ...finding, status });
   const id = stableFindingId(finding);
+  await assertFindingEvidence(root, run, { ...finding, id, status });
   const disposition = status === "accepted-risk"
     ? { owner: finding.owner, reason: finding.reason, expiry: finding.expiry }
     : ["resolved", "rejected-with-evidence"].includes(status)
@@ -352,14 +386,23 @@ export async function reviewStatus(root, runId) {
   const repairBudgetExhausted = Boolean(scoped?.repairRounds >= 5 && openHigh.length > 0);
   const broadSentinelMatches = !run.state.lastSentinel?.digest || scoped?.broadReview?.sentinelDigest === run.state.lastSentinel.digest;
   const broadHeadMatches = scoped?.head === currentHead;
+  let broadEvidenceComplete = false;
+  if (scoped?.broadReview?.complete) {
+    try {
+      await assertBroadReviewEvidence(root, run, scoped);
+      broadEvidenceComplete = true;
+    } catch {
+      broadEvidenceComplete = false;
+    }
+  }
   return {
     package: scoped,
     findings: scopedFindings,
     openHigh,
     repairBudgetExhausted,
     scopedClosed: Boolean(scoped && !repairBudgetExhausted && openHigh.length === 0 && scopedFindings.every((item) => item.status !== "open")),
-    broadReviewComplete: Boolean(scoped?.broadReview?.complete && scoped.broadReview.head === scoped.head && broadHeadMatches && broadSentinelMatches),
-    complete: Boolean(scoped && !repairBudgetExhausted && openHigh.length === 0 && scoped.broadReview?.complete && scoped.broadReview.head === scoped.head && broadHeadMatches && broadSentinelMatches)
+    broadReviewComplete: Boolean(scoped?.broadReview?.complete && broadEvidenceComplete && scoped.broadReview.head === scoped.head && broadHeadMatches && broadSentinelMatches),
+    complete: Boolean(scoped && !repairBudgetExhausted && openHigh.length === 0 && scoped.broadReview?.complete && broadEvidenceComplete && scoped.broadReview.head === scoped.head && broadHeadMatches && broadSentinelMatches)
   };
 }
 
@@ -400,6 +443,7 @@ export async function markBroadReviewComplete(root, runId, packageIdValue, head,
   if (findings.some((item) => item.packageId === packageIdValue && item.status === "open")) {
     throw new Error("Broad review requires scoped findings to be closed");
   }
+  await assertBroadReviewEvidence(root, run, value);
   const next = { ...value, broadReview: { required: true, complete: true, head, sentinelDigest, completedAt: nowIso() } };
   await atomicWriteJson(root, target, next);
   return next;

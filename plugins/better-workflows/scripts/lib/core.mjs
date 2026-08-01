@@ -107,14 +107,18 @@ const OWNED_RESOURCE_CREATION_SCHEMAS = {
 };
 const OWNED_RESOURCE = /^[^\0\r\n]{1,512}$/;
 const SHA256_DIGEST = /^[a-f0-9]{64}$/;
+const GIT_PUSH_RESOURCE = /^remote:([A-Za-z0-9._-]+):(refs\/heads\/[A-Za-z0-9._/-]+)$/;
 
 const ACTION_PROVIDER_RECEIPT_SCHEMAS = {
   "branch.create:git": { proofKind: "git-branch-create" },
   "worktree.create:git": { proofKind: "git-worktree-create" },
   "git.commit:git": { proofKind: "git-commit" },
   "git.push:git": { proofKind: "git-push" },
+  "branch.delete:git": { proofKind: "git-branch-delete" },
   "pr.create:github-cli": { proofKind: "github-pr-create" },
+  "pr.close:github-cli": { proofKind: "github-pr-close" },
   "actions.dispatch:github-cli": { proofKind: "github-actions-dispatch" },
+  "actions.cancel:github-cli": { proofKind: "github-actions-cancel" },
   "pr.merge:github-cli": { proofKind: "github-pr-merge" },
   "remote.sync:git": { proofKind: "git-remote-sync" },
   "worktree.cleanup:git": { proofKind: "git-worktree-cleanup" },
@@ -692,10 +696,19 @@ function assertProviderReceiptShape(record, providerReceipt, outcome = record.ou
   }
   if (
     record.action === "git.push" &&
-    (!providerReceipt.pushed || typeof providerReceipt.ref !== "string" || !providerReceipt.ref ||
+    (!providerReceipt.pushed || !GIT_PUSH_RESOURCE.test(record.resource) ||
+      providerReceipt.remote !== GIT_PUSH_RESOURCE.exec(record.resource)?.[1] ||
+      providerReceipt.ref !== GIT_PUSH_RESOURCE.exec(record.resource)?.[2] ||
       typeof providerReceipt.revision !== "string" || !/^[a-f0-9]{7,64}$/i.test(providerReceipt.revision))
   ) {
     throw new Error("Git push proof is incomplete");
+  }
+  if (
+    record.action === "branch.delete" &&
+    (!providerReceipt.deleted || typeof providerReceipt.ref !== "string" || !providerReceipt.ref ||
+      (record.resource.startsWith("branch:") && providerReceipt.ref !== record.resource.slice("branch:".length)))
+  ) {
+    throw new Error("Git branch deletion proof is incomplete");
   }
   if (
     record.action === "pr.create" &&
@@ -728,6 +741,22 @@ function assertProviderReceiptShape(record, providerReceipt, outcome = record.ou
       typeof providerReceipt.mergeCommit !== "string" || !providerReceipt.mergeCommit)
   ) {
     throw new Error("GitHub pull request merge proof is incomplete");
+  }
+  if (
+    record.action === "pr.close" &&
+    (!Number.isInteger(providerReceipt.pr) ||
+      providerReceipt.pr !== Number(String(record.resource).replace(/^pull\//, "")) ||
+      providerReceipt.state !== "CLOSED" ||
+      typeof providerReceipt.repository !== "string" || !providerReceipt.repository)
+  ) {
+    throw new Error("GitHub pull request close proof is incomplete");
+  }
+  if (
+    record.action === "actions.cancel" &&
+    (!providerReceipt.cancelled || typeof providerReceipt.runId !== "string" || !providerReceipt.runId ||
+      providerReceipt.terminalState !== "cancelled" || providerReceipt.conclusion !== "CANCELLED")
+  ) {
+    throw new Error("GitHub Actions cancellation proof is incomplete");
   }
   if (
     record.action === "remote.sync" &&
@@ -1354,22 +1383,45 @@ async function verifyProviderReceipt(manifest, record, receipt) {
     return;
   }
   if (key === "git.push:git") {
-    const ref = providerReceipt.ref;
-    const output = (await execFileAsync("git", ["ls-remote", "origin", ref], {
+    const [, remote, ref] = GIT_PUSH_RESOURCE.exec(record.resource) ?? [];
+    const output = (await execFileAsync("git", ["ls-remote", remote, ref], {
       cwd,
       encoding: "utf8"
     })).stdout.trim();
     const revision = output.split(/\s+/)[0];
     if (!/^[a-f0-9]{40}$/i.test(revision)) throw new Error("Git push proof does not identify a remote revision");
-    const repository = await currentGitProviderIdentity(cwd);
-    const response = { repository, ref, revision };
+    const repository = repositoryIdentity((await execFileAsync("git", ["remote", "get-url", remote], {
+      cwd,
+      encoding: "utf8"
+    })).stdout.trim());
+    const response = { repository, remote, ref, revision };
     assertRecomputedProviderReceipt(
       providerReceipt,
-      { action: record.action, provider: record.provider, resource: record.resource, remoteRevision: record.remoteRevision, repository, ref },
+      { action: record.action, provider: record.provider, resource: record.resource, remoteRevision: record.remoteRevision, repository, remote, ref },
       response,
-      `git:${repository}:git.push:${ref}:${revision}`
+      `git:${repository}:${remote}:git.push:${ref}:${revision}`
     );
     if (revision !== providerReceipt.revision) throw new Error("Git push proof does not match provider state");
+    return;
+  }
+  if (key === "branch.delete:git") {
+    const expectedRef = record.resource.startsWith("branch:") ? record.resource.slice("branch:".length) : null;
+    if (!expectedRef || providerReceipt.ref !== expectedRef) throw new Error("Git branch deletion proof is not bound to the requested resource");
+    const repository = await currentGitProviderIdentity(cwd);
+    let present = true;
+    try {
+      await execFileAsync("git", ["rev-parse", "--verify", `refs/heads/${expectedRef}^{commit}`], { cwd, encoding: "utf8" });
+    } catch {
+      present = false;
+    }
+    if (present) throw new Error("Git branch deletion proof does not match provider state");
+    const response = { ref: expectedRef, deleted: true };
+    assertRecomputedProviderReceipt(
+      providerReceipt,
+      { action: record.action, provider: record.provider, resource: record.resource, remoteRevision: record.remoteRevision, repository },
+      response,
+      `git:${repository}:branch.delete:${expectedRef}`
+    );
     return;
   }
   if (key === "pr.create:github-cli") {
@@ -1425,6 +1477,45 @@ async function verifyProviderReceipt(manifest, record, receipt) {
       actual.headSha !== record.remoteRevision ||
       (record.resource.startsWith("workflow:") && actual.workflowName !== record.resource.slice("workflow:".length))
     ) throw new Error("GitHub Actions dispatch proof does not match provider state");
+    return;
+  }
+  if (key === "actions.cancel:github-cli") {
+    const actual = JSON.parse((await execFileAsync("gh", [
+      "run", "view", String(providerReceipt.runId), "--json", "databaseId,status,conclusion,url"
+    ], { cwd, encoding: "utf8" })).stdout);
+    const repository = await currentRepositoryIdentity(cwd);
+    const response = {
+      runId: String(actual.databaseId),
+      status: actual.status,
+      conclusion: actual.conclusion,
+      url: actual.url
+    };
+    assertRecomputedProviderReceipt(
+      providerReceipt,
+      { action: record.action, provider: record.provider, resource: record.resource, remoteRevision: record.remoteRevision, repository },
+      response,
+      `github:${repository}:actions.cancel:${actual.databaseId}`
+    );
+    if (String(actual.databaseId) !== String(providerReceipt.runId) || actual.status !== "completed" || actual.conclusion !== "CANCELLED") {
+      throw new Error("GitHub Actions cancellation proof does not match provider state");
+    }
+    return;
+  }
+  if (key === "pr.close:github-cli") {
+    const actual = JSON.parse((await execFileAsync("gh", [
+      "pr", "view", String(providerReceipt.pr), "--json", "number,state,url"
+    ], { cwd, encoding: "utf8" })).stdout);
+    const repository = await currentRepositoryIdentity(cwd);
+    const response = { number: actual.number, state: actual.state, url: actual.url };
+    assertRecomputedProviderReceipt(
+      providerReceipt,
+      { action: record.action, provider: record.provider, resource: record.resource, remoteRevision: record.remoteRevision, repository },
+      response,
+      `github:${repository}:pr.close:${actual.number}`
+    );
+    if (actual.number !== providerReceipt.pr || actual.state !== "CLOSED" || providerReceipt.repository !== repository) {
+      throw new Error("GitHub pull request close proof does not match provider state");
+    }
     return;
   }
   if (key === "pr.merge:github-cli") {
@@ -1590,6 +1681,29 @@ function assertTargetBranchEvidence(admittedEvidence, request, expectedRepositor
   if (!exact) throw new Error("Action token denied until target-branch-dev is bound to the selected repository and dev revision");
 }
 
+function assertRemoteSyncMergeBinding(admittedEvidence, reviewPackage, contract, expectedRepository) {
+  const exact = admittedEvidence
+    .filter((item) => item.kind === "merge-result" && item.status === "complete" && !item.stale)
+    .map((item) => item.receipt?.payload)
+    .find((payload) => (
+      payload?.outcome === "success" &&
+      payload?.reviewPackageId === reviewPackage.packageId &&
+      payload?.head === reviewPackage.head &&
+      payload?.base === reviewPackage.base &&
+      payload?.baseRefName === "dev" &&
+      payload?.repository === expectedRepository &&
+      Number.isInteger(payload?.pr) &&
+      typeof payload?.mergeCommit === "string" && /^[a-f0-9]{40}$/i.test(payload.mergeCommit)
+    ));
+  if (!exact) throw new Error("Action token denied until merge-result is bound to the exact reviewed PR and merge");
+  return {
+    mergeCommit: exact.mergeCommit,
+    pullRequest: exact.pr,
+    reviewedHead: reviewPackage.head,
+    reviewPackageId: reviewPackage.packageId
+  };
+}
+
 export async function issueActionToken(root, runId, request, currentTreeDigest, config) {
   for (const field of ["action", "provider", "resource", "remoteRevision"]) {
     if (typeof request[field] !== "string" || !request[field]) throw new Error(`Action ${field} is required`);
@@ -1637,6 +1751,7 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
       repository = await currentRepositoryIdentity(manifest.cwd);
       assertTargetBranchEvidence(admittedEvidence, request, repository, contract.remoteRevision ?? null);
     }
+    let actionBinding = {};
     if (request.action === "pr.merge" && contract.controlPlane?.reviewPolicy !== "none") {
       const { isIndependentCriticEvidence } = await import("./evidence.mjs");
       const { reviewStatus } = await import("./review.mjs");
@@ -1654,6 +1769,19 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
       }));
       if (!hasIndependentCritic) throw new Error("Action token denied until the exact independent critic is admitted");
       await assertPullEvidenceBinding(admittedEvidence, request, review.package, contract, repository);
+      actionBinding = {
+        reviewedHead: review.package.head,
+        reviewPackageId: review.package.packageId,
+        pullRequest: Number(String(request.resource).replace(/^pull\//, ""))
+      };
+    }
+    if (["remote.sync", "worktree.cleanup"].includes(request.action) && contract.controlPlane?.reviewPolicy !== "none") {
+      const { reviewStatus } = await import("./review.mjs");
+      const review = await reviewStatus(root, runId);
+      if (!review.complete) throw new Error("Action token denied until the exact review package is complete");
+      if (request.action === "remote.sync") {
+        actionBinding = assertRemoteSyncMergeBinding(admittedEvidence, review.package, contract, repository);
+      }
     }
     if (request.action === "pr.merge" && request.requiredEvidence.includes("required-checks")) {
       const currentHead = (await execFileAsync("git", ["rev-parse", "--verify", "HEAD^{commit}"], {
@@ -1723,6 +1851,7 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
       resource: request.resource,
       scope: request.scope ?? request.resource,
       remoteRevision: request.remoteRevision,
+      ...actionBinding,
       treeDigest: currentTreeDigest,
       contractDigest: digestObject(contract),
       idempotencyKey: `sbw-${runId}-${randomUUID()}`
@@ -1852,7 +1981,10 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
     if (record.action === "pr.merge" && outcome === "success") {
       const { reviewStatus } = await import("./review.mjs");
       const review = await reviewStatus(root, runId);
-      if (!review.complete || review.package?.head !== receipt.providerReceipt.head) {
+      if (!review.complete ||
+          review.package?.head !== receipt.providerReceipt.head ||
+          receipt.providerReceipt.pr !== record.pullRequest ||
+          receipt.providerReceipt.head !== record.reviewedHead) {
         throw new Error("PR merge receipt is not bound to the complete reviewed PR head");
       }
     }
@@ -1860,7 +1992,13 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
       const mergeAction = records.find((candidate) => (
         candidate.action === "pr.merge" &&
         candidate.outcome === "success" &&
-        typeof candidate.receipt?.providerReceipt?.mergeCommit === "string"
+        candidate.pullRequest === record.pullRequest &&
+        candidate.reviewedHead === record.reviewedHead &&
+        candidate.reviewPackageId === record.reviewPackageId &&
+        candidate.receipt?.providerReceipt?.pr === record.pullRequest &&
+        candidate.receipt?.providerReceipt?.head === record.reviewedHead &&
+        typeof candidate.receipt?.providerReceipt?.mergeCommit === "string" &&
+        candidate.receipt.providerReceipt.mergeCommit === record.mergeCommit
       ));
       const mergeCommit = mergeAction?.receipt?.providerReceipt?.mergeCommit;
       if (!mergeCommit || receipt.providerReceipt.providerRevision !== mergeCommit || receipt.providerReceipt.localRevision !== mergeCommit) {
