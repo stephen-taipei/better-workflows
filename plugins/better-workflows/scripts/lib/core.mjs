@@ -472,7 +472,8 @@ export async function createRun({ root = getStateRoot(), contract, requestedMode
       authority: {
         rootOnlyMutation: true,
         nativeSubagentsAreTrustedContract: true
-      }
+      },
+      ownedResources: []
     };
     const state = {
       schemaVersion: 1,
@@ -938,6 +939,8 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
           !resource ||
           typeof resource !== "object" ||
           resource.ownerRunId !== runId ||
+          !Array.isArray(manifest.ownedResources) ||
+          !manifest.ownedResources.includes(resource.resource) ||
           typeof resource.resource !== "string" ||
           !resource.resource
         ))

@@ -26,6 +26,7 @@ const LEGACY_SIGNER = "/private/var/db/better-workflows/bin/bw-host-signer.swift
 const ISSUER = "better-workflows-local-host";
 const SAFE_OUTPUT = /^[A-Za-z0-9][A-Za-z0-9._-]{7,127}\.json$/;
 const SHA256 = /^[a-f0-9]{64}$/;
+const SHA1 = /^[a-f0-9]{40}$/;
 
 function sorted(value) {
   if (Array.isArray(value)) return value.map(sorted);
@@ -362,6 +363,47 @@ async function signBatch(manifestPath, confirmedManifestDigest) {
   return { ok: true, outputs };
 }
 
+async function signNativeRequest(requestPath, confirmedDigest, outputName) {
+  requireRoot();
+  if (!SHA256.test(confirmedDigest)) throw new Error("confirmed request digest must be SHA-256");
+  if (!SAFE_OUTPUT.test(outputName)) throw new Error("attestation output name is unsafe");
+  const requestBytes = await readFile(path.resolve(requestPath));
+  if ((await digest(requestBytes)) !== confirmedDigest) {
+    throw new Error("request digest does not match administrator-confirmed digest");
+  }
+  const request = JSON.parse(requestBytes.toString("utf8"));
+  const required = ["base", "head", "instructionDigest", "model", "packageId", "promptDigest", "reviewDigest", "reviewerId", "runId", "sentinelDigest"];
+  if (Object.keys(request).sort().join("\0") !== required.slice().sort().join("\0")) {
+    throw new Error("native request fields do not match the signer contract");
+  }
+  if (!["base", "head"].every((key) => SHA1.test(request[key]))) throw new Error("native request revisions are invalid");
+  if (!["instructionDigest", "promptDigest", "reviewDigest", "sentinelDigest"].every((key) => SHA256.test(request[key]))) {
+    throw new Error("native request digests are invalid");
+  }
+  if (["model", "packageId", "reviewerId", "runId"].some((key) => typeof request[key] !== "string" || !request[key] || request[key].length > 256)) {
+    throw new Error("native request identity is invalid");
+  }
+  const trust = await validateTrustRoot();
+  await validateRootOwnedFile(PRIVATE_KEY, "Private signing key", 0o600);
+  const key = trust.value.publicKeys[0];
+  const issuedAt = new Date();
+  const payload = {
+    schemaVersion: 1,
+    provider: "codex-native-subagent",
+    ...request,
+    issuer: trust.value.issuer,
+    keyId: key.keyId,
+    issuedAt: issuedAt.toISOString(),
+    expiresAt: new Date(issuedAt.getTime() + 24 * 60 * 60 * 1000).toISOString()
+  };
+  const privateKey = privateKeyFromRaw(await readFile(PRIVATE_KEY));
+  const signature = sign(null, Buffer.from(canonicalJson(payload), "utf8"), privateKey).toString("base64");
+  const target = path.join(ATTESTATIONS, outputName);
+  if (path.dirname(target) !== ATTESTATIONS) throw new Error("attestation path escapes its root");
+  await exclusiveWrite(target, `${JSON.stringify({ ...payload, signature }, null, 2)}\n`, 0o644);
+  return target;
+}
+
 function parse(argv) {
   const positional = [];
   const options = {};
@@ -400,7 +442,16 @@ async function main() {
     }
     return signBatch(options.manifest, options["confirm-digest"]);
   }
-  throw new Error("usage: host-trust.mjs status|provision|sign|sign-batch");
+  if (command === "sign-native") {
+    if (!options.request || !options["confirm-digest"] || !options.output) {
+      throw new Error("sign-native requires --request, --confirm-digest, and --output");
+    }
+    return {
+      ok: true,
+      output: await signNativeRequest(options.request, options["confirm-digest"], options.output)
+    };
+  }
+  throw new Error("usage: host-trust.mjs status|provision|sign|sign-batch|sign-native");
 }
 
 if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) {

@@ -51,7 +51,8 @@ import {
   runAgyCritic,
   runCodexCritic,
   runCodexEvaluation,
-  verifyTrustedCodexAttestation
+  verifyTrustedCodexAttestation,
+  verifyTrustedNativeCriticAttestation
 } from "./lib/providers.mjs";
 import {
   buildEvaluationPrompt,
@@ -1428,7 +1429,7 @@ function help() {
       "sbw self-improve attestation request --run <run-id> --baseline <sha> --candidate-root <path> --model <model> --output <outside-repo-directory> [--cases <file>] [--purpose ordinary|evaluator-migration] [--next-cases <v2-file>]",
       "sbw finding add|update <run-id> --file <json>",
       "sbw critic codex|agy <run-id> --model <model> --prompt-file <file> [--effort <auto|medium|high>] [--effort-transport <native|model-variant>]",
-      "sbw critic native <run-id> --file <json> --reviewer-id <native-agent-id>",
+      "sbw critic native <run-id> --file <json> --reviewer-id <native-agent-id> --attestation <host-file>",
       "sbw deliberation roster [--mode <auto|direct|verified|deep|critical>] [--reasoning-effort <auto|medium|high>] [--refresh] [--provider <id>] [--allow-external-providers --sanitized]",
       "sbw deliberation deliberate --prompt-file <sanitized-file> [--run <run-id>] [--mode <auto|direct|verified|deep|critical>] [--reasoning-effort <auto|medium|high>] [--refresh] [--allow-external-providers --sanitized]",
       "sbw deliberation arbitrate --prompt-file <sanitized-file> [--mode <auto|direct|verified|deep|critical>] [--reasoning-effort <auto|medium|high>] [--allow-external-providers --sanitized]",
@@ -1648,21 +1649,90 @@ async function main() {
   }
   if (command === "critic") {
     if (subcommand === "native") {
-      if (!runId || !options.file || !options["reviewer-id"]) {
-        throw new Error("critic usage: sbw critic native <run-id> --file <json> --reviewer-id <native-agent-id>");
+      if (!runId || !options.file || !options["reviewer-id"] || !options.attestation) {
+        throw new Error("critic usage: sbw critic native <run-id> --file <json> --reviewer-id <native-agent-id> --attestation <host-file>");
       }
-      const record = JSON.parse(await readFile(path.resolve(String(options.file)), "utf8"));
-      if (
-        record.sourceKind !== "independent-critic" ||
-        record.kind !== "patch-review" ||
-        record.receipt?.producer?.provider !== "codex-native-subagent" ||
-        record.nativeReviewer?.id !== String(options["reviewer-id"])
-      ) {
-        throw new Error("Native critic evidence must identify the native reviewer and provider boundary");
+      const input = JSON.parse(await readFile(path.resolve(String(options.file)), "utf8"));
+      const run = await loadRun(root, runId);
+      const review = await reviewStatus(root, runId);
+      if (!review.package) throw new Error("Native critic requires an immutable review package");
+      if (input.reviewerId !== String(options["reviewer-id"]) || !input.model || !input.review) {
+        throw new Error("Native critic input must identify the reviewer, model, and review");
       }
+      const sentinelDigest = await currentVerifiedDigest(root, runId);
+      const binding = {
+        base: review.package.base,
+        head: review.package.head,
+        instructionDigest: review.package.instructionDigest,
+        model: String(input.model),
+        packageId: review.package.packageId,
+        promptDigest: review.package.instructionDigest,
+        reviewDigest: digestObject(input.review),
+        reviewerId: String(options["reviewer-id"]),
+        runId,
+        sentinelDigest
+      };
+      const attestation = await verifyTrustedNativeCriticAttestation({
+        attestationPath: String(options.attestation),
+        workspaceRoot: run.manifest.cwd,
+        binding
+      });
+      const providerExecution = {
+        provider: "codex-native-subagent",
+        model: attestation.model,
+        promptDigest: binding.promptDigest,
+        reviewDigest: binding.reviewDigest,
+        transport: "native-subagent",
+        sandbox: "read-only",
+        executionDigest: digestObject({
+          provider: "codex-native-subagent",
+          model: attestation.model,
+          promptDigest: binding.promptDigest,
+          reviewDigest: binding.reviewDigest,
+          transport: "native-subagent",
+          sandbox: "read-only"
+        })
+      };
+      const payload = { verdict: input.review.verdict, findingCount: input.review.findings?.length ?? 0 };
+      const record = {
+        schemaVersion: 2,
+        id: `critic-codex-native-subagent-${Date.now()}`,
+        kind: "patch-review",
+        sourceKind: "independent-critic",
+        status: "complete",
+        summary: `codex-native-subagent ${input.review.verdict}: ${input.review.summary}`,
+        acceptanceIds: values(options.acceptance, run.contract.acceptance.map((item) => item.id)).map(String),
+        dependencies: {
+          promptDigest: binding.promptDigest,
+          model: attestation.model,
+          reviewBinding: {
+            packageId: review.package.packageId,
+            base: review.package.base,
+            head: review.package.head,
+            scopeDigest: review.package.scopeDigest,
+            diffManifestDigest: review.package.diffManifestDigest,
+            instructionDigest: review.package.instructionDigest,
+            sentinelDigest
+          },
+          remoteRevision: run.contract.remoteRevision ?? null
+        },
+        providerExecution,
+        nativeReviewer: { id: binding.reviewerId, attestationDigest: attestation.attestationDigest },
+        review: input.review,
+        receipt: {
+          contractId: "evidence-contracts-v1:patch-review",
+          contractVersion: 1,
+          runId,
+          producer: { provider: "codex-native-subagent", model: attestation.model, attestationDigest: attestation.attestationDigest },
+          inputBinding: { runId, contractDigest: digestObject(run.contract), remoteRevision: run.contract.remoteRevision ?? null },
+          payload,
+          payloadDigest: digestObject(payload),
+          producedAt: nowIso()
+        }
+      };
       return {
         ok: true,
-        evidence: await addEvidence(root, runId, await enrichEvidence(root, runId, record))
+        evidence: await addEvidence(root, runId, record)
       };
     }
     if (!["codex", "agy"].includes(subcommand) || !runId || !options["prompt-file"]) {

@@ -291,6 +291,47 @@ export async function verifyTrustedCodexAttestation({ attestationPath, evaluatio
   } };
 }
 
+export async function verifyTrustedNativeCriticAttestation({ attestationPath, workspaceRoot, binding }) {
+  if (!attestationPath) throw new Error("Native critic requires a host-signed attestation");
+  const workspace = await realpath(workspaceRoot);
+  const [attestationFile, trustRootFile] = await Promise.all([
+    secureJsonFile(path.resolve(attestationPath), "Native critic attestation"),
+    hostAnchoredTrustRoot()
+  ]);
+  if (isWithin(workspace, attestationFile.path)) {
+    throw new Error("Native critic attestation must be a host-provided file outside the repository");
+  }
+  const attestation = attestationFile.value;
+  const trustRoot = trustRootFile.value;
+  if (attestation?.schemaVersion !== 1 || attestation.provider !== "codex-native-subagent" || trustRoot?.schemaVersion !== 1) {
+    throw new Error("Native critic attestation schema or provider is invalid");
+  }
+  for (const key of ["base", "head", "instructionDigest", "model", "packageId", "promptDigest", "reviewDigest", "reviewerId", "runId", "sentinelDigest"]) {
+    if (attestation[key] !== binding[key]) throw new Error(`Native critic attestation binding does not match ${key}`);
+  }
+  if (attestation.issuer !== trustRoot.issuer) throw new Error("Native critic attestation issuer is not trusted");
+  const key = Array.isArray(trustRoot.publicKeys)
+    ? trustRoot.publicKeys.find((item) => item?.keyId === attestation.keyId && item.algorithm === "ed25519")
+    : null;
+  if (!key || typeof key.publicKey !== "string") throw new Error("Native critic attestation key is not available in the trust root");
+  const issuedAt = Date.parse(requiredString(attestation.issuedAt, "Native critic attestation issuedAt"));
+  const expiresAt = Date.parse(requiredString(attestation.expiresAt, "Native critic attestation expiresAt"));
+  if (!Number.isFinite(issuedAt) || !Number.isFinite(expiresAt) || issuedAt > Date.now() + 300_000 || expiresAt <= Date.now()) {
+    throw new Error("Native critic attestation is not currently valid");
+  }
+  const publicKey = createPublicKey({ key: Buffer.from(key.publicKey, "base64"), format: "der", type: "spki" });
+  const signature = Buffer.from(requiredString(attestation.signature, "Native critic attestation signature"), "base64");
+  if (!verify(null, Buffer.from(canonicalJson(unsignedAttestation(attestation)), "utf8"), publicKey, signature)) {
+    throw new Error("Native critic attestation signature is invalid");
+  }
+  return {
+    ...attestation,
+    attestationDigest: sha256(canonicalJson(unsignedAttestation(attestation))),
+    trustRootDigest: sha256(canonicalJson(trustRoot)),
+    attestationPath: attestationFile.path
+  };
+}
+
 export async function binaryIdentity(command) {
   const supplied = await commandPath(command);
   const target = await realpath(supplied);
