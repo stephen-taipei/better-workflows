@@ -156,11 +156,11 @@ const ARRAY_FIELDS = new Set([
   "providerRunIds", "requiredStatusCheckApps", "requiredStatusChecks", "resources", "roles", "scope", "tasks"
 ]);
 const OBJECT_FIELDS = new Set([
-  "artifact", "authorization", "counts", "diffManifest", "metadata", "permissions",
+  "actionProof", "artifact", "authorization", "counts", "diffManifest", "metadata", "permissions",
   "providerAuthorization", "receipt", "scopeDigest", "summary", "target", "workflow"
 ]);
 const INTEGER_FIELDS = new Set(["number", "pr", "providerRunId"]);
-const BOOLEAN_FIELDS = new Set(["adminBypass", "protected", "success", "valid"]);
+const BOOLEAN_FIELDS = new Set(["adminBypass", "protected", "result", "success", "valid"]);
 const DATE_FIELDS = new Set(["createdAt", "expiresAt", "observedAt", "verifiedAt"]);
 
 function assertPayloadFields(payload, requiredFields, kind) {
@@ -178,7 +178,10 @@ function assertPayloadFields(payload, requiredFields, kind) {
     if (INTEGER_FIELDS.has(field) && (!Number.isInteger(value) || value < 0)) {
       throw new Error(`Typed evidence ${kind} payload field ${field} must be a non-negative integer`);
     }
-    if (BOOLEAN_FIELDS.has(field) && typeof value !== "boolean") {
+    if (field === "result" && (typeof value !== "boolean" && value !== "complete")) {
+      throw new Error(`Typed evidence ${kind} payload field ${field} must be boolean or complete`);
+    }
+    if (BOOLEAN_FIELDS.has(field) && field !== "result" && typeof value !== "boolean") {
       throw new Error(`Typed evidence ${kind} payload field ${field} must be boolean`);
     }
     if (DATE_FIELDS.has(field) && (typeof value !== "string" || Number.isNaN(Date.parse(value)))) {
