@@ -7,6 +7,7 @@ export const GRAPH_NODE_KINDS = new Set([
   "template",
   "run",
   "run-state",
+  "task",
   "acceptance",
   "evidence-kind",
   "evidence-record",
@@ -27,7 +28,8 @@ export const GRAPH_EDGE_KINDS = new Set([
   "gates",
   "records",
   "binds",
-  "freshness-depends-on"
+  "freshness-depends-on",
+  "depends-on"
 ]);
 
 const HARD_EDGE_KINDS = new Set(["requires", "gates"]);
@@ -42,7 +44,8 @@ const ENDPOINTS = {
       "evidence-kind",
       "policy-gate",
       "action-kind",
-      "root-action"
+      "root-action",
+      "task"
     ]
   ],
   requires: [
@@ -62,7 +65,8 @@ const ENDPOINTS = {
     ["run", "action-attempt", "evidence-record"],
     ["template", "action-kind", "evidence-kind", "source-binding", "sentinel"]
   ],
-  "freshness-depends-on": [["evidence-record"], ["source-binding"]]
+  "freshness-depends-on": [["evidence-record"], ["source-binding"]],
+  "depends-on": [["task"], ["task"]]
 };
 
 function pointerSegment(value) {
@@ -596,7 +600,8 @@ export function buildRunGraph({
   state,
   evidence = [],
   findings = [],
-  actions = []
+  actions = [],
+  ledger = null
 }) {
   const accumulator = createAccumulator();
   const parts = templateParts(
@@ -617,6 +622,39 @@ export function buildRunGraph({
   );
   accumulator.edge("instantiates", runNode, parts.templateNode, manifestSource);
   accumulator.edge("declares", runNode, stateNode, stateSource);
+
+  if (contract.schemaVersion === 2 && !ledger) {
+    accumulator.error("missing-execution-ledger", "TaskContract v2 run is missing ledger.json", [runNode]);
+  }
+  if (ledger) {
+    if (ledger.invalid === true) {
+      accumulator.error(
+        "ledger-derivation-failed",
+        "Execution ledger could not be replayed against the current TaskContract",
+        [runNode]
+      );
+    }
+    const taskNodes = new Map();
+    const taskStates = new Map((ledger.taskStates ?? []).map((item) => [item.id, item]));
+    for (const task of ledger.tasks ?? []) {
+      const state = taskStates.get(task.id)?.state ?? "pending";
+      const taskSource = source("ledger.json", `#/tasks/${task.id}`, {
+        id: task.id,
+        state,
+        dependencies: [...(task.dependencies ?? [])].sort()
+      });
+      const node = accumulator.node("task", scopedStableId(runId, task.id), `${task.id}:${state}`, taskSource);
+      taskNodes.set(task.id, node);
+      accumulator.edge("declares", runNode, node, taskSource);
+    }
+    for (const task of ledger.tasks ?? []) {
+      const from = taskNodes.get(task.id);
+      for (const dependency of task.dependencies ?? []) {
+        const to = taskNodes.get(dependency);
+        if (from && to) accumulator.edge("depends-on", from, to, source("ledger.json", `#/tasks/${task.id}/dependencies`, { dependency }));
+      }
+    }
+  }
 
   const expectedTemplateDigest = digestObject(template);
   if (manifest.template !== template.name || contract.template !== template.name) {
@@ -670,11 +708,13 @@ export function buildRunGraph({
     }
   }
 
-  const contractAcceptance = new Map(
-    (contract.acceptance ?? []).map((item) => [item.id, item])
-  );
-  const runAcceptanceNodes = new Map();
-  for (const [index, item] of (contract.acceptance ?? []).entries()) {
+  const projectionOnly = contract.schemaVersion === 2;
+  if (!projectionOnly) {
+    const contractAcceptance = new Map(
+      (contract.acceptance ?? []).map((item) => [item.id, item])
+    );
+    const runAcceptanceNodes = new Map();
+    for (const [index, item] of (contract.acceptance ?? []).entries()) {
     const existing = parts.acceptanceNodes.get(item.id);
     if (existing) {
       runAcceptanceNodes.set(item.id, existing);
@@ -689,12 +729,12 @@ export function buildRunGraph({
     );
     accumulator.edge("declares", runNode, node, itemSource);
     runAcceptanceNodes.set(item.id, node);
-  }
+    }
 
-  const runEvidenceNodes = new Map();
-  const runEvidenceKindNodes = new Map(parts.evidenceNodes);
-  const sourceBindingNodes = new Map();
-  for (const [index, record] of evidence.entries()) {
+    const runEvidenceNodes = new Map();
+    const runEvidenceKindNodes = new Map(parts.evidenceNodes);
+    const sourceBindingNodes = new Map();
+    for (const [index, record] of evidence.entries()) {
     const recordSource = source(
       `evidence/record-${index + 1}.json`,
       "#",
@@ -790,9 +830,9 @@ export function buildRunGraph({
         dependencySource
       );
     }
-  }
+    }
 
-  for (const [index, finding] of findings.entries()) {
+    for (const [index, finding] of findings.entries()) {
     const findingSource = source(
       `findings/record-${index + 1}.json`,
       "#",
@@ -805,10 +845,10 @@ export function buildRunGraph({
       findingSource
     );
     accumulator.edge("records", runNode, findingNode, findingSource);
-  }
+    }
 
-  const authorities = new Set(contract.authority?.externalSideEffects ?? []);
-  for (const [index, action] of actions.entries()) {
+    const authorities = new Set(contract.authority?.externalSideEffects ?? []);
+    for (const [index, action] of actions.entries()) {
     const actionSource = source(
       `actions/record-${index + 1}.json`,
       "#",
@@ -847,6 +887,21 @@ export function buildRunGraph({
     }
   }
 
+    for (const record of evidence) {
+      if (
+        runEvidenceNodes.has(record.id) &&
+        (!Array.isArray(record.acceptanceIds) || record.acceptanceIds.length === 0) &&
+        !contractEvidence.has(record.kind)
+      ) {
+        accumulator.warning(
+          "optional-orphan-record",
+          `Optional evidence ${record.id} does not satisfy an acceptance`,
+          [runEvidenceNodes.get(record.id)]
+        );
+      }
+    }
+  }
+
   if (state.lastSentinel) {
     const sentinelSource = source("state.json", "#/lastSentinel", {
       label: state.lastSentinel.label ?? "current"
@@ -861,20 +916,6 @@ export function buildRunGraph({
     accumulator.edge("binds", runNode, sentinelNode, sentinelSource);
   }
 
-  for (const record of evidence) {
-    if (
-      runEvidenceNodes.has(record.id) &&
-      (!Array.isArray(record.acceptanceIds) || record.acceptanceIds.length === 0) &&
-      !contractEvidence.has(record.kind)
-    ) {
-      accumulator.warning(
-        "optional-orphan-record",
-        `Optional evidence ${record.id} does not satisfy an acceptance`,
-        [runEvidenceNodes.get(record.id)]
-      );
-    }
-  }
-
   return finalizeGraph(
     {
       kind: "run",
@@ -884,9 +925,16 @@ export function buildRunGraph({
         manifest: manifestSource.digest,
         contract: contractSource.digest,
         state: stateSource.digest,
-        evidence: evidence.map((item) => digestObject(evidenceProjection(item))).sort(),
-        findings: findings.map((item) => digestObject(findingProjection(item))).sort(),
-        actions: actions.map((item) => digestObject(actionProjection(item))).sort()
+        evidence: projectionOnly ? [] : evidence.map((item) => digestObject(evidenceProjection(item))).sort(),
+        findings: projectionOnly ? [] : findings.map((item) => digestObject(findingProjection(item))).sort(),
+        actions: projectionOnly ? [] : actions.map((item) => digestObject(actionProjection(item))).sort(),
+        ledger: ledger
+          ? (ledger.tasks ?? []).map((task) => ({
+              id: task.id,
+              dependencies: [...(task.dependencies ?? [])].sort(),
+              state: ledger.taskStates?.find((item) => item.id === task.id)?.state ?? "pending"
+            })).sort((a, b) => a.id.localeCompare(b.id))
+          : null
       })
     },
     accumulator

@@ -18,7 +18,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const VERSION = "2.6.0";
+export const VERSION = "3.0.0";
 export const MODES = new Set(["auto", "direct", "verified", "deep", "critical"]);
 export const RUN_STATES = new Set([
   "pending",
@@ -230,7 +230,9 @@ export function validateContract(contract) {
   if (!contract || typeof contract !== "object" || Array.isArray(contract)) {
     throw new Error("TaskContract must be an object");
   }
-  if (contract.schemaVersion !== 1) throw new Error("TaskContract.schemaVersion must be 1");
+  if (![1, 2].includes(contract.schemaVersion)) {
+    throw new Error("TaskContract.schemaVersion must be 1 or 2");
+  }
   if (typeof contract.goal !== "string" || !contract.goal.trim()) {
     throw new Error("TaskContract.goal is required");
   }
@@ -274,6 +276,62 @@ export function validateContract(contract) {
   if (contract.authority?.rootOnlyMutation !== true) {
     throw new Error("TaskContract must require rootOnlyMutation");
   }
+  if (contract.schemaVersion === 2) {
+    const controlPlane = contract.controlPlane;
+    if (!controlPlane || typeof controlPlane !== "object" || Array.isArray(controlPlane)) {
+      throw new Error("TaskContract v2.controlPlane is required");
+    }
+    const policies = {
+      evidencePolicy: new Set(["typed-v1"]),
+      ledgerPolicy: new Set(["ledger-v1"]),
+      reviewPolicy: new Set(["none", "static-v1", "code-v1", "finding-v1"]),
+      designPacketPolicy: new Set(["none", "pilot-v1"]),
+      refinementPolicy: new Set(["none", "pilot-v1"]),
+      deliberationPolicy: new Set(["none", "allowed-v1"])
+    };
+    for (const [key, allowed] of Object.entries(policies)) {
+      if (!allowed.has(controlPlane[key])) {
+        throw new Error(`TaskContract v2.controlPlane.${key} is invalid`);
+      }
+    }
+    if (!Array.isArray(contract.executionStages) || contract.executionStages.length === 0) {
+      throw new Error("TaskContract v2.executionStages must be a non-empty array");
+    }
+    const stageIds = new Set();
+    const stageBudgets = { regular: 3, review: 5, "side-effect": 1, authorization: 1 };
+    for (const stage of contract.executionStages) {
+      if (!stage || typeof stage.id !== "string" || !SAFE_ID.test(stage.id)) {
+        throw new Error("Every TaskContract v2 execution stage needs a safe id");
+      }
+      if (stageIds.has(stage.id)) throw new Error(`Duplicate execution stage id: ${stage.id}`);
+      stageIds.add(stage.id);
+      if (!Array.isArray(stage.dependsOn ?? [])) throw new Error(`Stage ${stage.id} dependsOn must be an array`);
+      if (!Array.isArray(stage.requiredEvidence ?? [])) {
+        throw new Error(`Stage ${stage.id} requiredEvidence must be an array`);
+      }
+      const kind = String(stage.kind ?? "regular");
+      if (!(kind in stageBudgets)) throw new Error(`Stage ${stage.id} kind is invalid`);
+      if (stage.attemptBudget !== stageBudgets[kind]) {
+        throw new Error(`Stage ${stage.id} must use the ${kind} attempt budget of ${stageBudgets[kind]}`);
+      }
+    }
+    for (const stage of contract.executionStages) {
+      for (const dependency of stage.dependsOn ?? []) {
+        if (!stageIds.has(dependency)) throw new Error(`Stage ${stage.id} has unknown dependency: ${dependency}`);
+      }
+    }
+    if (contract.acceptanceEvidence !== undefined) {
+      if (!contract.acceptanceEvidence || typeof contract.acceptanceEvidence !== "object") {
+        throw new Error("TaskContract v2.acceptanceEvidence must be an object");
+      }
+      for (const item of contract.acceptance) {
+        const required = contract.acceptanceEvidence[item.id];
+        if (!Array.isArray(required) || required.length === 0) {
+          throw new Error(`TaskContract v2 acceptanceEvidence is missing ${item.id}`);
+        }
+      }
+    }
+  }
   return contract;
 }
 
@@ -294,13 +352,18 @@ export function buildContract({
   const acceptance = templateDefinition.acceptance ?? [
     { id: "task-complete", description: "The requested task is complete.", critical: true }
   ];
+  const requiredEvidence = templateDefinition.requiredEvidence ?? [];
+  const isV2 = templateDefinition.controlPlane && Array.isArray(templateDefinition.executionStages);
+  const acceptanceEvidence = Object.fromEntries(
+    acceptance.map((item) => [item.id, [...requiredEvidence]])
+  );
   return validateContract({
-    schemaVersion: 1,
+    schemaVersion: isV2 ? 2 : 1,
     goal,
     template,
     scope: { include: scope, exclude: [] },
     acceptance,
-    requiredEvidence: templateDefinition.requiredEvidence ?? [],
+    requiredEvidence,
     authority: {
       rootOnlyMutation: true,
       externalSideEffects: authority
@@ -316,7 +379,14 @@ export function buildContract({
     agy: { allowed: Boolean(agyAllowed), sanitized: Boolean(agySanitized) },
     volatileExclusions,
     highRiskIgnored,
-    remoteRevision
+    remoteRevision,
+    ...(isV2
+      ? {
+          controlPlane: structuredClone(templateDefinition.controlPlane),
+          executionStages: structuredClone(templateDefinition.executionStages),
+          acceptanceEvidence
+        }
+      : {})
   });
 }
 
@@ -345,54 +415,66 @@ export async function createRun({ root = getStateRoot(), contract, requestedMode
   await ensureStateRoot(root);
   let runId;
   let runDir;
+  let stagingDir;
   for (let attempt = 0; attempt < 8; attempt += 1) {
     runId = generateRunId();
     runDir = runDirectory(root, runId);
+    stagingDir = safeJoin(root, "runs", `.creating-${runId}`);
     try {
-      await mkdir(runDir, { mode: 0o700 });
+      await mkdir(stagingDir, { mode: 0o700 });
       break;
     } catch (error) {
       if (error.code !== "EEXIST" || attempt === 7) throw error;
     }
   }
-  await chmod(runDir, 0o700);
-  for (const child of ["evidence", "findings", "sentinels", "actions"]) {
-    await ensurePrivateDir(safeJoin(runDir, child));
-  }
-  const createdAt = nowIso();
-  const manifest = {
-    schemaVersion: 1,
-    runId,
-    version: VERSION,
-    template: contract.template,
-    mode,
-    requestedMode,
-    cwd: path.resolve(cwd),
-    baselineRevision,
-    createdAt,
-    contractDigest: digestObject(contract),
-    authority: {
-      rootOnlyMutation: true,
-      nativeSubagentsAreTrustedContract: true
+  try {
+    await chmod(stagingDir, 0o700);
+    for (const child of ["evidence", "findings", "sentinels", "actions"]) {
+      await ensurePrivateDir(safeJoin(stagingDir, child));
     }
-  };
-  const state = {
-    schemaVersion: 1,
-    runId,
-    status: "running",
-    mode,
-    createdAt,
-    updatedAt: createdAt,
-    lastSentinel: null,
-    lastSentinelVerified: false,
-    lastSentinelComplete: false,
-    sideEffects: []
-  };
-  await atomicWriteJson(root, safeJoin(runDir, "contract.json"), contract);
-  await atomicWriteJson(root, safeJoin(runDir, "manifest.json"), manifest);
-  await atomicWriteJson(root, safeJoin(runDir, "state.json"), state);
-  await appendJournal(root, runDir, "run.created", { mode, requestedMode });
-  return { runId, mode, direct: false, contractDigest: manifest.contractDigest };
+    const createdAt = nowIso();
+    const manifest = {
+      schemaVersion: 1,
+      runId,
+      version: VERSION,
+      template: contract.template,
+      mode,
+      requestedMode,
+      cwd: path.resolve(cwd),
+      baselineRevision,
+      createdAt,
+      contractDigest: digestObject(contract),
+      authority: {
+        rootOnlyMutation: true,
+        nativeSubagentsAreTrustedContract: true
+      }
+    };
+    const state = {
+      schemaVersion: 1,
+      runId,
+      status: "running",
+      mode,
+      createdAt,
+      updatedAt: createdAt,
+      lastSentinel: null,
+      lastSentinelVerified: false,
+      lastSentinelComplete: false,
+      sideEffects: []
+    };
+    await atomicWriteJson(root, safeJoin(stagingDir, "contract.json"), contract);
+    await atomicWriteJson(root, safeJoin(stagingDir, "manifest.json"), manifest);
+    await atomicWriteJson(root, safeJoin(stagingDir, "state.json"), state);
+    if (contract.schemaVersion === 2) {
+      const { initializeLedger } = await import("./ledger.mjs");
+      await initializeLedger(root, stagingDir, contract, runId);
+    }
+    await appendJournal(root, stagingDir, "run.created", { mode, requestedMode });
+    await rename(stagingDir, runDir);
+  } catch (error) {
+    await rm(stagingDir, { recursive: true, force: true }).catch(() => undefined);
+    throw error;
+  }
+  return { runId, mode, direct: false, contractDigest: digestObject(contract) };
 }
 
 export async function loadRun(root, runId) {
@@ -480,7 +562,7 @@ export async function bindLegacyRunTemplate(
     if (contract.templateDigest && contract.actionGates && missingEvidence.length === 0) {
       return { migrated: false, contract, manifest, state };
     }
-    if (!["1.0.0", "2.0.1", "2.1.0"].includes(manifest.version)) {
+    if (!["1.0.0", "2.0.1", "2.1.0", "2.5.0", "2.6.0"].includes(manifest.version)) {
       throw new Error(
         `Run ${runId} lacks current template minimums but was not created by a migratable workflow version`
       );
@@ -512,6 +594,28 @@ export async function bindLegacyRunTemplate(
         migratedAt
       }
     };
+    const ledgerPath = safeJoin(runDir, "ledger.json");
+    if (await pathExists(ledgerPath)) {
+      const ledger = await readJson(root, ledgerPath);
+      if (ledger.schemaVersion !== 1 || !Array.isArray(nextContract.executionStages)) {
+        throw new Error("Legacy binding cannot safely reconcile the execution ledger");
+      }
+      const expectedTasks = nextContract.executionStages.map((stage) => ({
+        id: String(stage.id),
+        goal: String(stage.goal ?? stage.description ?? stage.id),
+        dependencies: [...(stage.dependsOn ?? stage.dependencies ?? [])].map(String),
+        requiredEvidence: [...(stage.requiredEvidence ?? [])].map(String),
+        attemptBudget: Number(stage.attemptBudget ?? 3),
+        kind: String(stage.kind ?? "regular")
+      }));
+      if (digestObject(ledger.tasks ?? []) !== digestObject(expectedTasks)) {
+        throw new Error("Legacy binding cannot reconcile execution-stage identity drift");
+      }
+      await atomicWriteJson(root, ledgerPath, {
+        ...ledger,
+        contractDigest: nextManifest.contractDigest
+      });
+    }
     await atomicWriteJson(root, contractPath, nextContract);
     await atomicWriteJson(root, manifestPath, nextManifest);
     await atomicWriteJson(root, statePath, nextState);
@@ -553,6 +657,11 @@ function validateRecordId(id, kind) {
 }
 
 export async function addEvidence(root, runId, record) {
+  const boundRun = await loadRun(root, runId);
+  const admitted = boundRun.contract.schemaVersion === 2
+    ? await (await import("./evidence.mjs")).admitTypedEvidence(record, boundRun)
+    : record;
+  record = admitted;
   validateRecordId(record.id, "evidence");
   if (record.status !== "complete") throw new Error("Evidence status must be complete");
   if (typeof record.kind !== "string" || typeof record.summary !== "string") {
@@ -645,19 +754,61 @@ export async function evaluateCompletion(root, runId) {
       blockers.push(`invalid-accepted-risk:${finding.id}`);
     }
   }
-  const covered = new Set(
-    evidence
-      .filter((item) => item.status === "complete" && !item.stale)
-      .flatMap((item) => item.acceptanceIds)
-  );
-  for (const item of contract.acceptance) {
-    if (!covered.has(item.id)) blockers.push(`missing-acceptance:${item.id}`);
-  }
   const availableEvidence = new Set(
     evidence
       .filter((item) => item.status === "complete" && !item.stale)
       .map((item) => item.kind)
   );
+  if (contract.schemaVersion === 2) {
+    const { isTypedEvidence, typedEvidenceKinds, validateTypedEvidenceRecord } = await import("./evidence.mjs");
+    const validTypedEvidence = [];
+    for (const record of evidence) {
+      if (record.status === "complete" && !record.stale && !isTypedEvidence(record)) {
+        blockers.push(`untyped-v2-evidence:${record.id}`);
+      }
+      if (isTypedEvidence(record)) {
+        try {
+          await validateTypedEvidenceRecord(record, { manifest, contract });
+          validTypedEvidence.push(record);
+        } catch (error) {
+          blockers.push(`invalid-typed-evidence:${record.id ?? "unknown"}`);
+        }
+      }
+    }
+    const typedKinds = typedEvidenceKinds(validTypedEvidence);
+    for (const kind of contract.requiredEvidence) {
+      if (!typedKinds.has(kind)) blockers.push(`missing-typed-evidence:${kind}`);
+    }
+    const acceptanceEvidence = contract.acceptanceEvidence ?? {};
+    for (const item of contract.acceptance) {
+      const required = acceptanceEvidence[item.id] ?? contract.requiredEvidence;
+      if (required.some((kind) => !typedKinds.has(kind))) {
+        blockers.push(`missing-typed-acceptance:${item.id}`);
+      }
+    }
+    if (contract.controlPlane?.ledgerPolicy === "ledger-v1") {
+      const { deriveLedgerStatus } = await import("./ledger.mjs");
+      const ledger = await deriveLedgerStatus(root, runId);
+      for (const blocker of ledger.blockers) blockers.push(`ledger:${blocker}`);
+      if (!ledger.complete) blockers.push("ledger:not-complete");
+    }
+    if (contract.controlPlane?.reviewPolicy !== "none") {
+      const { reviewStatus } = await import("./review.mjs");
+      const review = await reviewStatus(root, runId);
+      if (!review.scopedClosed) blockers.push("review:scoped-closure-required");
+      if (!review.broadReviewComplete) blockers.push("review:final-broad-review-required");
+      if (review.openHigh.length > 0) blockers.push("review:open-high-findings");
+    }
+  } else {
+    const covered = new Set(
+      evidence
+        .filter((item) => item.status === "complete" && !item.stale)
+        .flatMap((item) => item.acceptanceIds)
+    );
+    for (const item of contract.acceptance) {
+      if (!covered.has(item.id)) blockers.push(`missing-acceptance:${item.id}`);
+    }
+  }
   for (const kind of contract.requiredEvidence) {
     if (!availableEvidence.has(kind)) blockers.push(`missing-required-evidence:${kind}`);
   }
@@ -669,16 +820,20 @@ export async function evaluateCompletion(root, runId) {
   if (actions.some((action) => action.outcome === "unknown" || action.outcome === "pending")) {
     blockers.push("side-effect-not-reconciled");
   }
-  if (
-    ["deep", "critical"].includes(manifest.mode) &&
-    !evidence.some((item) => item.kind === "independent-critic" && !item.stale)
-  ) {
+  const hasIndependentCritic = evidence.some((item) =>
+    !item.stale && (item.kind === "independent-critic" || item.sourceKind === "independent-critic")
+  );
+  if (["deep", "critical"].includes(manifest.mode) && !hasIndependentCritic) {
     blockers.push("missing-independent-critic");
   }
   if (
     manifest.mode === "critical" &&
     contract.agy?.required === true &&
-    !evidence.some((item) => item.kind === "independent-critic" && item.producer?.provider === "agy")
+    !evidence.some((item) =>
+      !item.stale &&
+      (item.kind === "independent-critic" || item.sourceKind === "independent-critic") &&
+      item.producer?.provider === "agy"
+    )
   ) {
     blockers.push("missing-required-agy-critic");
   }
@@ -706,8 +861,16 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
     if (!Array.isArray(request.requiredEvidence) || request.requiredEvidence.length === 0) {
       throw new Error("Action token requires a declared pre-action evidence gate");
     }
+    let admittedEvidence = evidence;
+    if (contract.schemaVersion === 2) {
+      const { validateTypedEvidenceRecord } = await import("./evidence.mjs");
+      for (const item of evidence.filter((record) => record.schemaVersion === 2 && record.typedAdmission)) {
+        await validateTypedEvidenceRecord(item, { manifest: await readJson(root, safeJoin(runDir, "manifest.json")), contract });
+      }
+      admittedEvidence = evidence.filter((item) => item.schemaVersion === 2 && item.typedAdmission);
+    }
     const availableEvidence = new Set(
-      evidence
+      admittedEvidence
         .filter((item) => item.status === "complete" && !item.stale)
         .map((item) => item.kind)
     );

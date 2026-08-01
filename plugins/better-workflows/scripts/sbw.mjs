@@ -75,7 +75,18 @@ import {
   loadDeliberationRoster,
   probeDeliberationRoster
 } from "./lib/deliberation.mjs";
+import { deliberateForRun } from "./lib/deliberation-receipt.mjs";
+import { loadEvidenceContracts } from "./lib/evidence.mjs";
 import { generateAttestationRequests } from "./lib/attestations.mjs";
+import { compileLedger, deriveLedgerStatus, ledgerStatus, transitionLedger } from "./lib/ledger.mjs";
+import {
+  addReviewFinding,
+  createReviewPackage,
+  markBroadReviewComplete,
+  recordRepairRound,
+  reviewStatus
+} from "./lib/review.mjs";
+import { recordRefinement, refinementStatus } from "./lib/refinement.mjs";
 import {
   recipeArtifactPromote,
   recipeInit,
@@ -247,6 +258,16 @@ async function templateGraph(name) {
 async function runGraph(root, runId) {
   const run = await inspectRun(root, runId);
   const template = await loadTemplate(run.manifest.template);
+  let ledger = null;
+  if (run.contract.schemaVersion === 2) {
+    const rawLedger = await readJson(root, safeJoin(run.runDir, "ledger.json"));
+    try {
+      const derived = await deriveLedgerStatus(root, runId);
+      ledger = { tasks: rawLedger.tasks, taskStates: derived.taskStates };
+    } catch (error) {
+      ledger = { tasks: rawLedger.tasks, taskStates: [], invalid: true, error: error.message };
+    }
+  }
   return buildRunGraph({
     template,
     manifest: run.manifest,
@@ -254,7 +275,8 @@ async function runGraph(root, runId) {
     state: run.state,
     evidence: run.evidence,
     findings: run.findings,
-    actions: run.actions
+    actions: run.actions,
+    ledger
   });
 }
 
@@ -527,7 +549,71 @@ async function providerEvidence(root, runId, result, prompt, acceptanceIds) {
     producer: result.metadata,
     review: result.review
   };
-  return addEvidence(root, runId, await enrichEvidence(root, runId, record));
+  return addEvidence(root, runId, await typedEvidenceRecord(root, runId, await enrichEvidence(root, runId, record)));
+}
+
+async function typedEvidenceRecord(root, runId, record) {
+  const run = await loadRun(root, runId);
+  if (run.contract.schemaVersion !== 2) return record;
+  const contracts = await loadEvidenceContracts();
+  const sourceKind = record.kind;
+  const kind = sourceKind === "independent-critic" || sourceKind === "evaluation-migration"
+    ? (sourceKind === "independent-critic" ? "patch-review" : "evaluation-suite")
+    : sourceKind;
+  const definition = contracts[kind];
+  if (!definition) throw new Error(`No typed evidence contract for self-improve evidence kind: ${sourceKind}`);
+  const rawProducer = record.producer?.provider ?? record.producer?.type ?? record.evaluation?.backend ?? "codex-root";
+  const producer = definition.producerAllowlist.includes(rawProducer)
+    ? { ...(record.producer ?? {}), provider: rawProducer }
+    : { provider: "codex-root", sourceProvider: rawProducer };
+  const evaluation = record.evaluation ?? {};
+  let payload;
+  if (definition.payloadFamily === "artifact-package") {
+    const artifactDigest = sourceKind === "evaluation-migration"
+      ? evaluation.calibration?.digest ?? evaluation.suiteDigest
+      : evaluation.candidate?.digest ?? evaluation.suiteDigest ?? digestObject({ kind: sourceKind, id: record.id });
+    payload = {
+      artifact: {
+        digest: artifactDigest,
+        kind: sourceKind,
+        purpose: evaluation.purpose ?? "ordinary"
+      }
+    };
+  } else if (definition.payloadFamily === "review-analysis") {
+    payload = {
+      verdict: record.review?.verdict ?? (record.status === "complete" ? "pass" : "fail"),
+      findingCount: Array.isArray(record.review?.findings) ? record.review.findings.length : 0
+    };
+  } else {
+    payload = {
+      command: `self-improve:${sourceKind}`,
+      result: record.evaluation?.comparison?.accepted === false ? "rejected" : "complete"
+    };
+  }
+  const payloadDigest = digestObject(payload);
+  const { sourceDigest: _sourceDigest, acceptanceIds: _acceptanceIds, producer: _recordProducer, kind: _kind, ...rest } = record;
+  return {
+    ...rest,
+    kind,
+    sourceKind,
+    schemaVersion: 2,
+    producer,
+    sourceDigest: payloadDigest,
+    receipt: {
+      contractId: definition.id,
+      contractVersion: 1,
+      runId,
+      producer,
+      inputBinding: {
+        runId,
+        contractDigest: digestObject(run.contract),
+        remoteRevision: run.contract.remoteRevision ?? null
+      },
+      payload,
+      payloadDigest,
+      producedAt: nowIso()
+    }
+  };
 }
 
 let selfImproveEvidenceSequence = 0;
@@ -566,7 +652,8 @@ async function evaluationReplay({ backend, fixture, role, cases, prompt, options
 }
 
 async function addSelfImproveEvidence(root, runId, record) {
-  return addEvidence(root, runId, await enrichEvidence(root, runId, record));
+  const enriched = await enrichEvidence(root, runId, record);
+  return addEvidence(root, runId, await typedEvidenceRecord(root, runId, enriched));
 }
 
 function structuredReplay(replay) {
@@ -793,7 +880,12 @@ async function assertAcceptedSelfImproveHoldout(root, runId, action) {
   const run = await loadRun(root, runId);
   if (run.manifest.template !== "self-improve-ops") return;
   const evidence = await listJsonRecords(root, safeJoin(run.runDir, "evidence"));
-  const accepted = evidence.find((item) => item.kind === "holdout-comparison" && item.status === "complete" && !item.stale && item.acceptanceIds?.includes("heldout-gated"));
+  const accepted = evidence.find((item) =>
+    item.kind === "holdout-comparison" &&
+    item.status === "complete" &&
+    !item.stale &&
+    (item.acceptanceIds?.includes("heldout-gated") || item.evaluation?.comparison?.accepted === true)
+  );
   if (!accepted?.evaluation?.comparison?.accepted || accepted.evaluation.backend !== "codex") {
     throw new Error("Self-improve delivery requires an accepted trusted Codex held-out comparison");
   }
@@ -861,7 +953,7 @@ async function assertAcceptedSelfImproveHoldout(root, runId, action) {
       throw new Error("Evaluator migration delivery requires the dedicated safety non-regression policy");
     }
     const migration = evidence.find((item) =>
-      item.kind === "evaluation-migration" &&
+      (item.kind === "evaluation-migration" || item.sourceKind === "evaluation-migration") &&
       item.status === "complete" &&
       !item.stale &&
       item.evaluation?.suiteDigest === evaluation.suiteDigest &&
@@ -958,6 +1050,36 @@ async function commandRun(root, options) {
       throw new Error(
         `TaskContract cannot remove template required evidence: ${missingMinimums.join(", ")}`
       );
+    }
+    if (contract.schemaVersion === 2) {
+      const policyKeys = [
+        "evidencePolicy",
+        "ledgerPolicy",
+        "reviewPolicy",
+        "designPacketPolicy",
+        "refinementPolicy",
+        "deliberationPolicy"
+      ];
+      for (const key of policyKeys) {
+        if (contract.controlPlane?.[key] !== template.controlPlane?.[key]) {
+          throw new Error(`TaskContract v2 cannot weaken template control-plane policy: ${key}`);
+        }
+      }
+      const stageIdentity = (stages) => (stages ?? []).map((stage) => ({
+        id: stage.id,
+        dependsOn: [...(stage.dependsOn ?? [])],
+        requiredEvidence: [...(stage.requiredEvidence ?? [])],
+        attemptBudget: stage.attemptBudget,
+        kind: stage.kind
+      }));
+      if (digestObject(stageIdentity(contract.executionStages)) !== digestObject(stageIdentity(template.executionStages))) {
+        throw new Error("TaskContract v2 execution stages must preserve the installed template identity");
+      }
+      const stageEvidence = new Set((template.executionStages ?? []).flatMap((stage) => stage.requiredEvidence ?? []));
+      const missingStageEvidence = [...stageEvidence].filter((kind) => !customEvidence.has(kind));
+      if (missingStageEvidence.length > 0) {
+        throw new Error(`TaskContract cannot remove execution-stage evidence: ${missingStageEvidence.join(", ")}`);
+      }
     }
   } else {
     contract = buildContract({
@@ -1154,7 +1276,9 @@ function optionEnabled(value) {
   return value === true || value === "true";
 }
 
-async function commandDeliberation(subcommand, options) {
+async function commandDeliberation(root, subcommand, options) {
+  const sharedOptions = ["provider", "allow-external-providers", "sanitized", "refresh", "reasoning-effort", "mode", "timeout-seconds"];
+  assertKnownOptions(options, subcommand === "roster" ? sharedOptions : [...sharedOptions, "prompt-file", ...(subcommand === "deliberate" ? ["run"] : [])]);
   const providers = values(options.provider).map(String);
   const timeoutSeconds = options["timeout-seconds"] === undefined
     ? undefined
@@ -1187,6 +1311,20 @@ async function commandDeliberation(subcommand, options) {
       throw new Error("deliberation deliberate requires --prompt-file <sanitized-file>");
     }
     const prompt = await readFile(path.resolve(String(options["prompt-file"])), "utf8");
+    if (options.run) {
+      return deliberateForRun({
+        root,
+        runId: String(options.run),
+        prompt,
+        allowExternalProviders: common.allowExternalProviders,
+        sanitized: common.sanitized,
+        refresh: common.refresh,
+        reasoningEffort: common.reasoningEffort,
+        mode: common.mode,
+        timeoutSeconds: common.timeoutSeconds,
+        providers: common.providers
+      });
+    }
     return deliberate({ ...common, prompt });
   }
   throw new Error("deliberation subcommand must be roster, deliberate, or arbitrate");
@@ -1197,24 +1335,38 @@ async function commandEval() {
     const graph = await installedTemplateGraph();
     if (graphHasErrors(graph)) return graphStructuralFailure(graph, "eval");
   }
+  const contracts = await loadEvidenceContracts({ refresh: true });
+  const unknown = [];
+  for (const template of await listTemplates()) {
+    const kinds = [
+      ...(template.requiredEvidence ?? []),
+      ...(template.executionStages ?? []).flatMap((stage) => stage.requiredEvidence ?? []),
+      ...Object.values(template.actionGates ?? {}).flat()
+    ];
+    for (const kind of kinds) if (!contracts[kind]) unknown.push(`${template.name}:${kind}`);
+  }
+  if (unknown.length > 0) throw new Error(`Installed template evidence mapping is incomplete: ${unknown.join(", ")}`);
   const tests = (await readdir(path.join(SCRIPT_DIR, "tests")))
     .filter((name) => name.endsWith(".test.mjs"))
     .sort()
     .map((name) => path.join(SCRIPT_DIR, "tests", name));
   if (tests.length === 0) throw new Error("No tests found");
-  return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, ["--test", ...tests], {
-      cwd: pluginRoot(),
-      shell: false,
-      stdio: "inherit",
-      env: process.env
+  for (const testPath of tests) {
+    await new Promise((resolve, reject) => {
+      const child = spawn(process.execPath, ["--test", "--test-concurrency=1", testPath], {
+        cwd: pluginRoot(),
+        shell: false,
+        stdio: "inherit",
+        env: process.env
+      });
+      child.on("error", reject);
+      child.on("close", (code) => {
+        if (code === 0) resolve();
+        else reject(new Error(`Test suite failed for ${path.basename(testPath)} with exit ${code}`));
+      });
     });
-    child.on("error", reject);
-    child.on("close", (code) => {
-      if (code === 0) resolve({ ok: true, tests: "passed" });
-      else reject(new Error(`Test suite failed with exit ${code}`));
-    });
-  });
+  }
+  return { ok: true, tests: tests.length };
 }
 
 function help() {
@@ -1237,11 +1389,16 @@ function help() {
       "sbw finding add|update <run-id> --file <json>",
       "sbw critic codex|agy <run-id> --model <model> --prompt-file <file> [--effort <auto|medium|high>] [--effort-transport <native|model-variant>]",
       "sbw deliberation roster [--mode <auto|direct|verified|deep|critical>] [--reasoning-effort <auto|medium|high>] [--refresh] [--provider <id>] [--allow-external-providers --sanitized]",
-      "sbw deliberation deliberate --prompt-file <sanitized-file> [--mode <auto|direct|verified|deep|critical>] [--reasoning-effort <auto|medium|high>] [--refresh] [--allow-external-providers --sanitized]",
+      "sbw deliberation deliberate --prompt-file <sanitized-file> [--run <run-id>] [--mode <auto|direct|verified|deep|critical>] [--reasoning-effort <auto|medium|high>] [--refresh] [--allow-external-providers --sanitized]",
       "sbw deliberation arbitrate --prompt-file <sanitized-file> [--mode <auto|direct|verified|deep|critical>] [--reasoning-effort <auto|medium|high>] [--allow-external-providers --sanitized]",
       "sbw graph validate [--template <name>|--run <run-id>]",
       "sbw graph inspect (--template <name>|--run <run-id>) [--format json|mermaid]",
       "sbw action issue|consume|reconcile <run-id> ...",
+      "sbw ledger status <run-id>",
+      "sbw ledger transition <run-id> --file <event.json>",
+      "sbw ledger compile <run-id> --design-packet <packet.json>",
+      "sbw refinement status|apply <run-id> [--file <receipt.json>]",
+      "sbw review package|finding|status|repair|broad <run-id> ...",
       "sbw recipe init",
       "sbw recipe scaffold <id>",
       "sbw recipe list",
@@ -1271,7 +1428,7 @@ async function main() {
   if (command === "graph") return commandGraph(root, subcommand, runId, options);
   if (command === "self-improve") return commandSelfImprove(root, subcommand, options, runId);
   if (command === "route") return commandRoute(root, subcommand, runId, options);
-  if (command === "deliberation") return commandDeliberation(subcommand, options);
+  if (command === "deliberation") return commandDeliberation(root, subcommand, options);
   if (command === "recipe") {
     if (subcommand === "init") {
       assertKnownOptions(options, []);
@@ -1517,7 +1674,24 @@ async function main() {
         throw new Error("Workflow template drifted after run creation");
       }
       await assertAcceptedSelfImproveHoldout(root, runId, action);
-      const digest = await currentVerifiedDigest(root, runId);
+      let digest;
+      if (run.contract.schemaVersion === 2 && run.contract.controlPlane?.reviewPolicy !== "none") {
+        digest = await currentVerifiedDigest(root, runId);
+        const review = await reviewStatus(root, runId);
+        const currentHead = (await execFileAsync("git", ["rev-parse", "--verify", "HEAD^{commit}"], {
+          cwd: run.manifest.cwd,
+          encoding: "utf8"
+        })).stdout.trim();
+        if (
+          !review.complete ||
+          review.package?.head !== currentHead ||
+          review.package?.broadReview?.sentinelDigest !== digest
+        ) {
+          throw new Error("Action token denied until scoped and final broad review are closed");
+        }
+      } else {
+        digest = await currentVerifiedDigest(root, runId);
+      }
       const defaults = await loadDefaults();
       return {
         ok: true,
@@ -1563,6 +1737,116 @@ async function main() {
     }
     throw new Error("action subcommand must be issue, consume, or reconcile");
   }
+  if (command === "ledger") {
+    if (!runId) throw new Error("ledger requires run id");
+    if (subcommand === "status") return { ok: true, ledger: await ledgerStatus(root, runId) };
+    if (subcommand === "transition") {
+      if (!options.file) throw new Error("ledger transition requires --file <event.json>");
+      const event = JSON.parse(await readFile(path.resolve(String(options.file)), "utf8"));
+      return { ok: true, ledger: await transitionLedger(root, runId, event) };
+    }
+    if (subcommand === "compile") {
+      if (!options["design-packet"]) throw new Error("ledger compile requires --design-packet <packet.json>");
+      const packet = JSON.parse(await readFile(path.resolve(String(options["design-packet"])), "utf8"));
+      return { ok: true, ledger: await compileLedger(root, runId, packet) };
+    }
+    throw new Error("ledger subcommand must be status, transition, or compile");
+  }
+  if (command === "review") {
+    if (!runId) throw new Error("review requires run id");
+    if (subcommand === "status") {
+      const review = await reviewStatus(root, runId);
+      return {
+        ok: true,
+        review: {
+          package: review.package
+            ? {
+                packageId: review.package.packageId,
+                base: review.package.base,
+                head: review.package.head,
+                repairRounds: review.package.repairRounds,
+                broadReview: review.package.broadReview
+              }
+            : null,
+          findings: review.findings.map((item) => ({ id: item.id, packageId: item.packageId, severity: item.severity, status: item.status, path: item.path, location: item.location, rule: item.rule })),
+          openHigh: review.openHigh.map((item) => item.id),
+          repairBudgetExhausted: review.repairBudgetExhausted,
+          scopedClosed: review.scopedClosed,
+          broadReviewComplete: review.broadReviewComplete,
+          complete: review.complete
+        }
+      };
+    }
+    if (subcommand === "package") {
+      if (!options.base || !options.head || !options["diff-manifest"] || !options["instruction-digest"] || !options["sentinel-digest"]) {
+        throw new Error("review package requires --base, --head, --diff-manifest, --instruction-digest, and --sentinel-digest");
+      }
+      const diffManifest = JSON.parse(await readFile(path.resolve(String(options["diff-manifest"])), "utf8"));
+      const reviewPackage = await createReviewPackage({
+        root,
+        runId,
+        base: String(options.base),
+        head: String(options.head),
+        scope: values(options.scope, ["."]).map(String),
+        diffManifest,
+        instructionDigest: String(options["instruction-digest"]),
+        sentinelDigest: String(options["sentinel-digest"])
+      });
+      return {
+        ok: true,
+        reviewPackage: {
+          packageId: reviewPackage.packageId,
+          base: reviewPackage.base,
+          head: reviewPackage.head,
+          scopeDigest: reviewPackage.scopeDigest,
+          diffManifestDigest: reviewPackage.diffManifestDigest,
+          repairRounds: reviewPackage.repairRounds,
+          broadReview: reviewPackage.broadReview
+        }
+      };
+    }
+    if (subcommand === "finding") {
+      assertKnownOptions(options, ["file", "update"]);
+      if (!options.file) throw new Error("review finding requires --file <finding.json>");
+      const finding = JSON.parse(await readFile(path.resolve(String(options.file)), "utf8"));
+      return { ok: true, finding: await addReviewFinding(root, runId, finding, { update: optionEnabled(options.update) }) };
+    }
+    if (subcommand === "repair") {
+      if (!options.package || !options.file) throw new Error("review repair requires --package and --file");
+      const result = JSON.parse(await readFile(path.resolve(String(options.file)), "utf8"));
+      return { ok: true, reviewPackage: await recordRepairRound(root, runId, String(options.package), result) };
+    }
+    if (subcommand === "broad") {
+      if (!options.package || !options.head || !options["sentinel-digest"]) {
+        throw new Error("review broad requires --package, --head, and --sentinel-digest");
+      }
+      return {
+        ok: true,
+        reviewPackage: await markBroadReviewComplete(
+          root,
+          runId,
+          String(options.package),
+          String(options.head),
+          String(options["sentinel-digest"])
+        )
+      };
+    }
+    throw new Error("review subcommand must be package, finding, status, repair, or broad");
+  }
+  if (command === "refinement") {
+    if (!runId) throw new Error("refinement requires run id");
+    if (subcommand === "status") {
+      assertKnownOptions(options, []);
+      return { ok: true, refinement: await refinementStatus(root, runId) };
+    }
+    if (subcommand === "apply") {
+      assertKnownOptions(options, ["file"]);
+      if (!options.file) throw new Error("refinement apply requires --file <receipt.json>");
+      const input = JSON.parse(await readFile(path.resolve(String(options.file)), "utf8"));
+      return { ok: true, refinement: await recordRefinement(root, runId, input) };
+    }
+    throw new Error("refinement subcommand must be status or apply");
+  }
   if (command === "complete") {
     const run = await loadRun(root, subcommand);
     if (GRAPH_ENFORCEMENT_ENABLED) {
@@ -1579,7 +1863,23 @@ async function main() {
       await setRunStatus(root, subcommand, "inconclusive", { completionBlockers: result.blockers });
       return { ok: false, status: "inconclusive", blockers: result.blockers };
     }
-    const state = await setRunStatus(root, subcommand, "completed", { completedAt: nowIso() });
+    const completionDecision = {
+      schemaVersion: 1,
+      evaluatedAt: nowIso(),
+      evidenceDigest: digestObject(result.evidence.map((item) => ({ id: item.id, kind: item.kind, sourceDigest: item.sourceDigest, stale: item.stale === true }))),
+      ledgerDigest: run.contract.schemaVersion === 2
+        ? digestObject(await readJson(root, safeJoin(run.runDir, "ledger.json")))
+        : null,
+      reviewDigest: run.contract.schemaVersion === 2 && run.contract.controlPlane?.reviewPolicy !== "none"
+        ? digestObject(await reviewStatus(root, subcommand))
+        : null,
+      sentinelDigest: run.state.lastSentinel?.digest ?? null
+    };
+    const state = await setRunStatus(root, subcommand, "completed", {
+      completedAt: completionDecision.evaluatedAt,
+      completionBlockers: [],
+      completionDecision
+    });
     return { ok: true, state };
   }
   if (command === "doctor") return commandDoctor(root, options);

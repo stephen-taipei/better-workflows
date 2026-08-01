@@ -22,6 +22,7 @@ import {
   canonicalJson,
   digestObject,
   ensurePrivateDir,
+  evaluateCompletion,
   getStateRoot,
   inspectRun,
   listJsonRecords,
@@ -956,6 +957,13 @@ async function assertPromotionRun(stateRoot, runIdValue, attemptId, recipe, bind
   }
   if (run.findings.some((item) => ["P0", "P1"].includes(item.severity) && item.status === "open")) {
     throw recipeError("promotion is blocked by an open P0/P1 finding");
+  }
+  if (run.contract.schemaVersion === 2) {
+    const completion = await evaluateCompletion(stateRoot, runIdValue);
+    if (!completion.ok) {
+      throw recipeError(`promotion run is incomplete: ${completion.blockers.join(", ")}`);
+    }
+    return { run, action };
   }
   const completeEvidence = run.evidence.filter((item) => item.status === "complete" && !item.stale);
   const kinds = new Set(completeEvidence.map((item) => item.kind));

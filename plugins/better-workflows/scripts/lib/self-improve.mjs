@@ -8,6 +8,7 @@ const execFileAsync = promisify(execFile);
 const CASE_ID = /^[a-z0-9][a-z0-9-]{2,79}$/;
 const DISPOSITIONS = new Set(["IMPLEMENT", "NO_CHANGE", "BLOCKED", "REJECTED_WITH_EVIDENCE"]);
 const SECRET_PATTERN = /(?:api[_-]?key|password|passwd|secret|token|authorization)\s*[:=]\s*(?:"[^"\s]{4,}"|'[^'\s]{4,}'|(?=[A-Za-z0-9+/_-]{8,}(?:\s|$))(?=[A-Za-z0-9+/_-]*[0-9+/_-])[A-Za-z0-9+/_-]+)/i;
+const SECRET_PATTERN_GLOBAL = /(?:api[_-]?key|password|passwd|secret|token|authorization)\s*[:=]\s*(?:"[^"\s]{4,}"|'[^'\s]{4,}'|(?=[A-Za-z0-9+/_-]{8,}(?:\s|$))(?=[A-Za-z0-9+/_-]*[0-9+/_-])[A-Za-z0-9+/_-]+)/gi;
 export const SELF_IMPROVE_LEGACY_CORPUS = "plugins/better-workflows/fixtures/self-improve-ops-evals.json";
 export const SELF_IMPROVE_MIGRATION_SOURCE_CORPUS = "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.1.json";
 export const SELF_IMPROVE_CANONICAL_CORPUS = "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.2.json";
@@ -73,6 +74,18 @@ function safeRelative(value, label) {
   const normalized = path.posix.normalize(value.replaceAll(path.sep, "/"));
   if (normalized === ".." || normalized.startsWith("../")) throw new Error(`${label} escapes its root`);
   return normalized;
+}
+
+function sanitizeMaterialText(text, filePath, label) {
+  if (!SECRET_PATTERN.test(text)) return { text, redacted: false };
+  if (!filePath.startsWith("plugins/better-workflows/scripts/tests/")) {
+    throw new Error(`${label} material contains secret-shaped content: ${filePath}`);
+  }
+  const redacted = text.replace(SECRET_PATTERN_GLOBAL, "[redacted-test-fixture]");
+  if (SECRET_PATTERN.test(redacted)) {
+    throw new Error(`${label} material contains unredactable secret-shaped content: ${filePath}`);
+  }
+  return { text: redacted, redacted: true };
 }
 
 function validateCases(cases, classIds = null) {
@@ -361,17 +374,19 @@ async function readBalancedSanitizedMaterial({ snapshot, maxFiles, maxBytes, rea
       if (content.includes(0)) throw new Error(`${label} material is not text: ${file.path}`);
       const text = content.toString("utf8");
       if (Buffer.byteLength(text, "utf8") !== content.length) throw new Error(`${label} material is not valid UTF-8: ${file.path}`);
-      if (SECRET_PATTERN.test(text)) throw new Error(`${label} material contains secret-shaped content: ${file.path}`);
+      const sanitized = sanitizeMaterialText(text, file.path, label);
+      const sanitizedContent = Buffer.from(sanitized.text, "utf8");
       const byteLimit = baseFileBudget + (fileRemainder > 0 ? 1 : 0);
       fileRemainder = Math.max(0, fileRemainder - 1);
-      const bounded = safeUtf8Prefix(content, byteLimit);
+      const bounded = safeUtf8Prefix(sanitizedContent, byteLimit);
       material.push({
         path: file.path,
         materialGroup: group,
         content: bounded,
         digest: file.digest,
         sampledBytes: Buffer.byteLength(bounded, "utf8"),
-        truncated: content.length > byteLimit
+        truncated: sanitizedContent.length > byteLimit,
+        redacted: sanitized.redacted
       });
     }
   }
