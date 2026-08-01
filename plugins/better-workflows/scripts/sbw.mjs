@@ -1075,6 +1075,9 @@ async function commandRun(root, options) {
       if (digestObject(stageIdentity(contract.executionStages)) !== digestObject(stageIdentity(template.executionStages))) {
         throw new Error("TaskContract v2 execution stages must preserve the installed template identity");
       }
+      if (digestObject(contract.actionStages ?? {}) !== digestObject(template.actionStages ?? {})) {
+        throw new Error("TaskContract v2 action stages must preserve the installed template identity");
+      }
       const stageEvidence = new Set((template.executionStages ?? []).flatMap((stage) => stage.requiredEvidence ?? []));
       const missingStageEvidence = [...stageEvidence].filter((kind) => !customEvidence.has(kind));
       if (missingStageEvidence.length > 0) {
@@ -1116,6 +1119,7 @@ async function commandRun(root, options) {
   }
   contract.templateDigest = currentTemplateDigest;
   contract.actionGates = structuredClone(template.actionGates ?? {});
+  contract.actionStages = structuredClone(template.actionStages ?? {});
   const riskMode = routeMode(contract, "auto");
   const requestedMode = receiptBinding
     ? receiptBinding.preview.effectiveMode

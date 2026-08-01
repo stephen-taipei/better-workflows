@@ -320,6 +320,20 @@ export function validateContract(contract) {
         if (!stageIds.has(dependency)) throw new Error(`Stage ${stage.id} has unknown dependency: ${dependency}`);
       }
     }
+    if (contract.actionStages !== undefined) {
+      if (!contract.actionStages || typeof contract.actionStages !== "object" || Array.isArray(contract.actionStages)) {
+        throw new Error("TaskContract v2.actionStages must be an object");
+      }
+      const actionGates = contract.actionGates ?? {};
+      for (const [action, stageId] of Object.entries(contract.actionStages)) {
+        if (!Object.hasOwn(actionGates, action)) {
+          throw new Error(`TaskContract v2 action stage has no action gate: ${action}`);
+        }
+        if (typeof stageId !== "string" || !stageIds.has(stageId)) {
+          throw new Error(`TaskContract v2 action stage is unknown: ${action}`);
+        }
+      }
+    }
     if (contract.acceptanceEvidence !== undefined) {
       if (!contract.acceptanceEvidence || typeof contract.acceptanceEvidence !== "object") {
         throw new Error("TaskContract v2.acceptanceEvidence must be an object");
@@ -384,6 +398,10 @@ export function buildContract({
       ? {
           controlPlane: structuredClone(templateDefinition.controlPlane),
           executionStages: structuredClone(templateDefinition.executionStages),
+          actionGates: structuredClone(templateDefinition.actionGates ?? {}),
+          ...(templateDefinition.actionStages
+            ? { actionStages: structuredClone(templateDefinition.actionStages) }
+            : {}),
           acceptanceEvidence
         }
       : {})
@@ -884,6 +902,19 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
     }
     if (contract.remoteRevision && contract.remoteRevision !== request.remoteRevision) {
       throw new Error("Remote revision does not match TaskContract");
+    }
+    if (contract.schemaVersion === 2 && contract.actionStages) {
+      const stageId = contract.actionStages[request.action];
+      if (!stageId) throw new Error(`No execution stage is bound to action: ${request.action}`);
+      const { deriveLedgerStatus } = await import("./ledger.mjs");
+      const ledger = await deriveLedgerStatus(root, runId);
+      if (ledger.blockers.length > 0) {
+        throw new Error(`Action token denied by execution ledger: ${ledger.blockers.join(", ")}`);
+      }
+      const stage = ledger.taskStates.find((item) => item.id === stageId);
+      if (!stage || (stage.state !== "in_progress" && !ledger.readySet.includes(stageId))) {
+        throw new Error(`Action token denied until execution stage is ready: ${stageId}`);
+      }
     }
     const token = randomBytes(32).toString("base64url");
     const tokenHash = sha256(token);

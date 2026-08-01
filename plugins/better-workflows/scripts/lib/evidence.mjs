@@ -18,6 +18,9 @@ const PAYLOAD_FAMILIES = new Set([
   "decision-disposition",
   "artifact-package"
 ]);
+const BOOLEAN_SUCCESS_KINDS = new Set(["pr-state", "repo-gates", "required-checks"]);
+const PASS_VERDICT_KINDS = new Set(["diff-review", "patch-review"]);
+const SUCCESS_OUTCOME_KINDS = new Set(["merge-result", "remote-sync"]);
 let contractCache = null;
 
 export async function loadEvidenceContracts({ refresh = false } = {}) {
@@ -65,6 +68,18 @@ function assertPayloadFields(payload, requiredFields, kind) {
     if (!(field in payload) || payload[field] === null || payload[field] === "") {
       throw new Error(`Typed evidence ${kind} payload is missing required field: ${field}`);
     }
+  }
+}
+
+function assertSemanticSuccess(payload, kind) {
+  if (BOOLEAN_SUCCESS_KINDS.has(kind) && payload.result !== true) {
+    throw new Error(`Typed evidence ${kind} payload result must be true`);
+  }
+  if (PASS_VERDICT_KINDS.has(kind) && payload.verdict !== "PASS") {
+    throw new Error(`Typed evidence ${kind} payload verdict must be PASS`);
+  }
+  if (SUCCESS_OUTCOME_KINDS.has(kind) && payload.outcome !== "success") {
+    throw new Error(`Typed evidence ${kind} payload outcome must be success`);
   }
 }
 
@@ -129,6 +144,7 @@ export async function admitTypedEvidence(record, run) {
     throw new Error(`Typed evidence ${record.kind} payload must not be empty`);
   }
   assertPayloadFields(receipt.payload, definition.requiredFields, record.kind);
+  assertSemanticSuccess(receipt.payload, record.kind);
   const payloadDigest = digestObject(receipt.payload);
   assertDigest(receipt.payloadDigest, `Typed evidence ${record.kind} payloadDigest`);
   if (receipt.payloadDigest !== payloadDigest) {

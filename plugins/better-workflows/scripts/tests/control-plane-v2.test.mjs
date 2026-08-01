@@ -1,14 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { mkdtemp, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 import {
   addEvidence,
   buildContract,
   createRun,
   digestObject,
   inspectRun,
+  issueActionToken,
   loadDefaults
 } from "../lib/core.mjs";
 import { loadEvidenceContracts } from "../lib/evidence.mjs";
@@ -38,6 +41,8 @@ const contractTemplate = {
   }]
 };
 
+const execFileAsync = promisify(execFile);
+
 async function typedRecord(run, id = "environment") {
   const payload = { items: [{ environment: "test" }] };
   return {
@@ -53,6 +58,31 @@ async function typedRecord(run, id = "environment") {
       producer: { provider: "codex-root" },
       inputBinding: {
         runId: run.runId,
+        contractDigest: digestObject(run.contract),
+        remoteRevision: run.contract.remoteRevision ?? null
+      },
+      payload,
+      payloadDigest: digestObject(payload),
+      producedAt: new Date().toISOString()
+    }
+  };
+}
+
+async function gateRecord(run, kind, payload, id = kind) {
+  const runId = run.runId ?? run.manifest.runId;
+  return {
+    schemaVersion: 2,
+    id,
+    kind,
+    status: "complete",
+    summary: `Typed ${kind} evidence`,
+    receipt: {
+      contractId: `evidence-contracts-v1:${kind}`,
+      contractVersion: 1,
+      runId,
+      producer: { provider: "codex-root" },
+      inputBinding: {
+        runId,
         contractDigest: digestObject(run.contract),
         remoteRevision: run.contract.remoteRevision ?? null
       },
@@ -106,6 +136,33 @@ test("typed evidence rejects cross-run and caller-forged digests", async () => {
   await assert.rejects(addEvidence(root, started.runId, forged), /caller-forged/);
   const wrongRun = await typedRecord({ runId: "sbw-20260731T000000Z-000000000000", contract: run.contract }, "wrong-run");
   await assert.rejects(addEvidence(root, started.runId, wrongRun), /run binding is invalid/);
+});
+
+test("typed gate evidence rejects a failed result even when its shape is valid", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-v2-semantic-evidence-"));
+  const contract = buildContract({
+    template: "test-v2",
+    templateDefinition: {
+      ...contractTemplate,
+      requiredEvidence: ["required-checks"],
+      executionStages: [{
+        ...contractTemplate.executionStages[0],
+        requiredEvidence: ["required-checks"]
+      }]
+    },
+    goal: "semantic evidence",
+    scope: ["."],
+    risk: { risk: 1, uncertainty: 0, blastRadius: 1, irreversibility: 0, evidenceGap: 0 },
+    sensitivity: "internal",
+    authority: []
+  });
+  const started = await createRun({ root, contract, requestedMode: "verified", cwd: root });
+  const run = await inspectRun(root, started.runId);
+  await assert.rejects(
+    addEvidence(root, started.runId, await gateRecord(run, "required-checks", { command: "false", result: false })),
+    /result must be true/
+  );
+  await addEvidence(root, started.runId, await gateRecord(run, "required-checks", { command: "true", result: true }));
 });
 
 test("ledger reducer derives ready set and rejects duplicate event identity", async () => {
@@ -190,8 +247,22 @@ test("persisted typed evidence is revalidated before ledger admission", async ()
   assert.equal(status.complete, false);
 });
 
-test("review package IDs are stable and bounded repair fails closed", async () => {
+test("review packages prove the Git manifest and dispositions fail closed", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "sbw-v2-review-"));
+  const repository = path.join(root, "repository");
+  await mkdir(repository, { recursive: true });
+  await execFileAsync("git", ["init", "-q"], { cwd: repository });
+  await execFileAsync("git", ["config", "user.email", "test@example.com"], { cwd: repository });
+  await execFileAsync("git", ["config", "user.name", "Test User"], { cwd: repository });
+  await writeFile(path.join(repository, "README.md"), "base\n");
+  await execFileAsync("git", ["add", "README.md"], { cwd: repository });
+  await execFileAsync("git", ["commit", "-q", "-m", "base"], { cwd: repository });
+  const base = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repository })).stdout.trim();
+  await mkdir(path.join(repository, "src"));
+  await writeFile(path.join(repository, "src", "a.ts"), "export const a = 1;\n");
+  await execFileAsync("git", ["add", "src/a.ts"], { cwd: repository });
+  await execFileAsync("git", ["commit", "-q", "-m", "change"], { cwd: repository });
+  const head = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repository })).stdout.trim();
   const contract = buildContract({
     template: "test-review",
     templateDefinition: { ...contractTemplate, controlPlane: { ...contractTemplate.controlPlane, reviewPolicy: "code-v1" } },
@@ -199,15 +270,42 @@ test("review package IDs are stable and bounded repair fails closed", async () =
     scope: ["."],
     risk: { risk: 1, uncertainty: 0, blastRadius: 1, irreversibility: 0, evidenceGap: 0 },
     sensitivity: "internal",
-    authority: []
+    authority: [],
+    remoteRevision: base
   });
-  const started = await createRun({ root, contract, requestedMode: "verified", cwd: root });
-  const base = "a".repeat(40);
+  const started = await createRun({ root, contract, requestedMode: "verified", cwd: repository });
   const digest = "b".repeat(64);
-  const input = { root, runId: started.runId, base, head: base, scope: ["src"], diffManifest: { files: [] }, instructionDigest: digest, sentinelDigest: digest };
+  const input = {
+    root,
+    runId: started.runId,
+    base,
+    head,
+    scope: ["src"],
+    diffManifest: { files: [{ status: "A", path: "src/a.ts" }] },
+    instructionDigest: digest,
+    sentinelDigest: digest
+  };
   const first = await createReviewPackage(input);
   const second = await createReviewPackage(input);
   assert.equal(first.packageId, second.packageId);
+  await assert.rejects(
+    createReviewPackage({ ...input, diffManifest: { files: [] } }),
+    /does not match Git BASE\.\.\.HEAD/
+  );
+  await assert.rejects(
+    addReviewFinding(root, started.runId, {
+      packageId: first.packageId,
+      path: "src/a.ts",
+      location: "1",
+      rule: "unsafe",
+      severity: "P0",
+      status: "accepted-risk",
+      owner: "owner",
+      reason: "reason",
+      expiry: new Date(Date.now() + 86_400_000).toISOString()
+    }),
+    /P0 review findings cannot be accepted/
+  );
   const finding = await addReviewFinding(root, started.runId, {
     packageId: first.packageId,
     path: "src/a.ts",
@@ -218,6 +316,20 @@ test("review package IDs are stable and bounded repair fails closed", async () =
     summary: "repair me"
   });
   assert.equal(finding.id, stableFindingId({ packageId: first.packageId, path: "src/a.ts", location: "1", rule: "unsafe" }));
+  const accepted = await addReviewFinding(root, started.runId, {
+    packageId: first.packageId,
+    path: "src/a.ts",
+    location: "2",
+    rule: "risk",
+    severity: "P2",
+    status: "accepted-risk",
+    owner: "owner",
+    reason: "bounded exception",
+    expiry: new Date(Date.now() + 86_400_000).toISOString()
+  });
+  assert.equal(accepted.owner, "owner");
+  assert.equal(accepted.reason, "bounded exception");
+  assert.ok(accepted.expiry);
   for (let round = 0; round < 5; round += 1) await recordRepairRound(root, started.runId, first.packageId, { round });
   const status = await reviewStatus(root, started.runId);
   assert.equal(status.repairBudgetExhausted, true);
@@ -234,8 +346,74 @@ test("review package IDs are stable and bounded repair fails closed", async () =
   }, { update: true });
   const closed = await reviewStatus(root, started.runId);
   assert.equal(closed.scopedClosed, true);
-  await markBroadReviewComplete(root, started.runId, first.packageId, base, digest);
+  await addReviewFinding(root, started.runId, {
+    packageId: first.packageId,
+    path: "src/a.ts",
+    location: "2",
+    rule: "risk",
+    severity: "P2",
+    status: "resolved",
+    summary: "accepted risk expired by policy"
+  }, { update: true });
+  assert.equal((await reviewStatus(root, started.runId)).scopedClosed, true);
+  await markBroadReviewComplete(root, started.runId, first.packageId, head, digest);
   assert.equal((await reviewStatus(root, started.runId)).complete, true);
+});
+
+test("action tokens require the mapped ledger stage to be ready", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-v2-action-ledger-"));
+  const template = {
+    ...contractTemplate,
+    requiredEvidence: ["environment-state"],
+    actionGates: { "test.action": ["environment-state"] },
+    actionStages: { "test.action": "review" },
+    executionStages: [
+      contractTemplate.executionStages[0],
+      { id: "review", dependsOn: ["environment"], requiredEvidence: ["environment-state"], attemptBudget: 5, kind: "review" }
+    ]
+  };
+  const contract = buildContract({
+    template: "test-v2-action",
+    templateDefinition: template,
+    goal: "ledger action gate",
+    scope: ["."],
+    risk: { risk: 1, uncertainty: 0, blastRadius: 1, irreversibility: 0, evidenceGap: 0 },
+    sensitivity: "internal",
+    authority: ["test.action"],
+    remoteRevision: "remote"
+  });
+  const started = await createRun({ root, contract, requestedMode: "verified", cwd: root });
+  const run = await inspectRun(root, started.runId);
+  await addEvidence(root, started.runId, await typedRecord({ runId: started.runId, contract: run.contract }));
+  await updateState(root, started.runId, (state) => ({
+    ...state,
+    lastSentinel: { label: "test", digest: "tree" },
+    lastSentinelVerified: true,
+    lastSentinelComplete: true
+  }));
+  const defaults = await loadDefaults();
+  await assert.rejects(
+    issueActionToken(root, started.runId, {
+      action: "test.action",
+      provider: "test",
+      resource: "test-resource",
+      remoteRevision: "remote",
+      requiredEvidence: ["environment-state"]
+    }, "tree", defaults),
+    /execution stage is ready: review/
+  );
+  const initialLedger = JSON.parse(await readFile(path.join(run.runDir, "ledger.json"), "utf8"));
+  await transitionLedger(root, started.runId, { eventId: "start-environment", type: "start", taskId: "environment", expectedLedgerDigest: digestObject(initialLedger) });
+  const startedLedger = JSON.parse(await readFile(path.join(run.runDir, "ledger.json"), "utf8"));
+  await transitionLedger(root, started.runId, { eventId: "complete-environment", type: "complete", taskId: "environment", evidenceKinds: ["environment-state"], expectedLedgerDigest: digestObject(startedLedger) });
+  const issued = await issueActionToken(root, started.runId, {
+    action: "test.action",
+    provider: "test",
+    resource: "test-resource",
+    remoteRevision: "remote",
+    requiredEvidence: ["environment-state"]
+  }, "tree", defaults);
+  assert.equal(issued.action, "test.action");
 });
 
 test("atomic deliberation emits no partial bundle on failed arbitration", async () => {
