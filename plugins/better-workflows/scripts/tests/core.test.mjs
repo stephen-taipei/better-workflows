@@ -414,6 +414,25 @@ test("destructive cleanup actions require an immutable run-owned resource receip
   const reservationPath = path.join(root, "creation-reservations", `${sha256(resource)}.json`);
   const reservation = JSON.parse(await readFile(reservationPath, "utf8"));
   assert.equal(reservation.expiresAt, creationIssued.expiresAt);
+  const expiredResource = "branch:feature/expired";
+  const expiredIssued = await issueActionToken(root, registeredRun.runId, {
+    action: "branch.create",
+    provider: "git",
+    resource: expiredResource,
+    remoteRevision: "abc",
+    requiredEvidence: ["preflight"]
+  }, "tree", await loadDefaults());
+  const expiredReservationPath = path.join(root, "creation-reservations", `${sha256(expiredResource)}.json`);
+  const expiredReservation = JSON.parse(await readFile(expiredReservationPath, "utf8"));
+  await writeFile(expiredReservationPath, `${JSON.stringify({ ...expiredReservation, expiresAt: "2020-01-01T00:00:00.000Z" })}\n`);
+  const replacementIssued = await issueActionToken(root, registeredRun.runId, {
+    action: "branch.create",
+    provider: "git",
+    resource: expiredResource,
+    remoteRevision: "abc",
+    requiredEvidence: ["preflight"]
+  }, "tree", await loadDefaults());
+  assert.notEqual(replacementIssued.token, expiredIssued.token);
   await writeFile(reservationPath, `${JSON.stringify({ ...reservation, tokenHash: "0".repeat(64) })}\n`);
   await assert.rejects(
     consumeActionToken(root, registeredRun.runId, creationIssued.token, "tree"),

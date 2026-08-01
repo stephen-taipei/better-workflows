@@ -452,9 +452,9 @@ test("review packages prove the Git manifest and dispositions fail closed", asyn
   const head = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repository })).stdout.trim();
   const contract = buildContract({
     template: "test-review",
-    templateDefinition: { ...contractTemplate, scope: ["src"], controlPlane: { ...contractTemplate.controlPlane, reviewPolicy: "code-v1" } },
+    templateDefinition: { ...contractTemplate, scope: ["src", "README.md"], controlPlane: { ...contractTemplate.controlPlane, reviewPolicy: "code-v1" } },
     goal: "review",
-    scope: ["src"],
+    scope: ["src", "README.md"],
     risk: { risk: 1, uncertainty: 0, blastRadius: 1, irreversibility: 0, evidenceGap: 0 },
     sensitivity: "internal",
     authority: [],
@@ -474,7 +474,7 @@ test("review packages prove the Git manifest and dispositions fail closed", asyn
     runId: started.runId,
     base,
     head,
-    scope: ["src"],
+    scope: ["src", "README.md"],
     diffManifest: { files: [{ status: "A", path: "src/a.ts" }] },
     instructionDigest: digest,
     sentinelDigest: sentinel.digest
@@ -482,6 +482,8 @@ test("review packages prove the Git manifest and dispositions fail closed", asyn
   const first = await createReviewPackage(input);
   const second = await createReviewPackage(input);
   assert.equal(first.packageId, second.packageId);
+  const reordered = await createReviewPackage({ ...input, scope: ["README.md", "src"] });
+  assert.equal(reordered.packageId, first.packageId);
   const packagePath = path.join((await inspectRun(root, started.runId)).runDir, "review-packages", `${first.packageId}.json`);
   const tampered = JSON.parse(await readFile(packagePath, "utf8"));
   tampered.diffManifest = { files: [] };
@@ -515,9 +517,9 @@ test("review packages prove the Git manifest and dispositions fail closed", asyn
   await execFileAsync("git", ["checkout", "-q", head], { cwd: repository });
   const divergentContract = buildContract({
     template: "test-review-divergent",
-    templateDefinition: { ...contractTemplate, scope: ["src"], controlPlane: { ...contractTemplate.controlPlane, reviewPolicy: "code-v1" } },
+    templateDefinition: { ...contractTemplate, scope: ["src", "README.md"], controlPlane: { ...contractTemplate.controlPlane, reviewPolicy: "code-v1" } },
     goal: "review divergent base",
-    scope: ["src"],
+    scope: ["src", "README.md"],
     risk: { risk: 1, uncertainty: 0, blastRadius: 1, irreversibility: 0, evidenceGap: 0 },
     sensitivity: "internal",
     authority: [],

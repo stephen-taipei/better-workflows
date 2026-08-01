@@ -875,7 +875,7 @@ async function reserveCreationResource(root, runId, resource, tokenHash, expires
     if (error.code === "EEXIST") {
       const existing = await readJson(root, target).catch(() => null);
       const existingAction = existing?.runId && existing?.tokenHash
-        ? await readJson(safeJoin(runDirectory(root, existing.runId), "actions", `${existing.tokenHash}.json`)).catch(() => null)
+        ? await readJson(root, safeJoin(runDirectory(root, existing.runId), "actions", `${existing.tokenHash}.json`)).catch(() => null)
         : null;
       if (
         existingAction?.status === "issued" &&
@@ -3546,7 +3546,7 @@ async function reapExpiredCreationReservations(root) {
     const target = safeJoin(directory, entry.name);
     const reservation = await readJson(root, target).catch(() => null);
     if (!reservation?.runId || !reservation?.tokenHash || Date.parse(reservation.expiresAt ?? "") > Date.now()) continue;
-    const action = await readJson(safeJoin(runDirectory(root, reservation.runId), "actions", `${reservation.tokenHash}.json`)).catch(() => null);
+    const action = await readJson(root, safeJoin(runDirectory(root, reservation.runId), "actions", `${reservation.tokenHash}.json`)).catch(() => null);
     if (!action || action.status === "issued") await unlink(target).catch(() => undefined);
   }
 }

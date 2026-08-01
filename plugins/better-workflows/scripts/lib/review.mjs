@@ -126,8 +126,9 @@ export async function createReviewPackage(request) {
   if (scope.some((item) => typeof item !== "string" || !item || item.includes("\0") || item.startsWith("/"))) {
     throw new Error("Review scope contains an invalid path");
   }
+  const canonicalScope = normalizeScope(scope);
   const contractScope = run.contract.scope?.include;
-  if (!Array.isArray(contractScope) || digestObject(normalizeScope(scope)) !== digestObject(normalizeScope(contractScope))) {
+  if (!Array.isArray(contractScope) || digestObject(canonicalScope) !== digestObject(normalizeScope(contractScope))) {
     throw new Error("Review scope must match the TaskContract scope");
   }
   if (!DIGEST.test(instructionDigest) || !DIGEST.test(sentinelDigest)) {
@@ -152,7 +153,7 @@ export async function createReviewPackage(request) {
     run.manifest.cwd,
     base,
     head,
-    scope
+    canonicalScope
   );
   if (mergeBase !== base) throw new Error("Review BASE must equal the Git merge base of HEAD");
   const suppliedDiffManifest = normalizeDiffManifest(diffManifest);
@@ -164,8 +165,8 @@ export async function createReviewPackage(request) {
     base,
     head,
     mergeBase,
-    scope,
-    scopeDigest: digestObject(scope),
+    scope: canonicalScope,
+    scopeDigest: digestObject(canonicalScope),
     diffManifest: derivedDiffManifest,
     diffManifestDigest: digestObject(derivedDiffManifest),
     contractDigest: digestObject(run.contract),
