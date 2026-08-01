@@ -38,6 +38,7 @@ import {
   readJson,
   reconcileAction,
   routeMode,
+  registerOwnedResource,
   safeJoin,
   setRunStatus,
   sha256,
@@ -1436,6 +1437,7 @@ function help() {
       "sbw graph validate [--template <name>|--run <run-id>]",
       "sbw graph inspect (--template <name>|--run <run-id>) [--format json|mermaid]",
       "sbw action issue|consume|reconcile <run-id> ...",
+      "sbw resource register <run-id> --resource <id> --receipt <creation-receipt.json>",
       "sbw ledger status <run-id>",
       "sbw ledger transition <run-id> --file <event.json>",
       "sbw ledger compile <run-id> --design-packet <packet.json>",
@@ -1868,6 +1870,23 @@ async function main() {
       };
     }
     throw new Error("action subcommand must be issue, consume, or reconcile");
+  }
+  if (command === "resource") {
+    if (subcommand !== "register" || !runId) {
+      throw new Error("resource usage: sbw resource register <run-id> --resource <id> --receipt <creation-receipt.json>");
+    }
+    assertKnownOptions(options, ["resource", "receipt"]);
+    if (!options.resource || !options.receipt) {
+      throw new Error("resource register requires --resource and --receipt");
+    }
+    const creationReceipt = JSON.parse(await readFile(path.resolve(String(options.receipt)), "utf8"));
+    return {
+      ok: true,
+      resource: await registerOwnedResource(root, runId, {
+        resource: String(options.resource),
+        creationReceipt
+      })
+    };
   }
   if (command === "ledger") {
     if (!runId) throw new Error("ledger requires run id");

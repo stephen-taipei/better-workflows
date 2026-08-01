@@ -1199,12 +1199,18 @@
       "payloadFamily": "validation-test",
       "requiredFields": [
         "command",
-        "result"
+        "result",
+        "pr",
+        "head",
+        "base"
       ],
       "freshnessBinding": [
         "runId",
         "contractDigest",
-        "remoteRevision"
+        "remoteRevision",
+        "reviewHead",
+        "reviewBase",
+        "pullRequest"
       ]
     },
     "promotion-decision": {
@@ -1500,12 +1506,18 @@
       "payloadFamily": "validation-test",
       "requiredFields": [
         "command",
-        "result"
+        "result",
+        "pr",
+        "head",
+        "base"
       ],
       "freshnessBinding": [
         "runId",
         "contractDigest",
-        "remoteRevision"
+        "remoteRevision",
+        "reviewHead",
+        "reviewBase",
+        "pullRequest"
       ]
     },
     "retrospective-source-inventory": {

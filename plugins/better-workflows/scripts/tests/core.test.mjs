@@ -24,6 +24,7 @@ import {
   issueActionToken,
   loadDefaults,
   readJson,
+  registerOwnedResource,
   reconcileAction,
   routeMode,
   safeJoin,
@@ -171,6 +172,88 @@ test("run state is private and action tokens are one-shot with reconciliation", 
   const completion = await evaluateCompletion(root, result.runId);
   assert.equal(completion.ok, false);
   assert.ok(completion.blockers.includes("side-effect-not-reconciled"));
+});
+
+test("destructive cleanup actions require an immutable run-owned resource receipt", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-owned-resource-"));
+  const cleanupTemplate = {
+    requiredEvidence: ["actions-cleanup-plan"],
+    acceptance: [{ id: "done", description: "Cleanup is governed.", critical: true }]
+  };
+  const cleanupContract = () => buildContract({
+    template: "test-cleanup",
+    templateDefinition: cleanupTemplate,
+    goal: "Test cleanup ownership",
+    scope: ["."],
+    risk: { risk: 1, uncertainty: 1, blastRadius: 1, irreversibility: 1, evidenceGap: 1 },
+    sensitivity: "internal",
+    authority: ["branch.delete"],
+    remoteRevision: "abc"
+  });
+  const addPlan = async (run, plan) => addEvidence(root, run.runId, {
+    id: "actions-cleanup-plan",
+    kind: "actions-cleanup-plan",
+    summary: "Cleanup ownership plan",
+    status: "complete",
+    acceptanceIds: [],
+    sourceDigest: "a".repeat(64),
+    receipt: { payload: plan }
+  });
+  const denied = await createRun({ root, contract: cleanupContract(), requestedMode: "verified", cwd: root });
+  await updateState(root, denied.runId, (state) => ({
+    ...state,
+    lastSentinel: { label: "test", digest: "tree" },
+    lastSentinelVerified: true,
+    lastSentinelComplete: true
+  }));
+  const deniedResource = "branch:feature/owned";
+  await addPlan(denied, {
+    objective: "Delete only the owned branch",
+    ownerRunId: denied.runId,
+    action: "branch.delete",
+    resources: [{ resource: deniedResource, ownerRunId: denied.runId, receiptDigest: "0".repeat(64) }]
+  });
+  await assert.rejects(
+    issueActionToken(root, denied.runId, {
+      action: "branch.delete",
+      provider: "git",
+      resource: deniedResource,
+      remoteRevision: "abc",
+      requiredEvidence: ["actions-cleanup-plan"]
+    }, "tree", await loadDefaults()),
+    /immutable creation receipt/
+  );
+
+  const registeredRun = await createRun({ root, contract: cleanupContract(), requestedMode: "verified", cwd: root });
+  await updateState(root, registeredRun.runId, (state) => ({
+    ...state,
+    lastSentinel: { label: "test", digest: "tree" },
+    lastSentinelVerified: true,
+    lastSentinelComplete: true
+  }));
+  const resource = "branch:feature/registered";
+  const creationReceipt = {
+    ownerRunId: registeredRun.runId,
+    resource,
+    outcome: "success",
+    provider: "git",
+    createdAt: "2026-08-01T00:00:00.000Z"
+  };
+  const registered = await registerOwnedResource(root, registeredRun.runId, { resource, creationReceipt });
+  await addPlan(registeredRun, {
+    objective: "Delete only the owned branch",
+    ownerRunId: registeredRun.runId,
+    action: "branch.delete",
+    resources: [{ resource, ownerRunId: registeredRun.runId, receiptDigest: registered.receiptDigest }]
+  });
+  const issued = await issueActionToken(root, registeredRun.runId, {
+    action: "branch.delete",
+    provider: "git",
+    resource,
+    remoteRevision: "abc",
+    requiredEvidence: ["actions-cleanup-plan"]
+  }, "tree", await loadDefaults());
+  assert.equal(issued.action, "branch.delete");
 });
 
 test("completion requires every declared evidence kind independently of acceptance coverage", async () => {

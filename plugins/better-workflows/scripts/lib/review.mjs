@@ -45,12 +45,20 @@ async function deriveDiffManifest(cwd, base, head, scope) {
     cwd,
     encoding: "utf8"
   })).stdout.trim();
+  try {
+    await execFileAsync("git", ["merge-base", "--is-ancestor", base, head], {
+      cwd,
+      encoding: "utf8"
+    });
+  } catch {
+    throw new Error("Review BASE must be an ancestor of HEAD");
+  }
   const output = (await execFileAsync("git", [
     "diff",
     "--name-status",
     "-z",
     "--find-renames",
-    `${base}...${head}`,
+    `${base}..${head}`,
     "--",
     ...scope
   ], { cwd, encoding: "utf8" })).stdout;
@@ -123,6 +131,7 @@ export async function createReviewPackage({
     head,
     scope
   );
+  if (mergeBase !== base) throw new Error("Review BASE must equal the Git merge base of HEAD");
   const suppliedDiffManifest = normalizeDiffManifest(diffManifest);
   if (digestObject(suppliedDiffManifest) !== digestObject(derivedDiffManifest)) {
     throw new Error("Review diff manifest does not match Git BASE...HEAD");

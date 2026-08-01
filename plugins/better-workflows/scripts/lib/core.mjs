@@ -1,4 +1,5 @@
 import { constants as fsConstants } from "node:fs";
+import { execFile } from "node:child_process";
 import {
   appendFile,
   chmod,
@@ -17,6 +18,9 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
 
 export const VERSION = "3.0.0";
 export const MODES = new Set(["auto", "direct", "verified", "deep", "critical"]);
@@ -45,6 +49,13 @@ const RUN_ID = /^sbw-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{12}$/;
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const PLUGIN_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const DEFAULTS_PATH = path.join(PLUGIN_ROOT, "config", "defaults.json");
+const DESTRUCTIVE_CLEANUP_ACTIONS = new Set([
+  "actions.cancel",
+  "pr.close",
+  "branch.delete",
+  "worktree.cleanup"
+]);
+const OWNED_RESOURCE = /^[^\0\r\n]{1,512}$/;
 
 export function pluginRoot() {
   return PLUGIN_ROOT;
@@ -565,6 +576,54 @@ export async function withRunLock(root, runId, callback, options = {}) {
   }
 }
 
+export async function registerOwnedResource(root, runId, { resource, creationReceipt }) {
+  if (typeof resource !== "string" || !OWNED_RESOURCE.test(resource)) {
+    throw new Error("Owned resource identity is invalid");
+  }
+  if (!creationReceipt || typeof creationReceipt !== "object" || Array.isArray(creationReceipt)) {
+    throw new Error("Owned resource creation receipt is required");
+  }
+  if (
+    creationReceipt.ownerRunId !== runId ||
+    creationReceipt.resource !== resource ||
+    creationReceipt.outcome !== "success" ||
+    typeof creationReceipt.provider !== "string" ||
+    !creationReceipt.provider ||
+    typeof creationReceipt.createdAt !== "string" ||
+    Number.isNaN(Date.parse(creationReceipt.createdAt))
+  ) {
+    throw new Error("Owned resource creation receipt is not bound to this run and resource");
+  }
+  const receiptDigest = digestObject(creationReceipt);
+  return withRunLock(root, runId, async ({ runDir }) => {
+    const manifestPath = safeJoin(runDir, "manifest.json");
+    const manifest = await readJson(root, manifestPath);
+    if (!Array.isArray(manifest.ownedResources)) {
+      throw new Error("Run manifest has no owned resource registry");
+    }
+    const existing = manifest.ownedResources.find((item) => item?.resource === resource);
+    if (existing) {
+      if (existing.ownerRunId !== runId || existing.receiptDigest !== receiptDigest) {
+        throw new Error("Owned resource registration is immutable");
+      }
+      return existing;
+    }
+    const entry = {
+      resource,
+      ownerRunId: runId,
+      receiptDigest,
+      registeredAt: nowIso()
+    };
+    const nextManifest = {
+      ...manifest,
+      ownedResources: [...manifest.ownedResources, entry]
+    };
+    await atomicWriteJson(root, manifestPath, nextManifest);
+    await appendJournal(root, runDir, "resource.registered", entry);
+    return entry;
+  });
+}
+
 export async function bindLegacyRunTemplate(
   root,
   runId,
@@ -871,6 +930,60 @@ export async function evaluateCompletion(root, runId) {
   return { ok: blockers.length === 0, blockers, evidence, findings, actions };
 }
 
+function assertCleanupResourceBinding(manifest, runId, request, cleanupPlan) {
+  const payload = cleanupPlan?.receipt?.payload;
+  if (
+    !payload ||
+    payload.ownerRunId !== runId ||
+    payload.action !== request.action ||
+    !Array.isArray(payload.resources)
+  ) {
+    throw new Error("Action token denied until cleanup resources are bound to this run and action");
+  }
+  const registry = Array.isArray(manifest.ownedResources)
+    ? manifest.ownedResources.filter((entry) => entry && typeof entry === "object")
+    : [];
+  const registered = registry.find((entry) => entry.resource === request.resource);
+  if (!registered || registered.ownerRunId !== runId || typeof registered.receiptDigest !== "string") {
+    throw new Error("Action token denied until the cleanup resource has an immutable creation receipt");
+  }
+  const resources = payload.resources;
+  const planned = resources.find((entry) => entry?.resource === request.resource);
+  if (!planned || planned.ownerRunId !== runId || planned.receiptDigest !== registered.receiptDigest) {
+    throw new Error("Action token denied until the cleanup plan matches the immutable resource registry");
+  }
+  for (const entry of resources) {
+    const entryRegistered = registry.find((candidate) => candidate.resource === entry?.resource);
+    if (
+      !entryRegistered ||
+      entry.ownerRunId !== runId ||
+      entry.receiptDigest !== entryRegistered.receiptDigest ||
+      typeof entry.resource !== "string" ||
+      !OWNED_RESOURCE.test(entry.resource)
+    ) {
+      throw new Error("Action token denied until every cleanup resource is registry-bound");
+    }
+  }
+}
+
+function assertPullEvidenceBinding(admittedEvidence, request, reviewPackage) {
+  const pullMatch = /^pull\/(\d+)$/.exec(request.resource);
+  if (!pullMatch) throw new Error("PR merge resources must use pull/<number>");
+  for (const kind of ["pr-state", "required-checks"]) {
+    if (!request.requiredEvidence.includes(kind)) continue;
+    const record = admittedEvidence.find((item) => item.kind === kind && item.status === "complete" && !item.stale);
+    if (!record) continue;
+    const payload = record.receipt?.payload;
+    if (
+      String(payload?.pr) !== pullMatch[1] ||
+      payload?.head !== reviewPackage.head ||
+      payload?.base !== reviewPackage.base
+    ) {
+      throw new Error(`Action token denied until ${kind} is bound to the exact reviewed PR head`);
+    }
+  }
+}
+
 export async function issueActionToken(root, runId, request, currentTreeDigest, config) {
   for (const field of ["action", "provider", "resource", "remoteRevision"]) {
     if (typeof request[field] !== "string" || !request[field]) throw new Error(`Action ${field} is required`);
@@ -917,6 +1030,7 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
         sentinelDigest: state.lastSentinel?.digest
       }));
       if (!hasIndependentCritic) throw new Error("Action token denied until the exact independent critic is admitted");
+      assertPullEvidenceBinding(admittedEvidence, request, review.package);
     }
     const availableEvidence = new Set(
       admittedEvidence
@@ -927,26 +1041,12 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
     if (missingEvidence.length > 0) {
       throw new Error(`Action token missing evidence: ${missingEvidence.join(", ")}`);
     }
-    if (request.action === "worktree.cleanup") {
-      const cleanupPlan = admittedEvidence.find((item) => item.kind === "actions-cleanup-plan");
-      const payload = cleanupPlan?.receipt?.payload;
-      if (
-        payload?.ownerRunId !== runId ||
-        payload?.action !== request.action ||
-        !Array.isArray(payload.resources) ||
-        !payload.resources.some((resource) => resource?.resource === request.resource) ||
-        payload.resources.some((resource) => (
-          !resource ||
-          typeof resource !== "object" ||
-          resource.ownerRunId !== runId ||
-          !Array.isArray(manifest.ownedResources) ||
-          !manifest.ownedResources.includes(resource.resource) ||
-          typeof resource.resource !== "string" ||
-          !resource.resource
-        ))
-      ) {
-        throw new Error("Action token denied until cleanup resources are bound to this run and action");
+    if (DESTRUCTIVE_CLEANUP_ACTIONS.has(request.action)) {
+      if (!request.requiredEvidence.includes("actions-cleanup-plan")) {
+        throw new Error("Destructive cleanup actions require actions-cleanup-plan evidence");
       }
+      const cleanupPlan = admittedEvidence.find((item) => item.kind === "actions-cleanup-plan");
+      assertCleanupResourceBinding(manifest, runId, request, cleanupPlan);
     }
     const authorities = contract.authority?.externalSideEffects ?? [];
     if (!authorities.includes(request.action) && !authorities.includes("*")) {

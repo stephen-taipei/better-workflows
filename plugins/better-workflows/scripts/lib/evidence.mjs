@@ -156,6 +156,16 @@ function assertFreshBinding(receipt, run, definition, kind) {
   if (binding.remoteRevision !== (run.contract.remoteRevision ?? null)) {
     throw new Error(`Typed evidence ${kind} remote revision binding is stale`);
   }
+  if (["pr-state", "required-checks"].includes(kind)) {
+    const payload = receipt.payload;
+    if (
+      binding.reviewHead !== payload?.head ||
+      binding.reviewBase !== payload?.base ||
+      String(binding.pullRequest) !== String(payload?.pr)
+    ) {
+      throw new Error(`Typed evidence ${kind} PR review binding is stale`);
+    }
+  }
 }
 
 export async function admitTypedEvidence(record, run, { persisted = false } = {}) {

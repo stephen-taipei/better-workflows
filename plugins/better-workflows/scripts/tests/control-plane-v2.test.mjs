@@ -70,6 +70,13 @@ async function typedRecord(run, id = "environment") {
 
 async function gateRecord(run, kind, payload, id = kind) {
   const runId = run.runId ?? run.manifest.runId;
+  const reviewBinding = ["pr-state", "required-checks"].includes(kind)
+    ? {
+        reviewHead: payload.head,
+        reviewBase: payload.base,
+        pullRequest: payload.pr
+      }
+    : {};
   return {
     schemaVersion: 2,
     id,
@@ -84,7 +91,8 @@ async function gateRecord(run, kind, payload, id = kind) {
       inputBinding: {
         runId,
         contractDigest: digestObject(run.contract),
-        remoteRevision: run.contract.remoteRevision ?? null
+        remoteRevision: run.contract.remoteRevision ?? null,
+        ...reviewBinding
       },
       payload,
       payloadDigest: digestObject(payload),
@@ -158,8 +166,9 @@ test("typed gate evidence rejects a failed result even when its shape is valid",
   });
   const started = await createRun({ root, contract, requestedMode: "verified", cwd: root });
   const run = await inspectRun(root, started.runId);
+  const pullEvidence = { pr: 1, head: "a".repeat(40), base: "b".repeat(40) };
   await assert.rejects(
-    addEvidence(root, started.runId, await gateRecord(run, "required-checks", { command: "false", result: false })),
+    addEvidence(root, started.runId, await gateRecord(run, "required-checks", { ...pullEvidence, command: "false", result: false })),
     /result failed its success predicate/
   );
   await assert.rejects(
@@ -170,7 +179,7 @@ test("typed gate evidence rejects a failed result even when its shape is valid",
     addEvidence(root, started.runId, await gateRecord(run, "cleanup-manifest", { outcome: "failure" }, "cleanup-failed")),
     /outcome failed its success predicate/
   );
-  await addEvidence(root, started.runId, await gateRecord(run, "required-checks", { command: "true", result: true }));
+  await addEvidence(root, started.runId, await gateRecord(run, "required-checks", { ...pullEvidence, command: "true", result: true }));
 });
 
 test("typed evidence rejects forged independent-critic provenance", async () => {
@@ -317,6 +326,27 @@ test("review packages prove the Git manifest and dispositions fail closed", asyn
   const first = await createReviewPackage(input);
   const second = await createReviewPackage(input);
   assert.equal(first.packageId, second.packageId);
+  await execFileAsync("git", ["checkout", "-q", "-b", "divergent-base", base], { cwd: repository });
+  await writeFile(path.join(repository, "divergent.txt"), "divergent\n");
+  await execFileAsync("git", ["add", "divergent.txt"], { cwd: repository });
+  await execFileAsync("git", ["commit", "-q", "-m", "divergent base"], { cwd: repository });
+  const divergentBase = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repository })).stdout.trim();
+  await execFileAsync("git", ["checkout", "-q", head], { cwd: repository });
+  const divergentContract = buildContract({
+    template: "test-review-divergent",
+    templateDefinition: { ...contractTemplate, scope: ["src"], controlPlane: { ...contractTemplate.controlPlane, reviewPolicy: "code-v1" } },
+    goal: "review divergent base",
+    scope: ["src"],
+    risk: { risk: 1, uncertainty: 0, blastRadius: 1, irreversibility: 0, evidenceGap: 0 },
+    sensitivity: "internal",
+    authority: [],
+    remoteRevision: divergentBase
+  });
+  const divergentRun = await createRun({ root, contract: divergentContract, requestedMode: "verified", cwd: repository });
+  await assert.rejects(
+    createReviewPackage({ ...input, runId: divergentRun.runId, base: divergentBase }),
+    /BASE must be an ancestor of HEAD/
+  );
   await assert.rejects(
     createReviewPackage({ ...input, diffManifest: { files: [] } }),
     /does not match Git BASE\.\.\.HEAD/
