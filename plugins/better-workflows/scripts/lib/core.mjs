@@ -754,7 +754,8 @@ function assertProviderReceiptShape(record, providerReceipt, outcome = record.ou
       providerReceipt.pr !== Number(String(record.resource).replace(/^pull\//, "")) ||
       providerReceipt.state !== "MERGED" ||
       typeof providerReceipt.repository !== "string" || !providerReceipt.repository ||
-      providerReceipt.baseRefName !== "dev" ||
+      typeof providerReceipt.baseRefName !== "string" || !providerReceipt.baseRefName ||
+      (record.targetRef && providerReceipt.baseRefName !== record.targetRef) ||
       typeof providerReceipt.head !== "string" || !providerReceipt.head ||
       typeof providerReceipt.mergeCommit !== "string" || !providerReceipt.mergeCommit)
   ) {
