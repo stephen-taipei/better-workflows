@@ -535,6 +535,35 @@ test("CLI custom contracts cannot remove template required evidence minimums", a
   await assert.rejects(access(stateRoot));
 });
 
+test("CLI custom v2 contracts cannot weaken the installed control-plane policy", async () => {
+  const cwd = await repository();
+  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-cli-v2-policy-"));
+  const started = await cli(cwd, stateRoot, [
+    "run",
+    "--template",
+    "cross-platform-contract",
+    "--mode",
+    "verified",
+    "--goal",
+    "Check contract",
+    "--scope",
+    "src"
+  ]);
+  const contract = JSON.parse(await readFile(path.join(stateRoot, "runs", started.json.runId, "contract.json"), "utf8"));
+  contract.controlPlane.reviewPolicy = "none";
+  const contractPath = path.join(cwd, "weakened-contract.json");
+  await writeFile(contractPath, `${JSON.stringify(contract, null, 2)}\n`);
+  const result = await cli(cwd, stateRoot, [
+    "run",
+    "--template",
+    "cross-platform-contract",
+    "--contract",
+    contractPath
+  ], { allowFailure: true });
+  assert.notEqual(result.code, 0);
+  assert.match(result.stderr, /cannot weaken template control-plane policy/);
+});
+
 test("CLI resume migrates a legacy 1.0 run to template-bound action gates", async () => {
   const cwd = await repository();
   const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-cli-legacy-"));

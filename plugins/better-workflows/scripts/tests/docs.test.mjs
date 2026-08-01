@@ -157,7 +157,8 @@ test("all five README version badges match the runtime semantic version", async 
     return;
   }
   for (const file of [overview, ...localizedDocuments.map((item) => item.overview)]) {
-    assert.match(await readFile(file, "utf8"), new RegExp(`version-${VERSION.replaceAll(".", "\\.")}-`), file);
+    const escapedVersion = VERSION.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    assert.match(await readFile(file, "utf8"), new RegExp(`version-${escapedVersion}-`), file);
   }
 });
 

@@ -17,6 +17,7 @@ import path from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
+import { digestObject, pluginRoot } from "../lib/core.mjs";
 
 const execFileAsync = promisify(execFile);
 const CLI = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "sbw.mjs");
@@ -74,10 +75,31 @@ async function addEvidence(cwd, stateRoot, runId, kind, acceptanceIds) {
 }
 
 async function governedRun(cwd, stateRoot) {
+  const template = JSON.parse(await readFile(path.join(pluginRoot(), "templates", "workspace-recipe.json"), "utf8"));
+  const contractPath = path.join(await mkdtemp(path.join(os.tmpdir(), "sbw-recipe-contract-")), "contract.json");
+  await writeFile(contractPath, `${JSON.stringify({
+    schemaVersion: 1,
+    goal: "Promote deterministic reference recipe",
+    template: "workspace-recipe",
+    templateDigest: digestObject(template),
+    scope: { include: ["."], exclude: [] },
+    acceptance: structuredClone(template.acceptance),
+    requiredEvidence: [...template.requiredEvidence],
+    authority: { rootOnlyMutation: true, externalSideEffects: ["recipe.promote", "artifact.promote"] },
+    risk: { risk: 0, uncertainty: 0, blastRadius: 0, irreversibility: 0, evidenceGap: 0 },
+    sensitivity: "internal",
+    agy: { allowed: false, sanitized: false, required: false },
+    volatileExclusions: [],
+    highRiskIgnored: [],
+    remoteRevision: null,
+    actionGates: structuredClone(template.actionGates)
+  }, null, 2)}\n`);
   const started = await cli(cwd, stateRoot, [
     "run",
     "--template",
     "workspace-recipe",
+    "--contract",
+    contractPath,
     "--mode",
     "verified",
     "--goal",

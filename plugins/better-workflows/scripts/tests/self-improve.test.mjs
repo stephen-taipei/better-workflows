@@ -222,6 +222,37 @@ test("balanced sanitizer covers every changed material group under the 24-file a
   }
 });
 
+test("sanitizer redacts secret-shaped public test fixtures but still rejects non-test source", async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), "sbw-test-fixture-redaction-"));
+  try {
+    const fixture = "plugins/better-workflows/scripts/tests/graph.test.mjs";
+    await mkdir(path.dirname(path.join(cwd, fixture)), { recursive: true });
+    await writeFile(path.join(cwd, fixture), 'const secret = "TOPSECRET-graph-987";\ncredentials: { password: secret };\n');
+    const [material] = await readSanitizedCandidateMaterial({
+      cwd,
+      snapshot: { files: [{ path: fixture, state: "file", digest: "d".repeat(64) }] },
+      maxFiles: 1
+    });
+    assert.equal(material.redacted, true);
+    assert.doesNotMatch(material.content.toString("utf8"), /TOPSECRET|password\s*:\s*["'][^"']{4,}["']/i);
+    assert.match(material.content.toString("utf8"), /redacted-test-fixture/);
+
+    const source = "plugins/better-workflows/scripts/lib/providers.mjs";
+    await mkdir(path.dirname(path.join(cwd, source)), { recursive: true });
+    await writeFile(path.join(cwd, source), 'const token = "12345678";\n');
+    await assert.rejects(
+      readSanitizedCandidateMaterial({
+        cwd,
+        snapshot: { files: [{ path: source, state: "file", digest: "e".repeat(64) }] },
+        maxFiles: 1
+      }),
+      /secret-shaped content/
+    );
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test("balanced sanitizer prioritizes public entry and security documents within the docs group", async () => {
   const cwd = await mkdtemp(path.join(os.tmpdir(), "sbw-doc-priority-"));
   try {

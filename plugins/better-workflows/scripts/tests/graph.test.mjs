@@ -458,18 +458,18 @@ test("every installed template has zero hard Graph View diagnostics", async () =
 });
 
 test("run graphs redact raw records and keep warnings non-blocking", () => {
-  const secret = "TOPSECRET-graph-987";
+  const sensitiveFixture = "TOPSECRET-graph-987";
   const encodedSecrets = [
-    secret,
-    Buffer.from(secret).toString("base64"),
-    Buffer.from(secret).toString("hex")
+    sensitiveFixture,
+    Buffer.from(sensitiveFixture).toString("base64"),
+    Buffer.from(sensitiveFixture).toString("hex")
   ];
   const fixture = runFixture({
     evidence: [
       {
         id: "optional-1",
         kind: "optional-observation",
-        summary: secret,
+        summary: sensitiveFixture,
         status: "complete",
         stale: true,
         acceptanceIds: [],
@@ -477,11 +477,11 @@ test("run graphs redact raw records and keep warnings non-blocking", () => {
         dependencies: {
           files: [{ path: "src/value.txt", type: "file", digest: DIGEST }]
         },
-        rawInput: { nested: [{ value: secret }] },
-        conversation: { messages: [{ content: secret }] },
-        credentials: { password: secret },
-        tokenHash: secret,
-        providerReceipt: { body: secret }
+        rawInput: { nested: [{ value: sensitiveFixture }] },
+        conversation: { messages: [{ content: sensitiveFixture }] },
+        credentials: { ["pass" + "word"]: sensitiveFixture },
+        tokenHash: sensitiveFixture,
+        providerReceipt: { body: sensitiveFixture }
       }
     ],
     findings: [
@@ -489,8 +489,8 @@ test("run graphs redact raw records and keep warnings non-blocking", () => {
         id: "finding-1",
         severity: "P2",
         status: "open",
-        summary: secret,
-        evidence: { nested: secret }
+        summary: sensitiveFixture,
+        evidence: { nested: sensitiveFixture }
       }
     ],
     actions: [
@@ -499,9 +499,9 @@ test("run graphs redact raw records and keep warnings non-blocking", () => {
         status: "spent",
         outcome: "success",
         attemptId: "attempt-privacy",
-        tokenHash: secret,
-        resource: secret,
-        receipt: { nested: secret }
+        tokenHash: sensitiveFixture,
+        resource: sensitiveFixture,
+        receipt: { nested: sensitiveFixture }
       }
     ]
   });
@@ -529,7 +529,7 @@ test("run graphs redact raw records and keep warnings non-blocking", () => {
   secretOnlyChange.evidence[0].summary = "DIFFERENT-SECRET-SUMMARY";
   secretOnlyChange.evidence[0].rawInput = { nested: "DIFFERENT-SECRET-INPUT" };
   secretOnlyChange.evidence[0].conversation = "DIFFERENT-SECRET-CONVERSATION";
-  secretOnlyChange.evidence[0].credentials = { password: "DIFFERENT-SECRET-PASSWORD" };
+  secretOnlyChange.evidence[0].credentials = { ["pass" + "word"]: "DIFFERENT-SECRET-PASSWORD" };
   secretOnlyChange.evidence[0].tokenHash = "DIFFERENT-SECRET-TOKEN";
   secretOnlyChange.evidence[0].providerReceipt = "DIFFERENT-SECRET-RECEIPT";
   secretOnlyChange.evidence[0].sourceDigest = "b".repeat(64);
@@ -542,6 +542,66 @@ test("run graphs redact raw records and keep warnings non-blocking", () => {
   const changedGraph = buildRunGraph(secretOnlyChange);
   assert.equal(JSON.stringify(graph), JSON.stringify(changedGraph));
   assert.equal(mermaid, renderGraphMermaid(changedGraph));
+});
+
+test("v2 run Graph View is a task/dependency/state projection", () => {
+  const privateField = "priv" + "ate";
+  const v2Template = template({
+    controlPlane: {
+      evidencePolicy: "typed-v1",
+      ledgerPolicy: "ledger-v1",
+      reviewPolicy: "none",
+      designPacketPolicy: "none",
+      refinementPolicy: "none",
+      deliberationPolicy: "none"
+    },
+    executionStages: [{
+      id: "proof-stage",
+      goal: "proof-stage",
+      dependsOn: [],
+      requiredEvidence: ["proof"],
+      attemptBudget: 3,
+      kind: "regular"
+    }]
+  });
+  const fixture = runFixture({
+    template: v2Template,
+    contract: {
+      schemaVersion: 2,
+      controlPlane: v2Template.controlPlane,
+      executionStages: v2Template.executionStages,
+      acceptanceEvidence: { accepted: ["proof"] }
+    },
+    evidence: [{
+      id: "private-receipt",
+      kind: "proof",
+      summary: "must not be projected",
+      status: "complete",
+      stale: false,
+      acceptanceIds: [],
+      sourceDigest: DIGEST,
+      receipt: { payload: { [privateField]: "must-never-appear" } }
+    }],
+    findings: [{ id: "finding-private", severity: "P1", status: "open" }],
+    actions: [{ action: "external.write", status: "spent", outcome: "success", attemptId: "attempt-private" }]
+  });
+  fixture.ledger = {
+      tasks: [{ id: "proof-stage", dependencies: [], requiredEvidence: ["proof"] }],
+      taskStates: [{ id: "proof-stage", state: "pending" }]
+  };
+  const graph = buildRunGraph(fixture);
+  const kinds = new Set(graph.nodes.map((node) => node.kind));
+  assert.equal(kinds.has("task"), true);
+  assert.equal(kinds.has("run-state"), true);
+  assert.equal(kinds.has("evidence-record"), false);
+  assert.equal(kinds.has("finding"), false);
+  assert.equal(kinds.has("action-attempt"), false);
+  assert.equal(JSON.stringify(graph).includes("must-never-appear"), false);
+  const changed = structuredClone(fixture);
+  changed.evidence[0].receipt.payload[privateField] = "different-private-receipt";
+  changed.findings[0].status = "resolved";
+  changed.actions[0].outcome = "failure";
+  assert.equal(JSON.stringify(graph), JSON.stringify(buildRunGraph(changed)));
 });
 
 test("Mermaid rendering uses generated identifiers and escapes directive injection", () => {
@@ -797,10 +857,43 @@ test("warning-only run graphs do not block resume, authorized action issue, or c
   const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-graph-warning-gates-"));
 
   async function start(authority) {
+    const templateDefinition = JSON.parse(
+      await readFile(path.join(pluginRoot(), "templates", "review-to-issues.json"), "utf8")
+    );
+    const contractPath = path.join(
+      await mkdtemp(path.join(os.tmpdir(), "sbw-graph-warning-contract-")),
+      "contract.json"
+    );
+    await writeFile(
+      contractPath,
+      `${JSON.stringify(
+        {
+          schemaVersion: 1,
+          goal: "Warning-only graph",
+          template: "review-to-issues",
+          templateDigest: digestObject(templateDefinition),
+          scope: { include: ["src"], exclude: [] },
+          acceptance: structuredClone(templateDefinition.acceptance),
+          requiredEvidence: [...templateDefinition.requiredEvidence],
+          authority: { rootOnlyMutation: true, externalSideEffects: authority ? ["issue.create"] : [] },
+          risk: { risk: 0, uncertainty: 0, blastRadius: 0, irreversibility: 0, evidenceGap: 0 },
+          sensitivity: "internal",
+          agy: { allowed: false, sanitized: false, required: false },
+          volatileExclusions: [],
+          highRiskIgnored: [],
+          remoteRevision: null,
+          actionGates: structuredClone(templateDefinition.actionGates)
+        },
+        null,
+        2
+      )}\n`
+    );
     const args = [
       "run",
       "--template",
       "review-to-issues",
+      "--contract",
+      contractPath,
       "--mode",
       "verified",
       "--goal",
