@@ -1312,6 +1312,7 @@ export async function completeRun(root, runId, completionDecision) {
       reviewDigest,
       sentinelDigest: finalWriteSentinel.digest
     };
+    await assertNoPendingProviderExecution(root, runId, runDir, "completed");
     const next = {
       ...current,
       status: "completed",
@@ -3317,39 +3318,38 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
     if (currentRevision !== consumed.expectedRevision) {
       throw new Error("Git push execution denied because the candidate revision changed");
     }
-    assertMutableRun(await loadRun(root, runId), "Action provider execution");
-    const startedAt = nowIso();
-    let exitCode = 0;
-    try {
-      await execFileAsync(executable.path, expectedCommand.slice(1), {
-        cwd: manifest.cwd,
-        encoding: "utf8",
-        env: { ...process.env, GIT_TERMINAL_PROMPT: "0" }
-      });
-    } catch (error) {
-      exitCode = Number.isInteger(error?.code) ? error.code : 1;
-    }
-    const invocation = {
-      schemaVersion: 1,
-      id: `git-push-wrapper:${runId}:${consumed.attemptId}`,
-      actionAttemptId: consumed.attemptId,
-      provider: "git",
-      command: expectedCommand,
-      providerExecutable: executable,
-      providerAuthorization: consumed.providerAuthorization,
-      credentialActor: credentialCheck.actor,
-      startedAt,
-      finishedAt: nowIso(),
-      exitCode
-    };
     return withRunLock(root, runId, async ({ runDir }) => {
       const run = await loadRun(root, runId);
-      assertMutableRun(run, "Action provider invocation");
+      assertMutableRun(run, "Action provider execution");
       const target = safeJoin(runDir, "actions", `${consumed.tokenHash}.json`);
       const current = await readJson(root, target);
       if (current.status !== "spent" || current.attemptId !== consumed.attemptId) {
         throw new Error("Git push provider invocation is not bound to the consumed action attempt");
       }
+      const startedAt = nowIso();
+      let exitCode = 0;
+      try {
+        await execFileAsync(executable.path, expectedCommand.slice(1), {
+          cwd: run.manifest.cwd,
+          encoding: "utf8",
+          env: { ...process.env, GIT_TERMINAL_PROMPT: "0" }
+        });
+      } catch (error) {
+        exitCode = Number.isInteger(error?.code) ? error.code : 1;
+      }
+      const invocation = {
+        schemaVersion: 1,
+        id: `git-push-wrapper:${runId}:${consumed.attemptId}`,
+        actionAttemptId: consumed.attemptId,
+        provider: "git",
+        command: expectedCommand,
+        providerExecutable: executable,
+        providerAuthorization: consumed.providerAuthorization,
+        credentialActor: credentialCheck.actor,
+        startedAt,
+        finishedAt: nowIso(),
+        exitCode
+      };
       const next = { ...current, providerInvocation: invocation };
       await atomicWriteJson(root, target, next);
       await appendJournal(root, runDir, "action.provider-invoked", {
@@ -3358,7 +3358,7 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
         exitCode
       });
       return next;
-    });
+    }, { ttlMs: 300_000 });
   }
   if (consumed.action !== "pr.merge" || consumed.provider !== "github-cli") {
     throw new Error("The governed provider execution path only supports github-cli pr.merge and git.push");
@@ -3385,35 +3385,34 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
   }
   // Re-check provider actor, branch policy, PR head, and fresh checks immediately before gh invocation.
   const providerAuthorization = await verifyMergeProviderAtInvocation(root, runId, consumed, manifest);
-  assertMutableRun(await loadRun(root, runId), "Action provider execution");
-  const startedAt = nowIso();
-  let exitCode = 0;
-  try {
-    await execFileAsync(executable.path, expectedCommand.slice(1), { cwd: manifest.cwd, encoding: "utf8" });
-  } catch (error) {
-    exitCode = Number.isInteger(error?.code) ? error.code : 1;
-  }
-  const invocation = {
-    schemaVersion: 1,
-    id: `github-pr-merge-wrapper:${runId}:${consumed.attemptId}`,
-    actionAttemptId: consumed.attemptId,
-    provider: "github-cli",
-    command: expectedCommand,
-    adminBypass: false,
-    providerExecutable: executable,
-    providerAuthorization,
-    startedAt,
-    finishedAt: nowIso(),
-    exitCode
-  };
   return withRunLock(root, runId, async ({ runDir }) => {
     const run = await loadRun(root, runId);
-    assertMutableRun(run, "Action provider invocation");
+    assertMutableRun(run, "Action provider execution");
     const target = safeJoin(runDir, "actions", `${consumed.tokenHash}.json`);
     const current = await readJson(root, target);
     if (current.status !== "spent" || current.attemptId !== consumed.attemptId) {
       throw new Error("PR merge provider invocation is not bound to the consumed action attempt");
     }
+    const startedAt = nowIso();
+    let exitCode = 0;
+    try {
+      await execFileAsync(executable.path, expectedCommand.slice(1), { cwd: run.manifest.cwd, encoding: "utf8" });
+    } catch (error) {
+      exitCode = Number.isInteger(error?.code) ? error.code : 1;
+    }
+    const invocation = {
+      schemaVersion: 1,
+      id: `github-pr-merge-wrapper:${runId}:${consumed.attemptId}`,
+      actionAttemptId: consumed.attemptId,
+      provider: "github-cli",
+      command: expectedCommand,
+      adminBypass: false,
+      providerExecutable: executable,
+      providerAuthorization,
+      startedAt,
+      finishedAt: nowIso(),
+      exitCode
+    };
     const next = { ...current, providerInvocation: invocation };
     await atomicWriteJson(root, target, next);
     await appendJournal(root, runDir, "action.provider-invoked", {
@@ -3422,7 +3421,7 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
       exitCode
     });
     return next;
-  });
+  }, { ttlMs: 300_000 });
 }
 
 function validateActionReceipt(record, outcome, receipt) {
