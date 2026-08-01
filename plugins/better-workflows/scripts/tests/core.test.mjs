@@ -7,6 +7,7 @@ import {
   link,
   mkdtemp,
   mkdir,
+  readFile,
   stat,
   symlink,
   writeFile
@@ -32,6 +33,7 @@ import {
   reconcileAction,
   routeMode,
   safeJoin,
+  sha256,
   updateState
 } from "../lib/core.mjs";
 import { captureSentinel } from "../lib/git.mjs";
@@ -321,6 +323,15 @@ test("destructive cleanup actions require an immutable run-owned resource receip
     remoteRevision: "abc",
     requiredEvidence: ["preflight"]
   }, "tree", await loadDefaults());
+  const reservationPath = path.join(root, "creation-reservations", `${sha256(resource)}.json`);
+  const reservation = JSON.parse(await readFile(reservationPath, "utf8"));
+  assert.equal(reservation.expiresAt, creationIssued.expiresAt);
+  await writeFile(reservationPath, `${JSON.stringify({ ...reservation, tokenHash: "0".repeat(64) })}\n`);
+  await assert.rejects(
+    consumeActionToken(root, registeredRun.runId, creationIssued.token, "tree"),
+    /creation reservation is missing, expired, or rebound/
+  );
+  await writeFile(reservationPath, `${JSON.stringify(reservation)}\n`);
   const creationSpent = await consumeActionToken(root, registeredRun.runId, creationIssued.token, "tree");
   const creationMarker = `sbw:${creationSpent.attemptId}:${creationSpent.idempotencyKey}`;
   const providerRevision = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: providerRepo })).stdout.trim();

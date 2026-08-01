@@ -563,6 +563,19 @@ test("review packages prove the Git manifest and dispositions fail closed", asyn
   ));
   await markBroadReviewComplete(root, started.runId, first.packageId, head, sentinel.digest);
   assert.equal((await reviewStatus(root, started.runId)).complete, true);
+  await updateState(root, started.runId, (state) => ({ ...state, status: "completed" }));
+  await assert.rejects(
+    addReviewFinding(root, started.runId, {
+      packageId: first.packageId,
+      path: "src/a.ts",
+      location: "3",
+      rule: "post-completion-mutation",
+      severity: "P1",
+      status: "open",
+      summary: "must be rejected after terminal completion"
+    }),
+    /cannot mutate a terminal run/
+  );
 });
 
 test("action tokens require the mapped ledger stage to be ready", async () => {

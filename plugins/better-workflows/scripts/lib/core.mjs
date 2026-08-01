@@ -83,9 +83,10 @@ const OWNED_RESOURCE_CREATION_SCHEMAS = {
   },
   "pr.create": {
     providers: new Set(["github-cli"]),
-    pattern: /^pull\/\d+$/,
+    pattern: /^pull\/(?:new|\d+)$/,
     prove: (receipt, resource) => (
-      receipt.number === Number(resource.slice("pull/".length)) &&
+      Number.isInteger(receipt.number) &&
+      (resource === "pull/new" || receipt.number === Number(resource.slice("pull/".length))) &&
       typeof receipt.head === "string" && receipt.head.length > 0 &&
       typeof receipt.base === "string" && receipt.base.length > 0 &&
       typeof receipt.url === "string" && receipt.url.length > 0
@@ -880,10 +881,13 @@ async function reserveCreationResource(root, runId, resource, tokenHash, expires
   }
 }
 
-async function releaseCreationResource(root, runId, resource) {
+async function releaseCreationResource(root, runId, resource, tokenHash = null) {
   const target = creationReservationPath(root, resource);
   const reservation = await readJson(root, target).catch(() => null);
-  if (reservation?.runId === runId) await unlink(target).catch(() => undefined);
+  if (
+    reservation?.runId === runId &&
+    (tokenHash === null || reservation.tokenHash === tokenHash)
+  ) await unlink(target).catch(() => undefined);
 }
 
 export async function registerOwnedResource(root, runId, { resource, creationReceipt }) {
@@ -1663,6 +1667,9 @@ async function captureCreationPrecondition(cwd, action, resource) {
     return { action, resource, state: present || await pathExists(path.resolve(cwd, worktreePath)) ? "present" : "absent", path: worktreePath };
   }
   if (action === "pr.create") {
+    if (resource === "pull/new") {
+      return { action, resource, state: "absent", number: null };
+    }
     const number = Number(resource.slice("pull/".length));
     try {
       const actual = JSON.parse((await execFileAsync("gh", ["pr", "view", String(number), "--json", "number,state"], {
@@ -2122,7 +2129,7 @@ async function verifyProviderReceipt(manifest, record, receipt) {
       `github:${repository}:pr.create:${actual.number}:${actual.headRefOid}`
     );
     if (
-      actual.number !== Number(String(record.resource).replace(/^pull\//, "")) ||
+      (record.resource !== "pull/new" && actual.number !== Number(String(record.resource).replace(/^pull\//, ""))) ||
       actual.number !== providerReceipt.number ||
       actual.headRefOid !== providerReceipt.head ||
       actual.baseRefName !== providerReceipt.base ||
@@ -3008,10 +3015,11 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
       throw new Error("Action token TTL must be 1..3600 seconds");
     }
     let reservationHeld = false;
+    const issuedAt = nowIso();
+    const expiresAt = new Date(Date.now() + ttlSeconds * 1000).toISOString();
     try {
       if (OWNED_RESOURCE_CREATION_ACTIONS.has(request.action)) {
         // Reserve before observing absence so an external creator cannot win the gap.
-        const expiresAt = new Date(Date.now() + ttlSeconds * 1000).toISOString();
         await reserveCreationResource(root, runId, request.resource, tokenHash, expiresAt);
         reservationHeld = true;
         creationPrecondition = await captureCreationPrecondition(manifest.cwd, request.action, request.resource);
@@ -3019,14 +3027,13 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
           throw new Error("Owned resource creation requires an observed absent precondition after reservation");
         }
       }
-      const issuedAt = nowIso();
       const record = {
         schemaVersion: 1,
         tokenHash,
         status: "issued",
         outcome: null,
         issuedAt,
-        expiresAt: new Date(Date.now() + ttlSeconds * 1000).toISOString(),
+        expiresAt,
         runId,
         action: request.action,
         provider: request.provider,
@@ -3048,7 +3055,7 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
       });
       return { token, ...record };
     } catch (error) {
-      if (reservationHeld) await releaseCreationResource(root, runId, request.resource);
+      if (reservationHeld) await releaseCreationResource(root, runId, request.resource, tokenHash);
       throw error;
     }
   });
@@ -3061,6 +3068,17 @@ export async function consumeActionToken(root, runId, token, currentTreeDigest) 
     const record = await readJson(root, target);
     if (record.status !== "issued") throw new Error("Action token was already consumed");
     if (Date.parse(record.expiresAt) <= Date.now()) throw new Error("Action token expired");
+    if (OWNED_RESOURCE_CREATION_ACTIONS.has(record.action)) {
+      const reservation = await readJson(root, creationReservationPath(root, record.resource)).catch(() => null);
+      if (
+        reservation?.runId !== runId ||
+        reservation.tokenHash !== tokenHash ||
+        reservation.expiresAt !== record.expiresAt ||
+        Date.parse(reservation.expiresAt ?? "") <= Date.now()
+      ) {
+        throw new Error("Action token creation reservation is missing, expired, or rebound");
+      }
+    }
     if (record.treeDigest !== currentTreeDigest) throw new Error("Action token tree binding changed");
     const contract = await readJson(root, safeJoin(runDir, "contract.json"));
     if (record.contractDigest !== digestObject(contract)) throw new Error("Action token contract binding changed");

@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { atomicWriteJson, digestObject, listJsonRecords, loadRun, nowIso, readJson, safeJoin, sha256 } from "./core.mjs";
+import { atomicWriteJson, digestObject, listJsonRecords, loadRun, nowIso, readJson, safeJoin, sha256, withRunLock } from "./core.mjs";
 
 const execFileAsync = promisify(execFile);
 const SHA = /^[0-9a-f]{40}$/;
@@ -270,71 +270,76 @@ async function assertBroadReviewEvidence(root, run, reviewPackage) {
 }
 
 export async function addReviewFinding(root, runId, finding, { update = false } = {}) {
-  const run = await loadRun(root, runId);
-  if (!finding.packageId || !finding.path || !finding.location || !finding.rule) throw new Error("Review finding identity is required");
-  if (!["P0", "P1", "P2", "P3"].includes(finding.severity)) throw new Error("Review finding severity is invalid");
-  const packageTarget = safeJoin(packageDirectory(run.runDir), `${finding.packageId}.json`);
-  const reviewPackage = await readJson(root, packageTarget).catch((error) => {
-    if (error.code === "ENOENT") throw new Error(`Review finding references unknown package: ${finding.packageId}`);
-    throw error;
-  });
-  if (
-    reviewPackage.schemaVersion !== 1 ||
-    reviewPackage.immutable !== true ||
-    reviewPackage.contractDigest !== digestObject(run.contract) ||
-    reviewPackage.templateDigest !== run.contract.templateDigest
-  ) {
-    throw new Error("Review finding package is bound to a different contract or template");
-  }
-  const status = validateFindingDisposition(finding);
-  const id = stableFindingId(finding);
-  await assertFindingEvidence(root, run, { ...finding, id, status });
-  const disposition = status === "accepted-risk"
-    ? { owner: finding.owner, reason: finding.reason, expiry: finding.expiry }
-    : ["resolved", "rejected-with-evidence"].includes(status)
-      ? { evidenceId: finding.evidenceId }
-      : {};
-  const value = {
-    schemaVersion: 1,
-    id,
-    packageId: finding.packageId,
-    path: finding.path,
-    location: finding.location,
-    rule: finding.rule,
-    severity: finding.severity,
-    status,
-    summary: String(finding.summary ?? ""),
-    createdAt: finding.createdAt ?? nowIso(),
-    updatedAt: nowIso(),
-    ...disposition
-  };
-  const target = safeJoin(findingDirectory(run.runDir), `${id}.json`);
-  try {
-    const existing = await readJson(root, target);
-    if (existing.packageId !== value.packageId || existing.path !== value.path || existing.location !== value.location || existing.rule !== value.rule) {
-      throw new Error("Finding identity collision");
+  return withRunLock(root, runId, async ({ runDir }) => {
+    const run = await loadRun(root, runId);
+    if (["completed", "no_op", "cancelled_superseded", "cancelled_evidence_sufficient"].includes(run.state.status)) {
+      throw new Error("Review findings cannot mutate a terminal run");
     }
-    if (update) {
-      const next = {
-        ...existing,
-        severity: value.severity,
-        status: value.status,
-        summary: value.summary,
-        ...disposition,
-        updatedAt: nowIso()
-      };
-      for (const key of ["owner", "reason", "expiry", "evidenceId"]) {
-        if (!Object.hasOwn(disposition, key)) delete next[key];
+    if (!finding.packageId || !finding.path || !finding.location || !finding.rule) throw new Error("Review finding identity is required");
+    if (!["P0", "P1", "P2", "P3"].includes(finding.severity)) throw new Error("Review finding severity is invalid");
+    const packageTarget = safeJoin(packageDirectory(runDir), `${finding.packageId}.json`);
+    const reviewPackage = await readJson(root, packageTarget).catch((error) => {
+      if (error.code === "ENOENT") throw new Error(`Review finding references unknown package: ${finding.packageId}`);
+      throw error;
+    });
+    if (
+      reviewPackage.schemaVersion !== 1 ||
+      reviewPackage.immutable !== true ||
+      reviewPackage.contractDigest !== digestObject(run.contract) ||
+      reviewPackage.templateDigest !== run.contract.templateDigest
+    ) {
+      throw new Error("Review finding package is bound to a different contract or template");
+    }
+    const status = validateFindingDisposition(finding);
+    const id = stableFindingId(finding);
+    await assertFindingEvidence(root, run, { ...finding, id, status });
+    const disposition = status === "accepted-risk"
+      ? { owner: finding.owner, reason: finding.reason, expiry: finding.expiry }
+      : ["resolved", "rejected-with-evidence"].includes(status)
+        ? { evidenceId: finding.evidenceId }
+        : {};
+    const value = {
+      schemaVersion: 1,
+      id,
+      packageId: finding.packageId,
+      path: finding.path,
+      location: finding.location,
+      rule: finding.rule,
+      severity: finding.severity,
+      status,
+      summary: String(finding.summary ?? ""),
+      createdAt: finding.createdAt ?? nowIso(),
+      updatedAt: nowIso(),
+      ...disposition
+    };
+    const target = safeJoin(findingDirectory(runDir), `${id}.json`);
+    try {
+      const existing = await readJson(root, target);
+      if (existing.packageId !== value.packageId || existing.path !== value.path || existing.location !== value.location || existing.rule !== value.rule) {
+        throw new Error("Finding identity collision");
       }
-      await atomicWriteJson(root, target, next);
-      return next;
+      if (update) {
+        const next = {
+          ...existing,
+          severity: value.severity,
+          status: value.status,
+          summary: value.summary,
+          ...disposition,
+          updatedAt: nowIso()
+        };
+        for (const key of ["owner", "reason", "expiry", "evidenceId"]) {
+          if (!Object.hasOwn(disposition, key)) delete next[key];
+        }
+        await atomicWriteJson(root, target, next);
+        return next;
+      }
+      return existing;
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
     }
-    return existing;
-  } catch (error) {
-    if (error.code !== "ENOENT") throw error;
-  }
-  await atomicWriteJson(root, target, value);
-  return value;
+    await atomicWriteJson(root, target, value);
+    return value;
+  });
 }
 
 export async function reviewStatus(root, runId) {
@@ -443,46 +448,56 @@ export async function reviewStatus(root, runId) {
 }
 
 export async function recordRepairRound(root, runId, packageIdValue, result) {
-  const run = await loadRun(root, runId);
-  const target = safeJoin(packageDirectory(run.runDir), `${packageIdValue}.json`);
-  const value = await readJson(root, target);
-  const nextRound = Number(value.repairRounds ?? 0) + 1;
-  if (nextRound > 5) throw new Error("Scoped review repair budget exhausted");
-  const next = {
-    ...value,
-    repairRounds: nextRound,
-    lastRepair: { at: nowIso(), ...result }
-  };
-  await atomicWriteJson(root, target, next);
-  return next;
+  return withRunLock(root, runId, async ({ runDir }) => {
+    const run = await loadRun(root, runId);
+    if (["completed", "no_op", "cancelled_superseded", "cancelled_evidence_sufficient"].includes(run.state.status)) {
+      throw new Error("Review repair cannot mutate a terminal run");
+    }
+    const target = safeJoin(packageDirectory(runDir), `${packageIdValue}.json`);
+    const value = await readJson(root, target);
+    const nextRound = Number(value.repairRounds ?? 0) + 1;
+    if (nextRound > 5) throw new Error("Scoped review repair budget exhausted");
+    const next = {
+      ...value,
+      repairRounds: nextRound,
+      lastRepair: { at: nowIso(), ...result }
+    };
+    await atomicWriteJson(root, target, next);
+    return next;
+  });
 }
 
 export async function markBroadReviewComplete(root, runId, packageIdValue, head, sentinelDigest) {
-  const run = await loadRun(root, runId);
-  if (!SHA.test(head) || !DIGEST.test(sentinelDigest)) throw new Error("Broad review binding is invalid");
-  const target = safeJoin(packageDirectory(run.runDir), `${packageIdValue}.json`);
-  const value = await readJson(root, target);
-  if (head !== value.head) throw new Error("Broad review must bind the final HEAD");
-  if (
-    run.state.lastSentinelVerified !== true ||
-    run.state.lastSentinelComplete !== true ||
-    sentinelDigest !== run.state.lastSentinel?.digest
-  ) throw new Error("Broad review sentinel is not a verified complete current sentinel");
-  const currentHead = (await execFileAsync("git", ["rev-parse", "--verify", "HEAD^{commit}"], {
-    cwd: run.manifest.cwd,
-    encoding: "utf8"
-  })).stdout.trim();
-  if (currentHead !== head) throw new Error("Broad review must bind the current HEAD");
-  const findings = await listJsonRecords(root, findingDirectory(run.runDir));
-  for (const finding of findings.filter((item) => item.packageId === packageIdValue)) {
-    validateFindingDisposition(finding);
-    await assertFindingEvidence(root, run, finding);
-  }
-  if (findings.some((item) => item.packageId === packageIdValue && item.status === "open")) {
-    throw new Error("Broad review requires scoped findings to be closed");
-  }
-  await assertBroadReviewEvidence(root, run, value);
-  const next = { ...value, broadReview: { required: true, complete: true, head, sentinelDigest, completedAt: nowIso() } };
-  await atomicWriteJson(root, target, next);
-  return next;
+  return withRunLock(root, runId, async ({ runDir }) => {
+    const run = await loadRun(root, runId);
+    if (["completed", "no_op", "cancelled_superseded", "cancelled_evidence_sufficient"].includes(run.state.status)) {
+      throw new Error("Broad review cannot mutate a terminal run");
+    }
+    if (!SHA.test(head) || !DIGEST.test(sentinelDigest)) throw new Error("Broad review binding is invalid");
+    const target = safeJoin(packageDirectory(runDir), `${packageIdValue}.json`);
+    const value = await readJson(root, target);
+    if (head !== value.head) throw new Error("Broad review must bind the final HEAD");
+    if (
+      run.state.lastSentinelVerified !== true ||
+      run.state.lastSentinelComplete !== true ||
+      sentinelDigest !== run.state.lastSentinel?.digest
+    ) throw new Error("Broad review sentinel is not a verified complete current sentinel");
+    const currentHead = (await execFileAsync("git", ["rev-parse", "--verify", "HEAD^{commit}"], {
+      cwd: run.manifest.cwd,
+      encoding: "utf8"
+    })).stdout.trim();
+    if (currentHead !== head) throw new Error("Broad review must bind the current HEAD");
+    const findings = await listJsonRecords(root, findingDirectory(runDir));
+    for (const finding of findings.filter((item) => item.packageId === packageIdValue)) {
+      validateFindingDisposition(finding);
+      await assertFindingEvidence(root, run, finding);
+    }
+    if (findings.some((item) => item.packageId === packageIdValue && item.status === "open")) {
+      throw new Error("Broad review requires scoped findings to be closed");
+    }
+    await assertBroadReviewEvidence(root, run, value);
+    const next = { ...value, broadReview: { required: true, complete: true, head, sentinelDigest, completedAt: nowIso() } };
+    await atomicWriteJson(root, target, next);
+    return next;
+  });
 }
