@@ -17,6 +17,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import {
   addEvidence,
+  assertProviderReceiptShape,
   buildContract,
   consumeActionToken,
   completeRun,
@@ -63,6 +64,45 @@ function contract(overrides = {}) {
   });
   return value;
 }
+
+test("PR creation receipts bind to the exact candidate source head", () => {
+  const expectedHead = "a".repeat(40);
+  const record = {
+    action: "pr.create",
+    provider: "github-cli",
+    resource: "pull/new",
+    outcome: "success",
+    attemptId: "attempt-1",
+    idempotencyKey: "idempotency-1",
+    expectedHead,
+    targetRef: "dev",
+    creationPrecondition: { action: "pr.create", resource: "pull/new", state: "absent", number: null }
+  };
+  const receipt = {
+    executionId: "github:test:pr.create:12",
+    proofKind: "github-pr-create",
+    requestDigest: "0".repeat(64),
+    responseDigest: "1".repeat(64),
+    verifiedAt: "2026-08-01T00:00:00.000Z",
+    terminalState: "success",
+    created: true,
+    creationProof: {
+      attemptId: record.attemptId,
+      idempotencyKey: record.idempotencyKey,
+      marker: `sbw:${record.attemptId}:${record.idempotencyKey}`
+    },
+    number: 12,
+    head: "b".repeat(40),
+    base: "dev",
+    url: "https://github.com/example/repo/pull/12",
+    creationPreconditionDigest: digestObject(record.creationPrecondition)
+  };
+  assert.throws(
+    () => assertProviderReceiptShape(record, receipt),
+    /GitHub pull request creation proof is incomplete/
+  );
+  assert.doesNotThrow(() => assertProviderReceiptShape(record, { ...receipt, head: expectedHead }));
+});
 
 test("auto routing follows risk and explicit modes never downgrade", () => {
   const value = contract();

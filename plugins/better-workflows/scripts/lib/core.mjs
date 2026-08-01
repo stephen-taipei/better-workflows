@@ -48,6 +48,7 @@ export const FINDING_STATES = new Set([
 
 const RUN_ID = /^sbw-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{12}$/;
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+const SHA = /^[a-f0-9]{40}$/i;
 const PLUGIN_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const DEFAULTS_PATH = path.join(PLUGIN_ROOT, "config", "defaults.json");
 const DESTRUCTIVE_CLEANUP_ACTIONS = new Set([
@@ -647,7 +648,7 @@ export async function withRunLock(root, runId, callback, options = {}) {
   }
 }
 
-function assertProviderReceiptShape(record, providerReceipt, outcome = record.outcome) {
+export function assertProviderReceiptShape(record, providerReceipt, outcome = record.outcome) {
   const commonValid = (
     providerReceipt &&
     typeof providerReceipt === "object" &&
@@ -740,6 +741,8 @@ function assertProviderReceiptShape(record, providerReceipt, outcome = record.ou
     (!providerReceipt.created || !Number.isInteger(providerReceipt.number) ||
       typeof providerReceipt.head !== "string" || !providerReceipt.head ||
       typeof providerReceipt.base !== "string" || !providerReceipt.base ||
+      (record.expectedHead !== undefined &&
+        (!SHA.test(record.expectedHead) || providerReceipt.head !== record.expectedHead)) ||
       (record.targetRef && providerReceipt.base !== record.targetRef) ||
       typeof providerReceipt.url !== "string" || !providerReceipt.url)
   ) {
@@ -963,6 +966,15 @@ export async function registerOwnedResource(root, runId, { resource, creationRec
     if (!creationAction) {
       throw new Error("Owned resource registration requires a reconciled successful run action");
     }
+    if (creationReceipt.action === "pr.create" && !SHA.test(creationAction.expectedHead ?? "")) {
+      throw new Error("Owned pull request registration requires an exact expected source head");
+    }
+    assertProviderReceiptShape({
+      action: creationReceipt.action,
+      provider: creationReceipt.provider,
+      resource,
+      expectedHead: creationAction.expectedHead
+    }, creationReceipt.providerReceipt);
     const reservation = await readJson(root, creationReservationPath(root, resource)).catch(() => null);
     if (reservation?.runId !== runId || reservation.tokenHash !== creationAction.tokenHash) {
       throw new Error("Owned resource registration requires an exclusive creation reservation");
@@ -979,7 +991,8 @@ export async function registerOwnedResource(root, runId, { resource, creationRec
         attemptId: creationReceipt.attemptId,
         spentAt: creationAction.spentAt,
         providerAuthorization: creationAction.providerAuthorization,
-        creationPrecondition: creationAction.creationPrecondition
+        creationPrecondition: creationAction.creationPrecondition,
+        expectedHead: creationAction.expectedHead
       },
       { providerReceipt: creationReceipt.providerReceipt }
     );
@@ -1910,6 +1923,7 @@ async function verifyOwnedResourceCreationProof(manifest, record, providerReceip
     if (
       actual.node_id !== proof.providerObjectId ||
       actual.user?.login !== actor ||
+      (record.expectedHead && actual.head?.sha !== record.expectedHead) ||
       typeof actual.body !== "string" ||
       !actual.body.includes(`<!-- ${marker} -->`) ||
       providerReceipt.url !== actual.html_url ||
@@ -2123,7 +2137,8 @@ async function verifyProviderReceipt(manifest, record, receipt) {
         resource: record.resource,
         remoteRevision: record.remoteRevision,
         repository,
-        targetRef: record.targetRef ?? null
+        targetRef: record.targetRef ?? null,
+        expectedHead: record.expectedHead ?? null
       },
       response,
       `github:${repository}:pr.create:${actual.number}:${actual.headRefOid}`
@@ -2132,6 +2147,7 @@ async function verifyProviderReceipt(manifest, record, receipt) {
       (record.resource !== "pull/new" && actual.number !== Number(String(record.resource).replace(/^pull\//, ""))) ||
       actual.number !== providerReceipt.number ||
       actual.headRefOid !== providerReceipt.head ||
+      (record.expectedHead && actual.headRefOid !== record.expectedHead) ||
       actual.baseRefName !== providerReceipt.base ||
       (record.targetRef && actual.baseRefName !== record.targetRef) ||
       actual.url !== providerReceipt.url
@@ -2855,8 +2871,17 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
         }
       }
     }
-    if (request.action === "pr.create" && contract.template === "pr-to-dev") {
-      actionBinding.targetRef = "dev";
+    if (request.action === "pr.create") {
+      const expectedHead = (await execFileAsync("git", ["rev-parse", "--verify", "HEAD^{commit}"], {
+        cwd: manifest.cwd,
+        encoding: "utf8"
+      })).stdout.trim();
+      if (!SHA.test(expectedHead)) throw new Error("PR creation requires an exact candidate source head");
+      actionBinding = {
+        ...actionBinding,
+        expectedHead,
+        ...(contract.template === "pr-to-dev" ? { targetRef: "dev" } : {})
+      };
     }
     if (request.action === "pr.merge") {
       const pullRequest = Number(String(request.resource).replace(/^pull\//, ""));

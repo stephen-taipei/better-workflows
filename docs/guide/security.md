@@ -30,6 +30,9 @@ rationale.
   handoffs.
 - Unknown remote outcomes require a read-only provider query and
   reconciliation; they are never blindly retried.
+- Governed `pr.create` actions bind the provider receipt to the exact candidate
+  source commit observed when the action token is issued; a PR from another
+  source head cannot be reconciled or registered as run-owned.
 
 ## External model transport
 
