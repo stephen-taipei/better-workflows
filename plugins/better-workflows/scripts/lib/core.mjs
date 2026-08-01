@@ -1098,6 +1098,36 @@ export async function setRunStatus(root, runId, status, details = {}) {
   );
 }
 
+export async function completeRun(root, runId, completionDecision) {
+  return withRunLock(root, runId, async ({ runDir }) => {
+    const result = await evaluateCompletion(root, runId);
+    const target = safeJoin(runDir, "state.json");
+    const current = await readJson(root, target);
+    if (!result.ok) {
+      const next = {
+        ...current,
+        status: "inconclusive",
+        completionBlockers: result.blockers,
+        updatedAt: nowIso()
+      };
+      await atomicWriteJson(root, target, next);
+      await appendJournal(root, runDir, "run.status", { from: current.status, to: next.status });
+      return { ok: false, status: next.status, blockers: result.blockers, state: next };
+    }
+    const next = {
+      ...current,
+      status: "completed",
+      completedAt: completionDecision.evaluatedAt,
+      completionBlockers: [],
+      completionDecision,
+      updatedAt: nowIso()
+    };
+    await atomicWriteJson(root, target, next);
+    await appendJournal(root, runDir, "run.status", { from: current.status, to: next.status });
+    return { ok: true, state: next };
+  });
+}
+
 function validateRecordId(id, kind) {
   if (typeof id !== "string" || !SAFE_ID.test(id)) throw new Error(`Invalid ${kind} id`);
 }
@@ -2006,12 +2036,19 @@ export async function verifyRequiredChecksProvider(cwd, payload) {
   if (branchRules.some((rule) => ["deletion", "non_fast_forward"].includes(rule.type))) {
     throw new Error("Protected branch rules permit deletion or non-fast-forward updates");
   }
-  const rulesets = JSON.parse((await execFileAsync("gh", [
+  const rulesetPages = JSON.parse((await execFileAsync("gh", [
     "api",
+    "--paginate",
+    "--slurp",
     `repos/${repositoryPath}/rulesets?includes_parents=true`
   ], { cwd, encoding: "utf8" })).stdout);
-  if (!Array.isArray(rulesets)) {
+  if (!Array.isArray(rulesetPages) || rulesetPages.some((page) => !Array.isArray(page))) {
     throw new Error("Repository rulesets could not be verified completely");
+  }
+  const rulesets = rulesetPages.flat();
+  const activeRulesets = rulesets.filter((item) => item?.enforcement === "active");
+  if (activeRulesets.some((item) => !Number.isInteger(Number(item?.id)))) {
+    throw new Error("Active repository ruleset listing contains an incomplete identity");
   }
   const branchRef = `refs/heads/${payload.baseRefName}`;
   const rulesetRequiredStatusChecks = [];
@@ -2021,7 +2058,7 @@ export async function verifyRequiredChecksProvider(cwd, payload) {
     const escaped = pattern.split("*").map((part) => part.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join(".*");
     return new RegExp(`^${escaped}$`).test(branchRef);
   };
-  for (const listed of rulesets.filter((item) => item?.enforcement === "active" && Number.isInteger(Number(item?.id)))) {
+  for (const listed of activeRulesets) {
     const detail = JSON.parse((await execFileAsync("gh", [
       "api",
       `repos/${repositoryPath}/rulesets/${Number(listed.id)}`
@@ -2083,6 +2120,9 @@ export async function verifyRequiredChecksProvider(cwd, payload) {
     throw new Error("Required check provider response is not a complete GitHub workflow-run set");
   }
   const observedAt = Date.parse(payload.observedAt ?? "");
+  if (!Number.isFinite(observedAt)) {
+    throw new Error("Required check evidence must include a valid observation timestamp");
+  }
   const observedIds = new Set(payload.checks.map((check) => String(check.providerRunId)));
   const providerIds = new Set(runs.map((run) => String(run.id)));
   if (observedIds.size !== runs.length || observedIds.size !== payload.checks.length ||
@@ -2102,7 +2142,8 @@ export async function verifyRequiredChecksProvider(cwd, payload) {
       run.conclusion !== "success" ||
       (check.providerName !== run.name && check.providerName !== run.workflow_name) ||
       check.name !== `${run.name ?? run.workflow_name}#${run.id}` ||
-      (Number.isFinite(observedAt) && Date.parse(run.completed_at ?? "") > observedAt)
+      !Number.isFinite(Date.parse(run.completed_at ?? "")) ||
+      Date.parse(run.completed_at ?? "") > observedAt
     ) {
       throw new Error(`Required check provider run is not a fresh successful GitHub run: ${check.providerRunId}`);
     }
@@ -2882,7 +2923,7 @@ export async function cleanupRuns(root, { olderThanDays, apply = false }) {
             action.outcome === "success" &&
             action.receipt?.providerReceipt?.resource === entry.resource
           )));
-          const pendingSideEffect = actions.some((action) => action.status === "spent" && ["pending", "unknown", "failure"].includes(action.outcome));
+          const pendingSideEffect = actions.some((action) => action.status !== "spent" || ["pending", "unknown", "failure"].includes(action.outcome));
           const terminalAt = Date.parse(state?.updatedAt ?? "");
           const oldEnough = Number.isFinite(terminalAt)
             ? terminalAt < cutoff

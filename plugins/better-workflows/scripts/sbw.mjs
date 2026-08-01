@@ -23,6 +23,7 @@ import {
   buildContract,
   cleanupRuns,
   consumeActionToken,
+  completeRun,
   createRun,
   digestObject,
   ensureStateRoot,
@@ -2055,12 +2056,7 @@ async function main() {
         : null,
       sentinelDigest: run.state.lastSentinel?.digest ?? null
     };
-    const state = await setRunStatus(root, subcommand, "completed", {
-      completedAt: completionDecision.evaluatedAt,
-      completionBlockers: [],
-      completionDecision
-    });
-    return { ok: true, state };
+    return completeRun(root, subcommand, completionDecision);
   }
   if (command === "doctor") return commandDoctor(root, options);
   if (command === "eval") return commandEval();
