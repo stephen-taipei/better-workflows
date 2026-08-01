@@ -281,6 +281,20 @@ test("run state is private and action tokens are one-shot with reconciliation", 
     "tree",
     defaults
   );
+  const reconciliationIssued = await issueActionToken(
+    root,
+    result.runId,
+    {
+      action: "deploy",
+      provider: "github",
+      resource: "workflow:reconcile-terminal",
+      remoteRevision: "abc",
+      requiredEvidence: ["preflight"]
+    },
+    "tree",
+    defaults
+  );
+  const reconciliationSpent = await consumeActionToken(root, result.runId, reconciliationIssued.token, "tree");
   await updateState(root, result.runId, (state) => ({ ...state, status: "failed_terminal" }));
   await assert.rejects(
     consumeActionToken(root, result.runId, terminalIssued.token, "tree"),
@@ -295,6 +309,37 @@ test("run state is private and action tokens are one-shot with reconciliation", 
       requiredEvidence: ["preflight"]
     }, "tree", defaults),
     /Action token issuance cannot mutate a terminal run/
+  );
+  const terminalProviderReceipt = {
+    action: "deploy",
+    provider: "github",
+    resource: "workflow:reconcile-terminal",
+    outcome: "unknown",
+    runId: reconciliationSpent.runId,
+    attemptId: reconciliationSpent.attemptId,
+    idempotencyKey: reconciliationSpent.idempotencyKey,
+    remoteRevision: reconciliationSpent.remoteRevision,
+    executionId: `github:terminal:${reconciliationSpent.attemptId}`,
+    proofKind: "github:deploy",
+    requestDigest: "a".repeat(64),
+    responseDigest: "b".repeat(64),
+    verifiedAt: "2026-08-01T00:00:00.000Z",
+    terminalState: "unknown",
+    reason: "terminal-run-test"
+  };
+  await assert.rejects(
+    reconcileAction(root, result.runId, reconciliationSpent.attemptId, "unknown", {
+      action: "deploy",
+      provider: "github",
+      resource: "workflow:reconcile-terminal",
+      outcome: "unknown",
+      runId: reconciliationSpent.runId,
+      attemptId: reconciliationSpent.attemptId,
+      idempotencyKey: reconciliationSpent.idempotencyKey,
+      remoteRevision: reconciliationSpent.remoteRevision,
+      providerReceipt: terminalProviderReceipt
+    }),
+    /Action reconciliation cannot mutate a terminal run/
   );
 });
 

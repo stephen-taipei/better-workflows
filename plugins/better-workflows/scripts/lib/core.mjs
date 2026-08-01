@@ -3294,6 +3294,8 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
       exitCode
     };
     return withRunLock(root, runId, async ({ runDir }) => {
+      const run = await loadRun(root, runId);
+      assertMutableRun(run, "Action provider invocation");
       const target = safeJoin(runDir, "actions", `${consumed.tokenHash}.json`);
       const current = await readJson(root, target);
       if (current.status !== "spent" || current.attemptId !== consumed.attemptId) {
@@ -3355,6 +3357,8 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
     exitCode
   };
   return withRunLock(root, runId, async ({ runDir }) => {
+    const run = await loadRun(root, runId);
+    assertMutableRun(run, "Action provider invocation");
     const target = safeJoin(runDir, "actions", `${consumed.tokenHash}.json`);
     const current = await readJson(root, target);
     if (current.status !== "spent" || current.attemptId !== consumed.attemptId) {
@@ -3442,6 +3446,8 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
     throw new Error("Action outcome must be success, failure, or unknown");
   }
   return withRunLock(root, runId, async ({ runDir }) => {
+    const run = await loadRun(root, runId);
+    assertMutableRun(run, "Action reconciliation");
     const records = await listJsonRecords(root, safeJoin(runDir, "actions"));
     const record = records.find((item) => item.attemptId === attemptId);
     if (!record) throw new Error(`Unknown action attempt: ${attemptId}`);
