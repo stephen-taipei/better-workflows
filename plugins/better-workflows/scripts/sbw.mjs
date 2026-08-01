@@ -1630,6 +1630,9 @@ async function main() {
       throw new Error("evidence usage: sbw evidence add <run-id> --file <json>");
     }
     const record = JSON.parse(await readFile(path.resolve(String(options.file)), "utf8"));
+    if (record.sourceKind === "independent-critic") {
+      throw new Error("Independent critic evidence must be emitted by a provider boundary, not sbw evidence add");
+    }
     return { ok: true, evidence: await addEvidence(root, runId, await enrichEvidence(root, runId, record)) };
   }
   if (command === "finding") {

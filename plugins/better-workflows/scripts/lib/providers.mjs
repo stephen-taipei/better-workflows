@@ -322,6 +322,9 @@ function validateReview(review) {
   if (typeof review.summary !== "string" || !Array.isArray(review.findings)) {
     throw new Error("Critic response schema is invalid");
   }
+  if (review.verdict === "PASS" && review.findings.length > 0) {
+    throw new Error("Critic PASS cannot contain findings");
+  }
   for (const finding of review.findings) {
     if (
       !["P0", "P1", "P2"].includes(finding.severity) ||

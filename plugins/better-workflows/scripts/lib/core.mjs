@@ -926,6 +926,24 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
     if (missingEvidence.length > 0) {
       throw new Error(`Action token missing evidence: ${missingEvidence.join(", ")}`);
     }
+    if (request.action === "worktree.cleanup") {
+      const cleanupPlan = admittedEvidence.find((item) => item.kind === "actions-cleanup-plan");
+      const payload = cleanupPlan?.receipt?.payload;
+      if (
+        payload?.ownerRunId !== runId ||
+        payload?.action !== request.action ||
+        !Array.isArray(payload.resources) ||
+        payload.resources.some((resource) => (
+          !resource ||
+          typeof resource !== "object" ||
+          resource.ownerRunId !== runId ||
+          typeof resource.resource !== "string" ||
+          !resource.resource
+        ))
+      ) {
+        throw new Error("Action token denied until cleanup resources are bound to this run and action");
+      }
+    }
     const authorities = contract.authority?.externalSideEffects ?? [];
     if (!authorities.includes(request.action) && !authorities.includes("*")) {
       throw new Error(`Action not authorized by TaskContract: ${request.action}`);

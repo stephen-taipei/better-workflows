@@ -128,6 +128,12 @@ function assertIndependentCriticBinding(record, run) {
   ) {
     throw new Error("Typed evidence independent-critic provider execution is invalid");
   }
+  if (run.contract.controlPlane?.reviewPolicy === "code-v1" && record.dependencies.promptDigest !== binding.instructionDigest) {
+    throw new Error("Typed evidence independent-critic prompt is not bound to the review instruction");
+  }
+  if (record.review?.verdict === "PASS" && record.review.findings.length > 0) {
+    throw new Error("Typed evidence independent-critic PASS cannot contain findings");
+  }
 }
 
 function assertFreshBinding(receipt, run, definition, kind) {

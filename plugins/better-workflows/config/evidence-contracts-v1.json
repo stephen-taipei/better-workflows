@@ -58,7 +58,10 @@
       ],
       "payloadFamily": "plan-design",
       "requiredFields": [
-        "objective"
+        "objective",
+        "ownerRunId",
+        "action",
+        "resources"
       ],
       "freshnessBinding": [
         "runId",
