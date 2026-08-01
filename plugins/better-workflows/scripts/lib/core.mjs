@@ -1164,6 +1164,7 @@ export async function completeRun(root, runId, completionDecision) {
   return withRunLock(root, runId, async ({ runDir }) => {
     const target = safeJoin(runDir, "state.json");
     const current = await readJson(root, target);
+    assertMutableRun({ state: current }, "Run completion");
     const manifest = await readJson(root, safeJoin(runDir, "manifest.json"));
     const contract = await readJson(root, safeJoin(runDir, "contract.json"));
     const { captureSentinel } = await import("./git.mjs");
@@ -2798,6 +2799,7 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
     const contract = await readJson(root, safeJoin(runDir, "contract.json"));
     const manifest = await readJson(root, safeJoin(runDir, "manifest.json"));
     const state = await readJson(root, safeJoin(runDir, "state.json"));
+    assertMutableRun({ state }, "Action token issuance");
     const findings = await listJsonRecords(root, safeJoin(runDir, "findings"));
     const evidence = await listJsonRecords(root, safeJoin(runDir, "evidence"));
     const actions = await listJsonRecords(root, safeJoin(runDir, "actions"));
@@ -3142,6 +3144,8 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
 export async function consumeActionToken(root, runId, token, currentTreeDigest) {
   const tokenHash = sha256(token);
   return withRunLock(root, runId, async ({ runDir }) => {
+    const state = await readJson(root, safeJoin(runDir, "state.json"));
+    assertMutableRun({ state }, "Action token consumption");
     const target = safeJoin(runDir, "actions", `${tokenHash}.json`);
     const record = await readJson(root, target);
     if (record.status !== "issued") throw new Error("Action token was already consumed");

@@ -612,6 +612,8 @@ test("review packages prove the Git manifest and dispositions fail closed", asyn
   const status = await reviewStatus(root, started.runId);
   assert.equal(status.repairBudgetExhausted, true);
   assert.equal(status.complete, false);
+  const repairRetry = await createReviewPackage(input);
+  assert.equal(repairRetry.packageId, first.packageId);
   await assert.rejects(recordRepairRound(root, started.runId, first.packageId, {}), /budget exhausted/);
   await addReviewFinding(root, started.runId, {
     packageId: first.packageId,
@@ -653,6 +655,8 @@ test("review packages prove the Git manifest and dispositions fail closed", asyn
   ));
   await markBroadReviewComplete(root, started.runId, first.packageId, head, sentinel.digest);
   assert.equal((await reviewStatus(root, started.runId)).complete, true);
+  const broadRetry = await createReviewPackage(input);
+  assert.equal(broadRetry.packageId, first.packageId);
   await updateState(root, started.runId, (state) => ({ ...state, status: "completed" }));
   await assert.rejects(
     addReviewFinding(root, started.runId, {

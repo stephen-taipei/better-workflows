@@ -268,6 +268,34 @@ test("run state is private and action tokens are one-shot with reconciliation", 
   const completion = await evaluateCompletion(root, result.runId);
   assert.equal(completion.ok, false);
   assert.ok(completion.blockers.includes("side-effect-not-reconciled"));
+  const terminalIssued = await issueActionToken(
+    root,
+    result.runId,
+    {
+      action: "deploy",
+      provider: "github",
+      resource: "workflow:terminal",
+      remoteRevision: "abc",
+      requiredEvidence: ["preflight"]
+    },
+    "tree",
+    defaults
+  );
+  await updateState(root, result.runId, (state) => ({ ...state, status: "failed_terminal" }));
+  await assert.rejects(
+    consumeActionToken(root, result.runId, terminalIssued.token, "tree"),
+    /Action token consumption cannot mutate a terminal run/
+  );
+  await assert.rejects(
+    issueActionToken(root, result.runId, {
+      action: "deploy",
+      provider: "github",
+      resource: "workflow:after-terminal",
+      remoteRevision: "abc",
+      requiredEvidence: ["preflight"]
+    }, "tree", defaults),
+    /Action token issuance cannot mutate a terminal run/
+  );
 });
 
 test("destructive cleanup actions require an immutable run-owned resource receipt", async () => {
@@ -615,6 +643,11 @@ test("completion re-captures the sentinel inside the final gate", async () => {
   assert.equal(completed.ok, false);
   assert.equal(completed.status, "inconclusive");
   assert.ok(completed.blockers.includes("current-sentinel-drift"));
+  await updateState(runRoot, run.runId, (state) => ({ ...state, status: "failed_terminal" }));
+  await assert.rejects(
+    completeRun(runRoot, run.runId, { decision: "complete" }),
+    /Run completion cannot mutate a terminal run/
+  );
 });
 
 test("state root symlinks and hardlinked JSON are rejected", async () => {

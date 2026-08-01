@@ -18,6 +18,24 @@ function packageId(input) {
   return `review-${sha256(digestObject(input)).slice(0, 32)}`;
 }
 
+const REVIEW_PACKAGE_IDENTITY_FIELDS = [
+  "base",
+  "head",
+  "mergeBase",
+  "scope",
+  "scopeDigest",
+  "diffManifest",
+  "diffManifestDigest",
+  "contractDigest",
+  "templateDigest",
+  "sentinelDigest",
+  "instructionDigest"
+];
+
+function reviewPackageIdentity(value) {
+  return Object.fromEntries(REVIEW_PACKAGE_IDENTITY_FIELDS.map((field) => [field, value[field]]));
+}
+
 function normalizeDiffManifest(value) {
   if (!value || typeof value !== "object" || Array.isArray(value) || !Array.isArray(value.files)) {
     throw new Error("Review diff manifest must contain a files array");
@@ -169,9 +187,9 @@ export async function createReviewPackage(request) {
     const target = safeJoin(packageDirectory(runDir), `${id}.json`);
     try {
       const existing = await readJson(root, target);
-      const { createdAt: _existingCreatedAt, ...existingIdentity } = existing;
-      const { createdAt: _createdAt, ...valueIdentity } = value;
-      if (digestObject(existingIdentity) !== digestObject(valueIdentity)) throw new Error("Review package identity drifted");
+      if (digestObject(reviewPackageIdentity(existing)) !== digestObject(reviewPackageIdentity(value))) {
+        throw new Error("Review package identity drifted");
+      }
       return existing;
     } catch (error) {
       if (error.code !== "ENOENT") throw error;
