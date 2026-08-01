@@ -943,6 +943,8 @@ export async function registerOwnedResource(root, runId, { resource, creationRec
   }
   const receiptDigest = digestObject(creationReceipt);
   return withRunLock(root, runId, async ({ runDir }) => {
+    const run = await loadRun(root, runId);
+    assertMutableRun(run, "Owned resource registration");
     const manifestPath = safeJoin(runDir, "manifest.json");
     const manifest = await readJson(root, manifestPath);
     const schema = OWNED_RESOURCE_CREATION_SCHEMAS[creationReceipt.action];
@@ -2788,6 +2790,9 @@ function assertPersistedSuccessfulMergeAction(actions, mergeBinding) {
 export async function issueActionToken(root, runId, request, currentTreeDigest, config) {
   for (const field of ["action", "provider", "resource", "remoteRevision"]) {
     if (typeof request[field] !== "string" || !request[field]) throw new Error(`Action ${field} is required`);
+  }
+  if (request.action === "pr.create") {
+    throw new Error("Governed pr.create is unavailable until its provider wrapper is implemented");
   }
   return withRunLock(root, runId, async ({ runDir }) => {
     const contract = await readJson(root, safeJoin(runDir, "contract.json"));

@@ -104,6 +104,26 @@ test("PR creation receipts bind to the exact candidate source head", () => {
   assert.doesNotThrow(() => assertProviderReceiptShape(record, { ...receipt, head: expectedHead }));
 });
 
+test("pr.create cannot issue an unexecutable governed token", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-pr-create-guard-"));
+  const started = await createRun({
+    root,
+    contract: contract({ authority: ["pr.create"] }),
+    requestedMode: "verified",
+    cwd: root
+  });
+  await assert.rejects(
+    issueActionToken(root, started.runId, {
+      action: "pr.create",
+      provider: "github-cli",
+      resource: "pull/new",
+      remoteRevision: "abc",
+      requiredEvidence: ["base-revision"]
+    }, "tree", { actionToken: { ttlSeconds: 60 } }),
+    /Governed pr\.create is unavailable/
+  );
+});
+
 test("auto routing follows risk and explicit modes never downgrade", () => {
   const value = contract();
   assert.equal(routeMode(value, "auto"), "verified");
@@ -478,6 +498,59 @@ test("destructive cleanup actions require an immutable run-owned resource receip
     requiredEvidence: ["actions-cleanup-plan"]
   }, "tree", await loadDefaults());
   assert.equal(issued.action, "branch.delete");
+});
+
+test("terminal runs reject owned resource registration before manifest mutation", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-terminal-resource-"));
+  const run = await createRun({
+    root,
+    contract: contract({ authority: ["branch.create"] }),
+    requestedMode: "verified",
+    cwd: root
+  });
+  await updateState(root, run.runId, (state) => ({ ...state, status: "completed" }));
+  await assert.rejects(
+    registerOwnedResource(root, run.runId, {
+      resource: "branch:feature/terminal",
+      creationReceipt: {
+        ownerRunId: run.runId,
+        resource: "branch:feature/terminal",
+        action: "branch.create",
+        attemptId: "terminal-attempt",
+        runId: run.runId,
+        idempotencyKey: "terminal-idempotency",
+        remoteRevision: "abc",
+        outcome: "success",
+        provider: "git",
+        providerReceipt: {
+          provider: "git",
+          action: "branch.create",
+          resource: "branch:feature/terminal",
+          outcome: "success",
+          runId: run.runId,
+          attemptId: "terminal-attempt",
+          idempotencyKey: "terminal-idempotency",
+          remoteRevision: "abc",
+          executionId: "git:terminal",
+          proofKind: "git-branch-create",
+          requestDigest: "0".repeat(64),
+          responseDigest: "1".repeat(64),
+          verifiedAt: "2026-08-01T00:00:00.000Z",
+          terminalState: "success",
+          creationProof: {
+            attemptId: "terminal-attempt",
+            idempotencyKey: "terminal-idempotency",
+            marker: "sbw:terminal-attempt:terminal-idempotency"
+          },
+          created: true,
+          ref: "feature/terminal",
+          revision: "a".repeat(40)
+        },
+        createdAt: "2026-08-01T00:00:00.000Z"
+      }
+    }),
+    /Owned resource registration cannot mutate a terminal run/
+  );
 });
 
 test("completion requires every declared evidence kind independently of acceptance coverage", async () => {
