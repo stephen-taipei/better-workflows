@@ -193,6 +193,17 @@ test("typed gate evidence rejects a failed result even when its shape is valid",
     addEvidence(root, started.runId, await gateRecord(run, "cleanup-manifest", { outcome: "failure" }, "cleanup-failed")),
     /outcome failed its success predicate/
   );
+  await assert.rejects(
+    addEvidence(root, started.runId, await gateRecord(run, "required-checks", {
+      ...pullEvidence,
+      command: "true",
+      result: true,
+      checkSet: ["test", "lint"],
+      providerRunIds: ["provider-run-1"],
+      conclusions: ["SUCCESS"]
+    }, "required-checks-cardinality")),
+    /provider observation is incomplete/
+  );
   await addEvidence(root, started.runId, await gateRecord(run, "required-checks", { ...pullEvidence, command: "true", result: true }));
 });
 
@@ -503,6 +514,16 @@ test("action tokens require the mapped ledger stage to be ready", async () => {
   await transitionLedger(root, started.runId, { eventId: "start-environment", type: "start", taskId: "environment", expectedLedgerDigest: digestObject(initialLedger) });
   const startedLedger = JSON.parse(await readFile(path.join(run.runDir, "ledger.json"), "utf8"));
   await transitionLedger(root, started.runId, { eventId: "complete-environment", type: "complete", taskId: "environment", evidenceKinds: ["environment-state"], expectedLedgerDigest: digestObject(startedLedger) });
+  await assert.rejects(
+    issueActionToken(root, started.runId, {
+      action: "test.action",
+      provider: "test",
+      resource: "test-resource",
+      remoteRevision: "remote",
+      requiredEvidence: ["caller-selected-shortcut"]
+    }, "tree", defaults),
+    /caller-selected evidence does not match the contract action gate/
+  );
   const issued = await issueActionToken(root, started.runId, {
     action: "test.action",
     provider: "test",

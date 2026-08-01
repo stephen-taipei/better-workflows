@@ -180,7 +180,10 @@ function assertFreshBinding(receipt, run, definition, kind) {
       payload.checkSet.length === 0 ||
       !Array.isArray(payload?.providerRunIds) ||
       payload.providerRunIds.length === 0 ||
+      payload.checkSet.length !== payload.providerRunIds.length ||
       new Set(payload.providerRunIds.map(String)).size !== payload.providerRunIds.length ||
+      payload.checkSet.some((value) => typeof value !== "string" || value.trim() === "") ||
+      payload.providerRunIds.some((value) => typeof value !== "string" || value.trim() === "") ||
       !Array.isArray(payload?.conclusions) ||
       payload.conclusions.length !== payload.providerRunIds.length ||
       payload.conclusions.some((value) => !["SUCCESS", "success", "PASS", "pass"].includes(String(value)))

@@ -62,12 +62,49 @@ const OWNED_RESOURCE_CREATION_ACTIONS = new Set([
   "actions.dispatch"
 ]);
 const OWNED_RESOURCE_CREATION_SCHEMAS = {
-  "branch.create": { providers: new Set(["git"]), pattern: /^branch:[A-Za-z0-9._/-]+$/ },
-  "worktree.create": { providers: new Set(["git"]), pattern: /^worktree:.+$/ },
-  "pr.create": { providers: new Set(["github-cli"]), pattern: /^pull\/\d+$/ },
-  "actions.dispatch": { providers: new Set(["github-cli"]), pattern: /^(run|workflow):.+$/ }
+  "branch.create": {
+    providers: new Set(["git"]),
+    pattern: /^branch:[A-Za-z0-9._/-]+$/,
+    prove: (receipt, resource) => (
+      receipt.ref === resource.slice("branch:".length) &&
+      typeof receipt.revision === "string" &&
+      /^[a-f0-9]{7,64}$/i.test(receipt.revision)
+    )
+  },
+  "worktree.create": {
+    providers: new Set(["git"]),
+    pattern: /^worktree:.+$/,
+    prove: (receipt, resource) => (
+      receipt.path === resource.slice("worktree:".length) &&
+      typeof receipt.revision === "string" &&
+      /^[a-f0-9]{7,64}$/i.test(receipt.revision)
+    )
+  },
+  "pr.create": {
+    providers: new Set(["github-cli"]),
+    pattern: /^pull\/\d+$/,
+    prove: (receipt, resource) => (
+      receipt.number === Number(resource.slice("pull/".length)) &&
+      typeof receipt.head === "string" && receipt.head.length > 0 &&
+      typeof receipt.base === "string" && receipt.base.length > 0 &&
+      typeof receipt.url === "string" && receipt.url.length > 0
+    )
+  },
+  "actions.dispatch": {
+    providers: new Set(["github-cli"]),
+    pattern: /^(run|workflow):.+$/,
+    prove: (receipt, resource) => {
+      const separator = resource.indexOf(":");
+      const kind = resource.slice(0, separator);
+      const value = resource.slice(separator + 1);
+      return (
+        typeof receipt.runId === "string" && receipt.runId.length > 0 &&
+        typeof receipt.url === "string" && receipt.url.length > 0 &&
+        (kind === "run" ? receipt.runId === value : receipt.workflow === value)
+      );
+    }
+  }
 };
-const ACTION_EVIDENCE_BINDING_ACTIONS = new Set(["pr.merge", "remote.sync"]);
 const OWNED_RESOURCE = /^[^\0\r\n]{1,512}$/;
 
 export function pluginRoot() {
@@ -597,6 +634,7 @@ export async function registerOwnedResource(root, runId, { resource, creationRec
     throw new Error("Owned resource creation receipt is required");
   }
   if (
+    creationReceipt.runId !== runId ||
     creationReceipt.ownerRunId !== runId ||
     creationReceipt.resource !== resource ||
     typeof creationReceipt.action !== "string" ||
@@ -604,6 +642,10 @@ export async function registerOwnedResource(root, runId, { resource, creationRec
     !OWNED_RESOURCE_CREATION_ACTIONS.has(creationReceipt.action) ||
     typeof creationReceipt.attemptId !== "string" ||
     !creationReceipt.attemptId ||
+    typeof creationReceipt.idempotencyKey !== "string" ||
+    !creationReceipt.idempotencyKey ||
+    typeof creationReceipt.remoteRevision !== "string" ||
+    !creationReceipt.remoteRevision ||
     creationReceipt.outcome !== "success" ||
     typeof creationReceipt.provider !== "string" ||
     !creationReceipt.provider ||
@@ -615,7 +657,13 @@ export async function registerOwnedResource(root, runId, { resource, creationRec
     creationReceipt.providerReceipt.created !== true ||
     creationReceipt.providerReceipt.action !== creationReceipt.action ||
     creationReceipt.providerReceipt.resource !== resource ||
-    creationReceipt.providerReceipt.outcome !== "success"
+    creationReceipt.providerReceipt.outcome !== "success" ||
+    creationReceipt.providerReceipt.runId !== runId ||
+    creationReceipt.providerReceipt.attemptId !== creationReceipt.attemptId ||
+    creationReceipt.providerReceipt.idempotencyKey !== creationReceipt.idempotencyKey ||
+    creationReceipt.providerReceipt.remoteRevision !== creationReceipt.remoteRevision ||
+    typeof creationReceipt.providerReceipt.executionId !== "string" ||
+    !creationReceipt.providerReceipt.executionId
   ) {
     throw new Error("Owned resource creation receipt is not bound to this run and resource");
   }
@@ -628,9 +676,10 @@ export async function registerOwnedResource(root, runId, { resource, creationRec
       !schema ||
       !schema.providers.has(creationReceipt.provider) ||
       !schema.pattern.test(resource) ||
-      creationReceipt.providerReceipt.provider !== creationReceipt.provider
+      creationReceipt.providerReceipt.provider !== creationReceipt.provider ||
+      !schema.prove(creationReceipt.providerReceipt, resource)
     ) {
-      throw new Error("Owned resource creation receipt does not match an approved provider/resource schema");
+      throw new Error("Owned resource creation receipt lacks action-specific provider creation proof");
     }
     const actions = await listJsonRecords(root, safeJoin(runDir, "actions"));
     const creationAction = actions.find((action) => (
@@ -1104,6 +1153,18 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
     if (!Array.isArray(request.requiredEvidence) || request.requiredEvidence.length === 0) {
       throw new Error("Action token requires a declared pre-action evidence gate");
     }
+    if (contract.schemaVersion === 2 && contract.actionGates) {
+      const configuredGate = contract.actionGates[request.action];
+      if (!Array.isArray(configuredGate) || configuredGate.length === 0) {
+        throw new Error(`No pre-action evidence gate is defined for: ${request.action}`);
+      }
+      if (
+        request.requiredEvidence.length !== configuredGate.length ||
+        request.requiredEvidence.some((kind, index) => kind !== configuredGate[index])
+      ) {
+        throw new Error("Action token denied because caller-selected evidence does not match the contract action gate");
+      }
+    }
     let admittedEvidence = evidence;
     if (contract.schemaVersion === 2) {
       const { validateTypedEvidenceRecord } = await import("./evidence.mjs");
@@ -1234,26 +1295,36 @@ function validateActionReceipt(record, outcome, receipt) {
   if (!receipt || typeof receipt !== "object" || Array.isArray(receipt)) {
     throw new Error("Action reconciliation requires a structured provider receipt");
   }
+  const bindingFields = ["runId", "attemptId", "idempotencyKey", "remoteRevision"];
+  const receiptBindingValid = bindingFields.every((field) => receipt[field] === record[field]);
   if (
     receipt.action !== record.action ||
     receipt.provider !== record.provider ||
     receipt.resource !== record.resource ||
     receipt.outcome !== outcome ||
+    !receiptBindingValid ||
     !receipt.providerReceipt ||
     typeof receipt.providerReceipt !== "object" ||
+    Array.isArray(receipt.providerReceipt) ||
     receipt.providerReceipt.action !== record.action ||
     receipt.providerReceipt.resource !== record.resource ||
     receipt.providerReceipt.outcome !== outcome ||
-    receipt.providerReceipt.provider !== record.provider
+    receipt.providerReceipt.provider !== record.provider ||
+    !bindingFields.every((field) => receipt.providerReceipt[field] === record[field]) ||
+    typeof receipt.providerReceipt.executionId !== "string" ||
+    !receipt.providerReceipt.executionId
   ) {
     throw new Error("Action reconciliation receipt is not bound to the action attempt");
   }
 }
 
 async function validateActionEvidenceBinding(root, runDir, record, attemptId, outcome, receipt) {
-  if (!ACTION_EVIDENCE_BINDING_ACTIONS.has(record.action) || outcome !== "success") return;
+  if (outcome !== "success") return;
   if (!Array.isArray(receipt.evidenceIds) || receipt.evidenceIds.length === 0) {
-    throw new Error("Successful side-effect reconciliation requires action-bound evidence IDs");
+    throw new Error("Successful action reconciliation requires action-bound evidence IDs");
+  }
+  if (new Set(receipt.evidenceIds).size !== receipt.evidenceIds.length) {
+    throw new Error("Action-bound evidence IDs must be unique");
   }
   const evidence = await listJsonRecords(root, safeJoin(runDir, "evidence"));
   for (const evidenceId of receipt.evidenceIds) {
@@ -1261,11 +1332,17 @@ async function validateActionEvidenceBinding(root, runDir, record, attemptId, ou
     const payload = item?.receipt?.payload;
     if (
       !item ||
+      item.status !== "complete" ||
+      item.stale === true ||
+      !payload ||
       payload?.actionAttemptId !== attemptId ||
       payload?.action !== record.action ||
       payload?.provider !== record.provider ||
       payload?.resource !== record.resource ||
-      payload?.outcome !== "success"
+      payload?.outcome !== "success" ||
+      payload?.idempotencyKey !== record.idempotencyKey ||
+      payload?.remoteRevision !== record.remoteRevision ||
+      payload?.providerExecutionId !== receipt.providerReceipt.executionId
     ) {
       throw new Error("Action-bound evidence does not prove the reconciled side effect");
     }
@@ -1284,6 +1361,13 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
       throw new Error("Action attempt was already reconciled");
     }
     validateActionReceipt(record, outcome, receipt);
+    const duplicateExecution = records.some((candidate) => (
+      candidate.tokenHash !== record.tokenHash &&
+      candidate.receipt?.providerReceipt?.executionId === receipt.providerReceipt.executionId
+    ));
+    if (duplicateExecution) {
+      throw new Error("Provider execution identity is already bound to another action attempt");
+    }
     await validateActionEvidenceBinding(root, runDir, record, attemptId, outcome, receipt);
     const target = safeJoin(runDir, "actions", `${record.tokenHash}.json`);
     const next = {

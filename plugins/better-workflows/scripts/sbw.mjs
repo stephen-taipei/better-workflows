@@ -1865,7 +1865,9 @@ async function main() {
           runId,
           String(options.attempt),
           String(options.outcome),
-          options.receipt ? String(options.receipt) : null
+          options.receipt
+            ? JSON.parse(await readFile(path.resolve(String(options.receipt)), "utf8"))
+            : null
         )
       };
     }

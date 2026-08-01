@@ -18,6 +18,7 @@ import {
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  addEvidence,
   atomicWriteJson,
   canonicalJson,
   digestObject,
@@ -75,6 +76,47 @@ const ALLOWED_BUILTIN_IMPORTS = new Set([
 
 function recipeError(message) {
   return new Error(`Workspace recipe: ${message}`);
+}
+
+async function addActionEvidence(stateRoot, action, providerReceipt) {
+  const run = await inspectRun(stateRoot, action.runId);
+  const payload = {
+    actionAttemptId: action.attemptId,
+    action: action.action,
+    provider: action.provider,
+    resource: action.resource,
+    outcome: "success",
+    idempotencyKey: action.idempotencyKey,
+    remoteRevision: action.remoteRevision,
+    providerExecutionId: providerReceipt.executionId,
+    receipt: providerReceipt
+  };
+  const record = {
+    id: `action-proof-${action.attemptId}`,
+    kind: "provider-reconciliation",
+    status: "complete",
+    summary: `Provider receipt for ${action.action}`,
+    acceptanceIds: [],
+    sourceDigest: digestObject(payload),
+    receipt: run.contract.schemaVersion === 2
+      ? {
+          contractId: "evidence-contracts-v1:provider-reconciliation",
+          contractVersion: 1,
+          runId: action.runId,
+          producer: { provider: "codex-root" },
+          inputBinding: {
+            runId: action.runId,
+            contractDigest: digestObject(run.contract),
+            remoteRevision: run.contract.remoteRevision ?? null
+          },
+          payload,
+          payloadDigest: digestObject(payload),
+          producedAt: nowIso()
+        }
+      : { payload }
+  };
+  if (run.contract.schemaVersion === 2) record.schemaVersion = 2;
+  return addEvidence(stateRoot, action.runId, record);
 }
 
 async function exists(target) {
@@ -1054,6 +1096,20 @@ export async function recipePromote(cwd, id, options) {
   if (recipe.config.enabled !== true) {
     await writeWorkspaceJson(recipe.root, recipe.paths.config, { ...recipe.config, enabled: true });
   }
+  const providerReceipt = {
+    provider: "local-workspace",
+    action: "recipe.promote",
+    resource: `recipe:${recipe.manifest.id}:${binding.executionDigest}`,
+    outcome: "success",
+    runId: promotion.action.runId,
+    attemptId: promotion.action.attemptId,
+    idempotencyKey: promotion.action.idempotencyKey,
+    remoteRevision: promotion.action.remoteRevision,
+    executionId: `local-workspace:recipe-promote:${promotion.action.attemptId}`,
+    kind: "workspace-recipe",
+    digest: sha256(canonicalJson(trust))
+  };
+  const actionEvidence = await addActionEvidence(stateRoot, promotion.action, providerReceipt);
   await reconcileAction(
     stateRoot,
     options.run,
@@ -1064,14 +1120,12 @@ export async function recipePromote(cwd, id, options) {
       provider: "local-workspace",
       resource: `recipe:${recipe.manifest.id}:${binding.executionDigest}`,
       outcome: "success",
-      providerReceipt: {
-        provider: "local-workspace",
-        action: "recipe.promote",
-        resource: `recipe:${recipe.manifest.id}:${binding.executionDigest}`,
-        outcome: "success",
-        kind: "workspace-recipe",
-        digest: sha256(canonicalJson(trust))
-      }
+      runId: promotion.action.runId,
+      attemptId: promotion.action.attemptId,
+      idempotencyKey: promotion.action.idempotencyKey,
+      remoteRevision: promotion.action.remoteRevision,
+      providerReceipt,
+      evidenceIds: [actionEvidence.id]
     }
   );
   return {
@@ -1294,6 +1348,20 @@ export async function recipeArtifactPromote(cwd, receiptId, artifactId, destinat
   const temp = `${target}.${randomBytes(6).toString("hex")}.tmp`;
   await copyFile(source, temp, fsConstants.COPYFILE_EXCL);
   await rename(temp, target);
+  const providerReceipt = {
+    provider: "local-workspace",
+    action: "artifact.promote",
+    resource,
+    outcome: "success",
+    runId: pending.action.runId,
+    attemptId: pending.action.attemptId,
+    idempotencyKey: pending.action.idempotencyKey,
+    remoteRevision: pending.action.remoteRevision,
+    executionId: `local-workspace:artifact-promote:${pending.action.attemptId}`,
+    kind: "workspace-artifact",
+    digest: artifact.sha256
+  };
+  const actionEvidence = await addActionEvidence(stateRoot, pending.action, providerReceipt);
   await reconcileAction(
     stateRoot,
     pending.runId,
@@ -1304,14 +1372,12 @@ export async function recipeArtifactPromote(cwd, receiptId, artifactId, destinat
       provider: "local-workspace",
       resource,
       outcome: "success",
-      providerReceipt: {
-        provider: "local-workspace",
-        action: "artifact.promote",
-        resource,
-        outcome: "success",
-        kind: "workspace-artifact",
-        digest: artifact.sha256
-      }
+      runId: pending.action.runId,
+      attemptId: pending.action.attemptId,
+      idempotencyKey: pending.action.idempotencyKey,
+      remoteRevision: pending.action.remoteRevision,
+      providerReceipt,
+      evidenceIds: [actionEvidence.id]
     }
   );
   return { ok: true, receiptId, artifactId, destination: normalized, sha256: artifact.sha256 };

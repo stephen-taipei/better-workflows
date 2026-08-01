@@ -161,6 +161,18 @@ test("run state is private and action tokens are one-shot with reconciliation", 
     consumeActionToken(root, result.runId, issued.token, "tree"),
     /already consumed/
   );
+  const timeoutProviderReceipt = {
+    action: "deploy",
+    provider: "github",
+    resource: "workflow:123",
+    outcome: "unknown",
+    runId: spent.runId,
+    attemptId: spent.attemptId,
+    idempotencyKey: spent.idempotencyKey,
+    remoteRevision: spent.remoteRevision,
+    executionId: `github:timeout:${spent.attemptId}`,
+    reason: "provider-timeout"
+  };
   const reconciled = await reconcileAction(
     root,
     result.runId,
@@ -171,13 +183,11 @@ test("run state is private and action tokens are one-shot with reconciliation", 
       provider: "github",
       resource: "workflow:123",
       outcome: "unknown",
-      providerReceipt: {
-        action: "deploy",
-        provider: "github",
-        resource: "workflow:123",
-        outcome: "unknown",
-        reason: "provider-timeout"
-      }
+      runId: spent.runId,
+      attemptId: spent.attemptId,
+      idempotencyKey: spent.idempotencyKey,
+      remoteRevision: spent.remoteRevision,
+      providerReceipt: timeoutProviderReceipt
     }
   );
   assert.equal(reconciled.outcome, "unknown");
@@ -233,6 +243,9 @@ test("destructive cleanup actions require an immutable run-owned resource receip
         resource: deniedResource,
         action: "branch.create",
         attemptId: "forged-attempt",
+        runId: denied.runId,
+        idempotencyKey: "forged-idempotency",
+        remoteRevision: "abc",
         outcome: "success",
         provider: "git",
         providerReceipt: {
@@ -240,7 +253,14 @@ test("destructive cleanup actions require an immutable run-owned resource receip
           action: "branch.create",
           resource: deniedResource,
           outcome: "success",
-          created: true
+          runId: denied.runId,
+          attemptId: "forged-attempt",
+          idempotencyKey: "forged-idempotency",
+          remoteRevision: "abc",
+          executionId: "git:forged",
+          created: true,
+          ref: deniedResource.slice("branch:".length),
+          revision: "a".repeat(40)
         },
         createdAt: "2026-08-01T00:00:00.000Z"
       }
@@ -287,23 +307,60 @@ test("destructive cleanup actions require an immutable run-owned resource receip
     action: "branch.create",
     resource,
     outcome: "success",
-    created: true
+    runId: creationSpent.runId,
+    attemptId: creationSpent.attemptId,
+    idempotencyKey: creationSpent.idempotencyKey,
+    remoteRevision: creationSpent.remoteRevision,
+    executionId: `git:branch-create:${creationSpent.attemptId}`,
+    created: true,
+    ref: resource.slice("branch:".length),
+    revision: "b".repeat(40)
   };
+  const actionEvidence = {
+    id: "branch-create-proof",
+    kind: "preflight",
+    summary: "Provider branch creation receipt",
+    status: "complete",
+    acceptanceIds: [],
+    sourceDigest: "c".repeat(64),
+    receipt: {
+      payload: {
+        actionAttemptId: creationSpent.attemptId,
+        action: creationSpent.action,
+        provider: creationSpent.provider,
+        resource: creationSpent.resource,
+        outcome: "success",
+        idempotencyKey: creationSpent.idempotencyKey,
+        remoteRevision: creationSpent.remoteRevision,
+        providerExecutionId: providerReceipt.executionId
+      }
+    }
+  };
+  await addEvidence(root, registeredRun.runId, actionEvidence);
   await reconcileAction(root, registeredRun.runId, creationSpent.attemptId, "success", {
     action: "branch.create",
     provider: "git",
     resource,
     outcome: "success",
-    providerReceipt
+    runId: creationSpent.runId,
+    attemptId: creationSpent.attemptId,
+    idempotencyKey: creationSpent.idempotencyKey,
+    remoteRevision: creationSpent.remoteRevision,
+    providerReceipt,
+    evidenceIds: [actionEvidence.id]
   });
   const creationReceipt = {
     ownerRunId: registeredRun.runId,
+    runId: registeredRun.runId,
     resource,
     action: "branch.create",
     attemptId: creationSpent.attemptId,
+    idempotencyKey: creationSpent.idempotencyKey,
+    remoteRevision: creationSpent.remoteRevision,
     outcome: "success",
     provider: "git",
     providerReceipt,
+    evidenceIds: [actionEvidence.id],
     createdAt: "2026-08-01T00:00:00.000Z"
   };
   const registered = await registerOwnedResource(root, registeredRun.runId, { resource, creationReceipt });
