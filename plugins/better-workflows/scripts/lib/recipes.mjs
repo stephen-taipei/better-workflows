@@ -81,14 +81,19 @@ function recipeError(message) {
 async function addActionEvidence(stateRoot, action, providerReceipt) {
   const run = await inspectRun(stateRoot, action.runId);
   const payload = {
-    actionAttemptId: action.attemptId,
-    action: action.action,
-    provider: action.provider,
-    resource: action.resource,
-    outcome: "success",
-    idempotencyKey: action.idempotencyKey,
-    remoteRevision: action.remoteRevision,
-    providerExecutionId: providerReceipt.executionId,
+    actionProof: {
+      schemaVersion: 1,
+      runId: action.runId,
+      actionAttemptId: action.attemptId,
+      action: action.action,
+      provider: action.provider,
+      resource: action.resource,
+      outcome: "success",
+      idempotencyKey: action.idempotencyKey,
+      remoteRevision: action.remoteRevision,
+      providerExecutionId: providerReceipt.executionId,
+      providerReceiptDigest: digestObject(providerReceipt)
+    },
     receipt: providerReceipt
   };
   const record = {
@@ -1106,6 +1111,11 @@ export async function recipePromote(cwd, id, options) {
     idempotencyKey: promotion.action.idempotencyKey,
     remoteRevision: promotion.action.remoteRevision,
     executionId: `local-workspace:recipe-promote:${promotion.action.attemptId}`,
+    proofKind: "local-workspace:recipe.promote",
+    requestDigest: sha256(canonicalJson({ action: promotion.action.action, resource: promotion.action.resource, idempotencyKey: promotion.action.idempotencyKey })),
+    responseDigest: sha256(canonicalJson({ kind: "workspace-recipe", digest: sha256(canonicalJson(trust)) })),
+    verifiedAt: nowIso(),
+    terminalState: "success",
     kind: "workspace-recipe",
     digest: sha256(canonicalJson(trust))
   };
@@ -1358,6 +1368,11 @@ export async function recipeArtifactPromote(cwd, receiptId, artifactId, destinat
     idempotencyKey: pending.action.idempotencyKey,
     remoteRevision: pending.action.remoteRevision,
     executionId: `local-workspace:artifact-promote:${pending.action.attemptId}`,
+    proofKind: "local-workspace:artifact.promote",
+    requestDigest: sha256(canonicalJson({ action: pending.action.action, resource: pending.action.resource, idempotencyKey: pending.action.idempotencyKey })),
+    responseDigest: sha256(canonicalJson({ kind: "workspace-artifact", digest: artifact.sha256 })),
+    verifiedAt: nowIso(),
+    terminalState: "success",
     kind: "workspace-artifact",
     digest: artifact.sha256
   };

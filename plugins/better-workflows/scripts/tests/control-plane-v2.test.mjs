@@ -178,6 +178,7 @@ test("typed gate evidence rejects a failed result even when its shape is valid",
     checkSet: ["test"],
     providerRunIds: ["provider-run-1"],
     conclusions: ["SUCCESS"],
+    checks: [{ name: "test", providerRunId: "provider-run-1", conclusion: "SUCCESS" }],
     provider: "github",
     observedAt: new Date().toISOString()
   };
@@ -200,7 +201,8 @@ test("typed gate evidence rejects a failed result even when its shape is valid",
       result: true,
       checkSet: ["test", "lint"],
       providerRunIds: ["provider-run-1"],
-      conclusions: ["SUCCESS"]
+      conclusions: ["SUCCESS"],
+      checks: [{ name: "test", providerRunId: "provider-run-1", conclusion: "SUCCESS" }]
     }, "required-checks-cardinality")),
     /provider observation is incomplete/
   );

@@ -171,21 +171,37 @@ function assertFreshBinding(receipt, run, definition, kind) {
   }
   if (kind === "required-checks") {
     const payload = receipt.payload;
+    const checks = payload?.checks;
     const observedAt = Date.parse(payload?.observedAt ?? "");
     if (!Number.isFinite(observedAt) || observedAt > Date.now() + 5 * 60 * 1000 || Date.now() - observedAt > MAX_REQUIRED_CHECK_AGE_MS) {
       throw new Error("Typed evidence required-checks observation is stale or invalid");
     }
     if (
+      !Array.isArray(checks) ||
+      checks.length === 0 ||
       !Array.isArray(payload?.checkSet) ||
       payload.checkSet.length === 0 ||
       !Array.isArray(payload?.providerRunIds) ||
       payload.providerRunIds.length === 0 ||
+      checks.length !== payload.checkSet.length ||
+      checks.length !== payload.providerRunIds.length ||
       payload.checkSet.length !== payload.providerRunIds.length ||
+      !Array.isArray(payload?.conclusions) ||
+      payload.conclusions.length !== checks.length ||
+      new Set(checks.map((check) => check?.name)).size !== checks.length ||
+      new Set(checks.map((check) => check?.providerRunId)).size !== checks.length ||
+      checks.some((check, index) => (
+        !check ||
+        typeof check.name !== "string" || check.name.trim() === "" ||
+        typeof check.providerRunId !== "string" || check.providerRunId.trim() === "" ||
+        !["SUCCESS", "success", "PASS", "pass"].includes(String(check.conclusion)) ||
+        payload.checkSet[index] !== check.name ||
+        payload.providerRunIds[index] !== check.providerRunId ||
+        String(payload.conclusions[index]) !== String(check.conclusion)
+      )) ||
       new Set(payload.providerRunIds.map(String)).size !== payload.providerRunIds.length ||
       payload.checkSet.some((value) => typeof value !== "string" || value.trim() === "") ||
       payload.providerRunIds.some((value) => typeof value !== "string" || value.trim() === "") ||
-      !Array.isArray(payload?.conclusions) ||
-      payload.conclusions.length !== payload.providerRunIds.length ||
       payload.conclusions.some((value) => !["SUCCESS", "success", "PASS", "pass"].includes(String(value)))
     ) {
       throw new Error("Typed evidence required-checks provider observation is incomplete");

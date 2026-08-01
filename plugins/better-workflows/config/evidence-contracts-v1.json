@@ -1519,6 +1519,7 @@
         "checkSet",
         "providerRunIds",
         "conclusions",
+        "checks",
         "provider",
         "observedAt"
       ],

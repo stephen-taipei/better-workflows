@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import {
   access,
   chmod,
@@ -12,11 +13,13 @@ import {
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 import {
   addEvidence,
   buildContract,
   consumeActionToken,
   createRun,
+  digestObject,
   ensureStateRoot,
   evaluateCompletion,
   getStateRoot,
@@ -30,6 +33,8 @@ import {
   safeJoin,
   updateState
 } from "../lib/core.mjs";
+
+const execFileAsync = promisify(execFile);
 
 function template() {
   return {
@@ -171,6 +176,11 @@ test("run state is private and action tokens are one-shot with reconciliation", 
     idempotencyKey: spent.idempotencyKey,
     remoteRevision: spent.remoteRevision,
     executionId: `github:timeout:${spent.attemptId}`,
+    proofKind: "github:deploy",
+    requestDigest: "f".repeat(64),
+    responseDigest: "0".repeat(64),
+    verifiedAt: "2026-08-01T00:00:00.000Z",
+    terminalState: "unknown",
     reason: "provider-timeout"
   };
   const reconciled = await reconcileAction(
@@ -265,7 +275,7 @@ test("destructive cleanup actions require an immutable run-owned resource receip
         createdAt: "2026-08-01T00:00:00.000Z"
       }
     }),
-    /reconciled successful run action/
+    /structured execution proof|reconciled successful run action/
   );
   await assert.rejects(
     issueActionToken(root, denied.runId, {
@@ -278,7 +288,15 @@ test("destructive cleanup actions require an immutable run-owned resource receip
     /immutable creation receipt/
   );
 
-  const registeredRun = await createRun({ root, contract: cleanupContract(), requestedMode: "verified", cwd: root });
+  const providerRepo = path.join(root, "provider-repo");
+  await mkdir(providerRepo, { recursive: true });
+  await execFileAsync("git", ["init", "-q"], { cwd: providerRepo });
+  await execFileAsync("git", ["config", "user.email", "sbw@example.invalid"], { cwd: providerRepo });
+  await execFileAsync("git", ["config", "user.name", "SBW Test"], { cwd: providerRepo });
+  await writeFile(path.join(providerRepo, "README.md"), "provider\n");
+  await execFileAsync("git", ["add", "README.md"], { cwd: providerRepo });
+  await execFileAsync("git", ["commit", "-qm", "provider base"], { cwd: providerRepo });
+  const registeredRun = await createRun({ root, contract: cleanupContract(), requestedMode: "verified", cwd: providerRepo });
   await updateState(root, registeredRun.runId, (state) => ({
     ...state,
     lastSentinel: { label: "test", digest: "tree" },
@@ -302,6 +320,8 @@ test("destructive cleanup actions require an immutable run-owned resource receip
     requiredEvidence: ["preflight"]
   }, "tree", await loadDefaults());
   const creationSpent = await consumeActionToken(root, registeredRun.runId, creationIssued.token, "tree");
+  await execFileAsync("git", ["branch", resource.slice("branch:".length)], { cwd: providerRepo });
+  const providerRevision = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: providerRepo })).stdout.trim();
   const providerReceipt = {
     provider: "git",
     action: "branch.create",
@@ -312,9 +332,14 @@ test("destructive cleanup actions require an immutable run-owned resource receip
     idempotencyKey: creationSpent.idempotencyKey,
     remoteRevision: creationSpent.remoteRevision,
     executionId: `git:branch-create:${creationSpent.attemptId}`,
+    proofKind: "git-branch-create",
+    requestDigest: "d".repeat(64),
+    responseDigest: "e".repeat(64),
+    verifiedAt: "2026-08-01T00:00:00.000Z",
+    terminalState: "success",
     created: true,
     ref: resource.slice("branch:".length),
-    revision: "b".repeat(40)
+    revision: providerRevision
   };
   const actionEvidence = {
     id: "branch-create-proof",
@@ -325,14 +350,20 @@ test("destructive cleanup actions require an immutable run-owned resource receip
     sourceDigest: "c".repeat(64),
     receipt: {
       payload: {
-        actionAttemptId: creationSpent.attemptId,
-        action: creationSpent.action,
-        provider: creationSpent.provider,
-        resource: creationSpent.resource,
-        outcome: "success",
-        idempotencyKey: creationSpent.idempotencyKey,
-        remoteRevision: creationSpent.remoteRevision,
-        providerExecutionId: providerReceipt.executionId
+        actionProof: {
+          schemaVersion: 1,
+          runId: creationSpent.runId,
+          actionAttemptId: creationSpent.attemptId,
+          action: creationSpent.action,
+          provider: creationSpent.provider,
+          resource: creationSpent.resource,
+          outcome: "success",
+          idempotencyKey: creationSpent.idempotencyKey,
+          remoteRevision: creationSpent.remoteRevision,
+          providerExecutionId: providerReceipt.executionId,
+          providerReceiptDigest: digestObject(providerReceipt)
+        },
+        receipt: providerReceipt
       }
     }
   };
