@@ -1114,12 +1114,34 @@ export async function completeRun(root, runId, completionDecision) {
       await appendJournal(root, runDir, "run.status", { from: current.status, to: next.status });
       return { ok: false, status: next.status, blockers: result.blockers, state: next };
     }
+    const contract = await readJson(root, safeJoin(runDir, "contract.json"));
+    const reviewDigest = contract.schemaVersion === 2 && contract.controlPlane?.reviewPolicy !== "none"
+      ? digestObject(await (async () => {
+        const { reviewStatus } = await import("./review.mjs");
+        return reviewStatus(root, runId);
+      })())
+      : null;
+    const finalDecision = {
+      ...completionDecision,
+      evaluatedAt: nowIso(),
+      evidenceDigest: digestObject(result.evidence.map((item) => ({
+        id: item.id,
+        kind: item.kind,
+        sourceDigest: item.sourceDigest,
+        stale: item.stale === true
+      }))),
+      ledgerDigest: contract.schemaVersion === 2
+        ? digestObject(await readJson(root, safeJoin(runDir, "ledger.json")))
+        : null,
+      reviewDigest,
+      sentinelDigest: current.lastSentinel?.digest ?? null
+    };
     const next = {
       ...current,
       status: "completed",
-      completedAt: completionDecision.evaluatedAt,
+      completedAt: finalDecision.evaluatedAt,
       completionBlockers: [],
-      completionDecision,
+      completionDecision: finalDecision,
       updatedAt: nowIso()
     };
     await atomicWriteJson(root, target, next);
@@ -2081,12 +2103,23 @@ export async function verifyRequiredChecksProvider(cwd, payload) {
     if (appliesToTarget && rules.some((rule) => ["deletion", "non_fast_forward"].includes(rule?.type))) {
       throw new Error("Active protected branch ruleset permits deletion or non-fast-forward updates");
     }
-    const requiredStatusRule = rules.find((rule) => rule?.type === "required_status_checks");
-    if (appliesToTarget && requiredStatusRule && !Array.isArray(requiredStatusRule.parameters?.required_status_checks)) {
-      throw new Error("Active protected branch ruleset has incomplete required status checks");
+    const requiredStatusRules = rules.filter((rule) => rule?.type === "required_status_checks");
+    for (const requiredStatusRule of requiredStatusRules) {
+      if (appliesToTarget && !Array.isArray(requiredStatusRule.parameters?.required_status_checks)) {
+        throw new Error("Active protected branch ruleset has incomplete required status checks");
+      }
+      if (appliesToTarget) {
+        for (const check of requiredStatusRule.parameters.required_status_checks) {
+          const name = check?.context ?? check?.name;
+          if (typeof name !== "string" || !name) {
+            throw new Error("Active protected branch ruleset has an incomplete required status check");
+          }
+          rulesetRequiredStatusChecks.push(name);
+        }
+      }
     }
-    if (appliesToTarget && requiredStatusRule) {
-      rulesetRequiredStatusChecks.push(...requiredStatusRule.parameters.required_status_checks.map((check) => check?.context ?? check?.name));
+    if (appliesToTarget && detail.enforcement !== "active") {
+      throw new Error("Active protected branch ruleset detail changed enforcement state");
     }
     const pullRequestRule = rules.find((rule) => rule?.type === "pull_request");
     if (
@@ -2335,6 +2368,9 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
     if (request.action === "git.push") {
       const [, remote, ref] = GIT_PUSH_RESOURCE.exec(request.resource) ?? [];
       if (!remote) throw new Error("Git push resources must use remote:<name>:refs/heads/<branch>");
+      if (contract.template === "pr-to-dev" && ref === "refs/heads/dev") {
+        throw new Error("pr-to-dev forbids direct pushes to protected dev");
+      }
       const remoteUrl = (await execFileAsync("git", ["remote", "get-url", remote], {
         cwd: manifest.cwd,
         encoding: "utf8"
@@ -2409,6 +2445,8 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
           String(pullRequest),
           "--repo",
           repository.slice("github.com/".length),
+          "--match-head-commit",
+          currentHead,
           "--merge",
           "--delete-branch=false"
         ]
@@ -2673,6 +2711,8 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
     String(consumed.pullRequest),
     "--repo",
     consumed.mergeRepository?.slice("github.com/".length),
+    "--match-head-commit",
+    consumed.reviewedHead,
     "--merge",
     "--delete-branch=false"
   ];
