@@ -546,6 +546,10 @@ test("review packages prove the Git manifest and dispositions fail closed", asyn
     /scope must match the TaskContract scope/
   );
   await assert.rejects(
+    createReviewPackage({ ...input, scope: ["src", ":(exclude)src/a.ts"] }),
+    /non-literal relative path/
+  );
+  await assert.rejects(
     addReviewFinding(root, started.runId, {
       packageId: "review-unknown-package",
       path: "src/a.ts",

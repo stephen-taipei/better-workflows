@@ -118,6 +118,7 @@ const OWNED_RESOURCE_CREATION_SCHEMAS = {
 const OWNED_RESOURCE = /^[^\0\r\n]{1,512}$/;
 const SHA256_DIGEST = /^[a-f0-9]{64}$/;
 const GIT_PUSH_RESOURCE = /^remote:([A-Za-z0-9._-]+):(refs\/heads\/[A-Za-z0-9._/-]+)$/;
+const EXECUTABLE_ACTION_PROVIDERS = new Set(["git.push:git", "pr.merge:github-cli"]);
 
 const ACTION_PROVIDER_RECEIPT_SCHEMAS = {
   "branch.create:git": { proofKind: "git-branch-create" },
@@ -332,6 +333,11 @@ export function validateContract(contract) {
   if (!contract.scope || !Array.isArray(contract.scope.include) || contract.scope.include.length === 0) {
     throw new Error("TaskContract.scope.include must be a non-empty array");
   }
+  contract.scope.include = canonicalizeScope(contract.scope.include);
+  if (contract.scope.exclude !== undefined) {
+    if (!Array.isArray(contract.scope.exclude)) throw new Error("TaskContract.scope.exclude must be an array");
+    contract.scope.exclude = contract.scope.exclude.length === 0 ? [] : canonicalizeScope(contract.scope.exclude);
+  }
   if (!Array.isArray(contract.acceptance) || contract.acceptance.length === 0) {
     throw new Error("TaskContract.acceptance must be a non-empty array");
   }
@@ -444,6 +450,27 @@ export function validateContract(contract) {
     }
   }
   return contract;
+}
+
+export function canonicalizeScope(scope) {
+  if (!Array.isArray(scope) || scope.length === 0) throw new Error("Scope must be a non-empty array");
+  const normalized = [...new Set(scope.map((item) => String(item).replaceAll("\\", "/")))].sort();
+  for (const item of normalized) {
+    const segments = item.split("/");
+    if (
+      !item ||
+      item !== "." && item.startsWith("./") ||
+      item.startsWith("/") ||
+      item.startsWith(":") ||
+      /[*?\[\]]/.test(item) ||
+      segments.some((segment) => segment === ".." || (segment === "." && item !== ".")) ||
+      item.includes("//") ||
+      item.endsWith("/")
+    ) {
+      throw new Error(`Scope contains a non-literal relative path: ${item}`);
+    }
+  }
+  return normalized;
 }
 
 export function buildContract({
@@ -3238,6 +3265,10 @@ export async function consumeActionToken(root, runId, token, currentTreeDigest) 
 }
 
 export async function executeActionToken(root, runId, token, currentTreeDigest) {
+  const actionRecord = await readJson(root, safeJoin(runDirectory(root, runId), "actions", `${sha256(token)}.json`));
+  if (!EXECUTABLE_ACTION_PROVIDERS.has(`${actionRecord.action}:${actionRecord.provider}`)) {
+    throw new Error("The governed provider execution path only supports github-cli pr.merge and git.push");
+  }
   const consumed = await consumeActionToken(root, runId, token, currentTreeDigest);
   if (consumed.action === "git.push" && consumed.provider === "git") {
     const expectedCommand = consumed.pushCommand;

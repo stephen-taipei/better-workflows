@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { assertMutableRun, atomicWriteJson, digestObject, listJsonRecords, loadRun, nowIso, readJson, safeJoin, sha256, withRunLock } from "./core.mjs";
+import { assertMutableRun, atomicWriteJson, canonicalizeScope, digestObject, listJsonRecords, loadRun, nowIso, readJson, safeJoin, sha256, withRunLock } from "./core.mjs";
 
 const execFileAsync = promisify(execFile);
 const SHA = /^[0-9a-f]{40}$/;
@@ -55,7 +55,7 @@ function normalizeDiffManifest(value) {
 }
 
 function normalizeScope(scope) {
-  return [...scope].map(String).sort();
+  return canonicalizeScope(scope);
 }
 
 async function deriveDiffManifest(cwd, base, head, scope) {

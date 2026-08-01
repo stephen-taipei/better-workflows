@@ -24,6 +24,7 @@ import {
   createRun,
   digestObject,
   ensureStateRoot,
+  executeActionToken,
   evaluateCompletion,
   getStateRoot,
   inspectRun,
@@ -104,6 +105,13 @@ test("PR creation receipts bind to the exact candidate source head", () => {
   assert.doesNotThrow(() => assertProviderReceiptShape(record, { ...receipt, head: expectedHead }));
 });
 
+test("scope rejects Git pathspec magic", () => {
+  assert.throws(
+    () => contract({ scope: [":(exclude)plugins/better-workflows/scripts/lib/core.mjs"] }),
+    /non-literal relative path/
+  );
+});
+
 test("pr.create cannot issue an unexecutable governed token", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "sbw-pr-create-guard-"));
   const started = await createRun({
@@ -122,6 +130,43 @@ test("pr.create cannot issue an unexecutable governed token", async () => {
     }, "tree", { actionToken: { ttlSeconds: 60 } }),
     /Governed pr\.create is unavailable/
   );
+});
+
+test("unsupported action execution does not consume its token", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-unsupported-action-"));
+  const run = await createRun({
+    root,
+    contract: contract({ authority: ["branch.create"] }),
+    requestedMode: "verified",
+    cwd: root
+  });
+  await addEvidence(root, run.runId, {
+    id: "preflight",
+    kind: "preflight",
+    summary: "Unsupported execution preflight",
+    status: "complete",
+    acceptanceIds: [],
+    sourceDigest: "a".repeat(64)
+  });
+  await updateState(root, run.runId, (state) => ({
+    ...state,
+    lastSentinel: { label: "test", digest: "tree" },
+    lastSentinelVerified: true,
+    lastSentinelComplete: true
+  }));
+  const issued = await issueActionToken(root, run.runId, {
+    action: "branch.create",
+    provider: "git",
+    resource: "branch:unsupported",
+    remoteRevision: "abc",
+    requiredEvidence: ["preflight"]
+  }, "tree", await loadDefaults());
+  await assert.rejects(
+    executeActionToken(root, run.runId, issued.token, "tree"),
+    /only supports github-cli pr\.merge and git\.push/
+  );
+  const state = await inspectRun(root, run.runId);
+  assert.equal(state.actions.find((item) => item.tokenHash === sha256(issued.token)).status, "issued");
 });
 
 test("auto routing follows risk and explicit modes never downgrade", () => {
