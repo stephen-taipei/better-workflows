@@ -765,6 +765,7 @@ function assertProviderReceiptShape(record, providerReceipt, outcome = record.ou
       typeof providerReceipt.mergeCommit !== "string" || !providerReceipt.mergeCommit ||
       providerReceipt.mergeBase !== record.remoteRevision ||
       providerReceipt.mergeHead !== record.reviewedHead ||
+      (record.mergeRepository && providerReceipt.repository !== record.mergeRepository) ||
       providerReceipt.providerExecutableDigest !== record.providerExecutable?.digest)
   ) {
     throw new Error("GitHub pull request merge proof is incomplete");
@@ -832,6 +833,31 @@ async function reserveProviderExecution(root, record, executionId) {
     if (error.code === "EEXIST") throw new Error("Provider execution identity is already reserved globally");
     throw error;
   }
+}
+
+function creationReservationPath(root, resource) {
+  return safeJoin(root, "creation-reservations", `${sha256(resource)}.json`);
+}
+
+async function reserveCreationResource(root, runId, resource, tokenHash) {
+  const directory = safeJoin(root, "creation-reservations");
+  await mkdir(directory, { recursive: true, mode: 0o700 });
+  const target = creationReservationPath(root, resource);
+  try {
+    const handle = await open(target, "wx", 0o600);
+    await handle.writeFile(`${JSON.stringify({ runId, resource, tokenHash, reservedAt: nowIso() })}\n`);
+    await handle.sync();
+    await handle.close();
+  } catch (error) {
+    if (error.code === "EEXIST") throw new Error("Owned resource creation is already reserved by another action");
+    throw error;
+  }
+}
+
+async function releaseCreationResource(root, runId, resource) {
+  const target = creationReservationPath(root, resource);
+  const reservation = await readJson(root, target).catch(() => null);
+  if (reservation?.runId === runId) await unlink(target).catch(() => undefined);
 }
 
 export async function registerOwnedResource(root, runId, { resource, creationReceipt }) {
@@ -906,6 +932,10 @@ export async function registerOwnedResource(root, runId, { resource, creationRec
     ));
     if (!creationAction) {
       throw new Error("Owned resource registration requires a reconciled successful run action");
+    }
+    const reservation = await readJson(root, creationReservationPath(root, resource)).catch(() => null);
+    if (reservation?.runId !== runId || reservation.tokenHash !== creationAction.tokenHash) {
+      throw new Error("Owned resource registration requires an exclusive creation reservation");
     }
     await verifyProviderReceipt(
       manifest,
@@ -1240,7 +1270,7 @@ export async function evaluateCompletion(root, runId) {
   if (["stale", "indeterminate", "inconclusive", "blocked_external_reviewer"].includes(state.status)) {
     blockers.push(`run-state:${state.status}`);
   }
-  if (actions.some((action) => ["unknown", "pending", "failure"].includes(action.outcome))) {
+  if (actions.some((action) => action.status !== "spent" || ["unknown", "pending", "failure"].includes(action.outcome))) {
     blockers.push("side-effect-not-reconciled");
   }
   if (
@@ -1449,17 +1479,39 @@ async function verifyGitHubProviderAuthorization(cwd, repository) {
   return authorization;
 }
 
+async function verifyGitPushCredential(cwd, remote, ref, revision, repository) {
+  if (!repository.startsWith("github.com/")) {
+    throw new Error("Git push authorization requires a GitHub-bound controlled push provider");
+  }
+  await execFileAsync("git", ["push", "--dry-run", "--porcelain", remote, `${revision}:${ref}`], {
+    cwd,
+    encoding: "utf8",
+    env: { ...process.env, GIT_TERMINAL_PROMPT: "0" }
+  });
+  return {
+    provider: "git",
+    repository,
+    remote,
+    ref,
+    revision,
+    credentialCheck: "git-push-dry-run"
+  };
+}
+
 async function verifyPullRequestBeforeMerge(cwd, record) {
   if (record.targetRef === "dev" && !/^[a-f0-9]{40}$/i.test(record.remoteRevision ?? "")) {
     throw new Error("Protected dev merge requires the exact reviewed base revision");
   }
   const repository = await currentRepositoryIdentity(cwd);
+  if (record.mergeRepository && repository !== record.mergeRepository) {
+    throw new Error("PR merge origin repository changed after authorization");
+  }
   if (!repository.startsWith("github.com/")) throw new Error("PR merge requires a GitHub repository");
   const actual = JSON.parse((await execFileAsync("gh", [
     "api", `repos/${repository.slice("github.com/".length)}/pulls/${record.pullRequest}`
   ], { cwd, encoding: "utf8" })).stdout);
   if (
-    actual.number !== record.pullRequest ||
+      actual.number !== record.pullRequest ||
     actual.state !== "open" ||
     actual.head?.sha !== record.reviewedHead ||
     (record.targetRef && actual.base?.ref !== record.targetRef) ||
@@ -1805,6 +1857,7 @@ async function verifyProviderReceipt(manifest, record, receipt) {
         mergeMethod: record.mergeMethod,
         adminBypass: record.adminBypass,
         providerExecutable: record.providerExecutable,
+        mergeRepository: record.mergeRepository,
         mergeCommand: record.mergeCommand
       },
       response,
@@ -1947,6 +2000,12 @@ export async function verifyRequiredChecksProvider(cwd, payload) {
   if (!Array.isArray(branchRules)) {
     throw new Error("Protected branch rules could not be verified completely");
   }
+  if (branchRules.some((rule) => !rule || typeof rule.type !== "string" || !rule.type)) {
+    throw new Error("Protected branch rules contain an incomplete rule definition");
+  }
+  if (branchRules.some((rule) => ["deletion", "non_fast_forward"].includes(rule.type))) {
+    throw new Error("Protected branch rules permit deletion or non-fast-forward updates");
+  }
   const rulesets = JSON.parse((await execFileAsync("gh", [
     "api",
     `repos/${repositoryPath}/rulesets?includes_parents=true`
@@ -1954,18 +2013,24 @@ export async function verifyRequiredChecksProvider(cwd, payload) {
   if (!Array.isArray(rulesets)) {
     throw new Error("Repository rulesets could not be verified completely");
   }
-  for (const listed of rulesets.filter((item) => item?.enforcement === "active" && Number.isInteger(item?.id))) {
+  const branchRef = `refs/heads/${payload.baseRefName}`;
+  const rulesetRequiredStatusChecks = [];
+  const refPatternMatches = (pattern) => {
+    if (pattern === "~ALL" || pattern === "~DEFAULT_BRANCH" || pattern === branchRef) return true;
+    if (typeof pattern !== "string" || !pattern.includes("*")) return false;
+    const escaped = pattern.split("*").map((part) => part.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join(".*");
+    return new RegExp(`^${escaped}$`).test(branchRef);
+  };
+  for (const listed of rulesets.filter((item) => item?.enforcement === "active" && Number.isInteger(Number(item?.id)))) {
     const detail = JSON.parse((await execFileAsync("gh", [
       "api",
-      `repos/${repositoryPath}/rulesets/${listed.id}`
+      `repos/${repositoryPath}/rulesets/${Number(listed.id)}`
     ], { cwd, encoding: "utf8" })).stdout);
     const includes = detail.conditions?.ref_name?.include;
     if (detail.target === "branch" && !Array.isArray(includes)) {
       throw new Error("Active branch ruleset has no complete ref-name condition");
     }
-    const appliesToTarget = detail.target === "branch" && Array.isArray(includes) && includes.some((pattern) => (
-      pattern === `refs/heads/${payload.baseRefName}` || pattern === "~DEFAULT_BRANCH"
-    ));
+    const appliesToTarget = detail.target === "branch" && Array.isArray(includes) && includes.some(refPatternMatches);
     if (appliesToTarget && !Array.isArray(detail.bypass_actors)) {
       throw new Error("Active protected branch ruleset has no complete bypass-actor policy");
     }
@@ -1983,6 +2048,9 @@ export async function verifyRequiredChecksProvider(cwd, payload) {
     if (appliesToTarget && requiredStatusRule && !Array.isArray(requiredStatusRule.parameters?.required_status_checks)) {
       throw new Error("Active protected branch ruleset has incomplete required status checks");
     }
+    if (appliesToTarget && requiredStatusRule) {
+      rulesetRequiredStatusChecks.push(...requiredStatusRule.parameters.required_status_checks.map((check) => check?.context ?? check?.name));
+    }
     const pullRequestRule = rules.find((rule) => rule?.type === "pull_request");
     if (
       appliesToTarget &&
@@ -1999,7 +2067,8 @@ export async function verifyRequiredChecksProvider(cwd, payload) {
   ], { cwd, encoding: "utf8" })).stdout);
   const requiredStatusChecks = [...new Set([
     ...(Array.isArray(requiredStatusProtection.contexts) ? requiredStatusProtection.contexts : []),
-    ...(Array.isArray(requiredStatusProtection.checks) ? requiredStatusProtection.checks.map((check) => check?.context ?? check?.name) : [])
+    ...(Array.isArray(requiredStatusProtection.checks) ? requiredStatusProtection.checks.map((check) => check?.context ?? check?.name) : []),
+    ...rulesetRequiredStatusChecks
   ].filter((value) => typeof value === "string" && value))].sort();
   if (digestObject(requiredStatusChecks) !== digestObject([...payload.requiredStatusChecks].sort())) {
     throw new Error("Required checks evidence does not match the protected branch status-check set");
@@ -2099,7 +2168,8 @@ function assertRemoteAuthorizationEvidence(admittedEvidence, request, providerAu
         ["git", "github-cli-and-git"].includes(producer) &&
         payload.repository === expectedRepository &&
         payload.remote === gitPush[1] &&
-        payload.ref === gitPush[2]
+        payload.ref === gitPush[2] &&
+        payload.credentialCheck === "git-push-dry-run"
       )) &&
       (!providerAuthorization || (
         payload.repository === providerAuthorization.repository &&
@@ -2217,7 +2287,7 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
       (request.provider === "github-cli" || (request.provider === "git" && repository?.startsWith("github.com/")))
       ? await verifyGitHubProviderAuthorization(manifest.cwd, repository)
       : null;
-    if (request.requiredEvidence.includes("remote-authorization")) {
+    if (request.requiredEvidence.includes("remote-authorization") && request.action !== "git.push") {
       assertRemoteAuthorizationEvidence(admittedEvidence, request, providerAuthorization, repository);
     }
     let actionBinding = {};
@@ -2244,6 +2314,19 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
         expectedBranch,
         expectedRevision
       };
+      if (request.requiredEvidence.includes("remote-authorization")) {
+        if (!providerAuthorization || request.provider !== "git") {
+          throw new Error("Git push requires a live GitHub identity plus a controlled Git credential check");
+        }
+        actionBinding.gitCredentialCheck = await verifyGitPushCredential(
+          manifest.cwd,
+          remote,
+          ref,
+          expectedRevision,
+          remoteRepository
+        );
+        assertRemoteAuthorizationEvidence(admittedEvidence, request, providerAuthorization, repository);
+      }
       if (contract.template === "pr-to-dev") {
         const currentBranch = (await execFileAsync("git", ["branch", "--show-current"], {
           cwd: manifest.cwd,
@@ -2277,7 +2360,17 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
         mergeMethod: "merge",
         adminBypass: false,
         providerExecutable: await currentProviderExecutableIdentity("gh"),
-        mergeCommand: ["gh", "pr", "merge", String(pullRequest), "--merge", "--delete-branch=false"]
+        mergeRepository: repository,
+        mergeCommand: [
+          "gh",
+          "pr",
+          "merge",
+          String(pullRequest),
+          "--repo",
+          repository.slice("github.com/".length),
+          "--merge",
+          "--delete-branch=false"
+        ]
       };
     }
     if (providerAuthorization) actionBinding.providerAuthorization = providerAuthorization;
@@ -2412,6 +2505,9 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
     if (!Number.isFinite(ttlSeconds) || ttlSeconds < 1 || ttlSeconds > 3600) {
       throw new Error("Action token TTL must be 1..3600 seconds");
     }
+    if (OWNED_RESOURCE_CREATION_ACTIONS.has(request.action)) {
+      await reserveCreationResource(root, runId, request.resource, tokenHash);
+    }
     const issuedAt = nowIso();
     const record = {
       schemaVersion: 1,
@@ -2458,6 +2554,18 @@ export async function consumeActionToken(root, runId, token, currentTreeDigest) 
       const authorization = await verifyGitHubProviderAuthorization(manifest.cwd, repository);
       if (digestObject(authorization) !== digestObject(record.providerAuthorization)) {
         throw new Error("Action consumption denied because GitHub provider authorization changed");
+      }
+    }
+    if (record.gitCredentialCheck) {
+      const credentialCheck = await verifyGitPushCredential(
+        manifest.cwd,
+        record.gitCredentialCheck.remote,
+        record.gitCredentialCheck.ref,
+        record.gitCredentialCheck.revision,
+        record.gitCredentialCheck.repository
+      );
+      if (digestObject(credentialCheck) !== digestObject(record.gitCredentialCheck)) {
+        throw new Error("Action consumption denied because the controlled Git credential check changed");
       }
     }
     if (record.action === "pr.merge") {
@@ -2522,10 +2630,12 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
     "pr",
     "merge",
     String(consumed.pullRequest),
+    "--repo",
+    consumed.mergeRepository?.slice("github.com/".length),
     "--merge",
     "--delete-branch=false"
   ];
-  if (JSON.stringify(consumed.mergeCommand) !== JSON.stringify(expectedCommand)) {
+  if (!consumed.mergeRepository || JSON.stringify(consumed.mergeCommand) !== JSON.stringify(expectedCommand)) {
     throw new Error("PR merge execution command is not the fixed non-admin invocation");
   }
   const manifest = await readJson(root, safeJoin(runDirectory(root, runId), "manifest.json"));
@@ -2536,7 +2646,7 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
   const startedAt = nowIso();
   let exitCode = 0;
   try {
-    await execFileAsync("gh", expectedCommand.slice(1), { cwd: manifest.cwd, encoding: "utf8" });
+    await execFileAsync(executable.path, expectedCommand.slice(1), { cwd: manifest.cwd, encoding: "utf8" });
   } catch (error) {
     exitCode = Number.isInteger(error?.code) ? error.code : 1;
   }
@@ -2727,6 +2837,7 @@ export async function cleanupRuns(root, { olderThanDays, apply = false }) {
   const entries = await readdir(runsRoot, { withFileTypes: true });
   const cutoff = Date.now() - olderThanDays * 86_400_000;
   const candidates = [];
+  const candidateMtimes = new Map();
   for (const entry of entries) {
     if (!entry.isDirectory() || !RUN_ID.test(entry.name)) continue;
     const runDir = runDirectory(root, entry.name);
@@ -2743,7 +2854,7 @@ export async function cleanupRuns(root, { olderThanDays, apply = false }) {
       action.outcome === "success" &&
       action.receipt?.providerReceipt?.resource === entry.resource
     )));
-    const pendingSideEffect = actions.some((action) => action.status === "spent" && ["pending", "unknown", "failure"].includes(action.outcome));
+    const pendingSideEffect = actions.some((action) => action.status !== "spent" || ["pending", "unknown", "failure"].includes(action.outcome));
     if (
       state &&
       ["completed", "no_op", "cancelled_superseded", "cancelled_evidence_sufficient"].includes(state.status) &&
@@ -2752,6 +2863,7 @@ export async function cleanupRuns(root, { olderThanDays, apply = false }) {
       !pendingSideEffect
     ) {
       candidates.push(entry.name);
+      candidateMtimes.set(entry.name, info.mtimeMs);
     }
   }
   if (apply) {
@@ -2762,7 +2874,6 @@ export async function cleanupRuns(root, { olderThanDays, apply = false }) {
           const state = await readJson(root, safeJoin(runDir, "state.json")).catch(() => null);
           const manifest = await readJson(root, safeJoin(runDir, "manifest.json")).catch(() => null);
           const actions = await listJsonRecords(root, safeJoin(runDir, "actions")).catch(() => []);
-          const info = await stat(runDir).catch(() => null);
           const ownedResources = Array.isArray(manifest?.ownedResources) ? manifest.ownedResources : [];
           const ownedResourcesCleared = ownedResources.every((entry) => actions.some((action) => (
             action.resource === entry.resource &&
@@ -2772,13 +2883,18 @@ export async function cleanupRuns(root, { olderThanDays, apply = false }) {
             action.receipt?.providerReceipt?.resource === entry.resource
           )));
           const pendingSideEffect = actions.some((action) => action.status === "spent" && ["pending", "unknown", "failure"].includes(action.outcome));
+          const terminalAt = Date.parse(state?.updatedAt ?? "");
+          const oldEnough = Number.isFinite(terminalAt)
+            ? terminalAt < cutoff
+            : candidateMtimes.get(runId) < cutoff;
           if (
             state &&
             ["completed", "no_op", "cancelled_superseded", "cancelled_evidence_sufficient"].includes(state.status) &&
-            info?.mtimeMs < cutoff &&
+            oldEnough &&
             ownedResourcesCleared &&
             !pendingSideEffect
           ) {
+            for (const entry of ownedResources) await releaseCreationResource(root, runId, entry.resource);
             await rm(runDir, { recursive: true, force: false });
           }
         });
