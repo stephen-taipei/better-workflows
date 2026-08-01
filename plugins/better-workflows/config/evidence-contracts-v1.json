@@ -597,18 +597,13 @@
     "deliberation-roster": {
       "id": "evidence-contracts-v1:deliberation-roster",
       "producerAllowlist": [
-        "user-authority",
         "codex-root",
-        "github-cli"
+        "codex-native-subagent",
+        "agy"
       ],
       "payloadFamily": "authorization",
       "requiredFields": [
-        "action",
-        "provider",
-        "resource",
-        "remoteRevision",
-        "repository",
-        "actor"
+        "roster"
       ],
       "freshnessBinding": [
         "runId",
@@ -1412,11 +1407,18 @@
       "producerAllowlist": [
         "user-authority",
         "codex-root",
-        "github-cli"
+        "github-cli",
+        "git",
+        "github-cli-and-git"
       ],
       "payloadFamily": "authorization",
       "requiredFields": [
-        "action"
+        "action",
+        "provider",
+        "resource",
+        "remoteRevision",
+        "repository",
+        "actor"
       ],
       "freshnessBinding": [
         "runId",

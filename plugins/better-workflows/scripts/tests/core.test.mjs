@@ -339,6 +339,9 @@ test("destructive cleanup actions require an immutable run-owned resource receip
     verifiedAt: "2026-08-01T00:00:00.000Z",
     terminalState: "success",
     created: true,
+    beforeState: "absent",
+    createdByActionAttemptId: creationSpent.attemptId,
+    creationPreconditionDigest: digestObject(creationSpent.creationPrecondition),
     ref: resource.slice("branch:".length),
     revision: providerRevision
   };

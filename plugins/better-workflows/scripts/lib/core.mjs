@@ -764,6 +764,7 @@ function assertProviderReceiptShape(record, providerReceipt, outcome = record.ou
       typeof providerReceipt.head !== "string" || !providerReceipt.head ||
       typeof providerReceipt.mergeCommit !== "string" || !providerReceipt.mergeCommit ||
       providerReceipt.mergeBase !== record.remoteRevision ||
+      providerReceipt.mergeHead !== record.reviewedHead ||
       providerReceipt.providerExecutableDigest !== record.providerExecutable?.digest)
   ) {
     throw new Error("GitHub pull request merge proof is incomplete");
@@ -804,6 +805,17 @@ function assertProviderReceiptShape(record, providerReceipt, outcome = record.ou
     (!providerReceipt.removed || typeof providerReceipt.path !== "string" || !providerReceipt.path)
   ) {
     throw new Error("Git worktree cleanup proof is incomplete");
+  }
+  if (
+    OWNED_RESOURCE_CREATION_ACTIONS.has(record.action) &&
+    typeof record.attemptId === "string" &&
+    (!record.creationPrecondition ||
+      record.creationPrecondition.state !== "absent" ||
+      providerReceipt.beforeState !== "absent" ||
+      providerReceipt.createdByActionAttemptId !== record.attemptId ||
+      providerReceipt.creationPreconditionDigest !== digestObject(record.creationPrecondition))
+  ) {
+    throw new Error("Owned resource creation proof is not bound to an observed absent precondition");
   }
 }
 
@@ -882,19 +894,6 @@ export async function registerOwnedResource(root, runId, { resource, creationRec
     ) {
       throw new Error("Owned resource creation receipt lacks action-specific provider creation proof");
     }
-    await verifyProviderReceipt(
-      manifest,
-      {
-        action: creationReceipt.action,
-        provider: creationReceipt.provider,
-        resource,
-        outcome: "success",
-        remoteRevision: creationReceipt.remoteRevision,
-        idempotencyKey: creationReceipt.idempotencyKey,
-        attemptId: creationReceipt.attemptId
-      },
-      { providerReceipt: creationReceipt.providerReceipt }
-    );
     const actions = await listJsonRecords(root, safeJoin(runDir, "actions"));
     const creationAction = actions.find((action) => (
       action.attemptId === creationReceipt.attemptId &&
@@ -908,6 +907,20 @@ export async function registerOwnedResource(root, runId, { resource, creationRec
     if (!creationAction) {
       throw new Error("Owned resource registration requires a reconciled successful run action");
     }
+    await verifyProviderReceipt(
+      manifest,
+      {
+        action: creationReceipt.action,
+        provider: creationReceipt.provider,
+        resource,
+        outcome: "success",
+        remoteRevision: creationReceipt.remoteRevision,
+        idempotencyKey: creationReceipt.idempotencyKey,
+        attemptId: creationReceipt.attemptId,
+        creationPrecondition: creationAction.creationPrecondition
+      },
+      { providerReceipt: creationReceipt.providerReceipt }
+    );
     if (!Array.isArray(manifest.ownedResources)) {
       throw new Error("Run manifest has no owned resource registry");
     }
@@ -1244,6 +1257,22 @@ export async function evaluateCompletion(root, runId) {
   ) {
     blockers.push("missing-reconciled-action:remote.sync");
   }
+  if (contract.template === "pr-to-dev") {
+    const remoteSyncAction = actions.find((action) => (
+      action.action === "remote.sync" &&
+      action.status === "spent" &&
+      action.outcome === "success" &&
+      action.resource === "refs/heads/dev" &&
+      action.receipt?.providerReceipt
+    ));
+    if (remoteSyncAction) {
+      try {
+        await verifyProviderReceipt(manifest, { ...remoteSyncAction, outcome: "success" }, remoteSyncAction.receipt);
+      } catch {
+        blockers.push("remote-sync-live-state-stale");
+      }
+    }
+  }
   const { isIndependentCriticEvidence } = await import("./evidence.mjs");
   const hasIndependentCritic = admittedEvidence.some((item) => isIndependentCriticEvidence(item, {
     reviewPackage: completionReview?.package,
@@ -1340,6 +1369,58 @@ async function currentProviderExecutableIdentity(command) {
     throw new Error(`Provider executable must resolve to a regular file: ${command}`);
   }
   return { path: target, digest: sha256(await readFile(target)) };
+}
+
+async function captureCreationPrecondition(cwd, action, resource) {
+  if (action === "branch.create") {
+    const ref = resource.slice("branch:".length);
+    try {
+      const revision = (await execFileAsync("git", ["rev-parse", "--verify", `refs/heads/${ref}^{commit}`], {
+        cwd,
+        encoding: "utf8"
+      })).stdout.trim();
+      return { action, resource, state: "present", revision };
+    } catch (error) {
+      if (error.code !== 128) throw error;
+      return { action, resource, state: "absent", ref };
+    }
+  }
+  if (action === "worktree.create") {
+    const worktreePath = resource.slice("worktree:".length);
+    const output = (await execFileAsync("git", ["worktree", "list", "--porcelain"], {
+      cwd,
+      encoding: "utf8"
+    })).stdout;
+    const present = output.split(/\n\n+/).some((block) => block.split("\n").some((line) => line === `worktree ${worktreePath}`));
+    return { action, resource, state: present || await pathExists(path.resolve(cwd, worktreePath)) ? "present" : "absent", path: worktreePath };
+  }
+  if (action === "pr.create") {
+    const number = Number(resource.slice("pull/".length));
+    try {
+      const actual = JSON.parse((await execFileAsync("gh", ["pr", "view", String(number), "--json", "number,state"], {
+        cwd,
+        encoding: "utf8"
+      })).stdout);
+      return { action, resource, state: "present", number: actual.number, status: actual.state };
+    } catch (error) {
+      if (error.code !== 1) throw error;
+      return { action, resource, state: "absent", number };
+    }
+  }
+  if (action === "actions.dispatch" && resource.startsWith("run:")) {
+    const runId = resource.slice("run:".length);
+    try {
+      const actual = JSON.parse((await execFileAsync("gh", ["run", "view", runId, "--json", "databaseId,status"], {
+        cwd,
+        encoding: "utf8"
+      })).stdout);
+      return { action, resource, state: "present", runId: String(actual.databaseId), status: actual.status };
+    } catch (error) {
+      if (error.code !== 1) throw error;
+      return { action, resource, state: "absent", runId };
+    }
+  }
+  return null;
 }
 
 async function verifyGitHubProviderAuthorization(cwd, repository) {
@@ -1695,7 +1776,11 @@ async function verifyProviderReceipt(manifest, record, receipt) {
     const mergeDetails = JSON.parse((await execFileAsync("gh", [
       "api", `repos/${repository.slice("github.com/".length)}/commits/${mergeCommit}`
     ], { cwd, encoding: "utf8" })).stdout);
-    const mergeBase = mergeDetails.parents?.[0]?.sha;
+    const mergeParents = Array.isArray(mergeDetails.parents)
+      ? mergeDetails.parents.map((parent) => parent?.sha).filter(Boolean)
+      : [];
+    const mergeBase = mergeParents[0];
+    const mergeHead = mergeParents[1];
     const response = {
       number: actual.number,
       state: actual.state,
@@ -1703,6 +1788,8 @@ async function verifyProviderReceipt(manifest, record, receipt) {
       baseRefName: actual.baseRefName,
       mergeCommit,
       mergeBase,
+      mergeHead,
+      mergeParentCount: mergeParents.length,
       providerExecutableDigest: record.providerExecutable?.digest
     };
     assertRecomputedProviderReceipt(
@@ -1733,6 +1820,9 @@ async function verifyProviderReceipt(manifest, record, receipt) {
       providerReceipt.repository !== repository ||
       providerReceipt.mergeBase !== record.remoteRevision ||
       mergeBase !== record.remoteRevision ||
+      mergeParents.length !== 2 ||
+      providerReceipt.mergeHead !== record.reviewedHead ||
+      mergeHead !== record.reviewedHead ||
       providerReceipt.providerExecutableDigest !== record.providerExecutable?.digest
     ) throw new Error("GitHub pull request merge proof does not match provider state");
     return;
@@ -1840,12 +1930,68 @@ export async function verifyRequiredChecksProvider(cwd, payload) {
   if (protection.enforce_admins?.enabled !== true || !protection.required_status_checks) {
     throw new Error("Protected branch policy is missing enforce-admins or required status checks");
   }
+  if (
+    !protection.required_pull_request_reviews ||
+    !Number.isInteger(protection.required_pull_request_reviews.required_approving_review_count) ||
+    protection.required_pull_request_reviews.required_approving_review_count < 1
+  ) {
+    throw new Error("Protected branch policy is missing required pull-request reviews");
+  }
+  if (protection.allow_force_pushes?.enabled === true || protection.allow_deletions?.enabled === true) {
+    throw new Error("Protected branch policy permits force-pushes or deletions");
+  }
   const branchRules = JSON.parse((await execFileAsync("gh", [
     "api",
     `repos/${repositoryPath}/rules/branches/${encodeURIComponent(payload.baseRefName)}`
   ], { cwd, encoding: "utf8" })).stdout);
   if (!Array.isArray(branchRules)) {
     throw new Error("Protected branch rules could not be verified completely");
+  }
+  const rulesets = JSON.parse((await execFileAsync("gh", [
+    "api",
+    `repos/${repositoryPath}/rulesets?includes_parents=true`
+  ], { cwd, encoding: "utf8" })).stdout);
+  if (!Array.isArray(rulesets)) {
+    throw new Error("Repository rulesets could not be verified completely");
+  }
+  for (const listed of rulesets.filter((item) => item?.enforcement === "active" && Number.isInteger(item?.id))) {
+    const detail = JSON.parse((await execFileAsync("gh", [
+      "api",
+      `repos/${repositoryPath}/rulesets/${listed.id}`
+    ], { cwd, encoding: "utf8" })).stdout);
+    const includes = detail.conditions?.ref_name?.include;
+    if (detail.target === "branch" && !Array.isArray(includes)) {
+      throw new Error("Active branch ruleset has no complete ref-name condition");
+    }
+    const appliesToTarget = detail.target === "branch" && Array.isArray(includes) && includes.some((pattern) => (
+      pattern === `refs/heads/${payload.baseRefName}` || pattern === "~DEFAULT_BRANCH"
+    ));
+    if (appliesToTarget && !Array.isArray(detail.bypass_actors)) {
+      throw new Error("Active protected branch ruleset has no complete bypass-actor policy");
+    }
+    if (appliesToTarget && detail.bypass_actors.length > 0) {
+      throw new Error("Active protected branch ruleset permits bypass actors");
+    }
+    if (appliesToTarget && !Array.isArray(detail.rules)) {
+      throw new Error("Active protected branch ruleset has no complete rule set");
+    }
+    const rules = Array.isArray(detail.rules) ? detail.rules : [];
+    if (appliesToTarget && rules.some((rule) => ["deletion", "non_fast_forward"].includes(rule?.type))) {
+      throw new Error("Active protected branch ruleset permits deletion or non-fast-forward updates");
+    }
+    const requiredStatusRule = rules.find((rule) => rule?.type === "required_status_checks");
+    if (appliesToTarget && requiredStatusRule && !Array.isArray(requiredStatusRule.parameters?.required_status_checks)) {
+      throw new Error("Active protected branch ruleset has incomplete required status checks");
+    }
+    const pullRequestRule = rules.find((rule) => rule?.type === "pull_request");
+    if (
+      appliesToTarget &&
+      pullRequestRule &&
+      (!Number.isInteger(pullRequestRule.parameters?.required_approving_review_count) ||
+        pullRequestRule.parameters.required_approving_review_count < 1)
+    ) {
+      throw new Error("Active protected branch ruleset has incomplete pull-request review policy");
+    }
   }
   const requiredStatusProtection = JSON.parse((await execFileAsync("gh", [
     "api",
@@ -1932,10 +2078,16 @@ function assertTargetBranchEvidence(admittedEvidence, request, expectedRepositor
   if (!exact) throw new Error("Action token denied until target-branch-dev is bound to the selected repository and dev revision");
 }
 
-function assertRemoteAuthorizationEvidence(admittedEvidence, request, providerAuthorization) {
+function assertRemoteAuthorizationEvidence(admittedEvidence, request, providerAuthorization, expectedRepository) {
   const exact = admittedEvidence.some((record) => {
     if (record.kind !== "remote-authorization" || record.status !== "complete" || record.stale) return false;
     const payload = record.receipt?.payload;
+    const producer = typeof record.receipt?.producer === "string"
+      ? record.receipt.producer
+      : record.receipt?.producer?.provider;
+    const gitPush = request.provider === "git" && request.action === "git.push"
+      ? GIT_PUSH_RESOURCE.exec(request.resource)
+      : null;
     return (
       payload?.action === request.action &&
       payload?.provider === request.provider &&
@@ -1943,6 +2095,12 @@ function assertRemoteAuthorizationEvidence(admittedEvidence, request, providerAu
       payload?.remoteRevision === request.remoteRevision &&
       typeof payload?.repository === "string" && payload.repository.length > 0 &&
       typeof payload?.actor === "string" && payload.actor.length > 0 &&
+      (!gitPush || (
+        ["git", "github-cli-and-git"].includes(producer) &&
+        payload.repository === expectedRepository &&
+        payload.remote === gitPush[1] &&
+        payload.ref === gitPush[2]
+      )) &&
       (!providerAuthorization || (
         payload.repository === providerAuthorization.repository &&
         payload.actor === providerAuthorization.actor
@@ -2055,11 +2213,12 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
         assertTargetBranchEvidence(admittedEvidence, request, repository, contract.remoteRevision ?? null);
       }
     }
-    const providerAuthorization = needsProviderAuthorization && request.provider === "github-cli"
+    const providerAuthorization = needsProviderAuthorization &&
+      (request.provider === "github-cli" || (request.provider === "git" && repository?.startsWith("github.com/")))
       ? await verifyGitHubProviderAuthorization(manifest.cwd, repository)
       : null;
     if (request.requiredEvidence.includes("remote-authorization")) {
-      assertRemoteAuthorizationEvidence(admittedEvidence, request, providerAuthorization);
+      assertRemoteAuthorizationEvidence(admittedEvidence, request, providerAuthorization, repository);
     }
     let actionBinding = {};
     if (request.action === "git.push") {
@@ -2138,6 +2297,13 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
         remoteRepository,
         remoteUrlDigest: sha256(remoteUrl)
       };
+    }
+    if (OWNED_RESOURCE_CREATION_ACTIONS.has(request.action)) {
+      const creationPrecondition = await captureCreationPrecondition(manifest.cwd, request.action, request.resource);
+      if (!creationPrecondition || creationPrecondition.state !== "absent") {
+        throw new Error("Owned resource creation requires an observed absent precondition");
+      }
+      actionBinding.creationPrecondition = creationPrecondition;
     }
     if (request.action === "pr.merge" && contract.controlPlane?.reviewPolicy !== "none") {
       const { isIndependentCriticEvidence } = await import("./evidence.mjs");
@@ -2287,7 +2453,7 @@ export async function consumeActionToken(root, runId, token, currentTreeDigest) 
     const contract = await readJson(root, safeJoin(runDir, "contract.json"));
     if (record.contractDigest !== digestObject(contract)) throw new Error("Action token contract binding changed");
     const manifest = await readJson(root, safeJoin(runDir, "manifest.json"));
-    if (record.provider === "github-cli") {
+    if (record.providerAuthorization?.provider === "github-cli") {
       const repository = await currentRepositoryIdentity(manifest.cwd);
       const authorization = await verifyGitHubProviderAuthorization(manifest.cwd, repository);
       if (digestObject(authorization) !== digestObject(record.providerAuthorization)) {
@@ -2577,7 +2743,7 @@ export async function cleanupRuns(root, { olderThanDays, apply = false }) {
       action.outcome === "success" &&
       action.receipt?.providerReceipt?.resource === entry.resource
     )));
-    const pendingSideEffect = actions.some((action) => action.status === "spent" && ["pending", "unknown"].includes(action.outcome));
+    const pendingSideEffect = actions.some((action) => action.status === "spent" && ["pending", "unknown", "failure"].includes(action.outcome));
     if (
       state &&
       ["completed", "no_op", "cancelled_superseded", "cancelled_evidence_sufficient"].includes(state.status) &&
@@ -2590,9 +2756,35 @@ export async function cleanupRuns(root, { olderThanDays, apply = false }) {
   }
   if (apply) {
     for (const runId of candidates) {
-      const runDir = runDirectory(root, runId);
-      await assertNoSymlinkUnder(root, runDir);
-      await rm(runDir, { recursive: true, force: false });
+      if (!(await pathExists(runDirectory(root, runId)))) continue;
+      try {
+        await withRunLock(root, runId, async ({ runDir }) => {
+          const state = await readJson(root, safeJoin(runDir, "state.json")).catch(() => null);
+          const manifest = await readJson(root, safeJoin(runDir, "manifest.json")).catch(() => null);
+          const actions = await listJsonRecords(root, safeJoin(runDir, "actions")).catch(() => []);
+          const info = await stat(runDir).catch(() => null);
+          const ownedResources = Array.isArray(manifest?.ownedResources) ? manifest.ownedResources : [];
+          const ownedResourcesCleared = ownedResources.every((entry) => actions.some((action) => (
+            action.resource === entry.resource &&
+            DESTRUCTIVE_CLEANUP_ACTIONS.has(action.action) &&
+            action.status === "spent" &&
+            action.outcome === "success" &&
+            action.receipt?.providerReceipt?.resource === entry.resource
+          )));
+          const pendingSideEffect = actions.some((action) => action.status === "spent" && ["pending", "unknown", "failure"].includes(action.outcome));
+          if (
+            state &&
+            ["completed", "no_op", "cancelled_superseded", "cancelled_evidence_sufficient"].includes(state.status) &&
+            info?.mtimeMs < cutoff &&
+            ownedResourcesCleared &&
+            !pendingSideEffect
+          ) {
+            await rm(runDir, { recursive: true, force: false });
+          }
+        });
+      } catch (error) {
+        if (error.code !== "ENOENT") throw error;
+      }
     }
   }
   return { apply, candidates };
