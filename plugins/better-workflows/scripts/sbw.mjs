@@ -1428,6 +1428,7 @@ function help() {
       "sbw self-improve attestation request --run <run-id> --baseline <sha> --candidate-root <path> --model <model> --output <outside-repo-directory> [--cases <file>] [--purpose ordinary|evaluator-migration] [--next-cases <v2-file>]",
       "sbw finding add|update <run-id> --file <json>",
       "sbw critic codex|agy <run-id> --model <model> --prompt-file <file> [--effort <auto|medium|high>] [--effort-transport <native|model-variant>]",
+      "sbw critic native <run-id> --file <json> --reviewer-id <native-agent-id>",
       "sbw deliberation roster [--mode <auto|direct|verified|deep|critical>] [--reasoning-effort <auto|medium|high>] [--refresh] [--provider <id>] [--allow-external-providers --sanitized]",
       "sbw deliberation deliberate --prompt-file <sanitized-file> [--run <run-id>] [--mode <auto|direct|verified|deep|critical>] [--reasoning-effort <auto|medium|high>] [--refresh] [--allow-external-providers --sanitized]",
       "sbw deliberation arbitrate --prompt-file <sanitized-file> [--mode <auto|direct|verified|deep|critical>] [--reasoning-effort <auto|medium|high>] [--allow-external-providers --sanitized]",
@@ -1646,6 +1647,24 @@ async function main() {
     };
   }
   if (command === "critic") {
+    if (subcommand === "native") {
+      if (!runId || !options.file || !options["reviewer-id"]) {
+        throw new Error("critic usage: sbw critic native <run-id> --file <json> --reviewer-id <native-agent-id>");
+      }
+      const record = JSON.parse(await readFile(path.resolve(String(options.file)), "utf8"));
+      if (
+        record.sourceKind !== "independent-critic" ||
+        record.kind !== "patch-review" ||
+        record.receipt?.producer?.provider !== "codex-native-subagent" ||
+        record.nativeReviewer?.id !== String(options["reviewer-id"])
+      ) {
+        throw new Error("Native critic evidence must identify the native reviewer and provider boundary");
+      }
+      return {
+        ok: true,
+        evidence: await addEvidence(root, runId, await enrichEvidence(root, runId, record))
+      };
+    }
     if (!["codex", "agy"].includes(subcommand) || !runId || !options["prompt-file"]) {
       throw new Error("critic usage: sbw critic codex|agy <run-id> --model <model> --prompt-file <file>");
     }

@@ -933,6 +933,7 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
         payload?.ownerRunId !== runId ||
         payload?.action !== request.action ||
         !Array.isArray(payload.resources) ||
+        !payload.resources.some((resource) => resource?.resource === request.resource) ||
         payload.resources.some((resource) => (
           !resource ||
           typeof resource !== "object" ||
