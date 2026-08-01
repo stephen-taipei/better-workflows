@@ -1398,13 +1398,20 @@ async function commandEval() {
       const child = spawn(process.execPath, ["--test", "--test-concurrency=1", testPath], {
         cwd: pluginRoot(),
         shell: false,
-        stdio: "inherit",
+        stdio: ["ignore", "pipe", "pipe"],
         env: process.env
       });
+      const stdout = [];
+      const stderr = [];
+      child.stdout.on("data", (chunk) => stdout.push(chunk));
+      child.stderr.on("data", (chunk) => stderr.push(chunk));
       child.on("error", reject);
       child.on("close", (code) => {
         if (code === 0) resolve();
-        else reject(new Error(`Test suite failed for ${path.basename(testPath)} with exit ${code}`));
+        else {
+          const diagnostics = Buffer.concat([...stderr, ...stdout]).toString("utf8").trim();
+          reject(new Error(`Test suite failed for ${path.basename(testPath)} with exit ${code}${diagnostics ? `: ${diagnostics}` : ""}`));
+        }
       });
     });
   }

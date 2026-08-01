@@ -322,6 +322,7 @@ test("destructive cleanup actions require an immutable run-owned resource receip
   const creationSpent = await consumeActionToken(root, registeredRun.runId, creationIssued.token, "tree");
   await execFileAsync("git", ["branch", resource.slice("branch:".length)], { cwd: providerRepo });
   const providerRevision = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: providerRepo })).stdout.trim();
+  const providerIdentity = (await execFileAsync("git", ["rev-parse", "--show-toplevel"], { cwd: providerRepo })).stdout.trim();
   const providerReceipt = {
     provider: "git",
     action: "branch.create",
@@ -331,10 +332,10 @@ test("destructive cleanup actions require an immutable run-owned resource receip
     attemptId: creationSpent.attemptId,
     idempotencyKey: creationSpent.idempotencyKey,
     remoteRevision: creationSpent.remoteRevision,
-    executionId: `git:branch-create:${creationSpent.attemptId}`,
+    executionId: `git:${providerIdentity}:branch.create:${resource.slice("branch:".length)}:${providerRevision}`,
     proofKind: "git-branch-create",
-    requestDigest: "d".repeat(64),
-    responseDigest: "e".repeat(64),
+    requestDigest: digestObject({ action: creationSpent.action, provider: creationSpent.provider, resource: creationSpent.resource, remoteRevision: creationSpent.remoteRevision, repository: providerIdentity }),
+    responseDigest: digestObject({ ref: resource.slice("branch:".length), revision: providerRevision }),
     verifiedAt: "2026-08-01T00:00:00.000Z",
     terminalState: "success",
     created: true,

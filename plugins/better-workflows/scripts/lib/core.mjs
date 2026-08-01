@@ -100,7 +100,7 @@ const OWNED_RESOURCE_CREATION_SCHEMAS = {
       return (
         typeof receipt.runId === "string" && receipt.runId.length > 0 &&
         typeof receipt.url === "string" && receipt.url.length > 0 &&
-        (kind === "run" ? receipt.runId === value : receipt.workflow === value)
+        (kind === "run" ? receipt.runId === value : receipt.workflowName === value)
       );
     }
   }
@@ -114,8 +114,20 @@ const ACTION_PROVIDER_RECEIPT_SCHEMAS = {
   "pr.create:github-cli": { proofKind: "github-pr-create" },
   "actions.dispatch:github-cli": { proofKind: "github-actions-dispatch" },
   "pr.merge:github-cli": { proofKind: "github-pr-merge" },
-  "remote.sync:git": { proofKind: "git-remote-sync" }
+  "remote.sync:git": { proofKind: "git-remote-sync" },
+  "recipe.promote:local-workspace": { proofKind: "local-workspace:recipe.promote" },
+  "artifact.promote:local-workspace": { proofKind: "local-workspace:artifact.promote" }
 };
+const PROVIDER_VERIFIED_ACTIONS = new Set([
+  "branch.create",
+  "worktree.create",
+  "pr.create",
+  "actions.dispatch",
+  "pr.merge",
+  "remote.sync",
+  "recipe.promote",
+  "artifact.promote"
+]);
 
 export function pluginRoot() {
   return PLUGIN_ROOT;
@@ -636,7 +648,7 @@ export async function withRunLock(root, runId, callback, options = {}) {
   }
 }
 
-function assertProviderReceiptShape(record, providerReceipt) {
+function assertProviderReceiptShape(record, providerReceipt, outcome = record.outcome) {
   const commonValid = (
     providerReceipt &&
     typeof providerReceipt === "object" &&
@@ -656,6 +668,9 @@ function assertProviderReceiptShape(record, providerReceipt) {
   );
   if (!commonValid) throw new Error("Provider receipt lacks a structured execution proof");
   const schema = ACTION_PROVIDER_RECEIPT_SCHEMAS[`${record.action}:${record.provider}`];
+  if (outcome === "success" && PROVIDER_VERIFIED_ACTIONS.has(record.action) && !schema) {
+    throw new Error("Successful action requires an approved provider-specific receipt schema");
+  }
   if (schema && providerReceipt.proofKind !== schema.proofKind) {
     throw new Error("Provider receipt proof kind does not match the action and provider");
   }
@@ -688,13 +703,18 @@ function assertProviderReceiptShape(record, providerReceipt) {
   if (
     record.action === "actions.dispatch" &&
     (!providerReceipt.created || typeof providerReceipt.runId !== "string" || !providerReceipt.runId ||
-      typeof providerReceipt.url !== "string" || !providerReceipt.url)
+      typeof providerReceipt.url !== "string" || !providerReceipt.url ||
+      providerReceipt.terminalState !== "success" ||
+      !["SUCCESS", "success", "PASS", "pass"].includes(String(providerReceipt.conclusion)) ||
+      (record.resource.startsWith("run:") && providerReceipt.runId !== record.resource.slice("run:".length)) ||
+      (record.resource.startsWith("workflow:") && providerReceipt.workflowName !== record.resource.slice("workflow:".length)))
   ) {
     throw new Error("GitHub Actions dispatch proof is incomplete");
   }
   if (
     record.action === "pr.merge" &&
     (!Number.isInteger(providerReceipt.pr) ||
+      providerReceipt.pr !== Number(String(record.resource).replace(/^pull\//, "")) ||
       providerReceipt.state !== "MERGED" ||
       typeof providerReceipt.repository !== "string" || !providerReceipt.repository ||
       providerReceipt.baseRefName !== "dev" ||
@@ -706,6 +726,7 @@ function assertProviderReceiptShape(record, providerReceipt) {
   if (
     record.action === "remote.sync" &&
     (typeof providerReceipt.ref !== "string" || !providerReceipt.ref ||
+      providerReceipt.ref !== record.resource ||
       typeof providerReceipt.repository !== "string" || !providerReceipt.repository ||
       typeof providerReceipt.providerRevision !== "string" ||
       !/^[a-f0-9]{7,64}$/i.test(providerReceipt.providerRevision) ||
@@ -793,7 +814,15 @@ export async function registerOwnedResource(root, runId, { resource, creationRec
     }
     await verifyProviderReceipt(
       manifest,
-      { action: creationReceipt.action, provider: creationReceipt.provider, resource, outcome: "success" },
+      {
+        action: creationReceipt.action,
+        provider: creationReceipt.provider,
+        resource,
+        outcome: "success",
+        remoteRevision: creationReceipt.remoteRevision,
+        idempotencyKey: creationReceipt.idempotencyKey,
+        attemptId: creationReceipt.attemptId
+      },
       { providerReceipt: creationReceipt.providerReceipt }
     );
     const actions = await listJsonRecords(root, safeJoin(runDir, "actions"));
@@ -1208,16 +1237,50 @@ async function currentRepositoryIdentity(cwd) {
   return identity;
 }
 
+async function currentGitProviderIdentity(cwd) {
+  return (await execFileAsync("git", ["rev-parse", "--show-toplevel"], {
+    cwd,
+    encoding: "utf8"
+  })).stdout.trim();
+}
+
+function assertRecomputedProviderReceipt(receipt, request, response, executionId) {
+  if (
+    receipt.requestDigest !== digestObject(request) ||
+    receipt.responseDigest !== digestObject(response) ||
+    receipt.executionId !== executionId
+  ) {
+    throw new Error("Provider receipt digests or execution identity do not match the observed provider result");
+  }
+}
+
 async function verifyProviderReceipt(manifest, record, receipt) {
   if (record.outcome !== "success") return;
   const providerReceipt = receipt.providerReceipt;
   const cwd = manifest.cwd;
   const key = `${record.action}:${record.provider}`;
+  if (key === "recipe.promote:local-workspace" || key === "artifact.promote:local-workspace") {
+    assertRecomputedProviderReceipt(
+      providerReceipt,
+      { action: record.action, provider: record.provider, resource: record.resource, remoteRevision: record.remoteRevision, idempotencyKey: record.idempotencyKey },
+      { kind: providerReceipt.kind, digest: providerReceipt.digest },
+      `local-workspace:${record.action}:${record.attemptId}`
+    );
+    return;
+  }
   if (key === "branch.create:git") {
     const actual = (await execFileAsync("git", ["rev-parse", "--verify", `refs/heads/${providerReceipt.ref}^{commit}`], {
       cwd,
       encoding: "utf8"
     })).stdout.trim();
+    const repository = await currentGitProviderIdentity(cwd);
+    const response = { ref: providerReceipt.ref, revision: actual };
+    assertRecomputedProviderReceipt(
+      providerReceipt,
+      { action: record.action, provider: record.provider, resource: record.resource, remoteRevision: record.remoteRevision, repository },
+      response,
+      `git:${repository}:branch.create:${providerReceipt.ref}:${actual}`
+    );
     if (actual !== providerReceipt.revision) throw new Error("Git branch creation proof does not match provider state");
     return;
   }
@@ -1236,13 +1299,34 @@ async function verifyProviderReceipt(manifest, record, receipt) {
     if (!match || match.HEAD !== providerReceipt.revision) {
       throw new Error("Git worktree creation proof does not match provider state");
     }
+    const repository = await currentGitProviderIdentity(cwd);
+    assertRecomputedProviderReceipt(
+      providerReceipt,
+      { action: record.action, provider: record.provider, resource: record.resource, remoteRevision: record.remoteRevision, repository },
+      { path: providerReceipt.path, revision: match.HEAD },
+      `git:${repository}:worktree.create:${providerReceipt.path}:${match.HEAD}`
+    );
     return;
   }
   if (key === "pr.create:github-cli") {
     const actual = JSON.parse((await execFileAsync("gh", [
       "pr", "view", String(providerReceipt.number), "--json", "number,headRefOid,baseRefName,url"
     ], { cwd, encoding: "utf8" })).stdout);
+    const repository = await currentRepositoryIdentity(cwd);
+    const response = {
+      number: actual.number,
+      head: actual.headRefOid,
+      base: actual.baseRefName,
+      url: actual.url
+    };
+    assertRecomputedProviderReceipt(
+      providerReceipt,
+      { action: record.action, provider: record.provider, resource: record.resource, remoteRevision: record.remoteRevision, repository },
+      response,
+      `github:${repository}:pr.create:${actual.number}:${actual.headRefOid}`
+    );
     if (
+      actual.number !== Number(String(record.resource).replace(/^pull\//, "")) ||
       actual.number !== providerReceipt.number ||
       actual.headRefOid !== providerReceipt.head ||
       actual.baseRefName !== providerReceipt.base ||
@@ -1254,11 +1338,26 @@ async function verifyProviderReceipt(manifest, record, receipt) {
     const actual = JSON.parse((await execFileAsync("gh", [
       "run", "view", String(providerReceipt.runId), "--json", "databaseId,workflowName,url,status,conclusion"
     ], { cwd, encoding: "utf8" })).stdout);
+    const repository = await currentRepositoryIdentity(cwd);
+    const response = {
+      runId: String(actual.databaseId),
+      workflowName: actual.workflowName,
+      url: actual.url,
+      status: actual.status,
+      conclusion: actual.conclusion
+    };
+    assertRecomputedProviderReceipt(
+      providerReceipt,
+      { action: record.action, provider: record.provider, resource: record.resource, remoteRevision: record.remoteRevision, repository },
+      response,
+      `github:${repository}:actions.dispatch:${actual.databaseId}`
+    );
     if (
       String(actual.databaseId) !== String(providerReceipt.runId) ||
       actual.url !== providerReceipt.url ||
       actual.status !== "completed" ||
-      !actual.conclusion
+      actual.conclusion !== "SUCCESS" ||
+      (record.resource.startsWith("workflow:") && actual.workflowName !== record.resource.slice("workflow:".length))
     ) throw new Error("GitHub Actions dispatch proof does not match provider state");
     return;
   }
@@ -1267,12 +1366,28 @@ async function verifyProviderReceipt(manifest, record, receipt) {
       "pr", "view", String(providerReceipt.pr), "--json", "number,state,headRefOid,baseRefName,mergeCommit"
     ], { cwd, encoding: "utf8" })).stdout);
     const mergeCommit = typeof actual.mergeCommit === "string" ? actual.mergeCommit : actual.mergeCommit?.oid;
+    const repository = await currentRepositoryIdentity(cwd);
+    const response = {
+      number: actual.number,
+      state: actual.state,
+      head: actual.headRefOid,
+      baseRefName: actual.baseRefName,
+      mergeCommit
+    };
+    assertRecomputedProviderReceipt(
+      providerReceipt,
+      { action: record.action, provider: record.provider, resource: record.resource, remoteRevision: record.remoteRevision, repository, pr: actual.number },
+      response,
+      `github:${repository}:pr.merge:${actual.number}:${mergeCommit}`
+    );
     if (
+      actual.number !== Number(String(record.resource).replace(/^pull\//, "")) ||
       actual.number !== providerReceipt.pr ||
       actual.state !== "MERGED" ||
       actual.headRefOid !== providerReceipt.head ||
       actual.baseRefName !== providerReceipt.baseRefName ||
-      mergeCommit !== providerReceipt.mergeCommit
+      mergeCommit !== providerReceipt.mergeCommit ||
+      providerReceipt.repository !== repository
     ) throw new Error("GitHub pull request merge proof does not match provider state");
     return;
   }
@@ -1285,8 +1400,50 @@ async function verifyProviderReceipt(manifest, record, receipt) {
       cwd,
       encoding: "utf8"
     })).stdout.trim();
-    if (providerRevision !== receipt.providerReceipt.providerRevision || localRevision !== receipt.providerReceipt.localRevision) {
+    const repository = await currentGitProviderIdentity(cwd);
+    const response = {
+      repository,
+      ref: record.resource,
+      providerRevision,
+      localRevision
+    };
+    assertRecomputedProviderReceipt(
+      providerReceipt,
+      { action: record.action, provider: record.provider, resource: record.resource, remoteRevision: record.remoteRevision, repository, ref: record.resource },
+      response,
+      `git:${repository}:remote.sync:${record.resource}:${providerRevision}:${localRevision}`
+    );
+    if (
+      providerRevision !== receipt.providerReceipt.providerRevision ||
+      localRevision !== receipt.providerReceipt.localRevision ||
+      providerReceipt.ref !== record.resource ||
+      providerReceipt.repository !== repository
+    ) {
       throw new Error("Git remote synchronization proof does not match provider state");
+    }
+  }
+}
+
+async function verifyRequiredChecksProvider(cwd, payload) {
+  if (payload.provider !== "github") throw new Error("Required checks must be observed from GitHub");
+  const repository = repositoryIdentity(payload.repository);
+  const prefix = "github.com/";
+  if (!repository.startsWith(prefix)) throw new Error("Required checks repository is not a GitHub repository");
+  const response = JSON.parse((await execFileAsync("gh", [
+    "api",
+    `repos/${repository.slice(prefix.length)}/actions/runs?head_sha=${encodeURIComponent(payload.head)}&per_page=100`
+  ], { cwd, encoding: "utf8" })).stdout);
+  const runs = Array.isArray(response.workflow_runs) ? response.workflow_runs : [];
+  for (const check of payload.checks) {
+    const run = runs.find((candidate) => String(candidate.id) === String(check.providerRunId));
+    if (
+      !run ||
+      run.head_sha !== payload.head ||
+      run.status !== "completed" ||
+      run.conclusion !== "success" ||
+      (check.providerName && check.providerName !== run.name && check.providerName !== run.workflow_name)
+    ) {
+      throw new Error(`Required check provider run is not a fresh successful GitHub run: ${check.providerRunId}`);
     }
   }
 }
@@ -1393,6 +1550,18 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
       }));
       if (!hasIndependentCritic) throw new Error("Action token denied until the exact independent critic is admitted");
       await assertPullEvidenceBinding(admittedEvidence, request, review.package, contract, repository);
+    }
+    if (request.action === "pr.merge" && request.requiredEvidence.includes("required-checks")) {
+      const currentHead = (await execFileAsync("git", ["rev-parse", "--verify", "HEAD^{commit}"], {
+        cwd: manifest.cwd,
+        encoding: "utf8"
+      })).stdout.trim();
+      const requiredChecks = admittedEvidence.find((item) => {
+        const payload = item.kind === "required-checks" ? item.receipt?.payload : null;
+        return payload?.head === currentHead && payload?.base === contract.remoteRevision && payload?.repository === repository;
+      });
+      if (!requiredChecks) throw new Error("Action token denied until exact required-check provider evidence is present");
+      await verifyRequiredChecksProvider(manifest.cwd, requiredChecks.receipt.payload);
     }
     const availableEvidence = new Set(
       admittedEvidence
@@ -1514,7 +1683,7 @@ function validateActionReceipt(record, outcome, receipt) {
   ) {
     throw new Error("Action reconciliation receipt is not bound to the action attempt");
   }
-  assertProviderReceiptShape(record, receipt.providerReceipt);
+  assertProviderReceiptShape(record, receipt.providerReceipt, outcome);
 }
 
 async function validateActionEvidenceBinding(root, runDir, record, attemptId, outcome, receipt) {
