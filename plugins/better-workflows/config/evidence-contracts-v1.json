@@ -1515,7 +1515,12 @@
         "head",
         "base",
         "repository",
-        "baseRefName"
+        "baseRefName",
+        "checkSet",
+        "providerRunIds",
+        "conclusions",
+        "provider",
+        "observedAt"
       ],
       "freshnessBinding": [
         "runId",
@@ -1525,7 +1530,8 @@
         "reviewBase",
         "pullRequest",
         "repository",
-        "baseRefName"
+        "baseRefName",
+        "observedAt"
       ]
     },
     "retrospective-source-inventory": {

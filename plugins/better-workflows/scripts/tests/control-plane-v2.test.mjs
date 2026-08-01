@@ -76,7 +76,8 @@ async function gateRecord(run, kind, payload, id = kind) {
         reviewBase: payload.base,
         pullRequest: payload.pr,
         repository: payload.repository,
-        baseRefName: payload.baseRefName
+        baseRefName: payload.baseRefName,
+        ...(kind === "required-checks" ? { observedAt: payload.observedAt } : {})
       }
     : {};
   return {
@@ -173,7 +174,12 @@ test("typed gate evidence rejects a failed result even when its shape is valid",
     head: "a".repeat(40),
     base: "b".repeat(40),
     repository: "github.com/example/test",
-    baseRefName: "dev"
+    baseRefName: "dev",
+    checkSet: ["test"],
+    providerRunIds: ["provider-run-1"],
+    conclusions: ["SUCCESS"],
+    provider: "github",
+    observedAt: new Date().toISOString()
   };
   await assert.rejects(
     addEvidence(root, started.runId, await gateRecord(run, "required-checks", { ...pullEvidence, command: "false", result: false })),

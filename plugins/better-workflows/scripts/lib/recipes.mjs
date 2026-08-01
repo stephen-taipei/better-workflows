@@ -1059,7 +1059,20 @@ export async function recipePromote(cwd, id, options) {
     options.run,
     options.attempt,
     "success",
-    `workspace-recipe:${sha256(canonicalJson(trust))}`
+    {
+      action: "recipe.promote",
+      provider: "local-workspace",
+      resource: `recipe:${recipe.manifest.id}:${binding.executionDigest}`,
+      outcome: "success",
+      providerReceipt: {
+        provider: "local-workspace",
+        action: "recipe.promote",
+        resource: `recipe:${recipe.manifest.id}:${binding.executionDigest}`,
+        outcome: "success",
+        kind: "workspace-recipe",
+        digest: sha256(canonicalJson(trust))
+      }
+    }
   );
   return {
     ok: true,
@@ -1286,7 +1299,20 @@ export async function recipeArtifactPromote(cwd, receiptId, artifactId, destinat
     pending.runId,
     pending.action.attemptId,
     "success",
-    `workspace-artifact:${artifact.sha256}`
+    {
+      action: "artifact.promote",
+      provider: "local-workspace",
+      resource,
+      outcome: "success",
+      providerReceipt: {
+        provider: "local-workspace",
+        action: "artifact.promote",
+        resource,
+        outcome: "success",
+        kind: "workspace-artifact",
+        digest: artifact.sha256
+      }
+    }
   );
   return { ok: true, receiptId, artifactId, destination: normalized, sha256: artifact.sha256 };
 }

@@ -166,7 +166,19 @@ test("run state is private and action tokens are one-shot with reconciliation", 
     result.runId,
     spent.attemptId,
     "unknown",
-    "provider-timeout"
+    {
+      action: "deploy",
+      provider: "github",
+      resource: "workflow:123",
+      outcome: "unknown",
+      providerReceipt: {
+        action: "deploy",
+        provider: "github",
+        resource: "workflow:123",
+        outcome: "unknown",
+        reason: "provider-timeout"
+      }
+    }
   );
   assert.equal(reconciled.outcome, "unknown");
   const completion = await evaluateCompletion(root, result.runId);
@@ -224,6 +236,7 @@ test("destructive cleanup actions require an immutable run-owned resource receip
         outcome: "success",
         provider: "git",
         providerReceipt: {
+          provider: "git",
           action: "branch.create",
           resource: deniedResource,
           outcome: "success",
@@ -276,7 +289,13 @@ test("destructive cleanup actions require an immutable run-owned resource receip
     outcome: "success",
     created: true
   };
-  await reconcileAction(root, registeredRun.runId, creationSpent.attemptId, "success", providerReceipt);
+  await reconcileAction(root, registeredRun.runId, creationSpent.attemptId, "success", {
+    action: "branch.create",
+    provider: "git",
+    resource,
+    outcome: "success",
+    providerReceipt
+  });
   const creationReceipt = {
     ownerRunId: registeredRun.runId,
     resource,

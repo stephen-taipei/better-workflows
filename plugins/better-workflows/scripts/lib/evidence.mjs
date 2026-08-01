@@ -19,6 +19,7 @@ const PAYLOAD_FAMILIES = new Set([
   "artifact-package"
 ]);
 const INDEPENDENT_CRITIC_PRODUCERS = new Set(["agy", "codex", "codex-native-subagent"]);
+const MAX_REQUIRED_CHECK_AGE_MS = 30 * 60 * 1000;
 let contractCache = null;
 
 export async function loadEvidenceContracts({ refresh = false } = {}) {
@@ -166,6 +167,25 @@ function assertFreshBinding(receipt, run, definition, kind) {
       binding.baseRefName !== payload?.baseRefName
     ) {
       throw new Error(`Typed evidence ${kind} PR review binding is stale`);
+    }
+  }
+  if (kind === "required-checks") {
+    const payload = receipt.payload;
+    const observedAt = Date.parse(payload?.observedAt ?? "");
+    if (!Number.isFinite(observedAt) || observedAt > Date.now() + 5 * 60 * 1000 || Date.now() - observedAt > MAX_REQUIRED_CHECK_AGE_MS) {
+      throw new Error("Typed evidence required-checks observation is stale or invalid");
+    }
+    if (
+      !Array.isArray(payload?.checkSet) ||
+      payload.checkSet.length === 0 ||
+      !Array.isArray(payload?.providerRunIds) ||
+      payload.providerRunIds.length === 0 ||
+      new Set(payload.providerRunIds.map(String)).size !== payload.providerRunIds.length ||
+      !Array.isArray(payload?.conclusions) ||
+      payload.conclusions.length !== payload.providerRunIds.length ||
+      payload.conclusions.some((value) => !["SUCCESS", "success", "PASS", "pass"].includes(String(value)))
+    ) {
+      throw new Error("Typed evidence required-checks provider observation is incomplete");
     }
   }
 }

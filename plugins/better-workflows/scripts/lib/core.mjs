@@ -61,6 +61,13 @@ const OWNED_RESOURCE_CREATION_ACTIONS = new Set([
   "pr.create",
   "actions.dispatch"
 ]);
+const OWNED_RESOURCE_CREATION_SCHEMAS = {
+  "branch.create": { providers: new Set(["git"]), pattern: /^branch:[A-Za-z0-9._/-]+$/ },
+  "worktree.create": { providers: new Set(["git"]), pattern: /^worktree:.+$/ },
+  "pr.create": { providers: new Set(["github-cli"]), pattern: /^pull\/\d+$/ },
+  "actions.dispatch": { providers: new Set(["github-cli"]), pattern: /^(run|workflow):.+$/ }
+};
+const ACTION_EVIDENCE_BINDING_ACTIONS = new Set(["pr.merge", "remote.sync"]);
 const OWNED_RESOURCE = /^[^\0\r\n]{1,512}$/;
 
 export function pluginRoot() {
@@ -616,14 +623,24 @@ export async function registerOwnedResource(root, runId, { resource, creationRec
   return withRunLock(root, runId, async ({ runDir }) => {
     const manifestPath = safeJoin(runDir, "manifest.json");
     const manifest = await readJson(root, manifestPath);
+    const schema = OWNED_RESOURCE_CREATION_SCHEMAS[creationReceipt.action];
+    if (
+      !schema ||
+      !schema.providers.has(creationReceipt.provider) ||
+      !schema.pattern.test(resource) ||
+      creationReceipt.providerReceipt.provider !== creationReceipt.provider
+    ) {
+      throw new Error("Owned resource creation receipt does not match an approved provider/resource schema");
+    }
     const actions = await listJsonRecords(root, safeJoin(runDir, "actions"));
     const creationAction = actions.find((action) => (
       action.attemptId === creationReceipt.attemptId &&
       action.status === "spent" &&
       action.outcome === "success" &&
       action.action === creationReceipt.action &&
+      action.provider === creationReceipt.provider &&
       action.resource === resource &&
-      digestObject(action.receipt) === digestObject(creationReceipt.providerReceipt)
+      digestObject(action.receipt?.providerReceipt) === digestObject(creationReceipt.providerReceipt)
     ));
     if (!creationAction) {
       throw new Error("Owned resource registration requires a reconciled successful run action");
@@ -944,7 +961,7 @@ export async function evaluateCompletion(root, runId) {
   if (["stale", "indeterminate", "inconclusive", "blocked_external_reviewer"].includes(state.status)) {
     blockers.push(`run-state:${state.status}`);
   }
-  if (actions.some((action) => action.outcome === "unknown" || action.outcome === "pending")) {
+  if (actions.some((action) => ["unknown", "pending", "failure"].includes(action.outcome))) {
     blockers.push("side-effect-not-reconciled");
   }
   const { isIndependentCriticEvidence } = await import("./evidence.mjs");
@@ -1049,16 +1066,20 @@ async function assertPullEvidenceBinding(admittedEvidence, request, reviewPackag
       throw new Error(`Action token denied until ${kind} is bound to the exact reviewed PR head`);
     }
   }
-  if (request.requiredEvidence.includes("target-branch-dev")) {
-    const targetRecords = admittedEvidence.filter((item) => item.kind === "target-branch-dev" && item.status === "complete" && !item.stale);
-    const exactTarget = targetRecords.some((record) => {
-      const payload = record.receipt?.payload;
-      return payload?.revision === reviewPackage.base && payload?.repository === expectedRepository && payload?.ref === "dev";
-    });
-    if (targetRecords.length > 0 && !exactTarget) {
-      throw new Error("Action token denied until target-branch-dev is bound to the selected repository and review base");
-    }
-  }
+}
+
+function assertTargetBranchEvidence(admittedEvidence, request, expectedRepository, expectedRevision) {
+  if (!request.requiredEvidence.includes("target-branch-dev")) return;
+  const records = admittedEvidence.filter((item) => item.kind === "target-branch-dev" && item.status === "complete" && !item.stale);
+  const exact = records.some((record) => {
+    const payload = record.receipt?.payload;
+    return (
+      payload?.repository === expectedRepository &&
+      payload?.ref === "dev" &&
+      (!expectedRevision || payload?.revision === expectedRevision)
+    );
+  });
+  if (!exact) throw new Error("Action token denied until target-branch-dev is bound to the selected repository and dev revision");
 }
 
 export async function issueActionToken(root, runId, request, currentTreeDigest, config) {
@@ -1091,6 +1112,11 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
       }
       admittedEvidence = evidence.filter((item) => item.schemaVersion === 2 && item.typedAdmission);
     }
+    let repository = null;
+    if (request.requiredEvidence.includes("target-branch-dev") || request.action === "pr.merge") {
+      repository = await currentRepositoryIdentity(manifest.cwd);
+      assertTargetBranchEvidence(admittedEvidence, request, repository, contract.remoteRevision ?? null);
+    }
     if (request.action === "pr.merge" && contract.controlPlane?.reviewPolicy !== "none") {
       const { isIndependentCriticEvidence } = await import("./evidence.mjs");
       const { reviewStatus } = await import("./review.mjs");
@@ -1107,7 +1133,6 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
         sentinelDigest: state.lastSentinel?.digest
       }));
       if (!hasIndependentCritic) throw new Error("Action token denied until the exact independent critic is admitted");
-      const repository = await currentRepositoryIdentity(manifest.cwd);
       await assertPullEvidenceBinding(admittedEvidence, request, review.package, contract, repository);
     }
     const availableEvidence = new Set(
@@ -1205,6 +1230,48 @@ export async function consumeActionToken(root, runId, token, currentTreeDigest) 
   });
 }
 
+function validateActionReceipt(record, outcome, receipt) {
+  if (!receipt || typeof receipt !== "object" || Array.isArray(receipt)) {
+    throw new Error("Action reconciliation requires a structured provider receipt");
+  }
+  if (
+    receipt.action !== record.action ||
+    receipt.provider !== record.provider ||
+    receipt.resource !== record.resource ||
+    receipt.outcome !== outcome ||
+    !receipt.providerReceipt ||
+    typeof receipt.providerReceipt !== "object" ||
+    receipt.providerReceipt.action !== record.action ||
+    receipt.providerReceipt.resource !== record.resource ||
+    receipt.providerReceipt.outcome !== outcome ||
+    receipt.providerReceipt.provider !== record.provider
+  ) {
+    throw new Error("Action reconciliation receipt is not bound to the action attempt");
+  }
+}
+
+async function validateActionEvidenceBinding(root, runDir, record, attemptId, outcome, receipt) {
+  if (!ACTION_EVIDENCE_BINDING_ACTIONS.has(record.action) || outcome !== "success") return;
+  if (!Array.isArray(receipt.evidenceIds) || receipt.evidenceIds.length === 0) {
+    throw new Error("Successful side-effect reconciliation requires action-bound evidence IDs");
+  }
+  const evidence = await listJsonRecords(root, safeJoin(runDir, "evidence"));
+  for (const evidenceId of receipt.evidenceIds) {
+    const item = evidence.find((candidate) => candidate.id === evidenceId);
+    const payload = item?.receipt?.payload;
+    if (
+      !item ||
+      payload?.actionAttemptId !== attemptId ||
+      payload?.action !== record.action ||
+      payload?.provider !== record.provider ||
+      payload?.resource !== record.resource ||
+      payload?.outcome !== "success"
+    ) {
+      throw new Error("Action-bound evidence does not prove the reconciled side effect");
+    }
+  }
+}
+
 export async function reconcileAction(root, runId, attemptId, outcome, receipt = null) {
   if (!["success", "failure", "unknown"].includes(outcome)) {
     throw new Error("Action outcome must be success, failure, or unknown");
@@ -1216,6 +1283,8 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
     if (record.status !== "spent" || record.outcome !== "pending") {
       throw new Error("Action attempt was already reconciled");
     }
+    validateActionReceipt(record, outcome, receipt);
+    await validateActionEvidenceBinding(root, runDir, record, attemptId, outcome, receipt);
     const target = safeJoin(runDir, "actions", `${record.tokenHash}.json`);
     const next = {
       ...record,
