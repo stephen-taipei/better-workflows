@@ -2445,42 +2445,77 @@ export async function verifyRequiredChecksProvider(cwd, payload) {
   if (digestObject(requiredStatusChecks) !== digestObject([...payload.requiredStatusChecks].sort())) {
     throw new Error("Required checks evidence does not match the protected branch status-check set");
   }
-  const response = JSON.parse((await execFileAsync("gh", [
+  const workflowPages = JSON.parse((await execFileAsync("gh", [
     "api",
+    "--paginate",
+    "--slurp",
     `repos/${repositoryPath}/actions/runs?head_sha=${encodeURIComponent(payload.head)}&per_page=100`
   ], { cwd, encoding: "utf8" })).stdout);
-  const runs = (Array.isArray(response.workflow_runs) ? response.workflow_runs : [])
+  if (!Array.isArray(workflowPages) || workflowPages.some((page) => !page || !Array.isArray(page.workflow_runs))) {
+    throw new Error("Required check provider response is not a complete GitHub workflow-run set");
+  }
+  const runs = workflowPages.flatMap((page) => page.workflow_runs)
     .filter((run) => run?.head_sha === payload.head);
-  if (!Number.isInteger(response.total_count) || response.total_count !== runs.length || runs.length === 0) {
+  const workflowCount = workflowPages.reduce((sum, page) => sum + page.workflow_runs.length, 0);
+  const workflowTotal = workflowPages[0]?.total_count;
+  if (!Number.isInteger(workflowTotal) || workflowTotal !== workflowCount || runs.length === 0) {
     throw new Error("Required check provider response is not a complete GitHub workflow-run set");
   }
   const observedAt = Date.parse(payload.observedAt ?? "");
   if (!Number.isFinite(observedAt)) {
     throw new Error("Required check evidence must include a valid observation timestamp");
   }
+  for (const run of runs) {
+    const completedAt = run.completed_at ?? run.updated_at;
+    if (
+      run.status !== "completed" ||
+      run.conclusion !== "success" ||
+      !Number.isFinite(Date.parse(completedAt ?? "")) ||
+      Date.parse(completedAt) > observedAt
+    ) {
+      throw new Error(`Required check workflow run is not a fresh successful GitHub run: ${run.id}`);
+    }
+  }
+  const checkRunPages = JSON.parse((await execFileAsync("gh", [
+    "api",
+    "--paginate",
+    "--slurp",
+    `repos/${repositoryPath}/commits/${encodeURIComponent(payload.head)}/check-runs?per_page=100`
+  ], { cwd, encoding: "utf8" })).stdout);
+  if (!Array.isArray(checkRunPages) || checkRunPages.some((page) => !page || !Array.isArray(page.check_runs))) {
+    throw new Error("Required check provider response is not a complete GitHub check-run set");
+  }
+  const checkRuns = checkRunPages.flatMap((page) => page.check_runs)
+    .filter((check) => check?.head_sha === payload.head);
+  const checkRunCount = checkRunPages.reduce((sum, page) => sum + page.check_runs.length, 0);
+  const checkRunTotal = checkRunPages[0]?.total_count;
+  if (!Number.isInteger(checkRunTotal) || checkRunTotal !== checkRunCount || checkRuns.length === 0) {
+    throw new Error("Required check provider response is not a complete GitHub check-run set");
+  }
   const observedIds = new Set(payload.checks.map((check) => String(check.providerRunId)));
-  const providerIds = new Set(runs.map((run) => String(run.id)));
-  if (observedIds.size !== runs.length || observedIds.size !== payload.checks.length ||
+  const providerIds = new Set(checkRuns.map((check) => String(check.id)));
+  if (observedIds.size !== checkRuns.length || observedIds.size !== payload.checks.length ||
       [...providerIds].some((id) => !observedIds.has(id))) {
-    throw new Error("Required check evidence does not cover the complete GitHub workflow-run set");
+    throw new Error("Required check evidence does not cover the complete GitHub check-run set");
   }
   const observedRequired = new Set(payload.checks.map((check) => check.providerName));
   if (requiredStatusChecks.some((name) => !observedRequired.has(name))) {
     throw new Error("Required check evidence does not include every protected status check");
   }
   for (const check of payload.checks) {
-    const run = runs.find((candidate) => String(candidate.id) === String(check.providerRunId));
+    const checkRun = checkRuns.find((candidate) => String(candidate.id) === String(check.providerRunId));
+    const completedAt = checkRun?.completed_at ?? checkRun?.updated_at;
     if (
-      !run ||
-      run.head_sha !== payload.head ||
-      run.status !== "completed" ||
-      run.conclusion !== "success" ||
-      (check.providerName !== run.name && check.providerName !== run.workflow_name) ||
-      check.name !== `${run.name ?? run.workflow_name}#${run.id}` ||
-      !Number.isFinite(Date.parse(run.completed_at ?? "")) ||
-      Date.parse(run.completed_at ?? "") > observedAt
+      !checkRun ||
+      checkRun.head_sha !== payload.head ||
+      checkRun.status !== "completed" ||
+      checkRun.conclusion !== "success" ||
+      check.providerName !== checkRun.name ||
+      check.name !== `${checkRun.name}#${checkRun.id}` ||
+      !Number.isFinite(Date.parse(completedAt ?? "")) ||
+      Date.parse(completedAt) > observedAt
     ) {
-      throw new Error(`Required check provider run is not a fresh successful GitHub run: ${check.providerRunId}`);
+      throw new Error(`Required check provider check-run is not a fresh successful GitHub check: ${check.providerRunId}`);
     }
   }
 }
