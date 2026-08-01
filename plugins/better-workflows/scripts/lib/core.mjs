@@ -756,6 +756,9 @@ function assertProviderReceiptShape(record, providerReceipt, outcome = record.ou
       typeof providerReceipt.repository !== "string" || !providerReceipt.repository ||
       typeof providerReceipt.baseRefName !== "string" || !providerReceipt.baseRefName ||
       (record.targetRef && providerReceipt.baseRefName !== record.targetRef) ||
+      providerReceipt.mergeMethod !== record.mergeMethod ||
+      providerReceipt.adminBypass !== false ||
+      JSON.stringify(providerReceipt.mergeCommand) !== JSON.stringify(record.mergeCommand) ||
       typeof providerReceipt.head !== "string" || !providerReceipt.head ||
       typeof providerReceipt.mergeCommit !== "string" || !providerReceipt.mergeCommit)
   ) {
@@ -1324,6 +1327,23 @@ async function currentGitProviderIdentity(cwd) {
   })).stdout.trim();
 }
 
+async function verifyPullRequestBeforeMerge(cwd, record) {
+  const actual = JSON.parse((await execFileAsync("gh", [
+    "pr", "view", String(record.pullRequest), "--json",
+    "number,state,headRefOid,baseRefName,mergeable,mergeStateStatus"
+  ], { cwd, encoding: "utf8" })).stdout);
+  if (
+    actual.number !== record.pullRequest ||
+    actual.state !== "OPEN" ||
+    actual.headRefOid !== record.reviewedHead ||
+    (record.targetRef && actual.baseRefName !== record.targetRef) ||
+    actual.mergeable !== "MERGEABLE" ||
+    actual.mergeStateStatus !== "CLEAN"
+  ) {
+    throw new Error("Live pull request state is not an exact clean merge candidate");
+  }
+}
+
 function assertRecomputedProviderReceipt(receipt, request, response, executionId) {
   if (
     receipt.requestDigest !== digestObject(request) ||
@@ -1635,7 +1655,18 @@ async function verifyProviderReceipt(manifest, record, receipt) {
     };
     assertRecomputedProviderReceipt(
       providerReceipt,
-      { action: record.action, provider: record.provider, resource: record.resource, remoteRevision: record.remoteRevision, repository, pr: actual.number },
+      {
+        action: record.action,
+        provider: record.provider,
+        resource: record.resource,
+        remoteRevision: record.remoteRevision,
+        repository,
+        pr: actual.number,
+        targetRef: record.targetRef ?? null,
+        mergeMethod: record.mergeMethod,
+        adminBypass: record.adminBypass,
+        mergeCommand: record.mergeCommand
+      },
       response,
       `github:${repository}:pr.merge:${actual.number}:${mergeCommit}`
     );
@@ -1906,8 +1937,7 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
     if (
       contract.actionStages &&
       Object.hasOwn(contract.actionStages, request.action) &&
-      !ACTION_PROVIDER_RECEIPT_SCHEMAS[`${request.action}:${request.provider}`] &&
-      request.provider !== "test"
+      !ACTION_PROVIDER_RECEIPT_SCHEMAS[`${request.action}:${request.provider}`]
     ) {
       throw new Error(`Action provider pair is not supported by a live receipt verifier: ${request.action}:${request.provider}`);
     }
@@ -1926,6 +1956,9 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
       })).stdout.trim();
       const remoteRepository = repositoryIdentity(remoteUrl);
       if (!remoteRepository) throw new Error("Git push requires a canonical remote repository identity");
+      if (contract.template === "pr-to-dev" && (remote !== "origin" || remoteRepository !== repository)) {
+        throw new Error("pr-to-dev git.push must use the canonical origin repository");
+      }
       const expectedBranch = ref.slice("refs/heads/".length);
       const expectedRevision = (await execFileAsync("git", ["rev-parse", "--verify", `${ref}^{commit}`], {
         cwd: manifest.cwd,
@@ -1954,6 +1987,23 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
     }
     if (request.action === "pr.create" && contract.template === "pr-to-dev") {
       actionBinding.targetRef = "dev";
+    }
+    if (request.action === "pr.merge") {
+      const pullRequest = Number(String(request.resource).replace(/^pull\//, ""));
+      if (!Number.isInteger(pullRequest)) throw new Error("PR merge resources must use pull/<number>");
+      const currentHead = (await execFileAsync("git", ["rev-parse", "--verify", "HEAD^{commit}"], {
+        cwd: manifest.cwd,
+        encoding: "utf8"
+      })).stdout.trim();
+      actionBinding = {
+        ...actionBinding,
+        pullRequest,
+        reviewedHead: currentHead,
+        ...(contract.template === "pr-to-dev" ? { targetRef: "dev" } : {}),
+        mergeMethod: "merge",
+        adminBypass: false,
+        mergeCommand: ["gh", "pr", "merge", String(pullRequest), "--merge", "--delete-branch=false"]
+      };
     }
     if (request.action === "remote.sync" && contract.template === "pr-to-dev" && request.resource !== "refs/heads/dev") {
       throw new Error("pr-to-dev remote synchronization is restricted to refs/heads/dev");
@@ -1990,6 +2040,7 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
       if (!hasIndependentCritic) throw new Error("Action token denied until the exact independent critic is admitted");
       await assertPullEvidenceBinding(admittedEvidence, request, review.package, contract, repository);
       actionBinding = {
+        ...actionBinding,
         reviewedHead: review.package.head,
         reviewPackageId: review.package.packageId,
         pullRequest: Number(String(request.resource).replace(/^pull\//, ""))
@@ -2017,6 +2068,9 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
       });
       if (!requiredChecks) throw new Error("Action token denied until exact required-check provider evidence is present");
       await verifyRequiredChecksProvider(manifest.cwd, requiredChecks.receipt.payload);
+    }
+    if (request.action === "pr.merge") {
+      await verifyPullRequestBeforeMerge(manifest.cwd, actionBinding);
     }
     const availableEvidence = new Set(
       admittedEvidence

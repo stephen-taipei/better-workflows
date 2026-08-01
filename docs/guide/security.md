@@ -23,8 +23,11 @@ rationale.
 
 - Private state directories use mode `0700`.
 - Private state files use mode `0600`.
-- Receipts store digests and bounded metadata, not raw prompts, credentials,
-  conversation history, or provider receipts.
+- General receipts store digests and bounded metadata, not raw prompts,
+  credentials, or conversation history. Reconciled side-effect action records
+  retain structured provider receipts privately so their terminal state can be
+  independently verified; those receipts are never included in external
+  handoffs.
 - Unknown remote outcomes require a read-only provider query and
   reconciliation; they are never blindly retried.
 

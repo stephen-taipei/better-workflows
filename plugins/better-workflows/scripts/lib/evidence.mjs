@@ -403,6 +403,7 @@ export function isIndependentCriticEvidence(record, expectedBinding = null) {
     : null;
   return Boolean(
     isTypedEvidence(record) &&
+    record.stale !== true &&
     record.sourceKind === "independent-critic" &&
     record.kind === "patch-review" &&
     record.typedAdmission?.independentCritic === true &&

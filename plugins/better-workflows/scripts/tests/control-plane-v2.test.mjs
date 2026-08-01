@@ -397,6 +397,7 @@ test("review packages prove the Git manifest and dispositions fail closed", asyn
   tampered.diffManifest = { files: [] };
   tampered.diffManifestDigest = digestObject(tampered.diffManifest);
   const tamperedIdentity = {
+    immutable: tampered.immutable,
     base: tampered.base,
     head: tampered.head,
     mergeBase: tampered.mergeBase,
@@ -560,8 +561,8 @@ test("action tokens require the mapped ledger stage to be ready", async () => {
   const template = {
     ...contractTemplate,
     requiredEvidence: ["environment-state"],
-    actionGates: { "test.action": ["environment-state"] },
-    actionStages: { "test.action": "review" },
+    actionGates: { "git.commit": ["environment-state"] },
+    actionStages: { "git.commit": "review" },
     executionStages: [
       contractTemplate.executionStages[0],
       { id: "review", dependsOn: ["environment"], requiredEvidence: ["environment-state"], attemptBudget: 5, kind: "review" }
@@ -574,7 +575,7 @@ test("action tokens require the mapped ledger stage to be ready", async () => {
     scope: ["."],
     risk: { risk: 1, uncertainty: 0, blastRadius: 1, irreversibility: 0, evidenceGap: 0 },
     sensitivity: "internal",
-    authority: ["test.action"],
+    authority: ["git.commit"],
     remoteRevision: "remote"
   });
   const started = await createRun({ root, contract, requestedMode: "verified", cwd: root });
@@ -589,9 +590,9 @@ test("action tokens require the mapped ledger stage to be ready", async () => {
   const defaults = await loadDefaults();
   await assert.rejects(
     issueActionToken(root, started.runId, {
-      action: "test.action",
-      provider: "test",
-      resource: "test-resource",
+      action: "git.commit",
+      provider: "git",
+      resource: "commit:test",
       remoteRevision: "remote",
       requiredEvidence: ["environment-state"]
     }, "tree", defaults),
@@ -603,22 +604,22 @@ test("action tokens require the mapped ledger stage to be ready", async () => {
   await transitionLedger(root, started.runId, { eventId: "complete-environment", type: "complete", taskId: "environment", evidenceKinds: ["environment-state"], expectedLedgerDigest: digestObject(startedLedger) });
   await assert.rejects(
     issueActionToken(root, started.runId, {
-      action: "test.action",
-      provider: "test",
-      resource: "test-resource",
+      action: "git.commit",
+      provider: "git",
+      resource: "commit:test",
       remoteRevision: "remote",
       requiredEvidence: ["caller-selected-shortcut"]
     }, "tree", defaults),
     /caller-selected evidence does not match the contract action gate/
   );
   const issued = await issueActionToken(root, started.runId, {
-    action: "test.action",
-    provider: "test",
-    resource: "test-resource",
+    action: "git.commit",
+    provider: "git",
+    resource: "commit:test",
     remoteRevision: "remote",
     requiredEvidence: ["environment-state"]
   }, "tree", defaults);
-  assert.equal(issued.action, "test.action");
+  assert.equal(issued.action, "git.commit");
 });
 
 test("atomic deliberation emits no partial bundle on failed arbitration", async () => {

@@ -139,6 +139,7 @@ export async function createReviewPackage({
     throw new Error("Review diff manifest does not match Git BASE...HEAD");
   }
   const input = {
+    immutable: true,
     base,
     head,
     mergeBase,
@@ -223,6 +224,8 @@ async function assertFindingEvidence(root, run, finding) {
   const reviewPackage = await readJson(root, safeJoin(packageDirectory(run.runDir), `${finding.packageId}.json`)).catch(() => null);
   const bound = (
     reviewPackage &&
+    reviewPackage.schemaVersion === 1 &&
+    reviewPackage.immutable === true &&
     payload?.packageId === reviewPackage.packageId &&
     payload?.base === reviewPackage.base &&
     payload?.head === reviewPackage.head &&
@@ -271,7 +274,12 @@ export async function addReviewFinding(root, runId, finding, { update = false } 
     if (error.code === "ENOENT") throw new Error(`Review finding references unknown package: ${finding.packageId}`);
     throw error;
   });
-  if (reviewPackage.contractDigest !== digestObject(run.contract) || reviewPackage.templateDigest !== run.contract.templateDigest) {
+  if (
+    reviewPackage.schemaVersion !== 1 ||
+    reviewPackage.immutable !== true ||
+    reviewPackage.contractDigest !== digestObject(run.contract) ||
+    reviewPackage.templateDigest !== run.contract.templateDigest
+  ) {
     throw new Error("Review finding package is bound to a different contract or template");
   }
   const status = validateFindingDisposition(finding);
@@ -345,13 +353,19 @@ export async function reviewStatus(root, runId) {
   }
   const expectedContractDigest = digestObject(run.contract);
   for (const value of packages) {
-    if (value.contractDigest !== expectedContractDigest || value.templateDigest !== run.contract.templateDigest) {
+    if (
+      value.schemaVersion !== 1 ||
+      value.immutable !== true ||
+      value.contractDigest !== expectedContractDigest ||
+      value.templateDigest !== run.contract.templateDigest
+    ) {
       throw new Error("Review package is bound to a different contract or template");
     }
     if (value.scopeDigest !== digestObject(value.scope) || value.diffManifestDigest !== digestObject(value.diffManifest)) {
       throw new Error("Review package identity digest is stale");
     }
     const identity = {
+      immutable: value.immutable,
       base: value.base,
       head: value.head,
       mergeBase: value.mergeBase,
