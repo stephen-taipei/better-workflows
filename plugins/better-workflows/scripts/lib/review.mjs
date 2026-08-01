@@ -89,17 +89,22 @@ async function resolveCommit(cwd, revision, label) {
   if (resolved !== revision) throw new Error(`Review ${label} does not resolve to the supplied commit`);
 }
 
-export async function createReviewPackage({
-  root,
-  runId,
-  base,
-  head,
-  scope,
-  diffManifest,
-  instructionDigest,
-  sentinelDigest
-}) {
-  const run = await loadRun(root, runId);
+export async function createReviewPackage(request) {
+  return withRunLock(request.root, request.runId, async ({ runDir }) => {
+    const {
+      root,
+      runId,
+      base,
+      head,
+      scope,
+      diffManifest,
+      instructionDigest,
+      sentinelDigest
+    } = request;
+    const run = await loadRun(root, runId);
+    if (["completed", "no_op", "cancelled_superseded", "cancelled_evidence_sufficient"].includes(run.state.status)) {
+      throw new Error("Review package cannot mutate a terminal run");
+    }
   if (!SHA.test(base) || !SHA.test(head)) throw new Error("Review BASE and HEAD must be 40-character revisions");
   if (!Array.isArray(scope) || scope.length === 0) throw new Error("Review scope must be non-empty");
   if (scope.some((item) => typeof item !== "string" || !item || item.includes("\0") || item.startsWith("/"))) {
@@ -163,18 +168,19 @@ export async function createReviewPackage({
     broadReview: { required: true, complete: false },
     findings: []
   };
-  const target = safeJoin(packageDirectory(run.runDir), `${id}.json`);
-  try {
-    const existing = await readJson(root, target);
-    const { createdAt: _existingCreatedAt, ...existingIdentity } = existing;
-    const { createdAt: _createdAt, ...valueIdentity } = value;
-    if (digestObject(existingIdentity) !== digestObject(valueIdentity)) throw new Error("Review package identity drifted");
-    return existing;
-  } catch (error) {
-    if (error.code !== "ENOENT") throw error;
-  }
-  await atomicWriteJson(root, target, value);
-  return value;
+    const target = safeJoin(packageDirectory(runDir), `${id}.json`);
+    try {
+      const existing = await readJson(root, target);
+      const { createdAt: _existingCreatedAt, ...existingIdentity } = existing;
+      const { createdAt: _createdAt, ...valueIdentity } = value;
+      if (digestObject(existingIdentity) !== digestObject(valueIdentity)) throw new Error("Review package identity drifted");
+      return existing;
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+    await atomicWriteJson(root, target, value);
+    return value;
+  });
 }
 
 export function stableFindingId({ packageId: id, path, location, rule }) {

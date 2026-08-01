@@ -576,6 +576,10 @@ test("review packages prove the Git manifest and dispositions fail closed", asyn
     }),
     /cannot mutate a terminal run/
   );
+  await assert.rejects(
+    createReviewPackage({ ...input, instructionDigest: "c".repeat(64) }),
+    /Review package cannot mutate a terminal run/
+  );
 });
 
 test("action tokens require the mapped ledger stage to be ready", async () => {
