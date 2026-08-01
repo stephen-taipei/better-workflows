@@ -122,9 +122,11 @@ export async function createReviewPackage({
     encoding: "utf8"
   })).stdout.trim();
   if (currentHead !== head) throw new Error("Review HEAD must match the current checkout");
-  if (run.state.lastSentinel?.digest && run.state.lastSentinel.digest !== sentinelDigest) {
-    throw new Error("Review sentinel is not the verified current sentinel");
-  }
+  if (
+    run.state.lastSentinelVerified !== true ||
+    run.state.lastSentinelComplete !== true ||
+    run.state.lastSentinel?.digest !== sentinelDigest
+  ) throw new Error("Review sentinel is not a verified complete current sentinel");
   const { mergeBase, diffManifest: derivedDiffManifest } = await deriveDiffManifest(
     run.manifest.cwd,
     base,
@@ -394,7 +396,12 @@ export async function reviewStatus(root, runId) {
     : [];
   const openHigh = scopedFindings.filter((item) => ["P0", "P1"].includes(item.severity) && item.status === "open");
   const repairBudgetExhausted = Boolean(scoped?.repairRounds >= 5 && openHigh.length > 0);
-  const broadSentinelMatches = !run.state.lastSentinel?.digest || scoped?.broadReview?.sentinelDigest === run.state.lastSentinel.digest;
+  const broadSentinelMatches = (
+    run.state.lastSentinelVerified === true &&
+    run.state.lastSentinelComplete === true &&
+    typeof run.state.lastSentinel?.digest === "string" &&
+    scoped?.broadReview?.sentinelDigest === run.state.lastSentinel.digest
+  );
   const broadHeadMatches = scoped?.head === currentHead;
   let broadEvidenceComplete = false;
   if (scoped?.broadReview?.complete) {
@@ -437,9 +444,11 @@ export async function markBroadReviewComplete(root, runId, packageIdValue, head,
   const target = safeJoin(packageDirectory(run.runDir), `${packageIdValue}.json`);
   const value = await readJson(root, target);
   if (head !== value.head) throw new Error("Broad review must bind the final HEAD");
-  if (run.state.lastSentinel?.digest && sentinelDigest !== run.state.lastSentinel.digest) {
-    throw new Error("Broad review sentinel is not the verified current sentinel");
-  }
+  if (
+    run.state.lastSentinelVerified !== true ||
+    run.state.lastSentinelComplete !== true ||
+    sentinelDigest !== run.state.lastSentinel?.digest
+  ) throw new Error("Broad review sentinel is not a verified complete current sentinel");
   const currentHead = (await execFileAsync("git", ["rev-parse", "--verify", "HEAD^{commit}"], {
     cwd: run.manifest.cwd,
     encoding: "utf8"

@@ -180,6 +180,7 @@ test("typed gate evidence rejects a failed result even when its shape is valid",
     providerRunIds: ["provider-run-1"],
     conclusions: ["SUCCESS"],
     checks: [{ name: "test", providerRunId: "provider-run-1", conclusion: "SUCCESS" }],
+    requiredStatusChecks: ["test"],
     provider: "github",
     observedAt: new Date().toISOString()
   };
@@ -370,6 +371,13 @@ test("review packages prove the Git manifest and dispositions fail closed", asyn
     remoteRevision: base
   });
   const started = await createRun({ root, contract, requestedMode: "verified", cwd: repository });
+  const sentinel = await captureSentinel(repository, contract, await loadDefaults());
+  await updateState(root, started.runId, (state) => ({
+    ...state,
+    lastSentinel: { label: "review", digest: sentinel.digest },
+    lastSentinelVerified: true,
+    lastSentinelComplete: true
+  }));
   const digest = "b".repeat(64);
   const input = {
     root,
@@ -379,7 +387,7 @@ test("review packages prove the Git manifest and dispositions fail closed", asyn
     scope: ["src"],
     diffManifest: { files: [{ status: "A", path: "src/a.ts" }] },
     instructionDigest: digest,
-    sentinelDigest: digest
+    sentinelDigest: sentinel.digest
   };
   const first = await createReviewPackage(input);
   const second = await createReviewPackage(input);
@@ -425,8 +433,15 @@ test("review packages prove the Git manifest and dispositions fail closed", asyn
     remoteRevision: divergentBase
   });
   const divergentRun = await createRun({ root, contract: divergentContract, requestedMode: "verified", cwd: repository });
+  const divergentSentinel = await captureSentinel(repository, divergentContract, await loadDefaults());
+  await updateState(root, divergentRun.runId, (state) => ({
+    ...state,
+    lastSentinel: { label: "divergent-review", digest: divergentSentinel.digest },
+    lastSentinelVerified: true,
+    lastSentinelComplete: true
+  }));
   await assert.rejects(
-    createReviewPackage({ ...input, runId: divergentRun.runId, base: divergentBase }),
+    createReviewPackage({ ...input, runId: divergentRun.runId, base: divergentBase, sentinelDigest: divergentSentinel.digest }),
     /BASE must be an ancestor of HEAD/
   );
   await assert.rejects(
@@ -536,7 +551,7 @@ test("review packages prove the Git manifest and dispositions fail closed", asyn
     { verdict: "PASS", findingCount: 0, packageId: first.packageId, head },
     "diff-review-proof"
   ));
-  await markBroadReviewComplete(root, started.runId, first.packageId, head, digest);
+  await markBroadReviewComplete(root, started.runId, first.packageId, head, sentinel.digest);
   assert.equal((await reviewStatus(root, started.runId)).complete, true);
 });
 

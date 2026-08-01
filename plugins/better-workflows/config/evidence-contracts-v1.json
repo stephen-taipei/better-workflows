@@ -1525,6 +1525,7 @@
         "providerRunIds",
         "conclusions",
         "checks",
+        "requiredStatusChecks",
         "provider",
         "observedAt"
       ],
