@@ -663,6 +663,9 @@ function assertProviderReceiptShape(record, providerReceipt, outcome = record.ou
     providerReceipt.terminalState.length > 0
   );
   if (!commonValid) throw new Error("Provider receipt lacks a structured execution proof");
+  if (outcome === "success" && providerReceipt.terminalState !== "success") {
+    throw new Error("Successful provider receipt must have terminalState success");
+  }
   const schema = ACTION_PROVIDER_RECEIPT_SCHEMAS[`${record.action}:${record.provider}`];
   if (outcome === "success" && !schema) {
     throw new Error("Successful action requires an approved provider-specific receipt schema");
@@ -699,6 +702,8 @@ function assertProviderReceiptShape(record, providerReceipt, outcome = record.ou
     (!providerReceipt.pushed || !GIT_PUSH_RESOURCE.test(record.resource) ||
       providerReceipt.remote !== GIT_PUSH_RESOURCE.exec(record.resource)?.[1] ||
       providerReceipt.ref !== GIT_PUSH_RESOURCE.exec(record.resource)?.[2] ||
+      providerReceipt.remoteRepository !== record.remoteRepository ||
+      providerReceipt.remoteUrlDigest !== record.remoteUrlDigest ||
       typeof providerReceipt.revision !== "string" || !/^[a-f0-9]{7,64}$/i.test(providerReceipt.revision))
   ) {
     throw new Error("Git push proof is incomplete");
@@ -1033,7 +1038,7 @@ function validateRecordId(id, kind) {
 export async function addEvidence(root, runId, record) {
   const boundRun = await loadRun(root, runId);
   const admitted = boundRun.contract.schemaVersion === 2
-    ? await (await import("./evidence.mjs")).admitTypedEvidence(record, boundRun)
+    ? await (await import("./evidence.mjs")).admitTypedEvidence(record, { ...boundRun, root, requireReconciled: false })
     : record;
   record = admitted;
   validateRecordId(record.id, "evidence");
@@ -1144,7 +1149,7 @@ export async function evaluateCompletion(root, runId) {
       }
       if (isTypedEvidence(record)) {
         try {
-          await validateTypedEvidenceRecord(record, { manifest, contract });
+          await validateTypedEvidenceRecord(record, { manifest, contract, root, runDir, requireReconciled: true });
           if (record.kind === "required-checks") {
             await verifyRequiredChecksProvider(manifest.cwd, record.receipt.payload);
           }
@@ -1200,6 +1205,20 @@ export async function evaluateCompletion(root, runId) {
   }
   if (actions.some((action) => ["unknown", "pending", "failure"].includes(action.outcome))) {
     blockers.push("side-effect-not-reconciled");
+  }
+  if (
+    contract.template === "pr-to-dev" &&
+    availableEvidence.has("remote-sync") &&
+    !actions.some((action) => (
+      action.action === "remote.sync" &&
+      action.status === "spent" &&
+      action.outcome === "success" &&
+      action.resource === "refs/heads/dev" &&
+      action.receipt?.providerReceipt?.providerRevision === action.mergeCommit &&
+      action.receipt?.providerReceipt?.localRevision === action.mergeCommit
+    ))
+  ) {
+    blockers.push("missing-reconciled-action:remote.sync");
   }
   const { isIndependentCriticEvidence } = await import("./evidence.mjs");
   const hasIndependentCritic = admittedEvidence.some((item) => isIndependentCriticEvidence(item, {
@@ -1390,14 +1409,29 @@ async function verifyProviderReceipt(manifest, record, receipt) {
     })).stdout.trim();
     const revision = output.split(/\s+/)[0];
     if (!/^[a-f0-9]{40}$/i.test(revision)) throw new Error("Git push proof does not identify a remote revision");
-    const repository = repositoryIdentity((await execFileAsync("git", ["remote", "get-url", remote], {
+    const remoteUrl = (await execFileAsync("git", ["remote", "get-url", remote], {
       cwd,
       encoding: "utf8"
-    })).stdout.trim());
-    const response = { repository, remote, ref, revision };
+    })).stdout.trim();
+    const repository = repositoryIdentity(remoteUrl);
+    const remoteUrlDigest = sha256(remoteUrl);
+    if (repository !== record.remoteRepository || remoteUrlDigest !== record.remoteUrlDigest) {
+      throw new Error("Git push proof does not match the remote bound when the action token was issued");
+    }
+    const response = { repository, remote, ref, revision, remoteUrlDigest };
     assertRecomputedProviderReceipt(
       providerReceipt,
-      { action: record.action, provider: record.provider, resource: record.resource, remoteRevision: record.remoteRevision, repository, remote, ref },
+      {
+        action: record.action,
+        provider: record.provider,
+        resource: record.resource,
+        remoteRevision: record.remoteRevision,
+        repository,
+        remote,
+        ref,
+        remoteRepository: record.remoteRepository,
+        remoteUrlDigest: record.remoteUrlDigest
+      },
       response,
       `git:${repository}:${remote}:git.push:${ref}:${revision}`
     );
@@ -1549,6 +1583,9 @@ async function verifyProviderReceipt(manifest, record, receipt) {
     return;
   }
   if (key === "remote.sync:git") {
+    if (manifest.template === "pr-to-dev" && record.resource !== "refs/heads/dev") {
+      throw new Error("pr-to-dev remote synchronization is restricted to refs/heads/dev");
+    }
     const branchRef = /^refs\/heads\/(.+)$/.exec(record.resource)?.[1];
     if (!branchRef) throw new Error("Git remote synchronization resource must be refs/heads/<branch>");
     const providerRevision = (await execFileAsync("git", ["rev-parse", "--verify", `refs/remotes/origin/${branchRef}^{commit}`], {
@@ -1714,6 +1751,7 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
     const state = await readJson(root, safeJoin(runDir, "state.json"));
     const findings = await listJsonRecords(root, safeJoin(runDir, "findings"));
     const evidence = await listJsonRecords(root, safeJoin(runDir, "evidence"));
+    const actions = await listJsonRecords(root, safeJoin(runDir, "actions"));
     if (!state.lastSentinelVerified || state.lastSentinel?.digest !== currentTreeDigest) {
       throw new Error("Action token requires a verified current-tree sentinel");
     }
@@ -1742,7 +1780,13 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
     if (contract.schemaVersion === 2) {
       const { validateTypedEvidenceRecord } = await import("./evidence.mjs");
       for (const item of evidence.filter((record) => record.schemaVersion === 2 && record.typedAdmission)) {
-        await validateTypedEvidenceRecord(item, { manifest: await readJson(root, safeJoin(runDir, "manifest.json")), contract });
+        await validateTypedEvidenceRecord(item, {
+          manifest,
+          contract,
+          root,
+          runDir,
+          requireReconciled: true
+        });
       }
       admittedEvidence = evidence.filter((item) => item.schemaVersion === 2 && item.typedAdmission);
     }
@@ -1752,6 +1796,23 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
       assertTargetBranchEvidence(admittedEvidence, request, repository, contract.remoteRevision ?? null);
     }
     let actionBinding = {};
+    if (request.action === "git.push") {
+      const [, remote] = GIT_PUSH_RESOURCE.exec(request.resource) ?? [];
+      if (!remote) throw new Error("Git push resources must use remote:<name>:refs/heads/<branch>");
+      const remoteUrl = (await execFileAsync("git", ["remote", "get-url", remote], {
+        cwd: manifest.cwd,
+        encoding: "utf8"
+      })).stdout.trim();
+      const remoteRepository = repositoryIdentity(remoteUrl);
+      if (!remoteRepository) throw new Error("Git push requires a canonical remote repository identity");
+      actionBinding = {
+        remoteRepository,
+        remoteUrlDigest: sha256(remoteUrl)
+      };
+    }
+    if (request.action === "remote.sync" && contract.template === "pr-to-dev" && request.resource !== "refs/heads/dev") {
+      throw new Error("pr-to-dev remote synchronization is restricted to refs/heads/dev");
+    }
     if (request.action === "pr.merge" && contract.controlPlane?.reviewPolicy !== "none") {
       const { isIndependentCriticEvidence } = await import("./evidence.mjs");
       const { reviewStatus } = await import("./review.mjs");
@@ -1810,6 +1871,19 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
       }
       const cleanupPlan = admittedEvidence.find((item) => item.kind === "actions-cleanup-plan");
       assertCleanupResourceBinding(manifest, runId, request, cleanupPlan);
+      if (
+        contract.template === "pr-to-dev" &&
+        !actions.some((action) => (
+          action.action === "remote.sync" &&
+          action.status === "spent" &&
+          action.outcome === "success" &&
+          action.resource === "refs/heads/dev" &&
+          action.receipt?.providerReceipt?.providerRevision === action.mergeCommit &&
+          action.receipt?.providerReceipt?.localRevision === action.mergeCommit
+        ))
+      ) {
+        throw new Error("pr-to-dev cleanup requires a successful reconciled remote.sync action");
+      }
     }
     const authorities = contract.authority?.externalSideEffects ?? [];
     if (!authorities.includes(request.action) && !authorities.includes("*")) {

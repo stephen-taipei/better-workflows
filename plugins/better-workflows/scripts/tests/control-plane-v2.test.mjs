@@ -490,7 +490,16 @@ test("review packages prove the Git manifest and dispositions fail closed", asyn
   await addEvidence(root, started.runId, await gateRecord(
     { runId: started.runId, contract: (await inspectRun(root, started.runId)).contract },
     "patch-review",
-    { verdict: "PASS", findingCount: 0, findingIds: [finding.id, accepted.id] },
+    {
+      verdict: "PASS",
+      findingCount: 0,
+      findingIds: [finding.id, accepted.id],
+      packageId: first.packageId,
+      base: first.base,
+      head: first.head,
+      scopeDigest: first.scopeDigest,
+      diffManifestDigest: first.diffManifestDigest
+    },
     "review-proof"
   ));
   for (let round = 0; round < 5; round += 1) await recordRepairRound(root, started.runId, first.packageId, { round });

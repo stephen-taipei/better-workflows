@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { digestObject, pluginRoot } from "./core.mjs";
+import { digestObject, listJsonRecords, pluginRoot, safeJoin } from "./core.mjs";
 
 const CONTRACT_FILE = path.join(pluginRoot(), "config", "evidence-contracts-v1.json");
 const HEX_DIGEST = /^[a-f0-9]{64}$/;
@@ -74,7 +74,7 @@ function assertDigest(value, label) {
   }
 }
 
-function assertActionProofPayload(payload, kind, run) {
+async function assertActionProofPayload(payload, kind, run, evidenceId) {
   if (!(["provider-reconciliation", "remote-sync"].includes(kind))) return;
   const proof = payload.actionProof;
   const receipt = payload.receipt;
@@ -124,6 +124,30 @@ function assertActionProofPayload(payload, kind, run) {
     receipt.localRevision !== payload.mergeCommit
   )) {
     throw new Error("Typed evidence remote-sync must bind the reconciled refs to the final merge commit");
+  }
+  if (run.root && run.runDir) {
+    const actions = await listJsonRecords(run.root, safeJoin(run.runDir, "actions"));
+    const action = actions.find((candidate) => candidate.attemptId === proof.actionAttemptId);
+    if (
+      !action ||
+      action.runId !== proof.runId ||
+      action.action !== proof.action ||
+      action.provider !== proof.provider ||
+      action.resource !== proof.resource ||
+      action.idempotencyKey !== proof.idempotencyKey ||
+      action.remoteRevision !== proof.remoteRevision ||
+      action.status !== "spent" ||
+      (run.requireReconciled && action.outcome !== "success") ||
+      (action.outcome === "success" && (
+        !action.receipt ||
+        !Array.isArray(action.receipt.evidenceIds) ||
+        !action.receipt.evidenceIds.includes(evidenceId) ||
+        action.receipt.providerReceipt?.executionId !== proof.providerExecutionId ||
+        digestObject(action.receipt.providerReceipt) !== digestObject(receipt)
+      ))
+    ) {
+      throw new Error(`Typed evidence ${kind} actionProof does not reference a persisted reconciled action`);
+    }
   }
 }
 
@@ -312,7 +336,7 @@ export async function admitTypedEvidence(record, run, { persisted = false } = {}
   if (Object.keys(receipt.payload).length === 0) {
     throw new Error(`Typed evidence ${record.kind} payload must not be empty`);
   }
-  assertActionProofPayload(receipt.payload, record.kind, run);
+  await assertActionProofPayload(receipt.payload, record.kind, run, record.id);
   assertPayloadFields(receipt.payload, definition.requiredFields, record.kind);
   assertSemanticSuccess(receipt.payload, record.kind, definition);
   const payloadDigest = digestObject(receipt.payload);

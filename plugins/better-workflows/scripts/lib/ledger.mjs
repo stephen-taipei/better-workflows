@@ -262,7 +262,10 @@ export async function deriveLedgerStatus(root, runId) {
   const ledger = normalizeLedger(await readJson(root, ledgerPath(runDir)));
   const run = {
     manifest: await readJson(root, safeJoin(runDir, "manifest.json")),
-    contract: await readJson(root, safeJoin(runDir, "contract.json"))
+    contract: await readJson(root, safeJoin(runDir, "contract.json")),
+    root,
+    runDir,
+    requireReconciled: true
   };
   if (ledger.runId !== runId) throw new Error("Execution ledger runId is stale");
   const records = await listJsonRecords(root, safeJoin(runDir, "evidence"));

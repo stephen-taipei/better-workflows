@@ -218,9 +218,19 @@ async function assertFindingEvidence(root, run, finding) {
     throw new Error(`Review finding ${finding.id ?? "unknown"} must reference patch-review evidence`);
   }
   const payload = evidence.receipt?.payload;
-  const bound = Array.isArray(payload?.findingIds) && payload.findingIds.includes(finding.id);
+  const reviewPackage = await readJson(root, safeJoin(packageDirectory(run.runDir), `${finding.packageId}.json`)).catch(() => null);
+  const bound = (
+    reviewPackage &&
+    payload?.packageId === reviewPackage.packageId &&
+    payload?.base === reviewPackage.base &&
+    payload?.head === reviewPackage.head &&
+    payload?.scopeDigest === reviewPackage.scopeDigest &&
+    payload?.diffManifestDigest === reviewPackage.diffManifestDigest &&
+    Array.isArray(payload?.findingIds) &&
+    payload.findingIds.includes(finding.id)
+  );
   if (!bound) {
-    throw new Error(`Review finding ${finding.id ?? "unknown"} is not bound to its patch-review evidence`);
+    throw new Error(`Review finding ${finding.id ?? "unknown"} is not bound to its immutable review package`);
   }
 }
 
