@@ -160,7 +160,7 @@ const OBJECT_FIELDS = new Set([
   "providerAuthorization", "receipt", "scopeDigest", "summary", "target", "workflow"
 ]);
 const INTEGER_FIELDS = new Set(["number", "pr", "providerRunId"]);
-const BOOLEAN_FIELDS = new Set(["adminBypass", "protected", "result", "success", "valid"]);
+const BOOLEAN_FIELDS = new Set(["adminBypass", "protected", "success", "valid"]);
 const DATE_FIELDS = new Set(["createdAt", "expiresAt", "observedAt", "verifiedAt"]);
 
 function assertPayloadFields(payload, requiredFields, kind) {
