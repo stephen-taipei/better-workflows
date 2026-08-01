@@ -111,10 +111,13 @@ const SHA256_DIGEST = /^[a-f0-9]{64}$/;
 const ACTION_PROVIDER_RECEIPT_SCHEMAS = {
   "branch.create:git": { proofKind: "git-branch-create" },
   "worktree.create:git": { proofKind: "git-worktree-create" },
+  "git.commit:git": { proofKind: "git-commit" },
+  "git.push:git": { proofKind: "git-push" },
   "pr.create:github-cli": { proofKind: "github-pr-create" },
   "actions.dispatch:github-cli": { proofKind: "github-actions-dispatch" },
   "pr.merge:github-cli": { proofKind: "github-pr-merge" },
   "remote.sync:git": { proofKind: "git-remote-sync" },
+  "worktree.cleanup:git": { proofKind: "git-worktree-cleanup" },
   "recipe.promote:local-workspace": { proofKind: "local-workspace:recipe.promote" },
   "artifact.promote:local-workspace": { proofKind: "local-workspace:artifact.promote" }
 };
@@ -681,6 +684,20 @@ function assertProviderReceiptShape(record, providerReceipt, outcome = record.ou
     throw new Error("Git worktree creation proof is incomplete");
   }
   if (
+    record.action === "git.commit" &&
+    (!providerReceipt.created || typeof providerReceipt.revision !== "string" ||
+      !/^[a-f0-9]{7,64}$/i.test(providerReceipt.revision))
+  ) {
+    throw new Error("Git commit proof is incomplete");
+  }
+  if (
+    record.action === "git.push" &&
+    (!providerReceipt.pushed || typeof providerReceipt.ref !== "string" || !providerReceipt.ref ||
+      typeof providerReceipt.revision !== "string" || !/^[a-f0-9]{7,64}$/i.test(providerReceipt.revision))
+  ) {
+    throw new Error("Git push proof is incomplete");
+  }
+  if (
     record.action === "pr.create" &&
     (!providerReceipt.created || !Number.isInteger(providerReceipt.number) ||
       typeof providerReceipt.head !== "string" || !providerReceipt.head ||
@@ -723,6 +740,12 @@ function assertProviderReceiptShape(record, providerReceipt, outcome = record.ou
       !/^[a-f0-9]{7,64}$/i.test(providerReceipt.localRevision))
   ) {
     throw new Error("Git remote synchronization proof is incomplete");
+  }
+  if (
+    record.action === "worktree.cleanup" &&
+    (!providerReceipt.removed || typeof providerReceipt.path !== "string" || !providerReceipt.path)
+  ) {
+    throw new Error("Git worktree cleanup proof is incomplete");
   }
 }
 
@@ -1312,6 +1335,43 @@ async function verifyProviderReceipt(manifest, record, receipt) {
     );
     return;
   }
+  if (key === "git.commit:git") {
+    const actual = (await execFileAsync("git", ["rev-parse", "--verify", "HEAD^{commit}"], {
+      cwd,
+      encoding: "utf8"
+    })).stdout.trim();
+    const repository = await currentGitProviderIdentity(cwd);
+    const response = { repository, revision: actual };
+    assertRecomputedProviderReceipt(
+      providerReceipt,
+      { action: record.action, provider: record.provider, resource: record.resource, remoteRevision: record.remoteRevision, repository },
+      response,
+      `git:${repository}:git.commit:${actual}`
+    );
+    if (actual !== providerReceipt.revision || (record.resource.startsWith("commit:") && actual !== record.resource.slice("commit:".length))) {
+      throw new Error("Git commit proof does not match provider state");
+    }
+    return;
+  }
+  if (key === "git.push:git") {
+    const ref = providerReceipt.ref;
+    const output = (await execFileAsync("git", ["ls-remote", "origin", ref], {
+      cwd,
+      encoding: "utf8"
+    })).stdout.trim();
+    const revision = output.split(/\s+/)[0];
+    if (!/^[a-f0-9]{40}$/i.test(revision)) throw new Error("Git push proof does not identify a remote revision");
+    const repository = await currentGitProviderIdentity(cwd);
+    const response = { repository, ref, revision };
+    assertRecomputedProviderReceipt(
+      providerReceipt,
+      { action: record.action, provider: record.provider, resource: record.resource, remoteRevision: record.remoteRevision, repository, ref },
+      response,
+      `git:${repository}:git.push:${ref}:${revision}`
+    );
+    if (revision !== providerReceipt.revision) throw new Error("Git push proof does not match provider state");
+    return;
+  }
   if (key === "pr.create:github-cli") {
     const actual = JSON.parse((await execFileAsync("gh", [
       "pr", "view", String(providerReceipt.number), "--json", "number,headRefOid,baseRefName,url"
@@ -1429,6 +1489,29 @@ async function verifyProviderReceipt(manifest, record, receipt) {
     ) {
       throw new Error("Git remote synchronization proof does not match provider state");
     }
+    return;
+  }
+  if (key === "worktree.cleanup:git") {
+    const expectedPath = record.resource.startsWith("worktree:")
+      ? record.resource.slice("worktree:".length)
+      : null;
+    if (!expectedPath || providerReceipt.path !== expectedPath) {
+      throw new Error("Git worktree cleanup proof is not bound to the requested resource");
+    }
+    const output = (await execFileAsync("git", ["worktree", "list", "--porcelain"], {
+      cwd,
+      encoding: "utf8"
+    })).stdout;
+    const present = output.split(/\n\n+/).some((block) => block.split("\n").some((line) => line === `worktree ${providerReceipt.path}`));
+    if (present) throw new Error("Git worktree cleanup proof does not match provider state");
+    const repository = await currentGitProviderIdentity(cwd);
+    const response = { path: providerReceipt.path, removed: true };
+    assertRecomputedProviderReceipt(
+      providerReceipt,
+      { action: record.action, provider: record.provider, resource: record.resource, remoteRevision: record.remoteRevision, repository },
+      response,
+      `git:${repository}:worktree.cleanup:${providerReceipt.path}`
+    );
   }
 }
 
@@ -1441,7 +1524,18 @@ export async function verifyRequiredChecksProvider(cwd, payload) {
     "api",
     `repos/${repository.slice(prefix.length)}/actions/runs?head_sha=${encodeURIComponent(payload.head)}&per_page=100`
   ], { cwd, encoding: "utf8" })).stdout);
-  const runs = Array.isArray(response.workflow_runs) ? response.workflow_runs : [];
+  const runs = (Array.isArray(response.workflow_runs) ? response.workflow_runs : [])
+    .filter((run) => run?.head_sha === payload.head);
+  if (!Number.isInteger(response.total_count) || response.total_count !== runs.length || runs.length === 0) {
+    throw new Error("Required check provider response is not a complete GitHub workflow-run set");
+  }
+  const observedAt = Date.parse(payload.observedAt ?? "");
+  const observedIds = new Set(payload.checks.map((check) => String(check.providerRunId)));
+  const providerIds = new Set(runs.map((run) => String(run.id)));
+  if (observedIds.size !== runs.length || observedIds.size !== payload.checks.length ||
+      [...providerIds].some((id) => !observedIds.has(id))) {
+    throw new Error("Required check evidence does not cover the complete GitHub workflow-run set");
+  }
   for (const check of payload.checks) {
     const run = runs.find((candidate) => String(candidate.id) === String(check.providerRunId));
     if (
@@ -1449,7 +1543,9 @@ export async function verifyRequiredChecksProvider(cwd, payload) {
       run.head_sha !== payload.head ||
       run.status !== "completed" ||
       run.conclusion !== "success" ||
-      (check.providerName && check.providerName !== run.name && check.providerName !== run.workflow_name)
+      (check.providerName !== run.name && check.providerName !== run.workflow_name) ||
+      check.name !== `${run.name ?? run.workflow_name}#${run.id}` ||
+      (Number.isFinite(observedAt) && Date.parse(run.completed_at ?? "") > observedAt)
     ) {
       throw new Error(`Required check provider run is not a fresh successful GitHub run: ${check.providerRunId}`);
     }
@@ -1753,6 +1849,24 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
     }
     await validateActionEvidenceBinding(root, runDir, record, attemptId, outcome, receipt);
     const manifest = await readJson(root, safeJoin(runDir, "manifest.json"));
+    if (record.action === "pr.merge" && outcome === "success") {
+      const { reviewStatus } = await import("./review.mjs");
+      const review = await reviewStatus(root, runId);
+      if (!review.complete || review.package?.head !== receipt.providerReceipt.head) {
+        throw new Error("PR merge receipt is not bound to the complete reviewed PR head");
+      }
+    }
+    if (record.action === "remote.sync" && outcome === "success") {
+      const mergeAction = records.find((candidate) => (
+        candidate.action === "pr.merge" &&
+        candidate.outcome === "success" &&
+        typeof candidate.receipt?.providerReceipt?.mergeCommit === "string"
+      ));
+      const mergeCommit = mergeAction?.receipt?.providerReceipt?.mergeCommit;
+      if (!mergeCommit || receipt.providerReceipt.providerRevision !== mergeCommit || receipt.providerReceipt.localRevision !== mergeCommit) {
+        throw new Error("Remote sync receipt is not bound to the reconciled PR merge commit");
+      }
+    }
     await verifyProviderReceipt(manifest, { ...record, outcome }, receipt);
     await reserveProviderExecution(root, record, receipt.providerReceipt.executionId);
     const target = safeJoin(runDir, "actions", `${record.tokenHash}.json`);

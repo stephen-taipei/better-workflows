@@ -12,7 +12,8 @@ import {
   digestObject,
   inspectRun,
   issueActionToken,
-  loadDefaults
+  loadDefaults,
+  sha256
 } from "../lib/core.mjs";
 import { loadEvidenceContracts } from "../lib/evidence.mjs";
 import { deriveLedgerStatus, transitionLedger } from "../lib/ledger.mjs";
@@ -209,6 +210,36 @@ test("typed gate evidence rejects a failed result even when its shape is valid",
   await addEvidence(root, started.runId, await gateRecord(run, "required-checks", { ...pullEvidence, command: "true", result: true }));
 });
 
+test("provider reconciliation rejects structurally forged action proofs", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-v2-action-proof-"));
+  const contract = buildContract({
+    template: "test-v2-provider-proof",
+    templateDefinition: {
+      ...contractTemplate,
+      requiredEvidence: ["provider-reconciliation"],
+      executionStages: [{
+        ...contractTemplate.executionStages[0],
+        requiredEvidence: ["provider-reconciliation"]
+      }]
+    },
+    goal: "provider proof",
+    scope: ["."],
+    risk: { risk: 1, uncertainty: 0, blastRadius: 1, irreversibility: 0, evidenceGap: 0 },
+    sensitivity: "internal",
+    authority: []
+  });
+  const started = await createRun({ root, contract, requestedMode: "verified", cwd: root });
+  const run = await inspectRun(root, started.runId);
+  await assert.rejects(
+    addEvidence(root, started.runId, await gateRecord(run, "provider-reconciliation", {
+      provider: "github-cli",
+      receipt: { status: "success" },
+      actionProof: {}
+    })),
+    /actionProof is structurally invalid/
+  );
+});
+
 test("typed evidence rejects forged independent-critic provenance", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "sbw-v2-critic-provenance-"));
   const contract = buildContract({
@@ -353,6 +384,30 @@ test("review packages prove the Git manifest and dispositions fail closed", asyn
   const first = await createReviewPackage(input);
   const second = await createReviewPackage(input);
   assert.equal(first.packageId, second.packageId);
+  const packagePath = path.join((await inspectRun(root, started.runId)).runDir, "review-packages", `${first.packageId}.json`);
+  const tampered = JSON.parse(await readFile(packagePath, "utf8"));
+  tampered.diffManifest = { files: [] };
+  tampered.diffManifestDigest = digestObject(tampered.diffManifest);
+  const tamperedIdentity = {
+    base: tampered.base,
+    head: tampered.head,
+    mergeBase: tampered.mergeBase,
+    scope: tampered.scope,
+    scopeDigest: tampered.scopeDigest,
+    diffManifest: tampered.diffManifest,
+    diffManifestDigest: tampered.diffManifestDigest,
+    contractDigest: tampered.contractDigest,
+    templateDigest: tampered.templateDigest,
+    sentinelDigest: tampered.sentinelDigest,
+    instructionDigest: tampered.instructionDigest
+  };
+  tampered.packageId = `review-${sha256(digestObject(tamperedIdentity)).slice(0, 32)}`;
+  await writeFile(packagePath, `${JSON.stringify(tampered, null, 2)}\n`);
+  await assert.rejects(
+    reviewStatus(root, started.runId),
+    /does not match the live Git BASE\.\.HEAD diff/
+  );
+  await writeFile(packagePath, `${JSON.stringify(first, null, 2)}\n`);
   await execFileAsync("git", ["checkout", "-q", "-b", "divergent-base", base], { cwd: repository });
   await writeFile(path.join(repository, "divergent.txt"), "divergent\n");
   await execFileAsync("git", ["add", "divergent.txt"], { cwd: repository });

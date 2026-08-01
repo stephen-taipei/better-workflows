@@ -321,6 +321,15 @@ export async function reviewStatus(root, runId) {
     if (value.packageId !== packageId(identity)) {
       throw new Error("Review package id is not bound to its complete identity");
     }
+    const { mergeBase, diffManifest } = await deriveDiffManifest(
+      run.manifest.cwd,
+      value.base,
+      value.head,
+      value.scope
+    );
+    if (mergeBase !== value.mergeBase || digestObject(diffManifest) !== value.diffManifestDigest) {
+      throw new Error("Review package diff manifest does not match the live Git BASE..HEAD diff");
+    }
   }
   for (const finding of findings) {
     if (!packages.some((item) => item.packageId === finding.packageId)) {

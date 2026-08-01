@@ -74,6 +74,59 @@ function assertDigest(value, label) {
   }
 }
 
+function assertActionProofPayload(payload, kind, run) {
+  if (!(["provider-reconciliation", "remote-sync"].includes(kind))) return;
+  const proof = payload.actionProof;
+  const receipt = payload.receipt;
+  const proofFields = [
+    "runId",
+    "actionAttemptId",
+    "action",
+    "provider",
+    "resource",
+    "outcome",
+    "idempotencyKey",
+    "remoteRevision",
+    "providerExecutionId",
+    "providerReceiptDigest"
+  ];
+  if (!proof || typeof proof !== "object" || Array.isArray(proof) || proof.schemaVersion !== 1 ||
+      proofFields.some((field) => typeof proof[field] !== "string" || !proof[field])) {
+    throw new Error(`Typed evidence ${kind} actionProof is structurally invalid`);
+  }
+  if (proof.runId !== run.manifest.runId || proof.outcome !== "success" || payload.provider !== proof.provider) {
+    throw new Error(`Typed evidence ${kind} actionProof run or outcome binding is invalid`);
+  }
+  if (!receipt || typeof receipt !== "object" || Array.isArray(receipt) ||
+      receipt.action !== proof.action ||
+      receipt.provider !== proof.provider ||
+      receipt.resource !== proof.resource ||
+      receipt.outcome !== proof.outcome ||
+      receipt.runId !== proof.runId ||
+      receipt.attemptId !== proof.actionAttemptId ||
+      receipt.idempotencyKey !== proof.idempotencyKey ||
+      receipt.remoteRevision !== proof.remoteRevision ||
+      receipt.executionId !== proof.providerExecutionId ||
+      typeof receipt.proofKind !== "string" || !receipt.proofKind ||
+      typeof receipt.requestDigest !== "string" || !HEX_DIGEST.test(receipt.requestDigest) ||
+      typeof receipt.responseDigest !== "string" || !HEX_DIGEST.test(receipt.responseDigest) ||
+      typeof receipt.verifiedAt !== "string" || Number.isNaN(Date.parse(receipt.verifiedAt)) ||
+      receipt.terminalState !== "success" ||
+      proof.providerReceiptDigest !== digestObject(receipt)) {
+    throw new Error(`Typed evidence ${kind} actionProof receipt binding is invalid`);
+  }
+  if (kind === "remote-sync" && (
+    proof.action !== "remote.sync" ||
+    proof.provider !== "git" ||
+    !/^refs\/heads\/[A-Za-z0-9._/-]+$/.test(proof.resource) ||
+    typeof payload.mergeCommit !== "string" || !/^[a-f0-9]{40}$/i.test(payload.mergeCommit) ||
+    receipt.providerRevision !== payload.mergeCommit ||
+    receipt.localRevision !== payload.mergeCommit
+  )) {
+    throw new Error("Typed evidence remote-sync must bind the reconciled refs to the final merge commit");
+  }
+}
+
 function assertPayloadFields(payload, requiredFields, kind) {
   for (const field of requiredFields) {
     if (!(field in payload) || payload[field] === null || payload[field] === "") {
@@ -259,6 +312,7 @@ export async function admitTypedEvidence(record, run, { persisted = false } = {}
   if (Object.keys(receipt.payload).length === 0) {
     throw new Error(`Typed evidence ${record.kind} payload must not be empty`);
   }
+  assertActionProofPayload(receipt.payload, record.kind, run);
   assertPayloadFields(receipt.payload, definition.requiredFields, record.kind);
   assertSemanticSuccess(receipt.payload, record.kind, definition);
   const payloadDigest = digestObject(receipt.payload);

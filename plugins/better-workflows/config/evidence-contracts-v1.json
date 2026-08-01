@@ -1449,7 +1449,11 @@
       ],
       "payloadFamily": "side-effect-result",
       "requiredFields": [
-        "outcome"
+        "outcome",
+        "provider",
+        "receipt",
+        "actionProof",
+        "mergeCommit"
       ],
       "freshnessBinding": [
         "runId",
