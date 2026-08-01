@@ -211,6 +211,14 @@ export async function addReviewFinding(root, runId, finding, { update = false } 
   const run = await loadRun(root, runId);
   if (!finding.packageId || !finding.path || !finding.location || !finding.rule) throw new Error("Review finding identity is required");
   if (!["P0", "P1", "P2", "P3"].includes(finding.severity)) throw new Error("Review finding severity is invalid");
+  const packageTarget = safeJoin(packageDirectory(run.runDir), `${finding.packageId}.json`);
+  const reviewPackage = await readJson(root, packageTarget).catch((error) => {
+    if (error.code === "ENOENT") throw new Error(`Review finding references unknown package: ${finding.packageId}`);
+    throw error;
+  });
+  if (reviewPackage.contractDigest !== digestObject(run.contract) || reviewPackage.templateDigest !== run.contract.templateDigest) {
+    throw new Error("Review finding package is bound to a different contract or template");
+  }
   const status = validateFindingDisposition(finding);
   await assertFindingEvidence(root, run, { ...finding, status });
   const id = stableFindingId(finding);
@@ -290,6 +298,9 @@ export async function reviewStatus(root, runId) {
     }
   }
   for (const finding of findings) {
+    if (!packages.some((item) => item.packageId === finding.packageId)) {
+      throw new Error(`Review finding references unknown package: ${finding.packageId}`);
+    }
     validateFindingDisposition(finding);
     await assertFindingEvidence(root, run, finding);
   }
@@ -297,7 +308,9 @@ export async function reviewStatus(root, runId) {
     cwd: run.manifest.cwd,
     encoding: "utf8"
   })).stdout.trim();
-  const scoped = packages.find((item) => item.head === currentHead) ?? packages[0] ?? null;
+  const matchingPackages = packages.filter((item) => item.head === currentHead);
+  if (matchingPackages.length > 1) throw new Error("Review has multiple packages for the current HEAD");
+  const scoped = matchingPackages[0] ?? null;
   const scopedFindings = scoped
     ? findings.filter((item) => item.packageId === scoped.packageId)
     : [];

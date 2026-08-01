@@ -768,6 +768,7 @@ export async function evaluateCompletion(root, runId) {
   const findings = await listJsonRecords(root, safeJoin(runDir, "findings"));
   const actions = await listJsonRecords(root, safeJoin(runDir, "actions"));
   const blockers = [];
+  let completionReview = null;
   let admittedEvidence = evidence;
   for (const finding of findings) {
     if (["P0", "P1"].includes(finding.severity) && finding.status === "open") {
@@ -822,6 +823,7 @@ export async function evaluateCompletion(root, runId) {
     if (contract.controlPlane?.reviewPolicy !== "none") {
       const { reviewStatus } = await import("./review.mjs");
       const review = await reviewStatus(root, runId);
+      completionReview = review;
       if (!review.scopedClosed) blockers.push("review:scoped-closure-required");
       if (!review.broadReviewComplete) blockers.push("review:final-broad-review-required");
       if (review.openHigh.length > 0) blockers.push("review:open-high-findings");
@@ -848,14 +850,20 @@ export async function evaluateCompletion(root, runId) {
     blockers.push("side-effect-not-reconciled");
   }
   const { isIndependentCriticEvidence } = await import("./evidence.mjs");
-  const hasIndependentCritic = admittedEvidence.some((item) => isIndependentCriticEvidence(item));
+  const hasIndependentCritic = admittedEvidence.some((item) => isIndependentCriticEvidence(item, {
+    reviewPackage: completionReview?.package,
+    sentinelDigest: state.lastSentinel?.digest
+  }));
   if (["deep", "critical"].includes(manifest.mode) && !hasIndependentCritic) {
     blockers.push("missing-independent-critic");
   }
   if (
     manifest.mode === "critical" &&
     contract.agy?.required === true &&
-    !admittedEvidence.some((item) => isIndependentCriticEvidence(item) && item.receipt?.producer?.provider === "agy")
+    !admittedEvidence.some((item) => isIndependentCriticEvidence(item, {
+      reviewPackage: completionReview?.package,
+      sentinelDigest: state.lastSentinel?.digest
+    }) && item.receipt?.producer?.provider === "agy")
   ) {
     blockers.push("missing-required-agy-critic");
   }
@@ -868,6 +876,7 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
   }
   return withRunLock(root, runId, async ({ runDir }) => {
     const contract = await readJson(root, safeJoin(runDir, "contract.json"));
+    const manifest = await readJson(root, safeJoin(runDir, "manifest.json"));
     const state = await readJson(root, safeJoin(runDir, "state.json"));
     const findings = await listJsonRecords(root, safeJoin(runDir, "findings"));
     const evidence = await listJsonRecords(root, safeJoin(runDir, "evidence"));
@@ -890,6 +899,23 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
         await validateTypedEvidenceRecord(item, { manifest: await readJson(root, safeJoin(runDir, "manifest.json")), contract });
       }
       admittedEvidence = evidence.filter((item) => item.schemaVersion === 2 && item.typedAdmission);
+    }
+    if (request.action === "pr.merge" && contract.controlPlane?.reviewPolicy !== "none") {
+      const { isIndependentCriticEvidence } = await import("./evidence.mjs");
+      const { reviewStatus } = await import("./review.mjs");
+      const review = await reviewStatus(root, runId);
+      const currentHead = (await execFileAsync("git", ["rev-parse", "--verify", "HEAD^{commit}"], {
+        cwd: manifest.cwd,
+        encoding: "utf8"
+      })).stdout.trim();
+      if (!review.complete || review.package?.head !== currentHead) {
+        throw new Error("Action token denied until the exact review package is complete");
+      }
+      const hasIndependentCritic = admittedEvidence.some((item) => isIndependentCriticEvidence(item, {
+        reviewPackage: review.package,
+        sentinelDigest: state.lastSentinel?.digest
+      }));
+      if (!hasIndependentCritic) throw new Error("Action token denied until the exact independent critic is admitted");
     }
     const availableEvidence = new Set(
       admittedEvidence

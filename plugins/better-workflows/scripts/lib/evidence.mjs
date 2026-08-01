@@ -19,7 +19,6 @@ const PAYLOAD_FAMILIES = new Set([
   "artifact-package"
 ]);
 const INDEPENDENT_CRITIC_PRODUCERS = new Set(["agy", "codex", "codex-native-subagent"]);
-const TRUSTED_CRITIC = Symbol("trusted-independent-critic");
 let contractCache = null;
 
 export async function loadEvidenceContracts({ refresh = false } = {}) {
@@ -94,6 +93,43 @@ function assertSemanticSuccess(payload, kind, definition) {
   if (!matches) throw new Error(`Typed evidence ${kind} payload ${predicate.field} failed its success predicate`);
 }
 
+function assertIndependentCriticBinding(record, run) {
+  const binding = record.dependencies?.reviewBinding;
+  const required = ["packageId", "base", "head", "scopeDigest", "diffManifestDigest", "instructionDigest", "sentinelDigest"];
+  if (run.contract.controlPlane?.reviewPolicy === "code-v1") {
+    if (!binding || typeof binding !== "object" || Array.isArray(binding)) {
+      throw new Error("Typed evidence independent-critic review binding is required");
+    }
+    for (const field of required) {
+      if (typeof binding[field] !== "string" || !binding[field]) {
+        throw new Error(`Typed evidence independent-critic review binding is missing: ${field}`);
+      }
+    }
+  }
+  const execution = record.providerExecution;
+  if (!execution || typeof execution !== "object" || Array.isArray(execution)) {
+    throw new Error("Typed evidence independent-critic provider execution is required");
+  }
+  if (
+    execution.provider !== producerId(record.receipt?.producer) ||
+    execution.model !== record.dependencies?.model ||
+    execution.promptDigest !== record.dependencies?.promptDigest ||
+    execution.reviewDigest !== digestObject(record.review) ||
+    execution.sandbox !== "read-only" ||
+    typeof execution.executionDigest !== "string" ||
+    execution.executionDigest !== digestObject({
+      provider: execution.provider,
+      model: execution.model,
+      promptDigest: execution.promptDigest,
+      reviewDigest: execution.reviewDigest,
+      transport: execution.transport,
+      sandbox: execution.sandbox
+    })
+  ) {
+    throw new Error("Typed evidence independent-critic provider execution is invalid");
+  }
+}
+
 function assertFreshBinding(receipt, run, definition, kind) {
   const binding = receipt.inputBinding;
   if (!binding || typeof binding !== "object" || Array.isArray(binding)) {
@@ -153,11 +189,11 @@ export async function admitTypedEvidence(record, run, { persisted = false } = {}
       !INDEPENDENT_CRITIC_PRODUCERS.has(producer) ||
       record.review?.verdict !== "PASS" ||
       !record.dependencies?.promptDigest ||
-      !record.dependencies?.model ||
-      (!(record[TRUSTED_CRITIC] === true) && !(persisted && record.typedAdmission?.independentCritic === true))
+      !record.dependencies?.model
     ) {
       throw new Error("Typed evidence independent-critic provenance is invalid");
     }
+    assertIndependentCriticBinding(record, run);
   }
   assertFreshBinding(receipt, run, definition, record.kind);
   if (!receipt.payload || typeof receipt.payload !== "object" || Array.isArray(receipt.payload)) {
@@ -217,12 +253,19 @@ export function isTypedEvidence(record) {
   return record?.schemaVersion === 2 && record?.typedAdmission?.contractVersion === 1;
 }
 
-export function markTrustedIndependentCritic(record) {
-  Object.defineProperty(record, TRUSTED_CRITIC, { value: true, enumerable: false });
-  return record;
-}
-
-export function isIndependentCriticEvidence(record) {
+export function isIndependentCriticEvidence(record, expectedBinding = null) {
+  const binding = record?.dependencies?.reviewBinding;
+  const expected = expectedBinding?.reviewPackage
+    ? {
+        packageId: expectedBinding.reviewPackage.packageId,
+        base: expectedBinding.reviewPackage.base,
+        head: expectedBinding.reviewPackage.head,
+        scopeDigest: expectedBinding.reviewPackage.scopeDigest,
+        diffManifestDigest: expectedBinding.reviewPackage.diffManifestDigest,
+        instructionDigest: expectedBinding.reviewPackage.instructionDigest,
+        sentinelDigest: expectedBinding.sentinelDigest
+      }
+    : null;
   return Boolean(
     isTypedEvidence(record) &&
     record.sourceKind === "independent-critic" &&
@@ -232,7 +275,8 @@ export function isIndependentCriticEvidence(record) {
     record.receipt?.payload?.verdict === "PASS" &&
     record.review?.verdict === "PASS" &&
     Boolean(record.dependencies?.promptDigest) &&
-    Boolean(record.dependencies?.model)
+    Boolean(record.dependencies?.model) &&
+    (!expected || (binding && Object.entries(expected).every(([key, value]) => binding[key] === value)))
   );
 }
 

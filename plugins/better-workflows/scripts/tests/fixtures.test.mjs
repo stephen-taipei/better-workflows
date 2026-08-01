@@ -95,7 +95,8 @@ test("pr-to-dev enforces batched commits, a dev-targeted PR, and remote reconcil
     "target-branch-dev",
     "required-checks",
     "merge-result",
-    "remote-sync"
+    "remote-sync",
+    "actions-cleanup-plan"
   ]) {
     assert.ok(template.requiredEvidence.includes(evidence), evidence);
   }
@@ -103,6 +104,8 @@ test("pr-to-dev enforces batched commits, a dev-targeted PR, and remote reconcil
     assert.ok(Object.hasOwn(template.actionGates, action), action);
     assert.ok(template.actionGates[action].length > 0, action);
   }
+  assert.ok(template.actionGates["worktree.cleanup"].includes("actions-cleanup-plan"));
+  assert.ok(!template.actionGates["worktree.cleanup"].includes("cleanup-manifest"));
   for (const acceptance of ["batched-commits-complete", "pr-targets-dev", "fresh-checks-passed", "merged-to-dev", "remote-reconciled", "cleanup-exact"]) {
     assert.ok(template.acceptance.some((item) => item.id === acceptance), acceptance);
   }

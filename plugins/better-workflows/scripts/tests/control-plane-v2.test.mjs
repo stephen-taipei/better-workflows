@@ -327,6 +327,18 @@ test("review packages prove the Git manifest and dispositions fail closed", asyn
   );
   await assert.rejects(
     addReviewFinding(root, started.runId, {
+      packageId: "review-unknown-package",
+      path: "src/a.ts",
+      location: "1",
+      rule: "unsafe",
+      severity: "P1",
+      status: "open",
+      summary: "must stay attached to a real package"
+    }),
+    /references unknown package/
+  );
+  await assert.rejects(
+    addReviewFinding(root, started.runId, {
       packageId: first.packageId,
       path: "src/a.ts",
       location: "1",

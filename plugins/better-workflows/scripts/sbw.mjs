@@ -76,7 +76,7 @@ import {
   probeDeliberationRoster
 } from "./lib/deliberation.mjs";
 import { deliberateForRun } from "./lib/deliberation-receipt.mjs";
-import { loadEvidenceContracts, markTrustedIndependentCritic } from "./lib/evidence.mjs";
+import { loadEvidenceContracts } from "./lib/evidence.mjs";
 import { generateAttestationRequests } from "./lib/attestations.mjs";
 import { compileLedger, deriveLedgerStatus, ledgerStatus, transitionLedger } from "./lib/ledger.mjs";
 import {
@@ -488,6 +488,7 @@ async function enrichEvidence(root, runId, record) {
       }),
       promptDigest: record.dependencies?.promptDigest ?? null,
       model: record.dependencies?.model ?? null,
+      reviewBinding: record.dependencies?.reviewBinding ?? null,
       remoteRevision: record.dependencies?.remoteRevision ?? run.contract.remoteRevision ?? null
     }
   };
@@ -533,6 +534,37 @@ async function currentVerifiedDigest(root, runId) {
 }
 
 async function providerEvidence(root, runId, result, prompt, acceptanceIds) {
+  const run = await loadRun(root, runId);
+  let reviewBinding = null;
+  if (run.contract.controlPlane?.reviewPolicy === "code-v1") {
+    const review = await reviewStatus(root, runId);
+    if (!review.package) throw new Error("Independent critic requires an immutable review package");
+    reviewBinding = {
+      packageId: review.package.packageId,
+      base: review.package.base,
+      head: review.package.head,
+      scopeDigest: review.package.scopeDigest,
+      diffManifestDigest: review.package.diffManifestDigest,
+      instructionDigest: review.package.instructionDigest,
+      sentinelDigest: review.package.sentinelDigest
+    };
+  }
+  const providerExecution = {
+    provider: result.metadata.provider,
+    model: result.metadata.requestedModel,
+    promptDigest: sha256(prompt),
+    reviewDigest: digestObject(result.review),
+    transport: result.metadata.transport ?? "provider",
+    sandbox: result.metadata.sandbox ?? "read-only",
+    executionDigest: digestObject({
+      provider: result.metadata.provider,
+      model: result.metadata.requestedModel,
+      promptDigest: sha256(prompt),
+      reviewDigest: digestObject(result.review),
+      transport: result.metadata.transport ?? "provider",
+      sandbox: result.metadata.sandbox ?? "read-only"
+    })
+  };
   const id = `critic-${result.metadata.provider}-${Date.now()}`;
   const record = {
     id,
@@ -544,8 +576,10 @@ async function providerEvidence(root, runId, result, prompt, acceptanceIds) {
     dependencyInputs: { files: [] },
     dependencies: {
       promptDigest: sha256(prompt),
-      model: result.metadata.requestedModel
+      model: result.metadata.requestedModel,
+      ...(reviewBinding ? { reviewBinding } : {})
     },
+    providerExecution,
     producer: result.metadata,
     review: result.review
   };
@@ -614,7 +648,7 @@ async function typedEvidenceRecord(root, runId, record) {
       producedAt: nowIso()
     }
   };
-  return sourceKind === "independent-critic" ? markTrustedIndependentCritic(typed) : typed;
+  return typed;
 }
 
 let selfImproveEvidenceSequence = 0;
