@@ -20,7 +20,7 @@ Codex 的受治理工作流編排：小改動保持快速，重要 side effects 
 GPT-OSS（透過 `agy`）· Grok · Cursor · Kimi · Qwen · Kiro。`agy` 是
 transport metadata，不是另一個模型品牌；是否可用仍須通過最新 semantic roster probe。
 
-[![Version](https://img.shields.io/badge/version-2.6.0-2563EB?style=flat-square)](../plugins/better-workflows/package.json)
+[![Version](https://img.shields.io/badge/version-3.0.0-2563EB?style=flat-square)](../plugins/better-workflows/package.json)
 [![Node](https://img.shields.io/badge/Node.js-%E2%89%A524-3C873A?style=flat-square)](../plugins/better-workflows/package.json)
 [![Dependencies](https://img.shields.io/badge/runtime_dependencies-0-0F766E?style=flat-square)](../plugins/better-workflows/package.json)
 [![License](https://img.shields.io/badge/license-MIT-64748B?style=flat-square)](../LICENSE)
@@ -41,6 +41,13 @@ transport metadata，不是另一個模型品牌；是否可用仍須通過最�
 | **13 個 TEMPLATES** | **WORKSPACE RECIPES** | **GRAPH VIEW** |
 | --- | --- | --- |
 | 依成果與風險選路線，不必背誦 SOP。 | 將可信任的 Node.js 機械步驟重複執行，節省 token。 | 檢查 typed 結構，但永遠不成為 authority source。 |
+
+### Control-plane v2
+
+新的非 direct template run 使用 typed evidence、append-only execution ledger
+與宣告的 review policy；completion 只接受已核准證據與 replay 狀態，文字或
+caller `acceptanceIds` 都不能直接完成 task。Legacy v1 run 仍由 v1 reader
+讀取，不會被自動重新解釋；Graph View 只呈現唯讀 task/dependency projection。
 
 ![Better Workflows 從 Prompt 到 Graph 的工程分層](assets/better-workflows-engineering-stack.svg)
 

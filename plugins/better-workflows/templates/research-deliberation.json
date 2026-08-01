@@ -1,5 +1,7 @@
 {
   "name": "research-deliberation",
+  "controlPlane": {"evidencePolicy":"typed-v1","ledgerPolicy":"ledger-v1","reviewPolicy":"none","designPacketPolicy":"none","refinementPolicy":"none","deliberationPolicy":"allowed-v1"},
+  "executionStages": [{"id":"sources","goal":"sources","dependsOn":[],"requiredEvidence":["source-inventory"],"attemptBudget":3,"kind":"regular"},{"id":"roster","goal":"roster","dependsOn":["sources"],"requiredEvidence":["deliberation-roster"],"attemptBudget":3,"kind":"regular"},{"id":"perspectives","goal":"perspectives","dependsOn":["roster"],"requiredEvidence":["role-perspective-matrix","independent-review"],"attemptBudget":3,"kind":"regular"},{"id":"reconciliation","goal":"reconciliation","dependsOn":["perspectives"],"requiredEvidence":["cross-examination","refutation","claim-reconciliation"],"attemptBudget":5,"kind":"review"},{"id":"decision","goal":"decision","dependsOn":["reconciliation"],"requiredEvidence":["decision-record","executable-plan","arbiter-verdict"],"attemptBudget":3,"kind":"regular"}],
   "description": "Probe available AI CLIs, assign model-bound roles, reconcile independent views, and produce an evidence-based executable plan.",
   "defaultMode": "deep",
   "requiredEvidence": ["source-inventory", "deliberation-roster", "role-perspective-matrix", "independent-review", "cross-examination", "refutation", "claim-reconciliation", "decision-record", "executable-plan", "arbiter-verdict"],

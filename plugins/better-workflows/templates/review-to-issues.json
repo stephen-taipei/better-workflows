@@ -1,5 +1,7 @@
 {
   "name": "review-to-issues",
+  "controlPlane": {"evidencePolicy":"typed-v1","ledgerPolicy":"ledger-v1","reviewPolicy":"finding-v1","designPacketPolicy":"none","refinementPolicy":"none","deliberationPolicy":"none"},
+  "executionStages": [{"id":"package","goal":"package","dependsOn":[],"requiredEvidence":["base-revision","review-findings"],"attemptBudget":3,"kind":"regular"},{"id":"findings","goal":"findings","dependsOn":["package"],"requiredEvidence":["review-findings","diff-review"],"attemptBudget":5,"kind":"review"},{"id":"dedupe","goal":"dedupe","dependsOn":["findings"],"requiredEvidence":["duplicate-check"],"attemptBudget":3,"kind":"regular"},{"id":"freshness","goal":"freshness","dependsOn":["dedupe"],"requiredEvidence":["current-revision"],"attemptBudget":3,"kind":"regular"},{"id":"issue-action","goal":"issue-action","dependsOn":["freshness"],"requiredEvidence":["provider-reconciliation"],"attemptBudget":1,"kind":"side-effect"}],
   "description": "Read-only review followed by root-owned deduplicated issue creation.",
   "defaultMode": "verified",
   "requiredEvidence": ["base-revision", "review-findings", "duplicate-check", "current-revision"],

@@ -1,5 +1,7 @@
 {
   "name": "ci-release-monitor",
+  "controlPlane": {"evidencePolicy":"typed-v1","ledgerPolicy":"ledger-v1","reviewPolicy":"none","designPacketPolicy":"none","refinementPolicy":"none","deliberationPolicy":"none"},
+  "executionStages": [{"id":"inventory","goal":"inventory","dependsOn":[],"requiredEvidence":["workflow-inventory","repository-actions-inventory"],"attemptBudget":3,"kind":"regular"},{"id":"queue","goal":"queue","dependsOn":["inventory"],"requiredEvidence":["queue-state"],"attemptBudget":3,"kind":"regular"},{"id":"monitor-execute","goal":"monitor-execute","dependsOn":["queue"],"requiredEvidence":["run-result","required-checks"],"attemptBudget":1,"kind":"side-effect"},{"id":"provider-reconcile","goal":"provider-reconcile","dependsOn":["monitor-execute"],"requiredEvidence":["provider-reconciliation"],"attemptBudget":1,"kind":"side-effect"}],
   "description": "Monitor and reconcile serialized CI, deploy, release, and promotion operations.",
   "defaultMode": "critical",
   "requiredEvidence": ["workflow-inventory", "queue-state", "target-revision", "run-result", "provider-reconciliation"],

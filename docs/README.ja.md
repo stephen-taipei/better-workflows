@@ -20,7 +20,7 @@ Codex のための統制された workflow orchestration。小さな変更は速
 経由）· GPT-OSS（`agy` 経由）· Grok · Cursor · Kimi · Qwen · Kiro。
 `agy` は transport metadata であり別のモデルブランドではありません。利用可否には最新の semantic roster probe が必要です。
 
-[![Version](https://img.shields.io/badge/version-2.6.0-2563EB?style=flat-square)](../plugins/better-workflows/package.json)
+[![Version](https://img.shields.io/badge/version-3.0.0-2563EB?style=flat-square)](../plugins/better-workflows/package.json)
 [![Node](https://img.shields.io/badge/Node.js-%E2%89%A524-3C873A?style=flat-square)](../plugins/better-workflows/package.json)
 [![Dependencies](https://img.shields.io/badge/runtime_dependencies-0-0F766E?style=flat-square)](../plugins/better-workflows/package.json)
 [![License](https://img.shields.io/badge/license-MIT-64748B?style=flat-square)](../LICENSE)
@@ -41,6 +41,13 @@ Codex のための統制された workflow orchestration。小さな変更は速
 | **13 TEMPLATES** | **WORKSPACE RECIPES** | **GRAPH VIEW** |
 | --- | --- | --- |
 | SOP を暗記せず、成果とリスクから route を選びます。 | 信頼済み Node.js の機械的手順を再実行して token を節約します。 | Typed 構造を検査しますが authority source にはなりません。 |
+
+### Control-plane v2
+
+新しい非 direct template run は typed evidence、append-only execution ledger、
+宣言された review policy を使います。completion は承認済み evidence と
+replay 状態だけから導出され、文章や caller `acceptanceIds` では完了できません。
+Legacy v1 run は v1 reader で読み取り、Graph View は read-only projection のみです。
 
 ![Prompt から Graph までの Better Workflows engineering stack](assets/better-workflows-engineering-stack.svg)
 

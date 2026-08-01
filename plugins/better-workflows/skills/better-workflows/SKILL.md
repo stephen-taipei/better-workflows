@@ -227,6 +227,40 @@ sbw complete <run-id>
 
 Do not complete with open P0/P1 findings, stale evidence, expired accepted risk, unknown reconciliation, missing acceptance evidence, or an invalid current-tree sentinel.
 
+All newly-created non-direct template runs use TaskContract v2. The run creates
+an append-only execution ledger and accepts only typed evidence receipts from
+the 98-kind catalog; v1 runs remain on the v1 reader and are never silently
+upgraded. A v2 completion cannot be authorized by text or caller-supplied
+`acceptanceIds`.
+
+Inspect and advance the ledger explicitly:
+
+~~~bash
+sbw ledger status <run-id>
+sbw ledger transition <run-id> --file <event.json>
+sbw ledger compile <run-id> --design-packet <packet.json>
+~~~
+
+For templates with a review policy, create an immutable package, close scoped
+findings within the bounded repair budget, and run the final broad review before
+requesting any action token:
+
+~~~bash
+sbw review package <run-id> --base <40-char-sha> --head <40-char-sha> \
+  --scope <path> --diff-manifest <json> \
+  --instruction-digest <sha256> --sentinel-digest <sha256>
+sbw review status <run-id>
+~~~
+
+`sbw deliberation deliberate --run <run-id> --prompt-file <sanitized-file>` is
+available only to the research and self-improve pilots. It writes one atomic,
+idempotent bundle and prints only its digest, participant statuses, and decision
+summary. The Graph View remains a read-only projection of tasks and dependency
+state; it is never a scheduler or authority source.
+
+Ledger event files may carry an `expectedLedgerDigest` from the caller's last
+read; a stale value is rejected, and every transition is root-owned.
+
 ## Execute side effects
 
 Only the root may request an action token, and only for authority already granted by the user:

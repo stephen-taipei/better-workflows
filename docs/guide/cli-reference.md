@@ -35,8 +35,23 @@ sbw sentinel verify <run-id> --label <label>
 sbw evidence add <run-id> --file <evidence.json>
 sbw finding add <run-id> --file <finding.json>
 sbw finding update <run-id> --file <finding.json>
+sbw ledger status <run-id>
+sbw ledger transition <run-id> --file <event.json>
+sbw ledger compile <run-id> --design-packet <packet.json>
+sbw review package <run-id> --base <sha> --head <sha> --scope <path> \
+  --diff-manifest <json> --instruction-digest <sha256> --sentinel-digest <sha256>
+sbw review status <run-id>
+sbw review finding <run-id> --file <finding.json>
+sbw review repair <run-id> --package <package-id> --file <result.json>
+sbw review broad <run-id> --package <package-id> --head <sha> --sentinel-digest <sha256>
+sbw refinement status <run-id>
+sbw refinement apply <run-id> --file <receipt.json>
 sbw complete <run-id>
 ```
+
+Ledger transition files may include `expectedLedgerDigest`; when present it
+must match the current canonical `ledger.json` digest. Transitions are
+root-owned, and stale expected digests or non-root actors fail closed.
 
 ## Graph View
 
@@ -91,7 +106,16 @@ sbw deliberation deliberate \
   --reasoning-effort auto \
   --allow-external-providers \
   --sanitized
+
+sbw deliberation deliberate --run <run-id> \
+  --prompt-file <sanitized-case.md> \
+  --allow-external-providers --sanitized
 ```
+
+The run-bound form is an atomic, idempotent receipt: it writes one private
+bundle only after roster, perspectives, arbitration, decision, and derived
+evidence all succeed, and prints only the bundle ID/digest, participant status,
+and decision summary.
 
 Gemini models are reached through Antigravity CLI (`agy`) in this runtime.
 `agy` is transport metadata, not a second model brand.

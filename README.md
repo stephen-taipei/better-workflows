@@ -21,7 +21,7 @@ Sensitive or private history is never harvested; reject it with a redacted
 `agy` · Grok · Cursor · Kimi · Qwen · Kiro. `agy` is transport metadata, not
 another model brand; availability still requires a current semantic roster probe.
 
-[![Version](https://img.shields.io/badge/version-2.6.0-2563EB?style=flat-square)](plugins/better-workflows/package.json)
+[![Version](https://img.shields.io/badge/version-3.0.0-2563EB?style=flat-square)](plugins/better-workflows/package.json)
 [![Node](https://img.shields.io/badge/Node.js-%E2%89%A524-3C873A?style=flat-square)](plugins/better-workflows/package.json)
 [![Dependencies](https://img.shields.io/badge/runtime_dependencies-0-0F766E?style=flat-square)](plugins/better-workflows/package.json)
 [![License](https://img.shields.io/badge/license-MIT-64748B?style=flat-square)](LICENSE)
@@ -42,6 +42,15 @@ another model brand; availability still requires a current semantic roster probe
 | **13 TEMPLATES** | **WORKSPACE RECIPES** | **GRAPH VIEW** |
 | --- | --- | --- |
 | Route by outcome and risk instead of memorizing procedures. | Re-run trusted Node.js SOP mechanics without re-spending model tokens. | Inspect typed workflow structure without becoming an authority source. |
+
+### Control-plane v2
+
+Every new non-direct template run uses a typed evidence receipt, an append-only
+execution ledger, and its declared review policy. Completion is derived from
+admitted evidence plus replayed task state; caller text and `acceptanceIds`
+cannot mark a task complete. Legacy v1 runs remain readable by the v1 reader
+without automatic reinterpretation. The Graph View exposes only a read-only
+task/dependency projection.
 
 ![Better Workflows engineering stack from prompt through graph](docs/assets/better-workflows-engineering-stack.svg)
 

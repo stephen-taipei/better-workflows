@@ -13,6 +13,12 @@ orchestration contract for improving Better Workflows itself; it does not
 replace `research-deliberation`, `monorepo-refactor`, `pr-to-dev`, capability
 routing, or the immutable cache publisher.
 
+The control-plane v2 pilot adds typed evidence receipts, an append-only ledger,
+code-review convergence, and an atomic deliberation bundle to this template.
+The optional design-packet and refinement pilots are enabled only here and in
+`monorepo-refactor`; a refinement failure discards its bounded diff and never
+invalidates an already accepted functional result.
+
 ## Build a bounded retrospective
 
 1. Read the automation memory first when the invocation provides an automation
