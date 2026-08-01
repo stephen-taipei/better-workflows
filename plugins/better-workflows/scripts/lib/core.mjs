@@ -761,6 +761,7 @@ export async function evaluateCompletion(root, runId) {
   const findings = await listJsonRecords(root, safeJoin(runDir, "findings"));
   const actions = await listJsonRecords(root, safeJoin(runDir, "actions"));
   const blockers = [];
+  let admittedEvidence = evidence;
   for (const finding of findings) {
     if (["P0", "P1"].includes(finding.severity) && finding.status === "open") {
       blockers.push(`open-${finding.severity}:${finding.id}`);
@@ -793,6 +794,7 @@ export async function evaluateCompletion(root, runId) {
         }
       }
     }
+    admittedEvidence = validTypedEvidence;
     const typedKinds = typedEvidenceKinds(validTypedEvidence);
     for (const kind of contract.requiredEvidence) {
       if (!typedKinds.has(kind)) blockers.push(`missing-typed-evidence:${kind}`);
@@ -838,20 +840,15 @@ export async function evaluateCompletion(root, runId) {
   if (actions.some((action) => action.outcome === "unknown" || action.outcome === "pending")) {
     blockers.push("side-effect-not-reconciled");
   }
-  const hasIndependentCritic = evidence.some((item) =>
-    !item.stale && (item.kind === "independent-critic" || item.sourceKind === "independent-critic")
-  );
+  const { isIndependentCriticEvidence } = await import("./evidence.mjs");
+  const hasIndependentCritic = admittedEvidence.some((item) => isIndependentCriticEvidence(item));
   if (["deep", "critical"].includes(manifest.mode) && !hasIndependentCritic) {
     blockers.push("missing-independent-critic");
   }
   if (
     manifest.mode === "critical" &&
     contract.agy?.required === true &&
-    !evidence.some((item) =>
-      !item.stale &&
-      (item.kind === "independent-critic" || item.sourceKind === "independent-critic") &&
-      item.producer?.provider === "agy"
-    )
+    !admittedEvidence.some((item) => isIndependentCriticEvidence(item) && item.receipt?.producer?.provider === "agy")
   ) {
     blockers.push("missing-required-agy-critic");
   }

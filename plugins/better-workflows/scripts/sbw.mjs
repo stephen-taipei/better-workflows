@@ -1119,7 +1119,8 @@ async function commandRun(root, options) {
   }
   contract.templateDigest = currentTemplateDigest;
   contract.actionGates = structuredClone(template.actionGates ?? {});
-  contract.actionStages = structuredClone(template.actionStages ?? {});
+  if (template.actionStages) contract.actionStages = structuredClone(template.actionStages);
+  else delete contract.actionStages;
   const riskMode = routeMode(contract, "auto");
   const requestedMode = receiptBinding
     ? receiptBinding.preview.effectiveMode

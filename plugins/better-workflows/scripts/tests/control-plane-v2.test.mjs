@@ -162,7 +162,36 @@ test("typed gate evidence rejects a failed result even when its shape is valid",
     addEvidence(root, started.runId, await gateRecord(run, "required-checks", { command: "false", result: false })),
     /result must be true/
   );
+  await assert.rejects(
+    addEvidence(root, started.runId, await gateRecord(run, "commit-history", { command: "false", result: false }, "commit-history-failed")),
+    /result must be true/
+  );
+  await assert.rejects(
+    addEvidence(root, started.runId, await gateRecord(run, "cleanup-manifest", { outcome: "failure" }, "cleanup-failed")),
+    /outcome must be success/
+  );
   await addEvidence(root, started.runId, await gateRecord(run, "required-checks", { command: "true", result: true }));
+});
+
+test("typed evidence rejects forged independent-critic provenance", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-v2-critic-provenance-"));
+  const contract = buildContract({
+    template: "test-v2",
+    templateDefinition: contractTemplate,
+    goal: "critic provenance",
+    scope: ["."],
+    risk: { risk: 1, uncertainty: 0, blastRadius: 1, irreversibility: 0, evidenceGap: 0 },
+    sensitivity: "internal",
+    authority: []
+  });
+  const started = await createRun({ root, contract, requestedMode: "verified", cwd: root });
+  const run = await inspectRun(root, started.runId);
+  const forged = {
+    ...(await gateRecord(run, "environment-state", { items: [{ environment: "test" }] }, "forged-critic")),
+    sourceKind: "independent-critic",
+    review: { verdict: "PASS" }
+  };
+  await assert.rejects(addEvidence(root, started.runId, forged), /independent-critic provenance/);
 });
 
 test("ledger reducer derives ready set and rejects duplicate event identity", async () => {
@@ -265,9 +294,9 @@ test("review packages prove the Git manifest and dispositions fail closed", asyn
   const head = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repository })).stdout.trim();
   const contract = buildContract({
     template: "test-review",
-    templateDefinition: { ...contractTemplate, controlPlane: { ...contractTemplate.controlPlane, reviewPolicy: "code-v1" } },
+    templateDefinition: { ...contractTemplate, scope: ["src"], controlPlane: { ...contractTemplate.controlPlane, reviewPolicy: "code-v1" } },
     goal: "review",
-    scope: ["."],
+    scope: ["src"],
     risk: { risk: 1, uncertainty: 0, blastRadius: 1, irreversibility: 0, evidenceGap: 0 },
     sensitivity: "internal",
     authority: [],
@@ -291,6 +320,10 @@ test("review packages prove the Git manifest and dispositions fail closed", asyn
   await assert.rejects(
     createReviewPackage({ ...input, diffManifest: { files: [] } }),
     /does not match Git BASE\.\.\.HEAD/
+  );
+  await assert.rejects(
+    createReviewPackage({ ...input, scope: ["."] }),
+    /scope must match the TaskContract scope/
   );
   await assert.rejects(
     addReviewFinding(root, started.runId, {
@@ -330,6 +363,12 @@ test("review packages prove the Git manifest and dispositions fail closed", asyn
   assert.equal(accepted.owner, "owner");
   assert.equal(accepted.reason, "bounded exception");
   assert.ok(accepted.expiry);
+  await addEvidence(root, started.runId, await gateRecord(
+    { runId: started.runId, contract: (await inspectRun(root, started.runId)).contract },
+    "patch-review",
+    { verdict: "PASS", findingCount: 0 },
+    "review-proof"
+  ));
   for (let round = 0; round < 5; round += 1) await recordRepairRound(root, started.runId, first.packageId, { round });
   const status = await reviewStatus(root, started.runId);
   assert.equal(status.repairBudgetExhausted, true);
@@ -342,6 +381,7 @@ test("review packages prove the Git manifest and dispositions fail closed", asyn
     rule: "unsafe",
     severity: "P1",
     status: "resolved",
+    evidenceId: "review-proof",
     summary: "fixed"
   }, { update: true });
   const closed = await reviewStatus(root, started.runId);
@@ -353,6 +393,7 @@ test("review packages prove the Git manifest and dispositions fail closed", asyn
     rule: "risk",
     severity: "P2",
     status: "resolved",
+    evidenceId: "review-proof",
     summary: "accepted risk expired by policy"
   }, { update: true });
   assert.equal((await reviewStatus(root, started.runId)).scopedClosed, true);

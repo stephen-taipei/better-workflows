@@ -645,6 +645,7 @@
       "producerAllowlist": [
         "codex-root",
         "codex-native-subagent",
+        "codex",
         "agy",
         "github-cli"
       ],
@@ -1120,6 +1121,7 @@
       "producerAllowlist": [
         "codex-root",
         "codex-native-subagent",
+        "codex",
         "agy",
         "github-cli"
       ],

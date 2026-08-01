@@ -36,6 +36,10 @@ function normalizeDiffManifest(value) {
   return { files };
 }
 
+function normalizeScope(scope) {
+  return [...scope].map(String).sort();
+}
+
 async function deriveDiffManifest(cwd, base, head, scope) {
   const mergeBase = (await execFileAsync("git", ["merge-base", base, head], {
     cwd,
@@ -92,6 +96,10 @@ export async function createReviewPackage({
   if (!Array.isArray(scope) || scope.length === 0) throw new Error("Review scope must be non-empty");
   if (scope.some((item) => typeof item !== "string" || !item || item.includes("\0") || item.startsWith("/"))) {
     throw new Error("Review scope contains an invalid path");
+  }
+  const contractScope = run.contract.scope?.include;
+  if (!Array.isArray(contractScope) || digestObject(normalizeScope(scope)) !== digestObject(normalizeScope(contractScope))) {
+    throw new Error("Review scope must match the TaskContract scope");
   }
   if (!DIGEST.test(instructionDigest) || !DIGEST.test(sentinelDigest)) {
     throw new Error("Review instruction and sentinel digests must be SHA-256 values");
@@ -181,7 +189,22 @@ function validateFindingDisposition(finding) {
   if (status === "rejected-with-evidence" && !finding.evidenceId) {
     throw new Error("Rejected review findings require evidenceId");
   }
+  if (status === "resolved" && !finding.evidenceId) {
+    throw new Error("Resolved review findings require evidenceId");
+  }
   return status;
+}
+
+async function assertFindingEvidence(root, run, finding) {
+  if (!["resolved", "rejected-with-evidence"].includes(finding.status)) return;
+  const evidence = (await listJsonRecords(root, safeJoin(run.runDir, "evidence"))).find(
+    (item) => item.id === finding.evidenceId
+  );
+  if (!evidence || evidence.stale || evidence.schemaVersion !== 2 || !evidence.typedAdmission) {
+    throw new Error(`Review finding ${finding.id ?? "unknown"} references unverified evidence`);
+  }
+  const { validateTypedEvidenceRecord } = await import("./evidence.mjs");
+  await validateTypedEvidenceRecord(evidence, run);
 }
 
 export async function addReviewFinding(root, runId, finding, { update = false } = {}) {
@@ -189,10 +212,11 @@ export async function addReviewFinding(root, runId, finding, { update = false } 
   if (!finding.packageId || !finding.path || !finding.location || !finding.rule) throw new Error("Review finding identity is required");
   if (!["P0", "P1", "P2", "P3"].includes(finding.severity)) throw new Error("Review finding severity is invalid");
   const status = validateFindingDisposition(finding);
+  await assertFindingEvidence(root, run, { ...finding, status });
   const id = stableFindingId(finding);
   const disposition = status === "accepted-risk"
     ? { owner: finding.owner, reason: finding.reason, expiry: finding.expiry }
-    : status === "rejected-with-evidence"
+    : ["resolved", "rejected-with-evidence"].includes(status)
       ? { evidenceId: finding.evidenceId }
       : {};
   const value = {
@@ -265,7 +289,10 @@ export async function reviewStatus(root, runId) {
       throw new Error("Review package identity digest is stale");
     }
   }
-  for (const finding of findings) validateFindingDisposition(finding);
+  for (const finding of findings) {
+    validateFindingDisposition(finding);
+    await assertFindingEvidence(root, run, finding);
+  }
   let currentHead = null;
   try {
     currentHead = (await execFileAsync("git", ["rev-parse", "--verify", "HEAD^{commit}"], {
@@ -330,6 +357,7 @@ export async function markBroadReviewComplete(root, runId, packageIdValue, head,
   const findings = await listJsonRecords(root, findingDirectory(run.runDir));
   for (const finding of findings.filter((item) => item.packageId === packageIdValue)) {
     validateFindingDisposition(finding);
+    await assertFindingEvidence(root, run, finding);
   }
   if (findings.some((item) => item.packageId === packageIdValue && item.status === "open")) {
     throw new Error("Broad review requires scoped findings to be closed");

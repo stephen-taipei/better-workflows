@@ -18,9 +18,15 @@ const PAYLOAD_FAMILIES = new Set([
   "decision-disposition",
   "artifact-package"
 ]);
-const BOOLEAN_SUCCESS_KINDS = new Set(["pr-state", "repo-gates", "required-checks"]);
+const BOOLEAN_SUCCESS_KINDS = new Set([
+  "commit-history",
+  "pr-state",
+  "repo-gates",
+  "required-checks"
+]);
 const PASS_VERDICT_KINDS = new Set(["diff-review", "patch-review"]);
-const SUCCESS_OUTCOME_KINDS = new Set(["merge-result", "remote-sync"]);
+const SUCCESS_OUTCOME_KINDS = new Set(["cleanup-manifest", "merge-result", "remote-sync"]);
+const INDEPENDENT_CRITIC_PRODUCERS = new Set(["agy", "codex", "codex-native-subagent"]);
 let contractCache = null;
 
 export async function loadEvidenceContracts({ refresh = false } = {}) {
@@ -136,6 +142,17 @@ export async function admitTypedEvidence(record, run) {
   if (!PRODUCER_ID.test(producer) || !definition.producerAllowlist.includes(producer)) {
     throw new Error(`Typed evidence ${record.kind} producer is not authorized`);
   }
+  if (record.sourceKind === "independent-critic") {
+    if (
+      record.kind !== "patch-review" ||
+      !INDEPENDENT_CRITIC_PRODUCERS.has(producer) ||
+      record.review?.verdict !== "PASS" ||
+      !record.dependencies?.promptDigest ||
+      !record.dependencies?.model
+    ) {
+      throw new Error("Typed evidence independent-critic provenance is invalid");
+    }
+  }
   assertFreshBinding(receipt, run, definition, record.kind);
   if (!receipt.payload || typeof receipt.payload !== "object" || Array.isArray(receipt.payload)) {
     throw new Error(`Typed evidence ${record.kind} payload must be a non-empty object`);
@@ -191,6 +208,19 @@ export async function validateTypedEvidenceRecord(record, run) {
 
 export function isTypedEvidence(record) {
   return record?.schemaVersion === 2 && record?.typedAdmission?.contractVersion === 1;
+}
+
+export function isIndependentCriticEvidence(record) {
+  return Boolean(
+    isTypedEvidence(record) &&
+    record.sourceKind === "independent-critic" &&
+    record.kind === "patch-review" &&
+    INDEPENDENT_CRITIC_PRODUCERS.has(record.typedAdmission?.producer) &&
+    record.receipt?.payload?.verdict === "PASS" &&
+    record.review?.verdict === "PASS" &&
+    Boolean(record.dependencies?.promptDigest) &&
+    Boolean(record.dependencies?.model)
+  );
 }
 
 export function typedEvidenceKinds(records) {
