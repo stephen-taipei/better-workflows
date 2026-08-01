@@ -2,6 +2,7 @@
   "name": "monorepo-refactor",
   "controlPlane": {"evidencePolicy":"typed-v1","ledgerPolicy":"ledger-v1","reviewPolicy":"code-v1","designPacketPolicy":"pilot-v1","refinementPolicy":"pilot-v1","deliberationPolicy":"none"},
   "executionStages": [{"id":"inventory-risk","goal":"inventory-risk","dependsOn":[],"requiredEvidence":["workspace-inventory","architecture-risk-map"],"attemptBudget":3,"kind":"regular"},{"id":"recommendations","goal":"recommendations","dependsOn":["inventory-risk"],"requiredEvidence":["recommendation-register","validation-capability-matrix"],"attemptBudget":3,"kind":"regular"},{"id":"slices","goal":"slices","dependsOn":["recommendations"],"requiredEvidence":["implementation-queue","slice-plan","slice-validation"],"attemptBudget":3,"kind":"regular"},{"id":"final-validation","goal":"final-validation","dependsOn":["slices"],"requiredEvidence":["final-validation","diff-review","rollback-plan"],"attemptBudget":5,"kind":"review"}],
+  "actionStages": {"git.commit":"slices","git.push":"final-validation"},
   "description": "Inventory the full monorepo, then implement every eligible bounded refactor recommendation with goal checkpoints, behavior preservation, validation evidence, and rollback gates.",
   "defaultMode": "deep",
   "requiredEvidence": [

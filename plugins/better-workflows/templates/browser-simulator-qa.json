@@ -2,6 +2,7 @@
   "name": "browser-simulator-qa",
   "controlPlane": {"evidencePolicy":"typed-v1","ledgerPolicy":"ledger-v1","reviewPolicy":"none","designPacketPolicy":"none","refinementPolicy":"none","deliberationPolicy":"none"},
   "executionStages": [{"id":"environment","goal":"environment","dependsOn":[],"requiredEvidence":["environment-state"],"attemptBudget":3,"kind":"regular"},{"id":"observe","goal":"observe","dependsOn":["environment"],"requiredEvidence":["current-page-or-app-state","observed-result"],"attemptBudget":3,"kind":"regular"},{"id":"artifacts","goal":"artifacts","dependsOn":["observe"],"requiredEvidence":["qa-artifacts"],"attemptBudget":3,"kind":"regular"},{"id":"reconcile","goal":"reconcile","dependsOn":["artifacts"],"requiredEvidence":["run-result","provider-reconciliation"],"attemptBudget":1,"kind":"side-effect"}],
+  "actionStages": {"external.submit":"observe","account.mutate":"observe"},
   "description": "Perform current-state browser or simulator QA with reproducible artifacts.",
   "defaultMode": "verified",
   "requiredEvidence": ["environment-state", "current-page-or-app-state", "qa-artifacts", "observed-result"],

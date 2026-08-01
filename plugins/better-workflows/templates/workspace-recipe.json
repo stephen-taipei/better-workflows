@@ -2,6 +2,7 @@
   "name": "workspace-recipe",
   "controlPlane": {"evidencePolicy":"typed-v1","ledgerPolicy":"ledger-v1","reviewPolicy":"code-v1","designPacketPolicy":"none","refinementPolicy":"none","deliberationPolicy":"none"},
   "executionStages": [{"id":"contract","goal":"contract","dependsOn":[],"requiredEvidence":["recipe-contract"],"attemptBudget":3,"kind":"regular"},{"id":"fixture-dry-run","goal":"fixture-dry-run","dependsOn":["contract"],"requiredEvidence":["fixture-test","candidate-dry-run"],"attemptBudget":3,"kind":"regular"},{"id":"trust","goal":"trust","dependsOn":["fixture-dry-run"],"requiredEvidence":["digest-confirmation","promotion-decision"],"attemptBudget":5,"kind":"review"},{"id":"artifact-promotion","goal":"artifact-promotion","dependsOn":["trust"],"requiredEvidence":["artifact-receipt"],"attemptBudget":1,"kind":"side-effect"}],
+  "actionStages": {"recipe.promote":"trust","artifact.promote":"artifact-promotion"},
   "description": "Review, promote, execute, and selectively publish a deterministic workspace-owned Node.js SOP without granting it source-mutation or external-side-effect authority.",
   "defaultMode": "verified",
   "requiredEvidence": [

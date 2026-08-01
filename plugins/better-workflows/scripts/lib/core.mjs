@@ -333,6 +333,13 @@ export function validateContract(contract) {
           throw new Error(`TaskContract v2 action stage is unknown: ${action}`);
         }
       }
+      for (const action of Object.keys(contract.actionGates ?? {})) {
+        if (!Object.hasOwn(contract.actionStages, action)) {
+          throw new Error(`TaskContract v2 action gate has no execution stage: ${action}`);
+        }
+      }
+    } else if (Object.keys(contract.actionGates ?? {}).length > 0) {
+      throw new Error("TaskContract v2 action gates require actionStages");
     }
     if (contract.acceptanceEvidence !== undefined) {
       if (!contract.acceptanceEvidence || typeof contract.acceptanceEvidence !== "object") {

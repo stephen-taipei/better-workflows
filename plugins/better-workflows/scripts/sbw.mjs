@@ -76,7 +76,7 @@ import {
   probeDeliberationRoster
 } from "./lib/deliberation.mjs";
 import { deliberateForRun } from "./lib/deliberation-receipt.mjs";
-import { loadEvidenceContracts } from "./lib/evidence.mjs";
+import { loadEvidenceContracts, markTrustedIndependentCritic } from "./lib/evidence.mjs";
 import { generateAttestationRequests } from "./lib/attestations.mjs";
 import { compileLedger, deriveLedgerStatus, ledgerStatus, transitionLedger } from "./lib/ledger.mjs";
 import {
@@ -592,7 +592,7 @@ async function typedEvidenceRecord(root, runId, record) {
   }
   const payloadDigest = digestObject(payload);
   const { sourceDigest: _sourceDigest, acceptanceIds: _acceptanceIds, producer: _recordProducer, kind: _kind, ...rest } = record;
-  return {
+  const typed = {
     ...rest,
     kind,
     sourceKind,
@@ -614,6 +614,7 @@ async function typedEvidenceRecord(root, runId, record) {
       producedAt: nowIso()
     }
   };
+  return sourceKind === "independent-critic" ? markTrustedIndependentCritic(typed) : typed;
 }
 
 let selfImproveEvidenceSequence = 0;

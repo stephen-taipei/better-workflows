@@ -18,15 +18,8 @@ const PAYLOAD_FAMILIES = new Set([
   "decision-disposition",
   "artifact-package"
 ]);
-const BOOLEAN_SUCCESS_KINDS = new Set([
-  "commit-history",
-  "pr-state",
-  "repo-gates",
-  "required-checks"
-]);
-const PASS_VERDICT_KINDS = new Set(["diff-review", "patch-review"]);
-const SUCCESS_OUTCOME_KINDS = new Set(["cleanup-manifest", "merge-result", "remote-sync"]);
 const INDEPENDENT_CRITIC_PRODUCERS = new Set(["agy", "codex", "codex-native-subagent"]);
+const TRUSTED_CRITIC = Symbol("trusted-independent-critic");
 let contractCache = null;
 
 export async function loadEvidenceContracts({ refresh = false } = {}) {
@@ -53,7 +46,19 @@ export async function loadEvidenceContracts({ refresh = false } = {}) {
       throw new Error(`Evidence contract freshness binding is invalid for ${kind}`);
     }
   }
-  contractCache = value.contracts;
+  const predicates = value.successPredicates ?? {};
+  for (const [family, predicate] of Object.entries(predicates)) {
+    if (!PAYLOAD_FAMILIES.has(family) || !predicate || typeof predicate.field !== "string") {
+      throw new Error(`Evidence success predicate is invalid for ${family}`);
+    }
+    if (predicate.equals === undefined && !Array.isArray(predicate.oneOf) && predicate.nonEmpty !== true) {
+      throw new Error(`Evidence success predicate has no comparison for ${family}`);
+    }
+  }
+  contractCache = Object.fromEntries(entries.map(([kind, entry]) => [
+    kind,
+    { ...entry, success: predicates[entry.payloadFamily] ?? null }
+  ]));
   return contractCache;
 }
 
@@ -77,16 +82,16 @@ function assertPayloadFields(payload, requiredFields, kind) {
   }
 }
 
-function assertSemanticSuccess(payload, kind) {
-  if (BOOLEAN_SUCCESS_KINDS.has(kind) && payload.result !== true) {
-    throw new Error(`Typed evidence ${kind} payload result must be true`);
-  }
-  if (PASS_VERDICT_KINDS.has(kind) && payload.verdict !== "PASS") {
-    throw new Error(`Typed evidence ${kind} payload verdict must be PASS`);
-  }
-  if (SUCCESS_OUTCOME_KINDS.has(kind) && payload.outcome !== "success") {
-    throw new Error(`Typed evidence ${kind} payload outcome must be success`);
-  }
+function assertSemanticSuccess(payload, kind, definition) {
+  const predicate = definition.success;
+  if (!predicate) return;
+  const value = payload[predicate.field];
+  const matches = predicate.equals !== undefined
+    ? value === predicate.equals
+    : Array.isArray(predicate.oneOf)
+      ? predicate.oneOf.some((candidate) => value === candidate)
+      : Boolean(value && typeof value === "object" && Object.keys(value).length > 0);
+  if (!matches) throw new Error(`Typed evidence ${kind} payload ${predicate.field} failed its success predicate`);
 }
 
 function assertFreshBinding(receipt, run, definition, kind) {
@@ -111,7 +116,7 @@ function assertFreshBinding(receipt, run, definition, kind) {
   }
 }
 
-export async function admitTypedEvidence(record, run) {
+export async function admitTypedEvidence(record, run, { persisted = false } = {}) {
   if (run.contract?.schemaVersion !== 2) {
     return { ...record, schemaVersion: 1 };
   }
@@ -148,7 +153,8 @@ export async function admitTypedEvidence(record, run) {
       !INDEPENDENT_CRITIC_PRODUCERS.has(producer) ||
       record.review?.verdict !== "PASS" ||
       !record.dependencies?.promptDigest ||
-      !record.dependencies?.model
+      !record.dependencies?.model ||
+      (!(record[TRUSTED_CRITIC] === true) && !(persisted && record.typedAdmission?.independentCritic === true))
     ) {
       throw new Error("Typed evidence independent-critic provenance is invalid");
     }
@@ -161,7 +167,7 @@ export async function admitTypedEvidence(record, run) {
     throw new Error(`Typed evidence ${record.kind} payload must not be empty`);
   }
   assertPayloadFields(receipt.payload, definition.requiredFields, record.kind);
-  assertSemanticSuccess(receipt.payload, record.kind);
+  assertSemanticSuccess(receipt.payload, record.kind, definition);
   const payloadDigest = digestObject(receipt.payload);
   assertDigest(receipt.payloadDigest, `Typed evidence ${record.kind} payloadDigest`);
   if (receipt.payloadDigest !== payloadDigest) {
@@ -186,7 +192,8 @@ export async function admitTypedEvidence(record, run) {
       contractId: definition.id,
       contractVersion: 1,
       admittedAt: new Date().toISOString(),
-      producer
+      producer,
+      ...(record.sourceKind === "independent-critic" ? { independentCritic: true } : {})
     }
   };
   return normalized;
@@ -199,7 +206,7 @@ export async function validateTypedEvidenceRecord(record, run) {
   if (!EVIDENCE_ID.test(String(record.id ?? ""))) {
     throw new Error("Typed evidence id is invalid");
   }
-  const admitted = await admitTypedEvidence(record, run);
+  const admitted = await admitTypedEvidence(record, run, { persisted: true });
   if (admitted.sourceDigest !== record.sourceDigest || admitted.receipt.payloadDigest !== record.receipt.payloadDigest) {
     throw new Error("Typed evidence admission changed after persistence");
   }
@@ -210,11 +217,17 @@ export function isTypedEvidence(record) {
   return record?.schemaVersion === 2 && record?.typedAdmission?.contractVersion === 1;
 }
 
+export function markTrustedIndependentCritic(record) {
+  Object.defineProperty(record, TRUSTED_CRITIC, { value: true, enumerable: false });
+  return record;
+}
+
 export function isIndependentCriticEvidence(record) {
   return Boolean(
     isTypedEvidence(record) &&
     record.sourceKind === "independent-critic" &&
     record.kind === "patch-review" &&
+    record.typedAdmission?.independentCritic === true &&
     INDEPENDENT_CRITIC_PRODUCERS.has(record.typedAdmission?.producer) &&
     record.receipt?.payload?.verdict === "PASS" &&
     record.review?.verdict === "PASS" &&

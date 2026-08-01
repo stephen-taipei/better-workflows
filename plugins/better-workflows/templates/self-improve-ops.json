@@ -2,6 +2,7 @@
   "name": "self-improve-ops",
   "controlPlane": {"evidencePolicy":"typed-v1","ledgerPolicy":"ledger-v1","reviewPolicy":"code-v1","designPacketPolicy":"pilot-v1","refinementPolicy":"pilot-v1","deliberationPolicy":"allowed-v1"},
   "executionStages": [{"id":"retrospective","goal":"retrospective","dependsOn":[],"requiredEvidence":["retrospective-source-inventory","recurrence-matrix","coverage-gap-analysis"],"attemptBudget":3,"kind":"regular"},{"id":"evaluation-candidate","goal":"evaluation-candidate","dependsOn":["retrospective"],"requiredEvidence":["evaluation-suite","candidate-staging"],"attemptBudget":3,"kind":"regular"},{"id":"holdout","goal":"holdout","dependsOn":["evaluation-candidate"],"requiredEvidence":["training-replay","holdout-comparison"],"attemptBudget":3,"kind":"regular"},{"id":"sync-review","goal":"sync-review","dependsOn":["holdout"],"requiredEvidence":["sync-matrix","patch-review","repo-gates"],"attemptBudget":5,"kind":"review"},{"id":"version-delivery","goal":"version-delivery","dependsOn":["sync-review"],"requiredEvidence":["plugin-version","cache-publication","provider-reconciliation"],"attemptBudget":1,"kind":"side-effect"}],
+  "actionStages": {"git.commit":"sync-review","plugin.cache.publish":"version-delivery","git.push":"version-delivery"},
   "description": "Turn recent workflow evidence into a bounded Better Workflows change-or-no-change decision, synchronize every affected plugin surface, validate it, and gate immutable cache publication and remote delivery independently.",
   "defaultMode": "critical",
   "requiredEvidence": [

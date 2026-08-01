@@ -293,15 +293,10 @@ export async function reviewStatus(root, runId) {
     validateFindingDisposition(finding);
     await assertFindingEvidence(root, run, finding);
   }
-  let currentHead = null;
-  try {
-    currentHead = (await execFileAsync("git", ["rev-parse", "--verify", "HEAD^{commit}"], {
-      cwd: run.manifest.cwd,
-      encoding: "utf8"
-    })).stdout.trim();
-  } catch {
-    currentHead = null;
-  }
+  const currentHead = (await execFileAsync("git", ["rev-parse", "--verify", "HEAD^{commit}"], {
+    cwd: run.manifest.cwd,
+    encoding: "utf8"
+  })).stdout.trim();
   const scoped = packages.find((item) => item.head === currentHead) ?? packages[0] ?? null;
   const scopedFindings = scoped
     ? findings.filter((item) => item.packageId === scoped.packageId)
@@ -309,7 +304,7 @@ export async function reviewStatus(root, runId) {
   const openHigh = scopedFindings.filter((item) => ["P0", "P1"].includes(item.severity) && item.status === "open");
   const repairBudgetExhausted = Boolean(scoped?.repairRounds >= 5 && openHigh.length > 0);
   const broadSentinelMatches = !run.state.lastSentinel?.digest || scoped?.broadReview?.sentinelDigest === run.state.lastSentinel.digest;
-  const broadHeadMatches = !currentHead || scoped?.head === currentHead;
+  const broadHeadMatches = scoped?.head === currentHead;
   return {
     package: scoped,
     findings: scopedFindings,
@@ -345,15 +340,11 @@ export async function markBroadReviewComplete(root, runId, packageIdValue, head,
   if (run.state.lastSentinel?.digest && sentinelDigest !== run.state.lastSentinel.digest) {
     throw new Error("Broad review sentinel is not the verified current sentinel");
   }
-  try {
-    const currentHead = (await execFileAsync("git", ["rev-parse", "--verify", "HEAD^{commit}"], {
-      cwd: run.manifest.cwd,
-      encoding: "utf8"
-    })).stdout.trim();
-    if (currentHead && currentHead !== head) throw new Error("Broad review must bind the current HEAD");
-  } catch (error) {
-    if (error.message === "Broad review must bind the current HEAD") throw error;
-  }
+  const currentHead = (await execFileAsync("git", ["rev-parse", "--verify", "HEAD^{commit}"], {
+    cwd: run.manifest.cwd,
+    encoding: "utf8"
+  })).stdout.trim();
+  if (currentHead !== head) throw new Error("Broad review must bind the current HEAD");
   const findings = await listJsonRecords(root, findingDirectory(run.runDir));
   for (const finding of findings.filter((item) => item.packageId === packageIdValue)) {
     validateFindingDisposition(finding);

@@ -160,15 +160,15 @@ test("typed gate evidence rejects a failed result even when its shape is valid",
   const run = await inspectRun(root, started.runId);
   await assert.rejects(
     addEvidence(root, started.runId, await gateRecord(run, "required-checks", { command: "false", result: false })),
-    /result must be true/
+    /result failed its success predicate/
   );
   await assert.rejects(
     addEvidence(root, started.runId, await gateRecord(run, "commit-history", { command: "false", result: false }, "commit-history-failed")),
-    /result must be true/
+    /result failed its success predicate/
   );
   await assert.rejects(
     addEvidence(root, started.runId, await gateRecord(run, "cleanup-manifest", { outcome: "failure" }, "cleanup-failed")),
-    /outcome must be success/
+    /outcome failed its success predicate/
   );
   await addEvidence(root, started.runId, await gateRecord(run, "required-checks", { command: "true", result: true }));
 });

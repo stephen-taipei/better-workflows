@@ -2,6 +2,12 @@
   "schemaVersion": 1,
   "name": "evidence-contracts-v1",
   "description": "Typed evidence admission contracts for all installed Better Workflows evidence kinds.",
+  "successPredicates": {
+    "validation-test": {"field":"result","oneOf":[true,"complete"]},
+    "review-analysis": {"field":"verdict","equals":"PASS"},
+    "side-effect-result": {"field":"outcome","equals":"success"},
+    "provider-reconciliation": {"field":"receipt","nonEmpty":true}
+  },
   "contracts": {
     "access-modifiers": {
       "id": "evidence-contracts-v1:access-modifiers",
