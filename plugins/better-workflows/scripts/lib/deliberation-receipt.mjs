@@ -2,6 +2,7 @@ import { readdir } from "node:fs/promises";
 import { deliberate } from "./deliberation.mjs";
 import {
   atomicWriteJson,
+  assertMutableRun,
   digestObject,
   loadDefaults,
   listJsonRecords,
@@ -64,6 +65,7 @@ async function deliberateForRunLocked({
   providers = []
 }) {
   const run = await loadRun(root, runId);
+  assertMutableRun(run, "Atomic deliberation");
   if (run.contract.schemaVersion !== 2 || run.contract.controlPlane?.deliberationPolicy !== "allowed-v1") {
     throw new Error("Atomic deliberation is not enabled for this run");
   }

@@ -775,5 +775,18 @@ test("atomic deliberation emits no partial bundle on failed arbitration", async 
     }),
     /No previously proven participant/
   );
+  await updateState(root, started.runId, (state) => ({ ...state, status: "completed" }));
+  await assert.rejects(
+    deliberateForRun({
+      root,
+      runId: started.runId,
+      prompt: "post-terminal decision",
+      config: { schemaVersion: 1, providers: [], arbiterPriority: [], probeTimeoutSeconds: 1, maxParticipants: 0 },
+      allowExternalProviders: false,
+      sanitized: false,
+      providers: []
+    }),
+    /Atomic deliberation cannot mutate a terminal run/
+  );
   await assert.rejects(stat(path.join((await inspectRun(root, started.runId)).runDir, "evidence-bundles")), /ENOENT/);
 });
