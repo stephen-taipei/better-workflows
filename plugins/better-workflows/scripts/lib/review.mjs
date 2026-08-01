@@ -249,7 +249,11 @@ async function assertBroadReviewEvidence(root, run, reviewPackage) {
     !item.stale &&
     item.receipt?.payload?.verdict === "PASS" &&
     item.receipt?.payload?.packageId === reviewPackage.packageId &&
-    item.receipt?.payload?.head === reviewPackage.head
+    item.receipt?.payload?.base === reviewPackage.base &&
+    item.receipt?.payload?.head === reviewPackage.head &&
+    item.receipt?.payload?.scopeDigest === reviewPackage.scopeDigest &&
+    item.receipt?.payload?.diffManifestDigest === reviewPackage.diffManifestDigest &&
+    item.receipt?.payload?.instructionDigest === reviewPackage.instructionDigest
   ));
   if (!diff) throw new Error("Broad review requires final package-bound diff-review evidence");
   await validateTypedEvidenceRecord(diff, run);

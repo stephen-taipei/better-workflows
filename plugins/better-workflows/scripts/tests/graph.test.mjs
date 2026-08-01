@@ -915,7 +915,7 @@ test("warning-only run graphs do not block resume, authorized action issue, or c
     return cli(cwd, stateRoot, args);
   }
 
-  async function seed(runId, prefix, packageId, head) {
+  async function seed(runId, prefix, reviewPackage) {
     const records = [
       ["base-revision", ["scope-reviewed"]],
       ["review-findings", ["scope-reviewed"]],
@@ -945,7 +945,15 @@ test("warning-only run graphs do not block resume, authorized action issue, or c
               : kind === "review-findings"
                 ? { verdict: "PASS" }
                 : kind === "diff-review"
-                  ? { verdict: "PASS", packageId, head }
+                  ? {
+                      verdict: "PASS",
+                      packageId: reviewPackage.packageId,
+                      base: reviewPackage.base,
+                      head: reviewPackage.head,
+                      scopeDigest: reviewPackage.scopeDigest,
+                      diffManifestDigest: reviewPackage.diffManifestDigest,
+                      instructionDigest: reviewPackage.instructionDigest
+                    }
                 : kind === "run-result"
                   ? { items: [] }
                   : { command: "true", result: true }),
@@ -960,8 +968,16 @@ test("warning-only run graphs do not block resume, authorized action issue, or c
                 ? { revision: "a".repeat(40) }
                 : kind === "review-findings"
                   ? { verdict: "PASS" }
-                  : kind === "diff-review"
-                    ? { verdict: "PASS", packageId, head }
+                : kind === "diff-review"
+                    ? {
+                        verdict: "PASS",
+                        packageId: reviewPackage.packageId,
+                        base: reviewPackage.base,
+                        head: reviewPackage.head,
+                        scopeDigest: reviewPackage.scopeDigest,
+                        diffManifestDigest: reviewPackage.diffManifestDigest,
+                        instructionDigest: reviewPackage.instructionDigest
+                      }
                   : kind === "run-result"
                     ? { items: [] }
                     : { command: "true", result: true },
@@ -969,8 +985,16 @@ test("warning-only run graphs do not block resume, authorized action issue, or c
                 ? { revision: "a".repeat(40) }
                 : kind === "review-findings"
                   ? { verdict: "PASS" }
-                  : kind === "diff-review"
-                    ? { verdict: "PASS", packageId, head }
+                : kind === "diff-review"
+                    ? {
+                        verdict: "PASS",
+                        packageId: reviewPackage.packageId,
+                        base: reviewPackage.base,
+                        head: reviewPackage.head,
+                        scopeDigest: reviewPackage.scopeDigest,
+                        diffManifestDigest: reviewPackage.diffManifestDigest,
+                        instructionDigest: reviewPackage.instructionDigest
+                      }
                   : kind === "run-result"
                     ? { items: [] }
                     : { command: "true", result: true }),
@@ -1003,7 +1027,7 @@ test("warning-only run graphs do not block resume, authorized action issue, or c
     instructionDigest: DIGEST,
     sentinelDigest: authorized.json.sentinel.digest
   });
-  await seed(authorized.json.runId, "authorized", review.packageId, head);
+  await seed(authorized.json.runId, "authorized", review);
   await markBroadReviewComplete(stateRoot, authorized.json.runId, review.packageId, head, authorized.json.sentinel.digest);
   const ledgerPath = path.join(stateRoot, "runs", authorized.json.runId, "ledger.json");
   const transition = async (eventId, type, taskId, evidenceKinds = []) => {
@@ -1075,7 +1099,7 @@ test("warning-only run graphs do not block resume, authorized action issue, or c
     instructionDigest: DIGEST,
     sentinelDigest: unauthorized.json.sentinel.digest
   });
-  await seed(unauthorized.json.runId, "unauthorized", unauthorizedReview.packageId, unauthorizedHead);
+  await seed(unauthorized.json.runId, "unauthorized", unauthorizedReview);
   await markBroadReviewComplete(stateRoot, unauthorized.json.runId, unauthorizedReview.packageId, unauthorizedHead, unauthorized.json.sentinel.digest);
   const unauthorizedLedgerPath = path.join(stateRoot, "runs", unauthorized.json.runId, "ledger.json");
   const unauthorizedTransition = async (eventId, type, taskId, evidenceKinds = []) => {

@@ -285,7 +285,7 @@ node plugins/better-workflows/scripts/sbw.mjs recipe run <id> \
   --input-file <input.json>
 ```
 
-Git root の `.codex/better-workflows/` だけを解決し、routing Profile `.codex/better-workflows.json` は recipe を許可できません。clone 後は必ず untrusted で再 promotion が必要です。dry-run は trusted program を実行して staging を破棄し、通常 run だけが宣言済み・既定 ignored artifacts を atomic publish します。単一 artifact の tracked source への promotion は別の `artifact.promote` action が必要です。private receipt は digests、時刻、artifact metadata、reconciliation のみを保存し、raw input、conversation、credentials、secrets、provider receipts は保存しません。
+Git root の `.codex/better-workflows/` だけを解決し、routing Profile `.codex/better-workflows.json` は recipe を許可できません。clone 後は必ず untrusted で再 promotion が必要です。dry-run は trusted program を実行して staging を破棄し、通常 run だけが宣言済み・既定 ignored artifacts を atomic publish します。単一 artifact の tracked source への promotion は別の `artifact.promote` action が必要です。一般の private receipt は digests、時刻、artifact metadata、reconciliation のみを保存します。reconciled side-effect action record は terminal state 検証のため provider receipt を private に保持しますが、external handoff や graph projection には含めません。
 
 ### Derived Graph View
 

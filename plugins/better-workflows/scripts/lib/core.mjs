@@ -1328,17 +1328,22 @@ async function currentGitProviderIdentity(cwd) {
 }
 
 async function verifyPullRequestBeforeMerge(cwd, record) {
+  if (record.targetRef === "dev" && !/^[a-f0-9]{40}$/i.test(record.remoteRevision ?? "")) {
+    throw new Error("Protected dev merge requires the exact reviewed base revision");
+  }
+  const repository = await currentRepositoryIdentity(cwd);
+  if (!repository.startsWith("github.com/")) throw new Error("PR merge requires a GitHub repository");
   const actual = JSON.parse((await execFileAsync("gh", [
-    "pr", "view", String(record.pullRequest), "--json",
-    "number,state,headRefOid,baseRefName,mergeable,mergeStateStatus"
+    "api", `repos/${repository.slice("github.com/".length)}/pulls/${record.pullRequest}`
   ], { cwd, encoding: "utf8" })).stdout);
   if (
     actual.number !== record.pullRequest ||
-    actual.state !== "OPEN" ||
-    actual.headRefOid !== record.reviewedHead ||
-    (record.targetRef && actual.baseRefName !== record.targetRef) ||
-    actual.mergeable !== "MERGEABLE" ||
-    actual.mergeStateStatus !== "CLEAN"
+    actual.state !== "open" ||
+    actual.head?.sha !== record.reviewedHead ||
+    (record.targetRef && actual.base?.ref !== record.targetRef) ||
+    (record.remoteRevision && actual.base?.sha !== record.remoteRevision) ||
+    actual.mergeable !== true ||
+    actual.mergeable_state !== "clean"
   ) {
     throw new Error("Live pull request state is not an exact clean merge candidate");
   }
@@ -1885,6 +1890,22 @@ function assertRemoteSyncMergeBinding(admittedEvidence, reviewPackage, contract,
   };
 }
 
+function assertPersistedSuccessfulMergeAction(actions, mergeBinding) {
+  const mergeAction = actions.find((action) => (
+    action.action === "pr.merge" &&
+    action.status === "spent" &&
+    action.outcome === "success" &&
+    action.pullRequest === mergeBinding.pullRequest &&
+    action.reviewedHead === mergeBinding.reviewedHead &&
+    action.reviewPackageId === mergeBinding.reviewPackageId &&
+    action.receipt?.providerReceipt?.mergeCommit === mergeBinding.mergeCommit
+  ));
+  if (!mergeAction) {
+    throw new Error("Remote sync requires a persisted successful pr.merge action");
+  }
+  return mergeAction;
+}
+
 export async function issueActionToken(root, runId, request, currentTreeDigest, config) {
   for (const field of ["action", "provider", "resource", "remoteRevision"]) {
     if (typeof request[field] !== "string" || !request[field]) throw new Error(`Action ${field} is required`);
@@ -2051,9 +2072,11 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
       const review = await reviewStatus(root, runId);
       if (!review.complete) throw new Error("Action token denied until the exact review package is complete");
       if (request.action === "remote.sync") {
+        const mergeBinding = assertRemoteSyncMergeBinding(admittedEvidence, review.package, contract, repository);
+        assertPersistedSuccessfulMergeAction(actions, mergeBinding);
         actionBinding = {
           ...actionBinding,
-          ...assertRemoteSyncMergeBinding(admittedEvidence, review.package, contract, repository)
+          ...mergeBinding
         };
       }
     }
@@ -2167,6 +2190,39 @@ export async function consumeActionToken(root, runId, token, currentTreeDigest) 
     if (record.treeDigest !== currentTreeDigest) throw new Error("Action token tree binding changed");
     const contract = await readJson(root, safeJoin(runDir, "contract.json"));
     if (record.contractDigest !== digestObject(contract)) throw new Error("Action token contract binding changed");
+    const manifest = await readJson(root, safeJoin(runDir, "manifest.json"));
+    if (record.action === "pr.merge") {
+      await verifyPullRequestBeforeMerge(manifest.cwd, record);
+      if (contract.actionGates?.[record.action]?.includes("required-checks")) {
+        const repository = await currentRepositoryIdentity(manifest.cwd);
+        const evidence = await listJsonRecords(root, safeJoin(runDir, "evidence"));
+        const requiredChecks = evidence.find((item) => {
+          const payload = item.kind === "required-checks" ? item.receipt?.payload : null;
+          return (
+            item.status === "complete" &&
+            item.stale !== true &&
+            payload?.head === record.reviewedHead &&
+            payload?.base === record.remoteRevision &&
+            payload?.repository === repository
+          );
+        });
+        if (!requiredChecks) throw new Error("Action consumption denied until exact required-check evidence is present");
+        const run = await loadRun(root, runId);
+        const { validateTypedEvidenceRecord } = await import("./evidence.mjs");
+        await validateTypedEvidenceRecord(requiredChecks, {
+          manifest: run.manifest,
+          contract: run.contract,
+          root,
+          runDir,
+          requireReconciled: true
+        });
+        await verifyRequiredChecksProvider(manifest.cwd, requiredChecks.receipt.payload);
+      }
+    }
+    if (record.action === "remote.sync") {
+      const actions = await listJsonRecords(root, safeJoin(runDir, "actions"));
+      assertPersistedSuccessfulMergeAction(actions, record);
+    }
     const attemptId = randomUUID();
     const next = {
       ...record,

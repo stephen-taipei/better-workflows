@@ -405,9 +405,11 @@ node plugins/better-workflows/scripts/sbw.mjs recipe run <id> \
 Dry-run executes only an already trusted program and discards staging.
 Normal execution atomically publishes declared artifacts under the ignored
 workspace artifact directory. Promoting one artifact into tracked source needs
-an independent `artifact.promote` action. Receipts store only digests,
+an independent `artifact.promote` action. General receipts store only digests,
 timestamps, bounded artifact metadata, and reconciliation—not raw input,
-conversation, credentials, secrets, or provider receipts.
+conversation, credentials, or secrets. Reconciled side-effect action records
+retain provider receipts privately for terminal-state verification; they are not
+included in external handoffs or graph projections.
 
 ### Derived Graph View
 

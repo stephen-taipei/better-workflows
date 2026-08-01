@@ -181,7 +181,11 @@ async function governedRun(cwd, stateRoot) {
     verdict: "PASS",
     findingCount: 0,
     packageId: review.packageId,
-    head
+    base: review.base,
+    head,
+    scopeDigest: review.scopeDigest,
+    diffManifestDigest: review.diffManifestDigest,
+    instructionDigest: review.instructionDigest
   });
   await markBroadReviewComplete(stateRoot, started.json.runId, review.packageId, head, started.json.sentinel.digest);
   await ledgerTransition(stateRoot, started.json.runId, "contract-start", "start", "contract");
