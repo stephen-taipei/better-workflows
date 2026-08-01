@@ -18,7 +18,9 @@ import {
   VERSION,
   addEvidence,
   addFinding,
+  appendJournal,
   atomicWriteJson,
+  assertMutableRun,
   bindLegacyRunTemplate,
   buildContract,
   cleanupRuns,
@@ -45,7 +47,8 @@ import {
   setRunStatus,
   sha256,
   updateState,
-  validateContract
+  validateContract,
+  withRunLock
 } from "./lib/core.mjs";
 import { captureSentinel, compareSentinels } from "./lib/git.mjs";
 import {
@@ -369,70 +372,77 @@ function summarizeSentinel(sentinel, manifest) {
 }
 
 async function captureCommand(root, runId, label) {
-  const sentinel = await captureForRun(root, runId);
-  const target = await writeSentinel(root, runId, label, sentinel);
-  await updateState(
-    root,
-    runId,
-    (state) => ({
-      ...state,
+  return withRunLock(root, runId, async ({ runDir }) => {
+    const run = await loadRun(root, runId);
+    assertMutableRun(run, "Sentinel capture");
+    const sentinel = await captureSentinel(run.manifest.cwd, run.contract, await loadDefaults());
+    const target = await writeSentinel(root, runId, label, sentinel);
+    const stateTarget = safeJoin(runDir, "state.json");
+    const current = await readJson(root, stateTarget);
+    assertMutableRun({ state: current }, "Sentinel capture");
+    const next = {
+      ...current,
       lastSentinel: { label, digest: sentinel.digest, path: target },
       lastSentinelVerified: true,
-      lastSentinelComplete: sentinel.complete
-    }),
-    "sentinel.captured"
-  );
-  return { ok: true, runId, label, target, sentinel };
+      lastSentinelComplete: sentinel.complete,
+      updatedAt: nowIso()
+    };
+    await atomicWriteJson(root, stateTarget, next);
+    await appendJournal(root, runDir, "sentinel.captured", { from: current.status, to: current.status });
+    return { ok: true, runId, label, target, sentinel };
+  });
 }
 
 async function verifyCommand(root, runId, label) {
-  const { runDir } = await loadRun(root, runId);
-  const baseline = await readJson(root, safeJoin(runDir, "sentinels", `${label}.json`));
-  const current = await captureForRun(root, runId);
-  const comparison = compareSentinels(baseline, current);
-  if (!comparison.same) {
-    const suffix = `after-${Date.now()}`;
-    const target = await writeSentinel(root, runId, label, current, suffix);
-    await updateState(
-      root,
-      runId,
-      (state) => ({
+  return withRunLock(root, runId, async ({ runDir }) => {
+    const run = await loadRun(root, runId);
+    assertMutableRun(run, "Sentinel verification");
+    const baseline = await readJson(root, safeJoin(runDir, "sentinels", `${label}.json`));
+    const current = await captureSentinel(run.manifest.cwd, run.contract, await loadDefaults());
+    const comparison = compareSentinels(baseline, current);
+    const stateTarget = safeJoin(runDir, "state.json");
+    const state = await readJson(root, stateTarget);
+    assertMutableRun({ state }, "Sentinel verification");
+    if (!comparison.same) {
+      const suffix = `after-${Date.now()}`;
+      const target = await writeSentinel(root, runId, label, current, suffix);
+      const next = {
         ...state,
         status: "indeterminate",
         lastSentinelVerified: false,
         lastSentinelComplete: false,
-        sentinelDrift: { label, changed: comparison.changed, currentPath: target }
-      }),
-      "sentinel.drift"
-    );
-    return {
-      ok: false,
-      runId,
-      label,
-      changed: comparison.changed,
-      current: summarizeSentinel(current, target)
-    };
-  }
-  await updateState(
-    root,
-    runId,
-    (state) => ({
+        sentinelDrift: { label, changed: comparison.changed, currentPath: target },
+        updatedAt: nowIso()
+      };
+      await atomicWriteJson(root, stateTarget, next);
+      await appendJournal(root, runDir, "sentinel.drift", { from: state.status, to: next.status });
+      return {
+        ok: false,
+        runId,
+        label,
+        changed: comparison.changed,
+        current: summarizeSentinel(current, target)
+      };
+    }
+    const next = {
       ...state,
       status: state.status === "indeterminate" ? "running" : state.status,
       lastSentinel: { label, digest: current.digest },
       lastSentinelVerified: true,
       lastSentinelComplete: current.complete,
-      sentinelDrift: null
-    }),
-    "sentinel.verified"
-  );
-  return {
-    ok: true,
-    runId,
-    label,
-    digest: current.digest,
-    sentinel: summarizeSentinel(current, safeJoin(runDir, "sentinels", `${label}.json`))
-  };
+      sentinelDrift: null,
+      updatedAt: nowIso()
+    };
+    await atomicWriteJson(root, stateTarget, next);
+    await appendJournal(root, runDir, "sentinel.verified", { from: state.status, to: next.status });
+    return {
+      ok: true,
+      runId,
+      label,
+      digest: current.digest,
+      sentinel: summarizeSentinel(current, safeJoin(runDir, "sentinels", `${label}.json`))
+    };
+  });
 }
 
 async function fingerprintPath(cwd, candidate) {

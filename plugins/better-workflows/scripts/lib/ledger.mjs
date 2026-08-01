@@ -1,4 +1,4 @@
-import { atomicWriteJson, digestObject, listJsonRecords, loadRun, nowIso, readJson, safeJoin } from "./core.mjs";
+import { atomicWriteJson, assertMutableRun, digestObject, listJsonRecords, loadRun, nowIso, readJson, safeJoin, withRunLock } from "./core.mjs";
 
 const LEDGER_SCHEMA_VERSION = 1;
 const EVENT_TYPES = new Set(["start", "complete", "fail", "block", "release", "cancel"]);
@@ -299,9 +299,11 @@ export async function ledgerStatus(root, runId) {
 }
 
 export async function transitionLedger(root, runId, event) {
-  const runDir = safeJoin(root, "runs", runId);
-  const target = ledgerPath(runDir);
-  const ledger = normalizeLedger(await readJson(root, target));
+  return withRunLock(root, runId, async ({ runDir }) => {
+    const run = await loadRun(root, runId);
+    assertMutableRun(run, "Ledger transition");
+    const target = ledgerPath(runDir);
+    const ledger = normalizeLedger(await readJson(root, target));
   if (ledger.runId !== runId) throw new Error("Execution ledger runId is stale");
   if (!event || !SAFE_ID.test(event.eventId ?? "")) throw new Error("Ledger transition requires a unique eventId");
   if (!EVENT_TYPES.has(event.type)) throw new Error(`Unknown ledger event type: ${event.type}`);
@@ -317,12 +319,14 @@ export async function transitionLedger(root, runId, event) {
   const after = reduceLedger(nextLedger, typedKinds);
   const newBlockers = after.blockers.filter((item) => !before.blockers.includes(item));
   if (newBlockers.length > 0) throw new Error(`Ledger transition rejected: ${newBlockers.join(", ")}`);
-  await atomicWriteJson(root, target, nextLedger);
-  return after;
+    await atomicWriteJson(root, target, nextLedger);
+    return after;
+  });
 }
 
 export async function compileLedger(root, runId, packet) {
   const run = await loadRun(root, runId);
+  assertMutableRun(run, "Ledger compilation");
   if (run.contract.schemaVersion !== 2 || run.contract.controlPlane?.designPacketPolicy !== "pilot-v1") {
     throw new Error("Design packet compilation is not enabled for this run");
   }

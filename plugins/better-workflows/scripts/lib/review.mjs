@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { atomicWriteJson, digestObject, listJsonRecords, loadRun, nowIso, readJson, safeJoin, sha256, withRunLock } from "./core.mjs";
+import { assertMutableRun, atomicWriteJson, digestObject, listJsonRecords, loadRun, nowIso, readJson, safeJoin, sha256, withRunLock } from "./core.mjs";
 
 const execFileAsync = promisify(execFile);
 const SHA = /^[0-9a-f]{40}$/;
@@ -102,9 +102,7 @@ export async function createReviewPackage(request) {
       sentinelDigest
     } = request;
     const run = await loadRun(root, runId);
-    if (["completed", "no_op", "cancelled_superseded", "cancelled_evidence_sufficient"].includes(run.state.status)) {
-      throw new Error("Review package cannot mutate a terminal run");
-    }
+    assertMutableRun(run, "Review package");
   if (!SHA.test(base) || !SHA.test(head)) throw new Error("Review BASE and HEAD must be 40-character revisions");
   if (!Array.isArray(scope) || scope.length === 0) throw new Error("Review scope must be non-empty");
   if (scope.some((item) => typeof item !== "string" || !item || item.includes("\0") || item.startsWith("/"))) {
@@ -278,9 +276,7 @@ async function assertBroadReviewEvidence(root, run, reviewPackage) {
 export async function addReviewFinding(root, runId, finding, { update = false } = {}) {
   return withRunLock(root, runId, async ({ runDir }) => {
     const run = await loadRun(root, runId);
-    if (["completed", "no_op", "cancelled_superseded", "cancelled_evidence_sufficient"].includes(run.state.status)) {
-      throw new Error("Review findings cannot mutate a terminal run");
-    }
+    assertMutableRun(run, "Review findings");
     if (!finding.packageId || !finding.path || !finding.location || !finding.rule) throw new Error("Review finding identity is required");
     if (!["P0", "P1", "P2", "P3"].includes(finding.severity)) throw new Error("Review finding severity is invalid");
     const packageTarget = safeJoin(packageDirectory(runDir), `${finding.packageId}.json`);
@@ -456,9 +452,7 @@ export async function reviewStatus(root, runId) {
 export async function recordRepairRound(root, runId, packageIdValue, result) {
   return withRunLock(root, runId, async ({ runDir }) => {
     const run = await loadRun(root, runId);
-    if (["completed", "no_op", "cancelled_superseded", "cancelled_evidence_sufficient"].includes(run.state.status)) {
-      throw new Error("Review repair cannot mutate a terminal run");
-    }
+    assertMutableRun(run, "Review repair");
     const target = safeJoin(packageDirectory(runDir), `${packageIdValue}.json`);
     const value = await readJson(root, target);
     const nextRound = Number(value.repairRounds ?? 0) + 1;
@@ -476,9 +470,7 @@ export async function recordRepairRound(root, runId, packageIdValue, result) {
 export async function markBroadReviewComplete(root, runId, packageIdValue, head, sentinelDigest) {
   return withRunLock(root, runId, async ({ runDir }) => {
     const run = await loadRun(root, runId);
-    if (["completed", "no_op", "cancelled_superseded", "cancelled_evidence_sufficient"].includes(run.state.status)) {
-      throw new Error("Broad review cannot mutate a terminal run");
-    }
+    assertMutableRun(run, "Broad review");
     if (!SHA.test(head) || !DIGEST.test(sentinelDigest)) throw new Error("Broad review binding is invalid");
     const target = safeJoin(packageDirectory(runDir), `${packageIdValue}.json`);
     const value = await readJson(root, target);

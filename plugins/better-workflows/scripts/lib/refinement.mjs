@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { atomicWriteJson, digestObject, loadRun, nowIso, readJson, safeJoin, sha256 } from "./core.mjs";
+import { assertMutableRun, atomicWriteJson, digestObject, loadRun, nowIso, readJson, safeJoin, sha256, withRunLock } from "./core.mjs";
 
 const execFileAsync = promisify(execFile);
 const SHA = /^[0-9a-f]{40}$/;
@@ -23,7 +23,9 @@ function normalizeScope(scope) {
 }
 
 export async function recordRefinement(root, runId, input) {
-  const run = await loadRun(root, runId);
+  return withRunLock(root, runId, async ({ runDir }) => {
+    const run = await loadRun(root, runId);
+    assertMutableRun(run, "Refinement");
   if (
     run.contract.schemaVersion !== 2 ||
     run.contract.controlPlane?.refinementPolicy !== "pilot-v1" ||
@@ -69,8 +71,9 @@ export async function recordRefinement(root, runId, input) {
     status: "accepted",
     digest: digestObject({ runId, base: input.base, functionalHead: input.functionalHead, scope: input.scope, paths, tests, scopedDiff: input.scopedDiff })
   };
-  await atomicWriteJson(root, safeJoin(run.runDir, "refinements", `${receipt.id}.json`), receipt);
-  return receipt;
+    await atomicWriteJson(root, safeJoin(runDir, "refinements", `${receipt.id}.json`), receipt);
+    return receipt;
+  });
 }
 
 export async function refinementStatus(root, runId) {

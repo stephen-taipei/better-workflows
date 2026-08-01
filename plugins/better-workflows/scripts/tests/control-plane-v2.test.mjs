@@ -7,6 +7,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import {
   addEvidence,
+  addFinding,
   buildContract,
   createRun,
   digestObject,
@@ -342,6 +343,61 @@ test("persisted typed evidence is revalidated before ledger admission", async ()
   const status = await deriveLedgerStatus(root, started.runId);
   assert.ok(status.blockers.includes("invalid-typed-evidence:environment"));
   assert.equal(status.complete, false);
+});
+
+test("generic finding dispositions and terminal mutations fail closed", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-v2-terminal-mutations-"));
+  const contract = buildContract({
+    template: "test-terminal-mutations",
+    templateDefinition: contractTemplate,
+    goal: "terminal mutation guards",
+    scope: ["."],
+    risk: { risk: 1, uncertainty: 0, blastRadius: 1, irreversibility: 0, evidenceGap: 0 },
+    sensitivity: "internal",
+    authority: []
+  });
+  const started = await createRun({ root, contract, requestedMode: "verified", cwd: root });
+  const run = await inspectRun(root, started.runId);
+  await addEvidence(root, started.runId, await typedRecord({ runId: started.runId, contract: run.contract }));
+  await addFinding(root, started.runId, {
+    id: "generic-finding",
+    severity: "P1",
+    status: "open",
+    summary: "must be dispositioned with proof"
+  });
+  await assert.rejects(
+    addFinding(root, started.runId, {
+      id: "generic-finding",
+      severity: "P1",
+      status: "resolved",
+      summary: "missing disposition proof"
+    }, { update: true }),
+    /require evidenceId/
+  );
+  await assert.rejects(
+    addFinding(root, started.runId, {
+      id: "generic-finding",
+      severity: "P1",
+      status: "resolved",
+      evidenceId: "environment",
+      summary: "unbound disposition proof"
+    }, { update: true }),
+    /not bound to the finding/
+  );
+  await updateState(root, started.runId, (state) => ({ ...state, status: "completed" }));
+  await assert.rejects(
+    addEvidence(root, started.runId, await typedRecord({ runId: started.runId, contract: run.contract }, "after-terminal")),
+    /Evidence cannot mutate a terminal run/
+  );
+  await assert.rejects(
+    addFinding(root, started.runId, {
+      id: "generic-finding",
+      severity: "P1",
+      status: "open",
+      summary: "post-terminal mutation"
+    }, { update: true }),
+    /Finding cannot mutate a terminal run/
+  );
 });
 
 test("review packages prove the Git manifest and dispositions fail closed", async () => {

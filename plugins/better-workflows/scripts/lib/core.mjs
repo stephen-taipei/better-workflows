@@ -45,6 +45,13 @@ export const FINDING_STATES = new Set([
   "accepted-risk",
   "rejected-with-evidence"
 ]);
+const TERMINAL_RUN_STATES = new Set([
+  "completed",
+  "failed_terminal",
+  "no_op",
+  "cancelled_superseded",
+  "cancelled_evidence_sufficient"
+]);
 
 const RUN_ID = /^sbw-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{12}$/;
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
@@ -1124,6 +1131,7 @@ export async function updateState(root, runId, mutator, event = "state.updated")
   return withRunLock(root, runId, async ({ runDir }) => {
     const target = safeJoin(runDir, "state.json");
     const current = await readJson(root, target);
+    assertMutableRun({ state: current }, "Run state");
     const next = await mutator(structuredClone(current));
     if (!RUN_STATES.has(next.status)) throw new Error(`Invalid run state: ${next.status}`);
     next.updatedAt = nowIso();
@@ -1131,6 +1139,13 @@ export async function updateState(root, runId, mutator, event = "state.updated")
     await appendJournal(root, runDir, event, { from: current.status, to: next.status });
     return next;
   });
+}
+
+export function assertMutableRun(run, operation = "Run mutation") {
+  const status = run?.state?.status ?? run?.status;
+  if (TERMINAL_RUN_STATES.has(status)) {
+    throw new Error(`${operation} cannot mutate a terminal run`);
+  }
 }
 
 export async function setRunStatus(root, runId, status, details = {}) {
@@ -1269,22 +1284,22 @@ function validateRecordId(id, kind) {
 }
 
 export async function addEvidence(root, runId, record) {
-  const boundRun = await loadRun(root, runId);
-  const admitted = boundRun.contract.schemaVersion === 2
-    ? await (await import("./evidence.mjs")).admitTypedEvidence(record, { ...boundRun, root, requireReconciled: false })
-    : record;
-  record = admitted;
-  validateRecordId(record.id, "evidence");
-  if (record.status !== "complete") throw new Error("Evidence status must be complete");
-  if (typeof record.kind !== "string" || typeof record.summary !== "string") {
-    throw new Error("Evidence kind and summary are required");
-  }
-  if (!Array.isArray(record.acceptanceIds)) throw new Error("Evidence acceptanceIds must be an array");
-  if (typeof record.sourceDigest !== "string" || record.sourceDigest.length < 16) {
-    throw new Error("Evidence sourceDigest is required");
-  }
   return withRunLock(root, runId, async ({ runDir }) => {
-    const target = safeJoin(runDir, "evidence", `${record.id}.json`);
+    const boundRun = await loadRun(root, runId);
+    assertMutableRun(boundRun, "Evidence");
+    const admitted = boundRun.contract.schemaVersion === 2
+      ? await (await import("./evidence.mjs")).admitTypedEvidence(record, { ...boundRun, root, requireReconciled: false })
+      : record;
+    validateRecordId(admitted.id, "evidence");
+    if (admitted.status !== "complete") throw new Error("Evidence status must be complete");
+    if (typeof admitted.kind !== "string" || typeof admitted.summary !== "string") {
+      throw new Error("Evidence kind and summary are required");
+    }
+    if (!Array.isArray(admitted.acceptanceIds)) throw new Error("Evidence acceptanceIds must be an array");
+    if (typeof admitted.sourceDigest !== "string" || admitted.sourceDigest.length < 16) {
+      throw new Error("Evidence sourceDigest is required");
+    }
+    const target = safeJoin(runDir, "evidence", `${admitted.id}.json`);
     if (await pathExists(target)) throw new Error(`Evidence already exists: ${record.id}`);
     const value = {
       schemaVersion: 1,
@@ -1292,10 +1307,10 @@ export async function addEvidence(root, runId, record) {
       createdAt: nowIso(),
       dependencies: {},
       producer: {},
-      ...record
+      ...admitted
     };
     await atomicWriteJson(root, target, value);
-    await appendJournal(root, runDir, "evidence.added", { evidenceId: record.id });
+    await appendJournal(root, runDir, "evidence.added", { evidenceId: admitted.id });
     return value;
   });
 }
@@ -1314,15 +1329,48 @@ function validateFinding(record) {
     }
     if (Date.parse(record.expiry) <= Date.now()) throw new Error("Accepted risk expiry must be in the future");
   }
-  if (record.status === "rejected-with-evidence" && !record.evidenceId) {
-    throw new Error("Rejected finding requires evidenceId");
+  if (["resolved", "rejected-with-evidence"].includes(record.status) && !record.evidenceId) {
+    throw new Error("Resolved or rejected findings require evidenceId");
   }
   return record;
+}
+
+async function assertFindingEvidence(root, run, runDir, record) {
+  if (!["resolved", "rejected-with-evidence"].includes(record.status)) return;
+  if (run.contract.schemaVersion !== 2) {
+    throw new Error("Resolved or rejected findings require typed evidence");
+  }
+  const evidence = (await listJsonRecords(root, safeJoin(runDir, "evidence"))).find(
+    (item) => item.id === record.evidenceId
+  );
+  if (
+    !evidence ||
+    evidence.schemaVersion !== 2 ||
+    evidence.stale === true ||
+    !evidence.typedAdmission
+  ) {
+    throw new Error("Finding disposition requires current typed evidence");
+  }
+  const { validateTypedEvidenceRecord } = await import("./evidence.mjs");
+  await validateTypedEvidenceRecord(evidence, {
+    manifest: run.manifest,
+    contract: run.contract,
+    root,
+    runDir,
+    requireReconciled: true
+  });
+  const payload = evidence.receipt?.payload;
+  if (!Array.isArray(payload?.findingIds) || !payload.findingIds.includes(record.id)) {
+    throw new Error("Finding disposition evidence is not bound to the finding");
+  }
 }
 
 export async function addFinding(root, runId, record, { update = false } = {}) {
   validateFinding(record);
   return withRunLock(root, runId, async ({ runDir }) => {
+    const run = await loadRun(root, runId);
+    assertMutableRun(run, "Finding");
+    await assertFindingEvidence(root, run, runDir, record);
     const target = safeJoin(runDir, "findings", `${record.id}.json`);
     const exists = await pathExists(target);
     if (exists && !update) throw new Error(`Finding already exists: ${record.id}`);
