@@ -118,17 +118,6 @@ const ACTION_PROVIDER_RECEIPT_SCHEMAS = {
   "recipe.promote:local-workspace": { proofKind: "local-workspace:recipe.promote" },
   "artifact.promote:local-workspace": { proofKind: "local-workspace:artifact.promote" }
 };
-const PROVIDER_VERIFIED_ACTIONS = new Set([
-  "branch.create",
-  "worktree.create",
-  "pr.create",
-  "actions.dispatch",
-  "pr.merge",
-  "remote.sync",
-  "recipe.promote",
-  "artifact.promote"
-]);
-
 export function pluginRoot() {
   return PLUGIN_ROOT;
 }
@@ -668,7 +657,7 @@ function assertProviderReceiptShape(record, providerReceipt, outcome = record.ou
   );
   if (!commonValid) throw new Error("Provider receipt lacks a structured execution proof");
   const schema = ACTION_PROVIDER_RECEIPT_SCHEMAS[`${record.action}:${record.provider}`];
-  if (outcome === "success" && PROVIDER_VERIFIED_ACTIONS.has(record.action) && !schema) {
+  if (outcome === "success" && !schema) {
     throw new Error("Successful action requires an approved provider-specific receipt schema");
   }
   if (schema && providerReceipt.proofKind !== schema.proofKind) {
@@ -1104,6 +1093,9 @@ export async function evaluateCompletion(root, runId) {
       if (isTypedEvidence(record)) {
         try {
           await validateTypedEvidenceRecord(record, { manifest, contract });
+          if (record.kind === "required-checks") {
+            await verifyRequiredChecksProvider(manifest.cwd, record.receipt.payload);
+          }
           validTypedEvidence.push(record);
         } catch (error) {
           blockers.push(`invalid-typed-evidence:${record.id ?? "unknown"}`);
@@ -1269,6 +1261,12 @@ async function verifyProviderReceipt(manifest, record, receipt) {
     return;
   }
   if (key === "branch.create:git") {
+    const expectedRef = record.resource.startsWith("branch:")
+      ? record.resource.slice("branch:".length)
+      : null;
+    if (!expectedRef || providerReceipt.ref !== expectedRef) {
+      throw new Error("Git branch creation proof is not bound to the requested resource");
+    }
     const actual = (await execFileAsync("git", ["rev-parse", "--verify", `refs/heads/${providerReceipt.ref}^{commit}`], {
       cwd,
       encoding: "utf8"
@@ -1285,6 +1283,12 @@ async function verifyProviderReceipt(manifest, record, receipt) {
     return;
   }
   if (key === "worktree.create:git") {
+    const expectedPath = record.resource.startsWith("worktree:")
+      ? record.resource.slice("worktree:".length)
+      : null;
+    if (!expectedPath || providerReceipt.path !== expectedPath) {
+      throw new Error("Git worktree creation proof is not bound to the requested resource");
+    }
     const output = (await execFileAsync("git", ["worktree", "list", "--porcelain"], {
       cwd,
       encoding: "utf8"
@@ -1336,7 +1340,7 @@ async function verifyProviderReceipt(manifest, record, receipt) {
   }
   if (key === "actions.dispatch:github-cli") {
     const actual = JSON.parse((await execFileAsync("gh", [
-      "run", "view", String(providerReceipt.runId), "--json", "databaseId,workflowName,url,status,conclusion"
+      "run", "view", String(providerReceipt.runId), "--json", "databaseId,workflowName,url,status,conclusion,headSha"
     ], { cwd, encoding: "utf8" })).stdout);
     const repository = await currentRepositoryIdentity(cwd);
     const response = {
@@ -1344,7 +1348,8 @@ async function verifyProviderReceipt(manifest, record, receipt) {
       workflowName: actual.workflowName,
       url: actual.url,
       status: actual.status,
-      conclusion: actual.conclusion
+      conclusion: actual.conclusion,
+      headSha: actual.headSha
     };
     assertRecomputedProviderReceipt(
       providerReceipt,
@@ -1357,6 +1362,7 @@ async function verifyProviderReceipt(manifest, record, receipt) {
       actual.url !== providerReceipt.url ||
       actual.status !== "completed" ||
       actual.conclusion !== "SUCCESS" ||
+      actual.headSha !== record.remoteRevision ||
       (record.resource.startsWith("workflow:") && actual.workflowName !== record.resource.slice("workflow:".length))
     ) throw new Error("GitHub Actions dispatch proof does not match provider state");
     return;
@@ -1392,11 +1398,13 @@ async function verifyProviderReceipt(manifest, record, receipt) {
     return;
   }
   if (key === "remote.sync:git") {
-    const providerRevision = (await execFileAsync("git", ["rev-parse", "--verify", "refs/remotes/origin/dev^{commit}"], {
+    const branchRef = /^refs\/heads\/(.+)$/.exec(record.resource)?.[1];
+    if (!branchRef) throw new Error("Git remote synchronization resource must be refs/heads/<branch>");
+    const providerRevision = (await execFileAsync("git", ["rev-parse", "--verify", `refs/remotes/origin/${branchRef}^{commit}`], {
       cwd,
       encoding: "utf8"
     })).stdout.trim();
-    const localRevision = (await execFileAsync("git", ["rev-parse", "--verify", "refs/heads/dev^{commit}"], {
+    const localRevision = (await execFileAsync("git", ["rev-parse", "--verify", `refs/heads/${branchRef}^{commit}`], {
       cwd,
       encoding: "utf8"
     })).stdout.trim();
@@ -1424,7 +1432,7 @@ async function verifyProviderReceipt(manifest, record, receipt) {
   }
 }
 
-async function verifyRequiredChecksProvider(cwd, payload) {
+export async function verifyRequiredChecksProvider(cwd, payload) {
   if (payload.provider !== "github") throw new Error("Required checks must be observed from GitHub");
   const repository = repositoryIdentity(payload.repository);
   const prefix = "github.com/";

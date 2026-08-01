@@ -535,6 +535,38 @@ test("CLI custom contracts cannot remove template required evidence minimums", a
   await assert.rejects(access(stateRoot));
 });
 
+test("CLI rejects a v1 contract supplied for a v2 template", async () => {
+  const cwd = await repository();
+  const stateRoot = path.join(await mkdtemp(path.join(os.tmpdir(), "sbw-cli-v2-downgrade-")), "state");
+  const contractPath = path.join(cwd, "v1-cross-platform-contract.json");
+  const template = JSON.parse(await readFile(path.resolve(path.dirname(CLI), "..", "templates", "cross-platform-contract.json"), "utf8"));
+  await writeFile(contractPath, `${JSON.stringify({
+    schemaVersion: 1,
+    goal: "Attempt a legacy contract downgrade",
+    template: "cross-platform-contract",
+    scope: { include: ["src"], exclude: [] },
+    acceptance: [{ id: "legacy", description: "Legacy contract is complete.", critical: true }],
+    requiredEvidence: template.requiredEvidence,
+    authority: { rootOnlyMutation: true, externalSideEffects: [] },
+    risk: { risk: 1, uncertainty: 1, blastRadius: 1, irreversibility: 0, evidenceGap: 1 },
+    sensitivity: "internal",
+    agy: { allowed: false, sanitized: false },
+    volatileExclusions: [],
+    highRiskIgnored: [],
+    remoteRevision: null
+  }, null, 2)}\n`);
+
+  const result = await cli(
+    cwd,
+    stateRoot,
+    ["run", "--template", "cross-platform-contract", "--contract", contractPath],
+    { allowFailure: true }
+  );
+  assert.notEqual(result.code, 0);
+  assert.match(result.stderr, /v2 templates require a schemaVersion 2/);
+  await assert.rejects(access(stateRoot));
+});
+
 test("CLI custom v2 contracts cannot weaken the installed control-plane policy", async () => {
   const cwd = await repository();
   const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-cli-v2-policy-"));

@@ -305,6 +305,22 @@ export async function reviewStatus(root, runId) {
     if (value.scopeDigest !== digestObject(value.scope) || value.diffManifestDigest !== digestObject(value.diffManifest)) {
       throw new Error("Review package identity digest is stale");
     }
+    const identity = {
+      base: value.base,
+      head: value.head,
+      mergeBase: value.mergeBase,
+      scope: value.scope,
+      scopeDigest: value.scopeDigest,
+      diffManifest: value.diffManifest,
+      diffManifestDigest: value.diffManifestDigest,
+      contractDigest: value.contractDigest,
+      templateDigest: value.templateDigest,
+      sentinelDigest: value.sentinelDigest,
+      instructionDigest: value.instructionDigest
+    };
+    if (value.packageId !== packageId(identity)) {
+      throw new Error("Review package id is not bound to its complete identity");
+    }
   }
   for (const finding of findings) {
     if (!packages.some((item) => item.packageId === finding.packageId)) {

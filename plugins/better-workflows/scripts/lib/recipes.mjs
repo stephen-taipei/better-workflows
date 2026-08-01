@@ -81,6 +81,7 @@ function recipeError(message) {
 async function addActionEvidence(stateRoot, action, providerReceipt) {
   const run = await inspectRun(stateRoot, action.runId);
   const payload = {
+    provider: action.provider,
     actionProof: {
       schemaVersion: 1,
       runId: action.runId,
@@ -102,6 +103,7 @@ async function addActionEvidence(stateRoot, action, providerReceipt) {
     status: "complete",
     summary: `Provider receipt for ${action.action}`,
     acceptanceIds: [],
+    dependencyInputs: { files: [] },
     sourceDigest: digestObject(payload),
     receipt: run.contract.schemaVersion === 2
       ? {
@@ -1007,8 +1009,11 @@ async function assertPromotionRun(stateRoot, runIdValue, attemptId, recipe, bind
   }
   if (run.contract.schemaVersion === 2) {
     const completion = await evaluateCompletion(stateRoot, runIdValue);
-    if (!completion.ok) {
-      throw recipeError(`promotion run is incomplete: ${completion.blockers.join(", ")}`);
+    const preActionBlockers = completion.blockers.filter((blocker) => (
+      blocker !== "ledger:not-complete" && blocker !== "side-effect-not-reconciled"
+    ));
+    if (preActionBlockers.length > 0) {
+      throw recipeError(`promotion run is incomplete: ${preActionBlockers.join(", ")}`);
     }
     return { run, action };
   }

@@ -1088,6 +1088,9 @@ async function commandRun(root, options) {
         `TaskContract cannot remove template required evidence: ${missingMinimums.join(", ")}`
       );
     }
+    if (template.controlPlane && Array.isArray(template.executionStages) && contract.schemaVersion !== 2) {
+      throw new Error("v2 templates require a schemaVersion 2 TaskContract");
+    }
     if (contract.schemaVersion === 2) {
       const policyKeys = [
         "evidencePolicy",

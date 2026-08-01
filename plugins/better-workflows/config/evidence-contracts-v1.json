@@ -1247,7 +1247,8 @@
       "payloadFamily": "provider-reconciliation",
       "requiredFields": [
         "provider",
-        "receipt"
+        "receipt",
+        "actionProof"
       ],
       "freshnessBinding": [
         "runId",
