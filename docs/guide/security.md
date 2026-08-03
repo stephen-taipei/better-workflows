@@ -33,6 +33,10 @@ rationale.
 - Failed governed `pr.create` attempts keep their reservation until a paginated
   GitHub API query over all PR pages proves that no matching head/base PR
   exists; malformed or non-empty provider results remain fail-closed.
+- A consumed owned-resource creation with outcome `unknown` keeps its
+  reservation and cannot be retried blindly. An operator may reconcile that
+  same attempt as `failure` only after the same provider-side absence proof
+  succeeds; expiry reaping never releases an unknown reservation automatically.
 - Governed `pr.create` actions bind the provider receipt to the exact candidate
   source commit observed when the action token is issued; a PR from another
   source head cannot be reconciled or registered as run-owned.

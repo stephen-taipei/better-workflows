@@ -308,6 +308,19 @@ test("failed PR creation preserves its reservation until provider absence is pro
   process.env.SBW_FAKE_PR_LIST = responsePath;
   process.env.SBW_FAKE_PR_ARGS = argsPath;
   try {
+    const unknownReceipt = {
+      ...receipt,
+      outcome: "unknown",
+      providerReceipt: {
+        ...receipt.providerReceipt,
+        outcome: "unknown",
+        executionId: "github:example/repo:pr.create:unknown",
+        terminalState: "unknown",
+        reason: "provider-timeout"
+      }
+    };
+    await reconcileAction(root, run.runId, attemptId, "unknown", unknownReceipt);
+    await stat(reservationPath);
     await assert.rejects(
       reconcileAction(root, run.runId, attemptId, "failure", receipt),
       /existing pull request; preserve the reservation/

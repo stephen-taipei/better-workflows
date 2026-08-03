@@ -3944,7 +3944,13 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
     const records = await listJsonRecords(root, safeJoin(runDir, "actions"));
     const record = records.find((item) => item.attemptId === attemptId);
     if (!record) throw new Error(`Unknown action attempt: ${attemptId}`);
-    if (record.status !== "spent" || record.outcome !== "pending") {
+    const recoveringUnknown = (
+      record.status === "spent" &&
+      record.outcome === "unknown" &&
+      outcome === "failure" &&
+      OWNED_RESOURCE_CREATION_ACTIONS.has(record.action)
+    );
+    if (record.status !== "spent" || (record.outcome !== "pending" && !recoveringUnknown)) {
       throw new Error("Action attempt was already reconciled");
     }
     validateActionReceipt(record, outcome, receipt);
@@ -4045,7 +4051,7 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
         : {})
     };
     await atomicWriteJson(root, target, next);
-    await appendJournal(root, runDir, "action.reconciled", { attemptId, outcome });
+    await appendJournal(root, runDir, "action.reconciled", { attemptId, outcome, recoveredUnknown: recoveringUnknown });
     if (record.action === "pr.create" && outcome === "success") {
       const ownedResource = `pull/${receipt.providerReceipt.number}`;
       await registerOwnedResourceLocked(root, runId, run, runDir, {
