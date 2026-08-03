@@ -282,6 +282,13 @@ test("unsupported GitHub Actions dispatch fails closed before issuing a token", 
     }, "tree", {}),
     /unimplemented provider adapter/
   );
+  await assert.rejects(
+    registerOwnedResource("/private/tmp/sbw-unsupported-actions-dispatch", "sbw-20260803T000000Z-000000000000", {
+      resource: "run:123",
+      creationReceipt: { action: "actions.dispatch" }
+    }),
+    /unimplemented provider adapter/
+  );
 });
 
 test("failed PR creation preserves its reservation until provider absence is proven", async () => {
@@ -332,6 +339,7 @@ test("failed PR creation preserves its reservation until provider absence is pro
       permissions: { admin: false, maintain: false, push: true }
     },
     providerExecutable: null,
+    providerInvocation: { dispatchState: "not-sent" },
     creationPrecondition: { action: "pr.create", resource, state: "absent", number: null }
   };
   await writeFile(path.join(runDir, "actions", `${tokenHash}.json`), `${JSON.stringify(action)}\n`);

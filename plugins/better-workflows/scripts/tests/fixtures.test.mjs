@@ -53,7 +53,12 @@ test("all thirteen templates are valid and side-effect templates declare action 
         );
       }
     }
-    if (template.rootOnlyActions.some((action) => /deploy|release|issue create|pr create|pr merge/i.test(action))) {
+    if (template.deferredActions?.length > 0) {
+      assert.deepEqual(template.actionStages ?? {}, {}, `${name} deferred actions must not be active stages`);
+      assert.deepEqual(template.actionGates ?? {}, {}, `${name} deferred actions must not have action gates`);
+    }
+    if (template.rootOnlyActions.some((action) => /deploy|release|issue create|pr create|pr merge/i.test(action)) &&
+        !(template.deferredActions?.length > 0)) {
       assert.ok(template.actionGates && Object.keys(template.actionGates).length > 0, name);
     }
   }
