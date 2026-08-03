@@ -269,9 +269,10 @@ test("failed PR creation preserves its reservation until provider absence is pro
     expiresAt: new Date(Date.now() + 60_000).toISOString()
   })}\n`);
   const responsePath = path.join(root, "fake-pr-list.json");
+  const argsPath = path.join(root, "fake-gh-args.txt");
   const fakeGh = path.join(bin, "gh");
-  await writeFile(responsePath, "[{\"number\":99,\"headRefOid\":\"other\",\"baseRefName\":\"dev\",\"url\":\"https://example.invalid/pull/99\"}]\n");
-  await writeFile(fakeGh, "#!/bin/sh\ncat \"$SBW_FAKE_PR_LIST\"\n");
+  await writeFile(responsePath, "[[{\"number\":99,\"headRefOid\":\"other\",\"baseRefName\":\"dev\",\"url\":\"https://example.invalid/pull/99\"}]]\n");
+  await writeFile(fakeGh, "#!/bin/sh\nprintf '%s\\n' \"$*\" > \"$SBW_FAKE_PR_ARGS\"\ncat \"$SBW_FAKE_PR_LIST\"\n");
   await chmod(fakeGh, 0o755);
   const receipt = {
     action: "pr.create",
@@ -301,15 +302,18 @@ test("failed PR creation preserves its reservation until provider absence is pro
   };
   const priorPath = process.env.PATH;
   const priorResponse = process.env.SBW_FAKE_PR_LIST;
+  const priorArgs = process.env.SBW_FAKE_PR_ARGS;
   process.env.PATH = `${bin}:${priorPath}`;
   process.env.SBW_FAKE_PR_LIST = responsePath;
+  process.env.SBW_FAKE_PR_ARGS = argsPath;
   try {
     await assert.rejects(
       reconcileAction(root, run.runId, attemptId, "failure", receipt),
       /existing pull request; preserve the reservation/
     );
     await stat(reservationPath);
-    await writeFile(responsePath, "[]\n");
+    assert.match(await readFile(argsPath, "utf8"), /api --paginate --slurp repos\/example\/repo\/pulls\?state=all&head=example%3Acodex%2Ffeature&base=dev&per_page=100/);
+    await writeFile(responsePath, "[[]]\n");
     const reconciled = await reconcileAction(root, run.runId, attemptId, "failure", receipt);
     assert.equal(reconciled.receipt.providerReceipt.failureAbsence.absent, true);
     await assert.rejects(stat(reservationPath));
@@ -317,6 +321,8 @@ test("failed PR creation preserves its reservation until provider absence is pro
     process.env.PATH = priorPath;
     if (priorResponse === undefined) delete process.env.SBW_FAKE_PR_LIST;
     else process.env.SBW_FAKE_PR_LIST = priorResponse;
+    if (priorArgs === undefined) delete process.env.SBW_FAKE_PR_ARGS;
+    else process.env.SBW_FAKE_PR_ARGS = priorArgs;
   }
 });
 

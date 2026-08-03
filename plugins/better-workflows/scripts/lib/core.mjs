@@ -1968,28 +1968,52 @@ async function verifyFailedCreationAbsence(manifest, record) {
     const repositoryPath = repository.startsWith("github.com/")
       ? repository.slice("github.com/".length)
       : repository;
-    const command = [
-      "gh",
-      "pr",
-      "list",
-      "--repo",
-      repositoryPath,
-      "--head",
-      record.headBranch,
-      "--base",
-      record.targetRef,
-      "--state",
-      "all",
-      "--json",
-      "number,headRefOid,baseRefName,url"
-    ];
+    const repositoryOwner = repositoryPath.split("/")[0];
+    if (!repositoryOwner || !record.headBranch || !record.targetRef) {
+      throw new Error("Failed PR creation reconciliation requires a canonical repository owner, head, and base");
+    }
+    const endpoint = [
+      `repos/${repositoryPath}/pulls?state=all`,
+      `head=${encodeURIComponent(`${repositoryOwner}:${record.headBranch}`)}`,
+      `base=${encodeURIComponent(record.targetRef)}`,
+      "per_page=100"
+    ].join("&");
+    const command = ["gh", "api", "--paginate", "--slurp", endpoint];
     const output = await execFileAsync(command[0], command.slice(1), { cwd, encoding: "utf8" });
-    let actual;
+    let pages;
     try {
-      actual = JSON.parse(output.stdout);
+      pages = JSON.parse(output.stdout);
     } catch {
       throw new Error("Failed PR creation reconciliation did not return structured provider absence data");
     }
+    const pageList = Array.isArray(pages) && pages.every((page) => Array.isArray(page))
+      ? pages
+      : Array.isArray(pages)
+        ? [pages]
+        : null;
+    if (!pageList) {
+      throw new Error("Failed PR creation reconciliation provider absence data is not a paginated array");
+    }
+    const actual = pageList.flat().map((pullRequest) => {
+      const normalized = {
+        number: pullRequest?.number,
+        headRefOid: pullRequest?.headRefOid ?? pullRequest?.head?.sha,
+        baseRefName: pullRequest?.baseRefName ?? pullRequest?.base?.ref,
+        url: pullRequest?.url ?? pullRequest?.html_url
+      };
+      if (
+        !Number.isInteger(normalized.number) ||
+        typeof normalized.headRefOid !== "string" ||
+        !normalized.headRefOid ||
+        typeof normalized.baseRefName !== "string" ||
+        !normalized.baseRefName ||
+        typeof normalized.url !== "string" ||
+        !normalized.url
+      ) {
+        throw new Error("Failed PR creation reconciliation provider response contains an incomplete pull request");
+      }
+      return normalized;
+    });
     if (!Array.isArray(actual)) {
       throw new Error("Failed PR creation reconciliation provider absence data is not an array");
     }

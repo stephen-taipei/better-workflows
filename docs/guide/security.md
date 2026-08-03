@@ -30,6 +30,9 @@ rationale.
   handoffs.
 - Unknown remote outcomes require a read-only provider query and
   reconciliation; they are never blindly retried.
+- Failed governed `pr.create` attempts keep their reservation until a paginated
+  GitHub API query over all PR pages proves that no matching head/base PR
+  exists; malformed or non-empty provider results remain fail-closed.
 - Governed `pr.create` actions bind the provider receipt to the exact candidate
   source commit observed when the action token is issued; a PR from another
   source head cannot be reconciled or registered as run-owned.
