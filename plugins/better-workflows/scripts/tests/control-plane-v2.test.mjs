@@ -204,6 +204,22 @@ test("source binding can be explicitly rebound before review or side effects", a
     rebindSourceBinding(root, started.runId, "\n"),
     /concise reason/
   );
+  await addFinding(root, started.runId, {
+    id: "accepted-risk-before-rebind",
+    severity: "P2",
+    status: "accepted-risk",
+    summary: "must be reassessed after source changes",
+    owner: "owner",
+    reason: "temporary bounded risk",
+    expiry: new Date(Date.now() + 86_400_000).toISOString()
+  });
+  await writeFile(path.join(workspace, "source.txt"), "changed again\n");
+  await execFileAsync("git", ["add", "source.txt"], { cwd: workspace });
+  await execFileAsync("git", ["commit", "-qm", "second source change"], { cwd: workspace });
+  await assert.rejects(
+    rebindSourceBinding(root, started.runId, "accepted-risk must be reassessed"),
+    /before independent review begins/
+  );
 });
 
 test("typed evidence rejects cross-run and caller-forged digests", async () => {
@@ -265,6 +281,17 @@ test("typed gate evidence rejects a failed result even when its shape is valid",
     addEvidence(root, started.runId, await gateRecord(run, "required-checks", { ...pullEvidence, command: "false", result: false })),
     /result failed its success predicate/
   );
+  for (const providerExecutable of [{}, { path: "/usr/bin/gh", digest: "not-a-digest" }, { path: "/usr/bin/gh", digest: "0".repeat(64), extra: true }]) {
+    await assert.rejects(
+      addEvidence(root, started.runId, await gateRecord(run, "required-checks", {
+        ...pullEvidence,
+        command: "gh",
+        providerExecutable,
+        result: true
+      }, "required-checks-invalid-executable")),
+      /exact absolute path and SHA-256 digest object/
+    );
+  }
   await assert.rejects(
     addEvidence(root, started.runId, await gateRecord(run, "commit-history", { command: "false", result: false }, "commit-history-failed")),
     /result failed its success predicate/

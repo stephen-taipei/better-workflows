@@ -6,8 +6,12 @@ import {
   evaluationBindingDigest,
   loadFrozenEvaluationSuite,
   loadMigrationTargetSuite,
+  buildEvaluationPrompt,
   readSanitizedCandidateMaterial,
+  readSanitizedBaselineMaterial,
   snapshotCandidate,
+  snapshotBaselineForCandidate,
+  selectEvaluationCases,
   SELF_IMPROVE_CANONICAL_CORPUS,
   SELF_IMPROVE_MIGRATION_SOURCE_CORPUS,
   ordinaryCorpusForBaseline
@@ -71,10 +75,26 @@ export async function generateAttestationRequests({
     baselineRevision: frozen.baselineRevision,
     candidateRoot
   });
-  await readSanitizedCandidateMaterial({
+  const candidateMaterial = await readSanitizedCandidateMaterial({
     cwd: resolvedRepo,
     snapshot: candidate
   });
+  const baseline = await snapshotBaselineForCandidate({ cwd: resolvedRepo, snapshot: candidate });
+  const baselineMaterial = await readSanitizedBaselineMaterial({ cwd: resolvedRepo, snapshot: baseline });
+  const promptByRoleAndSplit = new Map();
+  for (const split of ["train", "holdout"]) {
+    const cases = selectEvaluationCases({ suite: frozen.suite, snapshot: candidate, split });
+    promptByRoleAndSplit.set(`candidate:${split}`, buildEvaluationPrompt({
+      suite: { ...frozen.suite, cases },
+      candidate,
+      materials: candidateMaterial
+    }));
+    promptByRoleAndSplit.set(`baseline:${split}`, buildEvaluationPrompt({
+      suite: { ...frozen.suite, cases },
+      candidate: baseline,
+      materials: baselineMaterial
+    }));
+  }
   const executions = [
     { split: "train", role: "train-candidate", attempt: 1 },
     { split: "holdout", role: "candidate", attempt: 1 },
@@ -93,6 +113,9 @@ export async function generateAttestationRequests({
       suiteDigest,
       baselineRevision: frozen.baselineRevision,
       candidateDigest: candidate.digest,
+      promptDigest: createHash("sha256")
+        .update(promptByRoleAndSplit.get(`${item.role === "train-candidate" ? "candidate" : item.role}:${item.split}`))
+        .digest("hex"),
       role: item.role,
       attempt: item.attempt
     };
@@ -105,6 +128,7 @@ export async function generateAttestationRequests({
       executionId: execution.id,
       role: item.role,
       attempt: item.attempt,
+      promptDigest: execution.promptDigest,
       request: file,
       requestDigest: createHash("sha256").update(bytes).digest("hex"),
       attestationName: `${execution.id}.json`

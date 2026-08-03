@@ -231,7 +231,7 @@ function validateExecution(attestationExecution, expectedExecution) {
   if (!attestationExecution || typeof attestationExecution !== "object") {
     throw new Error("Trusted Codex attestation requires an execution binding");
   }
-  for (const key of ["id", "runId", "suiteDigest", "baselineRevision", "candidateDigest", "role", "attempt"]) {
+  for (const key of ["id", "runId", "suiteDigest", "baselineRevision", "candidateDigest", "promptDigest", "role", "attempt"]) {
     if (attestationExecution[key] === undefined || expectedExecution[key] === undefined) {
       throw new Error(`Trusted Codex execution binding is missing ${key}`);
     }
@@ -241,6 +241,9 @@ function validateExecution(attestationExecution, expectedExecution) {
   }
   if (!Number.isInteger(attestationExecution.attempt) || attestationExecution.attempt < 1 || attestationExecution.attempt > 3) {
     throw new Error("Trusted Codex execution attempt is invalid");
+  }
+  if (typeof attestationExecution.promptDigest !== "string" || !/^[a-f0-9]{64}$/.test(attestationExecution.promptDigest)) {
+    throw new Error("Trusted Codex execution prompt digest is invalid");
   }
   if (canonicalJson(attestationExecution) !== canonicalJson(expectedExecution)) {
     throw new Error("Trusted Codex execution binding does not match this replay");
@@ -289,6 +292,94 @@ export async function verifyTrustedCodexAttestation({ attestationPath, evaluatio
     attestationDigest: sha256(canonicalJson(unsignedAttestation(attestation))), trustRootDigest: sha256(canonicalJson(trustRoot)),
     attestationPath: attestationFile.path, issuer: attestation.issuer, keyId: attestation.keyId, expiresAt: attestation.expiresAt, execution: signedExecution, binary: { path: command, digest }
   } };
+}
+
+export async function verifyTrustedCodexResultReceipt({
+  resultReceiptPath,
+  evaluationRoot,
+  model,
+  execution,
+  prompt,
+  response,
+  attestation,
+  startedAt,
+  finishedAt
+}) {
+  if (!resultReceiptPath) throw new Error("Codex evaluation requires --trusted-codex-result-receipt");
+  if (!attestation?.metadata?.attestationDigest || !attestation.metadata.binary || !attestation.metadata.trustRootDigest) {
+    throw new Error("Codex result receipt verification requires a verified execution attestation");
+  }
+  const evaluation = await realpath(evaluationRoot);
+  const [receiptFile, trustRootFile] = await Promise.all([
+    secureJsonFile(path.resolve(resultReceiptPath), "Trusted Codex result receipt"),
+    hostAnchoredTrustRoot()
+  ]);
+  if (isWithin(evaluation, receiptFile.path)) {
+    throw new Error("Trusted Codex result receipt must be a host-provided file outside the evaluated repository");
+  }
+  const receipt = receiptFile.value;
+  const required = [
+    "attestationDigest", "binary", "execution", "exitCode", "expiresAt", "finishedAt", "issuedAt", "issuer", "keyId", "kind",
+    "model", "provider", "promptDigest", "responseDigest", "schemaVersion", "signal", "signature", "startedAt", "timedOut", "trustRootDigest"
+  ];
+  if (Object.keys(receipt).sort().join("\0") !== required.slice().sort().join("\0")) {
+    throw new Error("Trusted Codex result receipt fields do not match the verifier contract");
+  }
+  const trustRoot = trustRootFile.value;
+  if (receipt.schemaVersion !== 1 || receipt.provider !== "codex" || receipt.kind !== "execution-result" || trustRoot?.schemaVersion !== 1) {
+    throw new Error("Trusted Codex result receipt schema is invalid");
+  }
+  if (receipt.model !== model || receipt.issuer !== trustRoot.issuer) {
+    throw new Error("Trusted Codex result receipt must bind provider codex and the requested model");
+  }
+  const key = Array.isArray(trustRoot.publicKeys)
+    ? trustRoot.publicKeys.find((item) => item?.keyId === receipt.keyId && item.algorithm === "ed25519")
+    : null;
+  if (!key || typeof key.publicKey !== "string") throw new Error("Trusted Codex result receipt key is not available in the trust root");
+  const issuedAtMs = Date.parse(requiredString(receipt.issuedAt, "Trusted Codex result receipt issuedAt"));
+  const expiresAtMs = Date.parse(requiredString(receipt.expiresAt, "Trusted Codex result receipt expiresAt"));
+  if (!Number.isFinite(issuedAtMs) || !Number.isFinite(expiresAtMs) || issuedAtMs > Date.now() + 300_000 || expiresAtMs <= Date.now()) {
+    throw new Error("Trusted Codex result receipt is not currently valid");
+  }
+  const publicKey = createPublicKey({ key: Buffer.from(key.publicKey, "base64"), format: "der", type: "spki" });
+  const signature = Buffer.from(requiredString(receipt.signature, "Trusted Codex result receipt signature"), "base64");
+  const unsigned = unsignedAttestation(receipt);
+  if (!verify(null, Buffer.from(canonicalJson(unsigned), "utf8"), publicKey, signature)) {
+    throw new Error("Trusted Codex result receipt signature is invalid");
+  }
+  validateExecution(receipt.execution, execution);
+  if (receipt.attestationDigest !== attestation.metadata.attestationDigest) {
+    throw new Error("Trusted Codex result receipt is not bound to the verified execution attestation");
+  }
+  if (receipt.trustRootDigest !== attestation.metadata.trustRootDigest) {
+    throw new Error("Trusted Codex result receipt trust-root binding changed after execution");
+  }
+  if (canonicalJson(receipt.binary) !== canonicalJson(attestation.metadata.binary)) {
+    throw new Error("Trusted Codex result receipt binary binding changed after execution");
+  }
+  if (receipt.promptDigest !== execution.promptDigest || receipt.promptDigest !== sha256(prompt)) {
+    throw new Error("Trusted Codex result receipt prompt binding does not match this replay");
+  }
+  if (receipt.responseDigest !== sha256(canonicalJson(response))) {
+    throw new Error("Trusted Codex result receipt response binding does not match the parsed replay");
+  }
+  if (receipt.startedAt !== startedAt || receipt.finishedAt !== finishedAt) {
+    throw new Error("Trusted Codex result receipt timing does not match this execution");
+  }
+  if (receipt.exitCode !== 0 || receipt.signal !== null || receipt.timedOut !== false) {
+    throw new Error("Trusted Codex result receipt does not attest a successful execution");
+  }
+  const resultStartedAt = Date.parse(receipt.startedAt);
+  const resultFinishedAt = Date.parse(receipt.finishedAt);
+  if (!Number.isFinite(resultStartedAt) || !Number.isFinite(resultFinishedAt) || resultFinishedAt < resultStartedAt) {
+    throw new Error("Trusted Codex result receipt timing is invalid");
+  }
+  return {
+    ...receipt,
+    resultReceiptDigest: sha256(canonicalJson(unsigned)),
+    resultReceiptPath: receiptFile.path,
+    trustRootDigest: sha256(canonicalJson(trustRoot))
+  };
 }
 
 export async function verifyTrustedNativeCriticAttestation({ attestationPath, workspaceRoot, binding }) {
@@ -450,8 +541,11 @@ export async function runCodexCritic({ model, effort, prompt, timeoutMs = 120_00
   }
 }
 
-export async function runCodexEvaluation({ model, prompt, timeoutMs = 120_000, attestationPath, evaluationRoot, execution }) {
+export async function runCodexEvaluation({ model, prompt, timeoutMs = 120_000, attestationPath, resultReceiptPath, evaluationRoot, execution }) {
   if (!model || !prompt || !evaluationRoot || !execution) throw new Error("Codex evaluation requires model, prompt, evaluation root, and execution binding");
+  if (sha256(prompt) !== execution.promptDigest) {
+    throw new Error("Codex evaluation prompt does not match the signed execution binding");
+  }
   const trusted = await verifyTrustedCodexAttestation({ attestationPath, evaluationRoot, model, execution });
   const bundle = await mkdtemp(path.join(os.tmpdir(), "sbw-codex-evaluation-"));
   await chmod(bundle, 0o700);
@@ -473,17 +567,33 @@ export async function runCodexEvaluation({ model, prompt, timeoutMs = 120_000, a
     const finalOutput = providerFinalOutput(fileOutput, result.stdout);
     const response = extractJson(finalOutput.output);
     if (!response || !Array.isArray(response.results)) throw new Error("Codex evaluation returned malformed structured output");
+    const finishedAt = new Date().toISOString();
+    const resultReceipt = await verifyTrustedCodexResultReceipt({
+      resultReceiptPath,
+      evaluationRoot,
+      model,
+      execution,
+      prompt,
+      response,
+      attestation: trusted,
+      startedAt,
+      finishedAt
+    });
     return {
       response,
       metadata: {
         ...trusted.metadata,
         startedAt,
-        finishedAt: new Date().toISOString(),
+        finishedAt,
         transport: "stdin",
         resultTransport: finalOutput.transport,
         sandbox: "read-only",
         ephemeral: true,
-        outputSchema: "evaluation-v1"
+        outputSchema: "evaluation-v1",
+        promptDigest: execution.promptDigest,
+        responseDigest: resultReceipt.responseDigest,
+        resultReceiptDigest: resultReceipt.resultReceiptDigest,
+        resultReceiptPath: resultReceipt.resultReceiptPath
       }
     };
   } finally {

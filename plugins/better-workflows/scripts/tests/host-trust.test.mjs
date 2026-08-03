@@ -38,5 +38,8 @@ test("host trust helper fixes authority paths and does not accept environment pa
   assert.match(source, /"\/etc\/better-workflows\/codex-trust-root\.json"/);
   assert.match(source, /"\/private\/var\/db\/better-workflows\/codex-attestation-ed25519\.raw"/);
   assert.match(source, /Refusing implicit rotation or overwrite/);
+  assert.match(source, /sign-result/);
+  assert.match(source, /responseDigest/);
+  assert.match(source, /trustRootDigest/);
   assert.doesNotMatch(source, /BW_(?:TRUST|PRIVATE|ATTESTATION)/);
 });

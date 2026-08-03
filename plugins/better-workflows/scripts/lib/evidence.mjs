@@ -176,6 +176,20 @@ function assertPayloadFields(payload, requiredFields, kind) {
     if (OBJECT_FIELDS.has(field) && (typeof value !== "object" || Array.isArray(value))) {
       throw new Error(`Typed evidence ${kind} payload field ${field} must be an object`);
     }
+    if (field === "providerExecutable") {
+      const keys = Object.keys(value).sort();
+      if (
+        keys.length !== 2 ||
+        keys[0] !== "digest" ||
+        keys[1] !== "path" ||
+        typeof value.path !== "string" ||
+        !path.isAbsolute(value.path) ||
+        typeof value.digest !== "string" ||
+        !HEX_DIGEST.test(value.digest)
+      ) {
+        throw new Error(`Typed evidence ${kind} payload field providerExecutable must be an exact absolute path and SHA-256 digest object`);
+      }
+    }
     if (INTEGER_FIELDS.has(field) && (!Number.isInteger(value) || value < 0)) {
       throw new Error(`Typed evidence ${kind} payload field ${field} must be a non-negative integer`);
     }

@@ -368,7 +368,10 @@ test("creation reservation lease gives one concurrent same-repository attempt th
   }, "tree", defaults)));
   assert.equal(results.filter((item) => item.status === "fulfilled").length, 1);
   assert.equal(results.filter((item) => item.status === "rejected").length, 1);
-  assert.match(results.find((item) => item.status === "rejected").reason.message, /already reserved by another action/);
+  assert.match(
+    results.find((item) => item.status === "rejected").reason.message,
+    /already reserved by another action|Creation resource is leased by pid/
+  );
 
   const winner = results.find((item) => item.status === "fulfilled").value;
   const foreignLeaseIdentity = {
@@ -397,6 +400,58 @@ test("creation reservation lease gives one concurrent same-repository attempt th
       requiredEvidence: ["preflight"]
     }, "tree", defaults),
     /refusing cross-host lease reclamation/
+  );
+});
+
+test("linked worktrees share the canonical Git reservation identity", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-linked-worktree-reservation-"));
+  const repositoriesRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-linked-worktree-repositories-"));
+  const repository = path.join(repositoriesRoot, "repository");
+  const linkedWorktree = path.join(repositoriesRoot, "linked-worktree");
+  await mkdir(repository, { recursive: true });
+  await execFileAsync("git", ["init", "-q"], { cwd: repository });
+  await writeFile(path.join(repository, "README.md"), "linked worktree\n");
+  await execFileAsync("git", ["add", "README.md"], { cwd: repository });
+  await execFileAsync("git", ["-c", "user.email=sbw@example.invalid", "-c", "user.name=SBW Test", "commit", "-qm", "baseline"], { cwd: repository });
+  await execFileAsync("git", ["worktree", "add", "-q", "-b", "sbw-linked-worktree", linkedWorktree, "HEAD"], { cwd: repository });
+
+  const prepare = async (cwd) => {
+    const run = await createRun({
+      root,
+      contract: contract({ authority: ["branch.create"] }),
+      requestedMode: "verified",
+      cwd
+    });
+    await addEvidence(root, run.runId, {
+      id: "preflight",
+      kind: "preflight",
+      summary: "Linked worktree reservation preflight",
+      status: "complete",
+      acceptanceIds: [],
+      sourceDigest: "g".repeat(64)
+    });
+    await updateState(root, run.runId, (state) => ({
+      ...state,
+      lastSentinel: { label: "test", digest: "tree" },
+      lastSentinelVerified: true,
+      lastSentinelComplete: true
+    }));
+    return run;
+  };
+  const [mainRun, linkedRun] = await Promise.all([prepare(repository), prepare(linkedWorktree)]);
+  const defaults = await loadDefaults();
+  const results = await Promise.allSettled([mainRun, linkedRun].map((run) => issueActionToken(root, run.runId, {
+    action: "branch.create",
+    provider: "git",
+    resource: "branch:linked-shared",
+    remoteRevision: "abc",
+    requiredEvidence: ["preflight"]
+  }, "tree", defaults)));
+  assert.equal(results.filter((item) => item.status === "fulfilled").length, 1);
+  assert.equal(results.filter((item) => item.status === "rejected").length, 1);
+  assert.match(
+    results.find((item) => item.status === "rejected").reason.message,
+    /already reserved by another action|Creation resource is leased by pid/
   );
 });
 
@@ -561,7 +616,7 @@ test("failed PR creation preserves its reservation until provider absence is pro
     schemaVersion: 1,
     tokenHash,
     status: "spent",
-    outcome: "pending",
+    outcome: "unknown",
     runId: run.runId,
     action: "pr.create",
     provider: "github-cli",
@@ -581,7 +636,7 @@ test("failed PR creation preserves its reservation until provider absence is pro
       permissions: { admin: false, maintain: false, push: true }
     },
     providerExecutable: null,
-    providerInvocation: { dispatchState: "not-sent" },
+    providerInvocation: { dispatchState: "sent-or-indeterminate" },
     creationPrecondition: { action: "pr.create", resource, state: "absent", number: null }
   };
   await writeFile(path.join(runDir, "actions", `${tokenHash}.json`), `${JSON.stringify(action)}\n`);
@@ -1445,11 +1500,47 @@ test("wrapper-backed actions reject direct consume before spending the token", a
     idempotencyKey: "wrapper-idempotency"
   })}\n`);
   await assert.rejects(
-    consumeActionToken(root, run.runId, token, "tree"),
+    consumeActionToken(root, run.runId, token, "tree", { forExecution: true }),
     /Wrapper-backed governed actions must use action execute/
   );
   const state = await inspectRun(root, run.runId);
   assert.equal(state.actions[0].status, "issued");
+});
+
+test("indeterminate wrapper executions cannot be reconciled as terminal failure", async () => {
+  for (const [action, provider] of [["git.push", "git"], ["pr.merge", "github-cli"]]) {
+    const root = await mkdtemp(path.join(os.tmpdir(), "sbw-indeterminate-wrapper-"));
+    await execFileAsync("git", ["init", "-q"], { cwd: root });
+    await writeFile(path.join(root, "README.md"), `${action}\n`);
+    await execFileAsync("git", ["add", "README.md"], { cwd: root });
+    await execFileAsync("git", ["-c", "user.email=sbw@example.invalid", "-c", "user.name=SBW Test", "commit", "-qm", "baseline"], { cwd: root });
+    const run = await createRun({
+      root,
+      contract: contract({ authority: [action] }),
+      requestedMode: "critical",
+      cwd: root
+    });
+    const tokenHash = sha256(`${action}-indeterminate-token`);
+    await writeFile(path.join(root, "runs", run.runId, "actions", `${tokenHash}.json`), `${JSON.stringify({
+      schemaVersion: 1,
+      tokenHash,
+      status: "spent",
+      outcome: "pending",
+      runId: run.runId,
+      action,
+      provider,
+      resource: action === "git.push" ? "remote:origin:refs/heads/feature" : "pull/42",
+      remoteRevision: "abc",
+      attemptId: `${action}-attempt`,
+      idempotencyKey: `${action}-idempotency`,
+      providerInvocation: { dispatchState: "sent-or-indeterminate" }
+    })}\n`);
+    await assert.rejects(
+      reconcileAction(root, run.runId, `${action}-attempt`, "failure"),
+      /Indeterminate wrapper execution cannot be reconciled as failure/
+    );
+    assert.equal((await inspectRun(root, run.runId)).actions[0].outcome, "pending");
+  }
 });
 
 test("auto routing follows risk and explicit modes never downgrade", () => {
@@ -1823,7 +1914,10 @@ test("destructive cleanup actions require an immutable run-owned resource receip
     providerRevision,
     "0".repeat(40)
   ], { cwd: providerRepo });
-  const providerIdentity = (await execFileAsync("git", ["rev-parse", "--show-toplevel"], { cwd: providerRepo })).stdout.trim();
+  const providerCommonDir = (await execFileAsync("git", ["rev-parse", "--git-common-dir"], { cwd: providerRepo })).stdout.trim();
+  const providerIdentity = await realpath(
+    path.isAbsolute(providerCommonDir) ? providerCommonDir : path.resolve(providerRepo, providerCommonDir)
+  );
   const providerReceipt = {
     provider: "git",
     action: "branch.create",

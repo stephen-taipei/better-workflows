@@ -59,6 +59,7 @@ import {
   runCodexCritic,
   runCodexEvaluation,
   verifyTrustedCodexAttestation,
+  verifyTrustedCodexResultReceipt,
   verifyTrustedNativeCriticAttestation
 } from "./lib/providers.mjs";
 import {
@@ -734,24 +735,28 @@ function assertExplicitCodexEvaluationAuthority(options) {
   if (!options["trusted-codex-attestation"]) {
     throw new Error("Codex evaluation requires a host-signed attestation anchored by the host trust root");
   }
+  if (!options["trusted-codex-result-receipt"]) {
+    throw new Error("Codex evaluation requires a host-signed result receipt for every replay");
+  }
 }
 
-async function evaluationReplay({ backend, fixture, role, cases, prompt, options, cwd, attestationPath, execution }) {
+async function evaluationReplay({ backend, fixture, role, cases, prompt, options, cwd, attestationPath, resultReceiptPath, execution }) {
   if (backend === "fixture") {
     const response = fixture?.[role];
     if (!response) throw new Error(`Fixture result file is missing ${role} response`);
     const score = scoreEvaluation({ ...response, results: response.results?.filter((item) => cases.some((entry) => entry.id === item.id)) }, cases);
-    return { score, metadata: { provider: "fixture", trustAttested: false, sandbox: "deterministic-test" } };
+    return { response, score, metadata: { provider: "fixture", trustAttested: false, sandbox: "deterministic-test" } };
   }
   const result = await runCodexEvaluation({
     model: String(options.model),
     prompt,
     timeoutMs: options["timeout-seconds"] === undefined ? undefined : integer(options["timeout-seconds"]) * 1_000,
     attestationPath,
+    resultReceiptPath,
     evaluationRoot: cwd,
     execution
   });
-  return { score: scoreEvaluation(result.response, cases), metadata: result.metadata };
+  return { response: result.response, score: scoreEvaluation(result.response, cases), metadata: result.metadata };
 }
 
 async function addSelfImproveEvidence(root, runId, record) {
@@ -761,10 +766,13 @@ async function addSelfImproveEvidence(root, runId, record) {
 
 function structuredReplay(replay) {
   return { score: redactedScore(replay.score), provider: replay.metadata.provider, trustAttested: replay.metadata.trustAttested === true,
-    attestationDigest: replay.metadata.attestationDigest ?? null, binaryDigest: replay.metadata.binary?.digest ?? null,
+    attestationDigest: replay.metadata.attestationDigest ?? null, binaryPath: replay.metadata.binary?.path ?? null, binaryDigest: replay.metadata.binary?.digest ?? null,
     attestationPath: replay.metadata.attestationPath ?? null, trustRootDigest: replay.metadata.trustRootDigest ?? null,
     issuer: replay.metadata.issuer ?? null, keyId: replay.metadata.keyId ?? null, expiresAt: replay.metadata.expiresAt ?? null,
-    execution: replay.metadata.execution ?? null, model: replay.metadata.requestedModel ?? null, sandbox: replay.metadata.sandbox };
+    execution: replay.metadata.execution ?? null, model: replay.metadata.requestedModel ?? null, sandbox: replay.metadata.sandbox,
+    promptDigest: replay.metadata.promptDigest ?? null, responseDigest: replay.metadata.responseDigest ?? null,
+    resultReceiptDigest: replay.metadata.resultReceiptDigest ?? null, resultReceiptPath: replay.metadata.resultReceiptPath ?? null,
+    startedAt: replay.metadata.startedAt ?? null, finishedAt: replay.metadata.finishedAt ?? null, response: replay.response ?? null };
 }
 
 async function commandSelfImprove(root, subcommand, options, nestedCommand = null) {
@@ -825,7 +833,7 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
   }
   assertKnownOptions(options, [
     "run", "cases", "baseline", "candidate-root", "backend", "split", "result-file", "model", "allow-codex", "sanitized",
-    "timeout-seconds", "trusted-codex-attestation", "purpose", "next-cases"
+    "timeout-seconds", "trusted-codex-attestation", "trusted-codex-result-receipt", "purpose", "next-cases"
   ]);
   if (!options.run || !options.cases || !options.baseline || !options["candidate-root"] || !options.backend || !options.split) {
     throw new Error("self-improve evaluate requires --run, --cases, --baseline, --candidate-root, --backend, and --split");
@@ -885,12 +893,19 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
   const baselinePrompt = buildEvaluationPrompt({ suite: { ...frozen.suite, cases }, candidate: baseline, materials: baselineMaterial });
   const fixture = backend === "fixture" ? JSON.parse(await readFile(path.resolve(cwd, String(options["result-file"])), "utf8")) : null;
   const attestationPaths = values(options["trusted-codex-attestation"]).map(String);
+  const resultReceiptPaths = values(options["trusted-codex-result-receipt"]).map(String);
   const requiredAttestations = backend === "codex" ? (split === "train" ? 1 : 6) : 0;
   if (backend === "codex" && attestationPaths.length !== requiredAttestations) {
     throw new Error(`Codex ${split} evaluation requires exactly ${requiredAttestations} distinct host-signed attestation file(s)`);
   }
   if (backend === "codex" && new Set(attestationPaths).size !== attestationPaths.length) {
     throw new Error("Codex evaluation attestation files must be distinct for every replay");
+  }
+  if (backend === "codex" && resultReceiptPaths.length !== requiredAttestations) {
+    throw new Error(`Codex ${split} evaluation requires exactly ${requiredAttestations} distinct host-signed result receipt file(s)`);
+  }
+  if (backend === "codex" && new Set(resultReceiptPaths).size !== resultReceiptPaths.length) {
+    throw new Error("Codex evaluation result receipt files must be distinct for every replay");
   }
   const dependencyFiles = [...new Set([frozen.relativePath, target?.relativePath, ...candidate.files.map((item) => item.path)].filter(Boolean))].sort();
   const common = {
@@ -916,6 +931,7 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
     suiteDigest,
     baselineRevision: frozen.baselineRevision,
     candidateDigest: candidate.digest,
+    promptDigest: sha256(role === "baseline" ? baselinePrompt : candidatePrompt),
     role,
     attempt
   });
@@ -926,7 +942,7 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
   }
   if (split === "train") {
     const replay = await evaluationReplay({ backend, fixture, role: "candidate", cases, prompt: candidatePrompt, options, cwd,
-      attestationPath: attestationPaths[0], execution: execution("train-candidate", 1) });
+      attestationPath: attestationPaths[0], resultReceiptPath: resultReceiptPaths[0], execution: execution("train-candidate", 1) });
     const suiteEvidence = await addSelfImproveEvidence(root, runId, {
       id: evaluationEvidenceId("suite"), kind: "evaluation-suite", summary: "Frozen sanitized evaluation suite bound to the immutable baseline.", status: "complete",
       acceptanceIds: ["replay-bounded"], ...common
@@ -958,9 +974,9 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
   const candidateReplays = [];
   const baselineReplays = [];
   for (let index = 0; index < 3; index += 1) candidateReplays.push(await evaluationReplay({ backend, fixture, role: "candidate", cases, prompt: candidatePrompt, options, cwd,
-    attestationPath: attestationPaths[index], execution: execution("candidate", index + 1) }));
+    attestationPath: attestationPaths[index], resultReceiptPath: resultReceiptPaths[index], execution: execution("candidate", index + 1) }));
   for (let index = 0; index < 3; index += 1) baselineReplays.push(await evaluationReplay({ backend, fixture, role: "baseline", cases, prompt: baselinePrompt, options, cwd,
-    attestationPath: attestationPaths[index + 3], execution: execution("baseline", index + 1) }));
+    attestationPath: attestationPaths[index + 3], resultReceiptPath: resultReceiptPaths[index + 3], execution: execution("baseline", index + 1) }));
   const comparison = purpose === "evaluator-migration"
     ? compareEvaluatorMigration({ baseline: baselineReplays.map((item) => item.score), candidate: candidateReplays.map((item) => item.score) })
     : compareHoldout({ baseline: baselineReplays.map((item) => item.score), candidate: candidateReplays.map((item) => item.score), suite: frozen.suite });
@@ -1000,8 +1016,8 @@ async function assertAcceptedSelfImproveHoldout(root, runId, action) {
     ...(accepted.evaluation?.candidateReplays ?? []),
     ...(accepted.evaluation?.baselineReplays ?? [])
   ];
-  if (replays.length !== 7 || replays.some((item) => item.provider !== "codex" || item.trustAttested !== true || !item.attestationDigest || !item.attestationPath || !item.binaryDigest || !item.trustRootDigest || !item.model || !item.expiresAt || !item.execution)) {
-    throw new Error("Self-improve delivery requires seven host-attested Codex replays");
+  if (replays.length !== 7 || replays.some((item) => item.provider !== "codex" || item.trustAttested !== true || !item.attestationDigest || !item.attestationPath || !item.binaryPath || !item.binaryDigest || !item.trustRootDigest || !item.model || !item.expiresAt || !item.execution || !item.promptDigest || !item.responseDigest || !item.resultReceiptDigest || !item.resultReceiptPath || !item.startedAt || !item.finishedAt || !item.response)) {
+    throw new Error("Self-improve delivery requires seven host-attested Codex replays and result receipts");
   }
   const bindings = new Set(replays.map((item) => digestObject({
     binaryDigest: item.binaryDigest, trustRootDigest: item.trustRootDigest, issuer: item.issuer, keyId: item.keyId, model: item.model
@@ -1009,8 +1025,9 @@ async function assertAcceptedSelfImproveHoldout(root, runId, action) {
   if (bindings.size !== 1) throw new Error("Self-improve delivery requires one consistent host binary, trust root, issuer, key, and model across every replay");
   const executionIds = new Set(replays.map((item) => item.execution.id));
   const attestationPaths = new Set(replays.map((item) => item.attestationPath));
-  if (executionIds.size !== 7 || attestationPaths.size !== 7) {
-    throw new Error("Self-improve delivery requires seven distinct signed executions and attestation files");
+  const resultReceiptPaths = new Set(replays.map((item) => item.resultReceiptPath));
+  if (executionIds.size !== 7 || attestationPaths.size !== 7 || resultReceiptPaths.size !== 7) {
+    throw new Error("Self-improve delivery requires seven distinct signed executions, attestations, and result receipts");
   }
   const expectedExecutions = new Set([
     "train-candidate:1", "candidate:1", "candidate:2", "candidate:3", "baseline:1", "baseline:2", "baseline:3"
@@ -1050,6 +1067,37 @@ async function assertAcceptedSelfImproveHoldout(root, runId, action) {
   });
   if (currentCandidate.digest !== evaluation.candidate.digest) {
     throw new Error("Self-improve candidate changed after held-out evaluation");
+  }
+  const currentBaseline = await snapshotBaselineForCandidate({ cwd: run.manifest.cwd, snapshot: currentCandidate });
+  const candidateMaterial = await readSanitizedCandidateMaterial({ cwd: run.manifest.cwd, snapshot: currentCandidate });
+  const baselineMaterial = await readSanitizedBaselineMaterial({ cwd: run.manifest.cwd, snapshot: currentBaseline });
+  const replayCases = selectEvaluationCases({ suite: frozen.suite, snapshot: currentCandidate, split: "holdout" });
+  const candidatePrompt = buildEvaluationPrompt({ suite: { ...frozen.suite, cases: replayCases }, candidate: currentCandidate, materials: candidateMaterial });
+  const baselinePrompt = buildEvaluationPrompt({ suite: { ...frozen.suite, cases: replayCases }, candidate: currentBaseline, materials: baselineMaterial });
+  for (const replay of replays) {
+    const prompt = replay.execution.role === "baseline" ? baselinePrompt : replay.execution.role === "candidate" ? candidatePrompt : buildEvaluationPrompt({
+      suite: { ...frozen.suite, cases: selectEvaluationCases({ suite: frozen.suite, snapshot: currentCandidate, split: "train" }) },
+      candidate: currentCandidate,
+      materials: candidateMaterial
+    });
+    const resultReceipt = await verifyTrustedCodexResultReceipt({
+      resultReceiptPath: replay.resultReceiptPath,
+      evaluationRoot: run.manifest.cwd,
+      model: replay.model,
+      execution: replay.execution,
+      prompt,
+      response: replay.response,
+      attestation: { metadata: {
+        attestationDigest: replay.attestationDigest,
+        binary: { path: replay.binaryPath, digest: replay.binaryDigest },
+        trustRootDigest: replay.trustRootDigest
+      } },
+      startedAt: replay.startedAt,
+      finishedAt: replay.finishedAt
+    });
+    if (resultReceipt.resultReceiptDigest !== replay.resultReceiptDigest || resultReceipt.responseDigest !== replay.responseDigest) {
+      throw new Error("Self-improve delivery result receipt binding changed after replay");
+    }
   }
   if (purpose === "evaluator-migration") {
     if (evaluation.comparison?.policy !== "evaluator-migration") {
@@ -1504,7 +1552,7 @@ function help() {
       "sbw source rebind <run-id> --reason <text>",
       "sbw sentinel capture|verify <run-id> --label <label>",
       "sbw evidence add <run-id> --file <json>",
-      "sbw self-improve evaluate --run <run-id> --cases <file> --baseline <git-revision> --candidate-root <path> --backend <codex|fixture> --split <train|holdout> [--purpose ordinary|evaluator-migration] [--next-cases <v2-file>]",
+      "sbw self-improve evaluate --run <run-id> --cases <file> --baseline <git-revision> --candidate-root <path> --backend <codex|fixture> --split <train|holdout> [--trusted-codex-attestation <host-file> --trusted-codex-result-receipt <host-file>] [--purpose ordinary|evaluator-migration] [--next-cases <v2-file>]",
       "sbw self-improve host status",
       "sbw self-improve attestation request --run <run-id> --baseline <sha> --candidate-root <path> --model <model> --output <outside-repo-directory> [--cases <file>] [--purpose ordinary|evaluator-migration] [--next-cases <v2-file>]",
       "sbw finding add|update <run-id> --file <json>",

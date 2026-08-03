@@ -4,7 +4,8 @@ import {
   createPrivateKey,
   createPublicKey,
   generateKeyPairSync,
-  sign
+  sign,
+  verify
 } from "node:crypto";
 import {
   chmod,
@@ -246,6 +247,7 @@ function validateExecution(execution) {
     "baselineRevision",
     "candidateDigest",
     "id",
+    "promptDigest",
     "role",
     "runId",
     "suiteDigest"
@@ -260,6 +262,9 @@ function validateExecution(execution) {
   }
   if (!Number.isInteger(execution.attempt) || execution.attempt < 1 || execution.attempt > 3) {
     throw new Error("execution.attempt must be 1..3");
+  }
+  if (!SHA256.test(execution.promptDigest)) {
+    throw new Error("execution.promptDigest must be a SHA-256 digest");
   }
   return execution;
 }
@@ -325,6 +330,146 @@ async function signRequest(requestPath, confirmedDigest, outputName) {
     `${JSON.stringify({ ...payload, signature }, null, 2)}\n`,
     0o644
   );
+  return target;
+}
+
+function validateResultRequest(request) {
+  if (!request || typeof request !== "object" || Array.isArray(request)) {
+    throw new Error("result request must be an object");
+  }
+  const required = [
+    "attestationDigest",
+    "attestationName",
+    "binary",
+    "execution",
+    "exitCode",
+    "finishedAt",
+    "model",
+    "promptDigest",
+    "responseDigest",
+    "signal",
+    "startedAt",
+    "timedOut",
+    "trustRootDigest"
+  ];
+  if (Object.keys(request).sort().join("\0") !== required.slice().sort().join("\0")) {
+    throw new Error("result request fields do not match the signer contract");
+  }
+  if (!SHA256.test(request.attestationDigest) || !SHA256.test(request.promptDigest) || !SHA256.test(request.responseDigest) || !SHA256.test(request.trustRootDigest)) {
+    throw new Error("result request digests are invalid");
+  }
+  if (!SAFE_OUTPUT.test(request.attestationName)) throw new Error("result request attestation name is unsafe");
+  if (typeof request.model !== "string" || !request.model || request.model.length > 128) {
+    throw new Error("result request model is invalid");
+  }
+  validateExecution(request.execution);
+  if (request.promptDigest !== request.execution.promptDigest) {
+    throw new Error("result request prompt digest does not match execution");
+  }
+  if (
+    !request.binary ||
+    typeof request.binary !== "object" ||
+    Array.isArray(request.binary) ||
+    Object.keys(request.binary).sort().join("\0") !== "digest\0path" ||
+    typeof request.binary.path !== "string" ||
+    !path.isAbsolute(request.binary.path) ||
+    !SHA256.test(request.binary.digest)
+  ) {
+    throw new Error("result request binary identity is invalid");
+  }
+  if (request.exitCode !== 0 || request.signal !== null || request.timedOut !== false) {
+    throw new Error("result request must attest a successful, non-signalled execution");
+  }
+  for (const key of ["startedAt", "finishedAt"]) {
+    const value = Date.parse(request[key]);
+    if (!Number.isFinite(value)) throw new Error(`result request ${key} must be an ISO timestamp`);
+  }
+  if (Date.parse(request.finishedAt) < Date.parse(request.startedAt)) {
+    throw new Error("result request finishedAt must not precede startedAt");
+  }
+  if (Date.parse(request.finishedAt) > Date.now() + 300_000) {
+    throw new Error("result request finishedAt is too far in the future");
+  }
+  return request;
+}
+
+async function readSignedCodexAttestation(name) {
+  const target = path.join(ATTESTATIONS, name);
+  if (path.dirname(target) !== ATTESTATIONS) throw new Error("attestation path escapes its root");
+  await validateRootOwnedFile(target, "Codex attestation", 0o644);
+  const attestation = JSON.parse((await readFile(target)).toString("utf8"));
+  const trust = await validateTrustRoot();
+  if (attestation?.schemaVersion !== 1 || attestation.provider !== "codex" || attestation.issuer !== trust.value.issuer) {
+    throw new Error("result request references an invalid Codex attestation");
+  }
+  const key = trust.value.publicKeys.find((item) => item.keyId === attestation.keyId && item.algorithm === "ed25519");
+  if (!key) throw new Error("result request attestation key is not trusted");
+  const { signature, ...payload } = attestation;
+  const publicKey = createPublicKey({ key: Buffer.from(key.publicKey, "base64"), format: "der", type: "spki" });
+  if (!verify(null, Buffer.from(canonicalJson(payload), "utf8"), publicKey, Buffer.from(signature ?? "", "base64"))) {
+    throw new Error("result request attestation signature is invalid");
+  }
+  return { attestation, digest: await digest(Buffer.from(canonicalJson(payload), "utf8")) };
+}
+
+async function signResultRequest(requestPath, confirmedDigest, outputName) {
+  requireRoot();
+  if (!SHA256.test(confirmedDigest)) throw new Error("confirmed request digest must be SHA-256");
+  if (!SAFE_OUTPUT.test(outputName)) throw new Error("result receipt output name is unsafe");
+  const requestBytes = await readFile(path.resolve(requestPath));
+  if ((await digest(requestBytes)) !== confirmedDigest) {
+    throw new Error("request digest does not match administrator-confirmed digest");
+  }
+  const request = validateResultRequest(JSON.parse(requestBytes.toString("utf8")));
+  const binaryPath = await canonicalBinary(request.binary.path);
+  const binaryDigest = await digest(await readFile(binaryPath));
+  if (binaryPath !== request.binary.path || binaryDigest !== request.binary.digest) {
+    throw new Error("result request binary identity does not match the current host binary");
+  }
+  const signedAttestation = await readSignedCodexAttestation(request.attestationName);
+  const attestation = signedAttestation.attestation;
+  if (
+    signedAttestation.digest !== request.attestationDigest ||
+    attestation.model !== request.model ||
+    canonicalJson(attestation.execution) !== canonicalJson(request.execution) ||
+    canonicalJson(attestation.binary) !== canonicalJson(request.binary)
+  ) {
+    throw new Error("result request does not match its host-signed execution attestation");
+  }
+  const trust = await validateTrustRoot();
+  const trustRootDigest = await digest(Buffer.from(canonicalJson(trust.value), "utf8"));
+  if (request.trustRootDigest !== trustRootDigest) {
+    throw new Error("result request trust-root digest does not match the current host trust root");
+  }
+  await validateRootOwnedFile(PRIVATE_KEY, "Private signing key", 0o600);
+  const key = trust.value.publicKeys[0];
+  const issuedAt = new Date();
+  const payload = {
+    schemaVersion: 1,
+    provider: "codex",
+    kind: "execution-result",
+    model: request.model,
+    issuer: trust.value.issuer,
+    keyId: key.keyId,
+    issuedAt: issuedAt.toISOString(),
+    expiresAt: new Date(issuedAt.getTime() + 24 * 60 * 60 * 1000).toISOString(),
+    attestationDigest: request.attestationDigest,
+    trustRootDigest,
+    execution: request.execution,
+    binary: request.binary,
+    promptDigest: request.promptDigest,
+    responseDigest: request.responseDigest,
+    exitCode: request.exitCode,
+    signal: request.signal,
+    timedOut: request.timedOut,
+    startedAt: request.startedAt,
+    finishedAt: request.finishedAt
+  };
+  const privateKey = privateKeyFromRaw(await readFile(PRIVATE_KEY));
+  const signature = sign(null, Buffer.from(canonicalJson(payload), "utf8"), privateKey).toString("base64");
+  const target = path.join(ATTESTATIONS, outputName);
+  if (path.dirname(target) !== ATTESTATIONS) throw new Error("result receipt path escapes its root");
+  await exclusiveWrite(target, `${JSON.stringify({ ...payload, signature }, null, 2)}\n`, 0o644);
   return target;
 }
 
@@ -451,7 +596,16 @@ async function main() {
       output: await signNativeRequest(options.request, options["confirm-digest"], options.output)
     };
   }
-  throw new Error("usage: host-trust.mjs status|provision|sign|sign-batch|sign-native");
+  if (command === "sign-result") {
+    if (!options.request || !options["confirm-digest"] || !options.output) {
+      throw new Error("sign-result requires --request, --confirm-digest, and --output");
+    }
+    return {
+      ok: true,
+      output: await signResultRequest(options.request, options["confirm-digest"], options.output)
+    };
+  }
+  throw new Error("usage: host-trust.mjs status|provision|sign|sign-batch|sign-native|sign-result");
 }
 
 if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) {

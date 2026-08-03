@@ -264,6 +264,7 @@ test("ordinary evaluator resume pins legacy runs while new runs require the new 
     "--allow-codex",
     "--sanitized",
     "--trusted-codex-attestation", "/nonexistent",
+    "--trusted-codex-result-receipt", "/nonexistent-result",
     "--split", "train"
   ], { allowFailure: true });
   assert.match(legacyAdmission.stderr, /ENOENT.*nonexistent/);
@@ -286,6 +287,7 @@ test("ordinary evaluator resume pins legacy runs while new runs require the new 
     "--allow-codex",
     "--sanitized",
     "--trusted-codex-attestation", "/nonexistent",
+    "--trusted-codex-result-receipt", "/nonexistent-result",
     "--split", "train"
   ], { allowFailure: true });
   assert.match(rejected.stderr, /self-improve-ops-evals-v2\.2\.json/);
@@ -333,6 +335,7 @@ test("self-improve attestation request freezes seven distinct requests outside t
     "--scope",
     "."
   ]);
+  await writeFile(path.join(cwd, "plugins", "better-workflows", "scripts", "sbw.mjs"), "export const candidate = true;\n");
   const parent = await mkdtemp(path.join(os.tmpdir(), "sbw-attestation-output-"));
   const output = path.join(parent, "requests");
   const requested = await cli(cwd, stateRoot, [
@@ -362,6 +365,7 @@ test("self-improve attestation request freezes seven distinct requests outside t
   assert.equal(requested.json.signCommand.at(-1), requested.json.manifestDigest);
   for (const item of requested.json.requests) {
     assert.equal(path.dirname(item.request), output);
+    assert.match(item.promptDigest, /^[a-f0-9]{64}$/);
     assert.match(item.requestDigest, /^[a-f0-9]{64}$/);
   }
 

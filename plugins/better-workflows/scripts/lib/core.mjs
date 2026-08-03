@@ -1497,8 +1497,13 @@ export async function rebindSourceBinding(root, runId, reason) {
       throw new Error("Source binding rebind is only allowed before side effects are issued");
     }
     const packageEntries = await readdir(safeJoin(runDir, "review-packages"), { withFileTypes: true }).catch(() => []);
-    const findingEntries = await readdir(safeJoin(runDir, "review-findings"), { withFileTypes: true }).catch(() => []);
-    if (packageEntries.some((entry) => entry.isFile()) || findingEntries.some((entry) => entry.isFile())) {
+    const reviewFindingEntries = await readdir(safeJoin(runDir, "review-findings"), { withFileTypes: true }).catch(() => []);
+    const findingEntries = await readdir(safeJoin(runDir, "findings"), { withFileTypes: true }).catch(() => []);
+    if (
+      packageEntries.some((entry) => entry.isFile()) ||
+      reviewFindingEntries.some((entry) => entry.isFile()) ||
+      findingEntries.some((entry) => entry.isFile())
+    ) {
       throw new Error("Source binding rebind is only allowed before independent review begins");
     }
     const { captureSourceBinding } = await import("./git.mjs");
@@ -2109,10 +2114,12 @@ async function currentRepositoryIdentity(cwd) {
 }
 
 async function currentGitProviderIdentity(cwd) {
-  return (await execFileAsync("git", ["rev-parse", "--show-toplevel"], {
+  const commonDirectory = (await execFileAsync("git", ["rev-parse", "--git-common-dir"], {
     cwd,
     encoding: "utf8"
   })).stdout.trim();
+  if (!commonDirectory) throw new Error("Git provider identity requires a common repository directory");
+  return realpath(path.isAbsolute(commonDirectory) ? commonDirectory : path.resolve(cwd, commonDirectory));
 }
 
 async function currentProviderExecutableIdentity(command) {
@@ -3952,7 +3959,7 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
   });
 }
 
-export async function consumeActionToken(root, runId, token, currentTreeDigest, options = {}) {
+async function consumeActionTokenInternal(root, runId, token, currentTreeDigest, allowWrapperExecution = false) {
   const tokenHash = sha256(token);
   return withRunLock(root, runId, async ({ runDir }) => {
     const state = await readJson(root, safeJoin(runDir, "state.json"));
@@ -3962,7 +3969,7 @@ export async function consumeActionToken(root, runId, token, currentTreeDigest, 
     assertSupportedGovernedAction(record.action);
     const contract = await readJson(root, safeJoin(runDir, "contract.json"));
     assertActionIsNotDeferred(contract, record.action);
-    if (!options.forExecution && EXECUTABLE_ACTION_PROVIDERS.has(`${record.action}:${record.provider}`)) {
+    if (!allowWrapperExecution && EXECUTABLE_ACTION_PROVIDERS.has(`${record.action}:${record.provider}`)) {
       throw new Error("Wrapper-backed governed actions must use action execute; direct consume is not allowed");
     }
     if (record.status !== "issued") throw new Error("Action token was already consumed");
@@ -4064,6 +4071,10 @@ export async function consumeActionToken(root, runId, token, currentTreeDigest, 
   });
 }
 
+export async function consumeActionToken(root, runId, token, currentTreeDigest) {
+  return consumeActionTokenInternal(root, runId, token, currentTreeDigest, false);
+}
+
 async function persistPreflightProviderInvocation(root, runId, action, error) {
   return withRunLock(root, runId, async ({ runDir }) => {
     const target = safeJoin(runDir, "actions", `${action.tokenHash}.json`);
@@ -4107,7 +4118,7 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
   if (!EXECUTABLE_ACTION_PROVIDERS.has(`${actionRecord.action}:${actionRecord.provider}`)) {
     throw new Error("The governed provider execution path only supports github-cli pr.merge and git.push");
   }
-  const consumed = await consumeActionToken(root, runId, token, currentTreeDigest, { forExecution: true });
+  const consumed = await consumeActionTokenInternal(root, runId, token, currentTreeDigest, true);
   if (consumed.action === "git.push" && consumed.provider === "git") {
     const expectedCommand = consumed.pushCommand;
     if (!Array.isArray(expectedCommand) || expectedCommand.length !== 5 || expectedCommand[0] !== "git") {
@@ -4389,16 +4400,32 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
       outcome === "success" &&
       OWNED_RESOURCE_CREATION_ACTIONS.has(record.action)
     );
-    const recoveringUnknown = recoveringUnknownSuccess;
+    const recoveringUnknownFailure = (
+      record.status === "spent" &&
+      record.outcome === "unknown" &&
+      outcome === "failure" &&
+      record.action === "pr.create" &&
+      record.provider === "github-cli"
+    );
+    const recoveringUnknown = recoveringUnknownSuccess || recoveringUnknownFailure;
     if (record.status !== "spent" || (record.outcome !== "pending" && !recoveringUnknown)) {
       throw new Error("Action attempt was already reconciled");
     }
     if (
       record.action === "pr.create" &&
       outcome === "failure" &&
-      record.providerInvocation?.dispatchState !== "not-sent"
+      record.providerInvocation?.dispatchState !== "not-sent" &&
+      !recoveringUnknownFailure
     ) {
-      throw new Error("PR creation failure is not authoritative; preserve the reservation and reconcile as unknown");
+      throw new Error("PR creation failure is not authoritative; preserve the reservation and reconcile as unknown or prove provider absence");
+    }
+    if (
+      outcome === "failure" &&
+      EXECUTABLE_ACTION_PROVIDERS.has(`${record.action}:${record.provider}`) &&
+      record.providerInvocation?.dispatchState === "sent-or-indeterminate" &&
+      !recoveringUnknownFailure
+    ) {
+      throw new Error("Indeterminate wrapper execution cannot be reconciled as failure; preserve the attempt and reconcile as unknown");
     }
     validateActionReceipt(record, outcome, receipt);
     if (outcome === "failure" && OWNED_RESOURCE_CREATION_ACTIONS.has(record.action)) {
@@ -4507,7 +4534,8 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
       attemptId,
       outcome,
       recoveredUnknown: recoveringUnknown,
-      recoveredUnknownSuccess: recoveringUnknownSuccess
+      recoveredUnknownSuccess: recoveringUnknownSuccess,
+      recoveredUnknownFailure: recoveringUnknownFailure
     });
     if (record.action === "pr.create" && outcome === "success") {
       const ownedResource = `pull/${receipt.providerReceipt.number}`;
