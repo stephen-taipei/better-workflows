@@ -1768,7 +1768,7 @@ async function main() {
       };
       return {
         ok: true,
-        evidence: await addEvidence(root, runId, record)
+        evidence: await addEvidence(root, runId, await enrichEvidence(root, runId, record))
       };
     }
     if (!["codex", "agy"].includes(subcommand) || !runId || !options["prompt-file"]) {
