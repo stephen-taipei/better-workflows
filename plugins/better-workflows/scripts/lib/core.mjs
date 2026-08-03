@@ -935,11 +935,20 @@ async function reserveProviderExecution(root, record, executionId) {
   const target = safeJoin(directory, `${sha256(executionId)}.json`);
   try {
     const handle = await open(target, "wx", 0o600);
-    await handle.writeFile(`${JSON.stringify({ executionId, runId: record.runId, attemptId: record.attemptId, recordedAt: nowIso() })}\n`);
+    await handle.writeFile(`${JSON.stringify({ executionId, runId: record.runId, attemptId: record.attemptId, tokenHash: record.tokenHash, recordedAt: nowIso() })}\n`);
     await handle.sync();
     await handle.close();
   } catch (error) {
-    if (error.code === "EEXIST") throw new Error("Provider execution identity is already reserved globally");
+    if (error.code === "EEXIST") {
+      const existing = await readJson(root, target).catch(() => null);
+      if (
+        existing?.executionId === executionId &&
+        existing?.runId === record.runId &&
+        existing?.attemptId === record.attemptId &&
+        existing?.tokenHash === record.tokenHash
+      ) return;
+      throw new Error("Provider execution identity is already reserved globally");
+    }
     throw error;
   }
 }
@@ -3944,12 +3953,19 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
     const records = await listJsonRecords(root, safeJoin(runDir, "actions"));
     const record = records.find((item) => item.attemptId === attemptId);
     if (!record) throw new Error(`Unknown action attempt: ${attemptId}`);
-    const recoveringUnknown = (
+    const recoveringUnknownFailure = (
       record.status === "spent" &&
       record.outcome === "unknown" &&
       outcome === "failure" &&
       OWNED_RESOURCE_CREATION_ACTIONS.has(record.action)
     );
+    const recoveringUnknownSuccess = (
+      record.status === "spent" &&
+      record.outcome === "unknown" &&
+      outcome === "success" &&
+      OWNED_RESOURCE_CREATION_ACTIONS.has(record.action)
+    );
+    const recoveringUnknown = recoveringUnknownFailure || recoveringUnknownSuccess;
     if (record.status !== "spent" || (record.outcome !== "pending" && !recoveringUnknown)) {
       throw new Error("Action attempt was already reconciled");
     }
@@ -3982,7 +3998,7 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
       outcome === "success" &&
       (!record.providerInvocation ||
         record.providerInvocation.provider !== "github-cli" ||
-        record.providerInvocation.exitCode !== 0 ||
+        (record.outcome !== "unknown" && record.providerInvocation.exitCode !== 0) ||
         digestObject(record.providerInvocation.providerExecutable) !== digestObject(record.providerExecutable) ||
         digestObject(record.providerInvocation.providerAuthorization) !== digestObject(record.providerAuthorization) ||
         JSON.stringify(record.providerInvocation.command) !== JSON.stringify(buildPrCreateCommand(record)))
@@ -4051,7 +4067,12 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
         : {})
     };
     await atomicWriteJson(root, target, next);
-    await appendJournal(root, runDir, "action.reconciled", { attemptId, outcome, recoveredUnknown: recoveringUnknown });
+    await appendJournal(root, runDir, "action.reconciled", {
+      attemptId,
+      outcome,
+      recoveredUnknown: recoveringUnknown,
+      recoveredUnknownSuccess: recoveringUnknownSuccess
+    });
     if (record.action === "pr.create" && outcome === "success") {
       const ownedResource = `pull/${receipt.providerReceipt.number}`;
       await registerOwnedResourceLocked(root, runId, run, runDir, {

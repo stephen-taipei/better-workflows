@@ -340,6 +340,228 @@ test("failed PR creation preserves its reservation until provider absence is pro
   }
 });
 
+test("unknown PR creation can recover the same attempt into canonical ownership after provider proof", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-pr-unknown-success-"));
+  const repository = path.join(root, "repository");
+  const bin = path.join(root, "bin");
+  await mkdir(repository, { recursive: true });
+  await mkdir(bin, { recursive: true });
+  await execFileAsync("git", ["init", "-q"], { cwd: repository });
+  await execFileAsync("git", ["config", "user.email", "sbw@example.invalid"], { cwd: repository });
+  await execFileAsync("git", ["config", "user.name", "SBW Test"], { cwd: repository });
+  await execFileAsync("git", ["remote", "add", "origin", "https://github.com/example/repo.git"], { cwd: repository });
+  await writeFile(path.join(repository, "README.md"), "recover PR\n");
+  await execFileAsync("git", ["add", "README.md"], { cwd: repository });
+  await execFileAsync("git", ["commit", "-qm", "baseline"], { cwd: repository });
+  const run = await createRun({
+    root,
+    contract: contract({ authority: ["pr.create"] }),
+    requestedMode: "verified",
+    cwd: repository
+  });
+  const head = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repository })).stdout.trim();
+  const attemptId = "pr-recover-attempt";
+  const idempotencyKey = "pr-recover-idempotency";
+  const tokenHash = sha256("pr-recover-token");
+  const remoteRevision = "c".repeat(40);
+  const resource = "pull/new";
+  const targetRef = "dev";
+  const number = 17;
+  const url = `https://github.com/example/repo/pull/${number}`;
+  const spentAt = new Date(Date.now() - 1000).toISOString();
+  const createdAt = new Date().toISOString();
+  const creationPrecondition = { action: "pr.create", resource, state: "absent", number: null };
+  const marker = `sbw:${attemptId}:${idempotencyKey}`;
+  const actionBase = {
+    schemaVersion: 1,
+    tokenHash,
+    status: "spent",
+    outcome: "pending",
+    runId: run.runId,
+    action: "pr.create",
+    provider: "github-cli",
+    resource,
+    remoteRevision,
+    attemptId,
+    idempotencyKey,
+    expectedHead: head,
+    targetRef,
+    headBranch: "codex/feature",
+    createRepository: "github.com/example/repo",
+    prTitle: "Better Workflows: recovery",
+    prBodyPrefix: "Automated delivery.",
+    creationPrecondition,
+    providerAuthorization: {
+      provider: "github-cli",
+      repository: "github.com/example/repo",
+      actor: "alice"
+    },
+    providerExecutable: { path: "/fake/gh", digest: sha256("fake-gh") },
+    spentAt
+  };
+  const providerInvocation = {
+    id: `github-pr-create-wrapper:${run.runId}:${attemptId}`,
+    provider: "github-cli",
+    command: buildPrCreateCommand(actionBase),
+    providerExecutable: actionBase.providerExecutable,
+    providerAuthorization: actionBase.providerAuthorization,
+    exitCode: 1
+  };
+  const action = { ...actionBase, providerInvocation };
+  const providerReceipt = {
+    action: "pr.create",
+    provider: "github-cli",
+    resource,
+    outcome: "success",
+    runId: run.runId,
+    attemptId,
+    idempotencyKey,
+    remoteRevision,
+    executionId: `github:github.com/example/repo:pr.create:${number}:${head}`,
+    proofKind: "github-pr-create",
+    requestDigest: digestObject({
+      action: "pr.create",
+      provider: "github-cli",
+      resource,
+      remoteRevision,
+      repository: "github.com/example/repo",
+      targetRef,
+      expectedHead: head
+    }),
+    responseDigest: digestObject({ number, head, base: targetRef, url }),
+    verifiedAt: createdAt,
+    terminalState: "success",
+    created: true,
+    creationProof: {
+      attemptId,
+      idempotencyKey,
+      marker,
+      providerObjectId: "node-17",
+      observedAt: createdAt
+    },
+    creationPreconditionDigest: digestObject(creationPrecondition),
+    number,
+    head,
+    base: targetRef,
+    url
+  };
+  const actionEvidence = {
+    id: "pr-recovery-proof",
+    kind: "preflight",
+    summary: "Provider proof for recovered PR creation",
+    status: "complete",
+    acceptanceIds: [],
+    sourceDigest: "d".repeat(64),
+    receipt: {
+      payload: {
+        actionProof: {
+          schemaVersion: 1,
+          runId: run.runId,
+          actionAttemptId: attemptId,
+          action: "pr.create",
+          provider: "github-cli",
+          resource,
+          outcome: "success",
+          idempotencyKey,
+          remoteRevision,
+          providerExecutionId: providerReceipt.executionId,
+          providerReceiptDigest: digestObject(providerReceipt)
+        },
+        receipt: providerReceipt
+      }
+    }
+  };
+  const runDir = path.join(root, "runs", run.runId);
+  await writeFile(path.join(runDir, "actions", `${tokenHash}.json`), `${JSON.stringify(action)}\n`);
+  await mkdir(path.join(root, "creation-reservations"), { recursive: true });
+  await writeFile(
+    path.join(root, "creation-reservations", `${sha256(resource)}.json`),
+    `${JSON.stringify({ runId: run.runId, resource, tokenHash, reservedAt: spentAt, expiresAt: new Date(Date.now() + 60_000).toISOString() })}\n`
+  );
+  const apiResponse = JSON.stringify({
+    node_id: "node-17",
+    created_at: createdAt,
+    user: { login: "alice" },
+    head: { sha: head },
+    body: `<!-- ${marker} -->`,
+    html_url: url
+  });
+  const prViewResponse = JSON.stringify({ number, headRefOid: head, baseRefName: targetRef, url });
+  const fakeGh = path.join(bin, "gh");
+  await writeFile(fakeGh, `#!/bin/sh
+if [ "$1" = "api" ]; then
+  printf '%s\\n' '${apiResponse}'
+else
+  printf '%s\\n' '${prViewResponse}'
+fi
+`);
+  await chmod(fakeGh, 0o755);
+  const priorPath = process.env.PATH;
+  process.env.PATH = `${bin}:${priorPath}`;
+  try {
+    await addEvidence(root, run.runId, actionEvidence);
+    await reconcileAction(root, run.runId, attemptId, "unknown", {
+      action: "pr.create",
+      provider: "github-cli",
+      resource,
+      outcome: "unknown",
+      runId: run.runId,
+      attemptId,
+      idempotencyKey,
+      remoteRevision,
+      providerReceipt: {
+        action: "pr.create",
+        provider: "github-cli",
+        resource,
+        outcome: "unknown",
+        runId: run.runId,
+        attemptId,
+        idempotencyKey,
+        remoteRevision,
+        executionId: "github:github.com/example/repo:pr.create:unknown",
+        proofKind: "github-pr-create",
+        requestDigest: "0".repeat(64),
+        responseDigest: "1".repeat(64),
+        verifiedAt: createdAt,
+        terminalState: "unknown",
+        reason: "provider-timeout"
+      }
+    });
+    const providerExecutionPath = path.join(
+      root,
+      "provider-executions",
+      `${sha256(providerReceipt.executionId)}.json`
+    );
+    await mkdir(path.dirname(providerExecutionPath), { recursive: true });
+    await writeFile(providerExecutionPath, `${JSON.stringify({
+      executionId: providerReceipt.executionId,
+      runId: run.runId,
+      attemptId,
+      tokenHash,
+      recordedAt: new Date().toISOString()
+    })}\n`);
+    const recovered = await reconcileAction(root, run.runId, attemptId, "success", {
+      action: "pr.create",
+      provider: "github-cli",
+      resource,
+      outcome: "success",
+      runId: run.runId,
+      attemptId,
+      idempotencyKey,
+      remoteRevision,
+      providerReceipt,
+      evidenceIds: [actionEvidence.id]
+    });
+    assert.equal(recovered.outcome, "success");
+    assert.equal(recovered.ownedResource, `pull/${number}`);
+    const manifest = JSON.parse(await readFile(path.join(runDir, "manifest.json"), "utf8"));
+    assert.equal(manifest.ownedResources[0].resource, `pull/${number}`);
+    await assert.rejects(stat(path.join(root, "creation-reservations", `${sha256(resource)}.json`)));
+  } finally {
+    process.env.PATH = priorPath;
+  }
+});
+
 test("successful PR creation canonicalizes ownership and prevents a retry", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "sbw-pr-owned-canonicalization-"));
   const repository = path.join(root, "repository");

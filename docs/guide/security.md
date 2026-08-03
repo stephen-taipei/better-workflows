@@ -35,8 +35,14 @@ rationale.
   exists; malformed or non-empty provider results remain fail-closed.
 - A consumed owned-resource creation with outcome `unknown` keeps its
   reservation and cannot be retried blindly. An operator may reconcile that
-  same attempt as `failure` only after the same provider-side absence proof
-  succeeds; expiry reaping never releases an unknown reservation automatically.
+  same attempt as `success` only after a fresh provider-side proof is bound to
+  the consumed action's native marker, actor, source, and provider object, or
+  as `failure` only after the same provider-side absence proof succeeds;
+  expiry reaping never releases an unknown reservation automatically.
+- Provider-execution reservations are idempotent only for the same run,
+  action attempt, token, and execution identity. This lets a verified receipt
+  resume after a crash between reservation and action-record persistence while
+  still rejecting reuse by another action attempt.
 - Governed `pr.create` actions bind the provider receipt to the exact candidate
   source commit observed when the action token is issued; a PR from another
   source head cannot be reconciled or registered as run-owned.
