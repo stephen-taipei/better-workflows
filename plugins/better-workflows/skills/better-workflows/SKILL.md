@@ -268,7 +268,7 @@ Only the root may request an action token, and only for authority already grante
 ~~~bash
 sbw action issue <run-id> --action <kind> --provider <provider> --resource <exact-id> --remote-revision <revision>
 sbw action consume <run-id> --token <token>
-# For GitHub PR merges, use the governed fixed-argv provider wrapper instead.
+# For GitHub PR creation and merges, use the governed fixed-argv provider wrapper.
 sbw action execute <run-id> --token <token>
 # Perform any other authorized side effect, then reconcile it.
 sbw action reconcile <run-id> --attempt <attempt-id> --outcome <success|failure|unknown> --receipt <provider-receipt>

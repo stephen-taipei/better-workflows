@@ -18,6 +18,7 @@ import { promisify } from "node:util";
 import {
   addEvidence,
   assertProviderReceiptShape,
+  buildPrCreateCommand,
   buildContract,
   consumeActionToken,
   completeRun,
@@ -107,6 +108,36 @@ test("PR creation receipts bind to the exact candidate source head", () => {
   assert.doesNotThrow(() => assertProviderReceiptShape(record, { ...receipt, head: expectedHead }));
 });
 
+test("PR creation command binds the target, head, and provider-native marker", () => {
+  const command = buildPrCreateCommand({
+    action: "pr.create",
+    provider: "github-cli",
+    resource: "pull/new",
+    createRepository: "github.com/example/repo",
+    targetRef: "dev",
+    headBranch: "codex/feature",
+    prTitle: "Better Workflows: delivery",
+    prBodyPrefix: "Automated delivery.",
+    attemptId: "attempt-1",
+    idempotencyKey: "idempotency-1"
+  });
+  assert.deepEqual(command, [
+    "gh",
+    "pr",
+    "create",
+    "--repo",
+    "example/repo",
+    "--base",
+    "dev",
+    "--head",
+    "codex/feature",
+    "--title",
+    "Better Workflows: delivery",
+    "--body",
+    "Automated delivery.\n\n<!-- sbw:attempt-1:idempotency-1 -->"
+  ]);
+});
+
 test("scope rejects Git pathspec magic", () => {
   assert.throws(
     () => contract({ scope: [":(exclude)plugins/better-workflows/scripts/lib/core.mjs"] }),
@@ -114,7 +145,7 @@ test("scope rejects Git pathspec magic", () => {
   );
 });
 
-test("pr.create cannot issue an unexecutable governed token", async () => {
+test("pr.create requires a verified current-tree sentinel before issuing a token", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "sbw-pr-create-guard-"));
   const started = await createRun({
     root,
@@ -130,7 +161,7 @@ test("pr.create cannot issue an unexecutable governed token", async () => {
       remoteRevision: "abc",
       requiredEvidence: ["base-revision"]
     }, "tree", { actionToken: { ttlSeconds: 60 } }),
-    /Governed pr\.create is unavailable/
+    /verified current-tree sentinel/
   );
 });
 

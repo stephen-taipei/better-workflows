@@ -118,7 +118,11 @@ const OWNED_RESOURCE_CREATION_SCHEMAS = {
 const OWNED_RESOURCE = /^[^\0\r\n]{1,512}$/;
 const SHA256_DIGEST = /^[a-f0-9]{64}$/;
 const GIT_PUSH_RESOURCE = /^remote:([A-Za-z0-9._-]+):(refs\/heads\/[A-Za-z0-9._/-]+)$/;
-const EXECUTABLE_ACTION_PROVIDERS = new Set(["git.push:git", "pr.merge:github-cli"]);
+const EXECUTABLE_ACTION_PROVIDERS = new Set([
+  "git.push:git",
+  "pr.create:github-cli",
+  "pr.merge:github-cli"
+]);
 
 const ACTION_PROVIDER_RECEIPT_SCHEMAS = {
   "branch.create:git": { proofKind: "git-branch-create" },
@@ -1681,6 +1685,40 @@ async function currentProviderExecutableIdentity(command) {
   return { path: target, digest: sha256(await readFile(target)) };
 }
 
+export function buildPrCreateCommand(record) {
+  if (
+    !record ||
+    record.action !== "pr.create" ||
+    record.provider !== "github-cli" ||
+    record.resource !== "pull/new" ||
+    typeof record.createRepository !== "string" || !record.createRepository.startsWith("github.com/") ||
+    typeof record.targetRef !== "string" || !record.targetRef ||
+    typeof record.headBranch !== "string" || !record.headBranch ||
+    typeof record.prTitle !== "string" || !record.prTitle ||
+    typeof record.prBodyPrefix !== "string" || !record.prBodyPrefix ||
+    typeof record.attemptId !== "string" || !record.attemptId ||
+    typeof record.idempotencyKey !== "string" || !record.idempotencyKey
+  ) {
+    throw new Error("PR creation command binding is incomplete");
+  }
+  const marker = `sbw:${record.attemptId}:${record.idempotencyKey}`;
+  return [
+    "gh",
+    "pr",
+    "create",
+    "--repo",
+    record.createRepository.slice("github.com/".length),
+    "--base",
+    record.targetRef,
+    "--head",
+    record.headBranch,
+    "--title",
+    record.prTitle,
+    "--body",
+    `${record.prBodyPrefix}\n\n<!-- ${marker} -->`
+  ];
+}
+
 function readGitCredential(cwd, input) {
   return new Promise((resolve, reject) => {
     const child = spawn("git", ["credential", "fill"], {
@@ -1944,6 +1982,45 @@ async function verifyMergeProviderAtInvocation(root, runId, record, manifest) {
     requireReconciled: true
   });
   await verifyRequiredChecksProvider(manifest.cwd, requiredChecks.receipt.payload);
+  return authorization;
+}
+
+async function verifyCreateProviderAtInvocation(record, manifest) {
+  const repository = await currentRepositoryIdentity(manifest.cwd);
+  if (repository !== record.createRepository) {
+    throw new Error("PR creation provider repository changed before invocation");
+  }
+  const authorization = await verifyGitHubProviderAuthorization(manifest.cwd, repository);
+  if (digestObject(authorization) !== digestObject(record.providerAuthorization)) {
+    throw new Error("PR creation provider actor or permission changed before invocation");
+  }
+  const currentHead = (await execFileAsync("git", ["rev-parse", "--verify", "HEAD^{commit}"], {
+    cwd: manifest.cwd,
+    encoding: "utf8"
+  })).stdout.trim();
+  const currentBranch = (await execFileAsync("git", ["branch", "--show-current"], {
+    cwd: manifest.cwd,
+    encoding: "utf8"
+  })).stdout.trim();
+  if (currentHead !== record.expectedHead || currentBranch !== record.headBranch) {
+    throw new Error("PR creation candidate changed before invocation");
+  }
+  const branchRef = `refs/heads/${record.headBranch}`;
+  const remoteHead = (await execFileAsync("git", ["ls-remote", "origin", branchRef], {
+    cwd: manifest.cwd,
+    encoding: "utf8"
+  })).stdout.trim().split(/\s+/)[0] ?? "";
+  if (remoteHead !== record.expectedHead) {
+    throw new Error("PR creation requires the pushed candidate branch to match the reviewed head");
+  }
+  const targetRef = `refs/heads/${record.targetRef}`;
+  const remoteBase = (await execFileAsync("git", ["ls-remote", "origin", targetRef], {
+    cwd: manifest.cwd,
+    encoding: "utf8"
+  })).stdout.trim().split(/\s+/)[0] ?? "";
+  if (record.remoteRevision && remoteBase !== record.remoteRevision) {
+    throw new Error("PR creation target branch changed before invocation");
+  }
   return authorization;
 }
 
@@ -2855,9 +2932,6 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
   for (const field of ["action", "provider", "resource", "remoteRevision"]) {
     if (typeof request[field] !== "string" || !request[field]) throw new Error(`Action ${field} is required`);
   }
-  if (request.action === "pr.create") {
-    throw new Error("Governed pr.create is unavailable until its provider wrapper is implemented");
-  }
   return withRunLock(root, runId, async ({ runDir }) => {
     const contract = await readJson(root, safeJoin(runDir, "contract.json"));
     const manifest = await readJson(root, safeJoin(runDir, "manifest.json"));
@@ -2990,15 +3064,41 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
       }
     }
     if (request.action === "pr.create") {
+      if (request.resource !== "pull/new") {
+        throw new Error("Governed PR creation requires the pull/new resource");
+      }
       const expectedHead = (await execFileAsync("git", ["rev-parse", "--verify", "HEAD^{commit}"], {
         cwd: manifest.cwd,
         encoding: "utf8"
       })).stdout.trim();
       if (!SHA.test(expectedHead)) throw new Error("PR creation requires an exact candidate source head");
+      const targetRef = contract.template === "pr-to-dev" ? "dev" : String(request.scope ?? "");
+      if (!/^[A-Za-z0-9._/-]+$/.test(targetRef)) {
+        throw new Error("PR creation requires an exact target branch via --scope");
+      }
+      const headBranch = (await execFileAsync("git", ["branch", "--show-current"], {
+        cwd: manifest.cwd,
+        encoding: "utf8"
+      })).stdout.trim();
+      if (!/^[A-Za-z0-9._/-]+$/.test(headBranch) || headBranch === targetRef) {
+        throw new Error("PR creation requires a distinct current candidate branch");
+      }
+      const goal = String(manifest.goal ?? "Better Workflows delivery").replace(/\s+/g, " ").trim();
+      const prTitle = `Better Workflows: ${goal || "delivery"}`.slice(0, 240);
+      const prBodyPrefix = [
+        "Automated Better Workflows delivery.",
+        "",
+        `Goal: ${goal || "Better Workflows delivery"}`
+      ].join("\n");
       actionBinding = {
         ...actionBinding,
         expectedHead,
-        ...(contract.template === "pr-to-dev" ? { targetRef: "dev" } : {})
+        targetRef,
+        headBranch,
+        createRepository: repository,
+        prTitle,
+        prBodyPrefix,
+        providerExecutable: await currentProviderExecutableIdentity("gh")
       };
     }
     if (request.action === "pr.merge") {
@@ -3248,8 +3348,8 @@ export async function consumeActionToken(root, runId, token, currentTreeDigest) 
         throw new Error("Action consumption denied because the controlled Git credential check changed");
       }
     }
-    if (record.action === "pr.merge" || record.action === "git.push") {
-      const executable = await currentProviderExecutableIdentity(record.action === "pr.merge" ? "gh" : "git");
+    if (record.action === "pr.create" || record.action === "pr.merge" || record.action === "git.push") {
+      const executable = await currentProviderExecutableIdentity(record.action === "git.push" ? "git" : "gh");
       if (digestObject(executable) !== digestObject(record.providerExecutable)) {
         throw new Error("Action consumption denied because the governed provider executable changed");
       }
@@ -3378,8 +3478,56 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
       return next;
     }, { ttlMs: 300_000 });
   }
+  if (consumed.action === "pr.create" && consumed.provider === "github-cli") {
+    const manifest = await readJson(root, safeJoin(runDirectory(root, runId), "manifest.json"));
+    const executable = await currentProviderExecutableIdentity("gh");
+    if (digestObject(executable) !== digestObject(consumed.providerExecutable)) {
+      throw new Error("PR creation execution denied because the governed provider executable changed");
+    }
+    const providerAuthorization = await verifyCreateProviderAtInvocation(consumed, manifest);
+    const expectedCommand = buildPrCreateCommand(consumed);
+    return withRunLock(root, runId, async ({ runDir }) => {
+      const run = await loadRun(root, runId);
+      assertMutableRun(run, "Action provider execution");
+      const target = safeJoin(runDir, "actions", `${consumed.tokenHash}.json`);
+      const current = await readJson(root, target);
+      if (current.status !== "spent" || current.attemptId !== consumed.attemptId) {
+        throw new Error("PR creation provider invocation is not bound to the consumed action attempt");
+      }
+      const startedAt = nowIso();
+      let exitCode = 0;
+      try {
+        await execFileAsync(executable.path, expectedCommand.slice(1), {
+          cwd: run.manifest.cwd,
+          encoding: "utf8"
+        });
+      } catch (error) {
+        exitCode = Number.isInteger(error?.code) ? error.code : 1;
+      }
+      const invocation = {
+        schemaVersion: 1,
+        id: `github-pr-create-wrapper:${runId}:${consumed.attemptId}`,
+        actionAttemptId: consumed.attemptId,
+        provider: "github-cli",
+        command: expectedCommand,
+        providerExecutable: executable,
+        providerAuthorization,
+        startedAt,
+        finishedAt: nowIso(),
+        exitCode
+      };
+      const next = { ...current, providerInvocation: invocation };
+      await atomicWriteJson(root, target, next);
+      await appendJournal(root, runDir, "action.provider-invoked", {
+        attemptId: consumed.attemptId,
+        invocationId: invocation.id,
+        exitCode
+      });
+      return next;
+    }, { ttlMs: 300_000 });
+  }
   if (consumed.action !== "pr.merge" || consumed.provider !== "github-cli") {
-    throw new Error("The governed provider execution path only supports github-cli pr.merge and git.push");
+    throw new Error("The governed provider execution path only supports github-cli pr.create/pr.merge and git.push");
   }
   const expectedCommand = [
     "gh",
@@ -3534,6 +3682,18 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
         receipt.providerReceipt.invocationId !== record.providerInvocation.id)
     ) {
       throw new Error("Successful PR merge reconciliation requires the governed non-admin provider wrapper");
+    }
+    if (
+      record.action === "pr.create" &&
+      outcome === "success" &&
+      (!record.providerInvocation ||
+        record.providerInvocation.provider !== "github-cli" ||
+        record.providerInvocation.exitCode !== 0 ||
+        digestObject(record.providerInvocation.providerExecutable) !== digestObject(record.providerExecutable) ||
+        digestObject(record.providerInvocation.providerAuthorization) !== digestObject(record.providerAuthorization) ||
+        JSON.stringify(record.providerInvocation.command) !== JSON.stringify(buildPrCreateCommand(record)))
+    ) {
+      throw new Error("Successful PR creation reconciliation requires the governed provider wrapper");
     }
     if (
       record.action === "git.push" &&
