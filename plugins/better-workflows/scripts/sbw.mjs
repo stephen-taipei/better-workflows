@@ -41,6 +41,7 @@ import {
   pluginRoot,
   readJson,
   reconcileAction,
+  rebindSourceBinding,
   routeMode,
   registerOwnedResource,
   safeJoin,
@@ -1498,6 +1499,7 @@ function help() {
       "sbw inspect <run-id>",
       "sbw resume <run-id>",
       "sbw cancel <run-id> [--reason <text>]",
+      "sbw source rebind <run-id> --reason <text>",
       "sbw sentinel capture|verify <run-id> --label <label>",
       "sbw evidence add <run-id> --file <json>",
       "sbw self-improve evaluate --run <run-id> --cases <file> --baseline <git-revision> --candidate-root <path> --backend <codex|fixture> --split <train|holdout> [--purpose ordinary|evaluator-migration] [--next-cases <v2-file>]",
@@ -1635,6 +1637,12 @@ async function main() {
         cancellationReason: String(options.reason ?? "cancelled by root")
       })
     };
+  }
+  if (command === "source") {
+    if (subcommand !== "rebind" || !runId || !options.reason) {
+      throw new Error("source usage: sbw source rebind <run-id> --reason <text>");
+    }
+    return rebindSourceBinding(root, runId, String(options.reason));
   }
   if (command === "resume") {
     let run = await loadRun(root, subcommand);

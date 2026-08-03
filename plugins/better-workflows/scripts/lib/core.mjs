@@ -1183,6 +1183,79 @@ export async function updateState(root, runId, mutator, event = "state.updated")
   });
 }
 
+export async function rebindSourceBinding(root, runId, reason) {
+  const normalizedReason = String(reason ?? "").trim();
+  if (!normalizedReason || normalizedReason.length > 512 || /[\0\r\n]/.test(normalizedReason)) {
+    throw new Error("Source binding rebind requires a concise reason without newlines");
+  }
+  return withRunLock(root, runId, async ({ runDir }) => {
+    const run = await loadRun(root, runId);
+    assertMutableRun(run, "Source binding rebind");
+    const actions = await listJsonRecords(root, safeJoin(runDir, "actions"));
+    if (actions.length > 0 || (run.state.sideEffects ?? []).length > 0) {
+      throw new Error("Source binding rebind is only allowed before side effects are issued");
+    }
+    const packageEntries = await readdir(safeJoin(runDir, "review-packages"), { withFileTypes: true }).catch(() => []);
+    const findingEntries = await readdir(safeJoin(runDir, "review-findings"), { withFileTypes: true }).catch(() => []);
+    if (packageEntries.some((entry) => entry.isFile()) || findingEntries.some((entry) => entry.isFile())) {
+      throw new Error("Source binding rebind is only allowed before independent review begins");
+    }
+    const { captureSourceBinding } = await import("./git.mjs");
+    const current = await captureSourceBinding(run.manifest.cwd, {
+      baseRevision: run.manifest.sourceBinding?.baseRevision ?? run.contract.remoteRevision ?? null
+    });
+    if (!current) throw new Error("Source binding is unavailable for this workspace");
+    if (current.digest === run.manifest.sourceBinding?.digest) {
+      return { ok: true, rebound: false, sourceBinding: current, state: run.state };
+    }
+    const reboundAt = nowIso();
+    const nextManifest = {
+      ...run.manifest,
+      sourceBinding: current,
+      sourceBindingHistory: [
+        ...(Array.isArray(run.manifest.sourceBindingHistory) ? run.manifest.sourceBindingHistory : []),
+        {
+          from: run.manifest.sourceBinding?.digest ?? null,
+          to: current.digest,
+          headRevision: current.headRevision,
+          reason: normalizedReason,
+          at: reboundAt
+        }
+      ],
+      updatedAt: reboundAt
+    };
+    const evidence = await listJsonRecords(root, safeJoin(runDir, "evidence"));
+    for (const record of evidence) {
+      if (record.dependencies?.sourceBindingDigest && record.dependencies.sourceBindingDigest !== current.digest) {
+        await atomicWriteJson(root, safeJoin(runDir, "evidence", `${record.id}.json`), {
+          ...record,
+          stale: true,
+          freshnessCheckedAt: reboundAt,
+          staleReason: "source-binding-rebound"
+        });
+      }
+    }
+    const nextState = {
+      ...run.state,
+      status: "running",
+      lastSentinel: null,
+      lastSentinelVerified: false,
+      lastSentinelComplete: false,
+      sourceBindingReboundAt: reboundAt,
+      updatedAt: reboundAt
+    };
+    await atomicWriteJson(root, safeJoin(runDir, "manifest.json"), nextManifest);
+    await atomicWriteJson(root, safeJoin(runDir, "state.json"), nextState);
+    await appendJournal(root, runDir, "source-binding.rebound", {
+      from: run.manifest.sourceBinding?.digest ?? null,
+      to: current.digest,
+      headRevision: current.headRevision,
+      reason: normalizedReason
+    });
+    return { ok: true, rebound: true, sourceBinding: current, state: nextState };
+  });
+}
+
 export function assertMutableRun(run, operation = "Run mutation") {
   const status = run?.state?.status ?? run?.status;
   if (TERMINAL_RUN_STATES.has(status)) {

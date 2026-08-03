@@ -14,6 +14,7 @@ import {
   inspectRun,
   issueActionToken,
   loadDefaults,
+  rebindSourceBinding,
   sha256
 } from "../lib/core.mjs";
 import { loadEvidenceContracts } from "../lib/evidence.mjs";
@@ -147,6 +148,43 @@ test("real template contracts are v2 and initialize a static ledger", async () =
   const ledger = JSON.parse(await readFile(path.join(run.runDir, "ledger.json"), "utf8"));
   assert.equal(ledger.schemaVersion, 1);
   assert.deepEqual(ledger.tasks.map((item) => item.id), ["environment"]);
+});
+
+test("source binding can be explicitly rebound before review or side effects", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "sbw-source-rebind-workspace-"));
+  await execFileAsync("git", ["init", "-q"], { cwd: workspace });
+  await execFileAsync("git", ["config", "user.email", "test@example.com"], { cwd: workspace });
+  await execFileAsync("git", ["config", "user.name", "Better Workflows Test"], { cwd: workspace });
+  await writeFile(path.join(workspace, "source.txt"), "initial\n");
+  await execFileAsync("git", ["add", "source.txt"], { cwd: workspace });
+  await execFileAsync("git", ["commit", "-qm", "initial"], { cwd: workspace });
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-source-rebind-state-"));
+  const contract = buildContract({
+    template: "test-source-rebind",
+    templateDefinition: contractTemplate,
+    goal: "source rebind",
+    scope: ["."],
+    risk: { risk: 1, uncertainty: 0, blastRadius: 1, irreversibility: 0, evidenceGap: 0 },
+    sensitivity: "internal",
+    authority: []
+  });
+  const started = await createRun({ root, contract, requestedMode: "verified", cwd: workspace });
+  const before = await inspectRun(root, started.runId);
+  await writeFile(path.join(workspace, "source.txt"), "changed\n");
+  await execFileAsync("git", ["add", "source.txt"], { cwd: workspace });
+  await execFileAsync("git", ["commit", "-qm", "source change"], { cwd: workspace });
+  const rebound = await rebindSourceBinding(root, started.runId, "commit stage completed");
+  assert.equal(rebound.ok, true);
+  assert.equal(rebound.rebound, true);
+  assert.notEqual(rebound.sourceBinding.digest, before.manifest.sourceBinding.digest);
+  assert.equal(rebound.state.lastSentinelVerified, false);
+  const after = await inspectRun(root, started.runId);
+  assert.equal(after.manifest.sourceBinding.digest, rebound.sourceBinding.digest);
+  assert.equal(after.manifest.sourceBindingHistory.at(-1).reason, "commit stage completed");
+  await assert.rejects(
+    rebindSourceBinding(root, started.runId, "\n"),
+    /concise reason/
+  );
 });
 
 test("typed evidence rejects cross-run and caller-forged digests", async () => {

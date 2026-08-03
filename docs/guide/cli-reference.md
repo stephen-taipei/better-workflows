@@ -30,6 +30,7 @@ sbw run --template <template> --mode <mode> --goal "<goal>" --scope <path>
 sbw run --route-receipt <route-receipt-id>
 sbw status <run-id>
 sbw resume <run-id>
+sbw source rebind <run-id> --reason <text>
 sbw sentinel capture <run-id> --label <label>
 sbw sentinel verify <run-id> --label <label>
 sbw evidence add <run-id> --file <evidence.json>

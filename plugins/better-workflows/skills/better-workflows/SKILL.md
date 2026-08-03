@@ -150,6 +150,18 @@ sbw sentinel capture <run-id> --label <label>
 sbw sentinel verify <run-id> --label <label>
 ~~~
 
+If an intended commit or rebase changes `HEAD` after run creation, use the
+root-only pre-review rebind before capturing the next sentinel:
+
+~~~bash
+sbw source rebind <run-id> --reason "commit stage completed"
+sbw sentinel capture <run-id> --label post-commit
+sbw sentinel verify <run-id> --label post-commit
+~~~
+
+Rebind is rejected after review packages, findings, or side effects exist; it
+does not replace a fresh review.
+
 If verification reports drift, mark the run `indeterminate`, discard that wave's conclusions, do not restore files automatically, and report the changed surfaces.
 
 ## Inspect the derived graph
