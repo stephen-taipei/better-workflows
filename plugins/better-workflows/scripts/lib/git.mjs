@@ -251,6 +251,49 @@ async function highRiskIgnored(cwd, requested, budget) {
   return digestPaths(cwd, paths, budget, []);
 }
 
+export async function captureSourceBinding(cwd, { baseRevision = null } = {}) {
+  const repository = path.resolve(cwd);
+  if (!(await isGitRepository(repository))) return null;
+
+  const headRevision = (await git(repository, ["rev-parse", "HEAD"])).stdout.trim();
+  let resolvedBaseRevision = null;
+  if (baseRevision) {
+    const resolved = await git(
+      repository,
+      ["rev-parse", "--verify", `${String(baseRevision)}^{commit}`],
+      { allowFailure: true }
+    );
+    if (resolved.ok) resolvedBaseRevision = resolved.stdout.trim();
+  }
+  const committedDiff = resolvedBaseRevision
+    ? (await git(repository, [
+        "diff-tree",
+        "--no-commit-id",
+        "--name-status",
+        "-r",
+        "-z",
+        resolvedBaseRevision,
+        headRevision,
+        "--"
+      ])).stdout
+    : "";
+  const diffManifest = {
+    schemaVersion: 1,
+    baseRevision: resolvedBaseRevision,
+    headRevision,
+    committedDiff
+  };
+  const diffManifestDigest = sha256(canonicalJson(diffManifest));
+  const stable = {
+    schemaVersion: 1,
+    cwd: repository,
+    baseRevision: resolvedBaseRevision,
+    headRevision,
+    diffManifestDigest
+  };
+  return { ...stable, digest: sha256(canonicalJson(stable)) };
+}
+
 export async function captureSentinel(cwd, contract, defaults) {
   const repository = path.resolve(cwd);
   if (!(await isGitRepository(repository))) throw new Error(`Not a Git repository: ${repository}`);

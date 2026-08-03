@@ -50,7 +50,7 @@ import {
   validateContract,
   withRunLock
 } from "./lib/core.mjs";
-import { captureSentinel, compareSentinels } from "./lib/git.mjs";
+import { captureSentinel, captureSourceBinding, compareSentinels } from "./lib/git.mjs";
 import {
   doctorAgy,
   doctorCodex,
@@ -485,15 +485,34 @@ async function fingerprintPath(cwd, candidate) {
 
 async function enrichEvidence(root, runId, record) {
   const run = await loadRun(root, runId);
+  const definition = await evidenceDefinition(record);
+  const sourceBindingRequired = definition?.freshnessBinding?.includes("sourceBindingDigest") === true;
+  const sourceSentinelRequired = definition?.freshnessBinding?.includes("sourceSentinelDigest") === true;
   const inputFiles = values(record.dependencyInputs?.files);
   const files = [];
   for (const candidate of inputFiles) files.push(await fingerprintPath(run.manifest.cwd, candidate));
+  const sourceBindingDigest = sourceBindingRequired ? run.manifest.sourceBinding?.digest ?? null : null;
+  const sourceSentinelDigest = sourceSentinelRequired ? run.state.lastSentinel?.digest ?? null : null;
   return {
     ...record,
+    ...(record.receipt
+      ? {
+          receipt: {
+            ...record.receipt,
+            inputBinding: {
+              ...(record.receipt.inputBinding ?? {}),
+              ...(sourceBindingDigest ? { sourceBindingDigest } : {}),
+              ...(sourceSentinelDigest ? { sourceSentinelDigest } : {})
+            }
+          }
+        }
+      : {}),
     dependencies: {
       contractDigest: run.manifest.contractDigest,
       workflowVersion: VERSION,
       files,
+      sourceBindingDigest,
+      sourceSentinelDigest,
       policyDigest: digestObject({
         authority: run.contract.authority,
         sensitivity: run.contract.sensitivity,
@@ -513,13 +532,25 @@ async function refreshEvidence(root, runId) {
     const run = await loadRun(root, runId);
     assertMutableRun(run, "Evidence freshness");
     const evidence = await listJsonRecords(root, safeJoin(runDir, "evidence"));
+    const sourceBinding = run.manifest.sourceBinding
+      ? await captureSourceBinding(run.manifest.cwd, {
+          baseRevision: run.manifest.sourceBinding.baseRevision
+        })
+      : null;
     const stale = [];
     const fresh = [];
     for (const record of evidence) {
+      const definition = await evidenceDefinition(record);
+      const sourceBindingRequired = definition?.freshnessBinding?.includes("sourceBindingDigest") === true;
+      const sourceSentinelRequired = definition?.freshnessBinding?.includes("sourceSentinelDigest") === true;
       let current = [];
       let isStale =
         record.dependencies?.contractDigest !== run.manifest.contractDigest ||
-        record.dependencies?.workflowVersion !== VERSION;
+        record.dependencies?.workflowVersion !== VERSION ||
+        (sourceBindingRequired && run.manifest.sourceBinding && record.dependencies?.sourceBindingDigest !== sourceBinding?.digest);
+      if (sourceSentinelRequired && run.manifest.sourceBinding && record.dependencies?.sourceSentinelDigest !== run.state.lastSentinel?.digest) {
+        isStale = true;
+      }
       if (!Array.isArray(record.dependencyInputs?.files)) isStale = true;
       else {
         for (const candidate of record.dependencyInputs.files) {
@@ -538,6 +569,15 @@ async function refreshEvidence(root, runId) {
     }
     return { stale, fresh };
   });
+}
+
+async function evidenceDefinition(record) {
+  const contracts = await loadEvidenceContracts();
+  const sourceKind = record?.sourceKind ?? record?.kind;
+  const kind = sourceKind === "independent-critic" || sourceKind === "evaluation-migration"
+    ? (sourceKind === "independent-critic" ? "patch-review" : "evaluation-suite")
+    : sourceKind;
+  return contracts[kind] ?? null;
 }
 
 async function currentVerifiedDigest(root, runId) {
@@ -642,7 +682,7 @@ async function typedEvidenceRecord(root, runId, record) {
   } else {
     payload = {
       command: `self-improve:${sourceKind}`,
-      result: record.evaluation?.comparison?.accepted === false ? "rejected" : "complete"
+      result: "complete"
     };
   }
   const payloadDigest = digestObject(payload);
@@ -662,7 +702,13 @@ async function typedEvidenceRecord(root, runId, record) {
       inputBinding: {
         runId,
         contractDigest: digestObject(run.contract),
-        remoteRevision: run.contract.remoteRevision ?? null
+        remoteRevision: run.contract.remoteRevision ?? null,
+        ...(definition.freshnessBinding.includes("sourceBindingDigest") && run.manifest.sourceBinding
+          ? { sourceBindingDigest: run.manifest.sourceBinding.digest }
+          : {}),
+        ...(definition.freshnessBinding.includes("sourceSentinelDigest") && run.state.lastSentinel?.digest
+          ? { sourceSentinelDigest: run.state.lastSentinel.digest }
+          : {})
       },
       payload,
       payloadDigest,

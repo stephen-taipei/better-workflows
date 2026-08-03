@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import {
   access,
   appendFile,
@@ -17,12 +17,30 @@ import path from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
-import { digestObject, pluginRoot } from "../lib/core.mjs";
+import { digestObject, pluginRoot, sha256 } from "../lib/core.mjs";
 import { transitionLedger } from "../lib/ledger.mjs";
 import { createReviewPackage, markBroadReviewComplete, reviewStatus } from "../lib/review.mjs";
 
 const execFileAsync = promisify(execFile);
 const CLI = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "sbw.mjs");
+const RUNTIME = path.join(pluginRoot(), "scripts", "lib", "recipe-runtime.mjs");
+
+function runRuntime(request) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [RUNTIME], {
+      stdio: ["pipe", "pipe", "pipe"]
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.once("error", reject);
+    child.once("close", (code) => resolve({ code, stdout, stderr }));
+    child.stdin.end(JSON.stringify(request));
+  });
+}
 
 async function git(cwd, ...args) {
   return execFileAsync("git", args, { cwd, encoding: "utf8" });
@@ -95,6 +113,31 @@ async function addEvidence(cwd, stateRoot, runId, kind, acceptanceIds, payloadOv
   );
   return cli(cwd, stateRoot, ["evidence", "add", runId, "--file", target]);
 }
+
+test("recipe runtime imports the verified source snapshot instead of a replaceable path", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "sbw-recipe-source-snapshot-"));
+  const entryPath = path.join(directory, "run.mjs");
+  const safeSource = `export default async function run() {
+  return { marker: "verified-snapshot" };
+}
+`;
+  await writeFile(entryPath, `export default async function run() { return { marker: "tampered-path" }; }\n`);
+  const result = await runRuntime({
+    entryPath,
+    scriptDigest: sha256(safeSource),
+    sourceBase64: Buffer.from(safeSource).toString("base64"),
+    input: {},
+    workspacePath: directory,
+    artifactStagingPath: directory,
+    timeoutMs: 1_000
+  });
+  assert.equal(result.code, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), {
+    ok: true,
+    result: { marker: "verified-snapshot" },
+    sourceBytes: Buffer.byteLength(safeSource)
+  });
+});
 
 async function ledgerTransition(stateRoot, runId, eventId, type, taskId, evidenceKinds = []) {
   const file = path.join(stateRoot, "runs", runId, "ledger.json");

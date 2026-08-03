@@ -122,7 +122,9 @@
       "freshnessBinding": [
         "runId",
         "contractDigest",
-        "remoteRevision"
+        "remoteRevision",
+        "sourceBindingDigest",
+        "sourceSentinelDigest"
       ]
     },
     "architecture-risk-map": {
@@ -311,7 +313,9 @@
       "freshnessBinding": [
         "runId",
         "contractDigest",
-        "remoteRevision"
+        "remoteRevision",
+        "sourceBindingDigest",
+        "sourceSentinelDigest"
       ]
     },
     "cleanup-manifest": {
@@ -498,7 +502,9 @@
       "freshnessBinding": [
         "runId",
         "contractDigest",
-        "remoteRevision"
+        "remoteRevision",
+        "sourceBindingDigest",
+        "sourceSentinelDigest"
       ]
     },
     "current-branch": {
@@ -591,7 +597,9 @@
       "freshnessBinding": [
         "runId",
         "contractDigest",
-        "remoteRevision"
+        "remoteRevision",
+        "sourceBindingDigest",
+        "sourceSentinelDigest"
       ]
     },
     "deliberation-roster": {
@@ -608,7 +616,9 @@
       "freshnessBinding": [
         "runId",
         "contractDigest",
-        "remoteRevision"
+        "remoteRevision",
+        "sourceBindingDigest",
+        "sourceSentinelDigest"
       ]
     },
     "dependabot-inventory": {
@@ -779,7 +789,9 @@
       "freshnessBinding": [
         "runId",
         "contractDigest",
-        "remoteRevision"
+        "remoteRevision",
+        "sourceBindingDigest",
+        "sourceSentinelDigest"
       ]
     },
     "final-validation": {
@@ -919,7 +931,9 @@
       "freshnessBinding": [
         "runId",
         "contractDigest",
-        "remoteRevision"
+        "remoteRevision",
+        "sourceBindingDigest",
+        "sourceSentinelDigest"
       ]
     },
     "ios-model": {
@@ -1381,7 +1395,9 @@
       "freshnessBinding": [
         "runId",
         "contractDigest",
-        "remoteRevision"
+        "remoteRevision",
+        "sourceBindingDigest",
+        "sourceSentinelDigest"
       ]
     },
     "regional-review": {
@@ -1600,7 +1616,9 @@
       "freshnessBinding": [
         "runId",
         "contractDigest",
-        "remoteRevision"
+        "remoteRevision",
+        "sourceBindingDigest",
+        "sourceSentinelDigest"
       ]
     },
     "rollback-plan": {
@@ -1737,7 +1755,9 @@
       "freshnessBinding": [
         "runId",
         "contractDigest",
-        "remoteRevision"
+        "remoteRevision",
+        "sourceBindingDigest",
+        "sourceSentinelDigest"
       ]
     },
     "swift-static-review": {

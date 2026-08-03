@@ -575,6 +575,10 @@ export async function createRun({ root = getStateRoot(), contract, requestedMode
       await ensurePrivateDir(safeJoin(stagingDir, child));
     }
     const createdAt = nowIso();
+    const { captureSourceBinding } = await import("./git.mjs");
+    const sourceBinding = await captureSourceBinding(path.resolve(cwd), {
+      baseRevision: baselineRevision ?? contract.remoteRevision ?? null
+    });
     const manifest = {
       schemaVersion: 1,
       runId,
@@ -584,6 +588,7 @@ export async function createRun({ root = getStateRoot(), contract, requestedMode
       requestedMode,
       cwd: path.resolve(cwd),
       baselineRevision,
+      sourceBinding,
       createdAt,
       contractDigest: digestObject(contract),
       authority: {
@@ -1453,6 +1458,19 @@ export async function evaluateCompletion(root, runId) {
   const blockers = [];
   let completionReview = null;
   let admittedEvidence = evidence;
+  if (manifest.sourceBinding) {
+    try {
+      const { captureSourceBinding } = await import("./git.mjs");
+      const currentSourceBinding = await captureSourceBinding(manifest.cwd, {
+        baseRevision: manifest.sourceBinding.baseRevision
+      });
+      if (!currentSourceBinding || currentSourceBinding.digest !== manifest.sourceBinding.digest) {
+        blockers.push("source-binding-drift");
+      }
+    } catch {
+      blockers.push("source-binding-unavailable");
+    }
+  }
   for (const finding of findings) {
     if (["P0", "P1"].includes(finding.severity) && finding.status === "open") {
       blockers.push(`open-${finding.severity}:${finding.id}`);

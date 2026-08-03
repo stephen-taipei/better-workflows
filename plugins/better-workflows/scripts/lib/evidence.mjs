@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { digestObject, listJsonRecords, pluginRoot, safeJoin } from "./core.mjs";
+import { captureSourceBinding } from "./git.mjs";
 
 const CONTRACT_FILE = path.join(pluginRoot(), "config", "evidence-contracts-v1.json");
 const HEX_DIGEST = /^[a-f0-9]{64}$/;
@@ -258,7 +259,7 @@ function assertIndependentCriticBinding(record, run) {
   }
 }
 
-function assertFreshBinding(receipt, run, definition, kind) {
+async function assertFreshBinding(receipt, run, definition, kind) {
   const binding = receipt.inputBinding;
   if (!binding || typeof binding !== "object" || Array.isArray(binding)) {
     throw new Error(`Typed evidence ${kind} inputBinding is required`);
@@ -277,6 +278,24 @@ function assertFreshBinding(receipt, run, definition, kind) {
   }
   if (binding.remoteRevision !== (run.contract.remoteRevision ?? null)) {
     throw new Error(`Typed evidence ${kind} remote revision binding is stale`);
+  }
+  if (definition.freshnessBinding.includes("sourceBindingDigest")) {
+    const expected = run.manifest.sourceBinding?.digest;
+    if (!expected || binding.sourceBindingDigest !== expected) {
+      throw new Error(`Typed evidence ${kind} source binding is stale`);
+    }
+    const current = await captureSourceBinding(run.manifest.cwd, {
+      baseRevision: run.manifest.sourceBinding.baseRevision
+    });
+    if (!current || current.digest !== expected) {
+      throw new Error(`Typed evidence ${kind} source binding changed`);
+    }
+  }
+  if (definition.freshnessBinding.includes("sourceSentinelDigest")) {
+    const expected = run.state.lastSentinel?.digest;
+    if (!expected || binding.sourceSentinelDigest !== expected) {
+      throw new Error(`Typed evidence ${kind} source sentinel binding is stale`);
+    }
   }
   if (["pr-state", "required-checks"].includes(kind)) {
     const payload = receipt.payload;
@@ -373,7 +392,7 @@ export async function admitTypedEvidence(record, run, { persisted = false } = {}
     }
     assertIndependentCriticBinding(record, run);
   }
-  assertFreshBinding(receipt, run, definition, record.kind);
+  await assertFreshBinding(receipt, run, definition, record.kind);
   if (!receipt.payload || typeof receipt.payload !== "object" || Array.isArray(receipt.payload)) {
     throw new Error(`Typed evidence ${record.kind} payload must be a non-empty object`);
   }

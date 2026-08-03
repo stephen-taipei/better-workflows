@@ -6,7 +6,7 @@ import { mkdir, mkdtemp, symlink, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { buildContract, loadDefaults } from "../lib/core.mjs";
-import { captureSentinel, compareSentinels } from "../lib/git.mjs";
+import { captureSentinel, captureSourceBinding, compareSentinels } from "../lib/git.mjs";
 
 const execFileAsync = promisify(execFile);
 
@@ -75,4 +75,26 @@ test("volatile exclusions are explicit and do not pretend to be complete coverag
   const after = await captureSentinel(cwd, taskContract(), defaults);
   assert.ok(after.exclusions.includes("node_modules"));
   assert.equal(compareSentinels(before, after).same, true);
+});
+
+test("source bindings pin base, head, and the exact diff manifest", async () => {
+  const cwd = await repository();
+  const base = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd, encoding: "utf8" })).stdout.trim();
+  const before = await captureSourceBinding(cwd, { baseRevision: base });
+  assert.equal(before.baseRevision, base);
+  assert.equal(before.headRevision, base);
+  assert.match(before.diffManifestDigest, /^[a-f0-9]{64}$/);
+
+  await writeFile(path.join(cwd, "src", "a.txt"), "changed\n");
+  await git(cwd, "add", "src/a.txt");
+  await git(cwd, "commit", "-qm", "change source");
+  const afterCommit = await captureSourceBinding(cwd, { baseRevision: base });
+  assert.notEqual(afterCommit.digest, before.digest);
+  assert.notEqual(afterCommit.headRevision, before.headRevision);
+  assert.notEqual(afterCommit.diffManifestDigest, before.diffManifestDigest);
+
+  await writeFile(path.join(cwd, "src", "untracked.txt"), "untracked\n");
+  const afterWorktree = await captureSourceBinding(cwd, { baseRevision: base });
+  assert.equal(afterWorktree.digest, afterCommit.digest);
+  assert.equal(afterWorktree.diffManifestDigest, afterCommit.diffManifestDigest);
 });

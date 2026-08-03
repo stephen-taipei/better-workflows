@@ -671,9 +671,15 @@ function runId(prefix = "recipe") {
 async function spawnRecipe(recipe, input, stagingPath, { preserve = false } = {}) {
   await mkdir(stagingPath, { recursive: false, mode: 0o700 });
   await chmod(stagingPath, 0o700);
+  const source = await readFile(recipe.entryPath);
+  const sourceDigest = sha256(source);
+  if (sourceDigest !== recipe.scriptDigest) {
+    throw recipeError("recipe source digest changed before execution");
+  }
   const request = {
     entryPath: recipe.entryPath,
     scriptDigest: recipe.scriptDigest,
+    sourceBase64: source.toString("base64"),
     input,
     workspacePath: recipe.root,
     artifactStagingPath: stagingPath,
@@ -687,7 +693,6 @@ async function spawnRecipe(recipe, input, stagingPath, { preserve = false } = {}
     "--disallow-code-generation-from-strings",
     "--report-exclude-env",
     `--allow-fs-read=${RUNTIME_PATH}`,
-    `--allow-fs-read=${recipe.entryPath}`,
     ...recipe.readTargets.map((target) => `--allow-fs-read=${target}`),
     `--allow-fs-write=${stagingPath}`,
     RUNTIME_PATH
