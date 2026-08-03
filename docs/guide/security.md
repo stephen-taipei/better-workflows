@@ -36,6 +36,10 @@ rationale.
 - Governed `pr.create` actions bind the provider receipt to the exact candidate
   source commit observed when the action token is issued; a PR from another
   source head cannot be reconciled or registered as run-owned.
+- Successful governed pull-request creation is canonicalized from `pull/new` to
+  the verified `pull/<number>` resource before its creation reservation is
+  released. The registered PR remains run-owned, and a verified merged PR is a
+  terminal cleanup receipt for that owned resource.
 
 ## External model transport
 

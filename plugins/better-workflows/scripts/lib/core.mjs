@@ -115,6 +115,29 @@ const OWNED_RESOURCE_CREATION_SCHEMAS = {
     }
   }
 };
+
+function ownedResourceCleared(entry, actions) {
+  return actions.some((action) => {
+    const providerReceipt = action.receipt?.providerReceipt;
+    if (
+      action.resource === entry.resource &&
+      DESTRUCTIVE_CLEANUP_ACTIONS.has(action.action) &&
+      action.status === "spent" &&
+      action.outcome === "success" &&
+      providerReceipt?.resource === entry.resource
+    ) return true;
+    const pullRequest = /^pull\/(\d+)$/.exec(entry.resource ?? "");
+    return Boolean(
+      pullRequest &&
+      action.action === "pr.merge" &&
+      action.resource === entry.resource &&
+      action.status === "spent" &&
+      action.outcome === "success" &&
+      providerReceipt?.pr === Number(pullRequest[1]) &&
+      providerReceipt?.state === "MERGED"
+    );
+  });
+}
 const OWNED_RESOURCE = /^[^\0\r\n]{1,512}$/;
 const SHA256_DIGEST = /^[a-f0-9]{64}$/;
 const GIT_PUSH_RESOURCE = /^remote:([A-Za-z0-9._-]+):(refs\/heads\/[A-Za-z0-9._/-]+)$/;
@@ -959,13 +982,19 @@ async function releaseCreationResource(root, runId, resource, tokenHash = null) 
   ) await unlink(target).catch(() => undefined);
 }
 
-export async function registerOwnedResource(root, runId, { resource, creationReceipt }) {
-  if (typeof resource !== "string" || !OWNED_RESOURCE.test(resource)) {
-    throw new Error("Owned resource identity is invalid");
+function creationProviderResource(creationReceipt) {
+  const providerResource = creationReceipt.creationResource ?? creationReceipt.resource;
+  if (typeof providerResource !== "string" || !OWNED_RESOURCE.test(providerResource)) {
+    throw new Error("Owned resource creation provider resource is invalid");
   }
-  if (!creationReceipt || typeof creationReceipt !== "object" || Array.isArray(creationReceipt)) {
-    throw new Error("Owned resource creation receipt is required");
+  if (creationReceipt.action === "pr.create" && providerResource !== "pull/new") {
+    throw new Error("Owned pull request creation must bind its provider action to pull/new");
   }
+  return providerResource;
+}
+
+async function registerOwnedResourceLocked(root, runId, run, runDir, { resource, creationReceipt }) {
+  const providerResource = creationProviderResource(creationReceipt);
   if (
     creationReceipt.runId !== runId ||
     creationReceipt.ownerRunId !== runId ||
@@ -989,7 +1018,7 @@ export async function registerOwnedResource(root, runId, { resource, creationRec
     typeof creationReceipt.providerReceipt !== "object" ||
     creationReceipt.providerReceipt.created !== true ||
     creationReceipt.providerReceipt.action !== creationReceipt.action ||
-    creationReceipt.providerReceipt.resource !== resource ||
+    creationReceipt.providerReceipt.resource !== providerResource ||
     creationReceipt.providerReceipt.outcome !== "success" ||
     creationReceipt.providerReceipt.runId !== runId ||
     creationReceipt.providerReceipt.attemptId !== creationReceipt.attemptId ||
@@ -1001,100 +1030,114 @@ export async function registerOwnedResource(root, runId, { resource, creationRec
     throw new Error("Owned resource creation receipt is not bound to this run and resource");
   }
   const receiptDigest = digestObject(creationReceipt);
+  const manifestPath = safeJoin(runDir, "manifest.json");
+  const manifest = await readJson(root, manifestPath);
+  const schema = OWNED_RESOURCE_CREATION_SCHEMAS[creationReceipt.action];
+  assertProviderReceiptShape({
+    action: creationReceipt.action,
+    provider: creationReceipt.provider,
+    resource: providerResource
+  }, creationReceipt.providerReceipt);
+  if (
+    !schema ||
+    !schema.providers.has(creationReceipt.provider) ||
+    !schema.pattern.test(resource) ||
+    creationReceipt.providerReceipt.provider !== creationReceipt.provider ||
+    !schema.prove(creationReceipt.providerReceipt, resource)
+  ) {
+    throw new Error("Owned resource creation receipt lacks action-specific provider creation proof");
+  }
+  const actions = await listJsonRecords(root, safeJoin(runDir, "actions"));
+  const creationAction = actions.find((action) => (
+    action.attemptId === creationReceipt.attemptId &&
+    action.status === "spent" &&
+    action.outcome === "success" &&
+    action.action === creationReceipt.action &&
+    action.provider === creationReceipt.provider &&
+    action.resource === providerResource &&
+    digestObject(action.receipt?.providerReceipt) === digestObject(creationReceipt.providerReceipt)
+  ));
+  if (!creationAction) {
+    throw new Error("Owned resource registration requires a reconciled successful run action");
+  }
+  if (creationReceipt.action === "pr.create" && !SHA.test(creationAction.expectedHead ?? "")) {
+    throw new Error("Owned pull request registration requires an exact expected source head");
+  }
+  assertProviderReceiptShape({
+    action: creationReceipt.action,
+    provider: creationReceipt.provider,
+    resource: providerResource,
+    expectedHead: creationAction.expectedHead
+  }, creationReceipt.providerReceipt);
+  const reservation = await readJson(root, creationReservationPath(root, providerResource)).catch(() => null);
+  if (reservation?.runId !== runId || reservation.tokenHash !== creationAction.tokenHash) {
+    throw new Error("Owned resource registration requires an exclusive creation reservation");
+  }
+  await verifyProviderReceipt(
+    manifest,
+    {
+      action: creationReceipt.action,
+      provider: creationReceipt.provider,
+      resource: providerResource,
+      outcome: "success",
+      remoteRevision: creationReceipt.remoteRevision,
+      idempotencyKey: creationReceipt.idempotencyKey,
+      attemptId: creationReceipt.attemptId,
+      spentAt: creationAction.spentAt,
+      providerAuthorization: creationAction.providerAuthorization,
+      creationPrecondition: creationAction.creationPrecondition,
+      targetRef: creationAction.targetRef,
+      expectedHead: creationAction.expectedHead
+    },
+    { providerReceipt: creationReceipt.providerReceipt }
+  );
+  if (!Array.isArray(manifest.ownedResources)) {
+    throw new Error("Run manifest has no owned resource registry");
+  }
+  const existing = manifest.ownedResources.find((item) => item?.resource === resource);
+  if (existing) {
+    if (existing.ownerRunId !== runId || existing.receiptDigest !== receiptDigest) {
+      throw new Error("Owned resource registration is immutable");
+    }
+    await releaseCreationResource(root, runId, providerResource, creationAction.tokenHash);
+    return existing;
+  }
+  const entry = {
+    resource,
+    creationResource: providerResource,
+    ownerRunId: runId,
+    receiptDigest,
+    creationAttemptId: creationReceipt.attemptId,
+    creationActionDigest: digestObject({
+      attemptId: creationAction.attemptId,
+      action: creationAction.action,
+      resource: creationAction.resource,
+      outcome: creationAction.outcome,
+      receipt: creationAction.receipt
+    }),
+    registeredAt: nowIso()
+  };
+  const nextManifest = {
+    ...manifest,
+    ownedResources: [...manifest.ownedResources, entry]
+  };
+  await atomicWriteJson(root, manifestPath, nextManifest);
+  await appendJournal(root, runDir, "resource.registered", entry);
+  await releaseCreationResource(root, runId, providerResource, creationAction.tokenHash);
+  return entry;
+}
+
+export async function registerOwnedResource(root, runId, { resource, creationReceipt }) {
+  if (typeof resource !== "string" || !OWNED_RESOURCE.test(resource)) {
+    throw new Error("Owned resource identity is invalid");
+  }
+  if (!creationReceipt || typeof creationReceipt !== "object" || Array.isArray(creationReceipt)) {
+    throw new Error("Owned resource creation receipt is required");
+  }
   return withRunLock(root, runId, async ({ runDir }) => {
     const run = await loadRun(root, runId);
     assertMutableRun(run, "Owned resource registration");
-    const manifestPath = safeJoin(runDir, "manifest.json");
-    const manifest = await readJson(root, manifestPath);
-    const schema = OWNED_RESOURCE_CREATION_SCHEMAS[creationReceipt.action];
-    assertProviderReceiptShape({
-      action: creationReceipt.action,
-      provider: creationReceipt.provider,
-      resource
-    }, creationReceipt.providerReceipt);
-    if (
-      !schema ||
-      !schema.providers.has(creationReceipt.provider) ||
-      !schema.pattern.test(resource) ||
-      creationReceipt.providerReceipt.provider !== creationReceipt.provider ||
-      !schema.prove(creationReceipt.providerReceipt, resource)
-    ) {
-      throw new Error("Owned resource creation receipt lacks action-specific provider creation proof");
-    }
-    const actions = await listJsonRecords(root, safeJoin(runDir, "actions"));
-    const creationAction = actions.find((action) => (
-      action.attemptId === creationReceipt.attemptId &&
-      action.status === "spent" &&
-      action.outcome === "success" &&
-      action.action === creationReceipt.action &&
-      action.provider === creationReceipt.provider &&
-      action.resource === resource &&
-      digestObject(action.receipt?.providerReceipt) === digestObject(creationReceipt.providerReceipt)
-    ));
-    if (!creationAction) {
-      throw new Error("Owned resource registration requires a reconciled successful run action");
-    }
-    if (creationReceipt.action === "pr.create" && !SHA.test(creationAction.expectedHead ?? "")) {
-      throw new Error("Owned pull request registration requires an exact expected source head");
-    }
-    assertProviderReceiptShape({
-      action: creationReceipt.action,
-      provider: creationReceipt.provider,
-      resource,
-      expectedHead: creationAction.expectedHead
-    }, creationReceipt.providerReceipt);
-    const reservation = await readJson(root, creationReservationPath(root, resource)).catch(() => null);
-    if (reservation?.runId !== runId || reservation.tokenHash !== creationAction.tokenHash) {
-      throw new Error("Owned resource registration requires an exclusive creation reservation");
-    }
-    await verifyProviderReceipt(
-      manifest,
-      {
-        action: creationReceipt.action,
-        provider: creationReceipt.provider,
-        resource,
-        outcome: "success",
-        remoteRevision: creationReceipt.remoteRevision,
-        idempotencyKey: creationReceipt.idempotencyKey,
-        attemptId: creationReceipt.attemptId,
-        spentAt: creationAction.spentAt,
-        providerAuthorization: creationAction.providerAuthorization,
-        creationPrecondition: creationAction.creationPrecondition,
-        expectedHead: creationAction.expectedHead
-      },
-      { providerReceipt: creationReceipt.providerReceipt }
-    );
-    if (!Array.isArray(manifest.ownedResources)) {
-      throw new Error("Run manifest has no owned resource registry");
-    }
-    const existing = manifest.ownedResources.find((item) => item?.resource === resource);
-    if (existing) {
-      if (existing.ownerRunId !== runId || existing.receiptDigest !== receiptDigest) {
-        throw new Error("Owned resource registration is immutable");
-      }
-      return existing;
-    }
-    const entry = {
-      resource,
-      ownerRunId: runId,
-      receiptDigest,
-      creationAttemptId: creationReceipt.attemptId,
-      creationActionDigest: digestObject({
-        attemptId: creationAction.attemptId,
-        action: creationAction.action,
-        resource: creationAction.resource,
-        outcome: creationAction.outcome,
-        receipt: creationAction.receipt
-      }),
-      registeredAt: nowIso()
-    };
-    const nextManifest = {
-      ...manifest,
-      ownedResources: [...manifest.ownedResources, entry]
-    };
-    await atomicWriteJson(root, manifestPath, nextManifest);
-    await appendJournal(root, runDir, "resource.registered", entry);
-    return entry;
+    return registerOwnedResourceLocked(root, runId, run, runDir, { resource, creationReceipt });
   });
 }
 
@@ -3126,6 +3169,12 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
     const findings = await listJsonRecords(root, safeJoin(runDir, "findings"));
     const evidence = await listJsonRecords(root, safeJoin(runDir, "evidence"));
     const actions = await listJsonRecords(root, safeJoin(runDir, "actions"));
+    if (
+      request.action === "pr.create" &&
+      actions.some((action) => action.action === "pr.create" && action.status === "spent" && action.outcome === "success")
+    ) {
+      throw new Error("PR creation already succeeded for this run; reuse the registered pull request");
+    }
     if (!state.lastSentinelVerified || state.lastSentinel?.digest !== currentTreeDigest) {
       throw new Error("Action token requires a verified current-tree sentinel");
     }
@@ -3947,10 +3996,35 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
       ...record,
       outcome,
       receipt,
-      reconciledAt: nowIso()
+      reconciledAt: nowIso(),
+      ...(record.action === "pr.create" && outcome === "success"
+        ? { ownedResource: `pull/${receipt.providerReceipt.number}` }
+        : {})
     };
     await atomicWriteJson(root, target, next);
     await appendJournal(root, runDir, "action.reconciled", { attemptId, outcome });
+    if (record.action === "pr.create" && outcome === "success") {
+      const ownedResource = `pull/${receipt.providerReceipt.number}`;
+      await registerOwnedResourceLocked(root, runId, run, runDir, {
+        resource: ownedResource,
+        creationReceipt: {
+          ownerRunId: runId,
+          runId,
+          resource: ownedResource,
+          creationResource: record.resource,
+          action: record.action,
+          attemptId: record.attemptId,
+          idempotencyKey: record.idempotencyKey,
+          remoteRevision: record.remoteRevision,
+          outcome: "success",
+          provider: record.provider,
+          providerReceipt: receipt.providerReceipt,
+          evidenceIds: receipt.evidenceIds,
+          targetRef: record.targetRef,
+          createdAt: nowIso()
+        }
+      });
+    }
     if (outcome === "failure" && OWNED_RESOURCE_CREATION_ACTIONS.has(record.action)) {
       await releaseCreationResource(root, runId, record.resource, record.tokenHash);
     }
@@ -4000,13 +4074,7 @@ export async function cleanupRuns(root, { olderThanDays, apply = false }) {
     const actions = await listJsonRecords(root, safeJoin(runDir, "actions")).catch(() => []);
     const info = await stat(runDir);
     const ownedResources = Array.isArray(manifest?.ownedResources) ? manifest.ownedResources : [];
-    const ownedResourcesCleared = ownedResources.every((entry) => actions.some((action) => (
-      action.resource === entry.resource &&
-      DESTRUCTIVE_CLEANUP_ACTIONS.has(action.action) &&
-      action.status === "spent" &&
-      action.outcome === "success" &&
-      action.receipt?.providerReceipt?.resource === entry.resource
-    )));
+    const ownedResourcesCleared = ownedResources.every((entry) => ownedResourceCleared(entry, actions));
     const pendingSideEffect = actions.some((action) => action.status !== "spent" || ["pending", "unknown", "failure"].includes(action.outcome));
     if (
       state &&
@@ -4028,13 +4096,7 @@ export async function cleanupRuns(root, { olderThanDays, apply = false }) {
           const manifest = await readJson(root, safeJoin(runDir, "manifest.json")).catch(() => null);
           const actions = await listJsonRecords(root, safeJoin(runDir, "actions")).catch(() => []);
           const ownedResources = Array.isArray(manifest?.ownedResources) ? manifest.ownedResources : [];
-          const ownedResourcesCleared = ownedResources.every((entry) => actions.some((action) => (
-            action.resource === entry.resource &&
-            DESTRUCTIVE_CLEANUP_ACTIONS.has(action.action) &&
-            action.status === "spent" &&
-            action.outcome === "success" &&
-            action.receipt?.providerReceipt?.resource === entry.resource
-          )));
+          const ownedResourcesCleared = ownedResources.every((entry) => ownedResourceCleared(entry, actions));
           const pendingSideEffect = actions.some((action) => action.status !== "spent" || ["pending", "unknown", "failure"].includes(action.outcome));
           const terminalAt = Date.parse(state?.updatedAt ?? "");
           const oldEnough = Number.isFinite(terminalAt)
@@ -4047,7 +4109,9 @@ export async function cleanupRuns(root, { olderThanDays, apply = false }) {
             ownedResourcesCleared &&
             !pendingSideEffect
           ) {
-            for (const entry of ownedResources) await releaseCreationResource(root, runId, entry.resource);
+            for (const entry of ownedResources) {
+              await releaseCreationResource(root, runId, entry.creationResource ?? entry.resource);
+            }
             await rm(runDir, { recursive: true, force: false });
           }
         });

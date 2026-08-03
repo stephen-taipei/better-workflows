@@ -20,6 +20,7 @@ import {
   assertProviderReceiptShape,
   buildPrCreateCommand,
   buildContract,
+  cleanupRuns,
   consumeActionToken,
   completeRun,
   createRun,
@@ -324,6 +325,205 @@ test("failed PR creation preserves its reservation until provider absence is pro
     if (priorArgs === undefined) delete process.env.SBW_FAKE_PR_ARGS;
     else process.env.SBW_FAKE_PR_ARGS = priorArgs;
   }
+});
+
+test("successful PR creation canonicalizes ownership and prevents a retry", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-pr-owned-canonicalization-"));
+  const repository = path.join(root, "repository");
+  const bin = path.join(root, "bin");
+  await mkdir(repository, { recursive: true });
+  await mkdir(bin, { recursive: true });
+  await execFileAsync("git", ["init", "-q"], { cwd: repository });
+  await execFileAsync("git", ["config", "user.email", "sbw@example.invalid"], { cwd: repository });
+  await execFileAsync("git", ["config", "user.name", "SBW Test"], { cwd: repository });
+  await execFileAsync("git", ["remote", "add", "origin", "https://github.com/example/repo.git"], { cwd: repository });
+  await writeFile(path.join(repository, "README.md"), "canonicalize\n");
+  await execFileAsync("git", ["add", "README.md"], { cwd: repository });
+  await execFileAsync("git", ["commit", "-qm", "baseline"], { cwd: repository });
+  await execFileAsync("git", ["switch", "-c", "codex/feature"], { cwd: repository });
+  const run = await createRun({
+    root,
+    contract: contract({ authority: ["pr.create"] }),
+    requestedMode: "verified",
+    cwd: repository
+  });
+  const head = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repository })).stdout.trim();
+  const attemptId = "pr-success-attempt";
+  const idempotencyKey = "pr-success-idempotency";
+  const tokenHash = sha256("pr-success-token");
+  const remoteRevision = "b".repeat(40);
+  const resource = "pull/new";
+  const ownedResource = "pull/12";
+  const targetRef = "dev";
+  const url = "https://github.com/example/repo/pull/12";
+  const spentAt = new Date(Date.now() - 1000).toISOString();
+  const createdAt = new Date().toISOString();
+  const creationPrecondition = { action: "pr.create", resource, state: "absent", number: null };
+  const marker = `sbw:${attemptId}:${idempotencyKey}`;
+  const response = { number: 12, head, base: targetRef, url };
+  const providerReceipt = {
+    action: "pr.create",
+    provider: "github-cli",
+    resource,
+    outcome: "success",
+    runId: run.runId,
+    attemptId,
+    idempotencyKey,
+    remoteRevision,
+    executionId: `github:github.com/example/repo:pr.create:12:${head}`,
+    proofKind: "github-pr-create",
+    requestDigest: digestObject({
+      action: "pr.create",
+      provider: "github-cli",
+      resource,
+      remoteRevision,
+      repository: "github.com/example/repo",
+      targetRef,
+      expectedHead: head
+    }),
+    responseDigest: digestObject(response),
+    verifiedAt: createdAt,
+    terminalState: "success",
+    created: true,
+    creationProof: {
+      attemptId,
+      idempotencyKey,
+      marker,
+      providerObjectId: "node-12",
+      observedAt: createdAt
+    },
+    creationPreconditionDigest: digestObject(creationPrecondition),
+    number: 12,
+    head,
+    base: targetRef,
+    url
+  };
+  const action = {
+    schemaVersion: 1,
+    tokenHash,
+    status: "spent",
+    outcome: "success",
+    runId: run.runId,
+    action: "pr.create",
+    provider: "github-cli",
+    resource,
+    remoteRevision,
+    attemptId,
+    idempotencyKey,
+    expectedHead: head,
+    targetRef,
+    creationPrecondition,
+    providerAuthorization: { actor: "alice" },
+    spentAt,
+    receipt: { providerReceipt }
+  };
+  const runDir = path.join(root, "runs", run.runId);
+  await writeFile(path.join(runDir, "actions", `${tokenHash}.json`), `${JSON.stringify(action)}\n`);
+  const reservationPath = path.join(root, "creation-reservations", `${sha256(resource)}.json`);
+  await mkdir(path.dirname(reservationPath), { recursive: true });
+  await writeFile(reservationPath, `${JSON.stringify({
+    runId: run.runId,
+    resource,
+    tokenHash,
+    reservedAt: spentAt,
+    expiresAt: new Date(Date.now() + 60_000).toISOString()
+  })}\n`);
+  const fakeGh = path.join(bin, "gh");
+  const apiResponse = JSON.stringify({
+    node_id: "node-12",
+    created_at: createdAt,
+    user: { login: "alice" },
+    head: { sha: head },
+    body: `<!-- ${marker} -->`,
+    html_url: url
+  });
+  const prViewResponse = JSON.stringify({ number: 12, headRefOid: head, baseRefName: targetRef, url });
+  await writeFile(fakeGh, `#!/bin/sh
+if [ "$1" = "api" ]; then
+  printf '%s\\n' '${apiResponse}'
+else
+  printf '%s\\n' '${prViewResponse}'
+fi
+`);
+  await chmod(fakeGh, 0o755);
+  const priorPath = process.env.PATH;
+  process.env.PATH = `${bin}:${priorPath}`;
+  try {
+    const registered = await registerOwnedResource(root, run.runId, {
+      resource: ownedResource,
+      creationReceipt: {
+        ownerRunId: run.runId,
+        runId: run.runId,
+        resource: ownedResource,
+        creationResource: resource,
+        action: "pr.create",
+        attemptId,
+        idempotencyKey,
+        remoteRevision,
+        outcome: "success",
+        provider: "github-cli",
+        providerReceipt,
+        evidenceIds: [],
+        createdAt
+      }
+    });
+    assert.equal(registered.resource, ownedResource);
+    assert.equal(registered.creationResource, resource);
+    await assert.rejects(stat(reservationPath));
+    const manifest = JSON.parse(await readFile(path.join(runDir, "manifest.json"), "utf8"));
+    assert.deepEqual(manifest.ownedResources, [registered]);
+    await assert.rejects(
+      issueActionToken(root, run.runId, {
+        action: "pr.create",
+        provider: "github-cli",
+        resource,
+        remoteRevision: "abc",
+        requiredEvidence: ["preflight"]
+      }, "tree", await loadDefaults()),
+      /PR creation already succeeded for this run/
+    );
+  } finally {
+    process.env.PATH = priorPath;
+  }
+});
+
+test("merged owned pull requests satisfy terminal cleanup", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-merged-owned-cleanup-"));
+  const run = await createRun({
+    root,
+    contract: contract({ authority: ["pr.merge"] }),
+    requestedMode: "verified",
+    cwd: root
+  });
+  const runDir = path.join(root, "runs", run.runId);
+  const manifestPath = path.join(runDir, "manifest.json");
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+  await writeFile(manifestPath, `${JSON.stringify({
+    ...manifest,
+    ownedResources: [{
+      resource: "pull/12",
+      creationResource: "pull/new",
+      ownerRunId: run.runId,
+      receiptDigest: "a".repeat(64),
+      creationAttemptId: "pr-create-attempt",
+      creationActionDigest: "b".repeat(64),
+      registeredAt: "2026-08-01T00:00:00.000Z"
+    }]
+  })}\n`);
+  await writeFile(path.join(runDir, "actions", "merge.json"), `${JSON.stringify({
+    action: "pr.merge",
+    resource: "pull/12",
+    status: "spent",
+    outcome: "success",
+    receipt: { providerReceipt: { pr: 12, state: "MERGED" } }
+  })}\n`);
+  await writeFile(path.join(runDir, "state.json"), `${JSON.stringify({
+    ...JSON.parse(await readFile(path.join(runDir, "state.json"), "utf8")),
+    status: "completed",
+    updatedAt: "2020-01-01T00:00:00.000Z"
+  })}\n`);
+  const result = await cleanupRuns(root, { olderThanDays: -1, apply: false });
+  assert.deepEqual(result.candidates, [run.runId]);
 });
 
 test("scope rejects Git pathspec magic", () => {
