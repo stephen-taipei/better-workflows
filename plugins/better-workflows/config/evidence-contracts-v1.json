@@ -1550,6 +1550,7 @@
         "checks",
         "requiredStatusChecks",
         "provider",
+        "providerExecutable",
         "observedAt"
       ],
       "freshnessBinding": [

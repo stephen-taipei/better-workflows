@@ -26,6 +26,7 @@ import {
   consumeActionToken,
   completeRun,
   createRun,
+  creationReservationKey,
   digestObject,
   ensureStateRoot,
   executeActionToken,
@@ -42,6 +43,7 @@ import {
   sha256,
   setRunStatus,
   updateState,
+  verifyRequiredChecksProvider,
   withRunLock
 } from "../lib/core.mjs";
 import { captureSentinel } from "../lib/git.mjs";
@@ -208,7 +210,7 @@ test("known failed owned creation releases its reservation for a retry", async (
     }
   };
   await reconcileAction(root, run.runId, spent.attemptId, "failure", failedReceipt);
-  const reservationPath = path.join(root, "creation-reservations", `${sha256(resource)}.json`);
+  const reservationPath = path.join(root, "creation-reservations", `${creationReservationKey(issued.creationReservation)}.json`);
   await assert.rejects(stat(reservationPath));
   const retry = await issueActionToken(root, run.runId, {
     action: "branch.create",
@@ -254,7 +256,7 @@ test("known failed owned creation releases its reservation for a retry", async (
     }
   };
   await reconcileAction(root, run.runId, unknownSpent.attemptId, "unknown", unknownReceipt);
-  const unknownReservationPath = path.join(root, "creation-reservations", `${sha256(unknownResource)}.json`);
+  const unknownReservationPath = path.join(root, "creation-reservations", `${creationReservationKey(unknownIssued.creationReservation)}.json`);
   await stat(unknownReservationPath);
   await assert.rejects(
     reconcileAction(root, run.runId, unknownSpent.attemptId, "failure", {
@@ -269,6 +271,133 @@ test("known failed owned creation releases its reservation for a retry", async (
     /already reconciled/
   );
   await stat(unknownReservationPath);
+});
+
+test("owned-resource reservations are scoped by provider repository", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-reservation-namespace-"));
+  const repositoriesRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-reservation-repositories-"));
+  const prepare = async (name) => {
+    const cwd = path.join(repositoriesRoot, name);
+    await mkdir(cwd, { recursive: true });
+    await execFileAsync("git", ["init", "-q"], { cwd });
+    await writeFile(path.join(cwd, "README.md"), `${name}\n`);
+    await execFileAsync("git", ["add", "README.md"], { cwd });
+    await execFileAsync("git", ["-c", "user.email=sbw@example.invalid", "-c", "user.name=SBW Test", "commit", "-qm", "baseline"], { cwd });
+    const run = await createRun({
+      root,
+      contract: contract({ authority: ["branch.create"] }),
+      requestedMode: "verified",
+      cwd
+    });
+    await addEvidence(root, run.runId, {
+      id: "preflight",
+      kind: "preflight",
+      summary: "Repository-scoped reservation preflight",
+      status: "complete",
+      acceptanceIds: [],
+      sourceDigest: "e".repeat(64)
+    });
+    await updateState(root, run.runId, (state) => ({
+      ...state,
+      lastSentinel: { label: "test", digest: "tree" },
+      lastSentinelVerified: true,
+      lastSentinelComplete: true
+    }));
+    return run;
+  };
+  const [firstRun, secondRun] = await Promise.all([prepare("first"), prepare("second")]);
+  const defaults = await loadDefaults();
+  const [first, second] = await Promise.all([
+    issueActionToken(root, firstRun.runId, {
+      action: "branch.create",
+      provider: "git",
+      resource: "branch:shared",
+      remoteRevision: "abc",
+      requiredEvidence: ["preflight"]
+    }, "tree", defaults),
+    issueActionToken(root, secondRun.runId, {
+      action: "branch.create",
+      provider: "git",
+      resource: "branch:shared",
+      remoteRevision: "abc",
+      requiredEvidence: ["preflight"]
+    }, "tree", defaults)
+  ]);
+  assert.notEqual(
+    creationReservationKey(first.creationReservation),
+    creationReservationKey(second.creationReservation)
+  );
+  await stat(path.join(root, "creation-reservations", `${creationReservationKey(first.creationReservation)}.json`));
+  await stat(path.join(root, "creation-reservations", `${creationReservationKey(second.creationReservation)}.json`));
+});
+
+test("creation reservation lease gives one concurrent same-repository attempt the winner", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-reservation-lease-"));
+  const repository = await mkdtemp(path.join(os.tmpdir(), "sbw-reservation-lease-repository-"));
+  await execFileAsync("git", ["init", "-q"], { cwd: repository });
+  await writeFile(path.join(repository, "README.md"), "lease\n");
+  await execFileAsync("git", ["add", "README.md"], { cwd: repository });
+  await execFileAsync("git", ["-c", "user.email=sbw@example.invalid", "-c", "user.name=SBW Test", "commit", "-qm", "baseline"], { cwd: repository });
+  const [firstRun, secondRun] = await Promise.all([
+    createRun({ root, contract: contract({ authority: ["branch.create"] }), requestedMode: "verified", cwd: repository }),
+    createRun({ root, contract: contract({ authority: ["branch.create"] }), requestedMode: "verified", cwd: repository })
+  ]);
+  for (const run of [firstRun, secondRun]) {
+    await addEvidence(root, run.runId, {
+      id: "preflight",
+      kind: "preflight",
+      summary: "Concurrent reservation preflight",
+      status: "complete",
+      acceptanceIds: [],
+      sourceDigest: "f".repeat(64)
+    });
+    await updateState(root, run.runId, (state) => ({
+      ...state,
+      lastSentinel: { label: "test", digest: "tree" },
+      lastSentinelVerified: true,
+      lastSentinelComplete: true
+    }));
+  }
+  const defaults = await loadDefaults();
+  const results = await Promise.allSettled([firstRun, secondRun].map((run) => issueActionToken(root, run.runId, {
+    action: "branch.create",
+    provider: "git",
+    resource: "branch:concurrent",
+    remoteRevision: "abc",
+    requiredEvidence: ["preflight"]
+  }, "tree", defaults)));
+  assert.equal(results.filter((item) => item.status === "fulfilled").length, 1);
+  assert.equal(results.filter((item) => item.status === "rejected").length, 1);
+  assert.match(results.find((item) => item.status === "rejected").reason.message, /already reserved by another action/);
+
+  const winner = results.find((item) => item.status === "fulfilled").value;
+  const foreignLeaseIdentity = {
+    ...winner.creationReservation,
+    resource: "branch:foreign-host"
+  };
+  const foreignLeasePath = path.join(
+    root,
+    "creation-reservations",
+    `.${creationReservationKey(foreignLeaseIdentity)}.lease`
+  );
+  await writeFile(foreignLeasePath, `${JSON.stringify({
+    ...foreignLeaseIdentity,
+    reservationKey: creationReservationKey(foreignLeaseIdentity),
+    pid: 999999,
+    host: `foreign-host-${os.hostname()}`,
+    createdAt: "2020-01-01T00:00:00.000Z",
+    expiresAt: "2020-01-01T00:00:01.000Z"
+  })}\n`);
+  await assert.rejects(
+    issueActionToken(root, winner.runId, {
+      action: "branch.create",
+      provider: "git",
+      resource: foreignLeaseIdentity.resource,
+      remoteRevision: "abc",
+      requiredEvidence: ["preflight"]
+    }, "tree", defaults),
+    /refusing cross-host lease reclamation/
+  );
 });
 
 test("unsupported GitHub Actions dispatch fails closed before issuing a token", async () => {
@@ -289,6 +418,112 @@ test("unsupported GitHub Actions dispatch fails closed before issuing a token", 
     }),
     /unimplemented provider adapter/
   );
+});
+
+test("contract-deferred actions fail closed in the core lifecycle", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-deferred-action-"));
+  await execFileAsync("git", ["init", "-q"], { cwd: root });
+  await writeFile(path.join(root, "README.md"), "deferred action\n");
+  await execFileAsync("git", ["add", "README.md"], { cwd: root });
+  await execFileAsync("git", ["-c", "user.email=sbw@example.invalid", "-c", "user.name=SBW Test", "commit", "-qm", "baseline"], { cwd: root });
+  const deferredTemplate = {
+    ...template(),
+    controlPlane: {
+      evidencePolicy: "typed-v1",
+      ledgerPolicy: "ledger-v1",
+      reviewPolicy: "none",
+      designPacketPolicy: "none",
+      refinementPolicy: "none",
+      deliberationPolicy: "none"
+    },
+    executionStages: [{
+      id: "preflight",
+      goal: "preflight",
+      dependsOn: [],
+      requiredEvidence: ["preflight"],
+      attemptBudget: 3,
+      kind: "regular"
+    }],
+    actionStages: {},
+    actionGates: {},
+    deferredActions: ["workflow.dispatch", "deploy"]
+  };
+  const run = await createRun({
+    root,
+    contract: buildContract({
+      template: "deferred-test",
+      templateDefinition: deferredTemplate,
+      goal: "deferred action lifecycle",
+      scope: ["."],
+      risk: { risk: 2, uncertainty: 2, blastRadius: 2, irreversibility: 2, evidenceGap: 2 },
+      sensitivity: "internal",
+      authority: ["deploy"],
+      remoteRevision: "abc"
+    }),
+    requestedMode: "critical",
+    cwd: root
+  });
+  await assert.rejects(
+    issueActionToken(root, run.runId, {
+      action: "deploy",
+      provider: "github",
+      resource: "workflow:1",
+      remoteRevision: "abc",
+      requiredEvidence: ["preflight"]
+    }, "tree", await loadDefaults()),
+    /action is deferred until its provider adapter is implemented/
+  );
+  const inspected = await inspectRun(root, run.runId);
+  const tokenHash = sha256("deferred-token");
+  await writeFile(path.join(root, "runs", run.runId, "actions", `${tokenHash}.json`), `${JSON.stringify({
+    schemaVersion: 1,
+    tokenHash,
+    status: "issued",
+    outcome: null,
+    issuedAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    runId: run.runId,
+    action: "deploy",
+    provider: "github",
+    resource: "workflow:1",
+    remoteRevision: "abc",
+    treeDigest: "tree",
+    contractDigest: digestObject(inspected.contract),
+    idempotencyKey: "deferred-idempotency"
+  })}\n`);
+  await assert.rejects(
+    consumeActionToken(root, run.runId, "deferred-token", "tree"),
+    /action is deferred until its provider adapter is implemented/
+  );
+  const completion = await evaluateCompletion(root, run.runId);
+  assert.ok(completion.blockers.includes("deferred-governed-action:deploy"));
+});
+
+test("required-check probes require a bound executable identity and reject path drift", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-required-check-provider-"));
+  const bin = path.join(root, "bin");
+  await mkdir(bin, { recursive: true });
+  const fakeGh = path.join(bin, "gh");
+  const script = "#!/bin/sh\nexit 0\n";
+  await writeFile(fakeGh, script);
+  await chmod(fakeGh, 0o755);
+  const identity = { path: await realpath(fakeGh), digest: sha256(script) };
+  const payload = { provider: "github", repository: "github.com/example/repo" };
+  await assert.rejects(
+    verifyRequiredChecksProvider(root, payload),
+    /recorded executable identity/
+  );
+  const priorPath = process.env.PATH;
+  process.env.PATH = `${bin}:${priorPath}`;
+  try {
+    await writeFile(fakeGh, `${script}# drift\n`);
+    await assert.rejects(
+      verifyRequiredChecksProvider(root, payload, identity),
+      /governed provider executable changed/
+    );
+  } finally {
+    process.env.PATH = priorPath;
+  }
 });
 
 test("failed PR creation preserves its reservation until provider absence is proven", async () => {
@@ -316,6 +551,12 @@ test("failed PR creation preserves its reservation until provider absence is pro
   const attemptId = "pr-failure-attempt";
   const idempotencyKey = "pr-failure-idempotency";
   const resource = "pull/new";
+  const creationReservation = {
+    provider: "github-cli",
+    repository: "github.com/example/repo",
+    action: "pr.create",
+    resource
+  };
   const action = {
     schemaVersion: 1,
     tokenHash,
@@ -332,6 +573,7 @@ test("failed PR creation preserves its reservation until provider absence is pro
     targetRef: "dev",
     headBranch: "codex/feature",
     createRepository: "github.com/example/repo",
+    creationReservation,
     providerAuthorization: {
       provider: "github-cli",
       repository: "github.com/example/repo",
@@ -343,10 +585,12 @@ test("failed PR creation preserves its reservation until provider absence is pro
     creationPrecondition: { action: "pr.create", resource, state: "absent", number: null }
   };
   await writeFile(path.join(runDir, "actions", `${tokenHash}.json`), `${JSON.stringify(action)}\n`);
-  const reservationPath = path.join(root, "creation-reservations", `${sha256(resource)}.json`);
+  const reservationPath = path.join(root, "creation-reservations", `${creationReservationKey(creationReservation)}.json`);
   await mkdir(path.dirname(reservationPath), { recursive: true });
   await writeFile(reservationPath, `${JSON.stringify({
     runId: run.runId,
+    ...creationReservation,
+    reservationKey: creationReservationKey(creationReservation),
     resource,
     tokenHash,
     reservedAt: new Date().toISOString(),
@@ -470,6 +714,12 @@ test("unknown PR creation can recover the same attempt into canonical ownership 
   const targetRef = "dev";
   const number = 17;
   const url = `https://github.com/example/repo/pull/${number}`;
+  const creationReservation = {
+    provider: "github-cli",
+    repository: "github.com/example/repo",
+    action: "pr.create",
+    resource
+  };
   const spentAt = new Date(Date.now() - 1000).toISOString();
   const createdAt = new Date().toISOString();
   const creationPrecondition = { action: "pr.create", resource, state: "absent", number: null };
@@ -490,6 +740,7 @@ test("unknown PR creation can recover the same attempt into canonical ownership 
     targetRef,
     headBranch: "codex/feature",
     createRepository: "github.com/example/repo",
+    creationReservation,
     prTitle: "Better Workflows: recovery",
     prBodyPrefix: "Automated delivery.",
     creationPrecondition,
@@ -578,8 +829,15 @@ test("unknown PR creation can recover the same attempt into canonical ownership 
   await writeFile(path.join(runDir, "actions", `${tokenHash}.json`), `${JSON.stringify(action)}\n`);
   await mkdir(path.join(root, "creation-reservations"), { recursive: true });
   await writeFile(
-    path.join(root, "creation-reservations", `${sha256(resource)}.json`),
-    `${JSON.stringify({ runId: run.runId, resource, tokenHash, reservedAt: spentAt, expiresAt: new Date(Date.now() + 60_000).toISOString() })}\n`
+    path.join(root, "creation-reservations", `${creationReservationKey(creationReservation)}.json`),
+    `${JSON.stringify({
+      ...creationReservation,
+      reservationKey: creationReservationKey(creationReservation),
+      runId: run.runId,
+      tokenHash,
+      reservedAt: spentAt,
+      expiresAt: new Date(Date.now() + 60_000).toISOString()
+    })}\n`
   );
   const apiResponse = JSON.stringify({
     node_id: "node-17",
@@ -829,7 +1087,7 @@ fi
     assert.equal(recovered.ownedResource, `pull/${number}`);
     const manifest = JSON.parse(await readFile(path.join(runDir, "manifest.json"), "utf8"));
     assert.equal(manifest.ownedResources[0].resource, `pull/${number}`);
-    await assert.rejects(stat(path.join(root, "creation-reservations", `${sha256(resource)}.json`)));
+    await assert.rejects(stat(path.join(root, "creation-reservations", `${creationReservationKey(creationReservation)}.json`)));
   } finally {
     process.env.PATH = priorPath;
   }
@@ -861,6 +1119,12 @@ test("successful PR creation canonicalizes ownership and prevents a retry", asyn
   const tokenHash = sha256("pr-success-token");
   const remoteRevision = "b".repeat(40);
   const resource = "pull/new";
+  const creationReservation = {
+    provider: "github-cli",
+    repository: "github.com/example/repo",
+    action: "pr.create",
+    resource
+  };
   const ownedResource = "pull/12";
   const targetRef = "dev";
   const url = "https://github.com/example/repo/pull/12";
@@ -928,15 +1192,18 @@ test("successful PR creation canonicalizes ownership and prevents a retry", asyn
       permissions: { admin: false, maintain: false, push: true }
     },
     createRepository: "github.com/example/repo",
+    creationReservation,
     spentAt,
     receipt: { providerReceipt }
   };
   const runDir = path.join(root, "runs", run.runId);
   await writeFile(path.join(runDir, "actions", `${tokenHash}.json`), `${JSON.stringify(action)}\n`);
-  const reservationPath = path.join(root, "creation-reservations", `${sha256(resource)}.json`);
+  const reservationPath = path.join(root, "creation-reservations", `${creationReservationKey(creationReservation)}.json`);
   await mkdir(path.dirname(reservationPath), { recursive: true });
   await writeFile(reservationPath, `${JSON.stringify({
     runId: run.runId,
+    ...creationReservation,
+    reservationKey: creationReservationKey(creationReservation),
     resource,
     tokenHash,
     reservedAt: spentAt,
@@ -1108,6 +1375,10 @@ test("pr-to-dev merge requires the run-owned canonical pull request", async () =
 
 test("unsupported action execution does not consume its token", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "sbw-unsupported-action-"));
+  await execFileAsync("git", ["init", "-q"], { cwd: root });
+  await writeFile(path.join(root, "README.md"), "unsupported action\n");
+  await execFileAsync("git", ["add", "README.md"], { cwd: root });
+  await execFileAsync("git", ["-c", "user.email=sbw@example.invalid", "-c", "user.name=SBW Test", "commit", "-qm", "baseline"], { cwd: root });
   const run = await createRun({
     root,
     contract: contract({ authority: ["branch.create"] }),
@@ -1141,6 +1412,44 @@ test("unsupported action execution does not consume its token", async () => {
   );
   const state = await inspectRun(root, run.runId);
   assert.equal(state.actions.find((item) => item.tokenHash === sha256(issued.token)).status, "issued");
+});
+
+test("wrapper-backed actions reject direct consume before spending the token", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-direct-consume-wrapper-"));
+  await execFileAsync("git", ["init", "-q"], { cwd: root });
+  await writeFile(path.join(root, "README.md"), "wrapper consume\n");
+  await execFileAsync("git", ["add", "README.md"], { cwd: root });
+  await execFileAsync("git", ["-c", "user.email=sbw@example.invalid", "-c", "user.name=SBW Test", "commit", "-qm", "baseline"], { cwd: root });
+  const run = await createRun({
+    root,
+    contract: contract({ authority: ["git.push"] }),
+    requestedMode: "verified",
+    cwd: root
+  });
+  const token = "wrapper-token";
+  const tokenHash = sha256(token);
+  await writeFile(path.join(root, "runs", run.runId, "actions", `${tokenHash}.json`), `${JSON.stringify({
+    schemaVersion: 1,
+    tokenHash,
+    status: "issued",
+    outcome: null,
+    issuedAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    runId: run.runId,
+    action: "git.push",
+    provider: "git",
+    resource: "remote:origin:refs/heads/feature",
+    remoteRevision: "abc",
+    treeDigest: "tree",
+    contractDigest: digestObject((await inspectRun(root, run.runId)).contract),
+    idempotencyKey: "wrapper-idempotency"
+  })}\n`);
+  await assert.rejects(
+    consumeActionToken(root, run.runId, token, "tree"),
+    /Wrapper-backed governed actions must use action execute/
+  );
+  const state = await inspectRun(root, run.runId);
+  assert.equal(state.actions[0].status, "issued");
 });
 
 test("auto routing follows risk and explicit modes never downgrade", () => {
@@ -1475,7 +1784,7 @@ test("destructive cleanup actions require an immutable run-owned resource receip
     remoteRevision: "abc",
     requiredEvidence: ["preflight"]
   }, "tree", await loadDefaults());
-  const reservationPath = path.join(root, "creation-reservations", `${sha256(resource)}.json`);
+  const reservationPath = path.join(root, "creation-reservations", `${creationReservationKey(creationIssued.creationReservation)}.json`);
   const reservation = JSON.parse(await readFile(reservationPath, "utf8"));
   assert.equal(reservation.expiresAt, creationIssued.expiresAt);
   const expiredResource = "branch:feature/expired";
@@ -1486,7 +1795,7 @@ test("destructive cleanup actions require an immutable run-owned resource receip
     remoteRevision: "abc",
     requiredEvidence: ["preflight"]
   }, "tree", await loadDefaults());
-  const expiredReservationPath = path.join(root, "creation-reservations", `${sha256(expiredResource)}.json`);
+  const expiredReservationPath = path.join(root, "creation-reservations", `${creationReservationKey(expiredIssued.creationReservation)}.json`);
   const expiredReservation = JSON.parse(await readFile(expiredReservationPath, "utf8"));
   await writeFile(expiredReservationPath, `${JSON.stringify({ ...expiredReservation, expiresAt: "2020-01-01T00:00:00.000Z" })}\n`);
   const replacementIssued = await issueActionToken(root, registeredRun.runId, {

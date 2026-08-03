@@ -158,7 +158,7 @@ const ARRAY_FIELDS = new Set([
 ]);
 const OBJECT_FIELDS = new Set([
   "actionProof", "artifact", "authorization", "counts", "diffManifest", "metadata", "permissions",
-  "providerAuthorization", "receipt", "scopeDigest", "summary", "target", "workflow"
+  "providerAuthorization", "providerExecutable", "receipt", "scopeDigest", "summary", "target", "workflow"
 ]);
 const INTEGER_FIELDS = new Set(["number", "pr", "providerRunId"]);
 const BOOLEAN_FIELDS = new Set(["adminBypass", "protected", "result", "success", "valid"]);

@@ -258,6 +258,7 @@ test("typed gate evidence rejects a failed result even when its shape is valid",
     checks: [{ name: "test", providerRunId: "provider-run-1", conclusion: "SUCCESS" }],
     requiredStatusChecks: ["test"],
     provider: "github",
+    providerExecutable: { path: "/usr/bin/gh", digest: "0".repeat(64) },
     observedAt: new Date().toISOString()
   };
   await assert.rejects(
