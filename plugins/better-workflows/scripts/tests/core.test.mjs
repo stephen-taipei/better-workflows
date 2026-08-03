@@ -216,6 +216,110 @@ test("known failed owned creation releases its reservation for a retry", async (
   assert.notEqual(retry.token, issued.token);
 });
 
+test("failed PR creation preserves its reservation until provider absence is proven", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-pr-failure-absence-"));
+  const repository = path.join(root, "repository");
+  const bin = path.join(root, "bin");
+  await mkdir(repository, { recursive: true });
+  await mkdir(bin, { recursive: true });
+  await execFileAsync("git", ["init", "-q"], { cwd: repository });
+  await execFileAsync("git", ["config", "user.email", "sbw@example.invalid"], { cwd: repository });
+  await execFileAsync("git", ["config", "user.name", "SBW Test"], { cwd: repository });
+  await writeFile(path.join(repository, "README.md"), "pr failure\n");
+  await execFileAsync("git", ["add", "README.md"], { cwd: repository });
+  await execFileAsync("git", ["commit", "-qm", "baseline"], { cwd: repository });
+  const run = await createRun({
+    root,
+    contract: contract({ authority: ["pr.create"] }),
+    requestedMode: "verified",
+    cwd: repository
+  });
+  const runDir = path.join(root, "runs", run.runId);
+  const head = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repository })).stdout.trim();
+  const tokenHash = sha256("pr-failure-token");
+  const attemptId = "pr-failure-attempt";
+  const idempotencyKey = "pr-failure-idempotency";
+  const resource = "pull/new";
+  const action = {
+    schemaVersion: 1,
+    tokenHash,
+    status: "spent",
+    outcome: "pending",
+    runId: run.runId,
+    action: "pr.create",
+    provider: "github-cli",
+    resource,
+    remoteRevision: "abc",
+    attemptId,
+    idempotencyKey,
+    expectedHead: head,
+    targetRef: "dev",
+    headBranch: "codex/feature",
+    createRepository: "github.com/example/repo",
+    creationPrecondition: { action: "pr.create", resource, state: "absent", number: null }
+  };
+  await writeFile(path.join(runDir, "actions", `${tokenHash}.json`), `${JSON.stringify(action)}\n`);
+  const reservationPath = path.join(root, "creation-reservations", `${sha256(resource)}.json`);
+  await mkdir(path.dirname(reservationPath), { recursive: true });
+  await writeFile(reservationPath, `${JSON.stringify({
+    runId: run.runId,
+    resource,
+    tokenHash,
+    reservedAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + 60_000).toISOString()
+  })}\n`);
+  const responsePath = path.join(root, "fake-pr-list.json");
+  const fakeGh = path.join(bin, "gh");
+  await writeFile(responsePath, "[{\"number\":99,\"headRefOid\":\"other\",\"baseRefName\":\"dev\",\"url\":\"https://example.invalid/pull/99\"}]\n");
+  await writeFile(fakeGh, "#!/bin/sh\ncat \"$SBW_FAKE_PR_LIST\"\n");
+  await chmod(fakeGh, 0o755);
+  const receipt = {
+    action: "pr.create",
+    provider: "github-cli",
+    resource,
+    outcome: "failure",
+    runId: run.runId,
+    attemptId,
+    idempotencyKey,
+    remoteRevision: "abc",
+    providerReceipt: {
+      action: "pr.create",
+      provider: "github-cli",
+      resource,
+      outcome: "failure",
+      runId: run.runId,
+      attemptId,
+      idempotencyKey,
+      remoteRevision: "abc",
+      executionId: "github:example/repo:pr.create:failure",
+      proofKind: "github-pr-create",
+      requestDigest: "0".repeat(64),
+      responseDigest: "1".repeat(64),
+      verifiedAt: new Date().toISOString(),
+      terminalState: "failure"
+    }
+  };
+  const priorPath = process.env.PATH;
+  const priorResponse = process.env.SBW_FAKE_PR_LIST;
+  process.env.PATH = `${bin}:${priorPath}`;
+  process.env.SBW_FAKE_PR_LIST = responsePath;
+  try {
+    await assert.rejects(
+      reconcileAction(root, run.runId, attemptId, "failure", receipt),
+      /existing pull request; preserve the reservation/
+    );
+    await stat(reservationPath);
+    await writeFile(responsePath, "[]\n");
+    const reconciled = await reconcileAction(root, run.runId, attemptId, "failure", receipt);
+    assert.equal(reconciled.receipt.providerReceipt.failureAbsence.absent, true);
+    await assert.rejects(stat(reservationPath));
+  } finally {
+    process.env.PATH = priorPath;
+    if (priorResponse === undefined) delete process.env.SBW_FAKE_PR_LIST;
+    else process.env.SBW_FAKE_PR_LIST = priorResponse;
+  }
+});
+
 test("scope rejects Git pathspec magic", () => {
   assert.throws(
     () => contract({ scope: [":(exclude)plugins/better-workflows/scripts/lib/core.mjs"] }),

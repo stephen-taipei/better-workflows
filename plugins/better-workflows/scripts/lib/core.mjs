@@ -1960,6 +1960,71 @@ async function captureCreationPrecondition(cwd, action, resource) {
   return null;
 }
 
+async function verifyFailedCreationAbsence(manifest, record) {
+  if (!OWNED_RESOURCE_CREATION_ACTIONS.has(record.action)) return null;
+  const cwd = manifest.cwd;
+  if (record.action === "pr.create" && record.provider === "github-cli") {
+    const repository = record.createRepository ?? await currentRepositoryIdentity(cwd);
+    const repositoryPath = repository.startsWith("github.com/")
+      ? repository.slice("github.com/".length)
+      : repository;
+    const command = [
+      "gh",
+      "pr",
+      "list",
+      "--repo",
+      repositoryPath,
+      "--head",
+      record.headBranch,
+      "--base",
+      record.targetRef,
+      "--state",
+      "all",
+      "--json",
+      "number,headRefOid,baseRefName,url"
+    ];
+    const output = await execFileAsync(command[0], command.slice(1), { cwd, encoding: "utf8" });
+    let actual;
+    try {
+      actual = JSON.parse(output.stdout);
+    } catch {
+      throw new Error("Failed PR creation reconciliation did not return structured provider absence data");
+    }
+    if (!Array.isArray(actual)) {
+      throw new Error("Failed PR creation reconciliation provider absence data is not an array");
+    }
+    if (actual.length > 0) {
+      throw new Error("Failed PR creation reconciliation found an existing pull request; preserve the reservation and reconcile the provider outcome");
+    }
+    return {
+      schemaVersion: 1,
+      proofKind: "github-pr-create-absence",
+      repository,
+      headBranch: record.headBranch,
+      targetRef: record.targetRef,
+      expectedHead: record.expectedHead,
+      command,
+      observed: actual,
+      responseDigest: digestObject(actual),
+      observedAt: nowIso(),
+      absent: true
+    };
+  }
+  const precondition = await captureCreationPrecondition(cwd, record.action, record.resource);
+  if (precondition?.state !== "absent") {
+    throw new Error("Failed owned-resource creation reconciliation found an existing provider resource; preserve the reservation and reconcile the provider outcome");
+  }
+  return {
+    schemaVersion: 1,
+    proofKind: `${record.provider}-${record.action}-absence`,
+    resource: record.resource,
+    observed: precondition,
+    responseDigest: digestObject(precondition),
+    observedAt: nowIso(),
+    absent: true
+  };
+}
+
 async function verifyGitHubProviderAuthorization(cwd, repository) {
   if (!repository.startsWith("github.com/")) throw new Error("GitHub provider authorization requires a GitHub repository");
   const repositoryPath = repository.slice("github.com/".length);
@@ -3767,6 +3832,16 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
       throw new Error("Action attempt was already reconciled");
     }
     validateActionReceipt(record, outcome, receipt);
+    if (outcome === "failure" && OWNED_RESOURCE_CREATION_ACTIONS.has(record.action)) {
+      const failureAbsence = await verifyFailedCreationAbsence(run.manifest, record);
+      receipt = {
+        ...receipt,
+        providerReceipt: {
+          ...receipt.providerReceipt,
+          failureAbsence
+        }
+      };
+    }
     if (
       record.action === "pr.merge" &&
       outcome === "success" &&
