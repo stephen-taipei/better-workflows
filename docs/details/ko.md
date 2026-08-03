@@ -428,6 +428,12 @@ admin bypass, stale checks, 미검토 commit, remote reconciliation 전 cleanup�
 | `deep` | `verified` 후 최대 2개의 Codex critics를 직렬 실행. |
 | `critical` | 전체 evidence/side-effect gates와 policy 필수 외부 reviewer. |
 
+## 보안 모델
+
+- Governed GitHub probe는 token 또는 evidence 생성 시 기록된 절대 `gh` 경로와 content digest를 사용합니다. required-check에 identity가 없거나 binary/path drift가 발생하면 ambient command로 fallback하지 않고 fail closed합니다.
+- PR create의 preflight 이후 wrapper 비제로 종료는 항상 `sent-or-indeterminate`입니다. 명시적으로 `not-sent`로 기록된 preflight failure만 `pull/new` reservation을 해제할 수 있습니다. Reservation은 provider repository, action, resource로 namespace화하며 legacy unscoped reservation은 fail closed로 유지합니다.
+- Wrapper-backed action은 `issue` → `execute`를 사용하고 `execute`가 내부에서 consume합니다. direct `consume`은 wrapper가 아닌 side effect로 제한합니다. Contract의 deferred action은 template action stage뿐 아니라 core lifecycle gate에서도 거부됩니다.
+
 ## 개발 및 검증
 
 ```bash

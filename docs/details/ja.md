@@ -428,6 +428,12 @@ cleanup は拒否します。
 | `deep` | `verified` 後、最大 2 つの Codex critics を直列実行。 |
 | `critical` | 完全な evidence/side-effect gates と、policy 必須の外部 reviewer。 |
 
+## セキュリティモデル
+
+- Governed GitHub probe は token または evidence 作成時に記録した絶対 `gh` path と content digest を使います。required-check に identity がない場合や binary/path drift がある場合は ambient command に fallback せず fail closed します。
+- PR create の preflight 後の wrapper 非ゼロ終了は常に `sent-or-indeterminate` です。明示的に `not-sent` と記録された preflight failure だけが `pull/new` reservation を解放できます。Reservation は provider repository、action、resource で namespace 化し、legacy unscoped reservation は fail closed のままです。
+- Wrapper-backed action は `issue` → `execute` を使い、`execute` が内部で consume します。direct `consume` は wrapper 以外の side effect に限定します。Contract の deferred action は template の action stage だけでなく core lifecycle gate でも拒否されます。
+
 ## 開発・検証
 
 ```bash

@@ -71,6 +71,16 @@ the `pull/new` reservation and reconcile with a provider query rather than
 releasing it as failure. Only an explicitly recorded `not-sent` preflight
 failure can release that reservation.
 
+Creation reservations are namespaced by provider repository, action, and
+resource; an unknown PR in one repository cannot poison another repository's
+`pull/new` slot.
+
+Use `sbw action execute` for wrapper-backed `git.push`, `pr.create`, and
+`pr.merge`; `execute` consumes the token internally. Direct `action consume` is
+reserved for non-wrapper side effects that the root performs before a separate
+reconciliation. Contract `deferredActions` are rejected by the core lifecycle,
+even when a template has no active action stage.
+
 ## Graph View
 
 ```bash

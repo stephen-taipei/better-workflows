@@ -218,6 +218,31 @@ test("localized details pages preserve complete detailed coverage", async (conte
   }
 });
 
+test("provider, reservation, and deferred-action rules stay synchronized across docs", async (context) => {
+  try {
+    await access(overview);
+  } catch {
+    context.skip("repository docs are not part of the installed plugin cache bundle");
+    return;
+  }
+  const files = [
+    path.join(repoRoot, "docs", "details", "en.md"),
+    ...localizedDocuments.map((item) => item.details),
+    path.join(repoRoot, "docs", "guide", "security.md"),
+    path.join(repoRoot, "docs", "guide", "cli-reference.md"),
+    path.join(pluginRoot(), "skills", "better-workflows", "SKILL.md"),
+    path.join(pluginRoot(), "skills", "pr-to-dev", "SKILL.md")
+  ];
+  for (const file of files) {
+    const content = await readFile(file, "utf8");
+    assert.match(content, /sent-or-indeterminate/, file);
+    assert.match(content, /not-sent/, file);
+    assert.match(content, /deferred/, file);
+    assert.match(content, /reservation/i, file);
+    assert.match(content, /provider.*repository|repository.*provider/i, file);
+  }
+});
+
 test("GitHub community tabs and supporting documents are repository-local", async (context) => {
   try {
     await access(overview);

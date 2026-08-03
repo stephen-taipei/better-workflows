@@ -16,7 +16,13 @@ same identity for authorization, PR-state, required-check, receipt, and
 reconciliation probes. If the fixed-argv create wrapper fails after preflight,
 record `sent-or-indeterminate` and reconcile it as unknown; only a preflight
 failure explicitly recorded as `not-sent` can release `pull/new`. Reservation
-expiry and reaping must run under the per-resource lease.
+expiry and reaping must run under the per-resource lease, namespaced by the
+canonical provider repository, action, and resource. Legacy unscoped
+reservations remain blocked until explicitly reconciled. Use `issue` →
+`execute` for wrapper-backed push/create/merge actions; `execute` consumes
+internally and direct `consume` is not a valid alternate path for them.
+Contract-deferred actions are rejected by the core lifecycle and cannot be
+smuggled through an empty action-stage map.
 
 If the reviewed source changes during repair, cancel or supersede this run and
 start a fresh source-bound run with a fresh review package; never rebind after a

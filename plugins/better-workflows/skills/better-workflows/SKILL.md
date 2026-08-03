@@ -281,9 +281,11 @@ Only the root may request an action token, and only for authority already grante
 
 ~~~bash
 sbw action issue <run-id> --action <kind> --provider <provider> --resource <exact-id> --remote-revision <revision>
-sbw action consume <run-id> --token <token>
 # For GitHub PR creation and merges, use the governed fixed-argv provider wrapper.
 sbw action execute <run-id> --token <token>
+# For a non-wrapper side effect, consume the token, perform the authorized
+# operation, then reconcile it. `execute` performs the consume internally.
+sbw action consume <run-id> --token <token>
 # Perform any other authorized side effect, then reconcile it.
 sbw action reconcile <run-id> --attempt <attempt-id> --outcome <success|failure|unknown> --receipt <provider-receipt>
 ~~~
@@ -307,8 +309,16 @@ receipt, or reconciliation probes. A `pr.create` wrapper failure after its
 preflight is `sent-or-indeterminate`, not failure; only an explicit
 preflight record marked `not-sent` can release the `pull/new` reservation.
 Creation reservation, consume, release, and expiry-reap operations are
-serialized by the resource lease, so an expired reservation cannot be taken
-over while another consumer is finalizing it.
+serialized by a resource lease namespaced by provider repository, action, and
+resource, so unrelated repositories do not share a `pull/new` reservation. An
+expired reservation cannot be taken over while another consumer is finalizing
+it; legacy unscoped reservations remain blocked until explicitly reconciled.
+
+`consume` is rejected for wrapper-backed `git.push`, `pr.create`, and
+`pr.merge` actions; use `execute`, which consumes and invokes the fixed-argv
+wrapper as one governed path. A contract `deferredActions` entry is rejected by
+the core issue, consume, execute, reconcile, completion, and cleanup paths;
+template-level empty action gates are not the security boundary.
 
 ## Apply repository-specific policy
 

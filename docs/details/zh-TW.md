@@ -442,6 +442,9 @@ node plugins/better-workflows/scripts/sbw.mjs run \
 - Agy 只允許經授權、去敏且非機密的資料。
 - 多模型 roster 保留所有設定品牌，但只使用最多 24 小時的 CLI 實測結果；到期、`--refresh`、roster 設定或 CLI 身分變動時必須重新驗證。
 - Unknown provider outcome 必須先 query reconciliation，不會盲目重試。
+- Governed GitHub probe 必須使用 token 或 evidence 建立時記錄的絕對 `gh` 路徑與內容 digest；required-check 缺少 identity 或發生 binary/path drift 時直接 fail closed，不會 fallback 到 ambient command。
+- PR create 在 preflight 後 wrapper 非零退出一律是 `sent-or-indeterminate`；只有明確記錄為 `not-sent` 的 preflight failure 才能釋放 `pull/new`。Reservation 以 provider repository、action、resource namespace 化，legacy unscoped reservation 保持 fail closed。
+- Wrapper-backed action 使用 `issue` → `execute`，`execute` 會內部 consume；direct `consume` 只適用於非 wrapper side effect。Contract 的 deferred action 由 core lifecycle gates 拒絕，不只依賴 template action stages。
 
 ## 開發驗證
 

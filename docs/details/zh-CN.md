@@ -421,6 +421,12 @@ node plugins/better-workflows/scripts/sbw.mjs run \
 | `deep` | `verified` 后串行加入最多两个 Codex critics。 |
 | `critical` | 完整 evidence、side-effect gates 与 policy 要求的外部 reviewer。 |
 
+## 安全模型
+
+- Governed GitHub probe 必须使用 token 或 evidence 创建时记录的绝对 `gh` 路径与内容 digest；required-check 缺少 identity 或发生 binary/path drift 时直接 fail closed，不会回退到 ambient command。
+- PR create 在 preflight 后 wrapper 非零退出一律是 `sent-or-indeterminate`；只有明确记录为 `not-sent` 的 preflight failure 才能释放 `pull/new`。Reservation 按 provider repository、action、resource namespace 化，legacy unscoped reservation 保持 fail closed。
+- Wrapper-backed action 使用 `issue` → `execute`，`execute` 会内部 consume；direct `consume` 只适用于非 wrapper side effect。Contract 的 deferred action 由 core lifecycle gates 拒绝，不只依赖 template action stages。
+
 ## 开发验证
 
 ```bash

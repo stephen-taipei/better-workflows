@@ -63,8 +63,13 @@ rationale.
   `not-sent` may release the `pull/new` reservation; all other outcomes remain
   unknown until a provider query proves absence or canonical ownership.
 - Creation reservation, consumption, release, and expiry reaping are
-  serialized by a per-resource lease. An expired lease cannot be reclaimed
-  while another consumer is finalizing the same creation attempt.
+  serialized by a per-resource lease and namespaced by provider repository,
+  action, and resource. An expired lease cannot be reclaimed while another
+  consumer is finalizing the same creation attempt; legacy unscoped
+  reservations remain fail-closed.
+- Contract `deferredActions` are rejected by the core issue, consume, execute,
+  reconcile, completion, and cleanup paths; an empty template action-stage map
+  is not the security boundary.
 - Governed `pr.create` actions bind the provider receipt to the exact candidate
   source commit observed when the action token is issued; a PR from another
   source head cannot be reconciled or registered as run-owned.
