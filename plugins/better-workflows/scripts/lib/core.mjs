@@ -944,7 +944,24 @@ async function reserveProviderExecution(root, record, executionId, outcome = rec
   }
   const actionReservations = sameAttempt.filter((item) => item.action === record.action);
   const exact = actionReservations.find((item) => item.executionId === executionId);
-  if (exact) return;
+  if (exact) {
+    if (exact.outcome === outcome) return;
+    const canResolveSameIdentity = (
+      OWNED_RESOURCE_CREATION_ACTIONS.has(record.action) &&
+      record.outcome === "unknown" &&
+      exact.outcome === "unknown" &&
+      ["success", "failure"].includes(outcome)
+    );
+    if (canResolveSameIdentity) {
+      await atomicWriteJson(root, target, {
+        ...exact,
+        outcome,
+        terminalAt: nowIso()
+      });
+      return;
+    }
+    throw new Error("Provider execution identity is already bound to a different terminal outcome");
+  }
   const terminal = actionReservations.find((item) => ["success", "failure"].includes(item.outcome));
   const unknown = actionReservations.find((item) => item.outcome === "unknown");
   const canSupersedeUnknown = (
@@ -2053,7 +2070,7 @@ async function verifyGitHubCredentialActor(cwd, remoteUrl, repository) {
   };
 }
 
-async function captureCreationPrecondition(cwd, action, resource) {
+async function captureCreationPrecondition(cwd, action, resource, providerExecutablePath = "gh") {
   if (action === "branch.create") {
     const ref = resource.slice("branch:".length);
     try {
@@ -2095,7 +2112,7 @@ async function captureCreationPrecondition(cwd, action, resource) {
   if (action === "actions.dispatch" && resource.startsWith("run:")) {
     const runId = resource.slice("run:".length);
     try {
-      const actual = JSON.parse((await execFileAsync("gh", ["run", "view", runId, "--json", "databaseId,status"], {
+      const actual = JSON.parse((await execFileAsync(providerExecutablePath, ["run", "view", runId, "--json", "databaseId,status"], {
         cwd,
         encoding: "utf8"
       })).stdout);
@@ -2112,7 +2129,11 @@ async function verifyFailedCreationAbsence(manifest, record) {
   if (!OWNED_RESOURCE_CREATION_ACTIONS.has(record.action)) return null;
   const cwd = manifest.cwd;
   if (record.action === "pr.create" && record.provider === "github-cli") {
-    const repository = record.createRepository ?? await currentRepositoryIdentity(cwd);
+    const providerExecutablePath = await verifyRecordedGitHubProvider(manifest, record);
+    const repository = record.createRepository ?? record.providerAuthorization?.repository;
+    if (!repository || await currentRepositoryIdentity(cwd) !== repository) {
+      throw new Error("Failed PR creation reconciliation repository changed after authorization");
+    }
     const repositoryPath = repository.startsWith("github.com/")
       ? repository.slice("github.com/".length)
       : repository;
@@ -2126,8 +2147,8 @@ async function verifyFailedCreationAbsence(manifest, record) {
       `base=${encodeURIComponent(record.targetRef)}`,
       "per_page=100"
     ].join("&");
-    const command = ["gh", "api", "--paginate", "--slurp", endpoint];
-    const output = await execFileAsync(command[0], command.slice(1), { cwd, encoding: "utf8" });
+    const command = [providerExecutablePath, "api", "--paginate", "--slurp", endpoint];
+    const output = await execFileAsync(providerExecutablePath, command.slice(1), { cwd, encoding: "utf8" });
     let pages;
     try {
       pages = JSON.parse(output.stdout);
@@ -2182,7 +2203,10 @@ async function verifyFailedCreationAbsence(manifest, record) {
       absent: true
     };
   }
-  const precondition = await captureCreationPrecondition(cwd, record.action, record.resource);
+  const providerExecutablePath = record.action === "actions.dispatch" && record.provider === "github-cli"
+    ? await verifyRecordedGitHubProvider(manifest, record)
+    : "gh";
+  const precondition = await captureCreationPrecondition(cwd, record.action, record.resource, providerExecutablePath);
   if (precondition?.state !== "absent") {
     throw new Error("Failed owned-resource creation reconciliation found an existing provider resource; preserve the reservation and reconcile the provider outcome");
   }
@@ -3454,6 +3478,12 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
         providerExecutable: await currentProviderExecutableIdentity("gh")
       };
     }
+    if (request.action === "actions.dispatch" && request.provider === "github-cli") {
+      actionBinding = {
+        ...actionBinding,
+        providerExecutable: await currentProviderExecutableIdentity("gh")
+      };
+    }
     if (request.action === "pr.merge") {
       const pullRequest = Number(String(request.resource).replace(/^pull\//, ""));
       if (!Number.isInteger(pullRequest)) throw new Error("PR merge resources must use pull/<number>");
@@ -3618,7 +3648,12 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
         // Reserve before observing absence so an external creator cannot win the gap.
         await reserveCreationResource(root, runId, request.resource, tokenHash, expiresAt);
         reservationHeld = true;
-        creationPrecondition = await captureCreationPrecondition(manifest.cwd, request.action, request.resource);
+        creationPrecondition = await captureCreationPrecondition(
+          manifest.cwd,
+          request.action,
+          request.resource,
+          actionBinding.providerExecutable?.path ?? "gh"
+        );
         if (!creationPrecondition || creationPrecondition.state !== "absent") {
           throw new Error("Owned resource creation requires an observed absent precondition after reservation");
         }
@@ -3701,7 +3736,7 @@ export async function consumeActionToken(root, runId, token, currentTreeDigest) 
         throw new Error("Action consumption denied because the controlled Git credential check changed");
       }
     }
-    if (record.action === "pr.create" || record.action === "pr.merge" || record.action === "git.push") {
+    if (record.action === "pr.create" || record.action === "pr.merge" || record.action === "actions.dispatch" || record.action === "git.push") {
       const executable = await currentProviderExecutableIdentity(record.action === "git.push" ? "git" : "gh");
       if (digestObject(executable) !== digestObject(record.providerExecutable)) {
         throw new Error("Action consumption denied because the governed provider executable changed");

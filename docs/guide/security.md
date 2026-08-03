@@ -37,7 +37,8 @@ rationale.
   reservation and cannot be retried blindly. An operator may reconcile that
   same attempt as `success` only after a fresh provider-side proof is bound to
   the consumed action's native marker, actor, source, and provider object, or
-  as `failure` only after the same provider-side absence proof succeeds;
+  as `failure` only after the same provider-side absence proof succeeds under
+  the recorded executable, live authorization, and bound repository;
   expiry reaping never releases an unknown reservation automatically.
 - Provider-execution reservations are idempotent only for the same run,
   action attempt, token, and execution identity. A consumed owned-resource

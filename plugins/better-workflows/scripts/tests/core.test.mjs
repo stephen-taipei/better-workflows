@@ -148,6 +148,7 @@ test("known failed owned creation releases its reservation for a retry", async (
   await execFileAsync("git", ["init", "-q"], { cwd: repository });
   await execFileAsync("git", ["config", "user.email", "sbw@example.invalid"], { cwd: repository });
   await execFileAsync("git", ["config", "user.name", "SBW Test"], { cwd: repository });
+  await execFileAsync("git", ["remote", "add", "origin", "https://github.com/example/repo.git"], { cwd: repository });
   await writeFile(path.join(repository, "README.md"), "retry\n");
   await execFileAsync("git", ["add", "README.md"], { cwd: repository });
   await execFileAsync("git", ["commit", "-qm", "baseline"], { cwd: repository });
@@ -219,6 +220,65 @@ test("known failed owned creation releases its reservation for a retry", async (
   assert.notEqual(retry.token, issued.token);
 });
 
+test("GitHub Actions dispatch tokens bind the provider executable for recovery", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-actions-dispatch-binding-"));
+  const repository = path.join(root, "repository");
+  const bin = path.join(root, "bin");
+  await mkdir(repository, { recursive: true });
+  await mkdir(bin, { recursive: true });
+  await execFileAsync("git", ["init", "-q"], { cwd: repository });
+  await execFileAsync("git", ["config", "user.email", "sbw@example.invalid"], { cwd: repository });
+  await execFileAsync("git", ["config", "user.name", "SBW Test"], { cwd: repository });
+  await execFileAsync("git", ["remote", "add", "origin", "https://github.com/example/repo.git"], { cwd: repository });
+  await writeFile(path.join(repository, "README.md"), "dispatch\n");
+  await execFileAsync("git", ["add", "README.md"], { cwd: repository });
+  await execFileAsync("git", ["commit", "-qm", "baseline"], { cwd: repository });
+  const fakeGh = path.join(bin, "gh");
+  const ghScript = "#!/bin/sh\nif [ \"$1\" = \"api\" ] && [ \"$2\" = \"user\" ]; then\n  printf '%s\\n' '{\"login\":\"alice\"}'\nelif [ \"$1\" = \"api\" ] && [ \"$2\" = \"repos/example/repo\" ]; then\n  printf '%s\\n' '{\"full_name\":\"example/repo\",\"permissions\":{\"admin\":false,\"maintain\":false,\"push\":true}}'\nelif [ \"$1\" = \"run\" ]; then\n  exit 1\nfi\n";
+  await writeFile(fakeGh, ghScript);
+  await chmod(fakeGh, 0o755);
+  const priorPath = process.env.PATH;
+  process.env.PATH = `${bin}:${priorPath}`;
+  try {
+    const run = await createRun({
+      root,
+      contract: contract({ authority: ["actions.dispatch"] }),
+      requestedMode: "verified",
+      cwd: repository
+    });
+    await addEvidence(root, run.runId, {
+      id: "preflight",
+      kind: "preflight",
+      summary: "Actions dispatch preflight",
+      status: "complete",
+      acceptanceIds: [],
+      sourceDigest: "a".repeat(64)
+    });
+    await updateState(root, run.runId, (state) => ({
+      ...state,
+      lastSentinel: { label: "test", digest: "tree" },
+      lastSentinelVerified: true,
+      lastSentinelComplete: true
+    }));
+    const issued = await issueActionToken(root, run.runId, {
+      action: "actions.dispatch",
+      provider: "github-cli",
+      resource: "run:123",
+      remoteRevision: "abc",
+      requiredEvidence: ["preflight"]
+    }, "tree", await loadDefaults());
+    assert.deepEqual(issued.providerExecutable, {
+      path: await realpath(fakeGh),
+      digest: sha256(ghScript)
+    });
+    assert.equal(issued.creationPrecondition.state, "absent");
+    const consumed = await consumeActionToken(root, run.runId, issued.token, "tree");
+    assert.equal(consumed.providerExecutable.digest, sha256(ghScript));
+  } finally {
+    process.env.PATH = priorPath;
+  }
+});
+
 test("failed PR creation preserves its reservation until provider absence is proven", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "sbw-pr-failure-absence-"));
   const repository = path.join(root, "repository");
@@ -228,6 +288,7 @@ test("failed PR creation preserves its reservation until provider absence is pro
   await execFileAsync("git", ["init", "-q"], { cwd: repository });
   await execFileAsync("git", ["config", "user.email", "sbw@example.invalid"], { cwd: repository });
   await execFileAsync("git", ["config", "user.name", "SBW Test"], { cwd: repository });
+  await execFileAsync("git", ["remote", "add", "origin", "https://github.com/example/repo.git"], { cwd: repository });
   await writeFile(path.join(repository, "README.md"), "pr failure\n");
   await execFileAsync("git", ["add", "README.md"], { cwd: repository });
   await execFileAsync("git", ["commit", "-qm", "baseline"], { cwd: repository });
@@ -259,6 +320,13 @@ test("failed PR creation preserves its reservation until provider absence is pro
     targetRef: "dev",
     headBranch: "codex/feature",
     createRepository: "github.com/example/repo",
+    providerAuthorization: {
+      provider: "github-cli",
+      repository: "github.com/example/repo",
+      actor: "alice",
+      permissions: { admin: false, maintain: false, push: true }
+    },
+    providerExecutable: null,
     creationPrecondition: { action: "pr.create", resource, state: "absent", number: null }
   };
   await writeFile(path.join(runDir, "actions", `${tokenHash}.json`), `${JSON.stringify(action)}\n`);
@@ -275,8 +343,11 @@ test("failed PR creation preserves its reservation until provider absence is pro
   const argsPath = path.join(root, "fake-gh-args.txt");
   const fakeGh = path.join(bin, "gh");
   await writeFile(responsePath, "[[{\"number\":99,\"headRefOid\":\"other\",\"baseRefName\":\"dev\",\"url\":\"https://example.invalid/pull/99\"}]]\n");
-  await writeFile(fakeGh, "#!/bin/sh\nprintf '%s\\n' \"$*\" > \"$SBW_FAKE_PR_ARGS\"\ncat \"$SBW_FAKE_PR_LIST\"\n");
+  const ghScript = "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$SBW_FAKE_PR_ARGS\"\nif [ \"$1\" = \"api\" ] && [ \"$2\" = \"user\" ]; then\n  printf '{\"login\":\"%s\"}\\n' \"${SBW_FAKE_GH_ACTOR:-alice}\"\nelif [ \"$1\" = \"api\" ] && [ \"$2\" = \"repos/example/repo\" ]; then\n  printf '{\"full_name\":\"example/repo\",\"permissions\":{\"admin\":false,\"maintain\":false,\"push\":%s}}\\n' \"${SBW_FAKE_GH_PUSH:-true}\"\nelse\n  cat \"$SBW_FAKE_PR_LIST\"\nfi\n";
+  await writeFile(fakeGh, ghScript);
   await chmod(fakeGh, 0o755);
+  action.providerExecutable = { path: await realpath(fakeGh), digest: sha256(ghScript) };
+  await writeFile(path.join(runDir, "actions", `${tokenHash}.json`), `${JSON.stringify(action)}\n`);
   const receipt = {
     action: "pr.create",
     provider: "github-cli",
@@ -306,9 +377,13 @@ test("failed PR creation preserves its reservation until provider absence is pro
   const priorPath = process.env.PATH;
   const priorResponse = process.env.SBW_FAKE_PR_LIST;
   const priorArgs = process.env.SBW_FAKE_PR_ARGS;
+  const priorActor = process.env.SBW_FAKE_GH_ACTOR;
+  const priorPush = process.env.SBW_FAKE_GH_PUSH;
   process.env.PATH = `${bin}:${priorPath}`;
   process.env.SBW_FAKE_PR_LIST = responsePath;
   process.env.SBW_FAKE_PR_ARGS = argsPath;
+  process.env.SBW_FAKE_GH_ACTOR = "alice";
+  process.env.SBW_FAKE_GH_PUSH = "true";
   try {
     const unknownReceipt = {
       ...receipt,
@@ -328,6 +403,27 @@ test("failed PR creation preserves its reservation until provider absence is pro
       /existing pull request; preserve the reservation/
     );
     await stat(reservationPath);
+    process.env.SBW_FAKE_GH_ACTOR = "mallory";
+    await assert.rejects(
+      reconcileAction(root, run.runId, attemptId, "failure", receipt),
+      /actor or permissions changed/
+    );
+    await stat(reservationPath);
+    process.env.SBW_FAKE_GH_ACTOR = "alice";
+    await writeFile(fakeGh, `${ghScript}\n# executable drift\n`);
+    await assert.rejects(
+      reconcileAction(root, run.runId, attemptId, "failure", receipt),
+      /governed provider executable changed/
+    );
+    await stat(reservationPath);
+    await writeFile(fakeGh, ghScript);
+    await execFileAsync("git", ["remote", "set-url", "origin", "https://github.com/other/repo.git"], { cwd: repository });
+    await assert.rejects(
+      reconcileAction(root, run.runId, attemptId, "failure", receipt),
+      /origin repository changed/
+    );
+    await stat(reservationPath);
+    await execFileAsync("git", ["remote", "set-url", "origin", "https://github.com/example/repo.git"], { cwd: repository });
     assert.match(await readFile(argsPath, "utf8"), /api --paginate --slurp repos\/example\/repo\/pulls\?state=all&head=example%3Acodex%2Ffeature&base=dev&per_page=100/);
     await writeFile(responsePath, "[[]]\n");
     const reconciled = await reconcileAction(root, run.runId, attemptId, "failure", receipt);
@@ -339,6 +435,10 @@ test("failed PR creation preserves its reservation until provider absence is pro
     else process.env.SBW_FAKE_PR_LIST = priorResponse;
     if (priorArgs === undefined) delete process.env.SBW_FAKE_PR_ARGS;
     else process.env.SBW_FAKE_PR_ARGS = priorArgs;
+    if (priorActor === undefined) delete process.env.SBW_FAKE_GH_ACTOR;
+    else process.env.SBW_FAKE_GH_ACTOR = priorActor;
+    if (priorPush === undefined) delete process.env.SBW_FAKE_GH_PUSH;
+    else process.env.SBW_FAKE_GH_PUSH = priorPush;
   }
 });
 
@@ -632,6 +732,31 @@ fi
       attemptId,
       tokenHash,
       action: "pr.create",
+      outcome: "failure",
+      recordedAt: new Date().toISOString()
+    })}\n`);
+    await assert.rejects(
+      reconcileAction(root, run.runId, attemptId, "success", {
+        action: "pr.create",
+        provider: "github-cli",
+        resource,
+        outcome: "success",
+        runId: run.runId,
+        attemptId,
+        idempotencyKey,
+        remoteRevision,
+        providerReceipt,
+        evidenceIds: [actionEvidence.id]
+      }),
+      /different terminal outcome/
+    );
+    await writeFile(providerExecutionPath, `${JSON.stringify({
+      executionId: providerReceipt.executionId,
+      runId: run.runId,
+      attemptId,
+      tokenHash,
+      action: "pr.create",
+      outcome: "success",
       recordedAt: new Date().toISOString()
     })}\n`);
     const recovered = await reconcileAction(root, run.runId, attemptId, "success", {
