@@ -245,6 +245,8 @@ $better-workflows:auto <완료하려는 결과를 설명>
 
 자기 개선 evaluation은 immutable baseline에 동결된 checked-in, sanitized train/holdout corpus만 사용합니다. candidate를 먼저 staging한 뒤 세 번의 read-only Codex holdout replay가 safety failure 및 regression 없이 baseline median을 엄격히 넘어야 합니다. Codex replay에는 정확한 binary와 model을 고정된 `/etc/better-workflows/codex-trust-root.json`에 묶는 host-signed attestation이 필요합니다. 이 file과 상위 directory는 administrator 소유이고 호출자가 쓸 수 없어야 합니다. `PATH`, 자체 hash, CLI에서 선택한 trust root, model 자기 보고는 provider attestation이 아닙니다. tie, noise, evidence 부족, fixture-only 결과는 auto-adopt하지 않습니다.
 
+성공한 각 replay에는 exact prompt digest, parsed response digest, binary/model, execution, exit status, timestamps를 바인딩하는 administrator-signed `result receipt`도 필요합니다. delivery 전에 receipt를 다시 검증합니다.
+
 Evaluation v2.2는 기존 safety, documentation, deliberation, sanitizer, evaluation-engineering coverage를 유지하고 typed-evidence integrity, execution-ledger replay, bounded review convergence, direct-work cost를 위한 독립 train/holdout classes를 추가합니다. 일회성 migration은 immutable v2.1을 source로 사용하며 source/target 두 suite digest를 일곱 signed executions 모두에 결합합니다.
 
 일반 clone 또는 workspace recipe 실행에는 host trust root가 **필요하지 않습니다**. 실제 Codex self-improve replay로 commit, cache publication, delivery를 승인하려는 maintainer만 각 host에서 administrator가 한 번 실행합니다:
@@ -431,7 +433,7 @@ admin bypass, stale checks, 미검토 commit, remote reconciliation 전 cleanup�
 ## 보안 모델
 
 - Governed GitHub probe는 token 또는 evidence 생성 시 기록된 절대 `gh` 경로와 content digest를 사용합니다. required-check에 identity가 없거나 binary/path drift가 발생하면 ambient command로 fallback하지 않고 fail closed합니다.
-- PR create의 preflight 이후 wrapper 비제로 종료는 항상 `sent-or-indeterminate`입니다. 명시적으로 `not-sent`로 기록된 preflight failure만 `pull/new` reservation을 해제할 수 있습니다. Reservation은 provider repository, action, resource로 namespace화하며 legacy unscoped reservation은 fail closed로 유지합니다.
+- PR create의 preflight 이후 wrapper 비제로 종료는 항상 `sent-or-indeterminate`입니다. 명시적으로 `not-sent`로 기록된 preflight failure는 `pull/new` reservation을 직접 해제할 수 있고, fresh하며 pinned provider에 바인딩된 absence proof는 같은 unknown attempt를 failure로 reconcile한 뒤 해제할 수 있습니다. Reservation은 provider repository, action, resource로 namespace화하며 legacy unscoped reservation은 fail closed로 유지합니다.
 - Wrapper-backed action은 `issue` → `execute`를 사용하고 `execute`가 내부에서 consume합니다. direct `consume`은 wrapper가 아닌 side effect로 제한합니다. Contract의 deferred action은 template action stage뿐 아니라 core lifecycle gate에서도 거부됩니다.
 
 ## 개발 및 검증

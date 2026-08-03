@@ -67,9 +67,11 @@ Governed GitHub actions record an absolute `gh` executable path and content
 digest at token issuance. Provider probes and fixed-argv wrappers use that
 recorded identity; a PATH or executable drift fails closed. A non-zero PR
 creation wrapper exit after preflight remains sent-or-indeterminate, so keep
-the `pull/new` reservation and reconcile with a provider query rather than
-releasing it as failure. Only an explicitly recorded `not-sent` preflight
-failure can release that reservation.
+the `pull/new` reservation and reconcile with a pinned provider query rather
+than treating it as an immediate failure. An explicitly recorded `not-sent`
+preflight failure can release the reservation directly; a fresh provider proof
+of exact absence can reconcile the same unknown attempt as failure, while a
+provider object or identity drift remains fail-closed.
 
 Creation reservations are namespaced by provider repository, action, and
 resource; an unknown PR in one repository cannot poison another repository's
@@ -159,6 +161,12 @@ sbw self-improve attestation request \
   --model <model> \
   --output <outside-repo-directory>
 ```
+
+Real Codex replay also requires one distinct administrator-signed `result
+receipt` per execution. The receipt is created outside the repository with
+`host-trust.mjs sign-result` from an administrator-confirmed request digest;
+the evaluator rechecks its prompt digest, parsed response digest, binary/model,
+execution binding, exit status, timestamps, and trust root before delivery.
 
 ## Repository validation
 

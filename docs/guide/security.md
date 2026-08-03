@@ -36,12 +36,12 @@ rationale.
 - A consumed owned-resource creation with outcome `unknown` keeps its
   reservation and cannot be retried blindly. An operator may reconcile that
   same attempt as `success` only after a fresh provider-side proof is bound to
-  the consumed action's native marker, actor, source, and provider object;
-  an absence snapshot cannot convert `unknown` to `failure`, because a
-  matching provider object may appear after the snapshot and before local
-  reservation finalization. The reservation remains held until an authoritative
-  terminal provider result is available; expiry reaping never releases an
-  unknown reservation automatically.
+  the consumed action's native marker, actor, source, and provider object; it
+  may reconcile as `failure` only after a fresh pinned-provider absence proof
+  for the exact resource. An unpinned or local absence snapshot cannot release
+  the reservation. Provider presence, malformed results, or identity drift
+  remain fail-closed, and expiry reaping never releases an unknown reservation
+  automatically.
 - Provider-execution reservations are idempotent only for the same run,
   action attempt, token, execution identity, and recorded outcome. A consumed
   owned-resource attempt may make one controlled transition from an `unknown`
@@ -59,9 +59,11 @@ rationale.
   provider-authorization drift fails closed before the provider call; governed
   GitHub invocations never fall back to an ambient bare `gh` command.
 - A non-zero `pr.create` wrapper exit after preflight is `sent-or-indeterminate`,
-  not authoritative failure. Only a recorded preflight failure marked
-  `not-sent` may release the `pull/new` reservation; all other outcomes remain
-  unknown until a provider query proves absence or canonical ownership.
+  not authoritative failure. A recorded preflight failure marked `not-sent` may
+  release the `pull/new` reservation directly; a sent-or-indeterminate outcome
+  remains unknown until a pinned provider query proves exact absence or
+  canonical ownership. Verified absence may then reconcile the same attempt as
+  failure and release the reservation.
 - Creation reservation, consumption, release, and expiry reaping are
   serialized by a per-resource lease and namespaced by provider repository,
   action, and resource. An expired lease cannot be reclaimed while another
@@ -128,8 +130,11 @@ node plugins/better-workflows/scripts/sbw.mjs \
 ```
 
 Training and holdout attestations cannot be reused for a different run or
-candidate digest. A tie, mismatch, timeout, regression, or unknown result is not
-authority to commit, publish, push, or merge.
+candidate digest. Each successful replay also needs a distinct administrator-
+signed `result receipt` covering the exact prompt digest, parsed response
+digest, binary/model identity, execution binding, exit status, and timestamps.
+A tie, mismatch, timeout, regression, or unknown result is not authority to
+commit, publish, push, or merge.
 
 Before sampling by file count or bytes, the sanitizer validates every changed
 path against a fixed plugin and repository-public-document allowlist. Paths

@@ -88,9 +88,12 @@ non-secret-shaped content from approved paths is sent to Codex.
 
 Each real replay also needs a distinct host-signed execution binding: its unique
 execution ID, run ID, corpus digest, baseline revision, candidate digest, role,
-and attempt number are all signed. Training takes one attestation; holdout takes
-six distinct attestations (candidate 1–3, then baseline 1–3). Replayed or
-duplicated attestation files cannot authorize delivery.
+attempt number, and exact prompt digest are all signed. After Codex returns, the
+administrator must sign a distinct host result receipt that covers the same
+execution, prompt digest, parsed response digest, binary/model identity, exit
+status, and timestamps. Training takes one attestation and one result receipt;
+holdout takes six distinct pairs (candidate 1–3, then baseline 1–3). Replayed,
+duplicated, or response-mutated receipt files cannot authorize delivery.
 
 Ordinary clones and workspace recipes do not require this host trust root. A
 maintainer who will run real self-improvement delivery replays must first use
@@ -111,8 +114,15 @@ sbw self-improve evaluate \
   --cases plugins/better-workflows/fixtures/self-improve-ops-evals-v2.2.json \
   --baseline <immutable-baseline> --candidate-root . \
   --backend codex --model <attested-model> --allow-codex --sanitized \
-  --trusted-codex-attestation /host/attestation.json --split train
+  --trusted-codex-attestation /host/attestation.json \
+  --trusted-codex-result-receipt /host/result-receipt.json --split train
 ```
+
+The result receipt is produced by the administrator-only host signer with
+`host-trust.mjs sign-result` after reviewing the exact request digest. The
+receipt must remain outside the evaluated repository; `sbw` verifies its
+signature, prompt/response digests, binary, model, execution, exit status, and
+timestamps before recording replay evidence.
 
 For a versioned evaluator migration, replace the ordinary cases path with the
 immutable previous corpus and add:

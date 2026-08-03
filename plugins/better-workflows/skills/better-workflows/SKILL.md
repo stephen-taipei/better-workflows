@@ -294,7 +294,9 @@ Never retry an `unknown` outcome without provider-side query reconciliation.
 For an owned-resource creation, the same consumed attempt may be reconciled as
 `success` only when the provider query proves the exact native marker, actor,
 source, repository, and provider object. An unknown owned-resource attempt may
-not be reconciled as `failure` from an absence snapshot. Provider-execution
+be reconciled as `failure` only after a fresh pinned-provider query proves the
+exact resource is absent; an unpinned or local absence snapshot is not enough.
+Provider-execution
 reservations may resume only for the same run, action attempt, token, execution
 identity, and recorded outcome after an interrupted action-record write, with
 one controlled unknown-to-terminal supersession and no second identity;
@@ -306,8 +308,10 @@ For governed GitHub actions, bind every provider probe to the absolute
 executable path and content digest captured at token issuance; do not resolve a
 fresh PATH command or invoke a bare `gh` during authorization, PR-state, check,
 receipt, or reconciliation probes. A `pr.create` wrapper failure after its
-preflight is `sent-or-indeterminate`, not failure; only an explicit
-preflight record marked `not-sent` can release the `pull/new` reservation.
+preflight is `sent-or-indeterminate`, not immediate failure; an explicit
+preflight record marked `not-sent` can release `pull/new` directly, while a
+fresh pinned-provider absence proof may reconcile the same unknown attempt as
+failure.
 Creation reservation, consume, release, and expiry-reap operations are
 serialized by a resource lease namespaced by provider repository, action, and
 resource, so unrelated repositories do not share a `pull/new` reservation. An

@@ -318,6 +318,9 @@ attestation binding the exact binary and model to the administrator-owned fixed
 host trust root at `/etc/better-workflows/codex-trust-root.json`;
 `PATH`, a self-hash, and model self-report are not provider attestation. Ties,
 noise, missing evidence, and fixture-only results never auto-adopt a change.
+Each successful replay also requires a distinct administrator-signed `result
+receipt` binding the exact prompt digest, parsed response digest, binary/model,
+execution, exit status, and timestamps; the receipt is verified before delivery.
 
 Evaluation v2.2 preserves the existing safety, documentation, deliberation,
 sanitizer, and evaluation-engineering coverage, and adds isolated train/holdout
@@ -664,7 +667,7 @@ automatically falls back to the runner bundled with the active plugin.
 - The multi-model roster retains every configured brand, but only uses a CLI-proven result from a separate `medium` or `high` cache profile lasting at most 24 hours; expiry, `--refresh`, roster changes, and CLI identity changes force revalidation.
 - Unknown provider outcomes require query reconciliation and are never blindly retried.
 - Governed GitHub probes use the absolute `gh` path and content digest captured at token or evidence creation; required-check verification rejects missing identities and path/binary drift rather than resolving an ambient fallback.
-- A PR-create wrapper failure after preflight is `sent-or-indeterminate`; only an explicit `not-sent` preflight may release `pull/new`. Reservations are namespaced by provider repository, action, and resource, and legacy unscoped reservations remain fail-closed.
+- A PR-create wrapper failure after preflight is `sent-or-indeterminate`; an explicit `not-sent` preflight may release `pull/new` directly, while a fresh pinned-provider absence proof may reconcile the same unknown attempt as failure and release it. Reservations are namespaced by provider repository, action, and resource, and legacy unscoped reservations remain fail-closed.
 - Wrapper-backed actions use `issue` → `execute`; `execute` consumes internally, while direct `consume` is reserved for non-wrapper side effects. Contract-deferred actions are rejected by core lifecycle gates, not only by template action stages.
 - The project assumes trusted local repositories and does not claim to sandbox malicious repository code.
 

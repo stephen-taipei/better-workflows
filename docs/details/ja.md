@@ -245,6 +245,8 @@ $better-workflows:auto <達成したい結果を記述>
 
 自己改善 evaluation は、immutable baseline で凍結した checked-in・sanitized の train/holdout corpus だけを使います。candidate は先に staging し、3 回の read-only Codex holdout replay が safety failure と regression なしで baseline median を厳密に上回る必要があります。Codex replay には、正確な binary と model を固定の `/etc/better-workflows/codex-trust-root.json` に結び付ける host-signed attestation が必要です。この file と親 directory は administrator 所有で、呼び出し元が書き込めない必要があります。`PATH`、自己 hash、CLI で選ぶ trust root、model の自己申告は provider attestation ではありません。tie、noise、evidence 不足、fixture-only の結果は auto-adopt しません。
 
+成功した各 replay には、exact prompt digest、parsed response digest、binary/model、execution、exit status、timestamps を結び付ける administrator-signed `result receipt` も必要です。delivery 前に receipt を再検証します。
+
 Evaluation v2.2 は既存の safety、documentation、deliberation、sanitizer、evaluation-engineering coverage を維持し、typed-evidence integrity、execution-ledger replay、bounded review convergence、direct-work cost の独立 train/holdout classes を追加します。一度限りの migration は immutable v2.1 を source とし、source/target 両 suite digest を七つすべての signed executions に結び付けます。
 
 通常の clone や workspace recipe の実行には host trust root は**不要**です。実 Codex self-improve replay で commit、cache publication、delivery を許可する maintainer だけが、各 host で administrator により一度だけ実行します：
@@ -431,7 +433,7 @@ cleanup は拒否します。
 ## セキュリティモデル
 
 - Governed GitHub probe は token または evidence 作成時に記録した絶対 `gh` path と content digest を使います。required-check に identity がない場合や binary/path drift がある場合は ambient command に fallback せず fail closed します。
-- PR create の preflight 後の wrapper 非ゼロ終了は常に `sent-or-indeterminate` です。明示的に `not-sent` と記録された preflight failure だけが `pull/new` reservation を解放できます。Reservation は provider repository、action、resource で namespace 化し、legacy unscoped reservation は fail closed のままです。
+- PR create の preflight 後の wrapper 非ゼロ終了は常に `sent-or-indeterminate` です。明示的に `not-sent` と記録された preflight failure は `pull/new` reservation を直接解放でき、fresh で pinned provider に結び付いた absence proof は同じ unknown attempt を failure として reconcile してから解放できます。Reservation は provider repository、action、resource で namespace 化し、legacy unscoped reservation は fail closed のままです。
 - Wrapper-backed action は `issue` → `execute` を使い、`execute` が内部で consume します。direct `consume` は wrapper 以外の side effect に限定します。Contract の deferred action は template の action stage だけでなく core lifecycle gate でも拒否されます。
 
 ## 開発・検証

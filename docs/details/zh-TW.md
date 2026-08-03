@@ -251,6 +251,8 @@ $better-workflows:cross-platform 檢查 backend、iOS 和 Android 的 contact sy
 
 自我改善 evaluation 只使用已 checked-in、sanitized 且在 immutable baseline 凍結的 train/holdout corpus。candidate 必須先 staging；三次 read-only Codex holdout replay 必須在沒有 safety failure 或 regression 下，嚴格超過 baseline median。Codex replay 需要 host-signed attestation，將精確 binary 與 model 綁定到固定的 `/etc/better-workflows/codex-trust-root.json`；該檔與父目錄必須由 administrator 擁有且不可由呼叫者寫入。`PATH`、自行計算 hash、CLI 選擇 trust root 或 model 自述都不是 provider attestation。tie、noise、缺少 evidence 或 fixture-only 結果都不會 auto-adopt。
 
+每次成功 replay 還需要獨立的 administrator-signed `result receipt`，綁定 exact prompt digest、parsed response digest、binary/model、execution、exit status 與 timestamps；delivery 前會重新驗證此 receipt。
+
 Evaluation v2.2 保留既有 safety、documentation、deliberation、sanitizer 與 evaluation-engineering coverage，並增加 typed-evidence integrity、execution-ledger replay、bounded review convergence 與 direct-work cost 的獨立 train/holdout classes。一次性的 migration 以 immutable v2.1 為 source，並將 source/target 兩份 suite digest 綁入全部七份 signed executions。
 
 一般 clone 或執行 workspace recipe **不需要** host trust root；只有要以真實 Codex self-improve replay 授權 commit、cache publication 或 delivery 的 maintainer，才需由 administrator 在每台 host 一次性執行：
@@ -443,7 +445,7 @@ node plugins/better-workflows/scripts/sbw.mjs run \
 - 多模型 roster 保留所有設定品牌，但只使用最多 24 小時的 CLI 實測結果；到期、`--refresh`、roster 設定或 CLI 身分變動時必須重新驗證。
 - Unknown provider outcome 必須先 query reconciliation，不會盲目重試。
 - Governed GitHub probe 必須使用 token 或 evidence 建立時記錄的絕對 `gh` 路徑與內容 digest；required-check 缺少 identity 或發生 binary/path drift 時直接 fail closed，不會 fallback 到 ambient command。
-- PR create 在 preflight 後 wrapper 非零退出一律是 `sent-or-indeterminate`；只有明確記錄為 `not-sent` 的 preflight failure 才能釋放 `pull/new`。Reservation 以 provider repository、action、resource namespace 化，legacy unscoped reservation 保持 fail closed。
+- PR create 在 preflight 後 wrapper 非零退出一律是 `sent-or-indeterminate`；明確記錄為 `not-sent` 的 preflight failure 可直接釋放 `pull/new`，而 fresh 且綁定 pinned provider 的 absence proof 可將同一個 unknown attempt reconcile 為 failure 後釋放。Reservation 以 provider repository、action、resource namespace 化，legacy unscoped reservation 保持 fail closed。
 - Wrapper-backed action 使用 `issue` → `execute`，`execute` 會內部 consume；direct `consume` 只適用於非 wrapper side effect。Contract 的 deferred action 由 core lifecycle gates 拒絕，不只依賴 template action stages。
 
 ## 開發驗證

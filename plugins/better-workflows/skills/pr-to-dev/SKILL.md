@@ -9,13 +9,15 @@ Read `../better-workflows/SKILL.md` completely and follow it, including the Goal
 
 Use template `pr-to-dev` with minimum mode `critical`. Inventory every in-scope change, stage explicit atomic commit batches, rebind the source after an intended commit wave with `sbw source rebind` before review (which invalidates all prior complete evidence and resets the v2 ledger), publish the candidate through the governed fixed-argv `pr.create` provider wrapper, require the PR to target the exact `dev` branch, verify fresh required checks for the current head, merge only the run-owned canonical PR without admin bypass, reconcile remote `dev`, and clean only resources owned by this run. Do not push, create or merge a PR, sync remote state, or clean resources beyond current user authority.
 
-If the governed PR provider returns `unknown`, keep the `pull/new` reservation and query the provider before deciding. Reconcile the same attempt as success only when the exact native marker, actor, source head, bound repository, and provider object are proven; an absence snapshot may not convert the unknown creation to failure because provider visibility can race local reservation finalization. A provider-execution reservation may be resumed only by the same run/action attempt/token, execution identity, and recorded outcome after an interrupted action-record write, with at most one unknown-to-terminal supersession; never reuse a superseded identity, legacy-format record, second identity, or another attempt.
+If the governed PR provider returns `unknown`, keep the `pull/new` reservation and query the provider before deciding. Reconcile the same attempt as success only when the exact native marker, actor, source head, bound repository, and provider object are proven; reconcile it as failure only after a fresh pinned-provider query proves the exact candidate PR is absent. An unpinned or local absence snapshot may not release the reservation. A provider-execution reservation may be resumed only by the same run/action attempt/token, execution identity, and recorded outcome after an interrupted action-record write, with at most one unknown-to-terminal supersession; never reuse a superseded identity, legacy-format record, second identity, or another attempt.
 
 Capture the absolute `gh` path and content digest at token issuance and use that
 same identity for authorization, PR-state, required-check, receipt, and
 reconciliation probes. If the fixed-argv create wrapper fails after preflight,
 record `sent-or-indeterminate` and reconcile it as unknown; only a preflight
-failure explicitly recorded as `not-sent` can release `pull/new`. Reservation
+failure explicitly recorded as `not-sent` can release `pull/new` directly; a
+fresh pinned-provider absence proof may reconcile the same unknown attempt as
+failure and then release it. Reservation
 expiry and reaping must run under the per-resource lease, namespaced by the
 canonical provider repository, action, and resource. Legacy unscoped
 reservations remain blocked until explicitly reconciled. Use `issue` →

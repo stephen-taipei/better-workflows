@@ -280,6 +280,8 @@ node plugins/better-workflows/scripts/sbw.mjs recipe run <id> \
 
 自我改进 evaluation 只使用已 checked-in、sanitized 且在 immutable baseline 冻结的 train/holdout corpus。candidate 必须先 staging；三次 read-only Codex holdout replay 必须在没有 safety failure 或 regression 的前提下严格超过 baseline median。Codex replay 需要 host-signed attestation，把精确 binary 与 model 绑定到固定的 `/etc/better-workflows/codex-trust-root.json`；该文件和父目录必须由 administrator 拥有且调用者不可写入。`PATH`、自行计算 hash、CLI 选择 trust root 或 model 自述都不是 provider attestation。tie、noise、缺少 evidence 或 fixture-only 结果都不会 auto-adopt。
 
+每次成功 replay 还需要独立的 administrator-signed `result receipt`，绑定 exact prompt digest、parsed response digest、binary/model、execution、exit status 与 timestamps；delivery 前会重新验证该 receipt。
+
 Evaluation v2.2 保留现有 safety、documentation、deliberation、sanitizer 与 evaluation-engineering coverage，并增加 typed-evidence integrity、execution-ledger replay、bounded review convergence 与 direct-work cost 的独立 train/holdout classes。一次性 migration 以 immutable v2.1 为 source，并将 source/target 两份 suite digest 绑定到全部七份 signed executions。
 
 ### 衍生 Graph View
@@ -424,7 +426,7 @@ node plugins/better-workflows/scripts/sbw.mjs run \
 ## 安全模型
 
 - Governed GitHub probe 必须使用 token 或 evidence 创建时记录的绝对 `gh` 路径与内容 digest；required-check 缺少 identity 或发生 binary/path drift 时直接 fail closed，不会回退到 ambient command。
-- PR create 在 preflight 后 wrapper 非零退出一律是 `sent-or-indeterminate`；只有明确记录为 `not-sent` 的 preflight failure 才能释放 `pull/new`。Reservation 按 provider repository、action、resource namespace 化，legacy unscoped reservation 保持 fail closed。
+- PR create 在 preflight 后 wrapper 非零退出一律是 `sent-or-indeterminate`；明确记录为 `not-sent` 的 preflight failure 可直接释放 `pull/new`，而 fresh 且绑定 pinned provider 的 absence proof 可将同一 unknown attempt reconcile 为 failure 后释放。Reservation 按 provider repository、action、resource namespace 化，legacy unscoped reservation 保持 fail closed。
 - Wrapper-backed action 使用 `issue` → `execute`，`execute` 会内部 consume；direct `consume` 只适用于非 wrapper side effect。Contract 的 deferred action 由 core lifecycle gates 拒绝，不只依赖 template action stages。
 
 ## 开发验证
