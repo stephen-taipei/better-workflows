@@ -54,6 +54,17 @@ rationale.
   lifecycle until a fixed-argv provider adapter can correlate one requested
   workflow dispatch to exactly one provider-assigned run. It must not be
   treated as a generic creation action with a pre-known run ID.
+- GitHub provider probes are bound to the absolute executable path and content
+  digest recorded when the action token is issued. A PATH, executable, or
+  provider-authorization drift fails closed before the provider call; governed
+  GitHub invocations never fall back to an ambient bare `gh` command.
+- A non-zero `pr.create` wrapper exit after preflight is `sent-or-indeterminate`,
+  not authoritative failure. Only a recorded preflight failure marked
+  `not-sent` may release the `pull/new` reservation; all other outcomes remain
+  unknown until a provider query proves absence or canonical ownership.
+- Creation reservation, consumption, release, and expiry reaping are
+  serialized by a per-resource lease. An expired lease cannot be reclaimed
+  while another consumer is finalizing the same creation attempt.
 - Governed `pr.create` actions bind the provider receipt to the exact candidate
   source commit observed when the action token is issued; a PR from another
   source head cannot be reconciled or registered as run-owned.

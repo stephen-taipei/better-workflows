@@ -63,6 +63,14 @@ until a fixed-argv provider adapter can correlate one requested workflow
 dispatch to exactly one provider-assigned run. Do not use `run:<id>` or
 `workflow:<name>` as a substitute for that adapter.
 
+Governed GitHub actions record an absolute `gh` executable path and content
+digest at token issuance. Provider probes and fixed-argv wrappers use that
+recorded identity; a PATH or executable drift fails closed. A non-zero PR
+creation wrapper exit after preflight remains sent-or-indeterminate, so keep
+the `pull/new` reservation and reconcile with a provider query rather than
+releasing it as failure. Only an explicitly recorded `not-sent` preflight
+failure can release that reservation.
+
 ## Graph View
 
 ```bash

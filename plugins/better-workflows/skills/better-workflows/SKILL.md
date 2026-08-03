@@ -300,6 +300,16 @@ superseded or legacy-format reservations remain rejected. `actions.dispatch` is
 not supported until a fixed-argv provider adapter can correlate one requested
 workflow dispatch to exactly one provider-assigned run.
 
+For governed GitHub actions, bind every provider probe to the absolute
+executable path and content digest captured at token issuance; do not resolve a
+fresh PATH command or invoke a bare `gh` during authorization, PR-state, check,
+receipt, or reconciliation probes. A `pr.create` wrapper failure after its
+preflight is `sent-or-indeterminate`, not failure; only an explicit
+preflight record marked `not-sent` can release the `pull/new` reservation.
+Creation reservation, consume, release, and expiry-reap operations are
+serialized by the resource lease, so an expired reservation cannot be taken
+over while another consumer is finalizing it.
+
 ## Apply repository-specific policy
 
 When working in the Connectors repository, read [connectors-policy.md](references/connectors-policy.md) and enforce it together with the current repository `AGENTS.md`. In every other repository, use its own `AGENTS.md` and do not import Connectors-specific rules.
