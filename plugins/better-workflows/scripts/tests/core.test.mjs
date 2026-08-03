@@ -8,8 +8,10 @@ import {
   mkdtemp,
   mkdir,
   readFile,
+  realpath,
   stat,
   symlink,
+  unlink,
   writeFile
 } from "node:fs/promises";
 import os from "node:os";
@@ -394,9 +396,10 @@ test("unknown PR creation can recover the same attempt into canonical ownership 
     providerAuthorization: {
       provider: "github-cli",
       repository: "github.com/example/repo",
-      actor: "alice"
+      actor: "alice",
+      permissions: { admin: false, maintain: false, push: true }
     },
-    providerExecutable: { path: "/fake/gh", digest: sha256("fake-gh") },
+    providerExecutable: null,
     spentAt
   };
   const providerInvocation = {
@@ -488,14 +491,24 @@ test("unknown PR creation can recover the same attempt into canonical ownership 
   });
   const prViewResponse = JSON.stringify({ number, headRefOid: head, baseRefName: targetRef, url });
   const fakeGh = path.join(bin, "gh");
-  await writeFile(fakeGh, `#!/bin/sh
-if [ "$1" = "api" ]; then
+  const ghScript = `#!/bin/sh
+if [ "$1" = "api" ] && [ "$2" = "user" ]; then
+  printf '%s\\n' '{"login":"alice"}'
+elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo" ]; then
+  printf '%s\\n' '{"full_name":"example/repo","permissions":{"admin":false,"maintain":false,"push":true}}'
+elif [ "$1" = "api" ]; then
   printf '%s\\n' '${apiResponse}'
 else
   printf '%s\\n' '${prViewResponse}'
 fi
-`);
+`;
+  await writeFile(fakeGh, ghScript);
   await chmod(fakeGh, 0o755);
+  const providerExecutable = { path: await realpath(fakeGh), digest: sha256(ghScript) };
+  actionBase.providerExecutable = providerExecutable;
+  providerInvocation.providerExecutable = providerExecutable;
+  action.providerExecutable = providerExecutable;
+  await writeFile(path.join(runDir, "actions", `${tokenHash}.json`), `${JSON.stringify(action)}\n`);
   const priorPath = process.env.PATH;
   process.env.PATH = `${bin}:${priorPath}`;
   try {
@@ -527,6 +540,86 @@ fi
         reason: "provider-timeout"
       }
     });
+    const alternateExecutionId = `github:github.com/example/repo:pr.create:alternate:${head}`;
+    const alternateExecutionPath = path.join(
+      root,
+      "provider-executions",
+      `${sha256(alternateExecutionId)}.json`
+    );
+    await mkdir(path.dirname(alternateExecutionPath), { recursive: true });
+    await writeFile(alternateExecutionPath, `${JSON.stringify({
+      executionId: alternateExecutionId,
+      runId: run.runId,
+      attemptId,
+      tokenHash,
+      action: "pr.create",
+      outcome: "success",
+      recordedAt: new Date().toISOString()
+    })}\n`);
+    await writeFile(fakeGh, `${ghScript}\n# spoofed provider binary\n`);
+    await assert.rejects(
+      reconcileAction(root, run.runId, attemptId, "success", {
+        action: "pr.create",
+        provider: "github-cli",
+        resource,
+        outcome: "success",
+        runId: run.runId,
+        attemptId,
+        idempotencyKey,
+        remoteRevision,
+        providerReceipt,
+        evidenceIds: [actionEvidence.id]
+      }),
+      /governed provider executable changed/
+    );
+    await writeFile(fakeGh, ghScript);
+    await assert.rejects(
+      reconcileAction(root, run.runId, attemptId, "success", {
+        action: "pr.create",
+        provider: "github-cli",
+        resource,
+        outcome: "success",
+        runId: run.runId,
+        attemptId,
+        idempotencyKey,
+        remoteRevision,
+        providerReceipt,
+        evidenceIds: [actionEvidence.id]
+      }),
+      /already bound to this action attempt/
+    );
+    await unlink(alternateExecutionPath);
+    const mismatchedActionId = `github:github.com/example/repo:other-action:${head}`;
+    const mismatchedActionPath = path.join(
+      root,
+      "provider-executions",
+      `${sha256(mismatchedActionId)}.json`
+    );
+    await writeFile(mismatchedActionPath, `${JSON.stringify({
+      executionId: mismatchedActionId,
+      runId: run.runId,
+      attemptId,
+      tokenHash,
+      action: "other.action",
+      outcome: "success",
+      recordedAt: new Date().toISOString()
+    })}\n`);
+    await assert.rejects(
+      reconcileAction(root, run.runId, attemptId, "success", {
+        action: "pr.create",
+        provider: "github-cli",
+        resource,
+        outcome: "success",
+        runId: run.runId,
+        attemptId,
+        idempotencyKey,
+        remoteRevision,
+        providerReceipt,
+        evidenceIds: [actionEvidence.id]
+      }),
+      /bound to a different action/
+    );
+    await unlink(mismatchedActionPath);
     const providerExecutionPath = path.join(
       root,
       "provider-executions",
@@ -538,6 +631,7 @@ fi
       runId: run.runId,
       attemptId,
       tokenHash,
+      action: "pr.create",
       recordedAt: new Date().toISOString()
     })}\n`);
     const recovered = await reconcileAction(root, run.runId, attemptId, "success", {
@@ -648,7 +742,13 @@ test("successful PR creation canonicalizes ownership and prevents a retry", asyn
     expectedHead: head,
     targetRef,
     creationPrecondition,
-    providerAuthorization: { actor: "alice" },
+    providerAuthorization: {
+      provider: "github-cli",
+      repository: "github.com/example/repo",
+      actor: "alice",
+      permissions: { admin: false, maintain: false, push: true }
+    },
+    createRepository: "github.com/example/repo",
     spentAt,
     receipt: { providerReceipt }
   };
@@ -673,14 +773,21 @@ test("successful PR creation canonicalizes ownership and prevents a retry", asyn
     html_url: url
   });
   const prViewResponse = JSON.stringify({ number: 12, headRefOid: head, baseRefName: targetRef, url });
-  await writeFile(fakeGh, `#!/bin/sh
-if [ "$1" = "api" ]; then
+  const ghScript = `#!/bin/sh
+if [ "$1" = "api" ] && [ "$2" = "user" ]; then
+  printf '%s\\n' '{"login":"alice"}'
+elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo" ]; then
+  printf '%s\\n' '{"full_name":"example/repo","permissions":{"admin":false,"maintain":false,"push":true}}'
+elif [ "$1" = "api" ]; then
   printf '%s\\n' '${apiResponse}'
 else
   printf '%s\\n' '${prViewResponse}'
 fi
-`);
+`;
+  await writeFile(fakeGh, ghScript);
   await chmod(fakeGh, 0o755);
+  action.providerExecutable = { path: await realpath(fakeGh), digest: sha256(ghScript) };
+  await writeFile(path.join(runDir, "actions", `${tokenHash}.json`), `${JSON.stringify(action)}\n`);
   const priorPath = process.env.PATH;
   process.env.PATH = `${bin}:${priorPath}`;
   try {

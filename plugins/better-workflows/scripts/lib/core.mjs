@@ -929,13 +929,47 @@ export function assertProviderReceiptShape(record, providerReceipt, outcome = re
   }
 }
 
-async function reserveProviderExecution(root, record, executionId) {
+async function reserveProviderExecution(root, record, executionId, outcome = record.outcome) {
   const directory = safeJoin(root, "provider-executions");
   await mkdir(directory, { recursive: true, mode: 0o700 });
   const target = safeJoin(directory, `${sha256(executionId)}.json`);
+  const reservations = await listJsonRecords(root, directory);
+  const sameAttempt = reservations.filter((item) => (
+    item?.runId === record.runId &&
+    item?.attemptId === record.attemptId &&
+    item?.tokenHash === record.tokenHash
+  ));
+  if (sameAttempt.some((item) => item.action !== record.action)) {
+    throw new Error("Provider execution identity is bound to a different action");
+  }
+  const actionReservations = sameAttempt.filter((item) => item.action === record.action);
+  const exact = actionReservations.find((item) => item.executionId === executionId);
+  if (exact) return;
+  const terminal = actionReservations.find((item) => ["success", "failure"].includes(item.outcome));
+  const unknown = actionReservations.find((item) => item.outcome === "unknown");
+  const canSupersedeUnknown = (
+    OWNED_RESOURCE_CREATION_ACTIONS.has(record.action) &&
+    record.outcome === "unknown" &&
+    ["success", "failure"].includes(outcome) &&
+    unknown &&
+    (!unknown.supersededBy || unknown.supersededBy === executionId)
+  );
+  if (actionReservations.length > 0 && terminal && terminal.executionId !== executionId) {
+    throw new Error("Provider execution identity is already bound to this action attempt");
+  }
+  if (actionReservations.length > 0 && !canSupersedeUnknown) {
+    throw new Error("Provider execution identity is already bound to this action attempt");
+  }
+  if (canSupersedeUnknown && unknown.supersededBy !== executionId) {
+    await atomicWriteJson(root, safeJoin(directory, `${sha256(unknown.executionId)}.json`), {
+      ...unknown,
+      supersededBy: executionId,
+      supersededAt: nowIso()
+    });
+  }
   try {
     const handle = await open(target, "wx", 0o600);
-    await handle.writeFile(`${JSON.stringify({ executionId, runId: record.runId, attemptId: record.attemptId, tokenHash: record.tokenHash, recordedAt: nowIso() })}\n`);
+    await handle.writeFile(`${JSON.stringify({ executionId, runId: record.runId, attemptId: record.attemptId, tokenHash: record.tokenHash, action: record.action, outcome, recordedAt: nowIso() })}\n`);
     await handle.sync();
     await handle.close();
   } catch (error) {
@@ -945,7 +979,8 @@ async function reserveProviderExecution(root, record, executionId) {
         existing?.executionId === executionId &&
         existing?.runId === record.runId &&
         existing?.attemptId === record.attemptId &&
-        existing?.tokenHash === record.tokenHash
+        existing?.tokenHash === record.tokenHash &&
+        existing?.action === record.action
       ) return;
       throw new Error("Provider execution identity is already reserved globally");
     }
@@ -1104,6 +1139,8 @@ async function registerOwnedResourceLocked(root, runId, run, runDir, { resource,
       attemptId: creationReceipt.attemptId,
       spentAt: creationAction.spentAt,
       providerAuthorization: creationAction.providerAuthorization,
+      providerExecutable: creationAction.providerExecutable,
+      createRepository: creationAction.createRepository,
       creationPrecondition: creationAction.creationPrecondition,
       targetRef: creationAction.targetRef,
       expectedHead: creationAction.expectedHead
@@ -1874,6 +1911,25 @@ async function currentProviderExecutableIdentity(command) {
   return { path: target, digest: sha256(await readFile(target)) };
 }
 
+async function verifyRecordedGitHubProvider(manifest, record) {
+  const executable = await currentProviderExecutableIdentity("gh");
+  if (!record.providerExecutable || digestObject(executable) !== digestObject(record.providerExecutable)) {
+    throw new Error("Provider receipt recovery denied because the governed provider executable changed");
+  }
+  const repository = record.providerAuthorization?.repository ?? record.createRepository;
+  if (typeof repository !== "string" || !repository.startsWith("github.com/")) {
+    throw new Error("Provider receipt recovery requires a canonical GitHub repository binding");
+  }
+  if (await currentRepositoryIdentity(manifest.cwd) !== repository) {
+    throw new Error("Provider receipt recovery denied because the origin repository changed");
+  }
+  const authorization = await verifyGitHubProviderAuthorization(manifest.cwd, repository, executable.path);
+  if (!record.providerAuthorization || digestObject(authorization) !== digestObject(record.providerAuthorization)) {
+    throw new Error("Provider receipt recovery denied because the GitHub actor or permissions changed");
+  }
+  return executable.path;
+}
+
 export function buildPrCreateCommand(record) {
   if (
     !record ||
@@ -2141,11 +2197,11 @@ async function verifyFailedCreationAbsence(manifest, record) {
   };
 }
 
-async function verifyGitHubProviderAuthorization(cwd, repository) {
+async function verifyGitHubProviderAuthorization(cwd, repository, executablePath = "gh") {
   if (!repository.startsWith("github.com/")) throw new Error("GitHub provider authorization requires a GitHub repository");
   const repositoryPath = repository.slice("github.com/".length);
-  const actor = JSON.parse((await execFileAsync("gh", ["api", "user"], { cwd, encoding: "utf8" })).stdout);
-  const metadata = JSON.parse((await execFileAsync("gh", ["api", `repos/${repositoryPath}`], { cwd, encoding: "utf8" })).stdout);
+  const actor = JSON.parse((await execFileAsync(executablePath, ["api", "user"], { cwd, encoding: "utf8" })).stdout);
+  const metadata = JSON.parse((await execFileAsync(executablePath, ["api", `repos/${repositoryPath}`], { cwd, encoding: "utf8" })).stdout);
   const permissions = metadata.permissions ?? {};
   const authorization = {
     provider: "github-cli",
@@ -2314,6 +2370,9 @@ function assertRecomputedProviderReceipt(receipt, request, response, executionId
 
 async function verifyOwnedResourceCreationProof(manifest, record, providerReceipt) {
   if (!OWNED_RESOURCE_CREATION_ACTIONS.has(record.action) || record.outcome !== "success") return;
+  const providerExecutablePath = record.provider === "github-cli"
+    ? await verifyRecordedGitHubProvider(manifest, record)
+    : null;
   const proof = providerReceipt.creationProof;
   const marker = `sbw:${record.attemptId}:${record.idempotencyKey}`;
   const spentAt = Date.parse(record.spentAt ?? "");
@@ -2383,8 +2442,11 @@ async function verifyOwnedResourceCreationProof(manifest, record, providerReceip
     return;
   }
   if (record.action === "pr.create" && record.provider === "github-cli") {
-    const repository = await currentRepositoryIdentity(manifest.cwd);
-    const actual = JSON.parse((await execFileAsync("gh", [
+    const repository = record.createRepository ?? record.providerAuthorization?.repository;
+    if (!repository || await currentRepositoryIdentity(manifest.cwd) !== repository || repository !== record.providerAuthorization?.repository) {
+      throw new Error("GitHub pull request creation proof repository is not bound to the authorized repository");
+    }
+    const actual = JSON.parse((await execFileAsync(providerExecutablePath, [
       "api", `repos/${repository.slice("github.com/".length)}/pulls/${providerReceipt.number}`
     ], { cwd: manifest.cwd, encoding: "utf8" })).stdout);
     const createdAt = assertObservedAt(actual.created_at, "GitHub pull request");
@@ -2401,10 +2463,10 @@ async function verifyOwnedResourceCreationProof(manifest, record, providerReceip
     ) {
       throw new Error("GitHub pull request creation proof lacks provider-native actor, timestamp, or idempotency marker");
     }
-    return;
+    return providerExecutablePath;
   }
   if (record.action === "actions.dispatch" && record.provider === "github-cli") {
-    const actual = JSON.parse((await execFileAsync("gh", [
+    const actual = JSON.parse((await execFileAsync(providerExecutablePath, [
       "run", "view", String(providerReceipt.runId), "--json",
       "databaseId,workflowName,url,status,conclusion,headSha,createdAt,displayTitle,actor"
     ], { cwd: manifest.cwd, encoding: "utf8" })).stdout);
@@ -2419,6 +2481,7 @@ async function verifyOwnedResourceCreationProof(manifest, record, providerReceip
     ) {
       throw new Error("GitHub Actions creation proof lacks provider-native actor, timestamp, or idempotency marker");
     }
+    return providerExecutablePath;
   }
 }
 
@@ -2427,7 +2490,7 @@ async function verifyProviderReceipt(manifest, record, receipt) {
   const providerReceipt = receipt.providerReceipt;
   const cwd = manifest.cwd;
   const key = `${record.action}:${record.provider}`;
-  await verifyOwnedResourceCreationProof(manifest, record, providerReceipt);
+  const providerExecutablePath = await verifyOwnedResourceCreationProof(manifest, record, providerReceipt);
   if (key === "recipe.promote:local-workspace" || key === "artifact.promote:local-workspace") {
     assertRecomputedProviderReceipt(
       providerReceipt,
@@ -2588,10 +2651,13 @@ async function verifyProviderReceipt(manifest, record, receipt) {
     return;
   }
   if (key === "pr.create:github-cli") {
-    const actual = JSON.parse((await execFileAsync("gh", [
+    const actual = JSON.parse((await execFileAsync(providerExecutablePath, [
       "pr", "view", String(providerReceipt.number), "--json", "number,headRefOid,baseRefName,url"
     ], { cwd, encoding: "utf8" })).stdout);
-    const repository = await currentRepositoryIdentity(cwd);
+    const repository = record.createRepository ?? record.providerAuthorization?.repository;
+    if (!repository || await currentRepositoryIdentity(cwd) !== repository) {
+      throw new Error("GitHub pull request creation proof repository changed after authorization");
+    }
     const response = {
       number: actual.number,
       head: actual.headRefOid,
@@ -2644,7 +2710,7 @@ async function verifyProviderReceipt(manifest, record, receipt) {
     return;
   }
   if (key === "actions.dispatch:github-cli") {
-    const actual = JSON.parse((await execFileAsync("gh", [
+    const actual = JSON.parse((await execFileAsync(providerExecutablePath, [
       "run", "view", String(providerReceipt.runId), "--json", "databaseId,workflowName,url,status,conclusion,headSha"
     ], { cwd, encoding: "utf8" })).stdout);
     const repository = await currentRepositoryIdentity(cwd);
@@ -4055,7 +4121,7 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
       }
     }
     await verifyProviderReceipt(manifest, { ...record, outcome }, receipt);
-    await reserveProviderExecution(root, record, receipt.providerReceipt.executionId);
+    await reserveProviderExecution(root, record, receipt.providerReceipt.executionId, outcome);
     const target = safeJoin(runDir, "actions", `${record.tokenHash}.json`);
     const next = {
       ...record,

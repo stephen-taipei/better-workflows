@@ -40,9 +40,12 @@ rationale.
   as `failure` only after the same provider-side absence proof succeeds;
   expiry reaping never releases an unknown reservation automatically.
 - Provider-execution reservations are idempotent only for the same run,
-  action attempt, token, and execution identity. This lets a verified receipt
-  resume after a crash between reservation and action-record persistence while
-  still rejecting reuse by another action attempt.
+  action attempt, token, and execution identity. A consumed owned-resource
+  attempt may make one controlled transition from an `unknown` provider
+  reservation to its verified terminal provider receipt; any second execution
+  identity or another action attempt remains rejected. This lets a verified
+  receipt resume after a crash between reservation and action-record
+  persistence without permitting replay.
 - Governed `pr.create` actions bind the provider receipt to the exact candidate
   source commit observed when the action token is issued; a PR from another
   source head cannot be reconciled or registered as run-owned.

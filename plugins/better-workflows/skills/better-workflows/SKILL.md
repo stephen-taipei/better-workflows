@@ -291,9 +291,11 @@ sbw action reconcile <run-id> --attempt <attempt-id> --outcome <success|failure|
 Never retry an `unknown` outcome without provider-side query reconciliation.
 For an owned-resource creation, the same consumed attempt may be reconciled as
 `success` only when the provider query proves the exact native marker, actor,
-source, and provider object; it may be reconciled as `failure` only after fresh
-absence proof. Provider-execution reservations may resume only for the same
-run, action attempt, token, and execution identity after an interrupted write.
+source, repository, and provider object; it may be reconciled as `failure` only
+after fresh absence proof. Provider-execution reservations may resume only for
+the same run, action attempt, token, and execution identity after an
+interrupted action-record write, with one controlled unknown-to-terminal
+supersession and no second identity.
 
 ## Apply repository-specific policy
 
