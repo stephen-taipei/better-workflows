@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { assertMutableRun, atomicWriteJson, canonicalizeScope, digestObject, listJsonRecords, loadRun, nowIso, readJson, safeJoin, sha256, withRunLock } from "./core.mjs";
+import { assertMutableRun, atomicWriteJson, canonicalizeScope, digestObject, listJsonRecords, loadDefaults, loadRun, nowIso, readJson, safeJoin, sha256, withRunLock } from "./core.mjs";
+import { captureSentinel } from "./git.mjs";
 
 const execFileAsync = promisify(execFile);
 const SHA = /^[0-9a-f]{40}$/;
@@ -523,6 +524,12 @@ export async function markBroadReviewComplete(root, runId, packageIdValue, head,
     const run = await loadRun(root, runId);
     assertMutableRun(run, "Broad review");
     if (!SHA.test(head) || !DIGEST.test(sentinelDigest)) throw new Error("Broad review binding is invalid");
+    const currentSentinel = await captureSentinel(run.manifest.cwd, run.contract, await loadDefaults());
+    if (
+      !currentSentinel.complete ||
+      currentSentinel.digest !== run.state.lastSentinel?.digest ||
+      currentSentinel.digest !== sentinelDigest
+    ) throw new Error("Broad review sentinel is not a verified complete current sentinel");
     const target = safeJoin(packageDirectory(runDir), `${packageIdValue}.json`);
     const value = await readJson(root, target);
     if (head !== value.head) throw new Error("Broad review must bind the final HEAD");

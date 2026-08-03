@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
-import { mkdtemp, mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { execFile, spawn } from "node:child_process";
+import { mkdtemp, mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -44,6 +44,24 @@ const contractTemplate = {
 };
 
 const execFileAsync = promisify(execFile);
+
+function gitWithInput(cwd, args, input) {
+  return new Promise((resolve, reject) => {
+    const child = spawn("git", args, { cwd, stdio: ["pipe", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.once("error", reject);
+    child.once("close", (code) => {
+      if (code === 0) resolve({ stdout, stderr });
+      else reject(new Error(`git ${args.join(" ")} exited ${code}: ${stderr}`));
+    });
+    child.stdin.end(input);
+  });
+}
 
 async function typedRecord(run, id = "environment") {
   const payload = { items: [{ environment: "test" }] };
@@ -509,12 +527,14 @@ test("review packages prove the Git manifest and dispositions fail closed", asyn
     /does not match the live Git BASE\.\.HEAD diff/
   );
   await writeFile(packagePath, `${JSON.stringify(first, null, 2)}\n`);
-  await execFileAsync("git", ["checkout", "-q", "-b", "divergent-base", base], { cwd: repository });
-  await writeFile(path.join(repository, "divergent.txt"), "divergent\n");
-  await execFileAsync("git", ["add", "divergent.txt"], { cwd: repository });
-  await execFileAsync("git", ["commit", "-q", "-m", "divergent base"], { cwd: repository });
-  const divergentBase = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repository })).stdout.trim();
-  await execFileAsync("git", ["checkout", "-q", head], { cwd: repository });
+  const divergentBlob = (await gitWithInput(repository, ["hash-object", "-w", "--stdin"], "divergent\n")).stdout.trim();
+  const baseTree = (await execFileAsync("git", ["rev-parse", `${base}^{tree}`], { cwd: repository })).stdout.trim();
+  const divergentTree = (await gitWithInput(
+    repository,
+    ["mktree"],
+    `${(await execFileAsync("git", ["ls-tree", baseTree], { cwd: repository })).stdout}100644 blob ${divergentBlob}\tdivergent.txt\n`
+  )).stdout.trim();
+  const divergentBase = (await execFileAsync("git", ["commit-tree", divergentTree, "-p", base, "-m", "divergent base"], { cwd: repository })).stdout.trim();
   const divergentContract = buildContract({
     template: "test-review-divergent",
     templateDefinition: { ...contractTemplate, scope: ["src", "README.md"], controlPlane: { ...contractTemplate.controlPlane, reviewPolicy: "code-v1" } },
@@ -669,6 +689,15 @@ test("review packages prove the Git manifest and dispositions fail closed", asyn
     },
     "diff-review-proof"
   ));
+  const driftPath = path.join(repository, "workspace-drift.txt");
+  await writeFile(driftPath, "drift\n");
+  await assert.rejects(
+    markBroadReviewComplete(root, started.runId, first.packageId, head, sentinel.digest),
+    /verified complete current sentinel/
+  );
+  await unlink(driftPath);
+  const restoredSentinel = await captureSentinel(repository, contract, await loadDefaults());
+  assert.equal(restoredSentinel.digest, sentinel.digest);
   await markBroadReviewComplete(root, started.runId, first.packageId, head, sentinel.digest);
   assert.equal((await reviewStatus(root, started.runId)).complete, true);
   const broadRetry = await createReviewPackage(input);
