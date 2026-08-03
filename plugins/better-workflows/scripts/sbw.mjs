@@ -1738,6 +1738,7 @@ async function main() {
         status: "complete",
         summary: `codex-native-subagent ${input.review.verdict}: ${input.review.summary}`,
         acceptanceIds: values(options.acceptance, run.contract.acceptance.map((item) => item.id)).map(String),
+        dependencyInputs: { files: [] },
         dependencies: {
           promptDigest: binding.promptDigest,
           model: attestation.model,
