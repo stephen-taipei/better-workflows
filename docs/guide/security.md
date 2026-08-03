@@ -40,6 +40,9 @@ rationale.
   the verified `pull/<number>` resource before its creation reservation is
   released. The registered PR remains run-owned, and a verified merged PR is a
   terminal cleanup receipt for that owned resource.
+- The `pr-to-dev` merge gate accepts only that run-owned canonical PR and its
+  immutable successful `pr.create` receipt; matching head/check evidence alone
+  cannot authorize merging an unrelated pull request.
 
 ## External model transport
 

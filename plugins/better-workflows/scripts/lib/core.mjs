@@ -138,6 +138,16 @@ function ownedResourceCleared(entry, actions) {
     );
   });
 }
+
+function ownedResourceCreationActionDigest(action) {
+  return digestObject({
+    attemptId: action.attemptId,
+    action: action.action,
+    resource: action.resource,
+    outcome: action.outcome,
+    receipt: action.receipt
+  });
+}
 const OWNED_RESOURCE = /^[^\0\r\n]{1,512}$/;
 const SHA256_DIGEST = /^[a-f0-9]{64}$/;
 const GIT_PUSH_RESOURCE = /^remote:([A-Za-z0-9._-]+):(refs\/heads\/[A-Za-z0-9._/-]+)$/;
@@ -1108,13 +1118,7 @@ async function registerOwnedResourceLocked(root, runId, run, runDir, { resource,
     ownerRunId: runId,
     receiptDigest,
     creationAttemptId: creationReceipt.attemptId,
-    creationActionDigest: digestObject({
-      attemptId: creationAction.attemptId,
-      action: creationAction.action,
-      resource: creationAction.resource,
-      outcome: creationAction.outcome,
-      receipt: creationAction.receipt
-    }),
+    creationActionDigest: ownedResourceCreationActionDigest(creationAction),
     registeredAt: nowIso()
   };
   const nextManifest = {
@@ -1782,6 +1786,42 @@ function assertCleanupResourceBinding(manifest, runId, request, cleanupPlan) {
       throw new Error("Action token denied until every cleanup resource is registry-bound");
     }
   }
+}
+
+function assertRunOwnedPullRequest(manifest, actions, runId, resource) {
+  const match = /^pull\/([1-9]\d*)$/.exec(String(resource ?? ""));
+  const pullRequest = match ? Number(match[1]) : null;
+  const registry = Array.isArray(manifest.ownedResources)
+    ? manifest.ownedResources.filter((entry) => entry && typeof entry === "object")
+    : [];
+  const registered = registry.find((entry) => entry.resource === resource);
+  const creationAction = registered
+    ? actions.find((action) => (
+        action.action === "pr.create" &&
+        action.provider === "github-cli" &&
+        action.resource === "pull/new" &&
+        action.status === "spent" &&
+        action.outcome === "success" &&
+        action.ownedResource === resource &&
+        action.attemptId === registered.creationAttemptId &&
+        registered.creationActionDigest === ownedResourceCreationActionDigest(action)
+      ))
+    : null;
+  const providerReceipt = creationAction?.receipt?.providerReceipt;
+  if (
+    !pullRequest ||
+    !registered ||
+    registered.ownerRunId !== runId ||
+    registered.creationResource !== "pull/new" ||
+    typeof registered.receiptDigest !== "string" ||
+    !creationAction ||
+    providerReceipt?.created !== true ||
+    providerReceipt.resource !== "pull/new" ||
+    providerReceipt.number !== pullRequest
+  ) {
+    throw new Error("Action token denied until PR is an immutable run-owned canonical pull request");
+  }
+  return registered;
 }
 
 function repositoryIdentity(value) {
@@ -3174,6 +3214,9 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
       actions.some((action) => action.action === "pr.create" && action.status === "spent" && action.outcome === "success")
     ) {
       throw new Error("PR creation already succeeded for this run; reuse the registered pull request");
+    }
+    if (request.action === "pr.merge" && contract.template === "pr-to-dev") {
+      assertRunOwnedPullRequest(manifest, actions, runId, request.resource);
     }
     if (!state.lastSentinelVerified || state.lastSentinel?.digest !== currentTreeDigest) {
       throw new Error("Action token requires a verified current-tree sentinel");

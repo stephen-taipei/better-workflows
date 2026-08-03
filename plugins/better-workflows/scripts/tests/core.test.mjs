@@ -553,6 +553,38 @@ test("pr.create requires a verified current-tree sentinel before issuing a token
   );
 });
 
+test("pr-to-dev merge requires the run-owned canonical pull request", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-pr-merge-ownership-"));
+  const prToDevTemplate = JSON.parse(await readFile(
+    path.join(path.dirname(new URL(import.meta.url).pathname), "../../templates/pr-to-dev.json"),
+    "utf8"
+  ));
+  const run = await createRun({
+    root,
+    contract: buildContract({
+      template: "pr-to-dev",
+      templateDefinition: prToDevTemplate,
+      goal: "Require owned PR merge",
+      scope: ["."],
+      risk: { risk: 3, uncertainty: 2, blastRadius: 2, irreversibility: 2, evidenceGap: 2 },
+      authority: ["pr.merge"],
+      remoteRevision: "abc"
+    }),
+    requestedMode: "critical",
+    cwd: root
+  });
+  await assert.rejects(
+    issueActionToken(root, run.runId, {
+      action: "pr.merge",
+      provider: "github-cli",
+      resource: "pull/12",
+      remoteRevision: "abc",
+      requiredEvidence: ["pr-state"]
+    }, "tree", await loadDefaults()),
+    /run-owned canonical pull request/
+  );
+});
+
 test("unsupported action execution does not consume its token", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "sbw-unsupported-action-"));
   const run = await createRun({
