@@ -160,7 +160,9 @@ sbw sentinel verify <run-id> --label post-commit
 ~~~
 
 Rebind is rejected after review packages, findings, or side effects exist; it
-does not replace a fresh review.
+does not replace a fresh review. It marks every prior complete evidence record
+stale and resets the v2 execution ledger, including evidence contracts that do
+not carry an explicit source-binding field.
 
 If verification reports drift, mark the run `indeterminate`, discard that wave's conclusions, do not restore files automatically, and report the changed surfaces.
 

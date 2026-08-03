@@ -50,6 +50,10 @@ sbw refinement apply <run-id> --file <receipt.json>
 sbw complete <run-id>
 ```
 
+`source rebind` is root-only and pre-review/pre-side-effect. It invalidates all
+prior complete evidence and resets the v2 execution ledger, so the next
+sentinel, evidence, and review must be captured from the rebound source.
+
 Ledger transition files may include `expectedLedgerDigest`; when present it
 must match the current canonical `ledger.json` digest. Transitions are
 root-owned, and stale expected digests or non-root actors fail closed.

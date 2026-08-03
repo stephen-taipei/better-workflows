@@ -170,6 +170,22 @@ test("source binding can be explicitly rebound before review or side effects", a
   });
   const started = await createRun({ root, contract, requestedMode: "verified", cwd: workspace });
   const before = await inspectRun(root, started.runId);
+  await addEvidence(root, started.runId, await typedRecord({ runId: started.runId, contract: before.contract }));
+  const initialLedger = JSON.parse(await readFile(path.join(before.runDir, "ledger.json"), "utf8"));
+  await transitionLedger(root, started.runId, {
+    eventId: "start-environment-before-rebind",
+    type: "start",
+    taskId: "environment",
+    expectedLedgerDigest: digestObject(initialLedger)
+  });
+  const startedLedger = JSON.parse(await readFile(path.join(before.runDir, "ledger.json"), "utf8"));
+  await transitionLedger(root, started.runId, {
+    eventId: "complete-environment-before-rebind",
+    type: "complete",
+    taskId: "environment",
+    evidenceKinds: ["environment-state"],
+    expectedLedgerDigest: digestObject(startedLedger)
+  });
   await writeFile(path.join(workspace, "source.txt"), "changed\n");
   await execFileAsync("git", ["add", "source.txt"], { cwd: workspace });
   await execFileAsync("git", ["commit", "-qm", "source change"], { cwd: workspace });
@@ -181,6 +197,9 @@ test("source binding can be explicitly rebound before review or side effects", a
   const after = await inspectRun(root, started.runId);
   assert.equal(after.manifest.sourceBinding.digest, rebound.sourceBinding.digest);
   assert.equal(after.manifest.sourceBindingHistory.at(-1).reason, "commit stage completed");
+  assert.equal(after.evidence.find((item) => item.kind === "environment-state").stale, true);
+  assert.deepEqual(JSON.parse(await readFile(path.join(after.runDir, "ledger.json"), "utf8")).events, []);
+  assert.equal((await deriveLedgerStatus(root, started.runId)).taskStates[0].state, "pending");
   await assert.rejects(
     rebindSourceBinding(root, started.runId, "\n"),
     /concise reason/

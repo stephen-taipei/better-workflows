@@ -138,6 +138,84 @@ test("PR creation command binds the target, head, and provider-native marker", (
   ]);
 });
 
+test("known failed owned creation releases its reservation for a retry", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-creation-failure-retry-"));
+  const repository = path.join(root, "repository");
+  await mkdir(repository, { recursive: true });
+  await execFileAsync("git", ["init", "-q"], { cwd: repository });
+  await execFileAsync("git", ["config", "user.email", "sbw@example.invalid"], { cwd: repository });
+  await execFileAsync("git", ["config", "user.name", "SBW Test"], { cwd: repository });
+  await writeFile(path.join(repository, "README.md"), "retry\n");
+  await execFileAsync("git", ["add", "README.md"], { cwd: repository });
+  await execFileAsync("git", ["commit", "-qm", "baseline"], { cwd: repository });
+  const run = await createRun({
+    root,
+    contract: contract({ authority: ["branch.create"] }),
+    requestedMode: "verified",
+    cwd: repository
+  });
+  await addEvidence(root, run.runId, {
+    id: "preflight",
+    kind: "preflight",
+    summary: "Creation retry preflight",
+    status: "complete",
+    acceptanceIds: [],
+    sourceDigest: "a".repeat(64)
+  });
+  await updateState(root, run.runId, (state) => ({
+    ...state,
+    lastSentinel: { label: "test", digest: "tree" },
+    lastSentinelVerified: true,
+    lastSentinelComplete: true
+  }));
+  const resource = "branch:feature/retry";
+  const issued = await issueActionToken(root, run.runId, {
+    action: "branch.create",
+    provider: "git",
+    resource,
+    remoteRevision: "abc",
+    requiredEvidence: ["preflight"]
+  }, "tree", await loadDefaults());
+  const spent = await consumeActionToken(root, run.runId, issued.token, "tree");
+  const failedReceipt = {
+    action: "branch.create",
+    provider: "git",
+    resource,
+    outcome: "failure",
+    runId: run.runId,
+    attemptId: spent.attemptId,
+    idempotencyKey: spent.idempotencyKey,
+    remoteRevision: spent.remoteRevision,
+    providerReceipt: {
+      action: "branch.create",
+      provider: "git",
+      resource,
+      outcome: "failure",
+      runId: run.runId,
+      attemptId: spent.attemptId,
+      idempotencyKey: spent.idempotencyKey,
+      remoteRevision: spent.remoteRevision,
+      executionId: `git:${run.runId}:branch.create:failure`,
+      proofKind: "git-branch-create",
+      requestDigest: "0".repeat(64),
+      responseDigest: "1".repeat(64),
+      verifiedAt: new Date().toISOString(),
+      terminalState: "failure"
+    }
+  };
+  await reconcileAction(root, run.runId, spent.attemptId, "failure", failedReceipt);
+  const reservationPath = path.join(root, "creation-reservations", `${sha256(resource)}.json`);
+  await assert.rejects(stat(reservationPath));
+  const retry = await issueActionToken(root, run.runId, {
+    action: "branch.create",
+    provider: "git",
+    resource,
+    remoteRevision: "abc",
+    requiredEvidence: ["preflight"]
+  }, "tree", await loadDefaults());
+  assert.notEqual(retry.token, issued.token);
+});
+
 test("scope rejects Git pathspec magic", () => {
   assert.throws(
     () => contract({ scope: [":(exclude)plugins/better-workflows/scripts/lib/core.mjs"] }),

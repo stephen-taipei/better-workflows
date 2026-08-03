@@ -741,6 +741,7 @@ export function assertProviderReceiptShape(record, providerReceipt, outcome = re
     }
   }
   if (
+    outcome === "success" &&
     record.action === "branch.create" &&
     (!providerReceipt.created || typeof providerReceipt.ref !== "string" || !providerReceipt.ref ||
       typeof providerReceipt.revision !== "string" || !/^[a-f0-9]{7,64}$/i.test(providerReceipt.revision))
@@ -748,6 +749,7 @@ export function assertProviderReceiptShape(record, providerReceipt, outcome = re
     throw new Error("Git branch creation proof is incomplete");
   }
   if (
+    outcome === "success" &&
     record.action === "worktree.create" &&
     (!providerReceipt.created || typeof providerReceipt.path !== "string" || !providerReceipt.path ||
       typeof providerReceipt.revision !== "string" || !/^[a-f0-9]{7,64}$/i.test(providerReceipt.revision))
@@ -755,6 +757,7 @@ export function assertProviderReceiptShape(record, providerReceipt, outcome = re
     throw new Error("Git worktree creation proof is incomplete");
   }
   if (
+    outcome === "success" &&
     record.action === "git.commit" &&
     (!providerReceipt.created || typeof providerReceipt.revision !== "string" ||
       !/^[a-f0-9]{7,64}$/i.test(providerReceipt.revision))
@@ -762,6 +765,7 @@ export function assertProviderReceiptShape(record, providerReceipt, outcome = re
     throw new Error("Git commit proof is incomplete");
   }
   if (
+    outcome === "success" &&
     record.action === "git.push" &&
     (!providerReceipt.pushed || !GIT_PUSH_RESOURCE.test(record.resource) ||
       providerReceipt.remote !== GIT_PUSH_RESOURCE.exec(record.resource)?.[1] ||
@@ -776,6 +780,7 @@ export function assertProviderReceiptShape(record, providerReceipt, outcome = re
     throw new Error("Git push proof is incomplete");
   }
   if (
+    outcome === "success" &&
     record.action === "branch.delete" &&
     (!providerReceipt.deleted || typeof providerReceipt.ref !== "string" || !providerReceipt.ref ||
       (record.resource.startsWith("branch:") && providerReceipt.ref !== record.resource.slice("branch:".length)))
@@ -783,6 +788,7 @@ export function assertProviderReceiptShape(record, providerReceipt, outcome = re
     throw new Error("Git branch deletion proof is incomplete");
   }
   if (
+    outcome === "success" &&
     record.action === "pr.create" &&
     (!providerReceipt.created || !Number.isInteger(providerReceipt.number) ||
       typeof providerReceipt.head !== "string" || !providerReceipt.head ||
@@ -795,6 +801,7 @@ export function assertProviderReceiptShape(record, providerReceipt, outcome = re
     throw new Error("GitHub pull request creation proof is incomplete");
   }
   if (
+    outcome === "success" &&
     record.action === "issue.create" &&
     (!providerReceipt.created || !Number.isInteger(providerReceipt.number) ||
       typeof providerReceipt.repository !== "string" || !providerReceipt.repository ||
@@ -803,6 +810,7 @@ export function assertProviderReceiptShape(record, providerReceipt, outcome = re
     throw new Error("GitHub issue creation proof is incomplete");
   }
   if (
+    outcome === "success" &&
     record.action === "actions.dispatch" &&
     (!providerReceipt.created || typeof providerReceipt.runId !== "string" || !providerReceipt.runId ||
       typeof providerReceipt.url !== "string" || !providerReceipt.url ||
@@ -814,6 +822,7 @@ export function assertProviderReceiptShape(record, providerReceipt, outcome = re
     throw new Error("GitHub Actions dispatch proof is incomplete");
   }
   if (
+    outcome === "success" &&
     record.action === "pr.merge" &&
     (!Number.isInteger(providerReceipt.pr) ||
       providerReceipt.pr !== Number(String(record.resource).replace(/^pull\//, "")) ||
@@ -835,6 +844,7 @@ export function assertProviderReceiptShape(record, providerReceipt, outcome = re
     throw new Error("GitHub pull request merge proof is incomplete");
   }
   if (
+    outcome === "success" &&
     record.action === "pr.close" &&
     (!Number.isInteger(providerReceipt.pr) ||
       providerReceipt.pr !== Number(String(record.resource).replace(/^pull\//, "")) ||
@@ -844,6 +854,7 @@ export function assertProviderReceiptShape(record, providerReceipt, outcome = re
     throw new Error("GitHub pull request close proof is incomplete");
   }
   if (
+    outcome === "success" &&
     record.action === "actions.cancel" &&
     (!providerReceipt.cancelled || typeof providerReceipt.runId !== "string" || !providerReceipt.runId ||
       providerReceipt.terminalState !== "cancelled" || providerReceipt.conclusion !== "CANCELLED")
@@ -851,6 +862,7 @@ export function assertProviderReceiptShape(record, providerReceipt, outcome = re
     throw new Error("GitHub Actions cancellation proof is incomplete");
   }
   if (
+    outcome === "success" &&
     record.action === "remote.sync" &&
     (typeof providerReceipt.ref !== "string" || !providerReceipt.ref ||
       providerReceipt.ref !== record.resource ||
@@ -866,12 +878,14 @@ export function assertProviderReceiptShape(record, providerReceipt, outcome = re
     throw new Error("Git remote synchronization proof is incomplete");
   }
   if (
+    outcome === "success" &&
     record.action === "worktree.cleanup" &&
     (!providerReceipt.removed || typeof providerReceipt.path !== "string" || !providerReceipt.path)
   ) {
     throw new Error("Git worktree cleanup proof is incomplete");
   }
   if (
+    outcome === "success" &&
     OWNED_RESOURCE_CREATION_ACTIONS.has(record.action) &&
     typeof record.attemptId === "string" &&
     (!record.creationPrecondition ||
@@ -921,6 +935,12 @@ async function reserveCreationResource(root, runId, resource, tokenHash, expires
         Number.isFinite(Date.parse(existing?.expiresAt ?? "")) &&
         Date.parse(existing.expiresAt) <= Date.now()
       ) {
+        await unlink(target).catch(() => undefined);
+        return reserveCreationResource(root, runId, resource, tokenHash, expiresAt);
+      }
+      if (existingAction?.status === "spent" && existingAction?.outcome === "failure") {
+        // A known failed creation did not acquire the resource. Recover the
+        // reservation even if the process crashed before explicit release.
         await unlink(target).catch(() => undefined);
         return reserveCreationResource(root, runId, resource, tokenHash, expiresAt);
       }
@@ -1226,7 +1246,7 @@ export async function rebindSourceBinding(root, runId, reason) {
     };
     const evidence = await listJsonRecords(root, safeJoin(runDir, "evidence"));
     for (const record of evidence) {
-      if (record.dependencies?.sourceBindingDigest && record.dependencies.sourceBindingDigest !== current.digest) {
+      if (record.status === "complete" && record.stale !== true) {
         await atomicWriteJson(root, safeJoin(runDir, "evidence", `${record.id}.json`), {
           ...record,
           stale: true,
@@ -1234,6 +1254,10 @@ export async function rebindSourceBinding(root, runId, reason) {
           staleReason: "source-binding-rebound"
         });
       }
+    }
+    if (run.contract.schemaVersion === 2 && run.contract.controlPlane?.ledgerPolicy === "ledger-v1") {
+      const { initializeLedger } = await import("./ledger.mjs");
+      await initializeLedger(root, runDir, run.contract, runId);
     }
     const nextState = {
       ...run.state,
@@ -3828,6 +3852,9 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
     };
     await atomicWriteJson(root, target, next);
     await appendJournal(root, runDir, "action.reconciled", { attemptId, outcome });
+    if (outcome === "failure" && OWNED_RESOURCE_CREATION_ACTIONS.has(record.action)) {
+      await releaseCreationResource(root, runId, record.resource, record.tokenHash);
+    }
     return next;
   });
 }
