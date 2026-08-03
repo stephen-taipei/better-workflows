@@ -218,65 +218,70 @@ test("known failed owned creation releases its reservation for a retry", async (
     requiredEvidence: ["preflight"]
   }, "tree", await loadDefaults());
   assert.notEqual(retry.token, issued.token);
+  const unknownResource = "branch:feature/unknown";
+  const unknownIssued = await issueActionToken(root, run.runId, {
+    action: "branch.create",
+    provider: "git",
+    resource: unknownResource,
+    remoteRevision: "abc",
+    requiredEvidence: ["preflight"]
+  }, "tree", await loadDefaults());
+  const unknownSpent = await consumeActionToken(root, run.runId, unknownIssued.token, "tree");
+  const unknownReceipt = {
+    action: "branch.create",
+    provider: "git",
+    resource: unknownResource,
+    outcome: "unknown",
+    runId: run.runId,
+    attemptId: unknownSpent.attemptId,
+    idempotencyKey: unknownSpent.idempotencyKey,
+    remoteRevision: unknownSpent.remoteRevision,
+    providerReceipt: {
+      action: "branch.create",
+      provider: "git",
+      resource: unknownResource,
+      outcome: "unknown",
+      runId: run.runId,
+      attemptId: unknownSpent.attemptId,
+      idempotencyKey: unknownSpent.idempotencyKey,
+      remoteRevision: unknownSpent.remoteRevision,
+      executionId: `git:${run.runId}:branch.create:unknown`,
+      proofKind: "git-branch-create",
+      requestDigest: "0".repeat(64),
+      responseDigest: "1".repeat(64),
+      verifiedAt: new Date().toISOString(),
+      terminalState: "unknown"
+    }
+  };
+  await reconcileAction(root, run.runId, unknownSpent.attemptId, "unknown", unknownReceipt);
+  const unknownReservationPath = path.join(root, "creation-reservations", `${sha256(unknownResource)}.json`);
+  await stat(unknownReservationPath);
+  await assert.rejects(
+    reconcileAction(root, run.runId, unknownSpent.attemptId, "failure", {
+      ...unknownReceipt,
+      outcome: "failure",
+      providerReceipt: {
+        ...unknownReceipt.providerReceipt,
+        outcome: "failure",
+        terminalState: "failure"
+      }
+    }),
+    /already reconciled/
+  );
+  await stat(unknownReservationPath);
 });
 
-test("GitHub Actions dispatch tokens bind the provider executable for recovery", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-actions-dispatch-binding-"));
-  const repository = path.join(root, "repository");
-  const bin = path.join(root, "bin");
-  await mkdir(repository, { recursive: true });
-  await mkdir(bin, { recursive: true });
-  await execFileAsync("git", ["init", "-q"], { cwd: repository });
-  await execFileAsync("git", ["config", "user.email", "sbw@example.invalid"], { cwd: repository });
-  await execFileAsync("git", ["config", "user.name", "SBW Test"], { cwd: repository });
-  await execFileAsync("git", ["remote", "add", "origin", "https://github.com/example/repo.git"], { cwd: repository });
-  await writeFile(path.join(repository, "README.md"), "dispatch\n");
-  await execFileAsync("git", ["add", "README.md"], { cwd: repository });
-  await execFileAsync("git", ["commit", "-qm", "baseline"], { cwd: repository });
-  const fakeGh = path.join(bin, "gh");
-  const ghScript = "#!/bin/sh\nif [ \"$1\" = \"api\" ] && [ \"$2\" = \"user\" ]; then\n  printf '%s\\n' '{\"login\":\"alice\"}'\nelif [ \"$1\" = \"api\" ] && [ \"$2\" = \"repos/example/repo\" ]; then\n  printf '%s\\n' '{\"full_name\":\"example/repo\",\"permissions\":{\"admin\":false,\"maintain\":false,\"push\":true}}'\nelif [ \"$1\" = \"run\" ]; then\n  exit 1\nfi\n";
-  await writeFile(fakeGh, ghScript);
-  await chmod(fakeGh, 0o755);
-  const priorPath = process.env.PATH;
-  process.env.PATH = `${bin}:${priorPath}`;
-  try {
-    const run = await createRun({
-      root,
-      contract: contract({ authority: ["actions.dispatch"] }),
-      requestedMode: "verified",
-      cwd: repository
-    });
-    await addEvidence(root, run.runId, {
-      id: "preflight",
-      kind: "preflight",
-      summary: "Actions dispatch preflight",
-      status: "complete",
-      acceptanceIds: [],
-      sourceDigest: "a".repeat(64)
-    });
-    await updateState(root, run.runId, (state) => ({
-      ...state,
-      lastSentinel: { label: "test", digest: "tree" },
-      lastSentinelVerified: true,
-      lastSentinelComplete: true
-    }));
-    const issued = await issueActionToken(root, run.runId, {
+test("unsupported GitHub Actions dispatch fails closed before issuing a token", async () => {
+  await assert.rejects(
+    issueActionToken("/private/tmp/sbw-unsupported-actions-dispatch", "sbw-20260803T000000Z-000000000000", {
       action: "actions.dispatch",
       provider: "github-cli",
-      resource: "run:123",
+      resource: "workflow:release.yml",
       remoteRevision: "abc",
       requiredEvidence: ["preflight"]
-    }, "tree", await loadDefaults());
-    assert.deepEqual(issued.providerExecutable, {
-      path: await realpath(fakeGh),
-      digest: sha256(ghScript)
-    });
-    assert.equal(issued.creationPrecondition.state, "absent");
-    const consumed = await consumeActionToken(root, run.runId, issued.token, "tree");
-    assert.equal(consumed.providerExecutable.digest, sha256(ghScript));
-  } finally {
-    process.env.PATH = priorPath;
-  }
+    }, "tree", {}),
+    /unimplemented provider adapter/
+  );
 });
 
 test("failed PR creation preserves its reservation until provider absence is proven", async () => {
@@ -385,19 +390,6 @@ test("failed PR creation preserves its reservation until provider absence is pro
   process.env.SBW_FAKE_GH_ACTOR = "alice";
   process.env.SBW_FAKE_GH_PUSH = "true";
   try {
-    const unknownReceipt = {
-      ...receipt,
-      outcome: "unknown",
-      providerReceipt: {
-        ...receipt.providerReceipt,
-        outcome: "unknown",
-        executionId: "github:example/repo:pr.create:unknown",
-        terminalState: "unknown",
-        reason: "provider-timeout"
-      }
-    };
-    await reconcileAction(root, run.runId, attemptId, "unknown", unknownReceipt);
-    await stat(reservationPath);
     await assert.rejects(
       reconcileAction(root, run.runId, attemptId, "failure", receipt),
       /existing pull request; preserve the reservation/
@@ -631,7 +623,7 @@ fi
         attemptId,
         idempotencyKey,
         remoteRevision,
-        executionId: "github:github.com/example/repo:pr.create:unknown",
+        executionId: providerReceipt.executionId,
         proofKind: "github-pr-create",
         requestDigest: "0".repeat(64),
         responseDigest: "1".repeat(64),
@@ -648,6 +640,7 @@ fi
     );
     await mkdir(path.dirname(alternateExecutionPath), { recursive: true });
     await writeFile(alternateExecutionPath, `${JSON.stringify({
+      schemaVersion: 1,
       executionId: alternateExecutionId,
       runId: run.runId,
       attemptId,
@@ -656,6 +649,32 @@ fi
       outcome: "success",
       recordedAt: new Date().toISOString()
     })}\n`);
+    const unknownExecutionPath = path.join(
+      root,
+      "provider-executions",
+      `${sha256(providerReceipt.executionId)}.json`
+    );
+    const unknownReservation = JSON.parse(await readFile(unknownExecutionPath, "utf8"));
+    await writeFile(unknownExecutionPath, `${JSON.stringify({
+      ...unknownReservation,
+      supersededBy: alternateExecutionId,
+      supersededAt: new Date().toISOString()
+    })}\n`);
+    await assert.rejects(
+      reconcileAction(root, run.runId, attemptId, "success", {
+        action: "pr.create",
+        provider: "github-cli",
+        resource,
+        outcome: "success",
+        runId: run.runId,
+        attemptId,
+        idempotencyKey,
+        remoteRevision,
+        providerReceipt,
+        evidenceIds: [actionEvidence.id]
+      }),
+      /superseded by another identity/
+    );
     await writeFile(fakeGh, `${ghScript}\n# spoofed provider binary\n`);
     await assert.rejects(
       reconcileAction(root, run.runId, attemptId, "success", {
@@ -686,7 +705,7 @@ fi
         providerReceipt,
         evidenceIds: [actionEvidence.id]
       }),
-      /already bound to this action attempt/
+      /superseded by another identity/
     );
     await unlink(alternateExecutionPath);
     const mismatchedActionId = `github:github.com/example/repo:other-action:${head}`;
@@ -696,6 +715,7 @@ fi
       `${sha256(mismatchedActionId)}.json`
     );
     await writeFile(mismatchedActionPath, `${JSON.stringify({
+      schemaVersion: 1,
       executionId: mismatchedActionId,
       runId: run.runId,
       attemptId,
@@ -748,9 +768,35 @@ fi
         providerReceipt,
         evidenceIds: [actionEvidence.id]
       }),
+      /Legacy provider execution reservation/
+    );
+    await writeFile(providerExecutionPath, `${JSON.stringify({
+      schemaVersion: 1,
+      executionId: providerReceipt.executionId,
+      runId: run.runId,
+      attemptId,
+      tokenHash,
+      action: "pr.create",
+      outcome: "failure",
+      recordedAt: new Date().toISOString()
+    })}\n`);
+    await assert.rejects(
+      reconcileAction(root, run.runId, attemptId, "success", {
+        action: "pr.create",
+        provider: "github-cli",
+        resource,
+        outcome: "success",
+        runId: run.runId,
+        attemptId,
+        idempotencyKey,
+        remoteRevision,
+        providerReceipt,
+        evidenceIds: [actionEvidence.id]
+      }),
       /different terminal outcome/
     );
     await writeFile(providerExecutionPath, `${JSON.stringify({
+      schemaVersion: 1,
       executionId: providerReceipt.executionId,
       runId: run.runId,
       attemptId,

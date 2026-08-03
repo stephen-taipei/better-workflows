@@ -174,6 +174,14 @@ const ACTION_PROVIDER_RECEIPT_SCHEMAS = {
   "recipe.promote:local-workspace": { proofKind: "local-workspace:recipe.promote" },
   "artifact.promote:local-workspace": { proofKind: "local-workspace:artifact.promote" }
 };
+const PROVIDER_EXECUTION_SCHEMA_VERSION = 1;
+const UNSUPPORTED_GOVERNED_ACTIONS = new Set(["actions.dispatch"]);
+
+function assertSupportedGovernedAction(action) {
+  if (UNSUPPORTED_GOVERNED_ACTIONS.has(action)) {
+    throw new Error(`Governed action requires an unimplemented provider adapter: ${action}`);
+  }
+}
 export function pluginRoot() {
   return PLUGIN_ROOT;
 }
@@ -939,12 +947,22 @@ async function reserveProviderExecution(root, record, executionId, outcome = rec
     item?.attemptId === record.attemptId &&
     item?.tokenHash === record.tokenHash
   ));
+  if (sameAttempt.some((item) => (
+    item.schemaVersion !== PROVIDER_EXECUTION_SCHEMA_VERSION ||
+    typeof item.executionId !== "string" ||
+    !["unknown", "success", "failure"].includes(item.outcome)
+  ))) {
+    throw new Error("Legacy provider execution reservation cannot be recovered; preserve the reservation");
+  }
   if (sameAttempt.some((item) => item.action !== record.action)) {
     throw new Error("Provider execution identity is bound to a different action");
   }
   const actionReservations = sameAttempt.filter((item) => item.action === record.action);
   const exact = actionReservations.find((item) => item.executionId === executionId);
   if (exact) {
+    if (exact.supersededBy && exact.supersededBy !== executionId) {
+      throw new Error("Provider execution identity was superseded by another identity");
+    }
     if (exact.outcome === outcome) return;
     const canResolveSameIdentity = (
       OWNED_RESOURCE_CREATION_ACTIONS.has(record.action) &&
@@ -986,12 +1004,18 @@ async function reserveProviderExecution(root, record, executionId, outcome = rec
   }
   try {
     const handle = await open(target, "wx", 0o600);
-    await handle.writeFile(`${JSON.stringify({ executionId, runId: record.runId, attemptId: record.attemptId, tokenHash: record.tokenHash, action: record.action, outcome, recordedAt: nowIso() })}\n`);
+    await handle.writeFile(`${JSON.stringify({ schemaVersion: PROVIDER_EXECUTION_SCHEMA_VERSION, executionId, runId: record.runId, attemptId: record.attemptId, tokenHash: record.tokenHash, action: record.action, outcome, recordedAt: nowIso() })}\n`);
     await handle.sync();
     await handle.close();
   } catch (error) {
     if (error.code === "EEXIST") {
       const existing = await readJson(root, target).catch(() => null);
+      if (
+        existing?.schemaVersion !== PROVIDER_EXECUTION_SCHEMA_VERSION ||
+        !["unknown", "success", "failure"].includes(existing?.outcome)
+      ) {
+        throw new Error("Legacy provider execution reservation cannot be recovered; preserve the reservation");
+      }
       if (
         existing?.executionId === executionId &&
         existing?.runId === record.runId &&
@@ -2070,7 +2094,7 @@ async function verifyGitHubCredentialActor(cwd, remoteUrl, repository) {
   };
 }
 
-async function captureCreationPrecondition(cwd, action, resource, providerExecutablePath = "gh") {
+async function captureCreationPrecondition(cwd, action, resource) {
   if (action === "branch.create") {
     const ref = resource.slice("branch:".length);
     try {
@@ -2112,7 +2136,7 @@ async function captureCreationPrecondition(cwd, action, resource, providerExecut
   if (action === "actions.dispatch" && resource.startsWith("run:")) {
     const runId = resource.slice("run:".length);
     try {
-      const actual = JSON.parse((await execFileAsync(providerExecutablePath, ["run", "view", runId, "--json", "databaseId,status"], {
+      const actual = JSON.parse((await execFileAsync("gh", ["run", "view", runId, "--json", "databaseId,status"], {
         cwd,
         encoding: "utf8"
       })).stdout);
@@ -2203,10 +2227,7 @@ async function verifyFailedCreationAbsence(manifest, record) {
       absent: true
     };
   }
-  const providerExecutablePath = record.action === "actions.dispatch" && record.provider === "github-cli"
-    ? await verifyRecordedGitHubProvider(manifest, record)
-    : "gh";
-  const precondition = await captureCreationPrecondition(cwd, record.action, record.resource, providerExecutablePath);
+  const precondition = await captureCreationPrecondition(cwd, record.action, record.resource);
   if (precondition?.state !== "absent") {
     throw new Error("Failed owned-resource creation reconciliation found an existing provider resource; preserve the reservation and reconcile the provider outcome");
   }
@@ -3297,6 +3318,7 @@ function assertPersistedSuccessfulMergeAction(actions, mergeBinding) {
 }
 
 export async function issueActionToken(root, runId, request, currentTreeDigest, config) {
+  assertSupportedGovernedAction(request.action);
   for (const field of ["action", "provider", "resource", "remoteRevision"]) {
     if (typeof request[field] !== "string" || !request[field]) throw new Error(`Action ${field} is required`);
   }
@@ -3372,9 +3394,12 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
         assertTargetBranchEvidence(admittedEvidence, request, repository, contract.remoteRevision ?? null);
       }
     }
+    const providerExecutable = needsProviderAuthorization && request.provider === "github-cli"
+      ? await currentProviderExecutableIdentity("gh")
+      : null;
     const providerAuthorization = needsProviderAuthorization &&
       (request.provider === "github-cli" || (request.provider === "git" && repository?.startsWith("github.com/")))
-      ? await verifyGitHubProviderAuthorization(manifest.cwd, repository)
+      ? await verifyGitHubProviderAuthorization(manifest.cwd, repository, providerExecutable?.path ?? "gh")
       : null;
     if (request.requiredEvidence.includes("remote-authorization") && request.action !== "git.push") {
       assertRemoteAuthorizationEvidence(admittedEvidence, request, providerAuthorization, repository);
@@ -3475,13 +3500,7 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
         createRepository: repository,
         prTitle,
         prBodyPrefix,
-        providerExecutable: await currentProviderExecutableIdentity("gh")
-      };
-    }
-    if (request.action === "actions.dispatch" && request.provider === "github-cli") {
-      actionBinding = {
-        ...actionBinding,
-        providerExecutable: await currentProviderExecutableIdentity("gh")
+        providerExecutable: providerExecutable ?? await currentProviderExecutableIdentity("gh")
       };
     }
     if (request.action === "pr.merge") {
@@ -3498,7 +3517,7 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
         ...(contract.template === "pr-to-dev" ? { targetRef: "dev" } : {}),
         mergeMethod: "merge",
         adminBypass: false,
-        providerExecutable: await currentProviderExecutableIdentity("gh"),
+        providerExecutable: providerExecutable ?? await currentProviderExecutableIdentity("gh"),
         mergeRepository: repository,
         mergeCommand: [
           "gh",
@@ -3648,12 +3667,7 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
         // Reserve before observing absence so an external creator cannot win the gap.
         await reserveCreationResource(root, runId, request.resource, tokenHash, expiresAt);
         reservationHeld = true;
-        creationPrecondition = await captureCreationPrecondition(
-          manifest.cwd,
-          request.action,
-          request.resource,
-          actionBinding.providerExecutable?.path ?? "gh"
-        );
+        creationPrecondition = await captureCreationPrecondition(manifest.cwd, request.action, request.resource);
         if (!creationPrecondition || creationPrecondition.state !== "absent") {
           throw new Error("Owned resource creation requires an observed absent precondition after reservation");
         }
@@ -3699,6 +3713,7 @@ export async function consumeActionToken(root, runId, token, currentTreeDigest) 
     assertMutableRun({ state }, "Action token consumption");
     const target = safeJoin(runDir, "actions", `${tokenHash}.json`);
     const record = await readJson(root, target);
+    assertSupportedGovernedAction(record.action);
     if (record.status !== "issued") throw new Error("Action token was already consumed");
     if (Date.parse(record.expiresAt) <= Date.now()) throw new Error("Action token expired");
     if (OWNED_RESOURCE_CREATION_ACTIONS.has(record.action)) {
@@ -3716,9 +3731,12 @@ export async function consumeActionToken(root, runId, token, currentTreeDigest) 
     const contract = await readJson(root, safeJoin(runDir, "contract.json"));
     if (record.contractDigest !== digestObject(contract)) throw new Error("Action token contract binding changed");
     const manifest = await readJson(root, safeJoin(runDir, "manifest.json"));
+    const githubProviderExecutable = record.providerAuthorization?.provider === "github-cli"
+      ? await currentProviderExecutableIdentity("gh")
+      : null;
     if (record.providerAuthorization?.provider === "github-cli") {
       const repository = await currentRepositoryIdentity(manifest.cwd);
-      const authorization = await verifyGitHubProviderAuthorization(manifest.cwd, repository);
+      const authorization = await verifyGitHubProviderAuthorization(manifest.cwd, repository, githubProviderExecutable.path);
       if (digestObject(authorization) !== digestObject(record.providerAuthorization)) {
         throw new Error("Action consumption denied because GitHub provider authorization changed");
       }
@@ -3736,8 +3754,13 @@ export async function consumeActionToken(root, runId, token, currentTreeDigest) 
         throw new Error("Action consumption denied because the controlled Git credential check changed");
       }
     }
-    if (record.action === "pr.create" || record.action === "pr.merge" || record.action === "actions.dispatch" || record.action === "git.push") {
-      const executable = await currentProviderExecutableIdentity(record.action === "git.push" ? "git" : "gh");
+    const actionExecutable = record.action === "git.push"
+      ? await currentProviderExecutableIdentity("git")
+      : ["pr.create", "pr.merge"].includes(record.action)
+        ? githubProviderExecutable
+        : null;
+    if (actionExecutable) {
+      const executable = actionExecutable;
       if (digestObject(executable) !== digestObject(record.providerExecutable)) {
         throw new Error("Action consumption denied because the governed provider executable changed");
       }
@@ -3790,6 +3813,7 @@ export async function consumeActionToken(root, runId, token, currentTreeDigest) 
 
 export async function executeActionToken(root, runId, token, currentTreeDigest) {
   const actionRecord = await readJson(root, safeJoin(runDirectory(root, runId), "actions", `${sha256(token)}.json`));
+  assertSupportedGovernedAction(actionRecord.action);
   if (!EXECUTABLE_ACTION_PROVIDERS.has(`${actionRecord.action}:${actionRecord.provider}`)) {
     throw new Error("The governed provider execution path only supports github-cli pr.merge and git.push");
   }
@@ -4054,19 +4078,14 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
     const records = await listJsonRecords(root, safeJoin(runDir, "actions"));
     const record = records.find((item) => item.attemptId === attemptId);
     if (!record) throw new Error(`Unknown action attempt: ${attemptId}`);
-    const recoveringUnknownFailure = (
-      record.status === "spent" &&
-      record.outcome === "unknown" &&
-      outcome === "failure" &&
-      OWNED_RESOURCE_CREATION_ACTIONS.has(record.action)
-    );
+    assertSupportedGovernedAction(record.action);
     const recoveringUnknownSuccess = (
       record.status === "spent" &&
       record.outcome === "unknown" &&
       outcome === "success" &&
       OWNED_RESOURCE_CREATION_ACTIONS.has(record.action)
     );
-    const recoveringUnknown = recoveringUnknownFailure || recoveringUnknownSuccess;
+    const recoveringUnknown = recoveringUnknownSuccess;
     if (record.status !== "spent" || (record.outcome !== "pending" && !recoveringUnknown)) {
       throw new Error("Action attempt was already reconciled");
     }

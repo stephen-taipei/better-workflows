@@ -36,17 +36,24 @@ rationale.
 - A consumed owned-resource creation with outcome `unknown` keeps its
   reservation and cannot be retried blindly. An operator may reconcile that
   same attempt as `success` only after a fresh provider-side proof is bound to
-  the consumed action's native marker, actor, source, and provider object, or
-  as `failure` only after the same provider-side absence proof succeeds under
-  the recorded executable, live authorization, and bound repository;
-  expiry reaping never releases an unknown reservation automatically.
+  the consumed action's native marker, actor, source, and provider object;
+  an absence snapshot cannot convert `unknown` to `failure`, because a
+  matching provider object may appear after the snapshot and before local
+  reservation finalization. The reservation remains held until an authoritative
+  terminal provider result is available; expiry reaping never releases an
+  unknown reservation automatically.
 - Provider-execution reservations are idempotent only for the same run,
-  action attempt, token, and execution identity. A consumed owned-resource
-  attempt may make one controlled transition from an `unknown` provider
-  reservation to its verified terminal provider receipt; any second execution
-  identity or another action attempt remains rejected. This lets a verified
-  receipt resume after a crash between reservation and action-record
-  persistence without permitting replay.
+  action attempt, token, execution identity, and recorded outcome. A consumed
+  owned-resource attempt may make one controlled transition from an `unknown`
+  provider reservation to its verified terminal provider receipt; a superseded
+  identity, second execution identity, outcome mismatch, legacy-format record,
+  or another action attempt remains rejected. This lets a verified receipt
+  resume after a crash between reservation and action-record persistence
+  without permitting replay.
+- `actions.dispatch` is intentionally rejected by the core action-token
+  lifecycle until a fixed-argv provider adapter can correlate one requested
+  workflow dispatch to exactly one provider-assigned run. It must not be
+  treated as a generic creation action with a pre-known run ID.
 - Governed `pr.create` actions bind the provider receipt to the exact candidate
   source commit observed when the action token is issued; a PR from another
   source head cannot be reconciled or registered as run-owned.

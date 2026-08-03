@@ -291,12 +291,14 @@ sbw action reconcile <run-id> --attempt <attempt-id> --outcome <success|failure|
 Never retry an `unknown` outcome without provider-side query reconciliation.
 For an owned-resource creation, the same consumed attempt may be reconciled as
 `success` only when the provider query proves the exact native marker, actor,
-source, repository, and provider object; it may be reconciled as `failure` only
-after fresh absence proof using the recorded executable, live authorization,
-and bound repository. Provider-execution reservations may resume only for
-the same run, action attempt, token, and execution identity after an
-interrupted action-record write, with one controlled unknown-to-terminal
-supersession and no second identity.
+source, repository, and provider object. An unknown owned-resource attempt may
+not be reconciled as `failure` from an absence snapshot. Provider-execution
+reservations may resume only for the same run, action attempt, token, execution
+identity, and recorded outcome after an interrupted action-record write, with
+one controlled unknown-to-terminal supersession and no second identity;
+superseded or legacy-format reservations remain rejected. `actions.dispatch` is
+not supported until a fixed-argv provider adapter can correlate one requested
+workflow dispatch to exactly one provider-assigned run.
 
 ## Apply repository-specific policy
 
