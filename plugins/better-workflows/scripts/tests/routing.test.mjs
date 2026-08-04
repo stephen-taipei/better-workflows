@@ -290,6 +290,31 @@ test("routing accepts a digest-bound schema-v2 ready marker for a cached skill",
   })}\n`);
   await writeFile(path.join(stateRoot, "runs", runId, "contract.json"), "{}\n");
   await writeFile(path.join(stateRoot, "runs", runId, "state.json"), "{}\n");
+  const actionProof = {
+    schemaVersion: 1,
+    runId,
+    actionAttemptId: attemptId,
+    action: "plugin.cache.publish",
+    provider: "local-workspace",
+    resource: `plugin-cache:${sourceBinding.headRevision}`,
+    outcome: "success",
+    idempotencyKey: providerReceipt.idempotencyKey,
+    remoteRevision: providerReceipt.remoteRevision,
+    providerExecutionId: providerReceipt.executionId,
+    providerReceiptDigest: digestObject(providerReceipt)
+  };
+  await mkdir(path.join(stateRoot, "runs", runId, "evidence"), { recursive: true });
+  await writeFile(path.join(stateRoot, "runs", runId, "evidence", "cache-publication-routing-v2.json"), `${JSON.stringify({
+    id: "cache-publication-routing-v2",
+    status: "complete",
+    stale: false,
+    receipt: {
+      payload: {
+        actionProof,
+        receipt: providerReceipt
+      }
+    }
+  })}\n`);
   await writeFile(path.join(stateRoot, "runs", runId, "actions", "routing-v2-action.json"), `${JSON.stringify({
     runId,
     attemptId,
@@ -333,6 +358,21 @@ test("routing accepts a digest-bound schema-v2 ready marker for a cached skill",
   assert.equal(available.status, "available");
   assert.equal(available.source, skillPath);
   assert.equal(typeof available.fingerprint.digest, "string");
+  await writeFile(path.join(stateRoot, "runs", runId, "actions", "routing-v2-action.json"), `${JSON.stringify({
+    runId,
+    attemptId,
+    action: "plugin.cache.publish",
+    provider: "local-workspace",
+    status: "spent",
+    outcome: "success",
+    receipt: {
+      outcome: "success",
+      evidenceIds: ["missing-evidence"],
+      providerReceipt
+    }
+  })}\n`);
+  const missingEvidence = (await snapshot()).capabilities.find((item) => item.id === "skill:cached-advisor");
+  assert.equal(missingEvidence.status, "unavailable");
   for (const overrides of [
     { sourceDigest: "a".repeat(64) },
     { pluginBundleDigest: "a".repeat(64) },

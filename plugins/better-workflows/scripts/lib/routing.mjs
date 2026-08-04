@@ -333,8 +333,35 @@ async function verifyGovernedCacheMarker({ marker, stateRoot, pluginCacheRoot, t
       item.receipt.evidenceIds.length > 0
     ));
     const providerReceipt = action?.receipt?.providerReceipt;
+    const evidence = await listJsonRecords(stateRoot, safeJoin(run.runDir, "evidence"));
+    const evidenceBound = Boolean(action) && action.receipt.evidenceIds.every((evidenceId) => {
+      const item = evidence.find((candidate) => candidate.id === evidenceId);
+      const payload = item?.receipt?.payload;
+      const proof = payload?.actionProof;
+      return Boolean(
+        item &&
+        item.status === "complete" &&
+        item.stale !== true &&
+        payload &&
+        payload.provider === "local-workspace" &&
+        proof?.schemaVersion === 1 &&
+        proof.runId === marker.runId &&
+        proof.actionAttemptId === marker.attemptId &&
+        proof.action === "plugin.cache.publish" &&
+        proof.provider === "local-workspace" &&
+        proof.resource === providerReceipt?.resource &&
+        proof.outcome === "success" &&
+        proof.idempotencyKey === providerReceipt?.idempotencyKey &&
+        proof.remoteRevision === providerReceipt?.remoteRevision &&
+        proof.providerExecutionId === providerReceipt?.executionId &&
+        proof.providerReceiptDigest === digestObject(providerReceipt) &&
+        payload.receipt &&
+        digestObject(payload.receipt) === digestObject(providerReceipt)
+      );
+    });
     const sourceBinding = run.manifest?.sourceBinding;
     return Boolean(
+      evidenceBound &&
       run.manifest?.pluginCacheRoot === pluginCacheRoot &&
       sourceBinding?.baseRevision === marker.sourceBaselineRevision &&
       sourceBinding?.headRevision === marker.sourceHeadRevision &&
