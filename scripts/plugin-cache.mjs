@@ -22,10 +22,41 @@ import {
   safeJoin,
   sha256
 } from "../plugins/better-workflows/scripts/lib/core.mjs";
+import { validateTypedEvidenceRecord } from "../plugins/better-workflows/scripts/lib/evidence.mjs";
 import { validateSelfImproveDeliveryHandoff } from "../plugins/better-workflows/scripts/lib/self-improve-handoff.mjs";
 import { rm, writeFile } from "node:fs/promises";
 
 const execFileAsync = promisify(execFile);
+
+function replayEvidenceShape(record) {
+  const receipt = record?.receipt ?? {};
+  return {
+    id: record?.id ?? null,
+    kind: record?.kind ?? null,
+    summary: record?.summary ?? null,
+    status: record?.status ?? null,
+    acceptanceIds: record?.acceptanceIds ?? null,
+    dependencyInputs: record?.dependencyInputs ?? null,
+    dependencies: record?.dependencies ?? null,
+    sourceKind: record?.sourceKind ?? null,
+    sourceDigest: record?.sourceDigest ?? (receipt.payload ? digestObject(receipt.payload) : null),
+    review: record?.review ?? null,
+    providerExecution: record?.providerExecution ?? null,
+    receipt: {
+      contractId: receipt.contractId ?? null,
+      contractVersion: receipt.contractVersion ?? null,
+      runId: receipt.runId ?? null,
+      producer: receipt.producer ?? null,
+      inputBinding: receipt.inputBinding ?? null,
+      payload: receipt.payload ?? null,
+      payloadDigest: receipt.payloadDigest ?? null
+    }
+  };
+}
+
+function equivalentReplayEvidence(left, right) {
+  return JSON.stringify(replayEvidenceShape(left)) === JSON.stringify(replayEvidenceShape(right));
+}
 
 function parseArgs(argv) {
   const positional = [];
@@ -89,6 +120,44 @@ async function main() {
     } catch (error) {
       const detail = String(error.stdout ?? error.stderr ?? "").trim();
       throw new Error(detail || error.message);
+    }
+  };
+  const loadPersistedEvidence = async (runId, evidenceId) => {
+    const latestRun = await loadRun(stateRoot, runId);
+    const records = await listJsonRecords(stateRoot, safeJoin(latestRun.runDir, "evidence"));
+    return records.find((item) => item.id === evidenceId) ?? null;
+  };
+  const validatePersistedEvidence = async (record, runId) => {
+    const latestRun = await loadRun(stateRoot, runId);
+    await validateTypedEvidenceRecord(record, {
+      ...latestRun,
+      root: stateRoot,
+      requireReconciled: false
+    });
+    return record;
+  };
+  const ensureEquivalentEvidence = async (record, runId, tempFiles) => {
+    const existing = await loadPersistedEvidence(runId, record.id);
+    if (existing) {
+      await validatePersistedEvidence(existing, runId);
+      if (!equivalentReplayEvidence(existing, record)) {
+        throw new Error(`Persisted plugin cache evidence binding changed: ${record.id}`);
+      }
+      return existing;
+    }
+    const file = path.join(os.tmpdir(), `better-workflows-${record.id}-${randomUUID()}.json`);
+    tempFiles.push(file);
+    await writeFile(file, `${JSON.stringify(record, null, 2)}\n`, { mode: 0o600 });
+    try {
+      return await runSbw(["evidence", "add", runId, "--file", file]);
+    } catch (error) {
+      const raced = await loadPersistedEvidence(runId, record.id);
+      if (!raced) throw error;
+      await validatePersistedEvidence(raced, runId);
+      if (!equivalentReplayEvidence(raced, record)) {
+        throw new Error(`Persisted plugin cache evidence binding changed: ${record.id}`);
+      }
+      return raced;
     }
   };
   let result;
@@ -208,7 +277,7 @@ async function main() {
           sourceDigest: publication.sourceDigest,
           targetDigest: publication.targetDigest
         };
-        const providerReceipt = {
+        const freshProviderReceipt = {
           action: consumed.action,
           provider: consumed.provider,
           resource: consumed.resource,
@@ -236,6 +305,28 @@ async function main() {
           sourceBindingDigest: payload.sourceBindingDigest,
           pluginBundleDigest: payload.pluginBundleDigest
         };
+        const evidenceIds = [
+          `cache-publication-${consumed.attemptId}`,
+          `provider-reconciliation-${consumed.attemptId}`
+        ];
+        const persistedEvidence = await Promise.all(
+          evidenceIds.map((evidenceId) => loadPersistedEvidence(targetRunId, evidenceId))
+        );
+        for (const existing of persistedEvidence.filter(Boolean)) {
+          await validatePersistedEvidence(existing, targetRunId);
+        }
+        const persistedProviderReceipts = persistedEvidence
+          .filter(Boolean)
+          .map((existing) => existing.receipt?.payload?.receipt)
+          .filter(Boolean);
+        if (
+          persistedProviderReceipts.some((existing) =>
+            digestObject(existing) !== digestObject(persistedProviderReceipts[0])
+          )
+        ) {
+          throw new Error("Persisted plugin cache evidence contains conflicting provider receipts");
+        }
+        const providerReceipt = persistedProviderReceipts[0] ?? freshProviderReceipt;
         const actionProof = {
           schemaVersion: 1,
           runId: targetRunId,
@@ -316,10 +407,7 @@ async function main() {
         const tempFiles = [];
         try {
           for (const evidence of [cacheEvidence, reconciliationEvidence]) {
-            const file = path.join(os.tmpdir(), `better-workflows-${evidence.id}-${randomUUID()}.json`);
-            tempFiles.push(file);
-            await writeFile(file, `${JSON.stringify(evidence, null, 2)}\n`, { mode: 0o600 });
-            await runSbw(["evidence", "add", targetRunId, "--file", file]);
+            await ensureEquivalentEvidence(evidence, targetRunId, tempFiles);
           }
           const receiptFile = path.join(os.tmpdir(), `better-workflows-cache-receipt-${randomUUID()}.json`);
           tempFiles.push(receiptFile);

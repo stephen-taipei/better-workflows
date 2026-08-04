@@ -33,6 +33,8 @@ const MAX_PROFILE_RULES = 128;
 const MAX_STRING_LENGTH = 512;
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const SAFE_CAPABILITY = /^[A-Za-z0-9][A-Za-z0-9:._/-]{0,191}$/;
+const SHA1 = /^[a-f0-9]{40}$/;
+const SHA256 = /^[a-f0-9]{64}$/;
 const RECEIPT_ID = /^route-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{12}$/;
 const ROUTE_MODES = ["direct", "verified", "deep", "critical"];
 const MODE_RANK = new Map(ROUTE_MODES.map((mode, index) => [mode, index]));
@@ -349,12 +351,28 @@ async function installedSkillPath(skill, { cwd, env = process.env } = {}) {
         path.join(pluginCacheRoot, `${version.name}.ready.json`),
         { allowMissing: true }
       );
-      if (
-        marker &&
-        (marker.schemaVersion !== 1 || marker.state !== "ready" || marker.version !== version.name ||
-          marker.target !== path.join(pluginCacheRoot, version.name) ||
-          typeof marker.targetDigest !== "string")
-      ) continue;
+      if (marker) {
+        const target = path.join(pluginCacheRoot, version.name);
+        const v1 = marker.schemaVersion === 1 &&
+          marker.state === "ready" &&
+          marker.version === version.name &&
+          marker.target === target &&
+          SHA256.test(marker.targetDigest);
+        const v2 = marker.schemaVersion === 2 &&
+          marker.state === "ready" &&
+          marker.version === version.name &&
+          marker.target === target &&
+          SHA256.test(marker.targetDigest) &&
+          SHA256.test(marker.sourceDigest) &&
+          SHA1.test(marker.sourceBaselineRevision) &&
+          SHA1.test(marker.sourceHeadRevision) &&
+          SHA256.test(marker.sourceBindingDigest) &&
+          SHA256.test(marker.pluginBundleDigest) &&
+          typeof marker.runId === "string" && marker.runId.length > 0 &&
+          typeof marker.attemptId === "string" && marker.attemptId.length > 0 &&
+          SHA256.test(marker.providerReceiptDigest);
+        if (!v1 && !v2) continue;
+      }
       if (marker) {
         try {
           if (await bundleDigest(path.join(pluginCacheRoot, version.name)) !== marker.targetDigest) continue;

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { link, mkdir, mkdtemp, readdir, stat, writeFile } from "node:fs/promises";
+import { access, link, mkdir, mkdtemp, readdir, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -142,6 +142,68 @@ test("plugin cache publication reclaims a lock left by a hard-killed publisher",
   const published = await publishPluginCache({ sourceRoot, cacheRoot });
   assert.equal(published.ok, true);
   assert.equal(published.applied, true);
+  assert.deepEqual(
+    (await readdir(cacheRoot)).filter((name) => name.includes(".publish.lock") || name.includes(".stage-")),
+    []
+  );
+});
+
+test("concurrent stale-lock reclaimers cannot steal a successor publication lock", async () => {
+  const sourceRoot = await sourceFixture("1.1.0+test.concurrent-lock-recovery");
+  const parent = await mkdtemp(path.join(os.tmpdir(), "sbw-publication-concurrent-lock-"));
+  const cacheRoot = path.join(parent, "cache");
+  await mkdir(cacheRoot, { recursive: true });
+  const version = "1.1.0+test.concurrent-lock-recovery";
+  await writeFile(
+    path.join(cacheRoot, `.${version}.publish.lock`),
+    `${JSON.stringify({
+      version,
+      pid: 999999999,
+      ownerToken: "stale-owner",
+      createdAt: "2020-01-01T00:00:00.000Z"
+    })}\n`,
+    { mode: 0o600 }
+  );
+  const publicationModule = pathToFileURL(path.resolve(path.dirname(new URL(import.meta.url).pathname), "..", "lib", "publication.mjs")).href;
+  const releaseFile = path.join(parent, "release");
+  const readyFiles = [path.join(parent, "ready-a"), path.join(parent, "ready-b")];
+  const startedFiles = [path.join(parent, "started-a"), path.join(parent, "started-b")];
+  const childCode = (index) => `
+    import { access, writeFile } from "node:fs/promises";
+    import { publishPluginCache } from ${JSON.stringify(publicationModule)};
+    const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+    await writeFile(${JSON.stringify(startedFiles[index])}, "started");
+    await publishPluginCache({
+      sourceRoot: ${JSON.stringify(sourceRoot)},
+      cacheRoot: ${JSON.stringify(cacheRoot)},
+      beforeRename: async () => {
+        await writeFile(${JSON.stringify(readyFiles[index])}, "ready");
+        while (true) {
+          try { await access(${JSON.stringify(releaseFile)}); break; }
+          catch { await delay(10); }
+        }
+      }
+    });
+  `;
+  const runChild = (index) => execFileAsync(
+    process.execPath,
+    ["--input-type=module", "-e", childCode(index)],
+    { encoding: "utf8" }
+  ).then(() => ({ ok: true })).catch((error) => ({ ok: false, error }));
+  const children = [runChild(0), runChild(1)];
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    if (await Promise.all(startedFiles.map((file) => access(file).then(() => true).catch(() => false))).then((items) => items.every(Boolean))) break;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    if (await Promise.all(readyFiles.map((file) => access(file).then(() => true).catch(() => false))).then((items) => items.some(Boolean))) break;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  await writeFile(releaseFile, "release");
+  const results = await Promise.all(children);
+  assert.equal(results.filter((item) => item.ok).length, 1);
+  assert.equal(results.filter((item) => !item.ok).length, 1);
+  assert.equal((await checkPluginCache({ sourceRoot, cacheRoot })).ok, true);
   assert.deepEqual(
     (await readdir(cacheRoot)).filter((name) => name.includes(".publish.lock") || name.includes(".stage-")),
     []

@@ -2,6 +2,7 @@ import { constants as fsConstants } from "node:fs";
 import { execFile } from "node:child_process";
 import {
   chmod,
+  link,
   lstat,
   mkdir,
   open,
@@ -88,9 +89,9 @@ function processIsAlive(pid) {
   }
 }
 
-async function readPublicationLock(lockPath) {
+async function readPublicationLock(lockPath, { allowHardlink = false } = {}) {
   try {
-    const opened = await readRegularFile(lockPath);
+    const opened = await readRegularFile(lockPath, { requireSingleLink: !allowHardlink });
     return JSON.parse(opened.contents.toString("utf8"));
   } catch (error) {
     if (error.code === "ENOENT") return null;
@@ -115,26 +116,36 @@ async function reclaimStalePublicationLock(lockPath, version) {
   }
   const stalePath = `${lockPath}.stale-${randomUUID()}`;
   try {
-    await rename(lockPath, stalePath);
+    await link(lockPath, stalePath);
+    const current = await readPublicationLock(lockPath, { allowHardlink: true });
+    const sameOwner = current &&
+      current.pid === existing.pid &&
+      current.createdAt === existing.createdAt &&
+      (current.ownerToken ?? null) === (existing.ownerToken ?? null);
+    if (sameOwner) await unlink(lockPath);
+    return sameOwner;
   } catch (error) {
     if (error.code === "ENOENT") return false;
     throw error;
+  } finally {
+    await unlink(stalePath).catch((error) => {
+      if (error.code !== "ENOENT") throw error;
+    });
   }
-  await unlink(stalePath).catch(() => undefined);
-  return true;
 }
 
 async function acquirePublicationLock(lockPath, version) {
   let reclaimed = false;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
+      const ownerToken = randomUUID();
       await writeFile(lockPath, `${JSON.stringify({
         version,
         pid: process.pid,
-        ownerToken: randomUUID(),
+        ownerToken,
         createdAt: new Date().toISOString()
       })}\n`, { flag: "wx", mode: 0o600 });
-      return { close: async () => undefined, reclaimed };
+      return { ownerToken, close: async () => undefined, reclaimed };
     } catch (error) {
       if (error.code !== "EEXIST") throw error;
       const didReclaim = await reclaimStalePublicationLock(lockPath, version);
@@ -145,6 +156,14 @@ async function acquirePublicationLock(lockPath, version) {
     }
   }
   throw new Error(`Plugin cache publication lock could not be acquired for ${version}`);
+}
+
+async function releasePublicationLock(lockPath, ownerToken) {
+  const current = await readPublicationLock(lockPath);
+  if (!current || current.ownerToken !== ownerToken) return;
+  await unlink(lockPath).catch((error) => {
+    if (error.code !== "ENOENT") throw error;
+  });
 }
 
 async function removeStalePublicationArtifacts(cacheRoot, version) {
@@ -750,7 +769,7 @@ export async function publishPluginCache({
   } finally {
     if (snapshotRoot) await rm(snapshotRoot, { recursive: true, force: true }).catch(() => undefined);
     await lock.close().catch(() => undefined);
-    await unlink(lockPath).catch(() => undefined);
+    await releasePublicationLock(lockPath, lock.ownerToken);
   }
 }
 

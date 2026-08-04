@@ -1,6 +1,7 @@
 import {
   VERSION,
   digestObject,
+  getCodexPluginCacheRoot,
   listJsonRecords,
   loadRun,
   nowIso,

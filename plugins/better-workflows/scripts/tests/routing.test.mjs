@@ -21,6 +21,7 @@ import {
   validateRouteReceipt,
   validateRoutingProfile
 } from "../lib/routing.mjs";
+import { bundleDigest } from "../lib/publication.mjs";
 
 async function workspace() {
   return mkdtemp(path.join(os.tmpdir(), "sbw-routing-workspace-"));
@@ -234,6 +235,46 @@ test("capability snapshot resolves and fingerprints a callable symlink command w
   assert.equal(capability.fingerprint.resolvedPath, await realpath(target));
   assert.equal(typeof capability.fingerprint.digest, "string");
   await assert.rejects(access(marker));
+});
+
+test("routing accepts a digest-bound schema-v2 ready marker for a cached skill", async () => {
+  const cwd = await workspace();
+  const codexHome = path.join(cwd, "codex-home");
+  const version = "3.0.0+test.routing-v2";
+  const cachePluginRoot = path.join(codexHome, "plugins", "cache", "better-workflows", "better-workflows");
+  const target = path.join(cachePluginRoot, version);
+  const skillPath = path.join(target, "skills", "cached-advisor", "SKILL.md");
+  await mkdir(path.dirname(skillPath), { recursive: true });
+  await writeFile(skillPath, "# Cached advisor\n");
+  const targetDigest = await bundleDigest(target);
+  await writeFile(
+    path.join(cachePluginRoot, `${version}.ready.json`),
+    `${JSON.stringify({
+      schemaVersion: 2,
+      state: "ready",
+      version,
+      target,
+      targetDigest,
+      sourceDigest: "a".repeat(64),
+      sourceBaselineRevision: "b".repeat(40),
+      sourceHeadRevision: "c".repeat(40),
+      sourceBindingDigest: "d".repeat(64),
+      pluginBundleDigest: targetDigest,
+      runId: "sbw-routing-v2-run",
+      attemptId: "sbw-routing-v2-attempt",
+      providerReceiptDigest: "e".repeat(64)
+    }, null, 2)}\n`
+  );
+  const snapshot = await capabilitySnapshot({
+    cwd,
+    stateRoot: path.join(cwd, "state"),
+    env: { ...process.env, CODEX_HOME: codexHome },
+    requiredCapabilities: ["skill:cached-advisor"]
+  });
+  const capability = snapshot.capabilities.find((item) => item.id === "skill:cached-advisor");
+  assert.equal(capability.status, "available");
+  assert.equal(capability.source, skillPath);
+  assert.equal(typeof capability.fingerprint.digest, "string");
 });
 
 test("capability and receipt digests change when an installed support skill changes in place", async () => {
