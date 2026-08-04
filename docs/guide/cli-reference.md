@@ -162,11 +162,14 @@ sbw self-improve attestation request \
   --output <outside-repo-directory>
 ```
 
-Real Codex replay also requires one distinct administrator-signed `result
-receipt` per execution. The receipt is created outside the repository with
-`host-trust.mjs sign-result` from an administrator-confirmed request digest;
-the evaluator rechecks its prompt digest, parsed response digest, binary/model,
-execution binding, exit status, timestamps, and trust root before delivery.
+Real Codex replay requires one distinct root-owned host execution witness per
+execution. The administrator reviews the manifest digest and runs its returned
+`executeCommand` through the installed, capability-checked signer. That signer
+executes Codex once, captures the response/timing/exit data, writes the
+one-shot host ledger, and creates the result receipt. The evaluator consumes
+the returned witness path via `--trusted-codex-execution` and rechecks its
+prompt/response digest, binary/model, execution binding, ledger, exit status,
+timestamps, and trust root before delivery; it never reruns Codex.
 
 ## Repository validation
 

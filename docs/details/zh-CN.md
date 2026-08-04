@@ -246,7 +246,7 @@ sudo "$(command -v node)" plugins/better-workflows/scripts/host-trust.mjs provis
 node plugins/better-workflows/scripts/sbw.mjs self-improve host status
 ```
 
-Provision 不会覆盖或暗中 rotate 现有 key。trust root 是 root-owned 公共 JSON；private Ed25519 key 以 `0600` 保存在 repo 外。不要用 `plutil` 验证 JSON。candidate 固定后，执行下列命令，在 repo 外生成七份 request、manifest digest 与可一次签完的精确 `signCommand`：
+Provision 不会覆盖或暗中 rotate 现有 key。trust root 是 root-owned 公共 JSON；private Ed25519 key 以 `0600` 保存在 repo 外。不要用 `plutil` 验证 JSON。若 status 报告 `ready: false` 且只安装了 legacy signer，请用 administrator-confirmed SHA-256 执行 `host-trust.mjs upgrade`；既有 trust root/key 会保留，旧 signer 会作为 root-owned backup 保存。candidate 固定后，执行下列命令，在 repo 外生成七份 prompt-bound execution request、manifest digest 与精确 `executeCommand`：
 
 ```bash
 node plugins/better-workflows/scripts/sbw.mjs \
@@ -254,6 +254,8 @@ node plugins/better-workflows/scripts/sbw.mjs \
   --run <run-id> --baseline <sha> --candidate-root . \
   --model <model> --output <new-outside-repo-directory>
 ```
+
+`executeCommand` 只调用已安装且 capability-checked 的 host signer，一次执行七份 request，并返回 `/private/var/db/better-workflows/executions` 下的 root-owned witness。将 training 的一份和 holdout 的六份传给 `--trusted-codex-execution`；caller 提供的 response 或 timestamp 不会被签署。
 
 在应用文件数或 byte 采样上限前，sanitizer 会先确认每一个 changed path
 都符合固定的 plugin 或 repository 公共文档 allowlist。即使不合格路径排序
@@ -280,7 +282,7 @@ node plugins/better-workflows/scripts/sbw.mjs recipe run <id> \
 
 自我改进 evaluation 只使用已 checked-in、sanitized 且在 immutable baseline 冻结的 train/holdout corpus。candidate 必须先 staging；三次 read-only Codex holdout replay 必须在没有 safety failure 或 regression 的前提下严格超过 baseline median。Codex replay 需要 host-signed attestation，把精确 binary 与 model 绑定到固定的 `/etc/better-workflows/codex-trust-root.json`；该文件和父目录必须由 administrator 拥有且调用者不可写入。`PATH`、自行计算 hash、CLI 选择 trust root 或 model 自述都不是 provider attestation。tie、noise、缺少 evidence 或 fixture-only 结果都不会 auto-adopt。
 
-每次成功 replay 还需要独立的 administrator-signed `result receipt`，绑定 exact prompt digest、parsed response digest、binary/model、execution、exit status 与 timestamps；delivery 前会重新验证该 receipt。
+每次成功 replay 都使用独立的 host-owned witness：已安装 signer 精确执行 attested Codex binary 一次，由 host 捕获 prompt、parsed response、exit status、timestamps，并写入 root-owned execution ledger 与 `result receipt`。`sbw` 消费已保存的 witness，resume 或 delivery revalidation 不会重新执行 Codex；signed receipt 绑定 exact prompt digest、response digest、binary、model、execution、ledger 与 timestamps。
 
 Evaluation v2.2 保留现有 safety、documentation、deliberation、sanitizer 与 evaluation-engineering coverage，并增加 typed-evidence integrity、execution-ledger replay、bounded review convergence 与 direct-work cost 的独立 train/holdout classes。一次性 migration 以 immutable v2.1 为 source，并将 source/target 两份 suite digest 绑定到全部七份 signed executions。
 

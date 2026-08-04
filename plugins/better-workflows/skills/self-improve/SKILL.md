@@ -86,27 +86,35 @@ manifest, then allocates bounded content samples across runtime, tests, config,
 skills, templates, fixtures, metadata, and docs. Only valid UTF-8,
 non-secret-shaped content from approved paths is sent to Codex.
 
-Each real replay also needs a distinct host-signed execution binding: its unique
+Each real replay uses a distinct host-owned execution witness. Its unique
 execution ID, run ID, corpus digest, baseline revision, candidate digest, role,
-attempt number, and exact prompt digest are all signed. After Codex returns, the
-administrator must sign a distinct host result receipt that covers the same
-execution, prompt digest, parsed response digest, binary/model identity, exit
-status, and timestamps. Training takes one attestation and one result receipt;
-holdout takes six distinct pairs (candidate 1–3, then baseline 1–3). Replayed,
-duplicated, or response-mutated receipt files cannot authorize delivery.
+attempt number, and exact prompt digest are submitted in a digest-confirmed
+request. The installed administrator signer executes the attested Codex binary
+exactly once, captures the prompt, parsed response, exit status, and timestamps,
+writes a root-owned execution ledger, and signs the attestation and result
+receipt after that execution. Training takes one witness; holdout takes six
+(candidate 1–3, then baseline 1–3). `sbw` consumes the persisted witness and
+never reruns Codex during resume or delivery revalidation. Replayed, duplicated,
+response-mutated, ledger-mutated, or executable-drifted witnesses fail closed.
 
 Ordinary clones and workspace recipes do not require this host trust root. A
 maintainer who will run real self-improvement delivery replays must first use
 `sbw self-improve host status`. If the host is unprovisioned, an administrator
 reviews a pinned checkout and runs the fail-closed one-time Node provisioner
 documented in the repository README. Never use `plutil` to validate this JSON,
-and never overwrite or implicitly rotate an existing host key.
+and never overwrite or implicitly rotate an existing host key. If status reports
+`ready: false` because only the legacy signer is installed, prepare the pinned
+source digest and run the digest-confirmed `host-trust.mjs upgrade` operation;
+the upgrade preserves the trust root/key and keeps the previous signer as a
+root-owned backup.
 
 After the candidate is frozen, use `sbw self-improve attestation request` with
 the exact run, baseline, candidate root, model, and a new directory outside the
-repository. It produces all seven distinct requests, their manifest digest,
-and an exact batch `signCommand`. The administrator must review the manifest
-and confirmed digest before signing.
+repository. It produces seven prompt-bound execution requests, their manifest
+digest, and an exact batch `executeCommand`. The administrator must inspect the
+manifest and confirmed digest, then use the installed, capability-checked
+signer; the writable candidate checkout is never executed with administrator
+privileges.
 
 ```sh
 sbw self-improve evaluate \
@@ -114,15 +122,16 @@ sbw self-improve evaluate \
   --cases plugins/better-workflows/fixtures/self-improve-ops-evals-v2.2.json \
   --baseline <immutable-baseline> --candidate-root . \
   --backend codex --model <attested-model> --allow-codex --sanitized \
-  --trusted-codex-attestation /host/attestation.json \
-  --trusted-codex-result-receipt /host/result-receipt.json --split train
+  --trusted-codex-execution /host/executions/<train-result>.json --split train
 ```
 
-The result receipt is produced by the administrator-only host signer with
-`host-trust.mjs sign-result` after reviewing the exact request digest. The
-receipt must remain outside the evaluated repository; `sbw` verifies its
-signature, prompt/response digests, binary, model, execution, exit status, and
-timestamps before recording replay evidence.
+The exact command returned as `executeCommand` is administrator-only and
+executes the seven requests once. It returns root-owned witness paths under
+`/private/var/db/better-workflows/executions`; pass the one training witness,
+then the six holdout witnesses to `sbw`. The receipt and ledger remain outside
+the evaluated repository; `sbw` verifies their signatures, prompt/response
+digests, binary, model, execution, exit status, timestamps, and immutable host
+ledger before recording replay evidence.
 
 For a versioned evaluator migration, replace the ordinary cases path with the
 immutable previous corpus and add:

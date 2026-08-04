@@ -245,7 +245,7 @@ $better-workflows:auto <완료하려는 결과를 설명>
 
 자기 개선 evaluation은 immutable baseline에 동결된 checked-in, sanitized train/holdout corpus만 사용합니다. candidate를 먼저 staging한 뒤 세 번의 read-only Codex holdout replay가 safety failure 및 regression 없이 baseline median을 엄격히 넘어야 합니다. Codex replay에는 정확한 binary와 model을 고정된 `/etc/better-workflows/codex-trust-root.json`에 묶는 host-signed attestation이 필요합니다. 이 file과 상위 directory는 administrator 소유이고 호출자가 쓸 수 없어야 합니다. `PATH`, 자체 hash, CLI에서 선택한 trust root, model 자기 보고는 provider attestation이 아닙니다. tie, noise, evidence 부족, fixture-only 결과는 auto-adopt하지 않습니다.
 
-성공한 각 replay에는 exact prompt digest, parsed response digest, binary/model, execution, exit status, timestamps를 바인딩하는 administrator-signed `result receipt`도 필요합니다. delivery 전에 receipt를 다시 검증합니다.
+성공한 각 replay는 독립된 host-owned execution witness를 사용합니다. 설치된 signer가 attested Codex binary를 정확히 한 번 실행하고, host가 prompt, parsed response, exit status, timestamps를 캡처해 root-owned ledger와 `result receipt`를 생성합니다. `sbw`는 저장된 witness를 소비하며 resume 또는 delivery revalidation에서 Codex를 다시 실행하지 않습니다. signed receipt는 exact prompt digest, response digest, binary, model, execution, ledger, timestamps를 바인딩합니다.
 
 Evaluation v2.2는 기존 safety, documentation, deliberation, sanitizer, evaluation-engineering coverage를 유지하고 typed-evidence integrity, execution-ledger replay, bounded review convergence, direct-work cost를 위한 독립 train/holdout classes를 추가합니다. 일회성 migration은 immutable v2.1을 source로 사용하며 source/target 두 suite digest를 일곱 signed executions 모두에 결합합니다.
 
@@ -256,7 +256,7 @@ sudo "$(command -v node)" plugins/better-workflows/scripts/host-trust.mjs provis
 node plugins/better-workflows/scripts/sbw.mjs self-improve host status
 ```
 
-Provision은 기존 key를 덮어쓰거나 암묵적으로 rotate하지 않습니다. trust root는 root-owned 공개 JSON이고 private Ed25519 key는 repo 밖에서 `0600`입니다. JSON 검증에 `plutil`을 사용하지 마십시오. candidate 고정 후 아래 명령은 repo 밖에 일곱 request, manifest digest, 한 번에 서명하는 정확한 `signCommand`를 생성합니다:
+Provision은 기존 key를 덮어쓰거나 암묵적으로 rotate하지 않습니다. trust root는 root-owned 공개 JSON이고 private Ed25519 key는 repo 밖에서 `0600`입니다. JSON 검증에 `plutil`을 사용하지 마십시오. status가 `ready: false`이고 legacy signer만 설치되어 있으면 administrator-confirmed SHA-256으로 `host-trust.mjs upgrade`를 실행합니다. 기존 trust root/key는 유지되고 이전 signer는 root-owned backup으로 보존됩니다. candidate 고정 후 아래 명령은 repo 밖에 일곱 prompt-bound execution request, manifest digest, 정확한 `executeCommand`를 생성합니다:
 
 ```bash
 node plugins/better-workflows/scripts/sbw.mjs \
@@ -264,6 +264,8 @@ node plugins/better-workflows/scripts/sbw.mjs \
   --run <run-id> --baseline <sha> --candidate-root . \
   --model <model> --output <new-outside-repo-directory>
 ```
+
+`executeCommand`는 설치되고 capability-checked 된 host signer만 호출해 일곱 request를 한 번씩 실행합니다. 반환된 `/private/var/db/better-workflows/executions`의 root-owned witness 중 training 하나와 holdout 여섯 개를 `--trusted-codex-execution`에 전달합니다. caller가 response나 timestamp를 제공해 서명하게 할 수 없습니다.
 
 파일 수 또는 byte sampling limit을 적용하기 전에 sanitizer는 모든 changed
 path가 고정된 plugin 및 repository 공개 문서 allowlist와 일치하는지

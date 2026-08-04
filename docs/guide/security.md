@@ -129,12 +129,13 @@ node plugins/better-workflows/scripts/sbw.mjs \
   --output <new-outside-repo-directory>
 ```
 
-Training and holdout attestations cannot be reused for a different run or
-candidate digest. Each successful replay also needs a distinct administrator-
-signed `result receipt` covering the exact prompt digest, parsed response
-digest, binary/model identity, execution binding, exit status, and timestamps.
-A tie, mismatch, timeout, regression, or unknown result is not authority to
-commit, publish, push, or merge.
+Training and holdout witnesses cannot be reused for a different run or
+candidate digest. The installed administrator signer executes each attested
+Codex binary exactly once, captures the prompt, parsed response, exit status,
+timestamps, and a root-owned one-shot ledger, then signs the result receipt.
+`sbw` consumes the persisted witness and never reruns Codex during resume or
+delivery revalidation. A tie, mismatch, timeout, regression, or unknown result
+is not authority to commit, publish, push, or merge.
 
 Before sampling by file count or bytes, the sanitizer validates every changed
 path against a fixed plugin and repository-public-document allowlist. Paths

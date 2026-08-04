@@ -245,7 +245,7 @@ $better-workflows:auto <達成したい結果を記述>
 
 自己改善 evaluation は、immutable baseline で凍結した checked-in・sanitized の train/holdout corpus だけを使います。candidate は先に staging し、3 回の read-only Codex holdout replay が safety failure と regression なしで baseline median を厳密に上回る必要があります。Codex replay には、正確な binary と model を固定の `/etc/better-workflows/codex-trust-root.json` に結び付ける host-signed attestation が必要です。この file と親 directory は administrator 所有で、呼び出し元が書き込めない必要があります。`PATH`、自己 hash、CLI で選ぶ trust root、model の自己申告は provider attestation ではありません。tie、noise、evidence 不足、fixture-only の結果は auto-adopt しません。
 
-成功した各 replay には、exact prompt digest、parsed response digest、binary/model、execution、exit status、timestamps を結び付ける administrator-signed `result receipt` も必要です。delivery 前に receipt を再検証します。
+成功した各 replay は独立した host-owned execution witness を使います。インストール済み signer が attested Codex binary を一度だけ実行し、host が prompt、parsed response、exit status、timestamps を捕捉して root-owned ledger と `result receipt` を作成します。`sbw` は保存済み witness を消費し、resume や delivery revalidation で Codex を再実行しません。signed receipt は exact prompt digest、response digest、binary、model、execution、ledger、timestamps を bind します。
 
 Evaluation v2.2 は既存の safety、documentation、deliberation、sanitizer、evaluation-engineering coverage を維持し、typed-evidence integrity、execution-ledger replay、bounded review convergence、direct-work cost の独立 train/holdout classes を追加します。一度限りの migration は immutable v2.1 を source とし、source/target 両 suite digest を七つすべての signed executions に結び付けます。
 
@@ -256,7 +256,7 @@ sudo "$(command -v node)" plugins/better-workflows/scripts/host-trust.mjs provis
 node plugins/better-workflows/scripts/sbw.mjs self-improve host status
 ```
 
-Provision は既存 key を上書き・暗黙 rotate しません。trust root は root-owned の公開 JSON、private Ed25519 key は repo 外で `0600` です。JSON 検証に `plutil` は使いません。candidate 固定後、次で repo 外に七つの request、manifest digest、単一 batch 用の正確な `signCommand` を生成します：
+Provision は既存 key を上書き・暗黙 rotate しません。trust root は root-owned の公開 JSON、private Ed25519 key は repo 外で `0600` です。JSON 検証に `plutil` は使いません。status が `ready: false` で legacy signer のみを示す場合は、administrator-confirmed SHA-256 で `host-trust.mjs upgrade` を実行します。trust root/key は保持され、旧 signer は root-owned backup として残ります。candidate 固定後、次で repo 外に七つの prompt-bound execution request、manifest digest、正確な `executeCommand` を生成します：
 
 ```bash
 node plugins/better-workflows/scripts/sbw.mjs \
@@ -264,6 +264,8 @@ node plugins/better-workflows/scripts/sbw.mjs \
   --run <run-id> --baseline <sha> --candidate-root . \
   --model <model> --output <new-outside-repo-directory>
 ```
+
+`executeCommand` は capability-checked なインストール済み host signer だけを呼び出し、七つの request を一度ずつ実行します。返される `/private/var/db/better-workflows/executions` 配下の root-owned witness を training 1 件と holdout 6 件の `--trusted-codex-execution` に渡します。caller が response や timestamp を提供して署名させることはできません。
 
 ファイル数または byte の sampling limit を適用する前に、sanitizer は全
 changed path が固定の plugin／repository 公開文書 allowlist に一致するか

@@ -251,7 +251,7 @@ $better-workflows:cross-platform 檢查 backend、iOS 和 Android 的 contact sy
 
 自我改善 evaluation 只使用已 checked-in、sanitized 且在 immutable baseline 凍結的 train/holdout corpus。candidate 必須先 staging；三次 read-only Codex holdout replay 必須在沒有 safety failure 或 regression 下，嚴格超過 baseline median。Codex replay 需要 host-signed attestation，將精確 binary 與 model 綁定到固定的 `/etc/better-workflows/codex-trust-root.json`；該檔與父目錄必須由 administrator 擁有且不可由呼叫者寫入。`PATH`、自行計算 hash、CLI 選擇 trust root 或 model 自述都不是 provider attestation。tie、noise、缺少 evidence 或 fixture-only 結果都不會 auto-adopt。
 
-每次成功 replay 還需要獨立的 administrator-signed `result receipt`，綁定 exact prompt digest、parsed response digest、binary/model、execution、exit status 與 timestamps；delivery 前會重新驗證此 receipt。
+每次成功 replay 都使用獨立的 administrator-owned execution witness。已安裝的 signer 會精確執行 attested Codex binary 一次，由 host 捕捉 prompt、parsed response、exit status 與 timestamps，寫入 root-owned execution ledger，並在執行完成後簽發 `result receipt`。`sbw` 只消費這份已保存的 witness，resume 與 delivery revalidation 都不會重新執行 Codex；signed receipt 會綁定 exact prompt digest、response digest、binary、model、execution、ledger 與 timestamps。
 
 Evaluation v2.2 保留既有 safety、documentation、deliberation、sanitizer 與 evaluation-engineering coverage，並增加 typed-evidence integrity、execution-ledger replay、bounded review convergence 與 direct-work cost 的獨立 train/holdout classes。一次性的 migration 以 immutable v2.1 為 source，並將 source/target 兩份 suite digest 綁入全部七份 signed executions。
 
@@ -262,7 +262,7 @@ sudo "$(command -v node)" plugins/better-workflows/scripts/host-trust.mjs provis
 node plugins/better-workflows/scripts/sbw.mjs self-improve host status
 ```
 
-Provision 不會覆寫或暗中 rotate 既有 key。trust root 是 root-owned 公開 JSON；private Ed25519 key 以 `0600` 保存在 repo 外。不要用 `plutil` 驗證 JSON，請用上述 status。candidate 固定後，以下命令會在 repo 外產生七份 request、manifest digest 與可一次簽完的精確 `signCommand`：
+Provision 不會覆寫或暗中 rotate 既有 key。trust root 是 root-owned 公開 JSON；private Ed25519 key 以 `0600` 保存在 repo 外。不要用 `plutil` 驗證 JSON，請用上述 status。若 status 顯示 `ready: false` 且只有 legacy signer，請以 administrator-confirmed SHA-256 執行 `host-trust.mjs upgrade`；既有 trust root/key 不會更換，舊 signer 會保留為 root-owned backup。candidate 固定後，以下命令會在 repo 外產生七份 prompt-bound execution request、manifest digest 與精確的 `executeCommand`：
 
 ```bash
 node plugins/better-workflows/scripts/sbw.mjs \
@@ -270,6 +270,8 @@ node plugins/better-workflows/scripts/sbw.mjs \
   --run <run-id> --baseline <sha> --candidate-root . \
   --model <model> --output <new-outside-repo-directory>
 ```
+
+`executeCommand` 只呼叫已安裝且 capability-checked 的 host signer。它會一次執行七份 request，回傳 `/private/var/db/better-workflows/executions` 下的 root-owned witness；將 training 的一份與 holdout 的六份分別傳給 `--trusted-codex-execution`。caller 提供的 response 或 timestamp 不會被簽署。
 
 在套用檔案數或 byte 取樣上限前，sanitizer 會先確認每一個 changed path
 都符合固定的 plugin 或 repository 公開文件 allowlist。即使不合格路徑排序

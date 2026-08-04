@@ -318,9 +318,14 @@ attestation binding the exact binary and model to the administrator-owned fixed
 host trust root at `/etc/better-workflows/codex-trust-root.json`;
 `PATH`, a self-hash, and model self-report are not provider attestation. Ties,
 noise, missing evidence, and fixture-only results never auto-adopt a change.
-Each successful replay also requires a distinct administrator-signed `result
-receipt` binding the exact prompt digest, parsed response digest, binary/model,
-execution, exit status, and timestamps; the receipt is verified before delivery.
+Each successful replay uses a distinct administrator-owned execution witness.
+The installed signer executes the attested Codex binary exactly once, captures
+the prompt, parsed response, exit status, and timestamps, writes a root-owned
+execution ledger, and signs the result receipt after execution. `sbw` consumes
+that persisted witness and verifies it again before delivery; it never reruns
+Codex during resume or delivery revalidation. The signed `result receipt` binds
+the exact prompt digest and response digest as well as the binary, model,
+execution, ledger, exit status, and timestamps.
 
 Evaluation v2.2 preserves the existing safety, documentation, deliberation,
 sanitizer, and evaluation-engineering coverage, and adds isolated train/holdout
@@ -344,11 +349,14 @@ node plugins/better-workflows/scripts/sbw.mjs \
 Provisioning is fail-closed and never overwrites or silently rotates an
 existing key. The trust root is public and root-owned; the private Ed25519 key
 remains mode `0600` outside the repository. Do not use `plutil` to validate the
-JSON trust root—use `self-improve host status`.
+JSON trust root—use `self-improve host status`. If status reports `ready: false`
+because a legacy signer is installed, upgrade the pinned signer with its
+administrator-confirmed SHA-256 using `host-trust.mjs upgrade`; the old signer
+is retained as a root-owned backup.
 
 After a candidate is frozen, generate all seven distinct requests outside the
-repository. The output includes a manifest digest and an exact `signCommand`;
-the administrator reviews both before running that one batch-sign command:
+repository. The output includes a manifest digest and an exact `executeCommand`;
+the administrator reviews both before running that one host-execution command:
 
 ```bash
 node plugins/better-workflows/scripts/sbw.mjs \
@@ -359,6 +367,12 @@ node plugins/better-workflows/scripts/sbw.mjs \
   --model <model> \
   --output <new-outside-repo-directory>
 ```
+
+The command returns seven root-owned witness paths under
+`/private/var/db/better-workflows/executions`. Pass those paths to
+`--trusted-codex-execution` (one for training and six for holdout). The host
+signer owns response capture, timing, the one-shot execution ledger, and result
+receipt creation; a caller-supplied response or timestamp is never signed.
 
 Before file-count or byte sampling, every changed path must match the fixed
 plugin or repository-public-document allowlist. An out-of-scope path rejects
