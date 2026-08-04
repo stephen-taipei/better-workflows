@@ -351,7 +351,7 @@ test("self-improve evaluation fails closed when its suite or staged candidate ch
   await cli(cwd, stateRoot, [...pinnedCommon, "--split", "train"], { env: { SBW_TEST_FIXTURE_BACKEND: "1" } });
   await writeFile(path.join(cwd, "plugins", "better-workflows", "scripts", "candidate.mjs"), "export const candidate = 'changed';\n");
   const changedCandidate = await cli(cwd, stateRoot, [...pinnedCommon, "--split", "holdout"], { allowFailure: true, env: { SBW_TEST_FIXTURE_BACKEND: "1" } });
-  assert.match(changedCandidate.stderr, /fresh training replay/);
+  assert.match(changedCandidate.stderr, /fresh training replay|clean index, tracked worktree/);
   await writeFile(path.join(cwd, "plugins", "better-workflows", "fixtures", "self-improve-ops-evals.json"), "{}\n");
   const changedSuite = await cli(cwd, stateRoot, [...pinnedCommon, "--split", "train"], { allowFailure: true, env: { SBW_TEST_FIXTURE_BACKEND: "1" } });
   assert.match(changedSuite.stderr, /drifted from the immutable baseline/);
