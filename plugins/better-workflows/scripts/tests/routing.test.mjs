@@ -310,6 +310,7 @@ test("routing accepts a digest-bound schema-v2 ready marker for a cached skill",
     stale: false,
     receipt: {
       payload: {
+        provider: "local-workspace",
         actionProof,
         receipt: providerReceipt
       }
