@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import { mkdir, realpath, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import {
   evaluationBindingDigest,
   loadFrozenEvaluationSuite,
@@ -18,7 +17,7 @@ import {
 } from "./self-improve.mjs";
 import { binaryIdentity } from "./providers.mjs";
 
-const HOST_TRUST_TOOL = fileURLToPath(new URL("../host-trust.mjs", import.meta.url));
+const HOST_TRUST_TOOL = "/private/var/db/better-workflows/bin/bw-host-trust.mjs";
 
 export async function generateAttestationRequests({
   repo,
@@ -119,7 +118,13 @@ export async function generateAttestationRequests({
       role: item.role,
       attempt: item.attempt
     };
-    const request = { model, binaryPath: resolvedBinary, execution };
+    const prompt = promptByRoleAndSplit.get(`${item.role === "train-candidate" ? "candidate" : item.role}:${item.split}`);
+    const promptBytes = Buffer.from(prompt);
+    const promptFilename = `${execution.id}.prompt.txt`;
+    const promptFile = path.join(outputDir, promptFilename);
+    await writeFile(promptFile, promptBytes, { mode: 0o600, flag: "wx" });
+    const promptDigest = createHash("sha256").update(promptBytes).digest("hex");
+    const request = { model, binaryPath: resolvedBinary, execution, promptDigest, promptPath: promptFile };
     const filename = `${execution.id}.request.json`;
     const file = path.join(outputDir, filename);
     const bytes = Buffer.from(`${JSON.stringify(request, null, 2)}\n`);
@@ -129,13 +134,14 @@ export async function generateAttestationRequests({
       role: item.role,
       attempt: item.attempt,
       promptDigest: execution.promptDigest,
+      prompt: promptFile,
       request: file,
       requestDigest: createHash("sha256").update(bytes).digest("hex"),
-      attestationName: `${execution.id}.json`
+      executionId: execution.id
     });
   }
   const manifest = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     repo: resolvedRepo,
     runId,
     model,
@@ -159,11 +165,11 @@ export async function generateAttestationRequests({
     ...manifest,
     manifestPath,
     manifestDigest: createHash("sha256").update(manifestBytes).digest("hex"),
-    signCommand: [
+    executeCommand: [
       "sudo",
       process.execPath,
       HOST_TRUST_TOOL,
-      "sign-batch",
+      "execute-batch",
       "--manifest",
       manifestPath,
       "--confirm-digest",

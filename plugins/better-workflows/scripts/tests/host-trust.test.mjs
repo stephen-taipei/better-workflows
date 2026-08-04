@@ -10,7 +10,8 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import {
   canonicalJson,
-  privateKeyFromRaw
+  privateKeyFromRaw,
+  validateExecutionRequest
 } from "../host-trust.mjs";
 
 const SCRIPT = path.resolve(
@@ -38,8 +39,43 @@ test("host trust helper fixes authority paths and does not accept environment pa
   assert.match(source, /"\/etc\/better-workflows\/codex-trust-root\.json"/);
   assert.match(source, /"\/private\/var\/db\/better-workflows\/codex-attestation-ed25519\.raw"/);
   assert.match(source, /Refusing implicit rotation or overwrite/);
-  assert.match(source, /sign-result/);
+  assert.match(source, /execute-result/);
+  assert.match(source, /execute-batch/);
+  assert.match(source, /execution-ledger/);
+  assert.match(source, /requireInstalledCapability/);
+  assert.match(source, /spawnCapture/);
+  assert.doesNotMatch(source, /function signResultRequest/);
+  assert.match(source, /HOST_SIGNER_VERSION/);
+  assert.match(source, /signer-upgrade/);
   assert.match(source, /responseDigest/);
   assert.match(source, /trustRootDigest/);
   assert.doesNotMatch(source, /BW_(?:TRUST|PRIVATE|ATTESTATION)/);
+});
+
+test("host execution request is a pre-execution contract and cannot carry caller result facts", () => {
+  const request = {
+    binaryPath: "/usr/bin/codex",
+    execution: {
+      id: "run-holdout-candidate-1",
+      runId: "run-12345678",
+      suiteDigest: "suite-12345678",
+      baselineRevision: "abcdef1234567890abcdef1234567890abcdef12",
+      candidateDigest: "candidate-12345678",
+      promptDigest: "a".repeat(64),
+      role: "candidate",
+      attempt: 1
+    },
+    model: "gpt-5.6-sol",
+    promptDigest: "a".repeat(64),
+    promptPath: "/private/tmp/replay.prompt.txt"
+  };
+  assert.deepEqual(validateExecutionRequest(request), request);
+  assert.throws(
+    () => validateExecutionRequest({ ...request, responseDigest: "b".repeat(64) }),
+    /execution request fields/
+  );
+  assert.throws(
+    () => validateExecutionRequest({ ...request, finishedAt: new Date().toISOString() }),
+    /execution request fields/
+  );
 });

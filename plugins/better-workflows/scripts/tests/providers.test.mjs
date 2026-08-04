@@ -100,12 +100,10 @@ test("Codex evaluation rejects a caller attestation without valid host anchoring
   const directory = await mkdtemp(path.join(os.tmpdir(), "sbw-attested-codex-"));
   const evaluationRoot = path.join(directory, "evaluation");
   await mkdir(evaluationRoot);
-  const attestationPath = path.join(directory, "attestation.json");
-  await writeFile(attestationPath, "{}\n", { mode: 0o600 });
   await assert.rejects(
-    runCodexEvaluation({ model: "attested-test-model", prompt: "safe", evaluationRoot, attestationPath, timeoutMs: 5_000,
+    runCodexEvaluation({ model: "attested-test-model", prompt: "safe", evaluationRoot, hostExecutionPath: path.join(directory, "execution.json"),
       execution: { id: "test-execution-1", runId: "run", suiteDigest: "suite", baselineRevision: "baseline", candidateDigest: "candidate", promptDigest: sha256("safe"), role: "candidate", attempt: 1 } }),
-    /Host Codex trust root is not provisioned|Trusted Codex attestation and trust root schemaVersion must be 1/
+    /ENOENT|host execution witness/
   );
 });
 
@@ -118,9 +116,7 @@ test("Codex evaluation rejects prompt substitution before invoking a provider", 
       model: "attested-test-model",
       prompt: "actual prompt",
       evaluationRoot,
-      attestationPath: path.join(directory, "attestation.json"),
-      resultReceiptPath: path.join(directory, "result-receipt.json"),
-      timeoutMs: 5_000,
+      hostExecutionPath: path.join(directory, "execution.json"),
       execution: {
         id: "test-execution-1",
         runId: "run",

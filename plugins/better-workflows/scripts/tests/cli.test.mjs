@@ -263,8 +263,7 @@ test("ordinary evaluator resume pins legacy runs while new runs require the new 
     "--model", "gpt-5.6-sol",
     "--allow-codex",
     "--sanitized",
-    "--trusted-codex-attestation", "/nonexistent",
-    "--trusted-codex-result-receipt", "/nonexistent-result",
+    "--trusted-codex-execution", "/nonexistent",
     "--split", "train"
   ], { allowFailure: true });
   assert.match(legacyAdmission.stderr, /ENOENT.*nonexistent/);
@@ -286,8 +285,7 @@ test("ordinary evaluator resume pins legacy runs while new runs require the new 
     "--model", "gpt-5.6-sol",
     "--allow-codex",
     "--sanitized",
-    "--trusted-codex-attestation", "/nonexistent",
-    "--trusted-codex-result-receipt", "/nonexistent-result",
+    "--trusted-codex-execution", "/nonexistent",
     "--split", "train"
   ], { allowFailure: true });
   assert.match(rejected.stderr, /self-improve-ops-evals-v2\.2\.json/);
@@ -362,7 +360,8 @@ test("self-improve attestation request freezes seven distinct requests outside t
   assert.equal(requested.json.targetSuiteDigest, null);
   assert.equal(requested.json.manifestPath, path.join(output, "attestation-requests.json"));
   assert.match(requested.json.manifestDigest, /^[a-f0-9]{64}$/);
-  assert.equal(requested.json.signCommand.at(-1), requested.json.manifestDigest);
+  assert.equal(requested.json.executeCommand.at(-1), requested.json.manifestDigest);
+  assert.equal(requested.json.schemaVersion, 2);
   for (const item of requested.json.requests) {
     assert.equal(path.dirname(item.request), output);
     assert.match(item.promptDigest, /^[a-f0-9]{64}$/);

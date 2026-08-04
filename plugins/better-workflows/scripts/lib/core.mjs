@@ -1496,9 +1496,13 @@ export async function rebindSourceBinding(root, runId, reason) {
     if (actions.length > 0 || (run.state.sideEffects ?? []).length > 0) {
       throw new Error("Source binding rebind is only allowed before side effects are issued");
     }
-    const packageEntries = await readdir(safeJoin(runDir, "review-packages"), { withFileTypes: true }).catch(() => []);
-    const reviewFindingEntries = await readdir(safeJoin(runDir, "review-findings"), { withFileTypes: true }).catch(() => []);
-    const findingEntries = await readdir(safeJoin(runDir, "findings"), { withFileTypes: true }).catch(() => []);
+    const readOptionalDirectory = async (target) => readdir(target, { withFileTypes: true }).catch((error) => {
+      if (error.code === "ENOENT") return [];
+      throw error;
+    });
+    const packageEntries = await readOptionalDirectory(safeJoin(runDir, "review-packages"));
+    const reviewFindingEntries = await readOptionalDirectory(safeJoin(runDir, "review-findings"));
+    const findingEntries = await readOptionalDirectory(safeJoin(runDir, "findings"));
     if (
       packageEntries.some((entry) => entry.isFile()) ||
       reviewFindingEntries.some((entry) => entry.isFile()) ||
