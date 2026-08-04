@@ -261,6 +261,8 @@ export async function captureSourceBinding(cwd, { baseRevision = null } = {}) {
   const gitCommonDir = await realpath(path.resolve(repository, (await git(repository, ["rev-parse", "--git-common-dir"])).stdout.trim()));
   const [gitDirInfo, gitCommonDirInfo] = await Promise.all([lstat(gitDir), lstat(gitCommonDir)]);
   const origin = (await git(repository, ["remote", "get-url", "origin"], { allowFailure: true })).stdout.trim() || null;
+  const headRef = (await git(repository, ["symbolic-ref", "-q", "HEAD"], { allowFailure: true })).stdout.trim() || null;
+  const originHeadRef = (await git(repository, ["symbolic-ref", "-q", "refs/remotes/origin/HEAD"], { allowFailure: true })).stdout.trim() || null;
   const directoryIdentity = (target, info) => ({
     path: target,
     device: Number.isSafeInteger(info.dev) ? info.dev : null,
@@ -287,11 +289,26 @@ export async function captureSourceBinding(cwd, { baseRevision = null } = {}) {
         "--"
       ])).stdout
     : "";
+  const committedModeManifest = resolvedBaseRevision
+    ? (await git(repository, [
+        "diff-tree",
+        "--no-commit-id",
+        "--raw",
+        "-r",
+        "-z",
+        resolvedBaseRevision,
+        headRevision,
+        "--"
+      ])).stdout
+    : "";
   const diffManifest = {
     schemaVersion: 2,
     baseRevision: resolvedBaseRevision,
     headRevision,
-    committedDiff
+    committedDiff,
+    committedModeManifest,
+    headRef,
+    originHeadRef
   };
   const diffManifestDigest = sha256(canonicalJson(diffManifest));
   const stable = {
@@ -304,6 +321,7 @@ export async function captureSourceBinding(cwd, { baseRevision = null } = {}) {
       present: origin !== null,
       digest: origin ? sha256(origin) : null
     },
+    symbolicRefs: { head: headRef, originHead: originHeadRef },
     baseRevision: resolvedBaseRevision,
     headRevision,
     diffManifestDigest

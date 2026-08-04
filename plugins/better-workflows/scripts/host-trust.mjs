@@ -20,7 +20,6 @@ import {
   unlink,
   writeFile
 } from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -28,17 +27,24 @@ const TRUST_ROOT = "/etc/better-workflows/codex-trust-root.json";
 const PRIVATE_KEY = "/private/var/db/better-workflows/codex-attestation-ed25519.raw";
 const ATTESTATIONS = "/private/var/db/better-workflows/attestations";
 const EXECUTIONS = "/private/var/db/better-workflows/executions";
+const EXECUTION_BUNDLES = "/private/var/db/better-workflows/execution-bundles";
 const INSTALLED_SIGNER = "/private/var/db/better-workflows/bin/bw-host-trust.mjs";
+const HOST_RUNTIME_ROOT = "/private/var/db/better-workflows/bin";
+const EXECUTION_LAUNCHER = "/private/var/db/better-workflows/bin/bw-host-exec-launcher";
+const EXECUTION_PROBE = "/private/var/db/better-workflows/bin/bw-host-execution-probe";
 const LEGACY_SIGNER = "/private/var/db/better-workflows/bin/bw-host-signer.swift";
 const ISSUER = "better-workflows-local-host";
-const HOST_SIGNER_VERSION = "2.0.0";
+const HOST_SIGNER_VERSION = "2.1.0";
 const HOST_SIGNER_CAPABILITIES = Object.freeze([
   "attestation",
   "native-review",
   "execution-witness",
   "execution-result",
   "execution-batch",
-  "signer-upgrade"
+  "signer-upgrade",
+  "native-launcher",
+  "readiness-probe",
+  "request-bound-execution"
 ]);
 const SAFE_OUTPUT = /^[A-Za-z0-9][A-Za-z0-9._-]{7,127}\.json$/;
 const SAFE_EXECUTION_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{7,127}$/;
@@ -82,17 +88,8 @@ async function exists(target) {
 
 function safeEnvironment(extra = {}) {
   const allowed = [
-    "TMPDIR",
-    "TEMP",
-    "TMP",
     "LANG",
-    "LC_ALL",
-    "SSL_CERT_FILE",
-    "REQUESTS_CA_BUNDLE",
-    "HTTP_PROXY",
-    "HTTPS_PROXY",
-    "NO_PROXY",
-    "ALL_PROXY"
+    "LC_ALL"
   ];
   const environment = {
     PATH: SAFE_PATH,
@@ -116,17 +113,39 @@ function terminate(child, signal) {
   }
 }
 
-export function spawnCapture(command, args, { input, cwd, timeoutMs = DEFAULT_TIMEOUT_MS, env = safeEnvironment(), uid, gid } = {}) {
+export function spawnCapture(command, args, {
+  input,
+  cwd,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+  maxOutputBytes = MAX_OUTPUT_BYTES,
+  env = safeEnvironment(),
+  uid,
+  gid,
+  launcherPath = null
+} = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
-      cwd,
+    if (launcherPath && (uid === undefined || gid === undefined)) {
+      reject(new Error("A native execution launcher requires uid and gid"));
+      return;
+    }
+    const spawnOptions = {
+      cwd: launcherPath ? "/" : cwd,
       env,
-      ...(uid === undefined ? {} : { uid }),
-      ...(gid === undefined ? {} : { gid }),
       shell: false,
       detached: process.platform !== "win32",
       stdio: ["pipe", "pipe", "pipe"]
-    });
+    };
+    if (!launcherPath) {
+      if (uid !== undefined) spawnOptions.uid = uid;
+      if (gid !== undefined) spawnOptions.gid = gid;
+    }
+    const child = spawn(
+      launcherPath ?? command,
+      launcherPath
+        ? ["--uid", String(uid), "--gid", String(gid), "--cwd", cwd, "--binary", command, "--", ...args]
+        : args,
+      spawnOptions
+    );
     const stdout = [];
     const stderr = [];
     let bytes = 0;
@@ -152,7 +171,7 @@ export function spawnCapture(command, args, { input, cwd, timeoutMs = DEFAULT_TI
     };
     const collect = (bucket) => (chunk) => {
       bytes += chunk.length;
-      if (bytes > MAX_OUTPUT_BYTES) {
+      if (bytes > maxOutputBytes) {
         outputExceeded = true;
         requestTermination();
         return;
@@ -232,6 +251,20 @@ async function secureDirectory(target, mode) {
   await chmod(target, mode);
 }
 
+async function validateRootOwnedDirectory(target, label, expectedMode) {
+  const info = await lstat(target);
+  if (info.isSymbolicLink() || !info.isDirectory() || info.uid !== 0) {
+    throw new Error(`${label} must be an administrator-owned directory`);
+  }
+  const mode = info.mode & 0o777;
+  if (mode !== expectedMode) {
+    throw new Error(`${label} mode must be ${expectedMode.toString(8)}, found ${mode.toString(8)}`);
+  }
+  const resolved = await realpath(target);
+  if (resolved !== target) throw new Error(`${label} must already be canonical`);
+  return info;
+}
+
 async function exclusiveWrite(target, bytes, mode) {
   const handle = await open(target, "wx", mode);
   try {
@@ -241,6 +274,71 @@ async function exclusiveWrite(target, bytes, mode) {
     await handle.close();
   }
   await chmod(target, mode);
+}
+
+async function syncDirectory(target) {
+  const handle = await open(target, "r");
+  try {
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
+
+async function readSourceFile(target, confirmedDigest, label) {
+  if (!SHA256.test(confirmedDigest)) throw new Error(`${label} digest must be SHA-256`);
+  const resolved = path.resolve(target);
+  const info = await lstat(resolved);
+  if (info.isSymbolicLink() || !info.isFile()) throw new Error(`${label} must be a regular non-symlink file`);
+  const bytes = await readFile(resolved);
+  if (await digest(bytes) !== confirmedDigest) throw new Error(`${label} digest does not match administrator-confirmed digest`);
+  return { path: resolved, bytes, digest: confirmedDigest };
+}
+
+async function replaceRootOwnedFile(target, source, mode, label) {
+  const existing = await exists(target);
+  let previous = null;
+  if (existing) {
+    await validateRootOwnedFile(target, label, mode);
+    const bytes = await readFile(target);
+    const existingDigest = await digest(bytes);
+    if (existingDigest === source.digest) return { changed: false, previous: { digest: existingDigest, path: target } };
+    const backup = `${target}.${existingDigest}.bak`;
+    if (await exists(backup)) throw new Error(`Refusing to overwrite ${label} backup: ${backup}`);
+    await exclusiveWrite(backup, bytes, mode);
+    await validateRootOwnedFile(backup, `${label} backup`, mode);
+    previous = { bytes, digest: existingDigest, path: backup };
+  }
+  const temporary = `${target}.${source.digest}.tmp`;
+  if (await exists(temporary)) throw new Error(`Refusing to reuse ${label} staging file: ${temporary}`);
+  await exclusiveWrite(temporary, source.bytes, mode);
+  await validateRootOwnedFile(temporary, `${label} staging file`, mode);
+  await syncDirectory(path.dirname(target));
+  await rename(temporary, target);
+  await syncDirectory(path.dirname(target));
+  await validateRootOwnedFile(target, label, mode);
+  const installedDigest = await digest(await readFile(target));
+  if (installedDigest !== source.digest) throw new Error(`${label} digest changed during atomic installation`);
+  return { changed: true, previous, installedDigest };
+}
+
+async function restoreRootOwnedFile(target, previous, mode, label) {
+  if (!previous) {
+    await unlink(target).catch((error) => {
+      if (error.code !== "ENOENT") throw error;
+    });
+    await syncDirectory(path.dirname(target));
+    return;
+  }
+  const bytes = await readFile(previous.path);
+  if (await digest(bytes) !== previous.digest) throw new Error(`${label} rollback backup digest changed`);
+  const temporary = `${target}.${previous.digest}.restore.tmp`;
+  await exclusiveWrite(temporary, bytes, mode);
+  await validateRootOwnedFile(temporary, `${label} rollback staging file`, mode);
+  await rename(temporary, target);
+  await syncDirectory(path.dirname(target));
+  await validateRootOwnedFile(target, `${label} restored file`, mode);
+  if (await digest(await readFile(target)) !== previous.digest) throw new Error(`${label} rollback digest could not be proven`);
 }
 
 async function validateRootOwnedFile(target, label, expectedMode) {
@@ -253,6 +351,64 @@ async function validateRootOwnedFile(target, label, expectedMode) {
     throw new Error(`${label} mode must be ${expectedMode.toString(8)}, found ${mode.toString(8)}`);
   }
   return info;
+}
+
+async function currentRuntime(preferredPath = null) {
+  const candidates = await readdirSafe(HOST_RUNTIME_ROOT);
+  const targets = (preferredPath ? [preferredPath] : candidates
+    .filter((name) => name.startsWith("bw-host-node."))
+    .map((name) => path.join(HOST_RUNTIME_ROOT, name))
+    .sort());
+  let lastError = null;
+  for (const target of targets) {
+    try {
+      const info = await validateRootOwnedFile(target, "Administrator Node runtime", 0o755);
+      const bytes = await readFile(target);
+      const runtimeDigest = await digest(bytes);
+      if (path.basename(target) !== `bw-host-node.${runtimeDigest}`) {
+        throw new Error("Administrator Node runtime filename is not digest-bound");
+      }
+      const canonical = await realpath(target);
+      if (canonical !== target) throw new Error("Administrator Node runtime path must already be canonical");
+      return { path: target, digest: runtimeDigest, mode: `0${(info.mode & 0o777).toString(8)}`, supported: true };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  return targets.length > 0
+    ? { path: targets.at(-1), digest: null, mode: null, supported: false, error: lastError?.message ?? "No valid administrator Node runtime" }
+    : null;
+}
+
+async function readdirSafe(target) {
+  try {
+    const { readdir } = await import("node:fs/promises");
+    return await readdir(target);
+  } catch (error) {
+    if (error.code === "ENOENT") return [];
+    throw error;
+  }
+}
+
+async function currentFixedArtifact(target, label) {
+  try {
+    const info = await validateRootOwnedFile(target, label, 0o755);
+    const bytes = await readFile(target);
+    const canonical = await realpath(target);
+    if (canonical !== target) throw new Error(`${label} path must already be canonical`);
+    return { path: target, digest: await digest(bytes), mode: `0${(info.mode & 0o777).toString(8)}`, supported: true };
+  } catch (error) {
+    return { path: target, digest: null, mode: null, supported: false, error: error.message };
+  }
+}
+
+async function requireTrustedRuntime() {
+  const running = await realpath(process.execPath).catch(() => null);
+  const runtime = await currentRuntime(running);
+  if (!runtime?.supported || running !== runtime.path) {
+    throw new Error("Administrator operation must run from the digest-bound root-owned Node runtime");
+  }
+  return runtime;
 }
 
 async function validateTrustRoot() {
@@ -318,15 +474,15 @@ function isSignerCapabilityReport(value) {
     canonicalJson(value.capabilities) === canonicalJson(HOST_SIGNER_CAPABILITIES);
 }
 
-async function inspectSignerCapabilityReport(target) {
-  const syntax = await spawnCapture(process.execPath, ["--check", target], {
+async function inspectSignerCapabilityReport(target, runtimePath) {
+  const syntax = await spawnCapture(runtimePath, ["--check", target], {
     timeoutMs: 10_000,
     maxOutputBytes: 16 * 1024
   });
   if (syntax.code !== 0 || syntax.signal !== null || syntax.timedOut) {
     throw new Error(`installed signer syntax check failed: exit=${syntax.code ?? "null"}; signal=${syntax.signal ?? "none"}`);
   }
-  const reportResult = await spawnCapture(process.execPath, [target, "capabilities"], {
+  const reportResult = await spawnCapture(runtimePath, [target, "capabilities"], {
     timeoutMs: 10_000,
     maxOutputBytes: 16 * 1024
   });
@@ -346,15 +502,16 @@ async function inspectSignerCapabilityReport(target) {
 }
 
 async function currentSigner() {
+  const runtime = await currentRuntime();
   for (const target of [INSTALLED_SIGNER, LEGACY_SIGNER]) {
     if (!(await exists(target))) continue;
     try {
       const info = await validateRootOwnedFile(target, "Host signer", 0o755);
       const bytes = await readFile(target);
-      const report = target === INSTALLED_SIGNER
-        ? await inspectSignerCapabilityReport(target)
+      const report = target === INSTALLED_SIGNER && runtime?.supported
+        ? await inspectSignerCapabilityReport(target, runtime.path)
         : null;
-      const supported = target === INSTALLED_SIGNER && report !== null;
+      const supported = target === INSTALLED_SIGNER && report !== null && runtime?.supported === true;
       return {
         path: target,
         digest: await digest(bytes),
@@ -372,7 +529,8 @@ async function currentSigner() {
         supported: false,
         version: null,
         capabilities: [],
-        error: error.message
+        error: error.message,
+        ...(runtime?.supported ? {} : { runtimeError: runtime?.error ?? "Administrator Node runtime is not installed" })
       };
     }
   }
@@ -382,11 +540,14 @@ async function currentSigner() {
 async function status() {
   const trust = await validateTrustRoot();
   const keyInfo = await validateRootOwnedFile(PRIVATE_KEY, "Private signing key", 0o600);
+  const runtime = await currentRuntime();
+  const launcher = await currentFixedArtifact(EXECUTION_LAUNCHER, "Native execution launcher");
+  const probe = await currentFixedArtifact(EXECUTION_PROBE, "Host readiness probe");
   const signer = await currentSigner();
   return {
     ok: true,
     provisioned: true,
-    ready: Boolean(signer?.supported),
+    ready: Boolean(signer?.supported && runtime?.supported && launcher.supported && probe.supported),
     trustRoot: {
       path: TRUST_ROOT,
       issuer: trust.value.issuer,
@@ -399,12 +560,16 @@ async function status() {
       bytes: keyInfo.size,
       mode: "0600"
     },
+    runtime,
+    launcher,
+    readinessProbe: probe,
     signer
   };
 }
 
 async function provision() {
   requireRoot();
+  await requireTrustedRuntime();
   for (const target of [TRUST_ROOT, PRIVATE_KEY, INSTALLED_SIGNER]) {
     if (await exists(target)) {
       throw new Error(`Refusing implicit rotation or overwrite: ${target}`);
@@ -415,6 +580,7 @@ async function provision() {
   await secureDirectory("/private/var/db/better-workflows/bin", 0o755);
   await secureDirectory(ATTESTATIONS, 0o755);
   await secureDirectory(EXECUTIONS, 0o755);
+  await secureDirectory(EXECUTION_BUNDLES, 0o755);
   const { privateKey, publicKey } = generateKeyPairSync("ed25519");
   const privateDer = privateKey.export({ format: "der", type: "pkcs8" });
   const rawSeed = privateDer.subarray(-32);
@@ -544,6 +710,7 @@ export function validateExecutionRequest(request) {
 }
 
 async function requireInstalledCapability(capability) {
+  await requireTrustedRuntime();
   const signer = await currentSigner();
   if (!signer?.supported || signer.path !== INSTALLED_SIGNER || !signer.capabilities.includes(capability)) {
     throw new Error(`Installed administrator signer lacks required capability: ${capability}`);
@@ -604,7 +771,7 @@ async function validateRunAs(request) {
       throw new Error("Execution request Codex home is not owned and protected for the requested user");
     }
   }
-  return { homePath, codexHomePath };
+  return { uid: request.uid, gid: request.gid, homePath, codexHomePath };
 }
 
 async function executeResultRequest(requestPath, confirmedDigest) {
@@ -626,8 +793,10 @@ async function executeResultRequest(requestPath, confirmedDigest) {
   }
   const promptBytes = await validatePrompt(request);
   const runAs = await validateRunAs(request);
+  await validateRootOwnedFile(EXECUTION_LAUNCHER, "Native execution launcher", 0o755);
   await secureDirectory(EXECUTIONS, 0o755);
   await secureDirectory(ATTESTATIONS, 0o755);
+  await secureDirectory(EXECUTION_BUNDLES, 0o755);
   const names = {
     binary: `${executionId}.codex`,
     attestation: `${executionId}.attestation.json`,
@@ -670,6 +839,8 @@ async function executeResultRequest(requestPath, confirmedDigest) {
     issuedAt: issuedAt.toISOString(),
     expiresAt: new Date(issuedAt.getTime() + 24 * 60 * 60 * 1000).toISOString(),
     binary,
+    requestDigest: confirmedDigest,
+    runAs,
     execution: request.execution
   };
   const attestationResult = await signPayload(attestationPayload);
@@ -685,12 +856,14 @@ async function executeResultRequest(requestPath, confirmedDigest) {
     execution: request.execution,
     model: request.model,
     binary,
+    runAs,
     promptDigest: request.promptDigest,
     startedAt
   };
   await writeHostArtifact(targets.ledgerStart, ledgerStart);
-  const bundle = await mkdtemp(path.join(os.tmpdir(), "better-workflows-host-execution-"));
+  const bundle = await mkdtemp(path.join(EXECUTION_BUNDLES, `${executionId}.`));
   await chmod(bundle, 0o711);
+  await validateRootOwnedDirectory(bundle, "Host execution bundle", 0o711);
   const schemaPath = path.join(bundle, "evaluation.schema.json");
   const timeoutMs = DEFAULT_TIMEOUT_MS;
   let result;
@@ -710,7 +883,16 @@ async function executeResultRequest(requestPath, confirmedDigest) {
       const env = safeEnvironment({ HOME: runAs.homePath });
       delete env.CODEX_HOME;
       if (runAs.codexHomePath) env.CODEX_HOME = runAs.codexHomePath;
-      return { input: promptBytes, cwd: bundle, timeoutMs, uid: request.uid, gid: request.gid, env };
+      return {
+        input: promptBytes,
+        cwd: bundle,
+        timeoutMs,
+        maxOutputBytes: MAX_OUTPUT_BYTES,
+        uid: request.uid,
+        gid: request.gid,
+        env,
+        launcherPath: EXECUTION_LAUNCHER
+      };
     })());
     if (result.outputExceeded) {
       throw new Error("Host Codex execution output exceeded the configured limit");
@@ -721,6 +903,23 @@ async function executeResultRequest(requestPath, confirmedDigest) {
     response = validateEvaluationResponse(extractJson(result.stdout));
   } catch (error) {
     const finishedAt = new Date().toISOString();
+    const stdoutDigest = await digest(Buffer.from(result?.stdout ?? "", "utf8"));
+    const stderrDigest = await digest(Buffer.from(result?.stderr ?? "", "utf8"));
+    const failedLedger = {
+      ...ledgerStart,
+      state: "failed",
+      finishedAt,
+      exitCode: result?.code ?? null,
+      signal: result?.signal ?? null,
+      timedOut: result?.timedOut ?? false,
+      responseDigest: null,
+      stdoutDigest,
+      stderrDigest
+    };
+    await writeHostArtifact(targets.ledger, {
+      ...failedLedger,
+      ledgerDigest: await digest(Buffer.from(canonicalJson(failedLedger), "utf8"))
+    }).catch(() => undefined);
     await writeHostArtifact(targets.failure, {
       ...ledgerStart,
       state: "failed",
@@ -728,8 +927,8 @@ async function executeResultRequest(requestPath, confirmedDigest) {
       exitCode: result?.code ?? null,
       signal: result?.signal ?? null,
       timedOut: result?.timedOut ?? false,
-      stdoutDigest: await digest(Buffer.from(result?.stdout ?? "", "utf8")),
-      stderrDigest: await digest(Buffer.from(result?.stderr ?? "", "utf8")),
+      stdoutDigest,
+      stderrDigest,
       error: error.message
     }).catch(() => undefined);
     throw error;
@@ -768,6 +967,8 @@ async function executeResultRequest(requestPath, confirmedDigest) {
     ledgerDigest,
     execution: request.execution,
     binary,
+    requestDigest: confirmedDigest,
+    runAs,
     promptDigest: request.promptDigest,
     responseDigest,
     exitCode: 0,
@@ -786,6 +987,8 @@ async function executeResultRequest(requestPath, confirmedDigest) {
     execution: request.execution,
     model: request.model,
     binary,
+    requestDigest: confirmedDigest,
+    runAs,
     promptDigest: request.promptDigest,
     response,
     responseDigest,
@@ -818,7 +1021,21 @@ async function executeBatch(manifestPath, confirmedManifestDigest) {
   if (manifest.schemaVersion !== 2 || !Array.isArray(manifest.requests) || manifest.requests.length !== 7) {
     throw new Error("execution manifest must be schemaVersion 2 with exactly seven requests");
   }
+  if (typeof manifest.runtimePath !== "string" || !path.isAbsolute(manifest.runtimePath) || !SHA256.test(manifest.runtimeDigest)) {
+    throw new Error("execution manifest must bind the administrator Node runtime digest");
+  }
+  const runtime = await currentRuntime();
+  if (!runtime?.supported || runtime.digest !== manifest.runtimeDigest) {
+    throw new Error("execution manifest runtime digest does not match the installed administrator runtime");
+  }
   const prepared = [];
+  const batchStem = path.join(EXECUTIONS, `${confirmedManifestDigest}.batch`);
+  const batchStartPath = `${batchStem}.start.json`;
+  const batchCompletePath = `${batchStem}.complete.json`;
+  const batchFailurePath = `${batchStem}.failure.json`;
+  for (const target of [batchStartPath, batchCompletePath, batchFailurePath]) {
+    if (await exists(target)) throw new Error(`Refusing to reuse execution batch journal: ${target}`);
+  }
   const ids = new Set();
   for (const item of manifest.requests) {
     if (typeof item.request !== "string" || !path.isAbsolute(item.request) || !SHA256.test(item.requestDigest)) {
@@ -829,28 +1046,106 @@ async function executeBatch(manifestPath, confirmedManifestDigest) {
     const request = validateExecutionRequest(JSON.parse(bytes.toString("utf8")));
     if (ids.has(request.execution.id)) throw new Error("execution manifest contains duplicate execution IDs");
     ids.add(request.execution.id);
-    prepared.push({ requestPath: item.request, requestDigest: item.requestDigest });
+    prepared.push({ requestPath: item.request, requestDigest: item.requestDigest, executionId: request.execution.id });
   }
+  const batchStarted = {
+    schemaVersion: 1,
+    provider: "codex",
+    kind: "execution-batch-journal",
+    state: "running",
+    manifestDigest: confirmedManifestDigest,
+    executionIds: prepared.map((item) => item.executionId),
+    startedAt: new Date().toISOString()
+  };
+  await writeHostArtifact(batchStartPath, batchStarted);
   const outputs = [];
-  for (const item of prepared) outputs.push(await executeResultRequest(item.requestPath, item.requestDigest));
-  return { ok: true, manifestDigest: confirmedManifestDigest, outputs };
+  try {
+    for (const item of prepared) outputs.push(await executeResultRequest(item.requestPath, item.requestDigest));
+    await writeHostArtifact(batchCompletePath, {
+      ...batchStarted,
+      state: "complete",
+      finishedAt: new Date().toISOString(),
+      outputs
+    });
+    return { ok: true, manifestDigest: confirmedManifestDigest, outputs };
+  } catch (error) {
+    await writeHostArtifact(batchFailurePath, {
+      ...batchStarted,
+      state: "failed",
+      finishedAt: new Date().toISOString(),
+      completed: outputs,
+      error: error.message
+    }).catch(() => undefined);
+    throw error;
+  }
 }
 
-async function upgradeSigner(sourcePath, confirmedDigest) {
+async function runReadinessProbe({ uid, gid, homePath, codexHomePath = null }) {
+  if (!Number.isInteger(uid) || uid <= 0 || !Number.isInteger(gid) || gid <= 0) {
+    throw new Error("Readiness probe requires a positive non-root uid and gid");
+  }
+  const requestId = `host-readiness-${Date.now()}-${process.pid}`;
+  const promptPath = path.join(EXECUTION_BUNDLES, `${requestId}.prompt.txt`);
+  const requestPath = path.join(EXECUTION_BUNDLES, `${requestId}.request.json`);
+  const promptBytes = Buffer.alloc(0);
+  const promptDigest = await digest(promptBytes);
+  const execution = {
+    id: requestId,
+    runId: "host-readiness-probe",
+    suiteDigest: "host-readiness-probe",
+    baselineRevision: "0000000000000000000000000000000000000000",
+    candidateDigest: "0".repeat(64),
+    promptDigest,
+    role: "readiness-probe",
+    attempt: 1
+  };
+  const request = {
+    binaryDigest: (await currentFixedArtifact(EXECUTION_PROBE, "Host readiness probe")).digest,
+    binaryPath: EXECUTION_PROBE,
+    codexHomePath,
+    execution,
+    gid,
+    homePath,
+    model: "host-readiness-probe",
+    promptDigest,
+    promptPath,
+    uid
+  };
+  const requestBytes = Buffer.from(`${JSON.stringify(request, null, 2)}\n`);
+  await exclusiveWrite(promptPath, promptBytes, 0o600);
+  await exclusiveWrite(requestPath, requestBytes, 0o600);
+  try {
+    return await executeResultRequest(requestPath, await digest(requestBytes));
+  } finally {
+    await unlink(promptPath).catch(() => undefined);
+    await unlink(requestPath).catch(() => undefined);
+  }
+}
+
+async function upgradeSigner(
+  sourcePath,
+  confirmedDigest,
+  launcherSourcePath,
+  launcherDigest,
+  probeSourcePath,
+  probeDigest,
+  probeUid,
+  probeGid,
+  probeHomePath,
+  probeCodexHomePath = null
+) {
   requireRoot();
-  if (!SHA256.test(confirmedDigest)) throw new Error("confirmed signer digest must be SHA-256");
-  const source = path.resolve(sourcePath);
-  const sourceInfo = await lstat(source);
-  if (sourceInfo.isSymbolicLink() || !sourceInfo.isFile()) throw new Error("Signer source must be a regular non-symlink file");
-  const bytes = await readFile(source);
-  if (await digest(bytes) !== confirmedDigest) throw new Error("signer source digest does not match administrator-confirmed digest");
-  const text = bytes.toString("utf8");
+  await requireTrustedRuntime();
+  const source = await readSourceFile(sourcePath, confirmedDigest, "Signer source");
+  const launcherSource = await readSourceFile(launcherSourcePath, launcherDigest, "Native launcher source");
+  const probeSource = await readSourceFile(probeSourcePath, probeDigest, "Readiness probe source");
+  const text = source.bytes.toString("utf8");
   if (!text.includes(`const HOST_SIGNER_VERSION = "${HOST_SIGNER_VERSION}"`) ||
       !HOST_SIGNER_CAPABILITIES.every((capability) => text.includes(`"${capability}"`)) ||
       !text.includes('command === "capabilities"')) {
     throw new Error("signer source does not expose the required host capabilities");
   }
-  const syntax = await spawnCapture(process.execPath, ["--check", source], {
+  const syntax = await spawnCapture(process.execPath, ["--check", source.path], {
     timeoutMs: 10_000,
     maxOutputBytes: 16 * 1024
   });
@@ -858,35 +1153,47 @@ async function upgradeSigner(sourcePath, confirmedDigest) {
     throw new Error(`signer source syntax check failed: exit=${syntax.code ?? "null"}; signal=${syntax.signal ?? "none"}`);
   }
   await secureDirectory("/private/var/db/better-workflows", 0o711);
-  await secureDirectory("/private/var/db/better-workflows/bin", 0o755);
-  const existing = await exists(INSTALLED_SIGNER);
-  let backup = null;
-  const temporary = `${INSTALLED_SIGNER}.${confirmedDigest}.tmp`;
-  if (existing) {
-    await validateRootOwnedFile(INSTALLED_SIGNER, "Installed host signer", 0o755);
-    const existingBytes = await readFile(INSTALLED_SIGNER);
-    const existingDigest = await digest(existingBytes);
-    if (existingDigest === confirmedDigest) return await status();
-    backup = `${INSTALLED_SIGNER}.${existingDigest}.bak`;
-    if (await exists(backup)) throw new Error(`Refusing to overwrite signer backup: ${backup}`);
-  }
+  await secureDirectory(HOST_RUNTIME_ROOT, 0o755);
+  const changes = [];
   try {
-    if (backup) await rename(INSTALLED_SIGNER, backup);
-    await exclusiveWrite(temporary, bytes, 0o755);
-    await rename(temporary, INSTALLED_SIGNER);
+    for (const [target, item, label] of [
+      [EXECUTION_LAUNCHER, launcherSource, "Native execution launcher"],
+      [EXECUTION_PROBE, probeSource, "Host readiness probe"],
+      [INSTALLED_SIGNER, source, "Installed host signer"]
+    ]) {
+      const change = await replaceRootOwnedFile(target, item, 0o755, label);
+      if (change.changed) changes.push({ target, label, mode: 0o755, previous: change.previous });
+    }
     const installed = await status();
-    if (!installed.ready) throw new Error("installed signer failed its syntax and behavioral capability checks");
-    return { ...installed, ...(backup ? { previousSigner: { path: backup, mode: "0755" } } : {}) };
+    if (!installed.ready) throw new Error("installed signer failed its static capability checks");
+    const readinessProbe = await runReadinessProbe({
+      uid: probeUid,
+      gid: probeGid,
+      homePath: probeHomePath,
+      codexHomePath: probeCodexHomePath
+    });
+    const ready = await status();
+    if (!ready.ready) throw new Error("installed signer failed its end-to-end readiness probe");
+    return {
+      ...ready,
+      readinessProbe,
+      ...(changes.find((item) => item.target === INSTALLED_SIGNER)?.previous
+        ? { previousSigner: { path: changes.find((item) => item.target === INSTALLED_SIGNER).previous.path, mode: "0755" } }
+        : {})
+    };
   } catch (error) {
-    await unlink(temporary).catch(() => undefined);
-    if (await exists(INSTALLED_SIGNER)) {
-      const quarantine = `${INSTALLED_SIGNER}.${confirmedDigest}.${Date.now()}.failed`;
-      await rename(INSTALLED_SIGNER, quarantine).catch(() => undefined);
+    const recoveryErrors = [];
+    for (const change of changes.toReversed()) {
+      try {
+        await restoreRootOwnedFile(change.target, change.previous, change.mode, change.label);
+      } catch (recoveryError) {
+        recoveryErrors.push(`${change.label}: ${recoveryError.message}`);
+      }
     }
-    if (backup && await exists(backup)) {
-      await rename(backup, INSTALLED_SIGNER).catch(() => undefined);
+    if (recoveryErrors.length > 0) {
+      throw new Error(`signer upgrade failed and rollback could not be proven: ${error.message}; ${recoveryErrors.join("; ")}`);
     }
-    throw new Error(`signer upgrade rolled back after failed validation: ${error.message}`);
+    throw new Error(`signer upgrade rolled back with exact prior artifacts proven: ${error.message}`);
   }
 }
 
@@ -957,10 +1264,22 @@ async function main() {
   if (command === "status") return status();
   if (command === "provision") return provision();
   if (command === "upgrade") {
-    if (!options.source || !options["confirm-digest"]) {
-      throw new Error("upgrade requires --source and --confirm-digest");
+    if (!options.source || !options["confirm-digest"] || !options.launcher || !options["launcher-digest"] ||
+        !options.probe || !options["probe-digest"] || !options["probe-uid"] || !options["probe-gid"] || !options["probe-home"]) {
+      throw new Error("upgrade requires --source, --confirm-digest, --launcher, --launcher-digest, --probe, --probe-digest, --probe-uid, --probe-gid, and --probe-home");
     }
-    return upgradeSigner(options.source, options["confirm-digest"]);
+    return upgradeSigner(
+      options.source,
+      options["confirm-digest"],
+      options.launcher,
+      options["launcher-digest"],
+      options.probe,
+      options["probe-digest"],
+      Number(options["probe-uid"]),
+      Number(options["probe-gid"]),
+      options["probe-home"],
+      options["probe-codex-home"] ?? null
+    );
   }
   if (command === "execute-result") {
     if (!options.request || !options["confirm-digest"]) {

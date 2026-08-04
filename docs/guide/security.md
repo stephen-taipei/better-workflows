@@ -116,6 +116,14 @@ Ed25519 signing key outside the repository. Check host readiness with:
 node plugins/better-workflows/scripts/sbw.mjs self-improve host status
 ```
 
+Initial provisioning uses the existing root-owned Swift signer through fixed
+system binaries. Real replay upgrade and execution use a digest-bound,
+root-owned Node runtime plus a native launcher that clears supplementary groups
+before applying the requested non-root identity; do not sudo the maintainer's
+`process.execPath` directly. The generated batch command hash-checks and stages
+that runtime, and the host signs the confirmed request digest and run-as
+identity into the attestation, receipt, envelope, and ledger.
+
 After freezing a candidate, generate seven run-specific requests outside the
 repository:
 

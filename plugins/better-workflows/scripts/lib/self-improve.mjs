@@ -50,7 +50,7 @@ function allowedCandidateMaterial(file) {
     /^docs\/details\/(?:en|zh-TW|zh-CN|ja|ko)\.md$/.test(file) ||
     /^docs\/guide\/(?:architecture|cli-reference|getting-started|security|workflows)\.md$/.test(file) ||
     file === "docs/assets/better-workflows-engineering-stack.svg" ||
-    /^plugins\/better-workflows\/(?:scripts\/.+\.mjs|skills\/.+\.md|templates\/.+\.json|fixtures\/.+\.(?:json|md|mjs)|config\/.+\.json|package\.json|\.codex-plugin\/plugin\.json)$/.test(file);
+    /^plugins\/better-workflows\/(?:scripts\/.+\.(?:mjs|c)|skills\/.+\.md|templates\/.+\.json|fixtures\/.+\.(?:json|md|mjs)|config\/.+\.json|package\.json|\.codex-plugin\/plugin\.json)$/.test(file);
 }
 
 function assertString(value, label) {
@@ -257,6 +257,16 @@ function covered(root, file) {
   return root === "." || file === root || file.startsWith(`${root}/`);
 }
 
+async function gitModeAtRevision(repository, revision, file) {
+  const output = await git(repository, ["ls-tree", revision, "--", file]);
+  const match = output.trim().match(/^(\d{6})\s+\S+\s+(.+)$/s);
+  if (!match) return null;
+  if (!["100644", "100755"].includes(match[1])) {
+    throw new Error(`Baseline contains unsupported file mode for ${file}: ${match[1]}`);
+  }
+  return Number.parseInt(match[1].slice(-3), 8);
+}
+
 export async function snapshotCandidate({ cwd, baselineRevision, candidateRoot }) {
   const repository = await realpath(cwd);
   const baseline = await resolveBaselineRevision(repository, baselineRevision);
@@ -274,10 +284,10 @@ export async function snapshotCandidate({ cwd, baselineRevision, candidateRoot }
   for (const file of [...changed].filter((item) => covered(relativeRoot, item)).sort()) {
     const absolute = path.join(repository, file);
     const info = await lstat(absolute).catch((error) => error.code === "ENOENT" ? null : Promise.reject(error));
-    if (!info) files.push({ path: file, state: "missing", digest: null });
+    if (!info) files.push({ path: file, state: "missing", digest: null, mode: null });
     else if (info.isFile() && !info.isSymbolicLink()) {
       const content = await readFile(absolute);
-      files.push({ path: file, state: "file", digest: sha256(content), size: content.length });
+      files.push({ path: file, state: "file", digest: sha256(content), size: content.length, mode: info.mode & 0o777 });
     } else throw new Error(`Candidate contains non-regular file: ${file}`);
   }
   const snapshot = { baselineRevision: baseline, candidateRoot: relativeRoot, files };
@@ -290,9 +300,15 @@ export async function snapshotBaselineForCandidate({ cwd, snapshot }) {
   for (const file of snapshot.files) {
     try {
       const content = await gitBytes(repository, ["show", `${snapshot.baselineRevision}:${file.path}`]);
-      files.push({ path: file.path, state: "file", digest: sha256(content), size: content.length });
+      files.push({
+        path: file.path,
+        state: "file",
+        digest: sha256(content),
+        size: content.length,
+        mode: await gitModeAtRevision(repository, snapshot.baselineRevision, file.path)
+      });
     } catch {
-      files.push({ path: file.path, state: "missing", digest: null });
+      files.push({ path: file.path, state: "missing", digest: null, mode: null });
     }
   }
   const baseline = { baselineRevision: snapshot.baselineRevision, candidateRoot: snapshot.candidateRoot, files };
@@ -476,6 +492,7 @@ export function buildEvaluationPrompt({ suite, candidate, materials = [] }) {
     path: file.path,
     state: file.state,
     digest: file.digest,
+    mode: file.mode ?? null,
     size: file.size ?? null
   }));
   return [

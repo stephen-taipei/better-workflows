@@ -321,15 +321,17 @@ noise, missing evidence, and fixture-only results never auto-adopt a change.
 Each successful replay uses a distinct administrator-owned execution witness.
 The digest-confirmed request binds an administrator-approved binary digest. The
 installed signer snapshots that binary into a root-owned `0755` file under the
-fixed execution root, creates and signs the pre-execution binding, and executes
-the snapshot exactly once as the requesting non-root uid/gid with fixed
-`PATH`/`HOME`/`CODEX_HOME` values. After execution it captures the parsed
-response, exit status, and timestamps, writes a root-owned execution ledger, and
-signs the result receipt. `sbw` consumes that persisted witness and verifies it
-again before delivery; it never reruns Codex during resume or delivery
-revalidation. The signed `result receipt` binds the exact prompt digest and
-response digest as well as the binary, model, execution, ledger, exit status,
-and timestamps.
+fixed execution root, creates and signs the pre-execution binding, and invokes
+a root-owned native launcher. The launcher clears supplementary groups before
+applying the requesting non-root uid/gid with fixed `PATH`/`HOME`/`CODEX_HOME`
+values. The attestation, receipt, envelope, and ledger bind the confirmed
+request digest and exact run-as identity; candidate snapshots bind normalized
+file modes too. After execution it captures the parsed response, exit status,
+and timestamps, writes a root-owned execution ledger, and signs the result
+receipt. `sbw` consumes that persisted witness and verifies it again before
+delivery; it never reruns Codex during resume or delivery revalidation. The
+signed `result receipt` binds the exact prompt digest and response digest as
+well as the binary, model, execution, ledger, exit status, and timestamps.
 
 Evaluation v2.2 preserves the existing safety, documentation, deliberation,
 sanitizer, and evaluation-engineering coverage, and adds isolated train/holdout
@@ -343,8 +345,8 @@ self-improvement replays to authorize commit, cache publication, or delivery.
 On each host, an administrator reviews a pinned checkout and provisions it once:
 
 ```bash
-sudo "$(command -v node)" \
-  plugins/better-workflows/scripts/host-trust.mjs provision
+sudo /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin \
+  /usr/bin/swift /private/var/db/better-workflows/bin/bw-host-signer.swift provision
 
 node plugins/better-workflows/scripts/sbw.mjs \
   self-improve host status
@@ -354,15 +356,19 @@ Provisioning is fail-closed and never overwrites or silently rotates an
 existing key. The trust root is public and root-owned; the private Ed25519 key
 remains mode `0600` outside the repository. Do not use `plutil` to validate the
 JSON trust root—use `self-improve host status`. If status reports `ready: false`
-because a legacy signer is installed, upgrade the pinned signer with its
-administrator-confirmed SHA-256 using `host-trust.mjs upgrade`; the old signer
-is retained as a root-owned backup. `status` performs a syntax and behavioral
-capability check; a failed upgrade is quarantined and rolled back to the
-digest-named backup without rotating keys.
+because a legacy signer is installed, stage a digest-confirmed root-owned Node
+runtime and the compiled native launcher/probe, then run `host-trust.mjs
+upgrade` through the fixed `/bin/sh` staging wrapper. Never sudo the
+maintainer's `process.execPath` directly. The old signer is retained as a
+root-owned backup; upgrade performs a disposable signed readiness witness and
+a failed upgrade is quarantined and rolled back with exact prior artifact
+digests proven, without rotating keys.
 
 After a candidate is frozen, generate all seven distinct requests outside the
 repository. The output includes a manifest digest and an exact `executeCommand`;
-the administrator reviews both before running that one host-execution command:
+the administrator reviews both before running that one host-execution command;
+the command hash-checks and stages the runtime into the fixed root-owned host
+directory before invoking the signer:
 
 ```bash
 node plugins/better-workflows/scripts/sbw.mjs \

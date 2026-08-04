@@ -245,18 +245,18 @@ $better-workflows:auto <완료하려는 결과를 설명>
 
 자기 개선 evaluation은 immutable baseline에 동결된 checked-in, sanitized train/holdout corpus만 사용합니다. candidate를 먼저 staging한 뒤 세 번의 read-only Codex holdout replay가 safety failure 및 regression 없이 baseline median을 엄격히 넘어야 합니다. Codex replay에는 정확한 binary와 model을 고정된 `/etc/better-workflows/codex-trust-root.json`에 묶는 host-signed attestation이 필요합니다. 이 file과 상위 directory는 administrator 소유이고 호출자가 쓸 수 없어야 합니다. `PATH`, 자체 hash, CLI에서 선택한 trust root, model 자기 보고는 provider attestation이 아닙니다. tie, noise, evidence 부족, fixture-only 결과는 auto-adopt하지 않습니다.
 
-성공한 각 replay는 독립된 host-owned execution witness를 사용합니다. digest-confirmed request는 administrator-approved binary digest를 바인딩하고, 설치된 signer는 exact binary를 fixed execution root 아래 root-owned `0755` snapshot으로 만든 뒤 request의 non-root uid/gid와 고정된 `PATH`, `HOME`, `CODEX_HOME`으로 정확히 한 번 실행합니다. host는 먼저 pre-execution binding을 생성하고 서명한 다음, 실행 후 prompt, parsed response, exit status, timestamps를 캡처해 root-owned ledger와 `result receipt`를 서명합니다. `sbw`는 저장된 witness를 소비하며 resume 또는 delivery revalidation에서 Codex를 다시 실행하지 않습니다. signed receipt는 exact prompt digest, response digest, binary, model, execution, ledger, timestamps를 바인딩합니다.
+성공한 각 replay는 독립된 host-owned execution witness를 사용합니다. digest-confirmed request는 administrator-approved binary digest를 바인딩하고, 설치된 signer는 exact binary를 fixed execution root 아래 root-owned `0755` snapshot으로 만든 뒤 root-owned native launcher를 호출합니다. launcher는 supplementary groups를 비운 후 request의 non-root uid/gid와 고정된 `PATH`, `HOME`, `CODEX_HOME`을 적용합니다. attestation, receipt, envelope, ledger는 confirmed request digest와 exact run-as identity를 바인딩하고 candidate snapshot은 normalized file mode도 바인딩합니다. host는 먼저 pre-execution binding을 생성하고 서명한 다음, 실행 후 prompt, parsed response, exit status, timestamps를 캡처해 root-owned ledger와 `result receipt`를 서명합니다. `sbw`는 저장된 witness를 소비하며 resume 또는 delivery revalidation에서 Codex를 다시 실행하지 않습니다. signed receipt는 exact prompt digest, response digest, binary, model, execution, ledger, timestamps를 바인딩합니다.
 
 Evaluation v2.2는 기존 safety, documentation, deliberation, sanitizer, evaluation-engineering coverage를 유지하고 typed-evidence integrity, execution-ledger replay, bounded review convergence, direct-work cost를 위한 독립 train/holdout classes를 추가합니다. 일회성 migration은 immutable v2.1을 source로 사용하며 source/target 두 suite digest를 일곱 signed executions 모두에 결합합니다.
 
 일반 clone 또는 workspace recipe 실행에는 host trust root가 **필요하지 않습니다**. 실제 Codex self-improve replay로 commit, cache publication, delivery를 승인하려는 maintainer만 각 host에서 administrator가 한 번 실행합니다:
 
 ```bash
-sudo "$(command -v node)" plugins/better-workflows/scripts/host-trust.mjs provision
+sudo /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin /usr/bin/swift /private/var/db/better-workflows/bin/bw-host-signer.swift provision
 node plugins/better-workflows/scripts/sbw.mjs self-improve host status
 ```
 
-Provision은 기존 key를 덮어쓰거나 암묵적으로 rotate하지 않습니다. trust root는 root-owned 공개 JSON이고 private Ed25519 key는 repo 밖에서 `0600`입니다. JSON 검증에 `plutil`을 사용하지 마십시오. status가 `ready: false`이고 legacy signer만 설치되어 있으면 administrator-confirmed SHA-256으로 `host-trust.mjs upgrade`를 실행합니다. 기존 trust root/key는 유지되고 이전 signer는 root-owned backup으로 보존됩니다. candidate 고정 후 아래 명령은 repo 밖에 일곱 prompt-bound execution request, manifest digest, 정확한 `executeCommand`를 생성합니다:
+Provision은 기존 key를 덮어쓰거나 암묵적으로 rotate하지 않습니다. trust root는 root-owned 공개 JSON이고 private Ed25519 key는 repo 밖에서 `0600`입니다. JSON 검증에 `plutil`을 사용하지 마십시오. status가 `ready: false`이고 legacy signer만 설치되어 있으면 digest-bound root-owned Node runtime과 compiled native launcher/probe를 고정된 `/bin/sh` staging wrapper로 준비하고 `process.execPath`를 직접 sudo하지 마십시오. administrator-confirmed SHA-256으로 `host-trust.mjs upgrade`를 실행하면 signed readiness witness와 exact rollback proof를 수행합니다. 기존 trust root/key는 유지되고 이전 signer는 root-owned backup으로 보존됩니다. candidate 고정 후 아래 명령은 repo 밖에 일곱 prompt-bound execution request, manifest digest, 정확한 `executeCommand`를 생성합니다:
 
 ```bash
 node plugins/better-workflows/scripts/sbw.mjs \

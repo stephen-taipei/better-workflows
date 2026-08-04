@@ -55,6 +55,20 @@ test("host trust helper fixes authority paths and does not accept environment pa
   assert.match(source, /uid: request\.uid/);
   assert.match(source, /binaryDigest/);
   assert.match(source, /outputExceeded/);
+  assert.match(source, /\/private\/var\/db\/better-workflows\/execution-bundles/);
+  assert.match(source, /validateRootOwnedDirectory/);
+  assert.match(source, /EXECUTION_LAUNCHER/);
+  assert.match(source, /requireTrustedRuntime/);
+  assert.match(source, /requestDigest/);
+  assert.match(source, /runAs/);
+  assert.match(source, /maxOutputBytes = MAX_OUTPUT_BYTES/);
+  assert.match(source, /runReadinessProbe/);
+  assert.doesNotMatch(source, /os\.tmpdir\(\)/);
+  assert.doesNotMatch(source, /"TMPDIR"|"TEMP"|"TMP"|"HTTP_PROXY"|"HTTPS_PROXY"|"SSL_CERT_FILE"/);
+  const launcher = await readFile(path.join(path.dirname(SCRIPT), "host-exec-launcher.c"), "utf8");
+  assert.match(launcher, /setgroups\(0, NULL\)/);
+  assert.match(launcher, /execve\(/);
+  assert.match(launcher, /root-owned 0755/);
 });
 
 test("host capture waits for SIGKILL escalation after output overflow", async () => {
@@ -64,6 +78,15 @@ test("host capture waits for SIGKILL escalation after output overflow", async ()
   ], { timeoutMs: 10_000 });
   assert.equal(result.outputExceeded, true);
   assert.equal(result.signal, "SIGKILL");
+});
+
+test("host capture honors a caller-specific output limit before SIGKILL escalation", async () => {
+  const result = await spawnCapture(process.execPath, [
+    "-e",
+    "process.stdout.write('x'.repeat(64 * 1024)); process.on('SIGTERM', () => {}); setInterval(() => {}, 1000);"
+  ], { timeoutMs: 10_000, maxOutputBytes: 16 * 1024 });
+  assert.equal(result.outputExceeded, true);
+  assert.ok(["SIGTERM", "SIGKILL"].includes(result.signal));
 });
 
 test("host execution request is a pre-execution contract and cannot carry caller result facts", () => {

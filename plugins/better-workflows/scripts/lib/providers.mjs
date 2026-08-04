@@ -298,12 +298,29 @@ function validateExecution(attestationExecution, expectedExecution) {
   return attestationExecution;
 }
 
+function validateRunAs(runAs) {
+  if (!runAs || typeof runAs !== "object" || Array.isArray(runAs) ||
+      Object.keys(runAs).sort().join("\0") !== "codexHomePath\0gid\0homePath\0uid") {
+    throw new Error("Trusted Codex run-as binding is malformed");
+  }
+  if (!Number.isInteger(runAs.uid) || runAs.uid <= 0 || !Number.isInteger(runAs.gid) || runAs.gid <= 0) {
+    throw new Error("Trusted Codex run-as identity is invalid");
+  }
+  for (const [key, nullable] of [["homePath", false], ["codexHomePath", true]]) {
+    if (nullable && runAs[key] === null) continue;
+    if (typeof runAs[key] !== "string" || !path.isAbsolute(runAs[key]) || path.resolve(runAs[key]) !== runAs[key]) {
+      throw new Error(`Trusted Codex run-as ${key} is not canonical`);
+    }
+  }
+  return runAs;
+}
+
 /**
  * Trust is not inferred from PATH, a self-hash, or a model response. The host
  * supplies a signed binding of the exact binary and requested model, verified
  * against a separately protected root outside the evaluated repository.
  */
-export async function verifyTrustedCodexAttestation({ attestationPath, evaluationRoot, model, execution }) {
+export async function verifyTrustedCodexAttestation({ attestationPath, evaluationRoot, model, execution, expectedRequestDigest = null, expectedRunAs = null }) {
   if (!attestationPath) throw new Error("Codex evaluation requires --trusted-codex-execution");
   const evaluation = await realpath(evaluationRoot);
   const [attestationFile, trustRootFile] = await Promise.all([
@@ -325,6 +342,16 @@ export async function verifyTrustedCodexAttestation({ attestationPath, evaluatio
   const signature = Buffer.from(requiredString(attestation.signature, "Trusted Codex attestation signature"), "base64");
   if (!verify(null, Buffer.from(canonicalJson(unsignedAttestation(attestation)), "utf8"), publicKey, signature)) throw new Error("Trusted Codex attestation signature is invalid");
   const signedExecution = validateExecution(attestation.execution, execution);
+  if (!/^[a-f0-9]{64}$/.test(attestation.requestDigest ?? "")) {
+    throw new Error("Trusted Codex attestation request digest is invalid");
+  }
+  const runAs = validateRunAs(attestation.runAs);
+  if (expectedRequestDigest !== null && attestation.requestDigest !== expectedRequestDigest) {
+    throw new Error("Trusted Codex attestation request digest does not match the confirmed request");
+  }
+  if (expectedRunAs !== null && canonicalJson(runAs) !== canonicalJson(expectedRunAs)) {
+    throw new Error("Trusted Codex attestation run-as binding does not match the confirmed request");
+  }
   const binary = attestation.binary;
   if (!binary || typeof binary.path !== "string" || !path.isAbsolute(binary.path) || !/^[a-f0-9]{64}$/.test(binary.digest ?? "")) throw new Error("Trusted Codex attestation requires an absolute binary path and SHA-256 digest");
   const executionRoot = await secureHostRoot(HOST_EXECUTIONS_ROOT, "Trusted Codex execution root");
@@ -342,7 +369,8 @@ export async function verifyTrustedCodexAttestation({ attestationPath, evaluatio
   return { command, metadata: {
     provider: "codex", requestedModel: model, reportedModel: model, modelAssurance: "host-signed-attestation", trustAttested: true,
     attestationDigest: sha256(canonicalJson(unsignedAttestation(attestation))), trustRootDigest: sha256(canonicalJson(trustRoot)),
-    attestationPath: attestationFile.path, issuer: attestation.issuer, keyId: attestation.keyId, expiresAt: attestation.expiresAt, execution: signedExecution, binary: { path: command, digest }
+    attestationPath: attestationFile.path, issuer: attestation.issuer, keyId: attestation.keyId, expiresAt: attestation.expiresAt,
+    execution: signedExecution, requestDigest: attestation.requestDigest, runAs, binary: { path: command, digest }
   } };
 }
 
@@ -373,7 +401,7 @@ export async function verifyTrustedCodexResultReceipt({
   const receipt = receiptFile.value;
   const required = [
     "attestationDigest", "binary", "execution", "exitCode", "expiresAt", "finishedAt", "issuedAt", "issuer", "keyId", "kind", "ledgerDigest",
-    "model", "provider", "promptDigest", "responseDigest", "schemaVersion", "signal", "signature", "startedAt", "timedOut", "trustRootDigest"
+    "model", "provider", "promptDigest", "requestDigest", "responseDigest", "runAs", "schemaVersion", "signal", "signature", "startedAt", "timedOut", "trustRootDigest"
   ];
   if (Object.keys(receipt).sort().join("\0") !== required.slice().sort().join("\0")) {
     throw new Error("Trusted Codex result receipt fields do not match the verifier contract");
@@ -401,6 +429,8 @@ export async function verifyTrustedCodexResultReceipt({
     throw new Error("Trusted Codex result receipt signature is invalid");
   }
   validateExecution(receipt.execution, execution);
+  if (!/^[a-f0-9]{64}$/.test(receipt.requestDigest ?? "")) throw new Error("Trusted Codex result receipt request digest is invalid");
+  validateRunAs(receipt.runAs);
   if (receipt.attestationDigest !== attestation.metadata.attestationDigest) {
     throw new Error("Trusted Codex result receipt is not bound to the verified execution attestation");
   }
@@ -409,6 +439,9 @@ export async function verifyTrustedCodexResultReceipt({
   }
   if (canonicalJson(receipt.binary) !== canonicalJson(attestation.metadata.binary)) {
     throw new Error("Trusted Codex result receipt binary binding changed after execution");
+  }
+  if (receipt.requestDigest !== attestation.metadata.requestDigest || canonicalJson(receipt.runAs) !== canonicalJson(attestation.metadata.runAs)) {
+    throw new Error("Trusted Codex result receipt request identity changed after execution");
   }
   if (receipt.promptDigest !== execution.promptDigest || receipt.promptDigest !== sha256(prompt)) {
     throw new Error("Trusted Codex result receipt prompt binding does not match this replay");
@@ -432,7 +465,7 @@ export async function verifyTrustedCodexResultReceipt({
   const ledger = ledgerFile.value;
   const ledgerRequired = [
     "binary", "execution", "exitCode", "finishedAt", "kind", "ledgerDigest", "model", "promptDigest", "provider",
-    "requestDigest", "responseDigest", "schemaVersion", "signal", "startedAt", "state", "stderrDigest", "stdoutDigest", "timedOut"
+    "requestDigest", "responseDigest", "runAs", "schemaVersion", "signal", "startedAt", "state", "stderrDigest", "stdoutDigest", "timedOut"
   ];
   if (Object.keys(ledger).sort().join("\0") !== ledgerRequired.slice().sort().join("\0")) {
     throw new Error("Trusted Codex execution ledger fields do not match the verifier contract");
@@ -443,7 +476,8 @@ export async function verifyTrustedCodexResultReceipt({
   }
   if (
     ledger.schemaVersion !== 1 || ledger.provider !== "codex" || ledger.kind !== "execution-ledger" || ledger.state !== "complete" ||
-    ledger.model !== model || canonicalJson(ledger.execution) !== canonicalJson(execution) || canonicalJson(ledger.binary) !== canonicalJson(attestation.metadata.binary) ||
+    ledger.model !== model || ledger.requestDigest !== receipt.requestDigest || canonicalJson(ledger.runAs) !== canonicalJson(receipt.runAs) ||
+    canonicalJson(ledger.execution) !== canonicalJson(execution) || canonicalJson(ledger.binary) !== canonicalJson(attestation.metadata.binary) ||
     ledger.promptDigest !== receipt.promptDigest || ledger.responseDigest !== receipt.responseDigest || ledger.startedAt !== receipt.startedAt ||
     ledger.finishedAt !== receipt.finishedAt || ledger.exitCode !== 0 || ledger.signal !== null || ledger.timedOut !== false
   ) {
@@ -457,7 +491,7 @@ export async function verifyTrustedCodexResultReceipt({
   };
 }
 
-export async function verifyTrustedCodexExecutionEnvelope({ hostExecutionPath, evaluationRoot, model, prompt, execution }) {
+export async function verifyTrustedCodexExecutionEnvelope({ hostExecutionPath, evaluationRoot, model, prompt, execution, expectedRequestDigest = null, expectedRunAs = null }) {
   if (!hostExecutionPath) throw new Error("Codex evaluation requires a host execution witness");
   const evaluation = await realpath(evaluationRoot);
   const requestedWitnessPath = path.resolve(hostExecutionPath);
@@ -468,7 +502,7 @@ export async function verifyTrustedCodexExecutionEnvelope({ hostExecutionPath, e
   }
   const envelope = envelopeFile.value;
   const required = [
-    "attestationDigest", "attestationPath", "binary", "execution", "exitCode", "finishedAt", "kind", "ledgerDigest", "ledgerPath",
+    "attestationDigest", "attestationPath", "binary", "execution", "exitCode", "finishedAt", "kind", "ledgerDigest", "ledgerPath", "requestDigest", "runAs",
     "model", "promptDigest", "provider", "response", "responseDigest", "resultReceiptDigest", "resultReceiptPath", "schemaVersion", "signal",
     "startedAt", "timedOut", "trustRootDigest"
   ];
@@ -477,6 +511,13 @@ export async function verifyTrustedCodexExecutionEnvelope({ hostExecutionPath, e
   }
   if (envelope.schemaVersion !== 1 || envelope.provider !== "codex" || envelope.kind !== "execution-result-envelope" || envelope.model !== model) {
     throw new Error("Trusted Codex execution witness schema or model is invalid");
+  }
+  validateRunAs(envelope.runAs);
+  if (expectedRequestDigest !== null && envelope.requestDigest !== expectedRequestDigest) {
+    throw new Error("Trusted Codex execution witness request digest does not match the confirmed request");
+  }
+  if (expectedRunAs !== null && canonicalJson(envelope.runAs) !== canonicalJson(expectedRunAs)) {
+    throw new Error("Trusted Codex execution witness run-as binding does not match the confirmed request");
   }
   if (canonicalJson(envelope.execution) !== canonicalJson(execution) || envelope.promptDigest !== execution.promptDigest || envelope.promptDigest !== sha256(prompt)) {
     throw new Error("Trusted Codex execution witness is not bound to this replay");
@@ -488,9 +529,11 @@ export async function verifyTrustedCodexExecutionEnvelope({ hostExecutionPath, e
     attestationPath: envelope.attestationPath,
     evaluationRoot,
     model,
-    execution
+    execution,
+    expectedRequestDigest,
+    expectedRunAs
   });
-  if (envelope.attestationDigest !== attestation.metadata.attestationDigest || canonicalJson(envelope.binary) !== canonicalJson(attestation.metadata.binary) || envelope.trustRootDigest !== attestation.metadata.trustRootDigest) {
+  if (envelope.attestationDigest !== attestation.metadata.attestationDigest || envelope.requestDigest !== attestation.metadata.requestDigest || canonicalJson(envelope.runAs) !== canonicalJson(attestation.metadata.runAs) || canonicalJson(envelope.binary) !== canonicalJson(attestation.metadata.binary) || envelope.trustRootDigest !== attestation.metadata.trustRootDigest) {
     throw new Error("Trusted Codex execution witness attestation binding changed");
   }
   const receipt = await verifyTrustedCodexResultReceipt({

@@ -242,11 +242,11 @@ $better-workflows:auto <描述需要完成的目标>
 普通 clone 或执行 workspace recipe **不需要** host trust root；只有要用真实 Codex self-improve replay 授权 commit、cache publication 或 delivery 的 maintainer，才需要 administrator 在每台 host 一次性执行：
 
 ```bash
-sudo "$(command -v node)" plugins/better-workflows/scripts/host-trust.mjs provision
+sudo /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin /usr/bin/swift /private/var/db/better-workflows/bin/bw-host-signer.swift provision
 node plugins/better-workflows/scripts/sbw.mjs self-improve host status
 ```
 
-Provision 不会覆盖或暗中 rotate 现有 key。trust root 是 root-owned 公共 JSON；private Ed25519 key 以 `0600` 保存在 repo 外。不要用 `plutil` 验证 JSON。若 status 报告 `ready: false` 且只安装了 legacy signer，请用 administrator-confirmed SHA-256 执行 `host-trust.mjs upgrade`；既有 trust root/key 会保留，旧 signer 会作为 root-owned backup 保存。candidate 固定后，执行下列命令，在 repo 外生成七份 prompt-bound execution request、manifest digest 与精确 `executeCommand`：
+Provision 不会覆盖或暗中 rotate 现有 key。trust root 是 root-owned 公共 JSON；private Ed25519 key 以 `0600` 保存在 repo 外。不要用 `plutil` 验证 JSON。若 status 报告 `ready: false` 且只安装了 legacy signer，请先用固定 `/bin/sh` staging wrapper 准备 digest-bound root-owned Node runtime 与 compiled native launcher/probe，不得直接 sudo `process.execPath`，再用 administrator-confirmed SHA-256 执行 `host-trust.mjs upgrade`；upgrade 会完成 signed readiness witness 与 exact rollback proof。既有 trust root/key 会保留，旧 signer 会作为 root-owned backup 保存。candidate 固定后，执行下列命令，在 repo 外生成七份 prompt-bound execution request、manifest digest 与精确 `executeCommand`：
 
 ```bash
 node plugins/better-workflows/scripts/sbw.mjs \
@@ -255,7 +255,7 @@ node plugins/better-workflows/scripts/sbw.mjs \
   --model <model> --output <new-outside-repo-directory>
 ```
 
-`executeCommand` 只调用已安装且 capability-checked 的 host signer，一次执行七份 request，并返回 `/private/var/db/better-workflows/executions` 下的 root-owned witness。每份 request 都以 digest 绑定 administrator-approved binary；host 会先把 binary snapshot 成 execution root 下 root-owned `0755` 文件，再以 request 的 non-root uid/gid 与固定 `PATH`、`HOME`、`CODEX_HOME` 执行一次。将 training 的一份和 holdout 的六份传给 `--trusted-codex-execution`；caller 提供的 response 或 timestamp 不会被签署，pre-execution binding 与执行完成后的 result receipt 分别在正确阶段签发。
+`executeCommand` 只调用已安装且 capability-checked 的 host signer，一次执行七份 request，并返回 `/private/var/db/better-workflows/executions` 下的 root-owned witness。每份 request 都以 digest 绑定 administrator-approved binary；host 会先把 binary snapshot 成 execution root 下 root-owned `0755` 文件，再由 root-owned native launcher 清空 supplementary groups，使用 request 的 non-root uid/gid 与固定 `PATH`、`HOME`、`CODEX_HOME` 执行一次。attestation、receipt、envelope、ledger 会绑定 confirmed request digest 与 exact run-as identity，candidate snapshot 也绑定 normalized file mode。将 training 的一份和 holdout 的六份传给 `--trusted-codex-execution`；caller 提供的 response 或 timestamp 不会被签署，pre-execution binding 与执行完成后的 result receipt 分别在正确阶段签发。
 
 在应用文件数或 byte 采样上限前，sanitizer 会先确认每一个 changed path
 都符合固定的 plugin 或 repository 公共文档 allowlist。即使不合格路径排序

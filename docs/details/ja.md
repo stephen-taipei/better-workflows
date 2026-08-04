@@ -245,18 +245,18 @@ $better-workflows:auto <達成したい結果を記述>
 
 自己改善 evaluation は、immutable baseline で凍結した checked-in・sanitized の train/holdout corpus だけを使います。candidate は先に staging し、3 回の read-only Codex holdout replay が safety failure と regression なしで baseline median を厳密に上回る必要があります。Codex replay には、正確な binary と model を固定の `/etc/better-workflows/codex-trust-root.json` に結び付ける host-signed attestation が必要です。この file と親 directory は administrator 所有で、呼び出し元が書き込めない必要があります。`PATH`、自己 hash、CLI で選ぶ trust root、model の自己申告は provider attestation ではありません。tie、noise、evidence 不足、fixture-only の結果は auto-adopt しません。
 
-成功した各 replay は独立した host-owned execution witness を使います。digest-confirmed request は administrator-approved binary digest を bind し、インストール済み signer は exact binary を execution root 配下の root-owned `0755` snapshot にしてから、request の non-root uid/gid と固定した `PATH`、`HOME`、`CODEX_HOME` で一度だけ実行します。host は先に pre-execution binding を作成・署名し、実行後に prompt、parsed response、exit status、timestamps を捕捉して root-owned ledger と `result receipt` を署名します。`sbw` は保存済み witness を消費し、resume や delivery revalidation で Codex を再実行しません。signed receipt は exact prompt digest、response digest、binary、model、execution、ledger、timestamps を bind します。
+成功した各 replay は独立した host-owned execution witness を使います。digest-confirmed request は administrator-approved binary digest を bind し、インストール済み signer は exact binary を execution root 配下の root-owned `0755` snapshot にしてから、root-owned native launcher を呼び出します。launcher は supplementary groups を消去してから request の non-root uid/gid と固定した `PATH`、`HOME`、`CODEX_HOME` を適用します。attestation、receipt、envelope、ledger は confirmed request digest と exact run-as identity に bind され、candidate snapshot は normalized file mode も bind します。host は先に pre-execution binding を作成・署名し、実行後に prompt、parsed response、exit status、timestamps を捕捉して root-owned ledger と `result receipt` を署名します。`sbw` は保存済み witness を消費し、resume や delivery revalidation で Codex を再実行しません。signed receipt は exact prompt digest、response digest、binary、model、execution、ledger、timestamps を bind します。
 
 Evaluation v2.2 は既存の safety、documentation、deliberation、sanitizer、evaluation-engineering coverage を維持し、typed-evidence integrity、execution-ledger replay、bounded review convergence、direct-work cost の独立 train/holdout classes を追加します。一度限りの migration は immutable v2.1 を source とし、source/target 両 suite digest を七つすべての signed executions に結び付けます。
 
 通常の clone や workspace recipe の実行には host trust root は**不要**です。実 Codex self-improve replay で commit、cache publication、delivery を許可する maintainer だけが、各 host で administrator により一度だけ実行します：
 
 ```bash
-sudo "$(command -v node)" plugins/better-workflows/scripts/host-trust.mjs provision
+sudo /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin /usr/bin/swift /private/var/db/better-workflows/bin/bw-host-signer.swift provision
 node plugins/better-workflows/scripts/sbw.mjs self-improve host status
 ```
 
-Provision は既存 key を上書き・暗黙 rotate しません。trust root は root-owned の公開 JSON、private Ed25519 key は repo 外で `0600` です。JSON 検証に `plutil` は使いません。status が `ready: false` で legacy signer のみを示す場合は、administrator-confirmed SHA-256 で `host-trust.mjs upgrade` を実行します。trust root/key は保持され、旧 signer は root-owned backup として残ります。candidate 固定後、次で repo 外に七つの prompt-bound execution request、manifest digest、正確な `executeCommand` を生成します：
+Provision は既存 key を上書き・暗黙 rotate しません。trust root は root-owned の公開 JSON、private Ed25519 key は repo 外で `0600` です。JSON 検証に `plutil` は使いません。status が `ready: false` で legacy signer のみを示す場合は、digest-bound root-owned Node runtime と compiled native launcher/probe を `/bin/sh` の staging wrapper で準備し、`process.execPath` を直接 sudo してはいけません。administrator-confirmed SHA-256 で `host-trust.mjs upgrade` を実行し、upgrade は signed readiness witness と exact rollback proof を完了します。trust root/key は保持され、旧 signer は root-owned backup として残ります。candidate 固定後、次で repo 外に七つの prompt-bound execution request、manifest digest、正確な `executeCommand` を生成します：
 
 ```bash
 node plugins/better-workflows/scripts/sbw.mjs \

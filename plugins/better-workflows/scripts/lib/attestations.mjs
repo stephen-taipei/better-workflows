@@ -18,6 +18,20 @@ import {
 import { binaryIdentity } from "./providers.mjs";
 
 const HOST_TRUST_TOOL = "/private/var/db/better-workflows/bin/bw-host-trust.mjs";
+const HOST_ADMIN_SHELL = [
+  "set -eu",
+  "runtime=\"$1\"",
+  "expected=\"$2\"",
+  "manifest=\"$3\"",
+  "manifest_digest=\"$4\"",
+  "target=\"/private/var/db/better-workflows/bin/bw-host-node.$expected\"",
+  "actual=$(/usr/bin/shasum -a 256 \"$runtime\" | /usr/bin/awk '{print $1}')",
+  "[ \"$actual\" = \"$expected\" ] || { echo 'runtime digest mismatch before staging' >&2; exit 126; }",
+  "if [ ! -e \"$target\" ]; then /bin/cp \"$runtime\" \"$target\"; /usr/sbin/chown root:wheel \"$target\"; /bin/chmod 755 \"$target\"; fi",
+  "actual=$(/usr/bin/shasum -a 256 \"$target\" | /usr/bin/awk '{print $1}')",
+  "[ \"$actual\" = \"$expected\" ] || { echo 'root runtime digest mismatch after staging' >&2; exit 126; }",
+  `exec \"$target\" \"${HOST_TRUST_TOOL}\" execute-batch --manifest \"$manifest\" --confirm-digest \"$manifest_digest\"`
+].join("\n");
 
 export async function generateAttestationRequests({
   repo,
@@ -35,6 +49,7 @@ export async function generateAttestationRequests({
   const binary = binaryPath
     ? await binaryIdentity(binaryPath)
     : await binaryIdentity("codex");
+  const runtime = await binaryIdentity(process.execPath);
   const resolvedBinary = binary.path;
   if (binaryPath && resolvedBinary !== binaryPath) {
     throw new Error("Codex binary argument must already be canonical");
@@ -172,6 +187,8 @@ export async function generateAttestationRequests({
     model,
     binaryPath: resolvedBinary,
     binaryDigest: binary.digest,
+    runtimePath: runtime.path,
+    runtimeDigest: runtime.digest,
     purpose,
     suitePath: frozen.relativePath,
     sourceSuiteDigest: frozen.sourceDigest,
@@ -193,12 +210,13 @@ export async function generateAttestationRequests({
     manifestDigest: createHash("sha256").update(manifestBytes).digest("hex"),
     executeCommand: [
       "sudo",
-      process.execPath,
-      HOST_TRUST_TOOL,
-      "execute-batch",
-      "--manifest",
+      "/bin/sh",
+      "-c",
+      HOST_ADMIN_SHELL,
+      "better-workflows-admin",
+      runtime.path,
+      runtime.digest,
       manifestPath,
-      "--confirm-digest",
       createHash("sha256").update(manifestBytes).digest("hex")
     ]
   };

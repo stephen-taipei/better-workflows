@@ -362,6 +362,10 @@ test("self-improve attestation request freezes seven distinct requests outside t
   assert.equal(requested.json.manifestPath, path.join(output, "attestation-requests.json"));
   assert.match(requested.json.manifestDigest, /^[a-f0-9]{64}$/);
   assert.equal(requested.json.executeCommand.at(-1), requested.json.manifestDigest);
+  assert.deepEqual(requested.json.executeCommand.slice(0, 3), ["sudo", "/bin/sh", "-c"]);
+  assert.match(requested.json.executeCommand[3], /shasum/);
+  assert.match(requested.json.executeCommand[3], /bw-host-node/);
+  assert.match(requested.json.runtimeDigest, /^[a-f0-9]{64}$/);
   assert.equal(requested.json.schemaVersion, 2);
   for (const item of requested.json.requests) {
     assert.equal(path.dirname(item.request), output);

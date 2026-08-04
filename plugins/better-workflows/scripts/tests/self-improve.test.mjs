@@ -1,9 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 import { pluginRoot } from "../lib/core.mjs";
 import {
   buildEvaluationPrompt,
@@ -12,12 +14,16 @@ import {
   compareHoldout,
   evaluationBindingDigest,
   readSanitizedCandidateMaterial,
+  snapshotBaselineForCandidate,
+  snapshotCandidate,
   scoreEvaluation,
   selectEvaluationCases,
   validateEvaluationSuite,
   SELF_IMPROVE_MIGRATION_SOURCE_CORPORA,
   SELF_IMPROVE_ORDINARY_CORPORA
 } from "../lib/self-improve.mjs";
+
+const execFileAsync = promisify(execFile);
 
 const suite = JSON.parse(await readFile(path.join(pluginRoot(), "fixtures", "self-improve-ops-evals.json"), "utf8"));
 const suiteV2 = JSON.parse(await readFile(path.join(pluginRoot(), "fixtures", "self-improve-ops-evals-v2.json"), "utf8"));
@@ -44,6 +50,31 @@ test("self-improve corpus validates split isolation, uniqueness, and secret-shap
   const noHoldout = structuredClone(suite);
   for (const item of noHoldout.cases) item.split = "train";
   assert.throws(() => validateEvaluationSuite(noHoldout), /isolated/);
+});
+
+test("candidate snapshots bind executable modes so post-holdout chmod is detected", async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), "sbw-mode-bound-candidate-"));
+  try {
+    await execFileAsync("git", ["init", "-q", "-b", "dev"], { cwd });
+    await execFileAsync("git", ["config", "user.name", "Better Workflows Tests"], { cwd });
+    await execFileAsync("git", ["config", "user.email", "tests@example.invalid"], { cwd });
+    const file = path.join(cwd, "plugins/better-workflows/scripts/probe.mjs");
+    await mkdir(path.dirname(file), { recursive: true });
+    await writeFile(file, "export const probe = true;\n", { mode: 0o644 });
+    await execFileAsync("git", ["add", "."], { cwd });
+    await execFileAsync("git", ["commit", "-qm", "baseline"], { cwd });
+    const baseline = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd })).stdout.trim();
+    await chmod(file, 0o755);
+    const candidate = await snapshotCandidate({ cwd, baselineRevision: baseline, candidateRoot: "." });
+    const snapshot = candidate.files.find((item) => item.path.endsWith("probe.mjs"));
+    const base = await snapshotBaselineForCandidate({ cwd, snapshot: candidate });
+    const baseSnapshot = base.files.find((item) => item.path.endsWith("probe.mjs"));
+    assert.equal(snapshot.mode, 0o755);
+    assert.equal(baseSnapshot.mode, 0o644);
+    assert.notEqual(candidate.digest, base.digest);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
 });
 
 test("evaluation v2 rejects unknown fields, missing class splits, and unsafe paths", () => {

@@ -767,6 +767,7 @@ function structuredReplay(replay) {
     attestationPath: replay.metadata.attestationPath ?? null, trustRootDigest: replay.metadata.trustRootDigest ?? null,
     issuer: replay.metadata.issuer ?? null, keyId: replay.metadata.keyId ?? null, expiresAt: replay.metadata.expiresAt ?? null,
     execution: replay.metadata.execution ?? null, model: replay.metadata.requestedModel ?? replay.metadata.model ?? null, sandbox: replay.metadata.sandbox,
+    requestDigest: replay.metadata.requestDigest ?? null, runAs: replay.metadata.runAs ?? null,
     promptDigest: replay.metadata.promptDigest ?? null, responseDigest: replay.metadata.responseDigest ?? null,
     resultReceiptDigest: replay.metadata.resultReceiptDigest ?? null, resultReceiptPath: replay.metadata.resultReceiptPath ?? null,
     hostExecutionPath: replay.metadata.hostExecutionPath ?? null, ledgerPath: replay.metadata.ledgerPath ?? null,
@@ -1007,7 +1008,7 @@ async function assertAcceptedSelfImproveHoldout(root, runId, action) {
     ...(accepted.evaluation?.candidateReplays ?? []),
     ...(accepted.evaluation?.baselineReplays ?? [])
   ];
-  if (replays.length !== 7 || replays.some((item) => item.provider !== "codex" || item.trustAttested !== true || !item.hostExecutionPath || !item.attestationDigest || !item.attestationPath || !item.binaryPath || !item.binaryDigest || !item.trustRootDigest || !item.model || !item.expiresAt || !item.execution || !item.promptDigest || !item.responseDigest || !item.resultReceiptDigest || !item.resultReceiptPath || !item.ledgerPath || !item.startedAt || !item.finishedAt || !item.response)) {
+  if (replays.length !== 7 || replays.some((item) => item.provider !== "codex" || item.trustAttested !== true || !item.hostExecutionPath || !item.attestationDigest || !item.attestationPath || !item.binaryPath || !item.binaryDigest || !item.trustRootDigest || !item.model || !item.expiresAt || !item.execution || !item.requestDigest || !item.runAs || !item.promptDigest || !item.responseDigest || !item.resultReceiptDigest || !item.resultReceiptPath || !item.ledgerPath || !item.startedAt || !item.finishedAt || !item.response)) {
     throw new Error("Self-improve delivery requires seven host-owned Codex execution witnesses");
   }
   const bindings = new Set(replays.map((item) => digestObject({
@@ -1015,12 +1016,13 @@ async function assertAcceptedSelfImproveHoldout(root, runId, action) {
   })));
   if (bindings.size !== 1) throw new Error("Self-improve delivery requires one consistent host binary, trust root, issuer, key, and model across every replay");
   const executionIds = new Set(replays.map((item) => item.execution.id));
+  const requestDigests = new Set(replays.map((item) => item.requestDigest));
   const hostExecutionPaths = new Set(replays.map((item) => item.hostExecutionPath));
   const attestationPaths = new Set(replays.map((item) => item.attestationPath));
   const resultReceiptPaths = new Set(replays.map((item) => item.resultReceiptPath));
   const ledgerPaths = new Set(replays.map((item) => item.ledgerPath));
-  if (executionIds.size !== 7 || hostExecutionPaths.size !== 7 || attestationPaths.size !== 7 || resultReceiptPaths.size !== 7 || ledgerPaths.size !== 7) {
-    throw new Error("Self-improve delivery requires seven distinct host execution witnesses, attestations, receipts, and ledgers");
+  if (executionIds.size !== 7 || requestDigests.size !== 7 || hostExecutionPaths.size !== 7 || attestationPaths.size !== 7 || resultReceiptPaths.size !== 7 || ledgerPaths.size !== 7) {
+    throw new Error("Self-improve delivery requires seven distinct confirmed requests, host execution witnesses, attestations, receipts, and ledgers");
   }
   const expectedExecutions = new Set([
     "train-candidate:1", "candidate:1", "candidate:2", "candidate:3", "baseline:1", "baseline:2", "baseline:3"
@@ -1071,9 +1073,11 @@ async function assertAcceptedSelfImproveHoldout(root, runId, action) {
       model: replay.model,
       execution: replay.execution,
       prompt,
-      response: replay.response
+      response: replay.response,
+      expectedRequestDigest: replay.requestDigest,
+      expectedRunAs: replay.runAs
     });
-    if (digestObject(witness.response) !== digestObject(replay.response) || witness.metadata.attestationDigest !== replay.attestationDigest || witness.metadata.binary.digest !== replay.binaryDigest || witness.metadata.trustRootDigest !== replay.trustRootDigest || witness.metadata.issuer !== replay.issuer || witness.metadata.keyId !== replay.keyId || witness.metadata.resultReceiptDigest !== replay.resultReceiptDigest || witness.metadata.responseDigest !== replay.responseDigest || witness.metadata.ledgerPath !== replay.ledgerPath) {
+    if (digestObject(witness.response) !== digestObject(replay.response) || witness.metadata.attestationDigest !== replay.attestationDigest || witness.metadata.binary.digest !== replay.binaryDigest || witness.metadata.trustRootDigest !== replay.trustRootDigest || witness.metadata.issuer !== replay.issuer || witness.metadata.keyId !== replay.keyId || witness.metadata.requestDigest !== replay.requestDigest || digestObject(witness.metadata.runAs) !== digestObject(replay.runAs) || witness.metadata.resultReceiptDigest !== replay.resultReceiptDigest || witness.metadata.responseDigest !== replay.responseDigest || witness.metadata.ledgerPath !== replay.ledgerPath) {
       throw new Error("Self-improve delivery host execution witness binding changed after replay");
     }
     const scoreCases = replay.execution.role === "train-candidate"
