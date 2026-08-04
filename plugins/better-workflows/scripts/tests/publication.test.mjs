@@ -6,9 +6,11 @@ import path from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
 import {
+  bundleDigest,
   checkPluginCache,
   publishPluginCache
 } from "../lib/publication.mjs";
+import { captureSourceBinding } from "../lib/git.mjs";
 
 const execFileAsync = promisify(execFile);
 
@@ -119,4 +121,27 @@ test("plugin cache publication rejects hidden tracked index flags", async () => 
     await git(repositoryRoot, "update-index", "--no-skip-worktree", "plugins/better-workflows/payload.txt").catch(() => undefined);
     void target;
   }
+});
+
+test("plugin cache publication rejects an unrelated commit after the self-improve handoff", async () => {
+  const { repositoryRoot, sourceRoot } = await trackedSourceFixture("1.1.0+test.binding");
+  const baseline = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repositoryRoot, encoding: "utf8" })).stdout.trim();
+  const sourceBinding = await captureSourceBinding(repositoryRoot, { baseRevision: baseline, requireClean: true });
+  const pluginBundleDigest = await bundleDigest(sourceRoot);
+  await writeFile(path.join(repositoryRoot, "outside-plugin.txt"), "unrelated commit\n");
+  await git(repositoryRoot, "add", "outside-plugin.txt");
+  await git(repositoryRoot, "commit", "-qm", "advance unrelated repository head");
+  await assert.rejects(
+    publishPluginCache({
+      sourceRoot,
+      cacheRoot: path.join(await mkdtemp(path.join(os.tmpdir(), "sbw-publication-binding-")), "cache"),
+      expectedSourceBinding: {
+        pluginBundleDigest,
+        sourceBaselineRevision: baseline,
+        sourceBindingDigest: sourceBinding.digest,
+        sourceHeadRevision: sourceBinding.headRevision
+      }
+    }),
+    /source binding changed after self-improve handoff/
+  );
 });

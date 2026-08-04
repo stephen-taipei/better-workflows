@@ -253,8 +253,9 @@ Evaluation v2.2는 기존 safety, documentation, deliberation, sanitizer, evalua
 
 delivery에는 명시된 전체 baseline SHA가 필요하며 candidate HEAD의 strict ancestor여야 합니다. 일곱 witness를 재검증한 뒤 명시적으로 바인딩된 `pr-to-dev` run을 만들고 typed `self-improve-delivery-handoff`를 기록해야 합니다. 이 receipt 없이는 commit, push, merge 또는 cache action을 발행할 수 없습니다. cache는 source HEAD를 바꾸기 전에 실행합니다: `SBW_STATE_ROOT=<state-root> node scripts/plugin-cache.mjs sync --handoff-run <pr-to-dev-run-id>`.
 
+trust root 또는 private key가 host의 승인된 administrator bootstrap으로 아직 생성되지 않았다면 먼저 그 독립적인 사전 작업을 완료하십시오. 이 repository는 추적되지 않는 legacy Swift bootstrap artifact를 게시하거나 실행하지 않습니다. bootstrap이 완료된 host에서는 먼저 read-only 상태 확인을 실행합니다:
+
 ```bash
-sudo /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin /usr/bin/swift /private/var/db/better-workflows/bin/bw-host-signer.swift provision
 node plugins/better-workflows/scripts/sbw.mjs self-improve host status
 ```
 

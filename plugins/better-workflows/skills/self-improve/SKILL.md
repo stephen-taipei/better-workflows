@@ -107,9 +107,9 @@ ledger-mutated, or executable-drifted witnesses fail closed.
 
 Ordinary clones and workspace recipes do not require this host trust root. A
 maintainer who will run real self-improvement delivery replays must first use
-`sbw self-improve host status`. If the host is unprovisioned, an administrator
-reviews the root-owned legacy Swift provisioner with a fixed system runtime, as
-documented in the repository README. Never use an unpinned maintainer Node
+`sbw self-improve host status`. If the fixed trust root or private key is absent,
+stop for the host's separately approved administrator bootstrap; this repository
+does not publish or execute the untracked legacy Swift bootstrap artifact. Never use an unpinned maintainer Node
 binary or `plutil` to validate this JSON,
 and never overwrite or implicitly rotate an existing host key. If status reports
 `ready: false` because only the legacy signer is installed, prepare the pinned

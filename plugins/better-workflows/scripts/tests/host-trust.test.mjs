@@ -70,6 +70,10 @@ test("host trust helper fixes authority paths and does not accept environment pa
   assert.match(source, /NATIVE_COMPILER/);
   assert.match(source, /isMachO/);
   assert.match(source, /CODEX_ALLOWLIST/);
+  assert.match(source, /READINESS_RECEIPT/);
+  assert.match(source, /host-readiness-receipt/);
+  assert.match(source, /requireReadinessReceipt = true/);
+  assert.match(source, /allowUnprovenReadiness/);
   assert.match(source, /requireApprovedCodexBinary/);
   assert.match(source, /approvedCodexAllowlistSource/);
   assert.match(source, /binaryApprovalDigest/);

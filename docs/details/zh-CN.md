@@ -243,8 +243,9 @@ $better-workflows:auto <描述需要完成的目标>
 
 交付必须使用明确的完整 baseline SHA，且该 SHA 必须是 candidate HEAD 的严格祖先。七份 witness 通过重新验证后，先创建明确绑定的 `pr-to-dev` run，再记录 typed `self-improve-delivery-handoff`；没有这份 receipt 不得取得 commit、push、merge 或 cache action。cache 必须在 source HEAD 改变前执行：`SBW_STATE_ROOT=<state-root> node scripts/plugin-cache.mjs sync --handoff-run <pr-to-dev-run-id>`。
 
+如果 trust root 或 private key 尚未由 host 的批准 administrator bootstrap 建立，请先完成该独立前置作业；本 repository 不发布、也不执行未追踪的 legacy Swift bootstrap artifact。对于已完成 bootstrap 的 host，先用只读命令检查状态：
+
 ```bash
-sudo /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin /usr/bin/swift /private/var/db/better-workflows/bin/bw-host-signer.swift provision
 node plugins/better-workflows/scripts/sbw.mjs self-improve host status
 ```
 

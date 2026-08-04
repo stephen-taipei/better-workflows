@@ -64,7 +64,17 @@ async function main() {
     const handoff = evidence.find((item) => item.kind === "self-improve-delivery-handoff" && item.status === "complete" && item.stale !== true && item.receipt?.payload);
     if (!handoff) throw new Error("plugin cache sync requires a fresh self-improve-delivery-handoff receipt");
     await validateSelfImproveDeliveryHandoff(handoff.receipt.payload, { ...targetRun, root: stateRoot });
-    result = await publishPluginCache({ sourceRoot, cacheRoot });
+    const payload = handoff.receipt.payload;
+    result = await publishPluginCache({
+      sourceRoot,
+      cacheRoot,
+      expectedSourceBinding: {
+        pluginBundleDigest: payload.pluginBundleDigest,
+        sourceBaselineRevision: payload.sourceBaselineRevision,
+        sourceBindingDigest: payload.sourceBindingDigest,
+        sourceHeadRevision: payload.sourceHeadRevision
+      }
+    });
   } else {
     result = await checkPluginCache({ sourceRoot, cacheRoot });
   }

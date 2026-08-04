@@ -367,21 +367,22 @@ clean source binding, plugin bundle, request manifest, accepted comparison,
 candidate snapshot, and seven distinct host witnesses. The delegated delivery
 action gates require this receipt; a generic `pr-to-dev` run cannot authorize
 delivery of an accepted self-improvement.
-On each host, an administrator reviews a pinned checkout and provisions it once:
+On each host, an administrator must first confirm that the fixed trust root and
+private key are already provisioned through the host's approved bootstrap. This
+repository does not publish or execute the legacy Swift bootstrap artifact. If
+the trust root or key is absent, stop and complete that separate administrator
+bootstrap before continuing. For an existing host, inspect the current state:
 
 ```bash
-sudo /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin \
-  /usr/bin/swift /private/var/db/better-workflows/bin/bw-host-signer.swift provision
-
 node plugins/better-workflows/scripts/sbw.mjs \
   self-improve host status
 ```
 
-Provisioning is fail-closed and never overwrites or silently rotates an
+The status command is read-only. It never overwrites or silently rotates an
 existing key. The trust root is public and root-owned; the private Ed25519 key
 remains mode `0600` outside the repository. Do not use `plutil` to validate the
 JSON trust root—use `self-improve host status`. If status reports `ready: false`
-because a legacy signer is installed, compile the exact native sources with
+because a legacy signer or an incomplete readiness receipt is installed, compile the exact native sources with
 fixed `/usr/bin/clang`, stage a digest-confirmed root-owned Node runtime and
 the resulting Mach-O launcher/probe, then run `host-trust.mjs upgrade` through
 the fixed `/bin/sh` staging wrapper with `env -i`. Never sudo the

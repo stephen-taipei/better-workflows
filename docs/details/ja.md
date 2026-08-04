@@ -253,8 +253,9 @@ Evaluation v2.2 は既存の safety、documentation、deliberation、sanitizer�
 
 delivery には明示した完全な baseline SHA が必要で、candidate HEAD の strict ancestor でなければなりません。七つの witness を再検証した後、明示的に bind した `pr-to-dev` run を作成し、typed `self-improve-delivery-handoff` を記録します。この receipt がない限り commit、push、merge、cache action は発行されません。cache は source HEAD を変更する前に実行します：`SBW_STATE_ROOT=<state-root> node scripts/plugin-cache.mjs sync --handoff-run <pr-to-dev-run-id>`。
 
+trust root または private key が host の承認済み administrator bootstrap によってまだ作成されていない場合は、先にその独立した前提作業を完了してください。この repository は追跡されていない legacy Swift bootstrap artifact を公開・実行しません。bootstrap 済みの host では、まず read-only の状態確認を実行します：
+
 ```bash
-sudo /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin /usr/bin/swift /private/var/db/better-workflows/bin/bw-host-signer.swift provision
 node plugins/better-workflows/scripts/sbw.mjs self-improve host status
 ```
 

@@ -13,7 +13,7 @@ import {
 } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
-import { hiddenIndexEntries } from "./git.mjs";
+import { captureSourceBinding, hiddenIndexEntries } from "./git.mjs";
 
 const execFileAsync = (command, args, options = {}) => new Promise((resolve, reject) => {
   execFile(command, args, options, (error, stdout, stderr) => {
@@ -238,9 +238,49 @@ async function copyBundle(sourceRoot, targetRoot, relative = "") {
   }
 }
 
-export async function publishPluginCache({ sourceRoot, cacheRoot }) {
+function validateExpectedSourceBinding(value) {
+  if (value === null || value === undefined) return null;
+  const keys = [
+    "pluginBundleDigest",
+    "sourceBaselineRevision",
+    "sourceBindingDigest",
+    "sourceHeadRevision"
+  ];
+  if (!value || typeof value !== "object" || Array.isArray(value) ||
+      Object.keys(value).sort().join("\0") !== keys.sort().join("\0") ||
+      !/^[a-f0-9]{40}$/.test(value.sourceBaselineRevision) ||
+      !/^[a-f0-9]{40}$/.test(value.sourceHeadRevision) ||
+      !/^[a-f0-9]{64}$/.test(value.sourceBindingDigest) ||
+      !/^[a-f0-9]{64}$/.test(value.pluginBundleDigest)) {
+    throw new Error("Plugin cache publication expected source binding is structurally invalid");
+  }
+  return value;
+}
+
+async function assertExpectedSourceBinding(sourceRoot, expected, bundle = null) {
+  if (!expected) return { sourceBinding: null, bundleDigest: bundle ?? await bundleDigest(sourceRoot) };
+  const sourceBinding = await captureSourceBinding(sourceRoot, {
+    baseRevision: expected.sourceBaselineRevision,
+    requireClean: true
+  });
+  if (!sourceBinding || sourceBinding.headRevision !== expected.sourceHeadRevision || sourceBinding.digest !== expected.sourceBindingDigest) {
+    throw new Error("Plugin cache publication source binding changed after self-improve handoff");
+  }
+  const resolvedBundle = bundle ?? await bundleDigest(sourceRoot);
+  if (resolvedBundle !== expected.pluginBundleDigest) {
+    throw new Error("Plugin cache publication plugin bundle changed after self-improve handoff");
+  }
+  return { sourceBinding, bundleDigest: resolvedBundle };
+}
+
+export async function publishPluginCache({ sourceRoot, cacheRoot, expectedSourceBinding = null }) {
+  const expected = validateExpectedSourceBinding(expectedSourceBinding);
+  await assertExpectedSourceBinding(sourceRoot, expected);
   const before = await checkPluginCache({ sourceRoot, cacheRoot });
-  if (before.ok) return { ...before, applied: false, noOp: true };
+  if (before.ok) {
+    await assertExpectedSourceBinding(sourceRoot, expected);
+    return { ...before, applied: false, noOp: true };
+  }
   if (before.status === "drifted") {
     throw new Error(
       `Refusing to overwrite immutable cache version ${before.version}; bump the plugin build version`
@@ -273,7 +313,11 @@ export async function publishPluginCache({ sourceRoot, cacheRoot }) {
         `Plugin source version changed while acquiring publication lock: ${before.version} -> ${lockedBefore.version}`
       );
     }
-    if (lockedBefore.ok) return { ...lockedBefore, applied: false, noOp: true };
+    await assertExpectedSourceBinding(sourceRoot, expected, lockedBefore.sourceDigest);
+    if (lockedBefore.ok) {
+      await assertExpectedSourceBinding(sourceRoot, expected);
+      return { ...lockedBefore, applied: false, noOp: true };
+    }
     if (lockedBefore.status !== "missing") {
       throw new Error(
         `Refusing to overwrite immutable cache version ${lockedBefore.version}; bump the plugin build version`
@@ -286,17 +330,20 @@ export async function publishPluginCache({ sourceRoot, cacheRoot }) {
     if (stagedDigest !== lockedBefore.sourceDigest) {
       throw new Error("Staged plugin cache digest does not match source");
     }
-    if (await bundleDigest(sourceRoot) !== lockedBefore.sourceDigest) {
+    const stagedSource = await assertExpectedSourceBinding(sourceRoot, expected);
+    if (stagedSource.bundleDigest !== lockedBefore.sourceDigest) {
       throw new Error("Plugin source changed during cache staging");
     }
     if (await pathExists(lockedBefore.target)) {
       throw new Error(`Plugin cache target appeared during publication: ${lockedBefore.target}`);
     }
+    await assertExpectedSourceBinding(sourceRoot, expected, lockedBefore.sourceDigest);
     await rename(stage, lockedBefore.target);
     publishedTarget = true;
     publishedPath = lockedBefore.target;
     const targetDigest = await bundleDigest(lockedBefore.target);
     const finalSourceDigest = await bundleDigest(sourceRoot);
+    await assertExpectedSourceBinding(sourceRoot, expected, finalSourceDigest);
     if (
       targetDigest !== lockedBefore.sourceDigest ||
       finalSourceDigest !== lockedBefore.sourceDigest
@@ -305,6 +352,7 @@ export async function publishPluginCache({ sourceRoot, cacheRoot }) {
     }
     const after = await checkPluginCache({ sourceRoot, cacheRoot });
     if (!after.ok) throw new Error("Published plugin cache failed exact verification");
+    await assertExpectedSourceBinding(sourceRoot, expected, after.sourceDigest);
     return { ...after, applied: true, noOp: false };
   } catch (error) {
     let rollbackError = null;

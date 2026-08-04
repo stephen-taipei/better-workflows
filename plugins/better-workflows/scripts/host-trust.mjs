@@ -30,6 +30,7 @@ const ATTESTATIONS = "/private/var/db/better-workflows/attestations";
 const EXECUTIONS = "/private/var/db/better-workflows/executions";
 const EXECUTION_BUNDLES = "/private/var/db/better-workflows/execution-bundles";
 const INSTALLED_SIGNER = "/private/var/db/better-workflows/bin/bw-host-trust.mjs";
+const READINESS_RECEIPT = "/private/var/db/better-workflows/host-readiness.json";
 const HOST_RUNTIME_ROOT = "/private/var/db/better-workflows/bin";
 const EXECUTION_LAUNCHER = "/private/var/db/better-workflows/bin/bw-host-exec-launcher";
 const EXECUTION_PROBE = "/private/var/db/better-workflows/bin/bw-host-execution-probe";
@@ -677,18 +678,94 @@ async function currentSigner() {
   return null;
 }
 
-async function status() {
+function readinessBinding({ trust, privateKey, runtime, launcher, probe, codexBinary, signer }) {
+  return {
+    schemaVersion: 1,
+    kind: "host-readiness-binding",
+    trustRootDigest: trust.digest,
+    privateKeyDigest: privateKey.digest,
+    runtime: runtime ? { path: runtime.path, digest: runtime.digest } : null,
+    launcher: { path: launcher.path, digest: launcher.digest },
+    readinessProbe: { path: probe.path, digest: probe.digest },
+    codexBinary: {
+      registryDigest: codexBinary.registryDigest,
+      validEntries: codexBinary.validEntries
+    },
+    signer: {
+      path: signer?.path ?? null,
+      digest: signer?.digest ?? null,
+      version: signer?.version ?? null,
+      capabilities: signer?.capabilities ?? []
+    }
+  };
+}
+
+async function currentReadinessReceipt(binding) {
+  try {
+    const info = await validateRootOwnedFile(READINESS_RECEIPT, "Host readiness receipt", 0o644);
+    const bytes = await readFile(READINESS_RECEIPT);
+    const receipt = JSON.parse(bytes.toString("utf8"));
+    const expectedKeys = ["binding", "bindingDigest", "completedAt", "kind", "schemaVersion"];
+    const bindingDigest = await digest(Buffer.from(canonicalJson(binding), "utf8"));
+    if (Object.keys(receipt).sort().join("\0") !== expectedKeys.sort().join("\0") ||
+        receipt.schemaVersion !== 1 || receipt.kind !== "host-readiness-receipt" ||
+        typeof receipt.completedAt !== "string" || !SHA256.test(receipt.bindingDigest) ||
+        receipt.bindingDigest !== bindingDigest || canonicalJson(receipt.binding) !== canonicalJson(binding)) {
+      throw new Error("Host readiness receipt does not bind the current protected host artifacts");
+    }
+    return {
+      path: READINESS_RECEIPT,
+      digest: await digest(bytes),
+      mode: "0644",
+      supported: true,
+      bindingDigest: receipt.bindingDigest,
+      completedAt: receipt.completedAt
+    };
+  } catch (error) {
+    return {
+      path: READINESS_RECEIPT,
+      digest: null,
+      mode: null,
+      supported: false,
+      error: error.code === "ENOENT" ? "Host readiness receipt is absent" : error.message
+    };
+  }
+}
+
+async function createReadinessReceipt(binding) {
+  const bindingDigest = await digest(Buffer.from(canonicalJson(binding), "utf8"));
+  const payload = {
+    schemaVersion: 1,
+    kind: "host-readiness-receipt",
+    completedAt: new Date().toISOString(),
+    binding,
+    bindingDigest
+  };
+  const bytes = Buffer.from(`${JSON.stringify(payload, null, 2)}\n`);
+  return { path: READINESS_RECEIPT, bytes, digest: await digest(bytes) };
+}
+
+async function status({ requireReadinessReceipt = true } = {}) {
   const trust = await validateTrustRoot();
   const keyInfo = await validateRootOwnedFile(PRIVATE_KEY, "Private signing key", 0o600);
+  const privateKey = {
+    path: PRIVATE_KEY,
+    bytes: keyInfo.size,
+    digest: await digest(await readFile(PRIVATE_KEY)),
+    mode: "0600"
+  };
   const runtime = await currentRuntime();
   const launcher = await currentFixedArtifact(EXECUTION_LAUNCHER, "Native execution launcher");
   const probe = await currentFixedArtifact(EXECUTION_PROBE, "Host readiness probe");
   const codexBinary = await currentCodexApproval();
   const signer = await currentSigner();
+  const binding = readinessBinding({ trust, privateKey, runtime, launcher, probe, codexBinary, signer });
+  const readinessReceipt = await currentReadinessReceipt(binding);
+  const staticReady = Boolean(signer?.supported && runtime?.supported && launcher.supported && probe.supported && codexBinary.supported);
   return {
     ok: true,
     provisioned: true,
-    ready: Boolean(signer?.supported && runtime?.supported && launcher.supported && probe.supported && codexBinary.supported),
+    ready: staticReady && (!requireReadinessReceipt || readinessReceipt.supported),
     trustRoot: {
       path: TRUST_ROOT,
       issuer: trust.value.issuer,
@@ -696,16 +773,13 @@ async function status() {
       digest: trust.digest,
       mode: "0644"
     },
-    privateKey: {
-      path: PRIVATE_KEY,
-      bytes: keyInfo.size,
-      mode: "0600"
-    },
+    privateKey,
     runtime,
     launcher,
     readinessProbe: probe,
     codexBinary,
-    signer
+    signer,
+    readinessReceipt
   };
 }
 
@@ -943,11 +1017,17 @@ export function validateExecutionRequest(request) {
   return request;
 }
 
-async function requireInstalledCapability(capability) {
+async function requireInstalledCapability(capability, { allowUnprovenReadiness = false } = {}) {
   await requireTrustedRuntime();
   const signer = await currentSigner();
   if (!signer?.supported || signer.path !== INSTALLED_SIGNER || !signer.capabilities.includes(capability)) {
     throw new Error(`Installed administrator signer lacks required capability: ${capability}`);
+  }
+  if (!allowUnprovenReadiness) {
+    const readiness = await status();
+    if (!readiness.ready) {
+      throw new Error("Administrator host runtime readiness receipt is absent or stale");
+    }
   }
   const running = await realpath(fileURLToPath(import.meta.url));
   const runningDigest = await digest(await readFile(running));
@@ -1011,7 +1091,7 @@ async function validateRunAs(request) {
 
 async function executeResultRequest(requestPath, confirmedDigest, { includeResponse = false, commandArgs = null, internalProbe = false } = {}) {
   requireRoot();
-  await requireInstalledCapability("execution-witness");
+  await requireInstalledCapability("execution-witness", { allowUnprovenReadiness: internalProbe });
   if (!SHA256.test(confirmedDigest)) throw new Error("confirmed execution request digest must be SHA-256");
   const resolvedRequest = path.resolve(requestPath);
   const requestBytes = await readFile(resolvedRequest);
@@ -1497,7 +1577,7 @@ async function upgradeSigner(
       const change = await replaceRootOwnedFile(target, item, mode, label);
       if (change.changed) changes.push({ target, label, mode, previous: change.previous });
     }
-    const installed = await status();
+    const installed = await status({ requireReadinessReceipt: false });
     if (!installed.ready) throw new Error("installed signer failed its static capability checks");
     const readinessProbe = await runReadinessProbe({
       uid: probeUid,
@@ -1505,8 +1585,33 @@ async function upgradeSigner(
       homePath: probeHomePath,
       codexHomePath: probeCodexHomePath
     });
+    const staticReady = await status({ requireReadinessReceipt: false });
+    if (!staticReady.ready) throw new Error("installed signer failed its end-to-end readiness probe");
+    const readinessReceipt = await createReadinessReceipt(readinessBinding({
+      trust: {
+        digest: staticReady.trustRoot.digest
+      },
+      privateKey: staticReady.privateKey,
+      runtime: staticReady.runtime,
+      launcher: staticReady.launcher,
+      probe: staticReady.readinessProbe,
+      codexBinary: staticReady.codexBinary,
+      signer: staticReady.signer
+    }));
+    const readinessChange = await replaceRootOwnedFile(
+      READINESS_RECEIPT,
+      readinessReceipt,
+      0o644,
+      "Host readiness receipt"
+    );
+    if (readinessChange.changed) changes.push({
+      target: READINESS_RECEIPT,
+      label: "Host readiness receipt",
+      mode: 0o644,
+      previous: readinessChange.previous
+    });
     const ready = await status();
-    if (!ready.ready) throw new Error("installed signer failed its end-to-end readiness probe");
+    if (!ready.ready) throw new Error("installed signer failed its end-to-end readiness receipt verification");
     return {
       ...ready,
       readinessProbe,

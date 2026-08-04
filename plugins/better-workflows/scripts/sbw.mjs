@@ -1191,10 +1191,11 @@ async function assertAcceptedSelfImproveHoldout(root, runId, action) {
   if (run.manifest.template !== "self-improve-ops" && !run.contract.upstreamSelfImproveRunId) return;
   const sourceRunId = run.contract.upstreamSelfImproveRunId ?? runId;
   const sourceRun = sourceRunId === runId ? run : await loadRun(root, sourceRunId);
-  const evidence = await listJsonRecords(root, safeJoin(sourceRun.runDir, "evidence"));
-  await verifySelfImproveDeliveryEvidence({ root, runId: sourceRunId, run: sourceRun, evidence });
+  const sourceEvidence = await listJsonRecords(root, safeJoin(sourceRun.runDir, "evidence"));
+  await verifySelfImproveDeliveryEvidence({ root, runId: sourceRunId, run: sourceRun, evidence: sourceEvidence });
   if (run.contract.upstreamSelfImproveRunId) {
-    const handoff = evidence.find((item) => item.kind === "self-improve-delivery-handoff" && item.status === "complete" && item.stale !== true);
+    const targetEvidence = await listJsonRecords(root, safeJoin(run.runDir, "evidence"));
+    const handoff = targetEvidence.find((item) => item.kind === "self-improve-delivery-handoff" && item.status === "complete" && item.stale !== true);
     if (!handoff?.receipt?.payload) throw new Error("Delegated self-improve delivery action requires a fresh typed handoff receipt");
     await validateSelfImproveDeliveryHandoff(handoff.receipt.payload, { ...run, root });
   }
