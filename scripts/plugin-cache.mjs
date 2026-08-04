@@ -286,7 +286,41 @@ async function main() {
         await Promise.all(tempFiles.map((file) => rm(file, { force: true }).catch(() => undefined)));
       }
     } catch (error) {
+      let actionSucceeded = false;
       if (consumed?.attemptId && !reconciled) {
+        try {
+          const latest = await loadRun(stateRoot, targetRunId);
+          const latestActions = await listJsonRecords(stateRoot, safeJoin(latest.runDir, "actions"));
+          const successfulAction = latestActions.find((action) => (
+            action.attemptId === consumed.attemptId &&
+            action.status === "spent" &&
+            action.outcome === "success"
+          ));
+          if (successfulAction) {
+            actionSucceeded = true;
+            const repairReceiptFile = path.join(os.tmpdir(), `better-workflows-cache-repair-${randomUUID()}.json`);
+            try {
+              if (!successfulAction.receipt) {
+                throw new Error("Persisted plugin cache success action has no receipt for readiness repair");
+              }
+              await writeFile(repairReceiptFile, `${JSON.stringify(successfulAction.receipt, null, 2)}\n`, { mode: 0o600 });
+              const repairedResult = await runSbw([
+                "action", "reconcile", targetRunId,
+                "--attempt", consumed.attemptId,
+                "--outcome", "success",
+                "--receipt", repairReceiptFile
+              ]);
+              reconciled = true;
+              result = { ok: true, publication, action: repairedResult.action, repaired: true };
+            } finally {
+              await rm(repairReceiptFile, { force: true }).catch(() => undefined);
+            }
+          }
+        } catch (repairError) {
+          error.message = `${error.message}; cache readiness repair failed: ${repairError.message}`;
+        }
+      }
+      if (consumed?.attemptId && !reconciled && !actionSucceeded) {
         const unknownReceipt = {
           action: consumed.action,
           provider: consumed.provider,
@@ -329,8 +363,7 @@ async function main() {
           await rm(receiptFile, { force: true }).catch(() => undefined);
         }
       }
-      let actionSucceeded = false;
-      if (consumed?.attemptId) {
+      if (consumed?.attemptId && !actionSucceeded) {
         const latest = await loadRun(stateRoot, targetRunId);
         const latestActions = await listJsonRecords(stateRoot, safeJoin(latest.runDir, "actions"));
         actionSucceeded = latestActions.some((action) => (
@@ -351,7 +384,7 @@ async function main() {
           error.message = `${error.message}; unready cache cleanup failed: ${cleanupError.message}`;
         }
       }
-      throw error;
+      if (!reconciled) throw error;
     }
   } else {
     result = await checkPluginCache({ sourceRoot, cacheRoot });

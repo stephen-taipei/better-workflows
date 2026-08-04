@@ -672,6 +672,7 @@ export async function createRun({ root = getStateRoot(), contract, requestedMode
       requestedMode,
       cwd: path.resolve(cwd),
       baselineRevision,
+      pluginCacheRoot: getCodexPluginCacheRoot(),
       sourceBinding,
       createdAt,
       contractDigest: digestObject(contract),
@@ -2018,14 +2019,26 @@ export async function evaluateCompletion(root, runId) {
       try {
         const { verifyPluginCacheReady } = await import("./publication.mjs");
         const providerReceipt = cachePublicationAction.receipt.providerReceipt;
-        if (providerReceipt.cacheRoot !== getCodexPluginCacheRoot()) {
+        if (
+          cachePublicationAction.cacheRoot !== getCodexPluginCacheRoot() ||
+          cachePublicationAction.cacheRoot !== providerReceipt.cacheRoot ||
+          run.manifest?.pluginCacheRoot !== cachePublicationAction.cacheRoot
+        ) {
           throw new Error("Plugin cache completion root drift");
         }
         await verifyPluginCacheReady({
           cacheRoot: providerReceipt.cacheRoot,
           version: providerReceipt.version,
           target: providerReceipt.target,
-          targetDigest: providerReceipt.targetDigest
+          targetDigest: providerReceipt.targetDigest,
+          sourceDigest: providerReceipt.sourceDigest,
+          sourceBaselineRevision: providerReceipt.sourceBaselineRevision,
+          sourceHeadRevision: providerReceipt.sourceHeadRevision,
+          sourceBindingDigest: providerReceipt.sourceBindingDigest,
+          pluginBundleDigest: providerReceipt.pluginBundleDigest,
+          runId: cachePublicationAction.runId,
+          attemptId: cachePublicationAction.attemptId,
+          providerReceiptDigest: digestObject(providerReceipt)
         });
       } catch {
         blockers.push("plugin-cache-live-state-stale");
@@ -2697,9 +2710,11 @@ async function verifyPluginCachePublicationReceipt(manifest, record, providerRec
   const { bundleDigest, checkPluginCache } = await import("./publication.mjs");
   const repositoryRoot = await realpath(path.resolve(manifest.cwd));
   const sourceRoot = path.join(repositoryRoot, "plugins", "better-workflows");
-  const expectedCacheRoot = getCodexPluginCacheRoot();
+  const expectedCacheRoot = record.cacheRoot;
   if (
     providerReceipt.sourceRoot !== sourceRoot ||
+    manifest.pluginCacheRoot !== expectedCacheRoot ||
+    expectedCacheRoot !== getCodexPluginCacheRoot() ||
     typeof providerReceipt.cacheRoot !== "string" ||
     !path.isAbsolute(providerReceipt.cacheRoot) ||
     path.resolve(providerReceipt.cacheRoot) !== providerReceipt.cacheRoot ||
@@ -3961,6 +3976,16 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
         remoteUrlDigest: sha256(remoteUrl)
       };
     }
+    if (request.action === "plugin.cache.publish") {
+      const pluginCacheRoot = getCodexPluginCacheRoot();
+      if (manifest.pluginCacheRoot !== pluginCacheRoot) {
+        throw new Error("Plugin cache action environment is bound to a different canonical cache root");
+      }
+      actionBinding = {
+        ...actionBinding,
+        cacheRoot: pluginCacheRoot
+      };
+    }
     let creationPrecondition = null;
     if (request.action === "pr.merge" && contract.controlPlane?.reviewPolicy !== "none") {
       const { isIndependentCriticEvidence } = await import("./evidence.mjs");
@@ -4136,6 +4161,12 @@ async function consumeActionTokenInternal(root, runId, token, currentTreeDigest,
     }
     if (record.status !== "issued") throw new Error("Action token was already consumed");
     if (Date.parse(record.expiresAt) <= Date.now()) throw new Error("Action token expired");
+    if (
+      record.action === "plugin.cache.publish" &&
+      (typeof record.cacheRoot !== "string" || record.cacheRoot !== getCodexPluginCacheRoot())
+    ) {
+      throw new Error("Plugin cache action environment is bound to a different canonical cache root");
+    }
     if (OWNED_RESOURCE_CREATION_ACTIONS.has(record.action)) {
       await assertCreationReservation(root, runId, record.creationReservation, tokenHash, record.expiresAt);
     }
@@ -4541,6 +4572,27 @@ async function validateActionEvidenceBinding(root, runDir, record, attemptId, ou
   }
 }
 
+async function finalizePluginCacheReadiness(runId, attemptId, providerReceipt) {
+  const { markPluginCacheReady, verifyPluginCacheReady } = await import("./publication.mjs");
+  const providerReceiptDigest = digestObject(providerReceipt);
+  const binding = {
+    cacheRoot: providerReceipt.cacheRoot,
+    version: providerReceipt.version,
+    target: providerReceipt.target,
+    targetDigest: providerReceipt.targetDigest,
+    sourceDigest: providerReceipt.sourceDigest,
+    sourceBaselineRevision: providerReceipt.sourceBaselineRevision,
+    sourceHeadRevision: providerReceipt.sourceHeadRevision,
+    sourceBindingDigest: providerReceipt.sourceBindingDigest,
+    pluginBundleDigest: providerReceipt.pluginBundleDigest,
+    runId,
+    attemptId,
+    providerReceiptDigest
+  };
+  await markPluginCacheReady(binding);
+  return verifyPluginCacheReady(binding);
+}
+
 export async function reconcileAction(root, runId, attemptId, outcome, receipt = null) {
   if (!["success", "failure", "unknown"].includes(outcome)) {
     throw new Error("Action outcome must be success, failure, or unknown");
@@ -4555,6 +4607,34 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
     assertActionIsNotDeferred(run.contract, record.action);
     if (OWNED_RESOURCE_CREATION_ACTIONS.has(record.action)) {
       validateCreationReservationIdentity(record.creationReservation);
+    }
+    const repairingPluginCacheReadiness = (
+      record.status === "spent" &&
+      record.outcome === "success" &&
+      outcome === "success" &&
+      record.action === "plugin.cache.publish" &&
+      record.provider === "local-workspace"
+    );
+    if (repairingPluginCacheReadiness) {
+      if (!record.receipt || !receipt || digestObject(record.receipt) !== digestObject(receipt)) {
+        throw new Error("Plugin cache readiness repair requires the exact persisted success receipt");
+      }
+      validateActionReceipt(record, outcome, receipt);
+      await validateActionEvidenceBinding(root, runDir, record, attemptId, outcome, receipt);
+      const manifest = await readJson(root, safeJoin(runDir, "manifest.json"));
+      await verifyProviderReceipt(manifest, { ...record, outcome: "success" }, receipt);
+      await finalizePluginCacheReadiness(runId, attemptId, receipt.providerReceipt);
+      const repaired = {
+        ...record,
+        cacheReadyRepairedAt: nowIso(),
+        cacheReadyRepairReceiptDigest: digestObject(receipt.providerReceipt)
+      };
+      await atomicWriteJson(root, safeJoin(runDir, "actions", `${record.tokenHash}.json`), repaired);
+      await appendJournal(root, runDir, "action.cache-ready-repaired", {
+        attemptId,
+        providerReceiptDigest: digestObject(receipt.providerReceipt)
+      });
+      return repaired;
     }
     const recoveringUnknownSuccess = (
       record.status === "spent" &&
@@ -4693,18 +4773,7 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
     };
     await atomicWriteJson(root, target, next);
     if (record.action === "plugin.cache.publish" && outcome === "success") {
-      const { markPluginCacheReady } = await import("./publication.mjs");
-      await markPluginCacheReady({
-        cacheRoot: receipt.providerReceipt.cacheRoot,
-        version: receipt.providerReceipt.version,
-        target: receipt.providerReceipt.target,
-        targetDigest: receipt.providerReceipt.targetDigest,
-        sourceDigest: receipt.providerReceipt.sourceDigest,
-        sourceBaselineRevision: receipt.providerReceipt.sourceBaselineRevision,
-        sourceHeadRevision: receipt.providerReceipt.sourceHeadRevision,
-        sourceBindingDigest: receipt.providerReceipt.sourceBindingDigest,
-        pluginBundleDigest: receipt.providerReceipt.pluginBundleDigest
-      });
+      await finalizePluginCacheReadiness(runId, attemptId, receipt.providerReceipt);
     }
     await appendJournal(root, runDir, "action.reconciled", {
       attemptId,

@@ -216,6 +216,10 @@ plugin bundle, request manifest, accepted comparison, candidate snapshot, and
 all seven distinct host witnesses. Every delegated commit, push, PR, merge,
 remote-sync, and cleanup gate requires this receipt; a generic `pr-to-dev` run
 cannot be used as a substitute for the explicitly bound delivery run.
+It also records the canonical Codex plugin-cache root in the source and target
+run manifests and handoff. The delegated cache action must consume its token
+under that same `CODEX_HOME`; an alternate cache root fails before token
+consumption.
 
 ## Keep the workflow thin and synchronized
 
@@ -248,6 +252,12 @@ Run the repository baseline before edits. After the synchronized patch, run
 targeted tests, the complete plugin test/eval suite, JSON parsing, route preview,
 `git diff --check`, and a temporary-root cache publication test. Classify
 infrastructure failures separately from product regressions.
+The cache publication is a two-phase operation: a pending marker may remain
+after an interrupted publication, but a persisted, verified success receipt
+must be repaired under the run lock by promoting the exact marker to `ready`.
+Repair may not rerun publication, accept a different receipt, or overwrite a
+drifted target; completion must recheck the ready marker, source binding,
+provider-receipt digest, and canonical cache root.
 
 Any source change requires a new semantic/build version. Never overwrite an
 existing immutable cache version. After final validation and only with explicit

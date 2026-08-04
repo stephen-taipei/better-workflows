@@ -289,7 +289,10 @@ async function writePublicationMarker({
   sourceBaselineRevision = null,
   sourceHeadRevision = null,
   sourceBindingDigest = null,
-  pluginBundleDigest = null
+  pluginBundleDigest = null,
+  runId = null,
+  attemptId = null,
+  providerReceiptDigest = null
 }) {
   if (!["pending", "ready"].includes(state)) {
     throw new Error("Plugin cache publication marker state is invalid");
@@ -299,7 +302,7 @@ async function writePublicationMarker({
   const target = publicationMarkerPath(root, version);
   const temporary = `${target}.tmp-${randomUUID()}`;
   const value = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     state,
     version,
     target: path.join(root, version),
@@ -309,6 +312,9 @@ async function writePublicationMarker({
     sourceHeadRevision,
     sourceBindingDigest,
     pluginBundleDigest,
+    runId,
+    attemptId,
+    providerReceiptDigest,
     updatedAt: new Date().toISOString()
   };
   const handle = await open(temporary, "wx", 0o600);
@@ -334,7 +340,10 @@ export async function markPluginCacheReady({
   sourceBaselineRevision,
   sourceHeadRevision,
   sourceBindingDigest,
-  pluginBundleDigest
+  pluginBundleDigest,
+  runId = null,
+  attemptId = null,
+  providerReceiptDigest = null
 }) {
   const root = path.resolve(cacheRoot);
   if (target !== path.join(root, version)) {
@@ -351,6 +360,26 @@ export async function markPluginCacheReady({
   if (existing?.state === "pending" && existing.targetDigest !== targetDigest) {
     throw new Error("Plugin cache ready marker is bound to a different target digest");
   }
+  for (const [field, expected] of [
+    ["sourceDigest", sourceDigest],
+    ["sourceBaselineRevision", sourceBaselineRevision],
+    ["sourceHeadRevision", sourceHeadRevision],
+    ["sourceBindingDigest", sourceBindingDigest],
+    ["pluginBundleDigest", pluginBundleDigest],
+    ["runId", runId],
+    ["attemptId", attemptId],
+    ["providerReceiptDigest", providerReceiptDigest]
+  ]) {
+    if (
+      existing?.[field] !== null &&
+      existing?.[field] !== undefined &&
+      expected !== null &&
+      expected !== undefined &&
+      existing[field] !== expected
+    ) {
+      throw new Error(`Plugin cache ready marker ${field} binding changed`);
+    }
+  }
   return writePublicationMarker({
     cacheRoot: root,
     version,
@@ -360,7 +389,10 @@ export async function markPluginCacheReady({
     sourceBaselineRevision,
     sourceHeadRevision,
     sourceBindingDigest,
-    pluginBundleDigest
+    pluginBundleDigest,
+    runId,
+    attemptId,
+    providerReceiptDigest
   });
 }
 
@@ -382,7 +414,20 @@ export async function removeUnreadyPluginCachePublication({ cacheRoot, version, 
   return { removed: true, target, marker: publicationMarkerPath(root, version) };
 }
 
-export async function verifyPluginCacheReady({ cacheRoot, version, target, targetDigest }) {
+export async function verifyPluginCacheReady({
+  cacheRoot,
+  version,
+  target,
+  targetDigest,
+  sourceDigest = null,
+  sourceBaselineRevision = null,
+  sourceHeadRevision = null,
+  sourceBindingDigest = null,
+  pluginBundleDigest = null,
+  runId = null,
+  attemptId = null,
+  providerReceiptDigest = null
+}) {
   const root = path.resolve(cacheRoot);
   if (target !== path.join(root, version)) {
     throw new Error("Plugin cache readiness target is not canonical");
@@ -390,6 +435,20 @@ export async function verifyPluginCacheReady({ cacheRoot, version, target, targe
   const marker = await readPublicationMarker(root, version);
   if (!marker || marker.state !== "ready" || marker.target !== target || marker.targetDigest !== targetDigest) {
     throw new Error("Plugin cache readiness marker is absent or stale");
+  }
+  for (const [field, expected] of [
+    ["sourceDigest", sourceDigest],
+    ["sourceBaselineRevision", sourceBaselineRevision],
+    ["sourceHeadRevision", sourceHeadRevision],
+    ["sourceBindingDigest", sourceBindingDigest],
+    ["pluginBundleDigest", pluginBundleDigest],
+    ["runId", runId],
+    ["attemptId", attemptId],
+    ["providerReceiptDigest", providerReceiptDigest]
+  ]) {
+    if (expected !== null && marker[field] !== expected) {
+      throw new Error(`Plugin cache readiness marker ${field} binding changed`);
+    }
   }
   const actualTargetDigest = await bundleDigest(target);
   if (actualTargetDigest !== targetDigest) {

@@ -364,9 +364,9 @@ sbw self-improve handoff <pr-to-dev-run-id> \
 
 `self-improve-delivery-handoff` binds the source run's exact baseline, HEAD,
 clean source binding, plugin bundle, request manifest, accepted comparison,
-candidate snapshot, and seven distinct host witnesses. The delegated delivery
-action gates require this receipt; a generic `pr-to-dev` run cannot authorize
-delivery of an accepted self-improvement.
+candidate snapshot, seven distinct host witnesses, and canonical Codex plugin
+cache root. The delegated delivery action gates require this receipt; a generic
+`pr-to-dev` run cannot authorize delivery of an accepted self-improvement.
 On each host, an administrator must first confirm that the fixed trust root and
 private key are already provisioned through the host's approved bootstrap. This
 repository does not publish or execute the legacy Swift bootstrap artifact. If
@@ -757,7 +757,10 @@ the exact file manifest and digest, then atomically publishes it. It refuses to
 overwrite a same-version cache with different contents. Run `sbw eval` from the
 final cache path before activating that version through the normal Codex plugin
 refresh. The `--cache-root` override is diagnostic-only for `check`; governed
-`sync` is fixed to the active Codex plugin cache.
+`sync` is fixed to the cache root recorded by the target manifest and action
+token; a different `CODEX_HOME` fails before token consumption. If the success
+action record is persisted before the ready marker, repeating the same sync
+attempt repairs the marker from that exact receipt without republishing.
 
 ## License
 

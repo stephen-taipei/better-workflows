@@ -43,6 +43,14 @@ internally and direct `consume` is not a valid alternate path for them.
 Contract-deferred actions are rejected by the core lifecycle and cannot be
 smuggled through an empty action-stage map.
 
+For `plugin.cache.publish`, the source run, delivery run, handoff, action
+token, provider receipt, and ready marker must agree on one canonical
+`CODEX_HOME` plugin-cache root. `sync` must run with that same environment.
+If the process fails after the success action record is persisted, retry the
+same action attempt with its persisted success receipt so the run-lock repair
+path can promote the pending marker; do not issue a second token or rerun the
+publication.
+
 If the reviewed source changes during repair, cancel or supersede this run and
 start a fresh source-bound run with a fresh review package; never rebind after a
 review package or finding identity exists.

@@ -171,7 +171,11 @@ SBW_STATE_ROOT=<state-root> node scripts/plugin-cache.mjs sync --handoff-run <pr
 ```
 
 `--cache-root` is a diagnostic-only override for `check`; governed `sync` is
-bound to the active Codex plugin cache and rejects redirection.
+bound to the canonical cache root recorded by the source-bound run, handoff,
+and action token, and rejects `CODEX_HOME` redirection before consuming the
+token. If a publication process fails after its success action is persisted,
+rerun the same `sync` attempt; the persisted receipt can promote its pending
+ready marker without republishing the immutable version.
 
 Node.js 24+ · zero runtime dependencies · immutable plugin cache versions.
 

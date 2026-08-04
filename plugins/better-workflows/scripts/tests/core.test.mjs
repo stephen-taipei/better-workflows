@@ -31,6 +31,7 @@ import {
   ensureStateRoot,
   executeActionToken,
   evaluateCompletion,
+  getCodexPluginCacheRoot,
   getStateRoot,
   inspectRun,
   issueActionToken,
@@ -47,6 +48,7 @@ import {
   withRunLock
 } from "../lib/core.mjs";
 import { captureSentinel } from "../lib/git.mjs";
+import { checkPluginCache, publishPluginCache, verifyPluginCacheReady } from "../lib/publication.mjs";
 
 const execFileAsync = promisify(execFile);
 
@@ -1505,6 +1507,190 @@ test("wrapper-backed actions reject direct consume before spending the token", a
   );
   const state = await inspectRun(root, run.runId);
   assert.equal(state.actions[0].status, "issued");
+});
+
+test("plugin cache success reconciliation repairs a pending marker without republishing", async () => {
+  const stateRoot = await realpath(await mkdtemp(path.join(os.tmpdir(), "sbw-cache-repair-state-")));
+  const repository = path.join(stateRoot, "repository");
+  const sourceRoot = path.join(repository, "plugins", "better-workflows");
+  await mkdir(path.join(sourceRoot, ".codex-plugin"), { recursive: true });
+  await writeFile(path.join(sourceRoot, ".codex-plugin", "plugin.json"), `${JSON.stringify({ name: "better-workflows", version: "1.1.0+repair" })}\n`);
+  await writeFile(path.join(sourceRoot, "payload.txt"), "repair\n");
+  await execFileAsync("git", ["init", "-q", "-b", "dev"], { cwd: repository });
+  await execFileAsync("git", ["config", "user.email", "sbw@example.invalid"], { cwd: repository });
+  await execFileAsync("git", ["config", "user.name", "SBW Test"], { cwd: repository });
+  await execFileAsync("git", ["add", "."], { cwd: repository });
+  await execFileAsync("git", ["commit", "-qm", "cache repair fixture"], { cwd: repository });
+  const baseline = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repository, encoding: "utf8" })).stdout.trim();
+  const priorCodexHome = process.env.CODEX_HOME;
+  const priorStateRoot = process.env.SBW_STATE_ROOT;
+  process.env.CODEX_HOME = path.join(stateRoot, "codex-home");
+  delete process.env.SBW_STATE_ROOT;
+  try {
+    const cacheRoot = getCodexPluginCacheRoot();
+    const run = await createRun({
+      root: stateRoot,
+      contract: contract({ authority: ["plugin.cache.publish"], remoteRevision: "remote" }),
+      requestedMode: "verified",
+      cwd: repository,
+      baselineRevision: baseline
+    });
+    const runDetails = await inspectRun(stateRoot, run.runId);
+    await addEvidence(stateRoot, run.runId, {
+      id: "preflight",
+      kind: "preflight",
+      summary: "Cache repair preflight",
+      status: "complete",
+      acceptanceIds: [],
+      sourceDigest: "a".repeat(64)
+    });
+    await updateState(stateRoot, run.runId, (state) => ({
+      ...state,
+      lastSentinel: { label: "cache-repair", digest: "tree" },
+      lastSentinelVerified: true,
+      lastSentinelComplete: true
+    }));
+    const head = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repository, encoding: "utf8" })).stdout.trim();
+    const issued = await issueActionToken(stateRoot, run.runId, {
+      action: "plugin.cache.publish",
+      provider: "local-workspace",
+      resource: `plugin-cache:${head}`,
+      remoteRevision: "remote",
+      requiredEvidence: ["preflight"]
+    }, "tree", await loadDefaults());
+    const alternateHome = path.join(stateRoot, "alternate-codex-home");
+    process.env.CODEX_HOME = alternateHome;
+    await assert.rejects(
+      consumeActionToken(stateRoot, run.runId, issued.token, "tree"),
+      /different canonical cache root/
+    );
+    process.env.CODEX_HOME = path.join(stateRoot, "codex-home");
+    const consumed = await consumeActionToken(stateRoot, run.runId, issued.token, "tree");
+    const sourceBefore = await checkPluginCache({ sourceRoot, cacheRoot });
+    const expectedSourceBinding = {
+      pluginBundleDigest: sourceBefore.sourceDigest,
+      sourceBaselineRevision: runDetails.manifest.sourceBinding.baseRevision,
+      sourceBindingDigest: runDetails.manifest.sourceBinding.digest,
+      sourceHeadRevision: head
+    };
+    const publication = await publishPluginCache({ sourceRoot, cacheRoot, expectedSourceBinding });
+    const request = {
+      action: consumed.action,
+      provider: consumed.provider,
+      resource: consumed.resource,
+      remoteRevision: consumed.remoteRevision,
+      idempotencyKey: consumed.idempotencyKey,
+      sourceRoot,
+      cacheRoot,
+      sourceBaselineRevision: expectedSourceBinding.sourceBaselineRevision,
+      sourceHeadRevision: expectedSourceBinding.sourceHeadRevision,
+      sourceBindingDigest: expectedSourceBinding.sourceBindingDigest,
+      pluginBundleDigest: expectedSourceBinding.pluginBundleDigest
+    };
+    const response = {
+      applied: publication.applied === true,
+      noOp: publication.noOp === true,
+      status: publication.status,
+      version: publication.version,
+      target: publication.target,
+      sourceDigest: publication.sourceDigest,
+      targetDigest: publication.targetDigest
+    };
+    const providerReceipt = {
+      action: consumed.action,
+      provider: consumed.provider,
+      resource: consumed.resource,
+      outcome: "success",
+      runId: run.runId,
+      attemptId: consumed.attemptId,
+      idempotencyKey: consumed.idempotencyKey,
+      remoteRevision: consumed.remoteRevision,
+      executionId: `local-workspace:plugin.cache.publish:${consumed.attemptId}`,
+      proofKind: "local-workspace:plugin.cache.publish",
+      requestDigest: digestObject(request),
+      responseDigest: digestObject(response),
+      verifiedAt: new Date().toISOString(),
+      terminalState: "success",
+      sourceRoot,
+      cacheRoot,
+      version: publication.version,
+      target: publication.target,
+      sourceDigest: publication.sourceDigest,
+      targetDigest: publication.targetDigest,
+      applied: publication.applied === true,
+      noOp: publication.noOp === true,
+      sourceBaselineRevision: expectedSourceBinding.sourceBaselineRevision,
+      sourceHeadRevision: expectedSourceBinding.sourceHeadRevision,
+      sourceBindingDigest: expectedSourceBinding.sourceBindingDigest,
+      pluginBundleDigest: expectedSourceBinding.pluginBundleDigest
+    };
+    const actionProof = {
+      schemaVersion: 1,
+      runId: run.runId,
+      actionAttemptId: consumed.attemptId,
+      action: consumed.action,
+      provider: consumed.provider,
+      resource: consumed.resource,
+      outcome: "success",
+      idempotencyKey: consumed.idempotencyKey,
+      remoteRevision: consumed.remoteRevision,
+      providerExecutionId: providerReceipt.executionId,
+      providerReceiptDigest: digestObject(providerReceipt)
+    };
+    const actionEvidence = {
+      id: "cache-repair-proof",
+      kind: "preflight",
+      summary: "Cache repair provider proof",
+      status: "complete",
+      acceptanceIds: [],
+      sourceDigest: "b".repeat(64),
+      receipt: { payload: { actionProof, receipt: providerReceipt } }
+    };
+    await addEvidence(stateRoot, run.runId, actionEvidence);
+    const actionReceipt = {
+      action: consumed.action,
+      provider: consumed.provider,
+      resource: consumed.resource,
+      outcome: "success",
+      runId: run.runId,
+      attemptId: consumed.attemptId,
+      idempotencyKey: consumed.idempotencyKey,
+      remoteRevision: consumed.remoteRevision,
+      providerReceipt,
+      evidenceIds: [actionEvidence.id]
+    };
+    const first = await reconcileAction(stateRoot, run.runId, consumed.attemptId, "success", actionReceipt);
+    assert.equal(first.outcome, "success");
+    const actionPath = path.join(runDetails.runDir, "actions", `${consumed.tokenHash}.json`);
+    const persisted = JSON.parse(await readFile(actionPath, "utf8"));
+    const markerPath = path.join(cacheRoot, `${publication.version}.ready.json`);
+    const readyMarker = JSON.parse(await readFile(markerPath, "utf8"));
+    await writeFile(markerPath, `${JSON.stringify({ ...readyMarker, state: "pending" })}\n`);
+    const targetBeforeRepair = await stat(publication.target);
+    const repaired = await reconcileAction(stateRoot, run.runId, consumed.attemptId, "success", persisted.receipt);
+    assert.equal(repaired.cacheReadyRepairReceiptDigest, digestObject(providerReceipt));
+    const targetAfterRepair = await stat(publication.target);
+    assert.equal(targetAfterRepair.size, targetBeforeRepair.size);
+    assert.equal((await verifyPluginCacheReady({
+      cacheRoot,
+      version: publication.version,
+      target: publication.target,
+      targetDigest: publication.targetDigest,
+      sourceDigest: providerReceipt.sourceDigest,
+      sourceBaselineRevision: providerReceipt.sourceBaselineRevision,
+      sourceHeadRevision: providerReceipt.sourceHeadRevision,
+      sourceBindingDigest: providerReceipt.sourceBindingDigest,
+      pluginBundleDigest: providerReceipt.pluginBundleDigest,
+      runId: run.runId,
+      attemptId: consumed.attemptId,
+      providerReceiptDigest: digestObject(providerReceipt)
+    })).ok, true);
+  } finally {
+    if (priorCodexHome === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = priorCodexHome;
+    if (priorStateRoot === undefined) delete process.env.SBW_STATE_ROOT;
+    else process.env.SBW_STATE_ROOT = priorStateRoot;
+  }
 });
 
 test("indeterminate wrapper executions cannot be reconciled as terminal failure", async () => {

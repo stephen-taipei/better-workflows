@@ -1,11 +1,13 @@
 import {
   VERSION,
   digestObject,
+  getCodexPluginCacheRoot,
   listJsonRecords,
   loadRun,
   nowIso,
   safeJoin
 } from "./core.mjs";
+import path from "node:path";
 import { captureSourceBinding } from "./git.mjs";
 import { verifySelfImproveDeliveryEvidence } from "./self-improve-replay.mjs";
 
@@ -36,13 +38,14 @@ export async function collectSelfImproveDeliveryBinding(root, sourceRunId) {
     comparisonDigest: digestObject(evaluation.comparison),
     candidateDigest,
     candidateRoot,
-    witnessDigests: verified.witnessDigests
+    witnessDigests: verified.witnessDigests,
+    cacheRoot: sourceRun.manifest.pluginCacheRoot ?? getCodexPluginCacheRoot()
   };
 }
 
 export async function validateSelfImproveDeliveryHandoff(payload, targetRun) {
   const expectedKeys = [
-    "artifact", "candidateDigest", "candidateRoot", "comparisonDigest", "pluginBundleDigest",
+    "artifact", "cacheRoot", "candidateDigest", "candidateRoot", "comparisonDigest", "pluginBundleDigest",
     "requestManifestDigest", "sourceBaselineRevision", "sourceBindingDigest", "sourceHeadRevision",
     "sourceRunId", "witnessDigests"
   ];
@@ -54,6 +57,7 @@ export async function validateSelfImproveDeliveryHandoff(payload, targetRun) {
       !SHA1.test(payload.sourceHeadRevision) || !SHA256.test(payload.candidateDigest) ||
       !SHA256.test(payload.sourceBindingDigest) || !SHA256.test(payload.pluginBundleDigest) ||
       !SHA256.test(payload.requestManifestDigest) || !SHA256.test(payload.comparisonDigest) ||
+      typeof payload.cacheRoot !== "string" || !path.isAbsolute(payload.cacheRoot) ||
       !Array.isArray(payload.witnessDigests) || payload.witnessDigests.length !== 7 ||
       payload.witnessDigests.some((item) => !SHA256.test(item)) || new Set(payload.witnessDigests).size !== 7) {
     throw new Error("Self-improve delivery handoff payload is structurally invalid");
@@ -64,6 +68,12 @@ export async function validateSelfImproveDeliveryHandoff(payload, targetRun) {
     throw new Error("Self-improve delivery handoff is not bound to the accepted replay evidence");
   }
   const targetBinding = targetRun.manifest.sourceBinding;
+  if (
+    targetRun.manifest.pluginCacheRoot !== payload.cacheRoot ||
+    payload.cacheRoot !== getCodexPluginCacheRoot()
+  ) {
+    throw new Error("Self-improve delivery handoff cache root is not bound to the target run and current environment");
+  }
   if (
     !targetBinding ||
     targetBinding.baseRevision !== payload.sourceBaselineRevision ||
