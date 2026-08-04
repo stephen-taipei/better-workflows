@@ -267,6 +267,10 @@ async function gitModeAtRevision(repository, revision, file) {
   return Number.parseInt(match[1].slice(-3), 8);
 }
 
+function gitCompatibleMode(mode) {
+  return (mode & 0o111) !== 0 ? 0o755 : 0o644;
+}
+
 export async function snapshotCandidate({ cwd, baselineRevision, candidateRoot }) {
   const repository = await realpath(cwd);
   const baseline = await resolveBaselineRevision(repository, baselineRevision);
@@ -287,7 +291,7 @@ export async function snapshotCandidate({ cwd, baselineRevision, candidateRoot }
     if (!info) files.push({ path: file, state: "missing", digest: null, mode: null });
     else if (info.isFile() && !info.isSymbolicLink()) {
       const content = await readFile(absolute);
-      files.push({ path: file, state: "file", digest: sha256(content), size: content.length, mode: info.mode & 0o777 });
+      files.push({ path: file, state: "file", digest: sha256(content), size: content.length, mode: gitCompatibleMode(info.mode) });
     } else throw new Error(`Candidate contains non-regular file: ${file}`);
   }
   const snapshot = { baselineRevision: baseline, candidateRoot: relativeRoot, files };

@@ -9,6 +9,7 @@ import {
   readFile,
   readdir,
   readlink,
+  realpath,
   stat,
   writeFile
 } from "node:fs/promises";
@@ -131,6 +132,7 @@ const execFileAsync = promisify(execFile);
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const TEMPLATE_DIR = path.join(pluginRoot(), "templates");
 const HOST_TRUST_TOOL = path.join(SCRIPT_DIR, "host-trust.mjs");
+const HOST_EXECUTIONS_ROOT = "/private/var/db/better-workflows/executions";
 const SAFE_LABEL = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const RUN_MODE_RANK = new Map(
   ["direct", "verified", "deep", "critical"].map((mode, index) => [mode, index])
@@ -739,7 +741,115 @@ function assertExplicitCodexEvaluationAuthority(options) {
   }
 }
 
-async function evaluationReplay({ backend, fixture, role, cases, prompt, options, cwd, hostExecutionPath, execution }) {
+function isPathWithin(root, target) {
+  return target === root || target.startsWith(`${root}${path.sep}`);
+}
+
+function requestRunAs(request) {
+  return {
+    uid: request.uid,
+    gid: request.gid,
+    homePath: request.homePath,
+    codexHomePath: request.codexHomePath
+  };
+}
+
+function validRunAs(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value) ||
+      Object.keys(value).sort().join("\0") !== "codexHomePath\0gid\0homePath\0uid" ||
+      !Number.isInteger(value.uid) || value.uid <= 0 || !Number.isInteger(value.gid) || value.gid <= 0) return false;
+  for (const [key, nullable] of [["homePath", false], ["codexHomePath", true]]) {
+    if (nullable && value[key] === null) continue;
+    if (typeof value[key] !== "string" || !path.isAbsolute(value[key]) || path.resolve(value[key]) !== value[key]) return false;
+  }
+  return true;
+}
+
+async function loadHostExecutionRequestManifest({
+  manifestPath,
+  manifestDigest,
+  cwd,
+  run,
+  runId,
+  candidate,
+  frozen,
+  suiteDigest,
+  purpose,
+  target,
+  model
+}) {
+  if (typeof manifestPath !== "string" || typeof manifestDigest !== "string" || !/^[a-f0-9]{64}$/.test(manifestDigest)) {
+    throw new Error("Codex evaluation requires --request-manifest and --request-manifest-digest");
+  }
+  const repository = await realpath(cwd);
+  const resolvedManifest = path.resolve(manifestPath);
+  if (isPathWithin(repository, resolvedManifest)) throw new Error("Execution request manifest must be outside the evaluated repository");
+  const manifestInfo = await lstat(resolvedManifest);
+  if (manifestInfo.isSymbolicLink() || !manifestInfo.isFile() || path.resolve(await realpath(resolvedManifest)) !== resolvedManifest) {
+    throw new Error("Execution request manifest must be a canonical regular file");
+  }
+  const manifestBytes = await readFile(resolvedManifest);
+  if (sha256(manifestBytes) !== manifestDigest) throw new Error("Execution request manifest digest does not match the confirmed manifest");
+  const manifest = JSON.parse(manifestBytes.toString("utf8"));
+  if (manifest.schemaVersion !== 2 || manifest.repo !== repository || manifest.runId !== runId || manifest.model !== model ||
+      manifest.purpose !== purpose || manifest.suiteDigest !== suiteDigest || manifest.baselineRevision !== frozen.baselineRevision ||
+      manifest.candidateDigest !== candidate.digest || manifest.sourceSuiteDigest !== frozen.sourceDigest ||
+      manifest.targetSuiteDigest !== (target?.sourceDigest ?? null) || typeof manifest.binaryPath !== "string" ||
+      !path.isAbsolute(manifest.binaryPath) || !/^[a-f0-9]{64}$/.test(manifest.binaryDigest) ||
+      typeof manifest.runtimePath !== "string" || !path.isAbsolute(manifest.runtimePath) || !/^[a-f0-9]{64}$/.test(manifest.runtimeDigest) ||
+      !Array.isArray(manifest.requests) || manifest.requests.length !== 7 || !validRunAs(manifest.runAs)) {
+    throw new Error("Execution request manifest is not bound to this run, suite, model, and candidate");
+  }
+  const completeJournal = path.join(HOST_EXECUTIONS_ROOT, `${manifestDigest}.batch.complete.json`);
+  const journalInfo = await lstat(completeJournal);
+  if (journalInfo.isSymbolicLink() || !journalInfo.isFile() || journalInfo.uid !== 0 || (journalInfo.mode & 0o777) !== 0o644 ||
+      path.resolve(await realpath(completeJournal)) !== completeJournal) {
+    throw new Error("Execution request manifest has no root-owned completed host batch journal");
+  }
+  const journal = JSON.parse((await readFile(completeJournal)).toString("utf8"));
+  if (journal.schemaVersion !== 1 || journal.provider !== "codex" || journal.kind !== "execution-batch-journal" ||
+      journal.state !== "complete" || journal.manifestDigest !== manifestDigest || !Array.isArray(journal.executionIds) ||
+      !Array.isArray(journal.requestDigests) || journal.executionIds.length !== 7 || journal.requestDigests.length !== 7 ||
+      journal.executionIds.length !== journal.outputs?.length) {
+    throw new Error("Completed host batch journal does not prove this request manifest");
+  }
+  const bindings = new Map();
+  const requestDigests = [];
+  const executionIds = [];
+  for (const item of manifest.requests) {
+    if (!item || typeof item !== "object" || typeof item.executionId !== "string" || typeof item.request !== "string" ||
+        !path.isAbsolute(item.request) || path.resolve(item.request) !== item.request || !/^[a-f0-9]{64}$/.test(item.requestDigest) ||
+        !/^[a-f0-9]{64}$/.test(item.promptDigest) || !Number.isInteger(item.attempt) || typeof item.role !== "string") {
+      throw new Error("Execution request manifest contains an invalid canonical request record");
+    }
+    const requestPath = path.resolve(item.request);
+    if (isPathWithin(repository, requestPath)) throw new Error("Execution request files must be outside the evaluated repository");
+    const requestInfo = await lstat(requestPath);
+    if (requestInfo.isSymbolicLink() || !requestInfo.isFile() || path.resolve(await realpath(requestPath)) !== requestPath) {
+      throw new Error("Execution request must be a canonical regular file");
+    }
+    const requestBytes = await readFile(requestPath);
+    if (sha256(requestBytes) !== item.requestDigest) throw new Error("Execution request digest changed after administrator confirmation");
+    const request = JSON.parse(requestBytes.toString("utf8"));
+    if (!validRunAs(requestRunAs(request)) || request.model !== manifest.model || request.binaryPath !== manifest.binaryPath || request.binaryDigest !== manifest.binaryDigest ||
+        digestObject(requestRunAs(request)) !== digestObject(manifest.runAs) || request.promptDigest !== item.promptDigest ||
+        request.execution?.id !== item.executionId || request.execution?.role !== item.role || request.execution?.attempt !== item.attempt ||
+        request.execution?.runId !== manifest.runId || request.execution?.suiteDigest !== manifest.suiteDigest ||
+        request.execution?.baselineRevision !== manifest.baselineRevision || request.execution?.candidateDigest !== manifest.candidateDigest) {
+      throw new Error("Execution request is not bound to the canonical request manifest");
+    }
+    if (bindings.has(item.executionId)) throw new Error("Execution request manifest contains duplicate execution IDs");
+    bindings.set(item.executionId, { requestDigest: item.requestDigest, runAs: requestRunAs(request) });
+    requestDigests.push(item.requestDigest);
+    executionIds.push(item.executionId);
+  }
+  if (digestObject(journal.executionIds) !== digestObject(executionIds) || digestObject(journal.requestDigests) !== digestObject(requestDigests)) {
+    throw new Error("Completed host batch journal does not match the canonical request manifest");
+  }
+  return bindings;
+}
+
+async function evaluationReplay({ backend, fixture, role, cases, prompt, options, cwd, hostExecutionPath, execution, expectedRequestDigest = null, expectedRunAs = null }) {
   if (backend === "fixture") {
     const response = fixture?.[role];
     if (!response) throw new Error(`Fixture result file is missing ${role} response`);
@@ -751,7 +861,9 @@ async function evaluationReplay({ backend, fixture, role, cases, prompt, options
     prompt,
     hostExecutionPath,
     evaluationRoot: cwd,
-    execution
+    execution,
+    expectedRequestDigest,
+    expectedRunAs
   });
   return { response: result.response, score: scoreEvaluation(result.response, cases), metadata: result.metadata };
 }
@@ -832,7 +944,7 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
   }
   assertKnownOptions(options, [
     "run", "cases", "baseline", "candidate-root", "backend", "split", "result-file", "model", "allow-codex", "sanitized",
-    "trusted-codex-execution", "purpose", "next-cases"
+    "trusted-codex-execution", "request-manifest", "request-manifest-digest", "purpose", "next-cases"
   ]);
   if (!options.run || !options.cases || !options.baseline || !options["candidate-root"] || !options.backend || !options.split) {
     throw new Error("self-improve evaluate requires --run, --cases, --baseline, --candidate-root, --backend, and --split");
@@ -891,6 +1003,21 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
   const candidatePrompt = buildEvaluationPrompt({ suite: { ...frozen.suite, cases }, candidate, materials: candidateMaterial });
   const baselinePrompt = buildEvaluationPrompt({ suite: { ...frozen.suite, cases }, candidate: baseline, materials: baselineMaterial });
   const fixture = backend === "fixture" ? JSON.parse(await readFile(path.resolve(cwd, String(options["result-file"])), "utf8")) : null;
+  const requestBindings = backend === "codex"
+    ? await loadHostExecutionRequestManifest({
+      manifestPath: options["request-manifest"],
+      manifestDigest: options["request-manifest-digest"],
+      cwd,
+      run,
+      runId,
+      candidate,
+      frozen,
+      suiteDigest,
+      purpose,
+      target,
+      model: String(options.model)
+    })
+    : null;
   const hostExecutionPaths = values(options["trusted-codex-execution"]).map(String);
   const requiredExecutions = backend === "codex" ? (split === "train" ? 1 : 6) : 0;
   if (backend === "codex" && hostExecutionPaths.length !== requiredExecutions) {
@@ -914,7 +1041,13 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
       targetSuiteDigest: target?.sourceDigest ?? null,
       baselineRevision: frozen.baselineRevision,
       candidate,
-      baseline
+      baseline,
+      ...(backend === "codex"
+        ? {
+          requestManifestPath: path.resolve(String(options["request-manifest"])),
+          requestManifestDigest: String(options["request-manifest-digest"])
+        }
+        : {})
     }
   };
   const execution = (role, attempt) => ({
@@ -933,8 +1066,13 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
     if (!training) throw new Error("Holdout evaluation requires a fresh training replay bound to the same suite, baseline, and candidate");
   }
   if (split === "train") {
+    const trainExecution = execution("train-candidate", 1);
+    const trainBinding = requestBindings?.get(trainExecution.id);
+    if (backend === "codex" && !trainBinding) throw new Error("Training replay is missing its canonical request manifest binding");
     const replay = await evaluationReplay({ backend, fixture, role: "candidate", cases, prompt: candidatePrompt, options, cwd,
-      hostExecutionPath: hostExecutionPaths[0], execution: execution("train-candidate", 1) });
+      hostExecutionPath: hostExecutionPaths[0], execution: trainExecution,
+      expectedRequestDigest: trainBinding?.requestDigest ?? null,
+      expectedRunAs: trainBinding?.runAs ?? null });
     const suiteEvidence = await addSelfImproveEvidence(root, runId, {
       id: evaluationEvidenceId("suite"), kind: "evaluation-suite", summary: "Frozen sanitized evaluation suite bound to the immutable baseline.", status: "complete",
       acceptanceIds: ["replay-bounded"], ...common
@@ -965,10 +1103,24 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
   }
   const candidateReplays = [];
   const baselineReplays = [];
-  for (let index = 0; index < 3; index += 1) candidateReplays.push(await evaluationReplay({ backend, fixture, role: "candidate", cases, prompt: candidatePrompt, options, cwd,
-    hostExecutionPath: hostExecutionPaths[index], execution: execution("candidate", index + 1) }));
-  for (let index = 0; index < 3; index += 1) baselineReplays.push(await evaluationReplay({ backend, fixture, role: "baseline", cases, prompt: baselinePrompt, options, cwd,
-    hostExecutionPath: hostExecutionPaths[index + 3], execution: execution("baseline", index + 1) }));
+  for (let index = 0; index < 3; index += 1) {
+    const candidateExecution = execution("candidate", index + 1);
+    const candidateBinding = requestBindings?.get(candidateExecution.id);
+    if (backend === "codex" && !candidateBinding) throw new Error("Candidate replay is missing its canonical request manifest binding");
+    candidateReplays.push(await evaluationReplay({ backend, fixture, role: "candidate", cases, prompt: candidatePrompt, options, cwd,
+      hostExecutionPath: hostExecutionPaths[index], execution: candidateExecution,
+      expectedRequestDigest: candidateBinding?.requestDigest ?? null,
+      expectedRunAs: candidateBinding?.runAs ?? null }));
+  }
+  for (let index = 0; index < 3; index += 1) {
+    const baselineExecution = execution("baseline", index + 1);
+    const baselineBinding = requestBindings?.get(baselineExecution.id);
+    if (backend === "codex" && !baselineBinding) throw new Error("Baseline replay is missing its canonical request manifest binding");
+    baselineReplays.push(await evaluationReplay({ backend, fixture, role: "baseline", cases, prompt: baselinePrompt, options, cwd,
+      hostExecutionPath: hostExecutionPaths[index + 3], execution: baselineExecution,
+      expectedRequestDigest: baselineBinding?.requestDigest ?? null,
+      expectedRunAs: baselineBinding?.runAs ?? null }));
+  }
   const comparison = purpose === "evaluator-migration"
     ? compareEvaluatorMigration({ baseline: baselineReplays.map((item) => item.score), candidate: candidateReplays.map((item) => item.score) })
     : compareHoldout({ baseline: baselineReplays.map((item) => item.score), candidate: candidateReplays.map((item) => item.score), suite: frozen.suite });
@@ -1060,6 +1212,25 @@ async function assertAcceptedSelfImproveHoldout(root, runId, action) {
   const replayCases = selectEvaluationCases({ suite: frozen.suite, snapshot: currentCandidate, split: "holdout" });
   const candidatePrompt = buildEvaluationPrompt({ suite: { ...frozen.suite, cases: replayCases }, candidate: currentCandidate, materials: candidateMaterial });
   const baselinePrompt = buildEvaluationPrompt({ suite: { ...frozen.suite, cases: replayCases }, candidate: currentBaseline, materials: baselineMaterial });
+  const migrationTarget = purpose === "evaluator-migration"
+    ? await loadMigrationTargetSuite({
+      cwd: run.manifest.cwd,
+      casesFile: path.join(run.manifest.cwd, evaluation.targetSuitePath)
+    })
+    : null;
+  const requestBindings = await loadHostExecutionRequestManifest({
+    manifestPath: evaluation.requestManifestPath,
+    manifestDigest: evaluation.requestManifestDigest,
+    cwd: run.manifest.cwd,
+    run,
+    runId,
+    candidate: currentCandidate,
+    frozen,
+    suiteDigest: evaluation.suiteDigest,
+    purpose,
+    target: migrationTarget,
+    model: evaluation.model ?? replays[0].model
+  });
   const trustedScores = [];
   for (const replay of replays) {
     const prompt = replay.execution.role === "baseline" ? baselinePrompt : replay.execution.role === "candidate" ? candidatePrompt : buildEvaluationPrompt({
@@ -1067,6 +1238,10 @@ async function assertAcceptedSelfImproveHoldout(root, runId, action) {
       candidate: currentCandidate,
       materials: candidateMaterial
     });
+    const requestBinding = requestBindings.get(replay.execution.id);
+    if (!requestBinding || replay.requestDigest !== requestBinding.requestDigest || digestObject(replay.runAs) !== digestObject(requestBinding.runAs)) {
+      throw new Error("Self-improve delivery replay is not bound to the canonical request manifest");
+    }
     const witness = await verifyTrustedCodexExecutionEnvelope({
       hostExecutionPath: replay.hostExecutionPath,
       evaluationRoot: run.manifest.cwd,
@@ -1074,8 +1249,8 @@ async function assertAcceptedSelfImproveHoldout(root, runId, action) {
       execution: replay.execution,
       prompt,
       response: replay.response,
-      expectedRequestDigest: replay.requestDigest,
-      expectedRunAs: replay.runAs
+      expectedRequestDigest: requestBinding.requestDigest,
+      expectedRunAs: requestBinding.runAs
     });
     if (digestObject(witness.response) !== digestObject(replay.response) || witness.metadata.attestationDigest !== replay.attestationDigest || witness.metadata.binary.digest !== replay.binaryDigest || witness.metadata.trustRootDigest !== replay.trustRootDigest || witness.metadata.issuer !== replay.issuer || witness.metadata.keyId !== replay.keyId || witness.metadata.requestDigest !== replay.requestDigest || digestObject(witness.metadata.runAs) !== digestObject(replay.runAs) || witness.metadata.resultReceiptDigest !== replay.resultReceiptDigest || witness.metadata.responseDigest !== replay.responseDigest || witness.metadata.ledgerPath !== replay.ledgerPath) {
       throw new Error("Self-improve delivery host execution witness binding changed after replay");
@@ -1106,10 +1281,7 @@ async function assertAcceptedSelfImproveHoldout(root, runId, action) {
       item.evaluation?.calibration?.digest
     );
     if (!migration) throw new Error("Evaluator migration delivery requires fresh deterministic migration calibration");
-    const target = await loadMigrationTargetSuite({
-      cwd: run.manifest.cwd,
-      casesFile: path.join(run.manifest.cwd, evaluation.targetSuitePath)
-    });
+    const target = migrationTarget;
     if (target.sourceDigest !== evaluation.targetSuiteDigest) throw new Error("Evaluator migration target suite changed after replay");
     const binding = evaluationBindingDigest({
       purpose,
@@ -1546,7 +1718,7 @@ function help() {
       "sbw source rebind <run-id> --reason <text>",
       "sbw sentinel capture|verify <run-id> --label <label>",
       "sbw evidence add <run-id> --file <json>",
-      "sbw self-improve evaluate --run <run-id> --cases <file> --baseline <git-revision> --candidate-root <path> --backend <codex|fixture> --split <train|holdout> [--trusted-codex-execution <host-file>] [--purpose ordinary|evaluator-migration] [--next-cases <v2-file>]",
+      "sbw self-improve evaluate --run <run-id> --cases <file> --baseline <git-revision> --candidate-root <path> --backend <codex|fixture> --split <train|holdout> [--trusted-codex-execution <host-file>] [--request-manifest <host-file> --request-manifest-digest <sha256>] [--purpose ordinary|evaluator-migration] [--next-cases <v2-file>]",
       "sbw self-improve host status",
       "sbw self-improve attestation request --run <run-id> --baseline <sha> --candidate-root <path> --model <model> --output <outside-repo-directory> [--cases <file>] [--purpose ordinary|evaluator-migration] [--next-cases <v2-file>]",
       "sbw finding add|update <run-id> --file <json>",

@@ -1,6 +1,7 @@
 #include <errno.h>
 #include <grp.h>
 #include <limits.h>
+#include <pwd.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -54,12 +55,17 @@ int main(int argc, char **argv, char **envp) {
   require_absolute(cwd, "cwd");
   require_absolute(binary, "binary");
   require_root_owned_executable(binary);
+  struct passwd *account = getpwuid(uid);
+  if (account == NULL || account->pw_gid != gid) {
+    fail("requested gid is not the requested user's primary group");
+  }
 
   if (chdir(cwd) != 0) fail("cannot enter the fixed execution bundle");
   if (setgroups(0, NULL) != 0) fail("cannot clear supplementary groups");
   if (setgid(gid) != 0) fail("cannot set the requested primary group");
   if (setuid(uid) != 0) fail("cannot set the requested user");
   if (geteuid() != uid || getegid() != gid) fail("requested run-as identity was not applied");
+  if (getgroups(0, NULL) != 0) fail("supplementary groups were not cleared");
 
   char **child_argv = calloc((size_t)(argc - 9), sizeof(char *));
   if (child_argv == NULL) fail("cannot allocate child argv");

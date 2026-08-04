@@ -64,13 +64,17 @@ test("candidate snapshots bind executable modes so post-holdout chmod is detecte
     await execFileAsync("git", ["add", "."], { cwd });
     await execFileAsync("git", ["commit", "-qm", "baseline"], { cwd });
     const baseline = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd })).stdout.trim();
-    await chmod(file, 0o755);
+    await chmod(file, 0o640);
+    await writeFile(file, "export const probe = 'changed';\n");
     const candidate = await snapshotCandidate({ cwd, baselineRevision: baseline, candidateRoot: "." });
     const snapshot = candidate.files.find((item) => item.path.endsWith("probe.mjs"));
     const base = await snapshotBaselineForCandidate({ cwd, snapshot: candidate });
     const baseSnapshot = base.files.find((item) => item.path.endsWith("probe.mjs"));
-    assert.equal(snapshot.mode, 0o755);
+    assert.equal(snapshot.mode, 0o644);
     assert.equal(baseSnapshot.mode, 0o644);
+    await chmod(file, 0o775);
+    const executable = await snapshotCandidate({ cwd, baselineRevision: baseline, candidateRoot: "." });
+    assert.equal(executable.files.find((item) => item.path.endsWith("probe.mjs")).mode, 0o755);
     assert.notEqual(candidate.digest, base.digest);
   } finally {
     await rm(cwd, { recursive: true, force: true });

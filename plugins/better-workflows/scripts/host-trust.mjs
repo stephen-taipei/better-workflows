@@ -33,6 +33,7 @@ const HOST_RUNTIME_ROOT = "/private/var/db/better-workflows/bin";
 const EXECUTION_LAUNCHER = "/private/var/db/better-workflows/bin/bw-host-exec-launcher";
 const EXECUTION_PROBE = "/private/var/db/better-workflows/bin/bw-host-execution-probe";
 const LEGACY_SIGNER = "/private/var/db/better-workflows/bin/bw-host-signer.swift";
+const NATIVE_COMPILER = "/usr/bin/clang";
 const ISSUER = "better-workflows-local-host";
 const HOST_SIGNER_VERSION = "2.1.0";
 const HOST_SIGNER_CAPABILITIES = Object.freeze([
@@ -295,9 +296,50 @@ async function readSourceFile(target, confirmedDigest, label) {
   return { path: resolved, bytes, digest: confirmedDigest };
 }
 
+function isMachO(bytes) {
+  if (bytes.length < 4) return false;
+  const little = bytes.readUInt32LE(0);
+  const big = bytes.readUInt32BE(0);
+  return [0xfeedfacf, 0xcffaedfe, 0xcafebabe, 0xbebafeca].includes(little) ||
+    [0xfeedfacf, 0xcffaedfe, 0xcafebabe, 0xbebafeca].includes(big);
+}
+
+async function compileNativeArtifact(source, label) {
+  const stem = label.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  const sourcePath = path.join(HOST_RUNTIME_ROOT, `.${stem}.${source.digest}.c`);
+  const outputPath = path.join(HOST_RUNTIME_ROOT, `.${stem}.${source.digest}.tmp`);
+  if (await exists(sourcePath) || await exists(outputPath)) {
+    throw new Error(`Refusing to reuse ${label} compiler staging files`);
+  }
+  await exclusiveWrite(sourcePath, source.bytes, 0o600);
+  try {
+    await validateRootOwnedFile(sourcePath, `${label} compiler source`, 0o600);
+    const result = await spawnCapture(NATIVE_COMPILER, [
+      "-Wall", "-Wextra", "-Werror", "-O2", "-o", outputPath, sourcePath
+    ], {
+      cwd: "/",
+      timeoutMs: 30_000,
+      maxOutputBytes: 64 * 1024,
+      env: safeEnvironment()
+    });
+    if (result.code !== 0 || result.signal !== null || result.timedOut || result.outputExceeded) {
+      throw new Error(`${label} compilation failed: exit=${result.code ?? "null"}; signal=${result.signal ?? "none"}`);
+    }
+    await chmod(outputPath, 0o755);
+    await validateRootOwnedFile(outputPath, `${label} compiled artifact`, 0o755);
+    const bytes = await readFile(outputPath);
+    if (!isMachO(bytes)) throw new Error(`${label} compiler output is not a supported macOS Mach-O executable`);
+    return { path: outputPath, bytes, digest: await digest(bytes) };
+  } finally {
+    await unlink(sourcePath).catch(() => undefined);
+    await unlink(outputPath).catch(() => undefined);
+  }
+}
+
 async function replaceRootOwnedFile(target, source, mode, label) {
   const existing = await exists(target);
   let previous = null;
+  let renamed = false;
   if (existing) {
     await validateRootOwnedFile(target, label, mode);
     const bytes = await readFile(target);
@@ -311,15 +353,28 @@ async function replaceRootOwnedFile(target, source, mode, label) {
   }
   const temporary = `${target}.${source.digest}.tmp`;
   if (await exists(temporary)) throw new Error(`Refusing to reuse ${label} staging file: ${temporary}`);
-  await exclusiveWrite(temporary, source.bytes, mode);
-  await validateRootOwnedFile(temporary, `${label} staging file`, mode);
-  await syncDirectory(path.dirname(target));
-  await rename(temporary, target);
-  await syncDirectory(path.dirname(target));
-  await validateRootOwnedFile(target, label, mode);
-  const installedDigest = await digest(await readFile(target));
-  if (installedDigest !== source.digest) throw new Error(`${label} digest changed during atomic installation`);
-  return { changed: true, previous, installedDigest };
+  try {
+    await exclusiveWrite(temporary, source.bytes, mode);
+    await validateRootOwnedFile(temporary, `${label} staging file`, mode);
+    await syncDirectory(path.dirname(target));
+    await rename(temporary, target);
+    renamed = true;
+    await syncDirectory(path.dirname(target));
+    await validateRootOwnedFile(target, label, mode);
+    const installedDigest = await digest(await readFile(target));
+    if (installedDigest !== source.digest) throw new Error(`${label} digest changed during atomic installation`);
+    return { changed: true, previous, installedDigest };
+  } catch (error) {
+    if (!renamed) throw error;
+    try {
+      await restoreRootOwnedFile(target, previous, mode, label);
+    } catch (rollbackError) {
+      throw new Error(`${label} installation failed and rollback could not be proven: ${error.message}; ${rollbackError.message}`);
+    }
+    throw new Error(`${label} installation failed and was rolled back with exact prior artifact proven: ${error.message}`);
+  } finally {
+    await unlink(temporary).catch(() => undefined);
+  }
 }
 
 async function restoreRootOwnedFile(target, previous, mode, label) {
@@ -774,7 +829,7 @@ async function validateRunAs(request) {
   return { uid: request.uid, gid: request.gid, homePath, codexHomePath };
 }
 
-async function executeResultRequest(requestPath, confirmedDigest) {
+async function executeResultRequest(requestPath, confirmedDigest, { includeResponse = false } = {}) {
   requireRoot();
   await requireInstalledCapability("execution-witness");
   if (!SHA256.test(confirmedDigest)) throw new Error("confirmed execution request digest must be SHA-256");
@@ -1006,7 +1061,15 @@ async function executeResultRequest(requestPath, confirmedDigest) {
     timedOut: false
   };
   await writeHostArtifact(targets.result, envelope);
-  return { ok: true, executionId, resultPath: targets.result, receiptPath: targets.receipt, attestationPath: targets.attestation, ledgerPath: targets.ledger };
+  return {
+    ok: true,
+    executionId,
+    resultPath: targets.result,
+    receiptPath: targets.receipt,
+    attestationPath: targets.attestation,
+    ledgerPath: targets.ledger,
+    ...(includeResponse ? { response, executionCwd: bundle } : {})
+  };
 }
 
 async function executeBatch(manifestPath, confirmedManifestDigest) {
@@ -1021,11 +1084,20 @@ async function executeBatch(manifestPath, confirmedManifestDigest) {
   if (manifest.schemaVersion !== 2 || !Array.isArray(manifest.requests) || manifest.requests.length !== 7) {
     throw new Error("execution manifest must be schemaVersion 2 with exactly seven requests");
   }
-  if (typeof manifest.runtimePath !== "string" || !path.isAbsolute(manifest.runtimePath) || !SHA256.test(manifest.runtimeDigest)) {
+  if (manifest.schemaVersion !== 2 || typeof manifest.runId !== "string" || !manifest.runId ||
+      typeof manifest.model !== "string" || !manifest.model || typeof manifest.binaryPath !== "string" ||
+      !path.isAbsolute(manifest.binaryPath) || !SHA256.test(manifest.binaryDigest) ||
+      typeof manifest.runtimePath !== "string" || !path.isAbsolute(manifest.runtimePath) ||
+      path.resolve(manifest.runtimePath) !== manifest.runtimePath || !SHA256.test(manifest.runtimeDigest) ||
+      typeof manifest.suiteDigest !== "string" || !manifest.suiteDigest ||
+      typeof manifest.baselineRevision !== "string" || !manifest.baselineRevision ||
+      typeof manifest.candidateDigest !== "string" || !manifest.candidateDigest ||
+      !Array.isArray(manifest.requests) || manifest.requests.length !== 7) {
     throw new Error("execution manifest must bind the administrator Node runtime digest");
   }
-  const runtime = await currentRuntime();
-  if (!runtime?.supported || runtime.digest !== manifest.runtimeDigest) {
+  const manifestRunAs = validateManifestRunAs(manifest.runAs);
+  const runtime = await currentRuntime(manifest.runtimePath);
+  if (!runtime?.supported || runtime.path !== manifest.runtimePath || runtime.digest !== manifest.runtimeDigest) {
     throw new Error("execution manifest runtime digest does not match the installed administrator runtime");
   }
   const prepared = [];
@@ -1038,12 +1110,29 @@ async function executeBatch(manifestPath, confirmedManifestDigest) {
   }
   const ids = new Set();
   for (const item of manifest.requests) {
-    if (typeof item.request !== "string" || !path.isAbsolute(item.request) || !SHA256.test(item.requestDigest)) {
+    if (!item || typeof item !== "object" ||
+        typeof item.request !== "string" || !path.isAbsolute(item.request) || path.resolve(item.request) !== item.request ||
+        !SHA256.test(item.requestDigest) || typeof item.executionId !== "string" ||
+        typeof item.role !== "string" || !Number.isInteger(item.attempt) || !SHA256.test(item.promptDigest)) {
       throw new Error("execution manifest contains an invalid request reference");
     }
     const bytes = await readFile(item.request);
     if (await digest(bytes) !== item.requestDigest) throw new Error("execution manifest request digest changed");
     const request = validateExecutionRequest(JSON.parse(bytes.toString("utf8")));
+    const requestRunAs = {
+      uid: request.uid,
+      gid: request.gid,
+      homePath: request.homePath,
+      codexHomePath: request.codexHomePath
+    };
+    if (request.model !== manifest.model || request.binaryPath !== manifest.binaryPath || request.binaryDigest !== manifest.binaryDigest ||
+        canonicalJson(requestRunAs) !== canonicalJson(manifestRunAs) ||
+        request.execution.runId !== manifest.runId || request.execution.suiteDigest !== manifest.suiteDigest ||
+        request.execution.baselineRevision !== manifest.baselineRevision || request.execution.candidateDigest !== manifest.candidateDigest ||
+        request.execution.role !== item.role || request.execution.attempt !== item.attempt ||
+        request.execution.id !== item.executionId || request.execution.promptDigest !== item.promptDigest) {
+      throw new Error("execution manifest request does not match its canonical batch binding");
+    }
     if (ids.has(request.execution.id)) throw new Error("execution manifest contains duplicate execution IDs");
     ids.add(request.execution.id);
     prepared.push({ requestPath: item.request, requestDigest: item.requestDigest, executionId: request.execution.id });
@@ -1055,6 +1144,7 @@ async function executeBatch(manifestPath, confirmedManifestDigest) {
     state: "running",
     manifestDigest: confirmedManifestDigest,
     executionIds: prepared.map((item) => item.executionId),
+    requestDigests: prepared.map((item) => item.requestDigest),
     startedAt: new Date().toISOString()
   };
   await writeHostArtifact(batchStartPath, batchStarted);
@@ -1115,11 +1205,39 @@ async function runReadinessProbe({ uid, gid, homePath, codexHomePath = null }) {
   await exclusiveWrite(promptPath, promptBytes, 0o600);
   await exclusiveWrite(requestPath, requestBytes, 0o600);
   try {
-    return await executeResultRequest(requestPath, await digest(requestBytes));
+    const result = await executeResultRequest(requestPath, await digest(requestBytes), { includeResponse: true });
+    const probe = result.response?.probe;
+    const expectedEnvironment = Object.entries(safeEnvironment({
+      HOME: homePath,
+      ...(codexHomePath ? { CODEX_HOME: codexHomePath } : {})
+    })).map(([key, value]) => `${key}=${value}`).sort();
+    const actualEnvironment = Array.isArray(probe?.environment) ? probe.environment.slice().sort() : null;
+    if (!probe || probe.uid !== uid || probe.euid !== uid || probe.gid !== gid || probe.egid !== gid ||
+        !Array.isArray(probe.supplementaryGroups) || probe.supplementaryGroups.length !== 0 ||
+        probe.cwd !== result.executionCwd || probe.argv0 !== EXECUTION_PROBE ||
+        canonicalJson(actualEnvironment) !== canonicalJson(expectedEnvironment)) {
+      throw new Error("Host readiness probe did not prove the requested identity, cwd, empty supplementary groups, and fixed environment");
+    }
+    return { ...result, probe };
   } finally {
     await unlink(promptPath).catch(() => undefined);
     await unlink(requestPath).catch(() => undefined);
   }
+}
+
+function validateManifestRunAs(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value) ||
+      Object.keys(value).sort().join("\0") !== "codexHomePath\0gid\0homePath\0uid" ||
+      !Number.isInteger(value.uid) || value.uid <= 0 || !Number.isInteger(value.gid) || value.gid <= 0) {
+    throw new Error("execution manifest run-as binding is invalid");
+  }
+  for (const [key, nullable] of [["homePath", false], ["codexHomePath", true]]) {
+    if (nullable && value[key] === null) continue;
+    if (typeof value[key] !== "string" || !path.isAbsolute(value[key]) || path.resolve(value[key]) !== value[key]) {
+      throw new Error(`execution manifest ${key} binding is not canonical`);
+    }
+  }
+  return value;
 }
 
 async function upgradeSigner(
@@ -1154,11 +1272,13 @@ async function upgradeSigner(
   }
   await secureDirectory("/private/var/db/better-workflows", 0o711);
   await secureDirectory(HOST_RUNTIME_ROOT, 0o755);
+  const launcherArtifact = await compileNativeArtifact(launcherSource, "Native launcher");
+  const probeArtifact = await compileNativeArtifact(probeSource, "Readiness probe");
   const changes = [];
   try {
     for (const [target, item, label] of [
-      [EXECUTION_LAUNCHER, launcherSource, "Native execution launcher"],
-      [EXECUTION_PROBE, probeSource, "Host readiness probe"],
+      [EXECUTION_LAUNCHER, launcherArtifact, "Native execution launcher"],
+      [EXECUTION_PROBE, probeArtifact, "Host readiness probe"],
       [INSTALLED_SIGNER, source, "Installed host signer"]
     ]) {
       const change = await replaceRootOwnedFile(target, item, 0o755, label);

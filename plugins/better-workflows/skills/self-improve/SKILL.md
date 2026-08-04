@@ -114,8 +114,11 @@ and never overwrite or implicitly rotate an existing host key. If status reports
 `ready: false` because only the legacy signer is installed, prepare the pinned
 source digest, a compiled native launcher/probe digest, and a digest-bound
 root-owned Node runtime staging command; never sudo the maintainer's
-`process.execPath` directly. Run the digest-confirmed `host-trust.mjs upgrade`
-operation through that fixed `/bin/sh` staging wrapper. The upgrade preserves
+`process.execPath` directly. Compile the exact native sources with the fixed
+`/usr/bin/clang`; upgrade rejects source bytes and non-Mach-O artifacts. Run the
+digest-confirmed `host-trust.mjs upgrade` operation through that fixed
+`/bin/sh` staging wrapper with `env -i`, root-owner/mode checks, and an
+immutable digest-bound runtime target. The upgrade preserves
 the trust root/key, atomically replaces the signer, retains the previous signer
 as a root-owned backup, and runs a disposable signed readiness witness with the
 native launcher. A failed upgrade is quarantined and rolled back with exact
@@ -135,13 +138,18 @@ sbw self-improve evaluate \
   --cases plugins/better-workflows/fixtures/self-improve-ops-evals-v2.2.json \
   --baseline <immutable-baseline> --candidate-root . \
   --backend codex --model <attested-model> --allow-codex --sanitized \
+  --request-manifest <outside-repo>/attestation-requests.json \
+  --request-manifest-digest <confirmed-manifest-sha256> \
   --trusted-codex-execution /host/executions/<train-result>.json --split train
 ```
 
 The exact command returned as `executeCommand` is administrator-only and
 executes the seven requests once. It returns root-owned witness paths under
 `/private/var/db/better-workflows/executions`; pass the one training witness,
-then the six holdout witnesses to `sbw`. The receipt and ledger remain outside
+then the six holdout witnesses to `sbw`, together with the same manifest path
+and digest. `sbw` requires the root-owned completed batch journal and verifies
+every request file's digest, execution identity, run-as tuple, binary, model,
+suite, baseline, and candidate against that manifest. The receipt and ledger remain outside
 the evaluated repository; `sbw` verifies their signatures, confirmed
 request/run-as identity, prompt/response digests, binary, model, execution,
 file modes, exit status, timestamps, and immutable host ledger before recording

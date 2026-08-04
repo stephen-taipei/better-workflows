@@ -27,10 +27,10 @@ const HOST_ADMIN_SHELL = [
   "target=\"/private/var/db/better-workflows/bin/bw-host-node.$expected\"",
   "actual=$(/usr/bin/shasum -a 256 \"$runtime\" | /usr/bin/awk '{print $1}')",
   "[ \"$actual\" = \"$expected\" ] || { echo 'runtime digest mismatch before staging' >&2; exit 126; }",
-  "if [ ! -e \"$target\" ]; then /bin/cp \"$runtime\" \"$target\"; /usr/sbin/chown root:wheel \"$target\"; /bin/chmod 755 \"$target\"; fi",
+  "if [ -e \"$target\" ]; then [ ! -L \"$target\" ] && [ -f \"$target\" ] && [ \"$(/usr/bin/stat -f %u \"$target\")\" = \"0\" ] && [ \"$(/usr/bin/stat -f %Lp \"$target\")\" = \"755\" ] || { echo 'existing runtime target is not root-owned 0755' >&2; exit 126; }; else /bin/cp \"$runtime\" \"$target\"; /usr/sbin/chown root:wheel \"$target\"; /bin/chmod 755 \"$target\"; fi",
   "actual=$(/usr/bin/shasum -a 256 \"$target\" | /usr/bin/awk '{print $1}')",
   "[ \"$actual\" = \"$expected\" ] || { echo 'root runtime digest mismatch after staging' >&2; exit 126; }",
-  `exec \"$target\" \"${HOST_TRUST_TOOL}\" execute-batch --manifest \"$manifest\" --confirm-digest \"$manifest_digest\"`
+  "exec /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin \"$target\" \"${HOST_TRUST_TOOL}\" execute-batch --manifest \"$manifest\" --confirm-digest \"$manifest_digest\""
 ].join("\n");
 
 export async function generateAttestationRequests({
@@ -110,6 +110,12 @@ export async function generateAttestationRequests({
   } catch (error) {
     if (error.code !== "ENOENT") throw error;
   }
+  const runAs = {
+    uid: process.getuid(),
+    gid: process.getgid(),
+    homePath,
+    codexHomePath
+  };
   for (const split of ["train", "holdout"]) {
     const cases = selectEvaluationCases({ suite: frozen.suite, snapshot: candidate, split });
     promptByRoleAndSplit.set(`candidate:${split}`, buildEvaluationPrompt({
@@ -158,12 +164,12 @@ export async function generateAttestationRequests({
       binaryPath: resolvedBinary,
       codexHomePath,
       execution,
-      gid: process.getgid(),
+      gid: runAs.gid,
       homePath,
       model,
       promptDigest,
       promptPath: promptFile,
-      uid: process.getuid()
+      uid: runAs.uid
     };
     const filename = `${execution.id}.request.json`;
     const file = path.join(outputDir, filename);
@@ -189,6 +195,7 @@ export async function generateAttestationRequests({
     binaryDigest: binary.digest,
     runtimePath: runtime.path,
     runtimeDigest: runtime.digest,
+    runAs,
     purpose,
     suitePath: frozen.relativePath,
     sourceSuiteDigest: frozen.sourceDigest,

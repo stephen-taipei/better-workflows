@@ -266,7 +266,7 @@ test("ordinary evaluator resume pins legacy runs while new runs require the new 
     "--trusted-codex-execution", "/nonexistent",
     "--split", "train"
   ], { allowFailure: true });
-  assert.match(legacyAdmission.stderr, /ENOENT.*nonexistent/);
+  assert.match(legacyAdmission.stderr, /request-manifest.*request-manifest-digest/);
   assert.doesNotMatch(legacyAdmission.stderr, /self-improve-ops-evals-v2\.2\.json/);
 
   const currentCwd = await selfImproveRepository();
@@ -365,8 +365,14 @@ test("self-improve attestation request freezes seven distinct requests outside t
   assert.deepEqual(requested.json.executeCommand.slice(0, 3), ["sudo", "/bin/sh", "-c"]);
   assert.match(requested.json.executeCommand[3], /shasum/);
   assert.match(requested.json.executeCommand[3], /bw-host-node/);
+  assert.match(requested.json.executeCommand[3], /stat -f %u/);
+  assert.match(requested.json.executeCommand[3], /env -i/);
   assert.match(requested.json.runtimeDigest, /^[a-f0-9]{64}$/);
   assert.equal(requested.json.schemaVersion, 2);
+  assert.equal(requested.json.runAs.uid, process.getuid());
+  assert.equal(requested.json.runAs.gid, process.getgid());
+  assert.equal(requested.json.runAs.homePath, path.resolve(process.env.HOME));
+  assert.ok(requested.json.runAs.codexHomePath === null || path.isAbsolute(requested.json.runAs.codexHomePath));
   for (const item of requested.json.requests) {
     assert.equal(path.dirname(item.request), output);
     assert.match(item.promptDigest, /^[a-f0-9]{64}$/);

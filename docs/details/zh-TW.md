@@ -271,7 +271,7 @@ node plugins/better-workflows/scripts/sbw.mjs \
   --model <model> --output <new-outside-repo-directory>
 ```
 
-`executeCommand` 只呼叫已安裝且 capability-checked 的 host signer。它會一次執行七份 request，回傳 `/private/var/db/better-workflows/executions` 下的 root-owned witness；將 training 的一份與 holdout 的六份分別傳給 `--trusted-codex-execution`。caller 提供的 response 或 timestamp 不會被簽署。
+`executeCommand` 只呼叫已安裝且 capability-checked 的 host signer。它會一次執行七份 request，回傳 `/private/var/db/better-workflows/executions` 下的 root-owned witness；將 training 的一份與 holdout 的六份分別傳給 `--trusted-codex-execution`，並將相同的 manifest path 與 `--request-manifest-digest` 傳給 evaluate。`sbw` 會要求 root-owned completed batch journal，並核對每份 request digest、execution identity 與 run-as tuple。caller 提供的 response 或 timestamp 不會被簽署。
 
 在套用檔案數或 byte 取樣上限前，sanitizer 會先確認每一個 changed path
 都符合固定的 plugin 或 repository 公開文件 allowlist。即使不合格路徑排序

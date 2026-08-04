@@ -737,12 +737,12 @@ export async function runCodexCritic({ model, effort, prompt, timeoutMs = 120_00
   }
 }
 
-export async function runCodexEvaluation({ model, prompt, evaluationRoot, execution, hostExecutionPath }) {
+export async function runCodexEvaluation({ model, prompt, evaluationRoot, execution, hostExecutionPath, expectedRequestDigest = null, expectedRunAs = null }) {
   if (!model || !prompt || !evaluationRoot || !execution) throw new Error("Codex evaluation requires model, prompt, evaluation root, and execution binding");
   if (sha256(prompt) !== execution.promptDigest) {
     throw new Error("Codex evaluation prompt does not match the signed execution binding");
   }
-  return verifyTrustedCodexExecutionEnvelope({ hostExecutionPath, evaluationRoot, model, prompt, execution });
+  return verifyTrustedCodexExecutionEnvelope({ hostExecutionPath, evaluationRoot, model, prompt, execution, expectedRequestDigest, expectedRunAs });
 }
 
 export async function runAgyCritic({

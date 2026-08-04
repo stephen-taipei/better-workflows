@@ -63,12 +63,25 @@ test("host trust helper fixes authority paths and does not accept environment pa
   assert.match(source, /runAs/);
   assert.match(source, /maxOutputBytes = MAX_OUTPUT_BYTES/);
   assert.match(source, /runReadinessProbe/);
+  assert.match(source, /compileNativeArtifact/);
+  assert.match(source, /NATIVE_COMPILER/);
+  assert.match(source, /isMachO/);
+  assert.match(source, /currentRuntime\(manifest\.runtimePath\)/);
+  assert.match(source, /validateManifestRunAs/);
+  assert.match(source, /requestDigests/);
   assert.doesNotMatch(source, /os\.tmpdir\(\)/);
   assert.doesNotMatch(source, /"TMPDIR"|"TEMP"|"TMP"|"HTTP_PROXY"|"HTTPS_PROXY"|"SSL_CERT_FILE"/);
   const launcher = await readFile(path.join(path.dirname(SCRIPT), "host-exec-launcher.c"), "utf8");
   assert.match(launcher, /setgroups\(0, NULL\)/);
+  assert.match(launcher, /getpwuid/);
+  assert.match(launcher, /getgroups\(0, NULL\)/);
   assert.match(launcher, /execve\(/);
   assert.match(launcher, /root-owned 0755/);
+  const probe = await readFile(path.join(path.dirname(SCRIPT), "host-execution-probe.c"), "utf8");
+  assert.match(probe, /getuid/);
+  assert.match(probe, /getgroups/);
+  assert.match(probe, /environment/);
+  assert.match(probe, /argv0/);
 });
 
 test("host capture waits for SIGKILL escalation after output overflow", async () => {

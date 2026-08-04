@@ -117,12 +117,14 @@ node plugins/better-workflows/scripts/sbw.mjs self-improve host status
 ```
 
 Initial provisioning uses the existing root-owned Swift signer through fixed
-system binaries. Real replay upgrade and execution use a digest-bound,
-root-owned Node runtime plus a native launcher that clears supplementary groups
-before applying the requested non-root identity; do not sudo the maintainer's
-`process.execPath` directly. The generated batch command hash-checks and stages
-that runtime, and the host signs the confirmed request digest and run-as
-identity into the attestation, receipt, envelope, and ledger.
+system binaries. Real replay upgrade compiles the exact native sources with
+fixed `/usr/bin/clang`, rejects non-Mach-O artifacts, and uses a digest-bound,
+root-owned Node runtime plus a native launcher that proves empty supplementary
+groups before applying the requested non-root identity; do not sudo the
+maintainer's `process.execPath` directly. The generated batch command clears
+the environment, verifies the existing runtime target's owner/mode, and
+hash-checks and stages that runtime. The host signs the confirmed request digest
+and run-as identity into the attestation, receipt, envelope, and ledger.
 
 After freezing a candidate, generate seven run-specific requests outside the
 repository:
@@ -138,7 +140,9 @@ node plugins/better-workflows/scripts/sbw.mjs \
 ```
 
 Training and holdout witnesses cannot be reused for a different run or
-candidate digest. The installed administrator signer executes each attested
+candidate digest. Pass the returned manifest path and exact digest to every
+`self-improve evaluate` call; `sbw` also requires the root-owned completed batch
+journal and compares every request digest/run-as tuple to the manifest. The installed administrator signer executes each attested
 Codex binary exactly once, captures the prompt, parsed response, exit status,
 timestamps, and a root-owned one-shot ledger, then signs the result receipt.
 `sbw` consumes the persisted witness and never reruns Codex during resume or

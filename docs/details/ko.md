@@ -265,7 +265,7 @@ node plugins/better-workflows/scripts/sbw.mjs \
   --model <model> --output <new-outside-repo-directory>
 ```
 
-`executeCommand`는 설치되고 capability-checked 된 host signer만 호출해 일곱 request를 한 번씩 실행합니다. 반환된 `/private/var/db/better-workflows/executions`의 root-owned witness 중 training 하나와 holdout 여섯 개를 `--trusted-codex-execution`에 전달합니다. caller가 response나 timestamp를 제공해 서명하게 할 수 없습니다.
+`executeCommand`는 설치되고 capability-checked 된 host signer만 호출해 일곱 request를 한 번씩 실행합니다. 반환된 `/private/var/db/better-workflows/executions`의 root-owned witness 중 training 하나와 holdout 여섯 개를 `--trusted-codex-execution`에 전달하고, 같은 manifest path와 `--request-manifest-digest`도 evaluate에 전달합니다. `sbw`는 root-owned completed batch journal과 모든 request digest/run-as tuple을 canonical manifest와 대조합니다. caller가 response나 timestamp를 제공해 서명하게 할 수 없습니다.
 
 파일 수 또는 byte sampling limit을 적용하기 전에 sanitizer는 모든 changed
 path가 고정된 plugin 및 repository 공개 문서 allowlist와 일치하는지

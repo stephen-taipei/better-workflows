@@ -356,9 +356,10 @@ Provisioning is fail-closed and never overwrites or silently rotates an
 existing key. The trust root is public and root-owned; the private Ed25519 key
 remains mode `0600` outside the repository. Do not use `plutil` to validate the
 JSON trust root—use `self-improve host status`. If status reports `ready: false`
-because a legacy signer is installed, stage a digest-confirmed root-owned Node
-runtime and the compiled native launcher/probe, then run `host-trust.mjs
-upgrade` through the fixed `/bin/sh` staging wrapper. Never sudo the
+because a legacy signer is installed, compile the exact native sources with
+fixed `/usr/bin/clang`, stage a digest-confirmed root-owned Node runtime and
+the resulting Mach-O launcher/probe, then run `host-trust.mjs upgrade` through
+the fixed `/bin/sh` staging wrapper with `env -i`. Never sudo the
 maintainer's `process.execPath` directly. The old signer is retained as a
 root-owned backup; upgrade performs a disposable signed readiness witness and
 a failed upgrade is quarantined and rolled back with exact prior artifact
@@ -382,9 +383,14 @@ node plugins/better-workflows/scripts/sbw.mjs \
 
 The command returns seven root-owned witness paths under
 `/private/var/db/better-workflows/executions`. Pass those paths to
-`--trusted-codex-execution` (one for training and six for holdout). The host
+`--trusted-codex-execution` (one for training and six for holdout), together
+with `--request-manifest <output>/attestation-requests.json` and the exact
+`--request-manifest-digest <manifest-sha256>`. The host
 signer owns response capture, timing, the one-shot execution ledger, and result
 receipt creation; a caller-supplied response or timestamp is never signed.
+`sbw` requires the root-owned completed batch journal and verifies every
+request digest, execution identity, run-as tuple, binary, model, suite,
+baseline, and candidate against that manifest.
 
 Before file-count or byte sampling, every changed path must match the fixed
 plugin or repository-public-document allowlist. An out-of-scope path rejects

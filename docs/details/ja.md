@@ -265,7 +265,7 @@ node plugins/better-workflows/scripts/sbw.mjs \
   --model <model> --output <new-outside-repo-directory>
 ```
 
-`executeCommand` は capability-checked なインストール済み host signer だけを呼び出し、七つの request を一度ずつ実行します。返される `/private/var/db/better-workflows/executions` 配下の root-owned witness を training 1 件と holdout 6 件の `--trusted-codex-execution` に渡します。caller が response や timestamp を提供して署名させることはできません。
+`executeCommand` は capability-checked なインストール済み host signer だけを呼び出し、七つの request を一度ずつ実行します。返される `/private/var/db/better-workflows/executions` 配下の root-owned witness を training 1 件と holdout 6 件の `--trusted-codex-execution` に渡します。evaluate には同じ manifest path と `--request-manifest-digest` も渡し、`sbw` は root-owned completed batch journal と全 request digest/run-as tuple を canonical manifest と照合します。caller が response や timestamp を提供して署名させることはできません。
 
 ファイル数または byte の sampling limit を適用する前に、sanitizer は全
 changed path が固定の plugin／repository 公開文書 allowlist に一致するか

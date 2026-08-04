@@ -169,7 +169,10 @@ executes Codex once, captures the response/timing/exit data, writes the
 one-shot host ledger, and creates the result receipt. The evaluator consumes
 the returned witness path via `--trusted-codex-execution` and rechecks its
 prompt/response digest, binary/model, execution binding, ledger, exit status,
-timestamps, and trust root before delivery; it never reruns Codex.
+timestamps, and trust root before delivery; it never reruns Codex. Evaluation
+also requires `--request-manifest` and its administrator-confirmed
+`--request-manifest-digest`; the evaluator checks the root-owned completed batch
+journal and every request digest/run-as tuple against that manifest.
 
 ## Repository validation
 
