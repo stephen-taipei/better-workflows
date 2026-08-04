@@ -265,6 +265,123 @@ function validateExpectedSourceBinding(value) {
   return value;
 }
 
+function publicationMarkerPath(cacheRoot, version) {
+  return path.join(path.resolve(cacheRoot), `${version}.ready.json`);
+}
+
+async function readPublicationMarker(cacheRoot, version) {
+  const target = publicationMarkerPath(cacheRoot, version);
+  try {
+    const opened = await readRegularFile(target);
+    return JSON.parse(opened.contents.toString("utf8"));
+  } catch (error) {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+async function writePublicationMarker({
+  cacheRoot,
+  version,
+  state,
+  targetDigest,
+  sourceDigest,
+  sourceBaselineRevision = null,
+  sourceHeadRevision = null,
+  sourceBindingDigest = null,
+  pluginBundleDigest = null
+}) {
+  if (!["pending", "ready"].includes(state)) {
+    throw new Error("Plugin cache publication marker state is invalid");
+  }
+  const root = path.resolve(cacheRoot);
+  await assertDirectoryNotSymlink(root);
+  const target = publicationMarkerPath(root, version);
+  const temporary = `${target}.tmp-${randomUUID()}`;
+  const value = {
+    schemaVersion: 1,
+    state,
+    version,
+    target: path.join(root, version),
+    targetDigest,
+    sourceDigest,
+    sourceBaselineRevision,
+    sourceHeadRevision,
+    sourceBindingDigest,
+    pluginBundleDigest,
+    updatedAt: new Date().toISOString()
+  };
+  const handle = await open(temporary, "wx", 0o600);
+  try {
+    await handle.writeFile(`${JSON.stringify(value, null, 2)}\n`);
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+  await rename(temporary, target).catch(async (error) => {
+    await unlink(temporary).catch(() => undefined);
+    throw error;
+  });
+  return value;
+}
+
+export async function markPluginCacheReady({
+  cacheRoot,
+  version,
+  target,
+  targetDigest,
+  sourceDigest,
+  sourceBaselineRevision,
+  sourceHeadRevision,
+  sourceBindingDigest,
+  pluginBundleDigest
+}) {
+  const root = path.resolve(cacheRoot);
+  if (target !== path.join(root, version)) {
+    throw new Error("Plugin cache ready marker target is not canonical");
+  }
+  const actualTargetDigest = await bundleDigest(target);
+  if (actualTargetDigest !== targetDigest) {
+    throw new Error("Plugin cache ready marker target digest does not match the published target");
+  }
+  const existing = await readPublicationMarker(root, version);
+  if (existing && existing.state !== "pending" && existing.state !== "ready") {
+    throw new Error("Plugin cache ready marker has an invalid prior state");
+  }
+  if (existing?.state === "pending" && existing.targetDigest !== targetDigest) {
+    throw new Error("Plugin cache ready marker is bound to a different target digest");
+  }
+  return writePublicationMarker({
+    cacheRoot: root,
+    version,
+    state: "ready",
+    targetDigest,
+    sourceDigest,
+    sourceBaselineRevision,
+    sourceHeadRevision,
+    sourceBindingDigest,
+    pluginBundleDigest
+  });
+}
+
+export async function removeUnreadyPluginCachePublication({ cacheRoot, version, target, targetDigest }) {
+  const root = path.resolve(cacheRoot);
+  if (target !== path.join(root, version)) {
+    throw new Error("Plugin cache cleanup target is not canonical");
+  }
+  const marker = await readPublicationMarker(root, version);
+  if (!marker || marker.state !== "pending" || marker.targetDigest !== targetDigest) {
+    throw new Error("Refusing to remove a cache target without its pending publication marker");
+  }
+  const actualTargetDigest = await bundleDigest(target);
+  if (actualTargetDigest !== targetDigest) {
+    throw new Error("Refusing to remove a cache target whose digest changed");
+  }
+  await rm(target, { recursive: true, force: false });
+  await unlink(publicationMarkerPath(root, version));
+  return { removed: true, target, marker: publicationMarkerPath(root, version) };
+}
+
 async function assertExpectedSourceBinding(sourceRoot, expected, bundle = null) {
   if (!expected) return { sourceBinding: null, bundleDigest: bundle ?? await bundleDigest(sourceRoot) };
   // Source bindings are repository-level records. Publishing is invoked with the
@@ -335,6 +452,12 @@ export async function publishPluginCache({
   await assertExpectedSourceBinding(sourceRoot, expected);
   const before = await checkPluginCache({ sourceRoot, cacheRoot });
   if (before.ok) {
+    if (expected) {
+      const marker = await readPublicationMarker(cacheRoot, before.version);
+      if (marker?.state === "pending") {
+        throw new Error("Plugin cache version has an incomplete pending publication");
+      }
+    }
     await assertExpectedSourceBinding(sourceRoot, expected);
     return { ...before, applied: false, noOp: true };
   }
@@ -373,6 +496,12 @@ export async function publishPluginCache({
     }
     await assertExpectedSourceBinding(sourceRoot, expected, lockedBefore.sourceDigest);
     if (lockedBefore.ok) {
+      if (expected) {
+        const marker = await readPublicationMarker(resolvedCacheRoot, lockedBefore.version);
+        if (marker?.state === "pending") {
+          throw new Error("Plugin cache version has an incomplete pending publication");
+        }
+      }
       await assertExpectedSourceBinding(sourceRoot, expected);
       return { ...lockedBefore, applied: false, noOp: true };
     }
@@ -401,6 +530,17 @@ export async function publishPluginCache({
       throw new Error(`Plugin cache target appeared during publication: ${lockedBefore.target}`);
     }
     await assertExpectedSourceBinding(sourceRoot, expected, expectedBundleDigest);
+    await writePublicationMarker({
+      cacheRoot: resolvedCacheRoot,
+      version: lockedBefore.version,
+      state: "pending",
+      targetDigest: expectedBundleDigest,
+      sourceDigest: expectedBundleDigest,
+      sourceBaselineRevision: expected?.sourceBaselineRevision ?? null,
+      sourceHeadRevision: expected?.sourceHeadRevision ?? null,
+      sourceBindingDigest: expected?.sourceBindingDigest ?? null,
+      pluginBundleDigest: expected?.pluginBundleDigest ?? expectedBundleDigest
+    });
     if (beforeRename) await beforeRename({ target: lockedBefore.target, sourceBinding: expected });
     await rename(stage, lockedBefore.target);
     publishedTarget = true;
@@ -409,6 +549,7 @@ export async function publishPluginCache({
     if (targetDigest !== expectedBundleDigest) {
       throw new Error("Published plugin cache failed exact target verification");
     }
+    await assertExpectedSourceBinding(sourceRoot, expected, targetDigest);
     // An expected handoff is an immutable commit snapshot. The source checkout
     // may advance after the last pre-rename check; that cannot change the bytes
     // already staged from the reviewed commit. Provider reconciliation performs
@@ -434,6 +575,7 @@ export async function publishPluginCache({
         rollbackError = candidate;
       }
     }
+    await unlink(publicationMarkerPath(resolvedCacheRoot, before.version)).catch(() => undefined);
     await rm(stage, { recursive: true, force: true }).catch(() => undefined);
     if (rollbackError) {
       throw new AggregateError(

@@ -8,6 +8,7 @@ import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
 import {
   checkPluginCache,
+  removeUnreadyPluginCachePublication,
   publishPluginCache
 } from "../plugins/better-workflows/scripts/lib/publication.mjs";
 import {
@@ -101,6 +102,7 @@ async function main() {
       sourceHeadRevision: payload.sourceHeadRevision
     };
     let consumed = null;
+    let publication = null;
     let reconciled = false;
     try {
       const consumedResult = await runSbw([
@@ -114,7 +116,7 @@ async function main() {
       ) {
         throw new Error("Consumed action token is not bound to this exact plugin cache handoff");
       }
-      const publication = await publishPluginCache({
+      publication = await publishPluginCache({
         sourceRoot,
         cacheRoot,
         expectedSourceBinding
@@ -321,6 +323,18 @@ async function main() {
           error.message = `${error.message}; unknown reconciliation failed: ${reconcileError.message}`;
         } finally {
           await rm(receiptFile, { force: true }).catch(() => undefined);
+        }
+      }
+      if (publication?.applied && !reconciled) {
+        try {
+          await removeUnreadyPluginCachePublication({
+            cacheRoot,
+            version: publication.version,
+            target: publication.target,
+            targetDigest: publication.targetDigest
+          });
+        } catch (cleanupError) {
+          error.message = `${error.message}; unready cache cleanup failed: ${cleanupError.message}`;
         }
       }
       throw error;

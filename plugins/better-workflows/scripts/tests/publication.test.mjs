@@ -8,6 +8,7 @@ import { promisify } from "node:util";
 import {
   bundleDigest,
   checkPluginCache,
+  markPluginCacheReady,
   publishPluginCache
 } from "../lib/publication.mjs";
 import { captureSourceBinding } from "../lib/git.mjs";
@@ -56,6 +57,17 @@ test("plugin cache publication stages a new immutable version and verifies exact
   const published = await publishPluginCache({ sourceRoot, cacheRoot });
   assert.equal(published.ok, true);
   assert.equal(published.applied, true);
+  await markPluginCacheReady({
+    cacheRoot,
+    version: published.version,
+    target: published.target,
+    targetDigest: published.targetDigest,
+    sourceDigest: published.sourceDigest,
+    sourceBaselineRevision: null,
+    sourceHeadRevision: null,
+    sourceBindingDigest: null,
+    pluginBundleDigest: published.sourceDigest
+  });
   const noOp = await publishPluginCache({ sourceRoot, cacheRoot });
   assert.equal(noOp.noOp, true);
   assert.deepEqual(
@@ -171,21 +183,23 @@ test("plugin cache publication uses the reviewed commit snapshot across a pre-re
   const sourceBinding = await captureSourceBinding(repositoryRoot, { baseRevision: baseline, requireClean: true });
   const pluginBundleDigest = await bundleDigest(sourceRoot);
   const cacheRoot = path.join(await mkdtemp(path.join(os.tmpdir(), "sbw-publication-snapshot-")), "cache");
-  const published = await publishPluginCache({
-    sourceRoot,
-    cacheRoot,
-    expectedSourceBinding: {
-      pluginBundleDigest,
-      sourceBaselineRevision: baseline,
-      sourceBindingDigest: sourceBinding.digest,
-      sourceHeadRevision: sourceBinding.headRevision
-    },
-    beforeRename: async () => {
-      await writeFile(path.join(repositoryRoot, "outside-plugin.txt"), "interleaving commit\n");
-      await git(repositoryRoot, "add", "outside-plugin.txt");
-      await git(repositoryRoot, "commit", "-qm", "advance unrelated repository head during publication");
-    }
-  });
-  assert.equal(published.ok, true);
-  assert.equal(await bundleDigest(path.join(cacheRoot, published.version)), pluginBundleDigest);
+  await assert.rejects(
+    publishPluginCache({
+      sourceRoot,
+      cacheRoot,
+      expectedSourceBinding: {
+        pluginBundleDigest,
+        sourceBaselineRevision: baseline,
+        sourceBindingDigest: sourceBinding.digest,
+        sourceHeadRevision: sourceBinding.headRevision
+      },
+      beforeRename: async () => {
+        await writeFile(path.join(sourceRoot, "payload.txt"), "interleaving plugin commit\n");
+        await git(repositoryRoot, "add", "plugins/better-workflows/payload.txt");
+        await git(repositoryRoot, "commit", "-qm", "advance plugin source during publication");
+      }
+    }),
+    /source binding changed after self-improve handoff/
+  );
+  assert.deepEqual(await readdir(cacheRoot), []);
 });

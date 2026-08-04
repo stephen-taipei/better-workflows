@@ -4626,6 +4626,20 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
     }
     await verifyProviderReceipt(manifest, { ...record, outcome }, receipt);
     await reserveProviderExecution(root, record, receipt.providerReceipt.executionId, outcome);
+    if (record.action === "plugin.cache.publish" && outcome === "success") {
+      const { markPluginCacheReady } = await import("./publication.mjs");
+      await markPluginCacheReady({
+        cacheRoot: receipt.providerReceipt.cacheRoot,
+        version: receipt.providerReceipt.version,
+        target: receipt.providerReceipt.target,
+        targetDigest: receipt.providerReceipt.targetDigest,
+        sourceDigest: receipt.providerReceipt.sourceDigest,
+        sourceBaselineRevision: receipt.providerReceipt.sourceBaselineRevision,
+        sourceHeadRevision: receipt.providerReceipt.sourceHeadRevision,
+        sourceBindingDigest: receipt.providerReceipt.sourceBindingDigest,
+        pluginBundleDigest: receipt.providerReceipt.pluginBundleDigest
+      });
+    }
     const target = safeJoin(runDir, "actions", `${record.tokenHash}.json`);
     const next = {
       ...record,

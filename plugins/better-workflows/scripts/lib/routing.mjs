@@ -341,10 +341,28 @@ async function installedSkillPath(skill, { cwd, env = process.env } = {}) {
     const marketplaceRoot = path.join(cacheRoot, marketplace.name);
     const plugins = await readdir(marketplaceRoot, { withFileTypes: true }).catch(() => []);
     for (const plugin of plugins.filter((entry) => entry.isDirectory()).slice(0, 64)) {
-      const pluginCacheRoot = path.join(marketplaceRoot, plugin.name);
-      const versions = await readdir(pluginCacheRoot, { withFileTypes: true }).catch(() => []);
-      for (const version of versions.filter((entry) => entry.isDirectory()).slice(0, 32)) {
-        const candidate = path.join(pluginCacheRoot, version.name, "skills", shortName, "SKILL.md");
+    const pluginCacheRoot = path.join(marketplaceRoot, plugin.name);
+    const versions = await readdir(pluginCacheRoot, { withFileTypes: true }).catch(() => []);
+    for (const version of versions.filter((entry) => entry.isDirectory()).slice(0, 32)) {
+      const marker = await readSafeJson(
+        pluginCacheRoot,
+        path.join(pluginCacheRoot, `${version.name}.ready.json`),
+        { allowMissing: true }
+      );
+      if (
+        marker &&
+        (marker.schemaVersion !== 1 || marker.state !== "ready" || marker.version !== version.name ||
+          marker.target !== path.join(pluginCacheRoot, version.name) ||
+          typeof marker.targetDigest !== "string")
+      ) continue;
+      if (marker) {
+        try {
+          if (await bundleDigest(path.join(pluginCacheRoot, version.name)) !== marker.targetDigest) continue;
+        } catch {
+          continue;
+        }
+      }
+      const candidate = path.join(pluginCacheRoot, version.name, "skills", shortName, "SKILL.md");
         try {
           const info = await lstat(candidate);
           if (info.isFile() && !info.isSymbolicLink()) return candidate;
