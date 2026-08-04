@@ -829,7 +829,7 @@ async function validateRunAs(request) {
   return { uid: request.uid, gid: request.gid, homePath, codexHomePath };
 }
 
-async function executeResultRequest(requestPath, confirmedDigest, { includeResponse = false } = {}) {
+async function executeResultRequest(requestPath, confirmedDigest, { includeResponse = false, commandArgs = null } = {}) {
   requireRoot();
   await requireInstalledCapability("execution-witness");
   if (!SHA256.test(confirmedDigest)) throw new Error("confirmed execution request digest must be SHA-256");
@@ -930,11 +930,12 @@ async function executeResultRequest(requestPath, confirmedDigest, { includeRespo
       required: ["results"],
       properties: { results: { type: "array" } }
     }), { mode: 0o644 });
-    result = await spawnCapture(stagedBinaryPath, [
+    const args = commandArgs ?? [
       "exec", "--ignore-user-config", "--ignore-rules", "--ephemeral", "--sandbox", "read-only", "--skip-git-repo-check",
       "-C", bundle, "--output-schema", schemaPath,
       "-m", request.model, "-c", "model_reasoning_effort=\"high\"", "-"
-    ], (() => {
+    ];
+    result = await spawnCapture(stagedBinaryPath, args, (() => {
       const env = safeEnvironment({ HOME: runAs.homePath });
       delete env.CODEX_HOME;
       if (runAs.codexHomePath) env.CODEX_HOME = runAs.codexHomePath;
@@ -1068,7 +1069,7 @@ async function executeResultRequest(requestPath, confirmedDigest, { includeRespo
     receiptPath: targets.receipt,
     attestationPath: targets.attestation,
     ledgerPath: targets.ledger,
-    ...(includeResponse ? { response, executionCwd: bundle } : {})
+    ...(includeResponse ? { response, executionCwd: bundle, executionBinaryPath: stagedBinaryPath } : {})
   };
 }
 
@@ -1205,7 +1206,7 @@ async function runReadinessProbe({ uid, gid, homePath, codexHomePath = null }) {
   await exclusiveWrite(promptPath, promptBytes, 0o600);
   await exclusiveWrite(requestPath, requestBytes, 0o600);
   try {
-    const result = await executeResultRequest(requestPath, await digest(requestBytes), { includeResponse: true });
+    const result = await executeResultRequest(requestPath, await digest(requestBytes), { includeResponse: true, commandArgs: [] });
     const probe = result.response?.probe;
     const expectedEnvironment = Object.entries(safeEnvironment({
       HOME: homePath,
@@ -1214,7 +1215,7 @@ async function runReadinessProbe({ uid, gid, homePath, codexHomePath = null }) {
     const actualEnvironment = Array.isArray(probe?.environment) ? probe.environment.slice().sort() : null;
     if (!probe || probe.uid !== uid || probe.euid !== uid || probe.gid !== gid || probe.egid !== gid ||
         !Array.isArray(probe.supplementaryGroups) || probe.supplementaryGroups.length !== 0 ||
-        probe.cwd !== result.executionCwd || probe.argv0 !== EXECUTION_PROBE ||
+        probe.cwd !== result.executionCwd || probe.argv0 !== result.executionBinaryPath ||
         canonicalJson(actualEnvironment) !== canonicalJson(expectedEnvironment)) {
       throw new Error("Host readiness probe did not prove the requested identity, cwd, empty supplementary groups, and fixed environment");
     }

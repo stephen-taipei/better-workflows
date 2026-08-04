@@ -1,4 +1,6 @@
+import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
+import { promisify } from "node:util";
 import { mkdir, realpath, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
@@ -18,20 +20,40 @@ import {
 import { binaryIdentity } from "./providers.mjs";
 
 const HOST_TRUST_TOOL = "/private/var/db/better-workflows/bin/bw-host-trust.mjs";
+const execFileAsync = promisify(execFile);
+const HOST_RUNTIME_ROOT = "/private/var/db/better-workflows/bin";
 const HOST_ADMIN_SHELL = [
   "set -eu",
-  "runtime=\"$1\"",
-  "expected=\"$2\"",
-  "manifest=\"$3\"",
-  "manifest_digest=\"$4\"",
-  "target=\"/private/var/db/better-workflows/bin/bw-host-node.$expected\"",
-  "actual=$(/usr/bin/shasum -a 256 \"$runtime\" | /usr/bin/awk '{print $1}')",
-  "[ \"$actual\" = \"$expected\" ] || { echo 'runtime digest mismatch before staging' >&2; exit 126; }",
-  "if [ -e \"$target\" ]; then [ ! -L \"$target\" ] && [ -f \"$target\" ] && [ \"$(/usr/bin/stat -f %u \"$target\")\" = \"0\" ] && [ \"$(/usr/bin/stat -f %Lp \"$target\")\" = \"755\" ] || { echo 'existing runtime target is not root-owned 0755' >&2; exit 126; }; else /bin/cp \"$runtime\" \"$target\"; /usr/sbin/chown root:wheel \"$target\"; /bin/chmod 755 \"$target\"; fi",
+  "runtime_digest=\"$1\"",
+  "manifest=\"$2\"",
+  "manifest_digest=\"$3\"",
+  "printf '%s\\n' \"$runtime_digest\" | /usr/bin/grep -Eq '^[a-f0-9]{64}$' || { echo 'runtime digest is not a SHA-256 value' >&2; exit 126; }",
+  `target=\"${HOST_RUNTIME_ROOT}/bw-host-node.$runtime_digest\"`,
+  "[ ! -L \"$target\" ] && [ -f \"$target\" ] && [ \"$(/usr/bin/stat -f %u \"$target\")\" = \"0\" ] && [ \"$(/usr/bin/stat -f %Lp \"$target\")\" = \"755\" ] || { echo 'administrator runtime target is not root-owned 0755' >&2; exit 126; }",
   "actual=$(/usr/bin/shasum -a 256 \"$target\" | /usr/bin/awk '{print $1}')",
-  "[ \"$actual\" = \"$expected\" ] || { echo 'root runtime digest mismatch after staging' >&2; exit 126; }",
+  "[ \"$actual\" = \"$runtime_digest\" ] || { echo 'administrator runtime digest mismatch' >&2; exit 126; }",
   "exec /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin \"$target\" \"${HOST_TRUST_TOOL}\" execute-batch --manifest \"$manifest\" --confirm-digest \"$manifest_digest\""
 ].join("\n");
+
+async function installedRuntime() {
+  let status;
+  try {
+    const result = await execFileAsync(process.execPath, [HOST_TRUST_TOOL, "status"], {
+      encoding: "utf8",
+      env: { PATH: "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" },
+      maxBuffer: 1024 * 1024
+    });
+    status = JSON.parse(result.stdout);
+  } catch (error) {
+    throw new Error(`Administrator host status is unavailable; run host-trust upgrade first: ${error.message}`);
+  }
+  const runtime = status?.runtime;
+  if (!status.ready || !runtime?.supported || typeof runtime.path !== "string" || !/^[a-f0-9]{64}$/.test(runtime.digest ?? "") ||
+      runtime.path !== `${HOST_RUNTIME_ROOT}/bw-host-node.${runtime.digest}`) {
+    throw new Error("Administrator host runtime is not ready; install the fixed root-owned runtime, launcher, probe, and signer before generating replay requests");
+  }
+  return { path: runtime.path, digest: runtime.digest };
+}
 
 export async function generateAttestationRequests({
   repo,
@@ -49,7 +71,7 @@ export async function generateAttestationRequests({
   const binary = binaryPath
     ? await binaryIdentity(binaryPath)
     : await binaryIdentity("codex");
-  const runtime = await binaryIdentity(process.execPath);
+  const runtime = await installedRuntime();
   const resolvedBinary = binary.path;
   if (binaryPath && resolvedBinary !== binaryPath) {
     throw new Error("Codex binary argument must already be canonical");
@@ -221,7 +243,6 @@ export async function generateAttestationRequests({
       "-c",
       HOST_ADMIN_SHELL,
       "better-workflows-admin",
-      runtime.path,
       runtime.digest,
       manifestPath,
       createHash("sha256").update(manifestBytes).digest("hex")

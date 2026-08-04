@@ -75,6 +75,8 @@ test("host trust helper fixes authority paths and does not accept environment pa
   assert.match(launcher, /setgroups\(0, NULL\)/);
   assert.match(launcher, /getpwuid/);
   assert.match(launcher, /getgroups\(0, NULL\)/);
+  assert.match(launcher, /argc - 8/);
+  assert.doesNotMatch(launcher, /argc == 10/);
   assert.match(launcher, /execve\(/);
   assert.match(launcher, /root-owned 0755/);
   const probe = await readFile(path.join(path.dirname(SCRIPT), "host-execution-probe.c"), "utf8");

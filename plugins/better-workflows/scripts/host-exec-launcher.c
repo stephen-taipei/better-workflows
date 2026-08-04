@@ -44,7 +44,7 @@ int main(int argc, char **argv, char **envp) {
   if (geteuid() != 0 || getuid() != 0) fail("launcher must start with administrator authority");
   if (argc < 10 || strcmp(argv[1], "--uid") != 0 || strcmp(argv[3], "--gid") != 0 ||
       strcmp(argv[5], "--cwd") != 0 || strcmp(argv[7], "--binary") != 0 ||
-      strcmp(argv[9], "--") != 0 || argc == 10) {
+      strcmp(argv[9], "--") != 0) {
     fail("usage: launcher --uid <uid> --gid <gid> --cwd <dir> --binary <file> -- <argv>");
   }
 
@@ -67,7 +67,7 @@ int main(int argc, char **argv, char **envp) {
   if (geteuid() != uid || getegid() != gid) fail("requested run-as identity was not applied");
   if (getgroups(0, NULL) != 0) fail("supplementary groups were not cleared");
 
-  char **child_argv = calloc((size_t)(argc - 9), sizeof(char *));
+  char **child_argv = calloc((size_t)(argc - 8), sizeof(char *));
   if (child_argv == NULL) fail("cannot allocate child argv");
   child_argv[0] = (char *)binary;
   for (int index = 10; index < argc; index += 1) child_argv[index - 9] = argv[index];

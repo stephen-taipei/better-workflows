@@ -122,8 +122,8 @@ fixed `/usr/bin/clang`, rejects non-Mach-O artifacts, and uses a digest-bound,
 root-owned Node runtime plus a native launcher that proves empty supplementary
 groups before applying the requested non-root identity; do not sudo the
 maintainer's `process.execPath` directly. The generated batch command clears
-the environment, verifies the existing runtime target's owner/mode, and
-hash-checks and stages that runtime. The host signs the confirmed request digest
+the environment, verifies the existing runtime target's owner/mode and digest,
+and executes only that already-installed runtime. The host signs the confirmed request digest
 and run-as identity into the attestation, receipt, envelope, and ledger.
 
 After freezing a candidate, generate seven run-specific requests outside the

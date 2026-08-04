@@ -127,10 +127,11 @@ prior artifact digests proven, without rotating keys.
 After the candidate is frozen, use `sbw self-improve attestation request` with
 the exact run, baseline, candidate root, model, and a new directory outside the
 repository. It produces seven prompt-bound execution requests, their manifest
-digest, runtime digest, and an exact batch `executeCommand`. That command first
-hash-checks and stages the runtime into the fixed root-owned host directory,
-then invokes the installed, capability-checked signer; the writable candidate
-checkout is never executed with administrator privileges.
+digest, the already-installed fixed runtime digest, and an exact batch
+`executeCommand`. That command verifies the pre-installed root-owned runtime
+target and invokes the installed, capability-checked signer; it never stages or
+executes a maintainer-selected runtime, and the writable candidate checkout is
+never executed with administrator privileges.
 
 ```sh
 sbw self-improve evaluate \

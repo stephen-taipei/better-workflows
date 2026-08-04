@@ -337,6 +337,7 @@ test("self-improve attestation request freezes seven distinct requests outside t
   await writeFile(path.join(cwd, "plugins", "better-workflows", "scripts", "sbw.mjs"), "export const candidate = true;\n");
   const parent = await mkdtemp(path.join(os.tmpdir(), "sbw-attestation-output-"));
   const output = path.join(parent, "requests");
+  const hostStatus = await cli(cwd, stateRoot, ["self-improve", "host", "status"]);
   const requested = await cli(cwd, stateRoot, [
     "self-improve",
     "attestation",
@@ -353,7 +354,11 @@ test("self-improve attestation request freezes seven distinct requests outside t
     process.execPath,
     "--output",
     output
-  ]);
+  ], { allowFailure: hostStatus.json.ready !== true });
+  if (hostStatus.json.ready !== true) {
+    assert.match(requested.stderr, /Administrator host runtime is not ready|host-trust upgrade first/);
+    return;
+  }
   assert.equal(requested.json.requests.length, 7);
   assert.equal(new Set(requested.json.requests.map((item) => item.executionId)).size, 7);
   assert.equal(requested.json.purpose, "ordinary");

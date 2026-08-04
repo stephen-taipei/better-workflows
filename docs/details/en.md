@@ -368,7 +368,7 @@ digests proven, without rotating keys.
 After a candidate is frozen, generate all seven distinct requests outside the
 repository. The output includes a manifest digest and an exact `executeCommand`;
 the administrator reviews both before running that one host-execution command;
-the command hash-checks and stages the runtime into the fixed root-owned host
+the command verifies the already-installed runtime in the fixed root-owned host
 directory before invoking the signer:
 
 ```bash
