@@ -251,10 +251,15 @@ async function highRiskIgnored(cwd, requested, budget) {
   return digestPaths(cwd, paths, budget, []);
 }
 
-export async function captureSourceBinding(cwd, { baseRevision = null } = {}) {
+export async function captureSourceBinding(cwd, { baseRevision = null, requireClean = false } = {}) {
   const repository = await realpath(path.resolve(cwd));
   if (!(await isGitRepository(repository))) return null;
 
+  const worktreeStatus = (await git(repository, ["status", "--porcelain=v2", "-z", "--untracked-files=all", "--ignored"])).stdout;
+  const worktreeClean = worktreeStatus.length === 0;
+  if (requireClean && !worktreeClean) {
+    throw new Error("Source binding requires a clean index, tracked worktree, untracked surface, and ignored surface");
+  }
   const headRevision = (await git(repository, ["rev-parse", "HEAD"])).stdout.trim();
   const repositoryRoot = await realpath((await git(repository, ["rev-parse", "--show-toplevel"])).stdout.trim());
   const gitDir = await realpath(path.resolve(repository, (await git(repository, ["rev-parse", "--git-dir"])).stdout.trim()));
@@ -324,6 +329,8 @@ export async function captureSourceBinding(cwd, { baseRevision = null } = {}) {
     symbolicRefs: { head: headRef, originHead: originHeadRef },
     baseRevision: resolvedBaseRevision,
     headRevision,
+    worktreeClean,
+    worktreeStatusDigest: sha256(worktreeStatus),
     diffManifestDigest
   };
   return { ...stable, digest: sha256(canonicalJson(stable)) };

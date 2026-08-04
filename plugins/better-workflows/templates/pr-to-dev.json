@@ -73,7 +73,8 @@
     "protected-merge-no-admin-bypass",
     "remote-reconciliation-before-cleanup",
     "exact-run-owned-cleanup",
-    "unknown-provider-state-fails-closed"
+    "unknown-provider-state-fails-closed",
+    "delegated-self-improve-handoff-when-bound"
   ],
   "actionGates": {
     "git.commit": ["change-inventory", "commit-plan", "patch-review", "repo-gates"],

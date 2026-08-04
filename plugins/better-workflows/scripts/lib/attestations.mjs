@@ -114,7 +114,7 @@ export async function generateAttestationRequests({
   nextCasesFile = null
 }) {
   const resolvedRepo = await realpath(repo);
-  const sourceBinding = await captureSourceBinding(resolvedRepo, { baseRevision: baselineRevision });
+  const sourceBinding = await captureSourceBinding(resolvedRepo, { baseRevision: baselineRevision, requireClean: true });
   if (!sourceBinding?.headRevision || !sourceBinding.digest) {
     throw new Error("Attestation requests require an exact Git source binding");
   }

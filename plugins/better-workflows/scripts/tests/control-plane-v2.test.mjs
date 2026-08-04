@@ -125,9 +125,9 @@ async function gateRecord(run, kind, payload, id = kind) {
   };
 }
 
-test("typed catalog covers exactly the 98 installed evidence kinds", async () => {
+test("typed catalog covers exactly the 99 installed evidence kinds", async () => {
   const contracts = await loadEvidenceContracts({ refresh: true });
-  assert.equal(Object.keys(contracts).length, 98);
+  assert.equal(Object.keys(contracts).length, 99);
   assert.ok(contracts["remote-sync"]);
 });
 

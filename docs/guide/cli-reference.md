@@ -27,6 +27,11 @@ sbw route profile show
 
 ```bash
 sbw run --template <template> --mode <mode> --goal "<goal>" --scope <path>
+sbw run --template self-improve-ops --mode critical --goal "<goal>" \
+  --scope <path> --baseline <immutable-baseline-sha>
+sbw run --template pr-to-dev --mode critical --goal "<goal>" --scope <path> \
+  --self-improve-run <self-improve-run-id>
+sbw self-improve handoff <pr-to-dev-run-id> --source-run <self-improve-run-id>
 sbw run --route-receipt <route-receipt-id>
 sbw status <run-id>
 sbw resume <run-id>
@@ -179,9 +184,11 @@ also requires `--request-manifest` and its administrator-confirmed
 journal and every request digest/run-as tuple against that manifest.
 
 Self-improve does not issue commit, cache-publication, push, merge, or cleanup
-tokens. After replay evidence is accepted, use `$better-workflows:pr-to-dev` for
-atomic commits and the `dev` PR, then run the immutable cache publisher as its
-own reconciled delivery step.
+tokens. After replay evidence is accepted, create the delegated `pr-to-dev`
+run with `--self-improve-run`, record the typed `self-improve-delivery-handoff`,
+and only then use the governed atomic-commit/`dev` PR flow and immutable cache
+publisher. The handoff is bound to the clean exact source HEAD and all seven
+trusted replay witnesses.
 
 ## Repository validation
 

@@ -14,6 +14,13 @@ async function git(cwd, ...args) {
   await execFileAsync("git", args, { cwd, encoding: "utf8" });
 }
 
+async function revision(cwd, name = "HEAD") {
+  return (await execFileAsync("git", ["rev-parse", "--verify", `${name}^{commit}`], {
+    cwd,
+    encoding: "utf8"
+  })).stdout.trim();
+}
+
 async function repository() {
   const cwd = await mkdtemp(path.join(os.tmpdir(), "sbw-cli-repo-"));
   await git(cwd, "init", "-q", "-b", "dev");
@@ -201,11 +208,14 @@ test("self-improve fixture evaluation is explicit, private, and never grants del
   const cwd = await selfImproveRepository();
   const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-cli-self-improve-state-"));
   await writeFile(path.join(cwd, "plugins", "better-workflows", "scripts", "candidate.mjs"), "export const candidate = 'safe';\n");
+  await git(cwd, "add", "plugins/better-workflows/scripts/candidate.mjs");
+  await git(cwd, "commit", "-qm", "stage candidate");
+  const baseline = await revision(cwd, "HEAD~");
   const started = await cli(cwd, stateRoot, [
-    "run", "--template", "self-improve-ops", "--mode", "critical", "--goal", "Improve validation", "--scope", ".", "--authority", "git.commit"
+    "run", "--template", "self-improve-ops", "--mode", "critical", "--goal", "Improve validation", "--scope", ".", "--baseline", baseline, "--authority", "git.commit"
   ]);
   const fixture = await fixtureResult(cwd);
-  const common = ["self-improve", "evaluate", "--run", started.json.runId, "--cases", "plugins/better-workflows/fixtures/self-improve-ops-evals.json", "--baseline", "HEAD", "--candidate-root", ".", "--backend", "fixture", "--result-file", fixture];
+  const common = ["self-improve", "evaluate", "--run", started.json.runId, "--cases", "plugins/better-workflows/fixtures/self-improve-ops-evals.json", "--baseline", baseline, "--candidate-root", ".", "--backend", "fixture", "--result-file", fixture];
   const missingFlag = await cli(cwd, stateRoot, [...common, "--split", "train"], { allowFailure: true });
   assert.match(missingFlag.stderr, /test-only/);
   const train = await cli(cwd, stateRoot, [...common, "--split", "train"], { env: { SBW_TEST_FIXTURE_BACKEND: "1" } });
@@ -219,12 +229,34 @@ test("self-improve fixture evaluation is explicit, private, and never grants del
   assert.match(delivery.stderr, /Governed action is deferred/);
 });
 
+test("delegated pr-to-dev runs require the typed self-improve handoff gate", async () => {
+  const cwd = await selfImproveRepository();
+  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-cli-self-improve-handoff-"));
+  const baseline = await revision(cwd);
+  const source = await cli(cwd, stateRoot, [
+    "run", "--template", "self-improve-ops", "--mode", "critical", "--goal", "Prepare delivery", "--scope", ".", "--baseline", baseline
+  ]);
+  const target = await cli(cwd, stateRoot, [
+    "run", "--template", "pr-to-dev", "--mode", "critical", "--goal", "Deliver accepted improvement", "--scope", ".", "--self-improve-run", source.json.runId
+  ]);
+  const contract = JSON.parse(await readFile(path.join(stateRoot, "runs", target.json.runId, "contract.json"), "utf8"));
+  assert.equal(contract.upstreamSelfImproveRunId, source.json.runId);
+  assert.ok(contract.requiredEvidence.includes("self-improve-delivery-handoff"));
+  for (const action of ["git.commit", "git.push", "pr.create", "pr.merge", "remote.sync", "worktree.cleanup"]) {
+    assert.ok(contract.actionGates[action].includes("self-improve-delivery-handoff"), action);
+  }
+  assert.ok(contract.executionStages.find((stage) => stage.id === "commits").requiredEvidence.includes("self-improve-delivery-handoff"));
+});
+
 test("evaluator migration binds immutable source and target suites, calibration, and a dedicated comparison policy", async () => {
   const cwd = await selfImproveRepository();
   const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-cli-evaluator-migration-"));
   await writeFile(path.join(cwd, "plugins", "better-workflows", "scripts", "sbw.mjs"), "export const candidate = 'evaluation-v2';\n");
+  await git(cwd, "add", "plugins/better-workflows/scripts/sbw.mjs");
+  await git(cwd, "commit", "-qm", "stage evaluator candidate");
+  const baseline = await revision(cwd, "HEAD~");
   const started = await cli(cwd, stateRoot, [
-    "run", "--template", "self-improve-ops", "--mode", "critical", "--goal", "Migrate evaluator", "--scope", ".", "--authority", "git.commit"
+    "run", "--template", "self-improve-ops", "--mode", "critical", "--goal", "Migrate evaluator", "--scope", ".", "--baseline", baseline, "--authority", "git.commit"
   ]);
   const fixture = await fixtureResult(cwd, "self-improve-ops-evals-v2.1.json");
   const common = [
@@ -233,7 +265,7 @@ test("evaluator migration binds immutable source and target suites, calibration,
     "--cases", "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.1.json",
     "--next-cases", "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.2.json",
     "--purpose", "evaluator-migration",
-    "--baseline", "HEAD",
+    "--baseline", baseline,
     "--candidate-root", ".",
     "--backend", "fixture",
     "--result-file", fixture
@@ -249,15 +281,18 @@ test("evaluator migration binds immutable source and target suites, calibration,
 test("ordinary evaluator resume pins legacy runs while new runs require the new canonical corpus", async () => {
   const legacyCwd = await selfImproveRepository({ includeV22: false });
   const legacyStateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-cli-evaluator-reader-legacy-"));
-  const legacy = await cli(legacyCwd, legacyStateRoot, [
-    "run", "--template", "self-improve-ops", "--mode", "critical", "--goal", "Resume v2.1 evaluation", "--scope", "."
-  ]);
   await writeFile(path.join(legacyCwd, "plugins", "better-workflows", "scripts", "sbw.mjs"), "export const candidate = 'legacy-reader';\n");
+  await git(legacyCwd, "add", "plugins/better-workflows/scripts/sbw.mjs");
+  await git(legacyCwd, "commit", "-qm", "stage legacy candidate");
+  const legacyBaseline = await revision(legacyCwd, "HEAD~");
+  const legacy = await cli(legacyCwd, legacyStateRoot, [
+    "run", "--template", "self-improve-ops", "--mode", "critical", "--goal", "Resume v2.1 evaluation", "--scope", ".", "--baseline", legacyBaseline
+  ]);
   const legacyAdmission = await cli(legacyCwd, legacyStateRoot, [
     "self-improve", "evaluate",
     "--run", legacy.json.runId,
     "--cases", "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.1.json",
-    "--baseline", "HEAD",
+    "--baseline", legacyBaseline,
     "--candidate-root", ".",
     "--backend", "codex",
     "--model", "gpt-5.6-sol",
@@ -271,15 +306,18 @@ test("ordinary evaluator resume pins legacy runs while new runs require the new 
 
   const currentCwd = await selfImproveRepository();
   const currentStateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-cli-evaluator-reader-current-"));
-  const current = await cli(currentCwd, currentStateRoot, [
-    "run", "--template", "self-improve-ops", "--mode", "critical", "--goal", "Require v2.2 evaluation", "--scope", "."
-  ]);
   await writeFile(path.join(currentCwd, "plugins", "better-workflows", "scripts", "sbw.mjs"), "export const candidate = 'current-reader';\n");
+  await git(currentCwd, "add", "plugins/better-workflows/scripts/sbw.mjs");
+  await git(currentCwd, "commit", "-qm", "stage current candidate");
+  const currentBaseline = await revision(currentCwd, "HEAD~");
+  const current = await cli(currentCwd, currentStateRoot, [
+    "run", "--template", "self-improve-ops", "--mode", "critical", "--goal", "Require v2.2 evaluation", "--scope", ".", "--baseline", currentBaseline
+  ]);
   const rejected = await cli(currentCwd, currentStateRoot, [
     "self-improve", "evaluate",
     "--run", current.json.runId,
     "--cases", "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.1.json",
-    "--baseline", "HEAD",
+    "--baseline", currentBaseline,
     "--candidate-root", ".",
     "--backend", "codex",
     "--model", "gpt-5.6-sol",
@@ -295,18 +333,21 @@ test("self-improve evaluation fails closed when its suite or staged candidate ch
   const cwd = await selfImproveRepository();
   const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-cli-self-improve-drift-"));
   await writeFile(path.join(cwd, "plugins", "better-workflows", "scripts", "candidate.mjs"), "export const candidate = 'safe';\n");
-  const started = await cli(cwd, stateRoot, ["run", "--template", "self-improve-ops", "--mode", "critical", "--goal", "Improve validation", "--scope", "."]);
+  await git(cwd, "add", "plugins/better-workflows/scripts/candidate.mjs");
+  await git(cwd, "commit", "-qm", "stage drift candidate");
+  const baseline = await revision(cwd, "HEAD~");
+  const started = await cli(cwd, stateRoot, ["run", "--template", "self-improve-ops", "--mode", "critical", "--goal", "Improve validation", "--scope", ".", "--baseline", baseline]);
   const fixture = await fixtureResult(cwd);
-  const common = ["self-improve", "evaluate", "--run", started.json.runId, "--cases", "plugins/better-workflows/fixtures/self-improve-ops-evals.json", "--baseline", "HEAD", "--candidate-root", ".", "--backend", "fixture", "--result-file", fixture];
+  const common = ["self-improve", "evaluate", "--run", started.json.runId, "--cases", "plugins/better-workflows/fixtures/self-improve-ops-evals.json", "--baseline", baseline, "--candidate-root", ".", "--backend", "fixture", "--result-file", fixture];
   await writeFile(path.join(cwd, "plugins", "better-workflows", "scripts", "later.mjs"), "export const later = true;\n");
   await git(cwd, "add", "plugins/better-workflows/scripts/later.mjs");
   await git(cwd, "commit", "-qm", "later baseline");
   const changedBaseline = await cli(cwd, stateRoot, [...common, "--split", "train"], { allowFailure: true, env: { SBW_TEST_FIXTURE_BACKEND: "1" } });
-  assert.match(changedBaseline.stderr, /run-start baseline/);
+  assert.match(changedBaseline.stderr, /run-bound source revision|run-start baseline/);
   await cli(cwd, stateRoot, ["source", "rebind", started.json.runId, "--reason", "test commit stage completed"]);
   const pinnedCommon = [...common];
   const baselineIndex = pinnedCommon.indexOf("--baseline") + 1;
-  pinnedCommon[baselineIndex] = "HEAD~";
+  pinnedCommon[baselineIndex] = baseline;
   await cli(cwd, stateRoot, [...pinnedCommon, "--split", "train"], { env: { SBW_TEST_FIXTURE_BACKEND: "1" } });
   await writeFile(path.join(cwd, "plugins", "better-workflows", "scripts", "candidate.mjs"), "export const candidate = 'changed';\n");
   const changedCandidate = await cli(cwd, stateRoot, [...pinnedCommon, "--split", "holdout"], { allowFailure: true, env: { SBW_TEST_FIXTURE_BACKEND: "1" } });
@@ -319,10 +360,10 @@ test("self-improve evaluation fails closed when its suite or staged candidate ch
 test("self-improve attestation request freezes seven distinct requests outside the repository", async () => {
   const cwd = await selfImproveRepository();
   const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-attestation-state-"));
-  const baseline = (await execFileAsync("git", ["rev-parse", "HEAD"], {
-    cwd,
-    encoding: "utf8"
-  })).stdout.trim();
+  await writeFile(path.join(cwd, "plugins", "better-workflows", "scripts", "sbw.mjs"), "export const candidate = true;\n");
+  await git(cwd, "add", "plugins/better-workflows/scripts/sbw.mjs");
+  await git(cwd, "commit", "-qm", "stage attestation candidate");
+  const baseline = await revision(cwd, "HEAD~");
   const started = await cli(cwd, stateRoot, [
     "run",
     "--template",
@@ -332,9 +373,10 @@ test("self-improve attestation request freezes seven distinct requests outside t
     "--goal",
     "Prepare signed evaluation requests",
     "--scope",
-    "."
+    ".",
+    "--baseline",
+    baseline
   ]);
-  await writeFile(path.join(cwd, "plugins", "better-workflows", "scripts", "sbw.mjs"), "export const candidate = true;\n");
   const parent = await mkdtemp(path.join(os.tmpdir(), "sbw-attestation-output-"));
   const output = path.join(parent, "requests");
   const hostStatus = await cli(cwd, stateRoot, ["self-improve", "host", "status"]);

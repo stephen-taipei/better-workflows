@@ -85,6 +85,12 @@ async function assertPublishableSource(root) {
     // Temporary test fixtures without a tracked plugin manifest are not publishable sources.
     return;
   }
+  const worktreeStatus = (await execFileAsync("git", [
+    "-C", repositoryRoot, "status", "--porcelain=v2", "-z", "--untracked-files=all", "--ignored", "--", relativeRoot
+  ], { encoding: "utf8" })).stdout;
+  if (worktreeStatus.length > 0) {
+    throw new Error(`Plugin cache source is not a clean committed tree: ${relativeRoot}`);
+  }
   const tracked = (await execFileAsync("git", ["-C", repositoryRoot, "ls-files", "-z", "--", relativeRoot], { encoding: "utf8" })).stdout
     .split("\0").filter(Boolean);
   const [untrackedResult, ignoredResult] = await Promise.all([

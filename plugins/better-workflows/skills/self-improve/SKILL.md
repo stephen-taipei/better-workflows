@@ -138,6 +138,19 @@ source-bound self-improve run from that commit. Never commit, rebind, or change
 the plugin bundle between request generation, administrator execution, replay
 evaluation, and delivery revalidation; doing so invalidates the signed witnesses.
 
+Create that source-bound run with the immutable baseline explicitly separated
+from the committed candidate HEAD:
+
+```sh
+sbw run --template self-improve-ops --mode critical \
+  --goal "<bounded improvement goal>" --scope . \
+  --baseline <immutable-baseline-sha>
+```
+
+`--baseline` is resolved to a commit before the run is written. The run rejects
+any tracked, untracked, or ignored worktree drift; a candidate that is not yet
+committed cannot be evaluated or delivered by this workflow.
+
 After the candidate is frozen, use `sbw self-improve attestation request` with
 the exact run, baseline, candidate root, model, and a new directory outside the
 repository. It produces seven prompt-bound execution requests, their manifest
@@ -185,6 +198,24 @@ automatically adopts a candidate, commits, publishes a cache, pushes, merges,
 deploys, or performs cleanup. Its commit, cache publication, push, merge, and
 cleanup actions are deferred to the governed `pr-to-dev` and immutable-cache
 workflows.
+
+After the trusted holdout is accepted and the synchronized patch is frozen,
+delivery must be explicitly bound to that source run. Create the delegated
+delivery run and record the typed handoff before issuing any delivery action:
+
+```sh
+sbw run --template pr-to-dev --mode critical \
+  --goal "Deliver the accepted Better Workflows change" --scope . \
+  --self-improve-run <self-improve-run-id>
+sbw self-improve handoff <pr-to-dev-run-id> \
+  --source-run <self-improve-run-id>
+```
+
+The handoff binds the exact source baseline and HEAD, clean source binding,
+plugin bundle, request manifest, accepted comparison, candidate snapshot, and
+all seven distinct host witnesses. Every delegated commit, push, PR, merge,
+remote-sync, and cleanup gate requires this receipt; a generic `pr-to-dev` run
+cannot be used as a substitute for the explicitly bound delivery run.
 
 ## Keep the workflow thin and synchronized
 

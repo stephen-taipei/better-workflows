@@ -74,6 +74,7 @@ import {
   readSanitizedBaselineMaterial,
   readSanitizedCandidateMaterial,
   redactedScore,
+  resolveBaselineRevision,
   scoreEvaluation,
   selectEvaluationCases,
   snapshotBaselineForCandidate,
@@ -88,6 +89,7 @@ import {
 import { deliberateForRun } from "./lib/deliberation-receipt.mjs";
 import { loadEvidenceContracts } from "./lib/evidence.mjs";
 import { generateAttestationRequests } from "./lib/attestations.mjs";
+import { createSelfImproveDeliveryHandoff } from "./lib/self-improve-handoff.mjs";
 import { compileLedger, deriveLedgerStatus, ledgerStatus, transitionLedger } from "./lib/ledger.mjs";
 import {
   addReviewFinding,
@@ -541,7 +543,8 @@ async function refreshEvidence(root, runId) {
     const evidence = await listJsonRecords(root, safeJoin(runDir, "evidence"));
     const sourceBinding = run.manifest.sourceBinding
       ? await captureSourceBinding(run.manifest.cwd, {
-          baseRevision: run.manifest.sourceBinding.baseRevision
+          baseRevision: run.manifest.sourceBinding.baseRevision,
+          requireClean: run.manifest.template === "self-improve-ops"
         })
       : null;
     const stale = [];
@@ -803,7 +806,7 @@ async function loadHostExecutionRequestManifest({
       !Array.isArray(manifest.requests) || manifest.requests.length !== 7 || !validRunAs(manifest.runAs)) {
     throw new Error("Execution request manifest is not bound to this run, suite, model, and candidate");
   }
-  const currentSourceBinding = await captureSourceBinding(repository, { baseRevision: frozen.baselineRevision });
+  const currentSourceBinding = await captureSourceBinding(repository, { baseRevision: frozen.baselineRevision, requireClean: true });
   if (!currentSourceBinding || currentSourceBinding.headRevision !== manifest.headRevision || currentSourceBinding.digest !== manifest.sourceBindingDigest) {
     throw new Error("Execution request manifest source binding is stale");
   }
@@ -958,8 +961,19 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
       nextCasesFile: options["next-cases"] ? String(options["next-cases"]) : null
     });
   }
+  if (subcommand === "handoff") {
+    if (!nestedCommand) throw new Error("self-improve handoff requires the target pr-to-dev run id");
+    assertKnownOptions(options, ["source-run"]);
+    if (!options["source-run"]) throw new Error("self-improve handoff requires --source-run");
+    const record = await createSelfImproveDeliveryHandoff(
+      root,
+      String(nestedCommand),
+      String(options["source-run"])
+    );
+    return { ok: true, runId: String(nestedCommand), evidence: await addEvidence(root, String(nestedCommand), record) };
+  }
   if (subcommand !== "evaluate") {
-    throw new Error("self-improve subcommand must be evaluate, host, or attestation");
+    throw new Error("self-improve subcommand must be evaluate, host, attestation, or handoff");
   }
   assertKnownOptions(options, [
     "run", "cases", "baseline", "candidate-root", "backend", "split", "result-file", "model", "allow-codex", "sanitized",
@@ -996,7 +1010,7 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
   if (frozen.baselineRevision !== run.manifest.baselineRevision) {
     throw new Error("Evaluation baseline must equal the immutable run-start baseline revision");
   }
-  const currentSourceBinding = await captureSourceBinding(cwd, { baseRevision: run.manifest.baselineRevision });
+  const currentSourceBinding = await captureSourceBinding(cwd, { baseRevision: run.manifest.baselineRevision, requireClean: true });
   if (!currentSourceBinding || currentSourceBinding.digest !== run.manifest.sourceBinding?.digest || currentSourceBinding.headRevision !== run.manifest.sourceBinding?.headRevision) {
     throw new Error("Self-improve evaluation requires the exact run-bound source revision");
   }
@@ -1235,7 +1249,7 @@ async function assertAcceptedSelfImproveHoldout(root, runId, action) {
   if (currentCandidate.digest !== evaluation.candidate.digest) {
     throw new Error("Self-improve candidate changed after held-out evaluation");
   }
-  const currentSourceBinding = await captureSourceBinding(run.manifest.cwd, { baseRevision: evaluation.baselineRevision });
+  const currentSourceBinding = await captureSourceBinding(run.manifest.cwd, { baseRevision: evaluation.baselineRevision, requireClean: true });
   if (!currentSourceBinding || currentSourceBinding.headRevision !== evaluation.headRevision || currentSourceBinding.digest !== evaluation.sourceBindingDigest) {
     throw new Error("Self-improve delivery source binding changed after held-out evaluation");
   }
@@ -1362,11 +1376,13 @@ async function commandRun(root, options) {
     "volatile-exclusion",
     "high-risk-ignored",
     "remote-revision",
+    "baseline",
+    "self-improve-run",
     "route-receipt"
   ]);
   let receiptBinding = null;
   if (options["route-receipt"]) {
-    for (const conflicting of ["template", "entry", "goal", "scope", "mode"]) {
+    for (const conflicting of ["template", "entry", "goal", "scope", "mode", "self-improve-run"]) {
       if (options[conflicting] !== undefined) {
         throw new Error(`--route-receipt cannot be combined with --${conflicting}`);
       }
@@ -1384,6 +1400,22 @@ async function commandRun(root, options) {
     ? receiptBinding.preview.primary.template
     : String(options.template ?? "");
   const template = await loadTemplate(templateName);
+  if (options.baseline !== undefined && templateName !== "self-improve-ops") {
+    throw new Error("--baseline is only valid for a self-improve-ops run");
+  }
+  let upstreamSelfImproveRun = null;
+  if (options["self-improve-run"] !== undefined) {
+    if (templateName !== "pr-to-dev") {
+      throw new Error("--self-improve-run is only valid for a delegated pr-to-dev run");
+    }
+    upstreamSelfImproveRun = await loadRun(root, String(options["self-improve-run"]));
+    if (upstreamSelfImproveRun.manifest.template !== "self-improve-ops") {
+      throw new Error("--self-improve-run must identify a self-improve-ops run");
+    }
+    if (!upstreamSelfImproveRun.manifest.baselineRevision) {
+      throw new Error("Delegated pr-to-dev requires a source self-improve baseline revision");
+    }
+  }
   if (GRAPH_ENFORCEMENT_ENABLED) {
     const graph = buildTemplateGraph({
       template,
@@ -1479,6 +1511,26 @@ async function commandRun(root, options) {
   else delete contract.actionStages;
   if (template.deferredActions) contract.deferredActions = structuredClone(template.deferredActions);
   else delete contract.deferredActions;
+  if (upstreamSelfImproveRun) {
+    const handoffKind = "self-improve-delivery-handoff";
+    contract.upstreamSelfImproveRunId = String(options["self-improve-run"]);
+    contract.requiredEvidence = [...new Set([...contract.requiredEvidence, handoffKind])];
+    contract.acceptanceEvidence = Object.fromEntries(
+      Object.entries(contract.acceptanceEvidence ?? {}).map(([id, kinds]) => [
+        id,
+        [...new Set([...kinds, handoffKind])]
+      ])
+    );
+    contract.executionStages = contract.executionStages.map((stage) => stage.id === "commits"
+      ? { ...stage, requiredEvidence: [...new Set([...stage.requiredEvidence, handoffKind])] }
+      : stage);
+    contract.actionGates = Object.fromEntries(
+      Object.entries(contract.actionGates ?? {}).map(([action, kinds]) => [
+        action,
+        [...new Set([...kinds, handoffKind])]
+      ])
+    );
+  }
   const riskMode = routeMode(contract, "auto");
   const requestedMode = receiptBinding
     ? receiptBinding.preview.effectiveMode
@@ -1497,10 +1549,8 @@ async function commandRun(root, options) {
     });
   }
   const baselineRevision = templateName === "self-improve-ops"
-    ? (await execFileAsync("git", ["rev-parse", "--verify", "HEAD^{commit}"], {
-        cwd: process.cwd(), encoding: "utf8"
-      })).stdout.trim()
-    : null;
+    ? await resolveBaselineRevision(process.cwd(), String(options.baseline ?? "HEAD"))
+    : upstreamSelfImproveRun?.manifest.baselineRevision ?? null;
   const result = await createRun({
     root,
     contract,
@@ -1742,7 +1792,7 @@ async function commandEval() {
 function help() {
   return {
     usage: [
-      "sbw run --template <name> --mode <auto|direct|verified|deep|critical> --goal <text> [--scope <path>]",
+      "sbw run --template <name> --mode <auto|direct|verified|deep|critical> --goal <text> [--scope <path>] [--baseline <git-revision> for self-improve] [--self-improve-run <run-id> for delegated pr-to-dev]",
       "sbw run --route-receipt <route-receipt-id>",
       "sbw route preview --goal <text> [--scope <path>] [--entry <id>|--template <name>] [--mode <mode>] [--domain <name>] [--tag <name>] [--record]",
       "sbw route profile validate|install --file <profile.json>",
@@ -1757,6 +1807,7 @@ function help() {
       "sbw self-improve evaluate --run <run-id> --cases <file> --baseline <git-revision> --candidate-root <path> --backend <codex|fixture> --split <train|holdout> [--trusted-codex-execution <host-file>] [--request-manifest <host-file> --request-manifest-digest <sha256>] [--purpose ordinary|evaluator-migration] [--next-cases <v2-file>]",
       "sbw self-improve host status",
       "sbw self-improve attestation request --run <run-id> --baseline <sha> --candidate-root <path> --model <model> --output <outside-repo-directory> [--cases <file>] [--purpose ordinary|evaluator-migration] [--next-cases <v2-file>]",
+      "sbw self-improve handoff <pr-to-dev-run-id> --source-run <self-improve-run-id>",
       "sbw finding add|update <run-id> --file <json>",
       "sbw critic codex|agy <run-id> --model <model> --prompt-file <file> [--effort <auto|medium|high>] [--effort-transport <native|model-variant>]",
       "sbw critic native <run-id> --file <json> --reviewer-id <native-agent-id> --attestation <host-file>",

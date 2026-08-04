@@ -72,6 +72,16 @@ rationale.
 - Contract `deferredActions` are rejected by the core issue, consume, execute,
   reconcile, completion, and cleanup paths; an empty template action-stage map
   is not the security boundary.
+- Self-improve source bindings require a clean index, tracked worktree,
+  untracked surface, and ignored surface. The baseline is resolved to an exact
+  commit and the candidate must already be the committed HEAD; modified
+  tracked plugin files also block immutable cache publication.
+- A delegated self-improve delivery must use `pr-to-dev --self-improve-run`
+  and a typed `self-improve-delivery-handoff` receipt. That receipt binds the
+  source run, baseline/HEAD/source/plugin digests, request manifest, accepted
+  comparison, candidate snapshot, and seven distinct host witnesses. Every
+  delegated delivery action gate requires it; an empty or generic `pr-to-dev`
+  gate cannot bypass the handoff.
 - Governed `pr.create` actions bind the provider receipt to the exact candidate
   source commit observed when the action token is issued; a PR from another
   source head cannot be reconciled or registered as run-owned.

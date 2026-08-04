@@ -89,14 +89,20 @@ test("source bindings pin base, head, and the exact diff manifest", async () => 
   await git(cwd, "add", "src/a.txt");
   await git(cwd, "commit", "-qm", "change source");
   const afterCommit = await captureSourceBinding(cwd, { baseRevision: base });
+  assert.equal(afterCommit.worktreeClean, true);
   assert.notEqual(afterCommit.digest, before.digest);
   assert.notEqual(afterCommit.headRevision, before.headRevision);
   assert.notEqual(afterCommit.diffManifestDigest, before.diffManifestDigest);
 
   await writeFile(path.join(cwd, "src", "untracked.txt"), "untracked\n");
   const afterWorktree = await captureSourceBinding(cwd, { baseRevision: base });
-  assert.equal(afterWorktree.digest, afterCommit.digest);
+  assert.equal(afterWorktree.worktreeClean, false);
+  assert.notEqual(afterWorktree.digest, afterCommit.digest);
   assert.equal(afterWorktree.diffManifestDigest, afterCommit.diffManifestDigest);
+  await assert.rejects(
+    captureSourceBinding(cwd, { baseRevision: base, requireClean: true }),
+    /clean index, tracked worktree, untracked surface, and ignored surface/
+  );
 });
 
 test("source bindings include canonical worktree, common-dir, and origin identity", async () => {

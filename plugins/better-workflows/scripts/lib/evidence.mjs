@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { digestObject, listJsonRecords, pluginRoot, safeJoin } from "./core.mjs";
 import { captureSourceBinding } from "./git.mjs";
+import { SELF_IMPROVE_HANDOFF_KIND, validateSelfImproveDeliveryHandoff } from "./self-improve-handoff.mjs";
 
 const CONTRACT_FILE = path.join(pluginRoot(), "config", "evidence-contracts-v1.json");
 const HEX_DIGEST = /^[a-f0-9]{64}$/;
@@ -30,8 +31,8 @@ export async function loadEvidenceContracts({ refresh = false } = {}) {
     throw new Error("evidence-contracts-v1 must contain schemaVersion 1 and contracts");
   }
   const entries = Object.entries(value.contracts);
-  if (entries.length !== 98) {
-    throw new Error(`evidence-contracts-v1 must cover exactly 98 kinds, found ${entries.length}`);
+  if (entries.length !== 99) {
+    throw new Error(`evidence-contracts-v1 must cover exactly 99 kinds, found ${entries.length}`);
   }
   for (const [kind, entry] of entries) {
     if (entry?.id !== `evidence-contracts-v1:${kind}`) {
@@ -299,7 +300,8 @@ async function assertFreshBinding(receipt, run, definition, kind) {
       throw new Error(`Typed evidence ${kind} source binding is stale`);
     }
     const current = await captureSourceBinding(run.manifest.cwd, {
-      baseRevision: run.manifest.sourceBinding.baseRevision
+      baseRevision: run.manifest.sourceBinding.baseRevision,
+      requireClean: run.manifest.template === "self-improve-ops"
     });
     if (!current || current.digest !== expected) {
       throw new Error(`Typed evidence ${kind} source binding changed`);
@@ -415,6 +417,9 @@ export async function admitTypedEvidence(record, run, { persisted = false } = {}
   }
   await assertActionProofPayload(receipt.payload, record.kind, run, record.id);
   assertPayloadFields(receipt.payload, definition.requiredFields, record.kind);
+  if (record.kind === SELF_IMPROVE_HANDOFF_KIND) {
+    await validateSelfImproveDeliveryHandoff(receipt.payload, run);
+  }
   assertSemanticSuccess(receipt.payload, record.kind, definition);
   const payloadDigest = digestObject(receipt.payload);
   assertDigest(receipt.payloadDigest, `Typed evidence ${record.kind} payloadDigest`);

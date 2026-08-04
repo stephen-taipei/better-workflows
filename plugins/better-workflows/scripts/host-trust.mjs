@@ -1282,6 +1282,7 @@ async function executeBatch(manifestPath, confirmedManifestDigest) {
       !path.isAbsolute(manifest.binaryPath) || !SHA256.test(manifest.binaryApprovalDigest) || !SHA256.test(manifest.binaryDigest) ||
       typeof manifest.runtimePath !== "string" || !path.isAbsolute(manifest.runtimePath) ||
       path.resolve(manifest.runtimePath) !== manifest.runtimePath || !SHA256.test(manifest.runtimeDigest) ||
+      !SHA1.test(manifest.headRevision) || !SHA256.test(manifest.sourceBindingDigest) || !SHA256.test(manifest.pluginBundleDigest) ||
       typeof manifest.suiteDigest !== "string" || !manifest.suiteDigest ||
       typeof manifest.baselineRevision !== "string" || !manifest.baselineRevision ||
       typeof manifest.candidateDigest !== "string" || !manifest.candidateDigest ||
@@ -1327,6 +1328,7 @@ async function executeBatch(manifestPath, confirmedManifestDigest) {
         canonicalJson(requestRunAs) !== canonicalJson(manifestRunAs) ||
         request.execution.runId !== manifest.runId || request.execution.suiteDigest !== manifest.suiteDigest ||
         request.execution.baselineRevision !== manifest.baselineRevision || request.execution.candidateDigest !== manifest.candidateDigest ||
+        request.execution.headRevision !== manifest.headRevision || request.execution.sourceBindingDigest !== manifest.sourceBindingDigest ||
         request.execution.role !== item.role || request.execution.attempt !== item.attempt ||
         request.execution.id !== item.executionId || request.execution.promptDigest !== item.promptDigest) {
       throw new Error("execution manifest request does not match its canonical batch binding");

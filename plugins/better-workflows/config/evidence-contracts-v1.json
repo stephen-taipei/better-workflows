@@ -1763,6 +1763,32 @@
         "sourceSentinelDigest"
       ]
     },
+    "self-improve-delivery-handoff": {
+      "id": "evidence-contracts-v1:self-improve-delivery-handoff",
+      "producerAllowlist": [
+        "codex-root"
+      ],
+      "payloadFamily": "artifact-package",
+      "requiredFields": [
+        "artifact",
+        "sourceRunId",
+        "sourceBaselineRevision",
+        "sourceHeadRevision",
+        "sourceBindingDigest",
+        "pluginBundleDigest",
+        "requestManifestDigest",
+        "comparisonDigest",
+        "candidateDigest",
+        "candidateRoot",
+        "witnessDigests"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision",
+        "sourceBindingDigest"
+      ]
+    },
     "swift-static-review": {
       "id": "evidence-contracts-v1:swift-static-review",
       "producerAllowlist": [

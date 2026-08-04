@@ -346,6 +346,27 @@ execution**. It is required only for maintainers who want real Codex
 self-improvement replays. The self-improve contract does not authorize commit,
 cache publication, push, merge, or cleanup; those actions are delegated to
 `pr-to-dev` and the immutable-cache workflow.
+
+The source-bound handoff is explicit. Resolve an immutable baseline when
+creating the self-improve run, keep the candidate at a clean committed HEAD,
+then create a delegated delivery run and record its typed handoff:
+
+```bash
+sbw run --template self-improve-ops --mode critical \
+  --goal "<bounded improvement>" --scope . \
+  --baseline <immutable-baseline-sha>
+sbw run --template pr-to-dev --mode critical \
+  --goal "Deliver accepted improvement" --scope . \
+  --self-improve-run <self-improve-run-id>
+sbw self-improve handoff <pr-to-dev-run-id> \
+  --source-run <self-improve-run-id>
+```
+
+`self-improve-delivery-handoff` binds the source run's exact baseline, HEAD,
+clean source binding, plugin bundle, request manifest, accepted comparison,
+candidate snapshot, and seven distinct host witnesses. The delegated delivery
+action gates require this receipt; a generic `pr-to-dev` run cannot authorize
+delivery of an accepted self-improvement.
 On each host, an administrator reviews a pinned checkout and provisions it once:
 
 ```bash

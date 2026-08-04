@@ -92,6 +92,15 @@ test("plugin cache publication rejects ignored or untracked source bytes in a tr
   await writeFile(path.join(sourceRoot, "ignored.txt"), "must not publish\n");
   await assert.rejects(
     checkPluginCache({ sourceRoot, cacheRoot: path.join(await mkdtemp(path.join(os.tmpdir(), "sbw-publication-untracked-")), "cache") }),
-    /untracked or ignored files/
+    /not a clean committed tree|untracked or ignored files/
+  );
+});
+
+test("plugin cache publication rejects modified tracked plugin files", async () => {
+  const { sourceRoot } = await trackedSourceFixture("1.1.0+test.modified");
+  await writeFile(path.join(sourceRoot, "payload.txt"), "modified\n");
+  await assert.rejects(
+    checkPluginCache({ sourceRoot, cacheRoot: path.join(await mkdtemp(path.join(os.tmpdir(), "sbw-publication-modified-")), "cache") }),
+    /not a clean committed tree/
   );
 });

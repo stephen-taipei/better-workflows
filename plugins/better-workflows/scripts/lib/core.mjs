@@ -652,7 +652,8 @@ export async function createRun({ root = getStateRoot(), contract, requestedMode
     const createdAt = nowIso();
     const { captureSourceBinding } = await import("./git.mjs");
     const sourceBinding = await captureSourceBinding(path.resolve(cwd), {
-      baseRevision: baselineRevision ?? contract.remoteRevision ?? null
+      baseRevision: baselineRevision ?? contract.remoteRevision ?? null,
+      requireClean: contract.template === "self-improve-ops" || Boolean(contract.upstreamSelfImproveRunId)
     });
     const manifest = {
       schemaVersion: 1,
@@ -1512,7 +1513,8 @@ export async function rebindSourceBinding(root, runId, reason) {
     }
     const { captureSourceBinding } = await import("./git.mjs");
     const current = await captureSourceBinding(run.manifest.cwd, {
-      baseRevision: run.manifest.sourceBinding?.baseRevision ?? run.contract.remoteRevision ?? null
+      baseRevision: run.manifest.sourceBinding?.baseRevision ?? run.contract.remoteRevision ?? null,
+      requireClean: true
     });
     if (!current) throw new Error("Source binding is unavailable for this workspace");
     if (current.digest === run.manifest.sourceBinding?.digest) {
@@ -1861,7 +1863,8 @@ export async function evaluateCompletion(root, runId) {
     try {
       const { captureSourceBinding } = await import("./git.mjs");
       const currentSourceBinding = await captureSourceBinding(manifest.cwd, {
-        baseRevision: manifest.sourceBinding.baseRevision
+        baseRevision: manifest.sourceBinding.baseRevision,
+        requireClean: manifest.template === "self-improve-ops"
       });
       if (!currentSourceBinding || currentSourceBinding.digest !== manifest.sourceBinding.digest) {
         blockers.push("source-binding-drift");
@@ -2663,9 +2666,10 @@ async function verifyOwnedResourceCreationProof(manifest, record, providerReceip
       encoding: "utf8"
     })).stdout.trim();
     const reflog = (await execFileAsync("git", [
-      "reflog", "show", "--format=%H%x00%gs%x00%cI", "-1", `refs/heads/${ref}`
+      "reflog", "show", "--date=iso-strict", "--format=%H%x00%gs%x00%gd", "-1", `refs/heads/${ref}`
     ], { cwd: manifest.cwd, encoding: "utf8" })).stdout.trim();
-    const [revision, subject, observedAt] = reflog.split("\0");
+    const [revision, subject, selector] = reflog.split("\0");
+    const observedAt = selector?.match(/@\{(.+)\}$/)?.[1] ?? "";
     if (
       actual !== providerReceipt.revision ||
       revision !== actual ||
