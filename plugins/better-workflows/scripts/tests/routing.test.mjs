@@ -354,26 +354,31 @@ test("routing accepts a digest-bound schema-v2 ready marker for a cached skill",
     env: { ...process.env, CODEX_HOME: codexHome },
     requiredCapabilities: ["skill:cached-advisor"]
   });
+  const writeAction = async (evidenceIds = ["cache-publication-routing-v2"]) => writeFile(
+    path.join(stateRoot, "runs", runId, "actions", "routing-v2-action.json"),
+    `${JSON.stringify({
+      runId,
+      attemptId,
+      action: "plugin.cache.publish",
+      provider: "local-workspace",
+      status: "spent",
+      outcome: "success",
+      receipt: {
+        outcome: "success",
+        evidenceIds,
+        providerReceipt
+      }
+    })}\n`
+  );
   await writeMarker();
   const available = (await snapshot()).capabilities.find((item) => item.id === "skill:cached-advisor");
   assert.equal(available.status, "available");
   assert.equal(available.source, skillPath);
   assert.equal(typeof available.fingerprint.digest, "string");
-  await writeFile(path.join(stateRoot, "runs", runId, "actions", "routing-v2-action.json"), `${JSON.stringify({
-    runId,
-    attemptId,
-    action: "plugin.cache.publish",
-    provider: "local-workspace",
-    status: "spent",
-    outcome: "success",
-    receipt: {
-      outcome: "success",
-      evidenceIds: ["missing-evidence"],
-      providerReceipt
-    }
-  })}\n`);
+  await writeAction(["missing-evidence"]);
   const missingEvidence = (await snapshot()).capabilities.find((item) => item.id === "skill:cached-advisor");
   assert.equal(missingEvidence.status, "unavailable");
+  await writeAction();
   for (const overrides of [
     { sourceDigest: "a".repeat(64) },
     { pluginBundleDigest: "a".repeat(64) },
