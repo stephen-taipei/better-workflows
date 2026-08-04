@@ -4,7 +4,8 @@ import {
   sign,
   verify
 } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -12,7 +13,9 @@ import {
   canonicalJson,
   privateKeyFromRaw,
   spawnCapture,
-  validateExecutionRequest
+  validateExecutionRequest,
+  validateProtectedDirectoryChain,
+  validateProtectedParentChain
 } from "../host-trust.mjs";
 
 const SCRIPT = path.resolve(
@@ -77,6 +80,8 @@ test("host trust helper fixes authority paths and does not accept environment pa
   assert.match(source, /--codex-binary/);
   assert.match(source, /currentRuntime\(manifest\.runtimePath\)/);
   assert.match(source, /validateManifestRunAs/);
+  assert.match(source, /validateProtectedDirectoryChain/);
+  assert.match(source, /validateProtectedParentChain/);
   assert.match(source, /requestDigests/);
   assert.doesNotMatch(source, /os\.tmpdir\(\)/);
   assert.doesNotMatch(source, /"TMPDIR"|"TEMP"|"TMP"|"HTTP_PROXY"|"HTTPS_PROXY"|"SSL_CERT_FILE"/);
@@ -93,6 +98,24 @@ test("host trust helper fixes authority paths and does not accept environment pa
   assert.match(probe, /getgroups/);
   assert.match(probe, /environment/);
   assert.match(probe, /argv0/);
+});
+
+test("host parent-chain validation rejects a user-owned parent around a regular leaf", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "better-workflows-parent-chain."));
+  const leaf = path.join(root, "root-owned-shaped-leaf");
+  try {
+    await writeFile(leaf, "leaf");
+    await assert.rejects(
+      () => validateProtectedParentChain(leaf, "adversarial host artifact"),
+      /unsafe parent directory|must already be canonical/
+    );
+    await assert.rejects(
+      () => validateProtectedDirectoryChain(root, "adversarial host root"),
+      /unsafe parent directory|must already be canonical/
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("host capture waits for SIGKILL escalation after output overflow", async () => {

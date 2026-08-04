@@ -127,6 +127,11 @@ canonical native Mach-O Codex executable and its SHA-256 in the root-owned
 arbitrary executables, changed digests, and non-Mach-O files fail closed. The
 generated batch command clears the environment, verifies the existing runtime
 target's owner/mode and digest, and executes only that already-installed runtime.
+The installed signer also authenticates the canonical parent chain for the
+runtime root, signer, launcher, probe, execution root, attestation root, and
+execution-bundle root; every parent must be administrator-owned and free of
+group/world write bits before a privileged read or write. A root-owned leaf in
+a writable or replaceable parent is not accepted.
 The host signs the confirmed request digest, exact committed HEAD/source binding,
 allowlist digest, binary, and run-as identity into the attestation, receipt,
 envelope, and ledger.

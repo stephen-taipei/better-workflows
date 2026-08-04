@@ -125,6 +125,12 @@ as a root-owned backup, and runs a disposable signed readiness witness with the
 native launcher. A failed upgrade is quarantined and rolled back with exact
 prior artifact digests proven, without rotating keys.
 
+The installed signer authenticates the canonical parent chain for the fixed
+runtime root, signer, native launcher, readiness probe, execution root,
+attestation root, and request-bundle root before privileged reads or writes.
+Every parent must be administrator-owned and lack group/world write bits; a
+root-owned leaf under a writable or replaceable parent is rejected.
+
 Before generating replay requests, the candidate checkout must be the exact
 committed HEAD that will be reviewed and delivered. If candidate work is still
 dirty, hand it to `pr-to-dev` for the commit wave first, then start a new

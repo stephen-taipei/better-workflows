@@ -389,8 +389,13 @@ node plugins/better-workflows/scripts/sbw.mjs \
   --baseline <sha> \
   --candidate-root . \
   --model <model> \
-  --output <new-outside-repo-directory>
+--output <new-outside-repo-directory>
 ```
+
+The signer authenticates the canonical parent chain for the fixed runtime,
+signer, launcher, probe, execution, attestation, and request-bundle roots.
+Every parent must be administrator-owned and lack group/world write bits; a
+root-owned leaf under a writable or replaceable parent is rejected.
 
 The command returns seven root-owned witness paths under
 `/private/var/db/better-workflows/executions`. Pass those paths to

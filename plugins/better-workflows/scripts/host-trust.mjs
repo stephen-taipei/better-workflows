@@ -250,12 +250,33 @@ function requireRoot() {
 }
 
 async function secureDirectory(target, mode) {
+  await validateProtectedParentChain(target, "Administrator directory");
   await mkdir(target, { recursive: true, mode });
-  const info = await lstat(target);
-  if (info.isSymbolicLink() || !info.isDirectory() || info.uid !== 0) {
-    throw new Error(`Unsafe administrator directory: ${target}`);
-  }
+  await validateProtectedDirectoryChain(target, "Administrator directory");
   await chmod(target, mode);
+  await validateProtectedDirectoryChain(target, "Administrator directory");
+}
+
+export async function validateProtectedDirectoryChain(target, label) {
+  const resolved = path.resolve(target);
+  const canonical = await realpath(resolved);
+  if (canonical !== resolved) throw new Error(`${label} must already be canonical`);
+  let directory = canonical;
+  while (true) {
+    const info = await lstat(directory);
+    if (info.isSymbolicLink() || !info.isDirectory() || info.uid !== 0 || ((info.mode & 0o777) & 0o022) !== 0) {
+      throw new Error(`${label} contains an unsafe parent directory: ${directory}`);
+    }
+    const parent = path.dirname(directory);
+    if (parent === directory) break;
+    directory = parent;
+  }
+}
+
+export async function validateProtectedParentChain(target, label) {
+  const parent = path.dirname(path.resolve(target));
+  const canonicalParent = await realpath(parent);
+  await validateProtectedDirectoryChain(canonicalParent, `${label} parent chain`);
 }
 
 async function validateRootOwnedDirectory(target, label, expectedMode) {
@@ -269,10 +290,12 @@ async function validateRootOwnedDirectory(target, label, expectedMode) {
   }
   const resolved = await realpath(target);
   if (resolved !== target) throw new Error(`${label} must already be canonical`);
+  await validateProtectedParentChain(target, label);
   return info;
 }
 
 async function exclusiveWrite(target, bytes, mode) {
+  await validateProtectedParentChain(target, "Administrator staging file");
   const handle = await open(target, "wx", mode);
   try {
     await handle.writeFile(bytes);
@@ -433,6 +456,7 @@ async function validateRootOwnedFile(target, label, expectedMode) {
   if (mode !== expectedMode) {
     throw new Error(`${label} mode must be ${expectedMode.toString(8)}, found ${mode.toString(8)}`);
   }
+  await validateProtectedParentChain(target, label);
   return info;
 }
 
@@ -466,6 +490,7 @@ async function validateCodexAllowlist() {
 }
 
 async function currentRuntime(preferredPath = null) {
+  await validateProtectedDirectoryChain(HOST_RUNTIME_ROOT, "Fixed host runtime root");
   const candidates = await readdirSafe(HOST_RUNTIME_ROOT);
   const targets = (preferredPath ? [preferredPath] : candidates
     .filter((name) => name.startsWith("bw-host-node."))
@@ -943,6 +968,7 @@ async function signPayload(payload) {
 
 async function writeHostArtifact(target, value) {
   if (!path.isAbsolute(target)) throw new Error("Host artifact path must be absolute");
+  await validateProtectedParentChain(target, "Host artifact");
   return exclusiveWrite(target, `${JSON.stringify(value, null, 2)}\n`, 0o644);
 }
 
@@ -1346,6 +1372,7 @@ async function runReadinessProbe({ uid, gid, homePath, codexHomePath = null }) {
   if (!Number.isInteger(uid) || uid <= 0 || !Number.isInteger(gid) || gid <= 0) {
     throw new Error("Readiness probe requires a positive non-root uid and gid");
   }
+  await validateProtectedDirectoryChain(EXECUTION_BUNDLES, "Host execution bundle root");
   const requestId = `host-readiness-${Date.now()}-${process.pid}`;
   const promptPath = path.join(EXECUTION_BUNDLES, `${requestId}.prompt.txt`);
   const requestPath = path.join(EXECUTION_BUNDLES, `${requestId}.request.json`);
