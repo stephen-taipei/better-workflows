@@ -164,7 +164,8 @@ const ACTION_PROVIDER_RECEIPT_SCHEMAS = {
   "remote.sync:git": { proofKind: "git-remote-sync" },
   "worktree.cleanup:git": { proofKind: "git-worktree-cleanup" },
   "recipe.promote:local-workspace": { proofKind: "local-workspace:recipe.promote" },
-  "artifact.promote:local-workspace": { proofKind: "local-workspace:artifact.promote" }
+  "artifact.promote:local-workspace": { proofKind: "local-workspace:artifact.promote" },
+  "plugin.cache.publish:local-workspace": { proofKind: "local-workspace:plugin.cache.publish" }
 };
 const PROVIDER_EXECUTION_SCHEMA_VERSION = 1;
 
@@ -2638,6 +2639,100 @@ function assertRecomputedProviderReceipt(receipt, request, response, executionId
   }
 }
 
+async function verifyPluginCachePublicationReceipt(manifest, record, providerReceipt) {
+  const { captureSourceBinding } = await import("./git.mjs");
+  const { bundleDigest, checkPluginCache } = await import("./publication.mjs");
+  const repositoryRoot = await realpath(path.resolve(manifest.cwd));
+  const sourceRoot = path.join(repositoryRoot, "plugins", "better-workflows");
+  if (
+    providerReceipt.sourceRoot !== sourceRoot ||
+    typeof providerReceipt.cacheRoot !== "string" ||
+    !path.isAbsolute(providerReceipt.cacheRoot) ||
+    path.resolve(providerReceipt.cacheRoot) !== providerReceipt.cacheRoot ||
+    providerReceipt.resource !== `plugin-cache:${providerReceipt.sourceHeadRevision}`
+  ) {
+    throw new Error("Plugin cache publication receipt is not bound to the canonical source and resource");
+  }
+  const cacheRootInfo = await lstat(providerReceipt.cacheRoot).catch((error) => {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  });
+  if (!cacheRootInfo || cacheRootInfo.isSymbolicLink() || !cacheRootInfo.isDirectory()) {
+    throw new Error("Plugin cache publication receipt cache root is missing or unsafe");
+  }
+  if (await realpath(providerReceipt.cacheRoot) !== providerReceipt.cacheRoot) {
+    throw new Error("Plugin cache publication receipt cache root is not canonical");
+  }
+  const expectedFields = [
+    "sourceBaselineRevision",
+    "sourceHeadRevision",
+    "sourceBindingDigest",
+    "pluginBundleDigest"
+  ];
+  if (
+    !SHA.test(providerReceipt.sourceBaselineRevision) ||
+    !SHA.test(providerReceipt.sourceHeadRevision) ||
+    expectedFields.slice(2).some((field) => !SHA256_DIGEST.test(providerReceipt[field])) ||
+    typeof providerReceipt.version !== "string" ||
+    typeof providerReceipt.target !== "string" ||
+    providerReceipt.target !== path.join(providerReceipt.cacheRoot, providerReceipt.version)
+  ) {
+    throw new Error("Plugin cache publication receipt source or target binding is invalid");
+  }
+  const sourceBinding = await captureSourceBinding(repositoryRoot, {
+    baseRevision: providerReceipt.sourceBaselineRevision,
+    requireClean: true
+  });
+  if (
+    sourceBinding.headRevision !== providerReceipt.sourceHeadRevision ||
+    sourceBinding.digest !== providerReceipt.sourceBindingDigest
+  ) {
+    throw new Error("Plugin cache publication provider reconciliation detected source drift");
+  }
+  const actualBundleDigest = await bundleDigest(sourceRoot);
+  if (actualBundleDigest !== providerReceipt.pluginBundleDigest) {
+    throw new Error("Plugin cache publication provider reconciliation detected bundle drift");
+  }
+  const cache = await checkPluginCache({ sourceRoot, cacheRoot: providerReceipt.cacheRoot });
+  if (
+    !cache.ok ||
+    cache.version !== providerReceipt.version ||
+    cache.target !== providerReceipt.target ||
+    cache.sourceDigest !== providerReceipt.sourceDigest ||
+    cache.targetDigest !== providerReceipt.targetDigest
+  ) {
+    throw new Error("Plugin cache publication provider reconciliation does not match the live cache");
+  }
+  const request = {
+    action: record.action,
+    provider: record.provider,
+    resource: record.resource,
+    remoteRevision: record.remoteRevision,
+    idempotencyKey: record.idempotencyKey,
+    sourceRoot,
+    cacheRoot: providerReceipt.cacheRoot,
+    sourceBaselineRevision: providerReceipt.sourceBaselineRevision,
+    sourceHeadRevision: providerReceipt.sourceHeadRevision,
+    sourceBindingDigest: providerReceipt.sourceBindingDigest,
+    pluginBundleDigest: providerReceipt.pluginBundleDigest
+  };
+  const response = {
+    applied: providerReceipt.applied === true,
+    noOp: providerReceipt.noOp === true,
+    status: cache.status,
+    version: providerReceipt.version,
+    target: providerReceipt.target,
+    sourceDigest: cache.sourceDigest,
+    targetDigest: cache.targetDigest
+  };
+  assertRecomputedProviderReceipt(
+    providerReceipt,
+    request,
+    response,
+    `local-workspace:plugin.cache.publish:${record.attemptId}`
+  );
+}
+
 async function verifyOwnedResourceCreationProof(manifest, record, providerReceipt) {
   if (!OWNED_RESOURCE_CREATION_ACTIONS.has(record.action) || record.outcome !== "success") return;
   const providerExecutablePath = record.provider === "github-cli"
@@ -2762,6 +2857,10 @@ async function verifyProviderReceipt(manifest, record, receipt) {
   const providerReceipt = receipt.providerReceipt;
   const cwd = manifest.cwd;
   const key = `${record.action}:${record.provider}`;
+  if (key === "plugin.cache.publish:local-workspace") {
+    await verifyPluginCachePublicationReceipt(manifest, record, providerReceipt);
+    return;
+  }
   const providerExecutablePath = record.provider === "github-cli"
     ? record.providerAuthorization
       ? await verifyRecordedGitHubProvider(manifest, record)

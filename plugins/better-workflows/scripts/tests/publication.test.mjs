@@ -145,3 +145,47 @@ test("plugin cache publication rejects an unrelated commit after the self-improv
     /source binding changed after self-improve handoff/
   );
 });
+
+test("plugin cache publication accepts a repository-root handoff for a plugin subtree", async () => {
+  const { repositoryRoot, sourceRoot } = await trackedSourceFixture("1.1.0+test.canonical");
+  const baseline = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repositoryRoot, encoding: "utf8" })).stdout.trim();
+  const sourceBinding = await captureSourceBinding(repositoryRoot, { baseRevision: baseline, requireClean: true });
+  const pluginBundleDigest = await bundleDigest(sourceRoot);
+  const published = await publishPluginCache({
+    sourceRoot,
+    cacheRoot: path.join(await mkdtemp(path.join(os.tmpdir(), "sbw-publication-canonical-")), "cache"),
+    expectedSourceBinding: {
+      pluginBundleDigest,
+      sourceBaselineRevision: baseline,
+      sourceBindingDigest: sourceBinding.digest,
+      sourceHeadRevision: sourceBinding.headRevision
+    }
+  });
+  assert.equal(published.ok, true);
+  assert.equal(published.sourceDigest, pluginBundleDigest);
+});
+
+test("plugin cache publication uses the reviewed commit snapshot across a pre-rename source advance", async () => {
+  const { repositoryRoot, sourceRoot } = await trackedSourceFixture("1.1.0+test.snapshot");
+  const baseline = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repositoryRoot, encoding: "utf8" })).stdout.trim();
+  const sourceBinding = await captureSourceBinding(repositoryRoot, { baseRevision: baseline, requireClean: true });
+  const pluginBundleDigest = await bundleDigest(sourceRoot);
+  const cacheRoot = path.join(await mkdtemp(path.join(os.tmpdir(), "sbw-publication-snapshot-")), "cache");
+  const published = await publishPluginCache({
+    sourceRoot,
+    cacheRoot,
+    expectedSourceBinding: {
+      pluginBundleDigest,
+      sourceBaselineRevision: baseline,
+      sourceBindingDigest: sourceBinding.digest,
+      sourceHeadRevision: sourceBinding.headRevision
+    },
+    beforeRename: async () => {
+      await writeFile(path.join(repositoryRoot, "outside-plugin.txt"), "interleaving commit\n");
+      await git(repositoryRoot, "add", "outside-plugin.txt");
+      await git(repositoryRoot, "commit", "-qm", "advance unrelated repository head during publication");
+    }
+  });
+  assert.equal(published.ok, true);
+  assert.equal(await bundleDigest(path.join(cacheRoot, published.version)), pluginBundleDigest);
+});

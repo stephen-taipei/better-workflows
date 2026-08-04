@@ -2,7 +2,7 @@
   "name": "pr-to-dev",
   "controlPlane": {"evidencePolicy":"typed-v1","ledgerPolicy":"ledger-v1","reviewPolicy":"code-v1","designPacketPolicy":"none","refinementPolicy":"none","deliberationPolicy":"none"},
   "executionStages": [{"id":"inventory-plan","goal":"inventory-plan","dependsOn":[],"requiredEvidence":["base-revision","change-inventory","commit-plan"],"attemptBudget":3,"kind":"regular"},{"id":"commits","goal":"commits","dependsOn":["inventory-plan"],"requiredEvidence":["commit-manifest","commit-history"],"attemptBudget":3,"kind":"regular"},{"id":"review","goal":"review","dependsOn":["commits"],"requiredEvidence":["patch-review","diff-review"],"attemptBudget":5,"kind":"review"},{"id":"pr-checks","goal":"pr-checks","dependsOn":["review"],"requiredEvidence":["pr-state","required-checks"],"attemptBudget":1,"kind":"side-effect"},{"id":"merge-sync","goal":"merge-sync","dependsOn":["pr-checks"],"requiredEvidence":["merge-result","provider-reconciliation"],"attemptBudget":1,"kind":"side-effect"},{"id":"cleanup","goal":"cleanup","dependsOn":["merge-sync"],"requiredEvidence":["remote-sync","actions-cleanup-plan","cleanup-manifest"],"attemptBudget":1,"kind":"side-effect"}],
-  "actionStages": {"git.commit":"commits","git.push":"commits","pr.create":"pr-checks","pr.merge":"merge-sync","remote.sync":"merge-sync","worktree.cleanup":"cleanup"},
+  "actionStages": {"git.commit":"commits","plugin.cache.publish":"commits","git.push":"commits","pr.create":"pr-checks","pr.merge":"merge-sync","remote.sync":"merge-sync","worktree.cleanup":"cleanup"},
   "description": "Partition in-scope changes into atomic commits, publish one PR targeting dev, wait for fresh required checks, merge through protected policy, reconcile the remote, and clean only run-owned resources.",
   "defaultMode": "critical",
   "requiredEvidence": [
@@ -78,6 +78,7 @@
   ],
   "actionGates": {
     "git.commit": ["change-inventory", "commit-plan", "patch-review", "repo-gates"],
+    "plugin.cache.publish": ["commit-manifest", "commit-history", "patch-review", "repo-gates"],
     "git.push": ["commit-manifest", "commit-history", "repo-gates", "target-branch-dev", "remote-authorization", "current-branch"],
     "pr.create": ["commit-manifest", "commit-history", "patch-review", "repo-gates", "target-branch-dev"],
     "pr.merge": ["pr-state", "required-checks", "repo-gates", "target-branch-dev", "remote-authorization"],

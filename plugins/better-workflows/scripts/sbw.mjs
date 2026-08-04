@@ -1188,6 +1188,9 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
 async function assertAcceptedSelfImproveHoldout(root, runId, action) {
   if (!["git.commit", "plugin.cache.publish", "git.push"].includes(action)) return;
   const run = await loadRun(root, runId);
+  if (action === "plugin.cache.publish" && !run.contract.upstreamSelfImproveRunId) {
+    throw new Error("Plugin cache publication requires a delegated self-improve delivery run");
+  }
   if (run.manifest.template !== "self-improve-ops" && !run.contract.upstreamSelfImproveRunId) return;
   const sourceRunId = run.contract.upstreamSelfImproveRunId ?? runId;
   const sourceRun = sourceRunId === runId ? run : await loadRun(root, sourceRunId);
@@ -1363,10 +1366,11 @@ async function commandRun(root, options) {
     const handoffKind = "self-improve-delivery-handoff";
     contract.upstreamSelfImproveRunId = String(options["self-improve-run"]);
     contract.requiredEvidence = [...new Set([...contract.requiredEvidence, handoffKind])];
+    contract.requiredEvidence = [...new Set([...contract.requiredEvidence, "cache-publication"])]
     contract.acceptanceEvidence = Object.fromEntries(
       Object.entries(contract.acceptanceEvidence ?? {}).map(([id, kinds]) => [
         id,
-        [...new Set([...kinds, handoffKind])]
+        [...new Set([...kinds, handoffKind, "cache-publication"])]
       ])
     );
     contract.executionStages = contract.executionStages.map((stage) => stage.id === "commits"

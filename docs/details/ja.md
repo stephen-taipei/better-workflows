@@ -251,7 +251,7 @@ Evaluation v2.2 は既存の safety、documentation、deliberation、sanitizer�
 
 通常の clone や workspace recipe の実行には host trust root は**不要**です。実 Codex self-improve replay を実行する maintainer だけが、各 host で administrator により一度だけ実行します。self-improve は commit、cache publication、push、merge、cleanup を許可せず、`pr-to-dev` と immutable-cache workflow に委譲します：
 
-delivery には明示した完全な baseline SHA が必要で、candidate HEAD の strict ancestor でなければなりません。七つの witness を再検証した後、明示的に bind した `pr-to-dev` run を作成し、typed `self-improve-delivery-handoff` を記録します。この receipt がない限り commit、push、merge、cache action は発行されません。cache は source HEAD を変更する前に実行します：`SBW_STATE_ROOT=<state-root> node scripts/plugin-cache.mjs sync --handoff-run <pr-to-dev-run-id>`。
+delivery には明示した完全な baseline SHA が必要で、candidate HEAD の strict ancestor でなければなりません。七つの witness を再検証した後、明示的に bind した `pr-to-dev` run を作成し、typed `self-improve-delivery-handoff` を記録します。この receipt がない限り commit、push、merge、cache action は発行されません。cache action は `plugin.cache.publish`、`local-workspace`、`plugin-cache:<source-head-revision>` に結び付けた token を先に発行してから実行します：`SBW_STATE_ROOT=<state-root> node scripts/plugin-cache.mjs sync --handoff-run <pr-to-dev-run-id> --token <plugin-cache-action-token>`。
 
 trust root または private key が host の承認済み administrator bootstrap によってまだ作成されていない場合は、先にその独立した前提作業を完了してください。この repository は追跡されていない legacy Swift bootstrap artifact を公開・実行しません。bootstrap 済みの host では、まず read-only の状態確認を実行します：
 
@@ -456,7 +456,7 @@ node scripts/plugin-cache.mjs check
 ```
 
 Plugin cache version は immutable です。Content を変更するたびに新しい build
-version が必要です。`SBW_STATE_ROOT=<state-root> node scripts/plugin-cache.mjs sync --handoff-run <pr-to-dev-run-id>` は fresh typed handoff と source HEAD 未変更を確認した後に未存在の version
+version が必要です。`SBW_STATE_ROOT=<state-root> node scripts/plugin-cache.mjs sync --handoff-run <pr-to-dev-run-id> --token <plugin-cache-action-token>` は fresh typed handoff、governed cache token、source HEAD 未変更を確認した後に未存在の version
 だけを stage し、完全な file manifest と digest を検証して atomic publish
 します。同じ version の異なる内容は上書きしません。通常の Codex plugin
 refresh で有効化する前に、最終 cache path から `sbw eval` を実行します。

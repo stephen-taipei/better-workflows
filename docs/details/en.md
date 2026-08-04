@@ -752,7 +752,7 @@ node scripts/plugin-cache.mjs check
 The runtime uses only Node.js standard-library modules.
 
 Plugin cache versions are immutable. Every content change must use a new build
-version; `SBW_STATE_ROOT=<state-root> node scripts/plugin-cache.mjs sync --handoff-run <pr-to-dev-run-id>` requires a fresh typed handoff while the source HEAD is unchanged, then stages a missing version, verifies
+version; issue the delegated `plugin.cache.publish` action for resource `plugin-cache:<source-head-revision>`, then run `SBW_STATE_ROOT=<state-root> node scripts/plugin-cache.mjs sync --handoff-run <pr-to-dev-run-id> --token <plugin-cache-action-token>`. It requires a fresh typed handoff while the source HEAD is unchanged, then stages a missing version, verifies
 the exact file manifest and digest, then atomically publishes it. It refuses to
 overwrite a same-version cache with different contents. Run `sbw eval` from the
 final cache path before activating that version through the normal Codex plugin

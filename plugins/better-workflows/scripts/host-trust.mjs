@@ -1025,7 +1025,10 @@ export function validateExecutionRequest(request) {
   return request;
 }
 
-async function requireInstalledCapability(capability, { allowUnprovenReadiness = false } = {}) {
+async function requireInstalledCapability(
+  capability,
+  { allowUnprovenReadiness = false, allowUpgradeEntrypoint = false } = {}
+) {
   await requireTrustedRuntime();
   const signer = await currentSigner();
   if (!signer?.supported || signer.path !== INSTALLED_SIGNER || !signer.capabilities.includes(capability)) {
@@ -1039,7 +1042,7 @@ async function requireInstalledCapability(capability, { allowUnprovenReadiness =
   }
   const running = await realpath(fileURLToPath(import.meta.url));
   const runningDigest = await digest(await readFile(running));
-  if (running !== INSTALLED_SIGNER || runningDigest !== signer.digest) {
+  if (!allowUpgradeEntrypoint && (running !== INSTALLED_SIGNER || runningDigest !== signer.digest)) {
     throw new Error("Administrator operation must run from the installed, capability-checked signer");
   }
   return signer;
@@ -1099,7 +1102,10 @@ async function validateRunAs(request) {
 
 async function executeResultRequest(requestPath, confirmedDigest, { includeResponse = false, commandArgs = null, internalProbe = false } = {}) {
   requireRoot();
-  await requireInstalledCapability("execution-witness", { allowUnprovenReadiness: internalProbe });
+  await requireInstalledCapability("execution-witness", {
+    allowUnprovenReadiness: internalProbe,
+    allowUpgradeEntrypoint: internalProbe
+  });
   if (!SHA256.test(confirmedDigest)) throw new Error("confirmed execution request digest must be SHA-256");
   const resolvedRequest = path.resolve(requestPath);
   const requestBytes = await readFile(resolvedRequest);

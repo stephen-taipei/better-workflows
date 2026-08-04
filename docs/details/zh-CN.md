@@ -241,7 +241,7 @@ $better-workflows:auto <描述需要完成的目标>
 
 普通 clone 或执行 workspace recipe **不需要** host trust root；只有要执行真实 Codex self-improve replay 的 maintainer，才需要 administrator 在每台 host 一次性执行。self-improve 不会授权 commit、cache publication、push、merge 或 cleanup；这些交由 `pr-to-dev` 与 immutable-cache workflow：
 
-交付必须使用明确的完整 baseline SHA，且该 SHA 必须是 candidate HEAD 的严格祖先。七份 witness 通过重新验证后，先创建明确绑定的 `pr-to-dev` run，再记录 typed `self-improve-delivery-handoff`；没有这份 receipt 不得取得 commit、push、merge 或 cache action。cache 必须在 source HEAD 改变前执行：`SBW_STATE_ROOT=<state-root> node scripts/plugin-cache.mjs sync --handoff-run <pr-to-dev-run-id>`。
+交付必须使用明确的完整 baseline SHA，且该 SHA 必须是 candidate HEAD 的严格祖先。七份 witness 通过重新验证后，先创建明确绑定的 `pr-to-dev` run，再记录 typed `self-improve-delivery-handoff`；没有这份 receipt 不得取得 commit、push、merge 或 cache action。cache action 必须先用 `plugin.cache.publish`、`local-workspace` 和 `plugin-cache:<source-head-revision>` 签发 token，再执行：`SBW_STATE_ROOT=<state-root> node scripts/plugin-cache.mjs sync --handoff-run <pr-to-dev-run-id> --token <plugin-cache-action-token>`。
 
 如果 trust root 或 private key 尚未由 host 的批准 administrator bootstrap 建立，请先完成该独立前置作业；本 repository 不发布、也不执行未追踪的 legacy Swift bootstrap artifact。对于已完成 bootstrap 的 host，先用只读命令检查状态：
 
@@ -449,7 +449,7 @@ node scripts/plugin-cache.mjs check
 ```
 
 Plugin cache version 是 immutable。任何内容变更都必须使用新的 build
-version；`SBW_STATE_ROOT=<state-root> node scripts/plugin-cache.mjs sync --handoff-run <pr-to-dev-run-id>` 只会在 fresh typed handoff 通过且 source HEAD 未改变时 stage 尚不存在的版本，
+version；`SBW_STATE_ROOT=<state-root> node scripts/plugin-cache.mjs sync --handoff-run <pr-to-dev-run-id> --token <plugin-cache-action-token>` 只会在 fresh typed handoff 通过、governed cache token 消费成功且 source HEAD 未改变时 stage 尚不存在的版本，
 验证完整 file manifest 与 digest 后原子发布。同版本内容不同时会拒绝原地
 覆盖。通过正常 Codex plugin refresh 启用前，还应从最终 cache path 执行
 `sbw eval`。

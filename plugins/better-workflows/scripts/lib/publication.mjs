@@ -9,7 +9,8 @@ import {
   rename,
   realpath,
   rm,
-  unlink
+  unlink,
+  writeFile
 } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
@@ -47,6 +48,13 @@ async function pathExists(target) {
   }
 }
 
+async function repositoryRootForSource(root) {
+  const resolvedSource = await realpath(path.resolve(root));
+  return realpath((await execFileAsync("git", [
+    "-C", resolvedSource, "rev-parse", "--show-toplevel"
+  ], { encoding: "utf8" })).stdout.trim());
+}
+
 async function assertDirectoryNotSymlink(target) {
   const info = await lstat(target);
   if (info.isSymbolicLink() || !info.isDirectory()) {
@@ -74,7 +82,7 @@ async function assertPublishableSource(root) {
   const sourceRoot = await realpath(path.resolve(root));
   let repositoryRoot;
   try {
-    repositoryRoot = await realpath((await execFileAsync("git", ["-C", sourceRoot, "rev-parse", "--show-toplevel"], { encoding: "utf8" })).stdout.trim());
+    repositoryRoot = await repositoryRootForSource(sourceRoot);
   } catch {
     return;
   }
@@ -259,7 +267,10 @@ function validateExpectedSourceBinding(value) {
 
 async function assertExpectedSourceBinding(sourceRoot, expected, bundle = null) {
   if (!expected) return { sourceBinding: null, bundleDigest: bundle ?? await bundleDigest(sourceRoot) };
-  const sourceBinding = await captureSourceBinding(sourceRoot, {
+  // Source bindings are repository-level records. Publishing is invoked with the
+  // plugin subtree, but capturing that subtree would bind the digest to a
+  // different cwd and reject a valid handoff.
+  const sourceBinding = await captureSourceBinding(await repositoryRootForSource(sourceRoot), {
     baseRevision: expected.sourceBaselineRevision,
     requireClean: true
   });
@@ -273,8 +284,54 @@ async function assertExpectedSourceBinding(sourceRoot, expected, bundle = null) 
   return { sourceBinding, bundleDigest: resolvedBundle };
 }
 
-export async function publishPluginCache({ sourceRoot, cacheRoot, expectedSourceBinding = null }) {
+async function createCommittedSourceSnapshot(sourceRoot, expected, cacheRoot, version) {
+  const repositoryRoot = await repositoryRootForSource(sourceRoot);
+  const resolvedSource = await realpath(path.resolve(sourceRoot));
+  const relativeRoot = path.relative(repositoryRoot, resolvedSource).replaceAll(path.sep, "/");
+  if (!relativeRoot || relativeRoot.startsWith("../") || path.isAbsolute(relativeRoot)) {
+    throw new Error("Plugin cache source is not a repository-relative tree");
+  }
+  const snapshotRoot = path.join(cacheRoot, `.${version}.snapshot-${randomUUID()}`);
+  const archivePath = path.join(cacheRoot, `.${version}.archive-${randomUUID()}.tar`);
+  await mkdir(snapshotRoot, { recursive: true, mode: 0o700 });
+  try {
+    await execFileAsync("git", [
+      "-C", repositoryRoot,
+      "archive",
+      "--format=tar",
+      `--output=${archivePath}`,
+      expected.sourceHeadRevision,
+      "--",
+      relativeRoot
+    ], { encoding: "utf8" });
+    await execFileAsync("/usr/bin/tar", ["-xf", archivePath, "-C", snapshotRoot], {
+      encoding: "utf8"
+    });
+    const snapshotSource = path.join(snapshotRoot, relativeRoot);
+    await assertDirectoryNotSymlink(snapshotSource);
+    const snapshotDigest = await bundleDigest(snapshotSource);
+    if (snapshotDigest !== expected.pluginBundleDigest) {
+      throw new Error("Committed plugin cache snapshot does not match self-improve handoff");
+    }
+    return { snapshotRoot, snapshotSource };
+  } catch (error) {
+    await rm(snapshotRoot, { recursive: true, force: true }).catch(() => undefined);
+    throw error;
+  } finally {
+    await unlink(archivePath).catch(() => undefined);
+  }
+}
+
+export async function publishPluginCache({
+  sourceRoot,
+  cacheRoot,
+  expectedSourceBinding = null,
+  beforeRename = null
+}) {
   const expected = validateExpectedSourceBinding(expectedSourceBinding);
+  if (beforeRename !== null && typeof beforeRename !== "function") {
+    throw new Error("Plugin cache publication beforeRename hook must be a function");
+  }
   await assertExpectedSourceBinding(sourceRoot, expected);
   const before = await checkPluginCache({ sourceRoot, cacheRoot });
   if (before.ok) {
@@ -297,6 +354,7 @@ export async function publishPluginCache({ sourceRoot, cacheRoot, expectedSource
     throw error;
   });
   const stage = path.join(resolvedCacheRoot, `.${before.version}.stage-${randomUUID()}`);
+  let snapshotRoot = null;
   let publishedTarget = false;
   let publishedPath = null;
   try {
@@ -324,35 +382,48 @@ export async function publishPluginCache({ sourceRoot, cacheRoot, expectedSource
       );
     }
     await mkdir(stage, { mode: 0o700 });
-    await copyBundle(path.resolve(sourceRoot), stage);
+    const snapshot = expected
+      ? await createCommittedSourceSnapshot(sourceRoot, expected, resolvedCacheRoot, before.version)
+      : null;
+    snapshotRoot = snapshot?.snapshotRoot ?? null;
+    await copyBundle(snapshot?.snapshotSource ?? path.resolve(sourceRoot), stage);
     const stagedManifest = await createBundleManifest(stage);
     const stagedDigest = digestObject(stagedManifest);
-    if (stagedDigest !== lockedBefore.sourceDigest) {
+    const expectedBundleDigest = expected?.pluginBundleDigest ?? lockedBefore.sourceDigest;
+    if (stagedDigest !== expectedBundleDigest) {
       throw new Error("Staged plugin cache digest does not match source");
     }
-    const stagedSource = await assertExpectedSourceBinding(sourceRoot, expected);
-    if (stagedSource.bundleDigest !== lockedBefore.sourceDigest) {
+    const stagedSource = expected ? await assertExpectedSourceBinding(sourceRoot, expected) : null;
+    if (stagedSource && stagedSource.bundleDigest !== expectedBundleDigest) {
       throw new Error("Plugin source changed during cache staging");
     }
     if (await pathExists(lockedBefore.target)) {
       throw new Error(`Plugin cache target appeared during publication: ${lockedBefore.target}`);
     }
-    await assertExpectedSourceBinding(sourceRoot, expected, lockedBefore.sourceDigest);
+    await assertExpectedSourceBinding(sourceRoot, expected, expectedBundleDigest);
+    if (beforeRename) await beforeRename({ target: lockedBefore.target, sourceBinding: expected });
     await rename(stage, lockedBefore.target);
     publishedTarget = true;
     publishedPath = lockedBefore.target;
     const targetDigest = await bundleDigest(lockedBefore.target);
-    const finalSourceDigest = await bundleDigest(sourceRoot);
-    await assertExpectedSourceBinding(sourceRoot, expected, finalSourceDigest);
-    if (
-      targetDigest !== lockedBefore.sourceDigest ||
-      finalSourceDigest !== lockedBefore.sourceDigest
-    ) {
-      throw new Error("Published plugin cache failed final source and target verification");
+    if (targetDigest !== expectedBundleDigest) {
+      throw new Error("Published plugin cache failed exact target verification");
     }
-    const after = await checkPluginCache({ sourceRoot, cacheRoot });
+    // An expected handoff is an immutable commit snapshot. The source checkout
+    // may advance after the last pre-rename check; that cannot change the bytes
+    // already staged from the reviewed commit. Provider reconciliation performs
+    // the live source-binding check before declaring the action successful.
+    const after = expected
+      ? {
+          ...lockedBefore,
+          ok: true,
+          status: "identical",
+          sourceDigest: expectedBundleDigest,
+          targetDigest,
+          diff: { missing: [], extra: [], changed: [] }
+        }
+      : await checkPluginCache({ sourceRoot, cacheRoot });
     if (!after.ok) throw new Error("Published plugin cache failed exact verification");
-    await assertExpectedSourceBinding(sourceRoot, expected, after.sourceDigest);
     return { ...after, applied: true, noOp: false };
   } catch (error) {
     let rollbackError = null;
@@ -372,6 +443,7 @@ export async function publishPluginCache({ sourceRoot, cacheRoot, expectedSource
     }
     throw error;
   } finally {
+    if (snapshotRoot) await rm(snapshotRoot, { recursive: true, force: true }).catch(() => undefined);
     await lock.close().catch(() => undefined);
     await unlink(lockPath).catch(() => undefined);
   }

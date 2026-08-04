@@ -63,6 +63,15 @@ export async function validateSelfImproveDeliveryHandoff(payload, targetRun) {
   if (digestObject(expected) !== digestObject(payload)) {
     throw new Error("Self-improve delivery handoff is not bound to the accepted replay evidence");
   }
+  const targetBinding = targetRun.manifest.sourceBinding;
+  if (
+    !targetBinding ||
+    targetBinding.baseRevision !== payload.sourceBaselineRevision ||
+    targetBinding.headRevision !== payload.sourceHeadRevision ||
+    targetBinding.digest !== payload.sourceBindingDigest
+  ) {
+    throw new Error("Self-improve delivery handoff target manifest is not bound to the source payload");
+  }
   const currentSource = await captureSourceBinding(targetRun.manifest.cwd, {
     baseRevision: targetRun.manifest.sourceBinding?.baseRevision ?? payload.sourceBaselineRevision,
     requireClean: true

@@ -12,7 +12,7 @@ Evidence records must contain:
 - creation time
 
 New non-direct runs use TaskContract v2. Their evidence must use the typed-v1
-catalog in `config/evidence-contracts-v1.json` (98 exact kinds). The CLI
+catalog in `config/evidence-contracts-v1.json` (99 exact kinds). The CLI
 recomputes and verifies the receipt payload digest and semantic success fields;
 unknown kinds, unauthorized producers, stale run or revision bindings, empty
 payloads, and digest mismatches fail closed. v2
