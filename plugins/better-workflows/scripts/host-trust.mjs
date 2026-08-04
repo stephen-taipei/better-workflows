@@ -683,7 +683,7 @@ function readinessBinding({ trust, privateKey, runtime, launcher, probe, codexBi
     schemaVersion: 1,
     kind: "host-readiness-binding",
     trustRootDigest: trust.digest,
-    privateKeyDigest: privateKey.digest,
+    privateKeyIdentity: privateKey.identity,
     runtime: runtime ? { path: runtime.path, digest: runtime.digest } : null,
     launcher: { path: launcher.path, digest: launcher.digest },
     readinessProbe: { path: probe.path, digest: probe.digest },
@@ -751,8 +751,16 @@ async function status({ requireReadinessReceipt = true } = {}) {
   const privateKey = {
     path: PRIVATE_KEY,
     bytes: keyInfo.size,
-    digest: await digest(await readFile(PRIVATE_KEY)),
-    mode: "0600"
+    mode: "0600",
+    identity: {
+      uid: keyInfo.uid,
+      mode: keyInfo.mode & 0o777,
+      device: Number.isSafeInteger(keyInfo.dev) ? keyInfo.dev : null,
+      inode: Number.isSafeInteger(keyInfo.ino) ? keyInfo.ino : null,
+      size: keyInfo.size,
+      mtimeMs: keyInfo.mtimeMs,
+      ctimeMs: keyInfo.ctimeMs
+    }
   };
   const runtime = await currentRuntime();
   const launcher = await currentFixedArtifact(EXECUTION_LAUNCHER, "Native execution launcher");
