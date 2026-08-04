@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { link, mkdir, mkdtemp, readdir, writeFile } from "node:fs/promises";
+import { link, mkdir, mkdtemp, readdir, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -11,9 +11,11 @@ import {
   markPluginCacheReady,
   removeUnreadyPluginCachePublication,
   publishPluginCache,
+  recoverPendingPluginCachePublication,
   verifyPluginCacheReady
 } from "../lib/publication.mjs";
 import { captureSourceBinding } from "../lib/git.mjs";
+import { pathToFileURL } from "node:url";
 
 const execFileAsync = promisify(execFile);
 
@@ -118,6 +120,74 @@ test("plugin cache publication stages a new immutable version and verifies exact
   assert.deepEqual(
     (await readdir(cacheRoot)).filter((name) => name.includes(".publish.lock") || name.includes(".stage-")),
     []
+  );
+});
+
+test("plugin cache publication reclaims a lock left by a hard-killed publisher", async () => {
+  const sourceRoot = await sourceFixture("1.1.0+test.lock-recovery");
+  const cacheRoot = path.join(await mkdtemp(path.join(os.tmpdir(), "sbw-publication-lock-recovery-")), "cache");
+  const publicationModule = pathToFileURL(path.resolve(path.dirname(new URL(import.meta.url).pathname), "..", "lib", "publication.mjs")).href;
+  const childCode = `
+    import { publishPluginCache } from ${JSON.stringify(publicationModule)};
+    await publishPluginCache({
+      sourceRoot: ${JSON.stringify(sourceRoot)},
+      cacheRoot: ${JSON.stringify(cacheRoot)},
+      beforeRename: async () => process.kill(process.pid, "SIGKILL")
+    });
+  `;
+  await assert.rejects(
+    execFileAsync(process.execPath, ["--input-type=module", "-e", childCode], { encoding: "utf8" }),
+    (error) => error.signal === "SIGKILL"
+  );
+  const published = await publishPluginCache({ sourceRoot, cacheRoot });
+  assert.equal(published.ok, true);
+  assert.equal(published.applied, true);
+  assert.deepEqual(
+    (await readdir(cacheRoot)).filter((name) => name.includes(".publish.lock") || name.includes(".stage-")),
+    []
+  );
+});
+
+test("pending plugin cache recovery is bound to the consumed attempt and never republishes", async () => {
+  const { repositoryRoot, sourceRoot } = await trackedSourceFixture("1.1.0+test.pending-recovery");
+  const baseline = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repositoryRoot, encoding: "utf8" })).stdout.trim();
+  const sourceBinding = await captureSourceBinding(repositoryRoot, { baseRevision: baseline, requireClean: true });
+  const pluginBundleDigest = await bundleDigest(sourceRoot);
+  const cacheRoot = path.join(await mkdtemp(path.join(os.tmpdir(), "sbw-publication-pending-recovery-")), "cache");
+  const runId = "sbw-pending-recovery-run";
+  const attemptId = "sbw-pending-recovery-attempt";
+  const expectedSourceBinding = {
+    pluginBundleDigest,
+    sourceBaselineRevision: baseline,
+    sourceBindingDigest: sourceBinding.digest,
+    sourceHeadRevision: sourceBinding.headRevision
+  };
+  const published = await publishPluginCache({
+    sourceRoot,
+    cacheRoot,
+    expectedSourceBinding,
+    publicationIdentity: { runId, attemptId }
+  });
+  const targetBefore = await stat(published.target);
+  const recovered = await recoverPendingPluginCachePublication({
+    sourceRoot,
+    cacheRoot,
+    expectedSourceBinding,
+    runId,
+    attemptId
+  });
+  assert.equal(recovered.recovered, true);
+  assert.equal(recovered.targetDigest, published.targetDigest);
+  assert.equal((await stat(published.target)).size, targetBefore.size);
+  await assert.rejects(
+    recoverPendingPluginCachePublication({
+      sourceRoot,
+      cacheRoot,
+      expectedSourceBinding,
+      runId,
+      attemptId: "different-attempt"
+    }),
+    /not bound to this action attempt/
   );
 });
 

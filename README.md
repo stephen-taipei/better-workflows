@@ -175,7 +175,11 @@ bound to the canonical cache root recorded by the source-bound run, handoff,
 and action token, and rejects `CODEX_HOME` redirection before consuming the
 token. If a publication process fails after its success action is persisted,
 rerun the same `sync` attempt; the persisted receipt can promote its pending
-ready marker without republishing the immutable version.
+ready marker without republishing the immutable version. If the action remains
+`spent/pending`, the same sync can recover only an exact pending marker and
+immutable target bound to that run and attempt; otherwise the attempt stays
+unknown and no second publication is permitted. Stale publication locks are
+reclaimed only after their recorded owner is proven absent.
 
 Node.js 24+ · zero runtime dependencies · immutable plugin cache versions.
 

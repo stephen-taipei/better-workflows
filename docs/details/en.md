@@ -760,7 +760,12 @@ refresh. The `--cache-root` override is diagnostic-only for `check`; governed
 `sync` is fixed to the cache root recorded by the target manifest and action
 token; a different `CODEX_HOME` fails before token consumption. If the success
 action record is persisted before the ready marker, repeating the same sync
-attempt repairs the marker from that exact receipt without republishing.
+attempt repairs the marker from that exact receipt without republishing. A
+`spent/pending` action can likewise resume only when the exact pending marker
+and immutable target prove the handoff source binding, run, and attempt; if
+that proof is absent, the attempt remains unknown and no second publication is
+allowed. Source runs without an explicit canonical cache-root field and locks
+whose owner cannot be proven absent fail closed.
 
 ## License
 

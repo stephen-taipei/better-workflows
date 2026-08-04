@@ -1,7 +1,6 @@
 import {
   VERSION,
   digestObject,
-  getCodexPluginCacheRoot,
   listJsonRecords,
   loadRun,
   nowIso,
@@ -14,6 +13,18 @@ import { verifySelfImproveDeliveryEvidence } from "./self-improve-replay.mjs";
 export const SELF_IMPROVE_HANDOFF_KIND = "self-improve-delivery-handoff";
 const SHA1 = /^[a-f0-9]{40}$/;
 const SHA256 = /^[a-f0-9]{64}$/;
+
+function canonicalSourceCacheRoot(manifest) {
+  const cacheRoot = manifest?.pluginCacheRoot;
+  if (
+    typeof cacheRoot !== "string" ||
+    !path.isAbsolute(cacheRoot) ||
+    path.resolve(cacheRoot) !== cacheRoot
+  ) {
+    throw new Error("Self-improve source run is missing its canonical plugin cache root");
+  }
+  return cacheRoot;
+}
 
 export async function collectSelfImproveDeliveryBinding(root, sourceRunId) {
   const sourceRun = await loadRun(root, sourceRunId);
@@ -39,7 +50,7 @@ export async function collectSelfImproveDeliveryBinding(root, sourceRunId) {
     candidateDigest,
     candidateRoot,
     witnessDigests: verified.witnessDigests,
-    cacheRoot: sourceRun.manifest.pluginCacheRoot ?? getCodexPluginCacheRoot()
+    cacheRoot: canonicalSourceCacheRoot(sourceRun.manifest)
   };
 }
 

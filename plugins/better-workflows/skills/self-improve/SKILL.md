@@ -255,9 +255,15 @@ infrastructure failures separately from product regressions.
 The cache publication is a two-phase operation: a pending marker may remain
 after an interrupted publication, but a persisted, verified success receipt
 must be repaired under the run lock by promoting the exact marker to `ready`.
-Repair may not rerun publication, accept a different receipt, or overwrite a
-drifted target; completion must recheck the ready marker, source binding,
-provider-receipt digest, and canonical cache root.
+If the action is still `spent/pending`, recovery is allowed only when the
+pending marker and immutable target prove the exact source binding, run, and
+attempt; it must create the governed receipt without republishing. Repair may
+not rerun publication, accept a different receipt, or overwrite a drifted
+target; completion must recheck the ready marker, source binding,
+provider-receipt digest, and canonical cache root. A source run without an
+explicit canonical `pluginCacheRoot` is invalid; never infer it from the
+current ambient `CODEX_HOME`. Publication locks may be reclaimed only after
+the recorded owner is proven absent; otherwise fail closed.
 
 Any source change requires a new semantic/build version. Never overwrite an
 existing immutable cache version. After final validation and only with explicit

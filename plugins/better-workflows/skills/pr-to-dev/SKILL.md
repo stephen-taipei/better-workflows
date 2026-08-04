@@ -49,7 +49,13 @@ token, provider receipt, and ready marker must agree on one canonical
 If the process fails after the success action record is persisted, retry the
 same action attempt with its persisted success receipt so the run-lock repair
 path can promote the pending marker; do not issue a second token or rerun the
-publication.
+publication. A `spent/pending` action may resume only when the immutable target
+and pending marker prove the exact handoff source binding, run, and attempt;
+then create the receipt and promote readiness without republishing. If that
+proof is missing, keep the attempt unknown and fail closed. A source run that
+lacks an explicit canonical `pluginCacheRoot` is invalid; do not fall back to
+the current ambient `CODEX_HOME`, and do not reclaim a publication lock while
+its recorded owner is still alive.
 
 If the reviewed source changes during repair, cancel or supersede this run and
 start a fresh source-bound run with a fresh review package; never rebind after a

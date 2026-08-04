@@ -474,7 +474,12 @@ version；`SBW_STATE_ROOT=<state-root> node scripts/plugin-cache.mjs sync --hand
 驗證完整 file manifest 與 digest 後原子發布。若同版本內容不同會拒絕原地
 覆寫。用正常 Codex plugin refresh 啟用前，還要從最終 cache path 執行
 `sbw eval`。`--cache-root` 只允許作為 `check` 的診斷 override；governed
-`sync` 固定綁定目前 Codex plugin cache，不接受重新導向。
+`sync` 固定綁定目前 Codex plugin cache，不接受重新導向。若 action 停在
+`spent/pending`，只有在 pending marker 與 immutable target 同時證明相同
+handoff source binding、run 與 attempt 時，才能以同一個 sync attempt 建立
+receipt 並修復 ready；否則維持 unknown，禁止第二次 publication。source run
+若沒有明確的 canonical cache-root 欄位，或 lock owner 無法證明已消失，也
+必須 fail closed。
 
 ## License
 

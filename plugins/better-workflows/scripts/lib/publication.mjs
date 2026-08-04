@@ -78,6 +78,89 @@ async function readRegularFile(target, { requireSingleLink = true } = {}) {
   }
 }
 
+function processIsAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if (error.code === "EPERM") return true;
+    return false;
+  }
+}
+
+async function readPublicationLock(lockPath) {
+  try {
+    const opened = await readRegularFile(lockPath);
+    return JSON.parse(opened.contents.toString("utf8"));
+  } catch (error) {
+    if (error.code === "ENOENT") return null;
+    if (error instanceof SyntaxError) return null;
+    throw error;
+  }
+}
+
+async function reclaimStalePublicationLock(lockPath, version) {
+  const existing = await readPublicationLock(lockPath);
+  if (!existing) {
+    if (await pathExists(lockPath)) {
+      throw new Error(`Plugin cache publication lock owner cannot be proven absent for ${version}`);
+    }
+    return false;
+  }
+  if (!Number.isInteger(existing.pid) || existing.pid < 1) {
+    throw new Error(`Plugin cache publication lock owner cannot be proven absent for ${version}`);
+  }
+  if (processIsAlive(existing.pid)) {
+    throw new Error(`Plugin cache publication is already in progress for ${version}`);
+  }
+  const stalePath = `${lockPath}.stale-${randomUUID()}`;
+  try {
+    await rename(lockPath, stalePath);
+  } catch (error) {
+    if (error.code === "ENOENT") return false;
+    throw error;
+  }
+  await unlink(stalePath).catch(() => undefined);
+  return true;
+}
+
+async function acquirePublicationLock(lockPath, version) {
+  let reclaimed = false;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      await writeFile(lockPath, `${JSON.stringify({
+        version,
+        pid: process.pid,
+        ownerToken: randomUUID(),
+        createdAt: new Date().toISOString()
+      })}\n`, { flag: "wx", mode: 0o600 });
+      return { close: async () => undefined, reclaimed };
+    } catch (error) {
+      if (error.code !== "EEXIST") throw error;
+      const didReclaim = await reclaimStalePublicationLock(lockPath, version);
+      reclaimed ||= didReclaim;
+      if (!didReclaim && attempt === 1) {
+        throw new Error(`Plugin cache publication lock could not be acquired for ${version}`);
+      }
+    }
+  }
+  throw new Error(`Plugin cache publication lock could not be acquired for ${version}`);
+}
+
+async function removeStalePublicationArtifacts(cacheRoot, version) {
+  const prefix = `.${version}.`;
+  const entries = await readdir(cacheRoot);
+  for (const entry of entries) {
+    if (
+      entry.startsWith(`${prefix}stage-`) ||
+      entry.startsWith(`${prefix}snapshot-`) ||
+      entry.startsWith(`${prefix}archive-`)
+    ) {
+      await rm(path.join(cacheRoot, entry), { recursive: true, force: true });
+    }
+  }
+}
+
 async function assertPublishableSource(root) {
   const sourceRoot = await realpath(path.resolve(root));
   let repositoryRoot;
@@ -518,11 +601,21 @@ export async function publishPluginCache({
   sourceRoot,
   cacheRoot,
   expectedSourceBinding = null,
-  beforeRename = null
+  beforeRename = null,
+  publicationIdentity = null
 }) {
   const expected = validateExpectedSourceBinding(expectedSourceBinding);
   if (beforeRename !== null && typeof beforeRename !== "function") {
     throw new Error("Plugin cache publication beforeRename hook must be a function");
+  }
+  if (publicationIdentity !== null && (
+    !publicationIdentity ||
+    typeof publicationIdentity.runId !== "string" ||
+    !publicationIdentity.runId ||
+    typeof publicationIdentity.attemptId !== "string" ||
+    !publicationIdentity.attemptId
+  )) {
+    throw new Error("Plugin cache publication identity must bind a run and action attempt");
   }
   await assertExpectedSourceBinding(sourceRoot, expected);
   const before = await checkPluginCache({ sourceRoot, cacheRoot });
@@ -545,21 +638,14 @@ export async function publishPluginCache({
   await mkdir(resolvedCacheRoot, { recursive: true, mode: 0o700 });
   await assertDirectoryNotSymlink(resolvedCacheRoot);
   const lockPath = path.join(resolvedCacheRoot, `.${before.version}.publish.lock`);
-  const lock = await open(lockPath, "wx", 0o600).catch((error) => {
-    if (error.code === "EEXIST") {
-      throw new Error(`Plugin cache publication is already in progress for ${before.version}`);
-    }
-    throw error;
-  });
+  const lockState = await acquirePublicationLock(lockPath, before.version);
+  const lock = lockState;
+  if (lockState.reclaimed) await removeStalePublicationArtifacts(resolvedCacheRoot, before.version);
   const stage = path.join(resolvedCacheRoot, `.${before.version}.stage-${randomUUID()}`);
   let snapshotRoot = null;
   let publishedTarget = false;
   let publishedPath = null;
   try {
-    await lock.writeFile(
-      `${JSON.stringify({ version: before.version, pid: process.pid, createdAt: new Date().toISOString() })}\n`
-    );
-    await lock.sync();
     const lockedBefore = await checkPluginCache({ sourceRoot, cacheRoot });
     if (
       lockedBefore.version !== before.version ||
@@ -614,7 +700,9 @@ export async function publishPluginCache({
       sourceBaselineRevision: expected?.sourceBaselineRevision ?? null,
       sourceHeadRevision: expected?.sourceHeadRevision ?? null,
       sourceBindingDigest: expected?.sourceBindingDigest ?? null,
-      pluginBundleDigest: expected?.pluginBundleDigest ?? expectedBundleDigest
+      pluginBundleDigest: expected?.pluginBundleDigest ?? expectedBundleDigest,
+      runId: publicationIdentity?.runId ?? null,
+      attemptId: publicationIdentity?.attemptId ?? null
     });
     if (beforeRename) await beforeRename({ target: lockedBefore.target, sourceBinding: expected });
     await rename(stage, lockedBefore.target);
@@ -664,4 +752,45 @@ export async function publishPluginCache({
     await lock.close().catch(() => undefined);
     await unlink(lockPath).catch(() => undefined);
   }
+}
+
+export async function recoverPendingPluginCachePublication({
+  sourceRoot,
+  cacheRoot,
+  expectedSourceBinding,
+  runId,
+  attemptId
+}) {
+  const expected = validateExpectedSourceBinding(expectedSourceBinding);
+  if (!expected || typeof runId !== "string" || !runId || typeof attemptId !== "string" || !attemptId) {
+    throw new Error("Pending plugin cache recovery requires an exact source binding, run, and action attempt");
+  }
+  await assertExpectedSourceBinding(sourceRoot, expected);
+  const current = await checkPluginCache({ sourceRoot, cacheRoot });
+  if (!current.ok || current.status !== "identical") {
+    throw new Error("Pending plugin cache recovery requires an exact published target");
+  }
+  const marker = await readPublicationMarker(cacheRoot, current.version);
+  if (
+    !marker ||
+    marker.state !== "pending" ||
+    marker.target !== current.target ||
+    marker.targetDigest !== current.targetDigest ||
+    marker.sourceDigest !== expected.pluginBundleDigest ||
+    marker.sourceBaselineRevision !== expected.sourceBaselineRevision ||
+    marker.sourceHeadRevision !== expected.sourceHeadRevision ||
+    marker.sourceBindingDigest !== expected.sourceBindingDigest ||
+    marker.pluginBundleDigest !== expected.pluginBundleDigest ||
+    marker.runId !== runId ||
+    marker.attemptId !== attemptId
+  ) {
+    throw new Error("Pending plugin cache publication marker is not bound to this action attempt");
+  }
+  const resolvedCacheRoot = path.resolve(cacheRoot);
+  const reclaimed = await reclaimStalePublicationLock(
+    path.join(resolvedCacheRoot, `.${current.version}.publish.lock`),
+    current.version
+  );
+  if (reclaimed) await removeStalePublicationArtifacts(resolvedCacheRoot, current.version);
+  return { ...current, applied: true, noOp: false, recovered: true, status: "identical" };
 }

@@ -9,7 +9,8 @@ import { randomUUID } from "node:crypto";
 import {
   checkPluginCache,
   removeUnreadyPluginCachePublication,
-  publishPluginCache
+  publishPluginCache,
+  recoverPendingPluginCachePublication
 } from "../plugins/better-workflows/scripts/lib/publication.mjs";
 import {
   digestObject,
@@ -18,7 +19,8 @@ import {
   listJsonRecords,
   loadRun,
   nowIso,
-  safeJoin
+  safeJoin,
+  sha256
 } from "../plugins/better-workflows/scripts/lib/core.mjs";
 import { validateSelfImproveDeliveryHandoff } from "../plugins/better-workflows/scripts/lib/self-improve-handoff.mjs";
 import { rm, writeFile } from "node:fs/promises";
@@ -108,160 +110,105 @@ async function main() {
     let publication = null;
     let reconciled = false;
     try {
-      const consumedResult = await runSbw([
-        "action", "consume", targetRunId, "--token", String(options.token)
-      ]);
-      consumed = consumedResult.action;
-      if (
-        consumed.action !== "plugin.cache.publish" ||
-        consumed.provider !== "local-workspace" ||
-        consumed.resource !== `plugin-cache:${payload.sourceHeadRevision}`
-      ) {
-        throw new Error("Consumed action token is not bound to this exact plugin cache handoff");
-      }
-      publication = await publishPluginCache({
-        sourceRoot,
-        cacheRoot,
-        expectedSourceBinding
-      });
-      const request = {
-        action: consumed.action,
-        provider: consumed.provider,
-        resource: consumed.resource,
-        remoteRevision: consumed.remoteRevision,
-        idempotencyKey: consumed.idempotencyKey,
-        sourceRoot,
-        cacheRoot,
-        sourceBaselineRevision: payload.sourceBaselineRevision,
-        sourceHeadRevision: payload.sourceHeadRevision,
-        sourceBindingDigest: payload.sourceBindingDigest,
-        pluginBundleDigest: payload.pluginBundleDigest
-      };
-      const response = {
-        applied: publication.applied === true,
-        noOp: publication.noOp === true,
-        status: publication.status,
-        version: publication.version,
-        target: publication.target,
-        sourceDigest: publication.sourceDigest,
-        targetDigest: publication.targetDigest
-      };
-      const providerReceipt = {
-        action: consumed.action,
-        provider: consumed.provider,
-        resource: consumed.resource,
-        outcome: "success",
-        runId: targetRunId,
-        attemptId: consumed.attemptId,
-        idempotencyKey: consumed.idempotencyKey,
-        remoteRevision: consumed.remoteRevision,
-        executionId: `local-workspace:plugin.cache.publish:${consumed.attemptId}`,
-        proofKind: "local-workspace:plugin.cache.publish",
-        requestDigest: digestObject(request),
-        responseDigest: digestObject(response),
-        verifiedAt: nowIso(),
-        terminalState: "success",
-        sourceRoot,
-        cacheRoot,
-        version: publication.version,
-        target: publication.target,
-        sourceDigest: publication.sourceDigest,
-        targetDigest: publication.targetDigest,
-        applied: publication.applied === true,
-        noOp: publication.noOp === true,
-        sourceBaselineRevision: payload.sourceBaselineRevision,
-        sourceHeadRevision: payload.sourceHeadRevision,
-        sourceBindingDigest: payload.sourceBindingDigest,
-        pluginBundleDigest: payload.pluginBundleDigest
-      };
-      const actionProof = {
-        schemaVersion: 1,
-        runId: targetRunId,
-        actionAttemptId: consumed.attemptId,
-        action: consumed.action,
-        provider: consumed.provider,
-        resource: consumed.resource,
-        outcome: "success",
-        idempotencyKey: consumed.idempotencyKey,
-        remoteRevision: consumed.remoteRevision,
-        providerExecutionId: providerReceipt.executionId,
-        providerReceiptDigest: digestObject(providerReceipt)
-      };
-      const evidenceBase = {
-        schemaVersion: 2,
-        status: "complete",
-        acceptanceIds: [],
-        dependencyInputs: { files: [] },
-        dependencies: { workflowVersion: "3.0.0", files: [] },
-        receiptBase: {
-          contractVersion: 1,
-          runId: targetRunId,
-          producer: { provider: "codex-root" },
-          inputBinding: {
-            runId: targetRunId,
-            contractDigest: digestObject(targetRun.contract),
-            remoteRevision: targetRun.contract.remoteRevision ?? null
+      const tokenHash = sha256(String(options.token));
+      const existingActions = await listJsonRecords(stateRoot, safeJoin(targetRun.runDir, "actions"));
+      const existingAction = existingActions.find((action) => action.tokenHash === tokenHash);
+      if (existingAction) {
+        if (
+          existingAction.action !== "plugin.cache.publish" ||
+          existingAction.provider !== "local-workspace" ||
+          existingAction.resource !== `plugin-cache:${payload.sourceHeadRevision}`
+        ) {
+          throw new Error("Existing action token is not bound to this exact plugin cache handoff");
+        }
+        if (existingAction.status === "spent" && existingAction.outcome === "success") {
+          if (!existingAction.receipt) {
+            throw new Error("Existing plugin cache success action has no persisted receipt; do not reuse its token");
           }
-        }
-      };
-      const cacheEvidence = {
-        ...evidenceBase,
-        id: `cache-publication-${consumed.attemptId}`,
-        kind: "cache-publication",
-        summary: "Governed local-workspace publication reconciled the immutable plugin cache.",
-        receipt: {
-          ...evidenceBase.receiptBase,
-          contractId: "evidence-contracts-v1:cache-publication",
-          payload: {
-            provider: "local-workspace",
-            outcome: "success",
-            status: publication.status,
-            version: publication.version,
-            target: publication.target,
+          const repairReceiptFile = path.join(os.tmpdir(), `better-workflows-cache-retry-${randomUUID()}.json`);
+          try {
+            await writeFile(repairReceiptFile, `${JSON.stringify(existingAction.receipt, null, 2)}\n`, { mode: 0o600 });
+            const repairedResult = await runSbw([
+              "action", "reconcile", targetRunId,
+              "--attempt", existingAction.attemptId,
+              "--outcome", "success",
+              "--receipt", repairReceiptFile
+            ]);
+            const providerReceipt = existingAction.receipt.providerReceipt;
+            publication = {
+              ok: true,
+              applied: providerReceipt.applied === true,
+              noOp: providerReceipt.noOp === true,
+              status: providerReceipt.noOp === true ? "identical" : "updated",
+              version: providerReceipt.version,
+              target: providerReceipt.target,
+              sourceDigest: providerReceipt.sourceDigest,
+              targetDigest: providerReceipt.targetDigest
+            };
+            reconciled = true;
+            result = { ok: true, repaired: true, publication, action: repairedResult.action };
+          } finally {
+            await rm(repairReceiptFile, { force: true }).catch(() => undefined);
+          }
+        } else if (existingAction.status === "spent" && existingAction.outcome === "pending") {
+          consumed = existingAction;
+          publication = await recoverPendingPluginCachePublication({
             sourceRoot,
-            sourceDigest: publication.sourceDigest,
-            targetDigest: publication.targetDigest,
-            sourceBaselineRevision: payload.sourceBaselineRevision,
-            sourceHeadRevision: payload.sourceHeadRevision,
-            sourceBindingDigest: payload.sourceBindingDigest,
-            pluginBundleDigest: payload.pluginBundleDigest,
-            actionProof,
-            receipt: providerReceipt
-          },
-          payloadDigest: null,
-          producedAt: nowIso()
+            cacheRoot,
+            expectedSourceBinding,
+            runId: targetRunId,
+            attemptId: existingAction.attemptId
+          });
+        } else if (existingAction.status !== "issued") {
+          throw new Error("Existing plugin cache action is not safely recoverable; do not reuse its token");
         }
-      };
-      cacheEvidence.receipt.payloadDigest = digestObject(cacheEvidence.receipt.payload);
-      const reconciliationEvidence = {
-        ...evidenceBase,
-        id: `provider-reconciliation-${consumed.attemptId}`,
-        kind: "provider-reconciliation",
-        summary: "Local workspace provider receipt was bound to the exact plugin cache action.",
-        receipt: {
-          ...evidenceBase.receiptBase,
-          contractId: "evidence-contracts-v1:provider-reconciliation",
-          payload: {
-            provider: "local-workspace",
-            receipt: providerReceipt,
-            actionProof
-          },
-          payloadDigest: null,
-          producedAt: nowIso()
+      }
+      if (!reconciled && !consumed) {
+        const consumedResult = await runSbw([
+          "action", "consume", targetRunId, "--token", String(options.token)
+        ]);
+        consumed = consumedResult.action;
+        if (
+          consumed.action !== "plugin.cache.publish" ||
+          consumed.provider !== "local-workspace" ||
+          consumed.resource !== `plugin-cache:${payload.sourceHeadRevision}`
+        ) {
+          throw new Error("Consumed action token is not bound to this exact plugin cache handoff");
         }
-      };
-      reconciliationEvidence.receipt.payloadDigest = digestObject(reconciliationEvidence.receipt.payload);
-      const tempFiles = [];
-      try {
-        for (const evidence of [cacheEvidence, reconciliationEvidence]) {
-          const file = path.join(os.tmpdir(), `better-workflows-${evidence.id}-${randomUUID()}.json`);
-          tempFiles.push(file);
-          await writeFile(file, `${JSON.stringify(evidence, null, 2)}\n`, { mode: 0o600 });
-          await runSbw(["evidence", "add", targetRunId, "--file", file]);
-        }
-        const receiptFile = path.join(os.tmpdir(), `better-workflows-cache-receipt-${randomUUID()}.json`);
-        tempFiles.push(receiptFile);
-        const actionReceipt = {
+        publication = await publishPluginCache({
+          sourceRoot,
+          cacheRoot,
+          expectedSourceBinding,
+          publicationIdentity: {
+            runId: targetRunId,
+            attemptId: consumed.attemptId
+          }
+        });
+      }
+        if (!reconciled) {
+          const request = {
+          action: consumed.action,
+          provider: consumed.provider,
+          resource: consumed.resource,
+          remoteRevision: consumed.remoteRevision,
+          idempotencyKey: consumed.idempotencyKey,
+          sourceRoot,
+          cacheRoot,
+          sourceBaselineRevision: payload.sourceBaselineRevision,
+          sourceHeadRevision: payload.sourceHeadRevision,
+          sourceBindingDigest: payload.sourceBindingDigest,
+          pluginBundleDigest: payload.pluginBundleDigest
+        };
+        const response = {
+          applied: publication.applied === true,
+          noOp: publication.noOp === true,
+          status: publication.status,
+          version: publication.version,
+          target: publication.target,
+          sourceDigest: publication.sourceDigest,
+          targetDigest: publication.targetDigest
+        };
+        const providerReceipt = {
           action: consumed.action,
           provider: consumed.provider,
           resource: consumed.resource,
@@ -270,20 +217,136 @@ async function main() {
           attemptId: consumed.attemptId,
           idempotencyKey: consumed.idempotencyKey,
           remoteRevision: consumed.remoteRevision,
-          providerReceipt,
-          evidenceIds: [cacheEvidence.id, reconciliationEvidence.id]
+          executionId: `local-workspace:plugin.cache.publish:${consumed.attemptId}`,
+          proofKind: "local-workspace:plugin.cache.publish",
+          requestDigest: digestObject(request),
+          responseDigest: digestObject(response),
+          verifiedAt: nowIso(),
+          terminalState: "success",
+          sourceRoot,
+          cacheRoot,
+          version: publication.version,
+          target: publication.target,
+          sourceDigest: publication.sourceDigest,
+          targetDigest: publication.targetDigest,
+          applied: publication.applied === true,
+          noOp: publication.noOp === true,
+          sourceBaselineRevision: payload.sourceBaselineRevision,
+          sourceHeadRevision: payload.sourceHeadRevision,
+          sourceBindingDigest: payload.sourceBindingDigest,
+          pluginBundleDigest: payload.pluginBundleDigest
         };
-        await writeFile(receiptFile, `${JSON.stringify(actionReceipt, null, 2)}\n`, { mode: 0o600 });
-        const reconciledResult = await runSbw([
-          "action", "reconcile", targetRunId,
-          "--attempt", consumed.attemptId,
-          "--outcome", "success",
-          "--receipt", receiptFile
-        ]);
-        reconciled = true;
-        result = { ok: true, publication, action: reconciledResult.action };
-      } finally {
-        await Promise.all(tempFiles.map((file) => rm(file, { force: true }).catch(() => undefined)));
+        const actionProof = {
+          schemaVersion: 1,
+          runId: targetRunId,
+          actionAttemptId: consumed.attemptId,
+          action: consumed.action,
+          provider: consumed.provider,
+          resource: consumed.resource,
+          outcome: "success",
+          idempotencyKey: consumed.idempotencyKey,
+          remoteRevision: consumed.remoteRevision,
+          providerExecutionId: providerReceipt.executionId,
+          providerReceiptDigest: digestObject(providerReceipt)
+        };
+        const evidenceBase = {
+          schemaVersion: 2,
+          status: "complete",
+          acceptanceIds: [],
+          dependencyInputs: { files: [] },
+          dependencies: { workflowVersion: "3.0.0", files: [] },
+          receiptBase: {
+            contractVersion: 1,
+            runId: targetRunId,
+            producer: { provider: "codex-root" },
+            inputBinding: {
+              runId: targetRunId,
+              contractDigest: digestObject(targetRun.contract),
+              remoteRevision: targetRun.contract.remoteRevision ?? null
+            }
+          }
+        };
+        const cacheEvidence = {
+          ...evidenceBase,
+          id: `cache-publication-${consumed.attemptId}`,
+          kind: "cache-publication",
+          summary: "Governed local-workspace publication reconciled the immutable plugin cache.",
+          receipt: {
+            ...evidenceBase.receiptBase,
+            contractId: "evidence-contracts-v1:cache-publication",
+            payload: {
+              provider: "local-workspace",
+              outcome: "success",
+              status: publication.status,
+              version: publication.version,
+              target: publication.target,
+              sourceRoot,
+              sourceDigest: publication.sourceDigest,
+              targetDigest: publication.targetDigest,
+              sourceBaselineRevision: payload.sourceBaselineRevision,
+              sourceHeadRevision: payload.sourceHeadRevision,
+              sourceBindingDigest: payload.sourceBindingDigest,
+              pluginBundleDigest: payload.pluginBundleDigest,
+              actionProof,
+              receipt: providerReceipt
+            },
+            payloadDigest: null,
+            producedAt: nowIso()
+          }
+        };
+        cacheEvidence.receipt.payloadDigest = digestObject(cacheEvidence.receipt.payload);
+        const reconciliationEvidence = {
+          ...evidenceBase,
+          id: `provider-reconciliation-${consumed.attemptId}`,
+          kind: "provider-reconciliation",
+          summary: "Local workspace provider receipt was bound to the exact plugin cache action.",
+          receipt: {
+            ...evidenceBase.receiptBase,
+            contractId: "evidence-contracts-v1:provider-reconciliation",
+            payload: {
+              provider: "local-workspace",
+              receipt: providerReceipt,
+              actionProof
+            },
+            payloadDigest: null,
+            producedAt: nowIso()
+          }
+        };
+        reconciliationEvidence.receipt.payloadDigest = digestObject(reconciliationEvidence.receipt.payload);
+        const tempFiles = [];
+        try {
+          for (const evidence of [cacheEvidence, reconciliationEvidence]) {
+            const file = path.join(os.tmpdir(), `better-workflows-${evidence.id}-${randomUUID()}.json`);
+            tempFiles.push(file);
+            await writeFile(file, `${JSON.stringify(evidence, null, 2)}\n`, { mode: 0o600 });
+            await runSbw(["evidence", "add", targetRunId, "--file", file]);
+          }
+          const receiptFile = path.join(os.tmpdir(), `better-workflows-cache-receipt-${randomUUID()}.json`);
+          tempFiles.push(receiptFile);
+          const actionReceipt = {
+            action: consumed.action,
+            provider: consumed.provider,
+            resource: consumed.resource,
+            outcome: "success",
+            runId: targetRunId,
+            attemptId: consumed.attemptId,
+            idempotencyKey: consumed.idempotencyKey,
+            remoteRevision: consumed.remoteRevision,
+            providerReceipt,
+            evidenceIds: [cacheEvidence.id, reconciliationEvidence.id]
+          };
+          await writeFile(receiptFile, `${JSON.stringify(actionReceipt, null, 2)}\n`, { mode: 0o600 });
+          const reconciledResult = await runSbw([
+            "action", "reconcile", targetRunId,
+            "--attempt", consumed.attemptId,
+            "--outcome", "success",
+            "--receipt", receiptFile
+          ]);
+          reconciled = true;
+          result = { ok: true, publication, action: reconciledResult.action };
+        } finally {
+          await Promise.all(tempFiles.map((file) => rm(file, { force: true }).catch(() => undefined)));
+        }
       }
     } catch (error) {
       let actionSucceeded = false;
