@@ -424,11 +424,6 @@ async function installedSkillPath(skill, { cwd, env = process.env, stateRoot } =
       );
       if (marker) {
         const target = path.join(pluginCacheRoot, version.name);
-        const v1 = marker.schemaVersion === 1 &&
-          marker.state === "ready" &&
-          marker.version === version.name &&
-          marker.target === target &&
-          SHA256.test(marker.targetDigest);
         const v2 = marker.schemaVersion === 2 &&
           marker.state === "ready" &&
           marker.version === version.name &&
@@ -445,8 +440,7 @@ async function installedSkillPath(skill, { cwd, env = process.env, stateRoot } =
           typeof marker.runId === "string" && marker.runId.length > 0 &&
           typeof marker.attemptId === "string" && marker.attemptId.length > 0 &&
           SHA256.test(marker.providerReceiptDigest);
-        if (!v1 && !v2) continue;
-        if (v2 && !(await verifyGovernedCacheMarker({ marker, stateRoot, pluginCacheRoot, target }))) continue;
+        if (!v2 || !(await verifyGovernedCacheMarker({ marker, stateRoot, pluginCacheRoot, target }))) continue;
       }
       if (marker) {
         try {

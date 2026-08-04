@@ -379,6 +379,19 @@ test("routing accepts a digest-bound schema-v2 ready marker for a cached skill",
   const missingEvidence = (await snapshot()).capabilities.find((item) => item.id === "skill:cached-advisor");
   assert.equal(missingEvidence.status, "unavailable");
   await writeAction();
+  await writeFile(
+    path.join(cachePluginRoot, `${version}.ready.json`),
+    `${JSON.stringify({
+      schemaVersion: 1,
+      state: "ready",
+      version,
+      target,
+      targetDigest
+    })}\n`
+  );
+  const legacyMarker = (await snapshot()).capabilities.find((item) => item.id === "skill:cached-advisor");
+  assert.equal(legacyMarker.status, "unavailable");
+  await writeMarker();
   for (const overrides of [
     { sourceDigest: "a".repeat(64) },
     { pluginBundleDigest: "a".repeat(64) },

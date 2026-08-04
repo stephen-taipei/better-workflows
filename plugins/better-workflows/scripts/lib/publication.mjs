@@ -2,7 +2,6 @@ import { constants as fsConstants } from "node:fs";
 import { execFile } from "node:child_process";
 import {
   chmod,
-  link,
   lstat,
   mkdir,
   open,
@@ -116,8 +115,11 @@ async function reclaimStalePublicationLock(lockPath, version) {
   }
   const stalePath = `${lockPath}.stale-${randomUUID()}`;
   try {
-    await link(lockPath, stalePath);
-    const current = await readPublicationLock(lockPath, { allowHardlink: true });
+    // Move the stale lock name atomically before a successor can create it.
+    // The reclaimer only removes the quarantined inode, never a lock that a
+    // competing publisher may have created after this rename.
+    await rename(lockPath, stalePath);
+    const current = await readPublicationLock(stalePath);
     const sameOwner = current &&
       current.pid === existing.pid &&
       current.createdAt === existing.createdAt &&
@@ -173,7 +175,8 @@ async function removeStalePublicationArtifacts(cacheRoot, version) {
     if (
       entry.startsWith(`${prefix}stage-`) ||
       entry.startsWith(`${prefix}snapshot-`) ||
-      entry.startsWith(`${prefix}archive-`)
+      entry.startsWith(`${prefix}archive-`) ||
+      entry.startsWith(`${prefix}publish.lock.stale-`)
     ) {
       await rm(path.join(cacheRoot, entry), { recursive: true, force: true });
     }
