@@ -88,14 +88,17 @@ non-secret-shaped content from approved paths is sent to Codex.
 
 Each real replay uses a distinct host-owned execution witness. Its unique
 execution ID, run ID, corpus digest, baseline revision, candidate digest, role,
-attempt number, and exact prompt digest are submitted in a digest-confirmed
-request. The installed administrator signer executes the attested Codex binary
-exactly once, captures the prompt, parsed response, exit status, and timestamps,
-writes a root-owned execution ledger, and signs the attestation and result
-receipt after that execution. Training takes one witness; holdout takes six
-(candidate 1–3, then baseline 1–3). `sbw` consumes the persisted witness and
-never reruns Codex during resume or delivery revalidation. Replayed, duplicated,
-response-mutated, ledger-mutated, or executable-drifted witnesses fail closed.
+attempt number, exact prompt digest, and administrator-confirmed binary digest
+are submitted in a digest-confirmed request. The installed administrator signer
+snapshots that exact binary into a root-owned `0755` execution-root file, creates
+and signs the pre-execution binding, then runs the snapshot once as the
+requesting non-root uid/gid with fixed `PATH`, `HOME`, and `CODEX_HOME` values.
+After the child exits, the host captures the parsed response, exit status, and
+timestamps, writes a root-owned execution ledger, and signs the result receipt.
+Training takes one witness; holdout takes six (candidate 1–3, then baseline
+1–3). `sbw` consumes the persisted witness and never reruns Codex during resume
+or delivery revalidation. Replayed, duplicated, response-mutated,
+ledger-mutated, or executable-drifted witnesses fail closed.
 
 Ordinary clones and workspace recipes do not require this host trust root. A
 maintainer who will run real self-improvement delivery replays must first use
@@ -106,7 +109,9 @@ and never overwrite or implicitly rotate an existing host key. If status reports
 `ready: false` because only the legacy signer is installed, prepare the pinned
 source digest and run the digest-confirmed `host-trust.mjs upgrade` operation;
 the upgrade preserves the trust root/key and keeps the previous signer as a
-root-owned backup.
+root-owned backup. `status` performs a syntax and behavioral capability report;
+a failed upgrade is quarantined and rolled back to the digest-named backup
+without rotating keys.
 
 After the candidate is frozen, use `sbw self-improve attestation request` with
 the exact run, baseline, candidate root, model, and a new directory outside the
@@ -131,7 +136,9 @@ executes the seven requests once. It returns root-owned witness paths under
 then the six holdout witnesses to `sbw`. The receipt and ledger remain outside
 the evaluated repository; `sbw` verifies their signatures, prompt/response
 digests, binary, model, execution, exit status, timestamps, and immutable host
-ledger before recording replay evidence.
+ledger before recording replay evidence. The host attestation is signed before
+launch as an immutable execution binding; the result receipt is signed only
+after successful completion.
 
 For a versioned evaluator migration, replace the ordinary cases path with the
 immutable previous corpus and add:

@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { createHash, createPublicKey, verify } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { chmod, lstat, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { canonicalJson, sha256 } from "./core.mjs";
@@ -102,6 +102,10 @@ export async function spawnCapture(command, args, options = {}) {
     let outputBytes = 0;
     let settled = false;
     let timedOut = false;
+    let outputExceeded = false;
+    let terminationRequested = false;
+    let timeout;
+    let forceKill;
     const finish = (error, result) => {
       if (settled) return;
       settled = true;
@@ -110,34 +114,42 @@ export async function spawnCapture(command, args, options = {}) {
       if (error) reject(error);
       else resolve(result);
     };
+    const requestTermination = () => {
+      if (terminationRequested) return;
+      terminationRequested = true;
+      terminateTree(child, "SIGTERM");
+      forceKill = setTimeout(() => terminateTree(child, "SIGKILL"), 2_000);
+    };
     const collect = (bucket) => (chunk) => {
       outputBytes += chunk.length;
       if (outputBytes > maxOutputBytes) {
-        terminateTree(child, "SIGTERM");
-        finish(new Error("Provider output exceeded the configured limit"));
+        outputExceeded = true;
+        requestTermination();
         return;
       }
-      bucket.push(chunk);
+      if (!outputExceeded) bucket.push(chunk);
     };
     child.stdout.on("data", collect(stdout));
     child.stderr.on("data", collect(stderr));
-    child.on("error", (error) => finish(error));
+    child.on("error", (error) => {
+      if (!terminationRequested) finish(error);
+    });
     child.on("close", (code, signal) => {
       finish(null, {
         code,
         signal,
         timedOut,
+        outputExceeded,
         stdout: Buffer.concat(stdout).toString("utf8"),
         stderr: Buffer.concat(stderr).toString("utf8")
       });
     });
     if (input !== undefined) child.stdin.end(input);
     else child.stdin.end();
-    const timeout = setTimeout(() => {
+    timeout = setTimeout(() => {
       timedOut = true;
-      terminateTree(child, "SIGTERM");
+      requestTermination();
     }, timeoutMs);
-    const forceKill = setTimeout(() => terminateTree(child, "SIGKILL"), timeoutMs + 2_000);
   });
 }
 
@@ -203,15 +215,36 @@ async function secureJsonFile(file, label) {
 }
 
 async function secureHostArtifact(file, label, root) {
+  const resolvedRoot = await secureHostRoot(root, `${label} root`);
   const artifact = await secureJsonFile(file, label);
   if (artifact.info.uid !== 0 || (artifact.info.mode & 0o777) !== 0o644) {
     throw new Error(`${label} must be an administrator-owned 0644 file`);
   }
-  const resolvedRoot = await realpath(root);
   if (!isWithin(resolvedRoot, artifact.path)) {
     throw new Error(`${label} must be inside the fixed administrator artifact root`);
   }
   return artifact;
+}
+
+async function secureHostRoot(root, label) {
+  if (!path.isAbsolute(root)) throw new Error(`${label} must be an absolute host path`);
+  const info = await lstat(root);
+  if (info.isSymbolicLink() || !info.isDirectory() || info.uid !== 0 || (info.mode & 0o777) !== 0o755) {
+    throw new Error(`${label} must be an administrator-owned immutable 0755 directory`);
+  }
+  const resolved = await realpath(root);
+  if (resolved !== root) throw new Error(`${label} must already be canonical`);
+  let directory = resolved;
+  while (true) {
+    const parentInfo = await lstat(directory);
+    if (parentInfo.isSymbolicLink() || !parentInfo.isDirectory() || parentInfo.uid !== 0 || ((parentInfo.mode & 0o777) & 0o022) !== 0) {
+      throw new Error(`${label} parent directory is not administrator-owned and immutable`);
+    }
+    const parent = path.dirname(directory);
+    if (parent === directory) break;
+    directory = parent;
+  }
+  return resolved;
 }
 
 async function hostAnchoredTrustRoot() {
@@ -271,7 +304,7 @@ function validateExecution(attestationExecution, expectedExecution) {
  * against a separately protected root outside the evaluated repository.
  */
 export async function verifyTrustedCodexAttestation({ attestationPath, evaluationRoot, model, execution }) {
-  if (!attestationPath) throw new Error("Codex evaluation requires --trusted-codex-attestation");
+  if (!attestationPath) throw new Error("Codex evaluation requires --trusted-codex-execution");
   const evaluation = await realpath(evaluationRoot);
   const [attestationFile, trustRootFile] = await Promise.all([
     secureHostArtifact(path.resolve(attestationPath), "Trusted Codex attestation", HOST_ATTESTATIONS_ROOT),
@@ -294,9 +327,14 @@ export async function verifyTrustedCodexAttestation({ attestationPath, evaluatio
   const signedExecution = validateExecution(attestation.execution, execution);
   const binary = attestation.binary;
   if (!binary || typeof binary.path !== "string" || !path.isAbsolute(binary.path) || !/^[a-f0-9]{64}$/.test(binary.digest ?? "")) throw new Error("Trusted Codex attestation requires an absolute binary path and SHA-256 digest");
+  const executionRoot = await secureHostRoot(HOST_EXECUTIONS_ROOT, "Trusted Codex execution root");
   const binaryInfo = await lstat(binary.path);
-  if (binaryInfo.isSymbolicLink() || !binaryInfo.isFile()) throw new Error("Trusted Codex binary must be a regular non-symlink file");
-  if ((((await stat(binary.path)).mode & 0o777) & 0o022) !== 0) throw new Error("Trusted Codex binary must not be group/world writable");
+  if (binaryInfo.isSymbolicLink() || !binaryInfo.isFile() || binaryInfo.uid !== 0 || (binaryInfo.mode & 0o777) !== 0o755) {
+    throw new Error("Trusted Codex binary must be an administrator-owned 0755 file");
+  }
+  if (!isWithin(executionRoot, path.resolve(binary.path))) {
+    throw new Error("Trusted Codex binary must be the host-staged provider inside the fixed execution root");
+  }
   const command = await realpath(binary.path);
   if (command !== binary.path) throw new Error("Trusted Codex attestation binary path must already be canonical");
   const digest = await hashFile(command);
@@ -320,7 +358,7 @@ export async function verifyTrustedCodexResultReceipt({
   startedAt,
   finishedAt
 }) {
-  if (!resultReceiptPath) throw new Error("Codex evaluation requires --trusted-codex-result-receipt");
+  if (!resultReceiptPath) throw new Error("Codex execution witness requires a host-owned result receipt");
   if (!attestation?.metadata?.attestationDigest || !attestation.metadata.binary || !attestation.metadata.trustRootDigest) {
     throw new Error("Codex result receipt verification requires a verified execution attestation");
   }
@@ -422,7 +460,9 @@ export async function verifyTrustedCodexResultReceipt({
 export async function verifyTrustedCodexExecutionEnvelope({ hostExecutionPath, evaluationRoot, model, prompt, execution }) {
   if (!hostExecutionPath) throw new Error("Codex evaluation requires a host execution witness");
   const evaluation = await realpath(evaluationRoot);
-  const envelopeFile = await secureHostArtifact(path.resolve(hostExecutionPath), "Trusted Codex execution witness", HOST_EXECUTIONS_ROOT);
+  const requestedWitnessPath = path.resolve(hostExecutionPath);
+  await lstat(requestedWitnessPath);
+  const envelopeFile = await secureHostArtifact(requestedWitnessPath, "Trusted Codex execution witness", HOST_EXECUTIONS_ROOT);
   if (isWithin(evaluation, envelopeFile.path)) {
     throw new Error("Trusted Codex execution witness must be outside the evaluated repository");
   }

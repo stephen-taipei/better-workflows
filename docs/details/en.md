@@ -319,13 +319,17 @@ host trust root at `/etc/better-workflows/codex-trust-root.json`;
 `PATH`, a self-hash, and model self-report are not provider attestation. Ties,
 noise, missing evidence, and fixture-only results never auto-adopt a change.
 Each successful replay uses a distinct administrator-owned execution witness.
-The installed signer executes the attested Codex binary exactly once, captures
-the prompt, parsed response, exit status, and timestamps, writes a root-owned
-execution ledger, and signs the result receipt after execution. `sbw` consumes
-that persisted witness and verifies it again before delivery; it never reruns
-Codex during resume or delivery revalidation. The signed `result receipt` binds
-the exact prompt digest and response digest as well as the binary, model,
-execution, ledger, exit status, and timestamps.
+The digest-confirmed request binds an administrator-approved binary digest. The
+installed signer snapshots that binary into a root-owned `0755` file under the
+fixed execution root, creates and signs the pre-execution binding, and executes
+the snapshot exactly once as the requesting non-root uid/gid with fixed
+`PATH`/`HOME`/`CODEX_HOME` values. After execution it captures the parsed
+response, exit status, and timestamps, writes a root-owned execution ledger, and
+signs the result receipt. `sbw` consumes that persisted witness and verifies it
+again before delivery; it never reruns Codex during resume or delivery
+revalidation. The signed `result receipt` binds the exact prompt digest and
+response digest as well as the binary, model, execution, ledger, exit status,
+and timestamps.
 
 Evaluation v2.2 preserves the existing safety, documentation, deliberation,
 sanitizer, and evaluation-engineering coverage, and adds isolated train/holdout
@@ -352,7 +356,9 @@ remains mode `0600` outside the repository. Do not use `plutil` to validate the
 JSON trust root—use `self-improve host status`. If status reports `ready: false`
 because a legacy signer is installed, upgrade the pinned signer with its
 administrator-confirmed SHA-256 using `host-trust.mjs upgrade`; the old signer
-is retained as a root-owned backup.
+is retained as a root-owned backup. `status` performs a syntax and behavioral
+capability check; a failed upgrade is quarantined and rolled back to the
+digest-named backup without rotating keys.
 
 After a candidate is frozen, generate all seven distinct requests outside the
 repository. The output includes a manifest digest and an exact `executeCommand`;

@@ -5,13 +5,13 @@ import {
   createPrivateKey,
   createPublicKey,
   generateKeyPairSync,
-  sign,
-  verify
+  sign
 } from "node:crypto";
 import {
   chmod,
   lstat,
   mkdir,
+  mkdtemp,
   open,
   readFile,
   realpath,
@@ -47,6 +47,7 @@ const SHA1 = /^[a-f0-9]{40}$/;
 const MAX_PROMPT_BYTES = 8 * 1024 * 1024;
 const MAX_OUTPUT_BYTES = 2 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 120_000;
+const SAFE_PATH = "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
 
 function sorted(value) {
   if (Array.isArray(value)) return value.map(sorted);
@@ -79,11 +80,8 @@ async function exists(target) {
   }
 }
 
-function safeEnvironment() {
+function safeEnvironment(extra = {}) {
   const allowed = [
-    "PATH",
-    "HOME",
-    "CODEX_HOME",
     "TMPDIR",
     "TEMP",
     "TMP",
@@ -96,9 +94,13 @@ function safeEnvironment() {
     "NO_PROXY",
     "ALL_PROXY"
   ];
-  return Object.fromEntries(allowed
+  const environment = {
+    PATH: SAFE_PATH,
+    ...Object.fromEntries(allowed
     .filter((key) => process.env[key] !== undefined)
-    .map((key) => [key, process.env[key]]));
+    .map((key) => [key, process.env[key]]))
+  };
+  return { ...environment, ...extra };
 }
 
 function terminate(child, signal) {
@@ -114,11 +116,13 @@ function terminate(child, signal) {
   }
 }
 
-function spawnCapture(command, args, { input, cwd, timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
+export function spawnCapture(command, args, { input, cwd, timeoutMs = DEFAULT_TIMEOUT_MS, env = safeEnvironment(), uid, gid } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       cwd,
-      env: safeEnvironment(),
+      env,
+      ...(uid === undefined ? {} : { uid }),
+      ...(gid === undefined ? {} : { gid }),
       shell: false,
       detached: process.platform !== "win32",
       stdio: ["pipe", "pipe", "pipe"]
@@ -127,6 +131,8 @@ function spawnCapture(command, args, { input, cwd, timeoutMs = DEFAULT_TIMEOUT_M
     const stderr = [];
     let bytes = 0;
     let timedOut = false;
+    let outputExceeded = false;
+    let terminationRequested = false;
     let settled = false;
     let timeout;
     let forceKill;
@@ -138,31 +144,39 @@ function spawnCapture(command, args, { input, cwd, timeoutMs = DEFAULT_TIMEOUT_M
       if (error) reject(error);
       else resolve(result);
     };
+    const requestTermination = () => {
+      if (terminationRequested) return;
+      terminationRequested = true;
+      terminate(child, "SIGTERM");
+      forceKill = setTimeout(() => terminate(child, "SIGKILL"), 2_000);
+    };
     const collect = (bucket) => (chunk) => {
       bytes += chunk.length;
       if (bytes > MAX_OUTPUT_BYTES) {
-        terminate(child, "SIGTERM");
-        finish(new Error("Host execution output exceeded the configured limit"));
+        outputExceeded = true;
+        requestTermination();
         return;
       }
-      bucket.push(chunk);
+      if (!outputExceeded) bucket.push(chunk);
     };
     child.stdout.on("data", collect(stdout));
     child.stderr.on("data", collect(stderr));
-    child.on("error", (error) => finish(error));
+    child.on("error", (error) => {
+      if (!terminationRequested) finish(error);
+    });
     child.on("close", (code, signal) => finish(null, {
       code,
       signal,
       timedOut,
+      outputExceeded,
       stdout: Buffer.concat(stdout).toString("utf8"),
       stderr: Buffer.concat(stderr).toString("utf8")
     }));
     child.stdin.end(input);
     timeout = setTimeout(() => {
       timedOut = true;
-      terminate(child, "SIGTERM");
+      requestTermination();
     }, timeoutMs);
-    forceKill = setTimeout(() => terminate(child, "SIGKILL"), timeoutMs + 2_000);
   });
 }
 
@@ -285,23 +299,82 @@ async function validateTrustRoot() {
   return { value, digest: await digest(bytes) };
 }
 
+function signerCapabilities() {
+  return {
+    ok: true,
+    kind: "host-signer-capabilities",
+    schemaVersion: 1,
+    version: HOST_SIGNER_VERSION,
+    capabilities: [...HOST_SIGNER_CAPABILITIES]
+  };
+}
+
+function isSignerCapabilityReport(value) {
+  return value && typeof value === "object" && !Array.isArray(value) &&
+    Object.keys(value).sort().join("\0") === "capabilities\0kind\0ok\0schemaVersion\0version" &&
+    value.ok === true && value.kind === "host-signer-capabilities" && value.schemaVersion === 1 &&
+    value.version === HOST_SIGNER_VERSION &&
+    Array.isArray(value.capabilities) &&
+    canonicalJson(value.capabilities) === canonicalJson(HOST_SIGNER_CAPABILITIES);
+}
+
+async function inspectSignerCapabilityReport(target) {
+  const syntax = await spawnCapture(process.execPath, ["--check", target], {
+    timeoutMs: 10_000,
+    maxOutputBytes: 16 * 1024
+  });
+  if (syntax.code !== 0 || syntax.signal !== null || syntax.timedOut) {
+    throw new Error(`installed signer syntax check failed: exit=${syntax.code ?? "null"}; signal=${syntax.signal ?? "none"}`);
+  }
+  const reportResult = await spawnCapture(process.execPath, [target, "capabilities"], {
+    timeoutMs: 10_000,
+    maxOutputBytes: 16 * 1024
+  });
+  if (reportResult.code !== 0 || reportResult.signal !== null || reportResult.timedOut) {
+    throw new Error(`installed signer capability report failed: exit=${reportResult.code ?? "null"}; signal=${reportResult.signal ?? "none"}`);
+  }
+  let report;
+  try {
+    report = JSON.parse(reportResult.stdout);
+  } catch {
+    throw new Error("installed signer capability report is not JSON");
+  }
+  if (!isSignerCapabilityReport(report)) {
+    throw new Error("installed signer capability report does not match the host protocol");
+  }
+  return report;
+}
+
 async function currentSigner() {
   for (const target of [INSTALLED_SIGNER, LEGACY_SIGNER]) {
     if (!(await exists(target))) continue;
-    const info = await validateRootOwnedFile(target, "Host signer", 0o755);
-    const bytes = await readFile(target);
-    const source = bytes.toString("utf8");
-    const supported = target === INSTALLED_SIGNER &&
-      source.includes(`const HOST_SIGNER_VERSION = "${HOST_SIGNER_VERSION}"`) &&
-      HOST_SIGNER_CAPABILITIES.every((capability) => source.includes(`"${capability}"`));
-    return {
-      path: target,
-      digest: await digest(bytes),
-      mode: `0${(info.mode & 0o777).toString(8)}`,
-      supported,
-      version: supported ? HOST_SIGNER_VERSION : null,
-      capabilities: supported ? [...HOST_SIGNER_CAPABILITIES] : []
-    };
+    try {
+      const info = await validateRootOwnedFile(target, "Host signer", 0o755);
+      const bytes = await readFile(target);
+      const report = target === INSTALLED_SIGNER
+        ? await inspectSignerCapabilityReport(target)
+        : null;
+      const supported = target === INSTALLED_SIGNER && report !== null;
+      return {
+        path: target,
+        digest: await digest(bytes),
+        mode: `0${(info.mode & 0o777).toString(8)}`,
+        supported,
+        version: report?.version ?? null,
+        capabilities: report?.capabilities ?? [],
+        ...(report ? { capabilityReport: report } : {})
+      };
+    } catch (error) {
+      return {
+        path: target,
+        digest: null,
+        mode: null,
+        supported: false,
+        version: null,
+        capabilities: [],
+        error: error.message
+      };
+    }
   }
   return null;
 }
@@ -434,71 +507,31 @@ async function canonicalBinary(supplied) {
   return resolved;
 }
 
-async function signRequest(requestPath, confirmedDigest, outputName) {
-  requireRoot();
-  await requireInstalledCapability("attestation");
-  if (!SHA256.test(confirmedDigest)) throw new Error("confirmed request digest must be SHA-256");
-  if (!SAFE_OUTPUT.test(outputName)) throw new Error("attestation output name is unsafe");
-  const requestBytes = await readFile(path.resolve(requestPath));
-  if ((await digest(requestBytes)) !== confirmedDigest) {
-    throw new Error("request digest does not match administrator-confirmed digest");
-  }
-  const request = JSON.parse(requestBytes.toString("utf8"));
-  if (Object.keys(request).sort().join("\0") !== "binaryPath\0execution\0model") {
-    throw new Error("request fields do not match the signer contract");
-  }
-  if (typeof request.model !== "string" || !request.model || request.model.length > 128) {
-    throw new Error("model is invalid");
-  }
-  const binaryPath = await canonicalBinary(request.binaryPath);
-  const execution = validateExecution(request.execution);
-  const trust = await validateTrustRoot();
-  await validateRootOwnedFile(PRIVATE_KEY, "Private signing key", 0o600);
-  const key = trust.value.publicKeys[0];
-  const issuedAt = new Date();
-  const payload = {
-    schemaVersion: 1,
-    provider: "codex",
-    model: request.model,
-    issuer: trust.value.issuer,
-    keyId: key.keyId,
-    issuedAt: issuedAt.toISOString(),
-    expiresAt: new Date(issuedAt.getTime() + 24 * 60 * 60 * 1000).toISOString(),
-    binary: {
-      path: binaryPath,
-      digest: await digest(await readFile(binaryPath))
-    },
-    execution
-  };
-  const privateKey = privateKeyFromRaw(await readFile(PRIVATE_KEY));
-  const signature = sign(
-    null,
-    Buffer.from(canonicalJson(payload), "utf8"),
-    privateKey
-  ).toString("base64");
-  const target = path.join(ATTESTATIONS, outputName);
-  if (path.dirname(target) !== ATTESTATIONS) throw new Error("attestation path escapes its root");
-  await exclusiveWrite(
-    target,
-    `${JSON.stringify({ ...payload, signature }, null, 2)}\n`,
-    0o644
-  );
-  return target;
-}
-
 export function validateExecutionRequest(request) {
   if (!request || typeof request !== "object" || Array.isArray(request)) {
     throw new Error("execution request must be an object");
   }
-  const required = ["binaryPath", "execution", "model", "promptDigest", "promptPath"];
+  const required = ["binaryDigest", "binaryPath", "codexHomePath", "execution", "gid", "homePath", "model", "promptDigest", "promptPath", "uid"];
   if (Object.keys(request).sort().join("\0") !== required.slice().sort().join("\0")) {
     throw new Error("execution request fields do not match the signer contract");
   }
   if (!SHA256.test(request.promptDigest)) {
     throw new Error("execution request prompt digest is invalid");
   }
+  if (!SHA256.test(request.binaryDigest)) {
+    throw new Error("execution request binary digest is invalid");
+  }
   if (typeof request.promptPath !== "string" || !path.isAbsolute(request.promptPath)) {
     throw new Error("execution request prompt path must be absolute");
+  }
+  if (!Number.isInteger(request.uid) || request.uid <= 0 || !Number.isInteger(request.gid) || request.gid <= 0) {
+    throw new Error("execution request run-as identity is invalid");
+  }
+  if (typeof request.homePath !== "string" || !path.isAbsolute(request.homePath)) {
+    throw new Error("execution request home path must be absolute");
+  }
+  if (request.codexHomePath !== null && (typeof request.codexHomePath !== "string" || !path.isAbsolute(request.codexHomePath))) {
+    throw new Error("execution request Codex home path must be absolute or null");
   }
   if (typeof request.model !== "string" || !request.model || request.model.length > 128) {
     throw new Error("execution request model is invalid");
@@ -508,25 +541,6 @@ export function validateExecutionRequest(request) {
     throw new Error("execution request prompt digest does not match execution");
   }
   return request;
-}
-
-async function readSignedCodexAttestation(name) {
-  const target = path.join(ATTESTATIONS, name);
-  if (path.dirname(target) !== ATTESTATIONS) throw new Error("attestation path escapes its root");
-  await validateRootOwnedFile(target, "Codex attestation", 0o644);
-  const attestation = JSON.parse((await readFile(target)).toString("utf8"));
-  const trust = await validateTrustRoot();
-  if (attestation?.schemaVersion !== 1 || attestation.provider !== "codex" || attestation.issuer !== trust.value.issuer) {
-    throw new Error("result request references an invalid Codex attestation");
-  }
-  const key = trust.value.publicKeys.find((item) => item.keyId === attestation.keyId && item.algorithm === "ed25519");
-  if (!key) throw new Error("result request attestation key is not trusted");
-  const { signature, ...payload } = attestation;
-  const publicKey = createPublicKey({ key: Buffer.from(key.publicKey, "base64"), format: "der", type: "spki" });
-  if (!verify(null, Buffer.from(canonicalJson(payload), "utf8"), publicKey, Buffer.from(signature ?? "", "base64"))) {
-    throw new Error("result request attestation signature is invalid");
-  }
-  return { attestation, digest: await digest(Buffer.from(canonicalJson(payload), "utf8")) };
 }
 
 async function requireInstalledCapability(capability) {
@@ -574,6 +588,25 @@ async function validatePrompt(request) {
   return bytes;
 }
 
+async function validateRunAs(request) {
+  const homePath = await realpath(request.homePath);
+  if (homePath !== request.homePath) throw new Error("Execution request home path must already be canonical");
+  const homeInfo = await lstat(homePath);
+  if (!homeInfo.isDirectory() || homeInfo.isSymbolicLink() || homeInfo.uid !== request.uid || ((homeInfo.mode & 0o777) & 0o022) !== 0) {
+    throw new Error("Execution request home directory is not owned and protected for the requested user");
+  }
+  let codexHomePath = null;
+  if (request.codexHomePath !== null) {
+    codexHomePath = await realpath(request.codexHomePath);
+    if (codexHomePath !== request.codexHomePath) throw new Error("Execution request Codex home path must already be canonical");
+    const codexInfo = await lstat(codexHomePath);
+    if (!codexInfo.isDirectory() || codexInfo.isSymbolicLink() || codexInfo.uid !== request.uid || ((codexInfo.mode & 0o777) & 0o022) !== 0) {
+      throw new Error("Execution request Codex home is not owned and protected for the requested user");
+    }
+  }
+  return { homePath, codexHomePath };
+}
+
 async function executeResultRequest(requestPath, confirmedDigest) {
   requireRoot();
   await requireInstalledCapability("execution-witness");
@@ -586,11 +619,17 @@ async function executeResultRequest(requestPath, confirmedDigest) {
   const request = validateExecutionRequest(JSON.parse(requestBytes.toString("utf8")));
   const executionId = requireSafeExecutionId(request.execution.id);
   const binaryPath = await canonicalBinary(request.binaryPath);
-  const binaryDigest = await digest(await readFile(binaryPath));
+  const binaryBytes = await readFile(binaryPath);
+  const binaryDigest = await digest(binaryBytes);
+  if (binaryDigest !== request.binaryDigest) {
+    throw new Error("execution request binary digest does not match the administrator-confirmed binary");
+  }
   const promptBytes = await validatePrompt(request);
+  const runAs = await validateRunAs(request);
   await secureDirectory(EXECUTIONS, 0o755);
   await secureDirectory(ATTESTATIONS, 0o755);
   const names = {
+    binary: `${executionId}.codex`,
     attestation: `${executionId}.attestation.json`,
     receipt: `${executionId}.receipt.json`,
     ledgerStart: `${executionId}.ledger.start.json`,
@@ -599,6 +638,7 @@ async function executeResultRequest(requestPath, confirmedDigest) {
     failure: `${executionId}.failure.json`
   };
   const targets = {
+    binary: path.join(EXECUTIONS, names.binary),
     attestation: path.join(ATTESTATIONS, names.attestation),
     receipt: path.join(ATTESTATIONS, names.receipt),
     ledgerStart: path.join(EXECUTIONS, names.ledgerStart),
@@ -612,7 +652,11 @@ async function executeResultRequest(requestPath, confirmedDigest) {
     }
     if (await exists(target)) throw new Error(`Refusing to reuse host execution artifact: ${target}`);
   }
-  const binary = { path: binaryPath, digest: binaryDigest };
+  await exclusiveWrite(targets.binary, binaryBytes, 0o755);
+  await validateRootOwnedFile(targets.binary, "Staged Codex binary", 0o755);
+  const stagedBinaryPath = await realpath(targets.binary);
+  if (stagedBinaryPath !== targets.binary) throw new Error("Staged Codex binary path must be canonical");
+  const binary = { path: stagedBinaryPath, digest: binaryDigest };
   const trust = await validateTrustRoot();
   const key = trust.value.publicKeys[0];
   const issuedAt = new Date();
@@ -646,9 +690,8 @@ async function executeResultRequest(requestPath, confirmedDigest) {
   };
   await writeHostArtifact(targets.ledgerStart, ledgerStart);
   const bundle = await mkdtemp(path.join(os.tmpdir(), "better-workflows-host-execution-"));
-  await chmod(bundle, 0o700);
+  await chmod(bundle, 0o711);
   const schemaPath = path.join(bundle, "evaluation.schema.json");
-  const responsePath = path.join(bundle, "evaluation.response.json");
   const timeoutMs = DEFAULT_TIMEOUT_MS;
   let result;
   let response;
@@ -658,20 +701,24 @@ async function executeResultRequest(requestPath, confirmedDigest) {
       additionalProperties: false,
       required: ["results"],
       properties: { results: { type: "array" } }
-    }), { mode: 0o600 });
-    result = await spawnCapture(binaryPath, [
+    }), { mode: 0o644 });
+    result = await spawnCapture(stagedBinaryPath, [
       "exec", "--ignore-user-config", "--ignore-rules", "--ephemeral", "--sandbox", "read-only", "--skip-git-repo-check",
-      "-C", bundle, "--output-schema", schemaPath, "--output-last-message", responsePath,
+      "-C", bundle, "--output-schema", schemaPath,
       "-m", request.model, "-c", "model_reasoning_effort=\"high\"", "-"
-    ], { input: promptBytes, cwd: bundle, timeoutMs });
+    ], (() => {
+      const env = safeEnvironment({ HOME: runAs.homePath });
+      delete env.CODEX_HOME;
+      if (runAs.codexHomePath) env.CODEX_HOME = runAs.codexHomePath;
+      return { input: promptBytes, cwd: bundle, timeoutMs, uid: request.uid, gid: request.gid, env };
+    })());
+    if (result.outputExceeded) {
+      throw new Error("Host Codex execution output exceeded the configured limit");
+    }
     if (result.code !== 0 || result.signal !== null || result.timedOut) {
       throw new Error(`Host Codex execution failed: exit=${result.code ?? "null"}; signal=${result.signal ?? "none"}; timedOut=${result.timedOut}`);
     }
-    const fileOutput = await readFile(responsePath, "utf8").catch((error) => {
-      if (error.code === "ENOENT") return "";
-      throw error;
-    });
-    response = validateEvaluationResponse(extractJson(fileOutput.trim() ? fileOutput : result.stdout));
+    response = validateEvaluationResponse(extractJson(result.stdout));
   } catch (error) {
     const finishedAt = new Date().toISOString();
     await writeHostArtifact(targets.failure, {
@@ -799,69 +846,48 @@ async function upgradeSigner(sourcePath, confirmedDigest) {
   if (await digest(bytes) !== confirmedDigest) throw new Error("signer source digest does not match administrator-confirmed digest");
   const text = bytes.toString("utf8");
   if (!text.includes(`const HOST_SIGNER_VERSION = "${HOST_SIGNER_VERSION}"`) ||
-      !HOST_SIGNER_CAPABILITIES.every((capability) => text.includes(`"${capability}"`))) {
+      !HOST_SIGNER_CAPABILITIES.every((capability) => text.includes(`"${capability}"`)) ||
+      !text.includes('command === "capabilities"')) {
     throw new Error("signer source does not expose the required host capabilities");
+  }
+  const syntax = await spawnCapture(process.execPath, ["--check", source], {
+    timeoutMs: 10_000,
+    maxOutputBytes: 16 * 1024
+  });
+  if (syntax.code !== 0 || syntax.signal !== null || syntax.timedOut) {
+    throw new Error(`signer source syntax check failed: exit=${syntax.code ?? "null"}; signal=${syntax.signal ?? "none"}`);
   }
   await secureDirectory("/private/var/db/better-workflows", 0o711);
   await secureDirectory("/private/var/db/better-workflows/bin", 0o755);
   const existing = await exists(INSTALLED_SIGNER);
+  let backup = null;
+  const temporary = `${INSTALLED_SIGNER}.${confirmedDigest}.tmp`;
   if (existing) {
-    const existingInfo = await validateRootOwnedFile(INSTALLED_SIGNER, "Installed host signer", 0o755);
+    await validateRootOwnedFile(INSTALLED_SIGNER, "Installed host signer", 0o755);
     const existingBytes = await readFile(INSTALLED_SIGNER);
     const existingDigest = await digest(existingBytes);
     if (existingDigest === confirmedDigest) return await status();
-    const backup = `${INSTALLED_SIGNER}.${existingDigest}.bak`;
+    backup = `${INSTALLED_SIGNER}.${existingDigest}.bak`;
     if (await exists(backup)) throw new Error(`Refusing to overwrite signer backup: ${backup}`);
-    await rename(INSTALLED_SIGNER, backup);
-    try {
-      const temporary = `${INSTALLED_SIGNER}.${confirmedDigest}.tmp`;
-      await exclusiveWrite(temporary, bytes, 0o755);
-      await rename(temporary, INSTALLED_SIGNER);
-    } catch (error) {
-      await unlink(`${INSTALLED_SIGNER}.${confirmedDigest}.tmp`).catch(() => undefined);
+  }
+  try {
+    if (backup) await rename(INSTALLED_SIGNER, backup);
+    await exclusiveWrite(temporary, bytes, 0o755);
+    await rename(temporary, INSTALLED_SIGNER);
+    const installed = await status();
+    if (!installed.ready) throw new Error("installed signer failed its syntax and behavioral capability checks");
+    return { ...installed, ...(backup ? { previousSigner: { path: backup, mode: "0755" } } : {}) };
+  } catch (error) {
+    await unlink(temporary).catch(() => undefined);
+    if (await exists(INSTALLED_SIGNER)) {
+      const quarantine = `${INSTALLED_SIGNER}.${confirmedDigest}.${Date.now()}.failed`;
+      await rename(INSTALLED_SIGNER, quarantine).catch(() => undefined);
+    }
+    if (backup && await exists(backup)) {
       await rename(backup, INSTALLED_SIGNER).catch(() => undefined);
-      throw error;
     }
-    return { ...(await status()), previousSigner: { path: backup, mode: `0${(existingInfo.mode & 0o777).toString(8)}` } };
+    throw new Error(`signer upgrade rolled back after failed validation: ${error.message}`);
   }
-  await exclusiveWrite(INSTALLED_SIGNER, bytes, 0o755);
-  return status();
-}
-
-async function signBatch(manifestPath, confirmedManifestDigest) {
-  requireRoot();
-  await requireInstalledCapability("attestation");
-  if (!SHA256.test(confirmedManifestDigest)) {
-    throw new Error("confirmed manifest digest must be SHA-256");
-  }
-  const bytes = await readFile(path.resolve(manifestPath));
-  if ((await digest(bytes)) !== confirmedManifestDigest) {
-    throw new Error("manifest digest does not match administrator-confirmed digest");
-  }
-  const manifest = JSON.parse(bytes.toString("utf8"));
-  if (!Array.isArray(manifest.requests) || manifest.requests.length !== 7) {
-    throw new Error("batch manifest must contain exactly seven requests");
-  }
-  const names = new Set();
-  for (const item of manifest.requests) {
-    if (
-      typeof item.request !== "string" ||
-      !SHA256.test(item.requestDigest) ||
-      !SAFE_OUTPUT.test(item.attestationName) ||
-      names.has(item.attestationName)
-    ) {
-      throw new Error("batch manifest contains an invalid or duplicate request");
-    }
-    names.add(item.attestationName);
-    if (await exists(path.join(ATTESTATIONS, item.attestationName))) {
-      throw new Error(`refusing to overwrite attestation: ${item.attestationName}`);
-    }
-  }
-  const outputs = [];
-  for (const item of manifest.requests) {
-    outputs.push(await signRequest(item.request, item.requestDigest, item.attestationName));
-  }
-  return { ok: true, outputs };
 }
 
 async function signNativeRequest(requestPath, confirmedDigest, outputName) {
@@ -927,6 +953,7 @@ function parse(argv) {
 async function main() {
   const { positional, options } = parse(process.argv.slice(2));
   const [command] = positional;
+  if (command === "capabilities") return signerCapabilities();
   if (command === "status") return status();
   if (command === "provision") return provision();
   if (command === "upgrade") {
@@ -934,21 +961,6 @@ async function main() {
       throw new Error("upgrade requires --source and --confirm-digest");
     }
     return upgradeSigner(options.source, options["confirm-digest"]);
-  }
-  if (command === "sign") {
-    if (!options.request || !options["confirm-digest"] || !options.output) {
-      throw new Error("sign requires --request, --confirm-digest, and --output");
-    }
-    return {
-      ok: true,
-      output: await signRequest(options.request, options["confirm-digest"], options.output)
-    };
-  }
-  if (command === "sign-batch") {
-    if (!options.manifest || !options["confirm-digest"]) {
-      throw new Error("sign-batch requires --manifest and --confirm-digest");
-    }
-    return signBatch(options.manifest, options["confirm-digest"]);
   }
   if (command === "execute-result") {
     if (!options.request || !options["confirm-digest"]) {
@@ -971,7 +983,7 @@ async function main() {
       output: await signNativeRequest(options.request, options["confirm-digest"], options.output)
     };
   }
-  throw new Error("usage: host-trust.mjs status|provision|upgrade|sign|sign-batch|execute-result|execute-batch|sign-native");
+  throw new Error("usage: host-trust.mjs capabilities|status|provision|upgrade|execute-result|execute-batch|sign-native");
 }
 
 if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) {

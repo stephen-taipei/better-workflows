@@ -303,6 +303,7 @@ test("self-improve evaluation fails closed when its suite or staged candidate ch
   await git(cwd, "commit", "-qm", "later baseline");
   const changedBaseline = await cli(cwd, stateRoot, [...common, "--split", "train"], { allowFailure: true, env: { SBW_TEST_FIXTURE_BACKEND: "1" } });
   assert.match(changedBaseline.stderr, /run-start baseline/);
+  await cli(cwd, stateRoot, ["source", "rebind", started.json.runId, "--reason", "test commit stage completed"]);
   const pinnedCommon = [...common];
   const baselineIndex = pinnedCommon.indexOf("--baseline") + 1;
   pinnedCommon[baselineIndex] = "HEAD~";
@@ -366,6 +367,8 @@ test("self-improve attestation request freezes seven distinct requests outside t
     assert.equal(path.dirname(item.request), output);
     assert.match(item.promptDigest, /^[a-f0-9]{64}$/);
     assert.match(item.requestDigest, /^[a-f0-9]{64}$/);
+    const request = JSON.parse(await readFile(item.request, "utf8"));
+    assert.match(request.binaryDigest, /^[a-f0-9]{64}$/);
   }
 
   const migrationOutput = path.join(parent, "migration-requests");

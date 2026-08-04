@@ -772,7 +772,8 @@
       "freshnessBinding": [
         "runId",
         "contractDigest",
-        "remoteRevision"
+        "remoteRevision",
+        "sourceBindingDigest"
       ]
     },
     "executable-plan": {
@@ -875,7 +876,8 @@
       "freshnessBinding": [
         "runId",
         "contractDigest",
-        "remoteRevision"
+        "remoteRevision",
+        "sourceBindingDigest"
       ]
     },
     "implementation-queue": {
@@ -1869,7 +1871,8 @@
       "freshnessBinding": [
         "runId",
         "contractDigest",
-        "remoteRevision"
+        "remoteRevision",
+        "sourceBindingDigest"
       ]
     },
     "validation-capability-matrix": {

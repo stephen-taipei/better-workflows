@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { lstat, readFile, readdir, readlink } from "node:fs/promises";
+import { lstat, readFile, readdir, readlink, realpath } from "node:fs/promises";
 import path from "node:path";
 import { canonicalJson, sha256 } from "./core.mjs";
 
@@ -252,10 +252,20 @@ async function highRiskIgnored(cwd, requested, budget) {
 }
 
 export async function captureSourceBinding(cwd, { baseRevision = null } = {}) {
-  const repository = path.resolve(cwd);
+  const repository = await realpath(path.resolve(cwd));
   if (!(await isGitRepository(repository))) return null;
 
   const headRevision = (await git(repository, ["rev-parse", "HEAD"])).stdout.trim();
+  const repositoryRoot = await realpath((await git(repository, ["rev-parse", "--show-toplevel"])).stdout.trim());
+  const gitDir = await realpath(path.resolve(repository, (await git(repository, ["rev-parse", "--git-dir"])).stdout.trim()));
+  const gitCommonDir = await realpath(path.resolve(repository, (await git(repository, ["rev-parse", "--git-common-dir"])).stdout.trim()));
+  const [gitDirInfo, gitCommonDirInfo] = await Promise.all([lstat(gitDir), lstat(gitCommonDir)]);
+  const origin = (await git(repository, ["remote", "get-url", "origin"], { allowFailure: true })).stdout.trim() || null;
+  const directoryIdentity = (target, info) => ({
+    path: target,
+    device: Number.isSafeInteger(info.dev) ? info.dev : null,
+    inode: Number.isSafeInteger(info.ino) ? info.ino : null
+  });
   let resolvedBaseRevision = null;
   if (baseRevision) {
     const resolved = await git(
@@ -278,15 +288,22 @@ export async function captureSourceBinding(cwd, { baseRevision = null } = {}) {
       ])).stdout
     : "";
   const diffManifest = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     baseRevision: resolvedBaseRevision,
     headRevision,
     committedDiff
   };
   const diffManifestDigest = sha256(canonicalJson(diffManifest));
   const stable = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     cwd: repository,
+    repositoryRoot,
+    gitDir: directoryIdentity(gitDir, gitDirInfo),
+    gitCommonDir: directoryIdentity(gitCommonDir, gitCommonDirInfo),
+    originIdentity: {
+      present: origin !== null,
+      digest: origin ? sha256(origin) : null
+    },
     baseRevision: resolvedBaseRevision,
     headRevision,
     diffManifestDigest

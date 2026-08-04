@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdir, mkdtemp, symlink, unlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, symlink, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { buildContract, loadDefaults } from "../lib/core.mjs";
@@ -97,4 +97,21 @@ test("source bindings pin base, head, and the exact diff manifest", async () => 
   const afterWorktree = await captureSourceBinding(cwd, { baseRevision: base });
   assert.equal(afterWorktree.digest, afterCommit.digest);
   assert.equal(afterWorktree.diffManifestDigest, afterCommit.diffManifestDigest);
+});
+
+test("source bindings include canonical worktree, common-dir, and origin identity", async () => {
+  const cwd = await repository();
+  await git(cwd, "remote", "add", "origin", "https://example.invalid/better-workflows.git");
+  const primary = await captureSourceBinding(cwd);
+  assert.equal(primary.repositoryRoot, await realpath(cwd));
+  assert.equal(primary.gitCommonDir.path, await realpath(path.join(cwd, ".git")));
+  assert.equal(primary.originIdentity.present, true);
+  assert.match(primary.originIdentity.digest, /^[a-f0-9]{64}$/);
+
+  const linked = path.join(os.tmpdir(), `sbw-git-linked-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+  await git(cwd, "worktree", "add", "-q", linked);
+  const linkedBinding = await captureSourceBinding(linked);
+  assert.notEqual(linkedBinding.gitDir.path, primary.gitDir.path);
+  assert.equal(linkedBinding.gitCommonDir.path, primary.gitCommonDir.path);
+  assert.notEqual(linkedBinding.digest, primary.digest);
 });

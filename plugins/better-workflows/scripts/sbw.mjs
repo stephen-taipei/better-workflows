@@ -492,6 +492,9 @@ async function enrichEvidence(root, runId, record) {
   const inputFiles = values(record.dependencyInputs?.files);
   const files = [];
   for (const candidate of inputFiles) files.push(await fingerprintPath(run.manifest.cwd, candidate));
+  if (sourceBindingRequired && !run.manifest.sourceBinding?.digest) {
+    throw new Error(`Evidence ${record.kind} requires a source binding at creation time`);
+  }
   const sourceBindingDigest = sourceBindingRequired ? run.manifest.sourceBinding?.digest ?? null : null;
   const sourceSentinelDigest = sourceSentinelRequired ? run.state.lastSentinel?.digest ?? null : null;
   return {
@@ -548,8 +551,8 @@ async function refreshEvidence(root, runId) {
       let isStale =
         record.dependencies?.contractDigest !== run.manifest.contractDigest ||
         record.dependencies?.workflowVersion !== VERSION ||
-        (sourceBindingRequired && run.manifest.sourceBinding && record.dependencies?.sourceBindingDigest !== sourceBinding?.digest);
-      if (sourceSentinelRequired && run.manifest.sourceBinding && record.dependencies?.sourceSentinelDigest !== run.state.lastSentinel?.digest) {
+        (sourceBindingRequired && (!run.manifest.sourceBinding || record.dependencies?.sourceBindingDigest !== sourceBinding?.digest));
+      if (sourceSentinelRequired && (!run.manifest.sourceBinding || record.dependencies?.sourceSentinelDigest !== run.state.lastSentinel?.digest)) {
         isStale = true;
       }
       if (!Array.isArray(record.dependencyInputs?.files)) isStale = true;
@@ -704,11 +707,11 @@ async function typedEvidenceRecord(root, runId, record) {
         runId,
         contractDigest: digestObject(run.contract),
         remoteRevision: run.contract.remoteRevision ?? null,
-        ...(definition.freshnessBinding.includes("sourceBindingDigest") && run.manifest.sourceBinding
-          ? { sourceBindingDigest: run.manifest.sourceBinding.digest }
+        ...(definition.freshnessBinding.includes("sourceBindingDigest")
+          ? { sourceBindingDigest: run.manifest.sourceBinding?.digest ?? null }
           : {}),
-        ...(definition.freshnessBinding.includes("sourceSentinelDigest") && run.state.lastSentinel?.digest
-          ? { sourceSentinelDigest: run.state.lastSentinel.digest }
+        ...(definition.freshnessBinding.includes("sourceSentinelDigest")
+          ? { sourceSentinelDigest: run.state.lastSentinel?.digest ?? null }
           : {})
       },
       payload,
@@ -828,7 +831,7 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
   }
   assertKnownOptions(options, [
     "run", "cases", "baseline", "candidate-root", "backend", "split", "result-file", "model", "allow-codex", "sanitized",
-    "timeout-seconds", "trusted-codex-execution", "purpose", "next-cases"
+    "trusted-codex-execution", "purpose", "next-cases"
   ]);
   if (!options.run || !options.cases || !options.baseline || !options["candidate-root"] || !options.backend || !options.split) {
     throw new Error("self-improve evaluate requires --run, --cases, --baseline, --candidate-root, --backend, and --split");
@@ -1055,6 +1058,7 @@ async function assertAcceptedSelfImproveHoldout(root, runId, action) {
   const replayCases = selectEvaluationCases({ suite: frozen.suite, snapshot: currentCandidate, split: "holdout" });
   const candidatePrompt = buildEvaluationPrompt({ suite: { ...frozen.suite, cases: replayCases }, candidate: currentCandidate, materials: candidateMaterial });
   const baselinePrompt = buildEvaluationPrompt({ suite: { ...frozen.suite, cases: replayCases }, candidate: currentBaseline, materials: baselineMaterial });
+  const trustedScores = [];
   for (const replay of replays) {
     const prompt = replay.execution.role === "baseline" ? baselinePrompt : replay.execution.role === "candidate" ? candidatePrompt : buildEvaluationPrompt({
       suite: { ...frozen.suite, cases: selectEvaluationCases({ suite: frozen.suite, snapshot: currentCandidate, split: "train" }) },
@@ -1069,9 +1073,21 @@ async function assertAcceptedSelfImproveHoldout(root, runId, action) {
       prompt,
       response: replay.response
     });
-    if (witness.metadata.attestationDigest !== replay.attestationDigest || witness.metadata.binary.digest !== replay.binaryDigest || witness.metadata.trustRootDigest !== replay.trustRootDigest || witness.metadata.issuer !== replay.issuer || witness.metadata.keyId !== replay.keyId || witness.metadata.resultReceiptDigest !== replay.resultReceiptDigest || witness.metadata.responseDigest !== replay.responseDigest || witness.metadata.ledgerPath !== replay.ledgerPath) {
+    if (digestObject(witness.response) !== digestObject(replay.response) || witness.metadata.attestationDigest !== replay.attestationDigest || witness.metadata.binary.digest !== replay.binaryDigest || witness.metadata.trustRootDigest !== replay.trustRootDigest || witness.metadata.issuer !== replay.issuer || witness.metadata.keyId !== replay.keyId || witness.metadata.resultReceiptDigest !== replay.resultReceiptDigest || witness.metadata.responseDigest !== replay.responseDigest || witness.metadata.ledgerPath !== replay.ledgerPath) {
       throw new Error("Self-improve delivery host execution witness binding changed after replay");
     }
+    const scoreCases = replay.execution.role === "train-candidate"
+      ? selectEvaluationCases({ suite: frozen.suite, snapshot: currentCandidate, split: "train" })
+      : replayCases;
+    trustedScores.push({ replay, score: scoreEvaluation(witness.response, scoreCases) });
+  }
+  const trustedCandidateScores = trustedScores.filter((item) => item.replay.execution.role === "candidate").map((item) => item.score);
+  const trustedBaselineScores = trustedScores.filter((item) => item.replay.execution.role === "baseline").map((item) => item.score);
+  const trustedComparison = purpose === "evaluator-migration"
+    ? compareEvaluatorMigration({ baseline: trustedBaselineScores, candidate: trustedCandidateScores })
+    : compareHoldout({ baseline: trustedBaselineScores, candidate: trustedCandidateScores, suite: frozen.suite });
+  if (digestObject(trustedComparison) !== digestObject(evaluation.comparison) || trustedComparison.accepted !== true) {
+    throw new Error("Self-improve delivery trusted replay responses do not reproduce the persisted accepted comparison");
   }
   if (purpose === "evaluator-migration") {
     if (evaluation.comparison?.policy !== "evaluator-migration") {

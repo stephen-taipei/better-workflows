@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import {
   canonicalJson,
   privateKeyFromRaw,
+  spawnCapture,
   validateExecutionRequest
 } from "../host-trust.mjs";
 
@@ -50,11 +51,26 @@ test("host trust helper fixes authority paths and does not accept environment pa
   assert.match(source, /responseDigest/);
   assert.match(source, /trustRootDigest/);
   assert.doesNotMatch(source, /BW_(?:TRUST|PRIVATE|ATTESTATION)/);
+  assert.match(source, /command === "capabilities"/);
+  assert.match(source, /uid: request\.uid/);
+  assert.match(source, /binaryDigest/);
+  assert.match(source, /outputExceeded/);
+});
+
+test("host capture waits for SIGKILL escalation after output overflow", async () => {
+  const result = await spawnCapture(process.execPath, [
+    "-e",
+    "process.stdout.write('x'.repeat(3 * 1024 * 1024)); process.on('SIGTERM', () => {}); setInterval(() => {}, 1000);"
+  ], { timeoutMs: 10_000 });
+  assert.equal(result.outputExceeded, true);
+  assert.equal(result.signal, "SIGKILL");
 });
 
 test("host execution request is a pre-execution contract and cannot carry caller result facts", () => {
   const request = {
+    binaryDigest: "b".repeat(64),
     binaryPath: "/usr/bin/codex",
+    codexHomePath: null,
     execution: {
       id: "run-holdout-candidate-1",
       runId: "run-12345678",
@@ -65,14 +81,21 @@ test("host execution request is a pre-execution contract and cannot carry caller
       role: "candidate",
       attempt: 1
     },
+    gid: process.getgid(),
+    homePath: process.env.HOME,
     model: "gpt-5.6-sol",
     promptDigest: "a".repeat(64),
-    promptPath: "/private/tmp/replay.prompt.txt"
+    promptPath: "/private/tmp/replay.prompt.txt",
+    uid: process.getuid()
   };
   assert.deepEqual(validateExecutionRequest(request), request);
   assert.throws(
     () => validateExecutionRequest({ ...request, responseDigest: "b".repeat(64) }),
     /execution request fields/
+  );
+  assert.throws(
+    () => validateExecutionRequest({ ...request, binaryDigest: "not-a-digest" }),
+    /binary digest is invalid/
   );
   assert.throws(
     () => validateExecutionRequest({ ...request, finishedAt: new Date().toISOString() }),
