@@ -231,20 +231,26 @@ $better-workflows:auto <描述需要完成的目标>
 | `$better-workflows:ci-release` | CI failure、runner queue、串行 deploy、release、远端监控与 receipt 验证。 | `$better-workflows:ci-release 诊断失败的 PR checks、修复并监控串行 dev deploy。` |
 | `$better-workflows:browser-qa` | 需要最新 UI 证据、截图与可复现 action log 的 Webwright／模拟器 QA。 | `$better-workflows:browser-qa 验证 signup 与 contact sync，并附上 screenshot evidence。` |
 | `$better-workflows:research` | CLI 实测的多模型角色、证据驱动架构比较、反证与可执行 Plan；不以多数票决策。 | `$better-workflows:research 比较三种 sync 架构、反证每个方案并产出可实现的 Plan。` |
-| `$better-workflows:self-improve` | 根据近期且有界的证据改进 Better Workflows 本身，同步 selector、template、tests、docs、version、immutable cache 与经授权的 remote delivery。 | `$better-workflows:self-improve Review 近期 workflow 结果，只实现重复且已验证的改进，完整验证后发布新 cache version 并 push atomic commit。` |
+| `$better-workflows:self-improve` | 根据近期且有界的证据改进 Better Workflows 本身，同步受治理的 surfaces，并将 delivery 交给专责 workflow。 | `$better-workflows:self-improve Review 近期 workflow 结果，只实现重复且已验证的改进，验证后将 commit、cache 与 remote delivery 交给受治理流程。` |
 | `$better-workflows:workspace-recipe` | 将稳定、确定性的 SOP 固化为 workspace 内受治理的 Node.js recipe，以明确 digest trust 与受限 artifacts 重复执行。 | `$better-workflows:workspace-recipe 建立可重复执行的 JSON audit，验证后准备当前 digest 供明确 promotion。` |
 | `$better-workflows:monorepo-refactor` | 完整盘点 monorepo，直接实现所有合格的 bounded refactor 建议，并保留 behavior invariants、validation 与 rollback evidence。 | `$better-workflows:monorepo-refactor 盘点 monorepo，直接实现所有合格的 boundary cleanup 建议，不改变 public contract。` |
 
-`self-improve-ops` 是薄型 orchestration template：复用现有 research、refactor、routing、publication 与 delivery controls，允许有证据的 no-change，并分别 gate commit、cache publication 与 push。缺失的版本化 cache link 只能解析到已验证的 current bundle，不得重建或修改 stale path。
+`self-improve-ops` 是薄型 orchestration template：复用现有 research、refactor、routing、publication 与 delivery controls，允许有证据的 no-change，并将 commit、cache publication 与 push deferred 给各自的受治理流程。缺失的版本化 cache link 只能解析到已验证的 current bundle，不得重建或修改 stale path。
 
 提出新 workflow 前，必须先记录当前的 coverage。若现有 workflow 已具备所需 safeguards，应返回 `NO_CHANGE`，不得建立重复流程。没有已证明 recurrence 或长期 operational value 的 one-off request 也应返回 `NO_CHANGE`，并记录 evidence、outcome 与 counterargument。若唯一证据依赖无法 sanitized 的 private history 或 sensitive material，应返回 `REJECTED_WITH_EVIDENCE`：不得读取、传输或保存 raw source，只能记录 redacted rejection rationale。
 
-普通 clone 或执行 workspace recipe **不需要** host trust root；只有要用真实 Codex self-improve replay 授权 commit、cache publication 或 delivery 的 maintainer，才需要 administrator 在每台 host 一次性执行：
+普通 clone 或执行 workspace recipe **不需要** host trust root；只有要执行真实 Codex self-improve replay 的 maintainer，才需要 administrator 在每台 host 一次性执行。self-improve 不会授权 commit、cache publication、push、merge 或 cleanup；这些交由 `pr-to-dev` 与 immutable-cache workflow：
 
 ```bash
 sudo /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin /usr/bin/swift /private/var/db/better-workflows/bin/bw-host-signer.swift provision
 node plugins/better-workflows/scripts/sbw.mjs self-improve host status
 ```
+
+`host-trust.mjs upgrade` 必须带入 canonical native Mach-O Codex binary 与
+`--codex-binary-digest`，并写入 root-owned `0644` allowlist；JS wrapper、任意
+executable 或 digest drift 都会 fail closed。candidate 必须先是将要
+review/deliver 的 exact committed HEAD；若仍 dirty，先交给 `pr-to-dev`
+commit，再建立新的 source-bound self-improve run。
 
 Provision 不会覆盖或暗中 rotate 现有 key。trust root 是 root-owned 公共 JSON；private Ed25519 key 以 `0600` 保存在 repo 外。不要用 `plutil` 验证 JSON。若 status 报告 `ready: false` 且只安装了 legacy signer，请先用固定 `/bin/sh` staging wrapper 准备 digest-bound root-owned Node runtime 与 compiled native launcher/probe，不得直接 sudo `process.execPath`，再用 administrator-confirmed SHA-256 执行 `host-trust.mjs upgrade`；upgrade 会完成 signed readiness witness 与 exact rollback proof。既有 trust root/key 会保留，旧 signer 会作为 root-owned backup 保存。candidate 固定后，执行下列命令，在 repo 外生成七份 prompt-bound execution request、manifest digest 与精确 `executeCommand`：
 
@@ -255,7 +261,7 @@ node plugins/better-workflows/scripts/sbw.mjs \
   --model <model> --output <new-outside-repo-directory>
 ```
 
-`executeCommand` 只调用已安装且 capability-checked 的 host signer，一次执行七份 request，并返回 `/private/var/db/better-workflows/executions` 下的 root-owned witness。每份 request 都以 digest 绑定 administrator-approved binary；host 会先把 binary snapshot 成 execution root 下 root-owned `0755` 文件，再由 root-owned native launcher 清空 supplementary groups，使用 request 的 non-root uid/gid 与固定 `PATH`、`HOME`、`CODEX_HOME` 执行一次。attestation、receipt、envelope、ledger 会绑定 confirmed request digest 与 exact run-as identity，candidate snapshot 也绑定 normalized file mode。将 training 的一份和 holdout 的六份传给 `--trusted-codex-execution`，并将同一 manifest path 与 `--request-manifest-digest` 传给 evaluate；`sbw` 会核对 root-owned completed batch journal 与每份 request digest/run-as tuple。caller 提供的 response 或 timestamp 不会被签署，pre-execution binding 与执行完成后的 result receipt 分别在正确阶段签发。
+`executeCommand` 只调用已安装且 capability-checked 的 host signer，一次执行七份 request，并返回 `/private/var/db/better-workflows/executions` 下的 root-owned witness。每份 request 都以 digest 绑定 administrator-approved native Mach-O Codex binary、allowlist、exact committed HEAD 与 source binding；host 会先把 binary snapshot 成 execution root 下 root-owned `0755` 文件，再由 root-owned native launcher 清空 supplementary groups，使用 request 的 non-root uid/gid 与固定 `PATH`、`HOME`、`CODEX_HOME` 执行一次。attestation、receipt、envelope、ledger 会绑定 confirmed request digest 与 exact run-as identity，candidate snapshot 也绑定 normalized file mode。将 training 的一份和 holdout 的六份传给 `--trusted-codex-execution`，并将同一 manifest path 与 `--request-manifest-digest` 传给 evaluate；`sbw` 会核对 root-owned completed batch journal 与每份 request digest/run-as tuple。caller 提供的 response 或 timestamp 不会被签署，pre-execution binding 与执行完成后的 result receipt 分别在正确阶段签发。
 
 在应用文件数或 byte 采样上限前，sanitizer 会先确认每一个 changed path
 都符合固定的 plugin 或 repository 公共文档 allowlist。即使不合格路径排序

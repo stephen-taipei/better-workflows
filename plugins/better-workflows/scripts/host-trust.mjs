@@ -24,6 +24,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const TRUST_ROOT = "/etc/better-workflows/codex-trust-root.json";
+const CODEX_ALLOWLIST = "/etc/better-workflows/codex-binary-allowlist.json";
 const PRIVATE_KEY = "/private/var/db/better-workflows/codex-attestation-ed25519.raw";
 const ATTESTATIONS = "/private/var/db/better-workflows/attestations";
 const EXECUTIONS = "/private/var/db/better-workflows/executions";
@@ -70,6 +71,11 @@ function sorted(value) {
 
 export function canonicalJson(value) {
   return JSON.stringify(sorted(value));
+}
+
+function isWithin(root, target) {
+  const relative = path.relative(root, target);
+  return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative));
 }
 
 async function digest(bytes) {
@@ -339,6 +345,7 @@ async function compileNativeArtifact(source, label) {
 async function replaceRootOwnedFile(target, source, mode, label) {
   const existing = await exists(target);
   let previous = null;
+  let backupPath = null;
   let renamed = false;
   if (existing) {
     await validateRootOwnedFile(target, label, mode);
@@ -346,8 +353,16 @@ async function replaceRootOwnedFile(target, source, mode, label) {
     const existingDigest = await digest(bytes);
     if (existingDigest === source.digest) return { changed: false, previous: { digest: existingDigest, path: target } };
     const backup = `${target}.${existingDigest}.bak`;
-    if (await exists(backup)) throw new Error(`Refusing to overwrite ${label} backup: ${backup}`);
+    if (await exists(backup)) {
+      await validateRootOwnedFile(backup, `${label} stale backup`, mode);
+      if (await digest(await readFile(backup)) !== existingDigest) {
+        throw new Error(`Refusing to overwrite ${label} backup: ${backup}`);
+      }
+      await unlink(backup);
+      await syncDirectory(path.dirname(target));
+    }
     await exclusiveWrite(backup, bytes, mode);
+    backupPath = backup;
     await validateRootOwnedFile(backup, `${label} backup`, mode);
     previous = { bytes, digest: existingDigest, path: backup };
   }
@@ -365,9 +380,13 @@ async function replaceRootOwnedFile(target, source, mode, label) {
     if (installedDigest !== source.digest) throw new Error(`${label} digest changed during atomic installation`);
     return { changed: true, previous, installedDigest };
   } catch (error) {
-    if (!renamed) throw error;
+    if (!renamed) {
+      if (backupPath) await discardRollbackBackup({ path: backupPath }, label).catch(() => undefined);
+      throw error;
+    }
     try {
       await restoreRootOwnedFile(target, previous, mode, label);
+      if (previous) await discardRollbackBackup(previous, label);
     } catch (rollbackError) {
       throw new Error(`${label} installation failed and rollback could not be proven: ${error.message}; ${rollbackError.message}`);
     }
@@ -396,6 +415,15 @@ async function restoreRootOwnedFile(target, previous, mode, label) {
   if (await digest(await readFile(target)) !== previous.digest) throw new Error(`${label} rollback digest could not be proven`);
 }
 
+async function discardRollbackBackup(previous, label) {
+  if (!previous?.path || !previous.path.endsWith(".bak")) return;
+  await unlink(previous.path).catch((error) => {
+    if (error.code !== "ENOENT") throw new Error(`${label} rollback backup cleanup failed: ${error.message}`);
+  });
+  await syncDirectory(path.dirname(previous.path)).catch(() => undefined);
+  if (await exists(previous.path)) throw new Error(`${label} rollback backup cleanup could not be proven`);
+}
+
 async function validateRootOwnedFile(target, label, expectedMode) {
   const info = await lstat(target);
   if (info.isSymbolicLink() || !info.isFile() || info.uid !== 0) {
@@ -408,6 +436,35 @@ async function validateRootOwnedFile(target, label, expectedMode) {
   return info;
 }
 
+async function validateCodexAllowlist() {
+  await validateRootOwnedFile(CODEX_ALLOWLIST, "Approved Codex binary allowlist", 0o644);
+  let directory = path.dirname(await realpath(CODEX_ALLOWLIST));
+  while (true) {
+    const info = await lstat(directory);
+    if (info.isSymbolicLink() || !info.isDirectory() || info.uid !== 0 || ((info.mode & 0o777) & 0o022) !== 0) {
+      throw new Error(`Unsafe Codex allowlist parent directory: ${directory}`);
+    }
+    const parent = path.dirname(directory);
+    if (parent === directory) break;
+    directory = parent;
+  }
+  const bytes = await readFile(CODEX_ALLOWLIST);
+  const value = JSON.parse(bytes.toString("utf8"));
+  if (value?.schemaVersion !== 1 || value.kind !== "codex-binary-allowlist" || !Array.isArray(value.entries) || value.entries.length === 0) {
+    throw new Error("Approved Codex binary allowlist schema is invalid");
+  }
+  const paths = new Set();
+  for (const entry of value.entries) {
+    if (!entry || Object.keys(entry).sort().join("\0") !== "digest\0path" ||
+        typeof entry.path !== "string" || !path.isAbsolute(entry.path) || path.resolve(entry.path) !== entry.path ||
+        !SHA256.test(entry.digest) || paths.has(entry.path)) {
+      throw new Error("Approved Codex binary allowlist entry is invalid");
+    }
+    paths.add(entry.path);
+  }
+  return { value, bytes, digest: await digest(bytes) };
+}
+
 async function currentRuntime(preferredPath = null) {
   const candidates = await readdirSafe(HOST_RUNTIME_ROOT);
   const targets = (preferredPath ? [preferredPath] : candidates
@@ -417,6 +474,9 @@ async function currentRuntime(preferredPath = null) {
   let lastError = null;
   for (const target of targets) {
     try {
+      if (path.resolve(target) !== target || !isWithin(HOST_RUNTIME_ROOT, target)) {
+        throw new Error("Administrator Node runtime must be inside the fixed host runtime root");
+      }
       const info = await validateRootOwnedFile(target, "Administrator Node runtime", 0o755);
       const bytes = await readFile(target);
       const runtimeDigest = await digest(bytes);
@@ -598,11 +658,12 @@ async function status() {
   const runtime = await currentRuntime();
   const launcher = await currentFixedArtifact(EXECUTION_LAUNCHER, "Native execution launcher");
   const probe = await currentFixedArtifact(EXECUTION_PROBE, "Host readiness probe");
+  const codexBinary = await currentCodexApproval();
   const signer = await currentSigner();
   return {
     ok: true,
     provisioned: true,
-    ready: Boolean(signer?.supported && runtime?.supported && launcher.supported && probe.supported),
+    ready: Boolean(signer?.supported && runtime?.supported && launcher.supported && probe.supported && codexBinary.supported),
     trustRoot: {
       path: TRUST_ROOT,
       issuer: trust.value.issuer,
@@ -618,6 +679,7 @@ async function status() {
     runtime,
     launcher,
     readinessProbe: probe,
+    codexBinary,
     signer
   };
 }
@@ -691,10 +753,12 @@ function validateExecution(execution) {
     "attempt",
     "baselineRevision",
     "candidateDigest",
+    "headRevision",
     "id",
     "promptDigest",
     "role",
     "runId",
+    "sourceBindingDigest",
     "suiteDigest"
   ];
   if (Object.keys(execution).sort().join("\0") !== expected.join("\0")) {
@@ -712,6 +776,12 @@ function validateExecution(execution) {
   if (!SHA256.test(execution.promptDigest)) {
     throw new Error("execution.promptDigest must be a SHA-256 digest");
   }
+  if (!SHA1.test(execution.headRevision)) {
+    throw new Error("execution.headRevision must be a Git commit SHA");
+  }
+  if (!SHA256.test(execution.sourceBindingDigest)) {
+    throw new Error("execution.sourceBindingDigest must be SHA-256");
+  }
   return execution;
 }
 
@@ -728,11 +798,89 @@ async function canonicalBinary(supplied) {
   return resolved;
 }
 
+async function currentCodexApproval() {
+  try {
+    const allowlist = await validateCodexAllowlist();
+    const validEntries = [];
+    for (const entry of allowlist.value.entries) {
+      try {
+        const resolved = await canonicalBinary(entry.path);
+        const bytes = await readFile(resolved);
+        const actualDigest = await digest(bytes);
+        if (resolved === entry.path && isMachO(bytes) && actualDigest === entry.digest) {
+          validEntries.push({ path: entry.path, digest: entry.digest });
+        }
+      } catch {
+        // A stale or changed approved path keeps the host unready until re-approved.
+      }
+    }
+    return {
+      path: CODEX_ALLOWLIST,
+      registryDigest: allowlist.digest,
+      entries: allowlist.value.entries,
+      validEntries,
+      supported: validEntries.length > 0
+    };
+  } catch (error) {
+    return {
+      path: CODEX_ALLOWLIST,
+      registryDigest: null,
+      entries: [],
+      validEntries: [],
+      supported: false,
+      error: error.message
+    };
+  }
+}
+
+async function requireApprovedCodexBinary(binaryPath, binaryDigest) {
+  const resolved = await canonicalBinary(binaryPath);
+  const allowlist = await validateCodexAllowlist();
+  const approved = allowlist.value.entries.find((entry) => entry.path === resolved && entry.digest === binaryDigest);
+  if (!approved) {
+    throw new Error("Codex binary is not administrator-approved by the fixed host allowlist");
+  }
+  const bytes = await readFile(resolved);
+  const actualDigest = await digest(bytes);
+  if (!isMachO(bytes)) {
+    throw new Error("Approved Codex binary must be a native Mach-O executable");
+  }
+  if (actualDigest !== binaryDigest) {
+    throw new Error("Codex binary changed after administrator approval");
+  }
+  return { sourcePath: resolved, digest: actualDigest, registryDigest: allowlist.digest };
+}
+
+async function approvedCodexAllowlistSource(binaryPath, confirmedDigest) {
+  const resolved = await canonicalBinary(binaryPath);
+  const binaryBytes = await readFile(resolved);
+  if (!isMachO(binaryBytes)) throw new Error("Approved Codex binary must be a native Mach-O executable");
+  const actualDigest = await digest(binaryBytes);
+  if (actualDigest !== confirmedDigest) {
+    throw new Error("Approved Codex binary digest does not match administrator-confirmed digest");
+  }
+  let entries = [];
+  if (await exists(CODEX_ALLOWLIST)) {
+    entries = (await validateCodexAllowlist()).value.entries;
+  }
+  const next = [
+    ...entries.filter((entry) => entry.path !== resolved),
+    { path: resolved, digest: actualDigest }
+  ].sort((left, right) => left.path.localeCompare(right.path));
+  const value = {
+    schemaVersion: 1,
+    kind: "codex-binary-allowlist",
+    entries: next
+  };
+  const bytes = Buffer.from(`${JSON.stringify(value, null, 2)}\n`);
+  return { path: resolved, digest: actualDigest, source: { bytes, digest: await digest(bytes) } };
+}
+
 export function validateExecutionRequest(request) {
   if (!request || typeof request !== "object" || Array.isArray(request)) {
     throw new Error("execution request must be an object");
   }
-  const required = ["binaryDigest", "binaryPath", "codexHomePath", "execution", "gid", "homePath", "model", "promptDigest", "promptPath", "uid"];
+  const required = ["binaryApprovalDigest", "binaryDigest", "binaryPath", "codexHomePath", "execution", "gid", "homePath", "model", "promptDigest", "promptPath", "uid"];
   if (Object.keys(request).sort().join("\0") !== required.slice().sort().join("\0")) {
     throw new Error("execution request fields do not match the signer contract");
   }
@@ -741,6 +889,9 @@ export function validateExecutionRequest(request) {
   }
   if (!SHA256.test(request.binaryDigest)) {
     throw new Error("execution request binary digest is invalid");
+  }
+  if (!SHA256.test(request.binaryApprovalDigest)) {
+    throw new Error("execution request binary approval digest is invalid");
   }
   if (typeof request.promptPath !== "string" || !path.isAbsolute(request.promptPath)) {
     throw new Error("execution request prompt path must be absolute");
@@ -829,7 +980,7 @@ async function validateRunAs(request) {
   return { uid: request.uid, gid: request.gid, homePath, codexHomePath };
 }
 
-async function executeResultRequest(requestPath, confirmedDigest, { includeResponse = false, commandArgs = null } = {}) {
+async function executeResultRequest(requestPath, confirmedDigest, { includeResponse = false, commandArgs = null, internalProbe = false } = {}) {
   requireRoot();
   await requireInstalledCapability("execution-witness");
   if (!SHA256.test(confirmedDigest)) throw new Error("confirmed execution request digest must be SHA-256");
@@ -845,6 +996,16 @@ async function executeResultRequest(requestPath, confirmedDigest, { includeRespo
   const binaryDigest = await digest(binaryBytes);
   if (binaryDigest !== request.binaryDigest) {
     throw new Error("execution request binary digest does not match the administrator-confirmed binary");
+  }
+  if (internalProbe) {
+    if (binaryPath !== EXECUTION_PROBE || commandArgs !== null && commandArgs.length !== 0) {
+      throw new Error("Internal readiness execution must use the fixed zero-argument probe");
+    }
+  } else {
+    const approval = await requireApprovedCodexBinary(binaryPath, request.binaryDigest);
+    if (request.binaryApprovalDigest !== approval.registryDigest) {
+      throw new Error("execution request binary approval registry digest does not match the installed allowlist");
+    }
   }
   const promptBytes = await validatePrompt(request);
   const runAs = await validateRunAs(request);
@@ -880,7 +1041,12 @@ async function executeResultRequest(requestPath, confirmedDigest, { includeRespo
   await validateRootOwnedFile(targets.binary, "Staged Codex binary", 0o755);
   const stagedBinaryPath = await realpath(targets.binary);
   if (stagedBinaryPath !== targets.binary) throw new Error("Staged Codex binary path must be canonical");
-  const binary = { path: stagedBinaryPath, digest: binaryDigest };
+  const binary = {
+    path: stagedBinaryPath,
+    digest: binaryDigest,
+    sourcePath: binaryPath,
+    approvalDigest: request.binaryApprovalDigest
+  };
   const trust = await validateTrustRoot();
   const key = trust.value.publicKeys[0];
   const issuedAt = new Date();
@@ -1087,7 +1253,7 @@ async function executeBatch(manifestPath, confirmedManifestDigest) {
   }
   if (manifest.schemaVersion !== 2 || typeof manifest.runId !== "string" || !manifest.runId ||
       typeof manifest.model !== "string" || !manifest.model || typeof manifest.binaryPath !== "string" ||
-      !path.isAbsolute(manifest.binaryPath) || !SHA256.test(manifest.binaryDigest) ||
+      !path.isAbsolute(manifest.binaryPath) || !SHA256.test(manifest.binaryApprovalDigest) || !SHA256.test(manifest.binaryDigest) ||
       typeof manifest.runtimePath !== "string" || !path.isAbsolute(manifest.runtimePath) ||
       path.resolve(manifest.runtimePath) !== manifest.runtimePath || !SHA256.test(manifest.runtimeDigest) ||
       typeof manifest.suiteDigest !== "string" || !manifest.suiteDigest ||
@@ -1101,6 +1267,11 @@ async function executeBatch(manifestPath, confirmedManifestDigest) {
   if (!runtime?.supported || runtime.path !== manifest.runtimePath || runtime.digest !== manifest.runtimeDigest) {
     throw new Error("execution manifest runtime digest does not match the installed administrator runtime");
   }
+  await requireApprovedCodexBinary(manifest.binaryPath, manifest.binaryDigest).then((approval) => {
+    if (approval.registryDigest !== manifest.binaryApprovalDigest) {
+      throw new Error("execution manifest binary approval registry digest does not match the installed allowlist");
+    }
+  });
   const prepared = [];
   const batchStem = path.join(EXECUTIONS, `${confirmedManifestDigest}.batch`);
   const batchStartPath = `${batchStem}.start.json`;
@@ -1126,7 +1297,7 @@ async function executeBatch(manifestPath, confirmedManifestDigest) {
       homePath: request.homePath,
       codexHomePath: request.codexHomePath
     };
-    if (request.model !== manifest.model || request.binaryPath !== manifest.binaryPath || request.binaryDigest !== manifest.binaryDigest ||
+    if (request.model !== manifest.model || request.binaryPath !== manifest.binaryPath || request.binaryDigest !== manifest.binaryDigest || request.binaryApprovalDigest !== manifest.binaryApprovalDigest ||
         canonicalJson(requestRunAs) !== canonicalJson(manifestRunAs) ||
         request.execution.runId !== manifest.runId || request.execution.suiteDigest !== manifest.suiteDigest ||
         request.execution.baselineRevision !== manifest.baselineRevision || request.execution.candidateDigest !== manifest.candidateDigest ||
@@ -1186,11 +1357,14 @@ async function runReadinessProbe({ uid, gid, homePath, codexHomePath = null }) {
     suiteDigest: "host-readiness-probe",
     baselineRevision: "0000000000000000000000000000000000000000",
     candidateDigest: "0".repeat(64),
+    headRevision: "0".repeat(40),
     promptDigest,
     role: "readiness-probe",
+    sourceBindingDigest: "0".repeat(64),
     attempt: 1
   };
   const request = {
+    binaryApprovalDigest: (await currentFixedArtifact(EXECUTION_PROBE, "Host readiness probe")).digest,
     binaryDigest: (await currentFixedArtifact(EXECUTION_PROBE, "Host readiness probe")).digest,
     binaryPath: EXECUTION_PROBE,
     codexHomePath,
@@ -1206,7 +1380,7 @@ async function runReadinessProbe({ uid, gid, homePath, codexHomePath = null }) {
   await exclusiveWrite(promptPath, promptBytes, 0o600);
   await exclusiveWrite(requestPath, requestBytes, 0o600);
   try {
-    const result = await executeResultRequest(requestPath, await digest(requestBytes), { includeResponse: true, commandArgs: [] });
+    const result = await executeResultRequest(requestPath, await digest(requestBytes), { includeResponse: true, commandArgs: [], internalProbe: true });
     const probe = result.response?.probe;
     const expectedEnvironment = Object.entries(safeEnvironment({
       HOME: homePath,
@@ -1251,13 +1425,16 @@ async function upgradeSigner(
   probeUid,
   probeGid,
   probeHomePath,
-  probeCodexHomePath = null
+  probeCodexHomePath = null,
+  approvedCodexBinaryPath,
+  approvedCodexBinaryDigest
 ) {
   requireRoot();
   await requireTrustedRuntime();
   const source = await readSourceFile(sourcePath, confirmedDigest, "Signer source");
   const launcherSource = await readSourceFile(launcherSourcePath, launcherDigest, "Native launcher source");
   const probeSource = await readSourceFile(probeSourcePath, probeDigest, "Readiness probe source");
+  const codexAllowlist = await approvedCodexAllowlistSource(approvedCodexBinaryPath, approvedCodexBinaryDigest);
   const text = source.bytes.toString("utf8");
   if (!text.includes(`const HOST_SIGNER_VERSION = "${HOST_SIGNER_VERSION}"`) ||
       !HOST_SIGNER_CAPABILITIES.every((capability) => text.includes(`"${capability}"`)) ||
@@ -1272,18 +1449,20 @@ async function upgradeSigner(
     throw new Error(`signer source syntax check failed: exit=${syntax.code ?? "null"}; signal=${syntax.signal ?? "none"}`);
   }
   await secureDirectory("/private/var/db/better-workflows", 0o711);
+  await secureDirectory(path.dirname(CODEX_ALLOWLIST), 0o755);
   await secureDirectory(HOST_RUNTIME_ROOT, 0o755);
   const launcherArtifact = await compileNativeArtifact(launcherSource, "Native launcher");
   const probeArtifact = await compileNativeArtifact(probeSource, "Readiness probe");
   const changes = [];
   try {
-    for (const [target, item, label] of [
-      [EXECUTION_LAUNCHER, launcherArtifact, "Native execution launcher"],
-      [EXECUTION_PROBE, probeArtifact, "Host readiness probe"],
-      [INSTALLED_SIGNER, source, "Installed host signer"]
+    for (const [target, item, mode, label] of [
+      [CODEX_ALLOWLIST, codexAllowlist.source, 0o644, "Approved Codex binary allowlist"],
+      [EXECUTION_LAUNCHER, launcherArtifact, 0o755, "Native execution launcher"],
+      [EXECUTION_PROBE, probeArtifact, 0o755, "Host readiness probe"],
+      [INSTALLED_SIGNER, source, 0o755, "Installed host signer"]
     ]) {
-      const change = await replaceRootOwnedFile(target, item, 0o755, label);
-      if (change.changed) changes.push({ target, label, mode: 0o755, previous: change.previous });
+      const change = await replaceRootOwnedFile(target, item, mode, label);
+      if (change.changed) changes.push({ target, label, mode, previous: change.previous });
     }
     const installed = await status();
     if (!installed.ready) throw new Error("installed signer failed its static capability checks");
@@ -1307,6 +1486,7 @@ async function upgradeSigner(
     for (const change of changes.toReversed()) {
       try {
         await restoreRootOwnedFile(change.target, change.previous, change.mode, change.label);
+        if (change.previous) await discardRollbackBackup(change.previous, change.label);
       } catch (recoveryError) {
         recoveryErrors.push(`${change.label}: ${recoveryError.message}`);
       }
@@ -1386,8 +1566,9 @@ async function main() {
   if (command === "provision") return provision();
   if (command === "upgrade") {
     if (!options.source || !options["confirm-digest"] || !options.launcher || !options["launcher-digest"] ||
-        !options.probe || !options["probe-digest"] || !options["probe-uid"] || !options["probe-gid"] || !options["probe-home"]) {
-      throw new Error("upgrade requires --source, --confirm-digest, --launcher, --launcher-digest, --probe, --probe-digest, --probe-uid, --probe-gid, and --probe-home");
+        !options.probe || !options["probe-digest"] || !options["probe-uid"] || !options["probe-gid"] || !options["probe-home"] ||
+        !options["codex-binary"] || !options["codex-binary-digest"]) {
+      throw new Error("upgrade requires --source, --confirm-digest, --launcher, --launcher-digest, --probe, --probe-digest, --probe-uid, --probe-gid, --probe-home, --codex-binary, and --codex-binary-digest");
     }
     return upgradeSigner(
       options.source,
@@ -1399,7 +1580,9 @@ async function main() {
       Number(options["probe-uid"]),
       Number(options["probe-gid"]),
       options["probe-home"],
-      options["probe-codex-home"] ?? null
+      options["probe-codex-home"] ?? null,
+      options["codex-binary"],
+      options["codex-binary-digest"]
     );
   }
   if (command === "execute-result") {

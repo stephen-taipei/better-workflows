@@ -54,7 +54,7 @@ test("auto entry requires capability snapshot and route preview before selection
   assert.match(content, /never fabricate an `auto` template/);
 });
 
-test("self improve is a critical thin workflow with stale-link and independent action gates", async () => {
+test("self improve is a critical thin workflow with stale-link and delegated delivery", async () => {
   const content = await readFile(path.join(skillsRoot, "self-improve", "SKILL.md"), "utf8");
   assert.match(content, /template `self-improve-ops` with minimum mode `critical`/);
   assert.match(content, /Treat `NO_CHANGE` as a valid successful outcome/);
@@ -66,7 +66,9 @@ test("self improve is a critical thin workflow with stale-link and independent a
   }
   assert.match(content, /never\s+automatically adopts/);
   assert.match(content, /missing versioned plugin-cache\s+path/);
-  assert.match(content, /Commit, cache publication, push, merge, deploy, and cleanup are independent/);
+  assert.match(content, /Commit, cache publication, push, merge, deploy, and cleanup are delegated\s+independent/);
+  assert.match(content, /exact\s+committed\s+HEAD/);
+  assert.match(content, /source-bound self-improve run/);
 
   const main = await readFile(path.join(skillsRoot, "better-workflows", "SKILL.md"), "utf8");
   assert.match(main, /versioned plugin-cache skill\s+path that no longer exists/);

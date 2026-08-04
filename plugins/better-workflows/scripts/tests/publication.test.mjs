@@ -1,12 +1,20 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import { link, mkdir, mkdtemp, readdir, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { promisify } from "node:util";
 import {
   checkPluginCache,
   publishPluginCache
 } from "../lib/publication.mjs";
+
+const execFileAsync = promisify(execFile);
+
+async function git(cwd, ...args) {
+  await execFileAsync("git", args, { cwd, encoding: "utf8" });
+}
 
 async function sourceFixture(version = "1.1.0+test.1") {
   const sourceRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-publication-source-"));
@@ -17,6 +25,24 @@ async function sourceFixture(version = "1.1.0+test.1") {
   );
   await writeFile(path.join(sourceRoot, "payload.txt"), "one\n");
   return sourceRoot;
+}
+
+async function trackedSourceFixture(version = "1.1.0+test.tracked") {
+  const repositoryRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-publication-git-source-"));
+  const sourceRoot = path.join(repositoryRoot, "plugins", "better-workflows");
+  await mkdir(path.join(sourceRoot, ".codex-plugin"), { recursive: true });
+  await writeFile(
+    path.join(sourceRoot, ".codex-plugin", "plugin.json"),
+    `${JSON.stringify({ name: "better-workflows", version })}\n`
+  );
+  await writeFile(path.join(sourceRoot, "payload.txt"), "one\n");
+  await writeFile(path.join(sourceRoot, ".gitignore"), "ignored.txt\n");
+  await git(repositoryRoot, "init", "-q", "-b", "dev");
+  await git(repositoryRoot, "config", "user.name", "Better Workflows Publication Tests");
+  await git(repositoryRoot, "config", "user.email", "publication-tests@example.invalid");
+  await git(repositoryRoot, "add", ".");
+  await git(repositoryRoot, "commit", "-qm", "fixture");
+  return { repositoryRoot, sourceRoot };
 }
 
 test("plugin cache publication stages a new immutable version and verifies exact content", async () => {
@@ -58,5 +84,14 @@ test("plugin cache publication rejects hardlinked bundle files", async () => {
   await assert.rejects(
     checkPluginCache({ sourceRoot, cacheRoot: path.join(parent, "cache") }),
     /Unsafe plugin bundle file/
+  );
+});
+
+test("plugin cache publication rejects ignored or untracked source bytes in a tracked plugin", async () => {
+  const { sourceRoot } = await trackedSourceFixture();
+  await writeFile(path.join(sourceRoot, "ignored.txt"), "must not publish\n");
+  await assert.rejects(
+    checkPluginCache({ sourceRoot, cacheRoot: path.join(await mkdtemp(path.join(os.tmpdir(), "sbw-publication-untracked-")), "cache") }),
+    /untracked or ignored files/
   );
 });

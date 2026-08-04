@@ -21,6 +21,7 @@ import {
   addFinding,
   appendJournal,
   atomicWriteJson,
+  assertActionIsNotDeferred,
   assertMutableRun,
   bindLegacyRunTemplate,
   buildContract,
@@ -795,10 +796,19 @@ async function loadHostExecutionRequestManifest({
       manifest.purpose !== purpose || manifest.suiteDigest !== suiteDigest || manifest.baselineRevision !== frozen.baselineRevision ||
       manifest.candidateDigest !== candidate.digest || manifest.sourceSuiteDigest !== frozen.sourceDigest ||
       manifest.targetSuiteDigest !== (target?.sourceDigest ?? null) || typeof manifest.binaryPath !== "string" ||
-      !path.isAbsolute(manifest.binaryPath) || !/^[a-f0-9]{64}$/.test(manifest.binaryDigest) ||
+      !path.isAbsolute(manifest.binaryPath) || !/^[a-f0-9]{64}$/.test(manifest.binaryApprovalDigest) || !/^[a-f0-9]{64}$/.test(manifest.binaryDigest) ||
+      !/^[a-f0-9]{40}$/.test(manifest.headRevision) || !/^[a-f0-9]{64}$/.test(manifest.sourceBindingDigest) ||
+      !/^[a-f0-9]{64}$/.test(manifest.pluginBundleDigest) ||
       typeof manifest.runtimePath !== "string" || !path.isAbsolute(manifest.runtimePath) || !/^[a-f0-9]{64}$/.test(manifest.runtimeDigest) ||
       !Array.isArray(manifest.requests) || manifest.requests.length !== 7 || !validRunAs(manifest.runAs)) {
     throw new Error("Execution request manifest is not bound to this run, suite, model, and candidate");
+  }
+  const currentSourceBinding = await captureSourceBinding(repository, { baseRevision: frozen.baselineRevision });
+  if (!currentSourceBinding || currentSourceBinding.headRevision !== manifest.headRevision || currentSourceBinding.digest !== manifest.sourceBindingDigest) {
+    throw new Error("Execution request manifest source binding is stale");
+  }
+  if (await pluginBundleDigest() !== manifest.pluginBundleDigest) {
+    throw new Error("Execution request manifest plugin bundle digest changed");
   }
   const completeJournal = path.join(HOST_EXECUTIONS_ROOT, `${manifestDigest}.batch.complete.json`);
   const journalInfo = await lstat(completeJournal);
@@ -831,21 +841,30 @@ async function loadHostExecutionRequestManifest({
     const requestBytes = await readFile(requestPath);
     if (sha256(requestBytes) !== item.requestDigest) throw new Error("Execution request digest changed after administrator confirmation");
     const request = JSON.parse(requestBytes.toString("utf8"));
-    if (!validRunAs(requestRunAs(request)) || request.model !== manifest.model || request.binaryPath !== manifest.binaryPath || request.binaryDigest !== manifest.binaryDigest ||
+    if (!validRunAs(requestRunAs(request)) || request.model !== manifest.model || request.binaryPath !== manifest.binaryPath || request.binaryApprovalDigest !== manifest.binaryApprovalDigest || request.binaryDigest !== manifest.binaryDigest ||
         digestObject(requestRunAs(request)) !== digestObject(manifest.runAs) || request.promptDigest !== item.promptDigest ||
         request.execution?.id !== item.executionId || request.execution?.role !== item.role || request.execution?.attempt !== item.attempt ||
+        request.execution?.headRevision !== manifest.headRevision || request.execution?.sourceBindingDigest !== manifest.sourceBindingDigest ||
         request.execution?.runId !== manifest.runId || request.execution?.suiteDigest !== manifest.suiteDigest ||
         request.execution?.baselineRevision !== manifest.baselineRevision || request.execution?.candidateDigest !== manifest.candidateDigest) {
       throw new Error("Execution request is not bound to the canonical request manifest");
     }
     if (bindings.has(item.executionId)) throw new Error("Execution request manifest contains duplicate execution IDs");
-    bindings.set(item.executionId, { requestDigest: item.requestDigest, runAs: requestRunAs(request) });
+    bindings.set(item.executionId, {
+      requestDigest: item.requestDigest,
+      runAs: requestRunAs(request),
+      headRevision: request.execution.headRevision,
+      sourceBindingDigest: request.execution.sourceBindingDigest
+    });
     requestDigests.push(item.requestDigest);
     executionIds.push(item.executionId);
   }
   if (digestObject(journal.executionIds) !== digestObject(executionIds) || digestObject(journal.requestDigests) !== digestObject(requestDigests)) {
     throw new Error("Completed host batch journal does not match the canonical request manifest");
   }
+  bindings.headRevision = manifest.headRevision;
+  bindings.sourceBindingDigest = manifest.sourceBindingDigest;
+  bindings.pluginBundleDigest = manifest.pluginBundleDigest;
   return bindings;
 }
 
@@ -977,6 +996,11 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
   if (frozen.baselineRevision !== run.manifest.baselineRevision) {
     throw new Error("Evaluation baseline must equal the immutable run-start baseline revision");
   }
+  const currentSourceBinding = await captureSourceBinding(cwd, { baseRevision: run.manifest.baselineRevision });
+  if (!currentSourceBinding || currentSourceBinding.digest !== run.manifest.sourceBinding?.digest || currentSourceBinding.headRevision !== run.manifest.sourceBinding?.headRevision) {
+    throw new Error("Self-improve evaluation requires the exact run-bound source revision");
+  }
+  const evaluatedPluginBundleDigest = await pluginBundleDigest();
   const candidate = await snapshotCandidate({ cwd, baselineRevision: frozen.baselineRevision, candidateRoot: String(options["candidate-root"]) });
   const baseline = await snapshotBaselineForCandidate({ cwd, snapshot: candidate });
   const candidateMaterial = await readSanitizedCandidateMaterial({ cwd, snapshot: candidate });
@@ -1040,6 +1064,9 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
       targetSuitePath: target?.relativePath ?? null,
       targetSuiteDigest: target?.sourceDigest ?? null,
       baselineRevision: frozen.baselineRevision,
+      headRevision: backend === "codex" ? requestBindings?.headRevision ?? currentSourceBinding.headRevision : currentSourceBinding.headRevision,
+      sourceBindingDigest: backend === "codex" ? requestBindings?.sourceBindingDigest ?? currentSourceBinding.digest : currentSourceBinding.digest,
+      pluginBundleDigest: backend === "codex" ? requestBindings?.pluginBundleDigest ?? evaluatedPluginBundleDigest : evaluatedPluginBundleDigest,
       candidate,
       baseline,
       ...(backend === "codex"
@@ -1056,8 +1083,10 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
     suiteDigest,
     baselineRevision: frozen.baselineRevision,
     candidateDigest: candidate.digest,
+    headRevision: backend === "codex" ? requestBindings?.headRevision ?? currentSourceBinding.headRevision : currentSourceBinding.headRevision,
     promptDigest: sha256(role === "baseline" ? baselinePrompt : candidatePrompt),
     role,
+    sourceBindingDigest: backend === "codex" ? requestBindings?.sourceBindingDigest ?? currentSourceBinding.digest : currentSourceBinding.digest,
     attempt
   });
   const prior = await listJsonRecords(root, safeJoin(run.runDir, "evidence"));
@@ -1206,6 +1235,13 @@ async function assertAcceptedSelfImproveHoldout(root, runId, action) {
   if (currentCandidate.digest !== evaluation.candidate.digest) {
     throw new Error("Self-improve candidate changed after held-out evaluation");
   }
+  const currentSourceBinding = await captureSourceBinding(run.manifest.cwd, { baseRevision: evaluation.baselineRevision });
+  if (!currentSourceBinding || currentSourceBinding.headRevision !== evaluation.headRevision || currentSourceBinding.digest !== evaluation.sourceBindingDigest) {
+    throw new Error("Self-improve delivery source binding changed after held-out evaluation");
+  }
+  if (await pluginBundleDigest() !== evaluation.pluginBundleDigest) {
+    throw new Error("Self-improve delivery plugin bundle changed after held-out evaluation");
+  }
   const currentBaseline = await snapshotBaselineForCandidate({ cwd: run.manifest.cwd, snapshot: currentCandidate });
   const candidateMaterial = await readSanitizedCandidateMaterial({ cwd: run.manifest.cwd, snapshot: currentCandidate });
   const baselineMaterial = await readSanitizedBaselineMaterial({ cwd: run.manifest.cwd, snapshot: currentBaseline });
@@ -1252,7 +1288,7 @@ async function assertAcceptedSelfImproveHoldout(root, runId, action) {
       expectedRequestDigest: requestBinding.requestDigest,
       expectedRunAs: requestBinding.runAs
     });
-    if (digestObject(witness.response) !== digestObject(replay.response) || witness.metadata.attestationDigest !== replay.attestationDigest || witness.metadata.binary.digest !== replay.binaryDigest || witness.metadata.trustRootDigest !== replay.trustRootDigest || witness.metadata.issuer !== replay.issuer || witness.metadata.keyId !== replay.keyId || witness.metadata.requestDigest !== replay.requestDigest || digestObject(witness.metadata.runAs) !== digestObject(replay.runAs) || witness.metadata.resultReceiptDigest !== replay.resultReceiptDigest || witness.metadata.responseDigest !== replay.responseDigest || witness.metadata.ledgerPath !== replay.ledgerPath) {
+    if (digestObject(witness.response) !== digestObject(replay.response) || witness.metadata.attestationDigest !== replay.attestationDigest || witness.metadata.binary.digest !== replay.binaryDigest || witness.metadata.trustRootDigest !== replay.trustRootDigest || witness.metadata.issuer !== replay.issuer || witness.metadata.keyId !== replay.keyId || witness.metadata.requestDigest !== replay.requestDigest || digestObject(witness.metadata.runAs) !== digestObject(replay.runAs) || witness.metadata.resultReceiptDigest !== replay.resultReceiptDigest || witness.metadata.responseDigest !== replay.responseDigest || witness.metadata.ledgerPath !== replay.ledgerPath || witness.metadata.execution.headRevision !== evaluation.headRevision || witness.metadata.execution.sourceBindingDigest !== evaluation.sourceBindingDigest) {
       throw new Error("Self-improve delivery host execution witness binding changed after replay");
     }
     const scoreCases = replay.execution.role === "train-candidate"
@@ -2100,6 +2136,7 @@ async function main() {
         throw new Error(`Legacy run is unbound; run sbw resume ${runId} before issuing actions`);
       }
       const action = String(options.action ?? "");
+      assertActionIsNotDeferred(run.contract, action);
       const requiredEvidence = run.contract.actionGates?.[action];
       if (!Array.isArray(requiredEvidence) || requiredEvidence.length === 0) {
         throw new Error(`No pre-action evidence gate is defined for: ${action}`);

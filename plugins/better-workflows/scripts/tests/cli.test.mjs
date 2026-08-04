@@ -216,7 +216,7 @@ test("self-improve fixture evaluation is explicit, private, and never grants del
   const evidence = await Promise.all((await readdir(evidenceDir)).map(async (name) => readFile(path.join(evidenceDir, name), "utf8")));
   assert.doesNotMatch(evidence.join("\n"), /sensitive operational material/);
   const delivery = await cli(cwd, stateRoot, ["action", "issue", started.json.runId, "--action", "git.commit", "--provider", "git", "--resource", "fixture", "--remote-revision", "none"], { allowFailure: true, env: { SBW_TEST_FIXTURE_BACKEND: "1" } });
-  assert.match(delivery.stderr, /trusted Codex held-out comparison/);
+  assert.match(delivery.stderr, /Governed action is deferred/);
 });
 
 test("evaluator migration binds immutable source and target suites, calibration, and a dedicated comparison policy", async () => {
@@ -338,6 +338,7 @@ test("self-improve attestation request freezes seven distinct requests outside t
   const parent = await mkdtemp(path.join(os.tmpdir(), "sbw-attestation-output-"));
   const output = path.join(parent, "requests");
   const hostStatus = await cli(cwd, stateRoot, ["self-improve", "host", "status"]);
+  const approvedBinary = hostStatus.json.codexBinary?.validEntries?.[0]?.path ?? process.execPath;
   const requested = await cli(cwd, stateRoot, [
     "self-improve",
     "attestation",
@@ -351,7 +352,7 @@ test("self-improve attestation request freezes seven distinct requests outside t
     "--model",
     "gpt-5.6-sol",
     "--binary",
-    process.execPath,
+    approvedBinary,
     "--output",
     output
   ], { allowFailure: hostStatus.json.ready !== true });
@@ -400,7 +401,7 @@ test("self-improve attestation request freezes seven distinct requests outside t
     "--model",
     "gpt-5.6-sol",
     "--binary",
-    process.execPath,
+    approvedBinary,
     "--output",
     migrationOutput,
     "--purpose",
@@ -439,7 +440,7 @@ test("self-improve attestation request freezes seven distinct requests outside t
     "--model",
     "gpt-5.6-sol",
     "--binary",
-    process.execPath,
+    approvedBinary,
     "--output",
     rejectedOutput
   ], { allowFailure: true });

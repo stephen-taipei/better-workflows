@@ -163,16 +163,25 @@ sbw self-improve attestation request \
 ```
 
 Real Codex replay requires one distinct root-owned host execution witness per
-execution. The administrator reviews the manifest digest and runs its returned
+execution. The candidate must already be an exact committed HEAD; source or
+plugin-bundle changes after request generation invalidate the run. The
+administrator reviews the manifest digest and runs its returned
 `executeCommand` through the installed, capability-checked signer. That signer
 executes Codex once, captures the response/timing/exit data, writes the
 one-shot host ledger, and creates the result receipt. The evaluator consumes
 the returned witness path via `--trusted-codex-execution` and rechecks its
 prompt/response digest, binary/model, execution binding, ledger, exit status,
-timestamps, and trust root before delivery; it never reruns Codex. Evaluation
+timestamps, and trust root before delivery; it never reruns Codex. The host
+allowlist must contain the canonical native Mach-O Codex binary and its current
+SHA-256; the JS wrapper or an arbitrary executable is rejected. Evaluation
 also requires `--request-manifest` and its administrator-confirmed
 `--request-manifest-digest`; the evaluator checks the root-owned completed batch
 journal and every request digest/run-as tuple against that manifest.
+
+Self-improve does not issue commit, cache-publication, push, merge, or cleanup
+tokens. After replay evidence is accepted, use `$better-workflows:pr-to-dev` for
+atomic commits and the `dev` PR, then run the immutable cache publisher as its
+own reconciled delivery step.
 
 ## Repository validation
 

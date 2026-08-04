@@ -1,7 +1,8 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
+import { createRequire } from "node:module";
 import { promisify } from "node:util";
-import { mkdir, realpath, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   evaluationBindingDigest,
@@ -17,11 +18,18 @@ import {
   SELF_IMPROVE_MIGRATION_SOURCE_CORPUS,
   ordinaryCorpusForBaseline
 } from "./self-improve.mjs";
+import { captureSourceBinding } from "./git.mjs";
+import { bundleDigest } from "./publication.mjs";
 import { binaryIdentity } from "./providers.mjs";
 
 const HOST_TRUST_TOOL = "/private/var/db/better-workflows/bin/bw-host-trust.mjs";
 const execFileAsync = promisify(execFile);
 const HOST_RUNTIME_ROOT = "/private/var/db/better-workflows/bin";
+const CODEX_TARGET_TRIPLE = process.platform === "darwin" && process.arch === "arm64"
+  ? "aarch64-apple-darwin"
+  : process.platform === "darwin" && process.arch === "x64"
+    ? "x86_64-apple-darwin"
+    : null;
 const HOST_ADMIN_SHELL = [
   "set -eu",
   "runtime_digest=\"$1\"",
@@ -48,11 +56,49 @@ async function installedRuntime() {
     throw new Error(`Administrator host status is unavailable; run host-trust upgrade first: ${error.message}`);
   }
   const runtime = status?.runtime;
+  const codexBinary = status?.codexBinary;
   if (!status.ready || !runtime?.supported || typeof runtime.path !== "string" || !/^[a-f0-9]{64}$/.test(runtime.digest ?? "") ||
+      !codexBinary?.supported || !/^[a-f0-9]{64}$/.test(codexBinary.registryDigest ?? "") || !Array.isArray(codexBinary.validEntries) ||
       runtime.path !== `${HOST_RUNTIME_ROOT}/bw-host-node.${runtime.digest}`) {
-    throw new Error("Administrator host runtime is not ready; install the fixed root-owned runtime, launcher, probe, and signer before generating replay requests");
+    throw new Error("Administrator host runtime is not ready; install the fixed root-owned runtime, launcher, probe, signer, and approved Codex binary before generating replay requests");
   }
-  return { path: runtime.path, digest: runtime.digest };
+  return { path: runtime.path, digest: runtime.digest, codexBinary };
+}
+
+function isMachO(bytes) {
+  if (bytes.length < 4) return false;
+  const little = bytes.readUInt32LE(0);
+  const big = bytes.readUInt32BE(0);
+  return [0xfeedfacf, 0xcffaedfe, 0xcafebabe, 0xbebafeca].includes(little) ||
+    [0xfeedfacf, 0xcffaedfe, 0xcafebabe, 0xbebafeca].includes(big);
+}
+
+async function codexExecutableIdentity(binaryPath) {
+  const supplied = await binaryIdentity(binaryPath ?? "codex");
+  const candidates = [supplied.path];
+  if (!binaryPath && CODEX_TARGET_TRIPLE) {
+    const packageRoot = path.resolve(path.dirname(supplied.path), "..");
+    candidates.push(path.join(packageRoot, "vendor", CODEX_TARGET_TRIPLE, "bin", "codex"));
+    try {
+      const require = createRequire(supplied.path);
+      const packageName = CODEX_TARGET_TRIPLE === "aarch64-apple-darwin"
+        ? "@openai/codex-darwin-arm64"
+        : "@openai/codex-darwin-x64";
+      const packageJson = require.resolve(`${packageName}/package.json`);
+      candidates.push(path.join(path.dirname(packageJson), "vendor", CODEX_TARGET_TRIPLE, "bin", "codex"));
+    } catch {
+      // The wrapper's adjacent vendor path remains the only fallback.
+    }
+  }
+  for (const candidate of [...new Set(candidates)]) {
+    try {
+      const identity = await binaryIdentity(candidate);
+      if (isMachO(await readFile(identity.path))) return identity;
+    } catch {
+      // Try the next deterministic vendor location.
+    }
+  }
+  throw new Error("Codex replay requires an administrator-approved native Mach-O Codex executable; the JS wrapper and incomplete vendor bundles are rejected");
 }
 
 export async function generateAttestationRequests({
@@ -68,13 +114,20 @@ export async function generateAttestationRequests({
   nextCasesFile = null
 }) {
   const resolvedRepo = await realpath(repo);
-  const binary = binaryPath
-    ? await binaryIdentity(binaryPath)
-    : await binaryIdentity("codex");
+  const sourceBinding = await captureSourceBinding(resolvedRepo, { baseRevision: baselineRevision });
+  if (!sourceBinding?.headRevision || !sourceBinding.digest) {
+    throw new Error("Attestation requests require an exact Git source binding");
+  }
+  const publishableBundleDigest = await bundleDigest(path.join(resolvedRepo, "plugins", "better-workflows"));
   const runtime = await installedRuntime();
+  const binary = await codexExecutableIdentity(binaryPath);
   const resolvedBinary = binary.path;
   if (binaryPath && resolvedBinary !== binaryPath) {
     throw new Error("Codex binary argument must already be canonical");
+  }
+  const approvedBinary = runtime.codexBinary.validEntries.find((entry) => entry.path === resolvedBinary && entry.digest === binary.digest);
+  if (!approvedBinary) {
+    throw new Error("Codex binary is not administrator-approved by the fixed host allowlist");
   }
   const outputDir = path.resolve(outputDirectory);
   if (
@@ -169,10 +222,12 @@ export async function generateAttestationRequests({
       suiteDigest,
       baselineRevision: frozen.baselineRevision,
       candidateDigest: candidate.digest,
+      headRevision: sourceBinding.headRevision,
       promptDigest: createHash("sha256")
         .update(promptByRoleAndSplit.get(`${item.role === "train-candidate" ? "candidate" : item.role}:${item.split}`))
         .digest("hex"),
       role: item.role,
+      sourceBindingDigest: sourceBinding.digest,
       attempt: item.attempt
     };
     const prompt = promptByRoleAndSplit.get(`${item.role === "train-candidate" ? "candidate" : item.role}:${item.split}`);
@@ -182,6 +237,7 @@ export async function generateAttestationRequests({
     await writeFile(promptFile, promptBytes, { mode: 0o600, flag: "wx" });
     const promptDigest = createHash("sha256").update(promptBytes).digest("hex");
     const request = {
+      binaryApprovalDigest: runtime.codexBinary.registryDigest,
       binaryDigest: binary.digest,
       binaryPath: resolvedBinary,
       codexHomePath,
@@ -204,8 +260,7 @@ export async function generateAttestationRequests({
       promptDigest: execution.promptDigest,
       prompt: promptFile,
       request: file,
-      requestDigest: createHash("sha256").update(bytes).digest("hex"),
-      executionId: execution.id
+      requestDigest: createHash("sha256").update(bytes).digest("hex")
     });
   }
   const manifest = {
@@ -214,9 +269,13 @@ export async function generateAttestationRequests({
     runId,
     model,
     binaryPath: resolvedBinary,
+    binaryApprovalDigest: runtime.codexBinary.registryDigest,
     binaryDigest: binary.digest,
+    headRevision: sourceBinding.headRevision,
+    sourceBindingDigest: sourceBinding.digest,
     runtimePath: runtime.path,
     runtimeDigest: runtime.digest,
+    pluginBundleDigest: publishableBundleDigest,
     runAs,
     purpose,
     suitePath: frozen.relativePath,

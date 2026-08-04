@@ -184,7 +184,7 @@ function isDeferredGovernedAction(contract, action) {
   return deferredActions.some((item) => canonicalDeferredAction(item) === canonical);
 }
 
-function assertActionIsNotDeferred(contract, action) {
+export function assertActionIsNotDeferred(contract, action) {
   if (isDeferredGovernedAction(contract, action)) {
     throw new Error(`Governed action is deferred until its provider adapter is implemented: ${action}`);
   }

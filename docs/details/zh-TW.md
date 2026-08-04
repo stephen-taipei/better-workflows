@@ -241,26 +241,32 @@ $better-workflows:cross-platform 檢查 backend、iOS 和 Android 的 contact sy
 | `$better-workflows:ci-release` | CI failure、runner queue、序列化 deploy、release、遠端監控與 receipt 驗證。 | `$better-workflows:ci-release 診斷失敗的 PR checks、修復並監控序列化 dev deploy。` |
 | `$better-workflows:browser-qa` | 需要最新 UI 證據、截圖與可重現 action log 的 Webwright／模擬器 QA。 | `$better-workflows:browser-qa 驗證 signup 與 contact sync，並附上 screenshot evidence。` |
 | `$better-workflows:research` | CLI 實測的多模型角色、證據驅動架構比較、反證與可執行 Plan；不以多數決決策。 | `$better-workflows:research 比較三種 sync 架構、反證每個方案並產出可實作的 Plan。` |
-| `$better-workflows:self-improve` | 依近期且有界的證據改善 Better Workflows 本身，同步 selector、template、tests、docs、version、immutable cache 與經授權的 remote delivery。 | `$better-workflows:self-improve Review 近期 workflow 結果，只實作重複且已驗證的改善，完整驗證後發佈新 cache version 並 push atomic commit。` |
+| `$better-workflows:self-improve` | 依近期且有界的證據改善 Better Workflows 本身，同步受治理的 surfaces，並將 delivery 交給專責 workflow。 | `$better-workflows:self-improve Review 近期 workflow 結果，只實作重複且已驗證的改善，驗證後將 commit、cache 與 remote delivery 交給受治理流程。` |
 | `$better-workflows:workspace-recipe` | 將穩定、確定性的 SOP 固化為 workspace 內受治理的 Node.js recipe，以明確 digest trust 與受限 artifacts 重複執行。 | `$better-workflows:workspace-recipe 建立可重複執行的 JSON audit，驗證後準備目前 digest 供明確 promotion。` |
 | `$better-workflows:monorepo-refactor` | 完整盤點 monorepo，直接實作所有合格的 bounded refactor 建議，並保留 behavior invariants、validation 與 rollback evidence。 | `$better-workflows:monorepo-refactor 盤點 monorepo，直接實作所有合格的 boundary cleanup 建議，不改變 public contract。` |
 
-`self-improve-ops` 是薄型 orchestration template：沿用既有 research、refactor、routing、publication 與 delivery controls，允許有證據的 no-change，並分別 gate commit、cache publication 與 push。缺失的版本化 cache link 只能解析到已驗證的 current bundle，不得重建或修改 stale path。
+`self-improve-ops` 是薄型 orchestration template：沿用既有 research、refactor、routing、publication 與 delivery controls，允許有證據的 no-change，並將 commit、cache publication 與 push deferred 給各自的受治理流程。缺失的版本化 cache link 只能解析到已驗證的 current bundle，不得重建或修改 stale path。
 
 提出新 workflow 前，必須先記錄目前的 coverage。若既有 workflow 已具備所需 safeguards，應回傳 `NO_CHANGE`，不得建立重複流程。沒有已證明 recurrence 或長期 operational value 的 one-off request 也應回傳 `NO_CHANGE`，並記錄 evidence、outcome 與 counterargument。若唯一證據依賴無法 sanitized 的 private history 或 sensitive material，應回傳 `REJECTED_WITH_EVIDENCE`：不得讀取、傳送或保存 raw source，只能記錄 redacted rejection rationale。
 
 自我改善 evaluation 只使用已 checked-in、sanitized 且在 immutable baseline 凍結的 train/holdout corpus。candidate 必須先 staging；三次 read-only Codex holdout replay 必須在沒有 safety failure 或 regression 下，嚴格超過 baseline median。Codex replay 需要 host-signed attestation，將精確 binary 與 model 綁定到固定的 `/etc/better-workflows/codex-trust-root.json`；該檔與父目錄必須由 administrator 擁有且不可由呼叫者寫入。`PATH`、自行計算 hash、CLI 選擇 trust root 或 model 自述都不是 provider attestation。tie、noise、缺少 evidence 或 fixture-only 結果都不會 auto-adopt。
 
-每次成功 replay 都使用獨立的 administrator-owned execution witness。digest-confirmed request 會綁定 administrator-approved binary digest；已安裝的 signer 先將 exact binary snapshot 成 execution root 下 root-owned `0755` 檔案，建立並簽署 pre-execution binding，再呼叫 root-owned native launcher。launcher 會先清空 supplementary groups，才套用 request 的 non-root uid/gid 與固定的 `PATH`、`HOME`、`CODEX_HOME`。attestation、receipt、envelope、ledger 都會綁定 confirmed request digest 與 exact run-as identity，candidate snapshot 也會綁定 normalized file mode。執行完成後 host 捕捉 parsed response、exit status 與 timestamps，寫入 root-owned execution ledger，並簽發 `result receipt`。`sbw` 只消費這份已保存的 witness，resume 與 delivery revalidation 都不會重新執行 Codex；signed receipt 會綁定 exact prompt digest、response digest、binary、model、execution、ledger 與 timestamps。
+每次成功 replay 都使用獨立的 administrator-owned execution witness。digest-confirmed request 會綁定 administrator-approved native Mach-O Codex binary digest、allowlist digest、exact committed HEAD 與 source binding；已安裝的 signer 先將 exact binary snapshot 成 execution root 下 root-owned `0755` 檔案，建立並簽署 pre-execution binding，再呼叫 root-owned native launcher。launcher 會先清空 supplementary groups，才套用 request 的 non-root uid/gid 與固定的 `PATH`、`HOME`、`CODEX_HOME`。attestation、receipt、envelope、ledger 都會綁定 confirmed request digest 與 exact run-as identity，candidate snapshot 也會綁定 normalized file mode。執行完成後 host 捕捉 parsed response、exit status 與 timestamps，寫入 root-owned execution ledger，並簽發 `result receipt`。`sbw` 只消費這份已保存的 witness，resume 與 delivery revalidation 都不會重新執行 Codex；signed receipt 會綁定 exact prompt digest、response digest、binary、model、execution、ledger 與 timestamps。
 
 Evaluation v2.2 保留既有 safety、documentation、deliberation、sanitizer 與 evaluation-engineering coverage，並增加 typed-evidence integrity、execution-ledger replay、bounded review convergence 與 direct-work cost 的獨立 train/holdout classes。一次性的 migration 以 immutable v2.1 為 source，並將 source/target 兩份 suite digest 綁入全部七份 signed executions。
 
-一般 clone 或執行 workspace recipe **不需要** host trust root；只有要以真實 Codex self-improve replay 授權 commit、cache publication 或 delivery 的 maintainer，才需由 administrator 在每台 host 一次性執行：
+一般 clone 或執行 workspace recipe **不需要** host trust root；只有要執行真實 Codex self-improve replay 的 maintainer，才需由 administrator 在每台 host 一次性執行。self-improve 不會授權 commit、cache publication、push、merge 或 cleanup；這些交由 `pr-to-dev` 與 immutable-cache workflow：
 
 ```bash
 sudo /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin /usr/bin/swift /private/var/db/better-workflows/bin/bw-host-signer.swift provision
 node plugins/better-workflows/scripts/sbw.mjs self-improve host status
 ```
+
+`host-trust.mjs upgrade` 必須帶入 canonical native Mach-O Codex binary 與
+`--codex-binary-digest`，並把核准項目寫入 root-owned `0644` allowlist；JS
+wrapper、任意 executable 或 digest drift 都會 fail closed。candidate 必須先是
+將要 review/deliver 的 exact committed HEAD；若仍 dirty，先交給 `pr-to-dev`
+commit，再建立新的 source-bound self-improve run。
 
 Provision 不會覆寫或暗中 rotate 既有 key。trust root 是 root-owned 公開 JSON；private Ed25519 key 以 `0600` 保存在 repo 外。不要用 `plutil` 驗證 JSON，請用上述 status。若 status 顯示 `ready: false` 且只有 legacy signer，請先以固定 `/bin/sh` staging wrapper 準備 digest-bound root-owned Node runtime 與 compiled native launcher/probe，不得直接 sudo `process.execPath`，再以 administrator-confirmed SHA-256 執行 `host-trust.mjs upgrade`；upgrade 會完成 signed readiness witness 與 exact rollback proof。既有 trust root/key 不會更換，舊 signer 會保留為 root-owned backup。candidate 固定後，以下命令會在 repo 外產生七份 prompt-bound execution request、manifest digest 與精確的 `executeCommand`：
 

@@ -66,6 +66,15 @@ test("host trust helper fixes authority paths and does not accept environment pa
   assert.match(source, /compileNativeArtifact/);
   assert.match(source, /NATIVE_COMPILER/);
   assert.match(source, /isMachO/);
+  assert.match(source, /CODEX_ALLOWLIST/);
+  assert.match(source, /requireApprovedCodexBinary/);
+  assert.match(source, /approvedCodexAllowlistSource/);
+  assert.match(source, /binaryApprovalDigest/);
+  assert.match(source, /native Mach-O executable/);
+  assert.match(source, /stale backup/);
+  assert.match(source, /discardRollbackBackup/);
+  assert.match(source, /fixed host runtime root/);
+  assert.match(source, /--codex-binary/);
   assert.match(source, /currentRuntime\(manifest\.runtimePath\)/);
   assert.match(source, /validateManifestRunAs/);
   assert.match(source, /requestDigests/);
@@ -106,6 +115,7 @@ test("host capture honors a caller-specific output limit before SIGKILL escalati
 
 test("host execution request is a pre-execution contract and cannot carry caller result facts", () => {
   const request = {
+    binaryApprovalDigest: "c".repeat(64),
     binaryDigest: "b".repeat(64),
     binaryPath: "/usr/bin/codex",
     codexHomePath: null,
@@ -115,8 +125,10 @@ test("host execution request is a pre-execution contract and cannot carry caller
       suiteDigest: "suite-12345678",
       baselineRevision: "abcdef1234567890abcdef1234567890abcdef12",
       candidateDigest: "candidate-12345678",
+      headRevision: "d".repeat(40),
       promptDigest: "a".repeat(64),
       role: "candidate",
+      sourceBindingDigest: "e".repeat(64),
       attempt: 1
     },
     gid: process.getgid(),

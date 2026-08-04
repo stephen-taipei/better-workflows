@@ -291,15 +291,15 @@ silently replacing it.
 | `$better-workflows:ci-release` | CI failures, runner queues, serialized deploys, releases, remote monitoring, and receipt-based verification. | `$better-workflows:ci-release Diagnose the failing PR checks, fix them, and monitor the serialized dev deployment.` |
 | `$better-workflows:browser-qa` | Webwright or simulator QA requiring current UI evidence, screenshots, and a reproducible action log. | `$better-workflows:browser-qa Verify signup and contact sync in the browser and attach screenshot evidence.` |
 | `$better-workflows:research` | CLI-proven multi-model roles, evidence-backed architecture comparison, refutation, and an executable plan without majority voting. | `$better-workflows:research Compare three sync architectures, challenge each one, and produce an implementation-ready plan.` |
-| `$better-workflows:self-improve` | Improve Better Workflows itself from bounded recent evidence, including synchronized selectors, templates, tests, docs, versions, immutable cache, and authorized remote delivery. | `$better-workflows:self-improve Review recent workflow outcomes, implement only recurring verified improvements, validate, publish a new cache version, and push the atomic commit.` |
+| `$better-workflows:self-improve` | Improve Better Workflows itself from bounded recent evidence, synchronize the governed surfaces, and hand off delivery. | `$better-workflows:self-improve Review recent workflow outcomes, implement only recurring verified improvements, validate, then hand off commit, cache, and remote delivery to the governed workflows.` |
 | `$better-workflows:workspace-recipe` | Turn a stable, deterministic SOP into a governed workspace-local Node.js recipe with explicit digest trust and bounded artifacts. | `$better-workflows:workspace-recipe Scaffold a repeatable JSON audit, validate it, and prepare its current digest for explicit promotion.` |
 | `$better-workflows:monorepo-refactor` | Full workspace inventory followed by direct implementation of every eligible bounded refactor recommendation, with behavior invariants, validation, and rollback evidence. | `$better-workflows:monorepo-refactor Inventory the monorepo and implement all eligible boundary-cleanup recommendations without changing its public contract.` |
 
 `self-improve-ops` is intentionally a thin orchestration template. It composes
 the existing research, refactor, routing, publication, and delivery controls,
-accepts a justified no-change result, and independently gates commit, cache
-publication, and push. A missing versioned cache link is resolved to a verified
-current bundle; the stale path is never recreated or mutated.
+accepts a justified no-change result; commit, cache publication, and push are
+deferred to their governed workflows. A missing versioned cache link is resolved to
+a verified current bundle; the stale path is never recreated or mutated.
 
 Before proposing a new workflow, record the current coverage. If an existing
 workflow already provides the required safeguards, return `NO_CHANGE` and do
@@ -319,7 +319,9 @@ host trust root at `/etc/better-workflows/codex-trust-root.json`;
 `PATH`, a self-hash, and model self-report are not provider attestation. Ties,
 noise, missing evidence, and fixture-only results never auto-adopt a change.
 Each successful replay uses a distinct administrator-owned execution witness.
-The digest-confirmed request binds an administrator-approved binary digest. The
+The digest-confirmed request binds an administrator-approved native Mach-O Codex
+binary digest and allowlist digest, plus the exact committed HEAD and source
+binding. The
 installed signer snapshots that binary into a root-owned `0755` file under the
 fixed execution root, creates and signs the pre-execution binding, and invokes
 a root-owned native launcher. The launcher clears supplementary groups before
@@ -341,7 +343,9 @@ source and binds both immutable suite digests into all seven signed executions.
 
 The host trust root is **not required for ordinary clones or workspace recipe
 execution**. It is required only for maintainers who want real Codex
-self-improvement replays to authorize commit, cache publication, or delivery.
+self-improvement replays. The self-improve contract does not authorize commit,
+cache publication, push, merge, or cleanup; those actions are delegated to
+`pr-to-dev` and the immutable-cache workflow.
 On each host, an administrator reviews a pinned checkout and provisions it once:
 
 ```bash
@@ -360,11 +364,18 @@ because a legacy signer is installed, compile the exact native sources with
 fixed `/usr/bin/clang`, stage a digest-confirmed root-owned Node runtime and
 the resulting Mach-O launcher/probe, then run `host-trust.mjs upgrade` through
 the fixed `/bin/sh` staging wrapper with `env -i`. Never sudo the
-maintainer's `process.execPath` directly. The old signer is retained as a
-root-owned backup; upgrade performs a disposable signed readiness witness and
-a failed upgrade is quarantined and rolled back with exact prior artifact
-digests proven, without rotating keys.
+maintainer's `process.execPath` directly. The administrator upgrade must also
+receive `--codex-binary <canonical-native-Mach-O>` and
+`--codex-binary-digest <sha256>`; it records the approved binary in the
+root-owned `0644` allowlist and rejects a JS wrapper or arbitrary executable.
+The old signer is retained as a root-owned backup; upgrade performs a disposable
+signed readiness witness and a failed upgrade is quarantined and rolled back
+with exact prior artifact digests proven, without rotating keys.
 
+Before request generation, the candidate must already be the exact committed
+HEAD that will be reviewed and delivered. If it is dirty, use `pr-to-dev` for
+the commit wave and start a fresh source-bound self-improve run. Changing the
+source or plugin bundle after request generation invalidates every witness.
 After a candidate is frozen, generate all seven distinct requests outside the
 repository. The output includes a manifest digest and an exact `executeCommand`;
 the administrator reviews both before running that one host-execution command;

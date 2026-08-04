@@ -162,7 +162,7 @@ test("research deliberation requires CLI-proven roles and an executable arbiter 
   }
 });
 
-test("self improve keeps no-change, synchronization, cache, commit, and push fail closed", async () => {
+test("self improve keeps strict holdout and delegates delivery side effects", async () => {
   const template = JSON.parse(
     await readFile(path.join(pluginRoot(), "templates", "self-improve-ops.json"), "utf8")
   );
@@ -198,22 +198,19 @@ test("self improve keeps no-change, synchronization, cache, commit, and push fai
     "selector-template-catalog-test-doc-sync",
     "new-version-before-publication",
     "immutable-cache-exact-digest",
-    "independent-action-authority"
+    "independent-action-authority",
+    "delegated-delivery-boundary"
   ]) {
     assert.ok(template.policyGates.includes(policy), policy);
   }
-  assert.deepEqual(Object.keys(template.actionGates).sort(), [
-    "git.commit",
-    "git.push",
-    "plugin.cache.publish"
-  ]);
+  assert.deepEqual(template.actionGates, {});
+  assert.deepEqual(template.actionStages, {});
+  assert.deepEqual(template.deferredActions, ["git.commit", "plugin.cache.publish", "git.push"]);
   assert.ok(template.acceptance.some((item) => item.id === "outcome-explicit"));
   assert.ok(template.acceptance.some((item) => item.id === "heldout-gated"));
   assert.ok(template.acceptance.some((item) => item.id === "cache-immutable"));
   assert.ok(template.acceptance.some((item) => item.id === "delivery-reconciled"));
-  for (const kind of ["evaluation-suite", "training-replay", "candidate-staging", "holdout-comparison"]) {
-    assert.ok(template.actionGates["git.commit"].includes(kind), kind);
-  }
+  assert.equal(template.executionStages.at(-1).id, "delivery-handoff");
 });
 
 test("deliberation roster separates model brands from the Agy transport with a 24-hour lease", async () => {

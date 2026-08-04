@@ -102,7 +102,7 @@ test("Codex evaluation rejects a caller attestation without valid host anchoring
   await mkdir(evaluationRoot);
   await assert.rejects(
     runCodexEvaluation({ model: "attested-test-model", prompt: "safe", evaluationRoot, hostExecutionPath: path.join(directory, "execution.json"),
-      execution: { id: "test-execution-1", runId: "run", suiteDigest: "suite", baselineRevision: "baseline", candidateDigest: "candidate", promptDigest: sha256("safe"), role: "candidate", attempt: 1 } }),
+      execution: { id: "test-execution-1", runId: "run", suiteDigest: "suite", baselineRevision: "baseline", candidateDigest: "candidate", headRevision: "a".repeat(40), promptDigest: sha256("safe"), role: "candidate", sourceBindingDigest: "b".repeat(64), attempt: 1 } }),
     /ENOENT|host execution witness/
   );
 });
@@ -123,8 +123,10 @@ test("Codex evaluation rejects prompt substitution before invoking a provider", 
         suiteDigest: "suite",
         baselineRevision: "baseline",
         candidateDigest: "candidate",
+        headRevision: "a".repeat(40),
         promptDigest: sha256("different prompt"),
         role: "candidate",
+        sourceBindingDigest: "b".repeat(64),
         attempt: 1
       }
     }),

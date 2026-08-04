@@ -40,6 +40,7 @@ const EVALUATION_SCHEMA = {
     } } } }
 };
 const HOST_TRUST_ROOT_PATH = "/etc/better-workflows/codex-trust-root.json";
+const HOST_CODEX_ALLOWLIST_PATH = "/etc/better-workflows/codex-binary-allowlist.json";
 const HOST_ATTESTATIONS_ROOT = "/private/var/db/better-workflows/attestations";
 const HOST_EXECUTIONS_ROOT = "/private/var/db/better-workflows/executions";
 
@@ -266,6 +267,30 @@ async function hostAnchoredTrustRoot() {
   return trustRoot;
 }
 
+async function hostAnchoredCodexAllowlist() {
+  const allowlist = await secureJsonFile(HOST_CODEX_ALLOWLIST_PATH, "Host Codex binary allowlist");
+  if (allowlist.info.uid !== 0 || (allowlist.info.mode & 0o777) !== 0o644) {
+    throw new Error("Host Codex binary allowlist must be an administrator-owned 0644 file");
+  }
+  let directory = path.dirname(allowlist.path);
+  while (true) {
+    const info = await lstat(directory);
+    if (info.isSymbolicLink() || !info.isDirectory() || info.uid !== 0 || ((info.mode & 0o777) & 0o022) !== 0) {
+      throw new Error("Host Codex binary allowlist parent directory is not administrator-owned and immutable");
+    }
+    const parent = path.dirname(directory);
+    if (parent === directory) break;
+    directory = parent;
+  }
+  const bytes = await readFile(allowlist.path);
+  const value = allowlist.value;
+  if (value?.schemaVersion !== 1 || value.kind !== "codex-binary-allowlist" || !Array.isArray(value.entries) || value.entries.length === 0 ||
+      value.entries.some((entry) => !entry || Object.keys(entry).sort().join("\0") !== "digest\0path" || typeof entry.path !== "string" || !path.isAbsolute(entry.path) || path.resolve(entry.path) !== entry.path || !/^[a-f0-9]{64}$/.test(entry.digest))) {
+    throw new Error("Host Codex binary allowlist schema is invalid");
+  }
+  return { value, digest: sha256(bytes) };
+}
+
 function unsignedAttestation(attestation) {
   const { signature, ...payload } = attestation;
   return payload;
@@ -278,7 +303,7 @@ function validateExecution(attestationExecution, expectedExecution) {
   if (!attestationExecution || typeof attestationExecution !== "object") {
     throw new Error("Trusted Codex attestation requires an execution binding");
   }
-  for (const key of ["id", "runId", "suiteDigest", "baselineRevision", "candidateDigest", "promptDigest", "role", "attempt"]) {
+  for (const key of ["id", "runId", "suiteDigest", "baselineRevision", "candidateDigest", "headRevision", "sourceBindingDigest", "promptDigest", "role", "attempt"]) {
     if (attestationExecution[key] === undefined || expectedExecution[key] === undefined) {
       throw new Error(`Trusted Codex execution binding is missing ${key}`);
     }
@@ -291,6 +316,10 @@ function validateExecution(attestationExecution, expectedExecution) {
   }
   if (typeof attestationExecution.promptDigest !== "string" || !/^[a-f0-9]{64}$/.test(attestationExecution.promptDigest)) {
     throw new Error("Trusted Codex execution prompt digest is invalid");
+  }
+  if (typeof attestationExecution.headRevision !== "string" || !/^[a-f0-9]{40}$/.test(attestationExecution.headRevision) ||
+      typeof attestationExecution.sourceBindingDigest !== "string" || !/^[a-f0-9]{64}$/.test(attestationExecution.sourceBindingDigest)) {
+    throw new Error("Trusted Codex execution source revision binding is invalid");
   }
   if (canonicalJson(attestationExecution) !== canonicalJson(expectedExecution)) {
     throw new Error("Trusted Codex execution binding does not match this replay");
@@ -353,7 +382,16 @@ export async function verifyTrustedCodexAttestation({ attestationPath, evaluatio
     throw new Error("Trusted Codex attestation run-as binding does not match the confirmed request");
   }
   const binary = attestation.binary;
-  if (!binary || typeof binary.path !== "string" || !path.isAbsolute(binary.path) || !/^[a-f0-9]{64}$/.test(binary.digest ?? "")) throw new Error("Trusted Codex attestation requires an absolute binary path and SHA-256 digest");
+  if (!binary || typeof binary.path !== "string" || !path.isAbsolute(binary.path) ||
+      typeof binary.sourcePath !== "string" || !path.isAbsolute(binary.sourcePath) || path.resolve(binary.sourcePath) !== binary.sourcePath ||
+      !/^[a-f0-9]{64}$/.test(binary.digest ?? "") || !/^[a-f0-9]{64}$/.test(binary.approvalDigest ?? "")) {
+    throw new Error("Trusted Codex attestation requires staged and administrator-approved binary bindings");
+  }
+  const allowlist = await hostAnchoredCodexAllowlist();
+  const approved = allowlist.value.entries.find((entry) => entry.path === binary.sourcePath && entry.digest === binary.digest);
+  if (!approved || allowlist.digest !== binary.approvalDigest) {
+    throw new Error("Trusted Codex attestation binary is not bound to the current administrator allowlist");
+  }
   const executionRoot = await secureHostRoot(HOST_EXECUTIONS_ROOT, "Trusted Codex execution root");
   const binaryInfo = await lstat(binary.path);
   if (binaryInfo.isSymbolicLink() || !binaryInfo.isFile() || binaryInfo.uid !== 0 || (binaryInfo.mode & 0o777) !== 0o755) {
@@ -370,7 +408,8 @@ export async function verifyTrustedCodexAttestation({ attestationPath, evaluatio
     provider: "codex", requestedModel: model, reportedModel: model, modelAssurance: "host-signed-attestation", trustAttested: true,
     attestationDigest: sha256(canonicalJson(unsignedAttestation(attestation))), trustRootDigest: sha256(canonicalJson(trustRoot)),
     attestationPath: attestationFile.path, issuer: attestation.issuer, keyId: attestation.keyId, expiresAt: attestation.expiresAt,
-    execution: signedExecution, requestDigest: attestation.requestDigest, runAs, binary: { path: command, digest }
+    execution: signedExecution, requestDigest: attestation.requestDigest, runAs,
+    binary: { path: command, digest, sourcePath: binary.sourcePath, approvalDigest: binary.approvalDigest }
   } };
 }
 

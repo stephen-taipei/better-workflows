@@ -1,4 +1,5 @@
 import { constants as fsConstants } from "node:fs";
+import { execFile } from "node:child_process";
 import {
   chmod,
   lstat,
@@ -6,11 +7,24 @@ import {
   open,
   readdir,
   rename,
+  realpath,
   rm,
   unlink
 } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
+
+const execFileAsync = (command, args, options = {}) => new Promise((resolve, reject) => {
+  execFile(command, args, options, (error, stdout, stderr) => {
+    if (error) {
+      error.stdout = stdout;
+      error.stderr = stderr;
+      reject(error);
+      return;
+    }
+    resolve({ stdout, stderr });
+  });
+});
 
 function sha256(value) {
   const hash = createHash("sha256");
@@ -55,6 +69,42 @@ async function readRegularFile(target, { requireSingleLink = true } = {}) {
   }
 }
 
+async function assertPublishableSource(root) {
+  const sourceRoot = await realpath(path.resolve(root));
+  let repositoryRoot;
+  try {
+    repositoryRoot = await realpath((await execFileAsync("git", ["-C", sourceRoot, "rev-parse", "--show-toplevel"], { encoding: "utf8" })).stdout.trim());
+  } catch {
+    return;
+  }
+  const relativeRoot = path.relative(repositoryRoot, sourceRoot).replaceAll(path.sep, "/");
+  if (!relativeRoot || relativeRoot.startsWith("../") || path.isAbsolute(relativeRoot)) return;
+  try {
+    await execFileAsync("git", ["-C", repositoryRoot, "ls-files", "--error-unmatch", "--", `${relativeRoot}/.codex-plugin/plugin.json`], { encoding: "utf8" });
+  } catch {
+    // Temporary test fixtures without a tracked plugin manifest are not publishable sources.
+    return;
+  }
+  const tracked = (await execFileAsync("git", ["-C", repositoryRoot, "ls-files", "-z", "--", relativeRoot], { encoding: "utf8" })).stdout
+    .split("\0").filter(Boolean);
+  const [untrackedResult, ignoredResult] = await Promise.all([
+    execFileAsync("git", ["-C", repositoryRoot, "ls-files", "--others", "--exclude-standard", "-z", "--", relativeRoot], { encoding: "utf8" }),
+    execFileAsync("git", ["-C", repositoryRoot, "ls-files", "--others", "--ignored", "--exclude-standard", "-z", "--", relativeRoot], { encoding: "utf8" })
+  ]);
+  const unexpected = [...new Set([
+    ...untrackedResult.stdout.split("\0").filter(Boolean),
+    ...ignoredResult.stdout.split("\0").filter(Boolean)
+  ])].sort();
+  if (unexpected.length > 0) {
+    throw new Error(`Plugin cache source contains untracked or ignored files: ${unexpected.join(", ")}`);
+  }
+  for (const file of tracked) {
+    const absolute = path.join(repositoryRoot, file);
+    const info = await lstat(absolute).catch((error) => error.code === "ENOENT" ? null : Promise.reject(error));
+    if (!info) throw new Error(`Plugin cache source is missing tracked file: ${file}`);
+  }
+}
+
 export async function createBundleManifest(root, relative = "") {
   const directory = path.resolve(root, relative);
   const entries = await readdir(directory, { withFileTypes: true });
@@ -82,6 +132,7 @@ export async function createBundleManifest(root, relative = "") {
 }
 
 export async function bundleDigest(root) {
+  await assertPublishableSource(root);
   return digestObject(await createBundleManifest(root));
 }
 
@@ -112,6 +163,7 @@ export async function checkPluginCache({ sourceRoot, cacheRoot }) {
   const resolvedSource = path.resolve(sourceRoot);
   const resolvedCacheRoot = path.resolve(cacheRoot);
   await assertDirectoryNotSymlink(resolvedSource);
+  await assertPublishableSource(resolvedSource);
   const version = await pluginVersion(resolvedSource);
   const target = path.join(resolvedCacheRoot, version);
   const sourceManifest = await createBundleManifest(resolvedSource);

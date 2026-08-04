@@ -87,9 +87,10 @@ skills, templates, fixtures, metadata, and docs. Only valid UTF-8,
 non-secret-shaped content from approved paths is sent to Codex.
 
 Each real replay uses a distinct host-owned execution witness. Its unique
-execution ID, run ID, corpus digest, baseline revision, candidate digest, role,
-attempt number, exact prompt digest, and administrator-confirmed binary digest
-are submitted in a digest-confirmed request. The installed administrator signer
+execution ID, run ID, corpus digest, baseline revision, candidate digest, exact
+committed HEAD, source-binding digest, role, attempt number, exact prompt digest,
+native Mach-O Codex digest, and administrator-owned allowlist digest are submitted
+in a digest-confirmed request. The installed administrator signer
 snapshots that exact binary into a root-owned `0755` execution-root file, creates
 and signs the pre-execution binding, then invokes a root-owned native launcher.
 The launcher clears supplementary groups before applying the requesting
@@ -123,6 +124,13 @@ the trust root/key, atomically replaces the signer, retains the previous signer
 as a root-owned backup, and runs a disposable signed readiness witness with the
 native launcher. A failed upgrade is quarantined and rolled back with exact
 prior artifact digests proven, without rotating keys.
+
+Before generating replay requests, the candidate checkout must be the exact
+committed HEAD that will be reviewed and delivered. If candidate work is still
+dirty, hand it to `pr-to-dev` for the commit wave first, then start a new
+source-bound self-improve run from that commit. Never commit, rebind, or change
+the plugin bundle between request generation, administrator execution, replay
+evaluation, and delivery revalidation; doing so invalidates the signed witnesses.
 
 After the candidate is frozen, use `sbw self-improve attestation request` with
 the exact run, baseline, candidate root, model, and a new directory outside the
@@ -168,7 +176,9 @@ immutable previous corpus and add:
 
 Use `--split holdout` only after training is frozen. This selector never
 automatically adopts a candidate, commits, publishes a cache, pushes, merges,
-deploys, or performs cleanup.
+deploys, or performs cleanup. Its commit, cache publication, push, merge, and
+cleanup actions are deferred to the governed `pr-to-dev` and immutable-cache
+workflows.
 
 ## Keep the workflow thin and synchronized
 
@@ -207,8 +217,9 @@ existing immutable cache version. After final validation and only with explicit
 authority, use the existing cache publisher, verify exact source/target digests,
 and confirm the resolved new cache path/version.
 
-Commit, cache publication, push, merge, deploy, and cleanup are independent
-side effects. Issue and consume a separate action token for each authorized
-action. This selector authorizes none of them by itself. After a push, reconcile
-the exact remote branch revision. Do not merge, deploy, or clean resources
-unless the user separately granted that authority.
+Commit, cache publication, push, merge, deploy, and cleanup are delegated
+independent side effects. The self-improve contract defers their action tokens;
+use `pr-to-dev` and the immutable cache publisher, each with its own evidence,
+authority, and reconciliation. After a push, reconcile the exact remote branch
+revision. Do not merge, deploy, or clean resources unless the user separately
+granted that authority.

@@ -121,13 +121,22 @@ system binaries. Real replay upgrade compiles the exact native sources with
 fixed `/usr/bin/clang`, rejects non-Mach-O artifacts, and uses a digest-bound,
 root-owned Node runtime plus a native launcher that proves empty supplementary
 groups before applying the requested non-root identity; do not sudo the
-maintainer's `process.execPath` directly. The generated batch command clears
-the environment, verifies the existing runtime target's owner/mode and digest,
-and executes only that already-installed runtime. The host signs the confirmed request digest
-and run-as identity into the attestation, receipt, envelope, and ledger.
+maintainer's `process.execPath` directly. The administrator also approves one
+canonical native Mach-O Codex executable and its SHA-256 in the root-owned
+`/etc/better-workflows/codex-binary-allowlist.json` (`0644`); JS wrappers,
+arbitrary executables, changed digests, and non-Mach-O files fail closed. The
+generated batch command clears the environment, verifies the existing runtime
+target's owner/mode and digest, and executes only that already-installed runtime.
+The host signs the confirmed request digest, exact committed HEAD/source binding,
+allowlist digest, binary, and run-as identity into the attestation, receipt,
+envelope, and ledger.
 
-After freezing a candidate, generate seven run-specific requests outside the
-repository:
+Before generating requests, the candidate must already be the exact committed
+HEAD that will be reviewed and delivered. A dirty candidate is handed to
+`pr-to-dev` for its commit wave, followed by a fresh source-bound self-improve
+run; committing or changing the plugin bundle after request generation
+invalidates all signed witnesses. Then generate seven run-specific requests
+outside the repository:
 
 ```bash
 node plugins/better-workflows/scripts/sbw.mjs \
@@ -147,7 +156,9 @@ Codex binary exactly once, captures the prompt, parsed response, exit status,
 timestamps, and a root-owned one-shot ledger, then signs the result receipt.
 `sbw` consumes the persisted witness and never reruns Codex during resume or
 delivery revalidation. A tie, mismatch, timeout, regression, or unknown result
-is not authority to commit, publish, push, or merge.
+is not authority to commit, publish, push, or merge. The self-improve contract
+defers commit, cache publication, push, merge, and cleanup actions to the
+governed `pr-to-dev` and immutable-cache workflows.
 
 Before sampling by file count or bytes, the sanitizer validates every changed
 path against a fixed plugin and repository-public-document allowlist. Paths
