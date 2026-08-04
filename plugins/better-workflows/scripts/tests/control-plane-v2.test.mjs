@@ -345,6 +345,38 @@ test("provider reconciliation rejects structurally forged action proofs", async 
   );
 });
 
+test("cache publication evidence requires a bound local-workspace action proof", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-v2-cache-proof-"));
+  const templateDefinition = {
+    ...contractTemplate,
+    requiredEvidence: ["cache-publication"],
+    executionStages: [{
+      ...contractTemplate.executionStages[0],
+      requiredEvidence: ["cache-publication"]
+    }]
+  };
+  const contract = buildContract({
+    template: "test-v2-cache-proof",
+    templateDefinition,
+    goal: "cache proof",
+    scope: ["."],
+    risk: { risk: 1, uncertainty: 0, blastRadius: 1, irreversibility: 0, evidenceGap: 0 },
+    sensitivity: "internal",
+    authority: []
+  });
+  const started = await createRun({ root, contract, requestedMode: "verified", cwd: root });
+  const run = await inspectRun(root, started.runId);
+  await assert.rejects(
+    addEvidence(root, started.runId, await gateRecord(run, "cache-publication", {
+      provider: "local-workspace",
+      outcome: "success",
+      receipt: { status: "success" },
+      actionProof: {}
+    }, "forged-cache-proof")),
+    /actionProof is structurally invalid/
+  );
+});
+
 test("typed evidence rejects forged independent-critic provenance", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "sbw-v2-critic-provenance-"));
   const contract = buildContract({

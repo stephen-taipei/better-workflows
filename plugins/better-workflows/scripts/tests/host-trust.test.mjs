@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  createHash,
   generateKeyPairSync,
   sign,
   verify
@@ -12,6 +13,7 @@ import { fileURLToPath } from "node:url";
 import {
   canonicalJson,
   privateKeyFromRaw,
+  validateSigningKeyPair,
   spawnCapture,
   validateExecutionRequest,
   validateProtectedDirectoryChain,
@@ -36,6 +38,30 @@ test("host signer reconstructs Ed25519 keys and signs canonical verifier payload
   const bytes = Buffer.from(canonicalJson(payload), "utf8");
   const signature = sign(null, bytes, reconstructed);
   assert.equal(verify(null, bytes, publicKey, signature), true);
+});
+
+test("host readiness proves the installed private key matches the trust-root public key", async () => {
+  const { privateKey, publicKey } = generateKeyPairSync("ed25519");
+  const seed = privateKey.export({ format: "der", type: "pkcs8" }).subarray(-32);
+  const publicKeyDer = publicKey.export({ format: "der", type: "spki" });
+  const trust = {
+    value: {
+      issuer: "better-workflows-local-host",
+      publicKeys: [{
+        keyId: "codex-ed25519-test",
+        algorithm: "ed25519",
+        publicKey: publicKeyDer.toString("base64")
+      }]
+    },
+    digest: createHash("sha256").update("trust-root").digest("hex")
+  };
+  const proof = await validateSigningKeyPair(trust, seed);
+  assert.equal(proof.proof.verified, true);
+  assert.equal(proof.proof.keyId, "codex-ed25519-test");
+  await assert.rejects(
+    () => validateSigningKeyPair(trust, Buffer.alloc(32, 7)),
+    /does not match the trust root public key/
+  );
 });
 
 test("host trust helper fixes authority paths and does not accept environment path overrides", async () => {

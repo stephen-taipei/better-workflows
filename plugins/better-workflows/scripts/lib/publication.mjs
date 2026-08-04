@@ -370,8 +370,8 @@ export async function removeUnreadyPluginCachePublication({ cacheRoot, version, 
     throw new Error("Plugin cache cleanup target is not canonical");
   }
   const marker = await readPublicationMarker(root, version);
-  if (!marker || marker.state !== "pending" || marker.targetDigest !== targetDigest) {
-    throw new Error("Refusing to remove a cache target without its pending publication marker");
+  if (!marker || !["pending", "ready"].includes(marker.state) || marker.targetDigest !== targetDigest) {
+    throw new Error("Refusing to remove a cache target without its matching publication marker");
   }
   const actualTargetDigest = await bundleDigest(target);
   if (actualTargetDigest !== targetDigest) {

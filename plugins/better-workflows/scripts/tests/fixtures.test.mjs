@@ -105,7 +105,7 @@ test("pr-to-dev enforces batched commits, a dev-targeted PR, and remote reconcil
   ]) {
     assert.ok(template.requiredEvidence.includes(evidence), evidence);
   }
-  for (const action of ["git.commit", "git.push", "pr.create", "pr.merge", "remote.sync", "worktree.cleanup"]) {
+  for (const action of ["git.commit", "plugin.cache.publish", "git.push", "pr.create", "pr.merge", "remote.sync", "worktree.cleanup"]) {
     assert.ok(Object.hasOwn(template.actionGates, action), action);
     assert.ok(template.actionGates[action].length > 0, action);
   }

@@ -13,6 +13,7 @@ import {
 } from "../plugins/better-workflows/scripts/lib/publication.mjs";
 import {
   digestObject,
+  getCodexPluginCacheRoot,
   getStateRoot,
   listJsonRecords,
   loadRun,
@@ -46,7 +47,7 @@ async function main() {
   const { positional, options } = parseArgs(process.argv.slice(2));
   const [command] = positional;
   if (!["check", "sync"].includes(command)) {
-    throw new Error("Usage: node scripts/plugin-cache.mjs check|sync [--cache-root <directory>] [--handoff-run <pr-to-dev-run-id> --token <action-token> for sync]");
+    throw new Error("Usage: node scripts/plugin-cache.mjs check [--cache-root <directory>] | sync [--handoff-run <pr-to-dev-run-id> --token <action-token>]");
   }
   const unknown = Object.keys(options).filter((key) => !["cache-root", "handoff-run", "token"].includes(key));
   if (unknown.length > 0) throw new Error(`Unknown option(s): ${unknown.join(", ")}`);
@@ -62,14 +63,16 @@ async function main() {
   if (command === "sync" && !options.token) {
     throw new Error("plugin cache sync requires --token for the governed plugin.cache.publish action");
   }
+  if (command === "sync" && options["cache-root"] !== undefined) {
+    throw new Error("--cache-root override is only valid for check");
+  }
   const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
   const sourceRoot = path.join(repoRoot, "plugins", "better-workflows");
-  const codexHome = process.env.CODEX_HOME
-    ? path.resolve(process.env.CODEX_HOME)
-    : path.join(os.homedir(), ".codex");
-  const cacheRoot = options["cache-root"]
-    ? path.resolve(options["cache-root"])
-    : path.join(codexHome, "plugins", "cache", "better-workflows", "better-workflows");
+  const cacheRoot = command === "sync"
+    ? getCodexPluginCacheRoot()
+    : options["cache-root"]
+      ? path.resolve(options["cache-root"])
+      : getCodexPluginCacheRoot();
   const sbwPath = path.join(repoRoot, "plugins", "better-workflows", "scripts", "sbw.mjs");
   const stateRoot = getStateRoot();
   const runSbw = async (args) => {
@@ -210,6 +213,7 @@ async function main() {
           ...evidenceBase.receiptBase,
           contractId: "evidence-contracts-v1:cache-publication",
           payload: {
+            provider: "local-workspace",
             outcome: "success",
             status: publication.status,
             version: publication.version,

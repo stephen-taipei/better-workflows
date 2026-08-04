@@ -5,7 +5,8 @@ import {
   createPrivateKey,
   createPublicKey,
   generateKeyPairSync,
-  sign
+  sign,
+  verify
 } from "node:crypto";
 import {
   chmod,
@@ -37,7 +38,7 @@ const EXECUTION_PROBE = "/private/var/db/better-workflows/bin/bw-host-execution-
 const LEGACY_SIGNER = "/private/var/db/better-workflows/bin/bw-host-signer.swift";
 const NATIVE_COMPILER = "/usr/bin/clang";
 const ISSUER = "better-workflows-local-host";
-const HOST_SIGNER_VERSION = "2.1.0";
+const HOST_SIGNER_VERSION = "2.2.0";
 const HOST_SIGNER_CAPABILITIES = Object.freeze([
   "attestation",
   "native-review",
@@ -678,12 +679,51 @@ async function currentSigner() {
   return null;
 }
 
-function readinessBinding({ trust, privateKey, runtime, launcher, probe, codexBinary, signer }) {
+export async function validateSigningKeyPair(trust, raw) {
+  const key = trust.value.publicKeys[0];
+  const privateKey = privateKeyFromRaw(raw);
+  const trustedPublicKeyBytes = Buffer.from(key.publicKey, "base64");
+  const trustedPublicKey = createPublicKey({
+    key: trustedPublicKeyBytes,
+    format: "der",
+    type: "spki"
+  });
+  const derivedPublicKeyBytes = createPublicKey(privateKey).export({ format: "der", type: "spki" });
+  if (!derivedPublicKeyBytes.equals(trustedPublicKeyBytes)) {
+    throw new Error("Private signing key does not match the trust root public key");
+  }
+  const challengePayload = {
+    schemaVersion: 1,
+    kind: "host-key-pair-challenge",
+    issuer: trust.value.issuer,
+    keyId: key.keyId,
+    trustRootDigest: trust.digest
+  };
+  const challengeBytes = Buffer.from(canonicalJson(challengePayload), "utf8");
+  const signature = sign(null, challengeBytes, privateKey);
+  if (!verify(null, challengeBytes, trustedPublicKey, signature)) {
+    throw new Error("Private signing key failed the trust root key-pair challenge");
+  }
+  return {
+    privateKey,
+    proof: {
+      schemaVersion: 1,
+      algorithm: "ed25519",
+      keyId: key.keyId,
+      verified: true,
+      publicKeyDigest: await digest(trustedPublicKeyBytes),
+      challengeDigest: await digest(challengeBytes)
+    }
+  };
+}
+
+function readinessBinding({ trust, privateKey, keyPairProof, runtime, launcher, probe, codexBinary, signer }) {
   return {
     schemaVersion: 1,
     kind: "host-readiness-binding",
     trustRootDigest: trust.digest,
     privateKeyIdentity: privateKey.identity,
+    keyPairProof,
     runtime: runtime ? { path: runtime.path, digest: runtime.digest } : null,
     launcher: { path: launcher.path, digest: launcher.digest },
     readinessProbe: { path: probe.path, digest: probe.digest },
@@ -705,12 +745,15 @@ async function currentReadinessReceipt(binding) {
     const info = await validateRootOwnedFile(READINESS_RECEIPT, "Host readiness receipt", 0o644);
     const bytes = await readFile(READINESS_RECEIPT);
     const receipt = JSON.parse(bytes.toString("utf8"));
-    const expectedKeys = ["binding", "bindingDigest", "completedAt", "kind", "schemaVersion"];
+    const expectedKeys = ["binding", "bindingDigest", "completedAt", "kind", "probeResult", "probeResultDigest", "schemaVersion"];
     const bindingDigest = await digest(Buffer.from(canonicalJson(binding), "utf8"));
     if (Object.keys(receipt).sort().join("\0") !== expectedKeys.sort().join("\0") ||
-        receipt.schemaVersion !== 1 || receipt.kind !== "host-readiness-receipt" ||
+        receipt.schemaVersion !== 2 || receipt.kind !== "host-readiness-receipt" ||
         typeof receipt.completedAt !== "string" || !SHA256.test(receipt.bindingDigest) ||
-        receipt.bindingDigest !== bindingDigest || canonicalJson(receipt.binding) !== canonicalJson(binding)) {
+        receipt.bindingDigest !== bindingDigest || canonicalJson(receipt.binding) !== canonicalJson(binding) ||
+        !receipt.probeResult || typeof receipt.probeResult !== "object" ||
+        !SHA256.test(receipt.probeResultDigest) ||
+        receipt.probeResultDigest !== await digest(Buffer.from(canonicalJson(receipt.probeResult), "utf8"))) {
       throw new Error("Host readiness receipt does not bind the current protected host artifacts");
     }
     return {
@@ -719,7 +762,8 @@ async function currentReadinessReceipt(binding) {
       mode: "0644",
       supported: true,
       bindingDigest: receipt.bindingDigest,
-      completedAt: receipt.completedAt
+      completedAt: receipt.completedAt,
+      probeResultDigest: receipt.probeResultDigest
     };
   } catch (error) {
     return {
@@ -732,14 +776,20 @@ async function currentReadinessReceipt(binding) {
   }
 }
 
-async function createReadinessReceipt(binding) {
+async function createReadinessReceipt(binding, probeResult) {
+  if (!probeResult || typeof probeResult !== "object" || Array.isArray(probeResult)) {
+    throw new Error("Host readiness receipt requires a verified behavioral probe result");
+  }
   const bindingDigest = await digest(Buffer.from(canonicalJson(binding), "utf8"));
+  const probeResultDigest = await digest(Buffer.from(canonicalJson(probeResult), "utf8"));
   const payload = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     kind: "host-readiness-receipt",
     completedAt: new Date().toISOString(),
     binding,
-    bindingDigest
+    bindingDigest,
+    probeResult,
+    probeResultDigest
   };
   const bytes = Buffer.from(`${JSON.stringify(payload, null, 2)}\n`);
   return { path: READINESS_RECEIPT, bytes, digest: await digest(bytes) };
@@ -748,6 +798,7 @@ async function createReadinessReceipt(binding) {
 async function status({ requireReadinessReceipt = true } = {}) {
   const trust = await validateTrustRoot();
   const keyInfo = await validateRootOwnedFile(PRIVATE_KEY, "Private signing key", 0o600);
+  const keyPair = await validateSigningKeyPair(trust, await readFile(PRIVATE_KEY));
   const privateKey = {
     path: PRIVATE_KEY,
     bytes: keyInfo.size,
@@ -760,14 +811,24 @@ async function status({ requireReadinessReceipt = true } = {}) {
       size: keyInfo.size,
       mtimeMs: keyInfo.mtimeMs,
       ctimeMs: keyInfo.ctimeMs
-    }
+    },
+    keyPairProof: keyPair.proof
   };
   const runtime = await currentRuntime();
   const launcher = await currentFixedArtifact(EXECUTION_LAUNCHER, "Native execution launcher");
   const probe = await currentFixedArtifact(EXECUTION_PROBE, "Host readiness probe");
   const codexBinary = await currentCodexApproval();
   const signer = await currentSigner();
-  const binding = readinessBinding({ trust, privateKey, runtime, launcher, probe, codexBinary, signer });
+  const binding = readinessBinding({
+    trust,
+    privateKey,
+    keyPairProof: keyPair.proof,
+    runtime,
+    launcher,
+    probe,
+    codexBinary,
+    signer
+  });
   const readinessReceipt = await currentReadinessReceipt(binding);
   const staticReady = Boolean(signer?.supported && runtime?.supported && launcher.supported && probe.supported && codexBinary.supported);
   return {
@@ -1052,8 +1113,8 @@ async function signPayload(payload) {
   const trust = await validateTrustRoot();
   await validateRootOwnedFile(PRIVATE_KEY, "Private signing key", 0o600);
   const key = trust.value.publicKeys[0];
-  const privateKey = privateKeyFromRaw(await readFile(PRIVATE_KEY));
-  const signature = sign(null, Buffer.from(canonicalJson(payload), "utf8"), privateKey).toString("base64");
+  const keyPair = await validateSigningKeyPair(trust, await readFile(PRIVATE_KEY));
+  const signature = sign(null, Buffer.from(canonicalJson(payload), "utf8"), keyPair.privateKey).toString("base64");
   return {
     signed: { ...payload, signature },
     trustRootDigest: await digest(Buffer.from(canonicalJson(trust.value), "utf8"))
@@ -1601,17 +1662,24 @@ async function upgradeSigner(
     });
     const staticReady = await status({ requireReadinessReceipt: false });
     if (!staticReady.ready) throw new Error("installed signer failed its end-to-end readiness probe");
+    const probeResult = {
+      executionId: readinessProbe.executionId,
+      executionCwd: readinessProbe.executionCwd,
+      executionBinaryPath: readinessProbe.executionBinaryPath,
+      probe: readinessProbe.probe
+    };
     const readinessReceipt = await createReadinessReceipt(readinessBinding({
       trust: {
         digest: staticReady.trustRoot.digest
       },
       privateKey: staticReady.privateKey,
+      keyPairProof: staticReady.privateKey.keyPairProof,
       runtime: staticReady.runtime,
       launcher: staticReady.launcher,
       probe: staticReady.readinessProbe,
       codexBinary: staticReady.codexBinary,
       signer: staticReady.signer
-    }));
+    }), probeResult);
     const readinessChange = await replaceRootOwnedFile(
       READINESS_RECEIPT,
       readinessReceipt,
@@ -1684,8 +1752,8 @@ async function signNativeRequest(requestPath, confirmedDigest, outputName) {
     issuedAt: issuedAt.toISOString(),
     expiresAt: new Date(issuedAt.getTime() + 24 * 60 * 60 * 1000).toISOString()
   };
-  const privateKey = privateKeyFromRaw(await readFile(PRIVATE_KEY));
-  const signature = sign(null, Buffer.from(canonicalJson(payload), "utf8"), privateKey).toString("base64");
+  const keyPair = await validateSigningKeyPair(trust, await readFile(PRIVATE_KEY));
+  const signature = sign(null, Buffer.from(canonicalJson(payload), "utf8"), keyPair.privateKey).toString("base64");
   const target = path.join(ATTESTATIONS, outputName);
   if (path.dirname(target) !== ATTESTATIONS) throw new Error("attestation path escapes its root");
   await exclusiveWrite(target, `${JSON.stringify({ ...payload, signature }, null, 2)}\n`, 0o644);

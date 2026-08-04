@@ -756,7 +756,8 @@ version; issue the delegated `plugin.cache.publish` action for resource `plugin-
 the exact file manifest and digest, then atomically publishes it. It refuses to
 overwrite a same-version cache with different contents. Run `sbw eval` from the
 final cache path before activating that version through the normal Codex plugin
-refresh.
+refresh. The `--cache-root` override is diagnostic-only for `check`; governed
+`sync` is fixed to the active Codex plugin cache.
 
 ## License
 

@@ -232,6 +232,13 @@ export function getStateRoot(env = process.env) {
   return path.join(codexHome, "sbw");
 }
 
+export function getCodexPluginCacheRoot(env = process.env) {
+  const codexHome = env.CODEX_HOME
+    ? path.resolve(env.CODEX_HOME)
+    : path.join(os.homedir(), ".codex");
+  return path.join(codexHome, "plugins", "cache", "better-workflows", "better-workflows");
+}
+
 async function pathExists(target) {
   try {
     await lstat(target);
@@ -1979,6 +1986,26 @@ export async function evaluateCompletion(root, runId) {
   ) {
     blockers.push("missing-reconciled-action:remote.sync");
   }
+  if (
+    contract.upstreamSelfImproveRunId &&
+    contract.requiredEvidence.includes("cache-publication") &&
+    !actions.some((action) => (
+      action.action === "plugin.cache.publish" &&
+      action.provider === "local-workspace" &&
+      action.status === "spent" &&
+      action.outcome === "success" &&
+      action.receipt?.providerReceipt &&
+      Array.isArray(action.receipt.evidenceIds) &&
+      action.receipt.evidenceIds.some((evidenceId) => evidence.some((item) => (
+        item.id === evidenceId &&
+        item.kind === "cache-publication" &&
+        item.status === "complete" &&
+        item.stale !== true
+      )))
+    ))
+  ) {
+    blockers.push("missing-reconciled-action:plugin.cache.publish");
+  }
   if (contract.template === "pr-to-dev") {
     const remoteSyncAction = actions.find((action) => (
       action.action === "remote.sync" &&
@@ -2644,14 +2671,16 @@ async function verifyPluginCachePublicationReceipt(manifest, record, providerRec
   const { bundleDigest, checkPluginCache } = await import("./publication.mjs");
   const repositoryRoot = await realpath(path.resolve(manifest.cwd));
   const sourceRoot = path.join(repositoryRoot, "plugins", "better-workflows");
+  const expectedCacheRoot = getCodexPluginCacheRoot();
   if (
     providerReceipt.sourceRoot !== sourceRoot ||
     typeof providerReceipt.cacheRoot !== "string" ||
     !path.isAbsolute(providerReceipt.cacheRoot) ||
     path.resolve(providerReceipt.cacheRoot) !== providerReceipt.cacheRoot ||
+    providerReceipt.cacheRoot !== expectedCacheRoot ||
     providerReceipt.resource !== `plugin-cache:${providerReceipt.sourceHeadRevision}`
   ) {
-    throw new Error("Plugin cache publication receipt is not bound to the canonical source and resource");
+    throw new Error("Plugin cache publication receipt is not bound to the canonical source, installed cache root, and resource");
   }
   const cacheRootInfo = await lstat(providerReceipt.cacheRoot).catch((error) => {
     if (error.code === "ENOENT") return null;

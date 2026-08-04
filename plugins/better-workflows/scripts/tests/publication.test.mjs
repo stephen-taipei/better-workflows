@@ -15,6 +15,20 @@ import { captureSourceBinding } from "../lib/git.mjs";
 
 const execFileAsync = promisify(execFile);
 
+test("governed plugin cache sync cannot redirect publication to an arbitrary cache root", async () => {
+  const script = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..", "..", "..", "..", "scripts", "plugin-cache.mjs");
+  await assert.rejects(
+    execFileAsync(process.execPath, [
+      script,
+      "sync",
+      "--handoff-run", "run-placeholder",
+      "--token", "token-placeholder",
+      "--cache-root", path.join(os.tmpdir(), "untrusted-plugin-cache")
+    ], { cwd: path.resolve(path.dirname(script)), encoding: "utf8" }),
+    /--cache-root override is only valid for check/
+  );
+});
+
 async function git(cwd, ...args) {
   await execFileAsync("git", args, { cwd, encoding: "utf8" });
 }

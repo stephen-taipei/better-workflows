@@ -77,7 +77,7 @@ function assertDigest(value, label) {
 }
 
 async function assertActionProofPayload(payload, kind, run, evidenceId) {
-  if (!(["provider-reconciliation", "remote-sync"].includes(kind))) return;
+  if (!(["cache-publication", "provider-reconciliation", "remote-sync"].includes(kind))) return;
   const proof = payload.actionProof;
   const receipt = payload.receipt;
   const proofFields = [
@@ -126,6 +126,12 @@ async function assertActionProofPayload(payload, kind, run, evidenceId) {
     receipt.localRevision !== payload.mergeCommit
   )) {
     throw new Error("Typed evidence remote-sync must bind the reconciled refs to the final merge commit");
+  }
+  if (kind === "cache-publication" && (
+    proof.action !== "plugin.cache.publish" ||
+    proof.provider !== "local-workspace"
+  )) {
+    throw new Error("Typed evidence cache-publication must bind the local plugin cache publication action");
   }
   if (run.root && run.runDir) {
     const actions = await listJsonRecords(run.root, safeJoin(run.runDir, "actions"));

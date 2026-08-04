@@ -256,7 +256,7 @@ test("delegated pr-to-dev runs require the typed self-improve handoff gate", asy
   const contract = JSON.parse(await readFile(path.join(stateRoot, "runs", target.json.runId, "contract.json"), "utf8"));
   assert.equal(contract.upstreamSelfImproveRunId, source.json.runId);
   assert.ok(contract.requiredEvidence.includes("self-improve-delivery-handoff"));
-  for (const action of ["git.commit", "git.push", "pr.create", "pr.merge", "remote.sync", "worktree.cleanup"]) {
+  for (const action of ["git.commit", "plugin.cache.publish", "git.push", "pr.create", "pr.merge", "remote.sync", "worktree.cleanup"]) {
     assert.ok(contract.actionGates[action].includes("self-improve-delivery-handoff"), action);
   }
   assert.ok(contract.executionStages.find((stage) => stage.id === "commits").requiredEvidence.includes("self-improve-delivery-handoff"));

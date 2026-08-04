@@ -170,6 +170,9 @@ sbw action issue <pr-to-dev-run-id> --action plugin.cache.publish --provider loc
 SBW_STATE_ROOT=<state-root> node scripts/plugin-cache.mjs sync --handoff-run <pr-to-dev-run-id> --token <plugin-cache-action-token>
 ```
 
+`--cache-root` is a diagnostic-only override for `check`; governed `sync` is
+bound to the active Codex plugin cache and rejects redirection.
+
 Node.js 24+ · zero runtime dependencies · immutable plugin cache versions.
 
 ## License
