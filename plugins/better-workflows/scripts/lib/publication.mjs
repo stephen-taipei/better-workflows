@@ -124,7 +124,7 @@ async function reclaimStalePublicationLock(lockPath, version) {
       current.pid === existing.pid &&
       current.createdAt === existing.createdAt &&
       (current.ownerToken ?? null) === (existing.ownerToken ?? null);
-    if (sameOwner) await unlink(lockPath);
+    if (sameOwner) await unlink(stalePath);
     return sameOwner;
   } catch (error) {
     if (error.code === "ENOENT") return false;
