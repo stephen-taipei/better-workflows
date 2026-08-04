@@ -422,32 +422,29 @@ async function installedSkillPath(skill, { cwd, env = process.env, stateRoot } =
         path.join(pluginCacheRoot, `${version.name}.ready.json`),
         { allowMissing: true }
       );
-      if (marker) {
-        const target = path.join(pluginCacheRoot, version.name);
-        const v2 = marker.schemaVersion === 2 &&
-          marker.state === "ready" &&
-          marker.version === version.name &&
-          marker.target === target &&
-          SHA256.test(marker.targetDigest) &&
-          marker.sourceDigest === marker.targetDigest &&
-          marker.pluginBundleDigest === marker.targetDigest &&
-          SHA256.test(marker.sourceDigest) &&
-          SHA1.test(marker.sourceBaselineRevision) &&
-          SHA1.test(marker.sourceHeadRevision) &&
-          marker.sourceBaselineRevision !== marker.sourceHeadRevision &&
-          SHA256.test(marker.sourceBindingDigest) &&
-          SHA256.test(marker.pluginBundleDigest) &&
-          typeof marker.runId === "string" && marker.runId.length > 0 &&
-          typeof marker.attemptId === "string" && marker.attemptId.length > 0 &&
-          SHA256.test(marker.providerReceiptDigest);
-        if (!v2 || !(await verifyGovernedCacheMarker({ marker, stateRoot, pluginCacheRoot, target }))) continue;
-      }
-      if (marker) {
-        try {
-          if (await bundleDigest(path.join(pluginCacheRoot, version.name)) !== marker.targetDigest) continue;
-        } catch {
-          continue;
-        }
+      if (!marker) continue;
+      const target = path.join(pluginCacheRoot, version.name);
+      const v2 = marker.schemaVersion === 2 &&
+        marker.state === "ready" &&
+        marker.version === version.name &&
+        marker.target === target &&
+        SHA256.test(marker.targetDigest) &&
+        marker.sourceDigest === marker.targetDigest &&
+        marker.pluginBundleDigest === marker.targetDigest &&
+        SHA256.test(marker.sourceDigest) &&
+        SHA1.test(marker.sourceBaselineRevision) &&
+        SHA1.test(marker.sourceHeadRevision) &&
+        marker.sourceBaselineRevision !== marker.sourceHeadRevision &&
+        SHA256.test(marker.sourceBindingDigest) &&
+        SHA256.test(marker.pluginBundleDigest) &&
+        typeof marker.runId === "string" && marker.runId.length > 0 &&
+        typeof marker.attemptId === "string" && marker.attemptId.length > 0 &&
+        SHA256.test(marker.providerReceiptDigest);
+      if (!v2 || !(await verifyGovernedCacheMarker({ marker, stateRoot, pluginCacheRoot, target }))) continue;
+      try {
+        if (await bundleDigest(target) !== marker.targetDigest) continue;
+      } catch {
+        continue;
       }
       const candidate = path.join(pluginCacheRoot, version.name, "skills", shortName, "SKILL.md");
         try {

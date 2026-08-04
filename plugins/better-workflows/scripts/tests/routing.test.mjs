@@ -5,6 +5,7 @@ import {
   mkdtemp,
   readFile,
   realpath,
+  unlink,
   stat,
   symlink,
   writeFile
@@ -391,6 +392,10 @@ test("routing accepts a digest-bound schema-v2 ready marker for a cached skill",
   );
   const legacyMarker = (await snapshot()).capabilities.find((item) => item.id === "skill:cached-advisor");
   assert.equal(legacyMarker.status, "unavailable");
+  await writeMarker();
+  await unlink(path.join(cachePluginRoot, `${version}.ready.json`));
+  const missingMarker = (await snapshot()).capabilities.find((item) => item.id === "skill:cached-advisor");
+  assert.equal(missingMarker.status, "unavailable");
   await writeMarker();
   for (const overrides of [
     { sourceDigest: "a".repeat(64) },
