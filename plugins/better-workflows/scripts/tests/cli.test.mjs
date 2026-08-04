@@ -204,6 +204,20 @@ test("CLI routes the self-improve selector to its critical template", async () =
   await assert.rejects(access(stateRoot));
 });
 
+test("self-improve runs require an explicit full baseline that strictly precedes HEAD", async () => {
+  const cwd = await selfImproveRepository();
+  const stateRoot = path.join(await mkdtemp(path.join(os.tmpdir(), "sbw-cli-self-improve-baseline-")), "missing");
+  const missing = await cli(cwd, stateRoot, [
+    "run", "--template", "self-improve-ops", "--mode", "critical", "--goal", "Require baseline", "--scope", "."
+  ], { allowFailure: true });
+  assert.match(missing.stderr, /requires an explicit --baseline/);
+  const head = await revision(cwd);
+  const same = await cli(cwd, stateRoot, [
+    "run", "--template", "self-improve-ops", "--mode", "critical", "--goal", "Reject same baseline", "--scope", ".", "--baseline", head
+  ], { allowFailure: true });
+  assert.match(same.stderr, /strict ancestor/);
+});
+
 test("self-improve fixture evaluation is explicit, private, and never grants delivery", async () => {
   const cwd = await selfImproveRepository();
   const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-cli-self-improve-state-"));
@@ -232,7 +246,7 @@ test("self-improve fixture evaluation is explicit, private, and never grants del
 test("delegated pr-to-dev runs require the typed self-improve handoff gate", async () => {
   const cwd = await selfImproveRepository();
   const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-cli-self-improve-handoff-"));
-  const baseline = await revision(cwd);
+  const baseline = await revision(cwd, "HEAD~");
   const source = await cli(cwd, stateRoot, [
     "run", "--template", "self-improve-ops", "--mode", "critical", "--goal", "Prepare delivery", "--scope", ".", "--baseline", baseline
   ]);

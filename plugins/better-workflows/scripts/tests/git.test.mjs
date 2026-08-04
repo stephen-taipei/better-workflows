@@ -121,3 +121,30 @@ test("source bindings include canonical worktree, common-dir, and origin identit
   assert.equal(linkedBinding.gitCommonDir.path, primary.gitCommonDir.path);
   assert.notEqual(linkedBinding.digest, primary.digest);
 });
+
+test("source bindings reject hidden assume-unchanged and skip-worktree tracked flags", async () => {
+  const cwd = await repository();
+  const tracked = "src/a.txt";
+  try {
+    await git(cwd, "update-index", "--assume-unchanged", tracked);
+    const assumed = await captureSourceBinding(cwd, { requireClean: false });
+    assert.equal(assumed.worktreeClean, false);
+    assert.equal(assumed.hiddenIndexCount, 1);
+    await assert.rejects(
+      captureSourceBinding(cwd, { requireClean: true }),
+      /visible tracked index flags/
+    );
+    await git(cwd, "update-index", "--no-assume-unchanged", tracked);
+    await git(cwd, "update-index", "--skip-worktree", tracked);
+    const skipped = await captureSourceBinding(cwd, { requireClean: false });
+    assert.equal(skipped.worktreeClean, false);
+    assert.equal(skipped.hiddenIndexCount, 1);
+    await assert.rejects(
+      captureSourceBinding(cwd, { requireClean: true }),
+      /visible tracked index flags/
+    );
+  } finally {
+    await git(cwd, "update-index", "--no-assume-unchanged", tracked).catch(() => undefined);
+    await git(cwd, "update-index", "--no-skip-worktree", tracked).catch(() => undefined);
+  }
+});

@@ -166,6 +166,7 @@ node plugins/better-workflows/scripts/sbw.mjs graph validate
 npm test --prefix plugins/better-workflows
 node plugins/better-workflows/scripts/sbw.mjs eval
 node scripts/plugin-cache.mjs check
+SBW_STATE_ROOT=<state-root> node scripts/plugin-cache.mjs sync --handoff-run <pr-to-dev-run-id>
 ```
 
 Node.js 24+ · zero runtime dependencies · immutable plugin cache versions.

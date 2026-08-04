@@ -245,6 +245,7 @@ export async function generateAttestationRequests({
       gid: runAs.gid,
       homePath,
       model,
+      pluginBundleDigest: publishableBundleDigest,
       promptDigest,
       promptPath: promptFile,
       uid: runAs.uid

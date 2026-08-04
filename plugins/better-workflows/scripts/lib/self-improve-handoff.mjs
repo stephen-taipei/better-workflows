@@ -1,136 +1,30 @@
-import { readFile } from "node:fs/promises";
-import path from "node:path";
 import {
   VERSION,
   digestObject,
   listJsonRecords,
   loadRun,
   nowIso,
-  safeJoin,
-  sha256
+  safeJoin
 } from "./core.mjs";
 import { captureSourceBinding } from "./git.mjs";
-import { snapshotCandidate } from "./self-improve.mjs";
-import { pluginBundleDigest } from "./routing.mjs";
+import { verifySelfImproveDeliveryEvidence } from "./self-improve-replay.mjs";
 
 export const SELF_IMPROVE_HANDOFF_KIND = "self-improve-delivery-handoff";
 const SHA1 = /^[a-f0-9]{40}$/;
 const SHA256 = /^[a-f0-9]{64}$/;
-const EXPECTED_REPLAYS = new Set([
-  "train-candidate:1",
-  "candidate:1",
-  "candidate:2",
-  "candidate:3",
-  "baseline:1",
-  "baseline:2",
-  "baseline:3"
-]);
-
-function assertDigest(value, label) {
-  if (typeof value !== "string" || !SHA256.test(value)) throw new Error(`${label} must be a SHA-256 digest`);
-}
-
-function replayWitnessIdentity(replay, ledgerDigest) {
-  return {
-    execution: replay.execution,
-    requestDigest: replay.requestDigest,
-    hostExecutionPath: replay.hostExecutionPath,
-    attestationDigest: replay.attestationDigest,
-    resultReceiptDigest: replay.resultReceiptDigest,
-    ledgerPath: replay.ledgerPath,
-    ledgerDigest,
-    responseDigest: replay.responseDigest,
-    binaryDigest: replay.binaryDigest,
-    trustRootDigest: replay.trustRootDigest
-  };
-}
-
-async function replayDigest(replay) {
-  if (!replay || replay.provider !== "codex" || replay.trustAttested !== true ||
-      typeof replay.hostExecutionPath !== "string" || !SHA256.test(replay.attestationDigest) ||
-      !SHA256.test(replay.resultReceiptDigest) || typeof replay.ledgerPath !== "string" ||
-      !SHA256.test(replay.requestDigest) || !replay.execution ||
-      typeof replay.responseDigest !== "string" || !SHA256.test(replay.responseDigest) ||
-      typeof replay.binaryDigest !== "string" || !SHA256.test(replay.binaryDigest) ||
-      typeof replay.trustRootDigest !== "string" || !SHA256.test(replay.trustRootDigest)) {
-    throw new Error("Self-improve handoff contains an incomplete host witness");
-  }
-  const ledgerBytes = await readFile(path.resolve(replay.ledgerPath));
-  const ledgerDigest = sha256(ledgerBytes);
-  return digestObject(replayWitnessIdentity(replay, ledgerDigest));
-}
-
-function acceptedComparison(evidence) {
-  return evidence.find((item) =>
-    item.kind === "holdout-comparison" &&
-    item.status === "complete" &&
-    item.stale !== true &&
-    item.evaluation?.backend === "codex" &&
-    item.evaluation?.comparison?.accepted === true
-  );
-}
 
 export async function collectSelfImproveDeliveryBinding(root, sourceRunId) {
   const sourceRun = await loadRun(root, sourceRunId);
-  if (sourceRun.manifest.template !== "self-improve-ops") {
-    throw new Error("Self-improve delivery handoff source must be a self-improve-ops run");
-  }
-  if (["stale", "indeterminate", "inconclusive", "blocked_external_reviewer"].includes(sourceRun.state.status)) {
-    throw new Error("Self-improve delivery handoff source run is not deliverable");
-  }
-  const findings = await listJsonRecords(root, safeJoin(sourceRun.runDir, "findings"));
-  if (findings.some((item) => ["P0", "P1"].includes(item.severity) && item.status === "open")) {
-    throw new Error("Self-improve delivery handoff source has an unresolved P0/P1 finding");
-  }
   const evidence = await listJsonRecords(root, safeJoin(sourceRun.runDir, "evidence"));
-  const accepted = acceptedComparison(evidence);
-  if (!accepted) throw new Error("Self-improve delivery handoff requires an accepted trusted Codex holdout comparison");
-  const evaluation = accepted.evaluation;
+  const verified = await verifySelfImproveDeliveryEvidence({
+    root,
+    runId: sourceRunId,
+    run: sourceRun,
+    evidence
+  });
+  const evaluation = verified.evaluation;
   const candidateDigest = evaluation.candidate?.digest;
   const candidateRoot = evaluation.candidate?.candidateRoot;
-  if (!SHA1.test(evaluation.baselineRevision ?? "") || !SHA1.test(evaluation.headRevision ?? "") ||
-      !SHA256.test(evaluation.sourceBindingDigest ?? "") || !SHA256.test(evaluation.pluginBundleDigest ?? "") ||
-      !SHA256.test(evaluation.requestManifestDigest ?? "") || !SHA256.test(candidateDigest ?? "") ||
-      typeof candidateRoot !== "string" || !candidateRoot || !SHA256.test(digestObject(evaluation.comparison))) {
-    throw new Error("Self-improve accepted comparison lacks complete delivery bindings");
-  }
-  if (sourceRun.manifest.baselineRevision !== evaluation.baselineRevision ||
-      sourceRun.manifest.sourceBinding?.headRevision !== evaluation.headRevision ||
-      sourceRun.manifest.sourceBinding?.digest !== evaluation.sourceBindingDigest) {
-    throw new Error("Self-improve accepted comparison is not bound to its source run");
-  }
-  const currentSource = await captureSourceBinding(sourceRun.manifest.cwd, {
-    baseRevision: evaluation.baselineRevision,
-    requireClean: true
-  });
-  if (!currentSource || currentSource.headRevision !== evaluation.headRevision || currentSource.digest !== evaluation.sourceBindingDigest) {
-    throw new Error("Self-improve source changed before delivery handoff");
-  }
-  if (await pluginBundleDigest() !== evaluation.pluginBundleDigest) {
-    throw new Error("Self-improve plugin bundle changed before delivery handoff");
-  }
-  const currentCandidate = await snapshotCandidate({
-    cwd: sourceRun.manifest.cwd,
-    baselineRevision: evaluation.baselineRevision,
-    candidateRoot
-  });
-  if (currentCandidate.digest !== candidateDigest) {
-    throw new Error("Self-improve candidate bytes changed before delivery handoff");
-  }
-  const staging = evidence.find((item) => item.kind === "candidate-staging" && item.status === "complete" && item.stale !== true && item.evaluation?.candidate?.digest === candidateDigest);
-  const training = evidence.find((item) => item.kind === "training-replay" && item.status === "complete" && item.stale !== true && item.evaluation?.candidate?.digest === candidateDigest);
-  if (!staging || !training) throw new Error("Self-improve delivery handoff requires fresh staging and training evidence");
-  const replays = [
-    ...(training.evaluation?.replays ?? []),
-    ...(accepted.evaluation?.candidateReplays ?? []),
-    ...(accepted.evaluation?.baselineReplays ?? [])
-  ];
-  const replayKeys = new Set(replays.map((item) => `${item.execution?.role}:${item.execution?.attempt}`));
-  if (replays.length !== 7 || replayKeys.size !== 7 || [...EXPECTED_REPLAYS].some((key) => !replayKeys.has(key))) {
-    throw new Error("Self-improve delivery handoff requires exactly seven distinct replay witnesses");
-  }
-  const witnessDigests = (await Promise.all(replays.map(replayDigest))).sort();
-  if (new Set(witnessDigests).size !== 7) throw new Error("Self-improve delivery handoff witnesses must be distinct");
   return {
     artifact: { kind: SELF_IMPROVE_HANDOFF_KIND, digest: digestObject(evaluation.comparison) },
     sourceRunId,
@@ -142,7 +36,7 @@ export async function collectSelfImproveDeliveryBinding(root, sourceRunId) {
     comparisonDigest: digestObject(evaluation.comparison),
     candidateDigest,
     candidateRoot,
-    witnessDigests
+    witnessDigests: verified.witnessDigests
   };
 }
 
@@ -164,6 +58,7 @@ export async function validateSelfImproveDeliveryHandoff(payload, targetRun) {
       payload.witnessDigests.some((item) => !SHA256.test(item)) || new Set(payload.witnessDigests).size !== 7) {
     throw new Error("Self-improve delivery handoff payload is structurally invalid");
   }
+  if (!targetRun.root) throw new Error("Self-improve delivery handoff validation requires its state root");
   const expected = await collectSelfImproveDeliveryBinding(targetRun.root, payload.sourceRunId);
   if (digestObject(expected) !== digestObject(payload)) {
     throw new Error("Self-improve delivery handoff is not bound to the accepted replay evidence");
@@ -184,7 +79,7 @@ export async function createSelfImproveDeliveryHandoff(root, targetRunId, source
     throw new Error("Target pr-to-dev run is not explicitly bound to the requested self-improve run");
   }
   const payload = await collectSelfImproveDeliveryBinding(root, sourceRunId);
-  await validateSelfImproveDeliveryHandoff(payload, targetRun);
+  await validateSelfImproveDeliveryHandoff(payload, { ...targetRun, root });
   const producer = { provider: "codex-root" };
   return {
     id: `self-improve-handoff-${Date.now()}`,

@@ -251,6 +251,8 @@ $better-workflows:cross-platform 檢查 backend、iOS 和 Android 的 contact sy
 
 自我改善 evaluation 只使用已 checked-in、sanitized 且在 immutable baseline 凍結的 train/holdout corpus。candidate 必須先 staging；三次 read-only Codex holdout replay 必須在沒有 safety failure 或 regression 下，嚴格超過 baseline median。Codex replay 需要 host-signed attestation，將精確 binary 與 model 綁定到固定的 `/etc/better-workflows/codex-trust-root.json`；該檔與父目錄必須由 administrator 擁有且不可由呼叫者寫入。`PATH`、自行計算 hash、CLI 選擇 trust root 或 model 自述都不是 provider attestation。tie、noise、缺少 evidence 或 fixture-only 結果都不會 auto-adopt。
 
+交付必須使用明確的完整 baseline SHA，且它必須是 candidate HEAD 的嚴格祖先。七份 witness 通過重驗後，先建立明確綁定的 `pr-to-dev` run，再記錄 typed `self-improve-delivery-handoff`；沒有這份 receipt 不得取得 commit、push、merge 或 cache action。cache 必須在 source HEAD 尚未改變時執行：`SBW_STATE_ROOT=<state-root> node scripts/plugin-cache.mjs sync --handoff-run <pr-to-dev-run-id>`。
+
 每次成功 replay 都使用獨立的 administrator-owned execution witness。digest-confirmed request 會綁定 administrator-approved native Mach-O Codex binary digest、allowlist digest、exact committed HEAD 與 source binding；已安裝的 signer 先將 exact binary snapshot 成 execution root 下 root-owned `0755` 檔案，建立並簽署 pre-execution binding，再呼叫 root-owned native launcher。launcher 會先清空 supplementary groups，才套用 request 的 non-root uid/gid 與固定的 `PATH`、`HOME`、`CODEX_HOME`。attestation、receipt、envelope、ledger 都會綁定 confirmed request digest 與 exact run-as identity，candidate snapshot 也會綁定 normalized file mode。執行完成後 host 捕捉 parsed response、exit status 與 timestamps，寫入 root-owned execution ledger，並簽發 `result receipt`。`sbw` 只消費這份已保存的 witness，resume 與 delivery revalidation 都不會重新執行 Codex；signed receipt 會綁定 exact prompt digest、response digest、binary、model、execution、ledger 與 timestamps。
 
 Evaluation v2.2 保留既有 safety、documentation、deliberation、sanitizer 與 evaluation-engineering coverage，並增加 typed-evidence integrity、execution-ledger replay、bounded review convergence 與 direct-work cost 的獨立 train/holdout classes。一次性的 migration 以 immutable v2.1 為 source，並將 source/target 兩份 suite digest 綁入全部七份 signed executions。
@@ -467,7 +469,7 @@ node scripts/plugin-cache.mjs check
 Runtime 只使用 Node.js standard library。
 
 Plugin cache version 是 immutable。任何內容變更都必須使用新的 build
-version；`node scripts/plugin-cache.mjs sync` 只會 stage 尚不存在的版本，
+version；`SBW_STATE_ROOT=<state-root> node scripts/plugin-cache.mjs sync --handoff-run <pr-to-dev-run-id>` 只會在 fresh typed handoff 通過且 source HEAD 未改變時 stage 尚不存在的版本，
 驗證完整 file manifest 與 digest 後原子發布。若同版本內容不同會拒絕原地
 覆寫。用正常 Codex plugin refresh 啟用前，還要從最終 cache path 執行
 `sbw eval`。

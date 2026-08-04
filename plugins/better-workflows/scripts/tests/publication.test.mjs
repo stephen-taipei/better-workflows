@@ -104,3 +104,19 @@ test("plugin cache publication rejects modified tracked plugin files", async () 
     /not a clean committed tree/
   );
 });
+
+test("plugin cache publication rejects hidden tracked index flags", async () => {
+  const { repositoryRoot, sourceRoot } = await trackedSourceFixture("1.1.0+test.hidden-index");
+  const target = path.join(sourceRoot, "payload.txt");
+  await git(repositoryRoot, "update-index", "--assume-unchanged", "plugins/better-workflows/payload.txt");
+  try {
+    await assert.rejects(
+      checkPluginCache({ sourceRoot, cacheRoot: path.join(await mkdtemp(path.join(os.tmpdir(), "sbw-publication-hidden-")), "cache") }),
+      /hidden tracked index flags/
+    );
+  } finally {
+    await git(repositoryRoot, "update-index", "--no-assume-unchanged", "plugins/better-workflows/payload.txt").catch(() => undefined);
+    await git(repositoryRoot, "update-index", "--no-skip-worktree", "plugins/better-workflows/payload.txt").catch(() => undefined);
+    void target;
+  }
+});

@@ -196,6 +196,7 @@ trusted replay witnesses.
 npm test --prefix plugins/better-workflows
 node plugins/better-workflows/scripts/sbw.mjs eval
 node scripts/plugin-cache.mjs check
+SBW_STATE_ROOT=<state-root> node scripts/plugin-cache.mjs sync --handoff-run <pr-to-dev-run-id>
 ```
 
 Plugin cache versions are immutable. A changed bundle requires a new build

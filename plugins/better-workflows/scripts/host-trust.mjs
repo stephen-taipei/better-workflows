@@ -905,7 +905,7 @@ export function validateExecutionRequest(request) {
   if (!request || typeof request !== "object" || Array.isArray(request)) {
     throw new Error("execution request must be an object");
   }
-  const required = ["binaryApprovalDigest", "binaryDigest", "binaryPath", "codexHomePath", "execution", "gid", "homePath", "model", "promptDigest", "promptPath", "uid"];
+  const required = ["binaryApprovalDigest", "binaryDigest", "binaryPath", "codexHomePath", "execution", "gid", "homePath", "model", "pluginBundleDigest", "promptDigest", "promptPath", "uid"];
   if (Object.keys(request).sort().join("\0") !== required.slice().sort().join("\0")) {
     throw new Error("execution request fields do not match the signer contract");
   }
@@ -917,6 +917,9 @@ export function validateExecutionRequest(request) {
   }
   if (!SHA256.test(request.binaryApprovalDigest)) {
     throw new Error("execution request binary approval digest is invalid");
+  }
+  if (!SHA256.test(request.pluginBundleDigest)) {
+    throw new Error("execution request plugin bundle digest is invalid");
   }
   if (typeof request.promptPath !== "string" || !path.isAbsolute(request.promptPath)) {
     throw new Error("execution request prompt path must be absolute");
@@ -1324,7 +1327,7 @@ async function executeBatch(manifestPath, confirmedManifestDigest) {
       homePath: request.homePath,
       codexHomePath: request.codexHomePath
     };
-    if (request.model !== manifest.model || request.binaryPath !== manifest.binaryPath || request.binaryDigest !== manifest.binaryDigest || request.binaryApprovalDigest !== manifest.binaryApprovalDigest ||
+    if (request.model !== manifest.model || request.pluginBundleDigest !== manifest.pluginBundleDigest || request.binaryPath !== manifest.binaryPath || request.binaryDigest !== manifest.binaryDigest || request.binaryApprovalDigest !== manifest.binaryApprovalDigest ||
         canonicalJson(requestRunAs) !== canonicalJson(manifestRunAs) ||
         request.execution.runId !== manifest.runId || request.execution.suiteDigest !== manifest.suiteDigest ||
         request.execution.baselineRevision !== manifest.baselineRevision || request.execution.candidateDigest !== manifest.candidateDigest ||
@@ -1401,6 +1404,7 @@ async function runReadinessProbe({ uid, gid, homePath, codexHomePath = null }) {
     gid,
     homePath,
     model: "host-readiness-probe",
+    pluginBundleDigest: "0".repeat(64),
     promptDigest,
     promptPath,
     uid

@@ -191,6 +191,19 @@ async function gitPath(cwd, name) {
   return path.resolve(cwd, result.stdout.trim());
 }
 
+export async function hiddenIndexEntries(cwd) {
+  const result = await git(cwd, ["ls-files", "-v", "-z"]);
+  const records = [];
+  for (const entry of result.stdout.split("\0").filter(Boolean)) {
+    const status = entry[0];
+    const relative = entry.startsWith(`${status} `) ? entry.slice(2) : null;
+    if (!relative || !["h", "s", "S"].includes(status)) continue;
+    records.push({ path: relative, status });
+  }
+  records.sort((left, right) => left.path.localeCompare(right.path) || left.status.localeCompare(right.status));
+  return { records, digest: sha256(canonicalJson(records)) };
+}
+
 async function digestOptionalFile(target, maxBytes = 1024 * 1024) {
   try {
     return await digestFile(target, maxBytes);
@@ -256,9 +269,10 @@ export async function captureSourceBinding(cwd, { baseRevision = null, requireCl
   if (!(await isGitRepository(repository))) return null;
 
   const worktreeStatus = (await git(repository, ["status", "--porcelain=v2", "-z", "--untracked-files=all", "--ignored"])).stdout;
-  const worktreeClean = worktreeStatus.length === 0;
+  const hiddenIndex = await hiddenIndexEntries(repository);
+  const worktreeClean = worktreeStatus.length === 0 && hiddenIndex.records.length === 0;
   if (requireClean && !worktreeClean) {
-    throw new Error("Source binding requires a clean index, tracked worktree, untracked surface, and ignored surface");
+    throw new Error("Source binding requires a clean index, tracked worktree, untracked surface, and ignored surface; visible tracked index flags are required");
   }
   const headRevision = (await git(repository, ["rev-parse", "HEAD"])).stdout.trim();
   const repositoryRoot = await realpath((await git(repository, ["rev-parse", "--show-toplevel"])).stdout.trim());
@@ -331,6 +345,8 @@ export async function captureSourceBinding(cwd, { baseRevision = null, requireCl
     headRevision,
     worktreeClean,
     worktreeStatusDigest: sha256(worktreeStatus),
+    hiddenIndexDigest: hiddenIndex.digest,
+    hiddenIndexCount: hiddenIndex.records.length,
     diffManifestDigest
   };
   return { ...stable, digest: sha256(canonicalJson(stable)) };

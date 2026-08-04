@@ -251,6 +251,8 @@ Evaluation v2.2는 기존 safety, documentation, deliberation, sanitizer, evalua
 
 일반 clone 또는 workspace recipe 실행에는 host trust root가 **필요하지 않습니다**. 실제 Codex self-improve replay를 실행하려는 maintainer만 각 host에서 administrator가 한 번 실행합니다. self-improve는 commit, cache publication, push, merge, cleanup을 승인하지 않으며 `pr-to-dev`와 immutable-cache workflow에 위임합니다:
 
+delivery에는 명시된 전체 baseline SHA가 필요하며 candidate HEAD의 strict ancestor여야 합니다. 일곱 witness를 재검증한 뒤 명시적으로 바인딩된 `pr-to-dev` run을 만들고 typed `self-improve-delivery-handoff`를 기록해야 합니다. 이 receipt 없이는 commit, push, merge 또는 cache action을 발행할 수 없습니다. cache는 source HEAD를 바꾸기 전에 실행합니다: `SBW_STATE_ROOT=<state-root> node scripts/plugin-cache.mjs sync --handoff-run <pr-to-dev-run-id>`.
+
 ```bash
 sudo /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin /usr/bin/swift /private/var/db/better-workflows/bin/bw-host-signer.swift provision
 node plugins/better-workflows/scripts/sbw.mjs self-improve host status
@@ -453,7 +455,7 @@ node scripts/plugin-cache.mjs check
 ```
 
 Plugin cache version은 immutable입니다. Content 변경마다 새 build version을
-사용해야 합니다. `node scripts/plugin-cache.mjs sync`는 아직 없는 version만
+사용해야 합니다. `SBW_STATE_ROOT=<state-root> node scripts/plugin-cache.mjs sync --handoff-run <pr-to-dev-run-id>`는 fresh typed handoff와 변경되지 않은 source HEAD를 확인한 뒤 아직 없는 version만
 stage하고 전체 file manifest와 digest를 검증한 뒤 atomic publish합니다.
 동일 version의 다른 내용은 덮어쓰지 않습니다. 정상 Codex plugin refresh로
 활성화하기 전에 최종 cache path에서 `sbw eval`을 실행합니다.

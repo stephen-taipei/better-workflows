@@ -157,6 +157,7 @@ test("host execution request is a pre-execution contract and cannot carry caller
     gid: process.getgid(),
     homePath: process.env.HOME,
     model: "gpt-5.6-sol",
+    pluginBundleDigest: "f".repeat(64),
     promptDigest: "a".repeat(64),
     promptPath: "/private/tmp/replay.prompt.txt",
     uid: process.getuid()

@@ -241,6 +241,8 @@ $better-workflows:auto <描述需要完成的目标>
 
 普通 clone 或执行 workspace recipe **不需要** host trust root；只有要执行真实 Codex self-improve replay 的 maintainer，才需要 administrator 在每台 host 一次性执行。self-improve 不会授权 commit、cache publication、push、merge 或 cleanup；这些交由 `pr-to-dev` 与 immutable-cache workflow：
 
+交付必须使用明确的完整 baseline SHA，且该 SHA 必须是 candidate HEAD 的严格祖先。七份 witness 通过重新验证后，先创建明确绑定的 `pr-to-dev` run，再记录 typed `self-improve-delivery-handoff`；没有这份 receipt 不得取得 commit、push、merge 或 cache action。cache 必须在 source HEAD 改变前执行：`SBW_STATE_ROOT=<state-root> node scripts/plugin-cache.mjs sync --handoff-run <pr-to-dev-run-id>`。
+
 ```bash
 sudo /usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin /usr/bin/swift /private/var/db/better-workflows/bin/bw-host-signer.swift provision
 node plugins/better-workflows/scripts/sbw.mjs self-improve host status
@@ -446,7 +448,7 @@ node scripts/plugin-cache.mjs check
 ```
 
 Plugin cache version 是 immutable。任何内容变更都必须使用新的 build
-version；`node scripts/plugin-cache.mjs sync` 只会 stage 尚不存在的版本，
+version；`SBW_STATE_ROOT=<state-root> node scripts/plugin-cache.mjs sync --handoff-run <pr-to-dev-run-id>` 只会在 fresh typed handoff 通过且 source HEAD 未改变时 stage 尚不存在的版本，
 验证完整 file manifest 与 digest 后原子发布。同版本内容不同时会拒绝原地
 覆盖。通过正常 Codex plugin refresh 启用前，还应从最终 cache path 执行
 `sbw eval`。

@@ -13,6 +13,7 @@ import {
 } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
+import { hiddenIndexEntries } from "./git.mjs";
 
 const execFileAsync = (command, args, options = {}) => new Promise((resolve, reject) => {
   execFile(command, args, options, (error, stdout, stderr) => {
@@ -90,6 +91,11 @@ async function assertPublishableSource(root) {
   ], { encoding: "utf8" })).stdout;
   if (worktreeStatus.length > 0) {
     throw new Error(`Plugin cache source is not a clean committed tree: ${relativeRoot}`);
+  }
+  const hidden = await hiddenIndexEntries(repositoryRoot);
+  const hiddenPluginEntries = hidden.records.filter((item) => item.path === relativeRoot || item.path.startsWith(`${relativeRoot}/`));
+  if (hiddenPluginEntries.length > 0) {
+    throw new Error(`Plugin cache source contains hidden tracked index flags: ${hiddenPluginEntries.map((item) => `${item.status} ${item.path}`).join(", ")}`);
   }
   const tracked = (await execFileAsync("git", ["-C", repositoryRoot, "ls-files", "-z", "--", relativeRoot], { encoding: "utf8" })).stdout
     .split("\0").filter(Boolean);

@@ -188,6 +188,22 @@ export async function resolveBaselineRevision(cwd, revision) {
   return (await git(cwd, ["rev-parse", "--verify", `${revision}^{commit}`])).trim();
 }
 
+export async function resolveStrictBaselineRevision(cwd, revision) {
+  if (typeof revision !== "string" || !/^[a-f0-9]{40}$/.test(revision)) {
+    throw new Error("Self-improve baseline must be an explicit full 40-character lowercase commit SHA");
+  }
+  const baseline = await resolveBaselineRevision(cwd, revision);
+  if (baseline !== revision) throw new Error("Self-improve baseline must be the canonical full commit SHA");
+  const head = (await git(cwd, ["rev-parse", "--verify", "HEAD^{commit}"])).trim();
+  if (head === baseline) throw new Error("Self-improve baseline must be a strict ancestor of candidate HEAD");
+  try {
+    await git(cwd, ["merge-base", "--is-ancestor", baseline, head]);
+  } catch {
+    throw new Error("Self-improve baseline must be a strict ancestor of candidate HEAD");
+  }
+  return baseline;
+}
+
 async function ordinaryCorpusAtResolvedBaseline(repository, baseline) {
   for (const corpus of SELF_IMPROVE_ORDINARY_CORPORA) {
     try {
@@ -273,6 +289,11 @@ function gitCompatibleMode(mode) {
 
 export async function snapshotCandidate({ cwd, baselineRevision, candidateRoot }) {
   const repository = await realpath(cwd);
+  const { hiddenIndexEntries } = await import("./git.mjs");
+  const hidden = await hiddenIndexEntries(repository);
+  if (hidden.records.length > 0) {
+    throw new Error(`Candidate source contains hidden tracked index flags: ${hidden.records.map((item) => `${item.status} ${item.path}`).join(", ")}`);
+  }
   const baseline = await resolveBaselineRevision(repository, baselineRevision);
   const absoluteRoot = path.resolve(repository, candidateRoot);
   const rootInfo = await lstat(absoluteRoot);
