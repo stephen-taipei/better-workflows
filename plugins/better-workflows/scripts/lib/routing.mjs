@@ -363,9 +363,12 @@ async function installedSkillPath(skill, { cwd, env = process.env } = {}) {
           marker.version === version.name &&
           marker.target === target &&
           SHA256.test(marker.targetDigest) &&
+          marker.sourceDigest === marker.targetDigest &&
+          marker.pluginBundleDigest === marker.targetDigest &&
           SHA256.test(marker.sourceDigest) &&
           SHA1.test(marker.sourceBaselineRevision) &&
           SHA1.test(marker.sourceHeadRevision) &&
+          marker.sourceBaselineRevision !== marker.sourceHeadRevision &&
           SHA256.test(marker.sourceBindingDigest) &&
           SHA256.test(marker.pluginBundleDigest) &&
           typeof marker.runId === "string" && marker.runId.length > 0 &&

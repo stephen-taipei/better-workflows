@@ -247,34 +247,45 @@ test("routing accepts a digest-bound schema-v2 ready marker for a cached skill",
   await mkdir(path.dirname(skillPath), { recursive: true });
   await writeFile(skillPath, "# Cached advisor\n");
   const targetDigest = await bundleDigest(target);
-  await writeFile(
+  const marker = {
+    schemaVersion: 2,
+    state: "ready",
+    version,
+    target,
+    targetDigest,
+    sourceDigest: targetDigest,
+    sourceBaselineRevision: "b".repeat(40),
+    sourceHeadRevision: "c".repeat(40),
+    sourceBindingDigest: "d".repeat(64),
+    pluginBundleDigest: targetDigest,
+    runId: "sbw-routing-v2-run",
+    attemptId: "sbw-routing-v2-attempt",
+    providerReceiptDigest: "e".repeat(64)
+  };
+  const writeMarker = async (overrides = {}) => writeFile(
     path.join(cachePluginRoot, `${version}.ready.json`),
-    `${JSON.stringify({
-      schemaVersion: 2,
-      state: "ready",
-      version,
-      target,
-      targetDigest,
-      sourceDigest: "a".repeat(64),
-      sourceBaselineRevision: "b".repeat(40),
-      sourceHeadRevision: "c".repeat(40),
-      sourceBindingDigest: "d".repeat(64),
-      pluginBundleDigest: targetDigest,
-      runId: "sbw-routing-v2-run",
-      attemptId: "sbw-routing-v2-attempt",
-      providerReceiptDigest: "e".repeat(64)
-    }, null, 2)}\n`
+    `${JSON.stringify({ ...marker, ...overrides }, null, 2)}\n`
   );
-  const snapshot = await capabilitySnapshot({
+  const snapshot = async () => capabilitySnapshot({
     cwd,
     stateRoot: path.join(cwd, "state"),
     env: { ...process.env, CODEX_HOME: codexHome },
     requiredCapabilities: ["skill:cached-advisor"]
   });
-  const capability = snapshot.capabilities.find((item) => item.id === "skill:cached-advisor");
-  assert.equal(capability.status, "available");
-  assert.equal(capability.source, skillPath);
-  assert.equal(typeof capability.fingerprint.digest, "string");
+  await writeMarker();
+  const available = (await snapshot()).capabilities.find((item) => item.id === "skill:cached-advisor");
+  assert.equal(available.status, "available");
+  assert.equal(available.source, skillPath);
+  assert.equal(typeof available.fingerprint.digest, "string");
+  for (const overrides of [
+    { sourceDigest: "a".repeat(64) },
+    { pluginBundleDigest: "a".repeat(64) },
+    { sourceBaselineRevision: marker.sourceHeadRevision }
+  ]) {
+    await writeMarker(overrides);
+    const unavailable = (await snapshot()).capabilities.find((item) => item.id === "skill:cached-advisor");
+    assert.equal(unavailable.status, "unavailable");
+  }
 });
 
 test("capability and receipt digests change when an installed support skill changes in place", async () => {
