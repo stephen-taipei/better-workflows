@@ -1515,7 +1515,7 @@ async function commandEval() {
   for (const testPath of tests) {
     await new Promise((resolve, reject) => {
       const child = spawn(process.execPath, ["--test", "--test-concurrency=1", testPath], {
-        cwd: pluginRoot(),
+        cwd: process.cwd(),
         shell: false,
         stdio: ["ignore", "pipe", "pipe"],
         env: process.env
