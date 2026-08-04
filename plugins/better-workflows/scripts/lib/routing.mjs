@@ -15,6 +15,8 @@ import {
   digestObject,
   ensurePrivateDir,
   getStateRoot,
+  listJsonRecords,
+  loadRun,
   nowIso,
   pluginRoot,
   readJson,
@@ -314,7 +316,49 @@ async function fileFingerprint(target, { requireSingleLink = true } = {}) {
   }
 }
 
-async function installedSkillPath(skill, { cwd, env = process.env } = {}) {
+async function verifyGovernedCacheMarker({ marker, stateRoot, pluginCacheRoot, target }) {
+  if (!stateRoot) return false;
+  try {
+    const run = await loadRun(stateRoot, marker.runId);
+    const actions = await listJsonRecords(stateRoot, safeJoin(run.runDir, "actions"));
+    const action = actions.find((item) => (
+      item.runId === marker.runId &&
+      item.attemptId === marker.attemptId &&
+      item.action === "plugin.cache.publish" &&
+      item.provider === "local-workspace" &&
+      item.status === "spent" &&
+      item.outcome === "success" &&
+      item.receipt?.outcome === "success" &&
+      Array.isArray(item.receipt.evidenceIds) &&
+      item.receipt.evidenceIds.length > 0
+    ));
+    const providerReceipt = action?.receipt?.providerReceipt;
+    const sourceBinding = run.manifest?.sourceBinding;
+    return Boolean(
+      run.manifest?.pluginCacheRoot === pluginCacheRoot &&
+      sourceBinding?.baseRevision === marker.sourceBaselineRevision &&
+      sourceBinding?.headRevision === marker.sourceHeadRevision &&
+      sourceBinding?.digest === marker.sourceBindingDigest &&
+      providerReceipt &&
+      providerReceipt.cacheRoot === pluginCacheRoot &&
+      providerReceipt.version === marker.version &&
+      providerReceipt.target === target &&
+      providerReceipt.targetDigest === marker.targetDigest &&
+      providerReceipt.sourceDigest === marker.sourceDigest &&
+      providerReceipt.pluginBundleDigest === marker.pluginBundleDigest &&
+      providerReceipt.sourceBaselineRevision === marker.sourceBaselineRevision &&
+      providerReceipt.sourceHeadRevision === marker.sourceHeadRevision &&
+      providerReceipt.sourceBindingDigest === marker.sourceBindingDigest &&
+      providerReceipt.runId === marker.runId &&
+      providerReceipt.attemptId === marker.attemptId &&
+      digestObject(providerReceipt) === marker.providerReceiptDigest
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function installedSkillPath(skill, { cwd, env = process.env, stateRoot } = {}) {
   const shortName = skill.includes(":") ? skill.slice(skill.lastIndexOf(":") + 1) : skill;
   if (!SAFE_ID.test(shortName)) return null;
   const home = codexHome(env);
@@ -375,6 +419,7 @@ async function installedSkillPath(skill, { cwd, env = process.env } = {}) {
           typeof marker.attemptId === "string" && marker.attemptId.length > 0 &&
           SHA256.test(marker.providerReceiptDigest);
         if (!v1 && !v2) continue;
+        if (v2 && !(await verifyGovernedCacheMarker({ marker, stateRoot, pluginCacheRoot, target }))) continue;
       }
       if (marker) {
         try {
@@ -531,7 +576,7 @@ export async function capabilitySnapshot({
     const name = id.slice(separator + 1);
     if (type === "entry") {
       const entry = entryMap.get(name);
-      const skill = entry ? await installedSkillPath(name, { cwd, env }) : null;
+      const skill = entry ? await installedSkillPath(name, { cwd, env, stateRoot }) : null;
       capabilities.push(
         entry && skill
           ? capabilityRecord(
@@ -564,7 +609,7 @@ export async function capabilitySnapshot({
           : capabilityRecord(id, "unavailable", "Workflow template is missing", null, checkedAt)
       );
     } else if (type === "skill") {
-      const skill = await installedSkillPath(name, { cwd, env });
+      const skill = await installedSkillPath(name, { cwd, env, stateRoot });
       capabilities.push(
         skill
           ? capabilityRecord(
