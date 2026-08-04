@@ -9,7 +9,9 @@ import {
   bundleDigest,
   checkPluginCache,
   markPluginCacheReady,
-  publishPluginCache
+  removeUnreadyPluginCachePublication,
+  publishPluginCache,
+  verifyPluginCacheReady
 } from "../lib/publication.mjs";
 import { captureSourceBinding } from "../lib/git.mjs";
 
@@ -27,6 +29,35 @@ test("governed plugin cache sync cannot redirect publication to an arbitrary cac
     ], { cwd: path.resolve(path.dirname(script)), encoding: "utf8" }),
     /--cache-root override is only valid for check/
   );
+});
+
+test("cache cleanup refuses to delete a ready publication", async () => {
+  const sourceRoot = await sourceFixture("1.1.0+test.ready-cleanup");
+  const cacheRoot = path.join(await mkdtemp(path.join(os.tmpdir(), "sbw-publication-ready-cleanup-")), "cache");
+  const published = await publishPluginCache({ sourceRoot, cacheRoot });
+  await markPluginCacheReady({
+    cacheRoot,
+    version: published.version,
+    target: published.target,
+    targetDigest: published.targetDigest,
+    sourceDigest: published.sourceDigest
+  });
+  assert.equal((await verifyPluginCacheReady({
+    cacheRoot,
+    version: published.version,
+    target: published.target,
+    targetDigest: published.targetDigest
+  })).ok, true);
+  await assert.rejects(
+    removeUnreadyPluginCachePublication({
+      cacheRoot,
+      version: published.version,
+      target: published.target,
+      targetDigest: published.targetDigest
+    }),
+    /pending publication marker/
+  );
+  assert.equal((await checkPluginCache({ sourceRoot, cacheRoot })).ok, true);
 });
 
 async function git(cwd, ...args) {

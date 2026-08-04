@@ -329,7 +329,17 @@ async function main() {
           await rm(receiptFile, { force: true }).catch(() => undefined);
         }
       }
-      if (publication?.applied && !reconciled) {
+      let actionSucceeded = false;
+      if (consumed?.attemptId) {
+        const latest = await loadRun(stateRoot, targetRunId);
+        const latestActions = await listJsonRecords(stateRoot, safeJoin(latest.runDir, "actions"));
+        actionSucceeded = latestActions.some((action) => (
+          action.attemptId === consumed.attemptId &&
+          action.status === "spent" &&
+          action.outcome === "success"
+        ));
+      }
+      if (publication?.applied && !reconciled && !actionSucceeded) {
         try {
           await removeUnreadyPluginCachePublication({
             cacheRoot,

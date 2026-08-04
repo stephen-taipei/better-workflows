@@ -698,7 +698,6 @@ async function signingKeyPairChallenge(trust) {
       schemaVersion: 1,
       algorithm: "ed25519",
       keyId: key.keyId,
-      verified: true,
       publicKeyDigest: await digest(trustedPublicKeyBytes),
       challengeDigest: await digest(challengeBytes)
     }
@@ -723,7 +722,8 @@ export async function validateSigningKeyPair(trust, raw) {
   }
   return {
     privateKey,
-    proof: challenge.proof
+    proof: challenge.proof,
+    verified: true
   };
 }
 
@@ -755,7 +755,7 @@ async function currentReadinessReceipt(binding) {
     const info = await validateRootOwnedFile(READINESS_RECEIPT, "Host readiness receipt", 0o644);
     const bytes = await readFile(READINESS_RECEIPT);
     const receipt = JSON.parse(bytes.toString("utf8"));
-    const expectedKeys = ["binding", "bindingDigest", "completedAt", "kind", "probeResult", "probeResultDigest", "schemaVersion"];
+    const expectedKeys = ["binding", "bindingDigest", "completedAt", "keyPairVerification", "kind", "probeResult", "probeResultDigest", "schemaVersion"];
     const bindingDigest = await digest(Buffer.from(canonicalJson(binding), "utf8"));
     if (Object.keys(receipt).sort().join("\0") !== expectedKeys.sort().join("\0") ||
         receipt.schemaVersion !== 2 || receipt.kind !== "host-readiness-receipt" ||
@@ -763,7 +763,9 @@ async function currentReadinessReceipt(binding) {
         receipt.bindingDigest !== bindingDigest || canonicalJson(receipt.binding) !== canonicalJson(binding) ||
         !receipt.probeResult || typeof receipt.probeResult !== "object" ||
         !SHA256.test(receipt.probeResultDigest) ||
-        receipt.probeResultDigest !== await digest(Buffer.from(canonicalJson(receipt.probeResult), "utf8"))) {
+        receipt.probeResultDigest !== await digest(Buffer.from(canonicalJson(receipt.probeResult), "utf8")) ||
+        !receipt.keyPairVerification || receipt.keyPairVerification.verified !== true ||
+        canonicalJson(receipt.keyPairVerification.proof) !== canonicalJson(binding.keyPairProof)) {
       throw new Error("Host readiness receipt does not bind the current protected host artifacts");
     }
     return {
@@ -773,6 +775,7 @@ async function currentReadinessReceipt(binding) {
       supported: true,
       bindingDigest: receipt.bindingDigest,
       completedAt: receipt.completedAt,
+      keyPairVerification: receipt.keyPairVerification,
       probeResultDigest: receipt.probeResultDigest
     };
   } catch (error) {
@@ -786,9 +789,13 @@ async function currentReadinessReceipt(binding) {
   }
 }
 
-async function createReadinessReceipt(binding, probeResult) {
+async function createReadinessReceipt(binding, probeResult, keyPairVerification) {
   if (!probeResult || typeof probeResult !== "object" || Array.isArray(probeResult)) {
     throw new Error("Host readiness receipt requires a verified behavioral probe result");
+  }
+  if (!keyPairVerification || keyPairVerification.verified !== true ||
+      canonicalJson(keyPairVerification.proof) !== canonicalJson(binding.keyPairProof)) {
+    throw new Error("Host readiness receipt requires a verified trust-root key-pair challenge");
   }
   const bindingDigest = await digest(Buffer.from(canonicalJson(binding), "utf8"));
   const probeResultDigest = await digest(Buffer.from(canonicalJson(probeResult), "utf8"));
@@ -798,6 +805,7 @@ async function createReadinessReceipt(binding, probeResult) {
     completedAt: new Date().toISOString(),
     binding,
     bindingDigest,
+    keyPairVerification,
     probeResult,
     probeResultDigest
   };
@@ -853,6 +861,7 @@ async function status({ requireReadinessReceipt = true } = {}) {
       mode: "0644"
     },
     privateKey,
+    keyPairVerification: readinessReceipt.keyPairVerification ?? null,
     runtime,
     launcher,
     readinessProbe: probe,
@@ -1672,6 +1681,8 @@ async function upgradeSigner(
     });
     const staticReady = await status({ requireReadinessReceipt: false });
     if (!staticReady.ready) throw new Error("installed signer failed its end-to-end readiness probe");
+    const trust = await validateTrustRoot();
+    const keyPair = await validateSigningKeyPair(trust, await readFile(PRIVATE_KEY));
     const probeResult = {
       executionId: readinessProbe.executionId,
       executionCwd: readinessProbe.executionCwd,
@@ -1689,7 +1700,7 @@ async function upgradeSigner(
       probe: staticReady.readinessProbe,
       codexBinary: staticReady.codexBinary,
       signer: staticReady.signer
-    }), probeResult);
+    }), probeResult, { verified: keyPair.verified, proof: keyPair.proof });
     const readinessChange = await replaceRootOwnedFile(
       READINESS_RECEIPT,
       readinessReceipt,

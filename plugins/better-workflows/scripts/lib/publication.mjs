@@ -370,8 +370,8 @@ export async function removeUnreadyPluginCachePublication({ cacheRoot, version, 
     throw new Error("Plugin cache cleanup target is not canonical");
   }
   const marker = await readPublicationMarker(root, version);
-  if (!marker || !["pending", "ready"].includes(marker.state) || marker.targetDigest !== targetDigest) {
-    throw new Error("Refusing to remove a cache target without its matching publication marker");
+  if (!marker || marker.state !== "pending" || marker.targetDigest !== targetDigest) {
+    throw new Error("Refusing to remove a cache target without its pending publication marker");
   }
   const actualTargetDigest = await bundleDigest(target);
   if (actualTargetDigest !== targetDigest) {
@@ -380,6 +380,22 @@ export async function removeUnreadyPluginCachePublication({ cacheRoot, version, 
   await rm(target, { recursive: true, force: false });
   await unlink(publicationMarkerPath(root, version));
   return { removed: true, target, marker: publicationMarkerPath(root, version) };
+}
+
+export async function verifyPluginCacheReady({ cacheRoot, version, target, targetDigest }) {
+  const root = path.resolve(cacheRoot);
+  if (target !== path.join(root, version)) {
+    throw new Error("Plugin cache readiness target is not canonical");
+  }
+  const marker = await readPublicationMarker(root, version);
+  if (!marker || marker.state !== "ready" || marker.target !== target || marker.targetDigest !== targetDigest) {
+    throw new Error("Plugin cache readiness marker is absent or stale");
+  }
+  const actualTargetDigest = await bundleDigest(target);
+  if (actualTargetDigest !== targetDigest) {
+    throw new Error("Plugin cache readiness target digest changed");
+  }
+  return { ok: true, marker, targetDigest: actualTargetDigest };
 }
 
 async function assertExpectedSourceBinding(sourceRoot, expected, bundle = null) {

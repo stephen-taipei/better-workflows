@@ -2006,6 +2006,32 @@ export async function evaluateCompletion(root, runId) {
   ) {
     blockers.push("missing-reconciled-action:plugin.cache.publish");
   }
+  if (contract.upstreamSelfImproveRunId && contract.requiredEvidence.includes("cache-publication")) {
+    const cachePublicationAction = actions.find((action) => (
+      action.action === "plugin.cache.publish" &&
+      action.provider === "local-workspace" &&
+      action.status === "spent" &&
+      action.outcome === "success" &&
+      action.receipt?.providerReceipt
+    ));
+    if (cachePublicationAction) {
+      try {
+        const { verifyPluginCacheReady } = await import("./publication.mjs");
+        const providerReceipt = cachePublicationAction.receipt.providerReceipt;
+        if (providerReceipt.cacheRoot !== getCodexPluginCacheRoot()) {
+          throw new Error("Plugin cache completion root drift");
+        }
+        await verifyPluginCacheReady({
+          cacheRoot: providerReceipt.cacheRoot,
+          version: providerReceipt.version,
+          target: providerReceipt.target,
+          targetDigest: providerReceipt.targetDigest
+        });
+      } catch {
+        blockers.push("plugin-cache-live-state-stale");
+      }
+    }
+  }
   if (contract.template === "pr-to-dev") {
     const remoteSyncAction = actions.find((action) => (
       action.action === "remote.sync" &&
@@ -4655,6 +4681,17 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
     }
     await verifyProviderReceipt(manifest, { ...record, outcome }, receipt);
     await reserveProviderExecution(root, record, receipt.providerReceipt.executionId, outcome);
+    const target = safeJoin(runDir, "actions", `${record.tokenHash}.json`);
+    const next = {
+      ...record,
+      outcome,
+      receipt,
+      reconciledAt: nowIso(),
+      ...(record.action === "pr.create" && outcome === "success"
+        ? { ownedResource: `pull/${receipt.providerReceipt.number}` }
+        : {})
+    };
+    await atomicWriteJson(root, target, next);
     if (record.action === "plugin.cache.publish" && outcome === "success") {
       const { markPluginCacheReady } = await import("./publication.mjs");
       await markPluginCacheReady({
@@ -4669,17 +4706,6 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
         pluginBundleDigest: receipt.providerReceipt.pluginBundleDigest
       });
     }
-    const target = safeJoin(runDir, "actions", `${record.tokenHash}.json`);
-    const next = {
-      ...record,
-      outcome,
-      receipt,
-      reconciledAt: nowIso(),
-      ...(record.action === "pr.create" && outcome === "success"
-        ? { ownedResource: `pull/${receipt.providerReceipt.number}` }
-        : {})
-    };
-    await atomicWriteJson(root, target, next);
     await appendJournal(root, runDir, "action.reconciled", {
       attemptId,
       outcome,

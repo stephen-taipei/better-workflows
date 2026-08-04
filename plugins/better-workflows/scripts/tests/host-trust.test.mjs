@@ -56,7 +56,7 @@ test("host readiness proves the installed private key matches the trust-root pub
     digest: createHash("sha256").update("trust-root").digest("hex")
   };
   const proof = await validateSigningKeyPair(trust, seed);
-  assert.equal(proof.proof.verified, true);
+  assert.equal(proof.verified, true);
   assert.equal(proof.proof.keyId, "codex-ed25519-test");
   await assert.rejects(
     () => validateSigningKeyPair(trust, Buffer.alloc(32, 7)),
