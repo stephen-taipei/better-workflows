@@ -679,19 +679,9 @@ async function currentSigner() {
   return null;
 }
 
-export async function validateSigningKeyPair(trust, raw) {
+async function signingKeyPairChallenge(trust) {
   const key = trust.value.publicKeys[0];
-  const privateKey = privateKeyFromRaw(raw);
   const trustedPublicKeyBytes = Buffer.from(key.publicKey, "base64");
-  const trustedPublicKey = createPublicKey({
-    key: trustedPublicKeyBytes,
-    format: "der",
-    type: "spki"
-  });
-  const derivedPublicKeyBytes = createPublicKey(privateKey).export({ format: "der", type: "spki" });
-  if (!derivedPublicKeyBytes.equals(trustedPublicKeyBytes)) {
-    throw new Error("Private signing key does not match the trust root public key");
-  }
   const challengePayload = {
     schemaVersion: 1,
     kind: "host-key-pair-challenge",
@@ -700,12 +690,10 @@ export async function validateSigningKeyPair(trust, raw) {
     trustRootDigest: trust.digest
   };
   const challengeBytes = Buffer.from(canonicalJson(challengePayload), "utf8");
-  const signature = sign(null, challengeBytes, privateKey);
-  if (!verify(null, challengeBytes, trustedPublicKey, signature)) {
-    throw new Error("Private signing key failed the trust root key-pair challenge");
-  }
   return {
-    privateKey,
+    key,
+    trustedPublicKeyBytes,
+    challengeBytes,
     proof: {
       schemaVersion: 1,
       algorithm: "ed25519",
@@ -714,6 +702,28 @@ export async function validateSigningKeyPair(trust, raw) {
       publicKeyDigest: await digest(trustedPublicKeyBytes),
       challengeDigest: await digest(challengeBytes)
     }
+  };
+}
+
+export async function validateSigningKeyPair(trust, raw) {
+  const privateKey = privateKeyFromRaw(raw);
+  const challenge = await signingKeyPairChallenge(trust);
+  const trustedPublicKey = createPublicKey({
+    key: challenge.trustedPublicKeyBytes,
+    format: "der",
+    type: "spki"
+  });
+  const derivedPublicKeyBytes = createPublicKey(privateKey).export({ format: "der", type: "spki" });
+  if (!derivedPublicKeyBytes.equals(challenge.trustedPublicKeyBytes)) {
+    throw new Error("Private signing key does not match the trust root public key");
+  }
+  const signature = sign(null, challenge.challengeBytes, privateKey);
+  if (!verify(null, challenge.challengeBytes, trustedPublicKey, signature)) {
+    throw new Error("Private signing key failed the trust root key-pair challenge");
+  }
+  return {
+    privateKey,
+    proof: challenge.proof
   };
 }
 
@@ -798,7 +808,7 @@ async function createReadinessReceipt(binding, probeResult) {
 async function status({ requireReadinessReceipt = true } = {}) {
   const trust = await validateTrustRoot();
   const keyInfo = await validateRootOwnedFile(PRIVATE_KEY, "Private signing key", 0o600);
-  const keyPair = await validateSigningKeyPair(trust, await readFile(PRIVATE_KEY));
+  const keyPairProof = (await signingKeyPairChallenge(trust)).proof;
   const privateKey = {
     path: PRIVATE_KEY,
     bytes: keyInfo.size,
@@ -812,7 +822,7 @@ async function status({ requireReadinessReceipt = true } = {}) {
       mtimeMs: keyInfo.mtimeMs,
       ctimeMs: keyInfo.ctimeMs
     },
-    keyPairProof: keyPair.proof
+    keyPairProof
   };
   const runtime = await currentRuntime();
   const launcher = await currentFixedArtifact(EXECUTION_LAUNCHER, "Native execution launcher");
@@ -822,7 +832,7 @@ async function status({ requireReadinessReceipt = true } = {}) {
   const binding = readinessBinding({
     trust,
     privateKey,
-    keyPairProof: keyPair.proof,
+    keyPairProof,
     runtime,
     launcher,
     probe,
