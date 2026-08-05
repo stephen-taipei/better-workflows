@@ -44,6 +44,15 @@ const HOST_CODEX_ALLOWLIST_PATH = "/etc/better-workflows/codex-binary-allowlist.
 const HOST_ATTESTATIONS_ROOT = "/private/var/db/better-workflows/attestations";
 const HOST_EXECUTIONS_ROOT = "/private/var/db/better-workflows/executions";
 
+// Codex critic calls are text-only advisory subprocesses. Disable the CLI
+// collaboration and shell surfaces explicitly because prompt-only limits do
+// not prevent a model from attempting an unavailable ephemeral thread.
+const CODEX_TEXT_ONLY_FLAGS = [
+  "--disable", "multi_agent",
+  "--disable", "shell_tool",
+  "--disable", "unified_exec"
+];
+
 function safeEnvironment(extra = {}) {
   const allowed = [
     "PATH",
@@ -731,6 +740,7 @@ export async function runCodexCritic({ model, effort, prompt, timeoutMs = 120_00
         "--ignore-user-config",
         "--ignore-rules",
         "--ephemeral",
+        ...CODEX_TEXT_ONLY_FLAGS,
         "--sandbox",
         "read-only",
         "--skip-git-repo-check",

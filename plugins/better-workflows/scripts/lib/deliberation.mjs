@@ -21,6 +21,17 @@ const MAX_PERSPECTIVE_BYTES = 24 * 1024;
 const ROSTER_CACHE_FILE = "deliberation-roster-cache";
 const ROSTER_CACHE_SCHEMA_VERSION = 2;
 
+// Deliberation reviewers are advisory-only and run in an ephemeral subprocess.
+// Prompt instructions are not a capability boundary: the Codex CLI can still
+// expose collaboration and shell tools, which lets a reviewer try to spawn a
+// thread that does not exist in this transport. Keep the reviewer surface
+// text-only and read-only at the CLI feature layer as well.
+const CODEX_TEXT_ONLY_FLAGS = [
+  "--disable", "multi_agent",
+  "--disable", "shell_tool",
+  "--disable", "unified_exec"
+];
+
 const DECISION_SCHEMA = {
   type: "object",
   additionalProperties: false,
@@ -331,6 +342,7 @@ async function runCodexParticipant(participant, prompt, timeoutMs) {
         "--ignore-user-config",
         "--ignore-rules",
         "--ephemeral",
+        ...CODEX_TEXT_ONLY_FLAGS,
         "--sandbox",
         "read-only",
         "--skip-git-repo-check",
@@ -778,6 +790,7 @@ async function runCodexArbiter(candidate, prompt, timeoutMs) {
         "--ignore-user-config",
         "--ignore-rules",
         "--ephemeral",
+        ...CODEX_TEXT_ONLY_FLAGS,
         "--sandbox",
         "read-only",
         "--skip-git-repo-check",
