@@ -121,6 +121,9 @@ test("host trust helper fixes authority paths and does not accept environment pa
   assert.doesNotMatch(source, /"TMPDIR"|"TEMP"|"TMP"|"HTTP_PROXY"|"HTTPS_PROXY"|"SSL_CERT_FILE"/);
   const launcher = await readFile(path.join(path.dirname(SCRIPT), "host-exec-launcher.c"), "utf8");
   assert.match(launcher, /setgroups\(0, NULL\)/);
+  assert.ok(launcher.indexOf("setgid(gid)") < launcher.indexOf("setgroups(0, NULL)"));
+  assert.ok(launcher.indexOf("setgroups(0, NULL)") < launcher.indexOf("setuid(uid)"));
+  assert.match(launcher, /defined\(__APPLE__\)/);
   assert.match(launcher, /getpwuid/);
   assert.match(launcher, /getgroups\(0, NULL\)/);
   assert.match(launcher, /argc - 8/);
@@ -130,6 +133,7 @@ test("host trust helper fixes authority paths and does not accept environment pa
   const probe = await readFile(path.join(path.dirname(SCRIPT), "host-execution-probe.c"), "utf8");
   assert.match(probe, /getuid/);
   assert.match(probe, /getgroups/);
+  assert.match(probe, /defined\(__APPLE__\)/);
   assert.match(probe, /environment/);
   assert.match(probe, /argv0/);
 });

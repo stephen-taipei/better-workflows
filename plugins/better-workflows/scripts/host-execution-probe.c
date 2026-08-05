@@ -46,14 +46,20 @@ int main(int argc, char **argv) {
     return 126;
   }
   gid_t *groups = NULL;
-  if (group_count > 0) {
-    groups = calloc((size_t)group_count, sizeof(gid_t));
-    if (groups == NULL || getgroups(group_count, groups) != group_count) {
+  int raw_group_count = group_count;
+  if (raw_group_count > 0) {
+    groups = calloc((size_t)raw_group_count, sizeof(gid_t));
+    if (groups == NULL || getgroups(raw_group_count, groups) != raw_group_count) {
       free(groups);
       fail("cannot read supplementary groups");
       return 126;
     }
   }
+#if defined(__APPLE__)
+  // Darwin reports the effective primary GID as the sole getgroups entry
+  // even when no supplementary groups are present.
+  if (raw_group_count == 1 && groups[0] == getegid()) group_count = 0;
+#endif
   fputs("{\"results\":[{\"id\":\"host-readiness-probe\",\"disposition\":\"NO_CHANGE\",\"passedAssertions\":[]}],\"probe\":{", stdout);
   printf("\"uid\":%u,\"euid\":%u,\"gid\":%u,\"egid\":%u,\"supplementaryGroups\":[",
          (unsigned int)getuid(), (unsigned int)geteuid(), (unsigned int)getgid(), (unsigned int)getegid());
