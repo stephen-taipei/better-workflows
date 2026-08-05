@@ -39,8 +39,10 @@ const EVALUATION_SCHEMA = {
       passedAssertions: { type: "array", items: { type: "string" } }
     } } } }
 };
-const HOST_TRUST_ROOT_PATH = "/etc/better-workflows/codex-trust-root.json";
-const HOST_CODEX_ALLOWLIST_PATH = "/etc/better-workflows/codex-binary-allowlist.json";
+// Keep macOS authority paths canonical; /etc is a symlink to /private/etc.
+const HOST_ETC = process.platform === "darwin" ? "/private/etc" : "/etc";
+const HOST_TRUST_ROOT_PATH = `${HOST_ETC}/better-workflows/codex-trust-root.json`;
+const HOST_CODEX_ALLOWLIST_PATH = `${HOST_ETC}/better-workflows/codex-binary-allowlist.json`;
 const HOST_ATTESTATIONS_ROOT = "/private/var/db/better-workflows/attestations";
 const HOST_EXECUTIONS_ROOT = "/private/var/db/better-workflows/executions";
 

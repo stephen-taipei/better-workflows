@@ -24,8 +24,11 @@ import {
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const TRUST_ROOT = "/etc/better-workflows/codex-trust-root.json";
-const CODEX_ALLOWLIST = "/etc/better-workflows/codex-binary-allowlist.json";
+// macOS exposes /etc as a symlink to /private/etc. Keep protected authority
+// paths canonical so realpath checks do not reject an otherwise safe host.
+const HOST_ETC = process.platform === "darwin" ? "/private/etc" : "/etc";
+const TRUST_ROOT = `${HOST_ETC}/better-workflows/codex-trust-root.json`;
+const CODEX_ALLOWLIST = `${HOST_ETC}/better-workflows/codex-binary-allowlist.json`;
 const PRIVATE_KEY = "/private/var/db/better-workflows/codex-attestation-ed25519.raw";
 const ATTESTATIONS = "/private/var/db/better-workflows/attestations";
 const EXECUTIONS = "/private/var/db/better-workflows/executions";

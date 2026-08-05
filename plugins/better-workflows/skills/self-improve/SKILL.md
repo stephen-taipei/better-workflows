@@ -71,8 +71,10 @@ new canonical corpus and the strict improvement rule above.
 
 Real replays require separate, per-run authority and use only a read-only,
 ephemeral Codex invocation. They also require a host-signed attestation for the
-exact Codex binary and requested model. The trust root is fixed at
-`/etc/better-workflows/codex-trust-root.json`; it and every parent directory
+exact Codex binary and requested model. The trust root is fixed at the canonical
+path: on macOS `/private/etc/better-workflows/codex-trust-root.json` (the `/etc`
+spelling is a symlink), and on other platforms
+`/etc/better-workflows/codex-trust-root.json`. The trust root and every parent directory
 must be administrator-owned and non-writable by the invoking user. `PATH`, a
 self-reported model, a CLI-selected trust root, or a binary digest supplied
 without a verifiable host signature is not trusted. A fixture backend exists

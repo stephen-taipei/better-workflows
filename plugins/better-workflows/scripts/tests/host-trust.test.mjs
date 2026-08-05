@@ -66,7 +66,8 @@ test("host readiness proves the installed private key matches the trust-root pub
 
 test("host trust helper fixes authority paths and does not accept environment path overrides", async () => {
   const source = await readFile(SCRIPT, "utf8");
-  assert.match(source, /"\/etc\/better-workflows\/codex-trust-root\.json"/);
+  assert.match(source, /const HOST_ETC = process\.platform === "darwin" \? "\/private\/etc" : "\/etc"/);
+  assert.match(source, /`\$\{HOST_ETC\}\/better-workflows\/codex-trust-root\.json`/);
   assert.match(source, /"\/private\/var\/db\/better-workflows\/codex-attestation-ed25519\.raw"/);
   assert.match(source, /Refusing implicit rotation or overwrite/);
   assert.match(source, /execute-result/);
