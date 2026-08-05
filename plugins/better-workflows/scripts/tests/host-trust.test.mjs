@@ -113,6 +113,9 @@ test("host trust helper fixes authority paths and does not accept environment pa
   assert.match(source, /validateManifestRunAs/);
   assert.match(source, /validateProtectedDirectoryChain/);
   assert.match(source, /validateProtectedParentChain/);
+  assert.match(source, /secureDirectory\(ATTESTATIONS, 0o755\)/);
+  assert.match(source, /secureDirectory\(EXECUTIONS, 0o755\)/);
+  assert.match(source, /secureDirectory\(EXECUTION_BUNDLES, 0o755\)/);
   assert.match(source, /requestDigests/);
   assert.doesNotMatch(source, /os\.tmpdir\(\)/);
   assert.doesNotMatch(source, /"TMPDIR"|"TEMP"|"TMP"|"HTTP_PROXY"|"HTTPS_PROXY"|"SSL_CERT_FILE"/);

@@ -1661,6 +1661,9 @@ async function upgradeSigner(
   await secureDirectory("/private/var/db/better-workflows", 0o711);
   await secureDirectory(path.dirname(CODEX_ALLOWLIST), 0o755);
   await secureDirectory(HOST_RUNTIME_ROOT, 0o755);
+  await secureDirectory(ATTESTATIONS, 0o755);
+  await secureDirectory(EXECUTIONS, 0o755);
+  await secureDirectory(EXECUTION_BUNDLES, 0o755);
   const launcherArtifact = await compileNativeArtifact(launcherSource, "Native launcher");
   const probeArtifact = await compileNativeArtifact(probeSource, "Readiness probe");
   const changes = [];
