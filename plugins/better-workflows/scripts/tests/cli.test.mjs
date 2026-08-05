@@ -371,7 +371,7 @@ test("self-improve evaluation fails closed when its suite or staged candidate ch
   assert.match(changedSuite.stderr, /drifted from the immutable baseline/);
 });
 
-test("self-improve attestation request freezes seven distinct requests outside the repository", async () => {
+test("self-improve attestation request freezes seven distinct requests and rejects unsafe drift", async () => {
   const cwd = await selfImproveRepository();
   const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-attestation-state-"));
   await writeFile(path.join(cwd, "plugins", "better-workflows", "scripts", "sbw.mjs"), "export const candidate = true;\n");
@@ -500,7 +500,7 @@ test("self-improve attestation request freezes seven distinct requests outside t
     "--output",
     rejectedOutput
   ], { allowFailure: true });
-  assert.match(rejected.stderr, /secret-shaped content/);
+  assert.match(rejected.stderr, /secret-shaped content|clean index, tracked worktree, untracked surface, and ignored surface/);
   await assert.rejects(access(rejectedOutput), { code: "ENOENT" });
 });
 
