@@ -9,9 +9,7 @@ import {
   readFile,
   readdir,
   readlink,
-  realpath,
-  stat,
-  writeFile
+  stat
 } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -93,7 +91,10 @@ import { deliberateForRun } from "./lib/deliberation-receipt.mjs";
 import { loadEvidenceContracts } from "./lib/evidence.mjs";
 import { generateAttestationRequests } from "./lib/attestations.mjs";
 import { createSelfImproveDeliveryHandoff, validateSelfImproveDeliveryHandoff } from "./lib/self-improve-handoff.mjs";
-import { verifySelfImproveDeliveryEvidence } from "./lib/self-improve-replay.mjs";
+import {
+  loadHostExecutionRequestManifest as loadBoundHostExecutionRequestManifest,
+  verifySelfImproveDeliveryEvidence
+} from "./lib/self-improve-replay.mjs";
 import { compileLedger, deriveLedgerStatus, ledgerStatus, transitionLedger } from "./lib/ledger.mjs";
 import {
   addReviewFinding,
@@ -139,7 +140,6 @@ const execFileAsync = promisify(execFile);
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const TEMPLATE_DIR = path.join(pluginRoot(), "templates");
 const HOST_TRUST_TOOL = path.join(SCRIPT_DIR, "host-trust.mjs");
-const HOST_EXECUTIONS_ROOT = "/private/var/db/better-workflows/executions";
 const SAFE_LABEL = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const RUN_MODE_RANK = new Map(
   ["direct", "verified", "deep", "critical"].map((mode, index) => [mode, index])
@@ -749,132 +749,6 @@ function assertExplicitCodexEvaluationAuthority(options) {
   }
 }
 
-function isPathWithin(root, target) {
-  return target === root || target.startsWith(`${root}${path.sep}`);
-}
-
-function requestRunAs(request) {
-  return {
-    uid: request.uid,
-    gid: request.gid,
-    homePath: request.homePath,
-    codexHomePath: request.codexHomePath
-  };
-}
-
-function validRunAs(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value) ||
-      Object.keys(value).sort().join("\0") !== "codexHomePath\0gid\0homePath\0uid" ||
-      !Number.isInteger(value.uid) || value.uid <= 0 || !Number.isInteger(value.gid) || value.gid <= 0) return false;
-  for (const [key, nullable] of [["homePath", false], ["codexHomePath", true]]) {
-    if (nullable && value[key] === null) continue;
-    if (typeof value[key] !== "string" || !path.isAbsolute(value[key]) || path.resolve(value[key]) !== value[key]) return false;
-  }
-  return true;
-}
-
-async function loadHostExecutionRequestManifest({
-  manifestPath,
-  manifestDigest,
-  cwd,
-  run,
-  runId,
-  candidate,
-  frozen,
-  suiteDigest,
-  purpose,
-  target,
-  model
-}) {
-  if (typeof manifestPath !== "string" || typeof manifestDigest !== "string" || !/^[a-f0-9]{64}$/.test(manifestDigest)) {
-    throw new Error("Codex evaluation requires --request-manifest and --request-manifest-digest");
-  }
-  const repository = await realpath(cwd);
-  const resolvedManifest = path.resolve(manifestPath);
-  if (isPathWithin(repository, resolvedManifest)) throw new Error("Execution request manifest must be outside the evaluated repository");
-  const manifestInfo = await lstat(resolvedManifest);
-  if (manifestInfo.isSymbolicLink() || !manifestInfo.isFile() || path.resolve(await realpath(resolvedManifest)) !== resolvedManifest) {
-    throw new Error("Execution request manifest must be a canonical regular file");
-  }
-  const manifestBytes = await readFile(resolvedManifest);
-  if (sha256(manifestBytes) !== manifestDigest) throw new Error("Execution request manifest digest does not match the confirmed manifest");
-  const manifest = JSON.parse(manifestBytes.toString("utf8"));
-  if (manifest.schemaVersion !== 2 || manifest.repo !== repository || manifest.runId !== runId || manifest.model !== model ||
-      manifest.purpose !== purpose || manifest.suiteDigest !== suiteDigest || manifest.baselineRevision !== frozen.baselineRevision ||
-      manifest.candidateDigest !== candidate.digest || manifest.sourceSuiteDigest !== frozen.sourceDigest ||
-      manifest.targetSuiteDigest !== (target?.sourceDigest ?? null) || typeof manifest.binaryPath !== "string" ||
-      !path.isAbsolute(manifest.binaryPath) || !/^[a-f0-9]{64}$/.test(manifest.binaryApprovalDigest) || !/^[a-f0-9]{64}$/.test(manifest.binaryDigest) ||
-      !/^[a-f0-9]{40}$/.test(manifest.headRevision) || !/^[a-f0-9]{64}$/.test(manifest.sourceBindingDigest) ||
-      !/^[a-f0-9]{64}$/.test(manifest.pluginBundleDigest) ||
-      typeof manifest.runtimePath !== "string" || !path.isAbsolute(manifest.runtimePath) || !/^[a-f0-9]{64}$/.test(manifest.runtimeDigest) ||
-      !Array.isArray(manifest.requests) || manifest.requests.length !== 7 || !validRunAs(manifest.runAs)) {
-    throw new Error("Execution request manifest is not bound to this run, suite, model, and candidate");
-  }
-  const currentSourceBinding = await captureSourceBinding(repository, { baseRevision: frozen.baselineRevision, requireClean: true });
-  if (!currentSourceBinding || currentSourceBinding.headRevision !== manifest.headRevision || currentSourceBinding.digest !== manifest.sourceBindingDigest) {
-    throw new Error("Execution request manifest source binding is stale");
-  }
-  if (await pluginBundleDigest() !== manifest.pluginBundleDigest) {
-    throw new Error("Execution request manifest plugin bundle digest changed");
-  }
-  const completeJournal = path.join(HOST_EXECUTIONS_ROOT, `${manifestDigest}.batch.complete.json`);
-  const journalInfo = await lstat(completeJournal);
-  if (journalInfo.isSymbolicLink() || !journalInfo.isFile() || journalInfo.uid !== 0 || (journalInfo.mode & 0o777) !== 0o644 ||
-      path.resolve(await realpath(completeJournal)) !== completeJournal) {
-    throw new Error("Execution request manifest has no root-owned completed host batch journal");
-  }
-  const journal = JSON.parse((await readFile(completeJournal)).toString("utf8"));
-  if (journal.schemaVersion !== 1 || journal.provider !== "codex" || journal.kind !== "execution-batch-journal" ||
-      journal.state !== "complete" || journal.manifestDigest !== manifestDigest || !Array.isArray(journal.executionIds) ||
-      !Array.isArray(journal.requestDigests) || journal.executionIds.length !== 7 || journal.requestDigests.length !== 7 ||
-      journal.executionIds.length !== journal.outputs?.length) {
-    throw new Error("Completed host batch journal does not prove this request manifest");
-  }
-  const bindings = new Map();
-  const requestDigests = [];
-  const executionIds = [];
-  for (const item of manifest.requests) {
-    if (!item || typeof item !== "object" || typeof item.executionId !== "string" || typeof item.request !== "string" ||
-        !path.isAbsolute(item.request) || path.resolve(item.request) !== item.request || !/^[a-f0-9]{64}$/.test(item.requestDigest) ||
-        !/^[a-f0-9]{64}$/.test(item.promptDigest) || !Number.isInteger(item.attempt) || typeof item.role !== "string") {
-      throw new Error("Execution request manifest contains an invalid canonical request record");
-    }
-    const requestPath = path.resolve(item.request);
-    if (isPathWithin(repository, requestPath)) throw new Error("Execution request files must be outside the evaluated repository");
-    const requestInfo = await lstat(requestPath);
-    if (requestInfo.isSymbolicLink() || !requestInfo.isFile() || path.resolve(await realpath(requestPath)) !== requestPath) {
-      throw new Error("Execution request must be a canonical regular file");
-    }
-    const requestBytes = await readFile(requestPath);
-    if (sha256(requestBytes) !== item.requestDigest) throw new Error("Execution request digest changed after administrator confirmation");
-    const request = JSON.parse(requestBytes.toString("utf8"));
-    if (!validRunAs(requestRunAs(request)) || request.model !== manifest.model || request.pluginBundleDigest !== manifest.pluginBundleDigest || request.binaryPath !== manifest.binaryPath || request.binaryApprovalDigest !== manifest.binaryApprovalDigest || request.binaryDigest !== manifest.binaryDigest ||
-        digestObject(requestRunAs(request)) !== digestObject(manifest.runAs) || request.promptDigest !== item.promptDigest ||
-        request.execution?.id !== item.executionId || request.execution?.role !== item.role || request.execution?.attempt !== item.attempt ||
-        request.execution?.headRevision !== manifest.headRevision || request.execution?.sourceBindingDigest !== manifest.sourceBindingDigest ||
-        request.execution?.runId !== manifest.runId || request.execution?.suiteDigest !== manifest.suiteDigest ||
-        request.execution?.baselineRevision !== manifest.baselineRevision || request.execution?.candidateDigest !== manifest.candidateDigest) {
-      throw new Error("Execution request is not bound to the canonical request manifest");
-    }
-    if (bindings.has(item.executionId)) throw new Error("Execution request manifest contains duplicate execution IDs");
-    bindings.set(item.executionId, {
-      requestDigest: item.requestDigest,
-      runAs: requestRunAs(request),
-      headRevision: request.execution.headRevision,
-      sourceBindingDigest: request.execution.sourceBindingDigest
-    });
-    requestDigests.push(item.requestDigest);
-    executionIds.push(item.executionId);
-  }
-  if (digestObject(journal.executionIds) !== digestObject(executionIds) || digestObject(journal.requestDigests) !== digestObject(requestDigests)) {
-    throw new Error("Completed host batch journal does not match the canonical request manifest");
-  }
-  bindings.headRevision = manifest.headRevision;
-  bindings.sourceBindingDigest = manifest.sourceBindingDigest;
-  bindings.pluginBundleDigest = manifest.pluginBundleDigest;
-  return bindings;
-}
-
 async function evaluationReplay({ backend, fixture, role, cases, prompt, options, cwd, hostExecutionPath, execution, expectedRequestDigest = null, expectedRunAs = null }) {
   if (backend === "fixture") {
     const response = fixture?.[role];
@@ -1071,7 +945,7 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
   const baselinePrompt = buildEvaluationPrompt({ suite: { ...frozen.suite, cases }, candidate: baseline, materials: baselineMaterial });
   const fixture = backend === "fixture" ? JSON.parse(await readFile(path.resolve(cwd, String(options["result-file"])), "utf8")) : null;
   const requestBindings = backend === "codex"
-    ? await loadHostExecutionRequestManifest({
+    ? await loadBoundHostExecutionRequestManifest({
       manifestPath: options["request-manifest"],
       manifestDigest: options["request-manifest-digest"],
       cwd,
