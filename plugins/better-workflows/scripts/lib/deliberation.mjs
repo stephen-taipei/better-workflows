@@ -335,6 +335,7 @@ async function runTextParticipant(provider, participant, prompt, timeoutMs) {
 async function runCodexParticipant(participant, prompt, timeoutMs) {
   return withProbeDir(async (directory) => {
     const identity = await binaryIdentity("codex");
+    const advisoryPrompt = rolePrompt(participant, prompt);
     const result = await spawnCapture(
       "codex",
       [
@@ -356,9 +357,11 @@ async function runCodexParticipant(participant, prompt, timeoutMs) {
       ],
       {
         cwd: directory,
-        input: rolePrompt(participant, prompt),
+        input: advisoryPrompt,
         timeoutMs,
-        maxOutputBytes: MAX_PERSPECTIVE_BYTES + 1_024
+        // Codex exec may echo the user transcript to stderr. Count that
+        // transport overhead without allowing an unbounded reviewer output.
+        maxOutputBytes: Buffer.byteLength(advisoryPrompt, "utf8") + MAX_PERSPECTIVE_BYTES + 4_096
       }
     );
     if (result.code !== 0) throw new Error(`codex exited ${result.code}: ${result.stderr.trim()}`);
