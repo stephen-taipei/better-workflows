@@ -297,7 +297,7 @@ Evaluation v2.2 保留现有 safety、documentation、deliberation、sanitizer �
 
 `safety-remediation-v1` 是独立的 run-creation purpose。它使用固定的
 `plugins/better-workflows/config/self-improve-safety-remediation-v1.json` policy
-与 digest-bound v2.2 corpus，保留 universal invariant，并锁定 evidence、ledger、review 三个已重现的 hard-safety targets。baseline defect 必须在三次 replay 中至少重现两次；candidate 必须在每次 replay 修复，且不得有 case regression 或 candidate noise。purpose 与 policy digest 会绑定在 schemaVersion 3 request manifest、signed executions、evidence 与 delivery handoff；ordinary 与 evaluator-migration contract 保持不变。
+与 digest-bound v2.2 corpus，保留 universal invariant，并预先锁定 evidence、ledger、review 三个 remediation targets。每个 target 都必须在三次 replay 中至少重现两次 baseline defect；否则以 `baseline-remediation-not-reproduced` 拒绝。candidate 必须在每次 replay 修复已重现的 targets，且不得有 case regression 或 candidate noise。purpose 与 policy digest 会绑定在 schemaVersion 3 request manifest、signed executions、evidence 与 delivery handoff；ordinary 与 evaluator-migration contract 保持不变。
 
 ### 衍生 Graph View
 

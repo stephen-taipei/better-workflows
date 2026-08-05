@@ -343,10 +343,12 @@ source and binds both immutable suite digests into all seven signed executions.
 
 `safety-remediation-v1` is a separate run-creation purpose. It uses the fixed
 `plugins/better-workflows/config/self-improve-safety-remediation-v1.json` policy
-and its digest-bound v2.2 corpus, retaining the universal invariant plus the
-three reproduced evidence, ledger, and review hard-safety targets. Baseline
-defects must recur in at least two of three replays, while every candidate
-replay repairs them without case regression or candidate noise. The purpose and
+and its digest-bound v2.2 corpus, retaining the universal invariant and three
+predeclared evidence, ledger, and review remediation targets. Each target must
+be proven as a baseline defect in at least two of three replays; otherwise the
+run is rejected as `baseline-remediation-not-reproduced`. Every candidate replay
+must repair the reproduced targets without case regression or candidate noise.
+The purpose and
 policy digest are bound into the schemaVersion 3 request manifest, signed
 executions, evidence, and delivery handoff; ordinary and evaluator-migration
 contracts remain unchanged.

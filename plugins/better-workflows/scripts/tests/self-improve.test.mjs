@@ -23,7 +23,8 @@ import {
   selectSafetyRemediationCases,
   validateEvaluationSuite,
   SELF_IMPROVE_MIGRATION_SOURCE_CORPORA,
-  SELF_IMPROVE_ORDINARY_CORPORA
+  SELF_IMPROVE_ORDINARY_CORPORA,
+  SELF_IMPROVE_SAFETY_REMEDIATION_POLICY
 } from "../lib/self-improve.mjs";
 
 const execFileAsync = promisify(execFile);
@@ -151,6 +152,35 @@ test("safety remediation policy is versioned, digest-bound, and selects invarian
     evaluationBindingDigest({ purpose: "safety-remediation-v1", sourceSuiteDigest: safetyPolicy.sourceSuiteDigest, policyDigest: safetyPolicy.digest }));
 });
 
+test("safety remediation v1 rejects threshold, target, and artifact drift", async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), "sbw-safety-policy-drift-"));
+  const policyRelative = SELF_IMPROVE_SAFETY_REMEDIATION_POLICY;
+  const suiteRelative = "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.2.json";
+  const policyBytes = await readFile(path.join(repositoryRoot, policyRelative));
+  try {
+    const policyPath = path.join(cwd, policyRelative);
+    await mkdir(path.dirname(policyPath), { recursive: true });
+    await mkdir(path.dirname(path.join(cwd, suiteRelative)), { recursive: true });
+    await writeFile(policyPath, policyBytes);
+    await writeFile(path.join(cwd, suiteRelative), await readFile(path.join(repositoryRoot, suiteRelative)));
+    await assert.doesNotReject(loadSafetyRemediationPolicy({ cwd }));
+
+    const assertMutationRejected = async (mutate, pattern) => {
+      const mutated = JSON.parse(policyBytes.toString("utf8"));
+      mutate(mutated);
+      await writeFile(policyPath, `${JSON.stringify(mutated, null, 2)}\n`);
+      await assert.rejects(loadSafetyRemediationPolicy({ cwd }), pattern);
+    };
+
+    await assertMutationRejected((policy) => { policy.minimumBaselineFailureRuns = 1; }, /immutable v1 gate/);
+    await assertMutationRejected((policy) => { policy.targetCases = [policy.targetCases[2], policy.targetCases[1], policy.targetCases[0]]; }, /immutable v1 target set/);
+    await writeFile(policyPath, `${policyBytes.toString("utf8")}\n`);
+    await assert.rejects(loadSafetyRemediationPolicy({ cwd }), /approved immutable digest/);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test("safety remediation comparison requires reproducible baseline defects and repairs every target", () => {
   const selected = [
     "universal-sensitive-history",
@@ -163,7 +193,10 @@ test("safety remediation comparison requires reproducible baseline defects and r
       id,
       evaluationClass: id === "universal-sensitive-history" ? "universal-safety" : safetyPolicy.targetCases.find((item) => item.caseId === id).evaluationClass,
       score: failed.includes(id) ? 0 : 1,
-      hardSafetyPass: !failed.includes(id)
+      hardSafetyPass: !failed.includes(id),
+      passedAssertions: failed.includes(id)
+        ? []
+        : suiteV22.cases.find((item) => item.id === id).assertions.map((item) => item.id)
     }))
   });
   const accepted = compareSafetyRemediation({
@@ -181,6 +214,14 @@ test("safety remediation comparison requires reproducible baseline defects and r
     candidate: [score(), score(), score()]
   });
   assert.equal(notReproduced.reason, "baseline-remediation-not-reproduced");
+  const asymmetric = compareSafetyRemediation({
+    suite: suiteV22,
+    policy: safetyPolicy,
+    baseline: [score(["review-breaker-and-broad-pass"]), score(["review-breaker-and-broad-pass"]), score(["review-breaker-and-broad-pass"])],
+    candidate: [score(), score(), score()]
+  });
+  assert.equal(asymmetric.reason, "baseline-remediation-not-reproduced");
+  assert.deepEqual(asymmetric.perCase.filter((item) => item.evaluationClass !== "universal-safety").map((item) => item.baselineFailureRuns), [0, 0, 3]);
 });
 
 test("ordinary evaluator readers prefer the newest corpus present in the immutable baseline", () => {

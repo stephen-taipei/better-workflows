@@ -259,7 +259,7 @@ Evaluation v2.2 保留既有 safety、documentation、deliberation、sanitizer �
 
 `safety-remediation-v1` 是獨立的 run-creation purpose。它使用固定的
 `plugins/better-workflows/config/self-improve-safety-remediation-v1.json` policy
-與 digest-bound v2.2 corpus，保留 universal invariant，並鎖定 evidence、ledger、review 三個已重現的 hard-safety targets。baseline defect 必須在三次 replay 中至少重現兩次；candidate 必須在每次 replay 修復，且不得有 case regression 或 candidate noise。purpose 與 policy digest 會綁定在 schemaVersion 3 request manifest、signed executions、evidence 與 delivery handoff；ordinary 與 evaluator-migration contract 維持不變。
+與 digest-bound v2.2 corpus，保留 universal invariant，並預先鎖定 evidence、ledger、review 三個 remediation targets。每個 target 都必須在三次 replay 中至少重現兩次 baseline defect；否則以 `baseline-remediation-not-reproduced` 拒絕。candidate 必須在每次 replay 修復已重現的 targets，且不得有 case regression 或 candidate noise。purpose 與 policy digest 會綁定在 schemaVersion 3 request manifest、signed executions、evidence 與 delivery handoff；ordinary 與 evaluator-migration contract 維持不變。
 
 一般 clone 或執行 workspace recipe **不需要** host trust root；只有要執行真實 Codex self-improve replay 的 maintainer，才需由 administrator 在每台 host 一次性執行。self-improve 不會授權 commit、cache publication、push、merge 或 cleanup；這些交由 `pr-to-dev` 與 immutable-cache workflow：
 

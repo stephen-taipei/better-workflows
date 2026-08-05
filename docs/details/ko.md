@@ -250,7 +250,7 @@ $better-workflows:auto <완료하려는 결과를 설명>
 Evaluation v2.2는 기존 safety, documentation, deliberation, sanitizer, evaluation-engineering coverage를 유지하고 typed-evidence integrity, execution-ledger replay, bounded review convergence, direct-work cost를 위한 독립 train/holdout classes를 추가합니다. 일회성 migration은 immutable v2.1을 source로 사용하며 source/target 두 suite digest를 일곱 signed executions 모두에 결합합니다.
 
 `safety-remediation-v1`은 독립된 run-creation purpose입니다. 고정된
-`plugins/better-workflows/config/self-improve-safety-remediation-v1.json` policy와 digest-bound v2.2 corpus를 사용하며 universal invariant와 evidence, ledger, review의 재현된 세 hard-safety targets를 유지합니다. baseline defect는 세 replay 중 최소 두 번 재현되어야 하고 candidate는 모든 replay에서 수정해야 하며 case regression과 candidate noise를 허용하지 않습니다. purpose와 policy digest는 schemaVersion 3 request manifest, signed executions, evidence, delivery handoff에 바인딩되고 ordinary 및 evaluator-migration contract는 변경하지 않습니다.
+`plugins/better-workflows/config/self-improve-safety-remediation-v1.json` policy와 digest-bound v2.2 corpus를 사용하며 universal invariant와 evidence, ledger, review의 세 remediation targets를 사전에 고정합니다. 각 target은 세 replay 중 최소 두 번 baseline defect로 재현되어야 하며, 그렇지 않으면 `baseline-remediation-not-reproduced`로 거부합니다. candidate는 재현된 target을 모든 replay에서 수정해야 하며 case regression과 candidate noise를 허용하지 않습니다. purpose와 policy digest는 schemaVersion 3 request manifest, signed executions, evidence, delivery handoff에 바인딩되고 ordinary 및 evaluator-migration contract는 변경하지 않습니다.
 
 일반 clone 또는 workspace recipe 실행에는 host trust root가 **필요하지 않습니다**. 실제 Codex self-improve replay를 실행하려는 maintainer만 각 host에서 administrator가 한 번 실행합니다. self-improve는 commit, cache publication, push, merge, cleanup을 승인하지 않으며 `pr-to-dev`와 immutable-cache workflow에 위임합니다:
 

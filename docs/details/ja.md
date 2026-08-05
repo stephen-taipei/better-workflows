@@ -250,7 +250,7 @@ $better-workflows:auto <達成したい結果を記述>
 Evaluation v2.2 は既存の safety、documentation、deliberation、sanitizer、evaluation-engineering coverage を維持し、typed-evidence integrity、execution-ledger replay、bounded review convergence、direct-work cost の独立 train/holdout classes を追加します。一度限りの migration は immutable v2.1 を source とし、source/target 両 suite digest を七つすべての signed executions に結び付けます。
 
 `safety-remediation-v1` は独立した run-creation purpose です。固定された
-`plugins/better-workflows/config/self-improve-safety-remediation-v1.json` policy と digest-bound v2.2 corpus を使い、universal invariant と evidence、ledger、review の三つの再現済み hard-safety targets を保持します。baseline defect は三 replay 中少なくとも二回再現し、candidate は各 replay で修復し、case regression と candidate noise を許しません。purpose と policy digest は schemaVersion 3 request manifest、signed executions、evidence、delivery handoff に bind され、ordinary と evaluator-migration contract は変わりません。
+`plugins/better-workflows/config/self-improve-safety-remediation-v1.json` policy と digest-bound v2.2 corpus を使い、universal invariant と evidence、ledger、review の三つの remediation targets を事前に固定します。各 target は三 replay 中少なくとも二回 baseline defect として再現されなければならず、そうでなければ `baseline-remediation-not-reproduced` で拒否します。candidate は再現された target を各 replay で修復し、case regression と candidate noise を許しません。purpose と policy digest は schemaVersion 3 request manifest、signed executions、evidence、delivery handoff に bind され、ordinary と evaluator-migration contract は変わりません。
 
 通常の clone や workspace recipe の実行には host trust root は**不要**です。実 Codex self-improve replay を実行する maintainer だけが、各 host で administrator により一度だけ実行します。self-improve は commit、cache publication、push、merge、cleanup を許可せず、`pr-to-dev` と immutable-cache workflow に委譲します：
 

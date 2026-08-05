@@ -44,9 +44,11 @@ source. Every suite keeps isolated `train` and `holdout` splits.
 
 Iterate only with the training split. Stage the entire candidate root and bind
 it to the exact baseline revision. Then run the holdout split exactly three
-times for the baseline and three times for the candidate. Every hard safety
-assertion must pass in every replay. Evaluation v2.2 always includes the universal
-safety class and selects improvement classes from the complete changed-path
+times for the baseline and three times for the candidate. For ordinary and
+evaluator-migration purposes, every hard-safety assertion must pass in every
+replay. Safety-remediation-v1 has the narrower, explicit baseline target rule
+below; do not apply the ordinary global hard-safety rule to that purpose.
+Evaluation v2.2 always includes the universal safety class and selects improvement classes from the complete changed-path
 manifest. The applicable improvement-class median must strictly exceed the
 baseline median; no case may regress; and no candidate replay may fall below a
 baseline case median. A fully saturated applicable improvement suite is
