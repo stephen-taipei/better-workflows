@@ -93,6 +93,8 @@ test("host trust helper fixes authority paths and does not accept environment pa
   assert.match(source, /runAs/);
   assert.match(source, /maxOutputBytes = MAX_OUTPUT_BYTES/);
   assert.match(source, /runReadinessProbe/);
+  assert.match(source, /chmod\(bundle, 0o755\)/);
+  assert.match(source, /validateRootOwnedDirectory\(bundle, "Host execution bundle", 0o755\)/);
   assert.match(source, /compileNativeArtifact/);
   assert.match(source, /NATIVE_COMPILER/);
   assert.match(source, /isMachO/);

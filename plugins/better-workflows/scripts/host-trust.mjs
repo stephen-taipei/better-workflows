@@ -1289,8 +1289,10 @@ async function executeResultRequest(requestPath, confirmedDigest, { includeRespo
   };
   await writeHostArtifact(targets.ledgerStart, ledgerStart);
   const bundle = await mkdtemp(path.join(EXECUTION_BUNDLES, `${executionId}.`));
-  await chmod(bundle, 0o711);
-  await validateRootOwnedDirectory(bundle, "Host execution bundle", 0o711);
+  // macOS getcwd requires directory read permission for a non-root probe;
+  // the bundle contains only the public evaluation schema and is root-owned.
+  await chmod(bundle, 0o755);
+  await validateRootOwnedDirectory(bundle, "Host execution bundle", 0o755);
   const schemaPath = path.join(bundle, "evaluation.schema.json");
   const timeoutMs = DEFAULT_TIMEOUT_MS;
   let result;
