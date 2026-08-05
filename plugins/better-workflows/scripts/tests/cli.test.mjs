@@ -393,8 +393,12 @@ test("self-improve attestation request freezes seven distinct requests and rejec
   ]);
   const parent = await mkdtemp(path.join(os.tmpdir(), "sbw-attestation-output-"));
   const output = path.join(parent, "requests");
-  const hostStatus = await cli(cwd, stateRoot, ["self-improve", "host", "status"]);
-  const approvedBinary = hostStatus.json.codexBinary?.validEntries?.[0]?.path ?? process.execPath;
+  const hostStatus = await cli(cwd, stateRoot, ["self-improve", "host", "status"], { allowFailure: true });
+  const hostReady = hostStatus.code === 0 && hostStatus.json?.ready === true;
+  const approvedBinary = hostStatus.json?.codexBinary?.validEntries?.[0]?.path ?? process.execPath;
+  if (hostStatus.code !== 0) {
+    assert.match(hostStatus.stderr, /Administrator host status is unavailable|ENOENT: no such file or directory, lstat .*better-workflows.*codex-trust-root/);
+  }
   const requested = await cli(cwd, stateRoot, [
     "self-improve",
     "attestation",
@@ -411,8 +415,8 @@ test("self-improve attestation request freezes seven distinct requests and rejec
     approvedBinary,
     "--output",
     output
-  ], { allowFailure: hostStatus.json.ready !== true });
-  if (hostStatus.json.ready !== true) {
+  ], { allowFailure: !hostReady });
+  if (!hostReady) {
     assert.match(requested.stderr, /Administrator host runtime is not ready|host-trust upgrade first/);
     return;
   }
