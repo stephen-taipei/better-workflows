@@ -59,7 +59,9 @@ const SHA256 = /^[a-f0-9]{64}$/;
 const SHA1 = /^[a-f0-9]{40}$/;
 const MAX_PROMPT_BYTES = 8 * 1024 * 1024;
 const MAX_OUTPUT_BYTES = 2 * 1024 * 1024;
-const DEFAULT_TIMEOUT_MS = 120_000;
+// High-reasoning Codex replays can legitimately approach two minutes; retain
+// a bounded host cutoff while leaving enough margin for provider latency.
+const DEFAULT_TIMEOUT_MS = 180_000;
 const SAFE_PATH = "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
 
 export const EVALUATION_SCHEMA = {
