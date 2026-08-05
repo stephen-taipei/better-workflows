@@ -413,6 +413,7 @@ test("candidate sanitizer admits declared public docs and checks all paths befor
       "GOVERNANCE.md",
       "SECURITY.md",
       "SUPPORT.md",
+      "scripts/plugin-cache.mjs",
       "docs/details/en.md",
       "docs/guide/security.md",
       "docs/assets/better-workflows-engineering-stack.svg"
@@ -438,10 +439,17 @@ test("candidate sanitizer admits declared public docs and checks all paths befor
       allowed.push({ path: file, state: "file", digest: "b".repeat(64) });
     }
     await writeFile(path.join(cwd, "zz-private.txt"), "must remain outside the bundle\n");
+    await writeFile(path.join(cwd, "scripts/other-publisher.mjs"), "must remain outside the bundle\n");
     await assert.rejects(
       readSanitizedCandidateMaterial({
         cwd,
-        snapshot: { files: [...allowed, { path: "zz-private.txt", state: "file", digest: "c".repeat(64) }] },
+        snapshot: {
+          files: [
+            ...allowed,
+            { path: "zz-private.txt", state: "file", digest: "c".repeat(64) },
+            { path: "scripts/other-publisher.mjs", state: "file", digest: "d".repeat(64) }
+          ]
+        },
         maxFiles: 24
       }),
       /outside the sanitized allowlist/

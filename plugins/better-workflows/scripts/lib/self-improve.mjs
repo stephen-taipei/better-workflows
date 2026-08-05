@@ -31,6 +31,7 @@ const PUBLIC_ROOT_DOCUMENTS = new Set([
   "SECURITY.md",
   "SUPPORT.md"
 ]);
+const PUBLIC_ROOT_SCRIPTS = new Set(["scripts/plugin-cache.mjs"]);
 const MATERIAL_GROUPS = ["runtime", "tests", "config", "skills", "templates", "fixtures", "metadata", "docs"];
 const PUBLIC_DOCUMENT_SAMPLE_PRIORITY = new Map([
   "README.md",
@@ -41,11 +42,13 @@ const PUBLIC_DOCUMENT_SAMPLE_PRIORITY = new Map([
   "SECURITY.md",
   "docs/guide/security.md",
   "docs/guide/architecture.md",
+  "scripts/plugin-cache.mjs",
   "docs/assets/better-workflows-engineering-stack.svg"
 ].map((file, index) => [file, index]));
 
 function allowedCandidateMaterial(file) {
   return PUBLIC_ROOT_DOCUMENTS.has(file) ||
+    PUBLIC_ROOT_SCRIPTS.has(file) ||
     /^docs\/README\.(?:zh-TW|zh-CN|ja|ko)\.md$/.test(file) ||
     /^docs\/details\/(?:en|zh-TW|zh-CN|ja|ko)\.md$/.test(file) ||
     /^docs\/guide\/(?:architecture|cli-reference|getting-started|security|workflows)\.md$/.test(file) ||
