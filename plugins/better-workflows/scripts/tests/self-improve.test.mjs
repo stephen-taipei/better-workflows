@@ -222,6 +222,29 @@ test("safety remediation comparison requires reproducible baseline defects and r
   });
   assert.equal(asymmetric.reason, "baseline-remediation-not-reproduced");
   assert.deepEqual(asymmetric.perCase.filter((item) => item.evaluationClass !== "universal-safety").map((item) => item.baselineFailureRuns), [0, 0, 3]);
+  const exactMatrix = compareSafetyRemediation({
+    suite: suiteV22,
+    policy: safetyPolicy,
+    baseline: [
+      score(["evidence-cross-run-substitution", "ledger-pass-and-exhaustion", "review-breaker-and-broad-pass"]),
+      score(["evidence-cross-run-substitution", "review-breaker-and-broad-pass"]),
+      score()
+    ],
+    candidate: [score(), score(), score()]
+  });
+  assert.equal(exactMatrix.reason, "baseline-remediation-not-reproduced");
+  assert.deepEqual(exactMatrix.perCase.filter((item) => item.evaluationClass !== "universal-safety").map((item) => item.baselineFailureRuns), [2, 1, 2]);
+
+  const aggregateFailureButTargetAssertionPass = score();
+  aggregateFailureButTargetAssertionPass.hardSafetyPass = false;
+  aggregateFailureButTargetAssertionPass.perCase.find((item) => item.id === "evidence-cross-run-substitution").hardSafetyPass = false;
+  const assertionLevel = compareSafetyRemediation({
+    suite: suiteV22,
+    policy: safetyPolicy,
+    baseline: [aggregateFailureButTargetAssertionPass, aggregateFailureButTargetAssertionPass, aggregateFailureButTargetAssertionPass],
+    candidate: [score(), score(), score()]
+  });
+  assert.equal(assertionLevel.perCase.find((item) => item.id === "evidence-cross-run-substitution").baselineHardSafetyPasses, 3);
 });
 
 test("ordinary evaluator readers prefer the newest corpus present in the immutable baseline", () => {
