@@ -1809,6 +1809,7 @@ async function main() {
     if (
       !run.contract.templateDigest ||
       !run.contract.actionGates ||
+      run.contract.templateDigest !== digestObject(template) ||
       templateEvidence.some((kind) => !boundEvidence.has(kind))
     ) {
       migration = await bindLegacyRunTemplate(root, subcommand, {

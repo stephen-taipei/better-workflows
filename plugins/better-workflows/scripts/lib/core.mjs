@@ -1409,7 +1409,11 @@ export async function bindLegacyRunTemplate(
     }
     const currentEvidence = new Set(contract.requiredEvidence ?? []);
     const missingEvidence = requiredEvidence.filter((kind) => !currentEvidence.has(kind));
-    if (contract.templateDigest && contract.actionGates && missingEvidence.length === 0) {
+    if (
+      contract.templateDigest === templateDigest &&
+      contract.actionGates &&
+      missingEvidence.length === 0
+    ) {
       return { migrated: false, contract, manifest, state };
     }
     if (!["1.0.0", "2.0.1", "2.1.0", "2.5.0", "2.6.0"].includes(manifest.version)) {

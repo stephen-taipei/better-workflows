@@ -310,7 +310,22 @@ export async function transitionLedger(root, runId, event) {
   if (event.actor !== undefined && event.actor !== "root") throw new Error("Ledger transitions are root-owned");
   assertExpectedLedgerDigest(event, ledger);
   const records = await listJsonRecords(root, safeJoin(runDir, "evidence"));
-  const typedKinds = new Set(records.filter((record) => record.schemaVersion === 2 && record.typedAdmission).map((record) => record.kind));
+  const typedKinds = new Set();
+  if (run.contract.schemaVersion === 2) {
+    const { validateTypedEvidenceRecord } = await import("./evidence.mjs");
+    for (const record of records.filter((item) => item.schemaVersion === 2 && item.typedAdmission)) {
+      try {
+        await validateTypedEvidenceRecord(record, { ...run, root, requireReconciled: true });
+        if (!record.stale) typedKinds.add(record.kind);
+      } catch {
+        throw new Error(`Ledger transition rejected: invalid-typed-evidence:${record.id ?? "unknown"}`);
+      }
+    }
+  } else {
+    for (const record of records.filter((item) => item.schemaVersion === 2 && item.typedAdmission)) {
+      typedKinds.add(record.kind);
+    }
+  }
   const before = reduceLedger(ledger, typedKinds);
   if (before.blockers.length > 0) {
     throw new Error(`Ledger transition rejected: ${before.blockers.join(", ")}`);

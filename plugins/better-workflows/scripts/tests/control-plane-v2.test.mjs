@@ -475,6 +475,16 @@ test("persisted typed evidence is revalidated before ledger admission", async ()
   const tampered = JSON.parse(await readFile(evidencePath, "utf8"));
   tampered.receipt.payloadDigest = "0".repeat(64);
   await writeFile(evidencePath, `${JSON.stringify(tampered, null, 2)}\n`);
+  await assert.rejects(
+    transitionLedger(root, started.runId, {
+      eventId: "blocked-by-tampered-evidence",
+      type: "start",
+      taskId: "environment"
+    }),
+    /invalid-typed-evidence:environment/
+  );
+  const ledger = JSON.parse(await readFile(path.join(run.runDir, "ledger.json"), "utf8"));
+  assert.equal(ledger.events.length, 0);
   const status = await deriveLedgerStatus(root, started.runId);
   assert.ok(status.blockers.includes("invalid-typed-evidence:environment"));
   assert.equal(status.complete, false);

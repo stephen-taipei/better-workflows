@@ -821,6 +821,51 @@ test("legacy resume migrates first and then blocks a structurally invalid templa
   assert.equal(state.lastSentinelVerified, false);
 });
 
+test("legacy resume migrates an already-bound run when the template digest drifts", async () => {
+  const cwd = await repository();
+  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-graph-digest-migration-"));
+  const copied = await copiedPlugin();
+  const started = await cli(
+    cwd,
+    stateRoot,
+    [
+      "run",
+      "--template",
+      "review-to-issues",
+      "--mode",
+      "verified",
+      "--goal",
+      "Bound template digest migration",
+      "--scope",
+      "src"
+    ],
+    { executable: copied.cli }
+  );
+  const runDirectory = path.join(stateRoot, "runs", started.json.runId);
+  const manifestPath = path.join(runDirectory, "manifest.json");
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+  manifest.version = "2.6.0";
+  await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+
+  const templatePath = path.join(copied.root, "templates", "review-to-issues.json");
+  const definition = JSON.parse(await readFile(templatePath, "utf8"));
+  definition.actionGates["issue.create"].push("not-in-required-evidence");
+  await writeFile(templatePath, `${JSON.stringify(definition, null, 2)}\n`);
+
+  const resumed = await cli(
+    cwd,
+    stateRoot,
+    ["resume", started.json.runId],
+    { allowFailure: true, executable: copied.cli }
+  );
+  assert.equal(resumed.code, 2);
+  assert.equal(resumed.json.migration.migrated, true);
+  const migratedManifest = JSON.parse(await readFile(manifestPath, "utf8"));
+  const migratedContract = JSON.parse(await readFile(path.join(runDirectory, "contract.json"), "utf8"));
+  assert.equal(migratedManifest.migratedFromVersion, "2.6.0");
+  assert.equal(migratedContract.templateDigest, digestObject(definition));
+});
+
 test("graph derivation failures remain system errors and cannot create a run", async () => {
   const cwd = await repository();
   const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-graph-system-gate-"));
