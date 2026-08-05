@@ -43,7 +43,7 @@ const HOST_ADMIN_SHELL = [
   "[ ! -L \"$target\" ] && [ -f \"$target\" ] && [ \"$(/usr/bin/stat -f %u \"$target\")\" = \"0\" ] && [ \"$(/usr/bin/stat -f %Lp \"$target\")\" = \"755\" ] || { echo 'administrator runtime target is not root-owned 0755' >&2; exit 126; }",
   "actual=$(/usr/bin/shasum -a 256 \"$target\" | /usr/bin/awk '{print $1}')",
   "[ \"$actual\" = \"$runtime_digest\" ] || { echo 'administrator runtime digest mismatch' >&2; exit 126; }",
-  "exec /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin \"$target\" \"${HOST_TRUST_TOOL}\" execute-batch --manifest \"$manifest\" --confirm-digest \"$manifest_digest\""
+  `exec /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin \"$target\" \"${HOST_TRUST_TOOL}\" execute-batch --manifest \"$manifest\" --confirm-digest \"$manifest_digest\"`
 ].join("\n");
 
 async function installedRuntime() {

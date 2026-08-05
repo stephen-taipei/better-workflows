@@ -455,6 +455,8 @@ test("self-improve attestation request freezes seven distinct requests and rejec
   assert.match(requested.json.executeCommand[3], /bw-host-node/);
   assert.match(requested.json.executeCommand[3], /stat -f %u/);
   assert.match(requested.json.executeCommand[3], /env -i/);
+  assert.match(requested.json.executeCommand[3], /\/private\/var\/db\/better-workflows\/bin\/bw-host-trust\.mjs/);
+  assert.doesNotMatch(requested.json.executeCommand[3], /\$\{HOST_TRUST_TOOL\}/);
   assert.match(requested.json.runtimeDigest, /^[a-f0-9]{64}$/);
   assert.equal(requested.json.schemaVersion, 2);
   assert.equal(requested.json.runAs.uid, process.getuid());
