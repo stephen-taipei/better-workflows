@@ -12,6 +12,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import {
   canonicalJson,
+  EVALUATION_SCHEMA,
   privateKeyFromRaw,
   validateSigningKeyPair,
   spawnCapture,
@@ -38,6 +39,15 @@ test("host signer reconstructs Ed25519 keys and signs canonical verifier payload
   const bytes = Buffer.from(canonicalJson(payload), "utf8");
   const signature = sign(null, bytes, reconstructed);
   assert.equal(verify(null, bytes, publicKey, signature), true);
+});
+
+test("host execution response schema defines array items for Codex structured output", () => {
+  const results = EVALUATION_SCHEMA.properties.results;
+  assert.equal(results.type, "array");
+  assert.equal(results.items.type, "object");
+  assert.deepEqual(results.items.required, ["id", "disposition", "passedAssertions"]);
+  assert.equal(results.items.properties.passedAssertions.type, "array");
+  assert.equal(results.items.properties.passedAssertions.items.type, "string");
 });
 
 test("host readiness proves the installed private key matches the trust-root public key", async () => {

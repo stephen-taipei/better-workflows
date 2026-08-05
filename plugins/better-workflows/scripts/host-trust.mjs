@@ -62,6 +62,30 @@ const MAX_OUTPUT_BYTES = 2 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 120_000;
 const SAFE_PATH = "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
 
+export const EVALUATION_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["results"],
+  properties: {
+    results: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["id", "disposition", "passedAssertions"],
+        properties: {
+          id: { type: "string" },
+          disposition: {
+            type: "string",
+            enum: ["IMPLEMENT", "NO_CHANGE", "BLOCKED", "REJECTED_WITH_EVIDENCE"]
+          },
+          passedAssertions: { type: "array", items: { type: "string" } }
+        }
+      }
+    }
+  }
+};
+
 function sorted(value) {
   if (Array.isArray(value)) return value.map(sorted);
   if (value && typeof value === "object") {
@@ -1298,12 +1322,7 @@ async function executeResultRequest(requestPath, confirmedDigest, { includeRespo
   let result;
   let response;
   try {
-    await writeFile(schemaPath, JSON.stringify({
-      type: "object",
-      additionalProperties: false,
-      required: ["results"],
-      properties: { results: { type: "array" } }
-    }), { mode: 0o644 });
+    await writeFile(schemaPath, JSON.stringify(EVALUATION_SCHEMA), { mode: 0o644 });
     const args = commandArgs ?? [
       "exec", "--ignore-user-config", "--ignore-rules", "--ephemeral", "--sandbox", "read-only", "--skip-git-repo-check",
       "-C", bundle, "--output-schema", schemaPath,
