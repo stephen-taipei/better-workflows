@@ -12,12 +12,15 @@ import {
   calibrateEvaluatorMigration,
   compareEvaluatorMigration,
   compareHoldout,
+  compareSafetyRemediation,
   evaluationBindingDigest,
+  loadSafetyRemediationPolicy,
   readSanitizedCandidateMaterial,
   snapshotBaselineForCandidate,
   snapshotCandidate,
   scoreEvaluation,
   selectEvaluationCases,
+  selectSafetyRemediationCases,
   validateEvaluationSuite,
   SELF_IMPROVE_MIGRATION_SOURCE_CORPORA,
   SELF_IMPROVE_ORDINARY_CORPORA
@@ -30,6 +33,8 @@ const suiteV2 = JSON.parse(await readFile(path.join(pluginRoot(), "fixtures", "s
 const suiteV21Bytes = await readFile(path.join(pluginRoot(), "fixtures", "self-improve-ops-evals-v2.1.json"));
 const suiteV21 = JSON.parse(suiteV21Bytes.toString("utf8"));
 const suiteV22 = JSON.parse(await readFile(path.join(pluginRoot(), "fixtures", "self-improve-ops-evals-v2.2.json"), "utf8"));
+const repositoryRoot = path.resolve(pluginRoot(), "../..");
+const safetyPolicy = await loadSafetyRemediationPolicy({ cwd: repositoryRoot });
 
 function run(score, hardSafetyPass = true) {
   return { score, hardSafetyPass, perCase: [{ id: "a", evaluationClass: null, score, hardSafetyPass }] };
@@ -118,6 +123,64 @@ test("evaluator migration binding changes with either immutable suite digest", (
   const base = evaluationBindingDigest({ purpose: "evaluator-migration", sourceSuiteDigest: "a".repeat(64), targetSuiteDigest: "b".repeat(64) });
   assert.notEqual(base, evaluationBindingDigest({ purpose: "evaluator-migration", sourceSuiteDigest: "c".repeat(64), targetSuiteDigest: "b".repeat(64) }));
   assert.notEqual(base, evaluationBindingDigest({ purpose: "evaluator-migration", sourceSuiteDigest: "a".repeat(64), targetSuiteDigest: "d".repeat(64) }));
+});
+
+test("safety remediation policy is versioned, digest-bound, and selects invariant plus exact targets", () => {
+  assert.equal(safetyPolicy.purpose, "safety-remediation-v1");
+  assert.equal(safetyPolicy.sourceSuiteDigest, "6e6923ca2953fceb0cbbd7d16bb8b83745ac318e60d80279549751aad92c00c4");
+  assert.equal(safetyPolicy.targetCases.length, 3);
+  const selected = selectSafetyRemediationCases({
+    suite: suiteV22,
+    snapshot: {
+      files: [
+        { path: "plugins/better-workflows/scripts/lib/evidence.mjs", state: "file" },
+        { path: "plugins/better-workflows/scripts/lib/ledger.mjs", state: "file" },
+        { path: "plugins/better-workflows/scripts/lib/review.mjs", state: "file" }
+      ]
+    },
+    split: "holdout",
+    policy: safetyPolicy
+  });
+  assert.deepEqual(selected.map((item) => item.id), [
+    "universal-sensitive-history",
+    "evidence-cross-run-substitution",
+    "ledger-pass-and-exhaustion",
+    "review-breaker-and-broad-pass"
+  ]);
+  assert.equal(evaluationBindingDigest({ purpose: "safety-remediation-v1", sourceSuiteDigest: safetyPolicy.sourceSuiteDigest, policyDigest: safetyPolicy.digest }),
+    evaluationBindingDigest({ purpose: "safety-remediation-v1", sourceSuiteDigest: safetyPolicy.sourceSuiteDigest, policyDigest: safetyPolicy.digest }));
+});
+
+test("safety remediation comparison requires reproducible baseline defects and repairs every target", () => {
+  const selected = [
+    "universal-sensitive-history",
+    ...safetyPolicy.targetCases.map((item) => item.caseId)
+  ];
+  const score = (failed = []) => ({
+    score: failed.length ? 0.75 : 1,
+    hardSafetyPass: failed.length === 0,
+    perCase: selected.map((id) => ({
+      id,
+      evaluationClass: id === "universal-sensitive-history" ? "universal-safety" : safetyPolicy.targetCases.find((item) => item.caseId === id).evaluationClass,
+      score: failed.includes(id) ? 0 : 1,
+      hardSafetyPass: !failed.includes(id)
+    }))
+  });
+  const accepted = compareSafetyRemediation({
+    suite: suiteV22,
+    policy: safetyPolicy,
+    baseline: [score(safetyPolicy.targetCases.map((item) => item.caseId)), score(safetyPolicy.targetCases.map((item) => item.caseId)), score()],
+    candidate: [score(), score(), score()]
+  });
+  assert.equal(accepted.accepted, true);
+  assert.equal(accepted.policy, safetyPolicy.policyId);
+  const notReproduced = compareSafetyRemediation({
+    suite: suiteV22,
+    policy: safetyPolicy,
+    baseline: [score(safetyPolicy.targetCases.map((item) => item.caseId)), score(), score()],
+    candidate: [score(), score(), score()]
+  });
+  assert.equal(notReproduced.reason, "baseline-remediation-not-reproduced");
 });
 
 test("ordinary evaluator readers prefer the newest corpus present in the immutable baseline", () => {

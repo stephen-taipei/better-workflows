@@ -218,6 +218,28 @@ test("self-improve runs require an explicit full baseline that strictly precedes
   assert.match(same.stderr, /strict ancestor/);
 });
 
+test("safety-remediation purpose is fixed at self-improve run creation", async () => {
+  const cwd = await selfImproveRepository();
+  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-cli-safety-remediation-purpose-"));
+  const baseline = await revision(cwd);
+  await writeFile(path.join(cwd, "plugins", "better-workflows", "scripts", "candidate.mjs"), "export const candidate = true;\n");
+  await git(cwd, "add", ".");
+  await git(cwd, "commit", "-qm", "stage remediation candidate");
+  const started = await cli(cwd, stateRoot, [
+    "run", "--template", "self-improve-ops", "--mode", "critical", "--goal", "Repair safety defects", "--scope", ".",
+    "--baseline", baseline, "--evaluation-purpose", "safety-remediation-v1"
+  ]);
+  const contract = JSON.parse(await readFile(path.join(stateRoot, "runs", started.json.runId, "contract.json"), "utf8"));
+  const manifest = JSON.parse(await readFile(path.join(stateRoot, "runs", started.json.runId, "manifest.json"), "utf8"));
+  assert.equal(contract.selfImprovePurpose, "safety-remediation-v1");
+  assert.equal(manifest.evaluationPurpose, "safety-remediation-v1");
+  const switched = await cli(cwd, stateRoot, [
+    "self-improve", "evaluate", "--run", started.json.runId, "--cases", "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.2.json",
+    "--purpose", "ordinary", "--baseline", baseline, "--candidate-root", ".", "--backend", "fixture", "--result-file", "/nonexistent", "--split", "train"
+  ], { allowFailure: true, env: { SBW_TEST_FIXTURE_BACKEND: "1" } });
+  assert.match(switched.stderr, /immutable run creation purpose/);
+});
+
 test("self-improve fixture evaluation is explicit, private, and never grants delivery", async () => {
   const cwd = await selfImproveRepository();
   const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-cli-self-improve-state-"));

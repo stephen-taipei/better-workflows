@@ -47,6 +47,8 @@ export async function collectSelfImproveDeliveryBinding(root, sourceRunId) {
     sourceBindingDigest: evaluation.sourceBindingDigest,
     pluginBundleDigest: evaluation.pluginBundleDigest,
     requestManifestDigest: evaluation.requestManifestDigest,
+    purpose: evaluation.purpose ?? "ordinary",
+    policyDigest: evaluation.policyDigest ?? null,
     comparisonDigest: digestObject(evaluation.comparison),
     candidateDigest,
     candidateRoot,
@@ -58,7 +60,7 @@ export async function collectSelfImproveDeliveryBinding(root, sourceRunId) {
 export async function validateSelfImproveDeliveryHandoff(payload, targetRun) {
   const expectedKeys = [
     "artifact", "cacheRoot", "candidateDigest", "candidateRoot", "comparisonDigest", "pluginBundleDigest",
-    "requestManifestDigest", "sourceBaselineRevision", "sourceBindingDigest", "sourceHeadRevision",
+    "policyDigest", "purpose", "requestManifestDigest", "sourceBaselineRevision", "sourceBindingDigest", "sourceHeadRevision",
     "sourceRunId", "witnessDigests"
   ];
   if (!payload || Object.keys(payload).sort().join("\0") !== expectedKeys.sort().join("\0") ||
@@ -69,6 +71,8 @@ export async function validateSelfImproveDeliveryHandoff(payload, targetRun) {
       !SHA1.test(payload.sourceHeadRevision) || !SHA256.test(payload.candidateDigest) ||
       !SHA256.test(payload.sourceBindingDigest) || !SHA256.test(payload.pluginBundleDigest) ||
       !SHA256.test(payload.requestManifestDigest) || !SHA256.test(payload.comparisonDigest) ||
+      !["ordinary", "evaluator-migration", "safety-remediation-v1"].includes(payload.purpose) ||
+      (payload.purpose === "safety-remediation-v1" ? !SHA256.test(payload.policyDigest) : payload.policyDigest !== null) ||
       typeof payload.cacheRoot !== "string" || !path.isAbsolute(payload.cacheRoot) ||
       !Array.isArray(payload.witnessDigests) || payload.witnessDigests.length !== 7 ||
       payload.witnessDigests.some((item) => !SHA256.test(item)) || new Set(payload.witnessDigests).size !== 7) {

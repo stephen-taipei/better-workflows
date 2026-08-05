@@ -69,6 +69,24 @@ hard-safety assertion, every case median, and every individual candidate replay
 is non-regressing. After a migration is merged, all ordinary candidates use the
 new canonical corpus and the strict improvement rule above.
 
+Safety remediation is a separate, versioned purpose and is never selected by
+changing `--purpose` after an ordinary run has failed. Create the run with
+`--evaluation-purpose safety-remediation-v1`; it loads the fixed policy at
+`config/self-improve-safety-remediation-v1.json`, binds its digest into the
+suite digest, request manifest, every signed execution, evidence, and delivery
+handoff, and uses the immutable v2.2 corpus digest declared by that policy.
+The v2.2 corpus itself remains unchanged. The policy retains the universal
+invariant holdout and exactly three remediation targets: evidence cross-run
+substitution, ledger PASS-text transitions, and fifth-round review blocking.
+The three candidate holdout replays must pass every applicable hard-safety
+assertion; the three baseline replays must pass the invariant class and must
+reproduce each target defect in at least two replays. Every target defect must
+be repaired by the candidate, with no target-case regression, no noisy
+candidate replay, and strict target median improvement. Missing, malformed,
+drifted, or reused policy/request/witness bindings fail closed. This policy is
+an evaluator migration of semantics only; it does not change ordinary or
+evaluator-migration comparison behavior.
+
 Real replays require separate, per-run authority and use only a read-only,
 ephemeral Codex invocation. They also require a host-signed attestation for the
 exact Codex binary and requested model. The trust root is fixed at the canonical
@@ -91,7 +109,8 @@ non-secret-shaped content from approved paths is sent to Codex.
 Each real replay uses a distinct host-owned execution witness. Its unique
 execution ID, run ID, corpus digest, baseline revision, candidate digest, exact
 committed HEAD, source-binding digest, role, attempt number, exact prompt digest,
-native Mach-O Codex digest, and administrator-owned allowlist digest are submitted
+purpose, policy digest when applicable, native Mach-O Codex digest, and
+administrator-owned allowlist digest are submitted
 in a digest-confirmed request. The installed administrator signer
 snapshots that exact binary into a root-owned `0755` execution-root file, creates
 and signs the pre-execution binding, then invokes a root-owned native launcher.
@@ -146,7 +165,8 @@ from the committed candidate HEAD:
 ```sh
 sbw run --template self-improve-ops --mode critical \
   --goal "<bounded improvement goal>" --scope . \
-  --baseline <immutable-baseline-sha>
+  --baseline <immutable-baseline-sha> \
+  [--evaluation-purpose ordinary|evaluator-migration|safety-remediation-v1]
 ```
 
 `--baseline` is resolved to a commit before the run is written. The run rejects
@@ -194,6 +214,21 @@ immutable previous corpus and add:
 --purpose evaluator-migration \
 --next-cases plugins/better-workflows/fixtures/self-improve-ops-evals-v2.2.json
 ```
+
+For a policy-bound safety remediation run, fix the purpose at run creation and
+use the v2.2 cases path without `--next-cases`:
+
+```sh
+sbw run --template self-improve-ops --mode critical \
+  --goal "Repair reproduced Better Workflows safety defects" --scope . \
+  --baseline <immutable-baseline-sha> \
+  --evaluation-purpose safety-remediation-v1
+```
+
+Pass `--purpose safety-remediation-v1` to both evaluation commands only when
+the run was created with that immutable purpose. The attestation manifest uses
+schemaVersion 3 for this purpose and includes the policy identity and digest;
+schemaVersion 2 remains the ordinary/migration contract.
 
 Use `--split holdout` only after training is frozen. This selector never
 automatically adopts a candidate, commits, publishes a cache, pushes, merges,

@@ -8,6 +8,7 @@ import {
   evaluationBindingDigest,
   loadFrozenEvaluationSuite,
   loadMigrationTargetSuite,
+  loadSafetyRemediationPolicy,
   buildEvaluationPrompt,
   readSanitizedCandidateMaterial,
   readSanitizedBaselineMaterial,
@@ -16,6 +17,8 @@ import {
   selectEvaluationCases,
   SELF_IMPROVE_CANONICAL_CORPUS,
   SELF_IMPROVE_MIGRATION_SOURCE_CORPUS,
+  SELF_IMPROVE_SAFETY_REMEDIATION_PURPOSE,
+  selectSafetyRemediationCases,
   ordinaryCorpusForBaseline
 } from "./self-improve.mjs";
 import { captureSourceBinding } from "./git.mjs";
@@ -136,9 +139,13 @@ export async function generateAttestationRequests({
   ) {
     throw new Error("Attestation requests must be written outside the repository");
   }
+  const safety = purpose === SELF_IMPROVE_SAFETY_REMEDIATION_PURPOSE;
+  const policy = safety ? await loadSafetyRemediationPolicy({ cwd: resolvedRepo }) : null;
   const defaultCasesFile = purpose === "evaluator-migration"
     ? SELF_IMPROVE_MIGRATION_SOURCE_CORPUS
-    : await ordinaryCorpusForBaseline({ cwd: resolvedRepo, baselineRevision });
+    : safety
+      ? SELF_IMPROVE_CANONICAL_CORPUS
+      : await ordinaryCorpusForBaseline({ cwd: resolvedRepo, baselineRevision });
   const frozen = await loadFrozenEvaluationSuite({
     cwd: resolvedRepo,
     casesFile: path.resolve(
@@ -149,6 +156,9 @@ export async function generateAttestationRequests({
     canonical: true,
     purpose
   });
+  if (policy && frozen.sourceDigest !== policy.sourceSuiteDigest) {
+    throw new Error("Safety remediation source suite digest is not the policy-bound immutable corpus");
+  }
   const target = purpose === "evaluator-migration"
     ? await loadMigrationTargetSuite({
       cwd: resolvedRepo,
@@ -158,7 +168,8 @@ export async function generateAttestationRequests({
   const suiteDigest = evaluationBindingDigest({
     purpose,
     sourceSuiteDigest: frozen.sourceDigest,
-    targetSuiteDigest: target?.sourceDigest
+    targetSuiteDigest: target?.sourceDigest,
+    policyDigest: policy?.digest
   });
   const candidate = await snapshotCandidate({
     cwd: resolvedRepo,
@@ -192,7 +203,9 @@ export async function generateAttestationRequests({
     codexHomePath
   };
   for (const split of ["train", "holdout"]) {
-    const cases = selectEvaluationCases({ suite: frozen.suite, snapshot: candidate, split });
+    const cases = safety
+      ? selectSafetyRemediationCases({ suite: frozen.suite, snapshot: candidate, split, policy })
+      : selectEvaluationCases({ suite: frozen.suite, snapshot: candidate, split });
     promptByRoleAndSplit.set(`candidate:${split}`, buildEvaluationPrompt({
       suite: { ...frozen.suite, cases },
       candidate,
@@ -228,7 +241,8 @@ export async function generateAttestationRequests({
         .digest("hex"),
       role: item.role,
       sourceBindingDigest: sourceBinding.digest,
-      attempt: item.attempt
+      attempt: item.attempt,
+      ...(safety ? { purpose, policyDigest: policy.digest } : {})
     };
     const prompt = promptByRoleAndSplit.get(`${item.role === "train-candidate" ? "candidate" : item.role}:${item.split}`);
     const promptBytes = Buffer.from(prompt);
@@ -250,6 +264,10 @@ export async function generateAttestationRequests({
       promptPath: promptFile,
       uid: runAs.uid
     };
+    if (safety) {
+      request.purpose = purpose;
+      request.policyDigest = policy.digest;
+    }
     const filename = `${execution.id}.request.json`;
     const file = path.join(outputDir, filename);
     const bytes = Buffer.from(`${JSON.stringify(request, null, 2)}\n`);
@@ -265,7 +283,7 @@ export async function generateAttestationRequests({
     });
   }
   const manifest = {
-    schemaVersion: 2,
+    schemaVersion: safety ? 3 : 2,
     repo: resolvedRepo,
     runId,
     model,
@@ -287,7 +305,15 @@ export async function generateAttestationRequests({
     baselineRevision: frozen.baselineRevision,
     candidateDigest: candidate.digest,
     candidateFiles: candidate.files,
-    requests: records
+    requests: records,
+    ...(safety
+      ? {
+        policyPath: policy.path,
+        policyId: policy.policyId,
+        policyVersion: policy.version,
+        policyDigest: policy.digest
+      }
+      : {})
   };
   const manifestPath = path.join(outputDir, "attestation-requests.json");
   const manifestBytes = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`);

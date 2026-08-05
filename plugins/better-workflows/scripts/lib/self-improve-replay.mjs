@@ -15,13 +15,16 @@ import {
   calibrateEvaluatorMigration,
   compareEvaluatorMigration,
   compareHoldout,
+  compareSafetyRemediation,
   evaluationBindingDigest,
   loadFrozenEvaluationSuite,
   loadMigrationTargetSuite,
+  loadSafetyRemediationPolicy,
   readSanitizedBaselineMaterial,
   readSanitizedCandidateMaterial,
   scoreEvaluation,
   selectEvaluationCases,
+  selectSafetyRemediationCases,
   snapshotBaselineForCandidate,
   snapshotCandidate
 } from "./self-improve.mjs";
@@ -81,6 +84,9 @@ export async function loadHostExecutionRequestManifest({
     throw new Error("Codex evaluation requires --request-manifest and --request-manifest-digest");
   }
   const repository = await realpath(cwd);
+  const safety = purpose === "safety-remediation-v1";
+  const policy = safety ? await loadSafetyRemediationPolicy({ cwd: repository }) : null;
+  const expectedManifestSchema = safety ? 3 : 2;
   const resolvedManifest = path.resolve(manifestPath);
   if (isPathWithin(repository, resolvedManifest)) throw new Error("Execution request manifest must be outside the evaluated repository");
   const manifestInfo = await lstat(resolvedManifest);
@@ -90,7 +96,7 @@ export async function loadHostExecutionRequestManifest({
   const manifestBytes = await readFile(resolvedManifest);
   if (sha256(manifestBytes) !== manifestDigest) throw new Error("Execution request manifest digest does not match the confirmed manifest");
   const manifest = JSON.parse(manifestBytes.toString("utf8"));
-  if (manifest.schemaVersion !== 2 || manifest.repo !== repository || manifest.runId !== runId || manifest.model !== model ||
+  if (manifest.schemaVersion !== expectedManifestSchema || manifest.repo !== repository || manifest.runId !== runId || manifest.model !== model ||
       manifest.purpose !== purpose || manifest.suiteDigest !== suiteDigest || manifest.baselineRevision !== frozen.baselineRevision ||
       manifest.candidateDigest !== candidate.digest || manifest.sourceSuiteDigest !== frozen.sourceDigest ||
       manifest.targetSuiteDigest !== (target?.sourceDigest ?? null) || typeof manifest.binaryPath !== "string" ||
@@ -98,6 +104,8 @@ export async function loadHostExecutionRequestManifest({
       !SHA1.test(manifest.headRevision) || !SHA256.test(manifest.sourceBindingDigest) || !SHA256.test(manifest.pluginBundleDigest) ||
       typeof manifest.runtimePath !== "string" || !path.isAbsolute(manifest.runtimePath) || !SHA256.test(manifest.runtimeDigest) ||
       !Array.isArray(manifest.candidateFiles) || digestObject(manifest.candidateFiles) !== digestObject(candidate.files) ||
+      manifest.policyPath !== (policy?.path ?? undefined) || manifest.policyId !== (policy?.policyId ?? undefined) ||
+      manifest.policyVersion !== (policy?.version ?? undefined) || manifest.policyDigest !== (policy?.digest ?? undefined) ||
       !Array.isArray(manifest.requests) || manifest.requests.length !== 7 || !validRunAs(manifest.runAs)) {
     throw new Error("Execution request manifest is not bound to this run, suite, model, and candidate");
   }
@@ -145,7 +153,9 @@ export async function loadHostExecutionRequestManifest({
         request.execution?.id !== item.executionId || request.execution?.role !== item.role || request.execution?.attempt !== item.attempt ||
         request.execution?.headRevision !== manifest.headRevision || request.execution?.sourceBindingDigest !== manifest.sourceBindingDigest ||
         request.execution?.runId !== manifest.runId || request.execution?.suiteDigest !== manifest.suiteDigest ||
-        request.execution?.baselineRevision !== manifest.baselineRevision || request.execution?.candidateDigest !== manifest.candidateDigest) {
+        request.execution?.baselineRevision !== manifest.baselineRevision || request.execution?.candidateDigest !== manifest.candidateDigest ||
+        (safety && (request.purpose !== purpose || request.policyDigest !== policy.digest || request.execution?.purpose !== purpose || request.execution?.policyDigest !== policy.digest)) ||
+        (!safety && (request.purpose !== undefined || request.policyDigest !== undefined || request.execution?.purpose !== undefined || request.execution?.policyDigest !== undefined))) {
       throw new Error("Execution request is not bound to the canonical request manifest");
     }
     if (bindings.has(item.executionId)) throw new Error("Execution request manifest contains duplicate execution IDs");
@@ -165,6 +175,8 @@ export async function loadHostExecutionRequestManifest({
   bindings.headRevision = manifest.headRevision;
   bindings.sourceBindingDigest = manifest.sourceBindingDigest;
   bindings.pluginBundleDigest = manifest.pluginBundleDigest;
+  bindings.purpose = manifest.purpose;
+  bindings.policyDigest = manifest.policyDigest ?? null;
   return bindings;
 }
 
@@ -214,11 +226,15 @@ export async function verifySelfImproveDeliveryEvidence({ root, runId, run, evid
   const accepted = acceptedComparison(evidence);
   if (!accepted) throw new Error("Self-improve delivery requires an accepted trusted Codex holdout comparison");
   const evaluation = accepted.evaluation;
+  const purpose = evaluation.purpose ?? "ordinary";
+  const safetyPolicy = purpose === "safety-remediation-v1" ? await loadSafetyRemediationPolicy({ cwd: run.manifest.cwd }) : null;
   const candidateDigest = evaluation.candidate?.digest;
   const candidateRoot = evaluation.candidate?.candidateRoot;
   if (!SHA1.test(evaluation.baselineRevision ?? "") || !SHA1.test(evaluation.headRevision ?? "") ||
       !SHA256.test(evaluation.sourceBindingDigest ?? "") || !SHA256.test(evaluation.pluginBundleDigest ?? "") ||
       !SHA256.test(evaluation.requestManifestDigest ?? "") || !SHA256.test(candidateDigest ?? "") ||
+      (purpose === "safety-remediation-v1" && (!safetyPolicy || evaluation.policyPath !== safetyPolicy.path || evaluation.policyId !== safetyPolicy.policyId || evaluation.policyVersion !== safetyPolicy.version || evaluation.policyDigest !== safetyPolicy.digest)) ||
+      (purpose !== "safety-remediation-v1" && (evaluation.policyDigest ?? null) !== null) ||
       typeof candidateRoot !== "string" || !candidateRoot || !SHA256.test(digestObject(evaluation.comparison))) {
     throw new Error("Self-improve accepted comparison lacks complete delivery bindings");
   }
@@ -257,6 +273,8 @@ export async function verifySelfImproveDeliveryEvidence({ root, runId, run, evid
     const execution = replay.execution;
     if (execution.runId !== runId || execution.suiteDigest !== evaluation.suiteDigest || execution.baselineRevision !== evaluation.baselineRevision ||
         execution.candidateDigest !== candidateDigest || execution.headRevision !== evaluation.headRevision || execution.sourceBindingDigest !== evaluation.sourceBindingDigest ||
+        (purpose === "safety-remediation-v1" && (execution.purpose !== purpose || execution.policyDigest !== safetyPolicy.digest)) ||
+        (purpose !== "safety-remediation-v1" && (execution.purpose !== undefined || execution.policyDigest !== undefined)) ||
         replay.model !== (evaluation.model ?? replays[0].model) || !expectedExecutions.delete(`${execution.role}:${execution.attempt}`)) {
       throw new Error("Self-improve delivery execution binding is incomplete, duplicated, or mismatched");
     }
@@ -267,7 +285,6 @@ export async function verifySelfImproveDeliveryEvidence({ root, runId, run, evid
     throw new Error("Self-improve delivery source binding changed after held-out evaluation");
   }
   if (await pluginBundleDigest() !== evaluation.pluginBundleDigest) throw new Error("Self-improve delivery plugin bundle changed after held-out evaluation");
-  const purpose = evaluation.purpose ?? "ordinary";
   const frozen = await loadFrozenEvaluationSuite({
     cwd: run.manifest.cwd,
     casesFile: path.join(run.manifest.cwd, evaluation.suitePath),
@@ -275,12 +292,17 @@ export async function verifySelfImproveDeliveryEvidence({ root, runId, run, evid
     canonical: true,
     purpose
   });
+  if (safetyPolicy && frozen.sourceDigest !== safetyPolicy.sourceSuiteDigest) {
+    throw new Error("Self-improve safety remediation corpus changed after delivery evaluation");
+  }
   const currentCandidate = await snapshotCandidate({ cwd: run.manifest.cwd, baselineRevision: evaluation.baselineRevision, candidateRoot });
   if (currentCandidate.digest !== candidateDigest) throw new Error("Self-improve candidate changed after held-out evaluation");
   const currentBaseline = await snapshotBaselineForCandidate({ cwd: run.manifest.cwd, snapshot: currentCandidate });
   const candidateMaterial = await readSanitizedCandidateMaterial({ cwd: run.manifest.cwd, snapshot: currentCandidate });
   const baselineMaterial = await readSanitizedBaselineMaterial({ cwd: run.manifest.cwd, snapshot: currentBaseline });
-  const replayCases = selectEvaluationCases({ suite: frozen.suite, snapshot: currentCandidate, split: "holdout" });
+  const replayCases = purpose === "safety-remediation-v1"
+    ? selectSafetyRemediationCases({ suite: frozen.suite, snapshot: currentCandidate, split: "holdout", policy: safetyPolicy })
+    : selectEvaluationCases({ suite: frozen.suite, snapshot: currentCandidate, split: "holdout" });
   const candidatePrompt = buildEvaluationPrompt({ suite: { ...frozen.suite, cases: replayCases }, candidate: currentCandidate, materials: candidateMaterial });
   const baselinePrompt = buildEvaluationPrompt({ suite: { ...frozen.suite, cases: replayCases }, candidate: currentBaseline, materials: baselineMaterial });
   const migrationTarget = purpose === "evaluator-migration"
@@ -298,7 +320,9 @@ export async function verifySelfImproveDeliveryEvidence({ root, runId, run, evid
     target: migrationTarget,
     model: evaluation.model ?? replays[0].model
   });
-  const trainCases = selectEvaluationCases({ suite: frozen.suite, snapshot: currentCandidate, split: "train" });
+  const trainCases = purpose === "safety-remediation-v1"
+    ? selectSafetyRemediationCases({ suite: frozen.suite, snapshot: currentCandidate, split: "train", policy: safetyPolicy })
+    : selectEvaluationCases({ suite: frozen.suite, snapshot: currentCandidate, split: "train" });
   const trainPrompt = buildEvaluationPrompt({ suite: { ...frozen.suite, cases: trainCases }, candidate: currentCandidate, materials: candidateMaterial });
   const trustedScores = [];
   for (const replay of replays) {
@@ -332,11 +356,16 @@ export async function verifySelfImproveDeliveryEvidence({ root, runId, run, evid
     const scoreCases = replay.execution.role === "train-candidate" ? trainCases : replayCases;
     trustedScores.push({ replay, witness, score: scoreEvaluation(witness.response, scoreCases) });
   }
+  if (purpose === "safety-remediation-v1" && trustedScores.find((item) => item.replay.execution.role === "train-candidate")?.score.hardSafetyPass !== true) {
+    throw new Error("Safety remediation delivery training replay failed its hard-safety gate");
+  }
   const trustedCandidateScores = trustedScores.filter((item) => item.replay.execution.role === "candidate").map((item) => item.score);
   const trustedBaselineScores = trustedScores.filter((item) => item.replay.execution.role === "baseline").map((item) => item.score);
   const trustedComparison = purpose === "evaluator-migration"
     ? compareEvaluatorMigration({ baseline: trustedBaselineScores, candidate: trustedCandidateScores })
-    : compareHoldout({ baseline: trustedBaselineScores, candidate: trustedCandidateScores, suite: frozen.suite });
+    : purpose === "safety-remediation-v1"
+      ? compareSafetyRemediation({ baseline: trustedBaselineScores, candidate: trustedCandidateScores, suite: frozen.suite, policy: safetyPolicy })
+      : compareHoldout({ baseline: trustedBaselineScores, candidate: trustedCandidateScores, suite: frozen.suite });
   if (digestObject(trustedComparison) !== digestObject(evaluation.comparison) || trustedComparison.accepted !== true) {
     throw new Error("Self-improve delivery trusted replay responses do not reproduce the persisted accepted comparison");
   }
@@ -359,6 +388,11 @@ export async function verifySelfImproveDeliveryEvidence({ root, runId, run, evid
       targetDigest: migrationTarget.sourceDigest
     });
     if (calibration.digest !== migration.evaluation.calibration.digest) throw new Error("Evaluator migration calibration changed after replay");
+  } else if (purpose === "safety-remediation-v1") {
+    if (evaluation.comparison?.policy !== safetyPolicy.policyId) throw new Error("Safety remediation delivery requires its dedicated versioned policy");
+    const binding = evaluationBindingDigest({ purpose, sourceSuiteDigest: frozen.sourceDigest, policyDigest: safetyPolicy.digest });
+    if (binding !== evaluation.suiteDigest) throw new Error("Safety remediation policy or suite binding changed after replay");
+    if (evaluation.comparison?.policyVersion !== safetyPolicy.version) throw new Error("Safety remediation policy version changed after replay");
   } else if (evaluation.comparison?.policy !== "strict-class-improvement") {
     throw new Error("Ordinary self-improve delivery requires strict relevant-class improvement");
   }

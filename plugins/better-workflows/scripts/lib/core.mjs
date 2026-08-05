@@ -390,6 +390,14 @@ export function validateContract(contract) {
   if (typeof contract.template !== "string" || !contract.template) {
     throw new Error("TaskContract.template is required");
   }
+  if (contract.selfImprovePurpose !== undefined) {
+    if (!new Set(["ordinary", "evaluator-migration", "safety-remediation-v1"]).has(contract.selfImprovePurpose)) {
+      throw new Error("TaskContract.selfImprovePurpose is invalid");
+    }
+    if (contract.template !== "self-improve-ops") {
+      throw new Error("TaskContract.selfImprovePurpose is only valid for self-improve-ops");
+    }
+  }
   if (!contract.scope || !Array.isArray(contract.scope.include) || contract.scope.include.length === 0) {
     throw new Error("TaskContract.scope.include must be a non-empty array");
   }
@@ -565,7 +573,8 @@ export function buildContract({
   agySanitized = false,
   volatileExclusions = [],
   highRiskIgnored = [],
-  remoteRevision = null
+  remoteRevision = null,
+  selfImprovePurpose = null
 }) {
   const acceptance = templateDefinition.acceptance ?? [
     { id: "task-complete", description: "The requested task is complete.", critical: true }
@@ -598,6 +607,7 @@ export function buildContract({
     volatileExclusions,
     highRiskIgnored,
     remoteRevision,
+    ...(selfImprovePurpose !== null ? { selfImprovePurpose } : {}),
     ...(isV2
       ? {
           controlPlane: structuredClone(templateDefinition.controlPlane),
@@ -672,6 +682,7 @@ export async function createRun({ root = getStateRoot(), contract, requestedMode
       requestedMode,
       cwd: path.resolve(cwd),
       baselineRevision,
+      evaluationPurpose: contract.selfImprovePurpose ?? "ordinary",
       pluginCacheRoot: getCodexPluginCacheRoot(),
       sourceBinding,
       createdAt,

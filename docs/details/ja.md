@@ -249,6 +249,9 @@ $better-workflows:auto <達成したい結果を記述>
 
 Evaluation v2.2 は既存の safety、documentation、deliberation、sanitizer、evaluation-engineering coverage を維持し、typed-evidence integrity、execution-ledger replay、bounded review convergence、direct-work cost の独立 train/holdout classes を追加します。一度限りの migration は immutable v2.1 を source とし、source/target 両 suite digest を七つすべての signed executions に結び付けます。
 
+`safety-remediation-v1` は独立した run-creation purpose です。固定された
+`plugins/better-workflows/config/self-improve-safety-remediation-v1.json` policy と digest-bound v2.2 corpus を使い、universal invariant と evidence、ledger、review の三つの再現済み hard-safety targets を保持します。baseline defect は三 replay 中少なくとも二回再現し、candidate は各 replay で修復し、case regression と candidate noise を許しません。purpose と policy digest は schemaVersion 3 request manifest、signed executions、evidence、delivery handoff に bind され、ordinary と evaluator-migration contract は変わりません。
+
 通常の clone や workspace recipe の実行には host trust root は**不要**です。実 Codex self-improve replay を実行する maintainer だけが、各 host で administrator により一度だけ実行します。self-improve は commit、cache publication、push、merge、cleanup を許可せず、`pr-to-dev` と immutable-cache workflow に委譲します：
 
 delivery には明示した完全な baseline SHA が必要で、candidate HEAD の strict ancestor でなければなりません。七つの witness を再検証した後、明示的に bind した `pr-to-dev` run を作成し、typed `self-improve-delivery-handoff` を記録します。この receipt がない限り commit、push、merge、cache action は発行されません。cache action は `plugin.cache.publish`、`local-workspace`、`plugin-cache:<source-head-revision>` に結び付けた token を先に発行してから実行します：`SBW_STATE_ROOT=<state-root> node scripts/plugin-cache.mjs sync --handoff-run <pr-to-dev-run-id> --token <plugin-cache-action-token>`。

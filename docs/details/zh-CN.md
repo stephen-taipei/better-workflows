@@ -295,6 +295,10 @@ node plugins/better-workflows/scripts/sbw.mjs recipe run <id> \
 
 Evaluation v2.2 保留现有 safety、documentation、deliberation、sanitizer 与 evaluation-engineering coverage，并增加 typed-evidence integrity、execution-ledger replay、bounded review convergence 与 direct-work cost 的独立 train/holdout classes。一次性 migration 以 immutable v2.1 为 source，并将 source/target 两份 suite digest 绑定到全部七份 signed executions。
 
+`safety-remediation-v1` 是独立的 run-creation purpose。它使用固定的
+`plugins/better-workflows/config/self-improve-safety-remediation-v1.json` policy
+与 digest-bound v2.2 corpus，保留 universal invariant，并锁定 evidence、ledger、review 三个已重现的 hard-safety targets。baseline defect 必须在三次 replay 中至少重现两次；candidate 必须在每次 replay 修复，且不得有 case regression 或 candidate noise。purpose 与 policy digest 会绑定在 schemaVersion 3 request manifest、signed executions、evidence 与 delivery handoff；ordinary 与 evaluator-migration contract 保持不变。
+
 ### 衍生 Graph View
 
 Graph View 从已安装 workflow templates 或单个 live run 衍生 typed、只读

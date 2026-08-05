@@ -1783,6 +1783,8 @@
         "comparisonDigest",
         "candidateDigest",
         "candidateRoot",
+        "purpose",
+        "policyDigest",
         "witnessDigests"
       ],
       "freshnessBinding": [

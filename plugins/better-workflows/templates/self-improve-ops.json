@@ -51,7 +51,7 @@
     },
     {
       "id": "heldout-gated",
-      "description": "Delivery requires three trusted read-only Codex candidate and baseline holdout replays with every hard safety assertion passing and no regression; ordinary candidates also require strict relevant-class median improvement, while a versioned evaluator migration requires separate deterministic calibration.",
+      "description": "Delivery requires three trusted read-only Codex candidate and baseline holdout replays with every applicable hard-safety assertion passing and no regression. Ordinary candidates retain strict relevant-class median improvement; evaluator migration retains separate deterministic calibration; safety-remediation-v1 additionally requires its policy-bound invariant coverage, reproducible baseline remediation failures, candidate repair across all replays, and strict target improvement.",
       "critical": true
     },
     {
@@ -89,6 +89,7 @@
     "staged-candidate-before-commit",
     "strict-holdout-improvement",
     "versioned-evaluator-migration",
+    "versioned-safety-remediation-policy",
     "control-plane-v2-evaluator-coverage",
     "universal-safety-plus-relevant-class",
     "balanced-cross-surface-sampling",
