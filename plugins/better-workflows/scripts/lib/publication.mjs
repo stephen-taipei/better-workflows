@@ -34,6 +34,13 @@ function sha256(value) {
   return hash.digest("hex");
 }
 
+function normalizeBundleMode(mode) {
+  // Git tracks only the executable bit. `git archive` and tar extraction may
+  // materialize the other permission bits differently from a checkout, so
+  // compare the canonical Git modes rather than host-specific file modes.
+  return (mode & 0o111) === 0 ? 0o644 : 0o755;
+}
+
 function digestObject(value) {
   return sha256(JSON.stringify(value));
 }
@@ -246,7 +253,7 @@ export async function createBundleManifest(root, relative = "") {
       records.push({
         path: childRelative,
         size: opened.info.size,
-        mode: opened.info.mode & 0o777,
+        mode: normalizeBundleMode(opened.info.mode),
         digest: sha256(opened.contents)
       });
     } else {

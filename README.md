@@ -21,7 +21,7 @@ Sensitive or private history is never harvested; reject it with a redacted
 `agy` · Grok · Cursor · Kimi · Qwen · Kiro. `agy` is transport metadata, not
 another model brand; availability still requires a current semantic roster probe.
 
-[![Version](https://img.shields.io/badge/version-3.1.2-2563EB?style=flat-square)](plugins/better-workflows/package.json)
+[![Version](https://img.shields.io/badge/version-3.1.3-2563EB?style=flat-square)](plugins/better-workflows/package.json)
 [![Node](https://img.shields.io/badge/Node.js-%E2%89%A524-3C873A?style=flat-square)](plugins/better-workflows/package.json)
 [![Dependencies](https://img.shields.io/badge/runtime_dependencies-0-0F766E?style=flat-square)](plugins/better-workflows/package.json)
 [![License](https://img.shields.io/badge/license-MIT-64748B?style=flat-square)](LICENSE)

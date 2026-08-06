@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { access, link, mkdir, mkdtemp, readdir, stat, writeFile } from "node:fs/promises";
+import { access, chmod, link, mkdir, mkdtemp, readdir, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -121,6 +121,19 @@ test("plugin cache publication stages a new immutable version and verifies exact
     (await readdir(cacheRoot)).filter((name) => name.includes(".publish.lock") || name.includes(".stage-")),
     []
   );
+});
+
+test("plugin bundle digest uses Git executable-bit modes across checkout and archive materialization", async () => {
+  const sourceRoot = await sourceFixture("1.1.0+test.git-mode-normalization");
+  const payload = path.join(sourceRoot, "payload.txt");
+  const checkoutDigest = await bundleDigest(sourceRoot);
+  await chmod(payload, 0o664);
+  assert.equal(await bundleDigest(sourceRoot), checkoutDigest);
+  await chmod(payload, 0o755);
+  const executableDigest = await bundleDigest(sourceRoot);
+  await chmod(payload, 0o775);
+  assert.equal(await bundleDigest(sourceRoot), executableDigest);
+  assert.notEqual(executableDigest, checkoutDigest);
 });
 
 test("plugin cache publication reclaims a lock left by a hard-killed publisher", async () => {
