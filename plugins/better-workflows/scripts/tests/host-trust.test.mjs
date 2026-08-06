@@ -210,13 +210,13 @@ test("host execution request is a pre-execution contract and cannot carry caller
       sourceBindingDigest: "e".repeat(64),
       attempt: 1
     },
-    gid: process.getgid(),
-    homePath: process.env.HOME,
+    gid: 1000,
+    homePath: "/home/test-user",
     model: "gpt-5.6-sol",
     pluginBundleDigest: "f".repeat(64),
     promptDigest: "a".repeat(64),
     promptPath: "/private/tmp/replay.prompt.txt",
-    uid: process.getuid()
+    uid: 1000
   };
   assert.deepEqual(validateExecutionRequest(request), request);
   assert.throws(
