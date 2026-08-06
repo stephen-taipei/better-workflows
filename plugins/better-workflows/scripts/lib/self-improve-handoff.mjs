@@ -117,6 +117,7 @@ export async function createSelfImproveDeliveryHandoff(root, targetRunId, source
   await validateSelfImproveDeliveryHandoff(payload, { ...targetRun, root });
   const producer = { provider: "codex-root" };
   return {
+    schemaVersion: 2,
     id: `self-improve-handoff-${Date.now()}`,
     kind: SELF_IMPROVE_HANDOFF_KIND,
     status: "complete",
