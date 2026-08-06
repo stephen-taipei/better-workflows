@@ -44,6 +44,9 @@ function assertDetailedCoverage(content, file) {
   assert.match(content, /\$better-workflows:self-improve/, file);
   assert.match(content, /train\/holdout/, file);
   assert.match(content, /host-signed/, file);
+  assert.match(content, /result receipt/, file);
+  assert.match(content, /prompt digest/, file);
+  assert.match(content, /response digest/, file);
   assert.match(content, /Evaluation v2\.2/, file);
   assert.match(content, /\$better-workflows:workspace-recipe/, file);
   assert.match(content, /self-improve host status/, file);
@@ -157,7 +160,8 @@ test("all five README version badges match the runtime semantic version", async 
     return;
   }
   for (const file of [overview, ...localizedDocuments.map((item) => item.overview)]) {
-    assert.match(await readFile(file, "utf8"), new RegExp(`version-${VERSION.replaceAll(".", "\\.")}-`), file);
+    const escapedVersion = VERSION.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    assert.match(await readFile(file, "utf8"), new RegExp(`version-${escapedVersion}-`), file);
   }
 });
 
@@ -214,6 +218,31 @@ test("localized details pages preserve complete detailed coverage", async (conte
     const content = await readFile(document.details, "utf8");
     assertDetailedCoverage(content, document.details);
     assert.doesNotMatch(content, /Gemini[（(](?:經|经|Agy 経由|Agy 경유).*Agy.*Grok/);
+  }
+});
+
+test("provider, reservation, and deferred-action rules stay synchronized across docs", async (context) => {
+  try {
+    await access(overview);
+  } catch {
+    context.skip("repository docs are not part of the installed plugin cache bundle");
+    return;
+  }
+  const files = [
+    path.join(repoRoot, "docs", "details", "en.md"),
+    ...localizedDocuments.map((item) => item.details),
+    path.join(repoRoot, "docs", "guide", "security.md"),
+    path.join(repoRoot, "docs", "guide", "cli-reference.md"),
+    path.join(pluginRoot(), "skills", "better-workflows", "SKILL.md"),
+    path.join(pluginRoot(), "skills", "pr-to-dev", "SKILL.md")
+  ];
+  for (const file of files) {
+    const content = await readFile(file, "utf8");
+    assert.match(content, /sent-or-indeterminate/, file);
+    assert.match(content, /not-sent/, file);
+    assert.match(content, /deferred/, file);
+    assert.match(content, /reservation/i, file);
+    assert.match(content, /provider.*repository|repository.*provider/i, file);
   }
 });
 

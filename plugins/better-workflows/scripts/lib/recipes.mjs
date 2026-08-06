@@ -18,10 +18,12 @@ import {
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  addEvidence,
   atomicWriteJson,
   canonicalJson,
   digestObject,
   ensurePrivateDir,
+  evaluateCompletion,
   getStateRoot,
   inspectRun,
   listJsonRecords,
@@ -74,6 +76,54 @@ const ALLOWED_BUILTIN_IMPORTS = new Set([
 
 function recipeError(message) {
   return new Error(`Workspace recipe: ${message}`);
+}
+
+async function addActionEvidence(stateRoot, action, providerReceipt) {
+  const run = await inspectRun(stateRoot, action.runId);
+  const payload = {
+    provider: action.provider,
+    actionProof: {
+      schemaVersion: 1,
+      runId: action.runId,
+      actionAttemptId: action.attemptId,
+      action: action.action,
+      provider: action.provider,
+      resource: action.resource,
+      outcome: "success",
+      idempotencyKey: action.idempotencyKey,
+      remoteRevision: action.remoteRevision,
+      providerExecutionId: providerReceipt.executionId,
+      providerReceiptDigest: digestObject(providerReceipt)
+    },
+    receipt: providerReceipt
+  };
+  const record = {
+    id: `action-proof-${action.attemptId}`,
+    kind: "provider-reconciliation",
+    status: "complete",
+    summary: `Provider receipt for ${action.action}`,
+    acceptanceIds: [],
+    dependencyInputs: { files: [] },
+    sourceDigest: digestObject(payload),
+    receipt: run.contract.schemaVersion === 2
+      ? {
+          contractId: "evidence-contracts-v1:provider-reconciliation",
+          contractVersion: 1,
+          runId: action.runId,
+          producer: { provider: "codex-root" },
+          inputBinding: {
+            runId: action.runId,
+            contractDigest: digestObject(run.contract),
+            remoteRevision: run.contract.remoteRevision ?? null
+          },
+          payload,
+          payloadDigest: digestObject(payload),
+          producedAt: nowIso()
+        }
+      : { payload }
+  };
+  if (run.contract.schemaVersion === 2) record.schemaVersion = 2;
+  return addEvidence(stateRoot, action.runId, record);
 }
 
 async function exists(target) {
@@ -621,9 +671,15 @@ function runId(prefix = "recipe") {
 async function spawnRecipe(recipe, input, stagingPath, { preserve = false } = {}) {
   await mkdir(stagingPath, { recursive: false, mode: 0o700 });
   await chmod(stagingPath, 0o700);
+  const source = await readFile(recipe.entryPath);
+  const sourceDigest = sha256(source);
+  if (sourceDigest !== recipe.scriptDigest) {
+    throw recipeError("recipe source digest changed before execution");
+  }
   const request = {
     entryPath: recipe.entryPath,
     scriptDigest: recipe.scriptDigest,
+    sourceBase64: source.toString("base64"),
     input,
     workspacePath: recipe.root,
     artifactStagingPath: stagingPath,
@@ -637,7 +693,6 @@ async function spawnRecipe(recipe, input, stagingPath, { preserve = false } = {}
     "--disallow-code-generation-from-strings",
     "--report-exclude-env",
     `--allow-fs-read=${RUNTIME_PATH}`,
-    `--allow-fs-read=${recipe.entryPath}`,
     ...recipe.readTargets.map((target) => `--allow-fs-read=${target}`),
     `--allow-fs-write=${stagingPath}`,
     RUNTIME_PATH
@@ -957,6 +1012,16 @@ async function assertPromotionRun(stateRoot, runIdValue, attemptId, recipe, bind
   if (run.findings.some((item) => ["P0", "P1"].includes(item.severity) && item.status === "open")) {
     throw recipeError("promotion is blocked by an open P0/P1 finding");
   }
+  if (run.contract.schemaVersion === 2) {
+    const completion = await evaluateCompletion(stateRoot, runIdValue);
+    const preActionBlockers = completion.blockers.filter((blocker) => (
+      blocker !== "ledger:not-complete" && blocker !== "side-effect-not-reconciled"
+    ));
+    if (preActionBlockers.length > 0) {
+      throw recipeError(`promotion run is incomplete: ${preActionBlockers.join(", ")}`);
+    }
+    return { run, action };
+  }
   const completeEvidence = run.evidence.filter((item) => item.status === "complete" && !item.stale);
   const kinds = new Set(completeEvidence.map((item) => item.kind));
   const covered = new Set(completeEvidence.flatMap((item) => item.acceptanceIds));
@@ -1046,12 +1111,42 @@ export async function recipePromote(cwd, id, options) {
   if (recipe.config.enabled !== true) {
     await writeWorkspaceJson(recipe.root, recipe.paths.config, { ...recipe.config, enabled: true });
   }
+  const providerReceipt = {
+    provider: "local-workspace",
+    action: "recipe.promote",
+    resource: `recipe:${recipe.manifest.id}:${binding.executionDigest}`,
+    outcome: "success",
+    runId: promotion.action.runId,
+    attemptId: promotion.action.attemptId,
+    idempotencyKey: promotion.action.idempotencyKey,
+    remoteRevision: promotion.action.remoteRevision,
+    executionId: `local-workspace:recipe.promote:${promotion.action.attemptId}`,
+    proofKind: "local-workspace:recipe.promote",
+    requestDigest: sha256(canonicalJson({ action: promotion.action.action, provider: promotion.action.provider, resource: promotion.action.resource, remoteRevision: promotion.action.remoteRevision, idempotencyKey: promotion.action.idempotencyKey })),
+    responseDigest: sha256(canonicalJson({ kind: "workspace-recipe", digest: sha256(canonicalJson(trust)) })),
+    verifiedAt: nowIso(),
+    terminalState: "success",
+    kind: "workspace-recipe",
+    digest: sha256(canonicalJson(trust))
+  };
+  const actionEvidence = await addActionEvidence(stateRoot, promotion.action, providerReceipt);
   await reconcileAction(
     stateRoot,
     options.run,
     options.attempt,
     "success",
-    `workspace-recipe:${sha256(canonicalJson(trust))}`
+    {
+      action: "recipe.promote",
+      provider: "local-workspace",
+      resource: `recipe:${recipe.manifest.id}:${binding.executionDigest}`,
+      outcome: "success",
+      runId: promotion.action.runId,
+      attemptId: promotion.action.attemptId,
+      idempotencyKey: promotion.action.idempotencyKey,
+      remoteRevision: promotion.action.remoteRevision,
+      providerReceipt,
+      evidenceIds: [actionEvidence.id]
+    }
   );
   return {
     ok: true,
@@ -1273,12 +1368,42 @@ export async function recipeArtifactPromote(cwd, receiptId, artifactId, destinat
   const temp = `${target}.${randomBytes(6).toString("hex")}.tmp`;
   await copyFile(source, temp, fsConstants.COPYFILE_EXCL);
   await rename(temp, target);
+  const providerReceipt = {
+    provider: "local-workspace",
+    action: "artifact.promote",
+    resource,
+    outcome: "success",
+    runId: pending.action.runId,
+    attemptId: pending.action.attemptId,
+    idempotencyKey: pending.action.idempotencyKey,
+    remoteRevision: pending.action.remoteRevision,
+    executionId: `local-workspace:artifact.promote:${pending.action.attemptId}`,
+    proofKind: "local-workspace:artifact.promote",
+    requestDigest: sha256(canonicalJson({ action: pending.action.action, provider: pending.action.provider, resource: pending.action.resource, remoteRevision: pending.action.remoteRevision, idempotencyKey: pending.action.idempotencyKey })),
+    responseDigest: sha256(canonicalJson({ kind: "workspace-artifact", digest: artifact.sha256 })),
+    verifiedAt: nowIso(),
+    terminalState: "success",
+    kind: "workspace-artifact",
+    digest: artifact.sha256
+  };
+  const actionEvidence = await addActionEvidence(stateRoot, pending.action, providerReceipt);
   await reconcileAction(
     stateRoot,
     pending.runId,
     pending.action.attemptId,
     "success",
-    `workspace-artifact:${artifact.sha256}`
+    {
+      action: "artifact.promote",
+      provider: "local-workspace",
+      resource,
+      outcome: "success",
+      runId: pending.action.runId,
+      attemptId: pending.action.attemptId,
+      idempotencyKey: pending.action.idempotencyKey,
+      remoteRevision: pending.action.remoteRevision,
+      providerReceipt,
+      evidenceIds: [actionEvidence.id]
+    }
   );
   return { ok: true, receiptId, artifactId, destination: normalized, sha256: artifact.sha256 };
 }

@@ -150,6 +150,20 @@ sbw sentinel capture <run-id> --label <label>
 sbw sentinel verify <run-id> --label <label>
 ~~~
 
+If an intended commit or rebase changes `HEAD` after run creation, use the
+root-only pre-review rebind before capturing the next sentinel:
+
+~~~bash
+sbw source rebind <run-id> --reason "commit stage completed"
+sbw sentinel capture <run-id> --label post-commit
+sbw sentinel verify <run-id> --label post-commit
+~~~
+
+Rebind is rejected after review packages, findings, or side effects exist; it
+does not replace a fresh review. It marks every prior complete evidence record
+stale and resets the v2 execution ledger, including evidence contracts that do
+not carry an explicit source-binding field.
+
 If verification reports drift, mark the run `indeterminate`, discard that wave's conclusions, do not restore files automatically, and report the changed surfaces.
 
 ## Inspect the derived graph
@@ -227,18 +241,88 @@ sbw complete <run-id>
 
 Do not complete with open P0/P1 findings, stale evidence, expired accepted risk, unknown reconciliation, missing acceptance evidence, or an invalid current-tree sentinel.
 
+All newly-created non-direct template runs use TaskContract v2. The run creates
+an append-only execution ledger and accepts only typed evidence receipts from
+the 99-kind catalog; v1 runs remain on the v1 reader and are never silently
+upgraded. A v2 completion cannot be authorized by text or caller-supplied
+`acceptanceIds`.
+
+Inspect and advance the ledger explicitly:
+
+~~~bash
+sbw ledger status <run-id>
+sbw ledger transition <run-id> --file <event.json>
+sbw ledger compile <run-id> --design-packet <packet.json>
+~~~
+
+For templates with a review policy, create an immutable package, close scoped
+findings within the bounded repair budget, and run the final broad review before
+requesting any action token:
+
+~~~bash
+sbw review package <run-id> --base <40-char-sha> --head <40-char-sha> \
+  --scope <path> --diff-manifest <json> \
+  --instruction-digest <sha256> --sentinel-digest <sha256>
+sbw review status <run-id>
+~~~
+
+`sbw deliberation deliberate --run <run-id> --prompt-file <sanitized-file>` is
+available only to the research and self-improve pilots. It writes one atomic,
+idempotent bundle and prints only its digest, participant statuses, and decision
+summary. The Graph View remains a read-only projection of tasks and dependency
+state; it is never a scheduler or authority source.
+
+Ledger event files may carry an `expectedLedgerDigest` from the caller's last
+read; a stale value is rejected, and every transition is root-owned.
+
 ## Execute side effects
 
 Only the root may request an action token, and only for authority already granted by the user:
 
 ~~~bash
 sbw action issue <run-id> --action <kind> --provider <provider> --resource <exact-id> --remote-revision <revision>
+# For GitHub PR creation and merges, use the governed fixed-argv provider wrapper.
+sbw action execute <run-id> --token <token>
+# For a non-wrapper side effect, consume the token, perform the authorized
+# operation, then reconcile it. `execute` performs the consume internally.
 sbw action consume <run-id> --token <token>
-# Perform the one authorized side effect.
+# Perform any other authorized side effect, then reconcile it.
 sbw action reconcile <run-id> --attempt <attempt-id> --outcome <success|failure|unknown> --receipt <provider-receipt>
 ~~~
 
 Never retry an `unknown` outcome without provider-side query reconciliation.
+For an owned-resource creation, the same consumed attempt may be reconciled as
+`success` only when the provider query proves the exact native marker, actor,
+source, repository, and provider object. An unknown owned-resource attempt may
+be reconciled as `failure` only after a fresh pinned-provider query proves the
+exact resource is absent; an unpinned or local absence snapshot is not enough.
+Provider-execution
+reservations may resume only for the same run, action attempt, token, execution
+identity, and recorded outcome after an interrupted action-record write, with
+one controlled unknown-to-terminal supersession and no second identity;
+superseded or legacy-format reservations remain rejected. `actions.dispatch` is
+not supported until a fixed-argv provider adapter can correlate one requested
+workflow dispatch to exactly one provider-assigned run.
+
+For governed GitHub actions, bind every provider probe to the absolute
+executable path and content digest captured at token issuance; do not resolve a
+fresh PATH command or invoke a bare `gh` during authorization, PR-state, check,
+receipt, or reconciliation probes. A `pr.create` wrapper failure after its
+preflight is `sent-or-indeterminate`, not immediate failure; an explicit
+preflight record marked `not-sent` can release `pull/new` directly, while a
+fresh pinned-provider absence proof may reconcile the same unknown attempt as
+failure.
+Creation reservation, consume, release, and expiry-reap operations are
+serialized by a resource lease namespaced by provider repository, action, and
+resource, so unrelated repositories do not share a `pull/new` reservation. An
+expired reservation cannot be taken over while another consumer is finalizing
+it; legacy unscoped reservations remain blocked until explicitly reconciled.
+
+`consume` is rejected for wrapper-backed `git.push`, `pr.create`, and
+`pr.merge` actions; use `execute`, which consumes and invokes the fixed-argv
+wrapper as one governed path. A contract `deferredActions` entry is rejected by
+the core issue, consume, execute, reconcile, completion, and cleanup paths;
+template-level empty action gates are not the security boundary.
 
 ## Apply repository-specific policy
 

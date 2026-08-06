@@ -235,26 +235,42 @@ $better-workflows:auto <達成したい結果を記述>
 | `$better-workflows:ci-release` | CI failure、runner queue、直列 deploy、release、遠隔監視、receipt 検証。 | `$better-workflows:ci-release 失敗した PR checks を修正し、直列 dev deploy を監視。` |
 | `$better-workflows:browser-qa` | 最新 UI 証拠、screenshots、再現可能な action log が必要な Webwright／simulator QA。 | `$better-workflows:browser-qa signup と contact sync を検証し、screenshot evidence を添付。` |
 | `$better-workflows:research` | CLI で実証した複数 model の役割、証拠駆動の設計比較、反証、実行可能な Plan。多数決では決めない。 | `$better-workflows:research 3 つの sync architecture を比較・反証し、実装可能な Plan を作成。` |
-| `$better-workflows:self-improve` | 直近の bounded evidence から Better Workflows 自体を改善し、selector、template、tests、docs、version、immutable cache、許可済み remote delivery を同期します。 | `$better-workflows:self-improve 最近の workflow 結果を Review し、反復する検証済み改善だけを実装、検証後に新 cache version を公開して atomic commit を push。` |
+| `$better-workflows:self-improve` | 直近の bounded evidence から Better Workflows 自体を改善し、管理対象の surfaces を同期して delivery を専用 workflow に引き渡します。 | `$better-workflows:self-improve 最近の workflow 結果を Review し、反復する検証済み改善だけを実装、検証後に commit、cache、remote delivery を管理 workflow に引き渡す。` |
 | `$better-workflows:workspace-recipe` | 安定した決定論的 SOP を、明示的な digest trust と制限された artifacts を持つ workspace 内の governed Node.js recipe にします。 | `$better-workflows:workspace-recipe 反復可能な JSON audit を作り、検証後に現在の digest を明示的 promotion 用に準備。` |
 | `$better-workflows:monorepo-refactor` | monorepo 全体を調査し、適格な bounded refactor 提案を直接実装。behavior invariants、validation、rollback evidence を保持します。 | `$better-workflows:monorepo-refactor monorepo を調査し、public contract を変えずに適格な boundary cleanup を実装。` |
 
-`self-improve-ops` は薄い orchestration template です。既存の research、refactor、routing、publication、delivery controls を再利用し、根拠のある no-change を認め、commit、cache publication、push を個別に gate します。存在しない versioned cache link は検証済み current bundle にだけ解決し、stale path を再作成・変更しません。
+`self-improve-ops` は薄い orchestration template です。既存の research、refactor、routing、publication、delivery controls を再利用し、根拠のある no-change を認め、commit、cache publication、push はそれぞれの管理 workflow に deferred します。存在しない versioned cache link は検証済み current bundle にだけ解決し、stale path を再作成・変更しません。
 
 新しい workflow を提案する前に、現在の coverage を記録します。既存 workflow が必要な safeguards をすでに備えている場合は `NO_CHANGE` を返し、重複する workflow を作りません。recurrence や永続的な operational value が実証されていない one-off request も `NO_CHANGE` とし、evidence、outcome、counterargument を記録します。唯一の evidence が sanitized できない private history や sensitive material に依存する場合は `REJECTED_WITH_EVIDENCE` を返します。raw source を読み取り、送信、保存せず、redacted rejection rationale だけを記録します。
 
 自己改善 evaluation は、immutable baseline で凍結した checked-in・sanitized の train/holdout corpus だけを使います。candidate は先に staging し、3 回の read-only Codex holdout replay が safety failure と regression なしで baseline median を厳密に上回る必要があります。Codex replay には、正確な binary と model を固定の `/etc/better-workflows/codex-trust-root.json` に結び付ける host-signed attestation が必要です。この file と親 directory は administrator 所有で、呼び出し元が書き込めない必要があります。`PATH`、自己 hash、CLI で選ぶ trust root、model の自己申告は provider attestation ではありません。tie、noise、evidence 不足、fixture-only の結果は auto-adopt しません。
 
+成功した各 replay は独立した host-owned execution witness を使います。digest-confirmed request は administrator-approved native Mach-O Codex binary digest、allowlist digest、exact committed HEAD、source binding を bind し、インストール済み signer は exact binary を execution root 配下の root-owned `0755` snapshot にしてから、root-owned native launcher を呼び出します。launcher は supplementary groups を消去してから request の non-root uid/gid と固定した `PATH`、`HOME`、`CODEX_HOME` を適用します。attestation、receipt、envelope、ledger は confirmed request digest と exact run-as identity に bind され、candidate snapshot は normalized file mode も bind します。host は先に pre-execution binding を作成・署名し、実行後に prompt、parsed response、exit status、timestamps を捕捉して root-owned ledger と `result receipt` を署名します。`sbw` は保存済み witness を消費し、resume や delivery revalidation で Codex を再実行しません。signed receipt は exact prompt digest、response digest、binary、model、execution、ledger、timestamps を bind します。
+
 Evaluation v2.2 は既存の safety、documentation、deliberation、sanitizer、evaluation-engineering coverage を維持し、typed-evidence integrity、execution-ledger replay、bounded review convergence、direct-work cost の独立 train/holdout classes を追加します。一度限りの migration は immutable v2.1 を source とし、source/target 両 suite digest を七つすべての signed executions に結び付けます。
 
-通常の clone や workspace recipe の実行には host trust root は**不要**です。実 Codex self-improve replay で commit、cache publication、delivery を許可する maintainer だけが、各 host で administrator により一度だけ実行します：
+`safety-remediation-v1` は独立した run-creation purpose です。固定された
+`plugins/better-workflows/config/self-improve-safety-remediation-v1.json` policy と digest-bound v2.2 corpus を使い、universal invariant と evidence、ledger、review の三つの remediation targets を事前に固定します。各 target は三 replay 中少なくとも二回 baseline defect として再現されなければならず、そうでなければ `baseline-remediation-not-reproduced` で拒否します。candidate は再現された target を各 replay で修復し、case regression と candidate noise を許しません。purpose と policy digest は schemaVersion 3 request manifest、signed executions、evidence、delivery handoff に bind され、ordinary と evaluator-migration contract は変わりません。
+
+`quality-remediation-v1` は、繰り返し発生する non-hard completeness gap のための独立した versioned purpose です。v2.2 hard-safety evaluator の欠陥を意味せず、safety remediation の bypass でもありません。`plugins/better-workflows/config/self-improve-quality-remediation-v1.json` と同じ immutable v2.2 corpus を使い、policy digest を suite、request manifest、signed executions、evidence、delivery handoff に bind します。target は typed evidence admission、exhaustion blocking、final broad review の三つで、各 target は baseline replay の少なくとも二回で失敗し、candidate の三 replay すべてで通過しなければなりません。candidate/invariant hard-safety、regression なし、candidate noise なし、strict target improvement も必須です。再現されない gap は `baseline-quality-gap-not-reproduced` で拒否し、safety-remediation witness の再利用や ordinary comparison semantics の変更はできません。
+
+通常の clone や workspace recipe の実行には host trust root は**不要**です。実 Codex self-improve replay を実行する maintainer だけが、各 host で administrator により一度だけ実行します。self-improve は commit、cache publication、push、merge、cleanup を許可せず、`pr-to-dev` と immutable-cache workflow に委譲します：
+
+delivery には明示した完全な baseline SHA が必要で、candidate HEAD の strict ancestor でなければなりません。七つの witness を再検証した後、明示的に bind した `pr-to-dev` run を作成し、typed `self-improve-delivery-handoff` を記録します。この receipt がない限り commit、push、merge、cache action は発行されません。cache action は `plugin.cache.publish`、`local-workspace`、`plugin-cache:<source-head-revision>` に結び付けた token を先に発行してから実行します：`SBW_STATE_ROOT=<state-root> node scripts/plugin-cache.mjs sync --handoff-run <pr-to-dev-run-id> --token <plugin-cache-action-token>`。
+
+trust root または private key が host の承認済み administrator bootstrap によってまだ作成されていない場合は、先にその独立した前提作業を完了してください。この repository は追跡されていない legacy Swift bootstrap artifact を公開・実行しません。bootstrap 済みの host では、まず read-only の状態確認を実行します：
 
 ```bash
-sudo "$(command -v node)" plugins/better-workflows/scripts/host-trust.mjs provision
 node plugins/better-workflows/scripts/sbw.mjs self-improve host status
 ```
 
-Provision は既存 key を上書き・暗黙 rotate しません。trust root は root-owned の公開 JSON、private Ed25519 key は repo 外で `0600` です。JSON 検証に `plutil` は使いません。candidate 固定後、次で repo 外に七つの request、manifest digest、単一 batch 用の正確な `signCommand` を生成します：
+`host-trust.mjs upgrade` には canonical native Mach-O Codex binary と
+`--codex-binary-digest` が必要で、root-owned `0644` allowlist に記録されます。
+JS wrapper、任意の executable、digest drift は fail closed です。candidate は
+review/delivery 対象の exact committed HEAD でなければならず、dirty なら先に
+`pr-to-dev` で commit して新しい source-bound self-improve run を開始します。
+
+Provision は既存 key を上書き・暗黙 rotate しません。trust root は root-owned の公開 JSON、private Ed25519 key は repo 外で `0600` です。JSON 検証に `plutil` は使いません。status が `ready: false` で legacy signer のみを示す場合は、digest-bound root-owned Node runtime と compiled native launcher/probe を `/bin/sh` の staging wrapper で準備し、`process.execPath` を直接 sudo してはいけません。administrator-confirmed SHA-256 で `host-trust.mjs upgrade` を実行し、upgrade は signed readiness witness と exact rollback proof を完了します。trust root/key は保持され、旧 signer は root-owned backup として残ります。candidate 固定後、次で repo 外に七つの prompt-bound execution request、manifest digest、正確な `executeCommand` を生成します：
 
 ```bash
 node plugins/better-workflows/scripts/sbw.mjs \
@@ -262,6 +278,8 @@ node plugins/better-workflows/scripts/sbw.mjs \
   --run <run-id> --baseline <sha> --candidate-root . \
   --model <model> --output <new-outside-repo-directory>
 ```
+
+`executeCommand` は capability-checked なインストール済み host signer だけを呼び出し、七つの request を一度ずつ実行します。返される `/private/var/db/better-workflows/executions` 配下の root-owned witness を training 1 件と holdout 6 件の `--trusted-codex-execution` に渡します。evaluate には同じ manifest path と `--request-manifest-digest` も渡し、`sbw` は root-owned completed batch journal と全 request digest/run-as tuple を canonical manifest と照合します。caller が response や timestamp を提供して署名させることはできません。
 
 ファイル数または byte の sampling limit を適用する前に、sanitizer は全
 changed path が固定の plugin／repository 公開文書 allowlist に一致するか
@@ -285,7 +303,7 @@ node plugins/better-workflows/scripts/sbw.mjs recipe run <id> \
   --input-file <input.json>
 ```
 
-Git root の `.codex/better-workflows/` だけを解決し、routing Profile `.codex/better-workflows.json` は recipe を許可できません。clone 後は必ず untrusted で再 promotion が必要です。dry-run は trusted program を実行して staging を破棄し、通常 run だけが宣言済み・既定 ignored artifacts を atomic publish します。単一 artifact の tracked source への promotion は別の `artifact.promote` action が必要です。private receipt は digests、時刻、artifact metadata、reconciliation のみを保存し、raw input、conversation、credentials、secrets、provider receipts は保存しません。
+Git root の `.codex/better-workflows/` だけを解決し、routing Profile `.codex/better-workflows.json` は recipe を許可できません。clone 後は必ず untrusted で再 promotion が必要です。dry-run は trusted program を実行して staging を破棄し、通常 run だけが宣言済み・既定 ignored artifacts を atomic publish します。単一 artifact の tracked source への promotion は別の `artifact.promote` action が必要です。一般の private receipt は digests、時刻、artifact metadata、reconciliation のみを保存します。reconciled side-effect action record は terminal state 検証のため provider receipt を private に保持しますが、external handoff や graph projection には含めません。
 
 ### Derived Graph View
 
@@ -428,6 +446,12 @@ cleanup は拒否します。
 | `deep` | `verified` 後、最大 2 つの Codex critics を直列実行。 |
 | `critical` | 完全な evidence/side-effect gates と、policy 必須の外部 reviewer。 |
 
+## セキュリティモデル
+
+- Governed GitHub probe は token または evidence 作成時に記録した絶対 `gh` path と content digest を使います。required-check に identity がない場合や binary/path drift がある場合は ambient command に fallback せず fail closed します。
+- PR create の preflight 後の wrapper 非ゼロ終了は常に `sent-or-indeterminate` です。明示的に `not-sent` と記録された preflight failure は `pull/new` reservation を直接解放でき、fresh で pinned provider に結び付いた absence proof は同じ unknown attempt を failure として reconcile してから解放できます。Reservation は provider repository、action、resource で namespace 化し、legacy unscoped reservation は fail closed のままです。
+- Wrapper-backed action は `issue` → `execute` を使い、`execute` が内部で consume します。direct `consume` は wrapper 以外の side effect に限定します。Contract の deferred action は template の action stage だけでなく core lifecycle gate でも拒否されます。
+
 ## 開発・検証
 
 ```bash
@@ -437,7 +461,7 @@ node scripts/plugin-cache.mjs check
 ```
 
 Plugin cache version は immutable です。Content を変更するたびに新しい build
-version が必要です。`node scripts/plugin-cache.mjs sync` は未存在の version
+version が必要です。`SBW_STATE_ROOT=<state-root> node scripts/plugin-cache.mjs sync --handoff-run <pr-to-dev-run-id> --token <plugin-cache-action-token>` は fresh typed handoff、governed cache token、source HEAD 未変更を確認した後に未存在の version
 だけを stage し、完全な file manifest と digest を検証して atomic publish
 します。同じ version の異なる内容は上書きしません。通常の Codex plugin
 refresh で有効化する前に、最終 cache path から `sbw eval` を実行します。

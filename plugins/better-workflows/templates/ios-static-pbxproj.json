@@ -1,5 +1,7 @@
 {
   "name": "ios-static-pbxproj",
+  "controlPlane": {"evidencePolicy":"typed-v1","ledgerPolicy":"ledger-v1","reviewPolicy":"static-v1","designPacketPolicy":"none","refinementPolicy":"none","deliberationPolicy":"none"},
+  "executionStages": [{"id":"swift-review","goal":"swift-review","dependsOn":[],"requiredEvidence":["swift-static-review","access-modifiers"],"attemptBudget":5,"kind":"review"},{"id":"pbxproj","goal":"pbxproj","dependsOn":["swift-review"],"requiredEvidence":["pbxproj-membership","imports"],"attemptBudget":3,"kind":"regular"},{"id":"hardening","goal":"hardening","dependsOn":["pbxproj"],"requiredEvidence":["hardening-lint"],"attemptBudget":3,"kind":"regular"}],
   "description": "Review Swift statically and serialize project.pbxproj membership without local builds.",
   "defaultMode": "verified",
   "requiredEvidence": ["swift-static-review", "access-modifiers", "imports", "pbxproj-membership", "hardening-lint"],

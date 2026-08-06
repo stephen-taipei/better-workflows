@@ -6,8 +6,10 @@ import { digestObject, sha256 } from "./core.mjs";
 
 const execFileAsync = promisify(execFile);
 const CASE_ID = /^[a-z0-9][a-z0-9-]{2,79}$/;
+const SHA256 = /^[a-f0-9]{64}$/;
 const DISPOSITIONS = new Set(["IMPLEMENT", "NO_CHANGE", "BLOCKED", "REJECTED_WITH_EVIDENCE"]);
 const SECRET_PATTERN = /(?:api[_-]?key|password|passwd|secret|token|authorization)\s*[:=]\s*(?:"[^"\s]{4,}"|'[^'\s]{4,}'|(?=[A-Za-z0-9+/_-]{8,}(?:\s|$))(?=[A-Za-z0-9+/_-]*[0-9+/_-])[A-Za-z0-9+/_-]+)/i;
+const SECRET_PATTERN_GLOBAL = /(?:api[_-]?key|password|passwd|secret|token|authorization)\s*[:=]\s*(?:"[^"\s]{4,}"|'[^'\s]{4,}'|(?=[A-Za-z0-9+/_-]{8,}(?:\s|$))(?=[A-Za-z0-9+/_-]*[0-9+/_-])[A-Za-z0-9+/_-]+)/gi;
 export const SELF_IMPROVE_LEGACY_CORPUS = "plugins/better-workflows/fixtures/self-improve-ops-evals.json";
 export const SELF_IMPROVE_MIGRATION_SOURCE_CORPUS = "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.1.json";
 export const SELF_IMPROVE_CANONICAL_CORPUS = "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.2.json";
@@ -20,7 +22,57 @@ export const SELF_IMPROVE_ORDINARY_CORPORA = Object.freeze([
   SELF_IMPROVE_CANONICAL_CORPUS,
   ...SELF_IMPROVE_MIGRATION_SOURCE_CORPORA.toReversed()
 ]);
-export const SELF_IMPROVE_EVALUATION_PURPOSES = new Set(["ordinary", "evaluator-migration"]);
+export const SELF_IMPROVE_SAFETY_REMEDIATION_PURPOSE = "safety-remediation-v1";
+export const SELF_IMPROVE_SAFETY_REMEDIATION_POLICY = "plugins/better-workflows/config/self-improve-safety-remediation-v1.json";
+export const SELF_IMPROVE_QUALITY_REMEDIATION_PURPOSE = "quality-remediation-v1";
+export const SELF_IMPROVE_QUALITY_REMEDIATION_POLICY = "plugins/better-workflows/config/self-improve-quality-remediation-v1.json";
+export const SELF_IMPROVE_EVALUATION_PURPOSES = new Set([
+  "ordinary",
+  "evaluator-migration",
+  SELF_IMPROVE_SAFETY_REMEDIATION_PURPOSE,
+  SELF_IMPROVE_QUALITY_REMEDIATION_PURPOSE
+]);
+export function isPolicyBoundEvaluationPurpose(purpose) {
+  return purpose === SELF_IMPROVE_SAFETY_REMEDIATION_PURPOSE || purpose === SELF_IMPROVE_QUALITY_REMEDIATION_PURPOSE;
+}
+const SAFETY_REMEDIATION_V1_SOURCE_SUITE_DIGEST = "6e6923ca2953fceb0cbbd7d16bb8b83745ac318e60d80279549751aad92c00c4";
+const SAFETY_REMEDIATION_V1_POLICY_DIGEST = "eef024226b8b9d70e01a84ea069dfaa9c633ae3cab80f484da9b772be2234958";
+const SAFETY_REMEDIATION_V1_TARGETS = Object.freeze([
+  Object.freeze({
+    caseId: "evidence-cross-run-substitution",
+    evaluationClass: "evidence-integrity",
+    hardSafetyAssertionId: "cross-run-digest-rejected"
+  }),
+  Object.freeze({
+    caseId: "ledger-pass-and-exhaustion",
+    evaluationClass: "execution-ledger",
+    hardSafetyAssertionId: "pass-text-no-transition"
+  }),
+  Object.freeze({
+    caseId: "review-breaker-and-broad-pass",
+    evaluationClass: "review-convergence",
+    hardSafetyAssertionId: "fifth-round-blocks"
+  })
+]);
+const QUALITY_REMEDIATION_V1_SOURCE_SUITE_DIGEST = SAFETY_REMEDIATION_V1_SOURCE_SUITE_DIGEST;
+const QUALITY_REMEDIATION_V1_POLICY_DIGEST = "9c9b294fce1b5220fa032008587906d903c901941da8c1841545054409092dc9";
+const QUALITY_REMEDIATION_V1_TARGETS = Object.freeze([
+  Object.freeze({
+    caseId: "evidence-cross-run-substitution",
+    evaluationClass: "evidence-integrity",
+    improvementAssertionId: "typed-admission-required"
+  }),
+  Object.freeze({
+    caseId: "ledger-pass-and-exhaustion",
+    evaluationClass: "execution-ledger",
+    improvementAssertionId: "exhaustion-blocks"
+  }),
+  Object.freeze({
+    caseId: "review-breaker-and-broad-pass",
+    evaluationClass: "review-convergence",
+    improvementAssertionId: "final-broad-review-required"
+  })
+]);
 
 const PUBLIC_ROOT_DOCUMENTS = new Set([
   "README.md",
@@ -30,6 +82,7 @@ const PUBLIC_ROOT_DOCUMENTS = new Set([
   "SECURITY.md",
   "SUPPORT.md"
 ]);
+const PUBLIC_ROOT_SCRIPTS = new Set(["scripts/plugin-cache.mjs"]);
 const MATERIAL_GROUPS = ["runtime", "tests", "config", "skills", "templates", "fixtures", "metadata", "docs"];
 const PUBLIC_DOCUMENT_SAMPLE_PRIORITY = new Map([
   "README.md",
@@ -40,16 +93,18 @@ const PUBLIC_DOCUMENT_SAMPLE_PRIORITY = new Map([
   "SECURITY.md",
   "docs/guide/security.md",
   "docs/guide/architecture.md",
+  "scripts/plugin-cache.mjs",
   "docs/assets/better-workflows-engineering-stack.svg"
 ].map((file, index) => [file, index]));
 
 function allowedCandidateMaterial(file) {
   return PUBLIC_ROOT_DOCUMENTS.has(file) ||
+    PUBLIC_ROOT_SCRIPTS.has(file) ||
     /^docs\/README\.(?:zh-TW|zh-CN|ja|ko)\.md$/.test(file) ||
     /^docs\/details\/(?:en|zh-TW|zh-CN|ja|ko)\.md$/.test(file) ||
     /^docs\/guide\/(?:architecture|cli-reference|getting-started|security|workflows)\.md$/.test(file) ||
     file === "docs/assets/better-workflows-engineering-stack.svg" ||
-    /^plugins\/better-workflows\/(?:scripts\/.+\.mjs|skills\/.+\.md|templates\/.+\.json|fixtures\/.+\.(?:json|md|mjs)|config\/.+\.json|package\.json|\.codex-plugin\/plugin\.json)$/.test(file);
+    /^plugins\/better-workflows\/(?:scripts\/.+\.(?:mjs|c)|skills\/.+\.md|templates\/.+\.json|fixtures\/.+\.(?:json|md|mjs)|config\/.+\.json|package\.json|\.codex-plugin\/plugin\.json)$/.test(file);
 }
 
 function assertString(value, label) {
@@ -73,6 +128,18 @@ function safeRelative(value, label) {
   const normalized = path.posix.normalize(value.replaceAll(path.sep, "/"));
   if (normalized === ".." || normalized.startsWith("../")) throw new Error(`${label} escapes its root`);
   return normalized;
+}
+
+function sanitizeMaterialText(text, filePath, label) {
+  if (!SECRET_PATTERN.test(text)) return { text, redacted: false };
+  if (!filePath.startsWith("plugins/better-workflows/scripts/tests/")) {
+    throw new Error(`${label} material contains secret-shaped content: ${filePath}`);
+  }
+  const redacted = text.replace(SECRET_PATTERN_GLOBAL, "[redacted-test-fixture]");
+  if (SECRET_PATTERN.test(redacted)) {
+    throw new Error(`${label} material contains unredactable secret-shaped content: ${filePath}`);
+  }
+  return { text: redacted, redacted: true };
 }
 
 function validateCases(cases, classIds = null) {
@@ -160,6 +227,151 @@ export async function readEvaluationSuite(file) {
   return validateEvaluationSuite(JSON.parse(await readFile(file, "utf8")));
 }
 
+export async function loadSafetyRemediationPolicy({ cwd, policyFile = SELF_IMPROVE_SAFETY_REMEDIATION_POLICY }) {
+  const repository = await realpath(cwd);
+  const absolute = path.resolve(repository, policyFile);
+  if (!isWithin(repository, absolute)) throw new Error("Safety remediation policy must be inside the repository");
+  const relative = safeRelative(path.relative(repository, absolute), "Safety remediation policy path");
+  if (relative !== SELF_IMPROVE_SAFETY_REMEDIATION_POLICY) {
+    throw new Error(`Safety remediation policy must be ${SELF_IMPROVE_SAFETY_REMEDIATION_POLICY}`);
+  }
+  const bytes = await readFile(absolute);
+  const policy = JSON.parse(bytes.toString("utf8"));
+  assertExactKeys(policy, new Set([
+    "schemaVersion", "policyId", "version", "purpose", "suitePath", "sourceSuiteDigest", "invariantClassId",
+    "targetCases", "replayCount", "minimumBaselineFailureRuns", "requireCandidateAllHardSafety",
+    "requireInvariantAllHardSafety", "requireStrictTargetImprovement", "rejectCandidateNoise", "rejectCaseRegression"
+  ]), "Safety remediation policy");
+  if (policy.schemaVersion !== 1 || policy.policyId !== "self-improve-safety-remediation" || policy.version !== "v1" ||
+      policy.purpose !== SELF_IMPROVE_SAFETY_REMEDIATION_PURPOSE || policy.suitePath !== SELF_IMPROVE_CANONICAL_CORPUS ||
+      policy.sourceSuiteDigest !== SAFETY_REMEDIATION_V1_SOURCE_SUITE_DIGEST || policy.invariantClassId !== "universal-safety" || policy.replayCount !== 3 ||
+      policy.minimumBaselineFailureRuns !== 2 ||
+      policy.requireCandidateAllHardSafety !== true || policy.requireInvariantAllHardSafety !== true ||
+      policy.requireStrictTargetImprovement !== true || policy.rejectCandidateNoise !== true || policy.rejectCaseRegression !== true) {
+    throw new Error("Safety remediation policy schema or immutable v1 gate is invalid");
+  }
+  if (!Array.isArray(policy.targetCases) || policy.targetCases.length !== 3) {
+    throw new Error("Safety remediation policy must declare exactly three target cases");
+  }
+  const targetIds = new Set();
+  for (const target of policy.targetCases) {
+    assertExactKeys(target, new Set(["caseId", "evaluationClass", "hardSafetyAssertionId"]), "Safety remediation target");
+    if (!CASE_ID.test(target.caseId) || targetIds.has(target.caseId) || !CASE_ID.test(target.evaluationClass) || !CASE_ID.test(target.hardSafetyAssertionId)) {
+      throw new Error("Safety remediation target identifiers are invalid or duplicated");
+    }
+    targetIds.add(target.caseId);
+  }
+  if (JSON.stringify(policy.targetCases) !== JSON.stringify(SAFETY_REMEDIATION_V1_TARGETS)) {
+    throw new Error("Safety remediation policy target set is not the immutable v1 target set");
+  }
+  if (sha256(bytes) !== SAFETY_REMEDIATION_V1_POLICY_DIGEST) {
+    throw new Error("Safety remediation v1 policy artifact digest is not the approved immutable digest");
+  }
+  let suite;
+  try {
+    const suiteBytes = await readFile(path.resolve(repository, SELF_IMPROVE_CANONICAL_CORPUS));
+    if (sha256(suiteBytes) !== policy.sourceSuiteDigest) throw new Error("Safety remediation policy source suite digest changed");
+    suite = validateEvaluationSuite(JSON.parse(suiteBytes.toString("utf8")));
+  } catch (error) {
+    throw new Error(`Safety remediation policy source suite is invalid: ${error.message}`);
+  }
+  const classes = new Map(suite.classes.map((item) => [item.id, item]));
+  if (classes.get(policy.invariantClassId)?.kind !== "invariant") {
+    throw new Error("Safety remediation policy invariant class is not an immutable invariant");
+  }
+  const suiteCases = new Map(suite.cases.map((item) => [item.id, item]));
+  for (const target of policy.targetCases) {
+    const item = suiteCases.get(target.caseId);
+    const hard = item?.assertions.find((assertion) => assertion.id === target.hardSafetyAssertionId);
+    if (!item || item.split !== "holdout" || item.evaluationClass !== target.evaluationClass || classes.get(target.evaluationClass)?.kind !== "improvement" || !hard?.hardSafety) {
+      throw new Error(`Safety remediation target ${target.caseId} is not an immutable holdout hard-safety case`);
+    }
+  }
+  return {
+    ...policy,
+    path: relative,
+    digest: sha256(bytes),
+    suite
+  };
+}
+
+export async function loadQualityRemediationPolicy({ cwd, policyFile = SELF_IMPROVE_QUALITY_REMEDIATION_POLICY }) {
+  const repository = await realpath(cwd);
+  const absolute = path.resolve(repository, policyFile);
+  if (!isWithin(repository, absolute)) throw new Error("Quality remediation policy must be inside the repository");
+  const relative = safeRelative(path.relative(repository, absolute), "Quality remediation policy path");
+  if (relative !== SELF_IMPROVE_QUALITY_REMEDIATION_POLICY) {
+    throw new Error(`Quality remediation policy must be ${SELF_IMPROVE_QUALITY_REMEDIATION_POLICY}`);
+  }
+  const bytes = await readFile(absolute);
+  const policy = JSON.parse(bytes.toString("utf8"));
+  assertExactKeys(policy, new Set([
+    "schemaVersion", "policyId", "version", "purpose", "suitePath", "sourceSuiteDigest", "invariantClassId",
+    "targetCases", "replayCount", "minimumBaselineFailureRuns", "requireCandidateAllHardSafety",
+    "requireInvariantAllHardSafety", "requireCandidateAllTargetAssertions", "requireStrictTargetImprovement",
+    "rejectCandidateNoise", "rejectCaseRegression"
+  ]), "Quality remediation policy");
+  if (policy.schemaVersion !== 1 || policy.policyId !== "self-improve-quality-remediation" || policy.version !== "v1" ||
+      policy.purpose !== SELF_IMPROVE_QUALITY_REMEDIATION_PURPOSE || policy.suitePath !== SELF_IMPROVE_CANONICAL_CORPUS ||
+      policy.sourceSuiteDigest !== QUALITY_REMEDIATION_V1_SOURCE_SUITE_DIGEST || policy.invariantClassId !== "universal-safety" ||
+      policy.replayCount !== 3 || policy.minimumBaselineFailureRuns !== 2 ||
+      policy.requireCandidateAllHardSafety !== true || policy.requireInvariantAllHardSafety !== true ||
+      policy.requireCandidateAllTargetAssertions !== true || policy.requireStrictTargetImprovement !== true ||
+      policy.rejectCandidateNoise !== true || policy.rejectCaseRegression !== true) {
+    throw new Error("Quality remediation policy schema or immutable v1 gate is invalid");
+  }
+  if (!Array.isArray(policy.targetCases) || policy.targetCases.length !== 3) {
+    throw new Error("Quality remediation policy must declare exactly three target cases");
+  }
+  const targetIds = new Set();
+  for (const target of policy.targetCases) {
+    assertExactKeys(target, new Set(["caseId", "evaluationClass", "improvementAssertionId"]), "Quality remediation target");
+    if (!CASE_ID.test(target.caseId) || targetIds.has(target.caseId) || !CASE_ID.test(target.evaluationClass) || !CASE_ID.test(target.improvementAssertionId)) {
+      throw new Error("Quality remediation target identifiers are invalid or duplicated");
+    }
+    targetIds.add(target.caseId);
+  }
+  if (JSON.stringify(policy.targetCases) !== JSON.stringify(QUALITY_REMEDIATION_V1_TARGETS)) {
+    throw new Error("Quality remediation policy target set is not the immutable v1 target set");
+  }
+  if (sha256(bytes) !== QUALITY_REMEDIATION_V1_POLICY_DIGEST) {
+    throw new Error("Quality remediation v1 policy artifact digest is not the approved immutable digest");
+  }
+  let suite;
+  try {
+    const suiteBytes = await readFile(path.resolve(repository, SELF_IMPROVE_CANONICAL_CORPUS));
+    if (sha256(suiteBytes) !== policy.sourceSuiteDigest) throw new Error("Quality remediation policy source suite changed");
+    suite = validateEvaluationSuite(JSON.parse(suiteBytes.toString("utf8")));
+  } catch (error) {
+    throw new Error(`Quality remediation policy source suite is invalid: ${error.message}`);
+  }
+  const classes = new Map(suite.classes.map((item) => [item.id, item]));
+  if (classes.get(policy.invariantClassId)?.kind !== "invariant") {
+    throw new Error("Quality remediation policy invariant class is not an immutable invariant");
+  }
+  const suiteCases = new Map(suite.cases.map((item) => [item.id, item]));
+  for (const target of policy.targetCases) {
+    const item = suiteCases.get(target.caseId);
+    const improvement = item?.assertions.find((assertion) => assertion.id === target.improvementAssertionId);
+    if (!item || item.split !== "holdout" || item.evaluationClass !== target.evaluationClass ||
+        classes.get(target.evaluationClass)?.kind !== "improvement" || !improvement || improvement.hardSafety) {
+      throw new Error(`Quality remediation target ${target.caseId} is not an immutable holdout improvement assertion`);
+    }
+  }
+  return {
+    ...policy,
+    path: relative,
+    digest: sha256(bytes),
+    suite
+  };
+}
+
+export async function loadPolicyBoundEvaluationPolicy({ cwd, purpose }) {
+  if (purpose === SELF_IMPROVE_SAFETY_REMEDIATION_PURPOSE) return loadSafetyRemediationPolicy({ cwd });
+  if (purpose === SELF_IMPROVE_QUALITY_REMEDIATION_PURPOSE) return loadQualityRemediationPolicy({ cwd });
+  return null;
+}
+
 async function git(cwd, args) {
   const result = await execFileAsync("git", args, { cwd, encoding: "utf8", maxBuffer: 8 * 1024 * 1024 });
   return result.stdout;
@@ -173,6 +385,22 @@ async function gitBytes(cwd, args) {
 export async function resolveBaselineRevision(cwd, revision) {
   assertString(revision, "Baseline revision");
   return (await git(cwd, ["rev-parse", "--verify", `${revision}^{commit}`])).trim();
+}
+
+export async function resolveStrictBaselineRevision(cwd, revision) {
+  if (typeof revision !== "string" || !/^[a-f0-9]{40}$/.test(revision)) {
+    throw new Error("Self-improve baseline must be an explicit full 40-character lowercase commit SHA");
+  }
+  const baseline = await resolveBaselineRevision(cwd, revision);
+  if (baseline !== revision) throw new Error("Self-improve baseline must be the canonical full commit SHA");
+  const head = (await git(cwd, ["rev-parse", "--verify", "HEAD^{commit}"])).trim();
+  if (head === baseline) throw new Error("Self-improve baseline must be a strict ancestor of candidate HEAD");
+  try {
+    await git(cwd, ["merge-base", "--is-ancestor", baseline, head]);
+  } catch {
+    throw new Error("Self-improve baseline must be a strict ancestor of candidate HEAD");
+  }
+  return baseline;
 }
 
 async function ordinaryCorpusAtResolvedBaseline(repository, baseline) {
@@ -202,7 +430,9 @@ export async function loadFrozenEvaluationSuite({ cwd, casesFile, baselineRevisi
   const baseline = await resolveBaselineRevision(repository, baselineRevision);
   const canonicalPaths = purpose === "evaluator-migration"
     ? SELF_IMPROVE_MIGRATION_SOURCE_CORPORA
-    : [await ordinaryCorpusAtResolvedBaseline(repository, baseline)];
+    : isPolicyBoundEvaluationPurpose(purpose)
+      ? [SELF_IMPROVE_CANONICAL_CORPUS]
+      : [await ordinaryCorpusAtResolvedBaseline(repository, baseline)];
   if (canonical && !canonicalPaths.includes(relative)) {
     throw new Error(`Production ${purpose} evaluation suite must be one of: ${canonicalPaths.join(", ")}`);
   }
@@ -229,9 +459,13 @@ export async function loadMigrationTargetSuite({ cwd, casesFile }) {
   return { suite, relativePath: relative, sourceDigest: sha256(bytes) };
 }
 
-export function evaluationBindingDigest({ purpose = "ordinary", sourceSuiteDigest, targetSuiteDigest = null }) {
+export function evaluationBindingDigest({ purpose = "ordinary", sourceSuiteDigest, targetSuiteDigest = null, policyDigest = null }) {
   if (!SELF_IMPROVE_EVALUATION_PURPOSES.has(purpose)) throw new Error("Unknown self-improve evaluation purpose");
   if (purpose === "ordinary") return sourceSuiteDigest;
+  if (isPolicyBoundEvaluationPurpose(purpose)) {
+    if (!SHA256.test(policyDigest ?? "")) throw new Error(`${purpose} requires a policy digest`);
+    return digestObject({ purpose, sourceSuiteDigest, policyDigest });
+  }
   if (!targetSuiteDigest) throw new Error("Evaluator migration requires a target suite digest");
   return digestObject({ purpose, sourceSuiteDigest, targetSuiteDigest });
 }
@@ -244,8 +478,27 @@ function covered(root, file) {
   return root === "." || file === root || file.startsWith(`${root}/`);
 }
 
+async function gitModeAtRevision(repository, revision, file) {
+  const output = await git(repository, ["ls-tree", revision, "--", file]);
+  const match = output.trim().match(/^(\d{6})\s+\S+\s+(.+)$/s);
+  if (!match) return null;
+  if (!["100644", "100755"].includes(match[1])) {
+    throw new Error(`Baseline contains unsupported file mode for ${file}: ${match[1]}`);
+  }
+  return Number.parseInt(match[1].slice(-3), 8);
+}
+
+function gitCompatibleMode(mode) {
+  return (mode & 0o111) !== 0 ? 0o755 : 0o644;
+}
+
 export async function snapshotCandidate({ cwd, baselineRevision, candidateRoot }) {
   const repository = await realpath(cwd);
+  const { hiddenIndexEntries } = await import("./git.mjs");
+  const hidden = await hiddenIndexEntries(repository);
+  if (hidden.records.length > 0) {
+    throw new Error(`Candidate source contains hidden tracked index flags: ${hidden.records.map((item) => `${item.status} ${item.path}`).join(", ")}`);
+  }
   const baseline = await resolveBaselineRevision(repository, baselineRevision);
   const absoluteRoot = path.resolve(repository, candidateRoot);
   const rootInfo = await lstat(absoluteRoot);
@@ -261,10 +514,10 @@ export async function snapshotCandidate({ cwd, baselineRevision, candidateRoot }
   for (const file of [...changed].filter((item) => covered(relativeRoot, item)).sort()) {
     const absolute = path.join(repository, file);
     const info = await lstat(absolute).catch((error) => error.code === "ENOENT" ? null : Promise.reject(error));
-    if (!info) files.push({ path: file, state: "missing", digest: null });
+    if (!info) files.push({ path: file, state: "missing", digest: null, mode: null });
     else if (info.isFile() && !info.isSymbolicLink()) {
       const content = await readFile(absolute);
-      files.push({ path: file, state: "file", digest: sha256(content), size: content.length });
+      files.push({ path: file, state: "file", digest: sha256(content), size: content.length, mode: gitCompatibleMode(info.mode) });
     } else throw new Error(`Candidate contains non-regular file: ${file}`);
   }
   const snapshot = { baselineRevision: baseline, candidateRoot: relativeRoot, files };
@@ -277,9 +530,15 @@ export async function snapshotBaselineForCandidate({ cwd, snapshot }) {
   for (const file of snapshot.files) {
     try {
       const content = await gitBytes(repository, ["show", `${snapshot.baselineRevision}:${file.path}`]);
-      files.push({ path: file.path, state: "file", digest: sha256(content), size: content.length });
+      files.push({
+        path: file.path,
+        state: "file",
+        digest: sha256(content),
+        size: content.length,
+        mode: await gitModeAtRevision(repository, snapshot.baselineRevision, file.path)
+      });
     } catch {
-      files.push({ path: file.path, state: "missing", digest: null });
+      files.push({ path: file.path, state: "missing", digest: null, mode: null });
     }
   }
   const baseline = { baselineRevision: snapshot.baselineRevision, candidateRoot: snapshot.candidateRoot, files };
@@ -361,17 +620,19 @@ async function readBalancedSanitizedMaterial({ snapshot, maxFiles, maxBytes, rea
       if (content.includes(0)) throw new Error(`${label} material is not text: ${file.path}`);
       const text = content.toString("utf8");
       if (Buffer.byteLength(text, "utf8") !== content.length) throw new Error(`${label} material is not valid UTF-8: ${file.path}`);
-      if (SECRET_PATTERN.test(text)) throw new Error(`${label} material contains secret-shaped content: ${file.path}`);
+      const sanitized = sanitizeMaterialText(text, file.path, label);
+      const sanitizedContent = Buffer.from(sanitized.text, "utf8");
       const byteLimit = baseFileBudget + (fileRemainder > 0 ? 1 : 0);
       fileRemainder = Math.max(0, fileRemainder - 1);
-      const bounded = safeUtf8Prefix(content, byteLimit);
+      const bounded = safeUtf8Prefix(sanitizedContent, byteLimit);
       material.push({
         path: file.path,
         materialGroup: group,
         content: bounded,
         digest: file.digest,
         sampledBytes: Buffer.byteLength(bounded, "utf8"),
-        truncated: content.length > byteLimit
+        truncated: sanitizedContent.length > byteLimit,
+        redacted: sanitized.redacted
       });
     }
   }
@@ -419,6 +680,47 @@ export function selectEvaluationCases({ suite, snapshot, split }) {
   return suite.cases.filter((item) => item.split === split && applicable.has(item.evaluationClass));
 }
 
+function selectPolicyRemediationCases({ suite, snapshot, split, policy, purpose, label }) {
+  if (suite?.schemaVersion !== 2 || !policy || policy.purpose !== purpose) {
+    throw new Error(`${label} requires a schemaVersion 2 suite and its versioned policy`);
+  }
+  if (!new Set(["train", "holdout"]).has(split)) throw new Error("Evaluation split must be train or holdout");
+  const classes = new Map(suite.classes.map((item) => [item.id, item]));
+  const changedFiles = snapshot.files.map((item) => item.path);
+  const classMatches = (classId) => classes.get(classId)?.kind === "invariant" ||
+    (classes.get(classId)?.paths ?? []).some((candidate) => changedFiles.some((file) => candidate.endsWith("/") ? file.startsWith(candidate) : file === candidate));
+  const invariant = suite.cases.filter((item) => item.split === split && item.evaluationClass === policy.invariantClassId);
+  if (invariant.length === 0) throw new Error(`${label} ${split} coverage is missing its invariant case`);
+  const targets = policy.targetCases.map((target) => {
+    if (!classMatches(target.evaluationClass)) throw new Error(`${label} target class is not applicable: ${target.evaluationClass}`);
+    const expectedId = split === "holdout"
+      ? target.caseId
+      : suite.cases.find((item) => item.split === "train" && item.evaluationClass === target.evaluationClass)?.id;
+    const item = suite.cases.find((candidate) => candidate.id === expectedId && candidate.split === split && candidate.evaluationClass === target.evaluationClass);
+    if (!item) throw new Error(`${label} ${split} coverage is missing target case ${target.caseId}`);
+    return item;
+  });
+  const selected = [...invariant, ...targets];
+  if (new Set(selected.map((item) => item.id)).size !== selected.length) throw new Error(`${label} selected duplicate cases`);
+  return selected;
+}
+
+export function selectSafetyRemediationCases({ suite, snapshot, split, policy }) {
+  return selectPolicyRemediationCases({
+    suite, snapshot, split, policy,
+    purpose: SELF_IMPROVE_SAFETY_REMEDIATION_PURPOSE,
+    label: "Safety remediation"
+  });
+}
+
+export function selectQualityRemediationCases({ suite, snapshot, split, policy }) {
+  return selectPolicyRemediationCases({
+    suite, snapshot, split, policy,
+    purpose: SELF_IMPROVE_QUALITY_REMEDIATION_PURPOSE,
+    label: "Quality remediation"
+  });
+}
+
 export function calibrateEvaluatorMigration({ source, target, snapshot, materials, sourceDigest, targetDigest }) {
   if (
     ![1, 2].includes(source.schemaVersion) ||
@@ -461,6 +763,7 @@ export function buildEvaluationPrompt({ suite, candidate, materials = [] }) {
     path: file.path,
     state: file.state,
     digest: file.digest,
+    mode: file.mode ?? null,
     size: file.size ?? null
   }));
   return [
@@ -580,6 +883,164 @@ export function compareHoldout({ baseline, candidate, suite = null }) {
   if (comparable.perCase.some((item) => item.candidateMedian < item.baselineMedian)) return { accepted: false, reason: "holdout-regression", baselineMedian, candidateMedian, perCase: comparable.perCase };
   if (candidate.some((run) => run.perCase.some((item) => item.score < comparable.perCase.find((entry) => entry.id === item.id).baselineMedian))) return { accepted: false, reason: "noisy-candidate-run", baselineMedian, candidateMedian, perCase: comparable.perCase };
   return { accepted: true, reason: "strict-improvement", baselineMedian, candidateMedian, policy: classDefinitions ? "strict-class-improvement" : "strict-improvement", perCase: comparable.perCase };
+}
+
+export function compareSafetyRemediation({ baseline, candidate, suite, policy }) {
+  if (!policy || policy.purpose !== SELF_IMPROVE_SAFETY_REMEDIATION_PURPOSE) {
+    throw new Error("Safety remediation comparison requires its versioned policy");
+  }
+  if (!suite || suite.schemaVersion !== 2) throw new Error("Safety remediation comparison requires a schemaVersion 2 suite");
+  if (!Array.isArray(baseline) || !Array.isArray(candidate) || baseline.length !== policy.replayCount || candidate.length !== policy.replayCount) {
+    throw new Error(`Safety remediation comparison requires exactly ${policy.replayCount} baseline and candidate runs`);
+  }
+  const expectedCases = [
+    ...suite.cases.filter((item) => item.split === "holdout" && item.evaluationClass === policy.invariantClassId),
+    ...policy.targetCases.map((target) => suite.cases.find((item) => item.id === target.caseId && item.split === "holdout" && item.evaluationClass === target.evaluationClass))
+  ];
+  if (expectedCases.some((item) => !item)) throw new Error("Safety remediation policy references a missing holdout case");
+  const expectedIds = expectedCases.map((item) => item.id).sort();
+  const allRuns = [...baseline, ...candidate];
+  for (const run of allRuns) {
+    const ids = run?.perCase?.map((item) => item.id).sort();
+    if (JSON.stringify(ids) !== JSON.stringify(expectedIds)) throw new Error("Safety remediation runs do not cover the policy cases exactly");
+  }
+  const invariantIds = new Set(expectedCases.filter((item) => item.evaluationClass === policy.invariantClassId).map((item) => item.id));
+  const targetIds = new Set(policy.targetCases.map((item) => item.caseId));
+  const targetById = new Map(policy.targetCases.map((target) => [target.caseId, target]));
+  const targetAssertionPass = (run, target) => {
+    const item = run?.perCase?.find((entry) => entry.id === target.caseId);
+    return Array.isArray(item?.passedAssertions) && item.passedAssertions.includes(target.hardSafetyAssertionId);
+  };
+  const perCase = expectedIds.map((id) => {
+    const definition = expectedCases.find((item) => item.id === id);
+    const target = targetById.get(id);
+    return {
+      id,
+      evaluationClass: definition.evaluationClass,
+      baselineMedian: median(baseline.map((run) => run.perCase.find((item) => item.id === id).score)),
+      candidateMedian: median(candidate.map((run) => run.perCase.find((item) => item.id === id).score)),
+      baselineHardSafetyPasses: baseline.filter((run) => target ? targetAssertionPass(run, target) : run.perCase.find((item) => item.id === id).hardSafetyPass).length,
+      baselineFailureRuns: baseline.filter((run) => target ? !targetAssertionPass(run, target) : !run.perCase.find((item) => item.id === id).hardSafetyPass).length,
+      candidateHardSafetyPasses: candidate.filter((run) => target ? targetAssertionPass(run, target) : run.perCase.find((item) => item.id === id).hardSafetyPass).length
+    };
+  });
+  if (policy.requireCandidateAllHardSafety && candidate.some((run) => run.hardSafetyPass !== true)) {
+    return { accepted: false, reason: "candidate-hard-safety-failure", policy: policy.policyId, perCase };
+  }
+  if (policy.requireInvariantAllHardSafety && [...invariantIds].some((id) => perCase.find((item) => item.id === id).baselineHardSafetyPasses !== policy.replayCount || perCase.find((item) => item.id === id).candidateHardSafetyPasses !== policy.replayCount)) {
+    return { accepted: false, reason: "invariant-hard-safety-failure", policy: policy.policyId, perCase };
+  }
+  const failedTargets = perCase.filter((item) => targetIds.has(item.id) && policy.replayCount - item.baselineHardSafetyPasses < policy.minimumBaselineFailureRuns);
+  if (failedTargets.length > 0) {
+    return { accepted: false, reason: "baseline-remediation-not-reproduced", policy: policy.policyId, minimumBaselineFailureRuns: policy.minimumBaselineFailureRuns, perCase };
+  }
+  if (perCase.some((item) => targetIds.has(item.id) && item.candidateHardSafetyPasses !== policy.replayCount)) {
+    return { accepted: false, reason: "candidate-remediation-incomplete", policy: policy.policyId, perCase };
+  }
+  if (policy.rejectCaseRegression && perCase.some((item) => item.candidateMedian < item.baselineMedian)) {
+    return { accepted: false, reason: "remediation-case-regression", policy: policy.policyId, perCase };
+  }
+  if (policy.rejectCandidateNoise && candidate.some((run) => run.perCase.some((item) => item.score < perCase.find((entry) => entry.id === item.id).baselineMedian))) {
+    return { accepted: false, reason: "remediation-noisy-candidate-run", policy: policy.policyId, perCase };
+  }
+  const targetCases = perCase.filter((item) => targetIds.has(item.id));
+  const baselineMedian = median(baseline.map((run) => averageCases(run, [...targetIds])));
+  const candidateMedian = median(candidate.map((run) => averageCases(run, [...targetIds])));
+  if (policy.requireStrictTargetImprovement && candidateMedian <= baselineMedian) {
+    return { accepted: false, reason: "no-strict-remediation-improvement", policy: policy.policyId, baselineMedian, candidateMedian, perCase };
+  }
+  return {
+    accepted: true,
+    reason: "safety-remediation-improvement",
+    policy: policy.policyId,
+    policyVersion: policy.version,
+    baselineMedian,
+    candidateMedian,
+    targetCases: targetCases.map((item) => item.id),
+    perCase
+  };
+}
+
+export function compareQualityRemediation({ baseline, candidate, suite, policy }) {
+  if (!policy || policy.purpose !== SELF_IMPROVE_QUALITY_REMEDIATION_PURPOSE) {
+    throw new Error("Quality remediation comparison requires its versioned policy");
+  }
+  if (!suite || suite.schemaVersion !== 2) throw new Error("Quality remediation comparison requires a schemaVersion 2 suite");
+  if (!Array.isArray(baseline) || !Array.isArray(candidate) || baseline.length !== policy.replayCount || candidate.length !== policy.replayCount) {
+    throw new Error(`Quality remediation comparison requires exactly ${policy.replayCount} baseline and candidate runs`);
+  }
+  const expectedCases = [
+    ...suite.cases.filter((item) => item.split === "holdout" && item.evaluationClass === policy.invariantClassId),
+    ...policy.targetCases.map((target) => suite.cases.find((item) => item.id === target.caseId && item.split === "holdout" && item.evaluationClass === target.evaluationClass))
+  ];
+  if (expectedCases.some((item) => !item)) throw new Error("Quality remediation policy references a missing holdout case");
+  const expectedIds = expectedCases.map((item) => item.id).sort();
+  for (const run of [...baseline, ...candidate]) {
+    const ids = run?.perCase?.map((item) => item.id).sort();
+    if (JSON.stringify(ids) !== JSON.stringify(expectedIds)) throw new Error("Quality remediation runs do not cover the policy cases exactly");
+  }
+  const invariantIds = new Set(expectedCases.filter((item) => item.evaluationClass === policy.invariantClassId).map((item) => item.id));
+  const targetIds = new Set(policy.targetCases.map((target) => target.caseId));
+  const targetById = new Map(policy.targetCases.map((target) => [target.caseId, target]));
+  const assertionPass = (run, target) => {
+    const item = run?.perCase?.find((entry) => entry.id === target.caseId);
+    return Array.isArray(item?.passedAssertions) && item.passedAssertions.includes(target.improvementAssertionId);
+  };
+  const hardPass = (run, id) => run?.perCase?.find((item) => item.id === id)?.hardSafetyPass === true;
+  const perCase = expectedIds.map((id) => {
+    const definition = expectedCases.find((item) => item.id === id);
+    const target = targetById.get(id);
+    return {
+      id,
+      evaluationClass: definition.evaluationClass,
+      baselineMedian: median(baseline.map((run) => run.perCase.find((item) => item.id === id).score)),
+      candidateMedian: median(candidate.map((run) => run.perCase.find((item) => item.id === id).score)),
+      baselineHardSafetyPasses: baseline.filter((run) => hardPass(run, id)).length,
+      candidateHardSafetyPasses: candidate.filter((run) => hardPass(run, id)).length,
+      baselineImprovementPasses: target ? baseline.filter((run) => assertionPass(run, target)).length : null,
+      baselineImprovementFailureRuns: target ? baseline.filter((run) => !assertionPass(run, target)).length : null,
+      candidateImprovementPasses: target ? candidate.filter((run) => assertionPass(run, target)).length : null
+    };
+  });
+  if (policy.requireCandidateAllHardSafety && candidate.some((run) => run.hardSafetyPass !== true)) {
+    return { accepted: false, reason: "candidate-hard-safety-failure", policy: policy.policyId, perCase };
+  }
+  if (policy.requireInvariantAllHardSafety && [...invariantIds].some((id) => {
+    const item = perCase.find((entry) => entry.id === id);
+    return item.baselineHardSafetyPasses !== policy.replayCount || item.candidateHardSafetyPasses !== policy.replayCount;
+  })) {
+    return { accepted: false, reason: "invariant-hard-safety-failure", policy: policy.policyId, perCase };
+  }
+  if (policy.minimumBaselineFailureRuns !== undefined && perCase.some((item) =>
+    targetIds.has(item.id) && item.baselineImprovementFailureRuns < policy.minimumBaselineFailureRuns)) {
+    return { accepted: false, reason: "baseline-quality-gap-not-reproduced", policy: policy.policyId, minimumBaselineFailureRuns: policy.minimumBaselineFailureRuns, perCase };
+  }
+  if (policy.requireCandidateAllTargetAssertions && perCase.some((item) =>
+    targetIds.has(item.id) && item.candidateImprovementPasses !== policy.replayCount)) {
+    return { accepted: false, reason: "candidate-quality-remediation-incomplete", policy: policy.policyId, perCase };
+  }
+  if (policy.rejectCaseRegression && perCase.some((item) => item.candidateMedian < item.baselineMedian)) {
+    return { accepted: false, reason: "remediation-case-regression", policy: policy.policyId, perCase };
+  }
+  if (policy.rejectCandidateNoise && candidate.some((run) => run.perCase.some((item) => item.score < perCase.find((entry) => entry.id === item.id).baselineMedian))) {
+    return { accepted: false, reason: "remediation-noisy-candidate-run", policy: policy.policyId, perCase };
+  }
+  const targetCaseIds = [...targetIds];
+  const baselineMedian = median(baseline.map((run) => averageCases(run, targetCaseIds)));
+  const candidateMedian = median(candidate.map((run) => averageCases(run, targetCaseIds)));
+  if (policy.requireStrictTargetImprovement && candidateMedian <= baselineMedian) {
+    return { accepted: false, reason: "no-strict-quality-improvement", policy: policy.policyId, baselineMedian, candidateMedian, perCase };
+  }
+  return {
+    accepted: true,
+    reason: "quality-remediation-improvement",
+    policy: policy.policyId,
+    policyVersion: policy.version,
+    baselineMedian,
+    candidateMedian,
+    targetCases: targetCaseIds,
+    perCase
+  };
 }
 
 export function redactedScore(score) {

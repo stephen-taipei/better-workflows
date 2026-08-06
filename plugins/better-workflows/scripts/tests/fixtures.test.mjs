@@ -53,7 +53,12 @@ test("all thirteen templates are valid and side-effect templates declare action 
         );
       }
     }
-    if (template.rootOnlyActions.some((action) => /deploy|release|issue create|pr create|pr merge/i.test(action))) {
+    if (template.deferredActions?.length > 0) {
+      assert.deepEqual(template.actionStages ?? {}, {}, `${name} deferred actions must not be active stages`);
+      assert.deepEqual(template.actionGates ?? {}, {}, `${name} deferred actions must not have action gates`);
+    }
+    if (template.rootOnlyActions.some((action) => /deploy|release|issue create|pr create|pr merge/i.test(action)) &&
+        !(template.deferredActions?.length > 0)) {
       assert.ok(template.actionGates && Object.keys(template.actionGates).length > 0, name);
     }
   }
@@ -95,14 +100,17 @@ test("pr-to-dev enforces batched commits, a dev-targeted PR, and remote reconcil
     "target-branch-dev",
     "required-checks",
     "merge-result",
-    "remote-sync"
+    "remote-sync",
+    "actions-cleanup-plan"
   ]) {
     assert.ok(template.requiredEvidence.includes(evidence), evidence);
   }
-  for (const action of ["git.commit", "git.push", "pr.create", "pr.merge", "remote.sync", "worktree.cleanup"]) {
+  for (const action of ["git.commit", "plugin.cache.publish", "git.push", "pr.create", "pr.merge", "remote.sync", "worktree.cleanup"]) {
     assert.ok(Object.hasOwn(template.actionGates, action), action);
     assert.ok(template.actionGates[action].length > 0, action);
   }
+  assert.ok(template.actionGates["worktree.cleanup"].includes("actions-cleanup-plan"));
+  assert.ok(!template.actionGates["worktree.cleanup"].includes("cleanup-manifest"));
   for (const acceptance of ["batched-commits-complete", "pr-targets-dev", "fresh-checks-passed", "merged-to-dev", "remote-reconciled", "cleanup-exact"]) {
     assert.ok(template.acceptance.some((item) => item.id === acceptance), acceptance);
   }
@@ -154,7 +162,7 @@ test("research deliberation requires CLI-proven roles and an executable arbiter 
   }
 });
 
-test("self improve keeps no-change, synchronization, cache, commit, and push fail closed", async () => {
+test("self improve keeps strict holdout and delegates delivery side effects", async () => {
   const template = JSON.parse(
     await readFile(path.join(pluginRoot(), "templates", "self-improve-ops.json"), "utf8")
   );
@@ -181,6 +189,8 @@ test("self improve keeps no-change, synchronization, cache, commit, and push fai
     "train-holdout-isolation",
     "staged-candidate-before-commit",
     "strict-holdout-improvement",
+    "versioned-safety-remediation-policy",
+    "versioned-quality-remediation-policy",
     "control-plane-v2-evaluator-coverage",
     "host-attested-codex-only",
     "no-automatic-adoption",
@@ -190,22 +200,19 @@ test("self improve keeps no-change, synchronization, cache, commit, and push fai
     "selector-template-catalog-test-doc-sync",
     "new-version-before-publication",
     "immutable-cache-exact-digest",
-    "independent-action-authority"
+    "independent-action-authority",
+    "delegated-delivery-boundary"
   ]) {
     assert.ok(template.policyGates.includes(policy), policy);
   }
-  assert.deepEqual(Object.keys(template.actionGates).sort(), [
-    "git.commit",
-    "git.push",
-    "plugin.cache.publish"
-  ]);
+  assert.deepEqual(template.actionGates, {});
+  assert.deepEqual(template.actionStages, {});
+  assert.deepEqual(template.deferredActions, ["git.commit", "plugin.cache.publish", "git.push"]);
   assert.ok(template.acceptance.some((item) => item.id === "outcome-explicit"));
   assert.ok(template.acceptance.some((item) => item.id === "heldout-gated"));
   assert.ok(template.acceptance.some((item) => item.id === "cache-immutable"));
   assert.ok(template.acceptance.some((item) => item.id === "delivery-reconciled"));
-  for (const kind of ["evaluation-suite", "training-replay", "candidate-staging", "holdout-comparison"]) {
-    assert.ok(template.actionGates["git.commit"].includes(kind), kind);
-  }
+  assert.equal(template.executionStages.at(-1).id, "delivery-handoff");
 });
 
 test("deliberation roster separates model brands from the Agy transport with a 24-hour lease", async () => {

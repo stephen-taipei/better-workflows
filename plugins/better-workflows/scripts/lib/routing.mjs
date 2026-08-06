@@ -15,6 +15,8 @@ import {
   digestObject,
   ensurePrivateDir,
   getStateRoot,
+  listJsonRecords,
+  loadRun,
   nowIso,
   pluginRoot,
   readJson,
@@ -33,6 +35,8 @@ const MAX_PROFILE_RULES = 128;
 const MAX_STRING_LENGTH = 512;
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const SAFE_CAPABILITY = /^[A-Za-z0-9][A-Za-z0-9:._/-]{0,191}$/;
+const SHA1 = /^[a-f0-9]{40}$/;
+const SHA256 = /^[a-f0-9]{64}$/;
 const RECEIPT_ID = /^route-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{12}$/;
 const ROUTE_MODES = ["direct", "verified", "deep", "critical"];
 const MODE_RANK = new Map(ROUTE_MODES.map((mode, index) => [mode, index]));
@@ -312,7 +316,76 @@ async function fileFingerprint(target, { requireSingleLink = true } = {}) {
   }
 }
 
-async function installedSkillPath(skill, { cwd, env = process.env } = {}) {
+async function verifyGovernedCacheMarker({ marker, stateRoot, pluginCacheRoot, target }) {
+  if (!stateRoot) return false;
+  try {
+    const run = await loadRun(stateRoot, marker.runId);
+    const actions = await listJsonRecords(stateRoot, safeJoin(run.runDir, "actions"));
+    const action = actions.find((item) => (
+      item.runId === marker.runId &&
+      item.attemptId === marker.attemptId &&
+      item.action === "plugin.cache.publish" &&
+      item.provider === "local-workspace" &&
+      item.status === "spent" &&
+      item.outcome === "success" &&
+      item.receipt?.outcome === "success" &&
+      Array.isArray(item.receipt.evidenceIds) &&
+      item.receipt.evidenceIds.length > 0
+    ));
+    const providerReceipt = action?.receipt?.providerReceipt;
+    const evidence = await listJsonRecords(stateRoot, safeJoin(run.runDir, "evidence"));
+    const evidenceBound = Boolean(action) && action.receipt.evidenceIds.every((evidenceId) => {
+      const item = evidence.find((candidate) => candidate.id === evidenceId);
+      const payload = item?.receipt?.payload;
+      const proof = payload?.actionProof;
+      return Boolean(
+        item &&
+        item.status === "complete" &&
+        item.stale !== true &&
+        payload &&
+        payload.provider === "local-workspace" &&
+        proof?.schemaVersion === 1 &&
+        proof.runId === marker.runId &&
+        proof.actionAttemptId === marker.attemptId &&
+        proof.action === "plugin.cache.publish" &&
+        proof.provider === "local-workspace" &&
+        proof.resource === providerReceipt?.resource &&
+        proof.outcome === "success" &&
+        proof.idempotencyKey === providerReceipt?.idempotencyKey &&
+        proof.remoteRevision === providerReceipt?.remoteRevision &&
+        proof.providerExecutionId === providerReceipt?.executionId &&
+        proof.providerReceiptDigest === digestObject(providerReceipt) &&
+        payload.receipt &&
+        digestObject(payload.receipt) === digestObject(providerReceipt)
+      );
+    });
+    const sourceBinding = run.manifest?.sourceBinding;
+    return Boolean(
+      evidenceBound &&
+      run.manifest?.pluginCacheRoot === pluginCacheRoot &&
+      sourceBinding?.baseRevision === marker.sourceBaselineRevision &&
+      sourceBinding?.headRevision === marker.sourceHeadRevision &&
+      sourceBinding?.digest === marker.sourceBindingDigest &&
+      providerReceipt &&
+      providerReceipt.cacheRoot === pluginCacheRoot &&
+      providerReceipt.version === marker.version &&
+      providerReceipt.target === target &&
+      providerReceipt.targetDigest === marker.targetDigest &&
+      providerReceipt.sourceDigest === marker.sourceDigest &&
+      providerReceipt.pluginBundleDigest === marker.pluginBundleDigest &&
+      providerReceipt.sourceBaselineRevision === marker.sourceBaselineRevision &&
+      providerReceipt.sourceHeadRevision === marker.sourceHeadRevision &&
+      providerReceipt.sourceBindingDigest === marker.sourceBindingDigest &&
+      providerReceipt.runId === marker.runId &&
+      providerReceipt.attemptId === marker.attemptId &&
+      digestObject(providerReceipt) === marker.providerReceiptDigest
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function installedSkillPath(skill, { cwd, env = process.env, stateRoot } = {}) {
   const shortName = skill.includes(":") ? skill.slice(skill.lastIndexOf(":") + 1) : skill;
   if (!SAFE_ID.test(shortName)) return null;
   const home = codexHome(env);
@@ -341,10 +414,39 @@ async function installedSkillPath(skill, { cwd, env = process.env } = {}) {
     const marketplaceRoot = path.join(cacheRoot, marketplace.name);
     const plugins = await readdir(marketplaceRoot, { withFileTypes: true }).catch(() => []);
     for (const plugin of plugins.filter((entry) => entry.isDirectory()).slice(0, 64)) {
-      const pluginCacheRoot = path.join(marketplaceRoot, plugin.name);
-      const versions = await readdir(pluginCacheRoot, { withFileTypes: true }).catch(() => []);
-      for (const version of versions.filter((entry) => entry.isDirectory()).slice(0, 32)) {
-        const candidate = path.join(pluginCacheRoot, version.name, "skills", shortName, "SKILL.md");
+    const pluginCacheRoot = path.join(marketplaceRoot, plugin.name);
+    const versions = await readdir(pluginCacheRoot, { withFileTypes: true }).catch(() => []);
+    for (const version of versions.filter((entry) => entry.isDirectory()).slice(0, 32)) {
+      const marker = await readSafeJson(
+        pluginCacheRoot,
+        path.join(pluginCacheRoot, `${version.name}.ready.json`),
+        { allowMissing: true }
+      );
+      if (!marker) continue;
+      const target = path.join(pluginCacheRoot, version.name);
+      const v2 = marker.schemaVersion === 2 &&
+        marker.state === "ready" &&
+        marker.version === version.name &&
+        marker.target === target &&
+        SHA256.test(marker.targetDigest) &&
+        marker.sourceDigest === marker.targetDigest &&
+        marker.pluginBundleDigest === marker.targetDigest &&
+        SHA256.test(marker.sourceDigest) &&
+        SHA1.test(marker.sourceBaselineRevision) &&
+        SHA1.test(marker.sourceHeadRevision) &&
+        marker.sourceBaselineRevision !== marker.sourceHeadRevision &&
+        SHA256.test(marker.sourceBindingDigest) &&
+        SHA256.test(marker.pluginBundleDigest) &&
+        typeof marker.runId === "string" && marker.runId.length > 0 &&
+        typeof marker.attemptId === "string" && marker.attemptId.length > 0 &&
+        SHA256.test(marker.providerReceiptDigest);
+      if (!v2 || !(await verifyGovernedCacheMarker({ marker, stateRoot, pluginCacheRoot, target }))) continue;
+      try {
+        if (await bundleDigest(target) !== marker.targetDigest) continue;
+      } catch {
+        continue;
+      }
+      const candidate = path.join(pluginCacheRoot, version.name, "skills", shortName, "SKILL.md");
         try {
           const info = await lstat(candidate);
           if (info.isFile() && !info.isSymbolicLink()) return candidate;
@@ -492,7 +594,7 @@ export async function capabilitySnapshot({
     const name = id.slice(separator + 1);
     if (type === "entry") {
       const entry = entryMap.get(name);
-      const skill = entry ? await installedSkillPath(name, { cwd, env }) : null;
+      const skill = entry ? await installedSkillPath(name, { cwd, env, stateRoot }) : null;
       capabilities.push(
         entry && skill
           ? capabilityRecord(
@@ -525,7 +627,7 @@ export async function capabilitySnapshot({
           : capabilityRecord(id, "unavailable", "Workflow template is missing", null, checkedAt)
       );
     } else if (type === "skill") {
-      const skill = await installedSkillPath(name, { cwd, env });
+      const skill = await installedSkillPath(name, { cwd, env, stateRoot });
       capabilities.push(
         skill
           ? capabilityRecord(

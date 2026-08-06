@@ -20,7 +20,7 @@ Codex를 위한 governed workflow orchestration입니다. 작은 변경은 빠�
 GPT-OSS(`agy` 경유) · Grok · Cursor · Kimi · Qwen · Kiro. `agy`는
 transport metadata이며 별도 모델 브랜드가 아닙니다. 사용 가능 여부는 최신 semantic roster probe로 확인해야 합니다.
 
-[![Version](https://img.shields.io/badge/version-2.6.0-2563EB?style=flat-square)](../plugins/better-workflows/package.json)
+[![Version](https://img.shields.io/badge/version-3.1.4-2563EB?style=flat-square)](../plugins/better-workflows/package.json)
 [![Node](https://img.shields.io/badge/Node.js-%E2%89%A524-3C873A?style=flat-square)](../plugins/better-workflows/package.json)
 [![Dependencies](https://img.shields.io/badge/runtime_dependencies-0-0F766E?style=flat-square)](../plugins/better-workflows/package.json)
 [![License](https://img.shields.io/badge/license-MIT-64748B?style=flat-square)](../LICENSE)
@@ -41,6 +41,13 @@ transport metadata이며 별도 모델 브랜드가 아닙니다. 사용 가능 
 | **13 TEMPLATES** | **WORKSPACE RECIPES** | **GRAPH VIEW** |
 | --- | --- | --- |
 | SOP를 외우지 않고 결과와 위험으로 route를 선택합니다. | 신뢰된 Node.js 기계적 단계를 재실행해 token을 절약합니다. | Typed 구조를 검사하지만 authority source가 되지 않습니다. |
+
+### Control-plane v2
+
+새 비-direct template run은 typed evidence, append-only execution ledger와 선언된
+review policy를 사용합니다. completion은 승인된 evidence와 replay 상태로만 계산되며
+텍스트나 caller `acceptanceIds`로 완료할 수 없습니다. Legacy v1 run은 v1 reader로
+읽고 Graph View는 read-only task/dependency projection만 제공합니다.
 
 ![Prompt에서 Graph까지의 Better Workflows engineering stack](assets/better-workflows-engineering-stack.svg)
 
