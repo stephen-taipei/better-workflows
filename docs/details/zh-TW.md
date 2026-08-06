@@ -241,24 +241,43 @@ $better-workflows:cross-platform 檢查 backend、iOS 和 Android 的 contact sy
 | `$better-workflows:ci-release` | CI failure、runner queue、序列化 deploy、release、遠端監控與 receipt 驗證。 | `$better-workflows:ci-release 診斷失敗的 PR checks、修復並監控序列化 dev deploy。` |
 | `$better-workflows:browser-qa` | 需要最新 UI 證據、截圖與可重現 action log 的 Webwright／模擬器 QA。 | `$better-workflows:browser-qa 驗證 signup 與 contact sync，並附上 screenshot evidence。` |
 | `$better-workflows:research` | CLI 實測的多模型角色、證據驅動架構比較、反證與可執行 Plan；不以多數決決策。 | `$better-workflows:research 比較三種 sync 架構、反證每個方案並產出可實作的 Plan。` |
-| `$better-workflows:self-improve` | 依近期且有界的證據改善 Better Workflows 本身，同步 selector、template、tests、docs、version、immutable cache 與經授權的 remote delivery。 | `$better-workflows:self-improve Review 近期 workflow 結果，只實作重複且已驗證的改善，完整驗證後發佈新 cache version 並 push atomic commit。` |
+| `$better-workflows:self-improve` | 依近期且有界的證據改善 Better Workflows 本身，同步受治理的 surfaces，並將 delivery 交給專責 workflow。 | `$better-workflows:self-improve Review 近期 workflow 結果，只實作重複且已驗證的改善，驗證後將 commit、cache 與 remote delivery 交給受治理流程。` |
 | `$better-workflows:workspace-recipe` | 將穩定、確定性的 SOP 固化為 workspace 內受治理的 Node.js recipe，以明確 digest trust 與受限 artifacts 重複執行。 | `$better-workflows:workspace-recipe 建立可重複執行的 JSON audit，驗證後準備目前 digest 供明確 promotion。` |
 | `$better-workflows:monorepo-refactor` | 完整盤點 monorepo，直接實作所有合格的 bounded refactor 建議，並保留 behavior invariants、validation 與 rollback evidence。 | `$better-workflows:monorepo-refactor 盤點 monorepo，直接實作所有合格的 boundary cleanup 建議，不改變 public contract。` |
 
-`self-improve-ops` 是薄型 orchestration template：沿用既有 research、refactor、routing、publication 與 delivery controls，允許有證據的 no-change，並分別 gate commit、cache publication 與 push。缺失的版本化 cache link 只能解析到已驗證的 current bundle，不得重建或修改 stale path。
+`self-improve-ops` 是薄型 orchestration template：沿用既有 research、refactor、routing、publication 與 delivery controls，允許有證據的 no-change，並將 commit、cache publication 與 push deferred 給各自的受治理流程。缺失的版本化 cache link 只能解析到已驗證的 current bundle，不得重建或修改 stale path。
 
 提出新 workflow 前，必須先記錄目前的 coverage。若既有 workflow 已具備所需 safeguards，應回傳 `NO_CHANGE`，不得建立重複流程。沒有已證明 recurrence 或長期 operational value 的 one-off request 也應回傳 `NO_CHANGE`，並記錄 evidence、outcome 與 counterargument。若唯一證據依賴無法 sanitized 的 private history 或 sensitive material，應回傳 `REJECTED_WITH_EVIDENCE`：不得讀取、傳送或保存 raw source，只能記錄 redacted rejection rationale。
 
 自我改善 evaluation 只使用已 checked-in、sanitized 且在 immutable baseline 凍結的 train/holdout corpus。candidate 必須先 staging；三次 read-only Codex holdout replay 必須在沒有 safety failure 或 regression 下，嚴格超過 baseline median。Codex replay 需要 host-signed attestation，將精確 binary 與 model 綁定到固定的 `/etc/better-workflows/codex-trust-root.json`；該檔與父目錄必須由 administrator 擁有且不可由呼叫者寫入。`PATH`、自行計算 hash、CLI 選擇 trust root 或 model 自述都不是 provider attestation。tie、noise、缺少 evidence 或 fixture-only 結果都不會 auto-adopt。
 
-一般 clone 或執行 workspace recipe **不需要** host trust root；只有要以真實 Codex self-improve replay 授權 commit、cache publication 或 delivery 的 maintainer，才需由 administrator 在每台 host 一次性執行：
+交付必須使用明確的完整 baseline SHA，且它必須是 candidate HEAD 的嚴格祖先。七份 witness 通過重驗後，先建立明確綁定的 `pr-to-dev` run，再記錄 typed `self-improve-delivery-handoff`；這份 receipt 也會綁定 canonical Codex plugin cache root。沒有這份 receipt 不得取得 commit、push、merge 或 cache action。cache action 必須先以 `plugin.cache.publish`、`local-workspace` 與 `plugin-cache:<source-head-revision>` 發行 token，再於相同的 `CODEX_HOME` 執行：`SBW_STATE_ROOT=<state-root> node scripts/plugin-cache.mjs sync --handoff-run <pr-to-dev-run-id> --token <plugin-cache-action-token>`；若 action success 已落盤但 ready marker 尚未完成，重試同一個 sync attempt 會在 run lock 內以原始 receipt 修復 marker，不會重跑 publication。
+
+每次成功 replay 都使用獨立的 administrator-owned execution witness。digest-confirmed request 會綁定 administrator-approved native Mach-O Codex binary digest、allowlist digest、exact committed HEAD 與 source binding；已安裝的 signer 先將 exact binary snapshot 成 execution root 下 root-owned `0755` 檔案，建立並簽署 pre-execution binding，再呼叫 root-owned native launcher。launcher 會先清空 supplementary groups，才套用 request 的 non-root uid/gid 與固定的 `PATH`、`HOME`、`CODEX_HOME`。attestation、receipt、envelope、ledger 都會綁定 confirmed request digest 與 exact run-as identity，candidate snapshot 也會綁定 normalized file mode。執行完成後 host 捕捉 parsed response、exit status 與 timestamps，寫入 root-owned execution ledger，並簽發 `result receipt`。`sbw` 只消費這份已保存的 witness，resume 與 delivery revalidation 都不會重新執行 Codex；signed receipt 會綁定 exact prompt digest、response digest、binary、model、execution、ledger 與 timestamps。
+
+Evaluation v2.2 保留既有 safety、documentation、deliberation、sanitizer 與 evaluation-engineering coverage，並增加 typed-evidence integrity、execution-ledger replay、bounded review convergence 與 direct-work cost 的獨立 train/holdout classes。一次性的 migration 以 immutable v2.1 為 source，並將 source/target 兩份 suite digest 綁入全部七份 signed executions。
+
+`safety-remediation-v1` 是獨立的 run-creation purpose。它使用固定的
+`plugins/better-workflows/config/self-improve-safety-remediation-v1.json` policy
+與 digest-bound v2.2 corpus，保留 universal invariant，並預先鎖定 evidence、ledger、review 三個 remediation targets。每個 target 都必須在三次 replay 中至少重現兩次 baseline defect；否則以 `baseline-remediation-not-reproduced` 拒絕。candidate 必須在每次 replay 修復已重現的 targets，且不得有 case regression 或 candidate noise。purpose 與 policy digest 會綁定在 schemaVersion 3 request manifest、signed executions、evidence 與 delivery handoff；ordinary 與 evaluator-migration contract 維持不變。
+
+`quality-remediation-v1` 是獨立的 versioned purpose，用於反覆出現的 non-hard completeness gap，不代表 v2.2 hard-safety evaluator 有缺陷，也不是 safety remediation 的 bypass。它使用 `plugins/better-workflows/config/self-improve-quality-remediation-v1.json` 與同一份 immutable v2.2 corpus，將 policy digest 綁定 suite、request manifest、signed executions、evidence 與 delivery handoff。三個 target 是 typed evidence admission、exhaustion blocking 與 final broad review；每個 target 都必須在至少兩次 baseline replay 失敗，並在三次 candidate replay 全部通過，同時維持 candidate/invariant hard-safety、無 regression、無 candidate noise 與 strict target improvement。未重現的 gap 會以 `baseline-quality-gap-not-reproduced` 拒絕，不能重用 safety-remediation witness，也不改變 ordinary comparison semantics。
+
+一般 clone 或執行 workspace recipe **不需要** host trust root；只有要執行真實 Codex self-improve replay 的 maintainer，才需由 administrator 在每台 host 一次性執行。self-improve 不會授權 commit、cache publication、push、merge 或 cleanup；這些交由 `pr-to-dev` 與 immutable-cache workflow：
+
+若 trust root 或 private key 尚未由 host 的核准 administrator bootstrap 建立，請先完成該獨立前置作業；本 repository 不發布、也不執行未追蹤的 legacy Swift bootstrap artifact。對已完成 bootstrap 的 host，先以唯讀指令檢查狀態：
 
 ```bash
-sudo "$(command -v node)" plugins/better-workflows/scripts/host-trust.mjs provision
 node plugins/better-workflows/scripts/sbw.mjs self-improve host status
 ```
 
-Provision 不會覆寫或暗中 rotate 既有 key。trust root 是 root-owned 公開 JSON；private Ed25519 key 以 `0600` 保存在 repo 外。不要用 `plutil` 驗證 JSON，請用上述 status。candidate 固定後，以下命令會在 repo 外產生七份 request、manifest digest 與可一次簽完的精確 `signCommand`：
+`host-trust.mjs upgrade` 必須帶入 canonical native Mach-O Codex binary 與
+`--codex-binary-digest`，並把核准項目寫入 root-owned `0644` allowlist；JS
+wrapper、任意 executable 或 digest drift 都會 fail closed。candidate 必須先是
+將要 review/deliver 的 exact committed HEAD；若仍 dirty，先交給 `pr-to-dev`
+commit，再建立新的 source-bound self-improve run。
+
+Provision 不會覆寫或暗中 rotate 既有 key。trust root 是 root-owned 公開 JSON；private Ed25519 key 以 `0600` 保存在 repo 外。不要用 `plutil` 驗證 JSON，請用上述 status。若 status 顯示 `ready: false` 且只有 legacy signer，請先以固定 `/bin/sh` staging wrapper 準備 digest-bound root-owned Node runtime 與 compiled native launcher/probe，不得直接 sudo `process.execPath`，再以 administrator-confirmed SHA-256 執行 `host-trust.mjs upgrade`；upgrade 會完成 signed readiness witness 與 exact rollback proof。既有 trust root/key 不會更換，舊 signer 會保留為 root-owned backup。candidate 固定後，以下命令會在 repo 外產生七份 prompt-bound execution request、manifest digest 與精確的 `executeCommand`：
 
 ```bash
 node plugins/better-workflows/scripts/sbw.mjs \
@@ -266,6 +285,8 @@ node plugins/better-workflows/scripts/sbw.mjs \
   --run <run-id> --baseline <sha> --candidate-root . \
   --model <model> --output <new-outside-repo-directory>
 ```
+
+`executeCommand` 只呼叫已安裝且 capability-checked 的 host signer。它會一次執行七份 request，回傳 `/private/var/db/better-workflows/executions` 下的 root-owned witness；將 training 的一份與 holdout 的六份分別傳給 `--trusted-codex-execution`，並將相同的 manifest path 與 `--request-manifest-digest` 傳給 evaluate。`sbw` 會要求 root-owned completed batch journal，並核對每份 request digest、execution identity 與 run-as tuple。caller 提供的 response 或 timestamp 不會被簽署。
 
 在套用檔案數或 byte 取樣上限前，sanitizer 會先確認每一個 changed path
 都符合固定的 plugin 或 repository 公開文件 allowlist。即使不合格路徑排序
@@ -288,7 +309,7 @@ node plugins/better-workflows/scripts/sbw.mjs recipe run <id> \
   --input-file <input.json>
 ```
 
-只解析 Git root 的 `.codex/better-workflows/`；routing Profile `.codex/better-workflows.json` 不能授權 recipe。clone 後一律視為不可信並重新 promotion。dry-run 仍會執行已信任程式，但丟棄 staging；正式 run 才原子發布已宣告且預設 ignored 的 artifacts。提升單一 artifact 另需 `artifact.promote` action。私密 receipt 只保存 digests、時間、artifact metadata 與 reconciliation，不保存 raw input、conversation、credentials、secrets 或 provider receipts。
+只解析 Git root 的 `.codex/better-workflows/`；routing Profile `.codex/better-workflows.json` 不能授權 recipe。clone 後一律視為不可信並重新 promotion。dry-run 仍會執行已信任程式，但丟棄 staging；正式 run 才原子發布已宣告且預設 ignored 的 artifacts。提升單一 artifact 另需 `artifact.promote` action。一般私密 receipt 只保存 digests、時間、artifact metadata 與 reconciliation，不保存 raw input、conversation、credentials 或 secrets。reconciled side-effect action record 會為 terminal state 驗證私密保存 provider receipt，但不會進入 external handoff 或 graph projection。
 
 ### 衍生 Graph View
 
@@ -440,6 +461,9 @@ node plugins/better-workflows/scripts/sbw.mjs run \
 - Agy 只允許經授權、去敏且非機密的資料。
 - 多模型 roster 保留所有設定品牌，但只使用最多 24 小時的 CLI 實測結果；到期、`--refresh`、roster 設定或 CLI 身分變動時必須重新驗證。
 - Unknown provider outcome 必須先 query reconciliation，不會盲目重試。
+- Governed GitHub probe 必須使用 token 或 evidence 建立時記錄的絕對 `gh` 路徑與內容 digest；required-check 缺少 identity 或發生 binary/path drift 時直接 fail closed，不會 fallback 到 ambient command。
+- PR create 在 preflight 後 wrapper 非零退出一律是 `sent-or-indeterminate`；明確記錄為 `not-sent` 的 preflight failure 可直接釋放 `pull/new`，而 fresh 且綁定 pinned provider 的 absence proof 可將同一個 unknown attempt reconcile 為 failure 後釋放。Reservation 以 provider repository、action、resource namespace 化，legacy unscoped reservation 保持 fail closed。
+- Wrapper-backed action 使用 `issue` → `execute`，`execute` 會內部 consume；direct `consume` 只適用於非 wrapper side effect。Contract 的 deferred action 由 core lifecycle gates 拒絕，不只依賴 template action stages。
 
 ## 開發驗證
 
@@ -452,10 +476,16 @@ node scripts/plugin-cache.mjs check
 Runtime 只使用 Node.js standard library。
 
 Plugin cache version 是 immutable。任何內容變更都必須使用新的 build
-version；`node scripts/plugin-cache.mjs sync` 只會 stage 尚不存在的版本，
+version；`SBW_STATE_ROOT=<state-root> node scripts/plugin-cache.mjs sync --handoff-run <pr-to-dev-run-id> --token <plugin-cache-action-token>` 只會在 fresh typed handoff 通過、governed cache token 消費成功且 source HEAD 未改變時 stage 尚不存在的版本，
 驗證完整 file manifest 與 digest 後原子發布。若同版本內容不同會拒絕原地
 覆寫。用正常 Codex plugin refresh 啟用前，還要從最終 cache path 執行
-`sbw eval`。
+`sbw eval`。`--cache-root` 只允許作為 `check` 的診斷 override；governed
+`sync` 固定綁定目前 Codex plugin cache，不接受重新導向。若 action 停在
+`spent/pending`，只有在 pending marker 與 immutable target 同時證明相同
+handoff source binding、run 與 attempt 時，才能以同一個 sync attempt 建立
+receipt 並修復 ready；否則維持 unknown，禁止第二次 publication。source run
+若沒有明確的 canonical cache-root 欄位，或 lock owner 無法證明已消失，也
+必須 fail closed。
 
 ## License
 

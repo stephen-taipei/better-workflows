@@ -1,7 +1,10 @@
-import { readFile } from "node:fs/promises";
-import { pathToFileURL } from "node:url";
+import { createHash } from "node:crypto";
 
 const hostProcess = process;
+
+function sha256(value) {
+  return createHash("sha256").update(value).digest("hex");
+}
 
 function disableGlobal(name) {
   try {
@@ -50,8 +53,15 @@ const timer = setTimeout(
 timer.unref();
 
 try {
-  const source = await readFile(request.entryPath, "utf8");
-  const sourceUrl = `${pathToFileURL(request.entryPath).href}?digest=${request.scriptDigest}`;
+  if (typeof request.sourceBase64 !== "string" || request.sourceBase64.length === 0) {
+    throw new Error("Recipe runtime source snapshot is missing");
+  }
+  const source = Buffer.from(request.sourceBase64, "base64");
+  const actualDigest = sha256(source);
+  if (actualDigest !== request.scriptDigest) {
+    throw new Error(`Recipe source digest mismatch before import: expected ${request.scriptDigest}, got ${actualDigest}`);
+  }
+  const sourceUrl = `data:text/javascript;base64,${source.toString("base64")}`;
   const module = await import(sourceUrl);
   if (typeof module.default !== "function") {
     throw new Error("run.mjs must export a default function");

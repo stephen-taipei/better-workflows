@@ -21,6 +21,17 @@ const MAX_PERSPECTIVE_BYTES = 24 * 1024;
 const ROSTER_CACHE_FILE = "deliberation-roster-cache";
 const ROSTER_CACHE_SCHEMA_VERSION = 2;
 
+// Deliberation reviewers are advisory-only and run in an ephemeral subprocess.
+// Prompt instructions are not a capability boundary: the Codex CLI can still
+// expose collaboration and shell tools, which lets a reviewer try to spawn a
+// thread that does not exist in this transport. Keep the reviewer surface
+// text-only and read-only at the CLI feature layer as well.
+const CODEX_TEXT_ONLY_FLAGS = [
+  "--disable", "multi_agent",
+  "--disable", "shell_tool",
+  "--disable", "unified_exec"
+];
+
 const DECISION_SCHEMA = {
   type: "object",
   additionalProperties: false,
@@ -324,6 +335,7 @@ async function runTextParticipant(provider, participant, prompt, timeoutMs) {
 async function runCodexParticipant(participant, prompt, timeoutMs) {
   return withProbeDir(async (directory) => {
     const identity = await binaryIdentity("codex");
+    const advisoryPrompt = rolePrompt(participant, prompt);
     const result = await spawnCapture(
       "codex",
       [
@@ -331,6 +343,7 @@ async function runCodexParticipant(participant, prompt, timeoutMs) {
         "--ignore-user-config",
         "--ignore-rules",
         "--ephemeral",
+        ...CODEX_TEXT_ONLY_FLAGS,
         "--sandbox",
         "read-only",
         "--skip-git-repo-check",
@@ -344,9 +357,11 @@ async function runCodexParticipant(participant, prompt, timeoutMs) {
       ],
       {
         cwd: directory,
-        input: rolePrompt(participant, prompt),
+        input: advisoryPrompt,
         timeoutMs,
-        maxOutputBytes: MAX_PERSPECTIVE_BYTES + 1_024
+        // Codex exec may echo the user transcript to stderr. Count that
+        // transport overhead without allowing an unbounded reviewer output.
+        maxOutputBytes: Buffer.byteLength(advisoryPrompt, "utf8") + MAX_PERSPECTIVE_BYTES + 4_096
       }
     );
     if (result.code !== 0) throw new Error(`codex exited ${result.code}: ${result.stderr.trim()}`);
@@ -778,6 +793,7 @@ async function runCodexArbiter(candidate, prompt, timeoutMs) {
         "--ignore-user-config",
         "--ignore-rules",
         "--ephemeral",
+        ...CODEX_TEXT_ONLY_FLAGS,
         "--sandbox",
         "read-only",
         "--skip-git-repo-check",

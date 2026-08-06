@@ -23,10 +23,75 @@ rationale.
 
 - Private state directories use mode `0700`.
 - Private state files use mode `0600`.
-- Receipts store digests and bounded metadata, not raw prompts, credentials,
-  conversation history, or provider receipts.
+- General receipts store digests and bounded metadata, not raw prompts,
+  credentials, or conversation history. Reconciled side-effect action records
+  retain structured provider receipts privately so their terminal state can be
+  independently verified; those receipts are never included in external
+  handoffs.
 - Unknown remote outcomes require a read-only provider query and
   reconciliation; they are never blindly retried.
+- Failed governed `pr.create` attempts keep their reservation until a paginated
+  GitHub API query over all PR pages proves that no matching head/base PR
+  exists; malformed or non-empty provider results remain fail-closed.
+- A consumed owned-resource creation with outcome `unknown` keeps its
+  reservation and cannot be retried blindly. An operator may reconcile that
+  same attempt as `success` only after a fresh provider-side proof is bound to
+  the consumed action's native marker, actor, source, and provider object; it
+  may reconcile as `failure` only after a fresh pinned-provider absence proof
+  for the exact resource. An unpinned or local absence snapshot cannot release
+  the reservation. Provider presence, malformed results, or identity drift
+  remain fail-closed, and expiry reaping never releases an unknown reservation
+  automatically.
+- Provider-execution reservations are idempotent only for the same run,
+  action attempt, token, execution identity, and recorded outcome. A consumed
+  owned-resource attempt may make one controlled transition from an `unknown`
+  provider reservation to its verified terminal provider receipt; a superseded
+  identity, second execution identity, outcome mismatch, legacy-format record,
+  or another action attempt remains rejected. This lets a verified receipt
+  resume after a crash between reservation and action-record persistence
+  without permitting replay.
+- `actions.dispatch` is intentionally rejected by the core action-token
+  lifecycle until a fixed-argv provider adapter can correlate one requested
+  workflow dispatch to exactly one provider-assigned run. It must not be
+  treated as a generic creation action with a pre-known run ID.
+- GitHub provider probes are bound to the absolute executable path and content
+  digest recorded when the action token is issued. A PATH, executable, or
+  provider-authorization drift fails closed before the provider call; governed
+  GitHub invocations never fall back to an ambient bare `gh` command.
+- A non-zero `pr.create` wrapper exit after preflight is `sent-or-indeterminate`,
+  not authoritative failure. A recorded preflight failure marked `not-sent` may
+  release the `pull/new` reservation directly; a sent-or-indeterminate outcome
+  remains unknown until a pinned provider query proves exact absence or
+  canonical ownership. Verified absence may then reconcile the same attempt as
+  failure and release the reservation.
+- Creation reservation, consumption, release, and expiry reaping are
+  serialized by a per-resource lease and namespaced by provider repository,
+  action, and resource. An expired lease cannot be reclaimed while another
+  consumer is finalizing the same creation attempt; legacy unscoped
+  reservations remain fail-closed.
+- Contract `deferredActions` are rejected by the core issue, consume, execute,
+  reconcile, completion, and cleanup paths; an empty template action-stage map
+  is not the security boundary.
+- Self-improve source bindings require a clean index, tracked worktree,
+  untracked surface, and ignored surface. The baseline is resolved to an exact
+  commit and the candidate must already be the committed HEAD; modified
+  tracked plugin files also block immutable cache publication.
+- A delegated self-improve delivery must use `pr-to-dev --self-improve-run`
+  and a typed `self-improve-delivery-handoff` receipt. That receipt binds the
+  source run, baseline/HEAD/source/plugin digests, request manifest, accepted
+  comparison, candidate snapshot, and seven distinct host witnesses. Every
+  delegated delivery action gate requires it; an empty or generic `pr-to-dev`
+  gate cannot bypass the handoff.
+- Governed `pr.create` actions bind the provider receipt to the exact candidate
+  source commit observed when the action token is issued; a PR from another
+  source head cannot be reconciled or registered as run-owned.
+- Successful governed pull-request creation is canonicalized from `pull/new` to
+  the verified `pull/<number>` resource before its creation reservation is
+  released. The registered PR remains run-owned, and a verified merged PR is a
+  terminal cleanup receipt for that owned resource.
+- The `pr-to-dev` merge gate accepts only that run-owned canonical PR and its
+  immutable successful `pr.create` receipt; matching head/check evidence alone
+  cannot authorize merging an unrelated pull request.
 
 ## External model transport
 
@@ -61,8 +126,32 @@ Ed25519 signing key outside the repository. Check host readiness with:
 node plugins/better-workflows/scripts/sbw.mjs self-improve host status
 ```
 
-After freezing a candidate, generate seven run-specific requests outside the
-repository:
+Initial provisioning uses the existing root-owned Swift signer through fixed
+system binaries. Real replay upgrade compiles the exact native sources with
+fixed `/usr/bin/clang`, rejects non-Mach-O artifacts, and uses a digest-bound,
+root-owned Node runtime plus a native launcher that proves empty supplementary
+groups before applying the requested non-root identity; do not sudo the
+maintainer's `process.execPath` directly. The administrator also approves one
+canonical native Mach-O Codex executable and its SHA-256 in the root-owned
+`/etc/better-workflows/codex-binary-allowlist.json` (`0644`); JS wrappers,
+arbitrary executables, changed digests, and non-Mach-O files fail closed. The
+generated batch command clears the environment, verifies the existing runtime
+target's owner/mode and digest, and executes only that already-installed runtime.
+The installed signer also authenticates the canonical parent chain for the
+runtime root, signer, launcher, probe, execution root, attestation root, and
+execution-bundle root; every parent must be administrator-owned and free of
+group/world write bits before a privileged read or write. A root-owned leaf in
+a writable or replaceable parent is not accepted.
+The host signs the confirmed request digest, exact committed HEAD/source binding,
+allowlist digest, binary, and run-as identity into the attestation, receipt,
+envelope, and ledger.
+
+Before generating requests, the candidate must already be the exact committed
+HEAD that will be reviewed and delivered. A dirty candidate is handed to
+`pr-to-dev` for its commit wave, followed by a fresh source-bound self-improve
+run; committing or changing the plugin bundle after request generation
+invalidates all signed witnesses. Then generate seven run-specific requests
+outside the repository:
 
 ```bash
 node plugins/better-workflows/scripts/sbw.mjs \
@@ -74,9 +163,17 @@ node plugins/better-workflows/scripts/sbw.mjs \
   --output <new-outside-repo-directory>
 ```
 
-Training and holdout attestations cannot be reused for a different run or
-candidate digest. A tie, mismatch, timeout, regression, or unknown result is not
-authority to commit, publish, push, or merge.
+Training and holdout witnesses cannot be reused for a different run or
+candidate digest. Pass the returned manifest path and exact digest to every
+`self-improve evaluate` call; `sbw` also requires the root-owned completed batch
+journal and compares every request digest/run-as tuple to the manifest. The installed administrator signer executes each attested
+Codex binary exactly once, captures the prompt, parsed response, exit status,
+timestamps, and a root-owned one-shot ledger, then signs the result receipt.
+`sbw` consumes the persisted witness and never reruns Codex during resume or
+delivery revalidation. A tie, mismatch, timeout, regression, or unknown result
+is not authority to commit, publish, push, or merge. The self-improve contract
+defers commit, cache publication, push, merge, and cleanup actions to the
+governed `pr-to-dev` and immutable-cache workflows.
 
 Before sampling by file count or bytes, the sanitizer validates every changed
 path against a fixed plugin and repository-public-document allowlist. Paths

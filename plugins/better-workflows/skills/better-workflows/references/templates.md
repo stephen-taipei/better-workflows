@@ -18,3 +18,10 @@ Choose exactly one primary template. Existing domain skills remain authoritative
 | `monorepo-refactor` | Inventory a monorepo and implement every eligible bounded recommendation with validation and rollback evidence |
 
 Use the JSON definitions under the plugin `templates/` directory as the machine-readable source of required evidence and policy gates.
+
+Every installed template now declares a v2 control-plane policy and execution
+stages. Non-direct runs receive typed evidence admission and a replayable
+`ledger.json`; review-enabled templates additionally require an immutable review
+package and final broad-review closure. Only `monorepo-refactor` and
+`self-improve-ops` enable the design-packet/refinement pilots, and only
+`research-deliberation` plus `self-improve-ops` enable atomic deliberation.

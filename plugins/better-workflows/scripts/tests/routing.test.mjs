@@ -5,6 +5,7 @@ import {
   mkdtemp,
   readFile,
   realpath,
+  unlink,
   stat,
   symlink,
   writeFile
@@ -21,6 +22,8 @@ import {
   validateRouteReceipt,
   validateRoutingProfile
 } from "../lib/routing.mjs";
+import { bundleDigest } from "../lib/publication.mjs";
+import { digestObject } from "../lib/core.mjs";
 
 async function workspace() {
   return mkdtemp(path.join(os.tmpdir(), "sbw-routing-workspace-"));
@@ -234,6 +237,179 @@ test("capability snapshot resolves and fingerprints a callable symlink command w
   assert.equal(capability.fingerprint.resolvedPath, await realpath(target));
   assert.equal(typeof capability.fingerprint.digest, "string");
   await assert.rejects(access(marker));
+});
+
+test("routing accepts a digest-bound schema-v2 ready marker for a cached skill", async () => {
+  const cwd = await workspace();
+  const codexHome = path.join(cwd, "codex-home");
+  const version = "3.0.0+test.routing-v2";
+  const cachePluginRoot = path.join(codexHome, "plugins", "cache", "better-workflows", "better-workflows");
+  const target = path.join(cachePluginRoot, version);
+  const skillPath = path.join(target, "skills", "cached-advisor", "SKILL.md");
+  await mkdir(path.dirname(skillPath), { recursive: true });
+  await writeFile(skillPath, "# Cached advisor\n");
+  const targetDigest = await bundleDigest(target);
+  const stateRoot = path.join(cwd, "state");
+  const runId = "sbw-20260804T000000Z-000000000000";
+  const attemptId = "sbw-routing-v2-attempt";
+  const sourceBinding = {
+    baseRevision: "b".repeat(40),
+    headRevision: "c".repeat(40),
+    digest: "d".repeat(64)
+  };
+  const providerReceipt = {
+    action: "plugin.cache.publish",
+    provider: "local-workspace",
+    resource: `plugin-cache:${sourceBinding.headRevision}`,
+    outcome: "success",
+    runId,
+    attemptId,
+    idempotencyKey: "sbw-routing-v2-idempotency",
+    remoteRevision: "routing-v2-remote",
+    executionId: `local-workspace:plugin.cache.publish:${attemptId}`,
+    proofKind: "local-workspace:plugin.cache.publish",
+    requestDigest: "f".repeat(64),
+    responseDigest: "0".repeat(64),
+    verifiedAt: "2026-08-04T00:00:00.000Z",
+    terminalState: "success",
+    cacheRoot: cachePluginRoot,
+    version,
+    target,
+    sourceDigest: targetDigest,
+    targetDigest,
+    sourceBaselineRevision: sourceBinding.baseRevision,
+    sourceHeadRevision: sourceBinding.headRevision,
+    sourceBindingDigest: sourceBinding.digest,
+    pluginBundleDigest: targetDigest,
+    applied: true,
+    noOp: false
+  };
+  await mkdir(path.join(stateRoot, "runs", runId, "actions"), { recursive: true });
+  await writeFile(path.join(stateRoot, "runs", runId, "manifest.json"), `${JSON.stringify({
+    pluginCacheRoot: cachePluginRoot,
+    sourceBinding
+  })}\n`);
+  await writeFile(path.join(stateRoot, "runs", runId, "contract.json"), "{}\n");
+  await writeFile(path.join(stateRoot, "runs", runId, "state.json"), "{}\n");
+  const actionProof = {
+    schemaVersion: 1,
+    runId,
+    actionAttemptId: attemptId,
+    action: "plugin.cache.publish",
+    provider: "local-workspace",
+    resource: `plugin-cache:${sourceBinding.headRevision}`,
+    outcome: "success",
+    idempotencyKey: providerReceipt.idempotencyKey,
+    remoteRevision: providerReceipt.remoteRevision,
+    providerExecutionId: providerReceipt.executionId,
+    providerReceiptDigest: digestObject(providerReceipt)
+  };
+  await mkdir(path.join(stateRoot, "runs", runId, "evidence"), { recursive: true });
+  await writeFile(path.join(stateRoot, "runs", runId, "evidence", "cache-publication-routing-v2.json"), `${JSON.stringify({
+    id: "cache-publication-routing-v2",
+    status: "complete",
+    stale: false,
+    receipt: {
+      payload: {
+        provider: "local-workspace",
+        actionProof,
+        receipt: providerReceipt
+      }
+    }
+  })}\n`);
+  await writeFile(path.join(stateRoot, "runs", runId, "actions", "routing-v2-action.json"), `${JSON.stringify({
+    runId,
+    attemptId,
+    action: "plugin.cache.publish",
+    provider: "local-workspace",
+    status: "spent",
+    outcome: "success",
+    receipt: {
+      outcome: "success",
+      evidenceIds: ["cache-publication-routing-v2"],
+      providerReceipt
+    }
+  })}\n`);
+  const marker = {
+    schemaVersion: 2,
+    state: "ready",
+    version,
+    target,
+    targetDigest,
+    sourceDigest: targetDigest,
+    sourceBaselineRevision: sourceBinding.baseRevision,
+    sourceHeadRevision: sourceBinding.headRevision,
+    sourceBindingDigest: sourceBinding.digest,
+    pluginBundleDigest: targetDigest,
+    runId,
+    attemptId,
+    providerReceiptDigest: digestObject(providerReceipt)
+  };
+  const writeMarker = async (overrides = {}) => writeFile(
+    path.join(cachePluginRoot, `${version}.ready.json`),
+    `${JSON.stringify({ ...marker, ...overrides }, null, 2)}\n`
+  );
+  const snapshot = async () => capabilitySnapshot({
+    cwd,
+    stateRoot,
+    env: { ...process.env, CODEX_HOME: codexHome },
+    requiredCapabilities: ["skill:cached-advisor"]
+  });
+  const writeAction = async (evidenceIds = ["cache-publication-routing-v2"]) => writeFile(
+    path.join(stateRoot, "runs", runId, "actions", "routing-v2-action.json"),
+    `${JSON.stringify({
+      runId,
+      attemptId,
+      action: "plugin.cache.publish",
+      provider: "local-workspace",
+      status: "spent",
+      outcome: "success",
+      receipt: {
+        outcome: "success",
+        evidenceIds,
+        providerReceipt
+      }
+    })}\n`
+  );
+  await writeMarker();
+  const available = (await snapshot()).capabilities.find((item) => item.id === "skill:cached-advisor");
+  assert.equal(available.status, "available");
+  assert.equal(available.source, skillPath);
+  assert.equal(typeof available.fingerprint.digest, "string");
+  await writeAction(["missing-evidence"]);
+  const missingEvidence = (await snapshot()).capabilities.find((item) => item.id === "skill:cached-advisor");
+  assert.equal(missingEvidence.status, "unavailable");
+  await writeAction();
+  await writeFile(
+    path.join(cachePluginRoot, `${version}.ready.json`),
+    `${JSON.stringify({
+      schemaVersion: 1,
+      state: "ready",
+      version,
+      target,
+      targetDigest
+    })}\n`
+  );
+  const legacyMarker = (await snapshot()).capabilities.find((item) => item.id === "skill:cached-advisor");
+  assert.equal(legacyMarker.status, "unavailable");
+  await writeMarker();
+  await unlink(path.join(cachePluginRoot, `${version}.ready.json`));
+  const missingMarker = (await snapshot()).capabilities.find((item) => item.id === "skill:cached-advisor");
+  assert.equal(missingMarker.status, "unavailable");
+  await writeMarker();
+  for (const overrides of [
+    { sourceDigest: "a".repeat(64) },
+    { pluginBundleDigest: "a".repeat(64) },
+    { sourceBaselineRevision: marker.sourceHeadRevision },
+    { sourceBindingDigest: "a".repeat(64) },
+    { runId: "sbw-20260804T000000Z-000000000001" },
+    { attemptId: "sbw-routing-v2-other-attempt" },
+    { providerReceiptDigest: "a".repeat(64) }
+  ]) {
+    await writeMarker(overrides);
+    const unavailable = (await snapshot()).capabilities.find((item) => item.id === "skill:cached-advisor");
+    assert.equal(unavailable.status, "unavailable");
+  }
 });
 
 test("capability and receipt digests change when an installed support skill changes in place", async () => {

@@ -9,8 +9,7 @@ import {
   readFile,
   readdir,
   readlink,
-  stat,
-  writeFile
+  stat
 } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,15 +17,20 @@ import {
   VERSION,
   addEvidence,
   addFinding,
+  appendJournal,
   atomicWriteJson,
+  assertActionIsNotDeferred,
+  assertMutableRun,
   bindLegacyRunTemplate,
   buildContract,
   cleanupRuns,
   consumeActionToken,
+  completeRun,
   createRun,
   digestObject,
   ensureStateRoot,
   evaluateCompletion,
+  executeActionToken,
   getStateRoot,
   inspectRun,
   issueActionToken,
@@ -37,35 +41,46 @@ import {
   pluginRoot,
   readJson,
   reconcileAction,
+  rebindSourceBinding,
   routeMode,
+  registerOwnedResource,
   safeJoin,
   setRunStatus,
   sha256,
   updateState,
-  validateContract
+  validateContract,
+  withRunLock
 } from "./lib/core.mjs";
-import { captureSentinel, compareSentinels } from "./lib/git.mjs";
+import { captureSentinel, captureSourceBinding, compareSentinels } from "./lib/git.mjs";
 import {
   doctorAgy,
   doctorCodex,
   runAgyCritic,
   runCodexCritic,
   runCodexEvaluation,
-  verifyTrustedCodexAttestation
+  verifyTrustedCodexExecutionEnvelope,
+  verifyTrustedNativeCriticAttestation
 } from "./lib/providers.mjs";
 import {
   buildEvaluationPrompt,
   calibrateEvaluatorMigration,
   compareEvaluatorMigration,
   compareHoldout,
+  compareQualityRemediation,
+  compareSafetyRemediation,
   evaluationBindingDigest,
   loadFrozenEvaluationSuite,
   loadMigrationTargetSuite,
+  loadPolicyBoundEvaluationPolicy,
   readSanitizedBaselineMaterial,
   readSanitizedCandidateMaterial,
   redactedScore,
+  resolveStrictBaselineRevision,
   scoreEvaluation,
+  selectQualityRemediationCases,
+  selectSafetyRemediationCases,
   selectEvaluationCases,
+  isPolicyBoundEvaluationPurpose,
   snapshotBaselineForCandidate,
   snapshotCandidate
 } from "./lib/self-improve.mjs";
@@ -75,7 +90,23 @@ import {
   loadDeliberationRoster,
   probeDeliberationRoster
 } from "./lib/deliberation.mjs";
+import { deliberateForRun } from "./lib/deliberation-receipt.mjs";
+import { loadEvidenceContracts } from "./lib/evidence.mjs";
 import { generateAttestationRequests } from "./lib/attestations.mjs";
+import { createSelfImproveDeliveryHandoff, validateSelfImproveDeliveryHandoff } from "./lib/self-improve-handoff.mjs";
+import {
+  loadHostExecutionRequestManifest as loadBoundHostExecutionRequestManifest,
+  verifySelfImproveDeliveryEvidence
+} from "./lib/self-improve-replay.mjs";
+import { compileLedger, deriveLedgerStatus, ledgerStatus, transitionLedger } from "./lib/ledger.mjs";
+import {
+  addReviewFinding,
+  createReviewPackage,
+  markBroadReviewComplete,
+  recordRepairRound,
+  reviewStatus
+} from "./lib/review.mjs";
+import { recordRefinement, refinementStatus } from "./lib/refinement.mjs";
 import {
   recipeArtifactPromote,
   recipeInit,
@@ -247,6 +278,16 @@ async function templateGraph(name) {
 async function runGraph(root, runId) {
   const run = await inspectRun(root, runId);
   const template = await loadTemplate(run.manifest.template);
+  let ledger = null;
+  if (run.contract.schemaVersion === 2) {
+    const rawLedger = await readJson(root, safeJoin(run.runDir, "ledger.json"));
+    try {
+      const derived = await deriveLedgerStatus(root, runId);
+      ledger = { tasks: rawLedger.tasks, taskStates: derived.taskStates };
+    } catch (error) {
+      ledger = { tasks: rawLedger.tasks, taskStates: [], invalid: true, error: error.message };
+    }
+  }
   return buildRunGraph({
     template,
     manifest: run.manifest,
@@ -254,7 +295,8 @@ async function runGraph(root, runId) {
     state: run.state,
     evidence: run.evidence,
     findings: run.findings,
-    actions: run.actions
+    actions: run.actions,
+    ledger
   });
 }
 
@@ -343,70 +385,77 @@ function summarizeSentinel(sentinel, manifest) {
 }
 
 async function captureCommand(root, runId, label) {
-  const sentinel = await captureForRun(root, runId);
-  const target = await writeSentinel(root, runId, label, sentinel);
-  await updateState(
-    root,
-    runId,
-    (state) => ({
-      ...state,
+  return withRunLock(root, runId, async ({ runDir }) => {
+    const run = await loadRun(root, runId);
+    assertMutableRun(run, "Sentinel capture");
+    const sentinel = await captureSentinel(run.manifest.cwd, run.contract, await loadDefaults());
+    const target = await writeSentinel(root, runId, label, sentinel);
+    const stateTarget = safeJoin(runDir, "state.json");
+    const current = await readJson(root, stateTarget);
+    assertMutableRun({ state: current }, "Sentinel capture");
+    const next = {
+      ...current,
       lastSentinel: { label, digest: sentinel.digest, path: target },
       lastSentinelVerified: true,
-      lastSentinelComplete: sentinel.complete
-    }),
-    "sentinel.captured"
-  );
-  return { ok: true, runId, label, target, sentinel };
+      lastSentinelComplete: sentinel.complete,
+      updatedAt: nowIso()
+    };
+    await atomicWriteJson(root, stateTarget, next);
+    await appendJournal(root, runDir, "sentinel.captured", { from: current.status, to: current.status });
+    return { ok: true, runId, label, target, sentinel };
+  });
 }
 
 async function verifyCommand(root, runId, label) {
-  const { runDir } = await loadRun(root, runId);
-  const baseline = await readJson(root, safeJoin(runDir, "sentinels", `${label}.json`));
-  const current = await captureForRun(root, runId);
-  const comparison = compareSentinels(baseline, current);
-  if (!comparison.same) {
-    const suffix = `after-${Date.now()}`;
-    const target = await writeSentinel(root, runId, label, current, suffix);
-    await updateState(
-      root,
-      runId,
-      (state) => ({
+  return withRunLock(root, runId, async ({ runDir }) => {
+    const run = await loadRun(root, runId);
+    assertMutableRun(run, "Sentinel verification");
+    const baseline = await readJson(root, safeJoin(runDir, "sentinels", `${label}.json`));
+    const current = await captureSentinel(run.manifest.cwd, run.contract, await loadDefaults());
+    const comparison = compareSentinels(baseline, current);
+    const stateTarget = safeJoin(runDir, "state.json");
+    const state = await readJson(root, stateTarget);
+    assertMutableRun({ state }, "Sentinel verification");
+    if (!comparison.same) {
+      const suffix = `after-${Date.now()}`;
+      const target = await writeSentinel(root, runId, label, current, suffix);
+      const next = {
         ...state,
         status: "indeterminate",
         lastSentinelVerified: false,
         lastSentinelComplete: false,
-        sentinelDrift: { label, changed: comparison.changed, currentPath: target }
-      }),
-      "sentinel.drift"
-    );
-    return {
-      ok: false,
-      runId,
-      label,
-      changed: comparison.changed,
-      current: summarizeSentinel(current, target)
-    };
-  }
-  await updateState(
-    root,
-    runId,
-    (state) => ({
+        sentinelDrift: { label, changed: comparison.changed, currentPath: target },
+        updatedAt: nowIso()
+      };
+      await atomicWriteJson(root, stateTarget, next);
+      await appendJournal(root, runDir, "sentinel.drift", { from: state.status, to: next.status });
+      return {
+        ok: false,
+        runId,
+        label,
+        changed: comparison.changed,
+        current: summarizeSentinel(current, target)
+      };
+    }
+    const next = {
       ...state,
       status: state.status === "indeterminate" ? "running" : state.status,
       lastSentinel: { label, digest: current.digest },
       lastSentinelVerified: true,
       lastSentinelComplete: current.complete,
-      sentinelDrift: null
-    }),
-    "sentinel.verified"
-  );
-  return {
-    ok: true,
-    runId,
-    label,
-    digest: current.digest,
-    sentinel: summarizeSentinel(current, safeJoin(runDir, "sentinels", `${label}.json`))
-  };
+      sentinelDrift: null,
+      updatedAt: nowIso()
+    };
+    await atomicWriteJson(root, stateTarget, next);
+    await appendJournal(root, runDir, "sentinel.verified", { from: state.status, to: next.status });
+    return {
+      ok: true,
+      runId,
+      label,
+      digest: current.digest,
+      sentinel: summarizeSentinel(current, safeJoin(runDir, "sentinels", `${label}.json`))
+    };
+  });
 }
 
 async function fingerprintPath(cwd, candidate) {
@@ -449,15 +498,37 @@ async function fingerprintPath(cwd, candidate) {
 
 async function enrichEvidence(root, runId, record) {
   const run = await loadRun(root, runId);
+  const definition = await evidenceDefinition(record);
+  const sourceBindingRequired = definition?.freshnessBinding?.includes("sourceBindingDigest") === true;
+  const sourceSentinelRequired = definition?.freshnessBinding?.includes("sourceSentinelDigest") === true;
   const inputFiles = values(record.dependencyInputs?.files);
   const files = [];
   for (const candidate of inputFiles) files.push(await fingerprintPath(run.manifest.cwd, candidate));
+  if (sourceBindingRequired && !run.manifest.sourceBinding?.digest) {
+    throw new Error(`Evidence ${record.kind} requires a source binding at creation time`);
+  }
+  const sourceBindingDigest = sourceBindingRequired ? run.manifest.sourceBinding?.digest ?? null : null;
+  const sourceSentinelDigest = sourceSentinelRequired ? run.state.lastSentinel?.digest ?? null : null;
   return {
     ...record,
+    ...(record.receipt
+      ? {
+          receipt: {
+            ...record.receipt,
+            inputBinding: {
+              ...(record.receipt.inputBinding ?? {}),
+              ...(sourceBindingDigest ? { sourceBindingDigest } : {}),
+              ...(sourceSentinelDigest ? { sourceSentinelDigest } : {})
+            }
+          }
+        }
+      : {}),
     dependencies: {
       contractDigest: run.manifest.contractDigest,
       workflowVersion: VERSION,
       files,
+      sourceBindingDigest,
+      sourceSentinelDigest,
       policyDigest: digestObject({
         authority: run.contract.authority,
         sensitivity: run.contract.sensitivity,
@@ -466,38 +537,64 @@ async function enrichEvidence(root, runId, record) {
       }),
       promptDigest: record.dependencies?.promptDigest ?? null,
       model: record.dependencies?.model ?? null,
+      reviewBinding: record.dependencies?.reviewBinding ?? null,
       remoteRevision: record.dependencies?.remoteRevision ?? run.contract.remoteRevision ?? null
     }
   };
 }
 
 async function refreshEvidence(root, runId) {
-  const run = await loadRun(root, runId);
-  const evidence = await listJsonRecords(root, safeJoin(run.runDir, "evidence"));
-  const stale = [];
-  const fresh = [];
-  for (const record of evidence) {
-    let current = [];
-    let isStale =
-      record.dependencies?.contractDigest !== run.manifest.contractDigest ||
-      record.dependencies?.workflowVersion !== VERSION;
-    if (!Array.isArray(record.dependencyInputs?.files)) isStale = true;
-    else {
-      for (const candidate of record.dependencyInputs.files) {
-        current.push(await fingerprintPath(run.manifest.cwd, candidate));
+  return withRunLock(root, runId, async ({ runDir }) => {
+    const run = await loadRun(root, runId);
+    assertMutableRun(run, "Evidence freshness");
+    const evidence = await listJsonRecords(root, safeJoin(runDir, "evidence"));
+    const sourceBinding = run.manifest.sourceBinding
+      ? await captureSourceBinding(run.manifest.cwd, {
+          baseRevision: run.manifest.sourceBinding.baseRevision,
+          requireClean: run.manifest.template === "self-improve-ops"
+        })
+      : null;
+    const stale = [];
+    const fresh = [];
+    for (const record of evidence) {
+      const definition = await evidenceDefinition(record);
+      const sourceBindingRequired = definition?.freshnessBinding?.includes("sourceBindingDigest") === true;
+      const sourceSentinelRequired = definition?.freshnessBinding?.includes("sourceSentinelDigest") === true;
+      let current = [];
+      let isStale =
+        record.dependencies?.contractDigest !== run.manifest.contractDigest ||
+        record.dependencies?.workflowVersion !== VERSION ||
+        (sourceBindingRequired && (!run.manifest.sourceBinding || record.dependencies?.sourceBindingDigest !== sourceBinding?.digest));
+      if (sourceSentinelRequired && (!run.manifest.sourceBinding || record.dependencies?.sourceSentinelDigest !== run.state.lastSentinel?.digest)) {
+        isStale = true;
       }
-      if (digestObject(current) !== digestObject(record.dependencies?.files ?? [])) isStale = true;
+      if (!Array.isArray(record.dependencyInputs?.files)) isStale = true;
+      else {
+        for (const candidate of record.dependencyInputs.files) {
+          current.push(await fingerprintPath(run.manifest.cwd, candidate));
+        }
+        if (digestObject(current) !== digestObject(record.dependencies?.files ?? [])) isStale = true;
+      }
+      const next = {
+        ...record,
+        stale: isStale,
+        freshnessCheckedAt: nowIso(),
+        currentDependencyFiles: current
+      };
+      await atomicWriteJson(root, safeJoin(runDir, "evidence", `${record.id}.json`), next);
+      (isStale ? stale : fresh).push(record.id);
     }
-    const next = {
-      ...record,
-      stale: isStale,
-      freshnessCheckedAt: nowIso(),
-      currentDependencyFiles: current
-    };
-    await atomicWriteJson(root, safeJoin(run.runDir, "evidence", `${record.id}.json`), next);
-    (isStale ? stale : fresh).push(record.id);
-  }
-  return { stale, fresh };
+    return { stale, fresh };
+  });
+}
+
+async function evidenceDefinition(record) {
+  const contracts = await loadEvidenceContracts();
+  const sourceKind = record?.sourceKind ?? record?.kind;
+  const kind = sourceKind === "independent-critic" || sourceKind === "evaluation-migration"
+    ? (sourceKind === "independent-critic" ? "patch-review" : "evaluation-suite")
+    : sourceKind;
+  return contracts[kind] ?? null;
 }
 
 async function currentVerifiedDigest(root, runId) {
@@ -511,6 +608,41 @@ async function currentVerifiedDigest(root, runId) {
 }
 
 async function providerEvidence(root, runId, result, prompt, acceptanceIds) {
+  const run = await loadRun(root, runId);
+  let reviewBinding = null;
+  if (run.contract.controlPlane?.reviewPolicy === "code-v1") {
+    const review = await reviewStatus(root, runId);
+    if (!review.package) throw new Error("Independent critic requires an immutable review package");
+    reviewBinding = {
+      packageId: review.package.packageId,
+      base: review.package.base,
+      head: review.package.head,
+      scopeDigest: review.package.scopeDigest,
+      diffManifestDigest: review.package.diffManifestDigest,
+      instructionDigest: review.package.instructionDigest,
+      sentinelDigest: review.package.sentinelDigest
+    };
+  }
+  const providerExecution = {
+    provider: result.metadata.provider,
+    model: result.metadata.requestedModel,
+    modelAssurance: result.metadata.modelAssurance ?? "requested-not-attested",
+    trustAttested: result.metadata.trustAttested === true,
+    promptDigest: sha256(prompt),
+    reviewDigest: digestObject(result.review),
+    transport: result.metadata.transport ?? "provider",
+    sandbox: result.metadata.sandbox ?? "read-only",
+    executionDigest: digestObject({
+      provider: result.metadata.provider,
+      model: result.metadata.requestedModel,
+      modelAssurance: result.metadata.modelAssurance ?? "requested-not-attested",
+      trustAttested: result.metadata.trustAttested === true,
+      promptDigest: sha256(prompt),
+      reviewDigest: digestObject(result.review),
+      transport: result.metadata.transport ?? "provider",
+      sandbox: result.metadata.sandbox ?? "read-only"
+    })
+  };
   const id = `critic-${result.metadata.provider}-${Date.now()}`;
   const record = {
     id,
@@ -522,12 +654,85 @@ async function providerEvidence(root, runId, result, prompt, acceptanceIds) {
     dependencyInputs: { files: [] },
     dependencies: {
       promptDigest: sha256(prompt),
-      model: result.metadata.requestedModel
+      model: result.metadata.requestedModel,
+      ...(reviewBinding ? { reviewBinding } : {})
     },
+    providerExecution,
     producer: result.metadata,
     review: result.review
   };
-  return addEvidence(root, runId, await enrichEvidence(root, runId, record));
+  return addEvidence(root, runId, await typedEvidenceRecord(root, runId, await enrichEvidence(root, runId, record)));
+}
+
+async function typedEvidenceRecord(root, runId, record) {
+  const run = await loadRun(root, runId);
+  if (run.contract.schemaVersion !== 2) return record;
+  const contracts = await loadEvidenceContracts();
+  const sourceKind = record.kind;
+  const kind = sourceKind === "independent-critic" || sourceKind === "evaluation-migration"
+    ? (sourceKind === "independent-critic" ? "patch-review" : "evaluation-suite")
+    : sourceKind;
+  const definition = contracts[kind];
+  if (!definition) throw new Error(`No typed evidence contract for self-improve evidence kind: ${sourceKind}`);
+  const rawProducer = record.producer?.provider ?? record.producer?.type ?? record.evaluation?.backend ?? "codex-root";
+  const producer = definition.producerAllowlist.includes(rawProducer)
+    ? { ...(record.producer ?? {}), provider: rawProducer }
+    : { provider: "codex-root", sourceProvider: rawProducer };
+  const evaluation = record.evaluation ?? {};
+  let payload;
+  if (definition.payloadFamily === "artifact-package") {
+    const artifactDigest = sourceKind === "evaluation-migration"
+      ? evaluation.calibration?.digest ?? evaluation.suiteDigest
+      : evaluation.candidate?.digest ?? evaluation.suiteDigest ?? digestObject({ kind: sourceKind, id: record.id });
+    payload = {
+      artifact: {
+        digest: artifactDigest,
+        kind: sourceKind,
+        purpose: evaluation.purpose ?? "ordinary"
+      }
+    };
+  } else if (definition.payloadFamily === "review-analysis") {
+    payload = {
+      verdict: record.review?.verdict ?? (record.status === "complete" ? "pass" : "fail"),
+      findingCount: Array.isArray(record.review?.findings) ? record.review.findings.length : 0
+    };
+  } else {
+    payload = {
+      command: `self-improve:${sourceKind}`,
+      result: "complete"
+    };
+  }
+  const payloadDigest = digestObject(payload);
+  const { sourceDigest: _sourceDigest, acceptanceIds: _acceptanceIds, producer: _recordProducer, kind: _kind, ...rest } = record;
+  const typed = {
+    ...rest,
+    kind,
+    sourceKind,
+    schemaVersion: 2,
+    producer,
+    sourceDigest: payloadDigest,
+    receipt: {
+      contractId: definition.id,
+      contractVersion: 1,
+      runId,
+      producer,
+      inputBinding: {
+        runId,
+        contractDigest: digestObject(run.contract),
+        remoteRevision: run.contract.remoteRevision ?? null,
+        ...(definition.freshnessBinding.includes("sourceBindingDigest")
+          ? { sourceBindingDigest: run.manifest.sourceBinding?.digest ?? null }
+          : {}),
+        ...(definition.freshnessBinding.includes("sourceSentinelDigest")
+          ? { sourceSentinelDigest: run.state.lastSentinel?.digest ?? null }
+          : {})
+      },
+      payload,
+      payloadDigest,
+      producedAt: nowIso()
+    }
+  };
+  return typed;
 }
 
 let selfImproveEvidenceSequence = 0;
@@ -542,39 +747,47 @@ function assertExplicitCodexEvaluationAuthority(options) {
     throw new Error("Codex evaluation requires explicit --allow-codex and --sanitized authority");
   }
   if (!options.model) throw new Error("Codex evaluation requires --model bound by the trusted attestation");
-  if (!options["trusted-codex-attestation"]) {
-    throw new Error("Codex evaluation requires a host-signed attestation anchored by the host trust root");
+  if (!options["trusted-codex-execution"]) {
+    throw new Error("Codex evaluation requires a host-owned execution witness for every replay");
   }
 }
 
-async function evaluationReplay({ backend, fixture, role, cases, prompt, options, cwd, attestationPath, execution }) {
+async function evaluationReplay({ backend, fixture, role, cases, prompt, options, cwd, hostExecutionPath, execution, expectedRequestDigest = null, expectedRunAs = null }) {
   if (backend === "fixture") {
     const response = fixture?.[role];
     if (!response) throw new Error(`Fixture result file is missing ${role} response`);
     const score = scoreEvaluation({ ...response, results: response.results?.filter((item) => cases.some((entry) => entry.id === item.id)) }, cases);
-    return { score, metadata: { provider: "fixture", trustAttested: false, sandbox: "deterministic-test" } };
+    return { response, score, metadata: { provider: "fixture", trustAttested: false, sandbox: "deterministic-test" } };
   }
   const result = await runCodexEvaluation({
     model: String(options.model),
     prompt,
-    timeoutMs: options["timeout-seconds"] === undefined ? undefined : integer(options["timeout-seconds"]) * 1_000,
-    attestationPath,
+    hostExecutionPath,
     evaluationRoot: cwd,
-    execution
+    execution,
+    expectedRequestDigest,
+    expectedRunAs
   });
-  return { score: scoreEvaluation(result.response, cases), metadata: result.metadata };
+  return { response: result.response, score: scoreEvaluation(result.response, cases), metadata: result.metadata };
 }
 
 async function addSelfImproveEvidence(root, runId, record) {
-  return addEvidence(root, runId, await enrichEvidence(root, runId, record));
+  const enriched = await enrichEvidence(root, runId, record);
+  return addEvidence(root, runId, await typedEvidenceRecord(root, runId, enriched));
 }
 
 function structuredReplay(replay) {
   return { score: redactedScore(replay.score), provider: replay.metadata.provider, trustAttested: replay.metadata.trustAttested === true,
-    attestationDigest: replay.metadata.attestationDigest ?? null, binaryDigest: replay.metadata.binary?.digest ?? null,
+    attestationDigest: replay.metadata.attestationDigest ?? null, binaryPath: replay.metadata.binary?.path ?? null, binaryDigest: replay.metadata.binary?.digest ?? null,
     attestationPath: replay.metadata.attestationPath ?? null, trustRootDigest: replay.metadata.trustRootDigest ?? null,
     issuer: replay.metadata.issuer ?? null, keyId: replay.metadata.keyId ?? null, expiresAt: replay.metadata.expiresAt ?? null,
-    execution: replay.metadata.execution ?? null, model: replay.metadata.requestedModel ?? null, sandbox: replay.metadata.sandbox };
+    execution: replay.metadata.execution ?? null, model: replay.metadata.requestedModel ?? replay.metadata.model ?? null, sandbox: replay.metadata.sandbox,
+    requestDigest: replay.metadata.requestDigest ?? null, runAs: replay.metadata.runAs ?? null,
+    promptDigest: replay.metadata.promptDigest ?? null, responseDigest: replay.metadata.responseDigest ?? null,
+    resultReceiptDigest: replay.metadata.resultReceiptDigest ?? null, resultReceiptPath: replay.metadata.resultReceiptPath ?? null,
+    ledgerDigest: replay.metadata.ledgerDigest ?? null,
+    hostExecutionPath: replay.metadata.hostExecutionPath ?? null, ledgerPath: replay.metadata.ledgerPath ?? null,
+    startedAt: replay.metadata.startedAt ?? null, finishedAt: replay.metadata.finishedAt ?? null, response: replay.response ?? null };
 }
 
 async function commandSelfImprove(root, subcommand, options, nestedCommand = null) {
@@ -617,6 +830,14 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
     ) {
       throw new Error("attestation request baseline or workspace does not match the run");
     }
+    const runPurpose = run.contract.selfImprovePurpose ?? run.manifest.evaluationPurpose ?? "ordinary";
+    const purpose = options.purpose === undefined ? runPurpose : String(options.purpose);
+    if (run.contract.selfImprovePurpose && run.contract.selfImprovePurpose !== purpose) {
+      throw new Error("Attestation purpose must match the immutable run creation purpose");
+    }
+    if (isPolicyBoundEvaluationPurpose(purpose) && run.contract.selfImprovePurpose !== purpose) {
+      throw new Error(`${purpose} attestation requires a run created with --evaluation-purpose ${purpose}`);
+    }
     return generateAttestationRequests({
       repo: process.cwd(),
       runId: String(options.run),
@@ -626,16 +847,27 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
       outputDirectory: String(options.output),
       binaryPath: options.binary ? String(options.binary) : null,
       casesFile: options.cases ? String(options.cases) : null,
-      purpose: String(options.purpose ?? "ordinary"),
+      purpose,
       nextCasesFile: options["next-cases"] ? String(options["next-cases"]) : null
     });
   }
+  if (subcommand === "handoff") {
+    if (!nestedCommand) throw new Error("self-improve handoff requires the target pr-to-dev run id");
+    assertKnownOptions(options, ["source-run"]);
+    if (!options["source-run"]) throw new Error("self-improve handoff requires --source-run");
+    const record = await createSelfImproveDeliveryHandoff(
+      root,
+      String(nestedCommand),
+      String(options["source-run"])
+    );
+    return { ok: true, runId: String(nestedCommand), evidence: await addEvidence(root, String(nestedCommand), record) };
+  }
   if (subcommand !== "evaluate") {
-    throw new Error("self-improve subcommand must be evaluate, host, or attestation");
+    throw new Error("self-improve subcommand must be evaluate, host, attestation, or handoff");
   }
   assertKnownOptions(options, [
     "run", "cases", "baseline", "candidate-root", "backend", "split", "result-file", "model", "allow-codex", "sanitized",
-    "timeout-seconds", "trusted-codex-attestation", "purpose", "next-cases"
+    "trusted-codex-execution", "request-manifest", "request-manifest-digest", "purpose", "next-cases"
   ]);
   if (!options.run || !options.cases || !options.baseline || !options["candidate-root"] || !options.backend || !options.split) {
     throw new Error("self-improve evaluate requires --run, --cases, --baseline, --candidate-root, --backend, and --split");
@@ -648,9 +880,16 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
   }
   const backend = String(options.backend);
   const split = String(options.split);
-  const purpose = String(options.purpose ?? "ordinary");
+  const runPurpose = run.contract.selfImprovePurpose ?? run.manifest.evaluationPurpose ?? "ordinary";
+  const purpose = options.purpose === undefined ? runPurpose : String(options.purpose);
   if (!["codex", "fixture"].includes(backend) || !["train", "holdout"].includes(split)) throw new Error("Invalid self-improve backend or split");
-  if (!["ordinary", "evaluator-migration"].includes(purpose)) throw new Error("Invalid self-improve evaluation purpose");
+  if (!["ordinary", "evaluator-migration", "safety-remediation-v1", "quality-remediation-v1"].includes(purpose)) throw new Error("Invalid self-improve evaluation purpose");
+  if (run.contract.selfImprovePurpose && run.contract.selfImprovePurpose !== purpose) {
+    throw new Error("Evaluation purpose must match the immutable run creation purpose");
+  }
+  if (isPolicyBoundEvaluationPurpose(purpose) && run.contract.selfImprovePurpose !== purpose) {
+    throw new Error(`${purpose} evaluation requires a run created with --evaluation-purpose ${purpose}`);
+  }
   if (purpose === "evaluator-migration" && !options["next-cases"]) throw new Error("Evaluator migration requires --next-cases");
   if (backend === "fixture" && process.env.SBW_TEST_FIXTURE_BACKEND !== "1") {
     throw new Error("Fixture evaluation backend is test-only and requires SBW_TEST_FIXTURE_BACKEND=1");
@@ -658,16 +897,28 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
   if (backend === "codex") assertExplicitCodexEvaluationAuthority(options);
   if (backend === "fixture" && !options["result-file"]) throw new Error("Fixture evaluation requires --result-file");
   const cwd = run.manifest.cwd;
+  const policyBound = isPolicyBoundEvaluationPurpose(purpose);
+  const policy = policyBound ? await loadPolicyBoundEvaluationPolicy({ cwd, purpose }) : null;
+  const evaluationBaseline = await resolveStrictBaselineRevision(cwd, String(options.baseline));
+  if (evaluationBaseline !== run.manifest.baselineRevision) {
+    throw new Error("Evaluation baseline must equal the immutable run-start baseline revision");
+  }
   const frozen = await loadFrozenEvaluationSuite({
     cwd,
     casesFile: path.resolve(cwd, String(options.cases)),
-    baselineRevision: String(options.baseline),
+    baselineRevision: evaluationBaseline,
     canonical: backend === "codex",
     purpose
   });
-  if (frozen.baselineRevision !== run.manifest.baselineRevision) {
-    throw new Error("Evaluation baseline must equal the immutable run-start baseline revision");
+  if (frozen.baselineRevision !== evaluationBaseline) throw new Error("Evaluation baseline must equal the immutable run-start baseline revision");
+  if (policy && frozen.sourceDigest !== policy.sourceSuiteDigest) {
+    throw new Error(`${purpose} source suite digest is not the policy-bound immutable corpus`);
   }
+  const currentSourceBinding = await captureSourceBinding(cwd, { baseRevision: run.manifest.baselineRevision, requireClean: true });
+  if (!currentSourceBinding || currentSourceBinding.digest !== run.manifest.sourceBinding?.digest || currentSourceBinding.headRevision !== run.manifest.sourceBinding?.headRevision) {
+    throw new Error("Self-improve evaluation requires the exact run-bound source revision");
+  }
+  const evaluatedPluginBundleDigest = await pluginBundleDigest();
   const candidate = await snapshotCandidate({ cwd, baselineRevision: frozen.baselineRevision, candidateRoot: String(options["candidate-root"]) });
   const baseline = await snapshotBaselineForCandidate({ cwd, snapshot: candidate });
   const candidateMaterial = await readSanitizedCandidateMaterial({ cwd, snapshot: candidate });
@@ -678,9 +929,14 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
   const suiteDigest = evaluationBindingDigest({
     purpose,
     sourceSuiteDigest: frozen.sourceDigest,
-    targetSuiteDigest: target?.sourceDigest
+    targetSuiteDigest: target?.sourceDigest,
+    policyDigest: policy?.digest
   });
-  const cases = selectEvaluationCases({ suite: frozen.suite, snapshot: candidate, split });
+  const cases = purpose === "safety-remediation-v1"
+    ? selectSafetyRemediationCases({ suite: frozen.suite, snapshot: candidate, split, policy })
+    : purpose === "quality-remediation-v1"
+      ? selectQualityRemediationCases({ suite: frozen.suite, snapshot: candidate, split, policy })
+    : selectEvaluationCases({ suite: frozen.suite, snapshot: candidate, split });
   const calibration = target
     ? calibrateEvaluatorMigration({
       source: frozen.suite,
@@ -694,15 +950,35 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
   const candidatePrompt = buildEvaluationPrompt({ suite: { ...frozen.suite, cases }, candidate, materials: candidateMaterial });
   const baselinePrompt = buildEvaluationPrompt({ suite: { ...frozen.suite, cases }, candidate: baseline, materials: baselineMaterial });
   const fixture = backend === "fixture" ? JSON.parse(await readFile(path.resolve(cwd, String(options["result-file"])), "utf8")) : null;
-  const attestationPaths = values(options["trusted-codex-attestation"]).map(String);
-  const requiredAttestations = backend === "codex" ? (split === "train" ? 1 : 6) : 0;
-  if (backend === "codex" && attestationPaths.length !== requiredAttestations) {
-    throw new Error(`Codex ${split} evaluation requires exactly ${requiredAttestations} distinct host-signed attestation file(s)`);
+  const requestBindings = backend === "codex"
+    ? await loadBoundHostExecutionRequestManifest({
+      manifestPath: options["request-manifest"],
+      manifestDigest: options["request-manifest-digest"],
+      cwd,
+      run,
+      runId,
+      candidate,
+      frozen,
+      suiteDigest,
+      purpose,
+      target,
+      model: String(options.model)
+    })
+    : null;
+  const hostExecutionPaths = values(options["trusted-codex-execution"]).map(String);
+  const requiredExecutions = backend === "codex" ? (split === "train" ? 1 : 6) : 0;
+  if (backend === "codex" && hostExecutionPaths.length !== requiredExecutions) {
+    throw new Error(`Codex ${split} evaluation requires exactly ${requiredExecutions} distinct host execution witness file(s)`);
   }
-  if (backend === "codex" && new Set(attestationPaths).size !== attestationPaths.length) {
-    throw new Error("Codex evaluation attestation files must be distinct for every replay");
+  if (backend === "codex" && new Set(hostExecutionPaths).size !== hostExecutionPaths.length) {
+    throw new Error("Codex evaluation host execution witnesses must be distinct for every replay");
   }
-  const dependencyFiles = [...new Set([frozen.relativePath, target?.relativePath, ...candidate.files.map((item) => item.path)].filter(Boolean))].sort();
+  const dependencyFiles = [...new Set([
+    frozen.relativePath,
+    target?.relativePath,
+    policy?.path,
+    ...candidate.files.map((item) => item.path)
+  ].filter(Boolean))].sort();
   const common = {
     sourceDigest: digestObject({ suite: suiteDigest, baseline: frozen.baselineRevision, candidate: candidate.digest }),
     dependencyInputs: { files: dependencyFiles },
@@ -715,9 +991,22 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
       sourceSuiteDigest: frozen.sourceDigest,
       targetSuitePath: target?.relativePath ?? null,
       targetSuiteDigest: target?.sourceDigest ?? null,
+      policyPath: policy?.path ?? null,
+      policyId: policy?.policyId ?? null,
+      policyVersion: policy?.version ?? null,
+      policyDigest: policy?.digest ?? null,
       baselineRevision: frozen.baselineRevision,
+      headRevision: backend === "codex" ? requestBindings?.headRevision ?? currentSourceBinding.headRevision : currentSourceBinding.headRevision,
+      sourceBindingDigest: backend === "codex" ? requestBindings?.sourceBindingDigest ?? currentSourceBinding.digest : currentSourceBinding.digest,
+      pluginBundleDigest: backend === "codex" ? requestBindings?.pluginBundleDigest ?? evaluatedPluginBundleDigest : evaluatedPluginBundleDigest,
       candidate,
-      baseline
+      baseline,
+      ...(backend === "codex"
+        ? {
+          requestManifestPath: path.resolve(String(options["request-manifest"])),
+          requestManifestDigest: String(options["request-manifest-digest"])
+        }
+        : {})
     }
   };
   const execution = (role, attempt) => ({
@@ -726,8 +1015,12 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
     suiteDigest,
     baselineRevision: frozen.baselineRevision,
     candidateDigest: candidate.digest,
+    headRevision: backend === "codex" ? requestBindings?.headRevision ?? currentSourceBinding.headRevision : currentSourceBinding.headRevision,
+    promptDigest: sha256(role === "baseline" ? baselinePrompt : candidatePrompt),
     role,
-    attempt
+    sourceBindingDigest: backend === "codex" ? requestBindings?.sourceBindingDigest ?? currentSourceBinding.digest : currentSourceBinding.digest,
+    attempt,
+    ...(policyBound ? { purpose, policyDigest: policy.digest } : {})
   });
   const prior = await listJsonRecords(root, safeJoin(run.runDir, "evidence"));
   if (split === "holdout") {
@@ -735,8 +1028,16 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
     if (!training) throw new Error("Holdout evaluation requires a fresh training replay bound to the same suite, baseline, and candidate");
   }
   if (split === "train") {
+    const trainExecution = execution("train-candidate", 1);
+    const trainBinding = requestBindings?.get(trainExecution.id);
+    if (backend === "codex" && !trainBinding) throw new Error("Training replay is missing its canonical request manifest binding");
     const replay = await evaluationReplay({ backend, fixture, role: "candidate", cases, prompt: candidatePrompt, options, cwd,
-      attestationPath: attestationPaths[0], execution: execution("train-candidate", 1) });
+      hostExecutionPath: hostExecutionPaths[0], execution: trainExecution,
+      expectedRequestDigest: trainBinding?.requestDigest ?? null,
+      expectedRunAs: trainBinding?.runAs ?? null });
+    if (policyBound && replay.score.hardSafetyPass !== true) {
+      throw new Error(`${purpose} training replay failed its hard-safety gate`);
+    }
     const suiteEvidence = await addSelfImproveEvidence(root, runId, {
       id: evaluationEvidenceId("suite"), kind: "evaluation-suite", summary: "Frozen sanitized evaluation suite bound to the immutable baseline.", status: "complete",
       acceptanceIds: ["replay-bounded"], ...common
@@ -767,20 +1068,40 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
   }
   const candidateReplays = [];
   const baselineReplays = [];
-  for (let index = 0; index < 3; index += 1) candidateReplays.push(await evaluationReplay({ backend, fixture, role: "candidate", cases, prompt: candidatePrompt, options, cwd,
-    attestationPath: attestationPaths[index], execution: execution("candidate", index + 1) }));
-  for (let index = 0; index < 3; index += 1) baselineReplays.push(await evaluationReplay({ backend, fixture, role: "baseline", cases, prompt: baselinePrompt, options, cwd,
-    attestationPath: attestationPaths[index + 3], execution: execution("baseline", index + 1) }));
+  for (let index = 0; index < 3; index += 1) {
+    const candidateExecution = execution("candidate", index + 1);
+    const candidateBinding = requestBindings?.get(candidateExecution.id);
+    if (backend === "codex" && !candidateBinding) throw new Error("Candidate replay is missing its canonical request manifest binding");
+    candidateReplays.push(await evaluationReplay({ backend, fixture, role: "candidate", cases, prompt: candidatePrompt, options, cwd,
+      hostExecutionPath: hostExecutionPaths[index], execution: candidateExecution,
+      expectedRequestDigest: candidateBinding?.requestDigest ?? null,
+      expectedRunAs: candidateBinding?.runAs ?? null }));
+  }
+  for (let index = 0; index < 3; index += 1) {
+    const baselineExecution = execution("baseline", index + 1);
+    const baselineBinding = requestBindings?.get(baselineExecution.id);
+    if (backend === "codex" && !baselineBinding) throw new Error("Baseline replay is missing its canonical request manifest binding");
+    baselineReplays.push(await evaluationReplay({ backend, fixture, role: "baseline", cases, prompt: baselinePrompt, options, cwd,
+      hostExecutionPath: hostExecutionPaths[index + 3], execution: baselineExecution,
+      expectedRequestDigest: baselineBinding?.requestDigest ?? null,
+      expectedRunAs: baselineBinding?.runAs ?? null }));
+  }
   const comparison = purpose === "evaluator-migration"
     ? compareEvaluatorMigration({ baseline: baselineReplays.map((item) => item.score), candidate: candidateReplays.map((item) => item.score) })
-    : compareHoldout({ baseline: baselineReplays.map((item) => item.score), candidate: candidateReplays.map((item) => item.score), suite: frozen.suite });
+    : purpose === "safety-remediation-v1"
+      ? compareSafetyRemediation({ baseline: baselineReplays.map((item) => item.score), candidate: candidateReplays.map((item) => item.score), suite: frozen.suite, policy })
+      : purpose === "quality-remediation-v1"
+        ? compareQualityRemediation({ baseline: baselineReplays.map((item) => item.score), candidate: candidateReplays.map((item) => item.score), suite: frozen.suite, policy })
+      : compareHoldout({ baseline: baselineReplays.map((item) => item.score), candidate: candidateReplays.map((item) => item.score), suite: frozen.suite });
   const trusted = backend === "codex" && [...candidateReplays, ...baselineReplays].every((item) => item.metadata.trustAttested === true && item.metadata.provider === "codex");
   const evidence = await addSelfImproveEvidence(root, runId, {
     id: evaluationEvidenceId("holdout"), kind: "holdout-comparison", status: "complete",
     summary: comparison.accepted && trusted
       ? (purpose === "evaluator-migration"
         ? "Trusted legacy held-out comparison passed evaluator-migration safety non-regression gates."
-        : "Trusted held-out comparison passed strict relevant-class improvement and safety gates.")
+        : isPolicyBoundEvaluationPurpose(purpose)
+          ? `Trusted held-out comparison passed the versioned ${purpose} policy.`
+          : "Trusted held-out comparison passed strict relevant-class improvement and safety gates.")
       : `Held-out comparison did not authorize adoption: ${comparison.reason}.`,
     acceptanceIds: comparison.accepted && trusted ? ["heldout-gated", "outcome-explicit", "validated"] : ["outcome-explicit"], ...common,
     evaluation: { ...common.evaluation, comparison, candidateReplays: candidateReplays.map(structuredReplay), baselineReplays: baselineReplays.map(structuredReplay) }
@@ -791,109 +1112,19 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
 async function assertAcceptedSelfImproveHoldout(root, runId, action) {
   if (!["git.commit", "plugin.cache.publish", "git.push"].includes(action)) return;
   const run = await loadRun(root, runId);
-  if (run.manifest.template !== "self-improve-ops") return;
-  const evidence = await listJsonRecords(root, safeJoin(run.runDir, "evidence"));
-  const accepted = evidence.find((item) => item.kind === "holdout-comparison" && item.status === "complete" && !item.stale && item.acceptanceIds?.includes("heldout-gated"));
-  if (!accepted?.evaluation?.comparison?.accepted || accepted.evaluation.backend !== "codex") {
-    throw new Error("Self-improve delivery requires an accepted trusted Codex held-out comparison");
+  if (action === "plugin.cache.publish" && !run.contract.upstreamSelfImproveRunId) {
+    throw new Error("Plugin cache publication requires a delegated self-improve delivery run");
   }
-  const staging = evidence.find((item) => item.kind === "candidate-staging" && item.status === "complete" && !item.stale && item.evaluation?.candidate?.digest === accepted.evaluation.candidate?.digest);
-  const training = evidence.find((item) => item.kind === "training-replay" && item.status === "complete" && !item.stale && item.evaluation?.candidate?.digest === accepted.evaluation.candidate?.digest);
-  if (!staging || !training) throw new Error("Self-improve delivery requires fresh candidate staging and training replay evidence");
-  const replays = [
-    ...(training.evaluation?.replays ?? []),
-    ...(accepted.evaluation?.candidateReplays ?? []),
-    ...(accepted.evaluation?.baselineReplays ?? [])
-  ];
-  if (replays.length !== 7 || replays.some((item) => item.provider !== "codex" || item.trustAttested !== true || !item.attestationDigest || !item.attestationPath || !item.binaryDigest || !item.trustRootDigest || !item.model || !item.expiresAt || !item.execution)) {
-    throw new Error("Self-improve delivery requires seven host-attested Codex replays");
-  }
-  const bindings = new Set(replays.map((item) => digestObject({
-    binaryDigest: item.binaryDigest, trustRootDigest: item.trustRootDigest, issuer: item.issuer, keyId: item.keyId, model: item.model
-  })));
-  if (bindings.size !== 1) throw new Error("Self-improve delivery requires one consistent host binary, trust root, issuer, key, and model across every replay");
-  const executionIds = new Set(replays.map((item) => item.execution.id));
-  const attestationPaths = new Set(replays.map((item) => item.attestationPath));
-  if (executionIds.size !== 7 || attestationPaths.size !== 7) {
-    throw new Error("Self-improve delivery requires seven distinct signed executions and attestation files");
-  }
-  const expectedExecutions = new Set([
-    "train-candidate:1", "candidate:1", "candidate:2", "candidate:3", "baseline:1", "baseline:2", "baseline:3"
-  ]);
-  for (const replay of replays) {
-    const execution = replay.execution;
-    if (execution.runId !== runId || execution.suiteDigest !== accepted.evaluation.suiteDigest || execution.baselineRevision !== accepted.evaluation.baselineRevision || execution.candidateDigest !== accepted.evaluation.candidate?.digest || !expectedExecutions.delete(`${execution.role}:${execution.attempt}`)) {
-      throw new Error("Self-improve delivery execution binding is incomplete, duplicated, or mismatched");
-    }
-    const revalidated = await verifyTrustedCodexAttestation({
-      attestationPath: replay.attestationPath,
-      evaluationRoot: run.manifest.cwd,
-      model: replay.model,
-      execution
-    });
-    if (revalidated.metadata.attestationDigest !== replay.attestationDigest || revalidated.metadata.binary.digest !== replay.binaryDigest || revalidated.metadata.trustRootDigest !== replay.trustRootDigest || revalidated.metadata.issuer !== replay.issuer || revalidated.metadata.keyId !== replay.keyId) {
-      throw new Error("Self-improve delivery attestation binding changed after replay");
-    }
-  }
-  if (expectedExecutions.size !== 0) throw new Error("Self-improve delivery is missing a required signed replay execution");
-  const evaluation = accepted.evaluation;
-  if (evaluation.baselineRevision !== run.manifest.baselineRevision) {
-    throw new Error("Self-improve held-out evidence is not bound to the run-start baseline");
-  }
-  const purpose = evaluation.purpose ?? "ordinary";
-  const frozen = await loadFrozenEvaluationSuite({
-    cwd: run.manifest.cwd,
-    casesFile: path.join(run.manifest.cwd, evaluation.suitePath),
-    baselineRevision: evaluation.baselineRevision,
-    canonical: true,
-    purpose
-  });
-  const currentCandidate = await snapshotCandidate({
-    cwd: run.manifest.cwd,
-    baselineRevision: evaluation.baselineRevision,
-    candidateRoot: evaluation.candidate.candidateRoot
-  });
-  if (currentCandidate.digest !== evaluation.candidate.digest) {
-    throw new Error("Self-improve candidate changed after held-out evaluation");
-  }
-  if (purpose === "evaluator-migration") {
-    if (evaluation.comparison?.policy !== "evaluator-migration") {
-      throw new Error("Evaluator migration delivery requires the dedicated safety non-regression policy");
-    }
-    const migration = evidence.find((item) =>
-      item.kind === "evaluation-migration" &&
-      item.status === "complete" &&
-      !item.stale &&
-      item.evaluation?.suiteDigest === evaluation.suiteDigest &&
-      item.evaluation?.candidate?.digest === evaluation.candidate?.digest &&
-      item.evaluation?.calibration?.digest
-    );
-    if (!migration) throw new Error("Evaluator migration delivery requires fresh deterministic migration calibration");
-    const target = await loadMigrationTargetSuite({
-      cwd: run.manifest.cwd,
-      casesFile: path.join(run.manifest.cwd, evaluation.targetSuitePath)
-    });
-    if (target.sourceDigest !== evaluation.targetSuiteDigest) throw new Error("Evaluator migration target suite changed after replay");
-    const binding = evaluationBindingDigest({
-      purpose,
-      sourceSuiteDigest: frozen.sourceDigest,
-      targetSuiteDigest: target.sourceDigest
-    });
-    if (binding !== evaluation.suiteDigest) throw new Error("Evaluator migration suite binding changed after replay");
-    const materials = await readSanitizedCandidateMaterial({ cwd: run.manifest.cwd, snapshot: currentCandidate });
-    const calibration = calibrateEvaluatorMigration({
-      source: frozen.suite,
-      target: target.suite,
-      snapshot: currentCandidate,
-      materials,
-      sourceDigest: frozen.sourceDigest,
-      targetDigest: target.sourceDigest
-    });
-    if (calibration.digest !== migration.evaluation.calibration.digest) {
-      throw new Error("Evaluator migration calibration changed after replay");
-    }
-  } else if (evaluation.comparison?.policy !== "strict-class-improvement") {
-    throw new Error("Ordinary self-improve delivery requires strict relevant-class improvement");
+  if (run.manifest.template !== "self-improve-ops" && !run.contract.upstreamSelfImproveRunId) return;
+  const sourceRunId = run.contract.upstreamSelfImproveRunId ?? runId;
+  const sourceRun = sourceRunId === runId ? run : await loadRun(root, sourceRunId);
+  const sourceEvidence = await listJsonRecords(root, safeJoin(sourceRun.runDir, "evidence"));
+  await verifySelfImproveDeliveryEvidence({ root, runId: sourceRunId, run: sourceRun, evidence: sourceEvidence });
+  if (run.contract.upstreamSelfImproveRunId) {
+    const targetEvidence = await listJsonRecords(root, safeJoin(run.runDir, "evidence"));
+    const handoff = targetEvidence.find((item) => item.kind === "self-improve-delivery-handoff" && item.status === "complete" && item.stale !== true);
+    if (!handoff?.receipt?.payload) throw new Error("Delegated self-improve delivery action requires a fresh typed handoff receipt");
+    await validateSelfImproveDeliveryHandoff(handoff.receipt.payload, { ...run, root });
   }
 }
 
@@ -917,11 +1148,14 @@ async function commandRun(root, options) {
     "volatile-exclusion",
     "high-risk-ignored",
     "remote-revision",
+    "baseline",
+    "evaluation-purpose",
+    "self-improve-run",
     "route-receipt"
   ]);
   let receiptBinding = null;
   if (options["route-receipt"]) {
-    for (const conflicting of ["template", "entry", "goal", "scope", "mode"]) {
+    for (const conflicting of ["template", "entry", "goal", "scope", "mode", "self-improve-run"]) {
       if (options[conflicting] !== undefined) {
         throw new Error(`--route-receipt cannot be combined with --${conflicting}`);
       }
@@ -939,6 +1173,33 @@ async function commandRun(root, options) {
     ? receiptBinding.preview.primary.template
     : String(options.template ?? "");
   const template = await loadTemplate(templateName);
+  const purposeProvided = options["evaluation-purpose"] !== undefined;
+  const requestedEvaluationPurpose = purposeProvided ? String(options["evaluation-purpose"]) : null;
+  if (requestedEvaluationPurpose !== null && !["ordinary", "evaluator-migration", "safety-remediation-v1", "quality-remediation-v1"].includes(requestedEvaluationPurpose)) {
+    throw new Error("Invalid self-improve evaluation purpose");
+  }
+  if (templateName !== "self-improve-ops" && requestedEvaluationPurpose !== null && requestedEvaluationPurpose !== "ordinary") {
+    throw new Error("--evaluation-purpose is only valid for self-improve-ops");
+  }
+  if (options.baseline !== undefined && templateName !== "self-improve-ops") {
+    throw new Error("--baseline is only valid for a self-improve-ops run");
+  }
+  if (templateName === "self-improve-ops" && options.baseline === undefined) {
+    throw new Error("self-improve-ops requires an explicit --baseline <full-commit-sha>");
+  }
+  let upstreamSelfImproveRun = null;
+  if (options["self-improve-run"] !== undefined) {
+    if (templateName !== "pr-to-dev") {
+      throw new Error("--self-improve-run is only valid for a delegated pr-to-dev run");
+    }
+    upstreamSelfImproveRun = await loadRun(root, String(options["self-improve-run"]));
+    if (upstreamSelfImproveRun.manifest.template !== "self-improve-ops") {
+      throw new Error("--self-improve-run must identify a self-improve-ops run");
+    }
+    if (!upstreamSelfImproveRun.manifest.baselineRevision) {
+      throw new Error("Delegated pr-to-dev requires a source self-improve baseline revision");
+    }
+  }
   if (GRAPH_ENFORCEMENT_ENABLED) {
     const graph = buildTemplateGraph({
       template,
@@ -950,6 +1211,10 @@ async function commandRun(root, options) {
   if (options.contract) {
     contract = validateContract(JSON.parse(await readFile(path.resolve(String(options.contract)), "utf8")));
     if (contract.template !== templateName) throw new Error("Contract template does not match --template");
+    const contractPurpose = contract.selfImprovePurpose ?? "ordinary";
+    if (purposeProvided && contractPurpose !== requestedEvaluationPurpose) {
+      throw new Error("--evaluation-purpose must match the purpose already bound in the supplied contract");
+    }
     const customEvidence = new Set(contract.requiredEvidence);
     const missingMinimums = (template.requiredEvidence ?? []).filter(
       (kind) => !customEvidence.has(kind)
@@ -958,6 +1223,42 @@ async function commandRun(root, options) {
       throw new Error(
         `TaskContract cannot remove template required evidence: ${missingMinimums.join(", ")}`
       );
+    }
+    if (template.controlPlane && Array.isArray(template.executionStages) && contract.schemaVersion !== 2) {
+      throw new Error("v2 templates require a schemaVersion 2 TaskContract");
+    }
+    if (contract.schemaVersion === 2) {
+      const policyKeys = [
+        "evidencePolicy",
+        "ledgerPolicy",
+        "reviewPolicy",
+        "designPacketPolicy",
+        "refinementPolicy",
+        "deliberationPolicy"
+      ];
+      for (const key of policyKeys) {
+        if (contract.controlPlane?.[key] !== template.controlPlane?.[key]) {
+          throw new Error(`TaskContract v2 cannot weaken template control-plane policy: ${key}`);
+        }
+      }
+      const stageIdentity = (stages) => (stages ?? []).map((stage) => ({
+        id: stage.id,
+        dependsOn: [...(stage.dependsOn ?? [])],
+        requiredEvidence: [...(stage.requiredEvidence ?? [])],
+        attemptBudget: stage.attemptBudget,
+        kind: stage.kind
+      }));
+      if (digestObject(stageIdentity(contract.executionStages)) !== digestObject(stageIdentity(template.executionStages))) {
+        throw new Error("TaskContract v2 execution stages must preserve the installed template identity");
+      }
+      if (digestObject(contract.actionStages ?? {}) !== digestObject(template.actionStages ?? {})) {
+        throw new Error("TaskContract v2 action stages must preserve the installed template identity");
+      }
+      const stageEvidence = new Set((template.executionStages ?? []).flatMap((stage) => stage.requiredEvidence ?? []));
+      const missingStageEvidence = [...stageEvidence].filter((kind) => !customEvidence.has(kind));
+      if (missingStageEvidence.length > 0) {
+        throw new Error(`TaskContract cannot remove execution-stage evidence: ${missingStageEvidence.join(", ")}`);
+      }
     }
   } else {
     contract = buildContract({
@@ -982,7 +1283,8 @@ async function commandRun(root, options) {
       agySanitized: options.sanitized === true || options.sanitized === "true",
       volatileExclusions: values(options["volatile-exclusion"]).map(String),
       highRiskIgnored: values(options["high-risk-ignored"]).map(String),
-      remoteRevision: options["remote-revision"] ? String(options["remote-revision"]) : null
+      remoteRevision: options["remote-revision"] ? String(options["remote-revision"]) : null,
+      selfImprovePurpose: templateName === "self-improve-ops" && purposeProvided ? requestedEvaluationPurpose : null
     });
     if (options["require-agy"] === true || options["require-agy"] === "true") {
       contract.agy.required = true;
@@ -994,6 +1296,31 @@ async function commandRun(root, options) {
   }
   contract.templateDigest = currentTemplateDigest;
   contract.actionGates = structuredClone(template.actionGates ?? {});
+  if (template.actionStages) contract.actionStages = structuredClone(template.actionStages);
+  else delete contract.actionStages;
+  if (template.deferredActions) contract.deferredActions = structuredClone(template.deferredActions);
+  else delete contract.deferredActions;
+  if (upstreamSelfImproveRun) {
+    const handoffKind = "self-improve-delivery-handoff";
+    contract.upstreamSelfImproveRunId = String(options["self-improve-run"]);
+    contract.requiredEvidence = [...new Set([...contract.requiredEvidence, handoffKind])];
+    contract.requiredEvidence = [...new Set([...contract.requiredEvidence, "cache-publication"])]
+    contract.acceptanceEvidence = Object.fromEntries(
+      Object.entries(contract.acceptanceEvidence ?? {}).map(([id, kinds]) => [
+        id,
+        [...new Set([...kinds, handoffKind, "cache-publication"])]
+      ])
+    );
+    contract.executionStages = contract.executionStages.map((stage) => stage.id === "commits"
+      ? { ...stage, requiredEvidence: [...new Set([...stage.requiredEvidence, handoffKind])] }
+      : stage);
+    contract.actionGates = Object.fromEntries(
+      Object.entries(contract.actionGates ?? {}).map(([action, kinds]) => [
+        action,
+        [...new Set([...kinds, handoffKind])]
+      ])
+    );
+  }
   const riskMode = routeMode(contract, "auto");
   const requestedMode = receiptBinding
     ? receiptBinding.preview.effectiveMode
@@ -1012,10 +1339,8 @@ async function commandRun(root, options) {
     });
   }
   const baselineRevision = templateName === "self-improve-ops"
-    ? (await execFileAsync("git", ["rev-parse", "--verify", "HEAD^{commit}"], {
-        cwd: process.cwd(), encoding: "utf8"
-      })).stdout.trim()
-    : null;
+    ? await resolveStrictBaselineRevision(process.cwd(), String(options.baseline ?? ""))
+    : upstreamSelfImproveRun?.manifest.baselineRevision ?? null;
   const result = await createRun({
     root,
     contract,
@@ -1154,7 +1479,9 @@ function optionEnabled(value) {
   return value === true || value === "true";
 }
 
-async function commandDeliberation(subcommand, options) {
+async function commandDeliberation(root, subcommand, options) {
+  const sharedOptions = ["provider", "allow-external-providers", "sanitized", "refresh", "reasoning-effort", "mode", "timeout-seconds"];
+  assertKnownOptions(options, subcommand === "roster" ? sharedOptions : [...sharedOptions, "prompt-file", ...(subcommand === "deliberate" ? ["run"] : [])]);
   const providers = values(options.provider).map(String);
   const timeoutSeconds = options["timeout-seconds"] === undefined
     ? undefined
@@ -1187,6 +1514,20 @@ async function commandDeliberation(subcommand, options) {
       throw new Error("deliberation deliberate requires --prompt-file <sanitized-file>");
     }
     const prompt = await readFile(path.resolve(String(options["prompt-file"])), "utf8");
+    if (options.run) {
+      return deliberateForRun({
+        root,
+        runId: String(options.run),
+        prompt,
+        allowExternalProviders: common.allowExternalProviders,
+        sanitized: common.sanitized,
+        refresh: common.refresh,
+        reasoningEffort: common.reasoningEffort,
+        mode: common.mode,
+        timeoutSeconds: common.timeoutSeconds,
+        providers: common.providers
+      });
+    }
     return deliberate({ ...common, prompt });
   }
   throw new Error("deliberation subcommand must be roster, deliberate, or arbitrate");
@@ -1197,30 +1538,51 @@ async function commandEval() {
     const graph = await installedTemplateGraph();
     if (graphHasErrors(graph)) return graphStructuralFailure(graph, "eval");
   }
+  const contracts = await loadEvidenceContracts({ refresh: true });
+  const unknown = [];
+  for (const template of await listTemplates()) {
+    const kinds = [
+      ...(template.requiredEvidence ?? []),
+      ...(template.executionStages ?? []).flatMap((stage) => stage.requiredEvidence ?? []),
+      ...Object.values(template.actionGates ?? {}).flat()
+    ];
+    for (const kind of kinds) if (!contracts[kind]) unknown.push(`${template.name}:${kind}`);
+  }
+  if (unknown.length > 0) throw new Error(`Installed template evidence mapping is incomplete: ${unknown.join(", ")}`);
   const tests = (await readdir(path.join(SCRIPT_DIR, "tests")))
     .filter((name) => name.endsWith(".test.mjs"))
     .sort()
     .map((name) => path.join(SCRIPT_DIR, "tests", name));
   if (tests.length === 0) throw new Error("No tests found");
-  return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, ["--test", ...tests], {
-      cwd: pluginRoot(),
-      shell: false,
-      stdio: "inherit",
-      env: process.env
+  for (const testPath of tests) {
+    await new Promise((resolve, reject) => {
+      const child = spawn(process.execPath, ["--test", "--test-concurrency=1", testPath], {
+        cwd: process.cwd(),
+        shell: false,
+        stdio: ["ignore", "pipe", "pipe"],
+        env: process.env
+      });
+      const stdout = [];
+      const stderr = [];
+      child.stdout.on("data", (chunk) => stdout.push(chunk));
+      child.stderr.on("data", (chunk) => stderr.push(chunk));
+      child.on("error", reject);
+      child.on("close", (code) => {
+        if (code === 0) resolve();
+        else {
+          const diagnostics = Buffer.concat([...stderr, ...stdout]).toString("utf8").trim();
+          reject(new Error(`Test suite failed for ${path.basename(testPath)} with exit ${code}${diagnostics ? `: ${diagnostics}` : ""}`));
+        }
+      });
     });
-    child.on("error", reject);
-    child.on("close", (code) => {
-      if (code === 0) resolve({ ok: true, tests: "passed" });
-      else reject(new Error(`Test suite failed with exit ${code}`));
-    });
-  });
+  }
+  return { ok: true, tests: tests.length };
 }
 
 function help() {
   return {
     usage: [
-      "sbw run --template <name> --mode <auto|direct|verified|deep|critical> --goal <text> [--scope <path>]",
+      "sbw run --template <name> --mode <auto|direct|verified|deep|critical> --goal <text> [--scope <path>] [--baseline <git-revision> for self-improve] [--evaluation-purpose ordinary|evaluator-migration|safety-remediation-v1|quality-remediation-v1] [--self-improve-run <run-id> for delegated pr-to-dev]",
       "sbw run --route-receipt <route-receipt-id>",
       "sbw route preview --goal <text> [--scope <path>] [--entry <id>|--template <name>] [--mode <mode>] [--domain <name>] [--tag <name>] [--record]",
       "sbw route profile validate|install --file <profile.json>",
@@ -1229,19 +1591,28 @@ function help() {
       "sbw inspect <run-id>",
       "sbw resume <run-id>",
       "sbw cancel <run-id> [--reason <text>]",
+      "sbw source rebind <run-id> --reason <text>",
       "sbw sentinel capture|verify <run-id> --label <label>",
       "sbw evidence add <run-id> --file <json>",
-      "sbw self-improve evaluate --run <run-id> --cases <file> --baseline <git-revision> --candidate-root <path> --backend <codex|fixture> --split <train|holdout> [--purpose ordinary|evaluator-migration] [--next-cases <v2-file>]",
+      "sbw self-improve evaluate --run <run-id> --cases <file> --baseline <git-revision> --candidate-root <path> --backend <codex|fixture> --split <train|holdout> [--trusted-codex-execution <host-file>] [--request-manifest <host-file> --request-manifest-digest <sha256>] [--purpose ordinary|evaluator-migration|safety-remediation-v1|quality-remediation-v1] [--next-cases <v2-file>]",
       "sbw self-improve host status",
-      "sbw self-improve attestation request --run <run-id> --baseline <sha> --candidate-root <path> --model <model> --output <outside-repo-directory> [--cases <file>] [--purpose ordinary|evaluator-migration] [--next-cases <v2-file>]",
+      "sbw self-improve attestation request --run <run-id> --baseline <sha> --candidate-root <path> --model <model> --output <outside-repo-directory> [--cases <file>] [--purpose ordinary|evaluator-migration|safety-remediation-v1|quality-remediation-v1] [--next-cases <v2-file>]",
+      "sbw self-improve handoff <pr-to-dev-run-id> --source-run <self-improve-run-id>",
       "sbw finding add|update <run-id> --file <json>",
       "sbw critic codex|agy <run-id> --model <model> --prompt-file <file> [--effort <auto|medium|high>] [--effort-transport <native|model-variant>]",
+      "sbw critic native <run-id> --file <json> --reviewer-id <native-agent-id> --attestation <host-file>",
       "sbw deliberation roster [--mode <auto|direct|verified|deep|critical>] [--reasoning-effort <auto|medium|high>] [--refresh] [--provider <id>] [--allow-external-providers --sanitized]",
-      "sbw deliberation deliberate --prompt-file <sanitized-file> [--mode <auto|direct|verified|deep|critical>] [--reasoning-effort <auto|medium|high>] [--refresh] [--allow-external-providers --sanitized]",
+      "sbw deliberation deliberate --prompt-file <sanitized-file> [--run <run-id>] [--mode <auto|direct|verified|deep|critical>] [--reasoning-effort <auto|medium|high>] [--refresh] [--allow-external-providers --sanitized]",
       "sbw deliberation arbitrate --prompt-file <sanitized-file> [--mode <auto|direct|verified|deep|critical>] [--reasoning-effort <auto|medium|high>] [--allow-external-providers --sanitized]",
       "sbw graph validate [--template <name>|--run <run-id>]",
       "sbw graph inspect (--template <name>|--run <run-id>) [--format json|mermaid]",
-      "sbw action issue|consume|reconcile <run-id> ...",
+      "sbw action issue|consume|execute|reconcile <run-id> ...",
+      "sbw resource register <run-id> --resource <id> --receipt <creation-receipt.json>",
+      "sbw ledger status <run-id>",
+      "sbw ledger transition <run-id> --file <event.json>",
+      "sbw ledger compile <run-id> --design-packet <packet.json>",
+      "sbw refinement status|apply <run-id> [--file <receipt.json>]",
+      "sbw review package|finding|status|repair|broad <run-id> ...",
       "sbw recipe init",
       "sbw recipe scaffold <id>",
       "sbw recipe list",
@@ -1271,7 +1642,7 @@ async function main() {
   if (command === "graph") return commandGraph(root, subcommand, runId, options);
   if (command === "self-improve") return commandSelfImprove(root, subcommand, options, runId);
   if (command === "route") return commandRoute(root, subcommand, runId, options);
-  if (command === "deliberation") return commandDeliberation(subcommand, options);
+  if (command === "deliberation") return commandDeliberation(root, subcommand, options);
   if (command === "recipe") {
     if (subcommand === "init") {
       assertKnownOptions(options, []);
@@ -1360,8 +1731,15 @@ async function main() {
       })
     };
   }
+  if (command === "source") {
+    if (subcommand !== "rebind" || !runId || !options.reason) {
+      throw new Error("source usage: sbw source rebind <run-id> --reason <text>");
+    }
+    return rebindSourceBinding(root, runId, String(options.reason));
+  }
   if (command === "resume") {
     let run = await loadRun(root, subcommand);
+    assertMutableRun(run, "Run resume");
     let migration = { migrated: false };
     const template = await loadTemplate(run.manifest.template);
     const templateEvidence = template.requiredEvidence ?? [];
@@ -1369,6 +1747,7 @@ async function main() {
     if (
       !run.contract.templateDigest ||
       !run.contract.actionGates ||
+      run.contract.templateDigest !== digestObject(template) ||
       templateEvidence.some((kind) => !boundEvidence.has(kind))
     ) {
       migration = await bindLegacyRunTemplate(root, subcommand, {
@@ -1433,6 +1812,9 @@ async function main() {
       throw new Error("evidence usage: sbw evidence add <run-id> --file <json>");
     }
     const record = JSON.parse(await readFile(path.resolve(String(options.file)), "utf8"));
+    if (record.sourceKind === "independent-critic") {
+      throw new Error("Independent critic evidence must be emitted by a provider boundary, not sbw evidence add");
+    }
     return { ok: true, evidence: await addEvidence(root, runId, await enrichEvidence(root, runId, record)) };
   }
   if (command === "finding") {
@@ -1446,6 +1828,98 @@ async function main() {
     };
   }
   if (command === "critic") {
+    if (subcommand === "native") {
+      if (!runId || !options.file || !options["reviewer-id"] || !options.attestation) {
+        throw new Error("critic usage: sbw critic native <run-id> --file <json> --reviewer-id <native-agent-id> --attestation <host-file>");
+      }
+      const input = JSON.parse(await readFile(path.resolve(String(options.file)), "utf8"));
+      const run = await loadRun(root, runId);
+      const review = await reviewStatus(root, runId);
+      if (!review.package) throw new Error("Native critic requires an immutable review package");
+      if (input.reviewerId !== String(options["reviewer-id"]) || !input.model || !input.review) {
+        throw new Error("Native critic input must identify the reviewer, model, and review");
+      }
+      const sentinelDigest = await currentVerifiedDigest(root, runId);
+      const binding = {
+        base: review.package.base,
+        head: review.package.head,
+        instructionDigest: review.package.instructionDigest,
+        model: String(input.model),
+        packageId: review.package.packageId,
+        promptDigest: review.package.instructionDigest,
+        reviewDigest: digestObject(input.review),
+        reviewerId: String(options["reviewer-id"]),
+        runId,
+        sentinelDigest
+      };
+      const attestation = await verifyTrustedNativeCriticAttestation({
+        attestationPath: String(options.attestation),
+        workspaceRoot: run.manifest.cwd,
+        binding
+      });
+      const providerExecution = {
+        provider: "codex-native-subagent",
+        model: attestation.model,
+        modelAssurance: "host-signed-attestation",
+        trustAttested: true,
+        promptDigest: binding.promptDigest,
+        reviewDigest: binding.reviewDigest,
+        transport: "native-subagent",
+        sandbox: "read-only",
+        executionDigest: digestObject({
+          provider: "codex-native-subagent",
+          model: attestation.model,
+          modelAssurance: "host-signed-attestation",
+          trustAttested: true,
+          promptDigest: binding.promptDigest,
+          reviewDigest: binding.reviewDigest,
+          transport: "native-subagent",
+          sandbox: "read-only"
+        })
+      };
+      const payload = { verdict: input.review.verdict, findingCount: input.review.findings?.length ?? 0 };
+      const record = {
+        schemaVersion: 2,
+        id: `critic-codex-native-subagent-${Date.now()}`,
+        kind: "patch-review",
+        sourceKind: "independent-critic",
+        status: "complete",
+        summary: `codex-native-subagent ${input.review.verdict}: ${input.review.summary}`,
+        acceptanceIds: values(options.acceptance, run.contract.acceptance.map((item) => item.id)).map(String),
+        dependencyInputs: { files: [] },
+        dependencies: {
+          promptDigest: binding.promptDigest,
+          model: attestation.model,
+          reviewBinding: {
+            packageId: review.package.packageId,
+            base: review.package.base,
+            head: review.package.head,
+            scopeDigest: review.package.scopeDigest,
+            diffManifestDigest: review.package.diffManifestDigest,
+            instructionDigest: review.package.instructionDigest,
+            sentinelDigest
+          },
+          remoteRevision: run.contract.remoteRevision ?? null
+        },
+        providerExecution,
+        nativeReviewer: { id: binding.reviewerId, attestationDigest: attestation.attestationDigest },
+        review: input.review,
+        receipt: {
+          contractId: "evidence-contracts-v1:patch-review",
+          contractVersion: 1,
+          runId,
+          producer: { provider: "codex-native-subagent", model: attestation.model, attestationDigest: attestation.attestationDigest },
+          inputBinding: { runId, contractDigest: digestObject(run.contract), remoteRevision: run.contract.remoteRevision ?? null },
+          payload,
+          payloadDigest: digestObject(payload),
+          producedAt: nowIso()
+        }
+      };
+      return {
+        ok: true,
+        evidence: await addEvidence(root, runId, await enrichEvidence(root, runId, record))
+      };
+    }
     if (!["codex", "agy"].includes(subcommand) || !runId || !options["prompt-file"]) {
       throw new Error("critic usage: sbw critic codex|agy <run-id> --model <model> --prompt-file <file>");
     }
@@ -1504,6 +1978,7 @@ async function main() {
         throw new Error(`Legacy run is unbound; run sbw resume ${runId} before issuing actions`);
       }
       const action = String(options.action ?? "");
+      assertActionIsNotDeferred(run.contract, action);
       const requiredEvidence = run.contract.actionGates?.[action];
       if (!Array.isArray(requiredEvidence) || requiredEvidence.length === 0) {
         throw new Error(`No pre-action evidence gate is defined for: ${action}`);
@@ -1517,7 +1992,24 @@ async function main() {
         throw new Error("Workflow template drifted after run creation");
       }
       await assertAcceptedSelfImproveHoldout(root, runId, action);
-      const digest = await currentVerifiedDigest(root, runId);
+      let digest;
+      if (run.contract.schemaVersion === 2 && run.contract.controlPlane?.reviewPolicy !== "none") {
+        digest = await currentVerifiedDigest(root, runId);
+        const review = await reviewStatus(root, runId);
+        const currentHead = (await execFileAsync("git", ["rev-parse", "--verify", "HEAD^{commit}"], {
+          cwd: run.manifest.cwd,
+          encoding: "utf8"
+        })).stdout.trim();
+        if (
+          !review.complete ||
+          review.package?.head !== currentHead ||
+          review.package?.broadReview?.sentinelDigest !== digest
+        ) {
+          throw new Error("Action token denied until scoped and final broad review are closed");
+        }
+      } else {
+        digest = await currentVerifiedDigest(root, runId);
+      }
       const defaults = await loadDefaults();
       return {
         ok: true,
@@ -1546,6 +2038,14 @@ async function main() {
         action: await consumeActionToken(root, runId, String(options.token), digest)
       };
     }
+    if (subcommand === "execute") {
+      if (!options.token) throw new Error("action execute requires --token");
+      const digest = await currentVerifiedDigest(root, runId);
+      return {
+        ok: true,
+        action: await executeActionToken(root, runId, String(options.token), digest)
+      };
+    }
     if (subcommand === "reconcile") {
       if (!options.attempt || !options.outcome) {
         throw new Error("action reconcile requires --attempt and --outcome");
@@ -1557,11 +2057,140 @@ async function main() {
           runId,
           String(options.attempt),
           String(options.outcome),
-          options.receipt ? String(options.receipt) : null
+          options.receipt
+            ? JSON.parse(await readFile(path.resolve(String(options.receipt)), "utf8"))
+            : null
         )
       };
     }
-    throw new Error("action subcommand must be issue, consume, or reconcile");
+    throw new Error("action subcommand must be issue, consume, execute, or reconcile");
+  }
+  if (command === "resource") {
+    if (subcommand !== "register" || !runId) {
+      throw new Error("resource usage: sbw resource register <run-id> --resource <id> --receipt <creation-receipt.json>");
+    }
+    assertKnownOptions(options, ["resource", "receipt"]);
+    if (!options.resource || !options.receipt) {
+      throw new Error("resource register requires --resource and --receipt");
+    }
+    const creationReceipt = JSON.parse(await readFile(path.resolve(String(options.receipt)), "utf8"));
+    return {
+      ok: true,
+      resource: await registerOwnedResource(root, runId, {
+        resource: String(options.resource),
+        creationReceipt
+      })
+    };
+  }
+  if (command === "ledger") {
+    if (!runId) throw new Error("ledger requires run id");
+    if (subcommand === "status") return { ok: true, ledger: await ledgerStatus(root, runId) };
+    if (subcommand === "transition") {
+      if (!options.file) throw new Error("ledger transition requires --file <event.json>");
+      const event = JSON.parse(await readFile(path.resolve(String(options.file)), "utf8"));
+      return { ok: true, ledger: await transitionLedger(root, runId, event) };
+    }
+    if (subcommand === "compile") {
+      if (!options["design-packet"]) throw new Error("ledger compile requires --design-packet <packet.json>");
+      const packet = JSON.parse(await readFile(path.resolve(String(options["design-packet"])), "utf8"));
+      return { ok: true, ledger: await compileLedger(root, runId, packet) };
+    }
+    throw new Error("ledger subcommand must be status, transition, or compile");
+  }
+  if (command === "review") {
+    if (!runId) throw new Error("review requires run id");
+    if (subcommand === "status") {
+      const review = await reviewStatus(root, runId);
+      return {
+        ok: true,
+        review: {
+          package: review.package
+            ? {
+                packageId: review.package.packageId,
+                base: review.package.base,
+                head: review.package.head,
+                repairRounds: review.package.repairRounds,
+                broadReview: review.package.broadReview
+              }
+            : null,
+          findings: review.findings.map((item) => ({ id: item.id, packageId: item.packageId, severity: item.severity, status: item.status, path: item.path, location: item.location, rule: item.rule })),
+          openHigh: review.openHigh.map((item) => item.id),
+          repairBudgetExhausted: review.repairBudgetExhausted,
+          scopedClosed: review.scopedClosed,
+          broadReviewComplete: review.broadReviewComplete,
+          complete: review.complete
+        }
+      };
+    }
+    if (subcommand === "package") {
+      if (!options.base || !options.head || !options["diff-manifest"] || !options["instruction-digest"] || !options["sentinel-digest"]) {
+        throw new Error("review package requires --base, --head, --diff-manifest, --instruction-digest, and --sentinel-digest");
+      }
+      const diffManifest = JSON.parse(await readFile(path.resolve(String(options["diff-manifest"])), "utf8"));
+      const reviewPackage = await createReviewPackage({
+        root,
+        runId,
+        base: String(options.base),
+        head: String(options.head),
+        scope: values(options.scope, ["."]).map(String),
+        diffManifest,
+        instructionDigest: String(options["instruction-digest"]),
+        sentinelDigest: String(options["sentinel-digest"])
+      });
+      return {
+        ok: true,
+        reviewPackage: {
+          packageId: reviewPackage.packageId,
+          base: reviewPackage.base,
+          head: reviewPackage.head,
+          scopeDigest: reviewPackage.scopeDigest,
+          diffManifestDigest: reviewPackage.diffManifestDigest,
+          repairRounds: reviewPackage.repairRounds,
+          broadReview: reviewPackage.broadReview
+        }
+      };
+    }
+    if (subcommand === "finding") {
+      assertKnownOptions(options, ["file", "update"]);
+      if (!options.file) throw new Error("review finding requires --file <finding.json>");
+      const finding = JSON.parse(await readFile(path.resolve(String(options.file)), "utf8"));
+      return { ok: true, finding: await addReviewFinding(root, runId, finding, { update: optionEnabled(options.update) }) };
+    }
+    if (subcommand === "repair") {
+      if (!options.package || !options.file) throw new Error("review repair requires --package and --file");
+      const result = JSON.parse(await readFile(path.resolve(String(options.file)), "utf8"));
+      return { ok: true, reviewPackage: await recordRepairRound(root, runId, String(options.package), result) };
+    }
+    if (subcommand === "broad") {
+      if (!options.package || !options.head || !options["sentinel-digest"]) {
+        throw new Error("review broad requires --package, --head, and --sentinel-digest");
+      }
+      return {
+        ok: true,
+        reviewPackage: await markBroadReviewComplete(
+          root,
+          runId,
+          String(options.package),
+          String(options.head),
+          String(options["sentinel-digest"])
+        )
+      };
+    }
+    throw new Error("review subcommand must be package, finding, status, repair, or broad");
+  }
+  if (command === "refinement") {
+    if (!runId) throw new Error("refinement requires run id");
+    if (subcommand === "status") {
+      assertKnownOptions(options, []);
+      return { ok: true, refinement: await refinementStatus(root, runId) };
+    }
+    if (subcommand === "apply") {
+      assertKnownOptions(options, ["file"]);
+      if (!options.file) throw new Error("refinement apply requires --file <receipt.json>");
+      const input = JSON.parse(await readFile(path.resolve(String(options.file)), "utf8"));
+      return { ok: true, refinement: await recordRefinement(root, runId, input) };
+    }
+    throw new Error("refinement subcommand must be status or apply");
   }
   if (command === "complete") {
     const run = await loadRun(root, subcommand);
@@ -1579,8 +2208,19 @@ async function main() {
       await setRunStatus(root, subcommand, "inconclusive", { completionBlockers: result.blockers });
       return { ok: false, status: "inconclusive", blockers: result.blockers };
     }
-    const state = await setRunStatus(root, subcommand, "completed", { completedAt: nowIso() });
-    return { ok: true, state };
+    const completionDecision = {
+      schemaVersion: 1,
+      evaluatedAt: nowIso(),
+      evidenceDigest: digestObject(result.evidence.map((item) => ({ id: item.id, kind: item.kind, sourceDigest: item.sourceDigest, stale: item.stale === true }))),
+      ledgerDigest: run.contract.schemaVersion === 2
+        ? digestObject(await readJson(root, safeJoin(run.runDir, "ledger.json")))
+        : null,
+      reviewDigest: run.contract.schemaVersion === 2 && run.contract.controlPlane?.reviewPolicy !== "none"
+        ? digestObject(await reviewStatus(root, subcommand))
+        : null,
+      sentinelDigest: run.state.lastSentinel?.digest ?? null
+    };
+    return completeRun(root, subcommand, completionDecision);
   }
   if (command === "doctor") return commandDoctor(root, options);
   if (command === "eval") return commandEval();

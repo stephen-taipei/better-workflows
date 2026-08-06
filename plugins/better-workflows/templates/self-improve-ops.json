@@ -1,6 +1,10 @@
 {
   "name": "self-improve-ops",
-  "description": "Turn recent workflow evidence into a bounded Better Workflows change-or-no-change decision, synchronize every affected plugin surface, validate it, and gate immutable cache publication and remote delivery independently.",
+  "controlPlane": {"evidencePolicy":"typed-v1","ledgerPolicy":"ledger-v1","reviewPolicy":"code-v1","designPacketPolicy":"pilot-v1","refinementPolicy":"pilot-v1","deliberationPolicy":"allowed-v1"},
+  "executionStages": [{"id":"retrospective","goal":"retrospective","dependsOn":[],"requiredEvidence":["retrospective-source-inventory","recurrence-matrix","coverage-gap-analysis"],"attemptBudget":3,"kind":"regular"},{"id":"evaluation-candidate","goal":"evaluation-candidate","dependsOn":["retrospective"],"requiredEvidence":["evaluation-suite","candidate-staging"],"attemptBudget":3,"kind":"regular"},{"id":"holdout","goal":"holdout","dependsOn":["evaluation-candidate"],"requiredEvidence":["training-replay","holdout-comparison"],"attemptBudget":3,"kind":"regular"},{"id":"sync-review","goal":"sync-review","dependsOn":["holdout"],"requiredEvidence":["sync-matrix","patch-review","repo-gates"],"attemptBudget":5,"kind":"review"},{"id":"delivery-handoff","goal":"delivery-handoff","dependsOn":["sync-review"],"requiredEvidence":["plugin-version","cache-publication","provider-reconciliation"],"attemptBudget":1,"kind":"side-effect"}],
+  "actionStages": {},
+  "deferredActions": ["git.commit", "plugin.cache.publish", "git.push"],
+  "description": "Turn recent workflow evidence into a bounded Better Workflows change-or-no-change decision, synchronize every affected plugin surface, validate it, and hand off immutable cache publication and remote delivery to their governed workflows.",
   "defaultMode": "critical",
   "requiredEvidence": [
     "retrospective-source-inventory",
@@ -47,7 +51,7 @@
     },
     {
       "id": "heldout-gated",
-      "description": "Delivery requires three trusted read-only Codex candidate and baseline holdout replays with every hard safety assertion passing and no regression; ordinary candidates also require strict relevant-class median improvement, while a versioned evaluator migration requires separate deterministic calibration.",
+      "description": "Delivery requires three trusted read-only Codex candidate and baseline holdout replays. Ordinary and evaluator-migration purposes require every applicable hard-safety assertion to pass with no regression; safety-remediation-v1 uses its separate policy-bound hard-safety remediation rule, while quality-remediation-v1 addresses only predeclared non-hard completion assertions under its independent policy. Both policy-bound purposes require reproducible baseline gaps, candidate hard-safety/invariant coverage, repair across all replays, no noise or regression, and strict target improvement.",
       "critical": true
     },
     {
@@ -85,6 +89,9 @@
     "staged-candidate-before-commit",
     "strict-holdout-improvement",
     "versioned-evaluator-migration",
+    "versioned-safety-remediation-policy",
+    "versioned-quality-remediation-policy",
+    "control-plane-v2-evaluator-coverage",
     "universal-safety-plus-relevant-class",
     "balanced-cross-surface-sampling",
     "saturated-suite-rejection",
@@ -102,40 +109,15 @@
     "immutable-cache-exact-digest",
     "explicit-path-atomic-commit",
     "independent-action-authority",
+    "delegated-delivery-boundary",
     "remote-reconciliation",
     "no-implicit-merge-deploy-cleanup"
   ],
-  "actionGates": {
-    "git.commit": [
-      "change-inventory",
-      "evaluation-suite",
-      "training-replay",
-      "candidate-staging",
-      "holdout-comparison",
-      "sync-matrix",
-      "patch-review",
-      "repo-gates",
-      "plugin-version"
-    ],
-    "plugin.cache.publish": [
-      "commit-manifest",
-      "repo-gates",
-      "plugin-version",
-      "cache-check"
-    ],
-    "git.push": [
-      "commit-manifest",
-      "cache-publication",
-      "repo-gates",
-      "remote-authorization",
-      "current-branch"
-    ]
-  },
+  "actionGates": {},
   "domainSkills": [],
   "rootOnlyActions": [
-    "git add",
-    "git commit",
-    "immutable plugin cache publication",
-    "git push"
+    "delegated git add and commit through pr-to-dev",
+    "delegated immutable plugin cache publication",
+    "delegated git push through pr-to-dev"
   ]
 }
