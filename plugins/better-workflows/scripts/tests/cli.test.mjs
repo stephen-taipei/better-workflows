@@ -240,6 +240,23 @@ test("safety-remediation purpose is fixed at self-improve run creation", async (
   assert.match(switched.stderr, /immutable run creation purpose/);
 });
 
+test("quality-remediation purpose is fixed at self-improve run creation", async () => {
+  const cwd = await selfImproveRepository();
+  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-cli-quality-remediation-purpose-"));
+  const baseline = await revision(cwd);
+  await writeFile(path.join(cwd, "plugins", "better-workflows", "scripts", "candidate.mjs"), "export const candidate = true;\n");
+  await git(cwd, "add", ".");
+  await git(cwd, "commit", "-qm", "stage quality remediation candidate");
+  const started = await cli(cwd, stateRoot, [
+    "run", "--template", "self-improve-ops", "--mode", "critical", "--goal", "Repair quality gaps", "--scope", ".",
+    "--baseline", baseline, "--evaluation-purpose", "quality-remediation-v1"
+  ]);
+  const contract = JSON.parse(await readFile(path.join(stateRoot, "runs", started.json.runId, "contract.json"), "utf8"));
+  const manifest = JSON.parse(await readFile(path.join(stateRoot, "runs", started.json.runId, "manifest.json"), "utf8"));
+  assert.equal(contract.selfImprovePurpose, "quality-remediation-v1");
+  assert.equal(manifest.evaluationPurpose, "quality-remediation-v1");
+});
+
 test("self-improve fixture evaluation is explicit, private, and never grants delivery", async () => {
   const cwd = await selfImproveRepository();
   const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-cli-self-improve-state-"));

@@ -29,7 +29,7 @@ sbw route profile show
 sbw run --template <template> --mode <mode> --goal "<goal>" --scope <path>
 sbw run --template self-improve-ops --mode critical --goal "<goal>" \
   --scope <path> --baseline <immutable-baseline-sha> \
-  [--evaluation-purpose ordinary|evaluator-migration|safety-remediation-v1]
+  [--evaluation-purpose ordinary|evaluator-migration|safety-remediation-v1|quality-remediation-v1]
 sbw run --template pr-to-dev --mode critical --goal "<goal>" --scope <path> \
   --self-improve-run <self-improve-run-id>
 sbw self-improve handoff <pr-to-dev-run-id> --source-run <self-improve-run-id>

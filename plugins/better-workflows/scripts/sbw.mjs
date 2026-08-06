@@ -66,18 +66,21 @@ import {
   calibrateEvaluatorMigration,
   compareEvaluatorMigration,
   compareHoldout,
+  compareQualityRemediation,
   compareSafetyRemediation,
   evaluationBindingDigest,
   loadFrozenEvaluationSuite,
   loadMigrationTargetSuite,
-  loadSafetyRemediationPolicy,
+  loadPolicyBoundEvaluationPolicy,
   readSanitizedBaselineMaterial,
   readSanitizedCandidateMaterial,
   redactedScore,
   resolveStrictBaselineRevision,
   scoreEvaluation,
+  selectQualityRemediationCases,
   selectSafetyRemediationCases,
   selectEvaluationCases,
+  isPolicyBoundEvaluationPurpose,
   snapshotBaselineForCandidate,
   snapshotCandidate
 } from "./lib/self-improve.mjs";
@@ -832,8 +835,8 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
     if (run.contract.selfImprovePurpose && run.contract.selfImprovePurpose !== purpose) {
       throw new Error("Attestation purpose must match the immutable run creation purpose");
     }
-    if (purpose === "safety-remediation-v1" && run.contract.selfImprovePurpose !== purpose) {
-      throw new Error("Safety remediation attestation requires a run created with --evaluation-purpose safety-remediation-v1");
+    if (isPolicyBoundEvaluationPurpose(purpose) && run.contract.selfImprovePurpose !== purpose) {
+      throw new Error(`${purpose} attestation requires a run created with --evaluation-purpose ${purpose}`);
     }
     return generateAttestationRequests({
       repo: process.cwd(),
@@ -880,12 +883,12 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
   const runPurpose = run.contract.selfImprovePurpose ?? run.manifest.evaluationPurpose ?? "ordinary";
   const purpose = options.purpose === undefined ? runPurpose : String(options.purpose);
   if (!["codex", "fixture"].includes(backend) || !["train", "holdout"].includes(split)) throw new Error("Invalid self-improve backend or split");
-  if (!["ordinary", "evaluator-migration", "safety-remediation-v1"].includes(purpose)) throw new Error("Invalid self-improve evaluation purpose");
+  if (!["ordinary", "evaluator-migration", "safety-remediation-v1", "quality-remediation-v1"].includes(purpose)) throw new Error("Invalid self-improve evaluation purpose");
   if (run.contract.selfImprovePurpose && run.contract.selfImprovePurpose !== purpose) {
     throw new Error("Evaluation purpose must match the immutable run creation purpose");
   }
-  if (purpose === "safety-remediation-v1" && run.contract.selfImprovePurpose !== purpose) {
-    throw new Error("Safety remediation evaluation requires a run created with --evaluation-purpose safety-remediation-v1");
+  if (isPolicyBoundEvaluationPurpose(purpose) && run.contract.selfImprovePurpose !== purpose) {
+    throw new Error(`${purpose} evaluation requires a run created with --evaluation-purpose ${purpose}`);
   }
   if (purpose === "evaluator-migration" && !options["next-cases"]) throw new Error("Evaluator migration requires --next-cases");
   if (backend === "fixture" && process.env.SBW_TEST_FIXTURE_BACKEND !== "1") {
@@ -894,7 +897,8 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
   if (backend === "codex") assertExplicitCodexEvaluationAuthority(options);
   if (backend === "fixture" && !options["result-file"]) throw new Error("Fixture evaluation requires --result-file");
   const cwd = run.manifest.cwd;
-  const safetyPolicy = purpose === "safety-remediation-v1" ? await loadSafetyRemediationPolicy({ cwd }) : null;
+  const policyBound = isPolicyBoundEvaluationPurpose(purpose);
+  const policy = policyBound ? await loadPolicyBoundEvaluationPolicy({ cwd, purpose }) : null;
   const evaluationBaseline = await resolveStrictBaselineRevision(cwd, String(options.baseline));
   if (evaluationBaseline !== run.manifest.baselineRevision) {
     throw new Error("Evaluation baseline must equal the immutable run-start baseline revision");
@@ -907,8 +911,8 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
     purpose
   });
   if (frozen.baselineRevision !== evaluationBaseline) throw new Error("Evaluation baseline must equal the immutable run-start baseline revision");
-  if (safetyPolicy && frozen.sourceDigest !== safetyPolicy.sourceSuiteDigest) {
-    throw new Error("Safety remediation source suite digest is not the policy-bound immutable corpus");
+  if (policy && frozen.sourceDigest !== policy.sourceSuiteDigest) {
+    throw new Error(`${purpose} source suite digest is not the policy-bound immutable corpus`);
   }
   const currentSourceBinding = await captureSourceBinding(cwd, { baseRevision: run.manifest.baselineRevision, requireClean: true });
   if (!currentSourceBinding || currentSourceBinding.digest !== run.manifest.sourceBinding?.digest || currentSourceBinding.headRevision !== run.manifest.sourceBinding?.headRevision) {
@@ -926,10 +930,12 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
     purpose,
     sourceSuiteDigest: frozen.sourceDigest,
     targetSuiteDigest: target?.sourceDigest,
-    policyDigest: safetyPolicy?.digest
+    policyDigest: policy?.digest
   });
   const cases = purpose === "safety-remediation-v1"
-    ? selectSafetyRemediationCases({ suite: frozen.suite, snapshot: candidate, split, policy: safetyPolicy })
+    ? selectSafetyRemediationCases({ suite: frozen.suite, snapshot: candidate, split, policy })
+    : purpose === "quality-remediation-v1"
+      ? selectQualityRemediationCases({ suite: frozen.suite, snapshot: candidate, split, policy })
     : selectEvaluationCases({ suite: frozen.suite, snapshot: candidate, split });
   const calibration = target
     ? calibrateEvaluatorMigration({
@@ -970,7 +976,7 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
   const dependencyFiles = [...new Set([
     frozen.relativePath,
     target?.relativePath,
-    safetyPolicy?.path,
+    policy?.path,
     ...candidate.files.map((item) => item.path)
   ].filter(Boolean))].sort();
   const common = {
@@ -985,10 +991,10 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
       sourceSuiteDigest: frozen.sourceDigest,
       targetSuitePath: target?.relativePath ?? null,
       targetSuiteDigest: target?.sourceDigest ?? null,
-      policyPath: safetyPolicy?.path ?? null,
-      policyId: safetyPolicy?.policyId ?? null,
-      policyVersion: safetyPolicy?.version ?? null,
-      policyDigest: safetyPolicy?.digest ?? null,
+      policyPath: policy?.path ?? null,
+      policyId: policy?.policyId ?? null,
+      policyVersion: policy?.version ?? null,
+      policyDigest: policy?.digest ?? null,
       baselineRevision: frozen.baselineRevision,
       headRevision: backend === "codex" ? requestBindings?.headRevision ?? currentSourceBinding.headRevision : currentSourceBinding.headRevision,
       sourceBindingDigest: backend === "codex" ? requestBindings?.sourceBindingDigest ?? currentSourceBinding.digest : currentSourceBinding.digest,
@@ -1014,7 +1020,7 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
     role,
     sourceBindingDigest: backend === "codex" ? requestBindings?.sourceBindingDigest ?? currentSourceBinding.digest : currentSourceBinding.digest,
     attempt,
-    ...(purpose === "safety-remediation-v1" ? { purpose, policyDigest: safetyPolicy.digest } : {})
+    ...(policyBound ? { purpose, policyDigest: policy.digest } : {})
   });
   const prior = await listJsonRecords(root, safeJoin(run.runDir, "evidence"));
   if (split === "holdout") {
@@ -1029,8 +1035,8 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
       hostExecutionPath: hostExecutionPaths[0], execution: trainExecution,
       expectedRequestDigest: trainBinding?.requestDigest ?? null,
       expectedRunAs: trainBinding?.runAs ?? null });
-    if (purpose === "safety-remediation-v1" && replay.score.hardSafetyPass !== true) {
-      throw new Error("Safety remediation training replay failed its hard-safety gate");
+    if (policyBound && replay.score.hardSafetyPass !== true) {
+      throw new Error(`${purpose} training replay failed its hard-safety gate`);
     }
     const suiteEvidence = await addSelfImproveEvidence(root, runId, {
       id: evaluationEvidenceId("suite"), kind: "evaluation-suite", summary: "Frozen sanitized evaluation suite bound to the immutable baseline.", status: "complete",
@@ -1083,7 +1089,9 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
   const comparison = purpose === "evaluator-migration"
     ? compareEvaluatorMigration({ baseline: baselineReplays.map((item) => item.score), candidate: candidateReplays.map((item) => item.score) })
     : purpose === "safety-remediation-v1"
-      ? compareSafetyRemediation({ baseline: baselineReplays.map((item) => item.score), candidate: candidateReplays.map((item) => item.score), suite: frozen.suite, policy: safetyPolicy })
+      ? compareSafetyRemediation({ baseline: baselineReplays.map((item) => item.score), candidate: candidateReplays.map((item) => item.score), suite: frozen.suite, policy })
+      : purpose === "quality-remediation-v1"
+        ? compareQualityRemediation({ baseline: baselineReplays.map((item) => item.score), candidate: candidateReplays.map((item) => item.score), suite: frozen.suite, policy })
       : compareHoldout({ baseline: baselineReplays.map((item) => item.score), candidate: candidateReplays.map((item) => item.score), suite: frozen.suite });
   const trusted = backend === "codex" && [...candidateReplays, ...baselineReplays].every((item) => item.metadata.trustAttested === true && item.metadata.provider === "codex");
   const evidence = await addSelfImproveEvidence(root, runId, {
@@ -1091,8 +1099,8 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
     summary: comparison.accepted && trusted
       ? (purpose === "evaluator-migration"
         ? "Trusted legacy held-out comparison passed evaluator-migration safety non-regression gates."
-        : purpose === "safety-remediation-v1"
-          ? "Trusted held-out comparison passed the versioned safety-remediation policy."
+        : isPolicyBoundEvaluationPurpose(purpose)
+          ? `Trusted held-out comparison passed the versioned ${purpose} policy.`
           : "Trusted held-out comparison passed strict relevant-class improvement and safety gates.")
       : `Held-out comparison did not authorize adoption: ${comparison.reason}.`,
     acceptanceIds: comparison.accepted && trusted ? ["heldout-gated", "outcome-explicit", "validated"] : ["outcome-explicit"], ...common,
@@ -1167,7 +1175,7 @@ async function commandRun(root, options) {
   const template = await loadTemplate(templateName);
   const purposeProvided = options["evaluation-purpose"] !== undefined;
   const requestedEvaluationPurpose = purposeProvided ? String(options["evaluation-purpose"]) : null;
-  if (requestedEvaluationPurpose !== null && !["ordinary", "evaluator-migration", "safety-remediation-v1"].includes(requestedEvaluationPurpose)) {
+  if (requestedEvaluationPurpose !== null && !["ordinary", "evaluator-migration", "safety-remediation-v1", "quality-remediation-v1"].includes(requestedEvaluationPurpose)) {
     throw new Error("Invalid self-improve evaluation purpose");
   }
   if (templateName !== "self-improve-ops" && requestedEvaluationPurpose !== null && requestedEvaluationPurpose !== "ordinary") {
@@ -1574,7 +1582,7 @@ async function commandEval() {
 function help() {
   return {
     usage: [
-      "sbw run --template <name> --mode <auto|direct|verified|deep|critical> --goal <text> [--scope <path>] [--baseline <git-revision> for self-improve] [--evaluation-purpose ordinary|evaluator-migration|safety-remediation-v1] [--self-improve-run <run-id> for delegated pr-to-dev]",
+      "sbw run --template <name> --mode <auto|direct|verified|deep|critical> --goal <text> [--scope <path>] [--baseline <git-revision> for self-improve] [--evaluation-purpose ordinary|evaluator-migration|safety-remediation-v1|quality-remediation-v1] [--self-improve-run <run-id> for delegated pr-to-dev]",
       "sbw run --route-receipt <route-receipt-id>",
       "sbw route preview --goal <text> [--scope <path>] [--entry <id>|--template <name>] [--mode <mode>] [--domain <name>] [--tag <name>] [--record]",
       "sbw route profile validate|install --file <profile.json>",
@@ -1586,9 +1594,9 @@ function help() {
       "sbw source rebind <run-id> --reason <text>",
       "sbw sentinel capture|verify <run-id> --label <label>",
       "sbw evidence add <run-id> --file <json>",
-      "sbw self-improve evaluate --run <run-id> --cases <file> --baseline <git-revision> --candidate-root <path> --backend <codex|fixture> --split <train|holdout> [--trusted-codex-execution <host-file>] [--request-manifest <host-file> --request-manifest-digest <sha256>] [--purpose ordinary|evaluator-migration|safety-remediation-v1] [--next-cases <v2-file>]",
+      "sbw self-improve evaluate --run <run-id> --cases <file> --baseline <git-revision> --candidate-root <path> --backend <codex|fixture> --split <train|holdout> [--trusted-codex-execution <host-file>] [--request-manifest <host-file> --request-manifest-digest <sha256>] [--purpose ordinary|evaluator-migration|safety-remediation-v1|quality-remediation-v1] [--next-cases <v2-file>]",
       "sbw self-improve host status",
-      "sbw self-improve attestation request --run <run-id> --baseline <sha> --candidate-root <path> --model <model> --output <outside-repo-directory> [--cases <file>] [--purpose ordinary|evaluator-migration|safety-remediation-v1] [--next-cases <v2-file>]",
+      "sbw self-improve attestation request --run <run-id> --baseline <sha> --candidate-root <path> --model <model> --output <outside-repo-directory> [--cases <file>] [--purpose ordinary|evaluator-migration|safety-remediation-v1|quality-remediation-v1] [--next-cases <v2-file>]",
       "sbw self-improve handoff <pr-to-dev-run-id> --source-run <self-improve-run-id>",
       "sbw finding add|update <run-id> --file <json>",
       "sbw critic codex|agy <run-id> --model <model> --prompt-file <file> [--effort <auto|medium|high>] [--effort-transport <native|model-variant>]",

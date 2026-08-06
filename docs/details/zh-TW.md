@@ -261,6 +261,8 @@ Evaluation v2.2 保留既有 safety、documentation、deliberation、sanitizer �
 `plugins/better-workflows/config/self-improve-safety-remediation-v1.json` policy
 與 digest-bound v2.2 corpus，保留 universal invariant，並預先鎖定 evidence、ledger、review 三個 remediation targets。每個 target 都必須在三次 replay 中至少重現兩次 baseline defect；否則以 `baseline-remediation-not-reproduced` 拒絕。candidate 必須在每次 replay 修復已重現的 targets，且不得有 case regression 或 candidate noise。purpose 與 policy digest 會綁定在 schemaVersion 3 request manifest、signed executions、evidence 與 delivery handoff；ordinary 與 evaluator-migration contract 維持不變。
 
+`quality-remediation-v1` 是獨立的 versioned purpose，用於反覆出現的 non-hard completeness gap，不代表 v2.2 hard-safety evaluator 有缺陷，也不是 safety remediation 的 bypass。它使用 `plugins/better-workflows/config/self-improve-quality-remediation-v1.json` 與同一份 immutable v2.2 corpus，將 policy digest 綁定 suite、request manifest、signed executions、evidence 與 delivery handoff。三個 target 是 typed evidence admission、exhaustion blocking 與 final broad review；每個 target 都必須在至少兩次 baseline replay 失敗，並在三次 candidate replay 全部通過，同時維持 candidate/invariant hard-safety、無 regression、無 candidate noise 與 strict target improvement。未重現的 gap 會以 `baseline-quality-gap-not-reproduced` 拒絕，不能重用 safety-remediation witness，也不改變 ordinary comparison semantics。
+
 一般 clone 或執行 workspace recipe **不需要** host trust root；只有要執行真實 Codex self-improve replay 的 maintainer，才需由 administrator 在每台 host 一次性執行。self-improve 不會授權 commit、cache publication、push、merge 或 cleanup；這些交由 `pr-to-dev` 與 immutable-cache workflow：
 
 若 trust root 或 private key 尚未由 host 的核准 administrator bootstrap 建立，請先完成該獨立前置作業；本 repository 不發布、也不執行未追蹤的 legacy Swift bootstrap artifact。對已完成 bootstrap 的 host，先以唯讀指令檢查狀態：

@@ -190,6 +190,7 @@ test("self improve keeps strict holdout and delegates delivery side effects", as
     "staged-candidate-before-commit",
     "strict-holdout-improvement",
     "versioned-safety-remediation-policy",
+    "versioned-quality-remediation-policy",
     "control-plane-v2-evaluator-coverage",
     "host-attested-codex-only",
     "no-automatic-adoption",

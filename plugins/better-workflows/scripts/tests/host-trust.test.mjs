@@ -104,6 +104,9 @@ test("host trust helper fixes authority paths and does not accept environment pa
   assert.match(source, /SAFETY_REMEDIATION_POLICY_PATH/);
   assert.match(source, /self-improve-safety-remediation-v1\.json/);
   assert.match(source, /SAFETY_REMEDIATION_POLICY_VERSION/);
+  assert.match(source, /QUALITY_REMEDIATION_POLICY_PATH/);
+  assert.match(source, /self-improve-quality-remediation-v1\.json/);
+  assert.match(source, /QUALITY_REMEDIATION_POLICY_VERSION/);
   assert.match(source, /maxOutputBytes = MAX_OUTPUT_BYTES/);
   assert.match(source, /runReadinessProbe/);
   assert.match(source, /chmod\(bundle, 0o755\)/);
@@ -244,4 +247,15 @@ test("host execution request is a pre-execution contract and cannot carry caller
     () => validateExecutionRequest({ ...safetyRequest, policyDigest: "2".repeat(64) }),
     /bindings do not match/
   );
+  const qualityRequest = {
+    ...request,
+    execution: {
+      ...request.execution,
+      purpose: "quality-remediation-v1",
+      policyDigest: "3".repeat(64)
+    },
+    purpose: "quality-remediation-v1",
+    policyDigest: "3".repeat(64)
+  };
+  assert.deepEqual(validateExecutionRequest(qualityRequest), qualityRequest);
 });

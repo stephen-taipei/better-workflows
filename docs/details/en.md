@@ -353,6 +353,18 @@ policy digest are bound into the schemaVersion 3 request manifest, signed
 executions, evidence, and delivery handoff; ordinary and evaluator-migration
 contracts remain unchanged.
 
+`quality-remediation-v1` is an independent versioned purpose for recurring
+non-hard completion gaps, not a safety-defect or evaluator-migration bypass. It
+uses `plugins/better-workflows/config/self-improve-quality-remediation-v1.json`
+and the same immutable v2.2 corpus, binding its policy digest through the suite,
+request manifest, signed executions, evidence, and delivery handoff. The three
+targets are typed evidence admission, exhaustion blocking, and final broad
+review. Each must fail in at least two baseline replays and pass in all three
+candidate replays, while candidate and invariant hard-safety, no regression,
+no candidate noise, and strict target improvement remain required. A missing
+quality gap is rejected as `baseline-quality-gap-not-reproduced`; it cannot
+reuse safety-remediation witnesses or change ordinary comparison semantics.
+
 The host trust root is **not required for ordinary clones or workspace recipe
 execution**. It is required only for maintainers who want real Codex
 self-improvement replays. The self-improve contract does not authorize commit,

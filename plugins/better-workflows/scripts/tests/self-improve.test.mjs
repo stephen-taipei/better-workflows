@@ -12,18 +12,22 @@ import {
   calibrateEvaluatorMigration,
   compareEvaluatorMigration,
   compareHoldout,
+  compareQualityRemediation,
   compareSafetyRemediation,
   evaluationBindingDigest,
+  loadQualityRemediationPolicy,
   loadSafetyRemediationPolicy,
   readSanitizedCandidateMaterial,
   snapshotBaselineForCandidate,
   snapshotCandidate,
   scoreEvaluation,
   selectEvaluationCases,
+  selectQualityRemediationCases,
   selectSafetyRemediationCases,
   validateEvaluationSuite,
   SELF_IMPROVE_MIGRATION_SOURCE_CORPORA,
   SELF_IMPROVE_ORDINARY_CORPORA,
+  SELF_IMPROVE_QUALITY_REMEDIATION_POLICY,
   SELF_IMPROVE_SAFETY_REMEDIATION_POLICY
 } from "../lib/self-improve.mjs";
 
@@ -36,6 +40,7 @@ const suiteV21 = JSON.parse(suiteV21Bytes.toString("utf8"));
 const suiteV22 = JSON.parse(await readFile(path.join(pluginRoot(), "fixtures", "self-improve-ops-evals-v2.2.json"), "utf8"));
 const repositoryRoot = path.resolve(pluginRoot(), "../..");
 const safetyPolicy = await loadSafetyRemediationPolicy({ cwd: repositoryRoot });
+const qualityPolicy = await loadQualityRemediationPolicy({ cwd: repositoryRoot });
 
 function run(score, hardSafetyPass = true) {
   return { score, hardSafetyPass, perCase: [{ id: "a", evaluationClass: null, score, hardSafetyPass }] };
@@ -176,6 +181,124 @@ test("safety remediation v1 rejects threshold, target, and artifact drift", asyn
     await assertMutationRejected((policy) => { policy.targetCases = [policy.targetCases[2], policy.targetCases[1], policy.targetCases[0]]; }, /immutable v1 target set/);
     await writeFile(policyPath, `${policyBytes.toString("utf8")}\n`);
     await assert.rejects(loadSafetyRemediationPolicy({ cwd }), /approved immutable digest/);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("quality remediation policy is independently bound to non-hard completion assertions", () => {
+  assert.equal(qualityPolicy.purpose, "quality-remediation-v1");
+  assert.equal(qualityPolicy.policyId, "self-improve-quality-remediation");
+  assert.equal(qualityPolicy.sourceSuiteDigest, safetyPolicy.sourceSuiteDigest);
+  assert.deepEqual(qualityPolicy.targetCases.map((item) => item.improvementAssertionId), [
+    "typed-admission-required",
+    "exhaustion-blocks",
+    "final-broad-review-required"
+  ]);
+  const selected = selectQualityRemediationCases({
+    suite: suiteV22,
+    snapshot: {
+      files: [
+        { path: "plugins/better-workflows/scripts/lib/evidence.mjs", state: "file" },
+        { path: "plugins/better-workflows/scripts/lib/ledger.mjs", state: "file" },
+        { path: "plugins/better-workflows/scripts/lib/review.mjs", state: "file" }
+      ]
+    },
+    split: "holdout",
+    policy: qualityPolicy
+  });
+  assert.deepEqual(selected.map((item) => item.id), [
+    "universal-sensitive-history",
+    "evidence-cross-run-substitution",
+    "ledger-pass-and-exhaustion",
+    "review-breaker-and-broad-pass"
+  ]);
+  assert.notEqual(
+    evaluationBindingDigest({ purpose: "quality-remediation-v1", sourceSuiteDigest: qualityPolicy.sourceSuiteDigest, policyDigest: qualityPolicy.digest }),
+    evaluationBindingDigest({ purpose: "safety-remediation-v1", sourceSuiteDigest: qualityPolicy.sourceSuiteDigest, policyDigest: safetyPolicy.digest })
+  );
+});
+
+test("quality remediation comparison requires reproducible quality gaps and repairs every target assertion", () => {
+  const selected = ["universal-sensitive-history", ...qualityPolicy.targetCases.map((item) => item.caseId)];
+  const score = (failedAssertions = []) => {
+    const perCase = selected.map((id) => {
+      const definition = suiteV22.cases.find((item) => item.id === id);
+      const target = qualityPolicy.targetCases.find((item) => item.caseId === id);
+      const passedAssertions = definition.assertions
+        .filter((assertion) => !failedAssertions.includes(assertion.id))
+        .map((assertion) => assertion.id);
+      return {
+        id,
+        evaluationClass: definition.evaluationClass,
+        score: passedAssertions.length / definition.assertions.length,
+        hardSafetyPass: definition.assertions.filter((assertion) => assertion.hardSafety).every((assertion) => passedAssertions.includes(assertion.id)),
+        passedAssertions,
+        targetAssertion: target?.improvementAssertionId ?? null
+      };
+    });
+    return { score: perCase.reduce((sum, item) => sum + item.score, 0) / perCase.length, hardSafetyPass: perCase.every((item) => item.hardSafetyPass), perCase };
+  };
+  const accepted = compareQualityRemediation({
+    suite: suiteV22,
+    policy: qualityPolicy,
+    baseline: [
+      score(qualityPolicy.targetCases.map((item) => item.improvementAssertionId)),
+      score(["typed-admission-required", "exhaustion-blocks"]),
+      score(["exhaustion-blocks", "final-broad-review-required"])
+    ],
+    candidate: [score(), score(), score()]
+  });
+  assert.equal(accepted.accepted, true);
+  assert.equal(accepted.reason, "quality-remediation-improvement");
+  assert.equal(accepted.policy, qualityPolicy.policyId);
+  assert.deepEqual(accepted.perCase.filter((item) => item.evaluationClass !== "universal-safety").map((item) => item.baselineImprovementFailureRuns), [2, 3, 2]);
+
+  const saturated = compareQualityRemediation({
+    suite: suiteV22,
+    policy: qualityPolicy,
+    baseline: [score(), score(), score()],
+    candidate: [score(), score(), score()]
+  });
+  assert.equal(saturated.reason, "baseline-quality-gap-not-reproduced");
+
+  const incomplete = compareQualityRemediation({
+    suite: suiteV22,
+    policy: qualityPolicy,
+    baseline: [
+      score(["typed-admission-required", "exhaustion-blocks", "final-broad-review-required"]),
+      score(["typed-admission-required", "exhaustion-blocks", "final-broad-review-required"]),
+      score()
+    ],
+    candidate: [score(["typed-admission-required"]), score(), score()]
+  });
+  assert.equal(incomplete.reason, "candidate-quality-remediation-incomplete");
+});
+
+test("quality remediation v1 rejects policy artifact, target, and threshold drift", async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), "sbw-quality-policy-drift-"));
+  const policyRelative = SELF_IMPROVE_QUALITY_REMEDIATION_POLICY;
+  const suiteRelative = "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.2.json";
+  const policyBytes = await readFile(path.join(repositoryRoot, policyRelative));
+  try {
+    const policyPath = path.join(cwd, policyRelative);
+    await mkdir(path.dirname(policyPath), { recursive: true });
+    await mkdir(path.dirname(path.join(cwd, suiteRelative)), { recursive: true });
+    await writeFile(policyPath, policyBytes);
+    await writeFile(path.join(cwd, suiteRelative), await readFile(path.join(repositoryRoot, suiteRelative)));
+    await assert.doesNotReject(loadQualityRemediationPolicy({ cwd }));
+
+    const assertMutationRejected = async (mutate, pattern) => {
+      const mutated = JSON.parse(policyBytes.toString("utf8"));
+      mutate(mutated);
+      await writeFile(policyPath, `${JSON.stringify(mutated, null, 2)}\n`);
+      await assert.rejects(loadQualityRemediationPolicy({ cwd }), pattern);
+    };
+
+    await assertMutationRejected((policy) => { policy.minimumBaselineFailureRuns = 1; }, /immutable v1 gate/);
+    await assertMutationRejected((policy) => { policy.targetCases = [policy.targetCases[2], policy.targetCases[1], policy.targetCases[0]]; }, /immutable v1 target set/);
+    await writeFile(policyPath, `${policyBytes.toString("utf8")}\n`);
+    await assert.rejects(loadQualityRemediationPolicy({ cwd }), /approved immutable digest/);
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }

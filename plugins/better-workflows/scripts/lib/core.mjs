@@ -23,7 +23,7 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
-export const VERSION = "3.0.0";
+export const VERSION = "3.1.0";
 export const MODES = new Set(["auto", "direct", "verified", "deep", "critical"]);
 export const RUN_STATES = new Set([
   "pending",
@@ -391,7 +391,7 @@ export function validateContract(contract) {
     throw new Error("TaskContract.template is required");
   }
   if (contract.selfImprovePurpose !== undefined) {
-    if (!new Set(["ordinary", "evaluator-migration", "safety-remediation-v1"]).has(contract.selfImprovePurpose)) {
+    if (!new Set(["ordinary", "evaluator-migration", "safety-remediation-v1", "quality-remediation-v1"]).has(contract.selfImprovePurpose)) {
       throw new Error("TaskContract.selfImprovePurpose is invalid");
     }
     if (contract.template !== "self-improve-ops") {

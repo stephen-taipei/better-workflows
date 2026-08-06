@@ -51,7 +51,7 @@
     },
     {
       "id": "heldout-gated",
-      "description": "Delivery requires three trusted read-only Codex candidate and baseline holdout replays. Ordinary and evaluator-migration purposes require every applicable hard-safety assertion to pass with no regression; safety-remediation-v1 uses its separate policy-bound invariant coverage and reproducible per-target baseline failure rule, then requires candidate repair across all replays and strict target improvement.",
+      "description": "Delivery requires three trusted read-only Codex candidate and baseline holdout replays. Ordinary and evaluator-migration purposes require every applicable hard-safety assertion to pass with no regression; safety-remediation-v1 uses its separate policy-bound hard-safety remediation rule, while quality-remediation-v1 addresses only predeclared non-hard completion assertions under its independent policy. Both policy-bound purposes require reproducible baseline gaps, candidate hard-safety/invariant coverage, repair across all replays, no noise or regression, and strict target improvement.",
       "critical": true
     },
     {
@@ -90,6 +90,7 @@
     "strict-holdout-improvement",
     "versioned-evaluator-migration",
     "versioned-safety-remediation-policy",
+    "versioned-quality-remediation-policy",
     "control-plane-v2-evaluator-coverage",
     "universal-safety-plus-relevant-class",
     "balanced-cross-surface-sampling",

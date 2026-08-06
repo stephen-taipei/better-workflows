@@ -8,7 +8,7 @@ import {
   evaluationBindingDigest,
   loadFrozenEvaluationSuite,
   loadMigrationTargetSuite,
-  loadSafetyRemediationPolicy,
+  loadPolicyBoundEvaluationPolicy,
   buildEvaluationPrompt,
   readSanitizedCandidateMaterial,
   readSanitizedBaselineMaterial,
@@ -17,8 +17,9 @@ import {
   selectEvaluationCases,
   SELF_IMPROVE_CANONICAL_CORPUS,
   SELF_IMPROVE_MIGRATION_SOURCE_CORPUS,
-  SELF_IMPROVE_SAFETY_REMEDIATION_PURPOSE,
+  isPolicyBoundEvaluationPurpose,
   selectSafetyRemediationCases,
+  selectQualityRemediationCases,
   ordinaryCorpusForBaseline
 } from "./self-improve.mjs";
 import { captureSourceBinding } from "./git.mjs";
@@ -139,11 +140,11 @@ export async function generateAttestationRequests({
   ) {
     throw new Error("Attestation requests must be written outside the repository");
   }
-  const safety = purpose === SELF_IMPROVE_SAFETY_REMEDIATION_PURPOSE;
-  const policy = safety ? await loadSafetyRemediationPolicy({ cwd: resolvedRepo }) : null;
+  const policyBound = isPolicyBoundEvaluationPurpose(purpose);
+  const policy = policyBound ? await loadPolicyBoundEvaluationPolicy({ cwd: resolvedRepo, purpose }) : null;
   const defaultCasesFile = purpose === "evaluator-migration"
     ? SELF_IMPROVE_MIGRATION_SOURCE_CORPUS
-    : safety
+    : policyBound
       ? SELF_IMPROVE_CANONICAL_CORPUS
       : await ordinaryCorpusForBaseline({ cwd: resolvedRepo, baselineRevision });
   const frozen = await loadFrozenEvaluationSuite({
@@ -157,7 +158,7 @@ export async function generateAttestationRequests({
     purpose
   });
   if (policy && frozen.sourceDigest !== policy.sourceSuiteDigest) {
-    throw new Error("Safety remediation source suite digest is not the policy-bound immutable corpus");
+    throw new Error(`${purpose} source suite digest is not the policy-bound immutable corpus`);
   }
   const target = purpose === "evaluator-migration"
     ? await loadMigrationTargetSuite({
@@ -203,9 +204,11 @@ export async function generateAttestationRequests({
     codexHomePath
   };
   for (const split of ["train", "holdout"]) {
-    const cases = safety
+    const cases = purpose === "safety-remediation-v1"
       ? selectSafetyRemediationCases({ suite: frozen.suite, snapshot: candidate, split, policy })
-      : selectEvaluationCases({ suite: frozen.suite, snapshot: candidate, split });
+      : purpose === "quality-remediation-v1"
+        ? selectQualityRemediationCases({ suite: frozen.suite, snapshot: candidate, split, policy })
+        : selectEvaluationCases({ suite: frozen.suite, snapshot: candidate, split });
     promptByRoleAndSplit.set(`candidate:${split}`, buildEvaluationPrompt({
       suite: { ...frozen.suite, cases },
       candidate,
@@ -242,7 +245,7 @@ export async function generateAttestationRequests({
       role: item.role,
       sourceBindingDigest: sourceBinding.digest,
       attempt: item.attempt,
-      ...(safety ? { purpose, policyDigest: policy.digest } : {})
+      ...(policyBound ? { purpose, policyDigest: policy.digest } : {})
     };
     const prompt = promptByRoleAndSplit.get(`${item.role === "train-candidate" ? "candidate" : item.role}:${item.split}`);
     const promptBytes = Buffer.from(prompt);
@@ -264,7 +267,7 @@ export async function generateAttestationRequests({
       promptPath: promptFile,
       uid: runAs.uid
     };
-    if (safety) {
+    if (policyBound) {
       request.purpose = purpose;
       request.policyDigest = policy.digest;
     }
@@ -283,7 +286,7 @@ export async function generateAttestationRequests({
     });
   }
   const manifest = {
-    schemaVersion: safety ? 3 : 2,
+    schemaVersion: policyBound ? 3 : 2,
     repo: resolvedRepo,
     runId,
     model,
@@ -306,7 +309,7 @@ export async function generateAttestationRequests({
     candidateDigest: candidate.digest,
     candidateFiles: candidate.files,
     requests: records,
-    ...(safety
+    ...(policyBound
       ? {
         policyPath: policy.path,
         policyId: policy.policyId,

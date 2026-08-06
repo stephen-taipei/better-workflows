@@ -42,9 +42,19 @@ const LEGACY_SIGNER = "/private/var/db/better-workflows/bin/bw-host-signer.swift
 const SAFETY_REMEDIATION_POLICY_PATH = "plugins/better-workflows/config/self-improve-safety-remediation-v1.json";
 const SAFETY_REMEDIATION_POLICY_ID = "self-improve-safety-remediation";
 const SAFETY_REMEDIATION_POLICY_VERSION = "v1";
+const QUALITY_REMEDIATION_POLICY_PATH = "plugins/better-workflows/config/self-improve-quality-remediation-v1.json";
+const QUALITY_REMEDIATION_POLICY_ID = "self-improve-quality-remediation";
+const QUALITY_REMEDIATION_POLICY_VERSION = "v1";
+const POLICY_BINDINGS = Object.freeze({
+  "safety-remediation-v1": Object.freeze({ path: SAFETY_REMEDIATION_POLICY_PATH, id: SAFETY_REMEDIATION_POLICY_ID, version: SAFETY_REMEDIATION_POLICY_VERSION }),
+  "quality-remediation-v1": Object.freeze({ path: QUALITY_REMEDIATION_POLICY_PATH, id: QUALITY_REMEDIATION_POLICY_ID, version: QUALITY_REMEDIATION_POLICY_VERSION })
+});
+function policyBindingForPurpose(purpose) {
+  return POLICY_BINDINGS[purpose] ?? null;
+}
 const NATIVE_COMPILER = "/usr/bin/clang";
 const ISSUER = "better-workflows-local-host";
-const HOST_SIGNER_VERSION = "2.2.0";
+const HOST_SIGNER_VERSION = "2.3.0";
 const HOST_SIGNER_CAPABILITIES = Object.freeze([
   "attestation",
   "native-review",
@@ -982,12 +992,12 @@ function validateExecution(execution) {
   ];
   const remediationExpected = [...expected, "policyDigest", "purpose"].sort();
   const executionKeys = Object.keys(execution).sort();
-  const remediation = executionKeys.join("\0") === remediationExpected.join("\0");
-  if (executionKeys.join("\0") !== expected.join("\0") && !remediation) {
+  const policyBound = executionKeys.join("\0") === remediationExpected.join("\0");
+  if (executionKeys.join("\0") !== expected.join("\0") && !policyBound) {
     throw new Error("execution fields do not match the verifier contract");
   }
-  if (remediation && (execution.purpose !== "safety-remediation-v1" || !SHA256.test(execution.policyDigest))) {
-    throw new Error("Safety remediation execution binding is invalid");
+  if (policyBound && (!policyBindingForPurpose(execution.purpose) || !SHA256.test(execution.policyDigest))) {
+    throw new Error("Policy-bound execution binding is invalid");
   }
   for (const key of expected.filter((item) => item !== "attempt")) {
     if (typeof execution[key] !== "string" || !execution[key]) {
@@ -1108,12 +1118,12 @@ export function validateExecutionRequest(request) {
   const required = ["binaryApprovalDigest", "binaryDigest", "binaryPath", "codexHomePath", "execution", "gid", "homePath", "model", "pluginBundleDigest", "promptDigest", "promptPath", "uid"];
   const remediationRequired = [...required, "policyDigest", "purpose"].sort();
   const requestKeys = Object.keys(request).sort();
-  const remediation = requestKeys.join("\0") === remediationRequired.join("\0");
-  if (requestKeys.join("\0") !== required.slice().sort().join("\0") && !remediation) {
+  const policyBound = requestKeys.join("\0") === remediationRequired.join("\0");
+  if (requestKeys.join("\0") !== required.slice().sort().join("\0") && !policyBound) {
     throw new Error("execution request fields do not match the signer contract");
   }
-  if (remediation && (request.purpose !== "safety-remediation-v1" || !SHA256.test(request.policyDigest))) {
-    throw new Error("Safety remediation execution request binding is invalid");
+  if (policyBound && (!policyBindingForPurpose(request.purpose) || !SHA256.test(request.policyDigest))) {
+    throw new Error("Policy-bound execution request binding is invalid");
   }
   if (!SHA256.test(request.promptDigest)) {
     throw new Error("execution request prompt digest is invalid");
@@ -1143,11 +1153,11 @@ export function validateExecutionRequest(request) {
     throw new Error("execution request model is invalid");
   }
   validateExecution(request.execution);
-  if (remediation && (request.execution.purpose !== request.purpose || request.execution.policyDigest !== request.policyDigest)) {
-    throw new Error("Safety remediation request and execution bindings do not match");
+  if (policyBound && (request.execution.purpose !== request.purpose || request.execution.policyDigest !== request.policyDigest)) {
+    throw new Error("Policy-bound request and execution bindings do not match");
   }
-  if (!remediation && (request.execution.purpose !== undefined || request.execution.policyDigest !== undefined)) {
-    throw new Error("Ordinary execution request cannot carry a safety remediation binding");
+  if (!policyBound && (request.execution.purpose !== undefined || request.execution.policyDigest !== undefined)) {
+    throw new Error("Ordinary execution request cannot carry a policy-bound binding");
   }
   if (request.promptDigest !== request.execution.promptDigest) {
     throw new Error("execution request prompt digest does not match execution");
@@ -1498,15 +1508,15 @@ async function executeBatch(manifestPath, confirmedManifestDigest) {
     throw new Error("execution manifest digest does not match administrator-confirmed digest");
   }
   const manifest = JSON.parse(manifestBytes.toString("utf8"));
-  const safetyRemediation = manifest.purpose === "safety-remediation-v1";
-  const expectedManifestSchema = safetyRemediation ? 3 : 2;
+  const policyBinding = policyBindingForPurpose(manifest.purpose);
+  const expectedManifestSchema = policyBinding ? 3 : 2;
   if (manifest.schemaVersion !== expectedManifestSchema || !Array.isArray(manifest.requests) || manifest.requests.length !== 7) {
     throw new Error(`execution manifest must be schemaVersion ${expectedManifestSchema} with exactly seven requests`);
   }
-  if (manifest.schemaVersion !== expectedManifestSchema || !["ordinary", "evaluator-migration", "safety-remediation-v1"].includes(manifest.purpose) ||
-      (safetyRemediation
-        ? manifest.policyPath !== SAFETY_REMEDIATION_POLICY_PATH ||
-          manifest.policyId !== SAFETY_REMEDIATION_POLICY_ID || manifest.policyVersion !== SAFETY_REMEDIATION_POLICY_VERSION || !SHA256.test(manifest.policyDigest)
+  if (manifest.schemaVersion !== expectedManifestSchema || !["ordinary", "evaluator-migration", "safety-remediation-v1", "quality-remediation-v1"].includes(manifest.purpose) ||
+      (policyBinding
+        ? manifest.policyPath !== policyBinding.path ||
+          manifest.policyId !== policyBinding.id || manifest.policyVersion !== policyBinding.version || !SHA256.test(manifest.policyDigest)
         : manifest.policyPath !== undefined || manifest.policyId !== undefined || manifest.policyVersion !== undefined || manifest.policyDigest !== undefined) ||
       typeof manifest.runId !== "string" || !manifest.runId ||
       typeof manifest.model !== "string" || !manifest.model || typeof manifest.binaryPath !== "string" ||
@@ -1562,8 +1572,8 @@ async function executeBatch(manifestPath, confirmedManifestDigest) {
         request.execution.headRevision !== manifest.headRevision || request.execution.sourceBindingDigest !== manifest.sourceBindingDigest ||
         request.execution.role !== item.role || request.execution.attempt !== item.attempt ||
         request.execution.id !== item.executionId || request.execution.promptDigest !== item.promptDigest ||
-        (safetyRemediation && (request.purpose !== manifest.purpose || request.policyDigest !== manifest.policyDigest || request.execution.purpose !== manifest.purpose || request.execution.policyDigest !== manifest.policyDigest)) ||
-        (!safetyRemediation && (request.purpose !== undefined || request.policyDigest !== undefined)) ||
+        (policyBinding && (request.purpose !== manifest.purpose || request.policyDigest !== manifest.policyDigest || request.execution.purpose !== manifest.purpose || request.execution.policyDigest !== manifest.policyDigest)) ||
+        (!policyBinding && (request.purpose !== undefined || request.policyDigest !== undefined)) ||
         (request.execution.purpose !== undefined && request.execution.purpose !== manifest.purpose)) {
       throw new Error("execution manifest request does not match its canonical batch binding");
     }
