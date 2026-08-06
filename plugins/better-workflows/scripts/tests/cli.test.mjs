@@ -467,13 +467,18 @@ test("self-improve attestation request freezes seven distinct requests and rejec
   assert.equal(requested.json.manifestPath, path.join(output, "attestation-requests.json"));
   assert.match(requested.json.manifestDigest, /^[a-f0-9]{64}$/);
   assert.equal(requested.json.executeCommand.at(-1), requested.json.manifestDigest);
-  assert.deepEqual(requested.json.executeCommand.slice(0, 3), ["sudo", "/bin/sh", "-c"]);
-  assert.match(requested.json.executeCommand[3], /shasum/);
-  assert.match(requested.json.executeCommand[3], /bw-host-node/);
-  assert.match(requested.json.executeCommand[3], /stat -f %u/);
-  assert.match(requested.json.executeCommand[3], /env -i/);
-  assert.match(requested.json.executeCommand[3], /\/private\/var\/db\/better-workflows\/bin\/bw-host-trust\.mjs/);
-  assert.doesNotMatch(requested.json.executeCommand[3], /\$\{HOST_TRUST_TOOL\}/);
+  assert.deepEqual(requested.json.executeCommand, [
+    "/usr/bin/sudo",
+    requested.json.runtimePath,
+    "/private/var/db/better-workflows/bin/bw-host-trust.mjs",
+    "execute-batch",
+    "--manifest",
+    requested.json.manifestPath,
+    "--confirm-digest",
+    requested.json.manifestDigest
+  ]);
+  assert.equal(requested.json.executeCommand.includes("/bin/sh"), false);
+  assert.equal(requested.json.executeCommand.includes("-c"), false);
   assert.match(requested.json.runtimeDigest, /^[a-f0-9]{64}$/);
   assert.equal(requested.json.schemaVersion, 2);
   assert.equal(requested.json.runAs.uid, process.getuid());

@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { promisify } from "node:util";
-import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -36,18 +36,21 @@ const CODEX_TARGET_TRIPLE = process.platform === "darwin" && process.arch === "a
   : process.platform === "darwin" && process.arch === "x64"
     ? "x86_64-apple-darwin"
     : null;
-const HOST_ADMIN_SHELL = [
-  "set -eu",
-  "runtime_digest=\"$1\"",
-  "manifest=\"$2\"",
-  "manifest_digest=\"$3\"",
-  "printf '%s\\n' \"$runtime_digest\" | /usr/bin/grep -Eq '^[a-f0-9]{64}$' || { echo 'runtime digest is not a SHA-256 value' >&2; exit 126; }",
-  `target=\"${HOST_RUNTIME_ROOT}/bw-host-node.$runtime_digest\"`,
-  "[ ! -L \"$target\" ] && [ -f \"$target\" ] && [ \"$(/usr/bin/stat -f %u \"$target\")\" = \"0\" ] && [ \"$(/usr/bin/stat -f %Lp \"$target\")\" = \"755\" ] || { echo 'administrator runtime target is not root-owned 0755' >&2; exit 126; }",
-  "actual=$(/usr/bin/shasum -a 256 \"$target\" | /usr/bin/awk '{print $1}')",
-  "[ \"$actual\" = \"$runtime_digest\" ] || { echo 'administrator runtime digest mismatch' >&2; exit 126; }",
-  `exec /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin \"$target\" \"${HOST_TRUST_TOOL}\" execute-batch --manifest \"$manifest\" --confirm-digest \"$manifest_digest\"`
-].join("\n");
+
+async function verifyAdministratorRuntime(runtime) {
+  if (!runtime || typeof runtime.path !== "string" || !path.isAbsolute(runtime.path) ||
+      path.resolve(runtime.path) !== runtime.path || !/^[a-f0-9]{64}$/.test(runtime.digest ?? "")) {
+    throw new Error("Administrator runtime binding is invalid");
+  }
+  const resolved = await realpath(runtime.path);
+  if (resolved !== runtime.path) throw new Error("Administrator runtime path must already be canonical");
+  const info = await lstat(resolved);
+  if (info.isSymbolicLink() || !info.isFile() || info.uid !== 0 || (info.mode & 0o777) !== 0o755) {
+    throw new Error("Administrator runtime must be a root-owned 0755 regular file");
+  }
+  const actualDigest = createHash("sha256").update(await readFile(resolved)).digest("hex");
+  if (actualDigest !== runtime.digest) throw new Error("Administrator runtime digest mismatch");
+}
 
 async function installedRuntime() {
   let status;
@@ -129,6 +132,7 @@ export async function generateAttestationRequests({
   }
   const publishableBundleDigest = await bundleDigest(path.join(resolvedRepo, "plugins", "better-workflows"));
   const runtime = await installedRuntime();
+  await verifyAdministratorRuntime(runtime);
   const binary = await codexExecutableIdentity(binaryPath);
   const resolvedBinary = binary.path;
   if (binaryPath && resolvedBinary !== binaryPath) {
@@ -332,13 +336,13 @@ export async function generateAttestationRequests({
     manifestPath,
     manifestDigest: createHash("sha256").update(manifestBytes).digest("hex"),
     executeCommand: [
-      "sudo",
-      "/bin/sh",
-      "-c",
-      HOST_ADMIN_SHELL,
-      "better-workflows-admin",
-      runtime.digest,
+      "/usr/bin/sudo",
+      runtime.path,
+      HOST_TRUST_TOOL,
+      "execute-batch",
+      "--manifest",
       manifestPath,
+      "--confirm-digest",
       createHash("sha256").update(manifestBytes).digest("hex")
     ]
   };
