@@ -161,7 +161,7 @@ async function assertActionProofPayload(payload, kind, run, evidenceId) {
 
 const ARRAY_FIELDS = new Set([
   "acceptanceIds", "batches", "checkSet", "checks", "commits", "conclusions", "files", "items",
-  "providerRunIds", "requiredStatusCheckApps", "requiredStatusChecks", "resources", "roles", "scope", "tasks"
+  "providerRunIds", "requiredStatusCheckApps", "requiredStatusChecks", "resources", "roles", "scope", "tasks", "witnessDigests"
 ]);
 const OBJECT_FIELDS = new Set([
   "actionProof", "artifact", "authorization", "counts", "diffManifest", "metadata", "permissions",
