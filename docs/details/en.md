@@ -348,6 +348,9 @@ satisfied assertion is reported independently of disposition. Migration still
 requires candidate hard-safety and baseline/candidate universal invariants in
 all three holdout replays; a source baseline non-invariant miss is accepted only
 when every candidate replay repairs it without median regression or noise.
+Migration source replay and target calibration are isolated to universal safety
+plus evaluation-engineering; ordinary evaluation alone uses all applicable
+changed-path classes.
 
 `safety-remediation-v1` is a separate run-creation purpose. It uses the fixed
 `plugins/better-workflows/config/self-improve-safety-remediation-v1.json` policy

@@ -25,6 +25,7 @@ import {
   readSanitizedBaselineMaterial,
   readSanitizedCandidateMaterial,
   scoreEvaluation,
+  selectEvaluatorMigrationCases,
   selectEvaluationCases,
   selectQualityRemediationCases,
   selectSafetyRemediationCases,
@@ -308,7 +309,9 @@ export async function verifySelfImproveDeliveryEvidence({ root, runId, run, evid
     ? selectSafetyRemediationCases({ suite: frozen.suite, snapshot: currentCandidate, split: "holdout", policy })
     : purpose === "quality-remediation-v1"
       ? selectQualityRemediationCases({ suite: frozen.suite, snapshot: currentCandidate, split: "holdout", policy })
-    : selectEvaluationCases({ suite: frozen.suite, snapshot: currentCandidate, split: "holdout" });
+      : purpose === "evaluator-migration"
+        ? selectEvaluatorMigrationCases({ suite: frozen.suite, split: "holdout" })
+        : selectEvaluationCases({ suite: frozen.suite, snapshot: currentCandidate, split: "holdout" });
   const candidatePrompt = buildEvaluationPrompt({ suite: { ...frozen.suite, cases: replayCases }, candidate: currentCandidate, materials: candidateMaterial });
   const baselinePrompt = buildEvaluationPrompt({ suite: { ...frozen.suite, cases: replayCases }, candidate: currentBaseline, materials: baselineMaterial });
   const migrationTarget = purpose === "evaluator-migration"
@@ -330,7 +333,9 @@ export async function verifySelfImproveDeliveryEvidence({ root, runId, run, evid
     ? selectSafetyRemediationCases({ suite: frozen.suite, snapshot: currentCandidate, split: "train", policy })
     : purpose === "quality-remediation-v1"
       ? selectQualityRemediationCases({ suite: frozen.suite, snapshot: currentCandidate, split: "train", policy })
-    : selectEvaluationCases({ suite: frozen.suite, snapshot: currentCandidate, split: "train" });
+      : purpose === "evaluator-migration"
+        ? selectEvaluatorMigrationCases({ suite: frozen.suite, split: "train" })
+        : selectEvaluationCases({ suite: frozen.suite, snapshot: currentCandidate, split: "train" });
   const trainPrompt = buildEvaluationPrompt({ suite: { ...frozen.suite, cases: trainCases }, candidate: currentCandidate, materials: candidateMaterial });
   const trustedScores = [];
   for (const replay of replays) {

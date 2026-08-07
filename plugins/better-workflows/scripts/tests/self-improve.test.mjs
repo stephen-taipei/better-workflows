@@ -21,6 +21,7 @@ import {
   snapshotBaselineForCandidate,
   snapshotCandidate,
   scoreEvaluation,
+  selectEvaluatorMigrationCases,
   selectEvaluationCases,
   selectQualityRemediationCases,
   selectSafetyRemediationCases,
@@ -719,7 +720,7 @@ test("evaluation v2 selects universal safety plus only applicable improvement cl
   );
 });
 
-test("evaluator migration calibration binds v2.2, v2.3, publication coverage, balanced groups, and both splits", () => {
+test("evaluator migration isolates source replay classes while binding v2.2, v2.3, balanced groups, and both splits", () => {
   const snapshot = {
     files: [
       { path: "plugins/better-workflows/scripts/lib/publication.mjs", state: "file" },
@@ -743,10 +744,16 @@ test("evaluator migration calibration binds v2.2, v2.3, publication coverage, ba
   });
   assert.deepEqual(calibration.materialGroups, ["fixtures", "runtime", "tests"]);
   assert.match(calibration.digest, /^[a-f0-9]{64}$/);
-  assert.ok(calibration.trainClasses.includes("universal-safety"));
-  assert.ok(calibration.holdoutClasses.includes("evaluation-engineering"));
-  assert.ok(calibration.trainClasses.includes("plugin-cache-publication"));
-  assert.ok(calibration.holdoutClasses.includes("plugin-cache-publication"));
+  assert.deepEqual(calibration.trainClasses, ["evaluation-engineering", "universal-safety"]);
+  assert.deepEqual(calibration.holdoutClasses, ["evaluation-engineering", "universal-safety"]);
+  assert.deepEqual(
+    [...new Set(selectEvaluatorMigrationCases({ suite: suiteV22, split: "holdout" }).map((item) => item.evaluationClass))].sort(),
+    ["evaluation-engineering", "universal-safety"]
+  );
+  assert.throws(
+    () => selectEvaluatorMigrationCases({ suite: { ...suiteV22, classes: suiteV22.classes.filter((item) => item.id !== "evaluation-engineering") }, split: "holdout" }),
+    /requires an evaluation-engineering improvement class/
+  );
 });
 
 test("candidate sanitizer admits declared public docs and checks all paths before sampling", async () => {

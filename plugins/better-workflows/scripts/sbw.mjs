@@ -79,6 +79,7 @@ import {
   scoreEvaluation,
   selectQualityRemediationCases,
   selectSafetyRemediationCases,
+  selectEvaluatorMigrationCases,
   selectEvaluationCases,
   isPolicyBoundEvaluationPurpose,
   snapshotBaselineForCandidate,
@@ -936,7 +937,9 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
     ? selectSafetyRemediationCases({ suite: frozen.suite, snapshot: candidate, split, policy })
     : purpose === "quality-remediation-v1"
       ? selectQualityRemediationCases({ suite: frozen.suite, snapshot: candidate, split, policy })
-    : selectEvaluationCases({ suite: frozen.suite, snapshot: candidate, split });
+      : purpose === "evaluator-migration"
+        ? selectEvaluatorMigrationCases({ suite: frozen.suite, split })
+        : selectEvaluationCases({ suite: frozen.suite, snapshot: candidate, split });
   const calibration = target
     ? calibrateEvaluatorMigration({
       source: frozen.suite,

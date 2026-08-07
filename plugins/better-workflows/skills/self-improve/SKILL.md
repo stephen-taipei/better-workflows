@@ -70,12 +70,15 @@ for marker ownership and rollback races. The evaluator-migration source
 allowlist remains historical and immutable; v2.2 is the default source for the
 v2.3 migration. Evaluator dispositions classify the supplied snapshot rather
 than recommend another edit: baseline and candidate use identical semantics,
-and every satisfied assertion must be reported for every disposition.
+and every satisfied assertion must be reported for every disposition. The
+evaluator-migration source replay and target calibration are fixed to universal
+invariants plus evaluation-engineering; ordinary evaluation alone selects all
+applicable improvement classes from changed paths.
 
 An evaluator migration is a separate governance path. It freezes the previous
 versioned corpus at the run-start baseline, binds a distinct target corpus
 digest into all seven signed executions, and requires deterministic class
-applicability, balanced-sampling coverage, and saturation-policy calibration.
+isolation, balanced-sampling coverage, and saturation-policy calibration.
 Source-suite replays may tie only on this migration path. Every candidate
 hard-safety assertion and every universal invariant must pass; any baseline
 non-invariant hard-safety miss must be repaired by all candidate replays; and

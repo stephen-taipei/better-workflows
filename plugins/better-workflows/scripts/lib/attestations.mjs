@@ -15,6 +15,7 @@ import {
   readSanitizedBaselineMaterial,
   snapshotCandidate,
   snapshotBaselineForCandidate,
+  selectEvaluatorMigrationCases,
   selectEvaluationCases,
   SELF_IMPROVE_CANONICAL_CORPUS,
   SELF_IMPROVE_MIGRATION_SOURCE_CORPUS,
@@ -217,7 +218,9 @@ export async function generateAttestationRequests({
       ? selectSafetyRemediationCases({ suite: frozen.suite, snapshot: candidate, split, policy })
       : purpose === "quality-remediation-v1"
         ? selectQualityRemediationCases({ suite: frozen.suite, snapshot: candidate, split, policy })
-        : selectEvaluationCases({ suite: frozen.suite, snapshot: candidate, split });
+        : purpose === "evaluator-migration"
+          ? selectEvaluatorMigrationCases({ suite: frozen.suite, split })
+          : selectEvaluationCases({ suite: frozen.suite, snapshot: candidate, split });
     promptByRoleAndSplit.set(`candidate:${split}`, buildEvaluationPrompt({
       suite: { ...frozen.suite, cases },
       candidate,

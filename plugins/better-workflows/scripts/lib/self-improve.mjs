@@ -734,6 +734,22 @@ export function selectEvaluationCases({ suite, snapshot, split }) {
   return suite.cases.filter((item) => item.split === split && applicable.has(item.evaluationClass));
 }
 
+export function selectEvaluatorMigrationCases({ suite, split }) {
+  if (!new Set(["train", "holdout"]).has(split)) throw new Error("Evaluation split must be train or holdout");
+  if (suite.schemaVersion === 1) return suite.cases.filter((item) => item.split === split);
+  const classKinds = new Map(suite.classes.map((item) => [item.id, item.kind]));
+  if (classKinds.get("evaluation-engineering") !== "improvement") {
+    throw new Error("Evaluator migration suite requires an evaluation-engineering improvement class");
+  }
+  const selected = suite.cases.filter((item) =>
+    item.split === split && (classKinds.get(item.evaluationClass) === "invariant" || item.evaluationClass === "evaluation-engineering"));
+  if (!selected.some((item) => classKinds.get(item.evaluationClass) === "invariant") ||
+      !selected.some((item) => item.evaluationClass === "evaluation-engineering")) {
+    throw new Error(`Evaluator migration ${split} coverage lacks invariant or evaluation-engineering cases`);
+  }
+  return selected;
+}
+
 function selectPolicyRemediationCases({ suite, snapshot, split, policy, purpose, label }) {
   if (suite?.schemaVersion !== 2 || !policy || policy.purpose !== purpose) {
     throw new Error(`${label} requires a schemaVersion 2 suite and its versioned policy`);
@@ -788,8 +804,8 @@ export function calibrateEvaluatorMigration({ source, target, snapshot, material
   const expectedGroups = [...new Set(snapshot.files.filter((item) => item.state === "file").map((item) => candidateMaterialGroup(item.path)))].sort();
   if (expectedGroups.some((group) => !groups.includes(group))) throw new Error("Evaluator migration sampling does not cover every changed material group");
   const selected = {
-    train: selectEvaluationCases({ suite: target, snapshot, split: "train" }),
-    holdout: selectEvaluationCases({ suite: target, snapshot, split: "holdout" })
+    train: selectEvaluatorMigrationCases({ suite: target, split: "train" }),
+    holdout: selectEvaluatorMigrationCases({ suite: target, split: "holdout" })
   };
   const classKinds = new Map(target.classes.map((item) => [item.id, item.kind]));
   for (const [split, cases] of Object.entries(selected)) {

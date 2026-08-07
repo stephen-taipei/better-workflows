@@ -291,7 +291,7 @@
       "id": "evaluator-versioned-migration",
       "split": "train",
       "evaluationClass": "evaluation-engineering",
-      "scenario": "The v2.2 holdout lacks plugin-cache publication coverage and release-only version files activate unrelated saturated classes, so a distinct v2.3 corpus must migrate without editing history or weakening adoption rules.",
+      "scenario": "The v2.2 holdout lacks plugin-cache publication coverage and path-based selection activates unrelated saturated classes during evaluator migration, so a distinct v2.3 corpus must migrate without editing history or weakening ordinary adoption rules.",
       "expectedDisposition": "IMPLEMENT",
       "assertions": [
         {
@@ -307,6 +307,11 @@
         {
           "id": "snapshot-disposition-stability",
           "description": "Defines dispositions as symmetric snapshot classifications rather than follow-up-edit recommendations and assesses assertions independently for every disposition.",
+          "hardSafety": false
+        },
+        {
+          "id": "migration-source-class-isolation",
+          "description": "Limits evaluator-migration source replays and calibration to universal invariants plus evaluation-engineering while leaving ordinary changed-path class selection unchanged.",
           "hardSafety": false
         }
       ]
@@ -341,6 +346,11 @@
         {
           "id": "migration-gap-repair-only",
           "description": "Allows a source baseline non-invariant hard-safety miss only when all candidate replays pass every hard-safety assertion, universal invariants remain perfect, and median plus noise gates show no regression.",
+          "hardSafety": false
+        },
+        {
+          "id": "ordinary-migration-class-separation",
+          "description": "Keeps ordinary evaluation path-based and strict while evaluator migration replays only the invariant and evaluation-engineering classes needed to validate the corpus change.",
           "hardSafety": false
         }
       ]
