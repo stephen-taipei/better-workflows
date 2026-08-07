@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { lstat, readFile, readdir, readlink } from "node:fs/promises";
+import { lstat, readFile, readdir, readlink, realpath } from "node:fs/promises";
 import path from "node:path";
 import { canonicalJson, sha256 } from "./core.mjs";
 
@@ -191,6 +191,19 @@ async function gitPath(cwd, name) {
   return path.resolve(cwd, result.stdout.trim());
 }
 
+export async function hiddenIndexEntries(cwd) {
+  const result = await git(cwd, ["ls-files", "-v", "-z"]);
+  const records = [];
+  for (const entry of result.stdout.split("\0").filter(Boolean)) {
+    const status = entry[0];
+    const relative = entry.startsWith(`${status} `) ? entry.slice(2) : null;
+    if (!relative || !["h", "s", "S"].includes(status)) continue;
+    records.push({ path: relative, status });
+  }
+  records.sort((left, right) => left.path.localeCompare(right.path) || left.status.localeCompare(right.status));
+  return { records, digest: sha256(canonicalJson(records)) };
+}
+
 async function digestOptionalFile(target, maxBytes = 1024 * 1024) {
   try {
     return await digestFile(target, maxBytes);
@@ -249,6 +262,94 @@ async function attributesDigest(cwd, budget) {
 async function highRiskIgnored(cwd, requested, budget) {
   const paths = requested.map((item) => normalizeRelative(cwd, item));
   return digestPaths(cwd, paths, budget, []);
+}
+
+export async function captureSourceBinding(cwd, { baseRevision = null, requireClean = false } = {}) {
+  const repository = await realpath(path.resolve(cwd));
+  if (!(await isGitRepository(repository))) return null;
+
+  const worktreeStatus = (await git(repository, ["status", "--porcelain=v2", "-z", "--untracked-files=all", "--ignored"])).stdout;
+  const hiddenIndex = await hiddenIndexEntries(repository);
+  const worktreeClean = worktreeStatus.length === 0 && hiddenIndex.records.length === 0;
+  if (requireClean && !worktreeClean) {
+    throw new Error("Source binding requires a clean index, tracked worktree, untracked surface, and ignored surface; visible tracked index flags are required");
+  }
+  const headRevision = (await git(repository, ["rev-parse", "HEAD"])).stdout.trim();
+  const repositoryRoot = await realpath((await git(repository, ["rev-parse", "--show-toplevel"])).stdout.trim());
+  const gitDir = await realpath(path.resolve(repository, (await git(repository, ["rev-parse", "--git-dir"])).stdout.trim()));
+  const gitCommonDir = await realpath(path.resolve(repository, (await git(repository, ["rev-parse", "--git-common-dir"])).stdout.trim()));
+  const [gitDirInfo, gitCommonDirInfo] = await Promise.all([lstat(gitDir), lstat(gitCommonDir)]);
+  const origin = (await git(repository, ["remote", "get-url", "origin"], { allowFailure: true })).stdout.trim() || null;
+  const headRef = (await git(repository, ["symbolic-ref", "-q", "HEAD"], { allowFailure: true })).stdout.trim() || null;
+  const originHeadRef = (await git(repository, ["symbolic-ref", "-q", "refs/remotes/origin/HEAD"], { allowFailure: true })).stdout.trim() || null;
+  const directoryIdentity = (target, info) => ({
+    path: target,
+    device: Number.isSafeInteger(info.dev) ? info.dev : null,
+    inode: Number.isSafeInteger(info.ino) ? info.ino : null
+  });
+  let resolvedBaseRevision = null;
+  if (baseRevision) {
+    const resolved = await git(
+      repository,
+      ["rev-parse", "--verify", `${String(baseRevision)}^{commit}`],
+      { allowFailure: true }
+    );
+    if (resolved.ok) resolvedBaseRevision = resolved.stdout.trim();
+  }
+  const committedDiff = resolvedBaseRevision
+    ? (await git(repository, [
+        "diff-tree",
+        "--no-commit-id",
+        "--name-status",
+        "-r",
+        "-z",
+        resolvedBaseRevision,
+        headRevision,
+        "--"
+      ])).stdout
+    : "";
+  const committedModeManifest = resolvedBaseRevision
+    ? (await git(repository, [
+        "diff-tree",
+        "--no-commit-id",
+        "--raw",
+        "-r",
+        "-z",
+        resolvedBaseRevision,
+        headRevision,
+        "--"
+      ])).stdout
+    : "";
+  const diffManifest = {
+    schemaVersion: 2,
+    baseRevision: resolvedBaseRevision,
+    headRevision,
+    committedDiff,
+    committedModeManifest,
+    headRef,
+    originHeadRef
+  };
+  const diffManifestDigest = sha256(canonicalJson(diffManifest));
+  const stable = {
+    schemaVersion: 2,
+    cwd: repository,
+    repositoryRoot,
+    gitDir: directoryIdentity(gitDir, gitDirInfo),
+    gitCommonDir: directoryIdentity(gitCommonDir, gitCommonDirInfo),
+    originIdentity: {
+      present: origin !== null,
+      digest: origin ? sha256(origin) : null
+    },
+    symbolicRefs: { head: headRef, originHead: originHeadRef },
+    baseRevision: resolvedBaseRevision,
+    headRevision,
+    worktreeClean,
+    worktreeStatusDigest: sha256(worktreeStatus),
+    hiddenIndexDigest: hiddenIndex.digest,
+    hiddenIndexCount: hiddenIndex.records.length,
+    diffManifestDigest
+  };
+  return { ...stable, digest: sha256(canonicalJson(stable)) };
 }
 
 export async function captureSentinel(cwd, contract, defaults) {

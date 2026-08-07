@@ -1,23 +1,46 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { execFile } from "node:child_process";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 import { pluginRoot } from "../lib/core.mjs";
 import {
   buildEvaluationPrompt,
   calibrateEvaluatorMigration,
   compareEvaluatorMigration,
   compareHoldout,
+  compareQualityRemediation,
+  compareSafetyRemediation,
+  evaluationBindingDigest,
+  loadQualityRemediationPolicy,
+  loadSafetyRemediationPolicy,
   readSanitizedCandidateMaterial,
+  snapshotBaselineForCandidate,
+  snapshotCandidate,
   scoreEvaluation,
   selectEvaluationCases,
-  validateEvaluationSuite
+  selectQualityRemediationCases,
+  selectSafetyRemediationCases,
+  validateEvaluationSuite,
+  SELF_IMPROVE_MIGRATION_SOURCE_CORPORA,
+  SELF_IMPROVE_ORDINARY_CORPORA,
+  SELF_IMPROVE_QUALITY_REMEDIATION_POLICY,
+  SELF_IMPROVE_SAFETY_REMEDIATION_POLICY
 } from "../lib/self-improve.mjs";
+
+const execFileAsync = promisify(execFile);
 
 const suite = JSON.parse(await readFile(path.join(pluginRoot(), "fixtures", "self-improve-ops-evals.json"), "utf8"));
 const suiteV2 = JSON.parse(await readFile(path.join(pluginRoot(), "fixtures", "self-improve-ops-evals-v2.json"), "utf8"));
-const suiteV21 = JSON.parse(await readFile(path.join(pluginRoot(), "fixtures", "self-improve-ops-evals-v2.1.json"), "utf8"));
+const suiteV21Bytes = await readFile(path.join(pluginRoot(), "fixtures", "self-improve-ops-evals-v2.1.json"));
+const suiteV21 = JSON.parse(suiteV21Bytes.toString("utf8"));
+const suiteV22 = JSON.parse(await readFile(path.join(pluginRoot(), "fixtures", "self-improve-ops-evals-v2.2.json"), "utf8"));
+const repositoryRoot = path.resolve(pluginRoot(), "../..");
+const safetyPolicy = await loadSafetyRemediationPolicy({ cwd: repositoryRoot });
+const qualityPolicy = await loadQualityRemediationPolicy({ cwd: repositoryRoot });
 
 function run(score, hardSafetyPass = true) {
   return { score, hardSafetyPass, perCase: [{ id: "a", evaluationClass: null, score, hardSafetyPass }] };
@@ -27,6 +50,8 @@ test("self-improve corpus validates split isolation, uniqueness, and secret-shap
   assert.equal(validateEvaluationSuite(suite).cases.length, 6);
   assert.equal(validateEvaluationSuite(suiteV2).classes.length, 5);
   assert.equal(validateEvaluationSuite(suiteV21).classes.length, 5);
+  assert.equal(validateEvaluationSuite(suiteV22).classes.length, 9);
+  assert.equal(validateEvaluationSuite(suiteV22).cases.length, 18);
   const duplicate = structuredClone(suite);
   duplicate.cases[1].id = duplicate.cases[0].id;
   assert.throws(() => validateEvaluationSuite(duplicate), /unique/);
@@ -36,6 +61,35 @@ test("self-improve corpus validates split isolation, uniqueness, and secret-shap
   const noHoldout = structuredClone(suite);
   for (const item of noHoldout.cases) item.split = "train";
   assert.throws(() => validateEvaluationSuite(noHoldout), /isolated/);
+});
+
+test("candidate snapshots bind executable modes so post-holdout chmod is detected", async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), "sbw-mode-bound-candidate-"));
+  try {
+    await execFileAsync("git", ["init", "-q", "-b", "dev"], { cwd });
+    await execFileAsync("git", ["config", "user.name", "Better Workflows Tests"], { cwd });
+    await execFileAsync("git", ["config", "user.email", "tests@example.invalid"], { cwd });
+    const file = path.join(cwd, "plugins/better-workflows/scripts/probe.mjs");
+    await mkdir(path.dirname(file), { recursive: true });
+    await writeFile(file, "export const probe = true;\n", { mode: 0o644 });
+    await execFileAsync("git", ["add", "."], { cwd });
+    await execFileAsync("git", ["commit", "-qm", "baseline"], { cwd });
+    const baseline = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd })).stdout.trim();
+    await chmod(file, 0o640);
+    await writeFile(file, "export const probe = 'changed';\n");
+    const candidate = await snapshotCandidate({ cwd, baselineRevision: baseline, candidateRoot: "." });
+    const snapshot = candidate.files.find((item) => item.path.endsWith("probe.mjs"));
+    const base = await snapshotBaselineForCandidate({ cwd, snapshot: candidate });
+    const baseSnapshot = base.files.find((item) => item.path.endsWith("probe.mjs"));
+    assert.equal(snapshot.mode, 0o644);
+    assert.equal(baseSnapshot.mode, 0o644);
+    await chmod(file, 0o775);
+    const executable = await snapshotCandidate({ cwd, baselineRevision: baseline, candidateRoot: "." });
+    assert.equal(executable.files.find((item) => item.path.endsWith("probe.mjs")).mode, 0o755);
+    assert.notEqual(candidate.digest, base.digest);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
 });
 
 test("evaluation v2 rejects unknown fields, missing class splits, and unsafe paths", () => {
@@ -48,6 +102,281 @@ test("evaluation v2 rejects unknown fields, missing class splits, and unsafe pat
   const traversal = structuredClone(suiteV2);
   traversal.classes.find((item) => item.kind === "improvement").paths = ["../private"];
   assert.throws(() => validateEvaluationSuite(traversal), /escapes/);
+});
+
+test("evaluation v2.2 uniquely covers every control-plane improvement class in train and holdout", () => {
+  const expected = ["direct-work-cost", "evidence-integrity", "execution-ledger", "review-convergence"];
+  const classes = suiteV22.classes.filter((item) => expected.includes(item.id));
+  assert.deepEqual(classes.map((item) => item.id).sort(), expected);
+  for (const classId of expected) {
+    const cases = suiteV22.cases.filter((item) => item.evaluationClass === classId);
+    assert.deepEqual(cases.map((item) => item.split).sort(), ["holdout", "train"]);
+    assert.equal(new Set(cases.map((item) => item.id)).size, 2);
+    assert.equal(cases.every((item) => item.assertions.some((assertion) => assertion.hardSafety)), true);
+  }
+  for (const legacyCase of suiteV21.cases) {
+    assert.deepEqual(suiteV22.cases.find((item) => item.id === legacyCase.id), legacyCase);
+  }
+  assert.equal(createHash("sha256").update(suiteV21Bytes).digest("hex"), "42f61f3f416d0c28ccd419e6aa52aa07923889b944906b0de922f12b67c0401c");
+  assert.deepEqual(SELF_IMPROVE_MIGRATION_SOURCE_CORPORA, [
+    "plugins/better-workflows/fixtures/self-improve-ops-evals.json",
+    "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.json",
+    "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.1.json"
+  ]);
+});
+
+test("evaluator migration binding changes with either immutable suite digest", () => {
+  const base = evaluationBindingDigest({ purpose: "evaluator-migration", sourceSuiteDigest: "a".repeat(64), targetSuiteDigest: "b".repeat(64) });
+  assert.notEqual(base, evaluationBindingDigest({ purpose: "evaluator-migration", sourceSuiteDigest: "c".repeat(64), targetSuiteDigest: "b".repeat(64) }));
+  assert.notEqual(base, evaluationBindingDigest({ purpose: "evaluator-migration", sourceSuiteDigest: "a".repeat(64), targetSuiteDigest: "d".repeat(64) }));
+});
+
+test("safety remediation policy is versioned, digest-bound, and selects invariant plus exact targets", () => {
+  assert.equal(safetyPolicy.purpose, "safety-remediation-v1");
+  assert.equal(safetyPolicy.sourceSuiteDigest, "6e6923ca2953fceb0cbbd7d16bb8b83745ac318e60d80279549751aad92c00c4");
+  assert.equal(safetyPolicy.targetCases.length, 3);
+  const selected = selectSafetyRemediationCases({
+    suite: suiteV22,
+    snapshot: {
+      files: [
+        { path: "plugins/better-workflows/scripts/lib/evidence.mjs", state: "file" },
+        { path: "plugins/better-workflows/scripts/lib/ledger.mjs", state: "file" },
+        { path: "plugins/better-workflows/scripts/lib/review.mjs", state: "file" }
+      ]
+    },
+    split: "holdout",
+    policy: safetyPolicy
+  });
+  assert.deepEqual(selected.map((item) => item.id), [
+    "universal-sensitive-history",
+    "evidence-cross-run-substitution",
+    "ledger-pass-and-exhaustion",
+    "review-breaker-and-broad-pass"
+  ]);
+  assert.equal(evaluationBindingDigest({ purpose: "safety-remediation-v1", sourceSuiteDigest: safetyPolicy.sourceSuiteDigest, policyDigest: safetyPolicy.digest }),
+    evaluationBindingDigest({ purpose: "safety-remediation-v1", sourceSuiteDigest: safetyPolicy.sourceSuiteDigest, policyDigest: safetyPolicy.digest }));
+});
+
+test("safety remediation v1 rejects threshold, target, and artifact drift", async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), "sbw-safety-policy-drift-"));
+  const policyRelative = SELF_IMPROVE_SAFETY_REMEDIATION_POLICY;
+  const suiteRelative = "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.2.json";
+  const policyBytes = await readFile(path.join(repositoryRoot, policyRelative));
+  try {
+    const policyPath = path.join(cwd, policyRelative);
+    await mkdir(path.dirname(policyPath), { recursive: true });
+    await mkdir(path.dirname(path.join(cwd, suiteRelative)), { recursive: true });
+    await writeFile(policyPath, policyBytes);
+    await writeFile(path.join(cwd, suiteRelative), await readFile(path.join(repositoryRoot, suiteRelative)));
+    await assert.doesNotReject(loadSafetyRemediationPolicy({ cwd }));
+
+    const assertMutationRejected = async (mutate, pattern) => {
+      const mutated = JSON.parse(policyBytes.toString("utf8"));
+      mutate(mutated);
+      await writeFile(policyPath, `${JSON.stringify(mutated, null, 2)}\n`);
+      await assert.rejects(loadSafetyRemediationPolicy({ cwd }), pattern);
+    };
+
+    await assertMutationRejected((policy) => { policy.minimumBaselineFailureRuns = 1; }, /immutable v1 gate/);
+    await assertMutationRejected((policy) => { policy.targetCases = [policy.targetCases[2], policy.targetCases[1], policy.targetCases[0]]; }, /immutable v1 target set/);
+    await writeFile(policyPath, `${policyBytes.toString("utf8")}\n`);
+    await assert.rejects(loadSafetyRemediationPolicy({ cwd }), /approved immutable digest/);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("quality remediation policy is independently bound to non-hard completion assertions", () => {
+  assert.equal(qualityPolicy.purpose, "quality-remediation-v1");
+  assert.equal(qualityPolicy.policyId, "self-improve-quality-remediation");
+  assert.equal(qualityPolicy.sourceSuiteDigest, safetyPolicy.sourceSuiteDigest);
+  assert.deepEqual(qualityPolicy.targetCases.map((item) => item.improvementAssertionId), [
+    "typed-admission-required",
+    "exhaustion-blocks",
+    "final-broad-review-required"
+  ]);
+  const selected = selectQualityRemediationCases({
+    suite: suiteV22,
+    snapshot: {
+      files: [
+        { path: "plugins/better-workflows/scripts/lib/evidence.mjs", state: "file" },
+        { path: "plugins/better-workflows/scripts/lib/ledger.mjs", state: "file" },
+        { path: "plugins/better-workflows/scripts/lib/review.mjs", state: "file" }
+      ]
+    },
+    split: "holdout",
+    policy: qualityPolicy
+  });
+  assert.deepEqual(selected.map((item) => item.id), [
+    "universal-sensitive-history",
+    "evidence-cross-run-substitution",
+    "ledger-pass-and-exhaustion",
+    "review-breaker-and-broad-pass"
+  ]);
+  assert.notEqual(
+    evaluationBindingDigest({ purpose: "quality-remediation-v1", sourceSuiteDigest: qualityPolicy.sourceSuiteDigest, policyDigest: qualityPolicy.digest }),
+    evaluationBindingDigest({ purpose: "safety-remediation-v1", sourceSuiteDigest: qualityPolicy.sourceSuiteDigest, policyDigest: safetyPolicy.digest })
+  );
+});
+
+test("quality remediation comparison requires reproducible quality gaps and repairs every target assertion", () => {
+  const selected = ["universal-sensitive-history", ...qualityPolicy.targetCases.map((item) => item.caseId)];
+  const score = (failedAssertions = []) => {
+    const perCase = selected.map((id) => {
+      const definition = suiteV22.cases.find((item) => item.id === id);
+      const target = qualityPolicy.targetCases.find((item) => item.caseId === id);
+      const passedAssertions = definition.assertions
+        .filter((assertion) => !failedAssertions.includes(assertion.id))
+        .map((assertion) => assertion.id);
+      return {
+        id,
+        evaluationClass: definition.evaluationClass,
+        score: passedAssertions.length / definition.assertions.length,
+        hardSafetyPass: definition.assertions.filter((assertion) => assertion.hardSafety).every((assertion) => passedAssertions.includes(assertion.id)),
+        passedAssertions,
+        targetAssertion: target?.improvementAssertionId ?? null
+      };
+    });
+    return { score: perCase.reduce((sum, item) => sum + item.score, 0) / perCase.length, hardSafetyPass: perCase.every((item) => item.hardSafetyPass), perCase };
+  };
+  const accepted = compareQualityRemediation({
+    suite: suiteV22,
+    policy: qualityPolicy,
+    baseline: [
+      score(qualityPolicy.targetCases.map((item) => item.improvementAssertionId)),
+      score(["typed-admission-required", "exhaustion-blocks"]),
+      score(["exhaustion-blocks", "final-broad-review-required"])
+    ],
+    candidate: [score(), score(), score()]
+  });
+  assert.equal(accepted.accepted, true);
+  assert.equal(accepted.reason, "quality-remediation-improvement");
+  assert.equal(accepted.policy, qualityPolicy.policyId);
+  assert.deepEqual(accepted.perCase.filter((item) => item.evaluationClass !== "universal-safety").map((item) => item.baselineImprovementFailureRuns), [2, 3, 2]);
+
+  const saturated = compareQualityRemediation({
+    suite: suiteV22,
+    policy: qualityPolicy,
+    baseline: [score(), score(), score()],
+    candidate: [score(), score(), score()]
+  });
+  assert.equal(saturated.reason, "baseline-quality-gap-not-reproduced");
+
+  const incomplete = compareQualityRemediation({
+    suite: suiteV22,
+    policy: qualityPolicy,
+    baseline: [
+      score(["typed-admission-required", "exhaustion-blocks", "final-broad-review-required"]),
+      score(["typed-admission-required", "exhaustion-blocks", "final-broad-review-required"]),
+      score()
+    ],
+    candidate: [score(["typed-admission-required"]), score(), score()]
+  });
+  assert.equal(incomplete.reason, "candidate-quality-remediation-incomplete");
+});
+
+test("quality remediation v1 rejects policy artifact, target, and threshold drift", async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), "sbw-quality-policy-drift-"));
+  const policyRelative = SELF_IMPROVE_QUALITY_REMEDIATION_POLICY;
+  const suiteRelative = "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.2.json";
+  const policyBytes = await readFile(path.join(repositoryRoot, policyRelative));
+  try {
+    const policyPath = path.join(cwd, policyRelative);
+    await mkdir(path.dirname(policyPath), { recursive: true });
+    await mkdir(path.dirname(path.join(cwd, suiteRelative)), { recursive: true });
+    await writeFile(policyPath, policyBytes);
+    await writeFile(path.join(cwd, suiteRelative), await readFile(path.join(repositoryRoot, suiteRelative)));
+    await assert.doesNotReject(loadQualityRemediationPolicy({ cwd }));
+
+    const assertMutationRejected = async (mutate, pattern) => {
+      const mutated = JSON.parse(policyBytes.toString("utf8"));
+      mutate(mutated);
+      await writeFile(policyPath, `${JSON.stringify(mutated, null, 2)}\n`);
+      await assert.rejects(loadQualityRemediationPolicy({ cwd }), pattern);
+    };
+
+    await assertMutationRejected((policy) => { policy.minimumBaselineFailureRuns = 1; }, /immutable v1 gate/);
+    await assertMutationRejected((policy) => { policy.targetCases = [policy.targetCases[2], policy.targetCases[1], policy.targetCases[0]]; }, /immutable v1 target set/);
+    await writeFile(policyPath, `${policyBytes.toString("utf8")}\n`);
+    await assert.rejects(loadQualityRemediationPolicy({ cwd }), /approved immutable digest/);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("safety remediation comparison requires reproducible baseline defects and repairs every target", () => {
+  const selected = [
+    "universal-sensitive-history",
+    ...safetyPolicy.targetCases.map((item) => item.caseId)
+  ];
+  const score = (failed = []) => ({
+    score: failed.length ? 0.75 : 1,
+    hardSafetyPass: failed.length === 0,
+    perCase: selected.map((id) => ({
+      id,
+      evaluationClass: id === "universal-sensitive-history" ? "universal-safety" : safetyPolicy.targetCases.find((item) => item.caseId === id).evaluationClass,
+      score: failed.includes(id) ? 0 : 1,
+      hardSafetyPass: !failed.includes(id),
+      passedAssertions: failed.includes(id)
+        ? []
+        : suiteV22.cases.find((item) => item.id === id).assertions.map((item) => item.id)
+    }))
+  });
+  const accepted = compareSafetyRemediation({
+    suite: suiteV22,
+    policy: safetyPolicy,
+    baseline: [score(safetyPolicy.targetCases.map((item) => item.caseId)), score(safetyPolicy.targetCases.map((item) => item.caseId)), score()],
+    candidate: [score(), score(), score()]
+  });
+  assert.equal(accepted.accepted, true);
+  assert.equal(accepted.policy, safetyPolicy.policyId);
+  const notReproduced = compareSafetyRemediation({
+    suite: suiteV22,
+    policy: safetyPolicy,
+    baseline: [score(safetyPolicy.targetCases.map((item) => item.caseId)), score(), score()],
+    candidate: [score(), score(), score()]
+  });
+  assert.equal(notReproduced.reason, "baseline-remediation-not-reproduced");
+  const asymmetric = compareSafetyRemediation({
+    suite: suiteV22,
+    policy: safetyPolicy,
+    baseline: [score(["review-breaker-and-broad-pass"]), score(["review-breaker-and-broad-pass"]), score(["review-breaker-and-broad-pass"])],
+    candidate: [score(), score(), score()]
+  });
+  assert.equal(asymmetric.reason, "baseline-remediation-not-reproduced");
+  assert.deepEqual(asymmetric.perCase.filter((item) => item.evaluationClass !== "universal-safety").map((item) => item.baselineFailureRuns), [0, 0, 3]);
+  const exactMatrix = compareSafetyRemediation({
+    suite: suiteV22,
+    policy: safetyPolicy,
+    baseline: [
+      score(["evidence-cross-run-substitution", "ledger-pass-and-exhaustion", "review-breaker-and-broad-pass"]),
+      score(["evidence-cross-run-substitution", "review-breaker-and-broad-pass"]),
+      score()
+    ],
+    candidate: [score(), score(), score()]
+  });
+  assert.equal(exactMatrix.reason, "baseline-remediation-not-reproduced");
+  assert.deepEqual(exactMatrix.perCase.filter((item) => item.evaluationClass !== "universal-safety").map((item) => item.baselineFailureRuns), [2, 1, 2]);
+
+  const aggregateFailureButTargetAssertionPass = score();
+  aggregateFailureButTargetAssertionPass.hardSafetyPass = false;
+  aggregateFailureButTargetAssertionPass.perCase.find((item) => item.id === "evidence-cross-run-substitution").hardSafetyPass = false;
+  const assertionLevel = compareSafetyRemediation({
+    suite: suiteV22,
+    policy: safetyPolicy,
+    baseline: [aggregateFailureButTargetAssertionPass, aggregateFailureButTargetAssertionPass, aggregateFailureButTargetAssertionPass],
+    candidate: [score(), score(), score()]
+  });
+  assert.equal(assertionLevel.perCase.find((item) => item.id === "evidence-cross-run-substitution").baselineHardSafetyPasses, 3);
+});
+
+test("ordinary evaluator readers prefer the newest corpus present in the immutable baseline", () => {
+  assert.deepEqual(SELF_IMPROVE_ORDINARY_CORPORA, [
+    "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.2.json",
+    "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.1.json",
+    "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.json",
+    "plugins/better-workflows/fixtures/self-improve-ops-evals.json"
+  ]);
 });
 
 test("holdout aggregation fails closed for safety failure, tie, regression, and noisy runs", () => {
@@ -178,6 +507,37 @@ test("balanced sanitizer covers every changed material group under the 24-file a
   }
 });
 
+test("sanitizer redacts secret-shaped public test fixtures but still rejects non-test source", async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), "sbw-test-fixture-redaction-"));
+  try {
+    const fixture = "plugins/better-workflows/scripts/tests/graph.test.mjs";
+    await mkdir(path.dirname(path.join(cwd, fixture)), { recursive: true });
+    await writeFile(path.join(cwd, fixture), 'const secret = "TOPSECRET-graph-987";\ncredentials: { password: secret };\n');
+    const [material] = await readSanitizedCandidateMaterial({
+      cwd,
+      snapshot: { files: [{ path: fixture, state: "file", digest: "d".repeat(64) }] },
+      maxFiles: 1
+    });
+    assert.equal(material.redacted, true);
+    assert.doesNotMatch(material.content.toString("utf8"), /TOPSECRET|password\s*:\s*["'][^"']{4,}["']/i);
+    assert.match(material.content.toString("utf8"), /redacted-test-fixture/);
+
+    const source = "plugins/better-workflows/scripts/lib/providers.mjs";
+    await mkdir(path.dirname(path.join(cwd, source)), { recursive: true });
+    await writeFile(path.join(cwd, source), 'const token = "12345678";\n');
+    await assert.rejects(
+      readSanitizedCandidateMaterial({
+        cwd,
+        snapshot: { files: [{ path: source, state: "file", digest: "e".repeat(64) }] },
+        maxFiles: 1
+      }),
+      /secret-shaped content/
+    );
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test("balanced sanitizer prioritizes public entry and security documents within the docs group", async () => {
   const cwd = await mkdtemp(path.join(os.tmpdir(), "sbw-doc-priority-"));
   try {
@@ -261,28 +621,37 @@ test("evaluation v2 selects universal safety plus only applicable improvement cl
   );
 });
 
-test("evaluator migration calibration binds v1, v2, balanced groups, and both splits", () => {
+test("evaluator migration calibration binds v2.1, v2.2, balanced groups, and both splits", () => {
   const snapshot = {
     files: [
+      { path: "plugins/better-workflows/config/evidence-contracts-v1.json", state: "file" },
+      { path: "plugins/better-workflows/scripts/lib/core.mjs", state: "file" },
+      { path: "plugins/better-workflows/scripts/lib/ledger.mjs", state: "file" },
+      { path: "plugins/better-workflows/scripts/lib/review.mjs", state: "file" },
       { path: "plugins/better-workflows/scripts/lib/self-improve.mjs", state: "file" },
       { path: "plugins/better-workflows/scripts/tests/self-improve.test.mjs", state: "file" }
     ]
   };
   const calibration = calibrateEvaluatorMigration({
-    source: suiteV2,
-    target: suiteV21,
+    source: suiteV21,
+    target: suiteV22,
     snapshot,
     materials: [
+      { materialGroup: "config" },
       { materialGroup: "runtime" },
       { materialGroup: "tests" }
     ],
     sourceDigest: "a".repeat(64),
     targetDigest: "b".repeat(64)
   });
-  assert.deepEqual(calibration.materialGroups, ["runtime", "tests"]);
+  assert.deepEqual(calibration.materialGroups, ["config", "runtime", "tests"]);
   assert.match(calibration.digest, /^[a-f0-9]{64}$/);
   assert.ok(calibration.trainClasses.includes("universal-safety"));
   assert.ok(calibration.holdoutClasses.includes("evaluation-engineering"));
+  for (const classId of ["direct-work-cost", "evidence-integrity", "execution-ledger", "review-convergence"]) {
+    assert.ok(calibration.trainClasses.includes(classId));
+    assert.ok(calibration.holdoutClasses.includes(classId));
+  }
 });
 
 test("candidate sanitizer admits declared public docs and checks all paths before sampling", async () => {
@@ -294,6 +663,7 @@ test("candidate sanitizer admits declared public docs and checks all paths befor
       "GOVERNANCE.md",
       "SECURITY.md",
       "SUPPORT.md",
+      "scripts/plugin-cache.mjs",
       "docs/details/en.md",
       "docs/guide/security.md",
       "docs/assets/better-workflows-engineering-stack.svg"
@@ -319,10 +689,17 @@ test("candidate sanitizer admits declared public docs and checks all paths befor
       allowed.push({ path: file, state: "file", digest: "b".repeat(64) });
     }
     await writeFile(path.join(cwd, "zz-private.txt"), "must remain outside the bundle\n");
+    await writeFile(path.join(cwd, "scripts/other-publisher.mjs"), "must remain outside the bundle\n");
     await assert.rejects(
       readSanitizedCandidateMaterial({
         cwd,
-        snapshot: { files: [...allowed, { path: "zz-private.txt", state: "file", digest: "c".repeat(64) }] },
+        snapshot: {
+          files: [
+            ...allowed,
+            { path: "zz-private.txt", state: "file", digest: "c".repeat(64) },
+            { path: "scripts/other-publisher.mjs", state: "file", digest: "d".repeat(64) }
+          ]
+        },
         maxFiles: 24
       }),
       /outside the sanitized allowlist/

@@ -10,6 +10,12 @@ mutation, evidence, freshness, and side-effect rules. This skill adds a
 monorepo-specific execution contract; it does not replace the Better Workflows
 goal contract or the repository's own `AGENTS.md` instructions.
 
+The v2 control plane enables the minimal design-packet and bounded refinement
+pilots for this template only. Compile packets through `sbw ledger compile`;
+they must not contain shell commands and may not change task identity.
+Refinement is optional, scoped to the functional BASE..HEAD change, requires
+behavior tests and an independent review, and is discarded on failure.
+
 ## Goal-first entry contract
 
 Use Codex's persistent `/goal` flow for every invocation:

@@ -1,16 +1,24 @@
 import assert from "node:assert/strict";
 import {
+  createHash,
   generateKeyPairSync,
   sign,
   verify
 } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import {
   canonicalJson,
-  privateKeyFromRaw
+  EVALUATION_SCHEMA,
+  privateKeyFromRaw,
+  validateSigningKeyPair,
+  spawnCapture,
+  validateExecutionRequest,
+  validateProtectedDirectoryChain,
+  validateProtectedParentChain
 } from "../host-trust.mjs";
 
 const SCRIPT = path.resolve(
@@ -33,10 +41,221 @@ test("host signer reconstructs Ed25519 keys and signs canonical verifier payload
   assert.equal(verify(null, bytes, publicKey, signature), true);
 });
 
+test("host execution response schema defines array items for Codex structured output", () => {
+  const results = EVALUATION_SCHEMA.properties.results;
+  assert.equal(results.type, "array");
+  assert.equal(results.items.type, "object");
+  assert.deepEqual(results.items.required, ["id", "disposition", "passedAssertions"]);
+  assert.equal(results.items.properties.passedAssertions.type, "array");
+  assert.equal(results.items.properties.passedAssertions.items.type, "string");
+});
+
+test("host readiness proves the installed private key matches the trust-root public key", async () => {
+  const { privateKey, publicKey } = generateKeyPairSync("ed25519");
+  const seed = privateKey.export({ format: "der", type: "pkcs8" }).subarray(-32);
+  const publicKeyDer = publicKey.export({ format: "der", type: "spki" });
+  const trust = {
+    value: {
+      issuer: "better-workflows-local-host",
+      publicKeys: [{
+        keyId: "codex-ed25519-test",
+        algorithm: "ed25519",
+        publicKey: publicKeyDer.toString("base64")
+      }]
+    },
+    digest: createHash("sha256").update("trust-root").digest("hex")
+  };
+  const proof = await validateSigningKeyPair(trust, seed);
+  assert.equal(proof.verified, true);
+  assert.equal(proof.proof.keyId, "codex-ed25519-test");
+  await assert.rejects(
+    () => validateSigningKeyPair(trust, Buffer.alloc(32, 7)),
+    /does not match the trust root public key/
+  );
+});
+
 test("host trust helper fixes authority paths and does not accept environment path overrides", async () => {
   const source = await readFile(SCRIPT, "utf8");
-  assert.match(source, /"\/etc\/better-workflows\/codex-trust-root\.json"/);
+  assert.match(source, /const HOST_ETC = process\.platform === "darwin" \? "\/private\/etc" : "\/etc"/);
+  assert.match(source, /`\$\{HOST_ETC\}\/better-workflows\/codex-trust-root\.json`/);
   assert.match(source, /"\/private\/var\/db\/better-workflows\/codex-attestation-ed25519\.raw"/);
   assert.match(source, /Refusing implicit rotation or overwrite/);
+  assert.match(source, /execute-result/);
+  assert.match(source, /execute-batch/);
+  assert.match(source, /execution-ledger/);
+  assert.match(source, /requireInstalledCapability/);
+  assert.match(source, /spawnCapture/);
+  assert.doesNotMatch(source, /function signResultRequest/);
+  assert.match(source, /HOST_SIGNER_VERSION/);
+  assert.match(source, /signer-upgrade/);
+  assert.match(source, /responseDigest/);
+  assert.match(source, /trustRootDigest/);
   assert.doesNotMatch(source, /BW_(?:TRUST|PRIVATE|ATTESTATION)/);
+  assert.match(source, /command === "capabilities"/);
+  assert.match(source, /uid: request\.uid/);
+  assert.match(source, /binaryDigest/);
+  assert.match(source, /outputExceeded/);
+  assert.match(source, /\/private\/var\/db\/better-workflows\/execution-bundles/);
+  assert.match(source, /validateRootOwnedDirectory/);
+  assert.match(source, /EXECUTION_LAUNCHER/);
+  assert.match(source, /requireTrustedRuntime/);
+  assert.match(source, /requestDigest/);
+  assert.match(source, /runAs/);
+  assert.match(source, /SAFETY_REMEDIATION_POLICY_PATH/);
+  assert.match(source, /self-improve-safety-remediation-v1\.json/);
+  assert.match(source, /SAFETY_REMEDIATION_POLICY_VERSION/);
+  assert.match(source, /QUALITY_REMEDIATION_POLICY_PATH/);
+  assert.match(source, /self-improve-quality-remediation-v1\.json/);
+  assert.match(source, /QUALITY_REMEDIATION_POLICY_VERSION/);
+  assert.match(source, /maxOutputBytes = MAX_OUTPUT_BYTES/);
+  assert.match(source, /runReadinessProbe/);
+  assert.match(source, /chmod\(bundle, 0o755\)/);
+  assert.match(source, /validateRootOwnedDirectory\(bundle, "Host execution bundle", 0o755\)/);
+  assert.match(source, /compileNativeArtifact/);
+  assert.match(source, /NATIVE_COMPILER/);
+  assert.match(source, /isMachO/);
+  assert.match(source, /CODEX_ALLOWLIST/);
+  assert.match(source, /READINESS_RECEIPT/);
+  assert.match(source, /host-readiness-receipt/);
+  assert.match(source, /requireReadinessReceipt = true/);
+  assert.match(source, /allowUnprovenReadiness/);
+  assert.match(source, /requireApprovedCodexBinary/);
+  assert.match(source, /approvedCodexAllowlistSource/);
+  assert.match(source, /binaryApprovalDigest/);
+  assert.match(source, /native Mach-O executable/);
+  assert.match(source, /stale backup/);
+  assert.match(source, /discardRollbackBackup/);
+  assert.match(source, /fixed host runtime root/);
+  assert.match(source, /--codex-binary/);
+  assert.match(source, /currentRuntime\(manifest\.runtimePath\)/);
+  assert.match(source, /validateManifestRunAs/);
+  assert.match(source, /validateProtectedDirectoryChain/);
+  assert.match(source, /validateProtectedParentChain/);
+  assert.match(source, /secureDirectory\(ATTESTATIONS, 0o755\)/);
+  assert.match(source, /secureDirectory\(EXECUTIONS, 0o755\)/);
+  assert.match(source, /secureDirectory\(EXECUTION_BUNDLES, 0o755\)/);
+  assert.match(source, /requestDigests/);
+  assert.doesNotMatch(source, /os\.tmpdir\(\)/);
+  assert.doesNotMatch(source, /"TMPDIR"|"TEMP"|"TMP"|"HTTP_PROXY"|"HTTPS_PROXY"|"SSL_CERT_FILE"/);
+  const launcher = await readFile(path.join(path.dirname(SCRIPT), "host-exec-launcher.c"), "utf8");
+  assert.match(launcher, /setgroups\(0, NULL\)/);
+  assert.ok(launcher.indexOf("setgid(gid)") < launcher.indexOf("setgroups(0, NULL)"));
+  assert.ok(launcher.indexOf("setgroups(0, NULL)") < launcher.indexOf("setuid(uid)"));
+  assert.match(launcher, /defined\(__APPLE__\)/);
+  assert.match(launcher, /getpwuid/);
+  assert.match(launcher, /getgroups\(0, NULL\)/);
+  assert.match(launcher, /argc - 8/);
+  assert.doesNotMatch(launcher, /argc == 10/);
+  assert.match(launcher, /execve\(/);
+  assert.match(launcher, /root-owned 0755/);
+  const probe = await readFile(path.join(path.dirname(SCRIPT), "host-execution-probe.c"), "utf8");
+  assert.match(probe, /getuid/);
+  assert.match(probe, /getgroups/);
+  assert.match(probe, /defined\(__APPLE__\)/);
+  assert.match(probe, /environment/);
+  assert.match(probe, /argv0/);
+});
+
+test("host parent-chain validation rejects a user-owned parent around a regular leaf", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "better-workflows-parent-chain."));
+  const leaf = path.join(root, "root-owned-shaped-leaf");
+  try {
+    await writeFile(leaf, "leaf");
+    await assert.rejects(
+      () => validateProtectedParentChain(leaf, "adversarial host artifact"),
+      /unsafe parent directory|must already be canonical/
+    );
+    await assert.rejects(
+      () => validateProtectedDirectoryChain(root, "adversarial host root"),
+      /unsafe parent directory|must already be canonical/
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("host capture waits for SIGKILL escalation after output overflow", async () => {
+  const result = await spawnCapture(process.execPath, [
+    "-e",
+    "process.stdout.write('x'.repeat(3 * 1024 * 1024)); process.on('SIGTERM', () => {}); setInterval(() => {}, 1000);"
+  ], { timeoutMs: 10_000 });
+  assert.equal(result.outputExceeded, true);
+  assert.equal(result.signal, "SIGKILL");
+});
+
+test("host capture honors a caller-specific output limit before SIGKILL escalation", async () => {
+  const result = await spawnCapture(process.execPath, [
+    "-e",
+    "process.stdout.write('x'.repeat(64 * 1024)); process.on('SIGTERM', () => {}); setInterval(() => {}, 1000);"
+  ], { timeoutMs: 10_000, maxOutputBytes: 16 * 1024 });
+  assert.equal(result.outputExceeded, true);
+  assert.ok(["SIGTERM", "SIGKILL"].includes(result.signal));
+});
+
+test("host execution request is a pre-execution contract and cannot carry caller result facts", () => {
+  const request = {
+    binaryApprovalDigest: "c".repeat(64),
+    binaryDigest: "b".repeat(64),
+    binaryPath: "/usr/bin/codex",
+    codexHomePath: null,
+    execution: {
+      id: "run-holdout-candidate-1",
+      runId: "run-12345678",
+      suiteDigest: "suite-12345678",
+      baselineRevision: "abcdef1234567890abcdef1234567890abcdef12",
+      candidateDigest: "candidate-12345678",
+      headRevision: "d".repeat(40),
+      promptDigest: "a".repeat(64),
+      role: "candidate",
+      sourceBindingDigest: "e".repeat(64),
+      attempt: 1
+    },
+    gid: 1000,
+    homePath: "/home/test-user",
+    model: "gpt-5.6-sol",
+    pluginBundleDigest: "f".repeat(64),
+    promptDigest: "a".repeat(64),
+    promptPath: "/private/tmp/replay.prompt.txt",
+    uid: 1000
+  };
+  assert.deepEqual(validateExecutionRequest(request), request);
+  assert.throws(
+    () => validateExecutionRequest({ ...request, responseDigest: "b".repeat(64) }),
+    /execution request fields/
+  );
+  assert.throws(
+    () => validateExecutionRequest({ ...request, binaryDigest: "not-a-digest" }),
+    /binary digest is invalid/
+  );
+  assert.throws(
+    () => validateExecutionRequest({ ...request, finishedAt: new Date().toISOString() }),
+    /execution request fields/
+  );
+  const safetyExecution = {
+    ...request.execution,
+    purpose: "safety-remediation-v1",
+    policyDigest: "1".repeat(64)
+  };
+  const safetyRequest = {
+    ...request,
+    execution: safetyExecution,
+    purpose: "safety-remediation-v1",
+    policyDigest: "1".repeat(64)
+  };
+  assert.deepEqual(validateExecutionRequest(safetyRequest), safetyRequest);
+  assert.throws(
+    () => validateExecutionRequest({ ...safetyRequest, policyDigest: "2".repeat(64) }),
+    /bindings do not match/
+  );
+  const qualityRequest = {
+    ...request,
+    execution: {
+      ...request.execution,
+      purpose: "quality-remediation-v1",
+      policyDigest: "3".repeat(64)
+    },
+    purpose: "quality-remediation-v1",
+    policyDigest: "3".repeat(64)
+  };
+  assert.deepEqual(validateExecutionRequest(qualityRequest), qualityRequest);
 });

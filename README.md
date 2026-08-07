@@ -6,11 +6,22 @@
 
 Governed workflow orchestration for Codex—fast for small changes, rigorous when side effects matter.
 
+| Primitive | Governs | Evidence boundary |
+| --- | --- | --- |
+| **Prompt** | Outcome | Text never grants authority |
+| **Context** | Inputs | Require fresh digests |
+| **Harness** | Tools | Trust only allowlisted producers |
+| **Loop** | Attempts | Retry remains bounded |
+| **Graph** | State | Read-only; no scheduler or authorization |
+
+Sensitive or private history is never harvested; reject it with a redacted
+`REJECTED_WITH_EVIDENCE` disposition.
+
 **Model roster:** Codex · Claude · Gemini via Antigravity `agy` · GPT-OSS via
 `agy` · Grok · Cursor · Kimi · Qwen · Kiro. `agy` is transport metadata, not
 another model brand; availability still requires a current semantic roster probe.
 
-[![Version](https://img.shields.io/badge/version-2.5.0-2563EB?style=flat-square)](plugins/better-workflows/package.json)
+[![Version](https://img.shields.io/badge/version-3.1.4-2563EB?style=flat-square)](plugins/better-workflows/package.json)
 [![Node](https://img.shields.io/badge/Node.js-%E2%89%A524-3C873A?style=flat-square)](plugins/better-workflows/package.json)
 [![Dependencies](https://img.shields.io/badge/runtime_dependencies-0-0F766E?style=flat-square)](plugins/better-workflows/package.json)
 [![License](https://img.shields.io/badge/license-MIT-64748B?style=flat-square)](LICENSE)
@@ -31,6 +42,15 @@ another model brand; availability still requires a current semantic roster probe
 | **13 TEMPLATES** | **WORKSPACE RECIPES** | **GRAPH VIEW** |
 | --- | --- | --- |
 | Route by outcome and risk instead of memorizing procedures. | Re-run trusted Node.js SOP mechanics without re-spending model tokens. | Inspect typed workflow structure without becoming an authority source. |
+
+### Control-plane v2
+
+Every new non-direct template run uses a typed evidence receipt, an append-only
+execution ledger, and its declared review policy. Completion is derived from
+admitted evidence plus replayed task state; caller text and `acceptanceIds`
+cannot mark a task complete. Legacy v1 runs remain readable by the v1 reader
+without automatic reinterpretation. The Graph View exposes only a read-only
+task/dependency projection.
 
 ![Better Workflows engineering stack from prompt through graph](docs/assets/better-workflows-engineering-stack.svg)
 
@@ -146,7 +166,20 @@ node plugins/better-workflows/scripts/sbw.mjs graph validate
 npm test --prefix plugins/better-workflows
 node plugins/better-workflows/scripts/sbw.mjs eval
 node scripts/plugin-cache.mjs check
+sbw action issue <pr-to-dev-run-id> --action plugin.cache.publish --provider local-workspace --resource plugin-cache:<source-head-revision> --remote-revision <target-branch-revision>
+SBW_STATE_ROOT=<state-root> node scripts/plugin-cache.mjs sync --handoff-run <pr-to-dev-run-id> --token <plugin-cache-action-token>
 ```
+
+`--cache-root` is a diagnostic-only override for `check`; governed `sync` is
+bound to the canonical cache root recorded by the source-bound run, handoff,
+and action token, and rejects `CODEX_HOME` redirection before consuming the
+token. If a publication process fails after its success action is persisted,
+rerun the same `sync` attempt; the persisted receipt can promote its pending
+ready marker without republishing the immutable version. If the action remains
+`spent/pending`, the same sync can recover only an exact pending marker and
+immutable target bound to that run and attempt; otherwise the attempt stays
+unknown and no second publication is permitted. Stale publication locks are
+reclaimed only after their recorded owner is proven absent.
 
 Node.js 24+ · zero runtime dependencies · immutable plugin cache versions.
 

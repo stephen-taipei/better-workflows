@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { access, chmod, mkdir, mkdtemp, realpath, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { buildContract, loadDefaults } from "../lib/core.mjs";
+import { buildContract, loadDefaults, sha256 } from "../lib/core.mjs";
 import {
   binaryIdentity,
   doctorAgy,
@@ -100,12 +100,37 @@ test("Codex evaluation rejects a caller attestation without valid host anchoring
   const directory = await mkdtemp(path.join(os.tmpdir(), "sbw-attested-codex-"));
   const evaluationRoot = path.join(directory, "evaluation");
   await mkdir(evaluationRoot);
-  const attestationPath = path.join(directory, "attestation.json");
-  await writeFile(attestationPath, "{}\n", { mode: 0o600 });
   await assert.rejects(
-    runCodexEvaluation({ model: "attested-test-model", prompt: "safe", evaluationRoot, attestationPath, timeoutMs: 5_000,
-      execution: { id: "test-execution-1", runId: "run", suiteDigest: "suite", baselineRevision: "baseline", candidateDigest: "candidate", role: "candidate", attempt: 1 } }),
-    /Host Codex trust root is not provisioned|Trusted Codex attestation and trust root schemaVersion must be 1/
+    runCodexEvaluation({ model: "attested-test-model", prompt: "safe", evaluationRoot, hostExecutionPath: path.join(directory, "execution.json"),
+      execution: { id: "test-execution-1", runId: "run", suiteDigest: "suite", baselineRevision: "baseline", candidateDigest: "candidate", headRevision: "a".repeat(40), promptDigest: sha256("safe"), role: "candidate", sourceBindingDigest: "b".repeat(64), attempt: 1 } }),
+    /ENOENT|host execution witness/
+  );
+});
+
+test("Codex evaluation rejects prompt substitution before invoking a provider", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "sbw-attested-prompt-"));
+  const evaluationRoot = path.join(directory, "evaluation");
+  await mkdir(evaluationRoot);
+  await assert.rejects(
+    runCodexEvaluation({
+      model: "attested-test-model",
+      prompt: "actual prompt",
+      evaluationRoot,
+      hostExecutionPath: path.join(directory, "execution.json"),
+      execution: {
+        id: "test-execution-1",
+        runId: "run",
+        suiteDigest: "suite",
+        baselineRevision: "baseline",
+        candidateDigest: "candidate",
+        headRevision: "a".repeat(40),
+        promptDigest: sha256("different prompt"),
+        role: "candidate",
+        sourceBindingDigest: "b".repeat(64),
+        attempt: 1
+      }
+    }),
+    /prompt does not match the signed execution binding/
   );
 });
 

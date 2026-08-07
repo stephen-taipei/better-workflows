@@ -14,6 +14,13 @@ async function git(cwd, ...args) {
   await execFileAsync("git", args, { cwd, encoding: "utf8" });
 }
 
+async function revision(cwd, name = "HEAD") {
+  return (await execFileAsync("git", ["rev-parse", "--verify", `${name}^{commit}`], {
+    cwd,
+    encoding: "utf8"
+  })).stdout.trim();
+}
+
 async function repository() {
   const cwd = await mkdtemp(path.join(os.tmpdir(), "sbw-cli-repo-"));
   await git(cwd, "init", "-q", "-b", "dev");
@@ -46,11 +53,13 @@ async function cli(cwd, stateRoot, args, { allowFailure = false, env = {} } = {}
   }
 }
 
-async function selfImproveRepository() {
+async function selfImproveRepository({ includeV22 = true } = {}) {
   const cwd = await repository();
   await mkdir(path.join(cwd, "plugins", "better-workflows", "fixtures"), { recursive: true });
   await mkdir(path.join(cwd, "plugins", "better-workflows", "scripts"), { recursive: true });
-  for (const name of ["self-improve-ops-evals.json", "self-improve-ops-evals-v2.json", "self-improve-ops-evals-v2.1.json"]) {
+  const corpora = ["self-improve-ops-evals.json", "self-improve-ops-evals-v2.json", "self-improve-ops-evals-v2.1.json"];
+  if (includeV22) corpora.push("self-improve-ops-evals-v2.2.json");
+  for (const name of corpora) {
     const corpus = await readFile(path.resolve(path.dirname(CLI), "..", "fixtures", name), "utf8");
     await writeFile(path.join(cwd, "plugins", "better-workflows", "fixtures", name), corpus);
   }
@@ -195,15 +204,71 @@ test("CLI routes the self-improve selector to its critical template", async () =
   await assert.rejects(access(stateRoot));
 });
 
+test("self-improve runs require an explicit full baseline that strictly precedes HEAD", async () => {
+  const cwd = await selfImproveRepository();
+  const stateRoot = path.join(await mkdtemp(path.join(os.tmpdir(), "sbw-cli-self-improve-baseline-")), "missing");
+  const missing = await cli(cwd, stateRoot, [
+    "run", "--template", "self-improve-ops", "--mode", "critical", "--goal", "Require baseline", "--scope", "."
+  ], { allowFailure: true });
+  assert.match(missing.stderr, /requires an explicit --baseline/);
+  const head = await revision(cwd);
+  const same = await cli(cwd, stateRoot, [
+    "run", "--template", "self-improve-ops", "--mode", "critical", "--goal", "Reject same baseline", "--scope", ".", "--baseline", head
+  ], { allowFailure: true });
+  assert.match(same.stderr, /strict ancestor/);
+});
+
+test("safety-remediation purpose is fixed at self-improve run creation", async () => {
+  const cwd = await selfImproveRepository();
+  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-cli-safety-remediation-purpose-"));
+  const baseline = await revision(cwd);
+  await writeFile(path.join(cwd, "plugins", "better-workflows", "scripts", "candidate.mjs"), "export const candidate = true;\n");
+  await git(cwd, "add", ".");
+  await git(cwd, "commit", "-qm", "stage remediation candidate");
+  const started = await cli(cwd, stateRoot, [
+    "run", "--template", "self-improve-ops", "--mode", "critical", "--goal", "Repair safety defects", "--scope", ".",
+    "--baseline", baseline, "--evaluation-purpose", "safety-remediation-v1"
+  ]);
+  const contract = JSON.parse(await readFile(path.join(stateRoot, "runs", started.json.runId, "contract.json"), "utf8"));
+  const manifest = JSON.parse(await readFile(path.join(stateRoot, "runs", started.json.runId, "manifest.json"), "utf8"));
+  assert.equal(contract.selfImprovePurpose, "safety-remediation-v1");
+  assert.equal(manifest.evaluationPurpose, "safety-remediation-v1");
+  const switched = await cli(cwd, stateRoot, [
+    "self-improve", "evaluate", "--run", started.json.runId, "--cases", "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.2.json",
+    "--purpose", "ordinary", "--baseline", baseline, "--candidate-root", ".", "--backend", "fixture", "--result-file", "/nonexistent", "--split", "train"
+  ], { allowFailure: true, env: { SBW_TEST_FIXTURE_BACKEND: "1" } });
+  assert.match(switched.stderr, /immutable run creation purpose/);
+});
+
+test("quality-remediation purpose is fixed at self-improve run creation", async () => {
+  const cwd = await selfImproveRepository();
+  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-cli-quality-remediation-purpose-"));
+  const baseline = await revision(cwd);
+  await writeFile(path.join(cwd, "plugins", "better-workflows", "scripts", "candidate.mjs"), "export const candidate = true;\n");
+  await git(cwd, "add", ".");
+  await git(cwd, "commit", "-qm", "stage quality remediation candidate");
+  const started = await cli(cwd, stateRoot, [
+    "run", "--template", "self-improve-ops", "--mode", "critical", "--goal", "Repair quality gaps", "--scope", ".",
+    "--baseline", baseline, "--evaluation-purpose", "quality-remediation-v1"
+  ]);
+  const contract = JSON.parse(await readFile(path.join(stateRoot, "runs", started.json.runId, "contract.json"), "utf8"));
+  const manifest = JSON.parse(await readFile(path.join(stateRoot, "runs", started.json.runId, "manifest.json"), "utf8"));
+  assert.equal(contract.selfImprovePurpose, "quality-remediation-v1");
+  assert.equal(manifest.evaluationPurpose, "quality-remediation-v1");
+});
+
 test("self-improve fixture evaluation is explicit, private, and never grants delivery", async () => {
   const cwd = await selfImproveRepository();
   const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-cli-self-improve-state-"));
   await writeFile(path.join(cwd, "plugins", "better-workflows", "scripts", "candidate.mjs"), "export const candidate = 'safe';\n");
+  await git(cwd, "add", "plugins/better-workflows/scripts/candidate.mjs");
+  await git(cwd, "commit", "-qm", "stage candidate");
+  const baseline = await revision(cwd, "HEAD~");
   const started = await cli(cwd, stateRoot, [
-    "run", "--template", "self-improve-ops", "--mode", "critical", "--goal", "Improve validation", "--scope", ".", "--authority", "git.commit"
+    "run", "--template", "self-improve-ops", "--mode", "critical", "--goal", "Improve validation", "--scope", ".", "--baseline", baseline, "--authority", "git.commit"
   ]);
   const fixture = await fixtureResult(cwd);
-  const common = ["self-improve", "evaluate", "--run", started.json.runId, "--cases", "plugins/better-workflows/fixtures/self-improve-ops-evals.json", "--baseline", "HEAD", "--candidate-root", ".", "--backend", "fixture", "--result-file", fixture];
+  const common = ["self-improve", "evaluate", "--run", started.json.runId, "--cases", "plugins/better-workflows/fixtures/self-improve-ops-evals.json", "--baseline", baseline, "--candidate-root", ".", "--backend", "fixture", "--result-file", fixture];
   const missingFlag = await cli(cwd, stateRoot, [...common, "--split", "train"], { allowFailure: true });
   assert.match(missingFlag.stderr, /test-only/);
   const train = await cli(cwd, stateRoot, [...common, "--split", "train"], { env: { SBW_TEST_FIXTURE_BACKEND: "1" } });
@@ -214,24 +279,46 @@ test("self-improve fixture evaluation is explicit, private, and never grants del
   const evidence = await Promise.all((await readdir(evidenceDir)).map(async (name) => readFile(path.join(evidenceDir, name), "utf8")));
   assert.doesNotMatch(evidence.join("\n"), /sensitive operational material/);
   const delivery = await cli(cwd, stateRoot, ["action", "issue", started.json.runId, "--action", "git.commit", "--provider", "git", "--resource", "fixture", "--remote-revision", "none"], { allowFailure: true, env: { SBW_TEST_FIXTURE_BACKEND: "1" } });
-  assert.match(delivery.stderr, /trusted Codex held-out comparison/);
+  assert.match(delivery.stderr, /Governed action is deferred/);
+});
+
+test("delegated pr-to-dev runs require the typed self-improve handoff gate", async () => {
+  const cwd = await selfImproveRepository();
+  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-cli-self-improve-handoff-"));
+  const baseline = await revision(cwd, "HEAD~");
+  const source = await cli(cwd, stateRoot, [
+    "run", "--template", "self-improve-ops", "--mode", "critical", "--goal", "Prepare delivery", "--scope", ".", "--baseline", baseline
+  ]);
+  const target = await cli(cwd, stateRoot, [
+    "run", "--template", "pr-to-dev", "--mode", "critical", "--goal", "Deliver accepted improvement", "--scope", ".", "--self-improve-run", source.json.runId
+  ]);
+  const contract = JSON.parse(await readFile(path.join(stateRoot, "runs", target.json.runId, "contract.json"), "utf8"));
+  assert.equal(contract.upstreamSelfImproveRunId, source.json.runId);
+  assert.ok(contract.requiredEvidence.includes("self-improve-delivery-handoff"));
+  for (const action of ["git.commit", "plugin.cache.publish", "git.push", "pr.create", "pr.merge", "remote.sync", "worktree.cleanup"]) {
+    assert.ok(contract.actionGates[action].includes("self-improve-delivery-handoff"), action);
+  }
+  assert.ok(contract.executionStages.find((stage) => stage.id === "commits").requiredEvidence.includes("self-improve-delivery-handoff"));
 });
 
 test("evaluator migration binds immutable source and target suites, calibration, and a dedicated comparison policy", async () => {
   const cwd = await selfImproveRepository();
   const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-cli-evaluator-migration-"));
   await writeFile(path.join(cwd, "plugins", "better-workflows", "scripts", "sbw.mjs"), "export const candidate = 'evaluation-v2';\n");
+  await git(cwd, "add", "plugins/better-workflows/scripts/sbw.mjs");
+  await git(cwd, "commit", "-qm", "stage evaluator candidate");
+  const baseline = await revision(cwd, "HEAD~");
   const started = await cli(cwd, stateRoot, [
-    "run", "--template", "self-improve-ops", "--mode", "critical", "--goal", "Migrate evaluator", "--scope", ".", "--authority", "git.commit"
+    "run", "--template", "self-improve-ops", "--mode", "critical", "--goal", "Migrate evaluator", "--scope", ".", "--baseline", baseline, "--authority", "git.commit"
   ]);
-  const fixture = await fixtureResult(cwd, "self-improve-ops-evals-v2.json");
+  const fixture = await fixtureResult(cwd, "self-improve-ops-evals-v2.1.json");
   const common = [
     "self-improve", "evaluate",
     "--run", started.json.runId,
-    "--cases", "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.json",
-    "--next-cases", "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.1.json",
+    "--cases", "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.1.json",
+    "--next-cases", "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.2.json",
     "--purpose", "evaluator-migration",
-    "--baseline", "HEAD",
+    "--baseline", baseline,
     "--candidate-root", ".",
     "--backend", "fixture",
     "--result-file", fixture
@@ -244,37 +331,92 @@ test("evaluator migration binds immutable source and target suites, calibration,
   assert.equal(holdout.json.comparison.policy, "evaluator-migration");
 });
 
+test("ordinary evaluator resume pins legacy runs while new runs require the new canonical corpus", async () => {
+  const legacyCwd = await selfImproveRepository({ includeV22: false });
+  const legacyStateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-cli-evaluator-reader-legacy-"));
+  await writeFile(path.join(legacyCwd, "plugins", "better-workflows", "scripts", "sbw.mjs"), "export const candidate = 'legacy-reader';\n");
+  await git(legacyCwd, "add", "plugins/better-workflows/scripts/sbw.mjs");
+  await git(legacyCwd, "commit", "-qm", "stage legacy candidate");
+  const legacyBaseline = await revision(legacyCwd, "HEAD~");
+  const legacy = await cli(legacyCwd, legacyStateRoot, [
+    "run", "--template", "self-improve-ops", "--mode", "critical", "--goal", "Resume v2.1 evaluation", "--scope", ".", "--baseline", legacyBaseline
+  ]);
+  const legacyAdmission = await cli(legacyCwd, legacyStateRoot, [
+    "self-improve", "evaluate",
+    "--run", legacy.json.runId,
+    "--cases", "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.1.json",
+    "--baseline", legacyBaseline,
+    "--candidate-root", ".",
+    "--backend", "codex",
+    "--model", "gpt-5.6-sol",
+    "--allow-codex",
+    "--sanitized",
+    "--trusted-codex-execution", "/nonexistent",
+    "--split", "train"
+  ], { allowFailure: true });
+  assert.match(legacyAdmission.stderr, /request-manifest.*request-manifest-digest/);
+  assert.doesNotMatch(legacyAdmission.stderr, /self-improve-ops-evals-v2\.2\.json/);
+
+  const currentCwd = await selfImproveRepository();
+  const currentStateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-cli-evaluator-reader-current-"));
+  await writeFile(path.join(currentCwd, "plugins", "better-workflows", "scripts", "sbw.mjs"), "export const candidate = 'current-reader';\n");
+  await git(currentCwd, "add", "plugins/better-workflows/scripts/sbw.mjs");
+  await git(currentCwd, "commit", "-qm", "stage current candidate");
+  const currentBaseline = await revision(currentCwd, "HEAD~");
+  const current = await cli(currentCwd, currentStateRoot, [
+    "run", "--template", "self-improve-ops", "--mode", "critical", "--goal", "Require v2.2 evaluation", "--scope", ".", "--baseline", currentBaseline
+  ]);
+  const rejected = await cli(currentCwd, currentStateRoot, [
+    "self-improve", "evaluate",
+    "--run", current.json.runId,
+    "--cases", "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.1.json",
+    "--baseline", currentBaseline,
+    "--candidate-root", ".",
+    "--backend", "codex",
+    "--model", "gpt-5.6-sol",
+    "--allow-codex",
+    "--sanitized",
+    "--trusted-codex-execution", "/nonexistent",
+    "--split", "train"
+  ], { allowFailure: true });
+  assert.match(rejected.stderr, /self-improve-ops-evals-v2\.2\.json/);
+});
+
 test("self-improve evaluation fails closed when its suite or staged candidate changes", async () => {
   const cwd = await selfImproveRepository();
   const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-cli-self-improve-drift-"));
   await writeFile(path.join(cwd, "plugins", "better-workflows", "scripts", "candidate.mjs"), "export const candidate = 'safe';\n");
-  const started = await cli(cwd, stateRoot, ["run", "--template", "self-improve-ops", "--mode", "critical", "--goal", "Improve validation", "--scope", "."]);
+  await git(cwd, "add", "plugins/better-workflows/scripts/candidate.mjs");
+  await git(cwd, "commit", "-qm", "stage drift candidate");
+  const baseline = await revision(cwd, "HEAD~");
+  const started = await cli(cwd, stateRoot, ["run", "--template", "self-improve-ops", "--mode", "critical", "--goal", "Improve validation", "--scope", ".", "--baseline", baseline]);
   const fixture = await fixtureResult(cwd);
-  const common = ["self-improve", "evaluate", "--run", started.json.runId, "--cases", "plugins/better-workflows/fixtures/self-improve-ops-evals.json", "--baseline", "HEAD", "--candidate-root", ".", "--backend", "fixture", "--result-file", fixture];
+  const common = ["self-improve", "evaluate", "--run", started.json.runId, "--cases", "plugins/better-workflows/fixtures/self-improve-ops-evals.json", "--baseline", baseline, "--candidate-root", ".", "--backend", "fixture", "--result-file", fixture];
   await writeFile(path.join(cwd, "plugins", "better-workflows", "scripts", "later.mjs"), "export const later = true;\n");
   await git(cwd, "add", "plugins/better-workflows/scripts/later.mjs");
   await git(cwd, "commit", "-qm", "later baseline");
   const changedBaseline = await cli(cwd, stateRoot, [...common, "--split", "train"], { allowFailure: true, env: { SBW_TEST_FIXTURE_BACKEND: "1" } });
-  assert.match(changedBaseline.stderr, /run-start baseline/);
+  assert.match(changedBaseline.stderr, /run-bound source revision|run-start baseline/);
+  await cli(cwd, stateRoot, ["source", "rebind", started.json.runId, "--reason", "test commit stage completed"]);
   const pinnedCommon = [...common];
   const baselineIndex = pinnedCommon.indexOf("--baseline") + 1;
-  pinnedCommon[baselineIndex] = "HEAD~";
+  pinnedCommon[baselineIndex] = baseline;
   await cli(cwd, stateRoot, [...pinnedCommon, "--split", "train"], { env: { SBW_TEST_FIXTURE_BACKEND: "1" } });
   await writeFile(path.join(cwd, "plugins", "better-workflows", "scripts", "candidate.mjs"), "export const candidate = 'changed';\n");
   const changedCandidate = await cli(cwd, stateRoot, [...pinnedCommon, "--split", "holdout"], { allowFailure: true, env: { SBW_TEST_FIXTURE_BACKEND: "1" } });
-  assert.match(changedCandidate.stderr, /fresh training replay/);
+  assert.match(changedCandidate.stderr, /fresh training replay|clean index, tracked worktree/);
   await writeFile(path.join(cwd, "plugins", "better-workflows", "fixtures", "self-improve-ops-evals.json"), "{}\n");
   const changedSuite = await cli(cwd, stateRoot, [...pinnedCommon, "--split", "train"], { allowFailure: true, env: { SBW_TEST_FIXTURE_BACKEND: "1" } });
   assert.match(changedSuite.stderr, /drifted from the immutable baseline/);
 });
 
-test("self-improve attestation request freezes seven distinct requests outside the repository", async () => {
+test("self-improve attestation request freezes seven distinct requests and rejects unsafe drift", async () => {
   const cwd = await selfImproveRepository();
   const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-attestation-state-"));
-  const baseline = (await execFileAsync("git", ["rev-parse", "HEAD"], {
-    cwd,
-    encoding: "utf8"
-  })).stdout.trim();
+  await writeFile(path.join(cwd, "plugins", "better-workflows", "scripts", "sbw.mjs"), "export const candidate = true;\n");
+  await git(cwd, "add", "plugins/better-workflows/scripts/sbw.mjs");
+  await git(cwd, "commit", "-qm", "stage attestation candidate");
+  const baseline = await revision(cwd, "HEAD~");
   const started = await cli(cwd, stateRoot, [
     "run",
     "--template",
@@ -284,10 +426,18 @@ test("self-improve attestation request freezes seven distinct requests outside t
     "--goal",
     "Prepare signed evaluation requests",
     "--scope",
-    "."
+    ".",
+    "--baseline",
+    baseline
   ]);
   const parent = await mkdtemp(path.join(os.tmpdir(), "sbw-attestation-output-"));
   const output = path.join(parent, "requests");
+  const hostStatus = await cli(cwd, stateRoot, ["self-improve", "host", "status"], { allowFailure: true });
+  const hostReady = hostStatus.code === 0 && hostStatus.json?.ready === true;
+  const approvedBinary = hostStatus.json?.codexBinary?.validEntries?.[0]?.path ?? process.execPath;
+  if (hostStatus.code !== 0) {
+    assert.match(hostStatus.stderr, /Administrator host status is unavailable|ENOENT: no such file or directory, lstat .*better-workflows.*codex-trust-root/);
+  }
   const requested = await cli(cwd, stateRoot, [
     "self-improve",
     "attestation",
@@ -301,21 +451,80 @@ test("self-improve attestation request freezes seven distinct requests outside t
     "--model",
     "gpt-5.6-sol",
     "--binary",
-    process.execPath,
+    approvedBinary,
     "--output",
     output
-  ]);
+  ], { allowFailure: !hostReady });
+  if (!hostReady) {
+    assert.match(requested.stderr, /Administrator host runtime is not ready|host-trust upgrade first/);
+    return;
+  }
   assert.equal(requested.json.requests.length, 7);
   assert.equal(new Set(requested.json.requests.map((item) => item.executionId)).size, 7);
   assert.equal(requested.json.purpose, "ordinary");
-  assert.equal(requested.json.suitePath, "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.1.json");
+  assert.equal(requested.json.suitePath, "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.2.json");
   assert.equal(requested.json.targetSuiteDigest, null);
   assert.equal(requested.json.manifestPath, path.join(output, "attestation-requests.json"));
   assert.match(requested.json.manifestDigest, /^[a-f0-9]{64}$/);
-  assert.equal(requested.json.signCommand.at(-1), requested.json.manifestDigest);
+  assert.equal(requested.json.executeCommand.at(-1), requested.json.manifestDigest);
+  assert.deepEqual(requested.json.executeCommand, [
+    "/usr/bin/sudo",
+    requested.json.runtimePath,
+    "/private/var/db/better-workflows/bin/bw-host-trust.mjs",
+    "execute-batch",
+    "--manifest",
+    requested.json.manifestPath,
+    "--confirm-digest",
+    requested.json.manifestDigest
+  ]);
+  assert.equal(requested.json.executeCommand.includes("/bin/sh"), false);
+  assert.equal(requested.json.executeCommand.includes("-c"), false);
+  assert.match(requested.json.runtimeDigest, /^[a-f0-9]{64}$/);
+  assert.equal(requested.json.schemaVersion, 2);
+  assert.equal(requested.json.runAs.uid, process.getuid());
+  assert.equal(requested.json.runAs.gid, process.getgid());
+  assert.equal(requested.json.runAs.homePath, path.resolve(process.env.HOME));
+  assert.ok(requested.json.runAs.codexHomePath === null || path.isAbsolute(requested.json.runAs.codexHomePath));
   for (const item of requested.json.requests) {
     assert.equal(path.dirname(item.request), output);
+    assert.match(item.promptDigest, /^[a-f0-9]{64}$/);
     assert.match(item.requestDigest, /^[a-f0-9]{64}$/);
+    const request = JSON.parse(await readFile(item.request, "utf8"));
+    assert.match(request.binaryDigest, /^[a-f0-9]{64}$/);
+  }
+
+  const migrationOutput = path.join(parent, "migration-requests");
+  const migration = await cli(cwd, stateRoot, [
+    "self-improve",
+    "attestation",
+    "request",
+    "--run",
+    started.json.runId,
+    "--baseline",
+    baseline,
+    "--candidate-root",
+    ".",
+    "--model",
+    "gpt-5.6-sol",
+    "--binary",
+    approvedBinary,
+    "--output",
+    migrationOutput,
+    "--purpose",
+    "evaluator-migration",
+    "--cases",
+    "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.1.json",
+    "--next-cases",
+    "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.2.json"
+  ]);
+  assert.equal(migration.json.requests.length, 7);
+  assert.equal(migration.json.suitePath, "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.1.json");
+  assert.equal(migration.json.targetSuitePath, "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.2.json");
+  assert.match(migration.json.sourceSuiteDigest, /^[a-f0-9]{64}$/);
+  assert.match(migration.json.targetSuiteDigest, /^[a-f0-9]{64}$/);
+  for (const item of migration.json.requests) {
+    const request = JSON.parse(await readFile(item.request, "utf8"));
+    assert.equal(request.execution.suiteDigest, migration.json.suiteDigest);
   }
 
   await mkdir(path.join(cwd, "plugins", "better-workflows", "scripts", "lib"), { recursive: true });
@@ -337,11 +546,11 @@ test("self-improve attestation request freezes seven distinct requests outside t
     "--model",
     "gpt-5.6-sol",
     "--binary",
-    process.execPath,
+    approvedBinary,
     "--output",
     rejectedOutput
   ], { allowFailure: true });
-  assert.match(rejected.stderr, /secret-shaped content/);
+  assert.match(rejected.stderr, /secret-shaped content|clean index, tracked worktree, untracked surface, and ignored surface/);
   await assert.rejects(access(rejectedOutput), { code: "ENOENT" });
 });
 
@@ -452,6 +661,67 @@ test("CLI custom contracts cannot remove template required evidence minimums", a
   assert.notEqual(result.code, 0);
   assert.match(result.stderr, /cannot remove template required evidence/);
   await assert.rejects(access(stateRoot));
+});
+
+test("CLI rejects a v1 contract supplied for a v2 template", async () => {
+  const cwd = await repository();
+  const stateRoot = path.join(await mkdtemp(path.join(os.tmpdir(), "sbw-cli-v2-downgrade-")), "state");
+  const contractPath = path.join(cwd, "v1-cross-platform-contract.json");
+  const template = JSON.parse(await readFile(path.resolve(path.dirname(CLI), "..", "templates", "cross-platform-contract.json"), "utf8"));
+  await writeFile(contractPath, `${JSON.stringify({
+    schemaVersion: 1,
+    goal: "Attempt a legacy contract downgrade",
+    template: "cross-platform-contract",
+    scope: { include: ["src"], exclude: [] },
+    acceptance: [{ id: "legacy", description: "Legacy contract is complete.", critical: true }],
+    requiredEvidence: template.requiredEvidence,
+    authority: { rootOnlyMutation: true, externalSideEffects: [] },
+    risk: { risk: 1, uncertainty: 1, blastRadius: 1, irreversibility: 0, evidenceGap: 1 },
+    sensitivity: "internal",
+    agy: { allowed: false, sanitized: false },
+    volatileExclusions: [],
+    highRiskIgnored: [],
+    remoteRevision: null
+  }, null, 2)}\n`);
+
+  const result = await cli(
+    cwd,
+    stateRoot,
+    ["run", "--template", "cross-platform-contract", "--contract", contractPath],
+    { allowFailure: true }
+  );
+  assert.notEqual(result.code, 0);
+  assert.match(result.stderr, /v2 templates require a schemaVersion 2/);
+  await assert.rejects(access(stateRoot));
+});
+
+test("CLI custom v2 contracts cannot weaken the installed control-plane policy", async () => {
+  const cwd = await repository();
+  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-cli-v2-policy-"));
+  const started = await cli(cwd, stateRoot, [
+    "run",
+    "--template",
+    "cross-platform-contract",
+    "--mode",
+    "verified",
+    "--goal",
+    "Check contract",
+    "--scope",
+    "src"
+  ]);
+  const contract = JSON.parse(await readFile(path.join(stateRoot, "runs", started.json.runId, "contract.json"), "utf8"));
+  contract.controlPlane.reviewPolicy = "none";
+  const contractPath = path.join(cwd, "weakened-contract.json");
+  await writeFile(contractPath, `${JSON.stringify(contract, null, 2)}\n`);
+  const result = await cli(cwd, stateRoot, [
+    "run",
+    "--template",
+    "cross-platform-contract",
+    "--contract",
+    contractPath
+  ], { allowFailure: true });
+  assert.notEqual(result.code, 0);
+  assert.match(result.stderr, /cannot weaken template control-plane policy/);
 });
 
 test("CLI resume migrates a legacy 1.0 run to template-bound action gates", async () => {

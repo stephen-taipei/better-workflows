@@ -1,0 +1,1992 @@
+{
+  "schemaVersion": 1,
+  "name": "evidence-contracts-v1",
+  "description": "Typed evidence admission contracts for all installed Better Workflows evidence kinds.",
+  "successPredicates": {
+    "validation-test": {"field":"result","oneOf":[true,"complete"]},
+    "review-analysis": {"field":"verdict","equals":"PASS"},
+    "side-effect-result": {"field":"outcome","equals":"success"},
+    "provider-reconciliation": {"field":"receipt","nonEmpty":true}
+  },
+  "contracts": {
+    "access-modifiers": {
+      "id": "evidence-contracts-v1:access-modifiers",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git",
+        "browser",
+        "codex-native-subagent"
+      ],
+      "payloadFamily": "validation-test",
+      "requiredFields": [
+        "command",
+        "result"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "actions-cancelled": {
+      "id": "evidence-contracts-v1:actions-cancelled",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git",
+        "provider"
+      ],
+      "payloadFamily": "side-effect-result",
+      "requiredFields": [
+        "outcome"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "actions-cleanup-plan": {
+      "id": "evidence-contracts-v1:actions-cleanup-plan",
+      "producerAllowlist": [
+        "codex-root",
+        "codex-native-subagent",
+        "agy"
+      ],
+      "payloadFamily": "plan-design",
+      "requiredFields": [
+        "objective",
+        "ownerRunId",
+        "action",
+        "resources"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "all-locale-update": {
+      "id": "evidence-contracts-v1:all-locale-update",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "codex-native-subagent",
+        "github-cli"
+      ],
+      "payloadFamily": "artifact-package",
+      "requiredFields": [
+        "artifact"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "android-model": {
+      "id": "evidence-contracts-v1:android-model",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git",
+        "browser",
+        "codex-native-subagent"
+      ],
+      "payloadFamily": "validation-test",
+      "requiredFields": [
+        "command",
+        "result"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "arbiter-verdict": {
+      "id": "evidence-contracts-v1:arbiter-verdict",
+      "producerAllowlist": [
+        "codex-root",
+        "codex-native-subagent",
+        "agy"
+      ],
+      "payloadFamily": "decision-disposition",
+      "requiredFields": [
+        "decision"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision",
+        "sourceBindingDigest",
+        "sourceSentinelDigest"
+      ]
+    },
+    "architecture-risk-map": {
+      "id": "evidence-contracts-v1:architecture-risk-map",
+      "producerAllowlist": [
+        "codex-root",
+        "codex-native-subagent",
+        "agy"
+      ],
+      "payloadFamily": "plan-design",
+      "requiredFields": [
+        "objective"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "artifact-receipt": {
+      "id": "evidence-contracts-v1:artifact-receipt",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "codex-native-subagent",
+        "github-cli"
+      ],
+      "payloadFamily": "artifact-package",
+      "requiredFields": [
+        "artifact"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "base-revision": {
+      "id": "evidence-contracts-v1:base-revision",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git"
+      ],
+      "payloadFamily": "revision-identity",
+      "requiredFields": [
+        "revision"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "baseline": {
+      "id": "evidence-contracts-v1:baseline",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git",
+        "browser",
+        "codex-native-subagent"
+      ],
+      "payloadFamily": "inventory-snapshot",
+      "requiredFields": [
+        "items"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "cache-check": {
+      "id": "evidence-contracts-v1:cache-check",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git",
+        "browser",
+        "codex-native-subagent"
+      ],
+      "payloadFamily": "validation-test",
+      "requiredFields": [
+        "command",
+        "result"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "cache-publication": {
+      "id": "evidence-contracts-v1:cache-publication",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git",
+        "provider"
+      ],
+      "payloadFamily": "side-effect-result",
+      "requiredFields": [
+        "outcome",
+        "provider",
+        "actionProof",
+        "receipt"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "candidate-dry-run": {
+      "id": "evidence-contracts-v1:candidate-dry-run",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git",
+        "browser",
+        "codex-native-subagent"
+      ],
+      "payloadFamily": "validation-test",
+      "requiredFields": [
+        "command",
+        "result"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "candidate-staging": {
+      "id": "evidence-contracts-v1:candidate-staging",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "codex-native-subagent",
+        "github-cli"
+      ],
+      "payloadFamily": "artifact-package",
+      "requiredFields": [
+        "artifact"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "change-inventory": {
+      "id": "evidence-contracts-v1:change-inventory",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git",
+        "browser",
+        "codex-native-subagent"
+      ],
+      "payloadFamily": "inventory-snapshot",
+      "requiredFields": [
+        "items"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "claim-reconciliation": {
+      "id": "evidence-contracts-v1:claim-reconciliation",
+      "producerAllowlist": [
+        "codex-root",
+        "codex-native-subagent",
+        "agy"
+      ],
+      "payloadFamily": "decision-disposition",
+      "requiredFields": [
+        "decision"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision",
+        "sourceBindingDigest",
+        "sourceSentinelDigest"
+      ]
+    },
+    "cleanup-manifest": {
+      "id": "evidence-contracts-v1:cleanup-manifest",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git",
+        "provider"
+      ],
+      "payloadFamily": "side-effect-result",
+      "requiredFields": [
+        "outcome"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "commit-history": {
+      "id": "evidence-contracts-v1:commit-history",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git",
+        "browser",
+        "codex-native-subagent"
+      ],
+      "payloadFamily": "validation-test",
+      "requiredFields": [
+        "command",
+        "result"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "commit-manifest": {
+      "id": "evidence-contracts-v1:commit-manifest",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "codex-native-subagent",
+        "github-cli"
+      ],
+      "payloadFamily": "artifact-package",
+      "requiredFields": [
+        "artifact"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "commit-plan": {
+      "id": "evidence-contracts-v1:commit-plan",
+      "producerAllowlist": [
+        "codex-root",
+        "codex-native-subagent",
+        "agy"
+      ],
+      "payloadFamily": "plan-design",
+      "requiredFields": [
+        "objective"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "compatibility-matrix": {
+      "id": "evidence-contracts-v1:compatibility-matrix",
+      "producerAllowlist": [
+        "codex-root",
+        "codex-native-subagent",
+        "agy"
+      ],
+      "payloadFamily": "plan-design",
+      "requiredFields": [
+        "objective"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "compatibility-review": {
+      "id": "evidence-contracts-v1:compatibility-review",
+      "producerAllowlist": [
+        "codex-root",
+        "codex-native-subagent",
+        "agy",
+        "github-cli"
+      ],
+      "payloadFamily": "review-analysis",
+      "requiredFields": [
+        "verdict"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "consolidation-diff": {
+      "id": "evidence-contracts-v1:consolidation-diff",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git",
+        "browser",
+        "codex-native-subagent"
+      ],
+      "payloadFamily": "validation-test",
+      "requiredFields": [
+        "command",
+        "result"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "contract-tests": {
+      "id": "evidence-contracts-v1:contract-tests",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git",
+        "browser",
+        "codex-native-subagent"
+      ],
+      "payloadFamily": "validation-test",
+      "requiredFields": [
+        "command",
+        "result"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "coverage-gap-analysis": {
+      "id": "evidence-contracts-v1:coverage-gap-analysis",
+      "producerAllowlist": [
+        "codex-root",
+        "codex-native-subagent",
+        "agy"
+      ],
+      "payloadFamily": "decision-disposition",
+      "requiredFields": [
+        "decision"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "cross-examination": {
+      "id": "evidence-contracts-v1:cross-examination",
+      "producerAllowlist": [
+        "codex-root",
+        "codex-native-subagent",
+        "agy",
+        "github-cli"
+      ],
+      "payloadFamily": "review-analysis",
+      "requiredFields": [
+        "verdict"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision",
+        "sourceBindingDigest",
+        "sourceSentinelDigest"
+      ]
+    },
+    "current-branch": {
+      "id": "evidence-contracts-v1:current-branch",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git"
+      ],
+      "payloadFamily": "revision-identity",
+      "requiredFields": [
+        "revision"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "current-page-or-app-state": {
+      "id": "evidence-contracts-v1:current-page-or-app-state",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git",
+        "browser",
+        "codex-native-subagent"
+      ],
+      "payloadFamily": "inventory-snapshot",
+      "requiredFields": [
+        "items"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "current-revision": {
+      "id": "evidence-contracts-v1:current-revision",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git"
+      ],
+      "payloadFamily": "revision-identity",
+      "requiredFields": [
+        "revision"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "current-sentinel": {
+      "id": "evidence-contracts-v1:current-sentinel",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git",
+        "browser",
+        "codex-native-subagent"
+      ],
+      "payloadFamily": "inventory-snapshot",
+      "requiredFields": [
+        "items"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "decision-record": {
+      "id": "evidence-contracts-v1:decision-record",
+      "producerAllowlist": [
+        "codex-root",
+        "codex-native-subagent",
+        "agy"
+      ],
+      "payloadFamily": "decision-disposition",
+      "requiredFields": [
+        "decision"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision",
+        "sourceBindingDigest",
+        "sourceSentinelDigest"
+      ]
+    },
+    "deliberation-roster": {
+      "id": "evidence-contracts-v1:deliberation-roster",
+      "producerAllowlist": [
+        "codex-root",
+        "codex-native-subagent",
+        "agy"
+      ],
+      "payloadFamily": "authorization",
+      "requiredFields": [
+        "roster"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision",
+        "sourceBindingDigest",
+        "sourceSentinelDigest"
+      ]
+    },
+    "dependabot-inventory": {
+      "id": "evidence-contracts-v1:dependabot-inventory",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git",
+        "browser",
+        "codex-native-subagent"
+      ],
+      "payloadFamily": "inventory-snapshot",
+      "requiredFields": [
+        "items"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "dependency-risk-review": {
+      "id": "evidence-contracts-v1:dependency-risk-review",
+      "producerAllowlist": [
+        "codex-root",
+        "codex-native-subagent",
+        "agy",
+        "github-cli"
+      ],
+      "payloadFamily": "review-analysis",
+      "requiredFields": [
+        "verdict"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "diff-review": {
+      "id": "evidence-contracts-v1:diff-review",
+      "producerAllowlist": [
+        "codex-root",
+        "codex-native-subagent",
+        "codex",
+        "agy",
+        "github-cli"
+      ],
+      "payloadFamily": "review-analysis",
+      "requiredFields": [
+        "verdict"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "digest-confirmation": {
+      "id": "evidence-contracts-v1:digest-confirmation",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git",
+        "browser",
+        "codex-native-subagent"
+      ],
+      "payloadFamily": "validation-test",
+      "requiredFields": [
+        "command",
+        "result"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "duplicate-check": {
+      "id": "evidence-contracts-v1:duplicate-check",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git",
+        "browser",
+        "codex-native-subagent"
+      ],
+      "payloadFamily": "validation-test",
+      "requiredFields": [
+        "command",
+        "result"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "eligibility-classified": {
+      "id": "evidence-contracts-v1:eligibility-classified",
+      "producerAllowlist": [
+        "codex-root",
+        "codex-native-subagent",
+        "agy"
+      ],
+      "payloadFamily": "decision-disposition",
+      "requiredFields": [
+        "decision"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "environment-state": {
+      "id": "evidence-contracts-v1:environment-state",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git",
+        "browser",
+        "codex-native-subagent"
+      ],
+      "payloadFamily": "inventory-snapshot",
+      "requiredFields": [
+        "items"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "evaluation-suite": {
+      "id": "evidence-contracts-v1:evaluation-suite",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "codex-native-subagent",
+        "github-cli"
+      ],
+      "payloadFamily": "artifact-package",
+      "requiredFields": [
+        "artifact"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision",
+        "sourceBindingDigest"
+      ]
+    },
+    "executable-plan": {
+      "id": "evidence-contracts-v1:executable-plan",
+      "producerAllowlist": [
+        "codex-root",
+        "codex-native-subagent",
+        "agy"
+      ],
+      "payloadFamily": "plan-design",
+      "requiredFields": [
+        "objective"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision",
+        "sourceBindingDigest",
+        "sourceSentinelDigest"
+      ]
+    },
+    "final-validation": {
+      "id": "evidence-contracts-v1:final-validation",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git",
+        "browser",
+        "codex-native-subagent"
+      ],
+      "payloadFamily": "validation-test",
+      "requiredFields": [
+        "command",
+        "result"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "fixture-test": {
+      "id": "evidence-contracts-v1:fixture-test",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git",
+        "browser",
+        "codex-native-subagent"
+      ],
+      "payloadFamily": "validation-test",
+      "requiredFields": [
+        "command",
+        "result"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "hardening-lint": {
+      "id": "evidence-contracts-v1:hardening-lint",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git",
+        "browser",
+        "codex-native-subagent"
+      ],
+      "payloadFamily": "validation-test",
+      "requiredFields": [
+        "command",
+        "result"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "holdout-comparison": {
+      "id": "evidence-contracts-v1:holdout-comparison",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git",
+        "browser",
+        "codex-native-subagent"
+      ],
+      "payloadFamily": "validation-test",
+      "requiredFields": [
+        "command",
+        "result"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision",
+        "sourceBindingDigest"
+      ]
+    },
+    "implementation-queue": {
+      "id": "evidence-contracts-v1:implementation-queue",
+      "producerAllowlist": [
+        "codex-root",
+        "codex-native-subagent",
+        "agy"
+      ],
+      "payloadFamily": "plan-design",
+      "requiredFields": [
+        "objective"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "imports": {
+      "id": "evidence-contracts-v1:imports",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git",
+        "browser",
+        "codex-native-subagent"
+      ],
+      "payloadFamily": "validation-test",
+      "requiredFields": [
+        "command",
+        "result"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "independent-review": {
+      "id": "evidence-contracts-v1:independent-review",
+      "producerAllowlist": [
+        "codex-root",
+        "codex-native-subagent",
+        "agy",
+        "github-cli"
+      ],
+      "payloadFamily": "review-analysis",
+      "requiredFields": [
+        "verdict"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision",
+        "sourceBindingDigest",
+        "sourceSentinelDigest"
+      ]
+    },
+    "ios-model": {
+      "id": "evidence-contracts-v1:ios-model",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git",
+        "browser",
+        "codex-native-subagent"
+      ],
+      "payloadFamily": "validation-test",
+      "requiredFields": [
+        "command",
+        "result"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "issue-state": {
+      "id": "evidence-contracts-v1:issue-state",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git",
+        "browser",
+        "codex-native-subagent"
+      ],
+      "payloadFamily": "validation-test",
+      "requiredFields": [
+        "command",
+        "result"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "json-or-strings-parse": {
+      "id": "evidence-contracts-v1:json-or-strings-parse",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git",
+        "browser",
+        "codex-native-subagent"
+      ],
+      "payloadFamily": "validation-test",
+      "requiredFields": [
+        "command",
+        "result"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "key-count": {
+      "id": "evidence-contracts-v1:key-count",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git",
+        "browser",
+        "codex-native-subagent"
+      ],
+      "payloadFamily": "validation-test",
+      "requiredFields": [
+        "command",
+        "result"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "key-order": {
+      "id": "evidence-contracts-v1:key-order",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git",
+        "browser",
+        "codex-native-subagent"
+      ],
+      "payloadFamily": "validation-test",
+      "requiredFields": [
+        "command",
+        "result"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "locale-inventory": {
+      "id": "evidence-contracts-v1:locale-inventory",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git",
+        "browser",
+        "codex-native-subagent"
+      ],
+      "payloadFamily": "inventory-snapshot",
+      "requiredFields": [
+        "items"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "lockfile-validation": {
+      "id": "evidence-contracts-v1:lockfile-validation",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git",
+        "browser",
+        "codex-native-subagent"
+      ],
+      "payloadFamily": "validation-test",
+      "requiredFields": [
+        "command",
+        "result"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "merge-readiness": {
+      "id": "evidence-contracts-v1:merge-readiness",
+      "producerAllowlist": [
+        "codex-root",
+        "codex-native-subagent",
+        "agy",
+        "github-cli"
+      ],
+      "payloadFamily": "review-analysis",
+      "requiredFields": [
+        "verdict"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "merge-result": {
+      "id": "evidence-contracts-v1:merge-result",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git",
+        "provider"
+      ],
+      "payloadFamily": "side-effect-result",
+      "requiredFields": [
+        "outcome"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "observed-result": {
+      "id": "evidence-contracts-v1:observed-result",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git",
+        "browser",
+        "codex-native-subagent"
+      ],
+      "payloadFamily": "inventory-snapshot",
+      "requiredFields": [
+        "items"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "patch-review": {
+      "id": "evidence-contracts-v1:patch-review",
+      "producerAllowlist": [
+        "codex-root",
+        "codex-native-subagent",
+        "codex",
+        "agy",
+        "github-cli"
+      ],
+      "payloadFamily": "review-analysis",
+      "requiredFields": [
+        "verdict"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "pbxproj-membership": {
+      "id": "evidence-contracts-v1:pbxproj-membership",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git",
+        "browser",
+        "codex-native-subagent"
+      ],
+      "payloadFamily": "validation-test",
+      "requiredFields": [
+        "command",
+        "result"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "plugin-version": {
+      "id": "evidence-contracts-v1:plugin-version",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git",
+        "browser",
+        "codex-native-subagent"
+      ],
+      "payloadFamily": "validation-test",
+      "requiredFields": [
+        "command",
+        "result"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "pr-state": {
+      "id": "evidence-contracts-v1:pr-state",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git",
+        "browser",
+        "codex-native-subagent"
+      ],
+      "payloadFamily": "validation-test",
+      "requiredFields": [
+        "command",
+        "result",
+        "pr",
+        "head",
+        "base",
+        "repository",
+        "baseRefName"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision",
+        "reviewHead",
+        "reviewBase",
+        "pullRequest",
+        "repository",
+        "baseRefName"
+      ]
+    },
+    "promotion-decision": {
+      "id": "evidence-contracts-v1:promotion-decision",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git",
+        "provider"
+      ],
+      "payloadFamily": "side-effect-result",
+      "requiredFields": [
+        "outcome"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "provider-reconciliation": {
+      "id": "evidence-contracts-v1:provider-reconciliation",
+      "producerAllowlist": [
+        "github-cli-and-git",
+        "github-cli",
+        "provider",
+        "codex-root"
+      ],
+      "payloadFamily": "provider-reconciliation",
+      "requiredFields": [
+        "provider",
+        "receipt",
+        "actionProof"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "qa-artifacts": {
+      "id": "evidence-contracts-v1:qa-artifacts",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "codex-native-subagent",
+        "github-cli"
+      ],
+      "payloadFamily": "artifact-package",
+      "requiredFields": [
+        "artifact"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "queue-state": {
+      "id": "evidence-contracts-v1:queue-state",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git",
+        "browser",
+        "codex-native-subagent"
+      ],
+      "payloadFamily": "inventory-snapshot",
+      "requiredFields": [
+        "items"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "recipe-contract": {
+      "id": "evidence-contracts-v1:recipe-contract",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git",
+        "browser",
+        "codex-native-subagent"
+      ],
+      "payloadFamily": "validation-test",
+      "requiredFields": [
+        "command",
+        "result"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "recommendation-disposition": {
+      "id": "evidence-contracts-v1:recommendation-disposition",
+      "producerAllowlist": [
+        "codex-root",
+        "codex-native-subagent",
+        "agy"
+      ],
+      "payloadFamily": "decision-disposition",
+      "requiredFields": [
+        "decision"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "recommendation-register": {
+      "id": "evidence-contracts-v1:recommendation-register",
+      "producerAllowlist": [
+        "codex-root",
+        "codex-native-subagent",
+        "agy"
+      ],
+      "payloadFamily": "plan-design",
+      "requiredFields": [
+        "objective"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "recurrence-matrix": {
+      "id": "evidence-contracts-v1:recurrence-matrix",
+      "producerAllowlist": [
+        "codex-root",
+        "codex-native-subagent",
+        "agy"
+      ],
+      "payloadFamily": "decision-disposition",
+      "requiredFields": [
+        "decision"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "refutation": {
+      "id": "evidence-contracts-v1:refutation",
+      "producerAllowlist": [
+        "codex-root",
+        "codex-native-subagent",
+        "agy",
+        "github-cli"
+      ],
+      "payloadFamily": "review-analysis",
+      "requiredFields": [
+        "verdict"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision",
+        "sourceBindingDigest",
+        "sourceSentinelDigest"
+      ]
+    },
+    "regional-review": {
+      "id": "evidence-contracts-v1:regional-review",
+      "producerAllowlist": [
+        "codex-root",
+        "codex-native-subagent",
+        "agy",
+        "github-cli"
+      ],
+      "payloadFamily": "review-analysis",
+      "requiredFields": [
+        "verdict"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "remote-authorization": {
+      "id": "evidence-contracts-v1:remote-authorization",
+      "producerAllowlist": [
+        "user-authority",
+        "codex-root",
+        "github-cli",
+        "git",
+        "github-cli-and-git"
+      ],
+      "payloadFamily": "authorization",
+      "requiredFields": [
+        "action",
+        "provider",
+        "resource",
+        "remoteRevision",
+        "repository",
+        "actor"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "remote-reconciliation": {
+      "id": "evidence-contracts-v1:remote-reconciliation",
+      "producerAllowlist": [
+        "github-cli-and-git",
+        "github-cli",
+        "provider",
+        "codex-root"
+      ],
+      "payloadFamily": "provider-reconciliation",
+      "requiredFields": [
+        "provider",
+        "receipt"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "remote-sync": {
+      "id": "evidence-contracts-v1:remote-sync",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git",
+        "provider"
+      ],
+      "payloadFamily": "side-effect-result",
+      "requiredFields": [
+        "outcome",
+        "provider",
+        "receipt",
+        "actionProof",
+        "mergeCommit"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "repo-gates": {
+      "id": "evidence-contracts-v1:repo-gates",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git",
+        "browser",
+        "codex-native-subagent"
+      ],
+      "payloadFamily": "validation-test",
+      "requiredFields": [
+        "command",
+        "result"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "repository-actions-inventory": {
+      "id": "evidence-contracts-v1:repository-actions-inventory",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git",
+        "browser",
+        "codex-native-subagent"
+      ],
+      "payloadFamily": "inventory-snapshot",
+      "requiredFields": [
+        "items"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "required-checks": {
+      "id": "evidence-contracts-v1:required-checks",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git",
+        "browser",
+        "codex-native-subagent"
+      ],
+      "payloadFamily": "validation-test",
+      "requiredFields": [
+        "command",
+        "result",
+        "pr",
+        "head",
+        "base",
+        "repository",
+        "baseRefName",
+        "checkSet",
+        "providerRunIds",
+        "conclusions",
+        "checks",
+        "requiredStatusChecks",
+        "provider",
+        "providerExecutable",
+        "observedAt"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision",
+        "reviewHead",
+        "reviewBase",
+        "pullRequest",
+        "repository",
+        "baseRefName",
+        "observedAt"
+      ]
+    },
+    "retrospective-source-inventory": {
+      "id": "evidence-contracts-v1:retrospective-source-inventory",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git",
+        "browser",
+        "codex-native-subagent"
+      ],
+      "payloadFamily": "inventory-snapshot",
+      "requiredFields": [
+        "items"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "review-findings": {
+      "id": "evidence-contracts-v1:review-findings",
+      "producerAllowlist": [
+        "codex-root",
+        "codex-native-subagent",
+        "agy",
+        "github-cli"
+      ],
+      "payloadFamily": "review-analysis",
+      "requiredFields": [
+        "verdict"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "role-perspective-matrix": {
+      "id": "evidence-contracts-v1:role-perspective-matrix",
+      "producerAllowlist": [
+        "codex-root",
+        "codex-native-subagent",
+        "agy"
+      ],
+      "payloadFamily": "plan-design",
+      "requiredFields": [
+        "objective"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision",
+        "sourceBindingDigest",
+        "sourceSentinelDigest"
+      ]
+    },
+    "rollback-plan": {
+      "id": "evidence-contracts-v1:rollback-plan",
+      "producerAllowlist": [
+        "codex-root",
+        "codex-native-subagent",
+        "agy"
+      ],
+      "payloadFamily": "plan-design",
+      "requiredFields": [
+        "objective"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "run-result": {
+      "id": "evidence-contracts-v1:run-result",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git",
+        "browser",
+        "codex-native-subagent"
+      ],
+      "payloadFamily": "inventory-snapshot",
+      "requiredFields": [
+        "items"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "server-contract": {
+      "id": "evidence-contracts-v1:server-contract",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git",
+        "browser",
+        "codex-native-subagent"
+      ],
+      "payloadFamily": "validation-test",
+      "requiredFields": [
+        "command",
+        "result"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "slice-checkpoint": {
+      "id": "evidence-contracts-v1:slice-checkpoint",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git",
+        "browser",
+        "codex-native-subagent"
+      ],
+      "payloadFamily": "validation-test",
+      "requiredFields": [
+        "command",
+        "result"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "slice-plan": {
+      "id": "evidence-contracts-v1:slice-plan",
+      "producerAllowlist": [
+        "codex-root",
+        "codex-native-subagent",
+        "agy"
+      ],
+      "payloadFamily": "plan-design",
+      "requiredFields": [
+        "objective"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "slice-validation": {
+      "id": "evidence-contracts-v1:slice-validation",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git",
+        "browser",
+        "codex-native-subagent"
+      ],
+      "payloadFamily": "validation-test",
+      "requiredFields": [
+        "command",
+        "result"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "source-inventory": {
+      "id": "evidence-contracts-v1:source-inventory",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git",
+        "browser",
+        "codex-native-subagent"
+      ],
+      "payloadFamily": "inventory-snapshot",
+      "requiredFields": [
+        "items"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision",
+        "sourceBindingDigest",
+        "sourceSentinelDigest"
+      ]
+    },
+    "self-improve-delivery-handoff": {
+      "id": "evidence-contracts-v1:self-improve-delivery-handoff",
+      "producerAllowlist": [
+        "codex-root"
+      ],
+      "payloadFamily": "artifact-package",
+      "requiredFields": [
+        "artifact",
+        "sourceRunId",
+        "sourceBaselineRevision",
+        "sourceHeadRevision",
+        "sourceBindingDigest",
+        "pluginBundleDigest",
+        "requestManifestDigest",
+        "comparisonDigest",
+        "candidateDigest",
+        "candidateRoot",
+        "purpose",
+        "policyDigest",
+        "witnessDigests"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision",
+        "sourceBindingDigest"
+      ]
+    },
+    "swift-static-review": {
+      "id": "evidence-contracts-v1:swift-static-review",
+      "producerAllowlist": [
+        "codex-root",
+        "codex-native-subagent",
+        "agy",
+        "github-cli"
+      ],
+      "payloadFamily": "review-analysis",
+      "requiredFields": [
+        "verdict"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "sync-matrix": {
+      "id": "evidence-contracts-v1:sync-matrix",
+      "producerAllowlist": [
+        "codex-root",
+        "codex-native-subagent",
+        "agy"
+      ],
+      "payloadFamily": "plan-design",
+      "requiredFields": [
+        "objective"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "target-branch-dev": {
+      "id": "evidence-contracts-v1:target-branch-dev",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git"
+      ],
+      "payloadFamily": "revision-identity",
+      "requiredFields": [
+        "revision",
+        "repository",
+        "ref"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "target-revision": {
+      "id": "evidence-contracts-v1:target-revision",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git"
+      ],
+      "payloadFamily": "revision-identity",
+      "requiredFields": [
+        "revision"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "task-contract": {
+      "id": "evidence-contracts-v1:task-contract",
+      "producerAllowlist": [
+        "codex-root",
+        "codex-native-subagent",
+        "agy"
+      ],
+      "payloadFamily": "plan-design",
+      "requiredFields": [
+        "objective"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "training-replay": {
+      "id": "evidence-contracts-v1:training-replay",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git",
+        "browser",
+        "codex-native-subagent"
+      ],
+      "payloadFamily": "validation-test",
+      "requiredFields": [
+        "command",
+        "result"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision",
+        "sourceBindingDigest"
+      ]
+    },
+    "validation-capability-matrix": {
+      "id": "evidence-contracts-v1:validation-capability-matrix",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git",
+        "browser",
+        "codex-native-subagent"
+      ],
+      "payloadFamily": "validation-test",
+      "requiredFields": [
+        "command",
+        "result"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "web-client": {
+      "id": "evidence-contracts-v1:web-client",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git",
+        "browser",
+        "codex-native-subagent"
+      ],
+      "payloadFamily": "validation-test",
+      "requiredFields": [
+        "command",
+        "result"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "workflow-inventory": {
+      "id": "evidence-contracts-v1:workflow-inventory",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git",
+        "browser",
+        "codex-native-subagent"
+      ],
+      "payloadFamily": "inventory-snapshot",
+      "requiredFields": [
+        "items"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "workspace-inventory": {
+      "id": "evidence-contracts-v1:workspace-inventory",
+      "producerAllowlist": [
+        "codex-root",
+        "git",
+        "github-cli",
+        "github-cli-and-git",
+        "browser",
+        "codex-native-subagent"
+      ],
+      "payloadFamily": "inventory-snapshot",
+      "requiredFields": [
+        "items"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    }
+  }
+}

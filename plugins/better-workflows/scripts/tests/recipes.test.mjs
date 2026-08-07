@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import {
   access,
   appendFile,
@@ -17,9 +17,30 @@ import path from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
+import { digestObject, pluginRoot, sha256 } from "../lib/core.mjs";
+import { transitionLedger } from "../lib/ledger.mjs";
+import { createReviewPackage, markBroadReviewComplete, reviewStatus } from "../lib/review.mjs";
 
 const execFileAsync = promisify(execFile);
 const CLI = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "sbw.mjs");
+const RUNTIME = path.join(pluginRoot(), "scripts", "lib", "recipe-runtime.mjs");
+
+function runRuntime(request) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [RUNTIME], {
+      stdio: ["pipe", "pipe", "pipe"]
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.once("error", reject);
+    child.once("close", (code) => resolve({ code, stdout, stderr }));
+    child.stdin.end(JSON.stringify(request));
+  });
+}
 
 async function git(cwd, ...args) {
   return execFileAsync("git", args, { cwd, encoding: "utf8" });
@@ -55,29 +76,111 @@ async function cli(cwd, stateRoot, args, { allowFailure = false } = {}) {
   }
 }
 
-async function addEvidence(cwd, stateRoot, runId, kind, acceptanceIds) {
+async function addEvidence(cwd, stateRoot, runId, kind, acceptanceIds, payloadOverride = null) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "sbw-recipe-evidence-"));
   const target = path.join(directory, `${kind}.json`);
+  const run = JSON.parse(await readFile(path.join(stateRoot, "runs", runId, "contract.json"), "utf8"));
+  const payload = payloadOverride ?? (kind === "current-sentinel"
+    ? { items: [] }
+    : kind === "artifact-receipt"
+      ? { artifact: { digest: "b".repeat(64) } }
+      : kind === "promotion-decision"
+        ? { outcome: "success" }
+        : { command: "recipe-fixture", result: true });
+  const receipt = {
+    contractId: `evidence-contracts-v1:${kind}`,
+    contractVersion: 1,
+    runId,
+    producer: { provider: "codex-root" },
+    inputBinding: { runId, contractDigest: digestObject(run), remoteRevision: null },
+    payload,
+    payloadDigest: digestObject(payload),
+    producedAt: new Date().toISOString()
+  };
   await writeFile(
     target,
     `${JSON.stringify({
+      schemaVersion: 2,
       id: `evidence-${kind}`,
       kind,
       summary: `${kind} complete`,
       status: "complete",
       acceptanceIds,
-      sourceDigest: "a".repeat(64),
-      dependencyInputs: { files: [] }
+      dependencyInputs: { files: [] },
+      sourceDigest: receipt.payloadDigest,
+      receipt
     })}\n`
   );
   return cli(cwd, stateRoot, ["evidence", "add", runId, "--file", target]);
 }
 
+test("recipe runtime imports the verified source snapshot instead of a replaceable path", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "sbw-recipe-source-snapshot-"));
+  const entryPath = path.join(directory, "run.mjs");
+  const safeSource = `export default async function run() {
+  return { marker: "verified-snapshot" };
+}
+`;
+  await writeFile(entryPath, `export default async function run() { return { marker: "tampered-path" }; }\n`);
+  const result = await runRuntime({
+    entryPath,
+    scriptDigest: sha256(safeSource),
+    sourceBase64: Buffer.from(safeSource).toString("base64"),
+    input: {},
+    workspacePath: directory,
+    artifactStagingPath: directory,
+    timeoutMs: 1_000
+  });
+  assert.equal(result.code, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), {
+    ok: true,
+    result: { marker: "verified-snapshot" },
+    sourceBytes: Buffer.byteLength(safeSource)
+  });
+});
+
+async function ledgerTransition(stateRoot, runId, eventId, type, taskId, evidenceKinds = []) {
+  const file = path.join(stateRoot, "runs", runId, "ledger.json");
+  const ledger = JSON.parse(await readFile(file, "utf8"));
+  return transitionLedger(stateRoot, runId, {
+    eventId,
+    type,
+    taskId,
+    evidenceKinds,
+    expectedLedgerDigest: digestObject(ledger)
+  });
+}
+
 async function governedRun(cwd, stateRoot) {
+  const template = JSON.parse(await readFile(path.join(pluginRoot(), "templates", "workspace-recipe.json"), "utf8"));
+  const contractPath = path.join(await mkdtemp(path.join(os.tmpdir(), "sbw-recipe-contract-")), "contract.json");
+  await writeFile(contractPath, `${JSON.stringify({
+    schemaVersion: 2,
+    goal: "Promote deterministic reference recipe",
+    template: "workspace-recipe",
+    templateDigest: digestObject(template),
+    scope: { include: ["."], exclude: [] },
+    acceptance: structuredClone(template.acceptance),
+    requiredEvidence: [...template.requiredEvidence],
+    controlPlane: structuredClone(template.controlPlane),
+    executionStages: structuredClone(template.executionStages),
+    actionStages: structuredClone(template.actionStages),
+    authority: { rootOnlyMutation: true, externalSideEffects: ["recipe.promote", "artifact.promote"] },
+    risk: { risk: 0, uncertainty: 0, blastRadius: 0, irreversibility: 0, evidenceGap: 0 },
+    sensitivity: "internal",
+    agy: { allowed: false, sanitized: false, required: false },
+    volatileExclusions: [],
+    highRiskIgnored: [],
+    remoteRevision: null,
+    actionGates: structuredClone(template.actionGates),
+    acceptanceEvidence: Object.fromEntries(template.acceptance.map((item) => [item.id, [...template.requiredEvidence]]))
+  }, null, 2)}\n`);
   const started = await cli(cwd, stateRoot, [
     "run",
     "--template",
     "workspace-recipe",
+    "--contract",
+    contractPath,
     "--mode",
     "verified",
     "--goal",
@@ -106,6 +209,33 @@ async function governedRun(cwd, stateRoot) {
   ]) {
     await addEvidence(cwd, stateRoot, started.json.runId, kind, acceptance);
   }
+  const head = (await git(cwd, "rev-parse", "HEAD")).stdout.trim();
+  const review = await createReviewPackage({
+    root: stateRoot,
+    runId: started.json.runId,
+    base: head,
+    head,
+    scope: ["."],
+    diffManifest: { files: [] },
+    instructionDigest: "c".repeat(64),
+    sentinelDigest: started.json.sentinel.digest
+  });
+  await addEvidence(cwd, stateRoot, started.json.runId, "diff-review", [], {
+    verdict: "PASS",
+    findingCount: 0,
+    packageId: review.packageId,
+    base: review.base,
+    head,
+    scopeDigest: review.scopeDigest,
+    diffManifestDigest: review.diffManifestDigest,
+    instructionDigest: review.instructionDigest
+  });
+  await markBroadReviewComplete(stateRoot, started.json.runId, review.packageId, head, started.json.sentinel.digest);
+  await ledgerTransition(stateRoot, started.json.runId, "contract-start", "start", "contract");
+  await ledgerTransition(stateRoot, started.json.runId, "contract-complete", "complete", "contract", ["recipe-contract"]);
+  await ledgerTransition(stateRoot, started.json.runId, "fixture-start", "start", "fixture-dry-run");
+  await ledgerTransition(stateRoot, started.json.runId, "fixture-complete", "complete", "fixture-dry-run", ["fixture-test", "candidate-dry-run"]);
+  await ledgerTransition(stateRoot, started.json.runId, "trust-start", "start", "trust");
   return started.json.runId;
 }
 
@@ -302,6 +432,8 @@ test("reference recipe completes governed promotion, dry-run, atomic run, artifa
     digest
   ]);
   assert.equal(promoted.json.trusted, true);
+  await ledgerTransition(stateRoot, runId, "trust-complete", "complete", "trust", ["digest-confirmation", "promotion-decision"]);
+  await ledgerTransition(stateRoot, runId, "artifact-start", "start", "artifact-promotion");
   const config = JSON.parse(
     await readFile(path.join(cwd, ".codex", "better-workflows", "config.json"), "utf8")
   );
@@ -383,7 +515,10 @@ test("reference recipe completes governed promotion, dry-run, atomic run, artifa
   assert.notEqual(cloneRun.code, 0);
   assert.match(cloneRun.stderr, /recipe is untrusted/);
 
-  await cli(cwd, stateRoot, ["sentinel", "capture", runId, "--label", "artifact-promotion"]);
+  const artifactSentinel = await cli(cwd, stateRoot, ["sentinel", "capture", runId, "--label", "artifact-promotion"]);
+  const artifactReview = await reviewStatus(stateRoot, runId);
+  const artifactHead = (await git(cwd, "rev-parse", "HEAD")).stdout.trim();
+  await markBroadReviewComplete(stateRoot, runId, artifactReview.package.packageId, artifactHead, artifactSentinel.json.sentinel.digest);
   const destination = "reports/keyset-report.md";
   await issueAndConsume(
     cwd,
@@ -403,6 +538,7 @@ test("reference recipe completes governed promotion, dry-run, atomic run, artifa
     destination
   ]);
   assert.equal(artifactPromotion.json.destination, destination);
+  await ledgerTransition(stateRoot, runId, "artifact-complete", "complete", "artifact-promotion", ["artifact-receipt"]);
   assert.match(await readFile(path.join(cwd, destination), "utf8"), /JSON key-set audit/);
 
   const status = await cli(cwd, stateRoot, ["recipe", "status", "json-keyset-audit"]);
@@ -431,31 +567,21 @@ test("reference recipe completes governed promotion, dry-run, atomic run, artifa
   await git(cwd, "commit", "-qm", "drift recipe without version bump");
   await cli(cwd, stateRoot, ["sentinel", "capture", runId, "--label", "drift-repromotion"]);
   const driftValidation = await cli(cwd, stateRoot, ["recipe", "validate", "json-keyset-audit"]);
-  const driftAttempt = await issueAndConsume(
-    cwd,
-    stateRoot,
+  const driftAction = await cli(cwd, stateRoot, [
+    "action",
+    "issue",
     runId,
+    "--action",
     "recipe.promote",
-    `recipe:json-keyset-audit:${driftValidation.json.executionDigest}`
-  );
-  const refusedRepromotion = await cli(
-    cwd,
-    stateRoot,
-    [
-      "recipe",
-      "promote",
-      "json-keyset-audit",
-      "--run",
-      runId,
-      "--attempt",
-      driftAttempt,
-      "--confirm-digest",
-      driftValidation.json.executionDigest
-    ],
-    { allowFailure: true }
-  );
-  assert.notEqual(refusedRepromotion.code, 0);
-  assert.match(refusedRepromotion.stderr, /requires a version bump/);
+    "--provider",
+    "local-workspace",
+    "--resource",
+    `recipe:json-keyset-audit:${driftValidation.json.executionDigest}`,
+    "--remote-revision",
+    "local"
+  ], { allowFailure: true });
+  assert.notEqual(driftAction.code, 0);
+  assert.match(driftAction.stderr, /scoped and final broad review are closed/);
 
   await cli(cwd, stateRoot, ["recipe", "untrust", "json-keyset-audit"]);
   const untrusted = await cli(cwd, stateRoot, ["recipe", "status", "json-keyset-audit"]);

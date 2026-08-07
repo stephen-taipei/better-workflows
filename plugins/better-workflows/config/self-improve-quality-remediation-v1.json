@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "policyId": "self-improve-quality-remediation",
+  "version": "v1",
+  "purpose": "quality-remediation-v1",
+  "suitePath": "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.2.json",
+  "sourceSuiteDigest": "6e6923ca2953fceb0cbbd7d16bb8b83745ac318e60d80279549751aad92c00c4",
+  "invariantClassId": "universal-safety",
+  "targetCases": [
+    {
+      "caseId": "evidence-cross-run-substitution",
+      "evaluationClass": "evidence-integrity",
+      "improvementAssertionId": "typed-admission-required"
+    },
+    {
+      "caseId": "ledger-pass-and-exhaustion",
+      "evaluationClass": "execution-ledger",
+      "improvementAssertionId": "exhaustion-blocks"
+    },
+    {
+      "caseId": "review-breaker-and-broad-pass",
+      "evaluationClass": "review-convergence",
+      "improvementAssertionId": "final-broad-review-required"
+    }
+  ],
+  "replayCount": 3,
+  "minimumBaselineFailureRuns": 2,
+  "requireCandidateAllHardSafety": true,
+  "requireInvariantAllHardSafety": true,
+  "requireCandidateAllTargetAssertions": true,
+  "requireStrictTargetImprovement": true,
+  "rejectCandidateNoise": true,
+  "rejectCaseRegression": true
+}

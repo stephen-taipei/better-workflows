@@ -291,15 +291,15 @@ silently replacing it.
 | `$better-workflows:ci-release` | CI failures, runner queues, serialized deploys, releases, remote monitoring, and receipt-based verification. | `$better-workflows:ci-release Diagnose the failing PR checks, fix them, and monitor the serialized dev deployment.` |
 | `$better-workflows:browser-qa` | Webwright or simulator QA requiring current UI evidence, screenshots, and a reproducible action log. | `$better-workflows:browser-qa Verify signup and contact sync in the browser and attach screenshot evidence.` |
 | `$better-workflows:research` | CLI-proven multi-model roles, evidence-backed architecture comparison, refutation, and an executable plan without majority voting. | `$better-workflows:research Compare three sync architectures, challenge each one, and produce an implementation-ready plan.` |
-| `$better-workflows:self-improve` | Improve Better Workflows itself from bounded recent evidence, including synchronized selectors, templates, tests, docs, versions, immutable cache, and authorized remote delivery. | `$better-workflows:self-improve Review recent workflow outcomes, implement only recurring verified improvements, validate, publish a new cache version, and push the atomic commit.` |
+| `$better-workflows:self-improve` | Improve Better Workflows itself from bounded recent evidence, synchronize the governed surfaces, and hand off delivery. | `$better-workflows:self-improve Review recent workflow outcomes, implement only recurring verified improvements, validate, then hand off commit, cache, and remote delivery to the governed workflows.` |
 | `$better-workflows:workspace-recipe` | Turn a stable, deterministic SOP into a governed workspace-local Node.js recipe with explicit digest trust and bounded artifacts. | `$better-workflows:workspace-recipe Scaffold a repeatable JSON audit, validate it, and prepare its current digest for explicit promotion.` |
 | `$better-workflows:monorepo-refactor` | Full workspace inventory followed by direct implementation of every eligible bounded refactor recommendation, with behavior invariants, validation, and rollback evidence. | `$better-workflows:monorepo-refactor Inventory the monorepo and implement all eligible boundary-cleanup recommendations without changing its public contract.` |
 
 `self-improve-ops` is intentionally a thin orchestration template. It composes
 the existing research, refactor, routing, publication, and delivery controls,
-accepts a justified no-change result, and independently gates commit, cache
-publication, and push. A missing versioned cache link is resolved to a verified
-current bundle; the stale path is never recreated or mutated.
+accepts a justified no-change result; commit, cache publication, and push are
+deferred to their governed workflows. A missing versioned cache link is resolved to
+a verified current bundle; the stale path is never recreated or mutated.
 
 Before proposing a new workflow, record the current coverage. If an existing
 workflow already provides the required safeguards, return `NO_CHANGE` and do
@@ -318,28 +318,115 @@ attestation binding the exact binary and model to the administrator-owned fixed
 host trust root at `/etc/better-workflows/codex-trust-root.json`;
 `PATH`, a self-hash, and model self-report are not provider attestation. Ties,
 noise, missing evidence, and fixture-only results never auto-adopt a change.
+Each successful replay uses a distinct administrator-owned execution witness.
+The digest-confirmed request binds an administrator-approved native Mach-O Codex
+binary digest and allowlist digest, plus the exact committed HEAD and source
+binding. The
+installed signer snapshots that binary into a root-owned `0755` file under the
+fixed execution root, creates and signs the pre-execution binding, and invokes
+a root-owned native launcher. The launcher clears supplementary groups before
+applying the requesting non-root uid/gid with fixed `PATH`/`HOME`/`CODEX_HOME`
+values. The attestation, receipt, envelope, and ledger bind the confirmed
+request digest and exact run-as identity; candidate snapshots bind normalized
+file modes too. After execution it captures the parsed response, exit status,
+and timestamps, writes a root-owned execution ledger, and signs the result
+receipt. `sbw` consumes that persisted witness and verifies it again before
+delivery; it never reruns Codex during resume or delivery revalidation. The
+signed `result receipt` binds the exact prompt digest and response digest as
+well as the binary, model, execution, ledger, exit status, and timestamps.
+
+Evaluation v2.2 preserves the existing safety, documentation, deliberation,
+sanitizer, and evaluation-engineering coverage, and adds isolated train/holdout
+classes for typed-evidence integrity, execution-ledger replay, bounded review
+convergence, and direct-work cost. Its one-time migration freezes v2.1 as the
+source and binds both immutable suite digests into all seven signed executions.
+
+`safety-remediation-v1` is a separate run-creation purpose. It uses the fixed
+`plugins/better-workflows/config/self-improve-safety-remediation-v1.json` policy
+and its digest-bound v2.2 corpus, retaining the universal invariant and three
+predeclared evidence, ledger, and review remediation targets. Each target must
+be proven as a baseline defect in at least two of three replays; otherwise the
+run is rejected as `baseline-remediation-not-reproduced`. Every candidate replay
+must repair the reproduced targets without case regression or candidate noise.
+The purpose and
+policy digest are bound into the schemaVersion 3 request manifest, signed
+executions, evidence, and delivery handoff; ordinary and evaluator-migration
+contracts remain unchanged.
+
+`quality-remediation-v1` is an independent versioned purpose for recurring
+non-hard completion gaps, not a safety-defect or evaluator-migration bypass. It
+uses `plugins/better-workflows/config/self-improve-quality-remediation-v1.json`
+and the same immutable v2.2 corpus, binding its policy digest through the suite,
+request manifest, signed executions, evidence, and delivery handoff. The three
+targets are typed evidence admission, exhaustion blocking, and final broad
+review. Each must fail in at least two baseline replays and pass in all three
+candidate replays, while candidate and invariant hard-safety, no regression,
+no candidate noise, and strict target improvement remain required. A missing
+quality gap is rejected as `baseline-quality-gap-not-reproduced`; it cannot
+reuse safety-remediation witnesses or change ordinary comparison semantics.
 
 The host trust root is **not required for ordinary clones or workspace recipe
 execution**. It is required only for maintainers who want real Codex
-self-improvement replays to authorize commit, cache publication, or delivery.
-On each host, an administrator reviews a pinned checkout and provisions it once:
+self-improvement replays. The self-improve contract does not authorize commit,
+cache publication, push, merge, or cleanup; those actions are delegated to
+`pr-to-dev` and the immutable-cache workflow.
+
+The source-bound handoff is explicit. Resolve an immutable baseline when
+creating the self-improve run, keep the candidate at a clean committed HEAD,
+then create a delegated delivery run and record its typed handoff:
 
 ```bash
-sudo "$(command -v node)" \
-  plugins/better-workflows/scripts/host-trust.mjs provision
+sbw run --template self-improve-ops --mode critical \
+  --goal "<bounded improvement>" --scope . \
+  --baseline <immutable-baseline-sha>
+sbw run --template pr-to-dev --mode critical \
+  --goal "Deliver accepted improvement" --scope . \
+  --self-improve-run <self-improve-run-id>
+sbw self-improve handoff <pr-to-dev-run-id> \
+  --source-run <self-improve-run-id>
+```
 
+`self-improve-delivery-handoff` binds the source run's exact baseline, HEAD,
+clean source binding, plugin bundle, request manifest, accepted comparison,
+candidate snapshot, seven distinct host witnesses, and canonical Codex plugin
+cache root. The delegated delivery action gates require this receipt; a generic
+`pr-to-dev` run cannot authorize delivery of an accepted self-improvement.
+On each host, an administrator must first confirm that the fixed trust root and
+private key are already provisioned through the host's approved bootstrap. This
+repository does not publish or execute the legacy Swift bootstrap artifact. If
+the trust root or key is absent, stop and complete that separate administrator
+bootstrap before continuing. For an existing host, inspect the current state:
+
+```bash
 node plugins/better-workflows/scripts/sbw.mjs \
   self-improve host status
 ```
 
-Provisioning is fail-closed and never overwrites or silently rotates an
+The status command is read-only. It never overwrites or silently rotates an
 existing key. The trust root is public and root-owned; the private Ed25519 key
 remains mode `0600` outside the repository. Do not use `plutil` to validate the
-JSON trust root—use `self-improve host status`.
+JSON trust root—use `self-improve host status`. If status reports `ready: false`
+because a legacy signer or an incomplete readiness receipt is installed, compile the exact native sources with
+fixed `/usr/bin/clang`, stage a digest-confirmed root-owned Node runtime and
+the resulting Mach-O launcher/probe, then run `host-trust.mjs upgrade` through
+the fixed `/bin/sh` staging wrapper with `env -i`. Never sudo the
+maintainer's `process.execPath` directly. The administrator upgrade must also
+receive `--codex-binary <canonical-native-Mach-O>` and
+`--codex-binary-digest <sha256>`; it records the approved binary in the
+root-owned `0644` allowlist and rejects a JS wrapper or arbitrary executable.
+The old signer is retained as a root-owned backup; upgrade performs a disposable
+signed readiness witness and a failed upgrade is quarantined and rolled back
+with exact prior artifact digests proven, without rotating keys.
 
+Before request generation, the candidate must already be the exact committed
+HEAD that will be reviewed and delivered. If it is dirty, use `pr-to-dev` for
+the commit wave and start a fresh source-bound self-improve run. Changing the
+source or plugin bundle after request generation invalidates every witness.
 After a candidate is frozen, generate all seven distinct requests outside the
-repository. The output includes a manifest digest and an exact `signCommand`;
-the administrator reviews both before running that one batch-sign command:
+repository. The output includes a manifest digest and an exact `executeCommand`;
+the administrator reviews both before running that one host-execution command;
+the command verifies the already-installed runtime in the fixed root-owned host
+directory before invoking the signer:
 
 ```bash
 node plugins/better-workflows/scripts/sbw.mjs \
@@ -348,8 +435,24 @@ node plugins/better-workflows/scripts/sbw.mjs \
   --baseline <sha> \
   --candidate-root . \
   --model <model> \
-  --output <new-outside-repo-directory>
+--output <new-outside-repo-directory>
 ```
+
+The signer authenticates the canonical parent chain for the fixed runtime,
+signer, launcher, probe, execution, attestation, and request-bundle roots.
+Every parent must be administrator-owned and lack group/world write bits; a
+root-owned leaf under a writable or replaceable parent is rejected.
+
+The command returns seven root-owned witness paths under
+`/private/var/db/better-workflows/executions`. Pass those paths to
+`--trusted-codex-execution` (one for training and six for holdout), together
+with `--request-manifest <output>/attestation-requests.json` and the exact
+`--request-manifest-digest <manifest-sha256>`. The host
+signer owns response capture, timing, the one-shot execution ledger, and result
+receipt creation; a caller-supplied response or timestamp is never signed.
+`sbw` requires the root-owned completed batch journal and verifies every
+request digest, execution identity, run-as tuple, binary, model, suite,
+baseline, and candidate against that manifest.
 
 Before file-count or byte sampling, every changed path must match the fixed
 plugin or repository-public-document allowlist. An out-of-scope path rejects
@@ -399,9 +502,11 @@ node plugins/better-workflows/scripts/sbw.mjs recipe run <id> \
 Dry-run executes only an already trusted program and discards staging.
 Normal execution atomically publishes declared artifacts under the ignored
 workspace artifact directory. Promoting one artifact into tracked source needs
-an independent `artifact.promote` action. Receipts store only digests,
+an independent `artifact.promote` action. General receipts store only digests,
 timestamps, bounded artifact metadata, and reconciliation—not raw input,
-conversation, credentials, secrets, or provider receipts.
+conversation, credentials, or secrets. Reconciled side-effect action records
+retain provider receipts privately for terminal-state verification; they are not
+included in external handoffs or graph projections.
 
 ### Derived Graph View
 
@@ -655,6 +760,9 @@ automatically falls back to the runner bundled with the active plugin.
 - The `agy` argv transport is treated as exposed metadata and is not allowed for confidential workflows.
 - The multi-model roster retains every configured brand, but only uses a CLI-proven result from a separate `medium` or `high` cache profile lasting at most 24 hours; expiry, `--refresh`, roster changes, and CLI identity changes force revalidation.
 - Unknown provider outcomes require query reconciliation and are never blindly retried.
+- Governed GitHub probes use the absolute `gh` path and content digest captured at token or evidence creation; required-check verification rejects missing identities and path/binary drift rather than resolving an ambient fallback.
+- A PR-create wrapper failure after preflight is `sent-or-indeterminate`; an explicit `not-sent` preflight may release `pull/new` directly, while a fresh pinned-provider absence proof may reconcile the same unknown attempt as failure and release it. Reservations are namespaced by provider repository, action, and resource, and legacy unscoped reservations remain fail-closed.
+- Wrapper-backed actions use `issue` → `execute`; `execute` consumes internally, while direct `consume` is reserved for non-wrapper side effects. Contract-deferred actions are rejected by core lifecycle gates, not only by template action stages.
 - The project assumes trusted local repositories and does not claim to sandbox malicious repository code.
 
 ## Development
@@ -668,11 +776,20 @@ node scripts/plugin-cache.mjs check
 The runtime uses only Node.js standard-library modules.
 
 Plugin cache versions are immutable. Every content change must use a new build
-version; `node scripts/plugin-cache.mjs sync` stages a missing version, verifies
+version; issue the delegated `plugin.cache.publish` action for resource `plugin-cache:<source-head-revision>`, then run `SBW_STATE_ROOT=<state-root> node scripts/plugin-cache.mjs sync --handoff-run <pr-to-dev-run-id> --token <plugin-cache-action-token>`. It requires a fresh typed handoff while the source HEAD is unchanged, then stages a missing version, verifies
 the exact file manifest and digest, then atomically publishes it. It refuses to
 overwrite a same-version cache with different contents. Run `sbw eval` from the
 final cache path before activating that version through the normal Codex plugin
-refresh.
+refresh. The `--cache-root` override is diagnostic-only for `check`; governed
+`sync` is fixed to the cache root recorded by the target manifest and action
+token; a different `CODEX_HOME` fails before token consumption. If the success
+action record is persisted before the ready marker, repeating the same sync
+attempt repairs the marker from that exact receipt without republishing. A
+`spent/pending` action can likewise resume only when the exact pending marker
+and immutable target prove the handoff source binding, run, and attempt; if
+that proof is absent, the attempt remains unknown and no second publication is
+allowed. Source runs without an explicit canonical cache-root field and locks
+whose owner cannot be proven absent fail closed.
 
 ## License
 

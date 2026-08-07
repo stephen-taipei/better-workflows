@@ -1,8 +1,11 @@
 {
   "name": "issues-to-root-fix-pr-merge-cleanup",
+  "controlPlane": {"evidencePolicy":"typed-v1","ledgerPolicy":"ledger-v1","reviewPolicy":"code-v1","designPacketPolicy":"none","refinementPolicy":"none","deliberationPolicy":"none"},
+  "executionStages": [{"id":"issue-refresh","goal":"issue-refresh","dependsOn":[],"requiredEvidence":["issue-state"],"attemptBudget":3,"kind":"regular"},{"id":"patch","goal":"patch","dependsOn":["issue-refresh"],"requiredEvidence":["change-inventory"],"attemptBudget":3,"kind":"regular"},{"id":"validate-review","goal":"validate-review","dependsOn":["patch"],"requiredEvidence":["repo-gates","patch-review"],"attemptBudget":5,"kind":"review"},{"id":"pr-merge","goal":"pr-merge","dependsOn":["validate-review"],"requiredEvidence":["pr-state","required-checks","merge-result"],"attemptBudget":1,"kind":"side-effect"},{"id":"cleanup","goal":"cleanup","dependsOn":["pr-merge"],"requiredEvidence":["actions-cleanup-plan","cleanup-manifest"],"attemptBudget":1,"kind":"side-effect"}],
+  "actionStages": {"git.push":"validate-review","pr.create":"validate-review","pr.merge":"pr-merge","worktree.cleanup":"cleanup"},
   "description": "Revalidate issues, let root implement fixes, verify, publish, merge, and clean only run-owned resources.",
   "defaultMode": "deep",
-  "requiredEvidence": ["issue-state", "base-revision", "patch-review", "repo-gates", "pr-state", "cleanup-manifest"],
+  "requiredEvidence": ["issue-state", "base-revision", "patch-review", "repo-gates", "pr-state", "actions-cleanup-plan", "cleanup-manifest"],
   "acceptance": [
     {"id": "issues-current", "description": "Assigned issues remain open and applicable.", "critical": true},
     {"id": "root-integrated", "description": "The root owns every edit and integration decision.", "critical": true},
@@ -13,7 +16,7 @@
     "git.push": ["issue-state", "patch-review", "repo-gates"],
     "pr.create": ["issue-state", "patch-review", "repo-gates"],
     "pr.merge": ["pr-state", "repo-gates"],
-    "worktree.cleanup": ["pr-state", "cleanup-manifest"]
+    "worktree.cleanup": ["pr-state", "actions-cleanup-plan"]
   },
   "domainSkills": ["gh-fix-ci", "gh-address-comments", "git-check-pr"],
   "rootOnlyActions": ["git commit", "git push", "gh pr create", "gh pr merge", "git worktree remove"]
