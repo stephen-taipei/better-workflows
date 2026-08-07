@@ -392,6 +392,14 @@ async function readPublicationMarker(cacheRoot, version) {
   }
 }
 
+async function removeOwnedPublicationMarker(cacheRoot, version, expectedMarker) {
+  if (!expectedMarker) return false;
+  const current = await readPublicationMarker(cacheRoot, version);
+  if (!current || digestObject(current) !== digestObject(expectedMarker)) return false;
+  await unlink(publicationMarkerPath(cacheRoot, version));
+  return true;
+}
+
 async function writePublicationMarker({
   cacheRoot,
   version,
@@ -674,6 +682,7 @@ export async function publishPluginCache({
   let snapshotRoot = null;
   let publishedTarget = false;
   let publishedPath = null;
+  let ownedPublicationMarker = null;
   try {
     const lockedBefore = await checkPluginCache({ sourceRoot, cacheRoot });
     if (
@@ -720,7 +729,7 @@ export async function publishPluginCache({
       throw new Error(`Plugin cache target appeared during publication: ${lockedBefore.target}`);
     }
     await assertExpectedSourceBinding(sourceRoot, expected, expectedBundleDigest);
-    await writePublicationMarker({
+    ownedPublicationMarker = await writePublicationMarker({
       cacheRoot: resolvedCacheRoot,
       version: lockedBefore.version,
       state: "pending",
@@ -767,7 +776,11 @@ export async function publishPluginCache({
         rollbackError = candidate;
       }
     }
-    await unlink(publicationMarkerPath(resolvedCacheRoot, before.version)).catch(() => undefined);
+    await removeOwnedPublicationMarker(
+      resolvedCacheRoot,
+      before.version,
+      ownedPublicationMarker
+    ).catch(() => undefined);
     await rm(stage, { recursive: true, force: true }).catch(() => undefined);
     if (rollbackError) {
       throw new AggregateError(

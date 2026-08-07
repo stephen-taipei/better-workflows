@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { access, chmod, link, mkdir, mkdtemp, readdir, stat, writeFile } from "node:fs/promises";
+import { access, chmod, link, mkdir, mkdtemp, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -159,6 +159,46 @@ test("plugin cache publication reclaims a lock left by a hard-killed publisher",
     (await readdir(cacheRoot)).filter((name) => name.includes(".publish.lock") || name.includes(".stage-")),
     []
   );
+});
+
+test("publication failure preserves a pending marker owned by another action", async () => {
+  const version = "1.1.0+test.foreign-marker";
+  const sourceRoot = await sourceFixture(version);
+  const cacheRoot = path.join(await mkdtemp(path.join(os.tmpdir(), "sbw-publication-foreign-marker-")), "cache");
+  const markerPath = path.join(cacheRoot, `${version}.ready.json`);
+  const foreignMarker = {
+    schemaVersion: 2,
+    state: "pending",
+    version,
+    target: path.join(cacheRoot, version),
+    targetDigest: "a".repeat(64),
+    sourceDigest: "a".repeat(64),
+    sourceBaselineRevision: null,
+    sourceHeadRevision: null,
+    sourceBindingDigest: null,
+    pluginBundleDigest: "a".repeat(64),
+    runId: "sbw-foreign-run",
+    attemptId: "sbw-foreign-attempt",
+    providerReceiptDigest: null,
+    updatedAt: "2026-08-07T00:00:00.000Z"
+  };
+  await assert.rejects(
+    publishPluginCache({
+      sourceRoot,
+      cacheRoot,
+      publicationIdentity: {
+        runId: "sbw-current-run",
+        attemptId: "sbw-current-attempt"
+      },
+      beforeRename: async () => {
+        await writeFile(markerPath, `${JSON.stringify(foreignMarker, null, 2)}\n`, { mode: 0o600 });
+        throw new Error("simulated foreign marker replacement");
+      }
+    }),
+    /simulated foreign marker replacement/
+  );
+  assert.deepEqual(JSON.parse(await readFile(markerPath, "utf8")), foreignMarker);
+  await assert.rejects(access(path.join(cacheRoot, version)));
 });
 
 test("concurrent stale-lock reclaimers cannot steal a successor publication lock", async () => {
