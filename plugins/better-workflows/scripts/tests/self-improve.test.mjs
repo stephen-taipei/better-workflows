@@ -37,7 +37,9 @@ const suite = JSON.parse(await readFile(path.join(pluginRoot(), "fixtures", "sel
 const suiteV2 = JSON.parse(await readFile(path.join(pluginRoot(), "fixtures", "self-improve-ops-evals-v2.json"), "utf8"));
 const suiteV21Bytes = await readFile(path.join(pluginRoot(), "fixtures", "self-improve-ops-evals-v2.1.json"));
 const suiteV21 = JSON.parse(suiteV21Bytes.toString("utf8"));
-const suiteV22 = JSON.parse(await readFile(path.join(pluginRoot(), "fixtures", "self-improve-ops-evals-v2.2.json"), "utf8"));
+const suiteV22Bytes = await readFile(path.join(pluginRoot(), "fixtures", "self-improve-ops-evals-v2.2.json"));
+const suiteV22 = JSON.parse(suiteV22Bytes.toString("utf8"));
+const suiteV23 = JSON.parse(await readFile(path.join(pluginRoot(), "fixtures", "self-improve-ops-evals-v2.3.json"), "utf8"));
 const repositoryRoot = path.resolve(pluginRoot(), "../..");
 const safetyPolicy = await loadSafetyRemediationPolicy({ cwd: repositoryRoot });
 const qualityPolicy = await loadQualityRemediationPolicy({ cwd: repositoryRoot });
@@ -52,6 +54,8 @@ test("self-improve corpus validates split isolation, uniqueness, and secret-shap
   assert.equal(validateEvaluationSuite(suiteV21).classes.length, 5);
   assert.equal(validateEvaluationSuite(suiteV22).classes.length, 9);
   assert.equal(validateEvaluationSuite(suiteV22).cases.length, 18);
+  assert.equal(validateEvaluationSuite(suiteV23).classes.length, 10);
+  assert.equal(validateEvaluationSuite(suiteV23).cases.length, 20);
   const duplicate = structuredClone(suite);
   duplicate.cases[1].id = duplicate.cases[0].id;
   assert.throws(() => validateEvaluationSuite(duplicate), /unique/);
@@ -92,6 +96,53 @@ test("candidate snapshots bind executable modes so post-holdout chmod is detecte
   }
 });
 
+test("candidate snapshots exclude only exact release metadata from class applicability", async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), "sbw-release-metadata-candidate-"));
+  try {
+    await execFileAsync("git", ["init", "-q", "-b", "dev"], { cwd });
+    await execFileAsync("git", ["config", "user.name", "Better Workflows Tests"], { cwd });
+    await execFileAsync("git", ["config", "user.email", "tests@example.invalid"], { cwd });
+    const baselineFiles = {
+      "README.md": "[![Version](https://img.shields.io/badge/version-3.1.4-2563EB?style=flat-square)](plugins/better-workflows/package.json)\n",
+      "plugins/better-workflows/package.json": "{\n  \"name\": \"better-workflows\",\n  \"version\": \"3.1.4\"\n}\n",
+      "plugins/better-workflows/scripts/lib/core.mjs": "export const VERSION = \"3.1.4\";\nexport const stable = true;\n",
+      "scripts/plugin-cache.mjs": "const receipt = { dependencies: { workflowVersion: \"3.1.4\", files: [] } };\n",
+      "plugins/better-workflows/scripts/lib/publication.mjs": "export const preserveForeignMarker = false;\n"
+    };
+    for (const [file, content] of Object.entries(baselineFiles)) {
+      await mkdir(path.dirname(path.join(cwd, file)), { recursive: true });
+      await writeFile(path.join(cwd, file), content);
+    }
+    await execFileAsync("git", ["add", "."], { cwd });
+    await execFileAsync("git", ["commit", "-qm", "baseline"], { cwd });
+    const baseline = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd })).stdout.trim();
+    await writeFile(path.join(cwd, "README.md"), baselineFiles["README.md"].replace("3.1.4", "3.1.5"));
+    await writeFile(path.join(cwd, "plugins/better-workflows/package.json"), baselineFiles["plugins/better-workflows/package.json"].replace("3.1.4", "3.1.5"));
+    await writeFile(path.join(cwd, "plugins/better-workflows/scripts/lib/core.mjs"), baselineFiles["plugins/better-workflows/scripts/lib/core.mjs"].replace("3.1.4", "3.1.5"));
+    await writeFile(path.join(cwd, "scripts/plugin-cache.mjs"), baselineFiles["scripts/plugin-cache.mjs"].replace("3.1.4", "3.1.5"));
+    await writeFile(path.join(cwd, "plugins/better-workflows/scripts/lib/publication.mjs"), "export const preserveForeignMarker = true;\n");
+
+    const candidate = await snapshotCandidate({ cwd, baselineRevision: baseline, candidateRoot: "." });
+    const byPath = new Map(candidate.files.map((item) => [item.path, item]));
+    for (const file of ["README.md", "plugins/better-workflows/package.json", "plugins/better-workflows/scripts/lib/core.mjs", "scripts/plugin-cache.mjs"]) {
+      assert.equal(byPath.get(file).changeKind, "release-metadata-only");
+    }
+    assert.equal(byPath.get("plugins/better-workflows/scripts/lib/publication.mjs").changeKind, "semantic");
+    const baselineSnapshot = await snapshotBaselineForCandidate({ cwd, snapshot: candidate });
+    assert.equal(baselineSnapshot.files.find((item) => item.path === "README.md").changeKind, "release-metadata-only");
+    assert.deepEqual(
+      [...new Set(selectEvaluationCases({ suite: suiteV23, snapshot: candidate, split: "holdout" }).map((item) => item.evaluationClass))].sort(),
+      ["plugin-cache-publication", "universal-safety"]
+    );
+
+    await writeFile(path.join(cwd, "README.md"), `${baselineFiles["README.md"].replace("3.1.4", "3.1.5")}Semantic documentation change.\n`);
+    const semanticDocs = await snapshotCandidate({ cwd, baselineRevision: baseline, candidateRoot: "." });
+    assert.equal(semanticDocs.files.find((item) => item.path === "README.md").changeKind, "semantic");
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test("evaluation v2 rejects unknown fields, missing class splits, and unsafe paths", () => {
   const unknown = structuredClone(suiteV2);
   unknown.classes[0].authority = "invented";
@@ -104,24 +155,25 @@ test("evaluation v2 rejects unknown fields, missing class splits, and unsafe pat
   assert.throws(() => validateEvaluationSuite(traversal), /escapes/);
 });
 
-test("evaluation v2.2 uniquely covers every control-plane improvement class in train and holdout", () => {
-  const expected = ["direct-work-cost", "evidence-integrity", "execution-ledger", "review-convergence"];
-  const classes = suiteV22.classes.filter((item) => expected.includes(item.id));
+test("evaluation v2.3 adds publication coverage without mutating the v2.2 source corpus", () => {
+  const expected = ["direct-work-cost", "evidence-integrity", "execution-ledger", "plugin-cache-publication", "review-convergence"];
+  const classes = suiteV23.classes.filter((item) => expected.includes(item.id));
   assert.deepEqual(classes.map((item) => item.id).sort(), expected);
   for (const classId of expected) {
-    const cases = suiteV22.cases.filter((item) => item.evaluationClass === classId);
+    const cases = suiteV23.cases.filter((item) => item.evaluationClass === classId);
     assert.deepEqual(cases.map((item) => item.split).sort(), ["holdout", "train"]);
     assert.equal(new Set(cases.map((item) => item.id)).size, 2);
     assert.equal(cases.every((item) => item.assertions.some((assertion) => assertion.hardSafety)), true);
   }
-  for (const legacyCase of suiteV21.cases) {
-    assert.deepEqual(suiteV22.cases.find((item) => item.id === legacyCase.id), legacyCase);
+  for (const legacyCase of suiteV22.cases.filter((item) => item.evaluationClass !== "evaluation-engineering")) {
+    assert.deepEqual(suiteV23.cases.find((item) => item.id === legacyCase.id), legacyCase);
   }
-  assert.equal(createHash("sha256").update(suiteV21Bytes).digest("hex"), "42f61f3f416d0c28ccd419e6aa52aa07923889b944906b0de922f12b67c0401c");
+  assert.equal(createHash("sha256").update(suiteV22Bytes).digest("hex"), "6e6923ca2953fceb0cbbd7d16bb8b83745ac318e60d80279549751aad92c00c4");
   assert.deepEqual(SELF_IMPROVE_MIGRATION_SOURCE_CORPORA, [
     "plugins/better-workflows/fixtures/self-improve-ops-evals.json",
     "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.json",
-    "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.1.json"
+    "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.1.json",
+    "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.2.json"
   ]);
 });
 
@@ -372,6 +424,7 @@ test("safety remediation comparison requires reproducible baseline defects and r
 
 test("ordinary evaluator readers prefer the newest corpus present in the immutable baseline", () => {
   assert.deepEqual(SELF_IMPROVE_ORDINARY_CORPORA, [
+    "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.3.json",
     "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.2.json",
     "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.1.json",
     "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.json",
@@ -621,37 +674,34 @@ test("evaluation v2 selects universal safety plus only applicable improvement cl
   );
 });
 
-test("evaluator migration calibration binds v2.1, v2.2, balanced groups, and both splits", () => {
+test("evaluator migration calibration binds v2.2, v2.3, publication coverage, balanced groups, and both splits", () => {
   const snapshot = {
     files: [
-      { path: "plugins/better-workflows/config/evidence-contracts-v1.json", state: "file" },
-      { path: "plugins/better-workflows/scripts/lib/core.mjs", state: "file" },
-      { path: "plugins/better-workflows/scripts/lib/ledger.mjs", state: "file" },
-      { path: "plugins/better-workflows/scripts/lib/review.mjs", state: "file" },
+      { path: "plugins/better-workflows/scripts/lib/publication.mjs", state: "file" },
       { path: "plugins/better-workflows/scripts/lib/self-improve.mjs", state: "file" },
-      { path: "plugins/better-workflows/scripts/tests/self-improve.test.mjs", state: "file" }
+      { path: "plugins/better-workflows/scripts/tests/publication.test.mjs", state: "file" },
+      { path: "plugins/better-workflows/scripts/tests/self-improve.test.mjs", state: "file" },
+      { path: "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.3.json", state: "file" }
     ]
   };
   const calibration = calibrateEvaluatorMigration({
-    source: suiteV21,
-    target: suiteV22,
+    source: suiteV22,
+    target: suiteV23,
     snapshot,
     materials: [
-      { materialGroup: "config" },
+      { materialGroup: "fixtures" },
       { materialGroup: "runtime" },
       { materialGroup: "tests" }
     ],
     sourceDigest: "a".repeat(64),
     targetDigest: "b".repeat(64)
   });
-  assert.deepEqual(calibration.materialGroups, ["config", "runtime", "tests"]);
+  assert.deepEqual(calibration.materialGroups, ["fixtures", "runtime", "tests"]);
   assert.match(calibration.digest, /^[a-f0-9]{64}$/);
   assert.ok(calibration.trainClasses.includes("universal-safety"));
   assert.ok(calibration.holdoutClasses.includes("evaluation-engineering"));
-  for (const classId of ["direct-work-cost", "evidence-integrity", "execution-ledger", "review-convergence"]) {
-    assert.ok(calibration.trainClasses.includes(classId));
-    assert.ok(calibration.holdoutClasses.includes(classId));
-  }
+  assert.ok(calibration.trainClasses.includes("plugin-cache-publication"));
+  assert.ok(calibration.holdoutClasses.includes("plugin-cache-publication"));
 });
 
 test("candidate sanitizer admits declared public docs and checks all paths before sampling", async () => {

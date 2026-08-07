@@ -53,12 +53,13 @@ async function cli(cwd, stateRoot, args, { allowFailure = false, env = {} } = {}
   }
 }
 
-async function selfImproveRepository({ includeV22 = true } = {}) {
+async function selfImproveRepository({ includeV22 = true, includeV23 = includeV22 } = {}) {
   const cwd = await repository();
   await mkdir(path.join(cwd, "plugins", "better-workflows", "fixtures"), { recursive: true });
   await mkdir(path.join(cwd, "plugins", "better-workflows", "scripts"), { recursive: true });
   const corpora = ["self-improve-ops-evals.json", "self-improve-ops-evals-v2.json", "self-improve-ops-evals-v2.1.json"];
   if (includeV22) corpora.push("self-improve-ops-evals-v2.2.json");
+  if (includeV23) corpora.push("self-improve-ops-evals-v2.3.json");
   for (const name of corpora) {
     const corpus = await readFile(path.resolve(path.dirname(CLI), "..", "fixtures", name), "utf8");
     await writeFile(path.join(cwd, "plugins", "better-workflows", "fixtures", name), corpus);
@@ -302,21 +303,25 @@ test("delegated pr-to-dev runs require the typed self-improve handoff gate", asy
 });
 
 test("evaluator migration binds immutable source and target suites, calibration, and a dedicated comparison policy", async () => {
-  const cwd = await selfImproveRepository();
+  const cwd = await selfImproveRepository({ includeV23: false });
   const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-cli-evaluator-migration-"));
+  await writeFile(
+    path.join(cwd, "plugins", "better-workflows", "fixtures", "self-improve-ops-evals-v2.3.json"),
+    await readFile(path.resolve(path.dirname(CLI), "..", "fixtures", "self-improve-ops-evals-v2.3.json"))
+  );
   await writeFile(path.join(cwd, "plugins", "better-workflows", "scripts", "sbw.mjs"), "export const candidate = 'evaluation-v2';\n");
-  await git(cwd, "add", "plugins/better-workflows/scripts/sbw.mjs");
+  await git(cwd, "add", "plugins/better-workflows/scripts/sbw.mjs", "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.3.json");
   await git(cwd, "commit", "-qm", "stage evaluator candidate");
   const baseline = await revision(cwd, "HEAD~");
   const started = await cli(cwd, stateRoot, [
     "run", "--template", "self-improve-ops", "--mode", "critical", "--goal", "Migrate evaluator", "--scope", ".", "--baseline", baseline, "--authority", "git.commit"
   ]);
-  const fixture = await fixtureResult(cwd, "self-improve-ops-evals-v2.1.json");
+  const fixture = await fixtureResult(cwd, "self-improve-ops-evals-v2.2.json");
   const common = [
     "self-improve", "evaluate",
     "--run", started.json.runId,
-    "--cases", "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.1.json",
-    "--next-cases", "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.2.json",
+    "--cases", "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.2.json",
+    "--next-cases", "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.3.json",
     "--purpose", "evaluator-migration",
     "--baseline", baseline,
     "--candidate-root", ".",
@@ -364,7 +369,7 @@ test("ordinary evaluator resume pins legacy runs while new runs require the new 
   await git(currentCwd, "commit", "-qm", "stage current candidate");
   const currentBaseline = await revision(currentCwd, "HEAD~");
   const current = await cli(currentCwd, currentStateRoot, [
-    "run", "--template", "self-improve-ops", "--mode", "critical", "--goal", "Require v2.2 evaluation", "--scope", ".", "--baseline", currentBaseline
+    "run", "--template", "self-improve-ops", "--mode", "critical", "--goal", "Require v2.3 evaluation", "--scope", ".", "--baseline", currentBaseline
   ]);
   const rejected = await cli(currentCwd, currentStateRoot, [
     "self-improve", "evaluate",
@@ -379,7 +384,7 @@ test("ordinary evaluator resume pins legacy runs while new runs require the new 
     "--trusted-codex-execution", "/nonexistent",
     "--split", "train"
   ], { allowFailure: true });
-  assert.match(rejected.stderr, /self-improve-ops-evals-v2\.2\.json/);
+  assert.match(rejected.stderr, /self-improve-ops-evals-v2\.3\.json/);
 });
 
 test("self-improve evaluation fails closed when its suite or staged candidate changes", async () => {
@@ -462,7 +467,7 @@ test("self-improve attestation request freezes seven distinct requests and rejec
   assert.equal(requested.json.requests.length, 7);
   assert.equal(new Set(requested.json.requests.map((item) => item.executionId)).size, 7);
   assert.equal(requested.json.purpose, "ordinary");
-  assert.equal(requested.json.suitePath, "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.2.json");
+  assert.equal(requested.json.suitePath, "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.3.json");
   assert.equal(requested.json.targetSuiteDigest, null);
   assert.equal(requested.json.manifestPath, path.join(output, "attestation-requests.json"));
   assert.match(requested.json.manifestDigest, /^[a-f0-9]{64}$/);
@@ -513,13 +518,13 @@ test("self-improve attestation request freezes seven distinct requests and rejec
     "--purpose",
     "evaluator-migration",
     "--cases",
-    "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.1.json",
+    "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.2.json",
     "--next-cases",
-    "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.2.json"
+    "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.3.json"
   ]);
   assert.equal(migration.json.requests.length, 7);
-  assert.equal(migration.json.suitePath, "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.1.json");
-  assert.equal(migration.json.targetSuitePath, "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.2.json");
+  assert.equal(migration.json.suitePath, "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.2.json");
+  assert.equal(migration.json.targetSuitePath, "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.3.json");
   assert.match(migration.json.sourceSuiteDigest, /^[a-f0-9]{64}$/);
   assert.match(migration.json.targetSuiteDigest, /^[a-f0-9]{64}$/);
   for (const item of migration.json.requests) {

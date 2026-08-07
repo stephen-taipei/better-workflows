@@ -293,7 +293,7 @@ node plugins/better-workflows/scripts/sbw.mjs recipe run <id> \
 
 每次成功 replay 都使用独立的 host-owned witness：已安装 signer 精确执行 attested Codex binary 一次，由 host 捕获 prompt、parsed response、exit status、timestamps，并写入 root-owned execution ledger 与 `result receipt`。`sbw` 消费已保存的 witness，resume 或 delivery revalidation 不会重新执行 Codex；signed receipt 绑定 exact prompt digest、response digest、binary、model、execution、ledger 与 timestamps。
 
-Evaluation v2.2 保留现有 safety、documentation、deliberation、sanitizer 与 evaluation-engineering coverage，并增加 typed-evidence integrity、execution-ledger replay、bounded review convergence 与 direct-work cost 的独立 train/holdout classes。一次性 migration 以 immutable v2.1 为 source，并将 source/target 两份 suite digest 绑定到全部七份 signed executions。
+Evaluation v2.3 保留 v2.2 的 safety、documentation、deliberation、sanitizer、evaluation-engineering、evidence、ledger、review 与 direct-work coverage，并增加针对 marker ownership race 的独立 plugin-cache-publication class。精确且列入 allowlist 的 release-version-only 替换仍保留在 signed manifest，但不会启用无关且已 saturated 的 classes；其他任何 byte 变更都保持 semantic。一次性 migration 以 immutable v2.2 为 source，并将 source/target 两份 suite digest 绑定到全部七份 signed executions。
 
 `safety-remediation-v1` 是独立的 run-creation purpose。它使用固定的
 `plugins/better-workflows/config/self-improve-safety-remediation-v1.json` policy

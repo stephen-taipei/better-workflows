@@ -47,7 +47,8 @@ function assertDetailedCoverage(content, file) {
   assert.match(content, /result receipt/, file);
   assert.match(content, /prompt digest/, file);
   assert.match(content, /response digest/, file);
-  assert.match(content, /Evaluation v2\.2/, file);
+  assert.match(content, /Evaluation v2\.3/, file);
+  assert.match(content, /immutable v2\.2/, file);
   assert.match(content, /\$better-workflows:workspace-recipe/, file);
   assert.match(content, /self-improve host status/, file);
   assert.match(content, /self-improve attestation request/, file);

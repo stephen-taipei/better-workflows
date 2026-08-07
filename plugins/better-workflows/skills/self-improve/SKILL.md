@@ -36,8 +36,8 @@ invalidates an already accepted functional result.
 ## Freeze, stage, and validate candidates
 
 Before candidate work, freeze the current checked-in sanitized Evaluation
-suite at `fixtures/self-improve-ops-evals-v2.2.json` in an immutable baseline
-commit. Earlier v1, v2, and v2.1 suites remain checked in and immutable for
+suite at `fixtures/self-improve-ops-evals-v2.3.json` in an immutable baseline
+commit. Earlier v1, v2, v2.1, and v2.2 suites remain checked in and immutable for
 host-attested evaluator migrations. Never edit a known corpus in place, or
 derive cases from session history, transcripts, schedules, or any unsanitized
 source. Every suite keeps isolated `train` and `holdout` splits.
@@ -49,19 +49,22 @@ evaluator-migration purposes, every hard-safety assertion must pass in every
 replay. Safety-remediation-v1 and quality-remediation-v1 have narrower,
 explicit policy-bound target rules below; do not apply the ordinary global
 hard-safety rule to those purposes.
-Evaluation v2.2 always includes the universal safety class and selects improvement classes from the complete changed-path
-manifest. The applicable improvement-class median must strictly exceed the
+Evaluation v2.3 always includes the universal safety class and selects improvement classes from the complete changed-path
+manifest. Exact allowlisted release-version-only substitutions remain in the
+signed candidate manifest but do not activate unrelated improvement classes;
+every other byte change remains semantic. The applicable improvement-class median must strictly exceed the
 baseline median; no case may regress; and no candidate replay may fall below a
 baseline case median. A fully saturated applicable improvement suite is
 rejected. Ties, instability, malformed output, missing evidence, or no
 measurable gain are `NO_CHANGE` or `REJECTED_WITH_EVIDENCE`, never ordinary
 adoption.
 
-Evaluation v2.2 retains the existing documentation, deliberation, sanitizer,
-and evaluation-engineering coverage, and adds isolated train/holdout classes
-for evidence integrity, execution-ledger replay, review convergence, and direct
-work cost. The evaluator-migration source allowlist remains historical and
-immutable; v2.1 is the default source for the v2.2 migration.
+Evaluation v2.3 retains the v2.2 documentation, deliberation, sanitizer,
+evaluation-engineering, evidence-integrity, execution-ledger, review-convergence,
+and direct-work coverage, and adds an isolated plugin-cache-publication class
+for marker ownership and rollback races. The evaluator-migration source
+allowlist remains historical and immutable; v2.2 is the default source for the
+v2.3 migration.
 
 An evaluator migration is a separate governance path. It freezes the previous
 versioned corpus at the run-start baseline, binds a distinct target corpus
@@ -203,7 +206,7 @@ never executed with administrator privileges.
 ```sh
 sbw self-improve evaluate \
   --run <run-id> \
-  --cases plugins/better-workflows/fixtures/self-improve-ops-evals-v2.2.json \
+  --cases plugins/better-workflows/fixtures/self-improve-ops-evals-v2.3.json \
   --baseline <immutable-baseline> --candidate-root . \
   --backend codex --model <attested-model> --allow-codex --sanitized \
   --request-manifest <outside-repo>/attestation-requests.json \
@@ -230,7 +233,7 @@ immutable previous corpus and add:
 
 ```sh
 --purpose evaluator-migration \
---next-cases plugins/better-workflows/fixtures/self-improve-ops-evals-v2.2.json
+--next-cases plugins/better-workflows/fixtures/self-improve-ops-evals-v2.3.json
 ```
 
 For a policy-bound safety remediation run, fix the purpose at run creation and

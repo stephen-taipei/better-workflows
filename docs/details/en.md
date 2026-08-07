@@ -335,10 +335,12 @@ delivery; it never reruns Codex during resume or delivery revalidation. The
 signed `result receipt` binds the exact prompt digest and response digest as
 well as the binary, model, execution, ledger, exit status, and timestamps.
 
-Evaluation v2.2 preserves the existing safety, documentation, deliberation,
-sanitizer, and evaluation-engineering coverage, and adds isolated train/holdout
-classes for typed-evidence integrity, execution-ledger replay, bounded review
-convergence, and direct-work cost. Its one-time migration freezes v2.1 as the
+Evaluation v2.3 preserves the v2.2 safety, documentation, deliberation,
+sanitizer, evaluation-engineering, evidence, ledger, review, and direct-work
+coverage, and adds an isolated plugin-cache-publication class for marker
+ownership races. Exact allowlisted release-version-only substitutions stay in
+the signed manifest but do not activate unrelated saturated classes; every
+other byte change remains semantic. Its one-time migration freezes v2.2 as the
 source and binds both immutable suite digests into all seven signed executions.
 
 `safety-remediation-v1` is a separate run-creation purpose. It uses the fixed

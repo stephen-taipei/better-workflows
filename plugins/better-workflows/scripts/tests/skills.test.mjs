@@ -60,10 +60,11 @@ test("self improve is a critical thin workflow with stale-link and delegated del
   assert.match(content, /Treat `NO_CHANGE` as a valid successful outcome/);
   assert.match(content, /train` and `holdout`/);
   assert.match(content, /host-signed attestation/);
-  assert.match(content, /self-improve-ops-evals-v2\.2\.json/);
+  assert.match(content, /self-improve-ops-evals-v2\.3\.json/);
+  assert.match(content, /immutable v2\.2 corpus/);
   assert.match(content, /quality-remediation-v1/);
   assert.match(content, /baseline-quality-gap-not-reproduced/);
-  for (const evaluationClass of ["evidence integrity", "execution-ledger replay", "review convergence", "direct\\s+work cost"]) {
+  for (const evaluationClass of ["evidence-integrity", "execution-ledger", "review-convergence", "direct-work", "plugin-cache-publication"]) {
     assert.match(content, new RegExp(evaluationClass));
   }
   assert.match(content, /never\s+automatically adopts/);

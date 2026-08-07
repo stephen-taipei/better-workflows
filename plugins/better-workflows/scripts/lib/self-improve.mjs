@@ -11,12 +11,14 @@ const DISPOSITIONS = new Set(["IMPLEMENT", "NO_CHANGE", "BLOCKED", "REJECTED_WIT
 const SECRET_PATTERN = /(?:api[_-]?key|password|passwd|secret|token|authorization)\s*[:=]\s*(?:"[^"\s]{4,}"|'[^'\s]{4,}'|(?=[A-Za-z0-9+/_-]{8,}(?:\s|$))(?=[A-Za-z0-9+/_-]*[0-9+/_-])[A-Za-z0-9+/_-]+)/i;
 const SECRET_PATTERN_GLOBAL = /(?:api[_-]?key|password|passwd|secret|token|authorization)\s*[:=]\s*(?:"[^"\s]{4,}"|'[^'\s]{4,}'|(?=[A-Za-z0-9+/_-]{8,}(?:\s|$))(?=[A-Za-z0-9+/_-]*[0-9+/_-])[A-Za-z0-9+/_-]+)/gi;
 export const SELF_IMPROVE_LEGACY_CORPUS = "plugins/better-workflows/fixtures/self-improve-ops-evals.json";
-export const SELF_IMPROVE_MIGRATION_SOURCE_CORPUS = "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.1.json";
-export const SELF_IMPROVE_CANONICAL_CORPUS = "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.2.json";
+export const SELF_IMPROVE_V22_CORPUS = "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.2.json";
+export const SELF_IMPROVE_MIGRATION_SOURCE_CORPUS = SELF_IMPROVE_V22_CORPUS;
+export const SELF_IMPROVE_CANONICAL_CORPUS = "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.3.json";
 export const SELF_IMPROVE_MIGRATION_SOURCE_CORPORA = Object.freeze([
   SELF_IMPROVE_LEGACY_CORPUS,
   "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.json",
-  SELF_IMPROVE_MIGRATION_SOURCE_CORPUS
+  "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.1.json",
+  SELF_IMPROVE_V22_CORPUS
 ]);
 export const SELF_IMPROVE_ORDINARY_CORPORA = Object.freeze([
   SELF_IMPROVE_CANONICAL_CORPUS,
@@ -243,7 +245,7 @@ export async function loadSafetyRemediationPolicy({ cwd, policyFile = SELF_IMPRO
     "requireInvariantAllHardSafety", "requireStrictTargetImprovement", "rejectCandidateNoise", "rejectCaseRegression"
   ]), "Safety remediation policy");
   if (policy.schemaVersion !== 1 || policy.policyId !== "self-improve-safety-remediation" || policy.version !== "v1" ||
-      policy.purpose !== SELF_IMPROVE_SAFETY_REMEDIATION_PURPOSE || policy.suitePath !== SELF_IMPROVE_CANONICAL_CORPUS ||
+      policy.purpose !== SELF_IMPROVE_SAFETY_REMEDIATION_PURPOSE || policy.suitePath !== SELF_IMPROVE_V22_CORPUS ||
       policy.sourceSuiteDigest !== SAFETY_REMEDIATION_V1_SOURCE_SUITE_DIGEST || policy.invariantClassId !== "universal-safety" || policy.replayCount !== 3 ||
       policy.minimumBaselineFailureRuns !== 2 ||
       policy.requireCandidateAllHardSafety !== true || policy.requireInvariantAllHardSafety !== true ||
@@ -269,7 +271,7 @@ export async function loadSafetyRemediationPolicy({ cwd, policyFile = SELF_IMPRO
   }
   let suite;
   try {
-    const suiteBytes = await readFile(path.resolve(repository, SELF_IMPROVE_CANONICAL_CORPUS));
+    const suiteBytes = await readFile(path.resolve(repository, SELF_IMPROVE_V22_CORPUS));
     if (sha256(suiteBytes) !== policy.sourceSuiteDigest) throw new Error("Safety remediation policy source suite digest changed");
     suite = validateEvaluationSuite(JSON.parse(suiteBytes.toString("utf8")));
   } catch (error) {
@@ -312,7 +314,7 @@ export async function loadQualityRemediationPolicy({ cwd, policyFile = SELF_IMPR
     "rejectCandidateNoise", "rejectCaseRegression"
   ]), "Quality remediation policy");
   if (policy.schemaVersion !== 1 || policy.policyId !== "self-improve-quality-remediation" || policy.version !== "v1" ||
-      policy.purpose !== SELF_IMPROVE_QUALITY_REMEDIATION_PURPOSE || policy.suitePath !== SELF_IMPROVE_CANONICAL_CORPUS ||
+      policy.purpose !== SELF_IMPROVE_QUALITY_REMEDIATION_PURPOSE || policy.suitePath !== SELF_IMPROVE_V22_CORPUS ||
       policy.sourceSuiteDigest !== QUALITY_REMEDIATION_V1_SOURCE_SUITE_DIGEST || policy.invariantClassId !== "universal-safety" ||
       policy.replayCount !== 3 || policy.minimumBaselineFailureRuns !== 2 ||
       policy.requireCandidateAllHardSafety !== true || policy.requireInvariantAllHardSafety !== true ||
@@ -339,7 +341,7 @@ export async function loadQualityRemediationPolicy({ cwd, policyFile = SELF_IMPR
   }
   let suite;
   try {
-    const suiteBytes = await readFile(path.resolve(repository, SELF_IMPROVE_CANONICAL_CORPUS));
+    const suiteBytes = await readFile(path.resolve(repository, SELF_IMPROVE_V22_CORPUS));
     if (sha256(suiteBytes) !== policy.sourceSuiteDigest) throw new Error("Quality remediation policy source suite changed");
     suite = validateEvaluationSuite(JSON.parse(suiteBytes.toString("utf8")));
   } catch (error) {
@@ -431,7 +433,7 @@ export async function loadFrozenEvaluationSuite({ cwd, casesFile, baselineRevisi
   const canonicalPaths = purpose === "evaluator-migration"
     ? SELF_IMPROVE_MIGRATION_SOURCE_CORPORA
     : isPolicyBoundEvaluationPurpose(purpose)
-      ? [SELF_IMPROVE_CANONICAL_CORPUS]
+      ? [SELF_IMPROVE_V22_CORPUS]
       : [await ordinaryCorpusAtResolvedBaseline(repository, baseline)];
   if (canonical && !canonicalPaths.includes(relative)) {
     throw new Error(`Production ${purpose} evaluation suite must be one of: ${canonicalPaths.join(", ")}`);
@@ -492,6 +494,49 @@ function gitCompatibleMode(mode) {
   return (mode & 0o111) !== 0 ? 0o755 : 0o644;
 }
 
+const RELEASE_BADGE_PATHS = new Set([
+  "README.md",
+  "docs/README.zh-TW.md",
+  "docs/README.zh-CN.md",
+  "docs/README.ja.md",
+  "docs/README.ko.md"
+]);
+
+function normalizeReleaseMetadata(file, content) {
+  const text = content.toString("utf8");
+  if (Buffer.byteLength(text, "utf8") !== content.length) return null;
+  let normalized = text;
+  if (file === "plugins/better-workflows/package.json" || file === "plugins/better-workflows/.codex-plugin/plugin.json") {
+    normalized = text.replace(/^(\s*"version"\s*:\s*)"[^"\r\n]+"(,?\s*)$/m, '$1"<release-version>"$2');
+  } else if (file === "plugins/better-workflows/scripts/lib/core.mjs") {
+    normalized = text.replace(/^(export const VERSION = )"[^"\r\n]+";$/m, '$1"<release-version>";');
+  } else if (file === "scripts/plugin-cache.mjs") {
+    normalized = text.replace(/(\bworkflowVersion:\s*)"[^"\r\n]+"/g, '$1"<release-version>"');
+  } else if (RELEASE_BADGE_PATHS.has(file)) {
+    normalized = text.replace(
+      /(https:\/\/img\.shields\.io\/badge\/version-)[A-Za-z0-9.+_-]+?(-2563EB\?style=flat-square)/g,
+      "$1<release-version>$2"
+    );
+  } else {
+    return null;
+  }
+  return normalized === text ? null : normalized;
+}
+
+async function candidateChangeKind(repository, baseline, file, content) {
+  const candidate = normalizeReleaseMetadata(file, content);
+  if (candidate === null) return "semantic";
+  try {
+    const baselineContent = await gitBytes(repository, ["show", `${baseline}:${file}`]);
+    const baselineNormalized = normalizeReleaseMetadata(file, baselineContent);
+    return baselineNormalized !== null && baselineNormalized === candidate
+      ? "release-metadata-only"
+      : "semantic";
+  } catch {
+    return "semantic";
+  }
+}
+
 export async function snapshotCandidate({ cwd, baselineRevision, candidateRoot }) {
   const repository = await realpath(cwd);
   const { hiddenIndexEntries } = await import("./git.mjs");
@@ -514,10 +559,17 @@ export async function snapshotCandidate({ cwd, baselineRevision, candidateRoot }
   for (const file of [...changed].filter((item) => covered(relativeRoot, item)).sort()) {
     const absolute = path.join(repository, file);
     const info = await lstat(absolute).catch((error) => error.code === "ENOENT" ? null : Promise.reject(error));
-    if (!info) files.push({ path: file, state: "missing", digest: null, mode: null });
+    if (!info) files.push({ path: file, state: "missing", digest: null, mode: null, changeKind: "semantic" });
     else if (info.isFile() && !info.isSymbolicLink()) {
       const content = await readFile(absolute);
-      files.push({ path: file, state: "file", digest: sha256(content), size: content.length, mode: gitCompatibleMode(info.mode) });
+      files.push({
+        path: file,
+        state: "file",
+        digest: sha256(content),
+        size: content.length,
+        mode: gitCompatibleMode(info.mode),
+        changeKind: await candidateChangeKind(repository, baseline, file, content)
+      });
     } else throw new Error(`Candidate contains non-regular file: ${file}`);
   }
   const snapshot = { baselineRevision: baseline, candidateRoot: relativeRoot, files };
@@ -535,10 +587,11 @@ export async function snapshotBaselineForCandidate({ cwd, snapshot }) {
         state: "file",
         digest: sha256(content),
         size: content.length,
-        mode: await gitModeAtRevision(repository, snapshot.baselineRevision, file.path)
+        mode: await gitModeAtRevision(repository, snapshot.baselineRevision, file.path),
+        changeKind: file.changeKind ?? "semantic"
       });
     } catch {
-      files.push({ path: file.path, state: "missing", digest: null, mode: null });
+      files.push({ path: file.path, state: "missing", digest: null, mode: null, changeKind: file.changeKind ?? "semantic" });
     }
   }
   const baseline = { baselineRevision: snapshot.baselineRevision, candidateRoot: snapshot.candidateRoot, files };
@@ -669,9 +722,10 @@ function classMatchesPath(definition, file) {
 export function selectEvaluationCases({ suite, snapshot, split }) {
   if (!new Set(["train", "holdout"]).has(split)) throw new Error("Evaluation split must be train or holdout");
   if (suite.schemaVersion === 1) return suite.cases.filter((item) => item.split === split);
+  const semanticFiles = snapshot.files.filter((file) => file.changeKind !== "release-metadata-only");
   const applicable = new Set(
     suite.classes
-      .filter((definition) => definition.kind === "invariant" || snapshot.files.some((file) => classMatchesPath(definition, file.path)))
+      .filter((definition) => definition.kind === "invariant" || semanticFiles.some((file) => classMatchesPath(definition, file.path)))
       .map((definition) => definition.id)
   );
   if (!suite.classes.some((definition) => definition.kind === "improvement" && applicable.has(definition.id))) {
@@ -686,7 +740,7 @@ function selectPolicyRemediationCases({ suite, snapshot, split, policy, purpose,
   }
   if (!new Set(["train", "holdout"]).has(split)) throw new Error("Evaluation split must be train or holdout");
   const classes = new Map(suite.classes.map((item) => [item.id, item]));
-  const changedFiles = snapshot.files.map((item) => item.path);
+  const changedFiles = snapshot.files.filter((item) => item.changeKind !== "release-metadata-only").map((item) => item.path);
   const classMatches = (classId) => classes.get(classId)?.kind === "invariant" ||
     (classes.get(classId)?.paths ?? []).some((candidate) => changedFiles.some((file) => candidate.endsWith("/") ? file.startsWith(candidate) : file === candidate));
   const invariant = suite.cases.filter((item) => item.split === split && item.evaluationClass === policy.invariantClassId);
