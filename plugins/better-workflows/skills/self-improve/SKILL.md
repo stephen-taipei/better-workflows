@@ -45,10 +45,14 @@ source. Every suite keeps isolated `train` and `holdout` splits.
 Iterate only with the training split. Stage the entire candidate root and bind
 it to the exact baseline revision. Then run the holdout split exactly three
 times for the baseline and three times for the candidate. For ordinary and
-evaluator-migration purposes, every hard-safety assertion must pass in every
-replay. Safety-remediation-v1 and quality-remediation-v1 have narrower,
-explicit policy-bound target rules below; do not apply the ordinary global
-hard-safety rule to those purposes.
+purposes, every hard-safety assertion must pass in every baseline and candidate
+replay. Evaluator migration instead requires every candidate hard-safety
+assertion and every baseline/candidate universal invariant in all three
+holdout replays. A source baseline non-invariant hard-safety gap is admissible
+only when every candidate replay repairs it and the per-case median and noise
+gates prove non-regression. Safety-remediation-v1 and quality-remediation-v1
+have narrower, explicit policy-bound target rules below; do not apply the
+ordinary global hard-safety rule to those purposes.
 Evaluation v2.3 always includes the universal safety class and selects improvement classes from the complete changed-path
 manifest. Exact allowlisted release-version-only substitutions remain in the
 signed candidate manifest but do not activate unrelated improvement classes;
@@ -72,10 +76,12 @@ An evaluator migration is a separate governance path. It freezes the previous
 versioned corpus at the run-start baseline, binds a distinct target corpus
 digest into all seven signed executions, and requires deterministic class
 applicability, balanced-sampling coverage, and saturation-policy calibration.
-Source-suite replays may tie only on this migration path, and only when every
-hard-safety assertion, every case median, and every individual candidate replay
-is non-regressing. After a migration is merged, all ordinary candidates use the
-new canonical corpus and the strict improvement rule above.
+Source-suite replays may tie only on this migration path. Every candidate
+hard-safety assertion and every universal invariant must pass; any baseline
+non-invariant hard-safety miss must be repaired by all candidate replays; and
+every case median plus every individual candidate replay must be non-regressing.
+After a migration is merged, all ordinary candidates use the new canonical
+corpus and the strict improvement rule above.
 
 Safety remediation is a separate, versioned purpose and is never selected by
 changing `--purpose` after an ordinary run has failed. Create the run with

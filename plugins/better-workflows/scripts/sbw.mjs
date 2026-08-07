@@ -1087,7 +1087,7 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
       expectedRunAs: baselineBinding?.runAs ?? null }));
   }
   const comparison = purpose === "evaluator-migration"
-    ? compareEvaluatorMigration({ baseline: baselineReplays.map((item) => item.score), candidate: candidateReplays.map((item) => item.score) })
+    ? compareEvaluatorMigration({ baseline: baselineReplays.map((item) => item.score), candidate: candidateReplays.map((item) => item.score), suite: frozen.suite })
     : purpose === "safety-remediation-v1"
       ? compareSafetyRemediation({ baseline: baselineReplays.map((item) => item.score), candidate: candidateReplays.map((item) => item.score), suite: frozen.suite, policy })
       : purpose === "quality-remediation-v1"

@@ -44,8 +44,8 @@ const repositoryRoot = path.resolve(pluginRoot(), "../..");
 const safetyPolicy = await loadSafetyRemediationPolicy({ cwd: repositoryRoot });
 const qualityPolicy = await loadQualityRemediationPolicy({ cwd: repositoryRoot });
 
-function run(score, hardSafetyPass = true) {
-  return { score, hardSafetyPass, perCase: [{ id: "a", evaluationClass: null, score, hardSafetyPass }] };
+function run(score, hardSafetyPass = true, evaluationClass = "evaluation-engineering") {
+  return { score, hardSafetyPass, perCase: [{ id: "a", evaluationClass, score, hardSafetyPass }] };
 }
 
 test("self-improve corpus validates split isolation, uniqueness, and secret-shaped material", () => {
@@ -488,18 +488,47 @@ test("evaluation v2 separates invariant safety from strict relevant-class improv
 });
 
 test("evaluator migration permits only host-replay safety non-regression semantics", () => {
+  const migrationRun = ({
+    invariantScore = 1,
+    improvementScore = 1,
+    invariantSafety = true,
+    improvementSafety = true
+  } = {}) => ({
+    score: (invariantScore + improvementScore) / 2,
+    hardSafetyPass: invariantSafety && improvementSafety,
+    perCase: [
+      { id: "invariant", evaluationClass: "universal-safety", score: invariantScore, hardSafetyPass: invariantSafety },
+      { id: "improvement", evaluationClass: "evaluation-engineering", score: improvementScore, hardSafetyPass: improvementSafety }
+    ]
+  });
   assert.equal(compareEvaluatorMigration({
-    baseline: [run(1), run(1), run(1)],
-    candidate: [run(1), run(1), run(1)]
+    baseline: [migrationRun(), migrationRun(), migrationRun()],
+    candidate: [migrationRun(), migrationRun(), migrationRun()],
+    suite: suiteV22
   }).accepted, true);
   assert.equal(compareEvaluatorMigration({
-    baseline: [run(1), run(1), run(1)],
-    candidate: [run(0.5), run(1), run(1)]
+    baseline: [migrationRun(), migrationRun(), migrationRun()],
+    candidate: [migrationRun({ improvementScore: 0.5 }), migrationRun(), migrationRun()],
+    suite: suiteV22
   }).reason, "migration-noisy-candidate-run");
   assert.equal(compareEvaluatorMigration({
-    baseline: [run(1), run(1), run(1)],
-    candidate: [run(1, false), run(1), run(1)]
-  }).reason, "hard-safety-failure");
+    baseline: [migrationRun(), migrationRun(), migrationRun()],
+    candidate: [migrationRun({ improvementSafety: false }), migrationRun(), migrationRun()],
+    suite: suiteV22
+  }).reason, "candidate-hard-safety-failure");
+
+  const repairedBaselineGap = compareEvaluatorMigration({
+    baseline: [migrationRun({ improvementScore: 0, improvementSafety: false }), migrationRun(), migrationRun()],
+    candidate: [migrationRun(), migrationRun(), migrationRun()],
+    suite: suiteV22
+  });
+  assert.equal(repairedBaselineGap.accepted, true);
+  assert.deepEqual(repairedBaselineGap.baselineNonInvariantHardSafetyFailures, [{ attempt: 1, id: "improvement" }]);
+  assert.equal(compareEvaluatorMigration({
+    baseline: [migrationRun({ invariantScore: 0, invariantSafety: false }), migrationRun(), migrationRun()],
+    candidate: [migrationRun(), migrationRun(), migrationRun()],
+    suite: suiteV22
+  }).reason, "migration-invariant-hard-safety-failure");
 });
 
 test("evaluation prompt excludes hidden dispositions and hard-safety rubric", () => {

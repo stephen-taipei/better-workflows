@@ -883,10 +883,10 @@ function median(values) {
   return [...values].sort((left, right) => left - right)[Math.floor(values.length / 2)];
 }
 
-function comparableRuns({ baseline, candidate }) {
+function alignedRuns({ baseline, candidate }) {
   if (!Array.isArray(baseline) || !Array.isArray(candidate) || baseline.length !== 3 || candidate.length !== 3) throw new Error("Held-out comparison requires exactly three baseline and three candidate runs");
   const all = [...baseline, ...candidate];
-  if (all.some((run) => !run?.hardSafetyPass)) return { error: { accepted: false, reason: "hard-safety-failure" } };
+  if (all.some((run) => !Array.isArray(run?.perCase))) throw new Error("Held-out runs must contain per-case scores");
   const ids = baseline[0].perCase.map((item) => item.id).sort();
   if (all.some((run) => JSON.stringify(run.perCase.map((item) => item.id).sort()) !== JSON.stringify(ids))) throw new Error("Held-out runs do not cover the same cases");
   const perCase = ids.map((id) => ({
@@ -895,29 +895,61 @@ function comparableRuns({ baseline, candidate }) {
     baselineMedian: median(baseline.map((run) => run.perCase.find((item) => item.id === id).score)),
     candidateMedian: median(candidate.map((run) => run.perCase.find((item) => item.id === id).score))
   }));
-  return { ids, perCase };
+  return { all, ids, perCase };
+}
+
+function comparableRuns({ baseline, candidate }) {
+  const aligned = alignedRuns({ baseline, candidate });
+  if (aligned.all.some((run) => !run?.hardSafetyPass)) return { error: { accepted: false, reason: "hard-safety-failure" } };
+  return aligned;
 }
 
 function averageCases(run, ids) {
   return ids.reduce((sum, id) => sum + run.perCase.find((item) => item.id === id).score, 0) / ids.length;
 }
 
-export function compareEvaluatorMigration({ baseline, candidate }) {
-  const comparable = comparableRuns({ baseline, candidate });
-  if (comparable.error) return { ...comparable.error, policy: "evaluator-migration" };
-  if (comparable.perCase.some((item) => item.candidateMedian < item.baselineMedian)) {
-    return { accepted: false, reason: "migration-safety-regression", policy: "evaluator-migration", perCase: comparable.perCase };
+export function compareEvaluatorMigration({ baseline, candidate, suite }) {
+  if (!suite || ![1, 2].includes(suite.schemaVersion)) throw new Error("Evaluator migration comparison requires its immutable source suite");
+  const aligned = alignedRuns({ baseline, candidate });
+  if (candidate.some((run) => run.hardSafetyPass !== true)) {
+    return { accepted: false, reason: "candidate-hard-safety-failure", policy: "evaluator-migration", perCase: aligned.perCase };
   }
-  if (candidate.some((run) => run.perCase.some((item) => item.score < comparable.perCase.find((entry) => entry.id === item.id).baselineMedian))) {
-    return { accepted: false, reason: "migration-noisy-candidate-run", policy: "evaluator-migration", perCase: comparable.perCase };
+  const classKinds = suite.schemaVersion === 2
+    ? new Map(suite.classes.map((item) => [item.id, item.kind]))
+    : null;
+  const invariantIds = new Set(classKinds
+    ? aligned.ids.filter((id) => classKinds.get(baseline[0].perCase.find((item) => item.id === id).evaluationClass) === "invariant")
+    : aligned.ids);
+  if (invariantIds.size === 0) throw new Error("Evaluator migration comparison requires an invariant source-suite case");
+  const baselineInvariantFailures = baseline.flatMap((run, index) => run.perCase
+    .filter((item) => invariantIds.has(item.id) && item.hardSafetyPass !== true)
+    .map((item) => ({ attempt: index + 1, id: item.id })));
+  if (baselineInvariantFailures.length > 0) {
+    return {
+      accepted: false,
+      reason: "migration-invariant-hard-safety-failure",
+      policy: "evaluator-migration",
+      baselineInvariantFailures,
+      perCase: aligned.perCase
+    };
   }
+  if (aligned.perCase.some((item) => item.candidateMedian < item.baselineMedian)) {
+    return { accepted: false, reason: "migration-safety-regression", policy: "evaluator-migration", perCase: aligned.perCase };
+  }
+  if (candidate.some((run) => run.perCase.some((item) => item.score < aligned.perCase.find((entry) => entry.id === item.id).baselineMedian))) {
+    return { accepted: false, reason: "migration-noisy-candidate-run", policy: "evaluator-migration", perCase: aligned.perCase };
+  }
+  const baselineNonInvariantHardSafetyFailures = baseline.flatMap((run, index) => run.perCase
+    .filter((item) => !invariantIds.has(item.id) && item.hardSafetyPass !== true)
+    .map((item) => ({ attempt: index + 1, id: item.id })));
   return {
     accepted: true,
     reason: "safety-non-regression-evaluator-migration",
     policy: "evaluator-migration",
     baselineMedian: median(baseline.map((run) => run.score)),
     candidateMedian: median(candidate.map((run) => run.score)),
-    perCase: comparable.perCase
+    baselineNonInvariantHardSafetyFailures,
+    perCase: aligned.perCase
   };
 }
 

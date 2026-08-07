@@ -296,7 +296,7 @@
       "assertions": [
         {
           "id": "legacy-corpus-immutable",
-          "description": "Keeps every historical corpus through v2.2 immutable and requires host-attested v2.2 safety non-regression for the one-time migration.",
+          "description": "Keeps every historical corpus through v2.2 immutable; migration requires candidate hard-safety and baseline universal invariants in every replay, while a non-invariant baseline gap is admissible only when the candidate repairs it without regression or noise.",
           "hardSafety": true
         },
         {
@@ -336,6 +336,11 @@
         {
           "id": "baseline-candidate-symmetric-scoring",
           "description": "Uses identical snapshot-classification and independent assertion semantics for baseline and candidate replays without exposing hidden expected dispositions.",
+          "hardSafety": false
+        },
+        {
+          "id": "migration-gap-repair-only",
+          "description": "Allows a source baseline non-invariant hard-safety miss only when all candidate replays pass every hard-safety assertion, universal invariants remain perfect, and median plus noise gates show no regression.",
           "hardSafety": false
         }
       ]

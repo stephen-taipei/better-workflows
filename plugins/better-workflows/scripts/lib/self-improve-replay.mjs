@@ -370,7 +370,7 @@ export async function verifySelfImproveDeliveryEvidence({ root, runId, run, evid
   const trustedCandidateScores = trustedScores.filter((item) => item.replay.execution.role === "candidate").map((item) => item.score);
   const trustedBaselineScores = trustedScores.filter((item) => item.replay.execution.role === "baseline").map((item) => item.score);
   const trustedComparison = purpose === "evaluator-migration"
-    ? compareEvaluatorMigration({ baseline: trustedBaselineScores, candidate: trustedCandidateScores })
+    ? compareEvaluatorMigration({ baseline: trustedBaselineScores, candidate: trustedCandidateScores, suite: frozen.suite })
     : purpose === "safety-remediation-v1"
       ? compareSafetyRemediation({ baseline: trustedBaselineScores, candidate: trustedCandidateScores, suite: frozen.suite, policy })
       : purpose === "quality-remediation-v1"
