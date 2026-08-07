@@ -342,6 +342,9 @@ ownership races. Exact allowlisted release-version-only substitutions stay in
 the signed manifest but do not activate unrelated saturated classes; every
 other byte change remains semantic. Its one-time migration freezes v2.2 as the
 source and binds both immutable suite digests into all seven signed executions.
+Evaluator dispositions classify the supplied snapshot rather than recommend a
+follow-up edit; baseline and candidate use identical semantics, and every
+satisfied assertion is reported independently of disposition.
 
 `safety-remediation-v1` is a separate run-creation purpose. It uses the fixed
 `plugins/better-workflows/config/self-improve-safety-remediation-v1.json` policy

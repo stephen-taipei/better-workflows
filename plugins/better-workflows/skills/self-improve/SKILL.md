@@ -64,7 +64,9 @@ evaluation-engineering, evidence-integrity, execution-ledger, review-convergence
 and direct-work coverage, and adds an isolated plugin-cache-publication class
 for marker ownership and rollback races. The evaluator-migration source
 allowlist remains historical and immutable; v2.2 is the default source for the
-v2.3 migration.
+v2.3 migration. Evaluator dispositions classify the supplied snapshot rather
+than recommend another edit: baseline and candidate use identical semantics,
+and every satisfied assertion must be reported for every disposition.
 
 An evaluator migration is a separate governance path. It freezes the previous
 versioned corpus at the run-start baseline, binds a distinct target corpus

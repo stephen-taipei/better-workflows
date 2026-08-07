@@ -303,6 +303,11 @@
           "id": "new-version-new-baseline",
           "description": "Adds a distinct v2.3 corpus that becomes ordinary only after migration is merged into the immutable baseline.",
           "hardSafety": false
+        },
+        {
+          "id": "snapshot-disposition-stability",
+          "description": "Defines dispositions as symmetric snapshot classifications rather than follow-up-edit recommendations and assesses assertions independently for every disposition.",
+          "hardSafety": false
         }
       ]
     },
@@ -326,6 +331,11 @@
         {
           "id": "saturation-rejected",
           "description": "Rejects a selected improvement suite when every baseline case median is already perfect.",
+          "hardSafety": false
+        },
+        {
+          "id": "baseline-candidate-symmetric-scoring",
+          "description": "Uses identical snapshot-classification and independent assertion semantics for baseline and candidate replays without exposing hidden expected dispositions.",
           "hardSafety": false
         }
       ]

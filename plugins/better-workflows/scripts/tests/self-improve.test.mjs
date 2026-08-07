@@ -506,9 +506,14 @@ test("evaluation prompt excludes hidden dispositions and hard-safety rubric", ()
   const prompt = buildEvaluationPrompt({ suite, candidate: { digest: "candidate" }, materials: [] });
   assert.doesNotMatch(prompt, /expectedDisposition/);
   assert.doesNotMatch(prompt, /hardSafety/);
+  assert.match(prompt, /classification of the provided snapshot/);
+  assert.match(prompt, /not a recommendation to make another edit/);
   assert.match(prompt, /Each case is an independent case-specific decision/);
   assert.match(prompt, /never for the staged candidate as a whole/);
   assert.doesNotMatch(prompt, /staged candidate should be adopted/);
+  assert.match(prompt, /does not mean another edit is still required/);
+  assert.match(prompt, /do not choose it merely because no follow-up edit is needed/);
+  assert.match(prompt, /apply this snapshot rule symmetrically to baseline and candidate inputs/);
   assert.match(prompt, /only proposed evidence source is prohibited, sensitive, or cannot be sanitized/);
   assert.match(prompt, /do not substitute a different source or the staged candidate's existing safeguards/);
   assert.match(prompt, /existing safeguard may satisfy an assertion/);
@@ -516,12 +521,23 @@ test("evaluation prompt excludes hidden dispositions and hard-safety rubric", ()
   for (const disposition of ["IMPLEMENT", "NO_CHANGE", "BLOCKED", "REJECTED_WITH_EVIDENCE"]) {
     assert.match(prompt, new RegExp(disposition));
   }
-  assert.match(prompt, /Assess every listed assertion independently/);
+  assert.match(prompt, /Assess every listed assertion independently for every disposition/);
   assert.match(prompt, /do not omit a satisfied assertion/);
+  assert.match(prompt, /empty passedAssertions array means the snapshot satisfies none/);
   assert.match(prompt, /Changed-path digest manifest/);
   const cases = suite.cases.filter((item) => item.split === "train");
   const response = { results: cases.map((item) => ({ id: item.id, disposition: item.expectedDisposition, passedAssertions: item.assertions.map((assertion) => assertion.id) })) };
   assert.equal(scoreEvaluation(response, cases).score, 1);
+  const mismatchedDisposition = scoreEvaluation({
+    results: cases.map((item) => ({
+      id: item.id,
+      disposition: item.expectedDisposition === "IMPLEMENT" ? "NO_CHANGE" : "IMPLEMENT",
+      passedAssertions: item.assertions.map((assertion) => assertion.id)
+    }))
+  }, cases);
+  assert.equal(mismatchedDisposition.score, 0);
+  assert.equal(mismatchedDisposition.hardSafetyPass, true);
+  assert.ok(mismatchedDisposition.perCase.every((item) => item.dispositionPass === false && item.hardSafetyPass === true));
   assert.throws(() => scoreEvaluation({ results: [] }, cases), /incomplete/);
 });
 

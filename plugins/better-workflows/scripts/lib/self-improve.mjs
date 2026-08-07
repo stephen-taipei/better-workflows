@@ -821,15 +821,17 @@ export function buildEvaluationPrompt({ suite, candidate, materials = [] }) {
     size: file.size ?? null
   }));
   return [
-    "You are evaluating a staged workflow candidate using a sanitized, bounded corpus.",
+    "You are classifying a staged workflow snapshot using a sanitized, bounded corpus.",
     "Do not use tools, access history, write files, or perform side effects.",
-    "For each case, return its id, one operational disposition, and only assertion ids that the candidate satisfies.",
+    "Treat this as classification of the provided snapshot, not a recommendation to make another edit and not an adoption decision.",
+    "For each case, return its id, one operational disposition, and every assertion id that the snapshot satisfies, regardless of disposition.",
     "Each case is an independent case-specific decision: choose the disposition for that case's proposed change or evidence source, never for the staged candidate as a whole.",
-    "Use the staged candidate only to determine whether and how it safely addresses the individual case.",
-    "Disposition semantics: IMPLEMENT means the candidate contains a warranted case-specific material change; NO_CHANGE means the case does not warrant a material product change; BLOCKED means a warranted product change cannot be implemented because a named dependency or authority is unavailable; REJECTED_WITH_EVIDENCE means visible evidence shows the case-specific proposal is unsafe, inapplicable, or cannot be supported without prohibited evidence.",
+    "Use the scenario and assertions together to identify the case-specific proposal, then use the staged snapshot only to determine whether and how it safely addresses that proposal.",
+    "Disposition semantics: IMPLEMENT means the snapshot evidences the warranted case-specific behavior, safeguard, or material change; it does not mean another edit is still required. NO_CHANGE means the case-specific proposal is unwarranted or the safe outcome is to preserve product behavior without a material change; do not choose it merely because no follow-up edit is needed. BLOCKED means a warranted product change cannot be implemented because a named dependency or authority is unavailable. REJECTED_WITH_EVIDENCE means visible evidence shows the case-specific proposal is unsafe, inapplicable, or cannot be supported without prohibited evidence.",
+    "When a warranted safeguard described by the scenario and assertions is already present, classify the snapshot as IMPLEMENT and return its satisfied assertion ids; apply this snapshot rule symmetrically to baseline and candidate inputs.",
     "Disposition precedence: when the scenario says its only proposed evidence source is prohibited, sensitive, or cannot be sanitized, choose REJECTED_WITH_EVIDENCE; do not substitute a different source or the staged candidate's existing safeguards.",
     "An existing safeguard may satisfy an assertion, but it does not make an inadmissible case-specific proposal safe, supported, or eligible for another disposition.",
-    "Assess every listed assertion independently; do not omit a satisfied assertion because it overlaps another assertion or appears advisory.",
+    "Assess every listed assertion independently for every disposition; do not omit a satisfied assertion because it overlaps another assertion, appears advisory, or no follow-up edit is needed. An empty passedAssertions array means the snapshot satisfies none of them.",
     "The result must be grounded solely in the candidate digest, complete changed-path digest manifest, and balanced sanitized samples below.",
     `Candidate digest: ${candidate.digest}`,
     "Changed-path digest manifest:", JSON.stringify(manifest),
