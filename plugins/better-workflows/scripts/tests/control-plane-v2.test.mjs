@@ -476,6 +476,74 @@ test("ledger reducer derives ready set and rejects duplicate event identity", as
   );
 });
 
+test("ledger status reloads run state before validating sentinel-bound evidence", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "sbw-v2-ledger-sentinel-workspace-"));
+  await execFileAsync("git", ["init", "-q"], { cwd: workspace });
+  await execFileAsync("git", ["config", "user.email", "test@example.com"], { cwd: workspace });
+  await execFileAsync("git", ["config", "user.name", "Better Workflows Test"], { cwd: workspace });
+  await writeFile(path.join(workspace, "source.txt"), "sentinel-bound\n");
+  await execFileAsync("git", ["add", "source.txt"], { cwd: workspace });
+  await execFileAsync("git", ["commit", "-qm", "initial"], { cwd: workspace });
+
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-v2-ledger-sentinel-state-"));
+  const contract = buildContract({
+    template: "test-ledger-sentinel",
+    templateDefinition: {
+      ...contractTemplate,
+      requiredEvidence: ["decision-record"],
+      executionStages: [{
+        id: "decision",
+        dependsOn: [],
+        requiredEvidence: ["decision-record"],
+        attemptBudget: 3,
+        kind: "regular"
+      }]
+    },
+    goal: "ledger sentinel-bound evidence",
+    scope: ["."],
+    risk: { risk: 1, uncertainty: 0, blastRadius: 1, irreversibility: 0, evidenceGap: 0 },
+    sensitivity: "internal",
+    authority: []
+  });
+  const started = await createRun({ root, contract, requestedMode: "verified", cwd: workspace });
+  const sentinel = await captureSentinel(workspace, contract, await loadDefaults());
+  await updateState(root, started.runId, (state) => ({
+    ...state,
+    lastSentinel: { label: "sentinel-bound-evidence", digest: sentinel.digest },
+    lastSentinelVerified: true,
+    lastSentinelComplete: true
+  }));
+  const run = await inspectRun(root, started.runId);
+  const payload = { decision: "IMPLEMENT" };
+  await addEvidence(root, started.runId, {
+    schemaVersion: 2,
+    id: "sentinel-bound-decision",
+    kind: "decision-record",
+    status: "complete",
+    summary: "Decision is bound to the current source and sentinel",
+    receipt: {
+      contractId: "evidence-contracts-v1:decision-record",
+      contractVersion: 1,
+      runId: started.runId,
+      producer: { provider: "codex-root" },
+      inputBinding: {
+        runId: started.runId,
+        contractDigest: digestObject(run.contract),
+        remoteRevision: null,
+        sourceBindingDigest: run.manifest.sourceBinding.digest,
+        sourceSentinelDigest: sentinel.digest
+      },
+      payload,
+      payloadDigest: digestObject(payload),
+      producedAt: new Date().toISOString()
+    }
+  });
+
+  const status = await deriveLedgerStatus(root, started.runId);
+  assert.deepEqual(status.blockers, []);
+  assert.deepEqual(status.readySet, ["decision"]);
+});
+
 test("ledger completion rejects self-reported evidence without a typed receipt", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "sbw-v2-ledger-forge-"));
   const contract = buildContract({

@@ -263,6 +263,7 @@ export async function deriveLedgerStatus(root, runId) {
   const run = {
     manifest: await readJson(root, safeJoin(runDir, "manifest.json")),
     contract: await readJson(root, safeJoin(runDir, "contract.json")),
+    state: await readJson(root, safeJoin(runDir, "state.json")),
     root,
     runDir,
     requireReconciled: true
