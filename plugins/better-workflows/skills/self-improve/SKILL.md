@@ -69,10 +69,11 @@ and direct-work coverage, and adds an isolated plugin-cache-publication class
 for marker ownership and rollback races. The evaluator-migration source
 allowlist remains historical and immutable; v2.2 is the default source for the
 v2.3 migration. Admission pins both the v2.2 file digest and canonical suite
-digest, requires the inherited invariant class and every inherited case to
-remain byte-for-byte identical, and permits new coverage only under new case
-identifiers. Missing, weakened, or reclassified inherited cases fail before
-replay. Evaluator dispositions classify the supplied snapshot rather
+digest, requires every inherited class identity and semantics plus every
+existing path mapping to remain unchanged, and requires every inherited case to
+remain byte-for-byte identical. New coverage may add paths or use new class or
+case identifiers, but missing, weakened, remapped, or reclassified inherited
+coverage fails before replay. Evaluator dispositions classify the supplied snapshot rather
 than recommend another edit: baseline and candidate use identical semantics,
 and every satisfied assertion must be reported for every disposition. The
 evaluator-migration source replay and target calibration include every case in

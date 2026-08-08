@@ -295,7 +295,7 @@ node plugins/better-workflows/scripts/sbw.mjs recipe run <id> \
 
 Evaluation v2.3 保留 v2.2 的 safety、documentation、deliberation、sanitizer、evaluation-engineering、evidence、ledger、review 与 direct-work coverage，并增加针对 marker ownership race 的独立 plugin-cache-publication class。精确且列入 allowlist 的 release-version-only 替换仍保留在 signed manifest，但不会启用无关且已 saturated 的 classes；其他任何 byte 变更都保持 semantic。一次性 migration 以 immutable v2.2 为 source，并将 source/target 两份 suite digest 绑定到全部七份 signed executions。Evaluator disposition 是对 supplied snapshot 的分类，而不是要求再进行一次修改；baseline 与 candidate 使用完全相同的语义，且每个已满足的 assertion 都必须独立于 disposition 回报。Migration 仍要求三次 holdout 的 candidate hard-safety 和 baseline/candidate universal invariants 全部通过；source baseline 的非 invariant miss 只有在 candidate 三次均修复且不存在 median regression 或 noise 时才可接受。Migration 的 source replay 与 target calibration 会纳入各自 immutable versioned suite 的每一个 case，确保 inherited governed surfaces 不会脱离覆盖，并校准新增 classes；ordinary evaluation 仍只按照 changed paths 选择适用 classes。
 
-Migration admission 还会钉住 v2.2 file 与 canonical suite digest，要求 inherited invariant class 和全部 18 个 inherited cases 完全一致；新增 coverage 只能使用新的 case id。缺失、弱化或重分类 inherited case 会在 replay 前 fail closed。若确实需要修改 inherited case，必须使用独立版本、digest-bound 且经独立审查的 compatibility policy。
+Migration admission 还会钉住 v2.2 file 与 canonical suite digest，要求每个 inherited class 的 identity、semantics 与既有 path mapping 保持不变，并确保全部 18 个 inherited cases 完全一致。新增 coverage 可以增加 path，或使用新的 class／case id；缺失、弱化、重新 mapping 或重分类 inherited coverage 会在 replay 前 fail closed。若确实需要修改 inherited coverage，必须使用独立版本、digest-bound 且经独立审查的 compatibility policy。
 
 `safety-remediation-v1` 是独立的 run-creation purpose。它使用固定的
 `plugins/better-workflows/config/self-improve-safety-remediation-v1.json` policy

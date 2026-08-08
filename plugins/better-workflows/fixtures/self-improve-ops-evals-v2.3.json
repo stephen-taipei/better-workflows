@@ -339,7 +339,7 @@
       "assertions": [
         {
           "id": "inherited-corpus-byte-preserved",
-          "description": "Preserves every inherited v2.2 case and the invariant class byte-for-byte while adding new versioned coverage in distinct cases.",
+          "description": "Preserves every inherited v2.2 class identity, semantics, and path mapping plus every inherited case byte-for-byte, while adding coverage only through additive paths or distinct identifiers.",
           "hardSafety": true
         },
         {

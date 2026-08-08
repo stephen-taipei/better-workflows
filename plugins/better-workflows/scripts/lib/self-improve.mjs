@@ -758,10 +758,18 @@ function assertEvaluatorMigrationSourcePreserved({ source, target, sourceDigest 
   ) {
     throw new Error("Evaluator migration source must be the immutable v2.2 suite");
   }
-  const sourceInvariant = source.classes?.find((item) => item.kind === "invariant");
-  const targetInvariant = target.classes?.find((item) => item.id === sourceInvariant?.id);
-  if (!sourceInvariant || digestObject(targetInvariant) !== digestObject(sourceInvariant)) {
-    throw new Error("Evaluator migration target must preserve the inherited invariant class byte-for-byte");
+  const targetClasses = new Map(target.classes.map((item) => [item.id, item]));
+  const changedClasses = source.classes
+    .filter((item) => {
+      const candidate = targetClasses.get(item.id);
+      if (!candidate || candidate.kind !== item.kind || candidate.description !== item.description) return true;
+      const candidatePaths = new Set(candidate.paths ?? []);
+      return (item.paths ?? []).some((inheritedPath) => !candidatePaths.has(inheritedPath));
+    })
+    .map((item) => item.id)
+    .sort();
+  if (changedClasses.length > 0) {
+    throw new Error(`Evaluator migration target must preserve every inherited source class identity, semantics, and path mapping: ${changedClasses.join(", ")}`);
   }
   const targetCases = new Map(target.cases.map((item) => [item.id, item]));
   const changed = source.cases

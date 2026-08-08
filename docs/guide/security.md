@@ -85,10 +85,11 @@ rationale.
   existing pending marker to match the complete source binding, `runId`, and
   `attemptId`; a foreign marker remains untouched and publication fails closed.
 - Evaluator migration pins both the immutable v2.2 file digest and canonical
-  suite digest. The target must preserve the inherited invariant class and all
-  18 inherited cases exactly; missing, weakened, or reclassified cases fail
-  before replay, and additions require distinct case identifiers. Intentional
-  inherited-case changes require a separately versioned, digest-bound,
+  suite digest. The target must preserve every inherited class identity,
+  semantics, and existing path mapping, plus all 18 inherited cases exactly;
+  missing, weakened, remapped, or reclassified coverage fails before replay.
+  New coverage may add paths or use distinct class or case identifiers.
+  Intentional inherited-coverage changes require a separately versioned, digest-bound,
   independently reviewed compatibility policy.
 - A delegated self-improve delivery must use `pr-to-dev --self-improve-run`
   and a typed `self-improve-delivery-handoff` receipt. That receipt binds the

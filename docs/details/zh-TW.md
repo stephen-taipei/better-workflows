@@ -257,7 +257,7 @@ $better-workflows:cross-platform 檢查 backend、iOS 和 Android 的 contact sy
 
 Evaluation v2.3 保留 v2.2 的 safety、documentation、deliberation、sanitizer、evaluation-engineering、evidence、ledger、review 與 direct-work coverage，並增加針對 marker ownership race 的獨立 plugin-cache-publication class。精確且列入 allowlist 的 release-version-only 替換仍保留在 signed manifest，但不會啟用不相關且已 saturated 的 classes；其他任何 byte 變更都維持 semantic。一次性的 migration 以 immutable v2.2 為 source，並將 source/target 兩份 suite digest 綁入全部七份 signed executions。Evaluator disposition 是對 supplied snapshot 的分類，不是要求再做一次修改；baseline 與 candidate 採用完全相同的語意，且每個已滿足的 assertion 都必須獨立於 disposition 回報。Migration 仍要求三次 holdout 的 candidate hard-safety 與 baseline/candidate universal invariants 全數通過；source baseline 的非 invariant miss 只有在 candidate 三次皆修復，且沒有 median regression 或 noise 時才可接受。Migration 的 source replay 與 target calibration 會納入各自 immutable versioned suite 的每一個 case，確保 inherited governed surfaces 不會脫離覆蓋，並校準新增 classes；ordinary evaluation 仍只依 changed paths 選擇適用 classes。
 
-Migration admission 另會釘住 v2.2 file 與 canonical suite digest，要求 inherited invariant class 與全部 18 個 inherited cases 完整一致；新 coverage 只能使用新的 case id。遺失、弱化或重分類 inherited case 會在 replay 前 fail closed。若確實要修改 inherited case，必須使用獨立版本、digest-bound 且經獨立審查的 compatibility policy。
+Migration admission 另會釘住 v2.2 file 與 canonical suite digest，要求每個 inherited class 的 identity、semantics 與既有 path mapping 維持不變，且全部 18 個 inherited cases 完整一致。新 coverage 可新增 path，或使用新的 class／case id；遺失、弱化、重新 mapping 或重分類 inherited coverage 會在 replay 前 fail closed。若確實要修改 inherited coverage，必須使用獨立版本、digest-bound 且經獨立審查的 compatibility policy。
 
 `safety-remediation-v1` 是獨立的 run-creation purpose。它使用固定的
 `plugins/better-workflows/config/self-improve-safety-remediation-v1.json` policy

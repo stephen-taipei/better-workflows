@@ -787,7 +787,7 @@ test("evaluator migration preserves complete source and target coverage while bi
   );
 });
 
-test("evaluator migration rejects weakened, removed, reclassified, or unbound inherited safety cases", () => {
+test("evaluator migration rejects changed inherited classes and weakened, removed, reclassified, or unbound cases", () => {
   const snapshot = {
     files: [
       { path: "plugins/better-workflows/scripts/lib/self-improve.mjs", state: "file" },
@@ -817,7 +817,11 @@ test("evaluator migration rejects weakened, removed, reclassified, or unbound in
 
   const invariantClassChanged = structuredClone(suiteV23);
   invariantClassChanged.classes.find((item) => item.id === "universal-safety").description = "A weaker invariant label.";
-  assert.throws(() => migrate(invariantClassChanged), /preserve the inherited invariant class byte-for-byte/);
+  assert.throws(() => migrate(invariantClassChanged), /preserve every inherited source class identity, semantics, and path mapping: universal-safety/);
+
+  const nonInvariantClassPathsChanged = structuredClone(suiteV23);
+  nonInvariantClassPathsChanged.classes.find((item) => item.id === "evidence-integrity").paths = ["unrelated/"];
+  assert.throws(() => migrate(nonInvariantClassPathsChanged), /preserve every inherited source class identity, semantics, and path mapping: evidence-integrity/);
 
   const sourceChanged = structuredClone(suiteV22);
   sourceChanged.cases[0].scenario = "A different source corpus.";
