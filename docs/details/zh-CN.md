@@ -458,7 +458,9 @@ Plugin cache version 是 immutable。任何内容变更都必须使用新的 bui
 version；`SBW_STATE_ROOT=<state-root> node scripts/plugin-cache.mjs sync --handoff-run <pr-to-dev-run-id> --token <plugin-cache-action-token>` 只会在 fresh typed handoff 通过、governed cache token 消费成功且 source HEAD 未改变时 stage 尚不存在的版本，
 验证完整 file manifest 与 digest 后原子发布。同版本内容不同时会拒绝原地
 覆盖。通过正常 Codex plugin refresh 启用前，还应从最终 cache path 执行
-`sbw eval`。
+`sbw eval`。ready finalization 与失败 cleanup 共用同一把 versioned
+publication lock，避免 marker transition 与 target removal 竞态；cleanup
+只接受精确匹配 run 与 action attempt 的 pending marker。
 
 ## License
 

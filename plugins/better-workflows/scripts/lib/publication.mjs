@@ -463,57 +463,69 @@ export async function markPluginCacheReady({
   pluginBundleDigest,
   runId = null,
   attemptId = null,
-  providerReceiptDigest = null
+  providerReceiptDigest = null,
+  afterLock = null
 }) {
   const root = path.resolve(cacheRoot);
   if (target !== path.join(root, version)) {
     throw new Error("Plugin cache ready marker target is not canonical");
   }
-  const actualTargetDigest = await bundleDigest(target);
-  if (actualTargetDigest !== targetDigest) {
-    throw new Error("Plugin cache ready marker target digest does not match the published target");
+  if (afterLock !== null && typeof afterLock !== "function") {
+    throw new Error("Plugin cache ready afterLock hook must be a function");
   }
-  const existing = await readPublicationMarker(root, version);
-  if (existing && existing.state !== "pending" && existing.state !== "ready") {
-    throw new Error("Plugin cache ready marker has an invalid prior state");
-  }
-  if (existing?.state === "pending" && existing.targetDigest !== targetDigest) {
-    throw new Error("Plugin cache ready marker is bound to a different target digest");
-  }
-  for (const [field, expected] of [
-    ["sourceDigest", sourceDigest],
-    ["sourceBaselineRevision", sourceBaselineRevision],
-    ["sourceHeadRevision", sourceHeadRevision],
-    ["sourceBindingDigest", sourceBindingDigest],
-    ["pluginBundleDigest", pluginBundleDigest],
-    ["runId", runId],
-    ["attemptId", attemptId],
-    ["providerReceiptDigest", providerReceiptDigest]
-  ]) {
-    if (
-      existing?.[field] !== null &&
-      existing?.[field] !== undefined &&
-      expected !== null &&
-      expected !== undefined &&
-      existing[field] !== expected
-    ) {
-      throw new Error(`Plugin cache ready marker ${field} binding changed`);
+  const lockPath = path.join(root, `.${version}.publish.lock`);
+  const lock = await acquirePublicationLock(lockPath, version);
+  try {
+    if (afterLock) await afterLock();
+    const actualTargetDigest = await bundleDigest(target);
+    if (actualTargetDigest !== targetDigest) {
+      throw new Error("Plugin cache ready marker target digest does not match the published target");
     }
+    const existing = await readPublicationMarker(root, version);
+    if (existing && existing.state !== "pending" && existing.state !== "ready") {
+      throw new Error("Plugin cache ready marker has an invalid prior state");
+    }
+    if (existing?.state === "pending" && existing.targetDigest !== targetDigest) {
+      throw new Error("Plugin cache ready marker is bound to a different target digest");
+    }
+    for (const [field, expected] of [
+      ["sourceDigest", sourceDigest],
+      ["sourceBaselineRevision", sourceBaselineRevision],
+      ["sourceHeadRevision", sourceHeadRevision],
+      ["sourceBindingDigest", sourceBindingDigest],
+      ["pluginBundleDigest", pluginBundleDigest],
+      ["runId", runId],
+      ["attemptId", attemptId],
+      ["providerReceiptDigest", providerReceiptDigest]
+    ]) {
+      if (
+        existing?.[field] !== null &&
+        existing?.[field] !== undefined &&
+        expected !== null &&
+        expected !== undefined &&
+        existing[field] !== expected
+      ) {
+        throw new Error(`Plugin cache ready marker ${field} binding changed`);
+      }
+    }
+    return await writePublicationMarker({
+      cacheRoot: root,
+      version,
+      state: "ready",
+      targetDigest,
+      sourceDigest,
+      sourceBaselineRevision,
+      sourceHeadRevision,
+      sourceBindingDigest,
+      pluginBundleDigest,
+      runId,
+      attemptId,
+      providerReceiptDigest
+    });
+  } finally {
+    await lock.close().catch(() => undefined);
+    await releasePublicationLock(lockPath, lock.ownerToken);
   }
-  return writePublicationMarker({
-    cacheRoot: root,
-    version,
-    state: "ready",
-    targetDigest,
-    sourceDigest,
-    sourceBaselineRevision,
-    sourceHeadRevision,
-    sourceBindingDigest,
-    pluginBundleDigest,
-    runId,
-    attemptId,
-    providerReceiptDigest
-  });
 }
 
 export async function removeUnreadyPluginCachePublication({

@@ -76,7 +76,8 @@ rationale.
   untracked surface, and ignored surface. The baseline is resolved to an exact
   commit and the candidate must already be the committed HEAD; modified
   tracked plugin files also block immutable cache publication.
-- Plugin-cache failure cleanup acquires the versioned publication lock and
+- Plugin-cache ready finalization and failure cleanup share the same versioned
+  publication lock, so marker transitions cannot race target removal. Cleanup
   requires the exact pending marker `runId` and action `attemptId`; a foreign
   replacement marker and its target are never removed by the failed attempt.
 - A delegated self-improve delivery must use `pr-to-dev --self-improve-run`

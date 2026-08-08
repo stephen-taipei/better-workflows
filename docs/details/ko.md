@@ -464,7 +464,10 @@ Plugin cache version은 immutable입니다. Content 변경마다 새 build versi
 사용해야 합니다. `SBW_STATE_ROOT=<state-root> node scripts/plugin-cache.mjs sync --handoff-run <pr-to-dev-run-id> --token <plugin-cache-action-token>`는 fresh typed handoff, governed cache token과 변경되지 않은 source HEAD를 확인한 뒤 아직 없는 version만
 stage하고 전체 file manifest와 digest를 검증한 뒤 atomic publish합니다.
 동일 version의 다른 내용은 덮어쓰지 않습니다. 정상 Codex plugin refresh로
-활성화하기 전에 최종 cache path에서 `sbw eval`을 실행합니다.
+활성화하기 전에 최종 cache path에서 `sbw eval`을 실행합니다. ready
+finalization과 실패 cleanup은 같은 versioned publication lock을 공유해 marker
+transition과 target removal의 경쟁을 막습니다. cleanup은 run과 action
+attempt가 정확히 일치하는 pending marker만 처리합니다.
 
 ## License
 

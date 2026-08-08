@@ -465,6 +465,9 @@ version が必要です。`SBW_STATE_ROOT=<state-root> node scripts/plugin-cache
 だけを stage し、完全な file manifest と digest を検証して atomic publish
 します。同じ version の異なる内容は上書きしません。通常の Codex plugin
 refresh で有効化する前に、最終 cache path から `sbw eval` を実行します。
+ready finalization と失敗 cleanup は同じ versioned publication lock を共有し、
+marker transition と target removal の競合を防ぎます。cleanup は run と
+action attempt が完全一致する pending marker のみを扱います。
 
 ## License
 

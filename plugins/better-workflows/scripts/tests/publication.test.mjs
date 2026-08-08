@@ -238,6 +238,56 @@ test("unready cache cleanup preserves a target and pending marker owned by anoth
   assert.equal((await bundleDigest(published.target)), published.targetDigest);
 });
 
+test("ready finalization serializes cleanup under the publication lock", async () => {
+  const version = "1.1.0+test.ready-cleanup-lock";
+  const sourceRoot = await sourceFixture(version);
+  const cacheRoot = path.join(await mkdtemp(path.join(os.tmpdir(), "sbw-publication-ready-lock-")), "cache");
+  const identity = {
+    runId: "sbw-ready-lock-run",
+    attemptId: "sbw-ready-lock-attempt"
+  };
+  const published = await publishPluginCache({
+    sourceRoot,
+    cacheRoot,
+    publicationIdentity: identity
+  });
+  let signalReadyLock;
+  let releaseReadyLock;
+  const readyLockAcquired = new Promise((resolve) => { signalReadyLock = resolve; });
+  const allowReadyWrite = new Promise((resolve) => { releaseReadyLock = resolve; });
+  const finalizing = markPluginCacheReady({
+    cacheRoot,
+    version,
+    target: published.target,
+    targetDigest: published.targetDigest,
+    sourceDigest: published.sourceDigest,
+    runId: identity.runId,
+    attemptId: identity.attemptId,
+    afterLock: async () => {
+      signalReadyLock();
+      await allowReadyWrite;
+    }
+  });
+  await readyLockAcquired;
+  await assert.rejects(
+    removeUnreadyPluginCachePublication({
+      cacheRoot,
+      version,
+      target: published.target,
+      targetDigest: published.targetDigest,
+      runId: identity.runId,
+      attemptId: identity.attemptId
+    }),
+    /publication is already in progress/
+  );
+  assert.equal((await bundleDigest(published.target)), published.targetDigest);
+  assert.equal(JSON.parse(await readFile(path.join(cacheRoot, `${version}.ready.json`), "utf8")).state, "pending");
+  releaseReadyLock();
+  await finalizing;
+  assert.equal((await bundleDigest(published.target)), published.targetDigest);
+  assert.equal(JSON.parse(await readFile(path.join(cacheRoot, `${version}.ready.json`), "utf8")).state, "ready");
+});
+
 test("concurrent stale-lock reclaimers cannot steal a successor publication lock", async () => {
   const sourceRoot = await sourceFixture("1.1.0+test.concurrent-lock-recovery");
   const parent = await mkdtemp(path.join(os.tmpdir(), "sbw-publication-concurrent-lock-"));

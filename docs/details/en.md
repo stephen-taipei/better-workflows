@@ -803,7 +803,8 @@ attempt repairs the marker from that exact receipt without republishing. A
 `spent/pending` action can likewise resume only when the exact pending marker
 and immutable target prove the handoff source binding, run, and attempt; if
 that proof is absent, the attempt remains unknown and no second publication is
-allowed. Failure cleanup is serialized by the versioned publication lock and
+allowed. Ready finalization and failure cleanup share the same versioned
+publication lock, so marker transitions cannot race target removal. Cleanup
 requires the exact pending marker run and action attempt, so a replacement
 marker and its target remain untouched. Source runs without an explicit canonical cache-root field and locks
 whose owner cannot be proven absent fail closed.
