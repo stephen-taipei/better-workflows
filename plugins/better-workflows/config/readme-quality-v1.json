@@ -70,6 +70,7 @@
         "locale": "en",
         "path": "README.md",
         "detailsTarget": "docs/details/en.md",
+        "preambleRoster": "**Model roster:** Codex · Claude · Gemini · GPT-OSS · Grok · Cursor · Kimi · Qwen · Kiro. `agy` transports Gemini-, Claude-, and GPT-OSS-branded models; it is transport metadata, not another model brand.",
         "headings": [
           "Why Better Workflows",
           "From prompts to governed outcomes",
@@ -92,6 +93,7 @@
         "locale": "zh-TW",
         "path": "docs/README.zh-TW.md",
         "detailsTarget": "docs/details/zh-TW.md",
+        "preambleRoster": "**Model roster：** Codex · Claude · Gemini · GPT-OSS · Grok · Cursor · Kimi · Qwen · Kiro。`agy` 傳輸 Gemini、Claude 與 GPT-OSS 品牌模型；它是 transport metadata，不是另一個模型品牌。",
         "headings": [
           "為什麼需要 Better Workflows",
           "從 Prompt 走向受治理成果",
@@ -114,6 +116,7 @@
         "locale": "zh-CN",
         "path": "docs/README.zh-CN.md",
         "detailsTarget": "docs/details/zh-CN.md",
+        "preambleRoster": "**Model roster：** Codex · Claude · Gemini · GPT-OSS · Grok · Cursor · Kimi · Qwen · Kiro。`agy` 传输 Gemini、Claude 与 GPT-OSS 品牌模型；它是 transport metadata，不是另一个模型品牌。",
         "headings": [
           "为什么需要 Better Workflows",
           "从 Prompt 走向受治理成果",
@@ -136,6 +139,7 @@
         "locale": "ja",
         "path": "docs/README.ja.md",
         "detailsTarget": "docs/details/ja.md",
+        "preambleRoster": "**Model roster:** Codex · Claude · Gemini · GPT-OSS · Grok · Cursor · Kimi · Qwen · Kiro。`agy` は Gemini、Claude、GPT-OSS ブランドの model を transport しますが、それ自体は model ブランドではありません。",
         "headings": [
           "Better Workflows が必要な理由",
           "Prompt から統制された成果へ",
@@ -158,6 +162,7 @@
         "locale": "ko",
         "path": "docs/README.ko.md",
         "detailsTarget": "docs/details/ko.md",
+        "preambleRoster": "**Model roster:** Codex · Claude · Gemini · GPT-OSS · Grok · Cursor · Kimi · Qwen · Kiro. `agy`는 Gemini, Claude, GPT-OSS 브랜드 model을 transport하지만 그 자체가 model 브랜드는 아닙니다.",
         "headings": [
           "Better Workflows가 필요한 이유",
           "Prompt에서 통제된 결과로",

@@ -7,7 +7,7 @@
 Turn Codex work from “prompt and hope” into a bounded path from intent to
 verified, provider-reconciled delivery.
 
-[![Version](https://img.shields.io/badge/version-3.1.14-2563EB?style=flat-square)](plugins/better-workflows/package.json)
+[![Version](https://img.shields.io/badge/version-3.1.15-2563EB?style=flat-square)](plugins/better-workflows/package.json)
 [![Node](https://img.shields.io/badge/Node.js-%E2%89%A524-3C873A?style=flat-square)](plugins/better-workflows/package.json)
 [![Dependencies](https://img.shields.io/badge/runtime_dependencies-0-0F766E?style=flat-square)](plugins/better-workflows/package.json)
 [![License](https://img.shields.io/badge/license-MIT-64748B?style=flat-square)](LICENSE)
@@ -17,6 +17,9 @@ verified, provider-reconciled delivery.
 </div>
 
 [Quick start](docs/guide/getting-started.md) · [Workflows](docs/guide/workflows.md) · [Architecture](docs/guide/architecture.md) · [Security](docs/guide/security.md) · [CLI](docs/guide/cli-reference.md) · [Full details](docs/details/en.md)
+
+<!-- readme-roster -->
+**Model roster:** Codex · Claude · Gemini · GPT-OSS · Grok · Cursor · Kimi · Qwen · Kiro. `agy` transports Gemini-, Claude-, and GPT-OSS-branded models; it is transport metadata, not another model brand.
 
 <!-- readme-section:promise-audience -->
 ## Why Better Workflows
@@ -154,9 +157,8 @@ Sensitive or private history is never harvested; it is rejected with a redacted 
 - Independent critics are read-only and cannot accept risk or declare success.
 - Workspace recipes run deterministic Node.js mechanics; they cannot choose
   models, use the network, run arbitrary shell, or mutate source.
-- Model deliberation admits only a current semantic roster probe. Supported
-  brands include Codex, Claude, Gemini, GPT-OSS, Grok, Cursor, Kimi, Qwen, and
-  Kiro; `agy` is transport metadata, not another model brand.
+- Model deliberation admits only a current semantic roster probe; unavailable
+  providers are never silently substituted.
 - Graph View is derived presentation. It never becomes policy input,
   authorization, a scheduler, or an agent runtime.
 

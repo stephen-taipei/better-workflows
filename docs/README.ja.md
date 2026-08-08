@@ -6,7 +6,7 @@
 
 Codex の作業を「Prompt を渡して成功を祈る」状態から、意図、検証、provider reconciliation を経た delivery へ進めます。
 
-[![Version](https://img.shields.io/badge/version-3.1.14-2563EB?style=flat-square)](../plugins/better-workflows/package.json)
+[![Version](https://img.shields.io/badge/version-3.1.15-2563EB?style=flat-square)](../plugins/better-workflows/package.json)
 [![Node](https://img.shields.io/badge/Node.js-%E2%89%A524-3C873A?style=flat-square)](../plugins/better-workflows/package.json)
 [![Dependencies](https://img.shields.io/badge/runtime_dependencies-0-0F766E?style=flat-square)](../plugins/better-workflows/package.json)
 [![License](https://img.shields.io/badge/license-MIT-64748B?style=flat-square)](../LICENSE)
@@ -16,6 +16,9 @@ Codex の作業を「Prompt を渡して成功を祈る」状態から、意図�
 </div>
 
 [クイックスタート](guide/getting-started.md) · [Workflows](guide/workflows.md) · [Architecture](guide/architecture.md) · [Security](guide/security.md) · [CLI](guide/cli-reference.md) · [詳細仕様](details/ja.md)
+
+<!-- readme-roster -->
+**Model roster:** Codex · Claude · Gemini · GPT-OSS · Grok · Cursor · Kimi · Qwen · Kiro。`agy` は Gemini、Claude、GPT-OSS ブランドの model を transport しますが、それ自体は model ブランドではありません。
 
 <!-- readme-section:promise-audience -->
 ## Better Workflows が必要な理由
@@ -147,9 +150,8 @@ Better Workflows は control plane を記録して検証しますが、無制限
 - Independent critics は read-only で、risk acceptance や success declaration はできません。
 - Workspace recipes は deterministic Node.js mechanics だけを実行し、model 選択、network、
   arbitrary shell、source mutation はできません。
-- Model deliberation は最新の semantic roster probe だけを認めます。対応ブランドは
-  Codex、Claude、Gemini、GPT-OSS、Grok、Cursor、Kimi、Qwen、Kiro です。`agy` は
-  transport metadata であり、別ブランドではありません。
+- Model deliberation は最新の semantic roster probe だけを認め、利用できない provider を
+  暗黙に代替しません。
 - Graph View は derived presentation であり、policy input、authorization、scheduler、
   agent runtime にはなりません。
 

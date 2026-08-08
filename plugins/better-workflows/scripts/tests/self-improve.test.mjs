@@ -702,6 +702,28 @@ test("balanced sanitizer prioritizes public entry and security documents within 
   }
 });
 
+test("bounded README sampling preserves the model-brand and transport boundary", async () => {
+  const file = "README.md";
+  const content = await readFile(path.join(repositoryRoot, file));
+  const [material] = await readSanitizedCandidateMaterial({
+    cwd: repositoryRoot,
+    snapshot: {
+      files: [{
+        path: file,
+        state: "file",
+        digest: createHash("sha256").update(content).digest("hex")
+      }]
+    },
+    maxFiles: 1,
+    maxBytes: 2 * 1024
+  });
+  for (const brand of ["Codex", "Claude", "Gemini", "GPT-OSS", "Grok", "Cursor", "Kimi", "Qwen", "Kiro"]) {
+    assert.match(material.content, new RegExp(brand), brand);
+  }
+  assert.match(material.content, /`agy` transports Gemini-, Claude-, and GPT-OSS-branded models/);
+  assert.match(material.content, /transport metadata, not another model brand/);
+});
+
 test("evaluation v2 selects universal safety plus only applicable improvement classes", () => {
   const cases = selectEvaluationCases({
     suite: suiteV21,

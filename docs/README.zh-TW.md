@@ -6,7 +6,7 @@
 
 讓 Codex 工作不再停在「下 Prompt 然後期待成功」，而是沿著有界路徑，從意圖走到已驗證、已對帳的交付。
 
-[![Version](https://img.shields.io/badge/version-3.1.14-2563EB?style=flat-square)](../plugins/better-workflows/package.json)
+[![Version](https://img.shields.io/badge/version-3.1.15-2563EB?style=flat-square)](../plugins/better-workflows/package.json)
 [![Node](https://img.shields.io/badge/Node.js-%E2%89%A524-3C873A?style=flat-square)](../plugins/better-workflows/package.json)
 [![Dependencies](https://img.shields.io/badge/runtime_dependencies-0-0F766E?style=flat-square)](../plugins/better-workflows/package.json)
 [![License](https://img.shields.io/badge/license-MIT-64748B?style=flat-square)](../LICENSE)
@@ -16,6 +16,9 @@
 </div>
 
 [快速開始](guide/getting-started.md) · [工作流](guide/workflows.md) · [架構](guide/architecture.md) · [安全](guide/security.md) · [CLI](guide/cli-reference.md) · [完整細節](details/zh-TW.md)
+
+<!-- readme-roster -->
+**Model roster：** Codex · Claude · Gemini · GPT-OSS · Grok · Cursor · Kimi · Qwen · Kiro。`agy` 傳輸 Gemini、Claude 與 GPT-OSS 品牌模型；它是 transport metadata，不是另一個模型品牌。
 
 <!-- readme-section:promise-audience -->
 ## 為什麼需要 Better Workflows
@@ -144,9 +147,7 @@ Better Workflows 記錄並檢查 control plane；它不是無限制 agent runtim
 - Independent critics 保持唯讀，不能接受風險或宣告成功。
 - Workspace recipes 只執行 deterministic Node.js mechanics，不能選模型、使用網路、
   執行 arbitrary shell 或修改 source。
-- Model deliberation 只接受最新 semantic roster probe。支援品牌包含 Codex、Claude、
-  Gemini、GPT-OSS、Grok、Cursor、Kimi、Qwen 與 Kiro；`agy` 是 transport metadata，
-  不是另一個模型品牌。
+- Model deliberation 只接受最新 semantic roster probe；不可用 provider 絕不會被默默替代。
 - Graph View 是衍生 presentation，永遠不是 policy input、authorization、scheduler
   或 agent runtime。
 

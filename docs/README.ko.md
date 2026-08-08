@@ -6,7 +6,7 @@
 
 Codex 작업을 “Prompt를 주고 성공을 기대하는” 상태에서 의도, 검증, provider reconciliation을 거친 delivery로 전환합니다.
 
-[![Version](https://img.shields.io/badge/version-3.1.14-2563EB?style=flat-square)](../plugins/better-workflows/package.json)
+[![Version](https://img.shields.io/badge/version-3.1.15-2563EB?style=flat-square)](../plugins/better-workflows/package.json)
 [![Node](https://img.shields.io/badge/Node.js-%E2%89%A524-3C873A?style=flat-square)](../plugins/better-workflows/package.json)
 [![Dependencies](https://img.shields.io/badge/runtime_dependencies-0-0F766E?style=flat-square)](../plugins/better-workflows/package.json)
 [![License](https://img.shields.io/badge/license-MIT-64748B?style=flat-square)](../LICENSE)
@@ -16,6 +16,9 @@ Codex 작업을 “Prompt를 주고 성공을 기대하는” 상태에서 의�
 </div>
 
 [빠른 시작](guide/getting-started.md) · [Workflows](guide/workflows.md) · [Architecture](guide/architecture.md) · [Security](guide/security.md) · [CLI](guide/cli-reference.md) · [상세 사양](details/ko.md)
+
+<!-- readme-roster -->
+**Model roster:** Codex · Claude · Gemini · GPT-OSS · Grok · Cursor · Kimi · Qwen · Kiro. `agy`는 Gemini, Claude, GPT-OSS 브랜드 model을 transport하지만 그 자체가 model 브랜드는 아닙니다.
 
 <!-- readme-section:promise-audience -->
 ## Better Workflows가 필요한 이유
@@ -147,9 +150,8 @@ Better Workflows는 control plane을 기록하고 검사하지만 무제한 agen
 - Independent critics는 read-only이며 risk acceptance나 success declaration을 할 수 없습니다.
 - Workspace recipes는 deterministic Node.js mechanics만 실행하며 model 선택, network,
   arbitrary shell, source mutation을 할 수 없습니다.
-- Model deliberation은 최신 semantic roster probe만 허용합니다. 지원 브랜드는 Codex,
-  Claude, Gemini, GPT-OSS, Grok, Cursor, Kimi, Qwen, Kiro입니다. `agy`는 transport
-  metadata이며 별도 모델 브랜드가 아닙니다.
+- Model deliberation은 최신 semantic roster probe만 허용하며 사용할 수 없는 provider를
+  암묵적으로 대체하지 않습니다.
 - Graph View는 derived presentation이며 policy input, authorization, scheduler,
   agent runtime이 되지 않습니다.
 

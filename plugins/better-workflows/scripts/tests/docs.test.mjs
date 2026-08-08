@@ -217,6 +217,12 @@ function validateLandingReadme(content, file, fileContract, contract) {
   if (JSON.stringify(h2) !== JSON.stringify(fileContract.headings)) errors.push("H2 narrative order");
   const sectionMarkers = markerValues(content, "readme-section");
   if (JSON.stringify(sectionMarkers) !== JSON.stringify(contract.sectionOrder)) errors.push("section marker order");
+  const rosterMarker = "<!-- readme-roster -->";
+  const rosterMarkerCount = content.split(rosterMarker).length - 1;
+  const firstSection = content.indexOf("<!-- readme-section:promise-audience -->");
+  const rosterPosition = content.indexOf(rosterMarker);
+  if (rosterMarkerCount !== 1 || rosterPosition === -1 || rosterPosition > firstSection) errors.push("preamble roster placement");
+  if (!content.slice(0, firstSection).includes(fileContract.preambleRoster)) errors.push("preamble roster wording");
   const claimMarkers = markerValues(content, "readme-claim");
   if (JSON.stringify(claimMarkers) !== JSON.stringify(contract.claimOrder)) errors.push("claim marker order");
   for (const key of contract.claimOrder) {
@@ -324,7 +330,10 @@ test("all landing READMEs satisfy the narrative, trust, visual, and scan-quality
       assert.match(content, new RegExp(brand), `${file}: ${brand}`);
     }
   }
-  assert.match(await readFile(overview, "utf8"), /agy` is transport metadata, not\s+another model brand/);
+  assert.match(
+    await readFile(overview, "utf8"),
+    /`agy` transports Gemini-, Claude-, and GPT-OSS-branded models; it is transport metadata, not another model brand/,
+  );
 });
 
 test("README quality validation rejects cosmetic compliance and broken reader paths", async (context) => {
@@ -341,6 +350,10 @@ test("README quality validation rejects cosmetic compliance and broken reader pa
     {
       label: "claim prompt-not-authority wording",
       content: content.replace(fileContract.claims["prompt-not-authority"], "Intent appears here without the governed claim.")
+    },
+    {
+      label: "preamble roster wording",
+      content: content.replace(fileContract.preambleRoster, "A model list without its transport boundary.")
     },
     {
       label: "H1 count",
