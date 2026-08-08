@@ -75,8 +75,9 @@ identifiers. Missing, weakened, or reclassified inherited cases fail before
 replay. Evaluator dispositions classify the supplied snapshot rather
 than recommend another edit: baseline and candidate use identical semantics,
 and every satisfied assertion must be reported for every disposition. The
-evaluator-migration source replay and target calibration are fixed to universal
-invariants plus evaluation-engineering; ordinary evaluation alone selects all
+evaluator-migration source replay and target calibration include every case in
+their immutable versioned suites, so inherited governed surfaces remain covered
+and new classes are calibrated. Ordinary evaluation continues to select only
 applicable improvement classes from changed paths.
 
 An evaluator migration is a separate governance path. It freezes the previous

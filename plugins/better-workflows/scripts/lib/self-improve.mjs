@@ -743,8 +743,7 @@ export function selectEvaluatorMigrationCases({ suite, split }) {
   if (classKinds.get("evaluation-engineering") !== "improvement") {
     throw new Error("Evaluator migration suite requires an evaluation-engineering improvement class");
   }
-  const selected = suite.cases.filter((item) =>
-    item.split === split && (classKinds.get(item.evaluationClass) === "invariant" || item.evaluationClass === "evaluation-engineering"));
+  const selected = suite.cases.filter((item) => item.split === split);
   if (!selected.some((item) => classKinds.get(item.evaluationClass) === "invariant") ||
       !selected.some((item) => item.evaluationClass === "evaluation-engineering")) {
     throw new Error(`Evaluator migration ${split} coverage lacks invariant or evaluation-engineering cases`);

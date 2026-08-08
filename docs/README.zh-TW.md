@@ -20,7 +20,7 @@ Codex 的受治理工作流編排：小改動保持快速，重要 side effects 
 GPT-OSS（透過 `agy`）· Grok · Cursor · Kimi · Qwen · Kiro。`agy` 是
 transport metadata，不是另一個模型品牌；是否可用仍須通過最新 semantic roster probe。
 
-[![Version](https://img.shields.io/badge/version-3.1.10-2563EB?style=flat-square)](../plugins/better-workflows/package.json)
+[![Version](https://img.shields.io/badge/version-3.1.11-2563EB?style=flat-square)](../plugins/better-workflows/package.json)
 [![Node](https://img.shields.io/badge/Node.js-%E2%89%A524-3C873A?style=flat-square)](../plugins/better-workflows/package.json)
 [![Dependencies](https://img.shields.io/badge/runtime_dependencies-0-0F766E?style=flat-square)](../plugins/better-workflows/package.json)
 [![License](https://img.shields.io/badge/license-MIT-64748B?style=flat-square)](../LICENSE)

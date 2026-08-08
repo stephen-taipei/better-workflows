@@ -527,9 +527,19 @@ test("self-improve attestation request freezes seven distinct requests and rejec
   assert.equal(migration.json.targetSuitePath, "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.3.json");
   assert.match(migration.json.sourceSuiteDigest, /^[a-f0-9]{64}$/);
   assert.match(migration.json.targetSuiteDigest, /^[a-f0-9]{64}$/);
+  const migrationPrompts = [];
   for (const item of migration.json.requests) {
     const request = JSON.parse(await readFile(item.request, "utf8"));
     assert.equal(request.execution.suiteDigest, migration.json.suiteDigest);
+    migrationPrompts.push(await readFile(request.promptPath, "utf8"));
+  }
+  const sourceSuite = JSON.parse(await readFile(path.join(
+    cwd,
+    "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.2.json"
+  ), "utf8"));
+  const signedPromptCorpus = migrationPrompts.join("\n");
+  for (const evaluationCase of sourceSuite.cases) {
+    assert.match(signedPromptCorpus, new RegExp(evaluationCase.id));
   }
 
   await mkdir(path.join(cwd, "plugins", "better-workflows", "scripts", "lib"), { recursive: true });

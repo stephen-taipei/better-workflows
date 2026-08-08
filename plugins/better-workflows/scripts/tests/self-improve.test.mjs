@@ -733,7 +733,7 @@ test("evaluation v2 selects universal safety plus only applicable improvement cl
   );
 });
 
-test("evaluator migration isolates source replay classes while binding v2.2, v2.3, balanced groups, and both splits", () => {
+test("evaluator migration preserves complete source and target coverage while binding v2.2, v2.3, balanced groups, and both splits", () => {
   const snapshot = {
     files: [
       { path: "plugins/better-workflows/scripts/lib/publication.mjs", state: "file" },
@@ -757,12 +757,30 @@ test("evaluator migration isolates source replay classes while binding v2.2, v2.
   });
   assert.deepEqual(calibration.materialGroups, ["fixtures", "runtime", "tests"]);
   assert.match(calibration.digest, /^[a-f0-9]{64}$/);
-  assert.deepEqual(calibration.trainClasses, ["evaluation-engineering", "universal-safety"]);
-  assert.deepEqual(calibration.holdoutClasses, ["evaluation-engineering", "universal-safety"]);
+  const targetClasses = [
+    "deliberation-roster-terminology",
+    "direct-work-cost",
+    "documentation-information-architecture",
+    "evaluation-engineering",
+    "evidence-integrity",
+    "execution-ledger",
+    "plugin-cache-publication",
+    "review-convergence",
+    "sanitizer-coverage",
+    "universal-safety"
+  ];
+  assert.deepEqual(calibration.trainClasses, targetClasses);
+  assert.deepEqual(calibration.holdoutClasses, targetClasses);
   assert.deepEqual(
     [...new Set(selectEvaluatorMigrationCases({ suite: suiteV22, split: "holdout" }).map((item) => item.evaluationClass))].sort(),
-    ["evaluation-engineering", "universal-safety"]
+    targetClasses.filter((item) => item !== "plugin-cache-publication")
   );
+  for (const split of ["train", "holdout"]) {
+    assert.deepEqual(
+      selectEvaluatorMigrationCases({ suite: suiteV22, split }).map((item) => item.id),
+      suiteV22.cases.filter((item) => item.split === split).map((item) => item.id)
+    );
+  }
   assert.throws(
     () => selectEvaluatorMigrationCases({ suite: { ...suiteV22, classes: suiteV22.classes.filter((item) => item.id !== "evaluation-engineering") }, split: "holdout" }),
     /requires an evaluation-engineering improvement class/
