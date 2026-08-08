@@ -662,6 +662,7 @@ test("balanced sanitizer prioritizes public entry and security documents within 
       "SECURITY.md",
       "docs/guide/security.md",
       "docs/guide/architecture.md",
+      "docs/guide/readme-quality.md",
       "docs/assets/better-workflows-engineering-stack.svg",
       "CODE_OF_CONDUCT.md",
       "CONTRIBUTING.md",
@@ -682,7 +683,7 @@ test("balanced sanitizer prioritizes public entry and security documents within 
       snapshot: {
         files: files.map((file) => ({ path: file, state: "file", digest: "c".repeat(64) }))
       },
-      maxFiles: 9
+      maxFiles: 10
     });
     assert.deepEqual(material.map((item) => item.path), [
       "README.md",
@@ -693,6 +694,7 @@ test("balanced sanitizer prioritizes public entry and security documents within 
       "SECURITY.md",
       "docs/guide/security.md",
       "docs/guide/architecture.md",
+      "docs/guide/readme-quality.md",
       "docs/assets/better-workflows-engineering-stack.svg"
     ]);
   } finally {
@@ -841,6 +843,7 @@ test("candidate sanitizer admits declared public docs and checks all paths befor
       "scripts/plugin-cache.mjs",
       "docs/details/en.md",
       "docs/guide/security.md",
+      "docs/guide/readme-quality.md",
       "docs/assets/better-workflows-engineering-stack.svg"
     ];
     for (const file of publicFiles) {

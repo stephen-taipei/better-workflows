@@ -97,6 +97,7 @@ const PUBLIC_DOCUMENT_SAMPLE_PRIORITY = new Map([
   "SECURITY.md",
   "docs/guide/security.md",
   "docs/guide/architecture.md",
+  "docs/guide/readme-quality.md",
   "scripts/plugin-cache.mjs",
   "docs/assets/better-workflows-engineering-stack.svg"
 ].map((file, index) => [file, index]));
@@ -106,7 +107,7 @@ function allowedCandidateMaterial(file) {
     PUBLIC_ROOT_SCRIPTS.has(file) ||
     /^docs\/README\.(?:zh-TW|zh-CN|ja|ko)\.md$/.test(file) ||
     /^docs\/details\/(?:en|zh-TW|zh-CN|ja|ko)\.md$/.test(file) ||
-    /^docs\/guide\/(?:architecture|cli-reference|getting-started|security|workflows)\.md$/.test(file) ||
+    /^docs\/guide\/(?:architecture|cli-reference|getting-started|readme-quality|security|workflows)\.md$/.test(file) ||
     file === "docs/assets/better-workflows-engineering-stack.svg" ||
     /^plugins\/better-workflows\/(?:scripts\/.+\.(?:mjs|c)|skills\/.+\.md|templates\/.+\.json|fixtures\/.+\.(?:json|md|mjs)|config\/.+\.json|package\.json|\.codex-plugin\/plugin\.json)$/.test(file);
 }
