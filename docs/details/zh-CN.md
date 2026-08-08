@@ -460,7 +460,9 @@ version；`SBW_STATE_ROOT=<state-root> node scripts/plugin-cache.mjs sync --hand
 覆盖。通过正常 Codex plugin refresh 启用前，还应从最终 cache path 执行
 `sbw eval`。ready finalization 与失败 cleanup 共用同一把 versioned
 publication lock，避免 marker transition 与 target removal 竞态；cleanup
-只接受精确匹配 run 与 action attempt 的 pending marker。
+只接受精确匹配 run 与 action attempt 的 pending marker。回收 stale lock 后，
+publisher 也只接受 source binding、run 与 attempt 全部匹配的既有 pending
+marker；即使 target 尚不存在，外来 marker 仍会保留且 publication fail closed。
 
 ## License
 

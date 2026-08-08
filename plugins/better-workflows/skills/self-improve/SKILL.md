@@ -336,7 +336,11 @@ pending marker and immutable target prove the exact source binding, run, and
 attempt; it must create the governed receipt without republishing. Repair may
 not rerun publication, accept a different receipt, or overwrite a drifted
 target. Ready finalization and failure cleanup must share the same versioned
-publication lock so marker transitions cannot race target removal. Completion must recheck the ready marker, source binding,
+publication lock so marker transitions cannot race target removal. Reclaiming
+a stale lock does not transfer marker ownership: before staging a missing
+target, an existing pending marker must match the complete source binding, run,
+and attempt or publication fails closed without changing that marker.
+Completion must recheck the ready marker, source binding,
 provider-receipt digest, and canonical cache root. A source run without an
 explicit canonical `pluginCacheRoot` is invalid; never infer it from the
 current ambient `CODEX_HOME`. Publication locks may be reclaimed only after

@@ -487,7 +487,10 @@ receipt 並修復 ready；否則維持 unknown，禁止第二次 publication。r
 finalization 與失敗 cleanup 共用同一把 versioned publication lock，避免
 marker transition 與 target removal 競態；cleanup 仍要求 pending marker
 精確符合相同 run 與 action attempt。ownership 不同時，replacement marker
-與其 target 都會保留。source run 若沒有明確的 canonical cache-root 欄位，或 lock owner 無法證明已消失，也
+與其 target 都會保留。回收 stale lock 後，publisher 也只接受 source
+binding、run 與 attempt 全部相符的既有 pending marker；即使 target 尚未
+存在，外來 marker 仍會保留且 publication fail closed。source run 若沒有
+明確的 canonical cache-root 欄位，或 lock owner 無法證明已消失，也
 必須 fail closed。
 
 ## License

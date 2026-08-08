@@ -80,6 +80,10 @@ rationale.
   publication lock, so marker transitions cannot race target removal. Cleanup
   requires the exact pending marker `runId` and action `attemptId`; a foreign
   replacement marker and its target are never removed by the failed attempt.
+- Reclaiming a stale publication lock does not transfer pending-marker
+  ownership. Before staging a missing target, the publisher requires any
+  existing pending marker to match the complete source binding, `runId`, and
+  `attemptId`; a foreign marker remains untouched and publication fails closed.
 - A delegated self-improve delivery must use `pr-to-dev --self-improve-run`
   and a typed `self-improve-delivery-handoff` receipt. That receipt binds the
   source run, baseline/HEAD/source/plugin digests, request manifest, accepted

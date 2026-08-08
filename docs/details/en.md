@@ -806,7 +806,10 @@ that proof is absent, the attempt remains unknown and no second publication is
 allowed. Ready finalization and failure cleanup share the same versioned
 publication lock, so marker transitions cannot race target removal. Cleanup
 requires the exact pending marker run and action attempt, so a replacement
-marker and its target remain untouched. Source runs without an explicit canonical cache-root field and locks
+marker and its target remain untouched. After stale-lock recovery, publication
+also requires any existing pending marker to match the complete source binding,
+run, and attempt; a foreign marker is preserved even when its target is absent.
+Source runs without an explicit canonical cache-root field and locks
 whose owner cannot be proven absent fail closed.
 
 ## License

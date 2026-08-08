@@ -467,7 +467,10 @@ stage하고 전체 file manifest와 digest를 검증한 뒤 atomic publish합니
 활성화하기 전에 최종 cache path에서 `sbw eval`을 실행합니다. ready
 finalization과 실패 cleanup은 같은 versioned publication lock을 공유해 marker
 transition과 target removal의 경쟁을 막습니다. cleanup은 run과 action
-attempt가 정확히 일치하는 pending marker만 처리합니다.
+attempt가 정확히 일치하는 pending marker만 처리합니다. stale lock 회수 후에도
+publisher는 source binding, run, attempt가 모두 일치하는 기존 pending marker만
+허용합니다. target이 없더라도 foreign marker를 보존하고 publication은 fail
+closed합니다.
 
 ## License
 

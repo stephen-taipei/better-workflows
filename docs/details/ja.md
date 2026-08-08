@@ -467,7 +467,10 @@ version が必要です。`SBW_STATE_ROOT=<state-root> node scripts/plugin-cache
 refresh で有効化する前に、最終 cache path から `sbw eval` を実行します。
 ready finalization と失敗 cleanup は同じ versioned publication lock を共有し、
 marker transition と target removal の競合を防ぎます。cleanup は run と
-action attempt が完全一致する pending marker のみを扱います。
+action attempt が完全一致する pending marker のみを扱います。stale lock の
+回収後も、publisher は source binding、run、attempt がすべて一致する既存の
+pending marker だけを受け入れます。target が存在しない場合でも foreign
+marker を保持し、publication は fail closed します。
 
 ## License
 

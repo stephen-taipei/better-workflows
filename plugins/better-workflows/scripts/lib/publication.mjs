@@ -451,6 +451,29 @@ async function writePublicationMarker({
   return value;
 }
 
+function pendingMarkerMatchesPublication(marker, {
+  cacheRoot,
+  version,
+  targetDigest,
+  expectedSourceBinding,
+  publicationIdentity
+}) {
+  const expected = expectedSourceBinding;
+  return marker?.schemaVersion === 2 &&
+    marker.state === "pending" &&
+    marker.version === version &&
+    marker.target === path.join(path.resolve(cacheRoot), version) &&
+    marker.targetDigest === targetDigest &&
+    marker.sourceDigest === targetDigest &&
+    marker.sourceBaselineRevision === (expected?.sourceBaselineRevision ?? null) &&
+    marker.sourceHeadRevision === (expected?.sourceHeadRevision ?? null) &&
+    marker.sourceBindingDigest === (expected?.sourceBindingDigest ?? null) &&
+    marker.pluginBundleDigest === (expected?.pluginBundleDigest ?? targetDigest) &&
+    marker.runId === (publicationIdentity?.runId ?? null) &&
+    marker.attemptId === (publicationIdentity?.attemptId ?? null) &&
+    marker.providerReceiptDigest === null;
+}
+
 export async function markPluginCacheReady({
   cacheRoot,
   version,
@@ -753,6 +776,17 @@ export async function publishPluginCache({
         `Refusing to overwrite immutable cache version ${lockedBefore.version}; bump the plugin build version`
       );
     }
+    const expectedBundleDigest = expected?.pluginBundleDigest ?? lockedBefore.sourceDigest;
+    const existingMarker = await readPublicationMarker(resolvedCacheRoot, lockedBefore.version);
+    if (existingMarker && !pendingMarkerMatchesPublication(existingMarker, {
+      cacheRoot: resolvedCacheRoot,
+      version: lockedBefore.version,
+      targetDigest: expectedBundleDigest,
+      expectedSourceBinding: expected,
+      publicationIdentity
+    })) {
+      throw new Error("Plugin cache existing pending publication marker is not bound to this action attempt");
+    }
     await mkdir(stage, { mode: 0o700 });
     const snapshot = expected
       ? await createCommittedSourceSnapshot(sourceRoot, expected, resolvedCacheRoot, before.version)
@@ -761,7 +795,6 @@ export async function publishPluginCache({
     await copyBundle(snapshot?.snapshotSource ?? path.resolve(sourceRoot), stage);
     const stagedManifest = await createBundleManifest(stage);
     const stagedDigest = digestObject(stagedManifest);
-    const expectedBundleDigest = expected?.pluginBundleDigest ?? lockedBefore.sourceDigest;
     if (stagedDigest !== expectedBundleDigest) {
       throw new Error("Staged plugin cache digest does not match source");
     }

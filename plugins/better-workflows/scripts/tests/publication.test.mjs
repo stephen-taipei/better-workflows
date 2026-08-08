@@ -141,12 +141,17 @@ test("plugin bundle digest uses Git executable-bit modes across checkout and arc
 test("plugin cache publication reclaims a lock left by a hard-killed publisher", async () => {
   const sourceRoot = await sourceFixture("1.1.0+test.lock-recovery");
   const cacheRoot = path.join(await mkdtemp(path.join(os.tmpdir(), "sbw-publication-lock-recovery-")), "cache");
+  const publicationIdentity = {
+    runId: "sbw-lock-recovery-run",
+    attemptId: "sbw-lock-recovery-attempt"
+  };
   const publicationModule = pathToFileURL(path.resolve(path.dirname(new URL(import.meta.url).pathname), "..", "lib", "publication.mjs")).href;
   const childCode = `
     import { publishPluginCache } from ${JSON.stringify(publicationModule)};
     await publishPluginCache({
       sourceRoot: ${JSON.stringify(sourceRoot)},
       cacheRoot: ${JSON.stringify(cacheRoot)},
+      publicationIdentity: ${JSON.stringify(publicationIdentity)},
       beforeRename: async () => process.kill(process.pid, "SIGKILL")
     });
   `;
@@ -154,13 +159,63 @@ test("plugin cache publication reclaims a lock left by a hard-killed publisher",
     execFileAsync(process.execPath, ["--input-type=module", "-e", childCode], { encoding: "utf8" }),
     (error) => error.signal === "SIGKILL"
   );
-  const published = await publishPluginCache({ sourceRoot, cacheRoot });
+  const published = await publishPluginCache({ sourceRoot, cacheRoot, publicationIdentity });
   assert.equal(published.ok, true);
   assert.equal(published.applied, true);
   assert.deepEqual(
     (await readdir(cacheRoot)).filter((name) => name.includes(".publish.lock") || name.includes(".stage-")),
     []
   );
+});
+
+test("stale lock recovery preserves a foreign pending marker when the target is absent", async () => {
+  const version = "1.1.0+test.stale-lock-foreign-marker";
+  const sourceRoot = await sourceFixture(version);
+  const cacheRoot = path.join(await mkdtemp(path.join(os.tmpdir(), "sbw-publication-stale-foreign-marker-")), "cache");
+  await mkdir(cacheRoot, { recursive: true });
+  const sourceDigest = await bundleDigest(sourceRoot);
+  const markerPath = path.join(cacheRoot, `${version}.ready.json`);
+  const foreignMarker = {
+    schemaVersion: 2,
+    state: "pending",
+    version,
+    target: path.join(cacheRoot, version),
+    targetDigest: sourceDigest,
+    sourceDigest,
+    sourceBaselineRevision: null,
+    sourceHeadRevision: null,
+    sourceBindingDigest: null,
+    pluginBundleDigest: sourceDigest,
+    runId: "sbw-foreign-pending-run",
+    attemptId: "sbw-foreign-pending-attempt",
+    providerReceiptDigest: null,
+    updatedAt: "2026-08-08T00:00:00.000Z"
+  };
+  await writeFile(markerPath, `${JSON.stringify(foreignMarker, null, 2)}\n`, { mode: 0o600 });
+  await writeFile(
+    path.join(cacheRoot, `.${version}.publish.lock`),
+    `${JSON.stringify({
+      version,
+      pid: 999999999,
+      ownerToken: "dead-foreign-owner",
+      createdAt: "2020-01-01T00:00:00.000Z"
+    })}\n`,
+    { mode: 0o600 }
+  );
+
+  await assert.rejects(
+    publishPluginCache({
+      sourceRoot,
+      cacheRoot,
+      publicationIdentity: {
+        runId: "sbw-current-pending-run",
+        attemptId: "sbw-current-pending-attempt"
+      }
+    }),
+    /existing pending publication marker is not bound to this action attempt/
+  );
+  assert.deepEqual(JSON.parse(await readFile(markerPath, "utf8")), foreignMarker);
+  await assert.rejects(access(path.join(cacheRoot, version)));
 });
 
 test("publication failure preserves a pending marker owned by another action", async () => {
