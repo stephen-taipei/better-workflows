@@ -1,6 +1,6 @@
 {
   "name": "better-workflows",
-  "version": "3.1.12",
+  "version": "3.1.13",
   "description": "Native-first, evidence-driven workflows for Codex.",
   "license": "MIT",
   "private": true,

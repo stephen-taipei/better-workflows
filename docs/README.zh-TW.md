@@ -2,25 +2,11 @@
 
 # Better Workflows
 
-### Goal-first · 證據驅動 · Fail-closed
+**Goal-first · Evidence-driven · Fail-closed**
 
-Codex 的受治理工作流編排：小改動保持快速，重要 side effects 保持嚴謹。
+讓 Codex 工作不再停在「下 Prompt 然後期待成功」，而是沿著有界路徑，從意圖走到已驗證、已對帳的交付。
 
-| Primitive | 治理內容 | 證據邊界 |
-| --- | --- | --- |
-| **Prompt** | 成果 | 文字不授予權限 |
-| **Context** | 輸入 | 必須有 fresh digests |
-| **Harness** | 工具 | 只信任 allowlisted producers |
-| **Loop** | 嘗試 | 重試保持有界 |
-| **Graph** | 狀態 | 唯讀；不是 scheduler 或授權來源 |
-
-絕不擷取敏感或私人歷史；只能以經遮蔽的 `REJECTED_WITH_EVIDENCE` disposition 拒絕。
-
-**模型品牌名單：** Codex · Claude · Gemini（透過 Antigravity `agy`）·
-GPT-OSS（透過 `agy`）· Grok · Cursor · Kimi · Qwen · Kiro。`agy` 是
-transport metadata，不是另一個模型品牌；是否可用仍須通過最新 semantic roster probe。
-
-[![Version](https://img.shields.io/badge/version-3.1.12-2563EB?style=flat-square)](../plugins/better-workflows/package.json)
+[![Version](https://img.shields.io/badge/version-3.1.13-2563EB?style=flat-square)](../plugins/better-workflows/package.json)
 [![Node](https://img.shields.io/badge/Node.js-%E2%89%A524-3C873A?style=flat-square)](../plugins/better-workflows/package.json)
 [![Dependencies](https://img.shields.io/badge/runtime_dependencies-0-0F766E?style=flat-square)](../plugins/better-workflows/package.json)
 [![License](https://img.shields.io/badge/license-MIT-64748B?style=flat-square)](../LICENSE)
@@ -29,36 +15,59 @@ transport metadata，不是另一個模型品牌；是否可用仍須通過最�
 
 </div>
 
-| **概覽** | [詳細說明](details/zh-TW.md) | [快速開始](guide/getting-started.md) | [工作流](guide/workflows.md) | [架構](guide/architecture.md) | [安全](guide/security.md) | [CLI](guide/cli-reference.md) |
-| :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+[快速開始](guide/getting-started.md) · [工作流](guide/workflows.md) · [架構](guide/architecture.md) · [安全](guide/security.md) · [CLI](guide/cli-reference.md) · [完整細節](details/zh-TW.md)
 
-## 先看最重要的部分
+<!-- readme-section:promise-audience -->
+## 為什麼需要 Better Workflows
 
-| **ROOT 掌握修改權** | **ACTION 前必須有證據** | **UNKNOWN = STOP** |
-| --- | --- | --- |
-| 只有 Root 能修改、整合、部署、接受風險與宣告完成。 | Side effect 前必須有新鮮檢查、provenance 與明確 gate。 | Drift、過期證據或未知 provider 狀態一律 fail closed。 |
+Codex 可以分析 repository、修改程式、執行檢查並操作 provider。能力越強，
+越需要清楚區分「使用者想要什麼」與「目前證據和權限實際允許什麼」。
 
-| **13 個 TEMPLATES** | **WORKSPACE RECIPES** | **GRAPH VIEW** |
-| --- | --- | --- |
-| 依成果與風險選路線，不必背誦 SOP。 | 將可信任的 Node.js 機械步驟重複執行，節省 token。 | 檢查 typed 結構，但永遠不成為 authority source。 |
+Better Workflows 適合希望小任務仍然快速，但在 blast radius 增加時，
+不放棄明確 scope、review、freshness 與受保護交付的開發者和團隊。
 
-### Control-plane v2
+它提供 13 個依成果設計的 workflow templates、受治理的 workspace recipes，
+以及唯讀 Graph View。你選擇成果，route 只加入當前風險所需的驗證。
 
-新的非 direct template run 使用 typed evidence、append-only execution ledger
-與宣告的 review policy；completion 只接受已核准證據與 replay 狀態，文字或
-caller `acceptanceIds` 都不能直接完成 task。Legacy v1 run 仍由 v1 reader
-讀取，不會被自動重新解釋；Graph View 只呈現唯讀 task/dependency projection。
+<!-- readme-section:problem-outcome -->
+## 從 Prompt 走向受治理成果
 
-![Better Workflows 從 Prompt 到 Graph 的工程分層](assets/better-workflows-engineering-stack.svg)
+<!-- readme-claim:prompt-not-authority -->
+Prompt 可以描述意圖，但永遠不會授予權限。
 
-| 項目 | **Prompt** | **Context** | **Harness** | **Loop** | **Graph** |
-| --- | --- | --- | --- | --- | --- |
-| 核心問題 | 要達成什麼成果與限制？ | 現在有哪些可信事實？ | 誰能在哪裡做什麼？ | 應繼續、重試或停止？ | Records 與 gates 如何關聯？ |
-| Better Workflows | Goal + TaskContract | Profile + sentinel + evidence | Root + template + `sbw` + trusted recipe | Checkpoint + freshness + reconciliation | 衍生 typed Graph View |
-| 可靠性 | 明確 acceptance 與 non-goals | 拒絕過期狀態 | Root 掌握 mutation；side effect 需要 action token | 有界推進與明確停止條件 | 結構錯誤 fail closed |
-| 刻意邊界 | Prompt 不是 authority | 不偷偷挖掘 raw history | 不產生無界動態 harness | 不允許無 gate 的 loop-until-done | Graph 永遠不是 policy input |
+缺少 control plane 時，合理指令仍可能使用過期狀態、擴大 scope，或遺失
+provider 結果。Better Workflows 把這些落差轉成明確 gates。
 
-## 30 秒開始
+| 缺少治理 | 使用 Better Workflows |
+| --- | --- |
+| 意圖與權限混在一起 | Goal、scope 與 authority 分開記錄 |
+| 通過的 check 可能屬於舊 revision | Evidence 綁定目前 source 與 target |
+| Retry 可能重複 external action | Attempts 有界，未知結果必須先對帳 |
+| 「完成」只代表 command 已返回 | Completion 需要 terminal provider 與 repository evidence |
+
+<!-- readme-section:proof-boundaries -->
+## 你可以信任什麼
+
+<!-- readme-claim:root-only-mutation -->
+**Root 掌握修改權。** 只有 Root 可以修改、整合、部署、接受風險或宣告完成。
+
+<!-- readme-claim:evidence-before-action -->
+**Action 前先有證據。** 每個 side effect 都必須具備 fresh evidence、provenance，以及綁定預定目標的 action。
+
+<!-- readme-claim:unknown-stop -->
+**Fail closed。** 只要出現 drift、過期證據或未知 provider 狀態，工作流就會停止。
+
+![Better Workflows 從 Prompt 到唯讀 Graph 的權限分層](assets/better-workflows-engineering-stack.svg)
+
+<!-- readme-visual-fallback:authority-boundary -->
+**文字等價說明：** Prompt 記錄成果；Context 綁定目前事實；Harness 限制誰能在何處行動；
+Loop 限制 retry 與 reconciliation；Graph 只呈現已核准狀態，不是 scheduler、
+policy input 或 authority source。缺少證據或權限時就停止。
+
+<!-- readme-section:first-success -->
+## 完成第一次成功執行
+
+安裝 marketplace 與 plugin：
 
 ```bash
 codex plugin marketplace add stephen-taipei/better-workflows
@@ -72,46 +81,106 @@ Codex CLI: @better
 Codex App: /better
 ```
 
-建議從這裡開始：
+接著描述你要的成果：
 
 ```text
-$better-workflows:auto <描述你要的成果>
+$better-workflows:auto <describe the outcome you need>
 ```
 
-Automatic route 會選出一個具體 template 與最低驗證 mode，但不能自行授權、安裝工具或擴大 scope。
+成功代表 automatic route 選出一個具體 template 與最低驗證 mode；它不能補授權、
+安裝工具或擴大原本 scope。
 
 [安裝、驗證並執行第一個工作流 →](guide/getting-started.md)
 
-## 依成果快速選擇
+<!-- readme-section:choose-next-path -->
+## 選擇下一條路徑
 
-| 你需要…… | 選擇 |
+| 你要的成果 | 從這裡開始 |
 | --- | --- |
-| 讓 Codex 選擇安全且合適的路線 | `$better-workflows:auto` |
+| 讓 Codex 選出安全且合適的 route | `$better-workflows:auto` |
 | Review repository 並建立去重 issues | `$better-workflows:review-issues` |
-| 修正、建立 PR、merge 並清理 owned resources | `$better-workflows:fix-issues-pr` |
-| Atomic commits 並交付 PR 到 `dev` | `$better-workflows:pr-to-dev` |
-| 多模型比較架構並產生可執行方案 | `$better-workflows:research` |
+| 修正、開 PR、merge 並清理 owned resources | `$better-workflows:fix-issues-pr` |
+| 將 atomic commits 交付至受保護 `dev` | `$better-workflows:pr-to-dev` |
+| 以獨立角色比較架構 | `$better-workflows:research` |
 | 管理 release 或不可逆操作 | `$better-workflows:critical` |
-| 將重複 SOP 固化為可信 Node.js mechanics | `$better-workflows:workspace-recipe` |
+| 保存 deterministic SOP mechanics | `$better-workflows:workspace-recipe` |
+| 依 held-out evidence 改善 Better Workflows | `$better-workflows:self-improve` |
 
-[查看完整 entries、modes 與 templates →](details/zh-TW.md)
+完整 selectors、modes 與 templates 請見[工作流](guide/workflows.md)。安全 reviewer
+可先看[安全](guide/security.md)，operator 可直接查 [CLI reference](guide/cli-reference.md)。
 
-## Gemini 與 `agy`
+<!-- readme-section:lifecycle -->
+## 交付如何走到完成
 
-Google 已將 consumer Gemini CLI 遷移到以 `agy` 執行的 Antigravity CLI。
-Better Workflows 因此將 `agy` 記錄為 **transport**；Gemini、Claude 與
-GPT-OSS 才是它可承載的 **model brands**。Agy 不會再被重複算成另一個模型品牌。
+```mermaid
+flowchart LR
+  A["說明成果"] --> B["綁定 scope 與目前 context"]
+  B --> C["執行有界工作"]
+  C --> D["Review 並驗證 fresh evidence"]
+  D --> E{"已獲授權操作此 target？"}
+  E -- "是" --> F["執行一次 side effect"]
+  F --> G["對帳 provider 與 repository 狀態"]
+  G --> H["完成並清理 owned resources"]
+  E -- "否或未知" --> I["安全停止"]
+  G -- "未知" --> I
+```
 
-[查看架構、安全邊界與完整規格 →](details/zh-TW.md)
+<!-- readme-visual-fallback:lifecycle -->
+**文字等價說明：** 先說明成果，再綁定精確 scope 與目前 context，執行有界工作並
+review fresh evidence。只有獲得 target-bound 授權後才能執行一次 side effect；
+completion 與 owned cleanup 前必須對帳 provider 和 repository。任何缺失、過期或
+未知狀態都會停止工作流。
 
-## 開發與社群
+<!-- readme-section:trust-limits -->
+## 信任邊界與限制
+
+Better Workflows 記錄並檢查 control plane；它不是無限制 agent runtime，也不會把
+文字、圖表、舊 check 或模型投票當成權限。
+
+<!-- readme-claim:private-history -->
+敏感或私人歷史絕不會被擷取；只能以經遮蔽的 `REJECTED_WITH_EVIDENCE` disposition 拒絕。
+
+- Side effects 需要明確使用者授權與 single-use action gates。
+- Independent critics 保持唯讀，不能接受風險或宣告成功。
+- Workspace recipes 只執行 deterministic Node.js mechanics，不能選模型、使用網路、
+  執行 arbitrary shell 或修改 source。
+- Model deliberation 只接受最新 semantic roster probe。支援品牌包含 Codex、Claude、
+  Gemini、GPT-OSS、Grok、Cursor、Kimi、Qwen 與 Kiro；`agy` 是 transport metadata，
+  不是另一個模型品牌。
+- Graph View 是衍生 presentation，永遠不是 policy input、authorization、scheduler
+  或 agent runtime。
+
+[了解架構與取捨 →](guide/architecture.md)
+
+<!-- readme-section:learn-help-contribute -->
+## 深入了解、取得協助與參與貢獻
+
+| 需求 | 文件 |
+| --- | --- |
+| 首次安裝與 route | [快速開始](guide/getting-started.md) |
+| 選擇 workflow 或 mode | [工作流](guide/workflows.md) |
+| Control-plane 設計與比較 | [架構](guide/architecture.md) |
+| Privacy、authority、actions 與 attestations | [安全](guide/security.md) |
+| Commands 與 exit behavior | [CLI reference](guide/cli-reference.md) |
+| 完整繁體中文規格 | [完整細節](details/zh-TW.md) |
+| README 敘事與品質規則 | [README quality blueprint](guide/readme-quality.md) |
+
+[Contributing](../CONTRIBUTING.md) · [Code of conduct](../CODE_OF_CONDUCT.md) ·
+[Governance](../GOVERNANCE.md) · [Support](../SUPPORT.md) · [Security policy](../SECURITY.md)
+
+<details>
+<summary>開發 Better Workflows</summary>
 
 ```bash
 npm test --prefix plugins/better-workflows
 node plugins/better-workflows/scripts/sbw.mjs eval
+node scripts/plugin-cache.mjs check
 ```
 
-[Contributing](../CONTRIBUTING.md) · [Code of conduct](../CODE_OF_CONDUCT.md) ·
-[Security](../SECURITY.md) · [Support](../SUPPORT.md)
+Node.js 24+ · zero runtime dependencies · immutable plugin cache versions。
 
-MIT。請參閱 [LICENSE](../LICENSE)。
+</details>
+
+由 [Stephen Chuang](https://github.com/stephen-taipei) 與 contributors 維護。
+採用 MIT license；請見 [LICENSE](../LICENSE) 與
+[THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md)。

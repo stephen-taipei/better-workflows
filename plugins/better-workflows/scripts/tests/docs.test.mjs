@@ -30,8 +30,10 @@ const guideDocuments = [
   path.join(repoRoot, "docs", "guide", "workflows.md"),
   path.join(repoRoot, "docs", "guide", "architecture.md"),
   path.join(repoRoot, "docs", "guide", "security.md"),
-  path.join(repoRoot, "docs", "guide", "cli-reference.md")
+  path.join(repoRoot, "docs", "guide", "cli-reference.md"),
+  path.join(repoRoot, "docs", "guide", "readme-quality.md")
 ];
+const readmeQualityContractPath = path.join(pluginRoot(), "config", "readme-quality-v1.json");
 
 function assertDetailedCoverage(content, file) {
   assert.match(content, /sbw doctor --capabilities/, file);
@@ -67,89 +69,326 @@ function assertDetailedCoverage(content, file) {
   assert.match(content, /exit `2`/, file);
 }
 
-function capabilityTableRows(content, file) {
-  const lines = content.split("\n");
-  const headerIndex = lines.findIndex((line) => /^\| Primitive \| [^|]+ \| [^|]+ \|$/.test(line));
-  assert.notEqual(headerIndex, -1, `${file}: capability table header`);
-  const table = lines.slice(headerIndex, headerIndex + 7);
-  assert.equal(table[1], "| --- | --- | --- |", `${file}: capability table separator`);
-  assert.deepEqual(
-    table.slice(2).map((line) => line.split("|").slice(1, -1).map((cell) => cell.trim()).length),
-    [3, 3, 3, 3, 3],
-    `${file}: every capability row has exactly three columns`
-  );
-  const rows = table.slice(2).map((line) => {
-    const [primitive, purpose, boundary] = line.split("|").slice(1, -1).map((cell) => cell.trim());
-    assert.ok(purpose, `${file}: capability purpose is not empty`);
-    assert.ok(boundary, `${file}: capability boundary is not empty`);
-    return { primitive, boundary };
-  });
-  assert.deepEqual(
-    rows.map((row) => row.primitive),
-    ["**Prompt**", "**Context**", "**Harness**", "**Loop**", "**Graph**"],
-    `${file}: capability rows are complete and ordered`
-  );
-  assert.doesNotMatch(
-    lines[headerIndex + 7] ?? "",
-    /^\| [^|]+ \| [^|]+ \| [^|]+ \|$/,
-    `${file}: capability table has exactly five rows`
-  );
-  return rows;
+async function loadReadmeQualityContract() {
+  return JSON.parse(await readFile(readmeQualityContractPath, "utf8"));
 }
 
-test("English README is concise, visual, and routes details into focused guides", async (context) => {
+function headingEntries(content) {
+  return [...content.matchAll(/^(#{1,6})\s+(.+?)\s*$/gm)].map((match) => ({
+    level: match[1].length,
+    text: match[2]
+  }));
+}
+
+function markerValues(content, prefix) {
+  const pattern = new RegExp(`<!--\\s*${prefix}:([a-z0-9-]+)\\s*-->`, "g");
+  return [...content.matchAll(pattern)].map((match) => match[1]);
+}
+
+function markdownTargets(content) {
+  const targets = [];
+  for (const match of content.matchAll(/!?\[[^\]]*\]\(([^)\s]+)(?:\s+["'][^"']*["'])?\)/g)) {
+    targets.push(match[1]);
+  }
+  for (const match of content.matchAll(/\b(?:href|src)=["']([^"']+)["']/g)) {
+    targets.push(match[1]);
+  }
+  return targets;
+}
+
+function isRelativeTarget(target) {
+  return !target.startsWith("#")
+    && !target.startsWith("//")
+    && !/^[a-z][a-z0-9+.-]*:/i.test(target);
+}
+
+function normalizeTarget(target) {
+  return target.replace(/^<|>$/g, "").split("#", 1)[0].split("?", 1)[0];
+}
+
+function resolvedRepoTargets(file, content) {
+  return markdownTargets(content)
+    .filter(isRelativeTarget)
+    .map(normalizeTarget)
+    .filter(Boolean)
+    .map((target) => path.relative(repoRoot, path.resolve(path.dirname(file), target)).split(path.sep).join("/"));
+}
+
+function tableBlocks(content) {
+  const lines = content.split("\n");
+  const blocks = [];
+  for (let index = 0; index < lines.length;) {
+    if (!/^\s*\|.*\|\s*$/.test(lines[index])) {
+      index += 1;
+      continue;
+    }
+    const block = [];
+    while (index < lines.length && /^\s*\|.*\|\s*$/.test(lines[index])) {
+      block.push(lines[index]);
+      index += 1;
+    }
+    if (block.length >= 2 && /^\s*\|(?:\s*:?-{3,}:?\s*\|)+\s*$/.test(block[1])) {
+      blocks.push(block);
+    }
+  }
+  return blocks;
+}
+
+function tableColumnCount(line) {
+  return line.trim().slice(1, -1).replaceAll("\\|", "__ESCAPED_PIPE__").split("|").length;
+}
+
+function proseParagraphs(content) {
+  const paragraphs = [];
+  let current = [];
+  let inFence = false;
+  const flush = () => {
+    if (current.length > 0) {
+      paragraphs.push(current.join(" ").replace(/\s+/g, " ").trim());
+      current = [];
+    }
+  };
+  for (const line of content.split("\n")) {
+    if (/^```/.test(line.trim())) {
+      flush();
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+    if (
+      line.trim() === ""
+      || /^#{1,6}\s/.test(line)
+      || /^\s*\|.*\|\s*$/.test(line)
+      || /^\s*<!--.*-->\s*$/.test(line)
+      || /^\s*<\/?(?:div|details|summary)[^>]*>\s*$/.test(line)
+      || /^\s*!\[[^\]]*\]\([^)]+\)\s*$/.test(line)
+    ) {
+      flush();
+      continue;
+    }
+    if (/^\s*(?:[-*]|\d+\.)\s+/.test(line)) {
+      flush();
+      paragraphs.push(line.replace(/^\s*(?:[-*]|\d+\.)\s+/, "").trim());
+      continue;
+    }
+    current.push(line.trim());
+  }
+  flush();
+  return paragraphs.filter(Boolean);
+}
+
+function readableFallback(content, key) {
+  const marker = `<!-- readme-visual-fallback:${key} -->`;
+  const start = content.indexOf(marker);
+  if (start === -1) return "";
+  const bodyStart = start + marker.length;
+  const nextSection = content.indexOf("<!-- readme-section:", bodyStart);
+  return content
+    .slice(bodyStart, nextSection === -1 ? content.length : nextSection)
+    .replace(/\[[^\]]+\]\([^)]+\)/g, "$1")
+    .replace(/[*_`>#]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function validateFences(content, errors) {
+  let inFence = false;
+  for (const [index, line] of content.split("\n").entries()) {
+    if (!/^```/.test(line.trim())) continue;
+    if (!inFence && !/^```[A-Za-z0-9_-]+\s*$/.test(line.trim())) {
+      errors.push(`code fence language at line ${index + 1}`);
+    }
+    inFence = !inFence;
+  }
+  if (inFence) errors.push("unclosed code fence");
+}
+
+function validateLandingReadme(content, file, fileContract, contract) {
+  const errors = [];
+  const headings = headingEntries(content);
+  const h1 = headings.filter((entry) => entry.level === 1);
+  if (h1.length !== 1) errors.push(`H1 count ${h1.length}`);
+  for (let index = 1; index < headings.length; index += 1) {
+    if (headings[index].level > headings[index - 1].level + 1) {
+      errors.push(`heading hierarchy skips from H${headings[index - 1].level} to H${headings[index].level}`);
+    }
+  }
+  const h2 = headings.filter((entry) => entry.level === 2).map((entry) => entry.text);
+  if (JSON.stringify(h2) !== JSON.stringify(fileContract.headings)) errors.push("H2 narrative order");
+  const sectionMarkers = markerValues(content, "readme-section");
+  if (JSON.stringify(sectionMarkers) !== JSON.stringify(contract.sectionOrder)) errors.push("section marker order");
+  const claimMarkers = markerValues(content, "readme-claim");
+  if (JSON.stringify(claimMarkers) !== JSON.stringify(contract.claimOrder)) errors.push("claim marker order");
+  for (const key of contract.claimOrder) {
+    if (!content.includes(fileContract.claims[key])) errors.push(`claim ${key} wording`);
+  }
+  for (const command of contract.requiredCommands) {
+    if (!content.includes(command)) errors.push(`required command ${command}`);
+  }
+  for (const identifier of contract.requiredIdentifiers) {
+    if (!content.includes(identifier)) errors.push(`required identifier ${identifier}`);
+  }
+  const firstSuccessStart = content.indexOf("<!-- readme-section:first-success -->");
+  const nextPathStart = content.indexOf("<!-- readme-section:choose-next-path -->");
+  if (firstSuccessStart === -1 || nextPathStart <= firstSuccessStart) {
+    errors.push("first-success placement");
+  } else {
+    const firstSuccess = content.slice(firstSuccessStart, nextPathStart);
+    for (const command of contract.requiredCommands) {
+      if (!firstSuccess.includes(command)) errors.push(`first-success command ${command}`);
+    }
+  }
+  const lines = content.trimEnd().split("\n");
+  if (lines.length > contract.maxLines) errors.push(`line budget ${lines.length}`);
+  for (const [index, paragraph] of proseParagraphs(content).entries()) {
+    if ([...paragraph].length > contract.maxParagraphCharacters) {
+      errors.push(`paragraph budget ${index + 1}`);
+    }
+  }
+  for (const [index, table] of tableBlocks(content).entries()) {
+    if (tableColumnCount(table[0]) > contract.maxTableColumns) errors.push(`table columns ${index + 1}`);
+    if (table.length - 2 > contract.maxTableBodyRows) errors.push(`table rows ${index + 1}`);
+    if (table.some((line) => tableColumnCount(line) !== tableColumnCount(table[0]))) {
+      errors.push(`table shape ${index + 1}`);
+    }
+  }
+  for (const pattern of contract.bannedDeepDetailPatterns) {
+    if (content.toLocaleLowerCase("en-US").includes(pattern.toLocaleLowerCase("en-US"))) {
+      errors.push(`deep detail ${pattern}`);
+    }
+  }
+  const images = [...content.matchAll(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+["'][^"']*["'])?\)/g)]
+    .map((match) => ({ alt: match[1].trim(), target: match[2] }));
+  if (images.some((image) => image.alt === "")) errors.push("image alt text");
+  const relativeImages = images.filter((image) => isRelativeTarget(image.target));
+  const expectedVisual = contract.visuals.find((visual) => visual.type === "image").target;
+  const visualTargets = relativeImages.map((image) => path.relative(
+    repoRoot,
+    path.resolve(path.dirname(file), normalizeTarget(image.target))
+  ).split(path.sep).join("/"));
+  if (visualTargets.length !== 1 || visualTargets[0] !== expectedVisual) errors.push("authority visual target");
+  const mermaidCount = [...content.matchAll(/^```mermaid\s*$/gm)].length;
+  if (mermaidCount !== 1) errors.push(`Mermaid count ${mermaidCount}`);
+  for (const visual of contract.visuals) {
+    const fallback = readableFallback(content, visual.key);
+    if ([...fallback].length < 80) errors.push(`visual fallback ${visual.key}`);
+  }
+  validateFences(content, errors);
+  const resolved = new Set(resolvedRepoTargets(file, content));
+  for (const target of [...contract.requiredRepoTargets, fileContract.detailsTarget]) {
+    if (!resolved.has(target)) errors.push(`required target ${target}`);
+  }
+  return errors;
+}
+
+function validateRecipeReadme(content, fileContract, contract) {
+  const errors = [];
+  const headings = headingEntries(content);
+  if (headings.filter((entry) => entry.level === 1).length !== 1) errors.push("recipe H1 count");
+  const h2 = headings.filter((entry) => entry.level === 2).map((entry) => entry.text);
+  if (JSON.stringify(h2) !== JSON.stringify(fileContract.headings)) errors.push("recipe H2 order");
+  const markers = markerValues(content, "recipe-readme-section");
+  if (JSON.stringify(markers) !== JSON.stringify(contract.sectionOrder)) errors.push("recipe section order");
+  if (content.trimEnd().split("\n").length > contract.maxLines) errors.push("recipe line budget");
+  for (const token of fileContract.requiredTokens) {
+    if (!content.includes(token)) errors.push(`recipe token ${token}`);
+  }
+  validateFences(content, errors);
+  return errors;
+}
+
+async function assertRelativeTargetsExist(file, content) {
+  for (const target of markdownTargets(content).filter(isRelativeTarget).map(normalizeTarget).filter(Boolean)) {
+    await access(path.resolve(path.dirname(file), target));
+  }
+}
+
+test("all landing READMEs satisfy the narrative, trust, visual, and scan-quality contract", async (context) => {
   try {
     await access(overview);
   } catch {
     context.skip("repository README files are not part of the installed plugin cache bundle");
     return;
   }
-
-  const content = await readFile(overview, "utf8");
-  assert.ok(content.split("\n").length <= 200, "README should remain under 200 lines");
-  assert.match(content, /better-workflows-engineering-stack\.svg/);
-  assert.match(content, /\| Item \| \*\*Prompt\*\* \| \*\*Context\*\* \| \*\*Harness\*\* \| \*\*Loop\*\* \| \*\*Graph\*\* \|/);
-  for (const brand of ["Codex", "Claude", "Gemini", "GPT-OSS", "Grok", "Cursor", "Kimi", "Qwen", "Kiro"]) {
-    assert.match(content, new RegExp(brand), `README model roster: ${brand}`);
+  const quality = await loadReadmeQualityContract();
+  for (const fileContract of quality.landing.files) {
+    const file = path.join(repoRoot, fileContract.path);
+    const content = await readFile(file, "utf8");
+    assert.deepEqual(
+      validateLandingReadme(content, file, fileContract, quality.landing),
+      [],
+      file
+    );
+    await assertRelativeTargetsExist(file, content);
+    for (const brand of ["Codex", "Claude", "Gemini", "GPT-OSS", "Grok", "Cursor", "Kimi", "Qwen", "Kiro"]) {
+      assert.match(content, new RegExp(brand), `${file}: ${brand}`);
+    }
   }
-  assert.match(content, /agy` is transport metadata, not\s+another model brand/);
-  for (const name of [
-    "getting-started.md",
-    "workflows.md",
-    "architecture.md",
-    "security.md",
-    "cli-reference.md",
-    "details/en.md"
-  ]) {
-    assert.match(content, new RegExp(name.replace(".", "\\.")), name);
+  assert.match(await readFile(overview, "utf8"), /agy` is transport metadata, not\s+another model brand/);
+});
+
+test("README quality validation rejects cosmetic compliance and broken reader paths", async (context) => {
+  try {
+    await access(overview);
+  } catch {
+    context.skip("repository README files are not part of the installed plugin cache bundle");
+    return;
+  }
+  const quality = await loadReadmeQualityContract();
+  const fileContract = quality.landing.files.find((entry) => entry.path === "README.md");
+  const content = await readFile(overview, "utf8");
+  const cases = [
+    {
+      label: "claim prompt-not-authority wording",
+      content: content.replace(fileContract.claims["prompt-not-authority"], "Intent appears here without the governed claim.")
+    },
+    {
+      label: "H1 count",
+      content: `${content}\n# Competing entry point\n`
+    },
+    {
+      label: "visual fallback lifecycle",
+      content: content.replace("<!-- readme-visual-fallback:lifecycle -->", "")
+    },
+    {
+      label: "table columns",
+      content: content.replace(
+        "| Without governance | With Better Workflows |",
+        "| A | B | C |\n| --- | --- | --- |\n| 1 | 2 | 3 |\n\n| Without governance | With Better Workflows |"
+      )
+    },
+    {
+      label: "required target docs/guide/getting-started.md",
+      content: content.replaceAll("docs/guide/getting-started.md", "docs/guide/missing.md")
+    },
+    {
+      label: "code fence language",
+      content: content.replace("```bash", "```")
+    },
+    {
+      label: "paragraph budget",
+      content: content.replace(
+        "<!-- readme-section:problem-outcome -->",
+        `${"One deliberately unscannable sentence ".repeat(25)}\n\n<!-- readme-section:problem-outcome -->`
+      )
+    }
+  ];
+  for (const item of cases) {
+    const errors = validateLandingReadme(item.content, overview, fileContract, quality.landing);
+    assert.ok(errors.some((error) => error.includes(item.label)), `${item.label}: ${errors.join(", ")}`);
   }
 });
 
-test("every localized README is a concise visual overview with a same-language details page", async (context) => {
-  try {
-    await access(overview);
-  } catch {
-    context.skip("repository README files are not part of the installed plugin cache bundle");
-    return;
-  }
-  for (const document of localizedDocuments) {
-    const content = await readFile(document.overview, "utf8");
-    assert.ok(
-      content.split("\n").length <= 200,
-      `${document.overview} should remain under 200 lines`
-    );
-    assert.match(content, /better-workflows-engineering-stack\.svg/, document.overview);
-    for (const layer of ["Prompt", "Context", "Harness", "Loop", "Graph"]) {
-      assert.match(content, new RegExp(`\\*\\*${layer}\\*\\*`), `${document.overview}: ${layer}`);
-    }
-    assert.match(
-      content,
-      new RegExp(`details/${path.basename(document.details).replace(".", "\\.")}`),
-      document.overview
-    );
-    for (const brand of ["Codex", "Claude", "Gemini", "GPT-OSS", "Grok", "Cursor", "Kimi", "Qwen", "Kiro"]) {
-      assert.match(content, new RegExp(brand), `${document.overview}: ${brand}`);
-    }
+test("reference recipe README exposes a bounded input-to-promotion contract", async () => {
+  const quality = await loadReadmeQualityContract();
+  for (const fileContract of quality.recipe.files) {
+    const file = path.join(repoRoot, fileContract.path);
+    const content = await readFile(file, "utf8");
+    assert.deepEqual(validateRecipeReadme(content, fileContract, quality.recipe), [], file);
+    await assertRelativeTargetsExist(file, content);
+    assert.match(content, /no network or shell/);
+    assert.match(content, /cannot mutate source/);
+    assert.match(content, /cannot accept its own evidence/);
   }
 });
 
@@ -163,33 +402,6 @@ test("all five README version badges match the runtime semantic version", async 
   for (const file of [overview, ...localizedDocuments.map((item) => item.overview)]) {
     const escapedVersion = VERSION.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     assert.match(await readFile(file, "utf8"), new RegExp(`version-${escapedVersion}-`), file);
-  }
-});
-
-test("all five README entry pages expose the explicit capability map as an accessible table", async (context) => {
-  try {
-    await access(overview);
-  } catch {
-    context.skip("repository README files are not part of the installed plugin cache bundle");
-    return;
-  }
-  for (const file of [overview, ...localizedDocuments.map((item) => item.overview)]) {
-    const content = await readFile(file, "utf8");
-    const rows = capabilityTableRows(content, file);
-    assert.match(rows[0].boundary, /authority|權限|权限|権限|권한/, `${file}: Prompt authority boundary`);
-    assert.match(rows[1].boundary, /digest/i, `${file}: Context digest boundary`);
-    assert.match(rows[2].boundary, /trust|信任|信頼|신뢰/i, `${file}: Harness trust boundary`);
-    assert.match(rows[3].boundary, /retry|重試|重试/i, `${file}: Loop retry boundary`);
-    assert.match(rows[4].boundary, /scheduler/, `${file}: Graph scheduler boundary`);
-    assert.match(rows[4].boundary, /authorization|授權|授权|権限|권한/, `${file}: Graph authorization boundary`);
-    const graphRowEnd = content.indexOf("\n", content.indexOf("| **Graph** |"));
-    const rejectionMarker = "REJECTED_WITH_EVIDENCE";
-    const rejectionEnd = content.indexOf(rejectionMarker) + rejectionMarker.length;
-    assert.ok(rejectionEnd >= rejectionMarker.length, `${file}: redacted rejection boundary`);
-    assert.ok(
-      Buffer.byteLength(content.slice(0, Math.max(graphRowEnd, rejectionEnd)), "utf8") <= 900,
-      `${file}: capability and rejection evidence fit the bounded sanitizer prefix`
-    );
   }
 });
 
