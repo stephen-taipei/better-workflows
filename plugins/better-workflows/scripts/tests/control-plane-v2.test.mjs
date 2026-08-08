@@ -17,7 +17,7 @@ import {
   rebindSourceBinding,
   sha256
 } from "../lib/core.mjs";
-import { loadEvidenceContracts } from "../lib/evidence.mjs";
+import { assertPayloadFields, loadEvidenceContracts } from "../lib/evidence.mjs";
 import { compileLedger, deriveLedgerStatus, transitionLedger } from "../lib/ledger.mjs";
 import { deliberateForRun } from "../lib/deliberation-receipt.mjs";
 import { addReviewFinding, createReviewPackage, markBroadReviewComplete, recordRepairRound, reviewPackageDigest, reviewStatus, stableFindingId } from "../lib/review.mjs";
@@ -129,6 +129,44 @@ test("typed catalog covers exactly the 99 installed evidence kinds", async () =>
   const contracts = await loadEvidenceContracts({ refresh: true });
   assert.equal(Object.keys(contracts).length, 99);
   assert.ok(contracts["remote-sync"]);
+});
+
+test("typed handoff evidence admits only its declared nullable policy digest", async () => {
+  const contracts = await loadEvidenceContracts({ refresh: true });
+  const kind = "self-improve-delivery-handoff";
+  const definition = contracts[kind];
+  const payload = {
+    artifact: { kind, digest: "0".repeat(64) },
+    sourceRunId: "sbw-source",
+    sourceBaselineRevision: "1".repeat(40),
+    sourceHeadRevision: "2".repeat(40),
+    sourceBindingDigest: "3".repeat(64),
+    pluginBundleDigest: "4".repeat(64),
+    requestManifestDigest: "5".repeat(64),
+    comparisonDigest: "6".repeat(64),
+    candidateDigest: "7".repeat(64),
+    candidateRoot: "/tmp/candidate",
+    purpose: "evaluator-migration",
+    policyDigest: null,
+    witnessDigests: ["8".repeat(64)]
+  };
+  assert.deepEqual(definition.nullableFields, ["policyDigest"]);
+  assert.doesNotThrow(() => assertPayloadFields(
+    payload,
+    definition.requiredFields,
+    kind,
+    definition.nullableFields
+  ));
+  const missingPolicyDigest = { ...payload };
+  delete missingPolicyDigest.policyDigest;
+  assert.throws(
+    () => assertPayloadFields(missingPolicyDigest, definition.requiredFields, kind, definition.nullableFields),
+    /missing required field: policyDigest/
+  );
+  assert.throws(
+    () => assertPayloadFields({ ...payload, purpose: null }, definition.requiredFields, kind, definition.nullableFields),
+    /missing required field: purpose/
+  );
 });
 
 test("real template contracts are v2 and initialize a static ledger", async () => {

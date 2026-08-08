@@ -402,6 +402,10 @@ clean source binding, plugin bundle, request manifest, accepted comparison,
 candidate snapshot, seven distinct host witnesses, and canonical Codex plugin
 cache root. The delegated delivery action gates require this receipt; a generic
 `pr-to-dev` run cannot authorize delivery of an accepted self-improvement.
+The `policyDigest` key remains mandatory: it is explicitly `null` for ordinary
+and evaluator-migration runs, and a SHA-256 digest for policy-bound remediation.
+Only that declared nullable field accepts `null`; the purpose-specific handoff
+validator still enforces the exact key set and value.
 On each host, an administrator must first confirm that the fixed trust root and
 private key are already provisioned through the host's approved bootstrap. This
 repository does not publish or execute the legacy Swift bootstrap artifact. If

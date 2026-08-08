@@ -44,6 +44,14 @@ export async function loadEvidenceContracts({ refresh = false } = {}) {
     if (!PAYLOAD_FAMILIES.has(entry.payloadFamily) || !Array.isArray(entry.requiredFields)) {
       throw new Error(`Evidence contract payload schema is invalid for ${kind}`);
     }
+    const nullableFields = entry.nullableFields ?? [];
+    if (
+      !Array.isArray(nullableFields) ||
+      new Set(nullableFields).size !== nullableFields.length ||
+      nullableFields.some((field) => typeof field !== "string" || !entry.requiredFields.includes(field))
+    ) {
+      throw new Error(`Evidence contract nullable fields are invalid for ${kind}`);
+    }
     if (!Array.isArray(entry.freshnessBinding) || !entry.freshnessBinding.includes("runId")) {
       throw new Error(`Evidence contract freshness binding is invalid for ${kind}`);
     }
@@ -171,12 +179,17 @@ const INTEGER_FIELDS = new Set(["number", "pr", "providerRunId"]);
 const BOOLEAN_FIELDS = new Set(["adminBypass", "protected", "result", "success", "valid"]);
 const DATE_FIELDS = new Set(["createdAt", "expiresAt", "observedAt", "verifiedAt"]);
 
-function assertPayloadFields(payload, requiredFields, kind) {
+export function assertPayloadFields(payload, requiredFields, kind, nullableFields = []) {
+  const nullable = new Set(nullableFields);
   for (const field of requiredFields) {
-    if (!(field in payload) || payload[field] === null || payload[field] === "") {
+    if (!(field in payload) || payload[field] === "") {
       throw new Error(`Typed evidence ${kind} payload is missing required field: ${field}`);
     }
     const value = payload[field];
+    if (value === null) {
+      if (nullable.has(field)) continue;
+      throw new Error(`Typed evidence ${kind} payload is missing required field: ${field}`);
+    }
     if (ARRAY_FIELDS.has(field) && !Array.isArray(value)) {
       throw new Error(`Typed evidence ${kind} payload field ${field} must be an array`);
     }
@@ -422,7 +435,7 @@ export async function admitTypedEvidence(record, run, { persisted = false } = {}
     throw new Error(`Typed evidence ${record.kind} payload must not be empty`);
   }
   await assertActionProofPayload(receipt.payload, record.kind, run, record.id);
-  assertPayloadFields(receipt.payload, definition.requiredFields, record.kind);
+  assertPayloadFields(receipt.payload, definition.requiredFields, record.kind, definition.nullableFields ?? []);
   if (record.kind === SELF_IMPROVE_HANDOFF_KIND) {
     await validateSelfImproveDeliveryHandoff(receipt.payload, run);
   }

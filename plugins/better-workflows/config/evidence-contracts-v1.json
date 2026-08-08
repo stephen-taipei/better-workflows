@@ -1787,6 +1787,9 @@
         "policyDigest",
         "witnessDigests"
       ],
+      "nullableFields": [
+        "policyDigest"
+      ],
       "freshnessBinding": [
         "runId",
         "contractDigest",

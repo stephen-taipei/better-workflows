@@ -82,6 +82,10 @@ rationale.
   comparison, candidate snapshot, and seven distinct host witnesses. Every
   delegated delivery action gate requires it; an empty or generic `pr-to-dev`
   gate cannot bypass the handoff.
+- Typed handoff evidence declares `policyDigest` as the only nullable required
+  field. Ordinary and evaluator-migration handoffs carry an explicit `null`;
+  policy-bound remediation handoffs carry a SHA-256 digest. The specialized
+  handoff validator still enforces the purpose-specific value and exact keys.
 - Governed `pr.create` actions bind the provider receipt to the exact candidate
   source commit observed when the action token is issued; a PR from another
   source head cannot be reconciled or registered as run-owned.

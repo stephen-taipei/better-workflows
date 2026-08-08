@@ -241,7 +241,7 @@ $better-workflows:auto <描述需要完成的目标>
 
 普通 clone 或执行 workspace recipe **不需要** host trust root；只有要执行真实 Codex self-improve replay 的 maintainer，才需要 administrator 在每台 host 一次性执行。self-improve 不会授权 commit、cache publication、push、merge 或 cleanup；这些交由 `pr-to-dev` 与 immutable-cache workflow：
 
-交付必须使用明确的完整 baseline SHA，且该 SHA 必须是 candidate HEAD 的严格祖先。七份 witness 通过重新验证后，先创建明确绑定的 `pr-to-dev` run，再记录 typed `self-improve-delivery-handoff`；没有这份 receipt 不得取得 commit、push、merge 或 cache action。cache action 必须先用 `plugin.cache.publish`、`local-workspace` 和 `plugin-cache:<source-head-revision>` 签发 token，再执行：`SBW_STATE_ROOT=<state-root> node scripts/plugin-cache.mjs sync --handoff-run <pr-to-dev-run-id> --token <plugin-cache-action-token>`。
+交付必须使用明确的完整 baseline SHA，且该 SHA 必须是 candidate HEAD 的严格祖先。七份 witness 通过重新验证后，先创建明确绑定的 `pr-to-dev` run，再记录 typed `self-improve-delivery-handoff`。`policyDigest` key 仍为必填：ordinary 与 evaluator-migration 必须明确为 `null`，policy-bound remediation 则必须是 SHA-256 digest；只有这个已声明 nullable 的字段可接受 `null`，purpose-specific handoff validator 仍会验证完整 key set 与值。没有这份 receipt 不得取得 commit、push、merge 或 cache action。cache action 必须先用 `plugin.cache.publish`、`local-workspace` 和 `plugin-cache:<source-head-revision>` 签发 token，再执行：`SBW_STATE_ROOT=<state-root> node scripts/plugin-cache.mjs sync --handoff-run <pr-to-dev-run-id> --token <plugin-cache-action-token>`。
 
 如果 trust root 或 private key 尚未由 host 的批准 administrator bootstrap 建立，请先完成该独立前置作业；本 repository 不发布、也不执行未追踪的 legacy Swift bootstrap artifact。对于已完成 bootstrap 的 host，先用只读命令检查状态：
 
