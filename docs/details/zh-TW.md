@@ -484,7 +484,9 @@ version；`SBW_STATE_ROOT=<state-root> node scripts/plugin-cache.mjs sync --hand
 `spent/pending`，只有在 pending marker 與 immutable target 同時證明相同
 handoff source binding、run 與 attempt 時，才能以同一個 sync attempt 建立
 receipt 並修復 ready；否則維持 unknown，禁止第二次 publication。source run
-若沒有明確的 canonical cache-root 欄位，或 lock owner 無法證明已消失，也
+失敗 cleanup 會由 versioned publication lock 序列化，並要求 pending marker
+精確符合相同 run 與 action attempt；ownership 不同時，replacement marker
+與其 target 都會保留。source run 若沒有明確的 canonical cache-root 欄位，或 lock owner 無法證明已消失，也
 必須 fail closed。
 
 ## License

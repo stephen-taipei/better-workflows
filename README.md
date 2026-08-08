@@ -21,7 +21,7 @@ Sensitive or private history is never harvested; reject it with a redacted
 `agy` · Grok · Cursor · Kimi · Qwen · Kiro. `agy` is transport metadata, not
 another model brand; availability still requires a current semantic roster probe.
 
-[![Version](https://img.shields.io/badge/version-3.1.5-2563EB?style=flat-square)](plugins/better-workflows/package.json)
+[![Version](https://img.shields.io/badge/version-3.1.6-2563EB?style=flat-square)](plugins/better-workflows/package.json)
 [![Node](https://img.shields.io/badge/Node.js-%E2%89%A524-3C873A?style=flat-square)](plugins/better-workflows/package.json)
 [![Dependencies](https://img.shields.io/badge/runtime_dependencies-0-0F766E?style=flat-square)](plugins/better-workflows/package.json)
 [![License](https://img.shields.io/badge/license-MIT-64748B?style=flat-square)](LICENSE)
@@ -179,7 +179,9 @@ ready marker without republishing the immutable version. If the action remains
 `spent/pending`, the same sync can recover only an exact pending marker and
 immutable target bound to that run and attempt; otherwise the attempt stays
 unknown and no second publication is permitted. Stale publication locks are
-reclaimed only after their recorded owner is proven absent.
+reclaimed only after their recorded owner is proven absent. Failure cleanup is
+also bound to the exact run and action attempt; a replacement marker and its
+target are preserved when ownership differs.
 
 Node.js 24+ · zero runtime dependencies · immutable plugin cache versions.
 

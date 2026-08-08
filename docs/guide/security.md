@@ -76,6 +76,9 @@ rationale.
   untracked surface, and ignored surface. The baseline is resolved to an exact
   commit and the candidate must already be the committed HEAD; modified
   tracked plugin files also block immutable cache publication.
+- Plugin-cache failure cleanup acquires the versioned publication lock and
+  requires the exact pending marker `runId` and action `attemptId`; a foreign
+  replacement marker and its target are never removed by the failed attempt.
 - A delegated self-improve delivery must use `pr-to-dev --self-improve-run`
   and a typed `self-improve-delivery-handoff` receipt. That receipt binds the
   source run, baseline/HEAD/source/plugin digests, request manifest, accepted

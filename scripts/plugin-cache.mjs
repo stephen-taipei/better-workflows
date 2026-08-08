@@ -345,7 +345,7 @@ async function main() {
           status: "complete",
           acceptanceIds: [],
           dependencyInputs: { files: [] },
-            dependencies: { workflowVersion: "3.1.5", files: [] },
+            dependencies: { workflowVersion: "3.1.6", files: [] },
           receiptBase: {
             contractVersion: 1,
             runId: targetRunId,
@@ -529,7 +529,9 @@ async function main() {
             cacheRoot,
             version: publication.version,
             target: publication.target,
-            targetDigest: publication.targetDigest
+            targetDigest: publication.targetDigest,
+            runId: targetRunId,
+            attemptId: consumed.attemptId
           });
         } catch (cleanupError) {
           error.message = `${error.message}; unready cache cleanup failed: ${cleanupError.message}`;

@@ -20,7 +20,7 @@ Codex를 위한 governed workflow orchestration입니다. 작은 변경은 빠�
 GPT-OSS(`agy` 경유) · Grok · Cursor · Kimi · Qwen · Kiro. `agy`는
 transport metadata이며 별도 모델 브랜드가 아닙니다. 사용 가능 여부는 최신 semantic roster probe로 확인해야 합니다.
 
-[![Version](https://img.shields.io/badge/version-3.1.5-2563EB?style=flat-square)](../plugins/better-workflows/package.json)
+[![Version](https://img.shields.io/badge/version-3.1.6-2563EB?style=flat-square)](../plugins/better-workflows/package.json)
 [![Node](https://img.shields.io/badge/Node.js-%E2%89%A524-3C873A?style=flat-square)](../plugins/better-workflows/package.json)
 [![Dependencies](https://img.shields.io/badge/runtime_dependencies-0-0F766E?style=flat-square)](../plugins/better-workflows/package.json)
 [![License](https://img.shields.io/badge/license-MIT-64748B?style=flat-square)](../LICENSE)

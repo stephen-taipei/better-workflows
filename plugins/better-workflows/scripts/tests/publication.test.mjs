@@ -55,7 +55,9 @@ test("cache cleanup refuses to delete a ready publication", async () => {
       cacheRoot,
       version: published.version,
       target: published.target,
-      targetDigest: published.targetDigest
+      targetDigest: published.targetDigest,
+      runId: "sbw-ready-cleanup-run",
+      attemptId: "sbw-ready-cleanup-attempt"
     }),
     /pending publication marker/
   );
@@ -199,6 +201,41 @@ test("publication failure preserves a pending marker owned by another action", a
   );
   assert.deepEqual(JSON.parse(await readFile(markerPath, "utf8")), foreignMarker);
   await assert.rejects(access(path.join(cacheRoot, version)));
+});
+
+test("unready cache cleanup preserves a target and pending marker owned by another action", async () => {
+  const version = "1.1.0+test.foreign-cleanup-marker";
+  const sourceRoot = await sourceFixture(version);
+  const cacheRoot = path.join(await mkdtemp(path.join(os.tmpdir(), "sbw-publication-foreign-cleanup-")), "cache");
+  const published = await publishPluginCache({
+    sourceRoot,
+    cacheRoot,
+    publicationIdentity: {
+      runId: "sbw-current-cleanup-run",
+      attemptId: "sbw-current-cleanup-attempt"
+    }
+  });
+  const markerPath = path.join(cacheRoot, `${version}.ready.json`);
+  const foreignMarker = {
+    ...JSON.parse(await readFile(markerPath, "utf8")),
+    runId: "sbw-foreign-cleanup-run",
+    attemptId: "sbw-foreign-cleanup-attempt",
+    updatedAt: "2026-08-08T00:00:00.000Z"
+  };
+  await writeFile(markerPath, `${JSON.stringify(foreignMarker, null, 2)}\n`, { mode: 0o600 });
+  await assert.rejects(
+    removeUnreadyPluginCachePublication({
+      cacheRoot,
+      version,
+      target: published.target,
+      targetDigest: published.targetDigest,
+      runId: "sbw-current-cleanup-run",
+      attemptId: "sbw-current-cleanup-attempt"
+    }),
+    /exact owned pending publication marker/
+  );
+  assert.deepEqual(JSON.parse(await readFile(markerPath, "utf8")), foreignMarker);
+  assert.equal((await bundleDigest(published.target)), published.targetDigest);
 });
 
 test("concurrent stale-lock reclaimers cannot steal a successor publication lock", async () => {

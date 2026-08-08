@@ -516,22 +516,54 @@ export async function markPluginCacheReady({
   });
 }
 
-export async function removeUnreadyPluginCachePublication({ cacheRoot, version, target, targetDigest }) {
+export async function removeUnreadyPluginCachePublication({
+  cacheRoot,
+  version,
+  target,
+  targetDigest,
+  runId,
+  attemptId
+}) {
   const root = path.resolve(cacheRoot);
   if (target !== path.join(root, version)) {
     throw new Error("Plugin cache cleanup target is not canonical");
   }
-  const marker = await readPublicationMarker(root, version);
-  if (!marker || marker.state !== "pending" || marker.targetDigest !== targetDigest) {
-    throw new Error("Refusing to remove a cache target without its pending publication marker");
+  if (typeof runId !== "string" || !runId || typeof attemptId !== "string" || !attemptId) {
+    throw new Error("Plugin cache cleanup requires an exact run and action attempt");
   }
-  const actualTargetDigest = await bundleDigest(target);
-  if (actualTargetDigest !== targetDigest) {
-    throw new Error("Refusing to remove a cache target whose digest changed");
+  const lockPath = path.join(root, `.${version}.publish.lock`);
+  const lock = await acquirePublicationLock(lockPath, version);
+  let removedMarker = null;
+  try {
+    const marker = await readPublicationMarker(root, version);
+    if (
+      !marker ||
+      marker.state !== "pending" ||
+      marker.targetDigest !== targetDigest ||
+      marker.runId !== runId ||
+      marker.attemptId !== attemptId
+    ) {
+      throw new Error("Refusing to remove a cache target without its exact owned pending publication marker");
+    }
+    const actualTargetDigest = await bundleDigest(target);
+    if (actualTargetDigest !== targetDigest) {
+      throw new Error("Refusing to remove a cache target whose digest changed");
+    }
+    if (!await removeOwnedPublicationMarker(root, version, marker)) {
+      throw new Error("Refusing to remove a cache target after publication marker ownership changed");
+    }
+    removedMarker = marker;
+    await rm(target, { recursive: true, force: false });
+    return { removed: true, target, marker: publicationMarkerPath(root, version) };
+  } catch (error) {
+    if (removedMarker && !await readPublicationMarker(root, version)) {
+      await writePublicationMarker({ cacheRoot: root, ...removedMarker }).catch(() => undefined);
+    }
+    throw error;
+  } finally {
+    await lock.close().catch(() => undefined);
+    await releasePublicationLock(lockPath, lock.ownerToken);
   }
-  await rm(target, { recursive: true, force: false });
-  await unlink(publicationMarkerPath(root, version));
-  return { removed: true, target, marker: publicationMarkerPath(root, version) };
 }
 
 export async function verifyPluginCacheReady({
