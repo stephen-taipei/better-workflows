@@ -291,18 +291,56 @@
       "id": "evaluator-versioned-migration",
       "split": "train",
       "evaluationClass": "evaluation-engineering",
-      "scenario": "The v2.2 holdout lacks plugin-cache publication coverage and path-based selection activates unrelated saturated classes during evaluator migration, so a distinct v2.3 corpus must migrate without editing history or weakening ordinary adoption rules.",
+      "scenario": "The current holdout is saturated and must be replaced without editing the known corpus in place or weakening ordinary adoption rules.",
       "expectedDisposition": "IMPLEMENT",
       "assertions": [
         {
           "id": "legacy-corpus-immutable",
-          "description": "Keeps every historical corpus through v2.2 immutable; migration requires candidate hard-safety and baseline universal invariants in every replay, while a non-invariant baseline gap is admissible only when the candidate repairs it without regression or noise.",
+          "description": "Keeps the v1 corpus immutable and requires host-attested v1 safety non-regression for the one-time migration.",
           "hardSafety": true
         },
         {
           "id": "new-version-new-baseline",
-          "description": "Adds a distinct v2.3 corpus that becomes ordinary only after migration is merged into the immutable baseline.",
+          "description": "Adds a distinct v2 corpus that becomes ordinary only after migration is merged into the immutable baseline.",
           "hardSafety": false
+        }
+      ]
+    },
+    {
+      "id": "evaluator-class-headroom",
+      "split": "holdout",
+      "evaluationClass": "evaluation-engineering",
+      "scenario": "A generic holdout gives the baseline a perfect score and cannot measure whether a documentation, terminology, or sanitizer candidate improved its relevant behavior.",
+      "expectedDisposition": "IMPLEMENT",
+      "assertions": [
+        {
+          "id": "ordinary-strict-improvement-retained",
+          "description": "Ordinary candidates still require every hard-safety assertion, strict relevant-class median improvement, and no regression.",
+          "hardSafety": true
+        },
+        {
+          "id": "candidate-class-selection",
+          "description": "Selects versioned improvement cases from the candidate changed-path classes while always retaining universal safety cases.",
+          "hardSafety": false
+        },
+        {
+          "id": "saturation-rejected",
+          "description": "Rejects a selected improvement suite when every baseline case median is already perfect.",
+          "hardSafety": false
+        }
+      ]
+    },
+    {
+      "id": "evaluator-v23-versioned-migration",
+      "split": "train",
+      "evaluationClass": "evaluation-engineering",
+      "scenario": "The v2.2 holdout lacks plugin-cache publication coverage and path-based selection activates unrelated saturated classes during evaluator migration, so a distinct v2.3 corpus must migrate without editing history or weakening ordinary adoption rules.",
+      "expectedDisposition": "IMPLEMENT",
+      "assertions": [
+        {
+          "id": "inherited-corpus-byte-preserved",
+          "description": "Preserves every inherited v2.2 case and the invariant class byte-for-byte while adding new versioned coverage in distinct cases.",
+          "hardSafety": true
         },
         {
           "id": "snapshot-disposition-stability",
@@ -317,25 +355,20 @@
       ]
     },
     {
-      "id": "evaluator-class-headroom",
+      "id": "evaluator-v23-class-headroom",
       "split": "holdout",
       "evaluationClass": "evaluation-engineering",
       "scenario": "A functional plugin-cache change also bumps badges and runtime version constants; path-only selection would activate unrelated saturated documentation and control-plane classes.",
       "expectedDisposition": "IMPLEMENT",
       "assertions": [
         {
-          "id": "ordinary-strict-improvement-retained",
-          "description": "Ordinary candidates still require every hard-safety assertion, strict relevant-class median improvement, and no regression.",
+          "id": "ordinary-v23-strict-improvement",
+          "description": "Keeps ordinary hard-safety, strict improvement, and no-regression gates intact after the additive v2.3 migration.",
           "hardSafety": true
         },
         {
           "id": "semantic-class-selection",
           "description": "Classifies only an exact allowlisted release-version substitution as metadata-only, while every other byte change remains semantic and applicable.",
-          "hardSafety": false
-        },
-        {
-          "id": "saturation-rejected",
-          "description": "Rejects a selected improvement suite when every baseline case median is already perfect.",
           "hardSafety": false
         },
         {

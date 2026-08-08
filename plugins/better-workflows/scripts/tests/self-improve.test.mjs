@@ -27,6 +27,7 @@ import {
   selectSafetyRemediationCases,
   validateEvaluationSuite,
   SELF_IMPROVE_MIGRATION_SOURCE_CORPORA,
+  SELF_IMPROVE_MIGRATION_SOURCE_SUITE_DIGEST,
   SELF_IMPROVE_ORDINARY_CORPORA,
   SELF_IMPROVE_QUALITY_REMEDIATION_POLICY,
   SELF_IMPROVE_SAFETY_REMEDIATION_POLICY
@@ -40,7 +41,10 @@ const suiteV21Bytes = await readFile(path.join(pluginRoot(), "fixtures", "self-i
 const suiteV21 = JSON.parse(suiteV21Bytes.toString("utf8"));
 const suiteV22Bytes = await readFile(path.join(pluginRoot(), "fixtures", "self-improve-ops-evals-v2.2.json"));
 const suiteV22 = JSON.parse(suiteV22Bytes.toString("utf8"));
-const suiteV23 = JSON.parse(await readFile(path.join(pluginRoot(), "fixtures", "self-improve-ops-evals-v2.3.json"), "utf8"));
+const suiteV23Bytes = await readFile(path.join(pluginRoot(), "fixtures", "self-improve-ops-evals-v2.3.json"));
+const suiteV23 = JSON.parse(suiteV23Bytes.toString("utf8"));
+const suiteV22Digest = createHash("sha256").update(suiteV22Bytes).digest("hex");
+const suiteV23Digest = createHash("sha256").update(suiteV23Bytes).digest("hex");
 const repositoryRoot = path.resolve(pluginRoot(), "../..");
 const safetyPolicy = await loadSafetyRemediationPolicy({ cwd: repositoryRoot });
 const qualityPolicy = await loadQualityRemediationPolicy({ cwd: repositoryRoot });
@@ -56,7 +60,7 @@ test("self-improve corpus validates split isolation, uniqueness, and secret-shap
   assert.equal(validateEvaluationSuite(suiteV22).classes.length, 9);
   assert.equal(validateEvaluationSuite(suiteV22).cases.length, 18);
   assert.equal(validateEvaluationSuite(suiteV23).classes.length, 10);
-  assert.equal(validateEvaluationSuite(suiteV23).cases.length, 20);
+  assert.equal(validateEvaluationSuite(suiteV23).cases.length, 22);
   const duplicate = structuredClone(suite);
   duplicate.cases[1].id = duplicate.cases[0].id;
   assert.throws(() => validateEvaluationSuite(duplicate), /unique/);
@@ -166,10 +170,19 @@ test("evaluation v2.3 adds publication coverage without mutating the v2.2 source
     assert.equal(new Set(cases.map((item) => item.id)).size, 2);
     assert.equal(cases.every((item) => item.assertions.some((assertion) => assertion.hardSafety)), true);
   }
-  for (const legacyCase of suiteV22.cases.filter((item) => item.evaluationClass !== "evaluation-engineering")) {
+  for (const legacyCase of suiteV22.cases) {
     assert.deepEqual(suiteV23.cases.find((item) => item.id === legacyCase.id), legacyCase);
   }
-  assert.equal(createHash("sha256").update(suiteV22Bytes).digest("hex"), "6e6923ca2953fceb0cbbd7d16bb8b83745ac318e60d80279549751aad92c00c4");
+  assert.deepEqual(
+    suiteV23.cases.filter((item) => !suiteV22.cases.some((legacy) => legacy.id === item.id)).map((item) => item.id).sort(),
+    [
+      "evaluator-v23-class-headroom",
+      "evaluator-v23-versioned-migration",
+      "publication-owned-marker-cleanup",
+      "publication-successor-marker-race"
+    ]
+  );
+  assert.equal(suiteV22Digest, SELF_IMPROVE_MIGRATION_SOURCE_SUITE_DIGEST);
   assert.deepEqual(SELF_IMPROVE_MIGRATION_SOURCE_CORPORA, [
     "plugins/better-workflows/fixtures/self-improve-ops-evals.json",
     "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.json",
@@ -739,8 +752,8 @@ test("evaluator migration isolates source replay classes while binding v2.2, v2.
       { materialGroup: "runtime" },
       { materialGroup: "tests" }
     ],
-    sourceDigest: "a".repeat(64),
-    targetDigest: "b".repeat(64)
+    sourceDigest: suiteV22Digest,
+    targetDigest: suiteV23Digest
   });
   assert.deepEqual(calibration.materialGroups, ["fixtures", "runtime", "tests"]);
   assert.match(calibration.digest, /^[a-f0-9]{64}$/);
@@ -754,6 +767,44 @@ test("evaluator migration isolates source replay classes while binding v2.2, v2.
     () => selectEvaluatorMigrationCases({ suite: { ...suiteV22, classes: suiteV22.classes.filter((item) => item.id !== "evaluation-engineering") }, split: "holdout" }),
     /requires an evaluation-engineering improvement class/
   );
+});
+
+test("evaluator migration rejects weakened, removed, reclassified, or unbound inherited safety cases", () => {
+  const snapshot = {
+    files: [
+      { path: "plugins/better-workflows/scripts/lib/self-improve.mjs", state: "file" },
+      { path: "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.3.json", state: "file" }
+    ]
+  };
+  const migrate = (target, source = suiteV22, sourceDigest = suiteV22Digest) => calibrateEvaluatorMigration({
+    source,
+    target,
+    snapshot,
+    materials: [{ materialGroup: "fixtures" }, { materialGroup: "runtime" }],
+    sourceDigest,
+    targetDigest: suiteV23Digest
+  });
+
+  const weakened = structuredClone(suiteV23);
+  weakened.cases.find((item) => item.id === "universal-unauthorized-delivery").assertions[0].description = "Returns a result.";
+  assert.throws(() => migrate(weakened), /preserve every inherited source case byte-for-byte/);
+
+  const removed = structuredClone(suiteV23);
+  removed.cases = removed.cases.filter((item) => item.id !== "universal-sensitive-history");
+  assert.throws(() => migrate(removed), /preserve every inherited source case byte-for-byte/);
+
+  const reclassified = structuredClone(suiteV23);
+  reclassified.cases.find((item) => item.id === "evaluator-class-headroom").evaluationClass = "sanitizer-coverage";
+  assert.throws(() => migrate(reclassified), /preserve every inherited source case byte-for-byte/);
+
+  const invariantClassChanged = structuredClone(suiteV23);
+  invariantClassChanged.classes.find((item) => item.id === "universal-safety").description = "A weaker invariant label.";
+  assert.throws(() => migrate(invariantClassChanged), /preserve the inherited invariant class byte-for-byte/);
+
+  const sourceChanged = structuredClone(suiteV22);
+  sourceChanged.cases[0].scenario = "A different source corpus.";
+  assert.throws(() => migrate(suiteV23, sourceChanged), /source must be the immutable v2.2 suite/);
+  assert.throws(() => migrate(suiteV23, suiteV22, "a".repeat(64)), /source must be the immutable v2.2 suite/);
 });
 
 test("candidate sanitizer admits declared public docs and checks all paths before sampling", async () => {

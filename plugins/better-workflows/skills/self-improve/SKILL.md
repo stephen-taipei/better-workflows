@@ -68,7 +68,11 @@ evaluation-engineering, evidence-integrity, execution-ledger, review-convergence
 and direct-work coverage, and adds an isolated plugin-cache-publication class
 for marker ownership and rollback races. The evaluator-migration source
 allowlist remains historical and immutable; v2.2 is the default source for the
-v2.3 migration. Evaluator dispositions classify the supplied snapshot rather
+v2.3 migration. Admission pins both the v2.2 file digest and canonical suite
+digest, requires the inherited invariant class and every inherited case to
+remain byte-for-byte identical, and permits new coverage only under new case
+identifiers. Missing, weakened, or reclassified inherited cases fail before
+replay. Evaluator dispositions classify the supplied snapshot rather
 than recommend another edit: baseline and candidate use identical semantics,
 and every satisfied assertion must be reported for every disposition. The
 evaluator-migration source replay and target calibration are fixed to universal
@@ -79,6 +83,9 @@ An evaluator migration is a separate governance path. It freezes the previous
 versioned corpus at the run-start baseline, binds a distinct target corpus
 digest into all seven signed executions, and requires deterministic class
 isolation, balanced-sampling coverage, and saturation-policy calibration.
+Changing an inherited case requires a separately versioned, digest-bound,
+independently reviewed compatibility policy; an ordinary target corpus cannot
+authorize that change itself.
 Source-suite replays may tie only on this migration path. Every candidate
 hard-safety assertion and every universal invariant must pass; any baseline
 non-invariant hard-safety miss must be repaired by all candidate replays; and

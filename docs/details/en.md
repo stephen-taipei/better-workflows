@@ -342,6 +342,11 @@ ownership races. Exact allowlisted release-version-only substitutions stay in
 the signed manifest but do not activate unrelated saturated classes; every
 other byte change remains semantic. Its one-time migration freezes v2.2 as the
 source and binds both immutable suite digests into all seven signed executions.
+Admission also pins the canonical v2.2 suite digest and requires the inherited
+invariant class and all 18 inherited cases to match exactly; new coverage must
+use new case identifiers. Missing, weakened, or reclassified inherited cases
+fail before replay, and any intentional inherited-case change requires a
+separately versioned, digest-bound, independently reviewed compatibility policy.
 Evaluator dispositions classify the supplied snapshot rather than recommend a
 follow-up edit; baseline and candidate use identical semantics, and every
 satisfied assertion is reported independently of disposition. Migration still

@@ -13,6 +13,8 @@ const SECRET_PATTERN_GLOBAL = /(?:api[_-]?key|password|passwd|secret|token|autho
 export const SELF_IMPROVE_LEGACY_CORPUS = "plugins/better-workflows/fixtures/self-improve-ops-evals.json";
 export const SELF_IMPROVE_V22_CORPUS = "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.2.json";
 export const SELF_IMPROVE_MIGRATION_SOURCE_CORPUS = SELF_IMPROVE_V22_CORPUS;
+export const SELF_IMPROVE_MIGRATION_SOURCE_SUITE_DIGEST = "6e6923ca2953fceb0cbbd7d16bb8b83745ac318e60d80279549751aad92c00c4";
+const SELF_IMPROVE_MIGRATION_SOURCE_SUITE_OBJECT_DIGEST = "8f1542a489134a0b041cb5348c471bc14ed0445b5a75490aef51048afeefa0d0";
 export const SELF_IMPROVE_CANONICAL_CORPUS = "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.3.json";
 export const SELF_IMPROVE_MIGRATION_SOURCE_CORPORA = Object.freeze([
   SELF_IMPROVE_LEGACY_CORPUS,
@@ -37,7 +39,7 @@ export const SELF_IMPROVE_EVALUATION_PURPOSES = new Set([
 export function isPolicyBoundEvaluationPurpose(purpose) {
   return purpose === SELF_IMPROVE_SAFETY_REMEDIATION_PURPOSE || purpose === SELF_IMPROVE_QUALITY_REMEDIATION_PURPOSE;
 }
-const SAFETY_REMEDIATION_V1_SOURCE_SUITE_DIGEST = "6e6923ca2953fceb0cbbd7d16bb8b83745ac318e60d80279549751aad92c00c4";
+const SAFETY_REMEDIATION_V1_SOURCE_SUITE_DIGEST = SELF_IMPROVE_MIGRATION_SOURCE_SUITE_DIGEST;
 const SAFETY_REMEDIATION_V1_POLICY_DIGEST = "eef024226b8b9d70e01a84ea069dfaa9c633ae3cab80f484da9b772be2234958";
 const SAFETY_REMEDIATION_V1_TARGETS = Object.freeze([
   Object.freeze({
@@ -145,7 +147,7 @@ function sanitizeMaterialText(text, filePath, label) {
 }
 
 function validateCases(cases, classIds = null) {
-  if (!Array.isArray(cases) || cases.length < 2 || cases.length > 20) throw new Error("Evaluation suite must contain 2..20 cases");
+  if (!Array.isArray(cases) || cases.length < 2 || cases.length > 24) throw new Error("Evaluation suite must contain 2..24 cases");
   const ids = new Set();
   const splits = new Set();
   const classSplits = new Map();
@@ -750,6 +752,28 @@ export function selectEvaluatorMigrationCases({ suite, split }) {
   return selected;
 }
 
+function assertEvaluatorMigrationSourcePreserved({ source, target, sourceDigest }) {
+  if (
+    sourceDigest !== SELF_IMPROVE_MIGRATION_SOURCE_SUITE_DIGEST ||
+    digestObject(source) !== SELF_IMPROVE_MIGRATION_SOURCE_SUITE_OBJECT_DIGEST
+  ) {
+    throw new Error("Evaluator migration source must be the immutable v2.2 suite");
+  }
+  const sourceInvariant = source.classes?.find((item) => item.kind === "invariant");
+  const targetInvariant = target.classes?.find((item) => item.id === sourceInvariant?.id);
+  if (!sourceInvariant || digestObject(targetInvariant) !== digestObject(sourceInvariant)) {
+    throw new Error("Evaluator migration target must preserve the inherited invariant class byte-for-byte");
+  }
+  const targetCases = new Map(target.cases.map((item) => [item.id, item]));
+  const changed = source.cases
+    .filter((item) => digestObject(targetCases.get(item.id)) !== digestObject(item))
+    .map((item) => item.id)
+    .sort();
+  if (changed.length > 0) {
+    throw new Error(`Evaluator migration target must preserve every inherited source case byte-for-byte: ${changed.join(", ")}`);
+  }
+}
+
 function selectPolicyRemediationCases({ suite, snapshot, split, policy, purpose, label }) {
   if (suite?.schemaVersion !== 2 || !policy || policy.purpose !== purpose) {
     throw new Error(`${label} requires a schemaVersion 2 suite and its versioned policy`);
@@ -795,11 +819,14 @@ export function calibrateEvaluatorMigration({ source, target, snapshot, material
   if (
     ![1, 2].includes(source.schemaVersion) ||
     target.schemaVersion !== 2 ||
+    !SHA256.test(sourceDigest ?? "") ||
+    !SHA256.test(targetDigest ?? "") ||
     sourceDigest === targetDigest ||
     source.name === target.name
   ) {
     throw new Error("Evaluator migration requires distinct versioned source and target suites with a schemaVersion 2 target");
   }
+  assertEvaluatorMigrationSourcePreserved({ source, target, sourceDigest });
   const groups = [...new Set(materials.map((item) => item.materialGroup))].sort();
   const expectedGroups = [...new Set(snapshot.files.filter((item) => item.state === "file").map((item) => candidateMaterialGroup(item.path)))].sort();
   if (expectedGroups.some((group) => !groups.includes(group))) throw new Error("Evaluator migration sampling does not cover every changed material group");
