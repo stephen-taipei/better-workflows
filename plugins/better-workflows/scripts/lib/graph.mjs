@@ -771,7 +771,7 @@ export function buildRunGraph({
     } catch (error) {
       accumulator.error("delegated-contract-drift", error.message, [runNode]);
     }
-  } else if (hasDelegatedSignals) {
+  } else if (template.name === "pr-to-dev" && hasDelegatedSignals) {
     accumulator.error(
       "delegated-contract-drift",
       "Delegated self-improve contract evidence is present without an upstream run binding",

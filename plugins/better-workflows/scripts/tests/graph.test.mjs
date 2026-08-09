@@ -448,6 +448,19 @@ test("run graphs require the complete canonical delegated self-improve contract"
   );
   const omissions = [
     ["upstream run", (contract) => { delete contract.upstreamSelfImproveRunId; }],
+    ["orphan cache-only signals", (contract) => {
+      delete contract.upstreamSelfImproveRunId;
+      contract.requiredEvidence = contract.requiredEvidence.filter((kind) => kind !== handoffKind);
+      for (const id of Object.keys(contract.acceptanceEvidence)) {
+        contract.acceptanceEvidence[id] = contract.acceptanceEvidence[id].filter((kind) => kind !== handoffKind);
+      }
+      for (const stage of contract.executionStages) {
+        stage.requiredEvidence = stage.requiredEvidence.filter((kind) => kind !== handoffKind);
+      }
+      for (const action of Object.keys(contract.actionGates)) {
+        contract.actionGates[action] = contract.actionGates[action].filter((kind) => kind !== handoffKind);
+      }
+    }],
     ["required cache evidence", (contract) => {
       contract.requiredEvidence = contract.requiredEvidence.filter((kind) => kind !== cacheKind);
     }],
@@ -482,6 +495,45 @@ test("run graphs require the complete canonical delegated self-improve contract"
       label
     );
   }
+});
+
+test("source self-improve graphs accept their own cache publication evidence without an upstream run", () => {
+  const definition = template({
+    name: "self-improve-ops",
+    requiredEvidence: ["proof", "cache-publication"],
+    controlPlane: {
+      evidencePolicy: "typed-v1",
+      ledgerPolicy: "ledger-v1",
+      reviewPolicy: "code-v1",
+      designPacketPolicy: "pilot-v1",
+      refinementPolicy: "pilot-v1",
+      deliberationPolicy: "allowed-v1"
+    },
+    executionStages: [{
+      id: "delivery-handoff",
+      dependsOn: [],
+      requiredEvidence: ["cache-publication"],
+      attemptBudget: 1,
+      kind: "side-effect"
+    }],
+    actionGates: {}
+  });
+  const sourceRun = runFixture({
+    template: definition,
+    contract: {
+      schemaVersion: 2,
+      controlPlane: structuredClone(definition.controlPlane),
+      executionStages: structuredClone(definition.executionStages),
+      acceptanceEvidence: { accepted: [...definition.requiredEvidence] },
+      actionGates: {}
+    }
+  });
+  sourceRun.manifest.contractDigest = digestObject(sourceRun.contract);
+  const graph = buildRunGraph(sourceRun);
+  assert.equal(
+    graph.diagnostics.some((item) => item.code === "delegated-contract-drift"),
+    false
+  );
 });
 
 test("pre-repair fixtures reproduce all ten action prerequisite gaps", async () => {
