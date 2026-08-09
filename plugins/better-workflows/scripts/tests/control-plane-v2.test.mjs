@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
-import { mkdtemp, mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -176,7 +176,7 @@ test("typed handoff evidence admits only its declared nullable evaluator authori
   );
 });
 
-test("real template contracts are v2 and initialize a static ledger", async () => {
+test("single-task non-direct run creates one ledger and no automatic design or review artifacts", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "sbw-v2-contract-"));
   const contract = buildContract({
     template: "test-v2",
@@ -193,6 +193,9 @@ test("real template contracts are v2 and initialize a static ledger", async () =
   const ledger = JSON.parse(await readFile(path.join(run.runDir, "ledger.json"), "utf8"));
   assert.equal(ledger.schemaVersion, 1);
   assert.deepEqual(ledger.tasks.map((item) => item.id), ["environment"]);
+  const artifacts = (await readdir(run.runDir)).sort();
+  assert.deepEqual(artifacts.filter((name) => /ledger/i.test(name)), ["ledger.json"]);
+  assert.deepEqual(artifacts.filter((name) => /design|review/i.test(name)), []);
 });
 
 test("source binding can be explicitly rebound before review or side effects", async () => {
@@ -692,7 +695,7 @@ test("ledger compilation rejects a terminal run", async () => {
   );
 });
 
-test("review packages prove the Git manifest and dispositions fail closed", async () => {
+test("review packages block after the fifth scoped repair round and require final broad review", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "sbw-v2-review-"));
   const repository = path.join(root, "repository");
   await mkdir(repository, { recursive: true });

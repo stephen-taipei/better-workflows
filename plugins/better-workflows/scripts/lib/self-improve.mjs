@@ -88,6 +88,7 @@ const PUBLIC_ROOT_DOCUMENTS = new Set([
 ]);
 const PUBLIC_ROOT_SCRIPTS = new Set(["scripts/plugin-cache.mjs"]);
 const MATERIAL_GROUPS = ["runtime", "tests", "config", "skills", "templates", "fixtures", "metadata", "docs"];
+const CRITICAL_MATERIAL_ANCHOR = /resolveGitPushDestination|delegatedSelfImproveContractProjection|applyDelegatedSelfImproveContract|expectedReplayKeys|migrationTrainingComparison|alignedRuns|train-(?:candidate|baseline):1|(?:candidate|baseline):[1-3]|evaluator migration executes every target|pendingMarkerMatchesPublication|acquirePublicationLock|releasePublicationLock|reclaimStalePublicationLock|landingMarkdownStructure|reduceLedger|attempt-budget-exhausted|budget-exhausted|fifth scoped repair round|repair budget exhausted|final broad review|single-task non-direct run|automatic design or review artifacts|direct mode creates no state directory|self-reported evidence without a typed receipt|complete-without-typed-evidence/i;
 const MATERIAL_SAMPLE_PRIORITY = Object.freeze([
   "plugins/better-workflows/scripts/lib/core.mjs",
   "plugins/better-workflows/scripts/lib/graph.mjs",
@@ -107,10 +108,10 @@ const MATERIAL_SAMPLE_PRIORITY = Object.freeze([
   "plugins/better-workflows/scripts/tests/control-plane-v2.test.mjs",
   "plugins/better-workflows/scripts/tests/fixtures.test.mjs",
   "plugins/better-workflows/config/deliberation-roster.json",
-  "plugins/better-workflows/config/evidence-contracts-v1.json",
   "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.3.json",
   "plugins/better-workflows/skills/better-workflows/SKILL.md",
   "plugins/better-workflows/skills/better-workflows/references/deliberation-roster.md",
+  "plugins/better-workflows/config/evidence-contracts-v1.json",
   "plugins/better-workflows/.codex-plugin/plugin.json",
   "README.md"
 ]);
@@ -695,13 +696,12 @@ function selectBalancedMaterialFiles(files, maxFiles) {
 }
 
 function materialEvidenceIndex(text, filePath) {
-  const criticalAnchor = /resolveGitPushDestination|delegatedSelfImproveContractProjection|applyDelegatedSelfImproveContract|pendingMarkerMatchesPublication|landingMarkdownStructure|reduceLedger|attempt-budget-exhausted|budget-exhausted|final broad review|direct mode creates no state directory|complete-without-typed-evidence/i;
   const operationalAnchor = /git|push|delegat|self.?improve|migration|publication|marker|markdown|readme|destination|execution.?plan|ledger|evidence|review|direct|budget|exhaust|typed|receipt|broad|fence|comment|artifact|sentinel|digest|roster|transport/i;
   const prioritize = (values) => values
     .map((value, index) => ({
       value,
       index,
-      priority: criticalAnchor.test(value) ? 0 : operationalAnchor.test(value) ? 1 : 2
+      priority: CRITICAL_MATERIAL_ANCHOR.test(value) ? 0 : operationalAnchor.test(value) ? 1 : 2
     }))
     .sort((left, right) => left.priority - right.priority || left.index - right.index)
     .map((item) => item.value);
@@ -741,7 +741,7 @@ function materialEvidenceIndex(text, filePath) {
     : [];
   const semanticAnchors = prioritize(collect([
     /["'`]([^"'`\r\n]{4,200})["'`]/g
-  ]).filter((value) => /git|push|delegat|self.?improve|migration|publication|marker|markdown|readme|destination|ledger|evidence|review|direct|budget|exhaust|typed|receipt|broad|fence|comment|artifact|sentinel|digest|roster|transport|unauthor|forg/i.test(value))).slice(0, 16);
+  ]).filter((value) => /git|push|delegat|self.?improve|migration|train-(?:candidate|baseline)|(?:candidate|baseline):[1-3]|publication|marker|markdown|readme|destination|ledger|evidence|review|direct|budget|exhaust|typed|receipt|broad|fence|comment|artifact|sentinel|digest|roster|transport|unauthor|forg/i.test(value))).slice(0, 16);
   return { exportedSymbols, namedSymbols, tests, ids, headings, semanticAnchors };
 }
 
@@ -754,11 +754,34 @@ function boundedMaterialEvidenceIndex(index, filePath, maxBytes) {
         ? ["headings", "semanticAnchors", "exportedSymbols", "namedSymbols", "tests", "ids"]
         : ["exportedSymbols", "semanticAnchors", "namedSymbols", "tests", "ids", "headings"];
   let bounded = { exportedSymbols: [], namedSymbols: [], tests: [], ids: [], headings: [], semanticAnchors: [] };
+  const appendWithinBudget = (key, value) => {
+    const candidate = { ...bounded, [key]: [...bounded[key], value] };
+    if (Buffer.byteLength(JSON.stringify(candidate), "utf8") > maxBytes) return false;
+    bounded = candidate;
+    return true;
+  };
+  const critical = new Map(order.map((key) => [
+    key,
+    index[key].filter((value) => CRITICAL_MATERIAL_ANCHOR.test(value))
+  ]));
+  const criticalDepth = Math.max(0, ...[...critical.values()].map((values) => values.length));
+  // Reserve cross-category safety anchors before ordinary evidence. A runtime
+  // file can contain enough exported symbols or strings to consume its entire
+  // per-file budget; round-robin reservation prevents that category order from
+  // hiding a critical named symbol or deterministic regression title.
+  for (let depth = 0; depth < criticalDepth; depth += 1) {
+    for (const key of order) {
+      const value = critical.get(key)[depth];
+      if (value !== undefined) appendWithinBudget(key, value);
+    }
+  }
   for (const key of order) {
     for (const value of index[key]) {
-      const candidate = { ...bounded, [key]: [...bounded[key], value] };
-      if (Buffer.byteLength(JSON.stringify(candidate), "utf8") > maxBytes) return bounded;
-      bounded = candidate;
+      if (CRITICAL_MATERIAL_ANCHOR.test(value)) continue;
+      // A long value that does not fit must not starve shorter values in later
+      // categories. The complete changed-path digest manifest remains outside
+      // this bounded index regardless of sampling.
+      appendWithinBudget(key, value);
     }
   }
   return bounded;
