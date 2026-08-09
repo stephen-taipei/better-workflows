@@ -20,6 +20,7 @@ import { promisify } from "node:util";
 import {
   addEvidence,
   assertProviderReceiptShape,
+  buildGitPushActionBinding,
   buildPrCreateCommand,
   buildContract,
   cleanupRuns,
@@ -39,6 +40,7 @@ import {
   readJson,
   registerOwnedResource,
   reconcileAction,
+  resolveGitPushExecutionBinding,
   routeMode,
   safeJoin,
   sha256,
@@ -75,6 +77,57 @@ function contract(overrides = {}) {
   });
   return value;
 }
+
+test("git push action bindings persist the resource remote used by the fixed argv wrapper", () => {
+  const providerExecutable = { path: "/usr/bin/git", digest: "a".repeat(64) };
+  const binding = buildGitPushActionBinding({
+    remote: "origin",
+    remoteUrl: "https://github.com/example/repository.git",
+    remoteRepository: "github.com/example/repository",
+    expectedBranch: "feature",
+    expectedRevision: "b".repeat(40),
+    providerExecutable
+  });
+
+  assert.equal(binding.remote, "origin");
+  assert.equal(binding.remoteUrlDigest, sha256("https://github.com/example/repository.git"));
+  assert.deepEqual(binding.pushCommand, [
+    "git",
+    "push",
+    "--porcelain",
+    "origin",
+    `${"b".repeat(40)}:refs/heads/feature`
+  ]);
+  assert.deepEqual(
+    resolveGitPushExecutionBinding({
+      ...binding,
+      resource: "remote:origin:refs/heads/feature"
+    }),
+    {
+      remote: "origin",
+      ref: "refs/heads/feature",
+      command: binding.pushCommand
+    }
+  );
+});
+
+test("git push execution rejects an issued record that omits its remote binding", () => {
+  assert.throws(
+    () => resolveGitPushExecutionBinding({
+      resource: "remote:origin:refs/heads/feature",
+      expectedBranch: "feature",
+      expectedRevision: "b".repeat(40),
+      pushCommand: [
+        "git",
+        "push",
+        "--porcelain",
+        "origin",
+        `${"b".repeat(40)}:refs/heads/feature`
+      ]
+    }),
+    /Git push execution binding is inconsistent/
+  );
+});
 
 test("PR creation receipts bind to the exact candidate source head", () => {
   const expectedHead = "a".repeat(40);

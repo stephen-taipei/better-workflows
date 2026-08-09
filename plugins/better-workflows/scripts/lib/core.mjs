@@ -23,7 +23,7 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
-export const VERSION = "3.1.16";
+export const VERSION = "3.1.17";
 export const MODES = new Set(["auto", "direct", "verified", "deep", "critical"]);
 export const RUN_STATES = new Set([
   "pending",
@@ -202,6 +202,47 @@ export function sha256(value) {
   const hash = createHash("sha256");
   hash.update(Buffer.isBuffer(value) ? value : String(value));
   return hash.digest("hex");
+}
+
+export function buildGitPushActionBinding({
+  remote,
+  remoteUrl,
+  remoteRepository,
+  expectedBranch,
+  expectedRevision,
+  providerExecutable
+}) {
+  const ref = `refs/heads/${expectedBranch}`;
+  return {
+    remote,
+    remoteRepository,
+    remoteUrlDigest: sha256(remoteUrl),
+    expectedBranch,
+    expectedRevision,
+    providerExecutable,
+    pushCommand: ["git", "push", "--porcelain", remote, `${expectedRevision}:${ref}`]
+  };
+}
+
+export function resolveGitPushExecutionBinding(record) {
+  const [, resourceRemote, resourceRef] = GIT_PUSH_RESOURCE.exec(record.resource) ?? [];
+  const expectedRef = `refs/heads/${record.expectedBranch}`;
+  const expectedCommand = [
+    "git",
+    "push",
+    "--porcelain",
+    record.remote,
+    `${record.expectedRevision}:${expectedRef}`
+  ];
+  if (
+    !resourceRemote ||
+    record.remote !== resourceRemote ||
+    resourceRef !== expectedRef ||
+    JSON.stringify(record.pushCommand) !== JSON.stringify(expectedCommand)
+  ) {
+    throw new Error("Git push execution binding is inconsistent with the governed resource");
+  }
+  return { remote: resourceRemote, ref: resourceRef, command: expectedCommand };
 }
 
 function sorted(value) {
@@ -3854,14 +3895,14 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
         cwd: manifest.cwd,
         encoding: "utf8"
       })).stdout.trim();
-      actionBinding = {
+      actionBinding = buildGitPushActionBinding({
+        remote,
+        remoteUrl,
         remoteRepository,
-        remoteUrlDigest: sha256(remoteUrl),
         expectedBranch,
         expectedRevision,
-        providerExecutable: await currentProviderExecutableIdentity("git"),
-        pushCommand: ["git", "push", "--porcelain", remote, `${expectedRevision}:${ref}`]
-      };
+        providerExecutable: await currentProviderExecutableIdentity("git")
+      });
       if (request.requiredEvidence.includes("remote-authorization")) {
         if (!providerAuthorization || request.provider !== "git") {
           throw new Error("Git push requires a live GitHub identity plus a controlled Git credential check");
@@ -4328,17 +4369,12 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
   }
   const consumed = await consumeActionTokenInternal(root, runId, token, currentTreeDigest, true);
   if (consumed.action === "git.push" && consumed.provider === "git") {
-    const expectedCommand = consumed.pushCommand;
-    if (!Array.isArray(expectedCommand) || expectedCommand.length !== 5 || expectedCommand[0] !== "git") {
-      throw new Error("Git push execution command is not the fixed non-force invocation");
-    }
+    const { remote, ref, command: expectedCommand } = resolveGitPushExecutionBinding(consumed);
     const manifest = await readJson(root, safeJoin(runDirectory(root, runId), "manifest.json"));
     const executable = await currentProviderExecutableIdentity("git");
     if (digestObject(executable) !== digestObject(consumed.providerExecutable)) {
       throw new Error("Git push execution denied because the governed provider executable changed");
     }
-    const remote = consumed.remote;
-    const ref = `refs/heads/${consumed.expectedBranch}`;
     const credentialCheck = await verifyGitPushCredential(
       manifest.cwd,
       remote,
