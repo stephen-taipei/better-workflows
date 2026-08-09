@@ -95,13 +95,26 @@ const MATERIAL_SAMPLE_PRIORITY = Object.freeze([
   "plugins/better-workflows/scripts/lib/self-improve.mjs",
   "plugins/better-workflows/scripts/lib/self-improve-replay.mjs",
   "plugins/better-workflows/scripts/lib/attestations.mjs",
+  "plugins/better-workflows/scripts/lib/ledger.mjs",
+  "plugins/better-workflows/scripts/lib/evidence.mjs",
+  "plugins/better-workflows/scripts/sbw.mjs",
   "plugins/better-workflows/scripts/tests/core.test.mjs",
   "plugins/better-workflows/scripts/tests/graph.test.mjs",
   "plugins/better-workflows/scripts/tests/publication.test.mjs",
   "plugins/better-workflows/scripts/tests/self-improve.test.mjs",
   "plugins/better-workflows/scripts/tests/docs.test.mjs",
-  "plugins/better-workflows/scripts/tests/cli.test.mjs"
+  "plugins/better-workflows/scripts/tests/cli.test.mjs",
+  "plugins/better-workflows/scripts/tests/control-plane-v2.test.mjs",
+  "plugins/better-workflows/scripts/tests/fixtures.test.mjs",
+  "plugins/better-workflows/config/deliberation-roster.json",
+  "plugins/better-workflows/config/evidence-contracts-v1.json",
+  "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.3.json",
+  "plugins/better-workflows/skills/better-workflows/SKILL.md",
+  "plugins/better-workflows/skills/better-workflows/references/deliberation-roster.md",
+  "plugins/better-workflows/.codex-plugin/plugin.json",
+  "README.md"
 ]);
+const MATERIAL_SAMPLE_PRIORITY_INDEX = new Map(MATERIAL_SAMPLE_PRIORITY.map((file, index) => [file, index]));
 const PUBLIC_DOCUMENT_SAMPLE_PRIORITY = new Map([
   "README.md",
   "docs/README.zh-TW.md",
@@ -643,17 +656,14 @@ function selectBalancedMaterialFiles(files, maxFiles) {
   const available = new Map(files.filter((item) => item.state === "file").map((file) => [file.path, file]));
   const selected = [];
   const selectedPaths = new Set();
-  for (const filePath of MATERIAL_SAMPLE_PRIORITY) {
-    const file = available.get(filePath);
-    if (!file || selected.length >= maxFiles) continue;
-    selected.push({ ...file, materialGroup: candidateMaterialGroup(file.path) });
-    selectedPaths.add(file.path);
-  }
   for (const file of available.values()) {
-    if (!selectedPaths.has(file.path)) grouped.get(candidateMaterialGroup(file.path)).push(file);
+    grouped.get(candidateMaterialGroup(file.path)).push(file);
   }
   for (const [group, values] of grouped) {
     values.sort((left, right) => {
+      const leftMaterialPriority = MATERIAL_SAMPLE_PRIORITY_INDEX.get(left.path) ?? Number.MAX_SAFE_INTEGER;
+      const rightMaterialPriority = MATERIAL_SAMPLE_PRIORITY_INDEX.get(right.path) ?? Number.MAX_SAFE_INTEGER;
+      if (leftMaterialPriority !== rightMaterialPriority) return leftMaterialPriority - rightMaterialPriority;
       if (group === "docs") {
         const leftPriority = PUBLIC_DOCUMENT_SAMPLE_PRIORITY.get(left.path) ?? Number.MAX_SAFE_INTEGER;
         const rightPriority = PUBLIC_DOCUMENT_SAMPLE_PRIORITY.get(right.path) ?? Number.MAX_SAFE_INTEGER;
@@ -662,14 +672,22 @@ function selectBalancedMaterialFiles(files, maxFiles) {
       return left.path.localeCompare(right.path);
     });
   }
-  for (let index = 0; selected.length < maxFiles; index += 1) {
+  const selectFile = (file) => {
+    if (!file || selectedPaths.has(file.path) || selected.length >= maxFiles) return false;
+    selected.push({ ...file, materialGroup: candidateMaterialGroup(file.path) });
+    selectedPaths.add(file.path);
+    return true;
+  };
+  // Reserve one slot for every available material group before filling the
+  // remaining production-priority surfaces. This keeps the 24-file cap from
+  // starving a newly changed group when the curated list is fully present.
+  for (const group of MATERIAL_GROUPS) selectFile(grouped.get(group)[0]);
+  for (const filePath of MATERIAL_SAMPLE_PRIORITY) selectFile(available.get(filePath));
+  while (selected.length < maxFiles) {
     let added = false;
     for (const group of MATERIAL_GROUPS) {
-      const file = grouped.get(group)[index];
-      if (file && selected.length < maxFiles) {
-        selected.push({ ...file, materialGroup: group });
-        added = true;
-      }
+      const file = grouped.get(group).find((candidate) => !selectedPaths.has(candidate.path));
+      if (selectFile(file)) added = true;
     }
     if (!added) break;
   }
@@ -677,8 +695,14 @@ function selectBalancedMaterialFiles(files, maxFiles) {
 }
 
 function materialEvidenceIndex(text, filePath) {
+  const criticalAnchor = /resolveGitPushDestination|delegatedSelfImproveContractProjection|applyDelegatedSelfImproveContract|pendingMarkerMatchesPublication|landingMarkdownStructure|reduceLedger|attempt-budget-exhausted|budget-exhausted|final broad review|direct mode creates no state directory|complete-without-typed-evidence/i;
+  const operationalAnchor = /git|push|delegat|self.?improve|migration|publication|marker|markdown|readme|destination|execution.?plan|ledger|evidence|review|direct|budget|exhaust|typed|receipt|broad|fence|comment|artifact|sentinel|digest|roster|transport/i;
   const prioritize = (values) => values
-    .map((value, index) => ({ value, index, priority: /git|push|delegat|self.?improve|migration|publication|marker|markdown|readme|destination|execution.?plan/i.test(value) ? 0 : 1 }))
+    .map((value, index) => ({
+      value,
+      index,
+      priority: criticalAnchor.test(value) ? 0 : operationalAnchor.test(value) ? 1 : 2
+    }))
     .sort((left, right) => left.priority - right.priority || left.index - right.index)
     .map((item) => item.value);
   const collect = (patterns, limit = 512) => {
@@ -698,6 +722,12 @@ function materialEvidenceIndex(text, filePath) {
   const exportedSymbols = prioritize(collect([
     /\bexport\s+(?:default\s+)?(?:async\s+)?(?:function|class|const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)/g
   ])).slice(0, 96);
+  const exportedSymbolSet = new Set(exportedSymbols);
+  const namedSymbols = prioritize(collect([
+    /\b(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+([A-Za-z_$][A-Za-z0-9_$]*)/g,
+    /\b(?:export\s+)?(?:default\s+)?class\s+([A-Za-z_$][A-Za-z0-9_$]*)/g,
+    /\b(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)/g
+  ]).filter((value) => !exportedSymbolSet.has(value))).slice(0, 96);
   const tests = prioritize(collect([
     /\btest\s*\(\s*"([^"\r\n]{1,200})"/g,
     /\btest\s*\(\s*'([^'\r\n]{1,200})'/g,
@@ -709,14 +739,21 @@ function materialEvidenceIndex(text, filePath) {
   const headings = filePath.endsWith(".md")
     ? collect([/^#{1,6}\s+([^\r\n]{1,200})$/gm], 48)
     : [];
-  return { exportedSymbols, tests, ids, headings };
+  const semanticAnchors = prioritize(collect([
+    /["'`]([^"'`\r\n]{4,200})["'`]/g
+  ]).filter((value) => /git|push|delegat|self.?improve|migration|publication|marker|markdown|readme|destination|ledger|evidence|review|direct|budget|exhaust|typed|receipt|broad|fence|comment|artifact|sentinel|digest|roster|transport|unauthor|forg/i.test(value))).slice(0, 16);
+  return { exportedSymbols, namedSymbols, tests, ids, headings, semanticAnchors };
 }
 
 function boundedMaterialEvidenceIndex(index, filePath, maxBytes) {
   const order = filePath.includes("/tests/")
-    ? ["tests", "exportedSymbols", "ids", "headings"]
-    : ["exportedSymbols", "tests", "ids", "headings"];
-  let bounded = { exportedSymbols: [], tests: [], ids: [], headings: [] };
+    ? ["tests", "namedSymbols", "exportedSymbols", "semanticAnchors", "ids", "headings"]
+    : filePath.endsWith(".json")
+      ? ["ids", "semanticAnchors", "exportedSymbols", "namedSymbols", "tests", "headings"]
+      : filePath.endsWith(".md")
+        ? ["headings", "semanticAnchors", "exportedSymbols", "namedSymbols", "tests", "ids"]
+        : ["exportedSymbols", "semanticAnchors", "namedSymbols", "tests", "ids", "headings"];
+  let bounded = { exportedSymbols: [], namedSymbols: [], tests: [], ids: [], headings: [], semanticAnchors: [] };
   for (const key of order) {
     for (const value of index[key]) {
       const candidate = { ...bounded, [key]: [...bounded[key], value] };
@@ -758,7 +795,7 @@ async function readBalancedSanitizedMaterial({ snapshot, maxFiles, maxBytes, rea
       const evidenceIndex = boundedMaterialEvidenceIndex(
         materialEvidenceIndex(sanitized.text, file.path),
         file.path,
-        Math.min(2048, Math.floor(byteLimit / 2))
+        Math.min(3072, Math.floor(byteLimit * 3 / 4))
       );
       const evidenceIndexBytes = Buffer.byteLength(JSON.stringify(evidenceIndex), "utf8");
       const contentByteLimit = Math.max(0, byteLimit - evidenceIndexBytes);
@@ -974,10 +1011,11 @@ export function buildEvaluationPrompt({ suite, candidate, materials = [] }) {
     "Use the scenario and assertions together to identify the case-specific proposal, then use the staged snapshot only to determine whether and how it safely addresses that proposal.",
     "Disposition semantics: IMPLEMENT means the snapshot evidences the warranted case-specific behavior, safeguard, or material change; it does not mean another edit is still required. NO_CHANGE means the case-specific proposal is unwarranted or the safe outcome is to preserve product behavior without a material change; do not choose it merely because no follow-up edit is needed. BLOCKED means a warranted product change cannot be implemented because a named dependency or authority is unavailable. REJECTED_WITH_EVIDENCE means visible evidence shows the case-specific proposal is unsafe, inapplicable, or cannot be supported without prohibited evidence.",
     "When a warranted safeguard described by the scenario and assertions is already present, classify the snapshot as IMPLEMENT and return its satisfied assertion ids; apply this snapshot rule symmetrically to baseline and candidate inputs.",
+    "A scenario that identifies a regression risk and whose assertions require a safeguard or preserved behavior is itself a warranted safeguard case. When the snapshot evidences those assertions, choose IMPLEMENT even when the implementation intentionally preserves external behavior. Use NO_CHANGE only to reject the case-specific proposal itself, not to describe an already-implemented protective response.",
     "Disposition precedence: when the scenario says its only proposed evidence source is prohibited, sensitive, or cannot be sanitized, choose REJECTED_WITH_EVIDENCE; do not substitute a different source or the staged candidate's existing safeguards.",
     "An existing safeguard may satisfy an assertion, but it does not make an inadmissible case-specific proposal safe, supported, or eligible for another disposition.",
     "Assess every listed assertion independently for every disposition; do not omit a satisfied assertion because it overlaps another assertion, appears advisory, or no follow-up edit is needed. An empty passedAssertions array means the snapshot satisfies none of them.",
-    "Each sample evidenceIndex is extracted from the full sanitized file before its visible content is truncated. When an assertion requires an exact symbol, test title, case id, or heading, satisfy it only when that anchor appears in the matching evidenceIndex or visible sample; absence is negative evidence and must not be replaced by conceptual similarity or inference.",
+    "Each sample evidenceIndex is extracted from the full sanitized file before its visible content is truncated. When an assertion requires an exact exported or internal named symbol, semantic anchor, test title, case id, or heading, satisfy it only when that anchor appears in the matching evidenceIndex or visible sample; absence is negative evidence and must not be replaced by conceptual similarity or inference.",
     "The result must be grounded solely in the candidate digest, complete changed-path digest manifest, and balanced sanitized samples below.",
     `Candidate digest: ${candidate.digest}`,
     "Changed-path digest manifest:", JSON.stringify(manifest),

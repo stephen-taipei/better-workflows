@@ -606,10 +606,14 @@ test("evaluation prompt excludes hidden dispositions and hard-safety rubric", ()
   assert.match(prompt, /does not mean another edit is still required/);
   assert.match(prompt, /do not choose it merely because no follow-up edit is needed/);
   assert.match(prompt, /apply this snapshot rule symmetrically to baseline and candidate inputs/);
+  assert.match(prompt, /scenario that identifies a regression risk/);
+  assert.match(prompt, /choose IMPLEMENT even when the implementation intentionally preserves external behavior/);
+  assert.match(prompt, /Use NO_CHANGE only to reject the case-specific proposal itself/);
   assert.match(prompt, /only proposed evidence source is prohibited, sensitive, or cannot be sanitized/);
   assert.match(prompt, /do not substitute a different source or the staged candidate's existing safeguards/);
   assert.match(prompt, /existing safeguard may satisfy an assertion/);
   assert.match(prompt, /evidenceIndex is extracted from the full sanitized file/);
+  assert.match(prompt, /exported or internal named symbol, semantic anchor/);
   assert.match(prompt, /absence is negative evidence/);
   assert.match(prompt, /does not make an inadmissible case-specific proposal safe/);
   for (const disposition of ["IMPLEMENT", "NO_CHANGE", "BLOCKED", "REJECTED_WITH_EVIDENCE"]) {
@@ -879,12 +883,22 @@ test("production-capped reviewer material exposes every canonical roster synchro
   const requiredSurfaces = [
     "README.md",
     "plugins/better-workflows/config/deliberation-roster.json",
+    "plugins/better-workflows/scripts/lib/evidence.mjs",
+    "plugins/better-workflows/scripts/lib/ledger.mjs",
+    "plugins/better-workflows/scripts/sbw.mjs",
+    "plugins/better-workflows/scripts/tests/control-plane-v2.test.mjs",
+    "plugins/better-workflows/scripts/tests/fixtures.test.mjs",
     "plugins/better-workflows/scripts/tests/docs.test.mjs",
     "plugins/better-workflows/skills/better-workflows/SKILL.md",
     "plugins/better-workflows/skills/better-workflows/references/deliberation-roster.md"
   ];
   for (const file of requiredSurfaces) assert.ok(materialByPath.has(file), file);
-  const visibleRosterSurfaces = requiredSurfaces.filter((file) => file !== "plugins/better-workflows/scripts/tests/docs.test.mjs");
+  const visibleRosterSurfaces = [
+    "README.md",
+    "plugins/better-workflows/config/deliberation-roster.json",
+    "plugins/better-workflows/skills/better-workflows/SKILL.md",
+    "plugins/better-workflows/skills/better-workflows/references/deliberation-roster.md"
+  ];
   for (const brand of ["Codex", "Claude", "Gemini", "GPT-OSS", "Grok", "Cursor", "Kimi", "Qwen", "Kiro"]) {
     for (const file of visibleRosterSurfaces) assert.match(materialByPath.get(file).content, new RegExp(brand), `${file}: ${brand}`);
   }
@@ -892,17 +906,22 @@ test("production-capped reviewer material exposes every canonical roster synchro
     assert.match(materialByPath.get(file).content, /agy/, `${file}: agy transport`);
   }
   assert.match(materialByPath.get("plugins/better-workflows/config/deliberation-roster.json").content, /"transportIsModelBrand": false/);
-  const indexedEvidence = new Map([
+  const indexedEvidence = [
     ["plugins/better-workflows/scripts/lib/core.mjs", ["exportedSymbols", "resolveGitPushDestination"]],
     ["plugins/better-workflows/scripts/lib/graph.mjs", ["exportedSymbols", "delegatedSelfImproveContractProjection"]],
     ["plugins/better-workflows/scripts/lib/self-improve.mjs", ["exportedSymbols", "compareEvaluatorMigration"]],
     ["plugins/better-workflows/scripts/lib/attestations.mjs", ["exportedSymbols", "evaluationExecutionPlan"]],
+    ["plugins/better-workflows/scripts/lib/ledger.mjs", ["namedSymbols", "reduceLedger"]],
+    ["plugins/better-workflows/scripts/lib/publication.mjs", ["namedSymbols", "pendingMarkerMatchesPublication"]],
     ["plugins/better-workflows/scripts/tests/core.test.mjs", ["tests", "git push destination binds a divergent pushurl and rejects multiple effective destinations"]],
+    ["plugins/better-workflows/scripts/tests/core.test.mjs", ["tests", "direct mode creates no state directory"]],
     ["plugins/better-workflows/scripts/tests/graph.test.mjs", ["tests", "run graphs require the complete canonical delegated self-improve contract"]],
     ["plugins/better-workflows/scripts/tests/publication.test.mjs", ["tests", "publication failure preserves a pending marker owned by another action"]],
     ["plugins/better-workflows/scripts/tests/docs.test.mjs", ["tests", "README quality validation rejects cosmetic compliance and broken reader paths"]],
+    ["plugins/better-workflows/scripts/tests/docs.test.mjs", ["namedSymbols", "landingMarkdownStructure"]],
+    ["plugins/better-workflows/scripts/tests/control-plane-v2.test.mjs", ["tests", "ledger completion rejects self-reported evidence without a typed receipt"]],
     ["plugins/better-workflows/scripts/tests/self-improve.test.mjs", ["tests", "evaluator migration executes every target case and requires target-only headroom"]]
-  ]);
+  ];
   for (const [file, [kind, anchor]] of indexedEvidence) {
     assert.ok(materialByPath.has(file), file);
     assert.ok(materialByPath.get(file).evidenceIndex[kind].includes(anchor), `${file}: ${anchor}`);
