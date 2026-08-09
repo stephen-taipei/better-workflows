@@ -724,6 +724,83 @@ test("bounded README sampling preserves the model-brand and transport boundary",
   assert.match(material.content, /transport metadata, not another model brand/);
 });
 
+test("production-capped reviewer material exposes every canonical roster synchronization surface", async () => {
+  const candidateFiles = [
+    "README.md",
+    "docs/README.ja.md",
+    "docs/README.ko.md",
+    "docs/README.zh-CN.md",
+    "docs/README.zh-TW.md",
+    "docs/details/en.md",
+    "docs/details/ja.md",
+    "docs/details/ko.md",
+    "docs/details/zh-CN.md",
+    "docs/details/zh-TW.md",
+    "docs/guide/readme-quality.md",
+    "docs/guide/security.md",
+    "plugins/better-workflows/.codex-plugin/plugin.json",
+    "plugins/better-workflows/config/deliberation-roster.json",
+    "plugins/better-workflows/config/evidence-contracts-v1.json",
+    "plugins/better-workflows/config/readme-quality-v1.json",
+    "plugins/better-workflows/fixtures/recipes/json-keyset-audit/README.md",
+    "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.3.json",
+    "plugins/better-workflows/package.json",
+    "plugins/better-workflows/scripts/lib/attestations.mjs",
+    "plugins/better-workflows/scripts/lib/core.mjs",
+    "plugins/better-workflows/scripts/lib/deliberation.mjs",
+    "plugins/better-workflows/scripts/lib/evidence.mjs",
+    "plugins/better-workflows/scripts/lib/ledger.mjs",
+    "plugins/better-workflows/scripts/lib/publication.mjs",
+    "plugins/better-workflows/scripts/lib/self-improve-replay.mjs",
+    "plugins/better-workflows/scripts/lib/self-improve.mjs",
+    "plugins/better-workflows/scripts/sbw.mjs",
+    "plugins/better-workflows/scripts/tests/cli.test.mjs",
+    "plugins/better-workflows/scripts/tests/control-plane-v2.test.mjs",
+    "plugins/better-workflows/scripts/tests/docs.test.mjs",
+    "plugins/better-workflows/scripts/tests/fixtures.test.mjs",
+    "plugins/better-workflows/scripts/tests/providers.test.mjs",
+    "plugins/better-workflows/scripts/tests/publication.test.mjs",
+    "plugins/better-workflows/scripts/tests/self-improve.test.mjs",
+    "plugins/better-workflows/scripts/tests/skills.test.mjs",
+    "plugins/better-workflows/skills/better-workflows/SKILL.md",
+    "plugins/better-workflows/skills/better-workflows/references/deliberation-roster.md",
+    "plugins/better-workflows/skills/self-improve/SKILL.md",
+    "scripts/plugin-cache.mjs"
+  ];
+  const files = await Promise.all(candidateFiles.map(async (file) => {
+    const content = await readFile(path.join(repositoryRoot, file));
+    return {
+      path: file,
+      state: "file",
+      digest: createHash("sha256").update(content).digest("hex"),
+      size: content.length
+    };
+  }));
+  const material = await readSanitizedCandidateMaterial({
+    cwd: repositoryRoot,
+    snapshot: { files },
+    maxFiles: 24,
+    maxBytes: 96 * 1024
+  });
+  const materialByPath = new Map(material.map((item) => [item.path, item.content]));
+  const requiredSurfaces = [
+    "README.md",
+    "plugins/better-workflows/config/deliberation-roster.json",
+    "plugins/better-workflows/scripts/tests/docs.test.mjs",
+    "plugins/better-workflows/skills/better-workflows/SKILL.md",
+    "plugins/better-workflows/skills/better-workflows/references/deliberation-roster.md"
+  ];
+  for (const file of requiredSurfaces) assert.ok(materialByPath.has(file), file);
+  for (const brand of ["Codex", "Claude", "Gemini", "GPT-OSS", "Grok", "Cursor", "Kimi", "Qwen", "Kiro"]) {
+    for (const file of requiredSurfaces) assert.match(materialByPath.get(file), new RegExp(brand), `${file}: ${brand}`);
+  }
+  for (const file of requiredSurfaces) {
+    assert.match(materialByPath.get(file), /agy/, `${file}: agy transport`);
+  }
+  assert.match(materialByPath.get("plugins/better-workflows/config/deliberation-roster.json"), /"transportIsModelBrand": false/);
+  assert.match(materialByPath.get("plugins/better-workflows/scripts/tests/docs.test.mjs"), /canonical roster terminology stays synchronized/);
+});
+
 test("evaluation v2 selects universal safety plus only applicable improvement classes", () => {
   const cases = selectEvaluationCases({
     suite: suiteV21,

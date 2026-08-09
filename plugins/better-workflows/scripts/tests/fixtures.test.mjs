@@ -219,6 +219,14 @@ test("deliberation roster separates model brands from the Agy transport with a 2
   const roster = JSON.parse(
     await readFile(path.join(pluginRoot(), "config", "deliberation-roster.json"), "utf8")
   );
+  assert.equal(roster.schemaVersion, 3);
+  assert.deepEqual(
+    roster.terminology.modelBrands,
+    ["Codex", "Claude", "Gemini", "GPT-OSS", "Grok", "Cursor", "Kimi", "Qwen", "Kiro"]
+  );
+  assert.equal(roster.terminology.transportCommand, "agy");
+  assert.deepEqual(roster.terminology.transportModelBrands, ["Gemini", "Claude", "GPT-OSS"]);
+  assert.equal(roster.terminology.transportIsModelBrand, false);
   assert.equal(roster.rosterCacheHours, 24);
   const providers = new Map(roster.providers.map((provider) => [provider.id, provider]));
   for (const id of ["codex", "claude", "gemini", "agy", "grok", "cursor", "kimi", "qwen", "kiro"]) {
@@ -236,6 +244,18 @@ test("deliberation roster separates model brands from the Agy transport with a 2
     "GPT-OSS"
   );
   assert.ok(providers.get("agy").models.every((model) => model.brand !== "Agy"));
+  assert.deepEqual(
+    [...new Set(roster.providers.flatMap((provider) => provider.models.map((model) => model.brand)))].sort(),
+    [...roster.terminology.modelBrands].sort()
+  );
+  assert.deepEqual(
+    [...new Set(
+      roster.providers
+        .filter((provider) => provider.command === roster.terminology.transportCommand)
+        .flatMap((provider) => provider.models.map((model) => model.brand))
+    )].sort(),
+    [...roster.terminology.transportModelBrands].sort()
+  );
   assert.equal(
     providers.get("agy").models.find((model) => model.model === "claude-opus-4-6-thinking").effortTransport,
     "model-variant"

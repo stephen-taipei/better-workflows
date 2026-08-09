@@ -34,6 +34,72 @@ const guideDocuments = [
   path.join(repoRoot, "docs", "guide", "readme-quality.md")
 ];
 const readmeQualityContractPath = path.join(pluginRoot(), "config", "readme-quality-v1.json");
+const deliberationRosterPath = path.join(pluginRoot(), "config", "deliberation-roster.json");
+const deliberationSkillPath = path.join(pluginRoot(), "skills", "better-workflows", "SKILL.md");
+const deliberationReferencePath = path.join(
+  pluginRoot(),
+  "skills",
+  "better-workflows",
+  "references",
+  "deliberation-roster.md"
+);
+const MODEL_BRANDS = Object.freeze([
+  "Codex", "Claude", "Gemini", "GPT-OSS", "Grok", "Cursor", "Kimi", "Qwen", "Kiro"
+]);
+const AGY_TRANSPORT_COMMAND = "agy";
+const AGY_MODEL_BRANDS = Object.freeze(["Gemini", "Claude", "GPT-OSS"]);
+
+test("canonical roster terminology stays synchronized across config, skill, reference, tests, and public docs", async (context) => {
+  try {
+    await access(overview);
+  } catch {
+    context.skip("repository README files are not part of the installed plugin cache bundle");
+    return;
+  }
+  const roster = JSON.parse(await readFile(deliberationRosterPath, "utf8"));
+  const quality = await loadReadmeQualityContract();
+  const sortBrands = (brands) => [...new Set(brands)].sort((left, right) => left.localeCompare(right, "en"));
+  assert.equal(roster.schemaVersion, 3);
+  assert.deepEqual(roster.terminology.modelBrands, MODEL_BRANDS);
+  assert.equal(roster.terminology.transportCommand, AGY_TRANSPORT_COMMAND);
+  assert.deepEqual(roster.terminology.transportModelBrands, AGY_MODEL_BRANDS);
+  assert.equal(roster.terminology.transportIsModelBrand, false);
+  assert.deepEqual(
+    sortBrands(roster.providers.flatMap((provider) => provider.models.map((model) => model.brand))),
+    sortBrands(MODEL_BRANDS)
+  );
+  assert.deepEqual(
+    sortBrands(
+      roster.providers
+        .filter((provider) => provider.command === AGY_TRANSPORT_COMMAND)
+        .flatMap((provider) => provider.models.map((model) => model.brand))
+    ),
+    sortBrands(AGY_MODEL_BRANDS)
+  );
+
+  const publicReadmes = await Promise.all(
+    quality.landing.files.map(async (fileContract) => ({
+      label: fileContract.path,
+      content: await readFile(path.join(repoRoot, fileContract.path), "utf8")
+    }))
+  );
+  const synchronizedSurfaces = [
+    { label: "better-workflows skill", content: await readFile(deliberationSkillPath, "utf8") },
+    { label: "deliberation roster reference", content: await readFile(deliberationReferencePath, "utf8") },
+    { label: "README quality contract", content: JSON.stringify(quality) },
+    ...publicReadmes
+  ];
+  for (const surface of synchronizedSurfaces) {
+    for (const brand of MODEL_BRANDS) assert.match(surface.content, new RegExp(brand), `${surface.label}: ${brand}`);
+    assert.match(surface.content, new RegExp(`\\b${AGY_TRANSPORT_COMMAND}\\b`), `${surface.label}: transport`);
+    for (const brand of AGY_MODEL_BRANDS) {
+      assert.match(surface.content, new RegExp(brand), `${surface.label}: transported ${brand}`);
+    }
+  }
+  for (const file of [deliberationSkillPath, deliberationReferencePath, overview]) {
+    assert.match(await readFile(file, "utf8"), /(?:not|never) (?:itself )?(?:another |a )?model brand/, file);
+  }
+});
 
 function assertDetailedCoverage(content, file) {
   assert.match(content, /sbw doctor --capabilities/, file);
@@ -326,7 +392,7 @@ test("all landing READMEs satisfy the narrative, trust, visual, and scan-quality
       file
     );
     await assertRelativeTargetsExist(file, content);
-    for (const brand of ["Codex", "Claude", "Gemini", "GPT-OSS", "Grok", "Cursor", "Kimi", "Qwen", "Kiro"]) {
+    for (const brand of MODEL_BRANDS) {
       assert.match(content, new RegExp(brand), `${file}: ${brand}`);
     }
   }

@@ -6,7 +6,7 @@
 
 让 Codex 工作不再停留在“下 Prompt 然后期待成功”，而是沿着有界路径，从意图走到已验证、已对账的交付。
 
-[![Version](https://img.shields.io/badge/version-3.1.15-2563EB?style=flat-square)](../plugins/better-workflows/package.json)
+[![Version](https://img.shields.io/badge/version-3.1.16-2563EB?style=flat-square)](../plugins/better-workflows/package.json)
 [![Node](https://img.shields.io/badge/Node.js-%E2%89%A524-3C873A?style=flat-square)](../plugins/better-workflows/package.json)
 [![Dependencies](https://img.shields.io/badge/runtime_dependencies-0-0F766E?style=flat-square)](../plugins/better-workflows/package.json)
 [![License](https://img.shields.io/badge/license-MIT-64748B?style=flat-square)](../LICENSE)

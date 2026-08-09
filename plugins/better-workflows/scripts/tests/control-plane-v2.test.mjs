@@ -1022,6 +1022,32 @@ test("action tokens require the mapped ledger stage to be ready", async () => {
 
 test("atomic deliberation emits no partial bundle on failed arbitration", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "sbw-v2-deliberation-"));
+  const unavailableRoster = {
+    schemaVersion: 3,
+    terminology: {
+      modelBrands: ["Unavailable"],
+      transportCommand: "sbw-unavailable-provider",
+      transportModelBrands: ["Unavailable"],
+      transportIsModelBrand: false
+    },
+    probeMarker: "SBW_UNAVAILABLE_PROVIDER",
+    probeTimeoutSeconds: 1,
+    rosterCacheHours: 24,
+    maxParticipants: 1,
+    providers: [{
+      id: "unavailable",
+      command: "sbw-unavailable-provider",
+      probe: "text",
+      external: true,
+      models: [{
+        model: "default",
+        brand: "Unavailable",
+        role: "unavailable-reviewer",
+        capabilityRank: 1
+      }]
+    }],
+    arbiterPriority: []
+  };
   const contract = buildContract({
     template: "test-deliberation",
     templateDefinition: { ...contractTemplate, controlPlane: { ...contractTemplate.controlPlane, deliberationPolicy: "allowed-v1" } },
@@ -1044,7 +1070,7 @@ test("atomic deliberation emits no partial bundle on failed arbitration", async 
       root,
       runId: started.runId,
       prompt: "bounded decision",
-      config: { schemaVersion: 1, providers: [], arbiterPriority: [], probeTimeoutSeconds: 1, maxParticipants: 0 },
+      config: unavailableRoster,
       allowExternalProviders: false,
       sanitized: false,
       providers: []
@@ -1057,7 +1083,7 @@ test("atomic deliberation emits no partial bundle on failed arbitration", async 
       root,
       runId: started.runId,
       prompt: "post-terminal decision",
-      config: { schemaVersion: 1, providers: [], arbiterPriority: [], probeTimeoutSeconds: 1, maxParticipants: 0 },
+      config: unavailableRoster,
       allowExternalProviders: false,
       sanitized: false,
       providers: []

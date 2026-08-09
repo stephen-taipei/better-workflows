@@ -14,9 +14,11 @@ import {
   spawnCapture
 } from "../lib/providers.mjs";
 import {
+  loadDeliberationRoster,
   probeDeliberationRoster,
   resolveReasoningEffort,
   selectArbiter,
+  validateDeliberationRosterConfig,
   validateDecision
 } from "../lib/deliberation.mjs";
 
@@ -230,7 +232,13 @@ test("deliberation roster caches only a fresh, CLI-proven full external roster",
   const directory = await mkdtemp(path.join(os.tmpdir(), "sbw-deliberation-cache-"));
   const fake = await executable(directory, "provider", "printf 'SBW_TEST_MARKER\\n'");
   const config = {
-    schemaVersion: 1,
+    schemaVersion: 3,
+    terminology: {
+      modelBrands: ["Fake"],
+      transportCommand: fake,
+      transportModelBrands: ["Fake"],
+      transportIsModelBrand: false
+    },
     probeMarker: "SBW_TEST_MARKER",
     probeTimeoutSeconds: 5,
     rosterCacheHours: 24,
@@ -269,6 +277,29 @@ test("deliberation roster caches only a fresh, CLI-proven full external roster",
   assert.equal(third.cache.status, "stored");
 });
 
+test("deliberation roster rejects model-brand and transport terminology drift", async () => {
+  const canonical = await loadDeliberationRoster();
+  assert.equal(validateDeliberationRosterConfig(canonical), canonical);
+
+  const brandDrift = structuredClone(canonical);
+  brandDrift.terminology.modelBrands = brandDrift.terminology.modelBrands.filter((brand) => brand !== "Kiro");
+  assert.throws(
+    () => validateDeliberationRosterConfig(brandDrift),
+    /model brands do not match canonical terminology/
+  );
+
+  const transportDrift = structuredClone(canonical);
+  transportDrift.terminology.transportModelBrands = ["Gemini", "Claude"];
+  assert.throws(
+    () => validateDeliberationRosterConfig(transportDrift),
+    /transport brands do not match canonical terminology/
+  );
+
+  const falseBrand = structuredClone(canonical);
+  falseBrand.terminology.transportIsModelBrand = true;
+  assert.throws(() => validateDeliberationRosterConfig(falseBrand), /terminology is invalid/);
+});
+
 test("deliberation selects only ranked active arbiters and validates executable plans", () => {
   const config = {
     arbiterPriority: [
@@ -297,7 +328,19 @@ test("deliberation selects only ranked active arbiters and validates executable 
 });
 
 test("reasoning effort is contextual for every model and selects matching Agy variants", async () => {
+  const effortCommand = await executable(
+    await mkdtemp(path.join(os.tmpdir(), "sbw-effort-")),
+    "provider",
+    "printf 'SBW_TEST_MARKER\\n'"
+  );
   const config = {
+    schemaVersion: 3,
+    terminology: {
+      modelBrands: ["Fake"],
+      transportCommand: effortCommand,
+      transportModelBrands: ["Fake"],
+      transportIsModelBrand: false
+    },
     reasoningEffort: {
       default: "auto",
       allowed: ["medium", "high"],
@@ -311,13 +354,13 @@ test("reasoning effort is contextual for every model and selects matching Agy va
     providers: [
       {
         id: "fake",
-        command: await executable(await mkdtemp(path.join(os.tmpdir(), "sbw-effort-")), "provider", "printf 'SBW_TEST_MARKER\\n'"),
+        command: effortCommand,
         probe: "text",
         external: true,
         effortTransport: "model-variant",
         models: [
-          { model: "flash-medium", role: "fast", capabilityRank: 1, reasoningEffort: "medium" },
-          { model: "flash-high", role: "deep", capabilityRank: 1, reasoningEffort: "high" }
+          { model: "flash-medium", brand: "Fake", role: "fast", capabilityRank: 1, reasoningEffort: "medium" },
+          { model: "flash-high", brand: "Fake", role: "deep", capabilityRank: 1, reasoningEffort: "high" }
         ]
       }
     ]
