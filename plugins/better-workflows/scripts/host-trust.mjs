@@ -2,6 +2,7 @@
 
 import { spawn } from "node:child_process";
 import {
+  createHash,
   createPrivateKey,
   createPublicKey,
   generateKeyPairSync,
@@ -35,6 +36,10 @@ const EXECUTIONS = "/private/var/db/better-workflows/executions";
 const EXECUTION_BUNDLES = "/private/var/db/better-workflows/execution-bundles";
 const INSTALLED_SIGNER = "/private/var/db/better-workflows/bin/bw-host-trust.mjs";
 const READINESS_RECEIPT = "/private/var/db/better-workflows/host-readiness.json";
+const STANDING_CONSENT_POLICY = `${HOST_ETC}/better-workflows/self-improve-standing-consent-policy.json`;
+const STANDING_CONSENT_GRANT = `${HOST_ETC}/better-workflows/self-improve-standing-consent-grant.json`;
+const STANDING_CONSENT_SUDOERS = `${HOST_ETC}/sudoers.d/better-workflows-self-improve`;
+const VISUDO = "/usr/sbin/visudo";
 const HOST_RUNTIME_ROOT = "/private/var/db/better-workflows/bin";
 const EXECUTION_LAUNCHER = "/private/var/db/better-workflows/bin/bw-host-exec-launcher";
 const EXECUTION_PROBE = "/private/var/db/better-workflows/bin/bw-host-execution-probe";
@@ -54,7 +59,7 @@ function policyBindingForPurpose(purpose) {
 }
 const NATIVE_COMPILER = "/usr/bin/clang";
 const ISSUER = "better-workflows-local-host";
-const HOST_SIGNER_VERSION = "2.3.0";
+const HOST_SIGNER_VERSION = "2.4.0";
 const HOST_SIGNER_CAPABILITIES = Object.freeze([
   "attestation",
   "native-review",
@@ -64,7 +69,9 @@ const HOST_SIGNER_CAPABILITIES = Object.freeze([
   "signer-upgrade",
   "native-launcher",
   "readiness-probe",
-  "request-bound-execution"
+  "request-bound-execution",
+  "standing-consent-admin",
+  "standing-consent-execution"
 ]);
 const SAFE_OUTPUT = /^[A-Za-z0-9][A-Za-z0-9._-]{7,127}\.json$/;
 const SAFE_EXECUTION_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{7,127}$/;
@@ -76,6 +83,52 @@ const MAX_OUTPUT_BYTES = 2 * 1024 * 1024;
 // a bounded host cutoff while leaving enough margin for provider latency.
 const DEFAULT_TIMEOUT_MS = 180_000;
 const SAFE_PATH = "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
+const STANDING_CONSENT_MODE = "standing-user-consent";
+const STANDING_CONSENT_PROVIDER = "codex";
+const STANDING_CONSENT_OPERATION = "self-improve-evaluator-replay";
+const STANDING_CONSENT_AUTHORITY_STATEMENT = "Permit the root-owned Better Workflows host signer to automatically execute sanitized, read-only, ephemeral self-improve evaluator replays for this repository with gpt-5.6-terra, up to eight requests per source-bound batch; this does not authorize repository, cache, delivery, deployment, or cleanup mutations.";
+const STANDING_CONSENT_AUTHORITY_STATEMENT_DIGEST = createHash("sha256")
+  .update(STANDING_CONSENT_AUTHORITY_STATEMENT, "utf8")
+  .digest("hex");
+const STANDING_CONSENT_POLICY_ID = "self-improve-standing-evaluator-consent";
+const STANDING_CONSENT_POLICY_VERSION = "v1";
+const STANDING_CONSENT_PURPOSES = Object.freeze([
+  "ordinary",
+  "evaluator-migration",
+  "safety-remediation-v1",
+  "quality-remediation-v1"
+]);
+const STANDING_CONSENT_DENIED_AUTHORITIES = Object.freeze([
+  "git.commit",
+  "plugin.cache.publish",
+  "git.push",
+  "pull.create",
+  "pull.merge",
+  "deploy",
+  "cleanup"
+]);
+const STANDING_CONSENT_ALLOWED_PATH_PATTERNS = Object.freeze([
+  "^(?:README|CODE_OF_CONDUCT|CONTRIBUTING|GOVERNANCE|SECURITY|SUPPORT)\\.md$",
+  "^scripts/plugin-cache\\.mjs$",
+  "^docs/README\\.(?:zh-TW|zh-CN|ja|ko)\\.md$",
+  "^docs/details/(?:en|zh-TW|zh-CN|ja|ko)\\.md$",
+  "^docs/guide/(?:architecture|cli-reference|getting-started|readme-quality|security|workflows)\\.md$",
+  "^docs/assets/better-workflows-engineering-stack\\.svg$",
+  "^plugins/better-workflows/(?:scripts/.+\\.(?:mjs|c)|skills/.+\\.md|templates/.+\\.json|fixtures/.+\\.(?:json|md|mjs)|config/.+\\.json|package\\.json|\\.codex-plugin/plugin\\.json)$"
+]);
+const STANDING_CONSENT_SECRET_PATTERN = "(?:api[_-]?key|password|passwd|secret|token|authorization)\\s*[:=]\\s*(?:\\\"[^\\\"\\s]{4,}\\\"|'[^'\\s]{4,}'|(?=[A-Za-z0-9+/_-]{8,}(?:\\s|$))(?=[A-Za-z0-9+/_-]*[0-9+/_-])[A-Za-z0-9+/_-]+)";
+const STANDING_CONSENT_REQUIRED_PROMPT_LINES = Object.freeze([
+  "You are classifying a staged workflow snapshot using a sanitized, bounded corpus.",
+  "Do not use tools, access history, write files, or perform side effects.",
+  "The result must be grounded solely in the candidate digest, complete changed-path digest manifest, and balanced sanitized samples below."
+]);
+const STANDING_CONSENT_REQUEST_ROOT_PREFIX = "/private/tmp/better-workflows-standing-consent-";
+const CONSENT_SAFE_SUBDIRECTORY = /^[A-Za-z0-9][A-Za-z0-9._-]{7,127}$/;
+const STANDING_CONSENT_GRANT_FIELDS = Object.freeze([
+  "authorityStatementDigest", "deniedAuthorities", "ephemeral", "expiresAt", "grantId", "hostRuntime", "hostSigner",
+  "issuedAt", "issuer", "keyId", "kind", "maxRequests", "models", "operation", "policyDigest", "policyPath", "provider",
+  "purposes", "readOnly", "repo", "requestRoot", "revokedAt", "sanitized", "schemaVersion", "subject"
+]);
 
 export const EVALUATION_SCHEMA = {
   type: "object",
@@ -115,6 +168,97 @@ function sorted(value) {
 
 export function canonicalJson(value) {
   return JSON.stringify(sorted(value));
+}
+
+function exactKeys(value, expected, label) {
+  if (!value || typeof value !== "object" || Array.isArray(value) ||
+      Object.keys(value).sort().join("\0") !== expected.slice().sort().join("\0")) {
+    throw new Error(`${label} fields do not match the standing-consent contract`);
+  }
+}
+
+export function validateStandingConsentPolicy(value) {
+  exactKeys(value, [
+    "allowedModels", "allowedPurposes", "deniedAuthorities", "execution", "maxRequests", "operation",
+    "policyId", "provider", "requestCounts", "sanitization", "schemaVersion", "version"
+  ], "Standing-consent policy");
+  if (value.schemaVersion !== 1 || value.policyId !== STANDING_CONSENT_POLICY_ID || value.version !== STANDING_CONSENT_POLICY_VERSION ||
+      value.provider !== STANDING_CONSENT_PROVIDER || value.operation !== STANDING_CONSENT_OPERATION || value.maxRequests !== 8 ||
+      canonicalJson(value.allowedModels) !== canonicalJson(["gpt-5.6-terra"]) ||
+      canonicalJson(value.allowedPurposes) !== canonicalJson(STANDING_CONSENT_PURPOSES)) {
+    throw new Error("Standing-consent policy identity or scope is invalid");
+  }
+  exactKeys(value.requestCounts, STANDING_CONSENT_PURPOSES, "Standing-consent request counts");
+  for (const purpose of STANDING_CONSENT_PURPOSES) {
+    if (value.requestCounts[purpose] !== (purpose === "evaluator-migration" ? 8 : 7)) {
+      throw new Error(`Standing-consent request count is invalid for ${purpose}`);
+    }
+  }
+  exactKeys(value.execution, ["ephemeral", "providerNetworkOnly", "sandbox", "tools"], "Standing-consent execution policy");
+  if (value.execution.sandbox !== "read-only" || value.execution.ephemeral !== true ||
+      value.execution.providerNetworkOnly !== true || value.execution.tools !== false) {
+    throw new Error("Standing-consent execution policy must remain read-only, ephemeral, and tool-free");
+  }
+  exactKeys(value.sanitization, [
+    "allowedPathPatterns", "maxBytes", "maxCases", "maxFiles", "promptSchema", "requiredPromptLines", "schema", "secretPattern"
+  ], "Standing-consent sanitization policy");
+  if (value.sanitization.schema !== "self-improve-balanced-material-v1" ||
+      value.sanitization.promptSchema !== "self-improve-evaluation-prompt-v1" ||
+      value.sanitization.maxFiles !== 24 || value.sanitization.maxBytes !== 96 * 1024 || value.sanitization.maxCases !== 28 ||
+      canonicalJson(value.sanitization.allowedPathPatterns) !== canonicalJson(STANDING_CONSENT_ALLOWED_PATH_PATTERNS) ||
+      canonicalJson(value.sanitization.requiredPromptLines) !== canonicalJson(STANDING_CONSENT_REQUIRED_PROMPT_LINES) ||
+      value.sanitization.secretPattern !== STANDING_CONSENT_SECRET_PATTERN) {
+    throw new Error("Standing-consent sanitization policy is invalid");
+  }
+  for (const pattern of value.sanitization.allowedPathPatterns) new RegExp(pattern);
+  new RegExp(value.sanitization.secretPattern, "i");
+  if (canonicalJson(value.deniedAuthorities) !== canonicalJson(STANDING_CONSENT_DENIED_AUTHORITIES)) {
+    throw new Error("Standing-consent policy must deny every delivery and cleanup authority");
+  }
+  return value;
+}
+
+function validateStandingAuthorization(value) {
+  exactKeys(value, [
+    "ephemeral", "grantDigest", "grantId", "mode", "model", "policyDigest", "policyId", "policyVersion", "provider",
+    "purpose", "readOnly", "repo", "requestCount", "requestRoot", "sanitized", "subject"
+  ], "Standing authorization");
+  exactKeys(value.subject, ["codexHomePath", "gid", "homePath", "uid", "username"], "Standing authorization subject");
+  if (value.mode !== STANDING_CONSENT_MODE || !SAFE_EXECUTION_ID.test(value.grantId ?? "") || !SHA256.test(value.grantDigest ?? "") ||
+      value.policyId !== STANDING_CONSENT_POLICY_ID || value.policyVersion !== STANDING_CONSENT_POLICY_VERSION || !SHA256.test(value.policyDigest ?? "") ||
+      value.provider !== STANDING_CONSENT_PROVIDER || value.model !== "gpt-5.6-terra" || !STANDING_CONSENT_PURPOSES.includes(value.purpose) ||
+      !Number.isInteger(value.requestCount) || value.requestCount !== (value.purpose === "evaluator-migration" ? 8 : 7) ||
+      typeof value.repo !== "string" || !path.isAbsolute(value.repo) || path.resolve(value.repo) !== value.repo ||
+      typeof value.requestRoot !== "string" || !path.isAbsolute(value.requestRoot) || path.resolve(value.requestRoot) !== value.requestRoot ||
+      value.readOnly !== true || value.ephemeral !== true || value.sanitized !== true ||
+      !Number.isInteger(value.subject.uid) || value.subject.uid <= 0 || !Number.isInteger(value.subject.gid) || value.subject.gid <= 0 ||
+      typeof value.subject.username !== "string" || !/^[A-Za-z0-9._-]+$/.test(value.subject.username) ||
+      typeof value.subject.homePath !== "string" || !path.isAbsolute(value.subject.homePath) ||
+      (value.subject.codexHomePath !== null && (typeof value.subject.codexHomePath !== "string" || !path.isAbsolute(value.subject.codexHomePath))) ||
+      value.requestRoot !== `${STANDING_CONSENT_REQUEST_ROOT_PREFIX}${value.subject.uid}`) {
+    throw new Error("Standing authorization is structurally invalid");
+  }
+  return value;
+}
+
+function escapeExtendedRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export function standingConsentSudoers({ grant, runtime }) {
+  const commandRegex = [
+    `^${escapeExtendedRegex(INSTALLED_SIGNER)}`,
+    "execute-consented-batch",
+    "--manifest",
+    `${escapeExtendedRegex(grant.requestRoot)}/[A-Za-z0-9][A-Za-z0-9._-]{7,127}/attestation-requests\\.json`,
+    "--confirm-digest",
+    "[a-f0-9]{64}$"
+  ].join(" ");
+  return [
+    "# Managed by Better Workflows. Revoke with sbw self-improve consent revoke.",
+    `${grant.subject.username} ALL=(root) NOPASSWD:NOSETENV: sha256:${runtime.digest} ${runtime.path} ${commandRegex}`,
+    ""
+  ].join("\n");
 }
 
 function isWithin(root, target) {
@@ -855,6 +999,110 @@ async function createReadinessReceipt(binding, probeResult, keyPairVerification)
   return { path: READINESS_RECEIPT, bytes, digest: await digest(bytes) };
 }
 
+function unsignedSignedValue(value) {
+  const { signature, ...payload } = value;
+  return payload;
+}
+
+async function validateStandingConsentSignature(grant, trust) {
+  const key = trust.value.publicKeys.find((item) => item?.keyId === grant.keyId && item.algorithm === "ed25519");
+  if (!key || typeof key.publicKey !== "string" || typeof grant.signature !== "string") {
+    throw new Error("Standing-consent grant signature identity is invalid");
+  }
+  const publicKey = createPublicKey({ key: Buffer.from(key.publicKey, "base64"), format: "der", type: "spki" });
+  if (!verify(null, Buffer.from(canonicalJson(unsignedSignedValue(grant)), "utf8"), publicKey, Buffer.from(grant.signature, "base64"))) {
+    throw new Error("Standing-consent grant signature is invalid");
+  }
+}
+
+function validateStandingConsentGrantPayload(grant) {
+  exactKeys(grant, STANDING_CONSENT_GRANT_FIELDS, "Standing-consent grant");
+  exactKeys(grant.subject, ["codexHomePath", "gid", "homePath", "uid", "username"], "Standing-consent subject");
+  exactKeys(grant.hostRuntime, ["digest", "path"], "Standing-consent runtime");
+  exactKeys(grant.hostSigner, ["digest", "path", "version"], "Standing-consent signer");
+  if (grant.schemaVersion !== 1 || grant.kind !== "self-improve-standing-consent-grant" ||
+      !SAFE_EXECUTION_ID.test(grant.grantId ?? "") || grant.authorityStatementDigest !== STANDING_CONSENT_AUTHORITY_STATEMENT_DIGEST ||
+      grant.provider !== STANDING_CONSENT_PROVIDER || grant.operation !== STANDING_CONSENT_OPERATION ||
+      canonicalJson(grant.models) !== canonicalJson(["gpt-5.6-terra"]) ||
+      canonicalJson(grant.purposes) !== canonicalJson(STANDING_CONSENT_PURPOSES) || grant.maxRequests !== 8 ||
+      grant.policyPath !== STANDING_CONSENT_POLICY || !SHA256.test(grant.policyDigest ?? "") ||
+      typeof grant.repo !== "string" || !path.isAbsolute(grant.repo) || path.resolve(grant.repo) !== grant.repo ||
+      typeof grant.requestRoot !== "string" || grant.requestRoot !== `${STANDING_CONSENT_REQUEST_ROOT_PREFIX}${grant.subject.uid}` ||
+      !Number.isInteger(grant.subject.uid) || grant.subject.uid <= 0 || !Number.isInteger(grant.subject.gid) || grant.subject.gid <= 0 ||
+      typeof grant.subject.username !== "string" || !/^[A-Za-z0-9._-]+$/.test(grant.subject.username) ||
+      typeof grant.subject.homePath !== "string" || !path.isAbsolute(grant.subject.homePath) ||
+      (grant.subject.codexHomePath !== null && (typeof grant.subject.codexHomePath !== "string" || !path.isAbsolute(grant.subject.codexHomePath))) ||
+      grant.readOnly !== true || grant.ephemeral !== true || grant.sanitized !== true ||
+      canonicalJson(grant.deniedAuthorities) !== canonicalJson(STANDING_CONSENT_DENIED_AUTHORITIES) ||
+      !SHA256.test(grant.hostRuntime.digest ?? "") || typeof grant.hostRuntime.path !== "string" || !path.isAbsolute(grant.hostRuntime.path) ||
+      !SHA256.test(grant.hostSigner.digest ?? "") || grant.hostSigner.path !== INSTALLED_SIGNER || grant.hostSigner.version !== HOST_SIGNER_VERSION ||
+      typeof grant.issuedAt !== "string" || !Number.isFinite(Date.parse(grant.issuedAt)) ||
+      (grant.expiresAt !== null && (typeof grant.expiresAt !== "string" || !Number.isFinite(Date.parse(grant.expiresAt)))) ||
+      (grant.revokedAt !== null && (typeof grant.revokedAt !== "string" || !Number.isFinite(Date.parse(grant.revokedAt))))) {
+    throw new Error("Standing-consent grant payload is invalid");
+  }
+  return grant;
+}
+
+async function currentStandingConsent({ trust, runtime, signer }) {
+  try {
+    await validateRootOwnedFile(STANDING_CONSENT_POLICY, "Standing-consent policy", 0o644);
+    const policyBytes = await readFile(STANDING_CONSENT_POLICY);
+    const policy = validateStandingConsentPolicy(JSON.parse(policyBytes.toString("utf8")));
+    const policyDigest = await digest(policyBytes);
+    await validateRootOwnedFile(STANDING_CONSENT_GRANT, "Standing-consent grant", 0o644);
+    const grantBytes = await readFile(STANDING_CONSENT_GRANT);
+    const signedGrant = JSON.parse(grantBytes.toString("utf8"));
+    exactKeys(signedGrant, [...STANDING_CONSENT_GRANT_FIELDS, "signature"], "Signed standing-consent grant");
+    const grant = validateStandingConsentGrantPayload(unsignedSignedValue(signedGrant));
+    await validateStandingConsentSignature(signedGrant, trust);
+    if (grant.issuer !== trust.value.issuer || grant.policyDigest !== policyDigest ||
+        canonicalJson(grant.hostRuntime) !== canonicalJson({ path: runtime?.path, digest: runtime?.digest }) ||
+        canonicalJson(grant.hostSigner) !== canonicalJson({ path: signer?.path, digest: signer?.digest, version: signer?.version })) {
+      throw new Error("Standing-consent grant is stale against the current host policy, runtime, or signer");
+    }
+    if (grant.revokedAt !== null) throw new Error("Standing-consent grant is revoked");
+    if (grant.expiresAt !== null && Date.parse(grant.expiresAt) <= Date.now()) throw new Error("Standing-consent grant is expired");
+    await validateRootOwnedFile(STANDING_CONSENT_SUDOERS, "Standing-consent sudoers rule", 0o440);
+    const sudoersBytes = await readFile(STANDING_CONSENT_SUDOERS);
+    if (sudoersBytes.toString("utf8") !== standingConsentSudoers({ grant, runtime })) {
+      throw new Error("Standing-consent sudoers rule does not match the signed grant");
+    }
+    return {
+      active: true,
+      state: "active",
+      policyPath: STANDING_CONSENT_POLICY,
+      policyDigest,
+      grantPath: STANDING_CONSENT_GRANT,
+      grantDigest: await digest(Buffer.from(canonicalJson(grant), "utf8")),
+      sudoersPath: STANDING_CONSENT_SUDOERS,
+      sudoersDigest: await digest(sudoersBytes),
+      grant,
+      policy
+    };
+  } catch (error) {
+    const artifactPresence = {
+      policy: await exists(STANDING_CONSENT_POLICY),
+      grant: await exists(STANDING_CONSENT_GRANT),
+      sudoers: await exists(STANDING_CONSENT_SUDOERS)
+    };
+    const state = error.message === "Standing-consent grant is revoked"
+      ? "revoked"
+      : Object.values(artifactPresence).every((present) => !present)
+        ? "not-installed"
+        : "invalid";
+    return {
+      active: false,
+      state,
+      artifactPresence,
+      policyPath: STANDING_CONSENT_POLICY,
+      grantPath: STANDING_CONSENT_GRANT,
+      sudoersPath: STANDING_CONSENT_SUDOERS,
+      error: error.code === "ENOENT" ? "Standing evaluator consent is not installed" : error.message
+    };
+  }
+}
+
 async function status({ requireReadinessReceipt = true } = {}) {
   const trust = await validateTrustRoot();
   const keyInfo = await validateRootOwnedFile(PRIVATE_KEY, "Private signing key", 0o600);
@@ -890,6 +1138,7 @@ async function status({ requireReadinessReceipt = true } = {}) {
     signer
   });
   const readinessReceipt = await currentReadinessReceipt(binding);
+  const standingConsent = await currentStandingConsent({ trust, runtime, signer });
   const staticReady = Boolean(signer?.supported && runtime?.supported && launcher.supported && probe.supported && codexBinary.supported);
   return {
     ok: true,
@@ -909,8 +1158,201 @@ async function status({ requireReadinessReceipt = true } = {}) {
     readinessProbe: probe,
     codexBinary,
     signer,
-    readinessReceipt
+    readinessReceipt,
+    standingConsent
   };
+}
+
+async function validateConsentUserDirectory(target, subject, label, expectedMode = 0o700) {
+  const resolved = path.resolve(target);
+  if (resolved !== target) throw new Error(`${label} must already be canonical`);
+  const canonical = await realpath(resolved);
+  if (canonical !== resolved) throw new Error(`${label} must not contain symlinks`);
+  const info = await lstat(canonical);
+  if (info.isSymbolicLink() || !info.isDirectory() || info.uid !== subject.uid || (info.mode & 0o777) !== expectedMode) {
+    throw new Error(`${label} must be a subject-owned ${expectedMode.toString(8)} directory`);
+  }
+  return canonical;
+}
+
+async function validateConsentUserFile(target, subject, label, root) {
+  if (typeof target !== "string" || !path.isAbsolute(target) || path.resolve(target) !== target || !isWithin(root, target)) {
+    throw new Error(`${label} must be a canonical path inside the standing-consent request root`);
+  }
+  const canonical = await realpath(target);
+  if (canonical !== target) throw new Error(`${label} must not be a symlink`);
+  const info = await lstat(canonical);
+  if (info.isSymbolicLink() || !info.isFile() || info.uid !== subject.uid || (info.mode & 0o777) !== 0o600) {
+    throw new Error(`${label} must be a subject-owned 0600 regular file`);
+  }
+  return { path: canonical, info, bytes: await readFile(canonical) };
+}
+
+async function canonicalUsername(uid) {
+  const result = await spawnCapture("/usr/bin/id", ["-un", String(uid)], {
+    cwd: "/",
+    timeoutMs: 10_000,
+    maxOutputBytes: 4096,
+    env: safeEnvironment()
+  });
+  const username = result.stdout.trim();
+  if (result.code !== 0 || result.signal !== null || !/^[A-Za-z0-9._-]+$/.test(username)) {
+    throw new Error("Standing-consent subject username could not be resolved safely");
+  }
+  return username;
+}
+
+function validateConsentInstallRequest(value) {
+  exactKeys(value, [
+    "authorityStatementDigest", "expiresAt", "grantId", "kind", "maxRequests", "models", "policyDigest", "policyPath",
+    "purposes", "repo", "requestRoot", "schemaVersion", "subject"
+  ], "Standing-consent install request");
+  exactKeys(value.subject, ["codexHomePath", "gid", "homePath", "uid", "username"], "Standing-consent install subject");
+  if (value.schemaVersion !== 1 || value.kind !== "self-improve-standing-consent-install-request" ||
+      !SAFE_EXECUTION_ID.test(value.grantId ?? "") || value.authorityStatementDigest !== STANDING_CONSENT_AUTHORITY_STATEMENT_DIGEST ||
+      canonicalJson(value.models) !== canonicalJson(["gpt-5.6-terra"]) ||
+      canonicalJson(value.purposes) !== canonicalJson(STANDING_CONSENT_PURPOSES) || value.maxRequests !== 8 || value.expiresAt !== null ||
+      typeof value.repo !== "string" || !path.isAbsolute(value.repo) || path.resolve(value.repo) !== value.repo ||
+      value.policyPath !== path.join(value.repo, "plugins/better-workflows/config/self-improve-standing-consent-v1.json") ||
+      !SHA256.test(value.policyDigest ?? "") || !Number.isInteger(value.subject.uid) || value.subject.uid <= 0 ||
+      !Number.isInteger(value.subject.gid) || value.subject.gid <= 0 ||
+      typeof value.subject.username !== "string" || !/^[A-Za-z0-9._-]+$/.test(value.subject.username) ||
+      typeof value.subject.homePath !== "string" || !path.isAbsolute(value.subject.homePath) ||
+      (value.subject.codexHomePath !== null && (typeof value.subject.codexHomePath !== "string" || !path.isAbsolute(value.subject.codexHomePath))) ||
+      value.requestRoot !== `${STANDING_CONSENT_REQUEST_ROOT_PREFIX}${value.subject.uid}`) {
+    throw new Error("Standing-consent install request is invalid");
+  }
+  return value;
+}
+
+async function validateSudoersCandidate(bytes) {
+  const temporary = path.join(path.dirname(STANDING_CONSENT_SUDOERS), `.better-workflows-self-improve.${process.pid}.${Date.now()}`);
+  await exclusiveWrite(temporary, bytes, 0o440);
+  try {
+    const result = await spawnCapture(VISUDO, ["-cf", temporary], {
+      cwd: "/",
+      timeoutMs: 10_000,
+      maxOutputBytes: 16 * 1024,
+      env: safeEnvironment()
+    });
+    if (result.code !== 0 || result.signal !== null || result.timedOut || result.outputExceeded) {
+      throw new Error(`visudo rejected the standing-consent rule: ${result.stderr.trim() || result.stdout.trim() || "unknown error"}`);
+    }
+  } finally {
+    await unlink(temporary).catch(() => undefined);
+  }
+}
+
+async function installStandingConsent(requestPath, confirmedDigest) {
+  requireRoot();
+  await requireInstalledCapability("standing-consent-admin");
+  if (!SHA256.test(confirmedDigest)) throw new Error("Standing-consent install request digest must be SHA-256");
+  const preliminaryBytes = await readFile(path.resolve(requestPath));
+  if (await digest(preliminaryBytes) !== confirmedDigest) throw new Error("Standing-consent install request digest changed");
+  const request = validateConsentInstallRequest(JSON.parse(preliminaryBytes.toString("utf8")));
+  const requestRoot = await validateConsentUserDirectory(request.requestRoot, request.subject, "Standing-consent request root");
+  const requestFile = await validateConsentUserFile(path.resolve(requestPath), request.subject, "Standing-consent install request", requestRoot);
+  if (await digest(requestFile.bytes) !== confirmedDigest) throw new Error("Standing-consent install request changed after identity validation");
+  const repository = await realpath(request.repo);
+  if (repository !== request.repo) throw new Error("Standing-consent repository must already be canonical");
+  const username = await canonicalUsername(request.subject.uid);
+  if (username !== request.subject.username) throw new Error("Standing-consent username does not match the subject uid");
+  const homePath = await validateConsentUserDirectory(request.subject.homePath, request.subject, "Standing-consent subject home", (await lstat(request.subject.homePath)).mode & 0o777);
+  if (((await lstat(homePath)).mode & 0o022) !== 0) throw new Error("Standing-consent subject home must not be group/world writable");
+  if (request.subject.codexHomePath !== null) {
+    const codexHome = await realpath(request.subject.codexHomePath);
+    const info = await lstat(codexHome);
+    if (codexHome !== request.subject.codexHomePath || info.isSymbolicLink() || !info.isDirectory() || info.uid !== request.subject.uid || ((info.mode & 0o777) & 0o022) !== 0) {
+      throw new Error("Standing-consent Codex home identity is invalid");
+    }
+  }
+  const policySource = await readSourceFile(request.policyPath, request.policyDigest, "Standing-consent policy source");
+  const policy = validateStandingConsentPolicy(JSON.parse(policySource.bytes.toString("utf8")));
+  const runtime = await currentRuntime();
+  const signer = await currentSigner();
+  if (!runtime?.supported || !signer?.supported || signer.path !== INSTALLED_SIGNER || signer.version !== HOST_SIGNER_VERSION) {
+    throw new Error("Standing-consent install requires the current ready runtime and signer");
+  }
+  const trust = await validateTrustRoot();
+  const key = trust.value.publicKeys[0];
+  const grantPayload = validateStandingConsentGrantPayload({
+    schemaVersion: 1,
+    kind: "self-improve-standing-consent-grant",
+    grantId: request.grantId,
+    authorityStatementDigest: request.authorityStatementDigest,
+    issuedAt: new Date().toISOString(),
+    expiresAt: request.expiresAt,
+    revokedAt: null,
+    issuer: trust.value.issuer,
+    keyId: key.keyId,
+    repo: repository,
+    provider: policy.provider,
+    operation: policy.operation,
+    models: policy.allowedModels,
+    purposes: policy.allowedPurposes,
+    maxRequests: policy.maxRequests,
+    requestRoot,
+    subject: request.subject,
+    policyPath: STANDING_CONSENT_POLICY,
+    policyDigest: request.policyDigest,
+    readOnly: true,
+    ephemeral: true,
+    sanitized: true,
+    deniedAuthorities: STANDING_CONSENT_DENIED_AUTHORITIES,
+    hostRuntime: { path: runtime.path, digest: runtime.digest },
+    hostSigner: { path: signer.path, digest: signer.digest, version: signer.version }
+  });
+  const signedGrant = await signPayload(grantPayload);
+  const grantBytes = Buffer.from(`${JSON.stringify(signedGrant.signed, null, 2)}\n`);
+  const sudoersBytes = Buffer.from(standingConsentSudoers({ grant: grantPayload, runtime }), "utf8");
+  await validateSudoersCandidate(sudoersBytes);
+  const changes = [];
+  try {
+    for (const [target, bytes, mode, label] of [
+      [STANDING_CONSENT_POLICY, policySource.bytes, 0o644, "Standing-consent policy"],
+      [STANDING_CONSENT_GRANT, grantBytes, 0o644, "Standing-consent grant"],
+      [STANDING_CONSENT_SUDOERS, sudoersBytes, 0o440, "Standing-consent sudoers rule"]
+    ]) {
+      const source = { bytes, digest: await digest(bytes) };
+      const change = await replaceRootOwnedFile(target, source, mode, label);
+      if (change.changed) changes.push({ target, label, mode, previous: change.previous });
+    }
+    const next = await status();
+    if (!next.standingConsent?.active) throw new Error(`Standing consent did not become active: ${next.standingConsent?.error ?? "unknown error"}`);
+    return next.standingConsent;
+  } catch (error) {
+    const recoveryErrors = [];
+    for (const change of changes.toReversed()) {
+      try {
+        await restoreRootOwnedFile(change.target, change.previous, change.mode, change.label);
+        if (change.previous) await discardRollbackBackup(change.previous, change.label);
+      } catch (recoveryError) {
+        recoveryErrors.push(`${change.label}: ${recoveryError.message}`);
+      }
+    }
+    if (recoveryErrors.length > 0) throw new Error(`Standing-consent install failed and rollback was incomplete: ${error.message}; ${recoveryErrors.join("; ")}`);
+    throw new Error(`Standing-consent install rolled back: ${error.message}`);
+  }
+}
+
+async function revokeStandingConsent(grantId) {
+  requireRoot();
+  await requireInstalledCapability("standing-consent-admin");
+  if (!SAFE_EXECUTION_ID.test(grantId ?? "")) throw new Error("Standing-consent revoke requires a safe grant id");
+  await validateRootOwnedFile(STANDING_CONSENT_GRANT, "Standing-consent grant", 0o644);
+  const signed = JSON.parse((await readFile(STANDING_CONSENT_GRANT)).toString("utf8"));
+  exactKeys(signed, [...STANDING_CONSENT_GRANT_FIELDS, "signature"], "Signed standing-consent grant");
+  const grant = validateStandingConsentGrantPayload(unsignedSignedValue(signed));
+  await validateStandingConsentSignature(signed, await validateTrustRoot());
+  if (grant.grantId !== grantId) throw new Error("Standing-consent grant id does not match the installed grant");
+  const revoked = { ...grant, revokedAt: new Date().toISOString() };
+  const replacement = await signPayload(revoked);
+  const bytes = Buffer.from(`${JSON.stringify(replacement.signed, null, 2)}\n`);
+  await replaceRootOwnedFile(STANDING_CONSENT_GRANT, { bytes, digest: await digest(bytes) }, 0o644, "Standing-consent grant");
+  await unlink(STANDING_CONSENT_SUDOERS).catch((error) => {
+    if (error.code !== "ENOENT") throw error;
+  });
+  return { ok: true, grantId, revokedAt: revoked.revokedAt };
 }
 
 async function provision() {
@@ -990,14 +1432,25 @@ function validateExecution(execution) {
     "sourceBindingDigest",
     "suiteDigest"
   ];
-  const remediationExpected = [...expected, "policyDigest", "purpose"].sort();
   const executionKeys = Object.keys(execution).sort();
-  const policyBound = executionKeys.join("\0") === remediationExpected.join("\0");
-  if (executionKeys.join("\0") !== expected.join("\0") && !policyBound) {
+  const policyBound = execution.purpose !== undefined || execution.policyDigest !== undefined;
+  const standing = execution.authorization !== undefined;
+  const expectedKeys = [
+    ...expected,
+    ...(policyBound ? ["policyDigest", "purpose"] : []),
+    ...(standing ? ["authorization"] : [])
+  ].sort();
+  if (executionKeys.join("\0") !== expectedKeys.join("\0")) {
     throw new Error("execution fields do not match the verifier contract");
   }
   if (policyBound && (!policyBindingForPurpose(execution.purpose) || !SHA256.test(execution.policyDigest))) {
     throw new Error("Policy-bound execution binding is invalid");
+  }
+  if (standing) {
+    const authorization = validateStandingAuthorization(execution.authorization);
+    if (authorization.purpose !== (execution.purpose ?? authorization.purpose)) {
+      throw new Error("Standing authorization purpose does not match the execution purpose");
+    }
   }
   for (const key of expected.filter((item) => item !== "attempt")) {
     if (typeof execution[key] !== "string" || !execution[key]) {
@@ -1018,6 +1471,25 @@ function validateExecution(execution) {
     throw new Error("execution.sourceBindingDigest must be SHA-256");
   }
   return execution;
+}
+
+function validateMaterialBinding(value, authorization) {
+  exactKeys(value, ["files", "materialsDigest", "sanitizerPolicyDigest", "schemaVersion", "snapshotDigest"], "Material binding");
+  if (value.schemaVersion !== 1 || !SHA256.test(value.sanitizerPolicyDigest ?? "") ||
+      value.sanitizerPolicyDigest !== authorization.policyDigest || !SHA256.test(value.snapshotDigest ?? "") ||
+      !SHA256.test(value.materialsDigest ?? "") || !Array.isArray(value.files)) {
+    throw new Error("Material binding is invalid");
+  }
+  for (const file of value.files) {
+    exactKeys(file, ["digest", "mode", "path", "size", "state"], "Material manifest file");
+    if (typeof file.path !== "string" || !file.path || path.isAbsolute(file.path) || file.path.includes("..") ||
+        !["file", "missing"].includes(file.state) ||
+        (file.state === "file" && (!SHA256.test(file.digest ?? "") || !Number.isInteger(file.size) || file.size < 0 || ![0o644, 0o755].includes(file.mode))) ||
+        (file.state === "missing" && (file.digest !== null || file.size !== null || file.mode !== null))) {
+      throw new Error("Material manifest contains an invalid file binding");
+    }
+  }
+  return value;
 }
 
 async function canonicalBinary(supplied) {
@@ -1116,10 +1588,15 @@ export function validateExecutionRequest(request) {
     throw new Error("execution request must be an object");
   }
   const required = ["binaryApprovalDigest", "binaryDigest", "binaryPath", "codexHomePath", "execution", "gid", "homePath", "model", "pluginBundleDigest", "promptDigest", "promptPath", "uid"];
-  const remediationRequired = [...required, "policyDigest", "purpose"].sort();
   const requestKeys = Object.keys(request).sort();
-  const policyBound = requestKeys.join("\0") === remediationRequired.join("\0");
-  if (requestKeys.join("\0") !== required.slice().sort().join("\0") && !policyBound) {
+  const policyBound = request.purpose !== undefined || request.policyDigest !== undefined;
+  const standing = request.authorization !== undefined || request.materialBinding !== undefined;
+  const expectedKeys = [
+    ...required,
+    ...(policyBound ? ["policyDigest", "purpose"] : []),
+    ...(standing ? ["authorization", "materialBinding"] : [])
+  ].sort();
+  if (requestKeys.join("\0") !== expectedKeys.join("\0")) {
     throw new Error("execution request fields do not match the signer contract");
   }
   if (policyBound && (!policyBindingForPurpose(request.purpose) || !SHA256.test(request.policyDigest))) {
@@ -1153,6 +1630,16 @@ export function validateExecutionRequest(request) {
     throw new Error("execution request model is invalid");
   }
   validateExecution(request.execution);
+  if (standing) {
+    const authorization = validateStandingAuthorization(request.authorization);
+    validateMaterialBinding(request.materialBinding, authorization);
+    if (canonicalJson(request.execution.authorization) !== canonicalJson(authorization) ||
+        authorization.model !== request.model || authorization.purpose !== (request.purpose ?? authorization.purpose) ||
+        authorization.subject.uid !== request.uid || authorization.subject.gid !== request.gid ||
+        authorization.subject.homePath !== request.homePath || authorization.subject.codexHomePath !== request.codexHomePath) {
+      throw new Error("Standing request authorization does not match its execution, model, purpose, or run-as identity");
+    }
+  }
   if (policyBound && (request.execution.purpose !== request.purpose || request.execution.policyDigest !== request.policyDigest)) {
     throw new Error("Policy-bound request and execution bindings do not match");
   }
@@ -1240,7 +1727,11 @@ async function validateRunAs(request) {
   return { uid: request.uid, gid: request.gid, homePath, codexHomePath };
 }
 
-async function executeResultRequest(requestPath, confirmedDigest, { includeResponse = false, commandArgs = null, internalProbe = false } = {}) {
+async function executeResultRequest(
+  requestPath,
+  confirmedDigest,
+  { includeResponse = false, commandArgs = null, internalProbe = false, requiredAuthorization = null } = {}
+) {
   requireRoot();
   await requireInstalledCapability("execution-witness", {
     allowUnprovenReadiness: internalProbe,
@@ -1253,6 +1744,12 @@ async function executeResultRequest(requestPath, confirmedDigest, { includeRespo
     throw new Error("execution request digest does not match administrator-confirmed digest");
   }
   const request = validateExecutionRequest(JSON.parse(requestBytes.toString("utf8")));
+  if (request.authorization !== undefined && requiredAuthorization === null) {
+    throw new Error("Standing-authorized execution requests require execute-consented-batch");
+  }
+  if (requiredAuthorization !== null && canonicalJson(request.authorization) !== canonicalJson(requiredAuthorization)) {
+    throw new Error("Standing execution request authorization changed before execution");
+  }
   const executionId = requireSafeExecutionId(request.execution.id);
   const binaryPath = await canonicalBinary(request.binaryPath);
   const binaryBytes = await readFile(binaryPath);
@@ -1499,7 +1996,182 @@ async function executeResultRequest(requestPath, confirmedDigest, { includeRespo
   };
 }
 
-async function executeBatch(manifestPath, confirmedManifestDigest) {
+function expectedStandingAuthorization({ grant, grantDigest, policy, purpose, model, requestCount }) {
+  return validateStandingAuthorization({
+    mode: STANDING_CONSENT_MODE,
+    grantId: grant.grantId,
+    grantDigest,
+    policyId: policy.policyId,
+    policyVersion: policy.version,
+    policyDigest: grant.policyDigest,
+    repo: grant.repo,
+    provider: grant.provider,
+    model,
+    purpose,
+    requestCount,
+    requestRoot: grant.requestRoot,
+    subject: grant.subject,
+    readOnly: true,
+    ephemeral: true,
+    sanitized: true
+  });
+}
+
+async function validateCurrentCandidateMaterial(authorization, execution, binding) {
+  if (execution.role === "baseline" || execution.role === "train-baseline") return;
+  for (const file of binding.files) {
+    const target = path.resolve(authorization.repo, file.path);
+    if (!isWithin(authorization.repo, target)) throw new Error("Consented material path escapes the authorized repository");
+    if (file.state === "missing") {
+      if (await exists(target)) throw new Error(`Consented material unexpectedly exists: ${file.path}`);
+      continue;
+    }
+    const info = await lstat(target);
+    if (info.isSymbolicLink() || !info.isFile() || info.size !== file.size || (info.mode & 0o111 ? 0o755 : 0o644) !== file.mode) {
+      throw new Error(`Consented material identity changed: ${file.path}`);
+    }
+    if (await digest(await readFile(target)) !== file.digest) throw new Error(`Consented material digest changed: ${file.path}`);
+  }
+}
+
+function parsePromptJsonLine(lines, marker) {
+  const index = lines.indexOf(marker);
+  if (index < 0 || index + 1 >= lines.length) throw new Error(`Consented prompt is missing ${marker}`);
+  try {
+    return JSON.parse(lines[index + 1]);
+  } catch {
+    throw new Error(`Consented prompt ${marker} payload is not canonical JSON`);
+  }
+}
+
+async function validateConsentedPrompt(request, policy) {
+  const promptBytes = await validatePrompt(request);
+  const prompt = promptBytes.toString("utf8");
+  if (Buffer.byteLength(prompt, "utf8") !== promptBytes.length) throw new Error("Consented prompt must be valid UTF-8");
+  for (const line of policy.sanitization.requiredPromptLines) {
+    if (!prompt.split("\n").includes(line)) throw new Error(`Consented prompt is missing required safety line: ${line}`);
+  }
+  const lines = prompt.split("\n");
+  const candidateLine = lines.find((line) => line.startsWith("Candidate digest: "));
+  if (!candidateLine || candidateLine.slice("Candidate digest: ".length) !== request.materialBinding.snapshotDigest) {
+    throw new Error("Consented prompt snapshot digest does not match its material binding");
+  }
+  const files = parsePromptJsonLine(lines, "Changed-path digest manifest:");
+  const materials = parsePromptJsonLine(lines, "Balanced candidate samples:");
+  const cases = parsePromptJsonLine(lines, "Sanitized cases:");
+  if (canonicalJson(files) !== canonicalJson(request.materialBinding.files)) {
+    throw new Error("Consented prompt changed-path manifest does not match its signed request");
+  }
+  const allowedPatterns = policy.sanitization.allowedPathPatterns.map((value) => new RegExp(value));
+  const secretPattern = new RegExp(policy.sanitization.secretPattern, "i");
+  const paths = new Set();
+  for (const file of files) {
+    if (!allowedPatterns.some((pattern) => pattern.test(file.path))) throw new Error(`Consented prompt path is outside the policy allowlist: ${file.path}`);
+    if (paths.has(file.path)) throw new Error("Consented prompt contains duplicate changed paths");
+    paths.add(file.path);
+  }
+  if (!Array.isArray(materials) || materials.length > policy.sanitization.maxFiles ||
+      await digest(Buffer.from(canonicalJson(materials), "utf8")) !== request.materialBinding.materialsDigest) {
+    throw new Error("Consented prompt material list exceeds policy or changed after request generation");
+  }
+  let sampledBytes = 0;
+  const materialPaths = new Set();
+  for (const material of materials) {
+    exactKeys(material, ["content", "digest", "evidenceIndex", "materialGroup", "path", "redacted", "sampledBytes", "truncated"], "Consented material");
+    const bound = files.find((file) => file.path === material.path && file.state === "file" && file.digest === material.digest);
+    if (!bound || materialPaths.has(material.path) || typeof material.content !== "string" ||
+        typeof material.evidenceIndex !== "object" || material.evidenceIndex === null || Array.isArray(material.evidenceIndex) ||
+        !Number.isInteger(material.sampledBytes) || material.sampledBytes < 0 || typeof material.truncated !== "boolean" || typeof material.redacted !== "boolean" ||
+        !["runtime", "tests", "config", "skills", "templates", "fixtures", "metadata", "docs"].includes(material.materialGroup)) {
+      throw new Error("Consented prompt contains an invalid material sample");
+    }
+    const materialText = canonicalJson({ content: material.content, evidenceIndex: material.evidenceIndex });
+    if (secretPattern.test(materialText)) throw new Error(`Consented prompt contains secret-shaped material: ${material.path}`);
+    sampledBytes += material.sampledBytes;
+    materialPaths.add(material.path);
+  }
+  if (sampledBytes > policy.sanitization.maxBytes) throw new Error("Consented prompt exceeds the sanitized material byte budget");
+  if (!Array.isArray(cases) || cases.length < 2 || cases.length > policy.sanitization.maxCases) {
+    throw new Error("Consented prompt case count is outside policy");
+  }
+  const caseIds = new Set();
+  for (const item of cases) {
+    exactKeys(item, ["assertions", "id", "scenario"], "Consented evaluation case");
+    if (typeof item.id !== "string" || !/^[a-z0-9][a-z0-9-]{2,79}$/.test(item.id) || caseIds.has(item.id) ||
+        typeof item.scenario !== "string" || !item.scenario || item.scenario.length > 4000 || secretPattern.test(item.scenario) ||
+        !Array.isArray(item.assertions) || item.assertions.length < 1 || item.assertions.length > 12) {
+      throw new Error("Consented prompt contains an invalid or secret-shaped evaluation case");
+    }
+    caseIds.add(item.id);
+    for (const assertion of item.assertions) {
+      exactKeys(assertion, ["description", "id"], "Consented evaluation assertion");
+      if (typeof assertion.id !== "string" || !/^[a-z0-9][a-z0-9-]{2,79}$/.test(assertion.id) ||
+          typeof assertion.description !== "string" || !assertion.description || assertion.description.length > 4000 || secretPattern.test(assertion.description)) {
+        throw new Error("Consented prompt contains an invalid or secret-shaped assertion");
+      }
+    }
+  }
+  await validateCurrentCandidateMaterial(request.authorization, request.execution, request.materialBinding);
+}
+
+async function executeConsentedBatch(manifestPath, confirmedManifestDigest) {
+  requireRoot();
+  await requireInstalledCapability("standing-consent-execution");
+  if (!SHA256.test(confirmedManifestDigest)) throw new Error("confirmed execution manifest digest must be SHA-256");
+  const host = await status();
+  const consent = host.standingConsent;
+  if (!consent?.active) throw new Error(`Standing evaluator consent is unavailable: ${consent?.error ?? "not installed"}`);
+  const grant = consent.grant;
+  const requestRoot = await validateConsentUserDirectory(grant.requestRoot, grant.subject, "Standing-consent request root");
+  const resolvedManifest = path.resolve(manifestPath);
+  const outputDirectory = path.dirname(resolvedManifest);
+  if (path.dirname(outputDirectory) !== requestRoot || !CONSENT_SAFE_SUBDIRECTORY.test(path.basename(outputDirectory)) ||
+      path.basename(resolvedManifest) !== "attestation-requests.json") {
+    throw new Error("Consented manifest must use one safe direct child of the fixed request root");
+  }
+  await validateConsentUserDirectory(outputDirectory, grant.subject, "Standing-consent batch directory");
+  const manifestFile = await validateConsentUserFile(resolvedManifest, grant.subject, "Standing-consent manifest", outputDirectory);
+  if (await digest(manifestFile.bytes) !== confirmedManifestDigest) throw new Error("Standing-consent manifest digest changed");
+  const manifest = JSON.parse(manifestFile.bytes.toString("utf8"));
+  const policy = consent.policy;
+  const expectedRequestCount = policy.requestCounts[manifest.purpose];
+  const expectedAuthorization = expectedStandingAuthorization({
+    grant,
+    grantDigest: consent.grantDigest,
+    policy,
+    purpose: manifest.purpose,
+    model: manifest.model,
+    requestCount: expectedRequestCount
+  });
+  if (manifest.schemaVersion !== 4 || manifest.repo !== grant.repo || manifest.model !== "gpt-5.6-terra" ||
+      !grant.purposes.includes(manifest.purpose) || !Array.isArray(manifest.requests) || manifest.requests.length !== expectedRequestCount ||
+      !SHA256.test(manifest.baselineSnapshotDigest ?? "") ||
+      manifest.standingConsentPolicyPath !== "plugins/better-workflows/config/self-improve-standing-consent-v1.json" ||
+      manifest.standingConsentPolicyDigest !== grant.policyDigest || canonicalJson(manifest.authorization) !== canonicalJson(expectedAuthorization)) {
+    throw new Error("Standing-consent manifest does not match the active root-owned grant");
+  }
+  for (const item of manifest.requests) {
+    if (path.dirname(item.request) !== outputDirectory || path.basename(item.request) !== `${item.executionId}.request.json`) {
+      throw new Error("Standing-consent request path escapes its batch directory");
+    }
+    const requestFile = await validateConsentUserFile(item.request, grant.subject, "Standing-consent execution request", outputDirectory);
+    if (await digest(requestFile.bytes) !== item.requestDigest) throw new Error("Standing-consent execution request digest changed");
+    const request = validateExecutionRequest(JSON.parse(requestFile.bytes.toString("utf8")));
+    const expectedSnapshotDigest = item.role === "baseline" || item.role === "train-baseline"
+      ? manifest.baselineSnapshotDigest
+      : manifest.candidateDigest;
+    if (path.dirname(request.promptPath) !== outputDirectory || canonicalJson(request.authorization) !== canonicalJson(expectedAuthorization) ||
+        request.materialBinding.snapshotDigest !== expectedSnapshotDigest ||
+        item.authorizationDigest !== await digest(Buffer.from(canonicalJson(expectedAuthorization), "utf8"))) {
+      throw new Error("Standing-consent request authorization or prompt path is invalid");
+    }
+    await validateConsentUserFile(request.promptPath, grant.subject, "Standing-consent prompt", outputDirectory);
+    await validateConsentedPrompt(request, policy);
+  }
+  return executeBatch(resolvedManifest, confirmedManifestDigest, { requiredAuthorization: expectedAuthorization });
+}
+
+async function executeBatch(manifestPath, confirmedManifestDigest, { requiredAuthorization = null } = {}) {
   requireRoot();
   await requireInstalledCapability("execution-batch");
   if (!SHA256.test(confirmedManifestDigest)) throw new Error("confirmed execution manifest digest must be SHA-256");
@@ -1509,7 +2181,11 @@ async function executeBatch(manifestPath, confirmedManifestDigest) {
   }
   const manifest = JSON.parse(manifestBytes.toString("utf8"));
   const policyBinding = policyBindingForPurpose(manifest.purpose);
-  const expectedManifestSchema = policyBinding ? 3 : 2;
+  const standing = manifest.authorization !== undefined;
+  if (standing && requiredAuthorization === null) {
+    throw new Error("schemaVersion 4 standing authorization requires execute-consented-batch");
+  }
+  const expectedManifestSchema = standing ? 4 : policyBinding ? 3 : 2;
   const expectedRequestCount = manifest.purpose === "evaluator-migration" ? 8 : 7;
   if (manifest.schemaVersion !== expectedManifestSchema || !Array.isArray(manifest.requests) || manifest.requests.length !== expectedRequestCount) {
     throw new Error(`execution manifest must be schemaVersion ${expectedManifestSchema} with exactly ${expectedRequestCount} requests`);
@@ -1528,7 +2204,11 @@ async function executeBatch(manifestPath, confirmedManifestDigest) {
       typeof manifest.suiteDigest !== "string" || !manifest.suiteDigest ||
       typeof manifest.baselineRevision !== "string" || !manifest.baselineRevision ||
       typeof manifest.candidateDigest !== "string" || !manifest.candidateDigest ||
-      !Array.isArray(manifest.requests) || manifest.requests.length !== expectedRequestCount) {
+      !Array.isArray(manifest.requests) || manifest.requests.length !== expectedRequestCount ||
+      (standing && (manifest.standingConsentPolicyPath !== "plugins/better-workflows/config/self-improve-standing-consent-v1.json" ||
+        !SHA256.test(manifest.standingConsentPolicyDigest ?? "") || !SHA256.test(manifest.baselineSnapshotDigest ?? "") ||
+        canonicalJson(validateStandingAuthorization(manifest.authorization)) !== canonicalJson(requiredAuthorization ?? manifest.authorization))) ||
+      (!standing && (manifest.standingConsentPolicyPath !== undefined || manifest.standingConsentPolicyDigest !== undefined || manifest.baselineSnapshotDigest !== undefined))) {
     throw new Error("execution manifest must bind the administrator Node runtime digest");
   }
   const manifestRunAs = validateManifestRunAs(manifest.runAs);
@@ -1575,7 +2255,12 @@ async function executeBatch(manifestPath, confirmedManifestDigest) {
         request.execution.id !== item.executionId || request.execution.promptDigest !== item.promptDigest ||
         (policyBinding && (request.purpose !== manifest.purpose || request.policyDigest !== manifest.policyDigest || request.execution.purpose !== manifest.purpose || request.execution.policyDigest !== manifest.policyDigest)) ||
         (!policyBinding && (request.purpose !== undefined || request.policyDigest !== undefined)) ||
-        (request.execution.purpose !== undefined && request.execution.purpose !== manifest.purpose)) {
+        (request.execution.purpose !== undefined && request.execution.purpose !== manifest.purpose) ||
+        (standing && (canonicalJson(request.authorization) !== canonicalJson(manifest.authorization) ||
+          canonicalJson(request.execution.authorization) !== canonicalJson(manifest.authorization) ||
+          request.materialBinding.snapshotDigest !== ((item.role === "baseline" || item.role === "train-baseline") ? manifest.baselineSnapshotDigest : manifest.candidateDigest) ||
+          item.authorizationDigest !== await digest(Buffer.from(canonicalJson(manifest.authorization), "utf8")))) ||
+        (!standing && (request.authorization !== undefined || request.materialBinding !== undefined || item.authorizationDigest !== undefined))) {
       throw new Error("execution manifest request does not match its canonical batch binding");
     }
     if (ids.has(request.execution.id)) throw new Error("execution manifest contains duplicate execution IDs");
@@ -1590,12 +2275,15 @@ async function executeBatch(manifestPath, confirmedManifestDigest) {
     manifestDigest: confirmedManifestDigest,
     executionIds: prepared.map((item) => item.executionId),
     requestDigests: prepared.map((item) => item.requestDigest),
+    ...(standing ? { authorization: manifest.authorization } : {}),
     startedAt: new Date().toISOString()
   };
   await writeHostArtifact(batchStartPath, batchStarted);
   const outputs = [];
   try {
-    for (const item of prepared) outputs.push(await executeResultRequest(item.requestPath, item.requestDigest));
+    for (const item of prepared) {
+      outputs.push(await executeResultRequest(item.requestPath, item.requestDigest, { requiredAuthorization }));
+    }
     await writeHostArtifact(batchCompletePath, {
       ...batchStarted,
       state: "complete",
@@ -1909,6 +2597,22 @@ async function main() {
     }
     return executeBatch(options.manifest, options["confirm-digest"]);
   }
+  if (command === "execute-consented-batch") {
+    if (!options.manifest || !options["confirm-digest"]) {
+      throw new Error("execute-consented-batch requires --manifest and --confirm-digest");
+    }
+    return executeConsentedBatch(options.manifest, options["confirm-digest"]);
+  }
+  if (command === "install-consent") {
+    if (!options.request || !options["confirm-digest"]) {
+      throw new Error("install-consent requires --request and --confirm-digest");
+    }
+    return installStandingConsent(options.request, options["confirm-digest"]);
+  }
+  if (command === "revoke-consent") {
+    if (!options["grant-id"]) throw new Error("revoke-consent requires --grant-id");
+    return revokeStandingConsent(options["grant-id"]);
+  }
   if (command === "sign-native") {
     if (!options.request || !options["confirm-digest"] || !options.output) {
       throw new Error("sign-native requires --request, --confirm-digest, and --output");
@@ -1918,7 +2622,7 @@ async function main() {
       output: await signNativeRequest(options.request, options["confirm-digest"], options.output)
     };
   }
-  throw new Error("usage: host-trust.mjs capabilities|status|provision|upgrade|execute-result|execute-batch|sign-native");
+  throw new Error("usage: host-trust.mjs capabilities|status|provision|upgrade|execute-result|execute-batch|execute-consented-batch|install-consent|revoke-consent|sign-native");
 }
 
 if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) {

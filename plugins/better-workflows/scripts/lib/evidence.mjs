@@ -172,7 +172,7 @@ const ARRAY_FIELDS = new Set([
   "providerRunIds", "requiredStatusCheckApps", "requiredStatusChecks", "resources", "roles", "scope", "tasks", "witnessDigests"
 ]);
 const OBJECT_FIELDS = new Set([
-  "actionProof", "artifact", "authorization", "counts", "diffManifest", "metadata", "permissions",
+  "actionProof", "artifact", "authorization", "counts", "diffManifest", "evaluatorAuthorization", "metadata", "permissions",
   "providerAuthorization", "providerExecutable", "receipt", "scopeDigest", "summary", "target", "workflow"
 ]);
 const INTEGER_FIELDS = new Set(["number", "pr", "providerRunId"]);

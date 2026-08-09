@@ -33,6 +33,11 @@ import {
   snapshotCandidate
 } from "./self-improve.mjs";
 import { pluginBundleDigest } from "./routing.mjs";
+import {
+  consentDigest,
+  loadStandingConsentPolicy,
+  validStandingAuthorization
+} from "./standing-consent.mjs";
 
 const HOST_EXECUTIONS_ROOT = "/private/var/db/better-workflows/executions";
 const SHA1 = /^[a-f0-9]{40}$/;
@@ -68,6 +73,16 @@ function requestRunAs(request) {
   };
 }
 
+function materialFileManifest(snapshot) {
+  return (snapshot.files ?? []).map((file) => ({
+    path: file.path,
+    state: file.state,
+    digest: file.digest,
+    mode: file.mode ?? null,
+    size: file.size ?? null
+  }));
+}
+
 function validRunAs(value) {
   if (!value || typeof value !== "object" || Array.isArray(value) ||
       Object.keys(value).sort().join("\0") !== "codexHomePath\0gid\0homePath\0uid" ||
@@ -97,7 +112,6 @@ export async function loadHostExecutionRequestManifest({
   const repository = await realpath(cwd);
   const policyBound = isPolicyBoundEvaluationPurpose(purpose);
   const policy = policyBound ? await loadPolicyBoundEvaluationPolicy({ cwd: repository, purpose }) : null;
-  const expectedManifestSchema = policyBound ? 3 : 2;
   const expectedRequestCount = purpose === "evaluator-migration" ? 8 : 7;
   const resolvedManifest = path.resolve(manifestPath);
   if (isPathWithin(repository, resolvedManifest)) throw new Error("Execution request manifest must be outside the evaluated repository");
@@ -108,6 +122,9 @@ export async function loadHostExecutionRequestManifest({
   const manifestBytes = await readFile(resolvedManifest);
   if (sha256(manifestBytes) !== manifestDigest) throw new Error("Execution request manifest digest does not match the confirmed manifest");
   const manifest = JSON.parse(manifestBytes.toString("utf8"));
+  const standing = manifest.authorization !== undefined;
+  const standingPolicy = standing ? await loadStandingConsentPolicy(repository) : null;
+  const expectedManifestSchema = standing ? 4 : policyBound ? 3 : 2;
   if (manifest.schemaVersion !== expectedManifestSchema || manifest.repo !== repository || manifest.runId !== runId || manifest.model !== model ||
       manifest.purpose !== purpose || manifest.suiteDigest !== suiteDigest || manifest.baselineRevision !== frozen.baselineRevision ||
       manifest.candidateDigest !== candidate.digest || manifest.sourceSuiteDigest !== frozen.sourceDigest ||
@@ -118,6 +135,14 @@ export async function loadHostExecutionRequestManifest({
       !Array.isArray(manifest.candidateFiles) || digestObject(manifest.candidateFiles) !== digestObject(candidate.files) ||
       manifest.policyPath !== (policy?.path ?? undefined) || manifest.policyId !== (policy?.policyId ?? undefined) ||
       manifest.policyVersion !== (policy?.version ?? undefined) || manifest.policyDigest !== (policy?.digest ?? undefined) ||
+      (standing && (!validStandingAuthorization(manifest.authorization) || manifest.authorization.repo !== repository ||
+        manifest.authorization.model !== model || manifest.authorization.purpose !== purpose ||
+        manifest.authorization.requestCount !== expectedRequestCount ||
+        !SHA256.test(manifest.baselineSnapshotDigest ?? "") ||
+        manifest.standingConsentPolicyPath !== standingPolicy.relativePath ||
+        manifest.standingConsentPolicyDigest !== standingPolicy.digest || manifest.authorization.policyDigest !== standingPolicy.digest ||
+        digestObject(manifest.authorization.subject) !== digestObject({ ...manifest.runAs, username: manifest.authorization.subject.username }))) ||
+      (!standing && (manifest.standingConsentPolicyPath !== undefined || manifest.standingConsentPolicyDigest !== undefined || manifest.baselineSnapshotDigest !== undefined)) ||
       !Array.isArray(manifest.requests) || manifest.requests.length !== expectedRequestCount || !validRunAs(manifest.runAs)) {
     throw new Error("Execution request manifest is not bound to this run, suite, model, and candidate");
   }
@@ -127,6 +152,12 @@ export async function loadHostExecutionRequestManifest({
   }
   if (await pluginBundleDigest() !== manifest.pluginBundleDigest) {
     throw new Error("Execution request manifest plugin bundle digest changed");
+  }
+  const standingCandidateMaterial = standing ? await readSanitizedCandidateMaterial({ cwd: repository, snapshot: candidate }) : null;
+  const standingBaseline = standing ? await snapshotBaselineForCandidate({ cwd: repository, snapshot: candidate }) : null;
+  const standingBaselineMaterial = standing ? await readSanitizedBaselineMaterial({ cwd: repository, snapshot: standingBaseline }) : null;
+  if (standing && manifest.baselineSnapshotDigest !== standingBaseline.digest) {
+    throw new Error("Standing execution request manifest baseline snapshot changed");
   }
   const completeJournal = path.join(HOST_EXECUTIONS_ROOT, `${manifestDigest}.batch.complete.json`);
   const journalInfo = await lstat(completeJournal);
@@ -138,7 +169,9 @@ export async function loadHostExecutionRequestManifest({
   if (journal.schemaVersion !== 1 || journal.provider !== "codex" || journal.kind !== "execution-batch-journal" ||
       journal.state !== "complete" || journal.manifestDigest !== manifestDigest || !Array.isArray(journal.executionIds) ||
       !Array.isArray(journal.requestDigests) || journal.executionIds.length !== expectedRequestCount || journal.requestDigests.length !== expectedRequestCount ||
-      journal.executionIds.length !== journal.outputs?.length) {
+      journal.executionIds.length !== journal.outputs?.length ||
+      (standing && digestObject(journal.authorization) !== digestObject(manifest.authorization)) ||
+      (!standing && journal.authorization !== undefined)) {
     throw new Error("Completed host batch journal does not prove this request manifest");
   }
   const bindings = new Map();
@@ -159,6 +192,9 @@ export async function loadHostExecutionRequestManifest({
     const requestBytes = await readFile(requestPath);
     if (sha256(requestBytes) !== item.requestDigest) throw new Error("Execution request digest changed after administrator confirmation");
     const request = JSON.parse(requestBytes.toString("utf8"));
+    const baselineRole = item.role === "baseline" || item.role === "train-baseline";
+    const expectedSnapshot = baselineRole ? standingBaseline : candidate;
+    const expectedMaterials = baselineRole ? standingBaselineMaterial : standingCandidateMaterial;
     if (!validRunAs(requestRunAs(request)) || request.model !== manifest.model || request.pluginBundleDigest !== manifest.pluginBundleDigest ||
         request.binaryPath !== manifest.binaryPath || request.binaryApprovalDigest !== manifest.binaryApprovalDigest || request.binaryDigest !== manifest.binaryDigest ||
         digestObject(requestRunAs(request)) !== digestObject(manifest.runAs) || request.promptDigest !== item.promptDigest ||
@@ -166,6 +202,13 @@ export async function loadHostExecutionRequestManifest({
         request.execution?.headRevision !== manifest.headRevision || request.execution?.sourceBindingDigest !== manifest.sourceBindingDigest ||
         request.execution?.runId !== manifest.runId || request.execution?.suiteDigest !== manifest.suiteDigest ||
         request.execution?.baselineRevision !== manifest.baselineRevision || request.execution?.candidateDigest !== manifest.candidateDigest ||
+        (standing && (digestObject(request.authorization) !== digestObject(manifest.authorization) ||
+          digestObject(request.execution?.authorization) !== digestObject(manifest.authorization) ||
+          item.authorizationDigest !== consentDigest(manifest.authorization) || request.materialBinding?.sanitizerPolicyDigest !== standingPolicy.digest ||
+          request.materialBinding?.snapshotDigest !== expectedSnapshot.digest ||
+          digestObject(request.materialBinding?.files) !== digestObject(materialFileManifest(expectedSnapshot)) ||
+          request.materialBinding?.materialsDigest !== consentDigest(expectedMaterials))) ||
+        (!standing && (request.authorization !== undefined || request.execution?.authorization !== undefined || request.materialBinding !== undefined || item.authorizationDigest !== undefined)) ||
         (policyBound && (request.purpose !== purpose || request.policyDigest !== policy.digest || request.execution?.purpose !== purpose || request.execution?.policyDigest !== policy.digest)) ||
         (!policyBound && (request.purpose !== undefined || request.policyDigest !== undefined || request.execution?.purpose !== undefined || request.execution?.policyDigest !== undefined))) {
       throw new Error("Execution request is not bound to the canonical request manifest");
@@ -176,7 +219,8 @@ export async function loadHostExecutionRequestManifest({
       runAs: requestRunAs(request),
       headRevision: request.execution.headRevision,
       sourceBindingDigest: request.execution.sourceBindingDigest,
-      pluginBundleDigest: request.pluginBundleDigest
+      pluginBundleDigest: request.pluginBundleDigest,
+      authorization: request.authorization ?? null
     });
     requestDigests.push(item.requestDigest);
     executionIds.push(item.executionId);
@@ -189,6 +233,7 @@ export async function loadHostExecutionRequestManifest({
   bindings.pluginBundleDigest = manifest.pluginBundleDigest;
   bindings.purpose = manifest.purpose;
   bindings.policyDigest = manifest.policyDigest ?? null;
+  bindings.authorization = manifest.authorization ?? null;
   return bindings;
 }
 
@@ -243,11 +288,16 @@ export async function verifySelfImproveDeliveryEvidence({ root, runId, run, evid
   const policy = policyBound ? await loadPolicyBoundEvaluationPolicy({ cwd: run.manifest.cwd, purpose }) : null;
   const candidateDigest = evaluation.candidate?.digest;
   const candidateRoot = evaluation.candidate?.candidateRoot;
+  const standingAuthorization = evaluation.authorization ?? null;
+  const expectedReplayCount = expectedReplayKeys(purpose).size;
   if (!SHA1.test(evaluation.baselineRevision ?? "") || !SHA1.test(evaluation.headRevision ?? "") ||
       !SHA256.test(evaluation.sourceBindingDigest ?? "") || !SHA256.test(evaluation.pluginBundleDigest ?? "") ||
       !SHA256.test(evaluation.requestManifestDigest ?? "") || !SHA256.test(candidateDigest ?? "") ||
       (policyBound && (!policy || evaluation.policyPath !== policy.path || evaluation.policyId !== policy.policyId || evaluation.policyVersion !== policy.version || evaluation.policyDigest !== policy.digest)) ||
       (!policyBound && (evaluation.policyDigest ?? null) !== null) ||
+      (standingAuthorization !== null && (!validStandingAuthorization(standingAuthorization) ||
+        standingAuthorization.repo !== run.manifest.cwd || standingAuthorization.purpose !== purpose ||
+        standingAuthorization.requestCount !== expectedReplayCount)) ||
       typeof candidateRoot !== "string" || !candidateRoot || !SHA256.test(digestObject(evaluation.comparison))) {
     throw new Error("Self-improve accepted comparison lacks complete delivery bindings");
   }
@@ -259,6 +309,10 @@ export async function verifySelfImproveDeliveryEvidence({ root, runId, run, evid
   const staging = evidence.find((item) => item.kind === "candidate-staging" && item.status === "complete" && item.stale !== true && item.evaluation?.candidate?.digest === candidateDigest);
   const training = evidence.find((item) => item.kind === "training-replay" && item.status === "complete" && item.stale !== true && item.evaluation?.candidate?.digest === candidateDigest);
   if (!staging || !training) throw new Error("Self-improve delivery requires fresh candidate staging and training replay evidence");
+  if (digestObject(training.evaluation?.authorization ?? null) !== digestObject(standingAuthorization) ||
+      digestObject(staging.evaluation?.authorization ?? null) !== digestObject(standingAuthorization)) {
+    throw new Error("Self-improve delivery standing authorization changed between staging, training, and holdout evidence");
+  }
   const replays = [
     ...(training.evaluation?.replays ?? []),
     ...(accepted.evaluation?.candidateReplays ?? []),
@@ -266,7 +320,6 @@ export async function verifySelfImproveDeliveryEvidence({ root, runId, run, evid
   ];
   const replayKeys = new Set(replays.map((item) => `${item.execution?.role}:${item.execution?.attempt}`));
   const requiredReplayKeys = expectedReplayKeys(purpose);
-  const expectedReplayCount = requiredReplayKeys.size;
   if (replays.length !== expectedReplayCount || replayKeys.size !== expectedReplayCount || [...requiredReplayKeys].some((key) => !replayKeys.has(key)) || replays.some((item) => !requiredReplayFields(item))) {
     throw new Error(`Self-improve delivery requires exactly ${expectedReplayCount} complete host-owned Codex execution witnesses`);
   }
@@ -288,6 +341,7 @@ export async function verifySelfImproveDeliveryEvidence({ root, runId, run, evid
     const execution = replay.execution;
     if (execution.runId !== runId || execution.suiteDigest !== evaluation.suiteDigest || execution.baselineRevision !== evaluation.baselineRevision ||
         execution.candidateDigest !== candidateDigest || execution.headRevision !== evaluation.headRevision || execution.sourceBindingDigest !== evaluation.sourceBindingDigest ||
+        digestObject(execution.authorization ?? null) !== digestObject(standingAuthorization) ||
         (policyBound && (execution.purpose !== purpose || execution.policyDigest !== policy.digest)) ||
         (!policyBound && (execution.purpose !== undefined || execution.policyDigest !== undefined)) ||
         replay.model !== (evaluation.model ?? replays[0].model) || !expectedExecutions.delete(`${execution.role}:${execution.attempt}`)) {
@@ -340,6 +394,9 @@ export async function verifySelfImproveDeliveryEvidence({ root, runId, run, evid
     target: migrationTarget,
     model: evaluation.model ?? replays[0].model
   });
+  if (digestObject(requestBindings.authorization ?? null) !== digestObject(standingAuthorization)) {
+    throw new Error("Self-improve delivery request manifest standing authorization does not match accepted evidence");
+  }
   const trainCases = purpose === "safety-remediation-v1"
     ? selectSafetyRemediationCases({ suite: frozen.suite, snapshot: currentCandidate, split: "train", policy })
     : purpose === "quality-remediation-v1"
@@ -360,7 +417,8 @@ export async function verifySelfImproveDeliveryEvidence({ root, runId, run, evid
           : trainPrompt;
     const requestBinding = requestBindings.get(replay.execution.id);
     if (!requestBinding || replay.requestDigest !== requestBinding.requestDigest ||
-        replay.runAs === undefined || digestObject(replay.runAs) !== digestObject(requestBinding.runAs)) {
+        replay.runAs === undefined || digestObject(replay.runAs) !== digestObject(requestBinding.runAs) ||
+        digestObject(requestBinding.authorization ?? null) !== digestObject(standingAuthorization)) {
       throw new Error("Self-improve delivery replay is not bound to the canonical request manifest");
     }
     const witness = await verifyTrustedCodexExecutionEnvelope({

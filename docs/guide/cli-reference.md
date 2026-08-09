@@ -160,6 +160,9 @@ Gemini models are reached through Antigravity CLI (`agy`) in this runtime.
 
 ```bash
 sbw self-improve host status
+sbw self-improve consent status
+sbw self-improve consent prepare
+# execute the returned digest-bound administratorCommand once
 sbw self-improve attestation request \
   --run <run-id> \
   --baseline <sha> \
@@ -183,6 +186,17 @@ SHA-256; the JS wrapper or an arbitrary executable is rejected. Evaluation
 also requires `--request-manifest` and its administrator-confirmed
 `--request-manifest-digest`; the evaluator checks the root-owned completed batch
 journal and every request digest/run-as tuple against that manifest.
+
+After the one-time standing consent is active, exact `gpt-5.6-terra` batches
+that satisfy the checked-in sanitizer policy return an `executeCommand` using
+`/usr/bin/sudo -n` and schemaVersion 4. The root signer still independently
+revalidates the fixed repository, user identity, request root, model, purpose,
+count, source binding, prompt, file manifest, secret filter, and byte/case
+budgets. An active or partially installed grant with any mismatch fails closed
+instead of silently opening a password prompt. The explicit administrator path
+is available only when the grant is absent or explicitly revoked; inspect or
+prepare revocation with `sbw self-improve consent status|revoke`. This grant
+never supplies delivery action tokens.
 
 Self-improve does not issue commit, cache-publication, push, merge, or cleanup
 tokens. After replay evidence is accepted, create the delegated `pr-to-dev`

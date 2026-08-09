@@ -94,6 +94,7 @@ import {
 import { deliberateForRun } from "./lib/deliberation-receipt.mjs";
 import { loadEvidenceContracts } from "./lib/evidence.mjs";
 import { generateAttestationRequests } from "./lib/attestations.mjs";
+import { prepareStandingConsentInstall, standingConsentRevokeCommand } from "./lib/standing-consent.mjs";
 import { createSelfImproveDeliveryHandoff, validateSelfImproveDeliveryHandoff } from "./lib/self-improve-handoff.mjs";
 import {
   loadHostExecutionRequestManifest as loadBoundHostExecutionRequestManifest,
@@ -793,16 +794,29 @@ function structuredReplay(replay) {
 }
 
 async function commandSelfImprove(root, subcommand, options, nestedCommand = null) {
-  if (subcommand === "host") {
-    if (nestedCommand !== "status") {
-      throw new Error("self-improve host subcommand must be status");
-    }
-    assertKnownOptions(options, []);
+  const readHostStatus = async () => {
     const result = await execFileAsync(process.execPath, [HOST_TRUST_TOOL, "status"], {
       encoding: "utf8",
       maxBuffer: 1024 * 1024
     });
     return JSON.parse(result.stdout);
+  };
+  if (subcommand === "host") {
+    if (nestedCommand !== "status") {
+      throw new Error("self-improve host subcommand must be status");
+    }
+    assertKnownOptions(options, []);
+    return readHostStatus();
+  }
+  if (subcommand === "consent") {
+    if (!new Set(["status", "prepare", "revoke"]).has(nestedCommand)) {
+      throw new Error("self-improve consent subcommand must be status, prepare, or revoke");
+    }
+    assertKnownOptions(options, []);
+    const hostStatus = await readHostStatus();
+    if (nestedCommand === "status") return { ok: true, standingConsent: hostStatus.standingConsent ?? null };
+    if (nestedCommand === "prepare") return prepareStandingConsentInstall({ repo: process.cwd(), hostStatus });
+    return { ok: true, grantId: hostStatus.standingConsent?.grant?.grantId ?? null, administratorCommand: standingConsentRevokeCommand(hostStatus) };
   }
   if (subcommand === "attestation") {
     if (nestedCommand !== "request") {
@@ -865,7 +879,7 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
     return { ok: true, runId: String(nestedCommand), evidence: await addEvidence(root, String(nestedCommand), record) };
   }
   if (subcommand !== "evaluate") {
-    throw new Error("self-improve subcommand must be evaluate, host, attestation, or handoff");
+    throw new Error("self-improve subcommand must be evaluate, host, consent, attestation, or handoff");
   }
   assertKnownOptions(options, [
     "run", "cases", "baseline", "candidate-root", "backend", "split", "result-file", "model", "allow-codex", "sanitized",
@@ -1006,6 +1020,7 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
       headRevision: backend === "codex" ? requestBindings?.headRevision ?? currentSourceBinding.headRevision : currentSourceBinding.headRevision,
       sourceBindingDigest: backend === "codex" ? requestBindings?.sourceBindingDigest ?? currentSourceBinding.digest : currentSourceBinding.digest,
       pluginBundleDigest: backend === "codex" ? requestBindings?.pluginBundleDigest ?? evaluatedPluginBundleDigest : evaluatedPluginBundleDigest,
+      authorization: backend === "codex" ? requestBindings?.authorization ?? null : null,
       candidate,
       baseline,
       ...(backend === "codex"
@@ -1027,6 +1042,9 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
     role,
     sourceBindingDigest: backend === "codex" ? requestBindings?.sourceBindingDigest ?? currentSourceBinding.digest : currentSourceBinding.digest,
     attempt,
+    ...(backend === "codex" && requestBindings?.authorization
+      ? { authorization: requestBindings.authorization }
+      : {}),
     ...(policyBound ? { purpose, policyDigest: policy.digest } : {})
   });
   const prior = await listJsonRecords(root, safeJoin(run.runDir, "evidence"));
@@ -1633,6 +1651,7 @@ function help() {
       "sbw evidence add <run-id> --file <json>",
       "sbw self-improve evaluate --run <run-id> --cases <file> --baseline <git-revision> --candidate-root <path> --backend <codex|fixture> --split <train|holdout> [--trusted-codex-execution <host-file>] [--request-manifest <host-file> --request-manifest-digest <sha256>] [--purpose ordinary|evaluator-migration|safety-remediation-v1|quality-remediation-v1] [--next-cases <v2-file>]",
       "sbw self-improve host status",
+      "sbw self-improve consent status|prepare|revoke",
       "sbw self-improve attestation request --run <run-id> --baseline <sha> --candidate-root <path> --model <model> --output <outside-repo-directory> [--cases <file>] [--purpose ordinary|evaluator-migration|safety-remediation-v1|quality-remediation-v1] [--next-cases <v2-file>]",
       "sbw self-improve handoff <pr-to-dev-run-id> --source-run <self-improve-run-id>",
       "sbw finding add|update <run-id> --file <json>",

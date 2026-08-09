@@ -27,6 +27,12 @@ import {
 import { captureSourceBinding } from "./git.mjs";
 import { bundleDigest } from "./publication.mjs";
 import { binaryIdentity } from "./providers.mjs";
+import {
+  consentDigest,
+  loadStandingConsentPolicy,
+  matchStandingConsent,
+  resolveStandingConsentAuthorization
+} from "./standing-consent.mjs";
 
 const HOST_TRUST_TOOL = "/private/var/db/better-workflows/bin/bw-host-trust.mjs";
 const SOURCE_HOST_TRUST_TOOL = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../host-trust.mjs");
@@ -75,7 +81,32 @@ async function installedRuntime() {
       !signer?.supported || signer.path !== HOST_TRUST_TOOL || signer.digest !== sourceSignerDigest) {
     throw new Error("Administrator host runtime or signer is not ready; run host-trust upgrade first with the current source signer and approved Codex binary before generating replay requests");
   }
-  return { path: runtime.path, digest: runtime.digest, codexBinary };
+  return { path: runtime.path, digest: runtime.digest, codexBinary, standingConsent: status.standingConsent ?? null };
+}
+
+function isWithin(root, target) {
+  const relative = path.relative(root, target);
+  return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative));
+}
+
+function promptFileManifest(snapshot) {
+  return (snapshot.files ?? []).map((file) => ({
+    path: file.path,
+    state: file.state,
+    digest: file.digest,
+    mode: file.mode ?? null,
+    size: file.size ?? null
+  }));
+}
+
+function materialBinding(snapshot, materials, policyDigest) {
+  return {
+    schemaVersion: 1,
+    sanitizerPolicyDigest: policyDigest,
+    snapshotDigest: snapshot.digest,
+    files: promptFileManifest(snapshot),
+    materialsDigest: consentDigest(materials)
+  };
 }
 
 function isMachO(bytes) {
@@ -147,6 +178,7 @@ export async function generateAttestationRequests({
     throw new Error("Attestation requests require an exact Git source binding");
   }
   const publishableBundleDigest = await bundleDigest(path.join(resolvedRepo, "plugins", "better-workflows"));
+  const standingPolicy = await loadStandingConsentPolicy(resolvedRepo);
   const runtime = await installedRuntime();
   await verifyAdministratorRuntime(runtime);
   const binary = await codexExecutableIdentity(binaryPath);
@@ -228,6 +260,27 @@ export async function generateAttestationRequests({
     homePath,
     codexHomePath
   };
+  const executions = evaluationExecutionPlan(purpose);
+  const standingMatch = matchStandingConsent({
+    hostStatus: { standingConsent: runtime.standingConsent },
+    policy: standingPolicy,
+    repo: resolvedRepo,
+    model,
+    purpose,
+    runAs,
+    requestCount: executions.length
+  });
+  const authorization = resolveStandingConsentAuthorization(
+    { standingConsent: runtime.standingConsent },
+    standingMatch
+  );
+  if (authorization && (
+    !isWithin(authorization.requestRoot, outputDir) ||
+    path.dirname(outputDir) !== authorization.requestRoot ||
+    !/^[A-Za-z0-9][A-Za-z0-9._-]{7,127}$/.test(path.basename(outputDir))
+  )) {
+    throw new Error(`Standing evaluator consent requires --output to be one safe direct child of ${authorization.requestRoot}`);
+  }
   for (const split of ["train", "holdout"]) {
     const cases = purpose === "safety-remediation-v1"
       ? selectSafetyRemediationCases({ suite: frozen.suite, snapshot: candidate, split, policy })
@@ -247,7 +300,6 @@ export async function generateAttestationRequests({
       materials: baselineMaterial
     }));
   }
-  const executions = evaluationExecutionPlan(purpose);
   await mkdir(outputDir, { recursive: false, mode: 0o700 });
   const records = [];
   for (const item of executions) {
@@ -265,6 +317,7 @@ export async function generateAttestationRequests({
       role: item.role,
       sourceBindingDigest: sourceBinding.digest,
       attempt: item.attempt,
+      ...(authorization ? { authorization } : {}),
       ...(policyBound ? { purpose, policyDigest: policy.digest } : {})
     };
     const prompt = promptByRoleAndSplit.get(`${promptRole}:${item.split}`);
@@ -285,7 +338,17 @@ export async function generateAttestationRequests({
       pluginBundleDigest: publishableBundleDigest,
       promptDigest,
       promptPath: promptFile,
-      uid: runAs.uid
+      uid: runAs.uid,
+      ...(authorization
+        ? {
+          authorization,
+          materialBinding: materialBinding(
+            promptRole === "baseline" ? baseline : candidate,
+            promptRole === "baseline" ? baselineMaterial : candidateMaterial,
+            standingPolicy.digest
+          )
+        }
+        : {})
     };
     if (policyBound) {
       request.purpose = purpose;
@@ -302,11 +365,12 @@ export async function generateAttestationRequests({
       promptDigest: execution.promptDigest,
       prompt: promptFile,
       request: file,
-      requestDigest: createHash("sha256").update(bytes).digest("hex")
+      requestDigest: createHash("sha256").update(bytes).digest("hex"),
+      ...(authorization ? { authorizationDigest: consentDigest(authorization) } : {})
     });
   }
   const manifest = {
-    schemaVersion: policyBound ? 3 : 2,
+    schemaVersion: authorization ? 4 : policyBound ? 3 : 2,
     repo: resolvedRepo,
     runId,
     model,
@@ -329,6 +393,14 @@ export async function generateAttestationRequests({
     candidateDigest: candidate.digest,
     candidateFiles: candidate.files,
     requests: records,
+    ...(authorization
+      ? {
+        authorization,
+        baselineSnapshotDigest: baseline.digest,
+        standingConsentPolicyPath: standingPolicy.relativePath,
+        standingConsentPolicyDigest: standingPolicy.digest
+      }
+      : {}),
     ...(policyBound
       ? {
         policyPath: policy.path,
@@ -346,11 +418,13 @@ export async function generateAttestationRequests({
     ...manifest,
     manifestPath,
     manifestDigest: createHash("sha256").update(manifestBytes).digest("hex"),
+    standingConsent: standingMatch,
     executeCommand: [
       "/usr/bin/sudo",
+      ...(authorization ? ["-n"] : []),
       runtime.path,
       HOST_TRUST_TOOL,
-      "execute-batch",
+      authorization ? "execute-consented-batch" : "execute-batch",
       "--manifest",
       manifestPath,
       "--confirm-digest",

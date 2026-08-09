@@ -23,7 +23,7 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
-export const VERSION = "3.1.19";
+export const VERSION = "3.2.0";
 export const MODES = new Set(["auto", "direct", "verified", "deep", "critical"]);
 export const RUN_STATES = new Set([
   "pending",

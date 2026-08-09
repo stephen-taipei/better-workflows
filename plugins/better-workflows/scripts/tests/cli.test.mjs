@@ -58,6 +58,7 @@ async function selfImproveRepository({ includeV22 = true, includeV23 = includeV2
   const cwd = await repository();
   await mkdir(path.join(cwd, "plugins", "better-workflows", "fixtures"), { recursive: true });
   await mkdir(path.join(cwd, "plugins", "better-workflows", "scripts"), { recursive: true });
+  await mkdir(path.join(cwd, "plugins", "better-workflows", "config"), { recursive: true });
   const corpora = ["self-improve-ops-evals.json", "self-improve-ops-evals-v2.json", "self-improve-ops-evals-v2.1.json"];
   if (includeV22) corpora.push("self-improve-ops-evals-v2.2.json");
   if (includeV23) corpora.push("self-improve-ops-evals-v2.3.json");
@@ -65,6 +66,14 @@ async function selfImproveRepository({ includeV22 = true, includeV23 = includeV2
     const corpus = await readFile(path.resolve(path.dirname(CLI), "..", "fixtures", name), "utf8");
     await writeFile(path.join(cwd, "plugins", "better-workflows", "fixtures", name), corpus);
   }
+  const standingConsentPolicy = await readFile(
+    path.resolve(path.dirname(CLI), "..", "config", "self-improve-standing-consent-v1.json"),
+    "utf8"
+  );
+  await writeFile(
+    path.join(cwd, "plugins", "better-workflows", "config", "self-improve-standing-consent-v1.json"),
+    standingConsentPolicy
+  );
   await git(cwd, "add", ".");
   await git(cwd, "commit", "-qm", "freeze corpus");
   return cwd;

@@ -1780,6 +1780,7 @@
         "sourceBindingDigest",
         "pluginBundleDigest",
         "requestManifestDigest",
+        "evaluatorAuthorization",
         "comparisonDigest",
         "candidateDigest",
         "candidateRoot",
@@ -1788,6 +1789,7 @@
         "witnessDigests"
       ],
       "nullableFields": [
+        "evaluatorAuthorization",
         "policyDigest"
       ],
       "freshnessBinding": [

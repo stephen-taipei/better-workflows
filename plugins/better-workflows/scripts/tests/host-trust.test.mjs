@@ -7,6 +7,7 @@ import {
 } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -14,6 +15,8 @@ import {
   canonicalJson,
   EVALUATION_SCHEMA,
   privateKeyFromRaw,
+  standingConsentSudoers,
+  validateStandingConsentPolicy,
   validateSigningKeyPair,
   spawnCapture,
   validateExecutionRequest,
@@ -25,6 +28,10 @@ const SCRIPT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
   "host-trust.mjs"
+);
+const STANDING_CONSENT_POLICY = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../../config/self-improve-standing-consent-v1.json"
 );
 
 test("host signer reconstructs Ed25519 keys and signs canonical verifier payloads", () => {
@@ -48,6 +55,25 @@ test("host execution response schema defines array items for Codex structured ou
   assert.deepEqual(results.items.required, ["id", "disposition", "passedAssertions"]);
   assert.equal(results.items.properties.passedAssertions.type, "array");
   assert.equal(results.items.properties.passedAssertions.items.type, "string");
+});
+
+test("root signer validates the repository standing-consent policy without sanitizer drift", async () => {
+  const policy = JSON.parse(await readFile(STANDING_CONSENT_POLICY, "utf8"));
+  assert.deepEqual(validateStandingConsentPolicy(policy), policy);
+  assert.throws(
+    () => validateStandingConsentPolicy({
+      ...policy,
+      sanitization: { ...policy.sanitization, secretPattern: "a^" }
+    }),
+    /sanitization policy is invalid/
+  );
+  assert.throws(
+    () => validateStandingConsentPolicy({
+      ...policy,
+      sanitization: { ...policy.sanitization, allowedPathPatterns: ["^.*$"] }
+    }),
+    /sanitization policy is invalid/
+  );
 });
 
 test("host readiness proves the installed private key matches the trust-root public key", async () => {
@@ -107,6 +133,15 @@ test("host trust helper fixes authority paths and does not accept environment pa
   assert.match(source, /QUALITY_REMEDIATION_POLICY_PATH/);
   assert.match(source, /self-improve-quality-remediation-v1\.json/);
   assert.match(source, /QUALITY_REMEDIATION_POLICY_VERSION/);
+  assert.match(source, /HOST_SIGNER_VERSION = "2\.4\.0"/);
+  assert.match(source, /standing-consent-admin/);
+  assert.match(source, /standing-consent-execution/);
+  assert.match(source, /STANDING_CONSENT_AUTHORITY_STATEMENT_DIGEST/);
+  assert.match(source, /execute-consented-batch/);
+  assert.match(source, /schemaVersion 4 standing authorization requires execute-consented-batch/);
+  assert.match(source, /Standing-authorized execution requests require execute-consented-batch/);
+  assert.match(source, /validateConsentedPrompt/);
+  assert.match(source, /NOPASSWD:NOSETENV: sha256:/);
   assert.match(source, /maxOutputBytes = MAX_OUTPUT_BYTES/);
   assert.match(source, /runReadinessProbe/);
   assert.match(source, /chmod\(bundle, 0o755\)/);
@@ -258,4 +293,100 @@ test("host execution request is a pre-execution contract and cannot carry caller
     policyDigest: "3".repeat(64)
   };
   assert.deepEqual(validateExecutionRequest(qualityRequest), qualityRequest);
+});
+
+test("host validates standing evaluator authorization without broadening the execution contract", () => {
+  const authorization = {
+    mode: "standing-user-consent",
+    grantId: "bw-standing-1000-v1",
+    grantDigest: "1".repeat(64),
+    policyId: "self-improve-standing-evaluator-consent",
+    policyVersion: "v1",
+    policyDigest: "2".repeat(64),
+    repo: "/private/tmp/better-workflows-repository",
+    provider: "codex",
+    model: "gpt-5.6-terra",
+    purpose: "ordinary",
+    requestCount: 7,
+    requestRoot: "/private/tmp/better-workflows-standing-consent-1000",
+    subject: {
+      uid: 1000,
+      gid: 1000,
+      username: "maintainer",
+      homePath: "/home/maintainer",
+      codexHomePath: "/home/maintainer/.codex"
+    },
+    readOnly: true,
+    ephemeral: true,
+    sanitized: true
+  };
+  const execution = {
+    id: "run-holdout-candidate-1",
+    runId: "run-12345678",
+    suiteDigest: "suite-12345678",
+    baselineRevision: "abcdef1234567890abcdef1234567890abcdef12",
+    candidateDigest: "candidate-12345678",
+    headRevision: "d".repeat(40),
+    promptDigest: "a".repeat(64),
+    role: "candidate",
+    sourceBindingDigest: "e".repeat(64),
+    attempt: 1,
+    authorization
+  };
+  const request = {
+    binaryApprovalDigest: "c".repeat(64),
+    binaryDigest: "b".repeat(64),
+    binaryPath: "/usr/bin/codex",
+    codexHomePath: authorization.subject.codexHomePath,
+    execution,
+    gid: authorization.subject.gid,
+    homePath: authorization.subject.homePath,
+    model: authorization.model,
+    pluginBundleDigest: "f".repeat(64),
+    promptDigest: execution.promptDigest,
+    promptPath: "/private/tmp/replay.prompt.txt",
+    uid: authorization.subject.uid,
+    authorization,
+    materialBinding: {
+      schemaVersion: 1,
+      sanitizerPolicyDigest: authorization.policyDigest,
+      snapshotDigest: "3".repeat(64),
+      files: [{ path: "README.md", state: "missing", digest: null, mode: null, size: null }],
+      materialsDigest: "4".repeat(64)
+    }
+  };
+  assert.deepEqual(validateExecutionRequest(request), request);
+  assert.throws(
+    () => validateExecutionRequest({ ...request, model: "gpt-5.6-sol" }),
+    /does not match its execution, model, purpose, or run-as identity/
+  );
+  assert.throws(
+    () => validateExecutionRequest({ ...request, materialBinding: { ...request.materialBinding, sanitizerPolicyDigest: "5".repeat(64) } }),
+    /Material binding is invalid/
+  );
+});
+
+test("macOS visudo accepts the digest-bound standing-consent command regex", { skip: process.platform !== "darwin" }, async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "better-workflows-sudoers."));
+  const target = path.join(root, "standing-consent");
+  try {
+    const rule = standingConsentSudoers({
+      grant: {
+        subject: { username: os.userInfo().username },
+        requestRoot: "/private/tmp/better-workflows-standing-consent-501"
+      },
+      runtime: {
+        path: `/private/var/db/better-workflows/bin/bw-host-node.${"a".repeat(64)}`,
+        digest: "a".repeat(64)
+      }
+    });
+    await writeFile(target, rule, { mode: 0o440 });
+    const result = await spawnCapture("/usr/sbin/visudo", ["-cf", target], {
+      timeoutMs: 10_000,
+      maxOutputBytes: 16 * 1024
+    });
+    assert.equal(result.code, 0, result.stderr || result.stdout);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

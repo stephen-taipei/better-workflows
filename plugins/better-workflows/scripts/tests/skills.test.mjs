@@ -72,6 +72,10 @@ test("self improve is a critical thin workflow with stale-link and delegated del
   assert.match(content, /Commit, cache publication, push, merge, deploy, and cleanup are delegated\s+independent/);
   assert.match(content, /exact\s+committed\s+HEAD/);
   assert.match(content, /source-bound self-improve run/);
+  assert.match(content, /root-signed standing consent/);
+  assert.match(content, /sbw self-improve consent prepare/);
+  assert.match(content, /\/usr\/bin\/sudo -n/);
+  assert.match(content, /delivery still needs independent action authority/);
 
   const main = await readFile(path.join(skillsRoot, "better-workflows", "SKILL.md"), "utf8");
   assert.match(main, /versioned plugin-cache skill\s+path that no longer exists/);

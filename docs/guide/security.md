@@ -166,6 +166,29 @@ The host signs the confirmed request digest, exact committed HEAD/source binding
 allowlist digest, binary, and run-as identity into the attestation, receipt,
 envelope, and ledger.
 
+To keep long-running self-improvement from pausing at every batch, a maintainer
+may install one bounded standing evaluator consent after host readiness is
+current:
+
+```bash
+node plugins/better-workflows/scripts/sbw.mjs self-improve consent status
+node plugins/better-workflows/scripts/sbw.mjs self-improve consent prepare
+```
+
+`prepare` returns a digest-bound administrator command. Running that command
+once installs a root-signed, revocable grant and a `visudo`-validated rule that
+permits only the digest-pinned root runtime to invoke
+`execute-consented-batch` for one safe request directory. The grant is limited
+to this repository, the maintainer identity, `gpt-5.6-terra`, the four declared
+self-improve purposes, seven or eight read-only/tool-free sanitized requests,
+and the checked-in policy digest. It explicitly denies commit, cache, push, PR,
+merge, deploy, and cleanup authority. Matching batches use `/usr/bin/sudo -n`;
+any scope, digest, owner/mode, path, prompt, model, count, revocation, or policy
+mismatch fails closed without silently opening a password prompt. Use
+`self-improve consent revoke` to prepare the exact revocation command. The
+per-run administrator command remains available only when the standing grant is
+absent or explicitly revoked.
+
 Before generating requests, the candidate must already be the exact committed
 HEAD that will be reviewed and delivered. A dirty candidate is handed to
 `pr-to-dev` for its commit wave, followed by a fresh source-bound self-improve
@@ -194,6 +217,11 @@ delivery revalidation. A tie, mismatch, timeout, regression, or unknown result
 is not authority to commit, publish, push, or merge. The self-improve contract
 defers commit, cache publication, push, merge, and cleanup actions to the
 governed `pr-to-dev` and immutable-cache workflows.
+
+Standing-consent manifests use schemaVersion 4 and propagate the same bounded
+authorization through every request, signed execution, root batch journal,
+training/holdout evidence, and typed delivery handoff. This is provenance for
+read-only evaluator execution, never authority for delivery side effects.
 
 Before sampling by file count or bytes, the sanitizer validates every changed
 path against a fixed plugin and repository-public-document allowlist. Paths

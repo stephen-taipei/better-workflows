@@ -193,6 +193,7 @@ test("self improve keeps strict holdout and delegates delivery side effects", as
     "versioned-quality-remediation-policy",
     "control-plane-v2-evaluator-coverage",
     "host-attested-codex-only",
+    "root-signed-standing-evaluator-consent",
     "no-automatic-adoption",
     "thin-workflow-composition",
     "stale-versioned-link-resolution",

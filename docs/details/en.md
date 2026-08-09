@@ -396,6 +396,22 @@ self-improvement replays. The self-improve contract does not authorize commit,
 cache publication, push, merge, or cleanup; those actions are delegated to
 `pr-to-dev` and the immutable-cache workflow.
 
+To avoid a new administrator interruption for every long-running replay batch,
+an already-ready host may install one bounded standing evaluator consent. Run
+`sbw self-improve consent prepare`, verify the returned request digest, and
+execute its exact administrator command once. The root signer installs a signed,
+revocable grant plus a `visudo`-validated command rule restricted to the
+digest-pinned root runtime, this repository and maintainer identity,
+`gpt-5.6-terra`, the four declared purposes, seven or eight read-only/tool-free
+sanitized requests, and one fixed request root. Matching schemaVersion 4 batches
+use `/usr/bin/sudo -n`; every request, execution, root journal, evaluation record,
+and typed handoff carries the same authorization. Any mismatch in an active or
+partially installed grant fails closed without silently opening a password
+prompt. The explicit per-run administrator fallback is available only when the
+grant is absent or explicitly revoked. The grant explicitly denies
+commit, cache, push, PR, merge, deploy, and cleanup authority. Inspect or revoke
+it with `sbw self-improve consent status|revoke`.
+
 The source-bound handoff is explicit. Resolve an immutable baseline when
 creating the self-improve run, keep the candidate at a clean committed HEAD,
 then create a delegated delivery run and record its typed handoff:
@@ -419,8 +435,10 @@ delegated delivery action gates require this receipt; a generic
 `pr-to-dev` run cannot authorize delivery of an accepted self-improvement.
 The `policyDigest` key remains mandatory: it is explicitly `null` for ordinary
 and evaluator-migration runs, and a SHA-256 digest for policy-bound remediation.
-Only that declared nullable field accepts `null`; the purpose-specific handoff
-validator still enforces the exact key set and value.
+`evaluatorAuthorization` is also mandatory: it carries the exact standing
+authorization object, or is `null` only for the explicit per-run administrator
+fallback. These are the only declared nullable fields; the purpose-specific
+handoff validator still enforces the exact key set and values.
 On each host, an administrator must first confirm that the fixed trust root and
 private key are already provisioned through the host's approved bootstrap. This
 repository does not publish or execute the legacy Swift bootstrap artifact. If

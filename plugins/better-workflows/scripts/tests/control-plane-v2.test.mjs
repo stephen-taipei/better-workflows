@@ -131,7 +131,7 @@ test("typed catalog covers exactly the 99 installed evidence kinds", async () =>
   assert.ok(contracts["remote-sync"]);
 });
 
-test("typed handoff evidence admits only its declared nullable policy digest", async () => {
+test("typed handoff evidence admits only its declared nullable evaluator authorization and policy digest", async () => {
   const contracts = await loadEvidenceContracts({ refresh: true });
   const kind = "self-improve-delivery-handoff";
   const definition = contracts[kind];
@@ -143,6 +143,7 @@ test("typed handoff evidence admits only its declared nullable policy digest", a
     sourceBindingDigest: "3".repeat(64),
     pluginBundleDigest: "4".repeat(64),
     requestManifestDigest: "5".repeat(64),
+    evaluatorAuthorization: null,
     comparisonDigest: "6".repeat(64),
     candidateDigest: "7".repeat(64),
     candidateRoot: "/tmp/candidate",
@@ -150,7 +151,7 @@ test("typed handoff evidence admits only its declared nullable policy digest", a
     policyDigest: null,
     witnessDigests: ["8".repeat(64)]
   };
-  assert.deepEqual(definition.nullableFields, ["policyDigest"]);
+  assert.deepEqual(definition.nullableFields, ["evaluatorAuthorization", "policyDigest"]);
   assert.doesNotThrow(() => assertPayloadFields(
     payload,
     definition.requiredFields,
@@ -166,6 +167,12 @@ test("typed handoff evidence admits only its declared nullable policy digest", a
   assert.throws(
     () => assertPayloadFields({ ...payload, purpose: null }, definition.requiredFields, kind, definition.nullableFields),
     /missing required field: purpose/
+  );
+  const missingEvaluatorAuthorization = { ...payload };
+  delete missingEvaluatorAuthorization.evaluatorAuthorization;
+  assert.throws(
+    () => assertPayloadFields(missingEvaluatorAuthorization, definition.requiredFields, kind, definition.nullableFields),
+    /missing required field: evaluatorAuthorization/
   );
 });
 

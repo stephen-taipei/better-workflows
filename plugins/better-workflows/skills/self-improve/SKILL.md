@@ -135,9 +135,18 @@ changes `safety-remediation-v1`, the v2.2 fixture, or ordinary comparison
 semantics. A quality gap that is not reproduced is rejected as
 `baseline-quality-gap-not-reproduced`.
 
-Real replays require separate, per-run authority and use only a read-only,
-ephemeral Codex invocation. They also require a host-signed attestation for the
-exact Codex binary and requested model. The trust root is fixed at the canonical
+Real replays require authority and use only a read-only, ephemeral Codex
+invocation. For this fixed Better Workflows repository, a one-time,
+administrator-installed, root-signed standing consent may satisfy the evaluator
+execution authority without interrupting every long-running run. It is exact to
+`gpt-5.6-terra`, the four declared self-improve purposes, seven or eight
+purpose-specific requests, the maintainer uid/gid/home, the checked-in sanitizer
+policy digest, and one fixed request root. It explicitly denies commit, cache
+publication, push, PR, merge, deploy, and cleanup authority. A mismatched,
+tampered, revoked, expired, or stale grant fails closed and falls back to the
+existing per-run administrator path; prose in a prompt is never treated as a
+self-issued grant. Replays also require a host-signed attestation for the exact
+Codex binary and requested model. The trust root is fixed at the canonical
 path: on macOS `/private/etc/better-workflows/codex-trust-root.json` (the `/etc`
 spelling is a symlink), and on other platforms
 `/etc/better-workflows/codex-trust-root.json`. The trust root and every parent directory
@@ -200,6 +209,40 @@ attestation root, and request-bundle root before privileged reads or writes.
 Every parent must be administrator-owned and lack group/world write bits; a
 root-owned leaf under a writable or replaceable parent is rejected.
 
+After host readiness is current, install the bounded standing evaluator consent
+once. `prepare` writes a user-owned `0600` digest-bound request below
+`/private/tmp/better-workflows-standing-consent-<uid>` and returns the exact
+administrator command. Run only that returned command after confirming its
+digest. The root signer installs a signed grant, the checked-in sanitizer policy,
+and a `visudo`-validated `NOPASSWD:NOSETENV` rule restricted by the root-owned
+runtime SHA-256 and an anchored `execute-consented-batch` argv regex. It never
+allows a shell, arbitrary script, alternate runtime, or wildcard command.
+
+```sh
+sbw self-improve consent status
+sbw self-improve consent prepare
+# execute only the returned administratorCommand once
+```
+
+When the grant matches, attestation output must be one safe direct child of the
+fixed request root and the returned batch command uses `/usr/bin/sudo -n`.
+Treat `standingConsent.matched: true` as the already-installed authority for
+that exact evaluator batch: execute the returned command directly, do not ask
+the user to repeat a run-specific authorization sentence, and do not pause a
+long-running task for another evaluator confirmation. If `sudo -n` or any
+root-side validation fails, record the mismatch and fail closed; never weaken
+the rule or silently switch to a password prompt. A new administrator approval
+is required only to install, replace, or revoke the standing grant.
+Before execution, the root signer independently revalidates the signed grant,
+policy and command digests, owner/mode and canonical paths, exact source-bound
+manifest, request count, model, purpose, prompt schema, complete changed-file
+manifest, UTF-8, secret rejection, and sampling budgets. The schemaVersion 4
+authorization is copied into every request, execution, root batch journal,
+training/holdout record, and typed delivery handoff. It proves evaluator
+provenance only; delivery still needs independent action authority. Revoke at
+any time with `sbw self-improve consent revoke` and execute its returned
+administrator command.
+
 Before generating replay requests, the candidate checkout must be the exact
 committed HEAD that will be reviewed and delivered. If candidate work is still
 dirty, hand it to `pr-to-dev` for the commit wave first, then start a new
@@ -241,8 +284,9 @@ sbw self-improve evaluate \
   --trusted-codex-execution /host/executions/<train-result>.json --split train
 ```
 
-The exact command returned as `executeCommand` is administrator-only and
-executes the seven requests once. It returns root-owned witness paths under
+The exact command returned as `executeCommand` executes the seven requests once.
+With matching standing consent it is noninteractive and narrowly gated; without
+one it remains the explicit administrator-only fallback. It returns root-owned witness paths under
 `/private/var/db/better-workflows/executions`; pass the one training witness,
 then the six holdout witnesses to `sbw`, together with the same manifest path
 and digest. `sbw` requires the root-owned completed batch journal and verifies
@@ -274,14 +318,17 @@ sbw run --template self-improve-ops --mode critical \
 ```
 
 Pass `--purpose safety-remediation-v1` to both evaluation commands only when
-the run was created with that immutable purpose. The attestation manifest uses
-schemaVersion 3 for this purpose and includes the policy identity and digest;
-schemaVersion 2 remains the ordinary/migration contract.
+the run was created with that immutable purpose. Without standing consent, the
+attestation manifest uses schemaVersion 3 for this purpose and includes the
+policy identity and digest; schemaVersion 2 remains the ordinary/migration
+fallback contract. Matching standing consent uses schemaVersion 4 for every
+purpose and additionally binds its authorization.
 
 For a policy-bound quality remediation run, use the same v2.2 cases path and
 pass `--purpose quality-remediation-v1` to both evaluation commands only when
-the run was created with that immutable purpose. Its schemaVersion 3 manifest
-contains the independent quality policy identity and digest; it cannot be
+the run was created with that immutable purpose. Its explicit fallback uses a
+schemaVersion 3 manifest, while matching standing consent uses schemaVersion 4;
+both contain the independent quality policy identity and digest. It cannot be
 switched from an ordinary or safety-remediation run, and a prior safety run's
 witnesses cannot be pooled or replayed.
 
@@ -304,7 +351,7 @@ sbw self-improve handoff <pr-to-dev-run-id> \
 ```
 
 The handoff binds the exact source baseline and HEAD, clean source binding,
-plugin bundle, request manifest, accepted comparison, candidate snapshot, and
+plugin bundle, request manifest, evaluator authorization (or explicit fallback), accepted comparison, candidate snapshot, and
 all purpose-required distinct host witnesses (seven ordinary or eight for an
 evaluator migration). Every delegated commit, push, PR, merge,
 remote-sync, and cleanup gate requires this receipt; a generic `pr-to-dev` run
