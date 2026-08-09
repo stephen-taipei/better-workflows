@@ -261,6 +261,19 @@ export function standingConsentSudoers({ grant, runtime }) {
   ].join("\n");
 }
 
+export async function standingConsentSudoersEvidence({ grant, runtime, actualBytes = null }) {
+  const expectedBytes = Buffer.from(standingConsentSudoers({ grant, runtime }), "utf8");
+  if (actualBytes !== null) {
+    if (!Buffer.isBuffer(actualBytes) || !actualBytes.equals(expectedBytes)) {
+      throw new Error("Standing-consent sudoers rule does not match the signed grant");
+    }
+  }
+  return {
+    digest: await digest(expectedBytes),
+    verification: actualBytes === null ? "deferred-to-root-execution" : "content-verified"
+  };
+}
+
 function isWithin(root, target) {
   const relative = path.relative(root, target);
   return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative));
@@ -1064,10 +1077,15 @@ async function currentStandingConsent({ trust, runtime, signer }) {
     if (grant.revokedAt !== null) throw new Error("Standing-consent grant is revoked");
     if (grant.expiresAt !== null && Date.parse(grant.expiresAt) <= Date.now()) throw new Error("Standing-consent grant is expired");
     await validateRootOwnedFile(STANDING_CONSENT_SUDOERS, "Standing-consent sudoers rule", 0o440);
-    const sudoersBytes = await readFile(STANDING_CONSENT_SUDOERS);
-    if (sudoersBytes.toString("utf8") !== standingConsentSudoers({ grant, runtime })) {
-      throw new Error("Standing-consent sudoers rule does not match the signed grant");
-    }
+    // sudoers(5) requires this file to remain root-owned and non-world-readable.
+    // A non-root status probe therefore derives the expected digest from the
+    // verified signed grant and defers byte-for-byte validation to the root
+    // execute-consented-batch path. Root always reads and compares the file
+    // before accepting a manifest.
+    const sudoersBytes = typeof process.geteuid === "function" && process.geteuid() !== 0
+      ? null
+      : await readFile(STANDING_CONSENT_SUDOERS);
+    const sudoersEvidence = await standingConsentSudoersEvidence({ grant, runtime, actualBytes: sudoersBytes });
     return {
       active: true,
       state: "active",
@@ -1076,7 +1094,8 @@ async function currentStandingConsent({ trust, runtime, signer }) {
       grantPath: STANDING_CONSENT_GRANT,
       grantDigest: await digest(Buffer.from(canonicalJson(grant), "utf8")),
       sudoersPath: STANDING_CONSENT_SUDOERS,
-      sudoersDigest: await digest(sudoersBytes),
+      sudoersDigest: sudoersEvidence.digest,
+      sudoersVerification: sudoersEvidence.verification,
       grant,
       policy
     };

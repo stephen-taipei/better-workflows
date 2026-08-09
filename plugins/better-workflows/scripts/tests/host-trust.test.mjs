@@ -16,6 +16,7 @@ import {
   EVALUATION_SCHEMA,
   privateKeyFromRaw,
   standingConsentSudoers,
+  standingConsentSudoersEvidence,
   validateStandingConsentPolicy,
   validateSigningKeyPair,
   spawnCapture,
@@ -391,4 +392,25 @@ test("macOS visudo accepts the digest-bound standing-consent command regex", { s
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("non-root consent status can derive sudoers evidence while root rejects content drift", async () => {
+  const grant = {
+    subject: { username: "maintainer" },
+    requestRoot: "/private/tmp/better-workflows-standing-consent-501"
+  };
+  const runtime = {
+    path: `/private/var/db/better-workflows/bin/bw-host-node.${"a".repeat(64)}`,
+    digest: "a".repeat(64)
+  };
+  const expectedBytes = Buffer.from(standingConsentSudoers({ grant, runtime }), "utf8");
+  const deferred = await standingConsentSudoersEvidence({ grant, runtime });
+  const verified = await standingConsentSudoersEvidence({ grant, runtime, actualBytes: expectedBytes });
+  assert.equal(deferred.digest, verified.digest);
+  assert.equal(deferred.verification, "deferred-to-root-execution");
+  assert.equal(verified.verification, "content-verified");
+  await assert.rejects(
+    () => standingConsentSudoersEvidence({ grant, runtime, actualBytes: Buffer.from("tampered\n") }),
+    /does not match the signed grant/
+  );
 });
