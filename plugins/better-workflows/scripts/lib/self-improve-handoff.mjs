@@ -63,6 +63,7 @@ export async function validateSelfImproveDeliveryHandoff(payload, targetRun) {
     "policyDigest", "purpose", "requestManifestDigest", "sourceBaselineRevision", "sourceBindingDigest", "sourceHeadRevision",
     "sourceRunId", "witnessDigests"
   ];
+  const expectedWitnessCount = payload?.purpose === "evaluator-migration" ? 8 : 7;
   if (!payload || Object.keys(payload).sort().join("\0") !== expectedKeys.sort().join("\0") ||
       targetRun.contract.template !== "pr-to-dev" ||
       targetRun.contract.upstreamSelfImproveRunId !== payload.sourceRunId ||
@@ -74,8 +75,8 @@ export async function validateSelfImproveDeliveryHandoff(payload, targetRun) {
       !["ordinary", "evaluator-migration", "safety-remediation-v1", "quality-remediation-v1"].includes(payload.purpose) ||
       (["safety-remediation-v1", "quality-remediation-v1"].includes(payload.purpose) ? !SHA256.test(payload.policyDigest) : payload.policyDigest !== null) ||
       typeof payload.cacheRoot !== "string" || !path.isAbsolute(payload.cacheRoot) ||
-      !Array.isArray(payload.witnessDigests) || payload.witnessDigests.length !== 7 ||
-      payload.witnessDigests.some((item) => !SHA256.test(item)) || new Set(payload.witnessDigests).size !== 7) {
+      !Array.isArray(payload.witnessDigests) || payload.witnessDigests.length !== expectedWitnessCount ||
+      payload.witnessDigests.some((item) => !SHA256.test(item)) || new Set(payload.witnessDigests).size !== expectedWitnessCount) {
     throw new Error("Self-improve delivery handoff payload is structurally invalid");
   }
   if (!targetRun.root) throw new Error("Self-improve delivery handoff validation requires its state root");

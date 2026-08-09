@@ -23,7 +23,7 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
-export const VERSION = "3.1.18";
+export const VERSION = "3.1.19";
 export const MODES = new Set(["auto", "direct", "verified", "deep", "critical"]);
 export const RUN_STATES = new Set([
   "pending",
@@ -206,7 +206,7 @@ export function sha256(value) {
 
 export function buildGitPushActionBinding({
   remote,
-  remoteUrl,
+  pushUrl,
   remoteRepository,
   expectedBranch,
   expectedRevision,
@@ -215,12 +215,13 @@ export function buildGitPushActionBinding({
   const ref = `refs/heads/${expectedBranch}`;
   return {
     remote,
+    pushUrl,
     remoteRepository,
-    remoteUrlDigest: sha256(remoteUrl),
+    pushUrlDigest: sha256(pushUrl),
     expectedBranch,
     expectedRevision,
     providerExecutable,
-    pushCommand: ["git", "push", "--porcelain", remote, `${expectedRevision}:${ref}`]
+    pushCommand: ["git", "push", "--porcelain", pushUrl, `${expectedRevision}:${ref}`]
   };
 }
 
@@ -231,18 +232,22 @@ export function resolveGitPushExecutionBinding(record) {
     "git",
     "push",
     "--porcelain",
-    record.remote,
+    record.pushUrl,
     `${record.expectedRevision}:${expectedRef}`
   ];
   if (
     !resourceRemote ||
     record.remote !== resourceRemote ||
+    typeof record.pushUrl !== "string" ||
+    !record.pushUrl ||
+    record.pushUrlDigest !== sha256(record.pushUrl) ||
+    repositoryIdentity(record.pushUrl) !== record.remoteRepository ||
     resourceRef !== expectedRef ||
     JSON.stringify(record.pushCommand) !== JSON.stringify(expectedCommand)
   ) {
     throw new Error("Git push execution binding is inconsistent with the governed resource");
   }
-  return { remote: resourceRemote, ref: resourceRef, command: expectedCommand };
+  return { remote: resourceRemote, pushUrl: record.pushUrl, ref: resourceRef, command: expectedCommand };
 }
 
 function sorted(value) {
@@ -905,7 +910,7 @@ export function assertProviderReceiptShape(record, providerReceipt, outcome = re
       providerReceipt.remote !== GIT_PUSH_RESOURCE.exec(record.resource)?.[1] ||
       providerReceipt.ref !== GIT_PUSH_RESOURCE.exec(record.resource)?.[2] ||
       providerReceipt.remoteRepository !== record.remoteRepository ||
-      providerReceipt.remoteUrlDigest !== record.remoteUrlDigest ||
+      providerReceipt.pushUrlDigest !== record.pushUrlDigest ||
       providerReceipt.expectedBranch !== record.expectedBranch ||
       providerReceipt.expectedRevision !== record.expectedRevision ||
       providerReceipt.localRevision !== record.expectedRevision ||
@@ -2233,6 +2238,38 @@ function repositoryIdentity(value) {
   }
 }
 
+export async function resolveGitPushDestination(cwd, remote) {
+  if (typeof remote !== "string" || !remote || /[\r\n]/.test(remote)) {
+    throw new Error("Git push destination requires one canonical remote name");
+  }
+  const output = (await execFileAsync("git", ["remote", "get-url", "--push", "--all", remote], {
+    cwd,
+    encoding: "utf8"
+  })).stdout;
+  const pushUrls = output.split(/\r?\n/).map((value) => value.trim()).filter(Boolean);
+  if (pushUrls.length !== 1) {
+    throw new Error("Git push destination is ambiguous; exactly one effective push URL is required");
+  }
+  const pushUrl = pushUrls[0];
+  let parsed;
+  try {
+    parsed = new URL(pushUrl);
+  } catch {
+    throw new Error("Git push destination requires one parseable HTTPS URL");
+  }
+  if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.search || parsed.hash || (parsed.port && parsed.port !== "443")) {
+    throw new Error("Git push destination requires a credential-safe HTTPS URL");
+  }
+  const remoteRepository = repositoryIdentity(pushUrl);
+  if (!remoteRepository) throw new Error("Git push requires a canonical remote repository identity");
+  return {
+    remote,
+    pushUrl,
+    pushUrlDigest: sha256(pushUrl),
+    remoteRepository
+  };
+}
+
 async function currentRepositoryIdentity(cwd) {
   const remote = (await execFileAsync("git", ["remote", "get-url", "origin"], {
     cwd,
@@ -2611,23 +2648,28 @@ async function verifyGitHubProviderAuthorization(cwd, repository, executablePath
   return authorization;
 }
 
-async function verifyGitPushCredential(cwd, remote, ref, revision, repository, expectedActor = null) {
+async function verifyGitPushCredential(
+  cwd,
+  { remote, pushUrl, pushUrlDigest, ref, revision, repository },
+  expectedActor = null
+) {
   if (!repository.startsWith("github.com/")) {
     throw new Error("Git push authorization requires a GitHub-bound controlled push provider");
   }
-  const remoteUrl = (await execFileAsync("git", ["remote", "get-url", remote], {
-    cwd,
-    encoding: "utf8"
-  })).stdout.trim();
-  if (repositoryIdentity(remoteUrl) !== repository) {
-    throw new Error("Git push credential binding does not match the authorized repository");
+  const destination = await resolveGitPushDestination(cwd, remote);
+  if (
+    destination.pushUrl !== pushUrl ||
+    destination.pushUrlDigest !== pushUrlDigest ||
+    destination.remoteRepository !== repository
+  ) {
+    throw new Error("Git push credential binding does not match the authorized effective destination");
   }
-  await execFileAsync("git", ["push", "--dry-run", "--porcelain", remote, `${revision}:${ref}`], {
+  await execFileAsync("git", ["push", "--dry-run", "--porcelain", pushUrl, `${revision}:${ref}`], {
     cwd,
     encoding: "utf8",
     env: { ...process.env, GIT_TERMINAL_PROMPT: "0" }
   });
-  const credentialActor = await verifyGitHubCredentialActor(cwd, remoteUrl, repository);
+  const credentialActor = await verifyGitHubCredentialActor(cwd, pushUrl, repository);
   if (expectedActor && credentialActor.actor !== expectedActor) {
     throw new Error("Git push credential actor does not match the authorized GitHub actor");
   }
@@ -2635,6 +2677,7 @@ async function verifyGitPushCredential(cwd, remote, ref, revision, repository, e
     provider: "git",
     repository,
     remote,
+    pushUrlDigest,
     ref,
     revision,
     credentialCheck: "git-credential-actor",
@@ -3073,21 +3116,22 @@ async function verifyProviderReceipt(manifest, record, receipt) {
   }
   if (key === "git.push:git") {
     const [, remote, ref] = GIT_PUSH_RESOURCE.exec(record.resource) ?? [];
-    const output = (await execFileAsync("git", ["ls-remote", remote, ref], {
+    const destination = await resolveGitPushDestination(cwd, remote);
+    if (
+      destination.pushUrl !== record.pushUrl ||
+      destination.pushUrlDigest !== record.pushUrlDigest ||
+      destination.remoteRepository !== record.remoteRepository
+    ) {
+      throw new Error("Git push proof does not match the effective destination bound when the action token was issued");
+    }
+    const output = (await execFileAsync("git", ["ls-remote", record.pushUrl, ref], {
       cwd,
       encoding: "utf8"
     })).stdout.trim();
     const revision = output.split(/\s+/)[0];
     if (!/^[a-f0-9]{40}$/i.test(revision)) throw new Error("Git push proof does not identify a remote revision");
-    const remoteUrl = (await execFileAsync("git", ["remote", "get-url", remote], {
-      cwd,
-      encoding: "utf8"
-    })).stdout.trim();
-    const repository = repositoryIdentity(remoteUrl);
-    const remoteUrlDigest = sha256(remoteUrl);
-    if (repository !== record.remoteRepository || remoteUrlDigest !== record.remoteUrlDigest) {
-      throw new Error("Git push proof does not match the remote bound when the action token was issued");
-    }
+    const repository = destination.remoteRepository;
+    const pushUrlDigest = destination.pushUrlDigest;
     const localRevision = (await execFileAsync("git", ["rev-parse", "--verify", `${ref}^{commit}`], {
       cwd,
       encoding: "utf8"
@@ -3103,7 +3147,7 @@ async function verifyProviderReceipt(manifest, record, receipt) {
       localRevision,
       expectedBranch: record.expectedBranch,
       expectedRevision: record.expectedRevision,
-      remoteUrlDigest
+      pushUrlDigest
     };
     assertRecomputedProviderReceipt(
       providerReceipt,
@@ -3116,7 +3160,7 @@ async function verifyProviderReceipt(manifest, record, receipt) {
         remote,
         ref,
         remoteRepository: record.remoteRepository,
-        remoteUrlDigest: record.remoteUrlDigest,
+        pushUrlDigest: record.pushUrlDigest,
         expectedBranch: record.expectedBranch,
         expectedRevision: record.expectedRevision
       },
@@ -3881,12 +3925,11 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
       if (contract.template === "pr-to-dev" && ref === "refs/heads/dev") {
         throw new Error("pr-to-dev forbids direct pushes to protected dev");
       }
-      const remoteUrl = (await execFileAsync("git", ["remote", "get-url", remote], {
-        cwd: manifest.cwd,
-        encoding: "utf8"
-      })).stdout.trim();
-      const remoteRepository = repositoryIdentity(remoteUrl);
-      if (!remoteRepository) throw new Error("Git push requires a canonical remote repository identity");
+      const destination = await resolveGitPushDestination(manifest.cwd, remote);
+      const { pushUrl, pushUrlDigest, remoteRepository } = destination;
+      if (remoteRepository !== repository) {
+        throw new Error("Git push effective destination must match the authorized origin repository");
+      }
       if (contract.template === "pr-to-dev" && (remote !== "origin" || remoteRepository !== repository)) {
         throw new Error("pr-to-dev git.push must use the canonical origin repository");
       }
@@ -3897,7 +3940,7 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
       })).stdout.trim();
       actionBinding = buildGitPushActionBinding({
         remote,
-        remoteUrl,
+        pushUrl,
         remoteRepository,
         expectedBranch,
         expectedRevision,
@@ -3909,10 +3952,7 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
         }
         actionBinding.gitCredentialCheck = await verifyGitPushCredential(
           manifest.cwd,
-          remote,
-          ref,
-          expectedRevision,
-          remoteRepository,
+          { remote, pushUrl, pushUrlDigest, ref, revision: expectedRevision, repository: remoteRepository },
           providerAuthorization.actor
         );
         assertRemoteAuthorizationEvidence(admittedEvidence, request, providerAuthorization, repository);
@@ -4245,10 +4285,14 @@ async function consumeActionTokenInternal(root, runId, token, currentTreeDigest,
     if (record.gitCredentialCheck) {
       const credentialCheck = await verifyGitPushCredential(
         manifest.cwd,
-        record.gitCredentialCheck.remote,
-        record.gitCredentialCheck.ref,
-        record.gitCredentialCheck.revision,
-        record.gitCredentialCheck.repository,
+        {
+          remote: record.remote,
+          pushUrl: record.pushUrl,
+          pushUrlDigest: record.pushUrlDigest,
+          ref: record.gitCredentialCheck.ref,
+          revision: record.gitCredentialCheck.revision,
+          repository: record.gitCredentialCheck.repository
+        },
         record.providerAuthorization?.actor ?? null
       );
       if (digestObject(credentialCheck) !== digestObject(record.gitCredentialCheck)) {
@@ -4369,7 +4413,7 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
   }
   const consumed = await consumeActionTokenInternal(root, runId, token, currentTreeDigest, true);
   if (consumed.action === "git.push" && consumed.provider === "git") {
-    const { remote, ref, command: expectedCommand } = resolveGitPushExecutionBinding(consumed);
+    const { remote, pushUrl, ref, command: expectedCommand } = resolveGitPushExecutionBinding(consumed);
     const manifest = await readJson(root, safeJoin(runDirectory(root, runId), "manifest.json"));
     const executable = await currentProviderExecutableIdentity("git");
     if (digestObject(executable) !== digestObject(consumed.providerExecutable)) {
@@ -4377,10 +4421,14 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
     }
     const credentialCheck = await verifyGitPushCredential(
       manifest.cwd,
-      remote,
-      ref,
-      consumed.expectedRevision,
-      consumed.remoteRepository,
+      {
+        remote,
+        pushUrl,
+        pushUrlDigest: consumed.pushUrlDigest,
+        ref,
+        revision: consumed.expectedRevision,
+        repository: consumed.remoteRepository
+      },
       consumed.providerAuthorization?.actor ?? null
     );
     if (digestObject(credentialCheck) !== digestObject(consumed.gitCredentialCheck)) {

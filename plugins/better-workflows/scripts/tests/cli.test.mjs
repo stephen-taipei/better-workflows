@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { promisify } from "node:util";
 import { access, mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -296,10 +297,17 @@ test("delegated pr-to-dev runs require the typed self-improve handoff gate", asy
   const contract = JSON.parse(await readFile(path.join(stateRoot, "runs", target.json.runId, "contract.json"), "utf8"));
   assert.equal(contract.upstreamSelfImproveRunId, source.json.runId);
   assert.ok(contract.requiredEvidence.includes("self-improve-delivery-handoff"));
+  assert.ok(contract.requiredEvidence.includes("cache-publication"));
+  for (const requirements of Object.values(contract.acceptanceEvidence)) {
+    assert.ok(requirements.includes("self-improve-delivery-handoff"));
+    assert.ok(requirements.includes("cache-publication"));
+  }
   for (const action of ["git.commit", "plugin.cache.publish", "git.push", "pr.create", "pr.merge", "remote.sync", "worktree.cleanup"]) {
     assert.ok(contract.actionGates[action].includes("self-improve-delivery-handoff"), action);
   }
-  assert.ok(contract.executionStages.find((stage) => stage.id === "commits").requiredEvidence.includes("self-improve-delivery-handoff"));
+  const commitsStageEvidence = contract.executionStages.find((stage) => stage.id === "commits").requiredEvidence;
+  assert.ok(commitsStageEvidence.includes("self-improve-delivery-handoff"));
+  assert.ok(commitsStageEvidence.includes("cache-publication"));
 });
 
 test("evaluator migration binds immutable source and target suites, calibration, and a dedicated comparison policy", async () => {
@@ -316,7 +324,7 @@ test("evaluator migration binds immutable source and target suites, calibration,
   const started = await cli(cwd, stateRoot, [
     "run", "--template", "self-improve-ops", "--mode", "critical", "--goal", "Migrate evaluator", "--scope", ".", "--baseline", baseline, "--authority", "git.commit"
   ]);
-  const fixture = await fixtureResult(cwd, "self-improve-ops-evals-v2.2.json");
+  const fixture = await fixtureResult(cwd, "self-improve-ops-evals-v2.3.json");
   const common = [
     "self-improve", "evaluate",
     "--run", started.json.runId,
@@ -330,6 +338,11 @@ test("evaluator migration binds immutable source and target suites, calibration,
   ];
   const train = await cli(cwd, stateRoot, [...common, "--split", "train"], { env: { SBW_TEST_FIXTURE_BACKEND: "1" } });
   assert.equal(train.json.calibration.materialGroups.includes("runtime"), true);
+  assert.equal(train.json.migrationTrainingComparison.accepted, true);
+  assert.deepEqual(
+    train.json.calibration.targetOnlyCaseIds.train,
+    ["evaluator-v23-versioned-migration", "publication-owned-marker-cleanup"]
+  );
   assert.equal(train.json.evidence.length, 4);
   const holdout = await cli(cwd, stateRoot, [...common, "--split", "holdout"], { env: { SBW_TEST_FIXTURE_BACKEND: "1" } });
   assert.equal(holdout.json.comparison.accepted, true);
@@ -415,7 +428,7 @@ test("self-improve evaluation fails closed when its suite or staged candidate ch
   assert.match(changedSuite.stderr, /drifted from the immutable baseline/);
 });
 
-test("self-improve attestation request freezes seven distinct requests and rejects unsafe drift", async () => {
+test("self-improve attestation request freezes the purpose-specific replay set and rejects unsafe drift", async () => {
   const cwd = await selfImproveRepository();
   const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-attestation-state-"));
   await writeFile(path.join(cwd, "plugins", "better-workflows", "scripts", "sbw.mjs"), "export const candidate = true;\n");
@@ -438,7 +451,8 @@ test("self-improve attestation request freezes seven distinct requests and rejec
   const parent = await mkdtemp(path.join(os.tmpdir(), "sbw-attestation-output-"));
   const output = path.join(parent, "requests");
   const hostStatus = await cli(cwd, stateRoot, ["self-improve", "host", "status"], { allowFailure: true });
-  const hostReady = hostStatus.code === 0 && hostStatus.json?.ready === true;
+  const sourceSignerDigest = createHash("sha256").update(await readFile(path.resolve(path.dirname(CLI), "host-trust.mjs"))).digest("hex");
+  const hostReady = hostStatus.code === 0 && hostStatus.json?.ready === true && hostStatus.json?.signer?.digest === sourceSignerDigest;
   const approvedBinary = hostStatus.json?.codexBinary?.validEntries?.[0]?.path ?? process.execPath;
   if (hostStatus.code !== 0) {
     assert.match(hostStatus.stderr, /Administrator host status is unavailable|ENOENT: no such file or directory, lstat .*better-workflows.*codex-trust-root/);
@@ -522,7 +536,11 @@ test("self-improve attestation request freezes seven distinct requests and rejec
     "--next-cases",
     "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.3.json"
   ]);
-  assert.equal(migration.json.requests.length, 7);
+  assert.equal(migration.json.requests.length, 8);
+  assert.deepEqual(
+    migration.json.requests.filter((item) => item.role.startsWith("train-")).map((item) => item.role).sort(),
+    ["train-baseline", "train-candidate"]
+  );
   assert.equal(migration.json.suitePath, "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.2.json");
   assert.equal(migration.json.targetSuitePath, "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.3.json");
   assert.match(migration.json.sourceSuiteDigest, /^[a-f0-9]{64}$/);
@@ -533,13 +551,21 @@ test("self-improve attestation request freezes seven distinct requests and rejec
     assert.equal(request.execution.suiteDigest, migration.json.suiteDigest);
     migrationPrompts.push(await readFile(request.promptPath, "utf8"));
   }
-  const sourceSuite = JSON.parse(await readFile(path.join(
+  const targetSuite = JSON.parse(await readFile(path.join(
     cwd,
-    "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.2.json"
+    "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.3.json"
   ), "utf8"));
   const signedPromptCorpus = migrationPrompts.join("\n");
-  for (const evaluationCase of sourceSuite.cases) {
+  for (const evaluationCase of targetSuite.cases) {
     assert.match(signedPromptCorpus, new RegExp(evaluationCase.id));
+  }
+  for (const id of [
+    "evaluator-v23-versioned-migration",
+    "evaluator-v23-class-headroom",
+    "publication-owned-marker-cleanup",
+    "publication-successor-marker-race"
+  ]) {
+    assert.match(signedPromptCorpus, new RegExp(id));
   }
 
   await mkdir(path.join(cwd, "plugins", "better-workflows", "scripts", "lib"), { recursive: true });

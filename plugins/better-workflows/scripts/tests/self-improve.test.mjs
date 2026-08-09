@@ -7,6 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { pluginRoot } from "../lib/core.mjs";
+import { evaluationExecutionPlan } from "../lib/attestations.mjs";
 import {
   buildEvaluationPrompt,
   calibrateEvaluatorMigration,
@@ -501,48 +502,86 @@ test("evaluation v2 separates invariant safety from strict relevant-class improv
   assert.equal(safetyRegression.reason, "hard-safety-failure");
 });
 
-test("evaluator migration permits only host-replay safety non-regression semantics", () => {
-  const migrationRun = ({
-    invariantScore = 1,
-    improvementScore = 1,
-    invariantSafety = true,
-    improvementSafety = true
-  } = {}) => ({
-    score: (invariantScore + improvementScore) / 2,
-    hardSafetyPass: invariantSafety && improvementSafety,
-    perCase: [
-      { id: "invariant", evaluationClass: "universal-safety", score: invariantScore, hardSafetyPass: invariantSafety },
-      { id: "improvement", evaluationClass: "evaluation-engineering", score: improvementScore, hardSafetyPass: improvementSafety }
-    ]
+test("evaluator migration executes every target case and requires target-only headroom", () => {
+  const run = (split, { targetOnlyScore, overrides = {}, unsafe = [] } = {}) => {
+    const sourceIds = new Set(suiteV22.cases.map((item) => item.id));
+    const cases = suiteV23.cases.filter((item) => item.split === split);
+    const perCase = cases.map((item) => {
+      const score = overrides[item.id] ?? (sourceIds.has(item.id) ? 1 : targetOnlyScore);
+      return {
+        id: item.id,
+        evaluationClass: item.evaluationClass,
+        score,
+        hardSafetyPass: !unsafe.includes(item.id)
+      };
+    });
+    return {
+      score: perCase.reduce((sum, item) => sum + item.score, 0) / perCase.length,
+      hardSafetyPass: perCase.every((item) => item.hardSafetyPass),
+      perCase
+    };
+  };
+  const compare = (split, baseline, candidate) => compareEvaluatorMigration({
+    baseline,
+    candidate,
+    sourceSuite: suiteV22,
+    targetSuite: suiteV23,
+    split
   });
-  assert.equal(compareEvaluatorMigration({
-    baseline: [migrationRun(), migrationRun(), migrationRun()],
-    candidate: [migrationRun(), migrationRun(), migrationRun()],
-    suite: suiteV22
-  }).accepted, true);
-  assert.equal(compareEvaluatorMigration({
-    baseline: [migrationRun(), migrationRun(), migrationRun()],
-    candidate: [migrationRun({ improvementScore: 0.5 }), migrationRun(), migrationRun()],
-    suite: suiteV22
-  }).reason, "migration-noisy-candidate-run");
-  assert.equal(compareEvaluatorMigration({
-    baseline: [migrationRun(), migrationRun(), migrationRun()],
-    candidate: [migrationRun({ improvementSafety: false }), migrationRun(), migrationRun()],
-    suite: suiteV22
-  }).reason, "candidate-hard-safety-failure");
+  const holdoutBaseline = () => run("holdout", { targetOnlyScore: 0.5 });
+  const holdoutCandidate = () => run("holdout", { targetOnlyScore: 1 });
+  const accepted = compare(
+    "holdout",
+    [holdoutBaseline(), holdoutBaseline(), holdoutBaseline()],
+    [holdoutCandidate(), holdoutCandidate(), holdoutCandidate()]
+  );
+  assert.equal(accepted.accepted, true);
+  assert.deepEqual(
+    accepted.targetOnly.map((item) => item.id),
+    ["evaluator-v23-class-headroom", "publication-successor-marker-race"]
+  );
 
-  const repairedBaselineGap = compareEvaluatorMigration({
-    baseline: [migrationRun({ improvementScore: 0, improvementSafety: false }), migrationRun(), migrationRun()],
-    candidate: [migrationRun(), migrationRun(), migrationRun()],
-    suite: suiteV22
-  });
-  assert.equal(repairedBaselineGap.accepted, true);
-  assert.deepEqual(repairedBaselineGap.baselineNonInvariantHardSafetyFailures, [{ attempt: 1, id: "improvement" }]);
-  assert.equal(compareEvaluatorMigration({
-    baseline: [migrationRun({ invariantScore: 0, invariantSafety: false }), migrationRun(), migrationRun()],
-    candidate: [migrationRun(), migrationRun(), migrationRun()],
-    suite: suiteV22
-  }).reason, "migration-invariant-hard-safety-failure");
+  const missing = holdoutBaseline();
+  missing.perCase = missing.perCase.filter((item) => item.id !== "evaluator-v23-class-headroom");
+  assert.throws(
+    () => compare("holdout", [missing, missing, missing], [holdoutCandidate(), holdoutCandidate(), holdoutCandidate()]),
+    /does not cover every target-suite case/
+  );
+  assert.equal(compare(
+    "holdout",
+    [run("holdout", { targetOnlyScore: 1 }), run("holdout", { targetOnlyScore: 1 }), run("holdout", { targetOnlyScore: 1 })],
+    [holdoutCandidate(), holdoutCandidate(), holdoutCandidate()]
+  ).reason, "migration-target-only-baseline-saturated");
+  assert.equal(compare(
+    "holdout",
+    [holdoutBaseline(), holdoutBaseline(), holdoutBaseline()],
+    [run("holdout", { targetOnlyScore: 0.5 }), holdoutCandidate(), holdoutCandidate()]
+  ).reason, "migration-target-only-no-strict-improvement");
+  assert.equal(compare(
+    "holdout",
+    [holdoutBaseline(), holdoutBaseline(), holdoutBaseline()],
+    [run("holdout", { targetOnlyScore: 1, unsafe: ["evaluator-v23-class-headroom"] }), holdoutCandidate(), holdoutCandidate()]
+  ).reason, "candidate-hard-safety-failure");
+  assert.equal(compare(
+    "holdout",
+    [holdoutBaseline(), holdoutBaseline(), holdoutBaseline()],
+    [
+      run("holdout", { targetOnlyScore: 1, overrides: { "universal-sensitive-history": 0.5 } }),
+      run("holdout", { targetOnlyScore: 1, overrides: { "universal-sensitive-history": 0.5 } }),
+      run("holdout", { targetOnlyScore: 1, overrides: { "universal-sensitive-history": 0.5 } })
+    ]
+  ).reason, "migration-safety-regression");
+  assert.equal(compare(
+    "holdout",
+    [run("holdout", { targetOnlyScore: 0.5, unsafe: ["universal-sensitive-history"] }), holdoutBaseline(), holdoutBaseline()],
+    [holdoutCandidate(), holdoutCandidate(), holdoutCandidate()]
+  ).reason, "migration-invariant-hard-safety-failure");
+
+  assert.equal(compare(
+    "train",
+    [run("train", { targetOnlyScore: 0.25 })],
+    [run("train", { targetOnlyScore: 1 })]
+  ).accepted, true);
 });
 
 test("evaluation prompt excludes hidden dispositions and hard-safety rubric", () => {
@@ -857,6 +896,24 @@ test("evaluator migration preserves complete source and target coverage while bi
     targetDigest: suiteV23Digest
   });
   assert.deepEqual(calibration.materialGroups, ["fixtures", "runtime", "tests"]);
+  assert.deepEqual(calibration.targetOnlyCaseIds, {
+    train: ["evaluator-v23-versioned-migration", "publication-owned-marker-cleanup"],
+    holdout: ["evaluator-v23-class-headroom", "publication-successor-marker-race"]
+  });
+  assert.deepEqual(calibration.trainCaseIds, suiteV23.cases.filter((item) => item.split === "train").map((item) => item.id).sort());
+  assert.deepEqual(calibration.holdoutCaseIds, suiteV23.cases.filter((item) => item.split === "holdout").map((item) => item.id).sort());
+  const plan = evaluationExecutionPlan("evaluator-migration");
+  assert.equal(plan.length, 8);
+  assert.equal(evaluationExecutionPlan("ordinary").length, 7);
+  assert.deepEqual(
+    plan.filter((item) => item.split === "train").map((item) => item.role).sort(),
+    ["train-baseline", "train-candidate"]
+  );
+  for (const split of ["train", "holdout"]) {
+    const cases = selectEvaluatorMigrationCases({ suite: suiteV23, split });
+    const prompt = buildEvaluationPrompt({ suite: { ...suiteV23, cases }, candidate: { digest: "candidate", files: [] } });
+    for (const id of calibration.targetOnlyCaseIds[split]) assert.match(prompt, new RegExp(id));
+  }
   assert.match(calibration.digest, /^[a-f0-9]{64}$/);
   const targetClasses = [
     "deliberation-roster-terminology",

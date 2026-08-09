@@ -188,8 +188,9 @@ Self-improve does not issue commit, cache-publication, push, merge, or cleanup
 tokens. After replay evidence is accepted, create the delegated `pr-to-dev`
 run with `--self-improve-run`, record the typed `self-improve-delivery-handoff`,
 and only then use the governed atomic-commit/`dev` PR flow and immutable cache
-publisher. The handoff is bound to the clean exact source HEAD and all seven
-trusted replay witnesses.
+publisher. The handoff is bound to the clean exact source HEAD and the complete
+purpose-specific witness set: seven trusted replays for ordinary evaluation or
+eight for evaluator migration.
 
 ## Repository validation
 

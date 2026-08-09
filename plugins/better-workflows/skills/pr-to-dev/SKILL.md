@@ -24,7 +24,8 @@ The typed `self-improve-delivery-handoff` receipt is mandatory before any
 commit, push, PR creation, merge, remote synchronization, or cleanup token is
 issued. It proves the source run's accepted trusted holdout, clean exact HEAD,
 plugin bundle, request/comparison/candidate digests, and seven distinct host
-witnesses. A normal unbound `pr-to-dev` run is not an acceptable substitute.
+witnesses for ordinary evaluation or eight for evaluator migration. A normal
+unbound `pr-to-dev` run is not an acceptable substitute.
 
 If the governed PR provider returns `unknown`, keep the `pull/new` reservation and query the provider before deciding. Reconcile the same attempt as success only when the exact native marker, actor, source head, bound repository, and provider object are proven; reconcile it as failure only after a fresh pinned-provider query proves the exact candidate PR is absent. An unpinned or local absence snapshot may not release the reservation. A provider-execution reservation may be resumed only by the same run/action attempt/token, execution identity, and recorded outcome after an interrupted action-record write, with at most one unknown-to-terminal supersession; never reuse a superseded identity, legacy-format record, second identity, or another attempt.
 

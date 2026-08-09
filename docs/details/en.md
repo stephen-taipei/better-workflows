@@ -341,7 +341,9 @@ coverage, and adds an isolated plugin-cache-publication class for marker
 ownership races. Exact allowlisted release-version-only substitutions stay in
 the signed manifest but do not activate unrelated saturated classes; every
 other byte change remains semantic. Its one-time migration freezes v2.2 as the
-source and binds both immutable suite digests into all seven signed executions.
+source and binds both immutable suite digests into eight signed executions: an
+independent baseline and candidate training replay plus three baseline and three
+candidate holdouts.
 Admission also pins the canonical v2.2 suite digest and requires every
 inherited class identity, semantics, and existing path mapping to remain
 unchanged, plus all 18 inherited cases to match exactly. New coverage may add
@@ -355,10 +357,11 @@ satisfied assertion is reported independently of disposition. Migration still
 requires candidate hard-safety and baseline/candidate universal invariants in
 all three holdout replays; a source baseline non-invariant miss is accepted only
 when every candidate replay repairs it without median regression or noise.
-Migration source replay and target calibration include every case in their
-immutable versioned suites, so inherited governed surfaces remain covered and
-new classes are calibrated; ordinary evaluation continues to use only
-applicable changed-path classes.
+Every signed migration replay executes the complete target split, including all
+byte-preserved inherited cases. Each target-only baseline must retain headroom,
+and every target-only case must improve in the candidate without hard-safety
+failure, regression, or noisy candidate replay; ordinary evaluation continues
+to use only applicable changed-path classes.
 
 `safety-remediation-v1` is a separate run-creation purpose. It uses the fixed
 `plugins/better-workflows/config/self-improve-safety-remediation-v1.json` policy
@@ -407,8 +410,9 @@ sbw self-improve handoff <pr-to-dev-run-id> \
 
 `self-improve-delivery-handoff` binds the source run's exact baseline, HEAD,
 clean source binding, plugin bundle, request manifest, accepted comparison,
-candidate snapshot, seven distinct host witnesses, and canonical Codex plugin
-cache root. The delegated delivery action gates require this receipt; a generic
+candidate snapshot, all purpose-required host witnesses (seven ordinary or
+eight for evaluator migration), and canonical Codex plugin cache root. The
+delegated delivery action gates require this receipt; a generic
 `pr-to-dev` run cannot authorize delivery of an accepted self-improvement.
 The `policyDigest` key remains mandatory: it is explicitly `null` for ordinary
 and evaluator-migration runs, and a SHA-256 digest for policy-bound remediation.
@@ -445,8 +449,9 @@ Before request generation, the candidate must already be the exact committed
 HEAD that will be reviewed and delivered. If it is dirty, use `pr-to-dev` for
 the commit wave and start a fresh source-bound self-improve run. Changing the
 source or plugin bundle after request generation invalidates every witness.
-After a candidate is frozen, generate all seven distinct requests outside the
-repository. The output includes a manifest digest and an exact `executeCommand`;
+After a candidate is frozen, generate the complete purpose-specific request set
+outside the repository: seven requests for ordinary evaluation and eight for
+evaluator migration. The output includes a manifest digest and an exact `executeCommand`;
 the administrator reviews both before running that one host-execution command;
 the command verifies the already-installed runtime in the fixed root-owned host
 directory before invoking the signer:

@@ -1510,8 +1510,9 @@ async function executeBatch(manifestPath, confirmedManifestDigest) {
   const manifest = JSON.parse(manifestBytes.toString("utf8"));
   const policyBinding = policyBindingForPurpose(manifest.purpose);
   const expectedManifestSchema = policyBinding ? 3 : 2;
-  if (manifest.schemaVersion !== expectedManifestSchema || !Array.isArray(manifest.requests) || manifest.requests.length !== 7) {
-    throw new Error(`execution manifest must be schemaVersion ${expectedManifestSchema} with exactly seven requests`);
+  const expectedRequestCount = manifest.purpose === "evaluator-migration" ? 8 : 7;
+  if (manifest.schemaVersion !== expectedManifestSchema || !Array.isArray(manifest.requests) || manifest.requests.length !== expectedRequestCount) {
+    throw new Error(`execution manifest must be schemaVersion ${expectedManifestSchema} with exactly ${expectedRequestCount} requests`);
   }
   if (manifest.schemaVersion !== expectedManifestSchema || !["ordinary", "evaluator-migration", "safety-remediation-v1", "quality-remediation-v1"].includes(manifest.purpose) ||
       (policyBinding
@@ -1527,7 +1528,7 @@ async function executeBatch(manifestPath, confirmedManifestDigest) {
       typeof manifest.suiteDigest !== "string" || !manifest.suiteDigest ||
       typeof manifest.baselineRevision !== "string" || !manifest.baselineRevision ||
       typeof manifest.candidateDigest !== "string" || !manifest.candidateDigest ||
-      !Array.isArray(manifest.requests) || manifest.requests.length !== 7) {
+      !Array.isArray(manifest.requests) || manifest.requests.length !== expectedRequestCount) {
     throw new Error("execution manifest must bind the administrator Node runtime digest");
   }
   const manifestRunAs = validateManifestRunAs(manifest.runAs);

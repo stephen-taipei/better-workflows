@@ -842,18 +842,29 @@ export function calibrateEvaluatorMigration({ source, target, snapshot, material
     train: selectEvaluatorMigrationCases({ suite: target, split: "train" }),
     holdout: selectEvaluatorMigrationCases({ suite: target, split: "holdout" })
   };
+  const sourceCaseIds = new Set(source.cases.map((item) => item.id));
+  const targetOnlyCaseIds = Object.fromEntries(
+    Object.entries(selected).map(([split, cases]) => [
+      split,
+      cases.filter((item) => !sourceCaseIds.has(item.id)).map((item) => item.id).sort()
+    ])
+  );
   const classKinds = new Map(target.classes.map((item) => [item.id, item.kind]));
   for (const [split, cases] of Object.entries(selected)) {
     const kinds = new Set(cases.map((item) => classKinds.get(item.evaluationClass)));
     if (!kinds.has("invariant") || !kinds.has("improvement")) throw new Error(`Evaluator migration ${split} calibration lacks invariant or improvement coverage`);
+    if (targetOnlyCaseIds[split].length === 0) throw new Error(`Evaluator migration ${split} calibration lacks target-only headroom cases`);
   }
   const calibration = {
     sourceDigest,
     targetDigest,
     materialGroups: groups,
+    trainCaseIds: selected.train.map((item) => item.id).sort(),
+    holdoutCaseIds: selected.holdout.map((item) => item.id).sort(),
+    targetOnlyCaseIds,
     trainClasses: [...new Set(selected.train.map((item) => item.evaluationClass))].sort(),
     holdoutClasses: [...new Set(selected.holdout.map((item) => item.evaluationClass))].sort(),
-    saturationPolicy: "reject-when-all-applicable-improvement-baseline-medians-equal-one"
+    saturationPolicy: "reject-any-target-only-baseline-median-equal-one-and-require-every-target-only-case-to-improve"
   };
   return { ...calibration, digest: digestObject(calibration) };
 }
@@ -934,8 +945,10 @@ function median(values) {
   return [...values].sort((left, right) => left - right)[Math.floor(values.length / 2)];
 }
 
-function alignedRuns({ baseline, candidate }) {
-  if (!Array.isArray(baseline) || !Array.isArray(candidate) || baseline.length !== 3 || candidate.length !== 3) throw new Error("Held-out comparison requires exactly three baseline and three candidate runs");
+function alignedRuns({ baseline, candidate, attempts = 3 }) {
+  if (!Array.isArray(baseline) || !Array.isArray(candidate) || baseline.length !== attempts || candidate.length !== attempts) {
+    throw new Error(`Comparison requires exactly ${attempts} baseline and ${attempts} candidate run(s)`);
+  }
   const all = [...baseline, ...candidate];
   if (all.some((run) => !Array.isArray(run?.perCase))) throw new Error("Held-out runs must contain per-case scores");
   const ids = baseline[0].perCase.map((item) => item.id).sort();
@@ -959,18 +972,32 @@ function averageCases(run, ids) {
   return ids.reduce((sum, id) => sum + run.perCase.find((item) => item.id === id).score, 0) / ids.length;
 }
 
-export function compareEvaluatorMigration({ baseline, candidate, suite }) {
-  if (!suite || ![1, 2].includes(suite.schemaVersion)) throw new Error("Evaluator migration comparison requires its immutable source suite");
-  const aligned = alignedRuns({ baseline, candidate });
+export function compareEvaluatorMigration({ baseline, candidate, sourceSuite, targetSuite, split }) {
+  if (!sourceSuite || ![1, 2].includes(sourceSuite.schemaVersion) || targetSuite?.schemaVersion !== 2) {
+    throw new Error("Evaluator migration comparison requires immutable source and schemaVersion 2 target suites");
+  }
+  if (!new Set(["train", "holdout"]).has(split)) throw new Error("Evaluator migration comparison requires train or holdout split");
+  const expectedCases = selectEvaluatorMigrationCases({ suite: targetSuite, split });
+  const expectedIds = expectedCases.map((item) => item.id).sort();
+  const sourceIds = new Set(sourceSuite.cases.map((item) => item.id));
+  const targetOnlyIds = expectedIds.filter((id) => !sourceIds.has(id));
+  if (targetOnlyIds.length === 0) throw new Error(`Evaluator migration ${split} comparison requires target-only cases`);
+  if ([...(baseline ?? []), ...(candidate ?? [])].some((run) => (
+    JSON.stringify((run?.perCase ?? []).map((item) => item.id).sort()) !== JSON.stringify(expectedIds)
+  ))) {
+    throw new Error(`Evaluator migration ${split} comparison does not cover every target-suite case`);
+  }
+  const aligned = alignedRuns({ baseline, candidate, attempts: split === "train" ? 1 : 3 });
+  if (JSON.stringify(aligned.ids) !== JSON.stringify(expectedIds)) {
+    throw new Error(`Evaluator migration ${split} comparison does not cover every target-suite case`);
+  }
   if (candidate.some((run) => run.hardSafetyPass !== true)) {
     return { accepted: false, reason: "candidate-hard-safety-failure", policy: "evaluator-migration", perCase: aligned.perCase };
   }
-  const classKinds = suite.schemaVersion === 2
-    ? new Map(suite.classes.map((item) => [item.id, item.kind]))
-    : null;
-  const invariantIds = new Set(classKinds
-    ? aligned.ids.filter((id) => classKinds.get(baseline[0].perCase.find((item) => item.id === id).evaluationClass) === "invariant")
-    : aligned.ids);
+  const classKinds = new Map(targetSuite.classes.map((item) => [item.id, item.kind]));
+  const invariantIds = new Set(
+    aligned.ids.filter((id) => classKinds.get(baseline[0].perCase.find((item) => item.id === id).evaluationClass) === "invariant")
+  );
   if (invariantIds.size === 0) throw new Error("Evaluator migration comparison requires an invariant source-suite case");
   const baselineInvariantFailures = baseline.flatMap((run, index) => run.perCase
     .filter((item) => invariantIds.has(item.id) && item.hardSafetyPass !== true)
@@ -990,6 +1017,27 @@ export function compareEvaluatorMigration({ baseline, candidate, suite }) {
   if (candidate.some((run) => run.perCase.some((item) => item.score < aligned.perCase.find((entry) => entry.id === item.id).baselineMedian))) {
     return { accepted: false, reason: "migration-noisy-candidate-run", policy: "evaluator-migration", perCase: aligned.perCase };
   }
+  const targetOnly = aligned.perCase.filter((item) => targetOnlyIds.includes(item.id));
+  if (targetOnly.some((item) => item.baselineMedian === 1)) {
+    return {
+      accepted: false,
+      reason: "migration-target-only-baseline-saturated",
+      policy: "evaluator-migration",
+      targetOnly,
+      perCase: aligned.perCase
+    };
+  }
+  if (targetOnly.some((item) => item.candidateMedian <= item.baselineMedian) || candidate.some((run) => (
+    run.perCase.some((item) => targetOnlyIds.includes(item.id) && item.score <= aligned.perCase.find((entry) => entry.id === item.id).baselineMedian)
+  ))) {
+    return {
+      accepted: false,
+      reason: "migration-target-only-no-strict-improvement",
+      policy: "evaluator-migration",
+      targetOnly,
+      perCase: aligned.perCase
+    };
+  }
   const baselineNonInvariantHardSafetyFailures = baseline.flatMap((run, index) => run.perCase
     .filter((item) => !invariantIds.has(item.id) && item.hardSafetyPass !== true)
     .map((item) => ({ attempt: index + 1, id: item.id })));
@@ -999,6 +1047,7 @@ export function compareEvaluatorMigration({ baseline, candidate, suite }) {
     policy: "evaluator-migration",
     baselineMedian: median(baseline.map((run) => run.score)),
     candidateMedian: median(candidate.map((run) => run.score)),
+    targetOnly,
     baselineNonInvariantHardSafetyFailures,
     perCase: aligned.perCase
   };

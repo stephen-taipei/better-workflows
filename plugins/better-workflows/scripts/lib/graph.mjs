@@ -2,6 +2,8 @@ import path from "node:path";
 import { digestObject } from "./core.mjs";
 
 export const GRAPH_SCHEMA_VERSION = 1;
+export const SELF_IMPROVE_HANDOFF_KIND = "self-improve-delivery-handoff";
+export const SELF_IMPROVE_CACHE_PUBLICATION_KIND = "cache-publication";
 
 export const GRAPH_NODE_KINDS = new Set([
   "template",
@@ -593,16 +595,53 @@ export function buildTemplateCatalogGraph(templates) {
   );
 }
 
-function expectedRunActionGates(template, contract) {
-  const templateGates = structuredClone(template.actionGates ?? {});
-  if (!contract.upstreamSelfImproveRunId) return templateGates;
-  const handoffKind = "self-improve-delivery-handoff";
-  return Object.fromEntries(
-    Object.entries(templateGates).map(([action, requirements]) => [
+function appendUnique(values, additions) {
+  return [...new Set([...(values ?? []), ...additions])];
+}
+
+export function delegatedSelfImproveContractProjection(template, upstreamSelfImproveRunId) {
+  const sourceRunId = String(upstreamSelfImproveRunId ?? "");
+  if (!sourceRunId) throw new Error("Delegated self-improve contract requires an upstream run id");
+  if (template.name !== "pr-to-dev") {
+    throw new Error("Delegated self-improve contract requires the pr-to-dev template");
+  }
+  const dynamicEvidence = [SELF_IMPROVE_HANDOFF_KIND, SELF_IMPROVE_CACHE_PUBLICATION_KIND];
+  const baseRequiredEvidence = (template.requiredEvidence ?? [])
+    .filter((kind) => !dynamicEvidence.includes(kind));
+  const requiredEvidence = appendUnique(baseRequiredEvidence, dynamicEvidence);
+  const acceptanceEvidence = Object.fromEntries(
+    (template.acceptance ?? []).map((item) => [item.id, [...requiredEvidence]])
+  );
+  const executionStages = structuredClone(template.executionStages ?? []).map((stage) => (
+    stage.id === "commits"
+      ? { ...stage, requiredEvidence: appendUnique(stage.requiredEvidence, dynamicEvidence) }
+      : stage
+  ));
+  if (!executionStages.some((stage) => stage.id === "commits")) {
+    throw new Error("Delegated self-improve contract requires a commits execution stage");
+  }
+  const actionGates = Object.fromEntries(
+    Object.entries(structuredClone(template.actionGates ?? {})).map(([action, requirements]) => [
       action,
-      [...new Set([...(requirements ?? []), handoffKind])]
+      appendUnique(requirements, [SELF_IMPROVE_HANDOFF_KIND])
     ])
   );
+  return {
+    upstreamSelfImproveRunId: sourceRunId,
+    requiredEvidence,
+    acceptanceEvidence,
+    executionStages,
+    actionGates,
+    actionStages: structuredClone(template.actionStages ?? {}),
+    deferredActions: structuredClone(template.deferredActions ?? [])
+  };
+}
+
+export function applyDelegatedSelfImproveContract(template, contract, upstreamSelfImproveRunId) {
+  return {
+    ...contract,
+    ...delegatedSelfImproveContractProjection(template, upstreamSelfImproveRunId)
+  };
 }
 
 export function buildRunGraph({
@@ -690,9 +729,58 @@ export function buildRunGraph({
       [runNode]
     );
   }
+  const delegatedEvidenceKinds = new Set([
+    SELF_IMPROVE_HANDOFF_KIND,
+    SELF_IMPROVE_CACHE_PUBLICATION_KIND
+  ]);
+  const hasDelegatedSignals =
+    (contract.requiredEvidence ?? []).some((kind) => delegatedEvidenceKinds.has(kind)) ||
+    Object.values(contract.acceptanceEvidence ?? {}).some((kinds) => (
+      (kinds ?? []).some((kind) => delegatedEvidenceKinds.has(kind))
+    )) ||
+    (contract.executionStages ?? []).some((stage) => (
+      (stage.requiredEvidence ?? []).some((kind) => delegatedEvidenceKinds.has(kind))
+    )) ||
+    Object.values(contract.actionGates ?? {}).some((kinds) => (
+      (kinds ?? []).some((kind) => delegatedEvidenceKinds.has(kind))
+    ));
+  let expectedDelegatedContract = null;
+  if (contract.upstreamSelfImproveRunId) {
+    try {
+      expectedDelegatedContract = delegatedSelfImproveContractProjection(
+        template,
+        contract.upstreamSelfImproveRunId
+      );
+      for (const field of [
+        "upstreamSelfImproveRunId",
+        "requiredEvidence",
+        "acceptanceEvidence",
+        "executionStages",
+        "actionGates",
+        "actionStages",
+        "deferredActions"
+      ]) {
+        if (digestObject(contract[field]) !== digestObject(expectedDelegatedContract[field])) {
+          accumulator.error(
+            "delegated-contract-drift",
+            `Delegated self-improve TaskContract field is not canonical: ${field}`,
+            [runNode]
+          );
+        }
+      }
+    } catch (error) {
+      accumulator.error("delegated-contract-drift", error.message, [runNode]);
+    }
+  } else if (hasDelegatedSignals) {
+    accumulator.error(
+      "delegated-contract-drift",
+      "Delegated self-improve contract evidence is present without an upstream run binding",
+      [runNode]
+    );
+  }
   if (
     digestObject(contract.actionGates ?? {}) !==
-    digestObject(expectedRunActionGates(template, contract))
+    digestObject(expectedDelegatedContract?.actionGates ?? template.actionGates ?? {})
   ) {
     accumulator.error(
       "action-gate-drift",

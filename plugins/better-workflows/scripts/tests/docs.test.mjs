@@ -139,6 +139,93 @@ async function loadReadmeQualityContract() {
   return JSON.parse(await readFile(readmeQualityContractPath, "utf8"));
 }
 
+function masked(value) {
+  return value.replace(/[^\n]/g, " ");
+}
+
+function landingMarkdownStructure(content) {
+  const comments = [];
+  const withoutComments = content.replace(/<!--([\s\S]*?)-->/g, (match, body, offset) => {
+    comments.push({ body: body.trim(), start: offset, end: offset + match.length });
+    return masked(match);
+  });
+  const chunks = withoutComments.match(/[^\n]*\n|[^\n]+$/g) ?? [];
+  const visible = [];
+  const fences = [];
+  let offset = 0;
+  let openFence = null;
+  for (const chunk of chunks) {
+    const line = chunk.replace(/\n$/, "");
+    if (!openFence) {
+      const opening = line.match(/^\s{0,3}(`{3,}|~{3,})([A-Za-z0-9_-]*)\s*$/);
+      if (opening) {
+        openFence = {
+          marker: opening[1][0],
+          markerLength: opening[1].length,
+          language: opening[2],
+          start: offset,
+          bodyStart: offset + chunk.length
+        };
+        visible.push(masked(chunk));
+      } else {
+        visible.push(chunk);
+      }
+    } else if (new RegExp(`^\\s{0,3}${openFence.marker}{${openFence.markerLength},}\\s*$`).test(line)) {
+      fences.push({
+        ...openFence,
+        body: withoutComments.slice(openFence.bodyStart, offset),
+        end: offset + chunk.length,
+        closed: true
+      });
+      openFence = null;
+      visible.push(masked(chunk));
+    } else {
+      visible.push(masked(chunk));
+    }
+    offset += chunk.length;
+  }
+  if (openFence) {
+    fences.push({
+      ...openFence,
+      body: withoutComments.slice(openFence.bodyStart),
+      end: content.length,
+      closed: false
+    });
+  }
+  const outsideFence = (position) => !fences.some((fence) => position >= fence.start && position < fence.end);
+  const controls = comments.flatMap((comment) => {
+    if (!outsideFence(comment.start)) return [];
+    if (comment.body === "readme-roster") return [{ ...comment, kind: "readme-roster", key: null }];
+    const match = comment.body.match(/^(readme-(?:section|claim|visual-fallback)):([a-z0-9-]+)$/);
+    return match ? [{ ...comment, kind: match[1], key: match[2] }] : [];
+  }).sort((left, right) => left.start - right.start);
+  return {
+    content,
+    visible: visible.join(""),
+    fences,
+    controls,
+    unclosedFence: fences.some((fence) => !fence.closed)
+  };
+}
+
+function controlValues(structure, kind) {
+  return structure.controls.filter((entry) => entry.kind === kind).map((entry) => entry.key);
+}
+
+function controlSegment(structure, kind, key, terminatingKinds) {
+  const marker = structure.controls.find((entry) => entry.kind === kind && entry.key === key);
+  if (!marker) return { marker: null, start: -1, end: -1, visible: "", fences: [] };
+  const next = structure.controls.find((entry) => entry.start > marker.start && terminatingKinds.includes(entry.kind));
+  const end = next?.start ?? structure.content.length;
+  return {
+    marker,
+    start: marker.end,
+    end,
+    visible: structure.visible.slice(marker.end, end),
+    fences: structure.fences.filter((fence) => fence.start >= marker.end && fence.end <= end)
+  };
+}
+
 function headingEntries(content) {
   return [...content.matchAll(/^(#{1,6})\s+(.+?)\s*$/gm)].map((match) => ({
     level: match[1].length,
@@ -243,35 +330,27 @@ function proseParagraphs(content) {
   return paragraphs.filter(Boolean);
 }
 
-function readableFallback(content, key) {
-  const marker = `<!-- readme-visual-fallback:${key} -->`;
-  const start = content.indexOf(marker);
-  if (start === -1) return "";
-  const bodyStart = start + marker.length;
-  const nextSection = content.indexOf("<!-- readme-section:", bodyStart);
-  return content
-    .slice(bodyStart, nextSection === -1 ? content.length : nextSection)
+function readableFallback(structure, key) {
+  return controlSegment(structure, "readme-visual-fallback", key, ["readme-section"])
+    .visible
     .replace(/\[[^\]]+\]\([^)]+\)/g, "$1")
     .replace(/[*_`>#]/g, "")
     .replace(/\s+/g, " ")
     .trim();
 }
 
-function validateFences(content, errors) {
-  let inFence = false;
-  for (const [index, line] of content.split("\n").entries()) {
-    if (!/^```/.test(line.trim())) continue;
-    if (!inFence && !/^```[A-Za-z0-9_-]+\s*$/.test(line.trim())) {
-      errors.push(`code fence language at line ${index + 1}`);
-    }
-    inFence = !inFence;
+function validateFences(structure, errors) {
+  for (const fence of structure.fences) {
+    if (!fence.language) errors.push(`code fence language at line ${structure.content.slice(0, fence.start).split("\n").length}`);
   }
-  if (inFence) errors.push("unclosed code fence");
+  if (structure.unclosedFence) errors.push("unclosed code fence");
 }
 
 function validateLandingReadme(content, file, fileContract, contract) {
   const errors = [];
-  const headings = headingEntries(content);
+  const structure = landingMarkdownStructure(content);
+  const visible = structure.visible;
+  const headings = headingEntries(visible);
   const h1 = headings.filter((entry) => entry.level === 1);
   if (h1.length !== 1) errors.push(`H1 count ${h1.length}`);
   for (let index = 1; index < headings.length; index += 1) {
@@ -281,43 +360,43 @@ function validateLandingReadme(content, file, fileContract, contract) {
   }
   const h2 = headings.filter((entry) => entry.level === 2).map((entry) => entry.text);
   if (JSON.stringify(h2) !== JSON.stringify(fileContract.headings)) errors.push("H2 narrative order");
-  const sectionMarkers = markerValues(content, "readme-section");
+  const sectionMarkers = controlValues(structure, "readme-section");
   if (JSON.stringify(sectionMarkers) !== JSON.stringify(contract.sectionOrder)) errors.push("section marker order");
-  const rosterMarker = "<!-- readme-roster -->";
-  const rosterMarkerCount = content.split(rosterMarker).length - 1;
-  const firstSection = content.indexOf("<!-- readme-section:promise-audience -->");
-  const rosterPosition = content.indexOf(rosterMarker);
+  const rosterMarkers = structure.controls.filter((entry) => entry.kind === "readme-roster");
+  const rosterMarkerCount = rosterMarkers.length;
+  const firstSection = structure.controls.find((entry) => entry.kind === "readme-section" && entry.key === "promise-audience")?.start ?? -1;
+  const rosterPosition = rosterMarkers[0]?.start ?? -1;
   if (rosterMarkerCount !== 1 || rosterPosition === -1 || rosterPosition > firstSection) errors.push("preamble roster placement");
-  if (!content.slice(0, firstSection).includes(fileContract.preambleRoster)) errors.push("preamble roster wording");
-  const claimMarkers = markerValues(content, "readme-claim");
+  if (!visible.slice(0, firstSection).includes(fileContract.preambleRoster)) errors.push("preamble roster wording");
+  const claimMarkers = controlValues(structure, "readme-claim");
   if (JSON.stringify(claimMarkers) !== JSON.stringify(contract.claimOrder)) errors.push("claim marker order");
   for (const key of contract.claimOrder) {
-    if (!content.includes(fileContract.claims[key])) errors.push(`claim ${key} wording`);
-  }
-  for (const command of contract.requiredCommands) {
-    if (!content.includes(command)) errors.push(`required command ${command}`);
+    const segment = controlSegment(structure, "readme-claim", key, ["readme-claim", "readme-section"]);
+    if (!segment.visible.includes(fileContract.claims[key])) errors.push(`claim ${key} wording`);
   }
   for (const identifier of contract.requiredIdentifiers) {
-    if (!content.includes(identifier)) errors.push(`required identifier ${identifier}`);
+    if (!visible.includes(identifier)) errors.push(`required identifier ${identifier}`);
   }
-  const firstSuccessStart = content.indexOf("<!-- readme-section:first-success -->");
-  const nextPathStart = content.indexOf("<!-- readme-section:choose-next-path -->");
-  if (firstSuccessStart === -1 || nextPathStart <= firstSuccessStart) {
+  const firstSuccess = controlSegment(structure, "readme-section", "first-success", ["readme-section"]);
+  if (!firstSuccess.marker) {
     errors.push("first-success placement");
   } else {
-    const firstSuccess = content.slice(firstSuccessStart, nextPathStart);
+    const commandBlocks = firstSuccess.fences
+      .filter((fence) => fence.language !== "mermaid")
+      .map((fence) => fence.body)
+      .join("\n");
     for (const command of contract.requiredCommands) {
-      if (!firstSuccess.includes(command)) errors.push(`first-success command ${command}`);
+      if (!commandBlocks.includes(command)) errors.push(`first-success command ${command}`);
     }
   }
   const lines = content.trimEnd().split("\n");
   if (lines.length > contract.maxLines) errors.push(`line budget ${lines.length}`);
-  for (const [index, paragraph] of proseParagraphs(content).entries()) {
+  for (const [index, paragraph] of proseParagraphs(visible).entries()) {
     if ([...paragraph].length > contract.maxParagraphCharacters) {
       errors.push(`paragraph budget ${index + 1}`);
     }
   }
-  for (const [index, table] of tableBlocks(content).entries()) {
+  for (const [index, table] of tableBlocks(visible).entries()) {
     if (tableColumnCount(table[0]) > contract.maxTableColumns) errors.push(`table columns ${index + 1}`);
     if (table.length - 2 > contract.maxTableBodyRows) errors.push(`table rows ${index + 1}`);
     if (table.some((line) => tableColumnCount(line) !== tableColumnCount(table[0]))) {
@@ -325,11 +404,11 @@ function validateLandingReadme(content, file, fileContract, contract) {
     }
   }
   for (const pattern of contract.bannedDeepDetailPatterns) {
-    if (content.toLocaleLowerCase("en-US").includes(pattern.toLocaleLowerCase("en-US"))) {
+    if (visible.toLocaleLowerCase("en-US").includes(pattern.toLocaleLowerCase("en-US"))) {
       errors.push(`deep detail ${pattern}`);
     }
   }
-  const images = [...content.matchAll(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+["'][^"']*["'])?\)/g)]
+  const images = [...visible.matchAll(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+["'][^"']*["'])?\)/g)]
     .map((match) => ({ alt: match[1].trim(), target: match[2] }));
   if (images.some((image) => image.alt === "")) errors.push("image alt text");
   const relativeImages = images.filter((image) => isRelativeTarget(image.target));
@@ -339,14 +418,14 @@ function validateLandingReadme(content, file, fileContract, contract) {
     path.resolve(path.dirname(file), normalizeTarget(image.target))
   ).split(path.sep).join("/"));
   if (visualTargets.length !== 1 || visualTargets[0] !== expectedVisual) errors.push("authority visual target");
-  const mermaidCount = [...content.matchAll(/^```mermaid\s*$/gm)].length;
+  const mermaidCount = structure.fences.filter((fence) => fence.language === "mermaid").length;
   if (mermaidCount !== 1) errors.push(`Mermaid count ${mermaidCount}`);
   for (const visual of contract.visuals) {
-    const fallback = readableFallback(content, visual.key);
+    const fallback = readableFallback(structure, visual.key);
     if ([...fallback].length < 80) errors.push(`visual fallback ${visual.key}`);
   }
-  validateFences(content, errors);
-  const resolved = new Set(resolvedRepoTargets(file, content));
+  validateFences(structure, errors);
+  const resolved = new Set(resolvedRepoTargets(file, visible));
   for (const target of [...contract.requiredRepoTargets, fileContract.detailsTarget]) {
     if (!resolved.has(target)) errors.push(`required target ${target}`);
   }
@@ -365,12 +444,13 @@ function validateRecipeReadme(content, fileContract, contract) {
   for (const token of fileContract.requiredTokens) {
     if (!content.includes(token)) errors.push(`recipe token ${token}`);
   }
-  validateFences(content, errors);
+  validateFences(landingMarkdownStructure(content), errors);
   return errors;
 }
 
 async function assertRelativeTargetsExist(file, content) {
-  for (const target of markdownTargets(content).filter(isRelativeTarget).map(normalizeTarget).filter(Boolean)) {
+  const visible = landingMarkdownStructure(content).visible;
+  for (const target of markdownTargets(visible).filter(isRelativeTarget).map(normalizeTarget).filter(Boolean)) {
     await access(path.resolve(path.dirname(file), target));
   }
 }
@@ -412,6 +492,9 @@ test("README quality validation rejects cosmetic compliance and broken reader pa
   const quality = await loadReadmeQualityContract();
   const fileContract = quality.landing.files.find((entry) => entry.path === "README.md");
   const content = await readFile(overview, "utf8");
+  const promptClaim = fileContract.claims["prompt-not-authority"];
+  const gettingStarted = "docs/guide/getting-started.md";
+  const marketplaceCommand = "codex plugin marketplace add stephen-taipei/better-workflows";
   const cases = [
     {
       label: "claim prompt-not-authority wording",
@@ -450,6 +533,52 @@ test("README quality validation rejects cosmetic compliance and broken reader pa
         "<!-- readme-section:problem-outcome -->",
         `${"One deliberately unscannable sentence ".repeat(25)}\n\n<!-- readme-section:problem-outcome -->`
       )
+    },
+    {
+      label: "claim prompt-not-authority wording",
+      content: content.replace(promptClaim, `<!-- ${promptClaim} -->`)
+    },
+    {
+      label: "claim prompt-not-authority wording",
+      content: content.replace(promptClaim, `\`\`\`text\n${promptClaim}\n\`\`\``)
+    },
+    {
+      label: "claim prompt-not-authority wording",
+      content: content.replace(promptClaim, `~~~text\n${promptClaim}\n~~~`)
+    },
+    {
+      label: "claim prompt-not-authority wording",
+      content: content
+        .replace(promptClaim, "Intent is described without the governed claim.")
+        .replace("<!-- readme-claim:root-only-mutation -->", `<!-- readme-claim:root-only-mutation -->\n${promptClaim}`)
+    },
+    {
+      label: `required target ${gettingStarted}`,
+      content: content
+        .replaceAll(gettingStarted, "docs/guide/not-getting-started.md")
+        .replace("<!-- readme-section:promise-audience -->", `<!-- [Hidden target](${gettingStarted}) -->\n<!-- readme-section:promise-audience -->`)
+    },
+    {
+      label: `required target ${gettingStarted}`,
+      content: `${content.replaceAll(gettingStarted, "docs/guide/not-getting-started.md")}\n\`\`\`text\n[Hidden target](${gettingStarted})\n\`\`\`\n`
+    },
+    {
+      label: `first-success command ${marketplaceCommand}`,
+      content: content
+        .replace(marketplaceCommand, "# marketplace command intentionally removed")
+        .replace("<!-- readme-section:first-success -->", `<!-- readme-section:first-success -->\n<!-- ${marketplaceCommand} -->`)
+    },
+    {
+      label: `first-success command ${marketplaceCommand}`,
+      content: `${content.replace(marketplaceCommand, "# marketplace command intentionally removed")}\n\`\`\`bash\n${marketplaceCommand}\n\`\`\`\n`
+    },
+    {
+      label: "required identifier Goal-first",
+      content: `${content.replace("Goal-first", "Outcome-first")}\n\`\`\`text\nGoal-first\n\`\`\`\n`
+    },
+    {
+      label: "H2 narrative order",
+      content: `${content.replace("## Why Better Workflows", "## A different visible heading")}\n\`\`\`text\n## Why Better Workflows\n\`\`\`\n`
     }
   ];
   for (const item of cases) {

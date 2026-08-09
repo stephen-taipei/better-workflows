@@ -133,6 +133,7 @@ import {
   validateRoutingProfileFile
 } from "./lib/routing.mjs";
 import {
+  applyDelegatedSelfImproveContract,
   buildRunGraph,
   buildTemplateCatalogGraph,
   buildTemplateGraph,
@@ -938,7 +939,7 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
     : purpose === "quality-remediation-v1"
       ? selectQualityRemediationCases({ suite: frozen.suite, snapshot: candidate, split, policy })
       : purpose === "evaluator-migration"
-        ? selectEvaluatorMigrationCases({ suite: frozen.suite, split })
+        ? selectEvaluatorMigrationCases({ suite: target.suite, split })
         : selectEvaluationCases({ suite: frozen.suite, snapshot: candidate, split });
   const calibration = target
     ? calibrateEvaluatorMigration({
@@ -950,8 +951,9 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
       targetDigest: target.sourceDigest
     })
     : null;
-  const candidatePrompt = buildEvaluationPrompt({ suite: { ...frozen.suite, cases }, candidate, materials: candidateMaterial });
-  const baselinePrompt = buildEvaluationPrompt({ suite: { ...frozen.suite, cases }, candidate: baseline, materials: baselineMaterial });
+  const evaluationSuite = target?.suite ?? frozen.suite;
+  const candidatePrompt = buildEvaluationPrompt({ suite: { ...evaluationSuite, cases }, candidate, materials: candidateMaterial });
+  const baselinePrompt = buildEvaluationPrompt({ suite: { ...evaluationSuite, cases }, candidate: baseline, materials: baselineMaterial });
   const fixture = backend === "fixture" ? JSON.parse(await readFile(path.resolve(cwd, String(options["result-file"])), "utf8")) : null;
   const requestBindings = backend === "codex"
     ? await loadBoundHostExecutionRequestManifest({
@@ -969,7 +971,9 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
     })
     : null;
   const hostExecutionPaths = values(options["trusted-codex-execution"]).map(String);
-  const requiredExecutions = backend === "codex" ? (split === "train" ? 1 : 6) : 0;
+  const requiredExecutions = backend === "codex"
+    ? (split === "train" ? (purpose === "evaluator-migration" ? 2 : 1) : 6)
+    : 0;
   if (backend === "codex" && hostExecutionPaths.length !== requiredExecutions) {
     throw new Error(`Codex ${split} evaluation requires exactly ${requiredExecutions} distinct host execution witness file(s)`);
   }
@@ -1019,7 +1023,7 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
     baselineRevision: frozen.baselineRevision,
     candidateDigest: candidate.digest,
     headRevision: backend === "codex" ? requestBindings?.headRevision ?? currentSourceBinding.headRevision : currentSourceBinding.headRevision,
-    promptDigest: sha256(role === "baseline" ? baselinePrompt : candidatePrompt),
+    promptDigest: sha256(role.endsWith("baseline") ? baselinePrompt : candidatePrompt),
     role,
     sourceBindingDigest: backend === "codex" ? requestBindings?.sourceBindingDigest ?? currentSourceBinding.digest : currentSourceBinding.digest,
     attempt,
@@ -1029,6 +1033,9 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
   if (split === "holdout") {
     const training = prior.find((item) => item.kind === "training-replay" && !item.stale && item.evaluation?.suiteDigest === suiteDigest && item.evaluation?.candidate?.digest === candidate.digest && item.evaluation?.baselineRevision === frozen.baselineRevision);
     if (!training) throw new Error("Holdout evaluation requires a fresh training replay bound to the same suite, baseline, and candidate");
+    if (purpose === "evaluator-migration" && training.evaluation?.migrationTrainingComparison?.accepted !== true) {
+      throw new Error("Evaluator migration holdout requires accepted target-only training headroom evidence");
+    }
   }
   if (split === "train") {
     const trainExecution = execution("train-candidate", 1);
@@ -1038,6 +1045,27 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
       hostExecutionPath: hostExecutionPaths[0], execution: trainExecution,
       expectedRequestDigest: trainBinding?.requestDigest ?? null,
       expectedRunAs: trainBinding?.runAs ?? null });
+    let baselineReplay = null;
+    let migrationTrainingComparison = null;
+    if (purpose === "evaluator-migration") {
+      const baselineExecution = execution("train-baseline", 1);
+      const baselineBinding = requestBindings?.get(baselineExecution.id);
+      if (backend === "codex" && !baselineBinding) throw new Error("Evaluator migration training baseline is missing its canonical request manifest binding");
+      baselineReplay = await evaluationReplay({ backend, fixture, role: "baseline", cases, prompt: baselinePrompt, options, cwd,
+        hostExecutionPath: hostExecutionPaths[1], execution: baselineExecution,
+        expectedRequestDigest: baselineBinding?.requestDigest ?? null,
+        expectedRunAs: baselineBinding?.runAs ?? null });
+      migrationTrainingComparison = compareEvaluatorMigration({
+        baseline: [baselineReplay.score],
+        candidate: [replay.score],
+        sourceSuite: frozen.suite,
+        targetSuite: target.suite,
+        split: "train"
+      });
+      if (migrationTrainingComparison.accepted !== true) {
+        throw new Error(`Evaluator migration training did not demonstrate target-only headroom: ${migrationTrainingComparison.reason}`);
+      }
+    }
     if (policyBound && replay.score.hardSafetyPass !== true) {
       throw new Error(`${purpose} training replay failed its hard-safety gate`);
     }
@@ -1052,7 +1080,11 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
     const training = await addSelfImproveEvidence(root, runId, {
       id: evaluationEvidenceId("training"), kind: "training-replay", summary: "One bounded training replay completed; it cannot authorize delivery.", status: "complete",
       acceptanceIds: ["outcome-explicit", "replay-bounded"], ...common,
-      evaluation: { ...common.evaluation, replays: [structuredReplay(replay)] }
+      evaluation: {
+        ...common.evaluation,
+        replays: [replay, baselineReplay].filter(Boolean).map(structuredReplay),
+        ...(migrationTrainingComparison ? { migrationTrainingComparison } : {})
+      }
     });
     const evidenceIds = [suiteEvidence.id, staging.id, training.id];
     if (calibration) {
@@ -1067,7 +1099,17 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
       });
       evidenceIds.push(migration.id);
     }
-    return { ok: true, runId, split, backend, purpose, evidence: evidenceIds, calibration, score: redactedScore(replay.score) };
+    return {
+      ok: true,
+      runId,
+      split,
+      backend,
+      purpose,
+      evidence: evidenceIds,
+      calibration,
+      score: redactedScore(replay.score),
+      ...(migrationTrainingComparison ? { migrationTrainingComparison } : {})
+    };
   }
   const candidateReplays = [];
   const baselineReplays = [];
@@ -1090,7 +1132,13 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
       expectedRunAs: baselineBinding?.runAs ?? null }));
   }
   const comparison = purpose === "evaluator-migration"
-    ? compareEvaluatorMigration({ baseline: baselineReplays.map((item) => item.score), candidate: candidateReplays.map((item) => item.score), suite: frozen.suite })
+    ? compareEvaluatorMigration({
+      baseline: baselineReplays.map((item) => item.score),
+      candidate: candidateReplays.map((item) => item.score),
+      sourceSuite: frozen.suite,
+      targetSuite: target.suite,
+      split: "holdout"
+    })
     : purpose === "safety-remediation-v1"
       ? compareSafetyRemediation({ baseline: baselineReplays.map((item) => item.score), candidate: candidateReplays.map((item) => item.score), suite: frozen.suite, policy })
       : purpose === "quality-remediation-v1"
@@ -1304,24 +1352,10 @@ async function commandRun(root, options) {
   if (template.deferredActions) contract.deferredActions = structuredClone(template.deferredActions);
   else delete contract.deferredActions;
   if (upstreamSelfImproveRun) {
-    const handoffKind = "self-improve-delivery-handoff";
-    contract.upstreamSelfImproveRunId = String(options["self-improve-run"]);
-    contract.requiredEvidence = [...new Set([...contract.requiredEvidence, handoffKind])];
-    contract.requiredEvidence = [...new Set([...contract.requiredEvidence, "cache-publication"])]
-    contract.acceptanceEvidence = Object.fromEntries(
-      Object.entries(contract.acceptanceEvidence ?? {}).map(([id, kinds]) => [
-        id,
-        [...new Set([...kinds, handoffKind, "cache-publication"])]
-      ])
-    );
-    contract.executionStages = contract.executionStages.map((stage) => stage.id === "commits"
-      ? { ...stage, requiredEvidence: [...new Set([...stage.requiredEvidence, handoffKind])] }
-      : stage);
-    contract.actionGates = Object.fromEntries(
-      Object.entries(contract.actionGates ?? {}).map(([action, kinds]) => [
-        action,
-        [...new Set([...kinds, handoffKind])]
-      ])
+    contract = applyDelegatedSelfImproveContract(
+      template,
+      contract,
+      String(options["self-improve-run"])
     );
   }
   const riskMode = routeMode(contract, "auto");

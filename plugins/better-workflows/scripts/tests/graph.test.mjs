@@ -15,6 +15,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { digestObject, pluginRoot } from "../lib/core.mjs";
 import {
+  applyDelegatedSelfImproveContract,
   buildRunGraph,
   buildTemplateGraph,
   graphEdgeId,
@@ -399,34 +400,88 @@ test("template and run builders detect cross-record structural faults", () => {
   assert.ok(provenanceCodes.has("unknown-action-kind"));
 });
 
-test("run graphs accept only the canonical delegated self-improve gate extension", () => {
-  const definition = template();
+test("run graphs require the complete canonical delegated self-improve contract", () => {
+  const definition = template({
+    name: "pr-to-dev",
+    controlPlane: {
+      evidencePolicy: "typed-v1",
+      ledgerPolicy: "ledger-v1",
+      reviewPolicy: "none",
+      designPacketPolicy: "none",
+      refinementPolicy: "none",
+      deliberationPolicy: "none"
+    },
+    executionStages: [{
+      id: "commits",
+      dependsOn: [],
+      requiredEvidence: ["proof"],
+      attemptBudget: 3,
+      kind: "regular"
+    }],
+    actionStages: { "external.write": "commits" },
+    deferredActions: []
+  });
   const handoffKind = "self-improve-delivery-handoff";
-  const delegated = runFixture({
+  const cacheKind = "cache-publication";
+  const base = runFixture({
     template: definition,
     contract: {
-      upstreamSelfImproveRunId: "sbw-20260809T000000Z-source000001",
-      requiredEvidence: [...definition.requiredEvidence, handoffKind],
-      actionGates: {
-        "external.write": [...definition.actionGates["external.write"], handoffKind]
-      }
+      schemaVersion: 2,
+      controlPlane: structuredClone(definition.controlPlane),
+      executionStages: structuredClone(definition.executionStages),
+      actionStages: structuredClone(definition.actionStages),
+      deferredActions: [],
+      acceptanceEvidence: { accepted: ["proof"] }
     }
   });
+  const delegated = structuredClone(base);
+  delegated.contract = applyDelegatedSelfImproveContract(
+    definition,
+    delegated.contract,
+    "sbw-20260809T000000Z-source000001"
+  );
   delegated.manifest.contractDigest = digestObject(delegated.contract);
   const delegatedGraph = buildRunGraph(delegated);
   assert.equal(
-    delegatedGraph.diagnostics.some((item) => item.code === "action-gate-drift"),
+    delegatedGraph.diagnostics.some((item) => item.code === "delegated-contract-drift"),
     false
   );
-
-  delegated.contract.actionGates["external.write"].push("unexpected-gate");
-  delegated.contract.requiredEvidence.push("unexpected-gate");
-  delegated.manifest.contractDigest = digestObject(delegated.contract);
-  const tamperedGraph = buildRunGraph(delegated);
-  assert.equal(
-    tamperedGraph.diagnostics.some((item) => item.code === "action-gate-drift"),
-    true
-  );
+  const omissions = [
+    ["upstream run", (contract) => { delete contract.upstreamSelfImproveRunId; }],
+    ["required cache evidence", (contract) => {
+      contract.requiredEvidence = contract.requiredEvidence.filter((kind) => kind !== cacheKind);
+    }],
+    ["acceptance cache evidence", (contract) => {
+      contract.acceptanceEvidence.accepted = contract.acceptanceEvidence.accepted.filter((kind) => kind !== cacheKind);
+    }],
+    ["stage handoff evidence", (contract) => {
+      const stage = contract.executionStages.find((item) => item.id === "commits");
+      stage.requiredEvidence = stage.requiredEvidence.filter((kind) => kind !== handoffKind);
+    }],
+    ["stage cache evidence", (contract) => {
+      const stage = contract.executionStages.find((item) => item.id === "commits");
+      stage.requiredEvidence = stage.requiredEvidence.filter((kind) => kind !== cacheKind);
+    }],
+    ["action handoff gate", (contract) => {
+      contract.actionGates["external.write"] = contract.actionGates["external.write"].filter((kind) => kind !== handoffKind);
+    }],
+    ["unexpected required evidence", (contract) => {
+      contract.requiredEvidence.push("candidate-self-authorized-evidence");
+    }],
+    ["unexpected acceptance id", (contract) => {
+      contract.acceptanceEvidence["candidate-self-authorized-acceptance"] = [...contract.requiredEvidence];
+    }]
+  ];
+  for (const [label, mutate] of omissions) {
+    const tampered = structuredClone(delegated);
+    mutate(tampered.contract);
+    tampered.manifest.contractDigest = digestObject(tampered.contract);
+    assert.equal(
+      buildRunGraph(tampered).diagnostics.some((item) => item.code === "delegated-contract-drift"),
+      true,
+      label
+    );
+  }
 });
 
 test("pre-repair fixtures reproduce all ten action prerequisite gaps", async () => {

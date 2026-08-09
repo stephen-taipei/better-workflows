@@ -94,8 +94,9 @@ rationale.
 - A delegated self-improve delivery must use `pr-to-dev --self-improve-run`
   and a typed `self-improve-delivery-handoff` receipt. That receipt binds the
   source run, baseline/HEAD/source/plugin digests, request manifest, accepted
-  comparison, candidate snapshot, and seven distinct host witnesses. Every
-  delegated delivery action gate requires it; an empty or generic `pr-to-dev`
+  comparison, candidate snapshot, and every purpose-required distinct host
+  witness (seven ordinary or eight for evaluator migration). Every delegated
+  delivery action gate requires it; an empty or generic `pr-to-dev`
   gate cannot bypass the handoff.
 - Typed handoff evidence declares `policyDigest` as the only nullable required
   field. Ordinary and evaluator-migration handoffs carry an explicit `null`;

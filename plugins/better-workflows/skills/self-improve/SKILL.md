@@ -83,8 +83,10 @@ applicable improvement classes from changed paths.
 
 An evaluator migration is a separate governance path. It freezes the previous
 versioned corpus at the run-start baseline, binds a distinct target corpus
-digest into all seven signed executions, and requires deterministic class
-isolation, balanced-sampling coverage, and saturation-policy calibration.
+digest into eight signed executions (independent train baseline and candidate,
+plus three baseline and three candidate holdouts), executes the full target
+split in each replay, and requires deterministic class isolation,
+balanced-sampling coverage, and target-only headroom calibration.
 Changing an inherited case requires a separately versioned, digest-bound,
 independently reviewed compatibility policy; an ordinary target corpus cannot
 authorize that change itself.
@@ -298,7 +300,8 @@ sbw self-improve handoff <pr-to-dev-run-id> \
 
 The handoff binds the exact source baseline and HEAD, clean source binding,
 plugin bundle, request manifest, accepted comparison, candidate snapshot, and
-all seven distinct host witnesses. Every delegated commit, push, PR, merge,
+all purpose-required distinct host witnesses (seven ordinary or eight for an
+evaluator migration). Every delegated commit, push, PR, merge,
 remote-sync, and cleanup gate requires this receipt; a generic `pr-to-dev` run
 cannot be used as a substitute for the explicitly bound delivery run.
 It also records the canonical Codex plugin-cache root in the source and target

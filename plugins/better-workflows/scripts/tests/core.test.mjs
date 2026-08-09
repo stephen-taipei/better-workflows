@@ -40,6 +40,7 @@ import {
   readJson,
   registerOwnedResource,
   reconcileAction,
+  resolveGitPushDestination,
   resolveGitPushExecutionBinding,
   routeMode,
   safeJoin,
@@ -78,11 +79,12 @@ function contract(overrides = {}) {
   return value;
 }
 
-test("git push action bindings persist the resource remote used by the fixed argv wrapper", () => {
+test("git push action bindings persist the exact effective destination used by the fixed argv wrapper", () => {
   const providerExecutable = { path: "/usr/bin/git", digest: "a".repeat(64) };
+  const pushUrl = "https://github.com/example/repository.git";
   const binding = buildGitPushActionBinding({
     remote: "origin",
-    remoteUrl: "https://github.com/example/repository.git",
+    pushUrl,
     remoteRepository: "github.com/example/repository",
     expectedBranch: "feature",
     expectedRevision: "b".repeat(40),
@@ -90,12 +92,13 @@ test("git push action bindings persist the resource remote used by the fixed arg
   });
 
   assert.equal(binding.remote, "origin");
-  assert.equal(binding.remoteUrlDigest, sha256("https://github.com/example/repository.git"));
+  assert.equal(binding.pushUrl, pushUrl);
+  assert.equal(binding.pushUrlDigest, sha256(pushUrl));
   assert.deepEqual(binding.pushCommand, [
     "git",
     "push",
     "--porcelain",
-    "origin",
+    pushUrl,
     `${"b".repeat(40)}:refs/heads/feature`
   ]);
   assert.deepEqual(
@@ -105,6 +108,7 @@ test("git push action bindings persist the resource remote used by the fixed arg
     }),
     {
       remote: "origin",
+      pushUrl,
       ref: "refs/heads/feature",
       command: binding.pushCommand
     }
@@ -117,15 +121,46 @@ test("git push execution rejects an issued record that omits its remote binding"
       resource: "remote:origin:refs/heads/feature",
       expectedBranch: "feature",
       expectedRevision: "b".repeat(40),
+      pushUrl: "https://github.com/example/repository.git",
+      pushUrlDigest: sha256("https://github.com/example/repository.git"),
+      remoteRepository: "github.com/example/repository",
       pushCommand: [
         "git",
         "push",
         "--porcelain",
-        "origin",
+        "https://github.com/example/repository.git",
         `${"b".repeat(40)}:refs/heads/feature`
       ]
     }),
     /Git push execution binding is inconsistent/
+  );
+});
+
+test("git push destination binds a divergent pushurl and rejects multiple effective destinations", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-git-push-destination-"));
+  await execFileAsync("git", ["init", "-q"], { cwd: root });
+  await execFileAsync("git", ["remote", "add", "origin", "https://github.com/example/fetch-only.git"], { cwd: root });
+  const pushUrl = "https://github.com/example/effective-push.git";
+  await execFileAsync("git", ["config", "remote.origin.pushurl", pushUrl], { cwd: root });
+  assert.deepEqual(
+    await resolveGitPushDestination(root, "origin"),
+    {
+      remote: "origin",
+      pushUrl,
+      pushUrlDigest: sha256(pushUrl),
+      remoteRepository: "github.com/example/effective-push"
+    }
+  );
+  await execFileAsync("git", ["config", "--add", "remote.origin.pushurl", "https://github.com/example/second-push.git"], { cwd: root });
+  await assert.rejects(
+    resolveGitPushDestination(root, "origin"),
+    /exactly one effective push URL/
+  );
+  await execFileAsync("git", ["config", "--unset-all", "remote.origin.pushurl"], { cwd: root });
+  await execFileAsync("git", ["config", "remote.origin.pushurl", "https://embedded-token@github.com/example/effective-push.git"], { cwd: root });
+  await assert.rejects(
+    resolveGitPushDestination(root, "origin"),
+    /credential-safe HTTPS URL/
   );
 });
 

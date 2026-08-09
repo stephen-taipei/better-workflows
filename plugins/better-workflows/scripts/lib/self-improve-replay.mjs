@@ -37,7 +37,7 @@ import { pluginBundleDigest } from "./routing.mjs";
 const HOST_EXECUTIONS_ROOT = "/private/var/db/better-workflows/executions";
 const SHA1 = /^[a-f0-9]{40}$/;
 const SHA256 = /^[a-f0-9]{64}$/;
-const EXPECTED_REPLAYS = new Set([
+const STANDARD_EXPECTED_REPLAYS = [
   "train-candidate:1",
   "candidate:1",
   "candidate:2",
@@ -45,7 +45,14 @@ const EXPECTED_REPLAYS = new Set([
   "baseline:1",
   "baseline:2",
   "baseline:3"
-]);
+];
+
+function expectedReplayKeys(purpose) {
+  return new Set([
+    ...STANDARD_EXPECTED_REPLAYS,
+    ...(purpose === "evaluator-migration" ? ["train-baseline:1"] : [])
+  ]);
+}
 
 function isPathWithin(root, target) {
   const relative = path.relative(root, target);
@@ -91,6 +98,7 @@ export async function loadHostExecutionRequestManifest({
   const policyBound = isPolicyBoundEvaluationPurpose(purpose);
   const policy = policyBound ? await loadPolicyBoundEvaluationPolicy({ cwd: repository, purpose }) : null;
   const expectedManifestSchema = policyBound ? 3 : 2;
+  const expectedRequestCount = purpose === "evaluator-migration" ? 8 : 7;
   const resolvedManifest = path.resolve(manifestPath);
   if (isPathWithin(repository, resolvedManifest)) throw new Error("Execution request manifest must be outside the evaluated repository");
   const manifestInfo = await lstat(resolvedManifest);
@@ -110,7 +118,7 @@ export async function loadHostExecutionRequestManifest({
       !Array.isArray(manifest.candidateFiles) || digestObject(manifest.candidateFiles) !== digestObject(candidate.files) ||
       manifest.policyPath !== (policy?.path ?? undefined) || manifest.policyId !== (policy?.policyId ?? undefined) ||
       manifest.policyVersion !== (policy?.version ?? undefined) || manifest.policyDigest !== (policy?.digest ?? undefined) ||
-      !Array.isArray(manifest.requests) || manifest.requests.length !== 7 || !validRunAs(manifest.runAs)) {
+      !Array.isArray(manifest.requests) || manifest.requests.length !== expectedRequestCount || !validRunAs(manifest.runAs)) {
     throw new Error("Execution request manifest is not bound to this run, suite, model, and candidate");
   }
   const currentSourceBinding = await captureSourceBinding(repository, { baseRevision: frozen.baselineRevision, requireClean: true });
@@ -129,7 +137,7 @@ export async function loadHostExecutionRequestManifest({
   const journal = JSON.parse((await readFile(completeJournal)).toString("utf8"));
   if (journal.schemaVersion !== 1 || journal.provider !== "codex" || journal.kind !== "execution-batch-journal" ||
       journal.state !== "complete" || journal.manifestDigest !== manifestDigest || !Array.isArray(journal.executionIds) ||
-      !Array.isArray(journal.requestDigests) || journal.executionIds.length !== 7 || journal.requestDigests.length !== 7 ||
+      !Array.isArray(journal.requestDigests) || journal.executionIds.length !== expectedRequestCount || journal.requestDigests.length !== expectedRequestCount ||
       journal.executionIds.length !== journal.outputs?.length) {
     throw new Error("Completed host batch journal does not prove this request manifest");
   }
@@ -257,8 +265,10 @@ export async function verifySelfImproveDeliveryEvidence({ root, runId, run, evid
     ...(accepted.evaluation?.baselineReplays ?? [])
   ];
   const replayKeys = new Set(replays.map((item) => `${item.execution?.role}:${item.execution?.attempt}`));
-  if (replays.length !== 7 || replayKeys.size !== 7 || [...EXPECTED_REPLAYS].some((key) => !replayKeys.has(key)) || replays.some((item) => !requiredReplayFields(item))) {
-    throw new Error("Self-improve delivery requires exactly seven complete host-owned Codex execution witnesses");
+  const requiredReplayKeys = expectedReplayKeys(purpose);
+  const expectedReplayCount = requiredReplayKeys.size;
+  if (replays.length !== expectedReplayCount || replayKeys.size !== expectedReplayCount || [...requiredReplayKeys].some((key) => !replayKeys.has(key)) || replays.some((item) => !requiredReplayFields(item))) {
+    throw new Error(`Self-improve delivery requires exactly ${expectedReplayCount} complete host-owned Codex execution witnesses`);
   }
   const bindings = new Set(replays.map((item) => digestObject({
     binaryDigest: item.binaryDigest,
@@ -268,12 +278,12 @@ export async function verifySelfImproveDeliveryEvidence({ root, runId, run, evid
     model: item.model
   })));
   if (bindings.size !== 1) throw new Error("Self-improve delivery requires one consistent host binary, trust root, issuer, key, and model across every replay");
-  if (new Set(replays.map((item) => item.execution.id)).size !== 7 || new Set(replays.map((item) => item.requestDigest)).size !== 7 ||
-      new Set(replays.map((item) => item.hostExecutionPath)).size !== 7 || new Set(replays.map((item) => item.attestationPath)).size !== 7 ||
-      new Set(replays.map((item) => item.resultReceiptPath)).size !== 7 || new Set(replays.map((item) => item.ledgerPath)).size !== 7) {
-    throw new Error("Self-improve delivery requires seven distinct confirmed requests, host execution witnesses, attestations, receipts, and ledgers");
+  if (new Set(replays.map((item) => item.execution.id)).size !== expectedReplayCount || new Set(replays.map((item) => item.requestDigest)).size !== expectedReplayCount ||
+      new Set(replays.map((item) => item.hostExecutionPath)).size !== expectedReplayCount || new Set(replays.map((item) => item.attestationPath)).size !== expectedReplayCount ||
+      new Set(replays.map((item) => item.resultReceiptPath)).size !== expectedReplayCount || new Set(replays.map((item) => item.ledgerPath)).size !== expectedReplayCount) {
+    throw new Error(`Self-improve delivery requires ${expectedReplayCount} distinct confirmed requests, host execution witnesses, attestations, receipts, and ledgers`);
   }
-  const expectedExecutions = new Set(EXPECTED_REPLAYS);
+  const expectedExecutions = expectedReplayKeys(purpose);
   for (const replay of replays) {
     const execution = replay.execution;
     if (execution.runId !== runId || execution.suiteDigest !== evaluation.suiteDigest || execution.baselineRevision !== evaluation.baselineRevision ||
@@ -305,18 +315,19 @@ export async function verifySelfImproveDeliveryEvidence({ root, runId, run, evid
   const currentBaseline = await snapshotBaselineForCandidate({ cwd: run.manifest.cwd, snapshot: currentCandidate });
   const candidateMaterial = await readSanitizedCandidateMaterial({ cwd: run.manifest.cwd, snapshot: currentCandidate });
   const baselineMaterial = await readSanitizedBaselineMaterial({ cwd: run.manifest.cwd, snapshot: currentBaseline });
+  const migrationTarget = purpose === "evaluator-migration"
+    ? await loadMigrationTargetSuite({ cwd: run.manifest.cwd, casesFile: path.join(run.manifest.cwd, evaluation.targetSuitePath) })
+    : null;
+  const replaySuite = migrationTarget?.suite ?? frozen.suite;
   const replayCases = purpose === "safety-remediation-v1"
     ? selectSafetyRemediationCases({ suite: frozen.suite, snapshot: currentCandidate, split: "holdout", policy })
     : purpose === "quality-remediation-v1"
       ? selectQualityRemediationCases({ suite: frozen.suite, snapshot: currentCandidate, split: "holdout", policy })
       : purpose === "evaluator-migration"
-        ? selectEvaluatorMigrationCases({ suite: frozen.suite, split: "holdout" })
+        ? selectEvaluatorMigrationCases({ suite: replaySuite, split: "holdout" })
         : selectEvaluationCases({ suite: frozen.suite, snapshot: currentCandidate, split: "holdout" });
-  const candidatePrompt = buildEvaluationPrompt({ suite: { ...frozen.suite, cases: replayCases }, candidate: currentCandidate, materials: candidateMaterial });
-  const baselinePrompt = buildEvaluationPrompt({ suite: { ...frozen.suite, cases: replayCases }, candidate: currentBaseline, materials: baselineMaterial });
-  const migrationTarget = purpose === "evaluator-migration"
-    ? await loadMigrationTargetSuite({ cwd: run.manifest.cwd, casesFile: path.join(run.manifest.cwd, evaluation.targetSuitePath) })
-    : null;
+  const candidatePrompt = buildEvaluationPrompt({ suite: { ...replaySuite, cases: replayCases }, candidate: currentCandidate, materials: candidateMaterial });
+  const baselinePrompt = buildEvaluationPrompt({ suite: { ...replaySuite, cases: replayCases }, candidate: currentBaseline, materials: baselineMaterial });
   const requestBindings = await loadHostExecutionRequestManifest({
     manifestPath: evaluation.requestManifestPath,
     manifestDigest: evaluation.requestManifestDigest,
@@ -334,12 +345,19 @@ export async function verifySelfImproveDeliveryEvidence({ root, runId, run, evid
     : purpose === "quality-remediation-v1"
       ? selectQualityRemediationCases({ suite: frozen.suite, snapshot: currentCandidate, split: "train", policy })
       : purpose === "evaluator-migration"
-        ? selectEvaluatorMigrationCases({ suite: frozen.suite, split: "train" })
+        ? selectEvaluatorMigrationCases({ suite: replaySuite, split: "train" })
         : selectEvaluationCases({ suite: frozen.suite, snapshot: currentCandidate, split: "train" });
-  const trainPrompt = buildEvaluationPrompt({ suite: { ...frozen.suite, cases: trainCases }, candidate: currentCandidate, materials: candidateMaterial });
+  const trainPrompt = buildEvaluationPrompt({ suite: { ...replaySuite, cases: trainCases }, candidate: currentCandidate, materials: candidateMaterial });
+  const trainBaselinePrompt = buildEvaluationPrompt({ suite: { ...replaySuite, cases: trainCases }, candidate: currentBaseline, materials: baselineMaterial });
   const trustedScores = [];
   for (const replay of replays) {
-    const prompt = replay.execution.role === "baseline" ? baselinePrompt : replay.execution.role === "candidate" ? candidatePrompt : trainPrompt;
+    const prompt = replay.execution.role === "baseline"
+      ? baselinePrompt
+      : replay.execution.role === "candidate"
+        ? candidatePrompt
+        : replay.execution.role === "train-baseline"
+          ? trainBaselinePrompt
+          : trainPrompt;
     const requestBinding = requestBindings.get(replay.execution.id);
     if (!requestBinding || replay.requestDigest !== requestBinding.requestDigest ||
         replay.runAs === undefined || digestObject(replay.runAs) !== digestObject(requestBinding.runAs)) {
@@ -366,16 +384,35 @@ export async function verifySelfImproveDeliveryEvidence({ root, runId, run, evid
         metadata.execution.sourceBindingDigest !== evaluation.sourceBindingDigest || metadata.expiresAt !== replay.expiresAt) {
       throw new Error("Self-improve delivery host execution witness binding changed after replay");
     }
-    const scoreCases = replay.execution.role === "train-candidate" ? trainCases : replayCases;
+    const scoreCases = replay.execution.role.startsWith("train-") ? trainCases : replayCases;
     trustedScores.push({ replay, witness, score: scoreEvaluation(witness.response, scoreCases) });
   }
   if (policyBound && trustedScores.find((item) => item.replay.execution.role === "train-candidate")?.score.hardSafetyPass !== true) {
     throw new Error(`${purpose} delivery training replay failed its hard-safety gate`);
   }
+  if (purpose === "evaluator-migration") {
+    const trustedTrainingComparison = compareEvaluatorMigration({
+      baseline: trustedScores.filter((item) => item.replay.execution.role === "train-baseline").map((item) => item.score),
+      candidate: trustedScores.filter((item) => item.replay.execution.role === "train-candidate").map((item) => item.score),
+      sourceSuite: frozen.suite,
+      targetSuite: replaySuite,
+      split: "train"
+    });
+    if (trustedTrainingComparison.accepted !== true ||
+        digestObject(trustedTrainingComparison) !== digestObject(training.evaluation?.migrationTrainingComparison)) {
+      throw new Error("Evaluator migration delivery training replays do not reproduce accepted target-only headroom");
+    }
+  }
   const trustedCandidateScores = trustedScores.filter((item) => item.replay.execution.role === "candidate").map((item) => item.score);
   const trustedBaselineScores = trustedScores.filter((item) => item.replay.execution.role === "baseline").map((item) => item.score);
   const trustedComparison = purpose === "evaluator-migration"
-    ? compareEvaluatorMigration({ baseline: trustedBaselineScores, candidate: trustedCandidateScores, suite: frozen.suite })
+    ? compareEvaluatorMigration({
+      baseline: trustedBaselineScores,
+      candidate: trustedCandidateScores,
+      sourceSuite: frozen.suite,
+      targetSuite: replaySuite,
+      split: "holdout"
+    })
     : purpose === "safety-remediation-v1"
       ? compareSafetyRemediation({ baseline: trustedBaselineScores, candidate: trustedCandidateScores, suite: frozen.suite, policy })
       : purpose === "quality-remediation-v1"
@@ -413,7 +450,7 @@ export async function verifySelfImproveDeliveryEvidence({ root, runId, run, evid
   }
   const verifiedReplays = trustedScores.map(({ replay, witness }) => ({ replay, witness }));
   const witnessDigests = verifiedReplays.map(({ replay, witness }) => witnessDigest(replay, witness)).sort();
-  if (new Set(witnessDigests).size !== 7) throw new Error("Self-improve delivery witnesses must be distinct");
+  if (new Set(witnessDigests).size !== expectedReplayCount) throw new Error("Self-improve delivery witnesses must be distinct");
   return {
     accepted,
     staging,

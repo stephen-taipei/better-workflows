@@ -114,6 +114,21 @@ async function codexExecutableIdentity(binaryPath) {
   throw new Error("Codex replay requires an administrator-approved native Mach-O Codex executable; the JS wrapper and incomplete vendor bundles are rejected");
 }
 
+export function evaluationExecutionPlan(purpose) {
+  return [
+    { split: "train", role: "train-candidate", attempt: 1 },
+    ...(purpose === "evaluator-migration"
+      ? [{ split: "train", role: "train-baseline", attempt: 1 }]
+      : []),
+    { split: "holdout", role: "candidate", attempt: 1 },
+    { split: "holdout", role: "candidate", attempt: 2 },
+    { split: "holdout", role: "candidate", attempt: 3 },
+    { split: "holdout", role: "baseline", attempt: 1 },
+    { split: "holdout", role: "baseline", attempt: 2 },
+    { split: "holdout", role: "baseline", attempt: 3 }
+  ];
+}
+
 export async function generateAttestationRequests({
   repo,
   runId,
@@ -219,31 +234,24 @@ export async function generateAttestationRequests({
       : purpose === "quality-remediation-v1"
         ? selectQualityRemediationCases({ suite: frozen.suite, snapshot: candidate, split, policy })
         : purpose === "evaluator-migration"
-          ? selectEvaluatorMigrationCases({ suite: frozen.suite, split })
+          ? selectEvaluatorMigrationCases({ suite: target.suite, split })
           : selectEvaluationCases({ suite: frozen.suite, snapshot: candidate, split });
     promptByRoleAndSplit.set(`candidate:${split}`, buildEvaluationPrompt({
-      suite: { ...frozen.suite, cases },
+      suite: { ...(purpose === "evaluator-migration" ? target.suite : frozen.suite), cases },
       candidate,
       materials: candidateMaterial
     }));
     promptByRoleAndSplit.set(`baseline:${split}`, buildEvaluationPrompt({
-      suite: { ...frozen.suite, cases },
+      suite: { ...(purpose === "evaluator-migration" ? target.suite : frozen.suite), cases },
       candidate: baseline,
       materials: baselineMaterial
     }));
   }
-  const executions = [
-    { split: "train", role: "train-candidate", attempt: 1 },
-    { split: "holdout", role: "candidate", attempt: 1 },
-    { split: "holdout", role: "candidate", attempt: 2 },
-    { split: "holdout", role: "candidate", attempt: 3 },
-    { split: "holdout", role: "baseline", attempt: 1 },
-    { split: "holdout", role: "baseline", attempt: 2 },
-    { split: "holdout", role: "baseline", attempt: 3 }
-  ];
+  const executions = evaluationExecutionPlan(purpose);
   await mkdir(outputDir, { recursive: false, mode: 0o700 });
   const records = [];
   for (const item of executions) {
+    const promptRole = item.role.endsWith("baseline") ? "baseline" : "candidate";
     const execution = {
       id: `${runId}-${item.split}-${item.role}-${item.attempt}`,
       runId,
@@ -252,14 +260,14 @@ export async function generateAttestationRequests({
       candidateDigest: candidate.digest,
       headRevision: sourceBinding.headRevision,
       promptDigest: createHash("sha256")
-        .update(promptByRoleAndSplit.get(`${item.role === "train-candidate" ? "candidate" : item.role}:${item.split}`))
+        .update(promptByRoleAndSplit.get(`${promptRole}:${item.split}`))
         .digest("hex"),
       role: item.role,
       sourceBindingDigest: sourceBinding.digest,
       attempt: item.attempt,
       ...(policyBound ? { purpose, policyDigest: policy.digest } : {})
     };
-    const prompt = promptByRoleAndSplit.get(`${item.role === "train-candidate" ? "candidate" : item.role}:${item.split}`);
+    const prompt = promptByRoleAndSplit.get(`${promptRole}:${item.split}`);
     const promptBytes = Buffer.from(prompt);
     const promptFilename = `${execution.id}.prompt.txt`;
     const promptFile = path.join(outputDir, promptFilename);
