@@ -695,7 +695,7 @@ test("ledger compilation rejects a terminal run", async () => {
   );
 });
 
-test("review packages block after the fifth scoped repair round and require final broad review", async () => {
+test("review packages reject head drift with stable finding identity, block after the fifth scoped repair round, and require final broad review", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "sbw-v2-review-"));
   const repository = path.join(root, "repository");
   await mkdir(repository, { recursive: true });

@@ -932,7 +932,7 @@ test("production-capped reviewer material exposes every canonical roster synchro
     ["plugins/better-workflows/scripts/tests/docs.test.mjs", ["tests", "README quality validation rejects cosmetic compliance and broken reader paths"]],
     ["plugins/better-workflows/scripts/tests/docs.test.mjs", ["namedSymbols", "landingMarkdownStructure"]],
     ["plugins/better-workflows/scripts/tests/control-plane-v2.test.mjs", ["tests", "ledger completion rejects self-reported evidence without a typed receipt"]],
-    ["plugins/better-workflows/scripts/tests/control-plane-v2.test.mjs", ["tests", "review packages block after the fifth scoped repair round and require final broad review"]],
+    ["plugins/better-workflows/scripts/tests/control-plane-v2.test.mjs", ["tests", "review packages reject head drift with stable finding identity, block after the fifth scoped repair round, and require final broad review"]],
     ["plugins/better-workflows/scripts/tests/control-plane-v2.test.mjs", ["tests", "single-task non-direct run creates one ledger and no automatic design or review artifacts"]],
     ["plugins/better-workflows/scripts/tests/self-improve.test.mjs", ["tests", "evaluator migration executes every target case and requires target-only headroom"]]
   ];
