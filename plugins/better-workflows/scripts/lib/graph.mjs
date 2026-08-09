@@ -593,6 +593,18 @@ export function buildTemplateCatalogGraph(templates) {
   );
 }
 
+function expectedRunActionGates(template, contract) {
+  const templateGates = structuredClone(template.actionGates ?? {});
+  if (!contract.upstreamSelfImproveRunId) return templateGates;
+  const handoffKind = "self-improve-delivery-handoff";
+  return Object.fromEntries(
+    Object.entries(templateGates).map(([action, requirements]) => [
+      action,
+      [...new Set([...(requirements ?? []), handoffKind])]
+    ])
+  );
+}
+
 export function buildRunGraph({
   template,
   manifest,
@@ -678,7 +690,10 @@ export function buildRunGraph({
       [runNode]
     );
   }
-  if (digestObject(contract.actionGates ?? {}) !== digestObject(template.actionGates ?? {})) {
+  if (
+    digestObject(contract.actionGates ?? {}) !==
+    digestObject(expectedRunActionGates(template, contract))
+  ) {
     accumulator.error(
       "action-gate-drift",
       "Run action gates differ from the installed template",

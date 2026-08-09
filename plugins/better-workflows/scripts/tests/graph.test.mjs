@@ -399,6 +399,36 @@ test("template and run builders detect cross-record structural faults", () => {
   assert.ok(provenanceCodes.has("unknown-action-kind"));
 });
 
+test("run graphs accept only the canonical delegated self-improve gate extension", () => {
+  const definition = template();
+  const handoffKind = "self-improve-delivery-handoff";
+  const delegated = runFixture({
+    template: definition,
+    contract: {
+      upstreamSelfImproveRunId: "sbw-20260809T000000Z-source000001",
+      requiredEvidence: [...definition.requiredEvidence, handoffKind],
+      actionGates: {
+        "external.write": [...definition.actionGates["external.write"], handoffKind]
+      }
+    }
+  });
+  delegated.manifest.contractDigest = digestObject(delegated.contract);
+  const delegatedGraph = buildRunGraph(delegated);
+  assert.equal(
+    delegatedGraph.diagnostics.some((item) => item.code === "action-gate-drift"),
+    false
+  );
+
+  delegated.contract.actionGates["external.write"].push("unexpected-gate");
+  delegated.contract.requiredEvidence.push("unexpected-gate");
+  delegated.manifest.contractDigest = digestObject(delegated.contract);
+  const tamperedGraph = buildRunGraph(delegated);
+  assert.equal(
+    tamperedGraph.diagnostics.some((item) => item.code === "action-gate-drift"),
+    true
+  );
+});
+
 test("pre-repair fixtures reproduce all ten action prerequisite gaps", async () => {
   const fixtures = [
     {
