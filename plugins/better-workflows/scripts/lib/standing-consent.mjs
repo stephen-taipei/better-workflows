@@ -117,7 +117,7 @@ export async function loadStandingConsentPolicy(repo) {
   if (info.isSymbolicLink() || !info.isFile()) throw new Error("Standing-consent policy must be a regular non-symlink file");
   const bytes = await readFile(policyPath);
   const value = validateStandingConsentPolicy(JSON.parse(bytes.toString("utf8")));
-  return { path: policyPath, relativePath: STANDING_CONSENT_POLICY_PATH, digest: consentDigest(bytes), value };
+  return { path: policyPath, relativePath: STANDING_CONSENT_POLICY_PATH, bytes, digest: consentDigest(bytes), value };
 }
 
 function validSubject(subject, runAs) {
@@ -249,6 +249,7 @@ export async function prepareStandingConsentInstall({ repo, hostStatus }) {
     requestRoot,
     subject: { uid, gid, username, homePath, codexHomePath },
     policyPath: policy.path,
+    policySource: policy.bytes.toString("base64"),
     policyDigest: policy.digest
   };
   const filename = `install-${Date.now()}-${process.pid}.json`;

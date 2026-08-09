@@ -137,6 +137,8 @@ test("host trust helper fixes authority paths and does not accept environment pa
   assert.match(source, /standing-consent-admin/);
   assert.match(source, /standing-consent-execution/);
   assert.match(source, /STANDING_CONSENT_AUTHORITY_STATEMENT_DIGEST/);
+  assert.match(source, /Standing-consent embedded policy source is not canonical or digest-bound/);
+  assert.doesNotMatch(source, /readSourceFile\(request\.policyPath/);
   assert.match(source, /execute-consented-batch/);
   assert.match(source, /schemaVersion 4 standing authorization requires execute-consented-batch/);
   assert.match(source, /Standing-authorized execution requests require execute-consented-batch/);

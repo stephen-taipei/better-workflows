@@ -170,6 +170,7 @@ test("host standing-consent implementation uses a digest-bound noninteractive co
   assert.doesNotMatch(source, /sudo \/bin\/sh -c/);
   assert.doesNotMatch(source, /exec\([^\n]*\/bin\/sh/);
   assert.match(source, /baselineSnapshotDigest/);
+  assert.match(source, /policyBytes\.toString\("base64"\) !== request\.policySource/);
   const cli = await readFile(path.resolve(TEST_DIR, "../sbw.mjs"), "utf8");
   assert.match(cli, /self-improve consent status\|prepare\|revoke/);
   const skill = await readFile(path.join(REPOSITORY, "plugins/better-workflows/skills/self-improve/SKILL.md"), "utf8");

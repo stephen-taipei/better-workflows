@@ -1205,7 +1205,7 @@ async function canonicalUsername(uid) {
 function validateConsentInstallRequest(value) {
   exactKeys(value, [
     "authorityStatementDigest", "expiresAt", "grantId", "kind", "maxRequests", "models", "policyDigest", "policyPath",
-    "purposes", "repo", "requestRoot", "schemaVersion", "subject"
+    "policySource", "purposes", "repo", "requestRoot", "schemaVersion", "subject"
   ], "Standing-consent install request");
   exactKeys(value.subject, ["codexHomePath", "gid", "homePath", "uid", "username"], "Standing-consent install subject");
   if (value.schemaVersion !== 1 || value.kind !== "self-improve-standing-consent-install-request" ||
@@ -1214,6 +1214,7 @@ function validateConsentInstallRequest(value) {
       canonicalJson(value.purposes) !== canonicalJson(STANDING_CONSENT_PURPOSES) || value.maxRequests !== 8 || value.expiresAt !== null ||
       typeof value.repo !== "string" || !path.isAbsolute(value.repo) || path.resolve(value.repo) !== value.repo ||
       value.policyPath !== path.join(value.repo, "plugins/better-workflows/config/self-improve-standing-consent-v1.json") ||
+      typeof value.policySource !== "string" || !/^[A-Za-z0-9+/]+={0,2}$/.test(value.policySource) ||
       !SHA256.test(value.policyDigest ?? "") || !Number.isInteger(value.subject.uid) || value.subject.uid <= 0 ||
       !Number.isInteger(value.subject.gid) || value.subject.gid <= 0 ||
       typeof value.subject.username !== "string" || !/^[A-Za-z0-9._-]+$/.test(value.subject.username) ||
@@ -1266,8 +1267,12 @@ async function installStandingConsent(requestPath, confirmedDigest) {
       throw new Error("Standing-consent Codex home identity is invalid");
     }
   }
-  const policySource = await readSourceFile(request.policyPath, request.policyDigest, "Standing-consent policy source");
-  const policy = validateStandingConsentPolicy(JSON.parse(policySource.bytes.toString("utf8")));
+  const policyBytes = Buffer.from(request.policySource, "base64");
+  if (policyBytes.toString("base64") !== request.policySource || await digest(policyBytes) !== request.policyDigest) {
+    throw new Error("Standing-consent embedded policy source is not canonical or digest-bound");
+  }
+  const policySource = { bytes: policyBytes, digest: request.policyDigest };
+  const policy = validateStandingConsentPolicy(JSON.parse(policyBytes.toString("utf8")));
   const runtime = await currentRuntime();
   const signer = await currentSigner();
   if (!runtime?.supported || !signer?.supported || signer.path !== INSTALLED_SIGNER || signer.version !== HOST_SIGNER_VERSION) {
