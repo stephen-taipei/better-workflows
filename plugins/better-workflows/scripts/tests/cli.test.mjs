@@ -461,7 +461,14 @@ test("self-improve attestation request freezes the purpose-specific replay set a
   const output = path.join(parent, "requests");
   const hostStatus = await cli(cwd, stateRoot, ["self-improve", "host", "status"], { allowFailure: true });
   const sourceSignerDigest = createHash("sha256").update(await readFile(path.resolve(path.dirname(CLI), "host-trust.mjs"))).digest("hex");
-  const hostReady = hostStatus.code === 0 && hostStatus.json?.ready === true && hostStatus.json?.signer?.digest === sourceSignerDigest;
+  const hostRuntimeReady = hostStatus.code === 0 && hostStatus.json?.ready === true && hostStatus.json?.signer?.digest === sourceSignerDigest;
+  const standingGrant = hostStatus.json?.standingConsent?.active === true
+    ? hostStatus.json.standingConsent.grant
+    : null;
+  const standingConsentBlocksFixture = Boolean(hostRuntimeReady && standingGrant && (
+    standingGrant.repo !== cwd || !standingGrant.models?.includes("gpt-5.6-sol")
+  ));
+  const hostReady = hostRuntimeReady && !standingConsentBlocksFixture;
   const approvedBinary = hostStatus.json?.codexBinary?.validEntries?.[0]?.path ?? process.execPath;
   if (hostStatus.code !== 0) {
     assert.match(hostStatus.stderr, /Administrator host status is unavailable|ENOENT: no such file or directory, lstat .*better-workflows.*codex-trust-root/);
@@ -484,6 +491,12 @@ test("self-improve attestation request freezes the purpose-specific replay set a
     output
   ], { allowFailure: !hostReady });
   if (!hostReady) {
+    if (standingConsentBlocksFixture) {
+      assert.match(requested.stderr, /Standing evaluator consent failed closed/);
+      assert.match(requested.stderr, /repository mismatch/);
+      assert.match(requested.stderr, /model mismatch/);
+      return;
+    }
     assert.match(requested.stderr, /Administrator host runtime is not ready|host-trust upgrade first/);
     return;
   }
