@@ -87,6 +87,11 @@ digest into eight signed executions (independent train baseline and candidate,
 plus three baseline and three candidate holdouts), executes the full target
 split in each replay, and requires deterministic class isolation,
 balanced-sampling coverage, and target-only headroom calibration.
+Every target-only assertion must name snapshot-verifiable implementation or
+regression-test evidence. Conceptual governance wording alone cannot satisfy a
+target-only assertion, and a missing exact symbol, test title, case id, or
+heading in the full-file evidence index is negative evidence rather than a
+license to infer the behavior exists.
 Changing an inherited case requires a separately versioned, digest-bound,
 independently reviewed compatibility policy; an ordinary target corpus cannot
 authorize that change itself.

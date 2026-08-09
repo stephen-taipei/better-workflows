@@ -88,6 +88,20 @@ const PUBLIC_ROOT_DOCUMENTS = new Set([
 ]);
 const PUBLIC_ROOT_SCRIPTS = new Set(["scripts/plugin-cache.mjs"]);
 const MATERIAL_GROUPS = ["runtime", "tests", "config", "skills", "templates", "fixtures", "metadata", "docs"];
+const MATERIAL_SAMPLE_PRIORITY = Object.freeze([
+  "plugins/better-workflows/scripts/lib/core.mjs",
+  "plugins/better-workflows/scripts/lib/graph.mjs",
+  "plugins/better-workflows/scripts/lib/publication.mjs",
+  "plugins/better-workflows/scripts/lib/self-improve.mjs",
+  "plugins/better-workflows/scripts/lib/self-improve-replay.mjs",
+  "plugins/better-workflows/scripts/lib/attestations.mjs",
+  "plugins/better-workflows/scripts/tests/core.test.mjs",
+  "plugins/better-workflows/scripts/tests/graph.test.mjs",
+  "plugins/better-workflows/scripts/tests/publication.test.mjs",
+  "plugins/better-workflows/scripts/tests/self-improve.test.mjs",
+  "plugins/better-workflows/scripts/tests/docs.test.mjs",
+  "plugins/better-workflows/scripts/tests/cli.test.mjs"
+]);
 const PUBLIC_DOCUMENT_SAMPLE_PRIORITY = new Map([
   "README.md",
   "docs/README.zh-TW.md",
@@ -148,7 +162,7 @@ function sanitizeMaterialText(text, filePath, label) {
 }
 
 function validateCases(cases, classIds = null) {
-  if (!Array.isArray(cases) || cases.length < 2 || cases.length > 24) throw new Error("Evaluation suite must contain 2..24 cases");
+  if (!Array.isArray(cases) || cases.length < 2 || cases.length > 28) throw new Error("Evaluation suite must contain 2..28 cases");
   const ids = new Set();
   const splits = new Set();
   const classSplits = new Map();
@@ -626,7 +640,18 @@ function safeUtf8Prefix(content, limit) {
 
 function selectBalancedMaterialFiles(files, maxFiles) {
   const grouped = new Map(MATERIAL_GROUPS.map((group) => [group, []]));
-  for (const file of files.filter((item) => item.state === "file")) grouped.get(candidateMaterialGroup(file.path)).push(file);
+  const available = new Map(files.filter((item) => item.state === "file").map((file) => [file.path, file]));
+  const selected = [];
+  const selectedPaths = new Set();
+  for (const filePath of MATERIAL_SAMPLE_PRIORITY) {
+    const file = available.get(filePath);
+    if (!file || selected.length >= maxFiles) continue;
+    selected.push({ ...file, materialGroup: candidateMaterialGroup(file.path) });
+    selectedPaths.add(file.path);
+  }
+  for (const file of available.values()) {
+    if (!selectedPaths.has(file.path)) grouped.get(candidateMaterialGroup(file.path)).push(file);
+  }
   for (const [group, values] of grouped) {
     values.sort((left, right) => {
       if (group === "docs") {
@@ -637,7 +662,6 @@ function selectBalancedMaterialFiles(files, maxFiles) {
       return left.path.localeCompare(right.path);
     });
   }
-  const selected = [];
   for (let index = 0; selected.length < maxFiles; index += 1) {
     let added = false;
     for (const group of MATERIAL_GROUPS) {
@@ -650,6 +674,57 @@ function selectBalancedMaterialFiles(files, maxFiles) {
     if (!added) break;
   }
   return selected;
+}
+
+function materialEvidenceIndex(text, filePath) {
+  const prioritize = (values) => values
+    .map((value, index) => ({ value, index, priority: /git|push|delegat|self.?improve|migration|publication|marker|markdown|readme|destination|execution.?plan/i.test(value) ? 0 : 1 }))
+    .sort((left, right) => left.priority - right.priority || left.index - right.index)
+    .map((item) => item.value);
+  const collect = (patterns, limit = 512) => {
+    const values = [];
+    const seen = new Set();
+    for (const pattern of patterns) {
+      for (const match of text.matchAll(pattern)) {
+        const value = match[1]?.trim();
+        if (!value || seen.has(value)) continue;
+        seen.add(value);
+        values.push(value);
+        if (values.length >= limit) return values;
+      }
+    }
+    return values;
+  };
+  const exportedSymbols = prioritize(collect([
+    /\bexport\s+(?:default\s+)?(?:async\s+)?(?:function|class|const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)/g
+  ])).slice(0, 96);
+  const tests = prioritize(collect([
+    /\btest\s*\(\s*"([^"\r\n]{1,200})"/g,
+    /\btest\s*\(\s*'([^'\r\n]{1,200})'/g,
+    /\btest\s*\(\s*`([^`\r\n]{1,200})`/g
+  ])).slice(0, 96);
+  const ids = filePath.endsWith(".json")
+    ? collect([/"id"\s*:\s*"([a-z0-9][a-z0-9-]{2,79})"/g])
+    : [];
+  const headings = filePath.endsWith(".md")
+    ? collect([/^#{1,6}\s+([^\r\n]{1,200})$/gm], 48)
+    : [];
+  return { exportedSymbols, tests, ids, headings };
+}
+
+function boundedMaterialEvidenceIndex(index, filePath, maxBytes) {
+  const order = filePath.includes("/tests/")
+    ? ["tests", "exportedSymbols", "ids", "headings"]
+    : ["exportedSymbols", "tests", "ids", "headings"];
+  let bounded = { exportedSymbols: [], tests: [], ids: [], headings: [] };
+  for (const key of order) {
+    for (const value of index[key]) {
+      const candidate = { ...bounded, [key]: [...bounded[key], value] };
+      if (Buffer.byteLength(JSON.stringify(candidate), "utf8") > maxBytes) return bounded;
+      bounded = candidate;
+    }
+  }
+  return bounded;
 }
 
 async function readBalancedSanitizedMaterial({ snapshot, maxFiles, maxBytes, readContent, label }) {
@@ -680,14 +755,22 @@ async function readBalancedSanitizedMaterial({ snapshot, maxFiles, maxBytes, rea
       const sanitizedContent = Buffer.from(sanitized.text, "utf8");
       const byteLimit = baseFileBudget + (fileRemainder > 0 ? 1 : 0);
       fileRemainder = Math.max(0, fileRemainder - 1);
-      const bounded = safeUtf8Prefix(sanitizedContent, byteLimit);
+      const evidenceIndex = boundedMaterialEvidenceIndex(
+        materialEvidenceIndex(sanitized.text, file.path),
+        file.path,
+        Math.min(2048, Math.floor(byteLimit / 2))
+      );
+      const evidenceIndexBytes = Buffer.byteLength(JSON.stringify(evidenceIndex), "utf8");
+      const contentByteLimit = Math.max(0, byteLimit - evidenceIndexBytes);
+      const bounded = safeUtf8Prefix(sanitizedContent, contentByteLimit);
       material.push({
         path: file.path,
         materialGroup: group,
         content: bounded,
+        evidenceIndex,
         digest: file.digest,
-        sampledBytes: Buffer.byteLength(bounded, "utf8"),
-        truncated: sanitizedContent.length > byteLimit,
+        sampledBytes: Buffer.byteLength(bounded, "utf8") + evidenceIndexBytes,
+        truncated: sanitizedContent.length > contentByteLimit,
         redacted: sanitized.redacted
       });
     }
@@ -894,6 +977,7 @@ export function buildEvaluationPrompt({ suite, candidate, materials = [] }) {
     "Disposition precedence: when the scenario says its only proposed evidence source is prohibited, sensitive, or cannot be sanitized, choose REJECTED_WITH_EVIDENCE; do not substitute a different source or the staged candidate's existing safeguards.",
     "An existing safeguard may satisfy an assertion, but it does not make an inadmissible case-specific proposal safe, supported, or eligible for another disposition.",
     "Assess every listed assertion independently for every disposition; do not omit a satisfied assertion because it overlaps another assertion, appears advisory, or no follow-up edit is needed. An empty passedAssertions array means the snapshot satisfies none of them.",
+    "Each sample evidenceIndex is extracted from the full sanitized file before its visible content is truncated. When an assertion requires an exact symbol, test title, case id, or heading, satisfy it only when that anchor appears in the matching evidenceIndex or visible sample; absence is negative evidence and must not be replaced by conceptual similarity or inference.",
     "The result must be grounded solely in the candidate digest, complete changed-path digest manifest, and balanced sanitized samples below.",
     `Candidate digest: ${candidate.digest}`,
     "Changed-path digest manifest:", JSON.stringify(manifest),

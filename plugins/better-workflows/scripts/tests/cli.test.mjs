@@ -341,7 +341,7 @@ test("evaluator migration binds immutable source and target suites, calibration,
   assert.equal(train.json.migrationTrainingComparison.accepted, true);
   assert.deepEqual(
     train.json.calibration.targetOnlyCaseIds.train,
-    ["evaluator-v23-versioned-migration", "publication-owned-marker-cleanup"]
+    ["evaluator-v23-versioned-migration", "git-push-effective-destination", "publication-owned-marker-cleanup"]
   );
   assert.equal(train.json.evidence.length, 4);
   const holdout = await cli(cwd, stateRoot, [...common, "--split", "holdout"], { env: { SBW_TEST_FIXTURE_BACKEND: "1" } });

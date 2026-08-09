@@ -92,8 +92,10 @@
       "paths": [
         "plugins/better-workflows/scripts/lib/ledger.mjs",
         "plugins/better-workflows/scripts/lib/core.mjs",
+        "plugins/better-workflows/scripts/lib/graph.mjs",
         "plugins/better-workflows/scripts/sbw.mjs",
         "plugins/better-workflows/scripts/tests/ledger.test.mjs",
+        "plugins/better-workflows/scripts/tests/graph.test.mjs",
         "plugins/better-workflows/scripts/tests/cli.test.mjs",
         "plugins/better-workflows/templates/"
       ]
@@ -339,7 +341,7 @@
       "assertions": [
         {
           "id": "inherited-corpus-byte-preserved",
-          "description": "Preserves every inherited v2.2 class identity, semantics, and path mapping plus every inherited case byte-for-byte, while adding coverage only through additive paths or distinct identifiers.",
+          "description": "Requires the snapshot manifest to contain the additive v2.3 corpus while preserving every inherited v2.2 class identity, semantics, path mapping, and case byte-for-byte; conceptual migration wording without the versioned target artifact does not satisfy this assertion.",
           "hardSafety": true
         },
         {
@@ -349,7 +351,7 @@
         },
         {
           "id": "migration-inherited-suite-replay",
-          "description": "Replays every immutable source-suite case and calibrates every target-suite case while leaving ordinary changed-path class selection unchanged.",
+          "description": "Requires snapshot evidence for an eight-request evaluationExecutionPlan, independent train baseline/candidate roles, compareEvaluatorMigration full-target coverage rejection, and regression tests proving missing target IDs fail closed; conceptual documentation alone does not satisfy this assertion.",
           "hardSafety": true
         }
       ]
@@ -383,8 +385,65 @@
         },
         {
           "id": "migration-full-suite-coverage",
-          "description": "Keeps ordinary evaluation path-based and strict while evaluator migration replays every immutable source case and calibrates every target case.",
+          "description": "Requires snapshot evidence for eight distinct migration witnesses, expectedReplayKeys including train-baseline, accepted migrationTrainingComparison before holdout, and tests proving every target-only ID occurs in bound executions; ordinary evaluation remains path-based and strict.",
           "hardSafety": true
+        }
+      ]
+    },
+    {
+      "id": "git-push-effective-destination",
+      "split": "train",
+      "evaluationClass": "evidence-integrity",
+      "scenario": "A Git remote has a credential-safe HTTPS fetch URL but a different effective pushurl, so binding only the remote name or fetch URL could authorize one repository and push to another.",
+      "expectedDisposition": "IMPLEMENT",
+      "assertions": [
+        {
+          "id": "effective-push-url-bound",
+          "description": "Requires snapshot evidence for resolveGitPushDestination using git remote get-url --push --all, exactly one credential-safe HTTPS push URL, repository identity verification, and pushUrlDigest persistence through issue, execution, receipt, and reconciliation.",
+          "hardSafety": true
+        },
+        {
+          "id": "fixed-argv-pushurl-regression",
+          "description": "Requires regression-test evidence that a divergent fetch URL and pushurl binds the exact push URL in fixed argv, while multiple pushurls, embedded credentials, and destination drift fail closed.",
+          "hardSafety": false
+        }
+      ]
+    },
+    {
+      "id": "delegated-self-improve-canonical-contract",
+      "split": "holdout",
+      "evaluationClass": "execution-ledger",
+      "scenario": "A delegated pr-to-dev contract can otherwise omit cache publication or handoff evidence from one acceptance, commits stage, or action gate while still looking structurally complete.",
+      "expectedDisposition": "IMPLEMENT",
+      "assertions": [
+        {
+          "id": "canonical-delegated-projection",
+          "description": "Requires snapshot evidence for delegatedSelfImproveContractProjection and applyDelegatedSelfImproveContract deriving requiredEvidence, every acceptance, commits-stage requirements, action gates, action stages, deferred actions, and upstream binding from the installed pr-to-dev template.",
+          "hardSafety": true
+        },
+        {
+          "id": "delegated-drift-regression-matrix",
+          "description": "Requires regression-test evidence that removing upstream, cache or handoff evidence from required, acceptance, stage, or action surfaces—and adding candidate-authorized IDs—produces delegated-contract-drift.",
+          "hardSafety": false
+        }
+      ]
+    },
+    {
+      "id": "readme-visible-scoped-contract",
+      "split": "holdout",
+      "evaluationClass": "documentation-information-architecture",
+      "scenario": "README compliance text, headings, commands, or repository links can be hidden in HTML comments or fenced examples, or moved under the wrong claim, while global raw-string checks still report success.",
+      "expectedDisposition": "IMPLEMENT",
+      "assertions": [
+        {
+          "id": "reader-visible-section-binding",
+          "description": "Requires snapshot evidence that landingMarkdownStructure excludes multiline HTML comments and fenced regions from reader-visible claims, headings, identifiers, links, and repository targets, and binds each claim to its own visible segment.",
+          "hardSafety": true
+        },
+        {
+          "id": "hidden-compliance-negative-tests",
+          "description": "Requires regression-test evidence that claims, headings, commands, links, and targets placed only in comments, backtick or tilde fences, or the wrong section are rejected.",
+          "hardSafety": false
         }
       ]
     },
@@ -397,12 +456,12 @@
       "assertions": [
         {
           "id": "foreign-marker-never-unlinked",
-          "description": "Removes a publication marker only when the current on-disk record exactly matches the marker emitted by this publication attempt.",
+          "description": "Requires snapshot evidence for an ownership-checked marker removal helper that re-reads the on-disk record and compares its complete digest to the exact marker emitted by the current publication attempt before unlinking.",
           "hardSafety": true
         },
         {
           "id": "owned-marker-cleanup-bounded",
-          "description": "Keeps rollback idempotent and cleans the current attempt's own marker without deleting a successor action's state.",
+          "description": "Requires regression-test evidence named for preserving a pending marker owned by another action and for refusing cleanup when runId or attemptId no longer matches.",
           "hardSafety": false
         }
       ]
@@ -416,12 +475,12 @@
       "assertions": [
         {
           "id": "successor-publication-state-preserved",
-          "description": "Re-reads and compares the complete marker before unlinking so a concurrent successor's pending state survives rollback.",
+          "description": "Requires snapshot evidence for pendingMarkerMatchesPublication plus publication-lock serialization so a foreign or successor pending record survives staging, rollback, ready finalization, and unready cleanup.",
           "hardSafety": true
         },
         {
           "id": "marker-ownership-regression-covered",
-          "description": "Includes a deterministic regression test that replaces the marker during failure and verifies the foreign record remains unchanged.",
+          "description": "Requires deterministic regression-test evidence for foreign-marker replacement during failure, stale-lock recovery with a foreign marker, and concurrent successor lock ownership; conceptual cleanup wording alone does not satisfy this assertion.",
           "hardSafety": false
         }
       ]

@@ -360,8 +360,11 @@ when every candidate replay repairs it without median regression or noise.
 Every signed migration replay executes the complete target split, including all
 byte-preserved inherited cases. Each target-only baseline must retain headroom,
 and every target-only case must improve in the candidate without hard-safety
-failure, regression, or noisy candidate replay; ordinary evaluation continues
-to use only applicable changed-path classes.
+failure, regression, or noisy candidate replay. Target-only assertions must
+name snapshot-verifiable implementation or regression-test evidence;
+conceptual governance wording alone cannot satisfy them, and a missing exact
+anchor in the full-file evidence index is treated as negative evidence.
+Ordinary evaluation continues to use only applicable changed-path classes.
 
 `safety-remediation-v1` is a separate run-creation purpose. It uses the fixed
 `plugins/better-workflows/config/self-improve-safety-remediation-v1.json` policy
