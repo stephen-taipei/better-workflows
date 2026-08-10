@@ -88,7 +88,7 @@ const PUBLIC_ROOT_DOCUMENTS = new Set([
 ]);
 const PUBLIC_ROOT_SCRIPTS = new Set(["scripts/plugin-cache.mjs"]);
 const MATERIAL_GROUPS = ["runtime", "tests", "config", "skills", "templates", "fixtures", "metadata", "docs"];
-const CRITICAL_MATERIAL_ANCHOR = /resolveGitPushDestination|delegatedSelfImproveContractProjection|applyDelegatedSelfImproveContract|expectedReplayKeys|migrationTrainingComparison|alignedRuns|train-(?:candidate|baseline):1|(?:candidate|baseline):[1-3]|evaluator migration executes every target|pendingMarkerMatchesPublication|acquirePublicationLock|releasePublicationLock|reclaimStalePublicationLock|landingMarkdownStructure|reduceLedger|attempt-budget-exhausted|budget-exhausted|fifth scoped repair round|repair budget exhausted|final broad review|single-task non-direct run|automatic design or review artifacts|direct mode creates no state directory|self-reported evidence without a typed receipt|complete-without-typed-evidence/i;
+const CRITICAL_MATERIAL_ANCHOR = /resolveGitPushDestination|delegatedSelfImproveContractProjection|applyDelegatedSelfImproveContract|delegated-contract-drift|candidate-self-authorized-(?:evidence|acceptance)|upstream run|orphan cache-only signals|required cache evidence|acceptance cache evidence|stage (?:handoff|cache) evidence|action handoff gate|unexpected (?:required evidence|acceptance id)|expectedReplayKeys|migrationTrainingComparison|alignedRuns|train-(?:candidate|baseline):1|(?:candidate|baseline):[1-3]|release metadata classification|every other byte change|migration gap repair|eight distinct migration witnesses|every target-only case|hidden comments|fenced examples|wrong-section|suite saturation|pendingMarkerMatchesPublication|acquirePublicationLock|releasePublicationLock|reclaimStalePublicationLock|landingMarkdownStructure|reduceLedger|attempt-budget-exhausted|budget-exhausted|fifth scoped repair round|repair budget exhausted|final broad review|single-task non-direct run|automatic design or review artifacts|direct mode creates no state directory|self-reported evidence without a typed receipt|complete-without-typed-evidence/i;
 const MATERIAL_SAMPLE_PRIORITY = Object.freeze([
   "plugins/better-workflows/scripts/lib/core.mjs",
   "plugins/better-workflows/scripts/lib/graph.mjs",
@@ -741,7 +741,7 @@ function materialEvidenceIndex(text, filePath) {
     : [];
   const semanticAnchors = prioritize(collect([
     /["'`]([^"'`\r\n]{4,200})["'`]/g
-  ]).filter((value) => /git|push|delegat|self.?improve|migration|train-(?:candidate|baseline)|(?:candidate|baseline):[1-3]|publication|marker|markdown|readme|destination|ledger|evidence|review|direct|budget|exhaust|typed|receipt|broad|fence|comment|artifact|sentinel|digest|roster|transport|unauthor|forg/i.test(value))).slice(0, 16);
+  ]).filter((value) => /git|push|delegat|handoff|self.?improve|migration|train-(?:candidate|baseline)|(?:candidate|baseline):[1-3]|publication|cache|marker|markdown|readme|destination|ledger|evidence|acceptance|review|direct|budget|exhaust|typed|receipt|broad|fence|comment|artifact|sentinel|digest|roster|transport|action|stage|upstream|unauthor|forg/i.test(value))).slice(0, 16);
   return { exportedSymbols, namedSymbols, tests, ids, headings, semanticAnchors };
 }
 
@@ -1040,6 +1040,7 @@ export function buildEvaluationPrompt({ suite, candidate, materials = [] }) {
     "Assess every listed assertion independently for every disposition; do not omit an assertion because it overlaps another assertion, appears advisory, or no follow-up edit is needed.",
     "The JSON field passedAssertions keeps its legacy name but is a complete assertion-decision list: for every assertion exactly once, return its exact id when satisfied or NOT_SATISFIED:<id> when not satisfied. Never omit an assertion decision, never return both tokens for one assertion, and never use an empty array when assertions are listed.",
     "Each sample evidenceIndex is extracted from the full sanitized file before its visible content is truncated. When an assertion requires an exact exported or internal named symbol, semantic anchor, test title, case id, or heading, satisfy it only when that anchor appears in the matching evidenceIndex or visible sample; absence is negative evidence and must not be replaced by conceptual similarity or inference.",
+    "When an assertion requires regression evidence, an exact case-specific test title plus a corresponding implementation symbol or semantic anchor in the same snapshot is direct positive evidence only for the contract those anchors state, even when bounded visible content omits the test body; do not infer behavior beyond those anchors.",
     "The result must be grounded solely in the candidate digest, complete changed-path digest manifest, and balanced sanitized samples below.",
     `Candidate digest: ${candidate.digest}`,
     "Changed-path digest manifest:", JSON.stringify(manifest),

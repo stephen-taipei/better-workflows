@@ -400,7 +400,7 @@ test("template and run builders detect cross-record structural faults", () => {
   assert.ok(provenanceCodes.has("unknown-action-kind"));
 });
 
-test("run graphs require the complete canonical delegated self-improve contract", () => {
+test("delegated-contract-drift rejects missing upstream, cache or handoff evidence across required, acceptance, commits stage and action gates plus candidate-authorized ids", () => {
   const definition = template({
     name: "pr-to-dev",
     controlPlane: {

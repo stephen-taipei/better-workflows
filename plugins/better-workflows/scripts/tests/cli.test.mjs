@@ -321,7 +321,7 @@ test("delegated pr-to-dev runs require the typed self-improve handoff gate", asy
   assert.ok(commitsStageEvidence.includes("cache-publication"));
 });
 
-test("evaluator migration binds immutable source and target suites, calibration, and a dedicated comparison policy", async () => {
+test("evaluator migration requires accepted training before holdout and binds immutable source and target suites", async () => {
   const cwd = await selfImproveRepository({ includeV23: false });
   const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-cli-evaluator-migration-"));
   await writeFile(
@@ -347,6 +347,11 @@ test("evaluator migration binds immutable source and target suites, calibration,
     "--backend", "fixture",
     "--result-file", fixture
   ];
+  const prematureHoldout = await cli(cwd, stateRoot, [...common, "--split", "holdout"], {
+    allowFailure: true,
+    env: { SBW_TEST_FIXTURE_BACKEND: "1" }
+  });
+  assert.match(prematureHoldout.stderr, /requires a fresh training replay/);
   const train = await cli(cwd, stateRoot, [...common, "--split", "train"], { env: { SBW_TEST_FIXTURE_BACKEND: "1" } });
   assert.equal(train.json.calibration.materialGroups.includes("runtime"), true);
   assert.equal(train.json.migrationTrainingComparison.accepted, true);
@@ -439,7 +444,7 @@ test("self-improve evaluation fails closed when its suite or staged candidate ch
   assert.match(changedSuite.stderr, /drifted from the immutable baseline/);
 });
 
-test("self-improve attestation request freezes the purpose-specific replay set and rejects unsafe drift", async () => {
+test("evaluator migration attestation binds eight distinct migration witnesses, train baseline, every target-only case, and rejects unsafe drift", async () => {
   const cwd = await selfImproveRepository();
   const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-attestation-state-"));
   await writeFile(path.join(cwd, "plugins", "better-workflows", "scripts", "sbw.mjs"), "export const candidate = true;\n");

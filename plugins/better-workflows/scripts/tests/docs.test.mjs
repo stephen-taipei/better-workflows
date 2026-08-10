@@ -482,7 +482,7 @@ test("all landing READMEs satisfy the narrative, trust, visual, and scan-quality
   );
 });
 
-test("README quality validation rejects cosmetic compliance and broken reader paths", async (context) => {
+test("README quality rejects hidden comments, fenced examples, wrong-section claims, commands, links, and headings", async (context) => {
   try {
     await access(overview);
   } catch {

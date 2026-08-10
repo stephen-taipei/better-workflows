@@ -129,7 +129,7 @@ test("candidate snapshots bind executable modes so post-holdout chmod is detecte
   }
 });
 
-test("candidate snapshots exclude only exact release metadata from class applicability", async () => {
+test("release metadata classification is exact while every other byte change remains semantic and applicable", async () => {
   const cwd = await mkdtemp(path.join(os.tmpdir(), "sbw-release-metadata-candidate-"));
   try {
     await execFileAsync("git", ["init", "-q", "-b", "dev"], { cwd });
@@ -533,7 +533,7 @@ test("evaluation v2 separates invariant safety from strict relevant-class improv
   assert.equal(safetyRegression.reason, "hard-safety-failure");
 });
 
-test("evaluator migration executes every target case and requires target-only headroom", () => {
+test("evaluator migration gap repair rejects saturation, incomplete candidate hard safety, invariant failure, regression, noise, and missing target coverage", () => {
   const run = (split, { targetOnlyScore, overrides = {}, unsafe = [] } = {}) => {
     const sourceIds = new Set(suiteV22.cases.map((item) => item.id));
     const cases = suiteV23.cases.filter((item) => item.split === split);
@@ -609,6 +609,15 @@ test("evaluator migration executes every target case and requires target-only he
   ).reason, "migration-safety-regression");
   assert.equal(compare(
     "holdout",
+    [holdoutBaseline(), holdoutBaseline(), holdoutBaseline()],
+    [
+      run("holdout", { targetOnlyScore: 1, overrides: { "evaluator-class-headroom": 0.5 } }),
+      holdoutCandidate(),
+      holdoutCandidate()
+    ]
+  ).reason, "migration-noisy-candidate-run");
+  assert.equal(compare(
+    "holdout",
     [run("holdout", { targetOnlyScore: 0.5, unsafe: ["universal-sensitive-history"] }), holdoutBaseline(), holdoutBaseline()],
     [holdoutCandidate(), holdoutCandidate(), holdoutCandidate()]
   ).reason, "migration-invariant-hard-safety-failure");
@@ -641,6 +650,9 @@ test("evaluation prompt excludes hidden dispositions and hard-safety rubric", ()
   assert.match(prompt, /evidenceIndex is extracted from the full sanitized file/);
   assert.match(prompt, /exported or internal named symbol, semantic anchor/);
   assert.match(prompt, /absence is negative evidence/);
+  assert.match(prompt, /exact case-specific test title plus a corresponding implementation symbol or semantic anchor/);
+  assert.match(prompt, /direct positive evidence only for the contract those anchors state/);
+  assert.match(prompt, /do not infer behavior beyond those anchors/);
   assert.match(prompt, /does not make an inadmissible case-specific proposal safe/);
   for (const disposition of ["IMPLEMENT", "NO_CHANGE", "BLOCKED", "REJECTED_WITH_EVIDENCE"]) {
     assert.match(prompt, new RegExp(disposition));
@@ -985,14 +997,27 @@ test("production-capped reviewer material exposes every canonical roster synchro
     ["plugins/better-workflows/scripts/sbw.mjs", ["namedSymbols", "migrationTrainingComparison"]],
     ["plugins/better-workflows/scripts/tests/core.test.mjs", ["tests", "git push destination binds a divergent pushurl and rejects multiple effective destinations"]],
     ["plugins/better-workflows/scripts/tests/core.test.mjs", ["tests", "direct mode creates no state directory"]],
-    ["plugins/better-workflows/scripts/tests/graph.test.mjs", ["tests", "run graphs require the complete canonical delegated self-improve contract"]],
+    ["plugins/better-workflows/scripts/tests/graph.test.mjs", ["tests", "delegated-contract-drift rejects missing upstream, cache or handoff evidence across required, acceptance, commits stage and action gates plus candidate-authorized ids"]],
+    ["plugins/better-workflows/scripts/tests/graph.test.mjs", ["semanticAnchors", "delegated-contract-drift"]],
+    ["plugins/better-workflows/scripts/tests/graph.test.mjs", ["semanticAnchors", "upstream run"]],
+    ["plugins/better-workflows/scripts/tests/graph.test.mjs", ["semanticAnchors", "orphan cache-only signals"]],
+    ["plugins/better-workflows/scripts/tests/graph.test.mjs", ["semanticAnchors", "required cache evidence"]],
+    ["plugins/better-workflows/scripts/tests/graph.test.mjs", ["semanticAnchors", "acceptance cache evidence"]],
+    ["plugins/better-workflows/scripts/tests/graph.test.mjs", ["semanticAnchors", "stage handoff evidence"]],
+    ["plugins/better-workflows/scripts/tests/graph.test.mjs", ["semanticAnchors", "stage cache evidence"]],
+    ["plugins/better-workflows/scripts/tests/graph.test.mjs", ["semanticAnchors", "action handoff gate"]],
+    ["plugins/better-workflows/scripts/tests/graph.test.mjs", ["semanticAnchors", "candidate-self-authorized-evidence"]],
+    ["plugins/better-workflows/scripts/tests/graph.test.mjs", ["semanticAnchors", "candidate-self-authorized-acceptance"]],
     ["plugins/better-workflows/scripts/tests/publication.test.mjs", ["tests", "publication failure preserves a pending marker owned by another action"]],
-    ["plugins/better-workflows/scripts/tests/docs.test.mjs", ["tests", "README quality validation rejects cosmetic compliance and broken reader paths"]],
+    ["plugins/better-workflows/scripts/tests/docs.test.mjs", ["tests", "README quality rejects hidden comments, fenced examples, wrong-section claims, commands, links, and headings"]],
     ["plugins/better-workflows/scripts/tests/docs.test.mjs", ["namedSymbols", "landingMarkdownStructure"]],
     ["plugins/better-workflows/scripts/tests/control-plane-v2.test.mjs", ["tests", "ledger completion rejects self-reported evidence without a typed receipt"]],
     ["plugins/better-workflows/scripts/tests/control-plane-v2.test.mjs", ["tests", "review packages reject head drift with stable finding identity, block after the fifth scoped repair round, and require final broad review"]],
     ["plugins/better-workflows/scripts/tests/control-plane-v2.test.mjs", ["tests", "single-task non-direct run creates one ledger and no automatic design or review artifacts"]],
-    ["plugins/better-workflows/scripts/tests/self-improve.test.mjs", ["tests", "evaluator migration executes every target case and requires target-only headroom"]]
+    ["plugins/better-workflows/scripts/tests/self-improve.test.mjs", ["tests", "release metadata classification is exact while every other byte change remains semantic and applicable"]],
+    ["plugins/better-workflows/scripts/tests/self-improve.test.mjs", ["tests", "evaluator migration gap repair rejects saturation, incomplete candidate hard safety, invariant failure, regression, noise, and missing target coverage"]],
+    ["plugins/better-workflows/scripts/tests/cli.test.mjs", ["tests", "evaluator migration requires accepted training before holdout and binds immutable source and target suites"]],
+    ["plugins/better-workflows/scripts/tests/cli.test.mjs", ["tests", "evaluator migration attestation binds eight distinct migration witnesses, train baseline, every target-only case, and rejects unsafe drift"]]
   ];
   for (const [file, [kind, anchor]] of indexedEvidence) {
     assert.ok(materialByPath.has(file), file);
