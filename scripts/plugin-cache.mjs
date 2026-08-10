@@ -345,7 +345,7 @@ async function main() {
           status: "complete",
           acceptanceIds: [],
           dependencyInputs: { files: [] },
-          dependencies: { workflowVersion: "3.2.1", files: [] },
+          dependencies: { workflowVersion: "3.2.2", files: [] },
           receiptBase: {
             contractVersion: 1,
             runId: targetRunId,

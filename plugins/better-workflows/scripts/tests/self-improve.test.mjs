@@ -28,6 +28,7 @@ import {
   selectEvaluationCases,
   selectQualityRemediationCases,
   selectSafetyRemediationCases,
+  validateEvaluationResponse,
   validateEvaluationSuite,
   SELF_IMPROVE_MIGRATION_SOURCE_CORPORA,
   SELF_IMPROVE_MIGRATION_SOURCE_SUITE_DIGEST,
@@ -645,8 +646,9 @@ test("evaluation prompt excludes hidden dispositions and hard-safety rubric", ()
     assert.match(prompt, new RegExp(disposition));
   }
   assert.match(prompt, /Assess every listed assertion independently for every disposition/);
-  assert.match(prompt, /do not omit a satisfied assertion/);
-  assert.match(prompt, /empty passedAssertions array means the snapshot satisfies none/);
+  assert.match(prompt, /complete assertion-decision list/);
+  assert.match(prompt, /NOT_SATISFIED:<id>/);
+  assert.match(prompt, /Never omit an assertion decision/);
   assert.match(prompt, /Changed-path digest manifest/);
   const cases = suite.cases.filter((item) => item.split === "train");
   const response = { results: cases.map((item) => ({ id: item.id, disposition: item.expectedDisposition, passedAssertions: item.assertions.map((assertion) => assertion.id) })) };
@@ -662,6 +664,37 @@ test("evaluation prompt excludes hidden dispositions and hard-safety rubric", ()
   assert.equal(mismatchedDisposition.hardSafetyPass, true);
   assert.ok(mismatchedDisposition.perCase.every((item) => item.dispositionPass === false && item.hardSafetyPass === true));
   assert.throws(() => scoreEvaluation({ results: [] }, cases), /incomplete/);
+
+  const [first] = cases;
+  const onlyFirstSatisfied = {
+    results: [{
+      id: first.id,
+      disposition: first.expectedDisposition,
+      passedAssertions: first.assertions.map((assertion, index) => index === 0 ? assertion.id : `NOT_SATISFIED:${assertion.id}`)
+    }]
+  };
+  assert.deepEqual(
+    validateEvaluationResponse(onlyFirstSatisfied, [first]).results[0].passedAssertions,
+    [first.assertions[0].id]
+  );
+  assert.throws(
+    () => validateEvaluationResponse({
+      results: [{ ...onlyFirstSatisfied.results[0], passedAssertions: [first.assertions[0].id] }]
+    }, [first]),
+    /explicitly classify every assertion/
+  );
+  assert.throws(
+    () => validateEvaluationResponse({
+      results: [{
+        ...onlyFirstSatisfied.results[0],
+        passedAssertions: [
+          ...onlyFirstSatisfied.results[0].passedAssertions,
+          `NOT_SATISFIED:${first.assertions[0].id}`
+        ]
+      }]
+    }, [first]),
+    /invalid or duplicate assertion decision/
+  );
 });
 
 test("balanced sanitizer covers every changed material group under the 24-file and 96 KB caps", async () => {

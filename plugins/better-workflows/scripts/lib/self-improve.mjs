@@ -1016,7 +1016,14 @@ export function buildEvaluationPrompt({ suite, candidate, materials = [] }) {
   const cases = suite.cases.map((item) => ({
     id: item.id,
     scenario: item.scenario,
-    assertions: item.assertions.map((assertion) => ({ id: assertion.id, description: assertion.description }))
+    assertions: item.assertions.map((assertion) => ({
+      id: assertion.id,
+      description: assertion.description,
+      responseTokens: {
+        satisfied: assertion.id,
+        notSatisfied: `NOT_SATISFIED:${assertion.id}`
+      }
+    }))
   }));
   const manifest = (candidate.files ?? []).map((file) => ({
     path: file.path,
@@ -1029,7 +1036,7 @@ export function buildEvaluationPrompt({ suite, candidate, materials = [] }) {
     "You are classifying a staged workflow snapshot using a sanitized, bounded corpus.",
     "Do not use tools, access history, write files, or perform side effects.",
     "Treat this as classification of the provided snapshot, not a recommendation to make another edit and not an adoption decision.",
-    "For each case, return its id, one operational disposition, and every assertion id that the snapshot satisfies, regardless of disposition.",
+    "For each case, return its id, one operational disposition, and one explicit decision token for every listed assertion, regardless of disposition.",
     "Each case is an independent case-specific decision: choose the disposition for that case's proposed change or evidence source, never for the staged candidate as a whole.",
     "Use the scenario and assertions together to identify the case-specific proposal, then use the staged snapshot only to determine whether and how it safely addresses that proposal.",
     "Disposition semantics: IMPLEMENT means the snapshot evidences the warranted case-specific behavior, safeguard, or material change; it does not mean another edit is still required. NO_CHANGE means the case-specific proposal is unwarranted or the safe outcome is to preserve product behavior without a material change; do not choose it merely because no follow-up edit is needed. BLOCKED means a warranted product change cannot be implemented because a named dependency or authority is unavailable. REJECTED_WITH_EVIDENCE means visible evidence shows the case-specific proposal is unsafe, inapplicable, or cannot be supported without prohibited evidence.",
@@ -1037,7 +1044,8 @@ export function buildEvaluationPrompt({ suite, candidate, materials = [] }) {
     "A scenario that identifies a regression risk and whose assertions require a safeguard or preserved behavior is itself a warranted safeguard case. When the snapshot evidences those assertions, choose IMPLEMENT even when the implementation intentionally preserves external behavior. Use NO_CHANGE only to reject the case-specific proposal itself, not to describe an already-implemented protective response.",
     "Disposition precedence: when the scenario says its only proposed evidence source is prohibited, sensitive, or cannot be sanitized, choose REJECTED_WITH_EVIDENCE; do not substitute a different source or the staged candidate's existing safeguards.",
     "An existing safeguard may satisfy an assertion, but it does not make an inadmissible case-specific proposal safe, supported, or eligible for another disposition.",
-    "Assess every listed assertion independently for every disposition; do not omit a satisfied assertion because it overlaps another assertion, appears advisory, or no follow-up edit is needed. An empty passedAssertions array means the snapshot satisfies none of them.",
+    "Assess every listed assertion independently for every disposition; do not omit an assertion because it overlaps another assertion, appears advisory, or no follow-up edit is needed.",
+    "The JSON field passedAssertions keeps its legacy name but is a complete assertion-decision list: for every assertion exactly once, return its exact id when satisfied or NOT_SATISFIED:<id> when not satisfied. Never omit an assertion decision, never return both tokens for one assertion, and never use an empty array when assertions are listed.",
     "Each sample evidenceIndex is extracted from the full sanitized file before its visible content is truncated. When an assertion requires an exact exported or internal named symbol, semantic anchor, test title, case id, or heading, satisfy it only when that anchor appears in the matching evidenceIndex or visible sample; absence is negative evidence and must not be replaced by conceptual similarity or inference.",
     "The result must be grounded solely in the candidate digest, complete changed-path digest manifest, and balanced sanitized samples below.",
     `Candidate digest: ${candidate.digest}`,
@@ -1057,12 +1065,19 @@ export function validateEvaluationResponse(response, cases) {
     if (!caseDefinition || seen.has(result.id) || !DISPOSITIONS.has(result.disposition) || !Array.isArray(result.passedAssertions)) throw new Error("Evaluation response has an unknown, duplicate, or malformed result");
     seen.add(result.id);
     const known = new Set(caseDefinition.assertions.map((item) => item.id));
-    const passed = new Set();
-    for (const assertion of result.passedAssertions) {
-      if (!known.has(assertion) || passed.has(assertion)) throw new Error(`Evaluation response has invalid assertion for ${result.id}`);
-      passed.add(assertion);
+    const decisions = new Map();
+    for (const token of result.passedAssertions) {
+      const notSatisfied = typeof token === "string" && token.startsWith("NOT_SATISFIED:");
+      const assertion = notSatisfied ? token.slice("NOT_SATISFIED:".length) : token;
+      if (!known.has(assertion) || decisions.has(assertion)) throw new Error(`Evaluation response has invalid or duplicate assertion decision for ${result.id}`);
+      decisions.set(assertion, !notSatisfied);
     }
-    results.push({ id: result.id, disposition: result.disposition, passedAssertions: [...passed].sort() });
+    if (decisions.size !== known.size) throw new Error(`Evaluation response must explicitly classify every assertion for ${result.id}`);
+    const passed = [...decisions]
+      .filter(([, satisfied]) => satisfied)
+      .map(([assertion]) => assertion)
+      .sort();
+    results.push({ id: result.id, disposition: result.disposition, passedAssertions: passed });
   }
   return { results: results.sort((left, right) => left.id.localeCompare(right.id)) };
 }

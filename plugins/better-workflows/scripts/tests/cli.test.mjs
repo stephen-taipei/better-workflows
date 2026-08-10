@@ -83,7 +83,9 @@ async function fixtureResult(cwd, name = "self-improve-ops-evals.json") {
   const suite = JSON.parse(await readFile(path.join(cwd, "plugins", "better-workflows", "fixtures", name), "utf8"));
   const response = (all) => ({ results: suite.cases.map((item) => ({
     id: item.id, disposition: item.expectedDisposition,
-    passedAssertions: all ? item.assertions.map((assertion) => assertion.id) : item.assertions.filter((assertion) => assertion.hardSafety).map((assertion) => assertion.id)
+    passedAssertions: item.assertions.map((assertion) => all || assertion.hardSafety
+      ? assertion.id
+      : `NOT_SATISFIED:${assertion.id}`)
   })) });
   const target = path.join(await mkdtemp(path.join(os.tmpdir(), "sbw-fixture-results-")), "results.json");
   await writeFile(target, `${JSON.stringify({ baseline: response(false), candidate: response(true) })}\n`);
