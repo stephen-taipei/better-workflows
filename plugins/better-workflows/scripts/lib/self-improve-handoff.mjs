@@ -113,13 +113,11 @@ export async function validateSelfImproveDeliveryHandoff(payload, targetRun) {
   return expected;
 }
 
-export async function createSelfImproveDeliveryHandoff(root, targetRunId, sourceRunId) {
-  const targetRun = await loadRun(root, targetRunId);
-  if (targetRun.contract.template !== "pr-to-dev" || targetRun.contract.upstreamSelfImproveRunId !== sourceRunId) {
-    throw new Error("Target pr-to-dev run is not explicitly bound to the requested self-improve run");
+export function buildSelfImproveDeliveryHandoffEvidence({ targetRunId, targetRun, payload }) {
+  const sourceBindingDigest = targetRun.manifest.sourceBinding?.digest;
+  if (!SHA256.test(sourceBindingDigest)) {
+    throw new Error("Self-improve delivery handoff evidence requires the target source binding digest");
   }
-  const payload = await collectSelfImproveDeliveryBinding(root, sourceRunId);
-  await validateSelfImproveDeliveryHandoff(payload, { ...targetRun, root });
   const producer = { provider: "codex-root" };
   return {
     schemaVersion: 2,
@@ -133,7 +131,8 @@ export async function createSelfImproveDeliveryHandoff(root, targetRunId, source
     dependencies: {
       contractDigest: targetRun.manifest.contractDigest,
       workflowVersion: VERSION,
-      files: []
+      files: [],
+      sourceBindingDigest
     },
     producer,
     receipt: {
@@ -145,11 +144,21 @@ export async function createSelfImproveDeliveryHandoff(root, targetRunId, source
         runId: targetRunId,
         contractDigest: digestObject(targetRun.contract),
         remoteRevision: targetRun.contract.remoteRevision ?? null,
-        sourceBindingDigest: targetRun.manifest.sourceBinding.digest
+        sourceBindingDigest
       },
       payload,
       payloadDigest: digestObject(payload),
       producedAt: nowIso()
     }
   };
+}
+
+export async function createSelfImproveDeliveryHandoff(root, targetRunId, sourceRunId) {
+  const targetRun = await loadRun(root, targetRunId);
+  if (targetRun.contract.template !== "pr-to-dev" || targetRun.contract.upstreamSelfImproveRunId !== sourceRunId) {
+    throw new Error("Target pr-to-dev run is not explicitly bound to the requested self-improve run");
+  }
+  const payload = await collectSelfImproveDeliveryBinding(root, sourceRunId);
+  await validateSelfImproveDeliveryHandoff(payload, { ...targetRun, root });
+  return buildSelfImproveDeliveryHandoffEvidence({ targetRunId, targetRun, payload });
 }

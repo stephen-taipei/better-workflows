@@ -8,6 +8,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { pluginRoot } from "../lib/core.mjs";
 import { evaluationExecutionPlan } from "../lib/attestations.mjs";
+import { buildSelfImproveDeliveryHandoffEvidence } from "../lib/self-improve-handoff.mjs";
 import {
   buildEvaluationPrompt,
   calibrateEvaluatorMigration,
@@ -54,6 +55,30 @@ const qualityPolicy = await loadQualityRemediationPolicy({ cwd: repositoryRoot }
 function run(score, hardSafetyPass = true, evaluationClass = "evaluation-engineering") {
   return { score, hardSafetyPass, perCase: [{ id: "a", evaluationClass, score, hardSafetyPass }] };
 }
+
+test("self-improve handoff evidence preserves its source-binding freshness dependency", () => {
+  const sourceBindingDigest = "a".repeat(64);
+  const targetRunId = "sbw-target-run";
+  const targetRun = {
+    manifest: {
+      contractDigest: "b".repeat(64),
+      sourceBinding: { digest: sourceBindingDigest }
+    },
+    contract: {
+      template: "pr-to-dev",
+      remoteRevision: "c".repeat(40)
+    }
+  };
+  const evidence = buildSelfImproveDeliveryHandoffEvidence({
+    targetRunId,
+    targetRun,
+    payload: { sourceRunId: "sbw-source-run" }
+  });
+
+  assert.equal(evidence.dependencies.sourceBindingDigest, sourceBindingDigest);
+  assert.equal(evidence.receipt.inputBinding.sourceBindingDigest, sourceBindingDigest);
+  assert.deepEqual(evidence.dependencyInputs.files, []);
+});
 
 test("self-improve corpus validates split isolation, uniqueness, and secret-shaped material", () => {
   assert.equal(validateEvaluationSuite(suite).cases.length, 6);
