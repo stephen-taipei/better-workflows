@@ -1016,14 +1016,7 @@ export function buildEvaluationPrompt({ suite, candidate, materials = [] }) {
   const cases = suite.cases.map((item) => ({
     id: item.id,
     scenario: item.scenario,
-    assertions: item.assertions.map((assertion) => ({
-      id: assertion.id,
-      description: assertion.description,
-      responseTokens: {
-        satisfied: assertion.id,
-        notSatisfied: `NOT_SATISFIED:${assertion.id}`
-      }
-    }))
+    assertions: item.assertions.map((assertion) => ({ id: assertion.id, description: assertion.description }))
   }));
   const manifest = (candidate.files ?? []).map((file) => ({
     path: file.path,
