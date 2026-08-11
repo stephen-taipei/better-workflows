@@ -1,18 +1,53 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { lstat, readFile, readdir, readlink, realpath } from "node:fs/promises";
 import path from "node:path";
-import { canonicalJson, sha256 } from "./core.mjs";
+import { canonicalJson, execBoundGit, sha256 } from "./core.mjs";
+const SOURCE_GIT_EXECUTABLE = "/usr/bin/git";
+const SOURCE_GIT_PATH = "/usr/bin:/bin:/usr/sbin:/sbin";
+const SOURCE_GIT_TIMEOUT_MS = 30_000;
+const SOURCE_GIT_MAX_BUFFER = 4 * 1024 * 1024;
 
-const execFileAsync = promisify(execFile);
+function isolatedGitEnvironment() {
+  return {
+    PATH: SOURCE_GIT_PATH,
+    HOME: "/var/empty",
+    LANG: "C",
+    LC_ALL: "C",
+    GIT_OPTIONAL_LOCKS: "0",
+    GIT_CONFIG_GLOBAL: "/dev/null",
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_TERMINAL_PROMPT: "0",
+    GIT_NO_REPLACE_OBJECTS: "1"
+  };
+}
 
-async function git(cwd, args, { allowFailure = false, maxBuffer = 32 * 1024 * 1024 } = {}) {
+async function git(cwd, args, {
+  allowFailure = false,
+  isolatedConfig = false,
+  isolatedEnvironment = false,
+  maxBuffer = 32 * 1024 * 1024,
+  encoding = "utf8",
+  workTree = null
+} = {}) {
   try {
-    const result = await execFileAsync("git", args, {
+    const commandArgs = isolatedConfig
+      ? [
+          "--no-replace-objects",
+          ...(workTree === null ? [] : [`--work-tree=${workTree}`]),
+          "-c", "core.fsmonitor=false",
+          "-c", "core.hooksPath=/dev/null",
+          "-c", "credential.helper=",
+          ...args
+        ]
+      : args;
+    const environment = isolatedConfig || isolatedEnvironment
+      ? isolatedGitEnvironment()
+      : { ...process.env, GIT_OPTIONAL_LOCKS: "0" };
+    const result = await execBoundGit(SOURCE_GIT_EXECUTABLE, commandArgs, {
       cwd,
-      encoding: "utf8",
-      maxBuffer,
-      env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" }
+      env: environment,
+      timeoutMs: SOURCE_GIT_TIMEOUT_MS,
+      maxBuffer: Math.min(maxBuffer, SOURCE_GIT_MAX_BUFFER),
+      encoding
     });
     return { ok: true, stdout: result.stdout, stderr: result.stderr };
   } catch (error) {
@@ -28,9 +63,81 @@ async function git(cwd, args, { allowFailure = false, maxBuffer = 32 * 1024 * 10
   }
 }
 
+function sourceGit(cwd, args, options = {}) {
+  const { validateWorktree = true, workTree = null, ...gitOptions } = options;
+  return (async () => {
+    const expectedWorkTree = workTree ?? await findCanonicalWorktree(cwd);
+    if (validateWorktree) await validateConfiguredWorktree(cwd, expectedWorkTree);
+    return git(cwd, args, { ...gitOptions, workTree: expectedWorkTree, isolatedConfig: true });
+  })();
+}
+
+export function runSourceGit(cwd, args, options = {}) {
+  return sourceGit(cwd, args, options);
+}
+
+export async function canonicalSourceRoot(cwd) {
+  const expectedWorkTree = await findCanonicalWorktree(cwd);
+  await validateConfiguredWorktree(cwd, expectedWorkTree);
+  return expectedWorkTree;
+}
+
 export async function isGitRepository(cwd) {
-  const result = await git(cwd, ["rev-parse", "--is-inside-work-tree"], { allowFailure: true });
-  return result.ok && result.stdout.trim() === "true";
+  try {
+    const result = await sourceGit(cwd, ["rev-parse", "--is-inside-work-tree"], { allowFailure: true });
+    return result.ok && result.stdout.trim() === "true";
+  } catch (error) {
+    // A repository-local core.worktree redirect is an authority violation,
+    // not evidence that the path simply is not a repository.  Preserve the
+    // failure so callers such as captureSourceBinding fail closed instead of
+    // silently returning null and allowing a redirected worktree to pass.
+    if (/^Git core\.worktree configuration/.test(String(error?.message ?? error))) {
+      throw error;
+    }
+    return false;
+  }
+}
+
+async function findCanonicalWorktree(cwd) {
+  let cursor = await realpath(path.resolve(cwd));
+  for (;;) {
+    const gitPath = path.join(cursor, ".git");
+    try {
+      const info = await lstat(gitPath);
+      if (info.isDirectory() || info.isFile()) return cursor;
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+    const parent = path.dirname(cursor);
+    if (parent === cursor) break;
+    cursor = parent;
+  }
+  throw new Error(`Git worktree metadata was not found above ${path.resolve(cwd)}`);
+}
+
+async function validateConfiguredWorktree(cwd, expectedWorkTree) {
+  const result = await git(cwd, ["config", "--local", "--no-includes", "--get-all", "core.worktree"], {
+    allowFailure: true,
+    isolatedConfig: true,
+    isolatedEnvironment: true,
+    workTree: expectedWorkTree,
+    validateWorktree: false
+  });
+  if (!result.ok) return;
+  const values = String(result.stdout).split(/\r?\n/).map((value) => value.trim()).filter(Boolean);
+  for (const value of values) {
+    if (/^[\0\r\n]/.test(value)) throw new Error("Git core.worktree configuration contains an invalid value");
+    const configured = path.isAbsolute(value) ? path.resolve(value) : path.resolve(expectedWorkTree, value);
+    let resolved;
+    try {
+      resolved = await realpath(configured);
+    } catch {
+      throw new Error("Git core.worktree configuration does not resolve to the expected worktree");
+    }
+    if (resolved !== expectedWorkTree) {
+      throw new Error(`Git core.worktree configuration redirects away from ${expectedWorkTree}`);
+    }
+  }
 }
 
 function normalizeRelative(cwd, candidate) {
@@ -187,12 +294,26 @@ async function untrackedMetadata(cwd, paths, exclusions, maxFiles) {
 }
 
 async function gitPath(cwd, name) {
-  const result = await git(cwd, ["rev-parse", "--git-path", name]);
+  const result = await git(cwd, ["--no-replace-objects", "rev-parse", "--git-path", name], {
+    isolatedEnvironment: true
+  });
   return path.resolve(cwd, result.stdout.trim());
 }
 
-export async function hiddenIndexEntries(cwd) {
-  const result = await git(cwd, ["ls-files", "-v", "-z"]);
+async function localConfigValues(cwd, key) {
+  const result = await sourceGit(cwd, ["config", "--local", "--no-includes", "--get-all", key], {
+    allowFailure: true
+  });
+  if (!result.ok) return [];
+  const values = result.stdout.split(/\r?\n/).map((value) => value.trim()).filter(Boolean);
+  if (values.some((value) => /[\0\r\n]/.test(value))) {
+    throw new Error(`Source binding contains an invalid local Git value for ${key}`);
+  }
+  return values;
+}
+
+export async function hiddenIndexEntries(cwd, { isolatedConfig = false } = {}) {
+  const result = await git(cwd, ["ls-files", "-v", "-z"], { isolatedConfig });
   const records = [];
   for (const entry of result.stdout.split("\0").filter(Boolean)) {
     const status = entry[0];
@@ -264,32 +385,59 @@ async function highRiskIgnored(cwd, requested, budget) {
   return digestPaths(cwd, paths, budget, []);
 }
 
-export async function captureSourceBinding(cwd, { baseRevision = null, requireClean = false } = {}) {
+export async function captureSourceBinding(cwd, {
+  baseRevision = null,
+  requireClean = false,
+  beforeFinalCheck = null
+} = {}) {
   const repository = await realpath(path.resolve(cwd));
   if (!(await isGitRepository(repository))) return null;
+  const expectedRepositoryRoot = await findCanonicalWorktree(repository);
 
-  const worktreeStatus = (await git(repository, ["status", "--porcelain=v2", "-z", "--untracked-files=all", "--ignored"])).stdout;
-  const hiddenIndex = await hiddenIndexEntries(repository);
-  const worktreeClean = worktreeStatus.length === 0 && hiddenIndex.records.length === 0;
-  if (requireClean && !worktreeClean) {
-    throw new Error("Source binding requires a clean index, tracked worktree, untracked surface, and ignored surface; visible tracked index flags are required");
+  if (beforeFinalCheck !== null && typeof beforeFinalCheck !== "function") {
+    throw new Error("Source binding final-check hook must be a function");
   }
-  const headRevision = (await git(repository, ["rev-parse", "HEAD"])).stdout.trim();
-  const repositoryRoot = await realpath((await git(repository, ["rev-parse", "--show-toplevel"])).stdout.trim());
-  const gitDir = await realpath(path.resolve(repository, (await git(repository, ["rev-parse", "--git-dir"])).stdout.trim()));
-  const gitCommonDir = await realpath(path.resolve(repository, (await git(repository, ["rev-parse", "--git-common-dir"])).stdout.trim()));
-  const [gitDirInfo, gitCommonDirInfo] = await Promise.all([lstat(gitDir), lstat(gitCommonDir)]);
-  const origin = (await git(repository, ["remote", "get-url", "origin"], { allowFailure: true })).stdout.trim() || null;
-  const headRef = (await git(repository, ["symbolic-ref", "-q", "HEAD"], { allowFailure: true })).stdout.trim() || null;
-  const originHeadRef = (await git(repository, ["symbolic-ref", "-q", "refs/remotes/origin/HEAD"], { allowFailure: true })).stdout.trim() || null;
+
   const directoryIdentity = (target, info) => ({
     path: target,
     device: Number.isSafeInteger(info.dev) ? info.dev : null,
     inode: Number.isSafeInteger(info.ino) ? info.ino : null
   });
+  const captureLayout = async () => {
+    const headRevision = (await sourceGit(repository, ["rev-parse", "HEAD"])).stdout.trim();
+    const repositoryRoot = await realpath((await sourceGit(repository, ["rev-parse", "--show-toplevel"])).stdout.trim());
+    const gitDir = await realpath(path.resolve(repository, (await sourceGit(repository, ["rev-parse", "--git-dir"])).stdout.trim()));
+    const gitCommonDir = await realpath(path.resolve(repository, (await sourceGit(repository, ["rev-parse", "--git-common-dir"])).stdout.trim()));
+    const [gitDirInfo, gitCommonDirInfo] = await Promise.all([lstat(gitDir), lstat(gitCommonDir)]);
+    return {
+      headRevision,
+      repositoryRoot,
+      gitDir: directoryIdentity(gitDir, gitDirInfo),
+      gitCommonDir: directoryIdentity(gitCommonDir, gitCommonDirInfo)
+    };
+  };
+  const initialLayout = await captureLayout();
+  if (initialLayout.repositoryRoot !== expectedRepositoryRoot) {
+    throw new Error("Source binding Git worktree root does not match the canonical repository root");
+  }
+
+  const worktreeStatus = (await sourceGit(repository, ["status", "--porcelain=v2", "-z", "--untracked-files=all", "--ignored"])).stdout;
+  const hiddenIndex = await hiddenIndexEntries(repository, { isolatedConfig: true });
+  const worktreeClean = worktreeStatus.length === 0 && hiddenIndex.records.length === 0;
+  if (requireClean && !worktreeClean) {
+    throw new Error("Source binding requires a clean index, tracked worktree, untracked surface, and ignored surface; visible tracked index flags are required");
+  }
+  const headRevision = initialLayout.headRevision;
+  const repositoryRoot = initialLayout.repositoryRoot;
+  const gitDir = initialLayout.gitDir.path;
+  const gitCommonDir = initialLayout.gitCommonDir.path;
+  const originUrls = await localConfigValues(repository, "remote.origin.url");
+  const originPushUrls = await localConfigValues(repository, "remote.origin.pushurl");
+  const headRef = (await sourceGit(repository, ["symbolic-ref", "-q", "HEAD"], { allowFailure: true })).stdout.trim() || null;
+  const originHeadRef = (await sourceGit(repository, ["symbolic-ref", "-q", "refs/remotes/origin/HEAD"], { allowFailure: true })).stdout.trim() || null;
   let resolvedBaseRevision = null;
   if (baseRevision) {
-    const resolved = await git(
+    const resolved = await sourceGit(
       repository,
       ["rev-parse", "--verify", `${String(baseRevision)}^{commit}`],
       { allowFailure: true }
@@ -297,7 +445,7 @@ export async function captureSourceBinding(cwd, { baseRevision = null, requireCl
     if (resolved.ok) resolvedBaseRevision = resolved.stdout.trim();
   }
   const committedDiff = resolvedBaseRevision
-    ? (await git(repository, [
+    ? (await sourceGit(repository, [
         "diff-tree",
         "--no-commit-id",
         "--name-status",
@@ -309,7 +457,7 @@ export async function captureSourceBinding(cwd, { baseRevision = null, requireCl
       ])).stdout
     : "";
   const committedModeManifest = resolvedBaseRevision
-    ? (await git(repository, [
+    ? (await sourceGit(repository, [
         "diff-tree",
         "--no-commit-id",
         "--raw",
@@ -320,6 +468,29 @@ export async function captureSourceBinding(cwd, { baseRevision = null, requireCl
         "--"
       ])).stdout
     : "";
+  if (beforeFinalCheck) await beforeFinalCheck({ repository, headRevision });
+  const finalWorktreeStatus = (await sourceGit(repository, ["status", "--porcelain=v2", "-z", "--untracked-files=all", "--ignored"])).stdout;
+  const finalHiddenIndex = await hiddenIndexEntries(repository, { isolatedConfig: true });
+  const finalOriginUrls = await localConfigValues(repository, "remote.origin.url");
+  const finalOriginPushUrls = await localConfigValues(repository, "remote.origin.pushurl");
+  const finalHeadRef = (await sourceGit(repository, ["symbolic-ref", "-q", "HEAD"], { allowFailure: true })).stdout.trim() || null;
+  const finalOriginHeadRef = (await sourceGit(repository, ["symbolic-ref", "-q", "refs/remotes/origin/HEAD"], { allowFailure: true })).stdout.trim() || null;
+  const finalLayout = await captureLayout();
+  const sameOrigin = JSON.stringify({ fetchUrls: originUrls, pushUrls: originPushUrls }) ===
+    JSON.stringify({ fetchUrls: finalOriginUrls, pushUrls: finalOriginPushUrls });
+  if (
+    finalLayout.headRevision !== headRevision ||
+    finalLayout.repositoryRoot !== repositoryRoot ||
+    JSON.stringify(finalLayout.gitDir) !== JSON.stringify(initialLayout.gitDir) ||
+    JSON.stringify(finalLayout.gitCommonDir) !== JSON.stringify(initialLayout.gitCommonDir) ||
+    finalWorktreeStatus !== worktreeStatus ||
+    finalHiddenIndex.digest !== hiddenIndex.digest ||
+    !sameOrigin ||
+    finalHeadRef !== headRef ||
+    finalOriginHeadRef !== originHeadRef
+  ) {
+    throw new Error("Source binding changed during stable snapshot capture");
+  }
   const diffManifest = {
     schemaVersion: 2,
     baseRevision: resolvedBaseRevision,
@@ -331,14 +502,18 @@ export async function captureSourceBinding(cwd, { baseRevision = null, requireCl
   };
   const diffManifestDigest = sha256(canonicalJson(diffManifest));
   const stable = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     cwd: repository,
     repositoryRoot,
-    gitDir: directoryIdentity(gitDir, gitDirInfo),
-    gitCommonDir: directoryIdentity(gitCommonDir, gitCommonDirInfo),
+    gitDir: initialLayout.gitDir,
+    gitCommonDir: initialLayout.gitCommonDir,
     originIdentity: {
-      present: origin !== null,
-      digest: origin ? sha256(origin) : null
+      present: originUrls.length > 0,
+      fetchUrls: originUrls,
+      pushUrls: originPushUrls,
+      digest: originUrls.length > 0 || originPushUrls.length > 0
+        ? sha256(canonicalJson({ fetchUrls: originUrls, pushUrls: originPushUrls }))
+        : null
     },
     symbolicRefs: { head: headRef, originHead: originHeadRef },
     baseRevision: resolvedBaseRevision,

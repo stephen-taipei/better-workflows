@@ -6,7 +6,7 @@ import { mkdir, mkdtemp, realpath, symlink, unlink, writeFile } from "node:fs/pr
 import os from "node:os";
 import path from "node:path";
 import { buildContract, loadDefaults } from "../lib/core.mjs";
-import { captureSentinel, captureSourceBinding, compareSentinels } from "../lib/git.mjs";
+import { captureSentinel, captureSourceBinding, compareSentinels, runSourceGit } from "../lib/git.mjs";
 
 const execFileAsync = promisify(execFile);
 
@@ -105,6 +105,44 @@ test("source bindings pin base, head, and the exact diff manifest", async () => 
   );
 });
 
+test("runSourceGit preserves invalid UTF-8 and NUL bytes in committed objects", async () => {
+  const cwd = await repository();
+  const expected = Buffer.from([0x00, 0xff, 0xc3, 0x28, 0x00, 0x80, 0xfe, 0x0a]);
+  await writeFile(path.join(cwd, "src", "bytes.dat"), expected);
+  await git(cwd, "add", "src/bytes.dat");
+  await git(cwd, "commit", "-qm", "binary object fixture");
+  const result = await runSourceGit(cwd, ["show", "HEAD:src/bytes.dat"], { encoding: "buffer" });
+  assert.equal(Buffer.isBuffer(result.stdout), true);
+  assert.deepEqual(result.stdout, expected);
+});
+
+test("source binding rejects a concurrent commit during the final stability check", async () => {
+  const cwd = await repository();
+  const base = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd, encoding: "utf8" })).stdout.trim();
+  await assert.rejects(
+    captureSourceBinding(cwd, {
+      baseRevision: base,
+      beforeFinalCheck: async () => {
+        await writeFile(path.join(cwd, "src", "a.txt"), "concurrent commit\n");
+        await git(cwd, "add", "src/a.txt");
+        await git(cwd, "commit", "-qm", "concurrent source advance");
+      }
+    }),
+    /changed during stable snapshot capture/
+  );
+});
+
+test("source binding rejects a remote URL mutation during the final stability check", async () => {
+  const cwd = await repository();
+  await git(cwd, "remote", "add", "origin", "https://example.invalid/initial.git");
+  await assert.rejects(
+    captureSourceBinding(cwd, {
+      beforeFinalCheck: () => git(cwd, "config", "remote.origin.url", "https://example.invalid/changed.git")
+    }),
+    /changed during stable snapshot capture/
+  );
+});
+
 test("source bindings include canonical worktree, common-dir, and origin identity", async () => {
   const cwd = await repository();
   await git(cwd, "remote", "add", "origin", "https://example.invalid/better-workflows.git");
@@ -113,6 +151,14 @@ test("source bindings include canonical worktree, common-dir, and origin identit
   assert.equal(primary.gitCommonDir.path, await realpath(path.join(cwd, ".git")));
   assert.equal(primary.originIdentity.present, true);
   assert.match(primary.originIdentity.digest, /^[a-f0-9]{64}$/);
+  assert.deepEqual(primary.originIdentity.fetchUrls, ["https://example.invalid/better-workflows.git"]);
+  assert.deepEqual(primary.originIdentity.pushUrls, []);
+
+  await git(cwd, "config", "remote.origin.pushurl", "https://example.invalid/better-workflows-push.git");
+  const withPushUrl = await captureSourceBinding(cwd);
+  assert.deepEqual(withPushUrl.originIdentity.pushUrls, ["https://example.invalid/better-workflows-push.git"]);
+  assert.notEqual(withPushUrl.digest, primary.digest);
+  await git(cwd, "config", "--unset-all", "remote.origin.pushurl");
 
   const linked = path.join(os.tmpdir(), `sbw-git-linked-${Date.now()}-${Math.random().toString(16).slice(2)}`);
   await git(cwd, "worktree", "add", "-q", linked);
@@ -120,6 +166,110 @@ test("source bindings include canonical worktree, common-dir, and origin identit
   assert.notEqual(linkedBinding.gitDir.path, primary.gitDir.path);
   assert.equal(linkedBinding.gitCommonDir.path, primary.gitCommonDir.path);
   assert.notEqual(linkedBinding.digest, primary.digest);
+});
+
+test("source bindings use the pinned Git executable instead of an ambient PATH shadow", async () => {
+  const cwd = await repository();
+  const expected = await captureSourceBinding(cwd);
+  const shadowRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-git-shadow-"));
+  await writeFile(path.join(shadowRoot, "git"), "#!/bin/sh\nexit 99\n", { mode: 0o755 });
+  const previous = process.env.PATH;
+  process.env.PATH = shadowRoot;
+  try {
+    assert.deepEqual(await captureSourceBinding(cwd), expected);
+  } finally {
+    if (previous === undefined) delete process.env.PATH;
+    else process.env.PATH = previous;
+  }
+});
+
+test("source authority rejects a repository-local core.worktree redirect", async () => {
+  const cwd = await repository();
+  const redirected = await mkdtemp(path.join(os.tmpdir(), "sbw-git-core-worktree-redirect-"));
+  await git(cwd, "config", "core.worktree", redirected);
+  await writeFile(path.join(cwd, "src", "a.txt"), "dirty source bytes\n");
+  await assert.rejects(
+    captureSourceBinding(cwd),
+    /core\.worktree configuration redirects away from|Git core\.worktree/
+  );
+  await assert.rejects(
+    runSourceGit(cwd, ["status", "--porcelain"], { allowFailure: true }),
+    /core\.worktree configuration redirects away from|Git core\.worktree/
+  );
+});
+
+test("source bindings ignore mutable global Git URL rewrites", async () => {
+  const cwd = await repository();
+  await git(cwd, "remote", "add", "origin", "https://example.invalid/better-workflows.git");
+  const expected = await captureSourceBinding(cwd);
+  const globalConfig = path.join(await mkdtemp(path.join(os.tmpdir(), "sbw-git-global-config-")), "config");
+  await writeFile(globalConfig, [
+    '[url "ssh://rewritten.invalid/"]',
+    "\tinsteadOf = https://example.invalid/",
+    ""
+  ].join("\n"));
+  const previous = process.env.GIT_CONFIG_GLOBAL;
+  process.env.GIT_CONFIG_GLOBAL = globalConfig;
+  try {
+    const rewritten = (await execFileAsync("git", ["remote", "get-url", "origin"], {
+      cwd,
+      encoding: "utf8",
+      env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1" }
+    })).stdout.trim();
+    assert.equal(rewritten, "ssh://rewritten.invalid/better-workflows.git");
+    assert.deepEqual(await captureSourceBinding(cwd), expected);
+  } finally {
+    if (previous === undefined) delete process.env.GIT_CONFIG_GLOBAL;
+    else process.env.GIT_CONFIG_GLOBAL = previous;
+  }
+});
+
+test("source bindings ignore command-scoped Git configuration", async () => {
+  const cwd = await repository();
+  await git(cwd, "remote", "add", "origin", "https://example.invalid/better-workflows.git");
+  const expected = await captureSourceBinding(cwd);
+  const injected = {
+    GIT_CONFIG_COUNT: "1",
+    GIT_CONFIG_KEY_0: "url.ssh://rewritten.invalid/.insteadOf",
+    GIT_CONFIG_VALUE_0: "https://example.invalid/",
+    GIT_CONFIG_PARAMETERS: "'url.ssh://parameters.invalid/.insteadOf'='https://parameters.invalid/'"
+  };
+  const previous = Object.fromEntries(Object.keys(injected).map((key) => [key, process.env[key]]));
+  Object.assign(process.env, injected);
+  try {
+    assert.deepEqual(await captureSourceBinding(cwd), expected);
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
+
+test("source bindings ignore inherited Git repository and object routing", async () => {
+  const cwd = await repository();
+  const decoy = await repository();
+  const expected = await captureSourceBinding(cwd);
+  const injected = {
+    GIT_DIR: path.join(decoy, ".git"),
+    GIT_WORK_TREE: decoy,
+    GIT_INDEX_FILE: path.join(decoy, ".git", "index"),
+    GIT_COMMON_DIR: path.join(decoy, ".git"),
+    GIT_OBJECT_DIRECTORY: path.join(decoy, ".git", "objects"),
+    GIT_ALTERNATE_OBJECT_DIRECTORIES: path.join(cwd, ".git", "objects"),
+    GIT_NAMESPACE: "untrusted-namespace",
+    GIT_REPLACE_REF_BASE: "refs/untrusted-replacements/"
+  };
+  const previous = Object.fromEntries(Object.keys(injected).map((key) => [key, process.env[key]]));
+  Object.assign(process.env, injected);
+  try {
+    assert.deepEqual(await captureSourceBinding(cwd), expected);
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
 });
 
 test("source bindings reject hidden assume-unchanged and skip-worktree tracked flags", async () => {

@@ -189,7 +189,7 @@ journal and every request digest/run-as tuple against that manifest.
 
 After the one-time standing consent is active, exact `gpt-5.6-terra` batches
 that satisfy the checked-in sanitizer policy return an `executeCommand` using
-`/usr/bin/sudo -n` and schemaVersion 4. The root signer still independently
+`/usr/bin/sudo -n` and schemaVersion 5. The root signer still independently
 revalidates the fixed repository, user identity, request root, model, purpose,
 count, source binding, prompt, file manifest, secret filter, and byte/case
 budgets. An active or partially installed grant with any mismatch fails closed

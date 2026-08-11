@@ -1,10 +1,11 @@
 import { constants as fsConstants } from "node:fs";
-import { execFile, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import {
   appendFile,
   chmod,
   lstat,
   mkdir,
+  mkdtemp,
   open,
   readdir,
   readFile,
@@ -19,11 +20,449 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { promisify } from "node:util";
+const BOUND_GIT_EXECUTABLE = "/usr/bin/git";
+const BOUND_GIT_PATH = "/usr/bin:/bin:/usr/sbin:/sbin";
+const BOUND_GITHUB_CLI_TIMEOUT_MS = 30_000;
+const BOUND_GITHUB_CLI_MAX_BUFFER = 1024 * 1024;
+const BOUND_GIT_TIMEOUT_MS = 30_000;
+const BOUND_GIT_MAX_BUFFER = 4 * 1024 * 1024;
+// The in-process supervisor force-kills its dedicated group after 100 ms. A
+// short parent grace keeps the cleanup proof bounded without adding a full
+// second of idle latency to every successful Git/provider call.
+const BOUND_PROCESS_GROUP_CLEANUP_GRACE_MS = 250;
+const BOUND_TIMEOUT_PROCESS_GROUP_CLEANUP_GRACE_MS = 1_000;
+const BOUND_CREDENTIAL_ROOT = process.platform === "darwin" ? "/private/tmp" : "/tmp";
+export const BOUND_CREDENTIAL_WORKSPACE_ROOT = BOUND_CREDENTIAL_ROOT;
 
-const execFileAsync = promisify(execFile);
+// Keep a verified process-group leader alive until every bounded provider
+// descendant has been terminated.  The supervisor reports the target's exit
+// status through fd 3, then waits for the parent teardown signal.  The final
+// SIGKILL is issued from inside the still-live group, so the parent never
+// signals a recycled numeric PGID after the direct target has exited.
+const BOUND_PROCESS_SUPERVISOR_SOURCE = [
+  "const fs = require('node:fs');",
+  "const { spawn } = require('node:child_process');",
+  "const target = process.argv[1];",
+  "const targetArgs = JSON.parse(process.argv[2]);",
+  "const cwd = process.argv[3];",
+  "let forceScheduled = false;",
+  "let reported = false;",
+  "const parentPid = process.ppid;",
+  "const forceKill = () => { try { process.kill(-process.pid, 'SIGKILL'); } catch {} };",
+  "const scheduleForceKill = () => { if (forceScheduled) return; forceScheduled = true; setTimeout(forceKill, 100); };",
+  "for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP', 'SIGQUIT']) process.on(signal, scheduleForceKill);",
+  "const watchdog = setInterval(() => { if (process.ppid !== parentPid) { forceKill(); } }, 25);",
+  "watchdog.unref();",
+  "const report = (code, signal) => { if (reported) return; reported = true; try { fs.writeSync(3, JSON.stringify({ schemaVersion: 1, code: code ?? null, signal: signal ?? null }) + '\\n'); } catch {} };",
+  "let child;",
+  "try { child = spawn(target, targetArgs, { cwd, env: process.env, stdio: ['ignore', 'inherit', 'inherit', 'ignore'] }); } catch { report(126, null); }",
+  "child?.once('error', () => report(126, null));",
+  "child?.once('close', (code, signal) => report(code, signal));",
+  "setInterval(() => {}, 1000);"
+].join(" ");
 
-export const VERSION = "3.2.4";
+function boundGitAuthorityEnvironment() {
+  return {
+    PATH: BOUND_GIT_PATH,
+    HOME: "/var/empty",
+    LANG: "C",
+    LC_ALL: "C",
+    GIT_OPTIONAL_LOCKS: "0",
+    GIT_CONFIG_GLOBAL: "/dev/null",
+    GIT_CONFIG_SYSTEM: "/dev/null",
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_TERMINAL_PROMPT: "0",
+    GIT_NO_REPLACE_OBJECTS: "1"
+  };
+}
+
+function boundProcessGroupIsAlive(pid, killFn = process.kill) {
+  if (!pid) return false;
+  // The supervisor is the stable group leader.  If it is gone, a successful
+  // signal-zero check on `-pid` could refer to an unrelated recycled group;
+  // fail closed instead of signalling that numeric identity.
+  try {
+    killFn(pid, 0);
+  } catch (error) {
+    if (error.code !== "EPERM") return false;
+  }
+  try {
+    killFn(process.platform === "win32" ? pid : -pid, 0);
+    return true;
+  } catch (error) {
+    return error.code === "EPERM";
+  }
+}
+
+async function waitForBoundProcessGroupExit(pid, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (boundProcessGroupIsAlive(pid) && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  return !boundProcessGroupIsAlive(pid);
+}
+
+function terminateBoundChild(child, killFn = process.kill) {
+  if (!child?.pid || !boundProcessGroupIsAlive(child.pid, killFn)) return false;
+  const signalTarget = process.platform === "win32" ? child.pid : -child.pid;
+  try {
+    killFn(signalTarget, "SIGTERM");
+    return true;
+  } catch {
+    if (process.platform !== "win32") return false;
+    try { child.kill("SIGTERM"); return true; } catch { return false; }
+  }
+}
+
+function killBoundChild(child, killFn = process.kill) {
+  if (!child?.pid || !boundProcessGroupIsAlive(child.pid, killFn)) return false;
+  const signalTarget = process.platform === "win32" ? child.pid : -child.pid;
+  try {
+    killFn(signalTarget, "SIGKILL");
+    return true;
+  } catch {
+    if (process.platform !== "win32") return false;
+    try { child.kill("SIGKILL"); return true; } catch { return false; }
+  }
+}
+
+// Test-only seam: cleanup must fail closed when the stable supervisor leader
+// is no longer provable, rather than signalling a recycled numeric PGID.
+export function terminateBoundChildForTest(pid, signal, killFn) {
+  return terminateBoundChild({ pid, kill: () => undefined }, killFn);
+}
+
+function execBoundChildProcess(executablePath, args, {
+  cwd,
+  env,
+  timeoutMs,
+  maxBuffer,
+  encoding = "utf8",
+  label = "Bound process"
+} = {}) {
+  if (!env || typeof env !== "object" || Array.isArray(env)) {
+    return Promise.reject(new Error(`${label} requires an explicit controlled environment`));
+  }
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > BOUND_GIT_TIMEOUT_MS) {
+    return Promise.reject(new Error(`${label} timeout is outside the fixed bounded policy`));
+  }
+  if (!Number.isSafeInteger(maxBuffer) || maxBuffer < 1 || maxBuffer > BOUND_GIT_MAX_BUFFER) {
+    return Promise.reject(new Error(`${label} output limit is outside the fixed bounded policy`));
+  }
+  return new Promise((resolve, reject) => {
+    const supervised = process.platform !== "win32";
+    const supervisorCwd = cwd ?? process.cwd();
+    const child = spawn(
+      supervised ? process.execPath : executablePath,
+      supervised
+        ? ["-e", BOUND_PROCESS_SUPERVISOR_SOURCE, executablePath, JSON.stringify(args), supervisorCwd]
+        : args,
+      {
+      cwd: supervisorCwd,
+      env,
+      detached: true,
+      stdio: supervised ? ["ignore", "pipe", "pipe", "pipe"] : ["ignore", "pipe", "pipe"],
+      windowsHide: true
+      }
+    );
+    const stdout = [];
+    const stderr = [];
+    const supervisor = [];
+    let outputBytes = 0;
+    let timedOut = false;
+    let outputExceeded = false;
+    let settled = false;
+    let cleanupPromise = null;
+    let supervisorResult = null;
+    let supervisorProtocolError = null;
+    let supervisorBuffer = "";
+    const finish = (error, value) => {
+      if (settled) return;
+      settled = true;
+      if (error) reject(error);
+      else resolve(value);
+    };
+    const cleanupProcessGroup = () => {
+      if (cleanupPromise) return cleanupPromise;
+      cleanupPromise = (async () => {
+        // Preserve the historical timeout grace: callers may use the fixed
+        // deadline as a cancellation signal while the target is still
+        // flushing bounded diagnostics (including a child PID receipt).
+        const graceMs = timedOut ? BOUND_TIMEOUT_PROCESS_GROUP_CLEANUP_GRACE_MS : BOUND_PROCESS_GROUP_CLEANUP_GRACE_MS;
+        // Check before every signal.  Once the original group is gone, the
+        // numeric pid may be reused by an unrelated process group; signaling
+        // that id would cross the credential boundary.
+        if (!boundProcessGroupIsAlive(child.pid)) return true;
+        terminateBoundChild(child);
+        if (await waitForBoundProcessGroupExit(child.pid, graceMs)) return true;
+        if (!boundProcessGroupIsAlive(child.pid)) return true;
+        killBoundChild(child);
+        return waitForBoundProcessGroupExit(child.pid, graceMs);
+      })();
+      return cleanupPromise;
+    };
+    const terminate = () => {
+      void cleanupProcessGroup();
+    };
+    const collect = (target, chunk) => {
+      const bytes = Buffer.byteLength(chunk);
+      outputBytes += bytes;
+      if (outputBytes > maxBuffer) {
+        outputExceeded = true;
+        terminate();
+        return;
+      }
+      target.push(chunk);
+    };
+    child.stdout.on("data", (chunk) => collect(stdout, chunk));
+    child.stderr.on("data", (chunk) => collect(stderr, chunk));
+    child.stdio[3]?.on("data", (chunk) => {
+      supervisor.push(chunk);
+      supervisorBuffer += chunk.toString("utf8");
+      let newline;
+      while ((newline = supervisorBuffer.indexOf("\n")) >= 0) {
+        const line = supervisorBuffer.slice(0, newline);
+        supervisorBuffer = supervisorBuffer.slice(newline + 1);
+        if (!line) continue;
+        try {
+          const parsed = JSON.parse(line);
+          if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) ||
+              Object.keys(parsed).sort().join("\0") !== "code\0schemaVersion\0signal" ||
+              parsed.schemaVersion !== 1 ||
+              (!Number.isInteger(parsed.code) && parsed.code !== null) ||
+              (parsed.signal !== null && typeof parsed.signal !== "string")) {
+            throw new Error("invalid supervisor result");
+          }
+          supervisorResult = parsed;
+          void cleanupProcessGroup();
+        } catch (error) {
+          supervisorProtocolError = new Error(`${label} supervisor result was invalid: ${error.message}`);
+          void cleanupProcessGroup();
+        }
+      }
+    });
+    const deadline = setTimeout(() => {
+      timedOut = true;
+      terminate();
+    }, timeoutMs);
+    deadline.unref?.();
+    child.once("error", (error) => {
+      clearTimeout(deadline);
+      finish(error);
+    });
+    child.once("close", (code, signal) => {
+      clearTimeout(deadline);
+      void (async () => {
+        const groupTerminated = await cleanupProcessGroup();
+        if (supervised) {
+          try {
+            const supervisorBytes = Buffer.concat(supervisor);
+            if (supervisorProtocolError) throw supervisorProtocolError;
+            if (!supervisorResult && supervisorBytes.length === 0 && (timedOut || outputExceeded)) {
+              supervisorResult = null;
+            } else if (!supervisorResult) {
+              supervisorResult = JSON.parse(supervisorBytes.toString("utf8"));
+            }
+            if (supervisorResult !== null && (supervisorResult.schemaVersion !== 1 ||
+                (!Number.isInteger(supervisorResult.code) && supervisorResult.code !== null) ||
+                (supervisorResult.signal !== null && typeof supervisorResult.signal !== "string"))) {
+              throw new Error("Bound process supervisor returned an invalid result");
+            }
+          } catch (error) {
+            const failure = new Error(`${label} supervisor result was unavailable: ${error.message}`);
+            failure.code = "EPROCESSGROUP";
+            finish(failure);
+            return;
+          }
+        }
+        const output = {
+          // Keep Git object output byte-for-byte when the caller explicitly
+          // requests binary mode.  The default text path remains unchanged.
+          stdout: encoding === null || encoding === "buffer" ? Buffer.concat(stdout) : Buffer.concat(stdout).toString(encoding),
+          stderr: encoding === null || encoding === "buffer" ? Buffer.concat(stderr) : Buffer.concat(stderr).toString(encoding),
+          code: supervisorResult?.code ?? code,
+          signal: supervisorResult ? supervisorResult.signal : signal,
+          groupTerminated
+        };
+        if (!groupTerminated) {
+          const error = new Error(`${label} child process group did not terminate within the cleanup deadline`);
+          error.code = "EPROCESSGROUP";
+          error.stdout = output.stdout;
+          error.stderr = output.stderr;
+          finish(error);
+          return;
+        }
+        if (timedOut) {
+          const error = new Error(`${label} timed out after ${timeoutMs}ms`);
+          error.code = "ETIMEDOUT";
+          error.stdout = output.stdout;
+          error.stderr = output.stderr;
+          finish(error);
+          return;
+        }
+        if (outputExceeded) {
+          const error = new Error(`${label} output exceeded ${maxBuffer} bytes`);
+          error.code = "ERR_CHILD_PROCESS_STDIO_MAXBUFFER";
+          error.stdout = output.stdout;
+          error.stderr = output.stderr;
+          finish(error);
+          return;
+        }
+        if (output.code !== 0 || output.signal !== null) {
+          const error = new Error(`${label} failed${output.signal ? ` with ${output.signal}` : ` with exit ${output.code}`}`);
+          error.code = output.code ?? output.signal ?? "EUNKNOWN";
+          error.signal = output.signal;
+          error.stdout = output.stdout;
+          error.stderr = output.stderr;
+          finish(error);
+          return;
+        }
+        finish(null, output);
+      })().catch((error) => finish(error));
+    });
+  });
+}
+
+export function execBoundGitHubCli(executablePath, args, {
+  cwd,
+  env,
+  timeoutMs = BOUND_GITHUB_CLI_TIMEOUT_MS,
+  maxBuffer = BOUND_GITHUB_CLI_MAX_BUFFER,
+  encoding = "utf8"
+} = {}) {
+  const boundedEnvironment = normalizeBoundGitHubEnvironment(env);
+  return execBoundChildProcess(executablePath, args, {
+    cwd,
+    env: boundedEnvironment,
+    timeoutMs,
+    maxBuffer,
+    encoding,
+    label: "Bound GitHub CLI"
+  });
+}
+
+export function execBoundGit(executablePath, args, {
+  cwd,
+  env,
+  timeoutMs = BOUND_GIT_TIMEOUT_MS,
+  maxBuffer = BOUND_GIT_MAX_BUFFER,
+  encoding = "utf8"
+} = {}) {
+  if (!env || typeof env !== "object" || Array.isArray(env)) {
+    return Promise.reject(new Error("Bound Git requires an explicit isolated environment"));
+  }
+  return execBoundChildProcess(executablePath, args, {
+    cwd,
+    env,
+    timeoutMs,
+    maxBuffer,
+    encoding,
+    label: "Bound Git"
+  });
+}
+
+// Compatibility name used by the bounded-process regression suite.
+export const execBoundGitProcess = execBoundGit;
+
+async function assertTrustedCredentialRoot() {
+  const expected = path.resolve(BOUND_CREDENTIAL_ROOT);
+  if (expected !== BOUND_CREDENTIAL_ROOT) throw new Error("Bound credential root must be canonical");
+  const resolved = await realpath(BOUND_CREDENTIAL_ROOT);
+  if (resolved !== BOUND_CREDENTIAL_ROOT) throw new Error("Bound credential root must not be a symlink");
+  const info = await lstat(BOUND_CREDENTIAL_ROOT);
+  const mode = info.mode & 0o7777;
+  const stickyWorldWritable = (mode & 0o002) !== 0 && (mode & 0o1000) !== 0;
+  if (!info.isDirectory() || info.isSymbolicLink() || info.uid !== 0 || ((mode & 0o002) !== 0 && !stickyWorldWritable)) {
+    throw new Error("Bound credential root is not a trusted root-owned temporary directory");
+  }
+}
+
+export async function assertBoundCredentialWorkspace(directory, credentialFile = null) {
+  await assertTrustedCredentialRoot();
+  if (typeof directory !== "string" || path.resolve(directory) !== directory || path.dirname(directory) !== BOUND_CREDENTIAL_ROOT) {
+    throw new Error("Bound credential workspace path is not directly under the trusted temporary root");
+  }
+  const directoryInfo = await lstat(directory);
+  if (await realpath(directory) !== directory || !directoryInfo.isDirectory() || directoryInfo.isSymbolicLink() ||
+      directoryInfo.uid !== (process.getuid?.() ?? directoryInfo.uid) || (directoryInfo.mode & 0o077) !== 0) {
+    throw new Error("Bound credential workspace is unsafe");
+  }
+  if (credentialFile !== null) {
+    if (typeof credentialFile !== "string" || path.resolve(credentialFile) !== credentialFile || path.dirname(credentialFile) !== directory) {
+      throw new Error("Bound credential file path is not inside the trusted workspace");
+    }
+    const credentialInfo = await lstat(credentialFile);
+    if (await realpath(credentialFile) !== credentialFile || !credentialInfo.isFile() || credentialInfo.isSymbolicLink() ||
+        credentialInfo.nlink !== 1 || credentialInfo.uid !== (process.getuid?.() ?? credentialInfo.uid) ||
+        (credentialInfo.mode & 0o077) !== 0) {
+      throw new Error("Bound credential file is unsafe");
+    }
+  }
+}
+
+async function execBoundGitAuthority(cwd, args, { allowFailure = false } = {}) {
+  try {
+    const result = await execBoundGit(BOUND_GIT_EXECUTABLE, [
+      "--no-replace-objects",
+      "-c", "core.fsmonitor=false",
+      "-c", "core.hooksPath=/dev/null",
+      "-c", "credential.helper=",
+      ...args
+    ], {
+      cwd,
+      env: boundGitAuthorityEnvironment(),
+      timeoutMs: BOUND_GIT_TIMEOUT_MS,
+      maxBuffer: BOUND_GIT_MAX_BUFFER
+    });
+    return { ok: true, stdout: result.stdout, stderr: result.stderr };
+  } catch (error) {
+    if (allowFailure) {
+      return { ok: false, stdout: error.stdout ?? "", stderr: error.stderr ?? error.message, code: error.code };
+    }
+    throw new Error(`Bound Git authority command failed: ${error.stderr ?? error.message}`);
+  }
+}
+
+async function rawLocalGitValues(cwd, key) {
+  const result = await execBoundGitAuthority(cwd, ["config", "--local", "--no-includes", "--get-all", key], {
+    allowFailure: true
+  });
+  if (!result.ok) return [];
+  const values = result.stdout.split(/\r?\n/).map((value) => value.trim()).filter(Boolean);
+  if (values.some((value) => /[\0\r\n]/.test(value))) {
+    throw new Error(`Git authority contains an invalid local value for ${key}`);
+  }
+  return values;
+}
+
+async function currentOriginRemoteBinding(cwd) {
+  const fetchUrls = await rawLocalGitValues(cwd, "remote.origin.url");
+  const pushUrls = await rawLocalGitValues(cwd, "remote.origin.pushurl");
+  return {
+    fetchUrls,
+    pushUrls,
+    digest: fetchUrls.length > 0 || pushUrls.length > 0
+      ? sha256(canonicalJson({ fetchUrls, pushUrls }))
+      : null
+  };
+}
+
+function assertNoAmbientGitAuthorityOverrides() {
+  const dangerous = Object.keys(process.env).filter((key) => (
+    key === "GIT_CONFIG_COUNT" || key === "GIT_CONFIG_PARAMETERS" ||
+    key.startsWith("GIT_CONFIG_KEY_") || key.startsWith("GIT_CONFIG_VALUE_") ||
+    [
+      "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE",
+      "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_NAMESPACE",
+      "GIT_REPLACE_REF_BASE"
+    ].includes(key)
+  )).sort();
+  if (dangerous.length > 0) {
+    throw new Error(`Git authority rejects ambient routing or configuration overrides: ${dangerous.join(",")}`);
+  }
+}
+
+export const VERSION = "3.2.5";
 export const MODES = new Set(["auto", "direct", "verified", "deep", "critical"]);
 export const RUN_STATES = new Set([
   "pending",
@@ -208,6 +647,8 @@ export function buildGitPushActionBinding({
   remote,
   pushUrl,
   remoteRepository,
+  sourceBindingDigest,
+  sourceRemoteBindingDigest,
   expectedBranch,
   expectedRevision,
   providerExecutable
@@ -218,6 +659,8 @@ export function buildGitPushActionBinding({
     pushUrl,
     remoteRepository,
     pushUrlDigest: sha256(pushUrl),
+    sourceBindingDigest,
+    sourceRemoteBindingDigest,
     expectedBranch,
     expectedRevision,
     providerExecutable,
@@ -242,12 +685,72 @@ export function resolveGitPushExecutionBinding(record) {
     !record.pushUrl ||
     record.pushUrlDigest !== sha256(record.pushUrl) ||
     repositoryIdentity(record.pushUrl) !== record.remoteRepository ||
+    !SHA256_DIGEST.test(record.sourceBindingDigest ?? "") ||
+    !SHA256_DIGEST.test(record.sourceRemoteBindingDigest ?? "") ||
     resourceRef !== expectedRef ||
     JSON.stringify(record.pushCommand) !== JSON.stringify(expectedCommand)
   ) {
     throw new Error("Git push execution binding is inconsistent with the governed resource");
   }
   return { remote: resourceRemote, pushUrl: record.pushUrl, ref: resourceRef, command: expectedCommand };
+}
+
+export function buildBoundGitPushArgs(expectedCommand, credentialFile, gitExecutablePath = BOUND_GIT_EXECUTABLE) {
+  if (!Array.isArray(expectedCommand) || expectedCommand[0] !== "git" || expectedCommand[1] !== "push" ||
+      typeof credentialFile !== "string" || credentialFile.includes("\0") || !path.isAbsolute(credentialFile) ||
+      path.resolve(credentialFile) !== credentialFile || gitExecutablePath !== BOUND_GIT_EXECUTABLE) {
+    throw new Error("Bound Git push requires a canonical command and credential file");
+  }
+  // Git interprets a helper containing arguments through a shell. Preserve the
+  // exact canonical file as one shell word even when TMPDIR contains spaces,
+  // quotes, command substitutions, or other metacharacters.
+  const quotedCredentialFile = `'${credentialFile.replaceAll("'", "'\\''")}'`;
+  const credentialHelper = `!${BOUND_GIT_EXECUTABLE} credential-store --file=${quotedCredentialFile}`;
+  return [
+    "--no-replace-objects",
+    "-c", "core.bare=true",
+    "-c", "protocol.allow=never",
+    "-c", "protocol.https.allow=always",
+    "-c", "http.followRedirects=false",
+    "-c", "http.proxy=",
+    "-c", "http.sslVerify=true",
+    "-c", "credential.helper=",
+    "-c", `credential.helper=${credentialHelper}`,
+    "-c", "credential.useHttpPath=true",
+    "-c", "credential.interactive=false",
+    "-c", "core.askPass=/usr/bin/false",
+    "-c", "core.hooksPath=/dev/null",
+    ...expectedCommand.slice(1)
+  ];
+}
+
+export function buildBoundGitPushEnvironment({ isolatedHome, gitDirectory, objectDirectory }) {
+  for (const [label, value] of Object.entries({ isolatedHome, gitDirectory, objectDirectory })) {
+    if (typeof value !== "string" || !path.isAbsolute(value) || path.resolve(value) !== value || value.includes("\0")) {
+      throw new Error(`Bound Git push ${label} must be a canonical absolute path`);
+    }
+  }
+  if (objectDirectory.includes(path.delimiter)) throw new Error("Bound Git push object directory cannot contain a path-list delimiter");
+  return {
+    PATH: BOUND_GIT_PATH,
+    HOME: isolatedHome,
+    XDG_CONFIG_HOME: isolatedHome,
+    TMPDIR: isolatedHome,
+    LC_ALL: "C",
+    GIT_DIR: gitDirectory,
+    GIT_COMMON_DIR: gitDirectory,
+    GIT_OBJECT_DIRECTORY: path.join(gitDirectory, "objects"),
+    GIT_ALTERNATE_OBJECT_DIRECTORIES: objectDirectory,
+    GIT_CONFIG_GLOBAL: "/dev/null",
+    GIT_CONFIG_SYSTEM: "/dev/null",
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_NO_REPLACE_OBJECTS: "1",
+    GIT_OPTIONAL_LOCKS: "0",
+    GIT_ASKPASS: "/usr/bin/false",
+    SSH_ASKPASS: "/usr/bin/false",
+    SSH_ASKPASS_REQUIRE: "never",
+    GIT_TERMINAL_PROMPT: "0"
+  };
 }
 
 function sorted(value) {
@@ -911,6 +1414,8 @@ export function assertProviderReceiptShape(record, providerReceipt, outcome = re
       providerReceipt.ref !== GIT_PUSH_RESOURCE.exec(record.resource)?.[2] ||
       providerReceipt.remoteRepository !== record.remoteRepository ||
       providerReceipt.pushUrlDigest !== record.pushUrlDigest ||
+      providerReceipt.sourceBindingDigest !== record.sourceBindingDigest ||
+      providerReceipt.sourceRemoteBindingDigest !== record.sourceRemoteBindingDigest ||
       providerReceipt.expectedBranch !== record.expectedBranch ||
       providerReceipt.expectedRevision !== record.expectedRevision ||
       providerReceipt.localRevision !== record.expectedRevision ||
@@ -1009,6 +1514,8 @@ export function assertProviderReceiptShape(record, providerReceipt, outcome = re
       typeof providerReceipt.repository !== "string" || !providerReceipt.repository ||
       providerReceipt.remoteRepository !== record.remoteRepository ||
       providerReceipt.remoteUrlDigest !== record.remoteUrlDigest ||
+      providerReceipt.sourceBindingDigest !== record.sourceBindingDigest ||
+      providerReceipt.sourceRemoteBindingDigest !== record.sourceRemoteBindingDigest ||
       typeof providerReceipt.providerRevision !== "string" ||
       !/^[a-f0-9]{7,64}$/i.test(providerReceipt.providerRevision) ||
       typeof providerReceipt.localRevision !== "string" ||
@@ -2239,18 +2746,19 @@ function repositoryIdentity(value) {
 }
 
 export async function resolveGitPushDestination(cwd, remote) {
+  assertNoAmbientGitAuthorityOverrides();
   if (typeof remote !== "string" || !remote || /[\r\n]/.test(remote)) {
     throw new Error("Git push destination requires one canonical remote name");
   }
-  const output = (await execFileAsync("git", ["remote", "get-url", "--push", "--all", remote], {
-    cwd,
-    encoding: "utf8"
-  })).stdout;
-  const pushUrls = output.split(/\r?\n/).map((value) => value.trim()).filter(Boolean);
-  if (pushUrls.length !== 1) {
-    throw new Error("Git push destination is ambiguous; exactly one effective push URL is required");
+  if (remote !== "origin") {
+    throw new Error("Governed Git push requires the source-bound origin remote");
   }
-  const pushUrl = pushUrls[0];
+  const remoteBinding = await currentOriginRemoteBinding(cwd);
+  const selectedUrls = remoteBinding.pushUrls.length > 0 ? remoteBinding.pushUrls : remoteBinding.fetchUrls;
+  if (selectedUrls.length !== 1 || remoteBinding.fetchUrls.length !== 1) {
+    throw new Error("Git push destination is ambiguous; exactly one raw origin URL and effective push URL are required");
+  }
+  const pushUrl = selectedUrls[0];
   let parsed;
   try {
     parsed = new URL(pushUrl);
@@ -2266,25 +2774,69 @@ export async function resolveGitPushDestination(cwd, remote) {
     remote,
     pushUrl,
     pushUrlDigest: sha256(pushUrl),
-    remoteRepository
+    remoteRepository,
+    sourceRemoteBindingDigest: remoteBinding.digest
+  };
+}
+
+export async function resolveGitFetchOrigin(cwd) {
+  assertNoAmbientGitAuthorityOverrides();
+  const remoteBinding = await currentOriginRemoteBinding(cwd);
+  if (remoteBinding.fetchUrls.length !== 1) {
+    throw new Error("Git fetch authority requires exactly one raw local origin URL");
+  }
+  const remoteUrl = remoteBinding.fetchUrls[0];
+  let parsed;
+  try {
+    parsed = new URL(remoteUrl);
+  } catch {
+    throw new Error("Git fetch authority requires one parseable HTTPS origin URL");
+  }
+  if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.search || parsed.hash ||
+      (parsed.port && parsed.port !== "443")) {
+    throw new Error("Git fetch authority requires a credential-safe HTTPS origin URL");
+  }
+  const remoteRepository = repositoryIdentity(remoteUrl);
+  if (!remoteRepository) throw new Error("Git fetch authority requires a canonical origin repository identity");
+  return {
+    remote: "origin",
+    remoteUrl,
+    remoteUrlDigest: sha256(remoteUrl),
+    remoteRepository,
+    sourceRemoteBindingDigest: remoteBinding.digest
   };
 }
 
 async function currentRepositoryIdentity(cwd) {
-  const remote = (await execFileAsync("git", ["remote", "get-url", "origin"], {
-    cwd,
-    encoding: "utf8"
-  })).stdout.trim();
-  const identity = repositoryIdentity(remote);
+  const remoteBinding = await currentOriginRemoteBinding(cwd);
+  if (remoteBinding.fetchUrls.length !== 1) {
+    throw new Error("Repository identity requires exactly one raw local origin URL");
+  }
+  const identity = repositoryIdentity(remoteBinding.fetchUrls[0]);
   if (!identity) throw new Error("PR merge requires a canonical origin repository identity");
   return identity;
 }
 
+async function assertCurrentGitPushSourceBinding(manifest, expectedDigest = manifest?.sourceBinding?.digest) {
+  if (!manifest?.sourceBinding || manifest.sourceBinding.schemaVersion !== 3 ||
+      !SHA256_DIGEST.test(expectedDigest ?? "") ||
+      !SHA256_DIGEST.test(manifest.sourceBinding.originIdentity?.digest ?? "")) {
+    throw new Error("Governed Git push requires a schema-3 source binding with raw origin and push URL identity");
+  }
+  const { captureSourceBinding } = await import("./git.mjs");
+  const current = await captureSourceBinding(manifest.cwd, {
+    baseRevision: manifest.sourceBinding.baseRevision,
+    requireClean: true
+  });
+  if (!current || current.digest !== expectedDigest ||
+      current.originIdentity?.digest !== manifest.sourceBinding.originIdentity.digest) {
+    throw new Error("Governed Git push denied because the immutable source or raw remote binding changed");
+  }
+  return current;
+}
+
 async function currentGitProviderIdentity(cwd) {
-  const commonDirectory = (await execFileAsync("git", ["rev-parse", "--git-common-dir"], {
-    cwd,
-    encoding: "utf8"
-  })).stdout.trim();
+  const commonDirectory = (await execBoundGitAuthority(cwd, ["rev-parse", "--git-common-dir"])).stdout.trim();
   if (!commonDirectory) throw new Error("Git provider identity requires a common repository directory");
   return realpath(path.isAbsolute(commonDirectory) ? commonDirectory : path.resolve(cwd, commonDirectory));
 }
@@ -2370,7 +2922,7 @@ export function buildPrCreateCommand(record) {
     "pr",
     "create",
     "--repo",
-    record.createRepository.slice("github.com/".length),
+    record.createRepository,
     "--base",
     record.targetRef,
     "--head",
@@ -2382,37 +2934,89 @@ export function buildPrCreateCommand(record) {
   ];
 }
 
-function readGitCredential(cwd, input) {
-  return new Promise((resolve, reject) => {
-    const child = spawn("git", ["credential", "fill"], {
-      cwd,
-      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
-      stdio: ["pipe", "pipe", "pipe"]
-    });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.setEncoding("utf8");
-    child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (chunk) => { stdout += chunk; });
-    child.stderr.on("data", (chunk) => { stderr += chunk; });
-    child.once("error", reject);
-    child.once("close", (code) => {
-      if (code !== 0) {
-        reject(new Error(`Git credential helper failed${stderr.trim() ? `: ${stderr.trim()}` : ""}`));
-        return;
-      }
-      const values = {};
-      for (const line of stdout.split("\n")) {
-        const separator = line.indexOf("=");
-        if (separator > 0) values[line.slice(0, separator)] = line.slice(separator + 1);
-      }
-      resolve(values);
-    });
-    child.stdin.end(input);
+export async function readBoundGitHubCredential(executablePath, { homePath = os.homedir() } = {}) {
+  if (typeof executablePath !== "string" || !path.isAbsolute(executablePath) ||
+      path.resolve(executablePath) !== executablePath || typeof homePath !== "string" ||
+      !path.isAbsolute(homePath) || path.resolve(homePath) !== homePath) {
+    throw new Error("Bound GitHub credential acquisition requires canonical executable and home paths");
+  }
+  const target = await realpath(executablePath);
+  const info = await lstat(target);
+  if (target !== executablePath || !info.isFile() || (info.mode & 0o111) === 0) {
+    throw new Error("Bound GitHub credential executable is unsafe");
+  }
+  const result = await execBoundGitHubCli(executablePath, ["auth", "token", "--hostname", "github.com"], {
+    env: boundGitHubEnvironment(homePath)
   });
+  const token = result.stdout.trim();
+  if (!token || /[\r\n\0]/.test(token)) throw new Error("GitHub CLI did not return one bounded token");
+  return { username: "x-access-token", password: token, source: "github-cli-auth-token" };
 }
 
-async function verifyGitHubCredentialActor(cwd, remoteUrl, repository) {
+async function resolveBoundGitObjectDirectory(cwd, isolatedHome, gitExecutablePath) {
+  if (gitExecutablePath !== BOUND_GIT_EXECUTABLE) throw new Error("Bound Git object lookup requires /usr/bin/git");
+  const result = await execBoundGit(gitExecutablePath, [
+    "--no-replace-objects",
+    "-c", "core.fsmonitor=false",
+    "-c", "core.hooksPath=/dev/null",
+    "-c", "credential.helper=",
+    "rev-parse", "--git-path", "objects"
+  ], {
+    cwd,
+    env: {
+      PATH: BOUND_GIT_PATH,
+      HOME: isolatedHome,
+      XDG_CONFIG_HOME: isolatedHome,
+      TMPDIR: isolatedHome,
+      LC_ALL: "C",
+      GIT_CONFIG_GLOBAL: "/dev/null",
+      GIT_CONFIG_SYSTEM: "/dev/null",
+      GIT_CONFIG_NOSYSTEM: "1",
+      GIT_NO_REPLACE_OBJECTS: "1",
+      GIT_OPTIONAL_LOCKS: "0",
+      GIT_TERMINAL_PROMPT: "0"
+    },
+    timeoutMs: BOUND_GIT_TIMEOUT_MS,
+    maxBuffer: BOUND_GIT_MAX_BUFFER,
+  });
+  const resolved = await realpath(path.resolve(cwd, result.stdout.trim()));
+  const info = await lstat(resolved);
+  if (!info.isDirectory() || info.isSymbolicLink() || resolved.includes(path.delimiter)) {
+    throw new Error("Bound Git push source object directory is unsafe");
+  }
+  return resolved;
+}
+
+export async function withBoundGitCredential(cwd, remoteUrl, credential, gitExecutablePath, callback) {
+  if (typeof callback !== "function" || typeof credential?.username !== "string" || !credential.username ||
+      typeof credential?.password !== "string" || !credential.password || gitExecutablePath !== BOUND_GIT_EXECUTABLE) {
+    throw new Error("Bound Git credential is incomplete");
+  }
+  const parsed = new URL(remoteUrl);
+  parsed.username = credential.username;
+  parsed.password = credential.password;
+  await assertTrustedCredentialRoot();
+  const directory = await mkdtemp(path.join(BOUND_CREDENTIAL_ROOT, "sbw-git-credential-"));
+  const credentialFile = path.join(directory, "credentials");
+  const gitDirectory = path.join(directory, "git-dir");
+  try {
+    await chmod(directory, 0o700);
+    await assertBoundCredentialWorkspace(directory);
+    const objectDirectory = await resolveBoundGitObjectDirectory(cwd, directory, gitExecutablePath);
+    await mkdir(path.join(gitDirectory, "objects", "info"), { recursive: true, mode: 0o700 });
+    await mkdir(path.join(gitDirectory, "objects", "pack"), { recursive: true, mode: 0o700 });
+    await mkdir(path.join(gitDirectory, "refs", "heads"), { recursive: true, mode: 0o700 });
+    await mkdir(path.join(gitDirectory, "refs", "tags"), { recursive: true, mode: 0o700 });
+    await writeFile(path.join(gitDirectory, "HEAD"), "ref: refs/heads/bound-empty\n", { mode: 0o600, flag: "wx" });
+    await writeFile(credentialFile, `${parsed.toString()}\n`, { mode: 0o600, flag: "wx" });
+    await assertBoundCredentialWorkspace(directory, credentialFile);
+    return await callback({ credentialFile, isolatedHome: directory, gitDirectory, objectDirectory });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
+export async function verifyGitHubCredentialActor(cwd, remoteUrl, repository, githubExecutablePath) {
   let parsed;
   try {
     parsed = new URL(remoteUrl);
@@ -2422,34 +3026,19 @@ async function verifyGitHubCredentialActor(cwd, remoteUrl, repository) {
   if (parsed.protocol !== "https:" || parsed.hostname.toLowerCase() !== "github.com") {
     throw new Error("Git push credential binding requires the canonical github.com HTTPS remote");
   }
-  const credential = await readGitCredential(
-    cwd,
-    [
-      "protocol=https",
-      "host=github.com",
-      `path=${parsed.pathname.replace(/^\//, "")}`,
-      ...(parsed.username ? [`username=${decodeURIComponent(parsed.username)}`] : []),
-      "",
-      ""
-    ].join("\n")
-  );
+  const homePath = os.homedir();
+  const credential = await readBoundGitHubCredential(githubExecutablePath, { homePath });
   if (typeof credential.username !== "string" || !credential.username ||
       typeof credential.password !== "string" || !credential.password) {
-    throw new Error("Git push credential helper did not return an HTTPS credential");
+    throw new Error("Bound GitHub CLI did not return an HTTPS credential");
   }
-  const authorization = `Basic ${Buffer.from(`${credential.username}:${credential.password}`).toString("base64")}`;
-  const headers = {
-    accept: "application/vnd.github+json",
-    authorization,
-    "user-agent": "better-workflows"
-  };
-  const userResponse = await fetch("https://api.github.com/user", { headers });
-  if (!userResponse.ok) throw new Error(`Git credential actor lookup failed: HTTP ${userResponse.status}`);
-  const user = await userResponse.json();
+  // Keep actor and repository authorization on the already bounded `gh api`
+  // path. Its fixed executable, hostname, environment, timeout and output
+  // policy prevent ambient NODE_TLS_REJECT_UNAUTHORIZED/proxy/configuration
+  // state from weakening this credential binding.
+  const user = await readBoundGitHubApi(cwd, githubExecutablePath, "user", { credential, homePath });
   const repositoryPath = repository.slice("github.com/".length);
-  const repositoryResponse = await fetch(`https://api.github.com/repos/${repositoryPath}`, { headers });
-  if (!repositoryResponse.ok) throw new Error(`Git credential repository lookup failed: HTTP ${repositoryResponse.status}`);
-  const metadata = await repositoryResponse.json();
+  const metadata = await readBoundGitHubApi(cwd, githubExecutablePath, `repos/${repositoryPath}`, { credential, homePath });
   const permissions = metadata.permissions ?? {};
   if (
     typeof user.login !== "string" || !user.login ||
@@ -2460,6 +3049,7 @@ async function verifyGitHubCredentialActor(cwd, remoteUrl, repository) {
     throw new Error("Git credential is not bound to a GitHub actor with repository push permission");
   }
   return {
+    credential,
     actor: user.login,
     actorId: user.id,
     permissions: {
@@ -2467,30 +3057,25 @@ async function verifyGitHubCredentialActor(cwd, remoteUrl, repository) {
       maintain: permissions.maintain === true,
       push: permissions.push === true
     },
-    source: "git-credential-helper"
+    source: credential.source
   };
 }
 
-async function captureCreationPrecondition(cwd, action, resource, providerExecutablePath = null) {
+async function captureCreationPrecondition(cwd, action, resource, providerExecutablePath = null, repository = null) {
   if (action === "branch.create") {
     const ref = resource.slice("branch:".length);
-    try {
-      const revision = (await execFileAsync("git", ["rev-parse", "--verify", `refs/heads/${ref}^{commit}`], {
-        cwd,
-        encoding: "utf8"
-      })).stdout.trim();
+    const result = await execBoundGitAuthority(cwd, ["rev-parse", "--verify", `refs/heads/${ref}^{commit}`], {
+      allowFailure: true
+    });
+    if (result.ok) {
+      const revision = result.stdout.trim();
       return { action, resource, state: "present", revision };
-    } catch (error) {
-      if (error.code !== 128) throw error;
-      return { action, resource, state: "absent", ref };
     }
+    return { action, resource, state: "absent", ref };
   }
   if (action === "worktree.create") {
     const worktreePath = resource.slice("worktree:".length);
-    const output = (await execFileAsync("git", ["worktree", "list", "--porcelain"], {
-      cwd,
-      encoding: "utf8"
-    })).stdout;
+    const output = (await execBoundGitAuthority(cwd, ["worktree", "list", "--porcelain"])).stdout;
     const present = output.split(/\n\n+/).some((block) => block.split("\n").some((line) => line === `worktree ${worktreePath}`));
     return { action, resource, state: present || await pathExists(path.resolve(cwd, worktreePath)) ? "present" : "absent", path: worktreePath };
   }
@@ -2499,10 +3084,12 @@ async function captureCreationPrecondition(cwd, action, resource, providerExecut
       return { action, resource, state: "absent", number: null };
     }
     const number = Number(resource.slice("pull/".length));
+    if (typeof repository !== "string" || !repository.startsWith("github.com/")) {
+      throw new Error("GitHub PR precondition requires a source-bound repository");
+    }
     try {
-      const actual = JSON.parse((await execFileAsync(providerExecutablePath, ["pr", "view", String(number), "--json", "number,state"], {
+      const actual = JSON.parse((await execBoundGitHubCli(providerExecutablePath, ["pr", "view", String(number), "--repo", repository, "--json", "number,state"], {
         cwd,
-        encoding: "utf8"
       })).stdout);
       return { action, resource, state: "present", number: actual.number, status: actual.state };
     } catch (error) {
@@ -2512,10 +3099,12 @@ async function captureCreationPrecondition(cwd, action, resource, providerExecut
   }
   if (action === "actions.dispatch" && resource.startsWith("run:")) {
     const runId = resource.slice("run:".length);
+    if (typeof repository !== "string" || !repository.startsWith("github.com/")) {
+      throw new Error("GitHub Actions precondition requires a source-bound repository");
+    }
     try {
-      const actual = JSON.parse((await execFileAsync(providerExecutablePath, ["run", "view", runId, "--json", "databaseId,status"], {
+      const actual = JSON.parse((await execBoundGitHubCli(providerExecutablePath, ["run", "view", runId, "--repo", repository, "--json", "databaseId,status"], {
         cwd,
-        encoding: "utf8"
       })).stdout);
       return { action, resource, state: "present", runId: String(actual.databaseId), status: actual.status };
     } catch (error) {
@@ -2549,7 +3138,7 @@ async function verifyFailedCreationAbsence(manifest, record) {
       "per_page=100"
     ].join("&");
     const command = [providerExecutablePath, "api", "--paginate", "--slurp", endpoint];
-    const output = await execFileAsync(providerExecutablePath, command.slice(1), { cwd, encoding: "utf8" });
+    const output = await execBoundGitHubCli(providerExecutablePath, command.slice(1), { cwd });
     let pages;
     try {
       pages = JSON.parse(output.stdout);
@@ -2604,7 +3193,13 @@ async function verifyFailedCreationAbsence(manifest, record) {
       absent: true
     };
   }
-  const precondition = await captureCreationPrecondition(cwd, record.action, record.resource);
+  const precondition = await captureCreationPrecondition(
+    cwd,
+    record.action,
+    record.resource,
+    record.provider === "github-cli" ? record.providerExecutable?.path : null,
+    record.createRepository ?? record.providerAuthorization?.repository
+  );
   if (precondition?.state !== "absent") {
     throw new Error("Failed owned-resource creation reconciliation found an existing provider resource; preserve the reservation and reconcile the provider outcome");
   }
@@ -2625,8 +3220,8 @@ async function verifyGitHubProviderAuthorization(cwd, repository, executablePath
     throw new Error("GitHub provider authorization requires an absolute executable path");
   }
   const repositoryPath = repository.slice("github.com/".length);
-  const actor = JSON.parse((await execFileAsync(executablePath, ["api", "user"], { cwd, encoding: "utf8" })).stdout);
-  const metadata = JSON.parse((await execFileAsync(executablePath, ["api", `repos/${repositoryPath}`], { cwd, encoding: "utf8" })).stdout);
+  const actor = await readBoundGitHubApi(cwd, executablePath, "user");
+  const metadata = await readBoundGitHubApi(cwd, executablePath, `repos/${repositoryPath}`);
   const permissions = metadata.permissions ?? {};
   const authorization = {
     provider: "github-cli",
@@ -2648,10 +3243,111 @@ async function verifyGitHubProviderAuthorization(cwd, repository, executablePath
   return authorization;
 }
 
+function boundGitHubEnvironment(homePath = os.homedir()) {
+  if (typeof homePath !== "string" || !path.isAbsolute(homePath) || path.resolve(homePath) !== homePath) {
+    throw new Error("Bound GitHub CLI HOME must be an absolute canonical path");
+  }
+  const configHome = path.join(homePath, ".config");
+  const env = {
+    PATH: BOUND_GIT_PATH,
+    HOME: homePath,
+    XDG_CONFIG_HOME: configHome,
+    GH_CONFIG_DIR: path.join(configHome, "gh"),
+    GH_HOST: "github.com",
+    LANG: "C",
+    LC_ALL: "C",
+    GH_PROMPT_DISABLED: "1"
+  };
+  for (const key of ["GH_TOKEN", "GITHUB_TOKEN"]) {
+    if (typeof process.env[key] === "string" && process.env[key]) env[key] = process.env[key];
+  }
+  return env;
+}
+
+function normalizeBoundGitHubEnvironment(candidate) {
+  const base = boundGitHubEnvironment(candidate?.HOME ?? os.homedir());
+  const allowed = new Set([
+    "PATH", "HOME", "XDG_CONFIG_HOME", "GH_CONFIG_DIR", "GH_HOST", "LANG", "LC_ALL", "GH_PROMPT_DISABLED",
+    "GH_TOKEN", "GITHUB_TOKEN"
+  ]);
+  if (candidate !== undefined && (candidate === null || typeof candidate !== "object" || Array.isArray(candidate))) {
+    throw new Error("Bound GitHub CLI environment must be an object");
+  }
+  for (const key of Object.keys(candidate ?? {})) {
+    if (!allowed.has(key)) throw new Error(`Bound GitHub CLI environment rejects ambient key ${key}`);
+  }
+  for (const key of ["PATH", "XDG_CONFIG_HOME", "GH_CONFIG_DIR", "GH_HOST", "LANG", "LC_ALL", "GH_PROMPT_DISABLED"]) {
+    if (candidate?.[key] !== undefined && candidate[key] !== base[key]) {
+      throw new Error(`Bound GitHub CLI environment rejects mutable ${key}`);
+    }
+  }
+  for (const key of ["GH_TOKEN", "GITHUB_TOKEN"]) {
+    if (candidate?.[key] !== undefined && (typeof candidate[key] !== "string" || !candidate[key] || /[\0\r\n]/.test(candidate[key]))) {
+      throw new Error(`Bound GitHub CLI environment contains an invalid ${key}`);
+    }
+  }
+  return {
+    ...base,
+    ...(candidate?.GH_TOKEN ? { GH_TOKEN: candidate.GH_TOKEN } : {}),
+    ...(candidate?.GITHUB_TOKEN ? { GITHUB_TOKEN: candidate.GITHUB_TOKEN } : {})
+  };
+}
+
+function boundGitHubCredentialEnvironment(homePath, credential) {
+  if (typeof credential?.password !== "string" || !credential.password || /[\0\r\n]/.test(credential.password)) {
+    throw new Error("Bound GitHub API credential is incomplete");
+  }
+  const env = boundGitHubEnvironment(homePath);
+  // Remove every ambient token source before installing the exact token that
+  // was captured for the subsequent Git operation.  This prevents `gh api`
+  // from authenticating as a different actor than the credential-bearing
+  // dry-run/push.
+  delete env.GH_TOKEN;
+  delete env.GITHUB_TOKEN;
+  env.GH_TOKEN = credential.password;
+  return env;
+}
+
+export async function readBoundGitHubApi(cwd, executablePath, endpoint, { credential = null, homePath = os.homedir() } = {}) {
+  if (typeof executablePath !== "string" || !path.isAbsolute(executablePath) ||
+      typeof endpoint !== "string" || !endpoint || /[\0\r\n]/.test(endpoint)) {
+    throw new Error("Bound GitHub API request requires an absolute executable and canonical endpoint");
+  }
+  const result = await execBoundGitHubCli(executablePath, ["api", endpoint, "--hostname", "github.com"], {
+    cwd,
+    env: credential
+      ? boundGitHubCredentialEnvironment(homePath, credential)
+      : boundGitHubEnvironment(homePath)
+  });
+  return JSON.parse(result.stdout);
+}
+
+async function readBoundGitHubRefRevision(cwd, repository, ref, executablePath) {
+  if (!repository.startsWith("github.com/") || !/^refs\/heads\/[A-Za-z0-9._/-]+$/.test(ref)) {
+    throw new Error("Bound GitHub ref observation requires a canonical repository and branch ref");
+  }
+  const repositoryPath = repository.slice("github.com/".length);
+  const actual = await readBoundGitHubApi(
+    cwd,
+    executablePath,
+    `repos/${repositoryPath}/git/ref/${ref.slice("refs/".length)}`
+  );
+  const revision = actual?.object?.sha;
+  if (!/^[a-f0-9]{40}$/i.test(revision ?? "")) {
+    throw new Error("Bound GitHub ref observation did not return an exact revision");
+  }
+  return revision;
+}
+
 async function verifyGitPushCredential(
   cwd,
-  { remote, pushUrl, pushUrlDigest, ref, revision, repository },
-  expectedActor = null
+  { remote, pushUrl, pushUrlDigest, ref, revision, repository, sourceRemoteBindingDigest },
+  expectedActor = null,
+  {
+    includeCredential = false,
+    githubExecutablePath,
+    gitExecutablePath = BOUND_GIT_EXECUTABLE
+  } = {}
 ) {
   if (!repository.startsWith("github.com/")) {
     throw new Error("Git push authorization requires a GitHub-bound controlled push provider");
@@ -2660,32 +3356,42 @@ async function verifyGitPushCredential(
   if (
     destination.pushUrl !== pushUrl ||
     destination.pushUrlDigest !== pushUrlDigest ||
-    destination.remoteRepository !== repository
+    destination.remoteRepository !== repository ||
+    destination.sourceRemoteBindingDigest !== sourceRemoteBindingDigest
   ) {
     throw new Error("Git push credential binding does not match the authorized effective destination");
   }
-  await execFileAsync("git", ["push", "--dry-run", "--porcelain", pushUrl, `${revision}:${ref}`], {
-    cwd,
-    encoding: "utf8",
-    env: { ...process.env, GIT_TERMINAL_PROMPT: "0" }
-  });
-  const credentialActor = await verifyGitHubCredentialActor(cwd, pushUrl, repository);
+  if (gitExecutablePath !== BOUND_GIT_EXECUTABLE || typeof githubExecutablePath !== "string") {
+    throw new Error("Git push credential verification requires fixed Git and bound GitHub CLI executables");
+  }
+  const credentialActor = await verifyGitHubCredentialActor(cwd, pushUrl, repository, githubExecutablePath);
+  const dryRunCommand = ["git", "push", "--dry-run", "--porcelain", pushUrl, `${revision}:${ref}`];
+  await withBoundGitCredential(cwd, pushUrl, credentialActor.credential, gitExecutablePath, (context) =>
+    execBoundGit(gitExecutablePath, buildBoundGitPushArgs(dryRunCommand, context.credentialFile, gitExecutablePath), {
+      cwd,
+      env: buildBoundGitPushEnvironment(context),
+      timeoutMs: BOUND_GIT_TIMEOUT_MS,
+      maxBuffer: BOUND_GIT_MAX_BUFFER
+    })
+  );
   if (expectedActor && credentialActor.actor !== expectedActor) {
     throw new Error("Git push credential actor does not match the authorized GitHub actor");
   }
-  return {
+  const binding = {
     provider: "git",
     repository,
     remote,
     pushUrlDigest,
+    sourceRemoteBindingDigest,
     ref,
     revision,
-    credentialCheck: "git-credential-actor",
+    credentialCheck: "github-cli-token-actor",
     actor: credentialActor.actor,
     actorId: credentialActor.actorId,
     permissions: credentialActor.permissions,
     credentialSource: credentialActor.source
   };
+  return includeCredential ? { binding, credential: credentialActor.credential } : binding;
 }
 
 async function verifyPullRequestBeforeMerge(cwd, record, providerExecutablePath = record.providerExecutable?.path) {
@@ -2700,9 +3406,9 @@ async function verifyPullRequestBeforeMerge(cwd, record, providerExecutablePath 
   if (typeof providerExecutablePath !== "string" || !path.isAbsolute(providerExecutablePath)) {
     throw new Error("PR merge provider state requires an absolute recorded executable");
   }
-  const actual = JSON.parse((await execFileAsync(providerExecutablePath, [
+  const actual = JSON.parse((await execBoundGitHubCli(providerExecutablePath, [
     "api", `repos/${repository.slice("github.com/".length)}/pulls/${record.pullRequest}`
-  ], { cwd, encoding: "utf8" })).stdout);
+  ], { cwd })).stdout);
   if (
       actual.number !== record.pullRequest ||
     actual.state !== "open" ||
@@ -2764,30 +3470,28 @@ async function verifyCreateProviderAtInvocation(record, manifest) {
   if (digestObject(authorization) !== digestObject(record.providerAuthorization)) {
     throw new Error("PR creation provider actor or permission changed before invocation");
   }
-  const currentHead = (await execFileAsync("git", ["rev-parse", "--verify", "HEAD^{commit}"], {
-    cwd: manifest.cwd,
-    encoding: "utf8"
-  })).stdout.trim();
-  const currentBranch = (await execFileAsync("git", ["branch", "--show-current"], {
-    cwd: manifest.cwd,
-    encoding: "utf8"
-  })).stdout.trim();
+  const currentHead = (await execBoundGitAuthority(manifest.cwd, ["rev-parse", "--verify", "HEAD^{commit}"])).stdout.trim();
+  const currentBranch = (await execBoundGitAuthority(manifest.cwd, ["branch", "--show-current"])).stdout.trim();
   if (currentHead !== record.expectedHead || currentBranch !== record.headBranch) {
     throw new Error("PR creation candidate changed before invocation");
   }
   const branchRef = `refs/heads/${record.headBranch}`;
-  const remoteHead = (await execFileAsync("git", ["ls-remote", "origin", branchRef], {
-    cwd: manifest.cwd,
-    encoding: "utf8"
-  })).stdout.trim().split(/\s+/)[0] ?? "";
+  const remoteHead = await readBoundGitHubRefRevision(
+    manifest.cwd,
+    repository,
+    branchRef,
+    providerExecutablePath
+  );
   if (remoteHead !== record.expectedHead) {
     throw new Error("PR creation requires the pushed candidate branch to match the reviewed head");
   }
   const targetRef = `refs/heads/${record.targetRef}`;
-  const remoteBase = (await execFileAsync("git", ["ls-remote", "origin", targetRef], {
-    cwd: manifest.cwd,
-    encoding: "utf8"
-  })).stdout.trim().split(/\s+/)[0] ?? "";
+  const remoteBase = await readBoundGitHubRefRevision(
+    manifest.cwd,
+    repository,
+    targetRef,
+    providerExecutablePath
+  );
   if (record.remoteRevision && remoteBase !== record.remoteRevision) {
     throw new Error("PR creation target branch changed before invocation");
   }
@@ -2925,13 +3629,10 @@ async function verifyOwnedResourceCreationProof(manifest, record, providerReceip
   };
   if (record.action === "branch.create" && record.provider === "git") {
     const ref = record.resource.slice("branch:".length);
-    const actual = (await execFileAsync("git", ["rev-parse", "--verify", `refs/heads/${ref}^{commit}`], {
-      cwd: manifest.cwd,
-      encoding: "utf8"
-    })).stdout.trim();
-    const reflog = (await execFileAsync("git", [
+    const actual = (await execBoundGitAuthority(manifest.cwd, ["rev-parse", "--verify", `refs/heads/${ref}^{commit}`])).stdout.trim();
+    const reflog = (await execBoundGitAuthority(manifest.cwd, [
       "reflog", "show", "--date=iso-strict", "--format=%H%x00%gs%x00%gd", "-1", `refs/heads/${ref}`
-    ], { cwd: manifest.cwd, encoding: "utf8" })).stdout.trim();
+    ])).stdout.trim();
     const [revision, subject, selector] = reflog.split("\0");
     const observedAt = selector?.match(/@\{(.+)\}$/)?.[1] ?? "";
     if (
@@ -2948,10 +3649,7 @@ async function verifyOwnedResourceCreationProof(manifest, record, providerReceip
   }
   if (record.action === "worktree.create" && record.provider === "git") {
     const worktreePath = record.resource.slice("worktree:".length);
-    const output = (await execFileAsync("git", ["worktree", "list", "--porcelain"], {
-      cwd: manifest.cwd,
-      encoding: "utf8"
-    })).stdout;
+    const output = (await execBoundGitAuthority(manifest.cwd, ["worktree", "list", "--porcelain"])).stdout;
     const match = output.split(/\n\n+/).map((block) => Object.fromEntries(
       block.split("\n").filter(Boolean).map((line) => {
         const separator = line.indexOf(" ");
@@ -2961,14 +3659,12 @@ async function verifyOwnedResourceCreationProof(manifest, record, providerReceip
     if (!match || match.HEAD !== providerReceipt.revision || proof.providerObjectId !== `${worktreePath}:${match.HEAD}`) {
       throw new Error("Git worktree creation proof does not match the live provider object");
     }
-    const markerValue = (await execFileAsync("git", ["-C", worktreePath, "config", "--local", "--get", "sbw.creation-marker"], {
-      cwd: manifest.cwd,
-      encoding: "utf8"
-    })).stdout.trim();
-    const attemptValue = (await execFileAsync("git", ["-C", worktreePath, "config", "--local", "--get", "sbw.action-attempt"], {
-      cwd: manifest.cwd,
-      encoding: "utf8"
-    })).stdout.trim();
+    const markerValue = (await execBoundGitAuthority(manifest.cwd, [
+      "-C", worktreePath, "config", "--local", "--no-includes", "--get", "sbw.creation-marker"
+    ])).stdout.trim();
+    const attemptValue = (await execBoundGitAuthority(manifest.cwd, [
+      "-C", worktreePath, "config", "--local", "--no-includes", "--get", "sbw.action-attempt"
+    ])).stdout.trim();
     const worktreeMtime = (await stat(path.resolve(manifest.cwd, worktreePath))).mtimeMs;
     assertObservedAt(proof.observedAt, "Git worktree");
     if (markerValue !== marker || attemptValue !== record.attemptId || worktreeMtime < minimumObservedAt) {
@@ -2981,9 +3677,9 @@ async function verifyOwnedResourceCreationProof(manifest, record, providerReceip
     if (!repository || await currentRepositoryIdentity(manifest.cwd) !== repository || repository !== record.providerAuthorization?.repository) {
       throw new Error("GitHub pull request creation proof repository is not bound to the authorized repository");
     }
-    const actual = JSON.parse((await execFileAsync(providerExecutablePath, [
+    const actual = JSON.parse((await execBoundGitHubCli(providerExecutablePath, [
       "api", `repos/${repository.slice("github.com/".length)}/pulls/${providerReceipt.number}`
-    ], { cwd: manifest.cwd, encoding: "utf8" })).stdout);
+    ], { cwd: manifest.cwd })).stdout);
     const createdAt = assertObservedAt(actual.created_at, "GitHub pull request");
     const actor = record.providerAuthorization?.actor;
     if (
@@ -3001,10 +3697,10 @@ async function verifyOwnedResourceCreationProof(manifest, record, providerReceip
     return providerExecutablePath;
   }
   if (record.action === "actions.dispatch" && record.provider === "github-cli") {
-    const actual = JSON.parse((await execFileAsync(providerExecutablePath, [
+    const actual = JSON.parse((await execBoundGitHubCli(providerExecutablePath, [
       "run", "view", String(providerReceipt.runId), "--json",
       "databaseId,workflowName,url,status,conclusion,headSha,createdAt,displayTitle,actor"
-    ], { cwd: manifest.cwd, encoding: "utf8" })).stdout);
+    ], { cwd: manifest.cwd })).stdout);
     const createdAt = assertObservedAt(actual.createdAt, "GitHub Actions run");
     if (
       String(actual.databaseId) !== String(proof.providerObjectId) ||
@@ -3026,6 +3722,17 @@ async function verifyProviderReceipt(manifest, record, receipt) {
   const providerReceipt = receipt.providerReceipt;
   const cwd = manifest.cwd;
   const key = `${record.action}:${record.provider}`;
+  if (key === "git.push:git" || key === "remote.sync:git") {
+    const currentSourceBinding = await assertCurrentGitPushSourceBinding(manifest, record.sourceBindingDigest);
+    if (
+      currentSourceBinding.digest !== record.sourceBindingDigest ||
+      providerReceipt.sourceBindingDigest !== currentSourceBinding.digest ||
+      currentSourceBinding.originIdentity?.digest !== record.sourceRemoteBindingDigest ||
+      providerReceipt.sourceRemoteBindingDigest !== currentSourceBinding.originIdentity?.digest
+    ) {
+      throw new Error("Git provider reconciliation denied because the immutable source or raw remote binding changed");
+    }
+  }
   if (key === "plugin.cache.publish:local-workspace") {
     await verifyPluginCachePublicationReceipt(manifest, record, providerReceipt);
     return;
@@ -3051,10 +3758,9 @@ async function verifyProviderReceipt(manifest, record, receipt) {
     if (!expectedRef || providerReceipt.ref !== expectedRef) {
       throw new Error("Git branch creation proof is not bound to the requested resource");
     }
-    const actual = (await execFileAsync("git", ["rev-parse", "--verify", `refs/heads/${providerReceipt.ref}^{commit}`], {
-      cwd,
-      encoding: "utf8"
-    })).stdout.trim();
+    const actual = (await execBoundGitAuthority(cwd, [
+      "rev-parse", "--verify", `refs/heads/${providerReceipt.ref}^{commit}`
+    ])).stdout.trim();
     const repository = await currentGitProviderIdentity(cwd);
     const response = { ref: providerReceipt.ref, revision: actual };
     assertRecomputedProviderReceipt(
@@ -3073,10 +3779,7 @@ async function verifyProviderReceipt(manifest, record, receipt) {
     if (!expectedPath || providerReceipt.path !== expectedPath) {
       throw new Error("Git worktree creation proof is not bound to the requested resource");
     }
-    const output = (await execFileAsync("git", ["worktree", "list", "--porcelain"], {
-      cwd,
-      encoding: "utf8"
-    })).stdout;
+    const output = (await execBoundGitAuthority(cwd, ["worktree", "list", "--porcelain"])).stdout;
     const blocks = output.split(/\n\n+/).map((block) => Object.fromEntries(
       block.split("\n").filter(Boolean).map((line) => {
         const separator = line.indexOf(" ");
@@ -3097,10 +3800,7 @@ async function verifyProviderReceipt(manifest, record, receipt) {
     return;
   }
   if (key === "git.commit:git") {
-    const actual = (await execFileAsync("git", ["rev-parse", "--verify", "HEAD^{commit}"], {
-      cwd,
-      encoding: "utf8"
-    })).stdout.trim();
+    const actual = (await execBoundGitAuthority(cwd, ["rev-parse", "--verify", "HEAD^{commit}"])).stdout.trim();
     const repository = await currentGitProviderIdentity(cwd);
     const response = { repository, revision: actual };
     assertRecomputedProviderReceipt(
@@ -3116,26 +3816,24 @@ async function verifyProviderReceipt(manifest, record, receipt) {
   }
   if (key === "git.push:git") {
     const [, remote, ref] = GIT_PUSH_RESOURCE.exec(record.resource) ?? [];
+    const currentSourceBinding = await assertCurrentGitPushSourceBinding(manifest, record.sourceBindingDigest);
+    if (currentSourceBinding.originIdentity.digest !== record.sourceRemoteBindingDigest) {
+      throw new Error("Git push proof does not match the current complete source binding");
+    }
     const destination = await resolveGitPushDestination(cwd, remote);
     if (
       destination.pushUrl !== record.pushUrl ||
       destination.pushUrlDigest !== record.pushUrlDigest ||
-      destination.remoteRepository !== record.remoteRepository
+      destination.remoteRepository !== record.remoteRepository ||
+      destination.sourceRemoteBindingDigest !== record.sourceRemoteBindingDigest
     ) {
       throw new Error("Git push proof does not match the effective destination bound when the action token was issued");
     }
-    const output = (await execFileAsync("git", ["ls-remote", record.pushUrl, ref], {
-      cwd,
-      encoding: "utf8"
-    })).stdout.trim();
-    const revision = output.split(/\s+/)[0];
-    if (!/^[a-f0-9]{40}$/i.test(revision)) throw new Error("Git push proof does not identify a remote revision");
+    const githubExecutablePath = await verifyRecordedGitHubProvider(manifest, record);
+    const revision = await readBoundGitHubRefRevision(cwd, destination.remoteRepository, ref, githubExecutablePath);
     const repository = destination.remoteRepository;
     const pushUrlDigest = destination.pushUrlDigest;
-    const localRevision = (await execFileAsync("git", ["rev-parse", "--verify", `${ref}^{commit}`], {
-      cwd,
-      encoding: "utf8"
-    })).stdout.trim();
+    const localRevision = (await execBoundGitAuthority(cwd, ["rev-parse", "--verify", `${ref}^{commit}`])).stdout.trim();
     if (localRevision !== record.expectedRevision || revision !== record.expectedRevision) {
       throw new Error("Git push proof does not match the candidate commit bound when the action token was issued");
     }
@@ -3147,7 +3845,9 @@ async function verifyProviderReceipt(manifest, record, receipt) {
       localRevision,
       expectedBranch: record.expectedBranch,
       expectedRevision: record.expectedRevision,
-      pushUrlDigest
+      pushUrlDigest,
+      sourceBindingDigest: record.sourceBindingDigest,
+      sourceRemoteBindingDigest: record.sourceRemoteBindingDigest
     };
     assertRecomputedProviderReceipt(
       providerReceipt,
@@ -3161,6 +3861,8 @@ async function verifyProviderReceipt(manifest, record, receipt) {
         ref,
         remoteRepository: record.remoteRepository,
         pushUrlDigest: record.pushUrlDigest,
+        sourceBindingDigest: record.sourceBindingDigest,
+        sourceRemoteBindingDigest: record.sourceRemoteBindingDigest,
         expectedBranch: record.expectedBranch,
         expectedRevision: record.expectedRevision
       },
@@ -3179,12 +3881,9 @@ async function verifyProviderReceipt(manifest, record, receipt) {
     const expectedRef = record.resource.startsWith("branch:") ? record.resource.slice("branch:".length) : null;
     if (!expectedRef || providerReceipt.ref !== expectedRef) throw new Error("Git branch deletion proof is not bound to the requested resource");
     const repository = await currentGitProviderIdentity(cwd);
-    let present = true;
-    try {
-      await execFileAsync("git", ["rev-parse", "--verify", `refs/heads/${expectedRef}^{commit}`], { cwd, encoding: "utf8" });
-    } catch {
-      present = false;
-    }
+    const present = (await execBoundGitAuthority(cwd, [
+      "rev-parse", "--verify", `refs/heads/${expectedRef}^{commit}`
+    ], { allowFailure: true })).ok;
     if (present) throw new Error("Git branch deletion proof does not match provider state");
     const response = { ref: expectedRef, deleted: true };
     assertRecomputedProviderReceipt(
@@ -3196,9 +3895,9 @@ async function verifyProviderReceipt(manifest, record, receipt) {
     return;
   }
   if (key === "pr.create:github-cli") {
-    const actual = JSON.parse((await execFileAsync(providerExecutablePath, [
+    const actual = JSON.parse((await execBoundGitHubCli(providerExecutablePath, [
       "pr", "view", String(providerReceipt.number), "--json", "number,headRefOid,baseRefName,url"
-    ], { cwd, encoding: "utf8" })).stdout);
+    ], { cwd })).stdout);
     const repository = record.createRepository ?? record.providerAuthorization?.repository;
     if (!repository || await currentRepositoryIdentity(cwd) !== repository) {
       throw new Error("GitHub pull request creation proof repository changed after authorization");
@@ -3235,9 +3934,9 @@ async function verifyProviderReceipt(manifest, record, receipt) {
     return;
   }
   if (key === "issue.create:github-cli") {
-    const actual = JSON.parse((await execFileAsync(providerExecutablePath, [
+    const actual = JSON.parse((await execBoundGitHubCli(providerExecutablePath, [
       "issue", "view", String(providerReceipt.number), "--json", "number,state,url"
-    ], { cwd, encoding: "utf8" })).stdout);
+    ], { cwd })).stdout);
     const repository = await currentRepositoryIdentity(cwd);
     const response = { number: actual.number, state: actual.state, url: actual.url };
     assertRecomputedProviderReceipt(
@@ -3255,9 +3954,9 @@ async function verifyProviderReceipt(manifest, record, receipt) {
     return;
   }
   if (key === "actions.dispatch:github-cli") {
-    const actual = JSON.parse((await execFileAsync(providerExecutablePath, [
+    const actual = JSON.parse((await execBoundGitHubCli(providerExecutablePath, [
       "run", "view", String(providerReceipt.runId), "--json", "databaseId,workflowName,url,status,conclusion,headSha"
-    ], { cwd, encoding: "utf8" })).stdout);
+    ], { cwd })).stdout);
     const repository = await currentRepositoryIdentity(cwd);
     const response = {
       runId: String(actual.databaseId),
@@ -3284,9 +3983,9 @@ async function verifyProviderReceipt(manifest, record, receipt) {
     return;
   }
   if (key === "actions.cancel:github-cli") {
-    const actual = JSON.parse((await execFileAsync(providerExecutablePath, [
+    const actual = JSON.parse((await execBoundGitHubCli(providerExecutablePath, [
       "run", "view", String(providerReceipt.runId), "--json", "databaseId,status,conclusion,url"
-    ], { cwd, encoding: "utf8" })).stdout);
+    ], { cwd })).stdout);
     const repository = await currentRepositoryIdentity(cwd);
     const response = {
       runId: String(actual.databaseId),
@@ -3306,9 +4005,9 @@ async function verifyProviderReceipt(manifest, record, receipt) {
     return;
   }
   if (key === "pr.close:github-cli") {
-    const actual = JSON.parse((await execFileAsync(providerExecutablePath, [
+    const actual = JSON.parse((await execBoundGitHubCli(providerExecutablePath, [
       "pr", "view", String(providerReceipt.pr), "--json", "number,state,url"
-    ], { cwd, encoding: "utf8" })).stdout);
+    ], { cwd })).stdout);
     const repository = await currentRepositoryIdentity(cwd);
     const response = { number: actual.number, state: actual.state, url: actual.url };
     assertRecomputedProviderReceipt(
@@ -3323,14 +4022,14 @@ async function verifyProviderReceipt(manifest, record, receipt) {
     return;
   }
   if (key === "pr.merge:github-cli") {
-    const actual = JSON.parse((await execFileAsync(providerExecutablePath, [
+    const actual = JSON.parse((await execBoundGitHubCli(providerExecutablePath, [
       "pr", "view", String(providerReceipt.pr), "--json", "number,state,headRefOid,baseRefName,mergeCommit"
-    ], { cwd, encoding: "utf8" })).stdout);
+    ], { cwd })).stdout);
     const mergeCommit = typeof actual.mergeCommit === "string" ? actual.mergeCommit : actual.mergeCommit?.oid;
     const repository = await currentRepositoryIdentity(cwd);
-    const mergeDetails = JSON.parse((await execFileAsync(providerExecutablePath, [
+    const mergeDetails = JSON.parse((await execBoundGitHubCli(providerExecutablePath, [
       "api", `repos/${repository.slice("github.com/".length)}/commits/${mergeCommit}`
-    ], { cwd, encoding: "utf8" })).stdout);
+    ], { cwd })).stdout);
     const mergeParents = Array.isArray(mergeDetails.parents)
       ? mergeDetails.parents.map((parent) => parent?.sha).filter(Boolean)
       : [];
@@ -3389,27 +4088,30 @@ async function verifyProviderReceipt(manifest, record, receipt) {
     }
     const branchRef = /^refs\/heads\/(.+)$/.exec(record.resource)?.[1];
     if (!branchRef) throw new Error("Git remote synchronization resource must be refs/heads/<branch>");
-    const remoteUrl = (await execFileAsync("git", ["remote", "get-url", record.remote], {
-      cwd,
-      encoding: "utf8"
-    })).stdout.trim();
-    const remoteRepository = repositoryIdentity(remoteUrl);
-    const remoteUrlDigest = sha256(remoteUrl);
-    if (remoteRepository !== record.remoteRepository || remoteUrlDigest !== record.remoteUrlDigest) {
+    const currentSourceBinding = await assertCurrentGitPushSourceBinding(manifest, record.sourceBindingDigest);
+    if (currentSourceBinding.originIdentity.digest !== record.sourceRemoteBindingDigest) {
+      throw new Error("Git remote synchronization proof does not match the current complete source binding");
+    }
+    const destination = await resolveGitFetchOrigin(cwd);
+    const { remoteRepository, remoteUrlDigest, sourceRemoteBindingDigest } = destination;
+    if (
+      record.remote !== destination.remote ||
+      remoteRepository !== record.remoteRepository ||
+      remoteUrlDigest !== record.remoteUrlDigest ||
+      sourceRemoteBindingDigest !== record.sourceRemoteBindingDigest
+    ) {
       throw new Error("Git remote synchronization proof does not match the origin bound when the action token was issued");
     }
-    const liveRemote = (await execFileAsync("git", ["ls-remote", record.remote, record.resource], {
+    const githubExecutablePath = await verifyRecordedGitHubProvider(manifest, record);
+    const providerRevision = await readBoundGitHubRefRevision(
       cwd,
-      encoding: "utf8"
-    })).stdout.trim();
-    const providerRevision = liveRemote.split(/\s+/)[0];
-    if (!/^[a-f0-9]{40}$/i.test(providerRevision)) {
-      throw new Error("Git remote synchronization proof does not identify a live remote revision");
-    }
-    const localRevision = (await execFileAsync("git", ["rev-parse", "--verify", `refs/heads/${branchRef}^{commit}`], {
-      cwd,
-      encoding: "utf8"
-    })).stdout.trim();
+      remoteRepository,
+      record.resource,
+      githubExecutablePath
+    );
+    const localRevision = (await execBoundGitAuthority(cwd, [
+      "rev-parse", "--verify", `refs/heads/${branchRef}^{commit}`
+    ])).stdout.trim();
     const repository = await currentGitProviderIdentity(cwd);
     const response = {
       repository,
@@ -3417,6 +4119,8 @@ async function verifyProviderReceipt(manifest, record, receipt) {
       remote: record.remote,
       remoteRepository,
       remoteUrlDigest,
+      sourceBindingDigest: record.sourceBindingDigest,
+      sourceRemoteBindingDigest,
       providerRevision,
       localRevision
     };
@@ -3431,7 +4135,9 @@ async function verifyProviderReceipt(manifest, record, receipt) {
         ref: record.resource,
         remote: record.remote,
         remoteRepository,
-        remoteUrlDigest
+        remoteUrlDigest,
+        sourceBindingDigest: record.sourceBindingDigest,
+        sourceRemoteBindingDigest
       },
       response,
       `git:${repository}:remote.sync:${record.resource}:${providerRevision}:${localRevision}`
@@ -3440,7 +4146,9 @@ async function verifyProviderReceipt(manifest, record, receipt) {
       providerRevision !== receipt.providerReceipt.providerRevision ||
       localRevision !== receipt.providerReceipt.localRevision ||
       providerReceipt.ref !== record.resource ||
-      providerReceipt.repository !== repository
+      providerReceipt.repository !== repository ||
+      providerReceipt.sourceBindingDigest !== record.sourceBindingDigest ||
+      providerReceipt.sourceRemoteBindingDigest !== record.sourceRemoteBindingDigest
     ) {
       throw new Error("Git remote synchronization proof does not match provider state");
     }
@@ -3453,10 +4161,7 @@ async function verifyProviderReceipt(manifest, record, receipt) {
     if (!expectedPath || providerReceipt.path !== expectedPath) {
       throw new Error("Git worktree cleanup proof is not bound to the requested resource");
     }
-    const output = (await execFileAsync("git", ["worktree", "list", "--porcelain"], {
-      cwd,
-      encoding: "utf8"
-    })).stdout;
+    const output = (await execBoundGitAuthority(cwd, ["worktree", "list", "--porcelain"])).stdout;
     const present = output.split(/\n\n+/).some((block) => block.split("\n").some((line) => line === `worktree ${providerReceipt.path}`));
     if (present) throw new Error("Git worktree cleanup proof does not match provider state");
     const repository = await currentGitProviderIdentity(cwd);
@@ -3485,7 +4190,7 @@ export async function verifyRequiredChecksProvider(cwd, payload, providerExecuta
     throw new Error("Required checks evidence must include the protected branch status-check set");
   }
   const repositoryPath = repository.slice(prefix.length);
-  const protection = JSON.parse((await execFileAsync(executablePath, [
+  const protection = JSON.parse((await execBoundGitHubCli(executablePath, [
     "api",
     `repos/${repositoryPath}/branches/${encodeURIComponent(payload.baseRefName)}/protection`
   ], { cwd, encoding: "utf8" })).stdout);
@@ -3502,7 +4207,7 @@ export async function verifyRequiredChecksProvider(cwd, payload, providerExecuta
   if (protection.allow_force_pushes?.enabled === true || protection.allow_deletions?.enabled === true) {
     throw new Error("Protected branch policy permits force-pushes or deletions");
   }
-  const branchRules = JSON.parse((await execFileAsync(executablePath, [
+  const branchRules = JSON.parse((await execBoundGitHubCli(executablePath, [
     "api",
     `repos/${repositoryPath}/rules/branches/${encodeURIComponent(payload.baseRefName)}`
   ], { cwd, encoding: "utf8" })).stdout);
@@ -3515,7 +4220,7 @@ export async function verifyRequiredChecksProvider(cwd, payload, providerExecuta
   if (branchRules.some((rule) => ["deletion", "non_fast_forward"].includes(rule.type))) {
     throw new Error("Protected branch rules permit deletion or non-fast-forward updates");
   }
-  const rulesetPages = JSON.parse((await execFileAsync(executablePath, [
+  const rulesetPages = JSON.parse((await execBoundGitHubCli(executablePath, [
     "api",
     "--paginate",
     "--slurp",
@@ -3538,7 +4243,7 @@ export async function verifyRequiredChecksProvider(cwd, payload, providerExecuta
     return new RegExp(`^${escaped}$`).test(branchRef);
   };
   for (const listed of activeRulesets) {
-    const detail = JSON.parse((await execFileAsync(executablePath, [
+    const detail = JSON.parse((await execBoundGitHubCli(executablePath, [
       "api",
       `repos/${repositoryPath}/rulesets/${Number(listed.id)}`
     ], { cwd, encoding: "utf8" })).stdout);
@@ -3588,7 +4293,7 @@ export async function verifyRequiredChecksProvider(cwd, payload, providerExecuta
       throw new Error("Active protected branch ruleset has incomplete pull-request review policy");
     }
   }
-  const requiredStatusProtection = JSON.parse((await execFileAsync(executablePath, [
+  const requiredStatusProtection = JSON.parse((await execBoundGitHubCli(executablePath, [
     "api",
     `repos/${repositoryPath}/branches/${encodeURIComponent(payload.baseRefName)}/protection/required_status_checks`
   ], { cwd, encoding: "utf8" })).stdout);
@@ -3635,7 +4340,7 @@ export async function verifyRequiredChecksProvider(cwd, payload, providerExecuta
   if (digestObject(requiredStatusChecks) !== digestObject([...payload.requiredStatusChecks].sort())) {
     throw new Error("Required checks evidence does not match the protected branch status-check set");
   }
-  const workflowPages = JSON.parse((await execFileAsync(executablePath, [
+  const workflowPages = JSON.parse((await execBoundGitHubCli(executablePath, [
     "api",
     "--paginate",
     "--slurp",
@@ -3666,7 +4371,7 @@ export async function verifyRequiredChecksProvider(cwd, payload, providerExecuta
       throw new Error(`Required check workflow run is not a fresh successful GitHub run: ${run.id}`);
     }
   }
-  const checkRunPages = JSON.parse((await execFileAsync(executablePath, [
+  const checkRunPages = JSON.parse((await execBoundGitHubCli(executablePath, [
     "api",
     "--paginate",
     "--slurp",
@@ -3773,7 +4478,7 @@ function assertRemoteAuthorizationEvidence(admittedEvidence, request, providerAu
         payload.repository === expectedRepository &&
         payload.remote === gitPush[1] &&
         payload.ref === gitPush[2] &&
-        payload.credentialCheck === "git-credential-actor"
+        payload.credentialCheck === "github-cli-token-actor"
       )) &&
       (!providerAuthorization || (
         payload.repository === providerAuthorization.repository &&
@@ -3892,6 +4597,7 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
       throw new Error(`Action provider pair is not supported by a live receipt verifier: ${request.action}:${request.provider}`);
     }
     let repository = null;
+    if (request.action === "git.push") assertNoAmbientGitAuthorityOverrides();
     const needsProviderAuthorization = request.requiredEvidence.includes("remote-authorization") ||
       request.action === "pr.merge" ||
       (OWNED_RESOURCE_CREATION_ACTIONS.has(request.action) && request.provider === "github-cli");
@@ -3925,8 +4631,12 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
       if (contract.template === "pr-to-dev" && ref === "refs/heads/dev") {
         throw new Error("pr-to-dev forbids direct pushes to protected dev");
       }
+      const currentSourceBinding = await assertCurrentGitPushSourceBinding(manifest);
       const destination = await resolveGitPushDestination(manifest.cwd, remote);
-      const { pushUrl, pushUrlDigest, remoteRepository } = destination;
+      const { pushUrl, pushUrlDigest, remoteRepository, sourceRemoteBindingDigest } = destination;
+      if (sourceRemoteBindingDigest !== currentSourceBinding.originIdentity.digest) {
+        throw new Error("Git push destination differs from the immutable source remote binding");
+      }
       if (remoteRepository !== repository) {
         throw new Error("Git push effective destination must match the authorized origin repository");
       }
@@ -3934,17 +4644,17 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
         throw new Error("pr-to-dev git.push must use the canonical origin repository");
       }
       const expectedBranch = ref.slice("refs/heads/".length);
-      const expectedRevision = (await execFileAsync("git", ["rev-parse", "--verify", `${ref}^{commit}`], {
-        cwd: manifest.cwd,
-        encoding: "utf8"
-      })).stdout.trim();
+      const expectedRevision = (await execBoundGitAuthority(manifest.cwd, ["rev-parse", "--verify", `${ref}^{commit}`])).stdout.trim();
+      const gitProviderExecutable = await currentProviderExecutableIdentity(BOUND_GIT_EXECUTABLE);
       actionBinding = buildGitPushActionBinding({
         remote,
         pushUrl,
         remoteRepository,
+        sourceBindingDigest: currentSourceBinding.digest,
+        sourceRemoteBindingDigest,
         expectedBranch,
         expectedRevision,
-        providerExecutable: await currentProviderExecutableIdentity("git")
+        providerExecutable: gitProviderExecutable
       });
       if (request.requiredEvidence.includes("remote-authorization")) {
         if (!providerAuthorization || request.provider !== "git") {
@@ -3952,16 +4662,17 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
         }
         actionBinding.gitCredentialCheck = await verifyGitPushCredential(
           manifest.cwd,
-          { remote, pushUrl, pushUrlDigest, ref, revision: expectedRevision, repository: remoteRepository },
-          providerAuthorization.actor
+          { remote, pushUrl, pushUrlDigest, ref, revision: expectedRevision, repository: remoteRepository, sourceRemoteBindingDigest },
+          providerAuthorization.actor,
+          {
+            githubExecutablePath: providerAuthorizationExecutable.path,
+            gitExecutablePath: gitProviderExecutable.path
+          }
         );
         assertRemoteAuthorizationEvidence(admittedEvidence, request, providerAuthorization, repository);
       }
       if (contract.template === "pr-to-dev") {
-        const currentBranch = (await execFileAsync("git", ["branch", "--show-current"], {
-          cwd: manifest.cwd,
-          encoding: "utf8"
-        })).stdout.trim();
+        const currentBranch = (await execBoundGitAuthority(manifest.cwd, ["branch", "--show-current"])).stdout.trim();
         const currentBranchEvidence = admittedEvidence.find((item) => (
           item.kind === "current-branch" && item.status === "complete" && !item.stale &&
           item.receipt?.payload?.revision === expectedRevision &&
@@ -3976,19 +4687,15 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
       if (request.resource !== "pull/new") {
         throw new Error("Governed PR creation requires the pull/new resource");
       }
-      const expectedHead = (await execFileAsync("git", ["rev-parse", "--verify", "HEAD^{commit}"], {
-        cwd: manifest.cwd,
-        encoding: "utf8"
-      })).stdout.trim();
+      const expectedHead = (await execBoundGitAuthority(manifest.cwd, [
+        "rev-parse", "--verify", "HEAD^{commit}"
+      ])).stdout.trim();
       if (!SHA.test(expectedHead)) throw new Error("PR creation requires an exact candidate source head");
       const targetRef = contract.template === "pr-to-dev" ? "dev" : String(request.scope ?? "");
       if (!/^[A-Za-z0-9._/-]+$/.test(targetRef)) {
         throw new Error("PR creation requires an exact target branch via --scope");
       }
-      const headBranch = (await execFileAsync("git", ["branch", "--show-current"], {
-        cwd: manifest.cwd,
-        encoding: "utf8"
-      })).stdout.trim();
+      const headBranch = (await execBoundGitAuthority(manifest.cwd, ["branch", "--show-current"])).stdout.trim();
       if (!/^[A-Za-z0-9._/-]+$/.test(headBranch) || headBranch === targetRef) {
         throw new Error("PR creation requires a distinct current candidate branch");
       }
@@ -4013,10 +4720,9 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
     if (request.action === "pr.merge") {
       const pullRequest = Number(String(request.resource).replace(/^pull\//, ""));
       if (!Number.isInteger(pullRequest)) throw new Error("PR merge resources must use pull/<number>");
-      const currentHead = (await execFileAsync("git", ["rev-parse", "--verify", "HEAD^{commit}"], {
-        cwd: manifest.cwd,
-        encoding: "utf8"
-      })).stdout.trim();
+      const currentHead = (await execBoundGitAuthority(manifest.cwd, [
+        "rev-parse", "--verify", "HEAD^{commit}"
+      ])).stdout.trim();
       actionBinding = {
         ...actionBinding,
         pullRequest,
@@ -4032,7 +4738,7 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
           "merge",
           String(pullRequest),
           "--repo",
-          repository.slice("github.com/".length),
+          repository,
           "--match-head-commit",
           currentHead,
           "--merge",
@@ -4059,17 +4765,23 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
       throw new Error("pr-to-dev remote synchronization is restricted to refs/heads/dev");
     }
     if (request.action === "remote.sync") {
-      const remoteUrl = (await execFileAsync("git", ["remote", "get-url", "origin"], {
-        cwd: manifest.cwd,
-        encoding: "utf8"
-      })).stdout.trim();
-      const remoteRepository = repositoryIdentity(remoteUrl);
-      if (!remoteRepository) throw new Error("Remote synchronization requires a canonical origin repository identity");
+      const currentSourceBinding = await assertCurrentGitPushSourceBinding(manifest);
+      const destination = await resolveGitFetchOrigin(manifest.cwd);
+      const { remoteRepository, remoteUrlDigest, sourceRemoteBindingDigest } = destination;
+      if (currentSourceBinding.originIdentity?.digest !== sourceRemoteBindingDigest) {
+        throw new Error("Remote synchronization requires the immutable raw source remote binding");
+      }
+      if (repository && repository !== remoteRepository) {
+        throw new Error("Remote synchronization origin differs from the authorized repository");
+      }
+      repository = remoteRepository;
       actionBinding = {
         ...actionBinding,
-        remote: "origin",
+        remote: destination.remote,
         remoteRepository,
-        remoteUrlDigest: sha256(remoteUrl)
+        remoteUrlDigest,
+        sourceRemoteBindingDigest,
+        sourceBindingDigest: currentSourceBinding.digest
       };
     }
     if (request.action === "plugin.cache.publish") {
@@ -4087,10 +4799,9 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
       const { isIndependentCriticEvidence } = await import("./evidence.mjs");
       const { reviewStatus } = await import("./review.mjs");
       const review = await reviewStatus(root, runId);
-      const currentHead = (await execFileAsync("git", ["rev-parse", "--verify", "HEAD^{commit}"], {
-        cwd: manifest.cwd,
-        encoding: "utf8"
-      })).stdout.trim();
+      const currentHead = (await execBoundGitAuthority(manifest.cwd, [
+        "rev-parse", "--verify", "HEAD^{commit}"
+      ])).stdout.trim();
       if (!review.complete || review.package?.head !== currentHead) {
         throw new Error("Action token denied until the exact review package is complete");
       }
@@ -4113,18 +4824,24 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
       if (!review.complete) throw new Error("Action token denied until the exact review package is complete");
       if (request.action === "remote.sync") {
         const mergeBinding = assertRemoteSyncMergeBinding(admittedEvidence, review.package, contract, repository);
-        assertPersistedSuccessfulMergeAction(actions, mergeBinding);
+        const mergeAction = assertPersistedSuccessfulMergeAction(actions, mergeBinding);
+        await verifyRecordedGitHubProvider(manifest, mergeAction);
+        if (mergeAction.providerAuthorization?.repository !== repository) {
+          throw new Error("Remote synchronization requires the persisted merge provider authorization for the same repository");
+        }
         actionBinding = {
           ...actionBinding,
-          ...mergeBinding
+          ...mergeBinding,
+          providerExecutable: mergeAction.providerExecutable,
+          providerAuthorizationExecutable: mergeAction.providerAuthorizationExecutable ?? mergeAction.providerExecutable,
+          providerAuthorization: mergeAction.providerAuthorization
         };
       }
     }
     if (request.action === "pr.merge" && request.requiredEvidence.includes("required-checks")) {
-      const currentHead = (await execFileAsync("git", ["rev-parse", "--verify", "HEAD^{commit}"], {
-        cwd: manifest.cwd,
-        encoding: "utf8"
-      })).stdout.trim();
+      const currentHead = (await execBoundGitAuthority(manifest.cwd, [
+        "rev-parse", "--verify", "HEAD^{commit}"
+      ])).stdout.trim();
       const requiredChecks = admittedEvidence.find((item) => {
         const payload = item.kind === "required-checks" ? item.receipt?.payload : null;
         return payload?.head === currentHead && payload?.base === contract.remoteRevision && payload?.repository === repository;
@@ -4202,7 +4919,8 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
           manifest.cwd,
           request.action,
           request.resource,
-          providerExecutable?.path
+          providerExecutable?.path,
+          repository
         );
         if (!creationPrecondition || creationPrecondition.state !== "absent") {
           throw new Error("Owned resource creation requires an observed absent precondition after reservation");
@@ -4269,6 +4987,25 @@ async function consumeActionTokenInternal(root, runId, token, currentTreeDigest,
     if (record.treeDigest !== currentTreeDigest) throw new Error("Action token tree binding changed");
     if (record.contractDigest !== digestObject(contract)) throw new Error("Action token contract binding changed");
     const manifest = await readJson(root, safeJoin(runDir, "manifest.json"));
+    if (record.action === "git.push") {
+      const currentSourceBinding = await assertCurrentGitPushSourceBinding(manifest, record.sourceBindingDigest);
+      if (currentSourceBinding.originIdentity.digest !== record.sourceRemoteBindingDigest) {
+        throw new Error("Action consumption denied because the raw source remote binding changed");
+      }
+    }
+    if (record.action === "remote.sync") {
+      const currentSourceBinding = await assertCurrentGitPushSourceBinding(manifest, record.sourceBindingDigest);
+      const destination = await resolveGitFetchOrigin(manifest.cwd);
+      if (
+        destination.remote !== record.remote ||
+        destination.remoteRepository !== record.remoteRepository ||
+        destination.remoteUrlDigest !== record.remoteUrlDigest ||
+        destination.sourceRemoteBindingDigest !== record.sourceRemoteBindingDigest ||
+        currentSourceBinding.originIdentity?.digest !== record.sourceRemoteBindingDigest
+      ) {
+        throw new Error("Remote synchronization consumption denied because the immutable source or raw remote binding changed");
+      }
+    }
     const githubProviderExecutable = record.provider === "github-cli" || record.providerAuthorization?.provider === "github-cli"
       ? await verifyRecordedGitHubExecutable(
         record,
@@ -4283,6 +5020,11 @@ async function consumeActionTokenInternal(root, runId, token, currentTreeDigest,
       }
     }
     if (record.gitCredentialCheck) {
+      const gitExecutable = await verifyRecordedExecutable(
+        record.providerExecutable,
+        BOUND_GIT_EXECUTABLE,
+        "Git push provider"
+      );
       const credentialCheck = await verifyGitPushCredential(
         manifest.cwd,
         {
@@ -4291,16 +5033,21 @@ async function consumeActionTokenInternal(root, runId, token, currentTreeDigest,
           pushUrlDigest: record.pushUrlDigest,
           ref: record.gitCredentialCheck.ref,
           revision: record.gitCredentialCheck.revision,
-          repository: record.gitCredentialCheck.repository
+          repository: record.gitCredentialCheck.repository,
+          sourceRemoteBindingDigest: record.sourceRemoteBindingDigest
         },
-        record.providerAuthorization?.actor ?? null
+        record.providerAuthorization?.actor ?? null,
+        {
+          githubExecutablePath: githubProviderExecutable.path,
+          gitExecutablePath: gitExecutable.path
+        }
       );
       if (digestObject(credentialCheck) !== digestObject(record.gitCredentialCheck)) {
         throw new Error("Action consumption denied because the controlled Git credential check changed");
       }
     }
     const actionExecutable = record.action === "git.push"
-      ? await currentProviderExecutableIdentity("git")
+      ? await currentProviderExecutableIdentity(BOUND_GIT_EXECUTABLE)
       : ["pr.create", "pr.merge"].includes(record.action)
         ? githubProviderExecutable
         : null;
@@ -4415,11 +5162,16 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
   if (consumed.action === "git.push" && consumed.provider === "git") {
     const { remote, pushUrl, ref, command: expectedCommand } = resolveGitPushExecutionBinding(consumed);
     const manifest = await readJson(root, safeJoin(runDirectory(root, runId), "manifest.json"));
-    const executable = await currentProviderExecutableIdentity("git");
+    const currentSourceBinding = await assertCurrentGitPushSourceBinding(manifest, consumed.sourceBindingDigest);
+    if (currentSourceBinding.originIdentity.digest !== consumed.sourceRemoteBindingDigest) {
+      throw new Error("Git push execution denied because the raw source remote binding changed");
+    }
+    const executable = await currentProviderExecutableIdentity(BOUND_GIT_EXECUTABLE);
     if (digestObject(executable) !== digestObject(consumed.providerExecutable)) {
       throw new Error("Git push execution denied because the governed provider executable changed");
     }
-    const credentialCheck = await verifyGitPushCredential(
+    const githubExecutable = await verifyRecordedGitHubExecutable(consumed, "providerAuthorizationExecutable");
+    const verifiedCredential = await verifyGitPushCredential(
       manifest.cwd,
       {
         remote,
@@ -4427,17 +5179,21 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
         pushUrlDigest: consumed.pushUrlDigest,
         ref,
         revision: consumed.expectedRevision,
-        repository: consumed.remoteRepository
+        repository: consumed.remoteRepository,
+        sourceRemoteBindingDigest: consumed.sourceRemoteBindingDigest
       },
-      consumed.providerAuthorization?.actor ?? null
+      consumed.providerAuthorization?.actor ?? null,
+      {
+        includeCredential: true,
+        githubExecutablePath: githubExecutable.path,
+        gitExecutablePath: executable.path
+      }
     );
+    const credentialCheck = verifiedCredential.binding;
     if (digestObject(credentialCheck) !== digestObject(consumed.gitCredentialCheck)) {
       throw new Error("Git push execution denied because the credential actor changed");
     }
-    const currentRevision = (await execFileAsync("git", ["rev-parse", "--verify", `${ref}^{commit}`], {
-      cwd: manifest.cwd,
-      encoding: "utf8"
-    })).stdout.trim();
+    const currentRevision = (await execBoundGitAuthority(manifest.cwd, ["rev-parse", "--verify", `${ref}^{commit}`])).stdout.trim();
     if (currentRevision !== consumed.expectedRevision) {
       throw new Error("Git push execution denied because the candidate revision changed");
     }
@@ -4452,11 +5208,14 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
       const startedAt = nowIso();
       let exitCode = 0;
       try {
-        await execFileAsync(executable.path, expectedCommand.slice(1), {
-          cwd: run.manifest.cwd,
-          encoding: "utf8",
-          env: { ...process.env, GIT_TERMINAL_PROMPT: "0" }
-        });
+        await withBoundGitCredential(run.manifest.cwd, consumed.pushUrl, verifiedCredential.credential, executable.path, (context) =>
+          execBoundGit(executable.path, buildBoundGitPushArgs(expectedCommand, context.credentialFile, executable.path), {
+            cwd: run.manifest.cwd,
+            env: buildBoundGitPushEnvironment(context),
+            timeoutMs: BOUND_GIT_TIMEOUT_MS,
+            maxBuffer: BOUND_GIT_MAX_BUFFER
+          })
+        );
       } catch (error) {
         exitCode = Number.isInteger(error?.code) ? error.code : 1;
       }
@@ -4508,9 +5267,8 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
       const startedAt = nowIso();
       let exitCode = 0;
       try {
-        await execFileAsync(executable.path, expectedCommand.slice(1), {
+        await execBoundGitHubCli(executable.path, expectedCommand.slice(1), {
           cwd: run.manifest.cwd,
-          encoding: "utf8"
         });
       } catch (error) {
         exitCode = Number.isInteger(error?.code) ? error.code : 1;
@@ -4548,7 +5306,7 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
     "merge",
     String(consumed.pullRequest),
     "--repo",
-    consumed.mergeRepository?.slice("github.com/".length),
+    consumed.mergeRepository,
     "--match-head-commit",
     consumed.reviewedHead,
     "--merge",
@@ -4575,7 +5333,7 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
     const startedAt = nowIso();
     let exitCode = 0;
     try {
-      await execFileAsync(executable.path, expectedCommand.slice(1), { cwd: run.manifest.cwd, encoding: "utf8" });
+      await execBoundGitHubCli(executable.path, expectedCommand.slice(1), { cwd: run.manifest.cwd });
     } catch (error) {
       exitCode = Number.isInteger(error?.code) ? error.code : 1;
     }

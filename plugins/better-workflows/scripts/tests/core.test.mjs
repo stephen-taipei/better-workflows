@@ -5,6 +5,7 @@ import {
   access,
   chmod,
   link,
+  lstat,
   mkdtemp,
   mkdir,
   readFile,
@@ -20,6 +21,9 @@ import { promisify } from "node:util";
 import {
   addEvidence,
   assertProviderReceiptShape,
+  buildBoundGitPushArgs,
+  buildBoundGitPushEnvironment,
+  BOUND_CREDENTIAL_WORKSPACE_ROOT,
   buildGitPushActionBinding,
   buildPrCreateCommand,
   buildContract,
@@ -29,6 +33,9 @@ import {
   createRun,
   creationReservationKey,
   digestObject,
+  execBoundGitProcess,
+  execBoundGitHubCli,
+  terminateBoundChildForTest,
   ensureStateRoot,
   executeActionToken,
   evaluateCompletion,
@@ -37,9 +44,13 @@ import {
   inspectRun,
   issueActionToken,
   loadDefaults,
+  readBoundGitHubApi,
+  readBoundGitHubCredential,
+  assertBoundCredentialWorkspace,
   readJson,
   registerOwnedResource,
   reconcileAction,
+  resolveGitFetchOrigin,
   resolveGitPushDestination,
   resolveGitPushExecutionBinding,
   routeMode,
@@ -48,12 +59,30 @@ import {
   setRunStatus,
   updateState,
   verifyRequiredChecksProvider,
-  withRunLock
+  verifyGitHubCredentialActor,
+  withRunLock,
+  withBoundGitCredential
 } from "../lib/core.mjs";
 import { captureSentinel } from "../lib/git.mjs";
 import { checkPluginCache, publishPluginCache, verifyPluginCacheReady } from "../lib/publication.mjs";
 
 const execFileAsync = promisify(execFile);
+
+test("bounded process teardown refuses a recycled PGID when the stable leader is gone", () => {
+  const pid = 424243;
+  const calls = [];
+  const probe = (target, signal) => {
+    calls.push([target, signal]);
+    if (target === pid) {
+      const error = new Error("leader is gone");
+      error.code = "ESRCH";
+      throw error;
+    }
+    return undefined;
+  };
+  assert.equal(terminateBoundChildForTest(pid, "SIGTERM", probe), false);
+  assert.deepEqual(calls, [[pid, 0]]);
+});
 
 function template() {
   return {
@@ -82,10 +111,14 @@ function contract(overrides = {}) {
 test("git push action bindings persist the exact effective destination used by the fixed argv wrapper", () => {
   const providerExecutable = { path: "/usr/bin/git", digest: "a".repeat(64) };
   const pushUrl = "https://github.com/example/repository.git";
+  const sourceBindingDigest = "c".repeat(64);
+  const sourceRemoteBindingDigest = "d".repeat(64);
   const binding = buildGitPushActionBinding({
     remote: "origin",
     pushUrl,
     remoteRepository: "github.com/example/repository",
+    sourceBindingDigest,
+    sourceRemoteBindingDigest,
     expectedBranch: "feature",
     expectedRevision: "b".repeat(40),
     providerExecutable
@@ -94,6 +127,8 @@ test("git push action bindings persist the exact effective destination used by t
   assert.equal(binding.remote, "origin");
   assert.equal(binding.pushUrl, pushUrl);
   assert.equal(binding.pushUrlDigest, sha256(pushUrl));
+  assert.equal(binding.sourceBindingDigest, sourceBindingDigest);
+  assert.equal(binding.sourceRemoteBindingDigest, sourceRemoteBindingDigest);
   assert.deepEqual(binding.pushCommand, [
     "git",
     "push",
@@ -113,6 +148,434 @@ test("git push action bindings persist the exact effective destination used by t
       command: binding.pushCommand
     }
   );
+});
+
+test("git push execution clears ambient helpers and binds one captured credential file", () => {
+  assert.deepEqual(
+    buildBoundGitPushArgs(
+      ["git", "push", "--porcelain", "https://github.com/example/repository.git", "abc:refs/heads/feature"],
+      "/private/tmp/sbw-bound-credential/credentials",
+      "/usr/bin/git"
+    ),
+    [
+      "--no-replace-objects",
+      "-c", "core.bare=true",
+      "-c", "protocol.allow=never",
+      "-c", "protocol.https.allow=always",
+      "-c", "http.followRedirects=false",
+      "-c", "http.proxy=",
+      "-c", "http.sslVerify=true",
+      "-c", "credential.helper=",
+      "-c", "credential.helper=!/usr/bin/git credential-store --file='/private/tmp/sbw-bound-credential/credentials'",
+      "-c", "credential.useHttpPath=true",
+      "-c", "credential.interactive=false",
+      "-c", "core.askPass=/usr/bin/false",
+      "-c", "core.hooksPath=/dev/null",
+      "push", "--porcelain", "https://github.com/example/repository.git", "abc:refs/heads/feature"
+    ]
+  );
+  assert.throws(
+    () => buildBoundGitPushArgs(["git", "push", "origin"], "relative-credential-file"),
+    /canonical command and credential file/
+  );
+  assert.ok(buildBoundGitPushArgs(
+    ["git", "push", "origin"],
+    "/private/tmp/sbw bound/credential'$(touch injected)",
+    "/usr/bin/git"
+  ).includes("credential.helper=!/usr/bin/git credential-store --file='/private/tmp/sbw bound/credential'\\''$(touch injected)'"));
+  assert.deepEqual(
+    buildBoundGitPushEnvironment({
+      isolatedHome: "/private/tmp/sbw-bound-git",
+      gitDirectory: "/private/tmp/sbw-bound-git/git-dir",
+      objectDirectory: "/private/tmp/source.git/objects"
+    }),
+    {
+      PATH: "/usr/bin:/bin:/usr/sbin:/sbin",
+      HOME: "/private/tmp/sbw-bound-git",
+      XDG_CONFIG_HOME: "/private/tmp/sbw-bound-git",
+      TMPDIR: "/private/tmp/sbw-bound-git",
+      LC_ALL: "C",
+      GIT_DIR: "/private/tmp/sbw-bound-git/git-dir",
+      GIT_COMMON_DIR: "/private/tmp/sbw-bound-git/git-dir",
+      GIT_OBJECT_DIRECTORY: "/private/tmp/sbw-bound-git/git-dir/objects",
+      GIT_ALTERNATE_OBJECT_DIRECTORIES: "/private/tmp/source.git/objects",
+      GIT_CONFIG_GLOBAL: "/dev/null",
+      GIT_CONFIG_SYSTEM: "/dev/null",
+      GIT_CONFIG_NOSYSTEM: "1",
+      GIT_NO_REPLACE_OBJECTS: "1",
+      GIT_OPTIONAL_LOCKS: "0",
+      GIT_ASKPASS: "/usr/bin/false",
+      SSH_ASKPASS: "/usr/bin/false",
+      SSH_ASKPASS_REQUIRE: "never",
+      GIT_TERMINAL_PROMPT: "0"
+    }
+  );
+  assert.throws(
+    () => buildBoundGitPushEnvironment({
+      isolatedHome: "/private/tmp/sbw-bound-git",
+      gitDirectory: "/private/tmp/sbw-bound-git/git-dir",
+      objectDirectory: "relative/objects"
+    }),
+    /objectDirectory must be a canonical absolute path/
+  );
+});
+
+test("GitHub credential acquisition invokes one explicit CLI and ignores ambient Git helpers and PATH", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-bound-gh-credential-"));
+  const fakeGh = path.join(root, "gh");
+  const maliciousGit = path.join(root, "git");
+  const marker = path.join(root, "malicious-git-ran");
+  const token = ["ghp", "A".repeat(24)].join("_");
+  await writeFile(fakeGh, `#!/bin/sh\n[ "$1" = auth ] && [ "$2" = token ] && [ "$3" = --hostname ] && [ "$4" = github.com ] || exit 9\nprintf '%s\\n' ${JSON.stringify(token)}\n`, { mode: 0o700 });
+  await writeFile(maliciousGit, `#!/bin/sh\nprintf ran > ${JSON.stringify(marker)}\nexit 99\n`, { mode: 0o700 });
+  const previous = {
+    PATH: process.env.PATH,
+    GH_CONFIG_DIR: process.env.GH_CONFIG_DIR,
+    GH_HOST: process.env.GH_HOST
+  };
+  process.env.PATH = root;
+  process.env.GH_CONFIG_DIR = path.join(root, "malicious-gh-config");
+  process.env.GH_HOST = "attacker.invalid";
+  try {
+    const credential = await readBoundGitHubCredential(await realpath(fakeGh), { homePath: await realpath(root) });
+    assert.equal(credential.username, "x-access-token");
+    assert.equal(credential.password, token);
+    assert.equal(credential.source, "github-cli-auth-token");
+    await assert.rejects(access(marker));
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
+
+test("bound Git credential staging uses a trusted root despite hostile TMPDIR and detects leaf substitution", async () => {
+  const source = await mkdtemp(path.join(os.tmpdir(), "sbw-bound-credential-source-"));
+  await execFileAsync("git", ["init", "-q"], { cwd: source });
+  await writeFile(path.join(source, "README.md"), "credential workspace\n");
+  await execFileAsync("git", ["add", "README.md"], { cwd: source });
+  await execFileAsync("git", ["-c", "user.name=SBW", "-c", "user.email=sbw@example.invalid", "commit", "-qm", "fixture"], { cwd: source });
+  const hostileRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-hostile-tmpdir-"));
+  const hostileTarget = path.join(hostileRoot, "attacker-credential");
+  await writeFile(hostileTarget, "https://attacker.invalid/\n", { mode: 0o600 });
+  const previousTmpdir = process.env.TMPDIR;
+  process.env.TMPDIR = hostileRoot;
+  try {
+    await withBoundGitCredential(
+      source,
+      "https://github.com/example/repository.git",
+      { username: "x-access-token", password: "test-token" },
+      "/usr/bin/git",
+      async (context) => {
+        assert.equal(path.dirname(context.isolatedHome), BOUND_CREDENTIAL_WORKSPACE_ROOT);
+        const workspaceInfo = await lstat(context.isolatedHome);
+        assert.equal(workspaceInfo.mode & 0o077, 0);
+        await unlink(context.credentialFile);
+        await symlink(hostileTarget, context.credentialFile);
+        await assert.rejects(
+          () => assertBoundCredentialWorkspace(context.isolatedHome, context.credentialFile),
+          /unsafe/
+        );
+      }
+    );
+  } finally {
+    if (previousTmpdir === undefined) delete process.env.TMPDIR;
+    else process.env.TMPDIR = previousTmpdir;
+  }
+});
+
+test("bound GitHub CLI execution terminates a hanging process group at the fixed deadline", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-bound-gh-timeout-"));
+  const hangingGh = path.join(root, "gh");
+  await writeFile(hangingGh, "#!/bin/sh\nsleep 10\n", { mode: 0o700 });
+  const executable = await realpath(hangingGh);
+  await assert.rejects(
+    () => execBoundGitHubCli(executable, ["api", "user"], {
+      cwd: root,
+      env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", HOME: root, LC_ALL: "C" },
+      timeoutMs: 50
+    }),
+    (error) => error?.code === "ETIMEDOUT" && /50ms/.test(error.message)
+  );
+});
+
+test("bound GitHub CLI environment drops ambient host, proxy, and Git authority overrides", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-bound-gh-env-"));
+  const previous = {
+    GH_HOST: process.env.GH_HOST,
+    GH_CONFIG_DIR: process.env.GH_CONFIG_DIR,
+    GIT_DIR: process.env.GIT_DIR,
+    HTTPS_PROXY: process.env.HTTPS_PROXY,
+    NODE_TLS_REJECT_UNAUTHORIZED: process.env.NODE_TLS_REJECT_UNAUTHORIZED
+  };
+  process.env.GH_HOST = "attacker.invalid";
+  process.env.GH_CONFIG_DIR = path.join(root, "attacker-config");
+  process.env.GIT_DIR = path.join(root, "attacker-git");
+  process.env.HTTPS_PROXY = "http://attacker.invalid:8080";
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+  try {
+    const result = await execBoundGitHubCli("/usr/bin/env", [], {
+      cwd: root,
+      env: { HOME: root, PATH: "/usr/bin:/bin:/usr/sbin:/sbin", LC_ALL: "C" },
+      timeoutMs: 5_000
+    });
+    const received = Object.fromEntries(result.stdout.trim().split("\n").filter(Boolean).map((line) => {
+      const separator = line.indexOf("=");
+      return [line.slice(0, separator), line.slice(separator + 1)];
+    }));
+    assert.equal(received.GH_HOST, "github.com");
+    assert.equal(received.GH_CONFIG_DIR, path.join(root, ".config", "gh"));
+    assert.equal(received.XDG_CONFIG_HOME, path.join(root, ".config"));
+    assert.equal(Object.hasOwn(received, "GIT_DIR"), false);
+    assert.equal(Object.hasOwn(received, "HTTPS_PROXY"), false);
+    assert.equal(Object.hasOwn(received, "NODE_TLS_REJECT_UNAUTHORIZED"), false);
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
+
+test("GitHub API actor reads use the exact credential captured for push", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-bound-gh-actor-binding-"));
+  const fakeGh = path.join(root, "gh");
+  await writeFile(fakeGh, [
+    "#!/bin/sh",
+    "if [ \"$1\" = \"auth\" ]; then",
+    "  printf 'captured-token\\n'",
+    "elif [ \"$GH_TOKEN\" = \"captured-token\" ]; then",
+    "  if [ \"$2\" = \"user\" ]; then printf '{\"login\":\"actor-a\",\"id\":1}\\n'; else printf '{\"full_name\":\"example/repository\",\"permissions\":{\"push\":true}}\\n'; fi",
+    "else",
+    "  printf '{\"login\":\"actor-b\",\"id\":2}\\n'",
+    "fi"
+  ].join("\n"), { mode: 0o700 });
+  const executable = await realpath(fakeGh);
+  const previous = { GH_TOKEN: process.env.GH_TOKEN, GITHUB_TOKEN: process.env.GITHUB_TOKEN };
+  process.env.GH_TOKEN = "ambient-token";
+  process.env.GITHUB_TOKEN = "ambient-secondary-token";
+  try {
+    const actor = await readBoundGitHubApi(root, executable, "user", {
+      credential: { username: "x-access-token", password: "captured-token" },
+      homePath: root
+    });
+    assert.deepEqual(actor, { login: "actor-a", id: 1 });
+    const verified = await verifyGitHubCredentialActor(
+      root,
+      "https://github.com/example/repository.git",
+      "github.com/example/repository",
+      executable
+    );
+    assert.equal(verified.actor, "actor-a");
+    assert.equal(verified.permissions.push, true);
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
+
+test("bound Git process terminates a hanging process group at the fixed deadline", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-bound-git-timeout-"));
+  const hanging = path.join(root, "git");
+  await writeFile(hanging, "#!/bin/sh\nsleep 10\n", { mode: 0o700 });
+  const executable = await realpath(hanging);
+  await assert.rejects(
+    () => execBoundGitProcess(executable, ["fetch"], {
+      cwd: root,
+      env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", HOME: root, LC_ALL: "C" },
+      timeoutMs: 50
+    }),
+    (error) => error?.code === "ETIMEDOUT" && /50ms/.test(error.message)
+  );
+});
+
+async function assertBoundProcessGone(pid) {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    try {
+      process.kill(pid, 0);
+    } catch (error) {
+      if (error.code === "ESRCH") return;
+      throw error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  assert.fail(`bound child ${pid} survived process-group cleanup`);
+}
+
+async function successfulForkLauncher(root) {
+  const launcher = path.join(root, "fork-success");
+  const descendantSource = "process.on('SIGTERM', () => {}); setInterval(() => {}, 10000);";
+  const source = [
+    "const fs = require('node:fs');",
+    "const { spawn } = require('node:child_process');",
+    "const pidPath = process.argv[2];",
+    `const child = spawn(process.execPath, ['-e', ${JSON.stringify(descendantSource)}], { stdio: 'ignore' });`,
+    "child.unref();",
+    "fs.writeFileSync(pidPath, String(child.pid));"
+  ].join(" ");
+  await writeFile(launcher, `#!${process.execPath}\n${source}\n`, { mode: 0o755 });
+  return realpath(launcher);
+}
+
+async function timeoutForkLauncher(root) {
+  const launcher = path.join(root, "fork-timeout");
+  const descendantSource = "process.on('SIGTERM', () => {}); setInterval(() => {}, 10000);";
+  const source = [
+    "const fs = require('node:fs');",
+    "const { spawn } = require('node:child_process');",
+    "const pidPath = process.argv[2];",
+    `const child = spawn(process.execPath, ['-e', ${JSON.stringify(descendantSource)}], { stdio: 'ignore' });`,
+    "child.unref();",
+    "fs.writeFileSync(pidPath, String(child.pid));",
+    "process.on('SIGTERM', () => {}); setInterval(() => {}, 10000);"
+  ].join(" ");
+  await writeFile(launcher, `#!${process.execPath}\n${source}\n`, { mode: 0o755 });
+  return realpath(launcher);
+}
+
+test("bound GitHub CLI timeout cleans a SIGTERM-ignoring descendant before rejecting", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-bound-gh-timeout-group-"));
+  const pidPath = path.join(root, "descendant.pid");
+  try {
+    const executable = await timeoutForkLauncher(root);
+    await assert.rejects(
+      () => execBoundGitHubCli(executable, [pidPath], {
+        cwd: root,
+        env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", HOME: root, LC_ALL: "C" },
+        timeoutMs: 500
+      }),
+      (error) => error?.code === "ETIMEDOUT"
+    );
+    await assertBoundProcessGone(Number((await readFile(pidPath, "utf8")).trim()));
+  } finally {
+    await unlink(pidPath).catch(() => undefined);
+  }
+});
+
+test("bound Git timeout cleans a SIGTERM-ignoring descendant before rejecting", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-bound-git-timeout-group-"));
+  const pidPath = path.join(root, "descendant.pid");
+  try {
+    const executable = await timeoutForkLauncher(root);
+    await assert.rejects(
+      () => execBoundGitProcess(executable, [pidPath], {
+        cwd: root,
+        env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", HOME: root, LC_ALL: "C" },
+        timeoutMs: 500
+      }),
+      (error) => error?.code === "ETIMEDOUT"
+    );
+    await assertBoundProcessGone(Number((await readFile(pidPath, "utf8")).trim()));
+  } finally {
+    await unlink(pidPath).catch(() => undefined);
+  }
+});
+
+test("bound GitHub CLI success cleans a descendant before resolving", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-bound-gh-success-group-"));
+  const pidPath = path.join(root, "descendant.pid");
+  try {
+    const executable = await successfulForkLauncher(root);
+    const result = await execBoundGitHubCli(executable, [pidPath], {
+      cwd: root,
+      env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", HOME: root, LC_ALL: "C" },
+      timeoutMs: 5_000
+    });
+    assert.equal(result.groupTerminated, true);
+    await assertBoundProcessGone(Number((await readFile(pidPath, "utf8")).trim()));
+  } finally {
+    await unlink(pidPath).catch(() => undefined);
+  }
+});
+
+test("bound Git success cleans a descendant before resolving", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-bound-git-success-group-"));
+  const pidPath = path.join(root, "descendant.pid");
+  try {
+    const executable = await successfulForkLauncher(root);
+    const result = await execBoundGitProcess(executable, [pidPath], {
+      cwd: root,
+      env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", HOME: root, LC_ALL: "C" },
+      timeoutMs: 5_000
+    });
+    assert.equal(result.groupTerminated, true);
+    await assertBoundProcessGone(Number((await readFile(pidPath, "utf8")).trim()));
+  } finally {
+    await unlink(pidPath).catch(() => undefined);
+  }
+});
+
+test("withBoundGitCredential callback retains bounded descendant cleanup", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-bound-credential-success-group-"));
+  const source = path.join(root, "source");
+  const pidPath = path.join(root, "descendant.pid");
+  await mkdir(source);
+  await execFileAsync("git", ["init", "-q"], { cwd: source });
+  await writeFile(path.join(source, "README.md"), "bound credential source\n");
+  await execFileAsync("git", ["add", "README.md"], { cwd: source });
+  await execFileAsync("git", ["-c", "user.name=SBW", "-c", "user.email=sbw@example.invalid", "commit", "-qm", "fixture"], { cwd: source });
+  try {
+    const executable = await successfulForkLauncher(root);
+    await withBoundGitCredential(
+      source,
+      "https://github.com/example/repository.git",
+      { username: "x-access-token", password: "test-token" },
+      "/usr/bin/git",
+      async () => {
+        const result = await execBoundGitProcess(executable, [pidPath], {
+          cwd: root,
+          env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", HOME: root, LC_ALL: "C" },
+          timeoutMs: 5_000
+        });
+        assert.equal(result.groupTerminated, true);
+      }
+    );
+    await assertBoundProcessGone(Number((await readFile(pidPath, "utf8")).trim()));
+  } finally {
+    await unlink(pidPath).catch(() => undefined);
+  }
+});
+
+test("bound Git push context ignores mutable global and source-local transport config", async () => {
+  const source = await mkdtemp(path.join(os.tmpdir(), "sbw-bound-git-source-"));
+  await execFileAsync("git", ["init", "-q"], { cwd: source });
+  await writeFile(path.join(source, "README.md"), "bound object\n");
+  await execFileAsync("git", ["add", "README.md"], { cwd: source });
+  await execFileAsync("git", ["-c", "user.name=SBW", "-c", "user.email=sbw@example.invalid", "commit", "-qm", "fixture"], { cwd: source });
+  await execFileAsync("git", ["config", "url.ssh://local.invalid/.insteadOf", "https://github.com/"], { cwd: source });
+  await execFileAsync("git", ["config", "http.proxy", "http://local.invalid:8080"], { cwd: source });
+  const revision = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: source, encoding: "utf8" })).stdout.trim();
+
+  const isolatedHome = await mkdtemp(path.join(os.tmpdir(), "sbw-bound-git-home-"));
+  await writeFile(path.join(isolatedHome, ".gitconfig"), [
+    '[url "ssh://global.invalid/"]',
+    "\tinsteadOf = https://github.com/",
+    "[http]",
+    "\tproxy = http://global.invalid:8080",
+    "\tsslVerify = false",
+    ""
+  ].join("\n"));
+  const gitDirectory = path.join(isolatedHome, "git-dir");
+  await mkdir(path.join(gitDirectory, "objects", "info"), { recursive: true });
+  await mkdir(path.join(gitDirectory, "objects", "pack"), { recursive: true });
+  await mkdir(path.join(gitDirectory, "refs", "heads"), { recursive: true });
+  await writeFile(path.join(gitDirectory, "HEAD"), "ref: refs/heads/bound-empty\n");
+  const objectDirectory = await realpath(path.join(source, ".git", "objects"));
+  const env = buildBoundGitPushEnvironment({ isolatedHome, gitDirectory, objectDirectory });
+  const listed = await execFileAsync("git", ["--no-replace-objects", "-c", "core.bare=true", "config", "--list", "--show-origin"], {
+    cwd: source,
+    encoding: "utf8",
+    env
+  });
+  assert.doesNotMatch(listed.stdout, /(?:local|global)\.invalid|http\.proxy|http\.sslverify/i);
+  await execFileAsync("git", ["--no-replace-objects", "-c", "core.bare=true", "cat-file", "-e", `${revision}^{commit}`], {
+    cwd: source,
+    env
+  });
 });
 
 test("git push execution rejects an issued record that omits its remote binding", () => {
@@ -142,19 +605,24 @@ test("git push destination binds a divergent pushurl and rejects multiple effect
   await execFileAsync("git", ["remote", "add", "origin", "https://github.com/example/fetch-only.git"], { cwd: root });
   const pushUrl = "https://github.com/example/effective-push.git";
   await execFileAsync("git", ["config", "remote.origin.pushurl", pushUrl], { cwd: root });
+  const sourceRemoteBindingDigest = digestObject({
+    fetchUrls: ["https://github.com/example/fetch-only.git"],
+    pushUrls: [pushUrl]
+  });
   assert.deepEqual(
     await resolveGitPushDestination(root, "origin"),
     {
       remote: "origin",
       pushUrl,
       pushUrlDigest: sha256(pushUrl),
-      remoteRepository: "github.com/example/effective-push"
+      remoteRepository: "github.com/example/effective-push",
+      sourceRemoteBindingDigest
     }
   );
   await execFileAsync("git", ["config", "--add", "remote.origin.pushurl", "https://github.com/example/second-push.git"], { cwd: root });
   await assert.rejects(
     resolveGitPushDestination(root, "origin"),
-    /exactly one effective push URL/
+    /exactly one raw origin URL and effective push URL/
   );
   await execFileAsync("git", ["config", "--unset-all", "remote.origin.pushurl"], { cwd: root });
   await execFileAsync("git", ["config", "remote.origin.pushurl", "https://embedded-token@github.com/example/effective-push.git"], { cwd: root });
@@ -162,6 +630,99 @@ test("git push destination binds a divergent pushurl and rejects multiple effect
     resolveGitPushDestination(root, "origin"),
     /credential-safe HTTPS URL/
   );
+});
+
+test("git push destination ignores ambient config and local URL rewrites", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-git-push-authority-"));
+  await execFileAsync("git", ["init", "-q"], { cwd: root });
+  const origin = "https://github.com/example/source-bound.git";
+  await execFileAsync("git", ["remote", "add", "origin", origin], { cwd: root });
+  await execFileAsync("git", ["config", "url.https://rewritten.invalid/.insteadOf", "https://github.com/"], { cwd: root });
+  assert.equal(
+    (await execFileAsync("git", ["remote", "get-url", "origin"], { cwd: root, encoding: "utf8" })).stdout.trim(),
+    "https://rewritten.invalid/example/source-bound.git"
+  );
+  const expected = await resolveGitPushDestination(root, "origin");
+  const injected = {
+    GIT_CONFIG_COUNT: "2",
+    GIT_CONFIG_KEY_0: "remote.origin.url",
+    GIT_CONFIG_VALUE_0: "https://github.com/attacker/injected.git",
+    GIT_CONFIG_KEY_1: "remote.origin.pushurl",
+    GIT_CONFIG_VALUE_1: "https://github.com/attacker/injected-push.git",
+    GIT_CONFIG_PARAMETERS: "'url.https://parameters.invalid/.insteadOf'='https://github.com/'"
+  };
+  const previous = Object.fromEntries(Object.keys(injected).map((key) => [key, process.env[key]]));
+  Object.assign(process.env, injected);
+  try {
+    await assert.rejects(
+      resolveGitPushDestination(root, "origin"),
+      /rejects ambient routing or configuration overrides/
+    );
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+  assert.deepEqual(await resolveGitPushDestination(root, "origin"), expected);
+  assert.equal(expected.pushUrl, origin);
+  assert.equal(expected.remoteRepository, "github.com/example/source-bound");
+});
+
+test("git fetch authority binds the raw origin and rejects URL rewrite or ambiguity", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-git-fetch-authority-"));
+  await execFileAsync("git", ["init", "-q"], { cwd: root });
+  const origin = "https://github.com/example/source-bound.git";
+  await execFileAsync("git", ["remote", "add", "origin", origin], { cwd: root });
+  await execFileAsync("git", ["config", "url.https://rewritten.invalid/.insteadOf", "https://github.com/"], { cwd: root });
+  assert.equal(
+    (await execFileAsync("git", ["remote", "get-url", "origin"], { cwd: root, encoding: "utf8" })).stdout.trim(),
+    "https://rewritten.invalid/example/source-bound.git"
+  );
+  assert.deepEqual(await resolveGitFetchOrigin(root), {
+    remote: "origin",
+    remoteUrl: origin,
+    remoteUrlDigest: sha256(origin),
+    remoteRepository: "github.com/example/source-bound",
+    sourceRemoteBindingDigest: digestObject({ fetchUrls: [origin], pushUrls: [] })
+  });
+  await execFileAsync("git", ["config", "--add", "remote.origin.url", "https://github.com/example/second.git"], { cwd: root });
+  await assert.rejects(resolveGitFetchOrigin(root), /exactly one raw local origin URL/);
+});
+
+test("remote synchronization receipts bind the raw source remote identity", () => {
+  const record = {
+    action: "remote.sync",
+    provider: "git",
+    resource: "refs/heads/dev",
+    outcome: "success",
+    remote: "origin",
+    remoteRepository: "github.com/example/repository",
+    remoteUrlDigest: "a".repeat(64),
+    sourceBindingDigest: "c".repeat(64),
+    sourceRemoteBindingDigest: "b".repeat(64)
+  };
+  const receipt = {
+    executionId: "git:repository:remote.sync:dev",
+    proofKind: "git-remote-sync",
+    requestDigest: "c".repeat(64),
+    responseDigest: "d".repeat(64),
+    verifiedAt: new Date().toISOString(),
+    terminalState: "success",
+    ref: "refs/heads/dev",
+    remote: "origin",
+    repository: "/private/tmp/repository.git",
+    remoteRepository: record.remoteRepository,
+    remoteUrlDigest: record.remoteUrlDigest,
+    sourceBindingDigest: record.sourceBindingDigest,
+    providerRevision: "e".repeat(40),
+    localRevision: "e".repeat(40)
+  };
+  assert.throws(() => assertProviderReceiptShape(record, receipt), /remote synchronization proof is incomplete/i);
+  assert.doesNotThrow(() => assertProviderReceiptShape(record, {
+    ...receipt,
+    sourceRemoteBindingDigest: record.sourceRemoteBindingDigest
+  }));
 });
 
 test("PR creation receipts bind to the exact candidate source head", () => {
@@ -221,7 +782,7 @@ test("PR creation command binds the target, head, and provider-native marker", (
     "pr",
     "create",
     "--repo",
-    "example/repo",
+    "github.com/example/repo",
     "--base",
     "dev",
     "--head",
@@ -742,10 +1303,23 @@ test("failed PR creation preserves its reservation until provider absence is pro
     expiresAt: new Date(Date.now() + 60_000).toISOString()
   })}\n`);
   const responsePath = path.join(root, "fake-pr-list.json");
+  const actorPath = path.join(root, "fake-gh-actor.txt");
+  const pushPath = path.join(root, "fake-gh-push.txt");
   const argsPath = path.join(root, "fake-gh-args.txt");
   const fakeGh = path.join(bin, "gh");
   await writeFile(responsePath, "[[{\"number\":99,\"headRefOid\":\"other\",\"baseRefName\":\"dev\",\"url\":\"https://example.invalid/pull/99\"}]]\n");
-  const ghScript = "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$SBW_FAKE_PR_ARGS\"\nif [ \"$1\" = \"api\" ] && [ \"$2\" = \"user\" ]; then\n  printf '{\"login\":\"%s\"}\\n' \"${SBW_FAKE_GH_ACTOR:-alice}\"\nelif [ \"$1\" = \"api\" ] && [ \"$2\" = \"repos/example/repo\" ]; then\n  printf '{\"full_name\":\"example/repo\",\"permissions\":{\"admin\":false,\"maintain\":false,\"push\":%s}}\\n' \"${SBW_FAKE_GH_PUSH:-true}\"\nelse\n  cat \"$SBW_FAKE_PR_LIST\"\nfi\n";
+  await writeFile(actorPath, "alice\n");
+  await writeFile(pushPath, "true\n");
+  const ghScript = `#!/bin/sh
+printf '%s\\n' "$*" >> ${JSON.stringify(argsPath)}
+if [ "$1" = "api" ] && [ "$2" = "user" ]; then
+  printf '{"login":"%s"}\\n' "$(cat ${JSON.stringify(actorPath)})"
+elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo" ]; then
+  printf '{"full_name":"example/repo","permissions":{"admin":false,"maintain":false,"push":%s}}\\n' "$(cat ${JSON.stringify(pushPath)})"
+else
+  cat ${JSON.stringify(responsePath)}
+fi
+`;
   await writeFile(fakeGh, ghScript);
   await chmod(fakeGh, 0o755);
   action.providerExecutable = { path: await realpath(fakeGh), digest: sha256(ghScript) };
@@ -777,28 +1351,20 @@ test("failed PR creation preserves its reservation until provider absence is pro
     }
   };
   const priorPath = process.env.PATH;
-  const priorResponse = process.env.SBW_FAKE_PR_LIST;
-  const priorArgs = process.env.SBW_FAKE_PR_ARGS;
-  const priorActor = process.env.SBW_FAKE_GH_ACTOR;
-  const priorPush = process.env.SBW_FAKE_GH_PUSH;
   process.env.PATH = `${bin}:${priorPath}`;
-  process.env.SBW_FAKE_PR_LIST = responsePath;
-  process.env.SBW_FAKE_PR_ARGS = argsPath;
-  process.env.SBW_FAKE_GH_ACTOR = "alice";
-  process.env.SBW_FAKE_GH_PUSH = "true";
   try {
     await assert.rejects(
       reconcileAction(root, run.runId, attemptId, "failure", receipt),
       /existing pull request; preserve the reservation/
     );
     await stat(reservationPath);
-    process.env.SBW_FAKE_GH_ACTOR = "mallory";
+    await writeFile(actorPath, "mallory\n");
     await assert.rejects(
       reconcileAction(root, run.runId, attemptId, "failure", receipt),
       /actor or permissions changed/
     );
     await stat(reservationPath);
-    process.env.SBW_FAKE_GH_ACTOR = "alice";
+    await writeFile(actorPath, "alice\n");
     await writeFile(fakeGh, `${ghScript}\n# executable drift\n`);
     await assert.rejects(
       reconcileAction(root, run.runId, attemptId, "failure", receipt),
@@ -820,14 +1386,6 @@ test("failed PR creation preserves its reservation until provider absence is pro
     await assert.rejects(stat(reservationPath));
   } finally {
     process.env.PATH = priorPath;
-    if (priorResponse === undefined) delete process.env.SBW_FAKE_PR_LIST;
-    else process.env.SBW_FAKE_PR_LIST = priorResponse;
-    if (priorArgs === undefined) delete process.env.SBW_FAKE_PR_ARGS;
-    else process.env.SBW_FAKE_PR_ARGS = priorArgs;
-    if (priorActor === undefined) delete process.env.SBW_FAKE_GH_ACTOR;
-    else process.env.SBW_FAKE_GH_ACTOR = priorActor;
-    if (priorPush === undefined) delete process.env.SBW_FAKE_GH_PUSH;
-    else process.env.SBW_FAKE_GH_PUSH = priorPush;
   }
 });
 

@@ -75,7 +75,13 @@ rationale.
 - Self-improve source bindings require a clean index, tracked worktree,
   untracked surface, and ignored surface. The baseline is resolved to an exact
   commit and the candidate must already be the committed HEAD; modified
-  tracked plugin files also block immutable cache publication.
+  tracked plugin files also block immutable cache publication. Authoritative
+  capture uses the pinned `/usr/bin/git` with a fixed minimal environment and
+  records raw local origin fetch/push URLs without URL rewrites. The same pinned
+  reader is used for review, refinement, recipe, self-improve, and immutable
+  publication authority. Governed push and remote-sync paths reject ambient Git
+  routing variables and recheck the complete source/remote binding at issue,
+  consume, execution, and provider-reconciliation time.
 - Plugin-cache ready finalization and failure cleanup share the same versioned
   publication lock, so marker transitions cannot race target removal. Cleanup
   requires the exact pending marker `runId` and action `attemptId`; a foreign
@@ -84,6 +90,10 @@ rationale.
   ownership. Before staging a missing target, the publisher requires any
   existing pending marker to match the complete source binding, `runId`, and
   `attemptId`; a foreign marker remains untouched and publication fails closed.
+  Lock owners bind an OS-observable process-start digest. A proven stale path
+  is atomically renamed to a same-version quarantine and its inode/content
+  identity is rechecked before deletion; a pathname replacement stays
+  quarantined and blocks later publishers.
 - Evaluator migration pins both the immutable v2.2 file digest and canonical
   suite digest. The target must preserve every inherited class identity,
   semantics, and existing path mapping, plus all 18 inherited cases exactly;
@@ -98,10 +108,12 @@ rationale.
   witness (seven ordinary or eight for evaluator migration). Every delegated
   delivery action gate requires it; an empty or generic `pr-to-dev`
   gate cannot bypass the handoff.
-- Typed handoff evidence declares `policyDigest` as the only nullable required
-  field. Ordinary and evaluator-migration handoffs carry an explicit `null`;
-  policy-bound remediation handoffs carry a SHA-256 digest. The specialized
-  handoff validator still enforces the purpose-specific value and exact keys.
+- Typed handoff evidence declares `policyDigest` and `evaluatorAuthorization`
+  as nullable required fields. Ordinary and evaluator-migration handoffs carry
+  an explicit `null` policy digest, while policy-bound remediation handoffs
+  carry a SHA-256 digest. Standing-consent replays carry their authorization;
+  the explicit per-run administrator fallback carries `null`. The specialized
+  handoff validator still enforces each purpose-specific value and exact keys.
 - Governed `pr.create` actions bind the provider receipt to the exact candidate
   source commit observed when the action token is issued; a PR from another
   source head cannot be reconciled or registered as run-owned.
@@ -165,6 +177,29 @@ a writable or replaceable parent is not accepted.
 The host signs the confirmed request digest, exact committed HEAD/source binding,
 allowlist digest, binary, and run-as identity into the attestation, receipt,
 envelope, and ledger.
+Before a signer readiness receipt can be issued, the host binds the evaluator to
+a root-owned minimal `gpt-5.6-terra` model catalog with `comp_hash=3000`, no
+shell, no search, no MCP/skills, no collaboration, and no dynamic tool mode. A
+nonce-bound loopback Responses gate admits exactly one Codex client request with
+the expected bootstrap shape, root challenge, exact inference input, and
+root-bound output schema. It discards the client bootstrap body and constructs
+the forwarded body from root inputs: one user inference item, no instructions,
+an own top-level `tools: []`, `tool_choice: none`, and fixed reasoning/stream
+controls. The proof binds the canonical field-set policy, captured-body digest,
+and distinct forwarded-body digest; the provider verifier independently checks
+those bindings. The gate applies a total deadline and destroys any residual
+upstream stream when the evaluator closes its downstream response. Every later
+evaluator execution uses the same binary, catalog digest, and hardened argv; its JSONL transcript is
+digest-bound into the ledger, receipt, and envelope and fails closed on any tool
+or unknown event.
+This makes transcript checking a second boundary rather than the first point at
+which tool availability is discovered.
+
+Literal prompt-boundary tokens inside allowed source material are encoded as
+canonical JSON Unicode escapes. The signed original file digest remains
+authoritative, and a transformation manifest records every display-only escape,
+so delimiter-bearing source remains evaluable without creating a second data
+boundary.
 
 To keep long-running self-improvement from pausing at every batch, a maintainer
 may install one bounded standing evaluator consent after host readiness is
@@ -189,12 +224,20 @@ mismatch fails closed without silently opening a password prompt. Use
 per-run administrator command remains available only when the standing grant is
 absent or explicitly revoked.
 
+Credential-bearing Git pushes run from an ephemeral bare Git directory that
+can read only the explicitly selected source object database. They inherit no
+ambient `GIT_*`, proxy, TLS, helper, global, system, repository-local, HOME, or
+XDG configuration; the canonical HTTPS destination, credential store, protocol
+allowlist, redirect policy, hooks policy, and SSL verification are fixed by the
+governed argv and a minimal environment shared by dry-run and real push.
+
 Before generating requests, the candidate must already be the exact committed
 HEAD that will be reviewed and delivered. A dirty candidate is handed to
 `pr-to-dev` for its commit wave, followed by a fresh source-bound self-improve
 run; committing or changing the plugin bundle after request generation
-invalidates all signed witnesses. Then generate seven run-specific requests
-outside the repository:
+invalidates all signed witnesses. Then generate the purpose-specific batch
+outside the repository: seven requests for ordinary or policy-bound replay,
+or eight requests for evaluator migration:
 
 ```bash
 node plugins/better-workflows/scripts/sbw.mjs \
@@ -218,7 +261,7 @@ is not authority to commit, publish, push, or merge. The self-improve contract
 defers commit, cache publication, push, merge, and cleanup actions to the
 governed `pr-to-dev` and immutable-cache workflows.
 
-Standing-consent manifests use schemaVersion 4 and propagate the same bounded
+Standing-consent manifests use schemaVersion 5 and propagate the same bounded
 authorization through every request, signed execution, root batch journal,
 training/holdout evidence, and typed delivery handoff. This is provenance for
 read-only evaluator execution, never authority for delivery side effects.

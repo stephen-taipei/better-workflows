@@ -146,7 +146,20 @@ publication, push, PR, merge, deploy, and cleanup authority. A mismatched,
 tampered, revoked, expired, or stale grant fails closed and falls back to the
 existing per-run administrator path; prose in a prompt is never treated as a
 self-issued grant. Replays also require a host-signed attestation for the exact
-Codex binary and requested model. The trust root is fixed at the canonical
+Codex binary and requested model. Signer readiness and every replay bind a
+root-owned minimal model catalog (`comp_hash=3000`) that disables shell, search,
+MCP, skills, collaboration, and dynamic tool surfaces. A nonce-bound loopback
+Responses gate accepts exactly one fixed-shape client request containing the
+root challenge, exact inference input, and root-bound output schema. It discards
+the client bootstrap body and forwards a root-constructed canonical request with
+one user input, no instructions, and an own top-level `tools: []`; the signed
+proof separately binds its policy, captured digest, and forwarded digest. The
+fixed authenticated upstream remains subject to a total deadline. Completed
+JSONL transcripts then fail closed on every tool or unknown event.
+Literal prompt-boundary tokens in approved source material use a canonical JSON
+Unicode escape for display only. The original source digest stays authoritative,
+and the prompt records a transformation manifest for every escaped occurrence.
+The trust root is fixed at the canonical
 path: on macOS `/private/etc/better-workflows/codex-trust-root.json` (the `/etc`
 spelling is a symlink), and on other platforms
 `/etc/better-workflows/codex-trust-root.json`. The trust root and every parent directory
@@ -236,7 +249,7 @@ is required only to install, replace, or revoke the standing grant.
 Before execution, the root signer independently revalidates the signed grant,
 policy and command digests, owner/mode and canonical paths, exact source-bound
 manifest, request count, model, purpose, prompt schema, complete changed-file
-manifest, UTF-8, secret rejection, and sampling budgets. The schemaVersion 4
+manifest, UTF-8, secret rejection, and sampling budgets. The schemaVersion 5
 authorization is copied into every request, execution, root batch journal,
 training/holdout record, and typed delivery handoff. It proves evaluator
 provenance only; delivery still needs independent action authority. Revoke at
@@ -284,12 +297,16 @@ sbw self-improve evaluate \
   --trusted-codex-execution /host/executions/<train-result>.json --split train
 ```
 
-The exact command returned as `executeCommand` executes the seven requests once.
-With matching standing consent it is noninteractive and narrowly gated; without
-one it remains the explicit administrator-only fallback. It returns root-owned witness paths under
-`/private/var/db/better-workflows/executions`; pass the one training witness,
-then the six holdout witnesses to `sbw`, together with the same manifest path
-and digest. `sbw` requires the root-owned completed batch journal and verifies
+The exact command returned as `executeCommand` executes one purpose-specific
+batch: seven requests for ordinary or policy-bound replay (one candidate
+training witness plus three candidate and three baseline holdout witnesses), or
+eight for evaluator migration (candidate and baseline training witnesses plus
+the same six holdout witnesses). With matching standing consent it is
+noninteractive and narrowly gated; without one it remains the explicit
+administrator-only fallback. It returns root-owned witness paths under
+`/private/var/db/better-workflows/executions`; pass every purpose-required
+witness to `sbw`, together with the same manifest path and digest. `sbw`
+requires the root-owned completed batch journal and verifies
 every request file's digest, execution identity, run-as tuple, binary, model,
 suite, baseline, and candidate against that manifest. The receipt and ledger remain outside
 the evaluated repository; `sbw` verifies their signatures, confirmed
@@ -321,13 +338,13 @@ Pass `--purpose safety-remediation-v1` to both evaluation commands only when
 the run was created with that immutable purpose. Without standing consent, the
 attestation manifest uses schemaVersion 3 for this purpose and includes the
 policy identity and digest; schemaVersion 2 remains the ordinary/migration
-fallback contract. Matching standing consent uses schemaVersion 4 for every
+fallback contract. Matching standing consent uses schemaVersion 5 for every
 purpose and additionally binds its authorization.
 
 For a policy-bound quality remediation run, use the same v2.2 cases path and
 pass `--purpose quality-remediation-v1` to both evaluation commands only when
 the run was created with that immutable purpose. Its explicit fallback uses a
-schemaVersion 3 manifest, while matching standing consent uses schemaVersion 4;
+schemaVersion 3 manifest, while matching standing consent uses schemaVersion 5;
 both contain the independent quality policy identity and digest. It cannot be
 switched from an ordinary or safety-remediation run, and a prior safety run's
 witnesses cannot be pooled or replayed.
@@ -392,6 +409,12 @@ Run the repository baseline before edits. After the synchronized patch, run
 targeted tests, the complete plugin test/eval suite, JSON parsing, route preview,
 `git diff --check`, and a temporary-root cache publication test. Classify
 infrastructure failures separately from product regressions.
+Source and delivery authority use pinned `/usr/bin/git` under a fixed minimal
+environment. Source bindings include raw local origin fetch/push URLs without
+rewrite expansion; review, refinement, recipe, self-improve, and immutable
+publication reads share the pinned reader. Governed push and remote-sync paths
+reject ambient Git routing variables and recheck that complete binding during
+issue, consume, execution, and provider reconciliation.
 The cache publication is a two-phase operation: a pending marker may remain
 after an interrupted publication, but a persisted, verified success receipt
 must be repaired under the run lock by promoting the exact marker to `ready`.
@@ -408,7 +431,11 @@ Completion must recheck the ready marker, source binding,
 provider-receipt digest, and canonical cache root. A source run without an
 explicit canonical `pluginCacheRoot` is invalid; never infer it from the
 current ambient `CODEX_HOME`. Publication locks may be reclaimed only after
-the recorded owner is proven absent; otherwise fail closed.
+the recorded owner and its OS-observable process-start digest are proven absent;
+otherwise fail closed. The proven stale pathname is first atomically renamed to
+a same-version quarantine, then its inode/content identity is rechecked before
+deletion. A pathname replacement remains quarantined and blocks later
+publishers.
 
 Any source change requires a new semantic/build version. Never overwrite an
 existing immutable cache version. After final validation and only with explicit

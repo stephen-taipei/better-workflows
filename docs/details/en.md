@@ -403,7 +403,7 @@ execute its exact administrator command once. The root signer installs a signed,
 revocable grant plus a `visudo`-validated command rule restricted to the
 digest-pinned root runtime, this repository and maintainer identity,
 `gpt-5.6-terra`, the four declared purposes, seven or eight read-only/tool-free
-sanitized requests, and one fixed request root. Matching schemaVersion 4 batches
+sanitized requests, and one fixed request root. Matching schemaVersion 5 batches
 use `/usr/bin/sudo -n`; every request, execution, root journal, evaluation record,
 and typed handoff carries the same authorization. Any mismatch in an active or
 partially installed grant fails closed without silently opening a password
@@ -412,9 +412,30 @@ grant is absent or explicitly revoked. The grant explicitly denies
 commit, cache, push, PR, merge, deploy, and cleanup authority. Inspect or revoke
 it with `sbw self-improve consent status|revoke`.
 
+Host readiness and every replay bind a root-owned minimal `gpt-5.6-terra` model
+catalog with `comp_hash=3000` and no shell, search, MCP/skills, collaboration, or
+dynamic tool mode. A nonce-bound loopback gate accepts exactly one fixed-shape
+Codex client request containing the root challenge, exact inference input, and
+root-bound output schema. It discards that bootstrap body and forwards a
+root-constructed canonical request with one user input, no instructions, and an
+own top-level `tools: []`. The signed proof separately binds the canonical field
+policy, captured-body digest, and forwarded-body digest under a total deadline.
+Completed JSONL transcripts are independently checked for zero tool events and
+bound into the signed result artifacts.
+Literal prompt-boundary tokens inside approved source material use a canonical
+JSON Unicode escape for display only. The signed original file digest remains
+authoritative, and a transformation manifest records every escaped occurrence.
+
 The source-bound handoff is explicit. Resolve an immutable baseline when
 creating the self-improve run, keep the candidate at a clean committed HEAD,
 then create a delegated delivery run and record its typed handoff:
+
+Authoritative source capture uses pinned `/usr/bin/git` with a fixed minimal
+environment and records raw local origin fetch/push URLs without applying URL
+rewrites. Review, refinement, recipe, self-improve, and immutable publication
+authority use the same pinned reader. Governed push and remote-sync paths reject
+ambient Git routing variables and recheck the complete source/remote binding at
+issue, consume, execution, and provider-reconciliation time.
 
 ```bash
 sbw run --template self-improve-ops --mode critical \
@@ -844,7 +865,10 @@ marker and its target remain untouched. After stale-lock recovery, publication
 also requires any existing pending marker to match the complete source binding,
 run, and attempt; a foreign marker is preserved even when its target is absent.
 Source runs without an explicit canonical cache-root field and locks
-whose owner cannot be proven absent fail closed.
+whose owner and OS-observable process-start digest cannot be proven absent fail
+closed. A proven stale lock is atomically renamed to a same-version quarantine
+and its inode/content identity is rechecked before deletion; a pathname
+replacement remains quarantined and blocks later publishers.
 
 ## License
 
