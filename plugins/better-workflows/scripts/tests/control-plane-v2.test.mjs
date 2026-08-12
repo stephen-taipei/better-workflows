@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
-import { mkdtemp, mkdir, readdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, readdir, readFile, realpath, stat, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -9,8 +9,10 @@ import {
   addEvidence,
   addFinding,
   buildContract,
+  consumeActionToken,
   createRun,
   digestObject,
+  executeActionToken,
   inspectRun,
   issueActionToken,
   loadDefaults,
@@ -20,7 +22,23 @@ import {
 import { assertPayloadFields, loadEvidenceContracts } from "../lib/evidence.mjs";
 import { compileLedger, deriveLedgerStatus, transitionLedger } from "../lib/ledger.mjs";
 import { deliberateForRun } from "../lib/deliberation-receipt.mjs";
-import { addReviewFinding, createReviewPackage, markBroadReviewComplete, recordRepairRound, reviewPackageDigest, reviewStatus, stableFindingId } from "../lib/review.mjs";
+import {
+  addReviewFinding,
+  assertReviewContinuity,
+  createReviewPackage,
+  markBroadReviewComplete,
+  prepareFindingVerification,
+  prepareReviewAxis,
+  recordFindingVerification,
+  recordRepairRound,
+  recordReviewAxis,
+  recordReviewCoverage,
+  recordReviewSynthesis,
+  reviewKernelStatus,
+  reviewPackageDigest,
+  reviewStatus,
+  stableFindingId
+} from "../lib/review.mjs";
 import { updateState } from "../lib/core.mjs";
 import { captureSentinel } from "../lib/git.mjs";
 
@@ -125,10 +143,170 @@ async function gateRecord(run, kind, payload, id = kind) {
   };
 }
 
-test("typed catalog covers exactly the 99 installed evidence kinds", async () => {
+function reviewKernelTemplate() {
+  return {
+    ...contractTemplate,
+    scope: ["src", "README.md"],
+    controlPlane: {
+      ...contractTemplate.controlPlane,
+      reviewPolicy: "code-v2-pilot",
+      workUnitPolicy: "diff-files-v1",
+      reviewLanes: [
+        { id: "context-rich", role: "finder", contextProfile: "context-rich", required: true },
+        { id: "low-context", role: "finder", contextProfile: "low-context", required: true },
+        { id: "adversarial", role: "finder", contextProfile: "adversarial", required: true }
+      ]
+    }
+  };
+}
+
+function attestedProviderExecution(input, reviewDigest, attestationDigest) {
+  const identity = {
+    provider: "codex-native-subagent",
+    model: input.model,
+    executionId: input.executionId,
+    modelAssurance: "host-signed-attestation",
+    trustAttested: true,
+    promptDigest: input.inputDigest,
+    reviewDigest,
+    attestationDigest,
+    transport: "native-subagent",
+    sandbox: "read-only"
+  };
+  return { ...identity, executionDigest: digestObject(identity) };
+}
+
+async function admitKernelEvidence(root, run, kind, kernel) {
+  const payload = kind === "work-unit-accounting"
+    ? {
+        result: true,
+        packageId: kernel.packageId,
+        repairRound: kernel.repairRound,
+        workUniverseDigest: kernel.workUniverseDigest,
+        reviewLanesDigest: kernel.reviewLanesDigest,
+        axisSetDigest: kernel.axisSetDigest,
+        coverageDigest: kernel.coverageDigest,
+        items: kernel.coverage
+      }
+    : {
+        result: true,
+        packageId: kernel.packageId,
+        repairRound: kernel.repairRound,
+        workUniverseDigest: kernel.workUniverseDigest,
+        axisSetDigest: kernel.axisSetDigest,
+        verificationSetDigest: kernel.verificationSetDigest,
+        coverageDigest: kernel.coverageDigest,
+        findingSetDigest: kernel.findingSetDigest,
+        convergenceDigest: kernel.convergenceDigest,
+        items: kernel.findings
+      };
+  return addEvidence(root, run.runId, {
+    schemaVersion: 2,
+    id: `${kind}-${(kind === "work-unit-accounting" ? kernel.coverageDigest : kernel.convergenceDigest).slice(0, 24)}`,
+    kind,
+    status: "complete",
+    summary: `Typed ${kind}`,
+    acceptanceIds: [],
+    dependencyInputs: { files: [] },
+    receipt: {
+      contractId: `evidence-contracts-v1:${kind}`,
+      contractVersion: 1,
+      runId: run.runId,
+      producer: { provider: "better-workflows-kernel" },
+      inputBinding: {
+        runId: run.runId,
+        contractDigest: digestObject(run.contract),
+        remoteRevision: run.contract.remoteRevision ?? null
+      },
+      payload,
+      payloadDigest: digestObject(payload),
+      producedAt: new Date().toISOString()
+    }
+  });
+}
+
+async function reviewKernelFixture({ repeatedQuote = false } = {}) {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-v2-review-kernel-"));
+  const repository = path.join(root, "repository");
+  await mkdir(repository, { recursive: true });
+  await execFileAsync("git", ["init", "-q"], { cwd: repository });
+  await execFileAsync("git", ["config", "user.email", "test@example.com"], { cwd: repository });
+  await execFileAsync("git", ["config", "user.name", "Test User"], { cwd: repository });
+  await writeFile(path.join(repository, "README.md"), "base\n");
+  await execFileAsync("git", ["add", "README.md"], { cwd: repository });
+  await execFileAsync("git", ["commit", "-q", "-m", "base"], { cwd: repository });
+  const base = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repository })).stdout.trim();
+  await mkdir(path.join(repository, "src"));
+  const source = repeatedQuote ? "repeat();\nrepeat();\n" : "export const a = 1;\n";
+  await writeFile(path.join(repository, "src", "a.ts"), source);
+  await execFileAsync("git", ["add", "src/a.ts"], { cwd: repository });
+  await execFileAsync("git", ["commit", "-q", "-m", "change"], { cwd: repository });
+  const head = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repository })).stdout.trim();
+  const template = reviewKernelTemplate();
+  const contract = buildContract({
+    template: "self-improve-ops",
+    templateDefinition: template,
+    goal: "review kernel pilot",
+    scope: ["src", "README.md"],
+    risk: { risk: 1, uncertainty: 1, blastRadius: 1, irreversibility: 0, evidenceGap: 1 },
+    sensitivity: "internal",
+    authority: [],
+    remoteRevision: base
+  });
+  const started = await createRun({ root, contract, requestedMode: "verified", cwd: repository });
+  const run = { ...(await inspectRun(root, started.runId)), runId: started.runId };
+  const sentinel = await captureSentinel(repository, contract, await loadDefaults());
+  await updateState(root, started.runId, (state) => ({
+    ...state,
+    lastSentinel: { label: "review-kernel", digest: sentinel.digest },
+    lastSentinelVerified: true,
+    lastSentinelComplete: true
+  }));
+  const reviewPackage = await createReviewPackage({
+    root,
+    runId: started.runId,
+    base,
+    head,
+    scope: ["src", "README.md"],
+    diffManifest: { files: [{ status: "A", path: "src/a.ts" }] },
+    instructionDigest: "d".repeat(64),
+    sentinelDigest: sentinel.digest
+  });
+  return { root, repository, source, run, started, sentinel, reviewPackage };
+}
+
+async function recordAxis(root, runId, reviewPackage, lane, index, { findings = [], unitResults = null } = {}) {
+  const inputDigest = sha256(`axis-input-${index}`);
+  const input = {
+    schemaVersion: 2,
+    packageId: reviewPackage.packageId,
+    axisId: lane.id,
+    repairRound: reviewPackage.repairRounds,
+    executionId: `axis-execution-${index}`,
+    reviewerId: `axis-reviewer-${index}`,
+    model: "gpt-5.6-codex",
+    role: lane.role,
+    contextProfile: lane.contextProfile,
+    contextDigest: sha256(`context-${index}`),
+    inputDigest,
+    toolPolicyDigest: sha256("read-only-tools"),
+    verdict: findings.length > 0 ? "BLOCK" : "PASS",
+    unitResults: unitResults ?? reviewPackage.workUniverse.map((unit) => ({ unitId: unit.id, disposition: "reviewed-no-issue" })),
+    findings
+  };
+  const prepared = await prepareReviewAxis(root, runId, input);
+  return recordReviewAxis(root, runId, {
+    ...input,
+    providerExecution: attestedProviderExecution(input, prepared.reviewDigest, sha256(`attestation-${index}`))
+  });
+}
+
+test("typed catalog covers exactly the 101 installed evidence kinds", async () => {
   const contracts = await loadEvidenceContracts({ refresh: true });
-  assert.equal(Object.keys(contracts).length, 99);
+  assert.equal(Object.keys(contracts).length, 101);
   assert.ok(contracts["remote-sync"]);
+  assert.ok(contracts["work-unit-accounting"]);
+  assert.ok(contracts["review-kernel-summary"]);
 });
 
 test("typed handoff evidence admits only its declared nullable evaluator authorization and policy digest", async () => {
@@ -720,7 +898,7 @@ test("review packages reject head drift with stable finding identity, block afte
     scope: ["src", "README.md"],
     risk: { risk: 1, uncertainty: 0, blastRadius: 1, irreversibility: 0, evidenceGap: 0 },
     sensitivity: "internal",
-    authority: [],
+    authority: ["pr.merge"],
     remoteRevision: base
   });
   const started = await createRun({ root, contract, requestedMode: "verified", cwd: repository });
@@ -947,6 +1125,149 @@ test("review packages reject head drift with stable finding identity, block afte
   assert.equal((await reviewStatus(root, started.runId)).complete, true);
   const broadRetry = await createReviewPackage(input);
   assert.equal(broadRetry.packageId, first.packageId);
+  const continuity = await assertReviewContinuity(root, started.runId);
+  const runDir = (await inspectRun(root, started.runId)).runDir;
+  await execFileAsync("git", ["remote", "add", "origin", "https://github.com/example/repo.git"], { cwd: repository });
+  const bin = path.join(root, "bin");
+  await mkdir(bin);
+  const fakeGh = path.join(bin, "gh");
+  const providerCounter = path.join(root, "provider-counter");
+  const providerMergeMarker = path.join(root, "provider-merge-invoked");
+  const lateFindingId = stableFindingId({
+    packageId: first.packageId,
+    path: "src/a.ts",
+    location: "late-provider-preflight",
+    rule: "provider-preflight-continuity"
+  });
+  const lateFindingSource = path.join(root, "late-provider-finding.json");
+  const lateFindingTarget = path.join(runDir, "review-findings", `${lateFindingId}.json`);
+  await writeFile(lateFindingSource, `${JSON.stringify({
+    schemaVersion: 1,
+    id: lateFindingId,
+    packageId: first.packageId,
+    path: "src/a.ts",
+    location: "late-provider-preflight",
+    rule: "provider-preflight-continuity",
+    severity: "P2",
+    status: "open",
+    summary: "A finding appeared after provider preflight began.",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  })}\n`);
+  const fakeGhScript = `#!/bin/sh
+if [ "$1" = "api" ] && [ "$2" = "user" ]; then
+  printf '%s\\n' '{"login":"alice"}'
+elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo" ]; then
+  printf '%s\\n' '{"full_name":"example/repo","permissions":{"admin":false,"maintain":false,"push":true}}'
+elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo/pulls/12" ]; then
+  count=0
+  if [ -f '${providerCounter}' ]; then count=$(/bin/cat '${providerCounter}'); fi
+  count=$((count + 1))
+  printf '%s' "$count" > '${providerCounter}'
+  if [ "$count" -eq 2 ]; then /bin/cp '${lateFindingSource}' '${lateFindingTarget}'; fi
+  printf '%s\\n' '{"number":12,"state":"open","head":{"sha":"${head}"},"base":{"ref":"main","sha":"${base}"},"mergeable":true,"mergeable_state":"clean"}'
+elif [ "$1" = "pr" ] && [ "$2" = "merge" ]; then
+  /usr/bin/touch '${providerMergeMarker}'
+  printf '%s\\n' '{"merged":true}'
+else
+  exit 2
+fi
+`;
+  await writeFile(fakeGh, fakeGhScript);
+  await chmod(fakeGh, 0o755);
+  const mergeToken = "review-provider-continuity-token";
+  const mergeTokenHash = sha256(mergeToken);
+  const providerExecutable = { path: await realpath(fakeGh), digest: sha256(fakeGhScript) };
+  const providerAuthorization = {
+    provider: "github-cli",
+    actor: "alice",
+    repository: "github.com/example/repo",
+    permissions: { admin: false, maintain: false, push: true }
+  };
+  const mergeCommand = [
+    "gh", "pr", "merge", "12", "--repo", "github.com/example/repo",
+    "--match-head-commit", head, "--merge", "--delete-branch=false"
+  ];
+  await writeFile(path.join(runDir, "actions", `${mergeTokenHash}.json`), `${JSON.stringify({
+    schemaVersion: 1,
+    tokenHash: mergeTokenHash,
+    status: "issued",
+    outcome: null,
+    issuedAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    runId: started.runId,
+    action: "pr.merge",
+    provider: "github-cli",
+    resource: "pull/12",
+    remoteRevision: base,
+    treeDigest: sentinel.digest,
+    contractDigest: digestObject(contract),
+    idempotencyKey: "review-provider-continuity-idempotency",
+    reviewedHead: continuity.head,
+    reviewPackageId: continuity.packageId,
+    reviewContinuityDigest: continuity.continuityDigest,
+    pullRequest: 12,
+    mergeRepository: "github.com/example/repo",
+    mergeCommand,
+    mergeMethod: "merge",
+    adminBypass: false,
+    providerExecutable,
+    providerAuthorizationExecutable: providerExecutable,
+    providerAuthorization
+  }, null, 2)}\n`);
+  const priorPath = process.env.PATH;
+  process.env.PATH = `${bin}:${priorPath}`;
+  try {
+    await assert.rejects(
+      executeActionToken(root, started.runId, mergeToken, sentinel.digest),
+      /Review continuity requires a complete current review/
+    );
+  } finally {
+    process.env.PATH = priorPath;
+  }
+  await assert.rejects(stat(providerMergeMarker));
+  const stoppedMerge = (await inspectRun(root, started.runId)).actions.find((item) => item.tokenHash === mergeTokenHash);
+  assert.equal(stoppedMerge.status, "spent");
+  assert.equal(stoppedMerge.providerInvocation.dispatchState, "not-sent");
+  await unlink(path.join(runDir, "actions", `${mergeTokenHash}.json`));
+  await unlink(lateFindingTarget);
+  assert.equal((await reviewStatus(root, started.runId)).complete, true);
+  const token = "review-continuity-token";
+  const tokenHash = sha256(token);
+  await writeFile(path.join(runDir, "actions", `${tokenHash}.json`), `${JSON.stringify({
+    schemaVersion: 1,
+    tokenHash,
+    status: "issued",
+    outcome: null,
+    issuedAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    runId: started.runId,
+    action: "worktree.cleanup",
+    provider: "local-workspace",
+    resource: "worktree:review-continuity",
+    scope: null,
+    remoteRevision: base,
+    treeDigest: sentinel.digest,
+    contractDigest: digestObject(contract),
+    idempotencyKey: "review-continuity-idempotency",
+    reviewedHead: continuity.head,
+    reviewPackageId: continuity.packageId,
+    reviewContinuityDigest: continuity.continuityDigest
+  }, null, 2)}\n`);
+  await addReviewFinding(root, started.runId, {
+    packageId: first.packageId,
+    path: "src/a.ts",
+    location: "3",
+    rule: "post-authorization-finding",
+    severity: "P2",
+    status: "open",
+    summary: "A finding added after issuance must invalidate consumption."
+  });
+  await assert.rejects(
+    consumeActionToken(root, started.runId, token, sentinel.digest),
+    /Review continuity requires a complete current review/
+  );
+  assert.equal((await inspectRun(root, started.runId)).actions.find((item) => item.tokenHash === tokenHash).status, "issued");
   await updateState(root, started.runId, (state) => ({ ...state, status: "completed" }));
   await assert.rejects(
     addReviewFinding(root, started.runId, {
@@ -964,6 +1285,155 @@ test("review packages reject head drift with stable finding identity, block afte
     createReviewPackage({ ...input, instructionDigest: "c".repeat(64) }),
     /Review package cannot mutate a terminal run/
   );
+});
+
+test("review kernel accounts every work unit, converges with zero findings, and invalidates broad review after receipt mutation", async () => {
+  const fixture = await reviewKernelFixture();
+  const { root, started, run, sentinel, reviewPackage } = fixture;
+  assert.equal(reviewPackage.schemaVersion, 2);
+  assert.equal(reviewPackage.workUniverse.length, 1);
+  assert.equal(reviewPackage.workUniverseDigest, digestObject(reviewPackage.workUniverse));
+  await assert.rejects(
+    issueActionToken(root, started.runId, {
+      action: "git.commit",
+      provider: "git",
+      resource: "commit:shadow-pilot",
+      remoteRevision: reviewPackage.base,
+      requiredEvidence: ["environment-state"]
+    }, sentinel.digest, await loadDefaults()),
+    /shadow-only/
+  );
+  const firstLane = reviewPackage.reviewLanes[0];
+  const incompleteInput = {
+    schemaVersion: 2,
+    packageId: reviewPackage.packageId,
+    axisId: firstLane.id,
+    repairRound: 0,
+    executionId: "missing-unit-execution",
+    reviewerId: "missing-unit-reviewer",
+    model: "gpt-5.6-codex",
+    role: firstLane.role,
+    contextProfile: firstLane.contextProfile,
+    contextDigest: sha256("missing-context"),
+    inputDigest: sha256("missing-input"),
+    toolPolicyDigest: sha256("read-only-tools"),
+    verdict: "PASS",
+    unitResults: [],
+    findings: []
+  };
+  await assert.rejects(prepareReviewAxis(root, started.runId, incompleteInput), /account for every work unit exactly once/);
+  for (const [index, lane] of reviewPackage.reviewLanes.entries()) {
+    await recordAxis(root, started.runId, reviewPackage, lane, index);
+  }
+  let kernel = await reviewKernelStatus(root, started.runId);
+  assert.equal(kernel.convergence.axesComplete, true);
+  assert.equal(kernel.convergence.coverageComplete, true);
+  assert.equal(kernel.findings.length, 0);
+  assert.equal(kernel.convergence.complete, true);
+  assert.equal((await reviewStatus(root, started.runId)).scopedClosed, false);
+  const coverage = await recordReviewCoverage(root, started.runId);
+  const synthesis = await recordReviewSynthesis(root, started.runId);
+  assert.equal(coverage.complete, true);
+  assert.equal(synthesis.convergence.complete, true);
+  kernel = await reviewKernelStatus(root, started.runId);
+  await admitKernelEvidence(root, run, "work-unit-accounting", kernel);
+  await admitKernelEvidence(root, run, "review-kernel-summary", kernel);
+  assert.equal((await reviewStatus(root, started.runId)).scopedClosed, true);
+  await markBroadReviewComplete(root, started.runId, reviewPackage.packageId, reviewPackage.head, sentinel.digest);
+  assert.equal((await reviewStatus(root, started.runId)).complete, true);
+  await recordAxis(root, started.runId, reviewPackage, firstLane, 99);
+  const invalidated = await reviewStatus(root, started.runId);
+  assert.equal(invalidated.kernel.convergence.axesComplete, false);
+  assert.equal(invalidated.broadReviewComplete, false);
+  assert.equal(invalidated.complete, false);
+});
+
+test("review kernel rejects finder self-verification and keeps ambiguous anchors blocking after refutation", async () => {
+  const fixture = await reviewKernelFixture({ repeatedQuote: true });
+  const { root, source, started, reviewPackage } = fixture;
+  const unit = reviewPackage.workUniverse[0];
+  const findingInput = {
+    unitId: unit.id,
+    path: unit.path,
+    side: "head",
+    anchor: {
+      blob: unit.head.blob,
+      contentDigest: sha256(source),
+      quote: "repeat();",
+      reportedLine: 1
+    },
+    rule: "duplicate-call",
+    rootCause: "Repeated call has ambiguous source location",
+    severity: "P2",
+    claimStatus: "observed",
+    summary: "The same call appears twice and cannot be uniquely anchored.",
+    searchProof: ["Both occurrences are in the exact head blob."],
+    counterEvidence: [],
+    runtimeTrace: []
+  };
+  await recordAxis(root, started.runId, reviewPackage, reviewPackage.reviewLanes[0], 10, {
+    findings: [findingInput],
+    unitResults: [{ unitId: unit.id, disposition: "finding" }]
+  });
+  await recordAxis(root, started.runId, reviewPackage, reviewPackage.reviewLanes[1], 11, {
+    findings: [{
+      ...findingInput,
+      anchor: { ...findingInput.anchor, reportedLine: 2 },
+      severity: "P1",
+      claimStatus: "inferred",
+      summary: "A second finder independently located the same root cause.",
+      searchProof: ["The low-context lane reproduced both exact occurrences."]
+    }],
+    unitResults: [{ unitId: unit.id, disposition: "finding" }]
+  });
+  await recordAxis(root, started.runId, reviewPackage, reviewPackage.reviewLanes[2], 12);
+  let kernel = await reviewKernelStatus(root, started.runId);
+  assert.equal(kernel.findings.length, 1);
+  assert.equal(kernel.findings[0].anchor.resolution, "ambiguous");
+  assert.equal(kernel.findings[0].claimConflict, false);
+  assert.equal(kernel.findings[0].severity, "P1");
+  assert.deepEqual(kernel.findings[0].searchProof, [
+    "Both occurrences are in the exact head blob.",
+    "The low-context lane reproduced both exact occurrences."
+  ]);
+  const claim = kernel.findings[0];
+  const selfVerification = {
+    schemaVersion: 2,
+    packageId: reviewPackage.packageId,
+    repairRound: 0,
+    findingId: claim.id,
+    claimDigest: claim.claimDigest,
+    executionId: "self-verification-execution",
+    reviewerId: "axis-reviewer-10",
+    model: "gpt-5.6-codex",
+    inputDigest: sha256("self-verification-input"),
+    toolPolicyDigest: sha256("read-only-tools"),
+    verdict: "REFUTED",
+    evidence: ["Attempted self-verification must be rejected."],
+    counterEvidence: []
+  };
+  await assert.rejects(prepareFindingVerification(root, started.runId, selfVerification), /finder cannot verify its own claim/);
+  const verification = {
+    ...selfVerification,
+    executionId: "independent-verification-execution",
+    reviewerId: "independent-verifier",
+    inputDigest: sha256("independent-verification-input"),
+    evidence: ["The duplicated quote cannot select one exact location." ]
+  };
+  const prepared = await prepareFindingVerification(root, started.runId, verification);
+  await recordFindingVerification(root, started.runId, {
+    ...verification,
+    providerExecution: attestedProviderExecution(verification, prepared.reviewDigest, sha256("independent-verifier-attestation"))
+  });
+  kernel = await reviewKernelStatus(root, started.runId);
+  assert.equal(kernel.findings[0].verificationVerdict, "REFUTED");
+  assert.equal(kernel.findings[0].blocking, true);
+  assert.equal(kernel.convergence.anchorsComplete, false);
+  assert.equal(kernel.convergence.complete, false);
+  const coverage = await recordReviewCoverage(root, started.runId);
+  const synthesis = await recordReviewSynthesis(root, started.runId);
+  assert.equal(coverage.complete, true);
+  assert.equal(synthesis.convergence.complete, false);
 });
 
 test("action tokens require the mapped ledger stage to be ready", async () => {

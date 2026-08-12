@@ -33,6 +33,7 @@ import {
   captureBoundedAutonomySnapshot,
   readRawLocalConfigValues
 } from "./autonomy-snapshot.mjs";
+import { REVIEW_POLICIES, reviewKernelEnabled } from "./review-policy.mjs";
 
 const BOUND_GIT_EXECUTABLE = "/usr/bin/git";
 const BOUND_GIT_PATH = "/usr/bin:/bin:/usr/sbin:/sbin";
@@ -534,7 +535,7 @@ function assertNoAmbientGitAuthorityOverrides() {
   }
 }
 
-export const VERSION = "3.3.5";
+export const VERSION = "3.4.0";
 export const MODES = new Set(["auto", "direct", "verified", "deep", "critical"]);
 export const RUN_STATES = new Set([
   "pending",
@@ -1104,7 +1105,7 @@ export function validateContract(contract) {
     const policies = {
       evidencePolicy: new Set(["typed-v1"]),
       ledgerPolicy: new Set(["ledger-v1"]),
-      reviewPolicy: new Set(["none", "static-v1", "code-v1", "finding-v1"]),
+      reviewPolicy: new Set(REVIEW_POLICIES),
       designPacketPolicy: new Set(["none", "pilot-v1"]),
       refinementPolicy: new Set(["none", "pilot-v1"]),
       deliberationPolicy: new Set(["none", "allowed-v1"])
@@ -1112,6 +1113,49 @@ export function validateContract(contract) {
     for (const [key, allowed] of Object.entries(policies)) {
       if (!allowed.has(controlPlane[key])) {
         throw new Error(`TaskContract v2.controlPlane.${key} is invalid`);
+      }
+    }
+    const baseControlPlaneKeys = [
+      "evidencePolicy",
+      "ledgerPolicy",
+      "reviewPolicy",
+      "designPacketPolicy",
+      "refinementPolicy",
+      "deliberationPolicy"
+    ];
+    const kernelEnabled = reviewKernelEnabled(controlPlane.reviewPolicy);
+    const allowedControlPlaneKeys = new Set([
+      ...baseControlPlaneKeys,
+      ...(kernelEnabled ? ["workUnitPolicy", "reviewLanes"] : [])
+    ]);
+    const unknownControlPlaneKeys = Object.keys(controlPlane).filter((key) => !allowedControlPlaneKeys.has(key));
+    if (unknownControlPlaneKeys.length > 0) {
+      throw new Error(`TaskContract v2.controlPlane has unknown fields: ${unknownControlPlaneKeys.join(", ")}`);
+    }
+    if (kernelEnabled) {
+      if (contract.template !== "self-improve-ops") {
+        throw new Error("TaskContract code-v2-pilot is restricted to self-improve-ops");
+      }
+      if (controlPlane.workUnitPolicy !== "diff-files-v1") {
+        throw new Error("TaskContract code-v2-pilot requires diff-files-v1 work units");
+      }
+      if (!Array.isArray(controlPlane.reviewLanes) || controlPlane.reviewLanes.length < 2 || controlPlane.reviewLanes.length > 5) {
+        throw new Error("TaskContract code-v2-pilot requires two to five review lanes");
+      }
+      const laneIds = new Set();
+      for (const lane of controlPlane.reviewLanes) {
+        if (
+          !lane || typeof lane !== "object" || Array.isArray(lane) ||
+          Object.keys(lane).sort().join("\0") !== ["contextProfile", "id", "required", "role"].join("\0") ||
+          typeof lane.id !== "string" || !SAFE_ID.test(lane.id) || laneIds.has(lane.id) || lane.role !== "finder" ||
+          !["context-rich", "low-context", "adversarial", "mechanical"].includes(lane.contextProfile) ||
+          typeof lane.required !== "boolean"
+        ) throw new Error("TaskContract code-v2-pilot review lane is invalid or duplicated");
+        laneIds.add(lane.id);
+      }
+      const requiredLanes = controlPlane.reviewLanes.filter((lane) => lane.required);
+      if (requiredLanes.length < 2 || requiredLanes.every((lane) => lane.contextProfile === "low-context")) {
+        throw new Error("TaskContract code-v2-pilot requires two required lanes including a non-low-context lane");
       }
     }
     if (!Array.isArray(contract.executionStages) || contract.executionStages.length === 0) {
@@ -2783,10 +2827,20 @@ export async function evaluateCompletion(root, runId) {
     }
   }
   const { isIndependentCriticEvidence } = await import("./evidence.mjs");
-  const hasIndependentCritic = admittedEvidence.some((item) => isIndependentCriticEvidence(item, {
+  const hasLegacyIndependentCritic = admittedEvidence.some((item) => isIndependentCriticEvidence(item, {
     reviewPackage: completionReview?.package,
     sentinelDigest: state.lastSentinel?.digest
   }));
+  const hasKernelIndependentCritic = Boolean(
+    reviewKernelEnabled(contract.controlPlane?.reviewPolicy) &&
+    completionReview?.kernel?.convergence?.axesComplete &&
+    completionReview.kernel.axes.filter((axis) => (
+      completionReview.package.reviewLanes.some((lane) => lane.required && lane.id === axis.axisId) &&
+      axis.providerExecution?.modelAssurance === "host-signed-attestation" &&
+      axis.providerExecution?.trustAttested === true
+    )).length >= 2
+  );
+  const hasIndependentCritic = hasLegacyIndependentCritic || hasKernelIndependentCritic;
   if (["deep", "critical"].includes(manifest.mode) && !hasIndependentCritic) {
     blockers.push("missing-independent-critic");
   }
@@ -3569,6 +3623,14 @@ async function verifyPullRequestBeforeMerge(cwd, record, providerExecutablePath 
 }
 
 async function verifyMergeProviderAtInvocation(root, runId, record, manifest) {
+  if (record.reviewPackageId) {
+    const { assertReviewContinuity } = await import("./review.mjs");
+    await assertReviewContinuity(root, runId, {
+      packageId: record.reviewPackageId,
+      head: record.reviewedHead,
+      continuityDigest: record.reviewContinuityDigest
+    });
+  }
   const providerExecutablePath = await verifyRecordedGitHubProvider(manifest, record);
   const repository = await currentRepositoryIdentity(manifest.cwd);
   if (repository !== record.mergeRepository) {
@@ -5021,6 +5083,9 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
   return withRunLock(root, runId, async ({ runDir }) => {
     const contract = await readJson(root, safeJoin(runDir, "contract.json"));
     assertActionIsNotDeferred(contract, request.action);
+    if (contract.controlPlane?.reviewPolicy === "code-v2-pilot") {
+      throw new Error("Action token denied because code-v2-pilot is shadow-only and cannot authorize side effects");
+    }
     const manifest = await readJson(root, safeJoin(runDir, "manifest.json"));
     const state = await readJson(root, safeJoin(runDir, "state.json"));
     assertMutableRun({ state }, "Action token issuance");
@@ -5357,7 +5422,7 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
     let creationPrecondition = null;
     if (request.action === "pr.merge" && contract.controlPlane?.reviewPolicy !== "none") {
       const { isIndependentCriticEvidence } = await import("./evidence.mjs");
-      const { reviewStatus } = await import("./review.mjs");
+      const { assertReviewContinuity, reviewStatus } = await import("./review.mjs");
       const review = await reviewStatus(root, runId);
       const currentHead = (await execBoundGitAuthority(manifest.cwd, [
         "rev-parse", "--verify", "HEAD^{commit}"
@@ -5371,17 +5436,26 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
       }));
       if (!hasIndependentCritic) throw new Error("Action token denied until the exact independent critic is admitted");
       await assertPullEvidenceBinding(admittedEvidence, request, review.package, contract, repository);
+      const continuity = await assertReviewContinuity(root, runId);
       actionBinding = {
         ...actionBinding,
         reviewedHead: review.package.head,
         reviewPackageId: review.package.packageId,
+        reviewContinuityDigest: continuity.continuityDigest,
         pullRequest: Number(String(request.resource).replace(/^pull\//, ""))
       };
     }
     if (["remote.sync", "worktree.cleanup"].includes(request.action) && contract.controlPlane?.reviewPolicy !== "none") {
-      const { reviewStatus } = await import("./review.mjs");
+      const { assertReviewContinuity, reviewStatus } = await import("./review.mjs");
       const review = await reviewStatus(root, runId);
       if (!review.complete) throw new Error("Action token denied until the exact review package is complete");
+      const continuity = await assertReviewContinuity(root, runId);
+      actionBinding = {
+        ...actionBinding,
+        reviewedHead: continuity.head,
+        reviewPackageId: continuity.packageId,
+        reviewContinuityDigest: continuity.continuityDigest
+      };
       if (request.action === "remote.sync") {
         const mergeBinding = assertRemoteSyncMergeBinding(admittedEvidence, review.package, contract, repository);
         const mergeAction = assertPersistedSuccessfulMergeAction(actions, mergeBinding);
@@ -5609,6 +5683,14 @@ async function consumeActionTokenInternal(root, runId, token, currentTreeDigest,
     if (record.treeDigest !== currentTreeDigest) throw new Error("Action token tree binding changed");
     if (record.contractDigest !== digestObject(contract)) throw new Error("Action token contract binding changed");
     const manifest = await readJson(root, safeJoin(runDir, "manifest.json"));
+    if (record.reviewPackageId) {
+      const { assertReviewContinuity } = await import("./review.mjs");
+      await assertReviewContinuity(root, runId, {
+        packageId: record.reviewPackageId,
+        head: record.reviewedHead,
+        continuityDigest: record.reviewContinuityDigest
+      });
+    }
     if (record.action === "git.push") {
       const currentSourceBinding = await assertCurrentGitPushSourceBinding(manifest, record.sourceBindingDigest);
       if (currentSourceBinding.originIdentity.digest !== record.sourceRemoteBindingDigest) {
@@ -5737,6 +5819,30 @@ export async function consumeActionToken(root, runId, token, currentTreeDigest) 
   return consumeActionTokenInternal(root, runId, token, currentTreeDigest, false);
 }
 
+function githubPreflightInvocation(runId, action, error) {
+  const command = action.action === "pr.merge" ? action.mergeCommand : buildPrCreateCommand(action);
+  if (!Array.isArray(command) || !["pr.create", "pr.merge"].includes(action.action)) {
+    throw new Error("GitHub provider preflight receipt requires a fixed PR command");
+  }
+  const timestamp = nowIso();
+  return {
+    schemaVersion: 1,
+    id: `github-${action.action}-preflight:${runId}:${action.attemptId}`,
+    actionAttemptId: action.attemptId,
+    provider: "github-cli",
+    command,
+    ...(action.action === "pr.merge" ? { adminBypass: false } : {}),
+    providerExecutable: action.providerExecutable,
+    providerAuthorizationExecutable: action.providerAuthorizationExecutable,
+    providerAuthorization: action.providerAuthorization,
+    startedAt: timestamp,
+    finishedAt: timestamp,
+    exitCode: null,
+    dispatchState: "not-sent",
+    errorDigest: sha256(error?.message ?? "provider preflight failed")
+  };
+}
+
 async function persistPreflightProviderInvocation(root, runId, action, error) {
   return withRunLock(root, runId, async ({ runDir }) => {
     const target = safeJoin(runDir, "actions", `${action.tokenHash}.json`);
@@ -5746,21 +5852,7 @@ async function persistPreflightProviderInvocation(root, runId, action, error) {
       current.attemptId !== action.attemptId ||
       current.providerInvocation
     ) return current;
-    const invocation = {
-      schemaVersion: 1,
-      id: `github-pr-create-preflight:${runId}:${action.attemptId}`,
-      actionAttemptId: action.attemptId,
-      provider: "github-cli",
-      command: buildPrCreateCommand(action),
-      providerExecutable: action.providerExecutable,
-      providerAuthorizationExecutable: action.providerAuthorizationExecutable,
-      providerAuthorization: action.providerAuthorization,
-      startedAt: nowIso(),
-      finishedAt: nowIso(),
-      exitCode: null,
-      dispatchState: "not-sent",
-      errorDigest: sha256(error?.message ?? "provider preflight failed")
-    };
+    const invocation = githubPreflightInvocation(runId, action, error);
     const next = { ...current, providerInvocation: invocation };
     await atomicWriteJson(root, target, next);
     await appendJournal(root, runDir, "action.provider-preflight-failed", {
@@ -5952,7 +6044,13 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
     throw new Error("PR merge execution denied because the governed provider executable changed");
   }
   // Re-check provider actor, branch policy, PR head, and fresh checks immediately before gh invocation.
-  const providerAuthorization = await verifyMergeProviderAtInvocation(root, runId, consumed, manifest);
+  let providerAuthorization;
+  try {
+    providerAuthorization = await verifyMergeProviderAtInvocation(root, runId, consumed, manifest);
+  } catch (error) {
+    await persistPreflightProviderInvocation(root, runId, consumed, error);
+    throw error;
+  }
   return withRunLock(root, runId, async ({ runDir }) => {
     const run = await loadRun(root, runId);
     assertMutableRun(run, "Action provider execution");
@@ -5960,6 +6058,26 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
     const current = await readJson(root, target);
     if (current.status !== "spent" || current.attemptId !== consumed.attemptId) {
       throw new Error("PR merge provider invocation is not bound to the consumed action attempt");
+    }
+    if (consumed.reviewPackageId) {
+      try {
+        const { assertReviewContinuity } = await import("./review.mjs");
+        await assertReviewContinuity(root, runId, {
+          packageId: consumed.reviewPackageId,
+          head: consumed.reviewedHead,
+          continuityDigest: consumed.reviewContinuityDigest
+        });
+      } catch (error) {
+        const invocation = githubPreflightInvocation(runId, consumed, error);
+        const next = { ...current, providerInvocation: invocation };
+        await atomicWriteJson(root, target, next);
+        await appendJournal(root, runDir, "action.provider-preflight-failed", {
+          attemptId: consumed.attemptId,
+          invocationId: invocation.id,
+          dispatchState: invocation.dispatchState
+        });
+        throw error;
+      }
     }
     const startedAt = nowIso();
     let exitCode = 0;

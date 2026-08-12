@@ -460,6 +460,7 @@ const EVALUATOR_CANONICAL_REQUEST_FIELDS = Object.freeze([
   "tool_choice",
   "tools"
 ]);
+const VALIDATED_CLIENT_AUTHORIZATION_POLICY = "validated-client-bearer";
 
 function evaluatorCanonicalRequestPolicy() {
   return {
@@ -489,7 +490,7 @@ export function evaluatorForwardHeaderPolicy() {
     forwardedHeaders: {
       accept: "text/event-stream",
       "accept-encoding": "identity",
-      authorization: "validated-client-bearer",
+      authorization: VALIDATED_CLIENT_AUTHORIZATION_POLICY,
       "content-length": "root-body-length",
       "content-type": "application/json",
       host: "fixed-codex-upstream",
@@ -898,7 +899,20 @@ export async function verifyTrustedNativeCriticAttestation({ attestationPath, wo
   if (attestation?.schemaVersion !== 1 || attestation.provider !== "codex-native-subagent" || trustRoot?.schemaVersion !== 1) {
     throw new Error("Native critic attestation schema or provider is invalid");
   }
-  for (const key of ["base", "head", "instructionDigest", "model", "packageId", "promptDigest", "reviewDigest", "reviewerId", "runId", "sentinelDigest"]) {
+  const bindingFields = [
+    "base",
+    "head",
+    "instructionDigest",
+    "model",
+    "packageId",
+    "promptDigest",
+    "reviewDigest",
+    "reviewerId",
+    "runId",
+    "sentinelDigest",
+    ...(binding.executionId ? ["executionId"] : [])
+  ];
+  for (const key of bindingFields) {
     if (attestation[key] !== binding[key]) throw new Error(`Native critic attestation binding does not match ${key}`);
   }
   if (attestation.issuer !== trustRoot.issuer) throw new Error("Native critic attestation issuer is not trusted");

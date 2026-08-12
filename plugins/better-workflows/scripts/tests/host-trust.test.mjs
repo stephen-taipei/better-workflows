@@ -20,6 +20,8 @@ import {
   canonicalJson,
   EVALUATION_SCHEMA,
   evaluatorCommandArgs,
+  HOST_CRITICAL_MATERIAL_ANCHOR_SOURCE,
+  HOST_MATERIAL_SAMPLE_PRIORITY,
   evaluatorFeatureProbeArgs,
   evaluatorModelCatalog,
   evaluatorRegistryProbeArgs,
@@ -51,7 +53,11 @@ import {
   validateProtectedParentChain
 } from "../host-trust.mjs";
 import { createBundleManifest } from "../lib/publication.mjs";
-import { buildEvaluationPrompt } from "../lib/self-improve.mjs";
+import {
+  buildEvaluationPrompt,
+  SELF_IMPROVE_CRITICAL_MATERIAL_ANCHOR_SOURCE,
+  SELF_IMPROVE_MATERIAL_SAMPLE_PRIORITY
+} from "../lib/self-improve.mjs";
 
 const SCRIPT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -71,6 +77,11 @@ function evaluatorOutputSchema() {
     properties: { results: { type: "array", items: { type: "string" } } }
   };
 }
+
+test("root host and plugin evaluator material policies stay exactly aligned", () => {
+  assert.deepEqual(HOST_MATERIAL_SAMPLE_PRIORITY, SELF_IMPROVE_MATERIAL_SAMPLE_PRIORITY);
+  assert.equal(HOST_CRITICAL_MATERIAL_ANCHOR_SOURCE, SELF_IMPROVE_CRITICAL_MATERIAL_ANCHOR_SOURCE);
+});
 
 function validEvaluatorClientRequest(model, inputText, outputSchema) {
   const message = (role, text, id = null) => ({
@@ -733,7 +744,7 @@ test("root-authoritative standing bindings reproduce prompts, materials, and exe
     pluginBundleDigest: "6".repeat(64),
     candidate,
     baseline,
-    sourceSuitePath: "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.3.json",
+    sourceSuitePath: "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.4.json",
     sourceSuiteDigest: "7".repeat(64),
     targetSuitePath: null,
     targetSuiteDigest: null,

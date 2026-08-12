@@ -18,6 +18,7 @@ import {
   selectEvaluationCases,
   SELF_IMPROVE_CANONICAL_CORPUS,
   SELF_IMPROVE_MIGRATION_SOURCE_CORPUS,
+  SELF_IMPROVE_V22_CORPUS,
   isPolicyBoundEvaluationPurpose,
   selectSafetyRemediationCases,
   selectQualityRemediationCases,
@@ -205,7 +206,7 @@ export async function generateAttestationRequests({
   const defaultCasesFile = purpose === "evaluator-migration"
     ? SELF_IMPROVE_MIGRATION_SOURCE_CORPUS
     : policyBound
-      ? SELF_IMPROVE_MIGRATION_SOURCE_CORPUS
+      ? SELF_IMPROVE_V22_CORPUS
       : await ordinaryCorpusForBaseline({ cwd: resolvedRepo, baselineRevision });
   const frozen = await loadFrozenEvaluationSuite({
     cwd: resolvedRepo,
