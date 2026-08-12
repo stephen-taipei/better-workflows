@@ -460,6 +460,7 @@ const EVALUATOR_CANONICAL_REQUEST_FIELDS = Object.freeze([
   "tool_choice",
   "tools"
 ]);
+const VALIDATED_CLIENT_AUTHORIZATION_POLICY = "validated-client-bearer";
 
 function evaluatorCanonicalRequestPolicy() {
   return {
@@ -489,7 +490,7 @@ export function evaluatorForwardHeaderPolicy() {
     forwardedHeaders: {
       accept: "text/event-stream",
       "accept-encoding": "identity",
-      authorization: "validated-client-bearer",
+      authorization: VALIDATED_CLIENT_AUTHORIZATION_POLICY,
       "content-length": "root-body-length",
       "content-type": "application/json",
       host: "fixed-codex-upstream",
