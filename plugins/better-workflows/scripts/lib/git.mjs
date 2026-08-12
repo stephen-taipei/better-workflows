@@ -1,6 +1,7 @@
 import { lstat, readFile, readdir, readlink, realpath } from "node:fs/promises";
 import path from "node:path";
 import { canonicalJson, execBoundGit, sha256 } from "./core.mjs";
+import { readRawLocalConfigValues } from "./autonomy-snapshot.mjs";
 const SOURCE_GIT_EXECUTABLE = "/usr/bin/git";
 const SOURCE_GIT_PATH = "/usr/bin:/bin:/usr/sbin:/sbin";
 const SOURCE_GIT_TIMEOUT_MS = 30_000;
@@ -53,11 +54,15 @@ async function git(cwd, args, {
     return { ok: true, stdout: result.stdout, stderr: result.stderr };
   } catch (error) {
     if (allowFailure) {
+      const stderr = Buffer.isBuffer(error.stderr)
+        ? (error.stderr.byteLength > 0 ? error.stderr : Buffer.from(error.message))
+        : (typeof error.stderr === "string" && error.stderr.trim() ? error.stderr : error.message);
       return {
         ok: false,
         stdout: error.stdout ?? "",
-        stderr: error.stderr ?? error.message,
-        code: error.code
+        stderr,
+        code: error.code,
+        signal: error.signal ?? null
       };
     }
     const stderr = typeof error.stderr === "string" ? error.stderr.trim() : "";
@@ -308,15 +313,11 @@ async function gitPath(cwd, name) {
 }
 
 async function localConfigValues(cwd, key) {
-  const result = await sourceGit(cwd, ["config", "--local", "--no-includes", "--get-all", key], {
-    allowFailure: true
-  });
-  if (!result.ok) return [];
-  const values = result.stdout.split(/\r?\n/).map((value) => value.trim()).filter(Boolean);
-  if (values.some((value) => /[\0\r\n]/.test(value))) {
-    throw new Error(`Source binding contains an invalid local Git value for ${key}`);
-  }
-  return values;
+  return readRawLocalConfigValues(
+    (args, options) => sourceGit(cwd, args, options),
+    key,
+    { maxBuffer: SOURCE_GIT_MAX_BUFFER, label: "Source binding" }
+  );
 }
 
 export async function hiddenIndexEntries(cwd, { isolatedConfig = false } = {}) {

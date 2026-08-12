@@ -23,10 +23,12 @@ import {
 } from "../lib/host-bundle.mjs";
 import {
   captureAutonomyBindingContext,
+  captureAutonomyReadinessSnapshotFromSource,
   probeAutonomyGithubCredential,
   resolveAutonomyRepository,
   runAutonomyGitCommandForTest
 } from "../lib/autonomy-preflight.mjs";
+import { readRawLocalConfigValues } from "../lib/autonomy-snapshot.mjs";
 
 const execFileAsync = promisify(execFile);
 const SYSTEM_GIT = "/usr/bin/git";
@@ -317,7 +319,7 @@ test("autonomy binding pins Git, ignores insteadOf rewrites, and rejects diverge
     else process.env.PATH = priorPath;
   }
   await execFileAsync(SYSTEM_GIT, ["config", "remote.origin.pushurl", "https://github.com/other/repository.git"], { cwd: root });
-  await assert.rejects(resolveAutonomyRepository(root), /matching canonical GitHub fetch and push repositories/);
+  await assert.rejects(resolveAutonomyRepository(root), /matching credential-free HTTPS GitHub fetch and push repositories/);
   await rm(root, { recursive: true, force: true });
 });
 
@@ -353,5 +355,103 @@ test("autonomy Git and GitHub preflight wrappers terminate forking children", as
     /timed out/
   );
   await assertProcessGone(Number(await readFile(githubPidFile, "utf8")));
+  await rm(root, { recursive: true, force: true });
+});
+
+test("autonomy remote binding fails closed on indeterminate pushurl reads and oversized output", async () => {
+  const timeoutRunner = async (args) => {
+    const key = args.at(-1);
+    if (key === "remote.origin.url") {
+      return { ok: true, stdout: "https://github.com/example/repository.git\n", stderr: "" };
+    }
+    return { ok: false, stdout: "", stderr: "timed out", code: "ETIMEDOUT", signal: "SIGKILL" };
+  };
+  await assert.rejects(
+    resolveAutonomyRepository("/unused", { runGit: timeoutRunner }),
+    /could not read raw local remote\.origin\.pushurl: timed out/
+  );
+  await assert.rejects(
+    readRawLocalConfigValues(async () => ({
+      ok: false,
+      stdout: "",
+      stderr: "output exceeded 1048576 bytes",
+      code: "ERR_CHILD_PROCESS_STDIO_MAXBUFFER",
+      signal: null
+    }), "remote.origin.pushurl"),
+    /output exceeded/
+  );
+
+  const root = await autonomyRepositoryFixture();
+  const configPath = path.join(root, ".git", "config");
+  const config = await readFile(configPath, "utf8");
+  await writeFile(configPath, `${config}\n[remote "origin"]\n\tpushurl = https://github.com/example/${"a".repeat(1_100_000)}.git\n`);
+  await assert.rejects(resolveAutonomyRepository(root), /output exceeded/);
+  await rm(root, { recursive: true, force: true });
+});
+
+test("autonomy and governed push share one credential-safe HTTPS GitHub remote boundary", async () => {
+  const root = await autonomyRepositoryFixture();
+  const invalid = [
+    "git@github.com:example/repository.git",
+    "https://user@github.com/example/repository.git",
+    "https://github.com/example/repository/extra",
+    "https://github.com/example/repository.git?transport=other",
+    "https://github.com/example/repository.git#fragment",
+    "https://github.com/example",
+    "https://gitlab.com/example/repository.git"
+  ];
+  for (const remote of invalid) {
+    await execFileAsync(SYSTEM_GIT, ["remote", "set-url", "origin", remote], { cwd: root });
+    await assert.rejects(resolveAutonomyRepository(root), /credential-free HTTPS GitHub/);
+  }
+  await execFileAsync(SYSTEM_GIT, ["remote", "set-url", "origin", "https://github.com/example/repository.git"], { cwd: root });
+  assert.equal(await resolveAutonomyRepository(root), "github.com/example/repository");
+  await rm(root, { recursive: true, force: true });
+});
+
+test("autonomy readiness snapshot binds same-SHA branch, path scope, and diff limits", async () => {
+  const root = await autonomyRepositoryFixture();
+  const profile = await loadAutonomyProfile();
+  const binding = buildAutonomyBinding(profile, {
+    repository: "github.com/example/repository",
+    branch: "codex/preflight",
+    pathScope: ["README.md"]
+  });
+  const sourceBindingDigest = "a".repeat(64);
+  const sentinelDigest = "b".repeat(64);
+  const initial = await captureAutonomyReadinessSnapshotFromSource(root, binding, sourceBindingDigest, { sentinelDigest });
+  assert.equal(initial.branch, "codex/preflight");
+  assert.equal(initial.repository, "github.com/example/repository");
+  assert.equal(initial.changedFiles, 0);
+  assert.equal(initial.sentinelDigest, sentinelDigest);
+
+  await assert.rejects(
+    captureAutonomyReadinessSnapshotFromSource(root, binding, sourceBindingDigest, {
+      sentinelDigest,
+      beforeFinalCheck: () => writeFile(path.join(root, "README.md"), "changed during capture\n")
+    }),
+    (error) => error.autonomyReason === "autonomy-snapshot-drift"
+  );
+  await writeFile(path.join(root, "README.md"), "autonomy preflight\n");
+
+  await execFileAsync(SYSTEM_GIT, ["switch", "-qc", "dev"], { cwd: root });
+  await assert.rejects(
+    captureAutonomyReadinessSnapshotFromSource(root, binding, sourceBindingDigest, { sentinelDigest }),
+    (error) => error.autonomyReason === "branch-outside-autonomy-scope"
+  );
+  await execFileAsync(SYSTEM_GIT, ["switch", "-q", "codex/preflight"], { cwd: root });
+
+  await writeFile(path.join(root, "outside.txt"), "outside\n");
+  await assert.rejects(
+    captureAutonomyReadinessSnapshotFromSource(root, binding, sourceBindingDigest, { sentinelDigest }),
+    (error) => error.autonomyReason === "path-outside-autonomy-scope"
+  );
+  await rm(path.join(root, "outside.txt"));
+
+  await writeFile(path.join(root, "README.md"), "x".repeat(profile.limits.maxDiffBytes + 4096));
+  await assert.rejects(
+    captureAutonomyReadinessSnapshotFromSource(root, binding, sourceBindingDigest, { sentinelDigest }),
+    (error) => error.autonomyReason === "diff-byte-limit"
+  );
   await rm(root, { recursive: true, force: true });
 });

@@ -102,16 +102,13 @@ import {
   buildAutonomyBinding,
   loadAutonomyProfile,
   validateAutonomyBinding,
-  decideAutonomyAction,
-  validateAutonomyScope
+  decideAutonomyAction
 } from "./lib/autonomy.mjs";
 import {
   captureAutonomyBindingContext,
-  currentAutonomyBranch,
-  inspectAutonomyWorktree,
+  captureAutonomyReadinessSnapshotFromSource,
   probeAutonomyGithubCredential,
-  readBoundHostStatus,
-  resolveAutonomyRepository
+  readBoundHostStatus
 } from "./lib/autonomy-preflight.mjs";
 import { createSelfImproveDeliveryHandoff, validateSelfImproveDeliveryHandoff } from "./lib/self-improve-handoff.mjs";
 import {
@@ -1262,6 +1259,7 @@ async function commandAutonomy(root, subcommand, runId, options) {
           profileId: profile.id,
           profileDigest,
           status: "revoked",
+          snapshot: null,
           blockedReason: "autonomy-revoked",
           requiredAuthority: "autonomy.reauthorize",
           resumeFromStage: run.state.autonomy?.resumeFromStage ?? null
@@ -1285,6 +1283,7 @@ async function commandAutonomy(root, subcommand, runId, options) {
         profileId: profile.id,
         profileDigest,
         status: "blocked",
+        snapshot: null,
         blockedReason: reason,
         requiredAuthority,
         resumeFromStage: run.state.autonomy?.resumeFromStage ?? "preflight"
@@ -1294,35 +1293,26 @@ async function commandAutonomy(root, subcommand, runId, options) {
   if (run.state.autonomy?.status === "revoked") return blocked("autonomy-revoked", "autonomy.reauthorize");
   if (Date.parse(run.contract.autonomyProfile.expiresAt) <= Date.now()) return blocked("autonomy-profile-expired", "autonomy.reauthorize");
   if (run.manifest.autonomyProfile?.sourceBindingDigest !== run.manifest.sourceBinding?.digest) return blocked("source-binding-drift", "source.rebind");
-  let branch = "";
-  try {
-    branch = await currentAutonomyBranch(run.manifest.cwd) ?? "";
-  } catch {
-    return blocked("git-preflight-unavailable", "git.authentication");
+  if (!run.state.lastSentinelVerified || run.state.lastSentinelComplete !== true || !run.state.lastSentinel?.digest) {
+    return blocked("sentinel-preflight-required", "sentinel.verify");
   }
-  if (!/^codex\/[A-Za-z0-9._/-]+$/.test(branch)) return blocked("branch-outside-autonomy-scope", "autonomy.reauthorize");
   if (run.manifest.pluginCacheRoot !== getCodexPluginCacheRoot()) return blocked("cache-root-drift", "cache.rebind");
+  let snapshot;
   try {
-    validateAutonomyScope(run.contract.autonomyProfile, { branch });
-    if (run.contract.autonomyProfile.branch !== null && run.contract.autonomyProfile.branch !== branch) {
-      return blocked("branch-binding-drift", "source.rebind");
-    }
-    if (run.contract.autonomyProfile.repository !== null) {
-      if (await resolveAutonomyRepository(run.manifest.cwd) !== run.contract.autonomyProfile.repository) {
-        return blocked("repository-binding-drift", "source.rebind");
-      }
-    }
-  } catch {
-    return blocked("autonomy-scope-invalid", "autonomy.reauthorize");
-  }
-  try {
-    const inspection = await inspectAutonomyWorktree(run.manifest.cwd, {
-      limits: run.contract.autonomyProfile.limits,
-      pathScope: run.contract.autonomyProfile.pathScope
-    });
-    if (!inspection.ok) return blocked(inspection.reason, "autonomy.reauthorize");
-  } catch {
-    return blocked("git-diff-preflight-unavailable", "git.authentication");
+    snapshot = await captureAutonomyReadinessSnapshotFromSource(
+      run.manifest.cwd,
+      run.contract.autonomyProfile,
+      run.manifest.autonomyProfile.sourceBindingDigest,
+      { sentinelDigest: run.state.lastSentinel.digest }
+    );
+  } catch (error) {
+    const reason = error.autonomyReason ?? "git-preflight-unavailable";
+    const authority = ["branch-binding-drift", "repository-binding-drift"].includes(reason)
+      ? "source.rebind"
+      : reason === "git-preflight-unavailable"
+        ? "git.authentication"
+        : "autonomy.reauthorize";
+    return blocked(reason, authority);
   }
   let hostStatus;
   try {
@@ -1357,8 +1347,9 @@ async function commandAutonomy(root, subcommand, runId, options) {
       requiredAuthority: null,
       resumeFromStage: null,
       preflightAt: nowIso(),
-      branch,
-      repository: run.contract.autonomyProfile.repository ?? null,
+      branch: snapshot.branch,
+      repository: snapshot.repository,
+      snapshot,
       providerExecutable
     }
   });
@@ -1368,7 +1359,8 @@ async function commandAutonomy(root, subcommand, runId, options) {
     status: "ready",
     profileId: profile.id,
     profileDigest,
-    branch,
+    branch: snapshot.branch,
+    snapshotDigest: snapshot.digest,
     hostBundle: {
       signerVersion: hostStatus.signer.version ?? null,
       signerDigest: hostStatus.signer.digest ?? null,

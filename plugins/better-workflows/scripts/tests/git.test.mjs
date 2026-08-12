@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdir, mkdtemp, realpath, symlink, unlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, symlink, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { buildContract, loadDefaults } from "../lib/core.mjs";
@@ -166,6 +166,15 @@ test("source bindings include canonical worktree, common-dir, and origin identit
   assert.notEqual(linkedBinding.gitDir.path, primary.gitDir.path);
   assert.equal(linkedBinding.gitCommonDir.path, primary.gitCommonDir.path);
   assert.notEqual(linkedBinding.digest, primary.digest);
+});
+
+test("source binding never treats oversized raw pushurl output as absence", async () => {
+  const cwd = await repository();
+  await git(cwd, "remote", "add", "origin", "https://github.com/example/repository.git");
+  const configPath = path.join(cwd, ".git", "config");
+  const config = await readFile(configPath, "utf8");
+  await writeFile(configPath, `${config}\n[remote "origin"]\n\tpushurl = https://github.com/example/${"p".repeat(4 * 1024 * 1024 + 4096)}.git\n`);
+  await assert.rejects(captureSourceBinding(cwd), /output exceeded/);
 });
 
 test("source bindings use the pinned Git executable instead of an ambient PATH shadow", async () => {

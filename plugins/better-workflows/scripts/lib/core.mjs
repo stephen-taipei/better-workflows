@@ -28,6 +28,11 @@ import {
   loadAutonomyProfile,
   validateAutonomyBinding
 } from "./autonomy.mjs";
+import {
+  canonicalGovernedGithubRepository,
+  captureBoundedAutonomySnapshot,
+  readRawLocalConfigValues
+} from "./autonomy-snapshot.mjs";
 
 const BOUND_GIT_EXECUTABLE = "/usr/bin/git";
 const BOUND_GIT_PATH = "/usr/bin:/bin:/usr/sbin:/sbin";
@@ -427,7 +432,12 @@ export async function assertBoundCredentialWorkspace(directory, credentialFile =
   }
 }
 
-async function execBoundGitAuthority(cwd, args, { allowFailure = false } = {}) {
+async function execBoundGitAuthority(cwd, args, {
+  allowFailure = false,
+  timeoutMs = BOUND_GIT_TIMEOUT_MS,
+  maxBuffer = BOUND_GIT_MAX_BUFFER,
+  encoding = "utf8"
+} = {}) {
   try {
     const result = await execBoundGit(BOUND_GIT_EXECUTABLE, [
       "--no-replace-objects",
@@ -438,28 +448,40 @@ async function execBoundGitAuthority(cwd, args, { allowFailure = false } = {}) {
     ], {
       cwd,
       env: boundGitAuthorityEnvironment(),
-      timeoutMs: BOUND_GIT_TIMEOUT_MS,
-      maxBuffer: BOUND_GIT_MAX_BUFFER
+      timeoutMs: Math.min(timeoutMs, BOUND_GIT_TIMEOUT_MS),
+      maxBuffer: Math.min(maxBuffer, BOUND_GIT_MAX_BUFFER),
+      encoding
     });
     return { ok: true, stdout: result.stdout, stderr: result.stderr };
   } catch (error) {
     if (allowFailure) {
-      return { ok: false, stdout: error.stdout ?? "", stderr: error.stderr ?? error.message, code: error.code };
+      const stderr = Buffer.isBuffer(error.stderr)
+        ? (error.stderr.byteLength > 0 ? error.stderr : Buffer.from(error.message))
+        : (typeof error.stderr === "string" && error.stderr.trim() ? error.stderr : error.message);
+      return {
+        ok: false,
+        stdout: error.stdout ?? (encoding === "buffer" ? Buffer.alloc(0) : ""),
+        stderr,
+        code: error.code,
+        signal: error.signal ?? null
+      };
     }
-    throw new Error(`Bound Git authority command failed: ${error.stderr ?? error.message}`);
+    const stderr = typeof error.stderr === "string" ? error.stderr.trim() : "";
+    const failure = new Error(`Bound Git authority command failed: ${stderr || error.message}`);
+    failure.code = error.code;
+    failure.signal = error.signal;
+    failure.stdout = error.stdout;
+    failure.stderr = error.stderr;
+    throw failure;
   }
 }
 
 async function rawLocalGitValues(cwd, key) {
-  const result = await execBoundGitAuthority(cwd, ["config", "--local", "--no-includes", "--get-all", key], {
-    allowFailure: true
-  });
-  if (!result.ok) return [];
-  const values = result.stdout.split(/\r?\n/).map((value) => value.trim()).filter(Boolean);
-  if (values.some((value) => /[\0\r\n]/.test(value))) {
-    throw new Error(`Git authority contains an invalid local value for ${key}`);
-  }
-  return values;
+  return readRawLocalConfigValues(
+    (args, options) => execBoundGitAuthority(cwd, args, options),
+    key,
+    { maxBuffer: BOUND_GIT_MAX_BUFFER, label: "Git authority" }
+  );
 }
 
 async function currentOriginRemoteBinding(cwd) {
@@ -472,6 +494,16 @@ async function currentOriginRemoteBinding(cwd) {
       ? sha256(canonicalJson({ fetchUrls, pushUrls }))
       : null
   };
+}
+
+export function captureAutonomyReadinessSnapshot(cwd, binding, sourceBindingDigest, options = {}) {
+  return captureBoundedAutonomySnapshot(
+    cwd,
+    binding,
+    sourceBindingDigest,
+    (args, gitOptions) => execBoundGitAuthority(cwd, args, gitOptions),
+    options
+  );
 }
 
 function assertNoAmbientGitAuthorityOverrides() {
@@ -489,7 +521,7 @@ function assertNoAmbientGitAuthorityOverrides() {
   }
 }
 
-export const VERSION = "3.3.1";
+export const VERSION = "3.3.2";
 export const MODES = new Set(["auto", "direct", "verified", "deep", "critical"]);
 export const RUN_STATES = new Set([
   "pending",
@@ -2215,6 +2247,7 @@ export async function rebindSourceBinding(root, runId, reason) {
             autonomy: {
               ...run.state.autonomy,
               status: "blocked",
+              snapshot: null,
               blockedReason: "source-binding-drift",
               requiredAuthority: "autonomy.preflight",
               resumeFromStage: "preflight"
@@ -2846,17 +2879,10 @@ export async function resolveGitPushDestination(cwd, remote) {
     throw new Error("Git push destination is ambiguous; exactly one raw origin URL and effective push URL are required");
   }
   const pushUrl = selectedUrls[0];
-  let parsed;
-  try {
-    parsed = new URL(pushUrl);
-  } catch {
-    throw new Error("Git push destination requires one parseable HTTPS URL");
+  const remoteRepository = canonicalGovernedGithubRepository(pushUrl);
+  if (!remoteRepository) {
+    throw new Error("Git push destination requires one credential-safe canonical HTTPS GitHub repository URL");
   }
-  if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.search || parsed.hash || (parsed.port && parsed.port !== "443")) {
-    throw new Error("Git push destination requires a credential-safe HTTPS URL");
-  }
-  const remoteRepository = repositoryIdentity(pushUrl);
-  if (!remoteRepository) throw new Error("Git push requires a canonical remote repository identity");
   return {
     remote,
     pushUrl,
@@ -4615,6 +4641,54 @@ function assertPersistedSuccessfulMergeAction(actions, mergeBinding) {
   return mergeAction;
 }
 
+function assertAutonomySnapshotIdentity(actual, expected, label) {
+  if (!actual || !expected || typeof expected.digest !== "string" ||
+      digestObject(actual) !== digestObject(expected)) {
+    throw new Error(`${label} denied because the bounded autonomy snapshot changed; run autonomy preflight again`);
+  }
+}
+
+async function currentAutonomySnapshot(manifest, contract, state) {
+  return captureAutonomyReadinessSnapshot(
+    manifest.cwd,
+    contract.autonomyProfile,
+    manifest.autonomyProfile?.sourceBindingDigest ?? manifest.sourceBinding?.digest ?? null,
+    { sentinelDigest: state.lastSentinel?.digest ?? null }
+  );
+}
+
+async function autonomousCommitAllocation(manifest, actions, snapshot) {
+  const sourceHead = manifest.autonomyProfile?.sourceHeadRevision;
+  if (!SHA.test(sourceHead ?? "") || !SHA.test(snapshot?.headRevision ?? "")) {
+    throw new Error("Autonomy commit allocation requires exact source and current head revisions");
+  }
+  const ancestry = await execBoundGitAuthority(manifest.cwd, [
+    "merge-base", "--is-ancestor", sourceHead, snapshot.headRevision
+  ], { allowFailure: true });
+  if (!ancestry.ok) {
+    if (Number(ancestry.code) === 1 && !ancestry.signal) {
+      throw new Error("Autonomy commit allocation denied because the current head left the immutable source ancestry");
+    }
+    throw new Error(`Autonomy commit ancestry was indeterminate: ${String(ancestry.stderr || ancestry.code).trim()}`);
+  }
+  const countOutput = (await execBoundGitAuthority(manifest.cwd, [
+    "rev-list", "--count", `${sourceHead}..${snapshot.headRevision}`
+  ])).stdout.trim();
+  const ancestryCount = Number(countOutput);
+  if (!Number.isSafeInteger(ancestryCount) || ancestryCount < 0) {
+    throw new Error("Autonomy commit ancestry count is invalid");
+  }
+  const outstanding = actions.filter((action) => (
+    action.action === "git.commit" &&
+    action.autonomyDecision?.decision === "auto-approved" &&
+    (
+      action.status === "issued" ||
+      (action.status === "spent" && ["pending", "unknown"].includes(action.outcome))
+    )
+  )).length;
+  return { ancestryCount, outstanding, allocated: ancestryCount + outstanding };
+}
+
 export async function issueActionToken(root, runId, request, currentTreeDigest, config) {
   assertSupportedGovernedAction(request.action);
   for (const field of ["action", "provider", "resource", "remoteRevision"]) {
@@ -4634,8 +4708,12 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
     const actions = await listJsonRecords(root, safeJoin(runDir, "actions"));
     let autonomyDecision = null;
     let autonomyDecisionReceipt = null;
+    let autonomySnapshot = null;
     if (contract.autonomyProfile) {
       validateAutonomyBinding(contract.autonomyProfile);
+      if (state.autonomy?.status !== "ready" || state.lastSentinelVerified !== true || state.lastSentinelComplete !== true) {
+        throw new Error("Action token denied because bounded autopilot readiness is no longer verified");
+      }
       const profile = await loadAutonomyProfile();
       if (autonomyProfileDigest(profile) !== contract.autonomyProfile.profileDigest) {
         throw new Error("Autonomy profile bundle drifted after run creation");
@@ -4667,6 +4745,14 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
           resource: request.resource,
           scope: requestedScope
         });
+      }
+      autonomySnapshot = await currentAutonomySnapshot(manifest, contract, state);
+      assertAutonomySnapshotIdentity(autonomySnapshot, state.autonomy?.snapshot, "Action token issuance");
+      if (
+        request.action === "git.commit" &&
+        (await autonomousCommitAllocation(manifest, actions, autonomySnapshot)).allocated >= contract.autonomyProfile.limits.maxCommits
+      ) {
+        throw new Error(`Action token denied because bounded autopilot reached maxCommits=${contract.autonomyProfile.limits.maxCommits}`);
       }
       autonomyDecision = decision;
     }
@@ -4922,7 +5008,10 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
         cacheRoot: pluginCacheRoot
       };
     }
-    if (autonomyDecision) actionBinding.autonomyDecision = autonomyDecision;
+    if (autonomyDecision) {
+      actionBinding.autonomyDecision = autonomyDecision;
+      actionBinding.autonomySnapshot = autonomySnapshot;
+    }
     let creationPrecondition = null;
     if (request.action === "pr.merge" && contract.controlPlane?.reviewPolicy !== "none") {
       const { isIndependentCriticEvidence } = await import("./evidence.mjs");
@@ -5121,6 +5210,9 @@ async function consumeActionTokenInternal(root, runId, token, currentTreeDigest,
     assertActionIsNotDeferred(contract, record.action);
     if (contract.autonomyProfile) {
       validateAutonomyBinding(contract.autonomyProfile);
+      if (state.autonomy?.status !== "ready" || state.lastSentinelVerified !== true || state.lastSentinelComplete !== true) {
+        throw new Error("Action consumption denied because bounded autopilot readiness is no longer verified");
+      }
       const profile = await loadAutonomyProfile();
       if (autonomyProfileDigest(profile) !== contract.autonomyProfile.profileDigest) {
         throw new Error("Action consumption denied because the autonomy profile bundle changed");
@@ -5146,6 +5238,16 @@ async function consumeActionTokenInternal(root, runId, token, currentTreeDigest,
       });
       if (JSON.stringify(expectedReceipt) !== JSON.stringify(record.autonomyDecisionReceipt)) {
         throw new Error("Action consumption denied because the autonomy decision receipt changed");
+      }
+      const manifest = await readJson(root, safeJoin(runDir, "manifest.json"));
+      const snapshot = await currentAutonomySnapshot(manifest, contract, state);
+      assertAutonomySnapshotIdentity(snapshot, state.autonomy?.snapshot, "Action consumption");
+      assertAutonomySnapshotIdentity(snapshot, record.autonomySnapshot, "Action consumption token");
+      if (record.action === "git.commit") {
+        const actions = await listJsonRecords(root, safeJoin(runDir, "actions"));
+        if ((await autonomousCommitAllocation(manifest, actions, snapshot)).allocated > contract.autonomyProfile.limits.maxCommits) {
+          throw new Error(`Action consumption denied because bounded autopilot exceeded maxCommits=${contract.autonomyProfile.limits.maxCommits}`);
+        }
       }
     }
     if (!allowWrapperExecution && EXECUTABLE_ACTION_PROVIDERS.has(`${record.action}:${record.provider}`)) {
@@ -5337,6 +5439,15 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
     throw new Error("The governed provider execution path only supports github-cli pr.merge and git.push");
   }
   const consumed = await consumeActionTokenInternal(root, runId, token, currentTreeDigest, true);
+  if (contract.autonomyProfile) {
+    const run = await loadRun(root, runId);
+    if (run.state.autonomy?.status !== "ready" || run.state.lastSentinelVerified !== true || run.state.lastSentinelComplete !== true) {
+      throw new Error("Action execution denied because bounded autopilot readiness is no longer verified");
+    }
+    const snapshot = await currentAutonomySnapshot(run.manifest, run.contract, run.state);
+    assertAutonomySnapshotIdentity(snapshot, run.state.autonomy.snapshot, "Action execution");
+    assertAutonomySnapshotIdentity(snapshot, consumed.autonomySnapshot, "Action execution token");
+  }
   if (consumed.action === "git.push" && consumed.provider === "git") {
     const { remote, pushUrl, ref, command: expectedCommand } = resolveGitPushExecutionBinding(consumed);
     const manifest = await readJson(root, safeJoin(runDirectory(root, runId), "manifest.json"));

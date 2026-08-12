@@ -27,6 +27,7 @@ import {
   buildGitPushActionBinding,
   buildPrCreateCommand,
   buildContract,
+  captureAutonomyReadinessSnapshot,
   cleanupRuns,
   consumeActionToken,
   completeRun,
@@ -64,6 +65,7 @@ import {
   withBoundGitCredential
 } from "../lib/core.mjs";
 import { captureSentinel } from "../lib/git.mjs";
+import { buildAutonomyBinding, loadAutonomyProfile } from "../lib/autonomy.mjs";
 import { checkPluginCache, publishPluginCache, verifyPluginCacheReady } from "../lib/publication.mjs";
 
 const execFileAsync = promisify(execFile);
@@ -107,6 +109,154 @@ function contract(overrides = {}) {
   });
   return value;
 }
+
+async function autonomyActionFixture() {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-autonomy-action-"));
+  const repository = path.join(root, "repository");
+  const stateRoot = path.join(root, "state");
+  await mkdir(path.join(repository, "allowed"), { recursive: true });
+  await execFileAsync("git", ["init", "-q", "-b", "codex/autonomy"], { cwd: repository });
+  await execFileAsync("git", ["config", "user.email", "autonomy@example.invalid"], { cwd: repository });
+  await execFileAsync("git", ["config", "user.name", "Autonomy Test"], { cwd: repository });
+  await execFileAsync("git", ["remote", "add", "origin", "https://github.com/example/repository.git"], { cwd: repository });
+  await writeFile(path.join(repository, "allowed", "tracked.txt"), "baseline\n");
+  await execFileAsync("git", ["add", "."], { cwd: repository });
+  await execFileAsync("git", ["commit", "-qm", "baseline"], { cwd: repository });
+  const sourceHead = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repository, encoding: "utf8" })).stdout.trim();
+  const profile = await loadAutonomyProfile();
+  const binding = buildAutonomyBinding(profile, {
+    repository: "github.com/example/repository",
+    branch: "codex/autonomy",
+    pathScope: ["allowed"]
+  });
+  const taskContract = buildContract({
+    template: "pr-to-dev",
+    templateDefinition: {
+      requiredEvidence: ["preflight"],
+      acceptance: [{ id: "done", description: "Autonomy action is bounded.", critical: true }]
+    },
+    goal: "Bound autonomous commits",
+    scope: ["allowed"],
+    remoteRevision: sourceHead,
+    autonomyProfile: binding
+  });
+  const run = await createRun({ root: stateRoot, contract: taskContract, requestedMode: "critical", cwd: repository });
+  await addEvidence(stateRoot, run.runId, {
+    id: "preflight",
+    kind: "preflight",
+    summary: "Autonomy action fixture preflight",
+    status: "complete",
+    acceptanceIds: [],
+    sourceDigest: "e".repeat(64)
+  });
+  const inspected = await inspectRun(stateRoot, run.runId);
+  const sentinelDigest = "f".repeat(64);
+  const snapshot = await captureAutonomyReadinessSnapshot(
+    repository,
+    binding,
+    inspected.manifest.autonomyProfile.sourceBindingDigest,
+    { sentinelDigest }
+  );
+  await updateState(stateRoot, run.runId, (state) => ({
+    ...state,
+    lastSentinel: { label: "autonomy-test", digest: sentinelDigest },
+    lastSentinelVerified: true,
+    lastSentinelComplete: true,
+    autonomy: { ...state.autonomy, status: "ready", blockedReason: null, snapshot }
+  }));
+  return { root, repository, stateRoot, run, binding, profile, sourceHead, sentinelDigest };
+}
+
+function autonomyCommitRequest(sourceHead, suffix) {
+  return {
+    action: "git.commit",
+    provider: "git",
+    resource: `commit:${suffix}`,
+    remoteRevision: sourceHead,
+    requiredEvidence: ["preflight"]
+  };
+}
+
+test("autonomy action issuance and consumption revalidate the exact readiness snapshot", async () => {
+  const fixture = await autonomyActionFixture();
+  const defaults = await loadDefaults();
+  const issued = await issueActionToken(
+    fixture.stateRoot,
+    fixture.run.runId,
+    autonomyCommitRequest(fixture.sourceHead, "first"),
+    fixture.sentinelDigest,
+    defaults
+  );
+  await execFileAsync("git", ["switch", "-qc", "dev"], { cwd: fixture.repository });
+  await assert.rejects(
+    consumeActionToken(fixture.stateRoot, fixture.run.runId, issued.token, fixture.sentinelDigest),
+    /named codex\/\* branch/
+  );
+  await execFileAsync("git", ["switch", "-q", "codex/autonomy"], { cwd: fixture.repository });
+  await writeFile(path.join(fixture.repository, "outside.txt"), "outside\n");
+  await assert.rejects(
+    issueActionToken(
+      fixture.stateRoot,
+      fixture.run.runId,
+      autonomyCommitRequest(fixture.sourceHead, "outside"),
+      fixture.sentinelDigest,
+      defaults
+    ),
+    /path-outside-autonomy-scope/
+  );
+  await unlink(path.join(fixture.repository, "outside.txt"));
+  await writeFile(
+    path.join(fixture.repository, "allowed", "tracked.txt"),
+    "x".repeat(fixture.profile.limits.maxDiffBytes + 4096)
+  );
+  await assert.rejects(
+    issueActionToken(
+      fixture.stateRoot,
+      fixture.run.runId,
+      autonomyCommitRequest(fixture.sourceHead, "oversized"),
+      fixture.sentinelDigest,
+      defaults
+    ),
+    /diff-byte-limit/
+  );
+});
+
+test("autonomy maxCommits counts immutable ancestry and outstanding tokens", async () => {
+  const fixture = await autonomyActionFixture();
+  for (let index = 0; index < fixture.profile.limits.maxCommits - 1; index += 1) {
+    await execFileAsync("git", ["commit", "--allow-empty", "-qm", `autonomous-${index + 1}`], { cwd: fixture.repository });
+  }
+  const inspected = await inspectRun(fixture.stateRoot, fixture.run.runId);
+  const snapshot = await captureAutonomyReadinessSnapshot(
+    fixture.repository,
+    fixture.binding,
+    inspected.manifest.autonomyProfile.sourceBindingDigest,
+    { sentinelDigest: fixture.sentinelDigest }
+  );
+  await updateState(fixture.stateRoot, fixture.run.runId, (state) => ({
+    ...state,
+    autonomy: { ...state.autonomy, status: "ready", snapshot }
+  }));
+  const defaults = await loadDefaults();
+  const twelfth = await issueActionToken(
+    fixture.stateRoot,
+    fixture.run.runId,
+    autonomyCommitRequest(fixture.sourceHead, "twelfth"),
+    fixture.sentinelDigest,
+    defaults
+  );
+  assert.equal(twelfth.autonomyDecision.decision, "auto-approved");
+  await assert.rejects(
+    issueActionToken(
+      fixture.stateRoot,
+      fixture.run.runId,
+      autonomyCommitRequest(fixture.sourceHead, "thirteenth"),
+      fixture.sentinelDigest,
+      defaults
+    ),
+    /reached maxCommits=12/
+  );
+});
 
 test("git push action bindings persist the exact effective destination used by the fixed argv wrapper", () => {
   const providerExecutable = { path: "/usr/bin/git", digest: "a".repeat(64) };
@@ -628,7 +778,7 @@ test("git push destination binds a divergent pushurl and rejects multiple effect
   await execFileAsync("git", ["config", "remote.origin.pushurl", "https://embedded-token@github.com/example/effective-push.git"], { cwd: root });
   await assert.rejects(
     resolveGitPushDestination(root, "origin"),
-    /credential-safe HTTPS URL/
+    /credential-safe canonical HTTPS GitHub repository URL/
   );
 });
 
@@ -667,6 +817,16 @@ test("git push destination ignores ambient config and local URL rewrites", async
   assert.deepEqual(await resolveGitPushDestination(root, "origin"), expected);
   assert.equal(expected.pushUrl, origin);
   assert.equal(expected.remoteRepository, "github.com/example/source-bound");
+});
+
+test("git push destination never treats oversized raw pushurl output as absence", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-git-push-oversized-"));
+  await execFileAsync("git", ["init", "-q"], { cwd: root });
+  await execFileAsync("git", ["remote", "add", "origin", "https://github.com/example/fetch-only.git"], { cwd: root });
+  const configPath = path.join(root, ".git", "config");
+  const config = await readFile(configPath, "utf8");
+  await writeFile(configPath, `${config}\n[remote "origin"]\n\tpushurl = https://github.com/example/${"p".repeat(4 * 1024 * 1024 + 4096)}.git\n`);
+  await assert.rejects(resolveGitPushDestination(root, "origin"), /output exceeded/);
 });
 
 test("git fetch authority binds the raw origin and rejects URL rewrite or ambiguity", async () => {
