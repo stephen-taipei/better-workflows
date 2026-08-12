@@ -20,6 +20,15 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  assertAutonomyAction,
+  autonomyProfileDigest,
+  buildAutonomyDecisionReceipt,
+  decideAutonomyAction,
+  loadAutonomyProfile,
+  validateAutonomyBinding
+} from "./autonomy.mjs";
+
 const BOUND_GIT_EXECUTABLE = "/usr/bin/git";
 const BOUND_GIT_PATH = "/usr/bin:/bin:/usr/sbin:/sbin";
 const BOUND_GITHUB_CLI_TIMEOUT_MS = 30_000;
@@ -462,11 +471,12 @@ function assertNoAmbientGitAuthorityOverrides() {
   }
 }
 
-export const VERSION = "3.2.5";
+export const VERSION = "3.3.0";
 export const MODES = new Set(["auto", "direct", "verified", "deep", "critical"]);
 export const RUN_STATES = new Set([
   "pending",
   "running",
+  "blocked",
   "completed",
   "failed_retryable",
   "failed_terminal",
@@ -989,6 +999,20 @@ export function validateContract(contract) {
   if (contract.authority?.rootOnlyMutation !== true) {
     throw new Error("TaskContract must require rootOnlyMutation");
   }
+  if (contract.autonomyProfile !== undefined) {
+    validateAutonomyBinding(contract.autonomyProfile);
+    if (contract.template !== "pr-to-dev") {
+      throw new Error("TaskContract bounded-autopilot-v1 is only valid for pr-to-dev delivery");
+    }
+    const externalSideEffects = new Set(contract.authority?.externalSideEffects ?? []);
+    const allowedAutonomyActions = new Set(["git.commit", "plugin.cache.publish", "git.push", "pr.create"]);
+    if ([...externalSideEffects].some((action) => !allowedAutonomyActions.has(action))) {
+      throw new Error("TaskContract autonomy authority contains an action outside bounded-autopilot-v1");
+    }
+    if (digestObject(contract.scope.include) !== digestObject(contract.autonomyProfile.pathScope)) {
+      throw new Error("TaskContract autonomy path scope must match the run scope exactly");
+    }
+  }
   if (contract.schemaVersion === 2) {
     const controlPlane = contract.controlPlane;
     if (!controlPlane || typeof controlPlane !== "object" || Array.isArray(controlPlane)) {
@@ -1123,7 +1147,8 @@ export function buildContract({
   volatileExclusions = [],
   highRiskIgnored = [],
   remoteRevision = null,
-  selfImprovePurpose = null
+  selfImprovePurpose = null,
+  autonomyProfile = null
 }) {
   const acceptance = templateDefinition.acceptance ?? [
     { id: "task-complete", description: "The requested task is complete.", critical: true }
@@ -1133,6 +1158,10 @@ export function buildContract({
   const acceptanceEvidence = Object.fromEntries(
     acceptance.map((item) => [item.id, [...requiredEvidence]])
   );
+  const externalSideEffects = [...new Set([
+    ...authority,
+    ...(autonomyProfile ? ["git.commit", "plugin.cache.publish", "git.push", "pr.create"] : [])
+  ])];
   return validateContract({
     schemaVersion: isV2 ? 2 : 1,
     goal,
@@ -1142,7 +1171,7 @@ export function buildContract({
     requiredEvidence,
     authority: {
       rootOnlyMutation: true,
-      externalSideEffects: authority
+      externalSideEffects
     },
     risk: {
       risk: riskValue(risk.risk),
@@ -1157,6 +1186,7 @@ export function buildContract({
     highRiskIgnored,
     remoteRevision,
     ...(selfImprovePurpose !== null ? { selfImprovePurpose } : {}),
+    ...(autonomyProfile !== null ? { autonomyProfile } : {}),
     ...(isV2
       ? {
           controlPlane: structuredClone(templateDefinition.controlPlane),
@@ -1234,6 +1264,15 @@ export async function createRun({ root = getStateRoot(), contract, requestedMode
       evaluationPurpose: contract.selfImprovePurpose ?? "ordinary",
       pluginCacheRoot: getCodexPluginCacheRoot(),
       sourceBinding,
+      ...(contract.autonomyProfile
+        ? {
+            autonomyProfile: {
+              ...contract.autonomyProfile,
+              sourceBindingDigest: sourceBinding.digest,
+              sourceHeadRevision: sourceBinding.headRevision
+            }
+          }
+        : {}),
       createdAt,
       contractDigest: digestObject(contract),
       authority: {
@@ -1252,6 +1291,16 @@ export async function createRun({ root = getStateRoot(), contract, requestedMode
       lastSentinel: null,
       lastSentinelVerified: false,
       lastSentinelComplete: false,
+      autonomy: contract.autonomyProfile
+        ? {
+            profileId: contract.autonomyProfile.id,
+            profileDigest: contract.autonomyProfile.profileDigest,
+            expiresAt: contract.autonomyProfile.expiresAt,
+            status: "unpreflighted",
+            blockedReason: "preflight-required",
+            resumeFromStage: null
+          }
+        : null,
       sideEffects: []
     };
     await atomicWriteJson(root, safeJoin(stagingDir, "contract.json"), contract);
@@ -2101,6 +2150,15 @@ export async function rebindSourceBinding(root, runId, reason) {
     const nextManifest = {
       ...run.manifest,
       sourceBinding: current,
+      ...(run.contract.autonomyProfile
+        ? {
+            autonomyProfile: {
+              ...run.manifest.autonomyProfile,
+              sourceBindingDigest: current.digest,
+              sourceHeadRevision: current.headRevision
+            }
+          }
+        : {}),
       sourceBindingHistory: [
         ...(Array.isArray(run.manifest.sourceBindingHistory) ? run.manifest.sourceBindingHistory : []),
         {
@@ -2134,6 +2192,17 @@ export async function rebindSourceBinding(root, runId, reason) {
       lastSentinel: null,
       lastSentinelVerified: false,
       lastSentinelComplete: false,
+      ...(run.contract.autonomyProfile
+        ? {
+            autonomy: {
+              ...run.state.autonomy,
+              status: "blocked",
+              blockedReason: "source-binding-drift",
+              requiredAuthority: "autonomy.preflight",
+              resumeFromStage: "preflight"
+            }
+          }
+        : {}),
       sourceBindingReboundAt: reboundAt,
       updatedAt: reboundAt
     };
@@ -2841,7 +2910,7 @@ async function currentGitProviderIdentity(cwd) {
   return realpath(path.isAbsolute(commonDirectory) ? commonDirectory : path.resolve(cwd, commonDirectory));
 }
 
-async function currentProviderExecutableIdentity(command) {
+export async function currentProviderExecutableIdentity(command) {
   const candidates = path.isAbsolute(command)
     ? [command]
     : [...new Set((process.env.PATH ?? "")
@@ -4539,9 +4608,50 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
     const manifest = await readJson(root, safeJoin(runDir, "manifest.json"));
     const state = await readJson(root, safeJoin(runDir, "state.json"));
     assertMutableRun({ state }, "Action token issuance");
+    if (contract.autonomyProfile && state.autonomy?.status !== "ready") {
+      throw new Error(`Action token denied because bounded autopilot is not ready: ${state.autonomy?.blockedReason ?? "preflight-required"}`);
+    }
     const findings = await listJsonRecords(root, safeJoin(runDir, "findings"));
     const evidence = await listJsonRecords(root, safeJoin(runDir, "evidence"));
     const actions = await listJsonRecords(root, safeJoin(runDir, "actions"));
+    let autonomyDecision = null;
+    let autonomyDecisionReceipt = null;
+    if (contract.autonomyProfile) {
+      validateAutonomyBinding(contract.autonomyProfile);
+      const profile = await loadAutonomyProfile();
+      if (autonomyProfileDigest(profile) !== contract.autonomyProfile.profileDigest) {
+        throw new Error("Autonomy profile bundle drifted after run creation");
+      }
+      const requestedScope = request.action === "pr.create" && contract.template === "pr-to-dev"
+        ? "dev"
+        : request.scope;
+      const decision = decideAutonomyAction(profile, request.action, {
+        resource: request.resource,
+        scope: requestedScope
+      });
+      autonomyDecisionReceipt = buildAutonomyDecisionReceipt({
+        runId,
+        binding: contract.autonomyProfile,
+        sourceBindingDigest: manifest.autonomyProfile?.sourceBindingDigest ?? manifest.sourceBinding?.digest ?? null,
+        request: {
+          action: request.action,
+          resource: request.resource,
+          scope: requestedScope ?? request.resource
+        },
+        decision,
+        tokenHash: null
+      });
+      if (decision.decision !== "auto-approved") {
+        await appendJournal(root, runDir, "autonomy.decision", {
+          decision: autonomyDecisionReceipt
+        });
+        assertAutonomyAction(profile, request.action, {
+          resource: request.resource,
+          scope: requestedScope
+        });
+      }
+      autonomyDecision = decision;
+    }
     if (
       request.action === "pr.create" &&
       actions.some((action) => action.action === "pr.create" && action.status === "spent" && action.outcome === "success")
@@ -4794,6 +4904,7 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
         cacheRoot: pluginCacheRoot
       };
     }
+    if (autonomyDecision) actionBinding.autonomyDecision = autonomyDecision;
     let creationPrecondition = null;
     if (request.action === "pr.merge" && contract.controlPlane?.reviewPolicy !== "none") {
       const { isIndependentCriticEvidence } = await import("./evidence.mjs");
@@ -4903,6 +5014,9 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
     }
     const token = randomBytes(32).toString("base64url");
     const tokenHash = sha256(token);
+    const persistedScope = request.action === "pr.create" && contract.template === "pr-to-dev"
+      ? "dev"
+      : request.scope ?? request.resource;
     const ttlSeconds = Number(request.ttlSeconds ?? config.actionToken.ttlSeconds);
     if (!Number.isFinite(ttlSeconds) || ttlSeconds < 1 || ttlSeconds > 3600) {
       throw new Error("Action token TTL must be 1..3600 seconds");
@@ -4926,6 +5040,20 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
           throw new Error("Owned resource creation requires an observed absent precondition after reservation");
         }
       }
+      const issuedAutonomyDecisionReceipt = autonomyDecision
+        ? buildAutonomyDecisionReceipt({
+            runId,
+            binding: contract.autonomyProfile,
+            sourceBindingDigest: manifest.autonomyProfile?.sourceBindingDigest ?? manifest.sourceBinding?.digest ?? null,
+            request: {
+              action: request.action,
+              resource: request.resource,
+              scope: persistedScope
+            },
+            decision: autonomyDecision,
+            tokenHash
+          })
+        : null;
       const record = {
         schemaVersion: 1,
         tokenHash,
@@ -4937,9 +5065,10 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
         action: request.action,
         provider: request.provider,
         resource: request.resource,
-        scope: request.scope ?? request.resource,
+        scope: persistedScope,
         remoteRevision: request.remoteRevision,
         ...actionBinding,
+        ...(issuedAutonomyDecisionReceipt ? { autonomyDecisionReceipt: issuedAutonomyDecisionReceipt } : {}),
         ...(creationPrecondition ? { creationPrecondition } : {}),
         treeDigest: currentTreeDigest,
         contractDigest: digestObject(contract),
@@ -4950,7 +5079,9 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
         action: record.action,
         provider: record.provider,
         resource: record.resource,
-        tokenHash
+        tokenHash,
+        autonomyDecision: record.autonomyDecision ?? null,
+        autonomyDecisionReceipt: record.autonomyDecisionReceipt ?? null
       });
       return { token, ...record };
     } catch (error) {
@@ -4970,6 +5101,35 @@ async function consumeActionTokenInternal(root, runId, token, currentTreeDigest,
     assertSupportedGovernedAction(record.action);
     const contract = await readJson(root, safeJoin(runDir, "contract.json"));
     assertActionIsNotDeferred(contract, record.action);
+    if (contract.autonomyProfile) {
+      validateAutonomyBinding(contract.autonomyProfile);
+      const profile = await loadAutonomyProfile();
+      if (autonomyProfileDigest(profile) !== contract.autonomyProfile.profileDigest) {
+        throw new Error("Action consumption denied because the autonomy profile bundle changed");
+      }
+      const decision = assertAutonomyAction(profile, record.action, {
+        resource: record.resource,
+        scope: record.scope
+      });
+      if (JSON.stringify(decision) !== JSON.stringify(record.autonomyDecision)) {
+        throw new Error("Action consumption denied because the autonomy decision binding changed");
+      }
+      const expectedReceipt = buildAutonomyDecisionReceipt({
+        runId,
+        binding: contract.autonomyProfile,
+        sourceBindingDigest: (await readJson(root, safeJoin(runDir, "manifest.json"))).autonomyProfile?.sourceBindingDigest ?? null,
+        request: {
+          action: record.action,
+          resource: record.resource,
+          scope: record.scope
+        },
+        decision,
+        tokenHash
+      });
+      if (JSON.stringify(expectedReceipt) !== JSON.stringify(record.autonomyDecisionReceipt)) {
+        throw new Error("Action consumption denied because the autonomy decision receipt changed");
+      }
+    }
     if (!allowWrapperExecution && EXECUTABLE_ACTION_PROVIDERS.has(`${record.action}:${record.provider}`)) {
       throw new Error("Wrapper-backed governed actions must use action execute; direct consume is not allowed");
     }

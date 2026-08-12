@@ -16,4 +16,8 @@ never fabricate an `auto` template.
 
 Select the final template and mode from the preview, current risk, and evidence.
 Profiles may raise the minimum mode but may not replace an explicit selector or
-grant authority. Keep model aliases internal unless the user asks for them.
+grant authority. A task may separately select `bounded-autopilot-v1` once; that
+run-scoped policy can automate only its bounded local actions, `codex/*` push,
+and one PR targeting `dev`. It never grants protected merge, deploy, direct
+`dev/main` push, or destructive cleanup authority. Keep model aliases internal
+unless the user asks for them.

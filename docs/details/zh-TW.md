@@ -497,6 +497,10 @@ binding、run 與 attempt 全部相符的既有 pending marker；即使 target �
 明確的 canonical cache-root 欄位，或 lock owner 無法證明已消失，也
 必須 fail closed。
 
+### Bounded autopilot
+
+delivery 只有在希望低風險長任務不被重複 prompt 打斷時，才可在每個 run 明確選擇不可變的 `bounded-autopilot-v1` profile。它只自動化 bounded commit、新的 immutable cache version、推送到 `codex/*`，以及一個 target 為 `dev` 的 PR；host bootstrap/upgrade/revoke、protected merge、deploy、直接推送 `dev`/`main` 與 branch/worktree cleanup 仍是人工 gate。evaluator standing consent 不會推導出 delivery authority。
+
 ## License
 
 MIT。請參閱 [LICENSE](../../LICENSE) 與 [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md)。

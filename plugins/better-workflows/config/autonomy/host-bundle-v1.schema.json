@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/stephen-taipei/better-workflows/schema/host-bundle-v1.json",
+  "title": "Better Workflows signed host bundle manifest",
+  "description": "Root-owned, independently signed host protocol compatibility manifest.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "kind",
+    "protocolVersion",
+    "bundleVersion",
+    "signerPath",
+    "signerDigest",
+    "launcherPath",
+    "launcherDigest",
+    "runtimePath",
+    "runtimeDigest",
+    "supportedConsentSchemas",
+    "issuer",
+    "keyId",
+    "issuedAt",
+    "signature"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "better-workflows-host-bundle" },
+    "protocolVersion": { "const": 1 },
+    "bundleVersion": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "signerPath": { "const": "/private/var/db/better-workflows/bin/bw-host-trust.mjs" },
+    "signerDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "launcherPath": { "const": "/private/var/db/better-workflows/bin/bw-host-exec-launcher" },
+    "launcherDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "runtimePath": { "type": "string", "pattern": "^/private/var/db/better-workflows/bin/bw-host-node\\.[a-f0-9]{64}$" },
+    "runtimeDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "supportedConsentSchemas": { "const": [4] },
+    "issuer": { "const": "better-workflows-local-host" },
+    "keyId": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,128}$" },
+    "issuedAt": { "type": "string", "format": "date-time" },
+    "signature": { "type": "string", "minLength": 16, "maxLength": 4096 }
+  }
+}

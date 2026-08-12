@@ -13,6 +13,7 @@ import {
   recoverPendingPluginCachePublication
 } from "../plugins/better-workflows/scripts/lib/publication.mjs";
 import {
+  VERSION,
   digestObject,
   getCodexPluginCacheRoot,
   getStateRoot,
@@ -345,7 +346,7 @@ async function main() {
           status: "complete",
           acceptanceIds: [],
           dependencyInputs: { files: [] },
-          dependencies: { workflowVersion: "3.2.5", files: [] },
+          dependencies: { workflowVersion: VERSION, files: [] },
           receiptBase: {
             contractVersion: 1,
             runId: targetRunId,

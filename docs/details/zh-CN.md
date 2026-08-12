@@ -468,6 +468,10 @@ publication lock，避免 marker transition 与 target removal 竞态；cleanup
 publisher 也只接受 source binding、run 与 attempt 全部匹配的既有 pending
 marker；即使 target 尚不存在，外来 marker 仍会保留且 publication fail closed。
 
+### Bounded autopilot
+
+delivery 只有在希望低风险长任务不被重复 prompt 打断时，才可在每个 run 明确选择不可变的 `bounded-autopilot-v1` profile。它只自动化 bounded commit、新的 immutable cache version、推送到 `codex/*`，以及一个目标为 `dev` 的 PR；host bootstrap/upgrade/revoke、protected merge、deploy、直接推送 `dev`/`main` 与 branch/worktree cleanup 仍是人工 gate。evaluator standing consent 不会推导出 delivery authority。
+
 ## License
 
 MIT。请参阅 [LICENSE](../../LICENSE) 与 [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md)。

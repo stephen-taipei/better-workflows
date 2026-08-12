@@ -18,6 +18,8 @@ for exact options in the installed build.
 sbw doctor
 sbw doctor --capabilities
 sbw route preview --goal "<goal>" --scope <path>
+sbw route preview --goal "<goal>" --scope <path> \
+  --autonomy-profile bounded-autopilot-v1
 sbw route profile validate --file <profile.json>
 sbw route profile install --file <profile.json>
 sbw route profile show
@@ -32,10 +34,15 @@ sbw run --template self-improve-ops --mode critical --goal "<goal>" \
   [--evaluation-purpose ordinary|evaluator-migration|safety-remediation-v1|quality-remediation-v1]
 sbw run --template pr-to-dev --mode critical --goal "<goal>" --scope <path> \
   --self-improve-run <self-improve-run-id>
+sbw run --template pr-to-dev --mode critical --goal "<goal>" --scope <path> \
+  --autonomy-profile bounded-autopilot-v1
 sbw self-improve handoff <pr-to-dev-run-id> --source-run <self-improve-run-id>
 sbw run --route-receipt <route-receipt-id>
 sbw status <run-id>
 sbw resume <run-id>
+sbw autonomy preview <run-id>
+sbw autonomy preflight <run-id>
+sbw autonomy revoke <run-id>
 sbw source rebind <run-id> --reason <text>
 sbw sentinel capture <run-id> --label <label>
 sbw sentinel verify <run-id> --label <label>

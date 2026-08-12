@@ -41,6 +41,7 @@ const EXECUTIONS = "/private/var/db/better-workflows/executions";
 const EXECUTION_BUNDLES = "/private/var/db/better-workflows/execution-bundles";
 const INSTALLED_SIGNER = "/private/var/db/better-workflows/bin/bw-host-trust.mjs";
 const READINESS_RECEIPT = "/private/var/db/better-workflows/host-readiness.json";
+const HOST_BUNDLE_MANIFEST = "/private/var/db/better-workflows/host-bundle.json";
 const STANDING_CONSENT_POLICY = `${HOST_ETC}/better-workflows/self-improve-standing-consent-policy.json`;
 const STANDING_CONSENT_GRANT = `${HOST_ETC}/better-workflows/self-improve-standing-consent-grant.json`;
 const STANDING_CONSENT_SUDOERS = `${HOST_ETC}/sudoers.d/better-workflows-self-improve`;
@@ -623,7 +624,7 @@ const PUBLIC_DOCUMENT_SAMPLE_PRIORITY = new Map([
   "scripts/plugin-cache.mjs",
   "docs/assets/better-workflows-engineering-stack.svg"
 ].map((file, index) => [file, index]));
-const CRITICAL_MATERIAL_ANCHOR = /resolveGitPushDestination|buildBoundGitPushArgs|buildBoundGitPushEnvironment|isolatedGitEnvironment|reconstructStandingBatch|validateAuthoritativeStandingManifestBindings|runEvaluatorPolicyProbe|evaluatorCommandArgs|delegatedSelfImproveContractProjection|applyDelegatedSelfImproveContract|delegated-contract-drift|candidate-self-authorized-(?:evidence|acceptance)|upstream run|orphan cache-only signals|required cache evidence|acceptance cache evidence|stage (?:handoff|cache) evidence|action handoff gate|unexpected (?:required evidence|acceptance id)|expectedReplayKeys|migrationTrainingComparison|alignedRuns|train-(?:candidate|baseline):1|(?:candidate|baseline):[1-3]|release metadata classification|every other byte change|migration gap repair|eight distinct migration witnesses|every target-only case|hidden comments|fenced examples|wrong-section|suite saturation|pendingMarkerMatchesPublication|acquirePublicationLock|releasePublicationLock|reclaimStalePublicationLock|legacy stale-lock quarantine|landingMarkdownStructure|reduceLedger|attempt-budget-exhausted|budget-exhausted|fifth scoped repair round|repair budget exhausted|final broad review|single-task non-direct run|automatic design or review artifacts|direct mode creates no state directory|self-reported evidence without a typed receipt|complete-without-typed-evidence/i;
+const CRITICAL_MATERIAL_ANCHOR = /resolveGitPushDestination|git push destination binds a divergent pushurl|buildBoundGitPushArgs|buildBoundGitPushEnvironment|isolatedGitEnvironment|reconstructStandingBatch|validateAuthoritativeStandingManifestBindings|runEvaluatorPolicyProbe|evaluatorCommandArgs|delegatedSelfImproveContractProjection|applyDelegatedSelfImproveContract|delegated-contract-drift|candidate-self-authorized-(?:evidence|acceptance)|upstream run|orphan cache-only signals|required cache evidence|acceptance cache evidence|stage (?:handoff|cache) evidence|action handoff gate|unexpected (?:required evidence|acceptance id)|expectedReplayKeys|migrationTrainingComparison|alignedRuns|train-(?:candidate|baseline):1|(?:candidate|baseline):[1-3]|release metadata classification|every other byte change|migration gap repair|eight distinct migration witnesses|every target-only case|hidden comments|fenced examples|wrong-section|suite saturation|pendingMarkerMatchesPublication|publication failure preserves a pending marker|acquirePublicationLock|releasePublicationLock|reclaimStalePublicationLock|legacy stale-lock quarantine|landingMarkdownStructure|reduceLedger|attempt-budget-exhausted|budget-exhausted|fifth scoped repair round|repair budget exhausted|final broad review|single-task non-direct run|automatic design or review artifacts|direct mode creates no state directory|self-reported evidence without a typed receipt|complete-without-typed-evidence/i;
 const RELEASE_BADGE_PATHS = new Set([
   "README.md",
   "docs/README.zh-TW.md",
@@ -637,6 +638,11 @@ const STANDING_CONSENT_GRANT_FIELDS = Object.freeze([
   "authorityStatementDigest", "deniedAuthorities", "ephemeral", "expiresAt", "grantId", "hostRuntime", "hostSigner",
   "issuedAt", "issuer", "keyId", "kind", "maxRequests", "models", "operation", "policyDigest", "policyPath", "provider",
   "purposes", "readOnly", "repo", "requestRoot", "revokedAt", "sanitized", "schemaVersion", "subject"
+]);
+const HOST_BUNDLE_FIELDS = Object.freeze([
+  "bundleVersion", "issuer", "issuedAt", "keyId", "kind", "launcherDigest", "launcherPath",
+  "protocolVersion", "runtimeDigest", "runtimePath", "schemaVersion", "signerDigest", "signerPath",
+  "supportedConsentSchemas"
 ]);
 
 export const EVALUATION_SCHEMA = {
@@ -1641,6 +1647,68 @@ async function currentReadinessReceipt(binding) {
   }
 }
 
+function validateHostBundleManifest(value) {
+  exactKeys(value, [...HOST_BUNDLE_FIELDS, "signature"], "Host bundle manifest");
+  if (value.schemaVersion !== 1 || value.kind !== "better-workflows-host-bundle" || value.protocolVersion !== 1 ||
+      value.bundleVersion !== HOST_SIGNER_VERSION || value.signerPath !== INSTALLED_SIGNER ||
+      !SHA256.test(value.signerDigest ?? "") || value.launcherPath !== EXECUTION_LAUNCHER ||
+      !SHA256.test(value.launcherDigest ?? "") || !SHA256.test(value.runtimeDigest ?? "") ||
+      value.runtimePath !== `${HOST_RUNTIME_ROOT}/bw-host-node.${value.runtimeDigest}` ||
+      canonicalJson(value.supportedConsentSchemas) !== canonicalJson([4]) || value.issuer !== ISSUER ||
+      typeof value.keyId !== "string" || !/^[A-Za-z0-9._-]{1,128}$/.test(value.keyId) ||
+      typeof value.issuedAt !== "string" || !Number.isFinite(Date.parse(value.issuedAt)) ||
+      typeof value.signature !== "string" || value.signature.length < 16 || value.signature.length > 4096) {
+    throw new Error("Host bundle manifest binding is invalid");
+  }
+  return value;
+}
+
+async function validateHostBundleSignature(value, trust) {
+  const key = trust.value.publicKeys.find((item) => item?.keyId === value.keyId && item.algorithm === "ed25519");
+  if (!key || typeof key.publicKey !== "string") throw new Error("Host bundle manifest signing key is invalid");
+  const publicKey = createPublicKey({ key: Buffer.from(key.publicKey, "base64"), format: "der", type: "spki" });
+  if (!verify(null, Buffer.from(canonicalJson(unsignedSignedValue(value)), "utf8"), publicKey, Buffer.from(value.signature, "base64"))) {
+    throw new Error("Host bundle manifest signature is invalid");
+  }
+}
+
+async function currentHostBundle({ trust, runtime, launcher, signer }) {
+  if (!(await exists(HOST_BUNDLE_MANIFEST))) return null;
+  await validateRootOwnedFile(HOST_BUNDLE_MANIFEST, "Host bundle manifest", 0o644);
+  const value = validateHostBundleManifest(JSON.parse((await readFile(HOST_BUNDLE_MANIFEST)).toString("utf8")));
+  await validateHostBundleSignature(value, trust);
+  if (value.keyId !== trust.value.publicKeys[0]?.keyId ||
+      value.signerDigest !== signer?.digest || value.launcherDigest !== launcher?.digest ||
+      value.runtimePath !== runtime?.path || value.runtimeDigest !== runtime?.digest) {
+    throw new Error("Host bundle manifest is stale against the installed host artifacts");
+  }
+  return value;
+}
+
+async function createHostBundleManifest({ trust, runtime, launcher, signer }) {
+  if (!runtime?.path || !runtime?.digest || !launcher?.digest || !signer?.digest) {
+    throw new Error("Host bundle manifest requires complete installed host artifact identities");
+  }
+  const key = trust.value.publicKeys[0];
+  const payload = {
+    schemaVersion: 1,
+    kind: "better-workflows-host-bundle",
+    protocolVersion: 1,
+    bundleVersion: HOST_SIGNER_VERSION,
+    signerPath: INSTALLED_SIGNER,
+    signerDigest: signer.digest,
+    launcherPath: EXECUTION_LAUNCHER,
+    launcherDigest: launcher.digest,
+    runtimePath: runtime.path,
+    runtimeDigest: runtime.digest,
+    supportedConsentSchemas: [4],
+    issuer: trust.value.issuer,
+    keyId: key.keyId,
+    issuedAt: new Date().toISOString()
+  };
+  return (await signPayload(payload)).signed;
+}
+
 async function createReadinessReceipt(binding, probeResult, keyPairVerification) {
   if (!probeResult || typeof probeResult !== "object" || Array.isArray(probeResult)) {
     throw new Error("Host readiness receipt requires a verified behavioral probe result");
@@ -1775,7 +1843,7 @@ async function currentStandingConsent({ trust, runtime, signer }) {
   }
 }
 
-async function status({ requireReadinessReceipt = true } = {}) {
+async function status({ requireReadinessReceipt = true, ignoreHostBundle = false } = {}) {
   const trust = await validateTrustRoot();
   const keyInfo = await validateRootOwnedFile(PRIVATE_KEY, "Private signing key", 0o600);
   const keyPairProof = (await signingKeyPairChallenge(trust)).proof;
@@ -1810,12 +1878,18 @@ async function status({ requireReadinessReceipt = true } = {}) {
     signer
   });
   const readinessReceipt = await currentReadinessReceipt(binding);
+  let hostBundle = null;
+  try {
+    hostBundle = await currentHostBundle({ trust, runtime, launcher, signer });
+  } catch (error) {
+    hostBundle = { supported: false, error: error.message };
+  }
   const standingConsent = await currentStandingConsent({ trust, runtime, signer });
   const staticReady = Boolean(signer?.supported && runtime?.supported && launcher.supported && probe.supported && codexBinary.supported);
   return {
     ok: true,
     provisioned: true,
-    ready: staticReady && (!requireReadinessReceipt || readinessReceipt.supported),
+    ready: staticReady && (ignoreHostBundle || hostBundle?.supported !== false) && (!requireReadinessReceipt || readinessReceipt.supported),
     trustRoot: {
       path: TRUST_ROOT,
       issuer: trust.value.issuer,
@@ -1831,6 +1905,7 @@ async function status({ requireReadinessReceipt = true } = {}) {
     codexBinary,
     signer,
     readinessReceipt,
+    ...(hostBundle ? { hostBundle } : {}),
     standingConsent
   };
 }
@@ -2035,7 +2110,7 @@ async function revokeStandingConsent(grantId) {
 async function provision() {
   requireRoot();
   await requireTrustedRuntime();
-  for (const target of [TRUST_ROOT, PRIVATE_KEY, INSTALLED_SIGNER]) {
+  for (const target of [TRUST_ROOT, PRIVATE_KEY, INSTALLED_SIGNER, HOST_BUNDLE_MANIFEST]) {
     if (await exists(target)) {
       throw new Error(`Refusing implicit rotation or overwrite: ${target}`);
     }
@@ -2074,6 +2149,19 @@ async function provision() {
       0o755
     );
     created.push(INSTALLED_SIGNER);
+    const installed = await status({ requireReadinessReceipt: false, ignoreHostBundle: true });
+    const hostBundle = await createHostBundleManifest({
+      trust: await validateTrustRoot(),
+      runtime: installed.runtime,
+      launcher: installed.launcher,
+      signer: installed.signer
+    });
+    await exclusiveWrite(
+      HOST_BUNDLE_MANIFEST,
+      `${JSON.stringify(hostBundle, null, 2)}\n`,
+      0o644
+    );
+    created.push(HOST_BUNDLE_MANIFEST);
     return await status();
   } catch (error) {
     for (const target of created.reverse()) {
@@ -4961,7 +5049,7 @@ async function upgradeSigner(
       const change = await replaceRootOwnedFile(target, item, mode, label);
       if (change.changed) changes.push({ target, label, mode, previous: change.previous });
     }
-    const installed = await status({ requireReadinessReceipt: false });
+    const installed = await status({ requireReadinessReceipt: false, ignoreHostBundle: true });
     if (!installed.ready) throw new Error("installed signer failed its static capability checks");
     const readinessProbe = await runReadinessProbe({
       uid: probeUid,
@@ -4977,9 +5065,28 @@ async function upgradeSigner(
       homePath: probeHomePath,
       codexHomePath: probeCodexHomePath
     });
-    const staticReady = await status({ requireReadinessReceipt: false });
+    const staticReady = await status({ requireReadinessReceipt: false, ignoreHostBundle: true });
     if (!staticReady.ready) throw new Error("installed signer failed its end-to-end readiness probe");
     const trust = await validateTrustRoot();
+    const hostBundle = await createHostBundleManifest({
+      trust,
+      runtime: staticReady.runtime,
+      launcher: staticReady.launcher,
+      signer: staticReady.signer
+    });
+    const hostBundleBytes = Buffer.from(`${JSON.stringify(hostBundle, null, 2)}\n`);
+    const hostBundleChange = await replaceRootOwnedFile(
+      HOST_BUNDLE_MANIFEST,
+      { bytes: hostBundleBytes, digest: await digest(hostBundleBytes) },
+      0o644,
+      "Host bundle manifest"
+    );
+    if (hostBundleChange.changed) changes.push({
+      target: HOST_BUNDLE_MANIFEST,
+      label: "Host bundle manifest",
+      mode: 0o644,
+      previous: hostBundleChange.previous
+    });
     const keyPair = await validateSigningKeyPair(trust, await readFile(PRIVATE_KEY));
     const probeResult = {
       launcher: {

@@ -6,7 +6,7 @@
 
 Codex 작업을 “Prompt를 주고 성공을 기대하는” 상태에서 의도, 검증, provider reconciliation을 거친 delivery로 전환합니다.
 
-[![Version](https://img.shields.io/badge/version-3.2.5-2563EB?style=flat-square)](../plugins/better-workflows/package.json)
+[![Version](https://img.shields.io/badge/version-3.3.0-2563EB?style=flat-square)](../plugins/better-workflows/package.json)
 [![Node](https://img.shields.io/badge/Node.js-%E2%89%A524-3C873A?style=flat-square)](../plugins/better-workflows/package.json)
 [![Dependencies](https://img.shields.io/badge/runtime_dependencies-0-0F766E?style=flat-square)](../plugins/better-workflows/package.json)
 [![License](https://img.shields.io/badge/license-MIT-64748B?style=flat-square)](../LICENSE)
@@ -149,6 +149,9 @@ Better Workflows는 control plane을 기록하고 검사하지만 무제한 agen
 - Side effects에는 명시적인 user authority와 single-use action gates가 필요합니다.
 - Self-improve evaluator replay는 한 번 설치한 root-signed standing consent를 사용할 수 있지만
   sanitized, read-only `gpt-5.6-terra` batch로 제한되며 delivery 권한은 부여하지 않습니다.
+- 작업마다 `bounded-autopilot-v1`을 한 번 명시적으로 선택할 수 있습니다. 제한된
+  local work, `codex/*` push, `dev` 대상 PR은 자동화하지만 protected merge, deploy,
+  `dev/main` 직접 push, 파괴적 cleanup에는 별도 authority가 필요합니다.
 - Independent critics는 read-only이며 risk acceptance나 success declaration을 할 수 없습니다.
 - Workspace recipes는 deterministic Node.js mechanics만 실행하며 model 선택, network,
   arbitrary shell, source mutation을 할 수 없습니다.

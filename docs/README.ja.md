@@ -6,7 +6,7 @@
 
 Codex の作業を「Prompt を渡して成功を祈る」状態から、意図、検証、provider reconciliation を経た delivery へ進めます。
 
-[![Version](https://img.shields.io/badge/version-3.2.5-2563EB?style=flat-square)](../plugins/better-workflows/package.json)
+[![Version](https://img.shields.io/badge/version-3.3.0-2563EB?style=flat-square)](../plugins/better-workflows/package.json)
 [![Node](https://img.shields.io/badge/Node.js-%E2%89%A524-3C873A?style=flat-square)](../plugins/better-workflows/package.json)
 [![Dependencies](https://img.shields.io/badge/runtime_dependencies-0-0F766E?style=flat-square)](../plugins/better-workflows/package.json)
 [![License](https://img.shields.io/badge/license-MIT-64748B?style=flat-square)](../LICENSE)
@@ -149,6 +149,9 @@ Better Workflows は control plane を記録して検証しますが、無制限
 - Side effects には明示的な user authority と single-use action gates が必要です。
 - Self-improve evaluator replay は一度導入した root-signed standing consent を使えますが、
   sanitized・read-only の `gpt-5.6-terra` batch に限られ、delivery は許可しません。
+- タスクごとに `bounded-autopilot-v1` を一度だけ明示選択できます。制限付きの
+  local work、`codex/*` への push、`dev` 向け PR を自動化できますが、protected
+  merge、deploy、`dev/main` への直接 push、破壊的 cleanup には別の authority が必要です。
 - Independent critics は read-only で、risk acceptance や success declaration はできません。
 - Workspace recipes は deterministic Node.js mechanics だけを実行し、model 選択、network、
   arbitrary shell、source mutation はできません。

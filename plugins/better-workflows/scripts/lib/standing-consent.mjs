@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { chmod, lstat, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { hostBundleFromStatus } from "./host-bundle.mjs";
 
 export const STANDING_CONSENT_POLICY_PATH = "plugins/better-workflows/config/self-improve-standing-consent-v1.json";
 const HOST_ETC = process.platform === "darwin" ? "/private/etc" : "/etc";
@@ -241,12 +241,14 @@ export async function prepareStandingConsentInstall({ repo, hostStatus }) {
   }
   const runtime = hostStatus?.runtime;
   const signer = hostStatus?.signer;
-  const sourceSignerPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../host-trust.mjs");
-  const sourceSignerDigest = consentDigest(await readFile(sourceSignerPath));
+  const hostBundle = hostBundleFromStatus(hostStatus);
   if (!hostStatus?.ready || !runtime?.supported || !signer?.supported ||
       typeof runtime.path !== "string" || !SHA256.test(runtime.digest ?? "") ||
-      signer.path !== "/private/var/db/better-workflows/bin/bw-host-trust.mjs" || signer.digest !== sourceSignerDigest) {
-    throw new Error("Current administrator runtime and signer must be upgraded before preparing standing consent");
+      signer.path !== "/private/var/db/better-workflows/bin/bw-host-trust.mjs" ||
+      hostBundle.schemaVersion !== 1 || hostBundle.protocolVersion !== 1 ||
+      hostBundle.bundleVersion !== signer.version || hostBundle.signerDigest !== signer.digest ||
+      hostBundle.runtimeDigest !== runtime.digest) {
+    throw new Error("Current administrator runtime and signed host bundle must be ready before preparing standing consent");
   }
   const requestRoot = `/private/tmp/better-workflows-standing-consent-${uid}`;
   await mkdir(requestRoot, { recursive: true, mode: 0o700 });

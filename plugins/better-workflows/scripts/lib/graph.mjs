@@ -1,5 +1,6 @@
 import path from "node:path";
 import { digestObject } from "./core.mjs";
+import { AUTONOMY_PROFILE_ID, validateAutonomyBinding } from "./autonomy.mjs";
 
 export const GRAPH_SCHEMA_VERSION = 1;
 export const SELF_IMPROVE_HANDOFF_KIND = "self-improve-delivery-handoff";
@@ -19,7 +20,8 @@ export const GRAPH_NODE_KINDS = new Set([
   "finding",
   "sentinel",
   "source-binding",
-  "root-action"
+  "root-action",
+  "autonomy-policy"
 ]);
 
 export const GRAPH_EDGE_KINDS = new Set([
@@ -31,7 +33,8 @@ export const GRAPH_EDGE_KINDS = new Set([
   "records",
   "binds",
   "freshness-depends-on",
-  "depends-on"
+  "depends-on",
+  "authorizes-with"
 ]);
 
 const HARD_EDGE_KINDS = new Set(["requires", "gates"]);
@@ -68,7 +71,8 @@ const ENDPOINTS = {
     ["template", "action-kind", "evidence-kind", "source-binding", "sentinel"]
   ],
   "freshness-depends-on": [["evidence-record"], ["source-binding"]],
-  "depends-on": [["task"], ["task"]]
+  "depends-on": [["task"], ["task"]],
+  "authorizes-with": [["run"], ["autonomy-policy"]]
 };
 
 function pointerSegment(value) {
@@ -189,7 +193,16 @@ function manifestProjection(manifest) {
       rootOnlyMutation: manifest.authority?.rootOnlyMutation === true,
       nativeSubagentsAreTrustedContract:
         manifest.authority?.nativeSubagentsAreTrustedContract === true
-    }
+    },
+    autonomyProfile: manifest.autonomyProfile
+      ? {
+          id: manifest.autonomyProfile.id,
+          profileDigest: manifest.autonomyProfile.profileDigest,
+          sourceBindingDigest: manifest.autonomyProfile.sourceBindingDigest,
+          sourceHeadRevision: manifest.autonomyProfile.sourceHeadRevision,
+          expiresAt: manifest.autonomyProfile.expiresAt
+        }
+      : null
   };
 }
 
@@ -209,6 +222,15 @@ function contractProjection(contract) {
         ...(contract.authority?.externalSideEffects ?? [])
       ]
     },
+    autonomyProfile: contract.autonomyProfile
+      ? {
+          id: contract.autonomyProfile.id,
+          profileDigest: contract.autonomyProfile.profileDigest,
+          expiresAt: contract.autonomyProfile.expiresAt,
+          scope: contract.autonomyProfile.scope,
+          limits: contract.autonomyProfile.limits
+        }
+      : null,
     agy: {
       allowed: contract.agy?.allowed === true,
       sanitized: contract.agy?.sanitized === true,
@@ -228,6 +250,15 @@ function stateProjection(state) {
       : null,
     lastSentinelVerified: state.lastSentinelVerified === true,
     lastSentinelComplete: state.lastSentinelComplete === true,
+    autonomy: state.autonomy
+      ? {
+          profileId: state.autonomy.profileId,
+          profileDigest: state.autonomy.profileDigest,
+          status: state.autonomy.status,
+          blockedReason: state.autonomy.blockedReason ?? null,
+          resumeFromStage: state.autonomy.resumeFromStage ?? null
+        }
+      : null,
     migration: state.migration
       ? {
           kind: state.migration.kind,
@@ -673,6 +704,30 @@ export function buildRunGraph({
   );
   accumulator.edge("instantiates", runNode, parts.templateNode, manifestSource);
   accumulator.edge("declares", runNode, stateNode, stateSource);
+  if (contract.autonomyProfile) {
+    try {
+      validateAutonomyBinding(contract.autonomyProfile);
+      if (contract.autonomyProfile.id !== AUTONOMY_PROFILE_ID) {
+        throw new Error("unsupported autonomy profile");
+      }
+      if (manifest.autonomyProfile?.profileDigest !== contract.autonomyProfile.profileDigest ||
+          manifest.autonomyProfile?.sourceBindingDigest !== manifest.sourceBinding?.digest) {
+        throw new Error("manifest autonomy binding drifted from the contract or source binding");
+      }
+      if ((contract.authority?.externalSideEffects ?? []).some((action) => ["pr.merge", "deploy", "worktree.cleanup"].includes(action))) {
+        throw new Error("bounded-autopilot cannot authorize protected merge, deploy, or cleanup");
+      }
+      const autonomyNode = accumulator.node(
+        "autonomy-policy",
+        scopedStableId(runId, contract.autonomyProfile.profileDigest),
+        `${contract.autonomyProfile.id}:${contract.autonomyProfile.expiresAt}`,
+        source("contract.json", "#/autonomyProfile", contract.autonomyProfile)
+      );
+      accumulator.edge("authorizes-with", runNode, autonomyNode, source("contract.json", "#/autonomyProfile", contract.autonomyProfile));
+    } catch (error) {
+      accumulator.error("autonomy-policy-drift", error.message, [runNode]);
+    }
+  }
 
   if (contract.schemaVersion === 2 && !ledger) {
     accumulator.error("missing-execution-ledger", "TaskContract v2 run is missing ledger.json", [runNode]);

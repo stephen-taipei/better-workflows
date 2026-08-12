@@ -1000,6 +1000,11 @@ test("host trust helper fixes authority paths and does not accept environment pa
   assert.match(source, /isMachO/);
   assert.match(source, /CODEX_ALLOWLIST/);
   assert.match(source, /READINESS_RECEIPT/);
+  assert.match(source, /HOST_BUNDLE_MANIFEST/);
+  assert.match(source, /createHostBundleManifest/);
+  assert.match(source, /ignoreHostBundle/);
+  assert.match(source, /better-workflows-host-bundle/);
+  assert.match(source, /supportedConsentSchemas/);
   assert.match(source, /host-readiness-receipt/);
   assert.match(source, /requireReadinessReceipt = true/);
   assert.match(source, /allowUnprovenReadiness/);

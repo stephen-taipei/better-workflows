@@ -83,6 +83,14 @@ keeps file order. Match categories are ANDed while values inside a category are
 ORed. A Profile cannot grant authority, install capabilities, add side effects,
 lower a mode, or replace an explicit selector.
 
+For delivery work, select `bounded-autopilot-v1` explicitly on the run when the
+user wants low-risk work to continue without repeated prompts. It is a
+run-scoped policy projection, not a global default or an authority source: it
+may automate bounded commit, immutable cache publication, `codex/*` push, and
+one PR to `dev`, while host bootstrap/upgrade/revoke, protected merge, deploy,
+direct `dev`/`main` push, and cleanup remain human gates. Evaluator standing
+consent never implies this delivery profile.
+
 If the route remains built-in `auto`, `template` is intentionally null. Select
 one real template from current evidence and preview again with `--template`;
 never invent an `auto` template. For a stable handoff, record and consume one
