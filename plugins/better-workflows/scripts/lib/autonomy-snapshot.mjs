@@ -27,8 +27,8 @@ export function autonomyBoundaryError(reason, message, cause = null) {
   return error;
 }
 
-function isExpectedMissingConfig(result) {
-  return result?.ok === false && Number(result.code) === 1 && !result.signal &&
+export function isExactGitAbsence(result, { absentCodes = [1] } = {}) {
+  return result?.ok === false && absentCodes.includes(Number(result.code)) && result.signal == null &&
     !result.timedOut && !result.outputExceeded;
 }
 
@@ -43,7 +43,7 @@ export async function readRawLocalConfigValues(runGit, key, {
     ...(timeoutMs === undefined ? {} : { timeoutMs })
   });
   if (!result.ok) {
-    if (isExpectedMissingConfig(result)) return [];
+    if (isExactGitAbsence(result)) return [];
     const detail = String(result.stderr || result.code || "unknown failure").trim();
     const error = new Error(`${label} could not read raw local ${key}: ${detail}`);
     error.code = result.code;
@@ -84,13 +84,16 @@ export async function currentAutonomyBranchFromGit(runGit, options = {}) {
     ...options
   });
   if (!result.ok) {
-    if (Number(result.code) === 1 && !result.signal) return null;
+    if (isExactGitAbsence(result)) return null;
     const error = new Error(`Autonomy branch lookup failed: ${String(result.stderr || result.code || "unknown failure").trim()}`);
     error.code = result.code;
     error.signal = result.signal;
     throw error;
   }
-  return result.stdout.trim() || null;
+  if (typeof result.stdout !== "string" || !/^[^\0\r\n]+\n$/.test(result.stdout)) {
+    throw new Error("Autonomy branch lookup returned malformed success output");
+  }
+  return result.stdout.slice(0, -1);
 }
 
 export async function resolveGovernedGithubRepository(runGit, options = {}) {

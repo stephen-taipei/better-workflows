@@ -28,7 +28,7 @@ import {
   resolveAutonomyRepository,
   runAutonomyGitCommandForTest
 } from "../lib/autonomy-preflight.mjs";
-import { readRawLocalConfigValues } from "../lib/autonomy-snapshot.mjs";
+import { currentAutonomyBranchFromGit, readRawLocalConfigValues } from "../lib/autonomy-snapshot.mjs";
 
 const execFileAsync = promisify(execFile);
 const SYSTEM_GIT = "/usr/bin/git";
@@ -415,6 +415,41 @@ test("autonomy remote binding fails closed on indeterminate pushurl reads and ov
   await writeFile(configPath, `${config}\n[remote "origin"]\n\tpushurl = https://github.com/example/${"a".repeat(1_100_000)}.git\n`);
   await assert.rejects(resolveAutonomyRepository(root), /output exceeded/);
   await rm(root, { recursive: true, force: true });
+});
+
+test("autonomy branch lookup accepts only exact detached-HEAD absence and well-formed success", async () => {
+  const absent = {
+    ok: false,
+    stdout: "",
+    stderr: "",
+    code: 1,
+    signal: null,
+    timedOut: false,
+    outputExceeded: false
+  };
+  assert.equal(await currentAutonomyBranchFromGit(async () => absent), null);
+  assert.equal(await currentAutonomyBranchFromGit(async () => ({
+    ok: true,
+    stdout: "codex/exact-branch\n",
+    stderr: ""
+  })), "codex/exact-branch");
+  for (const failure of [
+    { ...absent, timedOut: true },
+    { ...absent, outputExceeded: true },
+    { ...absent, signal: "SIGKILL" },
+    { ...absent, code: 128 }
+  ]) {
+    await assert.rejects(
+      currentAutonomyBranchFromGit(async () => failure),
+      /Autonomy branch lookup failed/
+    );
+  }
+  for (const stdout of ["", "codex/no-newline", "codex/one\ncodex/two\n", "codex/nul\0branch\n"]) {
+    await assert.rejects(
+      currentAutonomyBranchFromGit(async () => ({ ok: true, stdout, stderr: "" })),
+      /malformed success output/
+    );
+  }
 });
 
 test("autonomy and governed push share one credential-safe HTTPS GitHub remote boundary", async () => {

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import { EventEmitter } from "node:events";
 import {
   createHash,
@@ -14,7 +15,9 @@ import path from "node:path";
 import { Readable } from "node:stream";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import {
+  authoritativeTreeEntryFromGit,
   authoritativeLocalGitValues,
   authoritativeEvidenceIndex,
   buildEvaluatorInferenceInput,
@@ -26,7 +29,9 @@ import {
   evaluatorRegistryProbeArgs,
   evaluatorToolProbeArgs,
   forwardedHeaders,
+  literalAuthoritativeGitPathspec,
   optionalAuthoritativeGitOutput,
+  parseAuthoritativeTreeEntry,
   parseEvaluatorTranscript,
   privateKeyFromRaw,
   reconstructPluginBundleDigest,
@@ -60,6 +65,7 @@ const SCRIPT = path.resolve(
   "..",
   "host-trust.mjs"
 );
+const execFileAsync = promisify(execFile);
 const STANDING_CONSENT_POLICY = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "../../config/self-improve-standing-consent-v1.json"
@@ -123,6 +129,52 @@ test("host authoritative optional Git reads distinguish only exact absence", () 
     () => authoritativeLocalGitValues({ ...absent, ok: true, code: 0, stdout: "line1\nline2\0" }, "remote.origin.url"),
     /invalid local Git value/
   );
+});
+
+test("root-authoritative tree reads literalize magic-prefixed tracked filenames", async () => {
+  const repo = await mkdtemp(path.join(os.tmpdir(), "sbw-host-literal-tree-"));
+  try {
+    await execFileAsync("/usr/bin/git", ["init", "-q", "-b", "dev"], { cwd: repo });
+    await execFileAsync("/usr/bin/git", ["config", "user.name", "Better Workflows Tests"], { cwd: repo });
+    await execFileAsync("/usr/bin/git", ["config", "user.email", "tests@example.invalid"], { cwd: repo });
+    const file = ":(top)NO_SUCH";
+    await writeFile(path.join(repo, file), "baseline\n");
+    await execFileAsync("/usr/bin/git", ["add", "."], { cwd: repo });
+    await execFileAsync("/usr/bin/git", ["commit", "-qm", "literal baseline"], { cwd: repo });
+    const baseline = (await execFileAsync("/usr/bin/git", ["rev-parse", "HEAD"], { cwd: repo })).stdout.trim();
+    await writeFile(path.join(repo, file), "candidate\n");
+    await execFileAsync("/usr/bin/git", ["add", "."], { cwd: repo });
+    await execFileAsync("/usr/bin/git", ["commit", "-qm", "literal candidate"], { cwd: repo });
+    const head = (await execFileAsync("/usr/bin/git", ["rev-parse", "HEAD"], { cwd: repo })).stdout.trim();
+    const calls = [];
+    const runGit = async (cwd, _subject, args) => {
+      calls.push(args);
+      const result = await execFileAsync("/usr/bin/git", args, { cwd, encoding: "utf8" });
+      return { stdout: result.stdout };
+    };
+    const baseEntry = await authoritativeTreeEntryFromGit(runGit, repo, {}, baseline, file);
+    const headEntry = await authoritativeTreeEntryFromGit(runGit, repo, {}, head, file);
+    assert.equal(baseEntry.path, file);
+    assert.equal(baseEntry.type, "blob");
+    assert.equal(baseEntry.mode, "100644");
+    assert.equal(headEntry.path, file);
+    assert.notEqual(headEntry.object, baseEntry.object);
+    assert.deepEqual(calls.map((args) => args.at(-1)), [
+      literalAuthoritativeGitPathspec(file),
+      literalAuthoritativeGitPathspec(file)
+    ]);
+    assert.equal(parseAuthoritativeTreeEntry("", file), null);
+    for (const output of [
+      `100644 blob ${"a".repeat(40)}\t${file}`,
+      `100644 blob ${"a".repeat(40)}\twrong\0`,
+      `100644 blob ${"a".repeat(40)}\t${file}\u0000100644 blob ${"b".repeat(40)}\t${file}\0`,
+      `100644 blob invalid\t${file}\0`
+    ]) {
+      assert.throws(() => parseAuthoritativeTreeEntry(output, file), /tree lookup/);
+    }
+  } finally {
+    await rm(repo, { recursive: true, force: true });
+  }
 });
 
 function validEvaluatorClientRequest(model, inputText, outputSchema) {
@@ -1131,7 +1183,7 @@ test("root standing reconstruction reads candidate authority from bound commit o
   const candidateBlock = source.slice(candidateStart, candidateEnd);
   assert.match(candidateBlock, /"diff-tree"/);
   assert.match(candidateBlock, /baselineRevision, headRevision/);
-  assert.match(candidateBlock, /authoritativeGitBytes\(repo, subject, \["show", `\$\{headRevision\}:\$\{safeFile\}`\]\)/);
+  assert.match(candidateBlock, /authoritativeGitBytes\(repo, subject, \["cat-file", "blob", entry\.object\]\)/);
   assert.doesNotMatch(candidateBlock, /await (?:lstat|readFile|realpath)\(/);
 
   const materialStart = source.indexOf("async function reconstructSanitizedMaterial");

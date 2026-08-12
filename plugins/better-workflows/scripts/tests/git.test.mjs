@@ -6,7 +6,16 @@ import { mkdir, mkdtemp, readFile, realpath, symlink, unlink, writeFile } from "
 import os from "node:os";
 import path from "node:path";
 import { buildContract, loadDefaults } from "../lib/core.mjs";
-import { captureSentinel, captureSourceBinding, compareSentinels, runSourceGit } from "../lib/git.mjs";
+import {
+  captureSentinel,
+  captureSourceBinding,
+  captureStrictSubmoduleStatus,
+  compareSentinels,
+  isGitRepository,
+  parseGitWorktreeProbeOutput,
+  runSourceGit,
+  validateSubmoduleStatusOutput
+} from "../lib/git.mjs";
 
 const execFileAsync = promisify(execFile);
 
@@ -43,6 +52,83 @@ function taskContract() {
     highRiskIgnored: [".secrets-marker"]
   });
 }
+
+test("repository and submodule probes fail closed on indeterminate or malformed results", async () => {
+  const cwd = await repository();
+  const nonRepository = await mkdtemp(path.join(os.tmpdir(), "sbw-not-git-"));
+  assert.equal(await isGitRepository(cwd), true);
+  assert.equal(await isGitRepository(nonRepository), false);
+  assert.equal(parseGitWorktreeProbeOutput("true\n"), true);
+  assert.equal(parseGitWorktreeProbeOutput("false\n"), false);
+  for (const stdout of ["", "true", " true\n", "true\nfalse\n"]) {
+    assert.throws(() => parseGitWorktreeProbeOutput(stdout), /malformed success output/);
+    await assert.rejects(
+      isGitRepository(cwd, { runGit: async () => ({ ok: true, stdout, stderr: "" }) }),
+      /malformed success output/
+    );
+  }
+  for (const failure of [
+    Object.assign(new Error("timeout"), { code: "ETIMEDOUT", timedOut: true }),
+    Object.assign(new Error("output exceeded"), { code: "ERR_CHILD_PROCESS_STDIO_MAXBUFFER", outputExceeded: true }),
+    Object.assign(new Error("signal"), { signal: "SIGKILL" }),
+    Object.assign(new Error("fatal"), { code: 128 })
+  ]) {
+    await assert.rejects(
+      isGitRepository(cwd, { runGit: async () => { throw failure; } }),
+      (error) => error === failure
+    );
+    await assert.rejects(
+      captureStrictSubmoduleStatus(async () => { throw failure; }, cwd),
+      (error) => error === failure
+    );
+  }
+  assert.equal(validateSubmoduleStatusOutput(""), "");
+  const validSubmodule = ` ${"a".repeat(40)} dependencies/example (heads/main)\n`;
+  assert.equal(validateSubmoduleStatusOutput(validSubmodule), validSubmodule);
+  assert.deepEqual(await captureStrictSubmoduleStatus(async () => ({
+    ok: true,
+    stdout: "",
+    stderr: ""
+  }), cwd), {
+    available: true,
+    digest: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    value: ""
+  });
+  for (const stdout of ["not-a-submodule\n", ` ${"a".repeat(40)} path`, "\n", "value\0\n"]) {
+    assert.throws(() => validateSubmoduleStatusOutput(stdout), /malformed success output/);
+    await assert.rejects(
+      captureStrictSubmoduleStatus(async () => ({ ok: true, stdout, stderr: "" }), cwd),
+      /malformed success output/
+    );
+  }
+  await assert.rejects(
+    captureStrictSubmoduleStatus(async () => ({
+      ok: false,
+      stdout: "",
+      stderr: "missing",
+      code: 1,
+      signal: null,
+      timedOut: false,
+      outputExceeded: false
+    }), cwd),
+    /indeterminate result/
+  );
+});
+
+test("sentinel rejects recursive submodule status failures", async () => {
+  const cwd = await repository();
+  const head = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd, encoding: "utf8" })).stdout.trim();
+  await writeFile(path.join(cwd, ".gitmodules"), "[submodule \"broken\"\n");
+  await git(cwd, "add", ".gitmodules");
+  await execFileAsync("git", [
+    "update-index", "--add", "--cacheinfo", `160000,${head},dependencies/broken`
+  ], { cwd });
+  await git(cwd, "commit", "-qm", "malformed submodule metadata");
+  await assert.rejects(
+    captureSentinel(cwd, taskContract(), await loadDefaults()),
+    /submodule status.*failed|bad config line/i
+  );
+});
 
 test("bounded sentinel detects tracked, untracked, symlink, and high-risk ignored drift", async () => {
   const cwd = await repository();

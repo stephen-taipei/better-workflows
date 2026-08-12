@@ -180,6 +180,35 @@ test("present baseline blob failures never become missing files or corpus fallba
   }
 });
 
+test("baseline snapshots treat magic-prefixed tracked filenames as literal paths", async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), "sbw-literal-baseline-path-"));
+  try {
+    await execFileAsync("git", ["init", "-q", "-b", "dev"], { cwd });
+    await execFileAsync("git", ["config", "user.name", "Better Workflows Tests"], { cwd });
+    await execFileAsync("git", ["config", "user.email", "tests@example.invalid"], { cwd });
+    const literalPath = ":(top)NO_SUCH";
+    const baselineBytes = Buffer.from("literal baseline\n");
+    await writeFile(path.join(cwd, literalPath), baselineBytes, { mode: 0o644 });
+    await writeFile(path.join(cwd, "NO_SUCH"), "pathspec decoy\n", { mode: 0o755 });
+    await chmod(path.join(cwd, "NO_SUCH"), 0o755);
+    await execFileAsync("git", ["add", "."], { cwd });
+    await execFileAsync("git", ["commit", "-qm", "literal path baseline"], { cwd });
+    const baseline = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd })).stdout.trim();
+    await writeFile(path.join(cwd, literalPath), "literal candidate\n", { mode: 0o644 });
+    const candidate = await snapshotCandidate({ cwd, baselineRevision: baseline, candidateRoot: "." });
+    const candidateFile = candidate.files.find((item) => item.path === literalPath);
+    assert.equal(candidateFile?.state, "file");
+    assert.equal(candidateFile?.mode, 0o644);
+    const frozen = await snapshotBaselineForCandidate({ cwd, snapshot: candidate });
+    const frozenFile = frozen.files.find((item) => item.path === literalPath);
+    assert.equal(frozenFile?.state, "file");
+    assert.equal(frozenFile?.mode, 0o644);
+    assert.equal(frozenFile?.digest, sha256(baselineBytes));
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test("release metadata classification is exact while every other byte change remains semantic and applicable", async () => {
   const cwd = await mkdtemp(path.join(os.tmpdir(), "sbw-release-metadata-candidate-"));
   try {

@@ -438,8 +438,9 @@ export async function resolveStrictBaselineRevision(cwd, revision) {
 
 async function ordinaryCorpusAtResolvedBaseline(repository, baseline) {
   for (const corpus of SELF_IMPROVE_ORDINARY_CORPORA) {
-    if (await gitModeAtRevision(repository, baseline, corpus) === null) continue;
-    await gitBytes(repository, ["show", `${baseline}:${corpus}`]);
+    const entry = await gitBlobEntryAtRevision(repository, baseline, corpus);
+    if (entry === null) continue;
+    await gitBytes(repository, ["cat-file", "blob", entry.object]);
     return corpus;
   }
   throw new Error("Immutable baseline contains no supported self-improve evaluation corpus");
@@ -466,12 +467,9 @@ export async function loadFrozenEvaluationSuite({ cwd, casesFile, baselineRevisi
   if (canonical && !canonicalPaths.includes(relative)) {
     throw new Error(`Production ${purpose} evaluation suite must be one of: ${canonicalPaths.join(", ")}`);
   }
-  let frozen;
-  try {
-    frozen = await gitBytes(repository, ["show", `${baseline}:${relative}`]);
-  } catch {
-    throw new Error("Evaluation suite is absent from the immutable baseline");
-  }
+  const frozenEntry = await gitBlobEntryAtRevision(repository, baseline, relative);
+  if (frozenEntry === null) throw new Error("Evaluation suite is absent from the immutable baseline");
+  const frozen = await gitBytes(repository, ["cat-file", "blob", frozenEntry.object]);
   const current = await readFile(absolute);
   if (!current.equals(frozen)) throw new Error("Evaluation suite drifted from the immutable baseline");
   return { suite: validateEvaluationSuite(JSON.parse(current.toString("utf8"))), baselineRevision: baseline, relativePath: relative, sourceDigest: sha256(current) };
@@ -508,14 +506,26 @@ function covered(root, file) {
   return root === "." || file === root || file.startsWith(`${root}/`);
 }
 
-async function gitModeAtRevision(repository, revision, file) {
-  const output = await git(repository, ["ls-tree", revision, "--", file]);
-  const match = output.trim().match(/^(\d{6})\s+\S+\s+(.+)$/s);
-  if (!match) return null;
-  if (!["100644", "100755"].includes(match[1])) {
-    throw new Error(`Baseline contains unsupported file mode for ${file}: ${match[1]}`);
+function literalGitPathspec(file) {
+  return `:(literal)${file}`;
+}
+
+async function gitBlobEntryAtRevision(repository, revision, file) {
+  const output = await git(repository, ["ls-tree", "-z", revision, "--", literalGitPathspec(file)]);
+  if (output === "") return null;
+  if (!output.endsWith("\0")) throw new Error(`Baseline tree lookup is not NUL framed for ${file}`);
+  const records = output.slice(0, -1).split("\0");
+  if (records.length !== 1) throw new Error(`Baseline tree lookup is ambiguous for ${file}`);
+  const match = records[0].match(/^(\d{6}) ([^ ]+) ([a-f0-9]{40,64})\t([\s\S]+)$/i);
+  if (!match || match[4] !== file) throw new Error(`Baseline tree lookup is malformed for ${file}`);
+  if (match[2] !== "blob" || !["100644", "100755"].includes(match[1])) {
+    throw new Error(`Baseline contains an unsupported entry for ${file}`);
   }
-  return Number.parseInt(match[1].slice(-3), 8);
+  return {
+    mode: Number.parseInt(match[1].slice(-3), 8),
+    object: match[3],
+    path: match[4]
+  };
 }
 
 function gitCompatibleMode(mode) {
@@ -554,8 +564,9 @@ function normalizeReleaseMetadata(file, content) {
 async function candidateChangeKind(repository, baseline, file, content) {
   const candidate = normalizeReleaseMetadata(file, content);
   if (candidate === null) return "semantic";
-  if (await gitModeAtRevision(repository, baseline, file) === null) return "semantic";
-  const baselineContent = await gitBytes(repository, ["show", `${baseline}:${file}`]);
+  const baselineEntry = await gitBlobEntryAtRevision(repository, baseline, file);
+  if (baselineEntry === null) return "semantic";
+  const baselineContent = await gitBytes(repository, ["cat-file", "blob", baselineEntry.object]);
   const baselineNormalized = normalizeReleaseMetadata(file, baselineContent);
   return baselineNormalized !== null && baselineNormalized === candidate
     ? "release-metadata-only"
@@ -605,18 +616,18 @@ export async function snapshotBaselineForCandidate({ cwd, snapshot }) {
   const repository = await realpath(cwd);
   const files = [];
   for (const file of snapshot.files) {
-    const mode = await gitModeAtRevision(repository, snapshot.baselineRevision, file.path);
-    if (mode === null) {
+    const entry = await gitBlobEntryAtRevision(repository, snapshot.baselineRevision, file.path);
+    if (entry === null) {
       files.push({ path: file.path, state: "missing", digest: null, mode: null, changeKind: file.changeKind ?? "semantic" });
       continue;
     }
-    const content = await gitBytes(repository, ["show", `${snapshot.baselineRevision}:${file.path}`]);
+    const content = await gitBytes(repository, ["cat-file", "blob", entry.object]);
     files.push({
       path: file.path,
       state: "file",
       digest: sha256(content),
       size: content.length,
-      mode,
+      mode: entry.mode,
       changeKind: file.changeKind ?? "semantic"
     });
   }

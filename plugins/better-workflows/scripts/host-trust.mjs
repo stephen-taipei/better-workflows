@@ -3135,19 +3135,35 @@ async function authoritativeChangeKind(repo, subject, baseline, file, content) {
   const baselineEntry = await authoritativeTreeEntry(repo, subject, baseline, file);
   if (!baselineEntry) return "semantic";
   authoritativeBlobMode(baselineEntry, file);
-  const baselineBytes = await authoritativeGitBytes(repo, subject, ["show", `${baseline}:${file}`]);
+  const baselineBytes = await authoritativeGitBytes(repo, subject, ["cat-file", "blob", baselineEntry.object]);
   const baselineNormalized = normalizeReleaseMetadata(file, baselineBytes);
   return baselineNormalized !== null && baselineNormalized === candidate ? "release-metadata-only" : "semantic";
 }
 
-async function authoritativeTreeEntry(repo, subject, revision, file) {
-  const output = String((await subjectGit(repo, subject, ["ls-tree", "-z", revision, "--", file])).stdout);
-  const records = output.split("\0").filter(Boolean);
-  if (records.length === 0) return null;
+export function literalAuthoritativeGitPathspec(file) {
+  return `:(literal)${file}`;
+}
+
+export function parseAuthoritativeTreeEntry(output, file) {
+  if (typeof output !== "string") throw new Error(`Authoritative tree lookup returned non-text output for ${file}`);
+  if (output === "") return null;
+  if (!output.endsWith("\0")) throw new Error(`Authoritative tree lookup is not NUL framed for ${file}`);
+  const records = output.slice(0, -1).split("\0");
   if (records.length !== 1) throw new Error(`Authoritative tree lookup is ambiguous for ${file}`);
-  const match = records[0].match(/^(\d{6}) ([^ ]+) ([a-f0-9]+)\t([\s\S]+)$/);
+  const match = records[0].match(/^(\d{6}) ([^ ]+) ([a-f0-9]{40,64})\t([\s\S]+)$/i);
   if (!match || match[4] !== file) throw new Error(`Authoritative tree lookup is malformed for ${file}`);
   return { mode: match[1], type: match[2], object: match[3], path: match[4] };
+}
+
+export async function authoritativeTreeEntryFromGit(runGit, repo, subject, revision, file) {
+  const result = await runGit(repo, subject, [
+    "ls-tree", "-z", revision, "--", literalAuthoritativeGitPathspec(file)
+  ]);
+  return parseAuthoritativeTreeEntry(String(result.stdout), file);
+}
+
+async function authoritativeTreeEntry(repo, subject, revision, file) {
+  return authoritativeTreeEntryFromGit(subjectGit, repo, subject, revision, file);
 }
 
 function authoritativeBlobMode(entry, file) {
@@ -3179,7 +3195,7 @@ async function reconstructCandidateSnapshots(repo, subject, baselineRevision, he
       files.push({ path: safeFile, state: "missing", digest: null, mode: null, changeKind: "semantic" });
       continue;
     }
-    const content = await authoritativeGitBytes(repo, subject, ["show", `${headRevision}:${safeFile}`]);
+    const content = await authoritativeGitBytes(repo, subject, ["cat-file", "blob", entry.object]);
     files.push({
       path: safeFile,
       state: "file",
@@ -3198,7 +3214,7 @@ async function reconstructCandidateSnapshots(repo, subject, baselineRevision, he
       baselineFiles.push({ path: file.path, state: "missing", digest: null, mode: null, changeKind: file.changeKind });
       continue;
     }
-    const content = await authoritativeGitBytes(repo, subject, ["show", `${baselineRevision}:${file.path}`]);
+    const content = await authoritativeGitBytes(repo, subject, ["cat-file", "blob", entry.object]);
     baselineFiles.push({
       path: file.path,
       state: "file",
@@ -3217,14 +3233,17 @@ async function reconstructCandidateSnapshots(repo, subject, baselineRevision, he
 
 async function reconstructCommittedPluginBundleDigest(repo, subject, revision) {
   const prefix = "plugins/better-workflows";
-  const output = String((await subjectGit(repo, subject, ["ls-tree", "-r", "-z", revision, "--", prefix])).stdout);
+  const output = String((await subjectGit(repo, subject, [
+    "ls-tree", "-r", "-z", revision, "--", literalAuthoritativeGitPathspec(prefix)
+  ])).stdout);
+  if (!output.endsWith("\0")) throw new Error("Committed plugin tree is empty or not NUL framed");
   const records = [];
-  for (const record of output.split("\0").filter(Boolean)) {
-    const match = record.match(/^(\d{6}) ([^ ]+) ([a-f0-9]+)\t([\s\S]+)$/);
+  for (const record of output.slice(0, -1).split("\0")) {
+    const match = record.match(/^(\d{6}) ([^ ]+) ([a-f0-9]{40,64})\t([\s\S]+)$/i);
     if (!match || !match[4].startsWith(`${prefix}/`)) throw new Error("Committed plugin tree contains a malformed entry");
     const relative = match[4].slice(prefix.length + 1);
     const entry = { mode: match[1], type: match[2], object: match[3], path: match[4] };
-    const contents = await authoritativeGitBytes(repo, subject, ["show", `${revision}:${match[4]}`]);
+    const contents = await authoritativeGitBytes(repo, subject, ["cat-file", "blob", entry.object]);
     records.push({
       path: relative,
       size: contents.length,
@@ -3360,7 +3379,7 @@ async function baselineBlob(repo, subject, revision, relative) {
   const entry = await authoritativeTreeEntry(repo, subject, revision, relative);
   if (!entry) return null;
   authoritativeBlobMode(entry, relative);
-  return authoritativeGitBytes(repo, subject, ["show", `${revision}:${relative}`]);
+  return authoritativeGitBytes(repo, subject, ["cat-file", "blob", entry.object]);
 }
 
 async function authoritativeSuiteState(repo, subject, headRevision, manifest, candidate, standingPolicy) {

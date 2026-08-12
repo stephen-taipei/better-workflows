@@ -31,6 +31,7 @@ import {
 import {
   canonicalGovernedGithubRepository,
   captureBoundedAutonomySnapshot,
+  isExactGitAbsence,
   readRawLocalConfigValues
 } from "./autonomy-snapshot.mjs";
 
@@ -486,6 +487,31 @@ async function execBoundGitAuthority(cwd, args, {
   }
 }
 
+export function optionalBoundGitAuthorityOutput(result, label, { absentCodes = [1] } = {}) {
+  if (result?.ok === true) return result.stdout;
+  if (isExactGitAbsence(result, { absentCodes })) return null;
+  const detail = result?.outputExceeded
+    ? "output limit exceeded"
+    : result?.timedOut
+      ? "timeout"
+      : result?.signal
+        ? `signal ${result.signal}`
+        : String(result?.stderr || result?.code || "unknown failure").trim();
+  throw new Error(`${label} failed: ${detail}`);
+}
+
+export async function resolveOptionalBoundBranchRevision(runGit, ref, label = "Git branch ref lookup") {
+  const presence = await runGit(["show-ref", "--verify", "--quiet", ref], { allowFailure: true });
+  const presenceOutput = optionalBoundGitAuthorityOutput(presence, label);
+  if (presenceOutput === null) return null;
+  if (presenceOutput !== "") throw new Error(`${label} returned malformed success output`);
+  const resolved = await runGit(["rev-parse", "--verify", `${ref}^{commit}`]);
+  if (resolved?.ok !== true || typeof resolved.stdout !== "string" || !/^[a-f0-9]{40}\n$/i.test(resolved.stdout)) {
+    throw new Error(`${label} returned a malformed commit revision`);
+  }
+  return resolved.stdout.slice(0, -1);
+}
+
 async function rawLocalGitValues(cwd, key) {
   return readRawLocalConfigValues(
     (args, options) => execBoundGitAuthority(cwd, args, options),
@@ -538,7 +564,7 @@ function assertNoAmbientGitAuthorityOverrides() {
   }
 }
 
-export const VERSION = "3.3.6";
+export const VERSION = "3.3.7";
 export const MODES = new Set(["auto", "direct", "verified", "deep", "critical"]);
 export const RUN_STATES = new Set([
   "pending",
@@ -3214,11 +3240,12 @@ export async function verifyGitHubCredentialActor(cwd, remoteUrl, repository, gi
 async function captureCreationPrecondition(cwd, action, resource, providerExecutablePath = null, repository = null) {
   if (action === "branch.create") {
     const ref = resource.slice("branch:".length);
-    const result = await execBoundGitAuthority(cwd, ["rev-parse", "--verify", `refs/heads/${ref}^{commit}`], {
-      allowFailure: true
-    });
-    if (result.ok) {
-      const revision = result.stdout.trim();
+    const revision = await resolveOptionalBoundBranchRevision(
+      (args, options) => execBoundGitAuthority(cwd, args, options),
+      `refs/heads/${ref}`,
+      "Git branch creation precondition"
+    );
+    if (revision !== null) {
       return { action, resource, state: "present", revision };
     }
     return { action, resource, state: "absent", ref };
@@ -4037,10 +4064,12 @@ async function verifyProviderReceipt(manifest, record, receipt, contract = null)
     const expectedRef = record.resource.startsWith("branch:") ? record.resource.slice("branch:".length) : null;
     if (!expectedRef || providerReceipt.ref !== expectedRef) throw new Error("Git branch deletion proof is not bound to the requested resource");
     const repository = await currentGitProviderIdentity(cwd);
-    const present = (await execBoundGitAuthority(cwd, [
-      "rev-parse", "--verify", `refs/heads/${expectedRef}^{commit}`
-    ], { allowFailure: true })).ok;
-    if (present) throw new Error("Git branch deletion proof does not match provider state");
+    const presentRevision = await resolveOptionalBoundBranchRevision(
+      (args, options) => execBoundGitAuthority(cwd, args, options),
+      `refs/heads/${expectedRef}`,
+      "Git branch deletion verification"
+    );
+    if (presentRevision !== null) throw new Error("Git branch deletion proof does not match provider state");
     const response = { ref: expectedRef, deleted: true };
     assertRecomputedProviderReceipt(
       providerReceipt,

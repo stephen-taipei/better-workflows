@@ -54,12 +54,14 @@ import {
   readBoundGitHubApi,
   readBoundGitHubCredential,
   assertBoundCredentialWorkspace,
+  optionalBoundGitAuthorityOutput,
   readJson,
   registerOwnedResource,
   reconcileAction,
   resolveGitFetchOrigin,
   resolveGitPushDestination,
   resolveGitPushExecutionBinding,
+  resolveOptionalBoundBranchRevision,
   routeMode,
   safeJoin,
   sha256,
@@ -76,6 +78,59 @@ import { checkPluginCache, publishPluginCache, verifyPluginCacheReady } from "..
 
 const execFileAsync = promisify(execFile);
 const SBW_CLI = fileURLToPath(new URL("../sbw.mjs", import.meta.url));
+
+test("branch ref authority accepts only exact absence and strict commit output", async () => {
+  const absent = {
+    ok: false,
+    stdout: "",
+    stderr: "",
+    code: 1,
+    signal: null,
+    timedOut: false,
+    outputExceeded: false
+  };
+  assert.equal(optionalBoundGitAuthorityOutput(absent, "branch ref"), null);
+  assert.equal(await resolveOptionalBoundBranchRevision(async () => absent, "refs/heads/missing"), null);
+  for (const failure of [
+    { ...absent, timedOut: true },
+    { ...absent, outputExceeded: true },
+    { ...absent, signal: "SIGTERM" },
+    { ...absent, code: 128 }
+  ]) {
+    assert.throws(() => optionalBoundGitAuthorityOutput(failure, "branch ref"), /branch ref failed/);
+    await assert.rejects(
+      resolveOptionalBoundBranchRevision(async () => failure, "refs/heads/indeterminate"),
+      /Git branch ref lookup failed/
+    );
+  }
+  await assert.rejects(
+    resolveOptionalBoundBranchRevision(async () => ({ ok: true, stdout: "unexpected\n", stderr: "" }), "refs/heads/noisy"),
+    /malformed success output/
+  );
+  const revision = "a".repeat(40);
+  let call = 0;
+  assert.equal(await resolveOptionalBoundBranchRevision(async (args) => {
+    call += 1;
+    if (call === 1) {
+      assert.deepEqual(args, ["show-ref", "--verify", "--quiet", "refs/heads/present"]);
+      return { ok: true, stdout: "", stderr: "" };
+    }
+    assert.deepEqual(args, ["rev-parse", "--verify", "refs/heads/present^{commit}"]);
+    return { ok: true, stdout: `${revision}\n`, stderr: "" };
+  }, "refs/heads/present"), revision);
+  for (const stdout of ["", revision, `${revision}\n${revision}\n`, `${"g".repeat(40)}\n`]) {
+    let attempt = 0;
+    await assert.rejects(
+      resolveOptionalBoundBranchRevision(async () => {
+        attempt += 1;
+        return attempt === 1
+          ? { ok: true, stdout: "", stderr: "" }
+          : { ok: true, stdout, stderr: "" };
+      }, "refs/heads/malformed"),
+      /malformed commit revision/
+    );
+  }
+});
 
 test("bounded process teardown refuses a recycled PGID when the stable leader is gone", () => {
   const pid = 424243;

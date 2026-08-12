@@ -1,7 +1,7 @@
 import { lstat, readFile, readdir, readlink, realpath } from "node:fs/promises";
 import path from "node:path";
 import { canonicalJson, execBoundGit, sha256 } from "./core.mjs";
-import { readRawLocalConfigValues } from "./autonomy-snapshot.mjs";
+import { isExactGitAbsence, readRawLocalConfigValues } from "./autonomy-snapshot.mjs";
 const SOURCE_GIT_EXECUTABLE = "/usr/bin/git";
 const SOURCE_GIT_PATH = "/usr/bin:/bin:/usr/sbin:/sbin";
 const SOURCE_GIT_TIMEOUT_MS = 30_000;
@@ -34,8 +34,7 @@ function gitFailureDetail(error) {
 
 function optionalSourceGitOutput(result, label, { absentCodes = [1] } = {}) {
   if (result?.ok === true) return result.stdout;
-  if (result?.ok === false && absentCodes.includes(Number(result.code)) && result.signal == null &&
-      !result.timedOut && !result.outputExceeded) return null;
+  if (isExactGitAbsence(result, { absentCodes })) return null;
   const detail = String(result?.stderr || result?.code || "unknown failure").trim();
   throw new Error(`${label} failed: ${detail}`);
 }
@@ -112,20 +111,27 @@ export async function canonicalSourceRoot(cwd) {
   return expectedWorkTree;
 }
 
-export async function isGitRepository(cwd) {
+export function parseGitWorktreeProbeOutput(stdout) {
+  if (stdout === "true\n") return true;
+  if (stdout === "false\n") return false;
+  throw new Error("Git worktree probe returned malformed success output");
+}
+
+export async function isGitRepository(cwd, {
+  runGit = sourceGit
+} = {}) {
+  let expectedWorkTree;
   try {
-    const result = await sourceGit(cwd, ["rev-parse", "--is-inside-work-tree"], { allowFailure: true });
-    return result.ok && result.stdout.trim() === "true";
+    expectedWorkTree = await findCanonicalWorktree(cwd);
   } catch (error) {
-    // A repository-local core.worktree redirect is an authority violation,
-    // not evidence that the path simply is not a repository.  Preserve the
-    // failure so callers such as captureSourceBinding fail closed instead of
-    // silently returning null and allowing a redirected worktree to pass.
-    if (/^Git core\.worktree configuration/.test(String(error?.message ?? error))) {
-      throw error;
-    }
-    return false;
+    if (error?.code === "SBW_GIT_METADATA_NOT_FOUND") return false;
+    throw error;
   }
+  const result = await runGit(cwd, ["rev-parse", "--is-inside-work-tree"], {
+    workTree: expectedWorkTree
+  });
+  if (result?.ok !== true) throw new Error("Git worktree probe returned an indeterminate result");
+  return parseGitWorktreeProbeOutput(result.stdout);
 }
 
 async function findCanonicalWorktree(cwd) {
@@ -142,7 +148,9 @@ async function findCanonicalWorktree(cwd) {
     if (parent === cursor) break;
     cursor = parent;
   }
-  throw new Error(`Git worktree metadata was not found above ${path.resolve(cwd)}`);
+  const error = new Error(`Git worktree metadata was not found above ${path.resolve(cwd)}`);
+  error.code = "SBW_GIT_METADATA_NOT_FOUND";
+  throw error;
 }
 
 async function validateConfiguredWorktree(cwd, expectedWorkTree) {
@@ -626,6 +634,31 @@ export async function captureSourceBinding(cwd, {
   return { ...stable, digest: sha256(canonicalJson(stable)) };
 }
 
+export function validateSubmoduleStatusOutput(stdout) {
+  if (typeof stdout !== "string") throw new Error("Git submodule status returned non-text success output");
+  if (stdout === "") return stdout;
+  if (!stdout.endsWith("\n") || stdout.includes("\0") || stdout.includes("\r")) {
+    throw new Error("Git submodule status returned malformed success output");
+  }
+  for (const line of stdout.slice(0, -1).split("\n")) {
+    if (!/^[ +\-U][a-f0-9]{40,64} [^\0\r\n]+$/i.test(line)) {
+      throw new Error("Git submodule status returned malformed success output");
+    }
+  }
+  return stdout;
+}
+
+export async function captureStrictSubmoduleStatus(runGit, repository) {
+  const result = await runGit(repository, ["submodule", "status", "--recursive"]);
+  if (result?.ok !== true) throw new Error("Git submodule status returned an indeterminate result");
+  const stdout = validateSubmoduleStatusOutput(result.stdout);
+  return {
+    available: true,
+    digest: sha256(stdout),
+    value: stdout.trim()
+  };
+}
+
 export async function captureSentinel(cwd, contract, defaults, {
   afterInitialAuthorityCheck = null,
   beforeFinalAuthorityCheck = null
@@ -660,9 +693,7 @@ export async function captureSentinel(cwd, contract, defaults, {
     exclusions,
     budget.maxFiles
   );
-  const submodules = await sourceGit(repository, ["submodule", "status", "--recursive"], {
-    allowFailure: true
-  });
+  const submodules = await captureStrictSubmoduleStatus(sourceGit, repository);
   const symlinks = await trackedSymlinks(repository);
   const attributes = await attributesDigest(repository, budget);
   const authorityMetadata = await hooksAndConfig(repository);
@@ -681,11 +712,7 @@ export async function captureSentinel(cwd, contract, defaults, {
     scopes,
     scopeDigest,
     untracked,
-    submodules: {
-      available: submodules.ok,
-      digest: sha256(submodules.stdout),
-      value: submodules.stdout.trim()
-    },
+    submodules,
     symlinks,
     attributes,
     authorityMetadata,
