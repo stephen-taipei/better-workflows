@@ -256,7 +256,7 @@ Do not complete with open P0/P1 findings, stale evidence, expired accepted risk,
 
 All newly-created non-direct template runs use TaskContract v2. The run creates
 an append-only execution ledger and accepts only typed evidence receipts from
-the 99-kind catalog; v1 runs remain on the v1 reader and are never silently
+the 101-kind catalog; v1 runs remain on the v1 reader and are never silently
 upgraded. A v2 completion cannot be authorized by text or caller-supplied
 `acceptanceIds`.
 

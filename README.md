@@ -7,7 +7,7 @@
 Turn Codex work from “prompt and hope” into a bounded path from intent to
 verified, provider-reconciled delivery.
 
-[![Version](https://img.shields.io/badge/version-3.3.8-2563EB?style=flat-square)](plugins/better-workflows/package.json)
+[![Version](https://img.shields.io/badge/version-3.4.0-2563EB?style=flat-square)](plugins/better-workflows/package.json)
 [![Node](https://img.shields.io/badge/Node.js-%E2%89%A524-3C873A?style=flat-square)](plugins/better-workflows/package.json)
 [![Dependencies](https://img.shields.io/badge/runtime_dependencies-0-0F766E?style=flat-square)](plugins/better-workflows/package.json)
 [![License](https://img.shields.io/badge/license-MIT-64748B?style=flat-square)](LICENSE)
@@ -64,6 +64,12 @@ those gaps into explicit gates.
 
 <!-- readme-claim:unknown-stop -->
 **Fail closed.** Drift, stale evidence, or unknown provider state always stops the workflow.
+
+**Review-kernel pilot.** `self-improve-ops` now inventories exact changed-file
+work units, separates independently attested finders from verifiers, binds
+findings to exact source anchors, and reduces private receipts into deterministic
+coverage and synthesis evidence. The pilot is shadow-only and cannot authorize
+side effects.
 
 ![Better Workflows authority layers from prompt through read-only graph](docs/assets/better-workflows-engineering-stack.svg)
 

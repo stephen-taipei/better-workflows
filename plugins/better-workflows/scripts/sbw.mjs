@@ -120,9 +120,17 @@ import {
   addReviewFinding,
   createReviewPackage,
   markBroadReviewComplete,
+  prepareFindingVerification,
+  prepareReviewAxis,
+  recordFindingVerification,
   recordRepairRound,
+  recordReviewAxis,
+  recordReviewCoverage,
+  recordReviewSynthesis,
+  reviewKernelStatus,
   reviewStatus
 } from "./lib/review.mjs";
+import { reviewKernelEnabled, reviewPackageBindingRequired } from "./lib/review-policy.mjs";
 import { recordRefinement, refinementStatus } from "./lib/refinement.mjs";
 import {
   recipeArtifactPromote,
@@ -624,10 +632,110 @@ async function currentVerifiedDigest(root, runId) {
   return verification.digest;
 }
 
+async function verifiedNativeReviewExecution({ root, runId, run, input, reviewDigest, reviewerId, attestationPath }) {
+  const review = await reviewStatus(root, runId);
+  if (!review.package || review.package.schemaVersion !== 2) {
+    throw new Error("Native review-kernel execution requires a current v2 review package");
+  }
+  if (
+    input.reviewerId !== reviewerId || !input.model || !input.executionId ||
+    !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(String(input.executionId))
+  ) throw new Error("Native review-kernel input must bind reviewer, model, and executionId");
+  const sentinelDigest = await currentVerifiedDigest(root, runId);
+  const binding = {
+    base: review.package.base,
+    head: review.package.head,
+    instructionDigest: review.package.instructionDigest,
+    model: String(input.model),
+    packageId: review.package.packageId,
+    promptDigest: input.inputDigest,
+    reviewDigest,
+    reviewerId,
+    executionId: input.executionId,
+    runId,
+    sentinelDigest
+  };
+  const attestation = await verifyTrustedNativeCriticAttestation({
+    attestationPath,
+    workspaceRoot: run.manifest.cwd,
+    binding
+  });
+  const identity = {
+    provider: "codex-native-subagent",
+    model: attestation.model,
+    executionId: input.executionId,
+    modelAssurance: "host-signed-attestation",
+    trustAttested: true,
+    promptDigest: binding.promptDigest,
+    reviewDigest: binding.reviewDigest,
+    attestationDigest: attestation.attestationDigest,
+    transport: "native-subagent",
+    sandbox: "read-only"
+  };
+  return { ...identity, executionDigest: digestObject(identity) };
+}
+
+async function addReviewKernelEvidence(root, runId, kind, kernel) {
+  const run = await loadRun(root, runId);
+  const payload = kind === "work-unit-accounting"
+    ? {
+        result: true,
+        packageId: kernel.packageId,
+        repairRound: kernel.repairRound,
+        workUniverseDigest: kernel.workUniverseDigest,
+        reviewLanesDigest: kernel.reviewLanesDigest,
+        axisSetDigest: kernel.axisSetDigest,
+        coverageDigest: kernel.coverageDigest,
+        items: kernel.coverage
+      }
+    : {
+        result: true,
+        packageId: kernel.packageId,
+        repairRound: kernel.repairRound,
+        workUniverseDigest: kernel.workUniverseDigest,
+        axisSetDigest: kernel.axisSetDigest,
+        verificationSetDigest: kernel.verificationSetDigest,
+        coverageDigest: kernel.coverageDigest,
+        findingSetDigest: kernel.findingSetDigest,
+        convergenceDigest: kernel.convergenceDigest,
+        items: kernel.findings
+      };
+  const digest = kind === "work-unit-accounting" ? kernel.coverageDigest : kernel.convergenceDigest;
+  const id = `${kind}-${digest.slice(0, 32)}`;
+  const prior = (await listJsonRecords(root, safeJoin(run.runDir, "evidence"))).find((item) => item.id === id);
+  if (prior) return prior;
+  const record = {
+    schemaVersion: 2,
+    id,
+    kind,
+    status: "complete",
+    summary: kind === "work-unit-accounting"
+      ? "Deterministic review work-unit coverage is complete."
+      : "Deterministic review-kernel synthesis converged.",
+    acceptanceIds: [],
+    dependencyInputs: { files: [] },
+    receipt: {
+      contractId: `evidence-contracts-v1:${kind}`,
+      contractVersion: 1,
+      runId,
+      producer: { provider: "better-workflows-kernel" },
+      inputBinding: {
+        runId,
+        contractDigest: digestObject(run.contract),
+        remoteRevision: run.contract.remoteRevision ?? null
+      },
+      payload,
+      payloadDigest: digestObject(payload),
+      producedAt: nowIso()
+    }
+  };
+  return addEvidence(root, runId, await enrichEvidence(root, runId, record));
+}
+
 async function providerEvidence(root, runId, result, prompt, acceptanceIds) {
   const run = await loadRun(root, runId);
   let reviewBinding = null;
-  if (run.contract.controlPlane?.reviewPolicy === "code-v1") {
+  if (reviewPackageBindingRequired(run.contract.controlPlane?.reviewPolicy)) {
     const review = await reviewStatus(root, runId);
     if (!review.package) throw new Error("Independent critic requires an immutable review package");
     reviewBinding = {
@@ -1497,18 +1605,8 @@ async function commandRun(root, options) {
       throw new Error("v2 templates require a schemaVersion 2 TaskContract");
     }
     if (contract.schemaVersion === 2) {
-      const policyKeys = [
-        "evidencePolicy",
-        "ledgerPolicy",
-        "reviewPolicy",
-        "designPacketPolicy",
-        "refinementPolicy",
-        "deliberationPolicy"
-      ];
-      for (const key of policyKeys) {
-        if (contract.controlPlane?.[key] !== template.controlPlane?.[key]) {
-          throw new Error(`TaskContract v2 cannot weaken template control-plane policy: ${key}`);
-        }
+      if (digestObject(contract.controlPlane) !== digestObject(template.controlPlane)) {
+        throw new Error("TaskContract v2 cannot weaken template control-plane policy; it must preserve the complete installed identity");
       }
       const stageIdentity = (stages) => (stages ?? []).map((stage) => ({
         id: stage.id,
@@ -1856,7 +1954,7 @@ function help() {
       "sbw self-improve evaluate --run <run-id> --cases <file> --baseline <git-revision> --candidate-root <path> --backend <codex|fixture> --split <train|holdout> [--trusted-codex-execution <host-file>] [--request-manifest <host-file> --request-manifest-digest <sha256>] [--purpose ordinary|evaluator-migration|safety-remediation-v1|quality-remediation-v1] [--next-cases <v2-file>]",
       "sbw self-improve host status",
       "sbw self-improve consent status|prepare|revoke",
-      "sbw self-improve attestation request --run <run-id> --baseline <sha> --candidate-root <path> --model <model> --output <outside-repo-directory> [--cases <file>] [--purpose ordinary|evaluator-migration|safety-remediation-v1|quality-remediation-v1] [--next-cases <v2-file>]",
+    "sbw self-improve attestation request --run <run-id> --baseline <sha> --candidate-root <path> --model <model> --output <outside-repo-directory> [--binary <approved-native-codex>] [--cases <file>] [--purpose ordinary|evaluator-migration|safety-remediation-v1|quality-remediation-v1] [--next-cases <v2-file>]",
       "sbw self-improve handoff <pr-to-dev-run-id> --source-run <self-improve-run-id>",
       "sbw finding add|update <run-id> --file <json>",
       "sbw critic codex|agy <run-id> --model <model> --prompt-file <file> [--effort <auto|medium|high>] [--effort-transport <native|model-variant>]",
@@ -1872,7 +1970,7 @@ function help() {
       "sbw ledger transition <run-id> --file <event.json>",
       "sbw ledger compile <run-id> --design-packet <packet.json>",
       "sbw refinement status|apply <run-id> [--file <receipt.json>]",
-      "sbw review package|finding|status|repair|broad <run-id> ...",
+      "sbw review package|finding|axis-digest|axis|verify-digest|verify|coverage|synthesize|status|repair|broad <run-id> ...",
       "sbw recipe init",
       "sbw recipe scaffold <id>",
       "sbw recipe list",
@@ -2100,6 +2198,9 @@ async function main() {
       }
       const input = JSON.parse(await readFile(path.resolve(String(options.file)), "utf8"));
       const run = await loadRun(root, runId);
+      if (reviewKernelEnabled(run.contract.controlPlane?.reviewPolicy)) {
+        throw new Error("code-v2-pilot critics must use review axis or review verify with host-signed native attestation");
+      }
       const review = await reviewStatus(root, runId);
       if (!review.package) throw new Error("Native critic requires an immutable review package");
       if (input.reviewerId !== String(options["reviewer-id"]) || !input.model || !input.review) {
@@ -2190,6 +2291,9 @@ async function main() {
       throw new Error("critic usage: sbw critic codex|agy <run-id> --model <model> --prompt-file <file>");
     }
     const run = await loadRun(root, runId);
+    if (reviewKernelEnabled(run.contract.controlPlane?.reviewPolicy)) {
+      throw new Error("code-v2-pilot rejects unattested critic providers; use host-signed review axis or review verify");
+    }
     const prompt = await readFile(path.resolve(String(options["prompt-file"])), "utf8");
     const acceptanceIds = values(options.acceptance, run.contract.acceptance.map((item) => item.id)).map(String);
     const defaults = await loadDefaults();
@@ -2364,6 +2468,57 @@ async function main() {
   }
   if (command === "review") {
     if (!runId) throw new Error("review requires run id");
+    if (["axis-digest", "verify-digest"].includes(subcommand)) {
+      assertKnownOptions(options, ["file"]);
+      if (!options.file) throw new Error(`review ${subcommand} requires --file <receipt.json>`);
+      const input = JSON.parse(await readFile(path.resolve(String(options.file)), "utf8"));
+      const prepared = subcommand === "axis-digest"
+        ? await prepareReviewAxis(root, runId, input)
+        : await prepareFindingVerification(root, runId, input);
+      return { ok: true, prepared };
+    }
+    if (["axis", "verify"].includes(subcommand)) {
+      assertKnownOptions(options, ["file", "reviewer-id", "attestation"]);
+      if (!options.file || !options["reviewer-id"] || !options.attestation) {
+        throw new Error(`review ${subcommand} requires --file, --reviewer-id, and --attestation`);
+      }
+      const input = JSON.parse(await readFile(path.resolve(String(options.file)), "utf8"));
+      const run = await loadRun(root, runId);
+      const prepared = subcommand === "axis"
+        ? await prepareReviewAxis(root, runId, input)
+        : await prepareFindingVerification(root, runId, input);
+      const providerExecution = await verifiedNativeReviewExecution({
+        root,
+        runId,
+        run,
+        input,
+        reviewDigest: prepared.reviewDigest,
+        reviewerId: String(options["reviewer-id"]),
+        attestationPath: String(options.attestation)
+      });
+      const record = subcommand === "axis"
+        ? await recordReviewAxis(root, runId, { ...input, providerExecution })
+        : await recordFindingVerification(root, runId, { ...input, providerExecution });
+      return { ok: true, [subcommand]: record };
+    }
+    if (subcommand === "coverage") {
+      assertKnownOptions(options, []);
+      const coverage = await recordReviewCoverage(root, runId);
+      const kernel = await reviewKernelStatus(root, runId);
+      const evidence = coverage.complete
+        ? await addReviewKernelEvidence(root, runId, "work-unit-accounting", kernel)
+        : null;
+      return { ok: coverage.complete, coverage, evidence };
+    }
+    if (subcommand === "synthesize") {
+      assertKnownOptions(options, []);
+      const synthesis = await recordReviewSynthesis(root, runId);
+      const kernel = await reviewKernelStatus(root, runId);
+      const evidence = synthesis.convergence.complete
+        ? await addReviewKernelEvidence(root, runId, "review-kernel-summary", kernel)
+        : null;
+      return { ok: synthesis.convergence.complete, synthesis, evidence };
+    }
     if (subcommand === "status") {
       const review = await reviewStatus(root, runId);
       return {
@@ -2378,10 +2533,29 @@ async function main() {
                 broadReview: review.package.broadReview
               }
             : null,
-          findings: review.findings.map((item) => ({ id: item.id, packageId: item.packageId, severity: item.severity, status: item.status, path: item.path, location: item.location, rule: item.rule })),
+          findings: review.findings.map((item) => ({
+            id: item.id,
+            packageId: item.packageId ?? review.package?.packageId,
+            severity: item.severity,
+            status: item.status ?? (item.blocking ? "open" : "rejected-with-evidence"),
+            path: item.path,
+            location: item.location ?? item.anchor?.resolvedLine ?? item.anchor?.reportedLine ?? null,
+            rule: item.rule,
+            verificationVerdict: item.verificationVerdict ?? null,
+            blocking: item.blocking ?? item.status === "open"
+          })),
           openHigh: review.openHigh.map((item) => item.id),
           repairBudgetExhausted: review.repairBudgetExhausted,
           scopedClosed: review.scopedClosed,
+          kernel: review.kernel ? {
+            workUniverseDigest: review.kernel.workUniverseDigest,
+            axisSetDigest: review.kernel.axisSetDigest,
+            verificationSetDigest: review.kernel.verificationSetDigest,
+            coverageDigest: review.kernel.coverageDigest,
+            findingSetDigest: review.kernel.findingSetDigest,
+            convergence: review.kernel.convergence,
+            convergenceDigest: review.kernel.convergenceDigest
+          } : null,
           broadReviewComplete: review.broadReviewComplete,
           complete: review.complete
         }
@@ -2410,6 +2584,13 @@ async function main() {
           head: reviewPackage.head,
           scopeDigest: reviewPackage.scopeDigest,
           diffManifestDigest: reviewPackage.diffManifestDigest,
+          ...(reviewPackage.schemaVersion === 2 ? {
+            workUnitPolicy: reviewPackage.workUnitPolicy,
+            workUniverse: reviewPackage.workUniverse,
+            workUniverseDigest: reviewPackage.workUniverseDigest,
+            reviewLanes: reviewPackage.reviewLanes,
+            reviewLanesDigest: reviewPackage.reviewLanesDigest
+          } : {}),
           repairRounds: reviewPackage.repairRounds,
           broadReview: reviewPackage.broadReview
         }
@@ -2441,7 +2622,7 @@ async function main() {
         )
       };
     }
-    throw new Error("review subcommand must be package, finding, status, repair, or broad");
+    throw new Error("review subcommand must be package, finding, axis-digest, axis, verify-digest, verify, coverage, synthesize, status, repair, or broad");
   }
   if (command === "refinement") {
     if (!runId) throw new Error("refinement requires run id");

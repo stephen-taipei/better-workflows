@@ -50,8 +50,11 @@ const suiteV22Bytes = await readFile(path.join(pluginRoot(), "fixtures", "self-i
 const suiteV22 = JSON.parse(suiteV22Bytes.toString("utf8"));
 const suiteV23Bytes = await readFile(path.join(pluginRoot(), "fixtures", "self-improve-ops-evals-v2.3.json"));
 const suiteV23 = JSON.parse(suiteV23Bytes.toString("utf8"));
+const suiteV24Bytes = await readFile(path.join(pluginRoot(), "fixtures", "self-improve-ops-evals-v2.4.json"));
+const suiteV24 = JSON.parse(suiteV24Bytes.toString("utf8"));
 const suiteV22Digest = createHash("sha256").update(suiteV22Bytes).digest("hex");
 const suiteV23Digest = createHash("sha256").update(suiteV23Bytes).digest("hex");
+const suiteV24Digest = createHash("sha256").update(suiteV24Bytes).digest("hex");
 const repositoryRoot = path.resolve(pluginRoot(), "../..");
 const safetyPolicy = await loadSafetyRemediationPolicy({ cwd: repositoryRoot });
 const qualityPolicy = await loadQualityRemediationPolicy({ cwd: repositoryRoot });
@@ -102,6 +105,8 @@ test("self-improve corpus validates split isolation, uniqueness, and secret-shap
   assert.equal(validateEvaluationSuite(suiteV22).cases.length, 18);
   assert.equal(validateEvaluationSuite(suiteV23).classes.length, 10);
   assert.equal(validateEvaluationSuite(suiteV23).cases.length, 25);
+  assert.equal(validateEvaluationSuite(suiteV24).classes.length, 11);
+  assert.equal(validateEvaluationSuite(suiteV24).cases.length, 27);
   const duplicate = structuredClone(suite);
   duplicate.cases[1].id = duplicate.cases[0].id;
   assert.throws(() => validateEvaluationSuite(duplicate), /unique/);
@@ -299,12 +304,31 @@ test("evaluation v2.3 adds snapshot-grounded coverage without mutating the v2.2 
       "readme-visible-scoped-contract"
     ]
   );
-  assert.equal(suiteV22Digest, SELF_IMPROVE_MIGRATION_SOURCE_SUITE_DIGEST);
+  assert.equal(suiteV23Digest, "fec7789bd61f1927e606e1a3eccb85ae30280dbf42c6c4c6b779402365910e85");
+});
+
+test("evaluation v2.4 adds review work-unit integrity without mutating the v2.3 source corpus", () => {
+  const reviewClass = suiteV24.classes.find((item) => item.id === "review-work-unit-integrity");
+  assert.equal(reviewClass.kind, "improvement");
+  assert.ok(reviewClass.paths.includes("plugins/better-workflows/scripts/lib/review.mjs"));
+  const reviewCases = suiteV24.cases.filter((item) => item.evaluationClass === reviewClass.id);
+  assert.deepEqual(reviewCases.map((item) => item.id).sort(), [
+    "review-kernel-independent-synthesis",
+    "review-kernel-total-accounting"
+  ]);
+  assert.deepEqual(reviewCases.map((item) => item.split).sort(), ["holdout", "train"]);
+  assert.equal(reviewCases.every((item) => item.assertions.every((assertion) => assertion.hardSafety)), true);
+  for (const inheritedCase of suiteV23.cases) {
+    assert.deepEqual(suiteV24.cases.find((item) => item.id === inheritedCase.id), inheritedCase);
+  }
+  assert.equal(suiteV23Digest, SELF_IMPROVE_MIGRATION_SOURCE_SUITE_DIGEST);
+  assert.equal(suiteV24Digest, "df214391423c9d738a41dd7122ed9428857d6918616acf18ff996eaff9a143f3");
   assert.deepEqual(SELF_IMPROVE_MIGRATION_SOURCE_CORPORA, [
     "plugins/better-workflows/fixtures/self-improve-ops-evals.json",
     "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.json",
     "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.1.json",
-    "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.2.json"
+    "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.2.json",
+    "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.3.json"
   ]);
 });
 
@@ -555,6 +579,7 @@ test("safety remediation comparison requires reproducible baseline defects and r
 
 test("ordinary evaluator readers prefer the newest corpus present in the immutable baseline", () => {
   assert.deepEqual(SELF_IMPROVE_ORDINARY_CORPORA, [
+    "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.4.json",
     "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.3.json",
     "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.2.json",
     "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.1.json",
@@ -620,8 +645,8 @@ test("evaluation v2 separates invariant safety from strict relevant-class improv
 
 test("evaluator migration gap repair rejects saturation, incomplete candidate hard safety, invariant failure, regression, noise, and missing target coverage", () => {
   const run = (split, { targetOnlyScore, overrides = {}, unsafe = [] } = {}) => {
-    const sourceIds = new Set(suiteV22.cases.map((item) => item.id));
-    const cases = suiteV23.cases.filter((item) => item.split === split);
+    const sourceIds = new Set(suiteV23.cases.map((item) => item.id));
+    const cases = suiteV24.cases.filter((item) => item.split === split);
     const perCase = cases.map((item) => {
       const score = overrides[item.id] ?? (sourceIds.has(item.id) ? 1 : targetOnlyScore);
       return {
@@ -640,8 +665,8 @@ test("evaluator migration gap repair rejects saturation, incomplete candidate ha
   const compare = (split, baseline, candidate) => compareEvaluatorMigration({
     baseline,
     candidate,
-    sourceSuite: suiteV22,
-    targetSuite: suiteV23,
+    sourceSuite: suiteV23,
+    targetSuite: suiteV24,
     split
   });
   const holdoutBaseline = () => run("holdout", { targetOnlyScore: 0.5 });
@@ -654,16 +679,11 @@ test("evaluator migration gap repair rejects saturation, incomplete candidate ha
   assert.equal(accepted.accepted, true);
   assert.deepEqual(
     accepted.targetOnly.map((item) => item.id),
-    [
-      "delegated-self-improve-canonical-contract",
-      "evaluator-v23-class-headroom",
-      "publication-successor-marker-race",
-      "readme-visible-scoped-contract"
-    ]
+    ["review-kernel-independent-synthesis"]
   );
 
   const missing = holdoutBaseline();
-  missing.perCase = missing.perCase.filter((item) => item.id !== "evaluator-v23-class-headroom");
+  missing.perCase = missing.perCase.filter((item) => item.id !== "review-kernel-independent-synthesis");
   assert.throws(
     () => compare("holdout", [missing, missing, missing], [holdoutCandidate(), holdoutCandidate(), holdoutCandidate()]),
     /does not cover every target-suite case/
@@ -681,7 +701,7 @@ test("evaluator migration gap repair rejects saturation, incomplete candidate ha
   assert.equal(compare(
     "holdout",
     [holdoutBaseline(), holdoutBaseline(), holdoutBaseline()],
-    [run("holdout", { targetOnlyScore: 1, unsafe: ["evaluator-v23-class-headroom"] }), holdoutCandidate(), holdoutCandidate()]
+    [run("holdout", { targetOnlyScore: 1, unsafe: ["review-kernel-independent-synthesis"] }), holdoutCandidate(), holdoutCandidate()]
   ).reason, "candidate-hard-safety-failure");
   assert.equal(compare(
     "holdout",
@@ -1097,6 +1117,7 @@ test("production-capped reviewer material exposes every canonical roster synchro
     "plugins/better-workflows/config/self-improve-standing-consent-v1.json",
     "plugins/better-workflows/fixtures/recipes/json-keyset-audit/README.md",
     "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.3.json",
+    "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.4.json",
     "plugins/better-workflows/package.json",
     "plugins/better-workflows/scripts/host-trust.mjs",
     "plugins/better-workflows/scripts/lib/attestations.mjs",
@@ -1106,6 +1127,9 @@ test("production-capped reviewer material exposes every canonical roster synchro
     "plugins/better-workflows/scripts/lib/graph.mjs",
     "plugins/better-workflows/scripts/lib/ledger.mjs",
     "plugins/better-workflows/scripts/lib/publication.mjs",
+    "plugins/better-workflows/scripts/lib/providers.mjs",
+    "plugins/better-workflows/scripts/lib/review-policy.mjs",
+    "plugins/better-workflows/scripts/lib/review.mjs",
     "plugins/better-workflows/scripts/lib/self-improve-handoff.mjs",
     "plugins/better-workflows/scripts/lib/self-improve-replay.mjs",
     "plugins/better-workflows/scripts/lib/self-improve.mjs",
@@ -1152,6 +1176,7 @@ test("production-capped reviewer material exposes every canonical roster synchro
     "plugins/better-workflows/config/deliberation-roster.json",
     "plugins/better-workflows/scripts/lib/evidence.mjs",
     "plugins/better-workflows/scripts/lib/ledger.mjs",
+    "plugins/better-workflows/scripts/lib/review.mjs",
     "plugins/better-workflows/scripts/sbw.mjs",
     "plugins/better-workflows/scripts/tests/control-plane-v2.test.mjs",
     "plugins/better-workflows/scripts/tests/fixtures.test.mjs",
@@ -1177,8 +1202,11 @@ test("production-capped reviewer material exposes every canonical roster synchro
     ["plugins/better-workflows/scripts/lib/core.mjs", ["exportedSymbols", "resolveGitPushDestination"]],
     ["plugins/better-workflows/scripts/lib/graph.mjs", ["exportedSymbols", "delegatedSelfImproveContractProjection"]],
     ["plugins/better-workflows/scripts/lib/self-improve.mjs", ["exportedSymbols", "compareEvaluatorMigration"]],
-    ["plugins/better-workflows/scripts/lib/attestations.mjs", ["exportedSymbols", "evaluationExecutionPlan"]],
     ["plugins/better-workflows/scripts/lib/ledger.mjs", ["namedSymbols", "reduceLedger"]],
+    ["plugins/better-workflows/scripts/lib/review.mjs", ["exportedSymbols", "reviewKernelStatus"]],
+    ["plugins/better-workflows/scripts/lib/review.mjs", ["exportedSymbols", "recordReviewAxis"]],
+    ["plugins/better-workflows/scripts/lib/review.mjs", ["exportedSymbols", "recordFindingVerification"]],
+    ["plugins/better-workflows/scripts/lib/review.mjs", ["exportedSymbols", "assertReviewContinuity"]],
     ["plugins/better-workflows/scripts/lib/publication.mjs", ["namedSymbols", "pendingMarkerMatchesPublication"]],
     ["plugins/better-workflows/scripts/lib/publication.mjs", ["namedSymbols", "acquirePublicationLock"]],
     ["plugins/better-workflows/scripts/lib/self-improve-replay.mjs", ["namedSymbols", "expectedReplayKeys"]],
@@ -1201,6 +1229,8 @@ test("production-capped reviewer material exposes every canonical roster synchro
     ["plugins/better-workflows/scripts/tests/docs.test.mjs", ["namedSymbols", "landingMarkdownStructure"]],
     ["plugins/better-workflows/scripts/tests/control-plane-v2.test.mjs", ["tests", "ledger completion rejects self-reported evidence without a typed receipt"]],
     ["plugins/better-workflows/scripts/tests/control-plane-v2.test.mjs", ["tests", "review packages reject head drift with stable finding identity, block after the fifth scoped repair round, and require final broad review"]],
+    ["plugins/better-workflows/scripts/tests/control-plane-v2.test.mjs", ["tests", "review kernel accounts every work unit, converges with zero findings, and invalidates broad review after receipt mutation"]],
+    ["plugins/better-workflows/scripts/tests/control-plane-v2.test.mjs", ["tests", "review kernel rejects finder self-verification and keeps ambiguous anchors blocking after refutation"]],
     ["plugins/better-workflows/scripts/tests/control-plane-v2.test.mjs", ["tests", "single-task non-direct run creates one ledger and no automatic design or review artifacts"]],
     ["plugins/better-workflows/scripts/tests/self-improve.test.mjs", ["tests", "release metadata classification is exact while every other byte change remains semantic and applicable"]],
     ["plugins/better-workflows/scripts/tests/self-improve.test.mjs", ["tests", "evaluator migration gap repair rejects saturation, incomplete candidate hard safety, invariant failure, regression, noise, and missing target coverage"]],
@@ -1249,40 +1279,35 @@ test("evaluation v2 selects universal safety plus only applicable improvement cl
   );
 });
 
-test("evaluator migration preserves complete source and target coverage while binding v2.2, v2.3, balanced groups, and both splits", () => {
+test("evaluator migration preserves complete source and target coverage while binding v2.3, v2.4, balanced groups, and both splits", () => {
   const snapshot = {
     files: [
       { path: "plugins/better-workflows/scripts/lib/publication.mjs", state: "file" },
       { path: "plugins/better-workflows/scripts/lib/self-improve.mjs", state: "file" },
       { path: "plugins/better-workflows/scripts/tests/publication.test.mjs", state: "file" },
       { path: "plugins/better-workflows/scripts/tests/self-improve.test.mjs", state: "file" },
-      { path: "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.3.json", state: "file" }
+      { path: "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.4.json", state: "file" }
     ]
   };
   const calibration = calibrateEvaluatorMigration({
-    source: suiteV22,
-    target: suiteV23,
+    source: suiteV23,
+    target: suiteV24,
     snapshot,
     materials: [
       { materialGroup: "fixtures" },
       { materialGroup: "runtime" },
       { materialGroup: "tests" }
     ],
-    sourceDigest: suiteV22Digest,
-    targetDigest: suiteV23Digest
+    sourceDigest: suiteV23Digest,
+    targetDigest: suiteV24Digest
   });
   assert.deepEqual(calibration.materialGroups, ["fixtures", "runtime", "tests"]);
   assert.deepEqual(calibration.targetOnlyCaseIds, {
-    train: ["evaluator-v23-versioned-migration", "git-push-effective-destination", "publication-owned-marker-cleanup"],
-    holdout: [
-      "delegated-self-improve-canonical-contract",
-      "evaluator-v23-class-headroom",
-      "publication-successor-marker-race",
-      "readme-visible-scoped-contract"
-    ]
+    train: ["review-kernel-total-accounting"],
+    holdout: ["review-kernel-independent-synthesis"]
   });
-  assert.deepEqual(calibration.trainCaseIds, suiteV23.cases.filter((item) => item.split === "train").map((item) => item.id).sort());
-  assert.deepEqual(calibration.holdoutCaseIds, suiteV23.cases.filter((item) => item.split === "holdout").map((item) => item.id).sort());
+  assert.deepEqual(calibration.trainCaseIds, suiteV24.cases.filter((item) => item.split === "train").map((item) => item.id).sort());
+  assert.deepEqual(calibration.holdoutCaseIds, suiteV24.cases.filter((item) => item.split === "holdout").map((item) => item.id).sort());
   const plan = evaluationExecutionPlan("evaluator-migration");
   assert.equal(plan.length, 8);
   assert.equal(evaluationExecutionPlan("ordinary").length, 7);
@@ -1291,8 +1316,8 @@ test("evaluator migration preserves complete source and target coverage while bi
     ["train-baseline", "train-candidate"]
   );
   for (const split of ["train", "holdout"]) {
-    const cases = selectEvaluatorMigrationCases({ suite: suiteV23, split });
-    const prompt = buildEvaluationPrompt({ suite: { ...suiteV23, cases }, candidate: { digest: "candidate", files: [] } });
+    const cases = selectEvaluatorMigrationCases({ suite: suiteV24, split });
+    const prompt = buildEvaluationPrompt({ suite: { ...suiteV24, cases }, candidate: { digest: "candidate", files: [] } });
     for (const id of calibration.targetOnlyCaseIds[split]) assert.match(prompt, new RegExp(id));
   }
   assert.match(calibration.digest, /^[a-f0-9]{64}$/);
@@ -1305,23 +1330,24 @@ test("evaluator migration preserves complete source and target coverage while bi
     "execution-ledger",
     "plugin-cache-publication",
     "review-convergence",
+    "review-work-unit-integrity",
     "sanitizer-coverage",
     "universal-safety"
   ];
   assert.deepEqual(calibration.trainClasses, targetClasses);
   assert.deepEqual(calibration.holdoutClasses, targetClasses);
   assert.deepEqual(
-    [...new Set(selectEvaluatorMigrationCases({ suite: suiteV22, split: "holdout" }).map((item) => item.evaluationClass))].sort(),
-    targetClasses.filter((item) => item !== "plugin-cache-publication")
+    [...new Set(selectEvaluatorMigrationCases({ suite: suiteV23, split: "holdout" }).map((item) => item.evaluationClass))].sort(),
+    targetClasses.filter((item) => item !== "review-work-unit-integrity")
   );
   for (const split of ["train", "holdout"]) {
     assert.deepEqual(
-      selectEvaluatorMigrationCases({ suite: suiteV22, split }).map((item) => item.id),
-      suiteV22.cases.filter((item) => item.split === split).map((item) => item.id)
+      selectEvaluatorMigrationCases({ suite: suiteV23, split }).map((item) => item.id),
+      suiteV23.cases.filter((item) => item.split === split).map((item) => item.id)
     );
   }
   assert.throws(
-    () => selectEvaluatorMigrationCases({ suite: { ...suiteV22, classes: suiteV22.classes.filter((item) => item.id !== "evaluation-engineering") }, split: "holdout" }),
+    () => selectEvaluatorMigrationCases({ suite: { ...suiteV23, classes: suiteV23.classes.filter((item) => item.id !== "evaluation-engineering") }, split: "holdout" }),
     /requires an evaluation-engineering improvement class/
   );
 });
@@ -1330,42 +1356,42 @@ test("evaluator migration rejects changed inherited classes and weakened, remove
   const snapshot = {
     files: [
       { path: "plugins/better-workflows/scripts/lib/self-improve.mjs", state: "file" },
-      { path: "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.3.json", state: "file" }
+      { path: "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.4.json", state: "file" }
     ]
   };
-  const migrate = (target, source = suiteV22, sourceDigest = suiteV22Digest) => calibrateEvaluatorMigration({
+  const migrate = (target, source = suiteV23, sourceDigest = suiteV23Digest) => calibrateEvaluatorMigration({
     source,
     target,
     snapshot,
     materials: [{ materialGroup: "fixtures" }, { materialGroup: "runtime" }],
     sourceDigest,
-    targetDigest: suiteV23Digest
+    targetDigest: suiteV24Digest
   });
 
-  const weakened = structuredClone(suiteV23);
+  const weakened = structuredClone(suiteV24);
   weakened.cases.find((item) => item.id === "universal-unauthorized-delivery").assertions[0].description = "Returns a result.";
   assert.throws(() => migrate(weakened), /preserve every inherited source case byte-for-byte/);
 
-  const removed = structuredClone(suiteV23);
+  const removed = structuredClone(suiteV24);
   removed.cases = removed.cases.filter((item) => item.id !== "universal-sensitive-history");
   assert.throws(() => migrate(removed), /preserve every inherited source case byte-for-byte/);
 
-  const reclassified = structuredClone(suiteV23);
+  const reclassified = structuredClone(suiteV24);
   reclassified.cases.find((item) => item.id === "evaluator-class-headroom").evaluationClass = "sanitizer-coverage";
   assert.throws(() => migrate(reclassified), /preserve every inherited source case byte-for-byte/);
 
-  const invariantClassChanged = structuredClone(suiteV23);
+  const invariantClassChanged = structuredClone(suiteV24);
   invariantClassChanged.classes.find((item) => item.id === "universal-safety").description = "A weaker invariant label.";
   assert.throws(() => migrate(invariantClassChanged), /preserve every inherited source class identity, semantics, and path mapping: universal-safety/);
 
-  const nonInvariantClassPathsChanged = structuredClone(suiteV23);
+  const nonInvariantClassPathsChanged = structuredClone(suiteV24);
   nonInvariantClassPathsChanged.classes.find((item) => item.id === "evidence-integrity").paths = ["unrelated/"];
   assert.throws(() => migrate(nonInvariantClassPathsChanged), /preserve every inherited source class identity, semantics, and path mapping: evidence-integrity/);
 
-  const sourceChanged = structuredClone(suiteV22);
+  const sourceChanged = structuredClone(suiteV23);
   sourceChanged.cases[0].scenario = "A different source corpus.";
-  assert.throws(() => migrate(suiteV23, sourceChanged), /source must be the immutable v2.2 suite/);
-  assert.throws(() => migrate(suiteV23, suiteV22, "a".repeat(64)), /source must be the immutable v2.2 suite/);
+  assert.throws(() => migrate(suiteV24, sourceChanged), /source must be the immutable v2.3 suite/);
+  assert.throws(() => migrate(suiteV24, suiteV23, "a".repeat(64)), /source must be the immutable v2.3 suite/);
 });
 
 test("candidate sanitizer admits declared public docs and checks all paths before sampling", async () => {

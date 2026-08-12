@@ -11,15 +11,17 @@ const SECRET_PATTERN = new RegExp(STANDING_CONSENT_SECRET_PATTERN, "i");
 const SECRET_PATTERN_GLOBAL = new RegExp(STANDING_CONSENT_SECRET_PATTERN, "gi");
 export const SELF_IMPROVE_LEGACY_CORPUS = "plugins/better-workflows/fixtures/self-improve-ops-evals.json";
 export const SELF_IMPROVE_V22_CORPUS = "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.2.json";
-export const SELF_IMPROVE_MIGRATION_SOURCE_CORPUS = SELF_IMPROVE_V22_CORPUS;
-export const SELF_IMPROVE_MIGRATION_SOURCE_SUITE_DIGEST = "6e6923ca2953fceb0cbbd7d16bb8b83745ac318e60d80279549751aad92c00c4";
-const SELF_IMPROVE_MIGRATION_SOURCE_SUITE_OBJECT_DIGEST = "8f1542a489134a0b041cb5348c471bc14ed0445b5a75490aef51048afeefa0d0";
-export const SELF_IMPROVE_CANONICAL_CORPUS = "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.3.json";
+export const SELF_IMPROVE_V23_CORPUS = "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.3.json";
+export const SELF_IMPROVE_MIGRATION_SOURCE_CORPUS = SELF_IMPROVE_V23_CORPUS;
+export const SELF_IMPROVE_MIGRATION_SOURCE_SUITE_DIGEST = "fec7789bd61f1927e606e1a3eccb85ae30280dbf42c6c4c6b779402365910e85";
+const SELF_IMPROVE_MIGRATION_SOURCE_SUITE_OBJECT_DIGEST = "835e94de8378e66ba1218caba14f3363a0b47c02444081c7448c7e6b1efd0e88";
+export const SELF_IMPROVE_CANONICAL_CORPUS = "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.4.json";
 export const SELF_IMPROVE_MIGRATION_SOURCE_CORPORA = Object.freeze([
   SELF_IMPROVE_LEGACY_CORPUS,
   "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.json",
   "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.1.json",
-  SELF_IMPROVE_V22_CORPUS
+  SELF_IMPROVE_V22_CORPUS,
+  SELF_IMPROVE_V23_CORPUS
 ]);
 export const SELF_IMPROVE_ORDINARY_CORPORA = Object.freeze([
   SELF_IMPROVE_CANONICAL_CORPUS,
@@ -38,7 +40,7 @@ export const SELF_IMPROVE_EVALUATION_PURPOSES = new Set([
 export function isPolicyBoundEvaluationPurpose(purpose) {
   return purpose === SELF_IMPROVE_SAFETY_REMEDIATION_PURPOSE || purpose === SELF_IMPROVE_QUALITY_REMEDIATION_PURPOSE;
 }
-const SAFETY_REMEDIATION_V1_SOURCE_SUITE_DIGEST = SELF_IMPROVE_MIGRATION_SOURCE_SUITE_DIGEST;
+const SAFETY_REMEDIATION_V1_SOURCE_SUITE_DIGEST = "6e6923ca2953fceb0cbbd7d16bb8b83745ac318e60d80279549751aad92c00c4";
 const SAFETY_REMEDIATION_V1_POLICY_DIGEST = "eef024226b8b9d70e01a84ea069dfaa9c633ae3cab80f484da9b772be2234958";
 const SAFETY_REMEDIATION_V1_TARGETS = Object.freeze([
   Object.freeze({
@@ -57,7 +59,7 @@ const SAFETY_REMEDIATION_V1_TARGETS = Object.freeze([
     hardSafetyAssertionId: "fifth-round-blocks"
   })
 ]);
-const QUALITY_REMEDIATION_V1_SOURCE_SUITE_DIGEST = SAFETY_REMEDIATION_V1_SOURCE_SUITE_DIGEST;
+const QUALITY_REMEDIATION_V1_SOURCE_SUITE_DIGEST = "6e6923ca2953fceb0cbbd7d16bb8b83745ac318e60d80279549751aad92c00c4";
 const QUALITY_REMEDIATION_V1_POLICY_DIGEST = "9c9b294fce1b5220fa032008587906d903c901941da8c1841545054409092dc9";
 const QUALITY_REMEDIATION_V1_TARGETS = Object.freeze([
   Object.freeze({
@@ -87,33 +89,35 @@ const PUBLIC_ROOT_DOCUMENTS = new Set([
 ]);
 const PUBLIC_ROOT_SCRIPTS = new Set(["scripts/plugin-cache.mjs"]);
 const MATERIAL_GROUPS = ["runtime", "tests", "config", "skills", "templates", "fixtures", "metadata", "docs"];
-const CRITICAL_MATERIAL_ANCHOR = /resolveGitPushDestination|git push destination binds a divergent pushurl|buildBoundGitPushArgs|buildBoundGitPushEnvironment|isolatedGitEnvironment|reconstructStandingBatch|validateAuthoritativeStandingManifestBindings|runEvaluatorPolicyProbe|evaluatorCommandArgs|delegatedSelfImproveContractProjection|applyDelegatedSelfImproveContract|delegated-contract-drift|candidate-self-authorized-(?:evidence|acceptance)|upstream run|orphan cache-only signals|required cache evidence|acceptance cache evidence|stage (?:handoff|cache) evidence|action handoff gate|unexpected (?:required evidence|acceptance id)|expectedReplayKeys|migrationTrainingComparison|alignedRuns|train-(?:candidate|baseline):1|(?:candidate|baseline):[1-3]|release metadata classification|every other byte change|migration gap repair|eight distinct migration witnesses|every target-only case|hidden comments|fenced examples|wrong-section|suite saturation|pendingMarkerMatchesPublication|publication failure preserves a pending marker|acquirePublicationLock|releasePublicationLock|reclaimStalePublicationLock|legacy stale-lock quarantine|landingMarkdownStructure|reduceLedger|attempt-budget-exhausted|budget-exhausted|fifth scoped repair round|repair budget exhausted|final broad review|single-task non-direct run|automatic design or review artifacts|direct mode creates no state directory|self-reported evidence without a typed receipt|complete-without-typed-evidence/i;
-const MATERIAL_SAMPLE_PRIORITY = Object.freeze([
+const CRITICAL_MATERIAL_ANCHOR = /resolveGitPushDestination|git push destination binds a divergent pushurl|buildBoundGitPushArgs|buildBoundGitPushEnvironment|isolatedGitEnvironment|reconstructStandingBatch|validateAuthoritativeStandingManifestBindings|runEvaluatorPolicyProbe|evaluatorCommandArgs|delegatedSelfImproveContractProjection|applyDelegatedSelfImproveContract|delegated-contract-drift|candidate-self-authorized-(?:evidence|acceptance)|upstream run|orphan cache-only signals|required cache evidence|acceptance cache evidence|stage (?:handoff|cache) evidence|action handoff gate|unexpected (?:required evidence|acceptance id)|expectedReplayKeys|migrationTrainingComparison|alignedRuns|train-(?:candidate|baseline):1|(?:candidate|baseline):[1-3]|release metadata classification|every other byte change|migration gap repair|eight distinct migration witnesses|every target-only case|hidden comments|fenced examples|wrong-section|suite saturation|pendingMarkerMatchesPublication|publication failure preserves a pending marker|acquirePublicationLock|releasePublicationLock|reclaimStalePublicationLock|legacy stale-lock quarantine|landingMarkdownStructure|reduceLedger|attempt-budget-exhausted|budget-exhausted|fifth scoped repair round|repair budget exhausted|final broad review|single-task non-direct run|automatic design or review artifacts|direct mode creates no state directory|self-reported evidence without a typed receipt|complete-without-typed-evidence|review kernel accounts every work unit|review kernel rejects finder self-verification|reviewKernelStatus|recordReviewAxis|recordFindingVerification|assertReviewContinuity|workUniverseDigest|axisSetDigest|verificationSetDigest|convergenceDigest|code-v2-pilot|work-unit-accounting|review-kernel-summary/i;
+export const SELF_IMPROVE_CRITICAL_MATERIAL_ANCHOR_SOURCE = CRITICAL_MATERIAL_ANCHOR.source;
+export const SELF_IMPROVE_MATERIAL_SAMPLE_PRIORITY = Object.freeze([
   "plugins/better-workflows/scripts/lib/core.mjs",
   "plugins/better-workflows/scripts/lib/graph.mjs",
   "plugins/better-workflows/scripts/lib/publication.mjs",
+  "plugins/better-workflows/scripts/lib/review.mjs",
   "plugins/better-workflows/scripts/lib/self-improve.mjs",
   "plugins/better-workflows/scripts/lib/self-improve-replay.mjs",
-  "plugins/better-workflows/scripts/lib/attestations.mjs",
   "plugins/better-workflows/scripts/lib/ledger.mjs",
   "plugins/better-workflows/scripts/lib/evidence.mjs",
   "plugins/better-workflows/scripts/sbw.mjs",
+  "plugins/better-workflows/scripts/tests/control-plane-v2.test.mjs",
   "plugins/better-workflows/scripts/tests/core.test.mjs",
   "plugins/better-workflows/scripts/tests/graph.test.mjs",
   "plugins/better-workflows/scripts/tests/publication.test.mjs",
   "plugins/better-workflows/scripts/tests/self-improve.test.mjs",
-  "plugins/better-workflows/scripts/tests/docs.test.mjs",
   "plugins/better-workflows/scripts/tests/cli.test.mjs",
-  "plugins/better-workflows/scripts/tests/control-plane-v2.test.mjs",
   "plugins/better-workflows/scripts/tests/fixtures.test.mjs",
+  "plugins/better-workflows/scripts/tests/docs.test.mjs",
   "plugins/better-workflows/config/deliberation-roster.json",
-  "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.3.json",
-  "plugins/better-workflows/skills/better-workflows/SKILL.md",
+  "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.4.json",
   "plugins/better-workflows/skills/better-workflows/references/deliberation-roster.md",
+  "plugins/better-workflows/skills/better-workflows/SKILL.md",
   "plugins/better-workflows/config/evidence-contracts-v1.json",
   "plugins/better-workflows/.codex-plugin/plugin.json",
   "README.md"
 ]);
+const MATERIAL_SAMPLE_PRIORITY = SELF_IMPROVE_MATERIAL_SAMPLE_PRIORITY;
 const MATERIAL_SAMPLE_PRIORITY_INDEX = new Map(MATERIAL_SAMPLE_PRIORITY.map((file, index) => [file, index]));
 const PUBLIC_DOCUMENT_SAMPLE_PRIORITY = new Map([
   "README.md",
@@ -1181,7 +1185,7 @@ function assertEvaluatorMigrationSourcePreserved({ source, target, sourceDigest 
     sourceDigest !== SELF_IMPROVE_MIGRATION_SOURCE_SUITE_DIGEST ||
     digestObject(source) !== SELF_IMPROVE_MIGRATION_SOURCE_SUITE_OBJECT_DIGEST
   ) {
-    throw new Error("Evaluator migration source must be the immutable v2.2 suite");
+    throw new Error("Evaluator migration source must be the immutable v2.3 suite");
   }
   const targetClasses = new Map(target.classes.map((item) => [item.id, item]));
   const changedClasses = source.classes

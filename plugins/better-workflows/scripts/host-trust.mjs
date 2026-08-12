@@ -94,6 +94,7 @@ const HOST_SIGNER_CAPABILITIES = Object.freeze([
 ]);
 const SAFE_OUTPUT = /^[A-Za-z0-9][A-Za-z0-9._-]{7,127}\.json$/;
 const SAFE_EXECUTION_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{7,127}$/;
+const SAFE_NATIVE_REVIEW_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const SHA256 = /^[a-f0-9]{64}$/;
 const SHA1 = /^[a-f0-9]{40}$/;
 const MAX_PROMPT_BYTES = 8 * 1024 * 1024;
@@ -573,43 +574,46 @@ const SELF_IMPROVE_V2_CORPUS = "plugins/better-workflows/fixtures/self-improve-o
 const SELF_IMPROVE_V21_CORPUS = "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.1.json";
 const SELF_IMPROVE_V22_CORPUS = "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.2.json";
 const SELF_IMPROVE_V23_CORPUS = "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.3.json";
+const SELF_IMPROVE_V24_CORPUS = "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.4.json";
 const SELF_IMPROVE_MIGRATION_SOURCE_CORPORA = Object.freeze([
   SELF_IMPROVE_LEGACY_CORPUS,
   SELF_IMPROVE_V2_CORPUS,
   SELF_IMPROVE_V21_CORPUS,
-  SELF_IMPROVE_V22_CORPUS
+  SELF_IMPROVE_V22_CORPUS,
+  SELF_IMPROVE_V23_CORPUS
 ]);
 const SELF_IMPROVE_ORDINARY_CORPORA = Object.freeze([
-  SELF_IMPROVE_V23_CORPUS,
+  SELF_IMPROVE_V24_CORPUS,
   ...SELF_IMPROVE_MIGRATION_SOURCE_CORPORA.toReversed()
 ]);
 const MATERIAL_GROUPS = Object.freeze(["runtime", "tests", "config", "skills", "templates", "fixtures", "metadata", "docs"]);
-const MATERIAL_SAMPLE_PRIORITY = Object.freeze([
+export const HOST_MATERIAL_SAMPLE_PRIORITY = Object.freeze([
   "plugins/better-workflows/scripts/lib/core.mjs",
   "plugins/better-workflows/scripts/lib/graph.mjs",
   "plugins/better-workflows/scripts/lib/publication.mjs",
+  "plugins/better-workflows/scripts/lib/review.mjs",
   "plugins/better-workflows/scripts/lib/self-improve.mjs",
   "plugins/better-workflows/scripts/lib/self-improve-replay.mjs",
-  "plugins/better-workflows/scripts/lib/attestations.mjs",
   "plugins/better-workflows/scripts/lib/ledger.mjs",
   "plugins/better-workflows/scripts/lib/evidence.mjs",
   "plugins/better-workflows/scripts/sbw.mjs",
+  "plugins/better-workflows/scripts/tests/control-plane-v2.test.mjs",
   "plugins/better-workflows/scripts/tests/core.test.mjs",
   "plugins/better-workflows/scripts/tests/graph.test.mjs",
   "plugins/better-workflows/scripts/tests/publication.test.mjs",
   "plugins/better-workflows/scripts/tests/self-improve.test.mjs",
-  "plugins/better-workflows/scripts/tests/docs.test.mjs",
   "plugins/better-workflows/scripts/tests/cli.test.mjs",
-  "plugins/better-workflows/scripts/tests/control-plane-v2.test.mjs",
   "plugins/better-workflows/scripts/tests/fixtures.test.mjs",
+  "plugins/better-workflows/scripts/tests/docs.test.mjs",
   "plugins/better-workflows/config/deliberation-roster.json",
-  SELF_IMPROVE_V23_CORPUS,
-  "plugins/better-workflows/skills/better-workflows/SKILL.md",
+  SELF_IMPROVE_V24_CORPUS,
   "plugins/better-workflows/skills/better-workflows/references/deliberation-roster.md",
+  "plugins/better-workflows/skills/better-workflows/SKILL.md",
   "plugins/better-workflows/config/evidence-contracts-v1.json",
   "plugins/better-workflows/.codex-plugin/plugin.json",
   "README.md"
 ]);
+const MATERIAL_SAMPLE_PRIORITY = HOST_MATERIAL_SAMPLE_PRIORITY;
 const MATERIAL_SAMPLE_PRIORITY_INDEX = new Map(MATERIAL_SAMPLE_PRIORITY.map((file, index) => [file, index]));
 const PUBLIC_DOCUMENT_SAMPLE_PRIORITY = new Map([
   "README.md",
@@ -624,7 +628,8 @@ const PUBLIC_DOCUMENT_SAMPLE_PRIORITY = new Map([
   "scripts/plugin-cache.mjs",
   "docs/assets/better-workflows-engineering-stack.svg"
 ].map((file, index) => [file, index]));
-const CRITICAL_MATERIAL_ANCHOR = /resolveGitPushDestination|git push destination binds a divergent pushurl|buildBoundGitPushArgs|buildBoundGitPushEnvironment|isolatedGitEnvironment|reconstructStandingBatch|validateAuthoritativeStandingManifestBindings|runEvaluatorPolicyProbe|evaluatorCommandArgs|delegatedSelfImproveContractProjection|applyDelegatedSelfImproveContract|delegated-contract-drift|candidate-self-authorized-(?:evidence|acceptance)|upstream run|orphan cache-only signals|required cache evidence|acceptance cache evidence|stage (?:handoff|cache) evidence|action handoff gate|unexpected (?:required evidence|acceptance id)|expectedReplayKeys|migrationTrainingComparison|alignedRuns|train-(?:candidate|baseline):1|(?:candidate|baseline):[1-3]|release metadata classification|every other byte change|migration gap repair|eight distinct migration witnesses|every target-only case|hidden comments|fenced examples|wrong-section|suite saturation|pendingMarkerMatchesPublication|publication failure preserves a pending marker|acquirePublicationLock|releasePublicationLock|reclaimStalePublicationLock|legacy stale-lock quarantine|landingMarkdownStructure|reduceLedger|attempt-budget-exhausted|budget-exhausted|fifth scoped repair round|repair budget exhausted|final broad review|single-task non-direct run|automatic design or review artifacts|direct mode creates no state directory|self-reported evidence without a typed receipt|complete-without-typed-evidence/i;
+const CRITICAL_MATERIAL_ANCHOR = /resolveGitPushDestination|git push destination binds a divergent pushurl|buildBoundGitPushArgs|buildBoundGitPushEnvironment|isolatedGitEnvironment|reconstructStandingBatch|validateAuthoritativeStandingManifestBindings|runEvaluatorPolicyProbe|evaluatorCommandArgs|delegatedSelfImproveContractProjection|applyDelegatedSelfImproveContract|delegated-contract-drift|candidate-self-authorized-(?:evidence|acceptance)|upstream run|orphan cache-only signals|required cache evidence|acceptance cache evidence|stage (?:handoff|cache) evidence|action handoff gate|unexpected (?:required evidence|acceptance id)|expectedReplayKeys|migrationTrainingComparison|alignedRuns|train-(?:candidate|baseline):1|(?:candidate|baseline):[1-3]|release metadata classification|every other byte change|migration gap repair|eight distinct migration witnesses|every target-only case|hidden comments|fenced examples|wrong-section|suite saturation|pendingMarkerMatchesPublication|publication failure preserves a pending marker|acquirePublicationLock|releasePublicationLock|reclaimStalePublicationLock|legacy stale-lock quarantine|landingMarkdownStructure|reduceLedger|attempt-budget-exhausted|budget-exhausted|fifth scoped repair round|repair budget exhausted|final broad review|single-task non-direct run|automatic design or review artifacts|direct mode creates no state directory|self-reported evidence without a typed receipt|complete-without-typed-evidence|review kernel accounts every work unit|review kernel rejects finder self-verification|reviewKernelStatus|recordReviewAxis|recordFindingVerification|assertReviewContinuity|workUniverseDigest|axisSetDigest|verificationSetDigest|convergenceDigest|code-v2-pilot|work-unit-accounting|review-kernel-summary/i;
+export const HOST_CRITICAL_MATERIAL_ANCHOR_SOURCE = CRITICAL_MATERIAL_ANCHOR.source;
 const RELEASE_BADGE_PATHS = new Set([
   "README.md",
   "docs/README.zh-TW.md",
@@ -3440,7 +3445,7 @@ async function authoritativeSuiteState(repo, subject, headRevision, manifest, ca
   let targetSuiteDigest = null;
   let targetSuitePath = null;
   if (manifest.purpose === "evaluator-migration") {
-    targetSuitePath = SELF_IMPROVE_V23_CORPUS;
+    targetSuitePath = SELF_IMPROVE_V24_CORPUS;
     const targetBlob = await authoritativeBlobAtRevision(repo, subject, headRevision, targetSuitePath);
     if (!targetBlob) throw new Error("Standing migration target suite is absent from the bound head");
     const bytes = targetBlob.bytes;
@@ -5255,18 +5260,13 @@ async function upgradeSigner(
   }
 }
 
-async function signNativeRequest(requestPath, confirmedDigest, outputName) {
-  requireRoot();
-  await requireInstalledCapability("native-review");
-  if (!SHA256.test(confirmedDigest)) throw new Error("confirmed request digest must be SHA-256");
-  if (!SAFE_OUTPUT.test(outputName)) throw new Error("attestation output name is unsafe");
-  const requestBytes = await readFile(path.resolve(requestPath));
-  if ((await digest(requestBytes)) !== confirmedDigest) {
-    throw new Error("request digest does not match administrator-confirmed digest");
+export function validateNativeReviewRequest(request) {
+  if (!request || typeof request !== "object" || Array.isArray(request)) {
+    throw new Error("native request must be an object");
   }
-  const request = JSON.parse(requestBytes.toString("utf8"));
   const required = ["base", "head", "instructionDigest", "model", "packageId", "promptDigest", "reviewDigest", "reviewerId", "runId", "sentinelDigest"];
-  if (Object.keys(request).sort().join("\0") !== required.slice().sort().join("\0")) {
+  const fields = request.executionId === undefined ? required : [...required, "executionId"];
+  if (Object.keys(request).sort().join("\0") !== fields.slice().sort().join("\0")) {
     throw new Error("native request fields do not match the signer contract");
   }
   if (!["base", "head"].every((key) => SHA1.test(request[key]))) throw new Error("native request revisions are invalid");
@@ -5276,6 +5276,22 @@ async function signNativeRequest(requestPath, confirmedDigest, outputName) {
   if (["model", "packageId", "reviewerId", "runId"].some((key) => typeof request[key] !== "string" || !request[key] || request[key].length > 256)) {
     throw new Error("native request identity is invalid");
   }
+  if (request.executionId !== undefined && !SAFE_NATIVE_REVIEW_ID.test(request.executionId)) {
+    throw new Error("native request executionId is invalid");
+  }
+  return request;
+}
+
+async function signNativeRequest(requestPath, confirmedDigest, outputName) {
+  requireRoot();
+  await requireInstalledCapability("native-review");
+  if (!SHA256.test(confirmedDigest)) throw new Error("confirmed request digest must be SHA-256");
+  if (!SAFE_OUTPUT.test(outputName)) throw new Error("attestation output name is unsafe");
+  const requestBytes = await readFile(path.resolve(requestPath));
+  if ((await digest(requestBytes)) !== confirmedDigest) {
+    throw new Error("request digest does not match administrator-confirmed digest");
+  }
+  const request = validateNativeReviewRequest(JSON.parse(requestBytes.toString("utf8")));
   const trust = await validateTrustRoot();
   await validateRootOwnedFile(PRIVATE_KEY, "Private signing key", 0o600);
   const key = trust.value.publicKeys[0];

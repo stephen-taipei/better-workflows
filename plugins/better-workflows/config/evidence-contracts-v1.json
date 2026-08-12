@@ -1608,6 +1608,30 @@
         "remoteRevision"
       ]
     },
+    "review-kernel-summary": {
+      "id": "evidence-contracts-v1:review-kernel-summary",
+      "producerAllowlist": [
+        "better-workflows-kernel"
+      ],
+      "payloadFamily": "validation-test",
+      "requiredFields": [
+        "result",
+        "packageId",
+        "repairRound",
+        "workUniverseDigest",
+        "axisSetDigest",
+        "verificationSetDigest",
+        "coverageDigest",
+        "findingSetDigest",
+        "convergenceDigest",
+        "items"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
     "role-perspective-matrix": {
       "id": "evidence-contracts-v1:role-perspective-matrix",
       "producerAllowlist": [
@@ -1946,6 +1970,28 @@
       "requiredFields": [
         "command",
         "result"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision"
+      ]
+    },
+    "work-unit-accounting": {
+      "id": "evidence-contracts-v1:work-unit-accounting",
+      "producerAllowlist": [
+        "better-workflows-kernel"
+      ],
+      "payloadFamily": "validation-test",
+      "requiredFields": [
+        "result",
+        "packageId",
+        "repairRound",
+        "workUniverseDigest",
+        "reviewLanesDigest",
+        "axisSetDigest",
+        "coverageDigest",
+        "items"
       ],
       "freshnessBinding": [
         "runId",
