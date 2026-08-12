@@ -476,8 +476,11 @@ test("evaluator migration attestation binds eight distinct migration witnesses, 
   const standingGrant = hostStatus.json?.standingConsent?.active === true
     ? hostStatus.json.standingConsent.grant
     : null;
-  const standingConsentBlocksFixture = Boolean(hostRuntimeReady && standingGrant && (
-    standingGrant.repo !== cwd || !standingGrant.models?.includes("gpt-5.6-sol")
+  const standingConsentBlocksFixture = Boolean(hostRuntimeReady && (
+    hostStatus.json?.standingConsent?.active !== true ||
+    !standingGrant ||
+    standingGrant.repo !== cwd ||
+    !standingGrant.models?.includes("gpt-5.6-sol")
   ));
   const hostReady = hostRuntimeReady && !standingConsentBlocksFixture;
   const approvedBinary = hostStatus.json?.codexBinary?.validEntries?.[0]?.path ?? process.execPath;
@@ -504,8 +507,12 @@ test("evaluator migration attestation binds eight distinct migration witnesses, 
   if (!hostReady) {
     if (standingConsentBlocksFixture) {
       assert.match(requested.stderr, /Standing evaluator consent failed closed/);
-      assert.match(requested.stderr, /repository mismatch/);
-      assert.match(requested.stderr, /model mismatch/);
+      if (standingGrant) {
+        assert.match(requested.stderr, /repository mismatch/);
+        assert.match(requested.stderr, /model mismatch/);
+      } else {
+        assert.match(requested.stderr, /sanitization policy mismatch|consent is not active/);
+      }
       return;
     }
     assert.match(requested.stderr, /Administrator host runtime is not ready|host-trust upgrade first/);
