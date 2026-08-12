@@ -4619,6 +4619,7 @@ async function executeBatch(
 
 export const EVALUATOR_UPSTREAM_BASE_URL = "https://chatgpt.com/backend-api/codex/";
 const MAX_EVALUATOR_REQUEST_BYTES = MAX_PROMPT_BYTES + 4 * 1024 * 1024;
+const VALIDATED_CLIENT_AUTHORIZATION_POLICY = "validated-client-bearer";
 const HOP_BY_HOP_HEADERS = new Set([
   "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
   "te", "trailer", "transfer-encoding", "upgrade"
@@ -4645,7 +4646,7 @@ export function evaluatorForwardHeaderPolicy() {
     forwardedHeaders: {
       accept: "text/event-stream",
       "accept-encoding": "identity",
-      authorization: "validated-client-bearer",
+      authorization: VALIDATED_CLIENT_AUTHORIZATION_POLICY,
       "content-length": "root-body-length",
       "content-type": "application/json",
       host: "fixed-codex-upstream",
