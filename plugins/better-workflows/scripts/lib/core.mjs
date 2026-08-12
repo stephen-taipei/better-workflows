@@ -526,7 +526,7 @@ function assertNoAmbientGitAuthorityOverrides() {
   }
 }
 
-export const VERSION = "3.3.2";
+export const VERSION = "3.3.3";
 export const MODES = new Set(["auto", "direct", "verified", "deep", "critical"]);
 export const RUN_STATES = new Set([
   "pending",
@@ -2598,7 +2598,7 @@ export async function evaluateCompletion(root, runId) {
       if (record.status === "complete" && !record.stale && !isTypedEvidence(record)) {
         blockers.push(`untyped-v2-evidence:${record.id}`);
       }
-      if (isTypedEvidence(record)) {
+      if (isTypedEvidence(record) && !record.stale) {
         try {
           await validateTypedEvidenceRecord(record, { manifest, contract, root, runDir, requireReconciled: true });
           if (record.kind === "required-checks") {
@@ -2935,7 +2935,7 @@ async function currentRepositoryIdentity(cwd) {
   return identity;
 }
 
-async function assertCurrentGitPushSourceBinding(manifest, expectedDigest = manifest?.sourceBinding?.digest) {
+export async function assertCurrentGitPushSourceBinding(manifest, expectedDigest = manifest?.sourceBinding?.digest) {
   if (!manifest?.sourceBinding || manifest.sourceBinding.schemaVersion !== 3 ||
       !SHA256_DIGEST.test(expectedDigest ?? "") ||
       !SHA256_DIGEST.test(manifest.sourceBinding.originIdentity?.digest ?? "")) {
@@ -3834,7 +3834,7 @@ async function verifyOwnedResourceCreationProof(manifest, record, providerReceip
   }
 }
 
-async function verifyProviderReceipt(manifest, record, receipt) {
+async function verifyProviderReceipt(manifest, record, receipt, contract = null) {
   if (record.outcome !== "success") return;
   assertSupportedGovernedAction(record.action);
   const providerReceipt = receipt.providerReceipt;
@@ -3929,6 +3929,12 @@ async function verifyProviderReceipt(manifest, record, receipt) {
     );
     if (actual !== providerReceipt.revision || (record.resource.startsWith("commit:") && actual !== record.resource.slice("commit:".length))) {
       throw new Error("Git commit proof does not match provider state");
+    }
+    if (record.autonomyDecision?.decision === "auto-approved") {
+      if (!contract?.autonomyProfile) {
+        throw new Error("Autonomous Git commit proof requires its bounded TaskContract");
+      }
+      await verifyAutonomousCommitTransition(manifest, contract, record);
     }
     return;
   }
@@ -4694,6 +4700,226 @@ async function autonomousCommitAllocation(manifest, actions, snapshot) {
   return { ancestryCount, outstanding, allocated: ancestryCount + outstanding };
 }
 
+function sourceBindingWithoutDigest(binding) {
+  if (!binding || typeof binding !== "object" || Array.isArray(binding)) return null;
+  const { digest, ...payload } = binding;
+  return { digest, payload };
+}
+
+function autonomousCommitSourceIdentity(binding) {
+  return {
+    schemaVersion: binding?.schemaVersion,
+    cwd: binding?.cwd,
+    repositoryRoot: binding?.repositoryRoot,
+    gitDir: binding?.gitDir,
+    gitCommonDir: binding?.gitCommonDir,
+    originIdentity: binding?.originIdentity,
+    symbolicRefs: binding?.symbolicRefs,
+    baseRevision: binding?.baseRevision
+  };
+}
+
+function parseBoundGitNulPaths(value, label) {
+  if (!Buffer.isBuffer(value)) throw new Error(`${label} must be returned as bytes`);
+  const paths = [];
+  let offset = 0;
+  while (offset < value.length) {
+    const end = value.indexOf(0, offset);
+    if (end < 0) throw new Error(`${label} is not NUL terminated`);
+    const bytes = value.subarray(offset, end);
+    if (bytes.length > 0) {
+      const decoded = bytes.toString("utf8");
+      if (!Buffer.from(decoded, "utf8").equals(bytes)) {
+        throw new Error(`${label} contains a non-UTF-8 path`);
+      }
+      paths.push(decoded);
+    }
+    offset = end + 1;
+  }
+  return paths;
+}
+
+function autonomyPathAllowed(relative, pathScope) {
+  return pathScope.includes(".") || pathScope.some((prefix) => (
+    relative === prefix || relative.startsWith(`${prefix}/`)
+  ));
+}
+
+function literalGitPathspec(relative) {
+  return `:(literal)${relative}`;
+}
+
+async function boundedAutonomousCommitDiff(manifest, contract, record, currentHead) {
+  const snapshot = record.autonomySnapshot;
+  const limits = contract.autonomyProfile?.limits;
+  const pathScope = contract.autonomyProfile?.pathScope;
+  if (
+    !snapshot || !limits || !Array.isArray(pathScope) ||
+    !Array.isArray(snapshot.changedPaths) || !Array.isArray(snapshot.untrackedManifest) ||
+    !Number.isSafeInteger(snapshot.trackedDiffBytes) || !SHA256_DIGEST.test(snapshot.trackedDiffDigest ?? "")
+  ) {
+    throw new Error("Autonomous Git commit reconciliation requires the exact consumed diff snapshot");
+  }
+  const preCommitHead = record.preCommitHeadRevision;
+  const maxBuffer = Math.min(BOUND_GIT_MAX_BUFFER, limits.maxDiffBytes + 1);
+  let committedDiff;
+  let committedPathResult;
+  try {
+    [committedDiff, committedPathResult] = await Promise.all([
+      execBoundGitAuthority(manifest.cwd, ["diff", "--binary", preCommitHead, currentHead, "--"], {
+        encoding: "buffer",
+        maxBuffer
+      }),
+      execBoundGitAuthority(manifest.cwd, ["diff", "--name-only", "-z", preCommitHead, currentHead, "--"], {
+        encoding: "buffer",
+        maxBuffer
+      })
+    ]);
+  } catch (error) {
+    throw new Error(`Autonomous Git commit reconciliation exceeded maxDiffBytes=${limits.maxDiffBytes}: ${error.message}`);
+  }
+  if (committedDiff.stdout.byteLength > limits.maxDiffBytes) {
+    throw new Error(`Autonomous Git commit reconciliation exceeded maxDiffBytes=${limits.maxDiffBytes}`);
+  }
+  const committedPaths = [...new Set(parseBoundGitNulPaths(
+    committedPathResult.stdout,
+    "Autonomous Git commit path list"
+  ))].sort();
+  const approvedPaths = [...new Set(snapshot.changedPaths)].sort();
+  if (committedPaths.length > limits.maxFiles) {
+    throw new Error(`Autonomous Git commit reconciliation exceeded maxFiles=${limits.maxFiles}`);
+  }
+  if (committedPaths.some((relative) => !autonomyPathAllowed(relative, pathScope))) {
+    throw new Error("Autonomous Git commit reconciliation changed a path outside the approved autonomy scope");
+  }
+  if (JSON.stringify(committedPaths) !== JSON.stringify(approvedPaths)) {
+    throw new Error("Autonomous Git commit reconciliation differs from the consumed path snapshot");
+  }
+
+  const untrackedByPath = new Map(snapshot.untrackedManifest.map((item) => [item.path, item]));
+  if (untrackedByPath.size !== snapshot.untrackedManifest.length) {
+    throw new Error("Autonomous Git commit reconciliation received a duplicate untracked path snapshot");
+  }
+  const trackedPaths = approvedPaths.filter((relative) => !untrackedByPath.has(relative));
+  let trackedDiff = { stdout: Buffer.alloc(0) };
+  if (trackedPaths.length > 0) {
+    try {
+      trackedDiff = await execBoundGitAuthority(manifest.cwd, [
+        "diff",
+        "--binary",
+        preCommitHead,
+        currentHead,
+        "--",
+        ...trackedPaths.map(literalGitPathspec)
+      ], { encoding: "buffer", maxBuffer });
+    } catch (error) {
+      throw new Error(`Autonomous Git commit tracked diff could not be bounded: ${error.message}`);
+    }
+  }
+  if (
+    trackedDiff.stdout.byteLength !== snapshot.trackedDiffBytes ||
+    sha256(trackedDiff.stdout) !== snapshot.trackedDiffDigest
+  ) {
+    throw new Error("Autonomous Git commit reconciliation differs from the consumed tracked diff snapshot");
+  }
+
+  for (const [relative, approved] of untrackedByPath) {
+    const tree = await execBoundGitAuthority(manifest.cwd, [
+      "ls-tree", "-z", currentHead, "--", literalGitPathspec(relative)
+    ], { encoding: "buffer", maxBuffer });
+    const entries = parseBoundGitNulPaths(tree.stdout, "Autonomous Git commit tree entry");
+    if (entries.length !== 1) {
+      throw new Error("Autonomous Git commit reconciliation did not create the approved untracked path exactly once");
+    }
+    const separator = entries[0].indexOf("\t");
+    const header = separator >= 0 ? entries[0].slice(0, separator) : "";
+    const observedPath = separator >= 0 ? entries[0].slice(separator + 1) : "";
+    const [mode, type, objectId] = header.split(" ");
+    if (
+      observedPath !== relative || type !== "blob" || !/^[a-f0-9]{40,64}$/i.test(objectId ?? "") ||
+      (approved.type === "symlink" ? mode !== "120000" : mode === "120000")
+    ) {
+      throw new Error("Autonomous Git commit reconciliation changed the approved untracked path type or identity");
+    }
+    const blob = await execBoundGitAuthority(manifest.cwd, ["cat-file", "blob", objectId], {
+      encoding: "buffer",
+      maxBuffer
+    });
+    if (blob.stdout.byteLength !== approved.bytes || sha256(blob.stdout) !== approved.digest) {
+      throw new Error("Autonomous Git commit reconciliation changed approved untracked content");
+    }
+  }
+}
+
+async function verifyAutonomousCommitTransition(manifest, contract, record) {
+  const recorded = sourceBindingWithoutDigest(record.preCommitSourceBinding);
+  if (
+    record.autonomyDecision?.decision !== "auto-approved" ||
+    !recorded || record.preCommitSourceBinding.schemaVersion !== 3 ||
+    !SHA256_DIGEST.test(recorded.digest ?? "") || digestObject(recorded.payload) !== recorded.digest ||
+    !SHA.test(record.preCommitHeadRevision ?? "") ||
+    record.preCommitHeadRevision !== record.autonomySnapshot?.headRevision
+  ) {
+    throw new Error("Autonomous Git commit reconciliation lacks an immutable pre-action source binding");
+  }
+  const { captureSourceBinding } = await import("./git.mjs");
+  const current = await captureSourceBinding(manifest.cwd, {
+    baseRevision: record.preCommitSourceBinding.baseRevision,
+    requireClean: true
+  });
+  if (!current || current.schemaVersion !== 3) {
+    throw new Error("Autonomous Git commit reconciliation requires a clean schema-3 source binding");
+  }
+  if (
+    digestObject(autonomousCommitSourceIdentity(current)) !==
+    digestObject(autonomousCommitSourceIdentity(record.preCommitSourceBinding))
+  ) {
+    throw new Error("Autonomous Git commit reconciliation detected repository, branch, or remote identity drift");
+  }
+  if (manifest.autonomyProfile?.sourceBindingDigest !== manifest.sourceBinding?.digest ||
+      ![record.preCommitSourceBinding.digest, current.digest].includes(manifest.sourceBinding?.digest) ||
+      ![record.preCommitSourceBinding.digest, current.digest].includes(manifest.autonomyProfile?.sourceBindingDigest)) {
+    throw new Error("Autonomous Git commit reconciliation detected an unrelated operational source binding");
+  }
+  const ancestry = await execBoundGitAuthority(manifest.cwd, [
+    "merge-base", "--is-ancestor", record.preCommitHeadRevision, current.headRevision
+  ], { allowFailure: true });
+  if (!ancestry.ok) {
+    if (Number(ancestry.code) === 1 && !ancestry.signal) {
+      throw new Error("Autonomous Git commit reconciliation left the consumed pre-action ancestry");
+    }
+    throw new Error(`Autonomous Git commit ancestry was indeterminate: ${String(ancestry.stderr || ancestry.code).trim()}`);
+  }
+  const advancedBy = Number((await execBoundGitAuthority(manifest.cwd, [
+    "rev-list", "--count", `${record.preCommitHeadRevision}..${current.headRevision}`
+  ])).stdout.trim());
+  if (advancedBy !== 1) {
+    throw new Error("Autonomous Git commit reconciliation requires exactly one commit per consumed token");
+  }
+  const sourceHead = manifest.autonomyProfile?.sourceHeadRevision;
+  if (!SHA.test(sourceHead ?? "")) {
+    throw new Error("Autonomous Git commit reconciliation lacks the immutable source-head anchor");
+  }
+  const sourceAncestry = await execBoundGitAuthority(manifest.cwd, [
+    "merge-base", "--is-ancestor", sourceHead, current.headRevision
+  ], { allowFailure: true });
+  if (!sourceAncestry.ok) {
+    if (Number(sourceAncestry.code) === 1 && !sourceAncestry.signal) {
+      throw new Error("Autonomous Git commit reconciliation left the immutable source ancestry");
+    }
+    throw new Error(`Autonomous Git source ancestry was indeterminate: ${String(sourceAncestry.stderr || sourceAncestry.code).trim()}`);
+  }
+  const totalCommits = Number((await execBoundGitAuthority(manifest.cwd, [
+    "rev-list", "--count", `${sourceHead}..${current.headRevision}`
+  ])).stdout.trim());
+  const maxCommits = contract.autonomyProfile?.limits?.maxCommits;
+  if (!Number.isSafeInteger(totalCommits) || totalCommits < 0 || totalCommits > maxCommits) {
+    throw new Error(`Autonomous Git commit reconciliation exceeded maxCommits=${maxCommits}`);
+  }
+  await boundedAutonomousCommitDiff(manifest, contract, record, current.headRevision);
+  return current;
+}
+
 export async function issueActionToken(root, runId, request, currentTreeDigest, config) {
   assertSupportedGovernedAction(request.action);
   for (const field of ["action", "provider", "resource", "remoteRevision"]) {
@@ -4797,7 +5023,9 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
     let admittedEvidence = evidence;
     if (contract.schemaVersion === 2) {
       const { validateTypedEvidenceRecord } = await import("./evidence.mjs");
-      for (const item of evidence.filter((record) => record.schemaVersion === 2 && record.typedAdmission)) {
+      for (const item of evidence.filter((record) => (
+        record.schemaVersion === 2 && record.typedAdmission && record.stale !== true
+      ))) {
         await validateTypedEvidenceRecord(item, {
           manifest,
           contract,
@@ -4806,7 +5034,9 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
           requireReconciled: true
         });
       }
-      admittedEvidence = evidence.filter((item) => item.schemaVersion === 2 && item.typedAdmission);
+      admittedEvidence = evidence.filter((item) => (
+        item.schemaVersion === 2 && item.typedAdmission && item.stale !== true
+      ));
     }
     if (
       contract.actionStages &&
@@ -5016,6 +5246,13 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
     if (autonomyDecision) {
       actionBinding.autonomyDecision = autonomyDecision;
       actionBinding.autonomySnapshot = autonomySnapshot;
+      if (request.action === "git.commit") {
+        if (!manifest.sourceBinding || manifest.sourceBinding.schemaVersion !== 3) {
+          throw new Error("Autonomous Git commit issuance requires a schema-3 operational source binding");
+        }
+        actionBinding.preCommitSourceBinding = manifest.sourceBinding;
+        actionBinding.preCommitHeadRevision = autonomySnapshot.headRevision;
+      }
     }
     let creationPrecondition = null;
     if (request.action === "pr.merge" && contract.controlPlane?.reviewPolicy !== "none") {
@@ -5744,6 +5981,139 @@ async function finalizePluginCacheReadiness(runId, attemptId, providerReceipt) {
   return verifyPluginCacheReady(binding);
 }
 
+async function transitionAutonomousCommitSourceBinding(root, runDir, contract, record) {
+  const manifestPath = safeJoin(runDir, "manifest.json");
+  const statePath = safeJoin(runDir, "state.json");
+  const manifest = await readJson(root, manifestPath);
+  const state = await readJson(root, statePath);
+  const current = await verifyAutonomousCommitTransition(manifest, contract, record);
+  const priorDigest = record.preCommitSourceBinding.digest;
+  const history = Array.isArray(manifest.sourceBindingHistory) ? manifest.sourceBindingHistory : [];
+  const existing = history.find((item) => (
+    item.kind === "autonomous-commit" && item.actionAttemptId === record.attemptId
+  ));
+  if (existing && (
+    existing.from !== priorDigest || existing.to !== current.digest ||
+    existing.previousHeadRevision !== record.preCommitHeadRevision ||
+    existing.headRevision !== current.headRevision
+  )) {
+    throw new Error("Autonomous Git commit source transition history is rebound to another commit");
+  }
+  if (manifest.sourceBinding.digest === current.digest && !existing) {
+    throw new Error("Autonomous Git commit source transition lacks its immutable history record");
+  }
+  if (![priorDigest, current.digest].includes(manifest.sourceBinding.digest)) {
+    throw new Error("Autonomous Git commit cannot replace an unrelated operational source binding");
+  }
+  const transitionedAt = existing?.at ?? nowIso();
+  let manifestChanged = false;
+  if (manifest.sourceBinding.digest === priorDigest) {
+    const sourceHeadRevision = manifest.autonomyProfile?.sourceHeadRevision;
+    if (!SHA.test(sourceHeadRevision ?? "")) {
+      throw new Error("Autonomous Git commit source transition lacks the immutable source-head anchor");
+    }
+    const nextManifest = {
+      ...manifest,
+      sourceBinding: current,
+      autonomyProfile: {
+        ...manifest.autonomyProfile,
+        sourceBindingDigest: current.digest,
+        sourceHeadRevision
+      },
+      sourceBindingHistory: [
+        ...history,
+        {
+          kind: "autonomous-commit",
+          actionAttemptId: record.attemptId,
+          from: priorDigest,
+          to: current.digest,
+          previousHeadRevision: record.preCommitHeadRevision,
+          headRevision: current.headRevision,
+          reason: "governed-autonomous-commit-reconciled",
+          at: transitionedAt
+        }
+      ],
+      updatedAt: transitionedAt
+    };
+    await atomicWriteJson(root, manifestPath, nextManifest);
+    manifestChanged = true;
+  }
+  const stateTransition = state.autonomousCommitTransition;
+  const stateReadyForFreshPreflight = (
+    state.status === "blocked" &&
+    state.lastSentinel === null &&
+    state.lastSentinelVerified === false &&
+    state.lastSentinelComplete === false &&
+    state.autonomy?.status === "blocked" &&
+    state.autonomy?.snapshot === null &&
+    state.autonomy?.blockedReason === "autonomous-commit-reconciled" &&
+    stateTransition?.actionAttemptId === record.attemptId &&
+    stateTransition?.sourceBindingDigest === current.digest
+  );
+  if (!stateReadyForFreshPreflight) {
+    await atomicWriteJson(root, statePath, {
+      ...state,
+      status: "blocked",
+      lastSentinel: null,
+      lastSentinelVerified: false,
+      lastSentinelComplete: false,
+      autonomy: {
+        ...state.autonomy,
+        status: "blocked",
+        snapshot: null,
+        blockedReason: "autonomous-commit-reconciled",
+        requiredAuthority: "autonomy.preflight",
+        resumeFromStage: "preflight"
+      },
+      autonomousCommitTransition: {
+        actionAttemptId: record.attemptId,
+        previousHeadRevision: record.preCommitHeadRevision,
+        headRevision: current.headRevision,
+        sourceBindingDigest: current.digest,
+        at: transitionedAt
+      },
+      updatedAt: transitionedAt
+    });
+  }
+  if (manifestChanged || !stateReadyForFreshPreflight) {
+    await appendJournal(root, runDir, "source-binding.autonomous-commit", {
+      actionAttemptId: record.attemptId,
+      from: priorDigest,
+      to: current.digest,
+      previousHeadRevision: record.preCommitHeadRevision,
+      headRevision: current.headRevision
+    });
+  }
+  return {
+    sourceBinding: current,
+    transitionedAt,
+    repaired: !manifestChanged
+  };
+}
+
+async function invalidateEvidenceAfterAutonomousCommit(root, runDir, record, transitionedAt) {
+  const evidence = await listJsonRecords(root, safeJoin(runDir, "evidence"));
+  let invalidated = 0;
+  for (const item of evidence) {
+    if (item.status !== "complete" || item.stale === true) continue;
+    await atomicWriteJson(root, safeJoin(runDir, "evidence", `${item.id}.json`), {
+      ...item,
+      stale: true,
+      freshnessCheckedAt: transitionedAt,
+      staleReason: `autonomous-commit-reconciled:${record.attemptId}`
+    });
+    invalidated += 1;
+  }
+  if (invalidated > 0) {
+    await appendJournal(root, runDir, "evidence.invalidated", {
+      actionAttemptId: record.attemptId,
+      reason: "autonomous-commit-reconciled",
+      invalidated
+    });
+  }
+  return invalidated;
+}
+
 export async function reconcileAction(root, runId, attemptId, outcome, receipt = null) {
   if (!["success", "failure", "unknown"].includes(outcome)) {
     throw new Error("Action outcome must be success, failure, or unknown");
@@ -5773,7 +6143,7 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
       validateActionReceipt(record, outcome, receipt);
       await validateActionEvidenceBinding(root, runDir, record, attemptId, outcome, receipt);
       const manifest = await readJson(root, safeJoin(runDir, "manifest.json"));
-      await verifyProviderReceipt(manifest, { ...record, outcome: "success" }, receipt);
+      await verifyProviderReceipt(manifest, { ...record, outcome: "success" }, receipt, run.contract);
       await finalizePluginCacheReadiness(runId, attemptId, receipt.providerReceipt);
       const repaired = {
         ...record,
@@ -5786,6 +6156,29 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
         providerReceiptDigest: digestObject(receipt.providerReceipt)
       });
       return repaired;
+    }
+    const repairingAutonomousCommitTransition = (
+      record.status === "spent" &&
+      record.outcome === "success" &&
+      outcome === "success" &&
+      record.action === "git.commit" &&
+      record.provider === "git" &&
+      record.autonomyDecision?.decision === "auto-approved"
+    );
+    if (repairingAutonomousCommitTransition) {
+      if (!record.receipt || !receipt || digestObject(record.receipt) !== digestObject(receipt)) {
+        throw new Error("Autonomous Git commit transition repair requires the exact persisted success receipt");
+      }
+      validateActionReceipt(record, outcome, receipt);
+      const manifest = await readJson(root, safeJoin(runDir, "manifest.json"));
+      await verifyProviderReceipt(manifest, { ...record, outcome: "success" }, receipt, run.contract);
+      const transition = await transitionAutonomousCommitSourceBinding(root, runDir, run.contract, record);
+      await invalidateEvidenceAfterAutonomousCommit(root, runDir, record, transition.transitionedAt);
+      await appendJournal(root, runDir, "action.autonomous-commit-transition-repaired", {
+        attemptId,
+        sourceBindingDigest: transition.sourceBinding.digest
+      });
+      return record;
     }
     const recoveringUnknownSuccess = (
       record.status === "spent" &&
@@ -5910,19 +6303,40 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
         throw new Error("Remote sync receipt is not bound to the reconciled PR merge commit");
       }
     }
-    await verifyProviderReceipt(manifest, { ...record, outcome }, receipt);
+    await verifyProviderReceipt(manifest, { ...record, outcome }, receipt, run.contract);
     await reserveProviderExecution(root, record, receipt.providerReceipt.executionId, outcome);
+    const autonomousCommitTransition = (
+      record.action === "git.commit" &&
+      record.provider === "git" &&
+      outcome === "success" &&
+      record.autonomyDecision?.decision === "auto-approved"
+    )
+      ? await transitionAutonomousCommitSourceBinding(root, runDir, run.contract, record)
+      : null;
     const target = safeJoin(runDir, "actions", `${record.tokenHash}.json`);
     const next = {
       ...record,
       outcome,
       receipt,
       reconciledAt: nowIso(),
+      ...(autonomousCommitTransition
+        ? {
+            sourceBindingTransition: {
+              from: record.preCommitSourceBinding.digest,
+              to: autonomousCommitTransition.sourceBinding.digest,
+              headRevision: autonomousCommitTransition.sourceBinding.headRevision,
+              at: autonomousCommitTransition.transitionedAt
+            }
+          }
+        : {}),
       ...(record.action === "pr.create" && outcome === "success"
         ? { ownedResource: `pull/${receipt.providerReceipt.number}` }
         : {})
     };
     await atomicWriteJson(root, target, next);
+    if (autonomousCommitTransition) {
+      await invalidateEvidenceAfterAutonomousCommit(root, runDir, record, autonomousCommitTransition.transitionedAt);
+    }
     if (record.action === "plugin.cache.publish" && outcome === "success") {
       await finalizePluginCacheReadiness(runId, attemptId, receipt.providerReceipt);
     }

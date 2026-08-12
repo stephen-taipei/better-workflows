@@ -247,7 +247,9 @@ test("source binding can be explicitly rebound before review or side effects", a
   assert.equal(after.manifest.sourceBindingHistory.at(-1).reason, "commit stage completed");
   assert.equal(after.evidence.find((item) => item.kind === "environment-state").stale, true);
   assert.deepEqual(JSON.parse(await readFile(path.join(after.runDir, "ledger.json"), "utf8")).events, []);
-  assert.equal((await deriveLedgerStatus(root, started.runId)).taskStates[0].state, "pending");
+  const reboundLedger = await deriveLedgerStatus(root, started.runId);
+  assert.equal(reboundLedger.taskStates[0].state, "pending");
+  assert.deepEqual(reboundLedger.blockers, []);
   await assert.rejects(
     rebindSourceBinding(root, started.runId, "\n"),
     /concise reason/
