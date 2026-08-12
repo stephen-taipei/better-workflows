@@ -7,7 +7,7 @@
 Turn Codex work from “prompt and hope” into a bounded path from intent to
 verified, provider-reconciled delivery.
 
-[![Version](https://img.shields.io/badge/version-3.2.4-2563EB?style=flat-square)](plugins/better-workflows/package.json)
+[![Version](https://img.shields.io/badge/version-3.2.5-2563EB?style=flat-square)](plugins/better-workflows/package.json)
 [![Node](https://img.shields.io/badge/Node.js-%E2%89%A524-3C873A?style=flat-square)](plugins/better-workflows/package.json)
 [![Dependencies](https://img.shields.io/badge/runtime_dependencies-0-0F766E?style=flat-square)](plugins/better-workflows/package.json)
 [![License](https://img.shields.io/badge/license-MIT-64748B?style=flat-square)](LICENSE)
@@ -156,6 +156,10 @@ Sensitive or private history is never harvested; it is rejected with a redacted 
 - Side effects require explicit user authority and single-use action gates.
 - Self-improve evaluator replay may use one root-signed standing consent limited
   to sanitized, read-only `gpt-5.6-terra` batches; it never authorizes delivery.
+- A task may explicitly select `bounded-autopilot-v1` once. It can run bounded
+  local work, push `codex/*`, and create one PR targeting `dev`; protected merge,
+  deploy, direct `dev/main` push, and destructive cleanup still require a
+  separate authority.
 - Independent critics are read-only and cannot accept risk or declare success.
 - Workspace recipes run deterministic Node.js mechanics; they cannot choose
   models, use the network, run arbitrary shell, or mutate source.

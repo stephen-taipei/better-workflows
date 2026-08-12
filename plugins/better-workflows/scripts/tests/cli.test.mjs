@@ -1,7 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { createHash } from "node:crypto";
 import { promisify } from "node:util";
 import { access, mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -467,8 +466,13 @@ test("evaluator migration attestation binds eight distinct migration witnesses, 
   const parent = await mkdtemp(path.join(os.tmpdir(), "sbw-attestation-output-"));
   const output = path.join(parent, "requests");
   const hostStatus = await cli(cwd, stateRoot, ["self-improve", "host", "status"], { allowFailure: true });
-  const sourceSignerDigest = createHash("sha256").update(await readFile(path.resolve(path.dirname(CLI), "host-trust.mjs"))).digest("hex");
-  const hostRuntimeReady = hostStatus.code === 0 && hostStatus.json?.ready === true && hostStatus.json?.signer?.digest === sourceSignerDigest;
+  const hostBundle = hostStatus.json?.hostBundle ?? {
+    runtimeDigest: hostStatus.json?.runtime?.digest ?? null,
+    signerDigest: hostStatus.json?.signer?.digest ?? null
+  };
+  const hostRuntimeReady = hostStatus.code === 0 && hostStatus.json?.ready === true &&
+    hostBundle.runtimeDigest === hostStatus.json?.runtime?.digest &&
+    hostBundle.signerDigest === hostStatus.json?.signer?.digest;
   const standingGrant = hostStatus.json?.standingConsent?.active === true
     ? hostStatus.json.standingConsent.grant
     : null;
@@ -528,6 +532,8 @@ test("evaluator migration attestation binds eight distinct migration witnesses, 
   assert.equal(requested.json.executeCommand.includes("/bin/sh"), false);
   assert.equal(requested.json.executeCommand.includes("-c"), false);
   assert.match(requested.json.runtimeDigest, /^[a-f0-9]{64}$/);
+  assert.equal(requested.json.hostBundle.runtimeDigest, requested.json.runtimeDigest);
+  assert.match(requested.json.hostBundleDigest, /^[a-f0-9]{64}$/);
   assert.equal(requested.json.schemaVersion, 2);
   assert.equal(requested.json.runAs.uid, process.getuid());
   assert.equal(requested.json.runAs.gid, process.getgid());

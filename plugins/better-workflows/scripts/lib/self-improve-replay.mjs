@@ -38,6 +38,7 @@ import {
   loadStandingConsentPolicy,
   validStandingAuthorization
 } from "./standing-consent.mjs";
+import { hostBundleDigest } from "./host-bundle.mjs";
 
 const HOST_EXECUTIONS_ROOT = "/private/var/db/better-workflows/executions";
 const SHA1 = /^[a-f0-9]{40}$/;
@@ -132,6 +133,9 @@ export async function loadHostExecutionRequestManifest({
       !path.isAbsolute(manifest.binaryPath) || !SHA256.test(manifest.binaryApprovalDigest) || !SHA256.test(manifest.binaryDigest) ||
       !SHA1.test(manifest.headRevision) || !SHA256.test(manifest.sourceBindingDigest) || !SHA256.test(manifest.pluginBundleDigest) ||
       typeof manifest.runtimePath !== "string" || !path.isAbsolute(manifest.runtimePath) || !SHA256.test(manifest.runtimeDigest) ||
+      !manifest.hostBundle || typeof manifest.hostBundle !== "object" || manifest.hostBundle.schemaVersion !== 1 ||
+      manifest.hostBundle.protocolVersion !== 1 || manifest.hostBundle.runtimeDigest !== manifest.runtimeDigest ||
+      !SHA256.test(manifest.hostBundleDigest ?? "") || manifest.hostBundleDigest !== hostBundleDigest(manifest.hostBundle) ||
       !Array.isArray(manifest.candidateFiles) || digestObject(manifest.candidateFiles) !== digestObject(candidate.files) ||
       manifest.policyPath !== (policy?.path ?? undefined) || manifest.policyId !== (policy?.policyId ?? undefined) ||
       manifest.policyVersion !== (policy?.version ?? undefined) || manifest.policyDigest !== (policy?.digest ?? undefined) ||
@@ -231,6 +235,7 @@ export async function loadHostExecutionRequestManifest({
   bindings.headRevision = manifest.headRevision;
   bindings.sourceBindingDigest = manifest.sourceBindingDigest;
   bindings.pluginBundleDigest = manifest.pluginBundleDigest;
+  bindings.hostBundleDigest = manifest.hostBundleDigest;
   bindings.purpose = manifest.purpose;
   bindings.policyDigest = manifest.policyDigest ?? null;
   bindings.authorization = manifest.authorization ?? null;

@@ -476,6 +476,10 @@ publisher는 source binding, run, attempt가 모두 일치하는 기존 pending 
 허용합니다. target이 없더라도 foreign marker를 보존하고 publication은 fail
 closed합니다.
 
+### Bounded autopilot
+
+delivery에서 반복 prompt 없이 저위험 작업을 계속하려면 run마다 불변의 `bounded-autopilot-v1` profile을 명시적으로 선택할 수 있습니다. 이 profile은 bounded commit, 새 immutable cache version, `codex/*` push, `dev` 대상 PR 하나만 자동화합니다. host bootstrap/upgrade/revoke, protected merge, deploy, `dev`/`main` 직접 push, branch/worktree cleanup은 계속 사람의 gate입니다. evaluator standing consent는 delivery authority를 부여하지 않습니다.
+
 ## License
 
 MIT. [LICENSE](../../LICENSE) 및 [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md)를 참고하세요.

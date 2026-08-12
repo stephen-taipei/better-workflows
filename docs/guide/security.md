@@ -189,6 +189,41 @@ mismatch fails closed without silently opening a password prompt. Use
 per-run administrator command remains available only when the standing grant is
 absent or explicitly revoked.
 
+## Bounded autopilot
+
+Evaluator standing consent and delivery authority are separate capabilities. A
+task may explicitly select the immutable `bounded-autopilot-v1` profile once:
+
+```bash
+node plugins/better-workflows/scripts/sbw.mjs run \
+  --template pr-to-dev --mode critical --goal "<goal>" --scope . \
+  --autonomy-profile bounded-autopilot-v1
+node plugins/better-workflows/scripts/sbw.mjs autonomy preview <run-id>
+node plugins/better-workflows/scripts/sbw.mjs autonomy preflight <run-id>
+```
+
+The profile is bound to the installed bundle digest, exact source binding,
+repository, path scope, expiry, diff limits, and run ledger. It may automate
+bounded local work, atomic commit, immutable cache publication, a push to
+`codex/*`, and one PR whose base is `dev`. It never authorizes protected merge,
+deploy, direct `dev`/`main` push, branch or worktree cleanup, host signer
+bootstrap, or host signer upgrade. The evaluator standing grant cannot be used
+to derive any of those delivery permissions.
+
+Preflight is non-interactive. If host bootstrap, credentials, provider state,
+or another mandatory capability is unavailable, the run records
+`status=blocked`, a machine-readable `blockedReason`, the required authority,
+and the exact resume stage. `sbw resume <run-id>` rechecks the same source,
+profile, and authority digests and resumes only incomplete work; it never
+replays completed evaluator or provider attempts. `autonomy revoke` blocks the
+run and cannot be silently undone.
+
+The root signer is validated through a signed, versioned host-bundle protocol;
+ordinary changes to repository `host-trust.mjs` do not require an administrator
+password. Only a host-bundle upgrade requires a separately governed bootstrap.
+Passwords are never stored or piped to sudo, and no blanket `NOPASSWD` rule is
+accepted.
+
 Before generating requests, the candidate must already be the exact committed
 HEAD that will be reviewed and delivered. A dirty candidate is handed to
 `pr-to-dev` for its commit wave, followed by a fresh source-bound self-improve

@@ -243,6 +243,14 @@ provenance only; delivery still needs independent action authority. Revoke at
 any time with `sbw self-improve consent revoke` and execute its returned
 administrator command.
 
+Delivery may separately opt into the immutable `bounded-autopilot-v1` profile
+when creating its `pr-to-dev` run. This profile is run-scoped and can automate
+only bounded commits, immutable cache publication, `codex/*` push, and one PR
+to `dev`; it never authorizes merge, deploy, protected-branch push, or cleanup.
+Run `sbw autonomy preflight <run-id>` before issuing any delivery token. A
+missing host bundle, credential, provider capability, or expired binding creates
+a resumable blocked state rather than an interactive password prompt.
+
 Before generating replay requests, the candidate checkout must be the exact
 committed HEAD that will be reviewed and delivered. If candidate work is still
 dirty, hand it to `pr-to-dev` for the commit wave first, then start a new

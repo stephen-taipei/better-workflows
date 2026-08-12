@@ -27,11 +27,13 @@ import {
   consumeActionToken,
   completeRun,
   createRun,
+  currentProviderExecutableIdentity,
   digestObject,
   ensureStateRoot,
   evaluateCompletion,
   executeActionToken,
   getStateRoot,
+  getCodexPluginCacheRoot,
   inspectRun,
   issueActionToken,
   listJsonRecords,
@@ -95,6 +97,15 @@ import { deliberateForRun } from "./lib/deliberation-receipt.mjs";
 import { loadEvidenceContracts } from "./lib/evidence.mjs";
 import { generateAttestationRequests } from "./lib/attestations.mjs";
 import { prepareStandingConsentInstall, standingConsentRevokeCommand } from "./lib/standing-consent.mjs";
+import { hostBundleFromStatus } from "./lib/host-bundle.mjs";
+import {
+  autonomyProfileDigest,
+  buildAutonomyBinding,
+  loadAutonomyProfile,
+  validateAutonomyBinding,
+  decideAutonomyAction,
+  validateAutonomyScope
+} from "./lib/autonomy.mjs";
 import { createSelfImproveDeliveryHandoff, validateSelfImproveDeliveryHandoff } from "./lib/self-improve-handoff.mjs";
 import {
   loadHostExecutionRequestManifest as loadBoundHostExecutionRequestManifest,
@@ -1197,6 +1208,251 @@ async function assertAcceptedSelfImproveHoldout(root, runId, action) {
   }
 }
 
+function canonicalGithubRepository(remote) {
+  const raw = String(remote ?? "").trim().replace(/\.git$/, "");
+  const ssh = raw.match(/^([^@]+)@([^:]+):(.+)$/);
+  if (ssh) return ssh[2].toLowerCase() === "github.com" ? `github.com/${ssh[3]}` : null;
+  try {
+    const parsed = new URL(raw);
+    if (parsed.protocol !== "https:" || parsed.hostname.toLowerCase() !== "github.com") return null;
+    const parts = parsed.pathname.split("/").filter(Boolean);
+    return parts.length === 2 ? `github.com/${parts[0]}/${parts[1]}` : null;
+  } catch {
+    return null;
+  }
+}
+
+async function captureAutonomyBindingContext(cwd, pathScope) {
+  const branch = (await execFileAsync("git", ["branch", "--show-current"], { cwd, encoding: "utf8" })).stdout.trim() || null;
+  if (!branch) throw new Error("bounded-autopilot-v1 requires a named codex/* branch");
+  let repository = null;
+  try {
+    const remote = (await execFileAsync("git", ["remote", "get-url", "origin"], { cwd, encoding: "utf8" })).stdout.trim();
+    repository = canonicalGithubRepository(remote);
+  } catch {
+    // A delivery run must bind a canonical provider repository before it can issue push or PR authority.
+  }
+  if (!repository) throw new Error("bounded-autopilot-v1 requires a canonical GitHub origin repository");
+  return { repository, branch, pathScope };
+}
+
+async function commandAutonomy(root, subcommand, runId, options) {
+  if (!runId) throw new Error(`autonomy ${subcommand} requires <run-id>`);
+  const run = await loadRun(root, runId);
+  if (!run.contract.autonomyProfile) {
+    throw new Error("Run does not have an explicitly selected autonomy profile");
+  }
+  validateAutonomyBinding(run.contract.autonomyProfile);
+  const profile = await loadAutonomyProfile();
+  const profileDigest = autonomyProfileDigest(profile);
+  if (profileDigest !== run.contract.autonomyProfile.profileDigest) {
+    throw new Error("Installed autonomy profile does not match the run binding");
+  }
+  if (subcommand === "preview") {
+    assertKnownOptions(options, []);
+  const examples = [
+      { action: "git.commit" },
+      { action: "plugin.cache.publish" },
+      { action: "git.push", resource: "remote:origin:refs/heads/codex/example" },
+      { action: "git.push", resource: "remote:origin:refs/heads/dev" },
+      { action: "pr.create", scope: "dev" },
+      { action: "pr.merge", resource: "pull/1" },
+      { action: "worktree.cleanup", resource: "worktree:run-owned" },
+      { action: "password.capture" },
+      { action: "shell.unpinned" }
+    ];
+    return {
+      ok: true,
+      runId,
+      profile: {
+        id: profile.id,
+        digest: profileDigest,
+        expiresAt: run.contract.autonomyProfile.expiresAt,
+        autoActions: profile.autoActions,
+        humanActions: profile.humanActions,
+        deniedActions: profile.deniedActions,
+        limits: profile.limits
+      },
+      decisions: examples.map((item) => ({
+        ...item,
+        ...decideAutonomyAction(profile, item.action, item)
+      }))
+    };
+  }
+  if (subcommand === "revoke") {
+    assertKnownOptions(options, []);
+    return {
+      ok: true,
+      runId,
+      state: await setRunStatus(root, runId, "blocked", {
+        autonomy: {
+          ...run.state.autonomy,
+          profileId: profile.id,
+          profileDigest,
+          status: "revoked",
+          blockedReason: "autonomy-revoked",
+          requiredAuthority: "autonomy.reauthorize",
+          resumeFromStage: run.state.autonomy?.resumeFromStage ?? null
+        }
+      })
+    };
+  }
+  if (subcommand !== "preflight") {
+    throw new Error("autonomy subcommand must be preview, preflight, or revoke");
+  }
+  assertKnownOptions(options, []);
+  const blocked = async (reason, requiredAuthority = "autonomy.preflight") => ({
+    ok: false,
+    runId,
+    status: "blocked",
+    blockedReason: reason,
+    requiredAuthority,
+    state: await setRunStatus(root, runId, "blocked", {
+      autonomy: {
+        ...run.state.autonomy,
+        profileId: profile.id,
+        profileDigest,
+        status: "blocked",
+        blockedReason: reason,
+        requiredAuthority,
+        resumeFromStage: run.state.autonomy?.resumeFromStage ?? "preflight"
+      }
+    })
+  });
+  if (run.state.autonomy?.status === "revoked") return blocked("autonomy-revoked", "autonomy.reauthorize");
+  if (Date.parse(run.contract.autonomyProfile.expiresAt) <= Date.now()) return blocked("autonomy-profile-expired", "autonomy.reauthorize");
+  if (run.manifest.autonomyProfile?.sourceBindingDigest !== run.manifest.sourceBinding?.digest) return blocked("source-binding-drift", "source.rebind");
+  let branch = "";
+  try {
+    branch = (await execFileAsync("git", ["branch", "--show-current"], { cwd: run.manifest.cwd, encoding: "utf8" })).stdout.trim();
+  } catch {
+    return blocked("git-preflight-unavailable", "git.authentication");
+  }
+  if (!/^codex\/[A-Za-z0-9._/-]+$/.test(branch)) return blocked("branch-outside-autonomy-scope", "autonomy.reauthorize");
+  if (run.manifest.pluginCacheRoot !== getCodexPluginCacheRoot()) return blocked("cache-root-drift", "cache.rebind");
+  try {
+    validateAutonomyScope(run.contract.autonomyProfile, { branch });
+    if (run.contract.autonomyProfile.branch !== null && run.contract.autonomyProfile.branch !== branch) {
+      return blocked("branch-binding-drift", "source.rebind");
+    }
+    if (run.contract.autonomyProfile.repository !== null) {
+      const remote = (await execFileAsync("git", ["remote", "get-url", "origin"], { cwd: run.manifest.cwd, encoding: "utf8" })).stdout.trim();
+      if (canonicalGithubRepository(remote) !== run.contract.autonomyProfile.repository) {
+        return blocked("repository-binding-drift", "source.rebind");
+      }
+    }
+  } catch {
+    return blocked("autonomy-scope-invalid", "autonomy.reauthorize");
+  }
+  try {
+    const statusOutput = (await execFileAsync("git", ["status", "--short", "--untracked-files=all"], {
+      cwd: run.manifest.cwd,
+      encoding: "utf8"
+    })).stdout.trim();
+    const changedFiles = statusOutput ? statusOutput.split("\n").filter(Boolean).length : 0;
+    if (changedFiles > run.contract.autonomyProfile.limits.maxFiles) return blocked("diff-file-limit", "autonomy.reauthorize");
+    let trackedDiff;
+    try {
+      trackedDiff = await execFileAsync("git", ["diff", "--binary", "HEAD"], {
+        cwd: run.manifest.cwd,
+        encoding: "buffer",
+        maxBuffer: run.contract.autonomyProfile.limits.maxDiffBytes + 1
+      });
+    } catch (error) {
+      if (error?.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER" || /maxBuffer/i.test(String(error?.message ?? ""))) {
+        return blocked("diff-byte-limit", "autonomy.reauthorize");
+      }
+      throw error;
+    }
+    const untracked = (await execFileAsync("git", ["ls-files", "--others", "--exclude-standard", "-z"], {
+      cwd: run.manifest.cwd,
+      encoding: "buffer"
+    })).stdout.toString("utf8").split("\0").filter(Boolean);
+    const trackedPaths = (await execFileAsync("git", ["diff", "--name-only", "-z", "HEAD"], {
+      cwd: run.manifest.cwd,
+      encoding: "buffer"
+    })).stdout.toString("utf8").split("\0").filter(Boolean);
+    const changedPaths = [...new Set([...trackedPaths, ...untracked])];
+    const pathScope = run.contract.autonomyProfile.pathScope;
+    const pathAllowed = (relative) => pathScope.includes(".") || pathScope.some((prefix) => relative === prefix || relative.startsWith(`${prefix}/`));
+    if (changedPaths.some((relative) => !pathAllowed(relative))) return blocked("path-outside-autonomy-scope", "autonomy.reauthorize");
+    let untrackedBytes = 0;
+    for (const relative of untracked) {
+      const file = path.resolve(run.manifest.cwd, relative);
+      const info = await stat(file);
+      if (info.isFile()) untrackedBytes += info.size;
+      if (trackedDiff.stdout.byteLength + untrackedBytes > run.contract.autonomyProfile.limits.maxDiffBytes) {
+        return blocked("diff-byte-limit", "autonomy.reauthorize");
+      }
+    }
+  } catch {
+    return blocked("git-diff-preflight-unavailable", "git.authentication");
+  }
+  let hostStatus;
+  try {
+    const result = await execFileAsync(process.execPath, [HOST_TRUST_TOOL, "status"], {
+      encoding: "utf8",
+      env: { PATH: "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" },
+      maxBuffer: 1024 * 1024
+    });
+    hostStatus = JSON.parse(result.stdout);
+  } catch {
+    return blocked("host-status-unavailable", "host.bootstrap");
+  }
+  try {
+    const hostBundle = hostBundleFromStatus(hostStatus);
+    if (!hostStatus.ready || !hostStatus.signer?.supported || !hostStatus.runtime?.supported ||
+        !hostStatus.readinessReceipt?.supported || hostStatus.readinessReceipt?.keyPairVerification?.verified !== true ||
+        hostBundle.legacyCompatible === false) {
+      return blocked("host-bundle-not-ready", "host.bootstrap");
+    }
+  } catch {
+    return blocked("host-bundle-not-ready", "host.bootstrap");
+  }
+  let providerExecutable;
+  try {
+    providerExecutable = await currentProviderExecutableIdentity("gh");
+    await execFileAsync(providerExecutable.path, ["auth", "status", "--hostname", "github.com"], {
+      cwd: run.manifest.cwd,
+      encoding: "utf8",
+      env: { PATH: "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" },
+      maxBuffer: 1024 * 1024
+    });
+  } catch {
+    return blocked("provider-credential-unavailable", "github.authentication");
+  }
+  const state = await setRunStatus(root, runId, "running", {
+    autonomy: {
+      ...run.state.autonomy,
+      profileId: profile.id,
+      profileDigest,
+      status: "ready",
+      blockedReason: null,
+      requiredAuthority: null,
+      resumeFromStage: null,
+      preflightAt: nowIso(),
+      branch,
+      repository: run.contract.autonomyProfile.repository ?? null,
+      providerExecutable
+    }
+  });
+  return {
+    ok: true,
+    runId,
+    status: "ready",
+    profileId: profile.id,
+    profileDigest,
+    branch,
+    hostBundle: {
+      signerVersion: hostStatus.signer.version ?? null,
+      signerDigest: hostStatus.signer.digest ?? null,
+      runtimeDigest: hostStatus.runtime.digest ?? null
+    },
+    providerExecutable,
+    state
+  };
+}
+
 async function commandRun(root, options) {
   assertKnownOptions(options, [
     "template",
@@ -1220,11 +1476,12 @@ async function commandRun(root, options) {
     "baseline",
     "evaluation-purpose",
     "self-improve-run",
-    "route-receipt"
+    "route-receipt",
+    "autonomy-profile"
   ]);
   let receiptBinding = null;
   if (options["route-receipt"]) {
-    for (const conflicting of ["template", "entry", "goal", "scope", "mode", "self-improve-run"]) {
+    for (const conflicting of ["template", "entry", "goal", "scope", "mode", "self-improve-run", "autonomy-profile"]) {
       if (options[conflicting] !== undefined) {
         throw new Error(`--route-receipt cannot be combined with --${conflicting}`);
       }
@@ -1277,8 +1534,33 @@ async function commandRun(root, options) {
     if (graphHasErrors(graph)) return graphStructuralFailure(graph, "run.create");
   }
   let contract;
+  let autonomyBinding = null;
+  const selectedAutonomyProfile = options["autonomy-profile"] ?? receiptBinding?.preview?.autonomyProfile?.id ?? null;
+  if (selectedAutonomyProfile !== null) {
+    if (String(selectedAutonomyProfile) !== "bounded-autopilot-v1") {
+      throw new Error("Only bounded-autopilot-v1 is currently supported");
+    }
+    if (options.contract) throw new Error("--autonomy-profile cannot be combined with --contract");
+    const profile = await loadAutonomyProfile();
+    const pathScope = receiptBinding
+      ? receiptBinding.preview.input.scope
+      : values(options.scope, ["."]).map(String);
+    autonomyBinding = buildAutonomyBinding(profile, await captureAutonomyBindingContext(process.cwd(), pathScope));
+    if (receiptBinding?.preview?.autonomyProfile?.digest !== autonomyBinding.profileDigest) {
+      throw new Error("Route receipt autonomy profile digest does not match the installed immutable profile");
+    }
+    if (templateName !== "pr-to-dev") {
+      throw new Error("bounded-autopilot-v1 is only valid for a delegated pr-to-dev delivery run");
+    }
+  }
   if (options.contract) {
     contract = validateContract(JSON.parse(await readFile(path.resolve(String(options.contract)), "utf8")));
+    if (contract.autonomyProfile) {
+      const profile = await loadAutonomyProfile();
+      if (autonomyProfileDigest(profile) !== contract.autonomyProfile.profileDigest) {
+        throw new Error("Supplied TaskContract autonomy profile is not the installed immutable profile");
+      }
+    }
     if (contract.template !== templateName) throw new Error("Contract template does not match --template");
     const contractPurpose = contract.selfImprovePurpose ?? "ordinary";
     if (purposeProvided && contractPurpose !== requestedEvaluationPurpose) {
@@ -1353,7 +1635,8 @@ async function commandRun(root, options) {
       volatileExclusions: values(options["volatile-exclusion"]).map(String),
       highRiskIgnored: values(options["high-risk-ignored"]).map(String),
       remoteRevision: options["remote-revision"] ? String(options["remote-revision"]) : null,
-      selfImprovePurpose: templateName === "self-improve-ops" && purposeProvided ? requestedEvaluationPurpose : null
+      selfImprovePurpose: templateName === "self-improve-ops" && purposeProvided ? requestedEvaluationPurpose : null,
+      autonomyProfile: autonomyBinding
     });
     if (options["require-agy"] === true || options["require-agy"] === "true") {
       contract.agy.required = true;
@@ -1369,7 +1652,7 @@ async function commandRun(root, options) {
   else delete contract.actionStages;
   if (template.deferredActions) contract.deferredActions = structuredClone(template.deferredActions);
   else delete contract.deferredActions;
-  if (upstreamSelfImproveRun) {
+  if (upstreamSelfImproveRun && !contract.upstreamSelfImproveRunId) {
     contract = applyDelegatedSelfImproveContract(
       template,
       contract,
@@ -1476,7 +1759,8 @@ async function commandRoute(root, subcommand, action, options) {
       "mode",
       "domain",
       "tag",
-      "record"
+      "record",
+      "autonomy-profile"
     ]);
     const preview = await previewRoute({
       cwd: process.cwd(),
@@ -1487,7 +1771,8 @@ async function commandRoute(root, subcommand, action, options) {
       template: options.template ? String(options.template) : null,
       mode: String(options.mode ?? "auto"),
       domains: values(options.domain).map(String),
-      tags: values(options.tag).map(String)
+      tags: values(options.tag).map(String),
+      autonomyProfile: options["autonomy-profile"] ? String(options["autonomy-profile"]) : null
     });
     if (optionEnabled(options.record)) {
       const receipt = await recordRouteReceipt({
@@ -1637,7 +1922,7 @@ async function commandEval() {
 function help() {
   return {
     usage: [
-      "sbw run --template <name> --mode <auto|direct|verified|deep|critical> --goal <text> [--scope <path>] [--baseline <git-revision> for self-improve] [--evaluation-purpose ordinary|evaluator-migration|safety-remediation-v1|quality-remediation-v1] [--self-improve-run <run-id> for delegated pr-to-dev]",
+      "sbw run --template <name> --mode <auto|direct|verified|deep|critical> --goal <text> [--scope <path>] [--autonomy-profile bounded-autopilot-v1] [--baseline <git-revision> for self-improve] [--evaluation-purpose ordinary|evaluator-migration|safety-remediation-v1|quality-remediation-v1] [--self-improve-run <run-id> for delegated pr-to-dev]",
       "sbw run --route-receipt <route-receipt-id>",
       "sbw route preview --goal <text> [--scope <path>] [--entry <id>|--template <name>] [--mode <mode>] [--domain <name>] [--tag <name>] [--record]",
       "sbw route profile validate|install --file <profile.json>",
@@ -1645,6 +1930,7 @@ function help() {
       "sbw status <run-id>",
       "sbw inspect <run-id>",
       "sbw resume <run-id>",
+      "sbw autonomy preview|preflight|revoke <run-id>",
       "sbw cancel <run-id> [--reason <text>]",
       "sbw source rebind <run-id> --reason <text>",
       "sbw sentinel capture|verify <run-id> --label <label>",
@@ -1695,6 +1981,7 @@ async function main() {
   if (!command || command === "help" || options.help) return help();
   if (command === "templates") return { ok: true, templates: await listTemplates() };
   if (command === "run") return commandRun(root, options);
+  if (command === "autonomy") return commandAutonomy(root, subcommand, runId, options);
   if (command === "graph") return commandGraph(root, subcommand, runId, options);
   if (command === "self-improve") return commandSelfImprove(root, subcommand, options, runId);
   if (command === "route") return commandRoute(root, subcommand, runId, options);
@@ -1796,6 +2083,11 @@ async function main() {
   if (command === "resume") {
     let run = await loadRun(root, subcommand);
     assertMutableRun(run, "Run resume");
+    if (run.contract.autonomyProfile && run.state.autonomy?.status !== "ready") {
+      const autonomy = await commandAutonomy(root, "preflight", subcommand, {});
+      if (!autonomy.ok) return autonomy;
+      run = await loadRun(root, subcommand);
+    }
     let migration = { migrated: false };
     const template = await loadTemplate(run.manifest.template);
     const templateEvidence = template.requiredEvidence ?? [];

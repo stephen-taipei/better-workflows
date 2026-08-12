@@ -6,7 +6,7 @@
 
 让 Codex 工作不再停留在“下 Prompt 然后期待成功”，而是沿着有界路径，从意图走到已验证、已对账的交付。
 
-[![Version](https://img.shields.io/badge/version-3.2.4-2563EB?style=flat-square)](../plugins/better-workflows/package.json)
+[![Version](https://img.shields.io/badge/version-3.2.5-2563EB?style=flat-square)](../plugins/better-workflows/package.json)
 [![Node](https://img.shields.io/badge/Node.js-%E2%89%A524-3C873A?style=flat-square)](../plugins/better-workflows/package.json)
 [![Dependencies](https://img.shields.io/badge/runtime_dependencies-0-0F766E?style=flat-square)](../plugins/better-workflows/package.json)
 [![License](https://img.shields.io/badge/license-MIT-64748B?style=flat-square)](../LICENSE)
@@ -146,6 +146,9 @@ Better Workflows 记录并检查 control plane；它不是无限制 agent runtim
 - Side effects 需要明确用户授权与 single-use action gates。
 - Self-improve evaluator replay 可使用一次安装的 root-signed standing consent，但仅限
   sanitized、read-only 的 `gpt-5.6-terra` batch，且永不授权 delivery。
+- 任务可明确选择一次 `bounded-autopilot-v1`：它可自动完成受限本地工作、推送
+  `codex/*` 并创建一个指向 `dev` 的 PR；protected merge、deploy、直接更新
+  `dev/main` 与破坏性 cleanup 仍需独立授权。
 - Independent critics 保持只读，不能接受风险或宣告成功。
 - Workspace recipes 只运行 deterministic Node.js mechanics，不能选模型、使用网络、
   运行 arbitrary shell 或修改 source。

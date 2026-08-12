@@ -4,7 +4,6 @@ import { createRequire } from "node:module";
 import { promisify } from "node:util";
 import { lstat, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import {
   evaluationBindingDigest,
   loadFrozenEvaluationSuite,
@@ -27,6 +26,7 @@ import {
 import { captureSourceBinding } from "./git.mjs";
 import { bundleDigest } from "./publication.mjs";
 import { binaryIdentity } from "./providers.mjs";
+import { hostBundleFromStatus, hostBundleDigest } from "./host-bundle.mjs";
 import {
   consentDigest,
   loadStandingConsentPolicy,
@@ -35,7 +35,6 @@ import {
 } from "./standing-consent.mjs";
 
 const HOST_TRUST_TOOL = "/private/var/db/better-workflows/bin/bw-host-trust.mjs";
-const SOURCE_HOST_TRUST_TOOL = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../host-trust.mjs");
 const execFileAsync = promisify(execFile);
 const HOST_RUNTIME_ROOT = "/private/var/db/better-workflows/bin";
 const CODEX_TARGET_TRIPLE = process.platform === "darwin" && process.arch === "arm64"
@@ -73,15 +72,18 @@ async function installedRuntime() {
   }
   const runtime = status?.runtime;
   const codexBinary = status?.codexBinary;
-  const sourceSignerDigest = createHash("sha256").update(await readFile(SOURCE_HOST_TRUST_TOOL)).digest("hex");
   const signer = status?.signer;
+  const hostBundle = hostBundleFromStatus(status);
   if (!status.ready || !runtime?.supported || typeof runtime.path !== "string" || !/^[a-f0-9]{64}$/.test(runtime.digest ?? "") ||
       !codexBinary?.supported || !/^[a-f0-9]{64}$/.test(codexBinary.registryDigest ?? "") || !Array.isArray(codexBinary.validEntries) ||
       runtime.path !== `${HOST_RUNTIME_ROOT}/bw-host-node.${runtime.digest}` ||
-      !signer?.supported || signer.path !== HOST_TRUST_TOOL || signer.digest !== sourceSignerDigest) {
-    throw new Error("Administrator host runtime or signer is not ready; run host-trust upgrade first with the current source signer and approved Codex binary before generating replay requests");
+      !signer?.supported || signer.path !== HOST_TRUST_TOOL ||
+      hostBundle.schemaVersion !== 1 || hostBundle.protocolVersion !== 1 ||
+      hostBundle.bundleVersion !== signer.version || hostBundle.signerDigest !== signer.digest ||
+      hostBundle.runtimeDigest !== runtime.digest) {
+    throw new Error("Administrator host runtime or signed host bundle is not ready; run the separately governed host bootstrap or upgrade before generating replay requests");
   }
-  return { path: runtime.path, digest: runtime.digest, codexBinary, standingConsent: status.standingConsent ?? null };
+  return { path: runtime.path, digest: runtime.digest, codexBinary, hostBundle, standingConsent: status.standingConsent ?? null };
 }
 
 function isWithin(root, target) {
@@ -381,6 +383,8 @@ export async function generateAttestationRequests({
     sourceBindingDigest: sourceBinding.digest,
     runtimePath: runtime.path,
     runtimeDigest: runtime.digest,
+    hostBundle: runtime.hostBundle,
+    hostBundleDigest: hostBundleDigest(runtime.hostBundle),
     pluginBundleDigest: publishableBundleDigest,
     runAs,
     purpose,

@@ -476,6 +476,10 @@ action attempt が完全一致する pending marker のみを扱います。stal
 pending marker だけを受け入れます。target が存在しない場合でも foreign
 marker を保持し、publication は fail closed します。
 
+### Bounded autopilot
+
+delivery では、長時間の低リスク作業を反復 prompt なしで続けたい場合に限り、run 単位で不変の `bounded-autopilot-v1` profile を明示的に選択できます。許可されるのは bounded commit、新しい immutable cache version、`codex/*` への push、`dev` を target とする PR 一件だけです。host bootstrap/upgrade/revoke、protected merge、deploy、`dev`/`main` への直接 push、branch/worktree cleanup は人間の gate として残ります。evaluator の standing consent は delivery authority を与えません。
+
 ## License
 
 MIT。[LICENSE](../../LICENSE) と [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md) を参照してください。

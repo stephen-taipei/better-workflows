@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { pluginRoot, routeMode, VERSION } from "../lib/core.mjs";
+import { loadAutonomyProfile } from "../lib/autonomy.mjs";
 
 test("all historical and adversarial routing fixtures select the expected mode", async () => {
   const cases = JSON.parse(
@@ -16,6 +17,16 @@ test("all historical and adversarial routing fixtures select the expected mode",
       fixture.name
     );
   }
+});
+
+test("bounded-autopilot policy is separate from templates and cannot authorize protected actions", async () => {
+  const profile = await loadAutonomyProfile();
+  assert.equal(profile.id, "bounded-autopilot-v1");
+  assert.ok(profile.autoActions.includes("pr.create.dev"));
+  assert.ok(!profile.autoActions.includes("pr.merge"));
+  assert.ok(profile.humanActions.includes("pr.merge"));
+  assert.ok(profile.humanActions.includes("git.push.dev"));
+  assert.ok(profile.deniedActions.includes("password.capture"));
 });
 
 test("all thirteen templates are valid and side-effect templates declare action gates", async () => {

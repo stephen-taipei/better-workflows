@@ -412,6 +412,13 @@ grant is absent or explicitly revoked. The grant explicitly denies
 commit, cache, push, PR, merge, deploy, and cleanup authority. Inspect or revoke
 it with `sbw self-improve consent status|revoke`.
 
+Delivery may explicitly select the run-scoped `bounded-autopilot-v1` profile
+when low-risk work should continue without repeated prompts. Its immutable
+policy permits only bounded commits, a new immutable cache version, a push to
+`codex/*`, and one PR targeting `dev`; host bootstrap/upgrade/revoke, protected
+merge, deploy, direct `dev`/`main` push, and branch/worktree cleanup remain
+human gates. Evaluator standing consent never grants delivery authority.
+
 The source-bound handoff is explicit. Resolve an immutable baseline when
 creating the self-improve run, keep the candidate at a clean committed HEAD,
 then create a delegated delivery run and record its typed handoff:
