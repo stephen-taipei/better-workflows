@@ -2879,12 +2879,20 @@ export function optionalAuthoritativeGitOutput(result, label) {
   if (result?.ok === true) return result.stdout;
   if (
     result?.ok === false &&
-    Number(result.code) === 1 &&
+    result.code === 1 &&
     result.signal == null &&
     !result.timedOut &&
     !result.outputExceeded
   ) return null;
   throw new Error(`${label} failed: ${subjectGitFailureCause(result)}`);
+}
+
+export function parseOptionalAuthoritativeSymbolicRef(output, label = "Authoritative symbolic-ref read") {
+  if (output === null) return null;
+  if (typeof output !== "string" || !/^refs\/[^\x00-\x20\x7f]+\n$/.test(output)) {
+    throw new Error(`${label} returned malformed success output`);
+  }
+  return output.slice(0, -1);
 }
 
 export function authoritativeLocalGitValues(result, key) {
@@ -3056,8 +3064,8 @@ async function reconstructSourceBinding(repo, subject, baseRevision) {
   const originHeadResult = await subjectGit(repository, subject, ["symbolic-ref", "-q", "refs/remotes/origin/HEAD"], { allowFailure: true });
   const headRefOutput = optionalAuthoritativeGitOutput(headRefResult, "Authoritative HEAD symbolic-ref read");
   const originHeadOutput = optionalAuthoritativeGitOutput(originHeadResult, "Authoritative origin/HEAD symbolic-ref read");
-  const headRef = headRefOutput === null ? null : String(headRefOutput).trim() || null;
-  const originHeadRef = originHeadOutput === null ? null : String(originHeadOutput).trim() || null;
+  const headRef = parseOptionalAuthoritativeSymbolicRef(headRefOutput, "Authoritative HEAD symbolic-ref read");
+  const originHeadRef = parseOptionalAuthoritativeSymbolicRef(originHeadOutput, "Authoritative origin/HEAD symbolic-ref read");
   const committedDiff = (await subjectGit(repository, subject, [
     "diff-tree", "--no-commit-id", "--name-status", "-r", "-z", resolvedBase, headRevision, "--"
   ])).stdout;
@@ -3126,7 +3134,12 @@ function normalizeReleaseMetadata(file, content) {
 }
 
 async function authoritativeGitBytes(repo, subject, args) {
-  return (await subjectGit(repo, subject, args, { binary: true, maxOutputBytes: MAX_PROMPT_BYTES * 4 })).stdout;
+  const output = (await subjectGit(repo, subject, args, {
+    binary: true,
+    maxOutputBytes: MAX_PROMPT_BYTES * 4
+  })).stdout;
+  if (!Buffer.isBuffer(output)) throw new Error("Authoritative Git object read returned non-binary output");
+  return output;
 }
 
 async function authoritativeChangeKind(repo, subject, baseline, file, content) {
@@ -3159,7 +3172,7 @@ export async function authoritativeTreeEntryFromGit(runGit, repo, subject, revis
   const result = await runGit(repo, subject, [
     "ls-tree", "-z", revision, "--", literalAuthoritativeGitPathspec(file)
   ]);
-  return parseAuthoritativeTreeEntry(String(result.stdout), file);
+  return parseAuthoritativeTreeEntry(result.stdout, file);
 }
 
 async function authoritativeTreeEntry(repo, subject, revision, file) {
@@ -3171,6 +3184,24 @@ function authoritativeBlobMode(entry, file) {
     throw new Error(`Authoritative commit contains an unsupported entry for ${file}`);
   }
   return Number.parseInt(entry.mode.slice(-3), 8);
+}
+
+export async function authoritativeBlobAtRevisionFromGit(runGit, repo, subject, revision, file) {
+  const entry = await authoritativeTreeEntryFromGit(runGit, repo, subject, revision, file);
+  if (!entry) return null;
+  const mode = authoritativeBlobMode(entry, file);
+  const result = await runGit(repo, subject, ["cat-file", "blob", entry.object], {
+    binary: true,
+    maxOutputBytes: MAX_PROMPT_BYTES * 4
+  });
+  if (!Buffer.isBuffer(result.stdout)) {
+    throw new Error(`Authoritative Git object read returned non-binary output for ${file}`);
+  }
+  return { bytes: result.stdout, entry, mode };
+}
+
+async function authoritativeBlobAtRevision(repo, subject, revision, file) {
+  return authoritativeBlobAtRevisionFromGit(subjectGit, repo, subject, revision, file);
 }
 
 async function reconstructCandidateSnapshots(repo, subject, baselineRevision, headRevision, candidateRoot) {
@@ -3233,9 +3264,10 @@ async function reconstructCandidateSnapshots(repo, subject, baselineRevision, he
 
 async function reconstructCommittedPluginBundleDigest(repo, subject, revision) {
   const prefix = "plugins/better-workflows";
-  const output = String((await subjectGit(repo, subject, [
+  const output = (await subjectGit(repo, subject, [
     "ls-tree", "-r", "-z", revision, "--", literalAuthoritativeGitPathspec(prefix)
-  ])).stdout);
+  ])).stdout;
+  if (typeof output !== "string") throw new Error("Committed plugin tree lookup returned non-text output");
   if (!output.endsWith("\0")) throw new Error("Committed plugin tree is empty or not NUL framed");
   const records = [];
   for (const record of output.slice(0, -1).split("\0")) {
@@ -3376,10 +3408,7 @@ function validateAuthoritativeSuite(suite, policy) {
 }
 
 async function baselineBlob(repo, subject, revision, relative) {
-  const entry = await authoritativeTreeEntry(repo, subject, revision, relative);
-  if (!entry) return null;
-  authoritativeBlobMode(entry, relative);
-  return authoritativeGitBytes(repo, subject, ["cat-file", "blob", entry.object]);
+  return (await authoritativeBlobAtRevision(repo, subject, revision, relative))?.bytes ?? null;
 }
 
 async function authoritativeSuiteState(repo, subject, headRevision, manifest, candidate, standingPolicy) {
@@ -3401,7 +3430,9 @@ async function authoritativeSuiteState(repo, subject, headRevision, manifest, ca
   }
   const sourceBaseline = await baselineBlob(repo, subject, manifest.baselineRevision, expectedSourcePath);
   if (sourceBaseline === null) throw new Error("Standing source suite is absent from the immutable baseline");
-  const sourceCurrent = await authoritativeGitBytes(repo, subject, ["show", `${headRevision}:${expectedSourcePath}`]);
+  const sourceCurrentBlob = await authoritativeBlobAtRevision(repo, subject, headRevision, expectedSourcePath);
+  if (!sourceCurrentBlob) throw new Error("Standing source suite is absent from the bound head");
+  const sourceCurrent = sourceCurrentBlob.bytes;
   if (!sourceCurrent.equals(sourceBaseline)) throw new Error("Standing source suite drifted from the immutable baseline");
   const sourceSuite = validateAuthoritativeSuite(JSON.parse(sourceCurrent.toString("utf8")), standingPolicy);
   const sourceSuiteDigest = sha256Value(sourceCurrent);
@@ -3410,7 +3441,9 @@ async function authoritativeSuiteState(repo, subject, headRevision, manifest, ca
   let targetSuitePath = null;
   if (manifest.purpose === "evaluator-migration") {
     targetSuitePath = SELF_IMPROVE_V23_CORPUS;
-    const bytes = await authoritativeGitBytes(repo, subject, ["show", `${headRevision}:${targetSuitePath}`]);
+    const targetBlob = await authoritativeBlobAtRevision(repo, subject, headRevision, targetSuitePath);
+    if (!targetBlob) throw new Error("Standing migration target suite is absent from the bound head");
+    const bytes = targetBlob.bytes;
     targetSuite = validateAuthoritativeSuite(JSON.parse(bytes.toString("utf8")), standingPolicy);
     if (targetSuite.schemaVersion !== 2) throw new Error("Standing migration target suite must be schemaVersion 2");
     targetSuiteDigest = sha256Value(bytes);
@@ -3419,7 +3452,9 @@ async function authoritativeSuiteState(repo, subject, headRevision, manifest, ca
   let policyDigest = null;
   const policyBinding = policyBindingForPurpose(manifest.purpose);
   if (policyBinding) {
-    const bytes = await authoritativeGitBytes(repo, subject, ["show", `${headRevision}:${policyBinding.path}`]);
+    const policyBlob = await authoritativeBlobAtRevision(repo, subject, headRevision, policyBinding.path);
+    if (!policyBlob) throw new Error("Standing remediation policy is absent from the bound head");
+    const bytes = policyBlob.bytes;
     policyDigest = sha256Value(bytes);
     if (policyDigest !== policyBinding.digest) throw new Error("Standing remediation policy changed from its root-authoritative digest");
     remediationPolicy = JSON.parse(bytes.toString("utf8"));
@@ -3895,6 +3930,14 @@ export function validateAuthoritativeMaterialBytes(file, content) {
   return content;
 }
 
+async function authoritativeSnapshotBlob(repo, subject, revision, file) {
+  const blob = await authoritativeBlobAtRevision(repo, subject, revision, file.path);
+  if (!blob || blob.mode !== file.mode) {
+    throw new Error(`Authoritative material mode or object is absent from the reconstructed snapshot: ${file?.path ?? "<unknown>"}`);
+  }
+  return validateAuthoritativeMaterialBytes(file, blob.bytes);
+}
+
 export function validateAuthoritativePromptPaths(files, standingPolicy) {
   if (!Array.isArray(files) || !standingPolicy?.sanitization ||
       !Array.isArray(standingPolicy.sanitization.allowedPathPatterns) ||
@@ -3935,7 +3978,7 @@ async function reconstructSanitizedMaterial({ repo, subject, revision, snapshot,
     for (const file of files) {
       const content = validateAuthoritativeMaterialBytes(
         file,
-        await authoritativeGitBytes(repo, subject, ["show", `${revision}:${file.path}`])
+        await authoritativeSnapshotBlob(repo, subject, revision, file)
       );
       if (content.includes(0)) throw new Error(`Authoritative material is not text: ${file.path}`);
       const text = content.toString("utf8");

@@ -381,6 +381,7 @@ test("autonomy remote binding fails closed on indeterminate pushurl reads and ov
     /output exceeded/
   );
   for (const failure of [
+    { code: "1", signal: null, timedOut: false, outputExceeded: false, stderr: "string exit code" },
     { code: 1, signal: null, timedOut: true, outputExceeded: false, stderr: "timed out" },
     { code: 1, signal: null, timedOut: false, outputExceeded: true, stderr: "output exceeded" },
     { code: 1, signal: "SIGTERM", timedOut: false, outputExceeded: false, stderr: "terminated" },
@@ -434,6 +435,7 @@ test("autonomy branch lookup accepts only exact detached-HEAD absence and well-f
     stderr: ""
   })), "codex/exact-branch");
   for (const failure of [
+    { ...absent, code: "1" },
     { ...absent, timedOut: true },
     { ...absent, outputExceeded: true },
     { ...absent, signal: "SIGKILL" },

@@ -67,6 +67,9 @@ async function deriveDiffManifest(cwd, base, head, scope) {
   if (!ancestor.ok) {
     throw new Error("Review BASE must be an ancestor of HEAD");
   }
+  if (ancestor.stdout !== "") {
+    throw new Error("Review ancestry probe returned malformed success output");
+  }
   const output = (await runSourceGit(cwd, [
     "diff",
     "--name-status",

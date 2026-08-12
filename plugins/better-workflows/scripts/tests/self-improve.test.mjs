@@ -21,6 +21,7 @@ import {
   loadQualityRemediationPolicy,
   loadSafetyRemediationPolicy,
   ordinaryCorpusForBaseline,
+  readBaselineSnapshotBlob,
   readSanitizedBaselineMaterial,
   readSanitizedCandidateMaterial,
   snapshotBaselineForCandidate,
@@ -204,6 +205,10 @@ test("baseline snapshots treat magic-prefixed tracked filenames as literal paths
     assert.equal(frozenFile?.state, "file");
     assert.equal(frozenFile?.mode, 0o644);
     assert.equal(frozenFile?.digest, sha256(baselineBytes));
+    assert.deepEqual(
+      await readBaselineSnapshotBlob({ cwd, baselineRevision: baseline, file: frozenFile }),
+      baselineBytes
+    );
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }

@@ -564,7 +564,7 @@ function assertNoAmbientGitAuthorityOverrides() {
   }
 }
 
-export const VERSION = "3.3.7";
+export const VERSION = "3.3.8";
 export const MODES = new Set(["auto", "direct", "verified", "deep", "critical"]);
 export const RUN_STATES = new Set([
   "pending",
@@ -4878,6 +4878,16 @@ async function boundedAutonomousCommitDiff(manifest, contract, record, currentHe
   ) {
     throw new Error("Autonomous Git commit reconciliation requires the exact consumed diff snapshot");
   }
+  for (const item of snapshot.untrackedManifest) {
+    if (
+      !item || typeof item.path !== "string" || !["file", "symlink"].includes(item.type) ||
+      (item.type === "symlink" && item.mode !== "120000") ||
+      (item.type === "file" && !["100644", "100755"].includes(item.mode)) ||
+      !Number.isSafeInteger(item.bytes) || item.bytes < 0 || !SHA256_DIGEST.test(item.digest ?? "")
+    ) {
+      throw new Error("Autonomous Git commit reconciliation requires normalized untracked modes and content bindings");
+    }
+  }
   const preCommitHead = record.preCommitHeadRevision;
   const maxBuffer = Math.min(BOUND_GIT_MAX_BUFFER, limits.maxDiffBytes + 1);
   let committedDiff;
@@ -4961,9 +4971,9 @@ async function boundedAutonomousCommitDiff(manifest, contract, record, currentHe
     const [mode, type, objectId] = header.split(" ");
     if (
       observedPath !== relative || type !== "blob" || !/^[a-f0-9]{40,64}$/i.test(objectId ?? "") ||
-      (approved.type === "symlink" ? mode !== "120000" : mode === "120000")
+      mode !== approved.mode
     ) {
-      throw new Error("Autonomous Git commit reconciliation changed the approved untracked path type or identity");
+      throw new Error("Autonomous Git commit reconciliation changed the approved untracked path mode, type, or identity");
     }
     const blob = await execBoundGitAuthority(manifest.cwd, ["cat-file", "blob", objectId], {
       encoding: "buffer",

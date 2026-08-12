@@ -39,6 +39,22 @@ function optionalSourceGitOutput(result, label, { absentCodes = [1] } = {}) {
   throw new Error(`${label} failed: ${detail}`);
 }
 
+export function parseOptionalSourceSymbolicRef(output, label = "Source binding symbolic-ref read") {
+  if (output === null) return null;
+  if (typeof output !== "string" || !/^refs\/[^\x00-\x20\x7f]+\n$/.test(output)) {
+    throw new Error(`${label} returned malformed success output`);
+  }
+  return output.slice(0, -1);
+}
+
+export function parseOptionalSourceCommitRevision(output, label = "Source binding revision read") {
+  if (output === null) return null;
+  if (typeof output !== "string" || !/^[a-f0-9]{40}\n$/i.test(output)) {
+    throw new Error(`${label} returned malformed success output`);
+  }
+  return output.slice(0, -1);
+}
+
 async function git(cwd, args, {
   allowFailure = false,
   isolatedConfig = false,
@@ -531,8 +547,8 @@ export async function captureSourceBinding(cwd, {
   const originHeadRefResult = await sourceGit(repository, ["symbolic-ref", "-q", "refs/remotes/origin/HEAD"], { allowFailure: true });
   const headRefOutput = optionalSourceGitOutput(headRefResult, "Source binding HEAD symbolic-ref read");
   const originHeadRefOutput = optionalSourceGitOutput(originHeadRefResult, "Source binding origin/HEAD symbolic-ref read");
-  const headRef = headRefOutput === null ? null : headRefOutput.trim() || null;
-  const originHeadRef = originHeadRefOutput === null ? null : originHeadRefOutput.trim() || null;
+  const headRef = parseOptionalSourceSymbolicRef(headRefOutput, "Source binding HEAD symbolic-ref read");
+  const originHeadRef = parseOptionalSourceSymbolicRef(originHeadRefOutput, "Source binding origin/HEAD symbolic-ref read");
   let resolvedBaseRevision = null;
   if (baseRevision) {
     const resolved = await sourceGit(
@@ -543,7 +559,7 @@ export async function captureSourceBinding(cwd, {
     const resolvedOutput = optionalSourceGitOutput(resolved, "Source binding base revision read", {
       absentCodes: [1]
     });
-    resolvedBaseRevision = resolvedOutput === null ? null : resolvedOutput.trim();
+    resolvedBaseRevision = parseOptionalSourceCommitRevision(resolvedOutput, "Source binding base revision read");
   }
   const committedDiff = resolvedBaseRevision
     ? (await sourceGit(repository, [
@@ -578,8 +594,8 @@ export async function captureSourceBinding(cwd, {
   const finalOriginHeadRefResult = await sourceGit(repository, ["symbolic-ref", "-q", "refs/remotes/origin/HEAD"], { allowFailure: true });
   const finalHeadRefOutput = optionalSourceGitOutput(finalHeadRefResult, "Source binding final HEAD symbolic-ref read");
   const finalOriginHeadRefOutput = optionalSourceGitOutput(finalOriginHeadRefResult, "Source binding final origin/HEAD symbolic-ref read");
-  const finalHeadRef = finalHeadRefOutput === null ? null : finalHeadRefOutput.trim() || null;
-  const finalOriginHeadRef = finalOriginHeadRefOutput === null ? null : finalOriginHeadRefOutput.trim() || null;
+  const finalHeadRef = parseOptionalSourceSymbolicRef(finalHeadRefOutput, "Source binding final HEAD symbolic-ref read");
+  const finalOriginHeadRef = parseOptionalSourceSymbolicRef(finalOriginHeadRefOutput, "Source binding final origin/HEAD symbolic-ref read");
   const finalLayout = await captureLayout();
   await assertNoLegacyGrafts(finalLayout.gitDir.path, finalLayout.gitCommonDir.path);
   assertCompleteGitAncestry(finalLayout);

@@ -528,6 +528,28 @@ async function gitBlobEntryAtRevision(repository, revision, file) {
   };
 }
 
+async function baselineSnapshotBlob(repository, revision, file) {
+  if (!file || file.state !== "file" || typeof file.path !== "string" ||
+      ![0o644, 0o755].includes(file.mode) || !Number.isSafeInteger(file.size) || file.size < 0 ||
+      !SHA256.test(file.digest ?? "")) {
+    throw new Error(`Baseline snapshot contains an invalid file binding: ${file?.path ?? "<unknown>"}`);
+  }
+  const entry = await gitBlobEntryAtRevision(repository, revision, file.path);
+  if (!entry || entry.mode !== file.mode) {
+    throw new Error(`Baseline object mode or identity changed after snapshot: ${file.path}`);
+  }
+  const content = await gitBytes(repository, ["cat-file", "blob", entry.object]);
+  if (content.length !== file.size || sha256(content) !== file.digest) {
+    throw new Error(`Baseline object bytes changed after snapshot: ${file.path}`);
+  }
+  return content;
+}
+
+export async function readBaselineSnapshotBlob({ cwd, baselineRevision, file }) {
+  const repository = await realpath(cwd);
+  return baselineSnapshotBlob(repository, baselineRevision, file);
+}
+
 function gitCompatibleMode(mode) {
   return (mode & 0o111) !== 0 ? 0o755 : 0o644;
 }
@@ -1116,7 +1138,7 @@ export async function readSanitizedBaselineMaterial({ cwd, snapshot, maxFiles = 
     maxFiles,
     maxBytes,
     label: "Baseline",
-    readContent: (file) => gitBytes(repository, ["show", `${snapshot.baselineRevision}:${file.path}`])
+    readContent: (file) => baselineSnapshotBlob(repository, snapshot.baselineRevision, file)
   });
 }
 

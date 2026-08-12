@@ -17,6 +17,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import {
+  authoritativeBlobAtRevisionFromGit,
   authoritativeTreeEntryFromGit,
   authoritativeLocalGitValues,
   authoritativeEvidenceIndex,
@@ -31,6 +32,7 @@ import {
   forwardedHeaders,
   literalAuthoritativeGitPathspec,
   optionalAuthoritativeGitOutput,
+  parseOptionalAuthoritativeSymbolicRef,
   parseAuthoritativeTreeEntry,
   parseEvaluatorTranscript,
   privateKeyFromRaw,
@@ -106,6 +108,7 @@ test("host authoritative optional Git reads distinguish only exact absence", () 
   ]);
 
   for (const failure of [
+    { ...absent, code: "1" },
     { ...absent, timedOut: true },
     { ...absent, outputExceeded: true },
     { ...absent, signal: "SIGKILL" },
@@ -131,6 +134,23 @@ test("host authoritative optional Git reads distinguish only exact absence", () 
   );
 });
 
+test("host authoritative symbolic refs require exact framed text successes", () => {
+  assert.equal(parseOptionalAuthoritativeSymbolicRef(null), null);
+  assert.equal(parseOptionalAuthoritativeSymbolicRef("refs/heads/dev\n"), "refs/heads/dev");
+  for (const output of [
+    "",
+    "refs/heads/dev",
+    " refs/heads/dev\n",
+    "refs/heads/dev \n",
+    "refs/heads/dev\r\n",
+    "refs/heads/dev\0\n",
+    "refs/heads/dev\nrefs/heads/other\n",
+    Buffer.from("refs/heads/dev\n")
+  ]) {
+    assert.throws(() => parseOptionalAuthoritativeSymbolicRef(output), /malformed success output/);
+  }
+});
+
 test("root-authoritative tree reads literalize magic-prefixed tracked filenames", async () => {
   const repo = await mkdtemp(path.join(os.tmpdir(), "sbw-host-literal-tree-"));
   try {
@@ -147,21 +167,36 @@ test("root-authoritative tree reads literalize magic-prefixed tracked filenames"
     await execFileAsync("/usr/bin/git", ["commit", "-qm", "literal candidate"], { cwd: repo });
     const head = (await execFileAsync("/usr/bin/git", ["rev-parse", "HEAD"], { cwd: repo })).stdout.trim();
     const calls = [];
-    const runGit = async (cwd, _subject, args) => {
+    const runGit = async (cwd, _subject, args, options = {}) => {
       calls.push(args);
-      const result = await execFileAsync("/usr/bin/git", args, { cwd, encoding: "utf8" });
+      const result = await execFileAsync("/usr/bin/git", args, {
+        cwd,
+        encoding: options.binary ? "buffer" : "utf8"
+      });
       return { stdout: result.stdout };
     };
     const baseEntry = await authoritativeTreeEntryFromGit(runGit, repo, {}, baseline, file);
     const headEntry = await authoritativeTreeEntryFromGit(runGit, repo, {}, head, file);
+    const baseBlob = await authoritativeBlobAtRevisionFromGit(runGit, repo, {}, baseline, file);
+    const headBlob = await authoritativeBlobAtRevisionFromGit(runGit, repo, {}, head, file);
     assert.equal(baseEntry.path, file);
     assert.equal(baseEntry.type, "blob");
     assert.equal(baseEntry.mode, "100644");
     assert.equal(headEntry.path, file);
     assert.notEqual(headEntry.object, baseEntry.object);
-    assert.deepEqual(calls.map((args) => args.at(-1)), [
+    assert.equal(baseBlob.bytes.toString("utf8"), "baseline\n");
+    assert.equal(headBlob.bytes.toString("utf8"), "candidate\n");
+    assert.equal(baseBlob.mode, 0o644);
+    assert.equal(headBlob.mode, 0o644);
+    assert.deepEqual(calls.filter((args) => args[0] === "ls-tree").map((args) => args.at(-1)), [
+      literalAuthoritativeGitPathspec(file),
+      literalAuthoritativeGitPathspec(file),
       literalAuthoritativeGitPathspec(file),
       literalAuthoritativeGitPathspec(file)
+    ]);
+    assert.deepEqual(calls.filter((args) => args[0] === "cat-file"), [
+      ["cat-file", "blob", baseEntry.object],
+      ["cat-file", "blob", headEntry.object]
     ]);
     assert.equal(parseAuthoritativeTreeEntry("", file), null);
     for (const output of [
@@ -1057,7 +1092,8 @@ test("host trust helper fixes authority paths and does not accept environment pa
   assert.match(source, /return authoritativeLocalGitValues\(result, key\)/);
   assert.match(source, /optionalAuthoritativeGitOutput\(headRefResult/);
   assert.match(source, /const entry = await authoritativeTreeEntry\(repo, subject, baselineRevision, file\.path\)/);
-  assert.match(source, /const entry = await authoritativeTreeEntry\(repo, subject, revision, relative\)/);
+  assert.match(source, /authoritativeBlobAtRevision\(repo, subject, revision, relative\)/);
+  assert.match(source, /\["cat-file", "blob", entry\.object\]/);
   assert.doesNotMatch(source, /if \(!result\.ok\) \{\s*baselineFiles\.push/);
   assert.doesNotMatch(source, /if \(\(await baselineBlob[^\n]+\)\.ok\)/);
   assert.match(source, /parseEvaluatorTranscript\(result\.stdout\)/);
@@ -1189,14 +1225,22 @@ test("root standing reconstruction reads candidate authority from bound commit o
   const materialStart = source.indexOf("async function reconstructSanitizedMaterial");
   const materialEnd = source.indexOf("const UNTRUSTED_PROMPT_BOUNDARY_MARKERS", materialStart);
   const materialBlock = source.slice(materialStart, materialEnd);
-  assert.match(materialBlock, /`\$\{revision\}:\$\{file\.path\}`/);
+  assert.match(materialBlock, /authoritativeSnapshotBlob\(repo, subject, revision, file\)/);
+  assert.doesNotMatch(materialBlock, /\["show"/);
   assert.doesNotMatch(materialBlock, /readFile\(path\.resolve\(repo/);
 
   const suiteStart = source.indexOf("async function authoritativeSuiteState");
   const suiteEnd = source.indexOf("function authoritativeCases", suiteStart);
   const suiteBlock = source.slice(suiteStart, suiteEnd);
-  assert.match(suiteBlock, /`\$\{headRevision\}:\$\{expectedSourcePath\}`/);
+  assert.match(suiteBlock, /authoritativeBlobAtRevision\(repo, subject, headRevision, expectedSourcePath\)/);
+  assert.doesNotMatch(suiteBlock, /\["show"/);
   assert.doesNotMatch(suiteBlock, /readFile\(path\.resolve\(repo/);
+
+  const blobStart = source.indexOf("export async function authoritativeBlobAtRevisionFromGit");
+  const blobEnd = source.indexOf("async function authoritativeBlobAtRevision(", blobStart);
+  const blobBlock = source.slice(blobStart, blobEnd);
+  assert.match(blobBlock, /authoritativeTreeEntryFromGit\(runGit/);
+  assert.match(blobBlock, /\["cat-file", "blob", entry\.object\]/);
 });
 
 test("host parent-chain validation rejects a user-owned parent around a regular leaf", async () => {

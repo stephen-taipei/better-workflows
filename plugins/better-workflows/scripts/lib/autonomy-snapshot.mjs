@@ -28,7 +28,7 @@ export function autonomyBoundaryError(reason, message, cause = null) {
 }
 
 export function isExactGitAbsence(result, { absentCodes = [1] } = {}) {
-  return result?.ok === false && absentCodes.includes(Number(result.code)) && result.signal == null &&
+  return result?.ok === false && absentCodes.includes(result.code) && result.signal == null &&
     !result.timedOut && !result.outputExceeded;
 }
 
@@ -161,6 +161,10 @@ function resolveContainedPath(cwd, relative) {
   return target;
 }
 
+function normalizedGitMode(info) {
+  return (info.mode & 0o111) === 0 ? "100644" : "100755";
+}
+
 export async function inspectAutonomyChanges(cwd, { limits, pathScope, runGit }) {
   const maxBuffer = limits.maxDiffBytes + 1;
   let trackedDiff;
@@ -192,8 +196,10 @@ export async function inspectAutonomyChanges(cwd, { limits, pathScope, runGit })
     }
     if (totalDiffBytes + info.size > limits.maxDiffBytes) return { ok: false, reason: "diff-byte-limit" };
     let bytes;
+    let mode;
     if (info.isSymbolicLink()) {
       bytes = Buffer.from(await readlink(target), "utf8");
+      mode = "120000";
     } else {
       const handle = await open(target, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
       try {
@@ -201,6 +207,14 @@ export async function inspectAutonomyChanges(cwd, { limits, pathScope, runGit })
         if (!opened.isFile()) throw new Error(`Autonomy untracked path changed type during capture: ${relative}`);
         if (totalDiffBytes + opened.size > limits.maxDiffBytes) return { ok: false, reason: "diff-byte-limit" };
         bytes = await handle.readFile();
+        const final = await handle.stat();
+        if (
+          final.dev !== opened.dev || final.ino !== opened.ino || final.size !== opened.size ||
+          normalizedGitMode(final) !== normalizedGitMode(opened)
+        ) {
+          throw new Error(`Autonomy untracked path changed during capture: ${relative}`);
+        }
+        mode = normalizedGitMode(final);
       } finally {
         await handle.close();
       }
@@ -210,6 +224,7 @@ export async function inspectAutonomyChanges(cwd, { limits, pathScope, runGit })
     untrackedManifest.push({
       path: relative,
       type: info.isSymbolicLink() ? "symlink" : "file",
+      mode,
       bytes: bytes.byteLength,
       digest: sha256(bytes)
     });

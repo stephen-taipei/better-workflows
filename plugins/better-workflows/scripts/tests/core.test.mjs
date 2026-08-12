@@ -568,6 +568,64 @@ test("autonomy reconciliation rejects two commits created under one consumed tok
   assert.equal(inspected.state.autonomy.status, "ready");
 });
 
+test("autonomy reconciliation rejects an executable-bit change after consuming an untracked file snapshot", async () => {
+  const fixture = await autonomyActionFixture();
+  const created = path.join(fixture.repository, "allowed", "created.sh");
+  await writeFile(created, "#!/bin/sh\nexit 0\n", { mode: 0o644 });
+  await chmod(created, 0o644);
+  await execFileAsync("git", ["config", "core.filemode", "true"], { cwd: fixture.repository });
+  const inspected = await inspectRun(fixture.stateRoot, fixture.run.runId);
+  const approvedSnapshot = await captureAutonomyReadinessSnapshot(
+    fixture.repository,
+    fixture.binding,
+    inspected.manifest.autonomyProfile.sourceBindingDigest,
+    { sentinelDigest: fixture.sentinelDigest }
+  );
+  assert.deepEqual(approvedSnapshot.untrackedManifest, [{
+    path: "allowed/created.sh",
+    type: "file",
+    mode: "100644",
+    bytes: 17,
+    digest: sha256("#!/bin/sh\nexit 0\n")
+  }]);
+  await updateState(fixture.stateRoot, fixture.run.runId, (state) => ({
+    ...state,
+    autonomy: { ...state.autonomy, status: "ready", snapshot: approvedSnapshot }
+  }));
+  const issued = await issueActionToken(
+    fixture.stateRoot,
+    fixture.run.runId,
+    { ...autonomyCommitRequest(fixture.sourceHead, "untracked-mode"), resource: "git:commit" },
+    fixture.sentinelDigest,
+    await loadDefaults()
+  );
+  const spent = await consumeActionToken(
+    fixture.stateRoot,
+    fixture.run.runId,
+    issued.token,
+    fixture.sentinelDigest
+  );
+  await chmod(created, 0o755);
+  await execFileAsync("git", ["add", "allowed/created.sh"], { cwd: fixture.repository });
+  await execFileAsync("git", ["commit", "-qm", "change untracked mode after approval"], { cwd: fixture.repository });
+  const tree = (await execFileAsync("git", ["ls-tree", "HEAD", "--", "allowed/created.sh"], {
+    cwd: fixture.repository,
+    encoding: "utf8"
+  })).stdout;
+  assert.match(tree, /^100755 blob /);
+  const revision = (await execFileAsync("git", ["rev-parse", "HEAD"], {
+    cwd: fixture.repository,
+    encoding: "utf8"
+  })).stdout.trim();
+  const receipt = await autonomyCommitSuccessReceipt(fixture, spent, revision, "commit-proof-untracked-mode");
+  await assert.rejects(
+    reconcileAction(fixture.stateRoot, fixture.run.runId, spent.attemptId, "success", receipt),
+    /changed the approved untracked path mode/
+  );
+  const after = await inspectRun(fixture.stateRoot, fixture.run.runId);
+  assert.equal(after.manifest.sourceBinding.headRevision, fixture.sourceHead);
+});
+
 test("a reconciled autonomous commit rotates the operational binding and reopens the governed push source gate after fresh preflight", async () => {
   const fixture = await autonomyActionFixture();
   await execFileAsync("git", ["config", "diff.external", "/bin/echo"], { cwd: fixture.repository });
@@ -579,6 +637,7 @@ test("a reconciled autonomous commit rotates the operational binding and reopens
     (await inspectRun(fixture.stateRoot, fixture.run.runId)).manifest.autonomyProfile.sourceBindingDigest,
     { sentinelDigest: fixture.sentinelDigest }
   );
+  assert.equal(approvedSnapshot.untrackedManifest.find((item) => item.path === "allowed/created.txt")?.mode, "100644");
   await updateState(fixture.stateRoot, fixture.run.runId, (state) => ({
     ...state,
     autonomy: { ...state.autonomy, status: "ready", snapshot: approvedSnapshot }

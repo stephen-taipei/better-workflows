@@ -13,6 +13,8 @@ import {
   compareSentinels,
   isGitRepository,
   parseGitWorktreeProbeOutput,
+  parseOptionalSourceCommitRevision,
+  parseOptionalSourceSymbolicRef,
   runSourceGit,
   validateSubmoduleStatusOutput
 } from "../lib/git.mjs";
@@ -113,6 +115,40 @@ test("repository and submodule probes fail closed on indeterminate or malformed 
     }), cwd),
     /indeterminate result/
   );
+});
+
+test("source optional symbolic refs and commit revisions require exact framed successes", () => {
+  assert.equal(parseOptionalSourceSymbolicRef(null), null);
+  assert.equal(parseOptionalSourceSymbolicRef("refs/heads/dev\n"), "refs/heads/dev");
+  assert.equal(parseOptionalSourceCommitRevision(null), null);
+  const revision = "a".repeat(40);
+  assert.equal(parseOptionalSourceCommitRevision(`${revision}\n`), revision);
+  for (const output of [
+    "",
+    "refs/heads/dev",
+    " refs/heads/dev\n",
+    "refs/heads/dev \n",
+    "refs/heads/dev\r\n",
+    "refs/heads/dev\0\n",
+    "refs/heads/dev\nrefs/heads/other\n",
+    Buffer.from("refs/heads/dev\n")
+  ]) {
+    assert.throws(() => parseOptionalSourceSymbolicRef(output), /malformed success output/);
+  }
+  for (const output of [
+    "",
+    revision,
+    ` ${revision}\n`,
+    `${revision} \n`,
+    `${revision}\r\n`,
+    `${revision}\0\n`,
+    `${revision}\n${revision}\n`,
+    `${"g".repeat(40)}\n`,
+    `${"a".repeat(64)}\n`,
+    Buffer.from(`${revision}\n`)
+  ]) {
+    assert.throws(() => parseOptionalSourceCommitRevision(output), /malformed success output/);
+  }
 });
 
 test("sentinel rejects recursive submodule status failures", async () => {
