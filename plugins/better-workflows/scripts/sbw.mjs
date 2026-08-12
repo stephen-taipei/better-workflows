@@ -51,7 +51,7 @@ import {
   validateContract,
   withRunLock
 } from "./lib/core.mjs";
-import { captureSentinel, captureSourceBinding, compareSentinels } from "./lib/git.mjs";
+import { captureSentinel, captureSourceBinding, compareSentinels, runSourceGit } from "./lib/git.mjs";
 import {
   doctorAgy,
   doctorCodex,
@@ -2052,10 +2052,9 @@ async function main() {
       if (run.contract.schemaVersion === 2 && run.contract.controlPlane?.reviewPolicy !== "none") {
         digest = await currentVerifiedDigest(root, runId);
         const review = await reviewStatus(root, runId);
-        const currentHead = (await execFileAsync("git", ["rev-parse", "--verify", "HEAD^{commit}"], {
-          cwd: run.manifest.cwd,
-          encoding: "utf8"
-        })).stdout.trim();
+        const currentHead = (await runSourceGit(run.manifest.cwd, [
+          "rev-parse", "--verify", "HEAD^{commit}"
+        ])).stdout.trim();
         if (
           !review.complete ||
           review.package?.head !== currentHead ||

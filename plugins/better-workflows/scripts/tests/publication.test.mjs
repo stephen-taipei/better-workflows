@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { access, chmod, link, mkdir, mkdtemp, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { access, chmod, link, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, symlink, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -11,6 +11,8 @@ import {
   markPluginCacheReady,
   removeUnreadyPluginCachePublication,
   publishPluginCache,
+  processIncarnationDigest,
+  processLiveness,
   recoverPendingPluginCachePublication,
   verifyPluginCacheReady
 } from "../lib/publication.mjs";
@@ -76,8 +78,77 @@ async function sourceFixture(version = "1.1.0+test.1") {
     `${JSON.stringify({ name: "better-workflows", version })}\n`
   );
   await writeFile(path.join(sourceRoot, "payload.txt"), "one\n");
+  await mkdir(path.join(sourceRoot, "nested"));
+  await writeFile(path.join(sourceRoot, "nested", "payload.txt"), "nested\n");
   return sourceRoot;
 }
+
+test("publication rejects an intermediate stage symlink without touching its external target", async () => {
+  const version = "1.1.0+test.intermediate-stage-symlink";
+  const sourceRoot = await sourceFixture(version);
+  const parent = await mkdtemp(path.join(os.tmpdir(), "sbw-publication-intermediate-stage-"));
+  const cacheRoot = path.join(parent, "cache");
+  const external = path.join(parent, "external");
+  const displaced = path.join(parent, "nested-displaced");
+  await mkdir(cacheRoot);
+  await mkdir(external);
+  await writeFile(path.join(external, "sentinel.txt"), "outside\n");
+  try {
+    await assert.rejects(
+      publishPluginCache({
+        sourceRoot,
+        cacheRoot,
+        beforeRename: async ({ stage }) => {
+          await rename(path.join(stage, "nested"), displaced);
+          await symlink(external, path.join(stage, "nested"));
+        }
+      }),
+      /ELOOP|symlink|cache|publication/
+    );
+    assert.equal(await readFile(path.join(external, "sentinel.txt"), "utf8"), "outside\n");
+    await assert.rejects(access(path.join(cacheRoot, version)));
+  } finally {
+    await rm(parent, { recursive: true, force: true });
+  }
+});
+
+test("unready cleanup removes an intermediate symlink as a leaf without touching its external target", async () => {
+  const version = "1.1.0+test.intermediate-release-symlink";
+  const sourceRoot = await sourceFixture(version);
+  const parent = await mkdtemp(path.join(os.tmpdir(), "sbw-publication-intermediate-release-"));
+  const cacheRoot = path.join(parent, "cache");
+  const external = path.join(parent, "external");
+  const displaced = path.join(parent, "nested-displaced");
+  await mkdir(cacheRoot);
+  await mkdir(external);
+  await writeFile(path.join(external, "sentinel.txt"), "outside\n");
+  try {
+    const published = await publishPluginCache({
+      sourceRoot,
+      cacheRoot,
+      publicationIdentity: {
+        runId: "intermediate-release-run",
+        attemptId: "intermediate-release-attempt"
+      }
+    });
+    await removeUnreadyPluginCachePublication({
+      cacheRoot,
+      version,
+      target: published.target,
+      targetDigest: published.targetDigest,
+      runId: "intermediate-release-run",
+      attemptId: "intermediate-release-attempt",
+      beforeTargetRemove: async ({ target }) => {
+        await rename(path.join(target, "nested"), displaced);
+        await symlink(external, path.join(target, "nested"));
+      }
+    });
+    assert.equal(await readFile(path.join(external, "sentinel.txt"), "utf8"), "outside\n");
+    await assert.rejects(access(published.target));
+  } finally {
+    await rm(parent, { recursive: true, force: true });
+  }
+});
 
 async function trackedSourceFixture(version = "1.1.0+test.tracked") {
   const repositoryRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-publication-git-source-"));
@@ -96,6 +167,42 @@ async function trackedSourceFixture(version = "1.1.0+test.tracked") {
   await git(repositoryRoot, "commit", "-qm", "fixture");
   return { repositoryRoot, sourceRoot };
 }
+
+test("plugin publication rejects a dirty source hidden by a local core.worktree redirect", async () => {
+  const { repositoryRoot, sourceRoot } = await trackedSourceFixture("1.1.0+test.core-worktree");
+  const redirected = await mkdtemp(path.join(os.tmpdir(), "sbw-publication-core-worktree-redirect-"));
+  await git(repositoryRoot, "config", "core.worktree", redirected);
+  await writeFile(path.join(sourceRoot, "payload.txt"), "dirty source bytes\n");
+  await assert.rejects(
+    publishPluginCache({
+      sourceRoot,
+      cacheRoot: path.join(await mkdtemp(path.join(os.tmpdir(), "sbw-publication-core-worktree-cache-")), "cache")
+    }),
+    /core\.worktree configuration redirects away from|Git core\.worktree/
+  );
+});
+
+test("publication rollback preserves a target replaced after rename", async () => {
+  const version = "1.1.0+test.rollback-leaf-race";
+  const sourceRoot = await sourceFixture(version);
+  const cacheRoot = path.join(await mkdtemp(path.join(os.tmpdir(), "sbw-publication-rollback-leaf-race-")), "cache");
+  await assert.rejects(
+    publishPluginCache({
+      sourceRoot,
+      cacheRoot,
+      afterPublish: async ({ target }) => {
+        await rm(target, { recursive: true, force: true });
+        await mkdir(target, { recursive: true, mode: 0o700 });
+        await writeFile(path.join(target, "foreign-rollback.txt"), "foreign rollback bytes\n");
+        throw new Error("simulated post-rename publication failure");
+      }
+    }),
+    /simulated post-rename publication failure|target rollback also failed/
+  );
+  const versionRoot = path.join(cacheRoot, version);
+  assert.equal(await readFile(path.join(versionRoot, "foreign-rollback.txt"), "utf8"), "foreign rollback bytes\n");
+  await assert.rejects(access(path.join(cacheRoot, `${version}.ready.json`)));
+});
 
 test("plugin cache publication stages a new immutable version and verifies exact content", async () => {
   const sourceRoot = await sourceFixture();
@@ -120,7 +227,7 @@ test("plugin cache publication stages a new immutable version and verifies exact
   const noOp = await publishPluginCache({ sourceRoot, cacheRoot });
   assert.equal(noOp.noOp, true);
   assert.deepEqual(
-    (await readdir(cacheRoot)).filter((name) => name.includes(".publish.lock") || name.includes(".stage-")),
+    (await readdir(cacheRoot)).filter((name) => !name.includes(".released-publication-") && (name.includes(".publish.lock") || name.includes(".stage-"))),
     []
   );
 });
@@ -136,6 +243,65 @@ test("plugin bundle digest uses Git executable-bit modes across checkout and arc
   await chmod(payload, 0o775);
   assert.equal(await bundleDigest(sourceRoot), executableDigest);
   assert.notEqual(executableDigest, checkoutDigest);
+});
+
+test("publication fails closed when the cache root is replaced before rename", async () => {
+  const sourceRoot = await sourceFixture("1.1.0+test.cache-root-replacement");
+  const parent = await mkdtemp(path.join(os.tmpdir(), "sbw-publication-cache-root-race-"));
+  const cacheRoot = path.join(parent, "cache");
+  const displaced = path.join(parent, "cache-displaced");
+  const redirected = path.join(parent, "redirected");
+  await mkdir(cacheRoot);
+  await mkdir(redirected);
+  try {
+    await assert.rejects(
+      publishPluginCache({
+        sourceRoot,
+        cacheRoot,
+        beforeRename: async () => {
+          await rename(cacheRoot, displaced);
+          await symlink(redirected, cacheRoot);
+        }
+      }),
+      /cache root identity changed|Unsafe cache directory/
+    );
+    assert.equal((await lstat(cacheRoot)).isSymbolicLink(), true);
+    await assert.rejects(access(path.join(redirected, "1.1.0+test.cache-root-replacement")));
+  } finally {
+    await unlink(cacheRoot).catch(() => undefined);
+    await rename(displaced, cacheRoot).catch(() => undefined);
+    await rm(parent, { recursive: true, force: true });
+  }
+});
+
+test("publication fails closed when a cache-root ancestor is replaced before rename", async () => {
+  const sourceRoot = await sourceFixture("1.1.0+test.cache-parent-replacement");
+  const parent = await mkdtemp(path.join(os.tmpdir(), "sbw-publication-cache-parent-race-"));
+  const cacheRoot = path.join(parent, "cache");
+  const displaced = `${parent}-displaced`;
+  const redirected = await mkdtemp(path.join(os.tmpdir(), "sbw-publication-cache-parent-redirect-"));
+  await mkdir(cacheRoot);
+  await mkdir(path.join(redirected, "cache"));
+  try {
+    await assert.rejects(
+      publishPluginCache({
+        sourceRoot,
+        cacheRoot,
+        beforeRename: async () => {
+          await rename(parent, displaced);
+          await symlink(redirected, parent);
+        }
+      }),
+      /cache root identity changed|Unsafe cache directory/
+    );
+    assert.equal((await lstat(parent)).isSymbolicLink(), true);
+    await assert.rejects(access(path.join(redirected, "cache", "1.1.0+test.cache-parent-replacement")));
+  } finally {
+    await unlink(parent).catch(() => undefined);
+    await rename(displaced, parent).catch(() => undefined);
+    await rm(parent, { recursive: true, force: true });
+    await rm(redirected, { recursive: true, force: true });
+  }
 });
 
 test("plugin cache publication reclaims a lock left by a hard-killed publisher", async () => {
@@ -163,9 +329,244 @@ test("plugin cache publication reclaims a lock left by a hard-killed publisher",
   assert.equal(published.ok, true);
   assert.equal(published.applied, true);
   assert.deepEqual(
-    (await readdir(cacheRoot)).filter((name) => name.includes(".publish.lock") || name.includes(".stage-")),
+    (await readdir(cacheRoot)).filter((name) => !name.includes(".released-publication-") && (name.includes(".publish.lock") || name.includes(".stage-"))),
     []
   );
+});
+
+test("publication process liveness fails closed for an unobservable owner", async () => {
+  const permissionError = Object.assign(new Error("process visibility denied"), { code: "EPERM" });
+  const probe = () => { throw permissionError; };
+  assert.equal(processLiveness(1234, probe), "unknown");
+  assert.equal(
+    await processIncarnationDigest(1234, {
+      liveness: (pid) => processLiveness(pid, probe)
+    }),
+    "unknown"
+  );
+  const absentProbe = () => { throw Object.assign(new Error("gone"), { code: "ESRCH" }); };
+  assert.equal(processLiveness(1234, absentProbe), "absent");
+});
+
+test("a live separate publisher retains its process-incarnation lease", async () => {
+  const version = "1.1.0+test.live-cross-process-lease";
+  const sourceRoot = await sourceFixture(version);
+  const cacheRoot = path.join(await mkdtemp(path.join(os.tmpdir(), "sbw-publication-live-owner-")), "cache");
+  const ownerReady = path.join(path.dirname(cacheRoot), "owner-ready");
+  const publicationModule = pathToFileURL(path.resolve(path.dirname(new URL(import.meta.url).pathname), "..", "lib", "publication.mjs")).href;
+  const childCode = `
+    import { writeFile } from "node:fs/promises";
+    import { publishPluginCache } from ${JSON.stringify(publicationModule)};
+    await publishPluginCache({
+      sourceRoot: ${JSON.stringify(sourceRoot)},
+      cacheRoot: ${JSON.stringify(cacheRoot)},
+      beforeRename: async () => {
+        await writeFile(${JSON.stringify(ownerReady)}, "ready\\n");
+        await new Promise(() => setInterval(() => undefined, 1000));
+      }
+    });
+  `;
+  const child = execFile(process.execPath, ["--input-type=module", "-e", childCode], { encoding: "utf8" }, () => undefined);
+  try {
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      if (await access(ownerReady).then(() => true, () => false)) break;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    await access(ownerReady);
+    const lockName = (await readdir(cacheRoot)).find((name) => name.includes(".publish.lock-ready-"));
+    assert.ok(lockName);
+    const lockPath = path.join(cacheRoot, lockName);
+    const before = await readFile(lockPath, "utf8");
+    const owner = JSON.parse(before);
+    assert.equal(owner.pid, child.pid);
+    assert.match(owner.processStartDigest, /^[a-f0-9]{64}$/);
+    await assert.rejects(
+      publishPluginCache({ sourceRoot, cacheRoot }),
+      /publication is already in progress|publication contenders did not settle/
+    );
+    assert.equal(await readFile(lockPath, "utf8"), before);
+  } finally {
+    await new Promise((resolve) => {
+      child.once("exit", resolve);
+      child.kill("SIGTERM");
+    });
+  }
+  const published = await publishPluginCache({ sourceRoot, cacheRoot });
+  assert.equal(published.ok, true);
+  assert.equal(published.applied, true);
+});
+
+test("a published preparing lease blocks a later publisher before election", async () => {
+  const version = "1.1.0+test.preparing-lease";
+  const sourceRoot = await sourceFixture(version);
+  const cacheRoot = path.join(await mkdtemp(path.join(os.tmpdir(), "sbw-publication-preparing-lease-")), "cache");
+  await mkdir(cacheRoot, { recursive: true });
+  const ownerToken = "00000000-0000-4000-8000-000000000099";
+  const preparingPath = path.join(cacheRoot, `.${version}.publish.lock-preparing-${ownerToken}`);
+  await writeFile(preparingPath, `${JSON.stringify({
+    version,
+    pid: process.pid,
+    ownerToken,
+    createdAt: new Date().toISOString()
+  })}\n`, { mode: 0o600 });
+
+  await assert.rejects(
+    publishPluginCache({ sourceRoot, cacheRoot }),
+    /publication contenders did not settle/
+  );
+  assert.equal(JSON.parse(await readFile(preparingPath, "utf8")).ownerToken, ownerToken);
+  await unlink(preparingPath);
+  assert.equal((await publishPluginCache({ sourceRoot, cacheRoot })).ok, true);
+});
+
+test("publication reclaims a stale lease when its pid was reused by a different process incarnation", async () => {
+  const version = "1.1.0+test.pid-reuse";
+  const sourceRoot = await sourceFixture(version);
+  const cacheRoot = path.join(await mkdtemp(path.join(os.tmpdir(), "sbw-publication-pid-reuse-")), "cache");
+  await mkdir(cacheRoot, { recursive: true });
+  const ownerToken = "00000000-0000-4000-8000-000000000088";
+  const stalePath = path.join(cacheRoot, `.${version}.publish.lock-ready-1-${ownerToken}`);
+  await writeFile(stalePath, `${JSON.stringify({
+    version,
+    pid: process.pid,
+    processStartDigest: "0".repeat(64),
+    ownerToken,
+    createdAt: "2020-01-01T00:00:00.000Z"
+  })}\n`, { mode: 0o600 });
+
+  const published = await publishPluginCache({ sourceRoot, cacheRoot });
+  assert.equal(published.ok, true);
+  await assert.rejects(access(stalePath));
+});
+
+test("stale-lock quarantine preserves a live pathname replacement and fails closed", async () => {
+  const version = "1.1.0+test.stale-replacement-race";
+  const sourceRoot = await sourceFixture(version);
+  const cacheRoot = path.join(await mkdtemp(path.join(os.tmpdir(), "sbw-publication-stale-replacement-")), "cache");
+  await mkdir(cacheRoot, { recursive: true });
+  const staleOwner = "00000000-0000-4000-8000-000000000077";
+  const stalePath = path.join(cacheRoot, `.${version}.publish.lock-ready-1-${staleOwner}`);
+  await writeFile(stalePath, `${JSON.stringify({
+    version,
+    pid: 999999999,
+    processStartDigest: "0".repeat(64),
+    ownerToken: staleOwner,
+    createdAt: "2020-01-01T00:00:00.000Z"
+  })}\n`, { mode: 0o600 });
+  const replacement = {
+    version,
+    pid: process.pid,
+    ownerToken: "live-replacement-owner",
+    createdAt: new Date().toISOString()
+  };
+  let replaced = false;
+  await assert.rejects(
+    publishPluginCache({
+      sourceRoot,
+      cacheRoot,
+      afterStaleLockValidated: async ({ lockPath }) => {
+        if (replaced || lockPath !== stalePath) return;
+        replaced = true;
+        await unlink(lockPath);
+        await writeFile(lockPath, `${JSON.stringify(replacement)}\n`, { mode: 0o600 });
+      }
+    }),
+    /lock identity changed while quarantining/
+  );
+  assert.equal(replaced, true);
+  await assert.rejects(access(stalePath));
+  const quarantine = (await readdir(cacheRoot)).find((name) => name.includes(".publish.lock.foreign-"));
+  assert.ok(quarantine);
+  assert.deepEqual(JSON.parse(await readFile(path.join(cacheRoot, quarantine), "utf8")), replacement);
+  await assert.rejects(
+    publishPluginCache({ sourceRoot, cacheRoot }),
+    /publication is already in progress|publication contenders did not settle|lock owner cannot be proven absent/
+  );
+});
+
+test("stale-lock release preserves a final pathname replacement and fails closed", async () => {
+  const version = "1.1.0+test.stale-release-replacement";
+  const sourceRoot = await sourceFixture(version);
+  const cacheRoot = path.join(await mkdtemp(path.join(os.tmpdir(), "sbw-publication-stale-release-replacement-")), "cache");
+  await mkdir(cacheRoot, { recursive: true });
+  const staleOwner = "00000000-0000-4000-8000-000000000078";
+  const stalePath = path.join(cacheRoot, `.${version}.publish.lock-ready-1-${staleOwner}`);
+  await writeFile(stalePath, `${JSON.stringify({
+    version,
+    pid: 999999999,
+    processStartDigest: "0".repeat(64),
+    ownerToken: staleOwner,
+    createdAt: "2020-01-01T00:00:00.000Z"
+  })}\n`, { mode: 0o600 });
+  const replacement = {
+    version,
+    pid: 999999999,
+    ownerToken: "final-release-replacement-owner",
+    createdAt: new Date().toISOString()
+  };
+  let replaced = false;
+  await assert.rejects(
+    publishPluginCache({
+      sourceRoot,
+      cacheRoot,
+      beforeStaleLockRelease: async ({ quarantinePath }) => {
+        if (replaced) return;
+        replaced = true;
+        await unlink(quarantinePath);
+        await writeFile(quarantinePath, `${JSON.stringify(replacement)}\n`, { mode: 0o600 });
+      }
+    }),
+    /identity changed while releasing/
+  );
+  assert.equal(replaced, true);
+  const foreign = (await readdir(cacheRoot)).find((name) => name.includes(".publish.lock.foreign-"));
+  assert.ok(foreign);
+  assert.deepEqual(JSON.parse(await readFile(path.join(cacheRoot, foreign), "utf8")), replacement);
+  await assert.rejects(
+    publishPluginCache({ sourceRoot, cacheRoot }),
+    /owner cannot be proven absent|publication is already in progress|publication contenders did not settle/
+  );
+});
+
+test("stale-lock quarantine permanently blocks a dead-pid pathname replacement", async () => {
+  const version = "1.1.0+test.stale-replacement-dead-pid";
+  const sourceRoot = await sourceFixture(version);
+  const cacheRoot = path.join(await mkdtemp(path.join(os.tmpdir(), "sbw-publication-stale-dead-replacement-")), "cache");
+  await mkdir(cacheRoot, { recursive: true });
+  const staleOwner = "00000000-0000-4000-8000-000000000099";
+  const stalePath = path.join(cacheRoot, `.${version}.publish.lock-ready-1-${staleOwner}`);
+  await writeFile(stalePath, `${JSON.stringify({
+    version,
+    pid: 999999999,
+    processStartDigest: "0".repeat(64),
+    ownerToken: staleOwner,
+    createdAt: "2020-01-01T00:00:00.000Z"
+  })}\n`, { mode: 0o600 });
+  const replacement = {
+    version,
+    pid: 999999999,
+    ownerToken: "dead-replacement-owner",
+    createdAt: new Date().toISOString()
+  };
+  await assert.rejects(
+    publishPluginCache({
+      sourceRoot,
+      cacheRoot,
+      afterStaleLockValidated: async ({ lockPath }) => {
+        await unlink(lockPath);
+        await writeFile(lockPath, `${JSON.stringify(replacement)}\n`, { mode: 0o600 });
+      }
+    }),
+    /lock identity changed while quarantining/
+  );
+  const foreign = (await readdir(cacheRoot)).find((name) => name.includes(".publish.lock.foreign-"));
+  assert.ok(foreign);
+  assert.deepEqual(JSON.parse(await readFile(path.join(cacheRoot, foreign), "utf8")), replacement);
+  await assert.rejects(
+    publishPluginCache({ sourceRoot, cacheRoot }),
+    /owner cannot be proven absent|publication is already in progress|publication contenders did not settle/
+  );
+  assert.deepEqual(JSON.parse(await readFile(path.join(cacheRoot, foreign), "utf8")), replacement);
 });
 
 test("stale lock recovery preserves a foreign pending marker when the target is absent", async () => {
@@ -293,6 +694,85 @@ test("unready cache cleanup preserves a target and pending marker owned by anoth
   assert.equal((await bundleDigest(published.target)), published.targetDigest);
 });
 
+test("unready cleanup preserves a marker replaced after ownership verification", async () => {
+  const version = "1.1.0+test.marker-leaf-race";
+  const sourceRoot = await sourceFixture(version);
+  const cacheRoot = path.join(await mkdtemp(path.join(os.tmpdir(), "sbw-publication-marker-leaf-race-")), "cache");
+  const identity = { runId: "sbw-marker-leaf-race-run", attemptId: "sbw-marker-leaf-race-attempt" };
+  const published = await publishPluginCache({ sourceRoot, cacheRoot, publicationIdentity: identity });
+  const markerPath = path.join(cacheRoot, `${version}.ready.json`);
+  const foreignMarker = { ...JSON.parse(await readFile(markerPath, "utf8")), runId: "foreign-marker-race-run" };
+  await assert.rejects(
+    removeUnreadyPluginCachePublication({
+      cacheRoot,
+      version,
+      target: published.target,
+      targetDigest: published.targetDigest,
+      runId: identity.runId,
+      attemptId: identity.attemptId,
+      beforeMarkerRemove: async () => {
+        await writeFile(markerPath, `${JSON.stringify(foreignMarker)}\n`, { mode: 0o600 });
+      }
+    }),
+    /exact owned pending publication marker|publication marker ownership changed/
+  );
+  assert.deepEqual(JSON.parse(await readFile(markerPath, "utf8")), foreignMarker);
+  assert.equal((await bundleDigest(published.target)), published.targetDigest);
+});
+
+test("unready cleanup preserves a target replaced after digest verification", async () => {
+  const version = "1.1.0+test.target-leaf-race";
+  const sourceRoot = await sourceFixture(version);
+  const cacheRoot = path.join(await mkdtemp(path.join(os.tmpdir(), "sbw-publication-target-leaf-race-")), "cache");
+  const identity = { runId: "sbw-target-leaf-race-run", attemptId: "sbw-target-leaf-race-attempt" };
+  const published = await publishPluginCache({ sourceRoot, cacheRoot, publicationIdentity: identity });
+  await assert.rejects(
+    removeUnreadyPluginCachePublication({
+      cacheRoot,
+      version,
+      target: published.target,
+      targetDigest: published.targetDigest,
+      runId: identity.runId,
+      attemptId: identity.attemptId,
+      beforeTargetRemove: async () => {
+        await rm(published.target, { recursive: true, force: true });
+        await mkdir(published.target, { recursive: true, mode: 0o700 });
+        await writeFile(path.join(published.target, "foreign.txt"), "foreign target bytes\n");
+      }
+    }),
+    /identity changed|EAGAIN/
+  );
+  assert.equal(await readFile(path.join(published.target, "foreign.txt"), "utf8"), "foreign target bytes\n");
+  assert.equal(JSON.parse(await readFile(path.join(cacheRoot, `${version}.ready.json`), "utf8")).state, "pending");
+});
+
+test("ready marker commit preserves a target replaced after digest verification", async () => {
+  const version = "1.1.0+test.ready-leaf-race";
+  const sourceRoot = await sourceFixture(version);
+  const cacheRoot = path.join(await mkdtemp(path.join(os.tmpdir(), "sbw-publication-ready-leaf-race-")), "cache");
+  const identity = { runId: "sbw-ready-leaf-race-run", attemptId: "sbw-ready-leaf-race-attempt" };
+  const published = await publishPluginCache({ sourceRoot, cacheRoot, publicationIdentity: identity });
+  await assert.rejects(
+    markPluginCacheReady({
+      cacheRoot,
+      version,
+      target: published.target,
+      targetDigest: published.targetDigest,
+      sourceDigest: published.sourceDigest,
+      runId: identity.runId,
+      attemptId: identity.attemptId,
+      beforeMarkerCommit: async () => {
+        await rm(published.target, { recursive: true, force: true });
+        await mkdir(published.target, { recursive: true, mode: 0o700 });
+        await writeFile(path.join(published.target, "foreign.txt"), "foreign ready bytes\n");
+      }
+    }),
+    /guard identity changed|target identity changed/
+  );
+  assert.equal(await readFile(path.join(published.target, "foreign.txt"), "utf8"), "foreign ready bytes\n");
+  assert.equal(JSON.parse(await readFile(path.join(cacheRoot, `${version}.ready.json`), "utf8")).state, "pending");
+});
+
 test("ready finalization serializes cleanup under the publication lock", async () => {
   const version = "1.1.0+test.ready-cleanup-lock";
   const sourceRoot = await sourceFixture(version);
@@ -400,9 +880,32 @@ test("concurrent stale-lock reclaimers cannot steal a successor publication lock
   assert.equal(results.filter((item) => !item.ok).length, 1);
   assert.equal((await checkPluginCache({ sourceRoot, cacheRoot })).ok, true);
   assert.deepEqual(
-    (await readdir(cacheRoot)).filter((name) => name.includes(".publish.lock") || name.includes(".stage-")),
+    (await readdir(cacheRoot)).filter((name) => !name.includes(".released-publication-") && (name.includes(".publish.lock") || name.includes(".stage-"))),
     []
   );
+});
+
+test("plugin cache publication reclaims a released 3.2.4 stale-lock quarantine", async () => {
+  const version = "1.1.0+test.legacy-stale-lock-quarantine";
+  const sourceRoot = await sourceFixture(version);
+  const cacheRoot = path.join(await mkdtemp(path.join(os.tmpdir(), "sbw-publication-legacy-stale-lock-")), "cache");
+  await mkdir(cacheRoot, { recursive: true });
+  const legacyLock = path.join(cacheRoot, `.${version}.publish.lock.stale-00000000-0000-4000-8000-000000000001`);
+  await writeFile(
+    legacyLock,
+    `${JSON.stringify({
+      version,
+      pid: 999999999,
+      ownerToken: "legacy-dead-owner",
+      createdAt: "2020-01-01T00:00:00.000Z"
+    })}\n`,
+    { mode: 0o600 }
+  );
+
+  const published = await publishPluginCache({ sourceRoot, cacheRoot });
+  assert.equal((await checkPluginCache({ sourceRoot, cacheRoot })).ok, true);
+  await assert.rejects(access(legacyLock), { code: "ENOENT" });
+  assert.equal((await bundleDigest(published.target)), published.targetDigest);
 });
 
 test("pending plugin cache recovery is bound to the consumed attempt and never republishes", async () => {
@@ -436,6 +939,22 @@ test("pending plugin cache recovery is bound to the consumed attempt and never r
   assert.equal(recovered.recovered, true);
   assert.equal(recovered.targetDigest, published.targetDigest);
   assert.equal((await stat(published.target)).size, targetBefore.size);
+  const markerPath = path.join(cacheRoot, `${published.version}.ready.json`);
+  const originalMarker = JSON.parse(await readFile(markerPath, "utf8"));
+  await assert.rejects(
+    recoverPendingPluginCachePublication({
+      sourceRoot,
+      cacheRoot,
+      expectedSourceBinding,
+      runId,
+      attemptId,
+      beforeLock: async () => {
+        await writeFile(markerPath, `${JSON.stringify({ ...originalMarker, attemptId: "swapped-at-lock-boundary" })}\n`, { mode: 0o600 });
+      }
+    }),
+    /marker changed while acquiring its publication lease/
+  );
+  await writeFile(markerPath, `${JSON.stringify(originalMarker)}\n`, { mode: 0o600 });
   await assert.rejects(
     recoverPendingPluginCachePublication({
       sourceRoot,
@@ -446,6 +965,98 @@ test("pending plugin cache recovery is bound to the consumed attempt and never r
     }),
     /not bound to this action attempt/
   );
+});
+
+test("pending recovery fails closed when the cache root is replaced after lease acquisition", async () => {
+  const { repositoryRoot, sourceRoot } = await trackedSourceFixture("1.1.0+test.pending-root-replacement");
+  const baseline = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repositoryRoot, encoding: "utf8" })).stdout.trim();
+  const sourceBinding = await captureSourceBinding(repositoryRoot, { baseRevision: baseline, requireClean: true });
+  const pluginBundleDigest = await bundleDigest(sourceRoot);
+  const parent = await mkdtemp(path.join(os.tmpdir(), "sbw-publication-pending-root-replacement-"));
+  const cacheRoot = path.join(parent, "cache");
+  const expectedSourceBinding = {
+    pluginBundleDigest,
+    sourceBaselineRevision: baseline,
+    sourceBindingDigest: sourceBinding.digest,
+    sourceHeadRevision: sourceBinding.headRevision
+  };
+  const published = await publishPluginCache({
+    sourceRoot,
+    cacheRoot,
+    expectedSourceBinding,
+    publicationIdentity: { runId: "pending-root-run", attemptId: "pending-root-attempt" }
+  });
+  const moved = `${cacheRoot}.original`;
+  const replacement = path.join(parent, "replacement");
+  await mkdir(replacement, { mode: 0o700 });
+  try {
+    await assert.rejects(
+      recoverPendingPluginCachePublication({
+        sourceRoot,
+        cacheRoot,
+        expectedSourceBinding,
+        runId: "pending-root-run",
+        attemptId: "pending-root-attempt",
+        afterLock: async () => {
+          await rename(cacheRoot, moved);
+          await symlink(replacement, cacheRoot);
+        }
+      }),
+      /cache root identity changed/
+    );
+  } finally {
+    await unlink(cacheRoot).catch(() => undefined);
+    await rename(moved, cacheRoot).catch(() => undefined);
+    await rm(published.target, { recursive: true, force: true }).catch(() => undefined);
+  }
+});
+
+test("pending recovery fails closed when a cache-root ancestor is replaced after lease acquisition", async () => {
+  const { repositoryRoot, sourceRoot } = await trackedSourceFixture("1.1.0+test.pending-ancestor-replacement");
+  const baseline = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repositoryRoot, encoding: "utf8" })).stdout.trim();
+  const sourceBinding = await captureSourceBinding(repositoryRoot, { baseRevision: baseline, requireClean: true });
+  const pluginBundleDigest = await bundleDigest(sourceRoot);
+  const parent = await mkdtemp(path.join(os.tmpdir(), "sbw-publication-pending-ancestor-replacement-"));
+  const cacheParent = path.join(parent, "cache-parent");
+  const cacheRoot = path.join(cacheParent, "cache");
+  await mkdir(cacheParent, { recursive: true, mode: 0o700 });
+  const expectedSourceBinding = {
+    pluginBundleDigest,
+    sourceBaselineRevision: baseline,
+    sourceBindingDigest: sourceBinding.digest,
+    sourceHeadRevision: sourceBinding.headRevision
+  };
+  const published = await publishPluginCache({
+    sourceRoot,
+    cacheRoot,
+    expectedSourceBinding,
+    publicationIdentity: { runId: "pending-ancestor-run", attemptId: "pending-ancestor-attempt" }
+  });
+  const movedParent = `${cacheParent}.original`;
+  const replacement = path.join(parent, "ancestor-replacement");
+  await mkdir(replacement, { mode: 0o700 });
+  try {
+    await assert.rejects(
+      recoverPendingPluginCachePublication({
+        sourceRoot,
+        cacheRoot,
+        expectedSourceBinding,
+        runId: "pending-ancestor-run",
+        attemptId: "pending-ancestor-attempt",
+        afterLock: async () => {
+          await rename(cacheParent, movedParent);
+          await mkdir(cacheParent, { mode: 0o700 });
+          await symlink(replacement, cacheRoot);
+        }
+      }),
+      /cache root identity changed/
+    );
+  } finally {
+    await unlink(cacheRoot).catch(() => undefined);
+    await rm(cacheParent, { recursive: true, force: true }).catch(() => undefined);
+    await rename(movedParent, cacheParent).catch(() => undefined);
+    await rm(published.target, { recursive: true, force: true }).catch(() => undefined);
+  }
 });
 
 test("plugin cache publication refuses same-version content drift", async () => {
@@ -493,14 +1104,27 @@ test("plugin cache publication rejects modified tracked plugin files", async () 
 
 test("plugin cache publication rejects hidden tracked index flags", async () => {
   const { repositoryRoot, sourceRoot } = await trackedSourceFixture("1.1.0+test.hidden-index");
+  const decoy = await trackedSourceFixture("1.1.0+test.hidden-index-decoy");
   const target = path.join(sourceRoot, "payload.txt");
   await git(repositoryRoot, "update-index", "--assume-unchanged", "plugins/better-workflows/payload.txt");
+  const previousGit = {
+    GIT_DIR: process.env.GIT_DIR,
+    GIT_WORK_TREE: process.env.GIT_WORK_TREE,
+    GIT_INDEX_FILE: process.env.GIT_INDEX_FILE
+  };
+  process.env.GIT_DIR = path.join(decoy.repositoryRoot, ".git");
+  process.env.GIT_WORK_TREE = decoy.repositoryRoot;
+  process.env.GIT_INDEX_FILE = path.join(decoy.repositoryRoot, ".git", "index");
   try {
     await assert.rejects(
       checkPluginCache({ sourceRoot, cacheRoot: path.join(await mkdtemp(path.join(os.tmpdir(), "sbw-publication-hidden-")), "cache") }),
       /hidden tracked index flags/
     );
   } finally {
+    for (const [key, value] of Object.entries(previousGit)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
     await git(repositoryRoot, "update-index", "--no-assume-unchanged", "plugins/better-workflows/payload.txt").catch(() => undefined);
     await git(repositoryRoot, "update-index", "--no-skip-worktree", "plugins/better-workflows/payload.txt").catch(() => undefined);
     void target;
@@ -573,5 +1197,5 @@ test("plugin cache publication uses the reviewed commit snapshot across a pre-re
     }),
     /source binding changed after self-improve handoff/
   );
-  assert.deepEqual(await readdir(cacheRoot), []);
+  assert.deepEqual((await readdir(cacheRoot)).filter((name) => !name.includes(".released-publication-")), []);
 });

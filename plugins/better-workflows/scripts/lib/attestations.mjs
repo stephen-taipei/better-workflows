@@ -31,7 +31,8 @@ import {
   consentDigest,
   loadStandingConsentPolicy,
   matchStandingConsent,
-  resolveStandingConsentAuthorization
+  resolveStandingConsentAuthorization,
+  STANDING_CONSENT_MANIFEST_SCHEMA_VERSION
 } from "./standing-consent.mjs";
 
 const HOST_TRUST_TOOL = "/private/var/db/better-workflows/bin/bw-host-trust.mjs";
@@ -202,7 +203,7 @@ export async function generateAttestationRequests({
   const defaultCasesFile = purpose === "evaluator-migration"
     ? SELF_IMPROVE_MIGRATION_SOURCE_CORPUS
     : policyBound
-      ? SELF_IMPROVE_CANONICAL_CORPUS
+      ? SELF_IMPROVE_MIGRATION_SOURCE_CORPUS
       : await ordinaryCorpusForBaseline({ cwd: resolvedRepo, baselineRevision });
   const frozen = await loadFrozenEvaluationSuite({
     cwd: resolvedRepo,
@@ -370,7 +371,7 @@ export async function generateAttestationRequests({
     });
   }
   const manifest = {
-    schemaVersion: authorization ? 4 : policyBound ? 3 : 2,
+    schemaVersion: authorization ? STANDING_CONSENT_MANIFEST_SCHEMA_VERSION : policyBound ? 3 : 2,
     repo: resolvedRepo,
     runId,
     model,
@@ -396,6 +397,7 @@ export async function generateAttestationRequests({
     ...(authorization
       ? {
         authorization,
+        candidateRoot: candidate.candidateRoot,
         baselineSnapshotDigest: baseline.digest,
         standingConsentPolicyPath: standingPolicy.relativePath,
         standingConsentPolicyDigest: standingPolicy.digest

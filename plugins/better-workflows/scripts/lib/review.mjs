@@ -1,9 +1,6 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { assertMutableRun, atomicWriteJson, canonicalizeScope, digestObject, listJsonRecords, loadDefaults, loadRun, nowIso, readJson, safeJoin, sha256, withRunLock } from "./core.mjs";
-import { captureSentinel } from "./git.mjs";
+import { captureSentinel, runSourceGit } from "./git.mjs";
 
-const execFileAsync = promisify(execFile);
 const SHA = /^[0-9a-f]{40}$/;
 const DIGEST = /^[0-9a-f]{64}$/;
 const REPAIR_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
@@ -65,19 +62,12 @@ function normalizeScope(scope) {
 }
 
 async function deriveDiffManifest(cwd, base, head, scope) {
-  const mergeBase = (await execFileAsync("git", ["merge-base", base, head], {
-    cwd,
-    encoding: "utf8"
-  })).stdout.trim();
-  try {
-    await execFileAsync("git", ["merge-base", "--is-ancestor", base, head], {
-      cwd,
-      encoding: "utf8"
-    });
-  } catch {
+  const mergeBase = (await runSourceGit(cwd, ["merge-base", base, head])).stdout.trim();
+  const ancestor = await runSourceGit(cwd, ["merge-base", "--is-ancestor", base, head], { allowFailure: true });
+  if (!ancestor.ok) {
     throw new Error("Review BASE must be an ancestor of HEAD");
   }
-  const output = (await execFileAsync("git", [
+  const output = (await runSourceGit(cwd, [
     "diff",
     "--name-status",
     "-z",
@@ -85,7 +75,7 @@ async function deriveDiffManifest(cwd, base, head, scope) {
     `${base}..${head}`,
     "--",
     ...scope
-  ], { cwd, encoding: "utf8" })).stdout;
+  ])).stdout;
   const tokens = output.split("\0");
   const files = [];
   for (let index = 0; index < tokens.length - 1;) {
@@ -106,10 +96,7 @@ async function deriveDiffManifest(cwd, base, head, scope) {
 }
 
 async function resolveCommit(cwd, revision, label) {
-  const resolved = (await execFileAsync("git", ["rev-parse", "--verify", `${revision}^{commit}`], {
-    cwd,
-    encoding: "utf8"
-  })).stdout.trim();
+  const resolved = (await runSourceGit(cwd, ["rev-parse", "--verify", `${revision}^{commit}`])).stdout.trim();
   if (resolved !== revision) throw new Error(`Review ${label} does not resolve to the supplied commit`);
 }
 
@@ -145,10 +132,7 @@ export async function createReviewPackage(request) {
   }
   await resolveCommit(run.manifest.cwd, base, "BASE");
   await resolveCommit(run.manifest.cwd, head, "HEAD");
-  const currentHead = (await execFileAsync("git", ["rev-parse", "--verify", "HEAD^{commit}"], {
-    cwd: run.manifest.cwd,
-    encoding: "utf8"
-  })).stdout.trim();
+  const currentHead = (await runSourceGit(run.manifest.cwd, ["rev-parse", "--verify", "HEAD^{commit}"])).stdout.trim();
   if (currentHead !== head) throw new Error("Review HEAD must match the current checkout");
   if (
     run.state.lastSentinelVerified !== true ||
@@ -435,10 +419,7 @@ export async function reviewStatus(root, runId) {
     validateFindingDisposition(finding);
     await assertFindingEvidence(root, run, finding);
   }
-  const currentHead = (await execFileAsync("git", ["rev-parse", "--verify", "HEAD^{commit}"], {
-    cwd: run.manifest.cwd,
-    encoding: "utf8"
-  })).stdout.trim();
+  const currentHead = (await runSourceGit(run.manifest.cwd, ["rev-parse", "--verify", "HEAD^{commit}"])).stdout.trim();
   const matchingPackages = packages.filter((item) => item.head === currentHead);
   if (matchingPackages.length > 1) throw new Error("Review has multiple packages for the current HEAD");
   const scoped = matchingPackages[0] ?? null;
@@ -538,10 +519,7 @@ export async function markBroadReviewComplete(root, runId, packageIdValue, head,
       run.state.lastSentinelComplete !== true ||
       sentinelDigest !== run.state.lastSentinel?.digest
     ) throw new Error("Broad review sentinel is not a verified complete current sentinel");
-    const currentHead = (await execFileAsync("git", ["rev-parse", "--verify", "HEAD^{commit}"], {
-      cwd: run.manifest.cwd,
-      encoding: "utf8"
-    })).stdout.trim();
+    const currentHead = (await runSourceGit(run.manifest.cwd, ["rev-parse", "--verify", "HEAD^{commit}"])).stdout.trim();
     if (currentHead !== head) throw new Error("Broad review must bind the current HEAD");
     const findings = await listJsonRecords(root, findingDirectory(runDir));
     for (const finding of findings.filter((item) => item.packageId === packageIdValue)) {

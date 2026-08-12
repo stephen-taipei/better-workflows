@@ -36,6 +36,7 @@ import { pluginBundleDigest } from "./routing.mjs";
 import {
   consentDigest,
   loadStandingConsentPolicy,
+  STANDING_CONSENT_MANIFEST_SCHEMA_VERSION,
   validStandingAuthorization
 } from "./standing-consent.mjs";
 
@@ -124,7 +125,7 @@ export async function loadHostExecutionRequestManifest({
   const manifest = JSON.parse(manifestBytes.toString("utf8"));
   const standing = manifest.authorization !== undefined;
   const standingPolicy = standing ? await loadStandingConsentPolicy(repository) : null;
-  const expectedManifestSchema = standing ? 4 : policyBound ? 3 : 2;
+  const expectedManifestSchema = standing ? STANDING_CONSENT_MANIFEST_SCHEMA_VERSION : policyBound ? 3 : 2;
   if (manifest.schemaVersion !== expectedManifestSchema || manifest.repo !== repository || manifest.runId !== runId || manifest.model !== model ||
       manifest.purpose !== purpose || manifest.suiteDigest !== suiteDigest || manifest.baselineRevision !== frozen.baselineRevision ||
       manifest.candidateDigest !== candidate.digest || manifest.sourceSuiteDigest !== frozen.sourceDigest ||

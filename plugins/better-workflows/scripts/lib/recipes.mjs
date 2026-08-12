@@ -35,12 +35,9 @@ import {
   safeJoin,
   sha256
 } from "./core.mjs";
-import { captureSentinel } from "./git.mjs";
+import { captureSentinel, runSourceGit } from "./git.mjs";
 import { pluginBundleDigest } from "./routing.mjs";
 
-const execFile = (await import("node:util")).promisify(
-  (await import("node:child_process")).execFile
-);
 const RUNTIME_PATH = fileURLToPath(new URL("./recipe-runtime.mjs", import.meta.url));
 const RECIPE_SCHEMA_VERSION = 1;
 const CONFIG_SCHEMA_VERSION = 1;
@@ -228,11 +225,7 @@ async function assertSafeReadTree(directory, label) {
 }
 
 async function gitRoot(cwd = process.cwd()) {
-  const { stdout } = await execFile("git", ["rev-parse", "--show-toplevel"], {
-    cwd,
-    encoding: "utf8",
-    maxBuffer: 1024 * 1024
-  });
+  const { stdout } = await runSourceGit(cwd, ["rev-parse", "--show-toplevel"], { maxBuffer: 1024 * 1024 });
   const root = await realpath(stdout.trim());
   const info = await lstat(root);
   if (!info.isDirectory() || info.isSymbolicLink()) throw recipeError("Git root is unsafe");
