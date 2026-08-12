@@ -454,20 +454,25 @@ async function execBoundGitAuthority(cwd, args, {
     });
     return { ok: true, stdout: result.stdout, stderr: result.stderr };
   } catch (error) {
+    const message = String(error?.message ?? "").trim();
+    const rawStderr = Buffer.isBuffer(error?.stderr)
+      ? error.stderr.toString("utf8").trim()
+      : String(error?.stderr ?? "").trim();
+    const detail = !message
+      ? rawStderr || "unknown failure"
+      : !rawStderr || message.includes(rawStderr)
+        ? message
+        : `${message}: ${rawStderr}`;
     if (allowFailure) {
-      const stderr = Buffer.isBuffer(error.stderr)
-        ? (error.stderr.byteLength > 0 ? error.stderr : Buffer.from(error.message))
-        : (typeof error.stderr === "string" && error.stderr.trim() ? error.stderr : error.message);
       return {
         ok: false,
         stdout: error.stdout ?? (encoding === "buffer" ? Buffer.alloc(0) : ""),
-        stderr,
+        stderr: encoding === "buffer" ? Buffer.from(detail) : detail,
         code: error.code,
         signal: error.signal ?? null
       };
     }
-    const stderr = typeof error.stderr === "string" ? error.stderr.trim() : "";
-    const failure = new Error(`Bound Git authority command failed: ${stderr || error.message}`);
+    const failure = new Error(`Bound Git authority command failed: ${detail}`);
     failure.code = error.code;
     failure.signal = error.signal;
     failure.stdout = error.stdout;

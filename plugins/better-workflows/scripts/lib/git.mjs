@@ -21,6 +21,16 @@ function isolatedGitEnvironment() {
   };
 }
 
+function gitFailureDetail(error) {
+  const message = String(error?.message ?? "").trim();
+  const stderr = Buffer.isBuffer(error?.stderr)
+    ? error.stderr.toString("utf8").trim()
+    : String(error?.stderr ?? "").trim();
+  if (!message) return stderr || "unknown failure";
+  if (!stderr || message.includes(stderr)) return message;
+  return `${message}: ${stderr}`;
+}
+
 async function git(cwd, args, {
   allowFailure = false,
   isolatedConfig = false,
@@ -53,20 +63,17 @@ async function git(cwd, args, {
     });
     return { ok: true, stdout: result.stdout, stderr: result.stderr };
   } catch (error) {
+    const detail = gitFailureDetail(error);
     if (allowFailure) {
-      const stderr = Buffer.isBuffer(error.stderr)
-        ? (error.stderr.byteLength > 0 ? error.stderr : Buffer.from(error.message))
-        : (typeof error.stderr === "string" && error.stderr.trim() ? error.stderr : error.message);
       return {
         ok: false,
-        stdout: error.stdout ?? "",
-        stderr,
+        stdout: error.stdout ?? (encoding === "buffer" ? Buffer.alloc(0) : ""),
+        stderr: encoding === "buffer" ? Buffer.from(detail) : detail,
         code: error.code,
         signal: error.signal ?? null
       };
     }
-    const stderr = typeof error.stderr === "string" ? error.stderr.trim() : "";
-    const failure = new Error(`git ${args.join(" ")} failed: ${stderr || error.message}`);
+    const failure = new Error(`git ${args.join(" ")} failed: ${detail}`);
     failure.code = error.code;
     failure.signal = error.signal;
     failure.stdout = error.stdout;
