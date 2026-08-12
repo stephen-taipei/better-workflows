@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
-import { execFile, spawn } from "node:child_process";
-import { promisify } from "node:util";
+import { spawn } from "node:child_process";
 import {
   chmod,
   lstat,
@@ -106,6 +105,14 @@ import {
   decideAutonomyAction,
   validateAutonomyScope
 } from "./lib/autonomy.mjs";
+import {
+  captureAutonomyBindingContext,
+  currentAutonomyBranch,
+  inspectAutonomyWorktree,
+  probeAutonomyGithubCredential,
+  readBoundHostStatus,
+  resolveAutonomyRepository
+} from "./lib/autonomy-preflight.mjs";
 import { createSelfImproveDeliveryHandoff, validateSelfImproveDeliveryHandoff } from "./lib/self-improve-handoff.mjs";
 import {
   loadHostExecutionRequestManifest as loadBoundHostExecutionRequestManifest,
@@ -153,7 +160,6 @@ import {
   renderGraphMermaid
 } from "./lib/graph.mjs";
 
-const execFileAsync = promisify(execFile);
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const TEMPLATE_DIR = path.join(pluginRoot(), "templates");
 const HOST_TRUST_TOOL = path.join(SCRIPT_DIR, "host-trust.mjs");
@@ -805,13 +811,7 @@ function structuredReplay(replay) {
 }
 
 async function commandSelfImprove(root, subcommand, options, nestedCommand = null) {
-  const readHostStatus = async () => {
-    const result = await execFileAsync(process.execPath, [HOST_TRUST_TOOL, "status"], {
-      encoding: "utf8",
-      maxBuffer: 1024 * 1024
-    });
-    return JSON.parse(result.stdout);
-  };
+  const readHostStatus = () => readBoundHostStatus(HOST_TRUST_TOOL, process.cwd());
   if (subcommand === "host") {
     if (nestedCommand !== "status") {
       throw new Error("self-improve host subcommand must be status");
@@ -1208,34 +1208,6 @@ async function assertAcceptedSelfImproveHoldout(root, runId, action) {
   }
 }
 
-function canonicalGithubRepository(remote) {
-  const raw = String(remote ?? "").trim().replace(/\.git$/, "");
-  const ssh = raw.match(/^([^@]+)@([^:]+):(.+)$/);
-  if (ssh) return ssh[2].toLowerCase() === "github.com" ? `github.com/${ssh[3]}` : null;
-  try {
-    const parsed = new URL(raw);
-    if (parsed.protocol !== "https:" || parsed.hostname.toLowerCase() !== "github.com") return null;
-    const parts = parsed.pathname.split("/").filter(Boolean);
-    return parts.length === 2 ? `github.com/${parts[0]}/${parts[1]}` : null;
-  } catch {
-    return null;
-  }
-}
-
-async function captureAutonomyBindingContext(cwd, pathScope) {
-  const branch = (await execFileAsync("git", ["branch", "--show-current"], { cwd, encoding: "utf8" })).stdout.trim() || null;
-  if (!branch) throw new Error("bounded-autopilot-v1 requires a named codex/* branch");
-  let repository = null;
-  try {
-    const remote = (await execFileAsync("git", ["remote", "get-url", "origin"], { cwd, encoding: "utf8" })).stdout.trim();
-    repository = canonicalGithubRepository(remote);
-  } catch {
-    // A delivery run must bind a canonical provider repository before it can issue push or PR authority.
-  }
-  if (!repository) throw new Error("bounded-autopilot-v1 requires a canonical GitHub origin repository");
-  return { repository, branch, pathScope };
-}
-
 async function commandAutonomy(root, subcommand, runId, options) {
   if (!runId) throw new Error(`autonomy ${subcommand} requires <run-id>`);
   const run = await loadRun(root, runId);
@@ -1324,7 +1296,7 @@ async function commandAutonomy(root, subcommand, runId, options) {
   if (run.manifest.autonomyProfile?.sourceBindingDigest !== run.manifest.sourceBinding?.digest) return blocked("source-binding-drift", "source.rebind");
   let branch = "";
   try {
-    branch = (await execFileAsync("git", ["branch", "--show-current"], { cwd: run.manifest.cwd, encoding: "utf8" })).stdout.trim();
+    branch = await currentAutonomyBranch(run.manifest.cwd) ?? "";
   } catch {
     return blocked("git-preflight-unavailable", "git.authentication");
   }
@@ -1336,8 +1308,7 @@ async function commandAutonomy(root, subcommand, runId, options) {
       return blocked("branch-binding-drift", "source.rebind");
     }
     if (run.contract.autonomyProfile.repository !== null) {
-      const remote = (await execFileAsync("git", ["remote", "get-url", "origin"], { cwd: run.manifest.cwd, encoding: "utf8" })).stdout.trim();
-      if (canonicalGithubRepository(remote) !== run.contract.autonomyProfile.repository) {
+      if (await resolveAutonomyRepository(run.manifest.cwd) !== run.contract.autonomyProfile.repository) {
         return blocked("repository-binding-drift", "source.rebind");
       }
     }
@@ -1345,57 +1316,17 @@ async function commandAutonomy(root, subcommand, runId, options) {
     return blocked("autonomy-scope-invalid", "autonomy.reauthorize");
   }
   try {
-    const statusOutput = (await execFileAsync("git", ["status", "--short", "--untracked-files=all"], {
-      cwd: run.manifest.cwd,
-      encoding: "utf8"
-    })).stdout.trim();
-    const changedFiles = statusOutput ? statusOutput.split("\n").filter(Boolean).length : 0;
-    if (changedFiles > run.contract.autonomyProfile.limits.maxFiles) return blocked("diff-file-limit", "autonomy.reauthorize");
-    let trackedDiff;
-    try {
-      trackedDiff = await execFileAsync("git", ["diff", "--binary", "HEAD"], {
-        cwd: run.manifest.cwd,
-        encoding: "buffer",
-        maxBuffer: run.contract.autonomyProfile.limits.maxDiffBytes + 1
-      });
-    } catch (error) {
-      if (error?.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER" || /maxBuffer/i.test(String(error?.message ?? ""))) {
-        return blocked("diff-byte-limit", "autonomy.reauthorize");
-      }
-      throw error;
-    }
-    const untracked = (await execFileAsync("git", ["ls-files", "--others", "--exclude-standard", "-z"], {
-      cwd: run.manifest.cwd,
-      encoding: "buffer"
-    })).stdout.toString("utf8").split("\0").filter(Boolean);
-    const trackedPaths = (await execFileAsync("git", ["diff", "--name-only", "-z", "HEAD"], {
-      cwd: run.manifest.cwd,
-      encoding: "buffer"
-    })).stdout.toString("utf8").split("\0").filter(Boolean);
-    const changedPaths = [...new Set([...trackedPaths, ...untracked])];
-    const pathScope = run.contract.autonomyProfile.pathScope;
-    const pathAllowed = (relative) => pathScope.includes(".") || pathScope.some((prefix) => relative === prefix || relative.startsWith(`${prefix}/`));
-    if (changedPaths.some((relative) => !pathAllowed(relative))) return blocked("path-outside-autonomy-scope", "autonomy.reauthorize");
-    let untrackedBytes = 0;
-    for (const relative of untracked) {
-      const file = path.resolve(run.manifest.cwd, relative);
-      const info = await stat(file);
-      if (info.isFile()) untrackedBytes += info.size;
-      if (trackedDiff.stdout.byteLength + untrackedBytes > run.contract.autonomyProfile.limits.maxDiffBytes) {
-        return blocked("diff-byte-limit", "autonomy.reauthorize");
-      }
-    }
+    const inspection = await inspectAutonomyWorktree(run.manifest.cwd, {
+      limits: run.contract.autonomyProfile.limits,
+      pathScope: run.contract.autonomyProfile.pathScope
+    });
+    if (!inspection.ok) return blocked(inspection.reason, "autonomy.reauthorize");
   } catch {
     return blocked("git-diff-preflight-unavailable", "git.authentication");
   }
   let hostStatus;
   try {
-    const result = await execFileAsync(process.execPath, [HOST_TRUST_TOOL, "status"], {
-      encoding: "utf8",
-      env: { PATH: "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" },
-      maxBuffer: 1024 * 1024
-    });
-    hostStatus = JSON.parse(result.stdout);
+    hostStatus = await readBoundHostStatus(HOST_TRUST_TOOL, run.manifest.cwd);
   } catch {
     return blocked("host-status-unavailable", "host.bootstrap");
   }
@@ -1412,12 +1343,7 @@ async function commandAutonomy(root, subcommand, runId, options) {
   let providerExecutable;
   try {
     providerExecutable = await currentProviderExecutableIdentity("gh");
-    await execFileAsync(providerExecutable.path, ["auth", "status", "--hostname", "github.com"], {
-      cwd: run.manifest.cwd,
-      encoding: "utf8",
-      env: { PATH: "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" },
-      maxBuffer: 1024 * 1024
-    });
+    await probeAutonomyGithubCredential(run.manifest.cwd, providerExecutable.path);
   } catch {
     return blocked("provider-credential-unavailable", "github.authentication");
   }

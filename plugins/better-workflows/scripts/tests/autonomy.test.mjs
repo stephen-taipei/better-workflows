@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { lstat, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { promisify } from "node:util";
 import {
   assertAutonomyAction,
   autonomyProfileDigest,
@@ -17,6 +21,36 @@ import {
   hostBundleFromStatus,
   validateHostBundleManifest
 } from "../lib/host-bundle.mjs";
+import {
+  captureAutonomyBindingContext,
+  probeAutonomyGithubCredential,
+  resolveAutonomyRepository,
+  runAutonomyGitCommandForTest
+} from "../lib/autonomy-preflight.mjs";
+
+const execFileAsync = promisify(execFile);
+const SYSTEM_GIT = "/usr/bin/git";
+
+async function autonomyRepositoryFixture() {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-autonomy-preflight-"));
+  await execFileAsync(SYSTEM_GIT, ["init", "-q", "-b", "codex/preflight"], { cwd: root });
+  await execFileAsync(SYSTEM_GIT, ["config", "user.email", "autonomy@example.invalid"], { cwd: root });
+  await execFileAsync(SYSTEM_GIT, ["config", "user.name", "Autonomy Test"], { cwd: root });
+  await execFileAsync(SYSTEM_GIT, ["remote", "add", "origin", "https://github.com/example/repository.git"], { cwd: root });
+  await writeFile(path.join(root, "README.md"), "autonomy preflight\n");
+  await execFileAsync(SYSTEM_GIT, ["add", "README.md"], { cwd: root });
+  await execFileAsync(SYSTEM_GIT, ["commit", "-qm", "baseline"], { cwd: root });
+  return root;
+}
+
+async function assertProcessGone(pid) {
+  try {
+    process.kill(pid, 0);
+    assert.fail(`process ${pid} survived the bounded preflight cleanup`);
+  } catch (error) {
+    assert.equal(error.code, "ESRCH");
+  }
+}
 
 test("bounded-autopilot-v1 is canonical and digestable", async () => {
   const profile = await loadAutonomyProfile();
@@ -254,4 +288,70 @@ test("attestation runtime no longer couples ordinary source edits to signer dige
   assert.doesNotMatch(source, /SOURCE_HOST_TRUST_TOOL/);
   assert.doesNotMatch(source, /signer\.digest !== sourceSignerDigest/);
   assert.match(source, /hostBundle/);
+});
+
+test("autonomy binding pins Git, ignores insteadOf rewrites, and rejects divergent raw pushurl", async () => {
+  const root = await autonomyRepositoryFixture();
+  const shimDirectory = path.join(root, "hostile-bin");
+  const shimMarker = path.join(root, "hostile-git-ran");
+  await mkdir(shimDirectory);
+  await writeFile(
+    path.join(shimDirectory, "git"),
+    `#!/bin/sh\nprintf hostile > ${JSON.stringify(shimMarker)}\nexit 97\n`,
+    { mode: 0o755 }
+  );
+  await execFileAsync(SYSTEM_GIT, ["config", "url.https://rewritten.invalid/.insteadOf", "https://github.com/"], { cwd: root });
+  const rewritten = (await execFileAsync(SYSTEM_GIT, ["remote", "get-url", "origin"], { cwd: root, encoding: "utf8" })).stdout.trim();
+  assert.equal(rewritten, "https://rewritten.invalid/example/repository.git");
+  const priorPath = process.env.PATH;
+  process.env.PATH = `${shimDirectory}${path.delimiter}${priorPath ?? ""}`;
+  try {
+    assert.deepEqual(await captureAutonomyBindingContext(root, ["."]), {
+      repository: "github.com/example/repository",
+      branch: "codex/preflight",
+      pathScope: ["."]
+    });
+    await assert.rejects(lstat(shimMarker), (error) => error.code === "ENOENT");
+  } finally {
+    if (priorPath === undefined) delete process.env.PATH;
+    else process.env.PATH = priorPath;
+  }
+  await execFileAsync(SYSTEM_GIT, ["config", "remote.origin.pushurl", "https://github.com/other/repository.git"], { cwd: root });
+  await assert.rejects(resolveAutonomyRepository(root), /matching canonical GitHub fetch and push repositories/);
+  await rm(root, { recursive: true, force: true });
+});
+
+test("autonomy Git and GitHub preflight wrappers terminate forking children", async () => {
+  const root = await autonomyRepositoryFixture();
+  const helper = path.join(root, "forking-preflight.mjs");
+  const gitPidFile = path.join(root, "git-child.pid");
+  await writeFile(helper, [
+    'import { spawn } from "node:child_process";',
+    'import { writeFileSync } from "node:fs";',
+    'const pidFile = process.argv[2];',
+    'const child = spawn(process.execPath, ["-e", "process.on(\\"SIGTERM\\",()=>{});setInterval(()=>{},1000)"], { stdio: "ignore" });',
+    'writeFileSync(pidFile, String(child.pid));',
+    'process.on("SIGTERM", () => {});',
+    'setInterval(() => {}, 1000);'
+  ].join("\n"));
+  const alias = `alias.autonomy-hang=!${JSON.stringify(process.execPath)} ${JSON.stringify(helper)} ${JSON.stringify(gitPidFile)}`;
+  await assert.rejects(
+    runAutonomyGitCommandForTest(root, ["-c", alias, "autonomy-hang"], { timeoutMs: 200 }),
+    /timed out/
+  );
+  await assertProcessGone(Number(await readFile(gitPidFile, "utf8")));
+
+  const githubPidFile = path.join(root, "github-child.pid");
+  const githubShim = path.join(root, "bounded-gh.mjs");
+  await writeFile(
+    githubShim,
+    `#!${process.execPath}\nimport { spawn } from "node:child_process";\nimport { writeFileSync } from "node:fs";\nconst child = spawn(process.execPath, ["-e", "process.on('SIGTERM',()=>{});setInterval(()=>{},1000)"], { stdio: "ignore" });\nwriteFileSync(${JSON.stringify(githubPidFile)}, String(child.pid));\nprocess.on("SIGTERM", () => {});\nsetInterval(() => {}, 1000);\n`,
+    { mode: 0o755 }
+  );
+  await assert.rejects(
+    probeAutonomyGithubCredential(root, githubShim, { timeoutMs: 1_000 }),
+    /timed out/
+  );
+  await assertProcessGone(Number(await readFile(githubPidFile, "utf8")));
+  await rm(root, { recursive: true, force: true });
 });

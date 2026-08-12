@@ -350,6 +350,24 @@ export function execBoundGitHubCli(executablePath, args, {
   });
 }
 
+export function execBoundProcess(executablePath, args, {
+  cwd,
+  env,
+  timeoutMs = BOUND_GIT_TIMEOUT_MS,
+  maxBuffer = BOUND_GIT_MAX_BUFFER,
+  encoding = "utf8",
+  label = "Bound process"
+} = {}) {
+  return execBoundChildProcess(executablePath, args, {
+    cwd,
+    env,
+    timeoutMs,
+    maxBuffer,
+    encoding,
+    label
+  });
+}
+
 export function execBoundGit(executablePath, args, {
   cwd,
   env,
@@ -471,7 +489,7 @@ function assertNoAmbientGitAuthorityOverrides() {
   }
 }
 
-export const VERSION = "3.3.0";
+export const VERSION = "3.3.1";
 export const MODES = new Set(["auto", "direct", "verified", "deep", "critical"]);
 export const RUN_STATES = new Set([
   "pending",

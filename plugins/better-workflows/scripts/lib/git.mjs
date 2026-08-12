@@ -24,6 +24,7 @@ async function git(cwd, args, {
   allowFailure = false,
   isolatedConfig = false,
   isolatedEnvironment = false,
+  timeoutMs = SOURCE_GIT_TIMEOUT_MS,
   maxBuffer = 32 * 1024 * 1024,
   encoding = "utf8",
   workTree = null
@@ -45,7 +46,7 @@ async function git(cwd, args, {
     const result = await execBoundGit(SOURCE_GIT_EXECUTABLE, commandArgs, {
       cwd,
       env: environment,
-      timeoutMs: SOURCE_GIT_TIMEOUT_MS,
+      timeoutMs: Math.min(timeoutMs, SOURCE_GIT_TIMEOUT_MS),
       maxBuffer: Math.min(maxBuffer, SOURCE_GIT_MAX_BUFFER),
       encoding
     });
@@ -59,7 +60,13 @@ async function git(cwd, args, {
         code: error.code
       };
     }
-    throw new Error(`git ${args.join(" ")} failed: ${error.stderr ?? error.message}`);
+    const stderr = typeof error.stderr === "string" ? error.stderr.trim() : "";
+    const failure = new Error(`git ${args.join(" ")} failed: ${stderr || error.message}`);
+    failure.code = error.code;
+    failure.signal = error.signal;
+    failure.stdout = error.stdout;
+    failure.stderr = error.stderr;
+    throw failure;
   }
 }
 
