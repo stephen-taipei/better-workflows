@@ -12,7 +12,7 @@ Evidence records must contain:
 - creation time
 
 New non-direct runs use TaskContract v2. Their evidence must use the typed-v1
-catalog in `config/evidence-contracts-v1.json` (99 exact kinds). The CLI
+catalog in `config/evidence-contracts-v1.json` (101 exact kinds). The CLI
 recomputes and verifies the receipt payload digest and semantic success fields;
 unknown kinds, unauthorized producers, stale run or revision bindings, empty
 payloads, and digest mismatches fail closed. v2
@@ -40,6 +40,19 @@ finding IDs. Scoped repair is bounded to five unique rounds and each repair
 result must bind `repairAttemptId`, `idempotencyKey`, and the immutable
 `packageDigest`; an identical retry is idempotent. A final broad review is
 required before an action token can be issued.
+
+`self-improve-ops` pilots `code-v2-pilot` in shadow mode. Its immutable package
+adds exact BASE/HEAD blob work units and two to five declared finder lanes.
+Every required lane must account for every unit exactly once through a distinct
+host-signed, read-only native execution. Per-claim verification rejects the
+originating reviewer or execution; conflicting verifier outcomes become
+`INCONCLUSIVE` rather than a vote. Findings bind exact blobs, content digests,
+and quote anchors, so missing or ambiguous anchors remain blocking. The private
+append-only axis and verification records are reduced into typed
+`work-unit-accounting` and `review-kernel-summary` evidence. Zero findings still
+requires complete lane coverage. Any later axis, verification, finding,
+coverage, or synthesis digest invalidates broad completion. This pilot cannot
+issue side-effect action tokens.
 
 Findings use only `open`, `resolved`, `accepted-risk` with owner/reason/future expiry, or `rejected-with-evidence`. P0 findings cannot be accepted automatically.
 

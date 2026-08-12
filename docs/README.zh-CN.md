@@ -6,7 +6,7 @@
 
 让 Codex 工作不再停留在“下 Prompt 然后期待成功”，而是沿着有界路径，从意图走到已验证、已对账的交付。
 
-[![Version](https://img.shields.io/badge/version-3.3.5-2563EB?style=flat-square)](../plugins/better-workflows/package.json)
+[![Version](https://img.shields.io/badge/version-3.4.0-2563EB?style=flat-square)](../plugins/better-workflows/package.json)
 [![Node](https://img.shields.io/badge/Node.js-%E2%89%A524-3C873A?style=flat-square)](../plugins/better-workflows/package.json)
 [![Dependencies](https://img.shields.io/badge/runtime_dependencies-0-0F766E?style=flat-square)](../plugins/better-workflows/package.json)
 [![License](https://img.shields.io/badge/license-MIT-64748B?style=flat-square)](../LICENSE)
@@ -59,6 +59,8 @@ Prompt 可以描述意图，但永远不会授予权限。
 
 <!-- readme-claim:unknown-stop -->
 **Fail closed。** 只要出现 drift、过期证据或未知 provider 状态，工作流就会停止。
+
+**Review-kernel pilot。** `self-improve-ops` 会盘点 exact changed-file work units、分离独立 attested finder 与 verifier、绑定 exact source anchors，并生成 deterministic coverage/synthesis evidence。该 pilot 为 shadow-only，不能授权 side effects。
 
 ![Better Workflows 从 Prompt 到只读 Graph 的权限分层](assets/better-workflows-engineering-stack.svg)
 

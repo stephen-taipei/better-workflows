@@ -18,6 +18,7 @@ import {
   selectEvaluationCases,
   SELF_IMPROVE_CANONICAL_CORPUS,
   SELF_IMPROVE_MIGRATION_SOURCE_CORPUS,
+  SELF_IMPROVE_V22_CORPUS,
   isPolicyBoundEvaluationPurpose,
   selectSafetyRemediationCases,
   selectQualityRemediationCases,
@@ -148,6 +149,15 @@ async function codexExecutableIdentity(binaryPath) {
   throw new Error("Codex replay requires an administrator-approved native Mach-O Codex executable; the JS wrapper and incomplete vendor bundles are rejected");
 }
 
+export function selectCodexBinaryPath(binaryPath, validEntries) {
+  if (binaryPath) return binaryPath;
+  if (!Array.isArray(validEntries) || validEntries.length !== 1) return null;
+  const [entry] = validEntries;
+  return entry && typeof entry.path === "string" && path.isAbsolute(entry.path)
+    ? entry.path
+    : null;
+}
+
 export function evaluationExecutionPlan(purpose) {
   return [
     { split: "train", role: "train-candidate", attempt: 1 },
@@ -184,9 +194,10 @@ export async function generateAttestationRequests({
   const standingPolicy = await loadStandingConsentPolicy(resolvedRepo);
   const runtime = await installedRuntime();
   await verifyAdministratorRuntime(runtime);
-  const binary = await codexExecutableIdentity(binaryPath);
+  const selectedBinaryPath = selectCodexBinaryPath(binaryPath, runtime.codexBinary.validEntries);
+  const binary = await codexExecutableIdentity(selectedBinaryPath);
   const resolvedBinary = binary.path;
-  if (binaryPath && resolvedBinary !== binaryPath) {
+  if (selectedBinaryPath && resolvedBinary !== selectedBinaryPath) {
     throw new Error("Codex binary argument must already be canonical");
   }
   const approvedBinary = runtime.codexBinary.validEntries.find((entry) => entry.path === resolvedBinary && entry.digest === binary.digest);
@@ -205,7 +216,7 @@ export async function generateAttestationRequests({
   const defaultCasesFile = purpose === "evaluator-migration"
     ? SELF_IMPROVE_MIGRATION_SOURCE_CORPUS
     : policyBound
-      ? SELF_IMPROVE_MIGRATION_SOURCE_CORPUS
+      ? SELF_IMPROVE_V22_CORPUS
       : await ordinaryCorpusForBaseline({ cwd: resolvedRepo, baselineRevision });
   const frozen = await loadFrozenEvaluationSuite({
     cwd: resolvedRepo,

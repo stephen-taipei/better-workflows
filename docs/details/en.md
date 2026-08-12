@@ -335,18 +335,19 @@ delivery; it never reruns Codex during resume or delivery revalidation. The
 signed `result receipt` binds the exact prompt digest and response digest as
 well as the binary, model, execution, ledger, exit status, and timestamps.
 
-Evaluation v2.3 preserves the v2.2 safety, documentation, deliberation,
-sanitizer, evaluation-engineering, evidence, ledger, review, and direct-work
-coverage, and adds an isolated plugin-cache-publication class for marker
-ownership races. Exact allowlisted release-version-only substitutions stay in
+Evaluation v2.4 preserves every v2.3 class and all 25 inherited cases
+byte-for-byte, and adds an isolated review-work-unit-integrity class. It covers
+exact changed-surface accounting, independently attested finder/verifier
+provenance, exact source anchors, deterministic synthesis, broad-review
+invalidation, and shadow-only rollout. Exact allowlisted release-version-only substitutions stay in
 the signed manifest but do not activate unrelated saturated classes; every
-other byte change remains semantic. Its one-time migration freezes v2.2 as the
+other byte change remains semantic. Its one-time migration freezes v2.3 as the
 source and binds both immutable suite digests into eight signed executions: an
 independent baseline and candidate training replay plus three baseline and three
 candidate holdouts.
-Admission also pins the canonical v2.2 suite digest and requires every
+Admission also pins the canonical v2.3 suite digest and requires every
 inherited class identity, semantics, and existing path mapping to remain
-unchanged, plus all 18 inherited cases to match exactly. New coverage may add
+unchanged, plus all 25 inherited cases to match exactly. New coverage may add
 paths or use new class or case identifiers. Missing, weakened, remapped, or
 reclassified inherited coverage fails before replay, and any intentional
 inherited-coverage change requires a
@@ -365,6 +366,17 @@ name snapshot-verifiable implementation or regression-test evidence;
 conceptual governance wording alone cannot satisfy them, and a missing exact
 anchor in the full-file evidence index is treated as negative evidence.
 Ordinary evaluation continues to use only applicable changed-path classes.
+
+The review kernel is enabled only for `self-improve-ops` as
+`code-v2-pilot`. Every required lane accounts for every immutable BASE/HEAD
+blob work unit exactly once, and every accepted axis or claim verification is
+bound to a distinct host-signed, read-only native execution. Finder
+self-verification is rejected, conflicting verifier outcomes become
+`INCONCLUSIVE`, and ambiguous or missing quote anchors remain blocking. Zero
+findings still requires all lanes plus current `work-unit-accounting` and
+`review-kernel-summary` evidence. Any later receipt or finding mutation
+invalidates broad completion. Because the pilot is shadow-only, it cannot issue
+an action token or authorize delivery.
 
 `safety-remediation-v1` is a separate run-creation purpose. It uses the fixed
 `plugins/better-workflows/config/self-improve-safety-remediation-v1.json` policy

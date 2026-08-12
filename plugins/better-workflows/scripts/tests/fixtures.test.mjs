@@ -186,6 +186,13 @@ test("self improve keeps strict holdout and delegates delivery side effects", as
     await readFile(path.join(pluginRoot(), "templates", "self-improve-ops.json"), "utf8")
   );
   assert.equal(template.defaultMode, "critical");
+  assert.equal(template.controlPlane.reviewPolicy, "code-v2-pilot");
+  assert.equal(template.controlPlane.workUnitPolicy, "diff-files-v1");
+  assert.equal(template.requiredEvidence.includes("patch-review"), false);
+  assert.deepEqual(
+    template.executionStages.find((stage) => stage.id === "sync-review")?.requiredEvidence,
+    ["sync-matrix", "work-unit-accounting", "review-kernel-summary", "repo-gates"]
+  );
   for (const evidence of [
     "retrospective-source-inventory",
     "evaluation-suite",
@@ -195,6 +202,8 @@ test("self improve keeps strict holdout and delegates delivery side effects", as
     "recurrence-matrix",
     "decision-record",
     "sync-matrix",
+    "work-unit-accounting",
+    "review-kernel-summary",
     "plugin-version",
     "cache-check",
     "cache-publication",

@@ -36,8 +36,8 @@ invalidates an already accepted functional result.
 ## Freeze, stage, and validate candidates
 
 Before candidate work, freeze the current checked-in sanitized Evaluation
-suite at `fixtures/self-improve-ops-evals-v2.3.json` in an immutable baseline
-commit. Earlier v1, v2, v2.1, and v2.2 suites remain checked in and immutable for
+suite at `fixtures/self-improve-ops-evals-v2.4.json` in an immutable baseline
+commit. Earlier v1, v2, v2.1, v2.2, and v2.3 suites remain checked in and immutable for
 host-attested evaluator migrations. Never edit a known corpus in place, or
 derive cases from session history, transcripts, schedules, or any unsanitized
 source. Every suite keeps isolated `train` and `holdout` splits.
@@ -53,7 +53,7 @@ only when every candidate replay repairs it and the per-case median and noise
 gates prove non-regression. Safety-remediation-v1 and quality-remediation-v1
 have narrower, explicit policy-bound target rules below; do not apply the
 ordinary global hard-safety rule to those purposes.
-Evaluation v2.3 always includes the universal safety class and selects improvement classes from the complete changed-path
+Evaluation v2.4 always includes the universal safety class and selects improvement classes from the complete changed-path
 manifest. Exact allowlisted release-version-only substitutions remain in the
 signed candidate manifest but do not activate unrelated improvement classes;
 every other byte change remains semantic. The applicable improvement-class median must strictly exceed the
@@ -63,12 +63,14 @@ rejected. Ties, instability, malformed output, missing evidence, or no
 measurable gain are `NO_CHANGE` or `REJECTED_WITH_EVIDENCE`, never ordinary
 adoption.
 
-Evaluation v2.3 retains the v2.2 documentation, deliberation, sanitizer,
+Evaluation v2.4 retains every v2.3 documentation, deliberation, sanitizer,
 evaluation-engineering, evidence-integrity, execution-ledger, review-convergence,
-and direct-work coverage, and adds an isolated plugin-cache-publication class
-for marker ownership and rollback races. The evaluator-migration source
-allowlist remains historical and immutable; v2.2 is the default source for the
-v2.3 migration. Admission pins both the v2.2 file digest and canonical suite
+direct-work, and plugin-cache-publication class and case, then adds an isolated
+review-work-unit-integrity class for exact changed-surface accounting,
+independently attested finder/verifier provenance, exact source anchors,
+deterministic synthesis, broad-review invalidation, and shadow-only rollout.
+The evaluator-migration source allowlist remains historical and immutable;
+v2.3 is the default source for the v2.4 migration. Admission pins both the v2.3 file digest and canonical suite
 digest, requires every inherited class identity and semantics plus every
 existing path mapping to remain unchanged, and requires every inherited case to
 remain byte-for-byte identical. New coverage may add paths or use new class or
@@ -101,6 +103,25 @@ non-invariant hard-safety miss must be repaired by all candidate replays; and
 every case median plus every individual candidate replay must be non-regressing.
 After a migration is merged, all ordinary candidates use the new canonical
 corpus and the strict improvement rule above.
+
+The `code-v2-pilot` review policy is limited to `self-improve-ops` and is
+observe-only: it cannot authorize any side effect. Create the immutable review
+package first. Each required lane must account for every exact diff-file work
+unit once, using a distinct host-signed native execution. Use `sbw review
+axis-digest` to derive the exact review digest before signing, then `sbw review
+axis` to admit the signed receipt. The signed native request must include the
+same `executionId`; legacy requests without it remain valid only for the v1
+critic path. Findings use exact blob, content digest, and
+quote anchors. A distinct reviewer and execution verifies each claim via
+`review verify-digest` and `review verify`; finder self-verification is rejected.
+Run `review coverage` and `review synthesize` even when there are zero findings.
+Broad completion requires both aggregate typed receipts and is invalidated by
+any later axis, verification, coverage, finding, or synthesis digest change.
+
+Evaluator request generation defaults to the host status binary only when
+there is exactly one currently valid approved native Codex entry. If the host
+reports multiple valid entries, select one explicitly with `--binary`; an
+unapproved PATH wrapper is never substituted for an approved native binary.
 
 Safety remediation is a separate, versioned purpose and is never selected by
 changing `--purpose` after an ordinary run has failed. Create the run with
@@ -297,7 +318,7 @@ never executed with administrator privileges.
 ```sh
 sbw self-improve evaluate \
   --run <run-id> \
-  --cases plugins/better-workflows/fixtures/self-improve-ops-evals-v2.3.json \
+  --cases plugins/better-workflows/fixtures/self-improve-ops-evals-v2.4.json \
   --baseline <immutable-baseline> --candidate-root . \
   --backend codex --model <attested-model> --allow-codex --sanitized \
   --request-manifest <outside-repo>/attestation-requests.json \
@@ -329,7 +350,7 @@ immutable previous corpus and add:
 
 ```sh
 --purpose evaluator-migration \
---next-cases plugins/better-workflows/fixtures/self-improve-ops-evals-v2.3.json
+--next-cases plugins/better-workflows/fixtures/self-improve-ops-evals-v2.4.json
 ```
 
 For a policy-bound safety remediation run, fix the purpose at run creation and

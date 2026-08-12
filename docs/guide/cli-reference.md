@@ -54,6 +54,14 @@ sbw ledger transition <run-id> --file <event.json>
 sbw ledger compile <run-id> --design-packet <packet.json>
 sbw review package <run-id> --base <sha> --head <sha> --scope <path> \
   --diff-manifest <json> --instruction-digest <sha256> --sentinel-digest <sha256>
+sbw review axis-digest <run-id> --file <axis-receipt.json>
+sbw review axis <run-id> --file <axis-receipt.json> \
+  --reviewer-id <native-agent-id> --attestation <host-file>
+sbw review verify-digest <run-id> --file <verification-receipt.json>
+sbw review verify <run-id> --file <verification-receipt.json> \
+  --reviewer-id <native-agent-id> --attestation <host-file>
+sbw review coverage <run-id>
+sbw review synthesize <run-id>
 sbw review status <run-id>
 sbw review finding <run-id> --file <finding.json>
 sbw review repair <run-id> --package <package-id> --file <result.json>
@@ -66,6 +74,24 @@ sbw complete <run-id>
 `source rebind` is root-only and pre-review/pre-side-effect. It invalidates all
 prior complete evidence and resets the v2 execution ledger, so the next
 sentinel, evidence, and review must be captured from the rebound source.
+
+The `code-v2-pilot` review kernel is currently enabled only by
+`self-improve-ops` as an observe-only pilot. Its axis and verification commands
+accept only host-attested, read-only native-subagent executions. Every required
+axis must account for every immutable diff work unit, and a different reviewer
+must verify each reported claim before deterministic synthesis. `coverage` and
+`synthesize` publish only the aggregate `work-unit-accounting` and
+`review-kernel-summary` evidence; per-axis and per-claim records remain in the
+private append-only review state. The pilot denies all action tokens, including
+commit, push, cache publication, PR creation, and merge. The native signing
+request for `review axis` or `review verify` must include the receipt's exact
+`executionId`; a legacy v1 native-critic request may omit it but cannot satisfy
+either v2 command.
+
+Evaluator attestation request generation uses the unique currently valid
+host-approved native Codex binary by default. If more than one valid entry is
+installed, pass its exact canonical path with `--binary`; PATH wrappers and
+unapproved binaries fail closed.
 
 Ledger transition files may include `expectedLedgerDigest`; when present it
 must match the current canonical `ledger.json` digest. Transitions are

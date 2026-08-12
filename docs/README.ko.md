@@ -6,7 +6,7 @@
 
 Codex 작업을 “Prompt를 주고 성공을 기대하는” 상태에서 의도, 검증, provider reconciliation을 거친 delivery로 전환합니다.
 
-[![Version](https://img.shields.io/badge/version-3.3.5-2563EB?style=flat-square)](../plugins/better-workflows/package.json)
+[![Version](https://img.shields.io/badge/version-3.4.0-2563EB?style=flat-square)](../plugins/better-workflows/package.json)
 [![Node](https://img.shields.io/badge/Node.js-%E2%89%A524-3C873A?style=flat-square)](../plugins/better-workflows/package.json)
 [![Dependencies](https://img.shields.io/badge/runtime_dependencies-0-0F766E?style=flat-square)](../plugins/better-workflows/package.json)
 [![License](https://img.shields.io/badge/license-MIT-64748B?style=flat-square)](../LICENSE)
@@ -60,6 +60,8 @@ Control plane이 없으면 합리적인 지시도 오래된 상태를 사용하�
 
 <!-- readme-claim:unknown-stop -->
 **Fail closed.** drift, 오래된 증거 또는 알 수 없는 provider 상태가 있으면 workflow는 반드시 중단됩니다.
+
+**Review-kernel pilot.** `self-improve-ops`는 exact changed-file work units를 인벤토리화하고 독립 attested finder와 verifier를 분리하며 exact source anchors에 바인딩해 deterministic coverage/synthesis evidence를 생성합니다. 이 pilot은 shadow-only이므로 side effects를 승인할 수 없습니다.
 
 ![Prompt에서 read-only Graph까지 이어지는 Better Workflows 권한 계층](assets/better-workflows-engineering-stack.svg)
 

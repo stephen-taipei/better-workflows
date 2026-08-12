@@ -20,6 +20,8 @@ import {
   canonicalJson,
   EVALUATION_SCHEMA,
   evaluatorCommandArgs,
+  HOST_CRITICAL_MATERIAL_ANCHOR_SOURCE,
+  HOST_MATERIAL_SAMPLE_PRIORITY,
   evaluatorFeatureProbeArgs,
   evaluatorModelCatalog,
   evaluatorRegistryProbeArgs,
@@ -45,13 +47,19 @@ import {
   validateEvaluatorRegistryProbeRequest,
   validateEvaluatorClientHeaders,
   evaluatorForwardHeaderPolicy,
+  validateNativeReviewRequest,
   terminateProcessGroupForTest,
   validateExecutionRequest,
   validateProtectedDirectoryChain,
   validateProtectedParentChain
 } from "../host-trust.mjs";
 import { createBundleManifest } from "../lib/publication.mjs";
-import { buildEvaluationPrompt } from "../lib/self-improve.mjs";
+import {
+  buildEvaluationPrompt,
+  SELF_IMPROVE_CRITICAL_MATERIAL_ANCHOR_SOURCE,
+  SELF_IMPROVE_MATERIAL_SAMPLE_PRIORITY
+} from "../lib/self-improve.mjs";
+import { nativeCriticBindingFields } from "../lib/providers.mjs";
 
 const SCRIPT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -71,6 +79,39 @@ function evaluatorOutputSchema() {
     properties: { results: { type: "array", items: { type: "string" } } }
   };
 }
+
+test("root host and plugin evaluator material policies stay exactly aligned", () => {
+  assert.deepEqual(HOST_MATERIAL_SAMPLE_PRIORITY, SELF_IMPROVE_MATERIAL_SAMPLE_PRIORITY);
+  assert.equal(HOST_CRITICAL_MATERIAL_ANCHOR_SOURCE, SELF_IMPROVE_CRITICAL_MATERIAL_ANCHOR_SOURCE);
+});
+
+test("native review signer accepts execution-bound v2 requests without weakening legacy bindings", () => {
+  const legacy = {
+    base: "a".repeat(40),
+    head: "b".repeat(40),
+    instructionDigest: "c".repeat(64),
+    model: "gpt-5.6-codex",
+    packageId: "review-package",
+    promptDigest: "d".repeat(64),
+    reviewDigest: "e".repeat(64),
+    reviewerId: "reviewer-1",
+    runId: "run-review-1",
+    sentinelDigest: "f".repeat(64)
+  };
+  assert.deepEqual(validateNativeReviewRequest(legacy), legacy);
+  assert.deepEqual(Object.keys(legacy).sort(), nativeCriticBindingFields(legacy).sort());
+  const executionBound = { ...legacy, executionId: "axis:context-rich:1" };
+  assert.deepEqual(validateNativeReviewRequest(executionBound), executionBound);
+  assert.deepEqual(Object.keys(executionBound).sort(), nativeCriticBindingFields(executionBound).sort());
+  assert.throws(
+    () => validateNativeReviewRequest({ ...executionBound, executionId: "unsafe/execution" }),
+    /executionId is invalid/
+  );
+  assert.throws(
+    () => validateNativeReviewRequest({ ...executionBound, unbound: true }),
+    /fields do not match/
+  );
+});
 
 function validEvaluatorClientRequest(model, inputText, outputSchema) {
   const message = (role, text, id = null) => ({
@@ -733,7 +774,7 @@ test("root-authoritative standing bindings reproduce prompts, materials, and exe
     pluginBundleDigest: "6".repeat(64),
     candidate,
     baseline,
-    sourceSuitePath: "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.3.json",
+    sourceSuitePath: "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.4.json",
     sourceSuiteDigest: "7".repeat(64),
     targetSuitePath: null,
     targetSuiteDigest: null,
