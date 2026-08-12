@@ -32,6 +32,14 @@ function gitFailureDetail(error) {
   return `${message}: ${stderr}`;
 }
 
+function optionalSourceGitOutput(result, label, { absentCodes = [1] } = {}) {
+  if (result?.ok === true) return result.stdout;
+  if (result?.ok === false && absentCodes.includes(Number(result.code)) && result.signal == null &&
+      !result.timedOut && !result.outputExceeded) return null;
+  const detail = String(result?.stderr || result?.code || "unknown failure").trim();
+  throw new Error(`${label} failed: ${detail}`);
+}
+
 async function git(cwd, args, {
   allowFailure = false,
   isolatedConfig = false,
@@ -71,7 +79,9 @@ async function git(cwd, args, {
         stdout: error.stdout ?? (encoding === "buffer" ? Buffer.alloc(0) : ""),
         stderr: encoding === "buffer" ? Buffer.from(detail) : detail,
         code: error.code,
-        signal: error.signal ?? null
+        signal: error.signal ?? null,
+        timedOut: error.code === "ETIMEDOUT",
+        outputExceeded: error.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER"
       };
     }
     const failure = new Error(`git ${args.join(" ")} failed: ${detail}`);
@@ -136,17 +146,18 @@ async function findCanonicalWorktree(cwd) {
 }
 
 async function validateConfiguredWorktree(cwd, expectedWorkTree) {
-  const result = await git(cwd, ["config", "--local", "--no-includes", "--get-all", "core.worktree"], {
-    allowFailure: true,
-    isolatedConfig: true,
-    isolatedEnvironment: true,
-    workTree: expectedWorkTree,
-    validateWorktree: false
-  });
-  if (!result.ok) return;
-  const values = String(result.stdout).split(/\r?\n/).map((value) => value.trim()).filter(Boolean);
+  const values = await readRawLocalConfigValues(
+    (args, options) => git(cwd, args, {
+      ...options,
+      isolatedConfig: true,
+      isolatedEnvironment: true,
+      workTree: expectedWorkTree
+    }),
+    "core.worktree",
+    { maxBuffer: SOURCE_GIT_MAX_BUFFER, label: "Git core.worktree configuration" }
+  );
   for (const value of values) {
-    if (/^[\0\r\n]/.test(value)) throw new Error("Git core.worktree configuration contains an invalid value");
+    if (!value) throw new Error("Git core.worktree configuration contains an empty value");
     const configured = path.isAbsolute(value) ? path.resolve(value) : path.resolve(expectedWorkTree, value);
     let resolved;
     try {
@@ -314,9 +325,15 @@ async function untrackedMetadata(cwd, paths, exclusions, maxFiles) {
 }
 
 async function gitPath(cwd, name) {
-  const result = await git(cwd, ["--no-replace-objects", "rev-parse", "--git-path", name], {
-    isolatedEnvironment: true
-  });
+  const expectedWorkTree = await findCanonicalWorktree(cwd);
+  await validateConfiguredWorktree(cwd, expectedWorkTree);
+  const result = await git(cwd, [
+    "--no-replace-objects",
+    `--work-tree=${expectedWorkTree}`,
+    "-c", "core.fsmonitor=false",
+    "-c", "credential.helper=",
+    "rev-parse", "--git-path", name
+  ], { isolatedEnvironment: true });
   return path.resolve(cwd, result.stdout.trim());
 }
 
@@ -329,7 +346,7 @@ async function localConfigValues(cwd, key) {
 }
 
 export async function hiddenIndexEntries(cwd, { isolatedConfig = false } = {}) {
-  const result = await git(cwd, ["ls-files", "-v", "-z"], { isolatedConfig });
+  const result = await sourceGit(cwd, ["ls-files", "-v", "-z"]);
   const records = [];
   for (const entry of result.stdout.split("\0").filter(Boolean)) {
     const status = entry[0];
@@ -420,7 +437,7 @@ async function hooksAndConfig(cwd) {
 }
 
 async function trackedSymlinks(cwd) {
-  const result = await git(cwd, ["ls-files", "-s", "-z"]);
+  const result = await sourceGit(cwd, ["ls-files", "-s", "-z"]);
   const records = [];
   for (const entry of result.stdout.split("\0").filter(Boolean)) {
     const match = entry.match(/^(\d{6}) ([a-f0-9]+) (\d+)\t(.+)$/s);
@@ -438,7 +455,7 @@ async function trackedSymlinks(cwd) {
 }
 
 async function attributesDigest(cwd, budget) {
-  const result = await git(cwd, ["ls-files", "-z", "--", ".gitattributes", ":(glob)**/.gitattributes"]);
+  const result = await sourceGit(cwd, ["ls-files", "-z", "--", ".gitattributes", ":(glob)**/.gitattributes"]);
   return digestPaths(cwd, result.stdout.split("\0").filter(Boolean), budget, []);
 }
 
@@ -502,16 +519,23 @@ export async function captureSourceBinding(cwd, {
   const gitCommonDir = initialLayout.gitCommonDir.path;
   const originUrls = await localConfigValues(repository, "remote.origin.url");
   const originPushUrls = await localConfigValues(repository, "remote.origin.pushurl");
-  const headRef = (await sourceGit(repository, ["symbolic-ref", "-q", "HEAD"], { allowFailure: true })).stdout.trim() || null;
-  const originHeadRef = (await sourceGit(repository, ["symbolic-ref", "-q", "refs/remotes/origin/HEAD"], { allowFailure: true })).stdout.trim() || null;
+  const headRefResult = await sourceGit(repository, ["symbolic-ref", "-q", "HEAD"], { allowFailure: true });
+  const originHeadRefResult = await sourceGit(repository, ["symbolic-ref", "-q", "refs/remotes/origin/HEAD"], { allowFailure: true });
+  const headRefOutput = optionalSourceGitOutput(headRefResult, "Source binding HEAD symbolic-ref read");
+  const originHeadRefOutput = optionalSourceGitOutput(originHeadRefResult, "Source binding origin/HEAD symbolic-ref read");
+  const headRef = headRefOutput === null ? null : headRefOutput.trim() || null;
+  const originHeadRef = originHeadRefOutput === null ? null : originHeadRefOutput.trim() || null;
   let resolvedBaseRevision = null;
   if (baseRevision) {
     const resolved = await sourceGit(
       repository,
-      ["rev-parse", "--verify", `${String(baseRevision)}^{commit}`],
+      ["rev-parse", "--verify", "--quiet", `${String(baseRevision)}^{commit}`],
       { allowFailure: true }
     );
-    if (resolved.ok) resolvedBaseRevision = resolved.stdout.trim();
+    const resolvedOutput = optionalSourceGitOutput(resolved, "Source binding base revision read", {
+      absentCodes: [1]
+    });
+    resolvedBaseRevision = resolvedOutput === null ? null : resolvedOutput.trim();
   }
   const committedDiff = resolvedBaseRevision
     ? (await sourceGit(repository, [
@@ -542,8 +566,12 @@ export async function captureSourceBinding(cwd, {
   const finalHiddenIndex = await hiddenIndexEntries(repository, { isolatedConfig: true });
   const finalOriginUrls = await localConfigValues(repository, "remote.origin.url");
   const finalOriginPushUrls = await localConfigValues(repository, "remote.origin.pushurl");
-  const finalHeadRef = (await sourceGit(repository, ["symbolic-ref", "-q", "HEAD"], { allowFailure: true })).stdout.trim() || null;
-  const finalOriginHeadRef = (await sourceGit(repository, ["symbolic-ref", "-q", "refs/remotes/origin/HEAD"], { allowFailure: true })).stdout.trim() || null;
+  const finalHeadRefResult = await sourceGit(repository, ["symbolic-ref", "-q", "HEAD"], { allowFailure: true });
+  const finalOriginHeadRefResult = await sourceGit(repository, ["symbolic-ref", "-q", "refs/remotes/origin/HEAD"], { allowFailure: true });
+  const finalHeadRefOutput = optionalSourceGitOutput(finalHeadRefResult, "Source binding final HEAD symbolic-ref read");
+  const finalOriginHeadRefOutput = optionalSourceGitOutput(finalOriginHeadRefResult, "Source binding final origin/HEAD symbolic-ref read");
+  const finalHeadRef = finalHeadRefOutput === null ? null : finalHeadRefOutput.trim() || null;
+  const finalOriginHeadRef = finalOriginHeadRefOutput === null ? null : finalOriginHeadRefOutput.trim() || null;
   const finalLayout = await captureLayout();
   await assertNoLegacyGrafts(finalLayout.gitDir.path, finalLayout.gitCommonDir.path);
   assertCompleteGitAncestry(finalLayout);
@@ -598,9 +626,13 @@ export async function captureSourceBinding(cwd, {
   return { ...stable, digest: sha256(canonicalJson(stable)) };
 }
 
-export async function captureSentinel(cwd, contract, defaults) {
+export async function captureSentinel(cwd, contract, defaults, {
+  afterInitialAuthorityCheck = null,
+  beforeFinalAuthorityCheck = null
+} = {}) {
   const repository = path.resolve(cwd);
   const initialAuthorityLayout = await assertSourceGitAncestryAuthority(repository);
+  if (afterInitialAuthorityCheck) await afterInitialAuthorityCheck(initialAuthorityLayout);
   const exclusions = [
     ...(defaults.sentinel.volatileExclusions ?? []),
     ...(contract.volatileExclusions ?? [])
@@ -611,11 +643,11 @@ export async function captureSentinel(cwd, contract, defaults) {
     maxSingleFileBytes: defaults.sentinel.maxSingleFileBytes
   };
   const scopes = contract.scope.include.map((item) => normalizeRelative(repository, item));
-  const status = await git(repository, ["status", "--porcelain=v2", "-z", "--untracked-files=all"]);
-  const head = (await git(repository, ["rev-parse", "HEAD"])).stdout.trim();
+  const status = await sourceGit(repository, ["status", "--porcelain=v2", "-z", "--untracked-files=all"]);
+  const head = (await sourceGit(repository, ["rev-parse", "HEAD"])).stdout.trim();
   const indexPath = await gitPath(repository, "index");
   const index = await digestOptionalFile(indexPath, Number.MAX_SAFE_INTEGER);
-  const tracked = await git(repository, ["ls-files", "-z", "--", ...scopes]);
+  const tracked = await sourceGit(repository, ["ls-files", "-z", "--", ...scopes]);
   const scopeDigest = await digestPaths(
     repository,
     tracked.stdout.split("\0").filter(Boolean),
@@ -628,13 +660,14 @@ export async function captureSentinel(cwd, contract, defaults) {
     exclusions,
     budget.maxFiles
   );
-  const submodules = await git(repository, ["submodule", "status", "--recursive"], {
+  const submodules = await sourceGit(repository, ["submodule", "status", "--recursive"], {
     allowFailure: true
   });
   const symlinks = await trackedSymlinks(repository);
   const attributes = await attributesDigest(repository, budget);
   const authorityMetadata = await hooksAndConfig(repository);
   const ignored = await highRiskIgnored(repository, contract.highRiskIgnored ?? [], budget);
+  if (beforeFinalAuthorityCheck) await beforeFinalAuthorityCheck();
   const finalAuthorityLayout = await assertSourceGitAncestryAuthority(repository);
   if (canonicalJson(finalAuthorityLayout) !== canonicalJson(initialAuthorityLayout)) {
     throw new Error("Sentinel Git authority layout changed during stable snapshot capture");

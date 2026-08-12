@@ -15,6 +15,7 @@ import { Readable } from "node:stream";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import {
+  authoritativeLocalGitValues,
   authoritativeEvidenceIndex,
   buildEvaluatorInferenceInput,
   canonicalJson,
@@ -25,6 +26,7 @@ import {
   evaluatorRegistryProbeArgs,
   evaluatorToolProbeArgs,
   forwardedHeaders,
+  optionalAuthoritativeGitOutput,
   parseEvaluatorTranscript,
   privateKeyFromRaw,
   reconstructPluginBundleDigest,
@@ -71,6 +73,57 @@ function evaluatorOutputSchema() {
     properties: { results: { type: "array", items: { type: "string" } } }
   };
 }
+
+test("host authoritative optional Git reads distinguish only exact absence", () => {
+  const absent = {
+    ok: false,
+    code: 1,
+    signal: null,
+    timedOut: false,
+    outputExceeded: false,
+    stdout: "",
+    stderr: ""
+  };
+  assert.equal(optionalAuthoritativeGitOutput(absent, "symbolic ref"), null);
+  assert.deepEqual(authoritativeLocalGitValues(absent, "remote.origin.pushurl"), []);
+  assert.deepEqual(authoritativeLocalGitValues({
+    ok: true,
+    code: 0,
+    signal: null,
+    timedOut: false,
+    outputExceeded: false,
+    stdout: "https://github.com/example/repository.git\0https://github.com/example/repository-push.git\0",
+    stderr: ""
+  }, "remote.origin.url"), [
+    "https://github.com/example/repository.git",
+    "https://github.com/example/repository-push.git"
+  ]);
+
+  for (const failure of [
+    { ...absent, timedOut: true },
+    { ...absent, outputExceeded: true },
+    { ...absent, signal: "SIGKILL" },
+    { ...absent, code: 128 },
+    { ...absent, code: null }
+  ]) {
+    assert.throws(
+      () => authoritativeLocalGitValues(failure, "remote.origin.pushurl"),
+      /Authoritative local Git config read.*failed/
+    );
+    assert.throws(
+      () => optionalAuthoritativeGitOutput(failure, "symbolic ref"),
+      /symbolic ref failed/
+    );
+  }
+  assert.throws(
+    () => authoritativeLocalGitValues({ ...absent, ok: true, code: 0, stdout: "unterminated" }, "remote.origin.url"),
+    /unterminated local Git values/
+  );
+  assert.throws(
+    () => authoritativeLocalGitValues({ ...absent, ok: true, code: 0, stdout: "line1\nline2\0" }, "remote.origin.url"),
+    /invalid local Git value/
+  );
+});
 
 function validEvaluatorClientRequest(model, inputText, outputSchema) {
   const message = (role, text, id = null) => ({
@@ -948,6 +1001,13 @@ test("host trust helper fixes authority paths and does not accept environment pa
   assert.match(source, /GIT_GRAFT_FILE: "\/dev\/null"/);
   assert.match(source, /rejects legacy Git graft ancestry metadata/);
   assert.match(source, /rejects shallow or indeterminate Git ancestry/);
+  assert.match(source, /authoritativeLocalGitValues\(configured, "core\.worktree"\)/);
+  assert.match(source, /return authoritativeLocalGitValues\(result, key\)/);
+  assert.match(source, /optionalAuthoritativeGitOutput\(headRefResult/);
+  assert.match(source, /const entry = await authoritativeTreeEntry\(repo, subject, baselineRevision, file\.path\)/);
+  assert.match(source, /const entry = await authoritativeTreeEntry\(repo, subject, revision, relative\)/);
+  assert.doesNotMatch(source, /if \(!result\.ok\) \{\s*baselineFiles\.push/);
+  assert.doesNotMatch(source, /if \(\(await baselineBlob[^\n]+\)\.ok\)/);
   assert.match(source, /parseEvaluatorTranscript\(result\.stdout\)/);
   assert.match(source, /transcriptPolicy: "codex-jsonl-zero-tool-calls-v1"/);
   assert.match(source, /startEvaluatorRequestGate/);

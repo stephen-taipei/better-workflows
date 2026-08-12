@@ -440,8 +440,10 @@ async function execBoundGitAuthority(cwd, args, {
   encoding = "utf8"
 } = {}) {
   try {
+    const canonicalWorktree = await realpath(path.resolve(cwd));
     const result = await execBoundGit(BOUND_GIT_EXECUTABLE, [
       "--no-replace-objects",
+      `--work-tree=${canonicalWorktree}`,
       "-c", "core.fsmonitor=false",
       "-c", "core.hooksPath=/dev/null",
       "-c", "credential.helper=",
@@ -470,7 +472,9 @@ async function execBoundGitAuthority(cwd, args, {
         stdout: error.stdout ?? (encoding === "buffer" ? Buffer.alloc(0) : ""),
         stderr: encoding === "buffer" ? Buffer.from(detail) : detail,
         code: error.code,
-        signal: error.signal ?? null
+        signal: error.signal ?? null,
+        timedOut: error.code === "ETIMEDOUT",
+        outputExceeded: error.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER"
       };
     }
     const failure = new Error(`Bound Git authority command failed: ${detail}`);
@@ -534,7 +538,7 @@ function assertNoAmbientGitAuthorityOverrides() {
   }
 }
 
-export const VERSION = "3.3.5";
+export const VERSION = "3.3.6";
 export const MODES = new Set(["auto", "direct", "verified", "deep", "critical"]);
 export const RUN_STATES = new Set([
   "pending",

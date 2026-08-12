@@ -438,12 +438,9 @@ export async function resolveStrictBaselineRevision(cwd, revision) {
 
 async function ordinaryCorpusAtResolvedBaseline(repository, baseline) {
   for (const corpus of SELF_IMPROVE_ORDINARY_CORPORA) {
-    try {
-      await gitBytes(repository, ["show", `${baseline}:${corpus}`]);
-      return corpus;
-    } catch {
-      // Continue through the immutable historical reader order.
-    }
+    if (await gitModeAtRevision(repository, baseline, corpus) === null) continue;
+    await gitBytes(repository, ["show", `${baseline}:${corpus}`]);
+    return corpus;
   }
   throw new Error("Immutable baseline contains no supported self-improve evaluation corpus");
 }
@@ -557,15 +554,12 @@ function normalizeReleaseMetadata(file, content) {
 async function candidateChangeKind(repository, baseline, file, content) {
   const candidate = normalizeReleaseMetadata(file, content);
   if (candidate === null) return "semantic";
-  try {
-    const baselineContent = await gitBytes(repository, ["show", `${baseline}:${file}`]);
-    const baselineNormalized = normalizeReleaseMetadata(file, baselineContent);
-    return baselineNormalized !== null && baselineNormalized === candidate
-      ? "release-metadata-only"
-      : "semantic";
-  } catch {
-    return "semantic";
-  }
+  if (await gitModeAtRevision(repository, baseline, file) === null) return "semantic";
+  const baselineContent = await gitBytes(repository, ["show", `${baseline}:${file}`]);
+  const baselineNormalized = normalizeReleaseMetadata(file, baselineContent);
+  return baselineNormalized !== null && baselineNormalized === candidate
+    ? "release-metadata-only"
+    : "semantic";
 }
 
 export async function snapshotCandidate({ cwd, baselineRevision, candidateRoot }) {
@@ -611,19 +605,20 @@ export async function snapshotBaselineForCandidate({ cwd, snapshot }) {
   const repository = await realpath(cwd);
   const files = [];
   for (const file of snapshot.files) {
-    try {
-      const content = await gitBytes(repository, ["show", `${snapshot.baselineRevision}:${file.path}`]);
-      files.push({
-        path: file.path,
-        state: "file",
-        digest: sha256(content),
-        size: content.length,
-        mode: await gitModeAtRevision(repository, snapshot.baselineRevision, file.path),
-        changeKind: file.changeKind ?? "semantic"
-      });
-    } catch {
+    const mode = await gitModeAtRevision(repository, snapshot.baselineRevision, file.path);
+    if (mode === null) {
       files.push({ path: file.path, state: "missing", digest: null, mode: null, changeKind: file.changeKind ?? "semantic" });
+      continue;
     }
+    const content = await gitBytes(repository, ["show", `${snapshot.baselineRevision}:${file.path}`]);
+    files.push({
+      path: file.path,
+      state: "file",
+      digest: sha256(content),
+      size: content.length,
+      mode,
+      changeKind: file.changeKind ?? "semantic"
+    });
   }
   const baseline = { baselineRevision: snapshot.baselineRevision, candidateRoot: snapshot.candidateRoot, files };
   return { ...baseline, digest: digestObject(baseline) };

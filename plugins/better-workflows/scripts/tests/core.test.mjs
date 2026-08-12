@@ -324,6 +324,58 @@ test("autonomy commit issuance rejects legacy graft metadata after preflight", a
   assert.deepEqual((await inspectRun(fixture.stateRoot, fixture.run.runId)).actions, []);
 });
 
+test("autonomy commit issuance rejects oversized core.worktree authority output", async () => {
+  const fixture = await autonomyActionFixture();
+  const redirected = await mkdtemp(path.join(os.tmpdir(), "sbw-autonomy-core-worktree-target-"));
+  const configPath = path.join(fixture.repository, ".git", "config");
+  const config = await readFile(configPath, "utf8");
+  const oversized = Array.from(
+    { length: 4_200 },
+    (_, index) => `\tworktree = ${"w".repeat(1_024)}${index}\n`
+  ).join("");
+  await writeFile(configPath, `${config}\n[core]\n${oversized}\tworktree = ${redirected}\n`);
+  await assert.rejects(
+    issueActionToken(
+      fixture.stateRoot,
+      fixture.run.runId,
+      autonomyCommitRequest(fixture.sourceHead, "core-worktree-overflow"),
+      fixture.sentinelDigest,
+      await loadDefaults()
+    ),
+    /output exceeded/
+  );
+  assert.deepEqual((await inspectRun(fixture.stateRoot, fixture.run.runId)).actions, []);
+});
+
+test("autonomy snapshot pins its worktree across a transient core.worktree swap", async () => {
+  const fixture = await autonomyActionFixture();
+  const redirected = await mkdtemp(path.join(os.tmpdir(), "sbw-autonomy-core-worktree-swap-"));
+  await mkdir(path.join(redirected, "allowed"), { recursive: true });
+  await writeFile(path.join(redirected, "allowed", "tracked.txt"), "redirected bytes\n");
+  const configPath = path.join(fixture.repository, ".git", "config");
+  const originalConfig = await readFile(configPath, "utf8");
+  const inspected = await inspectRun(fixture.stateRoot, fixture.run.runId);
+  try {
+    const snapshot = await captureAutonomyReadinessSnapshot(
+      fixture.repository,
+      fixture.binding,
+      inspected.manifest.autonomyProfile.sourceBindingDigest,
+      {
+        sentinelDigest: fixture.sentinelDigest,
+        beforeFinalCheck: () => writeFile(
+          configPath,
+          `${originalConfig}\n[core]\n\tworktree = ${redirected}\n`
+        ),
+        afterFinalCheck: () => writeFile(configPath, originalConfig)
+      }
+    );
+    assert.equal(snapshot.headRevision, fixture.sourceHead);
+    assert.equal(snapshot.changedFiles, 0);
+  } finally {
+    await writeFile(configPath, originalConfig);
+  }
+});
+
 test("autonomy maxCommits counts immutable ancestry and outstanding tokens", async () => {
   const fixture = await autonomyActionFixture();
   for (let index = 0; index < fixture.profile.limits.maxCommits - 1; index += 1) {

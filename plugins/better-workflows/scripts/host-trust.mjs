@@ -2865,6 +2865,44 @@ function canonicalDigest(value) {
   return sha256Value(canonicalJson(value));
 }
 
+function subjectGitFailureCause(result) {
+  if (result?.outputExceeded) return "output limit exceeded";
+  if (result?.timedOut) return "timeout";
+  if (result?.signal) return `signal ${result.signal}`;
+  const stderr = Buffer.isBuffer(result?.stderr)
+    ? result.stderr.toString("utf8")
+    : String(result?.stderr ?? "");
+  return stderr.trim() || `exit ${result?.code ?? "null"}`;
+}
+
+export function optionalAuthoritativeGitOutput(result, label) {
+  if (result?.ok === true) return result.stdout;
+  if (
+    result?.ok === false &&
+    Number(result.code) === 1 &&
+    result.signal == null &&
+    !result.timedOut &&
+    !result.outputExceeded
+  ) return null;
+  throw new Error(`${label} failed: ${subjectGitFailureCause(result)}`);
+}
+
+export function authoritativeLocalGitValues(result, key) {
+  const output = optionalAuthoritativeGitOutput(result, `Authoritative local Git config read for ${key}`);
+  if (output === null) return [];
+  if (typeof output !== "string") {
+    throw new Error(`Authoritative source binding returned non-text local Git values for ${key}`);
+  }
+  if (!output.endsWith("\0")) {
+    throw new Error(`Authoritative source binding returned unterminated local Git values for ${key}`);
+  }
+  const values = output.slice(0, -1).split("\0");
+  if (values.some((value) => /[\r\n]/.test(value))) {
+    throw new Error(`Authoritative source binding contains an invalid local Git value for ${key}`);
+  }
+  return values;
+}
+
 function splitNul(value) {
   return String(value).split("\0").filter(Boolean).map((item) => item.replaceAll("\\", "/"));
 }
@@ -2926,21 +2964,20 @@ async function subjectGit(repo, subject, args, {
   }
   if (validateWorktree && args[0] !== "config") {
     const configured = await subjectGit(canonicalRepo, subject, [
-      "config", "--local", "--no-includes", "--get-all", "core.worktree"
+      "config", "--null", "--local", "--no-includes", "--get-all", "core.worktree"
     ], { allowFailure: true, validateWorktree: false });
-    if (configured.ok) {
-      const values = String(configured.stdout).split(/\r?\n/).map((value) => value.trim()).filter(Boolean);
-      for (const value of values) {
-        const candidate = path.isAbsolute(value) ? path.resolve(value) : path.resolve(canonicalRepo, value);
-        let resolved;
-        try {
-          resolved = await realpath(candidate);
-        } catch {
-          throw new Error("Authoritative Git core.worktree configuration does not resolve to the expected worktree");
-        }
-        if (resolved !== canonicalRepo) {
-          throw new Error(`Authoritative Git core.worktree configuration redirects away from ${canonicalRepo}`);
-        }
+    const values = authoritativeLocalGitValues(configured, "core.worktree");
+    for (const value of values) {
+      if (!value) throw new Error("Authoritative Git core.worktree configuration contains an empty value");
+      const candidate = path.isAbsolute(value) ? path.resolve(value) : path.resolve(canonicalRepo, value);
+      let resolved;
+      try {
+        resolved = await realpath(candidate);
+      } catch {
+        throw new Error("Authoritative Git core.worktree configuration does not resolve to the expected worktree");
+      }
+      if (resolved !== canonicalRepo) {
+        throw new Error(`Authoritative Git core.worktree configuration redirects away from ${canonicalRepo}`);
       }
     }
   }
@@ -2961,15 +2998,10 @@ async function authoritativeHiddenIndex(repo, subject) {
 }
 
 async function subjectLocalGitValues(repo, subject, key) {
-  const result = await subjectGit(repo, subject, ["config", "--local", "--no-includes", "--get-all", key], {
+  const result = await subjectGit(repo, subject, ["config", "--null", "--local", "--no-includes", "--get-all", key], {
     allowFailure: true
   });
-  if (!result.ok) return [];
-  const values = String(result.stdout).split(/\r?\n/).map((value) => value.trim()).filter(Boolean);
-  if (values.some((value) => /[\0\r\n]/.test(value))) {
-    throw new Error(`Authoritative source binding contains an invalid local Git value for ${key}`);
-  }
-  return values;
+  return authoritativeLocalGitValues(result, key);
 }
 
 async function reconstructSourceBinding(repo, subject, baseRevision) {
@@ -3022,8 +3054,10 @@ async function reconstructSourceBinding(repo, subject, baseRevision) {
   const originPushUrls = await subjectLocalGitValues(repository, subject, "remote.origin.pushurl");
   const headRefResult = await subjectGit(repository, subject, ["symbolic-ref", "-q", "HEAD"], { allowFailure: true });
   const originHeadResult = await subjectGit(repository, subject, ["symbolic-ref", "-q", "refs/remotes/origin/HEAD"], { allowFailure: true });
-  const headRef = headRefResult.ok ? String(headRefResult.stdout).trim() || null : null;
-  const originHeadRef = originHeadResult.ok ? String(originHeadResult.stdout).trim() || null : null;
+  const headRefOutput = optionalAuthoritativeGitOutput(headRefResult, "Authoritative HEAD symbolic-ref read");
+  const originHeadOutput = optionalAuthoritativeGitOutput(originHeadResult, "Authoritative origin/HEAD symbolic-ref read");
+  const headRef = headRefOutput === null ? null : String(headRefOutput).trim() || null;
+  const originHeadRef = originHeadOutput === null ? null : String(originHeadOutput).trim() || null;
   const committedDiff = (await subjectGit(repository, subject, [
     "diff-tree", "--no-commit-id", "--name-status", "-r", "-z", resolvedBase, headRevision, "--"
   ])).stdout;
@@ -3098,13 +3132,11 @@ async function authoritativeGitBytes(repo, subject, args) {
 async function authoritativeChangeKind(repo, subject, baseline, file, content) {
   const candidate = normalizeReleaseMetadata(file, content);
   if (candidate === null) return "semantic";
-  const baselineResult = await subjectGit(repo, subject, ["show", `${baseline}:${file}`], {
-    allowFailure: true,
-    binary: true,
-    maxOutputBytes: MAX_PROMPT_BYTES * 4
-  });
-  if (!baselineResult.ok) return "semantic";
-  const baselineNormalized = normalizeReleaseMetadata(file, baselineResult.stdout);
+  const baselineEntry = await authoritativeTreeEntry(repo, subject, baseline, file);
+  if (!baselineEntry) return "semantic";
+  authoritativeBlobMode(baselineEntry, file);
+  const baselineBytes = await authoritativeGitBytes(repo, subject, ["show", `${baseline}:${file}`]);
+  const baselineNormalized = normalizeReleaseMetadata(file, baselineBytes);
   return baselineNormalized !== null && baselineNormalized === candidate ? "release-metadata-only" : "semantic";
 }
 
@@ -3161,21 +3193,18 @@ async function reconstructCandidateSnapshots(repo, subject, baselineRevision, he
   const candidate = { ...candidatePayload, digest: canonicalDigest(candidatePayload) };
   const baselineFiles = [];
   for (const file of files) {
-    const result = await subjectGit(repo, subject, ["show", `${baselineRevision}:${file.path}`], {
-      allowFailure: true,
-      binary: true,
-      maxOutputBytes: MAX_PROMPT_BYTES * 4
-    });
-    if (!result.ok) {
+    const entry = await authoritativeTreeEntry(repo, subject, baselineRevision, file.path);
+    if (!entry) {
       baselineFiles.push({ path: file.path, state: "missing", digest: null, mode: null, changeKind: file.changeKind });
       continue;
     }
+    const content = await authoritativeGitBytes(repo, subject, ["show", `${baselineRevision}:${file.path}`]);
     baselineFiles.push({
       path: file.path,
       state: "file",
-      digest: sha256Value(result.stdout),
-      size: result.stdout.length,
-      mode: authoritativeBlobMode(await authoritativeTreeEntry(repo, subject, baselineRevision, file.path), file.path),
+      digest: sha256Value(content),
+      size: content.length,
+      mode: authoritativeBlobMode(entry, file.path),
       changeKind: file.changeKind
     });
   }
@@ -3328,18 +3357,17 @@ function validateAuthoritativeSuite(suite, policy) {
 }
 
 async function baselineBlob(repo, subject, revision, relative) {
-  return subjectGit(repo, subject, ["show", `${revision}:${relative}`], {
-    allowFailure: true,
-    binary: true,
-    maxOutputBytes: MAX_PROMPT_BYTES * 4
-  });
+  const entry = await authoritativeTreeEntry(repo, subject, revision, relative);
+  if (!entry) return null;
+  authoritativeBlobMode(entry, relative);
+  return authoritativeGitBytes(repo, subject, ["show", `${revision}:${relative}`]);
 }
 
 async function authoritativeSuiteState(repo, subject, headRevision, manifest, candidate, standingPolicy) {
   let expectedSourcePath;
   if (manifest.purpose === "ordinary") {
     for (const corpus of SELF_IMPROVE_ORDINARY_CORPORA) {
-      if ((await baselineBlob(repo, subject, manifest.baselineRevision, corpus)).ok) {
+      if ((await baselineBlob(repo, subject, manifest.baselineRevision, corpus)) !== null) {
         expectedSourcePath = corpus;
         break;
       }
@@ -3353,9 +3381,9 @@ async function authoritativeSuiteState(repo, subject, headRevision, manifest, ca
     throw new Error("Standing manifest source suite path is not authoritative for this purpose and baseline");
   }
   const sourceBaseline = await baselineBlob(repo, subject, manifest.baselineRevision, expectedSourcePath);
-  if (!sourceBaseline.ok) throw new Error("Standing source suite is absent from the immutable baseline");
+  if (sourceBaseline === null) throw new Error("Standing source suite is absent from the immutable baseline");
   const sourceCurrent = await authoritativeGitBytes(repo, subject, ["show", `${headRevision}:${expectedSourcePath}`]);
-  if (!sourceCurrent.equals(sourceBaseline.stdout)) throw new Error("Standing source suite drifted from the immutable baseline");
+  if (!sourceCurrent.equals(sourceBaseline)) throw new Error("Standing source suite drifted from the immutable baseline");
   const sourceSuite = validateAuthoritativeSuite(JSON.parse(sourceCurrent.toString("utf8")), standingPolicy);
   const sourceSuiteDigest = sha256Value(sourceCurrent);
   let targetSuite = null;

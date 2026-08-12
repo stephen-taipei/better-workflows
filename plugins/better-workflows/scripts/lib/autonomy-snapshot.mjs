@@ -28,7 +28,8 @@ export function autonomyBoundaryError(reason, message, cause = null) {
 }
 
 function isExpectedMissingConfig(result) {
-  return result?.ok === false && Number(result.code) === 1 && !result.signal;
+  return result?.ok === false && Number(result.code) === 1 && !result.signal &&
+    !result.timedOut && !result.outputExceeded;
 }
 
 export async function readRawLocalConfigValues(runGit, key, {
@@ -36,7 +37,7 @@ export async function readRawLocalConfigValues(runGit, key, {
   timeoutMs,
   label = "Git configuration"
 } = {}) {
-  const result = await runGit(["config", "--local", "--no-includes", "--get-all", key], {
+  const result = await runGit(["config", "--null", "--local", "--no-includes", "--get-all", key], {
     allowFailure: true,
     ...(maxBuffer === undefined ? {} : { maxBuffer }),
     ...(timeoutMs === undefined ? {} : { timeoutMs })
@@ -50,8 +51,9 @@ export async function readRawLocalConfigValues(runGit, key, {
     throw error;
   }
   if (typeof result.stdout !== "string") throw new Error(`${label} returned non-text ${key} values`);
-  const values = result.stdout.split(/\r?\n/).map((value) => value.trim()).filter(Boolean);
-  if (values.some((value) => /[\0\r\n]/.test(value))) {
+  if (!result.stdout.endsWith("\0")) throw new Error(`${label} returned unterminated raw local ${key} values`);
+  const values = result.stdout.slice(0, -1).split("\0");
+  if (values.some((value) => /[\r\n]/.test(value))) {
     throw new Error(`${label} contains an invalid raw local ${key} value`);
   }
   return values;
@@ -274,7 +276,8 @@ async function captureAutonomySnapshotPass(cwd, binding, sourceBindingDigest, ru
 
 export async function captureBoundedAutonomySnapshot(cwd, binding, sourceBindingDigest, runGit, {
   sentinelDigest = null,
-  beforeFinalCheck = null
+  beforeFinalCheck = null,
+  afterFinalCheck = null
 } = {}) {
   validateAutonomyBinding(binding);
   if (!SHA256.test(sourceBindingDigest ?? "")) throw new Error("Autonomy snapshot requires an immutable source binding digest");
@@ -284,6 +287,7 @@ export async function captureBoundedAutonomySnapshot(cwd, binding, sourceBinding
   const first = await captureAutonomySnapshotPass(cwd, binding, sourceBindingDigest, runGit, sentinelDigest);
   if (beforeFinalCheck) await beforeFinalCheck(first);
   const second = await captureAutonomySnapshotPass(cwd, binding, sourceBindingDigest, runGit, sentinelDigest);
+  if (afterFinalCheck) await afterFinalCheck(second);
   if (canonical(first) !== canonical(second)) {
     throw autonomyBoundaryError("autonomy-snapshot-drift", "Autonomy repository state changed during bounded snapshot capture");
   }

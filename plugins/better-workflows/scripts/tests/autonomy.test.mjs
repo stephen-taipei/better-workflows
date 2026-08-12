@@ -362,7 +362,7 @@ test("autonomy remote binding fails closed on indeterminate pushurl reads and ov
   const timeoutRunner = async (args) => {
     const key = args.at(-1);
     if (key === "remote.origin.url") {
-      return { ok: true, stdout: "https://github.com/example/repository.git\n", stderr: "" };
+      return { ok: true, stdout: "https://github.com/example/repository.git\0", stderr: "" };
     }
     return { ok: false, stdout: "", stderr: "timed out", code: "ETIMEDOUT", signal: "SIGKILL" };
   };
@@ -379,6 +379,34 @@ test("autonomy remote binding fails closed on indeterminate pushurl reads and ov
       signal: null
     }), "remote.origin.pushurl"),
     /output exceeded/
+  );
+  for (const failure of [
+    { code: 1, signal: null, timedOut: true, outputExceeded: false, stderr: "timed out" },
+    { code: 1, signal: null, timedOut: false, outputExceeded: true, stderr: "output exceeded" },
+    { code: 1, signal: "SIGTERM", timedOut: false, outputExceeded: false, stderr: "terminated" },
+    { code: 128, signal: null, timedOut: false, outputExceeded: false, stderr: "fatal" }
+  ]) {
+    await assert.rejects(
+      readRawLocalConfigValues(async () => ({ ok: false, stdout: "", ...failure }), "remote.origin.pushurl"),
+      /could not read raw local remote\.origin\.pushurl/
+    );
+  }
+  assert.deepEqual(await readRawLocalConfigValues(async () => ({
+    ok: false,
+    stdout: "",
+    stderr: "",
+    code: 1,
+    signal: null,
+    timedOut: false,
+    outputExceeded: false
+  }), "remote.origin.pushurl"), []);
+  await assert.rejects(
+    readRawLocalConfigValues(async () => ({ ok: true, stdout: "value\n", stderr: "" }), "remote.origin.url"),
+    /unterminated raw local/
+  );
+  await assert.rejects(
+    readRawLocalConfigValues(async () => ({ ok: true, stdout: "line1\nline2\0", stderr: "" }), "remote.origin.url"),
+    /invalid raw local/
   );
 
   const root = await autonomyRepositoryFixture();

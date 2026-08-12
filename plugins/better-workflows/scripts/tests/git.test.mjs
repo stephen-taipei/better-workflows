@@ -254,6 +254,48 @@ test("source authority rejects a repository-local core.worktree redirect", async
   );
 });
 
+test("source binding and sentinel never treat oversized core.worktree output as absence", async () => {
+  const cwd = await repository();
+  const redirected = await mkdtemp(path.join(os.tmpdir(), "sbw-git-core-worktree-overflow-target-"));
+  const configPath = path.join(cwd, ".git", "config");
+  const config = await readFile(configPath, "utf8");
+  const oversized = Array.from(
+    { length: 4_200 },
+    (_, index) => `\tworktree = ${"w".repeat(1_024)}${index}\n`
+  ).join("");
+  await writeFile(configPath, `${config}\n[core]\n${oversized}\tworktree = ${redirected}\n`);
+  await assert.rejects(captureSourceBinding(cwd), /output exceeded/);
+  await assert.rejects(captureSentinel(cwd, taskContract(), await loadDefaults()), /output exceeded/);
+});
+
+test("sentinel rejects a core.worktree swap immediately after its initial authority guard", async () => {
+  const cwd = await repository();
+  const redirected = await mkdtemp(path.join(os.tmpdir(), "sbw-git-core-worktree-swap-target-"));
+  await mkdir(path.join(redirected, "src"), { recursive: true });
+  await writeFile(path.join(redirected, "src", "a.txt"), "redirected bytes\n");
+  const configPath = path.join(cwd, ".git", "config");
+  const originalConfig = await readFile(configPath, "utf8");
+  let reachedFinalGuard = false;
+  try {
+    await assert.rejects(
+      captureSentinel(cwd, taskContract(), await loadDefaults(), {
+        afterInitialAuthorityCheck: () => writeFile(
+          configPath,
+          `${originalConfig}\n[core]\n\tworktree = ${redirected}\n`
+        ),
+        beforeFinalAuthorityCheck: async () => {
+          reachedFinalGuard = true;
+          await writeFile(configPath, originalConfig);
+        }
+      }),
+      /core\.worktree configuration redirects away/
+    );
+    assert.equal(reachedFinalGuard, false);
+  } finally {
+    await writeFile(configPath, originalConfig);
+  }
+});
+
 test("source bindings ignore mutable global Git URL rewrites", async () => {
   const cwd = await repository();
   await git(cwd, "remote", "add", "origin", "https://example.invalid/better-workflows.git");
