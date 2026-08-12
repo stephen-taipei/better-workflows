@@ -1403,7 +1403,7 @@ async function commandAutonomy(root, subcommand, runId, options) {
     const hostBundle = hostBundleFromStatus(hostStatus);
     if (!hostStatus.ready || !hostStatus.signer?.supported || !hostStatus.runtime?.supported ||
         !hostStatus.readinessReceipt?.supported || hostStatus.readinessReceipt?.keyPairVerification?.verified !== true ||
-        hostBundle.legacyCompatible === false) {
+        hostBundle.legacyCompatible === false || hostStatus.hostBundle?.supported === false) {
       return blocked("host-bundle-not-ready", "host.bootstrap");
     }
   } catch {

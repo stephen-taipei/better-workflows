@@ -11,7 +11,12 @@ import {
   validateAutonomyProfile
 } from "../lib/autonomy.mjs";
 import { buildContract } from "../lib/core.mjs";
-import { hostBundleDigest, hostBundleFromStatus } from "../lib/host-bundle.mjs";
+import {
+  assertHostBundleMatchesStatus,
+  hostBundleDigest,
+  hostBundleFromStatus,
+  validateHostBundleManifest
+} from "../lib/host-bundle.mjs";
 
 test("bounded-autopilot-v1 is canonical and digestable", async () => {
   const profile = await loadAutonomyProfile();
@@ -20,6 +25,48 @@ test("bounded-autopilot-v1 is canonical and digestable", async () => {
   assert.equal(profile.limits.maxPullRequests, 1);
   assert.match(autonomyProfileDigest(profile), /^[a-f0-9]{64}$/);
   assert.doesNotThrow(() => validateAutonomyProfile(profile));
+});
+
+test("bounded-autopilot-v1 policy has a strict immutable JSON schema", async () => {
+  const schema = JSON.parse(await readFile(new URL("../../config/autonomy/bounded-autopilot-v1.schema.json", import.meta.url), "utf8"));
+  assert.equal(schema.$schema, "https://json-schema.org/draft/2020-12/schema");
+  assert.equal(schema.$id, "https://github.com/stephen-taipei/better-workflows/schema/bounded-autopilot-v1.json");
+  assert.deepEqual(schema.required, [
+    "schemaVersion",
+    "id",
+    "description",
+    "autoActions",
+    "humanActions",
+    "deniedActions",
+    "scope",
+    "limits"
+  ]);
+  assert.equal(schema.additionalProperties, false);
+  assert.deepEqual(schema.properties.autoActions.items.enum, [
+    "read",
+    "test",
+    "evaluator.replay",
+    "git.commit",
+    "plugin.cache.publish",
+    "git.push.codex",
+    "pr.create.dev"
+  ]);
+  assert.deepEqual(schema.properties.humanActions.items.enum, [
+    "host.bootstrap",
+    "host.upgrade",
+    "host.revoke",
+    "pr.merge",
+    "deploy",
+    "git.push.dev",
+    "git.push.main",
+    "worktree.cleanup"
+  ]);
+  assert.deepEqual(schema.properties.deniedActions.items.enum, [
+    "password.capture",
+    "sudo.unbounded",
+    "admin.bypass",
+    "shell.unpinned"
+  ]);
 });
 
 test("autonomy action matrix keeps codex push and dev PR automatic", async () => {
@@ -151,8 +198,8 @@ test("autonomy binding rejects invalid repository, branch, path, expiry, and lim
 test("root-owned host bundle binding uses protocol artifacts, not repository source bytes", () => {
   const status = {
     signer: { path: "/private/var/db/better-workflows/bin/bw-host-trust.mjs", version: "2.4.0", digest: "a".repeat(64) },
-    runtime: { digest: "b".repeat(64) },
-    launcher: { digest: "c".repeat(64) },
+    runtime: { path: "/private/var/db/better-workflows/bin/bw-host-node." + "b".repeat(64), digest: "b".repeat(64) },
+    launcher: { path: "/private/var/db/better-workflows/bin/bw-host-exec-launcher", digest: "c".repeat(64) },
     readinessReceipt: {
       digest: "d".repeat(64),
       bindingDigest: "e".repeat(64),
@@ -166,6 +213,40 @@ test("root-owned host bundle binding uses protocol artifacts, not repository sou
   const bundle = hostBundleFromStatus(status);
   assert.equal(bundle.runtimeDigest, status.runtime.digest);
   assert.match(hostBundleDigest(bundle), /^[a-f0-9]{64}$/);
+  assert.doesNotThrow(() => assertHostBundleMatchesStatus(bundle, status));
+  assert.throws(
+    () => assertHostBundleMatchesStatus({ ...bundle, runtimeDigest: "f".repeat(64) }, status),
+    /protocol binding is invalid|binding changed/
+  );
+});
+
+test("formal host bundle manifests are independently shaped and cannot be broadened", () => {
+  const manifest = {
+    schemaVersion: 1,
+    kind: "better-workflows-host-bundle",
+    protocolVersion: 1,
+    bundleVersion: "2.4.0",
+    signerPath: "/private/var/db/better-workflows/bin/bw-host-trust.mjs",
+    signerDigest: "a".repeat(64),
+    launcherPath: "/private/var/db/better-workflows/bin/bw-host-exec-launcher",
+    launcherDigest: "b".repeat(64),
+    runtimePath: "/private/var/db/better-workflows/bin/bw-host-node." + "c".repeat(64),
+    runtimeDigest: "c".repeat(64),
+    supportedConsentSchemas: [4],
+    issuer: "better-workflows-local-host",
+    keyId: "codex-ed25519-2026-07",
+    issuedAt: "2026-08-12T00:00:00.000Z",
+    signature: "signed-host-bundle-payload"
+  };
+  assert.deepEqual(validateHostBundleManifest(manifest), manifest);
+  assert.throws(
+    () => validateHostBundleManifest({ ...manifest, supportedConsentSchemas: [4, 5] }),
+    /binding is invalid/
+  );
+  assert.throws(
+    () => validateHostBundleManifest({ ...manifest, unbounded: true }),
+    /fields are invalid/
+  );
 });
 
 test("attestation runtime no longer couples ordinary source edits to signer digest", async () => {
