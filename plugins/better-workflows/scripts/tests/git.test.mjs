@@ -105,6 +105,53 @@ test("source bindings pin base, head, and the exact diff manifest", async () => 
   );
 });
 
+test("source binding and sentinel reject legacy graft ancestry metadata", async () => {
+  const cwd = await repository();
+  const defaults = await loadDefaults();
+  const commonDir = await realpath(path.join(cwd, ".git"));
+  const graftsPath = path.join(commonDir, "info", "grafts");
+  await writeFile(graftsPath, "# even an empty legacy graft authority surface is forbidden\n");
+  await assert.rejects(captureSourceBinding(cwd), /Legacy Git graft ancestry metadata is not allowed/);
+  await assert.rejects(
+    captureSentinel(cwd, taskContract(), defaults),
+    /Legacy Git graft ancestry metadata is not allowed/
+  );
+  await unlink(graftsPath);
+
+  const linked = path.join(os.tmpdir(), `sbw-git-graft-linked-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+  await git(cwd, "worktree", "add", "-q", linked);
+  const linkedGitDirOutput = (await execFileAsync("git", ["rev-parse", "--git-dir"], {
+    cwd: linked,
+    encoding: "utf8"
+  })).stdout.trim();
+  const linkedGitDir = await realpath(path.resolve(linked, linkedGitDirOutput));
+  await mkdir(path.join(linkedGitDir, "info"), { recursive: true });
+  await writeFile(path.join(linkedGitDir, "info", "grafts"), "# worktree-local graft surface\n");
+  await assert.rejects(captureSourceBinding(linked), /Legacy Git graft ancestry metadata is not allowed/);
+  await assert.rejects(
+    captureSentinel(linked, taskContract(), defaults),
+    /Legacy Git graft ancestry metadata is not allowed/
+  );
+});
+
+test("source binding and sentinel reject shallow repository ancestry", async () => {
+  const cwd = await repository();
+  const defaults = await loadDefaults();
+  const head = (await execFileAsync("git", ["rev-parse", "HEAD"], {
+    cwd,
+    encoding: "utf8"
+  })).stdout.trim();
+  await writeFile(path.join(cwd, ".git", "shallow"), `${head}\n`);
+  await assert.rejects(
+    captureSourceBinding(cwd),
+    /Shallow Git repositories are not allowed for immutable ancestry proofs/
+  );
+  await assert.rejects(
+    captureSentinel(cwd, taskContract(), defaults),
+    /Shallow Git repositories are not allowed for immutable ancestry proofs/
+  );
+});
+
 test("runSourceGit preserves invalid UTF-8 and NUL bytes in committed objects", async () => {
   const cwd = await repository();
   const expected = Buffer.from([0x00, 0xff, 0xc3, 0x28, 0x00, 0x80, 0xfe, 0x0a]);
@@ -267,7 +314,9 @@ test("source bindings ignore inherited Git repository and object routing", async
     GIT_OBJECT_DIRECTORY: path.join(decoy, ".git", "objects"),
     GIT_ALTERNATE_OBJECT_DIRECTORIES: path.join(cwd, ".git", "objects"),
     GIT_NAMESPACE: "untrusted-namespace",
-    GIT_REPLACE_REF_BASE: "refs/untrusted-replacements/"
+    GIT_REPLACE_REF_BASE: "refs/untrusted-replacements/",
+    GIT_GRAFT_FILE: path.join(decoy, ".git", "info", "grafts"),
+    GIT_SHALLOW_FILE: path.join(decoy, ".git", "shallow")
   };
   const previous = Object.fromEntries(Object.keys(injected).map((key) => [key, process.env[key]]));
   Object.assign(process.env, injected);

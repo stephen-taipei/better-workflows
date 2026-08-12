@@ -17,7 +17,8 @@ function isolatedGitEnvironment() {
     GIT_CONFIG_GLOBAL: "/dev/null",
     GIT_CONFIG_NOSYSTEM: "1",
     GIT_TERMINAL_PROMPT: "0",
-    GIT_NO_REPLACE_OBJECTS: "1"
+    GIT_NO_REPLACE_OBJECTS: "1",
+    GIT_GRAFT_FILE: "/dev/null"
   };
 }
 
@@ -349,6 +350,52 @@ async function digestOptionalFile(target, maxBytes = 1024 * 1024) {
   }
 }
 
+async function assertNoLegacyGrafts(gitDir, gitCommonDir) {
+  const directories = [...new Set([gitDir, gitCommonDir])];
+  for (const directory of directories) {
+    const graftsPath = path.join(directory, "info", "grafts");
+    try {
+      await lstat(graftsPath);
+    } catch (error) {
+      if (error.code === "ENOENT") continue;
+      throw error;
+    }
+    throw new Error(`Legacy Git graft ancestry metadata is not allowed: ${graftsPath}`);
+  }
+}
+
+async function gitAuthorityLayout(cwd) {
+  const [gitDirResult, gitCommonDirResult, shallowResult] = await Promise.all([
+    sourceGit(cwd, ["rev-parse", "--git-dir"]),
+    sourceGit(cwd, ["rev-parse", "--git-common-dir"]),
+    sourceGit(cwd, ["rev-parse", "--is-shallow-repository"])
+  ]);
+  const shallowRepository = shallowResult.stdout.trim();
+  if (!new Set(["true", "false"]).has(shallowRepository)) {
+    throw new Error("Git shallow repository state is indeterminate");
+  }
+  return {
+    gitDir: await realpath(path.resolve(cwd, gitDirResult.stdout.trim())),
+    gitCommonDir: await realpath(path.resolve(cwd, gitCommonDirResult.stdout.trim())),
+    shallowRepository: shallowRepository === "true"
+  };
+}
+
+function assertCompleteGitAncestry(layout) {
+  if (layout.shallowRepository) {
+    throw new Error("Shallow Git repositories are not allowed for immutable ancestry proofs");
+  }
+}
+
+export async function assertSourceGitAncestryAuthority(cwd) {
+  const repository = path.resolve(cwd);
+  if (!(await isGitRepository(repository))) throw new Error(`Not a Git repository: ${repository}`);
+  const layout = await gitAuthorityLayout(repository);
+  await assertNoLegacyGrafts(layout.gitDir, layout.gitCommonDir);
+  assertCompleteGitAncestry(layout);
+  return layout;
+}
+
 async function hooksAndConfig(cwd) {
   const configPath = await gitPath(cwd, "config");
   const hooksPath = await gitPath(cwd, "hooks");
@@ -419,22 +466,29 @@ export async function captureSourceBinding(cwd, {
     inode: Number.isSafeInteger(info.ino) ? info.ino : null
   });
   const captureLayout = async () => {
-    const headRevision = (await sourceGit(repository, ["rev-parse", "HEAD"])).stdout.trim();
-    const repositoryRoot = await realpath((await sourceGit(repository, ["rev-parse", "--show-toplevel"])).stdout.trim());
-    const gitDir = await realpath(path.resolve(repository, (await sourceGit(repository, ["rev-parse", "--git-dir"])).stdout.trim()));
-    const gitCommonDir = await realpath(path.resolve(repository, (await sourceGit(repository, ["rev-parse", "--git-common-dir"])).stdout.trim()));
+    const [headResult, rootResult, authorityLayout] = await Promise.all([
+      sourceGit(repository, ["rev-parse", "HEAD"]),
+      sourceGit(repository, ["rev-parse", "--show-toplevel"]),
+      gitAuthorityLayout(repository)
+    ]);
+    const headRevision = headResult.stdout.trim();
+    const repositoryRoot = await realpath(rootResult.stdout.trim());
+    const { gitDir, gitCommonDir, shallowRepository } = authorityLayout;
     const [gitDirInfo, gitCommonDirInfo] = await Promise.all([lstat(gitDir), lstat(gitCommonDir)]);
     return {
       headRevision,
       repositoryRoot,
       gitDir: directoryIdentity(gitDir, gitDirInfo),
-      gitCommonDir: directoryIdentity(gitCommonDir, gitCommonDirInfo)
+      gitCommonDir: directoryIdentity(gitCommonDir, gitCommonDirInfo),
+      shallowRepository
     };
   };
   const initialLayout = await captureLayout();
   if (initialLayout.repositoryRoot !== expectedRepositoryRoot) {
     throw new Error("Source binding Git worktree root does not match the canonical repository root");
   }
+  await assertNoLegacyGrafts(initialLayout.gitDir.path, initialLayout.gitCommonDir.path);
+  assertCompleteGitAncestry(initialLayout);
 
   const worktreeStatus = (await sourceGit(repository, ["status", "--porcelain=v2", "-z", "--untracked-files=all", "--ignored"])).stdout;
   const hiddenIndex = await hiddenIndexEntries(repository, { isolatedConfig: true });
@@ -491,6 +545,8 @@ export async function captureSourceBinding(cwd, {
   const finalHeadRef = (await sourceGit(repository, ["symbolic-ref", "-q", "HEAD"], { allowFailure: true })).stdout.trim() || null;
   const finalOriginHeadRef = (await sourceGit(repository, ["symbolic-ref", "-q", "refs/remotes/origin/HEAD"], { allowFailure: true })).stdout.trim() || null;
   const finalLayout = await captureLayout();
+  await assertNoLegacyGrafts(finalLayout.gitDir.path, finalLayout.gitCommonDir.path);
+  assertCompleteGitAncestry(finalLayout);
   const sameOrigin = JSON.stringify({ fetchUrls: originUrls, pushUrls: originPushUrls }) ===
     JSON.stringify({ fetchUrls: finalOriginUrls, pushUrls: finalOriginPushUrls });
   if (
@@ -544,7 +600,7 @@ export async function captureSourceBinding(cwd, {
 
 export async function captureSentinel(cwd, contract, defaults) {
   const repository = path.resolve(cwd);
-  if (!(await isGitRepository(repository))) throw new Error(`Not a Git repository: ${repository}`);
+  const initialAuthorityLayout = await assertSourceGitAncestryAuthority(repository);
   const exclusions = [
     ...(defaults.sentinel.volatileExclusions ?? []),
     ...(contract.volatileExclusions ?? [])
@@ -579,6 +635,10 @@ export async function captureSentinel(cwd, contract, defaults) {
   const attributes = await attributesDigest(repository, budget);
   const authorityMetadata = await hooksAndConfig(repository);
   const ignored = await highRiskIgnored(repository, contract.highRiskIgnored ?? [], budget);
+  const finalAuthorityLayout = await assertSourceGitAncestryAuthority(repository);
+  if (canonicalJson(finalAuthorityLayout) !== canonicalJson(initialAuthorityLayout)) {
+    throw new Error("Sentinel Git authority layout changed during stable snapshot capture");
+  }
   const stable = {
     schemaVersion: 1,
     cwd: repository,

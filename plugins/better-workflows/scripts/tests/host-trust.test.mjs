@@ -945,6 +945,9 @@ test("host trust helper fixes authority paths and does not accept environment pa
   assert.match(source, /EVALUATOR_DISABLED_TOOL_CONFIGS\.flatMap\(\(config\) => \["-c", config\]\)/);
   assert.match(source, /"--no-replace-objects"/);
   assert.match(source, /GIT_NO_REPLACE_OBJECTS: "1"/);
+  assert.match(source, /GIT_GRAFT_FILE: "\/dev\/null"/);
+  assert.match(source, /rejects legacy Git graft ancestry metadata/);
+  assert.match(source, /rejects shallow or indeterminate Git ancestry/);
   assert.match(source, /parseEvaluatorTranscript\(result\.stdout\)/);
   assert.match(source, /transcriptPolicy: "codex-jsonl-zero-tool-calls-v1"/);
   assert.match(source, /startEvaluatorRequestGate/);

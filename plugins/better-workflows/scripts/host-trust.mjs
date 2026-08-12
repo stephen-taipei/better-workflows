@@ -2915,7 +2915,8 @@ async function subjectGit(repo, subject, args, {
       GIT_CONFIG_NOSYSTEM: "1",
       GIT_OPTIONAL_LOCKS: "0",
       GIT_TERMINAL_PROMPT: "0",
-      GIT_NO_REPLACE_OBJECTS: "1"
+      GIT_NO_REPLACE_OBJECTS: "1",
+      GIT_GRAFT_FILE: "/dev/null"
     })
   });
   if (result.outputExceeded || result.timedOut || result.signal !== null || result.code !== 0) {
@@ -2996,11 +2997,26 @@ async function reconstructSourceBinding(repo, subject, baseRevision) {
   if (!SHA1.test(headRevision) || !SHA1.test(resolvedBase) || resolvedBase !== baseRevision || headRevision === resolvedBase) {
     throw new Error("Standing evaluator baseline must be an exact strict ancestor SHA");
   }
-  await subjectGit(repository, subject, ["merge-base", "--is-ancestor", resolvedBase, headRevision]);
   const repositoryRoot = await realpath(String((await subjectGit(repository, subject, ["rev-parse", "--show-toplevel"])).stdout).trim());
   if (repositoryRoot !== repository) throw new Error("Standing evaluator repository must be its canonical worktree root");
   const gitDir = await realpath(path.resolve(repository, String((await subjectGit(repository, subject, ["rev-parse", "--git-dir"])).stdout).trim()));
   const gitCommonDir = await realpath(path.resolve(repository, String((await subjectGit(repository, subject, ["rev-parse", "--git-common-dir"])).stdout).trim()));
+  const shallowRepository = String((await subjectGit(repository, subject, [
+    "rev-parse", "--is-shallow-repository"
+  ])).stdout).trim();
+  if (shallowRepository !== "false") {
+    throw new Error("Standing evaluator rejects shallow or indeterminate Git ancestry");
+  }
+  for (const directory of new Set([gitDir, gitCommonDir])) {
+    try {
+      await lstat(path.join(directory, "info", "grafts"));
+    } catch (error) {
+      if (error.code === "ENOENT") continue;
+      throw error;
+    }
+    throw new Error("Standing evaluator rejects legacy Git graft ancestry metadata");
+  }
+  await subjectGit(repository, subject, ["merge-base", "--is-ancestor", resolvedBase, headRevision]);
   const [gitDirInfo, gitCommonDirInfo] = await Promise.all([lstat(gitDir), lstat(gitCommonDir)]);
   const originUrls = await subjectLocalGitValues(repository, subject, "remote.origin.url");
   const originPushUrls = await subjectLocalGitValues(repository, subject, "remote.origin.pushurl");

@@ -86,7 +86,8 @@ function boundGitAuthorityEnvironment() {
     GIT_CONFIG_SYSTEM: "/dev/null",
     GIT_CONFIG_NOSYSTEM: "1",
     GIT_TERMINAL_PROMPT: "0",
-    GIT_NO_REPLACE_OBJECTS: "1"
+    GIT_NO_REPLACE_OBJECTS: "1",
+    GIT_GRAFT_FILE: "/dev/null"
   };
 }
 
@@ -501,14 +502,21 @@ async function currentOriginRemoteBinding(cwd) {
   };
 }
 
-export function captureAutonomyReadinessSnapshot(cwd, binding, sourceBindingDigest, options = {}) {
-  return captureBoundedAutonomySnapshot(
+export async function captureAutonomyReadinessSnapshot(cwd, binding, sourceBindingDigest, options = {}) {
+  const { assertSourceGitAncestryAuthority } = await import("./git.mjs");
+  const before = await assertSourceGitAncestryAuthority(cwd);
+  const snapshot = await captureBoundedAutonomySnapshot(
     cwd,
     binding,
     sourceBindingDigest,
     (args, gitOptions) => execBoundGitAuthority(cwd, args, gitOptions),
     options
   );
+  const after = await assertSourceGitAncestryAuthority(cwd);
+  if (digestObject(before) !== digestObject(after)) {
+    throw new Error("Bounded autonomy Git ancestry authority changed during snapshot capture");
+  }
+  return snapshot;
 }
 
 function assertNoAmbientGitAuthorityOverrides() {
@@ -518,7 +526,7 @@ function assertNoAmbientGitAuthorityOverrides() {
     [
       "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE",
       "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_NAMESPACE",
-      "GIT_REPLACE_REF_BASE"
+      "GIT_REPLACE_REF_BASE", "GIT_GRAFT_FILE", "GIT_SHALLOW_FILE"
     ].includes(key)
   )).sort();
   if (dangerous.length > 0) {
@@ -526,7 +534,7 @@ function assertNoAmbientGitAuthorityOverrides() {
   }
 }
 
-export const VERSION = "3.3.4";
+export const VERSION = "3.3.5";
 export const MODES = new Set(["auto", "direct", "verified", "deep", "critical"]);
 export const RUN_STATES = new Set([
   "pending",
@@ -810,6 +818,7 @@ export function buildBoundGitPushEnvironment({ isolatedHome, gitDirectory, objec
     GIT_CONFIG_SYSTEM: "/dev/null",
     GIT_CONFIG_NOSYSTEM: "1",
     GIT_NO_REPLACE_OBJECTS: "1",
+    GIT_GRAFT_FILE: "/dev/null",
     GIT_OPTIONAL_LOCKS: "0",
     GIT_ASKPASS: "/usr/bin/false",
     SSH_ASKPASS: "/usr/bin/false",
@@ -4678,6 +4687,63 @@ function assertAutonomySnapshotIdentity(actual, expected, label) {
   }
 }
 
+function rawCommitParents(value, revision, label) {
+  if (!Buffer.isBuffer(value)) throw new Error(`${label} commit object must be returned as bytes`);
+  const headerEnd = value.indexOf(Buffer.from("\n\n"));
+  if (headerEnd < 0 || value.subarray(0, headerEnd).includes(0)) {
+    throw new Error(`${label} commit object ${revision} has malformed headers`);
+  }
+  const lines = value.subarray(0, headerEnd).toString("latin1").split("\n");
+  if (!/^tree [a-f0-9]{40}$/i.test(lines[0] ?? "")) {
+    throw new Error(`${label} commit object ${revision} lacks an exact tree header`);
+  }
+  const parents = [];
+  let parentSection = true;
+  for (const line of lines.slice(1)) {
+    if (line.startsWith("parent ")) {
+      if (!parentSection) {
+        throw new Error(`${label} commit object ${revision} has a non-canonical parent header`);
+      }
+      const parent = line.slice("parent ".length);
+      if (!SHA.test(parent)) {
+        throw new Error(`${label} commit object ${revision} has an invalid parent header`);
+      }
+      parents.push(parent.toLowerCase());
+      continue;
+    }
+    parentSection = false;
+  }
+  return parents;
+}
+
+async function rawLinearCommitDistance(cwd, ancestor, descendant, maxDistance, label) {
+  if (!SHA.test(ancestor ?? "") || !SHA.test(descendant ?? "") ||
+      !Number.isSafeInteger(maxDistance) || maxDistance < 0) {
+    throw new Error(`${label} requires exact revisions and a bounded distance`);
+  }
+  const expectedAncestor = ancestor.toLowerCase();
+  let current = descendant.toLowerCase();
+  const visited = new Set();
+  for (let distance = 0; distance <= maxDistance; distance += 1) {
+    if (current === expectedAncestor) return distance;
+    if (distance === maxDistance) {
+      throw new Error(`${label} did not reach the immutable ancestor within ${maxDistance} commits`);
+    }
+    if (visited.has(current)) throw new Error(`${label} encountered a cyclic commit ancestry`);
+    visited.add(current);
+    const commit = await execBoundGitAuthority(cwd, ["cat-file", "commit", current], {
+      encoding: "buffer",
+      maxBuffer: BOUND_GIT_MAX_BUFFER
+    });
+    const parents = rawCommitParents(commit.stdout, current, label);
+    if (parents.length !== 1) {
+      throw new Error(`${label} requires an unambiguous single-parent commit chain`);
+    }
+    [current] = parents;
+  }
+  throw new Error(`${label} ancestry proof was indeterminate`);
+}
+
 async function currentAutonomySnapshot(manifest, contract, state) {
   return captureAutonomyReadinessSnapshot(
     manifest.cwd,
@@ -4692,21 +4758,21 @@ export async function autonomousCommitAllocation(manifest, actions, snapshot) {
   if (!SHA.test(sourceHead ?? "") || !SHA.test(snapshot?.headRevision ?? "")) {
     throw new Error("Autonomy commit allocation requires exact source and current head revisions");
   }
-  const ancestry = await execBoundGitAuthority(manifest.cwd, [
-    "merge-base", "--is-ancestor", sourceHead, snapshot.headRevision
-  ], { allowFailure: true });
-  if (!ancestry.ok) {
-    if (Number(ancestry.code) === 1 && !ancestry.signal) {
-      throw new Error("Autonomy commit allocation denied because the current head left the immutable source ancestry");
-    }
-    throw new Error(`Autonomy commit ancestry was indeterminate: ${String(ancestry.stderr || ancestry.code).trim()}`);
+  const maxCommits = manifest.autonomyProfile?.limits?.maxCommits;
+  if (!Number.isSafeInteger(maxCommits) || maxCommits < 1) {
+    throw new Error("Autonomy commit allocation requires a positive maxCommits bound");
   }
-  const countOutput = (await execBoundGitAuthority(manifest.cwd, [
-    "rev-list", "--count", `${sourceHead}..${snapshot.headRevision}`
-  ])).stdout.trim();
-  const ancestryCount = Number(countOutput);
-  if (!Number.isSafeInteger(ancestryCount) || ancestryCount < 0) {
-    throw new Error("Autonomy commit ancestry count is invalid");
+  let ancestryCount;
+  try {
+    ancestryCount = await rawLinearCommitDistance(
+      manifest.cwd,
+      sourceHead,
+      snapshot.headRevision,
+      maxCommits,
+      "Autonomy commit allocation"
+    );
+  } catch (error) {
+    throw new Error(`Autonomy commit allocation denied because raw commit ancestry could not be proven: ${error.message}`);
   }
   const outstanding = actions.filter((action) => (
     action.action === "git.commit" &&
@@ -4908,18 +4974,18 @@ async function verifyAutonomousCommitTransition(manifest, contract, record) {
       ![record.preCommitSourceBinding.digest, current.digest].includes(manifest.autonomyProfile?.sourceBindingDigest)) {
     throw new Error("Autonomous Git commit reconciliation detected an unrelated operational source binding");
   }
-  const ancestry = await execBoundGitAuthority(manifest.cwd, [
-    "merge-base", "--is-ancestor", record.preCommitHeadRevision, current.headRevision
-  ], { allowFailure: true });
-  if (!ancestry.ok) {
-    if (Number(ancestry.code) === 1 && !ancestry.signal) {
-      throw new Error("Autonomous Git commit reconciliation left the consumed pre-action ancestry");
-    }
-    throw new Error(`Autonomous Git commit ancestry was indeterminate: ${String(ancestry.stderr || ancestry.code).trim()}`);
+  let advancedBy;
+  try {
+    advancedBy = await rawLinearCommitDistance(
+      manifest.cwd,
+      record.preCommitHeadRevision,
+      current.headRevision,
+      1,
+      "Autonomous Git commit transition"
+    );
+  } catch (error) {
+    throw new Error(`Autonomous Git commit reconciliation requires exactly one commit per consumed token: ${error.message}`);
   }
-  const advancedBy = Number((await execBoundGitAuthority(manifest.cwd, [
-    "rev-list", "--count", `${record.preCommitHeadRevision}..${current.headRevision}`
-  ])).stdout.trim());
   if (advancedBy !== 1) {
     throw new Error("Autonomous Git commit reconciliation requires exactly one commit per consumed token");
   }
@@ -4927,19 +4993,19 @@ async function verifyAutonomousCommitTransition(manifest, contract, record) {
   if (!SHA.test(sourceHead ?? "")) {
     throw new Error("Autonomous Git commit reconciliation lacks the immutable source-head anchor");
   }
-  const sourceAncestry = await execBoundGitAuthority(manifest.cwd, [
-    "merge-base", "--is-ancestor", sourceHead, current.headRevision
-  ], { allowFailure: true });
-  if (!sourceAncestry.ok) {
-    if (Number(sourceAncestry.code) === 1 && !sourceAncestry.signal) {
-      throw new Error("Autonomous Git commit reconciliation left the immutable source ancestry");
-    }
-    throw new Error(`Autonomous Git source ancestry was indeterminate: ${String(sourceAncestry.stderr || sourceAncestry.code).trim()}`);
-  }
-  const totalCommits = Number((await execBoundGitAuthority(manifest.cwd, [
-    "rev-list", "--count", `${sourceHead}..${current.headRevision}`
-  ])).stdout.trim());
   const maxCommits = contract.autonomyProfile?.limits?.maxCommits;
+  let totalCommits;
+  try {
+    totalCommits = await rawLinearCommitDistance(
+      manifest.cwd,
+      sourceHead,
+      current.headRevision,
+      maxCommits,
+      "Autonomous Git commit source ancestry"
+    );
+  } catch (error) {
+    throw new Error(`Autonomous Git commit reconciliation exceeded maxCommits=${maxCommits} or left raw source ancestry: ${error.message}`);
+  }
   if (!Number.isSafeInteger(totalCommits) || totalCommits < 0 || totalCommits > maxCommits) {
     throw new Error(`Autonomous Git commit reconciliation exceeded maxCommits=${maxCommits}`);
   }

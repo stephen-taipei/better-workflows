@@ -305,6 +305,25 @@ test("autonomy action issuance and consumption revalidate the exact readiness sn
   );
 });
 
+test("autonomy commit issuance rejects legacy graft metadata after preflight", async () => {
+  const fixture = await autonomyActionFixture();
+  await writeFile(
+    path.join(fixture.repository, ".git", "info", "grafts"),
+    "# repository-local ancestry rewriting is forbidden\n"
+  );
+  await assert.rejects(
+    issueActionToken(
+      fixture.stateRoot,
+      fixture.run.runId,
+      autonomyCommitRequest(fixture.sourceHead, "grafted"),
+      fixture.sentinelDigest,
+      await loadDefaults()
+    ),
+    /Legacy Git graft ancestry metadata is not allowed/
+  );
+  assert.deepEqual((await inspectRun(fixture.stateRoot, fixture.run.runId)).actions, []);
+});
+
 test("autonomy maxCommits counts immutable ancestry and outstanding tokens", async () => {
   const fixture = await autonomyActionFixture();
   for (let index = 0; index < fixture.profile.limits.maxCommits - 1; index += 1) {
@@ -333,6 +352,39 @@ test("autonomy maxCommits counts immutable ancestry and outstanding tokens", asy
     outstanding: 1,
     allocated: fixture.profile.limits.maxCommits
   });
+});
+
+test("autonomy commit allocation reads raw parents instead of forged legacy graft ancestry", async () => {
+  const fixture = await autonomyActionFixture();
+  await execFileAsync("git", ["commit", "--allow-empty", "-qm", "first real commit"], {
+    cwd: fixture.repository
+  });
+  await execFileAsync("git", ["commit", "--allow-empty", "-qm", "second real commit"], {
+    cwd: fixture.repository
+  });
+  const forgedHead = (await execFileAsync("git", ["rev-parse", "HEAD"], {
+    cwd: fixture.repository,
+    encoding: "utf8"
+  })).stdout.trim();
+  const inspected = await inspectRun(fixture.stateRoot, fixture.run.runId);
+  const snapshot = await captureAutonomyReadinessSnapshot(
+    fixture.repository,
+    fixture.binding,
+    inspected.manifest.autonomyProfile.sourceBindingDigest,
+    { sentinelDigest: fixture.sentinelDigest }
+  );
+  await writeFile(
+    path.join(fixture.repository, ".git", "info", "grafts"),
+    `${forgedHead} ${fixture.sourceHead}\n`
+  );
+  const legacyCount = (await execFileAsync("git", [
+    "--no-replace-objects", "rev-list", "--count", `${fixture.sourceHead}..${forgedHead}`
+  ], { cwd: fixture.repository, encoding: "utf8" })).stdout.trim();
+  assert.equal(legacyCount, "1");
+
+  const allocation = await autonomousCommitAllocation(inspected.manifest, [], snapshot);
+  assert.equal(allocation.ancestryCount, 2);
+  assert.equal(allocation.allocated, 2);
 });
 
 test("autonomy commit issuance rejects a readiness head that advanced outside the operational source binding", async () => {
@@ -391,10 +443,18 @@ test("autonomy reconciliation rejects two commits created under one consumed tok
     cwd: fixture.repository,
     encoding: "utf8"
   })).stdout.trim();
+  await writeFile(
+    path.join(fixture.repository, ".git", "info", "grafts"),
+    `${revision} ${fixture.sourceHead}\n`
+  );
+  const forgedCount = (await execFileAsync("git", [
+    "--no-replace-objects", "rev-list", "--count", `${fixture.sourceHead}..${revision}`
+  ], { cwd: fixture.repository, encoding: "utf8" })).stdout.trim();
+  assert.equal(forgedCount, "1");
   const receipt = await autonomyCommitSuccessReceipt(fixture, spent, revision, "commit-proof-two-for-one");
   await assert.rejects(
     reconcileAction(fixture.stateRoot, fixture.run.runId, spent.attemptId, "success", receipt),
-    /exactly one commit per consumed token/
+    /Legacy Git graft ancestry metadata is not allowed|exactly one commit per consumed token/
   );
   const inspected = await inspectRun(fixture.stateRoot, fixture.run.runId);
   assert.equal(inspected.manifest.sourceBinding.headRevision, fixture.sourceHead);
@@ -803,6 +863,7 @@ test("git push execution clears ambient helpers and binds one captured credentia
       GIT_CONFIG_SYSTEM: "/dev/null",
       GIT_CONFIG_NOSYSTEM: "1",
       GIT_NO_REPLACE_OBJECTS: "1",
+      GIT_GRAFT_FILE: "/dev/null",
       GIT_OPTIONAL_LOCKS: "0",
       GIT_ASKPASS: "/usr/bin/false",
       SSH_ASKPASS: "/usr/bin/false",
