@@ -526,7 +526,7 @@ function assertNoAmbientGitAuthorityOverrides() {
   }
 }
 
-export const VERSION = "3.3.3";
+export const VERSION = "3.3.4";
 export const MODES = new Set(["auto", "direct", "verified", "deep", "critical"]);
 export const RUN_STATES = new Set([
   "pending",
@@ -958,6 +958,25 @@ export async function appendJournal(root, runDir, event, details = {}) {
   }
   await chmod(target, 0o600);
   return record;
+}
+
+async function appendJournalOnceForAttempt(root, runDir, event, attemptId, details = {}) {
+  const target = safeJoin(runDir, "journal.jsonl");
+  await assertNoSymlinkUnder(root, target);
+  if (await pathExists(target)) {
+    const info = await lstat(target);
+    if (info.isSymbolicLink() || !info.isFile() || info.nlink !== 1) {
+      throw new Error(`Unsafe journal path: ${target}`);
+    }
+    const records = (await readFile(target, "utf8"))
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+    if (records.some((record) => (
+      record.event === event && [record.attemptId, record.actionAttemptId].includes(attemptId)
+    ))) return null;
+  }
+  return appendJournal(root, runDir, event, { attemptId, ...details });
 }
 
 export async function loadDefaults() {
@@ -4668,7 +4687,7 @@ async function currentAutonomySnapshot(manifest, contract, state) {
   );
 }
 
-async function autonomousCommitAllocation(manifest, actions, snapshot) {
+export async function autonomousCommitAllocation(manifest, actions, snapshot) {
   const sourceHead = manifest.autonomyProfile?.sourceHeadRevision;
   if (!SHA.test(sourceHead ?? "") || !SHA.test(snapshot?.headRevision ?? "")) {
     throw new Error("Autonomy commit allocation requires exact source and current head revisions");
@@ -4766,11 +4785,15 @@ async function boundedAutonomousCommitDiff(manifest, contract, record, currentHe
   let committedPathResult;
   try {
     [committedDiff, committedPathResult] = await Promise.all([
-      execBoundGitAuthority(manifest.cwd, ["diff", "--binary", preCommitHead, currentHead, "--"], {
+      execBoundGitAuthority(manifest.cwd, [
+        "diff", "--no-ext-diff", "--no-textconv", "--binary", preCommitHead, currentHead, "--"
+      ], {
         encoding: "buffer",
         maxBuffer
       }),
-      execBoundGitAuthority(manifest.cwd, ["diff", "--name-only", "-z", preCommitHead, currentHead, "--"], {
+      execBoundGitAuthority(manifest.cwd, [
+        "diff", "--no-ext-diff", "--no-textconv", "--name-only", "-z", preCommitHead, currentHead, "--"
+      ], {
         encoding: "buffer",
         maxBuffer
       })
@@ -4806,6 +4829,8 @@ async function boundedAutonomousCommitDiff(manifest, contract, record, currentHe
     try {
       trackedDiff = await execBoundGitAuthority(manifest.cwd, [
         "diff",
+        "--no-ext-diff",
+        "--no-textconv",
         "--binary",
         preCommitHead,
         currentHead,
@@ -4858,6 +4883,8 @@ async function verifyAutonomousCommitTransition(manifest, contract, record) {
     !recorded || record.preCommitSourceBinding.schemaVersion !== 3 ||
     !SHA256_DIGEST.test(recorded.digest ?? "") || digestObject(recorded.payload) !== recorded.digest ||
     !SHA.test(record.preCommitHeadRevision ?? "") ||
+    record.preCommitSourceBinding.digest !== record.autonomySnapshot?.sourceBindingDigest ||
+    record.preCommitSourceBinding.headRevision !== record.preCommitHeadRevision ||
     record.preCommitHeadRevision !== record.autonomySnapshot?.headRevision
   ) {
     throw new Error("Autonomous Git commit reconciliation lacks an immutable pre-action source binding");
@@ -5249,6 +5276,13 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
       if (request.action === "git.commit") {
         if (!manifest.sourceBinding || manifest.sourceBinding.schemaVersion !== 3) {
           throw new Error("Autonomous Git commit issuance requires a schema-3 operational source binding");
+        }
+        if (
+          manifest.sourceBinding.digest !== manifest.autonomyProfile?.sourceBindingDigest ||
+          manifest.sourceBinding.digest !== autonomySnapshot.sourceBindingDigest ||
+          manifest.sourceBinding.headRevision !== autonomySnapshot.headRevision
+        ) {
+          throw new Error("Autonomous Git commit issuance requires the readiness snapshot to match the operational source binding");
         }
         actionBinding.preCommitSourceBinding = manifest.sourceBinding;
         actionBinding.preCommitHeadRevision = autonomySnapshot.headRevision;
@@ -5981,7 +6015,7 @@ async function finalizePluginCacheReadiness(runId, attemptId, providerReceipt) {
   return verifyPluginCacheReady(binding);
 }
 
-async function transitionAutonomousCommitSourceBinding(root, runDir, contract, record) {
+async function transitionAutonomousCommitSourceBinding(root, runDir, contract, record, onBoundary = () => {}) {
   const manifestPath = safeJoin(runDir, "manifest.json");
   const statePath = safeJoin(runDir, "state.json");
   const manifest = await readJson(root, manifestPath);
@@ -6036,6 +6070,7 @@ async function transitionAutonomousCommitSourceBinding(root, runDir, contract, r
       updatedAt: transitionedAt
     };
     await atomicWriteJson(root, manifestPath, nextManifest);
+    await onBoundary("source-manifest");
     manifestChanged = true;
   }
   const stateTransition = state.autonomousCommitTransition;
@@ -6074,16 +6109,15 @@ async function transitionAutonomousCommitSourceBinding(root, runDir, contract, r
       },
       updatedAt: transitionedAt
     });
+    await onBoundary("source-state");
   }
-  if (manifestChanged || !stateReadyForFreshPreflight) {
-    await appendJournal(root, runDir, "source-binding.autonomous-commit", {
-      actionAttemptId: record.attemptId,
-      from: priorDigest,
-      to: current.digest,
-      previousHeadRevision: record.preCommitHeadRevision,
-      headRevision: current.headRevision
-    });
-  }
+  await appendJournalOnceForAttempt(root, runDir, "source-binding.autonomous-commit", record.attemptId, {
+    actionAttemptId: record.attemptId,
+    from: priorDigest,
+    to: current.digest,
+    previousHeadRevision: record.preCommitHeadRevision,
+    headRevision: current.headRevision
+  });
   return {
     sourceBinding: current,
     transitionedAt,
@@ -6091,7 +6125,7 @@ async function transitionAutonomousCommitSourceBinding(root, runDir, contract, r
   };
 }
 
-async function invalidateEvidenceAfterAutonomousCommit(root, runDir, record, transitionedAt) {
+async function invalidateEvidenceAfterAutonomousCommit(root, runDir, record, transitionedAt, onBoundary = () => {}) {
   const evidence = await listJsonRecords(root, safeJoin(runDir, "evidence"));
   let invalidated = 0;
   for (const item of evidence) {
@@ -6103,6 +6137,7 @@ async function invalidateEvidenceAfterAutonomousCommit(root, runDir, record, tra
       staleReason: `autonomous-commit-reconciled:${record.attemptId}`
     });
     invalidated += 1;
+    await onBoundary("evidence-invalidation");
   }
   if (invalidated > 0) {
     await appendJournal(root, runDir, "evidence.invalidated", {
@@ -6114,10 +6149,28 @@ async function invalidateEvidenceAfterAutonomousCommit(root, runDir, record, tra
   return invalidated;
 }
 
-export async function reconcileAction(root, runId, attemptId, outcome, receipt = null) {
+const AUTONOMOUS_COMMIT_RECONCILE_FAILURE_POINTS = new Set([
+  "provider-reservation",
+  "source-manifest",
+  "source-state",
+  "action-persistence",
+  "evidence-invalidation"
+]);
+
+export async function reconcileAction(root, runId, attemptId, outcome, receipt = null, {
+  failAfter = null
+} = {}) {
   if (!["success", "failure", "unknown"].includes(outcome)) {
     throw new Error("Action outcome must be success, failure, or unknown");
   }
+  if (failAfter !== null && !AUTONOMOUS_COMMIT_RECONCILE_FAILURE_POINTS.has(failAfter)) {
+    throw new Error("Autonomous Git commit reconciliation failure point is invalid");
+  }
+  const onBoundary = async (point) => {
+    if (failAfter === point) {
+      throw new Error(`Injected autonomous Git commit reconciliation failure after ${point}`);
+    }
+  };
   return withRunLock(root, runId, async ({ runDir }) => {
     const run = await loadRun(root, runId);
     assertMutableRun(run, "Action reconciliation");
@@ -6126,6 +6179,13 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
     if (!record) throw new Error(`Unknown action attempt: ${attemptId}`);
     assertSupportedGovernedAction(record.action);
     assertActionIsNotDeferred(run.contract, record.action);
+    if (failAfter !== null && !(
+      record.action === "git.commit" &&
+      record.provider === "git" &&
+      record.autonomyDecision?.decision === "auto-approved"
+    )) {
+      throw new Error("Reconciliation failure injection is restricted to autonomous Git commits");
+    }
     if (OWNED_RESOURCE_CREATION_ACTIONS.has(record.action)) {
       validateCreationReservationIdentity(record.creationReservation);
     }
@@ -6172,10 +6232,9 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
       validateActionReceipt(record, outcome, receipt);
       const manifest = await readJson(root, safeJoin(runDir, "manifest.json"));
       await verifyProviderReceipt(manifest, { ...record, outcome: "success" }, receipt, run.contract);
-      const transition = await transitionAutonomousCommitSourceBinding(root, runDir, run.contract, record);
-      await invalidateEvidenceAfterAutonomousCommit(root, runDir, record, transition.transitionedAt);
-      await appendJournal(root, runDir, "action.autonomous-commit-transition-repaired", {
-        attemptId,
+      const transition = await transitionAutonomousCommitSourceBinding(root, runDir, run.contract, record, onBoundary);
+      await invalidateEvidenceAfterAutonomousCommit(root, runDir, record, transition.transitionedAt, onBoundary);
+      await appendJournalOnceForAttempt(root, runDir, "action.autonomous-commit-transition-repaired", attemptId, {
         sourceBindingDigest: transition.sourceBinding.digest
       });
       return record;
@@ -6305,13 +6364,14 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
     }
     await verifyProviderReceipt(manifest, { ...record, outcome }, receipt, run.contract);
     await reserveProviderExecution(root, record, receipt.providerReceipt.executionId, outcome);
+    await onBoundary("provider-reservation");
     const autonomousCommitTransition = (
       record.action === "git.commit" &&
       record.provider === "git" &&
       outcome === "success" &&
       record.autonomyDecision?.decision === "auto-approved"
     )
-      ? await transitionAutonomousCommitSourceBinding(root, runDir, run.contract, record)
+      ? await transitionAutonomousCommitSourceBinding(root, runDir, run.contract, record, onBoundary)
       : null;
     const target = safeJoin(runDir, "actions", `${record.tokenHash}.json`);
     const next = {
@@ -6334,8 +6394,15 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
         : {})
     };
     await atomicWriteJson(root, target, next);
+    await onBoundary("action-persistence");
     if (autonomousCommitTransition) {
-      await invalidateEvidenceAfterAutonomousCommit(root, runDir, record, autonomousCommitTransition.transitionedAt);
+      await invalidateEvidenceAfterAutonomousCommit(
+        root,
+        runDir,
+        record,
+        autonomousCommitTransition.transitionedAt,
+        onBoundary
+      );
     }
     if (record.action === "plugin.cache.publish" && outcome === "success") {
       await finalizePluginCacheReadiness(runId, attemptId, receipt.providerReceipt);

@@ -14,7 +14,7 @@ import {
   loadAutonomyProfile,
   validateAutonomyProfile
 } from "../lib/autonomy.mjs";
-import { buildContract } from "../lib/core.mjs";
+import { buildContract, sha256 } from "../lib/core.mjs";
 import {
   assertHostBundleMatchesStatus,
   hostBundleDigest,
@@ -424,6 +424,17 @@ test("autonomy readiness snapshot binds same-SHA branch, path scope, and diff li
   assert.equal(initial.repository, "github.com/example/repository");
   assert.equal(initial.changedFiles, 0);
   assert.equal(initial.sentinelDigest, sentinelDigest);
+
+  await execFileAsync(SYSTEM_GIT, ["config", "diff.external", "/bin/echo"], { cwd: root });
+  await writeFile(path.join(root, "README.md"), "external diff must not replace authority bytes\n");
+  const hardened = await captureAutonomyReadinessSnapshotFromSource(root, binding, sourceBindingDigest, { sentinelDigest });
+  const expectedDiff = (await execFileAsync(SYSTEM_GIT, [
+    "diff", "--no-ext-diff", "--no-textconv", "--binary", "HEAD"
+  ], { cwd: root, encoding: "buffer" })).stdout;
+  assert.equal(hardened.trackedDiffBytes, expectedDiff.byteLength);
+  assert.equal(hardened.trackedDiffDigest, sha256(expectedDiff));
+  await execFileAsync(SYSTEM_GIT, ["config", "--unset", "diff.external"], { cwd: root });
+  await writeFile(path.join(root, "README.md"), "autonomy preflight\n");
 
   await assert.rejects(
     captureAutonomyReadinessSnapshotFromSource(root, binding, sourceBindingDigest, {

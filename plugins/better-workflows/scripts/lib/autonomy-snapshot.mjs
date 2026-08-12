@@ -162,9 +162,9 @@ export async function inspectAutonomyChanges(cwd, { limits, pathScope, runGit })
   let pathResults;
   try {
     [trackedDiff, ...pathResults] = await Promise.all([
-      runGit(["diff", "--binary", "HEAD"], { encoding: "buffer", maxBuffer }),
+      runGit(["diff", "--no-ext-diff", "--no-textconv", "--binary", "HEAD"], { encoding: "buffer", maxBuffer }),
       runGit(["ls-files", "--others", "--exclude-standard", "-z"], { encoding: "buffer", maxBuffer }),
-      runGit(["diff", "--name-only", "-z", "HEAD"], { encoding: "buffer", maxBuffer })
+      runGit(["diff", "--no-ext-diff", "--no-textconv", "--name-only", "-z", "HEAD"], { encoding: "buffer", maxBuffer })
     ]);
   } catch (error) {
     if (outputLimitExceeded(error)) return { ok: false, reason: "diff-byte-limit" };

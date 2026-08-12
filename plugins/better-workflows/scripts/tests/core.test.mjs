@@ -4,12 +4,15 @@ import { execFile } from "node:child_process";
 import {
   access,
   chmod,
+  cp,
   link,
   lstat,
   mkdtemp,
   mkdir,
+  readdir,
   readFile,
   realpath,
+  rm,
   stat,
   symlink,
   unlink,
@@ -17,9 +20,11 @@ import {
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import {
   addEvidence,
+  autonomousCommitAllocation,
   assertCurrentGitPushSourceBinding,
   assertProviderReceiptShape,
   buildBoundGitPushArgs,
@@ -70,6 +75,7 @@ import { buildAutonomyBinding, loadAutonomyProfile } from "../lib/autonomy.mjs";
 import { checkPluginCache, publishPluginCache, verifyPluginCacheReady } from "../lib/publication.mjs";
 
 const execFileAsync = promisify(execFile);
+const SBW_CLI = fileURLToPath(new URL("../sbw.mjs", import.meta.url));
 
 test("bounded process teardown refuses a recycled PGID when the stable leader is gone", () => {
   const pid = 424243;
@@ -111,7 +117,10 @@ function contract(overrides = {}) {
   return value;
 }
 
-async function autonomyActionFixture() {
+async function autonomyActionFixture({
+  remoteUrl = "https://github.com/example/repository.git",
+  repositoryIdentity = "github.com/example/repository"
+} = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "sbw-autonomy-action-"));
   const repository = path.join(root, "repository");
   const stateRoot = path.join(root, "state");
@@ -119,14 +128,14 @@ async function autonomyActionFixture() {
   await execFileAsync("git", ["init", "-q", "-b", "codex/autonomy"], { cwd: repository });
   await execFileAsync("git", ["config", "user.email", "autonomy@example.invalid"], { cwd: repository });
   await execFileAsync("git", ["config", "user.name", "Autonomy Test"], { cwd: repository });
-  await execFileAsync("git", ["remote", "add", "origin", "https://github.com/example/repository.git"], { cwd: repository });
+  await execFileAsync("git", ["remote", "add", "origin", remoteUrl], { cwd: repository });
   await writeFile(path.join(repository, "allowed", "tracked.txt"), "baseline\n");
   await execFileAsync("git", ["add", "."], { cwd: repository });
   await execFileAsync("git", ["commit", "-qm", "baseline"], { cwd: repository });
   const sourceHead = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repository, encoding: "utf8" })).stdout.trim();
   const profile = await loadAutonomyProfile();
   const binding = buildAutonomyBinding(profile, {
-    repository: "github.com/example/repository",
+    repository: repositoryIdentity,
     branch: "codex/autonomy",
     pathScope: ["allowed"]
   });
@@ -308,29 +317,53 @@ test("autonomy maxCommits counts immutable ancestry and outstanding tokens", asy
     inspected.manifest.autonomyProfile.sourceBindingDigest,
     { sentinelDigest: fixture.sentinelDigest }
   );
+  const ancestryOnly = await autonomousCommitAllocation(inspected.manifest, [], snapshot);
+  assert.deepEqual(ancestryOnly, {
+    ancestryCount: fixture.profile.limits.maxCommits - 1,
+    outstanding: 0,
+    allocated: fixture.profile.limits.maxCommits - 1
+  });
+  const withOutstanding = await autonomousCommitAllocation(inspected.manifest, [{
+    action: "git.commit",
+    status: "issued",
+    autonomyDecision: { decision: "auto-approved" }
+  }], snapshot);
+  assert.deepEqual(withOutstanding, {
+    ancestryCount: fixture.profile.limits.maxCommits - 1,
+    outstanding: 1,
+    allocated: fixture.profile.limits.maxCommits
+  });
+});
+
+test("autonomy commit issuance rejects a readiness head that advanced outside the operational source binding", async () => {
+  const fixture = await autonomyActionFixture();
+  await execFileAsync("git", ["commit", "--allow-empty", "-qm", "ungoverned commit"], {
+    cwd: fixture.repository
+  });
+  const inspected = await inspectRun(fixture.stateRoot, fixture.run.runId);
+  const advancedSnapshot = await captureAutonomyReadinessSnapshot(
+    fixture.repository,
+    fixture.binding,
+    inspected.manifest.autonomyProfile.sourceBindingDigest,
+    { sentinelDigest: fixture.sentinelDigest }
+  );
+  assert.notEqual(advancedSnapshot.headRevision, inspected.manifest.sourceBinding.headRevision);
   await updateState(fixture.stateRoot, fixture.run.runId, (state) => ({
     ...state,
-    autonomy: { ...state.autonomy, status: "ready", snapshot }
+    autonomy: { ...state.autonomy, status: "ready", snapshot: advancedSnapshot }
   }));
-  const defaults = await loadDefaults();
-  const twelfth = await issueActionToken(
-    fixture.stateRoot,
-    fixture.run.runId,
-    autonomyCommitRequest(fixture.sourceHead, "twelfth"),
-    fixture.sentinelDigest,
-    defaults
-  );
-  assert.equal(twelfth.autonomyDecision.decision, "auto-approved");
+
   await assert.rejects(
     issueActionToken(
       fixture.stateRoot,
       fixture.run.runId,
-      autonomyCommitRequest(fixture.sourceHead, "thirteenth"),
+      autonomyCommitRequest(fixture.sourceHead, "after-ungoverned"),
       fixture.sentinelDigest,
-      defaults
+      await loadDefaults()
     ),
-    /reached maxCommits=12/
+    /readiness snapshot to match the operational source binding/
   );
+  assert.deepEqual((await inspectRun(fixture.stateRoot, fixture.run.runId)).actions, []);
 });
 
 test("autonomy reconciliation rejects two commits created under one consumed token", async () => {
@@ -370,6 +403,7 @@ test("autonomy reconciliation rejects two commits created under one consumed tok
 
 test("a reconciled autonomous commit rotates the operational binding and reopens the governed push source gate after fresh preflight", async () => {
   const fixture = await autonomyActionFixture();
+  await execFileAsync("git", ["config", "diff.external", "/bin/echo"], { cwd: fixture.repository });
   await writeFile(path.join(fixture.repository, "allowed", "tracked.txt"), "approved autonomous change\n");
   await writeFile(path.join(fixture.repository, "allowed", "created.txt"), "approved autonomous file\n");
   const approvedSnapshot = await captureAutonomyReadinessSnapshot(
@@ -463,6 +497,215 @@ test("a reconciled autonomous commit rotates the operational binding and reopens
   assert.equal(pushSourceBinding.digest, inspected.manifest.sourceBinding.digest);
   assert.equal(pushSourceBinding.headRevision, revision);
   assert.equal((await resolveGitPushDestination(fixture.repository, "origin")).remoteRepository, fixture.binding.repository);
+});
+
+test("live integration: fresh autonomy preflight issues the same run's governed push token after commit reconciliation", {
+  skip: !process.env.SBW_LIVE_GITHUB_REPOSITORY
+}, async () => {
+  const repositoryIdentity = String(process.env.SBW_LIVE_GITHUB_REPOSITORY);
+  assert.match(repositoryIdentity, /^github\.com\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/);
+  const fixture = await autonomyActionFixture({
+    repositoryIdentity,
+    remoteUrl: `https://${repositoryIdentity}.git`
+  });
+  await writeFile(path.join(fixture.repository, "allowed", "tracked.txt"), "live governed transition\n");
+  const approvedSnapshot = await captureAutonomyReadinessSnapshot(
+    fixture.repository,
+    fixture.binding,
+    (await inspectRun(fixture.stateRoot, fixture.run.runId)).manifest.autonomyProfile.sourceBindingDigest,
+    { sentinelDigest: fixture.sentinelDigest }
+  );
+  await updateState(fixture.stateRoot, fixture.run.runId, (state) => ({
+    ...state,
+    autonomy: { ...state.autonomy, status: "ready", snapshot: approvedSnapshot }
+  }));
+  const issuedCommit = await issueActionToken(
+    fixture.stateRoot,
+    fixture.run.runId,
+    { ...autonomyCommitRequest(fixture.sourceHead, "live-push"), resource: "git:commit" },
+    fixture.sentinelDigest,
+    await loadDefaults()
+  );
+  const spentCommit = await consumeActionToken(
+    fixture.stateRoot,
+    fixture.run.runId,
+    issuedCommit.token,
+    fixture.sentinelDigest
+  );
+  await execFileAsync("git", ["add", "allowed/tracked.txt"], { cwd: fixture.repository });
+  await execFileAsync("git", ["commit", "-qm", "live governed commit"], { cwd: fixture.repository });
+  const revision = (await execFileAsync("git", ["rev-parse", "HEAD"], {
+    cwd: fixture.repository,
+    encoding: "utf8"
+  })).stdout.trim();
+  const commitReceipt = await autonomyCommitSuccessReceipt(
+    fixture,
+    spentCommit,
+    revision,
+    "commit-proof-live-push"
+  );
+  await reconcileAction(fixture.stateRoot, fixture.run.runId, spentCommit.attemptId, "success", commitReceipt);
+
+  const cliEnvironment = { ...process.env, SBW_STATE_ROOT: fixture.stateRoot };
+  await execFileAsync(process.execPath, [SBW_CLI, "sentinel", "capture", fixture.run.runId, "--label", "post-commit"], {
+    cwd: fixture.repository,
+    env: cliEnvironment,
+    encoding: "utf8"
+  });
+  await execFileAsync(process.execPath, [SBW_CLI, "autonomy", "preflight", fixture.run.runId], {
+    cwd: fixture.repository,
+    env: cliEnvironment,
+    encoding: "utf8"
+  });
+  const actor = (await execFileAsync("gh", ["api", "user", "--jq", ".login"], {
+    cwd: fixture.repository,
+    encoding: "utf8"
+  })).stdout.trim();
+  await addEvidence(fixture.stateRoot, fixture.run.runId, {
+    id: "post-commit-preflight",
+    kind: "preflight",
+    summary: "Fresh real autonomy preflight after governed commit",
+    status: "complete",
+    acceptanceIds: [],
+    sourceDigest: sha256("post-commit-preflight")
+  });
+  await addEvidence(fixture.stateRoot, fixture.run.runId, {
+    id: "post-commit-current-branch",
+    kind: "current-branch",
+    summary: "Current codex branch at reconciled commit",
+    status: "complete",
+    acceptanceIds: [],
+    sourceDigest: sha256(`current-branch:${revision}`),
+    receipt: { producer: "git", payload: { ref: "codex/autonomy", revision } }
+  });
+  const pushResource = "remote:origin:refs/heads/codex/autonomy";
+  await addEvidence(fixture.stateRoot, fixture.run.runId, {
+    id: "post-commit-remote-authorization",
+    kind: "remote-authorization",
+    summary: "Live GitHub actor and dry-run authorization",
+    status: "complete",
+    acceptanceIds: [],
+    sourceDigest: sha256(`remote-authorization:${actor}:${revision}`),
+    receipt: {
+      producer: "git",
+      payload: {
+        action: "git.push",
+        provider: "git",
+        resource: pushResource,
+        remoteRevision: fixture.sourceHead,
+        repository: repositoryIdentity,
+        actor,
+        remote: "origin",
+        ref: "refs/heads/codex/autonomy",
+        credentialCheck: "github-cli-token-actor"
+      }
+    }
+  });
+  const ready = await inspectRun(fixture.stateRoot, fixture.run.runId);
+  const push = await issueActionToken(
+    fixture.stateRoot,
+    fixture.run.runId,
+    {
+      action: "git.push",
+      provider: "git",
+      resource: pushResource,
+      remoteRevision: fixture.sourceHead,
+      requiredEvidence: ["preflight", "remote-authorization", "current-branch"]
+    },
+    ready.state.lastSentinel.digest,
+    await loadDefaults()
+  );
+  assert.equal(push.status, "issued");
+  assert.equal(push.expectedRevision, revision);
+  assert.equal(push.sourceBindingDigest, ready.manifest.sourceBinding.digest);
+  assert.equal(push.autonomyDecision.decision, "auto-approved");
+});
+
+test("autonomous commit reconciliation repairs every persisted transition boundary idempotently", async () => {
+  const fixture = await autonomyActionFixture();
+  await writeFile(path.join(fixture.repository, "allowed", "tracked.txt"), "crash-retry change\n");
+  const approvedSnapshot = await captureAutonomyReadinessSnapshot(
+    fixture.repository,
+    fixture.binding,
+    (await inspectRun(fixture.stateRoot, fixture.run.runId)).manifest.autonomyProfile.sourceBindingDigest,
+    { sentinelDigest: fixture.sentinelDigest }
+  );
+  await updateState(fixture.stateRoot, fixture.run.runId, (state) => ({
+    ...state,
+    autonomy: { ...state.autonomy, status: "ready", snapshot: approvedSnapshot }
+  }));
+  const issued = await issueActionToken(
+    fixture.stateRoot,
+    fixture.run.runId,
+    { ...autonomyCommitRequest(fixture.sourceHead, "crash-retry"), resource: "git:commit" },
+    fixture.sentinelDigest,
+    await loadDefaults()
+  );
+  const spent = await consumeActionToken(
+    fixture.stateRoot,
+    fixture.run.runId,
+    issued.token,
+    fixture.sentinelDigest
+  );
+  await execFileAsync("git", ["add", "allowed/tracked.txt"], { cwd: fixture.repository });
+  await execFileAsync("git", ["commit", "-qm", "governed crash-retry commit"], { cwd: fixture.repository });
+  const revision = (await execFileAsync("git", ["rev-parse", "HEAD"], {
+    cwd: fixture.repository,
+    encoding: "utf8"
+  })).stdout.trim();
+  const receipt = await autonomyCommitSuccessReceipt(fixture, spent, revision, "commit-proof-crash-retry");
+  const baselineState = path.join(fixture.root, "state-before-reconcile");
+  await cp(fixture.stateRoot, baselineState, { recursive: true });
+
+  for (const failAfter of [
+    "provider-reservation",
+    "source-manifest",
+    "source-state",
+    "action-persistence",
+    "evidence-invalidation"
+  ]) {
+    await rm(fixture.stateRoot, { recursive: true, force: true });
+    await cp(baselineState, fixture.stateRoot, { recursive: true });
+    await assert.rejects(
+      reconcileAction(
+        fixture.stateRoot,
+        fixture.run.runId,
+        spent.attemptId,
+        "success",
+        receipt,
+        { failAfter }
+      ),
+      new RegExp(`Injected autonomous Git commit reconciliation failure after ${failAfter}`)
+    );
+    await reconcileAction(fixture.stateRoot, fixture.run.runId, spent.attemptId, "success", receipt);
+    await reconcileAction(fixture.stateRoot, fixture.run.runId, spent.attemptId, "success", receipt);
+
+    const inspected = await inspectRun(fixture.stateRoot, fixture.run.runId);
+    assert.equal(inspected.manifest.autonomyProfile.sourceHeadRevision, fixture.sourceHead);
+    assert.equal(inspected.manifest.sourceBinding.headRevision, revision);
+    assert.equal(inspected.state.status, "blocked");
+    assert.equal(inspected.state.autonomy.status, "blocked");
+    assert.equal(inspected.state.autonomy.snapshot, null);
+    assert.equal(inspected.state.lastSentinel, null);
+    assert.ok(inspected.evidence.every((item) => item.status !== "complete" || item.stale === true));
+    assert.equal(inspected.actions.length, 1);
+    assert.equal(inspected.actions[0].outcome, "success");
+    assert.equal(inspected.actions[0].sourceBindingTransition.headRevision, revision);
+    assert.equal(inspected.manifest.sourceBindingHistory.filter((item) => (
+      item.kind === "autonomous-commit" && item.actionAttemptId === spent.attemptId
+    )).length, 1);
+    assert.equal((await readdir(path.join(fixture.stateRoot, "provider-executions"))).length, 1);
+    const journal = (await readFile(path.join(inspected.runDir, "journal.jsonl"), "utf8"))
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+    assert.equal(journal.filter((item) => (
+      item.event === "source-binding.autonomous-commit" && item.attemptId === spent.attemptId
+    )).length, 1);
+    assert.equal(journal.filter((item) => (
+      item.event === "action.autonomous-commit-transition-repaired" && item.attemptId === spent.attemptId
+    )).length, 1);
+  }
 });
 
 test("git push action bindings persist the exact effective destination used by the fixed argv wrapper", () => {
