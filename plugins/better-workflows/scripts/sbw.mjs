@@ -1546,7 +1546,7 @@ async function commandRun(root, options) {
       ? receiptBinding.preview.input.scope
       : values(options.scope, ["."]).map(String);
     autonomyBinding = buildAutonomyBinding(profile, await captureAutonomyBindingContext(process.cwd(), pathScope));
-    if (receiptBinding?.preview?.autonomyProfile?.digest !== autonomyBinding.profileDigest) {
+    if (receiptBinding && receiptBinding.preview?.autonomyProfile?.digest !== autonomyBinding.profileDigest) {
       throw new Error("Route receipt autonomy profile digest does not match the installed immutable profile");
     }
     if (templateName !== "pr-to-dev") {
