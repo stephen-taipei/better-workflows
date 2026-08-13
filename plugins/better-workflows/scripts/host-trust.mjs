@@ -301,7 +301,6 @@ const EVALUATOR_DISABLED_FEATURES = Object.freeze([
   "standalone_web_search",
   "tool_call_mcp_elicitation",
   "tool_search",
-  "tool_search_always_defer_mcp_tools",
   "tool_suggest",
   "unavailable_dummy_tools",
   "unified_exec",
