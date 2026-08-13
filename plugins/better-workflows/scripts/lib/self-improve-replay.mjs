@@ -25,6 +25,7 @@ import {
   readSanitizedBaselineMaterial,
   readSanitizedCandidateMaterial,
   scoreEvaluation,
+  selectEvaluatorMigrationCases,
   selectEvaluationCases,
   selectQualityRemediationCases,
   selectSafetyRemediationCases,
@@ -32,11 +33,18 @@ import {
   snapshotCandidate
 } from "./self-improve.mjs";
 import { pluginBundleDigest } from "./routing.mjs";
+import {
+  consentDigest,
+  loadStandingConsentPolicy,
+  STANDING_CONSENT_MANIFEST_SCHEMA_VERSION,
+  validStandingAuthorization
+} from "./standing-consent.mjs";
+import { hostBundleDigest } from "./host-bundle.mjs";
 
 const HOST_EXECUTIONS_ROOT = "/private/var/db/better-workflows/executions";
 const SHA1 = /^[a-f0-9]{40}$/;
 const SHA256 = /^[a-f0-9]{64}$/;
-const EXPECTED_REPLAYS = new Set([
+const STANDARD_EXPECTED_REPLAYS = [
   "train-candidate:1",
   "candidate:1",
   "candidate:2",
@@ -44,7 +52,14 @@ const EXPECTED_REPLAYS = new Set([
   "baseline:1",
   "baseline:2",
   "baseline:3"
-]);
+];
+
+function expectedReplayKeys(purpose) {
+  return new Set([
+    ...STANDARD_EXPECTED_REPLAYS,
+    ...(purpose === "evaluator-migration" ? ["train-baseline:1"] : [])
+  ]);
+}
 
 function isPathWithin(root, target) {
   const relative = path.relative(root, target);
@@ -58,6 +73,16 @@ function requestRunAs(request) {
     homePath: request.homePath,
     codexHomePath: request.codexHomePath
   };
+}
+
+function materialFileManifest(snapshot) {
+  return (snapshot.files ?? []).map((file) => ({
+    path: file.path,
+    state: file.state,
+    digest: file.digest,
+    mode: file.mode ?? null,
+    size: file.size ?? null
+  }));
 }
 
 function validRunAs(value) {
@@ -89,7 +114,7 @@ export async function loadHostExecutionRequestManifest({
   const repository = await realpath(cwd);
   const policyBound = isPolicyBoundEvaluationPurpose(purpose);
   const policy = policyBound ? await loadPolicyBoundEvaluationPolicy({ cwd: repository, purpose }) : null;
-  const expectedManifestSchema = policyBound ? 3 : 2;
+  const expectedRequestCount = purpose === "evaluator-migration" ? 8 : 7;
   const resolvedManifest = path.resolve(manifestPath);
   if (isPathWithin(repository, resolvedManifest)) throw new Error("Execution request manifest must be outside the evaluated repository");
   const manifestInfo = await lstat(resolvedManifest);
@@ -99,6 +124,9 @@ export async function loadHostExecutionRequestManifest({
   const manifestBytes = await readFile(resolvedManifest);
   if (sha256(manifestBytes) !== manifestDigest) throw new Error("Execution request manifest digest does not match the confirmed manifest");
   const manifest = JSON.parse(manifestBytes.toString("utf8"));
+  const standing = manifest.authorization !== undefined;
+  const standingPolicy = standing ? await loadStandingConsentPolicy(repository) : null;
+  const expectedManifestSchema = standing ? STANDING_CONSENT_MANIFEST_SCHEMA_VERSION : policyBound ? 3 : 2;
   if (manifest.schemaVersion !== expectedManifestSchema || manifest.repo !== repository || manifest.runId !== runId || manifest.model !== model ||
       manifest.purpose !== purpose || manifest.suiteDigest !== suiteDigest || manifest.baselineRevision !== frozen.baselineRevision ||
       manifest.candidateDigest !== candidate.digest || manifest.sourceSuiteDigest !== frozen.sourceDigest ||
@@ -106,10 +134,21 @@ export async function loadHostExecutionRequestManifest({
       !path.isAbsolute(manifest.binaryPath) || !SHA256.test(manifest.binaryApprovalDigest) || !SHA256.test(manifest.binaryDigest) ||
       !SHA1.test(manifest.headRevision) || !SHA256.test(manifest.sourceBindingDigest) || !SHA256.test(manifest.pluginBundleDigest) ||
       typeof manifest.runtimePath !== "string" || !path.isAbsolute(manifest.runtimePath) || !SHA256.test(manifest.runtimeDigest) ||
+      !manifest.hostBundle || typeof manifest.hostBundle !== "object" || manifest.hostBundle.schemaVersion !== 1 ||
+      manifest.hostBundle.protocolVersion !== 1 || manifest.hostBundle.runtimeDigest !== manifest.runtimeDigest ||
+      !SHA256.test(manifest.hostBundleDigest ?? "") || manifest.hostBundleDigest !== hostBundleDigest(manifest.hostBundle) ||
       !Array.isArray(manifest.candidateFiles) || digestObject(manifest.candidateFiles) !== digestObject(candidate.files) ||
       manifest.policyPath !== (policy?.path ?? undefined) || manifest.policyId !== (policy?.policyId ?? undefined) ||
       manifest.policyVersion !== (policy?.version ?? undefined) || manifest.policyDigest !== (policy?.digest ?? undefined) ||
-      !Array.isArray(manifest.requests) || manifest.requests.length !== 7 || !validRunAs(manifest.runAs)) {
+      (standing && (!validStandingAuthorization(manifest.authorization) || manifest.authorization.repo !== repository ||
+        manifest.authorization.model !== model || manifest.authorization.purpose !== purpose ||
+        manifest.authorization.requestCount !== expectedRequestCount ||
+        !SHA256.test(manifest.baselineSnapshotDigest ?? "") ||
+        manifest.standingConsentPolicyPath !== standingPolicy.relativePath ||
+        manifest.standingConsentPolicyDigest !== standingPolicy.digest || manifest.authorization.policyDigest !== standingPolicy.digest ||
+        digestObject(manifest.authorization.subject) !== digestObject({ ...manifest.runAs, username: manifest.authorization.subject.username }))) ||
+      (!standing && (manifest.standingConsentPolicyPath !== undefined || manifest.standingConsentPolicyDigest !== undefined || manifest.baselineSnapshotDigest !== undefined)) ||
+      !Array.isArray(manifest.requests) || manifest.requests.length !== expectedRequestCount || !validRunAs(manifest.runAs)) {
     throw new Error("Execution request manifest is not bound to this run, suite, model, and candidate");
   }
   const currentSourceBinding = await captureSourceBinding(repository, { baseRevision: frozen.baselineRevision, requireClean: true });
@@ -118,6 +157,12 @@ export async function loadHostExecutionRequestManifest({
   }
   if (await pluginBundleDigest() !== manifest.pluginBundleDigest) {
     throw new Error("Execution request manifest plugin bundle digest changed");
+  }
+  const standingCandidateMaterial = standing ? await readSanitizedCandidateMaterial({ cwd: repository, snapshot: candidate }) : null;
+  const standingBaseline = standing ? await snapshotBaselineForCandidate({ cwd: repository, snapshot: candidate }) : null;
+  const standingBaselineMaterial = standing ? await readSanitizedBaselineMaterial({ cwd: repository, snapshot: standingBaseline }) : null;
+  if (standing && manifest.baselineSnapshotDigest !== standingBaseline.digest) {
+    throw new Error("Standing execution request manifest baseline snapshot changed");
   }
   const completeJournal = path.join(HOST_EXECUTIONS_ROOT, `${manifestDigest}.batch.complete.json`);
   const journalInfo = await lstat(completeJournal);
@@ -128,8 +173,10 @@ export async function loadHostExecutionRequestManifest({
   const journal = JSON.parse((await readFile(completeJournal)).toString("utf8"));
   if (journal.schemaVersion !== 1 || journal.provider !== "codex" || journal.kind !== "execution-batch-journal" ||
       journal.state !== "complete" || journal.manifestDigest !== manifestDigest || !Array.isArray(journal.executionIds) ||
-      !Array.isArray(journal.requestDigests) || journal.executionIds.length !== 7 || journal.requestDigests.length !== 7 ||
-      journal.executionIds.length !== journal.outputs?.length) {
+      !Array.isArray(journal.requestDigests) || journal.executionIds.length !== expectedRequestCount || journal.requestDigests.length !== expectedRequestCount ||
+      journal.executionIds.length !== journal.outputs?.length ||
+      (standing && digestObject(journal.authorization) !== digestObject(manifest.authorization)) ||
+      (!standing && journal.authorization !== undefined)) {
     throw new Error("Completed host batch journal does not prove this request manifest");
   }
   const bindings = new Map();
@@ -150,6 +197,9 @@ export async function loadHostExecutionRequestManifest({
     const requestBytes = await readFile(requestPath);
     if (sha256(requestBytes) !== item.requestDigest) throw new Error("Execution request digest changed after administrator confirmation");
     const request = JSON.parse(requestBytes.toString("utf8"));
+    const baselineRole = item.role === "baseline" || item.role === "train-baseline";
+    const expectedSnapshot = baselineRole ? standingBaseline : candidate;
+    const expectedMaterials = baselineRole ? standingBaselineMaterial : standingCandidateMaterial;
     if (!validRunAs(requestRunAs(request)) || request.model !== manifest.model || request.pluginBundleDigest !== manifest.pluginBundleDigest ||
         request.binaryPath !== manifest.binaryPath || request.binaryApprovalDigest !== manifest.binaryApprovalDigest || request.binaryDigest !== manifest.binaryDigest ||
         digestObject(requestRunAs(request)) !== digestObject(manifest.runAs) || request.promptDigest !== item.promptDigest ||
@@ -157,6 +207,13 @@ export async function loadHostExecutionRequestManifest({
         request.execution?.headRevision !== manifest.headRevision || request.execution?.sourceBindingDigest !== manifest.sourceBindingDigest ||
         request.execution?.runId !== manifest.runId || request.execution?.suiteDigest !== manifest.suiteDigest ||
         request.execution?.baselineRevision !== manifest.baselineRevision || request.execution?.candidateDigest !== manifest.candidateDigest ||
+        (standing && (digestObject(request.authorization) !== digestObject(manifest.authorization) ||
+          digestObject(request.execution?.authorization) !== digestObject(manifest.authorization) ||
+          item.authorizationDigest !== consentDigest(manifest.authorization) || request.materialBinding?.sanitizerPolicyDigest !== standingPolicy.digest ||
+          request.materialBinding?.snapshotDigest !== expectedSnapshot.digest ||
+          digestObject(request.materialBinding?.files) !== digestObject(materialFileManifest(expectedSnapshot)) ||
+          request.materialBinding?.materialsDigest !== consentDigest(expectedMaterials))) ||
+        (!standing && (request.authorization !== undefined || request.execution?.authorization !== undefined || request.materialBinding !== undefined || item.authorizationDigest !== undefined)) ||
         (policyBound && (request.purpose !== purpose || request.policyDigest !== policy.digest || request.execution?.purpose !== purpose || request.execution?.policyDigest !== policy.digest)) ||
         (!policyBound && (request.purpose !== undefined || request.policyDigest !== undefined || request.execution?.purpose !== undefined || request.execution?.policyDigest !== undefined))) {
       throw new Error("Execution request is not bound to the canonical request manifest");
@@ -167,7 +224,8 @@ export async function loadHostExecutionRequestManifest({
       runAs: requestRunAs(request),
       headRevision: request.execution.headRevision,
       sourceBindingDigest: request.execution.sourceBindingDigest,
-      pluginBundleDigest: request.pluginBundleDigest
+      pluginBundleDigest: request.pluginBundleDigest,
+      authorization: request.authorization ?? null
     });
     requestDigests.push(item.requestDigest);
     executionIds.push(item.executionId);
@@ -178,8 +236,10 @@ export async function loadHostExecutionRequestManifest({
   bindings.headRevision = manifest.headRevision;
   bindings.sourceBindingDigest = manifest.sourceBindingDigest;
   bindings.pluginBundleDigest = manifest.pluginBundleDigest;
+  bindings.hostBundleDigest = manifest.hostBundleDigest;
   bindings.purpose = manifest.purpose;
   bindings.policyDigest = manifest.policyDigest ?? null;
+  bindings.authorization = manifest.authorization ?? null;
   return bindings;
 }
 
@@ -234,11 +294,16 @@ export async function verifySelfImproveDeliveryEvidence({ root, runId, run, evid
   const policy = policyBound ? await loadPolicyBoundEvaluationPolicy({ cwd: run.manifest.cwd, purpose }) : null;
   const candidateDigest = evaluation.candidate?.digest;
   const candidateRoot = evaluation.candidate?.candidateRoot;
+  const standingAuthorization = evaluation.authorization ?? null;
+  const expectedReplayCount = expectedReplayKeys(purpose).size;
   if (!SHA1.test(evaluation.baselineRevision ?? "") || !SHA1.test(evaluation.headRevision ?? "") ||
       !SHA256.test(evaluation.sourceBindingDigest ?? "") || !SHA256.test(evaluation.pluginBundleDigest ?? "") ||
       !SHA256.test(evaluation.requestManifestDigest ?? "") || !SHA256.test(candidateDigest ?? "") ||
       (policyBound && (!policy || evaluation.policyPath !== policy.path || evaluation.policyId !== policy.policyId || evaluation.policyVersion !== policy.version || evaluation.policyDigest !== policy.digest)) ||
       (!policyBound && (evaluation.policyDigest ?? null) !== null) ||
+      (standingAuthorization !== null && (!validStandingAuthorization(standingAuthorization) ||
+        standingAuthorization.repo !== run.manifest.cwd || standingAuthorization.purpose !== purpose ||
+        standingAuthorization.requestCount !== expectedReplayCount)) ||
       typeof candidateRoot !== "string" || !candidateRoot || !SHA256.test(digestObject(evaluation.comparison))) {
     throw new Error("Self-improve accepted comparison lacks complete delivery bindings");
   }
@@ -250,14 +315,19 @@ export async function verifySelfImproveDeliveryEvidence({ root, runId, run, evid
   const staging = evidence.find((item) => item.kind === "candidate-staging" && item.status === "complete" && item.stale !== true && item.evaluation?.candidate?.digest === candidateDigest);
   const training = evidence.find((item) => item.kind === "training-replay" && item.status === "complete" && item.stale !== true && item.evaluation?.candidate?.digest === candidateDigest);
   if (!staging || !training) throw new Error("Self-improve delivery requires fresh candidate staging and training replay evidence");
+  if (digestObject(training.evaluation?.authorization ?? null) !== digestObject(standingAuthorization) ||
+      digestObject(staging.evaluation?.authorization ?? null) !== digestObject(standingAuthorization)) {
+    throw new Error("Self-improve delivery standing authorization changed between staging, training, and holdout evidence");
+  }
   const replays = [
     ...(training.evaluation?.replays ?? []),
     ...(accepted.evaluation?.candidateReplays ?? []),
     ...(accepted.evaluation?.baselineReplays ?? [])
   ];
   const replayKeys = new Set(replays.map((item) => `${item.execution?.role}:${item.execution?.attempt}`));
-  if (replays.length !== 7 || replayKeys.size !== 7 || [...EXPECTED_REPLAYS].some((key) => !replayKeys.has(key)) || replays.some((item) => !requiredReplayFields(item))) {
-    throw new Error("Self-improve delivery requires exactly seven complete host-owned Codex execution witnesses");
+  const requiredReplayKeys = expectedReplayKeys(purpose);
+  if (replays.length !== expectedReplayCount || replayKeys.size !== expectedReplayCount || [...requiredReplayKeys].some((key) => !replayKeys.has(key)) || replays.some((item) => !requiredReplayFields(item))) {
+    throw new Error(`Self-improve delivery requires exactly ${expectedReplayCount} complete host-owned Codex execution witnesses`);
   }
   const bindings = new Set(replays.map((item) => digestObject({
     binaryDigest: item.binaryDigest,
@@ -267,16 +337,17 @@ export async function verifySelfImproveDeliveryEvidence({ root, runId, run, evid
     model: item.model
   })));
   if (bindings.size !== 1) throw new Error("Self-improve delivery requires one consistent host binary, trust root, issuer, key, and model across every replay");
-  if (new Set(replays.map((item) => item.execution.id)).size !== 7 || new Set(replays.map((item) => item.requestDigest)).size !== 7 ||
-      new Set(replays.map((item) => item.hostExecutionPath)).size !== 7 || new Set(replays.map((item) => item.attestationPath)).size !== 7 ||
-      new Set(replays.map((item) => item.resultReceiptPath)).size !== 7 || new Set(replays.map((item) => item.ledgerPath)).size !== 7) {
-    throw new Error("Self-improve delivery requires seven distinct confirmed requests, host execution witnesses, attestations, receipts, and ledgers");
+  if (new Set(replays.map((item) => item.execution.id)).size !== expectedReplayCount || new Set(replays.map((item) => item.requestDigest)).size !== expectedReplayCount ||
+      new Set(replays.map((item) => item.hostExecutionPath)).size !== expectedReplayCount || new Set(replays.map((item) => item.attestationPath)).size !== expectedReplayCount ||
+      new Set(replays.map((item) => item.resultReceiptPath)).size !== expectedReplayCount || new Set(replays.map((item) => item.ledgerPath)).size !== expectedReplayCount) {
+    throw new Error(`Self-improve delivery requires ${expectedReplayCount} distinct confirmed requests, host execution witnesses, attestations, receipts, and ledgers`);
   }
-  const expectedExecutions = new Set(EXPECTED_REPLAYS);
+  const expectedExecutions = expectedReplayKeys(purpose);
   for (const replay of replays) {
     const execution = replay.execution;
     if (execution.runId !== runId || execution.suiteDigest !== evaluation.suiteDigest || execution.baselineRevision !== evaluation.baselineRevision ||
         execution.candidateDigest !== candidateDigest || execution.headRevision !== evaluation.headRevision || execution.sourceBindingDigest !== evaluation.sourceBindingDigest ||
+        digestObject(execution.authorization ?? null) !== digestObject(standingAuthorization) ||
         (policyBound && (execution.purpose !== purpose || execution.policyDigest !== policy.digest)) ||
         (!policyBound && (execution.purpose !== undefined || execution.policyDigest !== undefined)) ||
         replay.model !== (evaluation.model ?? replays[0].model) || !expectedExecutions.delete(`${execution.role}:${execution.attempt}`)) {
@@ -304,16 +375,19 @@ export async function verifySelfImproveDeliveryEvidence({ root, runId, run, evid
   const currentBaseline = await snapshotBaselineForCandidate({ cwd: run.manifest.cwd, snapshot: currentCandidate });
   const candidateMaterial = await readSanitizedCandidateMaterial({ cwd: run.manifest.cwd, snapshot: currentCandidate });
   const baselineMaterial = await readSanitizedBaselineMaterial({ cwd: run.manifest.cwd, snapshot: currentBaseline });
+  const migrationTarget = purpose === "evaluator-migration"
+    ? await loadMigrationTargetSuite({ cwd: run.manifest.cwd, casesFile: path.join(run.manifest.cwd, evaluation.targetSuitePath) })
+    : null;
+  const replaySuite = migrationTarget?.suite ?? frozen.suite;
   const replayCases = purpose === "safety-remediation-v1"
     ? selectSafetyRemediationCases({ suite: frozen.suite, snapshot: currentCandidate, split: "holdout", policy })
     : purpose === "quality-remediation-v1"
       ? selectQualityRemediationCases({ suite: frozen.suite, snapshot: currentCandidate, split: "holdout", policy })
-    : selectEvaluationCases({ suite: frozen.suite, snapshot: currentCandidate, split: "holdout" });
-  const candidatePrompt = buildEvaluationPrompt({ suite: { ...frozen.suite, cases: replayCases }, candidate: currentCandidate, materials: candidateMaterial });
-  const baselinePrompt = buildEvaluationPrompt({ suite: { ...frozen.suite, cases: replayCases }, candidate: currentBaseline, materials: baselineMaterial });
-  const migrationTarget = purpose === "evaluator-migration"
-    ? await loadMigrationTargetSuite({ cwd: run.manifest.cwd, casesFile: path.join(run.manifest.cwd, evaluation.targetSuitePath) })
-    : null;
+      : purpose === "evaluator-migration"
+        ? selectEvaluatorMigrationCases({ suite: replaySuite, split: "holdout" })
+        : selectEvaluationCases({ suite: frozen.suite, snapshot: currentCandidate, split: "holdout" });
+  const candidatePrompt = buildEvaluationPrompt({ suite: { ...replaySuite, cases: replayCases }, candidate: currentCandidate, materials: candidateMaterial });
+  const baselinePrompt = buildEvaluationPrompt({ suite: { ...replaySuite, cases: replayCases }, candidate: currentBaseline, materials: baselineMaterial });
   const requestBindings = await loadHostExecutionRequestManifest({
     manifestPath: evaluation.requestManifestPath,
     manifestDigest: evaluation.requestManifestDigest,
@@ -326,18 +400,31 @@ export async function verifySelfImproveDeliveryEvidence({ root, runId, run, evid
     target: migrationTarget,
     model: evaluation.model ?? replays[0].model
   });
+  if (digestObject(requestBindings.authorization ?? null) !== digestObject(standingAuthorization)) {
+    throw new Error("Self-improve delivery request manifest standing authorization does not match accepted evidence");
+  }
   const trainCases = purpose === "safety-remediation-v1"
     ? selectSafetyRemediationCases({ suite: frozen.suite, snapshot: currentCandidate, split: "train", policy })
     : purpose === "quality-remediation-v1"
       ? selectQualityRemediationCases({ suite: frozen.suite, snapshot: currentCandidate, split: "train", policy })
-    : selectEvaluationCases({ suite: frozen.suite, snapshot: currentCandidate, split: "train" });
-  const trainPrompt = buildEvaluationPrompt({ suite: { ...frozen.suite, cases: trainCases }, candidate: currentCandidate, materials: candidateMaterial });
+      : purpose === "evaluator-migration"
+        ? selectEvaluatorMigrationCases({ suite: replaySuite, split: "train" })
+        : selectEvaluationCases({ suite: frozen.suite, snapshot: currentCandidate, split: "train" });
+  const trainPrompt = buildEvaluationPrompt({ suite: { ...replaySuite, cases: trainCases }, candidate: currentCandidate, materials: candidateMaterial });
+  const trainBaselinePrompt = buildEvaluationPrompt({ suite: { ...replaySuite, cases: trainCases }, candidate: currentBaseline, materials: baselineMaterial });
   const trustedScores = [];
   for (const replay of replays) {
-    const prompt = replay.execution.role === "baseline" ? baselinePrompt : replay.execution.role === "candidate" ? candidatePrompt : trainPrompt;
+    const prompt = replay.execution.role === "baseline"
+      ? baselinePrompt
+      : replay.execution.role === "candidate"
+        ? candidatePrompt
+        : replay.execution.role === "train-baseline"
+          ? trainBaselinePrompt
+          : trainPrompt;
     const requestBinding = requestBindings.get(replay.execution.id);
     if (!requestBinding || replay.requestDigest !== requestBinding.requestDigest ||
-        replay.runAs === undefined || digestObject(replay.runAs) !== digestObject(requestBinding.runAs)) {
+        replay.runAs === undefined || digestObject(replay.runAs) !== digestObject(requestBinding.runAs) ||
+        digestObject(requestBinding.authorization ?? null) !== digestObject(standingAuthorization)) {
       throw new Error("Self-improve delivery replay is not bound to the canonical request manifest");
     }
     const witness = await verifyTrustedCodexExecutionEnvelope({
@@ -361,16 +448,35 @@ export async function verifySelfImproveDeliveryEvidence({ root, runId, run, evid
         metadata.execution.sourceBindingDigest !== evaluation.sourceBindingDigest || metadata.expiresAt !== replay.expiresAt) {
       throw new Error("Self-improve delivery host execution witness binding changed after replay");
     }
-    const scoreCases = replay.execution.role === "train-candidate" ? trainCases : replayCases;
+    const scoreCases = replay.execution.role.startsWith("train-") ? trainCases : replayCases;
     trustedScores.push({ replay, witness, score: scoreEvaluation(witness.response, scoreCases) });
   }
   if (policyBound && trustedScores.find((item) => item.replay.execution.role === "train-candidate")?.score.hardSafetyPass !== true) {
     throw new Error(`${purpose} delivery training replay failed its hard-safety gate`);
   }
+  if (purpose === "evaluator-migration") {
+    const trustedTrainingComparison = compareEvaluatorMigration({
+      baseline: trustedScores.filter((item) => item.replay.execution.role === "train-baseline").map((item) => item.score),
+      candidate: trustedScores.filter((item) => item.replay.execution.role === "train-candidate").map((item) => item.score),
+      sourceSuite: frozen.suite,
+      targetSuite: replaySuite,
+      split: "train"
+    });
+    if (trustedTrainingComparison.accepted !== true ||
+        digestObject(trustedTrainingComparison) !== digestObject(training.evaluation?.migrationTrainingComparison)) {
+      throw new Error("Evaluator migration delivery training replays do not reproduce accepted target-only headroom");
+    }
+  }
   const trustedCandidateScores = trustedScores.filter((item) => item.replay.execution.role === "candidate").map((item) => item.score);
   const trustedBaselineScores = trustedScores.filter((item) => item.replay.execution.role === "baseline").map((item) => item.score);
   const trustedComparison = purpose === "evaluator-migration"
-    ? compareEvaluatorMigration({ baseline: trustedBaselineScores, candidate: trustedCandidateScores })
+    ? compareEvaluatorMigration({
+      baseline: trustedBaselineScores,
+      candidate: trustedCandidateScores,
+      sourceSuite: frozen.suite,
+      targetSuite: replaySuite,
+      split: "holdout"
+    })
     : purpose === "safety-remediation-v1"
       ? compareSafetyRemediation({ baseline: trustedBaselineScores, candidate: trustedCandidateScores, suite: frozen.suite, policy })
       : purpose === "quality-remediation-v1"
@@ -408,7 +514,7 @@ export async function verifySelfImproveDeliveryEvidence({ root, runId, run, evid
   }
   const verifiedReplays = trustedScores.map(({ replay, witness }) => ({ replay, witness }));
   const witnessDigests = verifiedReplays.map(({ replay, witness }) => witnessDigest(replay, witness)).sort();
-  if (new Set(witnessDigests).size !== 7) throw new Error("Self-improve delivery witnesses must be distinct");
+  if (new Set(witnessDigests).size !== expectedReplayCount) throw new Error("Self-improve delivery witnesses must be distinct");
   return {
     accepted,
     staging,

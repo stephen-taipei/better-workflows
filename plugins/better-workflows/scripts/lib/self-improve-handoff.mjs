@@ -10,6 +10,7 @@ import {
 import path from "node:path";
 import { captureSourceBinding } from "./git.mjs";
 import { verifySelfImproveDeliveryEvidence } from "./self-improve-replay.mjs";
+import { validStandingAuthorization } from "./standing-consent.mjs";
 
 export const SELF_IMPROVE_HANDOFF_KIND = "self-improve-delivery-handoff";
 const SHA1 = /^[a-f0-9]{40}$/;
@@ -47,6 +48,7 @@ export async function collectSelfImproveDeliveryBinding(root, sourceRunId) {
     sourceBindingDigest: evaluation.sourceBindingDigest,
     pluginBundleDigest: evaluation.pluginBundleDigest,
     requestManifestDigest: evaluation.requestManifestDigest,
+    evaluatorAuthorization: evaluation.authorization ?? null,
     purpose: evaluation.purpose ?? "ordinary",
     policyDigest: evaluation.policyDigest ?? null,
     comparisonDigest: digestObject(evaluation.comparison),
@@ -60,9 +62,10 @@ export async function collectSelfImproveDeliveryBinding(root, sourceRunId) {
 export async function validateSelfImproveDeliveryHandoff(payload, targetRun) {
   const expectedKeys = [
     "artifact", "cacheRoot", "candidateDigest", "candidateRoot", "comparisonDigest", "pluginBundleDigest",
-    "policyDigest", "purpose", "requestManifestDigest", "sourceBaselineRevision", "sourceBindingDigest", "sourceHeadRevision",
+    "evaluatorAuthorization", "policyDigest", "purpose", "requestManifestDigest", "sourceBaselineRevision", "sourceBindingDigest", "sourceHeadRevision",
     "sourceRunId", "witnessDigests"
   ];
+  const expectedWitnessCount = payload?.purpose === "evaluator-migration" ? 8 : 7;
   if (!payload || Object.keys(payload).sort().join("\0") !== expectedKeys.sort().join("\0") ||
       targetRun.contract.template !== "pr-to-dev" ||
       targetRun.contract.upstreamSelfImproveRunId !== payload.sourceRunId ||
@@ -71,11 +74,13 @@ export async function validateSelfImproveDeliveryHandoff(payload, targetRun) {
       !SHA1.test(payload.sourceHeadRevision) || !SHA256.test(payload.candidateDigest) ||
       !SHA256.test(payload.sourceBindingDigest) || !SHA256.test(payload.pluginBundleDigest) ||
       !SHA256.test(payload.requestManifestDigest) || !SHA256.test(payload.comparisonDigest) ||
+      (payload.evaluatorAuthorization !== null && (!validStandingAuthorization(payload.evaluatorAuthorization) ||
+        payload.evaluatorAuthorization.repo !== targetRun.manifest.cwd || payload.evaluatorAuthorization.purpose !== payload.purpose)) ||
       !["ordinary", "evaluator-migration", "safety-remediation-v1", "quality-remediation-v1"].includes(payload.purpose) ||
       (["safety-remediation-v1", "quality-remediation-v1"].includes(payload.purpose) ? !SHA256.test(payload.policyDigest) : payload.policyDigest !== null) ||
       typeof payload.cacheRoot !== "string" || !path.isAbsolute(payload.cacheRoot) ||
-      !Array.isArray(payload.witnessDigests) || payload.witnessDigests.length !== 7 ||
-      payload.witnessDigests.some((item) => !SHA256.test(item)) || new Set(payload.witnessDigests).size !== 7) {
+      !Array.isArray(payload.witnessDigests) || payload.witnessDigests.length !== expectedWitnessCount ||
+      payload.witnessDigests.some((item) => !SHA256.test(item)) || new Set(payload.witnessDigests).size !== expectedWitnessCount) {
     throw new Error("Self-improve delivery handoff payload is structurally invalid");
   }
   if (!targetRun.root) throw new Error("Self-improve delivery handoff validation requires its state root");
@@ -108,13 +113,11 @@ export async function validateSelfImproveDeliveryHandoff(payload, targetRun) {
   return expected;
 }
 
-export async function createSelfImproveDeliveryHandoff(root, targetRunId, sourceRunId) {
-  const targetRun = await loadRun(root, targetRunId);
-  if (targetRun.contract.template !== "pr-to-dev" || targetRun.contract.upstreamSelfImproveRunId !== sourceRunId) {
-    throw new Error("Target pr-to-dev run is not explicitly bound to the requested self-improve run");
+export function buildSelfImproveDeliveryHandoffEvidence({ targetRunId, targetRun, payload }) {
+  const sourceBindingDigest = targetRun.manifest.sourceBinding?.digest;
+  if (!SHA256.test(sourceBindingDigest)) {
+    throw new Error("Self-improve delivery handoff evidence requires the target source binding digest");
   }
-  const payload = await collectSelfImproveDeliveryBinding(root, sourceRunId);
-  await validateSelfImproveDeliveryHandoff(payload, { ...targetRun, root });
   const producer = { provider: "codex-root" };
   return {
     schemaVersion: 2,
@@ -128,7 +131,8 @@ export async function createSelfImproveDeliveryHandoff(root, targetRunId, source
     dependencies: {
       contractDigest: targetRun.manifest.contractDigest,
       workflowVersion: VERSION,
-      files: []
+      files: [],
+      sourceBindingDigest
     },
     producer,
     receipt: {
@@ -140,11 +144,21 @@ export async function createSelfImproveDeliveryHandoff(root, targetRunId, source
         runId: targetRunId,
         contractDigest: digestObject(targetRun.contract),
         remoteRevision: targetRun.contract.remoteRevision ?? null,
-        sourceBindingDigest: targetRun.manifest.sourceBinding.digest
+        sourceBindingDigest
       },
       payload,
       payloadDigest: digestObject(payload),
       producedAt: nowIso()
     }
   };
+}
+
+export async function createSelfImproveDeliveryHandoff(root, targetRunId, sourceRunId) {
+  const targetRun = await loadRun(root, targetRunId);
+  if (targetRun.contract.template !== "pr-to-dev" || targetRun.contract.upstreamSelfImproveRunId !== sourceRunId) {
+    throw new Error("Target pr-to-dev run is not explicitly bound to the requested self-improve run");
+  }
+  const payload = await collectSelfImproveDeliveryBinding(root, sourceRunId);
+  await validateSelfImproveDeliveryHandoff(payload, { ...targetRun, root });
+  return buildSelfImproveDeliveryHandoffEvidence({ targetRunId, targetRun, payload });
 }

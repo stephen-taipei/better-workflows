@@ -247,7 +247,11 @@ $better-workflows:auto <達成したい結果を記述>
 
 成功した各 replay は独立した host-owned execution witness を使います。digest-confirmed request は administrator-approved native Mach-O Codex binary digest、allowlist digest、exact committed HEAD、source binding を bind し、インストール済み signer は exact binary を execution root 配下の root-owned `0755` snapshot にしてから、root-owned native launcher を呼び出します。launcher は supplementary groups を消去してから request の non-root uid/gid と固定した `PATH`、`HOME`、`CODEX_HOME` を適用します。attestation、receipt、envelope、ledger は confirmed request digest と exact run-as identity に bind され、candidate snapshot は normalized file mode も bind します。host は先に pre-execution binding を作成・署名し、実行後に prompt、parsed response、exit status、timestamps を捕捉して root-owned ledger と `result receipt` を署名します。`sbw` は保存済み witness を消費し、resume や delivery revalidation で Codex を再実行しません。signed receipt は exact prompt digest、response digest、binary、model、execution、ledger、timestamps を bind します。
 
-Evaluation v2.2 は既存の safety、documentation、deliberation、sanitizer、evaluation-engineering coverage を維持し、typed-evidence integrity、execution-ledger replay、bounded review convergence、direct-work cost の独立 train/holdout classes を追加します。一度限りの migration は immutable v2.1 を source とし、source/target 両 suite digest を七つすべての signed executions に結び付けます。
+Evaluation v2.4 は v2.3 の全 classes と 25 cases を byte-for-byte で保持し、exact changed-surface accounting、独立 attested finder/verifier provenance、source anchor、deterministic synthesis、broad-review invalidation、shadow-only rollout を扱う review-work-unit-integrity class を追加します。一度限りの migration は immutable v2.3 を source とし、source/target digest を八つの signed executions に結び付けます。各 replay は target split 全体を実行し、target-only baseline の headroom、candidate の case ごとの厳密な改善、hard-safety failure・regression・noise の不在を要求します。
+
+Review kernel は `self-improve-ops` の `code-v2-pilot` でのみ有効です。各 required lane は immutable BASE/HEAD blob work unit を一度ずつ記録し、axis と claim verification は別々の host-signed read-only native execution に束縛されます。finder の自己検証は拒否され、競合 verdict は `INCONCLUSIVE`、ambiguous/missing anchor は blocking のままです。zero findings でも完全な coverage と二つの aggregate typed evidence が必要です。この pilot は shadow-only で action token を発行できません。
+
+Migration admission は v2.3 file と canonical suite digest も固定し、すべての inherited class の identity、semantics、既存 path mapping を維持するとともに、全 25 inherited cases の完全一致を要求します。新しい coverage は path の追加、または新しい class／case id で追加できます。inherited coverage の欠落、弱化、再 mapping、再分類は replay 前に fail closed となります。意図的な変更には独立 version、digest-bound、独立 review 済みの compatibility policy が必要です。
 
 `safety-remediation-v1` は独立した run-creation purpose です。固定された
 `plugins/better-workflows/config/self-improve-safety-remediation-v1.json` policy と digest-bound v2.2 corpus を使い、universal invariant と evidence、ledger、review の三つの remediation targets を事前に固定します。各 target は三 replay 中少なくとも二回 baseline defect として再現されなければならず、そうでなければ `baseline-remediation-not-reproduced` で拒否します。candidate は再現された target を各 replay で修復し、case regression と candidate noise を許しません。purpose と policy digest は schemaVersion 3 request manifest、signed executions、evidence、delivery handoff に bind され、ordinary と evaluator-migration contract は変わりません。
@@ -256,7 +260,9 @@ Evaluation v2.2 は既存の safety、documentation、deliberation、sanitizer�
 
 通常の clone や workspace recipe の実行には host trust root は**不要**です。実 Codex self-improve replay を実行する maintainer だけが、各 host で administrator により一度だけ実行します。self-improve は commit、cache publication、push、merge、cleanup を許可せず、`pr-to-dev` と immutable-cache workflow に委譲します：
 
-delivery には明示した完全な baseline SHA が必要で、candidate HEAD の strict ancestor でなければなりません。七つの witness を再検証した後、明示的に bind した `pr-to-dev` run を作成し、typed `self-improve-delivery-handoff` を記録します。この receipt がない限り commit、push、merge、cache action は発行されません。cache action は `plugin.cache.publish`、`local-workspace`、`plugin-cache:<source-head-revision>` に結び付けた token を先に発行してから実行します：`SBW_STATE_ROOT=<state-root> node scripts/plugin-cache.mjs sync --handoff-run <pr-to-dev-run-id> --token <plugin-cache-action-token>`。
+長時間 replay が batch ごとの administrator prompt で中断されないよう、ready 済み host には制限付き standing evaluator consent を一度だけ導入できます。`sbw self-improve consent prepare` を実行して返された request digest を確認し、その回に返された正確な administrator command だけを実行します。root signer は、digest-pinned root runtime、この repository と maintainer identity、`gpt-5.6-terra`、宣言済み四 purpose、七または八件の read-only／tool-free sanitized request、固定 request root のみに限定した、取消可能な signed grant と `visudo` 検証済み rule を導入します。一致する schemaVersion 5 batch は `/usr/bin/sudo -n` を使い、全 request、execution、root journal、evaluation evidence、typed handoff に同じ authorization を bind します。active または一部導入済み grant の不一致は password prompt に切り替えず fail closed となり、run ごとの明示的 administrator fallback は grant が未導入または明示的に取消済みの場合だけ利用できます。この grant は commit、cache、push、PR、merge、deploy、cleanup を明示的に許可しません。`sbw self-improve consent status|revoke` で確認・取消できます。
+
+delivery には明示した完全な baseline SHA が必要で、candidate HEAD の strict ancestor でなければなりません。purpose が要求する witness（ordinary は七つ、evaluator-migration は八つ）を再検証した後、明示的に bind した `pr-to-dev` run を作成し、typed `self-improve-delivery-handoff` を記録します。`policyDigest` key は引き続き必須で、ordinary と evaluator-migration では明示的な `null`、policy-bound remediation では SHA-256 digest です。`evaluatorAuthorization` も必須で、standing consent 利用時は正確な authorization object、run ごとの明示的 administrator fallback の場合だけ `null` です。nullable と宣言されるのはこの二 field だけで、purpose-specific handoff validator は完全な key set と値を引き続き検証します。この receipt がない限り commit、push、merge、cache action は発行されません。cache action は `plugin.cache.publish`、`local-workspace`、`plugin-cache:<source-head-revision>` に結び付けた token を先に発行してから実行します：`SBW_STATE_ROOT=<state-root> node scripts/plugin-cache.mjs sync --handoff-run <pr-to-dev-run-id> --token <plugin-cache-action-token>`。
 
 trust root または private key が host の承認済み administrator bootstrap によってまだ作成されていない場合は、先にその独立した前提作業を完了してください。この repository は追跡されていない legacy Swift bootstrap artifact を公開・実行しません。bootstrap 済みの host では、まず read-only の状態確認を実行します：
 
@@ -465,6 +471,16 @@ version が必要です。`SBW_STATE_ROOT=<state-root> node scripts/plugin-cache
 だけを stage し、完全な file manifest と digest を検証して atomic publish
 します。同じ version の異なる内容は上書きしません。通常の Codex plugin
 refresh で有効化する前に、最終 cache path から `sbw eval` を実行します。
+ready finalization と失敗 cleanup は同じ versioned publication lock を共有し、
+marker transition と target removal の競合を防ぎます。cleanup は run と
+action attempt が完全一致する pending marker のみを扱います。stale lock の
+回収後も、publisher は source binding、run、attempt がすべて一致する既存の
+pending marker だけを受け入れます。target が存在しない場合でも foreign
+marker を保持し、publication は fail closed します。
+
+### Bounded autopilot
+
+delivery では、長時間の低リスク作業を反復 prompt なしで続けたい場合に限り、run 単位で不変の `bounded-autopilot-v1` profile を明示的に選択できます。許可されるのは bounded commit、新しい immutable cache version、`codex/*` への push、`dev` を target とする PR 一件だけです。host bootstrap/upgrade/revoke、protected merge、deploy、`dev`/`main` への直接 push、branch/worktree cleanup は人間の gate として残ります。evaluator の standing consent は delivery authority を与えません。
 
 ## License
 
