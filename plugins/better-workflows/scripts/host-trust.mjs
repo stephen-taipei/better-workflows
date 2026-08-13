@@ -3499,7 +3499,21 @@ async function reconstructCommittedPluginBundleDigest(repo, subject, revision) {
     });
   }
   if (records.length === 0) throw new Error("Committed plugin bundle is empty");
-  records.sort((left, right) => left.path.localeCompare(right.path));
+  // publication.bundleDigest walks each directory recursively, sorting the
+  // immediate entry names at every level.  A flat full-path sort is not
+  // equivalent when one sibling name is a prefix of another (for example
+  // `auto` and `auto-improve`), so reproduce the hierarchical ordering from
+  // the committed tree instead of relying on Git's flat path order.
+  records.sort((left, right) => {
+    const leftParts = left.path.split("/");
+    const rightParts = right.path.split("/");
+    const length = Math.min(leftParts.length, rightParts.length);
+    for (let index = 0; index < length; index += 1) {
+      const comparison = leftParts[index].localeCompare(rightParts[index]);
+      if (comparison !== 0) return comparison;
+    }
+    return leftParts.length - rightParts.length;
+  });
   return sha256Value(JSON.stringify(records));
 }
 
