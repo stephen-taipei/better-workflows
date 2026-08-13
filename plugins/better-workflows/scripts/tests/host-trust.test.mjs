@@ -7,7 +7,7 @@ import {
   sign,
   verify
 } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import os from "node:os";
@@ -1251,6 +1251,21 @@ test("host trust helper fixes authority paths and does not accept environment pa
   assert.match(probe, /defined\(__APPLE__\)/);
   assert.match(probe, /environment/);
   assert.match(probe, /argv0/);
+});
+
+test("installed host signer remains a self-contained single-file capability reporter", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "bw-host-signer-standalone-"));
+  try {
+    const standalone = path.join(await realpath(root), "bw-host-trust.mjs");
+    await writeFile(standalone, await readFile(SCRIPT));
+    const { stdout } = await execFileAsync(process.execPath, [standalone, "capabilities"], { cwd: root });
+    const report = JSON.parse(stdout);
+    assert.equal(report.ok, true);
+    assert.equal(report.kind, "host-signer-capabilities");
+    assert.equal(report.version, "2.4.0");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("root standing reconstruction reads candidate authority from bound commit objects", async () => {

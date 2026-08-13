@@ -28,7 +28,6 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseZeroToolTranscript } from "./lib/transcript.mjs";
 
 // macOS exposes /etc as a symlink to /private/etc. Keep protected authority
 // paths canonical so realpath checks do not reject an otherwise safe host.
@@ -103,6 +102,137 @@ const MAX_OUTPUT_BYTES = 2 * 1024 * 1024;
 // a bounded host cutoff while leaving enough margin for provider latency.
 const DEFAULT_TIMEOUT_MS = 180_000;
 const SAFE_PATH = "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
+
+// The host signer is installed as one root-owned file. Keep this strict
+// zero-tool transcript parser self-contained so the installed signer never
+// depends on repository-relative modules that are absent from the host bundle.
+function transcriptDigest(value) {
+  return createHash("sha256").update(String(value)).digest("hex");
+}
+
+function transcriptKeys(value) {
+  return Object.keys(value).sort().join("\0");
+}
+
+function requireTranscriptString(value, label) {
+  if (typeof value !== "string" || !value) throw new Error(`${label} must be a non-empty string`);
+}
+
+function requireTranscriptNonNegativeInteger(value, label) {
+  if (!Number.isSafeInteger(value) || value < 0) throw new Error(`${label} must be a non-negative integer`);
+}
+
+function validateTranscriptReasoningSummary(summary, label) {
+  if (!Array.isArray(summary) || summary.some((entry) => (
+    typeof entry !== "string" &&
+    !(entry && typeof entry === "object" && !Array.isArray(entry) &&
+      transcriptKeys(entry) === "text\0type" && typeof entry.type === "string" &&
+      typeof entry.text === "string")
+  ))) {
+    throw new Error(`${label}.summary has an invalid shape`);
+  }
+}
+
+function validateTranscriptItem(item, eventType, index, prefix) {
+  if (!item || typeof item !== "object" || Array.isArray(item) || typeof item.type !== "string") {
+    throw new Error(`${prefix} transcript contains a prohibited or unknown item at line ${index}`);
+  }
+  const label = `${prefix} transcript item at line ${index}`;
+  if (item.type === "agent_message") {
+    const expected = eventType === "item.completed" ? "id\0text\0type" : "id\0type";
+    if (transcriptKeys(item) !== expected) throw new Error(`${prefix} transcript contains prohibited or unknown item fields at line ${index}`);
+    requireTranscriptString(item.id, `${label}.id`);
+    if (eventType === "item.completed") requireTranscriptString(item.text, `${label}.text`);
+    return { type: item.type, text: eventType === "item.completed" ? item.text : null };
+  }
+  if (item.type === "reasoning") {
+    const expected = eventType === "item.completed" ? "id\0summary\0type" : "id\0type";
+    if (transcriptKeys(item) !== expected) throw new Error(`${prefix} transcript contains prohibited or unknown item fields at line ${index}`);
+    requireTranscriptString(item.id, `${label}.id`);
+    if (eventType === "item.completed") validateTranscriptReasoningSummary(item.summary, label);
+    return { type: item.type, text: null };
+  }
+  if (item.type === "error") {
+    const expected = eventType === "item.completed" ? "id\0message\0type" : "id\0type";
+    if (transcriptKeys(item) !== expected) throw new Error(`${prefix} transcript contains prohibited or unknown item fields at line ${index}`);
+    requireTranscriptString(item.id, `${label}.id`);
+    if (eventType === "item.completed") requireTranscriptString(item.message, `${label}.message`);
+    return { type: item.type, text: null };
+  }
+  throw new Error(`${prefix} transcript contains a prohibited or unknown item at line ${index}`);
+}
+
+function parseZeroToolTranscript(output, prefix = "Codex") {
+  const raw = String(output ?? "");
+  const lines = raw.split(/\r?\n/).filter((line) => line.trim() !== "");
+  if (lines.length === 0) throw new Error(`${prefix} transcript is empty`);
+  const eventCounts = new Map();
+  const itemCounts = new Map();
+  const messages = [];
+  let phase = 0;
+  for (const [offset, line] of lines.entries()) {
+    const index = offset + 1;
+    let event;
+    try {
+      event = JSON.parse(line);
+    } catch {
+      throw new Error(`${prefix} transcript line ${index} is not JSON`);
+    }
+    if (!event || typeof event !== "object" || Array.isArray(event) || typeof event.type !== "string") {
+      throw new Error(`${prefix} transcript contains a prohibited or unknown event at line ${index}`);
+    }
+    if (event.type === "thread.started") {
+      if (phase !== 0 || transcriptKeys(event) !== "thread_id\0type") throw new Error(`${prefix} transcript thread.started schema is invalid`);
+      requireTranscriptString(event.thread_id, `${prefix} transcript thread_id`);
+      phase = 1;
+    } else if (event.type === "turn.started") {
+      if (phase !== 1 || transcriptKeys(event) !== "type") throw new Error(`${prefix} transcript turn.started schema is invalid`);
+      phase = 2;
+    } else if (event.type === "item.started" || event.type === "item.completed") {
+      if ((phase !== 2 && phase !== 1) || transcriptKeys(event) !== "item\0type") throw new Error(`${prefix} transcript contains a prohibited or unknown item/event at line ${index}`);
+      const item = validateTranscriptItem(event.item, event.type, index, prefix);
+      if (phase === 1 && (event.type !== "item.completed" || item.type !== "error")) {
+        throw new Error(`${prefix} transcript contains an item before turn.started at line ${index}`);
+      }
+      itemCounts.set(item.type, (itemCounts.get(item.type) ?? 0) + 1);
+      if (item.text !== null) messages.push(item.text);
+    } else if (event.type === "turn.completed") {
+      if (phase !== 2 || transcriptKeys(event) !== "type\0usage" || !event.usage || typeof event.usage !== "object" || Array.isArray(event.usage) ||
+          !["input_tokens\0output_tokens", "cache_write_input_tokens\0cached_input_tokens\0input_tokens\0output_tokens\0reasoning_output_tokens"].includes(transcriptKeys(event.usage))) {
+        throw new Error(`${prefix} transcript turn.completed schema is invalid`);
+      }
+      requireTranscriptNonNegativeInteger(event.usage.input_tokens, `${prefix} transcript usage.input_tokens`);
+      requireTranscriptNonNegativeInteger(event.usage.output_tokens, `${prefix} transcript usage.output_tokens`);
+      if (Object.hasOwn(event.usage, "cached_input_tokens")) {
+        requireTranscriptNonNegativeInteger(event.usage.cached_input_tokens, `${prefix} transcript usage.cached_input_tokens`);
+        requireTranscriptNonNegativeInteger(event.usage.cache_write_input_tokens, `${prefix} transcript usage.cache_write_input_tokens`);
+        requireTranscriptNonNegativeInteger(event.usage.reasoning_output_tokens, `${prefix} transcript usage.reasoning_output_tokens`);
+      }
+      phase = 3;
+    } else {
+      throw new Error(`${prefix} transcript contains a prohibited or unknown event at line ${index}`);
+    }
+    eventCounts.set(event.type, (eventCounts.get(event.type) ?? 0) + 1);
+  }
+  if (phase !== 3 || eventCounts.get("thread.started") !== 1 || eventCounts.get("turn.started") !== 1 ||
+      eventCounts.get("turn.completed") !== 1 || messages.length !== 1) {
+    throw new Error(`${prefix} transcript lifecycle is incomplete or ambiguous`);
+  }
+  const counted = (values) => [...values.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([type, count]) => ({ type, count }));
+  return {
+    responseText: messages.at(-1),
+    transcriptDigest: transcriptDigest(raw),
+    transcriptSummary: {
+      schemaVersion: 1,
+      eventCount: lines.length,
+      eventTypes: counted(eventCounts),
+      itemTypes: counted(itemCounts),
+      observedToolCalls: 0
+    }
+  };
+}
 
 // Direct POSIX captures use a Node supervisor as a stable process-group
 // leader.  The target may exit or fork descendants, but this anchor remains
