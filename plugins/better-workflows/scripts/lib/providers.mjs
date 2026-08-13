@@ -58,7 +58,7 @@ const EVALUATOR_DISABLED_FEATURES = Object.freeze([
   "js_repl_tools_only", "memories", "multi_agent", "multi_agent_mode", "multi_agent_v2", "network_proxy",
   "non_prefixed_mcp_tool_names", "plugins", "remote_plugin", "request_permissions_tool", "shell_snapshot", "shell_tool",
   "skill_search", "standalone_web_search", "tool_call_mcp_elicitation", "tool_search", "tool_search_always_defer_mcp_tools",
-  "tool_suggest", "unavailable_dummy_tools", "unified_exec", "view_image", "web_search_request", "workspace_dependencies"
+  "tool_suggest", "unavailable_dummy_tools", "unified_exec", "web_search_request", "workspace_dependencies"
 ]);
 const EVALUATOR_DISABLED_TOOL_CONFIGS = Object.freeze([
   "tools.web_search=false",

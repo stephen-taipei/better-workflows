@@ -305,7 +305,6 @@ const EVALUATOR_DISABLED_FEATURES = Object.freeze([
   "tool_suggest",
   "unavailable_dummy_tools",
   "unified_exec",
-  "view_image",
   "web_search_request",
   "workspace_dependencies"
 ]);
