@@ -37,6 +37,7 @@ import {
   parseOptionalAuthoritativeSymbolicRef,
   parseAuthoritativeTreeEntry,
   parseEvaluatorTranscript,
+  parseInternalReadinessTranscript,
   privateKeyFromRaw,
   reconstructPluginBundleDigest,
   standingConsentSudoers,
@@ -795,6 +796,42 @@ test("host evaluator transcript accepts Codex prelude warnings and full usage co
   assert.throws(
     () => parseEvaluatorTranscript(`${transcript}${JSON.stringify({ type: "item.completed", item: { id: "message-2", type: "agent_message", text: "second" } })}\n`),
     /lifecycle is incomplete or ambiguous|prohibited or unknown/
+  );
+});
+
+test("host native readiness uses its exact one-result transcript contract", () => {
+  const response = {
+    results: [{ id: "host-readiness-probe", disposition: "NO_CHANGE", passedAssertions: [] }],
+    probe: {
+      uid: 501,
+      euid: 501,
+      gid: 20,
+      egid: 20,
+      supplementaryGroups: [],
+      cwd: "/private/var/db/better-workflows/execution-bundles/probe",
+      argv0: "/private/var/db/better-workflows/executions/probe.codex",
+      environment: ["HOME=/Users/test", "PATH=/usr/bin:/bin"]
+    }
+  };
+  const raw = `${JSON.stringify(response)}\n`;
+  const parsed = parseInternalReadinessTranscript(raw);
+  assert.deepEqual(parsed.response, response);
+  assert.deepEqual(parsed.transcriptSummary.eventTypes, [{ type: "internal.readiness.result", count: 1 }]);
+  assert.equal(parsed.transcriptSummary.observedToolCalls, 0);
+  assert.throws(
+    () => parseInternalReadinessTranscript(`${raw}${raw}`),
+    /exactly one JSON result/
+  );
+  assert.throws(
+    () => parseInternalReadinessTranscript(`${JSON.stringify({ ...response, unexpected: true })}\n`),
+    /fields do not match/
+  );
+  assert.throws(
+    () => parseInternalReadinessTranscript(`${JSON.stringify({
+      ...response,
+      results: [{ id: "host-readiness-probe", disposition: "IMPLEMENT", passedAssertions: [] }]
+    })}\n`),
+    /evaluation result is invalid/
   );
 });
 

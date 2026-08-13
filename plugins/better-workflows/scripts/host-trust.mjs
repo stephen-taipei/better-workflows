@@ -384,6 +384,13 @@ export function evaluatorToolPolicy(model = EVALUATOR_MODEL) {
   };
 }
 
+function internalReadinessToolPolicy(model = EVALUATOR_MODEL) {
+  return {
+    ...evaluatorToolPolicy(model),
+    transcriptPolicy: "internal-native-readiness-json-v1"
+  };
+}
+
 function evaluatorForwardingProviderArgs(baseUrl) {
   const target = new URL(baseUrl);
   if (target.protocol !== "http:" || target.hostname !== "127.0.0.1" || !target.port ||
@@ -1212,6 +1219,54 @@ function validateEvaluationResponse(response) {
 
 export function parseEvaluatorTranscript(output) {
   return parseZeroToolTranscript(output, "Host Codex execution");
+}
+
+export function parseInternalReadinessTranscript(output) {
+  const raw = String(output ?? "");
+  const lines = raw.split(/\r?\n/).filter((line) => line.trim() !== "");
+  if (lines.length !== 1) {
+    throw new Error("Host readiness transcript must contain exactly one JSON result");
+  }
+  let response;
+  try {
+    response = JSON.parse(lines[0]);
+  } catch {
+    throw new Error("Host readiness transcript is not JSON");
+  }
+  exactKeys(response, ["probe", "results"], "Host readiness response");
+  exactKeys(
+    response.probe,
+    ["argv0", "cwd", "egid", "environment", "euid", "gid", "supplementaryGroups", "uid"],
+    "Host readiness probe"
+  );
+  for (const key of ["uid", "euid", "gid", "egid"]) {
+    requireTranscriptNonNegativeInteger(response.probe[key], `Host readiness probe.${key}`);
+  }
+  for (const key of ["cwd", "argv0"]) {
+    requireTranscriptString(response.probe[key], `Host readiness probe.${key}`);
+  }
+  if (!Array.isArray(response.probe.supplementaryGroups) ||
+      response.probe.supplementaryGroups.some((value) => !Number.isSafeInteger(value) || value < 0) ||
+      !Array.isArray(response.probe.environment) ||
+      response.probe.environment.some((value) => typeof value !== "string" || !value)) {
+    throw new Error("Host readiness probe group or environment evidence is invalid");
+  }
+  validateEvaluationResponse(response);
+  if (response.results.length !== 1 || response.results[0].id !== "host-readiness-probe" ||
+      response.results[0].disposition !== "NO_CHANGE" || response.results[0].passedAssertions.length !== 0) {
+    throw new Error("Host readiness probe evaluation result is invalid");
+  }
+  return {
+    response,
+    transcriptDigest: transcriptDigest(raw),
+    transcriptSummary: {
+      schemaVersion: 1,
+      eventCount: 1,
+      eventTypes: [{ type: "internal.readiness.result", count: 1 }],
+      itemTypes: [{ type: "agent_message", count: 1 }],
+      observedToolCalls: 0
+    }
+  };
 }
 
 function requireSafeExecutionId(id) {
@@ -2729,7 +2784,9 @@ async function executeResultRequest(
   // evaluator policy without asking the gpt-only model catalog to describe
   // the synthetic probe name.
   const policyModel = internalProbe ? EVALUATOR_MODEL : request.model;
-  const toolPolicy = evaluatorToolPolicy(policyModel);
+  const toolPolicy = internalProbe
+    ? internalReadinessToolPolicy(policyModel)
+    : evaluatorToolPolicy(policyModel);
   const modelCatalogDigest = toolPolicy.modelCatalogDigest;
   const toolPolicyDigest = await digest(Buffer.from(canonicalJson(toolPolicy), "utf8"));
   const issuedAt = new Date();
@@ -2846,8 +2903,13 @@ async function executeResultRequest(
     if (result.code !== 0 || result.signal !== null || result.timedOut) {
       throw new Error(`Host Codex execution failed: exit=${result.code ?? "null"}; signal=${result.signal ?? "none"}; timedOut=${result.timedOut}`);
     }
-    transcript = parseEvaluatorTranscript(result.stdout);
-    response = validateEvaluationResponse(extractJson(transcript.responseText));
+    if (internalProbe) {
+      transcript = parseInternalReadinessTranscript(result.stdout);
+      response = transcript.response;
+    } else {
+      transcript = parseEvaluatorTranscript(result.stdout);
+      response = validateEvaluationResponse(extractJson(transcript.responseText));
+    }
   } catch (error) {
     const finishedAt = new Date().toISOString();
     const stdoutDigest = await digest(Buffer.from(result?.stdout ?? "", "utf8"));
