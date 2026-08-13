@@ -531,7 +531,7 @@ function canonicalEvaluatorForwardRequest(expectedModel, expectedInputText, expe
 const EVALUATOR_VIEW_IMAGE_PARAMETERS = Object.freeze({
   type: "object",
   properties: {
-    path: { type: "string", description: "Local image file path." }
+    path: { type: "string", description: "Local filesystem path to an image file." }
   },
   required: ["path"],
   additionalProperties: false

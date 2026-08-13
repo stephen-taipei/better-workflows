@@ -568,7 +568,7 @@ test("host evaluator request gate admits only the fixed read-only view-image boo
     strict: false,
     parameters: {
       type: "object",
-      properties: { path: { type: "string", description: "Local image file path." } },
+      properties: { path: { type: "string", description: "Local filesystem path to an image file." } },
       required: ["path"],
       additionalProperties: false
     }
