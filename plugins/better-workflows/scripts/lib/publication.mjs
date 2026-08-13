@@ -146,7 +146,7 @@ const PINNED_DIRECTORY_ROOT = process.platform === "darwin" ? "/dev/fd" : "/proc
 // The helper accepts only relative names derived by cacheEntryRelative below;
 // it never receives a caller-controlled absolute path.
 const PINNED_FS_PYTHON = String.raw`
-import base64, hashlib, io, json, os, stat, sys, tarfile
+import base64, ctypes, hashlib, io, json, os, stat, struct, sys, tarfile
 
 fd = 3
 
@@ -268,16 +268,59 @@ def extract_archive(destination, encoded):
     finally:
         archive.close()
 
+def linux_birthtime_ns(parent, leaf):
+    if sys.platform != "linux":
+        return None
+    syscall_numbers = {
+        "x86_64": 332,
+        "aarch64": 291,
+        "armv7l": 397,
+        "ppc64": 383,
+        "ppc64le": 383,
+        "s390x": 379,
+        "riscv64": 291,
+    }
+    syscall_number = syscall_numbers.get(os.uname().machine)
+    if syscall_number is None:
+        return None
+    buffer = ctypes.create_string_buffer(256)
+    result = ctypes.CDLL(None, use_errno=True).syscall(
+        ctypes.c_long(syscall_number),
+        ctypes.c_int(parent),
+        ctypes.c_char_p(os.fsencode(leaf)),
+        ctypes.c_int(0x100),
+        ctypes.c_uint(0x800),
+        ctypes.byref(buffer)
+    )
+    if result != 0:
+        return None
+    raw = buffer.raw
+    if struct.unpack_from("<I", raw, 0)[0] & 0x800 == 0:
+        return None
+    seconds = struct.unpack_from("<q", raw, 80)[0]
+    nanoseconds = struct.unpack_from("<I", raw, 88)[0]
+    return seconds * 1_000_000_000 + nanoseconds
+
+def birthtime_ns(parent, leaf, info):
+    value = getattr(info, "st_birthtime_ns", None)
+    if value is not None:
+        return int(value)
+    value = getattr(info, "st_birthtime", None)
+    if value is not None:
+        return int(round(value * 1_000_000_000))
+    return linux_birthtime_ns(parent, leaf)
+
 def stat_record(path):
     parent, leaf = open_parent(path)
     try:
         info = os.lstat(leaf, dir_fd=parent)
+        birthtime = birthtime_ns(parent, leaf, info)
     finally:
         os.close(parent)
     kind = "directory" if stat.S_ISDIR(info.st_mode) else "file" if stat.S_ISREG(info.st_mode) else "symlink" if stat.S_ISLNK(info.st_mode) else "other"
-    return {"type": kind, "mode": info.st_mode, "size": info.st_size, "nlink": info.st_nlink, "uid": info.st_uid, "gid": info.st_gid, "dev": info.st_dev, "ino": info.st_ino}
+    return {"type": kind, "mode": info.st_mode, "size": info.st_size, "nlink": info.st_nlink, "uid": info.st_uid, "gid": info.st_gid, "dev": info.st_dev, "ino": info.st_ino, "birthtime": birthtime}
 
-def identity_matches(info, expected, allow_directory_metadata_change=False):
+def identity_matches(info, expected, allow_directory_metadata_change=False, current_birthtime=None):
     if not isinstance(expected, dict):
         return False
     kind = "directory" if stat.S_ISDIR(info.st_mode) else "file" if stat.S_ISREG(info.st_mode) else "symlink" if stat.S_ISLNK(info.st_mode) else "other"
@@ -288,7 +331,9 @@ def identity_matches(info, expected, allow_directory_metadata_change=False):
     ):
         return False
     if allow_directory_metadata_change and kind == "directory":
-        return True
+        expected_birthtime = expected.get("birthtime")
+        if expected_birthtime is not None:
+            return current_birthtime is not None and abs(int(expected_birthtime) - int(current_birthtime)) <= 1_000
     return (
         str(expected.get("nlink")) == str(info.st_nlink) and
         str(expected.get("size")) == str(info.st_size)
@@ -355,7 +400,8 @@ def remove_if_match(path, release, expected, content_digest, allow_directory_met
     release_parent, release_leaf = open_parent(release)
     try:
         info = os.lstat(path_leaf, dir_fd=path_parent)
-        if not identity_matches(info, expected, allow_directory_metadata_change):
+        current_birthtime = birthtime_ns(path_parent, path_leaf, info) if allow_directory_metadata_change else None
+        if not identity_matches(info, expected, allow_directory_metadata_change, current_birthtime):
             guarded_failure("tree identity changed")
         if stat.S_ISREG(info.st_mode) and content_digest:
             handle = os.open(path_leaf, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0), dir_fd=path_parent)
@@ -375,7 +421,8 @@ def remove_if_match(path, release, expected, content_digest, allow_directory_met
                 guarded_failure("guarded removal requires a regular directory or file")
         os.rename(path_leaf, release_leaf, src_dir_fd=path_parent, dst_dir_fd=release_parent)
         moved = os.lstat(release_leaf, dir_fd=release_parent)
-        if not identity_matches(moved, expected, allow_directory_metadata_change):
+        moved_birthtime = birthtime_ns(release_parent, release_leaf, moved) if allow_directory_metadata_change else None
+        if not identity_matches(moved, expected, allow_directory_metadata_change, moved_birthtime):
             guarded_failure("moved identity changed")
         if stat.S_ISREG(moved.st_mode) and content_digest:
             handle = os.open(release_leaf, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0), dir_fd=release_parent)
