@@ -1,0 +1,594 @@
+<!doctype html>
+<html lang="zh-Hant" data-theme="light" data-locale="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Better Workflows 五分鐘預覽：快速選擇 route 與 mode，理解 evidence、state 與 replay 的邊界。">
+  <meta name="color-scheme" content="light dark">
+  <title>Better Workflows · 五分鐘預覽</title>
+  <!-- GENERATED: sdk-maker + imagegen | observed 2026-08-13 | revision 57bd75d -->
+  <style>
+    :root {
+      color-scheme: light;
+      --page: #f6f1e7;
+      --page-2: #ebe4d8;
+      --panel: rgba(255,252,245,.9);
+      --panel-solid: #fffaf0;
+      --ink: #17213a;
+      --muted: #56617a;
+      --faint: #646d80;
+      --line: rgba(23,33,58,.16);
+      --line-strong: rgba(23,33,58,.32);
+      --teal: #3157a4;
+      --teal-soft: #e1e7f1;
+      --lime: #d6a42f;
+      --coral: #c65d3b;
+      --violet: #6a5796;
+      --red: #b84c5c;
+      --dark: #17213a;
+      --dark-ink: #fff8eb;
+      --shadow: 0 24px 70px rgba(36,42,64,.14);
+      --shadow-sm: 0 10px 30px rgba(36,42,64,.1);
+      --sans: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans TC", "PingFang TC", sans-serif;
+      --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    }
+    html[data-theme="dark"] {
+      color-scheme: dark;
+      --page: #11172a;
+      --page-2: #222b45;
+      --panel: rgba(24,32,53,.9);
+      --panel-solid: #182035;
+      --ink: #f5f1e8;
+      --muted: #bec5d6;
+      --faint: #9ea7bb;
+      --line: rgba(225,231,249,.16);
+      --line-strong: rgba(225,231,249,.31);
+      --teal: #8fb1ff;
+      --teal-soft: #28365c;
+      --lime: #f2c85b;
+      --coral: #ff9b71;
+      --violet: #c3b1f2;
+      --red: #f18ca0;
+      --dark: #131d3a;
+      --dark-ink: #f7f1e5;
+      --shadow: 0 24px 70px rgba(0,0,0,.34);
+      --shadow-sm: 0 10px 30px rgba(0,0,0,.24);
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; scroll-padding-top: 100px; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        linear-gradient(rgba(23,33,58,.055) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(23,33,58,.055) 1px, transparent 1px),
+        var(--page);
+      background-size: 30px 30px;
+      font-family: var(--sans);
+      line-height: 1.65;
+    }
+    html[data-theme="dark"] body {
+      background:
+        linear-gradient(rgba(225,231,249,.055) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(225,231,249,.055) 1px, transparent 1px),
+        var(--page);
+      background-size: 30px 30px;
+    }
+    body::before {
+      position: fixed;
+      z-index: -1;
+      inset: -20vh -10vw auto;
+      height: 70vh;
+      background:
+        radial-gradient(circle at 18% 30%, color-mix(in srgb,var(--lime) 35%,transparent), transparent 33%),
+        radial-gradient(circle at 78% 8%, color-mix(in srgb,var(--teal) 23%,transparent), transparent 32%);
+      content: "";
+      filter: blur(32px);
+      pointer-events: none;
+    }
+    a { color: inherit; }
+    button, select { color: inherit; font: inherit; }
+    button, a, select { -webkit-tap-highlight-color: transparent; }
+    :focus-visible { outline: 3px solid var(--teal); outline-offset: 3px; }
+    ::selection { color: #17213a; background: var(--lime); }
+    .sr-only { position: absolute !important; width: 1px !important; height: 1px !important; padding: 0 !important; margin: -1px !important; overflow: hidden !important; clip: rect(0,0,0,0) !important; white-space: nowrap !important; border: 0 !important; }
+    .skip-link { position: fixed; z-index: 999; top: 8px; left: 8px; padding: 9px 13px; border-radius: 9px; background: var(--lime); color: #17213a; transform: translateY(-160%); }
+    .skip-link:focus { transform: none; }
+    .progress { position: fixed; z-index: 200; inset: 0 0 auto; height: 4px; }
+    .progress span { display: block; width: 0; height: 100%; background: linear-gradient(90deg,var(--teal),var(--lime),#f2c94c); }
+    .wrap { width: min(1160px, calc(100% - 32px)); margin-inline: auto; }
+    .topbar {
+      position: sticky;
+      z-index: 100;
+      top: 0;
+      min-height: 70px;
+      border-bottom: 1px solid var(--line);
+      background: color-mix(in srgb,var(--page) 84%,transparent);
+      backdrop-filter: blur(18px);
+    }
+    .topbar .wrap { min-height: 70px; display: flex; align-items: center; gap: 18px; }
+    .brand { display: flex; flex: 1; align-items: center; gap: 12px; min-width: 0; text-decoration: none; }
+    .brand-mark { width: 34px; height: 34px; display: grid; place-items: center; flex: 0 0 auto; border-radius: 11px; background: var(--dark); color: var(--dark-ink); box-shadow: 5px 5px 0 var(--lime); font: 800 12px/1 var(--mono); }
+    .brand-copy { display: grid; line-height: 1.15; }
+    .brand-copy strong { font-size: 13px; font-weight: 850; letter-spacing: -.03em; }
+    .brand-copy span { color: var(--faint); font: 10px/1.6 var(--mono); letter-spacing: .12em; }
+    .actions { display: flex; align-items: center; gap: 7px; }
+    .link-btn, .icon-btn, .locale-select { min-height: 40px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: 13px; background: var(--panel); color: var(--ink); text-decoration: none; font-size: 12px; font-weight: 780; cursor: pointer; }
+    .link-btn { padding: 8px 12px; }
+    .icon-btn { width: 40px; padding: 0; }
+    .locale-select { padding: 0 30px 0 11px; }
+    .link-btn:hover, .icon-btn:hover, .locale-select:hover { border-color: var(--line-strong); transform: translateY(-1px); }
+    .hero { position: relative; min-height: 620px; padding: 84px 0 62px; overflow: hidden; }
+    .hero::before { position: absolute; inset: 0; background: url("assets/workflow-field-guide-hero-nongreen.webp") center / cover no-repeat; content: ""; opacity: .78; -webkit-mask-image: linear-gradient(90deg,transparent 0%,rgba(0,0,0,.22) 34%,#000 66%); mask-image: linear-gradient(90deg,transparent 0%,rgba(0,0,0,.22) 34%,#000 66%); }
+    .hero::after { position: absolute; inset: 0; background: linear-gradient(90deg,var(--page) 0%,color-mix(in srgb,var(--page) 90%,transparent) 43%,transparent 78%); content: ""; }
+    html[data-theme="dark"] .hero::before { opacity: .27; filter: saturate(.8) brightness(.65); mix-blend-mode: screen; }
+    .hero-grid { position: relative; z-index: 1; display: grid; grid-template-columns: minmax(0,1.15fr) minmax(340px,.85fr); gap: 48px; align-items: end; }
+    .eyebrow { display: flex; align-items: center; gap: 10px; margin: 0 0 20px; color: var(--teal); font: 800 11px/1.4 var(--mono); letter-spacing: .15em; text-transform: uppercase; }
+    .eyebrow::before { width: 29px; height: 2px; background: var(--teal); content: ""; }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { max-width: 760px; margin-bottom: 24px; font-size: clamp(52px,7vw,86px); font-weight: 920; line-height: .96; letter-spacing: -.067em; }
+    h1 em { position: relative; display: inline-block; color: var(--teal); font-style: normal; }
+    h1 em::after { position: absolute; z-index: -1; right: -.06em; bottom: .03em; left: -.02em; height: .24em; border-radius: 999px; background: var(--lime); content: ""; transform: rotate(-1.2deg); }
+    .lede { max-width: 690px; color: var(--muted); font-size: clamp(17px,2vw,21px); }
+    .hero-buttons { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 30px; }
+    .primary, .secondary { min-height: 46px; display: inline-flex; align-items: center; gap: 8px; justify-content: center; padding: 10px 16px; border: 1px solid var(--line); border-radius: 13px; text-decoration: none; font-size: 13px; font-weight: 820; box-shadow: var(--shadow-sm); }
+    .primary { border-color: var(--dark); background: var(--dark); color: var(--dark-ink); box-shadow: 5px 5px 0 var(--lime); }
+    .secondary { background: var(--panel); }
+    .primary:hover, .secondary:hover { transform: translateY(-2px); }
+    .hero-card { position: relative; margin-top: 150px; padding: 26px; overflow: hidden; border-radius: 28px; background: color-mix(in srgb,var(--dark) 94%,transparent); color: var(--dark-ink); box-shadow: var(--shadow); backdrop-filter: blur(14px); }
+    .hero-card::after { position: absolute; top: -84px; right: -58px; width: 190px; height: 190px; border: 1px solid color-mix(in srgb,var(--lime) 45%,transparent); border-radius: 50%; content: ""; }
+    .hero-card small { color: var(--lime); font: 800 10px/1 var(--mono); letter-spacing: .13em; }
+    .hero-card h2 { margin: 12px 0 20px; font-size: 23px; line-height: 1.18; letter-spacing: -.035em; }
+    .rail { display: grid; gap: 7px; }
+    .rail-row { display: grid; grid-template-columns: 26px 1fr auto; align-items: center; gap: 10px; min-height: 46px; padding: 8px 11px; border: 1px solid rgba(255,255,255,.13); border-radius: 13px; background: rgba(255,255,255,.075); }
+    .rail-row b { width: 24px; height: 24px; display: grid; place-items: center; border-radius: 8px; background: var(--lime); color: #17213a; font: 900 9px/1 var(--mono); }
+    .rail-row span { font-size: 12px; font-weight: 750; }
+    .rail-row code { color: color-mix(in srgb,var(--dark-ink) 66%,transparent); font: 9px/1.3 var(--mono); }
+    .facts { position: relative; z-index: 2; display: grid; grid-template-columns: repeat(5,1fr); margin-top: -16px; overflow: hidden; border: 1px solid var(--line); border-radius: 20px; background: var(--panel); box-shadow: var(--shadow-sm); backdrop-filter: blur(14px); }
+    .fact { min-width: 0; padding: 17px 20px; border-right: 1px solid var(--line); }
+    .fact:last-child { border: 0; }
+    .fact span { display: block; color: var(--faint); font: 9px/1.4 var(--mono); letter-spacing: .12em; text-transform: uppercase; }
+    .fact strong { display: block; margin-top: 6px; font: 760 15px/1.3 var(--mono); overflow-wrap: anywhere; }
+    .edition-switch { position: sticky; z-index: 80; top: 70px; padding: 10px 0; border-bottom: 1px solid var(--line); background: color-mix(in srgb,var(--page) 88%,transparent); backdrop-filter: blur(18px); }
+    .edition-switch .wrap { display: flex; justify-content: center; }
+    .tabs { display: inline-grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; border: 1px solid var(--line); border-radius: 16px; background: var(--panel); box-shadow: var(--shadow-sm); }
+    .tab { min-width: min(260px,40vw); min-height: 44px; border: 0; border-radius: 12px; background: transparent; color: var(--muted); font-weight: 820; cursor: pointer; }
+    .tab[aria-selected="true"] { background: var(--dark); color: var(--dark-ink); box-shadow: 3px 3px 0 var(--lime); }
+    .panel[hidden] { display: none; }
+    .section { padding: 86px 0; border-bottom: 1px solid var(--line); }
+    .section-head { display: grid; grid-template-columns: 54px minmax(0,1fr); gap: 22px; margin-bottom: 34px; }
+    .chapter { width: 48px; height: 48px; display: grid; place-items: center; border-radius: 14px; background: var(--dark); color: var(--dark-ink); box-shadow: 4px 4px 0 var(--lime); font: 800 11px/1 var(--mono); }
+    .section-head h2 { max-width: 830px; margin: 0 0 10px; font-size: clamp(32px,4vw,50px); font-weight: 900; line-height: 1.04; letter-spacing: -.048em; }
+    .section-head p { max-width: 790px; margin: 0; color: var(--muted); }
+    .summary { margin: 0 0 34px 76px; padding: 18px 21px; border: 1px solid var(--line); border-left: 4px solid var(--lime); border-radius: 14px; background: var(--panel); box-shadow: var(--shadow-sm); color: var(--muted); }
+    .summary strong { color: var(--ink); }
+    .decision-shell { display: grid; grid-template-columns: minmax(0,1fr) minmax(310px,.75fr); overflow: hidden; border: 1px solid var(--line); border-radius: 28px; background: var(--panel); box-shadow: var(--shadow); }
+    .decision-form { padding: 28px; }
+    .decision-form h3 { margin-bottom: 7px; font-size: 24px; letter-spacing: -.035em; }
+    .decision-form > p { color: var(--muted); font-size: 13px; }
+    .choice-group { margin-top: 24px; }
+    .choice-group > span { display: block; margin-bottom: 9px; color: var(--faint); font: 800 10px/1.4 var(--mono); letter-spacing: .1em; }
+    .choices { display: flex; flex-wrap: wrap; gap: 7px; }
+    .choice { min-height: 38px; padding: 7px 11px; border: 1px solid var(--line); border-radius: 11px; background: var(--panel-solid); color: var(--muted); font-size: 12px; font-weight: 760; cursor: pointer; }
+    .choice.active { border-color: var(--teal); background: var(--teal-soft); color: var(--ink); }
+    .route-result { padding: 28px; background: var(--dark); color: var(--dark-ink); }
+    .route-result small { color: var(--lime); font: 800 10px/1.4 var(--mono); letter-spacing: .12em; }
+    .route-result h3 { margin: 13px 0 9px; font-size: 30px; line-height: 1.05; letter-spacing: -.045em; }
+    .route-result > p { color: color-mix(in srgb,var(--dark-ink) 75%,transparent); font-size: 13px; }
+    .route-tags { display: flex; flex-wrap: wrap; gap: 7px; margin: 20px 0; }
+    .tag { display: inline-flex; align-items: center; min-height: 27px; padding: 4px 9px; border: 1px solid rgba(255,255,255,.18); border-radius: 999px; background: rgba(255,255,255,.08); color: var(--dark-ink); font: 800 10px/1.2 var(--mono); }
+    .reason-list { display: grid; gap: 8px; margin: 18px 0 0; padding: 0; list-style: none; }
+    .reason-list li { position: relative; padding-left: 20px; color: color-mix(in srgb,var(--dark-ink) 78%,transparent); font-size: 12px; }
+    .reason-list li::before { position: absolute; left: 0; color: var(--lime); content: "↳"; }
+    .mode-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 13px; margin-top: 28px; }
+    .mode-card { min-height: 220px; padding: 21px; border: 1px solid var(--line); border-top: 3px solid var(--teal); border-radius: 20px; background: var(--panel); box-shadow: var(--shadow-sm); }
+    .mode-card:nth-child(2) { border-top-color: var(--lime); }
+    .mode-card:nth-child(3) { border-top-color: var(--violet); }
+    .mode-card:nth-child(4) { border-top-color: var(--coral); }
+    .mode-card b { display: inline-grid; width: 34px; height: 34px; place-items: center; border-radius: 10px; background: var(--dark); color: var(--dark-ink); font: 900 11px/1 var(--mono); }
+    .mode-card h3 { margin: 16px 0 8px; font: 850 17px/1.2 var(--mono); }
+    .mode-card p { color: var(--muted); font-size: 12px; }
+    .mode-card code { color: var(--teal); font: 760 10px/1.5 var(--mono); }
+    .concept-figure { position: relative; min-height: 330px; margin-bottom: 34px; overflow: hidden; border: 1px solid var(--line); border-radius: 30px; background: var(--panel-solid); box-shadow: var(--shadow); }
+    .concept-figure img { display: block; width: 100%; height: 380px; object-fit: cover; object-position: center 58%; }
+    .concept-figure::after { position: absolute; inset: 0; background: linear-gradient(180deg,transparent 52%,rgba(23,33,58,.84)); content: ""; }
+    .concept-figure figcaption { position: absolute; z-index: 1; right: 24px; bottom: 20px; left: 24px; color: #f5f2e9; font-size: 12px; font-weight: 760; text-shadow: 0 2px 12px rgba(0,0,0,.35); }
+    html[data-theme="dark"] .concept-figure img { filter: saturate(.82) brightness(.72); }
+    .boundary-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 14px; }
+    .boundary-card { min-height: 250px; padding: 23px; border: 1px solid var(--line); border-radius: 22px; background: var(--panel); box-shadow: var(--shadow-sm); }
+    .boundary-card .label { color: var(--teal); font: 850 10px/1.4 var(--mono); letter-spacing: .12em; }
+    .boundary-card h3 { margin: 14px 0 9px; font-size: 24px; line-height: 1.08; letter-spacing: -.04em; }
+    .boundary-card p { color: var(--muted); font-size: 12px; }
+    .boundary-card ul { display: grid; gap: 7px; margin: 16px 0 0; padding: 0; list-style: none; }
+    .boundary-card li { position: relative; padding-left: 18px; font-size: 11px; }
+    .boundary-card li::before { position: absolute; left: 0; color: var(--lime); content: "●"; }
+    .replay-shell { overflow: hidden; border: 1px solid var(--line); border-radius: 28px; background: var(--panel); box-shadow: var(--shadow); }
+    .replay-head { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 24px 26px; border-bottom: 1px solid var(--line); }
+    .replay-head h3 { margin: 0; font-size: 24px; letter-spacing: -.035em; }
+    .run-btn { min-height: 42px; padding: 8px 14px; border: 0; border-radius: 12px; background: var(--dark); color: var(--dark-ink); box-shadow: 4px 4px 0 var(--lime); font-weight: 830; cursor: pointer; }
+    .run-btn:disabled { opacity: .55; cursor: wait; }
+    .replay-body { display: grid; grid-template-columns: minmax(0,1fr) 330px; }
+    .replay-track { position: relative; display: grid; grid-template-columns: repeat(5,1fr); gap: 10px; padding: 36px 27px; }
+    .replay-track::before { position: absolute; top: 61px; right: 8%; left: 8%; height: 2px; background: var(--line); content: ""; }
+    .replay-node { position: relative; z-index: 1; text-align: center; }
+    .replay-node i { width: 52px; height: 52px; display: grid; place-items: center; margin: auto; border: 1px solid var(--line-strong); border-radius: 16px; background: var(--panel-solid); color: var(--faint); font: 900 10px/1 var(--mono); font-style: normal; transition: .25s ease; }
+    .replay-node b { display: block; margin-top: 11px; font-size: 11px; }
+    .replay-node small { display: block; margin-top: 4px; color: var(--faint); font: 9px/1.35 var(--mono); }
+    .replay-node.active i { border-color: var(--dark); background: var(--dark); color: var(--dark-ink); box-shadow: 4px 4px 0 var(--lime); transform: translateY(-3px); }
+    .replay-node.done i { border-color: var(--teal); background: var(--teal-soft); color: var(--ink); }
+    .event-log { min-height: 255px; padding: 24px; background: var(--dark); color: var(--dark-ink); }
+    .event-log > span { color: var(--lime); font: 800 10px/1.4 var(--mono); letter-spacing: .12em; }
+    .event-log pre { min-height: 160px; margin: 17px 0 0; white-space: pre-wrap; color: color-mix(in srgb,var(--dark-ink) 78%,transparent); font: 10px/1.75 var(--mono); }
+    .stop-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 13px; }
+    .stop-card { min-height: 180px; padding: 20px; border: 1px solid color-mix(in srgb,var(--red) 40%,var(--line)); border-radius: 19px; background: color-mix(in srgb,var(--red) 7%,var(--panel)); }
+    .stop-card b { color: var(--red); font: 900 10px/1.4 var(--mono); letter-spacing: .12em; }
+    .stop-card h3 { margin: 14px 0 8px; font-size: 17px; }
+    .stop-card p { color: var(--muted); font-size: 11px; }
+    .cta { padding: 76px 0 86px; }
+    .cta-card { position: relative; overflow: hidden; padding: 46px; border-radius: 30px; background: var(--dark); color: var(--dark-ink); box-shadow: var(--shadow); }
+    .cta-card::after { position: absolute; top: -120px; right: -90px; width: 360px; height: 360px; border: 1px solid color-mix(in srgb,var(--lime) 42%,transparent); border-radius: 50%; content: ""; }
+    .cta-card > * { position: relative; z-index: 1; }
+    .cta-card small { color: var(--lime); font: 800 10px/1.4 var(--mono); letter-spacing: .13em; }
+    .cta-card h2 { max-width: 760px; margin: 14px 0 12px; font-size: clamp(32px,5vw,56px); line-height: 1; letter-spacing: -.055em; }
+    .cta-card p { max-width: 720px; color: color-mix(in srgb,var(--dark-ink) 76%,transparent); }
+    .cta-card .primary { display: inline-flex; margin-top: 16px; border-color: var(--lime); background: var(--lime); color: #17213a; box-shadow: none; }
+    footer { padding: 24px 0 42px; color: var(--faint); font: 10px/1.7 var(--mono); }
+    footer .wrap { display: flex; justify-content: space-between; gap: 18px; border-top: 1px solid var(--line); padding-top: 22px; }
+    .reveal-ready { opacity: 0; transform: translateY(18px); transition: opacity .55s ease, transform .55s ease; }
+    .reveal-ready.visible { opacity: 1; transform: none; }
+    @media (max-width: 960px) {
+      .architecture-link { display: none; }
+      .hero-grid { grid-template-columns: 1fr; }
+      .hero-card { width: min(660px,100%); margin-top: 16px; }
+      .mode-grid, .stop-grid { grid-template-columns: repeat(2,1fr); }
+      .decision-shell { grid-template-columns: 1fr; }
+      .boundary-grid { grid-template-columns: 1fr; }
+      .replay-body { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 680px) {
+      html { scroll-padding-top: 128px; }
+      .topbar .wrap { gap: 8px; }
+      .brand-copy, .full-link { display: none; }
+      .locale-select { width: 76px; padding-inline: 8px; }
+      .hero { min-height: auto; padding: 62px 0 46px; }
+      .hero::before { opacity: .34; background-position: 61% center; -webkit-mask-image: linear-gradient(180deg,transparent 0%,#000 40%); mask-image: linear-gradient(180deg,transparent 0%,#000 40%); }
+      .hero::after { background: linear-gradient(180deg,var(--page) 0%,color-mix(in srgb,var(--page) 84%,transparent) 56%,transparent); }
+      h1 { font-size: clamp(47px,14vw,68px); }
+      .facts { grid-template-columns: repeat(2,1fr); }
+      .fact:nth-child(2n) { border-right: 0; }
+      .edition-switch { top: 70px; }
+      .tab { min-width: 42vw; font-size: 12px; }
+      .section { padding: 68px 0; }
+      .section-head { grid-template-columns: 1fr; }
+      .summary { margin-left: 0; }
+      .mode-grid, .stop-grid { grid-template-columns: 1fr; }
+      .replay-track { grid-template-columns: 1fr; padding: 26px; }
+      .replay-track::before { top: 7%; bottom: 7%; left: 51px; width: 2px; height: auto; }
+      .replay-node { display: grid; grid-template-columns: 52px 1fr; column-gap: 13px; text-align: left; align-items: center; }
+      .replay-node i { grid-row: span 2; margin: 0; }
+      .replay-node b, .replay-node small { margin: 0; }
+      .concept-figure img { height: 290px; }
+      .cta-card { padding: 32px 24px; }
+      footer .wrap { display: grid; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
+      .reveal-ready { opacity: 1; transform: none; }
+    }
+    @media print {
+      .topbar, .edition-switch, .progress, .run-btn { display: none !important; }
+      .panel[hidden] { display: block; }
+      body { background: #fff; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main" data-i18n="skip">跳到主要內容</a>
+  <div class="progress" aria-hidden="true"><span id="progress"></span></div>
+
+  <header class="topbar">
+    <div class="wrap">
+      <a class="brand" href="#top" aria-label="回到頁首" data-i18n-aria="backTop">
+        <span class="brand-mark">BW</span>
+        <span class="brand-copy"><strong data-i18n="brand">Better Workflows 五分鐘預覽</strong><span>QUICK FIELD GUIDE · 3.3.5</span></span>
+      </a>
+      <div class="actions">
+        <a class="link-btn full-link" href="index.html" data-i18n="full">查看完整版 →</a>
+        <a class="link-btn architecture-link" href="../index.html" data-i18n="architecture">架構解剖書 ↗</a>
+        <label><span class="sr-only" data-i18n="language">語言</span><select class="locale-select" id="locale" aria-label="語言"><option value="zh-Hant">繁中</option><option value="en">EN</option></select></label>
+        <button class="icon-btn" id="theme" type="button" aria-label="切換深色模式" title="切換主題">◐</button>
+      </div>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="hero" id="top">
+      <div class="wrap hero-grid">
+        <div>
+          <p class="eyebrow" data-i18n="eyebrow">Evidence-driven workflow · quick edition</p>
+          <h1 data-i18n-html="heroTitle">五分鐘，<br>選對<em>工作路線。</em></h1>
+          <p class="lede" data-i18n="heroLede">Better Workflows 不是「多跑幾個 agent」的同義詞。它先看後果，再選 route、template 與 mode，最後用 evidence 證明工作真的完成。</p>
+          <div class="hero-buttons">
+            <a class="primary" href="#choose" data-i18n="start">開始判斷 →</a>
+            <a class="secondary" href="index.html#tutorials" data-i18n="cases">看 14 種情境</a>
+          </div>
+        </div>
+        <aside class="hero-card" aria-label="核心資料流" data-i18n-aria="coreFlow">
+          <small>THE ROUTE, NOT THE RITUAL</small>
+          <h2 data-i18n="flowTitle">每一步都留下可驗證的因果鏈</h2>
+          <div class="rail">
+            <div class="rail-row"><b>01</b><span data-i18n="rail1">辨識任務與後果</span><code>selector</code></div>
+            <div class="rail-row"><b>02</b><span data-i18n="rail2">選模板與驗證強度</span><code>template + mode</code></div>
+            <div class="rail-row"><b>03</b><span data-i18n="rail3">產生證據並評估</span><code>evidence</code></div>
+            <div class="rail-row"><b>04</b><span data-i18n="rail4">寫入狀態或停止</span><code>state / terminal</code></div>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <div class="wrap facts" aria-label="版本事實" data-i18n-aria="versionFacts">
+      <div class="fact"><span data-i18n="revision">研究版本</span><strong>57bd75d</strong></div>
+      <div class="fact"><span>ENTRYPOINTS</span><strong>17</strong></div>
+      <div class="fact"><span>TEMPLATES</span><strong>13</strong></div>
+      <div class="fact"><span>MODES</span><strong>4</strong></div>
+      <div class="fact"><span>EVIDENCE KINDS</span><strong>99</strong></div>
+    </div>
+
+    <nav class="edition-switch" aria-label="預覽深度" data-i18n-aria="previewDepth">
+      <div class="wrap">
+        <div class="tabs" role="tablist">
+          <button class="tab" id="tab-basic" role="tab" aria-selected="true" aria-controls="panel-basic" tabindex="0" data-panel="basic" data-i18n="basic">快速認識</button>
+          <button class="tab" id="tab-advanced" role="tab" aria-selected="false" aria-controls="panel-advanced" tabindex="-1" data-panel="advanced" data-i18n="advanced">深入理解</button>
+        </div>
+      </div>
+    </nav>
+
+    <div class="panel" id="panel-basic" role="tabpanel" aria-labelledby="tab-basic">
+      <section class="section" id="choose">
+        <div class="wrap">
+          <header class="section-head reveal">
+            <span class="chapter">01</span>
+            <div><h2 data-i18n="chooseTitle">先問後果，再選路線。</h2><p data-i18n="chooseIntro">route 是工作種類，mode 是驗證強度。兩者分開選，才不會把小修做成儀式，也不會把高風險交付當一般編輯。</p></div>
+          </header>
+          <p class="summary reveal" data-i18n-html="chooseSummary"><strong>一句話：</strong>先找最接近的情境；一旦涉及外部副作用、跨平台契約或 release，就提高驗證強度。</p>
+          <div class="decision-shell reveal">
+            <div class="decision-form">
+              <h3 data-i18n="finderTitle">路線快選器</h3>
+              <p data-i18n="finderIntro">回答兩題。結果是入門建議，不取代完整版中的 stop conditions。</p>
+              <div class="choice-group">
+                <span data-i18n="taskType">Q1 · 這次主要要做什麼？</span>
+                <div class="choices" id="task-choices"></div>
+              </div>
+              <div class="choice-group">
+                <span data-i18n="consequence">Q2 · 失敗後果多大？</span>
+                <div class="choices" id="risk-choices"></div>
+              </div>
+            </div>
+            <output class="route-result" id="route-result" aria-live="polite"></output>
+          </div>
+          <div class="mode-grid reveal" id="mode-grid"></div>
+        </div>
+      </section>
+      <section class="cta">
+        <div class="wrap"><div class="cta-card reveal"><small>NEXT · 14 PRACTICAL ROUTES</small><h2 data-i18n="basicCtaTitle">知道 mode 之後，下一步是選情境。</h2><p data-i18n="basicCtaText">完整版逐一拆解 small fix、review、QA、CI/release、跨平台與研究工作，包含 prompt、stage、evidence、成功條件與常見 blocker。</p><a class="primary" href="index.html#tutorials" data-i18n="openTutorials">打開 14 種實戰教學 →</a></div></div>
+      </section>
+    </div>
+
+    <div class="panel" id="panel-advanced" role="tabpanel" aria-labelledby="tab-advanced" hidden>
+      <section class="section" id="boundaries">
+        <div class="wrap">
+          <header class="section-head reveal">
+            <span class="chapter">02</span>
+            <div><h2 data-i18n="boundaryTitle">證據不是狀態，PASS 也不是終點。</h2><p data-i18n="boundaryIntro">evidence 是「發生了什麼」的可驗證紀錄；state 是引擎根據證據做出的持久化決策。Replay 重新評估既有證據，不重做外部副作用。</p></div>
+          </header>
+          <figure class="concept-figure reveal">
+            <img src="assets/workflow-route-map-nongreen.webp" alt="四條工作路線穿越證據關卡後收斂到終止狀態的抽象插圖" data-i18n-alt="routeImageAlt" width="1536" height="1024">
+            <figcaption data-i18n="routeCaption">選路、驗證、收斂：Replay 的回環回到評估層，而不是把世界再改一次。</figcaption>
+          </figure>
+          <div class="boundary-grid reveal" id="boundary-grid"></div>
+        </div>
+      </section>
+      <section class="section" id="replay">
+        <div class="wrap">
+          <header class="section-head reveal">
+            <span class="chapter">03</span>
+            <div><h2 data-i18n="replayTitle">Replay：重播判斷，不重播副作用。</h2><p data-i18n="replayIntro">互動示意會沿著既有 run record 重建 route、讀取 evidence、再次評估 stage，最後產生 replay report；它不重新 push、merge、deploy 或發訊息。</p></div>
+          </header>
+          <div class="replay-shell reveal">
+            <div class="replay-head"><h3 data-i18n="replayDemo">決定性重播示意</h3><button class="run-btn" id="run-replay" type="button" data-i18n="runReplay">執行 Replay</button></div>
+            <div class="replay-body">
+              <div class="replay-track" id="replay-track"></div>
+              <div class="event-log"><span>REPLAY EVENT LOG</span><pre id="event-log" aria-live="polite"></pre></div>
+            </div>
+          </div>
+        </div>
+      </section>
+      <section class="section" id="stop">
+        <div class="wrap">
+          <header class="section-head reveal"><span class="chapter">04</span><div><h2 data-i18n="stopTitle">看到這些紅燈，就停。</h2><p data-i18n="stopIntro">Fail-closed 的價值不在「很嚴格」，而在避免缺證據時製造一個看似成功的結果。</p></div></header>
+          <div class="stop-grid reveal" id="stop-grid"></div>
+        </div>
+      </section>
+      <section class="cta">
+        <div class="wrap"><div class="cta-card reveal"><small>FULL EDITION · SOURCE-BACKED</small><h2 data-i18n="advancedCtaTitle">從概念進入完整操作手冊。</h2><p data-i18n="advancedCtaText">查看 13 個 templates、60 個 stages、99 種 evidence、Prompt Lab、角色閱讀路徑、優缺點、改 code 守則與來源檔案對照。</p><a class="primary" href="index.html" data-i18n="openFull">開啟完整版 →</a></div></div>
+      </section>
+    </div>
+  </main>
+
+  <footer><div class="wrap"><span data-i18n="footerEdition">Better Workflows 3.3.5 · Preview Edition</span><span data-i18n="footerSource">Source snapshot 57bd75d · 2026-08-13 · no external dependencies</span></div></footer>
+
+  <script>
+    (() => {
+      'use strict';
+      const $ = (selector, root = document) => root.querySelector(selector);
+      const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
+      const localeKey = 'better-workflows-docs-locale';
+      const themeKey = 'better-workflows-docs-theme';
+      const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+      const copy = {
+        'zh-Hant': {
+          skip:'跳到主要內容', backTop:'回到頁首', brand:'Better Workflows 五分鐘預覽', full:'查看完整版 →', architecture:'架構解剖書 ↗', language:'語言',
+          eyebrow:'Evidence-driven workflow · quick edition', heroTitle:'五分鐘，<br>選對<em>工作路線。</em>', heroLede:'Better Workflows 不是「多跑幾個 agent」的同義詞。它先看後果，再選 route、template 與 mode，最後用 evidence 證明工作真的完成。', start:'開始判斷 →', cases:'看 14 種情境', coreFlow:'核心資料流', flowTitle:'每一步都留下可驗證的因果鏈', rail1:'辨識任務與後果', rail2:'選模板與驗證強度', rail3:'產生證據並評估', rail4:'寫入狀態或停止', versionFacts:'版本事實', revision:'研究版本', previewDepth:'預覽深度', basic:'快速認識', advanced:'深入理解',
+          chooseTitle:'先問後果，再選路線。', chooseIntro:'route 是工作種類，mode 是驗證強度。兩者分開選，才不會把小修做成儀式，也不會把高風險交付當一般編輯。', chooseSummary:'<strong>一句話：</strong>先找最接近的情境；一旦涉及外部副作用、跨平台契約或 release，就提高驗證強度。', finderTitle:'路線快選器', finderIntro:'回答兩題。結果是入門建議，不取代完整版中的 stop conditions。', taskType:'Q1 · 這次主要要做什麼？', consequence:'Q2 · 失敗後果多大？', basicCtaTitle:'知道 mode 之後，下一步是選情境。', basicCtaText:'完整版逐一拆解 small fix、review、QA、CI/release、跨平台與研究工作，包含 prompt、stage、evidence、成功條件與常見 blocker。', openTutorials:'打開 14 種實戰教學 →',
+          boundaryTitle:'證據不是狀態，PASS 也不是終點。', boundaryIntro:'evidence 是「發生了什麼」的可驗證紀錄；state 是引擎根據證據做出的持久化決策。Replay 重新評估既有證據，不重做外部副作用。', routeImageAlt:'四條工作路線穿越證據關卡後收斂到終止狀態的抽象插圖', routeCaption:'選路、驗證、收斂：Replay 的回環回到評估層，而不是把世界再改一次。', replayTitle:'Replay：重播判斷，不重播副作用。', replayIntro:'互動示意會沿著既有 run record 重建 route、讀取 evidence、再次評估 stage，最後產生 replay report；它不重新 push、merge、deploy 或發訊息。', replayDemo:'決定性重播示意', runReplay:'執行 Replay', replayAgain:'再次執行', stopTitle:'看到這些紅燈，就停。', stopIntro:'Fail-closed 的價值不在「很嚴格」，而在避免缺證據時製造一個看似成功的結果。', advancedCtaTitle:'從概念進入完整操作手冊。', advancedCtaText:'查看 13 個 templates、60 個 stages、99 種 evidence、Prompt Lab、角色閱讀路徑、優缺點、改 code 守則與來源檔案對照。', openFull:'開啟完整版 →', footerEdition:'Better Workflows 3.3.5 · Preview Edition', footerSource:'Source snapshot 57bd75d · 2026-08-13 · no external dependencies', themeLight:'切換深色模式', themeDark:'切換淺色模式'
+        },
+        en: {
+          skip:'Skip to main content', backTop:'Back to top', brand:'Better Workflows · Five-minute preview', full:'Full edition →', architecture:'Architecture book ↗', language:'Language',
+          eyebrow:'Evidence-driven workflow · quick edition', heroTitle:'Five minutes.<br>Choose the <em>right route.</em>', heroLede:'Better Workflows is not shorthand for “run more agents.” It starts with consequences, selects a route, template and mode, then uses evidence to prove the work is actually complete.', start:'Start deciding →', cases:'Explore 14 scenarios', coreFlow:'Core data flow', flowTitle:'Every step leaves a verifiable causal chain', rail1:'Identify the task and consequences', rail2:'Choose template and rigor', rail3:'Produce and evaluate evidence', rail4:'Persist state or stop', versionFacts:'Version facts', revision:'Observed revision', previewDepth:'Preview depth', basic:'Quick start', advanced:'Understand boundaries',
+          chooseTitle:'Ask about consequences. Then choose a route.', chooseIntro:'A route describes the kind of work; a mode sets verification strength. Choosing them independently avoids turning a tiny fix into ceremony—or treating a risky delivery like an ordinary edit.', chooseSummary:'<strong>In one sentence:</strong> find the closest scenario first; increase rigor whenever external side effects, cross-platform contracts or releases are involved.', finderTitle:'Route quick picker', finderIntro:'Answer two questions. This is an entry recommendation, not a replacement for the full stop conditions.', taskType:'Q1 · What are you mainly doing?', consequence:'Q2 · How costly is failure?', basicCtaTitle:'Once you know the mode, choose the scenario.', basicCtaText:'The full edition breaks down small fixes, reviews, QA, CI/release, cross-platform and research work—with prompts, stages, evidence, success conditions and common blockers.', openTutorials:'Open 14 practical tutorials →',
+          boundaryTitle:'Evidence is not state. PASS is not the finish line.', boundaryIntro:'Evidence is a verifiable record of what happened. State is the engine’s persisted decision based on that evidence. Replay reevaluates existing evidence without repeating external side effects.', routeImageAlt:'Abstract illustration of four workflow routes passing evidence gates and converging on terminal state', routeCaption:'Route, verify, converge: the Replay loop returns to evaluation, not to changing the world again.', replayTitle:'Replay: repeat the decision, not the side effect.', replayIntro:'This demo reconstructs the route from an existing run record, loads evidence, reevaluates the stage and emits a replay report. It does not push, merge, deploy or send messages again.', replayDemo:'Deterministic replay demo', runReplay:'Run Replay', replayAgain:'Run again', stopTitle:'Stop when you see these red lights.', stopIntro:'Fail-closed is valuable because it prevents missing evidence from turning into a result that merely looks successful.', advancedCtaTitle:'Move from the concept to the complete field guide.', advancedCtaText:'Explore 13 templates, 60 stages, 99 evidence kinds, Prompt Lab, role-based paths, strengths and risks, change rules and source-file mapping.', openFull:'Open full edition →', footerEdition:'Better Workflows 3.3.5 · Preview Edition', footerSource:'Source snapshot 57bd75d · 2026-08-13 · no external dependencies', themeLight:'Switch to dark theme', themeDark:'Switch to light theme'
+        }
+      };
+      const data = {
+        'zh-Hant': {
+          tasks:[['fix','小範圍修改'],['review','唯讀審查'],['ship','交付／發布'],['research','研究決策']],
+          risks:[['low','可快速回復'],['medium','多人受影響'],['high','不可逆或對外']],
+          routes:{
+            fix:{low:['direct','direct','無模板、小範圍直接完成',['scope 要清楚','可用 focused checks 驗證']],medium:['auto','verified','由 selector 選模板並加入 fresh checks',['改動會影響多人','需要獨立驗證']],high:['auto','critical','先 preview；副作用前必須 fail-closed',['後果不可逆','需要完整 gates']]},
+            review:{low:['review-issues','verified','唯讀 inventory、驗證、去重 findings',['不應直接改 code','finding 要綁定證據']],medium:['review-issues','deep','加入獨立 critics 與 coverage',['審查範圍較廣','需反證與完整覆蓋']],high:['review-issues','critical','唯讀且完整 fail-closed gates',['結論會觸發重要決策','未知不得視為通過']]},
+            ship:{low:['pr-to-dev','verified','拆 atomic commits、fresh checks、建立 PR',['對 remote 有副作用','先完成 preview']],medium:['ci-release','deep','監控 pipeline、驗證 artifact 與 deploy',['交付鏈跨多階段','失敗需可診斷']],high:['ci-release','critical','不可逆 side effects 前完整關卡',['release 影響外部使用者','缺 evidence 就停止']]},
+            research:{low:['research','verified','多來源研究、反證與選項比較',['研究不等於實作','結論要可追溯']],medium:['research','deep','加入 critics 與架構決策證據',['決策影響後續實作','需要反方視角']],high:['research','critical','高後果決策採完整 fail-closed',['假設錯誤代價高','UNKNOWN 必須顯式保留']]}
+          },
+          modes:[['01','direct','直接、無狀態','範圍明確、低後果、可由 root 自行驗證。','bounded local scope'],['02','verified','加入新鮮證據','1–3 個唯讀驗證者，要求 freshness evidence。','fresh checks + critics'],['03','deep','擴大反證深度','verified 之後再加入獨立 critics。','coverage + counterevidence'],['04','critical','副作用前關卡','不可逆行為與完成條件完整 fail-closed。','side-effect gates']],
+          boundaries:[['EVIDENCE','證據：發生了什麼','append-only、typed、可追溯；它是判斷輸入，不是判斷本身。',['command output','artifact hash','review receipt']],['STATE','狀態：現在走到哪裡','由 stage evaluator 根據必要證據寫入；不是看到一個 PASS 就直接完成。',['stage status','terminal reason','blocker details']],['REPLAY','Replay：重新求值','載入既有 run record 與 evidence，再跑 evaluator；外部 side effects 保持封閉。',['same inputs','same rules','replay report']]],
+          replay:[['01','LOAD','讀取 run record'],['02','ROUTE','重建 route'],['03','READ','載入 evidence'],['04','EVAL','重評 stage'],['05','REPORT','輸出報告']],
+          logs:['[load] run.json + state.json','[route] selector and template restored','[evidence] typed records loaded; no commands executed','[evaluate] required evidence rechecked','[terminal] replay-report emitted; side effects = 0'],
+          stops:[['UNKNOWN','必要事實未知','不能把未執行、逾時或拿不到的資料折算成 PASS。'],['STALE','證據已過期','驗證基準、SHA 或外部狀態改變，就應重新取得 fresh evidence。'],['MISSING','必要 evidence 缺失','缺必要 kind、scope 或來源時，stage 不得前進。'],['SIDE EFFECT','將重做外部副作用','Replay 若會再次 push、merge、deploy 或發訊息，必須阻止。']]
+        },
+        en: {
+          tasks:[['fix','Bounded change'],['review','Read-only review'],['ship','Delivery / release'],['research','Research decision']],
+          risks:[['low','Quickly reversible'],['medium','Affects a team'],['high','Irreversible or external']],
+          routes:{
+            fix:{low:['direct','direct','No template; complete a bounded change directly',['Scope is explicit','Focused checks can verify it']],medium:['auto','verified','Let the selector choose a template and add fresh checks',['The change affects a team','Independent verification helps']],high:['auto','critical','Preview first; fail closed before side effects',['Consequences are irreversible','Complete gates are required']]},
+            review:{low:['review-issues','verified','Read-only inventory, verification and finding dedupe',['Do not mutate code','Tie findings to evidence']],medium:['review-issues','deep','Add independent critics and coverage',['The review surface is broad','Counterevidence is required']],high:['review-issues','critical','Read-only with complete fail-closed gates',['The conclusion drives a major decision','Unknown is never pass']]},
+            ship:{low:['pr-to-dev','verified','Atomic commits, fresh checks, then open a PR',['Remote state will change','Complete preview first']],medium:['ci-release','deep','Monitor pipeline, artifact and deployment evidence',['Delivery spans multiple stages','Failures must be diagnosable']],high:['ci-release','critical','Complete gates before irreversible side effects',['The release affects users','Stop when evidence is missing']]},
+            research:{low:['research','verified','Multi-source research, counterevidence and option comparison',['Research is not implementation','Conclusions stay traceable']],medium:['research','deep','Add critics and architecture-decision evidence',['The decision shapes implementation','Include an opposing view']],high:['research','critical','Use full fail-closed rigor for high-consequence decisions',['Wrong assumptions are costly','Preserve UNKNOWN explicitly']]}
+          },
+          modes:[['01','direct','Direct and stateless','Explicit scope, low consequences, root can verify it directly.','bounded local scope'],['02','verified','Add fresh evidence','Use 1–3 read-only verifiers and require freshness evidence.','fresh checks + critics'],['03','deep','Increase counterevidence','After verified, add independent critics.','coverage + counterevidence'],['04','critical','Gate side effects','Fail closed before irreversible actions and at completion.','side-effect gates']],
+          boundaries:[['EVIDENCE','Evidence: what happened','Append-only, typed and traceable. It feeds the decision; it is not the decision.',['command output','artifact hash','review receipt']],['STATE','State: where the run is','The stage evaluator persists it from required evidence. One PASS does not complete the run.',['stage status','terminal reason','blocker details']],['REPLAY','Replay: reevaluate','Load an existing run record and evidence, then rerun evaluators while side effects remain closed.',['same inputs','same rules','replay report']]],
+          replay:[['01','LOAD','Read run record'],['02','ROUTE','Restore route'],['03','READ','Load evidence'],['04','EVAL','Recheck stage'],['05','REPORT','Emit report']],
+          logs:['[load] run.json + state.json','[route] selector and template restored','[evidence] typed records loaded; no commands executed','[evaluate] required evidence rechecked','[terminal] replay-report emitted; side effects = 0'],
+          stops:[['UNKNOWN','A required fact is unknown','Never convert not-run, timeout or unavailable data into PASS.'],['STALE','Evidence is stale','When the SHA, baseline or external state changes, obtain fresh evidence.'],['MISSING','Required evidence is missing','Do not advance without the required kind, scope or source.'],['SIDE EFFECT','Replay would repeat an effect','Block any replay that would push, merge, deploy or send a message again.']]
+        }
+      };
+      let locale = (() => {
+        const param = new URLSearchParams(location.search).get('lang');
+        if (param === 'en' || param === 'zh-Hant') return param;
+        try { return localStorage.getItem(localeKey) || 'zh-Hant'; } catch (_) { return 'zh-Hant'; }
+      })();
+      if (!copy[locale]) locale = 'zh-Hant';
+      let selection = { task:'fix', risk:'low' };
+      let replayTimer = 0;
+
+      function esc(value) { return String(value).replace(/[&<>"]/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[char])); }
+      function t(key) { return copy[locale][key] || copy['zh-Hant'][key] || key; }
+      function renderPicker() {
+        const current = data[locale];
+        $('#task-choices').innerHTML = current.tasks.map(([value,label]) => `<button class="choice${selection.task === value ? ' active' : ''}" type="button" data-kind="task" data-value="${value}" aria-pressed="${selection.task === value}">${esc(label)}</button>`).join('');
+        $('#risk-choices').innerHTML = current.risks.map(([value,label]) => `<button class="choice${selection.risk === value ? ' active' : ''}" type="button" data-kind="risk" data-value="${value}" aria-pressed="${selection.risk === value}">${esc(label)}</button>`).join('');
+        const [route,mode,summary,reasons] = current.routes[selection.task][selection.risk];
+        $('#route-result').innerHTML = `<small>RECOMMENDED ENTRY</small><h3>${route === 'direct' ? 'better-workflows:direct' : `better-workflows:${route}`}</h3><p>${esc(summary)}</p><div class="route-tags"><span class="tag">route · ${esc(route)}</span><span class="tag">mode · ${esc(mode)}</span></div><ul class="reason-list">${reasons.map(reason => `<li>${esc(reason)}</li>`).join('')}</ul>`;
+        $$('.choice').forEach(button => button.addEventListener('click', () => { selection[button.dataset.kind] = button.dataset.value; renderPicker(); }));
+      }
+      function renderModes() {
+        $('#mode-grid').innerHTML = data[locale].modes.map(([no,name,title,description,rule]) => `<article class="mode-card"><b>${no}</b><h3>${esc(name)}</h3><p><strong>${esc(title)}</strong><br>${esc(description)}</p><code>${esc(rule)}</code></article>`).join('');
+      }
+      function renderAdvanced() {
+        $('#boundary-grid').innerHTML = data[locale].boundaries.map(([label,title,description,items]) => `<article class="boundary-card"><span class="label">${esc(label)}</span><h3>${esc(title)}</h3><p>${esc(description)}</p><ul>${items.map(item => `<li>${esc(item)}</li>`).join('')}</ul></article>`).join('');
+        $('#replay-track').innerHTML = data[locale].replay.map(([no,label,description]) => `<div class="replay-node"><i>${esc(no)}</i><b>${esc(label)}</b><small>${esc(description)}</small></div>`).join('');
+        $('#stop-grid').innerHTML = data[locale].stops.map(([label,title,description]) => `<article class="stop-card"><b>${esc(label)}</b><h3>${esc(title)}</h3><p>${esc(description)}</p></article>`).join('');
+        $('#event-log').textContent = locale === 'en' ? 'Ready. Existing evidence only.\nSide effects are locked.' : '已就緒。只讀取既有 evidence。\n外部副作用已鎖定。';
+      }
+      function applyLocale(next, persist = true) {
+        locale = copy[next] ? next : 'zh-Hant';
+        document.documentElement.lang = locale;
+        document.documentElement.dataset.locale = locale;
+        document.title = locale === 'en' ? 'Better Workflows · Five-minute preview' : 'Better Workflows · 五分鐘預覽';
+        $('meta[name="description"]').content = locale === 'en' ? 'A five-minute Better Workflows preview: choose a route and mode, then understand evidence, state and Replay boundaries.' : 'Better Workflows 五分鐘預覽：快速選擇 route 與 mode，理解 evidence、state 與 replay 的邊界。';
+        $$('[data-i18n]').forEach(node => { node.textContent = t(node.dataset.i18n); });
+        $$('[data-i18n-html]').forEach(node => { node.innerHTML = t(node.dataset.i18nHtml); });
+        $$('[data-i18n-aria]').forEach(node => { node.setAttribute('aria-label', t(node.dataset.i18nAria)); });
+        $$('[data-i18n-alt]').forEach(node => { node.alt = t(node.dataset.i18nAlt); });
+        $('#locale').value = locale;
+        renderPicker(); renderModes(); renderAdvanced(); updateThemeLabel();
+        if (persist) { try { localStorage.setItem(localeKey, locale); } catch (_) {} }
+      }
+      function initTheme() {
+        let saved;
+        try { saved = localStorage.getItem(themeKey); } catch (_) {}
+        const theme = saved === 'dark' || saved === 'light' ? saved : (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+        document.documentElement.dataset.theme = theme;
+        updateThemeLabel();
+        $('#theme').addEventListener('click', () => {
+          const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+          document.documentElement.dataset.theme = next;
+          try { localStorage.setItem(themeKey, next); } catch (_) {}
+          updateThemeLabel();
+        });
+      }
+      function updateThemeLabel() {
+        const dark = document.documentElement.dataset.theme === 'dark';
+        $('#theme').setAttribute('aria-label', dark ? t('themeDark') : t('themeLight'));
+        $('#theme').title = dark ? t('themeDark') : t('themeLight');
+        $('#theme').textContent = dark ? '☀' : '◐';
+      }
+      function activatePanel(name, updateHash = true) {
+        const valid = name === 'advanced' ? 'advanced' : 'basic';
+        $$('.tab').forEach(tab => {
+          const active = tab.dataset.panel === valid;
+          tab.setAttribute('aria-selected', active);
+          tab.tabIndex = active ? 0 : -1;
+        });
+        $('#panel-basic').hidden = valid !== 'basic';
+        $('#panel-advanced').hidden = valid !== 'advanced';
+        if (updateHash) history.replaceState(null, '', valid === 'advanced' ? '#advanced' : '#basic');
+        requestAnimationFrame(initReveal);
+      }
+      function initTabs() {
+        $$('.tab').forEach((tab, index, tabs) => {
+          tab.addEventListener('click', () => activatePanel(tab.dataset.panel));
+          tab.addEventListener('keydown', event => {
+            if (!['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) return;
+            event.preventDefault();
+            let next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+            tabs[next].focus(); activatePanel(tabs[next].dataset.panel);
+          });
+        });
+        activatePanel(location.hash === '#advanced' || ['#boundaries','#replay','#stop'].includes(location.hash) ? 'advanced' : 'basic', false);
+      }
+      async function runReplay() {
+        clearTimeout(replayTimer);
+        const button = $('#run-replay');
+        const nodes = $$('.replay-node');
+        const logs = data[locale].logs;
+        nodes.forEach(node => node.classList.remove('active','done'));
+        $('#event-log').textContent = '';
+        button.disabled = true;
+        for (let i = 0; i < nodes.length; i += 1) {
+          nodes.forEach(node => node.classList.remove('active'));
+          nodes[i].classList.add('active');
+          $('#event-log').textContent += `${logs[i]}\n`;
+          if (!reducedMotion) await new Promise(resolve => { replayTimer = setTimeout(resolve, 560); });
+          nodes[i].classList.remove('active'); nodes[i].classList.add('done');
+        }
+        button.disabled = false; button.textContent = t('replayAgain');
+      }
+      function initReveal() {
+        const targets = $$('.panel:not([hidden]) .reveal:not(.visible)');
+        if (reducedMotion || !('IntersectionObserver' in window)) { targets.forEach(node => node.classList.add('visible')); return; }
+        const observer = new IntersectionObserver(entries => entries.forEach(entry => { if (entry.isIntersecting) { entry.target.classList.add('visible'); observer.unobserve(entry.target); } }), { threshold:.08, rootMargin:'0px 0px -30px' });
+        targets.forEach(node => { node.classList.add('reveal-ready'); observer.observe(node); });
+      }
+      function updateProgress() {
+        const max = document.documentElement.scrollHeight - innerHeight;
+        $('#progress').style.width = `${max > 0 ? Math.min(100, scrollY / max * 100) : 0}%`;
+      }
+      $('#locale').addEventListener('change', event => applyLocale(event.target.value));
+      $('#run-replay').addEventListener('click', runReplay);
+      addEventListener('scroll', updateProgress, { passive:true });
+      addEventListener('resize', updateProgress, { passive:true });
+      initTheme(); applyLocale(locale, false); initTabs(); initReveal(); updateProgress();
+    })();
+  </script>
+</body>
+</html>

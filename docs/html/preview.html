@@ -1,0 +1,784 @@
+<!doctype html>
+<html lang="zh-Hant" data-theme="light" data-locale="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="description" content="用 5–10 分鐘建立 Better Workflows 的控制面、證據、replay 與完成邊界心智模型。">
+  <title>Better Workflows 快速導覽｜從意圖到可證明完成</title>
+  <script>
+    (() => {
+      try {
+        const root = document.documentElement;
+        const theme = localStorage.getItem('better-workflows-guide-theme');
+        const locale = localStorage.getItem('better-workflows-guide-locale');
+        root.dataset.theme = theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+        root.dataset.locale = locale === 'en' ? 'en' : 'zh-Hant';
+        root.lang = root.dataset.locale;
+      } catch {
+        document.documentElement.dataset.theme = 'light';
+      }
+    })();
+  </script>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f7f3ea;
+      --grid: rgba(23, 36, 58, .055);
+      --surface: rgba(255, 253, 248, .84);
+      --surface-solid: #fffdf8;
+      --surface-2: #ece7db;
+      --inverse: #172e50;
+      --inverse-ink: #f4f7ff;
+      --ink: #17243a;
+      --muted: #5d687b;
+      --line: rgba(23, 36, 58, .14);
+      --line-strong: rgba(23, 36, 58, .27);
+      --blue: #2457d6;
+      --blue-deep: #1e46a8;
+      --blue-fill: #2457d6;
+      --periwinkle: #6f95e8;
+      --indigo: #2f65c9;
+      --indigo-fill: #2554b8;
+      --amber: #a65a00;
+      --coral: #bb4642;
+      --violet: #3b69c6;
+      --topbar: rgba(247, 243, 234, .84);
+      --glow-a: rgba(36, 87, 214, .16);
+      --glow-b: rgba(78, 125, 218, .14);
+      --shadow: 0 24px 70px rgba(25, 38, 59, .13);
+      --shadow-sm: 0 10px 30px rgba(25, 38, 59, .09);
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      --sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans TC", sans-serif;
+    }
+    html[data-theme="dark"] {
+      color-scheme: dark;
+      --bg: #0e1726;
+      --grid: rgba(220, 234, 255, .055);
+      --surface: rgba(20, 35, 55, .84);
+      --surface-solid: #17243a;
+      --surface-2: #202e45;
+      --inverse: #dce8ff;
+      --inverse-ink: #102039;
+      --ink: #eef3ff;
+      --muted: #b0bbcd;
+      --line: rgba(221, 233, 255, .14);
+      --line-strong: rgba(221, 233, 255, .28);
+      --blue: #91aaff;
+      --blue-deep: #bdc9ff;
+      --blue-fill: #2457d6;
+      --periwinkle: #a5c5ff;
+      --indigo: #78a7ff;
+      --indigo-fill: #2c65d6;
+      --amber: #f0b45f;
+      --coral: #ff958e;
+      --violet: #85aaf2;
+      --topbar: rgba(14, 23, 38, .84);
+      --glow-a: rgba(86, 115, 221, .19);
+      --glow-b: rgba(80, 130, 224, .14);
+      --shadow: 0 24px 70px rgba(0, 0, 0, .38);
+      --shadow-sm: 0 10px 30px rgba(0, 0, 0, .24);
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    html { scroll-behavior: smooth; scroll-padding-top: 90px; }
+    body {
+      margin: 0;
+      overflow-x: clip;
+      background:
+        linear-gradient(var(--grid) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid) 1px, transparent 1px),
+        var(--bg);
+      background-size: 30px 30px;
+      color: var(--ink);
+      font-family: var(--sans);
+      line-height: 1.65;
+      -webkit-font-smoothing: antialiased;
+    }
+    body::before {
+      content: "";
+      position: fixed;
+      z-index: -1;
+      inset: -22vh -12vw auto;
+      height: 75vh;
+      background:
+        radial-gradient(circle at 18% 35%, var(--glow-a), transparent 34%),
+        radial-gradient(circle at 80% 8%, var(--glow-b), transparent 34%);
+      filter: blur(28px);
+      pointer-events: none;
+    }
+    a { color: inherit; }
+    button { color: inherit; font: inherit; }
+    :focus-visible { outline: 3px solid color-mix(in srgb, var(--blue) 56%, transparent); outline-offset: 3px; }
+    ::selection { color: #fff; background: var(--blue-fill); }
+    .skip-link {
+      position: fixed;
+      z-index: 100;
+      top: 10px;
+      left: 10px;
+      padding: 10px 14px;
+      border-radius: 10px;
+      color: var(--inverse-ink);
+      background: var(--inverse);
+      transform: translateY(-160%);
+    }
+    .skip-link:focus { transform: none; }
+    .reading-progress {
+      position: fixed;
+      z-index: 100;
+      inset: 0 auto auto 0;
+      width: 0;
+      height: 4px;
+      background: linear-gradient(90deg, var(--blue), var(--periwinkle), var(--amber));
+    }
+    .topbar {
+      position: sticky;
+      z-index: 80;
+      top: 0;
+      border-bottom: 1px solid var(--line);
+      background: var(--topbar);
+      backdrop-filter: blur(20px) saturate(1.2);
+    }
+    .topbar-inner {
+      display: flex;
+      width: min(1240px, calc(100% - 32px));
+      min-height: 70px;
+      margin: 0 auto;
+      align-items: center;
+      gap: 12px;
+    }
+    .brand {
+      display: inline-flex;
+      min-width: 0;
+      flex: 1;
+      align-items: center;
+      gap: 11px;
+      color: var(--ink);
+      font-weight: 850;
+      letter-spacing: -.025em;
+      text-decoration: none;
+    }
+    .brand-mark {
+      display: grid;
+      width: 36px;
+      height: 36px;
+      flex: 0 0 auto;
+      place-items: center;
+      border-radius: 11px;
+      color: var(--bg);
+      background: var(--inverse);
+      box-shadow: 5px 5px 0 color-mix(in srgb, var(--blue) 72%, var(--periwinkle));
+      font: 800 12px/1 var(--mono);
+    }
+    .brand-copy strong { display: block; font-size: 14px; }
+    .brand-copy span { display: block; margin-top: 2px; color: var(--muted); font: 10px/1.3 var(--mono); letter-spacing: .05em; }
+    .top-actions { display: flex; align-items: center; gap: 8px; }
+    .top-link, .icon-button, .locale-switch {
+      min-height: 40px;
+      border: 1px solid var(--line);
+      border-radius: 13px;
+      color: var(--ink);
+      background: var(--surface);
+    }
+    .top-link {
+      display: inline-flex;
+      align-items: center;
+      padding: 0 14px;
+      font-size: 12px;
+      font-weight: 780;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+    .icon-button { display: inline-grid; width: 40px; padding: 0; place-items: center; cursor: pointer; }
+    .top-link:hover, .icon-button:hover { border-color: var(--line-strong); transform: translateY(-1px); }
+    .locale-switch { display: flex; padding: 3px; }
+    .locale-option {
+      min-width: 34px;
+      padding: 0 8px;
+      border: 0;
+      border-radius: 9px;
+      color: var(--muted);
+      background: transparent;
+      cursor: pointer;
+      font: 760 11px/1 var(--mono);
+    }
+    .locale-option[aria-pressed="true"] { color: var(--inverse-ink); background: var(--inverse); }
+    .theme-sun, .theme-moon { grid-area: 1 / 1; transition: opacity .18s ease, transform .18s ease; }
+    html[data-theme="light"] .theme-sun { opacity: 1; transform: scale(1); }
+    html[data-theme="light"] .theme-moon { opacity: 0; transform: scale(.65); }
+    html[data-theme="dark"] .theme-sun { opacity: 0; transform: scale(.65); }
+    html[data-theme="dark"] .theme-moon { opacity: 1; transform: scale(1); }
+    main, footer { width: min(1180px, calc(100% - 32px)); margin-inline: auto; }
+    .hero {
+      display: grid;
+      min-height: 630px;
+      padding: 90px 0 62px;
+      align-items: center;
+      gap: clamp(42px, 6vw, 80px);
+      grid-template-columns: minmax(0, 1fr) minmax(400px, .95fr);
+    }
+    .eyebrow, .section-kicker {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 0 0 18px;
+      color: var(--blue-deep);
+      font: 800 11px/1.4 var(--mono);
+      letter-spacing: .13em;
+      text-transform: uppercase;
+    }
+    .eyebrow::before, .section-kicker::before { content: ""; width: 28px; height: 2px; background: currentColor; }
+    h1 {
+      max-width: 680px;
+      margin: 0;
+      font-size: clamp(56px, 5.7vw, 80px);
+      font-weight: 900;
+      line-height: .94;
+      letter-spacing: -.065em;
+      word-break: keep-all;
+    }
+    h1 .accent { position: relative; z-index: 0; display: inline-block; color: var(--blue-deep); }
+    h1 .accent::after {
+      content: "";
+      position: absolute;
+      z-index: -1;
+      right: -.02em;
+      bottom: .02em;
+      left: .02em;
+      height: .18em;
+      border-radius: 99px;
+      background: color-mix(in srgb, var(--periwinkle) 42%, transparent);
+      transform: rotate(-1deg);
+    }
+    .hero-lead { max-width: 650px; margin: 28px 0 0; color: var(--muted); font-size: clamp(18px, 1.55vw, 22px); }
+    .hero-lead strong { color: var(--ink); }
+    .hero-actions { display: flex; flex-wrap: wrap; gap: 11px; margin-top: 30px; }
+    .btn {
+      display: inline-flex;
+      min-height: 47px;
+      padding: 10px 18px;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      border: 1px solid var(--line-strong);
+      border-radius: 13px;
+      color: var(--ink);
+      background: var(--surface);
+      box-shadow: var(--shadow-sm);
+      font-weight: 780;
+      text-decoration: none;
+    }
+    .btn.primary { color: #fff; border-color: var(--blue-fill); background: var(--blue-fill); box-shadow: 7px 7px 0 color-mix(in srgb, var(--periwinkle) 54%, transparent); }
+    .btn:hover { transform: translateY(-2px); }
+    .hero-art {
+      position: relative;
+      margin: 0;
+      filter: drop-shadow(0 24px 38px rgba(27, 41, 62, .18));
+      transform: rotate(1.2deg);
+    }
+    .hero-art::before {
+      content: "";
+      position: absolute;
+      z-index: -1;
+      inset: 22px -18px -18px 24px;
+      border: 1px solid var(--line-strong);
+      border-radius: 34px;
+      background: color-mix(in srgb, var(--blue) 18%, var(--surface));
+      transform: rotate(-3deg);
+    }
+    .hero-art img {
+      display: block;
+      width: 100%;
+      height: auto;
+      aspect-ratio: 3 / 2;
+      object-fit: cover;
+      border: 1px solid rgba(20, 35, 58, .14);
+      border-radius: 30px;
+      background: #f6edd8;
+    }
+    html[data-theme="dark"] .hero-art img { filter: brightness(.78) saturate(.92) contrast(1.06); }
+    .art-chip {
+      position: absolute;
+      right: -10px;
+      bottom: -20px;
+      max-width: 270px;
+      padding: 15px 17px;
+      border: 1px solid var(--line);
+      border-radius: 17px;
+      background: var(--surface-solid);
+      box-shadow: var(--shadow-sm);
+      transform: rotate(-2.4deg);
+    }
+    .art-chip span { display: block; margin-bottom: 5px; color: var(--blue-deep); font: 800 9px/1.3 var(--mono); letter-spacing: .1em; }
+    .art-chip strong { display: block; font-size: 13px; line-height: 1.45; }
+    .quick-facts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 26px; }
+    .fact-chip { padding: 7px 10px; border: 1px solid var(--line); border-radius: 99px; color: var(--muted); background: var(--surface); font: 700 10px/1.3 var(--mono); }
+    .tab-shell { margin: 10px auto 0; }
+    .tab-list {
+      display: grid;
+      width: min(100%, 460px);
+      margin: 0 auto 56px;
+      padding: 4px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: var(--surface-2);
+      grid-template-columns: repeat(2, 1fr);
+    }
+    .tab-button { min-height: 48px; border: 0; border-radius: 12px; color: var(--muted); background: transparent; cursor: pointer; font-weight: 800; }
+    .tab-button[aria-selected="true"] { color: var(--ink); background: var(--surface-solid); box-shadow: var(--shadow-sm); }
+    .tab-panel[hidden] { display: none; }
+    .section { padding: 64px 0 78px; }
+    .section + .section { border-top: 1px solid var(--line); }
+    .section-head { display: grid; margin-bottom: 34px; gap: 18px; grid-template-columns: minmax(0, 1fr) minmax(280px, .55fr); align-items: end; }
+    h2 { max-width: 760px; margin: 0; font-size: clamp(39px, 4.8vw, 62px); font-weight: 890; line-height: 1.02; letter-spacing: -.052em; }
+    .section-summary { margin: 0; color: var(--muted); font-size: 16px; }
+    .flow {
+      display: grid;
+      gap: 11px;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+    .flow-step {
+      position: relative;
+      min-height: 145px;
+      padding: 20px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: var(--surface);
+      box-shadow: var(--shadow-sm);
+    }
+    .flow-step::after { content: "→"; position: absolute; right: -11px; top: 48%; z-index: 2; color: var(--blue); font: 18px/1 var(--mono); }
+    .flow-step:nth-child(4n)::after, .flow-step:last-child::after { display: none; }
+    .flow-step small { color: var(--blue-deep); font: 800 10px/1 var(--mono); letter-spacing: .08em; }
+    .flow-step strong { display: block; margin-top: 13px; font-size: 16px; }
+    .flow-step p { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
+    .concept-grid, .mode-grid, .replay-grid { display: grid; gap: 16px; }
+    .concept-grid { grid-template-columns: repeat(4, 1fr); }
+    .mode-grid { grid-template-columns: repeat(4, 1fr); }
+    .replay-grid { grid-template-columns: repeat(3, 1fr); }
+    .card {
+      min-width: 0;
+      padding: 23px;
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      background: var(--surface);
+      box-shadow: var(--shadow-sm);
+    }
+    .card-mark { display: grid; width: 40px; height: 40px; margin-bottom: 18px; place-items: center; border-radius: 13px; color: #fff; background: var(--blue-fill); font: 800 13px/1 var(--mono); }
+    .card h3 { margin: 0 0 9px; font-size: 20px; line-height: 1.25; }
+    .card p { margin: 0; color: var(--muted); font-size: 13px; }
+    .card.blue { border-top: 4px solid var(--blue); }
+    .card.indigo { border-top: 4px solid var(--indigo); }
+    .card.amber { border-top: 4px solid var(--amber); }
+    .card.coral { border-top: 4px solid var(--coral); }
+    .mode-card { min-height: 210px; }
+    .mode-card .level { color: var(--blue-deep); font: 800 10px/1 var(--mono); letter-spacing: .1em; }
+    .mode-card h3 { margin-top: 14px; }
+    .meter { display: grid; margin-top: 22px; gap: 4px; grid-template-columns: repeat(4, 1fr); }
+    .meter span { height: 7px; border-radius: 99px; background: var(--surface-2); }
+    .meter span.on { background: var(--blue); }
+    .replay-card { min-height: 245px; }
+    .replay-card .type { color: var(--blue-deep); font: 800 10px/1 var(--mono); letter-spacing: .1em; }
+    .replay-card h3 { margin-top: 15px; }
+    .replay-card .arrow { display: block; margin: 20px 0 12px; color: var(--blue); font: 900 22px/1 var(--mono); }
+    .trust-note {
+      display: grid;
+      margin-top: 20px;
+      padding: 26px;
+      border: 1px solid color-mix(in srgb, var(--blue) 28%, transparent);
+      border-radius: 20px;
+      background: color-mix(in srgb, var(--blue) 8%, var(--surface));
+      gap: 16px;
+      grid-template-columns: 48px 1fr;
+    }
+    .trust-note .icon { display: grid; width: 46px; height: 46px; place-items: center; border-radius: 50%; color: #fff; background: var(--blue-fill); font-weight: 900; }
+    .trust-note strong { display: block; margin-bottom: 4px; }
+    .trust-note p { margin: 0; color: var(--muted); }
+    .closing {
+      position: relative;
+      min-height: 390px;
+      margin: 68px 0 90px;
+      overflow: hidden;
+      display: grid;
+      padding: clamp(34px, 6vw, 70px);
+      align-items: center;
+      border: 1px solid var(--line);
+      border-radius: 30px;
+      background: var(--surface-solid);
+      box-shadow: var(--shadow);
+    }
+    .closing::before {
+      content: "";
+      position: absolute;
+      inset: 0 0 0 43%;
+      background:
+        linear-gradient(90deg, var(--surface-solid), transparent 34%),
+        url("assets/better-workflows-control-plane-blue.webp") center / cover no-repeat;
+      opacity: .48;
+    }
+    html[data-theme="dark"] .closing::before { filter: brightness(.55) saturate(.85); opacity: .4; }
+    .closing-copy { position: relative; z-index: 1; max-width: 650px; }
+    .closing h2 { font-size: clamp(41px, 5vw, 66px); }
+    .closing p { max-width: 590px; margin: 20px 0 28px; color: var(--muted); font-size: 17px; }
+    footer { display: flex; padding: 0 0 48px; justify-content: space-between; gap: 20px; color: var(--muted); font-size: 12px; }
+    .reveal { opacity: 0; transform: translateY(18px); transition: opacity .55s ease, transform .55s ease; }
+    .reveal.visible { opacity: 1; transform: none; }
+    @media (max-width: 980px) {
+      .hero { min-height: auto; grid-template-columns: 1fr; }
+      .hero-art { width: min(100%, 660px); }
+      .flow, .concept-grid, .mode-grid { grid-template-columns: repeat(2, 1fr); }
+      .flow-step:nth-child(2n)::after { display: none; }
+      .section-head { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 680px) {
+      .topbar-inner { min-height: 62px; gap: 7px; }
+      .brand-copy span, .top-link .optional { display: none; }
+      .top-link { padding-inline: 10px; }
+      .locale-option { min-width: 30px; padding-inline: 5px; }
+      .hero { padding: 70px 0 52px; }
+      h1 { font-size: clamp(51px, 14vw, 75px); }
+      .hero-actions .btn { width: 100%; }
+      .art-chip { right: 5px; bottom: -18px; max-width: 230px; }
+      .hero-art::before { inset: 16px 0 -12px 14px; }
+      .tab-list { margin-top: 26px; margin-bottom: 30px; }
+      .section { padding: 54px 0 64px; }
+      .flow, .concept-grid, .mode-grid, .replay-grid { grid-template-columns: 1fr; }
+      .flow-step::after { display: none; }
+      .closing { min-height: 440px; padding-bottom: 170px; }
+      .closing::before { inset: auto 0 0; height: 46%; background: linear-gradient(180deg, var(--surface-solid), transparent 40%), url("assets/better-workflows-control-plane-blue.webp") center / cover no-repeat; }
+      footer { flex-direction: column; }
+    }
+    @media (max-width: 450px) {
+      .brand-copy strong { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .top-link { display: none; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; }
+      .reveal { opacity: 1; transform: none; }
+    }
+    @media print {
+      :root { color-scheme: light; --bg: #fff; --ink: #111827; --muted: #4b5563; --surface: #fff; --surface-solid: #fff; }
+      .topbar, .reading-progress, .hero-actions, .tab-list { display: none !important; }
+      .tab-panel[hidden] { display: block; }
+      .hero, .section { break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main" data-i18n="a11y.skip">跳到主要內容</a>
+  <div class="reading-progress" id="reading-progress" aria-hidden="true"></div>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="#top">
+        <span class="brand-mark">BW</span>
+        <span class="brand-copy"><strong data-i18n="brand.title">Better Workflows 快速導覽</strong><span>QUICK GUIDE · 3.3.5</span></span>
+      </a>
+      <div class="top-actions">
+        <div class="locale-switch" role="group" aria-label="語言" data-i18n-aria-label="a11y.language">
+          <button class="locale-option" type="button" data-locale-option="zh-Hant" aria-pressed="true">中</button>
+          <button class="locale-option" type="button" data-locale-option="en" aria-pressed="false">EN</button>
+        </div>
+        <a class="top-link" href="index.html"><span data-i18n="nav.full">查看完整版</span><span class="optional" aria-hidden="true">&nbsp;→</span></a>
+        <button class="icon-button" id="theme-toggle" type="button" aria-label="切換深色模式" aria-pressed="false">
+          <svg class="theme-sun" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.66 6.34l1.41-1.41"/></svg>
+          <svg class="theme-moon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20.5 14.4A8.5 8.5 0 0 1 9.6 3.5 8.5 8.5 0 1 0 20.5 14.4Z"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main id="main">
+    <header class="hero" id="top">
+      <div>
+        <p class="eyebrow" data-i18n="hero.eyebrow">5–10 分鐘快速建立心智模型</p>
+        <h1 data-i18n-html="hero.title">先看懂控制面，<span class="accent">再深入原始碼。</span></h1>
+        <p class="hero-lead" data-i18n-html="hero.lead">Better Workflows 的重點不是「agent 做了多少」，而是 <strong>每一個關鍵結論是否有新鮮、可重驗、綁定正確來源的證據</strong>。</p>
+        <div class="hero-actions">
+          <a class="btn primary" href="#quick-tabs"><span data-i18n="hero.start">開始快速導覽</span><span aria-hidden="true">↓</span></a>
+          <a class="btn" href="index.html" data-i18n="nav.fullArrow">直接看完整版 ↗</a>
+        </div>
+        <div class="quick-facts" aria-label="導覽摘要" data-i18n-aria-label="a11y.summary">
+          <span class="fact-chip" data-i18n="fact.boundaries">8 個權威邊界</span>
+          <span class="fact-chip" data-i18n="fact.replays">3 種 replay</span>
+          <span class="fact-chip" data-i18n="fact.evidence">99 種 evidence</span>
+          <span class="fact-chip" data-i18n="fact.time">約 8 分鐘</span>
+        </div>
+      </div>
+      <figure class="hero-art">
+        <img src="assets/better-workflows-control-plane-blue.webp" width="1536" height="1024" alt="以典藏帳冊、證據印記、重播迴圈與對帳節點構成的 Better Workflows 控制面插畫" data-i18n-alt="hero.artAlt" fetchpriority="high">
+        <figcaption class="art-chip"><span>INTENT → EVIDENCE → COMPLETION</span><strong data-i18n="hero.artCaption">把「我做完了」變成一條可以回放、驗證與對帳的證據鏈。</strong></figcaption>
+      </figure>
+    </header>
+
+    <div class="tab-shell" id="quick-tabs">
+      <div class="tab-list" role="tablist" aria-label="導覽深度" data-i18n-aria-label="a11y.depth">
+        <button class="tab-button" id="tab-basic" type="button" role="tab" aria-selected="true" aria-controls="panel-basic" tabindex="0" data-i18n="tab.basic">快速認識</button>
+        <button class="tab-button" id="tab-deep" type="button" role="tab" aria-selected="false" aria-controls="panel-deep" tabindex="-1" data-i18n="tab.deep">深入理解</button>
+      </div>
+
+      <section class="tab-panel" id="panel-basic" role="tabpanel" aria-labelledby="tab-basic" tabindex="0">
+        <section class="section reveal">
+          <div class="section-head">
+            <div><p class="section-kicker">01 · CONTROL FLOW</p><h2 data-i18n="flow.title">一條請求，怎麼走到可證明完成</h2></div>
+            <p class="section-summary" data-i18n="flow.summary">先記住資料與權威的方向。關鍵不是步驟數，而是任何一個 binding 失配都必須停下。</p>
+          </div>
+          <div class="flow">
+            <article class="flow-step"><small>01 · ROUTE</small><strong data-i18n="flow.route.title">選路與模式</strong><p data-i18n="flow.route.copy">意圖、能力與風險決定 template / mode。</p></article>
+            <article class="flow-step"><small>02 · FREEZE</small><strong>TaskContract</strong><p data-i18n="flow.contract.copy">凍結 goal、scope、驗收、權限與 stages。</p></article>
+            <article class="flow-step"><small>03 · BIND</small><strong data-i18n="flow.source.title">來源綁定</strong><p data-i18n="flow.source.copy">HEAD、index、status 與 sentinel 形成來源身分。</p></article>
+            <article class="flow-step"><small>04 · DERIVE</small><strong>Ledger</strong><p data-i18n="flow.ledger.copy">Append-only events 重播成 ready / blocked / complete。</p></article>
+            <article class="flow-step"><small>05 · PROVE</small><strong data-i18n="flow.evidence.title">型別證據</strong><p data-i18n="flow.evidence.copy">Producer、payload、digest 與 freshness 全部要成立。</p></article>
+            <article class="flow-step"><small>06 · REVIEW</small><strong data-i18n="flow.review.title">精確審查</strong><p data-i18n="flow.review.copy">Finding 綁 exact diff；P0/P1 必須收斂。</p></article>
+            <article class="flow-step"><small>07 · ACT</small><strong data-i18n="flow.action.title">一次性授權</strong><p data-i18n="flow.action.copy">短效 token 只允許固定 executable / argv。</p></article>
+            <article class="flow-step"><small>08 · RECONCILE</small><strong data-i18n="flow.complete.title">對帳再完成</strong><p data-i18n="flow.complete.copy">Provider receipt 與最後 sentinel 決定終態。</p></article>
+          </div>
+        </section>
+
+        <section class="section reveal">
+          <div class="section-head">
+            <div><p class="section-kicker">02 · MENTAL MODEL</p><h2 data-i18n="concept.title">四件事，不能互相代替</h2></div>
+            <p class="section-summary" data-i18n="concept.summary">這是理解整套系統最重要的分界：成功執行不等於有證據，有證據也不等於外部世界已完成。</p>
+          </div>
+          <div class="concept-grid">
+            <article class="card blue"><span class="card-mark">01</span><h3 data-i18n="concept.execute.title">執行成功</h3><p data-i18n="concept.execute.copy">命令或 agent 回傳成功，只說明那次執行沒有直接失敗。</p></article>
+            <article class="card indigo"><span class="card-mark">02</span><h3 data-i18n="concept.proof.title">證據有效</h3><p data-i18n="concept.proof.copy">證據必須符合 kind、producer、schema、freshness 與 digest。</p></article>
+            <article class="card amber"><span class="card-mark">03</span><h3 data-i18n="concept.truth.title">外部已對帳</h3><p data-i18n="concept.truth.copy">Provider 的實際狀態必須由 receipt 或查詢重建，而非相信本機呼叫。</p></article>
+            <article class="card coral"><span class="card-mark">04</span><h3 data-i18n="concept.complete.title">可以宣告完成</h3><p data-i18n="concept.complete.copy">重驗 ledger、review、evidence、sentinel 與 side effects 後才有終態。</p></article>
+          </div>
+        </section>
+
+        <section class="section reveal">
+          <div class="section-head">
+            <div><p class="section-kicker">03 · ASSURANCE MODES</p><h2 data-i18n="mode.title">Mode 是驗證強度，不是 agent 數</h2></div>
+            <p class="section-summary" data-i18n="mode.summary">風險提高時，系統增加 governed run、fresh evidence、獨立 critics 與 fail-closed gates；mutation authority 仍在 root。</p>
+          </div>
+          <div class="mode-grid">
+            <article class="card mode-card"><span class="level">LEVEL 1 / 4</span><h3>direct</h3><p data-i18n="mode.direct">低風險、可回復；root 直接執行，不建立 governed run。</p><div class="meter"><span class="on"></span><span></span><span></span><span></span></div></article>
+            <article class="card mode-card"><span class="level">LEVEL 2 / 4</span><h3>verified</h3><p data-i18n="mode.verified">新鮮證據，加上 1–3 個唯讀 reviewer 做交叉驗證。</p><div class="meter"><span class="on"></span><span class="on"></span><span></span><span></span></div></article>
+            <article class="card mode-card"><span class="level">LEVEL 3 / 4</span><h3>deep</h3><p data-i18n="mode.deep">在 verified wave 後加入獨立 Codex critics 與 broad review。</p><div class="meter"><span class="on"></span><span class="on"></span><span class="on"></span><span></span></div></article>
+            <article class="card mode-card"><span class="level">LEVEL 4 / 4</span><h3>critical</h3><p data-i18n="mode.critical">不可逆副作用要求完整 authority、exact critic 與 reconciliation。</p><div class="meter"><span class="on"></span><span class="on"></span><span class="on"></span><span class="on"></span></div></article>
+          </div>
+        </section>
+      </section>
+
+      <section class="tab-panel" id="panel-deep" role="tabpanel" aria-labelledby="tab-deep" tabindex="0" hidden>
+        <section class="section reveal">
+          <div class="section-head">
+            <div><p class="section-kicker">01 · REPLAY TAXONOMY</p><h2 data-i18n="replay.title">Replay 至少有三種語義</h2></div>
+            <p class="section-summary" data-i18n="replay.summary">它們都用持久化輸入重建結論，但輸入、輸出和 failure policy 不同；reconciliation 更不是「再送一次」。</p>
+          </div>
+          <div class="replay-grid">
+            <article class="card replay-card"><span class="type">TYPE 01</span><h3>Ledger replay</h3><span class="arrow">events → state</span><p data-i18n="replay.ledger">TaskContract + ordered events + admitted evidence 重建 ready set 與 task state。</p></article>
+            <article class="card replay-card"><span class="type">TYPE 02</span><h3>Evaluator replay</h3><span class="arrow">witnesses → comparison</span><p data-i18n="replay.evaluator">Corpus、immutable snapshots、prompts 與 signed witnesses 重算分數和比較。</p></article>
+            <article class="card replay-card"><span class="type">TYPE 03</span><h3>Provider reconciliation</h3><span class="arrow">attempt → truth</span><p data-i18n="replay.provider">同一 action attempt 對帳成 success / failure / unknown；禁止 blind retry。</p></article>
+          </div>
+        </section>
+
+        <section class="section reveal">
+          <div class="section-head">
+            <div><p class="section-kicker">02 · TRUST BOUNDARY</p><h2 data-i18n="trust.title">Repo 寫政策，Host 證明怎麼執行</h2></div>
+            <p class="section-summary" data-i18n="trust.summary">Critical evaluator 的信任根在 candidate 無法修改的 host boundary，而不是 repo 內一段「請相信我」的程式。</p>
+          </div>
+          <div class="flow">
+            <article class="flow-step"><small>01</small><strong>Source binding</strong><p data-i18n="trust.source">Clean worktree、full SHA、candidate / baseline digests。</p></article>
+            <article class="flow-step"><small>02</small><strong>Signed bundle</strong><p data-i18n="trust.bundle">Root-owned path、binary、schema 與 compatibility。</p></article>
+            <article class="flow-step"><small>03</small><strong>Launcher</strong><p data-i18n="trust.launcher">固定 executable / cwd，限制 uid、gid 與環境。</p></article>
+            <article class="flow-step"><small>04</small><strong>Loopback</strong><p data-i18n="trust.loopback">Nonce-bound、單次請求、固定 upstream。</p></article>
+            <article class="flow-step"><small>05</small><strong>Canonical body</strong><p data-i18n="trust.body">Single user input、tools off、strict JSON schema。</p></article>
+            <article class="flow-step"><small>06</small><strong>Envelope</strong><p data-i18n="trust.envelope">Request、response、runtime、model、issuer 全綁定。</p></article>
+            <article class="flow-step"><small>07</small><strong>Replay verify</strong><p data-i18n="trust.verify">驗簽、distinct witnesses、prompt 重建與 comparison。</p></article>
+            <article class="flow-step"><small>08</small><strong>Decision</strong><p data-i18n="trust.decision">Tie、noise、regression 或 mismatch 都不產生 authority。</p></article>
+          </div>
+          <div class="trust-note">
+            <span class="icon">!</span>
+            <div><strong data-i18n="trust.note.title">Blocked / indeterminate 是正確的產品狀態</strong><p data-i18n="trust.note.copy">缺 evidence、source drift、host 不可證明或 provider unknown 時，系統拒絕用猜測製造完成感。</p></div>
+          </div>
+        </section>
+      </section>
+    </div>
+
+    <section class="closing reveal">
+      <div class="closing-copy">
+        <p class="section-kicker">FULL FIELD GUIDE</p>
+        <h2 data-i18n="closing.title">心智模型有了，接著看證據與原始碼。</h2>
+        <p data-i18n="closing.copy">完整版包含 15 個章節、互動式架構圖、mode / template 比較、Ledger 實驗室、Self-improve witness 計畫與 60 個 source locators。</p>
+        <a class="btn primary" href="index.html"><span data-i18n="closing.cta">開啟完整版</span><span aria-hidden="true">→</span></a>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div><strong data-i18n="brand.title">Better Workflows 快速導覽</strong><br><span data-i18n="footer.note">快速版建立心智模型；所有精確證據與 frozen revision 邊界以完整版為準。</span></div>
+    <a href="#top" data-i18n="footer.back">↑ 回到頁首</a>
+  </footer>
+
+  <script>
+    (() => {
+      'use strict';
+      const $ = (selector, root = document) => root.querySelector(selector);
+      const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
+      const root = document.documentElement;
+      let locale = root.dataset.locale === 'en' ? 'en' : 'zh-Hant';
+      const messages = {
+        'zh-Hant': {
+          'meta.title': 'Better Workflows 快速導覽｜從意圖到可證明完成',
+          'meta.description': '用 5–10 分鐘建立 Better Workflows 的控制面、證據、replay 與完成邊界心智模型。',
+          'a11y.skip': '跳到主要內容', 'a11y.language': '語言', 'a11y.summary': '導覽摘要', 'a11y.depth': '導覽深度',
+          'theme.dark': '切換深色模式', 'theme.light': '切換淺色模式',
+          'brand.title': 'Better Workflows 快速導覽', 'nav.full': '查看完整版', 'nav.fullArrow': '直接看完整版 ↗',
+          'hero.eyebrow': '5–10 分鐘快速建立心智模型',
+          'hero.title': '先看懂控制面，<span class="accent">再深入原始碼。</span>',
+          'hero.lead': 'Better Workflows 的重點不是「agent 做了多少」，而是 <strong>每一個關鍵結論是否有新鮮、可重驗、綁定正確來源的證據</strong>。',
+          'hero.start': '開始快速導覽',
+          'hero.artAlt': '以典藏帳冊、證據印記、重播迴圈與對帳節點構成的 Better Workflows 控制面插畫',
+          'hero.artCaption': '把「我做完了」變成一條可以回放、驗證與對帳的證據鏈。',
+          'fact.boundaries': '8 個權威邊界', 'fact.replays': '3 種 replay', 'fact.evidence': '99 種 evidence', 'fact.time': '約 8 分鐘',
+          'tab.basic': '快速認識', 'tab.deep': '深入理解',
+          'flow.title': '一條請求，怎麼走到可證明完成', 'flow.summary': '先記住資料與權威的方向。關鍵不是步驟數，而是任何一個 binding 失配都必須停下。',
+          'flow.route.title': '選路與模式', 'flow.route.copy': '意圖、能力與風險決定 template / mode。',
+          'flow.contract.copy': '凍結 goal、scope、驗收、權限與 stages。', 'flow.source.title': '來源綁定', 'flow.source.copy': 'HEAD、index、status 與 sentinel 形成來源身分。',
+          'flow.ledger.copy': 'Append-only events 重播成 ready / blocked / complete。', 'flow.evidence.title': '型別證據', 'flow.evidence.copy': 'Producer、payload、digest 與 freshness 全部要成立。',
+          'flow.review.title': '精確審查', 'flow.review.copy': 'Finding 綁 exact diff；P0/P1 必須收斂。', 'flow.action.title': '一次性授權', 'flow.action.copy': '短效 token 只允許固定 executable / argv。',
+          'flow.complete.title': '對帳再完成', 'flow.complete.copy': 'Provider receipt 與最後 sentinel 決定終態。',
+          'concept.title': '四件事，不能互相代替', 'concept.summary': '這是理解整套系統最重要的分界：成功執行不等於有證據，有證據也不等於外部世界已完成。',
+          'concept.execute.title': '執行成功', 'concept.execute.copy': '命令或 agent 回傳成功，只說明那次執行沒有直接失敗。',
+          'concept.proof.title': '證據有效', 'concept.proof.copy': '證據必須符合 kind、producer、schema、freshness 與 digest。',
+          'concept.truth.title': '外部已對帳', 'concept.truth.copy': 'Provider 的實際狀態必須由 receipt 或查詢重建，而非相信本機呼叫。',
+          'concept.complete.title': '可以宣告完成', 'concept.complete.copy': '重驗 ledger、review、evidence、sentinel 與 side effects 後才有終態。',
+          'mode.title': 'Mode 是驗證強度，不是 agent 數', 'mode.summary': '風險提高時，系統增加 governed run、fresh evidence、獨立 critics 與 fail-closed gates；mutation authority 仍在 root。',
+          'mode.direct': '低風險、可回復；root 直接執行，不建立 governed run。', 'mode.verified': '新鮮證據，加上 1–3 個唯讀 reviewer 做交叉驗證。',
+          'mode.deep': '在 verified wave 後加入獨立 Codex critics 與 broad review。', 'mode.critical': '不可逆副作用要求完整 authority、exact critic 與 reconciliation。',
+          'replay.title': 'Replay 至少有三種語義', 'replay.summary': '它們都用持久化輸入重建結論，但輸入、輸出和 failure policy 不同；reconciliation 更不是「再送一次」。',
+          'replay.ledger': 'TaskContract + ordered events + admitted evidence 重建 ready set 與 task state。',
+          'replay.evaluator': 'Corpus、immutable snapshots、prompts 與 signed witnesses 重算分數和比較。',
+          'replay.provider': '同一 action attempt 對帳成 success / failure / unknown；禁止 blind retry。',
+          'trust.title': 'Repo 寫政策，Host 證明怎麼執行', 'trust.summary': 'Critical evaluator 的信任根在 candidate 無法修改的 host boundary，而不是 repo 內一段「請相信我」的程式。',
+          'trust.source': 'Clean worktree、full SHA、candidate / baseline digests。', 'trust.bundle': 'Root-owned path、binary、schema 與 compatibility。',
+          'trust.launcher': '固定 executable / cwd，限制 uid、gid 與環境。', 'trust.loopback': 'Nonce-bound、單次請求、固定 upstream。',
+          'trust.body': 'Single user input、tools off、strict JSON schema。', 'trust.envelope': 'Request、response、runtime、model、issuer 全綁定。',
+          'trust.verify': '驗簽、distinct witnesses、prompt 重建與 comparison。', 'trust.decision': 'Tie、noise、regression 或 mismatch 都不產生 authority。',
+          'trust.note.title': 'Blocked / indeterminate 是正確的產品狀態', 'trust.note.copy': '缺 evidence、source drift、host 不可證明或 provider unknown 時，系統拒絕用猜測製造完成感。',
+          'closing.title': '心智模型有了，接著看證據與原始碼。', 'closing.copy': '完整版包含 15 個章節、互動式架構圖、mode / template 比較、Ledger 實驗室、Self-improve witness 計畫與 60 個 source locators。',
+          'closing.cta': '開啟完整版', 'footer.note': '快速版建立心智模型；所有精確證據與 frozen revision 邊界以完整版為準。', 'footer.back': '↑ 回到頁首'
+        },
+        en: {
+          'meta.title': 'Better Workflows Quick Guide | From intent to provable completion',
+          'meta.description': 'Build a mental model of the Better Workflows control plane, evidence, replay, and completion boundaries in 5–10 minutes.',
+          'a11y.skip': 'Skip to main content', 'a11y.language': 'Language', 'a11y.summary': 'Guide summary', 'a11y.depth': 'Guide depth',
+          'theme.dark': 'Switch to dark mode', 'theme.light': 'Switch to light mode',
+          'brand.title': 'Better Workflows Quick Guide', 'nav.full': 'View full guide', 'nav.fullArrow': 'Go straight to the full guide ↗',
+          'hero.eyebrow': 'Build the mental model in 5–10 minutes',
+          'hero.title': 'Understand the control plane, <span class="accent">then enter the source.</span>',
+          'hero.lead': 'Better Workflows is not about how much an agent did. It asks whether <strong>every critical conclusion has fresh, reproducible evidence bound to the correct source</strong>.',
+          'hero.start': 'Start the quick guide',
+          'hero.artAlt': 'Editorial illustration of the Better Workflows control plane built from an archival ledger, evidence seals, replay loops, and reconciliation nodes',
+          'hero.artCaption': 'Turn “I finished” into an evidence chain that can be replayed, verified, and reconciled.',
+          'fact.boundaries': '8 authority boundaries', 'fact.replays': '3 replay types', 'fact.evidence': '99 evidence kinds', 'fact.time': 'about 8 minutes',
+          'tab.basic': 'Quick model', 'tab.deep': 'Deeper view',
+          'flow.title': 'How one request reaches provable completion', 'flow.summary': 'Remember the direction of data and authority. The point is not the step count: any broken binding must stop the flow.',
+          'flow.route.title': 'Route and mode', 'flow.route.copy': 'Intent, capability, and risk select the template and mode.',
+          'flow.contract.copy': 'Freeze goal, scope, acceptance, authority, and stages.', 'flow.source.title': 'Source binding', 'flow.source.copy': 'HEAD, index, status, and sentinel form source identity.',
+          'flow.ledger.copy': 'Append-only events replay into ready, blocked, or complete.', 'flow.evidence.title': 'Typed evidence', 'flow.evidence.copy': 'Producer, payload, digest, and freshness must all hold.',
+          'flow.review.title': 'Exact review', 'flow.review.copy': 'Findings bind to the exact diff; P0 and P1 must converge.', 'flow.action.title': 'One-shot authority', 'flow.action.copy': 'A short-lived token permits only fixed executable and argv.',
+          'flow.complete.title': 'Reconcile, then complete', 'flow.complete.copy': 'Provider receipts and the final sentinel decide terminal truth.',
+          'concept.title': 'Four things that cannot substitute for one another', 'concept.summary': 'The most important boundary: successful execution is not proof, and proof is not confirmation that the external world has converged.',
+          'concept.execute.title': 'Execution succeeded', 'concept.execute.copy': 'A command or agent returned successfully; that only describes the local attempt.',
+          'concept.proof.title': 'Evidence is valid', 'concept.proof.copy': 'Evidence satisfies kind, producer, schema, freshness, and digest.',
+          'concept.truth.title': 'External truth reconciled', 'concept.truth.copy': 'Actual provider state is rebuilt from a receipt or query, not inferred from a local call.',
+          'concept.complete.title': 'Completion can be declared', 'concept.complete.copy': 'Ledger, review, evidence, sentinel, and side effects are all revalidated.',
+          'mode.title': 'Mode is assurance depth, not agent count', 'mode.summary': 'As risk rises, governed runs add fresh evidence, independent critics, and fail-closed gates; mutation authority remains with root.',
+          'mode.direct': 'Low risk and reversible; root executes directly with no governed run.', 'mode.verified': 'Fresh evidence plus one to three read-only reviewers for cross-checking.',
+          'mode.deep': 'Independent Codex critics and broad review after the verified wave.', 'mode.critical': 'Irreversible effects require full authority, exact critics, and reconciliation.',
+          'replay.title': 'Replay has at least three meanings', 'replay.summary': 'Each rebuilds a conclusion from persisted input, but inputs, outputs, and failure policies differ. Reconciliation never means “send it again.”',
+          'replay.ledger': 'TaskContract + ordered events + admitted evidence rebuild the ready set and task state.',
+          'replay.evaluator': 'Corpus, immutable snapshots, prompts, and signed witnesses recompute scores and comparison.',
+          'replay.provider': 'The same action attempt reconciles to success, failure, or unknown; blind retry is forbidden.',
+          'trust.title': 'The repo states policy; the host proves execution', 'trust.summary': 'Critical evaluator trust lives at a host boundary the candidate cannot modify, not in repository code that asks to be believed.',
+          'trust.source': 'Clean worktree, full SHA, candidate and baseline digests.', 'trust.bundle': 'Root-owned path, binary, schema, and compatibility.',
+          'trust.launcher': 'Fixed executable and cwd with constrained uid, gid, and environment.', 'trust.loopback': 'Nonce-bound, single request, fixed upstream.',
+          'trust.body': 'Single user input, tools off, strict JSON schema.', 'trust.envelope': 'Request, response, runtime, model, and issuer all bound.',
+          'trust.verify': 'Signature checks, distinct witnesses, prompt reconstruction, and comparison.', 'trust.decision': 'Tie, noise, regression, or mismatch produces no authority.',
+          'trust.note.title': 'Blocked and indeterminate are correct product states', 'trust.note.copy': 'When evidence is missing, source drifts, the host cannot be proved, or the provider is unknown, the system refuses to manufacture certainty.',
+          'closing.title': 'Mental model ready. Now follow the evidence into source.', 'closing.copy': 'The full guide includes 15 chapters, an interactive architecture map, mode and template comparisons, a Ledger lab, the Self-improve witness plan, and 60 source locators.',
+          'closing.cta': 'Open the full guide', 'footer.note': 'The quick guide builds intuition; the full guide owns exact evidence and frozen-revision boundaries.', 'footer.back': '↑ Back to top'
+        }
+      };
+      const t = (key) => messages[locale]?.[key] ?? messages['zh-Hant'][key] ?? key;
+      const themeButton = $('#theme-toggle');
+      function updateThemeButton() {
+        const dark = root.dataset.theme === 'dark';
+        themeButton.setAttribute('aria-pressed', String(dark));
+        themeButton.setAttribute('aria-label', t(dark ? 'theme.light' : 'theme.dark'));
+      }
+      function setTheme(theme, persist = true) {
+        root.dataset.theme = theme === 'dark' ? 'dark' : 'light';
+        updateThemeButton();
+        if (persist) try { localStorage.setItem('better-workflows-guide-theme', root.dataset.theme); } catch {}
+      }
+      function setLocale(next, persist = true) {
+        locale = next === 'en' ? 'en' : 'zh-Hant';
+        root.dataset.locale = locale;
+        root.lang = locale;
+        document.title = t('meta.title');
+        $('meta[name="description"]').setAttribute('content', t('meta.description'));
+        $$('[data-i18n]').forEach((element) => { element.textContent = t(element.dataset.i18n); });
+        $$('[data-i18n-html]').forEach((element) => { element.innerHTML = t(element.dataset.i18nHtml); });
+        $$('[data-i18n-alt]').forEach((element) => { element.setAttribute('alt', t(element.dataset.i18nAlt)); });
+        $$('[data-i18n-aria-label]').forEach((element) => { element.setAttribute('aria-label', t(element.dataset.i18nAriaLabel)); });
+        $$('.locale-option').forEach((button) => button.setAttribute('aria-pressed', String(button.dataset.localeOption === locale)));
+        updateThemeButton();
+        if (persist) try { localStorage.setItem('better-workflows-guide-locale', locale); } catch {}
+      }
+      setTheme(root.dataset.theme, false);
+      setLocale(locale, false);
+      themeButton.addEventListener('click', () => setTheme(root.dataset.theme === 'dark' ? 'light' : 'dark'));
+      $$('.locale-option').forEach((button) => button.addEventListener('click', () => setLocale(button.dataset.localeOption)));
+
+      const tabs = $$('[role="tab"]');
+      const panels = $$('[role="tabpanel"]');
+      function activateTab(tab, updateHash = true) {
+        tabs.forEach((item) => {
+          const selected = item === tab;
+          item.setAttribute('aria-selected', String(selected));
+          item.tabIndex = selected ? 0 : -1;
+        });
+        panels.forEach((panel) => { panel.hidden = panel.id !== tab.getAttribute('aria-controls'); });
+        if (updateHash) history.replaceState(null, '', tab.id === 'tab-deep' ? '#deep' : '#quick');
+        $$('.tab-panel:not([hidden]) .reveal').forEach((element) => element.classList.add('visible'));
+      }
+      tabs.forEach((tab, index) => {
+        tab.addEventListener('click', () => activateTab(tab));
+        tab.addEventListener('keydown', (event) => {
+          let next = null;
+          if (event.key === 'ArrowRight') next = (index + 1) % tabs.length;
+          if (event.key === 'ArrowLeft') next = (index - 1 + tabs.length) % tabs.length;
+          if (event.key === 'Home') next = 0;
+          if (event.key === 'End') next = tabs.length - 1;
+          if (next === null) return;
+          event.preventDefault();
+          tabs[next].focus();
+          activateTab(tabs[next]);
+        });
+      });
+      activateTab(location.hash === '#deep' ? tabs[1] : tabs[0], false);
+
+      const progress = $('#reading-progress');
+      const updateProgress = () => {
+        const max = document.documentElement.scrollHeight - innerHeight;
+        progress.style.width = (max > 0 ? Math.min(100, Math.max(0, scrollY / max * 100)) : 0) + '%';
+      };
+      addEventListener('scroll', updateProgress, { passive: true });
+      updateProgress();
+      const reveal = $$('.reveal');
+      if ('IntersectionObserver' in window && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        const observer = new IntersectionObserver((entries) => entries.forEach((entry) => {
+          if (!entry.isIntersecting) return;
+          entry.target.classList.add('visible');
+          observer.unobserve(entry.target);
+        }), { threshold: .08 });
+        reveal.forEach((element) => observer.observe(element));
+      } else {
+        reveal.forEach((element) => element.classList.add('visible'));
+      }
+    })();
+  </script>
+</body>
+</html>

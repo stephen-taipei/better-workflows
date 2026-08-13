@@ -1,0 +1,2034 @@
+<!doctype html>
+<html lang="zh-Hant" data-theme="light" data-locale="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="description" content="Better Workflows 3.3.5 的 evidence-driven control plane、資料流與 replay 互動式原始碼說明書。">
+  <meta name="generator" content="sdk-maker">
+  <title>Better Workflows 解剖書｜從意圖到可證明完成</title>
+  <!-- GENERATED: sdk-maker | observed 2026-08-12 | revision 57bd75d -->
+  <script>
+    (() => {
+      try {
+        const root = document.documentElement;
+        const storedTheme = localStorage.getItem('better-workflows-guide-theme');
+        const storedLocale = localStorage.getItem('better-workflows-guide-locale');
+        root.dataset.theme = storedTheme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+        root.dataset.locale = storedLocale === 'en' ? 'en' : 'zh-Hant';
+        root.lang = root.dataset.locale;
+      } catch {
+        document.documentElement.dataset.theme = 'light';
+      }
+    })();
+  </script>
+  <style>
+    :root {
+      --paper: #f7f3ea;
+      --paper-2: #eee8da;
+      --paper-3: #ded6c7;
+      --ink: #17243a;
+      --muted: #5d687b;
+      --line: rgba(23, 36, 58, .14);
+      --line-strong: rgba(23, 36, 58, .28);
+      --blue: #2457d6;
+      --blue-2: #1e46a8;
+      --blue-fill: #2457d6;
+      --periwinkle: #6f95e8;
+      --indigo: #2f65c9;
+      --indigo-fill: #2554b8;
+      --coral: #bb4642;
+      --amber: #a65a00;
+      --violet: #3b69c6;
+      --white: #fffdf8;
+      --shadow: 0 16px 48px rgba(29, 35, 49, .10);
+      --shadow-sm: 0 5px 18px rgba(29, 35, 49, .08);
+      --radius: 18px;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      --sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --serif: Iowan Old Style, Palatino Linotype, Noto Serif TC, Source Han Serif TC, serif;
+    }
+    * { box-sizing: border-box; }
+    html { overflow-x: clip; scroll-behavior: smooth; scroll-padding-top: 28px; }
+    body {
+      margin: 0;
+      overflow-x: clip;
+      background:
+        radial-gradient(circle at 12% 0%, rgba(21, 94, 239, .10), transparent 28rem),
+        linear-gradient(rgba(19, 35, 60, .027) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(19, 35, 60, .027) 1px, transparent 1px),
+        var(--paper);
+      background-size: auto, 32px 32px, 32px 32px, auto;
+      color: var(--ink);
+      font-family: var(--sans);
+      font-size: 16px;
+      line-height: 1.72;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: inherit; }
+    button, input, select { font: inherit; }
+    button { color: inherit; }
+    button, a, input, select, summary { outline-offset: 4px; }
+    :focus-visible { outline: 3px solid rgba(21, 94, 239, .42); }
+    ::selection { color: var(--white); background: var(--blue); }
+    .skip-link {
+      position: fixed; left: 16px; top: -80px; z-index: 1000;
+      padding: 10px 15px; border-radius: 10px; color: white; background: var(--ink);
+      transition: top .18s ease;
+    }
+    .skip-link:focus { top: 16px; }
+    .reading-progress {
+      position: fixed; inset: 0 auto auto 0; z-index: 999; width: 0; height: 4px;
+      background: linear-gradient(90deg, var(--blue), var(--periwinkle), var(--coral));
+    }
+    .layout { display: grid; grid-template-columns: 282px minmax(0, 1fr); min-height: 100vh; }
+    .sidebar {
+      position: sticky; top: 0; height: 100vh; overflow-y: auto; z-index: 40;
+      display: flex; flex-direction: column; gap: 22px;
+      padding: 28px 22px 24px;
+      background: rgba(19, 35, 60, .97); color: #edf3ff;
+      box-shadow: 8px 0 38px rgba(20, 29, 43, .13);
+    }
+    .brand { display: flex; gap: 12px; align-items: center; text-decoration: none; }
+    .brand-mark {
+      display: grid; place-items: center; width: 44px; height: 44px; flex: 0 0 auto;
+      border: 1px solid rgba(255,255,255,.20); border-radius: 13px;
+      background: linear-gradient(135deg, rgba(36,87,214,.96), rgba(111,149,232,.82));
+      box-shadow: inset 0 1px rgba(255,255,255,.25); font: 800 16px/1 var(--mono);
+    }
+    .brand-copy strong { display: block; font-size: 14px; letter-spacing: .02em; }
+    .brand-copy span { display: block; margin-top: 2px; color: #9fb0ca; font: 11px/1.3 var(--mono); }
+    .search-wrap { position: relative; }
+    .search-wrap svg { position: absolute; left: 12px; top: 13px; opacity: .58; }
+    .search-input {
+      width: 100%; padding: 11px 38px; border: 1px solid rgba(255,255,255,.15); border-radius: 11px;
+      color: #f6f8fc; background: rgba(255,255,255,.07);
+    }
+    .search-input::placeholder { color: #92a1b8; }
+    .search-key { position: absolute; right: 9px; top: 9px; padding: 2px 7px; border: 1px solid rgba(255,255,255,.16); border-radius: 6px; color: #9dacbf; font: 11px/1.7 var(--mono); }
+    .toc-title { margin: 0 0 8px 10px; color: #7f93ae; font: 700 10px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; }
+    .toc { display: grid; gap: 3px; }
+    .toc a {
+      display: grid; grid-template-columns: 26px 1fr; align-items: center; gap: 6px;
+      min-height: 34px; padding: 6px 9px; border-radius: 9px; color: #b9c7da; text-decoration: none; font-size: 12.5px;
+      transition: .16s ease;
+    }
+    .toc a:hover, .toc a.active { color: white; background: rgba(255,255,255,.09); }
+    .toc a.active { box-shadow: inset 3px 0 var(--periwinkle); }
+    .toc-num { color: #7186a3; font: 10px/1 var(--mono); }
+    .sidebar-foot { margin-top: auto; padding-top: 18px; border-top: 1px solid rgba(255,255,255,.10); color: #8ea0b8; font: 10px/1.55 var(--mono); }
+    .sidebar-actions { display: flex; gap: 8px; margin-bottom: 12px; }
+    .icon-btn, .mobile-menu {
+      display: inline-grid; place-items: center; width: 36px; height: 36px; padding: 0;
+      border: 1px solid rgba(255,255,255,.15); border-radius: 9px; color: #d8e2f2; background: rgba(255,255,255,.06); cursor: pointer;
+    }
+    main { min-width: 0; }
+    .mobile-bar { display: none; }
+    .hero {
+      position: relative; min-height: 720px; overflow: hidden;
+      display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(360px, .9fr); align-items: center; gap: 54px;
+      padding: 90px clamp(36px, 6vw, 96px) 76px;
+      border-bottom: 1px solid var(--line-strong);
+    }
+    .hero::before {
+      content: ""; position: absolute; right: -13%; top: -25%; width: 58vw; height: 58vw; border: 1px solid rgba(21,94,239,.16); border-radius: 50%;
+      box-shadow: 0 0 0 60px rgba(21,94,239,.035), 0 0 0 120px rgba(21,94,239,.025);
+      pointer-events: none;
+    }
+    .eyebrow { display: flex; align-items: center; gap: 10px; margin: 0 0 20px; color: var(--blue); font: 750 12px/1.4 var(--mono); letter-spacing: .13em; text-transform: uppercase; }
+    .eyebrow::before { content: ""; width: 28px; height: 2px; background: currentColor; }
+    h1 { max-width: 770px; margin: 0; font: 700 clamp(54px, 6.8vw, 96px)/.98 var(--serif); letter-spacing: -.055em; }
+    h1 .accent { display: block; color: var(--blue); }
+    .hero-lead { max-width: 670px; margin: 31px 0 0; color: #43546c; font-size: clamp(18px, 1.65vw, 23px); line-height: 1.68; }
+    .hero-lead strong { color: var(--ink); }
+    .hero-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 32px; }
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 9px;
+      min-height: 46px; padding: 10px 18px; border: 1px solid var(--line-strong); border-radius: 11px;
+      color: var(--ink); background: rgba(255,255,255,.45); text-decoration: none; font-weight: 720; cursor: pointer;
+      box-shadow: var(--shadow-sm); transition: transform .16s ease, box-shadow .16s ease;
+    }
+    .btn:hover { transform: translateY(-2px); box-shadow: var(--shadow); }
+    .btn.primary { color: white; border-color: var(--blue); background: var(--blue); }
+    .btn.small { min-height: 35px; padding: 6px 11px; font-size: 12px; box-shadow: none; }
+    .hero-visual { position: relative; z-index: 2; }
+    .orbit-card {
+      position: relative; width: min(100%, 520px); aspect-ratio: 1; margin-inline: auto;
+      border: 1px solid var(--line-strong); border-radius: 50%; background: rgba(255,253,248,.58); box-shadow: var(--shadow);
+    }
+    .orbit-card::before, .orbit-card::after { content: ""; position: absolute; inset: 16%; border: 1px dashed rgba(21,94,239,.25); border-radius: 50%; }
+    .orbit-card::after { inset: 33%; border-style: solid; border-color: rgba(21,94,239,.15); }
+    .orbit-core { position: absolute; inset: 38%; display: grid; place-items: center; border-radius: 50%; color: white; background: var(--ink); box-shadow: 0 10px 35px rgba(19,35,60,.30); text-align: center; font: 750 11px/1.35 var(--mono); }
+    .orbit-node { position: absolute; display: grid; place-items: center; width: 98px; min-height: 62px; padding: 9px; border: 1px solid var(--line-strong); border-radius: 13px; color: var(--ink); background: var(--white); box-shadow: var(--shadow-sm); text-align: center; font: 700 11px/1.3 var(--mono); }
+    .orbit-node:nth-child(2) { left: 4%; top: 19%; }
+    .orbit-node:nth-child(3) { right: 1%; top: 27%; }
+    .orbit-node:nth-child(4) { right: 11%; bottom: 8%; }
+    .orbit-node:nth-child(5) { left: 5%; bottom: 14%; }
+    .orbit-node:nth-child(6) { left: 40%; top: 1%; }
+    .status-dot { display: inline-block; width: 7px; height: 7px; margin-right: 5px; border-radius: 50%; background: var(--indigo-fill); box-shadow: 0 0 0 4px color-mix(in srgb, var(--indigo) 14%, transparent); font-size: 0; }
+    .meta-strip {
+      display: grid; grid-template-columns: repeat(6, minmax(0, 1fr));
+      border-bottom: 1px solid var(--line-strong); background: rgba(255,253,248,.68);
+    }
+    .meta-item { min-width: 0; padding: 18px clamp(13px, 2vw, 25px); border-right: 1px solid var(--line); }
+    .meta-item:last-child { border-right: 0; }
+    .meta-item span { display: block; color: var(--muted); font: 9px/1.35 var(--mono); letter-spacing: .10em; text-transform: uppercase; }
+    .meta-item strong { display: block; margin-top: 6px; overflow: hidden; color: var(--ink); font: 700 13px/1.3 var(--mono); text-overflow: ellipsis; white-space: nowrap; }
+    .book { max-width: 1440px; margin: 0 auto; padding: 0 clamp(24px, 5vw, 80px) 120px; }
+    .chapter { position: relative; padding: 112px 0 20px; border-bottom: 1px solid var(--line-strong); }
+    .chapter:last-child { border-bottom: 0; }
+    .chapter-head { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 28px; margin-bottom: 56px; }
+    .chapter-no { color: var(--blue); font: 760 clamp(50px, 5vw, 76px)/1 var(--serif); letter-spacing: -.05em; }
+    .kicker { margin: 0 0 8px; color: var(--blue); font: 750 11px/1.5 var(--mono); letter-spacing: .15em; text-transform: uppercase; }
+    h2 { max-width: 940px; margin: 0; font: 700 clamp(35px, 4.3vw, 61px)/1.08 var(--serif); letter-spacing: -.042em; }
+    .chapter-summary { max-width: 890px; margin: 21px 0 0; color: #4d5f74; font-size: 19px; }
+    h3 { margin: 0 0 13px; font: 700 27px/1.25 var(--serif); letter-spacing: -.025em; }
+    h4 { margin: 0 0 9px; font-size: 16px; line-height: 1.35; }
+    p { margin: 0 0 16px; }
+    p code, li code, td code { padding: .1em .35em; border: 1px solid var(--line); border-radius: 5px; color: var(--blue-2); background: rgba(21,94,239,.06); font: .86em/1.4 var(--mono); }
+    .lede { max-width: 980px; color: #34475e; font-size: 20px; }
+    .grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 22px; }
+    .grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 18px; }
+    .grid-4 { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 15px; }
+    .grid-2 > *, .grid-3 > *, .grid-4 > * { min-width: 0; }
+    .stack { display: grid; gap: 18px; }
+    .card {
+      position: relative; padding: 25px; border: 1px solid var(--line); border-radius: var(--radius);
+      background: rgba(255,253,248,.72); box-shadow: var(--shadow-sm);
+    }
+    .card.inset { background: rgba(235,230,218,.62); box-shadow: none; }
+    .card.blue { border-top: 4px solid var(--blue); }
+    .card.coral { border-top: 4px solid var(--coral); }
+    .card.amber { border-top: 4px solid var(--amber); }
+    .card.indigo { border-top: 4px solid var(--indigo); }
+    .card.violet { border-top: 4px solid var(--violet); }
+    .card p:last-child { margin-bottom: 0; }
+    .stat { font: 780 clamp(34px, 3vw, 48px)/1 var(--serif); letter-spacing: -.04em; }
+    .stat-label { margin-top: 8px; color: var(--muted); font: 11px/1.45 var(--mono); }
+    .tag-row { display: flex; flex-wrap: wrap; gap: 7px; margin: 12px 0; }
+    .tag, .evidence-chip, .type-chip {
+      display: inline-flex; align-items: center; gap: 5px; min-height: 24px; padding: 3px 8px;
+      border: 1px solid var(--line); border-radius: 99px; color: #42556e; background: rgba(255,255,255,.66); font: 700 10px/1.35 var(--mono); text-decoration: none;
+    }
+    .evidence-chip { color: var(--blue-2); border-color: rgba(21,94,239,.22); background: rgba(21,94,239,.075); }
+    .evidence-chip:hover { background: rgba(21,94,239,.14); }
+    .type-chip.fact { color: var(--indigo); border-color: color-mix(in srgb, var(--indigo) 28%, transparent); background: color-mix(in srgb, var(--indigo) 9%, transparent); }
+    .type-chip.inference { color: var(--violet); border-color: color-mix(in srgb, var(--violet) 28%, transparent); background: color-mix(in srgb, var(--violet) 9%, transparent); }
+    .type-chip.risk { color: #b14f16; border-color: rgba(221,140,18,.27); background: rgba(221,140,18,.09); }
+    .type-chip.unknown { color: var(--muted); }
+    .callout { display: grid; grid-template-columns: 46px 1fr; gap: 16px; padding: 22px; border: 1px solid rgba(21,94,239,.22); border-radius: 15px; background: rgba(21,94,239,.065); }
+    .callout-icon { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 50%; color: white; background: var(--blue); font: 800 17px/1 var(--serif); }
+    .callout strong { display: block; margin-bottom: 4px; }
+    .callout p { margin: 0; color: #465a72; }
+    .rule { height: 1px; margin: 34px 0; background: var(--line); }
+    .architecture-shell { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(280px, .65fr); gap: 20px; }
+    .architecture-map { position: relative; min-height: 590px; padding: 26px; overflow: hidden; border: 1px solid var(--line); border-radius: 24px; background: #101e33; box-shadow: var(--shadow); }
+    .architecture-map::before { content: ""; position: absolute; inset: 0; opacity: .30; background-image: linear-gradient(rgba(255,255,255,.06) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.06) 1px, transparent 1px); background-size: 28px 28px; }
+    .arch-flow { position: relative; z-index: 1; display: grid; grid-template-columns: repeat(4, minmax(115px,1fr)); grid-template-rows: repeat(3, auto); gap: 34px 28px; align-items: center; min-height: 535px; }
+    .arch-node { position: relative; min-height: 96px; padding: 16px; border: 1px solid rgba(255,255,255,.19); border-radius: 13px; color: #e8effa; background: rgba(255,255,255,.07); text-align: left; cursor: pointer; transition: .18s ease; }
+    .arch-node:hover, .arch-node.active { border-color: var(--periwinkle); background: color-mix(in srgb, var(--periwinkle) 15%, transparent); transform: translateY(-2px); }
+    .arch-node::after { content: "→"; position: absolute; right: -22px; top: 36%; color: #5f799b; font: 22px/1 var(--mono); }
+    .arch-node:nth-child(4n)::after, .arch-node.no-arrow::after { display: none; }
+    .arch-node small { display: block; margin-bottom: 6px; color: #a5c5ff; font: 9px/1.3 var(--mono); letter-spacing: .10em; text-transform: uppercase; }
+    .arch-node strong { display: block; font: 720 13px/1.35 var(--mono); }
+    .arch-node span { display: block; margin-top: 7px; color: #9db0c9; font-size: 11px; line-height: 1.45; }
+    .node-detail { min-height: 590px; }
+    .detail-index { color: var(--blue); font: 800 11px/1 var(--mono); letter-spacing: .1em; }
+    .detail-title { margin: 10px 0 14px; font: 700 34px/1.1 var(--serif); }
+    .detail-list { margin: 20px 0; padding-left: 20px; color: #4b5e75; }
+    .detail-list li { margin: 8px 0; }
+    .mode-switch, .tabs, .filter-row { display: flex; flex-wrap: wrap; gap: 8px; }
+    .seg-btn {
+      min-height: 38px; padding: 7px 13px; border: 1px solid var(--line-strong); border-radius: 10px; color: #506176; background: rgba(255,255,255,.45); cursor: pointer;
+    }
+    .seg-btn[aria-selected="true"], .seg-btn.active { color: white; border-color: var(--ink); background: var(--ink); }
+    .mode-panel { margin-top: 18px; }
+    .mode-meter { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin: 19px 0; }
+    .mode-meter span { height: 9px; border-radius: 4px; background: var(--paper-3); }
+    .mode-meter span.on { background: var(--blue); }
+    .template-heading { display: flex; align-items: end; justify-content: space-between; gap: 18px; margin: 46px 0 18px; }
+    .template-heading p { max-width: 660px; margin: 0; color: var(--muted); font-size: 13px; }
+    .template-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; }
+    .template-card { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 12px; min-height: 126px; padding: 18px; border: 1px solid var(--line); border-radius: 14px; background: rgba(255,253,248,.68); }
+    .template-card h4 { overflow-wrap: anywhere; font: 720 12px/1.45 var(--mono); }
+    .template-card p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+    .template-side { display: grid; align-content: space-between; justify-items: end; gap: 10px; }
+    .mode-chip { padding: 4px 7px; border-radius: 7px; color: white; background: var(--blue-fill); font: 750 9px/1.2 var(--mono); }
+    .mode-chip.verified { background: var(--indigo-fill); }
+    .mode-chip.deep { background: var(--violet); }
+    .mode-chip.critical { background: var(--coral); }
+    .stage-count { color: var(--muted); font: 700 10px/1.2 var(--mono); }
+    .data-pipeline { display: grid; grid-template-columns: repeat(7, minmax(115px, 1fr)); gap: 22px; align-items: stretch; overflow-x: auto; padding: 8px 2px 22px; }
+    .pipe-step { position: relative; min-width: 128px; padding: 18px 14px; border: 1px solid var(--line); border-radius: 14px; background: rgba(255,253,248,.8); }
+    .pipe-step::after { content: "→"; position: absolute; right: -18px; top: 42%; color: var(--blue); font: 18px/1 var(--mono); }
+    .pipe-step:last-child::after { display: none; }
+    .pipe-step b { display: block; margin-bottom: 7px; font: 720 12px/1.3 var(--mono); }
+    .pipe-step span { color: var(--muted); font-size: 11px; line-height: 1.45; }
+    .family-chart { display: grid; grid-template-columns: minmax(280px,.9fr) minmax(0,1.1fr); gap: 28px; align-items: center; }
+    .donut-wrap { position: relative; width: min(100%, 340px); margin: auto; }
+    .donut-wrap svg { display: block; width: 100%; height: auto; transform: rotate(-90deg); }
+    .donut-center { position: absolute; inset: 33%; display: grid; place-items: center; border-radius: 50%; background: var(--paper); text-align: center; }
+    .donut-center strong { font: 780 43px/1 var(--serif); }
+    .donut-center span { color: var(--muted); font: 10px/1.3 var(--mono); }
+    .bar-list { display: grid; gap: 10px; }
+    .bar-row { display: grid; grid-template-columns: minmax(130px, 1.3fr) 3fr 32px; gap: 10px; align-items: center; font: 11px/1.2 var(--mono); }
+    .bar-track { height: 9px; overflow: hidden; border-radius: 5px; background: var(--paper-3); }
+    .bar-fill { height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--blue), var(--periwinkle)); }
+    .ledger-lab { display: grid; grid-template-columns: minmax(290px,.85fr) minmax(0,1.15fr); gap: 24px; }
+    .lab-controls { display: grid; gap: 9px; }
+    .event-btn { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 11px 13px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255,255,255,.6); cursor: pointer; text-align: left; }
+    .event-btn:hover:not(:disabled) { border-color: var(--blue); }
+    .event-btn:disabled { opacity: .38; cursor: not-allowed; }
+    .event-btn code { color: var(--blue); font-size: 10px; }
+    .lab-output { min-height: 410px; padding: 22px; border-radius: 17px; color: #d8e5f7; background: var(--ink); box-shadow: var(--shadow); }
+    .lab-top { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding-bottom: 14px; border-bottom: 1px solid rgba(255,255,255,.12); }
+    .state-pill { padding: 5px 9px; border-radius: 99px; color: #d6e6ff; background: rgba(37,84,184,.28); font: 700 10px/1.3 var(--mono); }
+    .event-log { display: grid; gap: 8px; margin-top: 17px; }
+    .log-line { display: grid; grid-template-columns: 28px 1fr; gap: 10px; padding: 9px 0; border-bottom: 1px dashed rgba(255,255,255,.10); font: 11px/1.5 var(--mono); }
+    .log-line .n { color: #7290b7; }
+    .log-empty { padding: 50px 10px; color: #7f95b3; text-align: center; }
+    .derived { display: grid; grid-template-columns: repeat(3,1fr); gap: 9px; margin-top: 18px; }
+    .derived div { padding: 10px; border: 1px solid rgba(255,255,255,.10); border-radius: 9px; background: rgba(255,255,255,.04); }
+    .derived span { display: block; color: #7890af; font: 9px/1.3 var(--mono); }
+    .derived strong { display: block; margin-top: 5px; color: white; font: 12px/1.3 var(--mono); }
+    .gate-line { display: grid; grid-template-columns: repeat(6, minmax(115px,1fr)); gap: 16px; overflow-x: auto; padding-bottom: 12px; }
+    .gate { position: relative; min-width: 125px; padding: 18px 14px 16px; border: 1px solid var(--line); border-radius: 14px; background: rgba(255,253,248,.75); }
+    .gate::before { content: attr(data-no); display: grid; place-items: center; width: 27px; height: 27px; margin-bottom: 11px; border-radius: 50%; color: white; background: var(--ink); font: 700 10px/1 var(--mono); }
+    .gate::after { content: ""; position: absolute; top: 31px; left: calc(100% + 2px); width: 13px; height: 2px; background: var(--line-strong); }
+    .gate:last-child::after { display: none; }
+    .gate b { font-size: 13px; }
+    .gate p { margin: 7px 0 0; color: var(--muted); font-size: 11px; line-height: 1.48; }
+    .replay-tabs { display: grid; grid-template-columns: 260px minmax(0,1fr); gap: 22px; }
+    .replay-tablist { display: grid; align-content: start; gap: 8px; }
+    .replay-tab { padding: 17px; border: 1px solid var(--line); border-radius: 13px; background: rgba(255,255,255,.43); cursor: pointer; text-align: left; }
+    .replay-tab[aria-selected="true"] { color: white; border-color: var(--ink); background: var(--ink); box-shadow: var(--shadow-sm); }
+    .replay-tab small { display: block; margin-bottom: 5px; opacity: .65; font: 9px/1.2 var(--mono); letter-spacing: .1em; }
+    .replay-panel { min-height: 390px; }
+    .replay-contrast { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; margin: 22px 0; }
+    .contrast-item { padding: 16px; border: 1px solid var(--line); border-radius: 12px; }
+    .contrast-item span { display: block; color: var(--muted); font: 9px/1.2 var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+    .contrast-item strong { display: block; margin-top: 7px; font-size: 13px; }
+    .witness-lab { display: grid; grid-template-columns: minmax(280px,.72fr) minmax(0,1.28fr); gap: 22px; }
+    .purpose-copy { min-height: 350px; }
+    .witness-stage { min-height: 350px; padding: 25px; border-radius: 18px; color: #e8effa; background: #102037; }
+    .witness-grid { display: grid; grid-template-columns: repeat(4, minmax(110px,1fr)); gap: 10px; margin-top: 18px; }
+    .witness { position: relative; min-height: 108px; padding: 14px; border: 1px solid rgba(255,255,255,.13); border-radius: 11px; background: rgba(255,255,255,.055); }
+    .witness.train { border-color: rgba(111,149,232,.58); }
+    .witness.base { border-color: rgba(232,91,79,.45); }
+    .witness.candidate { border-color: rgba(47,101,201,.66); }
+    .witness strong { display: block; font: 700 11px/1.35 var(--mono); }
+    .witness span { display: block; margin-top: 8px; color: #91a6c0; font-size: 10px; line-height: 1.4; }
+    .score-gates { display: grid; grid-template-columns: repeat(4,1fr); gap: 10px; margin-top: 15px; }
+    .score-gate { padding: 11px; border-radius: 9px; color: #d6e6ff; background: rgba(37,84,184,.24); font: 10px/1.4 var(--mono); }
+    .trust-chain { display: grid; grid-template-columns: repeat(7, minmax(120px,1fr)); gap: 13px; overflow-x: auto; padding: 8px 0 20px; }
+    .trust-link { position: relative; min-width: 130px; padding: 17px 13px; border: 1px solid var(--line); border-radius: 13px; background: rgba(255,253,248,.72); }
+    .trust-link::after { content: "⌁"; position: absolute; top: 35%; right: -13px; color: var(--blue); font: 20px/1 var(--mono); }
+    .trust-link:last-child::after { display: none; }
+    .trust-link small { color: var(--blue); font: 9px/1.2 var(--mono); }
+    .trust-link strong { display: block; margin: 8px 0 6px; font-size: 12px; }
+    .trust-link p { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.45; }
+    .permission-table { width: 100%; border-collapse: separate; border-spacing: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 16px; background: rgba(255,253,248,.7); }
+    .permission-table th, .permission-table td { padding: 14px 16px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; font-size: 13px; }
+    .permission-table th { color: var(--muted); background: rgba(19,35,60,.045); font: 700 10px/1.3 var(--mono); letter-spacing: .09em; text-transform: uppercase; }
+    .permission-table tr:last-child td { border-bottom: 0; }
+    .permission { font: 800 11px/1.2 var(--mono); }
+    .permission.auto { color: var(--indigo); }
+    .permission.human { color: var(--amber); }
+    .permission.deny { color: var(--coral); }
+    .publication-flow { display: grid; grid-template-columns: repeat(5, minmax(130px,1fr)); gap: 20px; overflow-x: auto; }
+    .publication-step { position: relative; min-width: 140px; min-height: 155px; padding: 20px 16px; border: 1px solid var(--line); border-radius: 14px; background: rgba(255,253,248,.7); }
+    .publication-step::after { content: "→"; position: absolute; top: 45%; right: -17px; color: var(--blue); }
+    .publication-step:last-child::after { display: none; }
+    .publication-step .state { display: inline-block; margin-bottom: 14px; padding: 4px 7px; border-radius: 6px; color: white; background: var(--ink); font: 700 9px/1.2 var(--mono); }
+    .publication-step p { color: var(--muted); font-size: 11px; line-height: 1.5; }
+    .lens-tabs { margin-bottom: 22px; }
+    .lens-panel { display: none; }
+    .lens-panel.active { display: grid; }
+    .lens-card { min-height: 235px; }
+    .lens-card .ordinal { display: block; margin-bottom: 15px; color: var(--blue); font: 800 11px/1 var(--mono); }
+    .code-block { position: relative; width: 100%; max-width: 100%; margin: 14px 0 0; padding: 20px 58px 20px 19px; overflow-x: auto; border-radius: 13px; color: #dce9f8; background: #101e33; font: 12px/1.7 var(--mono); white-space: pre; }
+    .copy-btn { position: absolute; right: 10px; top: 10px; padding: 5px 8px; border: 1px solid rgba(255,255,255,.16); border-radius: 7px; color: #b9cae0; background: rgba(255,255,255,.07); cursor: pointer; font: 10px/1.3 var(--mono); }
+    .source-toolbar { display: grid; grid-template-columns: minmax(220px,1fr) auto; gap: 14px; align-items: center; margin-bottom: 20px; }
+    .source-search { width: 100%; min-height: 43px; padding: 9px 13px; border: 1px solid var(--line-strong); border-radius: 11px; color: var(--ink); background: rgba(255,255,255,.55); }
+    .source-list { display: grid; gap: 11px; }
+    .source-item { scroll-margin-top: 25px; padding: 20px; border: 1px solid var(--line); border-radius: 14px; background: rgba(255,253,248,.65); }
+    .source-item:target { border-color: var(--blue); box-shadow: 0 0 0 4px rgba(21,94,239,.10); }
+    .source-top { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; }
+    .source-path { overflow-wrap: anywhere; color: var(--ink); font: 700 11px/1.5 var(--mono); }
+    .source-item p { margin: 10px 0 0; color: #4d5e73; font-size: 13px; }
+    .source-group summary { padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255,255,255,.45); cursor: pointer; font-weight: 750; }
+    .source-group[open] summary { margin-bottom: 12px; border-color: var(--line-strong); }
+    .source-group + .source-group { margin-top: 14px; }
+    .source-count { color: var(--muted); font: 10px/1 var(--mono); }
+    .manifest-box { margin-top: 26px; padding: 18px; border: 1px dashed var(--line-strong); border-radius: 13px; background: rgba(235,230,218,.55); }
+    .manifest-box code { overflow-wrap: anywhere; color: #405168; font: 11px/1.5 var(--mono); }
+    .no-results { display: none; padding: 32px; color: var(--muted); text-align: center; }
+    .footer { display: grid; grid-template-columns: 1fr auto; gap: 20px; align-items: end; padding-top: 80px; color: var(--muted); font-size: 12px; }
+    .footer strong { display: block; margin-bottom: 6px; color: var(--ink); font: 700 16px/1.3 var(--serif); }
+    .back-top { text-decoration: none; font: 700 11px/1 var(--mono); }
+    .search-hidden { display: none !important; }
+    .toast { position: fixed; right: 22px; bottom: 22px; z-index: 100; padding: 10px 15px; border-radius: 10px; color: white; background: var(--ink); box-shadow: var(--shadow); opacity: 0; transform: translateY(10px); pointer-events: none; transition: .18s ease; font-size: 12px; }
+    .toast.show { opacity: 1; transform: none; }
+    @media (max-width: 1180px) {
+      .layout { grid-template-columns: 238px minmax(0,1fr); }
+      .sidebar { padding-inline: 16px; }
+      .hero { grid-template-columns: 1fr; min-height: auto; }
+      .hero-visual { max-width: 520px; width: 100%; }
+      .meta-strip { grid-template-columns: repeat(3,1fr); }
+      .meta-item:nth-child(3) { border-right: 0; }
+      .meta-item:nth-child(-n+3) { border-bottom: 1px solid var(--line); }
+      .grid-4 { grid-template-columns: repeat(2,1fr); }
+      .architecture-shell, .family-chart { grid-template-columns: 1fr; }
+      .node-detail { min-height: auto; }
+    }
+    @media (max-width: 860px) {
+      .layout { display: block; }
+      .sidebar { position: fixed; left: 0; top: 0; width: min(86vw, 310px); visibility: hidden; pointer-events: none; transform: translateX(-105%); transition: transform .22s ease; }
+      body.nav-open .sidebar { visibility: visible; pointer-events: auto; transform: none; }
+      body.nav-open::after { content: ""; position: fixed; inset: 0; z-index: 30; background: rgba(5,12,24,.48); }
+      .mobile-bar { position: sticky; top: 0; z-index: 25; display: flex; align-items: center; justify-content: space-between; min-height: 56px; padding: 8px 15px; color: white; background: rgba(19,35,60,.96); backdrop-filter: blur(12px); }
+      .mobile-menu { display: grid; }
+      .mobile-title { font: 700 12px/1.2 var(--mono); }
+      .hero { padding: 72px 24px 58px; gap: 48px; }
+      h1 { font-size: clamp(48px, 13vw, 72px); }
+      .book { padding-inline: 20px; }
+      .chapter { padding-top: 82px; }
+      .chapter-head { grid-template-columns: 1fr; gap: 14px; }
+      .chapter-no { font-size: 44px; }
+      .grid-2, .grid-3 { grid-template-columns: 1fr; }
+      .architecture-map { overflow-x: auto; }
+      .arch-flow { min-width: 700px; }
+      .ledger-lab, .replay-tabs, .witness-lab { grid-template-columns: 1fr; }
+      .template-grid { grid-template-columns: 1fr; }
+      .template-heading { align-items: start; flex-direction: column; }
+      .replay-tablist { grid-template-columns: repeat(3,1fr); }
+      .replay-tab { padding: 12px; }
+      .source-toolbar { grid-template-columns: 1fr; }
+      .source-toolbar .filter-row { overflow-x: auto; flex-wrap: nowrap; padding-bottom: 4px; }
+    }
+    @media (max-width: 560px) {
+      body { font-size: 15px; }
+      .hero { padding-inline: 18px; }
+      .hero-lead, .chapter-summary { font-size: 17px; }
+      .hero-visual { display: none; }
+      .meta-strip { grid-template-columns: repeat(2,1fr); }
+      .meta-item { border-bottom: 1px solid var(--line); }
+      .meta-item:nth-child(odd) { border-right: 1px solid var(--line); }
+      .meta-item:nth-child(even) { border-right: 0; }
+      .grid-4 { grid-template-columns: 1fr; }
+      .replay-tablist { grid-template-columns: 1fr; }
+      .replay-contrast, .derived, .score-gates { grid-template-columns: 1fr; }
+      .witness-grid { grid-template-columns: repeat(2,1fr); }
+      .footer { grid-template-columns: 1fr; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; animation: none !important; transition: none !important; }
+    }
+    @media print {
+      body { background: white; font-size: 10pt; }
+      .sidebar, .mobile-bar, .reading-progress, .hero-actions, .copy-btn, .toast, .lab-controls, .filter-row, .source-search { display: none !important; }
+      .layout { display: block; }
+      .hero { min-height: auto; padding: 30px 0; }
+      .hero-visual { display: none; }
+      .book { max-width: none; padding: 0; }
+      .chapter { break-before: page; padding-top: 30px; }
+      .card, .architecture-map, .lab-output, .witness-stage { box-shadow: none; break-inside: avoid; }
+      .source-item { break-inside: avoid; }
+    }
+
+    /* Edition 2 — shared visual system for the full guide and quick preview. */
+    :root {
+      color-scheme: light;
+      --paper: #f7f3ea;
+      --paper-2: #eee8da;
+      --paper-3: #ded6c7;
+      --ink: #17243a;
+      --muted: #5d687b;
+      --line: rgba(23, 36, 58, .13);
+      --line-strong: rgba(23, 36, 58, .25);
+      --blue: #2457d6;
+      --blue-2: #1e46a8;
+      --blue-fill: #2457d6;
+      --periwinkle: #6f95e8;
+      --indigo: #2f65c9;
+      --indigo-fill: #2554b8;
+      --coral: #bb4642;
+      --amber: #a65a00;
+      --violet: #3b69c6;
+      --white: #fffdf8;
+      --surface: rgba(255, 253, 248, .82);
+      --surface-solid: #fffdf8;
+      --surface-2: #ece7db;
+      --surface-inverse: #142b49;
+      --inverse-ink: #f4f7ff;
+      --topbar: rgba(247, 243, 234, .84);
+      --grid: rgba(20, 35, 58, .055);
+      --glow-a: rgba(36, 87, 214, .16);
+      --glow-b: rgba(78, 125, 218, .14);
+      --shadow: 0 24px 70px rgba(25, 38, 59, .13);
+      --shadow-sm: 0 10px 30px rgba(25, 38, 59, .09);
+      --radius: 20px;
+      --radius-xl: 30px;
+    }
+    html[data-theme="dark"] {
+      color-scheme: dark;
+      --paper: #0e1726;
+      --paper-2: #17243a;
+      --paper-3: #2a3850;
+      --ink: #eef3ff;
+      --muted: #b0bbcd;
+      --line: rgba(221, 233, 255, .14);
+      --line-strong: rgba(221, 233, 255, .28);
+      --blue: #91aaff;
+      --blue-2: #bdc9ff;
+      --blue-fill: #2457d6;
+      --periwinkle: #a5c5ff;
+      --indigo: #78a7ff;
+      --indigo-fill: #2c65d6;
+      --coral: #ff958e;
+      --amber: #f0b45f;
+      --violet: #85aaf2;
+      --white: #17263b;
+      --surface: rgba(20, 35, 55, .84);
+      --surface-solid: #16253a;
+      --surface-2: #1b2d45;
+      --surface-inverse: #dce8ff;
+      --inverse-ink: #102039;
+      --topbar: rgba(14, 23, 38, .84);
+      --grid: rgba(220, 234, 255, .055);
+      --glow-a: rgba(86, 115, 221, .19);
+      --glow-b: rgba(80, 130, 224, .14);
+      --shadow: 0 24px 70px rgba(0, 0, 0, .38);
+      --shadow-sm: 0 10px 30px rgba(0, 0, 0, .24);
+    }
+    html { scroll-padding-top: 88px; }
+    body {
+      background:
+        linear-gradient(var(--grid) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid) 1px, transparent 1px),
+        var(--paper);
+      background-size: 30px 30px;
+      color: var(--ink);
+      transition: color .2s ease, background-color .2s ease;
+    }
+    body::before {
+      content: "";
+      position: fixed;
+      z-index: -1;
+      inset: -22vh -12vw auto;
+      height: 75vh;
+      background:
+        radial-gradient(circle at 18% 35%, var(--glow-a), transparent 34%),
+        radial-gradient(circle at 80% 8%, var(--glow-b), transparent 34%);
+      filter: blur(28px);
+      pointer-events: none;
+    }
+    body.nav-open::after { display: none !important; }
+    body.nav-open { overflow: hidden; }
+    .topbar {
+      position: sticky;
+      z-index: 80;
+      top: 0;
+      border-bottom: 1px solid var(--line);
+      background: var(--topbar);
+      backdrop-filter: blur(20px) saturate(1.2);
+    }
+    .topbar-inner {
+      display: flex;
+      width: min(1400px, calc(100% - 32px));
+      min-height: 70px;
+      margin: 0 auto;
+      align-items: center;
+      gap: 14px;
+    }
+    .topbar .brand { min-width: 0; flex: 0 0 auto; color: var(--ink); }
+    .topbar .brand-mark {
+      width: 36px;
+      height: 36px;
+      border: 0;
+      border-radius: 11px;
+      color: var(--paper);
+      background: var(--surface-inverse);
+      box-shadow: 5px 5px 0 color-mix(in srgb, var(--blue) 74%, var(--periwinkle));
+    }
+    .topbar .brand-copy strong { font-size: 14px; letter-spacing: -.015em; }
+    .topbar .brand-copy span { color: var(--muted); }
+    .topbar-nav {
+      display: flex;
+      min-width: 0;
+      flex: 1;
+      align-items: center;
+      gap: 4px;
+      margin-left: 10px;
+    }
+    .topbar-nav a {
+      padding: 9px 10px;
+      border-radius: 10px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 760;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+    .topbar-nav a:hover { color: var(--ink); background: var(--surface); }
+    .topbar-actions { display: flex; align-items: center; gap: 8px; }
+    .topbar-link, .topbar-icon, .locale-switch {
+      min-height: 40px;
+      border: 1px solid var(--line);
+      border-radius: 13px;
+      color: var(--ink);
+      background: var(--surface);
+      box-shadow: 0 1px 0 rgba(255,255,255,.2);
+    }
+    .topbar-link {
+      display: inline-flex;
+      align-items: center;
+      padding: 0 13px;
+      font-size: 12px;
+      font-weight: 780;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+    .topbar-icon {
+      display: inline-grid;
+      width: 40px;
+      padding: 0;
+      place-items: center;
+      cursor: pointer;
+    }
+    .topbar-link:hover, .topbar-icon:hover { border-color: var(--line-strong); transform: translateY(-1px); }
+    .locale-switch { display: flex; padding: 3px; }
+    .locale-option {
+      min-width: 34px;
+      padding: 0 8px;
+      border: 0;
+      border-radius: 9px;
+      color: var(--muted);
+      background: transparent;
+      cursor: pointer;
+      font: 760 11px/1 var(--mono);
+    }
+    .locale-option[aria-pressed="true"] { color: var(--inverse-ink); background: var(--surface-inverse); }
+    .theme-sun, .theme-moon { grid-area: 1 / 1; transition: opacity .18s ease, transform .18s ease; }
+    html[data-theme="light"] .theme-sun { opacity: 1; transform: scale(1); }
+    html[data-theme="light"] .theme-moon { opacity: 0; transform: scale(.65); }
+    html[data-theme="dark"] .theme-sun { opacity: 0; transform: scale(.65); }
+    html[data-theme="dark"] .theme-moon { opacity: 1; transform: scale(1); }
+    .nav-scrim {
+      position: fixed;
+      z-index: 84;
+      inset: 0;
+      visibility: hidden;
+      border: 0;
+      background: rgba(4, 11, 22, .52);
+      opacity: 0;
+      cursor: default;
+      transition: opacity .2s ease, visibility .2s ease;
+    }
+    body.nav-open .nav-scrim { visibility: visible; opacity: 1; }
+    .layout { display: block; min-height: 100vh; }
+    .sidebar {
+      position: fixed;
+      z-index: 90;
+      inset: 0 auto 0 0;
+      width: min(88vw, 340px);
+      height: 100vh;
+      padding: 20px;
+      gap: 18px;
+      color: var(--ink);
+      background: var(--surface-solid);
+      box-shadow: 24px 0 70px rgba(3, 11, 23, .2);
+      visibility: hidden;
+      pointer-events: none;
+      transform: translateX(-105%);
+      transition: transform .22s ease, visibility .22s ease;
+    }
+    body.nav-open .sidebar { visibility: visible; pointer-events: auto; transform: none; }
+    .drawer-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .drawer-head .brand { color: var(--ink); }
+    .drawer-head .brand-copy span { color: var(--muted); }
+    .drawer-close {
+      display: grid;
+      width: 36px;
+      height: 36px;
+      flex: 0 0 auto;
+      place-items: center;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      color: var(--ink);
+      background: var(--surface);
+      cursor: pointer;
+    }
+    .search-input { color: var(--ink); border-color: var(--line); background: var(--paper-2); }
+    .search-input::placeholder { color: var(--muted); }
+    .search-wrap svg, .search-key { color: var(--muted); }
+    .search-key { border-color: var(--line); }
+    .toc-title, .toc-num { color: color-mix(in srgb, var(--muted) 80%, transparent); }
+    .toc a { color: var(--muted); }
+    .toc a:hover, .toc a.active { color: var(--ink); background: var(--paper-2); }
+    .toc a.active { box-shadow: inset 3px 0 var(--blue); }
+    .sidebar-foot { border-color: var(--line); color: var(--muted); }
+    .icon-btn { color: var(--ink); border-color: var(--line); background: var(--paper-2); }
+    main { min-width: 0; width: 100%; }
+    .mobile-bar { display: none !important; }
+    .hero {
+      width: min(1240px, calc(100% - 48px));
+      min-height: 620px;
+      margin: 0 auto;
+      padding: 92px 0 64px;
+      border: 0;
+      grid-template-columns: minmax(0, 1.04fr) minmax(390px, .96fr);
+      gap: clamp(42px, 6vw, 82px);
+    }
+    .hero::before {
+      right: -12%;
+      top: 7%;
+      width: 52%;
+      height: 76%;
+      border: 0;
+      border-radius: 44%;
+      background: radial-gradient(circle, var(--glow-a), transparent 68%);
+      box-shadow: none;
+      filter: blur(18px);
+    }
+    .eyebrow, .kicker { color: var(--blue-2); }
+    h1 {
+      max-width: 760px;
+      font-family: var(--sans);
+      font-size: clamp(57px, 6.5vw, 91px);
+      font-weight: 900;
+      line-height: .94;
+      letter-spacing: -.065em;
+    }
+    h1 .accent {
+      position: relative;
+      z-index: 0;
+      display: inline-block;
+      color: var(--blue-2);
+    }
+    h1 .accent::after {
+      content: "";
+      position: absolute;
+      z-index: -1;
+      right: -.02em;
+      bottom: .02em;
+      left: .02em;
+      height: .18em;
+      border-radius: 99px;
+      background: color-mix(in srgb, var(--periwinkle) 42%, transparent);
+      transform: rotate(-1deg);
+    }
+    .hero-lead, .chapter-summary, .lede, .detail-list, .callout p { color: var(--muted); }
+    .hero-lead { max-width: 720px; font-size: clamp(18px, 1.55vw, 22px); }
+    .hero-lead strong { color: var(--ink); }
+    .btn { color: var(--ink); border-color: var(--line-strong); background: var(--surface); }
+    .btn.primary { color: #fff; border-color: var(--blue-fill); background: var(--blue-fill); box-shadow: 7px 7px 0 color-mix(in srgb, var(--periwinkle) 54%, transparent); }
+    .orbit-card {
+      width: min(100%, 560px);
+      aspect-ratio: 1.18;
+      overflow: hidden;
+      border-color: rgba(255,255,255,.13);
+      border-radius: var(--radius-xl);
+      color: var(--inverse-ink);
+      background:
+        linear-gradient(rgba(255,255,255,.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,.04) 1px, transparent 1px),
+        #132b49;
+      background-size: 30px 30px;
+      box-shadow: var(--shadow);
+    }
+    .orbit-card::before { inset: 13%; border-color: rgba(119,174,255,.32); }
+    .orbit-card::after { inset: 31%; border-color: rgba(119,174,255,.22); }
+    .orbit-core { inset: 36%; color: #112038; background: #f4f7ff; }
+    .orbit-node { color: #f0f5ff; border-color: rgba(255,255,255,.18); background: rgba(255,255,255,.08); box-shadow: 0 10px 25px rgba(0,0,0,.2); }
+    .orbit-node span { color: #aebfda; font-size: 10px; }
+    .hero-art {
+      position: relative;
+      width: min(100%, 610px);
+      margin: 0 auto;
+      filter: drop-shadow(0 24px 38px rgba(27, 41, 62, .18));
+      transform: rotate(1.2deg);
+    }
+    .hero-art::before {
+      content: "";
+      position: absolute;
+      z-index: -1;
+      inset: 22px -18px -18px 24px;
+      border: 1px solid var(--line-strong);
+      border-radius: 34px;
+      background: color-mix(in srgb, var(--blue) 18%, var(--surface));
+      transform: rotate(-3deg);
+    }
+    .hero-art img {
+      display: block;
+      width: 100%;
+      height: auto;
+      aspect-ratio: 3 / 2;
+      object-fit: cover;
+      border: 1px solid rgba(20, 35, 58, .14);
+      border-radius: 30px;
+      background: #f6edd8;
+      transition: filter .2s ease;
+    }
+    html[data-theme="dark"] .hero-art img { filter: brightness(.78) saturate(.92) contrast(1.06); }
+    .hero-art figcaption {
+      position: absolute;
+      right: -14px;
+      bottom: -24px;
+      width: min(270px, 62%);
+      padding: 17px 18px;
+      border: 1px solid var(--line);
+      border-radius: 17px;
+      color: var(--ink);
+      background: var(--surface-solid);
+      box-shadow: var(--shadow-sm);
+      transform: rotate(-2.4deg);
+    }
+    .hero-art figcaption span { display: block; margin-bottom: 6px; color: var(--blue-2); font: 800 9px/1.3 var(--mono); letter-spacing: .1em; }
+    .hero-art figcaption strong { display: block; font-size: 14px; line-height: 1.45; }
+    .meta-strip {
+      width: min(1240px, calc(100% - 48px));
+      margin: 0 auto;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: var(--surface);
+      box-shadow: var(--shadow-sm);
+    }
+    .meta-item { border-color: var(--line); }
+    .meta-item span { color: var(--muted); }
+    .book { max-width: 1180px; padding: 0 0 120px; }
+    .chapter { padding: 112px 0 28px; border-color: var(--line-strong); }
+    .chapter-head { grid-template-columns: 92px minmax(0, 1fr); gap: 30px; }
+    .chapter-no { font-family: var(--mono); font-size: clamp(42px, 4vw, 62px); font-weight: 850; }
+    h2 { font-family: var(--sans); font-weight: 880; line-height: 1.04; letter-spacing: -.052em; }
+    h3, .detail-title, .stat, .footer strong { font-family: var(--sans); font-weight: 820; }
+    .card, .template-card, .pipe-step, .gate, .trust-link, .permission-table, .publication-step, .source-item, .source-group summary {
+      border-color: var(--line);
+      background: var(--surface);
+    }
+    .card { border-radius: var(--radius); }
+    .card.inset, .manifest-box { background: var(--surface-2); }
+    .template-card p, .pipe-step span, .gate p, .trust-link p, .publication-step p, .source-item p, .manifest-box code { color: var(--muted); }
+    .tag, .evidence-chip, .type-chip { color: var(--muted); background: var(--surface-solid); }
+    p code, li code, td code { color: var(--blue-2); background: color-mix(in srgb, var(--blue) 9%, transparent); }
+    .seg-btn, .event-btn, .replay-tab, .source-search { color: var(--muted); border-color: var(--line-strong); background: var(--surface); }
+    .seg-btn[aria-selected="true"], .seg-btn.active, .replay-tab[aria-selected="true"] { color: var(--inverse-ink); border-color: var(--surface-inverse); background: var(--surface-inverse); }
+    .bar-track { background: var(--paper-3); }
+    .donut-center { background: var(--paper); }
+    .callout { border-color: color-mix(in srgb, var(--blue) 28%, transparent); background: color-mix(in srgb, var(--blue) 8%, transparent); }
+    .lab-output, .architecture-map, .witness-stage, .code-block { background-color: #102139; }
+    .permission-table th { color: var(--muted); background: color-mix(in srgb, var(--ink) 5%, transparent); }
+    .toast { color: var(--inverse-ink); background: var(--surface-inverse); }
+    html[data-locale="en"] .zh-only { display: none !important; }
+    html[data-locale="zh-Hant"] .en-only { display: none !important; }
+    @media (max-width: 1120px) {
+      .topbar-nav { display: none; }
+      .topbar .brand { flex: 1; }
+      .hero { grid-template-columns: 1fr; min-height: auto; }
+      .hero-visual { width: min(100%, 600px); }
+      .book { width: min(100% - 40px, 920px); }
+    }
+    @media (max-width: 720px) {
+      .topbar-inner { width: min(100% - 20px, 680px); min-height: 62px; gap: 7px; }
+      .topbar .brand-copy span, .topbar-link .optional, .topbar-search { display: none; }
+      .topbar-link { padding-inline: 10px; }
+      .locale-option { min-width: 30px; padding-inline: 5px; }
+      .hero { width: min(100% - 32px, 620px); padding: 70px 0 48px; gap: 44px; }
+      h1 { font-size: clamp(51px, 14vw, 78px); }
+      .hero-lead { font-size: 17px; }
+      .hero-actions { gap: 9px; }
+      .hero-actions .btn { width: 100%; }
+      .hero-visual { display: block; }
+      .hero-art figcaption { right: 6px; bottom: -18px; }
+      .meta-strip { width: min(100% - 32px, 620px); grid-template-columns: repeat(2, 1fr); }
+      .meta-item, .meta-item:nth-child(3) { border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+      .meta-item:nth-child(even) { border-right: 0; }
+      .book { width: min(100% - 32px, 620px); padding-inline: 0; }
+      .chapter { padding-top: 82px; }
+      .chapter-head { grid-template-columns: 1fr; gap: 12px; margin-bottom: 38px; }
+      .chapter-no { font-size: 36px; }
+      .chapter-summary { font-size: 17px; }
+    }
+    @media (max-width: 470px) {
+      .topbar .brand-copy strong { max-width: 112px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .topbar-link { display: none; }
+      .orbit-card { aspect-ratio: .92; }
+      .orbit-node { width: 82px; min-height: 54px; font-size: 9px; }
+      .orbit-node:nth-child(2) { left: 3%; top: 17%; }
+      .orbit-node:nth-child(3) { right: 2%; top: 24%; }
+      .orbit-node:nth-child(4) { right: 7%; bottom: 8%; }
+      .orbit-node:nth-child(5) { left: 4%; bottom: 13%; }
+      .orbit-node:nth-child(6) { left: 36%; top: 3%; }
+    }
+    @media print {
+      :root { color-scheme: light; --paper: #fff; --ink: #111827; --muted: #4b5563; --surface: #fff; --surface-solid: #fff; }
+      .topbar, .sidebar, .nav-scrim { display: none !important; }
+      .hero, .meta-strip, .book { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main" data-i18n="a11y.skip">跳到主要內容</a>
+  <div class="reading-progress" id="reading-progress" aria-hidden="true"></div>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <button class="topbar-icon" id="menu-btn" type="button" aria-controls="sidebar" aria-expanded="false" aria-label="開啟章節目錄" data-i18n-aria-label="a11y.openContents">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      </button>
+      <a class="brand" href="#top">
+        <span class="brand-mark">BW</span>
+        <span class="brand-copy"><strong data-i18n="brand.full">Better Workflows 解剖書</strong><span>CODEBASE FIELD GUIDE · 3.3.5</span></span>
+      </a>
+      <nav class="topbar-nav" aria-label="快速章節" data-i18n-aria-label="a11y.quickNav">
+        <a href="#architecture-map" data-i18n="nav.architecture">架構地圖</a>
+        <a href="#evidence-flow" data-i18n="nav.evidence">證據資料流</a>
+        <a href="#replay" data-i18n="nav.replay">三種 Replay</a>
+        <a href="#trust-boundary" data-i18n="nav.trust">信任邊界</a>
+        <a href="#change-rules" data-i18n="nav.change">改 Code 守則</a>
+        <a href="#source-files" data-i18n="nav.sources">來源檔案</a>
+      </nav>
+      <div class="topbar-actions">
+        <button class="topbar-icon topbar-search" id="mobile-search-btn" type="button" aria-label="搜尋本書" data-i18n-aria-label="a11y.searchGuide">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3-3"></path></svg>
+        </button>
+        <div class="locale-switch" role="group" aria-label="語言" data-i18n-aria-label="a11y.language">
+          <button class="locale-option" type="button" data-locale-option="zh-Hant" aria-pressed="true">中</button>
+          <button class="locale-option" type="button" data-locale-option="en" aria-pressed="false">EN</button>
+        </div>
+        <a class="topbar-link" href="preview.html"><span data-i18n="nav.preview">預覽版</span><span class="optional" aria-hidden="true">&nbsp;→</span></a>
+        <button class="topbar-icon" id="theme-toggle" type="button" aria-label="切換深色模式" aria-pressed="false" data-i18n-aria-label="a11y.darkMode">
+          <svg class="theme-sun" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.66 6.34l1.41-1.41"/></svg>
+          <svg class="theme-moon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20.5 14.4A8.5 8.5 0 0 1 9.6 3.5 8.5 8.5 0 1 0 20.5 14.4Z"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+  <button class="nav-scrim" id="nav-scrim" type="button" tabindex="-1" aria-label="關閉章節目錄" data-i18n-aria-label="a11y.closeContents"></button>
+  <div class="layout">
+    <aside class="sidebar" id="sidebar" aria-label="章節導覽">
+      <div class="drawer-head">
+        <a class="brand" href="#top">
+          <span class="brand-mark">BW</span>
+          <span class="brand-copy"><strong data-i18n="brand.full">Better Workflows 解剖書</strong><span>CODEBASE FIELD GUIDE · 3.3.5</span></span>
+        </a>
+        <button class="drawer-close" id="close-nav" type="button" aria-label="關閉章節目錄" data-i18n-aria-label="a11y.closeContents">×</button>
+      </div>
+      <div class="search-wrap">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3-3"></path></svg>
+        <input class="search-input" id="global-search" type="search" placeholder="搜尋章節與證據…" aria-label="搜尋本書" data-i18n-placeholder="search.global" data-i18n-aria-label="a11y.searchGuide">
+        <span class="search-key">/</span>
+      </div>
+      <nav class="toc" aria-label="目錄">
+        <p class="toc-title" data-i18n="nav.contents">Contents</p>
+        <a href="#executive"><span class="toc-num">00</span><span data-i18n="nav.executive">現況總覽</span></a>
+        <a href="#architecture-map"><span class="toc-num">01</span><span data-i18n="nav.architecture">架構地圖</span></a>
+        <a href="#mechanism-inventory"><span class="toc-num">02</span><span data-i18n="nav.mechanisms">機制與模式</span></a>
+        <a href="#evidence-flow"><span class="toc-num">03</span><span data-i18n="nav.evidence">證據資料流</span></a>
+        <a href="#ledger-replay"><span class="toc-num">04</span><span data-i18n="nav.ledger">Ledger 教學實驗室</span></a>
+        <a href="#review-action"><span class="toc-num">05</span><span data-i18n="nav.review">Review 與 Action</span></a>
+        <a href="#replay"><span class="toc-num">06</span><span data-i18n="nav.replay">三種 Replay</span></a>
+        <a href="#self-improve"><span class="toc-num">07</span><span>Self-improve Replay</span></a>
+        <a href="#trust-boundary"><span class="toc-num">08</span><span data-i18n="nav.trust">信任邊界</span></a>
+        <a href="#autopilot"><span class="toc-num">09</span><span>Bounded Autopilot</span></a>
+        <a href="#publication"><span class="toc-num">10</span><span>Publication</span></a>
+        <a href="#strengths-risks"><span class="toc-num">11</span><span data-i18n="nav.risks">優勢、風險、未知</span></a>
+        <a href="#newcomer-path"><span class="toc-num">12</span><span data-i18n="nav.lenses">角色閱讀路徑</span></a>
+        <a href="#change-rules"><span class="toc-num">13</span><span data-i18n="nav.change">改 Code 守則</span></a>
+        <a href="#source-files"><span class="toc-num">14</span><span data-i18n="nav.sources">來源檔案</span></a>
+      </nav>
+      <div class="sidebar-foot">
+        <div class="sidebar-actions">
+          <button class="icon-btn" id="print-btn" type="button" title="列印／匯出 PDF" aria-label="列印或匯出 PDF" data-i18n-title="action.print" data-i18n-aria-label="action.print">⎙</button>
+          <button class="icon-btn" id="collapse-all" type="button" title="收合來源群組" aria-label="收合所有來源群組" data-i18n-title="action.collapse" data-i18n-aria-label="action.collapse">−</button>
+        </div>
+        <span class="status-dot" aria-hidden="true">&nbsp;</span>HEAD 57bd75d · clean<br>
+        observed 2026-08-12 22:47 +08:00
+      </div>
+    </aside>
+
+    <main id="main">
+      <header class="hero" id="top" data-search="Better Workflows 解剖書 從意圖到可證明完成">
+        <div>
+          <p class="eyebrow" data-i18n="hero.eyebrow">Evidence-driven control plane · 3.3.5</p>
+          <h1 data-i18n-html="hero.title">從意圖，走到<span class="accent">可證明完成。</span></h1>
+          <p class="hero-lead" data-i18n-html="hero.lead">這不是一份 API 名稱清單，而是一本解釋 <strong>Better Workflows 如何做決定、留下證據、重播狀態，以及在副作用前停下來驗證</strong>的互動式解剖書。</p>
+          <div class="hero-actions">
+            <a class="btn primary" href="#architecture-map"><span data-i18n="hero.start">開始閱讀</span> <span aria-hidden="true">↓</span></a>
+            <a class="btn" href="#replay" data-i18n="hero.replay">先看 Replay</a>
+            <a class="btn" href="use-cases/index.html" data-i18n="hero.useCases">情境應用手冊 ↗</a>
+            <button class="btn" type="button" id="hero-print" data-i18n="hero.print">列印版</button>
+          </div>
+        </div>
+        <div class="hero-visual">
+          <figure class="hero-art">
+            <img src="assets/better-workflows-control-plane-blue.webp" width="1536" height="1024" alt="以典藏帳冊、證據印記、重播迴圈與對帳節點構成的 Better Workflows 控制面插畫" data-i18n-alt="hero.artAlt" fetchpriority="high">
+            <figcaption><span>ILLUSTRATED CONTROL PLANE</span><strong data-i18n="hero.artCaption">每個結論都能沿著事件、證據與 receipt 回到可重驗的來源。</strong></figcaption>
+          </figure>
+        </div>
+      </header>
+
+      <div class="meta-strip" aria-label="研究基線">
+        <div class="meta-item"><span>Revision</span><strong>57bd75d</strong></div>
+        <div class="meta-item"><span>Worktree</span><strong>clean</strong></div>
+        <div class="meta-item"><span>Templates</span><strong>13</strong></div>
+        <div class="meta-item"><span>Evidence kinds</span><strong>99 / 10 groups</strong></div>
+        <div class="meta-item"><span>Declared tests</span><strong>356 · PASS</strong></div>
+        <div class="meta-item"><span>Graph diagnostics</span><strong>0 · d3310212…</strong></div>
+      </div>
+
+      <article class="book">
+        <section class="chapter searchable" id="executive" data-search="現況總覽 成果 executive summary control plane">
+          <div class="chapter-head">
+            <div class="chapter-no">00</div>
+            <div>
+              <p class="kicker">Executive map</p>
+              <h2>目前成果：一套「失敗關閉」的工作流控制面</h2>
+              <p class="chapter-summary">Better Workflows 的核心價值不是讓 agent 多跑幾步，而是把「路由、執行、證據、審查、副作用與完成」拆成可驗證的狀態邊界。任何關鍵 binding 不一致，結果都不是勉強通過，而是回到 blocked / indeterminate。</p>
+            </div>
+          </div>
+
+          <div class="grid-4">
+            <div class="card blue"><div class="stat">13</div><div class="stat-label">可選 template；把不同工作型態投影成固定 stage 與 gate</div><a class="evidence-chip" style="margin-top:12px" href="#ev-template-inventory">template inventory</a></div>
+            <div class="card indigo"><div class="stat">99</div><div class="stat-label">typed evidence kinds；分屬 10 種 payload family</div></div>
+            <div class="card violet"><div class="stat">60</div><div class="stat-label">templates 合計 execution stages；每個 stage 有 dependency 與 budget</div><a class="evidence-chip" style="margin-top:12px" href="#ev-template-inventory">stage inventory</a></div>
+            <div class="card coral"><div class="stat">356</div><div class="stat-label">16 個測試檔宣告的 test cases；覆蓋 control plane 與 host trust</div><a class="evidence-chip" style="margin-top:12px" href="#ev-test-inventory">test inventory</a> <a class="evidence-chip" style="margin-top:12px" href="#ev-validation-run">host eval · PASS</a></div>
+          </div>
+
+          <div class="rule"></div>
+          <div class="grid-3">
+            <div class="card">
+              <span class="type-chip fact">FACT</span>
+              <h3>控制面，不是無界 runtime</h3>
+              <p>repo 自己將系統定位為 governed control plane：它決定可以怎麼做、需要什麼證據與何時能進入終態；真正的 agent runtime 仍在外部。</p>
+              <a class="evidence-chip" href="#ev-architecture">architecture.md:6–35</a>
+            </div>
+            <div class="card">
+              <span class="type-chip fact">FACT</span>
+              <h3>狀態由資料推導</h3>
+              <p>TaskContract v2、ledger event、typed evidence、review package 和 provider receipt 是權威資料；自由文字 PASS、舊對話或「我已做完」不是狀態來源。</p>
+              <a class="evidence-chip" href="#ev-state-contract">evidence-and-state.md:1–61</a>
+            </div>
+            <div class="card">
+              <span class="type-chip inference">INFERENCE</span>
+              <h3>安全性換來運作成本</h3>
+              <p>多層 binding 與 7/8 witness replay 大幅提升可追溯性，也提高首次理解與環境維護成本。這是設計取捨，不是測得的使用者體驗結論。</p>
+              <a class="evidence-chip" href="#ev-attestations">attestations.mjs:151–245</a>
+            </div>
+          </div>
+
+          <div class="callout" style="margin-top:22px">
+            <span class="callout-icon">≠</span>
+            <div><strong>最重要的心智模型</strong><p><em>執行成功</em>、<em>證據有效</em>、<em>外部副作用已對帳</em>、<em>可以宣告完成</em>是四個不同問題。Better Workflows 刻意不讓它們互相代替。</p></div>
+          </div>
+        </section>
+
+        <section class="chapter searchable" id="architecture-map" data-search="架構地圖 routing taskcontract ledger evidence review action reconciliation completion graph">
+          <div class="chapter-head">
+            <div class="chapter-no">01</div>
+            <div>
+              <p class="kicker">Architecture map</p>
+              <h2>一條請求，經過八個權威邊界</h2>
+              <p class="chapter-summary">點選節點，看每一層「接收什麼、產生什麼、不能越權做什麼」。這張圖呈現的是權威與資料方向，不代表每個 template 都必須跑完全部節點。</p>
+            </div>
+          </div>
+
+          <div class="architecture-shell">
+            <div class="architecture-map" aria-label="互動式架構圖">
+              <div class="arch-flow" id="arch-flow">
+                <button class="arch-node active" type="button" data-node="routing"><small>01 · decide</small><strong>Routing</strong><span>意圖、能力、風險 → template / mode</span></button>
+                <button class="arch-node" type="button" data-node="contract"><small>02 · freeze</small><strong>TaskContract</strong><span>goal、scope、acceptance、authority</span></button>
+                <button class="arch-node" type="button" data-node="source"><small>03 · bind</small><strong>Source Binding</strong><span>HEAD、index、status、sentinel</span></button>
+                <button class="arch-node" type="button" data-node="ledger"><small>04 · derive</small><strong>Ledger</strong><span>append-only events → ready set</span></button>
+                <button class="arch-node" type="button" data-node="evidence"><small>05 · prove</small><strong>Typed Evidence</strong><span>producer、payload、digest、freshness</span></button>
+                <button class="arch-node" type="button" data-node="review"><small>06 · converge</small><strong>Review Package</strong><span>exact diff + findings + critic</span></button>
+                <button class="arch-node" type="button" data-node="action"><small>07 · authorize</small><strong>Action Token</strong><span>一次性、短效、fixed argv</span></button>
+                <button class="arch-node" type="button" data-node="reconcile"><small>08 · observe</small><strong>Reconciliation</strong><span>provider receipt → terminal truth</span></button>
+                <button class="arch-node no-arrow" type="button" data-node="complete"><small>terminal · decide</small><strong>Completion Gate</strong><span>fresh recapture + all bindings</span></button>
+                <button class="arch-node no-arrow" type="button" data-node="graph"><small>projection · inspect</small><strong>Graph View</strong><span>只讀結構投影 + diagnostics</span></button>
+              </div>
+            </div>
+            <aside class="card node-detail" id="node-detail" aria-live="polite"></aside>
+          </div>
+          <p style="margin-top:15px;color:var(--muted);font-size:12px"><span class="type-chip fact">FACT</span> Graph View 是 read-only projection；不是 policy engine、authority、scheduler、runtime 或 persistence。JSON 是 canonical，Mermaid 只是呈現層。 <a class="evidence-chip" href="#ev-graph">SKILL.md:182–206</a></p>
+        </section>
+
+        <section class="chapter searchable" id="mechanism-inventory" data-search="機制盤點 modes direct verified deep critical template stages graph taskcontract">
+          <div class="chapter-head">
+            <div class="chapter-no">02</div>
+            <div>
+              <p class="kicker">Mechanism inventory</p>
+              <h2>Mode 決定驗證強度；Template 決定工作骨架</h2>
+              <p class="chapter-summary">Routing 先依優先序選入口與 template，再用五個風險軸推導 mode。Mode 可以被提高，不能被低於 policy floor；direct 則是刻意的例外：它不建立 governed run。</p>
+            </div>
+          </div>
+          <div class="mode-switch" role="tablist" aria-label="模式比較">
+            <button class="seg-btn" role="tab" aria-selected="true" data-mode="direct">direct</button>
+            <button class="seg-btn" role="tab" aria-selected="false" data-mode="verified">verified</button>
+            <button class="seg-btn" role="tab" aria-selected="false" data-mode="deep">deep</button>
+            <button class="seg-btn" role="tab" aria-selected="false" data-mode="critical">critical</button>
+          </div>
+          <div class="card mode-panel" id="mode-panel" aria-live="polite"></div>
+
+          <div class="grid-3" style="margin-top:22px">
+            <div class="card blue"><h3>Route precedence</h3><p>明確 entry / template → workspace selector → personal selector → built-in auto。Route receipt 會綁定 catalog、profile、goal、scope、capability、bundle 與 autonomy digests，並且只能 claim 一次。</p><a class="evidence-chip" href="#ev-routing">routing.mjs:788–1055</a></div>
+            <div class="card indigo"><h3>TaskContract v2</h3><p>凍結 goal、scope、acceptance、evidence、authority、stages、gates 與 control-plane policy。Mutation authority 固定由 root 持有，autonomy 也必須明列。</p><a class="evidence-chip" href="#ev-contract">core.mjs:1022–1402</a></div>
+            <div class="card violet"><h3>Template graph</h3><p>13 個 template 合計 60 stages。Graph validation 檢查 cycle、dangling edge、endpoint 相容性與 provenance；目前基線 diagnostics 為 0。</p><a class="evidence-chip" href="#ev-graph-code">graph.mjs:400–627</a></div>
+          </div>
+
+          <div class="template-heading">
+            <div><p class="kicker">13 governed playbooks</p><h3 style="margin:0">目前 template 全景</h3></div>
+            <p>依 default mode 篩選。Stage 數是 TaskContract v2 的執行骨架，不等於 agent 數；CI / deploy 類外部動作若沒有 fixed-argv adapter 與 live receipt verifier，會明確 deferred。</p>
+          </div>
+          <div class="filter-row" role="group" aria-label="Template mode 篩選" style="margin-bottom:14px">
+            <button class="seg-btn active" type="button" aria-pressed="true" data-template-filter="all" data-i18n="filter.allTemplates">全部 · 13</button>
+            <button class="seg-btn" type="button" aria-pressed="false" data-template-filter="verified">verified · 4</button>
+            <button class="seg-btn" type="button" aria-pressed="false" data-template-filter="deep">deep · 5</button>
+            <button class="seg-btn" type="button" aria-pressed="false" data-template-filter="critical">critical · 4</button>
+          </div>
+          <div class="template-grid" id="template-grid" aria-live="polite"></div>
+          <p style="margin-top:13px"><a class="evidence-chip" href="#ev-template-inventory">templates/*.json · live inventory</a></p>
+        </section>
+
+        <section class="chapter searchable" id="evidence-flow" data-search="證據資料流 typed evidence producer payload digest freshness acceptance payload family">
+          <div class="chapter-head">
+            <div class="chapter-no">03</div>
+            <div>
+              <p class="kicker">Evidence dataflow</p>
+              <h2>證據不是附件，而是狀態轉移的輸入</h2>
+              <p class="chapter-summary">一筆 evidence 要通過 kind contract、producer allowlist、payload schema、semantic success、freshness binding 與 digest 重算，才可能被 ledger 或 completion 使用。呼叫端自行聲稱的 acceptanceIds 會被清空重建。</p>
+            </div>
+          </div>
+
+          <div class="data-pipeline" aria-label="證據資料流">
+            <div class="pipe-step"><b>Producer</b><span>被 allowlist 的測試、review、provider 或 control-plane producer</span></div>
+            <div class="pipe-step"><b>Kind contract</b><span>99 個已知 kind；未知型別直接拒絕</span></div>
+            <div class="pipe-step"><b>Payload family</b><span>10 種結構家族與 required fields</span></div>
+            <div class="pipe-step"><b>Success predicate</b><span>不是只有 status=complete；內容也要成立</span></div>
+            <div class="pipe-step"><b>Freshness</b><span>run、contract、revision、sentinel、PR / checks 綁定</span></div>
+            <div class="pipe-step"><b>Payload digest</b><span>重新 canonicalize / hash，拒絕 caller 提供的錯誤 digest</span></div>
+            <div class="pipe-step"><b>Admission</b><span>persist 後仍會在讀取與 completion 時重新驗證</span></div>
+          </div>
+
+          <div class="family-chart card">
+            <div class="donut-wrap" aria-label="99 種 evidence kind 分布圖">
+              <svg viewBox="0 0 220 220" role="img" aria-label="99 種 evidence kind 分為 10 個 payload family">
+                <title>Evidence contract families</title><desc>99 種 evidence kind 分為 10 個 payload family。</desc>
+                <circle cx="110" cy="110" r="78" fill="none" stroke="#ded7ca" stroke-width="31"></circle>
+                <circle cx="110" cy="110" r="78" fill="none" stroke="#155eef" stroke-width="31" stroke-dasharray="158.4 331.7" stroke-dashoffset="0"></circle>
+                <circle cx="110" cy="110" r="78" fill="none" stroke="#6f95e8" stroke-width="31" stroke-dasharray="74.3 415.8" stroke-dashoffset="-158.4"></circle>
+                <circle cx="110" cy="110" r="78" fill="none" stroke="#3b69c6" stroke-width="31" stroke-dasharray="59.4 430.7" stroke-dashoffset="-232.7"></circle>
+                <circle cx="110" cy="110" r="78" fill="none" stroke="#4c3fb5" stroke-width="31" stroke-dasharray="54.5 435.6" stroke-dashoffset="-292.1"></circle>
+                <circle cx="110" cy="110" r="78" fill="none" stroke="#e85b4f" stroke-width="31" stroke-dasharray="143.5 346.6" stroke-dashoffset="-346.6"></circle>
+              </svg>
+              <div class="donut-center"><strong>99</strong><span>KNOWN KINDS<br>10 FAMILIES</span></div>
+            </div>
+            <div class="bar-list" id="family-bars"></div>
+          </div>
+          <p style="margin-top:13px"><a class="evidence-chip" href="#ev-evidence-contracts">evidence-contracts-v1.json · live count</a></p>
+
+          <div class="callout" style="margin-top:22px">
+            <span class="callout-icon">✓</span>
+            <div><strong>Evidence 的關鍵不是「有檔案」，而是「可重驗」</strong><p>persisted evidence 在 derive state、review、action token 與 completion 階段仍會被重新載入、重新驗證。這能阻止舊證據、錯 revision 或假 acceptance 悄悄通過。</p></div>
+          </div>
+        </section>
+
+        <section class="chapter searchable" id="ledger-replay" data-search="ledger append only replay reducer event budget transition ready blocked complete 教學模擬">
+          <div class="chapter-head">
+            <div class="chapter-no">04</div>
+            <div>
+              <p class="kicker">Ledger laboratory</p>
+              <h2>狀態不是存下來的結論，而是事件重播的結果</h2>
+              <p class="chapter-summary">下面是縮小版教學模擬。真實 reducer 會校驗 TaskContract v2、stage dependency、固定 budget、root actor、expectedLedgerDigest 與 typed evidence；這裡只用來建立操作直覺，不是 production runner。</p>
+            </div>
+          </div>
+          <div class="ledger-lab">
+            <div class="card">
+              <div class="tag-row"><span class="tag">教學模擬</span><span class="tag">append-only</span><span class="tag">deterministic reducer</span></div>
+              <h3>依序加入事件</h3>
+              <p style="color:var(--muted);font-size:13px">觀察 ready set 與 task state 如何由 event log 推導。你不能直接按「完成」改 state。</p>
+              <div class="lab-controls" id="ledger-controls">
+                <button class="event-btn" type="button" data-event="run-created"><span data-i18n="ledger.create">建立 run</span><code>run.created</code></button>
+                <button class="event-btn" type="button" data-event="inspect-start"><span data-i18n="ledger.inspectStart">開始 inspect</span><code>task.started</code></button>
+                <button class="event-btn" type="button" data-event="inspect-evidence"><span data-i18n="ledger.inspectEvidence">加入 inspect evidence</span><code>evidence.attached</code></button>
+                <button class="event-btn" type="button" data-event="inspect-complete"><span data-i18n="ledger.inspectComplete">完成 inspect</span><code>task.completed</code></button>
+                <button class="event-btn" type="button" data-event="verify-start"><span data-i18n="ledger.verifyStart">開始 verify</span><code>task.started</code></button>
+                <button class="event-btn" type="button" data-event="verify-evidence"><span data-i18n="ledger.verifyEvidence">加入 test evidence</span><code>evidence.attached</code></button>
+                <button class="event-btn" type="button" data-event="verify-complete"><span data-i18n="ledger.verifyComplete">完成 verify</span><code>task.completed</code></button>
+                <button class="btn small" type="button" id="ledger-reset" data-i18n="ledger.reset">重播歸零</button>
+              </div>
+            </div>
+            <div class="lab-output" aria-live="polite">
+              <div class="lab-top"><strong style="font-family:var(--mono);font-size:12px">DERIVED STATE</strong><span class="state-pill" id="ledger-state">not-created</span></div>
+              <div class="derived">
+                <div><span>READY SET</span><strong id="ready-set">∅</strong></div>
+                <div><span>LEDGER EVENTS</span><strong id="event-count">0</strong></div>
+                <div><span>EVIDENCE</span><strong id="evidence-count">0</strong></div>
+              </div>
+              <div class="event-log" id="event-log"><div class="log-empty">還沒有事件。<br>狀態不能憑空出現。</div></div>
+            </div>
+          </div>
+          <p style="margin-top:15px;color:var(--muted);font-size:12px"><a class="evidence-chip" href="#ev-ledger">ledger.mjs:3–348</a> 真實 transition 使用 expectedLedgerDigest 做 optimistic concurrency；stale writer、未知 dependency、cycle、超 budget 或無 typed evidence 的 complete 都會失敗。</p>
+        </section>
+
+        <section class="chapter searchable" id="review-action" data-search="review package finding action token provider receipt reconciliation completion gate side effect">
+          <div class="chapter-head">
+            <div class="chapter-no">05</div>
+            <div>
+              <p class="kicker">Review → action → completion</p>
+              <h2>副作用不是「呼叫完」就算完成</h2>
+              <p class="chapter-summary">對 merge、push、cache publish 等外部動作，系統先凍結 exact review identity，再發出一次性短效 token，透過固定 provider wrapper 執行，最後以 receipt 對帳成 success / failure / unknown。Unknown 絕不能靠盲目重試消失。</p>
+            </div>
+          </div>
+          <div class="gate-line" aria-label="副作用控制流程">
+            <div class="gate" data-no="1"><b>Freeze review</b><p>base/head/mergeBase/scope/diff/contract/template/sentinel 全綁定。</p></div>
+            <div class="gate" data-no="2"><b>Close findings</b><p>P0 不可 accepted-risk；P0/P1 必須清空，critical 還需獨立 critic。</p></div>
+            <div class="gate" data-no="3"><b>Issue token</b><p>檢查 authority、ledger readiness、evidence、provider adapter 與 current sentinel。</p></div>
+            <div class="gate" data-no="4"><b>Consume once</b><p>預設 300 秒；hash 綁定、一次性、固定 executable / argv。</p></div>
+            <div class="gate" data-no="5"><b>Reconcile</b><p>provider receipt 對帳 terminal outcome；unknown 保持 indeterminate。</p></div>
+            <div class="gate" data-no="6"><b>Complete</b><p>再次 capture sentinel，重驗 evidence、ledger、review、remote/cache live state。</p></div>
+          </div>
+          <div class="grid-3" style="margin-top:22px">
+            <div class="card blue"><h3>Review identity</h3><p>Finding ID 穩定；disposition 必須帶 package-bound patch-review evidence。Broad review 完成還要綁 current sentinel 與 current HEAD。</p><a class="evidence-chip" href="#ev-review">review.mjs:16–535</a></div>
+            <div class="card coral"><h3>Action authority</h3><p>Token 不只是 nonce：它綁 action request、contract、source、review、evidence、provider、remote 與 idempotency key；consume 時全部重驗。</p><a class="evidence-chip" href="#ev-action">core.mjs:5016–5803</a></div>
+            <div class="card indigo"><h3>Terminal decision</h3><p>completion 前後各 capture 一次 source sentinel，並把 evidence、ledger、review、sentinel digests 寫入 completionDecision；任何 drift 都是 inconclusive。</p><a class="evidence-chip" href="#ev-completion">core.mjs:2335–2803</a></div>
+          </div>
+        </section>
+
+        <section class="chapter searchable" id="replay" data-search="三種 replay ledger evaluator provider reconciliation recovery resume hidden reasoning">
+          <div class="chapter-head">
+            <div class="chapter-no">06</div>
+            <div>
+              <p class="kicker">Replay taxonomy</p>
+              <h2>Replay 不是一件事：程式中至少有三種語義</h2>
+              <p class="chapter-summary">它們共享同一個精神——從持久化、可驗證的輸入重建結論——但輸入、輸出與失敗策略完全不同。切換頁籤比較，不要把 evaluator replay 誤認為 ledger replay，也不要把 reconciliation 當重送請求。</p>
+            </div>
+          </div>
+          <div class="replay-tabs">
+            <div class="replay-tablist" role="tablist" aria-label="Replay 類型">
+              <button class="replay-tab" role="tab" aria-selected="true" data-replay="ledger"><small>TYPE 01</small>Ledger replay</button>
+              <button class="replay-tab" role="tab" aria-selected="false" data-replay="evaluator"><small>TYPE 02</small>Evaluator replay</button>
+              <button class="replay-tab" role="tab" aria-selected="false" data-replay="provider"><small>TYPE 03</small>Provider reconciliation</button>
+            </div>
+            <div class="card replay-panel" id="replay-panel" aria-live="polite"></div>
+          </div>
+          <div class="callout" style="margin-top:22px">
+            <span class="callout-icon">↺</span>
+            <div><strong>Resume 不是恢復模型腦內狀態</strong><p>公開 state contract 明確說明：resume 從 run directory、contract、ledger、evidence、review、receipt 與 sentinel 繼續；不還原 hidden reasoning，也不以舊 transcript 當 authority。</p></div>
+          </div>
+        </section>
+
+        <section class="chapter searchable" id="self-improve" data-search="self improve replay evaluator corpus baseline candidate snapshot witness 7 8 train holdout median host attestation">
+          <div class="chapter-head">
+            <div class="chapter-no">07</div>
+            <div>
+              <p class="kicker">Self-improve evaluator replay</p>
+              <h2>真正被重播的是固定 corpus、快照、prompt 與 host witness</h2>
+              <p class="chapter-summary">Self-improve v2.3 不從歷史對話「學習」。它比較 immutable baseline 與 candidate snapshot，使用固定 evaluation corpus；host 以 tool-free、single-request、strict JSON 方式產生 7 或 8 個獨立 witness，sbw 再離線重建 prompt、驗簽、計分與重算 comparison。</p>
+            </div>
+          </div>
+          <div class="witness-lab">
+            <div class="card purpose-copy">
+              <p class="kicker">Purpose selector</p>
+              <div class="tabs" role="tablist" aria-label="Self-improve purpose">
+                <button class="seg-btn active" type="button" role="tab" aria-selected="true" data-purpose="ordinary">ordinary</button>
+                <button class="seg-btn" type="button" role="tab" aria-selected="false" data-purpose="migration">migration</button>
+                <button class="seg-btn" type="button" role="tab" aria-selected="false" data-purpose="safety">safety</button>
+                <button class="seg-btn" type="button" role="tab" aria-selected="false" data-purpose="quality">quality</button>
+              </div>
+              <div id="purpose-copy" style="margin-top:24px" aria-live="polite"></div>
+            </div>
+            <div class="witness-stage">
+              <div class="lab-top"><strong style="font:700 12px/1.3 var(--mono)">HOST WITNESS PLAN</strong><span class="state-pill" id="witness-count">7 WITNESSES</span></div>
+              <div class="witness-grid" id="witness-grid"></div>
+              <div class="score-gates" id="score-gates"></div>
+            </div>
+          </div>
+
+          <div class="data-pipeline" style="margin-top:28px" aria-label="Evaluator replay 資料流">
+            <div class="pipe-step"><b>Frozen corpus</b><span>v2.3 · 25 cases · train 12 / holdout 13</span></div>
+            <div class="pipe-step"><b>Immutable baseline</b><span>full SHA 且必須是 HEAD strict ancestor</span></div>
+            <div class="pipe-step"><b>Candidate snapshot</b><span>baseline diff + untracked；全量 path/digest</span></div>
+            <div class="pipe-step"><b>Sanitized prompt</b><span>完整 manifest + 有界均衡 samples；工具關閉</span></div>
+            <div class="pipe-step"><b>Root host trust</b><span>nonce-bound loopback、one request、signed envelope</span></div>
+            <div class="pipe-step"><b>Replay verify</b><span>7/8 exact keys、distinct witnesses、prompt 重建</span></div>
+            <div class="pipe-step"><b>Comparison</b><span>median、hard safety、regression、noise、strict improvement</span></div>
+          </div>
+          <div class="grid-3" style="margin-top:22px">
+            <div class="card"><div class="stat">25</div><div class="stat-label">CORPUS CASES · 10 evaluation classes</div><p style="margin-top:13px">每個 class 同時覆蓋 train 與 holdout；57 assertions 中 27 個標記為 hard-safety。</p><a class="evidence-chip" href="#ev-corpus-fixture">eval corpus v2.3 · live count</a></div>
+            <div class="card"><div class="stat">3 + 3</div><div class="stat-label">ORDINARY HOLDOUT ATTEMPTS</div><p style="margin-top:13px">baseline 三次、candidate 三次，取 per-case median；migration 另外加入 train baseline，總數成為 8。</p><a class="evidence-chip" href="#ev-self-improve-score">self-improve.mjs:1393–1522</a></div>
+            <div class="card"><div class="stat">0</div><div class="stat-label">ALLOWED TOOL CALLS</div><p style="margin-top:13px">canonical Responses body 明列 tools: []、tool_choice: none；transcript lifecycle 要完整且 observedToolCalls=0。</p><a class="evidence-chip" href="#ev-host-trust">host-trust.mjs:350–391</a></div>
+          </div>
+        </section>
+
+        <section class="chapter searchable" id="trust-boundary" data-search="信任邊界 root host bundle launcher root owned attestation nonce loopback transcript source binding">
+          <div class="chapter-head">
+            <div class="chapter-no">08</div>
+            <div>
+              <p class="kicker">Trust boundary</p>
+              <h2>Repo 能描述政策；Host 才能證明它真的照政策執行</h2>
+              <p class="chapter-summary">Critical evaluator 的信任根不在可被 candidate 修改的 repository 裡，而在固定 host path、root-owned bundle、簽章 manifest 與 launcher。這條鏈同時限制 executable、cwd、run-as 身分、請求內容、上游與 witness 生命週期。</p>
+            </div>
+          </div>
+          <div class="trust-chain" aria-label="Host trust chain">
+            <div class="trust-link"><small>01</small><strong>Source binding</strong><p>clean worktree、full SHA、candidate / baseline digests</p></div>
+            <div class="trust-link"><small>02</small><strong>Signed bundle</strong><p>root status 綁定 path、binary、schema、compatibility</p></div>
+            <div class="trust-link"><small>03</small><strong>Launcher</strong><p>絕對 root-owned executable、固定 cwd、drop uid/gid</p></div>
+            <div class="trust-link"><small>04</small><strong>Loopback</strong><p>nonce-bound、本機單次入口、固定 upstream</p></div>
+            <div class="trust-link"><small>05</small><strong>Canonical body</strong><p>single user input、tools off、strict JSON schema</p></div>
+            <div class="trust-link"><small>06</small><strong>Envelope</strong><p>request / response / runtime / model / issuer 綁定</p></div>
+            <div class="trust-link"><small>07</small><strong>Replay</strong><p>驗簽、distinct witness、重建 prompt 與 comparison</p></div>
+          </div>
+          <div class="grid-2">
+            <div class="card indigo"><h3>它防的是什麼？</h3><p>Candidate 不能靠修改 repo 內 evaluator、prompt 或 transcript 就替自己背書；run-as 與 host bundle 也必須對得上 standing consent 與 immutable manifest。</p><a class="evidence-chip" href="#ev-attestations">attestations.mjs:166–439</a></div>
+            <div class="card amber"><h3>平台邊界</h3><p><span class="type-chip risk">RISK</span> 固定 <code>/usr/bin/sudo</code>、root-owned host path、Mach-O / launcher 等機制顯示 critical host trust 目前高度依賴 macOS / Unix host 假設；repo 內沒有跨平台等價實作的證據。</p><a class="evidence-chip" href="#ev-host-platform">host-exec-launcher.c:220–246</a></div>
+          </div>
+        </section>
+
+        <section class="chapter searchable" id="autopilot" data-search="bounded autopilot autonomy automatic human denied limits commit cache push pull request merge deploy cleanup">
+          <div class="chapter-head">
+            <div class="chapter-no">09</div>
+            <div>
+              <p class="kicker">Bounded autonomy</p>
+              <h2>Autopilot 是有簽章的權限預算，不是「全自動」開關</h2>
+              <p class="chapter-summary">Profile 綁定 repo、branch、worktree、expiry 與數量限制；每個 action 先分類成 automatic、human-required 或 denied。Preflight 不成立時留下可 resume 的 blocked state，而不是降級繞過。</p>
+            </div>
+          </div>
+          <div style="overflow-x:auto">
+            <table class="permission-table">
+              <thead><tr><th>Decision</th><th>可做的事</th><th>為什麼</th></tr></thead>
+              <tbody>
+                <tr><td><span class="permission auto">AUTOMATIC</span></td><td>讀取、測試、evaluator replay、commit、cache publish、推送 <code>codex/*</code>、建立一個 dev PR</td><td>所有動作仍要通過 source、contract、ledger、review、token、provider 與 reconciliation gates。</td></tr>
+                <tr><td><span class="permission human">HUMAN REQUIRED</span></td><td>host boot / upgrade / revoke、merge、deploy、推 dev/main、cleanup</td><td>屬於信任根變更、共享分支或不可逆 delivery 邊界。</td></tr>
+                <tr><td><span class="permission deny">DENIED</span></td><td>密碼／互動 sudo、無界 shell、admin bypass、未 pin 的 executable</td><td>不能用 consent 擴大成任意 host authority。</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="grid-4" style="margin-top:20px">
+            <div class="card"><div class="stat">80</div><div class="stat-label">MAX FILES</div></div>
+            <div class="card"><div class="stat">256<span style="font-size:.45em">KiB</span></div><div class="stat-label">MAX DIFF BYTES</div></div>
+            <div class="card"><div class="stat">8<span style="font-size:.45em">h</span></div><div class="stat-label">MAX RUN DURATION</div></div>
+            <div class="card"><div class="stat">12 / 1</div><div class="stat-label">MAX COMMITS / DEV PR</div></div>
+          </div>
+          <p style="margin-top:15px"><a class="evidence-chip" href="#ev-autopilot">bounded-autopilot-v1.json:1–43</a> <a class="evidence-chip" href="#ev-autonomy">autonomy.mjs:14–266</a></p>
+        </section>
+
+        <section class="chapter searchable" id="publication" data-search="publication cache pending ready marker lock quarantine recovery immutable no overwrite reconciliation">
+          <div class="chapter-head">
+            <div class="chapter-no">10</div>
+            <div>
+              <p class="kicker">Immutable publication</p>
+              <h2>Cache 發布分成「檔案已落地」與「結果可被信任」</h2>
+              <p class="chapter-summary">Publication 採版本鎖、不可覆寫與 pending → ready 兩階段 marker。檔案 rename 完成後仍只算 pending；provider action reconciliation 成功，且 target identity / digest、run / attempt / receipt 全部相符，才會 promote ready。</p>
+            </div>
+          </div>
+          <div class="publication-flow" aria-label="Publication 狀態流程">
+            <div class="publication-step"><span class="state">LOCK</span><h4>Election</h4><p>two-phase lock、process incarnation digest；未知或仍活著的 owner 不可被接管。</p></div>
+            <div class="publication-step"><span class="state">STAGE</span><h4>Exact snapshot</h4><p>只接受 clean source binding、committed snapshot 與精確 bundle digest。</p></div>
+            <div class="publication-step"><span class="state">PENDING</span><h4>Rename + marker</h4><p>immutable version，不覆寫；marker 綁 source、run、attempt。</p></div>
+            <div class="publication-step"><span class="state">RECONCILE</span><h4>Provider truth</h4><p>provider receipt 對帳；unknown 不可冒充 failure 或 success。</p></div>
+            <div class="publication-step"><span class="state" style="background:var(--indigo-fill)">READY</span><h4>Promotion</h4><p>同一 version lock 下驗證 target identity / digest 與 exact receipt 後完成。</p></div>
+          </div>
+          <div class="grid-2" style="margin-top:22px">
+            <div class="card"><h3>Crash recovery</h3><p>Recovery 只能針對同一 source/run/attempt/pending marker 與既存 target 繼續；它不重新 publish。這把「重試」轉成「查明既存 side effect」。</p><a class="evidence-chip" href="#ev-publication-recovery">publication.mjs:2109–2189</a></div>
+            <div class="card"><h3>Stale lock</h3><p>釋放前先 quarantine；只有能證明 process incarnation 已不存在才能回收。macOS identity 綁 PID、boot time 與 process start；任一資訊不可讀都回到 unknown，而不是冒險接管。</p><a class="evidence-chip" href="#ev-process-incarnation">publication.mjs:704–787</a> <a class="evidence-chip" href="#ev-publication-lock">publication.mjs:867–1149</a></div>
+          </div>
+        </section>
+
+        <section class="chapter searchable" id="strengths-risks" data-search="好與待改善 strength risk unknown roadmap maintainability complexity observability tests">
+          <div class="chapter-head">
+            <div class="chapter-no">11</div>
+            <div>
+              <p class="kicker">Strengths, risks & unknowns</p>
+              <h2>做得好的、需要盯住的、目前不能證明的</h2>
+              <p class="chapter-summary">這一章刻意把程式可直接證明的 fact，與研究者的 inference / risk / unknown 分開。風險不是 bug 清單；unknown 也不是負面評價，而是 repo 證據的邊界。</p>
+            </div>
+          </div>
+          <div class="grid-3">
+            <div class="card indigo searchable" data-search="strength deterministic typed evidence trust boundary source binding">
+              <span class="type-chip fact">STRENGTH</span><h3>信任邊界具體</h3><p>Source、contract、evidence、review、action、provider、host 全有獨立 identity 與 digest；關鍵流程普遍採 fail-closed。</p>
+            </div>
+            <div class="card indigo searchable" data-search="strength replay deterministic reducer">
+              <span class="type-chip fact">STRENGTH</span><h3>Replay 可重算</h3><p>Ledger reducer、evaluator comparison 與 provider reconciliation 都以 persisted inputs 重建，不需要信任對話記憶。</p>
+            </div>
+            <div class="card indigo searchable" data-search="strength publication immutable">
+              <span class="type-chip fact">STRENGTH</span><h3>副作用可對帳</h3><p>一次性 token、fixed wrapper、idempotency key、terminal receipt、pending/ready publication 把「執行」和「完成」拆開。</p>
+            </div>
+            <div class="card amber searchable" data-search="risk core large module maintainability cognitive load">
+              <span class="type-chip risk">RISK · INFERENCE</span><h3>核心模組集中</h3><p><code>core.mjs</code> 約 6.6k 行、CLI 約 2.5k 行。這不證明品質差，但意味變更 blast radius、review 認知負擔與拆分需求值得持續觀察。</p><a class="evidence-chip" href="#ev-module-size">live inventory</a>
+            </div>
+            <div class="card amber searchable" data-search="risk test cost latency validation">
+              <span class="type-chip risk">RISK · INFERENCE</span><h3>驗證成本可觀</h3><p>24 個 lib 模組約 21.3k 行，16 個 test 檔約 15.1k 行、356 cases。深度是優點，也會帶來全量 eval 時間與維護成本。</p><a class="evidence-chip" href="#ev-test-inventory">live inventory</a>
+            </div>
+            <div class="card amber searchable" data-search="risk graph observability projection privacy">
+              <span class="type-chip risk">RISK · INFERENCE</span><h3>可視性刻意受限</h3><p>Graph View 只投影 allowlisted structure，避免暴露敏感 payload。代價是 live observability 不等於完整 trace viewer；文件與工具不能過度承諾。</p><a class="evidence-chip" href="#ev-graph-code">graph.mjs:183–397</a>
+            </div>
+            <div class="card inset searchable" data-search="unknown telemetry adoption production usage">
+              <span class="type-chip unknown">UNKNOWN</span><h3>實際採用與體感</h3><p>repo 沒有 production usage telemetry，因此無法從原始碼判定使用頻率、平均完成時間或使用者最常卡住的 gate。</p>
+            </div>
+            <div class="card inset searchable" data-search="unknown cross platform mac linux windows">
+              <span class="type-chip unknown">UNKNOWN</span><h3>跨平台等價性</h3><p>一般 Node 控制面可能可攜，但 repo 證據不足以證明 critical host trust 在 Linux / Windows 有相同保證。</p>
+            </div>
+            <div class="card inset searchable" data-search="unknown provider live readiness credentials">
+              <span class="type-chip unknown">UNKNOWN</span><h3>Live provider readiness</h3><p>本次是 source-bound 文件研究，沒有使用外部 credentials 執行 merge、push 或 publish，因此不把 live provider 狀態列為已驗證。</p>
+            </div>
+          </div>
+          <div class="callout" style="margin-top:22px">
+            <span class="callout-icon">16</span>
+            <div><strong>目前 validation snapshot：16/16 suites 通過</strong><p>在可讀取 macOS process boot identity 的 host context，完整 <code>sbw eval</code> exit 0。Managed sandbox 版本曾因 <code>kern.boottime</code> 被拒而讓一個 publication test fail-closed；同一 isolated test 在 host context 通過。這是環境 trust boundary，不應被隱藏，也不應被誤報成 product pass 或 regression。</p><p style="margin-top:10px"><a class="evidence-chip" href="#ev-validation-run">runtime validation</a> <a class="evidence-chip" href="#ev-process-incarnation">process identity implementation</a></p></div>
+          </div>
+        </section>
+
+        <section class="chapter searchable" id="newcomer-path" data-search="新手路徑 資深視角 CTO 視角 onboarding senior architecture executive">
+          <div class="chapter-head">
+            <div class="chapter-no">12</div>
+            <div>
+              <p class="kicker">Reading lenses</p>
+              <h2>同一套系統，三種閱讀高度</h2>
+              <p class="chapter-summary">切換你的角色。新手先建立安全直覺，資深工程師追 identity 與 state derivation，CTO 則關注 authority、failure domain 與可營運性。</p>
+            </div>
+          </div>
+          <div class="tabs lens-tabs" role="tablist" aria-label="角色視角">
+            <button class="seg-btn active" role="tab" aria-selected="true" data-lens="newcomer" data-i18n="lens.newcomer">新手路徑</button>
+            <button class="seg-btn" role="tab" aria-selected="false" data-lens="senior" data-i18n="lens.senior">資深視角</button>
+            <button class="seg-btn" role="tab" aria-selected="false" data-lens="cto" data-i18n="lens.cto">CTO 視角</button>
+          </div>
+          <div class="lens-panel active grid-3" id="lens-newcomer">
+            <div class="card lens-card"><span class="ordinal">01 · FIRST</span><h3>先懂四個名詞</h3><p>Template 是骨架；Mode 是驗證強度；Contract 是範圍與權限；Evidence 是能改變狀態的型別證明。</p></div>
+            <div class="card lens-card"><span class="ordinal">02 · THEN</span><h3>跑無副作用命令</h3><p>從 <code>help</code>、<code>templates</code>、<code>graph validate</code> 與 <code>eval</code> 開始。先看輸出與 diagnostics，不直接碰 action token。</p></div>
+            <div class="card lens-card"><span class="ordinal">03 · REMEMBER</span><h3>Blocked 是正常狀態</h3><p>缺 evidence、source drift 或 provider unknown 並非工具壞掉；它是控制面拒絕假裝確定。</p></div>
+          </div>
+          <div class="lens-panel grid-3" id="lens-senior">
+            <div class="card lens-card"><span class="ordinal">01 · IDENTITY</span><h3>沿 digest 讀程式</h3><p>從 route receipt → contractDigest → sourceBindingDigest → ledgerDigest → reviewPackageDigest → action / receipt → completionDecision。</p></div>
+            <div class="card lens-card"><span class="ordinal">02 · DERIVATION</span><h3>找 reducer，不找 mutable flag</h3><p>Ledger 與 replay 的核心問題是：「這個狀態能否由 canonical input 重算？」修改時優先保持 deterministic derivation。</p></div>
+            <div class="card lens-card"><span class="ordinal">03 · FAILURE</span><h3>測 stale、drift、unknown</h3><p>Happy path 之外，重點是 stale digest、double consume、provider unknown、crash recovery、wrong head 與 unauthorized producer。</p></div>
+          </div>
+          <div class="lens-panel grid-3" id="lens-cto">
+            <div class="card lens-card"><span class="ordinal">01 · GOVERNANCE</span><h3>誰能改什麼？</h3><p>Root-only mutation、signed standing consent、autonomy budget 與 human-required actions 形成可稽核責任邊界。</p></div>
+            <div class="card lens-card"><span class="ordinal">02 · OPERATIONS</span><h3>安全是否可營運？</h3><p>要量測 blocked reason、eval latency、witness failure、reconciliation unknown、host bundle drift 與 recovery 成功率。</p></div>
+            <div class="card lens-card"><span class="ordinal">03 · ROADMAP</span><h3>下一個槓桿點</h3><p>優先降低核心模組認知負擔、補足可觀測指標、明定 host platform matrix，再擴充 provider adapters。</p></div>
+          </div>
+        </section>
+
+        <section class="chapter searchable" id="senior-view" data-search="資深視角 identity digest reducer" aria-label="資深工程師重點摘要">
+          <div class="chapter-head" style="margin-bottom:24px">
+            <div class="chapter-no">S</div>
+            <div><p class="kicker">Senior checkpoint</p><h2 style="font-size:37px">資深工程師的 code review 核心：binding 是否完整、derivation 是否可重算</h2></div>
+          </div>
+          <p class="lede">每次新增欄位或 action，都要問：它進入 canonical digest 了嗎？persist 後會重驗嗎？stale writer 會被拒絕嗎？unknown 是否可能被錯誤壓成 failure？</p>
+        </section>
+
+        <section class="chapter searchable" id="cto-view" data-search="CTO 視角 governance operations ROI trust boundary" aria-label="CTO 重點摘要">
+          <div class="chapter-head" style="margin-bottom:24px">
+            <div class="chapter-no">C</div>
+            <div><p class="kicker">CTO checkpoint</p><h2 style="font-size:37px">CTO 的判斷題：證據治理是否同時帶來可營運的交付速度</h2></div>
+          </div>
+          <p class="lede">目前 source 顯示強健的 authority 與 fail-closed 設計；下一步管理證據應聚焦實際 blocked 分布、端到端 lead time、recovery 效率、host 維護成本與 provider coverage，而非只看 test 綠燈。</p>
+        </section>
+
+        <section class="chapter searchable" id="change-rules" data-search="改 code 守則 commands help templates graph validate eval source binding evidence contract test">
+          <div class="chapter-head">
+            <div class="chapter-no">13</div>
+            <div>
+              <p class="kicker">Change code safely</p>
+              <h2>改 Code 守則：從 contract 邊界往外推，不從 UI 往內猜</h2>
+              <p class="chapter-summary">控制面程式的 bug 常出現在「新增功能但漏綁 identity」或「錯把 unknown 當 failure」。以下是最小且可重複的修改順序。</p>
+            </div>
+          </div>
+          <div class="grid-2">
+            <div class="card blue">
+              <h3>新增 evidence kind</h3>
+              <ol>
+                <li>先在 evidence contract 定義 producer、family、required fields、freshness 與 success predicate。</li>
+                <li>讓 admission 重算 payload digest；不要信任 caller acceptanceIds。</li>
+                <li>補 positive、wrong producer、stale revision、bad digest、semantic failure 測試。</li>
+                <li>確認 ledger / review / completion 消費端會重新驗證。</li>
+              </ol>
+            </div>
+            <div class="card coral">
+              <h3>新增 side-effect action</h3>
+              <ol>
+                <li>先定 authority 與 exact contract gate，再建立 fixed provider adapter。</li>
+                <li>Token 綁 source、review、evidence、remote/resource 與 idempotency key。</li>
+                <li>只允許 wrapper execute；consumer 端再次重驗所有 binding。</li>
+                <li>設計 success / failure / unknown reconciliation 與 crash recovery，再談 retry。</li>
+              </ol>
+            </div>
+            <div class="card indigo">
+              <h3>修改 ledger / stage</h3>
+              <ol>
+                <li>保持 event append-only、static dependency、acyclic graph 與固定 budget。</li>
+                <li>新增 event 時更新 reducer 與 canonical digest，而不是新增 mutable shortcut。</li>
+                <li>測 concurrent stale ledger digest、budget exhaustion、invalid transition。</li>
+              </ol>
+            </div>
+            <div class="card violet">
+              <h3>修改 self-improve evaluator</h3>
+              <ol>
+                <li>分清 ordinary policy change、evaluator migration、safety remediation、quality remediation。</li>
+                <li>Corpus/version/migration 要保持 inherited coverage 與 target-only headroom。</li>
+                <li>Prompt、snapshot、host request 與 replay reconstruction 必須完全同源。</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="grid-2" style="margin-top:22px">
+            <div>
+              <h3>唯讀導覽</h3>
+              <div class="code-block">node plugins/better-workflows/scripts/sbw.mjs help
+node plugins/better-workflows/scripts/sbw.mjs templates
+node plugins/better-workflows/scripts/sbw.mjs graph validate<button class="copy-btn" type="button">複製</button></div>
+            </div>
+            <div>
+              <h3>完整驗證</h3>
+              <div class="code-block">node plugins/better-workflows/scripts/sbw.mjs eval
+git diff --check
+git status --short<button class="copy-btn" type="button">複製</button></div>
+            </div>
+          </div>
+          <div class="callout" style="margin-top:22px">
+            <span class="callout-icon">!</span>
+            <div><strong>不要用「讓測試過」取代 authority 設計</strong><p>測試綠燈只能證明已覆蓋的 contract；它不能授權 merge、deploy、host trust 變更或外部 side effect。先定權限與 reconciliation，再補實作。</p></div>
+          </div>
+        </section>
+
+        <section class="chapter searchable" id="source-files" data-search="來源檔案 source evidence fact inference risk unknown manifest revision observed">
+          <div class="chapter-head">
+            <div class="chapter-no">14</div>
+            <div>
+              <p class="kicker">Source explorer</p>
+              <h2>每個重要判斷，都能走回原始碼</h2>
+              <p class="chapter-summary">以下 locator 以本次觀測 revision 為準。可依類型篩選；FACT 是程式或文件直接陳述，INFERENCE / RISK 是研究解讀，UNKNOWN 代表本次 source scope 無法證明。</p>
+            </div>
+          </div>
+          <div class="source-toolbar">
+            <input class="source-search" id="source-search" type="search" placeholder="搜尋 path、主題或 locator…" aria-label="搜尋來源檔案" data-i18n-placeholder="search.sources" data-i18n-aria-label="search.sources">
+            <div class="filter-row" role="group" aria-label="來源類型篩選">
+              <button class="seg-btn active" type="button" aria-pressed="true" data-source-filter="all" data-i18n="filter.all">全部</button>
+              <button class="seg-btn" type="button" aria-pressed="false" data-source-filter="fact">Fact</button>
+              <button class="seg-btn" type="button" aria-pressed="false" data-source-filter="inference">Inference</button>
+              <button class="seg-btn" type="button" aria-pressed="false" data-source-filter="risk">Risk</button>
+              <button class="seg-btn" type="button" aria-pressed="false" data-source-filter="unknown">Unknown</button>
+            </div>
+          </div>
+          <div class="source-list" id="source-list"></div>
+          <div class="no-results" id="source-empty" data-i18n="source.empty">找不到符合條件的來源。</div>
+          <div class="manifest-box">
+            <strong>研究基線</strong><br>
+            <code>observedAt: 2026-08-12T22:47:13+08:00 · revision: 57bd75d0e68e1349fdcf87c8f485cd9ca6dfd9f3 · worktree: clean · scope: working tree + HEAD · selected source manifest: 60 files · sha256: 1ec39b44419e7826aa9bd2164d1a7c25644a9cb436abb117320c41c933e00ef1<br>validatedAt: 2026-08-12T23:37:11+08:00 · graph diagnostics: 0 · full host-context eval: PASS (16 suites)<br>snapshotBoundary: 原始 checkout 於觀測後前進至 a414e12 並有 8 個未提交修改；本版刻意維持 57bd75d 的 frozen evidence boundary，不涵蓋後續 drift。</code>
+            <p style="margin:10px 0 0"><a class="evidence-chip" href="#ev-snapshot-boundary">查看 snapshot boundary</a></p>
+          </div>
+        </section>
+
+        <footer class="footer">
+          <div><strong data-i18n="brand.full">Better Workflows 解剖書</strong><span data-i18n="footer.disclaimer">依據 repository 現況產生的 evidence-backed 互動式說明；不是 runtime authority，也不取代最新 CLI diagnostics。</span></div>
+          <a class="back-top" href="#top" data-i18n="footer.backTop">↑ 回到頁首</a>
+        </footer>
+      </article>
+    </main>
+  </div>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script>
+    (() => {
+      'use strict';
+
+      const $ = (selector, root = document) => root.querySelector(selector);
+      const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
+
+      const rootElement = document.documentElement;
+      let currentLocale = rootElement.dataset.locale === 'en' ? 'en' : 'zh-Hant';
+      const messages = {
+        'zh-Hant': {
+          'meta.title': 'Better Workflows 解剖書｜從意圖到可證明完成',
+          'meta.description': 'Better Workflows 3.3.5 的 evidence-driven control plane、資料流與 replay 互動式原始碼說明書。',
+          'a11y.skip': '跳到主要內容', 'a11y.openContents': '開啟章節目錄', 'a11y.closeContents': '關閉章節目錄',
+          'a11y.quickNav': '快速章節', 'a11y.searchGuide': '搜尋本書', 'a11y.language': '語言',
+          'a11y.darkMode': '切換深色模式', 'a11y.lightMode': '切換淺色模式',
+          'brand.full': 'Better Workflows 解剖書', 'nav.contents': 'Contents', 'nav.preview': '預覽版',
+          'nav.executive': '現況總覽', 'nav.architecture': '架構地圖', 'nav.mechanisms': '機制與模式',
+          'nav.evidence': '證據資料流', 'nav.ledger': 'Ledger 教學實驗室', 'nav.review': 'Review 與 Action',
+          'nav.replay': '三種 Replay', 'nav.trust': '信任邊界', 'nav.risks': '優勢、風險、未知',
+          'nav.lenses': '角色閱讀路徑', 'nav.change': '改 Code 守則', 'nav.sources': '來源檔案',
+          'search.global': '搜尋章節與證據…', 'search.sources': '搜尋 path、主題或 locator…',
+          'action.print': '列印或匯出 PDF', 'action.collapse': '收合所有來源群組',
+          'hero.eyebrow': 'Evidence-driven control plane · 3.3.5',
+          'hero.title': '從意圖，走到<span class="accent">可證明完成。</span>',
+          'hero.lead': '這不是一份 API 名稱清單，而是一本解釋 <strong>Better Workflows 如何做決定、留下證據、重播狀態，以及在副作用前停下來驗證</strong>的互動式解剖書。',
+          'hero.start': '開始閱讀', 'hero.replay': '先看 Replay', 'hero.useCases': '情境應用手冊 ↗', 'hero.print': '列印版',
+          'hero.orbit.routing': '意圖選路', 'hero.orbit.evidence': '型別證明', 'hero.orbit.reconcile': '外部真相',
+          'hero.orbit.ledger': '事件重播', 'hero.orbit.contract': '邊界凍結',
+          'hero.artAlt': '以典藏帳冊、證據印記、重播迴圈與對帳節點構成的 Better Workflows 控制面插畫',
+          'hero.artCaption': '每個結論都能沿著事件、證據與 receipt 回到可重驗的來源。',
+          'filter.allTemplates': '全部 · 13', 'filter.all': '全部',
+          'ledger.create': '建立 run', 'ledger.inspectStart': '開始 inspect', 'ledger.inspectEvidence': '加入 inspect evidence',
+          'ledger.inspectComplete': '完成 inspect', 'ledger.verifyStart': '開始 verify', 'ledger.verifyEvidence': '加入 test evidence',
+          'ledger.verifyComplete': '完成 verify', 'ledger.reset': '重播歸零', 'ledger.empty': '還沒有事件。<br>狀態不能憑空出現。',
+          'lens.newcomer': '新手路徑', 'lens.senior': '資深視角', 'lens.cto': 'CTO 視角',
+          'source.empty': '找不到符合條件的來源。', 'source.entries': '筆',
+          'footer.disclaimer': '依據 repository 現況產生的 evidence-backed 互動式說明；不是 runtime authority，也不取代最新 CLI diagnostics。',
+          'footer.backTop': '↑ 回到頁首', 'toast.copied': '已複製命令', 'toast.clipboardDenied': '瀏覽器未允許剪貼簿'
+        },
+        en: {
+          'meta.title': 'Better Workflows Field Guide | From intent to provable completion',
+          'meta.description': 'An interactive, evidence-backed guide to the Better Workflows 3.3.5 control plane, dataflow, and replay model.',
+          'a11y.skip': 'Skip to main content', 'a11y.openContents': 'Open chapter contents', 'a11y.closeContents': 'Close chapter contents',
+          'a11y.quickNav': 'Quick chapters', 'a11y.searchGuide': 'Search this guide', 'a11y.language': 'Language',
+          'a11y.darkMode': 'Switch to dark mode', 'a11y.lightMode': 'Switch to light mode',
+          'brand.full': 'Better Workflows Field Guide', 'nav.contents': 'Contents', 'nav.preview': 'Quick preview',
+          'nav.executive': 'Executive map', 'nav.architecture': 'Architecture', 'nav.mechanisms': 'Mechanisms & modes',
+          'nav.evidence': 'Evidence flow', 'nav.ledger': 'Ledger lab', 'nav.review': 'Review & action',
+          'nav.replay': 'Three replays', 'nav.trust': 'Trust boundary', 'nav.risks': 'Strengths, risks & unknowns',
+          'nav.lenses': 'Reading paths', 'nav.change': 'Change-code rules', 'nav.sources': 'Source explorer',
+          'search.global': 'Search chapters and evidence…', 'search.sources': 'Search path, topic, or locator…',
+          'action.print': 'Print or export PDF', 'action.collapse': 'Collapse all source groups',
+          'hero.eyebrow': 'Evidence-driven control plane · 3.3.5',
+          'hero.title': 'From intent to <span class="accent">provable completion.</span>',
+          'hero.lead': 'Not an API-name inventory, but an interactive field guide to <strong>how Better Workflows decides, records evidence, replays state, and pauses to verify before side effects</strong>.',
+          'hero.start': 'Start reading', 'hero.replay': 'See replay first', 'hero.useCases': 'Use-case handbook ↗', 'hero.print': 'Print edition',
+          'hero.orbit.routing': 'intent routing', 'hero.orbit.evidence': 'typed proof', 'hero.orbit.reconcile': 'external truth',
+          'hero.orbit.ledger': 'event replay', 'hero.orbit.contract': 'frozen boundary',
+          'hero.artAlt': 'Editorial illustration of the Better Workflows control plane built from an archival ledger, evidence seals, replay loops, and reconciliation nodes',
+          'hero.artCaption': 'Every conclusion leads back through events, evidence, and receipts to a source that can be revalidated.',
+          'filter.allTemplates': 'All · 13', 'filter.all': 'All',
+          'ledger.create': 'Create run', 'ledger.inspectStart': 'Start inspect', 'ledger.inspectEvidence': 'Attach inspect evidence',
+          'ledger.inspectComplete': 'Complete inspect', 'ledger.verifyStart': 'Start verify', 'ledger.verifyEvidence': 'Attach test evidence',
+          'ledger.verifyComplete': 'Complete verify', 'ledger.reset': 'Reset replay', 'ledger.empty': 'No events yet.<br>State cannot appear from nowhere.',
+          'lens.newcomer': 'Newcomer path', 'lens.senior': 'Senior lens', 'lens.cto': 'CTO lens',
+          'source.empty': 'No matching source entries.', 'source.entries': 'entries',
+          'footer.disclaimer': 'An evidence-backed interactive guide generated from the repository snapshot; it is not runtime authority and does not replace current CLI diagnostics.',
+          'footer.backTop': '↑ Back to top', 'toast.copied': 'Command copied', 'toast.clipboardDenied': 'Clipboard access was not allowed'
+        }
+      };
+      const chapterEnglish = {
+        executive: ['A fail-closed workflow control plane', 'Better Workflows separates routing, execution, evidence, review, side effects, and completion into independently verifiable state boundaries. A broken binding never becomes a soft pass; it returns to blocked or indeterminate.'],
+        'architecture-map': ['One request crosses eight authority boundaries', 'Select a node to inspect what each boundary accepts, produces, and is forbidden to overrule. The map shows authority and data direction; not every template must execute every node.'],
+        'mechanism-inventory': ['Mode sets assurance depth; template sets the work skeleton', 'Routing selects an entry and template by precedence, then derives a mode from five risk axes. Policy may raise that mode, never lower it beneath the floor; direct is the deliberate non-governed exception.'],
+        'evidence-flow': ['Evidence is input to state transition, not an attachment', 'An evidence item must satisfy its kind contract, producer allowlist, payload schema, success predicate, freshness binding, and recomputed digest before ledger or completion can consume it.'],
+        'ledger-replay': ['State is replayed from events, not stored as a conclusion', 'This reduced teaching simulation builds intuition for the real reducer, which validates the TaskContract, dependencies, fixed budgets, root actor, ledger digest, and admitted typed evidence.'],
+        'review-action': ['A side effect is not complete when the call returns', 'For merge, push, or cache publication, the system freezes an exact review identity, issues a short-lived one-shot token, executes through a fixed provider wrapper, and reconciles the receipt to success, failure, or unknown.'],
+        replay: ['Replay has at least three distinct meanings', 'Each reconstructs a conclusion from persisted, verifiable input, but their inputs, outputs, and failure policy differ. Compare them without confusing evaluator replay, ledger replay, and provider reconciliation.'],
+        'self-improve': ['The replay target is a frozen corpus, snapshots, prompts, and host witnesses', 'Self-improve v2.3 does not learn from chat history. It compares immutable baseline and candidate snapshots against a fixed corpus, then verifies seven or eight independent, signed host witnesses offline.'],
+        'trust-boundary': ['The repo states policy; the host proves how it ran', 'Critical evaluator trust is rooted outside candidate-modifiable repository files: fixed host paths, a root-owned bundle, signed manifests, and a launcher constrain executable, identity, request, upstream, and witness lifecycle.'],
+        autopilot: ['Autopilot is a signed authority budget, not an “everything automatic” switch', 'The profile binds repository, branch, worktree, expiry, and quantity limits. Every action is classified automatic, human-required, or denied; a failed preflight leaves resumable blocked state.'],
+        publication: ['Publication separates “files landed” from “result is trusted”', 'A version lock, no-overwrite semantics, and pending-to-ready markers keep a rename from masquerading as completion. Promotion requires reconciled provider truth and matching target, run, attempt, and receipt identities.'],
+        'strengths-risks': ['What is strong, what needs watching, and what remains unknown', 'This chapter keeps facts directly supported by code separate from research inferences, risks, and unknowns. A risk is not automatically a bug; an unknown marks the boundary of repository evidence.'],
+        'newcomer-path': ['One system, three reading altitudes', 'Choose a lens: newcomers need safe intuition, senior engineers follow identity and state derivation, while CTOs focus on authority, failure domains, and operational viability.'],
+        'senior-view': ['The senior review question: are bindings complete and derivations reproducible?', 'For every new field or action, ask whether it enters the canonical digest, is revalidated after persistence, rejects stale writers, and preserves unknown instead of collapsing it into failure.'],
+        'cto-view': ['The CTO question: does evidence governance also support operable delivery speed?', 'The source shows strong authority and fail-closed design. The next management evidence should measure blocked reasons, lead time, recovery efficiency, host cost, and provider coverage—not only passing tests.'],
+        'change-rules': ['Change code from the contract boundary outward', 'Control-plane defects often come from adding behavior without binding its identity, or from collapsing unknown into failure. Follow a small, repeatable change sequence.'],
+        'source-files': ['Every important claim leads back to source', 'Locators are bound to this observed revision. FACT is stated directly by code or documentation; INFERENCE and RISK are research interpretation; UNKNOWN is not provable inside this source scope.']
+      };
+      const chapterOriginals = Object.fromEntries($$('.chapter[id]').map((section) => [section.id, {
+        title: $('h2', section)?.innerHTML || '',
+        summary: $('.chapter-summary, .lede', section)?.innerHTML || ''
+      }]));
+
+      const t = (key) => messages[currentLocale]?.[key] ?? messages['zh-Hant'][key] ?? key;
+      function updateThemeControl() {
+        const button = $('#theme-toggle');
+        if (!button) return;
+        const dark = rootElement.dataset.theme === 'dark';
+        button.setAttribute('aria-pressed', String(dark));
+        button.setAttribute('aria-label', t(dark ? 'a11y.lightMode' : 'a11y.darkMode'));
+      }
+      function setTheme(theme, persist = true) {
+        rootElement.dataset.theme = theme === 'dark' ? 'dark' : 'light';
+        updateThemeControl();
+        if (persist) try { localStorage.setItem('better-workflows-guide-theme', rootElement.dataset.theme); } catch {}
+      }
+      function applyLocale(locale, { persist = true, rerender = false } = {}) {
+        currentLocale = locale === 'en' ? 'en' : 'zh-Hant';
+        rootElement.dataset.locale = currentLocale;
+        rootElement.lang = currentLocale;
+        document.title = t('meta.title');
+        $('meta[name="description"]')?.setAttribute('content', t('meta.description'));
+        $$('[data-i18n]').forEach((element) => { element.textContent = t(element.dataset.i18n); });
+        $$('[data-i18n-html]').forEach((element) => { element.innerHTML = t(element.dataset.i18nHtml); });
+        $$('[data-i18n-placeholder]').forEach((element) => { element.setAttribute('placeholder', t(element.dataset.i18nPlaceholder)); });
+        $$('[data-i18n-title]').forEach((element) => { element.setAttribute('title', t(element.dataset.i18nTitle)); });
+        $$('[data-i18n-alt]').forEach((element) => { element.setAttribute('alt', t(element.dataset.i18nAlt)); });
+        $$('[data-i18n-aria-label]').forEach((element) => { element.setAttribute('aria-label', t(element.dataset.i18nAriaLabel)); });
+        $$('.chapter[id]').forEach((section) => {
+          const title = $('h2', section);
+          const summary = $('.chapter-summary, .lede', section);
+          const translated = chapterEnglish[section.id];
+          if (title) title.innerHTML = currentLocale === 'en' && translated ? translated[0] : chapterOriginals[section.id].title;
+          if (summary) summary.innerHTML = currentLocale === 'en' && translated ? translated[1] : chapterOriginals[section.id].summary;
+        });
+        $$('.locale-option').forEach((button) => button.setAttribute('aria-pressed', String(button.dataset.localeOption === currentLocale)));
+        updateThemeControl();
+        if (rerender) {
+          renderArch($('.arch-node.active')?.dataset.node || 'routing');
+          renderMode($('.seg-btn[data-mode][aria-selected="true"]')?.dataset.mode || 'direct');
+          renderReplay($('.replay-tab[aria-selected="true"]')?.dataset.replay || 'ledger');
+          renderPurpose($('.seg-btn[data-purpose].active')?.dataset.purpose || 'ordinary');
+          renderTemplates($('.seg-btn[data-template-filter].active')?.dataset.templateFilter || 'all');
+          renderSources();
+          deriveLedger();
+        }
+        if (persist) try { localStorage.setItem('better-workflows-guide-locale', currentLocale); } catch {}
+      }
+
+      const archData = {
+        routing: { index: '01 · DECIDE', title: 'Routing', summary: '把使用者意圖、可用能力、風險與明確 selector 轉成 template / mode。', bullets: ['優先序：explicit → workspace → personal → built-in auto', 'mode 由五個風險軸評分，policy floor 只能提高不能降低', 'route receipt 綁定多個 digest，24 小時到期且只能 claim 一次'], evidence: 'routing.mjs:556–1055', href: '#ev-routing' },
+        contract: { index: '02 · FREEZE', title: 'TaskContract', summary: '在執行前凍結目標、範圍、驗收、證據、權限、stage 與 gate。', bullets: ['v2 是 governed control-plane contract', 'mutation authority 固定 root-only', 'direct mode 是例外：不建立 governed run'], evidence: 'core.mjs:1022–1402', href: '#ev-contract' },
+        source: { index: '03 · BIND', title: 'Source Binding', summary: '建立 repository 當下狀態的可重算身分，讓後續證據知道自己屬於哪個 source。', bullets: ['固定 /usr/bin/git 與最小環境', '綁 HEAD、index、status、tracked/untracked、submodule、config 等', '操作前後重捕 sentinel；drift 轉為 indeterminate'], evidence: 'git.mjs:450–690', href: '#ev-source-binding' },
+        ledger: { index: '04 · DERIVE', title: 'Append-only Ledger', summary: '只保存事件，透過 deterministic reducer 推導 task state、ready set 與 budget。', bullets: ['dependency 必須靜態、已知、無 cycle', 'expectedLedgerDigest 防 concurrent stale writer', 'complete 必須帶 admitted typed evidence'], evidence: 'ledger.mjs:3–348', href: '#ev-ledger' },
+        evidence: { index: '05 · PROVE', title: 'Typed Evidence', summary: '用 contract 驗證 kind、producer、payload、semantic success、freshness 與 digest。', bullets: ['99 kinds / 10 payload families', 'caller acceptanceIds 不具權威', 'persisted evidence 會在消費時再次驗證'], evidence: 'evidence.mjs:7–537', href: '#ev-evidence' },
+        review: { index: '06 · CONVERGE', title: 'Review Package', summary: '把 review 綁到 exact base/head/mergeBase/diff/scope，不讓舊 finding 漂到新 revision。', bullets: ['finding ID 穩定且 package-bound', 'P0 不可 accepted-risk', 'critical 需要 exact independent critic；repair budget 最多五次'], evidence: 'review.mjs:16–535', href: '#ev-review' },
+        action: { index: '07 · AUTHORIZE', title: 'One-shot Action Token', summary: '只在所有前置 gate 成立時發出短效、一次性、完全綁定的副作用權限。', bullets: ['預設 TTL 300 秒', 'consume 時重新驗 source / contract / review / evidence / provider', 'wrapper action 使用固定 executable 與 argv'], evidence: 'core.mjs:5016–5803', href: '#ev-action' },
+        reconcile: { index: '08 · OBSERVE', title: 'Provider Reconciliation', summary: '把 provider 的外部事實對帳回 success、failure 或 unknown，而不是信任本機呼叫結果。', bullets: ['unknown 不可降成 failure', 'owned creation 只有證明 provider 不存在才可釋放', '同一 attempt 持久化 terminal outcome'], evidence: 'core.mjs:6226–6508', href: '#ev-reconcile' },
+        complete: { index: 'TERMINAL · DECIDE', title: 'Completion Gate', summary: '終態前重捕 source 並重驗所有 authority；完成是一個帶 digests 的決策物件。', bullets: ['重驗 evidence / acceptance / ledger / review / sentinel', '檢查 P0/P1、side effects、remote/cache live state、critics', 'terminal capture 仍有 drift 就 inconclusive'], evidence: 'core.mjs:2335–2803', href: '#ev-completion' },
+        graph: { index: 'PROJECTION · INSPECT', title: 'Graph View', summary: '從 template 或 live run 產生安全的結構投影與 diagnostics，協助看見 dependency / gate。', bullets: ['只投影 allowlisted structural fields', 'cycle / dangling / incompatible / provenance error 會阻擋關鍵操作', 'JSON canonical；Mermaid 只負責顯示'], evidence: 'graph.mjs:5–1136', href: '#ev-graph-code' }
+      };
+
+      const modeData = {
+        direct: { level: 1, title: 'direct · Root 直接執行', summary: '適合範圍小、風險低、可快速驗證的工作。它不建立 run directory、journal、ledger 或 critics；因此也不應被誤認為 governed replay。', meta: ['run: none', 'critics: 0', 'journal: none', '適用：低風險、可回復'] },
+        verified: { level: 2, title: 'verified · 新鮮證據 + 獨立檢查', summary: '建立 governed run，加入 1–3 個唯讀 agent / reviewer 與 freshness evidence，適合需要交叉驗證但尚非關鍵不可逆的工作。', meta: ['run: v2', 'read-only critics', 'fresh evidence', 'root-only mutation'] },
+        deep: { level: 3, title: 'deep · Verified wave + Codex critics', summary: '在 verified 的基礎上加入獨立 Codex critics 與更完整的 review convergence，用於架構、跨模組或高認知負荷變更。', meta: ['run: v2', 'max Codex critics: 2', 'broad review', '更高驗證成本'] },
+        critical: { level: 4, title: 'critical · Fail-closed critical gates', summary: '用於不可逆 side effects、自我改善與高風險交付；要求完整 source binding、host / provider authority、exact critic 與 reconciliation。', meta: ['run: v2', 'exact independent critic', 'action token', 'unknown → indeterminate'] }
+      };
+
+      const replayData = {
+        ledger: { title: 'Ledger replay', subtitle: '事件 → 推導狀態', copy: '讀取 TaskContract v2 與 append-only ledger events，依固定 reducer 重建每個 stage 的 pending / ready / running / complete / blocked 與整體 ready set。', input: 'contract + ordered events + admitted evidence', output: 'derived task state + ledger digest', failure: 'stale digest、invalid transition、budget exhausted、missing evidence → reject', evidence: '#ev-ledger' },
+        evaluator: { title: 'Evaluator replay', subtitle: 'witness → 重算比較', copy: '讀取 immutable baseline/candidate、frozen corpus、root-owned batch journal 與 7/8 個 signed host witness；重建 prompts、驗證 envelopes、重新計分並要求 comparison 完全一致。', input: 'corpus + snapshots + prompts + signed witnesses', output: 'accepted comparison + distinct witness digests', failure: 'tie、noise、regression、mismatch、timeout、missing witness → no authority', evidence: '#ev-self-replay' },
+        provider: { title: 'Provider reconciliation', subtitle: 'attempt → 外部終態', copy: '針對已 consume 的同一 action attempt 查詢 provider 或驗證 receipt，把 pending / indeterminate 對帳為 terminal success / failure；它的目的不是再送一次請求。', input: 'action attempt + provider/resource identity + receipt/query', output: 'reconciled terminal outcome', failure: 'provider 不可判定 → 保持 unknown；禁止 blind retry', evidence: '#ev-reconcile' }
+      };
+
+      const purposeData = {
+        ordinary: { title: 'Ordinary policy change', count: 7, copy: '一般 policy / implementation 改善：一個 candidate train witness，加上 candidate holdout ×3 與 baseline holdout ×3。要求 hard safety 全過、applicable improvement 有 headroom、candidate median 嚴格高於 baseline，且無 per-case regression / noisy run。', gates: ['hard safety: all pass', 'candidate median > baseline', 'no per-case regression', 'no noisy run'] },
+        migration: { title: 'Evaluator migration', count: 8, copy: '當 evaluator / corpus 本身改變，不能只用新 evaluator 評舊結果。額外加入 baseline train witness，並要求 inherited coverage、target-only headroom、train/holdout no-regression 與 strict improvement。', gates: ['inherited coverage', 'target-only headroom', 'train + holdout parity', 'strict improvement'] },
+        safety: { title: 'Safety remediation', count: 7, copy: '針對已版本化的安全缺口，使用獨立 remediation policy：需要精確 coverage、可重現性、無 noise / regression，並對指定 hard-safety 缺口產生嚴格改善。', gates: ['exact safety coverage', 'reproducible witnesses', 'zero regression', 'strict remediation gain'] },
+        quality: { title: 'Quality remediation', count: 7, copy: '針對品質而非安全的版本化缺口，保留 hard-safety invariant，要求指定 quality cases 的嚴格改善，同時禁止其他 case 退步或出現 noisy verdict。', gates: ['hard safety invariant', 'target quality coverage', 'no collateral regression', 'strict quality gain'] }
+      };
+
+      const families = [
+        ['validation-test', 32], ['inventory-snapshot', 15], ['plan-design', 12], ['review-analysis', 11], ['artifact-package', 7], ['decision-disposition', 7], ['side-effect-result', 6], ['revision-identity', 5], ['authorization', 2], ['provider-reconciliation', 2]
+      ];
+
+      const templates = [
+        ['browser-simulator-qa','verified',4,'以可重現 artifact 執行瀏覽器或模擬器的 current-state QA。'],
+        ['ci-release-monitor','critical',4,'序列化監控與對帳 CI / deploy / release；未具固定 adapter 的外部 dispatch 明確 deferred。'],
+        ['cross-platform-contract','deep',5,'同步檢查 backend、Web、iOS、Android 的 API contract 相容性。'],
+        ['dependabot-consolidation-pr-cleanup','critical',6,'盤點並分類 Dependabot PR，合併成 governed PR，完成 lockfile 驗證與 owned cleanup。'],
+        ['ios-static-pbxproj','verified',3,'不做 local build 的 Swift 靜態 review 與序列化 pbxproj membership。'],
+        ['issues-to-root-fix-pr-merge-cleanup','deep',5,'重驗 issue，由 root 修復、驗證、發布、merge，最後只清理 run-owned resources。'],
+        ['localization-41','deep',4,'更新 41 語系，保留地區語氣並做 deterministic key / order validation。'],
+        ['monorepo-refactor','deep',4,'全 monorepo inventory 後，分片完成所有 eligible bounded refactor 與 rollback gates。'],
+        ['pr-to-dev','critical',6,'Atomic commits → dev PR → fresh checks → protected merge → remote reconcile → owned cleanup。'],
+        ['research-deliberation','deep',5,'探測可用 AI CLI，分配 model-bound roles，整合獨立觀點成 evidence-based plan。'],
+        ['review-to-issues','verified',5,'唯讀 review、finding 去重，再由 root 建立 issues。'],
+        ['self-improve-ops','critical',5,'以近期 workflow evidence 做 bounded change-or-no-change，驗證後交接 cache / remote delivery。'],
+        ['workspace-recipe','verified',4,'審查、promotion、執行 deterministic workspace Node.js SOP，不授予 source mutation 或外部副作用。']
+      ];
+
+      const sources = [
+        { id:'ev-architecture', group:'架構與路由', type:'fact', path:'docs/guide/architecture.md:6–47', topic:'系統定位與 canonical flow', note:'明示 governed control plane 定位、端到端流程與 routing precedence。' },
+        { id:'ev-routing', group:'架構與路由', type:'fact', path:'plugins/better-workflows/scripts/lib/routing.mjs:556–1055', topic:'能力快照、rule matching、路由與 receipt', note:'Node-only capability snapshot；category AND/value OR；explicit → workspace → personal → built-in auto；receipt 綁 digests、24h 且 single claim。' },
+        { id:'ev-mode', group:'架構與路由', type:'fact', path:'plugins/better-workflows/scripts/lib/core.mjs:1003–1019', topic:'Auto mode 風險評分', note:'五個風險軸映射 direct / verified / deep / critical。' },
+        { id:'ev-template-inventory', group:'架構與路由', type:'fact', path:'plugins/better-workflows/templates/*.json → execution.stages', topic:'Current template / stage inventory', note:'本次 live parse：13 個 template、60 個 execution stages；Graph View 由同一份 template 結構投影。' },
+        { id:'ev-contract', group:'Contract、Ledger、Evidence', type:'fact', path:'plugins/better-workflows/scripts/lib/core.mjs:1022–1402', topic:'TaskContract v2 與 run creation', note:'驗證／建立 goal、scope、acceptance、evidence、root-only authority、stages、gates；direct 不建立 run。' },
+        { id:'ev-state-contract', group:'Contract、Ledger、Evidence', type:'fact', path:'plugins/better-workflows/skills/better-workflows/references/evidence-and-state.md:1–61', topic:'Public evidence / state contract', note:'文字 PASS 不改狀態；resume 不恢復 hidden reasoning；v2 evidence 是完成與副作用 authority。' },
+        { id:'ev-ledger', group:'Contract、Ledger、Evidence', type:'fact', path:'plugins/better-workflows/scripts/lib/ledger.mjs:3–348', topic:'Append-only ledger reducer', note:'事件型別、固定 budget、static DAG、optimistic concurrency、typed-evidence completion 與 deterministic state derivation。' },
+        { id:'ev-evidence', group:'Contract、Ledger、Evidence', type:'fact', path:'plugins/better-workflows/scripts/lib/evidence.mjs:7–537', topic:'Typed evidence admission / revalidation', note:'99 contracts、10 families、producer allowlist、payload semantic/freshness/digest validation 與 persisted revalidation。' },
+        { id:'ev-evidence-contracts', group:'Contract、Ledger、Evidence', type:'fact', path:'plugins/better-workflows/config/evidence-contracts-v1.json:1–1997', topic:'Current evidence contract inventory', note:'本次 live parse：99 kinds、10 payload families、10 producer identities；圖表依 family 實際計數。' },
+        { id:'ev-source-binding', group:'Source、Review、Action', type:'fact', path:'plugins/better-workflows/scripts/lib/git.mjs:450–690', topic:'Source binding 與 sentinel', note:'綁 HEAD/index/status/scoped files/submodule/symlink/config 等；雙重捕捉防 drift。' },
+        { id:'ev-review', group:'Source、Review、Action', type:'fact', path:'plugins/better-workflows/scripts/lib/review.mjs:16–535', topic:'Review package / finding / convergence', note:'Exact diff identity、stable finding ID、P0 policy、package-bound evidence、critic 與五次 repair budget。' },
+        { id:'ev-action', group:'Source、Review、Action', type:'fact', path:'plugins/better-workflows/scripts/lib/core.mjs:5016–5803', topic:'Action token issue / consume', note:'檢查 authority、sentinel、review、ledger、evidence、provider；一次性短效 token 與 fixed wrapper execution。' },
+        { id:'ev-reconcile', group:'Source、Review、Action', type:'fact', path:'plugins/better-workflows/scripts/lib/core.mjs:6226–6508', topic:'Provider reconciliation', note:'只允許 success/failure/unknown；unknown 不可壓成 failure；persist exact attempt terminal outcome。' },
+        { id:'ev-completion', group:'Source、Review、Action', type:'fact', path:'plugins/better-workflows/scripts/lib/core.mjs:2335–2803', topic:'Completion gate', note:'前後重新 capture sentinel，重驗所有 contract/evidence/ledger/review/side-effect/live-state bindings。' },
+        { id:'ev-graph', group:'Graph View', type:'fact', path:'plugins/better-workflows/skills/better-workflows/SKILL.md:182–206', topic:'Graph View 權威邊界', note:'Read-only structural projection，不是 policy、authority、scheduler、runtime 或 persistence；JSON canonical。' },
+        { id:'ev-graph-code', group:'Graph View', type:'fact', path:'plugins/better-workflows/scripts/lib/graph.mjs:5–1136', topic:'Typed graph projection / diagnostics', note:'Typed nodes/edges、safe provenance、allowlisted projection、cycle/dangling/incompatible diagnostics 與 Mermaid rendering。' },
+        { id:'ev-self-improve-corpus', group:'Self-improve replay', type:'fact', path:'plugins/better-workflows/scripts/lib/self-improve.mjs:177–255', topic:'Corpus v2.3 constraints', note:'2–28 cases、train + holdout、每 class 兩 split、恰一 invariant class、至少一 improvement class。' },
+        { id:'ev-corpus-fixture', group:'Self-improve replay', type:'fact', path:'plugins/better-workflows/fixtures/self-improve-ops-evals-v2.3.json:1–641', topic:'Current evaluator corpus inventory', note:'本次 live parse：10 classes、25 cases（train 12 / holdout 13）、57 assertions，其中 27 個 hardSafety=true。' },
+        { id:'ev-self-snapshot', group:'Self-improve replay', type:'fact', path:'plugins/better-workflows/scripts/lib/self-improve.mjs:418–695', topic:'Immutable baseline / candidate snapshots', note:'Baseline 必須 full SHA strict ancestor；candidate 覆蓋 baseline diff 與 untracked，保留 digest / size / mode / change kind。' },
+        { id:'ev-self-prompt', group:'Self-improve replay', type:'fact', path:'plugins/better-workflows/scripts/lib/self-improve.mjs:1023–1344', topic:'Sanitized bounded prompt', note:'Allowlisted UTF-8 excerpts、有界容量、完整 path manifest、均衡 samples、delimiter escape、tool-free/history-free 指令。' },
+        { id:'ev-self-improve-score', group:'Self-improve replay', type:'fact', path:'plugins/better-workflows/scripts/lib/self-improve.mjs:1347–1680', topic:'Scoring / comparison policies', note:'Assertion classification、hard-safety、3+3 medians、migration / safety / quality purpose-specific strict gates。' },
+        { id:'ev-attestations', group:'Self-improve replay', type:'fact', path:'plugins/better-workflows/scripts/lib/attestations.mjs:151–439', topic:'7/8 witness host attestation plan', note:'Ordinary 7、migration 8；綁 clean source、bundle/corpus/snapshots、run-as、standing consent 與固定 sudo host-trust command。' },
+        { id:'ev-host-trust', group:'Host trust', type:'fact', path:'plugins/better-workflows/scripts/host-trust.mjs:350–391, 4620–4795', topic:'Canonical tool-free request / nonce loopback', note:'Single user input、tools: []、tool_choice none、strict schema；nonce-bound loopback、固定 upstream、exactly one inference request。' },
+        { id:'ev-host-platform', group:'Host trust', type:'risk', path:'plugins/better-workflows/scripts/host-exec-launcher.c:220–246', topic:'Host platform coupling', note:'絕對 root-owned executable、固定 cwd、supplementary groups 清除與 uid/gid drop；推論 critical host trust 對 Unix/macOS host 假設較強。' },
+        { id:'ev-transcript', group:'Host trust', type:'fact', path:'plugins/better-workflows/scripts/lib/transcript.mjs:30–128', topic:'Transcript lifecycle validation', note:'只允許 agent_message/reasoning/error；完整 JSONL lifecycle、單一 final message、observedToolCalls=0。' },
+        { id:'ev-self-replay', group:'Self-improve replay', type:'fact', path:'plugins/better-workflows/scripts/lib/self-improve-replay.mjs:47–529', topic:'Persisted witness replay verification', note:'Exact 7/8 keys、root-owned journal、source/bundle/host bindings、distinct witnesses、prompt reconstruction、score 與 comparison equality。' },
+        { id:'ev-autopilot', group:'Autonomy 與 Publication', type:'fact', path:'plugins/better-workflows/config/autonomy/bounded-autopilot-v1.json:1–43', topic:'Bounded autopilot policy', note:'Automatic/human/denied actions 與 80 files、262144 diff bytes、28800 seconds、12 commits、1 PR limits。' },
+        { id:'ev-autonomy', group:'Autonomy 與 Publication', type:'fact', path:'plugins/better-workflows/scripts/lib/autonomy.mjs:14–266', topic:'Profile validation / action classifier / decision receipt', note:'Profile 綁 expiry/repo/branch/path/limits；action decision 產生 digest-bound receipt。' },
+        { id:'ev-publication-lock', group:'Autonomy 與 Publication', type:'fact', path:'plugins/better-workflows/scripts/lib/publication.mjs:867–1149', topic:'Publication lock / stale recovery', note:'Quarantine、process incarnation absence proof、two-phase election 與 no takeover。' },
+        { id:'ev-process-incarnation', group:'Autonomy 與 Publication', type:'fact', path:'plugins/better-workflows/scripts/lib/publication.mjs:704–787', topic:'Process liveness / incarnation identity', note:'macOS 由 libproc start identity + kern.boottime + PID 計算 digest；無法觀測或權限錯誤回傳 unknown，保持 fail-closed。' },
+        { id:'ev-publication-recovery', group:'Autonomy 與 Publication', type:'fact', path:'plugins/better-workflows/scripts/lib/publication.mjs:1525–2189', topic:'Pending → ready / recovery', note:'Marker 綁 source/run/attempt/receipt；immutable no-overwrite publish；recovery 不 republish。' },
+        { id:'ev-module-size', group:'研究判讀', type:'inference', path:'plugins/better-workflows/scripts/lib/core.mjs (6,623 LOC); scripts/sbw.mjs (2,507 LOC)', topic:'核心模組集中度', note:'Live inventory 顯示大型 control-plane module；維護負擔是合理風險推論，不是已證實缺陷。' },
+        { id:'ev-test-inventory', group:'研究判讀', type:'fact', path:'plugins/better-workflows/scripts/tests/*.test.mjs → test()', topic:'Current test inventory', note:'本次 live count：16 個 .test.mjs、356 個 declared test cases、15,118 test LOC；成本解讀另標為 RISK / INFERENCE。' },
+        { id:'ev-unknown-telemetry', group:'研究判讀', type:'unknown', path:'Repository scope (no production telemetry located)', topic:'實際 adoption / lead time', note:'本次 source scope 找不到可支持使用頻率、平均完成時間或 blocked 分布的資料。' },
+        { id:'ev-unknown-provider', group:'研究判讀', type:'unknown', path:'Documentation run scope (no external provider actions)', topic:'Live provider readiness', note:'本次未使用外部 credentials 執行 merge/push/publish，不能把 provider readiness 視為已驗證。' },
+        { id:'ev-graph-validation', group:'研究基線', type:'fact', path:'sbw graph validate @ 57bd75d', topic:'Current graph validation', note:'本次實際執行 diagnostics=[]；graphDigest=d3310212aeee957da9a0a6aa0ec49d5e18af8f0b0d36d48289b1467ef43dd3b3。' },
+        { id:'ev-validation-run', group:'研究基線', type:'fact', path:'node plugins/better-workflows/scripts/sbw.mjs eval @ 57bd75d', topic:'Current full validation', note:'2026-08-12T23:37:11+08:00 host-context run：ok=true、16 suites、exit 0。Managed sandbox 因 kern.boottime EPERM 觸發 process-incarnation fail-closed；同一 isolated test 在 host context pass。' },
+        { id:'ev-snapshot-boundary', group:'研究基線', type:'fact', path:'git worktree reconciliation @ 2026-08-12T23:41:37+08:00', topic:'Frozen edition boundary', note:'獨立文件 worktree 維持 57bd75d；原始 checkout 在研究後前進到 a414e12（fix: fail closed on optional Git authority reads）並有 8 個未提交修改，全部排除於本版證據範圍。' }
+      ];
+
+      const englishData = {
+        arch: {
+          routing: { summary: 'Turns user intent, available capability, risk, and explicit selectors into a template and mode.', bullets: ['Precedence: explicit → workspace → personal → built-in auto', 'Five risk axes derive mode; policy may raise but never lower the floor', 'Route receipts bind multiple digests, expire after 24 hours, and can be claimed once'] },
+          contract: { summary: 'Freezes goal, scope, acceptance, evidence, authority, stages, and gates before execution.', bullets: ['v2 is the governed control-plane contract', 'Mutation authority remains root-only', 'Direct mode is the exception and creates no governed run'] },
+          source: { summary: 'Creates a reproducible identity for repository state so later evidence can prove which source it belongs to.', bullets: ['Uses a fixed /usr/bin/git with a minimal environment', 'Binds HEAD, index, status, tracked and untracked files, submodules, and configuration', 'Recaptures sentinels around actions; drift becomes indeterminate'] },
+          ledger: { summary: 'Stores only events and derives task state, ready set, and budget through a deterministic reducer.', bullets: ['Dependencies are static, known, and acyclic', 'expectedLedgerDigest rejects concurrent stale writers', 'Completion requires admitted typed evidence'] },
+          evidence: { summary: 'Validates kind, producer, payload, semantic success, freshness, and digest against the evidence contract.', bullets: ['99 kinds across 10 payload families', 'Caller-supplied acceptanceIds have no authority', 'Persisted evidence is revalidated whenever consumed'] },
+          review: { summary: 'Binds review to exact base, head, merge base, diff, and scope so old findings cannot drift onto a new revision.', bullets: ['Finding IDs are stable and package-bound', 'P0 can never become accepted risk', 'Critical mode requires an exact independent critic and caps repair at five rounds'] },
+          action: { summary: 'Issues short-lived, one-shot side-effect authority only after every prerequisite gate holds.', bullets: ['Default TTL is 300 seconds', 'Consumption revalidates source, contract, review, evidence, and provider', 'Wrappers use a fixed executable and argv'] },
+          reconcile: { summary: 'Reconciles provider truth to success, failure, or unknown instead of trusting a local call result.', bullets: ['Unknown cannot be collapsed into failure', 'Owned creation is released only after provider absence is proved', 'The exact attempt stores one terminal outcome'] },
+          complete: { summary: 'Recaptures source and revalidates all authority before terminal state; completion is a digest-bound decision object.', bullets: ['Revalidates evidence, acceptance, ledger, review, and sentinel', 'Checks P0/P1, side effects, live remote or cache state, and critics', 'Terminal drift keeps the result inconclusive'] },
+          graph: { summary: 'Produces a safe structural projection and diagnostics from a template or live run.', bullets: ['Projects allowlisted structural fields only', 'Cycle, dangling, incompatible, or provenance errors block critical operations', 'JSON is canonical; Mermaid is presentation only'] }
+        },
+        mode: {
+          direct: { title: 'direct · Root executes directly', summary: 'For small, low-risk, quickly verifiable work. It creates no run directory, journal, ledger, or critics and must not be mistaken for governed replay.', meta: ['run: none', 'critics: 0', 'journal: none', 'fit: low risk, reversible'] },
+          verified: { title: 'verified · Fresh evidence + independent checks', summary: 'Creates a governed run with one to three read-only reviewers and freshness evidence for work that needs cross-checking without critical irreversible risk.', meta: ['run: v2', 'read-only critics', 'fresh evidence', 'root-only mutation'] },
+          deep: { title: 'deep · Verified wave + Codex critics', summary: 'Adds independent Codex critics and broader review convergence for architecture, cross-module, or cognitively demanding changes.', meta: ['run: v2', 'max Codex critics: 2', 'broad review', 'higher assurance cost'] },
+          critical: { title: 'critical · Fail-closed critical gates', summary: 'For irreversible side effects, self-improvement, and high-risk delivery; requires full source binding, host and provider authority, exact critics, and reconciliation.', meta: ['run: v2', 'exact independent critic', 'action token', 'unknown → indeterminate'] }
+        },
+        replay: {
+          ledger: { subtitle: 'events → derived state', copy: 'Reads TaskContract v2 and ordered ledger events, then rebuilds pending, ready, running, complete, and blocked stage states through a fixed reducer.', input: 'contract + ordered events + admitted evidence', output: 'derived task state + ledger digest', failure: 'stale digest, invalid transition, exhausted budget, or missing evidence → reject' },
+          evaluator: { subtitle: 'witnesses → recomputed comparison', copy: 'Reads immutable baseline and candidate snapshots, a frozen corpus, the root-owned journal, and seven or eight signed witnesses; then reconstructs prompts, verifies envelopes, and recomputes the comparison.', input: 'corpus + snapshots + prompts + signed witnesses', output: 'accepted comparison + distinct witness digests', failure: 'tie, noise, regression, mismatch, timeout, or missing witness → no authority' },
+          provider: { subtitle: 'attempt → external terminal truth', copy: 'Queries the provider or validates a receipt for the same consumed action attempt, reconciling pending or indeterminate into terminal success or failure. It does not resend the request.', input: 'action attempt + provider/resource identity + receipt/query', output: 'reconciled terminal outcome', failure: 'provider truth unavailable → remain unknown; blind retry forbidden' }
+        },
+        purpose: {
+          ordinary: { title: 'Ordinary policy change', copy: 'One candidate training witness plus candidate holdout ×3 and baseline holdout ×3. All hard safety must pass, applicable improvement needs headroom, candidate median must strictly exceed baseline, and no case may regress or become noisy.', gates: ['all hard safety passes', 'candidate median > baseline', 'no per-case regression', 'no noisy run'] },
+          migration: { title: 'Evaluator migration', copy: 'When the evaluator or corpus changes, the new evaluator cannot judge only new results. Add a baseline training witness and require inherited coverage, target-only headroom, train and holdout parity, and strict improvement.', gates: ['inherited coverage', 'target-only headroom', 'train + holdout parity', 'strict improvement'] },
+          safety: { title: 'Safety remediation', copy: 'Use the independent remediation policy for a versioned safety gap: exact coverage, reproducibility, no noise or regression, and strict improvement on the named hard-safety gap.', gates: ['exact safety coverage', 'reproducible witnesses', 'zero regression', 'strict remediation gain'] },
+          quality: { title: 'Quality remediation', copy: 'Preserve hard-safety invariants while requiring strict improvement on the named quality cases, with no collateral regression or noisy verdict.', gates: ['hard safety invariant', 'target quality coverage', 'no collateral regression', 'strict quality gain'] }
+        },
+        templateDescriptions: {
+          'browser-simulator-qa': 'Reproducible current-state QA in a browser or simulator from bounded artifacts.',
+          'ci-release-monitor': 'Serialized monitoring and reconciliation for CI, deploy, and release; unsupported external dispatch stays deferred.',
+          'cross-platform-contract': 'Checks API contract compatibility across backend, Web, iOS, and Android.',
+          'dependabot-consolidation-pr-cleanup': 'Classifies Dependabot PRs, consolidates them into a governed PR, verifies the lockfile, and cleans up owned resources.',
+          'ios-static-pbxproj': 'Static Swift review and serialized pbxproj membership without a local build.',
+          'issues-to-root-fix-pr-merge-cleanup': 'Revalidates issues, lets root fix and verify them, then publishes, merges, and cleans only run-owned resources.',
+          'localization-41': 'Updates 41 locales while preserving regional tone and validating deterministic key order.',
+          'monorepo-refactor': 'Inventories the monorepo and completes eligible bounded refactors with rollback gates.',
+          'pr-to-dev': 'Atomic commits → dev PR → fresh checks → protected merge → remote reconciliation → owned cleanup.',
+          'research-deliberation': 'Assigns model-bound research roles and integrates independent views into an evidence-based plan.',
+          'review-to-issues': 'Runs a read-only review, deduplicates findings, then lets root create issues.',
+          'self-improve-ops': 'Uses recent workflow evidence for bounded change-or-no-change, then hands off cache and remote delivery.',
+          'workspace-recipe': 'Reviews, promotes, and runs deterministic workspace Node.js procedures without source mutation or external side effects.'
+        }
+      };
+
+      function renderArch(key) {
+        const d = currentLocale === 'en' ? { ...archData[key], ...englishData.arch[key] } : archData[key];
+        $('#node-detail').innerHTML = `<span class="detail-index">${d.index}</span><div class="detail-title">${d.title}</div><p>${d.summary}</p><ul class="detail-list">${d.bullets.map(x => `<li>${x}</li>`).join('')}</ul><a class="evidence-chip" href="${d.href}">${d.evidence}</a>`;
+        $$('.arch-node').forEach(btn => btn.classList.toggle('active', btn.dataset.node === key));
+      }
+
+      function renderMode(key) {
+        const d = currentLocale === 'en' ? { ...modeData[key], ...englishData.mode[key] } : modeData[key];
+        $('#mode-panel').innerHTML = `<p class="kicker">RISK LEVEL ${d.level} / 4</p><h3>${d.title}</h3><p>${d.summary}</p><div class="mode-meter" aria-label="風險強度 ${d.level} / 4">${[1,2,3,4].map(n => `<span class="${n <= d.level ? 'on' : ''}"></span>`).join('')}</div><div class="tag-row">${d.meta.map(x => `<span class="tag">${x}</span>`).join('')}</div><a class="evidence-chip" href="#ev-mode">core.mjs:1003–1019</a>`;
+      }
+
+      function renderReplay(key) {
+        const d = currentLocale === 'en' ? { ...replayData[key], ...englishData.replay[key] } : replayData[key];
+        $('#replay-panel').innerHTML = `<p class="kicker">${d.subtitle}</p><h3>${d.title}</h3><p class="lede" style="font-size:17px">${d.copy}</p><div class="replay-contrast"><div class="contrast-item"><span>Canonical input</span><strong>${d.input}</strong></div><div class="contrast-item"><span>Derived output</span><strong>${d.output}</strong></div><div class="contrast-item"><span>Fail-closed</span><strong>${d.failure}</strong></div></div><a class="evidence-chip" href="${d.evidence}">查看原始碼證據</a>`;
+      }
+
+      function renderPurpose(key) {
+        const d = currentLocale === 'en' ? { ...purposeData[key], ...englishData.purpose[key] } : purposeData[key];
+        $('#purpose-copy').innerHTML = `<h3>${d.title}</h3><p>${d.copy}</p><a class="evidence-chip" href="#ev-self-improve-score">purpose-specific policy</a>`;
+        $('#witness-count').textContent = `${d.count} WITNESSES`;
+        const witnesses = [{label:'candidate · train', cls:'train candidate', text: currentLocale === 'en' ? 'candidate on the training split' : '訓練 split 評 candidate'}];
+        if (key === 'migration') witnesses.unshift({label:'baseline · train', cls:'train base', text: currentLocale === 'en' ? 'extra migration baseline' : 'migration 額外基線'});
+        for (let i=1;i<=3;i++) witnesses.push({label:`candidate · holdout ${i}`, cls:'candidate', text: currentLocale === 'en' ? 'independent candidate witness' : '獨立 candidate witness'});
+        for (let i=1;i<=3;i++) witnesses.push({label:`baseline · holdout ${i}`, cls:'base', text: currentLocale === 'en' ? 'independent baseline witness' : '獨立 baseline witness'});
+        $('#witness-grid').innerHTML = witnesses.map((w,i) => `<div class="witness ${w.cls}"><strong>${String(i+1).padStart(2,'0')} · ${w.label}</strong><span>${w.text}<br>distinct signed envelope</span></div>`).join('');
+        $('#score-gates').innerHTML = d.gates.map(g => `<div class="score-gate">✓ ${g}</div>`).join('');
+      }
+
+      function renderFamilies() {
+        const max = Math.max(...families.map(x => x[1]));
+        $('#family-bars').innerHTML = families.map(([name, count]) => `<div class="bar-row"><span>${name}</span><div class="bar-track"><div class="bar-fill" style="width:${(count/max)*100}%"></div></div><strong>${count}</strong></div>`).join('');
+      }
+
+      function renderTemplates(filter = 'all') {
+        const visible = templates.filter(([, mode]) => filter === 'all' || mode === filter);
+        $('#template-grid').innerHTML = visible.map(([name, mode, stages, description]) => `<article class="template-card"><div><h4>${name}</h4><p>${currentLocale === 'en' ? englishData.templateDescriptions[name] : description}</p></div><div class="template-side"><span class="mode-chip ${mode}">${mode}</span><span class="stage-count">${stages} STAGES</span></div></article>`).join('');
+      }
+
+      const ledgerSequence = ['run-created','inspect-start','inspect-evidence','inspect-complete','verify-start','verify-evidence','verify-complete'];
+      const ledgerLabels = {
+        'run-created':['run.created','TaskContract v2 + initial ledger'],
+        'inspect-start':['task.started','stage=inspect · budget 1/3'],
+        'inspect-evidence':['evidence.attached','kind=inventory-snapshot · admitted'],
+        'inspect-complete':['task.completed','stage=inspect · evidence bound'],
+        'verify-start':['task.started','stage=verify · dependency satisfied'],
+        'verify-evidence':['evidence.attached','kind=validation-test · admitted'],
+        'verify-complete':['task.completed','stage=verify · terminal ready']
+      };
+      let ledgerEvents = [];
+      function deriveLedger() {
+        const n = ledgerEvents.length;
+        const state = n === 0 ? 'not-created' : n < 4 ? 'running' : n < 7 ? 'running' : 'complete';
+        const ready = n === 1 ? 'inspect' : n === 4 ? 'verify' : n === 7 ? '∅ (terminal)' : n === 0 ? '∅' : '∅ (running)';
+        const evidence = ledgerEvents.filter(x => x.includes('evidence')).length;
+        $('#ledger-state').textContent = state;
+        $('#ready-set').textContent = ready;
+        $('#event-count').textContent = String(n);
+        $('#evidence-count').textContent = String(evidence);
+        $('#event-log').innerHTML = n ? ledgerEvents.map((id,i) => `<div class="log-line"><span class="n">${String(i+1).padStart(2,'0')}</span><span><strong>${ledgerLabels[id][0]}</strong><br>${ledgerLabels[id][1]}</span></div>`).join('') : `<div class="log-empty">${t('ledger.empty')}</div>`;
+        $$('.event-btn[data-event]').forEach(btn => {
+          const i = ledgerSequence.indexOf(btn.dataset.event);
+          btn.disabled = i !== n;
+        });
+      }
+
+      function sourceTypeLabel(type) {
+        return type === 'fact' ? 'FACT' : type === 'inference' ? 'INFERENCE' : type === 'risk' ? 'RISK' : 'UNKNOWN';
+      }
+
+      function renderSources() {
+        const grouped = Object.groupBy ? Object.groupBy(sources, x => x.group) : sources.reduce((acc,x) => ((acc[x.group] ||= []).push(x), acc), {});
+        $('#source-list').innerHTML = Object.entries(grouped).map(([group, items]) => `<details class="source-group" open><summary>${group} <span class="source-count">${items.length} ${t('source.entries')}</span></summary><div class="stack">${items.map(s => `<article class="source-item" id="${s.id}" data-type="${s.type}" data-source-search="${[s.path,s.topic,s.note,s.type].join(' ').toLowerCase()}"><div class="source-top"><span class="type-chip ${s.type}">${sourceTypeLabel(s.type)}</span><span class="source-path">${s.path}</span></div><p><strong>${s.topic}</strong> — ${s.note}</p></article>`).join('')}</div></details>`).join('');
+      }
+
+      function filterSources() {
+        const q = $('#source-search').value.trim().toLowerCase();
+        const type = $('.seg-btn[data-source-filter].active')?.dataset.sourceFilter || 'all';
+        let visible = 0;
+        $$('.source-item').forEach(item => {
+          const show = (type === 'all' || item.dataset.type === type) && (!q || item.dataset.sourceSearch.includes(q));
+          item.classList.toggle('search-hidden', !show);
+          if (show) visible++;
+        });
+        $$('.source-group').forEach(group => {
+          const any = $$('.source-item:not(.search-hidden)', group).length > 0;
+          group.classList.toggle('search-hidden', !any);
+          if (q && any) group.open = true;
+        });
+        $('#source-empty').style.display = visible ? 'none' : 'block';
+      }
+
+      function toast(message) {
+        const el = $('#toast');
+        el.textContent = message;
+        el.classList.add('show');
+        clearTimeout(toast.timer);
+        toast.timer = setTimeout(() => el.classList.remove('show'), 1600);
+      }
+
+      renderArch('routing');
+      renderMode('direct');
+      renderReplay('ledger');
+      renderPurpose('ordinary');
+      renderFamilies();
+      renderTemplates();
+      renderSources();
+      deriveLedger();
+      setTheme(rootElement.dataset.theme, false);
+      applyLocale(currentLocale, { persist: false, rerender: true });
+
+      $('#theme-toggle').addEventListener('click', () => {
+        setTheme(rootElement.dataset.theme === 'dark' ? 'light' : 'dark');
+      });
+      $$('.locale-option').forEach((button) => button.addEventListener('click', () => {
+        applyLocale(button.dataset.localeOption, { rerender: true });
+      }));
+
+      $$('.arch-node').forEach(btn => btn.addEventListener('click', () => renderArch(btn.dataset.node)));
+      $$('.seg-btn[data-mode]').forEach(btn => btn.addEventListener('click', () => {
+        $$('.seg-btn[data-mode]').forEach(x => x.setAttribute('aria-selected', String(x === btn)));
+        renderMode(btn.dataset.mode);
+      }));
+      $$('.replay-tab').forEach(btn => btn.addEventListener('click', () => {
+        $$('.replay-tab').forEach(x => x.setAttribute('aria-selected', String(x === btn)));
+        renderReplay(btn.dataset.replay);
+      }));
+      $$('.seg-btn[data-purpose]').forEach(btn => btn.addEventListener('click', () => {
+        $$('.seg-btn[data-purpose]').forEach(x => { x.classList.toggle('active', x === btn); x.setAttribute('aria-selected', String(x === btn)); });
+        renderPurpose(btn.dataset.purpose);
+      }));
+      $$('.seg-btn[data-lens]').forEach(btn => btn.addEventListener('click', () => {
+        $$('.seg-btn[data-lens]').forEach(x => { x.classList.toggle('active', x === btn); x.setAttribute('aria-selected', String(x === btn)); });
+        $$('.lens-panel').forEach(x => x.classList.toggle('active', x.id === `lens-${btn.dataset.lens}`));
+      }));
+      $$('.event-btn[data-event]').forEach(btn => btn.addEventListener('click', () => {
+        ledgerEvents.push(btn.dataset.event);
+        deriveLedger();
+      }));
+      $('#ledger-reset').addEventListener('click', () => { ledgerEvents = []; deriveLedger(); });
+
+      $$('.seg-btn[data-source-filter]').forEach(btn => btn.addEventListener('click', () => {
+        $$('.seg-btn[data-source-filter]').forEach(x => { x.classList.toggle('active', x === btn); x.setAttribute('aria-pressed', String(x === btn)); });
+        filterSources();
+      }));
+      $$('.seg-btn[data-template-filter]').forEach(btn => btn.addEventListener('click', () => {
+        $$('.seg-btn[data-template-filter]').forEach(x => { x.classList.toggle('active', x === btn); x.setAttribute('aria-pressed', String(x === btn)); });
+        renderTemplates(btn.dataset.templateFilter);
+      }));
+      $('#source-search').addEventListener('input', filterSources);
+
+      $$('.copy-btn').forEach(btn => btn.addEventListener('click', async () => {
+        const block = btn.parentElement.cloneNode(true);
+        $('.copy-btn', block)?.remove();
+        const value = block.textContent.trim();
+        try { await navigator.clipboard.writeText(value); toast(t('toast.copied')); }
+        catch { toast(t('toast.clipboardDenied')); }
+      }));
+
+      const doPrint = () => window.print();
+      $('#print-btn').addEventListener('click', doPrint);
+      $('#hero-print').addEventListener('click', doPrint);
+      $('#collapse-all').addEventListener('click', () => { $$('.source-group').forEach(d => d.open = false); });
+
+      const menuBtn = $('#menu-btn');
+      const closeNav = ({ restoreFocus = false } = {}) => {
+        const wasOpen = document.body.classList.contains('nav-open');
+        document.body.classList.remove('nav-open');
+        menuBtn.setAttribute('aria-expanded', 'false');
+        if (restoreFocus && wasOpen) menuBtn.focus();
+      };
+      menuBtn.addEventListener('click', () => {
+        const open = document.body.classList.toggle('nav-open');
+        menuBtn.setAttribute('aria-expanded', String(open));
+        if (open) setTimeout(() => $('#global-search').focus(), 180);
+      });
+      $('#close-nav').addEventListener('click', () => closeNav({ restoreFocus: true }));
+      $('#nav-scrim').addEventListener('click', () => closeNav({ restoreFocus: true }));
+      $$('.toc a').forEach(a => a.addEventListener('click', () => {
+        closeNav();
+      }));
+      $('#mobile-search-btn').addEventListener('click', () => {
+        document.body.classList.add('nav-open'); menuBtn.setAttribute('aria-expanded','true');
+        setTimeout(() => $('#global-search').focus(), 180);
+      });
+
+      const globalSearch = $('#global-search');
+      globalSearch.addEventListener('input', () => {
+        const q = globalSearch.value.trim().toLowerCase();
+        $$('.searchable').forEach(section => {
+          section.classList.toggle('search-hidden', Boolean(q) && !(`${section.dataset.search || ''} ${section.textContent}`).toLowerCase().includes(q));
+        });
+      });
+      document.addEventListener('keydown', event => {
+        if (event.key === '/' && !/input|textarea|select/i.test(document.activeElement.tagName)) {
+          event.preventDefault();
+          document.body.classList.add('nav-open'); menuBtn.setAttribute('aria-expanded','true');
+          setTimeout(() => globalSearch.focus(), 0);
+        }
+        if (event.key === 'Escape') {
+          globalSearch.blur();
+          closeNav({ restoreFocus: true });
+        }
+      });
+
+      const sections = $$('.chapter[id]');
+      const tocLinks = $$('.toc a');
+      const observer = new IntersectionObserver(entries => {
+        const active = entries.filter(x => x.isIntersecting).sort((a,b) => b.intersectionRatio-a.intersectionRatio)[0];
+        if (!active) return;
+        tocLinks.forEach(a => a.classList.toggle('active', a.hash === `#${active.target.id}`));
+      }, { rootMargin: '-20% 0px -68% 0px', threshold: [0,.1,.4] });
+      sections.forEach(s => observer.observe(s));
+
+      window.addEventListener('scroll', () => {
+        const max = document.documentElement.scrollHeight - window.innerHeight;
+        $('#reading-progress').style.width = `${max > 0 ? (window.scrollY/max)*100 : 0}%`;
+      }, { passive: true });
+    })();
+  </script>
+</body>
+</html>
