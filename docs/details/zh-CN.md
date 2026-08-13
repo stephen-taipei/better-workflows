@@ -241,7 +241,9 @@ $better-workflows:auto <描述需要完成的目标>
 
 普通 clone 或执行 workspace recipe **不需要** host trust root；只有要执行真实 Codex self-improve replay 的 maintainer，才需要 administrator 在每台 host 一次性执行。self-improve 不会授权 commit、cache publication、push、merge 或 cleanup；这些交由 `pr-to-dev` 与 immutable-cache workflow：
 
-交付必须使用明确的完整 baseline SHA，且该 SHA 必须是 candidate HEAD 的严格祖先。七份 witness 通过重新验证后，先创建明确绑定的 `pr-to-dev` run，再记录 typed `self-improve-delivery-handoff`；没有这份 receipt 不得取得 commit、push、merge 或 cache action。cache action 必须先用 `plugin.cache.publish`、`local-workspace` 和 `plugin-cache:<source-head-revision>` 签发 token，再执行：`SBW_STATE_ROOT=<state-root> node scripts/plugin-cache.mjs sync --handoff-run <pr-to-dev-run-id> --token <plugin-cache-action-token>`。
+为避免长时间 replay 每批都被 administrator prompt 中断，已 ready 的 host 可一次性安装受限的 standing evaluator consent。先运行 `sbw self-improve consent prepare`、核对返回的 request digest，再只执行该次返回的精确 administrator command。root signer 会安装可撤销的 signed grant 与经 `visudo` 验证的窄化规则，只允许 digest-pinned root runtime、此 repository 与 maintainer identity、`gpt-5.6-terra`、四种既定 purpose、七或八次 read-only／tool-free sanitized requests，以及固定 request root。符合条件的 schemaVersion 5 batch 使用 `/usr/bin/sudo -n`，并在每份 request、execution、root journal、evaluation evidence 与 typed handoff 中绑定同一 authorization；active 或部分安装的 grant 发生任何不匹配都会 fail closed，不会静默切换到 password prompt。只有 grant 尚未安装或已明确撤销时，才可使用逐 run 的明确 administrator fallback。此 grant 明确不授权 commit、cache、push、PR、merge、deploy 或 cleanup；可用 `sbw self-improve consent status|revoke` 检查或撤销。
+
+交付必须使用明确的完整 baseline SHA，且该 SHA 必须是 candidate HEAD 的严格祖先。purpose 所要求的 witness（ordinary 七份、evaluator-migration 八份）通过重新验证后，先创建明确绑定的 `pr-to-dev` run，再记录 typed `self-improve-delivery-handoff`。`policyDigest` key 仍为必填：ordinary 与 evaluator-migration 必须明确为 `null`，policy-bound remediation 则必须是 SHA-256 digest。`evaluatorAuthorization` 也必填：使用 standing consent 时保存精确 authorization object，只有逐 run 的明确 administrator fallback 才能为 `null`。这两个是唯一声明为 nullable 的字段，purpose-specific handoff validator 仍会验证完整 key set 与值。没有这份 receipt 不得取得 commit、push、merge 或 cache action。cache action 必须先用 `plugin.cache.publish`、`local-workspace` 和 `plugin-cache:<source-head-revision>` 签发 token，再执行：`SBW_STATE_ROOT=<state-root> node scripts/plugin-cache.mjs sync --handoff-run <pr-to-dev-run-id> --token <plugin-cache-action-token>`。
 
 如果 trust root 或 private key 尚未由 host 的批准 administrator bootstrap 建立，请先完成该独立前置作业；本 repository 不发布、也不执行未追踪的 legacy Swift bootstrap artifact。对于已完成 bootstrap 的 host，先用只读命令检查状态：
 
@@ -293,7 +295,11 @@ node plugins/better-workflows/scripts/sbw.mjs recipe run <id> \
 
 每次成功 replay 都使用独立的 host-owned witness：已安装 signer 精确执行 attested Codex binary 一次，由 host 捕获 prompt、parsed response、exit status、timestamps，并写入 root-owned execution ledger 与 `result receipt`。`sbw` 消费已保存的 witness，resume 或 delivery revalidation 不会重新执行 Codex；signed receipt 绑定 exact prompt digest、response digest、binary、model、execution、ledger 与 timestamps。
 
-Evaluation v2.2 保留现有 safety、documentation、deliberation、sanitizer 与 evaluation-engineering coverage，并增加 typed-evidence integrity、execution-ledger replay、bounded review convergence 与 direct-work cost 的独立 train/holdout classes。一次性 migration 以 immutable v2.1 为 source，并将 source/target 两份 suite digest 绑定到全部七份 signed executions。
+Evaluation v2.4 逐 byte 保留 v2.3 的全部 classes 与 25 个 cases，并新增独立的 review-work-unit-integrity class，覆盖 exact changed-surface accounting、独立 attested finder/verifier provenance、source anchor、deterministic synthesis、broad-review invalidation 与 shadow-only rollout。一次性 migration 以 immutable v2.3 为 source，并将 source/target 两份 suite digest 绑定到八份 signed executions。每份 replay 都执行完整 target split；target-only baseline 必须保留 headroom，candidate 必须逐 case 严格改善，且不得出现 hard-safety failure、regression 或 noisy replay。ordinary evaluation 仍只按照 changed paths 选择适用 classes。
+
+Review kernel 仅在 `self-improve-ops` 以 `code-v2-pilot` 启用。每个 required lane 必须对 immutable BASE/HEAD blob work unit 各记录一次，axis 与 claim verification 必须绑定不同的 host-signed、read-only native execution。finder 不能验证自己的 finding；冲突结果会归为 `INCONCLUSIVE`，ambiguous 或 missing quote anchor 持续 blocking。zero findings 仍需完整 coverage 与 `work-unit-accounting`、`review-kernel-summary` typed evidence。该 pilot 为 shadow-only，不能签发 action token。
+
+Migration admission 还会钉住 v2.3 file 与 canonical suite digest，要求每个 inherited class 的 identity、semantics 与既有 path mapping 保持不变，并确保全部 25 个 inherited cases 完全一致。新增 coverage 可以增加 path，或使用新的 class／case id；缺失、弱化、重新 mapping 或重分类 inherited coverage 会在 replay 前 fail closed。若确实需要修改 inherited coverage，必须使用独立版本、digest-bound 且经独立审查的 compatibility policy。
 
 `safety-remediation-v1` 是独立的 run-creation purpose。它使用固定的
 `plugins/better-workflows/config/self-improve-safety-remediation-v1.json` policy
@@ -458,7 +464,15 @@ Plugin cache version 是 immutable。任何内容变更都必须使用新的 bui
 version；`SBW_STATE_ROOT=<state-root> node scripts/plugin-cache.mjs sync --handoff-run <pr-to-dev-run-id> --token <plugin-cache-action-token>` 只会在 fresh typed handoff 通过、governed cache token 消费成功且 source HEAD 未改变时 stage 尚不存在的版本，
 验证完整 file manifest 与 digest 后原子发布。同版本内容不同时会拒绝原地
 覆盖。通过正常 Codex plugin refresh 启用前，还应从最终 cache path 执行
-`sbw eval`。
+`sbw eval`。ready finalization 与失败 cleanup 共用同一把 versioned
+publication lock，避免 marker transition 与 target removal 竞态；cleanup
+只接受精确匹配 run 与 action attempt 的 pending marker。回收 stale lock 后，
+publisher 也只接受 source binding、run 与 attempt 全部匹配的既有 pending
+marker；即使 target 尚不存在，外来 marker 仍会保留且 publication fail closed。
+
+### Bounded autopilot
+
+delivery 只有在希望低风险长任务不被重复 prompt 打断时，才可在每个 run 明确选择不可变的 `bounded-autopilot-v1` profile。它只自动化 bounded commit、新的 immutable cache version、推送到 `codex/*`，以及一个目标为 `dev` 的 PR；host bootstrap/upgrade/revoke、protected merge、deploy、直接推送 `dev`/`main` 与 branch/worktree cleanup 仍是人工 gate。evaluator standing consent 不会推导出 delivery authority。
 
 ## License
 

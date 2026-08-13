@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "id": "bounded-autopilot-v1",
+  "description": "Run-scoped low and medium risk autonomy with exact repository, branch, path, time, and action bounds.",
+  "autoActions": [
+    "read",
+    "test",
+    "evaluator.replay",
+    "git.commit",
+    "plugin.cache.publish",
+    "git.push.codex",
+    "pr.create.dev"
+  ],
+  "humanActions": [
+    "host.bootstrap",
+    "host.upgrade",
+    "host.revoke",
+    "pr.merge",
+    "deploy",
+    "git.push.dev",
+    "git.push.main",
+    "worktree.cleanup"
+  ],
+  "deniedActions": [
+    "password.capture",
+    "sudo.unbounded",
+    "admin.bypass",
+    "shell.unpinned"
+  ],
+  "scope": {
+    "localBranchPattern": "^codex/[A-Za-z0-9._/-]+$",
+    "remoteBranchPattern": "^codex/[A-Za-z0-9._/-]+$",
+    "pullRequestBase": "dev",
+    "maxPullRequests": 1
+  },
+  "limits": {
+    "maxFiles": 80,
+    "maxDiffBytes": 262144,
+    "maxDurationSeconds": 28800,
+    "maxCommits": 12,
+    "maxPullRequests": 1
+  }
+}

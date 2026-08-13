@@ -7,6 +7,10 @@ description: Route complex Codex work through native-first, evidence-driven work
 
 Keep the root agent as the only authority that edits files, integrates changes, runs Git or GitHub mutations, deploys, accepts risk, or declares completion. Treat native subagent read-only behavior as an orchestration contract, not an OS sandbox.
 
+## Canonical model terminology
+
+The public model roster is **Codex · Claude · Gemini · GPT-OSS · Grok · Cursor · Kimi · Qwen · Kiro**. `agy` is transport metadata for Gemini-, Claude-, and GPT-OSS-branded models; it is never another model brand. Treat [`config/deliberation-roster.json`](../../config/deliberation-roster.json) as the canonical terminology source, and keep this skill, the roster reference, tests, and public documentation synchronized with it.
+
 ## Preferred user entrypoints
 
 Prefer the native searchable picker for the current Codex surface. In Codex CLI,
@@ -79,6 +83,14 @@ keeps file order. Match categories are ANDed while values inside a category are
 ORed. A Profile cannot grant authority, install capabilities, add side effects,
 lower a mode, or replace an explicit selector.
 
+For delivery work, select `bounded-autopilot-v1` explicitly on the run when the
+user wants low-risk work to continue without repeated prompts. It is a
+run-scoped policy projection, not a global default or an authority source: it
+may automate bounded commit, immutable cache publication, `codex/*` push, and
+one PR to `dev`, while host bootstrap/upgrade/revoke, protected merge, deploy,
+direct `dev`/`main` push, and cleanup remain human gates. Evaluator standing
+consent never implies this delivery profile.
+
 If the route remains built-in `auto`, `template` is intentionally null. Select
 one real template from current evidence and preview again with `--template`;
 never invent an `auto` template. For a stable handoff, record and consume one
@@ -128,7 +140,8 @@ source/cache digest verification.
 For `research-deliberation`, also read
 [deliberation-roster.md](references/deliberation-roster.md). It defines the
 CLI-proven participant roster, model-bound roles, Antigravity CLI (`agy`)
-transport for Gemini models, and
+transport for Gemini-, Claude-, and GPT-OSS-branded models, the rule that
+`agy` is not a model brand, and
 capability-ranked final-arbiter fallback. Apply the contextual `medium`/`high`
 reasoning-effort policy to every model and record its actual transport. The
 former separate AI-meeting alias is intentionally not used.
@@ -243,7 +256,7 @@ Do not complete with open P0/P1 findings, stale evidence, expired accepted risk,
 
 All newly-created non-direct template runs use TaskContract v2. The run creates
 an append-only execution ledger and accepts only typed evidence receipts from
-the 99-kind catalog; v1 runs remain on the v1 reader and are never silently
+the 101-kind catalog; v1 runs remain on the v1 reader and are never silently
 upgraded. A v2 completion cannot be authorized by text or caller-supplied
 `acceptanceIds`.
 

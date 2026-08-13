@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { pluginRoot, routeMode, VERSION } from "../lib/core.mjs";
+import { loadAutonomyProfile } from "../lib/autonomy.mjs";
 
 test("all historical and adversarial routing fixtures select the expected mode", async () => {
   const cases = JSON.parse(
@@ -16,6 +17,24 @@ test("all historical and adversarial routing fixtures select the expected mode",
       fixture.name
     );
   }
+});
+
+test("bounded-autopilot policy is separate from templates and cannot authorize protected actions", async () => {
+  const profile = await loadAutonomyProfile();
+  const schema = JSON.parse(await readFile(path.join(pluginRoot(), "config", "autonomy", "bounded-autopilot-v1.schema.json"), "utf8"));
+  assert.equal(profile.id, "bounded-autopilot-v1");
+  assert.equal(schema.properties.id.const, profile.id);
+  assert.deepEqual(schema.properties.autoActions.items.enum, profile.autoActions);
+  assert.deepEqual(schema.properties.humanActions.items.enum, profile.humanActions);
+  assert.deepEqual(schema.properties.deniedActions.items.enum, profile.deniedActions);
+  assert.deepEqual(schema.properties.limits.properties, Object.fromEntries(
+    Object.entries(profile.limits).map(([key, value]) => [key, { const: value }])
+  ));
+  assert.ok(profile.autoActions.includes("pr.create.dev"));
+  assert.ok(!profile.autoActions.includes("pr.merge"));
+  assert.ok(profile.humanActions.includes("pr.merge"));
+  assert.ok(profile.humanActions.includes("git.push.dev"));
+  assert.ok(profile.deniedActions.includes("password.capture"));
 });
 
 test("all thirteen templates are valid and side-effect templates declare action gates", async () => {
@@ -167,6 +186,13 @@ test("self improve keeps strict holdout and delegates delivery side effects", as
     await readFile(path.join(pluginRoot(), "templates", "self-improve-ops.json"), "utf8")
   );
   assert.equal(template.defaultMode, "critical");
+  assert.equal(template.controlPlane.reviewPolicy, "code-v2-pilot");
+  assert.equal(template.controlPlane.workUnitPolicy, "diff-files-v1");
+  assert.equal(template.requiredEvidence.includes("patch-review"), false);
+  assert.deepEqual(
+    template.executionStages.find((stage) => stage.id === "sync-review")?.requiredEvidence,
+    ["sync-matrix", "work-unit-accounting", "review-kernel-summary", "repo-gates"]
+  );
   for (const evidence of [
     "retrospective-source-inventory",
     "evaluation-suite",
@@ -176,6 +202,8 @@ test("self improve keeps strict holdout and delegates delivery side effects", as
     "recurrence-matrix",
     "decision-record",
     "sync-matrix",
+    "work-unit-accounting",
+    "review-kernel-summary",
     "plugin-version",
     "cache-check",
     "cache-publication",
@@ -193,6 +221,7 @@ test("self improve keeps strict holdout and delegates delivery side effects", as
     "versioned-quality-remediation-policy",
     "control-plane-v2-evaluator-coverage",
     "host-attested-codex-only",
+    "root-signed-standing-evaluator-consent",
     "no-automatic-adoption",
     "thin-workflow-composition",
     "stale-versioned-link-resolution",
@@ -219,6 +248,14 @@ test("deliberation roster separates model brands from the Agy transport with a 2
   const roster = JSON.parse(
     await readFile(path.join(pluginRoot(), "config", "deliberation-roster.json"), "utf8")
   );
+  assert.equal(roster.schemaVersion, 3);
+  assert.deepEqual(
+    roster.terminology.modelBrands,
+    ["Codex", "Claude", "Gemini", "GPT-OSS", "Grok", "Cursor", "Kimi", "Qwen", "Kiro"]
+  );
+  assert.equal(roster.terminology.transportCommand, "agy");
+  assert.deepEqual(roster.terminology.transportModelBrands, ["Gemini", "Claude", "GPT-OSS"]);
+  assert.equal(roster.terminology.transportIsModelBrand, false);
   assert.equal(roster.rosterCacheHours, 24);
   const providers = new Map(roster.providers.map((provider) => [provider.id, provider]));
   for (const id of ["codex", "claude", "gemini", "agy", "grok", "cursor", "kimi", "qwen", "kiro"]) {
@@ -236,6 +273,18 @@ test("deliberation roster separates model brands from the Agy transport with a 2
     "GPT-OSS"
   );
   assert.ok(providers.get("agy").models.every((model) => model.brand !== "Agy"));
+  assert.deepEqual(
+    [...new Set(roster.providers.flatMap((provider) => provider.models.map((model) => model.brand)))].sort(),
+    [...roster.terminology.modelBrands].sort()
+  );
+  assert.deepEqual(
+    [...new Set(
+      roster.providers
+        .filter((provider) => provider.command === roster.terminology.transportCommand)
+        .flatMap((provider) => provider.models.map((model) => model.brand))
+    )].sort(),
+    [...roster.terminology.transportModelBrands].sort()
+  );
   assert.equal(
     providers.get("agy").models.find((model) => model.model === "claude-opus-4-6-thinking").effortTransport,
     "model-variant"

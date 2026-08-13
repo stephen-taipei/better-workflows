@@ -3,20 +3,31 @@ import assert from "node:assert/strict";
 import { access, chmod, mkdir, mkdtemp, realpath, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { buildContract, loadDefaults, sha256 } from "../lib/core.mjs";
+import { buildContract, canonicalJson, loadDefaults, sha256 } from "../lib/core.mjs";
+import {
+  buildEvaluatorInferenceInput,
+  evaluatorToolPolicy,
+  validateEvaluatorRegistryProbeRequest
+} from "../host-trust.mjs";
 import {
   binaryIdentity,
   doctorAgy,
   providerFinalOutput,
   providerFailureSummary,
+  parseTrustedEvaluatorTranscript,
   runAgyCritic,
   runCodexEvaluation,
-  spawnCapture
+  spawnCapture,
+  validateTrustedEvaluatorRegistryProof,
+  validateTrustedEvaluatorToolPolicy,
+  evaluatorForwardHeaderPolicy
 } from "../lib/providers.mjs";
 import {
+  loadDeliberationRoster,
   probeDeliberationRoster,
   resolveReasoningEffort,
   selectArbiter,
+  validateDeliberationRosterConfig,
   validateDecision
 } from "../lib/deliberation.mjs";
 
@@ -83,6 +94,124 @@ test("provider final output prefers a private file and fails bounded when every 
   assert.throws(
     () => providerFinalOutput("", ""),
     /fileBytes=0; fileDigest=[a-f0-9]{64}; stdoutBytes=0; stdoutDigest=[a-f0-9]{64}/
+  );
+});
+
+test("trusted provider verifier independently rejects tool-bearing evaluator transcripts", () => {
+  const events = [
+    { type: "thread.started", thread_id: "thread-1" },
+    { type: "turn.started" },
+    { type: "item.completed", item: { id: "message-1", type: "agent_message", text: '{"results":[]}' } },
+    { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }
+  ];
+  const parsed = parseTrustedEvaluatorTranscript(events.map((event) => JSON.stringify(event)).join("\n") + "\n");
+  assert.equal(parsed.responseText, '{"results":[]}');
+  assert.equal(parsed.transcriptSummary.observedToolCalls, 0);
+  events.splice(2, 0, { type: "item.completed", item: { id: "tool-1", type: "mcp_tool_call", server: "untrusted" } });
+  assert.throws(
+    () => parseTrustedEvaluatorTranscript(events.map((event) => JSON.stringify(event)).join("\n") + "\n"),
+    /prohibited or unknown item/
+  );
+  const clean = [
+    { type: "thread.started", thread_id: "thread-1" },
+    { type: "turn.started" },
+    { type: "item.completed", item: { id: "warning-1", type: "error", message: "deprecated feature" } },
+    { type: "item.completed", item: { id: "message-1", type: "agent_message", text: '{"results":[]}' } },
+    { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }
+  ].map((event) => JSON.stringify(event)).join("\n") + "\n";
+  for (const [needle, replacement] of [
+    [JSON.stringify({ type: "thread.started", thread_id: "thread-1" }), { type: "thread.started", thread_id: "thread-1", item: { type: "command_execution" } }],
+    [JSON.stringify({ type: "turn.started" }), { type: "turn.started", item: { type: "command_execution" } }],
+    [JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }), { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 }, item: { type: "command_execution" } }],
+    [JSON.stringify({ type: "item.completed", item: { id: "warning-1", type: "error", message: "deprecated feature" } }), { type: "item.completed", item: { id: "warning-1", type: "error", message: "deprecated feature", tool_call: "unexpected" } }]
+  ]) {
+    assert.throws(() => parseTrustedEvaluatorTranscript(clean.replace(needle, JSON.stringify(replacement))), /schema is invalid|prohibited or unknown/);
+  }
+});
+
+test("host and provider share the exact ordered evaluator capability policy", () => {
+  const policy = evaluatorToolPolicy("gpt-5.6-terra");
+  const digest = sha256(canonicalJson(policy));
+  assert.deepEqual(validateTrustedEvaluatorToolPolicy(policy, digest), policy);
+  const reordered = structuredClone(policy);
+  reordered.disabledFeatures.reverse();
+  assert.throws(
+    () => validateTrustedEvaluatorToolPolicy(reordered, sha256(canonicalJson(reordered))),
+    /exact tool-free capability policy/
+  );
+});
+
+test("provider accepts only one host-shaped challenge-bound forwarding proof", () => {
+  const challenge = "c".repeat(64);
+  const input = buildEvaluatorInferenceInput(Buffer.from("provider registry proof\n"), challenge).toString("utf8");
+  const outputSchema = {
+    type: "object",
+    additionalProperties: false,
+    required: ["results"],
+    properties: { results: { type: "array", items: { type: "string" } } }
+  };
+  const request = validateEvaluatorRegistryProbeRequest({
+    model: "gpt-5.6-terra",
+    input: [{ type: "message", role: "user", content: [{ type: "input_text", text: input }] }],
+    tools: [],
+    tool_choice: "none",
+    parallel_tool_calls: false,
+    reasoning: { effort: "high", context: "all_turns" },
+    store: false,
+    stream: true,
+    include: ["reasoning.encrypted_content"],
+    text: {
+      format: {
+        type: "json_schema",
+        strict: true,
+        schema: outputSchema,
+        name: "codex_output_schema"
+      }
+    }
+  }, "gpt-5.6-terra", challenge, input, outputSchema);
+  const boundRequest = {
+    ...request,
+    capturedRequestDigest: "4".repeat(64),
+    requestDigest: "1".repeat(64),
+    forwardedBodyDigest: "1".repeat(64)
+  };
+  const unsigned = {
+    schemaVersion: 3,
+    transport: "openai-responses-http-canonical-gate-v3",
+    model: "gpt-5.6-terra",
+    requestCount: 1,
+    requests: [boundRequest],
+    challengeDigest: request.challengeDigest,
+    inferenceInputDigest: request.inferenceInputDigest,
+    headerPolicyDigest: request.headerPolicyDigest,
+    requestPolicyDigest: request.requestPolicyDigest,
+    gateNonceDigest: "2".repeat(64),
+    upstreamBaseUrlDigest: sha256("https://chatgpt.com/backend-api/codex/"),
+    forwarded: true
+  };
+  const proof = { ...unsigned, digest: sha256(canonicalJson(unsigned)) };
+  assert.deepEqual(validateTrustedEvaluatorRegistryProof(proof, proof.digest, "gpt-5.6-terra"), proof);
+  const nonCanonicalUnsigned = {
+    ...unsigned,
+    upstreamBaseUrlDigest: sha256("https://chatgpt.com:444/backend-api/codex/")
+  };
+  const nonCanonical = { ...nonCanonicalUnsigned, digest: sha256(canonicalJson(nonCanonicalUnsigned)) };
+  assert.throws(
+    () => validateTrustedEvaluatorRegistryProof(nonCanonical, nonCanonical.digest, "gpt-5.6-terra"),
+    /registry proof identity or digest is invalid/
+  );
+  const extraUnsigned = { ...unsigned, requestCount: 2, requests: [boundRequest, boundRequest] };
+  const extra = { ...extraUnsigned, digest: sha256(canonicalJson(extraUnsigned)) };
+  assert.throws(
+    () => validateTrustedEvaluatorRegistryProof(extra, extra.digest, "gpt-5.6-terra"),
+    /registry proof identity or digest is invalid/
+  );
+  const omittedToolsRequest = { ...boundRequest, toolsPresent: false };
+  const omittedUnsigned = { ...unsigned, requests: [omittedToolsRequest] };
+  const omitted = { ...omittedUnsigned, digest: sha256(canonicalJson(omittedUnsigned)) };
+  assert.throws(
+    () => validateTrustedEvaluatorRegistryProof(omitted, omitted.digest, "gpt-5.6-terra"),
+    /invalid or tool-capable request/
   );
 });
 
@@ -230,7 +359,13 @@ test("deliberation roster caches only a fresh, CLI-proven full external roster",
   const directory = await mkdtemp(path.join(os.tmpdir(), "sbw-deliberation-cache-"));
   const fake = await executable(directory, "provider", "printf 'SBW_TEST_MARKER\\n'");
   const config = {
-    schemaVersion: 1,
+    schemaVersion: 3,
+    terminology: {
+      modelBrands: ["Fake"],
+      transportCommand: fake,
+      transportModelBrands: ["Fake"],
+      transportIsModelBrand: false
+    },
     probeMarker: "SBW_TEST_MARKER",
     probeTimeoutSeconds: 5,
     rosterCacheHours: 24,
@@ -269,6 +404,29 @@ test("deliberation roster caches only a fresh, CLI-proven full external roster",
   assert.equal(third.cache.status, "stored");
 });
 
+test("deliberation roster rejects model-brand and transport terminology drift", async () => {
+  const canonical = await loadDeliberationRoster();
+  assert.equal(validateDeliberationRosterConfig(canonical), canonical);
+
+  const brandDrift = structuredClone(canonical);
+  brandDrift.terminology.modelBrands = brandDrift.terminology.modelBrands.filter((brand) => brand !== "Kiro");
+  assert.throws(
+    () => validateDeliberationRosterConfig(brandDrift),
+    /model brands do not match canonical terminology/
+  );
+
+  const transportDrift = structuredClone(canonical);
+  transportDrift.terminology.transportModelBrands = ["Gemini", "Claude"];
+  assert.throws(
+    () => validateDeliberationRosterConfig(transportDrift),
+    /transport brands do not match canonical terminology/
+  );
+
+  const falseBrand = structuredClone(canonical);
+  falseBrand.terminology.transportIsModelBrand = true;
+  assert.throws(() => validateDeliberationRosterConfig(falseBrand), /terminology is invalid/);
+});
+
 test("deliberation selects only ranked active arbiters and validates executable plans", () => {
   const config = {
     arbiterPriority: [
@@ -297,7 +455,19 @@ test("deliberation selects only ranked active arbiters and validates executable 
 });
 
 test("reasoning effort is contextual for every model and selects matching Agy variants", async () => {
+  const effortCommand = await executable(
+    await mkdtemp(path.join(os.tmpdir(), "sbw-effort-")),
+    "provider",
+    "printf 'SBW_TEST_MARKER\\n'"
+  );
   const config = {
+    schemaVersion: 3,
+    terminology: {
+      modelBrands: ["Fake"],
+      transportCommand: effortCommand,
+      transportModelBrands: ["Fake"],
+      transportIsModelBrand: false
+    },
     reasoningEffort: {
       default: "auto",
       allowed: ["medium", "high"],
@@ -311,13 +481,13 @@ test("reasoning effort is contextual for every model and selects matching Agy va
     providers: [
       {
         id: "fake",
-        command: await executable(await mkdtemp(path.join(os.tmpdir(), "sbw-effort-")), "provider", "printf 'SBW_TEST_MARKER\\n'"),
+        command: effortCommand,
         probe: "text",
         external: true,
         effortTransport: "model-variant",
         models: [
-          { model: "flash-medium", role: "fast", capabilityRank: 1, reasoningEffort: "medium" },
-          { model: "flash-high", role: "deep", capabilityRank: 1, reasoningEffort: "high" }
+          { model: "flash-medium", brand: "Fake", role: "fast", capabilityRank: 1, reasoningEffort: "medium" },
+          { model: "flash-high", brand: "Fake", role: "deep", capabilityRank: 1, reasoningEffort: "high" }
         ]
       }
     ]

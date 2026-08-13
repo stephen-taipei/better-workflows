@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
-import { execFile, spawn } from "node:child_process";
-import { promisify } from "node:util";
+import { spawn } from "node:child_process";
 import {
   chmod,
   lstat,
@@ -27,11 +26,13 @@ import {
   consumeActionToken,
   completeRun,
   createRun,
+  currentProviderExecutableIdentity,
   digestObject,
   ensureStateRoot,
   evaluateCompletion,
   executeActionToken,
   getStateRoot,
+  getCodexPluginCacheRoot,
   inspectRun,
   issueActionToken,
   listJsonRecords,
@@ -51,7 +52,7 @@ import {
   validateContract,
   withRunLock
 } from "./lib/core.mjs";
-import { captureSentinel, captureSourceBinding, compareSentinels } from "./lib/git.mjs";
+import { captureSentinel, captureSourceBinding, compareSentinels, runSourceGit } from "./lib/git.mjs";
 import {
   doctorAgy,
   doctorCodex,
@@ -79,6 +80,7 @@ import {
   scoreEvaluation,
   selectQualityRemediationCases,
   selectSafetyRemediationCases,
+  selectEvaluatorMigrationCases,
   selectEvaluationCases,
   isPolicyBoundEvaluationPurpose,
   snapshotBaselineForCandidate,
@@ -93,6 +95,21 @@ import {
 import { deliberateForRun } from "./lib/deliberation-receipt.mjs";
 import { loadEvidenceContracts } from "./lib/evidence.mjs";
 import { generateAttestationRequests } from "./lib/attestations.mjs";
+import { prepareStandingConsentInstall, standingConsentRevokeCommand } from "./lib/standing-consent.mjs";
+import { hostBundleFromStatus } from "./lib/host-bundle.mjs";
+import {
+  autonomyProfileDigest,
+  buildAutonomyBinding,
+  loadAutonomyProfile,
+  validateAutonomyBinding,
+  decideAutonomyAction
+} from "./lib/autonomy.mjs";
+import {
+  captureAutonomyBindingContext,
+  captureAutonomyReadinessSnapshotFromSource,
+  probeAutonomyGithubCredential,
+  readBoundHostStatus
+} from "./lib/autonomy-preflight.mjs";
 import { createSelfImproveDeliveryHandoff, validateSelfImproveDeliveryHandoff } from "./lib/self-improve-handoff.mjs";
 import {
   loadHostExecutionRequestManifest as loadBoundHostExecutionRequestManifest,
@@ -103,9 +120,17 @@ import {
   addReviewFinding,
   createReviewPackage,
   markBroadReviewComplete,
+  prepareFindingVerification,
+  prepareReviewAxis,
+  recordFindingVerification,
   recordRepairRound,
+  recordReviewAxis,
+  recordReviewCoverage,
+  recordReviewSynthesis,
+  reviewKernelStatus,
   reviewStatus
 } from "./lib/review.mjs";
+import { reviewKernelEnabled, reviewPackageBindingRequired } from "./lib/review-policy.mjs";
 import { recordRefinement, refinementStatus } from "./lib/refinement.mjs";
 import {
   recipeArtifactPromote,
@@ -132,6 +157,7 @@ import {
   validateRoutingProfileFile
 } from "./lib/routing.mjs";
 import {
+  applyDelegatedSelfImproveContract,
   buildRunGraph,
   buildTemplateCatalogGraph,
   buildTemplateGraph,
@@ -139,7 +165,6 @@ import {
   renderGraphMermaid
 } from "./lib/graph.mjs";
 
-const execFileAsync = promisify(execFile);
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const TEMPLATE_DIR = path.join(pluginRoot(), "templates");
 const HOST_TRUST_TOOL = path.join(SCRIPT_DIR, "host-trust.mjs");
@@ -607,10 +632,110 @@ async function currentVerifiedDigest(root, runId) {
   return verification.digest;
 }
 
+async function verifiedNativeReviewExecution({ root, runId, run, input, reviewDigest, reviewerId, attestationPath }) {
+  const review = await reviewStatus(root, runId);
+  if (!review.package || review.package.schemaVersion !== 2) {
+    throw new Error("Native review-kernel execution requires a current v2 review package");
+  }
+  if (
+    input.reviewerId !== reviewerId || !input.model || !input.executionId ||
+    !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(String(input.executionId))
+  ) throw new Error("Native review-kernel input must bind reviewer, model, and executionId");
+  const sentinelDigest = await currentVerifiedDigest(root, runId);
+  const binding = {
+    base: review.package.base,
+    head: review.package.head,
+    instructionDigest: review.package.instructionDigest,
+    model: String(input.model),
+    packageId: review.package.packageId,
+    promptDigest: input.inputDigest,
+    reviewDigest,
+    reviewerId,
+    executionId: input.executionId,
+    runId,
+    sentinelDigest
+  };
+  const attestation = await verifyTrustedNativeCriticAttestation({
+    attestationPath,
+    workspaceRoot: run.manifest.cwd,
+    binding
+  });
+  const identity = {
+    provider: "codex-native-subagent",
+    model: attestation.model,
+    executionId: input.executionId,
+    modelAssurance: "host-signed-attestation",
+    trustAttested: true,
+    promptDigest: binding.promptDigest,
+    reviewDigest: binding.reviewDigest,
+    attestationDigest: attestation.attestationDigest,
+    transport: "native-subagent",
+    sandbox: "read-only"
+  };
+  return { ...identity, executionDigest: digestObject(identity) };
+}
+
+async function addReviewKernelEvidence(root, runId, kind, kernel) {
+  const run = await loadRun(root, runId);
+  const payload = kind === "work-unit-accounting"
+    ? {
+        result: true,
+        packageId: kernel.packageId,
+        repairRound: kernel.repairRound,
+        workUniverseDigest: kernel.workUniverseDigest,
+        reviewLanesDigest: kernel.reviewLanesDigest,
+        axisSetDigest: kernel.axisSetDigest,
+        coverageDigest: kernel.coverageDigest,
+        items: kernel.coverage
+      }
+    : {
+        result: true,
+        packageId: kernel.packageId,
+        repairRound: kernel.repairRound,
+        workUniverseDigest: kernel.workUniverseDigest,
+        axisSetDigest: kernel.axisSetDigest,
+        verificationSetDigest: kernel.verificationSetDigest,
+        coverageDigest: kernel.coverageDigest,
+        findingSetDigest: kernel.findingSetDigest,
+        convergenceDigest: kernel.convergenceDigest,
+        items: kernel.findings
+      };
+  const digest = kind === "work-unit-accounting" ? kernel.coverageDigest : kernel.convergenceDigest;
+  const id = `${kind}-${digest.slice(0, 32)}`;
+  const prior = (await listJsonRecords(root, safeJoin(run.runDir, "evidence"))).find((item) => item.id === id);
+  if (prior) return prior;
+  const record = {
+    schemaVersion: 2,
+    id,
+    kind,
+    status: "complete",
+    summary: kind === "work-unit-accounting"
+      ? "Deterministic review work-unit coverage is complete."
+      : "Deterministic review-kernel synthesis converged.",
+    acceptanceIds: [],
+    dependencyInputs: { files: [] },
+    receipt: {
+      contractId: `evidence-contracts-v1:${kind}`,
+      contractVersion: 1,
+      runId,
+      producer: { provider: "better-workflows-kernel" },
+      inputBinding: {
+        runId,
+        contractDigest: digestObject(run.contract),
+        remoteRevision: run.contract.remoteRevision ?? null
+      },
+      payload,
+      payloadDigest: digestObject(payload),
+      producedAt: nowIso()
+    }
+  };
+  return addEvidence(root, runId, await enrichEvidence(root, runId, record));
+}
+
 async function providerEvidence(root, runId, result, prompt, acceptanceIds) {
   const run = await loadRun(root, runId);
   let reviewBinding = null;
-  if (run.contract.controlPlane?.reviewPolicy === "code-v1") {
+  if (reviewPackageBindingRequired(run.contract.controlPlane?.reviewPolicy)) {
     const review = await reviewStatus(root, runId);
     if (!review.package) throw new Error("Independent critic requires an immutable review package");
     reviewBinding = {
@@ -791,16 +916,23 @@ function structuredReplay(replay) {
 }
 
 async function commandSelfImprove(root, subcommand, options, nestedCommand = null) {
+  const readHostStatus = () => readBoundHostStatus(HOST_TRUST_TOOL, process.cwd());
   if (subcommand === "host") {
     if (nestedCommand !== "status") {
       throw new Error("self-improve host subcommand must be status");
     }
     assertKnownOptions(options, []);
-    const result = await execFileAsync(process.execPath, [HOST_TRUST_TOOL, "status"], {
-      encoding: "utf8",
-      maxBuffer: 1024 * 1024
-    });
-    return JSON.parse(result.stdout);
+    return readHostStatus();
+  }
+  if (subcommand === "consent") {
+    if (!new Set(["status", "prepare", "revoke"]).has(nestedCommand)) {
+      throw new Error("self-improve consent subcommand must be status, prepare, or revoke");
+    }
+    assertKnownOptions(options, []);
+    const hostStatus = await readHostStatus();
+    if (nestedCommand === "status") return { ok: true, standingConsent: hostStatus.standingConsent ?? null };
+    if (nestedCommand === "prepare") return prepareStandingConsentInstall({ repo: process.cwd(), hostStatus });
+    return { ok: true, grantId: hostStatus.standingConsent?.grant?.grantId ?? null, administratorCommand: standingConsentRevokeCommand(hostStatus) };
   }
   if (subcommand === "attestation") {
     if (nestedCommand !== "request") {
@@ -863,7 +995,7 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
     return { ok: true, runId: String(nestedCommand), evidence: await addEvidence(root, String(nestedCommand), record) };
   }
   if (subcommand !== "evaluate") {
-    throw new Error("self-improve subcommand must be evaluate, host, attestation, or handoff");
+    throw new Error("self-improve subcommand must be evaluate, host, consent, attestation, or handoff");
   }
   assertKnownOptions(options, [
     "run", "cases", "baseline", "candidate-root", "backend", "split", "result-file", "model", "allow-codex", "sanitized",
@@ -936,7 +1068,9 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
     ? selectSafetyRemediationCases({ suite: frozen.suite, snapshot: candidate, split, policy })
     : purpose === "quality-remediation-v1"
       ? selectQualityRemediationCases({ suite: frozen.suite, snapshot: candidate, split, policy })
-    : selectEvaluationCases({ suite: frozen.suite, snapshot: candidate, split });
+      : purpose === "evaluator-migration"
+        ? selectEvaluatorMigrationCases({ suite: target.suite, split })
+        : selectEvaluationCases({ suite: frozen.suite, snapshot: candidate, split });
   const calibration = target
     ? calibrateEvaluatorMigration({
       source: frozen.suite,
@@ -947,8 +1081,9 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
       targetDigest: target.sourceDigest
     })
     : null;
-  const candidatePrompt = buildEvaluationPrompt({ suite: { ...frozen.suite, cases }, candidate, materials: candidateMaterial });
-  const baselinePrompt = buildEvaluationPrompt({ suite: { ...frozen.suite, cases }, candidate: baseline, materials: baselineMaterial });
+  const evaluationSuite = target?.suite ?? frozen.suite;
+  const candidatePrompt = buildEvaluationPrompt({ suite: { ...evaluationSuite, cases }, candidate, materials: candidateMaterial });
+  const baselinePrompt = buildEvaluationPrompt({ suite: { ...evaluationSuite, cases }, candidate: baseline, materials: baselineMaterial });
   const fixture = backend === "fixture" ? JSON.parse(await readFile(path.resolve(cwd, String(options["result-file"])), "utf8")) : null;
   const requestBindings = backend === "codex"
     ? await loadBoundHostExecutionRequestManifest({
@@ -966,7 +1101,9 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
     })
     : null;
   const hostExecutionPaths = values(options["trusted-codex-execution"]).map(String);
-  const requiredExecutions = backend === "codex" ? (split === "train" ? 1 : 6) : 0;
+  const requiredExecutions = backend === "codex"
+    ? (split === "train" ? (purpose === "evaluator-migration" ? 2 : 1) : 6)
+    : 0;
   if (backend === "codex" && hostExecutionPaths.length !== requiredExecutions) {
     throw new Error(`Codex ${split} evaluation requires exactly ${requiredExecutions} distinct host execution witness file(s)`);
   }
@@ -999,6 +1136,7 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
       headRevision: backend === "codex" ? requestBindings?.headRevision ?? currentSourceBinding.headRevision : currentSourceBinding.headRevision,
       sourceBindingDigest: backend === "codex" ? requestBindings?.sourceBindingDigest ?? currentSourceBinding.digest : currentSourceBinding.digest,
       pluginBundleDigest: backend === "codex" ? requestBindings?.pluginBundleDigest ?? evaluatedPluginBundleDigest : evaluatedPluginBundleDigest,
+      authorization: backend === "codex" ? requestBindings?.authorization ?? null : null,
       candidate,
       baseline,
       ...(backend === "codex"
@@ -1016,16 +1154,22 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
     baselineRevision: frozen.baselineRevision,
     candidateDigest: candidate.digest,
     headRevision: backend === "codex" ? requestBindings?.headRevision ?? currentSourceBinding.headRevision : currentSourceBinding.headRevision,
-    promptDigest: sha256(role === "baseline" ? baselinePrompt : candidatePrompt),
+    promptDigest: sha256(role.endsWith("baseline") ? baselinePrompt : candidatePrompt),
     role,
     sourceBindingDigest: backend === "codex" ? requestBindings?.sourceBindingDigest ?? currentSourceBinding.digest : currentSourceBinding.digest,
     attempt,
+    ...(backend === "codex" && requestBindings?.authorization
+      ? { authorization: requestBindings.authorization }
+      : {}),
     ...(policyBound ? { purpose, policyDigest: policy.digest } : {})
   });
   const prior = await listJsonRecords(root, safeJoin(run.runDir, "evidence"));
   if (split === "holdout") {
     const training = prior.find((item) => item.kind === "training-replay" && !item.stale && item.evaluation?.suiteDigest === suiteDigest && item.evaluation?.candidate?.digest === candidate.digest && item.evaluation?.baselineRevision === frozen.baselineRevision);
     if (!training) throw new Error("Holdout evaluation requires a fresh training replay bound to the same suite, baseline, and candidate");
+    if (purpose === "evaluator-migration" && training.evaluation?.migrationTrainingComparison?.accepted !== true) {
+      throw new Error("Evaluator migration holdout requires accepted target-only training headroom evidence");
+    }
   }
   if (split === "train") {
     const trainExecution = execution("train-candidate", 1);
@@ -1035,6 +1179,27 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
       hostExecutionPath: hostExecutionPaths[0], execution: trainExecution,
       expectedRequestDigest: trainBinding?.requestDigest ?? null,
       expectedRunAs: trainBinding?.runAs ?? null });
+    let baselineReplay = null;
+    let migrationTrainingComparison = null;
+    if (purpose === "evaluator-migration") {
+      const baselineExecution = execution("train-baseline", 1);
+      const baselineBinding = requestBindings?.get(baselineExecution.id);
+      if (backend === "codex" && !baselineBinding) throw new Error("Evaluator migration training baseline is missing its canonical request manifest binding");
+      baselineReplay = await evaluationReplay({ backend, fixture, role: "baseline", cases, prompt: baselinePrompt, options, cwd,
+        hostExecutionPath: hostExecutionPaths[1], execution: baselineExecution,
+        expectedRequestDigest: baselineBinding?.requestDigest ?? null,
+        expectedRunAs: baselineBinding?.runAs ?? null });
+      migrationTrainingComparison = compareEvaluatorMigration({
+        baseline: [baselineReplay.score],
+        candidate: [replay.score],
+        sourceSuite: frozen.suite,
+        targetSuite: target.suite,
+        split: "train"
+      });
+      if (migrationTrainingComparison.accepted !== true) {
+        throw new Error(`Evaluator migration training did not demonstrate target-only headroom: ${migrationTrainingComparison.reason}`);
+      }
+    }
     if (policyBound && replay.score.hardSafetyPass !== true) {
       throw new Error(`${purpose} training replay failed its hard-safety gate`);
     }
@@ -1049,7 +1214,11 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
     const training = await addSelfImproveEvidence(root, runId, {
       id: evaluationEvidenceId("training"), kind: "training-replay", summary: "One bounded training replay completed; it cannot authorize delivery.", status: "complete",
       acceptanceIds: ["outcome-explicit", "replay-bounded"], ...common,
-      evaluation: { ...common.evaluation, replays: [structuredReplay(replay)] }
+      evaluation: {
+        ...common.evaluation,
+        replays: [replay, baselineReplay].filter(Boolean).map(structuredReplay),
+        ...(migrationTrainingComparison ? { migrationTrainingComparison } : {})
+      }
     });
     const evidenceIds = [suiteEvidence.id, staging.id, training.id];
     if (calibration) {
@@ -1064,7 +1233,17 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
       });
       evidenceIds.push(migration.id);
     }
-    return { ok: true, runId, split, backend, purpose, evidence: evidenceIds, calibration, score: redactedScore(replay.score) };
+    return {
+      ok: true,
+      runId,
+      split,
+      backend,
+      purpose,
+      evidence: evidenceIds,
+      calibration,
+      score: redactedScore(replay.score),
+      ...(migrationTrainingComparison ? { migrationTrainingComparison } : {})
+    };
   }
   const candidateReplays = [];
   const baselineReplays = [];
@@ -1087,7 +1266,13 @@ async function commandSelfImprove(root, subcommand, options, nestedCommand = nul
       expectedRunAs: baselineBinding?.runAs ?? null }));
   }
   const comparison = purpose === "evaluator-migration"
-    ? compareEvaluatorMigration({ baseline: baselineReplays.map((item) => item.score), candidate: candidateReplays.map((item) => item.score) })
+    ? compareEvaluatorMigration({
+      baseline: baselineReplays.map((item) => item.score),
+      candidate: candidateReplays.map((item) => item.score),
+      sourceSuite: frozen.suite,
+      targetSuite: target.suite,
+      split: "holdout"
+    })
     : purpose === "safety-remediation-v1"
       ? compareSafetyRemediation({ baseline: baselineReplays.map((item) => item.score), candidate: candidateReplays.map((item) => item.score), suite: frozen.suite, policy })
       : purpose === "quality-remediation-v1"
@@ -1128,6 +1313,172 @@ async function assertAcceptedSelfImproveHoldout(root, runId, action) {
   }
 }
 
+async function commandAutonomy(root, subcommand, runId, options) {
+  if (!runId) throw new Error(`autonomy ${subcommand} requires <run-id>`);
+  const run = await loadRun(root, runId);
+  if (!run.contract.autonomyProfile) {
+    throw new Error("Run does not have an explicitly selected autonomy profile");
+  }
+  validateAutonomyBinding(run.contract.autonomyProfile);
+  const profile = await loadAutonomyProfile();
+  const profileDigest = autonomyProfileDigest(profile);
+  if (profileDigest !== run.contract.autonomyProfile.profileDigest) {
+    throw new Error("Installed autonomy profile does not match the run binding");
+  }
+  if (subcommand === "preview") {
+    assertKnownOptions(options, []);
+  const examples = [
+      { action: "git.commit" },
+      { action: "plugin.cache.publish" },
+      { action: "git.push", resource: "remote:origin:refs/heads/codex/example" },
+      { action: "git.push", resource: "remote:origin:refs/heads/dev" },
+      { action: "pr.create", scope: "dev" },
+      { action: "pr.merge", resource: "pull/1" },
+      { action: "worktree.cleanup", resource: "worktree:run-owned" },
+      { action: "password.capture" },
+      { action: "shell.unpinned" }
+    ];
+    return {
+      ok: true,
+      runId,
+      profile: {
+        id: profile.id,
+        digest: profileDigest,
+        expiresAt: run.contract.autonomyProfile.expiresAt,
+        autoActions: profile.autoActions,
+        humanActions: profile.humanActions,
+        deniedActions: profile.deniedActions,
+        limits: profile.limits
+      },
+      decisions: examples.map((item) => ({
+        ...item,
+        ...decideAutonomyAction(profile, item.action, item)
+      }))
+    };
+  }
+  if (subcommand === "revoke") {
+    assertKnownOptions(options, []);
+    return {
+      ok: true,
+      runId,
+      state: await setRunStatus(root, runId, "blocked", {
+        autonomy: {
+          ...run.state.autonomy,
+          profileId: profile.id,
+          profileDigest,
+          status: "revoked",
+          snapshot: null,
+          blockedReason: "autonomy-revoked",
+          requiredAuthority: "autonomy.reauthorize",
+          resumeFromStage: run.state.autonomy?.resumeFromStage ?? null
+        }
+      })
+    };
+  }
+  if (subcommand !== "preflight") {
+    throw new Error("autonomy subcommand must be preview, preflight, or revoke");
+  }
+  assertKnownOptions(options, []);
+  const blocked = async (reason, requiredAuthority = "autonomy.preflight") => ({
+    ok: false,
+    runId,
+    status: "blocked",
+    blockedReason: reason,
+    requiredAuthority,
+    state: await setRunStatus(root, runId, "blocked", {
+      autonomy: {
+        ...run.state.autonomy,
+        profileId: profile.id,
+        profileDigest,
+        status: "blocked",
+        snapshot: null,
+        blockedReason: reason,
+        requiredAuthority,
+        resumeFromStage: run.state.autonomy?.resumeFromStage ?? "preflight"
+      }
+    })
+  });
+  if (run.state.autonomy?.status === "revoked") return blocked("autonomy-revoked", "autonomy.reauthorize");
+  if (Date.parse(run.contract.autonomyProfile.expiresAt) <= Date.now()) return blocked("autonomy-profile-expired", "autonomy.reauthorize");
+  if (run.manifest.autonomyProfile?.sourceBindingDigest !== run.manifest.sourceBinding?.digest) return blocked("source-binding-drift", "source.rebind");
+  if (!run.state.lastSentinelVerified || run.state.lastSentinelComplete !== true || !run.state.lastSentinel?.digest) {
+    return blocked("sentinel-preflight-required", "sentinel.verify");
+  }
+  if (run.manifest.pluginCacheRoot !== getCodexPluginCacheRoot()) return blocked("cache-root-drift", "cache.rebind");
+  let snapshot;
+  try {
+    snapshot = await captureAutonomyReadinessSnapshotFromSource(
+      run.manifest.cwd,
+      run.contract.autonomyProfile,
+      run.manifest.autonomyProfile.sourceBindingDigest,
+      { sentinelDigest: run.state.lastSentinel.digest }
+    );
+  } catch (error) {
+    const reason = error.autonomyReason ?? "git-preflight-unavailable";
+    const authority = ["branch-binding-drift", "repository-binding-drift"].includes(reason)
+      ? "source.rebind"
+      : reason === "git-preflight-unavailable"
+        ? "git.authentication"
+        : "autonomy.reauthorize";
+    return blocked(reason, authority);
+  }
+  let hostStatus;
+  try {
+    hostStatus = await readBoundHostStatus(HOST_TRUST_TOOL, run.manifest.cwd);
+  } catch {
+    return blocked("host-status-unavailable", "host.bootstrap");
+  }
+  try {
+    const hostBundle = hostBundleFromStatus(hostStatus);
+    if (!hostStatus.ready || !hostStatus.signer?.supported || !hostStatus.runtime?.supported ||
+        !hostStatus.readinessReceipt?.supported || hostStatus.readinessReceipt?.keyPairVerification?.verified !== true ||
+        hostBundle.legacyCompatible === false || hostStatus.hostBundle?.supported === false) {
+      return blocked("host-bundle-not-ready", "host.bootstrap");
+    }
+  } catch {
+    return blocked("host-bundle-not-ready", "host.bootstrap");
+  }
+  let providerExecutable;
+  try {
+    providerExecutable = await currentProviderExecutableIdentity("gh");
+    await probeAutonomyGithubCredential(run.manifest.cwd, providerExecutable.path);
+  } catch {
+    return blocked("provider-credential-unavailable", "github.authentication");
+  }
+  const state = await setRunStatus(root, runId, "running", {
+    autonomy: {
+      ...run.state.autonomy,
+      profileId: profile.id,
+      profileDigest,
+      status: "ready",
+      blockedReason: null,
+      requiredAuthority: null,
+      resumeFromStage: null,
+      preflightAt: nowIso(),
+      branch: snapshot.branch,
+      repository: snapshot.repository,
+      snapshot,
+      providerExecutable
+    }
+  });
+  return {
+    ok: true,
+    runId,
+    status: "ready",
+    profileId: profile.id,
+    profileDigest,
+    branch: snapshot.branch,
+    snapshotDigest: snapshot.digest,
+    hostBundle: {
+      signerVersion: hostStatus.signer.version ?? null,
+      signerDigest: hostStatus.signer.digest ?? null,
+      runtimeDigest: hostStatus.runtime.digest ?? null
+    },
+    providerExecutable,
+    state
+  };
+}
+
 async function commandRun(root, options) {
   assertKnownOptions(options, [
     "template",
@@ -1151,11 +1502,12 @@ async function commandRun(root, options) {
     "baseline",
     "evaluation-purpose",
     "self-improve-run",
-    "route-receipt"
+    "route-receipt",
+    "autonomy-profile"
   ]);
   let receiptBinding = null;
   if (options["route-receipt"]) {
-    for (const conflicting of ["template", "entry", "goal", "scope", "mode", "self-improve-run"]) {
+    for (const conflicting of ["template", "entry", "goal", "scope", "mode", "self-improve-run", "autonomy-profile"]) {
       if (options[conflicting] !== undefined) {
         throw new Error(`--route-receipt cannot be combined with --${conflicting}`);
       }
@@ -1208,8 +1560,33 @@ async function commandRun(root, options) {
     if (graphHasErrors(graph)) return graphStructuralFailure(graph, "run.create");
   }
   let contract;
+  let autonomyBinding = null;
+  const selectedAutonomyProfile = options["autonomy-profile"] ?? receiptBinding?.preview?.autonomyProfile?.id ?? null;
+  if (selectedAutonomyProfile !== null) {
+    if (String(selectedAutonomyProfile) !== "bounded-autopilot-v1") {
+      throw new Error("Only bounded-autopilot-v1 is currently supported");
+    }
+    if (options.contract) throw new Error("--autonomy-profile cannot be combined with --contract");
+    const profile = await loadAutonomyProfile();
+    const pathScope = receiptBinding
+      ? receiptBinding.preview.input.scope
+      : values(options.scope, ["."]).map(String);
+    autonomyBinding = buildAutonomyBinding(profile, await captureAutonomyBindingContext(process.cwd(), pathScope));
+    if (receiptBinding && receiptBinding.preview?.autonomyProfile?.digest !== autonomyBinding.profileDigest) {
+      throw new Error("Route receipt autonomy profile digest does not match the installed immutable profile");
+    }
+    if (templateName !== "pr-to-dev") {
+      throw new Error("bounded-autopilot-v1 is only valid for a delegated pr-to-dev delivery run");
+    }
+  }
   if (options.contract) {
     contract = validateContract(JSON.parse(await readFile(path.resolve(String(options.contract)), "utf8")));
+    if (contract.autonomyProfile) {
+      const profile = await loadAutonomyProfile();
+      if (autonomyProfileDigest(profile) !== contract.autonomyProfile.profileDigest) {
+        throw new Error("Supplied TaskContract autonomy profile is not the installed immutable profile");
+      }
+    }
     if (contract.template !== templateName) throw new Error("Contract template does not match --template");
     const contractPurpose = contract.selfImprovePurpose ?? "ordinary";
     if (purposeProvided && contractPurpose !== requestedEvaluationPurpose) {
@@ -1228,18 +1605,8 @@ async function commandRun(root, options) {
       throw new Error("v2 templates require a schemaVersion 2 TaskContract");
     }
     if (contract.schemaVersion === 2) {
-      const policyKeys = [
-        "evidencePolicy",
-        "ledgerPolicy",
-        "reviewPolicy",
-        "designPacketPolicy",
-        "refinementPolicy",
-        "deliberationPolicy"
-      ];
-      for (const key of policyKeys) {
-        if (contract.controlPlane?.[key] !== template.controlPlane?.[key]) {
-          throw new Error(`TaskContract v2 cannot weaken template control-plane policy: ${key}`);
-        }
+      if (digestObject(contract.controlPlane) !== digestObject(template.controlPlane)) {
+        throw new Error("TaskContract v2 cannot weaken template control-plane policy; it must preserve the complete installed identity");
       }
       const stageIdentity = (stages) => (stages ?? []).map((stage) => ({
         id: stage.id,
@@ -1284,7 +1651,8 @@ async function commandRun(root, options) {
       volatileExclusions: values(options["volatile-exclusion"]).map(String),
       highRiskIgnored: values(options["high-risk-ignored"]).map(String),
       remoteRevision: options["remote-revision"] ? String(options["remote-revision"]) : null,
-      selfImprovePurpose: templateName === "self-improve-ops" && purposeProvided ? requestedEvaluationPurpose : null
+      selfImprovePurpose: templateName === "self-improve-ops" && purposeProvided ? requestedEvaluationPurpose : null,
+      autonomyProfile: autonomyBinding
     });
     if (options["require-agy"] === true || options["require-agy"] === "true") {
       contract.agy.required = true;
@@ -1300,25 +1668,11 @@ async function commandRun(root, options) {
   else delete contract.actionStages;
   if (template.deferredActions) contract.deferredActions = structuredClone(template.deferredActions);
   else delete contract.deferredActions;
-  if (upstreamSelfImproveRun) {
-    const handoffKind = "self-improve-delivery-handoff";
-    contract.upstreamSelfImproveRunId = String(options["self-improve-run"]);
-    contract.requiredEvidence = [...new Set([...contract.requiredEvidence, handoffKind])];
-    contract.requiredEvidence = [...new Set([...contract.requiredEvidence, "cache-publication"])]
-    contract.acceptanceEvidence = Object.fromEntries(
-      Object.entries(contract.acceptanceEvidence ?? {}).map(([id, kinds]) => [
-        id,
-        [...new Set([...kinds, handoffKind, "cache-publication"])]
-      ])
-    );
-    contract.executionStages = contract.executionStages.map((stage) => stage.id === "commits"
-      ? { ...stage, requiredEvidence: [...new Set([...stage.requiredEvidence, handoffKind])] }
-      : stage);
-    contract.actionGates = Object.fromEntries(
-      Object.entries(contract.actionGates ?? {}).map(([action, kinds]) => [
-        action,
-        [...new Set([...kinds, handoffKind])]
-      ])
+  if (upstreamSelfImproveRun && !contract.upstreamSelfImproveRunId) {
+    contract = applyDelegatedSelfImproveContract(
+      template,
+      contract,
+      String(options["self-improve-run"])
     );
   }
   const riskMode = routeMode(contract, "auto");
@@ -1421,7 +1775,8 @@ async function commandRoute(root, subcommand, action, options) {
       "mode",
       "domain",
       "tag",
-      "record"
+      "record",
+      "autonomy-profile"
     ]);
     const preview = await previewRoute({
       cwd: process.cwd(),
@@ -1432,7 +1787,8 @@ async function commandRoute(root, subcommand, action, options) {
       template: options.template ? String(options.template) : null,
       mode: String(options.mode ?? "auto"),
       domains: values(options.domain).map(String),
-      tags: values(options.tag).map(String)
+      tags: values(options.tag).map(String),
+      autonomyProfile: options["autonomy-profile"] ? String(options["autonomy-profile"]) : null
     });
     if (optionEnabled(options.record)) {
       const receipt = await recordRouteReceipt({
@@ -1582,7 +1938,7 @@ async function commandEval() {
 function help() {
   return {
     usage: [
-      "sbw run --template <name> --mode <auto|direct|verified|deep|critical> --goal <text> [--scope <path>] [--baseline <git-revision> for self-improve] [--evaluation-purpose ordinary|evaluator-migration|safety-remediation-v1|quality-remediation-v1] [--self-improve-run <run-id> for delegated pr-to-dev]",
+      "sbw run --template <name> --mode <auto|direct|verified|deep|critical> --goal <text> [--scope <path>] [--autonomy-profile bounded-autopilot-v1] [--baseline <git-revision> for self-improve] [--evaluation-purpose ordinary|evaluator-migration|safety-remediation-v1|quality-remediation-v1] [--self-improve-run <run-id> for delegated pr-to-dev]",
       "sbw run --route-receipt <route-receipt-id>",
       "sbw route preview --goal <text> [--scope <path>] [--entry <id>|--template <name>] [--mode <mode>] [--domain <name>] [--tag <name>] [--record]",
       "sbw route profile validate|install --file <profile.json>",
@@ -1590,13 +1946,15 @@ function help() {
       "sbw status <run-id>",
       "sbw inspect <run-id>",
       "sbw resume <run-id>",
+      "sbw autonomy preview|preflight|revoke <run-id>",
       "sbw cancel <run-id> [--reason <text>]",
       "sbw source rebind <run-id> --reason <text>",
       "sbw sentinel capture|verify <run-id> --label <label>",
       "sbw evidence add <run-id> --file <json>",
       "sbw self-improve evaluate --run <run-id> --cases <file> --baseline <git-revision> --candidate-root <path> --backend <codex|fixture> --split <train|holdout> [--trusted-codex-execution <host-file>] [--request-manifest <host-file> --request-manifest-digest <sha256>] [--purpose ordinary|evaluator-migration|safety-remediation-v1|quality-remediation-v1] [--next-cases <v2-file>]",
       "sbw self-improve host status",
-      "sbw self-improve attestation request --run <run-id> --baseline <sha> --candidate-root <path> --model <model> --output <outside-repo-directory> [--cases <file>] [--purpose ordinary|evaluator-migration|safety-remediation-v1|quality-remediation-v1] [--next-cases <v2-file>]",
+      "sbw self-improve consent status|prepare|revoke",
+    "sbw self-improve attestation request --run <run-id> --baseline <sha> --candidate-root <path> --model <model> --output <outside-repo-directory> [--binary <approved-native-codex>] [--cases <file>] [--purpose ordinary|evaluator-migration|safety-remediation-v1|quality-remediation-v1] [--next-cases <v2-file>]",
       "sbw self-improve handoff <pr-to-dev-run-id> --source-run <self-improve-run-id>",
       "sbw finding add|update <run-id> --file <json>",
       "sbw critic codex|agy <run-id> --model <model> --prompt-file <file> [--effort <auto|medium|high>] [--effort-transport <native|model-variant>]",
@@ -1612,7 +1970,7 @@ function help() {
       "sbw ledger transition <run-id> --file <event.json>",
       "sbw ledger compile <run-id> --design-packet <packet.json>",
       "sbw refinement status|apply <run-id> [--file <receipt.json>]",
-      "sbw review package|finding|status|repair|broad <run-id> ...",
+      "sbw review package|finding|axis-digest|axis|verify-digest|verify|coverage|synthesize|status|repair|broad <run-id> ...",
       "sbw recipe init",
       "sbw recipe scaffold <id>",
       "sbw recipe list",
@@ -1639,6 +1997,7 @@ async function main() {
   if (!command || command === "help" || options.help) return help();
   if (command === "templates") return { ok: true, templates: await listTemplates() };
   if (command === "run") return commandRun(root, options);
+  if (command === "autonomy") return commandAutonomy(root, subcommand, runId, options);
   if (command === "graph") return commandGraph(root, subcommand, runId, options);
   if (command === "self-improve") return commandSelfImprove(root, subcommand, options, runId);
   if (command === "route") return commandRoute(root, subcommand, runId, options);
@@ -1740,6 +2099,11 @@ async function main() {
   if (command === "resume") {
     let run = await loadRun(root, subcommand);
     assertMutableRun(run, "Run resume");
+    if (run.contract.autonomyProfile && run.state.autonomy?.status !== "ready") {
+      const autonomy = await commandAutonomy(root, "preflight", subcommand, {});
+      if (!autonomy.ok) return autonomy;
+      run = await loadRun(root, subcommand);
+    }
     let migration = { migrated: false };
     const template = await loadTemplate(run.manifest.template);
     const templateEvidence = template.requiredEvidence ?? [];
@@ -1834,6 +2198,9 @@ async function main() {
       }
       const input = JSON.parse(await readFile(path.resolve(String(options.file)), "utf8"));
       const run = await loadRun(root, runId);
+      if (reviewKernelEnabled(run.contract.controlPlane?.reviewPolicy)) {
+        throw new Error("code-v2-pilot critics must use review axis or review verify with host-signed native attestation");
+      }
       const review = await reviewStatus(root, runId);
       if (!review.package) throw new Error("Native critic requires an immutable review package");
       if (input.reviewerId !== String(options["reviewer-id"]) || !input.model || !input.review) {
@@ -1924,6 +2291,9 @@ async function main() {
       throw new Error("critic usage: sbw critic codex|agy <run-id> --model <model> --prompt-file <file>");
     }
     const run = await loadRun(root, runId);
+    if (reviewKernelEnabled(run.contract.controlPlane?.reviewPolicy)) {
+      throw new Error("code-v2-pilot rejects unattested critic providers; use host-signed review axis or review verify");
+    }
     const prompt = await readFile(path.resolve(String(options["prompt-file"])), "utf8");
     const acceptanceIds = values(options.acceptance, run.contract.acceptance.map((item) => item.id)).map(String);
     const defaults = await loadDefaults();
@@ -1996,10 +2366,9 @@ async function main() {
       if (run.contract.schemaVersion === 2 && run.contract.controlPlane?.reviewPolicy !== "none") {
         digest = await currentVerifiedDigest(root, runId);
         const review = await reviewStatus(root, runId);
-        const currentHead = (await execFileAsync("git", ["rev-parse", "--verify", "HEAD^{commit}"], {
-          cwd: run.manifest.cwd,
-          encoding: "utf8"
-        })).stdout.trim();
+        const currentHead = (await runSourceGit(run.manifest.cwd, [
+          "rev-parse", "--verify", "HEAD^{commit}"
+        ])).stdout.trim();
         if (
           !review.complete ||
           review.package?.head !== currentHead ||
@@ -2099,6 +2468,57 @@ async function main() {
   }
   if (command === "review") {
     if (!runId) throw new Error("review requires run id");
+    if (["axis-digest", "verify-digest"].includes(subcommand)) {
+      assertKnownOptions(options, ["file"]);
+      if (!options.file) throw new Error(`review ${subcommand} requires --file <receipt.json>`);
+      const input = JSON.parse(await readFile(path.resolve(String(options.file)), "utf8"));
+      const prepared = subcommand === "axis-digest"
+        ? await prepareReviewAxis(root, runId, input)
+        : await prepareFindingVerification(root, runId, input);
+      return { ok: true, prepared };
+    }
+    if (["axis", "verify"].includes(subcommand)) {
+      assertKnownOptions(options, ["file", "reviewer-id", "attestation"]);
+      if (!options.file || !options["reviewer-id"] || !options.attestation) {
+        throw new Error(`review ${subcommand} requires --file, --reviewer-id, and --attestation`);
+      }
+      const input = JSON.parse(await readFile(path.resolve(String(options.file)), "utf8"));
+      const run = await loadRun(root, runId);
+      const prepared = subcommand === "axis"
+        ? await prepareReviewAxis(root, runId, input)
+        : await prepareFindingVerification(root, runId, input);
+      const providerExecution = await verifiedNativeReviewExecution({
+        root,
+        runId,
+        run,
+        input,
+        reviewDigest: prepared.reviewDigest,
+        reviewerId: String(options["reviewer-id"]),
+        attestationPath: String(options.attestation)
+      });
+      const record = subcommand === "axis"
+        ? await recordReviewAxis(root, runId, { ...input, providerExecution })
+        : await recordFindingVerification(root, runId, { ...input, providerExecution });
+      return { ok: true, [subcommand]: record };
+    }
+    if (subcommand === "coverage") {
+      assertKnownOptions(options, []);
+      const coverage = await recordReviewCoverage(root, runId);
+      const kernel = await reviewKernelStatus(root, runId);
+      const evidence = coverage.complete
+        ? await addReviewKernelEvidence(root, runId, "work-unit-accounting", kernel)
+        : null;
+      return { ok: coverage.complete, coverage, evidence };
+    }
+    if (subcommand === "synthesize") {
+      assertKnownOptions(options, []);
+      const synthesis = await recordReviewSynthesis(root, runId);
+      const kernel = await reviewKernelStatus(root, runId);
+      const evidence = synthesis.convergence.complete
+        ? await addReviewKernelEvidence(root, runId, "review-kernel-summary", kernel)
+        : null;
+      return { ok: synthesis.convergence.complete, synthesis, evidence };
+    }
     if (subcommand === "status") {
       const review = await reviewStatus(root, runId);
       return {
@@ -2113,10 +2533,29 @@ async function main() {
                 broadReview: review.package.broadReview
               }
             : null,
-          findings: review.findings.map((item) => ({ id: item.id, packageId: item.packageId, severity: item.severity, status: item.status, path: item.path, location: item.location, rule: item.rule })),
+          findings: review.findings.map((item) => ({
+            id: item.id,
+            packageId: item.packageId ?? review.package?.packageId,
+            severity: item.severity,
+            status: item.status ?? (item.blocking ? "open" : "rejected-with-evidence"),
+            path: item.path,
+            location: item.location ?? item.anchor?.resolvedLine ?? item.anchor?.reportedLine ?? null,
+            rule: item.rule,
+            verificationVerdict: item.verificationVerdict ?? null,
+            blocking: item.blocking ?? item.status === "open"
+          })),
           openHigh: review.openHigh.map((item) => item.id),
           repairBudgetExhausted: review.repairBudgetExhausted,
           scopedClosed: review.scopedClosed,
+          kernel: review.kernel ? {
+            workUniverseDigest: review.kernel.workUniverseDigest,
+            axisSetDigest: review.kernel.axisSetDigest,
+            verificationSetDigest: review.kernel.verificationSetDigest,
+            coverageDigest: review.kernel.coverageDigest,
+            findingSetDigest: review.kernel.findingSetDigest,
+            convergence: review.kernel.convergence,
+            convergenceDigest: review.kernel.convergenceDigest
+          } : null,
           broadReviewComplete: review.broadReviewComplete,
           complete: review.complete
         }
@@ -2145,6 +2584,13 @@ async function main() {
           head: reviewPackage.head,
           scopeDigest: reviewPackage.scopeDigest,
           diffManifestDigest: reviewPackage.diffManifestDigest,
+          ...(reviewPackage.schemaVersion === 2 ? {
+            workUnitPolicy: reviewPackage.workUnitPolicy,
+            workUniverse: reviewPackage.workUniverse,
+            workUniverseDigest: reviewPackage.workUniverseDigest,
+            reviewLanes: reviewPackage.reviewLanes,
+            reviewLanesDigest: reviewPackage.reviewLanesDigest
+          } : {}),
           repairRounds: reviewPackage.repairRounds,
           broadReview: reviewPackage.broadReview
         }
@@ -2176,7 +2622,7 @@ async function main() {
         )
       };
     }
-    throw new Error("review subcommand must be package, finding, status, repair, or broad");
+    throw new Error("review subcommand must be package, finding, axis-digest, axis, verify-digest, verify, coverage, synthesize, status, repair, or broad");
   }
   if (command === "refinement") {
     if (!runId) throw new Error("refinement requires run id");

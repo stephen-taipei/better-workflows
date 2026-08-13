@@ -3,6 +3,7 @@ import path from "node:path";
 import { digestObject, listJsonRecords, pluginRoot, safeJoin } from "./core.mjs";
 import { captureSourceBinding } from "./git.mjs";
 import { SELF_IMPROVE_HANDOFF_KIND, validateSelfImproveDeliveryHandoff } from "./self-improve-handoff.mjs";
+import { reviewPackageBindingRequired } from "./review-policy.mjs";
 
 const CONTRACT_FILE = path.join(pluginRoot(), "config", "evidence-contracts-v1.json");
 const HEX_DIGEST = /^[a-f0-9]{64}$/;
@@ -31,8 +32,8 @@ export async function loadEvidenceContracts({ refresh = false } = {}) {
     throw new Error("evidence-contracts-v1 must contain schemaVersion 1 and contracts");
   }
   const entries = Object.entries(value.contracts);
-  if (entries.length !== 99) {
-    throw new Error(`evidence-contracts-v1 must cover exactly 99 kinds, found ${entries.length}`);
+  if (entries.length !== 101) {
+    throw new Error(`evidence-contracts-v1 must cover exactly 101 kinds, found ${entries.length}`);
   }
   for (const [kind, entry] of entries) {
     if (entry?.id !== `evidence-contracts-v1:${kind}`) {
@@ -43,6 +44,14 @@ export async function loadEvidenceContracts({ refresh = false } = {}) {
     }
     if (!PAYLOAD_FAMILIES.has(entry.payloadFamily) || !Array.isArray(entry.requiredFields)) {
       throw new Error(`Evidence contract payload schema is invalid for ${kind}`);
+    }
+    const nullableFields = entry.nullableFields ?? [];
+    if (
+      !Array.isArray(nullableFields) ||
+      new Set(nullableFields).size !== nullableFields.length ||
+      nullableFields.some((field) => typeof field !== "string" || !entry.requiredFields.includes(field))
+    ) {
+      throw new Error(`Evidence contract nullable fields are invalid for ${kind}`);
     }
     if (!Array.isArray(entry.freshnessBinding) || !entry.freshnessBinding.includes("runId")) {
       throw new Error(`Evidence contract freshness binding is invalid for ${kind}`);
@@ -164,19 +173,24 @@ const ARRAY_FIELDS = new Set([
   "providerRunIds", "requiredStatusCheckApps", "requiredStatusChecks", "resources", "roles", "scope", "tasks", "witnessDigests"
 ]);
 const OBJECT_FIELDS = new Set([
-  "actionProof", "artifact", "authorization", "counts", "diffManifest", "metadata", "permissions",
+  "actionProof", "artifact", "authorization", "counts", "diffManifest", "evaluatorAuthorization", "metadata", "permissions",
   "providerAuthorization", "providerExecutable", "receipt", "scopeDigest", "summary", "target", "workflow"
 ]);
-const INTEGER_FIELDS = new Set(["number", "pr", "providerRunId"]);
+const INTEGER_FIELDS = new Set(["number", "pr", "providerRunId", "repairRound"]);
 const BOOLEAN_FIELDS = new Set(["adminBypass", "protected", "result", "success", "valid"]);
 const DATE_FIELDS = new Set(["createdAt", "expiresAt", "observedAt", "verifiedAt"]);
 
-function assertPayloadFields(payload, requiredFields, kind) {
+export function assertPayloadFields(payload, requiredFields, kind, nullableFields = []) {
+  const nullable = new Set(nullableFields);
   for (const field of requiredFields) {
-    if (!(field in payload) || payload[field] === null || payload[field] === "") {
+    if (!(field in payload) || payload[field] === "") {
       throw new Error(`Typed evidence ${kind} payload is missing required field: ${field}`);
     }
     const value = payload[field];
+    if (value === null) {
+      if (nullable.has(field)) continue;
+      throw new Error(`Typed evidence ${kind} payload is missing required field: ${field}`);
+    }
     if (ARRAY_FIELDS.has(field) && !Array.isArray(value)) {
       throw new Error(`Typed evidence ${kind} payload field ${field} must be an array`);
     }
@@ -233,7 +247,7 @@ function assertSemanticSuccess(payload, kind, definition) {
 function assertIndependentCriticBinding(record, run) {
   const binding = record.dependencies?.reviewBinding;
   const required = ["packageId", "base", "head", "scopeDigest", "diffManifestDigest", "instructionDigest", "sentinelDigest"];
-  if (run.contract.controlPlane?.reviewPolicy === "code-v1") {
+  if (reviewPackageBindingRequired(run.contract.controlPlane?.reviewPolicy)) {
     if (!binding || typeof binding !== "object" || Array.isArray(binding)) {
       throw new Error("Typed evidence independent-critic review binding is required");
     }
@@ -272,12 +286,38 @@ function assertIndependentCriticBinding(record, run) {
   if (execution.provider === "codex-native-subagent" && !record.nativeReviewer?.attestationDigest) {
     throw new Error("Typed evidence native critic attestation is missing");
   }
-  if (run.contract.controlPlane?.reviewPolicy === "code-v1" && record.dependencies.promptDigest !== binding.instructionDigest) {
+  if (reviewPackageBindingRequired(run.contract.controlPlane?.reviewPolicy) && record.dependencies.promptDigest !== binding.instructionDigest) {
     throw new Error("Typed evidence independent-critic prompt is not bound to the review instruction");
   }
   if (record.review?.verdict === "PASS" && record.review.findings.length > 0) {
     throw new Error("Typed evidence independent-critic PASS cannot contain findings");
   }
+}
+
+async function assertReviewKernelEvidence(payload, kind, run) {
+  if (!["work-unit-accounting", "review-kernel-summary"].includes(kind)) return;
+  if (!run.root) throw new Error(`Typed evidence ${kind} requires live review-kernel state`);
+  const { reviewKernelStatus } = await import("./review.mjs");
+  const kernel = await reviewKernelStatus(run.root, run.manifest.runId);
+  if (!kernel) throw new Error(`Typed evidence ${kind} requires a current v2 review package`);
+  const commonMatches = (
+    payload.result === true && payload.packageId === kernel.packageId &&
+    payload.repairRound === kernel.repairRound && payload.workUniverseDigest === kernel.workUniverseDigest &&
+    payload.axisSetDigest === kernel.axisSetDigest && payload.coverageDigest === kernel.coverageDigest
+  );
+  if (!commonMatches) throw new Error(`Typed evidence ${kind} is stale or not bound to the current review kernel`);
+  if (kind === "work-unit-accounting") {
+    if (
+      !kernel.convergence.coverageComplete || payload.reviewLanesDigest !== kernel.reviewLanesDigest ||
+      digestObject(payload.items) !== digestObject(kernel.coverage)
+    ) throw new Error("Typed evidence work-unit-accounting does not match deterministic coverage");
+    return;
+  }
+  if (
+    !kernel.convergence.complete || payload.verificationSetDigest !== kernel.verificationSetDigest ||
+    payload.findingSetDigest !== kernel.findingSetDigest || payload.convergenceDigest !== kernel.convergenceDigest ||
+    digestObject(payload.items) !== digestObject(kernel.findings)
+  ) throw new Error("Typed evidence review-kernel-summary does not match deterministic synthesis");
 }
 
 async function assertFreshBinding(receipt, run, definition, kind) {
@@ -422,7 +462,8 @@ export async function admitTypedEvidence(record, run, { persisted = false } = {}
     throw new Error(`Typed evidence ${record.kind} payload must not be empty`);
   }
   await assertActionProofPayload(receipt.payload, record.kind, run, record.id);
-  assertPayloadFields(receipt.payload, definition.requiredFields, record.kind);
+  assertPayloadFields(receipt.payload, definition.requiredFields, record.kind, definition.nullableFields ?? []);
+  await assertReviewKernelEvidence(receipt.payload, record.kind, run);
   if (record.kind === SELF_IMPROVE_HANDOFF_KIND) {
     await validateSelfImproveDeliveryHandoff(receipt.payload, run);
   }

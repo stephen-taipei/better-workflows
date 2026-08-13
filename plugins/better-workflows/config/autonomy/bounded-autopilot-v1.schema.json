@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/stephen-taipei/better-workflows/schema/bounded-autopilot-v1.json",
+  "title": "Better Workflows bounded-autopilot-v1 policy",
+  "description": "Immutable policy definition for run-scoped, bounded delivery autonomy.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "description",
+    "autoActions",
+    "humanActions",
+    "deniedActions",
+    "scope",
+    "limits"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": { "const": "bounded-autopilot-v1" },
+    "description": { "type": "string", "minLength": 1, "maxLength": 512 },
+    "autoActions": {
+      "type": "array",
+      "uniqueItems": true,
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "enum": [
+          "read",
+          "test",
+          "evaluator.replay",
+          "git.commit",
+          "plugin.cache.publish",
+          "git.push.codex",
+          "pr.create.dev"
+        ]
+      }
+    },
+    "humanActions": {
+      "type": "array",
+      "uniqueItems": true,
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "enum": [
+          "host.bootstrap",
+          "host.upgrade",
+          "host.revoke",
+          "pr.merge",
+          "deploy",
+          "git.push.dev",
+          "git.push.main",
+          "worktree.cleanup"
+        ]
+      }
+    },
+    "deniedActions": {
+      "type": "array",
+      "uniqueItems": true,
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "enum": [
+          "password.capture",
+          "sudo.unbounded",
+          "admin.bypass",
+          "shell.unpinned"
+        ]
+      }
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "localBranchPattern",
+        "remoteBranchPattern",
+        "pullRequestBase",
+        "maxPullRequests"
+      ],
+      "properties": {
+        "localBranchPattern": { "const": "^codex/[A-Za-z0-9._/-]+$" },
+        "remoteBranchPattern": { "const": "^codex/[A-Za-z0-9._/-]+$" },
+        "pullRequestBase": { "const": "dev" },
+        "maxPullRequests": { "const": 1 }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "maxFiles",
+        "maxDiffBytes",
+        "maxDurationSeconds",
+        "maxCommits",
+        "maxPullRequests"
+      ],
+      "properties": {
+        "maxFiles": { "const": 80 },
+        "maxDiffBytes": { "const": 262144 },
+        "maxDurationSeconds": { "const": 28800 },
+        "maxCommits": { "const": 12 },
+        "maxPullRequests": { "const": 1 }
+      }
+    }
+  }
+}

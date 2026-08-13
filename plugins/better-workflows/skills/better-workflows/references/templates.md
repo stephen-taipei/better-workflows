@@ -22,6 +22,10 @@ Use the JSON definitions under the plugin `templates/` directory as the machine-
 Every installed template now declares a v2 control-plane policy and execution
 stages. Non-direct runs receive typed evidence admission and a replayable
 `ledger.json`; review-enabled templates additionally require an immutable review
-package and final broad-review closure. Only `monorepo-refactor` and
+package and final broad-review closure. `self-improve-ops` alone uses the
+shadow-only `code-v2-pilot` with exact work-unit accounting, independently
+attested review lanes, finder/verifier separation, deterministic synthesis, and
+two aggregate typed receipts; all other review templates retain their existing
+policies. Only `monorepo-refactor` and
 `self-improve-ops` enable the design-packet/refinement pilots, and only
 `research-deliberation` plus `self-improve-ops` enable atomic deliberation.

@@ -4,7 +4,6 @@ import { createRequire } from "node:module";
 import { promisify } from "node:util";
 import { lstat, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import {
   evaluationBindingDigest,
   loadFrozenEvaluationSuite,
@@ -15,9 +14,11 @@ import {
   readSanitizedBaselineMaterial,
   snapshotCandidate,
   snapshotBaselineForCandidate,
+  selectEvaluatorMigrationCases,
   selectEvaluationCases,
   SELF_IMPROVE_CANONICAL_CORPUS,
   SELF_IMPROVE_MIGRATION_SOURCE_CORPUS,
+  SELF_IMPROVE_V22_CORPUS,
   isPolicyBoundEvaluationPurpose,
   selectSafetyRemediationCases,
   selectQualityRemediationCases,
@@ -26,9 +27,16 @@ import {
 import { captureSourceBinding } from "./git.mjs";
 import { bundleDigest } from "./publication.mjs";
 import { binaryIdentity } from "./providers.mjs";
+import { hostBundleFromStatus, hostBundleDigest } from "./host-bundle.mjs";
+import {
+  consentDigest,
+  loadStandingConsentPolicy,
+  matchStandingConsent,
+  resolveStandingConsentAuthorization,
+  STANDING_CONSENT_MANIFEST_SCHEMA_VERSION
+} from "./standing-consent.mjs";
 
 const HOST_TRUST_TOOL = "/private/var/db/better-workflows/bin/bw-host-trust.mjs";
-const SOURCE_HOST_TRUST_TOOL = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../host-trust.mjs");
 const execFileAsync = promisify(execFile);
 const HOST_RUNTIME_ROOT = "/private/var/db/better-workflows/bin";
 const CODEX_TARGET_TRIPLE = process.platform === "darwin" && process.arch === "arm64"
@@ -66,15 +74,43 @@ async function installedRuntime() {
   }
   const runtime = status?.runtime;
   const codexBinary = status?.codexBinary;
-  const sourceSignerDigest = createHash("sha256").update(await readFile(SOURCE_HOST_TRUST_TOOL)).digest("hex");
   const signer = status?.signer;
+  const hostBundle = hostBundleFromStatus(status);
   if (!status.ready || !runtime?.supported || typeof runtime.path !== "string" || !/^[a-f0-9]{64}$/.test(runtime.digest ?? "") ||
       !codexBinary?.supported || !/^[a-f0-9]{64}$/.test(codexBinary.registryDigest ?? "") || !Array.isArray(codexBinary.validEntries) ||
       runtime.path !== `${HOST_RUNTIME_ROOT}/bw-host-node.${runtime.digest}` ||
-      !signer?.supported || signer.path !== HOST_TRUST_TOOL || signer.digest !== sourceSignerDigest) {
-    throw new Error("Administrator host runtime or signer is not ready; run host-trust upgrade first with the current source signer and approved Codex binary before generating replay requests");
+      !signer?.supported || signer.path !== HOST_TRUST_TOOL ||
+      hostBundle.schemaVersion !== 1 || hostBundle.protocolVersion !== 1 ||
+      hostBundle.bundleVersion !== signer.version || hostBundle.signerDigest !== signer.digest ||
+      hostBundle.runtimeDigest !== runtime.digest) {
+    throw new Error("Administrator host runtime or signed host bundle is not ready; run the separately governed host bootstrap or upgrade before generating replay requests");
   }
-  return { path: runtime.path, digest: runtime.digest, codexBinary };
+  return { path: runtime.path, digest: runtime.digest, codexBinary, hostBundle, standingConsent: status.standingConsent ?? null };
+}
+
+function isWithin(root, target) {
+  const relative = path.relative(root, target);
+  return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative));
+}
+
+function promptFileManifest(snapshot) {
+  return (snapshot.files ?? []).map((file) => ({
+    path: file.path,
+    state: file.state,
+    digest: file.digest,
+    mode: file.mode ?? null,
+    size: file.size ?? null
+  }));
+}
+
+function materialBinding(snapshot, materials, policyDigest) {
+  return {
+    schemaVersion: 1,
+    sanitizerPolicyDigest: policyDigest,
+    snapshotDigest: snapshot.digest,
+    files: promptFileManifest(snapshot),
+    materialsDigest: consentDigest(materials)
+  };
 }
 
 function isMachO(bytes) {
@@ -113,6 +149,30 @@ async function codexExecutableIdentity(binaryPath) {
   throw new Error("Codex replay requires an administrator-approved native Mach-O Codex executable; the JS wrapper and incomplete vendor bundles are rejected");
 }
 
+export function selectCodexBinaryPath(binaryPath, validEntries) {
+  if (binaryPath) return binaryPath;
+  if (!Array.isArray(validEntries) || validEntries.length !== 1) return null;
+  const [entry] = validEntries;
+  return entry && typeof entry.path === "string" && path.isAbsolute(entry.path)
+    ? entry.path
+    : null;
+}
+
+export function evaluationExecutionPlan(purpose) {
+  return [
+    { split: "train", role: "train-candidate", attempt: 1 },
+    ...(purpose === "evaluator-migration"
+      ? [{ split: "train", role: "train-baseline", attempt: 1 }]
+      : []),
+    { split: "holdout", role: "candidate", attempt: 1 },
+    { split: "holdout", role: "candidate", attempt: 2 },
+    { split: "holdout", role: "candidate", attempt: 3 },
+    { split: "holdout", role: "baseline", attempt: 1 },
+    { split: "holdout", role: "baseline", attempt: 2 },
+    { split: "holdout", role: "baseline", attempt: 3 }
+  ];
+}
+
 export async function generateAttestationRequests({
   repo,
   runId,
@@ -131,11 +191,13 @@ export async function generateAttestationRequests({
     throw new Error("Attestation requests require an exact Git source binding");
   }
   const publishableBundleDigest = await bundleDigest(path.join(resolvedRepo, "plugins", "better-workflows"));
+  const standingPolicy = await loadStandingConsentPolicy(resolvedRepo);
   const runtime = await installedRuntime();
   await verifyAdministratorRuntime(runtime);
-  const binary = await codexExecutableIdentity(binaryPath);
+  const selectedBinaryPath = selectCodexBinaryPath(binaryPath, runtime.codexBinary.validEntries);
+  const binary = await codexExecutableIdentity(selectedBinaryPath);
   const resolvedBinary = binary.path;
-  if (binaryPath && resolvedBinary !== binaryPath) {
+  if (selectedBinaryPath && resolvedBinary !== selectedBinaryPath) {
     throw new Error("Codex binary argument must already be canonical");
   }
   const approvedBinary = runtime.codexBinary.validEntries.find((entry) => entry.path === resolvedBinary && entry.digest === binary.digest);
@@ -154,7 +216,7 @@ export async function generateAttestationRequests({
   const defaultCasesFile = purpose === "evaluator-migration"
     ? SELF_IMPROVE_MIGRATION_SOURCE_CORPUS
     : policyBound
-      ? SELF_IMPROVE_CANONICAL_CORPUS
+      ? SELF_IMPROVE_V22_CORPUS
       : await ordinaryCorpusForBaseline({ cwd: resolvedRepo, baselineRevision });
   const frozen = await loadFrozenEvaluationSuite({
     cwd: resolvedRepo,
@@ -212,35 +274,50 @@ export async function generateAttestationRequests({
     homePath,
     codexHomePath
   };
+  const executions = evaluationExecutionPlan(purpose);
+  const standingMatch = matchStandingConsent({
+    hostStatus: { standingConsent: runtime.standingConsent },
+    policy: standingPolicy,
+    repo: resolvedRepo,
+    model,
+    purpose,
+    runAs,
+    requestCount: executions.length
+  });
+  const authorization = resolveStandingConsentAuthorization(
+    { standingConsent: runtime.standingConsent },
+    standingMatch
+  );
+  if (authorization && (
+    !isWithin(authorization.requestRoot, outputDir) ||
+    path.dirname(outputDir) !== authorization.requestRoot ||
+    !/^[A-Za-z0-9][A-Za-z0-9._-]{7,127}$/.test(path.basename(outputDir))
+  )) {
+    throw new Error(`Standing evaluator consent requires --output to be one safe direct child of ${authorization.requestRoot}`);
+  }
   for (const split of ["train", "holdout"]) {
     const cases = purpose === "safety-remediation-v1"
       ? selectSafetyRemediationCases({ suite: frozen.suite, snapshot: candidate, split, policy })
       : purpose === "quality-remediation-v1"
         ? selectQualityRemediationCases({ suite: frozen.suite, snapshot: candidate, split, policy })
-        : selectEvaluationCases({ suite: frozen.suite, snapshot: candidate, split });
+        : purpose === "evaluator-migration"
+          ? selectEvaluatorMigrationCases({ suite: target.suite, split })
+          : selectEvaluationCases({ suite: frozen.suite, snapshot: candidate, split });
     promptByRoleAndSplit.set(`candidate:${split}`, buildEvaluationPrompt({
-      suite: { ...frozen.suite, cases },
+      suite: { ...(purpose === "evaluator-migration" ? target.suite : frozen.suite), cases },
       candidate,
       materials: candidateMaterial
     }));
     promptByRoleAndSplit.set(`baseline:${split}`, buildEvaluationPrompt({
-      suite: { ...frozen.suite, cases },
+      suite: { ...(purpose === "evaluator-migration" ? target.suite : frozen.suite), cases },
       candidate: baseline,
       materials: baselineMaterial
     }));
   }
-  const executions = [
-    { split: "train", role: "train-candidate", attempt: 1 },
-    { split: "holdout", role: "candidate", attempt: 1 },
-    { split: "holdout", role: "candidate", attempt: 2 },
-    { split: "holdout", role: "candidate", attempt: 3 },
-    { split: "holdout", role: "baseline", attempt: 1 },
-    { split: "holdout", role: "baseline", attempt: 2 },
-    { split: "holdout", role: "baseline", attempt: 3 }
-  ];
   await mkdir(outputDir, { recursive: false, mode: 0o700 });
   const records = [];
   for (const item of executions) {
+    const promptRole = item.role.endsWith("baseline") ? "baseline" : "candidate";
     const execution = {
       id: `${runId}-${item.split}-${item.role}-${item.attempt}`,
       runId,
@@ -249,14 +326,15 @@ export async function generateAttestationRequests({
       candidateDigest: candidate.digest,
       headRevision: sourceBinding.headRevision,
       promptDigest: createHash("sha256")
-        .update(promptByRoleAndSplit.get(`${item.role === "train-candidate" ? "candidate" : item.role}:${item.split}`))
+        .update(promptByRoleAndSplit.get(`${promptRole}:${item.split}`))
         .digest("hex"),
       role: item.role,
       sourceBindingDigest: sourceBinding.digest,
       attempt: item.attempt,
+      ...(authorization ? { authorization } : {}),
       ...(policyBound ? { purpose, policyDigest: policy.digest } : {})
     };
-    const prompt = promptByRoleAndSplit.get(`${item.role === "train-candidate" ? "candidate" : item.role}:${item.split}`);
+    const prompt = promptByRoleAndSplit.get(`${promptRole}:${item.split}`);
     const promptBytes = Buffer.from(prompt);
     const promptFilename = `${execution.id}.prompt.txt`;
     const promptFile = path.join(outputDir, promptFilename);
@@ -274,7 +352,17 @@ export async function generateAttestationRequests({
       pluginBundleDigest: publishableBundleDigest,
       promptDigest,
       promptPath: promptFile,
-      uid: runAs.uid
+      uid: runAs.uid,
+      ...(authorization
+        ? {
+          authorization,
+          materialBinding: materialBinding(
+            promptRole === "baseline" ? baseline : candidate,
+            promptRole === "baseline" ? baselineMaterial : candidateMaterial,
+            standingPolicy.digest
+          )
+        }
+        : {})
     };
     if (policyBound) {
       request.purpose = purpose;
@@ -291,11 +379,12 @@ export async function generateAttestationRequests({
       promptDigest: execution.promptDigest,
       prompt: promptFile,
       request: file,
-      requestDigest: createHash("sha256").update(bytes).digest("hex")
+      requestDigest: createHash("sha256").update(bytes).digest("hex"),
+      ...(authorization ? { authorizationDigest: consentDigest(authorization) } : {})
     });
   }
   const manifest = {
-    schemaVersion: policyBound ? 3 : 2,
+    schemaVersion: authorization ? STANDING_CONSENT_MANIFEST_SCHEMA_VERSION : policyBound ? 3 : 2,
     repo: resolvedRepo,
     runId,
     model,
@@ -306,6 +395,8 @@ export async function generateAttestationRequests({
     sourceBindingDigest: sourceBinding.digest,
     runtimePath: runtime.path,
     runtimeDigest: runtime.digest,
+    hostBundle: runtime.hostBundle,
+    hostBundleDigest: hostBundleDigest(runtime.hostBundle),
     pluginBundleDigest: publishableBundleDigest,
     runAs,
     purpose,
@@ -318,6 +409,15 @@ export async function generateAttestationRequests({
     candidateDigest: candidate.digest,
     candidateFiles: candidate.files,
     requests: records,
+    ...(authorization
+      ? {
+        authorization,
+        candidateRoot: candidate.candidateRoot,
+        baselineSnapshotDigest: baseline.digest,
+        standingConsentPolicyPath: standingPolicy.relativePath,
+        standingConsentPolicyDigest: standingPolicy.digest
+      }
+      : {}),
     ...(policyBound
       ? {
         policyPath: policy.path,
@@ -335,11 +435,13 @@ export async function generateAttestationRequests({
     ...manifest,
     manifestPath,
     manifestDigest: createHash("sha256").update(manifestBytes).digest("hex"),
+    standingConsent: standingMatch,
     executeCommand: [
       "/usr/bin/sudo",
+      ...(authorization ? ["-n"] : []),
       runtime.path,
       HOST_TRUST_TOOL,
-      "execute-batch",
+      authorization ? "execute-consented-batch" : "execute-batch",
       "--manifest",
       manifestPath,
       "--confirm-digest",

@@ -263,6 +263,7 @@ export async function deriveLedgerStatus(root, runId) {
   const run = {
     manifest: await readJson(root, safeJoin(runDir, "manifest.json")),
     contract: await readJson(root, safeJoin(runDir, "contract.json")),
+    state: await readJson(root, safeJoin(runDir, "state.json")),
     root,
     runDir,
     requireReconciled: true
@@ -273,7 +274,9 @@ export async function deriveLedgerStatus(root, runId) {
   const evidenceBlockers = [];
   if (run.contract.schemaVersion === 2) {
     const { validateTypedEvidenceRecord } = await import("./evidence.mjs");
-    for (const record of records.filter((item) => item.schemaVersion === 2 && item.typedAdmission)) {
+    for (const record of records.filter((item) => (
+      item.schemaVersion === 2 && item.typedAdmission && item.stale !== true
+    ))) {
       try {
         await validateTypedEvidenceRecord(record, run);
         if (!record.stale) typedKinds.add(record.kind);
@@ -282,7 +285,9 @@ export async function deriveLedgerStatus(root, runId) {
       }
     }
   } else {
-    for (const record of records.filter((item) => item.schemaVersion === 2 && item.typedAdmission)) typedKinds.add(record.kind);
+    for (const record of records.filter((item) => (
+      item.schemaVersion === 2 && item.typedAdmission && item.stale !== true
+    ))) typedKinds.add(record.kind);
   }
   if (ledger.contractDigest !== digestObject(run.contract)) throw new Error("Ledger contract digest is stale");
   const reduced = reduceLedger(ledger, typedKinds);
@@ -313,7 +318,9 @@ export async function transitionLedger(root, runId, event) {
   const typedKinds = new Set();
   if (run.contract.schemaVersion === 2) {
     const { validateTypedEvidenceRecord } = await import("./evidence.mjs");
-    for (const record of records.filter((item) => item.schemaVersion === 2 && item.typedAdmission)) {
+    for (const record of records.filter((item) => (
+      item.schemaVersion === 2 && item.typedAdmission && item.stale !== true
+    ))) {
       try {
         await validateTypedEvidenceRecord(record, { ...run, root, requireReconciled: true });
         if (!record.stale) typedKinds.add(record.kind);
@@ -322,7 +329,9 @@ export async function transitionLedger(root, runId, event) {
       }
     }
   } else {
-    for (const record of records.filter((item) => item.schemaVersion === 2 && item.typedAdmission)) {
+    for (const record of records.filter((item) => (
+      item.schemaVersion === 2 && item.typedAdmission && item.stale !== true
+    ))) {
       typedKinds.add(record.kind);
     }
   }

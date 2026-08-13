@@ -1,36 +1,198 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { lstat, readFile, readdir, readlink, realpath } from "node:fs/promises";
 import path from "node:path";
-import { canonicalJson, sha256 } from "./core.mjs";
+import { canonicalJson, execBoundGit, sha256 } from "./core.mjs";
+import { isExactGitAbsence, readRawLocalConfigValues } from "./autonomy-snapshot.mjs";
+const SOURCE_GIT_EXECUTABLE = "/usr/bin/git";
+const SOURCE_GIT_PATH = "/usr/bin:/bin:/usr/sbin:/sbin";
+const SOURCE_GIT_TIMEOUT_MS = 30_000;
+const SOURCE_GIT_MAX_BUFFER = 4 * 1024 * 1024;
 
-const execFileAsync = promisify(execFile);
+function isolatedGitEnvironment() {
+  return {
+    PATH: SOURCE_GIT_PATH,
+    HOME: "/var/empty",
+    LANG: "C",
+    LC_ALL: "C",
+    GIT_OPTIONAL_LOCKS: "0",
+    GIT_CONFIG_GLOBAL: "/dev/null",
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_TERMINAL_PROMPT: "0",
+    GIT_NO_REPLACE_OBJECTS: "1",
+    GIT_GRAFT_FILE: "/dev/null"
+  };
+}
 
-async function git(cwd, args, { allowFailure = false, maxBuffer = 32 * 1024 * 1024 } = {}) {
+function gitFailureDetail(error) {
+  const message = String(error?.message ?? "").trim();
+  const stderr = Buffer.isBuffer(error?.stderr)
+    ? error.stderr.toString("utf8").trim()
+    : String(error?.stderr ?? "").trim();
+  if (!message) return stderr || "unknown failure";
+  if (!stderr || message.includes(stderr)) return message;
+  return `${message}: ${stderr}`;
+}
+
+function optionalSourceGitOutput(result, label, { absentCodes = [1] } = {}) {
+  if (result?.ok === true) return result.stdout;
+  if (isExactGitAbsence(result, { absentCodes })) return null;
+  const detail = String(result?.stderr || result?.code || "unknown failure").trim();
+  throw new Error(`${label} failed: ${detail}`);
+}
+
+export function parseOptionalSourceSymbolicRef(output, label = "Source binding symbolic-ref read") {
+  if (output === null) return null;
+  if (typeof output !== "string" || !/^refs\/[^\x00-\x20\x7f]+\n$/.test(output)) {
+    throw new Error(`${label} returned malformed success output`);
+  }
+  return output.slice(0, -1);
+}
+
+export function parseOptionalSourceCommitRevision(output, label = "Source binding revision read") {
+  if (output === null) return null;
+  if (typeof output !== "string" || !/^[a-f0-9]{40}\n$/i.test(output)) {
+    throw new Error(`${label} returned malformed success output`);
+  }
+  return output.slice(0, -1);
+}
+
+async function git(cwd, args, {
+  allowFailure = false,
+  isolatedConfig = false,
+  isolatedEnvironment = false,
+  timeoutMs = SOURCE_GIT_TIMEOUT_MS,
+  maxBuffer = 32 * 1024 * 1024,
+  encoding = "utf8",
+  workTree = null
+} = {}) {
   try {
-    const result = await execFileAsync("git", args, {
+    const commandArgs = isolatedConfig
+      ? [
+          "--no-replace-objects",
+          ...(workTree === null ? [] : [`--work-tree=${workTree}`]),
+          "-c", "core.fsmonitor=false",
+          "-c", "core.hooksPath=/dev/null",
+          "-c", "credential.helper=",
+          ...args
+        ]
+      : args;
+    const environment = isolatedConfig || isolatedEnvironment
+      ? isolatedGitEnvironment()
+      : { ...process.env, GIT_OPTIONAL_LOCKS: "0" };
+    const result = await execBoundGit(SOURCE_GIT_EXECUTABLE, commandArgs, {
       cwd,
-      encoding: "utf8",
-      maxBuffer,
-      env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" }
+      env: environment,
+      timeoutMs: Math.min(timeoutMs, SOURCE_GIT_TIMEOUT_MS),
+      maxBuffer: Math.min(maxBuffer, SOURCE_GIT_MAX_BUFFER),
+      encoding
     });
     return { ok: true, stdout: result.stdout, stderr: result.stderr };
   } catch (error) {
+    const detail = gitFailureDetail(error);
     if (allowFailure) {
       return {
         ok: false,
-        stdout: error.stdout ?? "",
-        stderr: error.stderr ?? error.message,
-        code: error.code
+        stdout: error.stdout ?? (encoding === "buffer" ? Buffer.alloc(0) : ""),
+        stderr: encoding === "buffer" ? Buffer.from(detail) : detail,
+        code: error.code,
+        signal: error.signal ?? null,
+        timedOut: error.code === "ETIMEDOUT",
+        outputExceeded: error.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER"
       };
     }
-    throw new Error(`git ${args.join(" ")} failed: ${error.stderr ?? error.message}`);
+    const failure = new Error(`git ${args.join(" ")} failed: ${detail}`);
+    failure.code = error.code;
+    failure.signal = error.signal;
+    failure.stdout = error.stdout;
+    failure.stderr = error.stderr;
+    throw failure;
   }
 }
 
-export async function isGitRepository(cwd) {
-  const result = await git(cwd, ["rev-parse", "--is-inside-work-tree"], { allowFailure: true });
-  return result.ok && result.stdout.trim() === "true";
+function sourceGit(cwd, args, options = {}) {
+  const { validateWorktree = true, workTree = null, ...gitOptions } = options;
+  return (async () => {
+    const expectedWorkTree = workTree ?? await findCanonicalWorktree(cwd);
+    if (validateWorktree) await validateConfiguredWorktree(cwd, expectedWorkTree);
+    return git(cwd, args, { ...gitOptions, workTree: expectedWorkTree, isolatedConfig: true });
+  })();
+}
+
+export function runSourceGit(cwd, args, options = {}) {
+  return sourceGit(cwd, args, options);
+}
+
+export async function canonicalSourceRoot(cwd) {
+  const expectedWorkTree = await findCanonicalWorktree(cwd);
+  await validateConfiguredWorktree(cwd, expectedWorkTree);
+  return expectedWorkTree;
+}
+
+export function parseGitWorktreeProbeOutput(stdout) {
+  if (stdout === "true\n") return true;
+  if (stdout === "false\n") return false;
+  throw new Error("Git worktree probe returned malformed success output");
+}
+
+export async function isGitRepository(cwd, {
+  runGit = sourceGit
+} = {}) {
+  let expectedWorkTree;
+  try {
+    expectedWorkTree = await findCanonicalWorktree(cwd);
+  } catch (error) {
+    if (error?.code === "SBW_GIT_METADATA_NOT_FOUND") return false;
+    throw error;
+  }
+  const result = await runGit(cwd, ["rev-parse", "--is-inside-work-tree"], {
+    workTree: expectedWorkTree
+  });
+  if (result?.ok !== true) throw new Error("Git worktree probe returned an indeterminate result");
+  return parseGitWorktreeProbeOutput(result.stdout);
+}
+
+async function findCanonicalWorktree(cwd) {
+  let cursor = await realpath(path.resolve(cwd));
+  for (;;) {
+    const gitPath = path.join(cursor, ".git");
+    try {
+      const info = await lstat(gitPath);
+      if (info.isDirectory() || info.isFile()) return cursor;
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+    const parent = path.dirname(cursor);
+    if (parent === cursor) break;
+    cursor = parent;
+  }
+  const error = new Error(`Git worktree metadata was not found above ${path.resolve(cwd)}`);
+  error.code = "SBW_GIT_METADATA_NOT_FOUND";
+  throw error;
+}
+
+async function validateConfiguredWorktree(cwd, expectedWorkTree) {
+  const values = await readRawLocalConfigValues(
+    (args, options) => git(cwd, args, {
+      ...options,
+      isolatedConfig: true,
+      isolatedEnvironment: true,
+      workTree: expectedWorkTree
+    }),
+    "core.worktree",
+    { maxBuffer: SOURCE_GIT_MAX_BUFFER, label: "Git core.worktree configuration" }
+  );
+  for (const value of values) {
+    if (!value) throw new Error("Git core.worktree configuration contains an empty value");
+    const configured = path.isAbsolute(value) ? path.resolve(value) : path.resolve(expectedWorkTree, value);
+    let resolved;
+    try {
+      resolved = await realpath(configured);
+    } catch {
+      throw new Error("Git core.worktree configuration does not resolve to the expected worktree");
+    }
+    if (resolved !== expectedWorkTree) {
+      throw new Error(`Git core.worktree configuration redirects away from ${expectedWorkTree}`);
+    }
+  }
 }
 
 function normalizeRelative(cwd, candidate) {
@@ -187,12 +349,28 @@ async function untrackedMetadata(cwd, paths, exclusions, maxFiles) {
 }
 
 async function gitPath(cwd, name) {
-  const result = await git(cwd, ["rev-parse", "--git-path", name]);
+  const expectedWorkTree = await findCanonicalWorktree(cwd);
+  await validateConfiguredWorktree(cwd, expectedWorkTree);
+  const result = await git(cwd, [
+    "--no-replace-objects",
+    `--work-tree=${expectedWorkTree}`,
+    "-c", "core.fsmonitor=false",
+    "-c", "credential.helper=",
+    "rev-parse", "--git-path", name
+  ], { isolatedEnvironment: true });
   return path.resolve(cwd, result.stdout.trim());
 }
 
-export async function hiddenIndexEntries(cwd) {
-  const result = await git(cwd, ["ls-files", "-v", "-z"]);
+async function localConfigValues(cwd, key) {
+  return readRawLocalConfigValues(
+    (args, options) => sourceGit(cwd, args, options),
+    key,
+    { maxBuffer: SOURCE_GIT_MAX_BUFFER, label: "Source binding" }
+  );
+}
+
+export async function hiddenIndexEntries(cwd, { isolatedConfig = false } = {}) {
+  const result = await sourceGit(cwd, ["ls-files", "-v", "-z"]);
   const records = [];
   for (const entry of result.stdout.split("\0").filter(Boolean)) {
     const status = entry[0];
@@ -211,6 +389,52 @@ async function digestOptionalFile(target, maxBytes = 1024 * 1024) {
     if (error.code === "ENOENT") return { type: "missing" };
     throw error;
   }
+}
+
+async function assertNoLegacyGrafts(gitDir, gitCommonDir) {
+  const directories = [...new Set([gitDir, gitCommonDir])];
+  for (const directory of directories) {
+    const graftsPath = path.join(directory, "info", "grafts");
+    try {
+      await lstat(graftsPath);
+    } catch (error) {
+      if (error.code === "ENOENT") continue;
+      throw error;
+    }
+    throw new Error(`Legacy Git graft ancestry metadata is not allowed: ${graftsPath}`);
+  }
+}
+
+async function gitAuthorityLayout(cwd) {
+  const [gitDirResult, gitCommonDirResult, shallowResult] = await Promise.all([
+    sourceGit(cwd, ["rev-parse", "--git-dir"]),
+    sourceGit(cwd, ["rev-parse", "--git-common-dir"]),
+    sourceGit(cwd, ["rev-parse", "--is-shallow-repository"])
+  ]);
+  const shallowRepository = shallowResult.stdout.trim();
+  if (!new Set(["true", "false"]).has(shallowRepository)) {
+    throw new Error("Git shallow repository state is indeterminate");
+  }
+  return {
+    gitDir: await realpath(path.resolve(cwd, gitDirResult.stdout.trim())),
+    gitCommonDir: await realpath(path.resolve(cwd, gitCommonDirResult.stdout.trim())),
+    shallowRepository: shallowRepository === "true"
+  };
+}
+
+function assertCompleteGitAncestry(layout) {
+  if (layout.shallowRepository) {
+    throw new Error("Shallow Git repositories are not allowed for immutable ancestry proofs");
+  }
+}
+
+export async function assertSourceGitAncestryAuthority(cwd) {
+  const repository = path.resolve(cwd);
+  if (!(await isGitRepository(repository))) throw new Error(`Not a Git repository: ${repository}`);
+  const layout = await gitAuthorityLayout(repository);
+  await assertNoLegacyGrafts(layout.gitDir, layout.gitCommonDir);
+  assertCompleteGitAncestry(layout);
+  return layout;
 }
 
 async function hooksAndConfig(cwd) {
@@ -237,7 +461,7 @@ async function hooksAndConfig(cwd) {
 }
 
 async function trackedSymlinks(cwd) {
-  const result = await git(cwd, ["ls-files", "-s", "-z"]);
+  const result = await sourceGit(cwd, ["ls-files", "-s", "-z"]);
   const records = [];
   for (const entry of result.stdout.split("\0").filter(Boolean)) {
     const match = entry.match(/^(\d{6}) ([a-f0-9]+) (\d+)\t(.+)$/s);
@@ -255,7 +479,7 @@ async function trackedSymlinks(cwd) {
 }
 
 async function attributesDigest(cwd, budget) {
-  const result = await git(cwd, ["ls-files", "-z", "--", ".gitattributes", ":(glob)**/.gitattributes"]);
+  const result = await sourceGit(cwd, ["ls-files", "-z", "--", ".gitattributes", ":(glob)**/.gitattributes"]);
   return digestPaths(cwd, result.stdout.split("\0").filter(Boolean), budget, []);
 }
 
@@ -264,40 +488,81 @@ async function highRiskIgnored(cwd, requested, budget) {
   return digestPaths(cwd, paths, budget, []);
 }
 
-export async function captureSourceBinding(cwd, { baseRevision = null, requireClean = false } = {}) {
+export async function captureSourceBinding(cwd, {
+  baseRevision = null,
+  requireClean = false,
+  beforeFinalCheck = null
+} = {}) {
   const repository = await realpath(path.resolve(cwd));
   if (!(await isGitRepository(repository))) return null;
+  const expectedRepositoryRoot = await findCanonicalWorktree(repository);
 
-  const worktreeStatus = (await git(repository, ["status", "--porcelain=v2", "-z", "--untracked-files=all", "--ignored"])).stdout;
-  const hiddenIndex = await hiddenIndexEntries(repository);
-  const worktreeClean = worktreeStatus.length === 0 && hiddenIndex.records.length === 0;
-  if (requireClean && !worktreeClean) {
-    throw new Error("Source binding requires a clean index, tracked worktree, untracked surface, and ignored surface; visible tracked index flags are required");
+  if (beforeFinalCheck !== null && typeof beforeFinalCheck !== "function") {
+    throw new Error("Source binding final-check hook must be a function");
   }
-  const headRevision = (await git(repository, ["rev-parse", "HEAD"])).stdout.trim();
-  const repositoryRoot = await realpath((await git(repository, ["rev-parse", "--show-toplevel"])).stdout.trim());
-  const gitDir = await realpath(path.resolve(repository, (await git(repository, ["rev-parse", "--git-dir"])).stdout.trim()));
-  const gitCommonDir = await realpath(path.resolve(repository, (await git(repository, ["rev-parse", "--git-common-dir"])).stdout.trim()));
-  const [gitDirInfo, gitCommonDirInfo] = await Promise.all([lstat(gitDir), lstat(gitCommonDir)]);
-  const origin = (await git(repository, ["remote", "get-url", "origin"], { allowFailure: true })).stdout.trim() || null;
-  const headRef = (await git(repository, ["symbolic-ref", "-q", "HEAD"], { allowFailure: true })).stdout.trim() || null;
-  const originHeadRef = (await git(repository, ["symbolic-ref", "-q", "refs/remotes/origin/HEAD"], { allowFailure: true })).stdout.trim() || null;
+
   const directoryIdentity = (target, info) => ({
     path: target,
     device: Number.isSafeInteger(info.dev) ? info.dev : null,
     inode: Number.isSafeInteger(info.ino) ? info.ino : null
   });
+  const captureLayout = async () => {
+    const [headResult, rootResult, authorityLayout] = await Promise.all([
+      sourceGit(repository, ["rev-parse", "HEAD"]),
+      sourceGit(repository, ["rev-parse", "--show-toplevel"]),
+      gitAuthorityLayout(repository)
+    ]);
+    const headRevision = headResult.stdout.trim();
+    const repositoryRoot = await realpath(rootResult.stdout.trim());
+    const { gitDir, gitCommonDir, shallowRepository } = authorityLayout;
+    const [gitDirInfo, gitCommonDirInfo] = await Promise.all([lstat(gitDir), lstat(gitCommonDir)]);
+    return {
+      headRevision,
+      repositoryRoot,
+      gitDir: directoryIdentity(gitDir, gitDirInfo),
+      gitCommonDir: directoryIdentity(gitCommonDir, gitCommonDirInfo),
+      shallowRepository
+    };
+  };
+  const initialLayout = await captureLayout();
+  if (initialLayout.repositoryRoot !== expectedRepositoryRoot) {
+    throw new Error("Source binding Git worktree root does not match the canonical repository root");
+  }
+  await assertNoLegacyGrafts(initialLayout.gitDir.path, initialLayout.gitCommonDir.path);
+  assertCompleteGitAncestry(initialLayout);
+
+  const worktreeStatus = (await sourceGit(repository, ["status", "--porcelain=v2", "-z", "--untracked-files=all", "--ignored"])).stdout;
+  const hiddenIndex = await hiddenIndexEntries(repository, { isolatedConfig: true });
+  const worktreeClean = worktreeStatus.length === 0 && hiddenIndex.records.length === 0;
+  if (requireClean && !worktreeClean) {
+    throw new Error("Source binding requires a clean index, tracked worktree, untracked surface, and ignored surface; visible tracked index flags are required");
+  }
+  const headRevision = initialLayout.headRevision;
+  const repositoryRoot = initialLayout.repositoryRoot;
+  const gitDir = initialLayout.gitDir.path;
+  const gitCommonDir = initialLayout.gitCommonDir.path;
+  const originUrls = await localConfigValues(repository, "remote.origin.url");
+  const originPushUrls = await localConfigValues(repository, "remote.origin.pushurl");
+  const headRefResult = await sourceGit(repository, ["symbolic-ref", "-q", "HEAD"], { allowFailure: true });
+  const originHeadRefResult = await sourceGit(repository, ["symbolic-ref", "-q", "refs/remotes/origin/HEAD"], { allowFailure: true });
+  const headRefOutput = optionalSourceGitOutput(headRefResult, "Source binding HEAD symbolic-ref read");
+  const originHeadRefOutput = optionalSourceGitOutput(originHeadRefResult, "Source binding origin/HEAD symbolic-ref read");
+  const headRef = parseOptionalSourceSymbolicRef(headRefOutput, "Source binding HEAD symbolic-ref read");
+  const originHeadRef = parseOptionalSourceSymbolicRef(originHeadRefOutput, "Source binding origin/HEAD symbolic-ref read");
   let resolvedBaseRevision = null;
   if (baseRevision) {
-    const resolved = await git(
+    const resolved = await sourceGit(
       repository,
-      ["rev-parse", "--verify", `${String(baseRevision)}^{commit}`],
+      ["rev-parse", "--verify", "--quiet", `${String(baseRevision)}^{commit}`],
       { allowFailure: true }
     );
-    if (resolved.ok) resolvedBaseRevision = resolved.stdout.trim();
+    const resolvedOutput = optionalSourceGitOutput(resolved, "Source binding base revision read", {
+      absentCodes: [1]
+    });
+    resolvedBaseRevision = parseOptionalSourceCommitRevision(resolvedOutput, "Source binding base revision read");
   }
   const committedDiff = resolvedBaseRevision
-    ? (await git(repository, [
+    ? (await sourceGit(repository, [
         "diff-tree",
         "--no-commit-id",
         "--name-status",
@@ -309,7 +574,7 @@ export async function captureSourceBinding(cwd, { baseRevision = null, requireCl
       ])).stdout
     : "";
   const committedModeManifest = resolvedBaseRevision
-    ? (await git(repository, [
+    ? (await sourceGit(repository, [
         "diff-tree",
         "--no-commit-id",
         "--raw",
@@ -320,6 +585,35 @@ export async function captureSourceBinding(cwd, { baseRevision = null, requireCl
         "--"
       ])).stdout
     : "";
+  if (beforeFinalCheck) await beforeFinalCheck({ repository, headRevision });
+  const finalWorktreeStatus = (await sourceGit(repository, ["status", "--porcelain=v2", "-z", "--untracked-files=all", "--ignored"])).stdout;
+  const finalHiddenIndex = await hiddenIndexEntries(repository, { isolatedConfig: true });
+  const finalOriginUrls = await localConfigValues(repository, "remote.origin.url");
+  const finalOriginPushUrls = await localConfigValues(repository, "remote.origin.pushurl");
+  const finalHeadRefResult = await sourceGit(repository, ["symbolic-ref", "-q", "HEAD"], { allowFailure: true });
+  const finalOriginHeadRefResult = await sourceGit(repository, ["symbolic-ref", "-q", "refs/remotes/origin/HEAD"], { allowFailure: true });
+  const finalHeadRefOutput = optionalSourceGitOutput(finalHeadRefResult, "Source binding final HEAD symbolic-ref read");
+  const finalOriginHeadRefOutput = optionalSourceGitOutput(finalOriginHeadRefResult, "Source binding final origin/HEAD symbolic-ref read");
+  const finalHeadRef = parseOptionalSourceSymbolicRef(finalHeadRefOutput, "Source binding final HEAD symbolic-ref read");
+  const finalOriginHeadRef = parseOptionalSourceSymbolicRef(finalOriginHeadRefOutput, "Source binding final origin/HEAD symbolic-ref read");
+  const finalLayout = await captureLayout();
+  await assertNoLegacyGrafts(finalLayout.gitDir.path, finalLayout.gitCommonDir.path);
+  assertCompleteGitAncestry(finalLayout);
+  const sameOrigin = JSON.stringify({ fetchUrls: originUrls, pushUrls: originPushUrls }) ===
+    JSON.stringify({ fetchUrls: finalOriginUrls, pushUrls: finalOriginPushUrls });
+  if (
+    finalLayout.headRevision !== headRevision ||
+    finalLayout.repositoryRoot !== repositoryRoot ||
+    JSON.stringify(finalLayout.gitDir) !== JSON.stringify(initialLayout.gitDir) ||
+    JSON.stringify(finalLayout.gitCommonDir) !== JSON.stringify(initialLayout.gitCommonDir) ||
+    finalWorktreeStatus !== worktreeStatus ||
+    finalHiddenIndex.digest !== hiddenIndex.digest ||
+    !sameOrigin ||
+    finalHeadRef !== headRef ||
+    finalOriginHeadRef !== originHeadRef
+  ) {
+    throw new Error("Source binding changed during stable snapshot capture");
+  }
   const diffManifest = {
     schemaVersion: 2,
     baseRevision: resolvedBaseRevision,
@@ -331,14 +625,18 @@ export async function captureSourceBinding(cwd, { baseRevision = null, requireCl
   };
   const diffManifestDigest = sha256(canonicalJson(diffManifest));
   const stable = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     cwd: repository,
     repositoryRoot,
-    gitDir: directoryIdentity(gitDir, gitDirInfo),
-    gitCommonDir: directoryIdentity(gitCommonDir, gitCommonDirInfo),
+    gitDir: initialLayout.gitDir,
+    gitCommonDir: initialLayout.gitCommonDir,
     originIdentity: {
-      present: origin !== null,
-      digest: origin ? sha256(origin) : null
+      present: originUrls.length > 0,
+      fetchUrls: originUrls,
+      pushUrls: originPushUrls,
+      digest: originUrls.length > 0 || originPushUrls.length > 0
+        ? sha256(canonicalJson({ fetchUrls: originUrls, pushUrls: originPushUrls }))
+        : null
     },
     symbolicRefs: { head: headRef, originHead: originHeadRef },
     baseRevision: resolvedBaseRevision,
@@ -352,9 +650,38 @@ export async function captureSourceBinding(cwd, { baseRevision = null, requireCl
   return { ...stable, digest: sha256(canonicalJson(stable)) };
 }
 
-export async function captureSentinel(cwd, contract, defaults) {
+export function validateSubmoduleStatusOutput(stdout) {
+  if (typeof stdout !== "string") throw new Error("Git submodule status returned non-text success output");
+  if (stdout === "") return stdout;
+  if (!stdout.endsWith("\n") || stdout.includes("\0") || stdout.includes("\r")) {
+    throw new Error("Git submodule status returned malformed success output");
+  }
+  for (const line of stdout.slice(0, -1).split("\n")) {
+    if (!/^[ +\-U][a-f0-9]{40,64} [^\0\r\n]+$/i.test(line)) {
+      throw new Error("Git submodule status returned malformed success output");
+    }
+  }
+  return stdout;
+}
+
+export async function captureStrictSubmoduleStatus(runGit, repository) {
+  const result = await runGit(repository, ["submodule", "status", "--recursive"]);
+  if (result?.ok !== true) throw new Error("Git submodule status returned an indeterminate result");
+  const stdout = validateSubmoduleStatusOutput(result.stdout);
+  return {
+    available: true,
+    digest: sha256(stdout),
+    value: stdout.trim()
+  };
+}
+
+export async function captureSentinel(cwd, contract, defaults, {
+  afterInitialAuthorityCheck = null,
+  beforeFinalAuthorityCheck = null
+} = {}) {
   const repository = path.resolve(cwd);
-  if (!(await isGitRepository(repository))) throw new Error(`Not a Git repository: ${repository}`);
+  const initialAuthorityLayout = await assertSourceGitAncestryAuthority(repository);
+  if (afterInitialAuthorityCheck) await afterInitialAuthorityCheck(initialAuthorityLayout);
   const exclusions = [
     ...(defaults.sentinel.volatileExclusions ?? []),
     ...(contract.volatileExclusions ?? [])
@@ -365,11 +692,11 @@ export async function captureSentinel(cwd, contract, defaults) {
     maxSingleFileBytes: defaults.sentinel.maxSingleFileBytes
   };
   const scopes = contract.scope.include.map((item) => normalizeRelative(repository, item));
-  const status = await git(repository, ["status", "--porcelain=v2", "-z", "--untracked-files=all"]);
-  const head = (await git(repository, ["rev-parse", "HEAD"])).stdout.trim();
+  const status = await sourceGit(repository, ["status", "--porcelain=v2", "-z", "--untracked-files=all"]);
+  const head = (await sourceGit(repository, ["rev-parse", "HEAD"])).stdout.trim();
   const indexPath = await gitPath(repository, "index");
   const index = await digestOptionalFile(indexPath, Number.MAX_SAFE_INTEGER);
-  const tracked = await git(repository, ["ls-files", "-z", "--", ...scopes]);
+  const tracked = await sourceGit(repository, ["ls-files", "-z", "--", ...scopes]);
   const scopeDigest = await digestPaths(
     repository,
     tracked.stdout.split("\0").filter(Boolean),
@@ -382,13 +709,16 @@ export async function captureSentinel(cwd, contract, defaults) {
     exclusions,
     budget.maxFiles
   );
-  const submodules = await git(repository, ["submodule", "status", "--recursive"], {
-    allowFailure: true
-  });
+  const submodules = await captureStrictSubmoduleStatus(sourceGit, repository);
   const symlinks = await trackedSymlinks(repository);
   const attributes = await attributesDigest(repository, budget);
   const authorityMetadata = await hooksAndConfig(repository);
   const ignored = await highRiskIgnored(repository, contract.highRiskIgnored ?? [], budget);
+  if (beforeFinalAuthorityCheck) await beforeFinalAuthorityCheck();
+  const finalAuthorityLayout = await assertSourceGitAncestryAuthority(repository);
+  if (canonicalJson(finalAuthorityLayout) !== canonicalJson(initialAuthorityLayout)) {
+    throw new Error("Sentinel Git authority layout changed during stable snapshot capture");
+  }
   const stable = {
     schemaVersion: 1,
     cwd: repository,
@@ -398,11 +728,7 @@ export async function captureSentinel(cwd, contract, defaults) {
     scopes,
     scopeDigest,
     untracked,
-    submodules: {
-      available: submodules.ok,
-      digest: sha256(submodules.stdout),
-      value: submodules.stdout.trim()
-    },
+    submodules,
     symlinks,
     attributes,
     authorityMetadata,

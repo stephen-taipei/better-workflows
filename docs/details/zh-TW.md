@@ -251,11 +251,15 @@ $better-workflows:cross-platform 檢查 backend、iOS 和 Android 的 contact sy
 
 自我改善 evaluation 只使用已 checked-in、sanitized 且在 immutable baseline 凍結的 train/holdout corpus。candidate 必須先 staging；三次 read-only Codex holdout replay 必須在沒有 safety failure 或 regression 下，嚴格超過 baseline median。Codex replay 需要 host-signed attestation，將精確 binary 與 model 綁定到固定的 `/etc/better-workflows/codex-trust-root.json`；該檔與父目錄必須由 administrator 擁有且不可由呼叫者寫入。`PATH`、自行計算 hash、CLI 選擇 trust root 或 model 自述都不是 provider attestation。tie、noise、缺少 evidence 或 fixture-only 結果都不會 auto-adopt。
 
-交付必須使用明確的完整 baseline SHA，且它必須是 candidate HEAD 的嚴格祖先。七份 witness 通過重驗後，先建立明確綁定的 `pr-to-dev` run，再記錄 typed `self-improve-delivery-handoff`；這份 receipt 也會綁定 canonical Codex plugin cache root。沒有這份 receipt 不得取得 commit、push、merge 或 cache action。cache action 必須先以 `plugin.cache.publish`、`local-workspace` 與 `plugin-cache:<source-head-revision>` 發行 token，再於相同的 `CODEX_HOME` 執行：`SBW_STATE_ROOT=<state-root> node scripts/plugin-cache.mjs sync --handoff-run <pr-to-dev-run-id> --token <plugin-cache-action-token>`；若 action success 已落盤但 ready marker 尚未完成，重試同一個 sync attempt 會在 run lock 內以原始 receipt 修復 marker，不會重跑 publication。
+交付必須使用明確的完整 baseline SHA，且它必須是 candidate HEAD 的嚴格祖先。purpose 所要求的 witness（ordinary 七份、evaluator-migration 八份）通過重驗後，先建立明確綁定的 `pr-to-dev` run，再記錄 typed `self-improve-delivery-handoff`；這份 receipt 也會綁定 canonical Codex plugin cache root。`policyDigest` key 仍為必填：ordinary 與 evaluator-migration 必須明確為 `null`，policy-bound remediation 則必須是 SHA-256 digest。`evaluatorAuthorization` 也必填：使用 standing consent 時保存精確 authorization object，只有逐 run 的明確 administrator fallback 才能為 `null`。這兩個是唯一宣告為 nullable 的欄位，purpose-specific handoff validator 仍會驗證完整 key set 與值。沒有這份 receipt 不得取得 commit、push、merge 或 cache action。cache action 必須先以 `plugin.cache.publish`、`local-workspace` 與 `plugin-cache:<source-head-revision>` 發行 token，再於相同的 `CODEX_HOME` 執行：`SBW_STATE_ROOT=<state-root> node scripts/plugin-cache.mjs sync --handoff-run <pr-to-dev-run-id> --token <plugin-cache-action-token>`；若 action success 已落盤但 ready marker 尚未完成，重試同一個 sync attempt 會在 run lock 內以原始 receipt 修復 marker，不會重跑 publication。
 
 每次成功 replay 都使用獨立的 administrator-owned execution witness。digest-confirmed request 會綁定 administrator-approved native Mach-O Codex binary digest、allowlist digest、exact committed HEAD 與 source binding；已安裝的 signer 先將 exact binary snapshot 成 execution root 下 root-owned `0755` 檔案，建立並簽署 pre-execution binding，再呼叫 root-owned native launcher。launcher 會先清空 supplementary groups，才套用 request 的 non-root uid/gid 與固定的 `PATH`、`HOME`、`CODEX_HOME`。attestation、receipt、envelope、ledger 都會綁定 confirmed request digest 與 exact run-as identity，candidate snapshot 也會綁定 normalized file mode。執行完成後 host 捕捉 parsed response、exit status 與 timestamps，寫入 root-owned execution ledger，並簽發 `result receipt`。`sbw` 只消費這份已保存的 witness，resume 與 delivery revalidation 都不會重新執行 Codex；signed receipt 會綁定 exact prompt digest、response digest、binary、model、execution、ledger 與 timestamps。
 
-Evaluation v2.2 保留既有 safety、documentation、deliberation、sanitizer 與 evaluation-engineering coverage，並增加 typed-evidence integrity、execution-ledger replay、bounded review convergence 與 direct-work cost 的獨立 train/holdout classes。一次性的 migration 以 immutable v2.1 為 source，並將 source/target 兩份 suite digest 綁入全部七份 signed executions。
+Evaluation v2.4 逐 byte 保留 v2.3 的全部 classes 與 25 個 cases，新增獨立的 review-work-unit-integrity class，涵蓋 exact changed-surface accounting、獨立 attested finder/verifier provenance、source anchor、deterministic synthesis、broad-review invalidation 與 shadow-only rollout。精確且列入 allowlist 的 release-version-only 替換仍保留在 signed manifest，但不會啟用不相關且已 saturated 的 classes；其他任何 byte 變更都維持 semantic。一次性的 migration 以 immutable v2.3 為 source，並將 source/target 兩份 suite digest 綁入八份 signed executions：train baseline/candidate 各一份，加上 holdout baseline/candidate 各三份。每一份 migration replay 都實際執行完整 target split（包含 byte-preserved inherited cases）；每個 target-only baseline 都必須保留 headroom，且 candidate 必須逐 case 嚴格改善，同時不得出現 hard-safety failure、regression 或 noisy replay。target-only assertion 必須指定可由 snapshot 驗證的實作或回歸測試 evidence；只有概念性的治理文字不能使其通過，而 full-file evidence index 缺少 exact anchor 時必須視為 negative evidence。ordinary evaluation 仍只依 changed paths 選擇適用 classes。
+
+Review kernel 只在 `self-improve-ops` 以 `code-v2-pilot` 啟用。每個 required lane 必須對 immutable BASE/HEAD blob work unit 各記錄一次，axis 與 claim verification 都必須綁定不同的 host-signed、read-only native execution。finder 不得驗證自己的 finding；互相衝突的 verifier 結果會變成 `INCONCLUSIVE`，ambiguous 或 missing quote anchor 持續 blocking。即使 zero findings，也必須完成所有 lanes，並產生目前有效的 `work-unit-accounting` 與 `review-kernel-summary` typed evidence；之後新增任何 receipt 或 finding 都會使 broad completion 失效。此 pilot 為 shadow-only，不能發行 action token 或授權 delivery。
+
+Migration admission 另會釘住 v2.3 file 與 canonical suite digest，要求每個 inherited class 的 identity、semantics 與既有 path mapping 維持不變，且全部 25 個 inherited cases 完整一致。新 coverage 可新增 path，或使用新的 class／case id；遺失、弱化、重新 mapping 或重分類 inherited coverage 會在 replay 前 fail closed。若確實要修改 inherited coverage，必須使用獨立版本、digest-bound 且經獨立審查的 compatibility policy。
 
 `safety-remediation-v1` 是獨立的 run-creation purpose。它使用固定的
 `plugins/better-workflows/config/self-improve-safety-remediation-v1.json` policy
@@ -264,6 +268,8 @@ Evaluation v2.2 保留既有 safety、documentation、deliberation、sanitizer �
 `quality-remediation-v1` 是獨立的 versioned purpose，用於反覆出現的 non-hard completeness gap，不代表 v2.2 hard-safety evaluator 有缺陷，也不是 safety remediation 的 bypass。它使用 `plugins/better-workflows/config/self-improve-quality-remediation-v1.json` 與同一份 immutable v2.2 corpus，將 policy digest 綁定 suite、request manifest、signed executions、evidence 與 delivery handoff。三個 target 是 typed evidence admission、exhaustion blocking 與 final broad review；每個 target 都必須在至少兩次 baseline replay 失敗，並在三次 candidate replay 全部通過，同時維持 candidate/invariant hard-safety、無 regression、無 candidate noise 與 strict target improvement。未重現的 gap 會以 `baseline-quality-gap-not-reproduced` 拒絕，不能重用 safety-remediation witness，也不改變 ordinary comparison semantics。
 
 一般 clone 或執行 workspace recipe **不需要** host trust root；只有要執行真實 Codex self-improve replay 的 maintainer，才需由 administrator 在每台 host 一次性執行。self-improve 不會授權 commit、cache publication、push、merge 或 cleanup；這些交由 `pr-to-dev` 與 immutable-cache workflow：
+
+為避免長時間 replay 每批都被 administrator prompt 中斷，已 ready 的 host 可一次性安裝限縮的 standing evaluator consent。先執行 `sbw self-improve consent prepare`、核對回傳的 request digest，再只執行該次回傳的精確 administrator command。root signer 會安裝可撤銷的 signed grant 與經 `visudo` 驗證的窄化規則，只允許 digest-pinned root runtime、這個 repository 與 maintainer identity、`gpt-5.6-terra`、四種既定 purpose、七或八次 read-only／tool-free sanitized requests，以及固定 request root。符合條件的 schemaVersion 5 batch 使用 `/usr/bin/sudo -n`，並在每份 request、execution、root journal、evaluation evidence 與 typed handoff 綁定同一 authorization；active 或部分安裝的 grant 發生任何不符都會 fail closed，不會靜默切換到 password prompt。只有 grant 尚未安裝或已明確撤銷時，才可使用逐 run 的明確 administrator fallback。此 grant 明確不授權 commit、cache、push、PR、merge、deploy 或 cleanup；可用 `sbw self-improve consent status|revoke` 檢查或撤銷。
 
 若 trust root 或 private key 尚未由 host 的核准 administrator bootstrap 建立，請先完成該獨立前置作業；本 repository 不發布、也不執行未追蹤的 legacy Swift bootstrap artifact。對已完成 bootstrap 的 host，先以唯讀指令檢查狀態：
 
@@ -483,9 +489,19 @@ version；`SBW_STATE_ROOT=<state-root> node scripts/plugin-cache.mjs sync --hand
 `sync` 固定綁定目前 Codex plugin cache，不接受重新導向。若 action 停在
 `spent/pending`，只有在 pending marker 與 immutable target 同時證明相同
 handoff source binding、run 與 attempt 時，才能以同一個 sync attempt 建立
-receipt 並修復 ready；否則維持 unknown，禁止第二次 publication。source run
-若沒有明確的 canonical cache-root 欄位，或 lock owner 無法證明已消失，也
+receipt 並修復 ready；否則維持 unknown，禁止第二次 publication。ready
+finalization 與失敗 cleanup 共用同一把 versioned publication lock，避免
+marker transition 與 target removal 競態；cleanup 仍要求 pending marker
+精確符合相同 run 與 action attempt。ownership 不同時，replacement marker
+與其 target 都會保留。回收 stale lock 後，publisher 也只接受 source
+binding、run 與 attempt 全部相符的既有 pending marker；即使 target 尚未
+存在，外來 marker 仍會保留且 publication fail closed。source run 若沒有
+明確的 canonical cache-root 欄位，或 lock owner 無法證明已消失，也
 必須 fail closed。
+
+### Bounded autopilot
+
+delivery 只有在希望低風險長任務不被重複 prompt 打斷時，才可在每個 run 明確選擇不可變的 `bounded-autopilot-v1` profile。它只自動化 bounded commit、新的 immutable cache version、推送到 `codex/*`，以及一個 target 為 `dev` 的 PR；host bootstrap/upgrade/revoke、protected merge、deploy、直接推送 `dev`/`main` 與 branch/worktree cleanup 仍是人工 gate。evaluator standing consent 不會推導出 delivery authority。
 
 ## License
 

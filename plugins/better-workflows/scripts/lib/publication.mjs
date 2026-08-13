@@ -1,11 +1,13 @@
 import { constants as fsConstants } from "node:fs";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import {
   chmod,
   lstat,
   mkdir,
+  mkdtemp,
   open,
   readdir,
+  readFile,
   rename,
   realpath,
   rm,
@@ -14,7 +16,7 @@ import {
 } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
-import { captureSourceBinding, hiddenIndexEntries } from "./git.mjs";
+import { canonicalSourceRoot, captureSourceBinding, hiddenIndexEntries, runSourceGit } from "./git.mjs";
 
 const execFileAsync = (command, args, options = {}) => new Promise((resolve, reject) => {
   execFile(command, args, options, (error, stdout, stderr) => {
@@ -57,15 +59,629 @@ async function pathExists(target) {
 
 async function repositoryRootForSource(root) {
   const resolvedSource = await realpath(path.resolve(root));
-  return realpath((await execFileAsync("git", [
-    "-C", resolvedSource, "rev-parse", "--show-toplevel"
-  ], { encoding: "utf8" })).stdout.trim());
+  const expectedRoot = await canonicalSourceRoot(resolvedSource);
+  const reportedRoot = await realpath((await runSourceGit(resolvedSource, ["rev-parse", "--show-toplevel"])).stdout.trim());
+  if (reportedRoot !== expectedRoot) {
+    throw new Error("Git reported a worktree root different from the canonical source root");
+  }
+  return expectedRoot;
 }
 
 async function assertDirectoryNotSymlink(target) {
   const info = await lstat(target);
   if (info.isSymbolicLink() || !info.isDirectory()) {
     throw new Error(`Unsafe cache directory: ${target}`);
+  }
+}
+
+async function captureCacheRootIdentity(target) {
+  const lexicalPath = path.resolve(target);
+  let resolved;
+  try {
+    resolved = await realpath(lexicalPath);
+  } catch (error) {
+    throw new Error(`Unsafe cache directory: ${lexicalPath} (${error.message})`);
+  }
+  const chain = [];
+  let cursor = lexicalPath;
+  while (true) {
+    const info = await lstat(cursor);
+    const isRoot = cursor === lexicalPath;
+    if (isRoot && (!info.isDirectory() || info.isSymbolicLink())) {
+      throw new Error(`Unsafe cache directory: ${cursor}`);
+    }
+    if (isRoot && (
+      info.uid !== (process.getuid?.() ?? info.uid) ||
+      ((info.mode & 0o777) & 0o022) !== 0
+    )) {
+      throw new Error(`Unsafe cache directory ownership or mode: ${cursor}`);
+    }
+    chain.push({
+      path: cursor,
+      device: Number.isSafeInteger(info.dev) ? info.dev : null,
+      inode: Number.isSafeInteger(info.ino) ? info.ino : null,
+      type: info.isSymbolicLink() ? "symlink" : info.isDirectory() ? "directory" : "other",
+      resolvedPath: await realpath(cursor)
+    });
+    const parent = path.dirname(cursor);
+    if (parent === cursor) break;
+    cursor = parent;
+  }
+  return {
+    // Keep the caller's lexical spelling for all mutations and hook payloads;
+    // the full lexical chain (including stable system symlink ancestors such
+    // as macOS `/var`) is bound below so replacement cannot redirect it.
+    path: lexicalPath,
+    realpath: resolved,
+    chain
+  };
+}
+
+async function assertStableCacheRoot(target, expected = null) {
+  let current;
+  try {
+    current = await captureCacheRootIdentity(target);
+  } catch (error) {
+    if (expected) {
+      throw new Error(`Plugin cache root identity changed: ${error.message}`);
+    }
+    throw error;
+  }
+  if (expected && (
+    current.path !== expected.path ||
+    current.realpath !== expected.realpath ||
+    JSON.stringify(current.chain) !== JSON.stringify(expected.chain)
+  )) {
+    throw new Error(`Plugin cache root identity changed: ${current.path}`);
+  }
+  return current;
+}
+
+const PINNED_DIRECTORY_ROOT = process.platform === "darwin" ? "/dev/fd" : "/proc/self/fd";
+
+// macOS exposes a directory descriptor as `/dev/fd/N`, but does not permit
+// pathname traversal below that pseudo-entry. Keep the same descriptor-bound
+// openat/unlinkat/renameat semantics on both macOS and Linux through the
+// system Python runtime, inheriting the already-open root directory as fd 3.
+// The helper accepts only relative names derived by cacheEntryRelative below;
+// it never receives a caller-controlled absolute path.
+const PINNED_FS_PYTHON = String.raw`
+import base64, hashlib, io, json, os, stat, sys, tarfile
+
+fd = 3
+
+def open_directory(parent, name):
+    return os.open(name, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0), dir_fd=parent)
+
+def split_relative(path):
+    if not isinstance(path, str) or path.startswith("/"):
+        raise ValueError("pinned path must be relative")
+    parts = [part for part in path.split("/") if part and part != "."]
+    if any(part == ".." for part in parts):
+        raise ValueError("pinned path escapes the cache root")
+    return parts
+
+def open_parent(path):
+    parts = split_relative(path)
+    if not parts:
+        return os.dup(fd), "."
+    current = os.dup(fd)
+    try:
+        for component in parts[:-1]:
+            next_fd = open_directory(current, component)
+            os.close(current)
+            current = next_fd
+        return current, parts[-1]
+    except Exception:
+        os.close(current)
+        raise
+
+def open_relative_directory(path):
+    parts = split_relative(path)
+    current = os.dup(fd)
+    try:
+        for component in parts:
+            next_fd = open_directory(current, component)
+            os.close(current)
+            current = next_fd
+        return current
+    except Exception:
+        os.close(current)
+        raise
+
+def mkdir_tree(path, mode, recursive):
+    parts = split_relative(path)
+    if not recursive:
+        parent, name = open_parent(path)
+        try:
+            os.mkdir(name, mode=mode, dir_fd=parent)
+        finally:
+            os.close(parent)
+        return
+    current = fd
+    try:
+        for component in parts:
+            try:
+                os.mkdir(component, mode=mode, dir_fd=current)
+            except FileExistsError:
+                pass
+            next_fd = open_directory(current, component)
+            if current != fd:
+                os.close(current)
+            current = next_fd
+    finally:
+        if current != fd:
+            os.close(current)
+
+def remove_at(parent, name):
+    info = os.lstat(name, dir_fd=parent)
+    if stat.S_ISDIR(info.st_mode) and not stat.S_ISLNK(info.st_mode):
+        child = open_directory(parent, name)
+        try:
+            for nested in os.listdir(child):
+                remove_at(child, nested)
+        finally:
+            os.close(child)
+        os.rmdir(name, dir_fd=parent)
+    else:
+        os.unlink(name, dir_fd=parent)
+
+def safe_member_name(name):
+    normalized = name.replace("\\", "/")
+    if normalized.startswith("/") or normalized == ".." or normalized.startswith("../") or "/../" in normalized:
+        raise ValueError("archive member escapes the pinned root")
+    return normalized.rstrip("/")
+
+def extract_archive(destination, encoded):
+    archive = tarfile.open(fileobj=io.BytesIO(base64.b64decode(encoded)), mode="r:")
+    try:
+        for member in archive:
+            member_name = safe_member_name(member.name)
+            if not member_name:
+                continue
+            name = safe_member_name(destination.rstrip("/") + "/" + member_name)
+            if member.isdir():
+                mkdir_tree(name, 0o700, True)
+                continue
+            if not member.isfile():
+                raise ValueError("archive contains a non-regular member")
+            parent = os.path.dirname(name)
+            if parent:
+                mkdir_tree(parent, 0o700, True)
+            parent_fd, leaf = open_parent(name)
+            handle = os.open(leaf, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600, dir_fd=parent_fd)
+            try:
+                source = archive.extractfile(member)
+                if source is None:
+                    raise ValueError("archive member has no file data")
+                while True:
+                    chunk = source.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    offset = 0
+                    while offset < len(chunk):
+                        offset += os.write(handle, chunk[offset:])
+                os.fchmod(handle, 0o755 if (member.mode & 0o111) else 0o644)
+            finally:
+                os.close(handle)
+                os.close(parent_fd)
+    finally:
+        archive.close()
+
+def stat_record(path):
+    parent, leaf = open_parent(path)
+    try:
+        info = os.lstat(leaf, dir_fd=parent)
+    finally:
+        os.close(parent)
+    kind = "directory" if stat.S_ISDIR(info.st_mode) else "file" if stat.S_ISREG(info.st_mode) else "symlink" if stat.S_ISLNK(info.st_mode) else "other"
+    return {"type": kind, "mode": info.st_mode, "size": info.st_size, "nlink": info.st_nlink, "uid": info.st_uid, "gid": info.st_gid, "dev": info.st_dev, "ino": info.st_ino}
+
+def identity_matches(info, expected):
+    if not isinstance(expected, dict):
+        return False
+    kind = "directory" if stat.S_ISDIR(info.st_mode) else "file" if stat.S_ISREG(info.st_mode) else "symlink" if stat.S_ISLNK(info.st_mode) else "other"
+    return (
+        expected.get("type") == kind and
+        str(expected.get("dev")) == str(info.st_dev) and
+        str(expected.get("ino")) == str(info.st_ino) and
+        str(expected.get("nlink")) == str(info.st_nlink) and
+        str(expected.get("size")) == str(info.st_size)
+    )
+
+def guarded_failure(message):
+    raise OSError(11, message)
+
+def write_guarded(temporary, target, guard, expected, mode, encoded):
+    temporary_parent, temporary_leaf = open_parent(temporary)
+    target_parent, target_leaf = open_parent(target)
+    guard_parent, guard_leaf = open_parent(guard)
+    created = False
+    renamed = False
+    data_digest = None
+    try:
+        handle = os.open(temporary_leaf, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), int(mode), dir_fd=temporary_parent)
+        created = True
+        try:
+            data = base64.b64decode(encoded)
+            data_digest = hashlib.sha256(data).hexdigest()
+            offset = 0
+            while offset < len(data):
+                offset += os.write(handle, data[offset:])
+            os.fsync(handle)
+        finally:
+            os.close(handle)
+        guard_info = os.lstat(guard_leaf, dir_fd=guard_parent)
+        if not identity_matches(guard_info, expected):
+            guarded_failure("guard identity changed")
+        os.rename(temporary_leaf, target_leaf, src_dir_fd=temporary_parent, dst_dir_fd=target_parent)
+        renamed = True
+        final_guard_info = os.lstat(guard_leaf, dir_fd=guard_parent)
+        if not identity_matches(final_guard_info, expected):
+            try:
+                marker_handle = os.open(target_leaf, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0), dir_fd=target_parent)
+                try:
+                    marker_data = b""
+                    while True:
+                        chunk = os.read(marker_handle, 1024 * 1024)
+                        if not chunk:
+                            break
+                        marker_data += chunk
+                finally:
+                    os.close(marker_handle)
+                if hashlib.sha256(marker_data).hexdigest() == data_digest:
+                    os.unlink(target_leaf, dir_fd=target_parent)
+            except FileNotFoundError:
+                pass
+            guarded_failure("guard identity changed after marker commit")
+        return None
+    finally:
+        if created and not renamed:
+            try:
+                os.unlink(temporary_leaf, dir_fd=temporary_parent)
+            except FileNotFoundError:
+                pass
+        os.close(temporary_parent)
+        os.close(target_parent)
+        os.close(guard_parent)
+
+def remove_if_match(path, release, expected, content_digest):
+    path_parent, path_leaf = open_parent(path)
+    release_parent, release_leaf = open_parent(release)
+    try:
+        info = os.lstat(path_leaf, dir_fd=path_parent)
+        if not identity_matches(info, expected):
+            guarded_failure("tree identity changed")
+        if stat.S_ISREG(info.st_mode) and content_digest:
+            handle = os.open(path_leaf, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0), dir_fd=path_parent)
+            try:
+                contents = b""
+                while True:
+                    chunk = os.read(handle, 1024 * 1024)
+                    if not chunk:
+                        break
+                    contents += chunk
+            finally:
+                os.close(handle)
+            if hashlib.sha256(contents).hexdigest() != content_digest:
+                guarded_failure("file content identity changed")
+        if not stat.S_ISDIR(info.st_mode) or stat.S_ISLNK(info.st_mode):
+            if not stat.S_ISREG(info.st_mode):
+                guarded_failure("guarded removal requires a regular directory or file")
+        os.rename(path_leaf, release_leaf, src_dir_fd=path_parent, dst_dir_fd=release_parent)
+        moved = os.lstat(release_leaf, dir_fd=release_parent)
+        if not identity_matches(moved, expected):
+            guarded_failure("moved identity changed")
+        if stat.S_ISREG(moved.st_mode) and content_digest:
+            handle = os.open(release_leaf, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0), dir_fd=release_parent)
+            try:
+                contents = b""
+                while True:
+                    chunk = os.read(handle, 1024 * 1024)
+                    if not chunk:
+                        break
+                    contents += chunk
+            finally:
+                os.close(handle)
+            if hashlib.sha256(contents).hexdigest() != content_digest:
+                guarded_failure("moved file content identity changed")
+        remove_at(release_parent, release_leaf)
+    finally:
+        os.close(path_parent)
+        os.close(release_parent)
+
+def perform(command, arguments):
+    if command == "stat":
+        return stat_record(arguments[0])
+    if command == "read":
+        parent, leaf = open_parent(arguments[0])
+        handle = os.open(leaf, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0), dir_fd=parent)
+        try:
+            chunks = []
+            while True:
+                chunk = os.read(handle, 1024 * 1024)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+        finally:
+            os.close(handle)
+            os.close(parent)
+        return base64.b64encode(b"".join(chunks)).decode("ascii")
+    if command == "list":
+        handle = open_relative_directory(arguments[0])
+        try:
+            return sorted(os.listdir(handle))
+        finally:
+            os.close(handle)
+    if command == "mkdir":
+        mkdir_tree(arguments[0], int(arguments[1]), bool(arguments[2]))
+        return None
+    if command == "write":
+        flags = os.O_WRONLY | os.O_CREAT
+        if arguments[2] == "wx":
+            flags |= os.O_EXCL
+        else:
+            flags |= os.O_TRUNC
+        parent, leaf = open_parent(arguments[0])
+        handle = os.open(leaf, flags | getattr(os, "O_NOFOLLOW", 0), int(arguments[1]), dir_fd=parent)
+        try:
+            data = base64.b64decode(arguments[3])
+            offset = 0
+            while offset < len(data):
+                offset += os.write(handle, data[offset:])
+            os.fsync(handle)
+        finally:
+            os.close(handle)
+            os.close(parent)
+        return None
+    if command == "rename":
+        source_parent, source_leaf = open_parent(arguments[0])
+        target_parent, target_leaf = open_parent(arguments[1])
+        try:
+            os.rename(source_leaf, target_leaf, src_dir_fd=source_parent, dst_dir_fd=target_parent)
+        finally:
+            os.close(source_parent)
+            os.close(target_parent)
+        return None
+    if command == "unlink":
+        parent, leaf = open_parent(arguments[0])
+        try:
+            os.unlink(leaf, dir_fd=parent)
+        finally:
+            os.close(parent)
+        return None
+    if command == "remove":
+        parent, leaf = open_parent(arguments[0])
+        try:
+            remove_at(parent, leaf)
+        except FileNotFoundError:
+            if not bool(arguments[1]):
+                os.close(parent)
+                raise
+        os.close(parent)
+        return None
+    if command == "remove_if_match":
+        remove_if_match(arguments[0], arguments[1], json.loads(arguments[2]), arguments[3])
+        return None
+    if command == "write_guarded":
+        write_guarded(arguments[0], arguments[1], arguments[2], json.loads(arguments[3]), int(arguments[4]), arguments[5])
+        return None
+    if command == "extract":
+        extract_archive(arguments[0], arguments[1])
+        return None
+    raise ValueError("unsupported pinned filesystem operation")
+
+def error_payload(error):
+    return {"ok": False, "errno": getattr(error, "errno", 1), "message": getattr(error, "strerror", str(error))}
+
+if len(sys.argv) > 1 and sys.argv[1] == "--server":
+    for line in sys.stdin:
+        try:
+            payload = json.loads(line)
+            result = perform(payload["command"], payload["args"])
+            print(json.dumps({"ok": True, "result": result}, separators=(",", ":")), flush=True)
+        except Exception as error:
+            print(json.dumps(error_payload(error), separators=(",", ":")), flush=True)
+else:
+    try:
+        result = perform(sys.argv[1], json.loads(sys.argv[2]))
+        if result is not None:
+            print(result if isinstance(result, str) else json.dumps(result, separators=(",", ":")))
+    except Exception as error:
+        print(f"SBW_ERRNO:{getattr(error, 'errno', 1)}:{getattr(error, 'strerror', str(error))}", file=sys.stderr)
+        raise SystemExit(1)
+`;
+
+function pinnedStatRecord(value) {
+  return {
+    ...value,
+    isDirectory: () => value.type === "directory",
+    isFile: () => value.type === "file",
+    isSymbolicLink: () => value.type === "symlink"
+  };
+}
+
+function pinnedError(stderr) {
+  const match = String(stderr).match(/SBW_ERRNO:(\d+):/);
+  const error = new Error(String(stderr).trim() || "Pinned filesystem operation failed");
+  const codes = { 2: "ENOENT", 11: "EAGAIN", 13: "EACCES", 17: "EEXIST", 18: "EXDEV", 20: "ENOTDIR", 22: "EINVAL", 28: "ENOSPC", 39: "ENOTEMPTY", 40: "ELOOP" };
+  if (match) error.code = codes[Number(match[1])] ?? `ERRNO_${match[1]}`;
+  return error;
+}
+
+function createPinnedPythonRunner(fd) {
+  const child = spawn("/usr/bin/python3", ["-c", PINNED_FS_PYTHON, "--server"], {
+    env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", LANG: "C", LC_ALL: "C" },
+    stdio: ["pipe", "pipe", "pipe", fd]
+  });
+  const pending = [];
+  let output = "";
+  let stderr = "";
+  let terminalError = null;
+  let closing = false;
+  let closeResolve;
+  const closed = new Promise((resolve) => { closeResolve = resolve; });
+  const rejectPending = (error) => {
+    while (pending.length > 0) pending.shift().reject(error);
+  };
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  child.stdout.on("data", (chunk) => {
+    output += chunk;
+    for (;;) {
+      const newline = output.indexOf("\n");
+      if (newline < 0) break;
+      const line = output.slice(0, newline);
+      output = output.slice(newline + 1);
+      if (!line) continue;
+      let payload;
+      try {
+        payload = JSON.parse(line);
+      } catch (error) {
+        terminalError = error;
+        rejectPending(error);
+        continue;
+      }
+      const task = pending.shift();
+      if (!task) continue;
+      if (!payload.ok) {
+        const error = new Error(payload.message || "Pinned filesystem operation failed");
+        const codes = { 2: "ENOENT", 11: "EAGAIN", 13: "EACCES", 17: "EEXIST", 18: "EXDEV", 20: "ENOTDIR", 22: "EINVAL", 28: "ENOSPC", 39: "ENOTEMPTY", 40: "ELOOP" };
+        error.code = codes[payload.errno] ?? `ERRNO_${payload.errno}`;
+        error.message = `${error.message} (pinned ${task.command}${task.command === "extract" ? "" : `:${String(task.args[0] ?? "")}`})`;
+        task.reject(error);
+      } else {
+        task.resolve(payload.result);
+      }
+    }
+  });
+  child.stderr.on("data", (chunk) => { stderr += chunk; });
+  child.stdin.on("error", (error) => {
+    terminalError ||= error;
+    rejectPending(terminalError);
+  });
+  child.once("error", (error) => {
+    terminalError = error;
+    rejectPending(error);
+  });
+  child.once("close", (code) => {
+    if (code !== 0 && !terminalError) {
+      terminalError = pinnedError(stderr || `Pinned filesystem helper exited with ${code}`);
+    }
+    if (terminalError) rejectPending(terminalError);
+    closeResolve();
+  });
+  return {
+    run(command, args) {
+      if (terminalError) return Promise.reject(terminalError);
+      if (closing || child.stdin.destroyed || !child.stdin.writable) {
+        return Promise.reject(new Error("Pinned filesystem helper stdin is unavailable"));
+      }
+      return new Promise((resolve, reject) => {
+        pending.push({ command, args, resolve, reject });
+        try {
+          child.stdin.write(`${JSON.stringify({ command, args })}\n`);
+        } catch (error) {
+          terminalError ||= error;
+          rejectPending(terminalError);
+        }
+      });
+    },
+    async close() {
+      if (closing) return closed;
+      closing = true;
+      try { child.stdin.end(); } catch (error) {
+        terminalError ||= error;
+        rejectPending(terminalError);
+      }
+      await closed;
+    }
+  };
+}
+
+function cacheEntryRelative(cacheRoot, target) {
+  const relative = path.relative(cacheRoot, path.resolve(target));
+  if (path.isAbsolute(relative) || relative === ".." || relative.startsWith(`..${path.sep}`)) {
+    throw new Error(`Cache operation escapes pinned root: ${target}`);
+  }
+  return relative || ".";
+}
+
+/**
+ * Pin the cache directory itself for a security-sensitive operation. A later
+ * replacement of the root or any ancestor cannot redirect paths rooted at the
+ * descriptor-backed `/dev/fd/<fd>` (or `/proc/self/fd/<fd>`) namespace.
+ */
+async function withPinnedCacheRoot(cacheRoot, cacheRootIdentity, operation) {
+  const stable = await assertStableCacheRoot(cacheRoot, cacheRootIdentity);
+  const handle = await open(
+    stable.path,
+    fsConstants.O_RDONLY | (fsConstants.O_DIRECTORY ?? 0) | (fsConstants.O_NOFOLLOW ?? 0)
+  );
+  const runner = createPinnedPythonRunner(handle.fd);
+  try {
+    const info = await handle.stat();
+    const expectedRoot = cacheRootIdentity?.chain?.[0] ?? null;
+    if (!info.isDirectory() || info.isSymbolicLink() ||
+        (expectedRoot && (String(info.dev) !== String(expectedRoot.device) || String(info.ino) !== String(expectedRoot.inode)))) {
+      throw new Error(`Plugin cache root descriptor identity changed: ${stable.path}`);
+    }
+    const entry = (target) => `${PINNED_DIRECTORY_ROOT}/${handle.fd}/${cacheEntryRelative(stable.path, target)}`;
+    const relative = (target) => cacheEntryRelative(stable.path, target);
+    const pinned = {
+      async lstat(target) {
+        return pinnedStatRecord(await runner.run("stat", [relative(target)]));
+      },
+      async readFile(target) {
+        const info = pinnedStatRecord(await runner.run("stat", [relative(target)]));
+        if (!info.isFile() || info.nlink !== 1) throw new Error(`Unsafe plugin bundle file: ${target}`);
+        const encoded = await runner.run("read", [relative(target)]);
+        return { info, contents: Buffer.from(encoded, "base64") };
+      },
+      async readdir(target) {
+        return runner.run("list", [relative(target)]);
+      },
+      async mkdir(target, options = {}) {
+        return runner.run("mkdir", [relative(target), options.mode ?? 0o777, options.recursive === true]);
+      },
+      async writeFile(target, data, options = {}) {
+        return runner.run("write", [relative(target), options.mode ?? 0o666, options.flag ?? "w", Buffer.from(data).toString("base64")]);
+      },
+      async writeFileGuarded(target, data, { guard, expectedInfo, mode = 0o600 } = {}) {
+        if (!guard || !expectedInfo) throw new Error("Pinned guarded write requires a guard path and identity");
+        const temporary = `${target}.guarded-${randomUUID()}`;
+        return runner.run("write_guarded", [
+          relative(temporary),
+          relative(target),
+          relative(guard),
+          JSON.stringify(expectedInfo),
+          mode,
+          Buffer.from(data).toString("base64")
+        ]);
+      },
+      async rename(source, target) {
+        return runner.run("rename", [relative(source), relative(target)]);
+      },
+      async unlink(target) {
+        return runner.run("unlink", [relative(target)]);
+      },
+      async unlinkIfMatch(target, expectedInfo, contentDigest, release) {
+        return runner.run("remove_if_match", [relative(target), relative(release), JSON.stringify(expectedInfo), contentDigest]);
+      },
+      async rm(target, options = {}) {
+        return runner.run("remove", [relative(target), options.force === true]);
+      },
+      async rmIfMatch(target, expectedInfo, release) {
+        return runner.run("remove_if_match", [relative(target), relative(release), JSON.stringify(expectedInfo), ""]);
+      },
+      async extract(target, archive) {
+        return runner.run("extract", [relative(target), Buffer.from(archive).toString("base64")]);
+      }
+    };
+    return await operation({ stable, handle, entry, pinned });
+  } finally {
+    await runner.close();
+    await handle.close();
   }
 }
 
@@ -85,109 +701,469 @@ async function readRegularFile(target, { requireSingleLink = true } = {}) {
   }
 }
 
-function processIsAlive(pid) {
+export function processLiveness(pid, probe = process.kill) {
+  if (!Number.isInteger(pid) || pid < 1) return "unknown";
   try {
-    process.kill(pid, 0);
-    return true;
+    probe(pid, 0);
+    return "alive";
   } catch (error) {
-    if (error.code === "EPERM") return true;
-    return false;
+    if (error.code === "ESRCH") return "absent";
+    // EPERM and all other inspection failures are not proof that the owner
+    // is dead. Stale publication recovery must fail closed in that case.
+    return "unknown";
   }
 }
 
-async function readPublicationLock(lockPath, { allowHardlink = false } = {}) {
+const DARWIN_PROCESS_IDENTITY_SCRIPT = [
+  "import ctypes, os, struct, sys",
+  "pid = int(sys.argv[1])",
+  "lib = ctypes.CDLL('/usr/lib/libproc.dylib')",
+  "proc_pidinfo = lib.proc_pidinfo",
+  "proc_pidinfo.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_uint64, ctypes.c_void_p, ctypes.c_int]",
+  "proc_pidinfo.restype = ctypes.c_int",
+  "buffer = ctypes.create_string_buffer(136)",
+  "size = proc_pidinfo(pid, 3, 0, buffer, 136)",
+  "if size != 136: raise SystemExit(2)",
+  "seconds, microseconds = struct.unpack_from('QQ', buffer.raw, 120)",
+  "print(f'{seconds}:{microseconds}')"
+].join("\n");
+
+let cachedDarwinBootTime = null;
+
+async function processBootIdentity() {
+  if (process.platform === "darwin") {
+    if (cachedDarwinBootTime) return cachedDarwinBootTime;
+    const { stdout } = await execFileAsync("/usr/sbin/sysctl", ["-n", "kern.boottime"], {
+      encoding: "utf8",
+      timeout: 5_000,
+      killSignal: "SIGKILL",
+      env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", LC_ALL: "C" }
+    });
+    const bootTime = stdout.trim().replace(/\s+/g, " ");
+    if (!bootTime) throw new Error("macOS boot identity was empty");
+    cachedDarwinBootTime = bootTime;
+    return bootTime;
+  }
+  if (process.platform === "linux") {
+    return (await readFile("/proc/sys/kernel/random/boot_id", "utf8")).trim();
+  }
+  return null;
+}
+
+export async function processIncarnationDigest(pid, { liveness = processLiveness } = {}) {
+  if (!Number.isInteger(pid) || pid < 1) return null;
+  const initialLiveness = liveness(pid);
+  if (initialLiveness === "absent") return null;
+  if (initialLiveness === "unknown") return "unknown";
   try {
-    const opened = await readRegularFile(lockPath, { requireSingleLink: !allowHardlink });
-    return JSON.parse(opened.contents.toString("utf8"));
+    let startIdentity;
+    if (process.platform === "darwin") {
+      const { stdout } = await execFileAsync("/usr/bin/python3", ["-c", DARWIN_PROCESS_IDENTITY_SCRIPT, String(pid)], {
+        encoding: "utf8",
+        timeout: 5_000,
+        killSignal: "SIGKILL",
+        env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", LC_ALL: "C" }
+      });
+      startIdentity = stdout.trim();
+      if (!/^\d+:\d+$/.test(startIdentity)) throw new Error("macOS process start identity was malformed");
+    } else if (process.platform === "linux") {
+      const stat = await readFile(`/proc/${pid}/stat`, "utf8");
+      const closing = stat.lastIndexOf(")");
+      const fields = closing >= 0 ? stat.slice(closing + 1).trim().split(/\s+/) : [];
+      startIdentity = fields[19];
+      if (!/^\d+$/.test(startIdentity ?? "")) throw new Error("Linux process start ticks were unavailable");
+    } else {
+      return "unknown";
+    }
+    const bootIdentity = await processBootIdentity();
+    if (!bootIdentity) return "unknown";
+    return sha256(`${process.platform}\0${pid}\0${bootIdentity}\0${startIdentity}`);
+  } catch {
+    const finalLiveness = liveness(pid);
+    if (finalLiveness === "absent") return null;
+    // A live or unobservable process whose incarnation cannot be read is not
+    // reclaimable, even when the failure was EPERM/EACCES or another host
+    // inspection error.
+    return "unknown";
+  }
+}
+
+async function readPublicationLockRecord(lockPath, { allowHardlink = false, pinned = null } = {}) {
+  try {
+    const opened = pinned
+      ? await pinned.readFile(lockPath)
+      : await readRegularFile(lockPath, { requireSingleLink: !allowHardlink });
+    if (!allowHardlink && opened.info.nlink !== 1) {
+      throw new Error(`Unsafe publication lock file: ${lockPath}`);
+    }
+    return {
+      value: JSON.parse(opened.contents.toString("utf8")),
+      identityDigest: sha256([
+        opened.info.dev,
+        opened.info.ino,
+        opened.info.size,
+        sha256(opened.contents)
+      ].join("\0"))
+    };
   } catch (error) {
     if (error.code === "ENOENT") return null;
-    if (error instanceof SyntaxError) return null;
     throw error;
   }
 }
 
-async function reclaimStalePublicationLock(lockPath, version) {
-  const existing = await readPublicationLock(lockPath);
-  if (!existing) {
-    if (await pathExists(lockPath)) {
-      throw new Error(`Plugin cache publication lock owner cannot be proven absent for ${version}`);
-    }
-    return false;
-  }
-  if (!Number.isInteger(existing.pid) || existing.pid < 1) {
-    throw new Error(`Plugin cache publication lock owner cannot be proven absent for ${version}`);
-  }
-  if (processIsAlive(existing.pid)) {
-    throw new Error(`Plugin cache publication is already in progress for ${version}`);
-  }
-  const stalePath = `${lockPath}.stale-${randomUUID()}`;
-  try {
-    // Move the stale lock name atomically before a successor can create it.
-    // The reclaimer only removes the quarantined inode, never a lock that a
-    // competing publisher may have created after this rename.
-    await rename(lockPath, stalePath);
-    const current = await readPublicationLock(stalePath);
-    const sameOwner = current &&
-      current.pid === existing.pid &&
-      current.createdAt === existing.createdAt &&
-      (current.ownerToken ?? null) === (existing.ownerToken ?? null);
-    if (sameOwner) await unlink(stalePath);
-    return sameOwner;
-  } catch (error) {
-    if (error.code === "ENOENT") return false;
-    throw error;
-  } finally {
-    await unlink(stalePath).catch((error) => {
-      if (error.code !== "ENOENT") throw error;
-    });
-  }
+async function readPublicationLock(lockPath, options = {}) {
+  return (await readPublicationLockRecord(lockPath, options))?.value ?? null;
 }
 
-async function acquirePublicationLock(lockPath, version) {
-  let reclaimed = false;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    try {
-      const ownerToken = randomUUID();
-      await writeFile(lockPath, `${JSON.stringify({
-        version,
-        pid: process.pid,
-        ownerToken,
-        createdAt: new Date().toISOString()
-      })}\n`, { flag: "wx", mode: 0o600 });
-      return { ownerToken, close: async () => undefined, reclaimed };
-    } catch (error) {
-      if (error.code !== "EEXIST") throw error;
-      const didReclaim = await reclaimStalePublicationLock(lockPath, version);
-      reclaimed ||= didReclaim;
-      if (!didReclaim && attempt === 1) {
-        throw new Error(`Plugin cache publication lock could not be acquired for ${version}`);
+async function createPublicationReleaseRoot(cacheRoot, cacheRootIdentity = null) {
+  // The release directory is deliberately created below cacheRoot.  A
+  // temporary directory from os.tmpdir() is not safe here: rename(2) can
+  // return EXDEV when the two locations are on different filesystems.  Keep
+  // the validated inode on the cache filesystem and fail closed if that
+  // invariant is ever violated by a mount or a test shim.
+  const stableRoot = await assertStableCacheRoot(cacheRoot, cacheRootIdentity);
+  const cacheInfo = await lstat(stableRoot.path);
+  return withPinnedCacheRoot(stableRoot.path, stableRoot, async ({ pinned }) => {
+    let releaseRoot;
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const candidate = path.join(stableRoot.path, `.sbw-publication-release-${randomUUID()}`);
+      try {
+        await pinned.mkdir(candidate, { mode: 0o700 });
+        releaseRoot = candidate;
+        break;
+      } catch (error) {
+        if (error.code !== "EEXIST") throw error;
       }
     }
-  }
-  throw new Error(`Plugin cache publication lock could not be acquired for ${version}`);
-}
-
-async function releasePublicationLock(lockPath, ownerToken) {
-  const current = await readPublicationLock(lockPath);
-  if (!current || current.ownerToken !== ownerToken) return;
-  await unlink(lockPath).catch((error) => {
-    if (error.code !== "ENOENT") throw error;
+    if (!releaseRoot) throw new Error("Plugin cache publication release directory could not be allocated");
+    const releaseInfo = await pinned.lstat(releaseRoot);
+    if (releaseInfo.dev !== cacheInfo.dev) {
+      await pinned.rm(releaseRoot, { recursive: true, force: true }).catch(() => undefined);
+      throw new Error("Plugin cache publication release directory is on a different filesystem");
+    }
+    return releaseRoot;
   });
 }
 
-async function removeStalePublicationArtifacts(cacheRoot, version) {
-  const prefix = `.${version}.`;
-  const entries = await readdir(cacheRoot);
-  for (const entry of entries) {
-    if (
-      entry.startsWith(`${prefix}stage-`) ||
-      entry.startsWith(`${prefix}snapshot-`) ||
-      entry.startsWith(`${prefix}archive-`) ||
-      entry.startsWith(`${prefix}publish.lock.stale-`)
-    ) {
-      await rm(path.join(cacheRoot, entry), { recursive: true, force: true });
-    }
+async function removePublicationReleaseRoot(releaseRoot, expectedInfo, cacheRoot, cacheRootIdentity) {
+  try {
+    await withPinnedCacheRoot(cacheRoot, cacheRootIdentity, async ({ pinned }) => {
+      const current = await pinned.lstat(releaseRoot);
+      if (current.isSymbolicLink() || !current.isDirectory() ||
+          current.dev !== expectedInfo.dev || current.ino !== expectedInfo.ino) {
+        return;
+      }
+      // Recursive cleanup is descriptor-rooted; a root/ancestor replacement
+      // cannot redirect this pathname to a different filesystem tree.
+      await pinned.rm(releaseRoot, { recursive: true, force: true });
+    });
+  } catch {
+    // Failing to prove the private cleanup target is the original directory
+    // is intentionally non-fatal; the lock has already been moved off the
+    // cache-root pathname and must never be deleted through a changed path.
   }
+}
+
+async function quarantinePublicationLock({
+  cacheRoot,
+  version,
+  lockPath,
+  expectedRecord,
+  cacheRootIdentity = null,
+  afterStaleLockValidated = null,
+  beforeStaleLockRelease = null
+}) {
+  cacheRootIdentity = await assertStableCacheRoot(cacheRoot, cacheRootIdentity);
+  if (afterStaleLockValidated) {
+    await afterStaleLockValidated({ lockPath, value: structuredClone(expectedRecord.value) });
+  }
+  await assertStableCacheRoot(cacheRoot, cacheRootIdentity);
+  const quarantinePath = path.join(
+    cacheRoot,
+    `${publicationLockPrefix(version)}.stale-${randomUUID()}`
+  );
+  try {
+    await withPinnedCacheRoot(cacheRoot, cacheRootIdentity, ({ pinned }) => pinned.rename(lockPath, quarantinePath));
+  } catch (error) {
+    if (error.code === "ENOENT") return false;
+    throw error;
+  }
+  const quarantined = await withPinnedCacheRoot(cacheRoot, cacheRootIdentity, ({ pinned }) => readPublicationLockRecord(quarantinePath, { pinned }));
+  if (!quarantined || quarantined.identityDigest !== expectedRecord.identityDigest ||
+      JSON.stringify(quarantined.value) !== JSON.stringify(expectedRecord.value)) {
+    await moveToForeignQuarantine(cacheRoot, version, quarantinePath, cacheRootIdentity);
+    throw new Error(`Plugin cache publication lock identity changed while quarantining ${version}`);
+  }
+  const beforeDelete = await withPinnedCacheRoot(cacheRoot, cacheRootIdentity, ({ pinned }) => readPublicationLockRecord(quarantinePath, { pinned }));
+  if (!beforeDelete || beforeDelete.identityDigest !== expectedRecord.identityDigest ||
+      JSON.stringify(beforeDelete.value) !== JSON.stringify(expectedRecord.value)) {
+    await moveToForeignQuarantine(cacheRoot, version, quarantinePath, cacheRootIdentity);
+    throw new Error(`Plugin cache publication quarantine identity changed before deletion for ${version}`);
+  }
+  if (beforeStaleLockRelease) {
+    await beforeStaleLockRelease({ quarantinePath, value: structuredClone(beforeDelete.value) });
+  }
+  // Never unlink a cache-root pathname after validating it: a concurrent
+  // replacement at the final lookup must be retained, not deleted. Move the
+  // validated inode into a private 0700 temporary directory first; a mismatch
+  // there is moved back into foreign quarantine, while a matching inode can be
+  // removed without re-resolving an attacker-replaceable cache-root path.
+  const releaseRoot = await createPublicationReleaseRoot(cacheRoot, cacheRootIdentity);
+  const releaseRootInfo = await withPinnedCacheRoot(cacheRoot, cacheRootIdentity, ({ pinned }) => pinned.lstat(releaseRoot));
+  const releasedPath = path.join(releaseRoot, "lock");
+  try {
+    try {
+      await withPinnedCacheRoot(cacheRoot, cacheRootIdentity, ({ pinned }) => pinned.rename(quarantinePath, releasedPath));
+    } catch (error) {
+      if (error.code === "ENOENT") return false;
+      if (error.code === "EXDEV") {
+        throw new Error(`Plugin cache publication lock release crossed filesystems for ${version}`);
+      }
+      throw error;
+    }
+    const released = await withPinnedCacheRoot(cacheRoot, cacheRootIdentity, ({ pinned }) => readPublicationLockRecord(releasedPath, { pinned }));
+    if (!released || released.identityDigest !== expectedRecord.identityDigest ||
+        JSON.stringify(released.value) !== JSON.stringify(expectedRecord.value)) {
+      await moveToForeignQuarantine(cacheRoot, version, releasedPath, cacheRootIdentity);
+      throw new Error(`Plugin cache publication quarantine identity changed while releasing ${version}`);
+    }
+    return true;
+  } finally {
+    await removePublicationReleaseRoot(releaseRoot, releaseRootInfo, cacheRoot, cacheRootIdentity);
+  }
+}
+
+async function moveToForeignQuarantine(cacheRoot, version, quarantinePath, cacheRootIdentity = null) {
+  cacheRootIdentity = await assertStableCacheRoot(cacheRoot, cacheRootIdentity);
+  const foreignPath = path.join(
+    cacheRoot,
+    `${publicationLockPrefix(version)}.foreign-${randomUUID()}`
+  );
+  try {
+    await withPinnedCacheRoot(cacheRoot, cacheRootIdentity, ({ pinned }) => pinned.rename(quarantinePath, foreignPath));
+    return foreignPath;
+  } catch (error) {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+function publicationLockPrefix(version) {
+  return `.${version}.publish.lock`;
+}
+
+async function publicationLockPaths(cacheRoot, version, cacheRootIdentity = null) {
+  const prefix = publicationLockPrefix(version);
+  const entries = cacheRootIdentity
+    ? await withPinnedCacheRoot(cacheRoot, cacheRootIdentity, ({ pinned }) => pinned.readdir(cacheRoot))
+    : await readdir(cacheRoot);
+  return entries
+    .filter((entry) => entry === prefix || entry.startsWith(`${prefix}-`) ||
+      entry.startsWith(`${prefix}.stale-`) || entry.startsWith(`${prefix}.foreign-`))
+    .sort()
+    .map((entry) => {
+      if (entry === prefix) {
+        return { path: path.join(cacheRoot, entry), phase: "ready", ownerToken: null, readyOrder: null };
+      }
+      const legacyStaleSuffix = entry.startsWith(`${prefix}.stale-`)
+        ? entry.slice(`${prefix}.`.length)
+        : null;
+      if (/^stale-([0-9a-f-]{36})$/.test(legacyStaleSuffix ?? "")) {
+        return { path: path.join(cacheRoot, entry), phase: "ready", ownerToken: null, readyOrder: null };
+      }
+      if (entry.startsWith(`${prefix}.foreign-`)) {
+        return { path: path.join(cacheRoot, entry), phase: "foreign", ownerToken: null, readyOrder: null };
+      }
+      const suffix = entry.slice(prefix.length + 1);
+      const preparing = /^preparing-([0-9a-f-]{36})$/.exec(suffix);
+      if (preparing) {
+        return { path: path.join(cacheRoot, entry), phase: "preparing", ownerToken: preparing[1], readyOrder: null };
+      }
+      const ready = /^ready-([0-9]{1,30})-([0-9a-f-]{36})$/.exec(suffix);
+      if (ready) {
+        return { path: path.join(cacheRoot, entry), phase: "ready", ownerToken: ready[2], readyOrder: ready[1] };
+      }
+      // 3.2.4 could be killed after quarantining a proven-dead lock as
+      // `.publish.lock.stale-<uuid>`. Treat that exact legacy quarantine as a
+      // recoverable ready-phase lease: a dead recorded pid is reclaimed below,
+      // while a reused/live pid remains fail-closed and blocks publication.
+      // Accept the unshipped single-phase lease shape only so an interrupted
+      // local upgrade can be recovered. New publishers never create it.
+      const legacy = /^(?:ready-)?([0-9a-f-]{36})$/.exec(suffix);
+      return {
+        path: path.join(cacheRoot, entry),
+        phase: legacy ? "ready" : "invalid",
+        ownerToken: legacy?.[1] ?? null,
+        readyOrder: null
+      };
+    });
+}
+
+async function reclaimStalePublicationLocks(cacheRoot, version, {
+  cacheRootIdentity = null,
+  afterStaleLockValidated = null,
+  beforeStaleLockRelease = null
+} = {}) {
+  let reclaimed = false;
+  cacheRootIdentity = await assertStableCacheRoot(cacheRoot, cacheRootIdentity);
+  const live = [];
+  for (const lock of await publicationLockPaths(cacheRoot, version, cacheRootIdentity)) {
+    const record = await withPinnedCacheRoot(cacheRoot, cacheRootIdentity, ({ pinned }) => readPublicationLockRecord(lock.path, { pinned }));
+    const existing = record?.value ?? null;
+    // A valid owner may release its unique lease after the directory snapshot.
+    // Missing paths are a normal handoff, while malformed paths that still
+    // exist remain fail-closed below.
+    if (existing === null) continue;
+    if (lock.phase === "invalid" || lock.phase === "foreign" || existing.version !== version || !Number.isInteger(existing.pid) || existing.pid < 1 ||
+        typeof existing.ownerToken !== "string" || !existing.ownerToken ||
+        !Number.isFinite(Date.parse(existing.createdAt)) ||
+        (existing.processStartDigest !== undefined && !/^[a-f0-9]{64}$/.test(existing.processStartDigest)) ||
+        (lock.ownerToken !== null && lock.ownerToken !== existing.ownerToken)) {
+      throw new Error(`Plugin cache publication lock owner cannot be proven absent for ${version}`);
+    }
+    const currentIncarnation = await processIncarnationDigest(existing.pid);
+    if (currentIncarnation === "unknown" || (currentIncarnation !== null && existing.processStartDigest === undefined)) {
+      // Legacy leases did not bind process start time. A live/reused PID is
+      // therefore indistinguishable and must remain fail-closed.
+      live.push({ ...lock, value: existing });
+      continue;
+    }
+    if (currentIncarnation !== null && currentIncarnation === existing.processStartDigest) {
+      live.push({ ...lock, value: existing });
+      continue;
+    }
+    reclaimed ||= await quarantinePublicationLock({
+      cacheRoot,
+      version,
+      lockPath: lock.path,
+      expectedRecord: record,
+      cacheRootIdentity,
+      afterStaleLockValidated,
+      beforeStaleLockRelease
+    });
+  }
+  return { reclaimed, live };
+}
+
+async function acquirePublicationLock(cacheRoot, version, {
+  cacheRootIdentity = null,
+  afterStaleLockValidated = null,
+  beforeStaleLockRelease = null
+} = {}) {
+  let reclaimedAny = false;
+  cacheRootIdentity = await assertStableCacheRoot(cacheRoot, cacheRootIdentity);
+  const prefix = publicationLockPrefix(version);
+  const processStartDigest = await processIncarnationDigest(process.pid);
+  if (!/^[a-f0-9]{64}$/.test(processStartDigest ?? "")) {
+    throw new Error("Plugin cache publication cannot bind the publisher process incarnation");
+  }
+  for (let electionAttempt = 0; electionAttempt < 12; electionAttempt += 1) {
+    const ownerToken = randomUUID();
+    const preparingPath = path.join(cacheRoot, `${prefix}-preparing-${ownerToken}`);
+    let ownedPath = preparingPath;
+    await assertStableCacheRoot(cacheRoot, cacheRootIdentity);
+    await withPinnedCacheRoot(cacheRoot, cacheRootIdentity, ({ pinned }) => pinned.writeFile(preparingPath, `${JSON.stringify({
+      version,
+      pid: process.pid,
+      processStartDigest,
+      ownerToken,
+      createdAt: new Date().toISOString()
+    })}\n`, { flag: "wx", mode: 0o600 }));
+    let retryEqualOrder = false;
+    try {
+      // The preparing lease is visible before a monotonic election order is
+      // sampled. A delayed process can therefore never resume with priority
+      // over a publisher that became ready while it was paused.
+      const admission = await reclaimStalePublicationLocks(cacheRoot, version, {
+        cacheRootIdentity,
+        afterStaleLockValidated,
+        beforeStaleLockRelease
+      });
+      reclaimedAny ||= admission.reclaimed;
+      const self = admission.live.find((item) => item.path === preparingPath);
+      if (!self || self.phase !== "preparing") {
+        throw new Error(`Plugin cache publication lease disappeared for ${version}`);
+      }
+      if (admission.live.some((item) => item.phase === "ready")) {
+        throw new Error(`Plugin cache publication is already in progress for ${version}`);
+      }
+      const readyOrder = process.hrtime.bigint().toString();
+      const readyPath = path.join(cacheRoot, `${prefix}-ready-${readyOrder}-${ownerToken}`);
+      await withPinnedCacheRoot(cacheRoot, cacheRootIdentity, ({ pinned }) => pinned.rename(preparingPath, readyPath));
+      ownedPath = readyPath;
+
+      for (let settleAttempt = 0; settleAttempt < 12; settleAttempt += 1) {
+        const election = await reclaimStalePublicationLocks(cacheRoot, version, {
+          cacheRootIdentity,
+          afterStaleLockValidated,
+          beforeStaleLockRelease
+        });
+        reclaimedAny ||= election.reclaimed;
+        const current = election.live.find((item) => item.path === readyPath);
+        if (!current || current.phase !== "ready" || current.readyOrder !== readyOrder) {
+          throw new Error(`Plugin cache publication lease disappeared for ${version}`);
+        }
+        if (election.live.some((item) => item.phase === "preparing")) {
+          const jitter = Number.parseInt(ownerToken.slice(0, 2), 16) % 7;
+          await new Promise((resolve) => setTimeout(resolve, 3 + jitter + settleAttempt));
+          continue;
+        }
+        const contenders = election.live.filter((item) => item.path !== readyPath && item.phase === "ready");
+        if (contenders.some((item) => item.readyOrder === null || BigInt(item.readyOrder) < BigInt(readyOrder))) {
+          throw new Error(`Plugin cache publication is already in progress for ${version}`);
+        }
+        if (contenders.some((item) => item.readyOrder === readyOrder)) {
+          retryEqualOrder = true;
+          break;
+        }
+        return { path: readyPath, ownerToken, close: async () => undefined, reclaimed: reclaimedAny };
+      }
+      if (!retryEqualOrder) {
+        throw new Error(`Plugin cache publication contenders did not settle for ${version}`);
+      }
+    } catch (error) {
+      await releasePublicationLock(ownedPath, ownerToken, cacheRootIdentity);
+      throw error;
+    }
+    await releasePublicationLock(ownedPath, ownerToken, cacheRootIdentity);
+    const jitter = Number.parseInt(ownerToken.slice(0, 2), 16) % 11;
+    await new Promise((resolve) => setTimeout(resolve, 3 + jitter + electionAttempt));
+  }
+  throw new Error(`Plugin cache publication contenders did not elect an owner for ${version}`);
+}
+
+async function releasePublicationLock(lockPath, ownerToken, cacheRootIdentity = null) {
+  const cacheRoot = path.dirname(lockPath);
+  const record = cacheRootIdentity
+    ? await withPinnedCacheRoot(cacheRoot, cacheRootIdentity, ({ pinned }) => readPublicationLockRecord(lockPath, { pinned }))
+    : await readPublicationLockRecord(lockPath);
+  if (!record || record.value.ownerToken !== ownerToken) return;
+  const versionMatch = path.basename(lockPath).match(/^\.(.+)\.publish\.lock(?:-|$|\.)/);
+  if (!versionMatch) throw new Error("Plugin cache publication lock path is not canonical");
+  await quarantinePublicationLock({
+    cacheRoot,
+    version: versionMatch[1],
+    lockPath,
+    expectedRecord: record,
+    cacheRootIdentity
+  });
+}
+
+async function removeStalePublicationArtifacts(cacheRoot, version, cacheRootIdentity = null) {
+  cacheRootIdentity = await assertStableCacheRoot(cacheRoot, cacheRootIdentity);
+  const prefix = `.${version}.`;
+  await withPinnedCacheRoot(cacheRoot, cacheRootIdentity, async ({ pinned }) => {
+    const entries = await pinned.readdir(cacheRoot);
+    for (const entry of entries) {
+      if (
+        entry.startsWith(`${prefix}stage-`) ||
+        entry.startsWith(`${prefix}snapshot-`) ||
+        entry.startsWith(`${prefix}archive-`)
+      ) {
+        await pinned.rm(path.join(cacheRoot, entry), { recursive: true, force: true });
+      }
+    }
+  });
 }
 
 async function assertPublishableSource(root) {
@@ -195,33 +1171,42 @@ async function assertPublishableSource(root) {
   let repositoryRoot;
   try {
     repositoryRoot = await repositoryRootForSource(sourceRoot);
-  } catch {
+  } catch (error) {
+    // A repository-local worktree redirect is an authority violation.  Do not
+    // downgrade it to the normal "untracked test fixture" path: doing so would
+    // let publication continue from the caller's lexical sourceRoot and copy
+    // bytes that are not covered by the effective Git worktree binding.
+    if (/core\.worktree/i.test(String(error?.message ?? error))) {
+      throw error;
+    }
     return;
   }
   const relativeRoot = path.relative(repositoryRoot, sourceRoot).replaceAll(path.sep, "/");
   if (!relativeRoot || relativeRoot.startsWith("../") || path.isAbsolute(relativeRoot)) return;
   try {
-    await execFileAsync("git", ["-C", repositoryRoot, "ls-files", "--error-unmatch", "--", `${relativeRoot}/.codex-plugin/plugin.json`], { encoding: "utf8" });
+    await runSourceGit(repositoryRoot, [
+      "ls-files", "--error-unmatch", "--", `${relativeRoot}/.codex-plugin/plugin.json`
+    ]);
   } catch {
     // Temporary test fixtures without a tracked plugin manifest are not publishable sources.
     return;
   }
-  const worktreeStatus = (await execFileAsync("git", [
-    "-C", repositoryRoot, "status", "--porcelain=v2", "-z", "--untracked-files=all", "--ignored", "--", relativeRoot
-  ], { encoding: "utf8" })).stdout;
+  const worktreeStatus = (await runSourceGit(repositoryRoot, [
+    "status", "--porcelain=v2", "-z", "--untracked-files=all", "--ignored", "--", relativeRoot
+  ])).stdout;
   if (worktreeStatus.length > 0) {
     throw new Error(`Plugin cache source is not a clean committed tree: ${relativeRoot}`);
   }
-  const hidden = await hiddenIndexEntries(repositoryRoot);
+  const hidden = await hiddenIndexEntries(repositoryRoot, { isolatedConfig: true });
   const hiddenPluginEntries = hidden.records.filter((item) => item.path === relativeRoot || item.path.startsWith(`${relativeRoot}/`));
   if (hiddenPluginEntries.length > 0) {
     throw new Error(`Plugin cache source contains hidden tracked index flags: ${hiddenPluginEntries.map((item) => `${item.status} ${item.path}`).join(", ")}`);
   }
-  const tracked = (await execFileAsync("git", ["-C", repositoryRoot, "ls-files", "-z", "--", relativeRoot], { encoding: "utf8" })).stdout
+  const tracked = (await runSourceGit(repositoryRoot, ["ls-files", "-z", "--", relativeRoot])).stdout
     .split("\0").filter(Boolean);
   const [untrackedResult, ignoredResult] = await Promise.all([
-    execFileAsync("git", ["-C", repositoryRoot, "ls-files", "--others", "--exclude-standard", "-z", "--", relativeRoot], { encoding: "utf8" }),
-    execFileAsync("git", ["-C", repositoryRoot, "ls-files", "--others", "--ignored", "--exclude-standard", "-z", "--", relativeRoot], { encoding: "utf8" })
+    runSourceGit(repositoryRoot, ["ls-files", "--others", "--exclude-standard", "-z", "--", relativeRoot]),
+    runSourceGit(repositoryRoot, ["ls-files", "--others", "--ignored", "--exclude-standard", "-z", "--", relativeRoot])
   ]);
   const unexpected = [...new Set([
     ...untrackedResult.stdout.split("\0").filter(Boolean),
@@ -263,6 +1248,38 @@ export async function createBundleManifest(root, relative = "") {
   return records;
 }
 
+async function createPinnedBundleManifest(pinned, root, relative = "") {
+  const directory = path.resolve(root, relative);
+  const entries = (await pinned.readdir(directory))
+    .map((name) => ({ name }))
+    .sort((left, right) => left.name.localeCompare(right.name));
+  const records = [];
+  for (const entry of entries) {
+    const childRelative = path.posix.join(relative.replaceAll("\\", "/"), entry.name);
+    const absolute = path.join(directory, entry.name);
+    const info = await pinned.lstat(absolute);
+    if (info.isSymbolicLink()) throw new Error(`Plugin bundle contains a symlink: ${childRelative}`);
+    if (info.isDirectory()) {
+      records.push(...await createPinnedBundleManifest(pinned, root, childRelative));
+    } else if (info.isFile()) {
+      const opened = await pinned.readFile(absolute);
+      records.push({
+        path: childRelative,
+        size: opened.info.size,
+        mode: normalizeBundleMode(opened.info.mode),
+        digest: sha256(opened.contents)
+      });
+    } else {
+      throw new Error(`Plugin bundle contains an unsupported entry: ${childRelative}`);
+    }
+  }
+  return records;
+}
+
+async function pinnedBundleDigest(pinned, root) {
+  return digestObject(await createPinnedBundleManifest(pinned, root));
+}
+
 export async function bundleDigest(root) {
   await assertPublishableSource(root);
   return digestObject(await createBundleManifest(root));
@@ -291,16 +1308,35 @@ async function pluginVersion(sourceRoot) {
   return manifest.version;
 }
 
-export async function checkPluginCache({ sourceRoot, cacheRoot }) {
+export async function checkPluginCache({ sourceRoot, cacheRoot, cacheRootIdentity = null }) {
   const resolvedSource = path.resolve(sourceRoot);
-  const resolvedCacheRoot = path.resolve(cacheRoot);
+  let resolvedCacheRoot = path.resolve(cacheRoot);
+  let stableCacheRootIdentity = cacheRootIdentity;
+  if (await pathExists(resolvedCacheRoot)) {
+    stableCacheRootIdentity = await assertStableCacheRoot(resolvedCacheRoot, cacheRootIdentity);
+    resolvedCacheRoot = stableCacheRootIdentity.path;
+  }
   await assertDirectoryNotSymlink(resolvedSource);
   await assertPublishableSource(resolvedSource);
   const version = await pluginVersion(resolvedSource);
   const target = path.join(resolvedCacheRoot, version);
   const sourceManifest = await createBundleManifest(resolvedSource);
   const sourceDigest = digestObject(sourceManifest);
-  if (!(await pathExists(target))) {
+  const targetExists = stableCacheRootIdentity
+    ? await withPinnedCacheRoot(resolvedCacheRoot, stableCacheRootIdentity, async ({ pinned }) => {
+        try {
+          const info = await pinned.lstat(target);
+          if (info.isSymbolicLink() || !info.isDirectory()) {
+            throw new Error(`Unsafe cache directory: ${target}`);
+          }
+          return true;
+        } catch (error) {
+          if (error.code === "ENOENT") return false;
+          throw error;
+        }
+      })
+    : await pathExists(target);
+  if (!targetExists) {
     return {
       ok: false,
       status: "missing",
@@ -312,8 +1348,12 @@ export async function checkPluginCache({ sourceRoot, cacheRoot }) {
       diff: { missing: sourceManifest.map((record) => record.path), extra: [], changed: [] }
     };
   }
-  await assertDirectoryNotSymlink(target);
-  const targetManifest = await createBundleManifest(target);
+  const targetManifest = stableCacheRootIdentity
+    ? await withPinnedCacheRoot(resolvedCacheRoot, stableCacheRootIdentity, ({ pinned }) => createPinnedBundleManifest(pinned, target))
+    : await (async () => {
+        await assertDirectoryNotSymlink(target);
+        return createBundleManifest(target);
+      })();
   const targetDigest = digestObject(targetManifest);
   const diff = manifestDiff(sourceManifest, targetManifest);
   return {
@@ -358,6 +1398,30 @@ async function copyBundle(sourceRoot, targetRoot, relative = "") {
   }
 }
 
+async function copyBundlePinned(pinned, sourceRoot, targetRoot, relative = "", sourceIsPinned = false) {
+  const sourceDirectory = path.resolve(sourceRoot, relative);
+  const targetDirectory = path.resolve(targetRoot, relative);
+  await pinned.mkdir(targetDirectory, { recursive: true, mode: 0o700 });
+  const names = sourceIsPinned
+    ? await pinned.readdir(sourceDirectory)
+    : (await readdir(sourceDirectory, { withFileTypes: true })).map((entry) => entry.name);
+  for (const name of names.sort((left, right) => left.localeCompare(right))) {
+    const childRelative = path.join(relative, name);
+    const source = path.join(sourceRoot, childRelative);
+    const target = path.join(targetRoot, childRelative);
+    const info = sourceIsPinned ? await pinned.lstat(source) : await lstat(source);
+    if (info.isSymbolicLink()) throw new Error(`Refusing to publish symlink: ${childRelative}`);
+    if (info.isDirectory()) {
+      await copyBundlePinned(pinned, sourceRoot, targetRoot, childRelative, sourceIsPinned);
+    } else if (info.isFile()) {
+      const opened = sourceIsPinned ? await pinned.readFile(source) : await readRegularFile(source);
+      await pinned.writeFile(target, opened.contents, { flag: "wx", mode: opened.info.mode & 0o777 });
+    } else {
+      throw new Error(`Refusing to publish unsupported entry: ${childRelative}`);
+    }
+  }
+}
+
 function validateExpectedSourceBinding(value) {
   if (value === null || value === undefined) return null;
   const keys = [
@@ -381,15 +1445,81 @@ function publicationMarkerPath(cacheRoot, version) {
   return path.join(path.resolve(cacheRoot), `${version}.ready.json`);
 }
 
-async function readPublicationMarker(cacheRoot, version) {
-  const target = publicationMarkerPath(cacheRoot, version);
+async function readPublicationMarker(cacheRoot, version, cacheRootIdentity = null) {
+  const root = path.resolve(cacheRoot);
+  const identity = cacheRootIdentity ?? await assertStableCacheRoot(root);
+  const target = publicationMarkerPath(root, version);
+  return withPinnedCacheRoot(root, identity, async ({ pinned }) => {
+    try {
+      const opened = await pinned.readFile(target);
+      return JSON.parse(opened.contents.toString("utf8"));
+    } catch (error) {
+      if (error.code === "ENOENT") return null;
+      throw error;
+    }
+  });
+}
+
+async function removePinnedLeafIfMatch({
+  cacheRoot,
+  cacheRootIdentity,
+  target,
+  expectedInfo,
+  contentDigest = "",
+  foreignPrefix
+}) {
+  const releaseRoot = await createPublicationReleaseRoot(cacheRoot, cacheRootIdentity);
+  const releaseInfo = await withPinnedCacheRoot(cacheRoot, cacheRootIdentity, ({ pinned }) => pinned.lstat(releaseRoot));
+  const releasedPath = path.join(releaseRoot, "leaf");
   try {
-    const opened = await readRegularFile(target);
-    return JSON.parse(opened.contents.toString("utf8"));
+    await withPinnedCacheRoot(cacheRoot, cacheRootIdentity, ({ pinned }) =>
+      pinned.unlinkIfMatch(target, expectedInfo, contentDigest, releasedPath)
+    );
+    return true;
   } catch (error) {
-    if (error.code === "ENOENT") return null;
+    if (error.code === "ENOENT") return false;
+    if (error.code === "EAGAIN") {
+      const foreignPath = path.join(path.resolve(cacheRoot), `${foreignPrefix}.foreign-${randomUUID()}`);
+      await withPinnedCacheRoot(cacheRoot, cacheRootIdentity, ({ pinned }) =>
+        pinned.rename(releasedPath, foreignPath)
+      ).catch((moveError) => {
+        if (moveError.code !== "ENOENT") throw moveError;
+      });
+    }
     throw error;
+  } finally {
+    await removePublicationReleaseRoot(releaseRoot, releaseInfo, cacheRoot, cacheRootIdentity);
   }
+}
+
+async function removeOwnedPublicationMarker(cacheRoot, version, expectedMarker, cacheRootIdentity = null) {
+  if (!expectedMarker) return false;
+  const root = path.resolve(cacheRoot);
+  cacheRootIdentity = await assertStableCacheRoot(root, cacheRootIdentity);
+  const target = publicationMarkerPath(root, version);
+  return withPinnedCacheRoot(root, cacheRootIdentity, async ({ pinned }) => {
+    let current;
+    let currentInfo;
+    let currentContents;
+    try {
+      const opened = await pinned.readFile(target);
+      currentInfo = opened.info;
+      currentContents = opened.contents;
+      current = JSON.parse(currentContents.toString("utf8"));
+    } catch (error) {
+      if (error.code === "ENOENT") return false;
+      throw error;
+    }
+    if (!current || digestObject(current) !== digestObject(expectedMarker)) return false;
+    return removePinnedLeafIfMatch({
+      cacheRoot: root,
+      cacheRootIdentity,
+      target,
+      expectedInfo: currentInfo,
+      contentDigest: sha256(currentContents),
+      foreignPrefix: `${version}.ready`
+    });
+  });
 }
 
 async function writePublicationMarker({
@@ -404,15 +1534,17 @@ async function writePublicationMarker({
   pluginBundleDigest = null,
   runId = null,
   attemptId = null,
-  providerReceiptDigest = null
+  providerReceiptDigest = null,
+  cacheRootIdentity = null,
+  guardTarget = null,
+  guardInfo = null
 }) {
   if (!["pending", "ready"].includes(state)) {
     throw new Error("Plugin cache publication marker state is invalid");
   }
-  const root = path.resolve(cacheRoot);
-  await assertDirectoryNotSymlink(root);
+  const root = (await assertStableCacheRoot(path.resolve(cacheRoot), cacheRootIdentity)).path;
+  cacheRootIdentity = await assertStableCacheRoot(root, cacheRootIdentity);
   const target = publicationMarkerPath(root, version);
-  const temporary = `${target}.tmp-${randomUUID()}`;
   const value = {
     schemaVersion: 2,
     state,
@@ -429,18 +1561,46 @@ async function writePublicationMarker({
     providerReceiptDigest,
     updatedAt: new Date().toISOString()
   };
-  const handle = await open(temporary, "wx", 0o600);
-  try {
-    await handle.writeFile(`${JSON.stringify(value, null, 2)}\n`);
-    await handle.sync();
-  } finally {
-    await handle.close();
-  }
-  await rename(temporary, target).catch(async (error) => {
-    await unlink(temporary).catch(() => undefined);
-    throw error;
+  return withPinnedCacheRoot(root, cacheRootIdentity, async ({ pinned }) => {
+    const contents = `${JSON.stringify(value, null, 2)}\n`;
+    if (guardTarget !== null || guardInfo !== null) {
+      if (guardTarget === null || guardInfo === null) {
+        throw new Error("Plugin cache ready marker guard is incomplete");
+      }
+      await pinned.writeFileGuarded(target, contents, { guard: guardTarget, expectedInfo: guardInfo, mode: 0o600 });
+    } else {
+      const temporary = `${target}.tmp-${randomUUID()}`;
+      await pinned.writeFile(temporary, contents, { flag: "wx", mode: 0o600 });
+      await pinned.rename(temporary, target).catch(async (error) => {
+        await pinned.unlink(temporary).catch(() => undefined);
+        throw error;
+      });
+    }
+    return value;
   });
-  return value;
+}
+
+function pendingMarkerMatchesPublication(marker, {
+  cacheRoot,
+  version,
+  targetDigest,
+  expectedSourceBinding,
+  publicationIdentity
+}) {
+  const expected = expectedSourceBinding;
+  return marker?.schemaVersion === 2 &&
+    marker.state === "pending" &&
+    marker.version === version &&
+    marker.target === path.join(path.resolve(cacheRoot), version) &&
+    marker.targetDigest === targetDigest &&
+    marker.sourceDigest === targetDigest &&
+    marker.sourceBaselineRevision === (expected?.sourceBaselineRevision ?? null) &&
+    marker.sourceHeadRevision === (expected?.sourceHeadRevision ?? null) &&
+    marker.sourceBindingDigest === (expected?.sourceBindingDigest ?? null) &&
+    marker.pluginBundleDigest === (expected?.pluginBundleDigest ?? targetDigest) &&
+    marker.runId === (publicationIdentity?.runId ?? null) &&
+    marker.attemptId === (publicationIdentity?.attemptId ?? null) &&
+    marker.providerReceiptDigest === null;
 }
 
 export async function markPluginCacheReady({
@@ -455,75 +1615,166 @@ export async function markPluginCacheReady({
   pluginBundleDigest,
   runId = null,
   attemptId = null,
-  providerReceiptDigest = null
+  providerReceiptDigest = null,
+  afterLock = null,
+  beforeMarkerCommit = null
 }) {
-  const root = path.resolve(cacheRoot);
+  const root = (await assertStableCacheRoot(path.resolve(cacheRoot))).path;
   if (target !== path.join(root, version)) {
     throw new Error("Plugin cache ready marker target is not canonical");
   }
-  const actualTargetDigest = await bundleDigest(target);
-  if (actualTargetDigest !== targetDigest) {
-    throw new Error("Plugin cache ready marker target digest does not match the published target");
+  const cacheRootIdentity = await assertStableCacheRoot(root);
+  if (afterLock !== null && typeof afterLock !== "function") {
+    throw new Error("Plugin cache ready afterLock hook must be a function");
   }
-  const existing = await readPublicationMarker(root, version);
-  if (existing && existing.state !== "pending" && existing.state !== "ready") {
-    throw new Error("Plugin cache ready marker has an invalid prior state");
+  if (beforeMarkerCommit !== null && typeof beforeMarkerCommit !== "function") {
+    throw new Error("Plugin cache ready beforeMarkerCommit hook must be a function");
   }
-  if (existing?.state === "pending" && existing.targetDigest !== targetDigest) {
-    throw new Error("Plugin cache ready marker is bound to a different target digest");
-  }
-  for (const [field, expected] of [
-    ["sourceDigest", sourceDigest],
-    ["sourceBaselineRevision", sourceBaselineRevision],
-    ["sourceHeadRevision", sourceHeadRevision],
-    ["sourceBindingDigest", sourceBindingDigest],
-    ["pluginBundleDigest", pluginBundleDigest],
-    ["runId", runId],
-    ["attemptId", attemptId],
-    ["providerReceiptDigest", providerReceiptDigest]
-  ]) {
-    if (
-      existing?.[field] !== null &&
-      existing?.[field] !== undefined &&
-      expected !== null &&
-      expected !== undefined &&
-      existing[field] !== expected
-    ) {
-      throw new Error(`Plugin cache ready marker ${field} binding changed`);
+  const lock = await acquirePublicationLock(root, version, { cacheRootIdentity });
+  try {
+    if (afterLock) await afterLock();
+    const targetSnapshot = await withPinnedCacheRoot(root, cacheRootIdentity, async ({ pinned }) => {
+      const beforeInfo = await pinned.lstat(target);
+      const digest = await pinnedBundleDigest(pinned, target);
+      const afterInfo = await pinned.lstat(target);
+      if (beforeInfo.type !== afterInfo.type || beforeInfo.dev !== afterInfo.dev ||
+          beforeInfo.ino !== afterInfo.ino || beforeInfo.nlink !== afterInfo.nlink ||
+          beforeInfo.size !== afterInfo.size) {
+        throw new Error("Plugin cache ready marker target identity changed during verification");
+      }
+      return { digest, info: afterInfo };
+    });
+    const actualTargetDigest = targetSnapshot.digest;
+    if (actualTargetDigest !== targetDigest) {
+      throw new Error("Plugin cache ready marker target digest does not match the published target");
     }
+    const existing = await readPublicationMarker(root, version, cacheRootIdentity);
+    if (existing && existing.state !== "pending" && existing.state !== "ready") {
+      throw new Error("Plugin cache ready marker has an invalid prior state");
+    }
+    if (existing?.state === "pending" && existing.targetDigest !== targetDigest) {
+      throw new Error("Plugin cache ready marker is bound to a different target digest");
+    }
+    for (const [field, expected] of [
+      ["sourceDigest", sourceDigest],
+      ["sourceBaselineRevision", sourceBaselineRevision],
+      ["sourceHeadRevision", sourceHeadRevision],
+      ["sourceBindingDigest", sourceBindingDigest],
+      ["pluginBundleDigest", pluginBundleDigest],
+      ["runId", runId],
+      ["attemptId", attemptId],
+      ["providerReceiptDigest", providerReceiptDigest]
+    ]) {
+      if (
+        existing?.[field] !== null &&
+        existing?.[field] !== undefined &&
+        expected !== null &&
+        expected !== undefined &&
+        existing[field] !== expected
+      ) {
+        throw new Error(`Plugin cache ready marker ${field} binding changed`);
+      }
+    }
+    if (beforeMarkerCommit) await beforeMarkerCommit({ target, targetDigest });
+    const written = await writePublicationMarker({
+      cacheRoot: root,
+      cacheRootIdentity,
+      version,
+      state: "ready",
+      targetDigest,
+      sourceDigest,
+      sourceBaselineRevision,
+      sourceHeadRevision,
+      sourceBindingDigest,
+      pluginBundleDigest,
+      runId,
+      attemptId,
+      providerReceiptDigest,
+      guardTarget: target,
+      guardInfo: targetSnapshot.info
+    });
+    const postCommitDigest = await withPinnedCacheRoot(root, cacheRootIdentity, ({ pinned }) => pinnedBundleDigest(pinned, target));
+    if (postCommitDigest !== targetDigest) {
+      await removeOwnedPublicationMarker(root, version, written, cacheRootIdentity).catch(() => false);
+      throw new Error("Plugin cache ready marker target changed after guarded commit");
+    }
+    return written;
+  } finally {
+    await lock.close().catch(() => undefined);
+    await releasePublicationLock(lock.path, lock.ownerToken, cacheRootIdentity);
   }
-  return writePublicationMarker({
-    cacheRoot: root,
-    version,
-    state: "ready",
-    targetDigest,
-    sourceDigest,
-    sourceBaselineRevision,
-    sourceHeadRevision,
-    sourceBindingDigest,
-    pluginBundleDigest,
-    runId,
-    attemptId,
-    providerReceiptDigest
-  });
 }
 
-export async function removeUnreadyPluginCachePublication({ cacheRoot, version, target, targetDigest }) {
-  const root = path.resolve(cacheRoot);
+export async function removeUnreadyPluginCachePublication({
+  cacheRoot,
+  version,
+  target,
+  targetDigest,
+  runId,
+  attemptId,
+  beforeMarkerRemove = null,
+  beforeTargetRemove = null
+}) {
+  const root = (await assertStableCacheRoot(path.resolve(cacheRoot))).path;
   if (target !== path.join(root, version)) {
     throw new Error("Plugin cache cleanup target is not canonical");
   }
-  const marker = await readPublicationMarker(root, version);
-  if (!marker || marker.state !== "pending" || marker.targetDigest !== targetDigest) {
-    throw new Error("Refusing to remove a cache target without its pending publication marker");
+  const cacheRootIdentity = await assertStableCacheRoot(root);
+  if (typeof runId !== "string" || !runId || typeof attemptId !== "string" || !attemptId) {
+    throw new Error("Plugin cache cleanup requires an exact run and action attempt");
   }
-  const actualTargetDigest = await bundleDigest(target);
-  if (actualTargetDigest !== targetDigest) {
-    throw new Error("Refusing to remove a cache target whose digest changed");
+  if (beforeMarkerRemove !== null && typeof beforeMarkerRemove !== "function") {
+    throw new Error("Plugin cache cleanup beforeMarkerRemove hook must be a function");
   }
-  await rm(target, { recursive: true, force: false });
-  await unlink(publicationMarkerPath(root, version));
-  return { removed: true, target, marker: publicationMarkerPath(root, version) };
+  if (beforeTargetRemove !== null && typeof beforeTargetRemove !== "function") {
+    throw new Error("Plugin cache cleanup beforeTargetRemove hook must be a function");
+  }
+  const lock = await acquirePublicationLock(root, version, { cacheRootIdentity });
+  let removedMarker = null;
+  try {
+    const marker = await readPublicationMarker(root, version, cacheRootIdentity);
+    if (
+      !marker ||
+      marker.state !== "pending" ||
+      marker.targetDigest !== targetDigest ||
+      marker.runId !== runId ||
+      marker.attemptId !== attemptId
+    ) {
+      throw new Error("Refusing to remove a cache target without its exact owned pending publication marker");
+    }
+    const targetInfo = await withPinnedCacheRoot(root, cacheRootIdentity, ({ pinned }) => pinned.lstat(target));
+    const actualTargetDigest = await withPinnedCacheRoot(root, cacheRootIdentity, ({ pinned }) => pinnedBundleDigest(pinned, target));
+    if (actualTargetDigest !== targetDigest) {
+      throw new Error("Refusing to remove a cache target whose digest changed");
+    }
+    if (beforeMarkerRemove) await beforeMarkerRemove({ marker, target, targetDigest });
+    if (!await removeOwnedPublicationMarker(root, version, marker, cacheRootIdentity)) {
+      throw new Error("Refusing to remove a cache target after publication marker ownership changed");
+    }
+    removedMarker = marker;
+    await assertStableCacheRoot(root, cacheRootIdentity);
+    if (beforeTargetRemove) await beforeTargetRemove({ marker, target, targetDigest });
+    if (!await removePinnedLeafIfMatch({
+      cacheRoot: root,
+      cacheRootIdentity,
+      target,
+      expectedInfo: targetInfo,
+      foreignPrefix: version
+    })) {
+      throw new Error("Refusing to remove a cache target that disappeared during guarded cleanup");
+    }
+    return { removed: true, target, marker: publicationMarkerPath(root, version) };
+  } catch (error) {
+    if (removedMarker && !await readPublicationMarker(root, version, cacheRootIdentity)) {
+      await assertStableCacheRoot(root, cacheRootIdentity)
+        .then(() => writePublicationMarker({ cacheRoot: root, cacheRootIdentity, ...removedMarker }))
+        .catch(() => undefined);
+    }
+    throw error;
+  } finally {
+    await lock.close().catch(() => undefined);
+    await releasePublicationLock(lock.path, lock.ownerToken, cacheRootIdentity);
+  }
 }
 
 export async function verifyPluginCacheReady({
@@ -540,11 +1791,12 @@ export async function verifyPluginCacheReady({
   attemptId = null,
   providerReceiptDigest = null
 }) {
-  const root = path.resolve(cacheRoot);
+  const root = (await assertStableCacheRoot(path.resolve(cacheRoot))).path;
   if (target !== path.join(root, version)) {
     throw new Error("Plugin cache readiness target is not canonical");
   }
-  const marker = await readPublicationMarker(root, version);
+  const cacheRootIdentity = await assertStableCacheRoot(root);
+  const marker = await readPublicationMarker(root, version, cacheRootIdentity);
   if (!marker || marker.state !== "ready" || marker.target !== target || marker.targetDigest !== targetDigest) {
     throw new Error("Plugin cache readiness marker is absent or stale");
   }
@@ -562,7 +1814,8 @@ export async function verifyPluginCacheReady({
       throw new Error(`Plugin cache readiness marker ${field} binding changed`);
     }
   }
-  const actualTargetDigest = await bundleDigest(target);
+  await assertStableCacheRoot(root, cacheRootIdentity);
+  const actualTargetDigest = await withPinnedCacheRoot(root, cacheRootIdentity, ({ pinned }) => pinnedBundleDigest(pinned, target));
   if (actualTargetDigest !== targetDigest) {
     throw new Error("Plugin cache readiness target digest changed");
   }
@@ -588,7 +1841,7 @@ async function assertExpectedSourceBinding(sourceRoot, expected, bundle = null) 
   return { sourceBinding, bundleDigest: resolvedBundle };
 }
 
-async function createCommittedSourceSnapshot(sourceRoot, expected, cacheRoot, version) {
+async function createCommittedSourceSnapshot(sourceRoot, expected, cacheRoot, version, cacheRootIdentity = null) {
   const repositoryRoot = await repositoryRootForSource(sourceRoot);
   const resolvedSource = await realpath(path.resolve(sourceRoot));
   const relativeRoot = path.relative(repositoryRoot, resolvedSource).replaceAll(path.sep, "/");
@@ -596,34 +1849,35 @@ async function createCommittedSourceSnapshot(sourceRoot, expected, cacheRoot, ve
     throw new Error("Plugin cache source is not a repository-relative tree");
   }
   const snapshotRoot = path.join(cacheRoot, `.${version}.snapshot-${randomUUID()}`);
-  const archivePath = path.join(cacheRoot, `.${version}.archive-${randomUUID()}.tar`);
-  await mkdir(snapshotRoot, { recursive: true, mode: 0o700 });
-  try {
-    await execFileAsync("git", [
-      "-C", repositoryRoot,
-      "archive",
-      "--format=tar",
-      `--output=${archivePath}`,
-      expected.sourceHeadRevision,
-      "--",
-      relativeRoot
-    ], { encoding: "utf8" });
-    await execFileAsync("/usr/bin/tar", ["-xf", archivePath, "-C", snapshotRoot], {
-      encoding: "utf8"
-    });
-    const snapshotSource = path.join(snapshotRoot, relativeRoot);
-    await assertDirectoryNotSymlink(snapshotSource);
-    const snapshotDigest = await bundleDigest(snapshotSource);
-    if (snapshotDigest !== expected.pluginBundleDigest) {
-      throw new Error("Committed plugin cache snapshot does not match self-improve handoff");
+  return withPinnedCacheRoot(cacheRoot, cacheRootIdentity, async ({ pinned }) => {
+    await pinned.mkdir(snapshotRoot, { recursive: true, mode: 0o700 });
+    try {
+      const archived = await runSourceGit(repositoryRoot, [
+        "archive",
+        "--format=tar",
+        expected.sourceHeadRevision,
+        "--",
+        relativeRoot
+      ], { encoding: null });
+      if (!Buffer.isBuffer(archived.stdout) || archived.stdout.length < 1) {
+        throw new Error("Committed plugin cache snapshot archive was empty");
+      }
+      await pinned.extract(snapshotRoot, archived.stdout);
+      const snapshotSource = path.join(snapshotRoot, relativeRoot);
+      const snapshotInfo = await pinned.lstat(snapshotSource);
+      if (!snapshotInfo.isDirectory() || snapshotInfo.isSymbolicLink()) {
+        throw new Error(`Unsafe committed plugin cache snapshot source: ${snapshotSource}`);
+      }
+      const snapshotDigest = await pinnedBundleDigest(pinned, snapshotSource);
+      if (snapshotDigest !== expected.pluginBundleDigest) {
+        throw new Error("Committed plugin cache snapshot does not match self-improve handoff");
+      }
+      return { snapshotRoot, snapshotSource };
+    } catch (error) {
+      await pinned.rm(snapshotRoot, { recursive: true, force: true }).catch(() => undefined);
+      throw error;
     }
-    return { snapshotRoot, snapshotSource };
-  } catch (error) {
-    await rm(snapshotRoot, { recursive: true, force: true }).catch(() => undefined);
-    throw error;
-  } finally {
-    await unlink(archivePath).catch(() => undefined);
-  }
+  });
 }
 
 export async function publishPluginCache({
@@ -631,11 +1885,23 @@ export async function publishPluginCache({
   cacheRoot,
   expectedSourceBinding = null,
   beforeRename = null,
+  afterPublish = null,
+  afterStaleLockValidated = null,
+  beforeStaleLockRelease = null,
   publicationIdentity = null
 }) {
   const expected = validateExpectedSourceBinding(expectedSourceBinding);
   if (beforeRename !== null && typeof beforeRename !== "function") {
     throw new Error("Plugin cache publication beforeRename hook must be a function");
+  }
+  if (afterPublish !== null && typeof afterPublish !== "function") {
+    throw new Error("Plugin cache publication afterPublish hook must be a function");
+  }
+  if (afterStaleLockValidated !== null && typeof afterStaleLockValidated !== "function") {
+    throw new Error("Plugin cache publication stale-lock validation hook must be a function");
+  }
+  if (beforeStaleLockRelease !== null && typeof beforeStaleLockRelease !== "function") {
+    throw new Error("Plugin cache publication stale-lock release hook must be a function");
   }
   if (publicationIdentity !== null && (
     !publicationIdentity ||
@@ -647,10 +1913,14 @@ export async function publishPluginCache({
     throw new Error("Plugin cache publication identity must bind a run and action attempt");
   }
   await assertExpectedSourceBinding(sourceRoot, expected);
-  const before = await checkPluginCache({ sourceRoot, cacheRoot });
+  const initialCacheRootPath = path.resolve(cacheRoot);
+  const initialCacheRootIdentity = await pathExists(initialCacheRootPath)
+    ? await assertStableCacheRoot(initialCacheRootPath)
+    : null;
+  const before = await checkPluginCache({ sourceRoot, cacheRoot, cacheRootIdentity: initialCacheRootIdentity });
   if (before.ok) {
     if (expected) {
-      const marker = await readPublicationMarker(cacheRoot, before.version);
+      const marker = await readPublicationMarker(cacheRoot, before.version, initialCacheRootIdentity);
       if (marker?.state === "pending") {
         throw new Error("Plugin cache version has an incomplete pending publication");
       }
@@ -663,22 +1933,35 @@ export async function publishPluginCache({
       `Refusing to overwrite immutable cache version ${before.version}; bump the plugin build version`
     );
   }
-  const resolvedCacheRoot = path.resolve(cacheRoot);
+  let resolvedCacheRoot = path.resolve(cacheRoot);
   await mkdir(resolvedCacheRoot, { recursive: true, mode: 0o700 });
-  await assertDirectoryNotSymlink(resolvedCacheRoot);
-  const lockPath = path.join(resolvedCacheRoot, `.${before.version}.publish.lock`);
-  const lockState = await acquirePublicationLock(lockPath, before.version);
+  resolvedCacheRoot = (await assertStableCacheRoot(resolvedCacheRoot)).path;
+  const cacheRootIdentity = await assertStableCacheRoot(resolvedCacheRoot);
+  await assertStableCacheRoot(resolvedCacheRoot, cacheRootIdentity);
+  const lockState = await acquirePublicationLock(resolvedCacheRoot, before.version, {
+    cacheRootIdentity,
+    afterStaleLockValidated,
+    beforeStaleLockRelease
+  });
   const lock = lockState;
-  if (lockState.reclaimed) await removeStalePublicationArtifacts(resolvedCacheRoot, before.version);
+  if (lockState.reclaimed) await removeStalePublicationArtifacts(resolvedCacheRoot, before.version, cacheRootIdentity);
   const stage = path.join(resolvedCacheRoot, `.${before.version}.stage-${randomUUID()}`);
   let snapshotRoot = null;
   let publishedTarget = false;
   let publishedPath = null;
+  let publishedTargetInfo = null;
+  let ownedPublicationMarker = null;
   try {
-    const lockedBefore = await checkPluginCache({ sourceRoot, cacheRoot });
+    await assertStableCacheRoot(resolvedCacheRoot, cacheRootIdentity);
+    const lockedBefore = await checkPluginCache({ sourceRoot, cacheRoot: resolvedCacheRoot, cacheRootIdentity });
+    // `checkPluginCache` may run before a missing cache root exists and thus
+    // return the caller's lexical `/var/...` spelling.  After mkdir the root
+    // is canonicalized (for example to `/private/var/...` on macOS).  Compare
+    // the immutable version and canonical target derived from the locked root,
+    // rather than treating an equivalent alias spelling as a source mutation.
     if (
       lockedBefore.version !== before.version ||
-      lockedBefore.target !== before.target
+      lockedBefore.target !== path.join(resolvedCacheRoot, before.version)
     ) {
       throw new Error(
         `Plugin source version changed while acquiring publication lock: ${before.version} -> ${lockedBefore.version}`
@@ -687,7 +1970,7 @@ export async function publishPluginCache({
     await assertExpectedSourceBinding(sourceRoot, expected, lockedBefore.sourceDigest);
     if (lockedBefore.ok) {
       if (expected) {
-        const marker = await readPublicationMarker(resolvedCacheRoot, lockedBefore.version);
+        const marker = await readPublicationMarker(resolvedCacheRoot, lockedBefore.version, cacheRootIdentity);
         if (marker?.state === "pending") {
           throw new Error("Plugin cache version has an incomplete pending publication");
         }
@@ -700,15 +1983,29 @@ export async function publishPluginCache({
         `Refusing to overwrite immutable cache version ${lockedBefore.version}; bump the plugin build version`
       );
     }
-    await mkdir(stage, { mode: 0o700 });
+    const expectedBundleDigest = expected?.pluginBundleDigest ?? lockedBefore.sourceDigest;
+    const existingMarker = await readPublicationMarker(resolvedCacheRoot, lockedBefore.version, cacheRootIdentity);
+    if (existingMarker && !pendingMarkerMatchesPublication(existingMarker, {
+      cacheRoot: resolvedCacheRoot,
+      version: lockedBefore.version,
+      targetDigest: expectedBundleDigest,
+      expectedSourceBinding: expected,
+      publicationIdentity
+    })) {
+      throw new Error("Plugin cache existing pending publication marker is not bound to this action attempt");
+    }
     const snapshot = expected
-      ? await createCommittedSourceSnapshot(sourceRoot, expected, resolvedCacheRoot, before.version)
+      ? await createCommittedSourceSnapshot(sourceRoot, expected, resolvedCacheRoot, before.version, cacheRootIdentity)
       : null;
     snapshotRoot = snapshot?.snapshotRoot ?? null;
-    await copyBundle(snapshot?.snapshotSource ?? path.resolve(sourceRoot), stage);
-    const stagedManifest = await createBundleManifest(stage);
-    const stagedDigest = digestObject(stagedManifest);
-    const expectedBundleDigest = expected?.pluginBundleDigest ?? lockedBefore.sourceDigest;
+    let stagedDigest;
+    await withPinnedCacheRoot(resolvedCacheRoot, cacheRootIdentity, async ({ pinned }) => {
+      await pinned.mkdir(stage, { mode: 0o700 });
+      const source = snapshot ? snapshot.snapshotSource : path.resolve(sourceRoot);
+      await copyBundlePinned(pinned, source, stage, "", Boolean(snapshot));
+      const stagedManifest = await createPinnedBundleManifest(pinned, stage);
+      stagedDigest = digestObject(stagedManifest);
+    });
     if (stagedDigest !== expectedBundleDigest) {
       throw new Error("Staged plugin cache digest does not match source");
     }
@@ -716,12 +2013,22 @@ export async function publishPluginCache({
     if (stagedSource && stagedSource.bundleDigest !== expectedBundleDigest) {
       throw new Error("Plugin source changed during cache staging");
     }
-    if (await pathExists(lockedBefore.target)) {
+    const targetExists = await withPinnedCacheRoot(resolvedCacheRoot, cacheRootIdentity, async ({ pinned }) => {
+      try {
+        await pinned.lstat(lockedBefore.target);
+        return true;
+      } catch (error) {
+        if (error.code === "ENOENT") return false;
+        throw error;
+      }
+    });
+    if (targetExists) {
       throw new Error(`Plugin cache target appeared during publication: ${lockedBefore.target}`);
     }
     await assertExpectedSourceBinding(sourceRoot, expected, expectedBundleDigest);
-    await writePublicationMarker({
+    ownedPublicationMarker = await writePublicationMarker({
       cacheRoot: resolvedCacheRoot,
+      cacheRootIdentity,
       version: lockedBefore.version,
       state: "pending",
       targetDigest: expectedBundleDigest,
@@ -733,14 +2040,17 @@ export async function publishPluginCache({
       runId: publicationIdentity?.runId ?? null,
       attemptId: publicationIdentity?.attemptId ?? null
     });
-    if (beforeRename) await beforeRename({ target: lockedBefore.target, sourceBinding: expected });
-    await rename(stage, lockedBefore.target);
+    if (beforeRename) await beforeRename({ target: lockedBefore.target, stage, cacheRoot: resolvedCacheRoot, sourceBinding: expected });
+    const stagedInfo = await withPinnedCacheRoot(resolvedCacheRoot, cacheRootIdentity, ({ pinned }) => pinned.lstat(stage));
+    await withPinnedCacheRoot(resolvedCacheRoot, cacheRootIdentity, ({ pinned }) => pinned.rename(stage, lockedBefore.target));
     publishedTarget = true;
     publishedPath = lockedBefore.target;
-    const targetDigest = await bundleDigest(lockedBefore.target);
+    publishedTargetInfo = stagedInfo;
+    const targetDigest = await withPinnedCacheRoot(resolvedCacheRoot, cacheRootIdentity, ({ pinned }) => pinnedBundleDigest(pinned, lockedBefore.target));
     if (targetDigest !== expectedBundleDigest) {
       throw new Error("Published plugin cache failed exact target verification");
     }
+    if (afterPublish) await afterPublish({ target: lockedBefore.target, targetDigest, targetInfo: stagedInfo });
     await assertExpectedSourceBinding(sourceRoot, expected, targetDigest);
     // An expected handoff is an immutable commit snapshot. The source checkout
     // may advance after the last pre-rename check; that cannot change the bytes
@@ -755,20 +2065,33 @@ export async function publishPluginCache({
           targetDigest,
           diff: { missing: [], extra: [], changed: [] }
         }
-      : await checkPluginCache({ sourceRoot, cacheRoot });
+      : await checkPluginCache({ sourceRoot, cacheRoot: resolvedCacheRoot, cacheRootIdentity });
     if (!after.ok) throw new Error("Published plugin cache failed exact verification");
     return { ...after, applied: true, noOp: false };
   } catch (error) {
     let rollbackError = null;
     if (publishedTarget) {
       try {
-        await rm(publishedPath, { recursive: true, force: false });
+        if (!publishedTargetInfo || !await removePinnedLeafIfMatch({
+          cacheRoot: resolvedCacheRoot,
+          cacheRootIdentity,
+          target: publishedPath,
+          expectedInfo: publishedTargetInfo,
+          foreignPrefix: `${before.version}.rollback`
+        })) {
+          throw new Error(`Plugin cache publication target disappeared during guarded rollback: ${publishedPath}`);
+        }
       } catch (candidate) {
         rollbackError = candidate;
       }
     }
-    await unlink(publicationMarkerPath(resolvedCacheRoot, before.version)).catch(() => undefined);
-    await rm(stage, { recursive: true, force: true }).catch(() => undefined);
+    await removeOwnedPublicationMarker(
+      resolvedCacheRoot,
+      before.version,
+      ownedPublicationMarker,
+      cacheRootIdentity
+    ).catch(() => undefined);
+    await withPinnedCacheRoot(resolvedCacheRoot, cacheRootIdentity, ({ pinned }) => pinned.rm(stage, { recursive: true, force: true })).catch(() => undefined);
     if (rollbackError) {
       throw new AggregateError(
         [error, rollbackError],
@@ -777,9 +2100,9 @@ export async function publishPluginCache({
     }
     throw error;
   } finally {
-    if (snapshotRoot) await rm(snapshotRoot, { recursive: true, force: true }).catch(() => undefined);
+    if (snapshotRoot) await withPinnedCacheRoot(resolvedCacheRoot, cacheRootIdentity, ({ pinned }) => pinned.rm(snapshotRoot, { recursive: true, force: true })).catch(() => undefined);
     await lock.close().catch(() => undefined);
-    await releasePublicationLock(lockPath, lock.ownerToken);
+    await releasePublicationLock(lock.path, lock.ownerToken, cacheRootIdentity);
   }
 }
 
@@ -788,18 +2111,32 @@ export async function recoverPendingPluginCachePublication({
   cacheRoot,
   expectedSourceBinding,
   runId,
-  attemptId
+  attemptId,
+  beforeLock = null,
+  afterLock = null
 }) {
   const expected = validateExpectedSourceBinding(expectedSourceBinding);
   if (!expected || typeof runId !== "string" || !runId || typeof attemptId !== "string" || !attemptId) {
     throw new Error("Pending plugin cache recovery requires an exact source binding, run, and action attempt");
   }
+  if (beforeLock !== null && typeof beforeLock !== "function") {
+    throw new Error("Pending plugin cache recovery beforeLock hook must be a function");
+  }
+  if (afterLock !== null && typeof afterLock !== "function") {
+    throw new Error("Pending plugin cache recovery afterLock hook must be a function");
+  }
+  const resolvedCacheRoot = path.resolve(cacheRoot);
+  // Recovery is an authority path too: bind the cache-root and every ancestor
+  // before the first marker/target read and carry that exact identity through
+  // the lease, reconciliation, and release.  A replacement tree must never
+  // become the new recovery target merely because it appeared mid-flight.
+  const cacheRootIdentity = await assertStableCacheRoot(resolvedCacheRoot);
   await assertExpectedSourceBinding(sourceRoot, expected);
-  const current = await checkPluginCache({ sourceRoot, cacheRoot });
+  const current = await checkPluginCache({ sourceRoot, cacheRoot: resolvedCacheRoot, cacheRootIdentity });
   if (!current.ok || current.status !== "identical") {
     throw new Error("Pending plugin cache recovery requires an exact published target");
   }
-  const marker = await readPublicationMarker(cacheRoot, current.version);
+  const marker = await readPublicationMarker(resolvedCacheRoot, current.version, cacheRootIdentity);
   if (
     !marker ||
     marker.state !== "pending" ||
@@ -815,11 +2152,39 @@ export async function recoverPendingPluginCachePublication({
   ) {
     throw new Error("Pending plugin cache publication marker is not bound to this action attempt");
   }
-  const resolvedCacheRoot = path.resolve(cacheRoot);
-  const reclaimed = await reclaimStalePublicationLock(
-    path.join(resolvedCacheRoot, `.${current.version}.publish.lock`),
-    current.version
-  );
-  if (reclaimed) await removeStalePublicationArtifacts(resolvedCacheRoot, current.version);
-  return { ...current, applied: true, noOp: false, recovered: true, status: "identical" };
+  if (beforeLock !== null) {
+    await beforeLock({ marker, current });
+  }
+  const lock = await acquirePublicationLock(resolvedCacheRoot, current.version, { cacheRootIdentity });
+  try {
+    if (afterLock) await afterLock({ lock, marker, current, cacheRootIdentity });
+    await assertStableCacheRoot(resolvedCacheRoot, cacheRootIdentity);
+    if (lock.reclaimed) await removeStalePublicationArtifacts(resolvedCacheRoot, current.version, cacheRootIdentity);
+    await assertExpectedSourceBinding(sourceRoot, expected);
+    const lockedCurrent = await checkPluginCache({ sourceRoot, cacheRoot: resolvedCacheRoot, cacheRootIdentity });
+    if (!lockedCurrent.ok || lockedCurrent.status !== "identical" ||
+        lockedCurrent.version !== current.version || lockedCurrent.target !== current.target) {
+      throw new Error("Pending plugin cache recovery state changed while acquiring its publication lease");
+    }
+    const lockedMarker = await readPublicationMarker(resolvedCacheRoot, lockedCurrent.version, cacheRootIdentity);
+    if (
+      !lockedMarker ||
+      lockedMarker.state !== "pending" ||
+      lockedMarker.target !== lockedCurrent.target ||
+      lockedMarker.targetDigest !== lockedCurrent.targetDigest ||
+      lockedMarker.sourceDigest !== expected.pluginBundleDigest ||
+      lockedMarker.sourceBaselineRevision !== expected.sourceBaselineRevision ||
+      lockedMarker.sourceHeadRevision !== expected.sourceHeadRevision ||
+      lockedMarker.sourceBindingDigest !== expected.sourceBindingDigest ||
+      lockedMarker.pluginBundleDigest !== expected.pluginBundleDigest ||
+      lockedMarker.runId !== runId ||
+      lockedMarker.attemptId !== attemptId
+    ) {
+      throw new Error("Pending plugin cache publication marker changed while acquiring its publication lease");
+    }
+    return { ...lockedCurrent, applied: true, noOp: false, recovered: true, status: "identical" };
+  } finally {
+    await lock.close().catch(() => undefined);
+    await releasePublicationLock(lock.path, lock.ownerToken, cacheRootIdentity);
+  }
 }
