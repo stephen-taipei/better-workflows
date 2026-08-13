@@ -277,14 +277,19 @@ def stat_record(path):
     kind = "directory" if stat.S_ISDIR(info.st_mode) else "file" if stat.S_ISREG(info.st_mode) else "symlink" if stat.S_ISLNK(info.st_mode) else "other"
     return {"type": kind, "mode": info.st_mode, "size": info.st_size, "nlink": info.st_nlink, "uid": info.st_uid, "gid": info.st_gid, "dev": info.st_dev, "ino": info.st_ino}
 
-def identity_matches(info, expected):
+def identity_matches(info, expected, allow_directory_metadata_change=False):
     if not isinstance(expected, dict):
         return False
     kind = "directory" if stat.S_ISDIR(info.st_mode) else "file" if stat.S_ISREG(info.st_mode) else "symlink" if stat.S_ISLNK(info.st_mode) else "other"
+    if (
+        expected.get("type") != kind or
+        str(expected.get("dev")) != str(info.st_dev) or
+        str(expected.get("ino")) != str(info.st_ino)
+    ):
+        return False
+    if allow_directory_metadata_change and kind == "directory":
+        return True
     return (
-        expected.get("type") == kind and
-        str(expected.get("dev")) == str(info.st_dev) and
-        str(expected.get("ino")) == str(info.st_ino) and
         str(expected.get("nlink")) == str(info.st_nlink) and
         str(expected.get("size")) == str(info.st_size)
     )
@@ -345,12 +350,12 @@ def write_guarded(temporary, target, guard, expected, mode, encoded):
         os.close(target_parent)
         os.close(guard_parent)
 
-def remove_if_match(path, release, expected, content_digest):
+def remove_if_match(path, release, expected, content_digest, allow_directory_metadata_change=False):
     path_parent, path_leaf = open_parent(path)
     release_parent, release_leaf = open_parent(release)
     try:
         info = os.lstat(path_leaf, dir_fd=path_parent)
-        if not identity_matches(info, expected):
+        if not identity_matches(info, expected, allow_directory_metadata_change):
             guarded_failure("tree identity changed")
         if stat.S_ISREG(info.st_mode) and content_digest:
             handle = os.open(path_leaf, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0), dir_fd=path_parent)
@@ -370,7 +375,7 @@ def remove_if_match(path, release, expected, content_digest):
                 guarded_failure("guarded removal requires a regular directory or file")
         os.rename(path_leaf, release_leaf, src_dir_fd=path_parent, dst_dir_fd=release_parent)
         moved = os.lstat(release_leaf, dir_fd=release_parent)
-        if not identity_matches(moved, expected):
+        if not identity_matches(moved, expected, allow_directory_metadata_change):
             guarded_failure("moved identity changed")
         if stat.S_ISREG(moved.st_mode) and content_digest:
             handle = os.open(release_leaf, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0), dir_fd=release_parent)
@@ -461,7 +466,13 @@ def perform(command, arguments):
         os.close(parent)
         return None
     if command == "remove_if_match":
-        remove_if_match(arguments[0], arguments[1], json.loads(arguments[2]), arguments[3])
+        remove_if_match(
+            arguments[0],
+            arguments[1],
+            json.loads(arguments[2]),
+            arguments[3],
+            bool(arguments[4]) if len(arguments) > 4 else False
+        )
         return None
     if command == "write_guarded":
         write_guarded(arguments[0], arguments[1], arguments[2], json.loads(arguments[3]), int(arguments[4]), arguments[5])
@@ -665,8 +676,14 @@ async function withPinnedCacheRoot(cacheRoot, cacheRootIdentity, operation) {
       async unlink(target) {
         return runner.run("unlink", [relative(target)]);
       },
-      async unlinkIfMatch(target, expectedInfo, contentDigest, release) {
-        return runner.run("remove_if_match", [relative(target), relative(release), JSON.stringify(expectedInfo), contentDigest]);
+      async unlinkIfMatch(target, expectedInfo, contentDigest, release, allowDirectoryMetadataChange = false) {
+        return runner.run("remove_if_match", [
+          relative(target),
+          relative(release),
+          JSON.stringify(expectedInfo),
+          contentDigest,
+          allowDirectoryMetadataChange
+        ]);
       },
       async rm(target, options = {}) {
         return runner.run("remove", [relative(target), options.force === true]);
@@ -1473,7 +1490,13 @@ async function removePinnedLeafIfMatch({
   const releasedPath = path.join(releaseRoot, "leaf");
   try {
     await withPinnedCacheRoot(cacheRoot, cacheRootIdentity, ({ pinned }) =>
-      pinned.unlinkIfMatch(target, expectedInfo, contentDigest, releasedPath)
+      pinned.unlinkIfMatch(
+        target,
+        expectedInfo,
+        contentDigest,
+        releasedPath,
+        expectedInfo?.type === "directory"
+      )
     );
     return true;
   } catch (error) {
