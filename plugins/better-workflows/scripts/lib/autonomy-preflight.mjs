@@ -63,15 +63,20 @@ export async function captureAutonomyReadinessSnapshotFromSource(cwd, binding, s
 }
 
 export async function readBoundHostStatus(hostTrustTool, cwd, { timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
-  const result = await execBoundProcess(process.execPath, [hostTrustTool, "status"], {
-    cwd,
-    env: { PATH: CONTROLLED_PATH, HOME: "/var/empty", LANG: "C", LC_ALL: "C" },
-    timeoutMs,
-    maxBuffer: DEFAULT_MAX_BUFFER,
-    encoding: "utf8",
-    label: "Bound host status"
-  });
-  return JSON.parse(result.stdout);
+  try {
+    const result = await execBoundProcess(process.execPath, [hostTrustTool, "status"], {
+      cwd,
+      env: { PATH: CONTROLLED_PATH, HOME: "/var/empty", LANG: "C", LC_ALL: "C" },
+      timeoutMs,
+      maxBuffer: DEFAULT_MAX_BUFFER,
+      encoding: "utf8",
+      label: "Bound host status"
+    });
+    return JSON.parse(result.stdout);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new Error(`Administrator host status is unavailable; run host-trust upgrade first: ${reason}`, { cause: error });
+  }
 }
 
 export async function probeAutonomyGithubCredential(cwd, executablePath, { timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
