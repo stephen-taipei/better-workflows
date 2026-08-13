@@ -556,6 +556,53 @@ test("host evaluator request gate forwards one canonical request and rejects ext
   }
 });
 
+test("host evaluator request gate admits only the fixed read-only view-image bootstrap tool", async () => {
+  const challenge = "f".repeat(64);
+  const input = buildEvaluatorInferenceInput(Buffer.from("additional tool probe\n"), challenge).toString("utf8");
+  const outputSchema = evaluatorOutputSchema();
+  const request = validEvaluatorClientRequest("gpt-5.6-terra", input, outputSchema);
+  request.input[0].tools = [{
+    type: "function",
+    name: "view_image",
+    description: "View a local image file when visual inspection is needed.",
+    strict: false,
+    parameters: {
+      type: "object",
+      properties: { path: { type: "string", description: "Local image file path." } },
+      required: ["path"],
+      additionalProperties: false
+    }
+  }];
+  const recorder = capturingEvaluatorTransport();
+  const gate = await startEvaluatorRequestGateForTest({
+    model: "gpt-5.6-terra",
+    expectedChallenge: challenge,
+    expectedInputText: input,
+    expectedOutputSchema: outputSchema
+  }, recorder.transport);
+  try {
+    const response = await sendEvaluatorClientRequest(gate, request);
+    assert.equal(response.statusCode, 200);
+    assert.equal((await gate.finish()).requestCount, 1);
+    const rejected = structuredClone(request);
+    rejected.input[0].tools[0].name = "shell_tool";
+    const secondGate = await startEvaluatorRequestGateForTest({
+      model: "gpt-5.6-terra",
+      expectedChallenge: challenge,
+      expectedInputText: input,
+      expectedOutputSchema: outputSchema
+    }, capturingEvaluatorTransport().transport);
+    try {
+      assert.equal((await sendEvaluatorClientRequest(secondGate, rejected)).statusCode, 502);
+      await assert.rejects(secondGate.finish(), /additional-tool bootstrap changed/);
+    } finally {
+      await secondGate.close();
+    }
+  } finally {
+    await gate.close();
+  }
+});
+
 test("host evaluator request gate rejects bootstrap mutation before forwarding", async () => {
   const challenge = "d".repeat(64);
   const input = buildEvaluatorInferenceInput(Buffer.from("mutation probe\n"), challenge).toString("utf8");
