@@ -48,10 +48,22 @@ async function autonomyRepositoryFixture() {
 async function assertProcessGone(pid) {
   try {
     process.kill(pid, 0);
-    assert.fail(`process ${pid} survived the bounded preflight cleanup`);
   } catch (error) {
     assert.equal(error.code, "ESRCH");
+    return;
   }
+  if (process.platform === "linux") {
+    try {
+      const procStat = await readFile(`/proc/${pid}/stat`, "utf8");
+      const closingParenthesis = procStat.lastIndexOf(") ");
+      const state = closingParenthesis >= 0 ? procStat.slice(closingParenthesis + 2).trimStart()[0] : null;
+      if (state === "Z") return;
+    } catch (error) {
+      if (error.code === "ENOENT") return;
+      throw error;
+    }
+  }
+  assert.fail(`process ${pid} survived the bounded preflight cleanup`);
 }
 
 test("bounded-autopilot-v1 is canonical and digestable", async () => {
