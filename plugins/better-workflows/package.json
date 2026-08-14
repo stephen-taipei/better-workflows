@@ -13,6 +13,7 @@
   },
   "scripts": {
     "test": "node scripts/sbw.mjs eval",
-    "validate": "node scripts/sbw.mjs eval"
+    "validate": "node scripts/sbw.mjs eval",
+    "test:release-tag": "node --test scripts/tests/release-tag.test.mjs"
   }
 }

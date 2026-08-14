@@ -485,6 +485,16 @@ node scripts/plugin-cache.mjs check
 
 Runtime 只使用 Node.js standard library。
 
+### Release TAG 政策
+
+Release TAG 是整合里程碑，不是中間進度標記。CI 只有在 push 到 `dev` 或
+`main`、能由 GitHub API 證明目前 exact commit 是合併至該 branch 的 PR 結果、
+branch 在工作流期間沒有漂移、CI 通過，而且 stable package/plugin version 相對
+target branch parent 確實變更時才建立 TAG。`main` 建立 `vX.Y.Z`；`dev` 建立
+對應的 `vX.Y.Z-dev.<short-sha>` 預發布 TAG。feature branch commit 與沒有 version
+變更的整合 commit 都不建立 TAG。若既有 TAG 指向不同 commit，CI 會 fail closed，
+絕不 force-move TAG。
+
 Plugin cache version 是 immutable。任何內容變更都必須使用新的 build
 version；`SBW_STATE_ROOT=<state-root> node scripts/plugin-cache.mjs sync --handoff-run <pr-to-dev-run-id> --token <plugin-cache-action-token>` 只會在 fresh typed handoff 通過、governed cache token 消費成功且 source HEAD 未改變時 stage 尚不存在的版本，
 驗證完整 file manifest 與 digest 後原子發布。若同版本內容不同會拒絕原地

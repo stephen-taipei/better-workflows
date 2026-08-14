@@ -12,7 +12,7 @@
     {"id": "revision-bound", "description": "The action targeted the verified branch and revision.", "critical": true},
     {"id": "reconciled", "description": "The final provider state is known.", "critical": true}
   ],
-  "policyGates": ["one-deploy-at-a-time", "dev-staging-main", "no-fast-forward-release", "action-token"],
+  "policyGates": ["one-deploy-at-a-time", "dev-staging-main", "no-fast-forward-release", "integration-tag-only", "action-token"],
   "actionGates": {
     "git.push": ["workflow-inventory", "queue-state", "target-revision", "run-result", "required-checks", "remote-authorization"],
     "actions.dispatch": ["workflow-inventory", "queue-state", "target-revision", "run-result", "required-checks", "provider-reconciliation", "remote-authorization"]

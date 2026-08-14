@@ -868,6 +868,17 @@ node scripts/plugin-cache.mjs check
 
 The runtime uses only Node.js standard-library modules.
 
+### Release tag policy
+
+Release tags are integration markers, not progress markers. CI only considers a
+push to `dev` or `main` after the exact commit is proven by the GitHub API to be
+the merged result of a pull request into that branch, the branch has not moved,
+CI has passed, and the stable package and plugin versions changed from the
+target-branch parent. `main` receives `vX.Y.Z`; `dev` receives the matching
+`vX.Y.Z-dev.<short-sha>` prerelease tag. Feature-branch commits and integration
+commits without a version change receive no tag. If an existing tag points to a
+different commit, CI fails closed and never force-moves the tag.
+
 Plugin cache versions are immutable. Every content change must use a new build
 version; issue the delegated `plugin.cache.publish` action for resource `plugin-cache:<source-head-revision>`, then run `SBW_STATE_ROOT=<state-root> node scripts/plugin-cache.mjs sync --handoff-run <pr-to-dev-run-id> --token <plugin-cache-action-token>`. It requires a fresh typed handoff while the source HEAD is unchanged, then stages a missing version, verifies
 the exact file manifest and digest, then atomically publishes it. It refuses to

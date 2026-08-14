@@ -58,6 +58,17 @@ Compatibility aliases remain available for `auto-improve`, `auto-issues`,
 | `monorepo-refactor` | Bounded refactor queue with invariant checks |
 | `pr-to-dev` | Atomic delivery to protected `dev` |
 
+## Release tag policy
+
+Release tags are integration markers, not progress markers. The CI tag job only
+considers a push to `dev` or `main` after the exact commit is proven to be the
+merged result of a pull request into that branch, the branch has not moved, CI
+has passed, and the stable package and plugin versions changed from the target
+branch parent. `main` receives `vX.Y.Z`; `dev` receives the matching
+`vX.Y.Z-dev.<short-sha>` prerelease tag. Feature-branch commits and integration
+commits without a version change receive no tag. An existing tag pointing to a
+different commit is a fail-closed error; CI never force-moves tags.
+
 ## Common paths
 
 ```mermaid
