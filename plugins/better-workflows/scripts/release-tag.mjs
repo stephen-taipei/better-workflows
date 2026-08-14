@@ -9,7 +9,8 @@ import {
   isReleaseBranch,
   parseRemoteTagCommit,
   releaseTagName,
-  releaseTagPushArgs,
+  releaseTagAtomicMutation,
+  releaseTagParentRevision,
   versionChanged,
   versionSurfaces
 } from "./lib/release-tag.mjs";
@@ -61,6 +62,44 @@ async function repositoryPullRequests({ apiUrl, repository, sha, token, fetchImp
   return payload;
 }
 
+async function githubGraphql({ apiUrl, token, query, variables, fetchImpl = fetch }) {
+  const response = await fetchImpl(`${apiUrl.replace(/\/$/, "")}/graphql`, {
+    method: "POST",
+    headers: {
+      Accept: "application/vnd.github+json",
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+      "X-GitHub-Api-Version": "2022-11-28",
+      "User-Agent": "better-workflows-release-tag"
+    },
+    body: JSON.stringify({ query, variables })
+  });
+  if (!response.ok) throw new Error(`GitHub GraphQL release mutation failed with HTTP ${response.status}`);
+  const payload = await response.json();
+  if (Array.isArray(payload?.errors) && payload.errors.length > 0) {
+    throw new Error(`GitHub GraphQL release mutation was rejected: ${String(payload.errors[0]?.message ?? "unknown error")}`);
+  }
+  if (!payload?.data || typeof payload.data !== "object") {
+    throw new Error("GitHub GraphQL release mutation returned no data");
+  }
+  return payload.data;
+}
+
+async function githubRepositoryId({ apiUrl, repository, token, fetchImpl = fetch }) {
+  const match = /^(?<owner>[A-Za-z0-9-]+)\/(?<name>[A-Za-z0-9_.-]+)$/.exec(repository);
+  if (!match) throw new Error("GITHUB_REPOSITORY must be owner/repository for release tagging");
+  const data = await githubGraphql({
+    apiUrl,
+    token,
+    fetchImpl,
+    query: "query($owner:String!,$name:String!){repository(owner:$owner,name:$name){id}}",
+    variables: { owner: match.groups.owner, name: match.groups.name }
+  });
+  const id = data.repository?.id;
+  if (typeof id !== "string" || !id) throw new Error("GitHub repository id was not returned for release tagging");
+  return id;
+}
+
 async function currentVersion(cwd) {
   const [packageJson, pluginManifest] = await Promise.all([
     readJson(path.join(cwd, REPOSITORY_PACKAGE)),
@@ -69,12 +108,11 @@ async function currentVersion(cwd) {
   return versionSurfaces(packageJson, pluginManifest);
 }
 
-async function previousVersion(cwd, sha) {
-  const parents = (await git(cwd, ["show", "-s", "--format=%P", sha])).split(/\s+/).filter(Boolean);
-  if (parents.length === 0) return null;
+async function previousVersion(cwd, revision) {
+  if (revision === null) return null;
   const [packageJson, pluginManifest] = await Promise.all([
-    readJsonAtCommit(cwd, parents[0], REPOSITORY_PACKAGE),
-    readJsonAtCommit(cwd, parents[0], PLUGIN_MANIFEST)
+    readJsonAtCommit(cwd, revision, REPOSITORY_PACKAGE),
+    readJsonAtCommit(cwd, revision, PLUGIN_MANIFEST)
   ]);
   if (!packageJson || !pluginManifest) {
     throw new Error("Parent release version surfaces are incomplete");
@@ -101,6 +139,7 @@ export async function runReleaseTag({ env = process.env, cwd = process.cwd(), fe
   }
 
   const sha = assertCommitSha(env.GITHUB_SHA);
+  const targetParent = releaseTagParentRevision(env.GITHUB_EVENT_BEFORE);
   const head = await git(cwd, ["rev-parse", "--verify", "HEAD^{commit}"]);
   if (head !== sha) throw new Error(`Checked-out HEAD ${head} does not match event SHA ${sha}`);
   if (await remoteHead(cwd, branch) !== sha) {
@@ -124,7 +163,7 @@ export async function runReleaseTag({ env = process.env, cwd = process.cwd(), fe
 
   const [current, previous] = await Promise.all([
     currentVersion(cwd),
-    previousVersion(cwd, sha)
+    previousVersion(cwd, targetParent)
   ]);
   if (!versionChanged(current, previous)) {
     return { status: "skipped", reason: "release-version-unchanged", branch, sha, version: current };
@@ -144,13 +183,17 @@ export async function runReleaseTag({ env = process.env, cwd = process.cwd(), fe
   if (await remoteHead(cwd, branch) !== sha) {
     throw new Error(`Remote ${branch} moved before release tag publication; refusing to tag a stale commit`);
   }
-  await git(cwd, ["config", "user.name", "github-actions[bot]"]);
-  await git(cwd, ["config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com"]);
-  await git(cwd, ["tag", "--annotate", tag, sha, "--message", `Release ${tag}`]);
-  if (await remoteHead(cwd, branch) !== sha) {
-    throw new Error(`Remote ${branch} moved before release tag push; refusing to publish a stale commit tag`);
-  }
-  await git(cwd, releaseTagPushArgs({ branch, tag, sha }));
+  const apiUrl = String(env.GITHUB_API_URL ?? "https://api.github.com");
+  const repositoryId = await githubRepositoryId({ apiUrl, repository, token, fetchImpl });
+  const mutation = releaseTagAtomicMutation({ repositoryId, branch, tag, sha });
+  const mutationData = await githubGraphql({
+    apiUrl,
+    token,
+    fetchImpl,
+    query: mutation.query,
+    variables: mutation.variables
+  });
+  if (!mutationData.updateRefs) throw new Error("GitHub atomic release ref update returned no result");
   return { status: "created", tag, branch, sha, version: current, pullNumber: pull.number };
 }
 

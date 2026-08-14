@@ -885,10 +885,10 @@ CI has passed, and the stable package and plugin versions changed from the
 target-branch parent. `main` receives `vX.Y.Z`; `dev` receives the matching
 `vX.Y.Z-dev.<short-sha>` prerelease tag. Feature-branch commits and integration
 commits without a version change receive no tag. If an existing tag points to a
-different commit, CI fails closed and never force-moves the tag. Publication is
-one server-side atomic push containing a no-op update of the expected branch tip
-with `--force-with-lease`; a branch move between observation and tag creation
-therefore rejects the tag push rather than publishing a stale marker.
+different commit, CI fails closed and never force-moves the tag. Publication uses
+GitHub's server-side atomic `updateRefs` mutation: the tag creation and an
+expected-branch-tip CAS (`beforeOid` = the event SHA) are one transaction, so a
+branch move during publication rejects both updates.
 
 Plugin cache versions are immutable. Every content change must use a new build
 version; issue the delegated `plugin.cache.publish` action for resource `plugin-cache:<source-head-revision>`, then run `SBW_STATE_ROOT=<state-root> node scripts/plugin-cache.mjs sync --handoff-run <pr-to-dev-run-id> --token <plugin-cache-action-token>`. It requires a fresh typed handoff while the source HEAD is unchanged, then stages a missing version, verifies

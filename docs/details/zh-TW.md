@@ -495,9 +495,9 @@ branch 在工作流期間沒有漂移、CI 通過，而且 stable package/plugin
 target branch parent 確實變更時才建立 TAG。`main` 建立 `vX.Y.Z`；`dev` 建立
 對應的 `vX.Y.Z-dev.<short-sha>` 預發布 TAG。feature branch commit 與沒有 version
 變更的整合 commit 都不建立 TAG。若既有 TAG 指向不同 commit，CI 會 fail closed，
-絕不 force-move TAG。發布時會以 server-side atomic push 同時送出 expected branch
-tip 的 no-op update 與 `--force-with-lease`；若 branch 在觀察與建立 TAG 之間漂移，
-整個 push 會被拒絕，不會發布過時的標記。
+絕不 force-move TAG。發布時使用 GitHub server-side atomic `updateRefs` mutation，
+把 TAG 建立與 expected branch tip 的 CAS（`beforeOid` = event SHA）
+放在同一個 transaction；若 branch 在發布期間漂移，兩個更新都會被拒絕。
 
 Plugin cache version 是 immutable。任何內容變更都必須使用新的 build
 version；`SBW_STATE_ROOT=<state-root> node scripts/plugin-cache.mjs sync --handoff-run <pr-to-dev-run-id> --token <plugin-cache-action-token>` 只會在 fresh typed handoff 通過、governed cache token 消費成功且 source HEAD 未改變時 stage 尚不存在的版本，

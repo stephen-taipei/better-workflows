@@ -2131,6 +2131,22 @@ test("GitHub Actions dispatch capability requires nonce-aware workflow metadata"
     ),
     /reserved sbw_dispatch_nonce|run-name/
   );
+  assert.throws(
+    () => validateWorkflowDispatchCapability(
+      workflow.replace("github.sha == inputs.sbw_expected_revision", "github.sha != inputs.sbw_expected_revision"),
+      ".github/workflows/release.yml",
+      revision
+    ),
+    /exact sbw_expected_revision gate/
+  );
+  assert.throws(
+    () => validateWorkflowDispatchCapability(
+      workflow.replace("    if: ${{ github.sha == inputs.sbw_expected_revision }}", "    # if: ${{ github.sha == inputs.sbw_expected_revision }}"),
+      ".github/workflows/release.yml",
+      revision
+    ),
+    /exact sbw_expected_revision gate/
+  );
 });
 
 test("contract-deferred actions fail closed in the core lifecycle", async () => {

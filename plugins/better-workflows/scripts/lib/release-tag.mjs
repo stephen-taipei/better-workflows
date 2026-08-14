@@ -1,6 +1,7 @@
 const SHA_PATTERN = /^[0-9a-f]{40}$/;
 const STABLE_VERSION_PATTERN = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/;
 const RELEASE_BRANCHES = new Set(["dev", "main"]);
+const ZERO_SHA = "0".repeat(40);
 
 export function normalizeStableVersion(value) {
   const version = String(value ?? "").trim();
@@ -73,25 +74,34 @@ export function isReleaseBranch(branch) {
   return RELEASE_BRANCHES.has(branch);
 }
 
-export function releaseTagPushArgs({ branch, tag, sha }) {
+export function releaseTagParentRevision(value) {
+  const revision = String(value ?? "").trim().toLowerCase();
+  if (revision === ZERO_SHA) return null;
+  return assertCommitSha(revision);
+}
+
+export function releaseTagAtomicMutation({ repositoryId, branch, tag, sha, expectedBranchSha = sha }) {
   if (!isReleaseBranch(branch)) {
-    throw new Error(`Release tag lease requires a dev or main branch: ${branch || "<empty>"}`);
+    throw new Error(`Release tag atomic update requires a dev or main branch: ${branch || "<empty>"}`);
   }
   const commit = assertCommitSha(sha);
+  const branchTip = assertCommitSha(expectedBranchSha);
+  if (typeof repositoryId !== "string" || !repositoryId.trim() || /[\0\r\n]/.test(repositoryId)) {
+    throw new Error("Release tag atomic update requires a GitHub repository id");
+  }
   const tagName = String(tag ?? "").trim();
   if (!tagName || /\s/.test(tagName) || tagName.startsWith("-")) {
-    throw new Error(`Release tag lease requires a valid tag name: ${tagName || "<empty>"}`);
+    throw new Error(`Release tag atomic update requires a valid tag name: ${tagName || "<empty>"}`);
   }
   const branchRef = `refs/heads/${branch}`;
-  // Include a no-op branch update in the same atomic push. GitHub's server
-  // checks the lease immediately before accepting the tag, so a branch move
-  // between the last observation and publication rejects the whole push.
-  return [
-    "push",
-    "--atomic",
-    `--force-with-lease=${branchRef}:${commit}`,
-    "origin",
-    `${commit}:${branchRef}`,
-    `refs/tags/${tagName}`
-  ];
+  return {
+    query: "mutation($repositoryId:ID!,$refUpdates:[RefUpdate!]!){updateRefs(input:{repositoryId:$repositoryId,refUpdates:$refUpdates}){clientMutationId}}",
+    variables: {
+      repositoryId: repositoryId.trim(),
+      refUpdates: [
+        { name: branchRef, beforeOid: branchTip, afterOid: branchTip, force: false },
+        { name: `refs/tags/${tagName}`, beforeOid: ZERO_SHA, afterOid: commit, force: false }
+      ]
+    }
+  };
 }

@@ -109,7 +109,8 @@ the exact `workflow:<.github/workflows/file>` resource matching the tracked
 `--workflow-file`, the `--scope` ref, and optional scalar `--input` values;
 the adapter injects a reserved per-attempt `sbw_dispatch_nonce` input, so the
 target workflow revision must declare `workflow_dispatch.inputs.sbw_dispatch_nonce`
-and a top-level `run-name` exposing that input; otherwise issuance and
+and `sbw_expected_revision`, expose the nonce through a top-level `run-name`, and
+put an exact equality gate on every job's top-level `if`; otherwise issuance and
 consumption fail closed. The provider display title must expose the same nonce
 for correlation; `execute` pins the recorded `gh`
 identity, snapshots existing runs, dispatches once, and waits for exactly one

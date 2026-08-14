@@ -695,7 +695,6 @@ const WORKFLOW_DISPATCH_NONCE_INPUT = "sbw_dispatch_nonce";
 const WORKFLOW_DISPATCH_EXPECTED_REVISION_INPUT = "sbw_expected_revision";
 const WORKFLOW_DISPATCH_NONCE = /^[a-f0-9]{32}$/;
 const WORKFLOW_DISPATCH_NONCE_EXPRESSION = /\$\{\{\s*(?:inputs|github\.event\.inputs)\.sbw_dispatch_nonce\s*\}\}/;
-const WORKFLOW_DISPATCH_EXPECTED_REVISION_EXPRESSION = /(?:github\.sha\s*(?:===?|!==?)\s*(?:inputs|github\.event\.inputs)\.sbw_expected_revision|(?:inputs|github\.event\.inputs)\.sbw_expected_revision\s*(?:===?|!==?)\s*github\.sha)/;
 
 function workflowConclusionIsSuccess(value) {
   return typeof value === "string" && value.toLowerCase() === "success";
@@ -3263,6 +3262,17 @@ function workflowKeyLine(line) {
   return match ? { indent: match[1].length, key: match[2], value: match[3].trim() } : null;
 }
 
+function isExactWorkflowRevisionGate(value) {
+  if (typeof value !== "string" || value.includes("#")) return false;
+  const expression = value.trim().replace(/^\$\{\{\s*/, "").replace(/\s*\}\}$/, "").trim();
+  return new Set([
+    "github.sha == inputs.sbw_expected_revision",
+    "github.sha == github.event.inputs.sbw_expected_revision",
+    "inputs.sbw_expected_revision == github.sha",
+    "github.event.inputs.sbw_expected_revision == github.sha"
+  ]).has(expression);
+}
+
 export function validateWorkflowDispatchCapability(content, workflowFile, revision) {
   if (typeof content !== "string" || !content) {
     throw new Error(`GitHub Actions workflow ${workflowFile} has no readable content`);
@@ -3310,8 +3320,23 @@ export function validateWorkflowDispatchCapability(content, workflowFile, revisi
   if (!runName || !WORKFLOW_DISPATCH_NONCE_EXPRESSION.test(runName.parsed.value)) {
     throw new Error(`GitHub Actions workflow run-name must expose ${WORKFLOW_DISPATCH_NONCE_INPUT}`);
   }
-  if (!WORKFLOW_DISPATCH_EXPECTED_REVISION_EXPRESSION.test(content)) {
-    throw new Error(`GitHub Actions workflow must gate execution on ${WORKFLOW_DISPATCH_EXPECTED_REVISION_INPUT}`);
+  const jobs = lines.findIndex(({ parsed }) => parsed?.indent === 0 && parsed.key === "jobs");
+  if (jobs < 0) throw new Error("GitHub Actions workflow must declare a top-level jobs block");
+  const jobsIndent = lines[jobs].parsed.indent;
+  const jobsEnd = lines.findIndex(({ parsed }, index) => index > jobs && parsed && parsed.indent <= jobsIndent);
+  const jobsStop = jobsEnd < 0 ? lines.length : jobsEnd;
+  const jobHeaders = lines
+    .map(({ parsed }, index) => ({ parsed, index }))
+    .filter(({ parsed, index }) => index > jobs && index < jobsStop && parsed && parsed.indent > jobsIndent)
+    .filter(({ parsed }, _, entries) => parsed.indent === Math.min(...entries.map(({ parsed: entry }) => entry.indent)));
+  if (jobHeaders.length === 0) throw new Error("GitHub Actions workflow must declare at least one job");
+  for (const [position, header] of jobHeaders.entries()) {
+    const blockEnd = jobHeaders[position + 1]?.index ?? jobsStop;
+    const gateLines = lines.slice(header.index + 1, blockEnd)
+      .filter(({ parsed }) => parsed?.indent === header.parsed.indent + 2 && parsed.key === "if");
+    if (gateLines.length !== 1 || !isExactWorkflowRevisionGate(gateLines[0]?.parsed.value)) {
+      throw new Error(`Every GitHub Actions job must have an exact ${WORKFLOW_DISPATCH_EXPECTED_REVISION_INPUT} gate`);
+    }
   }
   return {
     schemaVersion: 1,

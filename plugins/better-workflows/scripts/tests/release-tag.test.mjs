@@ -1,17 +1,33 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { execFile } from "node:child_process";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { promisify } from "node:util";
+import { runReleaseTag } from "../release-tag.mjs";
 import {
   findMergedPullRequest,
   normalizeStableVersion,
   parseRemoteTagCommit,
   releaseTagName,
-  releaseTagPushArgs,
+  releaseTagAtomicMutation,
+  releaseTagParentRevision,
   remoteTagMatches,
   versionChanged,
   versionSurfaces
 } from "../lib/release-tag.mjs";
 
 const SHA = "a".repeat(40);
+const execFileAsync = promisify(execFile);
+
+async function git(cwd, args) {
+  return (await execFileAsync("git", args, { cwd })).stdout.trim();
+}
+
+function jsonResponse(value, ok = true, status = 200) {
+  return { ok, status, async json() { return value; } };
+}
 
 test("release tag names distinguish stable main from dev prerelease integration", () => {
   assert.equal(releaseTagName({ branch: "main", version: "3.4.10", sha: SHA }), "v3.4.10");
@@ -50,15 +66,81 @@ test("annotated and lightweight remote tags are compared by commit", () => {
   assert.equal(remoteTagMatches(output, "b".repeat(40)), false);
 });
 
-test("release tag publication binds the branch lease in the same atomic push", () => {
-  const args = releaseTagPushArgs({ branch: "dev", tag: "v3.4.10-dev.aaaaaaaaaaaa", sha: SHA });
-  assert.deepEqual(args, [
-    "push",
-    "--atomic",
-    `--force-with-lease=refs/heads/dev:${SHA}`,
-    "origin",
-    `${SHA}:refs/heads/dev`,
-    "refs/tags/v3.4.10-dev.aaaaaaaaaaaa"
+test("release tag publication binds branch CAS and tag creation in one atomic GitHub mutation", () => {
+  const mutation = releaseTagAtomicMutation({
+    repositoryId: "R_123",
+    branch: "dev",
+    tag: "v3.4.10-dev.aaaaaaaaaaaa",
+    sha: SHA
+  });
+  assert.match(mutation.query, /updateRefs/);
+  assert.deepEqual(mutation.variables.refUpdates, [
+    { name: "refs/heads/dev", beforeOid: SHA, afterOid: SHA, force: false },
+    { name: "refs/tags/v3.4.10-dev.aaaaaaaaaaaa", beforeOid: "0".repeat(40), afterOid: SHA, force: false }
   ]);
-  assert.throws(() => releaseTagPushArgs({ branch: "feature", tag: "v3.4.10", sha: SHA }), /dev or main/);
+  assert.equal(releaseTagParentRevision("0".repeat(40)), null);
+  assert.equal(releaseTagParentRevision(SHA), SHA);
+  assert.throws(() => releaseTagAtomicMutation({ repositoryId: "R_123", branch: "feature", tag: "v3.4.10", sha: SHA }), /dev or main/);
+});
+
+test("release tag fails closed when the atomic branch CAS observes a concurrent move", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-release-tag-cas-"));
+  const bare = path.join(root, "origin.git");
+  const work = path.join(root, "work");
+  try {
+    await execFileAsync("git", ["init", "--bare", "-q", bare]);
+    await execFileAsync("git", ["init", "-q", work]);
+    await git(work, ["config", "user.email", "test@example.invalid"]);
+    await git(work, ["config", "user.name", "release-test"]);
+    await mkdir(path.join(work, "plugins/better-workflows/.codex-plugin"), { recursive: true });
+    await mkdir(path.join(work, "plugins/better-workflows"), { recursive: true });
+    await writeFile(path.join(work, "plugins/better-workflows/package.json"), JSON.stringify({ version: "3.4.12" }));
+    await writeFile(path.join(work, "plugins/better-workflows/.codex-plugin/plugin.json"), JSON.stringify({ version: "3.4.12+codex.test" }));
+    await git(work, ["add", "."]);
+    await git(work, ["commit", "-qm", "base"]);
+    await git(work, ["branch", "-M", "dev"]);
+    await git(work, ["remote", "add", "origin", bare]);
+    await git(work, ["push", "-q", "origin", "dev"]);
+    const base = await git(work, ["rev-parse", "HEAD"]);
+    await writeFile(path.join(work, "plugins/better-workflows/package.json"), JSON.stringify({ version: "3.4.13" }));
+    await writeFile(path.join(work, "plugins/better-workflows/.codex-plugin/plugin.json"), JSON.stringify({ version: "3.4.13+codex.test" }));
+    await git(work, ["add", "."]);
+    await git(work, ["commit", "-qm", "release"]);
+    await git(work, ["push", "-q", "origin", "dev"]);
+    const head = await git(work, ["rev-parse", "HEAD"]);
+    let mutationRequest;
+    const fetchImpl = async (url, options = {}) => {
+      if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
+        return jsonResponse([{ number: 7, base: { ref: "dev" }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: head }]);
+      }
+      if (url.endsWith("/graphql")) {
+        const body = JSON.parse(options.body);
+        if (body.query.startsWith("query(")) return jsonResponse({ data: { repository: { id: "R_123" } } });
+        mutationRequest = body;
+        return jsonResponse({ errors: [{ message: "expected branch tip does not match" }] });
+      }
+      throw new Error(`Unexpected release-tag fetch URL: ${url}`);
+    };
+    await assert.rejects(
+      runReleaseTag({
+        cwd: work,
+        fetchImpl,
+        env: {
+          GITHUB_EVENT_NAME: "push",
+          GITHUB_EVENT_BEFORE: base,
+          GITHUB_REF_NAME: "dev",
+          GITHUB_REPOSITORY: "example/repo",
+          GITHUB_SHA: head,
+          GITHUB_TOKEN: "test-token",
+          GITHUB_API_URL: "https://api.github.com"
+        }
+      }),
+      /expected branch tip does not match/
+    );
+    assert.equal(mutationRequest.variables.refUpdates[0].beforeOid, head);
+    assert.equal(mutationRequest.variables.refUpdates[0].afterOid, head);
+    assert.equal(await git(work, ["ls-remote", "origin", "refs/tags/v3.4.13-dev." + head.slice(0, 12)]), "");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

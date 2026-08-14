@@ -991,7 +991,7 @@
           <div class="grid-4">
             <div class="card blue"><div class="stat">13</div><div class="stat-label">可選 template；把不同工作型態投影成固定 stage 與 gate</div><a class="evidence-chip" style="margin-top:12px" href="#ev-template-inventory">template inventory</a></div>
             <div class="card indigo"><div class="stat">101</div><div class="stat-label">typed evidence kinds；分屬 10 種 payload family</div></div>
-            <div class="card violet"><div class="stat">60</div><div class="stat-label">templates 合計 execution stages；每個 stage 有 dependency 與 budget</div><a class="evidence-chip" style="margin-top:12px" href="#ev-template-inventory">stage inventory</a></div>
+            <div class="card violet"><div class="stat">61</div><div class="stat-label">templates 合計 execution stages；每個 stage 有 dependency 與 budget</div><a class="evidence-chip" style="margin-top:12px" href="#ev-template-inventory">stage inventory</a></div>
             <div class="card coral"><div class="stat">355</div><div class="stat-label">17 個測試檔宣告的 test cases；覆蓋 control plane 與 host trust</div><a class="evidence-chip" style="margin-top:12px" href="#ev-test-inventory">test inventory</a> <a class="evidence-chip" style="margin-top:12px" href="#ev-validation-run">docs / graph checks</a></div>
           </div>
 
@@ -1727,7 +1727,7 @@ git status --short<button class="copy-btn" type="button">複製</button></div>
         { id:'ev-architecture', group:'架構與路由', type:'fact', path:'docs/guide/architecture.md:6–47', topic:'系統定位與 canonical flow', note:'明示 governed control plane 定位、端到端流程與 routing precedence。' },
         { id:'ev-routing', group:'架構與路由', type:'fact', path:'plugins/better-workflows/scripts/lib/routing.mjs:556–1055', topic:'能力快照、rule matching、路由與 receipt', note:'Node-only capability snapshot；category AND/value OR；explicit → workspace → personal → built-in auto；receipt 綁 digests、24h 且 single claim。' },
         { id:'ev-mode', group:'架構與路由', type:'fact', path:'plugins/better-workflows/scripts/lib/core.mjs:1003–1019', topic:'Auto mode 風險評分', note:'五個風險軸映射 direct / verified / deep / critical。' },
-        { id:'ev-template-inventory', group:'架構與路由', type:'fact', path:'plugins/better-workflows/templates/*.json → execution.stages', topic:'Current template / stage inventory', note:'本次 live parse：13 個 template、60 個 execution stages；Graph View 由同一份 template 結構投影。' },
+        { id:'ev-template-inventory', group:'架構與路由', type:'fact', path:'plugins/better-workflows/templates/*.json → execution.stages', topic:'Current template / stage inventory', note:'本次 live parse：13 個 template、61 個 execution stages；Graph View 由同一份 template 結構投影。' },
         { id:'ev-contract', group:'Contract、Ledger、Evidence', type:'fact', path:'plugins/better-workflows/scripts/lib/core.mjs:1022–1402', topic:'TaskContract v2 與 run creation', note:'驗證／建立 goal、scope、acceptance、evidence、root-only authority、stages、gates；direct 不建立 run。' },
         { id:'ev-state-contract', group:'Contract、Ledger、Evidence', type:'fact', path:'plugins/better-workflows/skills/better-workflows/references/evidence-and-state.md:1–77', topic:'Public evidence / state contract', note:'文字 PASS 不改狀態；resume 不恢復 hidden reasoning；v2 evidence 是完成與副作用 authority；review package 另綁 reviewProfile digest。' },
         { id:'ev-ledger', group:'Contract、Ledger、Evidence', type:'fact', path:'plugins/better-workflows/scripts/lib/ledger.mjs:3–348', topic:'Append-only ledger reducer', note:'事件型別、固定 budget、static DAG、optimistic concurrency、typed-evidence completion 與 deterministic state derivation。' },
