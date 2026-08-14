@@ -146,6 +146,25 @@ function splitNulUtf8(value, label) {
   return records;
 }
 
+export function parseNulNameStatusPaths(value, label) {
+  const records = splitNulUtf8(value, label);
+  const paths = [];
+  let index = 0;
+  while (index < records.length) {
+    const status = records[index++];
+    if (!/^[ACDMRTUXB][0-9]*$/.test(status)) {
+      throw new Error(`${label} contains an invalid Git status record`);
+    }
+    const pathCount = status[0] === "R" || status[0] === "C" ? 2 : 1;
+    if (records.length - index < pathCount) {
+      throw new Error(`${label} is missing a path for ${status}`);
+    }
+    paths.push(...records.slice(index, index + pathCount));
+    index += pathCount;
+  }
+  return paths;
+}
+
 function isAllowedPath(relative, pathScope) {
   return pathScope.includes(".") || pathScope.some((prefix) => relative === prefix || relative.startsWith(`${prefix}/`));
 }
@@ -173,14 +192,14 @@ export async function inspectAutonomyChanges(cwd, { limits, pathScope, runGit })
     [trackedDiff, ...pathResults] = await Promise.all([
       runGit(["diff", "--no-ext-diff", "--no-textconv", "--binary", "HEAD"], { encoding: "buffer", maxBuffer }),
       runGit(["ls-files", "--others", "--exclude-standard", "-z"], { encoding: "buffer", maxBuffer }),
-      runGit(["diff", "--no-ext-diff", "--no-textconv", "--name-only", "-z", "HEAD"], { encoding: "buffer", maxBuffer })
+      runGit(["diff", "--no-ext-diff", "--no-textconv", "--name-status", "--find-renames", "-z", "HEAD"], { encoding: "buffer", maxBuffer })
     ]);
   } catch (error) {
     if (outputLimitExceeded(error)) return { ok: false, reason: "diff-byte-limit" };
     throw error;
   }
   const untracked = splitNulUtf8(pathResults[0].stdout, "Autonomy untracked path list");
-  const trackedPaths = splitNulUtf8(pathResults[1].stdout, "Autonomy tracked path list");
+  const trackedPaths = parseNulNameStatusPaths(pathResults[1].stdout, "Autonomy tracked path list");
   const changedPaths = [...new Set([...trackedPaths, ...untracked])].sort();
   if (changedPaths.length > limits.maxFiles) return { ok: false, reason: "diff-file-limit" };
   if (changedPaths.some((relative) => !isAllowedPath(relative, pathScope))) {
