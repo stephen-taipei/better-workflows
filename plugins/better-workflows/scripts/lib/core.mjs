@@ -32,6 +32,7 @@ import {
   canonicalGovernedGithubRepository,
   captureBoundedAutonomySnapshot,
   isExactGitAbsence,
+  parseNulNameStatusPaths,
   readRawLocalConfigValues
 } from "./autonomy-snapshot.mjs";
 import { REVIEW_POLICIES, reviewKernelEnabled } from "./review-policy.mjs";
@@ -4963,7 +4964,7 @@ async function boundedAutonomousCommitDiff(manifest, contract, record, currentHe
         maxBuffer
       }),
       execBoundGitAuthority(manifest.cwd, [
-        "diff", "--no-ext-diff", "--no-textconv", "--name-only", "-z", preCommitHead, currentHead, "--"
+        "diff", "--no-ext-diff", "--no-textconv", "--name-status", "--find-renames", "-z", preCommitHead, currentHead, "--"
       ], {
         encoding: "buffer",
         maxBuffer
@@ -4975,7 +4976,7 @@ async function boundedAutonomousCommitDiff(manifest, contract, record, currentHe
   if (committedDiff.stdout.byteLength > limits.maxDiffBytes) {
     throw new Error(`Autonomous Git commit reconciliation exceeded maxDiffBytes=${limits.maxDiffBytes}`);
   }
-  const committedPaths = [...new Set(parseBoundGitNulPaths(
+  const committedPaths = [...new Set(parseNulNameStatusPaths(
     committedPathResult.stdout,
     "Autonomous Git commit path list"
   ))].sort();

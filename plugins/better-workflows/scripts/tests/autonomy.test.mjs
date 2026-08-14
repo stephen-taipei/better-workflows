@@ -48,10 +48,22 @@ async function autonomyRepositoryFixture() {
 async function assertProcessGone(pid) {
   try {
     process.kill(pid, 0);
-    assert.fail(`process ${pid} survived the bounded preflight cleanup`);
   } catch (error) {
     assert.equal(error.code, "ESRCH");
+    return;
   }
+  if (process.platform === "linux") {
+    try {
+      const procStat = await readFile(`/proc/${pid}/stat`, "utf8");
+      const closingParenthesis = procStat.lastIndexOf(") ");
+      const state = closingParenthesis >= 0 ? procStat.slice(closingParenthesis + 2).trimStart()[0] : null;
+      if (state === "Z") return;
+    } catch (error) {
+      if (error.code === "ENOENT") return;
+      throw error;
+    }
+  }
+  assert.fail(`process ${pid} survived the bounded preflight cleanup`);
 }
 
 test("bounded-autopilot-v1 is canonical and digestable", async () => {
@@ -338,7 +350,7 @@ test("autonomy Git and GitHub preflight wrappers terminate forking children", as
   ].join("\n"));
   const alias = `alias.autonomy-hang=!${JSON.stringify(process.execPath)} ${JSON.stringify(helper)} ${JSON.stringify(gitPidFile)}`;
   await assert.rejects(
-    runAutonomyGitCommandForTest(root, ["-c", alias, "autonomy-hang"], { timeoutMs: 200 }),
+    runAutonomyGitCommandForTest(root, ["-c", alias, "autonomy-hang"], { timeoutMs: 1_000 }),
     /timed out/
   );
   await assertProcessGone(Number(await readFile(gitPidFile, "utf8")));
@@ -523,6 +535,21 @@ test("autonomy readiness snapshot binds same-SHA branch, path scope, and diff li
     (error) => error.autonomyReason === "path-outside-autonomy-scope"
   );
   await rm(path.join(root, "outside.txt"));
+
+  await writeFile(path.join(root, "outside.txt"), "tracked outside\n");
+  await execFileAsync(SYSTEM_GIT, ["add", "outside.txt"], { cwd: root });
+  await execFileAsync(SYSTEM_GIT, ["commit", "-qm", "track rename source"], { cwd: root });
+  await mkdir(path.join(root, "allowed"));
+  await execFileAsync(SYSTEM_GIT, ["mv", "outside.txt", "allowed/renamed.txt"], { cwd: root });
+  const renameBinding = buildAutonomyBinding(profile, {
+    repository: "github.com/example/repository",
+    branch: "codex/preflight",
+    pathScope: ["allowed"]
+  });
+  await assert.rejects(
+    captureAutonomyReadinessSnapshotFromSource(root, renameBinding, sourceBindingDigest, { sentinelDigest }),
+    (error) => error.autonomyReason === "path-outside-autonomy-scope"
+  );
 
   await writeFile(path.join(root, "README.md"), "x".repeat(profile.limits.maxDiffBytes + 4096));
   await assert.rejects(

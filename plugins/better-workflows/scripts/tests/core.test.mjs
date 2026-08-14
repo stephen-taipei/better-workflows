@@ -626,6 +626,50 @@ test("autonomy reconciliation rejects an executable-bit change after consuming a
   assert.equal(after.manifest.sourceBinding.headRevision, fixture.sourceHead);
 });
 
+test("autonomy reconciliation preserves both sides of a tracked rename", async () => {
+  const fixture = await autonomyActionFixture();
+  await execFileAsync("git", ["mv", "allowed/tracked.txt", "allowed/renamed.txt"], { cwd: fixture.repository });
+  const inspected = await inspectRun(fixture.stateRoot, fixture.run.runId);
+  const approvedSnapshot = await captureAutonomyReadinessSnapshot(
+    fixture.repository,
+    fixture.binding,
+    inspected.manifest.autonomyProfile.sourceBindingDigest,
+    { sentinelDigest: fixture.sentinelDigest }
+  );
+  assert.deepEqual(approvedSnapshot.changedPaths, ["allowed/renamed.txt", "allowed/tracked.txt"]);
+  await updateState(fixture.stateRoot, fixture.run.runId, (state) => ({
+    ...state,
+    autonomy: { ...state.autonomy, status: "ready", snapshot: approvedSnapshot }
+  }));
+  const issued = await issueActionToken(
+    fixture.stateRoot,
+    fixture.run.runId,
+    { ...autonomyCommitRequest(fixture.sourceHead, "rename"), resource: "git:commit" },
+    fixture.sentinelDigest,
+    await loadDefaults()
+  );
+  const spent = await consumeActionToken(
+    fixture.stateRoot,
+    fixture.run.runId,
+    issued.token,
+    fixture.sentinelDigest
+  );
+  await execFileAsync("git", ["commit", "-qm", "governed tracked rename"], { cwd: fixture.repository });
+  const revision = (await execFileAsync("git", ["rev-parse", "HEAD"], {
+    cwd: fixture.repository,
+    encoding: "utf8"
+  })).stdout.trim();
+  const receipt = await autonomyCommitSuccessReceipt(fixture, spent, revision, "commit-proof-rename");
+  const reconciled = await reconcileAction(
+    fixture.stateRoot,
+    fixture.run.runId,
+    spent.attemptId,
+    "success",
+    receipt
+  );
+  assert.equal(reconciled.sourceBindingTransition.headRevision, revision);
+});
+
 test("a reconciled autonomous commit rotates the operational binding and reopens the governed push source gate after fresh preflight", async () => {
   const fixture = await autonomyActionFixture();
   await execFileAsync("git", ["config", "diff.external", "/bin/echo"], { cwd: fixture.repository });
