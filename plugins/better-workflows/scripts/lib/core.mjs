@@ -6410,9 +6410,17 @@ async function viewWorkflowRun(cwd, record, providerExecutablePath, runId) {
   return run;
 }
 
-async function observeDispatchedWorkflow(cwd, record, providerExecutablePath, existingRunIds, dispatchedAt) {
+export function workflowDispatchMinimumCreatedAt(observationStartedAt) {
+  const startedAt = Date.parse(observationStartedAt);
+  if (!Number.isFinite(startedAt)) {
+    throw new Error("GitHub Actions dispatch observation lower bound is invalid");
+  }
+  return startedAt - 10_000;
+}
+
+async function observeDispatchedWorkflow(cwd, record, providerExecutablePath, existingRunIds, observationStartedAt) {
   const known = new Set(existingRunIds.map(String));
-  const minimumCreatedAt = Date.parse(dispatchedAt) - 10_000;
+  const minimumCreatedAt = workflowDispatchMinimumCreatedAt(observationStartedAt);
   const deadline = Date.now() + WORKFLOW_DISPATCH_OBSERVATION_TIMEOUT_MS;
   while (Date.now() < deadline) {
     const runs = await listWorkflowRuns(cwd, record, providerExecutablePath);
@@ -6579,6 +6587,7 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
       preexistingRunIds: existingRunIds
     }));
     let exitCode = 0;
+    let dispatchObservationStartedAt;
     try {
       const dispatchRefRevision = await readBoundGitHubDispatchRefRevision(
         manifest.cwd,
@@ -6589,6 +6598,7 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
       if (dispatchRefRevision !== consumed.remoteRevision) {
         throw new Error("GitHub Actions dispatch ref changed immediately before provider invocation");
       }
+      dispatchObservationStartedAt = nowIso();
       await execBoundGitHubCli(providerExecutablePath, expectedCommand.slice(1), { cwd: manifest.cwd });
     } catch (error) {
       exitCode = Number.isInteger(error?.code) ? error.code : 1;
@@ -6610,7 +6620,7 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
         consumed,
         providerExecutablePath,
         existingRunIds,
-        dispatchedAt
+        dispatchObservationStartedAt
       );
       const completedInvocation = workflowDispatchInvocation(runId, consumed, {
         startedAt,

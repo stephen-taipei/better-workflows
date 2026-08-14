@@ -72,6 +72,7 @@ import {
   verifyRequiredChecksProvider,
   verifyGitHubCredentialActor,
   validateWorkflowDispatchCapability,
+  workflowDispatchMinimumCreatedAt,
   withRunLock,
   withBoundGitCredential
 } from "../lib/core.mjs";
@@ -2086,6 +2087,25 @@ test("GitHub Actions dispatch adapter binds a fixed command and one observed run
     }),
     /provider invocation is incomplete/
   );
+});
+
+test("GitHub Actions dispatch observation lower bound uses provider-start time", async () => {
+  const providerStartedAt = "2026-08-15T00:00:00.000Z";
+  const providerReturnedAt = "2026-08-15T00:00:20.000Z";
+  const runCreatedAt = "2026-08-15T00:00:05.000Z";
+  const lowerBoundAtProviderStart = workflowDispatchMinimumCreatedAt(providerStartedAt);
+  const lowerBoundAtProviderReturn = workflowDispatchMinimumCreatedAt(providerReturnedAt);
+
+  assert.ok(Date.parse(runCreatedAt) >= lowerBoundAtProviderStart);
+  assert.ok(Date.parse(runCreatedAt) < lowerBoundAtProviderReturn);
+
+  const source = await readFile(new URL("../lib/core.mjs", import.meta.url), "utf8");
+  const providerStartIndex = source.indexOf("dispatchObservationStartedAt = nowIso();");
+  const providerCallIndex = source.indexOf("await execBoundGitHubCli(providerExecutablePath, expectedCommand.slice(1)");
+  const observationIndex = source.indexOf("dispatchObservationStartedAt\n      );", providerCallIndex);
+  assert.ok(providerStartIndex >= 0);
+  assert.ok(providerCallIndex > providerStartIndex);
+  assert.ok(observationIndex > providerCallIndex);
 });
 
 test("GitHub Actions dispatch capability requires nonce-aware workflow metadata", () => {
