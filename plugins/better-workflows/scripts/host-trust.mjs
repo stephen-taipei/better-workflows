@@ -719,6 +719,7 @@ const STANDING_CONSENT_SECRET_PATTERN = [
   "\\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{16,}\\b",
   "\\bAIza[0-9A-Za-z_-]{35}\\b"
 ].join("|");
+const PROMPT_DISPLAY_IDENTIFIER_PATTERN = /\bownerToken\s*:/g;
 const STANDING_CONSENT_REQUIRED_PROMPT_LINES = Object.freeze([
   "You are classifying a staged workflow snapshot using a sanitized, bounded corpus.",
   "Do not use tools, access history, write files, or perform side effects.",
@@ -4240,8 +4241,10 @@ async function reconstructSanitizedMaterial({ repo, subject, revision, snapshot,
         }
         sanitized = sanitized.replace(secretPatternGlobal, "[redacted-test-fixture]");
         redacted = true;
-        if (secretPattern.test(sanitized)) throw new Error(`Authoritative material contains unredactable secret-shaped content: ${file.path}`);
       }
+      sanitized = sanitized.replace(PROMPT_DISPLAY_IDENTIFIER_PATTERN, "ownerRef:");
+      redacted ||= sanitized !== text;
+      if (secretPattern.test(sanitized)) throw new Error(`Authoritative material contains unredactable secret-shaped content: ${file.path}`);
       const sanitizedBytes = Buffer.from(sanitized, "utf8");
       const byteLimit = baseFileBudget + (fileRemainder > 0 ? 1 : 0);
       fileRemainder = Math.max(0, fileRemainder - 1);

@@ -9,6 +9,7 @@ const SHA256 = /^[a-f0-9]{64}$/;
 const DISPOSITIONS = new Set(["IMPLEMENT", "NO_CHANGE", "BLOCKED", "REJECTED_WITH_EVIDENCE"]);
 const SECRET_PATTERN = new RegExp(STANDING_CONSENT_SECRET_PATTERN, "i");
 const SECRET_PATTERN_GLOBAL = new RegExp(STANDING_CONSENT_SECRET_PATTERN, "gi");
+const PROMPT_DISPLAY_IDENTIFIER_PATTERN = /\bownerToken\s*:/g;
 export const SELF_IMPROVE_LEGACY_CORPUS = "plugins/better-workflows/fixtures/self-improve-ops-evals.json";
 export const SELF_IMPROVE_V22_CORPUS = "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.2.json";
 export const SELF_IMPROVE_V23_CORPUS = "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.3.json";
@@ -173,15 +174,21 @@ function safeRelative(value, label) {
 }
 
 function sanitizeMaterialText(text, filePath, label) {
-  if (!SECRET_PATTERN.test(text)) return { text, redacted: false };
-  if (!filePath.startsWith("plugins/better-workflows/scripts/tests/")) {
-    throw new Error(`${label} material contains secret-shaped content: ${filePath}`);
+  let sanitized = text;
+  let redacted = false;
+  if (SECRET_PATTERN.test(sanitized)) {
+    if (!filePath.startsWith("plugins/better-workflows/scripts/tests/")) {
+      throw new Error(`${label} material contains secret-shaped content: ${filePath}`);
+    }
+    sanitized = sanitized.replace(SECRET_PATTERN_GLOBAL, "[redacted-test-fixture]");
+    redacted = true;
   }
-  const redacted = text.replace(SECRET_PATTERN_GLOBAL, "[redacted-test-fixture]");
-  if (SECRET_PATTERN.test(redacted)) {
+  sanitized = sanitized.replace(PROMPT_DISPLAY_IDENTIFIER_PATTERN, "ownerRef:");
+  redacted ||= sanitized !== text;
+  if (SECRET_PATTERN.test(sanitized)) {
     throw new Error(`${label} material contains unredactable secret-shaped content: ${filePath}`);
   }
-  return { text: redacted, redacted: true };
+  return { text: sanitized, redacted };
 }
 
 function validateCases(cases, classIds = null) {
