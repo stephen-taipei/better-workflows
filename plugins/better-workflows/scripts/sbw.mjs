@@ -2133,16 +2133,26 @@ async function main() {
     const template = await loadTemplate(run.manifest.template);
     const templateEvidence = template.requiredEvidence ?? [];
     const boundEvidence = new Set(run.contract.requiredEvidence ?? []);
+    const reviewPolicy = run.contract.schemaVersion === 2
+      ? run.contract.controlPlane?.reviewPolicy
+      : "none";
+    const reviewEnabled = run.contract.schemaVersion === 2 && reviewPolicy !== "none";
+    const reviewProfileDrift = reviewEnabled
+      ? !template.reviewProfile || !run.contract.reviewProfile ||
+        digestObject(run.contract.reviewProfile) !== digestObject(template.reviewProfile)
+      : run.contract.reviewProfile !== undefined;
     if (
       !run.contract.templateDigest ||
       !run.contract.actionGates ||
       run.contract.templateDigest !== digestObject(template) ||
-      templateEvidence.some((kind) => !boundEvidence.has(kind))
+      templateEvidence.some((kind) => !boundEvidence.has(kind)) ||
+      reviewProfileDrift
     ) {
       migration = await bindLegacyRunTemplate(root, subcommand, {
         templateDigest: digestObject(template),
         actionGates: template.actionGates ?? {},
-        requiredEvidence: templateEvidence
+        requiredEvidence: templateEvidence,
+        reviewProfile: template.reviewProfile
       });
       run = await loadRun(root, subcommand);
     }

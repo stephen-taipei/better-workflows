@@ -1991,7 +1991,8 @@ test("linked worktrees share the canonical Git reservation identity", async () =
 
 test("GitHub Actions dispatch adapter binds a fixed command and one observed run", () => {
   const remoteRevision = "a".repeat(40);
-  const inputs = { environment: "production", smoke: "true" };
+  const dispatchNonce = "c".repeat(32);
+  const inputs = { environment: "production", sbw_dispatch_nonce: dispatchNonce, smoke: "true" };
   const record = {
     action: "actions.dispatch",
     provider: "github-cli",
@@ -2000,6 +2001,7 @@ test("GitHub Actions dispatch adapter binds a fixed command and one observed run
     dispatchRepository: "github.com/example/repo",
     workflowFile: ".github/workflows/release.yml",
     dispatchRef: "dev",
+    dispatchNonce,
     dispatchInputs: inputs,
     dispatchInputsDigest: digestObject(inputs),
     providerExecutable: { path: "/usr/local/bin/gh", digest: "b".repeat(64) },
@@ -2019,6 +2021,7 @@ test("GitHub Actions dispatch adapter binds a fixed command and one observed run
         databaseId: 12345,
         workflowName: "Release",
         url: "https://github.com/example/repo/actions/runs/12345",
+        displayTitle: `Release ${dispatchNonce}`,
         status: "completed",
         conclusion: "SUCCESS",
         headSha: remoteRevision
@@ -2028,7 +2031,7 @@ test("GitHub Actions dispatch adapter binds a fixed command and one observed run
   assert.deepEqual(buildActionsDispatchCommand(record), [
     "gh", "workflow", "run", ".github/workflows/release.yml",
     "--repo", "example/repo", "--ref", "dev",
-    "--raw-field", "environment=production", "--raw-field", "smoke=true"
+    "--raw-field", `environment=production`, "--raw-field", `sbw_dispatch_nonce=${dispatchNonce}`, "--raw-field", "smoke=true"
   ]);
   const receipt = buildActionsDispatchProviderReceipt(record);
   assert.equal(receipt.runId, "12345");
@@ -2038,6 +2041,10 @@ test("GitHub Actions dispatch adapter binds a fixed command and one observed run
   assert.throws(
     () => buildActionsDispatchCommand({ ...record, dispatchInputsDigest: "c".repeat(64) }),
     /input digest does not match/
+  );
+  assert.throws(
+    () => buildActionsDispatchCommand({ ...record, dispatchNonce: "d".repeat(32) }),
+    /provider-correlation nonce binding/
   );
   assert.throws(
     () => buildActionsDispatchCommand({ ...record, resource: "workflow:.github/workflows/other.yml" }),
@@ -2055,10 +2062,10 @@ test("GitHub Actions dispatch adapter binds a fixed command and one observed run
       ...record,
       providerInvocation: {
         ...record.providerInvocation,
-        workflowRun: { ...record.providerInvocation.workflowRun, headSha: "c".repeat(40) }
+        workflowRun: { ...record.providerInvocation.workflowRun, displayTitle: "Release without correlation" }
       }
     }),
-    /successful workflow conclusion|provider invocation is incomplete/
+    /provider invocation is incomplete/
   );
 });
 

@@ -1030,6 +1030,53 @@ test("legacy resume migrates an already-bound run when the template digest drift
   assert.equal(migratedContract.templateDigest, digestObject(definition));
 });
 
+test("legacy resume migrates a persisted v2 run that predates the required review profile", async () => {
+  const cwd = await repository();
+  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-graph-review-profile-migration-"));
+  const copied = await copiedPlugin();
+  const started = await cli(
+    cwd,
+    stateRoot,
+    [
+      "run",
+      "--template",
+      "review-to-issues",
+      "--mode",
+      "verified",
+      "--goal",
+      "Review profile migration",
+      "--scope",
+      "src"
+    ],
+    { executable: copied.cli }
+  );
+  const runDirectory = path.join(stateRoot, "runs", started.json.runId);
+  const contractPath = path.join(runDirectory, "contract.json");
+  const manifestPath = path.join(runDirectory, "manifest.json");
+  const contract = JSON.parse(await readFile(contractPath, "utf8"));
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+  delete contract.reviewProfile;
+  manifest.version = "3.4.13";
+  manifest.contractDigest = digestObject(contract);
+  await writeFile(contractPath, `${JSON.stringify(contract, null, 2)}\n`);
+  await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+
+  const resumed = await cli(
+    cwd,
+    stateRoot,
+    ["resume", started.json.runId],
+    { allowFailure: true, executable: copied.cli }
+  );
+  assert.equal(resumed.code, 2);
+  assert.equal(resumed.json.migration.migrated, true);
+  const migrated = JSON.parse(await readFile(contractPath, "utf8"));
+  const templateDefinition = JSON.parse(
+    await readFile(path.join(copied.root, "templates", "review-to-issues.json"), "utf8")
+  );
+  assert.deepEqual(migrated.reviewProfile, templateDefinition.reviewProfile);
+  assert.equal(JSON.parse(await readFile(path.join(runDirectory, "state.json"), "utf8")).status, "stale");
+});
+
 test("graph derivation failures remain system errors and cannot create a run", async () => {
   const cwd = await repository();
   const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-graph-system-gate-"));

@@ -319,7 +319,9 @@ one controlled unknown-to-terminal supersession and no second identity;
 superseded or legacy-format reservations remain rejected. `actions.dispatch`
 uses a fixed-argv GitHub CLI provider adapter: the action binds the tracked
 workflow file, exact ref, normalized inputs, repository, target revision, and
-pinned executable, then correlates exactly one new completed provider run.
+pinned executable; it injects a reserved per-attempt `sbw_dispatch_nonce` that
+the workflow must expose in its `run-name`/provider display title, then
+correlates exactly one new completed provider run.
 Ambiguous or indeterminate dispatch state remains unreconciled.
 
 For governed GitHub actions, bind every provider probe to the absolute

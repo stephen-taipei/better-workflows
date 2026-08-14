@@ -691,6 +691,8 @@ const WORKFLOW_FILE = /^\.github\/workflows\/[A-Za-z0-9][A-Za-z0-9._\/-]{0,200}\
 const WORKFLOW_REF = /^[A-Za-z0-9._\/-]{1,128}$/;
 const WORKFLOW_INPUT_KEY = /^[A-Za-z_][A-Za-z0-9_-]{0,63}$/;
 const WORKFLOW_INPUT_VALUE = /^[^\0\r\n]{0,4096}$/;
+const WORKFLOW_DISPATCH_NONCE_INPUT = "sbw_dispatch_nonce";
+const WORKFLOW_DISPATCH_NONCE = /^[a-f0-9]{32}$/;
 const GIT_PUSH_RESOURCE = /^remote:([A-Za-z0-9._-]+):(refs\/heads\/[A-Za-z0-9._/-]+)$/;
 const EXECUTABLE_ACTION_PROVIDERS = new Set([
   "git.push:git",
@@ -1696,6 +1698,8 @@ export function assertProviderReceiptShape(record, providerReceipt, outcome = re
       typeof providerReceipt.workflowFile !== "string" || providerReceipt.workflowFile !== record.workflowFile ||
       typeof providerReceipt.ref !== "string" || providerReceipt.ref !== record.dispatchRef ||
       typeof providerReceipt.headSha !== "string" || !SHA.test(providerReceipt.headSha) || providerReceipt.headSha !== record.remoteRevision ||
+      typeof providerReceipt.dispatchNonce !== "string" || providerReceipt.dispatchNonce !== record.dispatchNonce ||
+      typeof providerReceipt.displayTitle !== "string" || !providerReceipt.displayTitle.includes(record.dispatchNonce) ||
       typeof providerReceipt.dispatchInputsDigest !== "string" || !SHA256_DIGEST.test(providerReceipt.dispatchInputsDigest) ||
       typeof providerReceipt.invocationId !== "string" || providerReceipt.invocationId !== record.providerInvocation?.id ||
       providerReceipt.terminalState !== "success" ||
@@ -2190,7 +2194,7 @@ export async function registerOwnedResource(root, runId, { resource, creationRec
 export async function bindLegacyRunTemplate(
   root,
   runId,
-  { templateDigest, actionGates, requiredEvidence }
+  { templateDigest, actionGates, requiredEvidence, reviewProfile }
 ) {
   if (typeof templateDigest !== "string" || templateDigest.length < 16) {
     throw new Error("Legacy run migration requires a template digest");
@@ -2212,23 +2216,46 @@ export async function bindLegacyRunTemplate(
     }
     const currentEvidence = new Set(contract.requiredEvidence ?? []);
     const missingEvidence = requiredEvidence.filter((kind) => !currentEvidence.has(kind));
+    const reviewPolicy = contract.schemaVersion === 2 ? contract.controlPlane?.reviewPolicy : "none";
+    const reviewEnabled = contract.schemaVersion === 2 && reviewPolicy !== "none";
+    const reviewProfileDrift = reviewEnabled
+      ? !reviewProfile || !contract.reviewProfile || digestObject(contract.reviewProfile) !== digestObject(reviewProfile)
+      : contract.reviewProfile !== undefined;
     if (
       contract.templateDigest === templateDigest &&
       contract.actionGates &&
-      missingEvidence.length === 0
+      missingEvidence.length === 0 &&
+      !reviewProfileDrift
     ) {
       return { migrated: false, contract, manifest, state };
     }
-    if (!["1.0.0", "2.0.1", "2.1.0", "2.5.0", "2.6.0"].includes(manifest.version)) {
+    const knownLegacyVersion = ["1.0.0", "2.0.1", "2.1.0", "2.5.0", "2.6.0"].includes(manifest.version);
+    const [currentMajor, currentMinor, currentPatch] = VERSION.split(".").map(Number);
+    const normalizedManifestVersion = String(manifest.version ?? "").split("+")[0];
+    const currentFamilyMatch = new RegExp(`^${currentMajor}\\.${currentMinor}\\.(\\d+)$`).exec(normalizedManifestVersion);
+    const currentFamilyVersion = currentFamilyMatch && Number(currentFamilyMatch[1]) <= currentPatch;
+    if (!knownLegacyVersion && !currentFamilyVersion) {
       throw new Error(
         `Run ${runId} lacks current template minimums but was not created by a migratable workflow version`
       );
+    }
+    if (reviewEnabled) {
+      if (!reviewProfile) {
+        throw new Error("Legacy run migration requires the current reviewProfile");
+      }
+      validateReviewProfile(reviewProfile, {
+        template: contract.template,
+        reviewPolicy
+      });
+    } else if (reviewProfileDrift) {
+      throw new Error("Legacy run migration rejects reviewProfile when review policy is none");
     }
     const nextContract = {
       ...contract,
       templateDigest,
       actionGates: structuredClone(actionGates ?? {}),
-      requiredEvidence: [...new Set([...(contract.requiredEvidence ?? []), ...requiredEvidence])]
+      requiredEvidence: [...new Set([...(contract.requiredEvidence ?? []), ...requiredEvidence])],
+      ...(reviewEnabled ? { reviewProfile: structuredClone(reviewProfile) } : {})
     };
     const migratedAt = nowIso();
     const nextManifest = {
@@ -3284,6 +3311,7 @@ function actionsDispatchReceiptRequest(record) {
     repository: canonicalGitHubRepository(record.dispatchRepository),
     workflowFile: record.workflowFile,
     ref: record.dispatchRef,
+    dispatchNonce: record.dispatchNonce,
     dispatchInputsDigest: record.dispatchInputsDigest,
     providerExecutable: record.providerExecutable
   };
@@ -3306,6 +3334,10 @@ export function buildActionsDispatchCommand(record) {
     throw new Error("GitHub Actions dispatch command resource is not bound to workflowFile");
   }
   const inputs = normalizeWorkflowInputs(record.dispatchInputs);
+  if (!WORKFLOW_DISPATCH_NONCE.test(String(record.dispatchNonce ?? "")) ||
+      inputs[WORKFLOW_DISPATCH_NONCE_INPUT] !== record.dispatchNonce) {
+    throw new Error("GitHub Actions dispatch command is missing its provider-correlation nonce binding");
+  }
   if (record.dispatchInputsDigest !== digestObject(inputs)) {
     throw new Error("GitHub Actions dispatch input digest does not match the fixed command binding");
   }
@@ -3340,6 +3372,8 @@ export function buildActionsDispatchProviderReceipt(record, outcome = "success")
   if (!/^\d+$/.test(runId) || typeof run.workflowName !== "string" || !run.workflowName ||
       typeof run.url !== "string" || !run.url || typeof run.headSha !== "string" || !SHA.test(run.headSha) ||
       run.headSha !== record.remoteRevision ||
+      !WORKFLOW_DISPATCH_NONCE.test(String(record.dispatchNonce ?? "")) ||
+      typeof run.displayTitle !== "string" || !run.displayTitle.includes(record.dispatchNonce) ||
       run.status !== "completed" || typeof run.conclusion !== "string" || !run.conclusion) {
     throw new Error("GitHub Actions dispatch provider invocation is incomplete");
   }
@@ -3353,7 +3387,9 @@ export function buildActionsDispatchProviderReceipt(record, outcome = "success")
     url: run.url,
     status: run.status,
     conclusion: run.conclusion,
-    headSha: run.headSha
+    headSha: run.headSha,
+    displayTitle: run.displayTitle,
+    dispatchNonce: record.dispatchNonce
   };
   const executionId = `github:${repository}:actions.dispatch:${runId}`;
   return {
@@ -3380,6 +3416,8 @@ export function buildActionsDispatchProviderReceipt(record, outcome = "success")
     status: run.status,
     conclusion: run.conclusion,
     headSha: run.headSha,
+    displayTitle: run.displayTitle,
+    dispatchNonce: record.dispatchNonce,
     dispatchInputsDigest: record.dispatchInputsDigest,
     invocationId: record.providerInvocation.id
   };
@@ -4427,7 +4465,7 @@ async function verifyProviderReceipt(manifest, record, receipt, contract = null)
       throw new Error("GitHub Actions dispatch proof resource is not bound to workflowFile");
     }
     const actual = JSON.parse((await execBoundGitHubCli(providerExecutablePath, [
-      "run", "view", String(providerReceipt.runId), "--json", "databaseId,workflowName,url,status,conclusion,headSha"
+      "run", "view", String(providerReceipt.runId), "--json", "databaseId,workflowName,url,status,conclusion,headSha,displayTitle"
     ], { cwd })).stdout);
     const repository = await currentRepositoryIdentity(cwd);
     if (repository !== canonicalGitHubRepository(record.dispatchRepository)) {
@@ -4439,7 +4477,9 @@ async function verifyProviderReceipt(manifest, record, receipt, contract = null)
       url: actual.url,
       status: actual.status,
       conclusion: actual.conclusion,
-      headSha: actual.headSha
+      headSha: actual.headSha,
+      displayTitle: actual.displayTitle,
+      dispatchNonce: record.dispatchNonce
     };
     assertRecomputedProviderReceipt(
       providerReceipt,
@@ -4453,10 +4493,15 @@ async function verifyProviderReceipt(manifest, record, receipt, contract = null)
       actual.status !== "completed" ||
       actual.conclusion !== "SUCCESS" ||
       actual.headSha !== record.remoteRevision ||
+      typeof actual.displayTitle !== "string" ||
+      !WORKFLOW_DISPATCH_NONCE.test(String(record.dispatchNonce ?? "")) ||
+      !actual.displayTitle.includes(record.dispatchNonce) ||
       actual.workflowName !== providerReceipt.workflowName ||
       providerReceipt.repository !== repository ||
       providerReceipt.workflowFile !== record.workflowFile ||
       providerReceipt.ref !== record.dispatchRef ||
+      providerReceipt.dispatchNonce !== record.dispatchNonce ||
+      providerReceipt.displayTitle !== actual.displayTitle ||
       providerReceipt.dispatchInputsDigest !== record.dispatchInputsDigest ||
       providerReceipt.invocationId !== record.providerInvocation?.id
     ) throw new Error("GitHub Actions dispatch proof does not match provider state");
@@ -5587,6 +5632,17 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
       const dispatchRef = canonicalWorkflowRef(String(request.scope ?? ""));
       await execBoundGitAuthority(manifest.cwd, ["ls-files", "--error-unmatch", "--", workflowFile]);
       const dispatchInputs = normalizeWorkflowInputs(request.dispatchInputs);
+      if (Object.hasOwn(dispatchInputs, WORKFLOW_DISPATCH_NONCE_INPUT)) {
+        throw new Error(`GitHub Actions dispatch input ${WORKFLOW_DISPATCH_NONCE_INPUT} is reserved`);
+      }
+      if (Object.keys(dispatchInputs).length >= 20) {
+        throw new Error("GitHub Actions dispatch requires one input slot for its provider-correlation nonce");
+      }
+      const dispatchNonce = randomBytes(16).toString("hex");
+      const boundDispatchInputs = normalizeWorkflowInputs({
+        ...dispatchInputs,
+        [WORKFLOW_DISPATCH_NONCE_INPUT]: dispatchNonce
+      });
       const dispatchBinding = {
         action: request.action,
         provider: request.provider,
@@ -5595,8 +5651,9 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
         workflowFile,
         dispatchRepository: repository,
         dispatchRef,
-        dispatchInputs,
-        dispatchInputsDigest: digestObject(dispatchInputs),
+        dispatchNonce,
+        dispatchInputs: boundDispatchInputs,
+        dispatchInputsDigest: digestObject(boundDispatchInputs),
         providerExecutable: providerExecutable ?? await currentProviderExecutableIdentity("gh")
       };
       actionBinding = {
@@ -6201,6 +6258,9 @@ async function observeDispatchedWorkflow(cwd, record, providerExecutablePath, ex
         /^\d+$/.test(runId) && !known.has(runId) &&
         run.headBranch === record.dispatchRef &&
         run.headSha === record.remoteRevision &&
+        WORKFLOW_DISPATCH_NONCE.test(String(record.dispatchNonce ?? "")) &&
+        typeof run.displayTitle === "string" &&
+        run.displayTitle.includes(record.dispatchNonce) &&
         Number.isFinite(createdAt) && createdAt >= minimumCreatedAt
       );
     });

@@ -107,7 +107,9 @@ root-owned, and stale expected digests or non-root actors fail closed.
 `actions.dispatch` uses the fixed-argv GitHub CLI adapter. Issue the token with
 the exact `workflow:<.github/workflows/file>` resource matching the tracked
 `--workflow-file`, the `--scope` ref, and optional scalar `--input` values;
-`execute` pins the recorded `gh`
+the adapter injects a reserved per-attempt `sbw_dispatch_nonce` input, so the
+workflow's `run-name`/provider display title must expose that input for
+correlation; `execute` pins the recorded `gh`
 identity, snapshots existing runs, dispatches once, and waits for exactly one
 new completed run at the requested revision. Missing, ambiguous, or
 indeterminate provider state remains unreconciled.
