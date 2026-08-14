@@ -3036,7 +3036,7 @@ test("unsupported action execution does not consume its token", async () => {
   }, "tree", await loadDefaults());
   await assert.rejects(
     executeActionToken(root, run.runId, issued.token, "tree"),
-    /only supports github-cli pr\.merge and git\.push/
+    /only supports fixed GitHub\/Git provider adapters/
   );
   const state = await inspectRun(root, run.runId);
   assert.equal(state.actions.find((item) => item.tokenHash === sha256(issued.token)).status, "issued");
