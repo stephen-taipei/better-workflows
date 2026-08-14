@@ -251,6 +251,8 @@ Evaluation v2.4 は v2.3 の全 classes と 25 cases を byte-for-byte で保持
 
 Review kernel は `self-improve-ops` の `code-v2-pilot` でのみ有効です。各 required lane は immutable BASE/HEAD blob work unit を一度ずつ記録し、axis と claim verification は別々の host-signed read-only native execution に束縛されます。finder の自己検証は拒否され、競合 verdict は `INCONCLUSIVE`、ambiguous/missing anchor は blocking のままです。zero findings でも完全な coverage と二つの aggregate typed evidence が必要です。この pilot は shadow-only で action token を発行できません。
 
+その他の review-enabled template は bound TaskContract に `review-contract-v1` profile を持ちます。この profile が保証するのは immutable diff manifest、package-bound location、broad-review receipt、review-package provenance、instruction digest binding だけです。kernel の work-unit accounting、exact quote re-anchoring、対称な finder/verifier 実行を意味しません。`review-kernel-v2-pilot` は `self-improve-ops` だけで使用でき、profile の編集で side-effect authority を得ることはできません。
+
 Migration admission は v2.3 file と canonical suite digest も固定し、すべての inherited class の identity、semantics、既存 path mapping を維持するとともに、全 25 inherited cases の完全一致を要求します。新しい coverage は path の追加、または新しい class／case id で追加できます。inherited coverage の欠落、弱化、再 mapping、再分類は replay 前に fail closed となります。意図的な変更には独立 version、digest-bound、独立 review 済みの compatibility policy が必要です。
 
 `safety-remediation-v1` は独立した run-creation purpose です。固定された

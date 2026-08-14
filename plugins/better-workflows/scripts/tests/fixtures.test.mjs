@@ -2,8 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
-import { pluginRoot, routeMode, VERSION } from "../lib/core.mjs";
+import { buildContract, pluginRoot, routeMode, VERSION } from "../lib/core.mjs";
 import { loadAutonomyProfile } from "../lib/autonomy.mjs";
+import { validateReviewProfile } from "../lib/review-policy.mjs";
 
 test("all historical and adversarial routing fixtures select the expected mode", async () => {
   const cases = JSON.parse(
@@ -60,6 +61,15 @@ test("all thirteen templates are valid and side-effect templates declare action 
   for (const name of names) {
     const template = JSON.parse(await readFile(path.join(directory, name), "utf8"));
     assert.equal(template.name, name.slice(0, -5));
+    if (template.controlPlane.reviewPolicy === "none") {
+      assert.equal(template.reviewProfile, undefined, `${name} must not declare a review profile`);
+    } else {
+      assert.ok(template.reviewProfile, `${name} must declare its review profile`);
+      assert.doesNotThrow(() => validateReviewProfile(template.reviewProfile, {
+        template: template.name,
+        reviewPolicy: template.controlPlane.reviewPolicy
+      }), name);
+    }
     assert.ok(template.requiredEvidence.length > 0);
     assert.ok(template.acceptance.length > 0);
     assert.ok(template.policyGates.length > 0);
@@ -110,6 +120,54 @@ test("workspace recipes require explicit trust and independently gated artifact 
   ]);
   assert.ok(template.policyGates.includes("no-untrusted-execution"));
   assert.ok(template.policyGates.includes("no-automatic-scaffold-promotion-or-execution"));
+});
+
+test("review profiles are copied into the bound task contract", async () => {
+  const template = JSON.parse(
+    await readFile(path.join(pluginRoot(), "templates", "self-improve-ops.json"), "utf8")
+  );
+  const contract = buildContract({
+    template: template.name,
+    templateDefinition: template,
+    goal: "profile binding fixture",
+    scope: ["templates/self-improve-ops.json"],
+    risk: { risk: 1, uncertainty: 1, blastRadius: 1, irreversibility: 0, evidenceGap: 1 }
+  });
+  assert.deepEqual(contract.reviewProfile, template.reviewProfile);
+});
+
+test("review profile validation prevents capability escalation by template editing", () => {
+  const legacy = {
+    schemaVersion: 1,
+    id: "review-contract-v1",
+    changedSurfaceAccounting: "diff-manifest-v1",
+    anchorResolution: "package-bound-location-v1",
+    findingVerification: "broad-review-v1",
+    provenanceBinding: "review-package-v1",
+    specBinding: "instruction-digest-v1"
+  };
+  assert.doesNotThrow(() => validateReviewProfile(legacy, {
+    template: "pr-to-dev",
+    reviewPolicy: "code-v1"
+  }));
+  assert.throws(() => validateReviewProfile({
+    ...legacy,
+    anchorResolution: "exact-quote-v1"
+  }, {
+    template: "pr-to-dev",
+    reviewPolicy: "code-v1"
+  }), /capability set is invalid/);
+  assert.throws(() => validateReviewProfile({
+    ...legacy,
+    id: "review-kernel-v2-pilot",
+    changedSurfaceAccounting: "work-unit-accounting-v1",
+    anchorResolution: "exact-quote-v1",
+    findingVerification: "finder-verifier-v1",
+    provenanceBinding: "host-attested-native-v1"
+  }, {
+    template: "pr-to-dev",
+    reviewPolicy: "code-v2-pilot"
+  }), /restricted to self-improve-ops/);
 });
 
 test("pr-to-dev enforces batched commits, a dev-targeted PR, and remote reconciliation", async () => {
@@ -192,6 +250,11 @@ test("self improve keeps strict holdout and delegates delivery side effects", as
   );
   assert.equal(template.defaultMode, "critical");
   assert.equal(template.controlPlane.reviewPolicy, "code-v2-pilot");
+  assert.equal(template.reviewProfile.id, "review-kernel-v2-pilot");
+  assert.equal(template.reviewProfile.changedSurfaceAccounting, "work-unit-accounting-v1");
+  assert.equal(template.reviewProfile.anchorResolution, "exact-quote-v1");
+  assert.equal(template.reviewProfile.findingVerification, "finder-verifier-v1");
+  assert.equal(template.reviewProfile.provenanceBinding, "host-attested-native-v1");
   assert.equal(template.controlPlane.workUnitPolicy, "diff-files-v1");
   assert.equal(template.requiredEvidence.includes("patch-review"), false);
   assert.deepEqual(

@@ -88,6 +88,13 @@ request for `review axis` or `review verify` must include the receipt's exact
 `executionId`; a legacy v1 native-critic request may omit it but cannot satisfy
 either v2 command.
 
+Every review-enabled template also binds a `reviewProfile` into its
+TaskContract and review-package identity. `review-contract-v1` records the
+legacy-compatible diff-manifest, package-location, broad-review, provenance,
+and instruction-digest guarantees. Only `review-kernel-v2-pilot` records exact
+work-unit accounting, source-quote anchors, finder/verifier separation, and
+host-attested native provenance; it remains restricted to `self-improve-ops`.
+
 Evaluator attestation request generation uses the unique currently valid
 host-approved native Codex binary by default. If more than one valid entry is
 installed, pass its exact canonical path with `--binary`; PATH wrappers and

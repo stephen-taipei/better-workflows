@@ -1,6 +1,7 @@
 import path from "node:path";
 import { digestObject } from "./core.mjs";
 import { AUTONOMY_PROFILE_ID, validateAutonomyBinding } from "./autonomy.mjs";
+import { validateReviewProfile } from "./review-policy.mjs";
 
 export const GRAPH_SCHEMA_VERSION = 1;
 export const SELF_IMPROVE_HANDOFF_KIND = "self-improve-delivery-handoff";
@@ -211,6 +212,7 @@ function contractProjection(contract) {
     schemaVersion: contract.schemaVersion,
     template: contract.template,
     templateDigest: contract.templateDigest ?? null,
+    reviewProfile: contract.reviewProfile ?? null,
     acceptance: (contract.acceptance ?? []).map((item) => ({
       id: item.id,
       critical: item.critical === true
@@ -320,6 +322,21 @@ function templateParts(accumulator, template, sourcePath) {
   const templateNode = accumulator.node("template", scope, template.name, templateSource);
   const evidenceNodes = new Map();
   const acceptanceNodes = new Map();
+
+  if (template.reviewProfile !== undefined) {
+    try {
+      validateReviewProfile(template.reviewProfile, {
+        template: template.name,
+        reviewPolicy: template.controlPlane?.reviewPolicy
+      });
+    } catch (error) {
+      accumulator.error(
+        "invalid-review-profile",
+        error instanceof Error ? error.message : String(error),
+        [templateNode]
+      );
+    }
+  }
 
   for (const [index, item] of (template.acceptance ?? []).entries()) {
     const stableId = scopedStableId(scope, item.id);

@@ -1,5 +1,6 @@
 {
   "name": "localization-41",
+  "reviewProfile": {"schemaVersion":1,"id":"review-contract-v1","changedSurfaceAccounting":"diff-manifest-v1","anchorResolution":"package-bound-location-v1","findingVerification":"broad-review-v1","provenanceBinding":"review-package-v1","specBinding":"instruction-digest-v1"},
   "controlPlane": {"evidencePolicy":"typed-v1","ledgerPolicy":"ledger-v1","reviewPolicy":"code-v1","designPacketPolicy":"none","refinementPolicy":"none","deliberationPolicy":"none"},
   "executionStages": [{"id":"inventory","goal":"inventory","dependsOn":[],"requiredEvidence":["locale-inventory"],"attemptBudget":3,"kind":"regular"},{"id":"update","goal":"update","dependsOn":["inventory"],"requiredEvidence":["all-locale-update"],"attemptBudget":3,"kind":"regular"},{"id":"parse-key-checks","goal":"parse-key-checks","dependsOn":["update"],"requiredEvidence":["json-or-strings-parse","key-count","key-order"],"attemptBudget":3,"kind":"regular"},{"id":"regional-review","goal":"regional-review","dependsOn":["parse-key-checks"],"requiredEvidence":["regional-review"],"attemptBudget":5,"kind":"review"}],
   "description": "Update all 41 locales with regional style and deterministic key/order validation.",

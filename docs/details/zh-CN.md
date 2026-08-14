@@ -303,6 +303,8 @@ Evaluation v2.4 逐 byte 保留 v2.3 的全部 classes 与 25 个 cases，并新
 
 Review kernel 仅在 `self-improve-ops` 以 `code-v2-pilot` 启用。每个 required lane 必须对 immutable BASE/HEAD blob work unit 各记录一次，axis 与 claim verification 必须绑定不同的 host-signed、read-only native execution。finder 不能验证自己的 finding；冲突结果会归为 `INCONCLUSIVE`，ambiguous 或 missing quote anchor 持续 blocking。zero findings 仍需完整 coverage 与 `work-unit-accounting`、`review-kernel-summary` typed evidence。该 pilot 为 shadow-only，不能签发 action token。
 
+其他 review-enabled template 会在 bound TaskContract 中声明 `review-contract-v1` profile；它只承诺 immutable diff manifest、package-bound location、broad-review receipt、review-package provenance 与 instruction digest binding，不宣称 kernel work-unit、exact quote re-anchoring 或对称 finder/verifier 执行能力。只有 `self-improve-ops` 可以使用 `review-kernel-v2-pilot`；修改 profile 本身不能取得 side-effect authority。
+
 Migration admission 还会钉住 v2.3 file 与 canonical suite digest，要求每个 inherited class 的 identity、semantics 与既有 path mapping 保持不变，并确保全部 25 个 inherited cases 完全一致。新增 coverage 可以增加 path，或使用新的 class／case id；缺失、弱化、重新 mapping 或重分类 inherited coverage 会在 replay 前 fail closed。若确实需要修改 inherited coverage，必须使用独立版本、digest-bound 且经独立审查的 compatibility policy。
 
 `safety-remediation-v1` 是独立的 run-creation purpose。它使用固定的

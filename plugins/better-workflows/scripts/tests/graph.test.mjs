@@ -189,6 +189,33 @@ test("template graphs are canonical, byte-stable, and presentation-free", () => 
   assert.doesNotMatch(JSON.stringify(first), /2026-07-27|\/Users\//);
 });
 
+test("template graphs reject an invalid review capability profile", () => {
+  const graph = buildTemplateGraph({
+    template: template({
+      controlPlane: {
+        evidencePolicy: "typed-v1",
+        ledgerPolicy: "ledger-v1",
+        reviewPolicy: "code-v1",
+        designPacketPolicy: "none",
+        refinementPolicy: "none",
+        deliberationPolicy: "none"
+      },
+      reviewProfile: {
+        schemaVersion: 1,
+        id: "review-contract-v1",
+        changedSurfaceAccounting: "work-unit-accounting-v1",
+        anchorResolution: "exact-quote-v1",
+        findingVerification: "finder-verifier-v1",
+        provenanceBinding: "host-attested-native-v1",
+        specBinding: "instruction-digest-v1"
+      }
+    }),
+    sourcePath: "templates/graph-fixture.json"
+  });
+  assert.ok(graph.diagnostics.some((item) => item.code === "invalid-review-profile"));
+  assert.equal(graphHasErrors(graph), true);
+});
+
 test("equivalent object key order and fresh processes produce identical graphs", async () => {
   const original = template();
   const reordered = Object.fromEntries(

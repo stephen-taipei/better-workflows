@@ -378,6 +378,14 @@ findings still requires all lanes plus current `work-unit-accounting` and
 invalidates broad completion. Because the pilot is shadow-only, it cannot issue
 an action token or authorize delivery.
 
+Other review-enabled templates bind a `review-contract-v1` profile in the
+TaskContract. It claims only the immutable diff manifest, package-bound
+location, broad-review receipt, review-package provenance, and instruction
+digest guarantees. It does not claim kernel work-unit accounting, exact quote
+re-anchoring, or symmetric finder/verifier execution. Only `self-improve-ops`
+may use `review-kernel-v2-pilot`; editing a profile cannot grant side-effect
+authority.
+
 `safety-remediation-v1` is a separate run-creation purpose. It uses the fixed
 `plugins/better-workflows/config/self-improve-safety-remediation-v1.json` policy
 and its digest-bound v2.2 corpus, retaining the universal invariant and three

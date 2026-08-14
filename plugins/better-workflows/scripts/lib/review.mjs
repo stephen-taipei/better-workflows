@@ -56,7 +56,8 @@ const REVIEW_PACKAGE_IDENTITY_FIELDS = [
 function reviewPackageIdentity(value) {
   const fields = value.schemaVersion === 2
     ? ["schemaVersion", ...REVIEW_PACKAGE_IDENTITY_FIELDS, "workUnitPolicy", "reviewLanes", "reviewLanesDigest", "workUniverse", "workUniverseDigest"]
-    : REVIEW_PACKAGE_IDENTITY_FIELDS;
+    : [...REVIEW_PACKAGE_IDENTITY_FIELDS];
+  if (value.reviewProfileDigest !== undefined) fields.push("reviewProfileDigest");
   return Object.fromEntries(fields.map((field) => [field, value[field]]));
 }
 
@@ -254,7 +255,10 @@ export async function createReviewPackage(request) {
     contractDigest: digestObject(run.contract),
     templateDigest: run.contract.templateDigest,
     sentinelDigest,
-    instructionDigest
+    instructionDigest,
+    ...(run.contract.reviewProfile
+      ? { reviewProfileDigest: digestObject(run.contract.reviewProfile) }
+      : {})
   };
   if (reviewKernelEnabled(run.contract.controlPlane?.reviewPolicy)) {
     const reviewLanes = normalizeReviewLanes(run.contract.controlPlane.reviewLanes);
@@ -1194,6 +1198,9 @@ export async function reviewStatus(root, runId) {
       (run.contract.remoteRevision && value.base !== run.contract.remoteRevision)
     ) {
       throw new Error("Review package is bound to a different contract or template");
+    }
+    if (run.contract.reviewProfile && value.reviewProfileDigest !== digestObject(run.contract.reviewProfile)) {
+      throw new Error("Review package is bound to a different review profile");
     }
     if (value.scopeDigest !== digestObject(value.scope) || value.diffManifestDigest !== digestObject(value.diffManifest)) {
       throw new Error("Review package identity digest is stale");

@@ -147,6 +147,15 @@ function reviewKernelTemplate() {
   return {
     ...contractTemplate,
     scope: ["src", "README.md"],
+    reviewProfile: {
+      schemaVersion: 1,
+      id: "review-kernel-v2-pilot",
+      changedSurfaceAccounting: "work-unit-accounting-v1",
+      anchorResolution: "exact-quote-v1",
+      findingVerification: "finder-verifier-v1",
+      provenanceBinding: "host-attested-native-v1",
+      specBinding: "instruction-digest-v1"
+    },
     controlPlane: {
       ...contractTemplate.controlPlane,
       reviewPolicy: "code-v2-pilot",
@@ -272,6 +281,7 @@ async function reviewKernelFixture({ repeatedQuote = false } = {}) {
     instructionDigest: "d".repeat(64),
     sentinelDigest: sentinel.digest
   });
+  assert.equal(reviewPackage.reviewProfileDigest, digestObject(contract.reviewProfile));
   return { root, repository, source, run, started, sentinel, reviewPackage };
 }
 

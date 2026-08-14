@@ -1,5 +1,6 @@
 {
   "name": "cross-platform-contract",
+  "reviewProfile": {"schemaVersion":1,"id":"review-contract-v1","changedSurfaceAccounting":"diff-manifest-v1","anchorResolution":"package-bound-location-v1","findingVerification":"broad-review-v1","provenanceBinding":"review-package-v1","specBinding":"instruction-digest-v1"},
   "controlPlane": {"evidencePolicy":"typed-v1","ledgerPolicy":"ledger-v1","reviewPolicy":"code-v1","designPacketPolicy":"none","refinementPolicy":"none","deliberationPolicy":"none"},
   "executionStages": [{"id":"server","goal":"server","dependsOn":[],"requiredEvidence":["server-contract"],"attemptBudget":3,"kind":"regular"},{"id":"ios","goal":"ios","dependsOn":["server"],"requiredEvidence":["ios-model"],"attemptBudget":3,"kind":"regular"},{"id":"android","goal":"android","dependsOn":["server"],"requiredEvidence":["android-model"],"attemptBudget":3,"kind":"regular"},{"id":"web","goal":"web","dependsOn":["server"],"requiredEvidence":["web-client"],"attemptBudget":3,"kind":"regular"},{"id":"contract-tests","goal":"contract-tests","dependsOn":["ios","android","web"],"requiredEvidence":["contract-tests","compatibility-review"],"attemptBudget":5,"kind":"review"}],
   "actionStages": {"migration.apply":"contract-tests","api.deploy":"contract-tests"},

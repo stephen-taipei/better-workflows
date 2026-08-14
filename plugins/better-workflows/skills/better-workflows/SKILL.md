@@ -136,6 +136,9 @@ source/cache digest verification.
    - `critical`: require independent external evidence and all fail-closed gates.
 3. Never lower a user-requested mode. Model output may raise risk but may not lower it.
 4. Select one template from [templates.md](references/templates.md).
+   When changing a review-enabled template, also read
+   [review-profiles.md](references/review-profiles.md) and keep its declared
+   capability profile aligned with the runtime policy.
 
 For `research-deliberation`, also read
 [deliberation-roster.md](references/deliberation-roster.md). It defines the

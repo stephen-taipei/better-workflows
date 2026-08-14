@@ -251,6 +251,8 @@ Evaluation v2.4는 v2.3의 모든 classes와 25 cases를 byte-for-byte로 보존
 
 Review kernel은 `self-improve-ops`의 `code-v2-pilot`에서만 활성화됩니다. 각 required lane은 immutable BASE/HEAD blob work unit을 한 번씩 기록하고 axis와 claim verification은 서로 다른 host-signed read-only native execution에 바인딩됩니다. finder 자기 검증은 거부되고 충돌 verdict는 `INCONCLUSIVE`, ambiguous/missing anchor는 계속 blocking입니다. zero findings라도 완전한 coverage와 두 aggregate typed evidence가 필요합니다. 이 pilot은 shadow-only이므로 action token을 발행할 수 없습니다.
 
+다른 review-enabled template은 bound TaskContract에 `review-contract-v1` profile을 선언합니다. 이 profile은 immutable diff manifest, package-bound location, broad-review receipt, review-package provenance, instruction digest binding만 보장하며 kernel work-unit accounting, exact quote re-anchoring 또는 대칭 finder/verifier 실행을 의미하지 않습니다. `review-kernel-v2-pilot`은 `self-improve-ops`에서만 사용할 수 있고 profile 편집만으로 side-effect authority를 얻을 수 없습니다.
+
 Migration admission은 v2.3 file 및 canonical suite digest도 고정하고 모든 inherited class의 identity, semantics, 기존 path mapping을 유지하며 inherited cases 25개가 완전히 동일하도록 요구합니다. 새 coverage는 path를 추가하거나 새 class／case id를 사용해 추가할 수 있습니다. inherited coverage의 누락, 약화, 재 mapping, 재분류는 replay 전에 fail closed됩니다. 의도적 변경에는 별도 version, digest-bound, 독립 review를 거친 compatibility policy가 필요합니다.
 
 `safety-remediation-v1`은 독립된 run-creation purpose입니다. 고정된

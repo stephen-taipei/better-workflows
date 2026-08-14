@@ -35,7 +35,7 @@ import {
   parseNulNameStatusPaths,
   readRawLocalConfigValues
 } from "./autonomy-snapshot.mjs";
-import { REVIEW_POLICIES, reviewKernelEnabled } from "./review-policy.mjs";
+import { REVIEW_POLICIES, reviewKernelEnabled, validateReviewProfile } from "./review-policy.mjs";
 
 const BOUND_GIT_EXECUTABLE = "/usr/bin/git";
 const BOUND_GIT_PATH = "/usr/bin:/bin:/usr/sbin:/sbin";
@@ -566,7 +566,7 @@ function assertNoAmbientGitAuthorityOverrides() {
   }
 }
 
-export const VERSION = "3.4.12";
+export const VERSION = "3.4.13";
 export const MODES = new Set(["auto", "direct", "verified", "deep", "critical"]);
 export const RUN_STATES = new Set([
   "pending",
@@ -1152,6 +1152,12 @@ export function validateContract(contract) {
         throw new Error(`TaskContract v2.controlPlane.${key} is invalid`);
       }
     }
+    if (contract.reviewProfile !== undefined) {
+      validateReviewProfile(contract.reviewProfile, {
+        template: contract.template,
+        reviewPolicy: controlPlane.reviewPolicy
+      });
+    }
     const baseControlPlaneKeys = [
       "evidencePolicy",
       "ledgerPolicy",
@@ -1354,6 +1360,9 @@ export function buildContract({
     ...(isV2
       ? {
           controlPlane: structuredClone(templateDefinition.controlPlane),
+          ...(templateDefinition.reviewProfile
+            ? { reviewProfile: structuredClone(templateDefinition.reviewProfile) }
+            : {}),
           executionStages: structuredClone(templateDefinition.executionStages),
           actionGates: structuredClone(templateDefinition.actionGates ?? {}),
           ...(templateDefinition.actionStages
