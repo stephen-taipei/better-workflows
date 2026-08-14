@@ -1204,7 +1204,7 @@ test("host trust helper fixes authority paths and does not accept environment pa
   assert.match(source, /QUALITY_REMEDIATION_POLICY_PATH/);
   assert.match(source, /self-improve-quality-remediation-v1\.json/);
   assert.match(source, /QUALITY_REMEDIATION_POLICY_VERSION/);
-  assert.match(source, /HOST_SIGNER_VERSION = "2\.4\.0"/);
+  assert.match(source, /HOST_SIGNER_VERSION = "2\.5\.0"/);
   assert.match(source, /"--strict-config"/);
   assert.match(source, /EVALUATOR_DISABLED_FEATURES\.flatMap\(\(feature\) => \["--disable", feature\]\)/);
   assert.match(source, /EVALUATOR_DISABLED_TOOL_CONFIGS\.flatMap\(\(config\) => \["-c", config\]\)/);
@@ -1346,7 +1346,7 @@ test("installed host signer remains a self-contained single-file capability repo
     const report = JSON.parse(stdout);
     assert.equal(report.ok, true);
     assert.equal(report.kind, "host-signer-capabilities");
-    assert.equal(report.version, "2.4.0");
+    assert.equal(report.version, "2.5.0");
   } finally {
     await rm(root, { recursive: true, force: true });
   }

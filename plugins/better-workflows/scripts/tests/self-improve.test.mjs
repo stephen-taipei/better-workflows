@@ -1449,3 +1449,50 @@ test("candidate sanitizer admits declared public docs and checks all paths befor
     await rm(cwd, { recursive: true, force: true });
   }
 });
+
+test("candidate sanitizer admits public generated surfaces without sending binary bytes", async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), "sbw-public-generated-surfaces-"));
+  try {
+    const textFiles = [
+      ".github/workflows/ci.yml",
+      "docs/html/index.html",
+      "docs/html/preview.html",
+      "docs/html/use-cases/index.html",
+      "docs/html/use-cases/preview.html",
+      "docs/html/use-cases/assets/color-system.md",
+      "docs/html/use-cases/assets/imagegen-manifest.md"
+    ];
+    const binaryFiles = [
+      "docs/html/assets/control-plane.webp",
+      "docs/html/use-cases/assets/hero.webp"
+    ];
+    for (const file of textFiles) {
+      await mkdir(path.dirname(path.join(cwd, file)), { recursive: true });
+      await writeFile(path.join(cwd, file), `public generated material for ${file}\n`);
+    }
+    for (const file of binaryFiles) {
+      await mkdir(path.dirname(path.join(cwd, file)), { recursive: true });
+      await writeFile(path.join(cwd, file), Buffer.from([0x52, 0x49, 0xff, 0x00, 0x01]));
+    }
+    const files = [...textFiles, ...binaryFiles].map((file, index) => ({
+      path: file,
+      state: "file",
+      digest: String(index + 1).padStart(64, "0"),
+      size: 1
+    }));
+    const material = await readSanitizedCandidateMaterial({ cwd, snapshot: { files }, maxFiles: files.length });
+    assert.deepEqual(material.map((item) => item.path).sort(), files.map((item) => item.path).sort());
+    for (const item of material.filter((value) => binaryFiles.includes(value.path))) {
+      assert.equal(item.content, "");
+      assert.equal(item.sampledBytes, 0);
+      assert.deepEqual(item.evidenceIndex, { exportedSymbols: [], namedSymbols: [], tests: [], ids: [], headings: [], semanticAnchors: [] });
+      assert.equal(item.truncated, true);
+    }
+    for (const item of material.filter((value) => textFiles.includes(value.path))) {
+      assert.match(item.content, /public generated material/);
+      assert.ok(item.sampledBytes > 0);
+    }
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});

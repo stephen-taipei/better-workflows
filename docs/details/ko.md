@@ -292,6 +292,9 @@ path가 고정된 plugin 및 repository 공개 문서 allowlist와 일치하는�
 검증합니다. 대상 밖 path는 sampling 범위 뒤에 정렬되더라도 replay를
 거부하며, Codex에는 sampling된 유효 UTF-8이고 secret-shaped가 아닌
 내용만 전송합니다.
+공개 CI workflow와 생성된 HTML/Markdown은 changed surface에 포함될 때
+명시적으로 allowlist됩니다. 생성된 `.webp` asset은 digest-only로 처리하며,
+host는 authoritative Git bytes를 검증하지만 evaluator로 binary bytes를 보내지 않습니다.
 
 ### Governed workspace recipes
 

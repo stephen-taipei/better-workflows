@@ -307,6 +307,11 @@ Before sampling by file count or bytes, the sanitizer validates every changed
 path against a fixed plugin and repository-public-document allowlist. Paths
 outside it fail closed even when they would sort beyond the sampling limit.
 Only sampled valid UTF-8, non-secret-shaped content is sent to Codex.
+Public CI workflow files and generated HTML/Markdown pages are explicit
+allowlist entries when they are part of the changed surface. Generated `.webp`
+assets remain digest-only: their bytes are verified against the authoritative
+Git object and never enter the evaluator prompt. The complete changed-path
+manifest still binds every such file to the signed request.
 
 ## Threat-model boundary
 

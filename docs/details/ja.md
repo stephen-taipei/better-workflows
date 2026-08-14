@@ -292,6 +292,9 @@ changed path が固定の plugin／repository 公開文書 allowlist に一致�
 検証します。対象外 path は sampling 範囲より後に並ぶ場合でも replay を
 拒否し、Codex へ送るのは sampling 済みの有効な UTF-8 かつ
 secret-shaped ではない内容だけです。
+公開 CI workflow と生成 HTML/Markdown は changed surface に含まれる場合に
+明示的に allowlist されます。生成 `.webp` asset は digest-only とし、host
+は authoritative Git bytes を検証しますが evaluator へ binary bytes は送りません。
 
 ### Governed workspace recipes
 
