@@ -566,7 +566,7 @@ function assertNoAmbientGitAuthorityOverrides() {
   }
 }
 
-export const VERSION = "3.4.8";
+export const VERSION = "3.4.9";
 export const MODES = new Set(["auto", "direct", "verified", "deep", "critical"]);
 export const RUN_STATES = new Set([
   "pending",
@@ -608,7 +608,7 @@ const DESTRUCTIVE_CLEANUP_ACTIONS = new Set([
   "branch.delete",
   "worktree.cleanup"
 ]);
-const UNSUPPORTED_GOVERNED_ACTIONS = new Set(["actions.dispatch"]);
+const UNSUPPORTED_GOVERNED_ACTIONS = new Set();
 const DEFERRED_ACTION_CANONICAL = new Map([
   ["actions.dispatch", "workflow.dispatch"],
   ["workflow.dispatch", "workflow.dispatch"],
@@ -687,11 +687,16 @@ function ownedResourceCreationActionDigest(action) {
 }
 const OWNED_RESOURCE = /^[^\0\r\n]{1,512}$/;
 const SHA256_DIGEST = /^[a-f0-9]{64}$/;
+const WORKFLOW_FILE = /^\.github\/workflows\/[A-Za-z0-9][A-Za-z0-9._\/-]{0,200}\.(?:yml|yaml)$/;
+const WORKFLOW_REF = /^[A-Za-z0-9._\/-]{1,128}$/;
+const WORKFLOW_INPUT_KEY = /^[A-Za-z_][A-Za-z0-9_-]{0,63}$/;
+const WORKFLOW_INPUT_VALUE = /^[^\0\r\n]{0,4096}$/;
 const GIT_PUSH_RESOURCE = /^remote:([A-Za-z0-9._-]+):(refs\/heads\/[A-Za-z0-9._/-]+)$/;
 const EXECUTABLE_ACTION_PROVIDERS = new Set([
   "git.push:git",
   "pr.create:github-cli",
-  "pr.merge:github-cli"
+  "pr.merge:github-cli",
+  "actions.dispatch:github-cli"
 ]);
 
 const ACTION_PROVIDER_RECEIPT_SCHEMAS = {
@@ -704,6 +709,7 @@ const ACTION_PROVIDER_RECEIPT_SCHEMAS = {
   "issue.create:github-cli": { proofKind: "github-issue-create" },
   "pr.close:github-cli": { proofKind: "github-pr-close" },
   "actions.cancel:github-cli": { proofKind: "github-actions-cancel" },
+  "actions.dispatch:github-cli": { proofKind: "github-actions-dispatch" },
   "pr.merge:github-cli": { proofKind: "github-pr-merge" },
   "remote.sync:git": { proofKind: "git-remote-sync" },
   "worktree.cleanup:git": { proofKind: "git-worktree-cleanup" },
@@ -1664,11 +1670,18 @@ export function assertProviderReceiptShape(record, providerReceipt, outcome = re
     outcome === "success" &&
     record.action === "actions.dispatch" &&
     (!providerReceipt.created || typeof providerReceipt.runId !== "string" || !providerReceipt.runId ||
+      !/^\d+$/.test(providerReceipt.runId) ||
       typeof providerReceipt.url !== "string" || !providerReceipt.url ||
+      typeof providerReceipt.repository !== "string" || providerReceipt.repository !== canonicalGitHubRepository(record.dispatchRepository) ||
+      typeof providerReceipt.workflowName !== "string" || !providerReceipt.workflowName ||
+      typeof providerReceipt.workflowFile !== "string" || providerReceipt.workflowFile !== record.workflowFile ||
+      typeof providerReceipt.ref !== "string" || providerReceipt.ref !== record.dispatchRef ||
+      typeof providerReceipt.headSha !== "string" || !SHA.test(providerReceipt.headSha) || providerReceipt.headSha !== record.remoteRevision ||
+      typeof providerReceipt.dispatchInputsDigest !== "string" || !SHA256_DIGEST.test(providerReceipt.dispatchInputsDigest) ||
+      typeof providerReceipt.invocationId !== "string" || providerReceipt.invocationId !== record.providerInvocation?.id ||
       providerReceipt.terminalState !== "success" ||
-      !["SUCCESS", "success", "PASS", "pass"].includes(String(providerReceipt.conclusion)) ||
-      (record.resource.startsWith("run:") && providerReceipt.runId !== record.resource.slice("run:".length)) ||
-      (record.resource.startsWith("workflow:") && providerReceipt.workflowName !== record.resource.slice("workflow:".length)))
+      providerReceipt.status !== "completed" ||
+      providerReceipt.conclusion !== "SUCCESS")
   ) {
     throw new Error("GitHub Actions dispatch proof is incomplete");
   }
@@ -3165,6 +3178,172 @@ export function buildPrCreateCommand(record) {
   ];
 }
 
+function normalizeWorkflowInputs(value) {
+  if (value === undefined || value === null) return {};
+  if (typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("GitHub Actions workflow inputs must be an object");
+  }
+  const entries = Object.entries(value).sort(([left], [right]) => left.localeCompare(right));
+  if (entries.length > 20) throw new Error("GitHub Actions workflow inputs are limited to 20 fields");
+  const normalized = {};
+  for (const [key, rawValue] of entries) {
+    if (!WORKFLOW_INPUT_KEY.test(key)) throw new Error(`GitHub Actions workflow input key is invalid: ${key}`);
+    if (rawValue !== null && !["string", "number", "boolean"].includes(typeof rawValue)) {
+      throw new Error(`GitHub Actions workflow input value must be a scalar: ${key}`);
+    }
+    if (typeof rawValue === "number" && !Number.isFinite(rawValue)) {
+      throw new Error(`GitHub Actions workflow input value is not finite: ${key}`);
+    }
+    const inputValue = String(rawValue ?? "");
+    if (!WORKFLOW_INPUT_VALUE.test(inputValue)) {
+      throw new Error(`GitHub Actions workflow input value is invalid: ${key}`);
+    }
+    normalized[key] = inputValue;
+  }
+  return normalized;
+}
+
+function canonicalGitHubRepositoryPath(value) {
+  const repository = typeof value === "string" && value.startsWith("github.com/")
+    ? value.slice("github.com/".length)
+    : value;
+  if (typeof repository !== "string" || !/^([A-Za-z0-9-]+)\/([A-Za-z0-9_.-]+)$/.test(repository)) {
+    throw new Error("GitHub Actions dispatch requires an owner/repository binding");
+  }
+  return repository;
+}
+
+function canonicalGitHubRepository(value) {
+  return `github.com/${canonicalGitHubRepositoryPath(value)}`;
+}
+
+function canonicalWorkflowFile(value) {
+  if (typeof value !== "string" || !WORKFLOW_FILE.test(value)) {
+    throw new Error("GitHub Actions dispatch requires a repository workflow file under .github/workflows");
+  }
+  const segments = value.split("/");
+  if (segments.some((segment) => !segment || segment === "." || segment === "..")) {
+    throw new Error("GitHub Actions workflow file path contains an unsafe segment");
+  }
+  return value;
+}
+
+function canonicalWorkflowRef(value) {
+  if (typeof value !== "string" || !WORKFLOW_REF.test(value)) {
+    throw new Error("GitHub Actions dispatch requires an exact branch or tag scope");
+  }
+  const segments = value.split("/");
+  if (segments.some((segment) => !segment || segment === "." || segment === "..") || value.includes("@{")) {
+    throw new Error("GitHub Actions dispatch ref contains an unsafe segment");
+  }
+  return value;
+}
+
+function actionsDispatchReceiptRequest(record) {
+  return {
+    action: record.action,
+    provider: record.provider,
+    resource: record.resource,
+    remoteRevision: record.remoteRevision,
+    repository: canonicalGitHubRepository(record.dispatchRepository),
+    workflowFile: record.workflowFile,
+    ref: record.dispatchRef,
+    dispatchInputsDigest: record.dispatchInputsDigest,
+    providerExecutable: record.providerExecutable
+  };
+}
+
+export function buildActionsDispatchCommand(record) {
+  if (
+    !record ||
+    record.action !== "actions.dispatch" ||
+    record.provider !== "github-cli" ||
+    typeof record.workflowFile !== "string" ||
+      canonicalWorkflowFile(record.workflowFile) !== record.workflowFile ||
+    typeof record.dispatchRepository !== "string" ||
+      !canonicalGitHubRepositoryPath(record.dispatchRepository) ||
+    typeof record.dispatchRef !== "string" ||
+      canonicalWorkflowRef(record.dispatchRef) !== record.dispatchRef
+  ) {
+    throw new Error("GitHub Actions dispatch command binding is incomplete");
+  }
+  const inputs = normalizeWorkflowInputs(record.dispatchInputs);
+  if (record.dispatchInputsDigest !== digestObject(inputs)) {
+    throw new Error("GitHub Actions dispatch input digest does not match the fixed command binding");
+  }
+  const command = [
+    "gh",
+    "workflow",
+    "run",
+    canonicalWorkflowFile(record.workflowFile),
+    "--repo",
+    canonicalGitHubRepositoryPath(record.dispatchRepository),
+    "--ref",
+    canonicalWorkflowRef(record.dispatchRef)
+  ];
+  for (const [key, value] of Object.entries(inputs)) {
+    command.push("--raw-field", `${key}=${value}`);
+  }
+  return command;
+}
+
+export function buildActionsDispatchProviderReceipt(record, outcome = "success") {
+  if (!["success", "failure", "unknown"].includes(outcome)) {
+    throw new Error("GitHub Actions dispatch receipt outcome is invalid");
+  }
+  if (!record?.providerInvocation?.workflowRun) {
+    throw new Error("GitHub Actions dispatch provider invocation lacks an observed workflow run");
+  }
+  const run = record.providerInvocation.workflowRun;
+  const runId = String(run.databaseId ?? run.runId ?? "");
+  if (!/^\d+$/.test(runId) || typeof run.workflowName !== "string" || !run.workflowName ||
+      typeof run.url !== "string" || !run.url || typeof run.headSha !== "string" || !SHA.test(run.headSha) ||
+      run.headSha !== record.remoteRevision ||
+      run.status !== "completed" || typeof run.conclusion !== "string" || !run.conclusion) {
+    throw new Error("GitHub Actions dispatch provider invocation is incomplete");
+  }
+  const repository = canonicalGitHubRepository(record.dispatchRepository);
+  if (outcome === "success" && run.conclusion !== "SUCCESS") {
+    throw new Error("Successful GitHub Actions dispatch receipt requires a successful workflow conclusion");
+  }
+  const response = {
+    runId,
+    workflowName: run.workflowName,
+    url: run.url,
+    status: run.status,
+    conclusion: run.conclusion,
+    headSha: run.headSha
+  };
+  const executionId = `github:${repository}:actions.dispatch:${runId}`;
+  return {
+    action: record.action,
+    provider: record.provider,
+    resource: record.resource,
+    outcome,
+    runId,
+    attemptId: record.attemptId,
+    idempotencyKey: record.idempotencyKey,
+    remoteRevision: record.remoteRevision,
+    executionId,
+    proofKind: "github-actions-dispatch",
+    requestDigest: digestObject(actionsDispatchReceiptRequest(record)),
+    responseDigest: digestObject(response),
+    verifiedAt: nowIso(),
+    terminalState: outcome === "success" ? "success" : "failure",
+    created: true,
+    repository,
+    workflowName: run.workflowName,
+    workflowFile: record.workflowFile,
+    ref: record.dispatchRef,
+    url: run.url,
+    status: run.status,
+    conclusion: run.conclusion,
+    headSha: run.headSha,
+    dispatchInputsDigest: record.dispatchInputsDigest,
+    invocationId: record.providerInvocation.id
+  };
+}
+
 export async function readBoundGitHubCredential(executablePath, { homePath = os.homedir() } = {}) {
   if (typeof executablePath !== "string" || !path.isAbsolute(executablePath) ||
       path.resolve(executablePath) !== executablePath || typeof homePath !== "string" ||
@@ -3947,6 +4126,7 @@ async function verifyOwnedResourceCreationProof(manifest, record, providerReceip
       actual.actor?.login !== record.providerAuthorization?.actor ||
       typeof actual.displayTitle !== "string" ||
       !actual.displayTitle.includes(marker) ||
+      actual.headSha !== record.remoteRevision ||
       proof.observedAt !== actual.createdAt ||
       createdAt < minimumObservedAt
     ) {
@@ -4206,6 +4386,9 @@ async function verifyProviderReceipt(manifest, record, receipt, contract = null)
       "run", "view", String(providerReceipt.runId), "--json", "databaseId,workflowName,url,status,conclusion,headSha"
     ], { cwd })).stdout);
     const repository = await currentRepositoryIdentity(cwd);
+    if (repository !== canonicalGitHubRepository(record.dispatchRepository)) {
+      throw new Error("GitHub Actions dispatch proof repository changed after authorization");
+    }
     const response = {
       runId: String(actual.databaseId),
       workflowName: actual.workflowName,
@@ -4216,7 +4399,7 @@ async function verifyProviderReceipt(manifest, record, receipt, contract = null)
     };
     assertRecomputedProviderReceipt(
       providerReceipt,
-      { action: record.action, provider: record.provider, resource: record.resource, remoteRevision: record.remoteRevision, repository },
+      actionsDispatchReceiptRequest(record),
       response,
       `github:${repository}:actions.dispatch:${actual.databaseId}`
     );
@@ -4226,7 +4409,12 @@ async function verifyProviderReceipt(manifest, record, receipt, contract = null)
       actual.status !== "completed" ||
       actual.conclusion !== "SUCCESS" ||
       actual.headSha !== record.remoteRevision ||
-      (record.resource.startsWith("workflow:") && actual.workflowName !== record.resource.slice("workflow:".length))
+      actual.workflowName !== providerReceipt.workflowName ||
+      providerReceipt.repository !== repository ||
+      providerReceipt.workflowFile !== record.workflowFile ||
+      providerReceipt.ref !== record.dispatchRef ||
+      providerReceipt.dispatchInputsDigest !== record.dispatchInputsDigest ||
+      providerReceipt.invocationId !== record.providerInvocation?.id
     ) throw new Error("GitHub Actions dispatch proof does not match provider state");
     return;
   }
@@ -5334,6 +5522,44 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
         }
       }
     }
+    if (request.action === "actions.dispatch") {
+      if (request.provider !== "github-cli") {
+        throw new Error("GitHub Actions dispatch requires the github-cli provider");
+      }
+      if (!/^workflow:[^\0\r\n]{1,128}$/.test(request.resource)) {
+        throw new Error("GitHub Actions dispatch resources must use workflow:<workflow-name>");
+      }
+      if (!repository?.startsWith("github.com/")) {
+        throw new Error("GitHub Actions dispatch requires a canonical GitHub repository");
+      }
+      if (!request.requiredEvidence.includes("remote-authorization")) {
+        throw new Error("GitHub Actions dispatch requires remote-authorization evidence");
+      }
+      if (!SHA.test(request.remoteRevision)) {
+        throw new Error("GitHub Actions dispatch requires an exact target revision");
+      }
+      const workflowFile = canonicalWorkflowFile(String(request.workflowFile ?? ""));
+      const dispatchRef = canonicalWorkflowRef(String(request.scope ?? ""));
+      await execBoundGitAuthority(manifest.cwd, ["ls-files", "--error-unmatch", "--", workflowFile]);
+      const dispatchInputs = normalizeWorkflowInputs(request.dispatchInputs);
+      const dispatchBinding = {
+        action: request.action,
+        provider: request.provider,
+        resource: request.resource,
+        remoteRevision: request.remoteRevision,
+        workflowFile,
+        dispatchRepository: repository,
+        dispatchRef,
+        dispatchInputs,
+        dispatchInputsDigest: digestObject(dispatchInputs),
+        providerExecutable: providerExecutable ?? await currentProviderExecutableIdentity("gh")
+      };
+      actionBinding = {
+        ...actionBinding,
+        ...dispatchBinding,
+        dispatchCommand: buildActionsDispatchCommand(dispatchBinding)
+      };
+    }
     if (request.action === "pr.create") {
       if (request.resource !== "pull/new") {
         throw new Error("Governed PR creation requires the pull/new resource");
@@ -5796,7 +6022,7 @@ async function consumeActionTokenInternal(root, runId, token, currentTreeDigest,
     }
     const actionExecutable = record.action === "git.push"
       ? await currentProviderExecutableIdentity(BOUND_GIT_EXECUTABLE)
-      : ["pr.create", "pr.merge"].includes(record.action)
+      : ["pr.create", "pr.merge", "actions.dispatch"].includes(record.action)
         ? githubProviderExecutable
         : null;
     if (actionExecutable) {
@@ -5887,6 +6113,104 @@ function githubPreflightInvocation(runId, action, error) {
   };
 }
 
+const WORKFLOW_DISPATCH_OBSERVATION_TIMEOUT_MS = 45 * 60 * 1000;
+const WORKFLOW_DISPATCH_POLL_INTERVAL_MS = 10 * 1000;
+const WORKFLOW_RUN_JSON_FIELDS = "databaseId,workflowName,displayTitle,status,conclusion,headSha,headBranch,createdAt,startedAt,url";
+
+async function listWorkflowRuns(cwd, record, providerExecutablePath) {
+  const output = await execBoundGitHubCli(providerExecutablePath, [
+    "run", "list",
+    "--workflow", record.workflowFile,
+    "--repo", canonicalGitHubRepositoryPath(record.dispatchRepository),
+    "--limit", "100",
+    "--json", WORKFLOW_RUN_JSON_FIELDS
+  ], { cwd });
+  const runs = JSON.parse(output.stdout);
+  if (!Array.isArray(runs)) throw new Error("GitHub Actions workflow list returned a non-array result");
+  return runs;
+}
+
+async function viewWorkflowRun(cwd, record, providerExecutablePath, runId) {
+  const output = await execBoundGitHubCli(providerExecutablePath, [
+    "run", "view", String(runId),
+    "--repo", canonicalGitHubRepositoryPath(record.dispatchRepository),
+    "--json", WORKFLOW_RUN_JSON_FIELDS
+  ], { cwd });
+  const run = JSON.parse(output.stdout);
+  if (!run || typeof run !== "object" || Array.isArray(run)) {
+    throw new Error("GitHub Actions workflow view returned an invalid result");
+  }
+  return run;
+}
+
+async function observeDispatchedWorkflow(cwd, record, providerExecutablePath, existingRunIds, dispatchedAt) {
+  const known = new Set(existingRunIds.map(String));
+  const minimumCreatedAt = Date.parse(dispatchedAt) - 10_000;
+  const deadline = Date.now() + WORKFLOW_DISPATCH_OBSERVATION_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const runs = await listWorkflowRuns(cwd, record, providerExecutablePath);
+    const candidates = runs.filter((run) => {
+      const runId = String(run?.databaseId ?? "");
+      const createdAt = Date.parse(run?.createdAt ?? "");
+      return (
+        /^\d+$/.test(runId) && !known.has(runId) &&
+        run.headBranch === record.dispatchRef &&
+        run.headSha === record.remoteRevision &&
+        Number.isFinite(createdAt) && createdAt >= minimumCreatedAt
+      );
+    });
+    if (candidates.length > 1) {
+      throw new Error("GitHub Actions dispatch produced more than one unclaimed matching run");
+    }
+    if (candidates.length === 1) {
+      const observed = await viewWorkflowRun(cwd, record, providerExecutablePath, candidates[0].databaseId);
+      if (observed.status === "completed") return observed;
+    }
+    await new Promise((resolve) => setTimeout(resolve, WORKFLOW_DISPATCH_POLL_INTERVAL_MS));
+  }
+  throw new Error("GitHub Actions dispatch did not reach a completed provider run within the bounded observation window");
+}
+
+async function persistActionProviderInvocation(root, runId, action, invocation) {
+  return withRunLock(root, runId, async ({ runDir }) => {
+    const target = safeJoin(runDir, "actions", `${action.tokenHash}.json`);
+    const current = await readJson(root, target);
+    if (current.status !== "spent" || current.attemptId !== action.attemptId) {
+      throw new Error("GitHub Actions provider invocation is not bound to the consumed action attempt");
+    }
+    const next = { ...current, providerInvocation: invocation };
+    await atomicWriteJson(root, target, next);
+    await appendJournal(root, runDir, "action.provider-invoked", {
+      attemptId: action.attemptId,
+      invocationId: invocation.id,
+      dispatchState: invocation.dispatchState,
+      exitCode: invocation.exitCode
+    });
+    return next;
+  }, { ttlMs: 300_000 });
+}
+
+function workflowDispatchInvocation(runId, action, invocation) {
+  return {
+    schemaVersion: 1,
+    id: `github-actions-dispatch-wrapper:${runId}:${action.attemptId}`,
+    actionAttemptId: action.attemptId,
+    provider: "github-cli",
+    command: action.dispatchCommand,
+    providerExecutable: action.providerExecutable,
+    providerAuthorizationExecutable: action.providerAuthorizationExecutable,
+    providerAuthorization: action.providerAuthorization,
+    startedAt: invocation.startedAt,
+    finishedAt: nowIso(),
+    exitCode: invocation.exitCode,
+    dispatchState: invocation.dispatchState,
+    preexistingRunIds: invocation.preexistingRunIds,
+    ...(invocation.dispatchedAt ? { dispatchedAt: invocation.dispatchedAt } : {}),
+    ...(invocation.workflowRun ? { workflowRun: invocation.workflowRun } : {}),
+    ...(invocation.errorDigest ? { errorDigest: invocation.errorDigest } : {})
+  };
+}
+
 async function persistPreflightProviderInvocation(root, runId, action, error) {
   return withRunLock(root, runId, async ({ runDir }) => {
     const target = safeJoin(runDir, "actions", `${action.tokenHash}.json`);
@@ -5914,7 +6238,7 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
   const contract = await readJson(root, safeJoin(runDirectory(root, runId), "contract.json"));
   assertActionIsNotDeferred(contract, actionRecord.action);
   if (!EXECUTABLE_ACTION_PROVIDERS.has(`${actionRecord.action}:${actionRecord.provider}`)) {
-    throw new Error("The governed provider execution path only supports github-cli pr.merge and git.push");
+    throw new Error("The governed provider execution path only supports fixed GitHub/Git provider adapters");
   }
   const consumed = await consumeActionTokenInternal(root, runId, token, currentTreeDigest, true);
   if (contract.autonomyProfile) {
@@ -5925,6 +6249,102 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
     const snapshot = await currentAutonomySnapshot(run.manifest, run.contract, run.state);
     assertAutonomySnapshotIdentity(snapshot, run.state.autonomy.snapshot, "Action execution");
     assertAutonomySnapshotIdentity(snapshot, consumed.autonomySnapshot, "Action execution token");
+  }
+  if (consumed.action === "actions.dispatch" && consumed.provider === "github-cli") {
+    const manifest = await readJson(root, safeJoin(runDirectory(root, runId), "manifest.json"));
+    const startedAt = nowIso();
+    let expectedCommand;
+    let providerExecutablePath;
+    let existingRunIds = [];
+    try {
+      expectedCommand = buildActionsDispatchCommand(consumed);
+      if (JSON.stringify(consumed.dispatchCommand) !== JSON.stringify(expectedCommand)) {
+        throw new Error("GitHub Actions dispatch execution command is not the fixed workflow binding");
+      }
+      providerExecutablePath = await verifyRecordedGitHubProvider(manifest, consumed);
+      const providerExecutable = await currentProviderExecutableIdentity("gh");
+      if (providerExecutable.path !== providerExecutablePath ||
+          digestObject(providerExecutable) !== digestObject(consumed.providerExecutable)) {
+        throw new Error("GitHub Actions dispatch execution denied because the governed provider executable changed");
+      }
+      const providerAuthorization = await verifyGitHubProviderAuthorization(
+        manifest.cwd,
+        consumed.providerAuthorization.repository,
+        providerExecutablePath
+      );
+      if (digestObject(providerAuthorization) !== digestObject(consumed.providerAuthorization)) {
+        throw new Error("GitHub Actions dispatch execution denied because the provider actor or permissions changed");
+      }
+      const existingRuns = await listWorkflowRuns(manifest.cwd, consumed, providerExecutablePath);
+      existingRunIds = existingRuns
+        .map((run) => String(run?.databaseId ?? ""))
+        .filter((runIdValue) => /^\d+$/.test(runIdValue));
+    } catch (error) {
+      const preflight = workflowDispatchInvocation(runId, consumed, {
+        startedAt,
+        exitCode: null,
+        dispatchState: "not-sent",
+        preexistingRunIds: existingRunIds,
+        errorDigest: sha256(error?.message ?? "workflow dispatch preflight failed")
+      });
+      await persistActionProviderInvocation(root, runId, consumed, preflight);
+      throw error;
+    }
+    await persistActionProviderInvocation(root, runId, consumed, workflowDispatchInvocation(runId, consumed, {
+      startedAt,
+      exitCode: null,
+      // Once the token is consumed, a crash can occur immediately before or
+      // after the provider call. Keep the attempt indeterminate until the
+      // provider run is observed; never release it as a not-sent failure.
+      dispatchState: "sent-or-indeterminate",
+      preexistingRunIds: existingRunIds
+    }));
+    let exitCode = 0;
+    try {
+      await execBoundGitHubCli(providerExecutablePath, expectedCommand.slice(1), { cwd: manifest.cwd });
+    } catch (error) {
+      exitCode = Number.isInteger(error?.code) ? error.code : 1;
+      const failedInvocation = workflowDispatchInvocation(runId, consumed, {
+        startedAt,
+        exitCode,
+        dispatchState: "sent-or-indeterminate",
+        preexistingRunIds: existingRunIds,
+        dispatchedAt: nowIso(),
+        errorDigest: sha256(error?.message ?? "workflow dispatch failed")
+      });
+      await persistActionProviderInvocation(root, runId, consumed, failedInvocation);
+      return failedInvocation;
+    }
+    const dispatchedAt = nowIso();
+    try {
+      const workflowRun = await observeDispatchedWorkflow(
+        manifest.cwd,
+        consumed,
+        providerExecutablePath,
+        existingRunIds,
+        dispatchedAt
+      );
+      const completedInvocation = workflowDispatchInvocation(runId, consumed, {
+        startedAt,
+        exitCode,
+        dispatchState: "sent",
+        preexistingRunIds: existingRunIds,
+        dispatchedAt,
+        workflowRun
+      });
+      return await persistActionProviderInvocation(root, runId, consumed, completedInvocation);
+    } catch (error) {
+      const indeterminateInvocation = workflowDispatchInvocation(runId, consumed, {
+        startedAt,
+        exitCode,
+        dispatchState: "sent-or-indeterminate",
+        preexistingRunIds: existingRunIds,
+        dispatchedAt,
+        errorDigest: sha256(error?.message ?? "workflow run observation failed")
+      });
+      await persistActionProviderInvocation(root, runId, consumed, indeterminateInvocation);
+      throw error;
+    }
   }
   if (consumed.action === "git.push" && consumed.provider === "git") {
     const { remote, pushUrl, ref, command: expectedCommand } = resolveGitPushExecutionBinding(consumed);
@@ -6553,6 +6973,22 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
         JSON.stringify(record.providerInvocation.command) !== JSON.stringify(record.pushCommand))
     ) {
       throw new Error("Successful Git push reconciliation requires the governed actor-bound provider wrapper");
+    }
+    if (
+      record.action === "actions.dispatch" &&
+      outcome === "success" &&
+      (!record.providerInvocation ||
+        record.providerInvocation.provider !== "github-cli" ||
+        record.providerInvocation.exitCode !== 0 ||
+        record.providerInvocation.dispatchState !== "sent" ||
+        digestObject(record.providerInvocation.providerExecutable) !== digestObject(record.providerExecutable) ||
+        digestObject(record.providerInvocation.providerAuthorizationExecutable) !== digestObject(record.providerAuthorizationExecutable) ||
+        digestObject(record.providerInvocation.providerAuthorization) !== digestObject(record.providerAuthorization) ||
+        JSON.stringify(record.providerInvocation.command) !== JSON.stringify(record.dispatchCommand) ||
+        !record.providerInvocation.workflowRun ||
+        receipt.providerReceipt.invocationId !== record.providerInvocation.id)
+    ) {
+      throw new Error("Successful GitHub Actions dispatch reconciliation requires the governed provider wrapper");
     }
     const duplicateExecution = records.some((candidate) => (
       candidate.tokenHash !== record.tokenHash &&

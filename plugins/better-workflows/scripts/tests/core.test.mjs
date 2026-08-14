@@ -29,6 +29,8 @@ import {
   assertProviderReceiptShape,
   buildBoundGitPushArgs,
   buildBoundGitPushEnvironment,
+  buildActionsDispatchCommand,
+  buildActionsDispatchProviderReceipt,
   BOUND_CREDENTIAL_WORKSPACE_ROOT,
   buildGitPushActionBinding,
   buildPrCreateCommand,
@@ -1987,23 +1989,65 @@ test("linked worktrees share the canonical Git reservation identity", async () =
   );
 });
 
-test("unsupported GitHub Actions dispatch fails closed before issuing a token", async () => {
-  await assert.rejects(
-    issueActionToken("/private/tmp/sbw-unsupported-actions-dispatch", "sbw-20260803T000000Z-000000000000", {
-      action: "actions.dispatch",
+test("GitHub Actions dispatch adapter binds a fixed command and one observed run", () => {
+  const remoteRevision = "a".repeat(40);
+  const inputs = { environment: "production", smoke: "true" };
+  const record = {
+    action: "actions.dispatch",
+    provider: "github-cli",
+    resource: "workflow:release",
+    remoteRevision,
+    dispatchRepository: "github.com/example/repo",
+    workflowFile: ".github/workflows/release.yml",
+    dispatchRef: "dev",
+    dispatchInputs: inputs,
+    dispatchInputsDigest: digestObject(inputs),
+    providerExecutable: { path: "/usr/local/bin/gh", digest: "b".repeat(64) },
+    providerAuthorizationExecutable: { path: "/usr/local/bin/gh", digest: "b".repeat(64) },
+    providerAuthorization: {
       provider: "github-cli",
-      resource: "workflow:release.yml",
-      remoteRevision: "abc",
-      requiredEvidence: ["preflight"]
-    }, "tree", {}),
-    /unimplemented provider adapter/
+      repository: "github.com/example/repo",
+      actor: "alice",
+      permissions: { admin: false, maintain: false, push: true }
+    },
+    runId: "sbw-20260814T000000Z-000000000000",
+    attemptId: "attempt-1",
+    idempotencyKey: "idempotency-1",
+    providerInvocation: {
+      id: "github-actions-dispatch-wrapper:run:attempt-1",
+      workflowRun: {
+        databaseId: 12345,
+        workflowName: "Release",
+        url: "https://github.com/example/repo/actions/runs/12345",
+        status: "completed",
+        conclusion: "SUCCESS",
+        headSha: remoteRevision
+      }
+    }
+  };
+  assert.deepEqual(buildActionsDispatchCommand(record), [
+    "gh", "workflow", "run", ".github/workflows/release.yml",
+    "--repo", "example/repo", "--ref", "dev",
+    "--raw-field", "environment=production", "--raw-field", "smoke=true"
+  ]);
+  const receipt = buildActionsDispatchProviderReceipt(record);
+  assert.equal(receipt.runId, "12345");
+  assert.equal(receipt.repository, "github.com/example/repo");
+  assert.equal(receipt.executionId, "github:github.com/example/repo:actions.dispatch:12345");
+  assertProviderReceiptShape(record, receipt, "success");
+  assert.throws(
+    () => buildActionsDispatchCommand({ ...record, dispatchInputsDigest: "c".repeat(64) }),
+    /input digest does not match/
   );
-  await assert.rejects(
-    registerOwnedResource("/private/tmp/sbw-unsupported-actions-dispatch", "sbw-20260803T000000Z-000000000000", {
-      resource: "run:123",
-      creationReceipt: { action: "actions.dispatch" }
+  assert.throws(
+    () => buildActionsDispatchProviderReceipt({
+      ...record,
+      providerInvocation: {
+        ...record.providerInvocation,
+        workflowRun: { ...record.providerInvocation.workflowRun, headSha: "c".repeat(40) }
+      }
     }),
-    /unimplemented provider adapter/
+    /successful workflow conclusion|provider invocation is incomplete/
   );
 });
 

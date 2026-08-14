@@ -313,9 +313,11 @@ Provider-execution
 reservations may resume only for the same run, action attempt, token, execution
 identity, and recorded outcome after an interrupted action-record write, with
 one controlled unknown-to-terminal supersession and no second identity;
-superseded or legacy-format reservations remain rejected. `actions.dispatch` is
-not supported until a fixed-argv provider adapter can correlate one requested
-workflow dispatch to exactly one provider-assigned run.
+superseded or legacy-format reservations remain rejected. `actions.dispatch`
+uses a fixed-argv GitHub CLI provider adapter: the action binds the tracked
+workflow file, exact ref, normalized inputs, repository, target revision, and
+pinned executable, then correlates exactly one new completed provider run.
+Ambiguous or indeterminate dispatch state remains unreconciled.
 
 For governed GitHub actions, bind every provider probe to the absolute
 executable path and content digest captured at token issuance; do not resolve a

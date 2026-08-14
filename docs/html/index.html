@@ -1078,7 +1078,7 @@
 
           <div class="template-heading">
             <div><p class="kicker">13 governed playbooks</p><h3 style="margin:0">目前 template 全景</h3></div>
-            <p>依 default mode 篩選。Stage 數是 TaskContract v2 的執行骨架，不等於 agent 數；CI / deploy 類外部動作若沒有 fixed-argv adapter 與 live receipt verifier，會明確 deferred。</p>
+            <p>依 default mode 篩選。Stage 數是 TaskContract v2 的執行骨架，不等於 agent 數；GitHub Actions dispatch 使用 fixed-argv adapter 與 live receipt verifier，deploy / release 等尚未具 adapter 的動作仍明確 deferred。</p>
           </div>
           <div class="filter-row" role="group" aria-label="Template mode 篩選" style="margin-bottom:14px">
             <button class="seg-btn active" type="button" aria-pressed="true" data-template-filter="all" data-i18n="filter.allTemplates">全部 · 13</button>
@@ -1709,7 +1709,7 @@ git status --short<button class="copy-btn" type="button">複製</button></div>
 
       const templates = [
         ['browser-simulator-qa','verified',4,'以可重現 artifact 執行瀏覽器或模擬器的 current-state QA。'],
-        ['ci-release-monitor','critical',4,'序列化監控與對帳 CI / deploy / release；未具固定 adapter 的外部 dispatch 明確 deferred。'],
+        ['ci-release-monitor','critical',4,'序列化監控與對帳 CI / deploy / release；Actions dispatch 已有固定 adapter，deploy / release 仍 deferred。'],
         ['cross-platform-contract','deep',5,'同步檢查 backend、Web、iOS、Android 的 API contract 相容性。'],
         ['dependabot-consolidation-pr-cleanup','critical',6,'盤點並分類 Dependabot PR，合併成 governed PR，完成 lockfile 驗證與 owned cleanup。'],
         ['ios-static-pbxproj','verified',3,'不做 local build 的 Swift 靜態 review 與序列化 pbxproj membership。'],
@@ -1796,7 +1796,7 @@ git status --short<button class="copy-btn" type="button">複製</button></div>
         },
         templateDescriptions: {
           'browser-simulator-qa': 'Reproducible current-state QA in a browser or simulator from bounded artifacts.',
-          'ci-release-monitor': 'Serialized monitoring and reconciliation for CI, deploy, and release; unsupported external dispatch stays deferred.',
+          'ci-release-monitor': 'Serialized monitoring and reconciliation for CI, deploy, and release; GitHub Actions dispatch uses a fixed adapter while deploy and release remain deferred.',
           'cross-platform-contract': 'Checks API contract compatibility across backend, Web, iOS, and Android.',
           'dependabot-consolidation-pr-cleanup': 'Classifies Dependabot PRs, consolidates them into a governed PR, verifies the lockfile, and cleans up owned resources.',
           'ios-static-pbxproj': 'Static Swift review and serialized pbxproj membership without a local build.',

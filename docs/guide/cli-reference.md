@@ -97,10 +97,12 @@ Ledger transition files may include `expectedLedgerDigest`; when present it
 must match the current canonical `ledger.json` digest. Transitions are
 root-owned, and stale expected digests or non-root actors fail closed.
 
-`actions.dispatch` is intentionally rejected by the core action-token lifecycle
-until a fixed-argv provider adapter can correlate one requested workflow
-dispatch to exactly one provider-assigned run. Do not use `run:<id>` or
-`workflow:<name>` as a substitute for that adapter.
+`actions.dispatch` uses the fixed-argv GitHub CLI adapter. Issue the token with
+the exact `workflow:<selector>` resource, tracked `--workflow-file`, `--scope`
+ref, and optional scalar `--input` values; `execute` pins the recorded `gh`
+identity, snapshots existing runs, dispatches once, and waits for exactly one
+new completed run at the requested revision. Missing, ambiguous, or
+indeterminate provider state remains unreconciled.
 
 Governed GitHub actions record an absolute `gh` executable path and content
 digest at token issuance. Provider probes and fixed-argv wrappers use that
