@@ -71,6 +71,7 @@ import {
   updateState,
   verifyRequiredChecksProvider,
   verifyGitHubCredentialActor,
+  validateWorkflowDispatchCapability,
   withRunLock,
   withBoundGitCredential
 } from "../lib/core.mjs";
@@ -1993,6 +1994,14 @@ test("GitHub Actions dispatch adapter binds a fixed command and one observed run
   const remoteRevision = "a".repeat(40);
   const dispatchNonce = "c".repeat(32);
   const inputs = { environment: "production", sbw_dispatch_nonce: dispatchNonce, smoke: "true" };
+  const workflowDispatchCapability = {
+    schemaVersion: 1,
+    workflowFile: ".github/workflows/release.yml",
+    revision: remoteRevision,
+    nonceInput: "sbw_dispatch_nonce",
+    runNameNonce: true,
+    contentDigest: "d".repeat(64)
+  };
   const record = {
     action: "actions.dispatch",
     provider: "github-cli",
@@ -2004,6 +2013,8 @@ test("GitHub Actions dispatch adapter binds a fixed command and one observed run
     dispatchNonce,
     dispatchInputs: inputs,
     dispatchInputsDigest: digestObject(inputs),
+    workflowDispatchCapability,
+    workflowDispatchCapabilityDigest: digestObject(workflowDispatchCapability),
     providerExecutable: { path: "/usr/local/bin/gh", digest: "b".repeat(64) },
     providerAuthorizationExecutable: { path: "/usr/local/bin/gh", digest: "b".repeat(64) },
     providerAuthorization: {
@@ -2023,7 +2034,7 @@ test("GitHub Actions dispatch adapter binds a fixed command and one observed run
         url: "https://github.com/example/repo/actions/runs/12345",
         displayTitle: `Release ${dispatchNonce}`,
         status: "completed",
-        conclusion: "SUCCESS",
+        conclusion: "success",
         headSha: remoteRevision
       }
     }
@@ -2066,6 +2077,47 @@ test("GitHub Actions dispatch adapter binds a fixed command and one observed run
       }
     }),
     /provider invocation is incomplete/
+  );
+});
+
+test("GitHub Actions dispatch capability requires nonce-aware workflow metadata", () => {
+  const revision = "a".repeat(40);
+  const workflow = [
+    "name: Release",
+    "run-name: Release ${{ inputs.sbw_dispatch_nonce }}",
+    "on:",
+    "  workflow_dispatch:",
+    "    inputs:",
+    "      sbw_dispatch_nonce:",
+    "        required: true",
+    "        type: string",
+    "jobs:",
+    "  release:",
+    "    runs-on: ubuntu-latest"
+  ].join("\n");
+  const capability = validateWorkflowDispatchCapability(
+    workflow,
+    ".github/workflows/release.yml",
+    revision
+  );
+  assert.equal(capability.nonceInput, "sbw_dispatch_nonce");
+  assert.equal(capability.runNameNonce, true);
+  assert.match(capability.contentDigest, /^[a-f0-9]{64}$/);
+  assert.throws(
+    () => validateWorkflowDispatchCapability(
+      workflow.replace("workflow_dispatch:", "push:"),
+      ".github/workflows/release.yml",
+      revision
+    ),
+    /workflow_dispatch/
+  );
+  assert.throws(
+    () => validateWorkflowDispatchCapability(
+      workflow.replace("sbw_dispatch_nonce", "other_input"),
+      ".github/workflows/release.yml",
+      revision
+    ),
+    /reserved sbw_dispatch_nonce|run-name/
   );
 });
 

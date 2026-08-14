@@ -693,6 +693,11 @@ const WORKFLOW_INPUT_KEY = /^[A-Za-z_][A-Za-z0-9_-]{0,63}$/;
 const WORKFLOW_INPUT_VALUE = /^[^\0\r\n]{0,4096}$/;
 const WORKFLOW_DISPATCH_NONCE_INPUT = "sbw_dispatch_nonce";
 const WORKFLOW_DISPATCH_NONCE = /^[a-f0-9]{32}$/;
+const WORKFLOW_DISPATCH_NONCE_EXPRESSION = /\$\{\{\s*(?:inputs|github\.event\.inputs)\.sbw_dispatch_nonce\s*\}\}/;
+
+function workflowConclusionIsSuccess(value) {
+  return typeof value === "string" && value.toLowerCase() === "success";
+}
 const GIT_PUSH_RESOURCE = /^remote:([A-Za-z0-9._-]+):(refs\/heads\/[A-Za-z0-9._/-]+)$/;
 const EXECUTABLE_ACTION_PROVIDERS = new Set([
   "git.push:git",
@@ -1701,10 +1706,12 @@ export function assertProviderReceiptShape(record, providerReceipt, outcome = re
       typeof providerReceipt.dispatchNonce !== "string" || providerReceipt.dispatchNonce !== record.dispatchNonce ||
       typeof providerReceipt.displayTitle !== "string" || !providerReceipt.displayTitle.includes(record.dispatchNonce) ||
       typeof providerReceipt.dispatchInputsDigest !== "string" || !SHA256_DIGEST.test(providerReceipt.dispatchInputsDigest) ||
+      typeof providerReceipt.workflowDispatchCapabilityDigest !== "string" ||
+      providerReceipt.workflowDispatchCapabilityDigest !== record.workflowDispatchCapabilityDigest ||
       typeof providerReceipt.invocationId !== "string" || providerReceipt.invocationId !== record.providerInvocation?.id ||
       providerReceipt.terminalState !== "success" ||
       providerReceipt.status !== "completed" ||
-      providerReceipt.conclusion !== "SUCCESS")
+      !workflowConclusionIsSuccess(providerReceipt.conclusion))
   ) {
     throw new Error("GitHub Actions dispatch proof is incomplete");
   }
@@ -3249,6 +3256,71 @@ function normalizeWorkflowInputs(value) {
   return normalized;
 }
 
+function workflowKeyLine(line) {
+  const match = /^(\s*)(?:["']?)([A-Za-z0-9_-]+)(?:["']?)\s*:(.*)$/.exec(line);
+  return match ? { indent: match[1].length, key: match[2], value: match[3].trim() } : null;
+}
+
+export function validateWorkflowDispatchCapability(content, workflowFile, revision) {
+  if (typeof content !== "string" || !content) {
+    throw new Error(`GitHub Actions workflow ${workflowFile} has no readable content`);
+  }
+  const lines = content.split(/\r?\n/).map((line) => ({
+    raw: line,
+    parsed: line.trimStart().startsWith("#") ? null : workflowKeyLine(line)
+  }));
+  const topOn = lines.findIndex(({ parsed }) => parsed?.indent === 0 && parsed.key === "on");
+  if (topOn < 0) throw new Error("GitHub Actions workflow must declare a top-level on block");
+  const onIndent = lines[topOn].parsed.indent;
+  const onEnd = lines.findIndex(({ parsed }, index) => index > topOn && parsed && parsed.indent <= onIndent);
+  const onStop = onEnd < 0 ? lines.length : onEnd;
+  const dispatchIndex = lines.findIndex(({ parsed }, index) => (
+    index > topOn && index < onStop && parsed && parsed.indent > onIndent && parsed.key === "workflow_dispatch"
+  ));
+  if (dispatchIndex < 0) throw new Error("GitHub Actions workflow must declare workflow_dispatch");
+  const dispatchIndent = lines[dispatchIndex].parsed.indent;
+  const dispatchEnd = lines.findIndex(({ parsed }, index) => (
+    index > dispatchIndex && index < onStop && parsed && parsed.indent <= dispatchIndent
+  ));
+  const dispatchStop = dispatchEnd < 0 ? onStop : dispatchEnd;
+  const inputsIndex = lines.findIndex(({ parsed }, index) => (
+    index > dispatchIndex && index < dispatchStop && parsed && parsed.indent > dispatchIndent && parsed.key === "inputs"
+  ));
+  if (inputsIndex < 0) throw new Error("GitHub Actions workflow_dispatch must declare inputs");
+  const inputsIndent = lines[inputsIndex].parsed.indent;
+  const inputsEnd = lines.findIndex(({ parsed }, index) => (
+    index > inputsIndex && index < dispatchStop && parsed && parsed.indent <= inputsIndent
+  ));
+  const inputsStop = inputsEnd < 0 ? dispatchStop : inputsEnd;
+  const nonceIndex = lines.findIndex(({ parsed }, index) => (
+    index > inputsIndex && index < inputsStop && parsed && parsed.indent > inputsIndent && parsed.key === WORKFLOW_DISPATCH_NONCE_INPUT
+  ));
+  if (nonceIndex < 0) {
+    throw new Error(`GitHub Actions workflow_dispatch must declare the reserved ${WORKFLOW_DISPATCH_NONCE_INPUT} input`);
+  }
+  const runName = lines.find(({ parsed }) => parsed?.indent === 0 && parsed.key === "run-name");
+  if (!runName || !WORKFLOW_DISPATCH_NONCE_EXPRESSION.test(runName.parsed.value)) {
+    throw new Error(`GitHub Actions workflow run-name must expose ${WORKFLOW_DISPATCH_NONCE_INPUT}`);
+  }
+  return {
+    schemaVersion: 1,
+    workflowFile,
+    revision,
+    nonceInput: WORKFLOW_DISPATCH_NONCE_INPUT,
+    runNameNonce: true,
+    contentDigest: sha256(content)
+  };
+}
+
+async function readBoundWorkflowDispatchCapability(cwd, workflowFile, revision) {
+  if (!SHA.test(String(revision ?? ""))) {
+    throw new Error("GitHub Actions workflow capability requires an exact target revision");
+  }
+  const canonicalFile = canonicalWorkflowFile(workflowFile);
+  const content = (await execBoundGitAuthority(cwd, ["show", `${revision}:${canonicalFile}`])).stdout;
+  return validateWorkflowDispatchCapability(content, canonicalFile, revision);
+}
+
 function canonicalGitHubRepositoryPath(value) {
   const repository = typeof value === "string" && value.startsWith("github.com/")
     ? value.slice("github.com/".length)
@@ -3313,6 +3385,7 @@ function actionsDispatchReceiptRequest(record) {
     ref: record.dispatchRef,
     dispatchNonce: record.dispatchNonce,
     dispatchInputsDigest: record.dispatchInputsDigest,
+    workflowDispatchCapabilityDigest: record.workflowDispatchCapabilityDigest,
     providerExecutable: record.providerExecutable
   };
 }
@@ -3378,7 +3451,7 @@ export function buildActionsDispatchProviderReceipt(record, outcome = "success")
     throw new Error("GitHub Actions dispatch provider invocation is incomplete");
   }
   const repository = canonicalGitHubRepository(record.dispatchRepository);
-  if (outcome === "success" && run.conclusion !== "SUCCESS") {
+  if (outcome === "success" && !workflowConclusionIsSuccess(run.conclusion)) {
     throw new Error("Successful GitHub Actions dispatch receipt requires a successful workflow conclusion");
   }
   const response = {
@@ -3389,7 +3462,8 @@ export function buildActionsDispatchProviderReceipt(record, outcome = "success")
     conclusion: run.conclusion,
     headSha: run.headSha,
     displayTitle: run.displayTitle,
-    dispatchNonce: record.dispatchNonce
+    dispatchNonce: record.dispatchNonce,
+    workflowDispatchCapabilityDigest: record.workflowDispatchCapabilityDigest
   };
   const executionId = `github:${repository}:actions.dispatch:${runId}`;
   return {
@@ -3419,6 +3493,7 @@ export function buildActionsDispatchProviderReceipt(record, outcome = "success")
     displayTitle: run.displayTitle,
     dispatchNonce: record.dispatchNonce,
     dispatchInputsDigest: record.dispatchInputsDigest,
+    workflowDispatchCapabilityDigest: record.workflowDispatchCapabilityDigest,
     invocationId: record.providerInvocation.id
   };
 }
@@ -4479,7 +4554,8 @@ async function verifyProviderReceipt(manifest, record, receipt, contract = null)
       conclusion: actual.conclusion,
       headSha: actual.headSha,
       displayTitle: actual.displayTitle,
-      dispatchNonce: record.dispatchNonce
+      dispatchNonce: record.dispatchNonce,
+      workflowDispatchCapabilityDigest: record.workflowDispatchCapabilityDigest
     };
     assertRecomputedProviderReceipt(
       providerReceipt,
@@ -4491,7 +4567,7 @@ async function verifyProviderReceipt(manifest, record, receipt, contract = null)
       String(actual.databaseId) !== String(providerReceipt.runId) ||
       actual.url !== providerReceipt.url ||
       actual.status !== "completed" ||
-      actual.conclusion !== "SUCCESS" ||
+      !workflowConclusionIsSuccess(actual.conclusion) ||
       actual.headSha !== record.remoteRevision ||
       typeof actual.displayTitle !== "string" ||
       !WORKFLOW_DISPATCH_NONCE.test(String(record.dispatchNonce ?? "")) ||
@@ -4502,6 +4578,7 @@ async function verifyProviderReceipt(manifest, record, receipt, contract = null)
       providerReceipt.ref !== record.dispatchRef ||
       providerReceipt.dispatchNonce !== record.dispatchNonce ||
       providerReceipt.displayTitle !== actual.displayTitle ||
+      providerReceipt.workflowDispatchCapabilityDigest !== record.workflowDispatchCapabilityDigest ||
       providerReceipt.dispatchInputsDigest !== record.dispatchInputsDigest ||
       providerReceipt.invocationId !== record.providerInvocation?.id
     ) throw new Error("GitHub Actions dispatch proof does not match provider state");
@@ -5643,6 +5720,11 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
         ...dispatchInputs,
         [WORKFLOW_DISPATCH_NONCE_INPUT]: dispatchNonce
       });
+      const workflowDispatchCapability = await readBoundWorkflowDispatchCapability(
+        manifest.cwd,
+        workflowFile,
+        request.remoteRevision
+      );
       const dispatchBinding = {
         action: request.action,
         provider: request.provider,
@@ -5654,6 +5736,8 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
         dispatchNonce,
         dispatchInputs: boundDispatchInputs,
         dispatchInputsDigest: digestObject(boundDispatchInputs),
+        workflowDispatchCapability,
+        workflowDispatchCapabilityDigest: digestObject(workflowDispatchCapability),
         providerExecutable: providerExecutable ?? await currentProviderExecutableIdentity("gh")
       };
       actionBinding = {
@@ -6055,6 +6139,19 @@ async function consumeActionTokenInternal(root, runId, token, currentTreeDigest,
     if (record.treeDigest !== currentTreeDigest) throw new Error("Action token tree binding changed");
     if (record.contractDigest !== digestObject(contract)) throw new Error("Action token contract binding changed");
     const manifest = await readJson(root, safeJoin(runDir, "manifest.json"));
+    if (record.action === "actions.dispatch" && record.provider === "github-cli") {
+      const liveWorkflowCapability = await readBoundWorkflowDispatchCapability(
+        manifest.cwd,
+        record.workflowFile,
+        record.remoteRevision
+      );
+      if (
+        digestObject(liveWorkflowCapability) !== record.workflowDispatchCapabilityDigest ||
+        digestObject(record.workflowDispatchCapability ?? {}) !== record.workflowDispatchCapabilityDigest
+      ) {
+        throw new Error("Action consumption denied because the workflow dispatch capability changed or is unbound");
+      }
+    }
     if (record.reviewPackageId) {
       const { assertReviewContinuity } = await import("./review.mjs");
       await assertReviewContinuity(root, runId, {

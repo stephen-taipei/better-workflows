@@ -320,8 +320,11 @@ superseded or legacy-format reservations remain rejected. `actions.dispatch`
 uses a fixed-argv GitHub CLI provider adapter: the action binds the tracked
 workflow file, exact ref, normalized inputs, repository, target revision, and
 pinned executable; it injects a reserved per-attempt `sbw_dispatch_nonce` that
-the workflow must expose in its `run-name`/provider display title, then
-correlates exactly one new completed provider run.
+the target workflow revision must declare under `workflow_dispatch.inputs` and
+expose through a top-level `run-name`; issuance and consumption fail closed
+when that capability is absent. The provider display title must carry the same
+nonce, after which the adapter correlates exactly one new completed provider
+run.
 Ambiguous or indeterminate dispatch state remains unreconciled.
 
 For governed GitHub actions, bind every provider probe to the absolute

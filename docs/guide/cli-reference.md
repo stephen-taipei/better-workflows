@@ -108,8 +108,10 @@ root-owned, and stale expected digests or non-root actors fail closed.
 the exact `workflow:<.github/workflows/file>` resource matching the tracked
 `--workflow-file`, the `--scope` ref, and optional scalar `--input` values;
 the adapter injects a reserved per-attempt `sbw_dispatch_nonce` input, so the
-workflow's `run-name`/provider display title must expose that input for
-correlation; `execute` pins the recorded `gh`
+target workflow revision must declare `workflow_dispatch.inputs.sbw_dispatch_nonce`
+and a top-level `run-name` exposing that input; otherwise issuance and
+consumption fail closed. The provider display title must expose the same nonce
+for correlation; `execute` pins the recorded `gh`
 identity, snapshots existing runs, dispatches once, and waits for exactly one
 new completed run at the requested revision. Missing, ambiguous, or
 indeterminate provider state remains unreconciled.
