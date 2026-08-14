@@ -1,0 +1,219 @@
+{
+  "schemaVersion": 1,
+  "kind": "better-workflows-readme-quality",
+  "landing": {
+    "maxLines": 220,
+    "maxParagraphCharacters": 600,
+    "maxTableColumns": 2,
+    "maxTableBodyRows": 12,
+    "sectionOrder": [
+      "promise-audience",
+      "problem-outcome",
+      "proof-boundaries",
+      "first-success",
+      "choose-next-path",
+      "lifecycle",
+      "trust-limits",
+      "learn-help-contribute"
+    ],
+    "claimOrder": [
+      "prompt-not-authority",
+      "root-only-mutation",
+      "evidence-before-action",
+      "unknown-stop",
+      "private-history"
+    ],
+    "requiredCommands": [
+      "codex plugin marketplace add stephen-taipei/better-workflows",
+      "codex plugin add better-workflows@better-workflows",
+      "$better-workflows:auto <describe the outcome you need>"
+    ],
+    "requiredIdentifiers": [
+      "Goal-first",
+      "Evidence-driven",
+      "Fail-closed",
+      "REJECTED_WITH_EVIDENCE",
+      "$better-workflows:auto"
+    ],
+    "requiredRepoTargets": [
+      "docs/guide/getting-started.md",
+      "docs/guide/workflows.md",
+      "docs/guide/architecture.md",
+      "docs/guide/security.md",
+      "docs/guide/cli-reference.md",
+      "docs/guide/readme-quality.md",
+      "CONTRIBUTING.md",
+      "CODE_OF_CONDUCT.md",
+      "GOVERNANCE.md",
+      "SUPPORT.md",
+      "LICENSE"
+    ],
+    "visuals": [
+      {
+        "key": "authority-boundary",
+        "target": "docs/assets/better-workflows-engineering-stack.svg",
+        "type": "image"
+      },
+      {
+        "key": "lifecycle",
+        "type": "mermaid"
+      }
+    ],
+    "bannedDeepDetailPatterns": [
+      "spent/pending",
+      "publication lock",
+      "confirm-digest <sha256>",
+      "stale-lock recovery"
+    ],
+    "files": [
+      {
+        "locale": "en",
+        "path": "README.md",
+        "detailsTarget": "docs/details/en.md",
+        "preambleRoster": "**Model roster:** Codex · Claude · Gemini · GPT-OSS · Grok · Cursor · Kimi · Qwen · Kiro. `agy` transports Gemini-, Claude-, and GPT-OSS-branded models; it is transport metadata, not another model brand.",
+        "headings": [
+          "Why Better Workflows",
+          "From prompts to governed outcomes",
+          "What you can trust",
+          "Get your first result",
+          "Choose your next path",
+          "How delivery reaches completion",
+          "Trust boundaries and limits",
+          "Learn, get help, and contribute"
+        ],
+        "claims": {
+          "prompt-not-authority": "A prompt can describe intent, but it never grants authority.",
+          "root-only-mutation": "Only Root may edit, integrate, deploy, accept risk, or declare completion.",
+          "evidence-before-action": "Every side effect requires fresh evidence, provenance, and an action bound to the intended target.",
+          "unknown-stop": "Drift, stale evidence, or unknown provider state always stops the workflow.",
+          "private-history": "Sensitive or private history is never harvested; it is rejected with a redacted `REJECTED_WITH_EVIDENCE` disposition."
+        }
+      },
+      {
+        "locale": "zh-TW",
+        "path": "docs/README.zh-TW.md",
+        "detailsTarget": "docs/details/zh-TW.md",
+        "preambleRoster": "**Model roster：** Codex · Claude · Gemini · GPT-OSS · Grok · Cursor · Kimi · Qwen · Kiro。`agy` 傳輸 Gemini、Claude 與 GPT-OSS 品牌模型；它是 transport metadata，不是另一個模型品牌。",
+        "headings": [
+          "為什麼需要 Better Workflows",
+          "從 Prompt 走向受治理成果",
+          "你可以信任什麼",
+          "完成第一次成功執行",
+          "選擇下一條路徑",
+          "交付如何走到完成",
+          "信任邊界與限制",
+          "深入了解、取得協助與參與貢獻"
+        ],
+        "claims": {
+          "prompt-not-authority": "Prompt 可以描述意圖，但永遠不會授予權限。",
+          "root-only-mutation": "只有 Root 可以修改、整合、部署、接受風險或宣告完成。",
+          "evidence-before-action": "每個 side effect 都必須具備 fresh evidence、provenance，以及綁定預定目標的 action。",
+          "unknown-stop": "只要出現 drift、過期證據或未知 provider 狀態，工作流就會停止。",
+          "private-history": "敏感或私人歷史絕不會被擷取；只能以經遮蔽的 `REJECTED_WITH_EVIDENCE` disposition 拒絕。"
+        }
+      },
+      {
+        "locale": "zh-CN",
+        "path": "docs/README.zh-CN.md",
+        "detailsTarget": "docs/details/zh-CN.md",
+        "preambleRoster": "**Model roster：** Codex · Claude · Gemini · GPT-OSS · Grok · Cursor · Kimi · Qwen · Kiro。`agy` 传输 Gemini、Claude 与 GPT-OSS 品牌模型；它是 transport metadata，不是另一个模型品牌。",
+        "headings": [
+          "为什么需要 Better Workflows",
+          "从 Prompt 走向受治理成果",
+          "你可以信任什么",
+          "完成第一次成功运行",
+          "选择下一条路径",
+          "交付如何走到完成",
+          "信任边界与限制",
+          "深入了解、获取帮助与参与贡献"
+        ],
+        "claims": {
+          "prompt-not-authority": "Prompt 可以描述意图，但永远不会授予权限。",
+          "root-only-mutation": "只有 Root 可以修改、集成、部署、接受风险或宣告完成。",
+          "evidence-before-action": "每个 side effect 都必须具备 fresh evidence、provenance，以及绑定预定目标的 action。",
+          "unknown-stop": "只要出现 drift、过期证据或未知 provider 状态，工作流就会停止。",
+          "private-history": "敏感或私人历史绝不会被采集；只能以经过遮蔽的 `REJECTED_WITH_EVIDENCE` disposition 拒绝。"
+        }
+      },
+      {
+        "locale": "ja",
+        "path": "docs/README.ja.md",
+        "detailsTarget": "docs/details/ja.md",
+        "preambleRoster": "**Model roster:** Codex · Claude · Gemini · GPT-OSS · Grok · Cursor · Kimi · Qwen · Kiro。`agy` は Gemini、Claude、GPT-OSS ブランドの model を transport しますが、それ自体は model ブランドではありません。",
+        "headings": [
+          "Better Workflows が必要な理由",
+          "Prompt から統制された成果へ",
+          "信頼できること",
+          "最初の成功を得る",
+          "次の進路を選ぶ",
+          "Delivery が完了に至るまで",
+          "信頼境界と制限",
+          "学ぶ、助けを得る、貢献する"
+        ],
+        "claims": {
+          "prompt-not-authority": "Prompt は意図を記述できますが、権限を付与することはありません。",
+          "root-only-mutation": "編集、統合、デプロイ、リスク受容、完了宣言を行えるのは Root だけです。",
+          "evidence-before-action": "すべての side effect には fresh evidence、provenance、対象に bind された action が必要です。",
+          "unknown-stop": "drift、古い証拠、または不明な provider 状態があれば、workflow は必ず停止します。",
+          "private-history": "機密または私的な履歴は収集せず、redacted `REJECTED_WITH_EVIDENCE` disposition で拒否します。"
+        }
+      },
+      {
+        "locale": "ko",
+        "path": "docs/README.ko.md",
+        "detailsTarget": "docs/details/ko.md",
+        "preambleRoster": "**Model roster:** Codex · Claude · Gemini · GPT-OSS · Grok · Cursor · Kimi · Qwen · Kiro. `agy`는 Gemini, Claude, GPT-OSS 브랜드 model을 transport하지만 그 자체가 model 브랜드는 아닙니다.",
+        "headings": [
+          "Better Workflows가 필요한 이유",
+          "Prompt에서 통제된 결과로",
+          "신뢰할 수 있는 것",
+          "첫 번째 성공 만들기",
+          "다음 경로 선택",
+          "Delivery가 완료에 도달하는 과정",
+          "신뢰 경계와 한계",
+          "더 알아보고 도움받고 기여하기"
+        ],
+        "claims": {
+          "prompt-not-authority": "Prompt는 의도를 설명할 수 있지만 권한을 부여하지는 않습니다.",
+          "root-only-mutation": "Root만 수정, 통합, 배포, 위험 수용, 완료 선언을 할 수 있습니다.",
+          "evidence-before-action": "모든 side effect에는 fresh evidence, provenance, 대상에 bind된 action이 필요합니다.",
+          "unknown-stop": "drift, 오래된 증거 또는 알 수 없는 provider 상태가 있으면 workflow는 반드시 중단됩니다.",
+          "private-history": "민감하거나 사적인 기록은 수집하지 않으며, redacted `REJECTED_WITH_EVIDENCE` disposition으로 거부합니다."
+        }
+      }
+    ]
+  },
+  "recipe": {
+    "maxLines": 120,
+    "sectionOrder": [
+      "purpose",
+      "inputs",
+      "outputs",
+      "safety-boundary",
+      "run-example",
+      "promotion-lifecycle"
+    ],
+    "files": [
+      {
+        "path": "plugins/better-workflows/fixtures/recipes/json-keyset-audit/README.md",
+        "headings": [
+          "Purpose",
+          "Inputs",
+          "Outputs",
+          "Safety boundary",
+          "Run the example",
+          "Govern promotion"
+        ],
+        "requiredTokens": [
+          "documents",
+          "keyset-report.json",
+          "keyset-report.md",
+          "sbw recipe scaffold json-keyset-audit",
+          "sbw recipe validate json-keyset-audit",
+          "sbw recipe promote <id>",
+          "sbw recipe run json-keyset-audit"
+        ]
+      }
+    ]
+  }
+}

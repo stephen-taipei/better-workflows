@@ -25,6 +25,7 @@ import {
 } from "./core.mjs";
 import { inspectCachedDeliberationRoster } from "./deliberation.mjs";
 import { bundleDigest } from "./publication.mjs";
+import { autonomyProfileDigest, loadAutonomyProfile } from "./autonomy.mjs";
 
 const CATALOG_PATH = path.join(pluginRoot(), "config", "entrypoint-catalog.json");
 const PROFILE_RELATIVE_PATH = path.join(".codex", "better-workflows.json");
@@ -793,7 +794,8 @@ export async function previewRoute({
   template = null,
   mode = "auto",
   domains = [],
-  tags = []
+  tags = [],
+  autonomyProfile = null
 } = {}) {
   const resolvedCwd = path.resolve(cwd);
   const routeGoal = String(goal ?? "").trim();
@@ -802,6 +804,12 @@ export async function previewRoute({
   if (routeScope.length === 0) throw new Error("route preview requires at least one scope");
   if (entry && template) throw new Error("route preview accepts only one of --entry or --template");
   if (mode !== "auto" && !MODE_RANK.has(mode)) throw new Error(`Unknown route mode: ${mode}`);
+  let autonomy = null;
+  if (autonomyProfile !== null) {
+    if (String(autonomyProfile) !== "bounded-autopilot-v1") throw new Error(`Unsupported autonomy profile: ${autonomyProfile}`);
+    const profile = await loadAutonomyProfile();
+    autonomy = { id: profile.id, digest: autonomyProfileDigest(profile) };
+  }
   const catalog = await loadEntrypointCatalog();
   const templates = await loadTemplates();
   const catalogMap = new Map(catalog.skills.map((candidate) => [candidate.id, candidate]));
@@ -918,7 +926,8 @@ export async function previewRoute({
     goalDigest: digestObject({ goal: input.goal }),
     scopeDigest: digestObject({ cwd: resolvedCwd, scope: input.scope }),
     capabilityDigest: snapshot.digest,
-    bundleDigest: await pluginBundleDigest()
+    bundleDigest: await pluginBundleDigest(),
+    autonomy
   };
   const primary = {
     entry: selected.entry,
@@ -961,6 +970,7 @@ export async function previewRoute({
       status: "unverified",
       reason: "No Node-only host hard-constraint input was supplied"
     },
+    autonomyProfile: autonomy,
     needsSelection: !selected.template,
     input
   };
@@ -993,7 +1003,8 @@ export async function recordRouteReceipt({ stateRoot, cwd = process.cwd(), previ
       primary: preview.primary,
       effectiveMode: preview.effectiveMode,
       profileRule: preview.profileRule,
-      advisorySupportSkills: preview.advisorySupportSkills
+      advisorySupportSkills: preview.advisorySupportSkills,
+      autonomyProfile: preview.autonomyProfile
     },
     bindings: preview.bindings,
     routeDigest: preview.routeDigest
@@ -1030,7 +1041,8 @@ export async function validateRouteReceipt({
     tags: receipt.input.tags,
     entry: receipt.requested.entry,
     template: receipt.requested.template,
-    mode: receipt.requested.mode
+    mode: receipt.requested.mode,
+    autonomyProfile: receipt.route?.autonomyProfile?.id ?? null
   });
   const changed = Object.keys(receipt.bindings).filter(
     (key) => receipt.bindings[key] !== preview.bindings[key]

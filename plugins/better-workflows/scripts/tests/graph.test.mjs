@@ -15,6 +15,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { digestObject, pluginRoot } from "../lib/core.mjs";
 import {
+  applyDelegatedSelfImproveContract,
   buildRunGraph,
   buildTemplateGraph,
   graphEdgeId,
@@ -397,6 +398,142 @@ test("template and run builders detect cross-record structural faults", () => {
   assert.ok(provenanceCodes.has("missing-source-binding"));
   assert.ok(provenanceCodes.has("unsafe-source-binding"));
   assert.ok(provenanceCodes.has("unknown-action-kind"));
+});
+
+test("delegated-contract-drift rejects missing upstream, cache or handoff evidence across required, acceptance, commits stage and action gates plus candidate-authorized ids", () => {
+  const definition = template({
+    name: "pr-to-dev",
+    controlPlane: {
+      evidencePolicy: "typed-v1",
+      ledgerPolicy: "ledger-v1",
+      reviewPolicy: "none",
+      designPacketPolicy: "none",
+      refinementPolicy: "none",
+      deliberationPolicy: "none"
+    },
+    executionStages: [{
+      id: "commits",
+      dependsOn: [],
+      requiredEvidence: ["proof"],
+      attemptBudget: 3,
+      kind: "regular"
+    }],
+    actionStages: { "external.write": "commits" },
+    deferredActions: []
+  });
+  const handoffKind = "self-improve-delivery-handoff";
+  const cacheKind = "cache-publication";
+  const base = runFixture({
+    template: definition,
+    contract: {
+      schemaVersion: 2,
+      controlPlane: structuredClone(definition.controlPlane),
+      executionStages: structuredClone(definition.executionStages),
+      actionStages: structuredClone(definition.actionStages),
+      deferredActions: [],
+      acceptanceEvidence: { accepted: ["proof"] }
+    }
+  });
+  const delegated = structuredClone(base);
+  delegated.contract = applyDelegatedSelfImproveContract(
+    definition,
+    delegated.contract,
+    "sbw-20260809T000000Z-source000001"
+  );
+  delegated.manifest.contractDigest = digestObject(delegated.contract);
+  const delegatedGraph = buildRunGraph(delegated);
+  assert.equal(
+    delegatedGraph.diagnostics.some((item) => item.code === "delegated-contract-drift"),
+    false
+  );
+  const omissions = [
+    ["upstream run", (contract) => { delete contract.upstreamSelfImproveRunId; }],
+    ["orphan cache-only signals", (contract) => {
+      delete contract.upstreamSelfImproveRunId;
+      contract.requiredEvidence = contract.requiredEvidence.filter((kind) => kind !== handoffKind);
+      for (const id of Object.keys(contract.acceptanceEvidence)) {
+        contract.acceptanceEvidence[id] = contract.acceptanceEvidence[id].filter((kind) => kind !== handoffKind);
+      }
+      for (const stage of contract.executionStages) {
+        stage.requiredEvidence = stage.requiredEvidence.filter((kind) => kind !== handoffKind);
+      }
+      for (const action of Object.keys(contract.actionGates)) {
+        contract.actionGates[action] = contract.actionGates[action].filter((kind) => kind !== handoffKind);
+      }
+    }],
+    ["required cache evidence", (contract) => {
+      contract.requiredEvidence = contract.requiredEvidence.filter((kind) => kind !== cacheKind);
+    }],
+    ["acceptance cache evidence", (contract) => {
+      contract.acceptanceEvidence.accepted = contract.acceptanceEvidence.accepted.filter((kind) => kind !== cacheKind);
+    }],
+    ["stage handoff evidence", (contract) => {
+      const stage = contract.executionStages.find((item) => item.id === "commits");
+      stage.requiredEvidence = stage.requiredEvidence.filter((kind) => kind !== handoffKind);
+    }],
+    ["stage cache evidence", (contract) => {
+      const stage = contract.executionStages.find((item) => item.id === "commits");
+      stage.requiredEvidence = stage.requiredEvidence.filter((kind) => kind !== cacheKind);
+    }],
+    ["action handoff gate", (contract) => {
+      contract.actionGates["external.write"] = contract.actionGates["external.write"].filter((kind) => kind !== handoffKind);
+    }],
+    ["unexpected required evidence", (contract) => {
+      contract.requiredEvidence.push("candidate-self-authorized-evidence");
+    }],
+    ["unexpected acceptance id", (contract) => {
+      contract.acceptanceEvidence["candidate-self-authorized-acceptance"] = [...contract.requiredEvidence];
+    }]
+  ];
+  for (const [label, mutate] of omissions) {
+    const tampered = structuredClone(delegated);
+    mutate(tampered.contract);
+    tampered.manifest.contractDigest = digestObject(tampered.contract);
+    assert.equal(
+      buildRunGraph(tampered).diagnostics.some((item) => item.code === "delegated-contract-drift"),
+      true,
+      label
+    );
+  }
+});
+
+test("source self-improve graphs accept their own cache publication evidence without an upstream run", () => {
+  const definition = template({
+    name: "self-improve-ops",
+    requiredEvidence: ["proof", "cache-publication"],
+    controlPlane: {
+      evidencePolicy: "typed-v1",
+      ledgerPolicy: "ledger-v1",
+      reviewPolicy: "code-v1",
+      designPacketPolicy: "pilot-v1",
+      refinementPolicy: "pilot-v1",
+      deliberationPolicy: "allowed-v1"
+    },
+    executionStages: [{
+      id: "delivery-handoff",
+      dependsOn: [],
+      requiredEvidence: ["cache-publication"],
+      attemptBudget: 1,
+      kind: "side-effect"
+    }],
+    actionGates: {}
+  });
+  const sourceRun = runFixture({
+    template: definition,
+    contract: {
+      schemaVersion: 2,
+      controlPlane: structuredClone(definition.controlPlane),
+      executionStages: structuredClone(definition.executionStages),
+      acceptanceEvidence: { accepted: [...definition.requiredEvidence] },
+      actionGates: {}
+    }
+  });
+  sourceRun.manifest.contractDigest = digestObject(sourceRun.contract);
+  const graph = buildRunGraph(sourceRun);
+  assert.equal(
+    graph.diagnostics.some((item) => item.code === "delegated-contract-drift"),
+    false
+  );
 });
 
 test("pre-repair fixtures reproduce all ten action prerequisite gaps", async () => {

@@ -45,6 +45,7 @@ test("main skill defines persistent goal lifecycle", async () => {
   assert.match(content, /sbw route preview/);
   assert.match(content, /workspace Profile/);
   assert.match(content, /single-use receipt/);
+  assert.match(content, /101-kind catalog/);
 });
 
 test("auto entry requires capability snapshot and route preview before selection", async () => {
@@ -60,10 +61,12 @@ test("self improve is a critical thin workflow with stale-link and delegated del
   assert.match(content, /Treat `NO_CHANGE` as a valid successful outcome/);
   assert.match(content, /train` and `holdout`/);
   assert.match(content, /host-signed attestation/);
-  assert.match(content, /self-improve-ops-evals-v2\.2\.json/);
+  assert.match(content, /self-improve-ops-evals-v2\.4\.json/);
+  assert.match(content, /v2\.3 is the default source for the v2\.4 migration/);
+  assert.match(content, /immutable v2\.2 corpus/);
   assert.match(content, /quality-remediation-v1/);
   assert.match(content, /baseline-quality-gap-not-reproduced/);
-  for (const evaluationClass of ["evidence integrity", "execution-ledger replay", "review convergence", "direct\\s+work cost"]) {
+  for (const evaluationClass of ["evidence-integrity", "execution-ledger", "review-convergence", "direct-work", "plugin-cache-publication", "review-work-unit-integrity"]) {
     assert.match(content, new RegExp(evaluationClass));
   }
   assert.match(content, /never\s+automatically adopts/);
@@ -71,6 +74,10 @@ test("self improve is a critical thin workflow with stale-link and delegated del
   assert.match(content, /Commit, cache publication, push, merge, deploy, and cleanup are delegated\s+independent/);
   assert.match(content, /exact\s+committed\s+HEAD/);
   assert.match(content, /source-bound self-improve run/);
+  assert.match(content, /root-signed standing consent/);
+  assert.match(content, /sbw self-improve consent prepare/);
+  assert.match(content, /\/usr\/bin\/sudo -n/);
+  assert.match(content, /delivery still needs independent action authority/);
 
   const main = await readFile(path.join(skillsRoot, "better-workflows", "SKILL.md"), "utf8");
   assert.match(main, /versioned plugin-cache skill\s+path that no longer exists/);

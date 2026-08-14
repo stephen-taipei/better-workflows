@@ -1,5 +1,11 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
+  "terminology": {
+    "modelBrands": ["Codex", "Claude", "Gemini", "GPT-OSS", "Grok", "Cursor", "Kimi", "Qwen", "Kiro"],
+    "transportCommand": "agy",
+    "transportModelBrands": ["Gemini", "Claude", "GPT-OSS"],
+    "transportIsModelBrand": false
+  },
   "probeMarker": "SBW_DELIBERATION_PROBE_OK",
   "probeTimeoutSeconds": 45,
   "rosterCacheHours": 24,
@@ -24,9 +30,9 @@
       "reasoningEfforts": ["medium", "high"],
       "effortTransport": "native",
       "models": [
-        {"model": "gpt-5.6-sol", "role": "final-arbiter", "capabilityRank": 1},
-        {"model": "gpt-5.6-terra", "role": "adversarial-systems-critic", "capabilityRank": 2},
-        {"model": "gpt-5.6-luna", "role": "implementation-planner", "capabilityRank": 3}
+        {"model": "gpt-5.6-sol", "brand": "Codex", "role": "final-arbiter", "capabilityRank": 1},
+        {"model": "gpt-5.6-terra", "brand": "Codex", "role": "adversarial-systems-critic", "capabilityRank": 2},
+        {"model": "gpt-5.6-luna", "brand": "Codex", "role": "implementation-planner", "capabilityRank": 3}
       ]
     },
     {
@@ -37,8 +43,8 @@
       "reasoningEfforts": ["medium", "high"],
       "effortTransport": "prompt-guidance",
       "models": [
-        {"model": "fable", "displayModel": "Claude Fable 5", "role": "strategic-synthesizer", "capabilityRank": 4},
-        {"model": "opus", "displayModel": "Claude Opus 5", "role": "risk-and-safety-critic", "capabilityRank": 5}
+        {"model": "fable", "displayModel": "Claude Fable 5", "brand": "Claude", "role": "strategic-synthesizer", "capabilityRank": 4},
+        {"model": "opus", "displayModel": "Claude Opus 5", "brand": "Claude", "role": "risk-and-safety-critic", "capabilityRank": 5}
       ]
     },
     {
@@ -72,7 +78,7 @@
       "reasoningEfforts": ["medium", "high"],
       "effortTransport": "prompt-guidance",
       "models": [
-        {"model": "default", "role": "counterfactual-analyst", "capabilityRank": 30}
+        {"model": "default", "brand": "Grok", "role": "counterfactual-analyst", "capabilityRank": 30}
       ]
     },
     {
@@ -83,7 +89,7 @@
       "reasoningEfforts": ["medium", "high"],
       "effortTransport": "prompt-guidance",
       "models": [
-        {"model": "gpt-5", "role": "code-change-reviewer", "capabilityRank": 31}
+        {"model": "gpt-5", "brand": "Cursor", "role": "code-change-reviewer", "capabilityRank": 31}
       ]
     },
     {
@@ -94,7 +100,7 @@
       "reasoningEfforts": ["medium", "high"],
       "effortTransport": "prompt-guidance",
       "models": [
-        {"model": "default", "role": "long-context-researcher", "capabilityRank": 32}
+        {"model": "default", "brand": "Kimi", "role": "long-context-researcher", "capabilityRank": 32}
       ]
     },
     {
@@ -105,7 +111,7 @@
       "reasoningEfforts": ["medium", "high"],
       "effortTransport": "prompt-guidance",
       "models": [
-        {"model": "default", "role": "open-model-compatibility-reviewer", "capabilityRank": 33}
+        {"model": "default", "brand": "Qwen", "role": "open-model-compatibility-reviewer", "capabilityRank": 33}
       ]
     },
     {
@@ -116,7 +122,7 @@
       "reasoningEfforts": ["medium", "high"],
       "effortTransport": "prompt-guidance",
       "models": [
-        {"model": "default", "role": "developer-experience-planner", "capabilityRank": 34}
+        {"model": "default", "brand": "Kiro", "role": "developer-experience-planner", "capabilityRank": 34}
       ]
     }
   ],

@@ -6,6 +6,10 @@ reconciles their claims, and one capability-ranked arbiter produces the final
 decision and executable plan. It is not a vote, an agent swarm, or an
 unbounded loop.
 
+## Canonical terminology
+
+[`config/deliberation-roster.json`](../../../config/deliberation-roster.json) is the canonical terminology source. The public model roster is **Codex · Claude · Gemini · GPT-OSS · Grok · Cursor · Kimi · Qwen · Kiro**. Its versioned contract records `agy` as the transport command for Gemini-, Claude-, and GPT-OSS-branded models and explicitly records that `agy` is not a model brand. Keep the config, parent skill, this reference, tests, and public documentation synchronized; runtime validation rejects brand or transport drift.
+
 ## Eligibility and safety
 
 1. Start the persistent Goal and the `research-deliberation` run before

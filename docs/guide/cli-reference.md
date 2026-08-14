@@ -18,6 +18,8 @@ for exact options in the installed build.
 sbw doctor
 sbw doctor --capabilities
 sbw route preview --goal "<goal>" --scope <path>
+sbw route preview --goal "<goal>" --scope <path> \
+  --autonomy-profile bounded-autopilot-v1
 sbw route profile validate --file <profile.json>
 sbw route profile install --file <profile.json>
 sbw route profile show
@@ -32,10 +34,15 @@ sbw run --template self-improve-ops --mode critical --goal "<goal>" \
   [--evaluation-purpose ordinary|evaluator-migration|safety-remediation-v1|quality-remediation-v1]
 sbw run --template pr-to-dev --mode critical --goal "<goal>" --scope <path> \
   --self-improve-run <self-improve-run-id>
+sbw run --template pr-to-dev --mode critical --goal "<goal>" --scope <path> \
+  --autonomy-profile bounded-autopilot-v1
 sbw self-improve handoff <pr-to-dev-run-id> --source-run <self-improve-run-id>
 sbw run --route-receipt <route-receipt-id>
 sbw status <run-id>
 sbw resume <run-id>
+sbw autonomy preview <run-id>
+sbw autonomy preflight <run-id>
+sbw autonomy revoke <run-id>
 sbw source rebind <run-id> --reason <text>
 sbw sentinel capture <run-id> --label <label>
 sbw sentinel verify <run-id> --label <label>
@@ -47,6 +54,14 @@ sbw ledger transition <run-id> --file <event.json>
 sbw ledger compile <run-id> --design-packet <packet.json>
 sbw review package <run-id> --base <sha> --head <sha> --scope <path> \
   --diff-manifest <json> --instruction-digest <sha256> --sentinel-digest <sha256>
+sbw review axis-digest <run-id> --file <axis-receipt.json>
+sbw review axis <run-id> --file <axis-receipt.json> \
+  --reviewer-id <native-agent-id> --attestation <host-file>
+sbw review verify-digest <run-id> --file <verification-receipt.json>
+sbw review verify <run-id> --file <verification-receipt.json> \
+  --reviewer-id <native-agent-id> --attestation <host-file>
+sbw review coverage <run-id>
+sbw review synthesize <run-id>
 sbw review status <run-id>
 sbw review finding <run-id> --file <finding.json>
 sbw review repair <run-id> --package <package-id> --file <result.json>
@@ -59,6 +74,24 @@ sbw complete <run-id>
 `source rebind` is root-only and pre-review/pre-side-effect. It invalidates all
 prior complete evidence and resets the v2 execution ledger, so the next
 sentinel, evidence, and review must be captured from the rebound source.
+
+The `code-v2-pilot` review kernel is currently enabled only by
+`self-improve-ops` as an observe-only pilot. Its axis and verification commands
+accept only host-attested, read-only native-subagent executions. Every required
+axis must account for every immutable diff work unit, and a different reviewer
+must verify each reported claim before deterministic synthesis. `coverage` and
+`synthesize` publish only the aggregate `work-unit-accounting` and
+`review-kernel-summary` evidence; per-axis and per-claim records remain in the
+private append-only review state. The pilot denies all action tokens, including
+commit, push, cache publication, PR creation, and merge. The native signing
+request for `review axis` or `review verify` must include the receipt's exact
+`executionId`; a legacy v1 native-critic request may omit it but cannot satisfy
+either v2 command.
+
+Evaluator attestation request generation uses the unique currently valid
+host-approved native Codex binary by default. If more than one valid entry is
+installed, pass its exact canonical path with `--binary`; PATH wrappers and
+unapproved binaries fail closed.
 
 Ledger transition files may include `expectedLedgerDigest`; when present it
 must match the current canonical `ledger.json` digest. Transitions are
@@ -160,6 +193,9 @@ Gemini models are reached through Antigravity CLI (`agy`) in this runtime.
 
 ```bash
 sbw self-improve host status
+sbw self-improve consent status
+sbw self-improve consent prepare
+# execute the returned digest-bound administratorCommand once
 sbw self-improve attestation request \
   --run <run-id> \
   --baseline <sha> \
@@ -184,12 +220,24 @@ also requires `--request-manifest` and its administrator-confirmed
 `--request-manifest-digest`; the evaluator checks the root-owned completed batch
 journal and every request digest/run-as tuple against that manifest.
 
+After the one-time standing consent is active, exact `gpt-5.6-terra` batches
+that satisfy the checked-in sanitizer policy return an `executeCommand` using
+`/usr/bin/sudo -n` and schemaVersion 5. The root signer still independently
+revalidates the fixed repository, user identity, request root, model, purpose,
+count, source binding, prompt, file manifest, secret filter, and byte/case
+budgets. An active or partially installed grant with any mismatch fails closed
+instead of silently opening a password prompt. The explicit administrator path
+is available only when the grant is absent or explicitly revoked; inspect or
+prepare revocation with `sbw self-improve consent status|revoke`. This grant
+never supplies delivery action tokens.
+
 Self-improve does not issue commit, cache-publication, push, merge, or cleanup
 tokens. After replay evidence is accepted, create the delegated `pr-to-dev`
 run with `--self-improve-run`, record the typed `self-improve-delivery-handoff`,
 and only then use the governed atomic-commit/`dev` PR flow and immutable cache
-publisher. The handoff is bound to the clean exact source HEAD and all seven
-trusted replay witnesses.
+publisher. The handoff is bound to the clean exact source HEAD and the complete
+purpose-specific witness set: seven trusted replays for ordinary evaluation or
+eight for evaluator migration.
 
 ## Repository validation
 

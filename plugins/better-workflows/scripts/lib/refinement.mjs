@@ -1,12 +1,10 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { assertMutableRun, atomicWriteJson, digestObject, loadRun, nowIso, readJson, safeJoin, sha256, withRunLock } from "./core.mjs";
+import { runSourceGit } from "./git.mjs";
 
-const execFileAsync = promisify(execFile);
 const SHA = /^[0-9a-f]{40}$/;
 
 async function changedPaths(cwd, base, head) {
-  const { stdout } = await execFileAsync("git", ["diff", "--name-only", `${base}..${head}`], { cwd });
+  const { stdout } = await runSourceGit(cwd, ["diff", "--name-only", `${base}..${head}`]);
   return stdout.split(/\r?\n/).map((item) => item.trim()).filter(Boolean).sort();
 }
 
@@ -43,7 +41,7 @@ export async function recordRefinement(root, runId, input) {
   if (!Array.isArray(input.behaviorTests) || input.behaviorTests.length === 0) throw new Error("Refinement requires behavior tests");
   if (!input.scopedDiff || typeof input.scopedDiff !== "object" || Array.isArray(input.scopedDiff)) throw new Error("Refinement scoped diff is required");
   if (!input.review || input.review.verdict !== "PASS" || input.review.independent !== true) throw new Error("Refinement requires an independent PASS review");
-  await execFileAsync("git", ["merge-base", "--is-ancestor", input.base, input.functionalHead], { cwd: run.manifest.cwd });
+  await runSourceGit(run.manifest.cwd, ["merge-base", "--is-ancestor", input.base, input.functionalHead]);
   const paths = await changedPaths(run.manifest.cwd, input.base, input.functionalHead);
   if (paths.length === 0) throw new Error("Refinement requires a non-empty functional diff");
   if (paths.some((file) => !inScope(file, scope))) throw new Error("Refinement diff escapes the recently-modified scope");

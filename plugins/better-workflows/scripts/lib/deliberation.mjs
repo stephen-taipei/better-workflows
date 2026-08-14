@@ -19,6 +19,7 @@ import {
 const ROSTER_PATH = path.join(pluginRoot(), "config", "deliberation-roster.json");
 const MAX_PERSPECTIVE_BYTES = 24 * 1024;
 const ROSTER_CACHE_FILE = "deliberation-roster-cache";
+const ROSTER_CONFIG_SCHEMA_VERSION = 3;
 const ROSTER_CACHE_SCHEMA_VERSION = 2;
 
 // Deliberation reviewers are advisory-only and run in an ephemeral subprocess.
@@ -174,12 +175,81 @@ export function validateDecision(value) {
   return value;
 }
 
-export async function loadDeliberationRoster() {
-  const config = JSON.parse(await readFile(ROSTER_PATH, "utf8"));
-  if (!Array.isArray(config.providers) || !Array.isArray(config.arbiterPriority)) {
+function sortedUniqueStrings(values) {
+  return [...new Set(values)].sort((left, right) => left.localeCompare(right, "en"));
+}
+
+export function validateDeliberationRosterConfig(config) {
+  if (
+    !config ||
+    typeof config !== "object" ||
+    config.schemaVersion !== ROSTER_CONFIG_SCHEMA_VERSION ||
+    !Array.isArray(config.providers) ||
+    !Array.isArray(config.arbiterPriority)
+  ) {
     throw new Error("Deliberation roster configuration is invalid");
   }
+  const terminology = config.terminology;
+  if (
+    !terminology ||
+    typeof terminology !== "object" ||
+    !Array.isArray(terminology.modelBrands) ||
+    terminology.modelBrands.length === 0 ||
+    terminology.modelBrands.some((brand) => typeof brand !== "string" || !brand.trim()) ||
+    new Set(terminology.modelBrands).size !== terminology.modelBrands.length ||
+    typeof terminology.transportCommand !== "string" ||
+    !terminology.transportCommand.trim() ||
+    !Array.isArray(terminology.transportModelBrands) ||
+    terminology.transportModelBrands.length === 0 ||
+    terminology.transportModelBrands.some((brand) => typeof brand !== "string" || !brand.trim()) ||
+    new Set(terminology.transportModelBrands).size !== terminology.transportModelBrands.length ||
+    terminology.transportIsModelBrand !== false
+  ) {
+    throw new Error("Deliberation roster terminology is invalid");
+  }
+  if (
+    terminology.modelBrands.some(
+      (brand) => brand.toLocaleLowerCase("en-US") === terminology.transportCommand.toLocaleLowerCase("en-US")
+    ) ||
+    terminology.transportModelBrands.some((brand) => !terminology.modelBrands.includes(brand))
+  ) {
+    throw new Error("Deliberation roster transport terminology is inconsistent");
+  }
+  const configuredModels = config.providers.flatMap((provider) => {
+    if (
+      !provider ||
+      typeof provider !== "object" ||
+      typeof provider.command !== "string" ||
+      !provider.command ||
+      !Array.isArray(provider.models) ||
+      provider.models.length === 0
+    ) {
+      throw new Error("Deliberation roster provider configuration is invalid");
+    }
+    return provider.models.map((model) => {
+      if (!model || typeof model !== "object" || typeof model.brand !== "string" || !model.brand.trim()) {
+        throw new Error("Every deliberation model must declare a canonical brand");
+      }
+      return { command: provider.command, brand: model.brand };
+    });
+  });
+  const configuredBrands = sortedUniqueStrings(configuredModels.map((model) => model.brand));
+  if (JSON.stringify(configuredBrands) !== JSON.stringify(sortedUniqueStrings(terminology.modelBrands))) {
+    throw new Error("Deliberation model brands do not match canonical terminology");
+  }
+  const transportedBrands = sortedUniqueStrings(
+    configuredModels
+      .filter((model) => model.command === terminology.transportCommand)
+      .map((model) => model.brand)
+  );
+  if (JSON.stringify(transportedBrands) !== JSON.stringify(sortedUniqueStrings(terminology.transportModelBrands))) {
+    throw new Error("Deliberation transport brands do not match canonical terminology");
+  }
   return config;
+}
+
+export async function loadDeliberationRoster() {
+  return validateDeliberationRosterConfig(JSON.parse(await readFile(ROSTER_PATH, "utf8")));
 }
 
 async function withProbeDir(callback) {
@@ -486,6 +556,7 @@ function modelForEffort(provider, model, reasoningEffort) {
 function rosterConfigDigest(config) {
   return digestObject({
     schemaVersion: config.schemaVersion,
+    terminology: config.terminology,
     probeMarker: config.probeMarker,
     probeTimeoutSeconds: config.probeTimeoutSeconds,
     rosterCacheHours: config.rosterCacheHours,
@@ -497,7 +568,9 @@ function rosterConfigDigest(config) {
 }
 
 export async function inspectCachedDeliberationRoster(options = {}) {
-  const config = options.config ?? await loadDeliberationRoster();
+  const config = options.config
+    ? validateDeliberationRosterConfig(options.config)
+    : await loadDeliberationRoster();
   const reasoningEffort = resolveReasoningEffort(options, config);
   const fingerprints = await providerFingerprints(config);
   const inspection = await inspectRosterCache(
@@ -639,7 +712,9 @@ export function selectArbiter(activeParticipants, config) {
 }
 
 export async function probeDeliberationRoster(options = {}) {
-  const config = options.config ?? await loadDeliberationRoster();
+  const config = options.config
+    ? validateDeliberationRosterConfig(options.config)
+    : await loadDeliberationRoster();
   const selected = options.providers ?? [];
   const reasoningEffort = resolveReasoningEffort(options, config);
   const fingerprints = await providerFingerprints(config);
@@ -718,7 +793,7 @@ export async function probeDeliberationRoster(options = {}) {
 
 export async function deliberate({ prompt, config, allowExternalProviders, sanitized, refresh, reasoningEffort, mode, timeoutSeconds, providers }) {
   if (!prompt) throw new Error("Deliberation prompt is required");
-  const loaded = config ?? await loadDeliberationRoster();
+  const loaded = config ? validateDeliberationRosterConfig(config) : await loadDeliberationRoster();
   const roster = await probeDeliberationRoster({
     config: loaded,
     allowExternalProviders,
@@ -872,7 +947,7 @@ async function runClaudeArbiter(candidate, prompt, timeoutMs) {
 
 export async function arbitrateDeliberation({ prompt, config, activeParticipants, allowExternalProviders, sanitized, timeoutSeconds }) {
   if (!prompt) throw new Error("Arbiter prompt is required");
-  const loaded = config ?? await loadDeliberationRoster();
+  const loaded = config ? validateDeliberationRosterConfig(config) : await loadDeliberationRoster();
   const attempts = [];
   const timeoutMs = (timeoutSeconds ?? loaded.probeTimeoutSeconds) * 1000;
   const candidates = activeParticipants

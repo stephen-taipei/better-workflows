@@ -335,11 +335,48 @@ delivery; it never reruns Codex during resume or delivery revalidation. The
 signed `result receipt` binds the exact prompt digest and response digest as
 well as the binary, model, execution, ledger, exit status, and timestamps.
 
-Evaluation v2.2 preserves the existing safety, documentation, deliberation,
-sanitizer, and evaluation-engineering coverage, and adds isolated train/holdout
-classes for typed-evidence integrity, execution-ledger replay, bounded review
-convergence, and direct-work cost. Its one-time migration freezes v2.1 as the
-source and binds both immutable suite digests into all seven signed executions.
+Evaluation v2.4 preserves every v2.3 class and all 25 inherited cases
+byte-for-byte, and adds an isolated review-work-unit-integrity class. It covers
+exact changed-surface accounting, independently attested finder/verifier
+provenance, exact source anchors, deterministic synthesis, broad-review
+invalidation, and shadow-only rollout. Exact allowlisted release-version-only substitutions stay in
+the signed manifest but do not activate unrelated saturated classes; every
+other byte change remains semantic. Its one-time migration freezes v2.3 as the
+source and binds both immutable suite digests into eight signed executions: an
+independent baseline and candidate training replay plus three baseline and three
+candidate holdouts.
+Admission also pins the canonical v2.3 suite digest and requires every
+inherited class identity, semantics, and existing path mapping to remain
+unchanged, plus all 25 inherited cases to match exactly. New coverage may add
+paths or use new class or case identifiers. Missing, weakened, remapped, or
+reclassified inherited coverage fails before replay, and any intentional
+inherited-coverage change requires a
+separately versioned, digest-bound, independently reviewed compatibility policy.
+Evaluator dispositions classify the supplied snapshot rather than recommend a
+follow-up edit; baseline and candidate use identical semantics, and every
+satisfied assertion is reported independently of disposition. Migration still
+requires candidate hard-safety and baseline/candidate universal invariants in
+all three holdout replays; a source baseline non-invariant miss is accepted only
+when every candidate replay repairs it without median regression or noise.
+Every signed migration replay executes the complete target split, including all
+byte-preserved inherited cases. Each target-only baseline must retain headroom,
+and every target-only case must improve in the candidate without hard-safety
+failure, regression, or noisy candidate replay. Target-only assertions must
+name snapshot-verifiable implementation or regression-test evidence;
+conceptual governance wording alone cannot satisfy them, and a missing exact
+anchor in the full-file evidence index is treated as negative evidence.
+Ordinary evaluation continues to use only applicable changed-path classes.
+
+The review kernel is enabled only for `self-improve-ops` as
+`code-v2-pilot`. Every required lane accounts for every immutable BASE/HEAD
+blob work unit exactly once, and every accepted axis or claim verification is
+bound to a distinct host-signed, read-only native execution. Finder
+self-verification is rejected, conflicting verifier outcomes become
+`INCONCLUSIVE`, and ambiguous or missing quote anchors remain blocking. Zero
+findings still requires all lanes plus current `work-unit-accounting` and
+`review-kernel-summary` evidence. Any later receipt or finding mutation
+invalidates broad completion. Because the pilot is shadow-only, it cannot issue
+an action token or authorize delivery.
 
 `safety-remediation-v1` is a separate run-creation purpose. It uses the fixed
 `plugins/better-workflows/config/self-improve-safety-remediation-v1.json` policy
@@ -371,9 +408,53 @@ self-improvement replays. The self-improve contract does not authorize commit,
 cache publication, push, merge, or cleanup; those actions are delegated to
 `pr-to-dev` and the immutable-cache workflow.
 
+To avoid a new administrator interruption for every long-running replay batch,
+an already-ready host may install one bounded standing evaluator consent. Run
+`sbw self-improve consent prepare`, verify the returned request digest, and
+execute its exact administrator command once. The root signer installs a signed,
+revocable grant plus a `visudo`-validated command rule restricted to the
+digest-pinned root runtime, this repository and maintainer identity,
+`gpt-5.6-terra`, the four declared purposes, seven or eight read-only/tool-free
+sanitized requests, and one fixed request root. Matching schemaVersion 5 batches
+use `/usr/bin/sudo -n`; every request, execution, root journal, evaluation record,
+and typed handoff carries the same authorization. Any mismatch in an active or
+partially installed grant fails closed without silently opening a password
+prompt. The explicit per-run administrator fallback is available only when the
+grant is absent or explicitly revoked. The grant explicitly denies
+commit, cache, push, PR, merge, deploy, and cleanup authority. Inspect or revoke
+it with `sbw self-improve consent status|revoke`.
+
+Host readiness and every replay bind a root-owned minimal `gpt-5.6-terra` model
+catalog with `comp_hash=3000` and no shell, search, MCP/skills, collaboration, or
+dynamic tool mode. A nonce-bound loopback gate accepts exactly one fixed-shape
+Codex client request containing the root challenge, exact inference input, and
+root-bound output schema. It discards that bootstrap body and forwards a
+root-constructed canonical request with one user input, no instructions, and an
+own top-level `tools: []`. The signed proof separately binds the canonical field
+policy, captured-body digest, and forwarded-body digest under a total deadline.
+Completed JSONL transcripts are independently checked for zero tool events and
+bound into the signed result artifacts.
+Literal prompt-boundary tokens inside approved source material use a canonical
+JSON Unicode escape for display only. The signed original file digest remains
+authoritative, and a transformation manifest records every escaped occurrence.
+
+Delivery may explicitly select the run-scoped `bounded-autopilot-v1` profile
+when low-risk work should continue without repeated prompts. Its immutable
+policy permits only bounded commits, a new immutable cache version, a push to
+`codex/*`, and one PR targeting `dev`; host bootstrap/upgrade/revoke, protected
+merge, deploy, direct `dev`/`main` push, and branch/worktree cleanup remain
+human gates. Evaluator standing consent never grants delivery authority.
+
 The source-bound handoff is explicit. Resolve an immutable baseline when
 creating the self-improve run, keep the candidate at a clean committed HEAD,
 then create a delegated delivery run and record its typed handoff:
+
+Authoritative source capture uses pinned `/usr/bin/git` with a fixed minimal
+environment and records raw local origin fetch/push URLs without applying URL
+rewrites. Review, refinement, recipe, self-improve, and immutable publication
+authority use the same pinned reader. Governed push and remote-sync paths reject
+ambient Git routing variables and recheck the complete source/remote binding at
+issue, consume, execution, and provider-reconciliation time.
 
 ```bash
 sbw run --template self-improve-ops --mode critical \
@@ -388,9 +469,16 @@ sbw self-improve handoff <pr-to-dev-run-id> \
 
 `self-improve-delivery-handoff` binds the source run's exact baseline, HEAD,
 clean source binding, plugin bundle, request manifest, accepted comparison,
-candidate snapshot, seven distinct host witnesses, and canonical Codex plugin
-cache root. The delegated delivery action gates require this receipt; a generic
+candidate snapshot, all purpose-required host witnesses (seven ordinary or
+eight for evaluator migration), and canonical Codex plugin cache root. The
+delegated delivery action gates require this receipt; a generic
 `pr-to-dev` run cannot authorize delivery of an accepted self-improvement.
+The `policyDigest` key remains mandatory: it is explicitly `null` for ordinary
+and evaluator-migration runs, and a SHA-256 digest for policy-bound remediation.
+`evaluatorAuthorization` is also mandatory: it carries the exact standing
+authorization object, or is `null` only for the explicit per-run administrator
+fallback. These are the only declared nullable fields; the purpose-specific
+handoff validator still enforces the exact key set and values.
 On each host, an administrator must first confirm that the fixed trust root and
 private key are already provisioned through the host's approved bootstrap. This
 repository does not publish or execute the legacy Swift bootstrap artifact. If
@@ -422,8 +510,9 @@ Before request generation, the candidate must already be the exact committed
 HEAD that will be reviewed and delivered. If it is dirty, use `pr-to-dev` for
 the commit wave and start a fresh source-bound self-improve run. Changing the
 source or plugin bundle after request generation invalidates every witness.
-After a candidate is frozen, generate all seven distinct requests outside the
-repository. The output includes a manifest digest and an exact `executeCommand`;
+After a candidate is frozen, generate the complete purpose-specific request set
+outside the repository: seven requests for ordinary evaluation and eight for
+evaluator migration. The output includes a manifest digest and an exact `executeCommand`;
 the administrator reviews both before running that one host-execution command;
 the command verifies the already-installed runtime in the fixed root-owned host
 directory before invoking the signer:
@@ -788,8 +877,17 @@ attempt repairs the marker from that exact receipt without republishing. A
 `spent/pending` action can likewise resume only when the exact pending marker
 and immutable target prove the handoff source binding, run, and attempt; if
 that proof is absent, the attempt remains unknown and no second publication is
-allowed. Source runs without an explicit canonical cache-root field and locks
-whose owner cannot be proven absent fail closed.
+allowed. Ready finalization and failure cleanup share the same versioned
+publication lock, so marker transitions cannot race target removal. Cleanup
+requires the exact pending marker run and action attempt, so a replacement
+marker and its target remain untouched. After stale-lock recovery, publication
+also requires any existing pending marker to match the complete source binding,
+run, and attempt; a foreign marker is preserved even when its target is absent.
+Source runs without an explicit canonical cache-root field and locks
+whose owner and OS-observable process-start digest cannot be proven absent fail
+closed. A proven stale lock is atomically renamed to a same-version quarantine
+and its inode/content identity is rechecked before deletion; a pathname
+replacement remains quarantined and blocks later publishers.
 
 ## License
 

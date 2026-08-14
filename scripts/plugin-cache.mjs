@@ -13,6 +13,7 @@ import {
   recoverPendingPluginCachePublication
 } from "../plugins/better-workflows/scripts/lib/publication.mjs";
 import {
+  VERSION,
   digestObject,
   getCodexPluginCacheRoot,
   getStateRoot,
@@ -345,7 +346,7 @@ async function main() {
           status: "complete",
           acceptanceIds: [],
           dependencyInputs: { files: [] },
-            dependencies: { workflowVersion: "3.1.4", files: [] },
+          dependencies: { workflowVersion: VERSION, files: [] },
           receiptBase: {
             contractVersion: 1,
             runId: targetRunId,
@@ -529,7 +530,9 @@ async function main() {
             cacheRoot,
             version: publication.version,
             target: publication.target,
-            targetDigest: publication.targetDigest
+            targetDigest: publication.targetDigest,
+            runId: targetRunId,
+            attemptId: consumed.attemptId
           });
         } catch (cleanupError) {
           error.message = `${error.message}; unready cache cleanup failed: ${cleanupError.message}`;
