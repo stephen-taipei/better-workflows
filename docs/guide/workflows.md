@@ -58,6 +58,18 @@ Compatibility aliases remain available for `auto-improve`, `auto-issues`,
 | `monorepo-refactor` | Bounded refactor queue with invariant checks |
 | `pr-to-dev` | Atomic delivery to protected `dev` |
 
+## Review capability profiles
+
+Every review-enabled template declares one capability profile in its
+TaskContract and immutable review-package identity. The legacy
+`review-contract-v1` profile covers diff-manifest, package-location,
+broad-review, provenance, and instruction-digest bindings. The stronger
+`review-kernel-v2-pilot` profile is observe-only and is currently restricted to
+`self-improve-ops`; it adds exact work-unit accounting, source-quote anchors,
+and host-attested finder/verifier separation. A profile describes evidence
+capability and never grants action authority. See the [review profile matrix and
+authoring SOP](../../plugins/better-workflows/skills/better-workflows/references/review-profiles.md).
+
 ## Release tag policy
 
 Release tags are integration markers, not progress markers. The CI tag job only

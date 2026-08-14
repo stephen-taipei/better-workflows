@@ -63,6 +63,8 @@ Control plane がないと、妥当な指示でも古い状態を使い、scope 
 
 **Review-kernel pilot。** `self-improve-ops` は exact changed-file work units を列挙し、独立 attested finder と verifier を分離し、exact source anchors に束縛して deterministic coverage/synthesis evidence を生成します。この pilot は shadow-only で side effects を認可できません。
 
+その他の review-enabled templates は TaskContract と review package identity に legacy `review-contract-v1` capability profile を bind します。これは immutable diff manifest、package-bound locations、broad-review receipt、provenance、instruction digest だけを保証し、kernel work-unit や finder/verifier の能力は主張しません。`review-kernel-v2-pilot` を使えるのは `self-improve-ops` だけで、profile 自体が side-effect authority を与えることはありません。
+
 ![Prompt から read-only Graph までの Better Workflows 権限レイヤー](assets/better-workflows-engineering-stack.svg)
 
 <!-- readme-visual-fallback:authority-boundary -->

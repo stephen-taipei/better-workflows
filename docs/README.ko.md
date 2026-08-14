@@ -63,6 +63,8 @@ Control plane이 없으면 합리적인 지시도 오래된 상태를 사용하�
 
 **Review-kernel pilot.** `self-improve-ops`는 exact changed-file work units를 인벤토리화하고 독립 attested finder와 verifier를 분리하며 exact source anchors에 바인딩해 deterministic coverage/synthesis evidence를 생성합니다. 이 pilot은 shadow-only이므로 side effects를 승인할 수 없습니다.
 
+다른 review-enabled templates는 TaskContract와 review package identity에 legacy `review-contract-v1` capability profile을 바인딩합니다. 이 profile은 immutable diff manifest, package-bound locations, broad-review receipt, provenance, instruction digest만 보장하며 kernel work-unit 또는 finder/verifier 능력을 주장하지 않습니다. `review-kernel-v2-pilot`은 `self-improve-ops`만 사용할 수 있고 profile 자체로 side-effect authority를 얻을 수 없습니다.
+
 ![Prompt에서 read-only Graph까지 이어지는 Better Workflows 권한 계층](assets/better-workflows-engineering-stack.svg)
 
 <!-- readme-visual-fallback:authority-boundary -->

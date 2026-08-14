@@ -62,6 +62,8 @@ Prompt 可以描述意图，但永远不会授予权限。
 
 **Review-kernel pilot。** `self-improve-ops` 会盘点 exact changed-file work units、分离独立 attested finder 与 verifier、绑定 exact source anchors，并生成 deterministic coverage/synthesis evidence。该 pilot 为 shadow-only，不能授权 side effects。
 
+其他 review-enabled templates 会在 TaskContract 与 review package identity 中绑定 legacy `review-contract-v1` capability profile；它只覆盖 immutable diff manifest、package-bound locations、broad-review receipt、provenance 与 instruction digest，不宣称 kernel work-unit 或 finder/verifier 能力。只有 `self-improve-ops` 可以使用 `review-kernel-v2-pilot`，profile 本身也不会授予 side-effect authority。
+
 ![Better Workflows 从 Prompt 到只读 Graph 的权限分层](assets/better-workflows-engineering-stack.svg)
 
 <!-- readme-visual-fallback:authority-boundary -->

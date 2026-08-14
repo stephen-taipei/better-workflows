@@ -14,6 +14,11 @@
 | Graph View | Add structural failure diagnostics | Authorize, schedule, or relax policy |
 | Workspace recipe | Read declared paths and write bounded staged artifacts | Network, shell, workers, source mutation, evidence acceptance |
 
+Review profiles are descriptive provenance bindings, not permissions. The
+legacy `review-contract-v1` profile does not imply kernel guarantees, while the
+`review-kernel-v2-pilot` profile is restricted to `self-improve-ops` and remains
+shadow-only; neither profile can issue a side-effect token.
+
 If private history or sensitive operational material is the only proposed
 evidence and cannot be sanitized, reject the proposal without harvesting or
 transmitting that source. Persist only a redacted `REJECTED_WITH_EVIDENCE`

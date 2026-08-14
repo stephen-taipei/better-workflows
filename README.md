@@ -71,6 +71,13 @@ findings to exact source anchors, and reduces private receipts into deterministi
 coverage and synthesis evidence. The pilot is shadow-only and cannot authorize
 side effects.
 
+Other review-enabled templates bind the legacy `review-contract-v1` capability
+profile into the TaskContract and review-package identity. It covers the
+immutable diff manifest, package-bound locations, broad-review receipt,
+provenance, and instruction digest; it does not claim kernel work-unit or
+finder/verifier guarantees. Only `self-improve-ops` may use the
+`review-kernel-v2-pilot`, and a profile never grants side-effect authority.
+
 ![Better Workflows authority layers from prompt through read-only graph](docs/assets/better-workflows-engineering-stack.svg)
 
 <!-- readme-visual-fallback:authority-boundary -->

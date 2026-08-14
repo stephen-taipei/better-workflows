@@ -62,6 +62,8 @@ provider 結果。Better Workflows 把這些落差轉成明確 gates。
 
 **Review-kernel pilot。** `self-improve-ops` 會盤點 exact changed-file work units、分離獨立 attested finder 與 verifier、綁定 exact source anchors，並產生 deterministic coverage/synthesis evidence。此 pilot 為 shadow-only，不能授權 side effects。
 
+其他 review-enabled templates 會在 TaskContract 與 review package identity 綁定 legacy `review-contract-v1` capability profile；它只涵蓋 immutable diff manifest、package-bound locations、broad-review receipt、provenance 與 instruction digest，不宣稱 kernel work-unit 或 finder/verifier 能力。只有 `self-improve-ops` 可以使用 `review-kernel-v2-pilot`，profile 本身也不會授予 side-effect authority。
+
 ![Better Workflows 從 Prompt 到唯讀 Graph 的權限分層](assets/better-workflows-engineering-stack.svg)
 
 <!-- readme-visual-fallback:authority-boundary -->
