@@ -1474,11 +1474,13 @@ test("candidate sanitizer admits public generated surfaces without sending binar
       await mkdir(path.dirname(path.join(cwd, file)), { recursive: true });
       await writeFile(path.join(cwd, file), Buffer.from([0x52, 0x49, 0xff, 0x00, 0x01]));
     }
+    const binaryBytes = Buffer.from([0x52, 0x49, 0xff, 0x00, 0x01]);
+    const binaryDigest = sha256(binaryBytes);
     const files = [...textFiles, ...binaryFiles].map((file, index) => ({
       path: file,
       state: "file",
-      digest: String(index + 1).padStart(64, "0"),
-      size: 1
+      digest: binaryFiles.includes(file) ? binaryDigest : String(index + 1).padStart(64, "0"),
+      size: binaryFiles.includes(file) ? binaryBytes.length : 1
     }));
     const material = await readSanitizedCandidateMaterial({ cwd, snapshot: { files }, maxFiles: files.length });
     assert.deepEqual(material.map((item) => item.path).sort(), files.map((item) => item.path).sort());
@@ -1492,6 +1494,14 @@ test("candidate sanitizer admits public generated surfaces without sending binar
       assert.match(item.content, /public generated material/);
       assert.ok(item.sampledBytes > 0);
     }
+    await assert.rejects(
+      readSanitizedCandidateMaterial({
+        cwd,
+        snapshot: { files: files.map((file) => file.path === binaryFiles[0] ? { ...file, digest: "0".repeat(64) } : file) },
+        maxFiles: files.length
+      }),
+      /material bytes do not match the candidate snapshot/
+    );
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }

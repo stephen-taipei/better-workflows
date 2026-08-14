@@ -79,7 +79,10 @@ has passed, and the stable package and plugin versions changed from the target
 branch parent. `main` receives `vX.Y.Z`; `dev` receives the matching
 `vX.Y.Z-dev.<short-sha>` prerelease tag. Feature-branch commits and integration
 commits without a version change receive no tag. An existing tag pointing to a
-different commit is a fail-closed error; CI never force-moves tags.
+different commit is a fail-closed error; CI never force-moves tags. The final
+publication is a server-side atomic push that includes a no-op update of the
+expected branch tip with `--force-with-lease`, so a branch move during the
+publication window rejects the tag instead of allowing a stale marker.
 
 ## Common paths
 

@@ -5,6 +5,7 @@ import {
   normalizeStableVersion,
   parseRemoteTagCommit,
   releaseTagName,
+  releaseTagPushArgs,
   remoteTagMatches,
   versionChanged,
   versionSurfaces
@@ -47,4 +48,17 @@ test("annotated and lightweight remote tags are compared by commit", () => {
   assert.equal(parseRemoteTagCommit(output), SHA);
   assert.equal(remoteTagMatches(output, SHA), true);
   assert.equal(remoteTagMatches(output, "b".repeat(40)), false);
+});
+
+test("release tag publication binds the branch lease in the same atomic push", () => {
+  const args = releaseTagPushArgs({ branch: "dev", tag: "v3.4.10-dev.aaaaaaaaaaaa", sha: SHA });
+  assert.deepEqual(args, [
+    "push",
+    "--atomic",
+    `--force-with-lease=refs/heads/dev:${SHA}`,
+    "origin",
+    `${SHA}:refs/heads/dev`,
+    "refs/tags/v3.4.10-dev.aaaaaaaaaaaa"
+  ]);
+  assert.throws(() => releaseTagPushArgs({ branch: "feature", tag: "v3.4.10", sha: SHA }), /dev or main/);
 });

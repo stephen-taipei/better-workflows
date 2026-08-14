@@ -1085,6 +1085,15 @@ function boundedVisibleMaterialContent(sourceText, filePath, evidenceIndex, maxB
   return safeUtf8Prefix(Buffer.from(visible, "utf8"), maxBytes);
 }
 
+function validateSanitizedMaterialBytes(file, content, label) {
+  if (!file || file.state !== "file" || !Buffer.isBuffer(content) ||
+      !SHA256.test(file.digest ?? "") || !Number.isSafeInteger(file.size) || file.size < 0 ||
+      content.length !== file.size || sha256(content) !== file.digest) {
+    throw new Error(`${label} material bytes do not match the candidate snapshot: ${file?.path ?? "<unknown>"}`);
+  }
+  return content;
+}
+
 async function readBalancedSanitizedMaterial({ snapshot, maxFiles, maxBytes, readContent, label }) {
   for (const file of snapshot.files) {
     if (!allowedCandidateMaterial(file.path)) throw new Error(`${label} material path is outside the sanitized allowlist: ${file.path}`);
@@ -1106,6 +1115,10 @@ async function readBalancedSanitizedMaterial({ snapshot, maxFiles, maxBytes, rea
     let fileRemainder = budget - baseFileBudget * groupFiles.length;
     for (const file of groupFiles) {
       if (DIGEST_ONLY_MATERIAL_PATH.test(file.path)) {
+        // Do not treat a digest as proof of bytes we never read. Verify the
+        // authoritative candidate blob, then omit only its content from the
+        // bounded prompt material.
+        validateSanitizedMaterialBytes(file, await readContent(file), label);
         material.push({
           path: file.path,
           materialGroup: group,

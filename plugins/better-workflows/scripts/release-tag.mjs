@@ -9,6 +9,7 @@ import {
   isReleaseBranch,
   parseRemoteTagCommit,
   releaseTagName,
+  releaseTagPushArgs,
   versionChanged,
   versionSurfaces
 } from "./lib/release-tag.mjs";
@@ -149,7 +150,7 @@ export async function runReleaseTag({ env = process.env, cwd = process.cwd(), fe
   if (await remoteHead(cwd, branch) !== sha) {
     throw new Error(`Remote ${branch} moved before release tag push; refusing to publish a stale commit tag`);
   }
-  await git(cwd, ["push", "origin", `refs/tags/${tag}`]);
+  await git(cwd, releaseTagPushArgs({ branch, tag, sha }));
   return { status: "created", tag, branch, sha, version: current, pullNumber: pull.number };
 }
 

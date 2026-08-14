@@ -72,3 +72,26 @@ export function remoteTagMatches(output, sha) {
 export function isReleaseBranch(branch) {
   return RELEASE_BRANCHES.has(branch);
 }
+
+export function releaseTagPushArgs({ branch, tag, sha }) {
+  if (!isReleaseBranch(branch)) {
+    throw new Error(`Release tag lease requires a dev or main branch: ${branch || "<empty>"}`);
+  }
+  const commit = assertCommitSha(sha);
+  const tagName = String(tag ?? "").trim();
+  if (!tagName || /\s/.test(tagName) || tagName.startsWith("-")) {
+    throw new Error(`Release tag lease requires a valid tag name: ${tagName || "<empty>"}`);
+  }
+  const branchRef = `refs/heads/${branch}`;
+  // Include a no-op branch update in the same atomic push. GitHub's server
+  // checks the lease immediately before accepting the tag, so a branch move
+  // between the last observation and publication rejects the whole push.
+  return [
+    "push",
+    "--atomic",
+    `--force-with-lease=${branchRef}:${commit}`,
+    "origin",
+    `${commit}:${branchRef}`,
+    `refs/tags/${tagName}`
+  ];
+}

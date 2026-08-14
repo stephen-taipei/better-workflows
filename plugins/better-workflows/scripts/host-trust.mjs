@@ -4213,6 +4213,10 @@ async function reconstructSanitizedMaterial({ repo, subject, revision, snapshot,
     let fileRemainder = budget - baseFileBudget * files.length;
     for (const file of files) {
       if (DIGEST_ONLY_MATERIAL_PATH.test(file.path)) {
+        // Digest-only transport is a disclosure reduction, not a trust shortcut.
+        // Reconstruct and verify the authoritative Git blob before omitting its
+        // bytes from the prompt material.
+        await authoritativeSnapshotBlob(repo, subject, revision, file);
         material.push({
           path: file.path,
           materialGroup: group,
