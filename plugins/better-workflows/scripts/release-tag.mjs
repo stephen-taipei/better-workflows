@@ -71,8 +71,14 @@ async function currentVersion(cwd) {
 async function previousVersion(cwd, sha) {
   const parents = (await git(cwd, ["show", "-s", "--format=%P", sha])).split(/\s+/).filter(Boolean);
   if (parents.length === 0) return null;
-  const packageJson = await readJsonAtCommit(cwd, parents[0], REPOSITORY_PACKAGE);
-  return packageJson?.version ?? null;
+  const [packageJson, pluginManifest] = await Promise.all([
+    readJsonAtCommit(cwd, parents[0], REPOSITORY_PACKAGE),
+    readJsonAtCommit(cwd, parents[0], PLUGIN_MANIFEST)
+  ]);
+  if (!packageJson || !pluginManifest) {
+    throw new Error("Parent release version surfaces are incomplete");
+  }
+  return versionSurfaces(packageJson, pluginManifest);
 }
 
 async function remoteHead(cwd, branch) {
@@ -134,9 +140,15 @@ export async function runReleaseTag({ env = process.env, cwd = process.cwd(), fe
     return { status: "planned", tag, branch, sha, version: current, pullNumber: pull.number };
   }
 
+  if (await remoteHead(cwd, branch) !== sha) {
+    throw new Error(`Remote ${branch} moved before release tag publication; refusing to tag a stale commit`);
+  }
   await git(cwd, ["config", "user.name", "github-actions[bot]"]);
   await git(cwd, ["config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com"]);
   await git(cwd, ["tag", "--annotate", tag, sha, "--message", `Release ${tag}`]);
+  if (await remoteHead(cwd, branch) !== sha) {
+    throw new Error(`Remote ${branch} moved before release tag push; refusing to publish a stale commit tag`);
+  }
   await git(cwd, ["push", "origin", `refs/tags/${tag}`]);
   return { status: "created", tag, branch, sha, version: current, pullNumber: pull.number };
 }

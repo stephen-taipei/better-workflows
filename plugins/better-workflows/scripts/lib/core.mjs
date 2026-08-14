@@ -692,8 +692,10 @@ const WORKFLOW_REF = /^[A-Za-z0-9._\/-]{1,128}$/;
 const WORKFLOW_INPUT_KEY = /^[A-Za-z_][A-Za-z0-9_-]{0,63}$/;
 const WORKFLOW_INPUT_VALUE = /^[^\0\r\n]{0,4096}$/;
 const WORKFLOW_DISPATCH_NONCE_INPUT = "sbw_dispatch_nonce";
+const WORKFLOW_DISPATCH_EXPECTED_REVISION_INPUT = "sbw_expected_revision";
 const WORKFLOW_DISPATCH_NONCE = /^[a-f0-9]{32}$/;
 const WORKFLOW_DISPATCH_NONCE_EXPRESSION = /\$\{\{\s*(?:inputs|github\.event\.inputs)\.sbw_dispatch_nonce\s*\}\}/;
+const WORKFLOW_DISPATCH_EXPECTED_REVISION_EXPRESSION = /(?:github\.sha\s*(?:===?|!==?)\s*(?:inputs|github\.event\.inputs)\.sbw_expected_revision|(?:inputs|github\.event\.inputs)\.sbw_expected_revision\s*(?:===?|!==?)\s*github\.sha)/;
 
 function workflowConclusionIsSuccess(value) {
   return typeof value === "string" && value.toLowerCase() === "success";
@@ -3298,16 +3300,27 @@ export function validateWorkflowDispatchCapability(content, workflowFile, revisi
   if (nonceIndex < 0) {
     throw new Error(`GitHub Actions workflow_dispatch must declare the reserved ${WORKFLOW_DISPATCH_NONCE_INPUT} input`);
   }
+  const expectedRevisionIndex = lines.findIndex(({ parsed }, index) => (
+    index > inputsIndex && index < inputsStop && parsed && parsed.indent > inputsIndent && parsed.key === WORKFLOW_DISPATCH_EXPECTED_REVISION_INPUT
+  ));
+  if (expectedRevisionIndex < 0) {
+    throw new Error(`GitHub Actions workflow_dispatch must declare the reserved ${WORKFLOW_DISPATCH_EXPECTED_REVISION_INPUT} input`);
+  }
   const runName = lines.find(({ parsed }) => parsed?.indent === 0 && parsed.key === "run-name");
   if (!runName || !WORKFLOW_DISPATCH_NONCE_EXPRESSION.test(runName.parsed.value)) {
     throw new Error(`GitHub Actions workflow run-name must expose ${WORKFLOW_DISPATCH_NONCE_INPUT}`);
+  }
+  if (!WORKFLOW_DISPATCH_EXPECTED_REVISION_EXPRESSION.test(content)) {
+    throw new Error(`GitHub Actions workflow must gate execution on ${WORKFLOW_DISPATCH_EXPECTED_REVISION_INPUT}`);
   }
   return {
     schemaVersion: 1,
     workflowFile,
     revision,
     nonceInput: WORKFLOW_DISPATCH_NONCE_INPUT,
+    expectedRevisionInput: WORKFLOW_DISPATCH_EXPECTED_REVISION_INPUT,
     runNameNonce: true,
+    expectedRevisionGate: true,
     contentDigest: sha256(content)
   };
 }
@@ -3408,7 +3421,8 @@ export function buildActionsDispatchCommand(record) {
   }
   const inputs = normalizeWorkflowInputs(record.dispatchInputs);
   if (!WORKFLOW_DISPATCH_NONCE.test(String(record.dispatchNonce ?? "")) ||
-      inputs[WORKFLOW_DISPATCH_NONCE_INPUT] !== record.dispatchNonce) {
+      inputs[WORKFLOW_DISPATCH_NONCE_INPUT] !== record.dispatchNonce ||
+      inputs[WORKFLOW_DISPATCH_EXPECTED_REVISION_INPUT] !== record.remoteRevision) {
     throw new Error("GitHub Actions dispatch command is missing its provider-correlation nonce binding");
   }
   if (record.dispatchInputsDigest !== digestObject(inputs)) {
@@ -3900,6 +3914,23 @@ async function readBoundGitHubRefRevision(cwd, repository, ref, executablePath) 
   const revision = actual?.object?.sha;
   if (!/^[a-f0-9]{40}$/i.test(revision ?? "")) {
     throw new Error("Bound GitHub ref observation did not return an exact revision");
+  }
+  return revision;
+}
+
+async function readBoundGitHubDispatchRefRevision(cwd, repository, dispatchRef, executablePath) {
+  if (!repository.startsWith("github.com/") || !WORKFLOW_REF.test(dispatchRef)) {
+    throw new Error("Bound GitHub workflow dispatch ref observation requires a canonical repository and ref");
+  }
+  const repositoryPath = repository.slice("github.com/".length);
+  const actual = await readBoundGitHubApi(
+    cwd,
+    executablePath,
+    `repos/${repositoryPath}/commits/${dispatchRef}`
+  );
+  const revision = actual?.sha;
+  if (!SHA.test(revision ?? "")) {
+    throw new Error("Bound GitHub workflow dispatch ref observation did not return an exact commit revision");
   }
   return revision;
 }
@@ -5709,22 +5740,34 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
       const dispatchRef = canonicalWorkflowRef(String(request.scope ?? ""));
       await execBoundGitAuthority(manifest.cwd, ["ls-files", "--error-unmatch", "--", workflowFile]);
       const dispatchInputs = normalizeWorkflowInputs(request.dispatchInputs);
-      if (Object.hasOwn(dispatchInputs, WORKFLOW_DISPATCH_NONCE_INPUT)) {
-        throw new Error(`GitHub Actions dispatch input ${WORKFLOW_DISPATCH_NONCE_INPUT} is reserved`);
+      for (const reservedInput of [WORKFLOW_DISPATCH_NONCE_INPUT, WORKFLOW_DISPATCH_EXPECTED_REVISION_INPUT]) {
+        if (Object.hasOwn(dispatchInputs, reservedInput)) {
+          throw new Error(`GitHub Actions dispatch input ${reservedInput} is reserved`);
+        }
       }
-      if (Object.keys(dispatchInputs).length >= 20) {
-        throw new Error("GitHub Actions dispatch requires one input slot for its provider-correlation nonce");
+      if (Object.keys(dispatchInputs).length > 18) {
+        throw new Error("GitHub Actions dispatch requires two input slots for its provider-correlation gates");
       }
       const dispatchNonce = randomBytes(16).toString("hex");
       const boundDispatchInputs = normalizeWorkflowInputs({
         ...dispatchInputs,
-        [WORKFLOW_DISPATCH_NONCE_INPUT]: dispatchNonce
+        [WORKFLOW_DISPATCH_NONCE_INPUT]: dispatchNonce,
+        [WORKFLOW_DISPATCH_EXPECTED_REVISION_INPUT]: request.remoteRevision
       });
       const workflowDispatchCapability = await readBoundWorkflowDispatchCapability(
         manifest.cwd,
         workflowFile,
         request.remoteRevision
       );
+      const dispatchRefRevision = await readBoundGitHubDispatchRefRevision(
+        manifest.cwd,
+        repository,
+        dispatchRef,
+        (providerExecutable ?? await currentProviderExecutableIdentity("gh")).path
+      );
+      if (dispatchRefRevision !== request.remoteRevision) {
+        throw new Error("GitHub Actions dispatch ref does not resolve to the requested target revision");
+      }
       const dispatchBinding = {
         action: request.action,
         provider: request.provider,
@@ -6481,6 +6524,15 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
       existingRunIds = existingRuns
         .map((run) => String(run?.databaseId ?? ""))
         .filter((runIdValue) => /^\d+$/.test(runIdValue));
+      const dispatchRefRevision = await readBoundGitHubDispatchRefRevision(
+        manifest.cwd,
+        consumed.dispatchRepository,
+        consumed.dispatchRef,
+        providerExecutablePath
+      );
+      if (dispatchRefRevision !== consumed.remoteRevision) {
+        throw new Error("GitHub Actions dispatch ref changed before provider invocation");
+      }
     } catch (error) {
       const preflight = workflowDispatchInvocation(runId, consumed, {
         startedAt,
@@ -6503,6 +6555,15 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
     }));
     let exitCode = 0;
     try {
+      const dispatchRefRevision = await readBoundGitHubDispatchRefRevision(
+        manifest.cwd,
+        consumed.dispatchRepository,
+        consumed.dispatchRef,
+        providerExecutablePath
+      );
+      if (dispatchRefRevision !== consumed.remoteRevision) {
+        throw new Error("GitHub Actions dispatch ref changed immediately before provider invocation");
+      }
       await execBoundGitHubCli(providerExecutablePath, expectedCommand.slice(1), { cwd: manifest.cwd });
     } catch (error) {
       exitCode = Number.isInteger(error?.code) ? error.code : 1;

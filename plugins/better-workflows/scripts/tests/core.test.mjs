@@ -1993,13 +1993,20 @@ test("linked worktrees share the canonical Git reservation identity", async () =
 test("GitHub Actions dispatch adapter binds a fixed command and one observed run", () => {
   const remoteRevision = "a".repeat(40);
   const dispatchNonce = "c".repeat(32);
-  const inputs = { environment: "production", sbw_dispatch_nonce: dispatchNonce, smoke: "true" };
+  const inputs = {
+    environment: "production",
+    sbw_dispatch_nonce: dispatchNonce,
+    sbw_expected_revision: remoteRevision,
+    smoke: "true"
+  };
   const workflowDispatchCapability = {
     schemaVersion: 1,
     workflowFile: ".github/workflows/release.yml",
     revision: remoteRevision,
     nonceInput: "sbw_dispatch_nonce",
+    expectedRevisionInput: "sbw_expected_revision",
     runNameNonce: true,
+    expectedRevisionGate: true,
     contentDigest: "d".repeat(64)
   };
   const record = {
@@ -2042,7 +2049,8 @@ test("GitHub Actions dispatch adapter binds a fixed command and one observed run
   assert.deepEqual(buildActionsDispatchCommand(record), [
     "gh", "workflow", "run", ".github/workflows/release.yml",
     "--repo", "example/repo", "--ref", "dev",
-    "--raw-field", `environment=production`, "--raw-field", `sbw_dispatch_nonce=${dispatchNonce}`, "--raw-field", "smoke=true"
+    "--raw-field", `environment=production`, "--raw-field", `sbw_dispatch_nonce=${dispatchNonce}`,
+    "--raw-field", `sbw_expected_revision=${remoteRevision}`, "--raw-field", "smoke=true"
   ]);
   const receipt = buildActionsDispatchProviderReceipt(record);
   assert.equal(receipt.runId, "12345");
@@ -2091,9 +2099,13 @@ test("GitHub Actions dispatch capability requires nonce-aware workflow metadata"
     "      sbw_dispatch_nonce:",
     "        required: true",
     "        type: string",
+    "      sbw_expected_revision:",
+    "        required: true",
+    "        type: string",
     "jobs:",
     "  release:",
-    "    runs-on: ubuntu-latest"
+    "    runs-on: ubuntu-latest",
+    "    if: ${{ github.sha == inputs.sbw_expected_revision }}"
   ].join("\n");
   const capability = validateWorkflowDispatchCapability(
     workflow,
