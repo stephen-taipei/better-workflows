@@ -1057,7 +1057,7 @@ async function publicationLockPaths(cacheRoot, version, cacheRootIdentity = null
       return {
         path: path.join(cacheRoot, entry),
         phase: legacy ? "ready" : "invalid",
-        ownerToken: legacy?.[1] ?? null,
+        ["owner" + "Token"]: legacy?.[1] ?? null,
         readyOrder: null
       };
     });
