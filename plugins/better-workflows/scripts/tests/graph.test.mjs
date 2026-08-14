@@ -1091,6 +1091,7 @@ test("warning-only run graphs do not block resume, authorized action issue, or c
             "provider-reconciliation"
           ],
           controlPlane: structuredClone(templateDefinition.controlPlane),
+          reviewProfile: structuredClone(templateDefinition.reviewProfile),
           executionStages: structuredClone(templateDefinition.executionStages),
           actionStages: structuredClone(templateDefinition.actionStages),
           authority: { rootOnlyMutation: true, externalSideEffects: authority ? ["issue.create"] : [] },

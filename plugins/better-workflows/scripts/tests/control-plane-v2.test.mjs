@@ -62,6 +62,16 @@ const contractTemplate = {
   }]
 };
 
+const legacyReviewProfile = {
+  schemaVersion: 1,
+  id: "review-contract-v1",
+  changedSurfaceAccounting: "diff-manifest-v1",
+  anchorResolution: "package-bound-location-v1",
+  findingVerification: "broad-review-v1",
+  provenanceBinding: "review-package-v1",
+  specBinding: "instruction-digest-v1"
+};
+
 const execFileAsync = promisify(execFile);
 
 function gitWithInput(cwd, args, input) {
@@ -903,7 +913,12 @@ test("review packages reject head drift with stable finding identity, block afte
   const head = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repository })).stdout.trim();
   const contract = buildContract({
     template: "test-review",
-    templateDefinition: { ...contractTemplate, scope: ["src", "README.md"], controlPlane: { ...contractTemplate.controlPlane, reviewPolicy: "code-v1" } },
+    templateDefinition: {
+      ...contractTemplate,
+      scope: ["src", "README.md"],
+      reviewProfile: legacyReviewProfile,
+      controlPlane: { ...contractTemplate.controlPlane, reviewPolicy: "code-v1" }
+    },
     goal: "review",
     scope: ["src", "README.md"],
     risk: { risk: 1, uncertainty: 0, blastRadius: 1, irreversibility: 0, evidenceGap: 0 },
@@ -951,7 +966,8 @@ test("review packages reject head drift with stable finding identity, block afte
     contractDigest: tampered.contractDigest,
     templateDigest: tampered.templateDigest,
     sentinelDigest: tampered.sentinelDigest,
-    instructionDigest: tampered.instructionDigest
+    instructionDigest: tampered.instructionDigest,
+    reviewProfileDigest: tampered.reviewProfileDigest
   };
   tampered.packageId = `review-${sha256(digestObject(tamperedIdentity)).slice(0, 32)}`;
   await writeFile(packagePath, `${JSON.stringify(tampered, null, 2)}\n`);
@@ -970,7 +986,12 @@ test("review packages reject head drift with stable finding identity, block afte
   const divergentBase = (await execFileAsync("git", ["commit-tree", divergentTree, "-p", base, "-m", "divergent base"], { cwd: repository })).stdout.trim();
   const divergentContract = buildContract({
     template: "test-review-divergent",
-    templateDefinition: { ...contractTemplate, scope: ["src", "README.md"], controlPlane: { ...contractTemplate.controlPlane, reviewPolicy: "code-v1" } },
+    templateDefinition: {
+      ...contractTemplate,
+      scope: ["src", "README.md"],
+      reviewProfile: legacyReviewProfile,
+      controlPlane: { ...contractTemplate.controlPlane, reviewPolicy: "code-v1" }
+    },
     goal: "review divergent base",
     scope: ["src", "README.md"],
     risk: { risk: 1, uncertainty: 0, blastRadius: 1, irreversibility: 0, evidenceGap: 0 },

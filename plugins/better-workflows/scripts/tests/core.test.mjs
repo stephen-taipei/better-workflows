@@ -1995,7 +1995,7 @@ test("GitHub Actions dispatch adapter binds a fixed command and one observed run
   const record = {
     action: "actions.dispatch",
     provider: "github-cli",
-    resource: "workflow:release",
+    resource: "workflow:.github/workflows/release.yml",
     remoteRevision,
     dispatchRepository: "github.com/example/repo",
     workflowFile: ".github/workflows/release.yml",
@@ -2038,6 +2038,17 @@ test("GitHub Actions dispatch adapter binds a fixed command and one observed run
   assert.throws(
     () => buildActionsDispatchCommand({ ...record, dispatchInputsDigest: "c".repeat(64) }),
     /input digest does not match/
+  );
+  assert.throws(
+    () => buildActionsDispatchCommand({ ...record, resource: "workflow:.github/workflows/other.yml" }),
+    /resource is not bound to workflowFile/
+  );
+  assert.throws(
+    () => buildActionsDispatchProviderReceipt({
+      ...record,
+      resource: "workflow:release"
+    }),
+    /resource is not bound to workflowFile/
   );
   assert.throws(
     () => buildActionsDispatchProviderReceipt({

@@ -1152,6 +1152,13 @@ export function validateContract(contract) {
         throw new Error(`TaskContract v2.controlPlane.${key} is invalid`);
       }
     }
+    const reviewEnabled = controlPlane.reviewPolicy !== "none";
+    if (reviewEnabled && contract.reviewProfile === undefined) {
+      throw new Error("TaskContract review-enabled policy requires reviewProfile");
+    }
+    if (!reviewEnabled && contract.reviewProfile !== undefined) {
+      throw new Error("TaskContract reviewProfile is not allowed when review policy is none");
+    }
     if (contract.reviewProfile !== undefined) {
       validateReviewProfile(contract.reviewProfile, {
         template: contract.template,
@@ -1577,6 +1584,9 @@ export function assertProviderReceiptShape(record, providerReceipt, outcome = re
     providerReceipt.terminalState.length > 0
   );
   if (!commonValid) throw new Error("Provider receipt lacks a structured execution proof");
+  if (record.action === "actions.dispatch" && !workflowResourceMatchesFile(record)) {
+    throw new Error("GitHub Actions dispatch receipt resource is not bound to workflowFile");
+  }
   if (outcome === "success" && providerReceipt.terminalState !== "success") {
     throw new Error("Successful provider receipt must have terminalState success");
   }
@@ -3237,6 +3247,23 @@ function canonicalWorkflowFile(value) {
   return value;
 }
 
+function canonicalWorkflowResource(value) {
+  if (typeof value !== "string" || !value.startsWith("workflow:")) {
+    throw new Error("GitHub Actions dispatch resources must use workflow:<.github/workflows file>");
+  }
+  const workflowFile = canonicalWorkflowFile(value.slice("workflow:".length));
+  return `workflow:${workflowFile}`;
+}
+
+function workflowResourceMatchesFile(record) {
+  if (!record || typeof record.resource !== "string" || typeof record.workflowFile !== "string") return false;
+  try {
+    return canonicalWorkflowResource(record.resource) === `workflow:${canonicalWorkflowFile(record.workflowFile)}`;
+  } catch {
+    return false;
+  }
+}
+
 function canonicalWorkflowRef(value) {
   if (typeof value !== "string" || !WORKFLOW_REF.test(value)) {
     throw new Error("GitHub Actions dispatch requires an exact branch or tag scope");
@@ -3267,14 +3294,16 @@ export function buildActionsDispatchCommand(record) {
     !record ||
     record.action !== "actions.dispatch" ||
     record.provider !== "github-cli" ||
-    typeof record.workflowFile !== "string" ||
-      canonicalWorkflowFile(record.workflowFile) !== record.workflowFile ||
     typeof record.dispatchRepository !== "string" ||
       !canonicalGitHubRepositoryPath(record.dispatchRepository) ||
     typeof record.dispatchRef !== "string" ||
       canonicalWorkflowRef(record.dispatchRef) !== record.dispatchRef
   ) {
     throw new Error("GitHub Actions dispatch command binding is incomplete");
+  }
+  const workflowFile = canonicalWorkflowFile(record.workflowFile);
+  if (!workflowResourceMatchesFile(record) || record.resource !== `workflow:${workflowFile}`) {
+    throw new Error("GitHub Actions dispatch command resource is not bound to workflowFile");
   }
   const inputs = normalizeWorkflowInputs(record.dispatchInputs);
   if (record.dispatchInputsDigest !== digestObject(inputs)) {
@@ -3284,7 +3313,7 @@ export function buildActionsDispatchCommand(record) {
     "gh",
     "workflow",
     "run",
-    canonicalWorkflowFile(record.workflowFile),
+    workflowFile,
     "--repo",
     canonicalGitHubRepositoryPath(record.dispatchRepository),
     "--ref",
@@ -3299,6 +3328,9 @@ export function buildActionsDispatchCommand(record) {
 export function buildActionsDispatchProviderReceipt(record, outcome = "success") {
   if (!["success", "failure", "unknown"].includes(outcome)) {
     throw new Error("GitHub Actions dispatch receipt outcome is invalid");
+  }
+  if (!workflowResourceMatchesFile(record)) {
+    throw new Error("GitHub Actions dispatch receipt resource is not bound to workflowFile");
   }
   if (!record?.providerInvocation?.workflowRun) {
     throw new Error("GitHub Actions dispatch provider invocation lacks an observed workflow run");
@@ -4391,6 +4423,9 @@ async function verifyProviderReceipt(manifest, record, receipt, contract = null)
     return;
   }
   if (key === "actions.dispatch:github-cli") {
+    if (!workflowResourceMatchesFile(record)) {
+      throw new Error("GitHub Actions dispatch proof resource is not bound to workflowFile");
+    }
     const actual = JSON.parse((await execBoundGitHubCli(providerExecutablePath, [
       "run", "view", String(providerReceipt.runId), "--json", "databaseId,workflowName,url,status,conclusion,headSha"
     ], { cwd })).stdout);
@@ -5535,9 +5570,6 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
       if (request.provider !== "github-cli") {
         throw new Error("GitHub Actions dispatch requires the github-cli provider");
       }
-      if (!/^workflow:[^\0\r\n]{1,128}$/.test(request.resource)) {
-        throw new Error("GitHub Actions dispatch resources must use workflow:<workflow-name>");
-      }
       if (!repository?.startsWith("github.com/")) {
         throw new Error("GitHub Actions dispatch requires a canonical GitHub repository");
       }
@@ -5548,6 +5580,10 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
         throw new Error("GitHub Actions dispatch requires an exact target revision");
       }
       const workflowFile = canonicalWorkflowFile(String(request.workflowFile ?? ""));
+      const workflowResource = canonicalWorkflowResource(String(request.resource ?? ""));
+      if (workflowResource !== `workflow:${workflowFile}`) {
+        throw new Error("GitHub Actions dispatch resource must exactly bind the workflow-file selector");
+      }
       const dispatchRef = canonicalWorkflowRef(String(request.scope ?? ""));
       await execBoundGitAuthority(manifest.cwd, ["ls-files", "--error-unmatch", "--", workflowFile]);
       const dispatchInputs = normalizeWorkflowInputs(request.dispatchInputs);

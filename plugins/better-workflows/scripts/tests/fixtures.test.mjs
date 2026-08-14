@@ -98,6 +98,27 @@ test("all thirteen templates are valid and side-effect templates declare action 
   }
 });
 
+test("ci release dispatch uses a non-circular pre-dispatch stage", async () => {
+  const template = JSON.parse(
+    await readFile(path.join(pluginRoot(), "templates", "ci-release-monitor.json"), "utf8")
+  );
+  const dispatchStage = template.executionStages.find((stage) => stage.id === "dispatch-preflight");
+  assert.ok(dispatchStage);
+  assert.deepEqual(dispatchStage.dependsOn, ["queue"]);
+  assert.deepEqual(dispatchStage.requiredEvidence, [
+    "workflow-inventory",
+    "queue-state",
+    "target-revision",
+    "remote-authorization"
+  ]);
+  assert.equal(template.actionStages["actions.dispatch"], "dispatch-preflight");
+  assert.deepEqual(template.actionGates["actions.dispatch"], dispatchStage.requiredEvidence);
+  assert.equal(template.executionStages.find((stage) => stage.id === "provider-reconcile").dependsOn[0], "monitor-execute");
+  assert.equal(template.actionGates["actions.dispatch"].includes("provider-reconciliation"), false);
+  assert.equal(template.actionGates["actions.dispatch"].includes("run-result"), false);
+  assert.equal(template.actionGates["actions.dispatch"].includes("required-checks"), false);
+});
+
 test("workspace recipes require explicit trust and independently gated artifact promotion", async () => {
   const template = JSON.parse(
     await readFile(path.join(pluginRoot(), "templates", "workspace-recipe.json"), "utf8")
@@ -134,6 +155,36 @@ test("review profiles are copied into the bound task contract", async () => {
     risk: { risk: 1, uncertainty: 1, blastRadius: 1, irreversibility: 0, evidenceGap: 1 }
   });
   assert.deepEqual(contract.reviewProfile, template.reviewProfile);
+});
+
+test("review-enabled contracts require a bound profile and review-none contracts reject one", async () => {
+  const template = JSON.parse(
+    await readFile(path.join(pluginRoot(), "templates", "self-improve-ops.json"), "utf8")
+  );
+  const reviewEnabledWithoutProfile = structuredClone(template);
+  reviewEnabledWithoutProfile.controlPlane.reviewPolicy = "code-v1";
+  delete reviewEnabledWithoutProfile.controlPlane.workUnitPolicy;
+  delete reviewEnabledWithoutProfile.controlPlane.reviewLanes;
+  delete reviewEnabledWithoutProfile.reviewProfile;
+  assert.throws(() => buildContract({
+    template: "review-enabled-without-profile",
+    templateDefinition: reviewEnabledWithoutProfile,
+    goal: "missing profile",
+    scope: ["plugins"],
+    risk: { risk: 1, uncertainty: 1, blastRadius: 1, irreversibility: 0, evidenceGap: 1 }
+  }), /review-enabled policy requires reviewProfile/);
+
+  const reviewNoneWithProfile = structuredClone(template);
+  reviewNoneWithProfile.controlPlane.reviewPolicy = "none";
+  delete reviewNoneWithProfile.controlPlane.workUnitPolicy;
+  delete reviewNoneWithProfile.controlPlane.reviewLanes;
+  assert.throws(() => buildContract({
+    template: "review-none-with-profile",
+    templateDefinition: reviewNoneWithProfile,
+    goal: "extraneous profile",
+    scope: ["plugins"],
+    risk: { risk: 1, uncertainty: 1, blastRadius: 1, irreversibility: 0, evidenceGap: 1 }
+  }), /reviewProfile is not allowed when review policy is none/);
 });
 
 test("review profile validation prevents capability escalation by template editing", () => {
