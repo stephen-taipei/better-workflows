@@ -2408,9 +2408,12 @@ test("GitHub Actions dispatch observation lower bound uses provider-start time",
 
   const source = await readFile(new URL("../lib/core.mjs", import.meta.url), "utf8");
   const providerStartIndex = source.indexOf("dispatchObservationStartedAt = nowIso();");
+  const preCallPersistIndex = source.indexOf("observationStartedAt: dispatchObservationStartedAt", providerStartIndex);
   const providerCallIndex = source.indexOf("await execBoundGitHubCli(providerExecutablePath, expectedCommand.slice(1)");
   const observationIndex = source.indexOf("dispatchObservationStartedAt\n      );", providerCallIndex);
   assert.ok(providerStartIndex >= 0);
+  assert.ok(preCallPersistIndex > providerStartIndex);
+  assert.ok(preCallPersistIndex < providerCallIndex);
   assert.ok(providerCallIndex > providerStartIndex);
   assert.ok(observationIndex > providerCallIndex);
 });
@@ -2513,10 +2516,9 @@ fi
       providerAuthorization,
       startedAt: dispatchedAt,
       finishedAt: dispatchedAt,
-      exitCode: 23,
+      exitCode: null,
       dispatchState: "sent-or-indeterminate",
       preexistingRunIds: ["100"],
-      dispatchedAt,
       observationStartedAt: dispatchedAt,
       errorDigest: sha256("observation timeout")
     }
@@ -2529,6 +2531,15 @@ fi
     assert.equal(promoted.providerInvocation.dispatchState, "sent");
     assert.equal(promoted.providerInvocation.workflowRun.databaseId, 54321);
     assert.equal(promoted.providerInvocation.errorDigest, undefined);
+
+    await writeFile(path.join(actionDir, `${tokenHash}.json`), `${JSON.stringify({
+      ...action,
+      providerInvocation: { ...action.providerInvocation, exitCode: undefined }
+    })}\n`);
+    await assert.rejects(
+      resumeActionsDispatchObservation(root, run.runId, attemptId),
+      /recorded provider exit code and dispatch timestamp/
+    );
 
     await writeFile(listPath, `${JSON.stringify([workflowRun, { ...workflowRun, databaseId: 54322 }])}\n`);
     await writeFile(path.join(actionDir, `${tokenHash}.json`), `${JSON.stringify({

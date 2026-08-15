@@ -6696,7 +6696,7 @@ export async function resumeActionsDispatchObservation(root, runId, attemptId) {
     return action;
   }
   const observationStartedAt = invocation.observationStartedAt ?? invocation.dispatchedAt;
-  if (!Number.isInteger(invocation.exitCode) || typeof observationStartedAt !== "string") {
+  if ((invocation.exitCode !== null && !Number.isInteger(invocation.exitCode)) || typeof observationStartedAt !== "string") {
     throw new Error("Resumable GitHub Actions dispatch reconciliation requires a recorded provider exit code and dispatch timestamp");
   }
   const manifest = await readJson(root, safeJoin(runDir, "manifest.json"));
@@ -6849,6 +6849,9 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
       await persistActionProviderInvocation(root, runId, consumed, preflight);
       throw error;
     }
+    // Persist the observation lower bound before the provider call. A crash
+    // after the call but before its result is durable must still be resumable.
+    const dispatchObservationStartedAt = nowIso();
     await persistActionProviderInvocation(root, runId, consumed, workflowDispatchInvocation(runId, consumed, {
       startedAt,
       exitCode: null,
@@ -6856,10 +6859,10 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
       // after the provider call. Keep the attempt indeterminate until the
       // provider run is observed; never release it as a not-sent failure.
       dispatchState: "sent-or-indeterminate",
-      preexistingRunIds: existingRunIds
+      preexistingRunIds: existingRunIds,
+      observationStartedAt: dispatchObservationStartedAt
     }));
     let exitCode = 0;
-    let dispatchObservationStartedAt;
     try {
       const dispatchRefRevision = await readBoundGitHubDispatchRefRevision(
         manifest.cwd,
@@ -6870,7 +6873,6 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
       if (dispatchRefRevision !== consumed.remoteRevision) {
         throw new Error("GitHub Actions dispatch ref changed immediately before provider invocation");
       }
-      dispatchObservationStartedAt = nowIso();
       await execBoundGitHubCli(providerExecutablePath, expectedCommand.slice(1), { cwd: manifest.cwd });
     } catch (error) {
       exitCode = Number.isInteger(error?.code) ? error.code : 1;
