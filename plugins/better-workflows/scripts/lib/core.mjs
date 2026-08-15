@@ -1610,42 +1610,66 @@ export function assertProviderReceiptShape(record, providerReceipt, outcome = re
     throw new Error("GitHub Actions dispatch receipt resource is not bound to workflowFile");
   }
   if (record.action === "actions.dispatch") {
-    const dispatchShapeComplete = (
-      providerReceipt.created === true &&
-      typeof providerReceipt.runId === "string" &&
-      /^\d+$/.test(providerReceipt.runId) &&
-      typeof providerReceipt.url === "string" && providerReceipt.url.length > 0 &&
+    const notSentShapeComplete = (
+      providerReceipt.created === false &&
+      providerReceipt.dispatchState === "not-sent" &&
+      record.providerInvocation?.provider === "github-cli" &&
+      outcome === "failure" &&
+      providerReceipt.terminalState === "failure" &&
       typeof providerReceipt.repository === "string" &&
       providerReceipt.repository === canonicalGitHubRepository(record.dispatchRepository) &&
-      typeof providerReceipt.workflowName === "string" && providerReceipt.workflowName.length > 0 &&
       typeof providerReceipt.workflowFile === "string" && providerReceipt.workflowFile === record.workflowFile &&
       typeof providerReceipt.ref === "string" && providerReceipt.ref === record.dispatchRef &&
-      typeof providerReceipt.headSha === "string" && SHA.test(providerReceipt.headSha) &&
-      providerReceipt.headSha === record.remoteRevision &&
       typeof providerReceipt.dispatchNonce === "string" && providerReceipt.dispatchNonce === record.dispatchNonce &&
-      typeof providerReceipt.displayTitle === "string" && providerReceipt.displayTitle.includes(record.dispatchNonce) &&
       typeof providerReceipt.dispatchInputsDigest === "string" && SHA256_DIGEST.test(providerReceipt.dispatchInputsDigest) &&
       typeof providerReceipt.workflowDispatchCapabilityDigest === "string" &&
       providerReceipt.workflowDispatchCapabilityDigest === record.workflowDispatchCapabilityDigest &&
-      typeof providerReceipt.invocationId === "string" && providerReceipt.invocationId === record.providerInvocation?.id
+      typeof providerReceipt.invocationId === "string" && providerReceipt.invocationId === record.providerInvocation?.id &&
+      typeof providerReceipt.errorDigest === "string" && SHA256_DIGEST.test(providerReceipt.errorDigest) &&
+      providerReceipt.responseDigest === digestObject(actionsDispatchNotSentReceiptResponse(record, record.providerInvocation))
     );
-    if (!dispatchShapeComplete) throw new Error("GitHub Actions dispatch proof is incomplete");
-    if (outcome === "unknown" && providerReceipt.terminalState !== "unknown") {
-      throw new Error("Unknown GitHub Actions dispatch outcome must remain indeterminate");
-    }
-    if (outcome !== "unknown" && !workflowDispatchConclusionMatchesOutcome(
-      providerReceipt.status,
-      providerReceipt.conclusion,
-      outcome
-    )) {
-      throw new Error(
-        outcome === "success"
-          ? "Successful GitHub Actions dispatch receipt requires completed success"
-          : "Failed GitHub Actions dispatch receipt requires completed non-success"
+    if (notSentShapeComplete) {
+      if (providerReceipt.proofKind !== "github-actions-dispatch") {
+        throw new Error("GitHub Actions not-sent proof kind is invalid");
+      }
+    } else {
+      const dispatchShapeComplete = (
+        providerReceipt.created === true &&
+        typeof providerReceipt.runId === "string" &&
+        /^\d+$/.test(providerReceipt.runId) &&
+        typeof providerReceipt.url === "string" && providerReceipt.url.length > 0 &&
+        typeof providerReceipt.repository === "string" &&
+        providerReceipt.repository === canonicalGitHubRepository(record.dispatchRepository) &&
+        typeof providerReceipt.workflowName === "string" && providerReceipt.workflowName.length > 0 &&
+        typeof providerReceipt.workflowFile === "string" && providerReceipt.workflowFile === record.workflowFile &&
+        typeof providerReceipt.ref === "string" && providerReceipt.ref === record.dispatchRef &&
+        typeof providerReceipt.headSha === "string" && SHA.test(providerReceipt.headSha) &&
+        providerReceipt.headSha === record.remoteRevision &&
+        typeof providerReceipt.dispatchNonce === "string" && providerReceipt.dispatchNonce === record.dispatchNonce &&
+        typeof providerReceipt.displayTitle === "string" && providerReceipt.displayTitle.includes(record.dispatchNonce) &&
+        typeof providerReceipt.dispatchInputsDigest === "string" && SHA256_DIGEST.test(providerReceipt.dispatchInputsDigest) &&
+        typeof providerReceipt.workflowDispatchCapabilityDigest === "string" &&
+        providerReceipt.workflowDispatchCapabilityDigest === record.workflowDispatchCapabilityDigest &&
+        typeof providerReceipt.invocationId === "string" && providerReceipt.invocationId === record.providerInvocation?.id
       );
-    }
-    if (outcome !== "unknown" && providerReceipt.terminalState !== outcome) {
-      throw new Error("GitHub Actions dispatch receipt terminal state does not match its outcome");
+      if (!dispatchShapeComplete) throw new Error("GitHub Actions dispatch proof is incomplete");
+      if (outcome === "unknown" && providerReceipt.terminalState !== "unknown") {
+        throw new Error("Unknown GitHub Actions dispatch outcome must remain indeterminate");
+      }
+      if (outcome !== "unknown" && !workflowDispatchConclusionMatchesOutcome(
+        providerReceipt.status,
+        providerReceipt.conclusion,
+        outcome
+      )) {
+        throw new Error(
+          outcome === "success"
+            ? "Successful GitHub Actions dispatch receipt requires completed success"
+            : "Failed GitHub Actions dispatch receipt requires completed non-success"
+        );
+      }
+      if (outcome !== "unknown" && providerReceipt.terminalState !== outcome) {
+        throw new Error("GitHub Actions dispatch receipt terminal state does not match its outcome");
+      }
     }
   }
   if (outcome === "success" && providerReceipt.terminalState !== "success") {
@@ -3531,6 +3555,21 @@ function actionsDispatchReceiptRequest(record) {
   };
 }
 
+function actionsDispatchNotSentReceiptResponse(record, invocation) {
+  return {
+    dispatchState: "not-sent",
+    invocationId: invocation?.id ?? null,
+    exitCode: invocation?.exitCode ?? null,
+    errorDigest: invocation?.errorDigest ?? null,
+    commandDigest: digestObject(record.dispatchCommand),
+    providerExecutableDigest: digestObject(record.providerExecutable),
+    providerAuthorizationExecutableDigest: digestObject(record.providerAuthorizationExecutable),
+    providerAuthorizationDigest: digestObject(record.providerAuthorization),
+    startedAt: invocation?.startedAt ?? null,
+    finishedAt: invocation?.finishedAt ?? null
+  };
+}
+
 export function buildActionsDispatchCommand(record) {
   if (
     !record ||
@@ -3578,6 +3617,44 @@ export function buildActionsDispatchProviderReceipt(record, outcome = "success")
   }
   if (!workflowResourceMatchesFile(record)) {
     throw new Error("GitHub Actions dispatch receipt resource is not bound to workflowFile");
+  }
+  if (record?.providerInvocation?.dispatchState === "not-sent") {
+    if (outcome !== "failure") {
+      throw new Error("A not-sent GitHub Actions dispatch can only reconcile as terminal failure");
+    }
+    const invocation = record.providerInvocation;
+    if (typeof invocation.id !== "string" || typeof invocation.errorDigest !== "string" ||
+        !SHA256_DIGEST.test(invocation.errorDigest) || typeof invocation.startedAt !== "string" ||
+        typeof invocation.finishedAt !== "string") {
+      throw new Error("GitHub Actions not-sent provider invocation is incomplete");
+    }
+    const repository = canonicalGitHubRepository(record.dispatchRepository);
+    const response = actionsDispatchNotSentReceiptResponse(record, invocation);
+    return {
+      action: record.action,
+      provider: record.provider,
+      resource: record.resource,
+      outcome,
+      attemptId: record.attemptId,
+      idempotencyKey: record.idempotencyKey,
+      remoteRevision: record.remoteRevision,
+      executionId: `github:${repository}:actions.dispatch:not-sent:${record.runId}:${record.attemptId}`,
+      proofKind: "github-actions-dispatch",
+      requestDigest: digestObject(actionsDispatchReceiptRequest(record)),
+      responseDigest: digestObject(response),
+      verifiedAt: nowIso(),
+      terminalState: "failure",
+      created: false,
+      dispatchState: "not-sent",
+      repository,
+      workflowFile: record.workflowFile,
+      ref: record.dispatchRef,
+      dispatchNonce: record.dispatchNonce,
+      dispatchInputsDigest: record.dispatchInputsDigest,
+      workflowDispatchCapabilityDigest: record.workflowDispatchCapabilityDigest,
+      invocationId: invocation.id,
+      errorDigest: invocation.errorDigest
+    };
   }
   if (!record?.providerInvocation?.workflowRun) {
     throw new Error("GitHub Actions dispatch provider invocation lacks an observed workflow run");
@@ -4468,6 +4545,22 @@ async function verifyProviderReceipt(manifest, record, receipt, contract = null)
   const providerReceipt = receipt.providerReceipt;
   const cwd = manifest.cwd;
   const key = `${record.action}:${record.provider}`;
+  if (key === "actions.dispatch:github-cli" && providerReceipt.dispatchState === "not-sent") {
+    if (record.outcome !== "failure" || record.providerInvocation?.provider !== "github-cli" ||
+        record.providerInvocation?.dispatchState !== "not-sent" ||
+        providerReceipt.invocationId !== record.providerInvocation?.id ||
+        providerReceipt.errorDigest !== record.providerInvocation?.errorDigest ||
+        providerReceipt.responseDigest !== digestObject(actionsDispatchNotSentReceiptResponse(record, record.providerInvocation))) {
+      throw new Error("GitHub Actions not-sent proof is not bound to the host preflight invocation");
+    }
+    assertRecomputedProviderReceipt(
+      providerReceipt,
+      actionsDispatchReceiptRequest(record),
+      actionsDispatchNotSentReceiptResponse(record, record.providerInvocation),
+      `github:${canonicalGitHubRepository(record.dispatchRepository)}:actions.dispatch:not-sent:${record.runId}:${record.attemptId}`
+    );
+    return;
+  }
   if (key === "git.push:git" || key === "remote.sync:git") {
     const currentSourceBinding = await assertCurrentGitPushSourceBinding(manifest, record.sourceBindingDigest);
     if (
@@ -6603,8 +6696,8 @@ export async function resumeActionsDispatchObservation(root, runId, attemptId) {
     return action;
   }
   const observationStartedAt = invocation.observationStartedAt ?? invocation.dispatchedAt;
-  if (invocation.exitCode !== 0 || typeof observationStartedAt !== "string") {
-    throw new Error("Resumable GitHub Actions dispatch reconciliation requires a successful provider invocation with a dispatch timestamp");
+  if (!Number.isInteger(invocation.exitCode) || typeof observationStartedAt !== "string") {
+    throw new Error("Resumable GitHub Actions dispatch reconciliation requires a recorded provider exit code and dispatch timestamp");
   }
   const manifest = await readJson(root, safeJoin(runDir, "manifest.json"));
   const providerExecutablePath = await verifyRecordedGitHubProvider(manifest, action);
@@ -7473,11 +7566,18 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
     ) {
       throw new Error("Successful Git push reconciliation requires the governed actor-bound provider wrapper");
     }
+    const notSentDispatchFailure = (
+      record.action === "actions.dispatch" &&
+      outcome === "failure" &&
+      record.providerInvocation?.dispatchState === "not-sent"
+    );
     if (
       record.action === "actions.dispatch" &&
+      !notSentDispatchFailure &&
+      // A nonzero CLI exit is not itself a provider conclusion: a nonce-bound
+      // completed run remains authoritative and may be reconciled without retry.
       (!record.providerInvocation ||
         record.providerInvocation.provider !== "github-cli" ||
-        record.providerInvocation.exitCode !== 0 ||
         record.providerInvocation.dispatchState !== "sent" ||
         digestObject(record.providerInvocation.providerExecutable) !== digestObject(record.providerExecutable) ||
         digestObject(record.providerInvocation.providerAuthorizationExecutable) !== digestObject(record.providerAuthorizationExecutable) ||

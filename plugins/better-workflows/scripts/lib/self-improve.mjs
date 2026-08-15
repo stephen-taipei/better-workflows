@@ -139,6 +139,7 @@ const PUBLIC_DOCUMENT_SAMPLE_PRIORITY = new Map([
 function allowedCandidateMaterial(file) {
   return PUBLIC_ROOT_DOCUMENTS.has(file) ||
     PUBLIC_ROOT_SCRIPTS.has(file) ||
+    file === ".github/workflows/ci.yml" ||
     /^docs\/README\.(?:zh-TW|zh-CN|ja|ko)\.md$/.test(file) ||
     /^docs\/details\/(?:en|zh-TW|zh-CN|ja|ko)\.md$/.test(file) ||
     /^docs\/guide\/(?:architecture|cli-reference|getting-started|readme-quality|security|workflows)\.md$/.test(file) ||

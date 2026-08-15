@@ -2075,6 +2075,14 @@ test("GitHub Actions dispatch adapter binds a fixed command and one observed run
   assert.equal(receipt.repository, "github.com/example/repo");
   assert.equal(receipt.executionId, "github:github.com/example/repo:actions.dispatch:12345");
   assertProviderReceiptShape(record, receipt, "success");
+  const observedNonzeroReceipt = buildActionsDispatchProviderReceipt({
+    ...record,
+    providerInvocation: { ...record.providerInvocation, exitCode: 23 }
+  }, "success");
+  assert.doesNotThrow(() => assertProviderReceiptShape({
+    ...record,
+    providerInvocation: { ...record.providerInvocation, exitCode: 23 }
+  }, observedNonzeroReceipt, "success"));
   const failedRecord = {
     ...record,
     providerInvocation: {
@@ -2133,6 +2141,96 @@ test("GitHub Actions dispatch adapter binds a fixed command and one observed run
     }),
     /provider invocation is incomplete/
   );
+});
+
+test("GitHub Actions preflight failure has an explicit not-sent terminal proof", async () => {
+  const remoteRevision = "a".repeat(40);
+  const dispatchNonce = "c".repeat(32);
+  const inputs = { sbw_dispatch_nonce: dispatchNonce, sbw_expected_revision: remoteRevision };
+  const invocation = {
+    id: "github-actions-dispatch-wrapper:run:not-sent",
+    provider: "github-cli",
+    dispatchState: "not-sent",
+    exitCode: null,
+    startedAt: "2026-08-15T00:00:00.000Z",
+    finishedAt: "2026-08-15T00:00:01.000Z",
+    errorDigest: "e".repeat(64)
+  };
+  const record = {
+    action: "actions.dispatch",
+    provider: "github-cli",
+    resource: "workflow:.github/workflows/ci.yml",
+    remoteRevision,
+    dispatchRepository: "github.com/example/repo",
+    workflowFile: ".github/workflows/ci.yml",
+    dispatchRef: "dev",
+    dispatchNonce,
+    dispatchInputs: inputs,
+    dispatchInputsDigest: digestObject(inputs),
+    workflowDispatchCapabilityDigest: "d".repeat(64),
+    dispatchCommand: ["gh", "workflow", "run", ".github/workflows/ci.yml", "--repo", "example/repo", "--ref", "dev"],
+    providerExecutable: { path: "/usr/local/bin/gh", digest: "b".repeat(64) },
+    providerAuthorizationExecutable: { path: "/usr/local/bin/gh", digest: "b".repeat(64) },
+    providerAuthorization: { provider: "github-cli", repository: "github.com/example/repo", actor: "alice" },
+    runId: "sbw-20260814T000000Z-000000000000",
+    attemptId: "not-sent-attempt",
+    idempotencyKey: "not-sent-idempotency",
+    providerInvocation: invocation
+  };
+  const receipt = buildActionsDispatchProviderReceipt(record, "failure");
+  assert.equal(receipt.created, false);
+  assert.equal(receipt.dispatchState, "not-sent");
+  assert.equal(receipt.terminalState, "failure");
+  assertProviderReceiptShape(record, receipt, "failure");
+  assert.throws(
+    () => buildActionsDispatchProviderReceipt(record, "success"),
+    /only reconcile as terminal failure/
+  );
+
+  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-actions-dispatch-not-sent-reconcile-"));
+  const repository = path.join(stateRoot, "repository");
+  try {
+    await mkdir(repository, { recursive: true });
+    await execFileAsync("git", ["init", "-q", "-b", "dev"], { cwd: repository });
+    await execFileAsync("git", ["config", "user.email", "sbw@example.invalid"], { cwd: repository });
+    await execFileAsync("git", ["config", "user.name", "SBW Test"], { cwd: repository });
+    await writeFile(path.join(repository, "README.md"), "not-sent dispatch\n");
+    await execFileAsync("git", ["add", "README.md"], { cwd: repository });
+    await execFileAsync("git", ["commit", "-qm", "not-sent dispatch baseline"], { cwd: repository });
+    const run = await createRun({
+      root: stateRoot,
+      contract: contract({ authority: ["actions.dispatch"], remoteRevision }),
+      requestedMode: "critical",
+      cwd: repository
+    });
+    const action = {
+      ...record,
+      runId: run.runId,
+      tokenHash: sha256("not-sent-reconcile-token"),
+      status: "spent",
+      outcome: "pending",
+      providerInvocation: { ...invocation, actionAttemptId: "not-sent-reconcile-attempt" },
+      attemptId: "not-sent-reconcile-attempt"
+    };
+    const actionPath = path.join(stateRoot, "runs", run.runId, "actions", `${action.tokenHash}.json`);
+    await writeFile(actionPath, `${JSON.stringify(action)}\n`);
+    const actionReceipt = {
+      action: action.action,
+      provider: action.provider,
+      resource: action.resource,
+      outcome: "failure",
+      runId: action.runId,
+      attemptId: action.attemptId,
+      idempotencyKey: action.idempotencyKey,
+      remoteRevision: action.remoteRevision,
+      providerReceipt: buildActionsDispatchProviderReceipt(action, "failure")
+    };
+    const reconciled = await reconcileAction(stateRoot, run.runId, action.attemptId, "failure", actionReceipt);
+    assert.equal(reconciled.outcome, "failure");
+    assert.equal(reconciled.receipt.providerReceipt.created, false);
+  } finally {
+    await rm(stateRoot, { recursive: true, force: true });
+  }
 });
 
 test("GitHub Actions failure conclusion is reconciled against live provider state", async () => {
@@ -2210,7 +2308,7 @@ fi
     providerExecutable,
     providerAuthorizationExecutable: providerExecutable,
     providerAuthorization,
-    exitCode: 0,
+    exitCode: 23,
     dispatchState: "sent",
     workflowRun
   };
@@ -2415,7 +2513,7 @@ fi
       providerAuthorization,
       startedAt: dispatchedAt,
       finishedAt: dispatchedAt,
-      exitCode: 0,
+      exitCode: 23,
       dispatchState: "sent-or-indeterminate",
       preexistingRunIds: ["100"],
       dispatchedAt,

@@ -1056,6 +1056,33 @@ test("sanitizer redacts ownerToken display identifiers before secret scanning", 
   }
 });
 
+test("sanitizer admits only the explicitly allowlisted CI workflow", async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), "sbw-ci-workflow-allowlist-"));
+  try {
+    const allowed = ".github/workflows/ci.yml";
+    const denied = ".github/workflows/release.yml";
+    await mkdir(path.dirname(path.join(cwd, allowed)), { recursive: true });
+    await writeFile(path.join(cwd, allowed), "name: CI\non:\n  workflow_dispatch:\njobs: {}\n");
+    await writeFile(path.join(cwd, denied), "name: Release\n");
+    const [material] = await readSanitizedCandidateMaterial({
+      cwd,
+      snapshot: { files: [await snapshotFile(cwd, allowed)] },
+      maxFiles: 1
+    });
+    assert.equal(material.path, allowed);
+    await assert.rejects(
+      readSanitizedCandidateMaterial({
+        cwd,
+        snapshot: { files: [await snapshotFile(cwd, denied)] },
+        maxFiles: 1
+      }),
+      /outside the sanitized allowlist/
+    );
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test("sanitizer preserves distinct non-secret ownerToken expressions", async () => {
   const cwd = await mkdtemp(path.join(os.tmpdir(), "sbw-owner-token-expression-"));
   try {
@@ -1564,15 +1591,13 @@ test("candidate sanitizer admits public generated surfaces without sending binar
     );
     const workflowFile = ".github/workflows/ci.yml";
     await mkdir(path.dirname(path.join(cwd, workflowFile)), { recursive: true });
-    await writeFile(path.join(cwd, workflowFile), "name: untrusted\n");
-    await assert.rejects(
-      readSanitizedCandidateMaterial({
-        cwd,
-        snapshot: { files: [await snapshotFile(cwd, workflowFile)] },
-        maxFiles: 1
-      }),
-      /outside the sanitized allowlist/
-    );
+    await writeFile(path.join(cwd, workflowFile), "name: CI\n");
+    const [workflowMaterial] = await readSanitizedCandidateMaterial({
+      cwd,
+      snapshot: { files: [await snapshotFile(cwd, workflowFile)] },
+      maxFiles: 1
+    });
+    assert.equal(workflowMaterial.path, workflowFile);
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }
