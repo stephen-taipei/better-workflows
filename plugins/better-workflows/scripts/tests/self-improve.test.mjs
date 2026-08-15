@@ -42,6 +42,16 @@ import {
 
 const execFileAsync = promisify(execFile);
 
+async function snapshotFile(cwd, file) {
+  const content = await readFile(path.join(cwd, file));
+  return {
+    path: file,
+    state: "file",
+    digest: sha256(content),
+    size: content.length
+  };
+}
+
 const suite = JSON.parse(await readFile(path.join(pluginRoot(), "fixtures", "self-improve-ops-evals.json"), "utf8"));
 const suiteV2 = JSON.parse(await readFile(path.join(pluginRoot(), "fixtures", "self-improve-ops-evals-v2.json"), "utf8"));
 const suiteV21Bytes = await readFile(path.join(pluginRoot(), "fixtures", "self-improve-ops-evals-v2.1.json"));
@@ -852,7 +862,7 @@ test("balanced sanitizer covers every changed material group under the 24-file a
       await mkdir(path.dirname(path.join(cwd, file)), { recursive: true });
       const content = "x".repeat(12 * 1024);
       await writeFile(path.join(cwd, file), content);
-      files.push({ path: file, state: "file", digest: String(index).padStart(64, "0"), size: content.length });
+      files.push({ path: file, state: "file", digest: sha256(content), size: content.length });
     }
     const material = await readSanitizedCandidateMaterial({ cwd, snapshot: { files }, maxFiles: 24, maxBytes: 96 * 1024 });
     assert.ok(material.length <= 24);
@@ -941,7 +951,7 @@ test("syntax-aware evidence indexes ignore comments, strings, and regex literals
     ].join("\n"));
     const [material] = await readSanitizedCandidateMaterial({
       cwd,
-      snapshot: { files: [{ path: source, state: "file", digest: "f".repeat(64) }] },
+      snapshot: { files: [await snapshotFile(cwd, source)] },
       maxFiles: 1
     });
     assert.deepEqual(material.evidenceIndex.exportedSymbols, ["verifiedExecutableSymbol"]);
@@ -970,7 +980,7 @@ test("sanitizer redacts secret-shaped public test fixtures but still rejects non
     await writeFile(path.join(cwd, fixture), `const stripe = ${JSON.stringify(stripeFixture)};\nconst slack = ${JSON.stringify(slackFixture)};\ncredentials: { password: stripe };\n`);
     const [material] = await readSanitizedCandidateMaterial({
       cwd,
-      snapshot: { files: [{ path: fixture, state: "file", digest: "d".repeat(64) }] },
+      snapshot: { files: [await snapshotFile(cwd, fixture)] },
       maxFiles: 1
     });
     assert.equal(material.redacted, true);
@@ -983,7 +993,7 @@ test("sanitizer redacts secret-shaped public test fixtures but still rejects non
     await assert.rejects(
       readSanitizedCandidateMaterial({
         cwd,
-        snapshot: { files: [{ path: source, state: "file", digest: "e".repeat(64) }] },
+        snapshot: { files: [await snapshotFile(cwd, source)] },
         maxFiles: 1
       }),
       /secret-shaped content/
@@ -995,7 +1005,7 @@ test("sanitizer redacts secret-shaped public test fixtures but still rejects non
     await assert.rejects(
       readSanitizedCandidateMaterial({
         cwd,
-        snapshot: { files: [{ path: standaloneTokenSource, state: "file", digest: "f".repeat(64) }] },
+        snapshot: { files: [await snapshotFile(cwd, standaloneTokenSource)] },
         maxFiles: 1
       }),
       /secret-shaped content/
@@ -1010,7 +1020,7 @@ test("sanitizer redacts secret-shaped public test fixtures but still rejects non
       await assert.rejects(
         readSanitizedCandidateMaterial({
           cwd,
-          snapshot: { files: [{ path: familySource, state: "file", digest: "a".repeat(64) }] },
+          snapshot: { files: [await snapshotFile(cwd, familySource)] },
           maxFiles: 1
         }),
         /secret-shaped content/
@@ -1033,7 +1043,7 @@ test("sanitizer redacts ownerToken display identifiers before secret scanning", 
     await writeFile(path.join(cwd, source), ownerTokenMaterial);
     const [material] = await readSanitizedCandidateMaterial({
       cwd,
-      snapshot: { files: [{ path: source, state: "file", digest: sha256(ownerTokenMaterial) }] },
+      snapshot: { files: [await snapshotFile(cwd, source)] },
       maxFiles: 1
     });
     assert.equal(material.redacted, true);
@@ -1077,7 +1087,7 @@ test("balanced sanitizer prioritizes public entry and security documents within 
     const material = await readSanitizedCandidateMaterial({
       cwd,
       snapshot: {
-        files: files.map((file) => ({ path: file, state: "file", digest: "c".repeat(64) }))
+        files: await Promise.all(files.map((file) => snapshotFile(cwd, file)))
       },
       maxFiles: 10
     });
@@ -1107,7 +1117,8 @@ test("bounded README sampling preserves the model-brand and transport boundary",
       files: [{
         path: file,
         state: "file",
-        digest: createHash("sha256").update(content).digest("hex")
+        digest: createHash("sha256").update(content).digest("hex"),
+        size: content.length
       }]
     },
     maxFiles: 1,
@@ -1441,7 +1452,7 @@ test("candidate sanitizer admits declared public docs and checks all paths befor
     const material = await readSanitizedCandidateMaterial({
       cwd,
       snapshot: {
-        files: publicFiles.map((file) => ({ path: file, state: "file", digest: "a".repeat(64) }))
+        files: await Promise.all(publicFiles.map((file) => snapshotFile(cwd, file)))
       },
       maxFiles: publicFiles.length
     });
@@ -1452,7 +1463,7 @@ test("candidate sanitizer admits declared public docs and checks all paths befor
       const file = `plugins/better-workflows/config/safe-${String(index).padStart(2, "0")}.json`;
       await mkdir(path.dirname(path.join(cwd, file)), { recursive: true });
       await writeFile(path.join(cwd, file), "{}\n");
-      allowed.push({ path: file, state: "file", digest: "b".repeat(64) });
+      allowed.push(await snapshotFile(cwd, file));
     }
     await writeFile(path.join(cwd, "zz-private.txt"), "must remain outside the bundle\n");
     await writeFile(path.join(cwd, "scripts/other-publisher.mjs"), "must remain outside the bundle\n");
@@ -1491,22 +1502,16 @@ test("candidate sanitizer admits public generated surfaces without sending binar
       "docs/html/assets/control-plane.webp",
       "docs/html/use-cases/assets/hero.webp"
     ];
+    const binaryBytes = Buffer.from([0x52, 0x49, 0xff, 0x00, 0x01]);
     for (const file of textFiles) {
       await mkdir(path.dirname(path.join(cwd, file)), { recursive: true });
       await writeFile(path.join(cwd, file), `public generated material for ${file}\n`);
     }
     for (const file of binaryFiles) {
       await mkdir(path.dirname(path.join(cwd, file)), { recursive: true });
-      await writeFile(path.join(cwd, file), Buffer.from([0x52, 0x49, 0xff, 0x00, 0x01]));
+      await writeFile(path.join(cwd, file), binaryBytes);
     }
-    const binaryBytes = Buffer.from([0x52, 0x49, 0xff, 0x00, 0x01]);
-    const binaryDigest = sha256(binaryBytes);
-    const files = [...textFiles, ...binaryFiles].map((file, index) => ({
-      path: file,
-      state: "file",
-      digest: binaryFiles.includes(file) ? binaryDigest : String(index + 1).padStart(64, "0"),
-      size: binaryFiles.includes(file) ? binaryBytes.length : 1
-    }));
+    const files = await Promise.all([...textFiles, ...binaryFiles].map((file) => snapshotFile(cwd, file)));
     const material = await readSanitizedCandidateMaterial({ cwd, snapshot: { files }, maxFiles: files.length });
     assert.deepEqual(material.map((item) => item.path).sort(), files.map((item) => item.path).sort());
     for (const item of material.filter((value) => binaryFiles.includes(value.path))) {
@@ -1523,6 +1528,14 @@ test("candidate sanitizer admits public generated surfaces without sending binar
       readSanitizedCandidateMaterial({
         cwd,
         snapshot: { files: files.map((file) => file.path === binaryFiles[0] ? { ...file, digest: "0".repeat(64) } : file) },
+        maxFiles: files.length
+      }),
+      /material bytes do not match the candidate snapshot/
+    );
+    await assert.rejects(
+      readSanitizedCandidateMaterial({
+        cwd,
+        snapshot: { files: files.map((file) => file.path === textFiles[0] ? { ...file, digest: "0".repeat(64) } : file) },
         maxFiles: files.length
       }),
       /material bytes do not match the candidate snapshot/

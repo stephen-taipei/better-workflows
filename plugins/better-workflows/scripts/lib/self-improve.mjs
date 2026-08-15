@@ -1118,11 +1118,11 @@ async function readBalancedSanitizedMaterial({ snapshot, maxFiles, maxBytes, rea
     const baseFileBudget = Math.floor(budget / groupFiles.length);
     let fileRemainder = budget - baseFileBudget * groupFiles.length;
     for (const file of groupFiles) {
+      const content = validateSanitizedMaterialBytes(file, await readContent(file), label);
       if (DIGEST_ONLY_MATERIAL_PATH.test(file.path)) {
-        // Do not treat a digest as proof of bytes we never read. Verify the
-        // authoritative candidate blob, then omit only its content from the
-        // bounded prompt material.
-        validateSanitizedMaterialBytes(file, await readContent(file), label);
+        // Do not treat a digest as proof of bytes we never read. The
+        // authoritative candidate blob was verified above, then omit only
+        // its content from the bounded prompt material.
         material.push({
           path: file.path,
           materialGroup: group,
@@ -1136,7 +1136,6 @@ async function readBalancedSanitizedMaterial({ snapshot, maxFiles, maxBytes, rea
         fileRemainder = Math.max(0, fileRemainder - 1);
         continue;
       }
-      const content = await readContent(file);
       if (content.includes(0)) throw new Error(`${label} material is not text: ${file.path}`);
       const text = content.toString("utf8");
       if (Buffer.byteLength(text, "utf8") !== content.length) throw new Error(`${label} material is not valid UTF-8: ${file.path}`);

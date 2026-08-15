@@ -223,7 +223,7 @@ exec /usr/bin/git "$@"
   }
 });
 
-test("release eligibility compares the final commit with its first parent", async () => {
+test("release eligibility uses the validated push-event parent across multi-commit integration", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "sbw-release-tag-parent-"));
   const bare = path.join(root, "origin.git");
   const work = path.join(root, "work");
@@ -268,17 +268,38 @@ test("release eligibility compares the final commit with its first parent", asyn
         GITHUB_REPOSITORY: "example/repo",
         GITHUB_SHA: head,
         GITHUB_TOKEN: "test-token",
-        GITHUB_API_URL: "https://api.github.com"
+        GITHUB_API_URL: "https://api.github.com",
+        RELEASE_TAG_DRY_RUN: "1"
       }
     });
     assert.equal(intermediate, await git(work, ["rev-parse", `${head}^1`]));
     assert.deepEqual(result, {
-      status: "skipped",
-      reason: "release-version-unchanged",
+      status: "planned",
+      tag: `v3.4.13-dev.${head.slice(0, 12)}`,
       branch: "dev",
       sha: head,
-      version: "3.4.13"
+      version: "3.4.13",
+      pullNumber: 9
     });
+    const unrelatedTree = await git(work, ["rev-parse", `${head}^{tree}`]);
+    const unrelatedBefore = await git(work, ["commit-tree", unrelatedTree, "-m", "unrelated event parent"]);
+    await assert.rejects(
+      runReleaseTag({
+        cwd: work,
+        fetchImpl,
+        env: {
+          GITHUB_EVENT_NAME: "push",
+          GITHUB_EVENT_BEFORE: unrelatedBefore,
+          GITHUB_REF_NAME: "dev",
+          GITHUB_REPOSITORY: "example/repo",
+          GITHUB_SHA: head,
+          GITHUB_TOKEN: "test-token",
+          GITHUB_API_URL: "https://api.github.com",
+          RELEASE_TAG_DRY_RUN: "1"
+        }
+      }),
+      /is not an ancestor of event SHA/
+    );
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -40,7 +40,7 @@ async function readJsonAtCommit(cwd, revision, relativePath) {
   try {
     const raw = await git(cwd, ["show", `${revision}:${relativePath}`]);
     return JSON.parse(raw);
-  } catch (error) {
+  } catch {
     if (String(error.message).includes("does not exist in")) return null;
     throw error;
   }
@@ -137,11 +137,19 @@ async function remoteTag(cwd, tag) {
   return parseRemoteTagCommit(output);
 }
 
-async function firstParentRevision(cwd, revision) {
-  const output = await git(cwd, ["rev-list", "--parents", "-n", "1", revision]);
-  const [observed, parent] = output.split(/\s+/);
-  if (observed !== revision) throw new Error(`Commit parent lookup returned a different revision: ${observed}`);
-  return parent ? releaseTagParentRevision(parent) : null;
+async function validatedEventBeforeRevision(cwd, before, head) {
+  const targetParent = releaseTagParentRevision(before);
+  if (targetParent === null) return null;
+  const observed = await git(cwd, ["rev-parse", "--verify", `${targetParent}^{commit}`]);
+  if (observed !== targetParent) {
+    throw new Error(`Push event before revision lookup returned a different revision: ${observed}`);
+  }
+  try {
+    await git(cwd, ["merge-base", "--is-ancestor", targetParent, head]);
+  } catch {
+    throw new Error(`Push event before revision ${targetParent} is not an ancestor of event SHA ${head}; refusing release eligibility`);
+  }
+  return targetParent;
 }
 
 export async function runReleaseTag({ env = process.env, cwd = process.cwd(), fetchImpl = fetch } = {}) {
@@ -173,7 +181,7 @@ export async function runReleaseTag({ env = process.env, cwd = process.cwd(), fe
     return { status: "skipped", reason: "commit-is-not-an-exact-merged-pr-result", branch, sha };
   }
 
-  const targetParent = await firstParentRevision(cwd, sha);
+  const targetParent = await validatedEventBeforeRevision(cwd, env.GITHUB_EVENT_BEFORE, sha);
   const [current, previous] = await Promise.all([
     currentVersion(cwd),
     previousVersion(cwd, targetParent)
