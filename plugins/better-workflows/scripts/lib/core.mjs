@@ -3977,15 +3977,19 @@ async function readBoundGitHubRefRevision(cwd, repository, ref, executablePath) 
   return revision;
 }
 
-async function readBoundGitHubDispatchRefRevision(cwd, repository, dispatchRef, executablePath) {
+export function githubDispatchRefEndpoint(repository, dispatchRef) {
   if (!repository.startsWith("github.com/") || !WORKFLOW_REF.test(dispatchRef)) {
     throw new Error("Bound GitHub workflow dispatch ref observation requires a canonical repository and ref");
   }
   const repositoryPath = repository.slice("github.com/".length);
+  return `repos/${repositoryPath}/commits/${encodeURIComponent(dispatchRef)}`;
+}
+
+async function readBoundGitHubDispatchRefRevision(cwd, repository, dispatchRef, executablePath) {
   const actual = await readBoundGitHubApi(
     cwd,
     executablePath,
-    `repos/${repositoryPath}/commits/${dispatchRef}`
+    githubDispatchRefEndpoint(repository, dispatchRef)
   );
   const revision = actual?.sha;
   if (!SHA.test(revision ?? "")) {
@@ -7322,7 +7326,6 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
     }
     if (
       record.action === "actions.dispatch" &&
-      outcome === "success" &&
       (!record.providerInvocation ||
         record.providerInvocation.provider !== "github-cli" ||
         record.providerInvocation.exitCode !== 0 ||
@@ -7334,7 +7337,7 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
         !record.providerInvocation.workflowRun ||
         receipt.providerReceipt.invocationId !== record.providerInvocation.id)
     ) {
-      throw new Error("Successful GitHub Actions dispatch reconciliation requires the governed provider wrapper");
+      throw new Error("GitHub Actions dispatch reconciliation requires the governed provider wrapper");
     }
     const duplicateExecution = records.some((candidate) => (
       candidate.tokenHash !== record.tokenHash &&

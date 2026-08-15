@@ -50,6 +50,7 @@ import {
   evaluateCompletion,
   getCodexPluginCacheRoot,
   getStateRoot,
+  githubDispatchRefEndpoint,
   inspectRun,
   issueActionToken,
   loadDefaults,
@@ -82,6 +83,17 @@ import { checkPluginCache, publishPluginCache, verifyPluginCacheReady } from "..
 
 const execFileAsync = promisify(execFile);
 const SBW_CLI = fileURLToPath(new URL("../sbw.mjs", import.meta.url));
+
+test("GitHub Actions dispatch ref endpoints encode slash-containing refs as one path parameter", () => {
+  assert.equal(
+    githubDispatchRefEndpoint("github.com/example/repo", "release/3.4"),
+    "repos/example/repo/commits/release%2F3.4"
+  );
+  assert.equal(
+    githubDispatchRefEndpoint("github.com/example/repo", "refs/tags/v3.4.0"),
+    "repos/example/repo/commits/refs%2Ftags%2Fv3.4.0"
+  );
+});
 
 test("branch ref authority accepts only exact absence and strict commit output", async () => {
   const absent = {
@@ -2191,6 +2203,7 @@ fi
     provider: "github-cli",
     command: ["gh", "workflow", "run", workflowFile, "--repo", "example/repo", "--ref", "dev"],
     providerExecutable,
+    providerAuthorizationExecutable: providerExecutable,
     providerAuthorization,
     exitCode: 0,
     dispatchState: "sent",
@@ -2218,6 +2231,7 @@ fi
     workflowDispatchCapabilityDigest: digestObject(workflowDispatchCapability),
     dispatchCommand: providerInvocation.command,
     providerExecutable,
+    providerAuthorizationExecutable: providerExecutable,
     providerAuthorization,
     providerInvocation
   };
@@ -2237,6 +2251,18 @@ fi
   const priorPath = process.env.PATH;
   process.env.PATH = `${bin}:${priorPath}`;
   try {
+    await writeFile(
+      path.join(runDir, "actions", `${tokenHash}.json`),
+      `${JSON.stringify({
+        ...action,
+        providerInvocation: { ...providerInvocation, providerAuthorizationExecutable: undefined }
+      })}\n`
+    );
+    await assert.rejects(
+      reconcileAction(root, run.runId, attemptId, "failure", actionReceipt),
+      /governed provider wrapper/
+    );
+    await writeFile(path.join(runDir, "actions", `${tokenHash}.json`), `${JSON.stringify(action)}\n`);
     await writeFile(responsePath, `${JSON.stringify({
       databaseId: 12345,
       workflowName: "Release",
