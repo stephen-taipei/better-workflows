@@ -40,8 +40,8 @@ async function readJsonAtCommit(cwd, revision, relativePath) {
   try {
     const raw = await git(cwd, ["show", `${revision}:${relativePath}`]);
     return JSON.parse(raw);
-  } catch {
-    if (String(error.message).includes("does not exist in")) return null;
+  } catch (error) {
+    if (/(?:does not exist in|exists on disk, but not in)/.test(String(error.message))) return null;
     throw error;
   }
 }

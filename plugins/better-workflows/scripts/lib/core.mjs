@@ -1610,6 +1610,26 @@ export function assertProviderReceiptShape(record, providerReceipt, outcome = re
     throw new Error("GitHub Actions dispatch receipt resource is not bound to workflowFile");
   }
   if (record.action === "actions.dispatch") {
+    const dispatchShapeComplete = (
+      providerReceipt.created === true &&
+      typeof providerReceipt.runId === "string" &&
+      /^\d+$/.test(providerReceipt.runId) &&
+      typeof providerReceipt.url === "string" && providerReceipt.url.length > 0 &&
+      typeof providerReceipt.repository === "string" &&
+      providerReceipt.repository === canonicalGitHubRepository(record.dispatchRepository) &&
+      typeof providerReceipt.workflowName === "string" && providerReceipt.workflowName.length > 0 &&
+      typeof providerReceipt.workflowFile === "string" && providerReceipt.workflowFile === record.workflowFile &&
+      typeof providerReceipt.ref === "string" && providerReceipt.ref === record.dispatchRef &&
+      typeof providerReceipt.headSha === "string" && SHA.test(providerReceipt.headSha) &&
+      providerReceipt.headSha === record.remoteRevision &&
+      typeof providerReceipt.dispatchNonce === "string" && providerReceipt.dispatchNonce === record.dispatchNonce &&
+      typeof providerReceipt.displayTitle === "string" && providerReceipt.displayTitle.includes(record.dispatchNonce) &&
+      typeof providerReceipt.dispatchInputsDigest === "string" && SHA256_DIGEST.test(providerReceipt.dispatchInputsDigest) &&
+      typeof providerReceipt.workflowDispatchCapabilityDigest === "string" &&
+      providerReceipt.workflowDispatchCapabilityDigest === record.workflowDispatchCapabilityDigest &&
+      typeof providerReceipt.invocationId === "string" && providerReceipt.invocationId === record.providerInvocation?.id
+    );
+    if (!dispatchShapeComplete) throw new Error("GitHub Actions dispatch proof is incomplete");
     if (outcome === "unknown" && providerReceipt.terminalState !== "unknown") {
       throw new Error("Unknown GitHub Actions dispatch outcome must remain indeterminate");
     }
@@ -1725,29 +1745,6 @@ export function assertProviderReceiptShape(record, providerReceipt, outcome = re
       typeof providerReceipt.url !== "string" || !providerReceipt.url)
   ) {
     throw new Error("GitHub issue creation proof is incomplete");
-  }
-  if (
-    outcome === "success" &&
-    record.action === "actions.dispatch" &&
-    (!providerReceipt.created || typeof providerReceipt.runId !== "string" || !providerReceipt.runId ||
-      !/^\d+$/.test(providerReceipt.runId) ||
-      typeof providerReceipt.url !== "string" || !providerReceipt.url ||
-      typeof providerReceipt.repository !== "string" || providerReceipt.repository !== canonicalGitHubRepository(record.dispatchRepository) ||
-      typeof providerReceipt.workflowName !== "string" || !providerReceipt.workflowName ||
-      typeof providerReceipt.workflowFile !== "string" || providerReceipt.workflowFile !== record.workflowFile ||
-      typeof providerReceipt.ref !== "string" || providerReceipt.ref !== record.dispatchRef ||
-      typeof providerReceipt.headSha !== "string" || !SHA.test(providerReceipt.headSha) || providerReceipt.headSha !== record.remoteRevision ||
-      typeof providerReceipt.dispatchNonce !== "string" || providerReceipt.dispatchNonce !== record.dispatchNonce ||
-      typeof providerReceipt.displayTitle !== "string" || !providerReceipt.displayTitle.includes(record.dispatchNonce) ||
-      typeof providerReceipt.dispatchInputsDigest !== "string" || !SHA256_DIGEST.test(providerReceipt.dispatchInputsDigest) ||
-      typeof providerReceipt.workflowDispatchCapabilityDigest !== "string" ||
-      providerReceipt.workflowDispatchCapabilityDigest !== record.workflowDispatchCapabilityDigest ||
-      typeof providerReceipt.invocationId !== "string" || providerReceipt.invocationId !== record.providerInvocation?.id ||
-      providerReceipt.terminalState !== "success" ||
-      providerReceipt.status !== "completed" ||
-      !workflowConclusionIsSuccess(providerReceipt.conclusion))
-  ) {
-    throw new Error("GitHub Actions dispatch proof is incomplete");
   }
   if (
     outcome === "success" &&
