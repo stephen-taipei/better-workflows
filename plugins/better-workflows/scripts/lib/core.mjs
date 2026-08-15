@@ -6652,7 +6652,15 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
         errorDigest: sha256(error?.message ?? "workflow dispatch failed")
       });
       await persistActionProviderInvocation(root, runId, consumed, failedInvocation);
-      return failedInvocation;
+      throw Object.assign(
+        new Error("GitHub Actions dispatch invocation failed; provider state is indeterminate and automatic retry is prohibited", {
+          cause: error
+        }),
+        {
+          code: "SBW_ACTIONS_DISPATCH_INDETERMINATE",
+          providerInvocation: failedInvocation
+        }
+      );
     }
     const dispatchedAt = nowIso();
     try {

@@ -173,6 +173,9 @@ export async function runReleaseTag({ env = process.env, cwd = process.cwd(), fe
   const existingCommit = await remoteTag(cwd, tag);
   if (existingCommit) {
     if (existingCommit !== sha) throw new Error(`${tag} already exists at ${existingCommit}; refusing to retarget it to ${sha}`);
+    if (await remoteHead(cwd, branch) !== sha) {
+      throw new Error(`Remote ${branch} moved before existing release tag reconciliation; refusing to report a stale tag as current`);
+    }
     return { status: "existing", tag, branch, sha, version: current, pullNumber: pull.number };
   }
 

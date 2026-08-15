@@ -176,6 +176,8 @@ function safeRelative(value, label) {
 function sanitizeMaterialText(text, filePath, label) {
   let sanitized = text;
   let redacted = false;
+  sanitized = sanitized.replace(PROMPT_DISPLAY_IDENTIFIER_PATTERN, "ownerRef:");
+  redacted ||= sanitized !== text;
   if (SECRET_PATTERN.test(sanitized)) {
     if (!filePath.startsWith("plugins/better-workflows/scripts/tests/")) {
       throw new Error(`${label} material contains secret-shaped content: ${filePath}`);
@@ -183,8 +185,6 @@ function sanitizeMaterialText(text, filePath, label) {
     sanitized = sanitized.replace(SECRET_PATTERN_GLOBAL, "[redacted-test-fixture]");
     redacted = true;
   }
-  sanitized = sanitized.replace(PROMPT_DISPLAY_IDENTIFIER_PATTERN, "ownerRef:");
-  redacted ||= sanitized !== text;
   if (SECRET_PATTERN.test(sanitized)) {
     throw new Error(`${label} material contains unredactable secret-shaped content: ${filePath}`);
   }

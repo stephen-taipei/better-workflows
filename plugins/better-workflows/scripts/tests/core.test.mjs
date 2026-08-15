@@ -2286,6 +2286,132 @@ test("GitHub Actions dispatch observation lower bound uses provider-start time",
   assert.ok(observationIndex > providerCallIndex);
 });
 
+test("GitHub Actions dispatch invocation failure stays indeterminate and rejects without retry", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-actions-dispatch-invocation-failure-"));
+  const repository = path.join(root, "repository");
+  const bin = path.join(root, "bin");
+  await mkdir(path.join(repository, ".github", "workflows"), { recursive: true });
+  await mkdir(bin, { recursive: true });
+  await execFileAsync("git", ["init", "-q", "-b", "codex/dispatch-failure"], { cwd: repository });
+  await execFileAsync("git", ["config", "user.email", "sbw@example.invalid"], { cwd: repository });
+  await execFileAsync("git", ["config", "user.name", "SBW Test"], { cwd: repository });
+  await execFileAsync("git", ["remote", "add", "origin", "https://github.com/example/repo.git"], { cwd: repository });
+  const workflowFile = ".github/workflows/release.yml";
+  await writeFile(path.join(repository, workflowFile), [
+    "name: Release",
+    "run-name: Release ${{ inputs.sbw_dispatch_nonce }}",
+    "on:",
+    "  workflow_dispatch:",
+    "    inputs:",
+    "      sbw_dispatch_nonce:",
+    "        required: true",
+    "      sbw_expected_revision:",
+    "        required: true",
+    "jobs:",
+    "  release:",
+    "    if: github.sha == inputs.sbw_expected_revision",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - run: echo release"
+  ].join("\n") + "\n");
+  await execFileAsync("git", ["add", "."], { cwd: repository });
+  await execFileAsync("git", ["commit", "-qm", "dispatch failure fixture"], { cwd: repository });
+  const remoteRevision = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repository })).stdout.trim();
+  const taskContract = contract({
+    authority: ["actions.dispatch"],
+    remoteRevision,
+    templateDefinition: {
+      requiredEvidence: ["remote-authorization"],
+      acceptance: [{ id: "done", description: "Dispatch failure is bounded.", critical: true }]
+    }
+  });
+  const run = await createRun({ root, contract: taskContract, requestedMode: "verified", cwd: repository });
+  const resource = `workflow:${workflowFile}`;
+  await addEvidence(root, run.runId, {
+    id: "dispatch-remote-authorization",
+    kind: "remote-authorization",
+    summary: "Dispatch provider authorization",
+    status: "complete",
+    acceptanceIds: [],
+    sourceDigest: sha256(`remote-authorization:actions.dispatch:${remoteRevision}`),
+    receipt: {
+      producer: "github-cli",
+      payload: {
+        action: "actions.dispatch",
+        provider: "github-cli",
+        resource,
+        remoteRevision,
+        repository: "github.com/example/repo",
+        actor: "alice"
+      }
+    }
+  });
+  await updateState(root, run.runId, (state) => ({
+    ...state,
+    lastSentinel: { label: "dispatch-failure-test", digest: "tree" },
+    lastSentinelVerified: true,
+    lastSentinelComplete: true
+  }));
+  const fakeGh = path.join(bin, "gh");
+  const fakeGhScript = `#!/bin/sh
+if [ "$1" = "api" ] && [ "$2" = "user" ]; then
+  printf '%s\\n' '{"login":"alice"}'
+elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo" ]; then
+  printf '%s\\n' '{"full_name":"example/repo","permissions":{"admin":false,"maintain":false,"push":true}}'
+elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo/commits/dev" ]; then
+  printf '%s\\n' '{"sha":"${remoteRevision}"}'
+elif [ "$1" = "run" ] && [ "$2" = "list" ]; then
+  printf '%s\\n' '[]'
+elif [ "$1" = "workflow" ] && [ "$2" = "run" ]; then
+  printf '%s\\n' 'provider dispatch failed before acceptance' >&2
+  exit 23
+else
+  exit 9
+fi
+`;
+  await writeFile(fakeGh, fakeGhScript, { mode: 0o700 });
+  const providerExecutable = { path: await realpath(fakeGh), digest: sha256(fakeGhScript) };
+  const priorPath = process.env.PATH;
+  process.env.PATH = `${bin}:${priorPath}`;
+  try {
+    const issued = await issueActionToken(root, run.runId, {
+      action: "actions.dispatch",
+      provider: "github-cli",
+      resource,
+      scope: "dev",
+      workflowFile,
+      dispatchInputs: { environment: "test" },
+      remoteRevision,
+      requiredEvidence: ["remote-authorization"]
+    }, "tree", await loadDefaults());
+    assert.equal(issued.providerExecutable.path, providerExecutable.path);
+    let failure;
+    await assert.rejects(
+      executeActionToken(root, run.runId, issued.token, "tree"),
+      (error) => {
+        failure = error;
+        return error.code === "SBW_ACTIONS_DISPATCH_INDETERMINATE" &&
+          error.providerInvocation?.dispatchState === "sent-or-indeterminate" &&
+          error.providerInvocation?.exitCode === 23;
+      }
+    );
+    assert.match(failure.message, /automatic retry is prohibited/);
+    const action = (await inspectRun(root, run.runId)).actions.find((item) => item.tokenHash === sha256(issued.token));
+    assert.equal(action.status, "spent");
+    assert.equal(action.outcome, "pending");
+    assert.equal(action.providerInvocation.dispatchState, "sent-or-indeterminate");
+    assert.equal(action.providerInvocation.exitCode, 23);
+    assert.match(action.providerInvocation.errorDigest, /^[a-f0-9]{64}$/);
+    await assert.rejects(
+      executeActionToken(root, run.runId, issued.token, "tree"),
+      /Action token was already consumed/
+    );
+  } finally {
+    process.env.PATH = priorPath;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("GitHub Actions dispatch capability requires nonce-aware workflow metadata", () => {
   const revision = "a".repeat(40);
   const workflow = [

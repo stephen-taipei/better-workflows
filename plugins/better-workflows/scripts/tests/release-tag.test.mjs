@@ -144,3 +144,74 @@ test("release tag fails closed when the atomic branch CAS observes a concurrent 
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("existing release tag revalidates the remote branch tip before returning", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-release-tag-existing-race-"));
+  const bare = path.join(root, "origin.git");
+  const work = path.join(root, "work");
+  const bin = path.join(root, "bin");
+  try {
+    await execFileAsync("git", ["init", "--bare", "-q", bare]);
+    await execFileAsync("git", ["init", "-q", work]);
+    await mkdir(bin, { recursive: true });
+    await git(work, ["config", "user.email", "test@example.invalid"]);
+    await git(work, ["config", "user.name", "release-test"]);
+    await mkdir(path.join(work, "plugins/better-workflows/.codex-plugin"), { recursive: true });
+    await mkdir(path.join(work, "plugins/better-workflows"), { recursive: true });
+    await writeFile(path.join(work, "plugins/better-workflows/package.json"), JSON.stringify({ version: "3.4.12" }));
+    await writeFile(path.join(work, "plugins/better-workflows/.codex-plugin/plugin.json"), JSON.stringify({ version: "3.4.12+codex.test" }));
+    await git(work, ["add", "."]);
+    await git(work, ["commit", "-qm", "base"]);
+    await git(work, ["branch", "-M", "dev"]);
+    await git(work, ["remote", "add", "origin", bare]);
+    await git(work, ["push", "-q", "origin", "dev"]);
+    const base = await git(work, ["rev-parse", "HEAD"]);
+    await writeFile(path.join(work, "plugins/better-workflows/package.json"), JSON.stringify({ version: "3.4.13" }));
+    await writeFile(path.join(work, "plugins/better-workflows/.codex-plugin/plugin.json"), JSON.stringify({ version: "3.4.13+codex.test" }));
+    await git(work, ["add", "."]);
+    await git(work, ["commit", "-qm", "release"]);
+    await git(work, ["push", "-q", "origin", "dev"]);
+    const head = await git(work, ["rev-parse", "HEAD"]);
+    const tag = `v3.4.13-dev.${head.slice(0, 12)}`;
+    await git(work, ["tag", tag, head]);
+    await git(work, ["push", "-q", "origin", `refs/tags/${tag}`]);
+    const shim = path.join(bin, "git");
+    const shimScript = `#!/bin/sh
+if [ "$1" = "ls-remote" ] && [ "$2" = "--tags" ]; then
+  /usr/bin/git --git-dir=${JSON.stringify(bare)} update-ref refs/heads/dev ${base}
+fi
+exec /usr/bin/git "$@"
+`;
+    await writeFile(shim, shimScript, { mode: 0o700 });
+    const fetchImpl = async (url) => {
+      if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
+        return jsonResponse([{ number: 8, base: { ref: "dev" }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: head }]);
+      }
+      throw new Error(`Unexpected release-tag fetch URL: ${url}`);
+    };
+    const priorPath = process.env.PATH;
+    process.env.PATH = `${bin}:${priorPath}`;
+    try {
+      await assert.rejects(
+        runReleaseTag({
+          cwd: work,
+          fetchImpl,
+          env: {
+            GITHUB_EVENT_NAME: "push",
+            GITHUB_EVENT_BEFORE: base,
+            GITHUB_REF_NAME: "dev",
+            GITHUB_REPOSITORY: "example/repo",
+            GITHUB_SHA: head,
+            GITHUB_TOKEN: "test-token",
+            GITHUB_API_URL: "https://api.github.com"
+          }
+        }),
+        /moved before existing release tag reconciliation/
+      );
+    } finally {
+      process.env.PATH = priorPath;
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

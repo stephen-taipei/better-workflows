@@ -1021,6 +1021,25 @@ test("sanitizer redacts secret-shaped public test fixtures but still rejects non
   }
 });
 
+test("sanitizer redacts ownerToken display identifiers before secret scanning", async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), "sbw-owner-token-redaction-"));
+  try {
+    const source = "docs/README.zh-TW.md";
+    await mkdir(path.dirname(path.join(cwd, source)), { recursive: true });
+    await writeFile(path.join(cwd, source), "ownerToken: 00000000-0000-4000-8000-000000000099\n");
+    const [material] = await readSanitizedCandidateMaterial({
+      cwd,
+      snapshot: { files: [{ path: source, state: "file", digest: sha256("ownerToken: 00000000-0000-4000-8000-000000000099\n") }] },
+      maxFiles: 1
+    });
+    assert.equal(material.redacted, true);
+    assert.match(material.content.toString("utf8"), /^ownerRef:/);
+    assert.doesNotMatch(material.content.toString("utf8"), /ownerToken\s*:/);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test("balanced sanitizer prioritizes public entry and security documents within the docs group", async () => {
   const cwd = await mkdtemp(path.join(os.tmpdir(), "sbw-doc-priority-"));
   try {
