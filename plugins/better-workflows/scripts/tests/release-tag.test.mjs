@@ -5,7 +5,7 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { runReleaseTag } from "../release-tag.mjs";
+import { githubGraphqlUrl, runReleaseTag } from "../release-tag.mjs";
 import {
   findMergedPullRequest,
   normalizeStableVersion,
@@ -64,6 +64,13 @@ test("annotated and lightweight remote tags are compared by commit", () => {
   assert.equal(parseRemoteTagCommit(output), SHA);
   assert.equal(remoteTagMatches(output, SHA), true);
   assert.equal(remoteTagMatches(output, "b".repeat(40)), false);
+});
+
+test("GitHub GraphQL endpoint maps GitHub.com and GHES API URLs", () => {
+  assert.equal(githubGraphqlUrl("https://api.github.com"), "https://api.github.com/graphql");
+  assert.equal(githubGraphqlUrl("https://ghe.example/api/v3"), "https://ghe.example/api/graphql");
+  assert.equal(githubGraphqlUrl("https://ghe.example/api/v3/"), "https://ghe.example/api/graphql");
+  assert.equal(githubGraphqlUrl("https://ghe.example/api/graphql"), "https://ghe.example/api/graphql");
 });
 
 test("release tag publication binds branch CAS and tag creation in one atomic GitHub mutation", () => {
@@ -211,6 +218,67 @@ exec /usr/bin/git "$@"
     } finally {
       process.env.PATH = priorPath;
     }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("release eligibility compares the final commit with its first parent", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-release-tag-parent-"));
+  const bare = path.join(root, "origin.git");
+  const work = path.join(root, "work");
+  try {
+    await execFileAsync("git", ["init", "--bare", "-q", bare]);
+    await execFileAsync("git", ["init", "-q", work]);
+    await git(work, ["config", "user.email", "test@example.invalid"]);
+    await git(work, ["config", "user.name", "release-test"]);
+    await mkdir(path.join(work, "plugins/better-workflows/.codex-plugin"), { recursive: true });
+    await mkdir(path.join(work, "plugins/better-workflows"), { recursive: true });
+    await writeFile(path.join(work, "plugins/better-workflows/package.json"), JSON.stringify({ version: "3.4.12" }));
+    await writeFile(path.join(work, "plugins/better-workflows/.codex-plugin/plugin.json"), JSON.stringify({ version: "3.4.12+codex.test" }));
+    await git(work, ["add", "."]);
+    await git(work, ["commit", "-qm", "base"]);
+    await git(work, ["branch", "-M", "dev"]);
+    await git(work, ["remote", "add", "origin", bare]);
+    await git(work, ["push", "-q", "origin", "dev"]);
+    const eventBefore = await git(work, ["rev-parse", "HEAD"]);
+    await writeFile(path.join(work, "plugins/better-workflows/package.json"), JSON.stringify({ version: "3.4.13" }));
+    await writeFile(path.join(work, "plugins/better-workflows/.codex-plugin/plugin.json"), JSON.stringify({ version: "3.4.13+codex.test" }));
+    await git(work, ["add", "."]);
+    await git(work, ["commit", "-qm", "version bump"]);
+    const intermediate = await git(work, ["rev-parse", "HEAD"]);
+    await writeFile(path.join(work, "README.md"), "follow-up commit\n");
+    await git(work, ["add", "README.md"]);
+    await git(work, ["commit", "-qm", "follow-up"]);
+    await git(work, ["push", "-q", "origin", "dev"]);
+    const head = await git(work, ["rev-parse", "HEAD"]);
+    const fetchImpl = async (url) => {
+      if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
+        return jsonResponse([{ number: 9, base: { ref: "dev" }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: head }]);
+      }
+      throw new Error(`Unexpected release-tag fetch URL: ${url}`);
+    };
+    const result = await runReleaseTag({
+      cwd: work,
+      fetchImpl,
+      env: {
+        GITHUB_EVENT_NAME: "push",
+        GITHUB_EVENT_BEFORE: eventBefore,
+        GITHUB_REF_NAME: "dev",
+        GITHUB_REPOSITORY: "example/repo",
+        GITHUB_SHA: head,
+        GITHUB_TOKEN: "test-token",
+        GITHUB_API_URL: "https://api.github.com"
+      }
+    });
+    assert.equal(intermediate, await git(work, ["rev-parse", `${head}^1`]));
+    assert.deepEqual(result, {
+      status: "skipped",
+      reason: "release-version-unchanged",
+      branch: "dev",
+      sha: head,
+      version: "3.4.13"
+    });
   } finally {
     await rm(root, { recursive: true, force: true });
   }

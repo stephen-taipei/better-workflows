@@ -63,7 +63,7 @@ async function repositoryPullRequests({ apiUrl, repository, sha, token, fetchImp
 }
 
 async function githubGraphql({ apiUrl, token, query, variables, fetchImpl = fetch }) {
-  const response = await fetchImpl(`${apiUrl.replace(/\/$/, "")}/graphql`, {
+  const response = await fetchImpl(githubGraphqlUrl(apiUrl), {
     method: "POST",
     headers: {
       Accept: "application/vnd.github+json",
@@ -83,6 +83,12 @@ async function githubGraphql({ apiUrl, token, query, variables, fetchImpl = fetc
     throw new Error("GitHub GraphQL release mutation returned no data");
   }
   return payload.data;
+}
+
+export function githubGraphqlUrl(apiUrl) {
+  const normalized = String(apiUrl ?? "").replace(/\/+$/, "");
+  if (!normalized) throw new Error("GitHub GraphQL endpoint requires a non-empty API URL");
+  return normalized.replace(/\/api\/v3$/i, "/api/graphql").replace(/(?<!\/graphql)$/, "/graphql");
 }
 
 async function githubRepositoryId({ apiUrl, repository, token, fetchImpl = fetch }) {
@@ -131,6 +137,13 @@ async function remoteTag(cwd, tag) {
   return parseRemoteTagCommit(output);
 }
 
+async function firstParentRevision(cwd, revision) {
+  const output = await git(cwd, ["rev-list", "--parents", "-n", "1", revision]);
+  const [observed, parent] = output.split(/\s+/);
+  if (observed !== revision) throw new Error(`Commit parent lookup returned a different revision: ${observed}`);
+  return parent ? releaseTagParentRevision(parent) : null;
+}
+
 export async function runReleaseTag({ env = process.env, cwd = process.cwd(), fetchImpl = fetch } = {}) {
   const eventName = String(env.GITHUB_EVENT_NAME ?? "");
   const branch = String(env.GITHUB_REF_NAME ?? "");
@@ -139,7 +152,6 @@ export async function runReleaseTag({ env = process.env, cwd = process.cwd(), fe
   }
 
   const sha = assertCommitSha(env.GITHUB_SHA);
-  const targetParent = releaseTagParentRevision(env.GITHUB_EVENT_BEFORE);
   const head = await git(cwd, ["rev-parse", "--verify", "HEAD^{commit}"]);
   if (head !== sha) throw new Error(`Checked-out HEAD ${head} does not match event SHA ${sha}`);
   if (await remoteHead(cwd, branch) !== sha) {
@@ -161,6 +173,7 @@ export async function runReleaseTag({ env = process.env, cwd = process.cwd(), fe
     return { status: "skipped", reason: "commit-is-not-an-exact-merged-pr-result", branch, sha };
   }
 
+  const targetParent = await firstParentRevision(cwd, sha);
   const [current, previous] = await Promise.all([
     currentVersion(cwd),
     previousVersion(cwd, targetParent)

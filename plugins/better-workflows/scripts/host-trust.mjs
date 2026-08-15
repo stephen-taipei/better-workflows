@@ -719,7 +719,7 @@ const STANDING_CONSENT_SECRET_PATTERN = [
   "\\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{16,}\\b",
   "\\bAIza[0-9A-Za-z_-]{35}\\b"
 ].join("|");
-const PROMPT_DISPLAY_IDENTIFIER_PATTERN = /\bownerToken\s*:/g;
+const PROMPT_DISPLAY_IDENTIFIER_PATTERN = /(["']?)ownerToken\1\s*:\s*(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,}\]]+)/g;
 const STANDING_CONSENT_REQUIRED_PROMPT_LINES = Object.freeze([
   "You are classifying a staged workflow snapshot using a sanitized, bounded corpus.",
   "Do not use tools, access history, write files, or perform side effects.",
@@ -4239,6 +4239,12 @@ async function reconstructSanitizedMaterial({ repo, subject, revision, snapshot,
       if (Buffer.byteLength(text, "utf8") !== content.length) throw new Error(`Authoritative material is not valid UTF-8: ${file.path}`);
       let sanitized = text;
       let redacted = false;
+      sanitized = sanitized.replace(PROMPT_DISPLAY_IDENTIFIER_PATTERN, (_match, quote) => (
+        quote
+          ? `${quote}ownerRef${quote}: ${quote}[redacted-owner-token]${quote}`
+          : "ownerRef: [redacted-owner-token]"
+      ));
+      redacted ||= sanitized !== text;
       if (secretPattern.test(sanitized)) {
         if (!file.path.startsWith("plugins/better-workflows/scripts/tests/")) {
           throw new Error(`Authoritative material contains secret-shaped content: ${file.path}`);
@@ -4246,8 +4252,6 @@ async function reconstructSanitizedMaterial({ repo, subject, revision, snapshot,
         sanitized = sanitized.replace(secretPatternGlobal, "[redacted-test-fixture]");
         redacted = true;
       }
-      sanitized = sanitized.replace(PROMPT_DISPLAY_IDENTIFIER_PATTERN, "ownerRef:");
-      redacted ||= sanitized !== text;
       if (secretPattern.test(sanitized)) throw new Error(`Authoritative material contains unredactable secret-shaped content: ${file.path}`);
       const sanitizedBytes = Buffer.from(sanitized, "utf8");
       const byteLimit = baseFileBudget + (fileRemainder > 0 ? 1 : 0);

@@ -1026,15 +1026,21 @@ test("sanitizer redacts ownerToken display identifiers before secret scanning", 
   try {
     const source = "docs/README.zh-TW.md";
     await mkdir(path.dirname(path.join(cwd, source)), { recursive: true });
-    await writeFile(path.join(cwd, source), "ownerToken: 00000000-0000-4000-8000-000000000099\n");
+    const ownerTokenMaterial = [
+      "ownerToken: 00000000-0000-4000-8000-000000000099",
+      `\"ownerToken\": \"ghp_${"A".repeat(20)}\"`
+    ].join("\n") + "\n";
+    await writeFile(path.join(cwd, source), ownerTokenMaterial);
     const [material] = await readSanitizedCandidateMaterial({
       cwd,
-      snapshot: { files: [{ path: source, state: "file", digest: sha256("ownerToken: 00000000-0000-4000-8000-000000000099\n") }] },
+      snapshot: { files: [{ path: source, state: "file", digest: sha256(ownerTokenMaterial) }] },
       maxFiles: 1
     });
     assert.equal(material.redacted, true);
     assert.match(material.content.toString("utf8"), /^ownerRef:/);
     assert.doesNotMatch(material.content.toString("utf8"), /ownerToken\s*:/);
+    assert.doesNotMatch(material.content.toString("utf8"), /00000000-0000-4000-8000-000000000099|ghp_[A-Za-z0-9]{20,}/);
+    assert.match(material.content.toString("utf8"), /\[redacted-owner-token\]/);
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }
