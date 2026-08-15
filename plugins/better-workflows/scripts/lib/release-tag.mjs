@@ -38,7 +38,17 @@ export function versionSurfaces(packageJson, pluginManifest) {
 export function versionChanged(currentVersion, previousVersion) {
   const current = normalizeStableVersion(currentVersion);
   if (previousVersion === null || previousVersion === undefined || String(previousVersion).trim() === "") return true;
-  return current !== normalizeStableVersion(previousVersion);
+  return compareStableVersions(current, previousVersion) > 0;
+}
+
+export function compareStableVersions(leftVersion, rightVersion) {
+  const left = normalizeStableVersion(leftVersion).split(".").map(Number);
+  const right = normalizeStableVersion(rightVersion).split(".").map(Number);
+  for (let index = 0; index < left.length; index += 1) {
+    if (left[index] > right[index]) return 1;
+    if (left[index] < right[index]) return -1;
+  }
+  return 0;
 }
 
 export function findMergedPullRequest(pulls, { branch, sha }) {

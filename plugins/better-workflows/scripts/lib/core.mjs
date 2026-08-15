@@ -3442,6 +3442,13 @@ function canonicalWorkflowRef(value) {
   return value;
 }
 
+export function workflowDispatchObservationRef(value) {
+  const ref = canonicalWorkflowRef(value);
+  if (ref.startsWith("refs/heads/")) return ref.slice("refs/heads/".length);
+  if (ref.startsWith("refs/tags/")) return ref.slice("refs/tags/".length);
+  return ref;
+}
+
 function actionsDispatchReceiptRequest(record) {
   return {
     action: record.action,
@@ -6462,6 +6469,7 @@ export function workflowDispatchMinimumCreatedAt(observationStartedAt) {
 
 async function observeDispatchedWorkflow(cwd, record, providerExecutablePath, existingRunIds, observationStartedAt) {
   const known = new Set(existingRunIds.map(String));
+  const expectedHeadBranch = workflowDispatchObservationRef(record.dispatchRef);
   const minimumCreatedAt = workflowDispatchMinimumCreatedAt(observationStartedAt);
   const deadline = Date.now() + WORKFLOW_DISPATCH_OBSERVATION_TIMEOUT_MS;
   while (Date.now() < deadline) {
@@ -6471,7 +6479,7 @@ async function observeDispatchedWorkflow(cwd, record, providerExecutablePath, ex
       const createdAt = Date.parse(run?.createdAt ?? "");
       return (
         /^\d+$/.test(runId) && !known.has(runId) &&
-        run.headBranch === record.dispatchRef &&
+        run.headBranch === expectedHeadBranch &&
         run.headSha === record.remoteRevision &&
         WORKFLOW_DISPATCH_NONCE.test(String(record.dispatchNonce ?? "")) &&
         typeof run.displayTitle === "string" &&

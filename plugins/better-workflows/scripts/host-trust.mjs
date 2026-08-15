@@ -719,7 +719,8 @@ const STANDING_CONSENT_SECRET_PATTERN = [
   "\\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{16,}\\b",
   "\\bAIza[0-9A-Za-z_-]{35}\\b"
 ].join("|");
-const PROMPT_DISPLAY_IDENTIFIER_PATTERN = /(["']?)ownerToken\1\s*:\s*(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,}\]]+)/g;
+const PROMPT_DISPLAY_IDENTIFIER_PATTERN = /(["']?)ownerToken\1\s*:\s*((?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,}\]]+))/g;
+const OWNER_TOKEN_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const STANDING_CONSENT_REQUIRED_PROMPT_LINES = Object.freeze([
   "You are classifying a staged workflow snapshot using a sanitized, bounded corpus.",
   "Do not use tools, access history, write files, or perform side effects.",
@@ -4239,11 +4240,14 @@ async function reconstructSanitizedMaterial({ repo, subject, revision, snapshot,
       if (Buffer.byteLength(text, "utf8") !== content.length) throw new Error(`Authoritative material is not valid UTF-8: ${file.path}`);
       let sanitized = text;
       let redacted = false;
-      sanitized = sanitized.replace(PROMPT_DISPLAY_IDENTIFIER_PATTERN, (_match, quote) => (
-        quote
-          ? `${quote}ownerRef${quote}: ${quote}[redacted-owner-token]${quote}`
-          : "ownerRef: [redacted-owner-token]"
-      ));
+      sanitized = sanitized.replace(PROMPT_DISPLAY_IDENTIFIER_PATTERN, (_match, keyQuote, rawValue) => {
+        const valueQuote = rawValue.startsWith("\"") || rawValue.startsWith("'") ? rawValue[0] : "";
+        const value = valueQuote ? rawValue.slice(1, -1) : rawValue;
+        const sensitiveLiteral = OWNER_TOKEN_UUID_PATTERN.test(value) || secretPattern.test(value);
+        const replacement = sensitiveLiteral ? "[redacted-owner-token]" : value;
+        const renderedValue = valueQuote ? `${valueQuote}${replacement}${valueQuote}` : replacement;
+        return `${keyQuote}ownerRef${keyQuote}: ${renderedValue}`;
+      });
       redacted ||= sanitized !== text;
       if (secretPattern.test(sanitized)) {
         if (!file.path.startsWith("plugins/better-workflows/scripts/tests/")) {

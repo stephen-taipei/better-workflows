@@ -73,6 +73,7 @@ import {
   verifyRequiredChecksProvider,
   verifyGitHubCredentialActor,
   validateWorkflowDispatchCapability,
+  workflowDispatchObservationRef,
   workflowDispatchMinimumCreatedAt,
   withRunLock,
   withBoundGitCredential
@@ -93,6 +94,9 @@ test("GitHub Actions dispatch ref endpoints encode slash-containing refs as one 
     githubDispatchRefEndpoint("github.com/example/repo", "refs/tags/v3.4.0"),
     "repos/example/repo/commits/refs%2Ftags%2Fv3.4.0"
   );
+  assert.equal(workflowDispatchObservationRef("refs/heads/dev"), "dev");
+  assert.equal(workflowDispatchObservationRef("refs/tags/v3.4.0"), "v3.4.0");
+  assert.equal(workflowDispatchObservationRef("release/3.4"), "release/3.4");
 });
 
 test("branch ref authority accepts only exact absence and strict commit output", async () => {

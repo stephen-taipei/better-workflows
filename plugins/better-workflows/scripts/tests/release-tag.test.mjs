@@ -7,6 +7,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { githubGraphqlUrl, runReleaseTag } from "../release-tag.mjs";
 import {
+  compareStableVersions,
   findMergedPullRequest,
   normalizeStableVersion,
   parseRemoteTagCommit,
@@ -37,6 +38,9 @@ test("release tag names distinguish stable main from dev prerelease integration"
 test("only a version change creates a release candidate", () => {
   assert.equal(versionChanged("3.4.10", "3.4.9"), true);
   assert.equal(versionChanged("3.4.10", "3.4.10"), false);
+  assert.equal(versionChanged("3.4.9", "3.4.10"), false);
+  assert.equal(compareStableVersions("3.5.0", "3.4.99"), 1);
+  assert.equal(compareStableVersions("3.4.9", "3.4.10"), -1);
   assert.equal(versionChanged("3.4.10", null), true);
 });
 

@@ -9,7 +9,8 @@ const SHA256 = /^[a-f0-9]{64}$/;
 const DISPOSITIONS = new Set(["IMPLEMENT", "NO_CHANGE", "BLOCKED", "REJECTED_WITH_EVIDENCE"]);
 const SECRET_PATTERN = new RegExp(STANDING_CONSENT_SECRET_PATTERN, "i");
 const SECRET_PATTERN_GLOBAL = new RegExp(STANDING_CONSENT_SECRET_PATTERN, "gi");
-const PROMPT_DISPLAY_IDENTIFIER_PATTERN = /(["']?)ownerToken\1\s*:\s*(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,}\]]+)/g;
+const PROMPT_DISPLAY_IDENTIFIER_PATTERN = /(["']?)ownerToken\1\s*:\s*((?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,}\]]+))/g;
+const OWNER_TOKEN_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 export const SELF_IMPROVE_LEGACY_CORPUS = "plugins/better-workflows/fixtures/self-improve-ops-evals.json";
 export const SELF_IMPROVE_V22_CORPUS = "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.2.json";
 export const SELF_IMPROVE_V23_CORPUS = "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.3.json";
@@ -173,14 +174,19 @@ function safeRelative(value, label) {
   return normalized;
 }
 
+function redactOwnerTokenDisplay(_match, keyQuote, rawValue) {
+  const valueQuote = rawValue.startsWith("\"") || rawValue.startsWith("'") ? rawValue[0] : "";
+  const value = valueQuote ? rawValue.slice(1, -1) : rawValue;
+  const sensitiveLiteral = OWNER_TOKEN_UUID_PATTERN.test(value) || SECRET_PATTERN.test(value);
+  const replacement = sensitiveLiteral ? "[redacted-owner-token]" : value;
+  const renderedValue = valueQuote ? `${valueQuote}${replacement}${valueQuote}` : replacement;
+  return `${keyQuote}ownerRef${keyQuote}: ${renderedValue}`;
+}
+
 function sanitizeMaterialText(text, filePath, label) {
   let sanitized = text;
   let redacted = false;
-  sanitized = sanitized.replace(PROMPT_DISPLAY_IDENTIFIER_PATTERN, (_match, quote) => (
-    quote
-      ? `${quote}ownerRef${quote}: ${quote}[redacted-owner-token]${quote}`
-      : "ownerRef: [redacted-owner-token]"
-  ));
+  sanitized = sanitized.replace(PROMPT_DISPLAY_IDENTIFIER_PATTERN, redactOwnerTokenDisplay);
   redacted ||= sanitized !== text;
   if (SECRET_PATTERN.test(sanitized)) {
     if (!filePath.startsWith("plugins/better-workflows/scripts/tests/")) {

@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import {
   assertCommitSha,
+  compareStableVersions,
   findMergedPullRequest,
   isReleaseBranch,
   parseRemoteTagCommit,
@@ -186,6 +187,9 @@ export async function runReleaseTag({ env = process.env, cwd = process.cwd(), fe
     currentVersion(cwd),
     previousVersion(cwd, targetParent)
   ]);
+  if (previous !== null && compareStableVersions(current, previous) < 0) {
+    throw new Error(`Release version ${current} is lower than its parent ${previous}; refusing release eligibility`);
+  }
   if (!versionChanged(current, previous)) {
     return { status: "skipped", reason: "release-version-unchanged", branch, sha, version: current };
   }
