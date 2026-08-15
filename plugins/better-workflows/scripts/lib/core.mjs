@@ -687,7 +687,7 @@ function ownedResourceCreationActionDigest(action) {
 }
 const OWNED_RESOURCE = /^[^\0\r\n]{1,512}$/;
 const SHA256_DIGEST = /^[a-f0-9]{64}$/;
-const WORKFLOW_FILE = /^\.github\/workflows\/[A-Za-z0-9][A-Za-z0-9._\/-]{0,200}\.(?:yml|yaml)$/;
+const WORKFLOW_FILE = /^\.github\/workflows\/[A-Za-z0-9][A-Za-z0-9._-]{0,200}\.(?:yml|yaml)$/;
 const WORKFLOW_REF = /^[A-Za-z0-9._\/-]{1,128}$/;
 const WORKFLOW_INPUT_KEY = /^[A-Za-z_][A-Za-z0-9_-]{0,63}$/;
 const WORKFLOW_INPUT_VALUE = /^[^\0\r\n]{0,4096}$/;
@@ -698,6 +698,20 @@ const WORKFLOW_DISPATCH_NONCE_EXPRESSION = /\$\{\{\s*(?:inputs|github\.event\.in
 
 function workflowConclusionIsSuccess(value) {
   return typeof value === "string" && value.toLowerCase() === "success";
+}
+
+function workflowConclusionIsNonSuccess(value) {
+  return typeof value === "string" && value.length > 0 && !workflowConclusionIsSuccess(value);
+}
+
+function workflowDispatchConclusionMatchesOutcome(status, conclusion, outcome) {
+  if (outcome === "success") {
+    return status === "completed" && workflowConclusionIsSuccess(conclusion);
+  }
+  if (outcome === "failure") {
+    return status === "completed" && workflowConclusionIsNonSuccess(conclusion);
+  }
+  return false;
 }
 const GIT_PUSH_RESOURCE = /^remote:([A-Za-z0-9._-]+):(refs\/heads\/[A-Za-z0-9._/-]+)$/;
 const EXECUTABLE_ACTION_PROVIDERS = new Set([
@@ -1594,6 +1608,25 @@ export function assertProviderReceiptShape(record, providerReceipt, outcome = re
   if (!commonValid) throw new Error("Provider receipt lacks a structured execution proof");
   if (record.action === "actions.dispatch" && !workflowResourceMatchesFile(record)) {
     throw new Error("GitHub Actions dispatch receipt resource is not bound to workflowFile");
+  }
+  if (record.action === "actions.dispatch") {
+    if (outcome === "unknown" && providerReceipt.terminalState !== "unknown") {
+      throw new Error("Unknown GitHub Actions dispatch outcome must remain indeterminate");
+    }
+    if (outcome !== "unknown" && !workflowDispatchConclusionMatchesOutcome(
+      providerReceipt.status,
+      providerReceipt.conclusion,
+      outcome
+    )) {
+      throw new Error(
+        outcome === "success"
+          ? "Successful GitHub Actions dispatch receipt requires completed success"
+          : "Failed GitHub Actions dispatch receipt requires completed non-success"
+      );
+    }
+    if (outcome !== "unknown" && providerReceipt.terminalState !== outcome) {
+      throw new Error("GitHub Actions dispatch receipt terminal state does not match its outcome");
+    }
   }
   if (outcome === "success" && providerReceipt.terminalState !== "success") {
     throw new Error("Successful provider receipt must have terminalState success");
@@ -3490,8 +3523,12 @@ export function buildActionsDispatchProviderReceipt(record, outcome = "success")
     throw new Error("GitHub Actions dispatch provider invocation is incomplete");
   }
   const repository = canonicalGitHubRepository(record.dispatchRepository);
-  if (outcome === "success" && !workflowConclusionIsSuccess(run.conclusion)) {
-    throw new Error("Successful GitHub Actions dispatch receipt requires a successful workflow conclusion");
+  if (!workflowDispatchConclusionMatchesOutcome(run.status, run.conclusion, outcome) && outcome !== "unknown") {
+    throw new Error(
+      outcome === "success"
+        ? "Successful GitHub Actions dispatch receipt requires a successful workflow conclusion"
+        : "Failed GitHub Actions dispatch receipt requires a completed non-success workflow conclusion"
+    );
   }
   const response = {
     runId,
@@ -3519,7 +3556,7 @@ export function buildActionsDispatchProviderReceipt(record, outcome = "success")
     requestDigest: digestObject(actionsDispatchReceiptRequest(record)),
     responseDigest: digestObject(response),
     verifiedAt: nowIso(),
-    terminalState: outcome === "success" ? "success" : "failure",
+    terminalState: outcome === "success" ? "success" : outcome === "failure" ? "failure" : "unknown",
     created: true,
     repository,
     workflowName: run.workflowName,
@@ -4347,7 +4384,12 @@ async function verifyOwnedResourceCreationProof(manifest, record, providerReceip
 }
 
 async function verifyProviderReceipt(manifest, record, receipt, contract = null) {
-  if (record.outcome !== "success") return;
+  const shouldVerifyDispatchFailure = (
+    record.action === "actions.dispatch" &&
+    record.provider === "github-cli" &&
+    record.outcome === "failure"
+  );
+  if (record.outcome !== "success" && !shouldVerifyDispatchFailure) return;
   assertSupportedGovernedAction(record.action);
   const providerReceipt = receipt.providerReceipt;
   const cwd = manifest.cwd;
@@ -4622,8 +4664,7 @@ async function verifyProviderReceipt(manifest, record, receipt, contract = null)
     if (
       String(actual.databaseId) !== String(providerReceipt.runId) ||
       actual.url !== providerReceipt.url ||
-      actual.status !== "completed" ||
-      !workflowConclusionIsSuccess(actual.conclusion) ||
+      !workflowDispatchConclusionMatchesOutcome(actual.status, actual.conclusion, record.outcome) ||
       actual.headSha !== record.remoteRevision ||
       typeof actual.displayTitle !== "string" ||
       !WORKFLOW_DISPATCH_NONCE.test(String(record.dispatchNonce ?? "")) ||
@@ -6893,7 +6934,9 @@ function validateActionReceipt(record, outcome, receipt) {
     receipt.providerReceipt.resource !== record.resource ||
     receipt.providerReceipt.outcome !== outcome ||
     receipt.providerReceipt.provider !== record.provider ||
-    !bindingFields.every((field) => receipt.providerReceipt[field] === record[field]) ||
+    !bindingFields
+      .filter((field) => !(record.action === "actions.dispatch" && field === "runId"))
+      .every((field) => receipt.providerReceipt[field] === record[field]) ||
     typeof receipt.providerReceipt.executionId !== "string" ||
     !receipt.providerReceipt.executionId
   ) {

@@ -2058,6 +2058,27 @@ test("GitHub Actions dispatch adapter binds a fixed command and one observed run
   assert.equal(receipt.repository, "github.com/example/repo");
   assert.equal(receipt.executionId, "github:github.com/example/repo:actions.dispatch:12345");
   assertProviderReceiptShape(record, receipt, "success");
+  const failedRecord = {
+    ...record,
+    providerInvocation: {
+      ...record.providerInvocation,
+      workflowRun: { ...record.providerInvocation.workflowRun, conclusion: "failure" }
+    }
+  };
+  const failedReceipt = buildActionsDispatchProviderReceipt(failedRecord, "failure");
+  assert.equal(failedReceipt.terminalState, "failure");
+  assert.doesNotThrow(() => assertProviderReceiptShape(failedRecord, failedReceipt, "failure"));
+  assert.throws(
+    () => buildActionsDispatchProviderReceipt(record, "failure"),
+    /completed non-success workflow conclusion/
+  );
+  const unknownReceipt = buildActionsDispatchProviderReceipt(record, "unknown");
+  assert.equal(unknownReceipt.terminalState, "unknown");
+  assert.doesNotThrow(() => assertProviderReceiptShape(record, unknownReceipt, "unknown"));
+  assert.throws(
+    () => assertProviderReceiptShape(record, { ...unknownReceipt, terminalState: "failure" }, "unknown"),
+    /remain indeterminate/
+  );
   assert.throws(
     () => buildActionsDispatchCommand({ ...record, dispatchInputsDigest: "c".repeat(64) }),
     /input digest does not match/
@@ -2078,6 +2099,14 @@ test("GitHub Actions dispatch adapter binds a fixed command and one observed run
     /resource is not bound to workflowFile/
   );
   assert.throws(
+    () => buildActionsDispatchCommand({
+      ...record,
+      workflowFile: ".github/workflows/release/release.yml",
+      resource: "workflow:.github/workflows/release/release.yml"
+    }),
+    /requires a repository workflow file/
+  );
+  assert.throws(
     () => buildActionsDispatchProviderReceipt({
       ...record,
       providerInvocation: {
@@ -2087,6 +2116,155 @@ test("GitHub Actions dispatch adapter binds a fixed command and one observed run
     }),
     /provider invocation is incomplete/
   );
+});
+
+test("GitHub Actions failure conclusion is reconciled against live provider state", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-actions-dispatch-failure-reconcile-"));
+  const repository = path.join(root, "repository");
+  const bin = path.join(root, "bin");
+  await mkdir(repository, { recursive: true });
+  await mkdir(bin, { recursive: true });
+  await execFileAsync("git", ["init", "-q", "-b", "dev"], { cwd: repository });
+  await execFileAsync("git", ["config", "user.email", "sbw@example.invalid"], { cwd: repository });
+  await execFileAsync("git", ["config", "user.name", "SBW Test"], { cwd: repository });
+  await execFileAsync("git", ["remote", "add", "origin", "https://github.com/example/repo.git"], { cwd: repository });
+  await writeFile(path.join(repository, "README.md"), "dispatch failure\n");
+  await execFileAsync("git", ["add", "README.md"], { cwd: repository });
+  await execFileAsync("git", ["commit", "-qm", "baseline"], { cwd: repository });
+
+  const remoteRevision = "a".repeat(40);
+  const dispatchNonce = "c".repeat(32);
+  const workflowFile = ".github/workflows/release.yml";
+  const resource = `workflow:${workflowFile}`;
+  const inputs = {
+    sbw_dispatch_nonce: dispatchNonce,
+    sbw_expected_revision: remoteRevision
+  };
+  const workflowDispatchCapability = {
+    schemaVersion: 1,
+    workflowFile,
+    revision: remoteRevision,
+    nonceInput: "sbw_dispatch_nonce",
+    expectedRevisionInput: "sbw_expected_revision",
+    runNameNonce: true,
+    expectedRevisionGate: true,
+    contentDigest: "d".repeat(64)
+  };
+  const taskContract = contract({ authority: ["actions.dispatch"], remoteRevision });
+  const run = await createRun({ root, contract: taskContract, requestedMode: "critical", cwd: repository });
+  const runDir = path.join(root, "runs", run.runId);
+  const tokenHash = sha256("actions-dispatch-failure-token");
+  const attemptId = "actions-dispatch-failure-attempt";
+  const idempotencyKey = "actions-dispatch-failure-idempotency";
+  const providerAuthorization = {
+    provider: "github-cli",
+    repository: "github.com/example/repo",
+    actor: "alice",
+    permissions: { admin: false, maintain: false, push: true }
+  };
+  const responsePath = path.join(root, "workflow-run.json");
+  const fakeGh = path.join(bin, "gh");
+  const ghScript = `#!/bin/sh
+if [ "$1" = "api" ] && [ "$2" = "user" ]; then
+  printf '{"login":"alice"}\\n'
+elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo" ]; then
+  printf '{"full_name":"example/repo","permissions":{"admin":false,"maintain":false,"push":true}}\\n'
+elif [ "$1" = "run" ] && [ "$2" = "view" ]; then
+  cat ${JSON.stringify(responsePath)}
+else
+  exit 9
+fi
+`;
+  await writeFile(fakeGh, ghScript, { mode: 0o700 });
+  const providerExecutable = { path: await realpath(fakeGh), digest: sha256(ghScript) };
+  const workflowRun = {
+    databaseId: 12345,
+    workflowName: "Release",
+    url: "https://github.com/example/repo/actions/runs/12345",
+    displayTitle: `Release ${dispatchNonce}`,
+    status: "completed",
+    conclusion: "failure",
+    headSha: remoteRevision
+  };
+  const providerInvocation = {
+    id: `github-actions-dispatch-wrapper:${run.runId}:${attemptId}`,
+    provider: "github-cli",
+    command: ["gh", "workflow", "run", workflowFile, "--repo", "example/repo", "--ref", "dev"],
+    providerExecutable,
+    providerAuthorization,
+    exitCode: 0,
+    dispatchState: "sent",
+    workflowRun
+  };
+  const action = {
+    schemaVersion: 1,
+    tokenHash,
+    status: "spent",
+    outcome: "pending",
+    runId: run.runId,
+    action: "actions.dispatch",
+    provider: "github-cli",
+    resource,
+    remoteRevision,
+    attemptId,
+    idempotencyKey,
+    dispatchRepository: "github.com/example/repo",
+    workflowFile,
+    dispatchRef: "dev",
+    dispatchNonce,
+    dispatchInputs: inputs,
+    dispatchInputsDigest: digestObject(inputs),
+    workflowDispatchCapability,
+    workflowDispatchCapabilityDigest: digestObject(workflowDispatchCapability),
+    dispatchCommand: providerInvocation.command,
+    providerExecutable,
+    providerAuthorization,
+    providerInvocation
+  };
+  await writeFile(path.join(runDir, "actions", `${tokenHash}.json`), `${JSON.stringify(action)}\n`);
+  const receipt = buildActionsDispatchProviderReceipt(action, "failure");
+  const actionReceipt = {
+    action: action.action,
+    provider: action.provider,
+    resource,
+    outcome: "failure",
+    runId: run.runId,
+    attemptId,
+    idempotencyKey,
+    remoteRevision,
+    providerReceipt: receipt
+  };
+  const priorPath = process.env.PATH;
+  process.env.PATH = `${bin}:${priorPath}`;
+  try {
+    await writeFile(responsePath, `${JSON.stringify({
+      databaseId: 12345,
+      workflowName: "Release",
+      url: workflowRun.url,
+      status: "completed",
+      conclusion: "success",
+      headSha: remoteRevision,
+      displayTitle: workflowRun.displayTitle
+    })}\n`);
+    await assert.rejects(
+      reconcileAction(root, run.runId, attemptId, "failure", actionReceipt),
+      /Provider receipt digests|completed non-success|does not match provider state/
+    );
+    await writeFile(responsePath, `${JSON.stringify({
+      databaseId: 12345,
+      workflowName: "Release",
+      url: workflowRun.url,
+      status: "completed",
+      conclusion: "failure",
+      headSha: remoteRevision,
+      displayTitle: workflowRun.displayTitle
+    })}\n`);
+    const reconciled = await reconcileAction(root, run.runId, attemptId, "failure", actionReceipt);
+    assert.equal(reconciled.outcome, "failure");
+    assert.equal(reconciled.receipt.providerReceipt.terminalState, "failure");
+  } finally {
+    process.env.PATH = priorPath;
+  }
 });
 
 test("GitHub Actions dispatch observation lower bound uses provider-start time", async () => {
