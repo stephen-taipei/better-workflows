@@ -1513,7 +1513,6 @@ test("candidate sanitizer admits public generated surfaces without sending binar
   const cwd = await mkdtemp(path.join(os.tmpdir(), "sbw-public-generated-surfaces-"));
   try {
     const textFiles = [
-      ".github/workflows/ci.yml",
       "docs/html/index.html",
       "docs/html/preview.html",
       "docs/html/use-cases/index.html",
@@ -1562,6 +1561,17 @@ test("candidate sanitizer admits public generated surfaces without sending binar
         maxFiles: files.length
       }),
       /material bytes do not match the candidate snapshot/
+    );
+    const workflowFile = ".github/workflows/ci.yml";
+    await mkdir(path.dirname(path.join(cwd, workflowFile)), { recursive: true });
+    await writeFile(path.join(cwd, workflowFile), "name: untrusted\n");
+    await assert.rejects(
+      readSanitizedCandidateMaterial({
+        cwd,
+        snapshot: { files: [await snapshotFile(cwd, workflowFile)] },
+        maxFiles: 1
+      }),
+      /outside the sanitized allowlist/
     );
   } finally {
     await rm(cwd, { recursive: true, force: true });

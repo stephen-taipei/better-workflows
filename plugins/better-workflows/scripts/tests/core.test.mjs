@@ -61,6 +61,7 @@ import {
   readJson,
   registerOwnedResource,
   reconcileAction,
+  resumeActionsDispatchObservation,
   resolveGitFetchOrigin,
   resolveGitPushDestination,
   resolveGitPushExecutionBinding,
@@ -2314,6 +2315,139 @@ test("GitHub Actions dispatch observation lower bound uses provider-start time",
   assert.ok(providerStartIndex >= 0);
   assert.ok(providerCallIndex > providerStartIndex);
   assert.ok(observationIndex > providerCallIndex);
+});
+
+test("GitHub Actions dispatch reconciliation resumes an indeterminate observation exactly once", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-actions-dispatch-resume-"));
+  const repository = path.join(root, "repository");
+  const bin = path.join(root, "bin");
+  await mkdir(repository, { recursive: true });
+  await mkdir(bin, { recursive: true });
+  await execFileAsync("git", ["init", "-q", "-b", "dev"], { cwd: repository });
+  await execFileAsync("git", ["config", "user.email", "sbw@example.invalid"], { cwd: repository });
+  await execFileAsync("git", ["config", "user.name", "SBW Test"], { cwd: repository });
+  await execFileAsync("git", ["remote", "add", "origin", "https://github.com/example/repo.git"], { cwd: repository });
+  await writeFile(path.join(repository, "README.md"), "dispatch resume\n");
+  await execFileAsync("git", ["add", "README.md"], { cwd: repository });
+  await execFileAsync("git", ["commit", "-qm", "dispatch resume baseline"], { cwd: repository });
+  const run = await createRun({
+    root,
+    contract: contract({ authority: ["actions.dispatch"], remoteRevision: "a".repeat(40) }),
+    requestedMode: "verified",
+    cwd: repository
+  });
+  const runDir = path.join(root, "runs", run.runId);
+  const actionDir = path.join(runDir, "actions");
+  await mkdir(actionDir, { recursive: true });
+  const tokenHash = sha256("dispatch-resume-token");
+  const attemptId = "dispatch-resume-attempt";
+  const dispatchNonce = "b".repeat(32);
+  const remoteRevision = "a".repeat(40);
+  const dispatchedAt = new Date(Date.now() - 1_000).toISOString();
+  const createdAt = new Date().toISOString();
+  const workflowRun = {
+    databaseId: 54321,
+    workflowName: "Release",
+    url: "https://github.com/example/repo/actions/runs/54321",
+    status: "completed",
+    conclusion: "success",
+    headSha: remoteRevision,
+    headBranch: "dev",
+    createdAt,
+    startedAt: createdAt,
+    displayTitle: `Release ${dispatchNonce}`
+  };
+  const listPath = path.join(root, "workflow-runs.json");
+  const viewPath = path.join(root, "workflow-run.json");
+  await writeFile(listPath, `${JSON.stringify([workflowRun])}\n`);
+  await writeFile(viewPath, `${JSON.stringify(workflowRun)}\n`);
+  const ghScript = `#!/bin/sh
+if [ "$1" = "api" ] && [ "$2" = "user" ]; then
+  printf '%s\\n' '{"login":"alice"}'
+elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo" ]; then
+  printf '%s\\n' '{"full_name":"example/repo","permissions":{"admin":false,"maintain":false,"push":true}}'
+elif [ "$1" = "run" ] && [ "$2" = "list" ]; then
+  cat ${JSON.stringify(listPath)}
+elif [ "$1" = "run" ] && [ "$2" = "view" ]; then
+  cat ${JSON.stringify(viewPath)}
+else
+  exit 9
+fi
+`;
+  const fakeGh = path.join(bin, "gh");
+  await writeFile(fakeGh, ghScript, { mode: 0o700 });
+  const providerExecutable = { path: await realpath(fakeGh), digest: sha256(ghScript) };
+  const providerAuthorization = {
+    provider: "github-cli",
+    repository: "github.com/example/repo",
+    actor: "alice",
+    permissions: { admin: false, maintain: false, push: true }
+  };
+  const action = {
+    schemaVersion: 1,
+    tokenHash,
+    status: "spent",
+    outcome: "pending",
+    runId: run.runId,
+    action: "actions.dispatch",
+    provider: "github-cli",
+    resource: "workflow:.github/workflows/release.yml",
+    remoteRevision,
+    attemptId,
+    idempotencyKey: "dispatch-resume-idempotency",
+    dispatchRepository: "github.com/example/repo",
+    workflowFile: ".github/workflows/release.yml",
+    dispatchRef: "dev",
+    dispatchNonce,
+    dispatchInputs: { sbw_dispatch_nonce: dispatchNonce, sbw_expected_revision: remoteRevision },
+    dispatchCommand: ["gh", "workflow", "run", ".github/workflows/release.yml", "--repo", "example/repo", "--ref", "dev"],
+    providerExecutable,
+    providerAuthorizationExecutable: providerExecutable,
+    providerAuthorization,
+    providerInvocation: {
+      schemaVersion: 1,
+      id: `github-actions-dispatch-wrapper:${run.runId}:${attemptId}`,
+      actionAttemptId: attemptId,
+      provider: "github-cli",
+      command: ["gh", "workflow", "run", ".github/workflows/release.yml", "--repo", "example/repo", "--ref", "dev"],
+      providerExecutable,
+      providerAuthorizationExecutable: providerExecutable,
+      providerAuthorization,
+      startedAt: dispatchedAt,
+      finishedAt: dispatchedAt,
+      exitCode: 0,
+      dispatchState: "sent-or-indeterminate",
+      preexistingRunIds: ["100"],
+      dispatchedAt,
+      observationStartedAt: dispatchedAt,
+      errorDigest: sha256("observation timeout")
+    }
+  };
+  const priorPath = process.env.PATH;
+  process.env.PATH = `${bin}${path.delimiter}${priorPath}`;
+  try {
+    await writeFile(path.join(actionDir, `${tokenHash}.json`), `${JSON.stringify(action)}\n`);
+    const promoted = await resumeActionsDispatchObservation(root, run.runId, attemptId);
+    assert.equal(promoted.providerInvocation.dispatchState, "sent");
+    assert.equal(promoted.providerInvocation.workflowRun.databaseId, 54321);
+    assert.equal(promoted.providerInvocation.errorDigest, undefined);
+
+    await writeFile(listPath, `${JSON.stringify([workflowRun, { ...workflowRun, databaseId: 54322 }])}\n`);
+    await writeFile(path.join(actionDir, `${tokenHash}.json`), `${JSON.stringify({
+      ...action,
+      providerInvocation: { ...action.providerInvocation }
+    })}\n`);
+    await assert.rejects(
+      resumeActionsDispatchObservation(root, run.runId, attemptId),
+      /more than one unclaimed matching run/
+    );
+    const persisted = JSON.parse(await readFile(path.join(actionDir, `${tokenHash}.json`), "utf8"));
+    assert.equal(persisted.providerInvocation.dispatchState, "sent-or-indeterminate");
+    assert.equal(persisted.providerInvocation.workflowRun, undefined);
+  } finally {
+    process.env.PATH = priorPath;
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("GitHub Actions dispatch invocation failure stays indeterminate and rejects without retry", async () => {

@@ -699,7 +699,6 @@ const STANDING_CONSENT_ALLOWED_PATH_PATTERNS = Object.freeze([
   "^docs/details/(?:en|zh-TW|zh-CN|ja|ko)\\.md$",
   "^docs/guide/(?:architecture|cli-reference|getting-started|readme-quality|security|workflows)\\.md$",
   "^docs/assets/better-workflows-engineering-stack\\.svg$",
-  "^\\.github/workflows/[A-Za-z0-9._-]+\\.(?:yml|yaml)$",
   "^docs/html/(?:index|preview)\\.html$",
   "^docs/html/use-cases/(?:index|preview)\\.html$",
   "^docs/html/use-cases/assets/[A-Za-z0-9._-]+\\.md$",

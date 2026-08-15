@@ -6565,16 +6565,22 @@ async function observeDispatchedWorkflow(cwd, record, providerExecutablePath, ex
   throw new Error("GitHub Actions dispatch did not reach a completed provider run within the bounded observation window");
 }
 
-async function persistActionProviderInvocation(root, runId, action, invocation) {
+async function persistActionProviderInvocation(root, runId, action, invocation, {
+  journalEvent = "action.provider-invoked",
+  expectedProviderInvocation = null
+} = {}) {
   return withRunLock(root, runId, async ({ runDir }) => {
     const target = safeJoin(runDir, "actions", `${action.tokenHash}.json`);
     const current = await readJson(root, target);
     if (current.status !== "spent" || current.attemptId !== action.attemptId) {
       throw new Error("GitHub Actions provider invocation is not bound to the consumed action attempt");
     }
+    if (expectedProviderInvocation && digestObject(current.providerInvocation) !== digestObject(expectedProviderInvocation)) {
+      throw new Error("GitHub Actions provider invocation changed during resumable reconciliation");
+    }
     const next = { ...current, providerInvocation: invocation };
     await atomicWriteJson(root, target, next);
-    await appendJournal(root, runDir, "action.provider-invoked", {
+    await appendJournal(root, runDir, journalEvent, {
       attemptId: action.attemptId,
       invocationId: invocation.id,
       dispatchState: invocation.dispatchState,
@@ -6582,6 +6588,62 @@ async function persistActionProviderInvocation(root, runId, action, invocation) 
     });
     return next;
   }, { ttlMs: 300_000 });
+}
+
+export async function resumeActionsDispatchObservation(root, runId, attemptId) {
+  const run = await loadRun(root, runId);
+  assertMutableRun(run, "Resumable GitHub Actions dispatch reconciliation");
+  const runDir = runDirectory(root, runId);
+  const records = await listJsonRecords(root, safeJoin(runDir, "actions"));
+  const action = records.find((item) => item.attemptId === attemptId);
+  if (!action || action.action !== "actions.dispatch" || action.provider !== "github-cli") return action ?? null;
+  const invocation = action.providerInvocation;
+  if (action.status !== "spent" || action.outcome !== "pending" ||
+      !invocation || invocation.dispatchState !== "sent-or-indeterminate" || invocation.workflowRun) {
+    return action;
+  }
+  const observationStartedAt = invocation.observationStartedAt ?? invocation.dispatchedAt;
+  if (invocation.exitCode !== 0 || typeof observationStartedAt !== "string") {
+    throw new Error("Resumable GitHub Actions dispatch reconciliation requires a successful provider invocation with a dispatch timestamp");
+  }
+  const manifest = await readJson(root, safeJoin(runDir, "manifest.json"));
+  const providerExecutablePath = await verifyRecordedGitHubProvider(manifest, action);
+  const providerExecutable = await currentProviderExecutableIdentity("gh");
+  if (providerExecutable.path !== providerExecutablePath ||
+      digestObject(providerExecutable) !== digestObject(action.providerExecutable)) {
+    throw new Error("Resumable GitHub Actions dispatch reconciliation denied because the governed provider executable changed");
+  }
+  const providerAuthorization = await verifyGitHubProviderAuthorization(
+    manifest.cwd,
+    action.providerAuthorization.repository,
+    providerExecutablePath
+  );
+  if (digestObject(providerAuthorization) !== digestObject(action.providerAuthorization)) {
+    throw new Error("Resumable GitHub Actions dispatch reconciliation denied because the provider actor or permissions changed");
+  }
+  const preexistingRunIds = Array.isArray(invocation.preexistingRunIds)
+    ? invocation.preexistingRunIds.map(String).filter((value) => /^\d+$/.test(value))
+    : [];
+  const workflowRun = await observeDispatchedWorkflow(
+    manifest.cwd,
+    action,
+    providerExecutablePath,
+    preexistingRunIds,
+    observationStartedAt
+  );
+  const promotedInvocation = workflowDispatchInvocation(runId, action, {
+    startedAt: invocation.startedAt,
+    exitCode: invocation.exitCode,
+    dispatchState: "sent",
+    preexistingRunIds,
+    dispatchedAt: invocation.dispatchedAt,
+    observationStartedAt,
+    workflowRun
+  });
+  return persistActionProviderInvocation(root, runId, action, promotedInvocation, {
+    journalEvent: "action.provider-reconciled",
+    expectedProviderInvocation: invocation
+  });
 }
 
 function workflowDispatchInvocation(runId, action, invocation) {
@@ -6600,6 +6662,7 @@ function workflowDispatchInvocation(runId, action, invocation) {
     dispatchState: invocation.dispatchState,
     preexistingRunIds: invocation.preexistingRunIds,
     ...(invocation.dispatchedAt ? { dispatchedAt: invocation.dispatchedAt } : {}),
+    ...(invocation.observationStartedAt ? { observationStartedAt: invocation.observationStartedAt } : {}),
     ...(invocation.workflowRun ? { workflowRun: invocation.workflowRun } : {}),
     ...(invocation.errorDigest ? { errorDigest: invocation.errorDigest } : {})
   };
@@ -6724,6 +6787,7 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
         dispatchState: "sent-or-indeterminate",
         preexistingRunIds: existingRunIds,
         dispatchedAt: nowIso(),
+        observationStartedAt: dispatchObservationStartedAt,
         errorDigest: sha256(error?.message ?? "workflow dispatch failed")
       });
       await persistActionProviderInvocation(root, runId, consumed, failedInvocation);
@@ -6738,6 +6802,14 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
       );
     }
     const dispatchedAt = nowIso();
+    await persistActionProviderInvocation(root, runId, consumed, workflowDispatchInvocation(runId, consumed, {
+      startedAt,
+      exitCode,
+      dispatchState: "sent-or-indeterminate",
+      preexistingRunIds: existingRunIds,
+      dispatchedAt,
+      observationStartedAt: dispatchObservationStartedAt
+    }));
     try {
       const workflowRun = await observeDispatchedWorkflow(
         manifest.cwd,
@@ -6752,6 +6824,7 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
         dispatchState: "sent",
         preexistingRunIds: existingRunIds,
         dispatchedAt,
+        observationStartedAt: dispatchObservationStartedAt,
         workflowRun
       });
       return await persistActionProviderInvocation(root, runId, consumed, completedInvocation);
@@ -6762,6 +6835,7 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
         dispatchState: "sent-or-indeterminate",
         preexistingRunIds: existingRunIds,
         dispatchedAt,
+        observationStartedAt: dispatchObservationStartedAt,
         errorDigest: sha256(error?.message ?? "workflow run observation failed")
       });
       await persistActionProviderInvocation(root, runId, consumed, indeterminateInvocation);
@@ -7243,6 +7317,7 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
       throw new Error(`Injected autonomous Git commit reconciliation failure after ${point}`);
     }
   };
+  await resumeActionsDispatchObservation(root, runId, attemptId);
   return withRunLock(root, runId, async ({ runDir }) => {
     const run = await loadRun(root, runId);
     assertMutableRun(run, "Action reconciliation");
