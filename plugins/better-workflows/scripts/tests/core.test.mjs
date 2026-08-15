@@ -2533,6 +2533,14 @@ test("GitHub Actions dispatch capability requires nonce-aware workflow metadata"
     ),
     /anchors, aliases, and merge keys are unsupported/
   );
+  assert.throws(
+    () => validateWorkflowDispatchCapability(
+      workflow.replace("run-name: Release ${{ inputs.sbw_dispatch_nonce }}", "run-name: Release # ${{ inputs.sbw_dispatch_nonce }}"),
+      ".github/workflows/release.yml",
+      revision
+    ),
+    /run-name/
+  );
 });
 
 test("contract-deferred actions fail closed in the core lifecycle", async () => {

@@ -3287,9 +3287,38 @@ function normalizeWorkflowInputs(value) {
   return normalized;
 }
 
+function stripWorkflowYamlComment(value) {
+  let quote = null;
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+    if (quote === "'") {
+      if (character === "'" && value[index + 1] === "'") {
+        index += 1;
+      } else if (character === "'") {
+        quote = null;
+      }
+      continue;
+    }
+    if (quote === '"') {
+      if (character === "\\") {
+        index += 1;
+      } else if (character === '"') {
+        quote = null;
+      }
+      continue;
+    }
+    if (character === "'" || character === '"') {
+      quote = character;
+    } else if (character === "#" && (index === 0 || /\s/.test(value[index - 1]))) {
+      return value.slice(0, index).trim();
+    }
+  }
+  return value.trim();
+}
+
 function workflowKeyLine(line) {
   const match = /^(\s*)(?:["']?)([A-Za-z0-9_-]+)(?:["']?)\s*:(.*)$/.exec(line);
-  return match ? { indent: match[1].length, key: match[2], value: match[3].trim() } : null;
+  return match ? { indent: match[1].length, key: match[2], value: stripWorkflowYamlComment(match[3]) } : null;
 }
 
 function workflowYamlStructuralLine(line) {
