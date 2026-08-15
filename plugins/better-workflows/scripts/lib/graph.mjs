@@ -323,11 +323,15 @@ function templateParts(accumulator, template, sourcePath) {
   const evidenceNodes = new Map();
   const acceptanceNodes = new Map();
 
-  if (template.reviewProfile !== undefined) {
+  const reviewPolicy = template.controlPlane?.reviewPolicy ?? "none";
+  if (reviewPolicy !== "none" || template.reviewProfile !== undefined) {
     try {
+      if (reviewPolicy !== "none" && template.reviewProfile === undefined) {
+        throw new Error("TaskContract review-enabled policy requires reviewProfile");
+      }
       validateReviewProfile(template.reviewProfile, {
         template: template.name,
-        reviewPolicy: template.controlPlane?.reviewPolicy
+        reviewPolicy
       });
     } catch (error) {
       accumulator.error(

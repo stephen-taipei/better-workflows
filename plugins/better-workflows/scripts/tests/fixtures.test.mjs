@@ -111,6 +111,9 @@ test("ci release dispatch uses a non-circular pre-dispatch stage", async () => {
     "target-revision",
     "remote-authorization"
   ]);
+  const monitorStage = template.executionStages.find((stage) => stage.id === "monitor-execute");
+  assert.ok(monitorStage);
+  assert.deepEqual(monitorStage.dependsOn, ["dispatch-preflight"]);
   assert.equal(template.actionStages["actions.dispatch"], "dispatch-preflight");
   assert.deepEqual(template.actionGates["actions.dispatch"], dispatchStage.requiredEvidence);
   assert.equal(template.executionStages.find((stage) => stage.id === "provider-reconcile").dependsOn[0], "monitor-execute");

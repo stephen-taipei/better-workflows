@@ -216,6 +216,55 @@ test("template graphs reject an invalid review capability profile", () => {
   assert.equal(graphHasErrors(graph), true);
 });
 
+test("template graphs reject a review-enabled policy without a review profile", () => {
+  const graph = buildTemplateGraph({
+    template: template({
+      controlPlane: {
+        evidencePolicy: "typed-v1",
+        ledgerPolicy: "ledger-v1",
+        reviewPolicy: "code-v1",
+        designPacketPolicy: "none",
+        refinementPolicy: "none",
+        deliberationPolicy: "none"
+      }
+    }),
+    sourcePath: "templates/graph-fixture.json"
+  });
+  assert.ok(graph.diagnostics.some((item) => (
+    item.code === "invalid-review-profile" && /requires reviewProfile/.test(item.message)
+  )));
+  assert.equal(graphHasErrors(graph), true);
+});
+
+test("template graphs reject a review profile when review policy is none", () => {
+  const graph = buildTemplateGraph({
+    template: template({
+      controlPlane: {
+        evidencePolicy: "typed-v1",
+        ledgerPolicy: "ledger-v1",
+        reviewPolicy: "none",
+        designPacketPolicy: "none",
+        refinementPolicy: "none",
+        deliberationPolicy: "none"
+      },
+      reviewProfile: {
+        schemaVersion: 1,
+        id: "review-contract-v1",
+        changedSurfaceAccounting: "diff-manifest-v1",
+        anchorResolution: "package-bound-location-v1",
+        findingVerification: "broad-review-v1",
+        provenanceBinding: "review-package-v1",
+        specBinding: "instruction-digest-v1"
+      }
+    }),
+    sourcePath: "templates/graph-fixture.json"
+  });
+  assert.ok(graph.diagnostics.some((item) => (
+    item.code === "invalid-review-profile" && /requires an enabled review policy/.test(item.message)
+  )));
+  assert.equal(graphHasErrors(graph), true);
+});
+
 test("equivalent object key order and fresh processes produce identical graphs", async () => {
   const original = template();
   const reordered = Object.fromEntries(
