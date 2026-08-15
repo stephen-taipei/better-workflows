@@ -4246,7 +4246,7 @@ async function reconstructSanitizedMaterial({ repo, subject, revision, snapshot,
         const sensitiveLiteral = OWNER_TOKEN_UUID_PATTERN.test(value) || secretPattern.test(value);
         const replacement = sensitiveLiteral ? "[redacted-owner-token]" : value;
         const renderedValue = valueQuote ? `${valueQuote}${replacement}${valueQuote}` : replacement;
-        return `${keyQuote}ownerRef${keyQuote}: ${renderedValue}`;
+        return `${keyQuote}ownerToken${keyQuote}: ${renderedValue}`;
       });
       redacted ||= sanitized !== text;
       if (secretPattern.test(sanitized)) {

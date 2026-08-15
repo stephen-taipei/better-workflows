@@ -180,7 +180,7 @@ function redactOwnerTokenDisplay(_match, keyQuote, rawValue) {
   const sensitiveLiteral = OWNER_TOKEN_UUID_PATTERN.test(value) || SECRET_PATTERN.test(value);
   const replacement = sensitiveLiteral ? "[redacted-owner-token]" : value;
   const renderedValue = valueQuote ? `${valueQuote}${replacement}${valueQuote}` : replacement;
-  return `${keyQuote}ownerRef${keyQuote}: ${renderedValue}`;
+  return `${keyQuote}ownerToken${keyQuote}: ${renderedValue}`;
 }
 
 function sanitizeMaterialText(text, filePath, label) {

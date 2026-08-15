@@ -3292,6 +3292,43 @@ function workflowKeyLine(line) {
   return match ? { indent: match[1].length, key: match[2], value: match[3].trim() } : null;
 }
 
+function workflowYamlStructuralLine(line) {
+  return String(line ?? "")
+    .replace(/"(?:\\.|[^"\\])*"/g, "\"\"")
+    .replace(/'(?:''|[^'])*'/g, "''")
+    .replace(/\s+#.*$/, "");
+}
+
+function assertSupportedWorkflowYaml(lines) {
+  for (const { raw, parsed } of lines) {
+    const structural = workflowYamlStructuralLine(raw);
+    if (/(?:^|[\s,:{\[(])(?:&[A-Za-z_][A-Za-z0-9_-]*|\*[A-Za-z_][A-Za-z0-9_-]*)(?=$|[\s,}\]])/.test(structural) ||
+        /(?:^|\s)<<\s*:/.test(structural)) {
+      throw new Error("GitHub Actions workflow anchors, aliases, and merge keys are unsupported");
+    }
+    if (parsed?.value === "|" || parsed?.value === ">" || parsed?.value.startsWith("|-") || parsed?.value.startsWith(">-")) {
+      throw new Error("GitHub Actions workflow block scalars are unsupported for capability attestation");
+    }
+  }
+}
+
+function directWorkflowEntries(lines, start, end, parentIndent) {
+  const entries = lines
+    .map(({ parsed }, index) => ({ parsed, index }))
+    .filter(({ parsed, index }) => index > start && index < end && parsed && parsed.indent > parentIndent);
+  if (entries.length === 0) return [];
+  const childIndent = Math.min(...entries.map(({ parsed }) => parsed.indent));
+  return entries.filter(({ parsed }) => parsed.indent === childIndent);
+}
+
+function assertUniqueWorkflowEntries(entries, label) {
+  const seen = new Set();
+  for (const { parsed } of entries) {
+    if (seen.has(parsed.key)) throw new Error(`GitHub Actions workflow has duplicate ${label} key: ${parsed.key}`);
+    seen.add(parsed.key);
+  }
+}
+
 function isExactWorkflowRevisionGate(value) {
   if (typeof value !== "string" || value.includes("#")) return false;
   const expression = value.trim().replace(/^\$\{\{\s*/, "").replace(/\s*\}\}$/, "").trim();
@@ -3311,59 +3348,59 @@ export function validateWorkflowDispatchCapability(content, workflowFile, revisi
     raw: line,
     parsed: line.trimStart().startsWith("#") ? null : workflowKeyLine(line)
   }));
-  const topOn = lines.findIndex(({ parsed }) => parsed?.indent === 0 && parsed.key === "on");
+  assertSupportedWorkflowYaml(lines);
+  const topEntries = directWorkflowEntries(lines, -1, lines.length, -1);
+  assertUniqueWorkflowEntries(topEntries, "top-level");
+  const topOn = topEntries.find(({ parsed }) => parsed.key === "on")?.index ?? -1;
   if (topOn < 0) throw new Error("GitHub Actions workflow must declare a top-level on block");
   const onIndent = lines[topOn].parsed.indent;
   const onEnd = lines.findIndex(({ parsed }, index) => index > topOn && parsed && parsed.indent <= onIndent);
   const onStop = onEnd < 0 ? lines.length : onEnd;
-  const dispatchIndex = lines.findIndex(({ parsed }, index) => (
-    index > topOn && index < onStop && parsed && parsed.indent > onIndent && parsed.key === "workflow_dispatch"
-  ));
+  const onEntries = directWorkflowEntries(lines, topOn, onStop, onIndent);
+  assertUniqueWorkflowEntries(onEntries, "on block");
+  const dispatchIndex = onEntries.find(({ parsed }) => parsed.key === "workflow_dispatch")?.index ?? -1;
   if (dispatchIndex < 0) throw new Error("GitHub Actions workflow must declare workflow_dispatch");
   const dispatchIndent = lines[dispatchIndex].parsed.indent;
   const dispatchEnd = lines.findIndex(({ parsed }, index) => (
     index > dispatchIndex && index < onStop && parsed && parsed.indent <= dispatchIndent
   ));
   const dispatchStop = dispatchEnd < 0 ? onStop : dispatchEnd;
-  const inputsIndex = lines.findIndex(({ parsed }, index) => (
-    index > dispatchIndex && index < dispatchStop && parsed && parsed.indent > dispatchIndent && parsed.key === "inputs"
-  ));
+  const dispatchEntries = directWorkflowEntries(lines, dispatchIndex, dispatchStop, dispatchIndent);
+  assertUniqueWorkflowEntries(dispatchEntries, "workflow_dispatch");
+  const inputsIndex = dispatchEntries.find(({ parsed }) => parsed.key === "inputs")?.index ?? -1;
   if (inputsIndex < 0) throw new Error("GitHub Actions workflow_dispatch must declare inputs");
   const inputsIndent = lines[inputsIndex].parsed.indent;
   const inputsEnd = lines.findIndex(({ parsed }, index) => (
     index > inputsIndex && index < dispatchStop && parsed && parsed.indent <= inputsIndent
   ));
   const inputsStop = inputsEnd < 0 ? dispatchStop : inputsEnd;
-  const nonceIndex = lines.findIndex(({ parsed }, index) => (
-    index > inputsIndex && index < inputsStop && parsed && parsed.indent > inputsIndent && parsed.key === WORKFLOW_DISPATCH_NONCE_INPUT
-  ));
+  const inputEntries = directWorkflowEntries(lines, inputsIndex, inputsStop, inputsIndent);
+  assertUniqueWorkflowEntries(inputEntries, "workflow_dispatch input");
+  const nonceIndex = inputEntries.find(({ parsed }) => parsed.key === WORKFLOW_DISPATCH_NONCE_INPUT)?.index ?? -1;
   if (nonceIndex < 0) {
     throw new Error(`GitHub Actions workflow_dispatch must declare the reserved ${WORKFLOW_DISPATCH_NONCE_INPUT} input`);
   }
-  const expectedRevisionIndex = lines.findIndex(({ parsed }, index) => (
-    index > inputsIndex && index < inputsStop && parsed && parsed.indent > inputsIndent && parsed.key === WORKFLOW_DISPATCH_EXPECTED_REVISION_INPUT
-  ));
+  const expectedRevisionIndex = inputEntries.find(({ parsed }) => parsed.key === WORKFLOW_DISPATCH_EXPECTED_REVISION_INPUT)?.index ?? -1;
   if (expectedRevisionIndex < 0) {
     throw new Error(`GitHub Actions workflow_dispatch must declare the reserved ${WORKFLOW_DISPATCH_EXPECTED_REVISION_INPUT} input`);
   }
-  const runName = lines.find(({ parsed }) => parsed?.indent === 0 && parsed.key === "run-name");
+  const runName = topEntries.find(({ parsed }) => parsed.key === "run-name");
   if (!runName || !WORKFLOW_DISPATCH_NONCE_EXPRESSION.test(runName.parsed.value)) {
     throw new Error(`GitHub Actions workflow run-name must expose ${WORKFLOW_DISPATCH_NONCE_INPUT}`);
   }
-  const jobs = lines.findIndex(({ parsed }) => parsed?.indent === 0 && parsed.key === "jobs");
+  const jobs = topEntries.find(({ parsed }) => parsed.key === "jobs")?.index ?? -1;
   if (jobs < 0) throw new Error("GitHub Actions workflow must declare a top-level jobs block");
   const jobsIndent = lines[jobs].parsed.indent;
   const jobsEnd = lines.findIndex(({ parsed }, index) => index > jobs && parsed && parsed.indent <= jobsIndent);
   const jobsStop = jobsEnd < 0 ? lines.length : jobsEnd;
-  const jobHeaders = lines
-    .map(({ parsed }, index) => ({ parsed, index }))
-    .filter(({ parsed, index }) => index > jobs && index < jobsStop && parsed && parsed.indent > jobsIndent)
-    .filter(({ parsed }, _, entries) => parsed.indent === Math.min(...entries.map(({ parsed: entry }) => entry.indent)));
+  const jobHeaders = directWorkflowEntries(lines, jobs, jobsStop, jobsIndent);
+  assertUniqueWorkflowEntries(jobHeaders, "jobs");
   if (jobHeaders.length === 0) throw new Error("GitHub Actions workflow must declare at least one job");
   for (const [position, header] of jobHeaders.entries()) {
     const blockEnd = jobHeaders[position + 1]?.index ?? jobsStop;
-    const gateLines = lines.slice(header.index + 1, blockEnd)
-      .filter(({ parsed }) => parsed?.indent === header.parsed.indent + 2 && parsed.key === "if");
+    const jobEntries = directWorkflowEntries(lines, header.index, blockEnd, header.parsed.indent);
+    assertUniqueWorkflowEntries(jobEntries, `job ${header.parsed.key}`);
+    const gateLines = jobEntries.filter(({ parsed }) => parsed.key === "if");
     if (gateLines.length !== 1 || !isExactWorkflowRevisionGate(gateLines[0]?.parsed.value)) {
       throw new Error(`Every GitHub Actions job must have an exact ${WORKFLOW_DISPATCH_EXPECTED_REVISION_INPUT} gate`);
     }

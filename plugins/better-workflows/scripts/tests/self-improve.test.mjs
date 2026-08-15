@@ -1047,8 +1047,8 @@ test("sanitizer redacts ownerToken display identifiers before secret scanning", 
       maxFiles: 1
     });
     assert.equal(material.redacted, true);
-    assert.match(material.content.toString("utf8"), /^ownerRef:/);
-    assert.doesNotMatch(material.content.toString("utf8"), /ownerToken\s*:/);
+    assert.match(material.content.toString("utf8"), /^ownerToken:/);
+    assert.match(material.content.toString("utf8"), /"ownerToken"\s*:/);
     assert.doesNotMatch(material.content.toString("utf8"), /00000000-0000-4000-8000-000000000099|ghp_[A-Za-z0-9]{20,}/);
     assert.match(material.content.toString("utf8"), /\[redacted-owner-token\]/);
   } finally {
@@ -1068,12 +1068,11 @@ test("sanitizer preserves distinct non-secret ownerToken expressions", async () 
       snapshot: { files: [await snapshotFile(cwd, source)] },
       maxFiles: 1
     });
-    assert.match(material.content, /ownerRef: trustedCapability/);
-    assert.match(material.content, /ownerRef: attackerInput/);
-    assert.doesNotMatch(material.content, /ownerToken\s*:/);
+    assert.match(material.content, /ownerToken: trustedCapability/);
+    assert.match(material.content, /ownerToken: attackerInput/);
     assert.notEqual(
-      material.content.indexOf("ownerRef: trustedCapability"),
-      material.content.indexOf("ownerRef: attackerInput")
+      material.content.indexOf("ownerToken: trustedCapability"),
+      material.content.indexOf("ownerToken: attackerInput")
     );
   } finally {
     await rm(cwd, { recursive: true, force: true });

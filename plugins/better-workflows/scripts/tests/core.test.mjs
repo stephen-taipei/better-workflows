@@ -2501,6 +2501,38 @@ test("GitHub Actions dispatch capability requires nonce-aware workflow metadata"
     ),
     /exact sbw_expected_revision gate/
   );
+  assert.throws(
+    () => validateWorkflowDispatchCapability(
+      `${workflow}\njobs:\n  duplicate:\n    if: \${{ github.sha == inputs.sbw_expected_revision }}`,
+      ".github/workflows/release.yml",
+      revision
+    ),
+    /duplicate top-level key: jobs/
+  );
+  assert.throws(
+    () => validateWorkflowDispatchCapability(
+      workflow.replace("  workflow_dispatch:", "  workflow_dispatch:\n  workflow_dispatch:"),
+      ".github/workflows/release.yml",
+      revision
+    ),
+    /duplicate on block key: workflow_dispatch/
+  );
+  assert.throws(
+    () => validateWorkflowDispatchCapability(
+      workflow.replace("      sbw_dispatch_nonce:", "      sbw_dispatch_nonce:\n      sbw_dispatch_nonce:"),
+      ".github/workflows/release.yml",
+      revision
+    ),
+    /duplicate workflow_dispatch input key: sbw_dispatch_nonce/
+  );
+  assert.throws(
+    () => validateWorkflowDispatchCapability(
+      workflow.replace("jobs:", "jobs: &shared_jobs"),
+      ".github/workflows/release.yml",
+      revision
+    ),
+    /anchors, aliases, and merge keys are unsupported/
+  );
 });
 
 test("contract-deferred actions fail closed in the core lifecycle", async () => {
