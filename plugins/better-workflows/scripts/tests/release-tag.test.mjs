@@ -369,6 +369,9 @@ test("release eligibility carries an untagged version bump across a later non-ve
       if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
         return jsonResponse([{ number: 12, base: { ref: "dev" }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: head }]);
       }
+      if (url.endsWith(`/repos/example/repo/commits/${bump}/pulls?per_page=100`)) {
+        return jsonResponse([{ number: 11, base: { ref: "dev" }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: bump }]);
+      }
       throw new Error(`Unexpected release-tag fetch URL: ${url}`);
     };
     const result = await runReleaseTag({
@@ -392,6 +395,41 @@ test("release eligibility carries an untagged version bump across a later non-ve
       sha: head,
       version: "3.4.13",
       pullNumber: 12
+    });
+    await writeFile(path.join(work, "README-2.md"), "unchanged version\n");
+    await git(work, ["add", "README-2.md"]);
+    await git(work, ["commit", "-qm", "unchanged version"]);
+    await git(work, ["push", "-q", "origin", "dev"]);
+    const unchangedHead = await git(work, ["rev-parse", "HEAD"]);
+    const unchangedFetch = async (url) => {
+      if (url.endsWith(`/repos/example/repo/commits/${unchangedHead}/pulls?per_page=100`)) {
+        return jsonResponse([{ number: 13, base: { ref: "dev" }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: unchangedHead }]);
+      }
+      if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
+        return jsonResponse([{ number: 12, base: { ref: "dev" }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: head }]);
+      }
+      throw new Error(`Unexpected unchanged release-tag fetch URL: ${url}`);
+    };
+    const skipped = await runReleaseTag({
+      cwd: work,
+      fetchImpl: unchangedFetch,
+      env: {
+        GITHUB_EVENT_NAME: "push",
+        GITHUB_EVENT_BEFORE: head,
+        GITHUB_REF_NAME: "dev",
+        GITHUB_REPOSITORY: "example/repo",
+        GITHUB_SHA: unchangedHead,
+        GITHUB_TOKEN: "test-token",
+        GITHUB_API_URL: "https://api.github.com",
+        RELEASE_TAG_DRY_RUN: "1"
+      }
+    });
+    assert.deepEqual(skipped, {
+      status: "skipped",
+      reason: "release-version-unchanged",
+      branch: "dev",
+      sha: unchangedHead,
+      version: "3.4.13"
     });
   } finally {
     await rm(root, { recursive: true, force: true });
