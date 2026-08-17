@@ -2685,6 +2685,131 @@ fi
   }
 });
 
+test("GitHub Actions dispatch final ref drift is explicitly not-sent before provider invocation", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-actions-dispatch-ref-drift-"));
+  const repository = path.join(root, "repository");
+  const bin = path.join(root, "bin");
+  await mkdir(path.join(repository, ".github", "workflows"), { recursive: true });
+  await mkdir(bin, { recursive: true });
+  await execFileAsync("git", ["init", "-q", "-b", "codex/ref-drift"], { cwd: repository });
+  await execFileAsync("git", ["config", "user.email", "sbw@example.invalid"], { cwd: repository });
+  await execFileAsync("git", ["config", "user.name", "SBW Test"], { cwd: repository });
+  await execFileAsync("git", ["remote", "add", "origin", "https://github.com/example/repo.git"], { cwd: repository });
+  const workflowFile = ".github/workflows/release.yml";
+  await writeFile(path.join(repository, workflowFile), [
+    "name: Release",
+    "run-name: Release ${{ inputs.sbw_dispatch_nonce }}",
+    "on:",
+    "  workflow_dispatch:",
+    "    inputs:",
+    "      sbw_dispatch_nonce:",
+    "        required: true",
+    "      sbw_expected_revision:",
+    "        required: true",
+    "jobs:",
+    "  release:",
+    "    if: github.sha == inputs.sbw_expected_revision",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - run: echo release"
+  ].join("\n") + "\n");
+  await execFileAsync("git", ["add", "."], { cwd: repository });
+  await execFileAsync("git", ["commit", "-qm", "dispatch ref drift fixture"], { cwd: repository });
+  const remoteRevision = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repository })).stdout.trim();
+  const driftRevision = "b".repeat(40);
+  const taskContract = contract({
+    authority: ["actions.dispatch"],
+    remoteRevision,
+    templateDefinition: {
+      requiredEvidence: ["remote-authorization"],
+      acceptance: [{ id: "done", description: "Dispatch ref drift is not sent.", critical: true }]
+    }
+  });
+  const run = await createRun({ root, contract: taskContract, requestedMode: "verified", cwd: repository });
+  const resource = `workflow:${workflowFile}`;
+  await addEvidence(root, run.runId, {
+    id: "dispatch-ref-drift-remote-authorization",
+    kind: "remote-authorization",
+    summary: "Dispatch provider authorization",
+    status: "complete",
+    acceptanceIds: [],
+    sourceDigest: sha256(`remote-authorization:actions.dispatch:${remoteRevision}`),
+    receipt: {
+      producer: "github-cli",
+      payload: {
+        action: "actions.dispatch",
+        provider: "github-cli",
+        resource,
+        remoteRevision,
+        repository: "github.com/example/repo",
+        actor: "alice"
+      }
+    }
+  });
+  await updateState(root, run.runId, (state) => ({
+    ...state,
+    lastSentinel: { label: "dispatch-ref-drift-test", digest: "tree" },
+    lastSentinelVerified: true,
+    lastSentinelComplete: true
+  }));
+  const refCountPath = path.join(root, "ref-count");
+  const providerCallPath = path.join(root, "provider-call");
+  const fakeGh = path.join(bin, "gh");
+  const fakeGhScript = `#!/bin/sh
+if [ "$1" = "api" ] && [ "$2" = "user" ]; then
+  printf '%s\\n' '{"login":"alice"}'
+elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo" ]; then
+  printf '%s\\n' '{"full_name":"example/repo","permissions":{"admin":false,"maintain":false,"push":true}}'
+elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo/commits/dev" ]; then
+  count=0
+  if [ -f ${JSON.stringify(refCountPath)} ]; then count=$(cat ${JSON.stringify(refCountPath)}); fi
+  count=$((count + 1))
+  printf '%s' "$count" > ${JSON.stringify(refCountPath)}
+  if [ "$count" -ge 3 ]; then
+    printf '%s\\n' '{"sha":"${driftRevision}"}'
+  else
+    printf '%s\\n' '{"sha":"${remoteRevision}"}'
+  fi
+elif [ "$1" = "run" ] && [ "$2" = "list" ]; then
+  printf '%s\\n' '[]'
+elif [ "$1" = "workflow" ] && [ "$2" = "run" ]; then
+  : > ${JSON.stringify(providerCallPath)}
+else
+  exit 9
+fi
+`;
+  await writeFile(fakeGh, fakeGhScript, { mode: 0o700 });
+  const providerExecutable = { path: await realpath(fakeGh), digest: sha256(fakeGhScript) };
+  const priorPath = process.env.PATH;
+  process.env.PATH = `${bin}:${priorPath}`;
+  try {
+    const issued = await issueActionToken(root, run.runId, {
+      action: "actions.dispatch",
+      provider: "github-cli",
+      resource,
+      scope: "dev",
+      workflowFile,
+      dispatchInputs: { environment: "test" },
+      remoteRevision,
+      requiredEvidence: ["remote-authorization"]
+    }, "tree", await loadDefaults());
+    assert.equal(issued.providerExecutable.path, providerExecutable.path);
+    await assert.rejects(
+      executeActionToken(root, run.runId, issued.token, "tree"),
+      /GitHub Actions dispatch ref changed immediately before provider invocation/
+    );
+    const action = (await inspectRun(root, run.runId)).actions.find((item) => item.tokenHash === sha256(issued.token));
+    assert.equal(action.status, "spent");
+    assert.equal(action.outcome, "pending");
+    assert.equal(action.providerInvocation.dispatchState, "not-sent");
+    assert.equal(action.providerInvocation.exitCode, null);
+    await assert.rejects(access(providerCallPath));
+  } finally {
+    process.env.PATH = priorPath;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("GitHub Actions dispatch capability requires nonce-aware workflow metadata", () => {
   const revision = "a".repeat(40);
   const workflow = [

@@ -6849,9 +6849,34 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
       await persistActionProviderInvocation(root, runId, consumed, preflight);
       throw error;
     }
+    // Re-check the ref immediately before recording the crash-observation
+    // boundary. A drift here proves that the provider command was not sent,
+    // so the attempt remains explicitly not-sent and may be reconciled as a
+    // terminal preflight failure rather than stranded as indeterminate.
+    const dispatchObservationStartedAt = nowIso();
+    try {
+      const dispatchRefRevision = await readBoundGitHubDispatchRefRevision(
+        manifest.cwd,
+        consumed.dispatchRepository,
+        consumed.dispatchRef,
+        providerExecutablePath
+      );
+      if (dispatchRefRevision !== consumed.remoteRevision) {
+        throw new Error("GitHub Actions dispatch ref changed immediately before provider invocation");
+      }
+    } catch (error) {
+      const preflight = workflowDispatchInvocation(runId, consumed, {
+        startedAt,
+        exitCode: null,
+        dispatchState: "not-sent",
+        preexistingRunIds: existingRunIds,
+        errorDigest: sha256(error?.message ?? "workflow dispatch final preflight failed")
+      });
+      await persistActionProviderInvocation(root, runId, consumed, preflight);
+      throw error;
+    }
     // Persist the observation lower bound before the provider call. A crash
     // after the call but before its result is durable must still be resumable.
-    const dispatchObservationStartedAt = nowIso();
     await persistActionProviderInvocation(root, runId, consumed, workflowDispatchInvocation(runId, consumed, {
       startedAt,
       exitCode: null,
@@ -6864,15 +6889,6 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
     }));
     let exitCode = 0;
     try {
-      const dispatchRefRevision = await readBoundGitHubDispatchRefRevision(
-        manifest.cwd,
-        consumed.dispatchRepository,
-        consumed.dispatchRef,
-        providerExecutablePath
-      );
-      if (dispatchRefRevision !== consumed.remoteRevision) {
-        throw new Error("GitHub Actions dispatch ref changed immediately before provider invocation");
-      }
       await execBoundGitHubCli(providerExecutablePath, expectedCommand.slice(1), { cwd: manifest.cwd });
     } catch (error) {
       exitCode = Number.isInteger(error?.code) ? error.code : 1;
