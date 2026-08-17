@@ -2528,6 +2528,23 @@ fi
   process.env.PATH = `${bin}${path.delimiter}${priorPath}`;
   try {
     await writeFile(path.join(actionDir, `${tokenHash}.json`), `${JSON.stringify(action)}\n`);
+    await writeFile(path.join(actionDir, `${tokenHash}.json`), `${JSON.stringify({
+      ...action,
+      providerInvocation: {
+        ...action.providerInvocation,
+        dispatchState: "preflight",
+        finishedAt: action.providerInvocation.startedAt,
+        preexistingRunIds: [],
+        errorDigest: undefined,
+        workflowRun: undefined
+      }
+    })}\n`);
+    const recoveredNotSent = await resumeActionsDispatchObservation(root, run.runId, attemptId);
+    assert.equal(recoveredNotSent.providerInvocation.dispatchState, "not-sent");
+    assert.equal(recoveredNotSent.providerInvocation.exitCode, null);
+    assert.match(recoveredNotSent.providerInvocation.errorDigest, /^[a-f0-9]{64}$/);
+
+    await writeFile(path.join(actionDir, `${tokenHash}.json`), `${JSON.stringify(action)}\n`);
     const promoted = await resumeActionsDispatchObservation(root, run.runId, attemptId);
     assert.equal(promoted.providerInvocation.dispatchState, "sent");
     assert.equal(promoted.providerInvocation.workflowRun.databaseId, 54321);

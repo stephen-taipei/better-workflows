@@ -1116,6 +1116,25 @@ test("sanitizer preserves executable ownerToken expressions", async () => {
   }
 });
 
+test("sanitizer still rejects secret-shaped unquoted ownerToken values", async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), "sbw-owner-token-secret-scan-"));
+  try {
+    const source = "docs/README.zh-TW.md";
+    await mkdir(path.dirname(path.join(cwd, source)), { recursive: true });
+    await writeFile(path.join(cwd, source), "ownerToken: AKIA1234567890ABCDEF\n");
+    await assert.rejects(
+      readSanitizedCandidateMaterial({
+        cwd,
+        snapshot: { files: [await snapshotFile(cwd, source)] },
+        maxFiles: 1
+      }),
+      /secret-shaped content/
+    );
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test("balanced sanitizer prioritizes public entry and security documents within the docs group", async () => {
   const cwd = await mkdtemp(path.join(os.tmpdir(), "sbw-doc-priority-"));
   try {

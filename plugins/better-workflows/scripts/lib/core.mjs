@@ -6558,13 +6558,21 @@ async function consumeActionTokenInternal(root, runId, token, currentTreeDigest,
         await assertCreationReservation(root, runId, record.creationReservation, tokenHash, record.expiresAt);
       }
       const attemptId = randomUUID();
+      const spentAt = nowIso();
       const next = {
         ...record,
         status: "spent",
         outcome: "pending",
-        spentAt: nowIso(),
+        spentAt,
         attemptId
       };
+      if (record.action === "actions.dispatch" && record.provider === "github-cli") {
+        // Bind the consumed token to an explicit pre-invocation boundary in
+        // the same durable write. A crash after consumption but before the
+        // first provider write can then be reconciled as not-sent without a
+        // second dispatch attempt.
+        next.providerInvocation = workflowDispatchPreInvocation(runId, { ...record, attemptId }, spentAt);
+      }
       await atomicWriteJson(root, target, next);
       await appendJournal(root, runDir, "action.consumed", { attemptId, tokenHash });
       return next;
@@ -6710,6 +6718,24 @@ export async function resumeActionsDispatchObservation(root, runId, attemptId) {
   const action = records.find((item) => item.attemptId === attemptId);
   if (!action || action.action !== "actions.dispatch" || action.provider !== "github-cli") return action ?? null;
   const invocation = action.providerInvocation;
+  if (action.status !== "spent" || action.outcome !== "pending") return action;
+  if (invocation?.dispatchState === "preflight") {
+    if (typeof invocation.startedAt !== "string" || !Number.isFinite(Date.parse(invocation.startedAt)) ||
+        invocation.exitCode !== null) {
+      throw new Error("Resumable GitHub Actions dispatch preflight recovery requires a valid pre-call timestamp and null exit code");
+    }
+    const recoveredInvocation = workflowDispatchInvocation(runId, action, {
+      startedAt: invocation.startedAt,
+      exitCode: null,
+      dispatchState: "not-sent",
+      preexistingRunIds: [],
+      errorDigest: sha256("GitHub Actions dispatch provider invocation did not start before process termination")
+    });
+    return persistActionProviderInvocation(root, runId, action, recoveredInvocation, {
+      journalEvent: "action.provider-preflight-recovered",
+      expectedProviderInvocation: invocation
+    });
+  }
   if (action.status !== "spent" || action.outcome !== "pending" ||
       !invocation || invocation.dispatchState !== "sent-or-indeterminate" || invocation.workflowRun) {
     return action;
@@ -6778,6 +6804,15 @@ function workflowDispatchInvocation(runId, action, invocation) {
     ...(invocation.workflowRun ? { workflowRun: invocation.workflowRun } : {}),
     ...(invocation.errorDigest ? { errorDigest: invocation.errorDigest } : {})
   };
+}
+
+function workflowDispatchPreInvocation(runId, action, startedAt) {
+  return workflowDispatchInvocation(runId, action, {
+    startedAt,
+    exitCode: null,
+    dispatchState: "preflight",
+    preexistingRunIds: []
+  });
 }
 
 async function persistPreflightProviderInvocation(root, runId, action, error) {

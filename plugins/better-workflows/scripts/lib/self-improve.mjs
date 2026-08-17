@@ -184,7 +184,10 @@ function ownerTokenSecretScanText(text) {
   return text.replace(PROMPT_DISPLAY_IDENTIFIER_PATTERN, (match, keyQuote, rawValue) => {
     const valueQuote = rawValue.startsWith("\"") || rawValue.startsWith("'") ? rawValue[0] : "";
     return !valueQuote && !OWNER_TOKEN_UNQUOTED_LITERAL_PATTERN.test(rawValue)
-      ? `${keyQuote}ownerToken${keyQuote}: expression`
+      // Keep the untrusted value in the scan. Only neutralize the field name
+      // so executable ownerToken expressions are not mistaken for credentials;
+      // secret-shaped values must still be visible to the general detector.
+      ? `${keyQuote}ownerIdentifier${keyQuote}: ${rawValue}`
       : match;
   });
 }
