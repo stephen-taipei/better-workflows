@@ -6847,7 +6847,7 @@ function normalizeWorkflowRun(run) {
 
 async function listWorkflowRuns(cwd, record, providerExecutablePath, { createdFilter } = {}) {
   const repository = canonicalGitHubRepositoryPath(record.dispatchRepository);
-  const workflowFile = encodeURIComponent(canonicalWorkflowFile(record.workflowFile));
+  const workflowFile = encodeURIComponent(path.posix.basename(canonicalWorkflowFile(record.workflowFile)));
   const branch = encodeURIComponent(workflowDispatchObservationRef(record.dispatchRef));
   const created = createdFilter ? `&created=${encodeURIComponent(createdFilter)}` : "";
   const output = await execBoundGitHubCli(providerExecutablePath, [

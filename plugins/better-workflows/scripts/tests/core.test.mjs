@@ -2564,6 +2564,10 @@ elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo" ]; then
   printf '%s\\n' '{"full_name":"example/repo","permissions":{"admin":false,"maintain":false,"push":true}}'
 elif [ "$1" = "api" ] && [ "$2" = "--paginate" ]; then
   sleep 0.2
+  case "$4" in
+    repos/example/repo/actions/workflows/release.yml/runs?*) ;;
+    *) printf '%s\n' 'workflow endpoint must use the filename' >&2; exit 41;;
+  esac
   printf '%s' '[{"workflow_runs":'
   cat ${JSON.stringify(listPath)}
   printf '%s\n' '}]'
