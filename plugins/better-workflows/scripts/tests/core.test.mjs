@@ -65,6 +65,7 @@ import {
   resolveGitFetchOrigin,
   resolveGitPushDestination,
   resolveGitPushExecutionBinding,
+  resolveGitHubDispatchObjectRevision,
   resolveOptionalBoundBranchRevision,
   routeMode,
   safeJoin,
@@ -108,6 +109,29 @@ test("GitHub Actions dispatch ref endpoints encode slash-containing refs as one 
   assert.throws(
     () => workflowDispatchObservationRef("release/3.4"),
     /fully qualified refs\/heads or refs\/tags/
+  );
+});
+
+test("annotated workflow refs peel tag objects to a commit and reject cycles", async () => {
+  const tagOne = "a".repeat(40);
+  const tagTwo = "b".repeat(40);
+  const revision = "c".repeat(40);
+  const observed = [];
+  const peeled = await resolveGitHubDispatchObjectRevision(
+    { type: "tag", sha: tagOne },
+    async (sha) => {
+      observed.push(sha);
+      return { object: sha === tagOne ? { type: "tag", sha: tagTwo } : { type: "commit", sha: revision } };
+    }
+  );
+  assert.equal(peeled, revision);
+  assert.deepEqual(observed, [tagOne, tagTwo]);
+  await assert.rejects(
+    () => resolveGitHubDispatchObjectRevision(
+      { type: "tag", sha: tagOne },
+      async () => ({ object: { type: "tag", sha: tagOne } })
+    ),
+    /tag resolution detected a cycle/
   );
 });
 
@@ -2122,7 +2146,7 @@ test("GitHub Actions dispatch adapter binds a fixed command and one observed run
   };
   assert.deepEqual(buildActionsDispatchCommand(record), [
     "gh", "workflow", "run", ".github/workflows/release.yml",
-    "--repo", "example/repo", "--ref", "refs/heads/dev",
+    "--repo", "example/repo", "--ref", "dev",
     "--raw-field", `environment=production`, "--raw-field", `sbw_dispatch_nonce=${dispatchNonce}`,
     "--raw-field", `sbw_expected_revision=${remoteRevision}`, "--raw-field", "smoke=true"
   ]);
@@ -2239,7 +2263,7 @@ test("GitHub Actions preflight failure has an explicit not-sent terminal proof",
     dispatchInputs: inputs,
     dispatchInputsDigest: digestObject(inputs),
     workflowDispatchCapabilityDigest: "d".repeat(64),
-    dispatchCommand: ["gh", "workflow", "run", ".github/workflows/ci.yml", "--repo", "example/repo", "--ref", "refs/heads/dev"],
+    dispatchCommand: ["gh", "workflow", "run", ".github/workflows/ci.yml", "--repo", "example/repo", "--ref", "dev"],
     providerExecutable: { path: "/usr/local/bin/gh", digest: "b".repeat(64) },
     providerAuthorizationExecutable: { path: "/usr/local/bin/gh", digest: "b".repeat(64) },
     providerAuthorization: { provider: "github-cli", repository: "github.com/example/repo", actor: "alice" },
@@ -2375,7 +2399,7 @@ fi
   const providerInvocation = {
     id: `github-actions-dispatch-wrapper:${run.runId}:${attemptId}`,
     provider: "github-cli",
-    command: ["gh", "workflow", "run", workflowFile, "--repo", "example/repo", "--ref", "refs/heads/dev"],
+    command: ["gh", "workflow", "run", workflowFile, "--repo", "example/repo", "--ref", "dev"],
     providerExecutable,
     providerAuthorizationExecutable: providerExecutable,
     providerAuthorization,
@@ -2573,7 +2597,7 @@ fi
     dispatchRef: "refs/heads/dev",
     dispatchNonce,
     dispatchInputs: { sbw_dispatch_nonce: dispatchNonce, sbw_expected_revision: remoteRevision },
-    dispatchCommand: ["gh", "workflow", "run", ".github/workflows/release.yml", "--repo", "example/repo", "--ref", "refs/heads/dev"],
+    dispatchCommand: ["gh", "workflow", "run", ".github/workflows/release.yml", "--repo", "example/repo", "--ref", "dev"],
     providerExecutable,
     providerAuthorizationExecutable: providerExecutable,
     providerAuthorization,
@@ -2582,7 +2606,7 @@ fi
       id: `github-actions-dispatch-wrapper:${run.runId}:${attemptId}`,
       actionAttemptId: attemptId,
       provider: "github-cli",
-      command: ["gh", "workflow", "run", ".github/workflows/release.yml", "--repo", "example/repo", "--ref", "refs/heads/dev"],
+      command: ["gh", "workflow", "run", ".github/workflows/release.yml", "--repo", "example/repo", "--ref", "dev"],
       providerExecutable,
       providerAuthorizationExecutable: providerExecutable,
       providerAuthorization,

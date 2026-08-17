@@ -3737,7 +3737,7 @@ export function buildActionsDispatchCommand(record) {
     "--repo",
     canonicalGitHubRepositoryPath(record.dispatchRepository),
     "--ref",
-    canonicalWorkflowDispatchIdentity(record.dispatchRef)
+    workflowDispatchObservationRef(record.dispatchRef)
   ];
   for (const [key, value] of Object.entries(inputs)) {
     command.push("--raw-field", `${key}=${value}`);
@@ -4295,11 +4295,36 @@ async function readBoundGitHubDispatchRefRevision(cwd, repository, dispatchRef, 
     executablePath,
     githubDispatchRefEndpoint(repository, dispatchRef)
   );
-  const revision = actual?.object?.sha;
+  const repositoryPath = repository.slice("github.com/".length);
+  const revision = await resolveGitHubDispatchObjectRevision(
+    actual?.object,
+    async (tagSha) => readBoundGitHubApi(cwd, executablePath, `repos/${repositoryPath}/git/tags/${tagSha}`)
+  );
   if (!SHA.test(revision ?? "")) {
     throw new Error("Bound GitHub workflow dispatch ref observation did not return an exact commit revision");
   }
   return revision;
+}
+
+export async function resolveGitHubDispatchObjectRevision(object, readTagObject) {
+  let current = object;
+  const seen = new Set();
+  for (let depth = 0; depth <= 8; depth += 1) {
+    const revision = current?.sha;
+    if ((current?.type === undefined || current.type === "commit") && SHA.test(revision ?? "")) {
+      return revision;
+    }
+    if (current?.type !== "tag" || !SHA.test(revision ?? "")) {
+      throw new Error("Bound GitHub workflow dispatch ref observation returned a non-commit object");
+    }
+    if (seen.has(revision)) {
+      throw new Error("Bound GitHub workflow dispatch tag resolution detected a cycle");
+    }
+    seen.add(revision);
+    const tagObject = await readTagObject(revision);
+    current = tagObject?.object;
+  }
+  throw new Error("Bound GitHub workflow dispatch tag resolution exceeded the maximum depth");
 }
 
 async function readOptionalBoundGitHubDispatchRefRevision(cwd, repository, dispatchRef, executablePath) {
@@ -4310,7 +4335,11 @@ async function readOptionalBoundGitHubDispatchRefRevision(cwd, repository, dispa
     { allowNotFound: true }
   );
   if (actual === null) return null;
-  const revision = actual?.object?.sha;
+  const repositoryPath = repository.slice("github.com/".length);
+  const revision = await resolveGitHubDispatchObjectRevision(
+    actual?.object,
+    async (tagSha) => readBoundGitHubApi(cwd, executablePath, `repos/${repositoryPath}/git/tags/${tagSha}`)
+  );
   if (!SHA.test(revision ?? "")) {
     throw new Error("Bound GitHub workflow dispatch ref observation did not return an exact commit revision");
   }
