@@ -691,6 +691,8 @@ const WORKFLOW_FILE = /^\.github\/workflows\/[A-Za-z0-9][A-Za-z0-9._-]{0,200}\.(
 const WORKFLOW_REF = /^[A-Za-z0-9._\/-]{1,128}$/;
 const WORKFLOW_INPUT_KEY = /^[A-Za-z_][A-Za-z0-9_-]{0,63}$/;
 const WORKFLOW_INPUT_VALUE = /^[^\0\r\n]{0,4096}$/;
+const WORKFLOW_INPUT_SENSITIVE_KEY = /(?:^|[_-])(?:token|secret|password|passwd|credential|private[_-]?key|api[_-]?key|access[_-]?key|client[_-]?secret|authorization|bearer|cookie|session)(?:$|[_-])/i;
+const WORKFLOW_INPUT_SECRET_VALUE = /(?:-----BEGIN [^-]+ PRIVATE KEY-----|(?:^|\b)(?:gh[pousr]_|github_pat_|glpat-|xox[baprs]-|AKIA[0-9A-Z]{16}\b)|\b(?:bearer|basic)\s+[A-Za-z0-9._~+/=-]{20,}|(?:^|[\s,;])(?:token|secret|password|passwd|api[_-]?key|access[_-]?key)\s*[:=]\s*\S+)/i;
 const WORKFLOW_DISPATCH_NONCE_INPUT = "sbw_dispatch_nonce";
 const WORKFLOW_DISPATCH_EXPECTED_REVISION_INPUT = "sbw_expected_revision";
 const WORKFLOW_DISPATCH_NONCE = /^[a-f0-9]{32}$/;
@@ -3305,6 +3307,14 @@ function normalizeWorkflowInputs(value) {
     const inputValue = String(rawValue ?? "");
     if (!WORKFLOW_INPUT_VALUE.test(inputValue)) {
       throw new Error(`GitHub Actions workflow input value is invalid: ${key}`);
+    }
+    const isProviderCorrelationInput = [
+      WORKFLOW_DISPATCH_NONCE_INPUT,
+      WORKFLOW_DISPATCH_EXPECTED_REVISION_INPUT
+    ].includes(key);
+    if (!isProviderCorrelationInput &&
+        (WORKFLOW_INPUT_SENSITIVE_KEY.test(key) || WORKFLOW_INPUT_SECRET_VALUE.test(inputValue))) {
+      throw new Error(`GitHub Actions workflow input must be non-sensitive: ${key}`);
     }
     normalized[key] = inputValue;
   }

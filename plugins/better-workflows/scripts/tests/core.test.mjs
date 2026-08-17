@@ -2647,6 +2647,20 @@ fi
   const priorPath = process.env.PATH;
   process.env.PATH = `${bin}:${priorPath}`;
   try {
+    await assert.rejects(
+      issueActionToken(root, run.runId, {
+        action: "actions.dispatch",
+        provider: "github-cli",
+        resource,
+        scope: "dev",
+        workflowFile,
+        dispatchInputs: { release_token: "ghp_1234567890abcdefghijklmnopqrstuvwxyz" },
+        remoteRevision,
+        requiredEvidence: ["remote-authorization"]
+      }, "tree", await loadDefaults()),
+      /workflow input must be non-sensitive/
+    );
+    assert.deepEqual((await inspectRun(root, run.runId)).actions, []);
     const issued = await issueActionToken(root, run.runId, {
       action: "actions.dispatch",
       provider: "github-cli",

@@ -1337,7 +1337,7 @@ node plugins/better-workflows/scripts/sbw.mjs action issue &lt;run-id&gt; \
         stages:[['inventory','workflow inventories'],['queue','queue-state'],['dispatch-preflight','pre-dispatch authorization'],['monitor-execute','run + required checks'],['provider-reconcile','provider-reconciliation']],
         evidence:['workflow-inventory','queue-state','target-revision','run-result','provider-reconciliation'],
         stops:['Concurrent deploy 尚未結束','Dispatch 沒有 fixed adapter 或 authority','Provider 或 live target 無法判定'],
-        success:'Exact revision 的 pipeline 與 provider/live state 皆達 terminal 並互相一致。', failure:'actionStages 在此同步版仍為 deferred；缺 adapter 不能假裝已治理執行。'
+        success:'Exact revision 的 pipeline 與 provider/live state 皆達 terminal 並互相一致。', failure:'僅未具 adapter 的 deploy、release 與 branch promotion 仍為 deferred；GitHub Actions dispatch 與固定 Git push 已由受治理 adapter 啟用，且仍須通過對應 action gate。'
       },
       {
         id:'contract', order:'07', group:'Cross-platform', title:'Backend 與三端 Client 的 Contract 變更', short:'跨平台 Contract', selector:'cross-platform', template:'cross-platform-contract', mode:'deep',
