@@ -4230,6 +4230,14 @@ function boundGitHubCredentialEnvironment(homePath, credential) {
   return env;
 }
 
+function isAuthoritativeGitHubNotFound(error) {
+  if (error?.code !== 1) return false;
+  const detail = [error?.stderr, error?.stdout, error?.message]
+    .map((value) => Buffer.isBuffer(value) ? value.toString("utf8") : String(value ?? ""))
+    .join("\n");
+  return /\bHTTP\s*404\b|\b404\s+Not\s+Found\b/i.test(detail);
+}
+
 export async function readBoundGitHubApi(cwd, executablePath, endpoint, {
   credential = null,
   homePath = os.homedir(),
@@ -4248,7 +4256,7 @@ export async function readBoundGitHubApi(cwd, executablePath, endpoint, {
         : boundGitHubEnvironment(homePath)
     });
   } catch (error) {
-    if (allowNotFound && error?.code === 1) return null;
+    if (allowNotFound && isAuthoritativeGitHubNotFound(error)) return null;
     throw error;
   }
   return JSON.parse(result.stdout);

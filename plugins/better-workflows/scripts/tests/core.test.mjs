@@ -2776,10 +2776,16 @@ elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo" ]; then
 elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo/git/ref/heads/dev" ]; then
   printf '%s\\n' '{"object":{"sha":"${remoteRevision}"}}'
 elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo/git/ref/tags/dev" ]; then
+  printf '%s\\n' 'gh: Not Found (HTTP 404)' >&2
   exit 1
 elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo/git/ref/heads/release" ]; then
   printf '%s\\n' '{"object":{"sha":"${remoteRevision}"}}'
 elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo/git/ref/tags/release" ]; then
+  printf '%s\\n' '{"object":{"sha":"${remoteRevision}"}}'
+elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo/git/ref/heads/broken" ]; then
+  printf '%s\\n' 'gh: authentication failed' >&2
+  exit 1
+elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo/git/ref/tags/broken" ]; then
   printf '%s\\n' '{"object":{"sha":"${remoteRevision}"}}'
 elif [ "$1" = "run" ] && [ "$2" = "list" ]; then
   printf '%s\\n' '[]'
@@ -2884,6 +2890,19 @@ fi
         requiredEvidence: ["remote-authorization"]
       }, "tree", await loadDefaults()),
       /ambiguous between a branch and tag ref/
+    );
+    await assert.rejects(
+      issueActionToken(root, run.runId, {
+        action: "actions.dispatch",
+        provider: "github-cli",
+        resource,
+        scope: "broken",
+        workflowFile,
+        dispatchInputs: { environment: "test" },
+        remoteRevision,
+        requiredEvidence: ["remote-authorization"]
+      }, "tree", await loadDefaults()),
+      (error) => error?.code === 1 && String(error.stderr ?? "").includes("authentication failed")
     );
     assert.deepEqual((await inspectRun(root, run.runId)).actions, []);
     const issued = await issueActionToken(root, run.runId, {
@@ -3016,6 +3035,7 @@ elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo/git/ref/heads/dev" ]; then
     printf '%s\\n' '{"object":{"sha":"${remoteRevision}"}}'
   fi
 elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo/git/ref/tags/dev" ]; then
+  printf '%s\\n' 'gh: Not Found (HTTP 404)' >&2
   exit 1
 elif [ "$1" = "run" ] && [ "$2" = "list" ]; then
   printf '%s\\n' '[]'
