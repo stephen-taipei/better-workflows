@@ -197,9 +197,9 @@ manifest, then allocates bounded content samples across runtime, tests, config,
 skills, templates, fixtures, metadata, and docs. Only valid UTF-8,
 non-secret-shaped content from approved paths is sent to Codex.
 Public CI workflows and generated HTML/Markdown surfaces are explicit
-allowlist entries when changed. Generated `.webp` assets are digest-only:
-their authoritative Git bytes are verified and bound, but never sent to the
-evaluator prompt.
+allowlist entries when changed. Generated `.webp` assets are excluded from
+standing-consent evaluation and require explicit review/validation before
+inclusion; the authoritative Git bytes remain bound by the complete manifest.
 
 Each real replay uses a distinct host-owned execution witness. Its unique
 execution ID, run ID, corpus digest, baseline revision, candidate digest, exact

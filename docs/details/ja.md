@@ -295,8 +295,9 @@ changed path が固定の plugin／repository 公開文書 allowlist に一致�
 拒否し、Codex へ送るのは sampling 済みの有効な UTF-8 かつ
 secret-shaped ではない内容だけです。
 公開 CI workflow と生成 HTML/Markdown は changed surface に含まれる場合に
-明示的に allowlist されます。生成 `.webp` asset は digest-only とし、host
-は authoritative Git bytes を検証しますが evaluator へ binary bytes は送りません。
+明示的に allowlist されます。生成 `.webp` asset は standing-consent 評価から
+除外し、含める前に明示的な review/validation が必要です。完全な changed-path
+manifest では引き続き authoritative Git bytes に bind されます。
 
 ### Governed workspace recipes
 

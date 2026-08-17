@@ -556,9 +556,9 @@ plugin or repository-public-document allowlist. An out-of-scope path rejects
 the replay even if it would sort beyond the sampling limit; only sampled valid
 UTF-8, non-secret-shaped content is sent to Codex.
 Public CI workflows and generated HTML/Markdown pages are explicit allowlist
-entries when they are changed. Generated `.webp` assets are digest-only: the
-host verifies their authoritative Git bytes but never sends those bytes to the
-evaluator; the complete changed-path manifest still binds them to the request.
+entries when they are changed. Generated `.webp` assets are excluded from
+standing-consent evaluation and require explicit review/validation before
+inclusion; the complete changed-path manifest still binds them to the request.
 
 ### Governed workspace recipes
 

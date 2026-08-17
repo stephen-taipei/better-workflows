@@ -10,7 +10,6 @@ const DISPOSITIONS = new Set(["IMPLEMENT", "NO_CHANGE", "BLOCKED", "REJECTED_WIT
 const SECRET_PATTERN = new RegExp(STANDING_CONSENT_SECRET_PATTERN, "i");
 const SECRET_PATTERN_GLOBAL = new RegExp(STANDING_CONSENT_SECRET_PATTERN, "gi");
 const PROMPT_DISPLAY_IDENTIFIER_PATTERN = /(["']?)ownerToken\1\s*:\s*((?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,}\]]+))/g;
-const OWNER_TOKEN_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 export const SELF_IMPROVE_LEGACY_CORPUS = "plugins/better-workflows/fixtures/self-improve-ops-evals.json";
 export const SELF_IMPROVE_V22_CORPUS = "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.2.json";
 export const SELF_IMPROVE_V23_CORPUS = "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.3.json";
@@ -91,7 +90,6 @@ const PUBLIC_ROOT_DOCUMENTS = new Set([
 ]);
 const PUBLIC_ROOT_SCRIPTS = new Set(["scripts/plugin-cache.mjs"]);
 const MATERIAL_GROUPS = ["runtime", "tests", "config", "skills", "templates", "fixtures", "metadata", "docs"];
-const DIGEST_ONLY_MATERIAL_PATH = /^docs\/html\/(?:assets|use-cases\/assets)\/[A-Za-z0-9._-]+\.webp$/;
 const CRITICAL_MATERIAL_ANCHOR = /resolveGitPushDestination|git push destination binds a divergent pushurl|buildBoundGitPushArgs|buildBoundGitPushEnvironment|isolatedGitEnvironment|reconstructStandingBatch|validateAuthoritativeStandingManifestBindings|runEvaluatorPolicyProbe|evaluatorCommandArgs|delegatedSelfImproveContractProjection|applyDelegatedSelfImproveContract|delegated-contract-drift|candidate-self-authorized-(?:evidence|acceptance)|upstream run|orphan cache-only signals|required cache evidence|acceptance cache evidence|stage (?:handoff|cache) evidence|action handoff gate|unexpected (?:required evidence|acceptance id)|expectedReplayKeys|migrationTrainingComparison|alignedRuns|train-(?:candidate|baseline):1|(?:candidate|baseline):[1-3]|release metadata classification|every other byte change|migration gap repair|eight distinct migration witnesses|every target-only case|hidden comments|fenced examples|wrong-section|suite saturation|pendingMarkerMatchesPublication|publication failure preserves a pending marker|acquirePublicationLock|releasePublicationLock|reclaimStalePublicationLock|legacy stale-lock quarantine|landingMarkdownStructure|reduceLedger|attempt-budget-exhausted|budget-exhausted|fifth scoped repair round|repair budget exhausted|final broad review|single-task non-direct run|automatic design or review artifacts|direct mode creates no state directory|self-reported evidence without a typed receipt|complete-without-typed-evidence|review kernel accounts every work unit|review kernel rejects finder self-verification|reviewKernelStatus|recordReviewAxis|recordFindingVerification|assertReviewContinuity|workUniverseDigest|axisSetDigest|verificationSetDigest|convergenceDigest|code-v2-pilot|work-unit-accounting|review-kernel-summary/i;
 export const SELF_IMPROVE_CRITICAL_MATERIAL_ANCHOR_SOURCE = CRITICAL_MATERIAL_ANCHOR.source;
 export const SELF_IMPROVE_MATERIAL_SAMPLE_PRIORITY = Object.freeze([
@@ -147,7 +145,6 @@ function allowedCandidateMaterial(file) {
     /^docs\/html\/(?:index|preview)\.html$/.test(file) ||
     /^docs\/html\/use-cases\/(?:index|preview)\.html$/.test(file) ||
     /^docs\/html\/use-cases\/assets\/[A-Za-z0-9._-]+\.md$/.test(file) ||
-    DIGEST_ONLY_MATERIAL_PATH.test(file) ||
     /^plugins\/better-workflows\/(?:scripts\/.+\.(?:mjs|c)|skills\/.+\.md|templates\/.+\.json|fixtures\/.+\.(?:json|md|mjs)|config\/.+\.json|package\.json|\.codex-plugin\/plugin\.json)$/.test(file);
 }
 
@@ -176,9 +173,7 @@ function safeRelative(value, label) {
 
 function redactOwnerTokenDisplay(_match, keyQuote, rawValue) {
   const valueQuote = rawValue.startsWith("\"") || rawValue.startsWith("'") ? rawValue[0] : "";
-  const value = valueQuote ? rawValue.slice(1, -1) : rawValue;
-  const sensitiveLiteral = OWNER_TOKEN_UUID_PATTERN.test(value) || SECRET_PATTERN.test(value);
-  const replacement = sensitiveLiteral ? "[redacted-owner-token]" : value;
+  const replacement = "[redacted-owner-token]";
   const renderedValue = valueQuote ? `${valueQuote}${replacement}${valueQuote}` : replacement;
   return `${keyQuote}ownerToken${keyQuote}: ${renderedValue}`;
 }
@@ -1125,23 +1120,6 @@ async function readBalancedSanitizedMaterial({ snapshot, maxFiles, maxBytes, rea
     let fileRemainder = budget - baseFileBudget * groupFiles.length;
     for (const file of groupFiles) {
       const content = validateSanitizedMaterialBytes(file, await readContent(file), label);
-      if (DIGEST_ONLY_MATERIAL_PATH.test(file.path)) {
-        // Do not treat a digest as proof of bytes we never read. The
-        // authoritative candidate blob was verified above, then omit only
-        // its content from the bounded prompt material.
-        material.push({
-          path: file.path,
-          materialGroup: group,
-          content: "",
-          evidenceIndex: { exportedSymbols: [], namedSymbols: [], tests: [], ids: [], headings: [], semanticAnchors: [] },
-          digest: file.digest,
-          sampledBytes: 0,
-          truncated: true,
-          redacted: false
-        });
-        fileRemainder = Math.max(0, fileRemainder - 1);
-        continue;
-      }
       if (content.includes(0)) throw new Error(`${label} material is not text: ${file.path}`);
       const text = content.toString("utf8");
       if (Buffer.byteLength(text, "utf8") !== content.length) throw new Error(`${label} material is not valid UTF-8: ${file.path}`);

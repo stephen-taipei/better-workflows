@@ -703,10 +703,8 @@ const STANDING_CONSENT_ALLOWED_PATH_PATTERNS = Object.freeze([
   "^docs/html/(?:index|preview)\\.html$",
   "^docs/html/use-cases/(?:index|preview)\\.html$",
   "^docs/html/use-cases/assets/[A-Za-z0-9._-]+\\.md$",
-  "^docs/html/(?:assets|use-cases/assets)/[A-Za-z0-9._-]+\\.webp$",
   "^plugins/better-workflows/(?:scripts/.+\\.(?:mjs|c)|skills/.+\\.md|templates/.+\\.json|fixtures/.+\\.(?:json|md|mjs)|config/.+\\.json|package\\.json|\\.codex-plugin/plugin\\.json)$"
 ]);
-const DIGEST_ONLY_MATERIAL_PATH = /^docs\/html\/(?:assets|use-cases\/assets)\/[A-Za-z0-9._-]+\.webp$/;
 const STANDING_CONSENT_SECRET_SCANNER_VERSION = "known-secrets-v3";
 const STANDING_CONSENT_SECRET_PATTERN = [
   "(?:api[_-]?key|password|passwd|secret|token|authorization)\\s*[:=]\\s*(?:\\\"[^\\\"\\s]{4,}\\\"|'[^'\\s]{4,}'|(?=[A-Za-z0-9+/_-]{8,}(?:\\s|$))(?=[A-Za-z0-9+/_-]*[0-9+/_-])[A-Za-z0-9+/_-]+)",
@@ -720,7 +718,6 @@ const STANDING_CONSENT_SECRET_PATTERN = [
   "\\bAIza[0-9A-Za-z_-]{35}\\b"
 ].join("|");
 const PROMPT_DISPLAY_IDENTIFIER_PATTERN = /(["']?)ownerToken\1\s*:\s*((?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,}\]]+))/g;
-const OWNER_TOKEN_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const STANDING_CONSENT_REQUIRED_PROMPT_LINES = Object.freeze([
   "You are classifying a staged workflow snapshot using a sanitized, bounded corpus.",
   "Do not use tools, access history, write files, or perform side effects.",
@@ -4213,24 +4210,6 @@ async function reconstructSanitizedMaterial({ repo, subject, revision, snapshot,
     const baseFileBudget = Math.floor(budget / files.length);
     let fileRemainder = budget - baseFileBudget * files.length;
     for (const file of files) {
-      if (DIGEST_ONLY_MATERIAL_PATH.test(file.path)) {
-        // Digest-only transport is a disclosure reduction, not a trust shortcut.
-        // Reconstruct and verify the authoritative Git blob before omitting its
-        // bytes from the prompt material.
-        await authoritativeSnapshotBlob(repo, subject, revision, file);
-        material.push({
-          path: file.path,
-          materialGroup: group,
-          content: "",
-          evidenceIndex: { exportedSymbols: [], namedSymbols: [], tests: [], ids: [], headings: [], semanticAnchors: [] },
-          digest: file.digest,
-          sampledBytes: 0,
-          truncated: true,
-          redacted: false
-        });
-        fileRemainder = Math.max(0, fileRemainder - 1);
-        continue;
-      }
       const content = validateAuthoritativeMaterialBytes(
         file,
         await authoritativeSnapshotBlob(repo, subject, revision, file)
@@ -4242,9 +4221,7 @@ async function reconstructSanitizedMaterial({ repo, subject, revision, snapshot,
       let redacted = false;
       sanitized = sanitized.replace(PROMPT_DISPLAY_IDENTIFIER_PATTERN, (_match, keyQuote, rawValue) => {
         const valueQuote = rawValue.startsWith("\"") || rawValue.startsWith("'") ? rawValue[0] : "";
-        const value = valueQuote ? rawValue.slice(1, -1) : rawValue;
-        const sensitiveLiteral = OWNER_TOKEN_UUID_PATTERN.test(value) || secretPattern.test(value);
-        const replacement = sensitiveLiteral ? "[redacted-owner-token]" : value;
+        const replacement = "[redacted-owner-token]";
         const renderedValue = valueQuote ? `${valueQuote}${replacement}${valueQuote}` : replacement;
         return `${keyQuote}ownerToken${keyQuote}: ${renderedValue}`;
       });

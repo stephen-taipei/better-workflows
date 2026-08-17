@@ -1124,6 +1124,7 @@ test("root-authoritative evidence indexes ignore regex literals after declaratio
 test("root signer validates the repository standing-consent policy without sanitizer drift", async () => {
   const policy = JSON.parse(await readFile(STANDING_CONSENT_POLICY, "utf8"));
   assert.deepEqual(validateStandingConsentPolicy(policy), policy);
+  assert.equal(policy.sanitization.allowedPathPatterns.some((pattern) => pattern.includes("webp")), false);
   assert.throws(
     () => validateStandingConsentPolicy({
       ...policy,

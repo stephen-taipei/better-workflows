@@ -273,9 +273,9 @@ node plugins/better-workflows/scripts/sbw.mjs \
 在采样范围之外，replay 仍会直接拒绝；只有实际采样、有效 UTF-8 且不含
 secret-shaped 内容的数据才会传给 Codex。
 公开 CI workflow 和生成的 HTML/Markdown 页面在 changed surface 内时会被
-明确 allowlist；生成的 `.webp` asset 只保留 digest，host 会验证其
-authoritative Git bytes，但不会把 binary bytes 发送到 evaluator prompt。完整
-changed-path manifest 仍会将这些文件绑定到 signed request。
+明确 allowlist；生成的 `.webp` asset 不纳入 standing-consent 评估，纳入前必须
+经过明确的 review/validation。完整 changed-path manifest 仍会将这些文件绑定到
+signed request。
 
 ### 受治理的 workspace recipes
 

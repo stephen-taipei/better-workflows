@@ -1038,7 +1038,8 @@ test("sanitizer redacts ownerToken display identifiers before secret scanning", 
     await mkdir(path.dirname(path.join(cwd, source)), { recursive: true });
     const ownerTokenMaterial = [
       "ownerToken: 00000000-0000-4000-8000-000000000099",
-      `\"ownerToken\": \"ghp_${"A".repeat(20)}\"`
+      `\"ownerToken\": \"ghp_${"A".repeat(20)}\"`,
+      "ownerToken: short-opaque-capability"
     ].join("\n") + "\n";
     await writeFile(path.join(cwd, source), ownerTokenMaterial);
     const [material] = await readSanitizedCandidateMaterial({
@@ -1083,7 +1084,7 @@ test("sanitizer admits only the explicitly allowlisted CI workflow", async () =>
   }
 });
 
-test("sanitizer preserves distinct non-secret ownerToken expressions", async () => {
+test("sanitizer redacts opaque ownerToken expressions", async () => {
   const cwd = await mkdtemp(path.join(os.tmpdir(), "sbw-owner-token-expression-"));
   try {
     const source = "docs/README.zh-TW.md";
@@ -1095,12 +1096,8 @@ test("sanitizer preserves distinct non-secret ownerToken expressions", async () 
       snapshot: { files: [await snapshotFile(cwd, source)] },
       maxFiles: 1
     });
-    assert.match(material.content, /ownerToken: trustedCapability/);
-    assert.match(material.content, /ownerToken: attackerInput/);
-    assert.notEqual(
-      material.content.indexOf("ownerToken: trustedCapability"),
-      material.content.indexOf("ownerToken: attackerInput")
-    );
+    assert.doesNotMatch(material.content, /trustedCapability|attackerInput/);
+    assert.equal((material.content.match(/ownerToken: \[redacted-owner-token\]/g) ?? []).length, 2);
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }
@@ -1536,7 +1533,7 @@ test("candidate sanitizer admits declared public docs and checks all paths befor
   }
 });
 
-test("candidate sanitizer admits public generated surfaces without sending binary bytes", async () => {
+test("candidate sanitizer rejects unvalidated generated binary surfaces", async () => {
   const cwd = await mkdtemp(path.join(os.tmpdir(), "sbw-public-generated-surfaces-"));
   try {
     const textFiles = [
@@ -1551,41 +1548,38 @@ test("candidate sanitizer admits public generated surfaces without sending binar
       "docs/html/assets/control-plane.webp",
       "docs/html/use-cases/assets/hero.webp"
     ];
-    const binaryBytes = Buffer.from([0x52, 0x49, 0xff, 0x00, 0x01]);
     for (const file of textFiles) {
       await mkdir(path.dirname(path.join(cwd, file)), { recursive: true });
       await writeFile(path.join(cwd, file), `public generated material for ${file}\n`);
     }
-    for (const file of binaryFiles) {
-      await mkdir(path.dirname(path.join(cwd, file)), { recursive: true });
-      await writeFile(path.join(cwd, file), binaryBytes);
-    }
-    const files = await Promise.all([...textFiles, ...binaryFiles].map((file) => snapshotFile(cwd, file)));
-    const material = await readSanitizedCandidateMaterial({ cwd, snapshot: { files }, maxFiles: files.length });
-    assert.deepEqual(material.map((item) => item.path).sort(), files.map((item) => item.path).sort());
-    for (const item of material.filter((value) => binaryFiles.includes(value.path))) {
-      assert.equal(item.content, "");
-      assert.equal(item.sampledBytes, 0);
-      assert.deepEqual(item.evidenceIndex, { exportedSymbols: [], namedSymbols: [], tests: [], ids: [], headings: [], semanticAnchors: [] });
-      assert.equal(item.truncated, true);
-    }
-    for (const item of material.filter((value) => textFiles.includes(value.path))) {
+    const textSnapshots = await Promise.all(textFiles.map((file) => snapshotFile(cwd, file)));
+    const material = await readSanitizedCandidateMaterial({ cwd, snapshot: { files: textSnapshots }, maxFiles: textSnapshots.length });
+    assert.deepEqual(material.map((item) => item.path).sort(), textSnapshots.map((item) => item.path).sort());
+    for (const item of material) {
       assert.match(item.content, /public generated material/);
       assert.ok(item.sampledBytes > 0);
     }
+    const binaryFile = binaryFiles[0];
+    await mkdir(path.dirname(path.join(cwd, binaryFile)), { recursive: true });
+    await writeFile(path.join(cwd, binaryFile), Buffer.from([0x52, 0x49, 0xff, 0x00, 0x01]));
+    const binarySnapshot = await snapshotFile(cwd, binaryFile);
+    await assert.rejects(
+      readSanitizedCandidateMaterial({ cwd, snapshot: { files: [...textSnapshots, binarySnapshot] }, maxFiles: textSnapshots.length + 1 }),
+      /outside the sanitized allowlist/
+    );
     await assert.rejects(
       readSanitizedCandidateMaterial({
         cwd,
-        snapshot: { files: files.map((file) => file.path === binaryFiles[0] ? { ...file, digest: "0".repeat(64) } : file) },
-        maxFiles: files.length
+        snapshot: { files: textSnapshots.map((file) => file.path === textFiles[0] ? { ...file, digest: "0".repeat(64) } : file) },
+        maxFiles: textSnapshots.length
       }),
       /material bytes do not match the candidate snapshot/
     );
     await assert.rejects(
       readSanitizedCandidateMaterial({
         cwd,
-        snapshot: { files: files.map((file) => file.path === textFiles[0] ? { ...file, digest: "0".repeat(64) } : file) },
-        maxFiles: files.length
+        snapshot: { files: textSnapshots.map((file) => file.path === textFiles[0] ? { ...file, size: file.size + 1 } : file) },
+        maxFiles: textSnapshots.length
       }),
       /material bytes do not match the candidate snapshot/
     );
