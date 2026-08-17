@@ -39,7 +39,6 @@ export const STANDING_CONSENT_ALLOWED_PATH_PATTERNS = Object.freeze([
   "^docs/html/(?:index|preview)\\.html$",
   "^docs/html/use-cases/(?:index|preview)\\.html$",
   "^docs/html/use-cases/assets/[A-Za-z0-9._-]+\\.md$",
-  "^docs/html/(?:assets|use-cases/assets)/[A-Za-z0-9._-]+\\.webp$",
   "^plugins/better-workflows/(?:scripts/.+\\.(?:mjs|c)|skills/.+\\.md|templates/.+\\.json|fixtures/.+\\.(?:json|md|mjs)|config/.+\\.json|package\\.json|\\.codex-plugin/plugin\\.json)$"
 ]);
 export const STANDING_CONSENT_SECRET_SCANNER_VERSION = "known-secrets-v3";
