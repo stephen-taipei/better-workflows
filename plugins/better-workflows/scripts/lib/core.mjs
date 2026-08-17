@@ -698,6 +698,11 @@ const WORKFLOW_DISPATCH_EXPECTED_REVISION_INPUT = "sbw_expected_revision";
 const WORKFLOW_DISPATCH_NONCE = /^[a-f0-9]{32}$/;
 const WORKFLOW_DISPATCH_NONCE_EXPRESSION = /\$\{\{\s*(?:inputs|github\.event\.inputs)\.sbw_dispatch_nonce\s*\}\}/;
 
+function workflowInputKeyIsSensitive(key) {
+  const separatedKey = key.replace(/([a-z0-9])([A-Z])/g, "$1_$2");
+  return WORKFLOW_INPUT_SENSITIVE_KEY.test(key) || WORKFLOW_INPUT_SENSITIVE_KEY.test(separatedKey);
+}
+
 function workflowConclusionIsSuccess(value) {
   return typeof value === "string" && value.toLowerCase() === "success";
 }
@@ -3313,7 +3318,7 @@ function normalizeWorkflowInputs(value) {
       WORKFLOW_DISPATCH_EXPECTED_REVISION_INPUT
     ].includes(key);
     if (!isProviderCorrelationInput &&
-        (WORKFLOW_INPUT_SENSITIVE_KEY.test(key) || WORKFLOW_INPUT_SECRET_VALUE.test(inputValue))) {
+        (workflowInputKeyIsSensitive(key) || WORKFLOW_INPUT_SECRET_VALUE.test(inputValue))) {
       throw new Error(`GitHub Actions workflow input must be non-sensitive: ${key}`);
     }
     normalized[key] = inputValue;
@@ -6670,15 +6675,19 @@ async function observeDispatchedWorkflow(cwd, record, providerExecutablePath, ex
 
 async function persistActionProviderInvocation(root, runId, action, invocation, {
   journalEvent = "action.provider-invoked",
-  expectedProviderInvocation = null
+  expectedProviderInvocation
 } = {}) {
   return withRunLock(root, runId, async ({ runDir }) => {
     const target = safeJoin(runDir, "actions", `${action.tokenHash}.json`);
     const current = await readJson(root, target);
-    if (current.status !== "spent" || current.attemptId !== action.attemptId) {
+    if (current.status !== "spent" || current.outcome !== "pending" || current.attemptId !== action.attemptId) {
       throw new Error("GitHub Actions provider invocation is not bound to the consumed action attempt");
     }
-    if (expectedProviderInvocation && digestObject(current.providerInvocation) !== digestObject(expectedProviderInvocation)) {
+    const expectedInvocation = expectedProviderInvocation === undefined
+      ? (action.providerInvocation ?? null)
+      : expectedProviderInvocation;
+    const currentInvocation = current.providerInvocation ?? null;
+    if (digestObject(currentInvocation) !== digestObject(expectedInvocation)) {
       throw new Error("GitHub Actions provider invocation changed during resumable reconciliation");
     }
     const next = { ...current, providerInvocation: invocation };
@@ -6800,7 +6809,7 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
   if (!EXECUTABLE_ACTION_PROVIDERS.has(`${actionRecord.action}:${actionRecord.provider}`)) {
     throw new Error("The governed provider execution path only supports fixed GitHub/Git provider adapters");
   }
-  const consumed = await consumeActionTokenInternal(root, runId, token, currentTreeDigest, true);
+  let consumed = await consumeActionTokenInternal(root, runId, token, currentTreeDigest, true);
   if (contract.autonomyProfile) {
     const run = await loadRun(root, runId);
     if (run.state.autonomy?.status !== "ready" || run.state.lastSentinelVerified !== true || run.state.lastSentinelComplete !== true) {
@@ -6856,7 +6865,7 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
         preexistingRunIds: existingRunIds,
         errorDigest: sha256(error?.message ?? "workflow dispatch preflight failed")
       });
-      await persistActionProviderInvocation(root, runId, consumed, preflight);
+      consumed = await persistActionProviderInvocation(root, runId, consumed, preflight);
       throw error;
     }
     // Re-check the ref immediately before recording the crash-observation
@@ -6882,12 +6891,12 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
         preexistingRunIds: existingRunIds,
         errorDigest: sha256(error?.message ?? "workflow dispatch final preflight failed")
       });
-      await persistActionProviderInvocation(root, runId, consumed, preflight);
+      consumed = await persistActionProviderInvocation(root, runId, consumed, preflight);
       throw error;
     }
     // Persist the observation lower bound before the provider call. A crash
     // after the call but before its result is durable must still be resumable.
-    await persistActionProviderInvocation(root, runId, consumed, workflowDispatchInvocation(runId, consumed, {
+    consumed = await persistActionProviderInvocation(root, runId, consumed, workflowDispatchInvocation(runId, consumed, {
       startedAt,
       exitCode: null,
       // Once the token is consumed, a crash can occur immediately before or
@@ -6911,7 +6920,7 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
         observationStartedAt: dispatchObservationStartedAt,
         errorDigest: sha256(error?.message ?? "workflow dispatch failed")
       });
-      await persistActionProviderInvocation(root, runId, consumed, failedInvocation);
+      consumed = await persistActionProviderInvocation(root, runId, consumed, failedInvocation);
       throw Object.assign(
         new Error("GitHub Actions dispatch invocation failed; provider state is indeterminate and automatic retry is prohibited", {
           cause: error
@@ -6923,7 +6932,7 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
       );
     }
     const dispatchedAt = nowIso();
-    await persistActionProviderInvocation(root, runId, consumed, workflowDispatchInvocation(runId, consumed, {
+    consumed = await persistActionProviderInvocation(root, runId, consumed, workflowDispatchInvocation(runId, consumed, {
       startedAt,
       exitCode,
       dispatchState: "sent-or-indeterminate",
@@ -6948,7 +6957,8 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
         observationStartedAt: dispatchObservationStartedAt,
         workflowRun
       });
-      return await persistActionProviderInvocation(root, runId, consumed, completedInvocation);
+      consumed = await persistActionProviderInvocation(root, runId, consumed, completedInvocation);
+      return consumed;
     } catch (error) {
       const indeterminateInvocation = workflowDispatchInvocation(runId, consumed, {
         startedAt,
@@ -6959,7 +6969,7 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
         observationStartedAt: dispatchObservationStartedAt,
         errorDigest: sha256(error?.message ?? "workflow run observation failed")
       });
-      await persistActionProviderInvocation(root, runId, consumed, indeterminateInvocation);
+      consumed = await persistActionProviderInvocation(root, runId, consumed, indeterminateInvocation);
       throw error;
     }
   }

@@ -2468,6 +2468,7 @@ if [ "$1" = "api" ] && [ "$2" = "user" ]; then
 elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo" ]; then
   printf '%s\\n' '{"full_name":"example/repo","permissions":{"admin":false,"maintain":false,"push":true}}'
 elif [ "$1" = "run" ] && [ "$2" = "list" ]; then
+  sleep 0.2
   cat ${JSON.stringify(listPath)}
 elif [ "$1" = "run" ] && [ "$2" = "view" ]; then
   cat ${JSON.stringify(viewPath)}
@@ -2553,6 +2554,26 @@ fi
     const persisted = JSON.parse(await readFile(path.join(actionDir, `${tokenHash}.json`), "utf8"));
     assert.equal(persisted.providerInvocation.dispatchState, "sent-or-indeterminate");
     assert.equal(persisted.providerInvocation.workflowRun, undefined);
+
+    await writeFile(listPath, `${JSON.stringify([workflowRun])}\n`);
+    await writeFile(path.join(actionDir, `${tokenHash}.json`), `${JSON.stringify(action)}\n`);
+    let mutationResolve;
+    const mutationDone = new Promise((resolve) => { mutationResolve = resolve; });
+    const mutationTimer = setTimeout(async () => {
+      await writeFile(path.join(actionDir, `${tokenHash}.json`), `${JSON.stringify({
+        ...action,
+        providerInvocation: { ...action.providerInvocation, errorDigest: sha256("concurrent-provider-writer") }
+      })}\n`);
+      mutationResolve();
+    }, 50);
+    await assert.rejects(
+      resumeActionsDispatchObservation(root, run.runId, attemptId),
+      /changed during resumable reconciliation/
+    );
+    await mutationDone;
+    clearTimeout(mutationTimer);
+    const raced = JSON.parse(await readFile(path.join(actionDir, `${tokenHash}.json`), "utf8"));
+    assert.equal(raced.providerInvocation.errorDigest, sha256("concurrent-provider-writer"));
   } finally {
     process.env.PATH = priorPath;
     await rm(root, { recursive: true, force: true });
@@ -2660,6 +2681,21 @@ fi
       }, "tree", await loadDefaults()),
       /workflow input must be non-sensitive/
     );
+    for (const sensitiveKey of ["releaseToken", "apiKey", "accessToken", "clientSecret", "passwordValue"]) {
+      await assert.rejects(
+        issueActionToken(root, run.runId, {
+          action: "actions.dispatch",
+          provider: "github-cli",
+          resource,
+          scope: "dev",
+          workflowFile,
+          dispatchInputs: { [sensitiveKey]: "opaque-value" },
+          remoteRevision,
+          requiredEvidence: ["remote-authorization"]
+        }, "tree", await loadDefaults()),
+        /workflow input must be non-sensitive/
+      );
+    }
     assert.deepEqual((await inspectRun(root, run.runId)).actions, []);
     const issued = await issueActionToken(root, run.runId, {
       action: "actions.dispatch",
