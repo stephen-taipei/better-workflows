@@ -1188,7 +1188,7 @@ export function validateContract(contract) {
       throw new Error("TaskContract review-enabled policy requires reviewProfile");
     }
     if (!reviewEnabled && contract.reviewProfile !== undefined) {
-      throw new Error("TaskContract reviewProfile is not allowed when review policy is none");
+      throw new Error("TaskContract cannot weaken template control-plane policy: reviewProfile is not allowed when review policy is none");
     }
     if (contract.reviewProfile !== undefined) {
       validateReviewProfile(contract.reviewProfile, {
