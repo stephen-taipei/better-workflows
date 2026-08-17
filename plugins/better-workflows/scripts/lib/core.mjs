@@ -3422,6 +3422,10 @@ function assertReservedWorkflowInputSchema(lines, inputIndex, inputEnd, inputKey
   }
 }
 
+function workflowInputBlockEnd(inputEntries, inputIndex, inputsStop) {
+  return inputEntries.find(({ index }) => index > inputIndex)?.index ?? inputsStop;
+}
+
 function isExactWorkflowRevisionGate(value) {
   if (typeof value !== "string" || value.includes("#")) return false;
   const expression = value.trim().replace(/^\$\{\{\s*/, "").replace(/\s*\}\}$/, "").trim();
@@ -3477,8 +3481,18 @@ export function validateWorkflowDispatchCapability(content, workflowFile, revisi
   if (expectedRevisionIndex < 0) {
     throw new Error(`GitHub Actions workflow_dispatch must declare the reserved ${WORKFLOW_DISPATCH_EXPECTED_REVISION_INPUT} input`);
   }
-  assertReservedWorkflowInputSchema(lines, nonceIndex, expectedRevisionIndex, WORKFLOW_DISPATCH_NONCE_INPUT);
-  assertReservedWorkflowInputSchema(lines, expectedRevisionIndex, inputsStop, WORKFLOW_DISPATCH_EXPECTED_REVISION_INPUT);
+  assertReservedWorkflowInputSchema(
+    lines,
+    nonceIndex,
+    workflowInputBlockEnd(inputEntries, nonceIndex, inputsStop),
+    WORKFLOW_DISPATCH_NONCE_INPUT
+  );
+  assertReservedWorkflowInputSchema(
+    lines,
+    expectedRevisionIndex,
+    workflowInputBlockEnd(inputEntries, expectedRevisionIndex, inputsStop),
+    WORKFLOW_DISPATCH_EXPECTED_REVISION_INPUT
+  );
   const runName = topEntries.find(({ parsed }) => parsed.key === "run-name");
   if (!runName || !WORKFLOW_DISPATCH_NONCE_EXPRESSION.test(runName.parsed.value)) {
     throw new Error(`GitHub Actions workflow run-name must expose ${WORKFLOW_DISPATCH_NONCE_INPUT}`);

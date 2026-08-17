@@ -2660,8 +2660,10 @@ test("GitHub Actions dispatch invocation failure stays indeterminate and rejects
     "    inputs:",
     "      sbw_dispatch_nonce:",
     "        required: true",
+    "        type: string",
     "      sbw_expected_revision:",
     "        required: true",
+    "        type: string",
     "jobs:",
     "  release:",
     "    if: github.sha == inputs.sbw_expected_revision",
@@ -2815,8 +2817,10 @@ test("GitHub Actions dispatch final ref drift is explicitly not-sent before prov
     "    inputs:",
     "      sbw_dispatch_nonce:",
     "        required: true",
+    "        type: string",
     "      sbw_expected_revision:",
     "        required: true",
+    "        type: string",
     "jobs:",
     "  release:",
     "    if: github.sha == inputs.sbw_expected_revision",
@@ -2948,6 +2952,25 @@ test("GitHub Actions dispatch capability requires nonce-aware workflow metadata"
   assert.equal(capability.nonceInput, "sbw_dispatch_nonce");
   assert.equal(capability.runNameNonce, true);
   assert.match(capability.contentDigest, /^[a-f0-9]{64}$/);
+  const nonceBlock = "      sbw_dispatch_nonce:\n        required: true\n        type: string\n";
+  const revisionBlock = "      sbw_expected_revision:\n        required: true\n        type: string\n";
+  assert.doesNotThrow(() => validateWorkflowDispatchCapability(
+    workflow.replace(`${nonceBlock}${revisionBlock}`, `${revisionBlock}${nonceBlock}`),
+    ".github/workflows/release.yml",
+    revision
+  ));
+  const ordinaryBlock = "      ordinary_input:\n        required: false\n        type: string\n";
+  for (const variant of [
+    workflow.replace("      sbw_dispatch_nonce:", ordinaryBlock + "      sbw_dispatch_nonce:"),
+    workflow.replace("      sbw_expected_revision:", ordinaryBlock + "      sbw_expected_revision:"),
+    workflow.replace("jobs:", ordinaryBlock + "jobs:")
+  ]) {
+    assert.doesNotThrow(() => validateWorkflowDispatchCapability(
+      variant,
+      ".github/workflows/release.yml",
+      revision
+    ));
+  }
   for (const replacement of [
     ["        type: string", "        type: boolean"],
     ["        type: string", "        type: choice\n        options:\n          - safe"],
