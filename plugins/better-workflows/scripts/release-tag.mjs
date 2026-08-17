@@ -190,7 +190,16 @@ export async function runReleaseTag({ env = process.env, cwd = process.cwd(), fe
   if (previous !== null && compareStableVersions(current, previous) < 0) {
     throw new Error(`Release version ${current} is lower than its parent ${previous}; refusing release eligibility`);
   }
-  if (!versionChanged(current, previous)) {
+  let eligibleVersionChange = versionChanged(current, previous);
+  if (!eligibleVersionChange && targetParent !== null) {
+    const predecessorTag = releaseTagName({ branch, version: current, sha: targetParent });
+    const predecessorTagCommit = await remoteTag(cwd, predecessorTag);
+    // If the event-before commit contains the version bump but its workflow
+    // lost a branch-tip race before publishing, carry the untagged bump to
+    // this exact integration tip. The later CAS still protects publication.
+    eligibleVersionChange = predecessorTagCommit === null;
+  }
+  if (!eligibleVersionChange) {
     return { status: "skipped", reason: "release-version-unchanged", branch, sha, version: current };
   }
 

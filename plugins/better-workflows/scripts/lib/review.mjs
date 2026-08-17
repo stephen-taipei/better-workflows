@@ -54,9 +54,10 @@ const REVIEW_PACKAGE_IDENTITY_FIELDS = [
 ];
 
 function reviewPackageIdentity(value) {
-  const fields = value.schemaVersion === 2
+  const identityFields = value.schemaVersion === 2
     ? ["schemaVersion", ...REVIEW_PACKAGE_IDENTITY_FIELDS, "workUnitPolicy", "reviewLanes", "reviewLanesDigest", "workUniverse", "workUniverseDigest"]
     : [...REVIEW_PACKAGE_IDENTITY_FIELDS];
+  const fields = [...identityFields];
   if (value.reviewProfileDigest !== undefined) fields.push("reviewProfileDigest");
   return Object.fromEntries(fields.map((field) => [field, value[field]]));
 }

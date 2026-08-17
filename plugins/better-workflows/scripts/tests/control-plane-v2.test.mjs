@@ -895,6 +895,18 @@ test("ledger compilation rejects a terminal run", async () => {
   );
 });
 
+test("review package identity is pure across repeated and frozen digest inputs", () => {
+  const mutable = { schemaVersion: 1, immutable: true, identityFields: ["base"] };
+  const before = [...mutable.identityFields];
+  const first = reviewPackageDigest(mutable);
+  const second = reviewPackageDigest(mutable);
+  assert.equal(first, second);
+  assert.deepEqual(mutable.identityFields, before);
+  const frozen = Object.freeze({ schemaVersion: 1, immutable: true, identityFields: Object.freeze(["base"]) });
+  assert.doesNotThrow(() => reviewPackageDigest(frozen));
+  assert.equal(reviewPackageDigest(frozen), reviewPackageDigest(frozen));
+});
+
 test("review packages reject head drift with stable finding identity, block after the fifth scoped repair round, and require final broad review", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "sbw-v2-review-"));
   const repository = path.join(root, "repository");

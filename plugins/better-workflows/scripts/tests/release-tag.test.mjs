@@ -334,6 +334,70 @@ test("release eligibility uses the validated push-event parent across multi-comm
   }
 });
 
+test("release eligibility carries an untagged version bump across a later non-version push", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-release-tag-race-") );
+  const bare = path.join(root, "origin.git");
+  const work = path.join(root, "work");
+  try {
+    await execFileAsync("git", ["init", "--bare", "-q", bare]);
+    await execFileAsync("git", ["init", "-q", work]);
+    await git(work, ["config", "user.email", "test@example.invalid"]);
+    await git(work, ["config", "user.name", "release-test"]);
+    await mkdir(path.join(work, "plugins/better-workflows/.codex-plugin"), { recursive: true });
+    await mkdir(path.join(work, "plugins/better-workflows"), { recursive: true });
+    await writeFile(path.join(work, "plugins/better-workflows/package.json"), JSON.stringify({ version: "3.4.12" }));
+    await writeFile(path.join(work, "plugins/better-workflows/.codex-plugin/plugin.json"), JSON.stringify({ version: "3.4.12+codex.test" }));
+    await git(work, ["add", "."]);
+    await git(work, ["commit", "-qm", "base"]);
+    await git(work, ["branch", "-M", "dev"]);
+    await git(work, ["remote", "add", "origin", bare]);
+    await git(work, ["push", "-q", "origin", "dev"]);
+    const eventBefore = await git(work, ["rev-parse", "HEAD"]);
+    await writeFile(path.join(work, "plugins/better-workflows/package.json"), JSON.stringify({ version: "3.4.13" }));
+    await writeFile(path.join(work, "plugins/better-workflows/.codex-plugin/plugin.json"), JSON.stringify({ version: "3.4.13+codex.test" }));
+    await git(work, ["add", "."]);
+    await git(work, ["commit", "-qm", "version bump"]);
+    const bump = await git(work, ["rev-parse", "HEAD"]);
+    await git(work, ["push", "-q", "origin", "dev"]);
+    assert.equal(await git(work, ["ls-remote", "origin", `refs/tags/v3.4.13-dev.${bump.slice(0, 12)}`]), "");
+    await writeFile(path.join(work, "README.md"), "follow-up push\n");
+    await git(work, ["add", "README.md"]);
+    await git(work, ["commit", "-qm", "follow-up"]);
+    await git(work, ["push", "-q", "origin", "dev"]);
+    const head = await git(work, ["rev-parse", "HEAD"]);
+    const fetchImpl = async (url) => {
+      if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
+        return jsonResponse([{ number: 12, base: { ref: "dev" }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: head }]);
+      }
+      throw new Error(`Unexpected release-tag fetch URL: ${url}`);
+    };
+    const result = await runReleaseTag({
+      cwd: work,
+      fetchImpl,
+      env: {
+        GITHUB_EVENT_NAME: "push",
+        GITHUB_EVENT_BEFORE: bump,
+        GITHUB_REF_NAME: "dev",
+        GITHUB_REPOSITORY: "example/repo",
+        GITHUB_SHA: head,
+        GITHUB_TOKEN: "test-token",
+        GITHUB_API_URL: "https://api.github.com",
+        RELEASE_TAG_DRY_RUN: "1"
+      }
+    });
+    assert.deepEqual(result, {
+      status: "planned",
+      tag: `v3.4.13-dev.${head.slice(0, 12)}`,
+      branch: "dev",
+      sha: head,
+      version: "3.4.13",
+      pullNumber: 12
+    });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("release parent version surfaces fail closed for missing and malformed files", async () => {
   for (const scenario of ["missing", "malformed"]) {
     const root = await mkdtemp(path.join(os.tmpdir(), `sbw-release-tag-parent-${scenario}-`));
