@@ -2959,6 +2959,38 @@ test("GitHub Actions dispatch capability requires nonce-aware workflow metadata"
     ".github/workflows/release.yml",
     revision
   ));
+  assert.throws(
+    () => validateWorkflowDispatchCapability(
+      workflow.replace("  release:", "  \"ev\\u0069l\":"),
+      ".github/workflows/release.yml",
+      revision
+    ),
+    /unsupported or unparsed jobs mapping entry/
+  );
+  assert.throws(
+    () => validateWorkflowDispatchCapability(
+      workflow.replace("jobs:", "\"jo\\u0062s\":"),
+      ".github/workflows/release.yml",
+      revision
+    ),
+    /unsupported or unparsed top-level mapping entry|jobs block/
+  );
+  assert.throws(
+    () => validateWorkflowDispatchCapability(
+      workflow.replace("  workflow_dispatch:", "  workflow_dispatch: {inputs: {}}"),
+      ".github/workflows/release.yml",
+      revision
+    ),
+    /flow mappings and sequences/
+  );
+  assert.throws(
+    () => validateWorkflowDispatchCapability(
+      workflow.replace("name: Release", "name: !str Release"),
+      ".github/workflows/release.yml",
+      revision
+    ),
+    /YAML tags/
+  );
   const ordinaryBlock = "      ordinary_input:\n        required: false\n        type: string\n";
   for (const variant of [
     workflow.replace("      sbw_dispatch_nonce:", ordinaryBlock + "      sbw_dispatch_nonce:"),

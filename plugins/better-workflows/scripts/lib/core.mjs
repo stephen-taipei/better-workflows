@@ -3377,6 +3377,29 @@ function assertSupportedWorkflowYaml(lines) {
     if (parsed?.value === "|" || parsed?.value === ">" || parsed?.value.startsWith("|-") || parsed?.value.startsWith(">-")) {
       throw new Error("GitHub Actions workflow block scalars are unsupported for capability attestation");
     }
+    if (parsed?.value && /^[\[{]/.test(parsed.value.trim())) {
+      throw new Error("GitHub Actions workflow flow mappings and sequences are unsupported for capability attestation");
+    }
+    if (parsed?.value && /^![A-Za-z_]/.test(parsed.value.trim())) {
+      throw new Error("GitHub Actions workflow YAML tags are unsupported for capability attestation");
+    }
+  }
+}
+
+function assertCompleteDirectMapping(lines, start, end, parentIndent, label) {
+  const candidates = [];
+  for (let index = Math.max(0, start + 1); index < end; index += 1) {
+    const raw = String(lines[index]?.raw ?? "");
+    if (!raw.trim() || raw.trimStart().startsWith("#")) continue;
+    const indent = raw.match(/^\s*/)?.[0].length ?? 0;
+    if (indent > parentIndent) candidates.push({ index, indent, parsed: lines[index].parsed });
+  }
+  if (candidates.length === 0) return;
+  const childIndent = Math.min(...candidates.map(({ indent }) => indent));
+  for (const candidate of candidates.filter(({ indent }) => indent === childIndent)) {
+    if (!candidate.parsed || candidate.parsed.indent !== childIndent) {
+      throw new Error(`GitHub Actions workflow contains an unsupported or unparsed ${label} mapping entry`);
+    }
   }
 }
 
@@ -3446,6 +3469,7 @@ export function validateWorkflowDispatchCapability(content, workflowFile, revisi
     parsed: line.trimStart().startsWith("#") ? null : workflowKeyLine(line)
   }));
   assertSupportedWorkflowYaml(lines);
+  assertCompleteDirectMapping(lines, -1, lines.length, -1, "top-level");
   const topEntries = directWorkflowEntries(lines, -1, lines.length, -1);
   assertUniqueWorkflowEntries(topEntries, "top-level");
   const topOn = topEntries.find(({ parsed }) => parsed.key === "on")?.index ?? -1;
@@ -3453,6 +3477,7 @@ export function validateWorkflowDispatchCapability(content, workflowFile, revisi
   const onIndent = lines[topOn].parsed.indent;
   const onEnd = lines.findIndex(({ parsed }, index) => index > topOn && parsed && parsed.indent <= onIndent);
   const onStop = onEnd < 0 ? lines.length : onEnd;
+  assertCompleteDirectMapping(lines, topOn, onStop, onIndent, "on block");
   const onEntries = directWorkflowEntries(lines, topOn, onStop, onIndent);
   assertUniqueWorkflowEntries(onEntries, "on block");
   const dispatchIndex = onEntries.find(({ parsed }) => parsed.key === "workflow_dispatch")?.index ?? -1;
@@ -3462,6 +3487,7 @@ export function validateWorkflowDispatchCapability(content, workflowFile, revisi
     index > dispatchIndex && index < onStop && parsed && parsed.indent <= dispatchIndent
   ));
   const dispatchStop = dispatchEnd < 0 ? onStop : dispatchEnd;
+  assertCompleteDirectMapping(lines, dispatchIndex, dispatchStop, dispatchIndent, "workflow_dispatch");
   const dispatchEntries = directWorkflowEntries(lines, dispatchIndex, dispatchStop, dispatchIndent);
   assertUniqueWorkflowEntries(dispatchEntries, "workflow_dispatch");
   const inputsIndex = dispatchEntries.find(({ parsed }) => parsed.key === "inputs")?.index ?? -1;
@@ -3471,6 +3497,7 @@ export function validateWorkflowDispatchCapability(content, workflowFile, revisi
     index > inputsIndex && index < dispatchStop && parsed && parsed.indent <= inputsIndent
   ));
   const inputsStop = inputsEnd < 0 ? dispatchStop : inputsEnd;
+  assertCompleteDirectMapping(lines, inputsIndex, inputsStop, inputsIndent, "workflow_dispatch input");
   const inputEntries = directWorkflowEntries(lines, inputsIndex, inputsStop, inputsIndent);
   assertUniqueWorkflowEntries(inputEntries, "workflow_dispatch input");
   const nonceIndex = inputEntries.find(({ parsed }) => parsed.key === WORKFLOW_DISPATCH_NONCE_INPUT)?.index ?? -1;
@@ -3502,11 +3529,13 @@ export function validateWorkflowDispatchCapability(content, workflowFile, revisi
   const jobsIndent = lines[jobs].parsed.indent;
   const jobsEnd = lines.findIndex(({ parsed }, index) => index > jobs && parsed && parsed.indent <= jobsIndent);
   const jobsStop = jobsEnd < 0 ? lines.length : jobsEnd;
+  assertCompleteDirectMapping(lines, jobs, jobsStop, jobsIndent, "jobs");
   const jobHeaders = directWorkflowEntries(lines, jobs, jobsStop, jobsIndent);
   assertUniqueWorkflowEntries(jobHeaders, "jobs");
   if (jobHeaders.length === 0) throw new Error("GitHub Actions workflow must declare at least one job");
   for (const [position, header] of jobHeaders.entries()) {
     const blockEnd = jobHeaders[position + 1]?.index ?? jobsStop;
+    assertCompleteDirectMapping(lines, header.index, blockEnd, header.parsed.indent, `job ${header.parsed.key}`);
     const jobEntries = directWorkflowEntries(lines, header.index, blockEnd, header.parsed.indent);
     assertUniqueWorkflowEntries(jobEntries, `job ${header.parsed.key}`);
     const gateLines = jobEntries.filter(({ parsed }) => parsed.key === "if");
