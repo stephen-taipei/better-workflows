@@ -127,28 +127,6 @@ async function previousVersion(cwd, revision) {
   return versionSurfaces(packageJson, pluginManifest);
 }
 
-async function hasEligibleUntaggedParentBump({ cwd, branch, targetParent, previousVersionValue, repository, token, apiUrl, fetchImpl }) {
-  if (targetParent === null) return false;
-  const predecessorTag = releaseTagName({ branch, version: previousVersionValue, sha: targetParent });
-  if (await remoteTag(cwd, predecessorTag) !== null) return false;
-  let parentRevision;
-  try {
-    parentRevision = await git(cwd, ["rev-parse", "--verify", `${targetParent}^1`]);
-  } catch {
-    return false;
-  }
-  const parentPulls = await repositoryPullRequests({
-    apiUrl,
-    repository,
-    sha: targetParent,
-    token,
-    fetchImpl
-  });
-  if (!findMergedPullRequest(parentPulls, { branch, sha: targetParent })) return false;
-  const parentPrevious = await previousVersion(cwd, parentRevision);
-  return parentPrevious !== null && versionChanged(previousVersionValue, parentPrevious);
-}
-
 async function remoteHead(cwd, branch) {
   const output = await git(cwd, ["ls-remote", "origin", `refs/heads/${branch}`]);
   const [sha] = output.split(/\s+/);
@@ -212,20 +190,7 @@ export async function runReleaseTag({ env = process.env, cwd = process.cwd(), fe
   if (previous !== null && compareStableVersions(current, previous) < 0) {
     throw new Error(`Release version ${current} is lower than its parent ${previous}; refusing release eligibility`);
   }
-  let eligibleVersionChange = versionChanged(current, previous);
-  if (!eligibleVersionChange && targetParent !== null) {
-    eligibleVersionChange = await hasEligibleUntaggedParentBump({
-      cwd,
-      branch,
-      targetParent,
-      previousVersionValue: previous,
-      repository,
-      token,
-      apiUrl: String(env.GITHUB_API_URL ?? "https://api.github.com"),
-      fetchImpl
-    });
-  }
-  if (!eligibleVersionChange) {
+  if (!versionChanged(current, previous)) {
     return { status: "skipped", reason: "release-version-unchanged", branch, sha, version: current };
   }
 

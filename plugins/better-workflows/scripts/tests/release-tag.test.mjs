@@ -334,7 +334,7 @@ test("release eligibility uses the validated push-event parent across multi-comm
   }
 });
 
-test("release eligibility carries an untagged version bump across a later non-version push", async () => {
+test("release eligibility never carries a version bump to a later non-version push", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "sbw-release-tag-race-") );
   const bare = path.join(root, "origin.git");
   const work = path.join(root, "work");
@@ -369,9 +369,6 @@ test("release eligibility carries an untagged version bump across a later non-ve
       if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
         return jsonResponse([{ number: 12, base: { ref: "dev" }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: head }]);
       }
-      if (url.endsWith(`/repos/example/repo/commits/${bump}/pulls?per_page=100`)) {
-        return jsonResponse([{ number: 11, base: { ref: "dev" }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: bump }]);
-      }
       throw new Error(`Unexpected release-tag fetch URL: ${url}`);
     };
     const result = await runReleaseTag({
@@ -389,12 +386,11 @@ test("release eligibility carries an untagged version bump across a later non-ve
       }
     });
     assert.deepEqual(result, {
-      status: "planned",
-      tag: `v3.4.13-dev.${head.slice(0, 12)}`,
+      status: "skipped",
+      reason: "release-version-unchanged",
       branch: "dev",
       sha: head,
-      version: "3.4.13",
-      pullNumber: 12
+      version: "3.4.13"
     });
     await writeFile(path.join(work, "README-2.md"), "unchanged version\n");
     await git(work, ["add", "README-2.md"]);
