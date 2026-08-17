@@ -2795,7 +2795,9 @@ fi
     for (const secretValue of [
       "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signatureValue123",
       "AKIAIOSFODNN7EXAMPLE",
-      "opaqueHighEntropyCredential-9F4a7B2c8D6e0G1h"
+      "opaqueHighEntropyCredential-9F4a7B2c8D6e0G1h",
+      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "prefixlessAlphanumericCredential9F4a7B2c8D6e0G1h2Jk3Lm4Nop5Qrs6Tuv"
     ]) {
       await assert.rejects(
         issueActionToken(root, run.runId, {
