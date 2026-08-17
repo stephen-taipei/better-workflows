@@ -10,6 +10,7 @@ const DISPOSITIONS = new Set(["IMPLEMENT", "NO_CHANGE", "BLOCKED", "REJECTED_WIT
 const SECRET_PATTERN = new RegExp(STANDING_CONSENT_SECRET_PATTERN, "i");
 const SECRET_PATTERN_GLOBAL = new RegExp(STANDING_CONSENT_SECRET_PATTERN, "gi");
 const PROMPT_DISPLAY_IDENTIFIER_PATTERN = /(["']?)ownerToken\1\s*:\s*((?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,}\]]+))/g;
+const OWNER_TOKEN_UNQUOTED_LITERAL_PATTERN = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|(?:gh[pousr]_|github_pat_|glpat-|xox[baprs]-)[A-Za-z0-9_-]{8,}|[A-Za-z0-9]+(?:[-._~+=/][A-Za-z0-9]+)+)$/i;
 export const SELF_IMPROVE_LEGACY_CORPUS = "plugins/better-workflows/fixtures/self-improve-ops-evals.json";
 export const SELF_IMPROVE_V22_CORPUS = "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.2.json";
 export const SELF_IMPROVE_V23_CORPUS = "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.3.json";
@@ -171,8 +172,9 @@ function safeRelative(value, label) {
   return normalized;
 }
 
-function redactOwnerTokenDisplay(_match, keyQuote, rawValue) {
+function redactOwnerTokenDisplay(match, keyQuote, rawValue) {
   const valueQuote = rawValue.startsWith("\"") || rawValue.startsWith("'") ? rawValue[0] : "";
+  if (!valueQuote && !OWNER_TOKEN_UNQUOTED_LITERAL_PATTERN.test(rawValue)) return match;
   const replacement = "[redacted-owner-token]";
   const renderedValue = valueQuote ? `${valueQuote}${replacement}${valueQuote}` : replacement;
   return `${keyQuote}ownerToken${keyQuote}: ${renderedValue}`;

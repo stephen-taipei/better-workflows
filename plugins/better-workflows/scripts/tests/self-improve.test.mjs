@@ -1084,7 +1084,7 @@ test("sanitizer admits only the explicitly allowlisted CI workflow", async () =>
   }
 });
 
-test("sanitizer redacts opaque ownerToken expressions", async () => {
+test("sanitizer preserves executable ownerToken expressions", async () => {
   const cwd = await mkdtemp(path.join(os.tmpdir(), "sbw-owner-token-expression-"));
   try {
     const source = "docs/README.zh-TW.md";
@@ -1096,8 +1096,9 @@ test("sanitizer redacts opaque ownerToken expressions", async () => {
       snapshot: { files: [await snapshotFile(cwd, source)] },
       maxFiles: 1
     });
-    assert.doesNotMatch(material.content, /trustedCapability|attackerInput/);
-    assert.equal((material.content.match(/ownerToken: \[redacted-owner-token\]/g) ?? []).length, 2);
+    assert.match(material.content, /ownerToken: trustedCapability/);
+    assert.match(material.content, /ownerToken: attackerInput/);
+    assert.equal((material.content.match(/ownerToken: \[redacted-owner-token\]/g) ?? []).length, 0);
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }
