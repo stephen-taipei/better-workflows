@@ -1121,7 +1121,10 @@ test("sanitizer still rejects secret-shaped unquoted ownerToken values", async (
   try {
     const source = "docs/README.zh-TW.md";
     await mkdir(path.dirname(path.join(cwd, source)), { recursive: true });
-    await writeFile(path.join(cwd, source), "ownerToken: AKIA1234567890ABCDEF\n");
+    await writeFile(path.join(cwd, source), [
+      "ownerToken: AKIA1234567890ABCDEF",
+      "ownerToken: opaqueCredentialABC123456789"
+    ].join("\n") + "\n");
     await assert.rejects(
       readSanitizedCandidateMaterial({
         cwd,

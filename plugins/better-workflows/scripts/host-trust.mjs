@@ -719,6 +719,7 @@ const STANDING_CONSENT_SECRET_PATTERN = [
 ].join("|");
 const PROMPT_DISPLAY_IDENTIFIER_PATTERN = /(["']?)ownerToken\1\s*:\s*((?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,}\]]+))/g;
 const OWNER_TOKEN_UNQUOTED_LITERAL_PATTERN = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|(?:gh[pousr]_|github_pat_|glpat-|xox[baprs]-)[A-Za-z0-9_-]{8,}|(?:cap|token)[_-][A-Za-z0-9]{8,})$/i;
+const OWNER_TOKEN_EXPRESSION_PATTERN = /^(?:[a-z_$][A-Za-z_$]*[A-Z][A-Za-z_$]*|[a-z_$][A-Za-z_$]*(?:\.|\?\.)[A-Za-z_$][A-Za-z_$]*|[a-z_$][A-Za-z_$]*\/[a-z_$][A-Za-z_$-]*|[a-z_$][A-Za-z_$]*\s+\|\|\s+[a-z_$][A-Za-z_$]*(?:(?:\.|\?\.)[A-Za-z_$][A-Za-z_$]*)?)$/;
 function redactOwnerTokenDisplay(match, keyQuote, rawValue) {
   const valueQuote = rawValue.startsWith("\"") || rawValue.startsWith("'") ? rawValue[0] : "";
   if (!valueQuote && !OWNER_TOKEN_UNQUOTED_LITERAL_PATTERN.test(rawValue)) return match;
@@ -729,9 +730,10 @@ function redactOwnerTokenDisplay(match, keyQuote, rawValue) {
 function ownerTokenSecretScanText(text) {
   return text.replace(PROMPT_DISPLAY_IDENTIFIER_PATTERN, (match, keyQuote, rawValue) => {
     const valueQuote = rawValue.startsWith("\"") || rawValue.startsWith("'") ? rawValue[0] : "";
-    return !valueQuote && !OWNER_TOKEN_UNQUOTED_LITERAL_PATTERN.test(rawValue)
-      ? `${keyQuote}ownerIdentifier${keyQuote}: ${rawValue}`
-      : match;
+    if (!valueQuote && OWNER_TOKEN_EXPRESSION_PATTERN.test(rawValue)) {
+      return `${keyQuote}ownerIdentifier${keyQuote}: ${rawValue}`;
+    }
+    return match;
   });
 }
 const STANDING_CONSENT_REQUIRED_PROMPT_LINES = Object.freeze([
