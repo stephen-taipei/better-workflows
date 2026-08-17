@@ -5030,7 +5030,7 @@ async function verifyProviderReceipt(manifest, record, receipt, contract = null)
       throw new Error("GitHub Actions dispatch proof resource is not bound to workflowFile");
     }
     const actual = JSON.parse((await execBoundGitHubCli(providerExecutablePath, [
-      "run", "view", String(providerReceipt.runId), "--json", "databaseId,workflowName,url,status,conclusion,headSha,displayTitle"
+      "run", "view", String(providerReceipt.runId), "--repo", canonicalGitHubRepositoryPath(record.dispatchRepository), "--json", "databaseId,workflowName,url,status,conclusion,headSha,displayTitle"
     ], { cwd })).stdout);
     const repository = await currentRepositoryIdentity(cwd);
     if (repository !== canonicalGitHubRepository(record.dispatchRepository)) {

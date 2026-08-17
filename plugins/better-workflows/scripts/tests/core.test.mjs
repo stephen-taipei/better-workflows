@@ -2380,6 +2380,10 @@ if [ "$1" = "api" ] && [ "$2" = "user" ]; then
 elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo" ]; then
   printf '{"full_name":"example/repo","permissions":{"admin":false,"maintain":false,"push":true}}\\n'
 elif [ "$1" = "run" ] && [ "$2" = "view" ]; then
+  if [ "$3" != "--repo" ] || [ "$4" != "example/repo" ]; then
+    printf '%s\\n' 'workflow receipt verification must bind --repo' >&2
+    exit 42
+  fi
   cat ${JSON.stringify(responsePath)}
 else
   exit 9
