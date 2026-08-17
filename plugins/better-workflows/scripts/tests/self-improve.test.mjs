@@ -1140,6 +1140,18 @@ test("sanitizer preserves non-secret quoted ownerToken source values but rejects
     assert.match(material.content, /ownerToken:\s*"disabled"/);
     assert.doesNotMatch(material.content, /redacted-owner-token/);
 
+    for (const literal of ["00000000-0000-4000-8000-000000000099", "opaqueCredential"]) {
+      await writeFile(path.join(cwd, source), `const config = { ownerToken: "${literal}" };\n`);
+      await assert.rejects(
+        readSanitizedCandidateMaterial({
+          cwd,
+          snapshot: { files: [await snapshotFile(cwd, source)] },
+          maxFiles: 1
+        }),
+        /secret-shaped content/
+      );
+    }
+
     await writeFile(path.join(cwd, source), 'const config = { ownerToken: "AKIA1234567890ABCDEF" };\n');
     await assert.rejects(
       readSanitizedCandidateMaterial({

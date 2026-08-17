@@ -1369,7 +1369,8 @@ test("root standing reconstruction reads candidate authority from bound commit o
   assert.match(materialBlock, /authoritativeSnapshotBlob\(repo, subject, revision, file\)/);
   assert.match(materialBlock, /redactOwnerTokenDisplayWithPolicy/);
   assert.match(source, /OWNER_TOKEN_UNQUOTED_LITERAL_PATTERN/);
-  assert.match(source, /if \(!valueQuote && !OWNER_TOKEN_UNQUOTED_LITERAL_PATTERN\.test\(rawValue\)\) return match/);
+  assert.match(source, /OWNER_TOKEN_SAFE_QUOTED_LITERALS/);
+  assert.match(source, /quotedValue !== "\[redacted-owner-token\]"/);
   assert.match(source, /function ownerTokenSecretScanText\(text\)/);
   assert.match(materialBlock, /secretPattern\.test\(ownerTokenSecretScanText\(text\)\)/);
   assert.match(materialBlock, /secretPattern\.test\(ownerTokenSecretScanText\(sanitized\)\)/);
