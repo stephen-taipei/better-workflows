@@ -2505,7 +2505,7 @@ test("GitHub Actions dispatch observation lower bound uses provider-start time",
   const providerStartIndex = source.indexOf("dispatchObservationStartedAt = nowIso();");
   const preCallPersistIndex = source.indexOf("observationStartedAt: dispatchObservationStartedAt", providerStartIndex);
   const providerCallIndex = source.indexOf("await execBoundGitHubCli(providerExecutablePath, expectedCommand.slice(1)");
-  const observationIndex = source.indexOf("dispatchObservationStartedAt\n      );", providerCallIndex);
+  const observationIndex = source.indexOf("observeDispatchedWorkflow(", providerCallIndex);
   assert.ok(providerStartIndex >= 0);
   assert.ok(preCallPersistIndex > providerStartIndex);
   assert.ok(preCallPersistIndex < providerCallIndex);
@@ -2562,9 +2562,11 @@ if [ "$1" = "api" ] && [ "$2" = "user" ]; then
   printf '%s\\n' '{"login":"alice"}'
 elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo" ]; then
   printf '%s\\n' '{"full_name":"example/repo","permissions":{"admin":false,"maintain":false,"push":true}}'
-elif [ "$1" = "run" ] && [ "$2" = "list" ]; then
+elif [ "$1" = "api" ] && [ "$2" = "--paginate" ]; then
   sleep 0.2
+  printf '%s' '[{"workflow_runs":'
   cat ${JSON.stringify(listPath)}
+  printf '%s\n' '}]'
 elif [ "$1" = "run" ] && [ "$2" = "view" ]; then
   cat ${JSON.stringify(viewPath)}
 else
@@ -2671,6 +2673,21 @@ fi
     assert.equal(promoted.providerInvocation.dispatchState, "sent");
     assert.equal(promoted.providerInvocation.workflowRun.databaseId, 54321);
     assert.equal(promoted.providerInvocation.errorDigest, undefined);
+
+    await writeFile(viewPath, `${JSON.stringify({ ...workflowRun, status: "in_progress", conclusion: null })}\n`);
+    await writeFile(path.join(actionDir, `${tokenHash}.json`), `${JSON.stringify(action)}\n`);
+    const pendingResume = resumeActionsDispatchObservation(root, run.runId, attemptId);
+    let candidatePersisted;
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      candidatePersisted = JSON.parse(await readFile(path.join(actionDir, `${tokenHash}.json`), "utf8"));
+      if (candidatePersisted.providerInvocation?.observedRunId === "54321") break;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    assert.equal(candidatePersisted.providerInvocation.observedRunId, "54321");
+    await writeFile(viewPath, `${JSON.stringify(workflowRun)}\n`);
+    const resumedAfterCandidate = await pendingResume;
+    assert.equal(resumedAfterCandidate.providerInvocation.dispatchState, "sent");
+    assert.equal(resumedAfterCandidate.providerInvocation.observedRunId, "54321");
 
     await writeFile(path.join(actionDir, `${tokenHash}.json`), `${JSON.stringify({
       ...action,
@@ -2811,8 +2828,8 @@ elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo/git/ref/heads/broken" ]; t
   exit 1
 elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo/git/ref/tags/broken" ]; then
   printf '%s\\n' '{"object":{"sha":"${remoteRevision}"}}'
-elif [ "$1" = "run" ] && [ "$2" = "list" ]; then
-  printf '%s\\n' '[]'
+elif [ "$1" = "api" ] && [ "$2" = "--paginate" ]; then
+  printf '%s\\n' '[{"workflow_runs":[]}]'
 elif [ "$1" = "workflow" ] && [ "$2" = "run" ]; then
   printf '%s\\n' 'provider dispatch failed before acceptance' >&2
   exit 23
@@ -3061,8 +3078,8 @@ elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo/git/ref/heads/dev" ]; then
 elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo/git/ref/tags/dev" ]; then
   printf '%s\\n' 'gh: Not Found (HTTP 404)' >&2
   exit 1
-elif [ "$1" = "run" ] && [ "$2" = "list" ]; then
-  printf '%s\\n' '[]'
+elif [ "$1" = "api" ] && [ "$2" = "--paginate" ]; then
+  printf '%s\\n' '[{"workflow_runs":[]}]'
 elif [ "$1" = "workflow" ] && [ "$2" = "run" ]; then
   : > ${JSON.stringify(providerCallPath)}
 else

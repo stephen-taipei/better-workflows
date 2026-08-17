@@ -6830,17 +6830,39 @@ const WORKFLOW_DISPATCH_POLL_INTERVAL_MS = 10 * 1000;
 const WORKFLOW_DISPATCH_PREFLIGHT_LEASE_MS = 5 * 60 * 1000;
 const WORKFLOW_RUN_JSON_FIELDS = "databaseId,workflowName,displayTitle,status,conclusion,headSha,headBranch,createdAt,startedAt,url";
 
-async function listWorkflowRuns(cwd, record, providerExecutablePath) {
+function normalizeWorkflowRun(run) {
+  return {
+    databaseId: run?.databaseId ?? run?.id,
+    workflowName: run?.workflowName ?? run?.name,
+    displayTitle: run?.displayTitle ?? run?.display_title,
+    status: run?.status,
+    conclusion: run?.conclusion,
+    headSha: run?.headSha ?? run?.head_sha,
+    headBranch: run?.headBranch ?? run?.head_branch,
+    createdAt: run?.createdAt ?? run?.created_at,
+    startedAt: run?.startedAt ?? run?.run_started_at,
+    url: run?.url ?? run?.html_url
+  };
+}
+
+async function listWorkflowRuns(cwd, record, providerExecutablePath, { createdFilter } = {}) {
+  const repository = canonicalGitHubRepositoryPath(record.dispatchRepository);
+  const workflowFile = encodeURIComponent(canonicalWorkflowFile(record.workflowFile));
+  const branch = encodeURIComponent(workflowDispatchObservationRef(record.dispatchRef));
+  const created = createdFilter ? `&created=${encodeURIComponent(createdFilter)}` : "";
   const output = await execBoundGitHubCli(providerExecutablePath, [
-    "run", "list",
-    "--workflow", record.workflowFile,
-    "--repo", canonicalGitHubRepositoryPath(record.dispatchRepository),
-    "--limit", "100",
-    "--json", WORKFLOW_RUN_JSON_FIELDS
+    "api", "--paginate", "--slurp",
+    `repos/${repository}/actions/workflows/${workflowFile}/runs?per_page=100&head_sha=${record.remoteRevision}&branch=${branch}${created}`,
+    "--method", "GET"
   ], { cwd });
-  const runs = JSON.parse(output.stdout);
-  if (!Array.isArray(runs)) throw new Error("GitHub Actions workflow list returned a non-array result");
-  return runs;
+  const payload = JSON.parse(output.stdout);
+  const pages = Array.isArray(payload) ? payload : [payload];
+  const runs = pages.flatMap((page) => {
+    if (Array.isArray(page)) return page;
+    if (Array.isArray(page?.workflow_runs)) return page.workflow_runs;
+    throw new Error("GitHub Actions workflow list returned an invalid page");
+  });
+  return runs.map(normalizeWorkflowRun);
 }
 
 async function viewWorkflowRun(cwd, record, providerExecutablePath, runId) {
@@ -6864,13 +6886,16 @@ export function workflowDispatchMinimumCreatedAt(observationStartedAt) {
   return startedAt - 10_000;
 }
 
-async function observeDispatchedWorkflow(cwd, record, providerExecutablePath, existingRunIds, observationStartedAt) {
+async function observeDispatchedWorkflow(cwd, record, providerExecutablePath, existingRunIds, observationStartedAt, { persistCandidate } = {}) {
   const known = new Set(existingRunIds.map(String));
   const expectedHeadBranch = workflowDispatchObservationRef(record.dispatchRef);
   const minimumCreatedAt = workflowDispatchMinimumCreatedAt(observationStartedAt);
+  let observedRunId = record.providerInvocation?.observedRunId ? String(record.providerInvocation.observedRunId) : null;
   const deadline = Date.now() + WORKFLOW_DISPATCH_OBSERVATION_TIMEOUT_MS;
   while (Date.now() < deadline) {
-    const runs = await listWorkflowRuns(cwd, record, providerExecutablePath);
+    const runs = await listWorkflowRuns(cwd, record, providerExecutablePath, {
+      createdFilter: `>=${new Date(minimumCreatedAt).toISOString()}`
+    });
     const candidates = runs.filter((run) => {
       const runId = String(run?.databaseId ?? "");
       const createdAt = Date.parse(run?.createdAt ?? "");
@@ -6884,11 +6909,18 @@ async function observeDispatchedWorkflow(cwd, record, providerExecutablePath, ex
         Number.isFinite(createdAt) && createdAt >= minimumCreatedAt
       );
     });
-    if (candidates.length > 1) {
+    const additionalCandidates = observedRunId
+      ? candidates.filter((run) => String(run.databaseId) !== observedRunId)
+      : candidates;
+    if (observedRunId ? additionalCandidates.length > 0 : additionalCandidates.length > 1) {
       throw new Error("GitHub Actions dispatch produced more than one unclaimed matching run");
     }
-    if (candidates.length === 1) {
-      const observed = await viewWorkflowRun(cwd, record, providerExecutablePath, candidates[0].databaseId);
+    if (!observedRunId && additionalCandidates.length === 1) {
+      observedRunId = String(additionalCandidates[0].databaseId);
+      if (persistCandidate) await persistCandidate(observedRunId);
+    }
+    if (observedRunId) {
+      const observed = await viewWorkflowRun(cwd, record, providerExecutablePath, observedRunId);
       if (observed.status === "completed") return observed;
     }
     await new Promise((resolve) => setTimeout(resolve, WORKFLOW_DISPATCH_POLL_INTERVAL_MS));
@@ -6989,25 +7021,44 @@ export async function resumeActionsDispatchObservation(root, runId, attemptId) {
   const preexistingRunIds = Array.isArray(invocation.preexistingRunIds)
     ? invocation.preexistingRunIds.map(String).filter((value) => /^\d+$/.test(value))
     : [];
+  let currentAction = action;
+  const persistCandidate = async (observedRunId) => {
+    const currentInvocation = currentAction.providerInvocation;
+    const candidateInvocation = workflowDispatchInvocation(runId, currentAction, {
+      startedAt: currentInvocation.startedAt,
+      exitCode: currentInvocation.exitCode,
+      dispatchState: "sent-or-indeterminate",
+      preexistingRunIds,
+      dispatchedAt: currentInvocation.dispatchedAt,
+      observationStartedAt,
+      observedRunId
+    });
+    currentAction = await persistActionProviderInvocation(root, runId, currentAction, candidateInvocation, {
+      expectedProviderInvocation: currentInvocation
+    });
+  };
   const workflowRun = await observeDispatchedWorkflow(
     manifest.cwd,
-    action,
+    currentAction,
     providerExecutablePath,
     preexistingRunIds,
-    observationStartedAt
+    observationStartedAt,
+    { persistCandidate }
   );
-  const promotedInvocation = workflowDispatchInvocation(runId, action, {
-    startedAt: invocation.startedAt,
-    exitCode: invocation.exitCode,
+  const currentInvocation = currentAction.providerInvocation;
+  const promotedInvocation = workflowDispatchInvocation(runId, currentAction, {
+    startedAt: currentInvocation.startedAt,
+    exitCode: currentInvocation.exitCode,
     dispatchState: "sent",
     preexistingRunIds,
-    dispatchedAt: invocation.dispatchedAt,
+    dispatchedAt: currentInvocation.dispatchedAt,
     observationStartedAt,
+    observedRunId: currentInvocation.observedRunId,
     workflowRun
   });
-  return persistActionProviderInvocation(root, runId, action, promotedInvocation, {
+  return persistActionProviderInvocation(root, runId, currentAction, promotedInvocation, {
     journalEvent: "action.provider-reconciled",
-    expectedProviderInvocation: invocation
+    expectedProviderInvocation: currentInvocation
   });
 }
 
@@ -7029,6 +7080,7 @@ function workflowDispatchInvocation(runId, action, invocation) {
     ...(invocation.executorLease ? { executorLease: invocation.executorLease } : {}),
     ...(invocation.dispatchedAt ? { dispatchedAt: invocation.dispatchedAt } : {}),
     ...(invocation.observationStartedAt ? { observationStartedAt: invocation.observationStartedAt } : {}),
+    ...(invocation.observedRunId ? { observedRunId: String(invocation.observedRunId) } : {}),
     ...(invocation.workflowRun ? { workflowRun: invocation.workflowRun } : {}),
     ...(invocation.errorDigest ? { errorDigest: invocation.errorDigest } : {})
   };
@@ -7114,7 +7166,9 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
       if (digestObject(providerAuthorization) !== digestObject(consumed.providerAuthorization)) {
         throw new Error("GitHub Actions dispatch execution denied because the provider actor or permissions changed");
       }
-      const existingRuns = await listWorkflowRuns(manifest.cwd, consumed, providerExecutablePath);
+      const existingRuns = await listWorkflowRuns(manifest.cwd, consumed, providerExecutablePath, {
+        createdFilter: `<=${startedAt}`
+      });
       existingRunIds = existingRuns
         .map((run) => String(run?.databaseId ?? ""))
         .filter((runIdValue) => /^\d+$/.test(runIdValue));
@@ -7211,12 +7265,28 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
       observationStartedAt: dispatchObservationStartedAt
     }));
     try {
+      const persistCandidate = async (observedRunId) => {
+        const currentInvocation = consumed.providerInvocation;
+        const candidateInvocation = workflowDispatchInvocation(runId, consumed, {
+          startedAt,
+          exitCode,
+          dispatchState: "sent-or-indeterminate",
+          preexistingRunIds: existingRunIds,
+          dispatchedAt,
+          observationStartedAt: dispatchObservationStartedAt,
+          observedRunId
+        });
+        consumed = await persistActionProviderInvocation(root, runId, consumed, candidateInvocation, {
+          expectedProviderInvocation: currentInvocation
+        });
+      };
       const workflowRun = await observeDispatchedWorkflow(
         manifest.cwd,
         consumed,
         providerExecutablePath,
         existingRunIds,
-        dispatchObservationStartedAt
+        dispatchObservationStartedAt,
+        { persistCandidate }
       );
       const completedInvocation = workflowDispatchInvocation(runId, consumed, {
         startedAt,
@@ -7225,6 +7295,7 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
         preexistingRunIds: existingRunIds,
         dispatchedAt,
         observationStartedAt: dispatchObservationStartedAt,
+        observedRunId: consumed.providerInvocation?.observedRunId,
         workflowRun
       });
       consumed = await persistActionProviderInvocation(root, runId, consumed, completedInvocation);
@@ -7237,6 +7308,7 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
         preexistingRunIds: existingRunIds,
         dispatchedAt,
         observationStartedAt: dispatchObservationStartedAt,
+        observedRunId: consumed.providerInvocation?.observedRunId,
         errorDigest: sha256(error?.message ?? "workflow run observation failed")
       });
       consumed = await persistActionProviderInvocation(root, runId, consumed, indeterminateInvocation);
