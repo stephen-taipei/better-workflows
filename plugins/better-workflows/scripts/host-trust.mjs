@@ -718,13 +718,21 @@ const STANDING_CONSENT_SECRET_PATTERN = [
   "\\bAIza[0-9A-Za-z_-]{35}\\b"
 ].join("|");
 const PROMPT_DISPLAY_IDENTIFIER_PATTERN = /(["']?)ownerToken\1\s*:\s*((?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,}\]]+))/g;
-const OWNER_TOKEN_UNQUOTED_LITERAL_PATTERN = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|(?:gh[pousr]_|github_pat_|glpat-|xox[baprs]-)[A-Za-z0-9_-]{8,}|[A-Za-z0-9]+(?:[-._~+=/][A-Za-z0-9]+)+)$/i;
+const OWNER_TOKEN_UNQUOTED_LITERAL_PATTERN = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|(?:gh[pousr]_|github_pat_|glpat-|xox[baprs]-)[A-Za-z0-9_-]{8,}|(?:cap|token)[_-][A-Za-z0-9]{8,})$/i;
 function redactOwnerTokenDisplay(match, keyQuote, rawValue) {
   const valueQuote = rawValue.startsWith("\"") || rawValue.startsWith("'") ? rawValue[0] : "";
   if (!valueQuote && !OWNER_TOKEN_UNQUOTED_LITERAL_PATTERN.test(rawValue)) return match;
   const replacement = "[redacted-owner-token]";
   const renderedValue = valueQuote ? `${valueQuote}${replacement}${valueQuote}` : replacement;
   return `${keyQuote}ownerToken${keyQuote}: ${renderedValue}`;
+}
+function ownerTokenSecretScanText(text) {
+  return text.replace(PROMPT_DISPLAY_IDENTIFIER_PATTERN, (match, keyQuote, rawValue) => {
+    const valueQuote = rawValue.startsWith("\"") || rawValue.startsWith("'") ? rawValue[0] : "";
+    return !valueQuote && !OWNER_TOKEN_UNQUOTED_LITERAL_PATTERN.test(rawValue)
+      ? `${keyQuote}ownerToken${keyQuote}: expression`
+      : match;
+  });
 }
 const STANDING_CONSENT_REQUIRED_PROMPT_LINES = Object.freeze([
   "You are classifying a staged workflow snapshot using a sanitized, bounded corpus.",
@@ -4229,14 +4237,14 @@ async function reconstructSanitizedMaterial({ repo, subject, revision, snapshot,
       let redacted = false;
       sanitized = sanitized.replace(PROMPT_DISPLAY_IDENTIFIER_PATTERN, redactOwnerTokenDisplay);
       redacted ||= sanitized !== text;
-      if (secretPattern.test(sanitized)) {
+      if (secretPattern.test(ownerTokenSecretScanText(sanitized))) {
         if (!file.path.startsWith("plugins/better-workflows/scripts/tests/")) {
           throw new Error(`Authoritative material contains secret-shaped content: ${file.path}`);
         }
         sanitized = sanitized.replace(secretPatternGlobal, "[redacted-test-fixture]");
         redacted = true;
       }
-      if (secretPattern.test(sanitized)) throw new Error(`Authoritative material contains unredactable secret-shaped content: ${file.path}`);
+      if (secretPattern.test(ownerTokenSecretScanText(sanitized))) throw new Error(`Authoritative material contains unredactable secret-shaped content: ${file.path}`);
       const sanitizedBytes = Buffer.from(sanitized, "utf8");
       const byteLimit = baseFileBudget + (fileRemainder > 0 ? 1 : 0);
       fileRemainder = Math.max(0, fileRemainder - 1);

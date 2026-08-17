@@ -10,7 +10,7 @@ const DISPOSITIONS = new Set(["IMPLEMENT", "NO_CHANGE", "BLOCKED", "REJECTED_WIT
 const SECRET_PATTERN = new RegExp(STANDING_CONSENT_SECRET_PATTERN, "i");
 const SECRET_PATTERN_GLOBAL = new RegExp(STANDING_CONSENT_SECRET_PATTERN, "gi");
 const PROMPT_DISPLAY_IDENTIFIER_PATTERN = /(["']?)ownerToken\1\s*:\s*((?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,}\]]+))/g;
-const OWNER_TOKEN_UNQUOTED_LITERAL_PATTERN = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|(?:gh[pousr]_|github_pat_|glpat-|xox[baprs]-)[A-Za-z0-9_-]{8,}|[A-Za-z0-9]+(?:[-._~+=/][A-Za-z0-9]+)+)$/i;
+const OWNER_TOKEN_UNQUOTED_LITERAL_PATTERN = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|(?:gh[pousr]_|github_pat_|glpat-|xox[baprs]-)[A-Za-z0-9_-]{8,}|(?:cap|token)[_-][A-Za-z0-9]{8,})$/i;
 export const SELF_IMPROVE_LEGACY_CORPUS = "plugins/better-workflows/fixtures/self-improve-ops-evals.json";
 export const SELF_IMPROVE_V22_CORPUS = "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.2.json";
 export const SELF_IMPROVE_V23_CORPUS = "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.3.json";
@@ -180,19 +180,28 @@ function redactOwnerTokenDisplay(match, keyQuote, rawValue) {
   return `${keyQuote}ownerToken${keyQuote}: ${renderedValue}`;
 }
 
+function ownerTokenSecretScanText(text) {
+  return text.replace(PROMPT_DISPLAY_IDENTIFIER_PATTERN, (match, keyQuote, rawValue) => {
+    const valueQuote = rawValue.startsWith("\"") || rawValue.startsWith("'") ? rawValue[0] : "";
+    return !valueQuote && !OWNER_TOKEN_UNQUOTED_LITERAL_PATTERN.test(rawValue)
+      ? `${keyQuote}ownerToken${keyQuote}: expression`
+      : match;
+  });
+}
+
 function sanitizeMaterialText(text, filePath, label) {
   let sanitized = text;
   let redacted = false;
   sanitized = sanitized.replace(PROMPT_DISPLAY_IDENTIFIER_PATTERN, redactOwnerTokenDisplay);
   redacted ||= sanitized !== text;
-  if (SECRET_PATTERN.test(sanitized)) {
+  if (SECRET_PATTERN.test(ownerTokenSecretScanText(sanitized))) {
     if (!filePath.startsWith("plugins/better-workflows/scripts/tests/")) {
       throw new Error(`${label} material contains secret-shaped content: ${filePath}`);
     }
     sanitized = sanitized.replace(SECRET_PATTERN_GLOBAL, "[redacted-test-fixture]");
     redacted = true;
   }
-  if (SECRET_PATTERN.test(sanitized)) {
+  if (SECRET_PATTERN.test(ownerTokenSecretScanText(sanitized))) {
     throw new Error(`${label} material contains unredactable secret-shaped content: ${filePath}`);
   }
   return { text: sanitized, redacted };

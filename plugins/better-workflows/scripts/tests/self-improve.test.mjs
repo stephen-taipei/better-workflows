@@ -1039,7 +1039,7 @@ test("sanitizer redacts ownerToken display identifiers before secret scanning", 
     const ownerTokenMaterial = [
       "ownerToken: 00000000-0000-4000-8000-000000000099",
       `\"ownerToken\": \"ghp_${"A".repeat(20)}\"`,
-      "ownerToken: short-opaque-capability"
+      "ownerToken: cap_0123456789abcdef"
     ].join("\n") + "\n";
     await writeFile(path.join(cwd, source), ownerTokenMaterial);
     const [material] = await readSanitizedCandidateMaterial({
@@ -1089,7 +1089,15 @@ test("sanitizer preserves executable ownerToken expressions", async () => {
   try {
     const source = "docs/README.zh-TW.md";
     await mkdir(path.dirname(path.join(cwd, source)), { recursive: true });
-    const content = "ownerToken: trustedCapability\nownerToken: attackerInput\n";
+    const content = [
+      "ownerToken: trustedCapability",
+      "ownerToken: attackerInput",
+      "ownerToken: request.ownerToken",
+      "ownerToken: config/owner-token",
+      "ownerToken: request?.ownerToken",
+      "ownerToken: fallback || request.ownerToken",
+      "ownerToken: cap_0123456789abcdef"
+    ].join("\n") + "\n";
     await writeFile(path.join(cwd, source), content);
     const [material] = await readSanitizedCandidateMaterial({
       cwd,
@@ -1098,7 +1106,11 @@ test("sanitizer preserves executable ownerToken expressions", async () => {
     });
     assert.match(material.content, /ownerToken: trustedCapability/);
     assert.match(material.content, /ownerToken: attackerInput/);
-    assert.equal((material.content.match(/ownerToken: \[redacted-owner-token\]/g) ?? []).length, 0);
+    assert.match(material.content, /ownerToken: request\.ownerToken/);
+    assert.match(material.content, /ownerToken: config\/owner-token/);
+    assert.match(material.content, /ownerToken: request\?\.ownerToken/);
+    assert.match(material.content, /ownerToken: fallback \|\| request\.ownerToken/);
+    assert.equal((material.content.match(/ownerToken: \[redacted-owner-token\]/g) ?? []).length, 1);
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }
