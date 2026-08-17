@@ -1090,12 +1090,9 @@ test("sanitizer preserves executable ownerToken expressions", async () => {
     const source = "docs/README.zh-TW.md";
     await mkdir(path.dirname(path.join(cwd, source)), { recursive: true });
     const content = [
-      "ownerToken: trustedCapability",
-      "ownerToken: attackerInput",
       "ownerToken: request.ownerToken",
       "ownerToken: config/owner-token",
       "ownerToken: request?.ownerToken",
-      "ownerToken: fallback || request.ownerToken",
       "ownerToken: cap_0123456789abcdef"
     ].join("\n") + "\n";
     await writeFile(path.join(cwd, source), content);
@@ -1104,12 +1101,9 @@ test("sanitizer preserves executable ownerToken expressions", async () => {
       snapshot: { files: [await snapshotFile(cwd, source)] },
       maxFiles: 1
     });
-    assert.match(material.content, /ownerToken: trustedCapability/);
-    assert.match(material.content, /ownerToken: attackerInput/);
     assert.match(material.content, /ownerToken: request\.ownerToken/);
     assert.match(material.content, /ownerToken: config\/owner-token/);
     assert.match(material.content, /ownerToken: request\?\.ownerToken/);
-    assert.match(material.content, /ownerToken: fallback \|\| request\.ownerToken/);
     assert.equal((material.content.match(/ownerToken: \[redacted-owner-token\]/g) ?? []).length, 1);
   } finally {
     await rm(cwd, { recursive: true, force: true });
@@ -1117,24 +1111,27 @@ test("sanitizer preserves executable ownerToken expressions", async () => {
 });
 
 test("sanitizer still rejects secret-shaped unquoted ownerToken values", async () => {
-  const cwd = await mkdtemp(path.join(os.tmpdir(), "sbw-owner-token-secret-scan-"));
-  try {
-    const source = "docs/README.zh-TW.md";
-    await mkdir(path.dirname(path.join(cwd, source)), { recursive: true });
-    await writeFile(path.join(cwd, source), [
-      "ownerToken: AKIA1234567890ABCDEF",
-      "ownerToken: opaqueCredentialABC123456789"
-    ].join("\n") + "\n");
-    await assert.rejects(
-      readSanitizedCandidateMaterial({
-        cwd,
-        snapshot: { files: [await snapshotFile(cwd, source)] },
-        maxFiles: 1
-      }),
-      /secret-shaped content/
-    );
-  } finally {
-    await rm(cwd, { recursive: true, force: true });
+  for (const [value, pattern] of [
+    ["AKIA1234567890ABCDEF", /secret-shaped content/],
+    ["opaqueCredentialABC123456789", /secret-shaped content/],
+    ["nQxTzLmPrVwKsHf", /unrecognized ownerToken expression/]
+  ]) {
+    const cwd = await mkdtemp(path.join(os.tmpdir(), "sbw-owner-token-secret-scan-"));
+    try {
+      const source = "docs/README.zh-TW.md";
+      await mkdir(path.dirname(path.join(cwd, source)), { recursive: true });
+      await writeFile(path.join(cwd, source), `ownerToken: ${value}\n`);
+      await assert.rejects(
+        readSanitizedCandidateMaterial({
+          cwd,
+          snapshot: { files: [await snapshotFile(cwd, source)] },
+          maxFiles: 1
+        }),
+        pattern
+      );
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
   }
 });
 

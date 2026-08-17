@@ -11,7 +11,11 @@ const SECRET_PATTERN = new RegExp(STANDING_CONSENT_SECRET_PATTERN, "i");
 const SECRET_PATTERN_GLOBAL = new RegExp(STANDING_CONSENT_SECRET_PATTERN, "gi");
 const PROMPT_DISPLAY_IDENTIFIER_PATTERN = /(["']?)ownerToken\1\s*:\s*((?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,}\]]+))/g;
 const OWNER_TOKEN_UNQUOTED_LITERAL_PATTERN = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|(?:gh[pousr]_|github_pat_|glpat-|xox[baprs]-)[A-Za-z0-9_-]{8,}|(?:cap|token)[_-][A-Za-z0-9]{8,})$/i;
-const OWNER_TOKEN_EXPRESSION_PATTERN = /^(?:[a-z_$][A-Za-z_$]*[A-Z][A-Za-z_$]*|[a-z_$][A-Za-z_$]*(?:\.|\?\.)[A-Za-z_$][A-Za-z_$]*|[a-z_$][A-Za-z_$]*\/[a-z_$][A-Za-z_$-]*|[a-z_$][A-Za-z_$]*\s+\|\|\s+[a-z_$][A-Za-z_$]*(?:(?:\.|\?\.)[A-Za-z_$][A-Za-z_$]*)?)$/;
+const OWNER_TOKEN_SAFE_EXPRESSIONS = new Set([
+  "request.ownerToken",
+  "request?.ownerToken",
+  "config/owner-token"
+]);
 export const SELF_IMPROVE_LEGACY_CORPUS = "plugins/better-workflows/fixtures/self-improve-ops-evals.json";
 export const SELF_IMPROVE_V22_CORPUS = "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.2.json";
 export const SELF_IMPROVE_V23_CORPUS = "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.3.json";
@@ -184,14 +188,27 @@ function redactOwnerTokenDisplay(match, keyQuote, rawValue) {
 function ownerTokenSecretScanText(text) {
   return text.replace(PROMPT_DISPLAY_IDENTIFIER_PATTERN, (match, keyQuote, rawValue) => {
     const valueQuote = rawValue.startsWith("\"") || rawValue.startsWith("'") ? rawValue[0] : "";
-    if (!valueQuote && OWNER_TOKEN_EXPRESSION_PATTERN.test(rawValue)) {
-      // Only a narrow, digit-free expression grammar may be neutralized. All
-      // other unquoted values retain ownerToken so generic secret detection
-      // cannot be bypassed by an opaque credential.
+    if (!valueQuote && OWNER_TOKEN_SAFE_EXPRESSIONS.has(rawValue)) {
       return `${keyQuote}ownerIdentifier${keyQuote}: ${rawValue}`;
     }
     return match;
   });
+}
+
+function assertSafeOwnerTokenExpressions(text, filePath, label) {
+  let unsafeValue = null;
+  text.replace(PROMPT_DISPLAY_IDENTIFIER_PATTERN, (match, keyQuote, rawValue) => {
+    const valueQuote = rawValue.startsWith("\"") || rawValue.startsWith("'") ? rawValue[0] : "";
+    if (!valueQuote && !rawValue.startsWith("[redacted-owner-token") &&
+        !OWNER_TOKEN_UNQUOTED_LITERAL_PATTERN.test(rawValue) &&
+        !OWNER_TOKEN_SAFE_EXPRESSIONS.has(rawValue)) {
+      unsafeValue = rawValue;
+    }
+    return match;
+  });
+  if (unsafeValue !== null) {
+    throw new Error(`${label} material contains an unrecognized ownerToken expression: ${filePath}`);
+  }
 }
 
 function sanitizeMaterialText(text, filePath, label) {
@@ -209,6 +226,7 @@ function sanitizeMaterialText(text, filePath, label) {
   if (SECRET_PATTERN.test(ownerTokenSecretScanText(sanitized))) {
     throw new Error(`${label} material contains unredactable secret-shaped content: ${filePath}`);
   }
+  assertSafeOwnerTokenExpressions(sanitized, filePath, label);
   return { text: sanitized, redacted };
 }
 
