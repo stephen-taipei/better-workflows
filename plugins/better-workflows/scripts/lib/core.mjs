@@ -1662,6 +1662,14 @@ export function assertProviderReceiptShape(record, providerReceipt, outcome = re
         typeof providerReceipt.invocationId === "string" && providerReceipt.invocationId === record.providerInvocation?.id
       );
       if (!dispatchShapeComplete) throw new Error("GitHub Actions dispatch proof is incomplete");
+      if (
+        outcome === "unknown" &&
+        providerReceipt.status === "completed" &&
+        typeof providerReceipt.conclusion === "string" &&
+        providerReceipt.conclusion.length > 0
+      ) {
+        throw new Error("Completed GitHub Actions dispatch receipt cannot remain unknown");
+      }
       if (outcome === "unknown" && providerReceipt.terminalState !== "unknown") {
         throw new Error("Unknown GitHub Actions dispatch outcome must remain indeterminate");
       }
@@ -3808,11 +3816,13 @@ export function buildActionsDispatchProviderReceipt(record, outcome = "success")
     throw new Error("GitHub Actions dispatch provider invocation is incomplete");
   }
   const repository = canonicalGitHubRepository(record.dispatchRepository);
-  if (!workflowDispatchConclusionMatchesOutcome(run.status, run.conclusion, outcome) && outcome !== "unknown") {
+  if (!workflowDispatchConclusionMatchesOutcome(run.status, run.conclusion, outcome)) {
     throw new Error(
       outcome === "success"
         ? "Successful GitHub Actions dispatch receipt requires a successful workflow conclusion"
-        : "Failed GitHub Actions dispatch receipt requires a completed non-success workflow conclusion"
+        : outcome === "failure"
+          ? "Failed GitHub Actions dispatch receipt requires a completed non-success workflow conclusion"
+          : "Completed GitHub Actions dispatch receipt cannot remain unknown"
     );
   }
   const response = {
@@ -3841,7 +3851,7 @@ export function buildActionsDispatchProviderReceipt(record, outcome = "success")
     requestDigest: digestObject(actionsDispatchReceiptRequest(record)),
     responseDigest: digestObject(response),
     verifiedAt: nowIso(),
-    terminalState: outcome === "success" ? "success" : outcome === "failure" ? "failure" : "unknown",
+    terminalState: outcome === "success" ? "success" : "failure",
     created: true,
     repository,
     workflowName: run.workflowName,
@@ -4765,7 +4775,12 @@ async function verifyProviderReceipt(manifest, record, receipt, contract = null)
     record.provider === "github-cli" &&
     record.outcome === "failure"
   );
-  if (record.outcome !== "success" && !shouldVerifyDispatchFailure) return;
+  const shouldVerifyDispatchRun = (
+    record.action === "actions.dispatch" &&
+    record.provider === "github-cli" &&
+    record.providerInvocation?.workflowRun
+  );
+  if (record.outcome !== "success" && !shouldVerifyDispatchFailure && !shouldVerifyDispatchRun) return;
   assertSupportedGovernedAction(record.action);
   const providerReceipt = receipt.providerReceipt;
   const cwd = manifest.cwd;
@@ -5053,10 +5068,13 @@ async function verifyProviderReceipt(manifest, record, receipt, contract = null)
       response,
       `github:${repository}:actions.dispatch:${actual.databaseId}`
     );
+    const liveConclusionMatchesOutcome = record.outcome === "unknown"
+      ? actual.status !== "completed" || typeof actual.conclusion !== "string" || actual.conclusion.length === 0
+      : workflowDispatchConclusionMatchesOutcome(actual.status, actual.conclusion, record.outcome);
     if (
       String(actual.databaseId) !== String(providerReceipt.runId) ||
       actual.url !== providerReceipt.url ||
-      !workflowDispatchConclusionMatchesOutcome(actual.status, actual.conclusion, record.outcome) ||
+      !liveConclusionMatchesOutcome ||
       actual.headSha !== record.remoteRevision ||
       typeof actual.displayTitle !== "string" ||
       !WORKFLOW_DISPATCH_NONCE.test(String(record.dispatchNonce ?? "")) ||

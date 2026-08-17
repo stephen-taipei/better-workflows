@@ -2177,11 +2177,21 @@ test("GitHub Actions dispatch adapter binds a fixed command and one observed run
     () => buildActionsDispatchProviderReceipt(record, "failure"),
     /completed non-success workflow conclusion/
   );
-  const unknownReceipt = buildActionsDispatchProviderReceipt(record, "unknown");
-  assert.equal(unknownReceipt.terminalState, "unknown");
-  assert.doesNotThrow(() => assertProviderReceiptShape(record, unknownReceipt, "unknown"));
   assert.throws(
-    () => assertProviderReceiptShape(record, { ...unknownReceipt, terminalState: "failure" }, "unknown"),
+    () => buildActionsDispatchProviderReceipt(record, "unknown"),
+    /Completed.*cannot remain unknown/
+  );
+  assert.throws(
+    () => assertProviderReceiptShape(record, { ...receipt, terminalState: "unknown" }, "unknown"),
+    /Completed.*cannot remain unknown/
+  );
+  assert.throws(
+    () => assertProviderReceiptShape(record, {
+      ...receipt,
+      status: "in_progress",
+      conclusion: null,
+      terminalState: "failure"
+    }, "unknown"),
     /remain indeterminate/
   );
   assert.throws(
@@ -2380,7 +2390,7 @@ if [ "$1" = "api" ] && [ "$2" = "user" ]; then
 elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo" ]; then
   printf '{"full_name":"example/repo","permissions":{"admin":false,"maintain":false,"push":true}}\\n'
 elif [ "$1" = "run" ] && [ "$2" = "view" ]; then
-  if [ "$3" != "--repo" ] || [ "$4" != "example/repo" ]; then
+  if [ "$4" != "--repo" ] || [ "$5" != "example/repo" ]; then
     printf '%s\\n' 'workflow receipt verification must bind --repo' >&2
     exit 42
   fi
