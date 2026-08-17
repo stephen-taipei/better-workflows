@@ -3233,6 +3233,19 @@ test("GitHub Actions dispatch capability requires nonce-aware workflow metadata"
     ),
     /exact sbw_expected_revision gate/
   );
+  for (const malformedGate of [
+    "github.sha == inputs.sbw_expected_revision }}",
+    "${{ github.sha == inputs.sbw_expected_revision"
+  ]) {
+    assert.throws(
+      () => validateWorkflowDispatchCapability(
+        workflow.replace("if: ${{ github.sha == inputs.sbw_expected_revision }}", `if: ${malformedGate}`),
+        ".github/workflows/release.yml",
+        revision
+      ),
+      /exact sbw_expected_revision gate/
+    );
+  }
   assert.throws(
     () => validateWorkflowDispatchCapability(
       workflow.replace("    if: ${{ github.sha == inputs.sbw_expected_revision }}", "    # if: ${{ github.sha == inputs.sbw_expected_revision }}"),

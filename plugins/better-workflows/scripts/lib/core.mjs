@@ -3473,7 +3473,11 @@ function workflowInputBlockEnd(inputEntries, inputIndex, inputsStop) {
 
 function isExactWorkflowRevisionGate(value) {
   if (typeof value !== "string" || value.includes("#")) return false;
-  const expression = value.trim().replace(/^\$\{\{\s*/, "").replace(/\s*\}\}$/, "").trim();
+  const trimmed = value.trim();
+  const wrapped = trimmed.startsWith("${{") || trimmed.endsWith("}}");
+  if (wrapped && (!trimmed.startsWith("${{") || !trimmed.endsWith("}}"))) return false;
+  const expression = (wrapped ? trimmed.slice(3, -2) : trimmed).trim();
+  if (expression.includes("${{") || expression.includes("}}")) return false;
   return new Set([
     "github.sha == inputs.sbw_expected_revision",
     "github.sha == github.event.inputs.sbw_expected_revision",
