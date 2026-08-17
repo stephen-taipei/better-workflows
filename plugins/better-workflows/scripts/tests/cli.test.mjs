@@ -815,7 +815,7 @@ test("CLI custom v2 contracts cannot weaken the installed control-plane policy",
     contractPath
   ], { allowFailure: true });
   assert.notEqual(result.code, 0);
-  assert.match(result.stderr, /(?:cannot weaken template control-plane policy|reviewProfile is not allowed when review policy is none)/);
+  assert.match(result.stderr, /cannot weaken template control-plane policy/);
 });
 
 test("CLI resume migrates a legacy 1.0 run to template-bound action gates", async () => {
