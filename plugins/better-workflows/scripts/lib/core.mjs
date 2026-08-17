@@ -6723,6 +6723,7 @@ function githubPreflightInvocation(runId, action, error) {
 
 const WORKFLOW_DISPATCH_OBSERVATION_TIMEOUT_MS = 45 * 60 * 1000;
 const WORKFLOW_DISPATCH_POLL_INTERVAL_MS = 10 * 1000;
+const WORKFLOW_DISPATCH_PREFLIGHT_LEASE_MS = 5 * 60 * 1000;
 const WORKFLOW_RUN_JSON_FIELDS = "databaseId,workflowName,displayTitle,status,conclusion,headSha,headBranch,createdAt,startedAt,url";
 
 async function listWorkflowRuns(cwd, record, providerExecutablePath) {
@@ -6834,6 +6835,18 @@ export async function resumeActionsDispatchObservation(root, runId, attemptId) {
         invocation.exitCode !== null) {
       throw new Error("Resumable GitHub Actions dispatch preflight recovery requires a valid pre-call timestamp and null exit code");
     }
+    const lease = invocation.executorLease;
+    const leaseExpiresAt = Date.parse(lease?.expiresAt ?? "");
+    if (!lease || !Number.isInteger(lease.pid) || lease.pid <= 0 || typeof lease.host !== "string" || lease.host.length === 0 ||
+        !Number.isFinite(leaseExpiresAt)) {
+      throw new Error("Resumable GitHub Actions dispatch preflight recovery requires a valid executor lease");
+    }
+    if (lease.host !== os.hostname()) {
+      throw new Error(`Resumable GitHub Actions dispatch preflight lease expired on host ${lease.host}; refusing cross-host recovery`);
+    }
+    if (leaseExpiresAt > Date.now() || processAlive(lease.pid)) {
+      throw new Error("Resumable GitHub Actions dispatch preflight recovery is blocked while its executor lease is active");
+    }
     const recoveredInvocation = workflowDispatchInvocation(runId, action, {
       startedAt: invocation.startedAt,
       exitCode: null,
@@ -6909,6 +6922,7 @@ function workflowDispatchInvocation(runId, action, invocation) {
     exitCode: invocation.exitCode,
     dispatchState: invocation.dispatchState,
     preexistingRunIds: invocation.preexistingRunIds,
+    ...(invocation.executorLease ? { executorLease: invocation.executorLease } : {}),
     ...(invocation.dispatchedAt ? { dispatchedAt: invocation.dispatchedAt } : {}),
     ...(invocation.observationStartedAt ? { observationStartedAt: invocation.observationStartedAt } : {}),
     ...(invocation.workflowRun ? { workflowRun: invocation.workflowRun } : {}),
@@ -6917,11 +6931,18 @@ function workflowDispatchInvocation(runId, action, invocation) {
 }
 
 function workflowDispatchPreInvocation(runId, action, startedAt) {
+  const startedAtMs = Date.parse(startedAt);
+  if (!Number.isFinite(startedAtMs)) throw new Error("GitHub Actions dispatch preflight timestamp is invalid");
   return workflowDispatchInvocation(runId, action, {
     startedAt,
     exitCode: null,
     dispatchState: "preflight",
-    preexistingRunIds: []
+    preexistingRunIds: [],
+    executorLease: {
+      pid: process.pid,
+      host: os.hostname(),
+      expiresAt: new Date(startedAtMs + WORKFLOW_DISPATCH_PREFLIGHT_LEASE_MS).toISOString()
+    }
   });
 }
 

@@ -2588,6 +2588,28 @@ fi
   process.env.PATH = `${bin}${path.delimiter}${priorPath}`;
   try {
     await writeFile(path.join(actionDir, `${tokenHash}.json`), `${JSON.stringify(action)}\n`);
+    const preflight = {
+      ...action,
+      providerInvocation: {
+        ...action.providerInvocation,
+        dispatchState: "preflight",
+        finishedAt: action.providerInvocation.startedAt,
+        preexistingRunIds: [],
+        errorDigest: undefined,
+        workflowRun: undefined,
+        executorLease: {
+          pid: process.pid,
+          host: os.hostname(),
+          expiresAt: new Date(Date.now() + 60_000).toISOString()
+        }
+      }
+    };
+    await writeFile(path.join(actionDir, `${tokenHash}.json`), `${JSON.stringify(preflight)}\n`);
+    await assert.rejects(
+      resumeActionsDispatchObservation(root, run.runId, attemptId),
+      /executor lease is active/
+    );
+
     await writeFile(path.join(actionDir, `${tokenHash}.json`), `${JSON.stringify({
       ...action,
       providerInvocation: {
@@ -2596,7 +2618,12 @@ fi
         finishedAt: action.providerInvocation.startedAt,
         preexistingRunIds: [],
         errorDigest: undefined,
-        workflowRun: undefined
+        workflowRun: undefined,
+        executorLease: {
+          pid: 2147483647,
+          host: os.hostname(),
+          expiresAt: new Date(Date.now() - 1_000).toISOString()
+        }
       }
     })}\n`);
     const recoveredNotSent = await resumeActionsDispatchObservation(root, run.runId, attemptId);

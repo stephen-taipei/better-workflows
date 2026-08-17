@@ -225,6 +225,23 @@ exec /usr/bin/git "$@"
     } finally {
       process.env.PATH = priorPath;
     }
+    await git(work, ["--git-dir", bare, "update-ref", "refs/heads/dev", head]);
+    await assert.rejects(
+      runReleaseTag({
+        cwd: work,
+        fetchImpl,
+        env: {
+          GITHUB_EVENT_NAME: "push",
+          GITHUB_EVENT_BEFORE: base,
+          GITHUB_REF_NAME: "dev",
+          GITHUB_REPOSITORY: "example/repo",
+          GITHUB_SHA: head,
+          GITHUB_TOKEN: "test-token",
+          GITHUB_API_URL: "https://api.github.com"
+        }
+      }),
+      /without durable eligible release-tag provenance/
+    );
   } finally {
     await rm(root, { recursive: true, force: true });
   }
