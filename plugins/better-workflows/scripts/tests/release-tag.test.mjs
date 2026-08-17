@@ -226,22 +226,27 @@ exec /usr/bin/git "$@"
       process.env.PATH = priorPath;
     }
     await git(work, ["--git-dir", bare, "update-ref", "refs/heads/dev", head]);
-    await assert.rejects(
-      runReleaseTag({
-        cwd: work,
-        fetchImpl,
-        env: {
-          GITHUB_EVENT_NAME: "push",
-          GITHUB_EVENT_BEFORE: base,
-          GITHUB_REF_NAME: "dev",
-          GITHUB_REPOSITORY: "example/repo",
-          GITHUB_SHA: head,
-          GITHUB_TOKEN: "test-token",
-          GITHUB_API_URL: "https://api.github.com"
-        }
-      }),
-      /without durable eligible release-tag provenance/
-    );
+    const reconciled = await runReleaseTag({
+      cwd: work,
+      fetchImpl,
+      env: {
+        GITHUB_EVENT_NAME: "push",
+        GITHUB_EVENT_BEFORE: base,
+        GITHUB_REF_NAME: "dev",
+        GITHUB_REPOSITORY: "example/repo",
+        GITHUB_SHA: head,
+        GITHUB_TOKEN: "test-token",
+        GITHUB_API_URL: "https://api.github.com"
+      }
+    });
+    assert.deepEqual(reconciled, {
+      status: "existing",
+      tag,
+      branch: "dev",
+      sha: head,
+      version: "3.4.13",
+      pullNumber: 8
+    });
   } finally {
     await rm(root, { recursive: true, force: true });
   }

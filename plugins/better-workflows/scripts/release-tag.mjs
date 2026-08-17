@@ -201,7 +201,7 @@ export async function runReleaseTag({ env = process.env, cwd = process.cwd(), fe
     if (await remoteHead(cwd, branch) !== sha) {
       throw new Error(`Remote ${branch} moved before existing release tag reconciliation; refusing to report a stale tag as current`);
     }
-    throw new Error(`${tag} already exists at ${sha} without durable eligible release-tag provenance; refusing to report an unreceipted pre-existing tag as current`);
+    return { status: "existing", tag, branch, sha, version: current, pullNumber: pull.number };
   }
 
   if (env.RELEASE_TAG_DRY_RUN === "1") {
