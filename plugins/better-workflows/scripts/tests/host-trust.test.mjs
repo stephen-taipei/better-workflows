@@ -1371,6 +1371,7 @@ test("root standing reconstruction reads candidate authority from bound commit o
   assert.match(source, /OWNER_TOKEN_UNQUOTED_LITERAL_PATTERN/);
   assert.match(source, /if \(!valueQuote && !OWNER_TOKEN_UNQUOTED_LITERAL_PATTERN\.test\(rawValue\)\) return match/);
   assert.match(source, /function ownerTokenSecretScanText\(text\)/);
+  assert.match(materialBlock, /secretPattern\.test\(ownerTokenSecretScanText\(text\)\)/);
   assert.match(materialBlock, /secretPattern\.test\(ownerTokenSecretScanText\(sanitized\)\)/);
   assert.doesNotMatch(materialBlock, /\["show"/);
   assert.doesNotMatch(materialBlock, /readFile\(path\.resolve\(repo/);

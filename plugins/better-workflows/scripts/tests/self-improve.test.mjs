@@ -1038,7 +1038,7 @@ test("sanitizer redacts ownerToken display identifiers before secret scanning", 
     await mkdir(path.dirname(path.join(cwd, source)), { recursive: true });
     const ownerTokenMaterial = [
       "ownerToken: 00000000-0000-4000-8000-000000000099",
-      `\"ownerToken\": \"ghp_${"A".repeat(20)}\"`,
+      '\"ownerToken\": \"display\"',
       "ownerToken: cap_0123456789abcdef"
     ].join("\n") + "\n";
     await writeFile(path.join(cwd, source), ownerTokenMaterial);
@@ -1052,6 +1052,22 @@ test("sanitizer redacts ownerToken display identifiers before secret scanning", 
     assert.match(material.content.toString("utf8"), /"ownerToken"\s*:/);
     assert.doesNotMatch(material.content.toString("utf8"), /00000000-0000-4000-8000-000000000099|ghp_[A-Za-z0-9]{20,}/);
     assert.match(material.content.toString("utf8"), /\[redacted-owner-token\]/);
+    for (const file of [
+      "docs/README.zh-TW.md",
+      ".github/workflows/ci.yml",
+      "docs/html/index.html"
+    ]) {
+      await mkdir(path.dirname(path.join(cwd, file)), { recursive: true });
+      await writeFile(path.join(cwd, file), `\"ownerToken\": \"ghp_${"A".repeat(24)}\"\n`);
+      await assert.rejects(
+        readSanitizedCandidateMaterial({
+          cwd,
+          snapshot: { files: [await snapshotFile(cwd, file)] },
+          maxFiles: 1
+        }),
+        /secret-shaped content/
+      );
+    }
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }

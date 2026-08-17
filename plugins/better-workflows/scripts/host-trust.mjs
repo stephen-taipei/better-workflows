@@ -743,7 +743,10 @@ function ownerTokenSecretScanText(text) {
     if (valueQuote && !OWNER_TOKEN_SECRET_PATTERN.test(rawValue.slice(1, -1))) {
       return `${keyQuote}ownerIdentifier${keyQuote}: ${rawValue}`;
     }
-    if (!valueQuote && OWNER_TOKEN_SAFE_EXPRESSIONS.has(rawValue)) {
+    if (!valueQuote && (
+      OWNER_TOKEN_SAFE_EXPRESSIONS.has(rawValue) ||
+      (OWNER_TOKEN_UNQUOTED_LITERAL_PATTERN.test(rawValue) && !OWNER_TOKEN_SECRET_PATTERN.test(rawValue))
+    )) {
       return `${keyQuote}ownerIdentifier${keyQuote}: ${rawValue}`;
     }
     return match;
@@ -4265,18 +4268,18 @@ async function reconstructSanitizedMaterial({ repo, subject, revision, snapshot,
       let sanitized = text;
       let redacted = false;
       const executableMaterial = /^plugins\/better-workflows\/scripts\/.+\.(?:mjs|c)$/.test(file.path);
+      if (secretPattern.test(ownerTokenSecretScanText(text))) {
+        if (!file.path.startsWith("plugins/better-workflows/scripts/tests/")) {
+          throw new Error(`Authoritative material contains secret-shaped content: ${file.path}`);
+        }
+        sanitized = text.replace(secretPatternGlobal, "[redacted-test-fixture]");
+        redacted = true;
+      }
       sanitized = sanitized.replace(
         PROMPT_DISPLAY_IDENTIFIER_PATTERN,
         (match, keyQuote, rawValue) => redactOwnerTokenDisplayWithPolicy(match, keyQuote, rawValue, !executableMaterial)
       );
       redacted ||= sanitized !== text;
-      if (secretPattern.test(ownerTokenSecretScanText(sanitized))) {
-        if (!file.path.startsWith("plugins/better-workflows/scripts/tests/")) {
-          throw new Error(`Authoritative material contains secret-shaped content: ${file.path}`);
-        }
-        sanitized = sanitized.replace(secretPatternGlobal, "[redacted-test-fixture]");
-        redacted = true;
-      }
       if (secretPattern.test(ownerTokenSecretScanText(sanitized))) throw new Error(`Authoritative material contains unredactable secret-shaped content: ${file.path}`);
       assertSafeOwnerTokenExpressions(sanitized, file.path);
       const sanitizedBytes = Buffer.from(sanitized, "utf8");

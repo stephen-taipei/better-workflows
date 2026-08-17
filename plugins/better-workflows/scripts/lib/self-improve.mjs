@@ -196,7 +196,10 @@ function ownerTokenSecretScanText(text) {
     if (valueQuote && !SECRET_PATTERN.test(rawValue.slice(1, -1))) {
       return `${keyQuote}ownerIdentifier${keyQuote}: ${rawValue}`;
     }
-    if (!valueQuote && OWNER_TOKEN_SAFE_EXPRESSIONS.has(rawValue)) {
+    if (!valueQuote && (
+      OWNER_TOKEN_SAFE_EXPRESSIONS.has(rawValue) ||
+      (OWNER_TOKEN_UNQUOTED_LITERAL_PATTERN.test(rawValue) && !SECRET_PATTERN.test(rawValue))
+    )) {
       return `${keyQuote}ownerIdentifier${keyQuote}: ${rawValue}`;
     }
     return match;
@@ -223,18 +226,18 @@ function sanitizeMaterialText(text, filePath, label) {
   let sanitized = text;
   let redacted = false;
   const executableMaterial = /^plugins\/better-workflows\/scripts\/.+\.(?:mjs|c)$/.test(filePath);
+  if (SECRET_PATTERN.test(ownerTokenSecretScanText(text))) {
+    if (!filePath.startsWith("plugins/better-workflows/scripts/tests/")) {
+      throw new Error(`${label} material contains secret-shaped content: ${filePath}`);
+    }
+    sanitized = text.replace(SECRET_PATTERN_GLOBAL, "[redacted-test-fixture]");
+    redacted = true;
+  }
   sanitized = sanitized.replace(
     PROMPT_DISPLAY_IDENTIFIER_PATTERN,
     (match, keyQuote, rawValue) => redactOwnerTokenDisplayWithPolicy(match, keyQuote, rawValue, !executableMaterial)
   );
   redacted ||= sanitized !== text;
-  if (SECRET_PATTERN.test(ownerTokenSecretScanText(sanitized))) {
-    if (!filePath.startsWith("plugins/better-workflows/scripts/tests/")) {
-      throw new Error(`${label} material contains secret-shaped content: ${filePath}`);
-    }
-    sanitized = sanitized.replace(SECRET_PATTERN_GLOBAL, "[redacted-test-fixture]");
-    redacted = true;
-  }
   if (SECRET_PATTERN.test(ownerTokenSecretScanText(sanitized))) {
     throw new Error(`${label} material contains unredactable secret-shaped content: ${filePath}`);
   }
