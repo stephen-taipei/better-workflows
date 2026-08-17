@@ -3397,6 +3397,31 @@ function assertUniqueWorkflowEntries(entries, label) {
   }
 }
 
+function unquoteWorkflowScalar(value) {
+  const text = String(value ?? "").trim();
+  if ((text.startsWith("\"") && text.endsWith("\"")) || (text.startsWith("'") && text.endsWith("'"))) {
+    return text.slice(1, -1);
+  }
+  return text;
+}
+
+function assertReservedWorkflowInputSchema(lines, inputIndex, inputEnd, inputKey) {
+  const header = lines[inputIndex]?.parsed;
+  if (!header || header.value) {
+    throw new Error(`GitHub Actions reserved input ${inputKey} must use a nested string schema`);
+  }
+  const children = directWorkflowEntries(lines, inputIndex, inputEnd, header.indent);
+  assertUniqueWorkflowEntries(children, `reserved input ${inputKey}`);
+  const required = children.find(({ parsed }) => parsed.key === "required")?.parsed.value;
+  const type = children.find(({ parsed }) => parsed.key === "type")?.parsed.value;
+  if (unquoteWorkflowScalar(required) !== "true" || unquoteWorkflowScalar(type) !== "string") {
+    throw new Error(`GitHub Actions reserved input ${inputKey} must declare required: true and type: string`);
+  }
+  if (children.some(({ parsed }) => ["options", "choice", "boolean", "number"].includes(parsed.key))) {
+    throw new Error(`GitHub Actions reserved input ${inputKey} has an incompatible schema`);
+  }
+}
+
 function isExactWorkflowRevisionGate(value) {
   if (typeof value !== "string" || value.includes("#")) return false;
   const expression = value.trim().replace(/^\$\{\{\s*/, "").replace(/\s*\}\}$/, "").trim();
@@ -3452,6 +3477,8 @@ export function validateWorkflowDispatchCapability(content, workflowFile, revisi
   if (expectedRevisionIndex < 0) {
     throw new Error(`GitHub Actions workflow_dispatch must declare the reserved ${WORKFLOW_DISPATCH_EXPECTED_REVISION_INPUT} input`);
   }
+  assertReservedWorkflowInputSchema(lines, nonceIndex, expectedRevisionIndex, WORKFLOW_DISPATCH_NONCE_INPUT);
+  assertReservedWorkflowInputSchema(lines, expectedRevisionIndex, inputsStop, WORKFLOW_DISPATCH_EXPECTED_REVISION_INPUT);
   const runName = topEntries.find(({ parsed }) => parsed.key === "run-name");
   if (!runName || !WORKFLOW_DISPATCH_NONCE_EXPRESSION.test(runName.parsed.value)) {
     throw new Error(`GitHub Actions workflow run-name must expose ${WORKFLOW_DISPATCH_NONCE_INPUT}`);

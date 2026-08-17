@@ -178,7 +178,12 @@ function safeRelative(value, label) {
 }
 
 function redactOwnerTokenDisplay(match, keyQuote, rawValue) {
+  return redactOwnerTokenDisplayWithPolicy(match, keyQuote, rawValue, true);
+}
+
+function redactOwnerTokenDisplayWithPolicy(match, keyQuote, rawValue, redactQuoted) {
   const valueQuote = rawValue.startsWith("\"") || rawValue.startsWith("'") ? rawValue[0] : "";
+  if (valueQuote && !redactQuoted) return match;
   if (!valueQuote && !OWNER_TOKEN_UNQUOTED_LITERAL_PATTERN.test(rawValue)) return match;
   const replacement = "[redacted-owner-token]";
   const renderedValue = valueQuote ? `${valueQuote}${replacement}${valueQuote}` : replacement;
@@ -188,6 +193,9 @@ function redactOwnerTokenDisplay(match, keyQuote, rawValue) {
 function ownerTokenSecretScanText(text) {
   return text.replace(PROMPT_DISPLAY_IDENTIFIER_PATTERN, (match, keyQuote, rawValue) => {
     const valueQuote = rawValue.startsWith("\"") || rawValue.startsWith("'") ? rawValue[0] : "";
+    if (valueQuote && !SECRET_PATTERN.test(rawValue.slice(1, -1))) {
+      return `${keyQuote}ownerIdentifier${keyQuote}: ${rawValue}`;
+    }
     if (!valueQuote && OWNER_TOKEN_SAFE_EXPRESSIONS.has(rawValue)) {
       return `${keyQuote}ownerIdentifier${keyQuote}: ${rawValue}`;
     }
@@ -214,7 +222,11 @@ function assertSafeOwnerTokenExpressions(text, filePath, label) {
 function sanitizeMaterialText(text, filePath, label) {
   let sanitized = text;
   let redacted = false;
-  sanitized = sanitized.replace(PROMPT_DISPLAY_IDENTIFIER_PATTERN, redactOwnerTokenDisplay);
+  const executableMaterial = /^plugins\/better-workflows\/scripts\/.+\.(?:mjs|c)$/.test(filePath);
+  sanitized = sanitized.replace(
+    PROMPT_DISPLAY_IDENTIFIER_PATTERN,
+    (match, keyQuote, rawValue) => redactOwnerTokenDisplayWithPolicy(match, keyQuote, rawValue, !executableMaterial)
+  );
   redacted ||= sanitized !== text;
   if (SECRET_PATTERN.test(ownerTokenSecretScanText(sanitized))) {
     if (!filePath.startsWith("plugins/better-workflows/scripts/tests/")) {

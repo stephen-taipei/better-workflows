@@ -717,6 +717,7 @@ const STANDING_CONSENT_SECRET_PATTERN = [
   "\\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{16,}\\b",
   "\\bAIza[0-9A-Za-z_-]{35}\\b"
 ].join("|");
+const OWNER_TOKEN_SECRET_PATTERN = new RegExp(STANDING_CONSENT_SECRET_PATTERN, "i");
 const PROMPT_DISPLAY_IDENTIFIER_PATTERN = /(["']?)ownerToken\1\s*:\s*((?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,}\]]+))/g;
 const OWNER_TOKEN_UNQUOTED_LITERAL_PATTERN = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|(?:gh[pousr]_|github_pat_|glpat-|xox[baprs]-)[A-Za-z0-9_-]{8,}|(?:cap|token)[_-][A-Za-z0-9]{8,})$/i;
 const OWNER_TOKEN_SAFE_EXPRESSIONS = new Set([
@@ -725,7 +726,12 @@ const OWNER_TOKEN_SAFE_EXPRESSIONS = new Set([
   "config/owner-token"
 ]);
 function redactOwnerTokenDisplay(match, keyQuote, rawValue) {
+  return redactOwnerTokenDisplayWithPolicy(match, keyQuote, rawValue, true);
+}
+
+function redactOwnerTokenDisplayWithPolicy(match, keyQuote, rawValue, redactQuoted) {
   const valueQuote = rawValue.startsWith("\"") || rawValue.startsWith("'") ? rawValue[0] : "";
+  if (valueQuote && !redactQuoted) return match;
   if (!valueQuote && !OWNER_TOKEN_UNQUOTED_LITERAL_PATTERN.test(rawValue)) return match;
   const replacement = "[redacted-owner-token]";
   const renderedValue = valueQuote ? `${valueQuote}${replacement}${valueQuote}` : replacement;
@@ -734,6 +740,9 @@ function redactOwnerTokenDisplay(match, keyQuote, rawValue) {
 function ownerTokenSecretScanText(text) {
   return text.replace(PROMPT_DISPLAY_IDENTIFIER_PATTERN, (match, keyQuote, rawValue) => {
     const valueQuote = rawValue.startsWith("\"") || rawValue.startsWith("'") ? rawValue[0] : "";
+    if (valueQuote && !OWNER_TOKEN_SECRET_PATTERN.test(rawValue.slice(1, -1))) {
+      return `${keyQuote}ownerIdentifier${keyQuote}: ${rawValue}`;
+    }
     if (!valueQuote && OWNER_TOKEN_SAFE_EXPRESSIONS.has(rawValue)) {
       return `${keyQuote}ownerIdentifier${keyQuote}: ${rawValue}`;
     }
@@ -4255,7 +4264,11 @@ async function reconstructSanitizedMaterial({ repo, subject, revision, snapshot,
       if (Buffer.byteLength(text, "utf8") !== content.length) throw new Error(`Authoritative material is not valid UTF-8: ${file.path}`);
       let sanitized = text;
       let redacted = false;
-      sanitized = sanitized.replace(PROMPT_DISPLAY_IDENTIFIER_PATTERN, redactOwnerTokenDisplay);
+      const executableMaterial = /^plugins\/better-workflows\/scripts\/.+\.(?:mjs|c)$/.test(file.path);
+      sanitized = sanitized.replace(
+        PROMPT_DISPLAY_IDENTIFIER_PATTERN,
+        (match, keyQuote, rawValue) => redactOwnerTokenDisplayWithPolicy(match, keyQuote, rawValue, !executableMaterial)
+      );
       redacted ||= sanitized !== text;
       if (secretPattern.test(ownerTokenSecretScanText(sanitized))) {
         if (!file.path.startsWith("plugins/better-workflows/scripts/tests/")) {

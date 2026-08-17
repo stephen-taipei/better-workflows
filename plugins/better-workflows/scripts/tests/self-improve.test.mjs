@@ -1110,6 +1110,34 @@ test("sanitizer preserves executable ownerToken expressions", async () => {
   }
 });
 
+test("sanitizer preserves non-secret quoted ownerToken source values but rejects quoted secrets", async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), "sbw-owner-token-source-quote-"));
+  try {
+    const source = "plugins/better-workflows/scripts/candidate.mjs";
+    await mkdir(path.dirname(path.join(cwd, source)), { recursive: true });
+    await writeFile(path.join(cwd, source), 'const config = { ownerToken: "disabled" };\n');
+    const [material] = await readSanitizedCandidateMaterial({
+      cwd,
+      snapshot: { files: [await snapshotFile(cwd, source)] },
+      maxFiles: 1
+    });
+    assert.match(material.content, /ownerToken:\s*"disabled"/);
+    assert.doesNotMatch(material.content, /redacted-owner-token/);
+
+    await writeFile(path.join(cwd, source), 'const config = { ownerToken: "AKIA1234567890ABCDEF" };\n');
+    await assert.rejects(
+      readSanitizedCandidateMaterial({
+        cwd,
+        snapshot: { files: [await snapshotFile(cwd, source)] },
+        maxFiles: 1
+      }),
+      /secret-shaped content/
+    );
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test("sanitizer still rejects secret-shaped unquoted ownerToken values", async () => {
   for (const [value, pattern] of [
     ["AKIA1234567890ABCDEF", /secret-shaped content/],

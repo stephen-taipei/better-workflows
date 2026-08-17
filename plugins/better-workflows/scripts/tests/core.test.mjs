@@ -2948,6 +2948,31 @@ test("GitHub Actions dispatch capability requires nonce-aware workflow metadata"
   assert.equal(capability.nonceInput, "sbw_dispatch_nonce");
   assert.equal(capability.runNameNonce, true);
   assert.match(capability.contentDigest, /^[a-f0-9]{64}$/);
+  for (const replacement of [
+    ["        type: string", "        type: boolean"],
+    ["        type: string", "        type: choice\n        options:\n          - safe"],
+    ["        type: string", "        type: number"]
+  ]) {
+    assert.throws(
+      () => validateWorkflowDispatchCapability(
+        workflow.replace(...replacement),
+        ".github/workflows/release.yml",
+        revision
+      ),
+      /required: true and type: string|incompatible schema/
+    );
+  }
+  assert.throws(
+    () => validateWorkflowDispatchCapability(
+      workflow.replace(
+        "      sbw_dispatch_nonce:\n        required: true\n        type: string",
+        "      sbw_dispatch_nonce: true"
+      ),
+      ".github/workflows/release.yml",
+      revision
+    ),
+    /nested string schema/
+  );
   assert.throws(
     () => validateWorkflowDispatchCapability(
       workflow.replace("workflow_dispatch:", "push:"),

@@ -1367,7 +1367,7 @@ test("root standing reconstruction reads candidate authority from bound commit o
   const materialEnd = source.indexOf("const UNTRUSTED_PROMPT_BOUNDARY_MARKERS", materialStart);
   const materialBlock = source.slice(materialStart, materialEnd);
   assert.match(materialBlock, /authoritativeSnapshotBlob\(repo, subject, revision, file\)/);
-  assert.match(materialBlock, /replace\(PROMPT_DISPLAY_IDENTIFIER_PATTERN, redactOwnerTokenDisplay\)/);
+  assert.match(materialBlock, /redactOwnerTokenDisplayWithPolicy/);
   assert.match(source, /OWNER_TOKEN_UNQUOTED_LITERAL_PATTERN/);
   assert.match(source, /if \(!valueQuote && !OWNER_TOKEN_UNQUOTED_LITERAL_PATTERN\.test\(rawValue\)\) return match/);
   assert.match(source, /function ownerTokenSecretScanText\(text\)/);

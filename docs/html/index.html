@@ -973,7 +973,7 @@
         <div class="meta-item"><span>Worktree</span><strong>clean</strong></div>
         <div class="meta-item"><span>Templates</span><strong>13</strong></div>
         <div class="meta-item"><span>Evidence kinds</span><strong>101 / 10 groups</strong></div>
-        <div class="meta-item"><span>Declared tests</span><strong>355 · inventory</strong></div>
+        <div class="meta-item"><span>Declared tests</span><strong>379 · inventory</strong></div>
         <div class="meta-item"><span>Graph diagnostics</span><strong>0 · d3310212…</strong></div>
       </div>
 
@@ -992,7 +992,7 @@
             <div class="card blue"><div class="stat">13</div><div class="stat-label">可選 template；把不同工作型態投影成固定 stage 與 gate</div><a class="evidence-chip" style="margin-top:12px" href="#ev-template-inventory">template inventory</a></div>
             <div class="card indigo"><div class="stat">101</div><div class="stat-label">typed evidence kinds；分屬 10 種 payload family</div></div>
             <div class="card violet"><div class="stat">62</div><div class="stat-label">templates 合計 execution stages；每個 stage 有 dependency 與 budget</div><a class="evidence-chip" style="margin-top:12px" href="#ev-template-inventory">stage inventory</a></div>
-            <div class="card coral"><div class="stat">355</div><div class="stat-label">17 個測試檔宣告的 test cases；覆蓋 control plane 與 host trust</div><a class="evidence-chip" style="margin-top:12px" href="#ev-test-inventory">test inventory</a> <a class="evidence-chip" style="margin-top:12px" href="#ev-validation-run">docs / graph checks</a></div>
+            <div class="card coral"><div class="stat">379</div><div class="stat-label">17 個測試檔宣告的 test cases；覆蓋 control plane 與 host trust</div><a class="evidence-chip" style="margin-top:12px" href="#ev-test-inventory">test inventory</a> <a class="evidence-chip" style="margin-top:12px" href="#ev-validation-run">docs / graph checks</a></div>
           </div>
 
           <div class="rule"></div>
@@ -1358,7 +1358,7 @@
               <span class="type-chip risk">RISK · INFERENCE</span><h3>核心模組集中</h3><p><code>core.mjs</code> 約 6.6k 行、CLI 約 2.5k 行。這不證明品質差，但意味變更 blast radius、review 認知負擔與拆分需求值得持續觀察。</p><a class="evidence-chip" href="#ev-module-size">live inventory</a>
             </div>
             <div class="card amber searchable" data-search="risk test cost latency validation">
-              <span class="type-chip risk">RISK · INFERENCE</span><h3>驗證成本可觀</h3><p>26 個 lib 模組約 23.4k 行，17 個 test 檔約 16.7k 行、355 cases。深度是優點，也會帶來全量 eval 時間與維護成本。</p><a class="evidence-chip" href="#ev-test-inventory">live inventory</a>
+              <span class="type-chip risk">RISK · INFERENCE</span><h3>驗證成本可觀</h3><p>26 個 lib 模組約 23.4k 行，17 個 test 檔約 18.3k 行、379 cases。深度是優點，也會帶來全量 eval 時間與維護成本。</p><a class="evidence-chip" href="#ev-test-inventory">live inventory</a>
             </div>
             <div class="card amber searchable" data-search="risk graph observability projection privacy">
               <span class="type-chip risk">RISK · INFERENCE</span><h3>可視性刻意受限</h3><p>Graph View 只投影 allowlisted structure，避免暴露敏感 payload。代價是 live observability 不等於完整 trace viewer；文件與工具不能過度承諾。</p><a class="evidence-chip" href="#ev-graph-code">graph.mjs:183–397</a>
@@ -1757,7 +1757,7 @@ git status --short<button class="copy-btn" type="button">複製</button></div>
         { id:'ev-process-incarnation', group:'Autonomy 與 Publication', type:'fact', path:'plugins/better-workflows/scripts/lib/publication.mjs:704–787', topic:'Process liveness / incarnation identity', note:'macOS 由 libproc start identity + kern.boottime + PID 計算 digest；無法觀測或權限錯誤回傳 unknown，保持 fail-closed。' },
         { id:'ev-publication-recovery', group:'Autonomy 與 Publication', type:'fact', path:'plugins/better-workflows/scripts/lib/publication.mjs:1525–2189', topic:'Pending → ready / recovery', note:'Marker 綁 source/run/attempt/receipt；immutable no-overwrite publish；recovery 不 republish。' },
         { id:'ev-module-size', group:'研究判讀', type:'inference', path:'plugins/better-workflows/scripts/lib/core.mjs (6,623 LOC); scripts/sbw.mjs (2,507 LOC)', topic:'核心模組集中度', note:'Live inventory 顯示大型 control-plane module；維護負擔是合理風險推論，不是已證實缺陷。' },
-        { id:'ev-test-inventory', group:'研究判讀', type:'fact', path:'plugins/better-workflows/scripts/tests/*.test.mjs → test()', topic:'Current test inventory', note:'本次 live count：17 個 .test.mjs、355 個 declared test cases、16,708 test LOC；成本解讀另標為 RISK / INFERENCE。' },
+        { id:'ev-test-inventory', group:'研究判讀', type:'fact', path:'plugins/better-workflows/scripts/tests/*.test.mjs → test()', topic:'Current test inventory', note:'本次 live count：17 個 .test.mjs、379 個 declared test cases、18,315 test LOC；成本解讀另標為 RISK / INFERENCE。' },
         { id:'ev-unknown-telemetry', group:'研究判讀', type:'unknown', path:'Repository scope (no production telemetry located)', topic:'實際 adoption / lead time', note:'本次 source scope 找不到可支持使用頻率、平均完成時間或 blocked 分布的資料。' },
         { id:'ev-unknown-provider', group:'研究判讀', type:'unknown', path:'Documentation run scope (no external provider actions)', topic:'Live provider readiness', note:'本次未使用外部 credentials 執行 merge/push/publish，不能把 provider readiness 視為已驗證。' },
         { id:'ev-graph-validation', group:'研究基線', type:'fact', path:'sbw graph validate @ c5abd1f', topic:'Current graph validation', note:'本次實際執行 diagnostics=[]；graphDigest=57d3b796e1f0e8efff9c46bb776a12dfd2eee21d7482b47d6916eb8f1420bfd0。' },
