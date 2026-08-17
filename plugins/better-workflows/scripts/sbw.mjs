@@ -2387,6 +2387,10 @@ async function main() {
         throw new Error(`Legacy run is unbound; run sbw resume ${runId} before issuing actions`);
       }
       const action = String(options.action ?? "");
+      const workflowOptionKeys = ["workflow-file", "input", "input-file"];
+      if (action !== "actions.dispatch" && workflowOptionKeys.some((key) => options[key] !== undefined)) {
+        throw new Error("Workflow dispatch options --workflow-file, --input, and --input-file are only valid for actions.dispatch");
+      }
       assertActionIsNotDeferred(run.contract, action);
       const requiredEvidence = run.contract.actionGates?.[action];
       if (!Array.isArray(requiredEvidence) || requiredEvidence.length === 0) {

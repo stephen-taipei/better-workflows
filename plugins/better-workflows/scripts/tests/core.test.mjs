@@ -153,6 +153,50 @@ test("branch ref authority accepts only exact absence and strict commit output",
   }
 });
 
+test("CLI rejects workflow-only options before issuing non-dispatch actions", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-cli-action-option-"));
+  const repository = path.join(root, "repository");
+  const stateRoot = path.join(root, "state");
+  try {
+    await mkdir(repository, { recursive: true });
+    await execFileAsync("git", ["init", "-q", "-b", "dev"], { cwd: repository });
+    await execFileAsync("git", ["config", "user.email", "sbw@example.invalid"], { cwd: repository });
+    await execFileAsync("git", ["config", "user.name", "SBW Test"], { cwd: repository });
+    await writeFile(path.join(repository, "README.md"), "cli option guard\n");
+    await execFileAsync("git", ["add", "README.md"], { cwd: repository });
+    await execFileAsync("git", ["commit", "-qm", "cli option guard baseline"], { cwd: repository });
+    const sourceHead = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repository, encoding: "utf8" })).stdout.trim();
+    const started = JSON.parse((await execFileAsync(process.execPath, [
+      SBW_CLI, "run", "--template", "review-to-issues", "--mode", "verified", "--goal", "Review source", "--scope", "."
+    ], { cwd: repository, encoding: "utf8", env: { ...process.env, SBW_STATE_ROOT: stateRoot } })).stdout);
+    const inputFile = path.join(root, "inputs.json");
+    await writeFile(inputFile, JSON.stringify({ example: "value" }));
+    for (const option of [
+      ["--workflow-file", ".github/workflows/ci.yml"],
+      ["--input", "example=value"],
+      ["--input-file", inputFile]
+    ]) {
+      await assert.rejects(
+        execFileAsync(process.execPath, [
+          SBW_CLI, "action", "issue", started.runId,
+          "--action", "git.commit", "--provider", "git", "--resource", "fixture", "--remote-revision", sourceHead,
+          ...option
+        ], {
+          cwd: repository,
+          encoding: "utf8",
+          env: { ...process.env, SBW_STATE_ROOT: stateRoot }
+        }),
+        (error) => {
+          assert.match(error.stderr ?? "", /only valid for actions\.dispatch/);
+          return true;
+        }
+      );
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("bounded process teardown refuses a recycled PGID when the stable leader is gone", () => {
   const pid = 424243;
   const calls = [];

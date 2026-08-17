@@ -42,11 +42,15 @@ export function versionChanged(currentVersion, previousVersion) {
 }
 
 export function compareStableVersions(leftVersion, rightVersion) {
-  const left = normalizeStableVersion(leftVersion).split(".").map(Number);
-  const right = normalizeStableVersion(rightVersion).split(".").map(Number);
+  const left = normalizeStableVersion(leftVersion).split(".");
+  const right = normalizeStableVersion(rightVersion).split(".");
   for (let index = 0; index < left.length; index += 1) {
-    if (left[index] > right[index]) return 1;
-    if (left[index] < right[index]) return -1;
+    const leftDigits = left[index].replace(/^0+(?=\d)/, "");
+    const rightDigits = right[index].replace(/^0+(?=\d)/, "");
+    if (leftDigits.length > rightDigits.length) return 1;
+    if (leftDigits.length < rightDigits.length) return -1;
+    if (leftDigits > rightDigits) return 1;
+    if (leftDigits < rightDigits) return -1;
   }
   return 0;
 }

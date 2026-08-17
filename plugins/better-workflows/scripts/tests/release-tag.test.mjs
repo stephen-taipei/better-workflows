@@ -41,7 +41,10 @@ test("only a version change creates a release candidate", () => {
   assert.equal(versionChanged("3.4.9", "3.4.10"), false);
   assert.equal(compareStableVersions("3.5.0", "3.4.99"), 1);
   assert.equal(compareStableVersions("3.4.9", "3.4.10"), -1);
+  assert.equal(compareStableVersions("3.9007199254740993.0", "3.9007199254740992.0"), 1);
+  assert.equal(compareStableVersions(`3.${"9".repeat(80)}.0`, `3.${"8".repeat(80)}.0`), 1);
   assert.equal(versionChanged("3.4.10", null), true);
+  assert.equal(versionChanged("3.9007199254740993.0", "3.9007199254740992.0"), true);
 });
 
 test("package and plugin manifest versions must agree", () => {
