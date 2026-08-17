@@ -3273,6 +3273,23 @@ test("GitHub Actions dispatch capability requires nonce-aware workflow metadata"
     ),
     /anchors, aliases, and merge keys are unsupported/
   );
+  for (const header of ["|+", ">+", "|2", ">2", "|+2", ">+2", "|2+", ">2+"]) {
+    for (const [key, replacement] of [
+      ["      sbw_dispatch_nonce:", `      sbw_dispatch_nonce: ${header}`],
+      ["      sbw_expected_revision:", `      sbw_expected_revision: ${header}`],
+      ["jobs:", `jobs: ${header}`],
+      ["    if: ${{ github.sha == inputs.sbw_expected_revision }}", `    if: ${header}`]
+    ]) {
+      assert.throws(
+        () => validateWorkflowDispatchCapability(
+          workflow.replace(key, replacement),
+          ".github/workflows/release.yml",
+          revision
+        ),
+        /block scalars are unsupported/
+      );
+    }
+  }
   assert.throws(
     () => validateWorkflowDispatchCapability(
       workflow.replace("run-name: Release ${{ inputs.sbw_dispatch_nonce }}", "run-name: Release # ${{ inputs.sbw_dispatch_nonce }}"),

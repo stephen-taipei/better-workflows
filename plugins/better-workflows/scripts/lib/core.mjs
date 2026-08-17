@@ -3388,7 +3388,7 @@ function assertSupportedWorkflowYaml(lines) {
         /(?:^|\s)<<\s*:/.test(structural)) {
       throw new Error("GitHub Actions workflow anchors, aliases, and merge keys are unsupported");
     }
-    if (parsed?.value === "|" || parsed?.value === ">" || parsed?.value.startsWith("|-") || parsed?.value.startsWith(">-")) {
+    if (parsed?.value && /^(?:[|>](?:[+-]?[1-9]?|[1-9]?[+-]?))$/.test(parsed.value)) {
       throw new Error("GitHub Actions workflow block scalars are unsupported for capability attestation");
     }
     if (parsed?.value && /^[\[{]/.test(parsed.value.trim())) {
