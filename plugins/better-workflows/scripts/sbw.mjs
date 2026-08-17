@@ -239,12 +239,17 @@ function assertKnownOptions(options, allowed) {
 }
 
 async function parseWorkflowInputOptions(options) {
-  const inputs = {};
+  const inputs = Object.create(null);
   if (options["input-file"] !== undefined) {
     const inputFile = String(options["input-file"]);
     const parsed = JSON.parse(await readFile(path.resolve(inputFile), "utf8"));
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       throw new Error("Workflow dispatch input file must contain an object");
+    }
+    for (const key of Object.keys(parsed)) {
+      if (key === "__proto__" || key === "constructor" || key === "prototype") {
+        throw new Error(`Workflow dispatch input key is invalid: ${key}`);
+      }
     }
     Object.assign(inputs, parsed);
   }
@@ -253,7 +258,8 @@ async function parseWorkflowInputOptions(options) {
     const separator = text.indexOf("=");
     if (separator <= 0) throw new Error("Workflow dispatch --input values must use key=value");
     const key = text.slice(0, separator);
-    if (!/^[A-Za-z_][A-Za-z0-9_-]{0,63}$/.test(key)) {
+    if (!/^[A-Za-z_][A-Za-z0-9_-]{0,63}$/.test(key) ||
+        ["__proto__", "constructor", "prototype"].includes(key)) {
       throw new Error(`Workflow dispatch input key is invalid: ${key}`);
     }
     if (Object.hasOwn(inputs, key)) throw new Error(`Workflow dispatch input is duplicated: ${key}`);

@@ -692,7 +692,8 @@ const WORKFLOW_REF = /^[A-Za-z0-9._\/-]{1,128}$/;
 const WORKFLOW_INPUT_KEY = /^[A-Za-z_][A-Za-z0-9_-]{0,63}$/;
 const WORKFLOW_INPUT_VALUE = /^[^\0\r\n]{0,4096}$/;
 const WORKFLOW_INPUT_SENSITIVE_KEY = /(?:^|[_-])(?:token|secret|password|passwd|credential|private[_-]?key|api[_-]?key|access[_-]?key|client[_-]?secret|authorization|bearer|cookie|session)(?:$|[_-])/i;
-const WORKFLOW_INPUT_SECRET_VALUE = /(?:-----BEGIN [^-]+ PRIVATE KEY-----|(?:^|\b)(?:gh[pousr]_|github_pat_|glpat-|xox[baprs]-|AKIA[0-9A-Z]{16}\b)|\b(?:bearer|basic)\s+[A-Za-z0-9._~+/=-]{20,}|(?:^|[\s,;])(?:token|secret|password|passwd|api[_-]?key|access[_-]?key)\s*[:=]\s*\S+)/i;
+const WORKFLOW_INPUT_SECRET_VALUE = /(?:-----BEGIN [^-]+ PRIVATE KEY-----|(?:^|\b)(?:gh[pousr]_|github_pat_|glpat-|xox[baprs]-|AKIA|ASIA|AIDA|AROA|sk_(?:live|test)_|rk_(?:live|test)_|sq0atp-|ya29\.|AIza[A-Za-z0-9_-]{20,}|dop_v1_|lin_api_|npm_|pypi-AgEI)[A-Za-z0-9._~+\/-]{8,}|\b(?:bearer|basic)\s+[A-Za-z0-9._~+/=-]{20,}|(?:^|[\s,;])(?:token|secret|password|passwd|api[_-]?key|access[_-]?key)\s*[:=]\s*\S+|^[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}$|^(?=[^\s]{32,}$)(?=.*[A-Z])(?=.*[a-z])(?=.*\d)(?=.*[^A-Za-z0-9])[^\s]+$)/i;
+const WORKFLOW_INPUT_PROTOTYPE_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 const WORKFLOW_DISPATCH_NONCE_INPUT = "sbw_dispatch_nonce";
 const WORKFLOW_DISPATCH_EXPECTED_REVISION_INPUT = "sbw_expected_revision";
 const WORKFLOW_DISPATCH_NONCE = /^[a-f0-9]{32}$/;
@@ -3293,16 +3294,21 @@ export function buildPrCreateCommand(record) {
   ];
 }
 
-function normalizeWorkflowInputs(value) {
+function normalizeWorkflowInputs(value, { allowedPublicInputNames } = {}) {
   if (value === undefined || value === null) return {};
   if (typeof value !== "object" || Array.isArray(value)) {
     throw new Error("GitHub Actions workflow inputs must be an object");
   }
+  const publicInputNames = new Set(
+    Array.isArray(allowedPublicInputNames) ? allowedPublicInputNames : []
+  );
   const entries = Object.entries(value).sort(([left], [right]) => left.localeCompare(right));
   if (entries.length > 20) throw new Error("GitHub Actions workflow inputs are limited to 20 fields");
-  const normalized = {};
+  const normalized = Object.create(null);
   for (const [key, rawValue] of entries) {
-    if (!WORKFLOW_INPUT_KEY.test(key)) throw new Error(`GitHub Actions workflow input key is invalid: ${key}`);
+    if (!WORKFLOW_INPUT_KEY.test(key) || WORKFLOW_INPUT_PROTOTYPE_KEYS.has(key)) {
+      throw new Error(`GitHub Actions workflow input key is invalid: ${key}`);
+    }
     if (rawValue !== null && !["string", "number", "boolean"].includes(typeof rawValue)) {
       throw new Error(`GitHub Actions workflow input value must be a scalar: ${key}`);
     }
@@ -3317,11 +3323,18 @@ function normalizeWorkflowInputs(value) {
       WORKFLOW_DISPATCH_NONCE_INPUT,
       WORKFLOW_DISPATCH_EXPECTED_REVISION_INPUT
     ].includes(key);
+    if (!isProviderCorrelationInput && publicInputNames && !publicInputNames.has(key)) {
+      throw new Error(`GitHub Actions workflow input must be explicitly public in the bound workflow: ${key}`);
+    }
     if (!isProviderCorrelationInput &&
         (workflowInputKeyIsSensitive(key) || WORKFLOW_INPUT_SECRET_VALUE.test(inputValue))) {
       throw new Error(`GitHub Actions workflow input must be non-sensitive: ${key}`);
     }
     normalized[key] = inputValue;
+  }
+  if (Object.keys(normalized).length !== entries.length ||
+      entries.some(([key]) => !Object.hasOwn(normalized, key))) {
+    throw new Error("GitHub Actions workflow input normalization lost an accepted key");
   }
   return normalized;
 }
@@ -3445,6 +3458,14 @@ function assertReservedWorkflowInputSchema(lines, inputIndex, inputEnd, inputKey
   }
 }
 
+function workflowInputIsExplicitlyPublic(lines, inputIndex, inputEnd) {
+  const header = lines[inputIndex]?.parsed;
+  if (!header || header.value) return false;
+  const children = directWorkflowEntries(lines, inputIndex, inputEnd, header.indent);
+  const description = children.find(({ parsed }) => parsed.key === "description")?.parsed.value;
+  return /^public(?:\s|:|$)/i.test(unquoteWorkflowScalar(description));
+}
+
 function workflowInputBlockEnd(inputEntries, inputIndex, inputsStop) {
   return inputEntries.find(({ index }) => index > inputIndex)?.index ?? inputsStop;
 }
@@ -3520,6 +3541,18 @@ export function validateWorkflowDispatchCapability(content, workflowFile, revisi
     workflowInputBlockEnd(inputEntries, expectedRevisionIndex, inputsStop),
     WORKFLOW_DISPATCH_EXPECTED_REVISION_INPUT
   );
+  const publicInputNames = inputEntries
+    .filter(({ parsed }) => ![
+      WORKFLOW_DISPATCH_NONCE_INPUT,
+      WORKFLOW_DISPATCH_EXPECTED_REVISION_INPUT
+    ].includes(parsed.key))
+    .filter(({ index }) => workflowInputIsExplicitlyPublic(
+      lines,
+      index,
+      workflowInputBlockEnd(inputEntries, index, inputsStop)
+    ))
+    .map(({ parsed }) => parsed.key)
+    .sort();
   const runName = topEntries.find(({ parsed }) => parsed.key === "run-name");
   if (!runName || !WORKFLOW_DISPATCH_NONCE_EXPRESSION.test(runName.parsed.value)) {
     throw new Error(`GitHub Actions workflow run-name must expose ${WORKFLOW_DISPATCH_NONCE_INPUT}`);
@@ -3549,6 +3582,7 @@ export function validateWorkflowDispatchCapability(content, workflowFile, revisi
     revision,
     nonceInput: WORKFLOW_DISPATCH_NONCE_INPUT,
     expectedRevisionInput: WORKFLOW_DISPATCH_EXPECTED_REVISION_INPUT,
+    publicInputNames,
     runNameNonce: true,
     expectedRevisionGate: true,
     contentDigest: sha256(content)
@@ -3671,7 +3705,9 @@ export function buildActionsDispatchCommand(record) {
   if (!workflowResourceMatchesFile(record) || record.resource !== `workflow:${workflowFile}`) {
     throw new Error("GitHub Actions dispatch command resource is not bound to workflowFile");
   }
-  const inputs = normalizeWorkflowInputs(record.dispatchInputs);
+  const inputs = normalizeWorkflowInputs(record.dispatchInputs, {
+    allowedPublicInputNames: record.workflowDispatchCapability?.publicInputNames
+  });
   if (!WORKFLOW_DISPATCH_NONCE.test(String(record.dispatchNonce ?? "")) ||
       inputs[WORKFLOW_DISPATCH_NONCE_INPUT] !== record.dispatchNonce ||
       inputs[WORKFLOW_DISPATCH_EXPECTED_REVISION_INPUT] !== record.remoteRevision) {
@@ -6057,7 +6093,14 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
       }
       const dispatchRef = canonicalWorkflowRef(String(request.scope ?? ""));
       await execBoundGitAuthority(manifest.cwd, ["ls-files", "--error-unmatch", "--", workflowFile]);
-      const dispatchInputs = normalizeWorkflowInputs(request.dispatchInputs);
+      const workflowDispatchCapability = await readBoundWorkflowDispatchCapability(
+        manifest.cwd,
+        workflowFile,
+        request.remoteRevision
+      );
+      const dispatchInputs = normalizeWorkflowInputs(request.dispatchInputs, {
+        allowedPublicInputNames: workflowDispatchCapability.publicInputNames
+      });
       for (const reservedInput of [WORKFLOW_DISPATCH_NONCE_INPUT, WORKFLOW_DISPATCH_EXPECTED_REVISION_INPUT]) {
         if (Object.hasOwn(dispatchInputs, reservedInput)) {
           throw new Error(`GitHub Actions dispatch input ${reservedInput} is reserved`);
@@ -6071,12 +6114,9 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
         ...dispatchInputs,
         [WORKFLOW_DISPATCH_NONCE_INPUT]: dispatchNonce,
         [WORKFLOW_DISPATCH_EXPECTED_REVISION_INPUT]: request.remoteRevision
+      }, {
+        allowedPublicInputNames: workflowDispatchCapability.publicInputNames
       });
-      const workflowDispatchCapability = await readBoundWorkflowDispatchCapability(
-        manifest.cwd,
-        workflowFile,
-        request.remoteRevision
-      );
       const dispatchRefRevision = await readBoundGitHubDispatchRefRevision(
         manifest.cwd,
         repository,

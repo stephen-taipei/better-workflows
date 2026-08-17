@@ -2067,6 +2067,7 @@ test("GitHub Actions dispatch adapter binds a fixed command and one observed run
     revision: remoteRevision,
     nonceInput: "sbw_dispatch_nonce",
     expectedRevisionInput: "sbw_expected_revision",
+    publicInputNames: ["environment", "smoke"],
     runNameNonce: true,
     expectedRevisionGate: true,
     contentDigest: "d".repeat(64)
@@ -2151,6 +2152,21 @@ test("GitHub Actions dispatch adapter binds a fixed command and one observed run
   assert.throws(
     () => buildActionsDispatchCommand({ ...record, dispatchInputsDigest: "c".repeat(64) }),
     /input digest does not match/
+  );
+  const prototypeInputs = JSON.parse(JSON.stringify(inputs));
+  Object.defineProperty(prototypeInputs, "__proto__", {
+    value: "credential",
+    enumerable: true,
+    configurable: true,
+    writable: true
+  });
+  assert.throws(
+    () => buildActionsDispatchCommand({
+      ...record,
+      dispatchInputs: prototypeInputs,
+      dispatchInputsDigest: digestObject(prototypeInputs)
+    }),
+    /workflow input key is invalid: __proto__/
   );
   assert.throws(
     () => buildActionsDispatchCommand({ ...record, dispatchNonce: "d".repeat(32) }),
@@ -2664,6 +2680,10 @@ test("GitHub Actions dispatch invocation failure stays indeterminate and rejects
     "      sbw_expected_revision:",
     "        required: true",
     "        type: string",
+    "      environment:",
+    "        description: public deployment environment",
+    "        required: false",
+    "        type: string",
     "jobs:",
     "  release:",
     "    if: github.sha == inputs.sbw_expected_revision",
@@ -2742,7 +2762,7 @@ fi
         remoteRevision,
         requiredEvidence: ["remote-authorization"]
       }, "tree", await loadDefaults()),
-      /workflow input must be non-sensitive/
+      /workflow input must (?:be explicitly public|be non-sensitive)/
     );
     for (const sensitiveKey of ["releaseToken", "apiKey", "accessToken", "clientSecret", "passwordValue"]) {
       await assert.rejects(
@@ -2753,6 +2773,38 @@ fi
           scope: "dev",
           workflowFile,
           dispatchInputs: { [sensitiveKey]: "opaque-value" },
+          remoteRevision,
+          requiredEvidence: ["remote-authorization"]
+        }, "tree", await loadDefaults()),
+        /workflow input must (?:be explicitly public|be non-sensitive)/
+      );
+    }
+    await assert.rejects(
+      issueActionToken(root, run.runId, {
+        action: "actions.dispatch",
+        provider: "github-cli",
+        resource,
+        scope: "dev",
+        workflowFile,
+        dispatchInputs: { payload: "public" },
+        remoteRevision,
+        requiredEvidence: ["remote-authorization"]
+      }, "tree", await loadDefaults()),
+      /workflow input must be explicitly public/
+    );
+    for (const secretValue of [
+      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signatureValue123",
+      "AKIAIOSFODNN7EXAMPLE",
+      "opaqueHighEntropyCredential-9F4a7B2c8D6e0G1h"
+    ]) {
+      await assert.rejects(
+        issueActionToken(root, run.runId, {
+          action: "actions.dispatch",
+          provider: "github-cli",
+          resource,
+          scope: "dev",
+          workflowFile,
+          dispatchInputs: { environment: secretValue },
           remoteRevision,
           requiredEvidence: ["remote-authorization"]
         }, "tree", await loadDefaults()),
@@ -2820,6 +2872,10 @@ test("GitHub Actions dispatch final ref drift is explicitly not-sent before prov
     "        type: string",
     "      sbw_expected_revision:",
     "        required: true",
+    "        type: string",
+    "      environment:",
+    "        description: public deployment environment",
+    "        required: false",
     "        type: string",
     "jobs:",
     "  release:",
@@ -2939,6 +2995,10 @@ test("GitHub Actions dispatch capability requires nonce-aware workflow metadata"
     "      sbw_expected_revision:",
     "        required: true",
     "        type: string",
+    "      environment:",
+    "        description: public deployment environment",
+    "        required: false",
+    "        type: string",
     "jobs:",
     "  release:",
     "    runs-on: ubuntu-latest",
@@ -2950,6 +3010,7 @@ test("GitHub Actions dispatch capability requires nonce-aware workflow metadata"
     revision
   );
   assert.equal(capability.nonceInput, "sbw_dispatch_nonce");
+  assert.deepEqual(capability.publicInputNames, ["environment"]);
   assert.equal(capability.runNameNonce, true);
   assert.match(capability.contentDigest, /^[a-f0-9]{64}$/);
   const nonceBlock = "      sbw_dispatch_nonce:\n        required: true\n        type: string\n";
