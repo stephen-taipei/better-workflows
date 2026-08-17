@@ -88,16 +88,27 @@ const SBW_CLI = fileURLToPath(new URL("../sbw.mjs", import.meta.url));
 
 test("GitHub Actions dispatch ref endpoints encode slash-containing refs as one path parameter", () => {
   assert.equal(
-    githubDispatchRefEndpoint("github.com/example/repo", "release/3.4"),
-    "repos/example/repo/commits/release%2F3.4"
+    githubDispatchRefEndpoint("github.com/example/repo", "refs/heads/release/3.4"),
+    "repos/example/repo/git/ref/heads/release%2F3.4"
   );
   assert.equal(
     githubDispatchRefEndpoint("github.com/example/repo", "refs/tags/v3.4.0"),
-    "repos/example/repo/commits/refs%2Ftags%2Fv3.4.0"
+    "repos/example/repo/git/ref/tags/v3.4.0"
   );
   assert.equal(workflowDispatchObservationRef("refs/heads/dev"), "dev");
   assert.equal(workflowDispatchObservationRef("refs/tags/v3.4.0"), "v3.4.0");
-  assert.equal(workflowDispatchObservationRef("release/3.4"), "release/3.4");
+  assert.throws(
+    () => githubDispatchRefEndpoint("github.com/example/repo", "refs/pull/12/head"),
+    /refs\/heads or refs\/tags/
+  );
+  assert.throws(
+    () => githubDispatchRefEndpoint("github.com/example/repo", "a".repeat(40)),
+    /branch or tag ref, not a raw commit SHA/
+  );
+  assert.throws(
+    () => workflowDispatchObservationRef("release/3.4"),
+    /fully qualified refs\/heads or refs\/tags/
+  );
 });
 
 test("branch ref authority accepts only exact absence and strict commit output", async () => {
@@ -2079,7 +2090,7 @@ test("GitHub Actions dispatch adapter binds a fixed command and one observed run
     remoteRevision,
     dispatchRepository: "github.com/example/repo",
     workflowFile: ".github/workflows/release.yml",
-    dispatchRef: "dev",
+    dispatchRef: "refs/heads/dev",
     dispatchNonce,
     dispatchInputs: inputs,
     dispatchInputsDigest: digestObject(inputs),
@@ -2111,7 +2122,7 @@ test("GitHub Actions dispatch adapter binds a fixed command and one observed run
   };
   assert.deepEqual(buildActionsDispatchCommand(record), [
     "gh", "workflow", "run", ".github/workflows/release.yml",
-    "--repo", "example/repo", "--ref", "dev",
+    "--repo", "example/repo", "--ref", "refs/heads/dev",
     "--raw-field", `environment=production`, "--raw-field", `sbw_dispatch_nonce=${dispatchNonce}`,
     "--raw-field", `sbw_expected_revision=${remoteRevision}`, "--raw-field", "smoke=true"
   ]);
@@ -2223,12 +2234,12 @@ test("GitHub Actions preflight failure has an explicit not-sent terminal proof",
     remoteRevision,
     dispatchRepository: "github.com/example/repo",
     workflowFile: ".github/workflows/ci.yml",
-    dispatchRef: "dev",
+    dispatchRef: "refs/heads/dev",
     dispatchNonce,
     dispatchInputs: inputs,
     dispatchInputsDigest: digestObject(inputs),
     workflowDispatchCapabilityDigest: "d".repeat(64),
-    dispatchCommand: ["gh", "workflow", "run", ".github/workflows/ci.yml", "--repo", "example/repo", "--ref", "dev"],
+    dispatchCommand: ["gh", "workflow", "run", ".github/workflows/ci.yml", "--repo", "example/repo", "--ref", "refs/heads/dev"],
     providerExecutable: { path: "/usr/local/bin/gh", digest: "b".repeat(64) },
     providerAuthorizationExecutable: { path: "/usr/local/bin/gh", digest: "b".repeat(64) },
     providerAuthorization: { provider: "github-cli", repository: "github.com/example/repo", actor: "alice" },
@@ -2364,7 +2375,7 @@ fi
   const providerInvocation = {
     id: `github-actions-dispatch-wrapper:${run.runId}:${attemptId}`,
     provider: "github-cli",
-    command: ["gh", "workflow", "run", workflowFile, "--repo", "example/repo", "--ref", "dev"],
+    command: ["gh", "workflow", "run", workflowFile, "--repo", "example/repo", "--ref", "refs/heads/dev"],
     providerExecutable,
     providerAuthorizationExecutable: providerExecutable,
     providerAuthorization,
@@ -2386,7 +2397,7 @@ fi
     idempotencyKey,
     dispatchRepository: "github.com/example/repo",
     workflowFile,
-    dispatchRef: "dev",
+    dispatchRef: "refs/heads/dev",
     dispatchNonce,
     dispatchInputs: inputs,
     dispatchInputsDigest: digestObject(inputs),
@@ -2559,10 +2570,10 @@ fi
     idempotencyKey: "dispatch-resume-idempotency",
     dispatchRepository: "github.com/example/repo",
     workflowFile: ".github/workflows/release.yml",
-    dispatchRef: "dev",
+    dispatchRef: "refs/heads/dev",
     dispatchNonce,
     dispatchInputs: { sbw_dispatch_nonce: dispatchNonce, sbw_expected_revision: remoteRevision },
-    dispatchCommand: ["gh", "workflow", "run", ".github/workflows/release.yml", "--repo", "example/repo", "--ref", "dev"],
+    dispatchCommand: ["gh", "workflow", "run", ".github/workflows/release.yml", "--repo", "example/repo", "--ref", "refs/heads/dev"],
     providerExecutable,
     providerAuthorizationExecutable: providerExecutable,
     providerAuthorization,
@@ -2571,7 +2582,7 @@ fi
       id: `github-actions-dispatch-wrapper:${run.runId}:${attemptId}`,
       actionAttemptId: attemptId,
       provider: "github-cli",
-      command: ["gh", "workflow", "run", ".github/workflows/release.yml", "--repo", "example/repo", "--ref", "dev"],
+      command: ["gh", "workflow", "run", ".github/workflows/release.yml", "--repo", "example/repo", "--ref", "refs/heads/dev"],
       providerExecutable,
       providerAuthorizationExecutable: providerExecutable,
       providerAuthorization,
@@ -2762,8 +2773,14 @@ if [ "$1" = "api" ] && [ "$2" = "user" ]; then
   printf '%s\\n' '{"login":"alice"}'
 elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo" ]; then
   printf '%s\\n' '{"full_name":"example/repo","permissions":{"admin":false,"maintain":false,"push":true}}'
-elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo/commits/dev" ]; then
-  printf '%s\\n' '{"sha":"${remoteRevision}"}'
+elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo/git/ref/heads/dev" ]; then
+  printf '%s\\n' '{"object":{"sha":"${remoteRevision}"}}'
+elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo/git/ref/tags/dev" ]; then
+  exit 1
+elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo/git/ref/heads/release" ]; then
+  printf '%s\\n' '{"object":{"sha":"${remoteRevision}"}}'
+elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo/git/ref/tags/release" ]; then
+  printf '%s\\n' '{"object":{"sha":"${remoteRevision}"}}'
 elif [ "$1" = "run" ] && [ "$2" = "list" ]; then
   printf '%s\\n' '[]'
 elif [ "$1" = "workflow" ] && [ "$2" = "run" ]; then
@@ -2840,6 +2857,34 @@ fi
         /workflow input must be non-sensitive/
       );
     }
+    for (const scope of [remoteRevision, "refs/pull/12/head"]) {
+      await assert.rejects(
+        issueActionToken(root, run.runId, {
+          action: "actions.dispatch",
+          provider: "github-cli",
+          resource,
+          scope,
+          workflowFile,
+          dispatchInputs: { environment: "test" },
+          remoteRevision,
+          requiredEvidence: ["remote-authorization"]
+        }, "tree", await loadDefaults()),
+        /branch or tag ref|refs\/heads or refs\/tags/
+      );
+    }
+    await assert.rejects(
+      issueActionToken(root, run.runId, {
+        action: "actions.dispatch",
+        provider: "github-cli",
+        resource,
+        scope: "release",
+        workflowFile,
+        dispatchInputs: { environment: "test" },
+        remoteRevision,
+        requiredEvidence: ["remote-authorization"]
+      }, "tree", await loadDefaults()),
+      /ambiguous between a branch and tag ref/
+    );
     assert.deepEqual((await inspectRun(root, run.runId)).actions, []);
     const issued = await issueActionToken(root, run.runId, {
       action: "actions.dispatch",
@@ -2960,16 +3005,18 @@ if [ "$1" = "api" ] && [ "$2" = "user" ]; then
   printf '%s\\n' '{"login":"alice"}'
 elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo" ]; then
   printf '%s\\n' '{"full_name":"example/repo","permissions":{"admin":false,"maintain":false,"push":true}}'
-elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo/commits/dev" ]; then
+elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo/git/ref/heads/dev" ]; then
   count=0
   if [ -f ${JSON.stringify(refCountPath)} ]; then count=$(cat ${JSON.stringify(refCountPath)}); fi
   count=$((count + 1))
   printf '%s' "$count" > ${JSON.stringify(refCountPath)}
   if [ "$count" -ge 3 ]; then
-    printf '%s\\n' '{"sha":"${driftRevision}"}'
+    printf '%s\\n' '{"object":{"sha":"${driftRevision}"}}'
   else
-    printf '%s\\n' '{"sha":"${remoteRevision}"}'
+    printf '%s\\n' '{"object":{"sha":"${remoteRevision}"}}'
   fi
+elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo/git/ref/tags/dev" ]; then
+  exit 1
 elif [ "$1" = "run" ] && [ "$2" = "list" ]; then
   printf '%s\\n' '[]'
 elif [ "$1" = "workflow" ] && [ "$2" = "run" ]; then

@@ -689,6 +689,7 @@ const OWNED_RESOURCE = /^[^\0\r\n]{1,512}$/;
 const SHA256_DIGEST = /^[a-f0-9]{64}$/;
 const WORKFLOW_FILE = /^\.github\/workflows\/[A-Za-z0-9][A-Za-z0-9._-]{0,200}\.(?:yml|yaml)$/;
 const WORKFLOW_REF = /^[A-Za-z0-9._\/-]{1,128}$/;
+const WORKFLOW_REF_IDENTITY = /^refs\/(?:heads|tags)\/[A-Za-z0-9][A-Za-z0-9._\/-]{0,127}$/;
 const WORKFLOW_INPUT_KEY = /^[A-Za-z_][A-Za-z0-9_-]{0,63}$/;
 const WORKFLOW_INPUT_VALUE = /^[^\0\r\n]{0,4096}$/;
 const WORKFLOW_INPUT_SENSITIVE_KEY = /(?:^|[_-])(?:token|secret|password|passwd|credential|private[_-]?key|api[_-]?key|access[_-]?key|client[_-]?secret|authorization|bearer|cookie|session)(?:$|[_-])/i;
@@ -3644,18 +3645,30 @@ function canonicalWorkflowRef(value) {
   if (typeof value !== "string" || !WORKFLOW_REF.test(value)) {
     throw new Error("GitHub Actions dispatch requires an exact branch or tag scope");
   }
+  if (SHA.test(value)) {
+    throw new Error("GitHub Actions dispatch scope must be a branch or tag ref, not a raw commit SHA");
+  }
   const segments = value.split("/");
   if (segments.some((segment) => !segment || segment === "." || segment === "..") || value.includes("@{")) {
     throw new Error("GitHub Actions dispatch ref contains an unsafe segment");
   }
+  if (value.startsWith("refs/") && !WORKFLOW_REF_IDENTITY.test(value)) {
+    throw new Error("GitHub Actions dispatch scope must use refs/heads or refs/tags");
+  }
   return value;
 }
 
-export function workflowDispatchObservationRef(value) {
+function canonicalWorkflowDispatchIdentity(value) {
   const ref = canonicalWorkflowRef(value);
-  if (ref.startsWith("refs/heads/")) return ref.slice("refs/heads/".length);
-  if (ref.startsWith("refs/tags/")) return ref.slice("refs/tags/".length);
+  if (!WORKFLOW_REF_IDENTITY.test(ref)) {
+    throw new Error("GitHub Actions dispatch requires a fully qualified refs/heads or refs/tags identity");
+  }
   return ref;
+}
+
+export function workflowDispatchObservationRef(value) {
+  const ref = canonicalWorkflowDispatchIdentity(value);
+  return ref.slice(ref.indexOf("/", "refs/".length) + 1);
 }
 
 function actionsDispatchReceiptRequest(record) {
@@ -3697,7 +3710,7 @@ export function buildActionsDispatchCommand(record) {
     typeof record.dispatchRepository !== "string" ||
       !canonicalGitHubRepositoryPath(record.dispatchRepository) ||
     typeof record.dispatchRef !== "string" ||
-      canonicalWorkflowRef(record.dispatchRef) !== record.dispatchRef
+      canonicalWorkflowDispatchIdentity(record.dispatchRef) !== record.dispatchRef
   ) {
     throw new Error("GitHub Actions dispatch command binding is incomplete");
   }
@@ -3724,7 +3737,7 @@ export function buildActionsDispatchCommand(record) {
     "--repo",
     canonicalGitHubRepositoryPath(record.dispatchRepository),
     "--ref",
-    canonicalWorkflowRef(record.dispatchRef)
+    canonicalWorkflowDispatchIdentity(record.dispatchRef)
   ];
   for (const [key, value] of Object.entries(inputs)) {
     command.push("--raw-field", `${key}=${value}`);
@@ -4217,17 +4230,27 @@ function boundGitHubCredentialEnvironment(homePath, credential) {
   return env;
 }
 
-export async function readBoundGitHubApi(cwd, executablePath, endpoint, { credential = null, homePath = os.homedir() } = {}) {
+export async function readBoundGitHubApi(cwd, executablePath, endpoint, {
+  credential = null,
+  homePath = os.homedir(),
+  allowNotFound = false
+} = {}) {
   if (typeof executablePath !== "string" || !path.isAbsolute(executablePath) ||
       typeof endpoint !== "string" || !endpoint || /[\0\r\n]/.test(endpoint)) {
     throw new Error("Bound GitHub API request requires an absolute executable and canonical endpoint");
   }
-  const result = await execBoundGitHubCli(executablePath, ["api", endpoint, "--hostname", "github.com"], {
-    cwd,
-    env: credential
-      ? boundGitHubCredentialEnvironment(homePath, credential)
-      : boundGitHubEnvironment(homePath)
-  });
+  let result;
+  try {
+    result = await execBoundGitHubCli(executablePath, ["api", endpoint, "--hostname", "github.com"], {
+      cwd,
+      env: credential
+        ? boundGitHubCredentialEnvironment(homePath, credential)
+        : boundGitHubEnvironment(homePath)
+    });
+  } catch (error) {
+    if (allowNotFound && error?.code === 1) return null;
+    throw error;
+  }
   return JSON.parse(result.stdout);
 }
 
@@ -4249,11 +4272,13 @@ async function readBoundGitHubRefRevision(cwd, repository, ref, executablePath) 
 }
 
 export function githubDispatchRefEndpoint(repository, dispatchRef) {
-  if (!repository.startsWith("github.com/") || !WORKFLOW_REF.test(dispatchRef)) {
+  if (!repository.startsWith("github.com/")) {
     throw new Error("Bound GitHub workflow dispatch ref observation requires a canonical repository and ref");
   }
+  const ref = canonicalWorkflowDispatchIdentity(dispatchRef);
+  const [, kind, name] = ref.match(/^refs\/(heads|tags)\/(.+)$/);
   const repositoryPath = repository.slice("github.com/".length);
-  return `repos/${repositoryPath}/commits/${encodeURIComponent(dispatchRef)}`;
+  return `repos/${repositoryPath}/git/ref/${kind}/${encodeURIComponent(name)}`;
 }
 
 async function readBoundGitHubDispatchRefRevision(cwd, repository, dispatchRef, executablePath) {
@@ -4262,11 +4287,49 @@ async function readBoundGitHubDispatchRefRevision(cwd, repository, dispatchRef, 
     executablePath,
     githubDispatchRefEndpoint(repository, dispatchRef)
   );
-  const revision = actual?.sha;
+  const revision = actual?.object?.sha;
   if (!SHA.test(revision ?? "")) {
     throw new Error("Bound GitHub workflow dispatch ref observation did not return an exact commit revision");
   }
   return revision;
+}
+
+async function readOptionalBoundGitHubDispatchRefRevision(cwd, repository, dispatchRef, executablePath) {
+  const actual = await readBoundGitHubApi(
+    cwd,
+    executablePath,
+    githubDispatchRefEndpoint(repository, dispatchRef),
+    { allowNotFound: true }
+  );
+  if (actual === null) return null;
+  const revision = actual?.object?.sha;
+  if (!SHA.test(revision ?? "")) {
+    throw new Error("Bound GitHub workflow dispatch ref observation did not return an exact commit revision");
+  }
+  return revision;
+}
+
+async function resolveBoundGitHubDispatchRef(cwd, repository, requestedRef, executablePath) {
+  const ref = canonicalWorkflowRef(requestedRef);
+  if (WORKFLOW_REF_IDENTITY.test(ref)) {
+    return {
+      ref,
+      revision: await readBoundGitHubDispatchRefRevision(cwd, repository, ref, executablePath)
+    };
+  }
+  const candidates = [];
+  for (const kind of ["heads", "tags"]) {
+    const candidateRef = `refs/${kind}/${ref}`;
+    const revision = await readOptionalBoundGitHubDispatchRefRevision(cwd, repository, candidateRef, executablePath);
+    if (revision !== null) candidates.push({ ref: candidateRef, revision });
+  }
+  if (candidates.length === 0) {
+    throw new Error("GitHub Actions dispatch scope did not resolve to a branch or tag ref");
+  }
+  if (candidates.length > 1) {
+    throw new Error("GitHub Actions dispatch scope is ambiguous between a branch and tag ref");
+  }
+  return candidates[0];
 }
 
 async function verifyGitPushCredential(
@@ -6091,7 +6154,7 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
       if (workflowResource !== `workflow:${workflowFile}`) {
         throw new Error("GitHub Actions dispatch resource must exactly bind the workflow-file selector");
       }
-      const dispatchRef = canonicalWorkflowRef(String(request.scope ?? ""));
+      const requestedDispatchRef = canonicalWorkflowRef(String(request.scope ?? ""));
       await execBoundGitAuthority(manifest.cwd, ["ls-files", "--error-unmatch", "--", workflowFile]);
       const workflowDispatchCapability = await readBoundWorkflowDispatchCapability(
         manifest.cwd,
@@ -6117,13 +6180,13 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
       }, {
         allowedPublicInputNames: workflowDispatchCapability.publicInputNames
       });
-      const dispatchRefRevision = await readBoundGitHubDispatchRefRevision(
+      const resolvedDispatchRef = await resolveBoundGitHubDispatchRef(
         manifest.cwd,
         repository,
-        dispatchRef,
+        requestedDispatchRef,
         (providerExecutable ?? await currentProviderExecutableIdentity("gh")).path
       );
-      if (dispatchRefRevision !== request.remoteRevision) {
+      if (resolvedDispatchRef.revision !== request.remoteRevision) {
         throw new Error("GitHub Actions dispatch ref does not resolve to the requested target revision");
       }
       const dispatchBinding = {
@@ -6133,7 +6196,7 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
         remoteRevision: request.remoteRevision,
         workflowFile,
         dispatchRepository: repository,
-        dispatchRef,
+        dispatchRef: resolvedDispatchRef.ref,
         dispatchNonce,
         dispatchInputs: boundDispatchInputs,
         dispatchInputsDigest: digestObject(boundDispatchInputs),
