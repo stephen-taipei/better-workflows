@@ -128,6 +128,14 @@ test("ci release dispatch uses a non-circular pre-dispatch stage", async () => {
   assert.equal(template.actionGates["actions.dispatch"].includes("required-checks"), false);
 });
 
+test("pr-to-dev push is issued in the post-review side-effect stage", async () => {
+  const template = JSON.parse(
+    await readFile(path.join(pluginRoot(), "templates", "pr-to-dev.json"), "utf8")
+  );
+  assert.equal(template.actionStages["git.push"], "pr-checks");
+  assert.equal(template.executionStages.find((stage) => stage.id === "pr-checks").dependsOn[0], "review");
+});
+
 test("workspace recipes require explicit trust and independently gated artifact promotion", async () => {
   const template = JSON.parse(
     await readFile(path.join(pluginRoot(), "templates", "workspace-recipe.json"), "utf8")
