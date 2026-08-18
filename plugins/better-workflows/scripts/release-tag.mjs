@@ -534,7 +534,39 @@ async function validatedEventBeforeRevision(cwd, before, head) {
   return targetParent;
 }
 
-async function releasePolicyPublisherAvailable(cwd, baseSha) {
+async function defaultBranchReleasePolicyActivation({ apiUrl, repository, token, fetchImpl = fetch }) {
+  const root = `${String(apiUrl ?? "https://api.github.com").replace(/\/$/, "")}/repos/${repository}`;
+  const requestOptions = {
+    headers: {
+      Accept: "application/vnd.github+json",
+      Authorization: `Bearer ${token}`,
+      "X-GitHub-Api-Version": "2022-11-28",
+      "User-Agent": "better-workflows-release-tag"
+    }
+  };
+  const repositoryResponse = await fetchImpl(root, requestOptions);
+  if (!repositoryResponse.ok) throw new Error(`GitHub repository metadata query failed with HTTP ${repositoryResponse.status}`);
+  const repositoryPayload = await repositoryResponse.json();
+  const defaultBranch = String(repositoryPayload?.default_branch ?? "").trim();
+  if (!/^[A-Za-z0-9._/-]{1,255}$/.test(defaultBranch)) return false;
+  const workflowResponse = await fetchImpl(`${root}/actions/workflows/ci.yml`, requestOptions);
+  if (!workflowResponse.ok) return false;
+  const workflowPayload = await workflowResponse.json();
+  if (workflowPayload?.path !== RELEASE_WORKFLOW_FILE || workflowPayload?.state !== "active") return false;
+  const contentResponse = await fetchImpl(`${root}/contents/${RELEASE_WORKFLOW_FILE}?ref=${encodeURIComponent(defaultBranch)}`, requestOptions);
+  if (!contentResponse.ok) return false;
+  const contentPayload = await contentResponse.json();
+  if (contentPayload?.type !== "file" || contentPayload?.path !== RELEASE_WORKFLOW_FILE || contentPayload?.encoding !== "base64" || typeof contentPayload?.content !== "string") return false;
+  let workflowText;
+  try {
+    workflowText = Buffer.from(contentPayload.content.replace(/\s+/g, ""), "base64").toString("utf8");
+  } catch {
+    return false;
+  }
+  return /(?:^|\n)\s*pull_request_target\s*:/.test(workflowText) && /(?:^|\n)\s*release-policy-receipt\s*:/.test(workflowText);
+}
+
+async function releasePolicyPublisherAvailable(cwd, baseSha, remoteContext = {}) {
   const revision = String(baseSha ?? "").trim().toLowerCase();
   if (!/^[0-9a-f]{40}$/.test(revision)) return true;
   try {
@@ -546,10 +578,14 @@ async function releasePolicyPublisherAvailable(cwd, baseSha) {
   }
   try {
     await git(cwd, ["cat-file", "-e", `${revision}:plugins/better-workflows/scripts/release-policy-receipt.mjs`]);
-    return true;
   } catch {
     return false;
   }
+  if (!remoteContext.repository) return true;
+  if (!remoteContext.defaultBranchActivation) {
+    remoteContext.defaultBranchActivation = defaultBranchReleasePolicyActivation(remoteContext);
+  }
+  return remoteContext.defaultBranchActivation;
 }
 
 async function revisionIsAncestor(cwd, ancestor, descendant) {
@@ -606,7 +642,7 @@ async function authenticatedPullVersionTransition(cwd, pull, currentVersion, { a
   };
 }
 
-async function findEligibleVersionBumps({ cwd, branch, head, currentVersion, highestPublished, eventVersionChanged, eventParentVersion, headPull, apiUrl, repository, token, fetchImpl }) {
+async function findEligibleVersionBumps({ cwd, branch, head, currentVersion, highestPublished, eventVersionChanged, eventParentVersion, headPull, apiUrl, repository, token, fetchImpl, publisherContext }) {
   const revisions = (await git(cwd, ["rev-list", "--first-parent", `--max-count=${CATCH_UP_HISTORY_LIMIT}`, head]))
     .split(/\s+/)
     .filter(Boolean);
@@ -635,7 +671,7 @@ async function findEligibleVersionBumps({ cwd, branch, head, currentVersion, hig
     // behavior while real GitHub candidates use an immutable Git boundary.
     if (!/^[0-9a-f]{40}$/.test(boundary)) return true;
     if (!publisherAvailabilityCache.has(boundary)) {
-      publisherAvailabilityCache.set(boundary, releasePolicyPublisherAvailable(cwd, boundary));
+      publisherAvailabilityCache.set(boundary, releasePolicyPublisherAvailable(cwd, boundary, publisherContext));
     }
     return publisherAvailabilityCache.get(boundary);
   };
@@ -1423,7 +1459,8 @@ export async function runReleaseTag({
   // Bind the bootstrap gate to the validated push-event parent whenever one
   // exists; the live PR base ref may have advanced since the merge.
   const publisherBoundary = targetParent ?? headPull?.base?.sha;
-  if (!(await releasePolicyPublisherAvailable(cwd, publisherBoundary))) {
+  const publisherContext = { apiUrl, repository, token, fetchImpl };
+  if (!(await releasePolicyPublisherAvailable(cwd, publisherBoundary, publisherContext))) {
     return {
       status: "skipped",
       reason: "release-policy-receipt-bootstrap-pending",
@@ -1446,7 +1483,8 @@ export async function runReleaseTag({
     apiUrl,
     repository,
     token,
-    fetchImpl
+    fetchImpl,
+    publisherContext
   });
   if (highestPublished !== null && compareStableVersions(current, highestPublished) < 0) {
     throw new Error(`Release version ${current} is below the highest published ${branch} release ${highestPublished}; refusing release eligibility`);

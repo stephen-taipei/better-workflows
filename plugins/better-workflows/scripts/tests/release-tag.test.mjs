@@ -128,8 +128,25 @@ function policyArtifactResponse(url) {
   };
 }
 
+function defaultBranchReleasePolicyResponse(url) {
+  const activationText = "name: CI\non:\n  pull_request_target:\njobs:\n  release-policy-receipt:\n";
+  if (url.endsWith("/repos/example/repo")) return jsonResponse({ default_branch: "main" });
+  if (url.endsWith("/repos/example/repo/actions/workflows/ci.yml")) {
+    return jsonResponse({ path: ".github/workflows/ci.yml", state: "active" });
+  }
+  if (url.endsWith("/repos/example/repo/contents/.github/workflows/ci.yml?ref=main")) {
+    return jsonResponse({
+      type: "file",
+      path: ".github/workflows/ci.yml",
+      encoding: "base64",
+      content: Buffer.from(activationText).toString("base64")
+    });
+  }
+  return null;
+}
+
 function wrapFetchImpl(fetchImpl = fetch) {
-  return async (url, options = {}) => policyArtifactResponse(url) ?? fetchImpl(url, options);
+  return async (url, options = {}) => defaultBranchReleasePolicyResponse(url) ?? policyArtifactResponse(url) ?? fetchImpl(url, options);
 }
 
 const runReleaseTag = (options = {}) => runReleaseTagImpl({
@@ -643,6 +660,61 @@ test("first rollout skips tagging until the trusted base contains the policy pub
         GITHUB_EVENT_BEFORE: base,
         GITHUB_REF_NAME: "dev",
         GITHUB_REPOSITORY: "example/repo",
+        GITHUB_SHA: head,
+        GITHUB_TOKEN: "test-token",
+        GITHUB_API_URL: "https://api.github.com"
+      }
+    });
+    assert.equal(result.status, "skipped");
+    assert.equal(result.reason, "release-policy-receipt-bootstrap-pending");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("release-policy bootstrap requires active default-branch workflow activation", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-release-tag-default-branch-activation-"));
+  const bare = path.join(root, "origin.git");
+  const work = path.join(root, "work");
+  try {
+    await execFileAsync("git", ["init", "--bare", "-q", bare]);
+    await execFileAsync("git", ["init", "-q", work]);
+    await git(work, ["config", "user.email", "test@example.invalid"]);
+    await git(work, ["config", "user.name", "release-test"]);
+    await mkdir(path.join(work, ".github/workflows"), { recursive: true });
+    await mkdir(path.join(work, "plugins/better-workflows/.codex-plugin"), { recursive: true });
+    await mkdir(path.join(work, "plugins/better-workflows/scripts"), { recursive: true });
+    await writeFile(path.join(work, ".github/workflows/ci.yml"), "name: CI\non:\n  pull_request_target:\njobs:\n  release-policy-receipt:\n");
+    await writeFile(path.join(work, "plugins/better-workflows/scripts/release-policy-receipt.mjs"), "export {};\n");
+    await writeFile(path.join(work, "plugins/better-workflows/package.json"), JSON.stringify({ version: "3.4.12" }));
+    await writeFile(path.join(work, "plugins/better-workflows/.codex-plugin/plugin.json"), JSON.stringify({ version: "3.4.12+codex.test" }));
+    await git(work, ["add", "."]);
+    await git(work, ["commit", "-qm", "trusted workflow base"]);
+    await git(work, ["branch", "-M", "dev"]);
+    await git(work, ["remote", "add", "origin", bare]);
+    await git(work, ["push", "-q", "origin", "dev"]);
+    const base = await git(work, ["rev-parse", "HEAD"]);
+    await writeFile(path.join(work, "plugins/better-workflows/package.json"), JSON.stringify({ version: "3.4.13" }));
+    await writeFile(path.join(work, "plugins/better-workflows/.codex-plugin/plugin.json"), JSON.stringify({ version: "3.4.13+codex.test" }));
+    await git(work, ["add", "."]);
+    await git(work, ["commit", "-qm", "version bump"]);
+    const head = await git(work, ["rev-parse", "HEAD"]);
+    await git(work, ["push", "-q", "origin", "dev"]);
+    const result = await runReleaseTag({
+      cwd: work,
+      fetchImpl: async (url) => {
+        if (url.endsWith(`/repos/activation/repo/commits/${head}/pulls?per_page=100`)) {
+          return jsonResponse([{ number: 19, base: { ref: "dev", sha: base }, head: { sha: head }, merged_at: "2026-08-19T00:00:00Z", merge_commit_sha: head }]);
+        }
+        if (url.endsWith("/repos/activation/repo")) return jsonResponse({ default_branch: "main" });
+        if (url.endsWith("/repos/activation/repo/actions/workflows/ci.yml")) return jsonResponse({ path: ".github/workflows/ci.yml", state: "disabled_manually" });
+        throw new Error(`Unexpected default-branch activation fetch URL: ${url}`);
+      },
+      env: {
+        GITHUB_EVENT_NAME: "push",
+        GITHUB_EVENT_BEFORE: base,
+        GITHUB_REF_NAME: "dev",
+        GITHUB_REPOSITORY: "activation/repo",
         GITHUB_SHA: head,
         GITHUB_TOKEN: "test-token",
         GITHUB_API_URL: "https://api.github.com"
