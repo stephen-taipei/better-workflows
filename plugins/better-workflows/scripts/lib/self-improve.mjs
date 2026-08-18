@@ -206,17 +206,17 @@ function ownerTokenSecretScanText(text) {
   });
 }
 
-function assertSafeOwnerTokenExpressions(text, filePath, label) {
+function assertSafeOwnerTokenExpressions(text, filePath, label, { allowSecretLiterals = false } = {}) {
   let unsafeValue = null;
   text.replace(PROMPT_DISPLAY_IDENTIFIER_PATTERN, (match, keyQuote, rawValue) => {
     const valueQuote = rawValue.startsWith("\"") || rawValue.startsWith("'") ? rawValue[0] : "";
     const quotedValue = valueQuote ? rawValue.slice(1, -1) : "";
     if (valueQuote && quotedValue !== "[redacted-owner-token]" && !OWNER_TOKEN_SAFE_QUOTED_LITERALS.has(quotedValue)) {
-      unsafeValue = rawValue;
+      if (!allowSecretLiterals || !SECRET_PATTERN.test(quotedValue)) unsafeValue = rawValue;
     } else if (!valueQuote && !rawValue.startsWith("[redacted-owner-token") &&
                !OWNER_TOKEN_UNQUOTED_LITERAL_PATTERN.test(rawValue) &&
                !OWNER_TOKEN_SAFE_EXPRESSIONS.has(rawValue)) {
-      unsafeValue = rawValue;
+      if (!allowSecretLiterals || !SECRET_PATTERN.test(rawValue)) unsafeValue = rawValue;
     }
     return match;
   });
@@ -226,9 +226,10 @@ function assertSafeOwnerTokenExpressions(text, filePath, label) {
 }
 
 function sanitizeMaterialText(text, filePath, label) {
+  const executableMaterial = /^plugins\/better-workflows\/scripts\/.+\.(?:mjs|c)$/.test(filePath);
+  if (executableMaterial) assertSafeOwnerTokenExpressions(text, filePath, label, { allowSecretLiterals: true });
   let sanitized = text;
   let redacted = false;
-  const executableMaterial = /^plugins\/better-workflows\/scripts\/.+\.(?:mjs|c)$/.test(filePath);
   if (SECRET_PATTERN.test(ownerTokenSecretScanText(text))) {
     if (!filePath.startsWith("plugins/better-workflows/scripts/tests/")) {
       throw new Error(`${label} material contains secret-shaped content: ${filePath}`);

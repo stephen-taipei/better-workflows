@@ -1148,9 +1148,19 @@ test("sanitizer preserves non-secret quoted ownerToken source values but rejects
           snapshot: { files: [await snapshotFile(cwd, source)] },
           maxFiles: 1
         }),
-        /secret-shaped content/
+        /secret-shaped content|unrecognized ownerToken expression/
       );
     }
+
+    await writeFile(path.join(cwd, source), 'const config = { ownerToken: "allow" };\n');
+    await assert.rejects(
+      readSanitizedCandidateMaterial({
+        cwd,
+        snapshot: { files: [await snapshotFile(cwd, source)] },
+        maxFiles: 1
+      }),
+      /unrecognized ownerToken expression/
+    );
 
     await writeFile(path.join(cwd, source), 'const config = { ownerToken: "AKIA1234567890ABCDEF" };\n');
     await assert.rejects(

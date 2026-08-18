@@ -1374,6 +1374,11 @@ test("root standing reconstruction reads candidate authority from bound commit o
   assert.match(source, /function ownerTokenSecretScanText\(text\)/);
   assert.match(materialBlock, /secretPattern\.test\(ownerTokenSecretScanText\(text\)\)/);
   assert.match(materialBlock, /secretPattern\.test\(ownerTokenSecretScanText\(sanitized\)\)/);
+  const executableMaterialIndex = materialBlock.indexOf("const executableMaterial =");
+  const executableOwnerTokenValidationIndex = materialBlock.indexOf("assertSafeOwnerTokenExpressions(text, file.path", executableMaterialIndex);
+  const executableSanitizationIndex = materialBlock.indexOf("let sanitized = text;", executableMaterialIndex);
+  assert.ok(executableOwnerTokenValidationIndex > executableMaterialIndex);
+  assert.ok(executableOwnerTokenValidationIndex < executableSanitizationIndex);
   assert.doesNotMatch(materialBlock, /\["show"/);
   assert.doesNotMatch(materialBlock, /readFile\(path\.resolve\(repo/);
 

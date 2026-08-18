@@ -753,17 +753,17 @@ function ownerTokenSecretScanText(text) {
   });
 }
 
-function assertSafeOwnerTokenExpressions(text, filePath) {
+function assertSafeOwnerTokenExpressions(text, filePath, { allowSecretLiterals = false } = {}) {
   let unsafeValue = null;
   text.replace(PROMPT_DISPLAY_IDENTIFIER_PATTERN, (match, keyQuote, rawValue) => {
     const valueQuote = rawValue.startsWith("\"") || rawValue.startsWith("'") ? rawValue[0] : "";
     const quotedValue = valueQuote ? rawValue.slice(1, -1) : "";
     if (valueQuote && quotedValue !== "[redacted-owner-token]" && !OWNER_TOKEN_SAFE_QUOTED_LITERALS.has(quotedValue)) {
-      unsafeValue = rawValue;
+      if (!allowSecretLiterals || !OWNER_TOKEN_SECRET_PATTERN.test(quotedValue)) unsafeValue = rawValue;
     } else if (!valueQuote && !rawValue.startsWith("[redacted-owner-token") &&
                !OWNER_TOKEN_UNQUOTED_LITERAL_PATTERN.test(rawValue) &&
                !OWNER_TOKEN_SAFE_EXPRESSIONS.has(rawValue)) {
-      unsafeValue = rawValue;
+      if (!allowSecretLiterals || !OWNER_TOKEN_SECRET_PATTERN.test(rawValue)) unsafeValue = rawValue;
     }
     return match;
   });
@@ -4268,9 +4268,10 @@ async function reconstructSanitizedMaterial({ repo, subject, revision, snapshot,
       if (content.includes(0)) throw new Error(`Authoritative material is not text: ${file.path}`);
       const text = content.toString("utf8");
       if (Buffer.byteLength(text, "utf8") !== content.length) throw new Error(`Authoritative material is not valid UTF-8: ${file.path}`);
+      const executableMaterial = /^plugins\/better-workflows\/scripts\/.+\.(?:mjs|c)$/.test(file.path);
+      if (executableMaterial) assertSafeOwnerTokenExpressions(text, file.path, { allowSecretLiterals: true });
       let sanitized = text;
       let redacted = false;
-      const executableMaterial = /^plugins\/better-workflows\/scripts\/.+\.(?:mjs|c)$/.test(file.path);
       if (secretPattern.test(ownerTokenSecretScanText(text))) {
         if (!file.path.startsWith("plugins/better-workflows/scripts/tests/")) {
           throw new Error(`Authoritative material contains secret-shaped content: ${file.path}`);
