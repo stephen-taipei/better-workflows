@@ -493,26 +493,17 @@ function workflowTestState({ branch, checkRuns, workflowRuns, sha }) {
     run?.event === "push" &&
     run?.head_branch === branch
   ));
-  const linkedRunIds = new Set(candidateChecks.map((check) => workflowRunIdFromDetailsUrl(check)).filter(Boolean));
-  const linkedRuns = matchingRuns.filter((run) => linkedRunIds.has(String(run?.id ?? "")));
-  const pairs = linkedRuns.map((run) => {
-    const runId = String(run?.id ?? "");
-    const check = latestObservation(
-      candidateChecks.filter((candidate) => workflowRunIdFromDetailsUrl(candidate) === runId)
-    )?.record ?? null;
-    const latest = latestObservation([run, ...(check ? [check] : [])]);
-    return { run, check, latest: latest?.record ?? null };
-  }).filter((pair) => pair.latest !== null);
-  const latestPair = latestObservation(pairs.map((pair) => pair.latest));
-  if (!latestPair) return "missing";
-  const pair = pairs[latestPair.index];
-  if (
-    pair.check?.status !== "completed" || !pair.check?.conclusion ||
-    pair.run?.status !== "completed" || !pair.run?.conclusion
-  ) {
+  const latestRun = latestObservation(matchingRuns)?.record ?? null;
+  if (!latestRun) return "missing";
+  const runId = String(latestRun.id ?? "");
+  const latestCheck = latestObservation(
+    candidateChecks.filter((candidate) => workflowRunIdFromDetailsUrl(candidate) === runId)
+  )?.record ?? null;
+  if (!latestCheck || latestCheck.status !== "completed" || !latestCheck.conclusion ||
+      latestRun.status !== "completed" || !latestRun.conclusion) {
     return "pending";
   }
-  return pair.check.conclusion === "success" && pair.run.conclusion === "success"
+  return latestCheck.conclusion === "success" && latestRun.conclusion === "success"
     ? "success"
     : "failure";
 }

@@ -1382,6 +1382,8 @@ test("catch-up publication requires the exact workflow test check on the release
           workflowRuns.push({ id: 3, path: ".github/workflows/ci.yml", head_sha: bump, head_branch: "dev", event: "push", status: "completed", conclusion: "failure", created_at: "2026-08-18T00:01:00Z" });
         } else if (workflowScenario === "old-success-new-pending") {
           workflowRuns.push({ id: 3, path: ".github/workflows/ci.yml", head_sha: bump, head_branch: "dev", event: "push", status: "in_progress", conclusion: null, created_at: "2026-08-18T00:01:00Z" });
+        } else if (workflowScenario === "old-success-new-unlinked-pending") {
+          workflowRuns.push({ id: 3, path: ".github/workflows/ci.yml", head_sha: bump, head_branch: "dev", event: "push", status: "in_progress", conclusion: null, created_at: "2026-08-18T00:01:00Z" });
         }
         return jsonResponse({ workflow_runs: workflowRuns });
       }
@@ -1430,6 +1432,11 @@ test("catch-up publication requires the exact workflow test check on the release
       /lacks an exact successful test workflow check/
     );
     workflowScenario = "old-success-new-pending";
+    await assert.rejects(
+      runReleaseTag({ cwd: work, fetchImpl, env, sleepImpl: async () => {} }),
+      /lacks an exact successful test workflow check/
+    );
+    workflowScenario = "old-success-new-unlinked-pending";
     await assert.rejects(
       runReleaseTag({ cwd: work, fetchImpl, env, sleepImpl: async () => {} }),
       /lacks an exact successful test workflow check/
