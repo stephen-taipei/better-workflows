@@ -1353,6 +1353,18 @@ test("installed host signer remains a self-contained single-file capability repo
   }
 });
 
+test("host and repository ownerToken expression policies remain in parity", async () => {
+  const hostSource = await readFile(SCRIPT, "utf8");
+  const repositorySource = await readFile(path.join(path.dirname(SCRIPT), "lib", "self-improve.mjs"), "utf8");
+  const expressions = (source) => {
+    const start = source.indexOf("const OWNER_TOKEN_SAFE_EXPRESSIONS = new Set([");
+    const end = source.indexOf("]);", start);
+    assert.ok(start >= 0 && end > start);
+    return [...source.slice(start, end).matchAll(/\"([^\"]+)\"/g)].map((match) => match[1]).sort();
+  };
+  assert.deepEqual(expressions(hostSource), expressions(repositorySource));
+});
+
 test("root standing reconstruction reads candidate authority from bound commit objects", async () => {
   const source = await readFile(SCRIPT, "utf8");
   const candidateStart = source.indexOf("async function reconstructCandidateSnapshots");

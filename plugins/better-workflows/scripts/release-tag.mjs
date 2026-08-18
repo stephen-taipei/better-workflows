@@ -71,7 +71,7 @@ async function readJsonAtCommit(cwd, revision, relativePath) {
   }
 }
 
-async function repositoryPullRequests({ apiUrl, repository, sha, token, fetchImpl = fetch }) {
+export async function repositoryPullRequests({ apiUrl, repository, sha, token, fetchImpl = fetch }) {
   const endpoint = `${apiUrl.replace(/\/$/, "")}/repos/${repository}/commits/${sha}/pulls?per_page=100`;
   const response = await fetchImpl(endpoint, {
     headers: {
@@ -84,6 +84,9 @@ async function repositoryPullRequests({ apiUrl, repository, sha, token, fetchImp
   if (!response.ok) throw new Error(`GitHub associated-PR query failed with HTTP ${response.status}`);
   const payload = await response.json();
   if (!Array.isArray(payload)) throw new Error("GitHub associated-PR query returned a non-array payload");
+  if (payload.length >= 100) {
+    throw new Error("GitHub associated-PR query returned a full first page; refusing incomplete PR association");
+  }
   return payload;
 }
 
@@ -602,7 +605,6 @@ async function findEligibleVersionBumps({ cwd, branch, head, currentVersion, hig
       // source commit while its exact merged result has no first-parent delta.
       // Reconstruct the authenticated PR range from its immutable base to
       // source head, and attribute the net change only to that exact result.
-      if (headPull && candidate !== head) continue;
       const pull = await loadPull(candidate);
       const transition = await pullVersionTransition(pull);
       if (!transition || String(pull?.merge_commit_sha ?? "").toLowerCase() !== candidate) continue;

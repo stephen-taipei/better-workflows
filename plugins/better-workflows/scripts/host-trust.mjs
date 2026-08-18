@@ -721,6 +721,11 @@ const PROMPT_DISPLAY_IDENTIFIER_PATTERN = /(["']?)ownerToken\1\s*:\s*((?:"[^"\r\
 const OWNER_TOKEN_UNQUOTED_LITERAL_PATTERN = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|(?:gh[pousr]_|github_pat_|glpat-|xox[baprs]-)[A-Za-z0-9_-]{8,}|(?:cap|token)[_-][A-Za-z0-9]{8,})$/i;
 const OWNER_TOKEN_SAFE_QUOTED_LITERALS = new Set(["disabled"]);
 const OWNER_TOKEN_SAFE_EXPRESSIONS = new Set([
+  "null",
+  "preparing[1",
+  "preparing[1]",
+  "ready[2",
+  "ready[2]",
   "request.ownerToken",
   "request?.ownerToken",
   "config/owner-token"

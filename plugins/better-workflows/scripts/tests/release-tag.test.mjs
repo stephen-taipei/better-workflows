@@ -6,7 +6,7 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { githubGraphqlUrl, runReleaseTag as runReleaseTagImpl } from "../release-tag.mjs";
+import { githubGraphqlUrl, repositoryPullRequests, runReleaseTag as runReleaseTagImpl } from "../release-tag.mjs";
 import {
   compareStableVersions,
   findMergedPullRequest,
@@ -281,6 +281,19 @@ test("only the exact merged PR result for the target branch is eligible", () => 
   assert.equal(findMergedPullRequest([pull], { branch: "dev", sha: SHA }), pull);
   assert.equal(findMergedPullRequest([pull], { branch: "main", sha: SHA }), null);
   assert.equal(findMergedPullRequest([{ ...pull, merge_commit_sha: "b".repeat(40) }], { branch: "dev", sha: SHA }), null);
+});
+
+test("associated PR discovery fails closed when the first page is full", async () => {
+  await assert.rejects(
+    repositoryPullRequests({
+      apiUrl: "https://api.github.com",
+      repository: "example/repo",
+      sha: SHA,
+      token: "test-token",
+      fetchImpl: async () => jsonResponse(Array.from({ length: 100 }, (_, index) => ({ number: index + 1 })))
+    }),
+    /full first page; refusing incomplete PR association/
+  );
 });
 
 test("annotated and lightweight remote tags are compared by commit", () => {
@@ -703,6 +716,7 @@ test("bootstrap-skipped version bumps do not block a later publisher-backed catc
       }
       const response = successfulRequiredCheckResponse(url, head, "test", 20);
       if (response) return response;
+      if (url.includes("/commits/") && url.endsWith("/pulls?per_page=100")) return jsonResponse([]);
       throw new Error(`Unexpected bootstrap catch-up fetch URL: ${url}`);
     };
     const result = await runReleaseTag({
@@ -1023,11 +1037,15 @@ test("rebase-style merged PR keeps an earlier version bump eligible at final HEA
     await git(work, ["commit", "-qm", "rebase final commit"]);
     const head = await git(work, ["rev-parse", "HEAD"]);
     await git(work, ["push", "-q", "origin", "dev"]);
+    let followUp;
     const fetchImpl = async (url) => {
       const workflowResponse = pullRequestWorkflowResponse(url, [{ sha: head, pullNumber: 33 }]);
       if (workflowResponse) return workflowResponse;
       const policyWorkflow = policyWorkflowResponse(url);
       if (policyWorkflow) return policyWorkflow;
+      if (followUp && url.endsWith(`/repos/example/repo/commits/${followUp}/pulls?per_page=100`)) {
+        return jsonResponse([{ number: 34, base: { ref: "dev", sha: head }, head: { sha: followUp }, merged_at: "2026-08-19T00:00:00Z", merge_commit_sha: followUp }]);
+      }
       if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
         return jsonResponse([{ number: 33, base: { ref: "dev", sha: eventBefore }, head: { sha: head }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: head }]);
       }
@@ -1068,7 +1086,7 @@ test("rebase-style merged PR keeps an earlier version bump eligible at final HEA
     await writeFile(path.join(work, "README.md"), "later unchanged push\n");
     await git(work, ["add", "README.md"]);
     await git(work, ["commit", "-qm", "later unchanged push"]);
-    const followUp = await git(work, ["rev-parse", "HEAD"]);
+    followUp = await git(work, ["rev-parse", "HEAD"]);
     await git(work, ["push", "-q", "origin", "dev"]);
     const recovered = await runReleaseTag({
       cwd: work,
@@ -1750,6 +1768,7 @@ test("catch-up history exhaustion fails closed instead of silently skipping an o
       if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
         return jsonResponse([{ number: 31, base: { ref: "dev" }, head: { sha: head }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: head }]);
       }
+      if (url.includes("/commits/") && url.endsWith("/pulls?per_page=100")) return jsonResponse([]);
       throw new Error(`Unexpected release-tag fetch URL: ${url}`);
     };
     await assert.rejects(
@@ -1822,6 +1841,7 @@ test("an exact HEAD version bump remains eligible past the catch-up history boun
         return jsonResponse({ check_runs: [{ id: 32, name: "lint", head_sha: head, status: "completed", conclusion: "success", completed_at: "2026-08-17T23:55:00Z" }] });
       }
       if (url.includes(`/commits/${head}/statuses?per_page=100&page=1`)) return jsonResponse([policyReceiptStatus("lint", "2026-08-20T00:50:00Z", null, { pullNumber: 32, headSha: head, mergeSha: head, mergedAt: "2026-08-18T00:00:00Z" })]);
+      if (url.includes("/commits/") && url.endsWith("/pulls?per_page=100")) return jsonResponse([]);
       throw new Error(`Unexpected long-history fetch URL: ${url}`);
     };
     const result = await runReleaseTag({
@@ -1879,6 +1899,7 @@ test("the exact catch-up history boundary returns a deterministic no-op", async 
       if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
         return jsonResponse([{ number: 34, base: { ref: "dev" }, head: { sha: head }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: head }]);
       }
+      if (url.includes("/commits/") && url.endsWith("/pulls?per_page=100")) return jsonResponse([]);
       throw new Error(`Unexpected root-boundary fetch URL: ${url}`);
     };
     const result = await runReleaseTag({
