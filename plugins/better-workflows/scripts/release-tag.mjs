@@ -446,6 +446,41 @@ async function versionAtCommit(cwd, revision) {
   return versionSurfaces(packageJson, pluginManifest);
 }
 
+async function versionAtProviderCommit({ apiUrl, repository, revision, token, fetchImpl = fetch }) {
+  const normalizedRevision = String(revision ?? "").trim().toLowerCase();
+  if (!/^[0-9a-f]{40}$/.test(normalizedRevision) || !String(repository ?? "").trim()) return null;
+  const readProviderFile = async (relativePath) => {
+    const endpoint = `${String(apiUrl ?? "https://api.github.com").replace(/\/$/, "")}/repos/${repository}/contents/${relativePath}?ref=${normalizedRevision}`;
+    const response = await fetchImpl(endpoint, {
+      headers: {
+        Accept: "application/vnd.github+json",
+        Authorization: `Bearer ${token}`,
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "better-workflows-release-tag"
+      }
+    });
+    if (response.status === 404) return null;
+    if (!response.ok) throw new Error(`GitHub exact PR head content query failed with HTTP ${response.status}`);
+    const payload = await response.json();
+    if (!payload || payload.type !== "file" || payload.path !== relativePath || payload.encoding !== "base64" || typeof payload.content !== "string") return null;
+    try {
+      return JSON.parse(Buffer.from(payload.content.replace(/\s+/g, ""), "base64").toString("utf8"));
+    } catch {
+      return null;
+    }
+  };
+  const [packageJson, pluginManifest] = await Promise.all([
+    readProviderFile(REPOSITORY_PACKAGE),
+    readProviderFile(PLUGIN_MANIFEST)
+  ]);
+  if (!packageJson || !pluginManifest) return null;
+  try {
+    return versionSurfaces(packageJson, pluginManifest);
+  } catch {
+    return null;
+  }
+}
+
 async function previousVersion(cwd, revision) {
   if (revision === null) return null;
   const [packageJson, pluginManifest] = await Promise.all([
@@ -535,28 +570,40 @@ async function revisionExists(cwd, revision) {
   }
 }
 
-async function authenticatedPullVersionTransition(cwd, pull, currentVersion) {
+async function authenticatedPullVersionTransition(cwd, pull, currentVersion, { apiUrl, repository, token, fetchImpl = fetch } = {}) {
   const baseSha = String(pull?.base?.sha ?? "").trim().toLowerCase();
   const sourceSha = String(pull?.head?.sha ?? "").trim().toLowerCase();
   if (!/^[0-9a-f]{40}$/.test(baseSha) || !/^[0-9a-f]{40}$/.test(sourceSha)) return null;
   if (!(await revisionExists(cwd, baseSha))) return null;
+  const baseVersion = await versionAtCommit(cwd, baseSha);
+  if (!baseVersion) return null;
   const sourceAvailable = await revisionExists(cwd, sourceSha);
   if (sourceAvailable) {
     if (!(await revisionIsAncestor(cwd, baseSha, sourceSha))) return null;
-    const [baseVersion, sourceVersion] = await Promise.all([
-      versionAtCommit(cwd, baseSha),
-      versionAtCommit(cwd, sourceSha)
-    ]);
+    const sourceVersion = await versionAtCommit(cwd, sourceSha);
     if (!baseVersion || !sourceVersion || compareStableVersions(sourceVersion, baseVersion) <= 0) return null;
     if (compareStableVersions(sourceVersion, currentVersion) !== 0) return null;
     return { baseSha, sourceSha, baseVersion, version: sourceVersion };
   }
 
-  // A missing PR head is not authenticated patch/tree evidence. Comparing the
-  // PR base directly with the merge result would attribute an unrelated
-  // version bump to this PR, so fail closed and require an exact first-parent
-  // delta or a provider-authenticated source revision.
-  return null;
+  // A deleted, fork, squash, or rebased PR head may be absent from the target
+  // checkout. Re-read the exact head tree through the provider at its immutable
+  // SHA, then require the exact merge result to expose the same version. This
+  // prevents an unrelated base-branch bump from being attributed to the PR.
+  const sourceVersion = await versionAtProviderCommit({ apiUrl, repository, revision: sourceSha, token, fetchImpl });
+  if (!sourceVersion || compareStableVersions(sourceVersion, baseVersion) <= 0 || compareStableVersions(sourceVersion, currentVersion) !== 0) return null;
+  const mergeSha = String(pull?.merge_commit_sha ?? "").trim().toLowerCase();
+  if (!/^[0-9a-f]{40}$/.test(mergeSha) || !(await revisionExists(cwd, mergeSha))) return null;
+  if (!(await revisionIsAncestor(cwd, baseSha, mergeSha))) return null;
+  const mergeVersion = await versionAtCommit(cwd, mergeSha);
+  if (!mergeVersion || compareStableVersions(mergeVersion, sourceVersion) !== 0) return null;
+  return {
+    baseSha,
+    sourceSha,
+    baseVersion,
+    version: sourceVersion,
+    sourceUnavailable: true
+  };
 }
 
 async function findEligibleVersionBumps({ cwd, branch, head, currentVersion, highestPublished, eventVersionChanged, eventParentVersion, headPull, apiUrl, repository, token, fetchImpl }) {
@@ -596,7 +643,12 @@ async function findEligibleVersionBumps({ cwd, branch, head, currentVersion, hig
     const key = String(pull?.merge_commit_sha ?? pull?.head?.sha ?? "").toLowerCase();
     if (!key) return null;
     if (!pullTransitionCache.has(key)) {
-      pullTransitionCache.set(key, authenticatedPullVersionTransition(cwd, pull, currentVersion));
+      pullTransitionCache.set(key, authenticatedPullVersionTransition(cwd, pull, currentVersion, {
+        apiUrl,
+        repository,
+        token,
+        fetchImpl
+      }));
     }
     return pullTransitionCache.get(key);
   };
@@ -1164,7 +1216,11 @@ async function verifyCatchUpChecks({
     const workflowRuns = requireWorkflowTest
       ? await repositoryWorkflowRuns({ apiUrl, repository, branch, sha, token, fetchImpl })
       : [];
-    const statuses = await repositoryCommitStatuses({ apiUrl, repository, sha: testedRevision, token, fetchImpl });
+    // Legacy appId:null commit statuses are published on the immutable PR head,
+    // while check-runs remain bound to the workflow-tested revision (which may
+    // be a synthetic merge SHA). Keep those identities separate.
+    const statusRevision = mergeTime === null ? testedRevision : normalizedPreMergeSha;
+    const statuses = await repositoryCommitStatuses({ apiUrl, repository, sha: statusRevision, token, fetchImpl });
     observations = (requiredRequirements ?? []).map((requirement) => {
       const { context, appId } = requirement;
       const matchingChecks = checkRuns.filter((check) => (

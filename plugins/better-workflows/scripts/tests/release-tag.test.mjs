@@ -558,9 +558,7 @@ test("merge-time policy receipt binds the pre-merge head separately from the mer
       if (url.includes(`/commits/${syntheticMergeSha}/check-runs?per_page=100&page=1`)) {
         return jsonResponse({ check_runs: [{ id: 7, name: "test", head_sha: syntheticMergeSha, status: "completed", conclusion: "success", completed_at: "2026-08-14T23:55:00Z" }] });
       }
-      if (url.includes(`/commits/${syntheticMergeSha}/statuses?per_page=100&page=1`)) {
-        return jsonResponse([{ id: 7, context: "test", state: "success" }]);
-      }
+      if (url.includes(`/commits/${syntheticMergeSha}/statuses?per_page=100&page=1`)) return jsonResponse([]);
       if (url.includes(`/commits/${preMergeSha}/statuses?per_page=100&page=1`)) {
         return jsonResponse([
           { id: 7, context: "test", state: "success" },
@@ -1010,7 +1008,7 @@ test("unchanged-version direct push cannot publish an earlier release candidate"
   }
 });
 
-test("source-unavailable merged PR cannot attribute an earlier version bump at final HEAD", async () => {
+test("source-unavailable merged PR uses provider-bound source content at final HEAD", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "sbw-release-tag-rebase-"));
   const bare = path.join(root, "origin.git");
   const work = path.join(root, "work");
@@ -1039,8 +1037,16 @@ test("source-unavailable merged PR cannot attribute an earlier version bump at f
     const head = await git(work, ["rev-parse", "HEAD"]);
     await git(work, ["push", "-q", "origin", "dev"]);
     const unavailableSourceSha = "f".repeat(40);
+    const providerPackage = Buffer.from(JSON.stringify({ version: "3.4.13" })).toString("base64");
+    const providerManifest = Buffer.from(JSON.stringify({ version: "3.4.13+codex.test" })).toString("base64");
     let followUp;
     const fetchImpl = async (url) => {
+      if (url.endsWith(`/contents/plugins/better-workflows/package.json?ref=${unavailableSourceSha}`)) {
+        return jsonResponse({ type: "file", path: "plugins/better-workflows/package.json", encoding: "base64", content: providerPackage });
+      }
+      if (url.endsWith(`/contents/plugins/better-workflows/.codex-plugin/plugin.json?ref=${unavailableSourceSha}`)) {
+        return jsonResponse({ type: "file", path: "plugins/better-workflows/.codex-plugin/plugin.json", encoding: "base64", content: providerManifest });
+      }
       const workflowResponse = pullRequestWorkflowResponse(url, [{ sha: head, pullHeadSha: unavailableSourceSha, pullNumber: 33 }]);
       if (workflowResponse) return workflowResponse;
       const policyWorkflow = policyWorkflowResponse(url);
@@ -1084,12 +1090,10 @@ test("source-unavailable merged PR cannot attribute an earlier version bump at f
         RELEASE_TAG_DRY_RUN: "1"
       }
     });
-    assert.deepEqual(result, {
-      status: "skipped",
-      reason: "commit-is-not-an-exact-merged-pr-result",
-      branch: "dev",
-      sha: head
-    });
+    assert.equal(result.status, "planned");
+    assert.equal(result.sha, head);
+    assert.equal(result.pullNumber, 33);
+    assert.equal(result.tag, `v3.4.13-dev.${head.slice(0, 12)}`);
     await writeFile(path.join(work, "README.md"), "later unchanged push\n");
     await git(work, ["add", "README.md"]);
     await git(work, ["commit", "-qm", "later unchanged push"]);
@@ -1109,13 +1113,11 @@ test("source-unavailable merged PR cannot attribute an earlier version bump at f
         RELEASE_TAG_DRY_RUN: "1"
       }
     });
-    assert.deepEqual(recovered, {
-      status: "skipped",
-      reason: "release-version-unchanged",
-      branch: "dev",
-      sha: followUp,
-      version: "3.4.13"
-    });
+    assert.equal(recovered.status, "planned");
+    assert.equal(recovered.sha, head);
+    assert.equal(recovered.version, "3.4.13");
+    assert.equal(recovered.pullNumber, 33);
+    assert.equal(recovered.tag, `v3.4.13-dev.${head.slice(0, 12)}`);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -1150,11 +1152,20 @@ test("catch-up rejects a direct version bump laundered through an unrelated PR",
     await git(work, ["commit", "-qm", "unrelated PR"]);
     const head = await git(work, ["rev-parse", "HEAD"]);
     await git(work, ["push", "-q", "origin", "dev"]);
+    const unavailableSourceSha = "e".repeat(40);
+    const providerPackage = Buffer.from(JSON.stringify({ version: "3.4.12" })).toString("base64");
+    const providerManifest = Buffer.from(JSON.stringify({ version: "3.4.12+codex.test" })).toString("base64");
     const fetchImpl = async (url) => {
+      if (url.endsWith(`/contents/plugins/better-workflows/package.json?ref=${unavailableSourceSha}`)) {
+        return jsonResponse({ type: "file", path: "plugins/better-workflows/package.json", encoding: "base64", content: providerPackage });
+      }
+      if (url.endsWith(`/contents/plugins/better-workflows/.codex-plugin/plugin.json?ref=${unavailableSourceSha}`)) {
+        return jsonResponse({ type: "file", path: "plugins/better-workflows/.codex-plugin/plugin.json", encoding: "base64", content: providerManifest });
+      }
       if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
         // The PR branched before the unrelated direct bump; ancestry alone must
         // not make that bump eligible for the later PR.
-        return jsonResponse([{ number: 44, base: { ref: "dev", sha: await git(work, ["rev-parse", `${bump}^`]) }, head: { sha: await git(work, ["rev-parse", `${bump}^`]) }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: head }]);
+        return jsonResponse([{ number: 44, base: { ref: "dev", sha: await git(work, ["rev-parse", `${bump}^`]) }, head: { sha: unavailableSourceSha }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: head }]);
       }
       if (url.endsWith(`/repos/example/repo/commits/${bump}/pulls?per_page=100`)) return jsonResponse([]);
       throw new Error(`Unexpected laundered-bump fetch URL: ${url}`);
