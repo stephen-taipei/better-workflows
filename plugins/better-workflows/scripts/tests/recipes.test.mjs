@@ -159,6 +159,7 @@ async function governedRun(cwd, stateRoot) {
     goal: "Promote deterministic reference recipe",
     template: "workspace-recipe",
     templateDigest: digestObject(template),
+    reviewProfile: structuredClone(template.reviewProfile),
     scope: { include: ["."], exclude: [] },
     acceptance: structuredClone(template.acceptance),
     requiredEvidence: [...template.requiredEvidence],
