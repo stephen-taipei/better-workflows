@@ -431,7 +431,7 @@ test("rebase-style merged PR keeps an earlier version bump eligible at final HEA
     await git(work, ["push", "-q", "origin", "dev"]);
     const fetchImpl = async (url) => {
       if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
-        return jsonResponse([{ number: 33, base: { ref: "dev" }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: head }]);
+        return jsonResponse([{ number: 33, base: { ref: "dev", sha: eventBefore }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: head }]);
       }
       if (url.includes("/commits/") && url.endsWith("/pulls?per_page=100")) return jsonResponse([]);
       if (url.endsWith("/branches/dev")) {
@@ -490,6 +490,68 @@ test("rebase-style merged PR keeps an earlier version bump eligible at final HEA
     assert.equal(recovered.sha, head);
     assert.equal(recovered.pullNumber, 33);
     assert.equal(recovered.tag, `v3.4.13-dev.${head.slice(0, 12)}`);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("catch-up rejects a direct version bump laundered through an unrelated PR", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-release-tag-laundered-bump-"));
+  const bare = path.join(root, "origin.git");
+  const work = path.join(root, "work");
+  try {
+    await execFileAsync("git", ["init", "--bare", "-q", bare]);
+    await execFileAsync("git", ["init", "-q", work]);
+    await git(work, ["config", "user.email", "test@example.invalid"]);
+    await git(work, ["config", "user.name", "release-test"]);
+    await mkdir(path.join(work, "plugins/better-workflows/.codex-plugin"), { recursive: true });
+    await mkdir(path.join(work, "plugins/better-workflows"), { recursive: true });
+    await writeFile(path.join(work, "plugins/better-workflows/package.json"), JSON.stringify({ version: "3.4.12" }));
+    await writeFile(path.join(work, "plugins/better-workflows/.codex-plugin/plugin.json"), JSON.stringify({ version: "3.4.12+codex.test" }));
+    await git(work, ["add", "."]);
+    await git(work, ["commit", "-qm", "base"]);
+    await git(work, ["branch", "-M", "dev"]);
+    await git(work, ["remote", "add", "origin", bare]);
+    await git(work, ["push", "-q", "origin", "dev"]);
+    await writeFile(path.join(work, "plugins/better-workflows/package.json"), JSON.stringify({ version: "3.4.13" }));
+    await writeFile(path.join(work, "plugins/better-workflows/.codex-plugin/plugin.json"), JSON.stringify({ version: "3.4.13+codex.test" }));
+    await git(work, ["add", "."]);
+    await git(work, ["commit", "-qm", "direct version bump"]);
+    const bump = await git(work, ["rev-parse", "HEAD"]);
+    await git(work, ["push", "-q", "origin", "dev"]);
+    await writeFile(path.join(work, "README.md"), "unrelated PR\n");
+    await git(work, ["add", "README.md"]);
+    await git(work, ["commit", "-qm", "unrelated PR"]);
+    const head = await git(work, ["rev-parse", "HEAD"]);
+    await git(work, ["push", "-q", "origin", "dev"]);
+    const fetchImpl = async (url) => {
+      if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
+        return jsonResponse([{ number: 44, base: { ref: "dev", sha: bump }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: head }]);
+      }
+      if (url.endsWith(`/repos/example/repo/commits/${bump}/pulls?per_page=100`)) return jsonResponse([]);
+      throw new Error(`Unexpected laundered-bump fetch URL: ${url}`);
+    };
+    const result = await runReleaseTag({
+      cwd: work,
+      fetchImpl,
+      env: {
+        GITHUB_EVENT_NAME: "push",
+        GITHUB_EVENT_BEFORE: bump,
+        GITHUB_REF_NAME: "dev",
+        GITHUB_REPOSITORY: "example/repo",
+        GITHUB_SHA: head,
+        GITHUB_TOKEN: "test-token",
+        GITHUB_API_URL: "https://api.github.com",
+        RELEASE_TAG_DRY_RUN: "1"
+      }
+    });
+    assert.deepEqual(result, {
+      status: "skipped",
+      reason: "release-version-unchanged",
+      branch: "dev",
+      sha: head,
+      version: "3.4.13"
+    });
   } finally {
     await rm(root, { recursive: true, force: true });
   }

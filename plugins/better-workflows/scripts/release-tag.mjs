@@ -345,6 +345,19 @@ async function findEligibleVersionBumps({ cwd, branch, head, currentVersion, eve
         if (descendant.version !== candidateVersion) continue;
         const descendantPull = await loadPull(descendant.sha);
         if (!descendantPull) continue;
+        let pullBaseSha;
+        try {
+          pullBaseSha = assertCommitSha(descendantPull.base?.sha);
+        } catch {
+          continue;
+        }
+        if (pullBaseSha === candidate) continue;
+        try {
+          await git(cwd, ["merge-base", "--is-ancestor", pullBaseSha, candidate]);
+          await git(cwd, ["merge-base", "--is-ancestor", candidate, descendant.sha]);
+        } catch {
+          continue;
+        }
         releaseSha = descendant.sha;
         pull = descendantPull;
         break;
