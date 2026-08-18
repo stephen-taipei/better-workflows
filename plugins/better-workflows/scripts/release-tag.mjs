@@ -107,10 +107,10 @@ async function repositoryCheckRuns({ apiUrl, repository, sha, token, fetchImpl =
   });
 }
 
-async function repositoryWorkflowRuns({ apiUrl, repository, sha, token, fetchImpl = fetch }) {
+async function repositoryWorkflowRuns({ apiUrl, repository, branch, sha, token, fetchImpl = fetch }) {
   return pagedGitHubCollection({
     apiUrl,
-    pathName: `/repos/${repository}/actions/runs?head_sha=${encodeURIComponent(sha)}&event=push`,
+    pathName: `/repos/${repository}/actions/runs?head_sha=${encodeURIComponent(sha)}&event=push&branch=${encodeURIComponent(branch)}`,
     key: "workflow_runs",
     token,
     fetchImpl,
@@ -481,7 +481,7 @@ function requiredObservationState(selected) {
   return ["pending", "queued", "in_progress"].includes(String(selected.record.state)) ? "pending" : "failure";
 }
 
-function workflowTestState({ checkRuns, workflowRuns, sha }) {
+function workflowTestState({ branch, checkRuns, workflowRuns, sha }) {
   const candidateChecks = checkRuns.filter((check) => (
     String(check?.head_sha ?? "").toLowerCase() === sha &&
     String(check?.name ?? "") === RELEASE_WORKFLOW_TEST_CONTEXT &&
@@ -490,7 +490,8 @@ function workflowTestState({ checkRuns, workflowRuns, sha }) {
   const matchingRuns = workflowRuns.filter((run) => (
     run?.path === RELEASE_WORKFLOW_FILE &&
     String(run?.head_sha ?? "").toLowerCase() === sha &&
-    run?.event === "push"
+    run?.event === "push" &&
+    run?.head_branch === branch
   ));
   const linkedRunIds = new Set(candidateChecks.map((check) => workflowRunIdFromDetailsUrl(check)).filter(Boolean));
   const linkedRuns = matchingRuns.filter((run) => linkedRunIds.has(String(run?.id ?? "")));
@@ -541,7 +542,7 @@ async function verifyCatchUpChecks({
   for (let attempt = 0; attempt < REQUIRED_CHECK_POLL_ATTEMPTS; attempt += 1) {
     const checkRuns = await repositoryCheckRuns({ apiUrl, repository, sha, token, fetchImpl });
     const workflowRuns = requireWorkflowTest
-      ? await repositoryWorkflowRuns({ apiUrl, repository, sha, token, fetchImpl })
+      ? await repositoryWorkflowRuns({ apiUrl, repository, branch, sha, token, fetchImpl })
       : [];
     const statuses = await repositoryCommitStatuses({ apiUrl, repository, sha, token, fetchImpl });
     observations = requiredRequirements.map((requirement) => {
@@ -558,7 +559,7 @@ async function verifyCatchUpChecks({
       return { requirement, selected, state: requiredObservationState(selected) };
     });
     workflowState = requireWorkflowTest
-      ? workflowTestState({ checkRuns, workflowRuns, sha })
+      ? workflowTestState({ branch, checkRuns, workflowRuns, sha })
       : "success";
     if (observations.some((item) => item.state === "failure")) {
       throw new Error(`Release catch-up requires all exact required checks and statuses to complete successfully: ${sha}`);

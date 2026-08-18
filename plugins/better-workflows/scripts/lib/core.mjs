@@ -3379,8 +3379,8 @@ function stripWorkflowYamlComment(value) {
 }
 
 function workflowKeyLine(line) {
-  const match = /^(\s*)(?:["']?)([A-Za-z0-9_-]+)(?:["']?)\s*:(.*)$/.exec(line);
-  return match ? { indent: match[1].length, key: match[2], value: stripWorkflowYamlComment(match[3]) } : null;
+  const match = /^(\s*)(?:(['"])([A-Za-z0-9_-]+)\2|([A-Za-z0-9_-]+))\s*:(.*)$/.exec(line);
+  return match ? { indent: match[1].length, key: match[3] ?? match[4], value: stripWorkflowYamlComment(match[5]) } : null;
 }
 
 function workflowYamlStructuralLine(line) {
@@ -3423,6 +3423,12 @@ function assertCompleteDirectMapping(lines, start, end, parentIndent, label) {
     if (!candidate.parsed || candidate.parsed.indent !== childIndent) {
       throw new Error(`GitHub Actions workflow contains an unsupported or unparsed ${label} mapping entry`);
     }
+  }
+}
+
+function assertWorkflowMappingHeader(entry, label) {
+  if (entry?.parsed?.value) {
+    throw new Error(`GitHub Actions workflow ${label} must use a nested mapping`);
   }
 }
 
@@ -3509,6 +3515,7 @@ export function validateWorkflowDispatchCapability(content, workflowFile, revisi
   assertUniqueWorkflowEntries(topEntries, "top-level");
   const topOn = topEntries.find(({ parsed }) => parsed.key === "on")?.index ?? -1;
   if (topOn < 0) throw new Error("GitHub Actions workflow must declare a top-level on block");
+  assertWorkflowMappingHeader(topEntries.find(({ index }) => index === topOn), "on block");
   const onIndent = lines[topOn].parsed.indent;
   const onEnd = lines.findIndex(({ parsed }, index) => index > topOn && parsed && parsed.indent <= onIndent);
   const onStop = onEnd < 0 ? lines.length : onEnd;
@@ -3517,6 +3524,7 @@ export function validateWorkflowDispatchCapability(content, workflowFile, revisi
   assertUniqueWorkflowEntries(onEntries, "on block");
   const dispatchIndex = onEntries.find(({ parsed }) => parsed.key === "workflow_dispatch")?.index ?? -1;
   if (dispatchIndex < 0) throw new Error("GitHub Actions workflow must declare workflow_dispatch");
+  assertWorkflowMappingHeader(onEntries.find(({ index }) => index === dispatchIndex), "workflow_dispatch");
   const dispatchIndent = lines[dispatchIndex].parsed.indent;
   const dispatchEnd = lines.findIndex(({ parsed }, index) => (
     index > dispatchIndex && index < onStop && parsed && parsed.indent <= dispatchIndent
@@ -3527,6 +3535,7 @@ export function validateWorkflowDispatchCapability(content, workflowFile, revisi
   assertUniqueWorkflowEntries(dispatchEntries, "workflow_dispatch");
   const inputsIndex = dispatchEntries.find(({ parsed }) => parsed.key === "inputs")?.index ?? -1;
   if (inputsIndex < 0) throw new Error("GitHub Actions workflow_dispatch must declare inputs");
+  assertWorkflowMappingHeader(dispatchEntries.find(({ index }) => index === inputsIndex), "workflow_dispatch inputs");
   const inputsIndent = lines[inputsIndex].parsed.indent;
   const inputsEnd = lines.findIndex(({ parsed }, index) => (
     index > inputsIndex && index < dispatchStop && parsed && parsed.indent <= inputsIndent
@@ -3548,6 +3557,9 @@ export function validateWorkflowDispatchCapability(content, workflowFile, revisi
   // malformed children; the capability attestor must do the same instead of
   // letting find(...) select one ambiguous declaration.
   for (const inputEntry of inputEntries) {
+    if (![WORKFLOW_DISPATCH_NONCE_INPUT, WORKFLOW_DISPATCH_EXPECTED_REVISION_INPUT].includes(inputEntry.parsed.key)) {
+      assertWorkflowMappingHeader(inputEntry, `workflow_dispatch input ${inputEntry.parsed.key}`);
+    }
     const inputEnd = workflowInputBlockEnd(inputEntries, inputEntry.index, inputsStop);
     assertCompleteDirectMapping(
       lines,
@@ -3589,6 +3601,7 @@ export function validateWorkflowDispatchCapability(content, workflowFile, revisi
   }
   const jobs = topEntries.find(({ parsed }) => parsed.key === "jobs")?.index ?? -1;
   if (jobs < 0) throw new Error("GitHub Actions workflow must declare a top-level jobs block");
+  assertWorkflowMappingHeader(topEntries.find(({ index }) => index === jobs), "jobs block");
   const jobsIndent = lines[jobs].parsed.indent;
   const jobsEnd = lines.findIndex(({ parsed }, index) => index > jobs && parsed && parsed.indent <= jobsIndent);
   const jobsStop = jobsEnd < 0 ? lines.length : jobsEnd;
@@ -3597,6 +3610,7 @@ export function validateWorkflowDispatchCapability(content, workflowFile, revisi
   assertUniqueWorkflowEntries(jobHeaders, "jobs");
   if (jobHeaders.length === 0) throw new Error("GitHub Actions workflow must declare at least one job");
   for (const [position, header] of jobHeaders.entries()) {
+    assertWorkflowMappingHeader(header, `job ${header.parsed.key}`);
     const blockEnd = jobHeaders[position + 1]?.index ?? jobsStop;
     assertCompleteDirectMapping(lines, header.index, blockEnd, header.parsed.indent, `job ${header.parsed.key}`);
     const jobEntries = directWorkflowEntries(lines, header.index, blockEnd, header.parsed.indent);

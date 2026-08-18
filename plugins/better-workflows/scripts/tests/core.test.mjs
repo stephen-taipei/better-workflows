@@ -3262,6 +3262,31 @@ test("GitHub Actions dispatch capability requires nonce-aware workflow metadata"
   );
   assert.throws(
     () => validateWorkflowDispatchCapability(
+      workflow.replace("jobs:", "\"jobs':"),
+      ".github/workflows/release.yml",
+      revision
+    ),
+    /unsupported or unparsed top-level mapping entry|jobs block/
+  );
+  for (const [replacement, message] of [
+    ["on: invalid", /on block must use a nested mapping/],
+    ["  workflow_dispatch: invalid", /workflow_dispatch must use a nested mapping/],
+    ["    inputs: invalid", /workflow_dispatch inputs must use a nested mapping/],
+    ["jobs: invalid", /jobs block must use a nested mapping/],
+    ["  release: invalid", /job release must use a nested mapping/],
+    ["      environment: invalid", /workflow_dispatch input environment must use a nested mapping/]
+  ]) {
+    assert.throws(
+      () => validateWorkflowDispatchCapability(
+        workflow.replace(replacement.replace(" invalid", ""), replacement),
+        ".github/workflows/release.yml",
+        revision
+      ),
+      message
+    );
+  }
+  assert.throws(
+    () => validateWorkflowDispatchCapability(
       workflow.replace("  workflow_dispatch:", "  workflow_dispatch: {inputs: {}}"),
       ".github/workflows/release.yml",
       revision
