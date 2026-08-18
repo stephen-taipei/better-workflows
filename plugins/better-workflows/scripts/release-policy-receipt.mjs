@@ -9,6 +9,8 @@ export const RELEASE_POLICY_RECEIPT_PUBLISHER = "github-actions[bot]";
 export const RELEASE_POLICY_RECEIPT_ARTIFACT_NAME = "better-workflows-release-policy-receipt";
 export const RELEASE_POLICY_RECEIPT_ARTIFACT_FILE = "release-policy-receipt.json";
 export const RELEASE_POLICY_RECEIPT_ARTIFACT_KIND = "better-workflows/release-policy-receipt-v2";
+export const RELEASE_POLICY_RECEIPT_PREMERGE_ACTIONS = ["opened", "reopened", "synchronize"];
+export const RELEASE_POLICY_RECEIPT_MERGE_ACTION = "closed";
 
 function assertSha(value) {
   const sha = String(value ?? "").trim().toLowerCase();
@@ -72,7 +74,11 @@ export function buildPolicyReceiptArtifact({
   policy,
   workflowRunId,
   eventAction,
-  observedAt
+  observedAt,
+  mergeCommitSha = null,
+  mergedAt = null,
+  sourceWorkflowRunId = null,
+  sourcePolicyDigest = null
 }) {
   const normalizedHead = assertSha(headSha);
   const normalizedPullNumber = Number(pullNumber);
@@ -84,7 +90,7 @@ export function buildPolicyReceiptArtifact({
   const runId = String(workflowRunId ?? "").trim();
   if (!/^\d+$/.test(runId)) throw new Error("Release policy receipt artifact requires a workflow run id");
   if (!repository || !branch || !eventAction) throw new Error("Release policy receipt artifact requires repository, branch, and event metadata");
-  return {
+  const artifact = {
     schemaVersion: 1,
     kind: RELEASE_POLICY_RECEIPT_ARTIFACT_KIND,
     repository: String(repository),
@@ -98,6 +104,27 @@ export function buildPolicyReceiptArtifact({
     policy,
     policyDigest: policyDigest(policy),
     observedAt: new Date(observedMs).toISOString()
+  };
+  if (RELEASE_POLICY_RECEIPT_PREMERGE_ACTIONS.includes(String(eventAction))) return artifact;
+  if (String(eventAction) !== RELEASE_POLICY_RECEIPT_MERGE_ACTION) {
+    throw new Error("Release policy receipt artifact received an unsupported pull-request event action");
+  }
+  const normalizedMergeCommitSha = assertSha(mergeCommitSha);
+  const mergedMs = Date.parse(String(mergedAt ?? ""));
+  const sourceRunId = String(sourceWorkflowRunId ?? "").trim();
+  const sourceDigest = String(sourcePolicyDigest ?? "").trim().toLowerCase();
+  if (!Number.isFinite(mergedMs) || !/^\d+$/.test(sourceRunId) || !/^[a-f0-9]{64}$/.test(sourceDigest)) {
+    throw new Error("Merge-bound release policy receipt artifact requires merge and pre-merge continuity fields");
+  }
+  if (policyDigest(policy) !== sourceDigest) {
+    throw new Error("Merge-bound release policy receipt rejects a changed required-check policy");
+  }
+  return {
+    ...artifact,
+    mergeCommitSha: normalizedMergeCommitSha,
+    mergedAt: new Date(mergedMs).toISOString(),
+    sourceWorkflowRunId: sourceRunId,
+    sourcePolicyDigest: sourceDigest
   };
 }
 
@@ -114,6 +141,49 @@ async function requestJson({ apiUrl, path, token, options = {}, fetchImpl = fetc
   });
   if (!response.ok) throw new Error(`Release policy receipt GitHub request failed with HTTP ${response.status}`);
   return response.status === 204 ? null : response.json();
+}
+
+async function repositoryCommitStatuses({ apiUrl, repository, sha, token, fetchImpl = fetch }) {
+  const statuses = [];
+  for (let page = 1; page <= 10; page += 1) {
+    const payload = await requestJson({
+      apiUrl,
+      path: `/repos/${repository}/commits/${encodeURIComponent(sha)}/statuses?per_page=100&page=${page}`,
+      token,
+      fetchImpl
+    });
+    if (!Array.isArray(payload)) throw new Error("Release policy receipt status query returned an invalid payload");
+    statuses.push(...payload);
+    if (payload.length < 100) return statuses;
+  }
+  throw new Error("Release policy receipt status query exceeded its bounded page limit");
+}
+
+function sourcePolicyReceipt(status, { repository, branch, headSha, pullNumber }) {
+  if (status?.state !== "success" || status?.context !== RELEASE_POLICY_RECEIPT_CONTEXT) return null;
+  let targetUrl;
+  try {
+    targetUrl = new URL(String(status.target_url ?? ""));
+  } catch {
+    return null;
+  }
+  const runMatch = /\/actions\/runs\/(\d+)(?:[/?]|$)/.exec(targetUrl.pathname);
+  const description = String(status.description ?? "");
+  const digest = description.startsWith(RELEASE_POLICY_RECEIPT_PREFIX)
+    ? description.slice(RELEASE_POLICY_RECEIPT_PREFIX.length).toLowerCase()
+    : "";
+  if (
+    targetUrl.pathname !== `/${repository}/actions/runs/${runMatch?.[1] ?? ""}` ||
+    targetUrl.searchParams.get("phase") !== "pre-merge" ||
+    targetUrl.searchParams.get("pr") !== String(pullNumber) ||
+    targetUrl.searchParams.get("head") !== headSha ||
+    targetUrl.searchParams.get("base") !== branch ||
+    !runMatch?.[1] ||
+    !/^[a-f0-9]{64}$/.test(digest)
+  ) return null;
+  const updatedAt = Date.parse(String(status.updated_at ?? status.created_at ?? ""));
+  if (!Number.isFinite(updatedAt)) return null;
+  return { status, workflowRunId: runMatch[1], policyDigest: digest, updatedAt };
 }
 
 export async function publishReleasePolicyReceipt({
@@ -170,8 +240,13 @@ async function main() {
     throw new Error(`Release policy receipt must run from the trusted ${RELEASE_POLICY_RECEIPT_WORKFLOW_EVENT} event`);
   }
   const eventAction = String(process.env.GITHUB_EVENT_ACTION ?? "");
-  if (!["opened", "reopened", "synchronize"].includes(eventAction) || String(process.env.GITHUB_PR_MERGED ?? "") === "true") {
-    throw new Error("Release policy receipt must run only for an unmerged pull-request pre-merge event");
+  const merged = String(process.env.GITHUB_PR_MERGED ?? "") === "true";
+  if (!RELEASE_POLICY_RECEIPT_PREMERGE_ACTIONS.includes(eventAction) && !(eventAction === RELEASE_POLICY_RECEIPT_MERGE_ACTION && merged)) {
+    if (eventAction === RELEASE_POLICY_RECEIPT_MERGE_ACTION && !merged) {
+      console.log(JSON.stringify({ status: "skipped", reason: "pull-request-not-merged" }));
+      return;
+    }
+    throw new Error("Release policy receipt must run only for an unmerged pre-merge event or a merged closed event");
   }
   const branch = String(process.env.GITHUB_BASE_REF ?? "");
   const headSha = assertSha(process.env.GITHUB_HEAD_SHA);
@@ -184,10 +259,30 @@ async function main() {
   if (!process.env.GITHUB_SERVER_URL || !repository || !runId) throw new Error("Release policy receipt requires a trusted workflow run URL");
   const observedAt = new Date().toISOString();
   const targetUrl = new URL(`${process.env.GITHUB_SERVER_URL}/${repository}/actions/runs/${encodeURIComponent(runId)}`);
-  targetUrl.searchParams.set("phase", "pre-merge");
+  targetUrl.searchParams.set("phase", eventAction === RELEASE_POLICY_RECEIPT_MERGE_ACTION ? "merge-bound" : "pre-merge");
   targetUrl.searchParams.set("pr", String(pullNumber));
   targetUrl.searchParams.set("head", headSha);
   targetUrl.searchParams.set("base", branch);
+  let receipt = { pullNumber, workflowRunId: runId, eventAction, observedAt };
+  if (eventAction === RELEASE_POLICY_RECEIPT_MERGE_ACTION) {
+    const mergeCommitSha = assertSha(process.env.GITHUB_MERGE_COMMIT_SHA);
+    const mergedAt = String(process.env.GITHUB_PR_MERGED_AT ?? "");
+    const statuses = await repositoryCommitStatuses({ apiUrl, repository, sha: headSha, token });
+    const source = statuses
+      .map((status) => sourcePolicyReceipt(status, { repository, branch, headSha, pullNumber }))
+      .filter(Boolean)
+      .sort((left, right) => right.updatedAt - left.updatedAt || String(right.status.id ?? "").localeCompare(String(left.status.id ?? "")))[0];
+    if (!source) throw new Error("Merge-bound release policy receipt requires one exact pre-merge policy status");
+    targetUrl.searchParams.set("merge", mergeCommitSha);
+    targetUrl.searchParams.set("source", source.workflowRunId);
+    receipt = {
+      ...receipt,
+      mergeCommitSha,
+      mergedAt,
+      sourceWorkflowRunId: source.workflowRunId,
+      sourcePolicyDigest: source.policyDigest
+    };
+  }
   const result = await publishReleasePolicyReceipt({
     apiUrl,
     repository,
@@ -195,7 +290,7 @@ async function main() {
     headSha,
     token,
     targetUrl: targetUrl.toString(),
-    receipt: { pullNumber, workflowRunId: runId, eventAction, observedAt }
+    receipt
   });
   const artifactPath = String(process.env.RELEASE_POLICY_RECEIPT_FILE ?? "").trim();
   if (!artifactPath || !result.artifact) throw new Error("Release policy receipt requires an immutable artifact output path");

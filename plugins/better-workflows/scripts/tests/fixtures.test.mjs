@@ -145,8 +145,8 @@ test("trusted pull-request-target workflow publishes a pre-merge policy artifact
   assert.match(workflow, /test:\s*[\s\S]*?permissions:\s*\n\s+contents:\s+read\s*\n\s+pull-requests:\s+read/);
   const testJob = workflow.match(/\n  test:\n[\s\S]*?(?=\n  [a-z-]+:|$)/)?.[0] ?? "";
   assert.doesNotMatch(testJob, /statuses:\s+write/);
-  assert.match(workflow, /pull_request_target:\s*\n\s+types:\s+\[opened, reopened, synchronize\]/);
-  assert.match(workflow, /release-policy-receipt:\s*\n\s+name:\s+Release policy receipt\s*\n\s+if:\s+github\.event_name\s+==\s+'pull_request_target'[\s\S]*?github\.event\.pull_request\.merged\s+!=\s+true/);
+  assert.match(workflow, /pull_request_target:\s*\n\s+types:\s+\[opened, reopened, synchronize, closed\]/);
+  assert.match(workflow, /release-policy-receipt:\s*\n\s+name:\s+Release policy receipt\s*\n\s+if:\s+github\.event_name\s+==\s+'pull_request_target'[\s\S]*?github\.event\.action\s+==\s+'closed'[\s\S]*?github\.event\.pull_request\.merged\s+==\s+true/);
   assert.match(workflow, /release-policy-receipt:[\s\S]*?actions:\s+read\s*\n\s+statuses:\s+write/);
   assert.match(workflow, /release-policy-receipt:[\s\S]*?ref:\s+\$\{\{\s*github\.sha\s*\}\}/);
   assert.match(workflow, /release-policy-receipt:[\s\S]*?GITHUB_EVENT_NAME:\s+\$\{\{\s*github\.event_name\s*\}\}/);
@@ -154,10 +154,13 @@ test("trusted pull-request-target workflow publishes a pre-merge policy artifact
   assert.match(workflow, /release-policy-receipt:[\s\S]*?GITHUB_HEAD_SHA:\s+\$\{\{\s*github\.event\.pull_request\.head\.sha\s*\}\}/);
   assert.match(workflow, /release-policy-receipt:[\s\S]*?GITHUB_PR_NUMBER:\s+\$\{\{\s*github\.event\.pull_request\.number\s*\}\}/);
   assert.match(workflow, /release-policy-receipt:[\s\S]*?GITHUB_PR_MERGED:\s+\$\{\{\s*github\.event\.pull_request\.merged\s*\}\}/);
+  assert.match(workflow, /release-policy-receipt:[\s\S]*?GITHUB_MERGE_COMMIT_SHA:\s+\$\{\{\s*github\.event\.pull_request\.merge_commit_sha\s*\}\}/);
+  assert.match(workflow, /release-policy-receipt:[\s\S]*?GITHUB_PR_MERGED_AT:\s+\$\{\{\s*github\.event\.pull_request\.merged_at\s*\}\}/);
   assert.match(workflow, /release-policy-receipt:[\s\S]*?GITHUB_RUN_ID:\s+\$\{\{\s*github\.run_id\s*\}\}/);
   assert.match(workflow, /release-policy-receipt:[\s\S]*?RELEASE_POLICY_RECEIPT_FILE:\s+\$\{\{\s*runner\.temp\s*\}\}\/release-policy-receipt\.json/);
   assert.match(workflow, /actions\/upload-artifact@v4/);
   assert.match(workflow, /better-workflows-release-policy-receipt-\$\{\{\s*github\.run_id\s*\}\}/);
+  assert.match(workflow, /retention-days:\s+90/);
   assert.match(workflow, /release-policy-receipt:[\s\S]*?run:\s+node plugins\/better-workflows\/scripts\/release-policy-receipt\.mjs/);
 });
 

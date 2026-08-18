@@ -6,7 +6,7 @@ on:
       - '**'
   pull_request:
   pull_request_target:
-    types: [opened, reopened, synchronize]
+    types: [opened, reopened, synchronize, closed]
 
 permissions:
   contents: read
@@ -30,7 +30,7 @@ jobs:
 
   release-policy-receipt:
     name: Release policy receipt
-    if: github.event_name == 'pull_request_target' && (github.event.action == 'opened' || github.event.action == 'reopened' || github.event.action == 'synchronize') && github.event.pull_request.merged != true
+    if: github.event_name == 'pull_request_target' && (github.event.action == 'opened' || github.event.action == 'reopened' || github.event.action == 'synchronize' || (github.event.action == 'closed' && github.event.pull_request.merged == true))
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -59,6 +59,8 @@ jobs:
           GITHUB_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           GITHUB_PR_NUMBER: ${{ github.event.pull_request.number }}
           GITHUB_PR_MERGED: ${{ github.event.pull_request.merged }}
+          GITHUB_MERGE_COMMIT_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+          GITHUB_PR_MERGED_AT: ${{ github.event.pull_request.merged_at }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_SERVER_URL: ${{ github.server_url }}
           GITHUB_RUN_ID: ${{ github.run_id }}
@@ -71,7 +73,8 @@ jobs:
           name: better-workflows-release-policy-receipt-${{ github.run_id }}
           path: ${{ runner.temp }}/release-policy-receipt.json
           if-no-files-found: error
-          retention-days: 7
+          # Catch-up is bounded by 128 commits and this durable artifact horizon.
+          retention-days: 90
 
   integration-tag:
     name: Tag merged release version

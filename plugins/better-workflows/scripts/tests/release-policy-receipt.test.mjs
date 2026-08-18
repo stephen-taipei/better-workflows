@@ -88,3 +88,33 @@ test("policy receipt artifact deterministically binds its pre-merge identity and
   assert.equal(artifact.workflowFile, ".github/workflows/ci.yml");
   assert.equal(artifact.policyDigest, policyDigest(artifact.policy));
 });
+
+test("merge-bound policy receipt binds merge commit and unchanged pre-merge policy", () => {
+  const mergeCommitSha = "c".repeat(40);
+  const policy = [{ context: "test", appId: null }];
+  const artifact = buildPolicyReceiptArtifact({
+    repository: "example/repo",
+    branch: "dev",
+    headSha: "b".repeat(40),
+    pullNumber: 17,
+    policy,
+    workflowRunId: "43",
+    eventAction: "closed",
+    observedAt: "2026-08-18T00:05:00Z",
+    mergeCommitSha,
+    mergedAt: "2026-08-18T00:00:00Z",
+    sourceWorkflowRunId: "42",
+    sourcePolicyDigest: policyDigest(policy)
+  });
+  assert.equal(artifact.eventAction, "closed");
+  assert.equal(artifact.mergeCommitSha, mergeCommitSha);
+  assert.equal(artifact.sourceWorkflowRunId, "42");
+  assert.throws(
+    () => buildPolicyReceiptArtifact({
+      ...artifact,
+      policy: [{ context: "different", appId: null }],
+      sourcePolicyDigest: policyDigest(policy)
+    }),
+    /changed required-check policy/
+  );
+});
