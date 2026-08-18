@@ -153,8 +153,6 @@ function allowedCandidateMaterial(file) {
     /^docs\/details\/(?:en|zh-TW|zh-CN|ja|ko)\.md$/.test(file) ||
     /^docs\/guide\/(?:architecture|cli-reference|getting-started|readme-quality|security|workflows)\.md$/.test(file) ||
     file === "docs/assets/better-workflows-engineering-stack.svg" ||
-    /^docs\/html\/(?:index|preview)\.html$/.test(file) ||
-    /^docs\/html\/use-cases\/(?:index|preview)\.html$/.test(file) ||
     /^docs\/html\/use-cases\/assets\/[A-Za-z0-9._-]+\.md$/.test(file) ||
     /^plugins\/better-workflows\/(?:scripts\/.+\.(?:mjs|c)|skills\/.+\.md|templates\/.+\.json|fixtures\/.+\.(?:json|md|mjs)|config\/.+\.json|package\.json|\.codex-plugin\/plugin\.json)$/.test(file);
 }

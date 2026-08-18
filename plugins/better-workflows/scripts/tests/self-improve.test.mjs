@@ -1054,7 +1054,7 @@ test("sanitizer redacts ownerToken display identifiers before secret scanning", 
     assert.match(material.content.toString("utf8"), /\[redacted-owner-token\]/);
     for (const file of [
       "docs/README.zh-TW.md",
-      "docs/html/index.html"
+      "docs/details/en.md"
     ]) {
       await mkdir(path.dirname(path.join(cwd, file)), { recursive: true });
       await writeFile(path.join(cwd, file), `\"ownerToken\": \"ghp_${"A".repeat(24)}\"\n`);
@@ -1640,14 +1640,16 @@ test("candidate sanitizer admits declared public docs and checks all paths befor
   }
 });
 
-test("candidate sanitizer rejects unvalidated generated binary surfaces", async () => {
+test("candidate sanitizer rejects generated HTML while preserving approved Markdown assets", async () => {
   const cwd = await mkdtemp(path.join(os.tmpdir(), "sbw-public-generated-surfaces-"));
   try {
-    const textFiles = [
+    const deniedHtmlFiles = [
       "docs/html/index.html",
       "docs/html/preview.html",
       "docs/html/use-cases/index.html",
-      "docs/html/use-cases/preview.html",
+      "docs/html/use-cases/preview.html"
+    ];
+    const textFiles = [
       "docs/html/use-cases/assets/color-system.md",
       "docs/html/use-cases/assets/imagegen-manifest.md"
     ];
@@ -1655,9 +1657,17 @@ test("candidate sanitizer rejects unvalidated generated binary surfaces", async 
       "docs/html/assets/control-plane.webp",
       "docs/html/use-cases/assets/hero.webp"
     ];
-    for (const file of textFiles) {
+    for (const file of [...deniedHtmlFiles, ...textFiles]) {
       await mkdir(path.dirname(path.join(cwd, file)), { recursive: true });
-      await writeFile(path.join(cwd, file), `public generated material for ${file}\n`);
+      await writeFile(path.join(cwd, file), deniedHtmlFiles.includes(file)
+        ? `<script>alert(1)</script><div onclick="send()"><iframe src="https://example.invalid"></iframe></div>\n`
+        : `public generated material for ${file}\n`);
+    }
+    for (const file of deniedHtmlFiles) {
+      await assert.rejects(
+        readSanitizedCandidateMaterial({ cwd, snapshot: { files: [await snapshotFile(cwd, file)] }, maxFiles: 1 }),
+        /outside the sanitized allowlist/
+      );
     }
     const textSnapshots = await Promise.all(textFiles.map((file) => snapshotFile(cwd, file)));
     const material = await readSanitizedCandidateMaterial({ cwd, snapshot: { files: textSnapshots }, maxFiles: textSnapshots.length });

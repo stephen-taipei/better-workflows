@@ -1037,9 +1037,10 @@ test("rebase-style merged PR keeps an earlier version bump eligible at final HEA
     await git(work, ["commit", "-qm", "rebase final commit"]);
     const head = await git(work, ["rev-parse", "HEAD"]);
     await git(work, ["push", "-q", "origin", "dev"]);
+    const unavailableSourceSha = "f".repeat(40);
     let followUp;
     const fetchImpl = async (url) => {
-      const workflowResponse = pullRequestWorkflowResponse(url, [{ sha: head, pullNumber: 33 }]);
+      const workflowResponse = pullRequestWorkflowResponse(url, [{ sha: head, pullHeadSha: unavailableSourceSha, pullNumber: 33 }]);
       if (workflowResponse) return workflowResponse;
       const policyWorkflow = policyWorkflowResponse(url);
       if (policyWorkflow) return policyWorkflow;
@@ -1047,7 +1048,7 @@ test("rebase-style merged PR keeps an earlier version bump eligible at final HEA
         return jsonResponse([{ number: 34, base: { ref: "dev", sha: head }, head: { sha: followUp }, merged_at: "2026-08-19T00:00:00Z", merge_commit_sha: followUp }]);
       }
       if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
-        return jsonResponse([{ number: 33, base: { ref: "dev", sha: eventBefore }, head: { sha: head }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: head }]);
+        return jsonResponse([{ number: 33, base: { ref: "dev", sha: eventBefore }, head: { sha: unavailableSourceSha }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: head }]);
       }
       if (url.includes("/commits/") && url.endsWith("/pulls?per_page=100")) return jsonResponse([]);
       if (url.endsWith("/branches/dev")) {
@@ -1061,6 +1062,9 @@ test("rebase-style merged PR keeps an earlier version bump eligible at final HEA
       }
       if (url.includes(`/actions/runs?head_sha=${head}&event=push&branch=dev&per_page=100&page=1`)) {
         return jsonResponse({ workflow_runs: [{ id: 33, path: ".github/workflows/ci.yml", head_sha: head, head_branch: "dev", event: "push", status: "completed", conclusion: "success", created_at: "2026-08-18T00:01:00Z", completed_at: "2026-08-18T00:06:00Z" }] });
+      }
+      if (url.includes(`/commits/${unavailableSourceSha}/statuses?per_page=100&page=1`)) {
+        return jsonResponse([policyReceiptStatus("lint", "2026-08-20T00:50:00Z", null, { pullNumber: 33, headSha: unavailableSourceSha, mergeSha: head, mergedAt: "2026-08-18T00:00:00Z" })]);
       }
       if (url.includes(`/commits/${head}/statuses?per_page=100&page=1`)) return jsonResponse([policyReceiptStatus("lint", "2026-08-20T00:50:00Z", null, { pullNumber: 33, headSha: head, mergeSha: head, mergedAt: "2026-08-18T00:00:00Z" })]);
       throw new Error(`Unexpected rebase release-tag fetch URL: ${url}`);

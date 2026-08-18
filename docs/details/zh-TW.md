@@ -300,10 +300,10 @@ node plugins/better-workflows/scripts/sbw.mjs \
 都符合固定的 plugin 或 repository 公開文件 allowlist。即使不合格路徑排序
 在取樣範圍之外，replay 仍會直接拒絕；只有實際取樣、有效 UTF-8 且不含
 secret-shaped 內容的資料才會傳給 Codex。
-CI workflow 檔案不屬於 standing-consent sanitizer，變更時必須經過明確的
-review/validation。生成的 HTML/Markdown 頁面仍會明確 allowlist；生成的 `.webp`
-asset 不納入 standing-consent 評估，也必須經過明確驗證。完整 changed-path
-manifest 仍會把這些檔案綁定到 signed request。
+CI workflow 檔案與生成的 HTML 都不屬於 standing-consent sanitizer，變更時必須
+經過明確的 review/validation；核准的生成 Markdown asset 則依設定保留
+allowlist。生成的 `.webp` asset 不納入 standing-consent 評估，也必須經過明確
+驗證。完整 changed-path manifest 仍會把這些檔案綁定到 signed request。
 
 ### 受治理的 workspace recipes
 

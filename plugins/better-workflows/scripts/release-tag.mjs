@@ -522,18 +522,52 @@ async function revisionIsAncestor(cwd, ancestor, descendant) {
   }
 }
 
+async function revisionExists(cwd, revision) {
+  try {
+    await git(cwd, ["cat-file", "-e", `${revision}^{commit}`]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function authenticatedPullVersionTransition(cwd, pull, currentVersion) {
   const baseSha = String(pull?.base?.sha ?? "").trim().toLowerCase();
   const sourceSha = String(pull?.head?.sha ?? "").trim().toLowerCase();
   if (!/^[0-9a-f]{40}$/.test(baseSha) || !/^[0-9a-f]{40}$/.test(sourceSha)) return null;
-  if (!(await revisionIsAncestor(cwd, baseSha, sourceSha))) return null;
-  const [baseVersion, sourceVersion] = await Promise.all([
+  if (!(await revisionExists(cwd, baseSha))) return null;
+  const sourceAvailable = await revisionExists(cwd, sourceSha);
+  if (sourceAvailable) {
+    if (!(await revisionIsAncestor(cwd, baseSha, sourceSha))) return null;
+    const [baseVersion, sourceVersion] = await Promise.all([
+      versionAtCommit(cwd, baseSha),
+      versionAtCommit(cwd, sourceSha)
+    ]);
+    if (!baseVersion || !sourceVersion || compareStableVersions(sourceVersion, baseVersion) <= 0) return null;
+    if (compareStableVersions(sourceVersion, currentVersion) !== 0) return null;
+    return { baseSha, sourceSha, baseVersion, version: sourceVersion };
+  }
+
+  // Fork, deleted-branch, squash, and rebase merges can leave the PR head
+  // unreachable in the base checkout. Bind the range to the exact merge
+  // result already selected by the candidate walk instead of requiring that
+  // untrusted source object to exist locally.
+  const mergeSha = String(pull?.merge_commit_sha ?? "").trim().toLowerCase();
+  if (!/^[0-9a-f]{40}$/.test(mergeSha) || !(await revisionExists(cwd, mergeSha))) return null;
+  if (!(await revisionIsAncestor(cwd, baseSha, mergeSha))) return null;
+  const [baseVersion, mergeVersion] = await Promise.all([
     versionAtCommit(cwd, baseSha),
-    versionAtCommit(cwd, sourceSha)
+    versionAtCommit(cwd, mergeSha)
   ]);
-  if (!baseVersion || !sourceVersion || compareStableVersions(sourceVersion, baseVersion) <= 0) return null;
-  if (compareStableVersions(sourceVersion, currentVersion) !== 0) return null;
-  return { baseSha, sourceSha, baseVersion, version: sourceVersion };
+  if (!baseVersion || !mergeVersion || compareStableVersions(mergeVersion, baseVersion) <= 0) return null;
+  if (compareStableVersions(mergeVersion, currentVersion) !== 0) return null;
+  return {
+    baseSha,
+    sourceSha: mergeSha,
+    baseVersion,
+    version: mergeVersion,
+    sourceUnavailable: true
+  };
 }
 
 async function findEligibleVersionBumps({ cwd, branch, head, currentVersion, highestPublished, eventVersionChanged, eventParentVersion, headPull, apiUrl, repository, token, fetchImpl }) {
