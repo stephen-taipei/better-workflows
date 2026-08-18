@@ -206,3 +206,34 @@ test("closed receipt polling waits for the exact pre-merge status within a bound
   assert.deepEqual(sleeps, [5_000]);
   assert.equal(queries, 2);
 });
+
+test("closed receipt polling ignores a newer pre-merge status published after merge", async () => {
+  const headSha = "f".repeat(40);
+  const status = (id, updatedAt, workflowRunId) => ({
+    id,
+    state: "success",
+    context: RELEASE_POLICY_RECEIPT_CONTEXT,
+    target_url: `https://github.com/example/repo/actions/runs/${workflowRunId}?phase=pre-merge&pr=17&head=${headSha}&base=dev`,
+    description: `${RELEASE_POLICY_RECEIPT_PREFIX}${id === 42 ? "a".repeat(64) : "b".repeat(64)}`,
+    updated_at: updatedAt
+  });
+  const source = await waitForSourcePolicyReceipt({
+    apiUrl: "https://api.github.com",
+    repository: "example/repo",
+    branch: "dev",
+    headSha,
+    pullNumber: 17,
+    mergedAt: "2026-08-18T00:00:00Z",
+    token: "token",
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      json: async () => [
+        status(42, "2026-08-17T23:59:59Z", 42),
+        status(43, "2026-08-18T00:00:02Z", 43)
+      ]
+    })
+  });
+  assert.equal(source.workflowRunId, "42");
+  assert.equal(source.policyDigest, "a".repeat(64));
+});

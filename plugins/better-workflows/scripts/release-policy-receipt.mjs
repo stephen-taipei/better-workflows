@@ -164,7 +164,7 @@ async function repositoryCommitStatuses({ apiUrl, repository, sha, token, fetchI
   throw new Error("Release policy receipt status query exceeded its bounded page limit");
 }
 
-function sourcePolicyReceipt(status, { repository, branch, headSha, pullNumber }) {
+function sourcePolicyReceipt(status, { repository, branch, headSha, pullNumber, mergedAtMs = null }) {
   if (status?.state !== "success" || status?.context !== RELEASE_POLICY_RECEIPT_CONTEXT) return null;
   let targetUrl;
   try {
@@ -187,7 +187,7 @@ function sourcePolicyReceipt(status, { repository, branch, headSha, pullNumber }
     !/^[a-f0-9]{64}$/.test(digest)
   ) return null;
   const updatedAt = Date.parse(String(status.updated_at ?? status.created_at ?? ""));
-  if (!Number.isFinite(updatedAt)) return null;
+  if (!Number.isFinite(updatedAt) || (mergedAtMs !== null && updatedAt > mergedAtMs)) return null;
   return { status, workflowRunId: runMatch[1], policyDigest: digest, updatedAt };
 }
 
@@ -205,15 +205,20 @@ export async function waitForSourcePolicyReceipt({
   fetchImpl = fetch,
   sleepImpl = waitForReceiptSource,
   attempts = RELEASE_POLICY_RECEIPT_SOURCE_POLL_ATTEMPTS,
-  delayMs = RELEASE_POLICY_RECEIPT_SOURCE_POLL_DELAY_MS
+  delayMs = RELEASE_POLICY_RECEIPT_SOURCE_POLL_DELAY_MS,
+  mergedAt = null
 }) {
   if (!Number.isInteger(attempts) || attempts <= 0) {
     throw new Error("Release policy receipt source polling requires a positive bounded attempt count");
   }
+  const mergedAtMs = mergedAt === null ? null : Date.parse(String(mergedAt));
+  if (mergedAt !== null && !Number.isFinite(mergedAtMs)) {
+    throw new Error("Release policy receipt source polling requires a valid merge timestamp");
+  }
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const statuses = await repositoryCommitStatuses({ apiUrl, repository, sha: headSha, token, fetchImpl });
     const source = statuses
-      .map((status) => sourcePolicyReceipt(status, { repository, branch, headSha, pullNumber }))
+      .map((status) => sourcePolicyReceipt(status, { repository, branch, headSha, pullNumber, mergedAtMs }))
       .filter(Boolean)
       .sort((left, right) => right.updatedAt - left.updatedAt || String(right.status.id ?? "").localeCompare(String(left.status.id ?? "")))[0];
     if (source) return source;
@@ -350,6 +355,7 @@ async function main() {
       branch,
       headSha,
       pullNumber,
+      mergedAt,
       token
     });
     if (!source) throw new Error("Merge-bound release policy receipt requires one exact pre-merge policy status");
