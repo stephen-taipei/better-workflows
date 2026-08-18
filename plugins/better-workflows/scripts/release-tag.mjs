@@ -530,15 +530,15 @@ async function findEligibleVersionBumps({ cwd, branch, head, currentVersion, hig
     pullCache.set(sha, pull);
     return pull;
   };
-  const publisherAvailableForPull = async (pull) => {
-    const baseSha = String(pull?.base?.sha ?? "").trim().toLowerCase();
-    // GitHub PR responses normally include base.sha. Preserve the existing
-    // synthetic-repository behavior when that optional field is unavailable.
-    if (!/^[0-9a-f]{40}$/.test(baseSha)) return true;
-    if (!publisherAvailabilityCache.has(baseSha)) {
-      publisherAvailabilityCache.set(baseSha, releasePolicyPublisherAvailable(cwd, baseSha));
+  const publisherAvailableAtRevision = async (revision) => {
+    const boundary = String(revision ?? "").trim().toLowerCase();
+    // Synthetic repositories may omit an event parent; retain their existing
+    // behavior while real GitHub candidates use an immutable Git boundary.
+    if (!/^[0-9a-f]{40}$/.test(boundary)) return true;
+    if (!publisherAvailabilityCache.has(boundary)) {
+      publisherAvailabilityCache.set(boundary, releasePolicyPublisherAvailable(cwd, boundary));
     }
-    return publisherAvailabilityCache.get(baseSha);
+    return publisherAvailabilityCache.get(boundary);
   };
   for (const [order, candidate] of revisions.entries()) {
     let parent;
@@ -569,7 +569,7 @@ async function findEligibleVersionBumps({ cwd, branch, head, currentVersion, hig
     // base can never acquire the required immutable pre-merge receipt. Treat
     // that bootstrap boundary as a durable historical exclusion so it cannot
     // strand later eligible candidates in catch-up verification.
-    if (!(await publisherAvailableForPull(pull))) continue;
+    if (!(await publisherAvailableAtRevision(parent))) continue;
     const tag = releaseTagName({ branch, version: candidateVersion, sha: releaseSha });
     const existingCommit = await remoteTag(cwd, tag);
     if (existingCommit && existingCommit !== releaseSha) {
@@ -723,14 +723,21 @@ async function verifyPolicyReceipt({ record, policyDigest, apiUrl, repository, b
     String(workflowRun?.id ?? "") !== runId ||
     workflowRun?.path !== RELEASE_WORKFLOW_FILE ||
     workflowRun?.event !== RELEASE_POLICY_RECEIPT_WORKFLOW_EVENT ||
-    workflowRun?.status !== "completed" ||
-    workflowRun?.conclusion !== "success" ||
     workflowRun?.repository?.full_name !== repository ||
     (workflowRun?.head_branch !== undefined && workflowRun.head_branch !== branch) ||
     !Array.isArray(workflowRun?.pull_requests) ||
     !workflowRun.pull_requests.some((pull) => Number(pull?.number) === pullNumber)
   ) {
     throw new Error(`Release catch-up candidate ${candidateSha} has untrusted merge-time policy workflow provenance`);
+  }
+  const workflowStatus = String(workflowRun?.status ?? "");
+  const workflowConclusion = String(workflowRun?.conclusion ?? "");
+  if (workflowStatus !== "completed") {
+    if (["queued", "in_progress", "requested", "waiting", "pending"].includes(workflowStatus)) return null;
+    throw new Error(`Release catch-up candidate ${candidateSha} has malformed merge-time policy workflow status`);
+  }
+  if (workflowConclusion !== "success") {
+    throw new Error(`Release catch-up candidate ${candidateSha} has an unsuccessful merge-time policy workflow`);
   }
   const workflowAt = observationTime(workflowRun);
   if (!Number.isFinite(workflowAt) || (phase === "pre-merge" ? workflowAt > mergeTimeMs : workflowAt < mergeTimeMs)) {
@@ -1200,7 +1207,10 @@ export async function runReleaseTag({
   if (!headPull) {
     return { status: "skipped", reason: "commit-is-not-an-exact-merged-pr-result", branch, sha };
   }
-  if (!(await releasePolicyPublisherAvailable(cwd, headPull.base?.sha))) {
+  // Bind the bootstrap gate to the validated push-event parent whenever one
+  // exists; the live PR base ref may have advanced since the merge.
+  const publisherBoundary = targetParent ?? headPull.base?.sha;
+  if (!(await releasePolicyPublisherAvailable(cwd, publisherBoundary))) {
     return {
       status: "skipped",
       reason: "release-policy-receipt-bootstrap-pending",

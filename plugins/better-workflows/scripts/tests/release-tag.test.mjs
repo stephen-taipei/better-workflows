@@ -31,6 +31,7 @@ let latestPolicyReceiptMetadata = {
   mergedAt: "2026-08-15T00:00:00Z"
 };
 let policyArtifactUnavailableResponses = 0;
+let policyWorkflowInProgressResponses = 0;
 
 function zipStoredJson(filename, value) {
   const name = Buffer.from(filename);
@@ -213,17 +214,19 @@ function policyWorkflowResponse(url) {
   if (!source && !url.endsWith("/repos/example/repo/actions/runs/8")) return null;
   const mergedMs = Date.parse(latestPolicyReceiptMetadata.mergedAt);
   const closedAt = Number.isFinite(mergedMs) ? new Date(mergedMs + 5 * 60 * 1000).toISOString() : "2026-08-15T00:05:00Z";
-  return jsonResponse({
+  const workflow = {
     id: source ? 7 : 8,
     path: ".github/workflows/ci.yml",
     event: "pull_request_target",
-    status: "completed",
-    conclusion: "success",
+    status: source || policyWorkflowInProgressResponses === 0 ? "completed" : "in_progress",
+    conclusion: source || policyWorkflowInProgressResponses === 0 ? "success" : null,
     created_at: source ? "2026-08-14T23:30:00Z" : new Date(mergedMs + 60 * 1000).toISOString(),
     completed_at: source ? "2026-08-14T23:45:00Z" : closedAt,
     repository: { full_name: "example/repo" },
     pull_requests: Array.from({ length: 200 }, (_, index) => ({ number: index + 1 }))
-  });
+  };
+  if (!source && policyWorkflowInProgressResponses > 0) policyWorkflowInProgressResponses -= 1;
+  return jsonResponse(workflow);
 }
 
 function pullRequestWorkflowResponse(url, entries) {
@@ -511,6 +514,7 @@ test("merge-time policy receipt binds the pre-merge head separately from the mer
     await git(work, ["push", "-q", "origin", "dev"]);
     const mergeSha = await git(work, ["rev-parse", "HEAD"]);
     policyArtifactUnavailableResponses = 1;
+    policyWorkflowInProgressResponses = 1;
     const fetchImpl = async (url) => {
       if (url.endsWith(`/repos/example/repo/commits/${mergeSha}/pulls?per_page=100`)) {
         return jsonResponse([{
@@ -561,6 +565,7 @@ test("merge-time policy receipt binds the pre-merge head separately from the mer
     assert.equal(policyArtifactUnavailableResponses, 0);
   } finally {
     policyArtifactUnavailableResponses = 0;
+    policyWorkflowInProgressResponses = 0;
     await rm(root, { recursive: true, force: true });
   }
 });
@@ -671,7 +676,9 @@ test("bootstrap-skipped version bumps do not block a later publisher-backed catc
         return jsonResponse([{ number: 20, base: { ref: "dev", sha: publisherBase }, head: { sha: head }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: head }]);
       }
       if (url.endsWith(`/repos/example/repo/commits/${bootstrapBump}/pulls?per_page=100`)) {
-        return jsonResponse([{ number: 18, base: { ref: "dev", sha: base }, head: { sha: bootstrapBump }, merged_at: "2026-08-17T00:00:00Z", merge_commit_sha: bootstrapBump }]);
+        // The live PR base has advanced, but the immutable first parent still
+        // predates the publisher and must keep this bootstrap bump excluded.
+        return jsonResponse([{ number: 18, base: { ref: "dev", sha: publisherBase }, head: { sha: bootstrapBump }, merged_at: "2026-08-17T00:00:00Z", merge_commit_sha: bootstrapBump }]);
       }
       if (url.includes(`/commits/${head}/statuses?per_page=100&page=1`)) {
         return jsonResponse([
