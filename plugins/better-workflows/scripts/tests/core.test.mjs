@@ -2590,6 +2590,9 @@ elif [ "$1" = "api" ] && [ "$2" = "--paginate" ]; then
   cat ${JSON.stringify(listPath)}
   printf '%s\n' '}]'
 elif [ "$1" = "run" ] && [ "$2" = "view" ]; then
+  case "$*" in
+    *startedAt*) printf '%s\n' 'startedAt is not a supported gh run view field' >&2; exit 43;;
+  esac
   cat ${JSON.stringify(viewPath)}
 else
   exit 9

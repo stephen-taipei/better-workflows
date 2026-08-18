@@ -7071,7 +7071,7 @@ function githubPreflightInvocation(runId, action, error) {
 const WORKFLOW_DISPATCH_OBSERVATION_TIMEOUT_MS = 45 * 60 * 1000;
 const WORKFLOW_DISPATCH_POLL_INTERVAL_MS = 10 * 1000;
 const WORKFLOW_DISPATCH_PREFLIGHT_LEASE_MS = 5 * 60 * 1000;
-const WORKFLOW_RUN_JSON_FIELDS = "databaseId,workflowName,displayTitle,status,conclusion,headSha,headBranch,createdAt,startedAt,url";
+const WORKFLOW_RUN_JSON_FIELDS = "databaseId,workflowName,displayTitle,status,conclusion,headSha,headBranch,createdAt,url";
 
 function normalizeWorkflowRun(run) {
   return {

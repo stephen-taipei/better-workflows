@@ -23,7 +23,7 @@ const RELEASE_WORKFLOW_TEST_CONTEXT = "test";
 const RELEASE_WORKFLOW_TEST_APP_SLUG = "github-actions";
 const RELEASE_WORKFLOW_FILE = ".github/workflows/ci.yml";
 const CATCH_UP_HISTORY_LIMIT = 128;
-const REQUIRED_CHECK_POLL_ATTEMPTS = 6;
+const REQUIRED_CHECK_POLL_ATTEMPTS = 31;
 const REQUIRED_CHECK_POLL_DELAY_MS = 10_000;
 
 async function git(cwd, args) {

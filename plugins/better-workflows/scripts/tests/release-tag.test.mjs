@@ -746,7 +746,7 @@ test("catch-up publication requires the exact workflow test check on the release
         return jsonResponse({ protected: true, protection: { required_status_checks: { contexts: ["lint"], checks: [] } } });
       }
       if (url.includes(`/commits/${bump}/check-runs?per_page=100&page=1`)) {
-        const requiredReady = !delayedRequiredCheck || requiredPolls++ >= 2;
+        const requiredReady = !delayedRequiredCheck || requiredPolls++ >= 10;
         const checkRuns = requiredReady
           ? [{ id: 1, name: "lint", head_sha: bump, status: "completed", conclusion: "success" }]
           : [];
@@ -770,12 +770,12 @@ test("catch-up publication requires the exact workflow test check on the release
       RELEASE_TAG_DRY_RUN: "1"
     };
     await assert.rejects(
-      runReleaseTag({ cwd: work, fetchImpl, env }),
+      runReleaseTag({ cwd: work, fetchImpl, env, sleepImpl: async () => {} }),
       /lacks an exact successful test workflow check/
     );
     includeWorkflowTest = true;
     await assert.rejects(
-      runReleaseTag({ cwd: work, fetchImpl, env }),
+      runReleaseTag({ cwd: work, fetchImpl, env, sleepImpl: async () => {} }),
       /lacks an exact successful test workflow check/
     );
     workflowTestSlug = "github-actions";
@@ -791,7 +791,7 @@ test("catch-up publication requires the exact workflow test check on the release
     assert.equal(result.status, "planned");
     assert.equal(result.sha, bump);
     assert.equal(result.pullNumber, 21);
-    assert.equal(sleepCalls, 2);
+    assert.equal(sleepCalls, 10);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
