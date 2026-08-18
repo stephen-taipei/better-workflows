@@ -294,10 +294,10 @@ path가 고정된 plugin 및 repository 공개 문서 allowlist와 일치하는�
 검증합니다. 대상 밖 path는 sampling 범위 뒤에 정렬되더라도 replay를
 거부하며, Codex에는 sampling된 유효 UTF-8이고 secret-shaped가 아닌
 내용만 전송합니다.
-공개 CI workflow와 생성된 HTML/Markdown은 changed surface에 포함될 때
-명시적으로 allowlist됩니다. 생성된 `.webp` asset은 standing-consent 평가에서
-제외되며 포함하기 전에 명시적인 review/validation이 필요합니다. 전체 changed-path
-manifest는 계속 authoritative Git bytes에 바인딩합니다.
+CI workflow는 standing-consent sanitizer 대상에서 제외되며 변경 시 명시적인
+review/validation이 필요합니다. 생성된 HTML/Markdown은 계속 명시적으로
+allowlist되고, 생성된 `.webp` asset은 standing-consent 평가에서 제외됩니다.
+전체 changed-path manifest는 계속 authoritative Git bytes에 바인딩합니다.
 
 ### Governed workspace recipes
 

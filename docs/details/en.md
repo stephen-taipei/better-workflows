@@ -555,10 +555,11 @@ Before file-count or byte sampling, every changed path must match the fixed
 plugin or repository-public-document allowlist. An out-of-scope path rejects
 the replay even if it would sort beyond the sampling limit; only sampled valid
 UTF-8, non-secret-shaped content is sent to Codex.
-Public CI workflows and generated HTML/Markdown pages are explicit allowlist
-entries when they are changed. Generated `.webp` assets are excluded from
+CI workflow files remain outside the standing-consent sanitizer and require
+explicit review/validation when changed. Generated HTML/Markdown pages remain
+explicit allowlist entries; generated `.webp` assets are excluded from
 standing-consent evaluation and require explicit review/validation before
-inclusion; the complete changed-path manifest still binds them to the request.
+inclusion. The complete changed-path manifest still binds them to the request.
 
 ### Governed workspace recipes
 

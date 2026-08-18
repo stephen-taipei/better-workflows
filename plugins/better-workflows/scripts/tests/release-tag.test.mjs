@@ -37,7 +37,7 @@ function jsonResponse(value, ok = true, status = 200, headers = {}) {
   };
 }
 
-function successfulRequiredCheckResponse(url, sha, context = "test") {
+function successfulRequiredCheckResponse(url, sha, context = "test", pullNumber = 7) {
   if (url.endsWith("/branches/dev")) {
     return jsonResponse({ protected: true, protection: { required_status_checks: { contexts: [context], checks: [] } } });
   }
@@ -62,15 +62,19 @@ function successfulRequiredCheckResponse(url, sha, context = "test") {
     return jsonResponse({ check_runs: [{ id: 7, name: context, head_sha: sha, status: "completed", conclusion: "success", completed_at: "2026-08-14T23:55:00Z" }] });
   }
   if (url.includes(`/commits/${sha}/statuses?per_page=100&page=1`)) {
-    return jsonResponse([{ id: 7, context, state: "success" }, policyReceiptStatus(context)]);
+    return jsonResponse([{ id: 7, context, state: "success" }, policyReceiptStatus(context, "2026-08-20T00:50:00Z", null, { pullNumber, headSha: sha, mergeSha: sha })]);
   }
   return null;
 }
 
-function policyReceiptStatus(context, updatedAt = "2026-08-14T23:50:00Z", appId = null) {
+function policyReceiptStatus(context, updatedAt = "2026-08-20T00:50:00Z", appId = null, metadata = {}) {
   const policyDigest = createHash("sha256")
     .update(JSON.stringify([{ context, appId }]))
     .digest("hex");
+  const pullNumber = Number(metadata.pullNumber ?? 11);
+  const headSha = String(metadata.headSha ?? SHA);
+  const mergeSha = String(metadata.mergeSha ?? headSha);
+  const base = String(metadata.base ?? "dev");
   return {
     id: 8,
     context: "better-workflows/release-policy-v1",
@@ -78,7 +82,7 @@ function policyReceiptStatus(context, updatedAt = "2026-08-14T23:50:00Z", appId 
     description: `better-workflows-policy-v1:${policyDigest}`,
     updated_at: updatedAt,
     creator: { login: "github-actions[bot]", type: "Bot" },
-    target_url: "https://github.com/example/repo/actions/runs/8"
+    target_url: `https://github.com/example/repo/actions/runs/8?pr=${pullNumber}&head=${headSha}&base=${base}&merge=${mergeSha}`
   };
 }
 
@@ -90,8 +94,8 @@ function policyWorkflowResponse(url) {
     event: "pull_request_target",
     status: "completed",
     conclusion: "success",
-    created_at: "2026-08-14T23:30:00Z",
-    completed_at: "2026-08-14T23:45:00Z",
+    created_at: "2026-08-20T00:30:00Z",
+    completed_at: "2026-08-20T00:45:00Z",
     repository: { full_name: "example/repo" },
     pull_requests: Array.from({ length: 200 }, (_, index) => ({ number: index + 1 }))
   });
@@ -213,7 +217,7 @@ test("release tag fails closed when the atomic branch CAS observes a concurrent 
       if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
         return jsonResponse([{ number: 7, base: { ref: "dev" }, head: { sha: head }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: head }]);
       }
-      const checkResponse = successfulRequiredCheckResponse(url, head);
+      const checkResponse = successfulRequiredCheckResponse(url, head, "test", 7);
       if (checkResponse) return checkResponse;
       if (url.endsWith("/graphql")) {
         const body = JSON.parse(options.body);
@@ -291,7 +295,7 @@ exec /usr/bin/git "$@"
       if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
         return jsonResponse([{ number: 8, base: { ref: "dev" }, head: { sha: head }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: head }]);
       }
-      const checkResponse = successfulRequiredCheckResponse(url, head);
+      const checkResponse = successfulRequiredCheckResponse(url, head, "test", 8);
       if (checkResponse) return checkResponse;
       throw new Error(`Unexpected release-tag fetch URL: ${url}`);
     };
@@ -404,7 +408,7 @@ test("release eligibility uses the validated push-event parent across multi-comm
       if (checkSha === intermediate && url.includes(`/commits/${intermediate}/check-runs?per_page=100&page=1`)) {
         return jsonResponse({ check_runs: [{ id: 7, name: requiredContext, head_sha: intermediate, status: "completed", conclusion: checkConclusion, completed_at: "2026-08-14T23:55:00Z", details_url: `https://github.com/example/repo/actions/runs/7/job/70`, app: { slug: "github-actions" } }] });
       }
-      const checkResponse = successfulRequiredCheckResponse(url, checkSha, requiredContext);
+      const checkResponse = successfulRequiredCheckResponse(url, checkSha, requiredContext, checkSha === intermediate ? 10 : 9);
       if (checkResponse) {
         if (url.includes(`/commits/${checkSha}/check-runs?per_page=100&page=1`)) {
           return jsonResponse({ check_runs: [{ id: 7, name: requiredContext, head_sha: checkSha, status: "completed", conclusion: checkConclusion, completed_at: "2026-08-14T23:55:00Z" }] });
@@ -531,7 +535,7 @@ test("catch-up release workflow must belong to the target branch", async () => {
         return jsonResponse({ workflow_runs: [{ id: 71, path: ".github/workflows/ci.yml", head_sha: bump, head_branch: "feature/release-test", event: "push", status: "completed", conclusion: "success" }] });
       }
       if (url.includes(`/repos/example/repo/commits/${bump}/statuses?per_page=100&page=1`)) {
-        return jsonResponse([policyReceiptStatus("test", "2026-08-14T23:50:00Z")]);
+        return jsonResponse([policyReceiptStatus("test", "2026-08-20T00:50:00Z", null, { pullNumber: 71, headSha: bump, mergeSha: bump })]);
       }
       throw new Error(`Unexpected workflow-branch fetch URL: ${url}`);
     };
@@ -670,7 +674,7 @@ test("rebase-style merged PR keeps an earlier version bump eligible at final HEA
       if (url.includes(`/actions/runs?head_sha=${head}&event=push&branch=dev&per_page=100&page=1`)) {
         return jsonResponse({ workflow_runs: [{ id: 33, path: ".github/workflows/ci.yml", head_sha: head, head_branch: "dev", event: "push", status: "completed", conclusion: "success" }] });
       }
-      if (url.includes(`/commits/${head}/statuses?per_page=100&page=1`)) return jsonResponse([policyReceiptStatus("lint", "2026-08-17T23:50:00Z")]);
+      if (url.includes(`/commits/${head}/statuses?per_page=100&page=1`)) return jsonResponse([policyReceiptStatus("lint", "2026-08-20T00:50:00Z", null, { pullNumber: 33, headSha: head, mergeSha: head })]);
       throw new Error(`Unexpected rebase release-tag fetch URL: ${url}`);
     };
     const result = await runReleaseTag({
@@ -998,7 +1002,7 @@ test("release eligibility catches up a version bump after a later non-version pu
         return jsonResponse(
           [
             { id: 7, context: "test", state: statusState },
-            policyReceiptStatus("test", "2026-08-14T23:50:00Z", requiredAppId)
+            policyReceiptStatus("test", "2026-08-20T00:50:00Z", requiredAppId, { pullNumber: 11, headSha: bump, mergeSha: bump })
           ],
           true,
           200,
@@ -1079,8 +1083,8 @@ test("release eligibility catches up a version bump after a later non-version pu
         description: "better-workflows-policy-v1:e15de564cdc76464ee41d0c60ff1709f9eeb37e75c9a4d7b219026fcf6bd8635",
         publisher: "github-actions[bot]",
         workflowRunId: "8",
-        recordedAt: "2026-08-14T23:50:00.000Z",
-        workflowRecordedAt: "2026-08-14T23:45:00.000Z"
+        recordedAt: "2026-08-20T00:50:00.000Z",
+        workflowRecordedAt: "2026-08-20T00:45:00.000Z"
       },
       preMergeWorkflow: {
         runId: "911",
@@ -1141,7 +1145,7 @@ test("release eligibility catches up a version bump after a later non-version pu
       if (url.includes(`/repos/example/repo/commits/${bump}/statuses?per_page=100&page=1`)) {
         return jsonResponse([
           { id: 7, context: "test", state: "failure" },
-          policyReceiptStatus("test", "2026-08-14T23:50:00Z", 123)
+          policyReceiptStatus("test", "2026-08-20T00:50:00Z", 123, { pullNumber: 11, headSha: bump, mergeSha: bump })
         ]);
       }
       throw new Error(`Unexpected unchanged release-tag fetch URL: ${url}`);
@@ -1302,7 +1306,7 @@ test("consecutive version bumps are recovered in one atomic batch", async () => 
           return jsonResponse({ check_runs: checkRuns });
         }
         if (url.includes(`/commits/${sha}/statuses?per_page=100&page=1`)) {
-          return jsonResponse([policyReceiptStatus("lint", "2026-08-17T23:50:00Z")]);
+          return jsonResponse([policyReceiptStatus("lint", "2026-08-20T00:50:00Z", null, { pullNumber: sha === bump13 ? 13 : 14, headSha: sha, mergeSha: sha })]);
         }
       }
       if (url.includes(`/actions/runs?head_sha=${bump13}&event=push&branch=dev&per_page=100&page=1`)) {
@@ -1446,7 +1450,7 @@ test("an exact HEAD version bump remains eligible past the catch-up history boun
       if (url.includes(`/commits/${head}/check-runs?per_page=100&page=1`)) {
         return jsonResponse({ check_runs: [{ id: 32, name: "lint", head_sha: head, status: "completed", conclusion: "success", completed_at: "2026-08-17T23:55:00Z" }] });
       }
-      if (url.includes(`/commits/${head}/statuses?per_page=100&page=1`)) return jsonResponse([policyReceiptStatus("lint", "2026-08-17T23:50:00Z")]);
+      if (url.includes(`/commits/${head}/statuses?per_page=100&page=1`)) return jsonResponse([policyReceiptStatus("lint", "2026-08-20T00:50:00Z", null, { pullNumber: 32, headSha: head, mergeSha: head })]);
       throw new Error(`Unexpected long-history fetch URL: ${url}`);
     };
     const result = await runReleaseTag({
@@ -1608,7 +1612,7 @@ test("catch-up publication requires the exact workflow test check on the release
         return jsonResponse({ workflow_runs: workflowRuns });
       }
       if (url.includes(`/commits/${bump}/statuses?per_page=100&page=1`)) {
-        return jsonResponse([{ ...policyReceiptStatus("lint", "2026-08-14T23:50:00Z"), id: 90 }]);
+        return jsonResponse([{ ...policyReceiptStatus("lint", "2026-08-20T00:50:00Z", null, { pullNumber: 21, headSha: bump, mergeSha: bump }), id: 90 }]);
       }
       throw new Error(`Unexpected release-tag fetch URL: ${url}`);
     };

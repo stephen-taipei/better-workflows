@@ -513,7 +513,7 @@ function policyReceiptMatches(record, policyDigest) {
     policyReceiptRunId(record) !== null;
 }
 
-async function verifyPolicyReceipt({ record, policyDigest, apiUrl, repository, mergeTimeMs, token, fetchImpl, candidateSha, pullNumber }) {
+async function verifyPolicyReceipt({ record, policyDigest, apiUrl, repository, branch, mergeTimeMs, token, fetchImpl, candidateSha, pullNumber, mergeCommitSha }) {
   if (!policyReceiptMatches(record, policyDigest)) {
     throw new Error(`Release catch-up candidate ${candidateSha} has an unauthenticated merge-time required-check policy receipt`);
   }
@@ -526,6 +526,14 @@ async function verifyPolicyReceipt({ record, policyDigest, apiUrl, repository, m
   }
   if (targetUrl.pathname !== `/${repository}/actions/runs/${runId}`) {
     throw new Error(`Release catch-up candidate ${candidateSha} has a policy workflow URL for a different repository`);
+  }
+  if (
+    targetUrl.searchParams.get("pr") !== String(pullNumber) ||
+    targetUrl.searchParams.get("head") !== candidateSha ||
+    targetUrl.searchParams.get("base") !== branch ||
+    targetUrl.searchParams.get("merge") !== mergeCommitSha
+  ) {
+    throw new Error(`Release catch-up candidate ${candidateSha} has a policy receipt for a different merged pull request`);
   }
   const workflowRun = await repositoryWorkflowRun({ apiUrl, repository, runId, token, fetchImpl });
   if (
@@ -542,8 +550,8 @@ async function verifyPolicyReceipt({ record, policyDigest, apiUrl, repository, m
   }
   const recordedAt = observationTime(record);
   const workflowAt = observationTime(workflowRun);
-  if (!Number.isFinite(recordedAt) || !Number.isFinite(workflowAt) || recordedAt > mergeTimeMs || workflowAt > mergeTimeMs) {
-    throw new Error(`Release catch-up candidate ${candidateSha} has merge-time policy provenance after its pull-request merge`);
+  if (!Number.isFinite(recordedAt) || !Number.isFinite(workflowAt) || recordedAt < mergeTimeMs || workflowAt < mergeTimeMs) {
+    throw new Error(`Release catch-up candidate ${candidateSha} has merge-time policy provenance before its pull-request merge`);
   }
   return { record, workflowRun };
 }
@@ -609,7 +617,7 @@ function pullRequestWorkflowObservation({ workflowRuns, pullNumber }) {
 
 function policyReceiptRunId(record) {
   const targetUrl = String(record?.target_url ?? "");
-  const match = /\/actions\/runs\/(\d+)(?:\/|$)/.exec(targetUrl);
+  const match = /\/actions\/runs\/(\d+)(?:[/?]|$)/.exec(targetUrl);
   return match?.[1] ?? null;
 }
 
@@ -713,11 +721,13 @@ async function verifyCatchUpChecks({
           policyDigest: requiredPolicyDigest,
           apiUrl,
           repository,
+          branch,
           mergeTimeMs,
           token,
           fetchImpl,
           candidateSha: sha,
-          pullNumber
+          pullNumber,
+          mergeCommitSha
         });
       }
     }
@@ -815,8 +825,8 @@ async function verifyCatchUpChecks({
           description: policyReceipt.record.description,
           publisher: policyReceipt.record.creator.login,
           workflowRunId: String(policyReceipt.workflowRun.id),
-          recordedAt: observedAt(policyReceipt.record, "merge-time required-check policy"),
-          workflowRecordedAt: observedAt(policyReceipt.workflowRun, "merge-time policy workflow")
+          recordedAt: observedAt(policyReceipt.record, "merge-time required-check policy", "post-merge"),
+          workflowRecordedAt: observedAt(policyReceipt.workflowRun, "merge-time policy workflow", "post-merge")
         }
       } : {}),
       preMergeWorkflow: {

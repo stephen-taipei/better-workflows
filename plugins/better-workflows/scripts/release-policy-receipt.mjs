@@ -118,24 +118,34 @@ async function main() {
   if (eventName !== RELEASE_POLICY_RECEIPT_WORKFLOW_EVENT) {
     throw new Error(`Release policy receipt must run from the trusted ${RELEASE_POLICY_RECEIPT_WORKFLOW_EVENT} event`);
   }
+  if (String(process.env.GITHUB_EVENT_ACTION ?? "") !== "closed" || String(process.env.GITHUB_PR_MERGED ?? "") !== "true") {
+    throw new Error("Release policy receipt must run only for a merged pull-request closed event");
+  }
   const branch = String(process.env.GITHUB_BASE_REF ?? "");
-  const headSha = String(process.env.GITHUB_HEAD_SHA ?? "");
+  const headSha = assertSha(process.env.GITHUB_HEAD_SHA);
+  const mergeCommitSha = assertSha(process.env.GITHUB_MERGE_COMMIT_SHA);
+  const pullNumber = Number(process.env.GITHUB_PR_NUMBER);
+  if (!Number.isInteger(pullNumber) || pullNumber <= 0) throw new Error("Release policy receipt requires a positive pull-request number");
+  const mergedAt = Date.parse(String(process.env.GITHUB_PR_MERGED_AT ?? ""));
+  if (!Number.isFinite(mergedAt)) throw new Error("Release policy receipt requires the pull-request merge timestamp");
   const repository = String(process.env.GITHUB_REPOSITORY ?? "");
   const apiUrl = String(process.env.GITHUB_API_URL ?? "https://api.github.com");
   const token = String(process.env.GITHUB_TOKEN ?? "");
   const runId = String(process.env.GITHUB_RUN_ID ?? "").trim();
-  const targetUrl = process.env.GITHUB_SERVER_URL && repository && runId
-    ? `${process.env.GITHUB_SERVER_URL}/${repository}/actions/runs/${runId}`
-    : process.env.GITHUB_SERVER_URL && repository
-      ? `${process.env.GITHUB_SERVER_URL}/${repository}/commit/${assertSha(headSha)}/checks`
-    : undefined;
+  if (!process.env.GITHUB_SERVER_URL || !repository || !runId) throw new Error("Release policy receipt requires a trusted workflow run URL");
+  const targetUrl = new URL(`${process.env.GITHUB_SERVER_URL}/${repository}/actions/runs/${encodeURIComponent(runId)}`);
+  targetUrl.searchParams.set("pr", String(pullNumber));
+  targetUrl.searchParams.set("head", headSha);
+  targetUrl.searchParams.set("base", branch);
+  targetUrl.searchParams.set("merge", mergeCommitSha);
+  targetUrl.searchParams.set("mergedAt", new Date(mergedAt).toISOString());
   console.log(JSON.stringify(await publishReleasePolicyReceipt({
     apiUrl,
     repository,
     branch,
     headSha,
     token,
-    targetUrl
+    targetUrl: targetUrl.toString()
   })));
 }
 
