@@ -77,12 +77,15 @@ considers a push to `dev` or `main` after the exact commit is proven to be the
 merged result of a pull request into that branch, the branch has not moved, CI
 has passed, and the stable package and plugin versions changed from the target
 branch parent. `main` receives `vX.Y.Z`; `dev` receives the matching
-`vX.Y.Z-dev.<short-sha>` prerelease tag. Feature-branch commits and integration
-commits without a version change receive no tag. An existing tag pointing to a
-different commit is a fail-closed error; CI never force-moves tags. The final
-publication uses GitHub's server-side atomic `updateRefs` mutation: tag creation
-and an expected-branch-tip CAS (`beforeOid` set to the push event SHA) are one
-transaction, so a branch move during publication rejects both.
+`vX.Y.Z-dev.<short-sha>` prerelease tag. An integration commit whose version is
+unchanged receives no tag itself, but the job performs a bounded first-parent
+scan and can reconcile every earlier untagged merged version bump that remains
+reachable. This closes the consecutive-bump race without allowing a stale
+branch update. An existing tag pointing to a different commit is a fail-closed
+error; CI never force-moves tags. The final publication uses GitHub's
+server-side atomic `updateRefs` mutation: all recovered tags and an
+expected-branch-tip CAS (`beforeOid` set to the push event SHA) are one
+transaction, so a branch move during publication rejects the entire batch.
 
 ## Common paths
 

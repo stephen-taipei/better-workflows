@@ -883,12 +883,15 @@ push to `dev` or `main` after the exact commit is proven by the GitHub API to be
 the merged result of a pull request into that branch, the branch has not moved,
 CI has passed, and the stable package and plugin versions changed from the
 target-branch parent. `main` receives `vX.Y.Z`; `dev` receives the matching
-`vX.Y.Z-dev.<short-sha>` prerelease tag. Feature-branch commits and integration
-commits without a version change receive no tag. If an existing tag points to a
-different commit, CI fails closed and never force-moves the tag. Publication uses
-GitHub's server-side atomic `updateRefs` mutation: the tag creation and an
-expected-branch-tip CAS (`beforeOid` = the event SHA) are one transaction, so a
-branch move during publication rejects both updates.
+`vX.Y.Z-dev.<short-sha>` prerelease tag. The integration commit itself receives
+no tag when its version is unchanged, but a bounded first-parent scan may
+reconcile every earlier untagged merged version bump that is still reachable;
+this closes the race where consecutive version bumps are overtaken by a later
+push. If an existing tag points to a different commit, CI fails closed and never
+force-moves the tag. Publication uses GitHub's server-side atomic `updateRefs`
+mutation: all recovered tags and an expected-branch-tip CAS (`beforeOid` = the
+event SHA) are one transaction, so a branch move during publication rejects the
+entire batch.
 
 Plugin cache versions are immutable. Every content change must use a new build
 version; issue the delegated `plugin.cache.publish` action for resource `plugin-cache:<source-head-revision>`, then run `SBW_STATE_ROOT=<state-root> node scripts/plugin-cache.mjs sync --handoff-run <pr-to-dev-run-id> --token <plugin-cache-action-token>`. It requires a fresh typed handoff while the source HEAD is unchanged, then stages a missing version, verifies

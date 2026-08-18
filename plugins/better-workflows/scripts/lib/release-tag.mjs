@@ -94,18 +94,32 @@ export function releaseTagParentRevision(value) {
   return assertCommitSha(revision);
 }
 
-export function releaseTagAtomicMutation({ repositoryId, branch, tag, sha, expectedBranchSha = sha }) {
+export function releaseTagAtomicMutation({ repositoryId, branch, tag, sha, expectedBranchSha = sha, tagUpdates = null }) {
   if (!isReleaseBranch(branch)) {
     throw new Error(`Release tag atomic update requires a dev or main branch: ${branch || "<empty>"}`);
   }
-  const commit = assertCommitSha(sha);
   const branchTip = assertCommitSha(expectedBranchSha);
   if (typeof repositoryId !== "string" || !repositoryId.trim() || /[\0\r\n]/.test(repositoryId)) {
     throw new Error("Release tag atomic update requires a GitHub repository id");
   }
-  const tagName = String(tag ?? "").trim();
-  if (!tagName || /\s/.test(tagName) || tagName.startsWith("-")) {
-    throw new Error(`Release tag atomic update requires a valid tag name: ${tagName || "<empty>"}`);
+  const updates = Array.isArray(tagUpdates) && tagUpdates.length > 0
+    ? tagUpdates
+    : [{ tag, sha }];
+  const normalizedUpdates = updates.map((update) => {
+    const commit = assertCommitSha(update?.sha);
+    const tagName = String(update?.tag ?? "").trim();
+    if (!tagName || /\s/.test(tagName) || tagName.startsWith("-")) {
+      throw new Error(`Release tag atomic update requires a valid tag name: ${tagName || "<empty>"}`);
+    }
+    return { tag: tagName, sha: commit };
+  });
+  const uniqueTags = new Map();
+  for (const update of normalizedUpdates) {
+    const prior = uniqueTags.get(update.tag);
+    if (prior && prior !== update.sha) {
+      throw new Error(`Release tag atomic update received conflicting commits for ${update.tag}`);
+    }
+    uniqueTags.set(update.tag, update.sha);
   }
   const branchRef = `refs/heads/${branch}`;
   return {
@@ -114,7 +128,12 @@ export function releaseTagAtomicMutation({ repositoryId, branch, tag, sha, expec
       repositoryId: repositoryId.trim(),
       refUpdates: [
         { name: branchRef, beforeOid: branchTip, afterOid: branchTip, force: false },
-        { name: `refs/tags/${tagName}`, beforeOid: ZERO_SHA, afterOid: commit, force: false }
+        ...[...uniqueTags.entries()].map(([tagName, commit]) => ({
+          name: `refs/tags/${tagName}`,
+          beforeOid: ZERO_SHA,
+          afterOid: commit,
+          force: false
+        }))
       ]
     }
   };

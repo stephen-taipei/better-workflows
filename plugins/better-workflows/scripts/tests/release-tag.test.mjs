@@ -317,10 +317,20 @@ test("release eligibility uses the validated push-event parent across multi-comm
       if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
         return jsonResponse([{ number: 9, base: { ref: "dev" }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: head }]);
       }
-      const checkResponse = successfulRequiredCheckResponse(url, head, requiredContext);
+      if (url.endsWith(`/repos/example/repo/commits/${intermediate}/pulls?per_page=100`)) {
+        return jsonResponse([{ number: 10, base: { ref: "dev" }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: intermediate }]);
+      }
+      if (url.includes(`/repos/example/repo/actions/runs?head_sha=${intermediate}&event=push&per_page=100&page=1`)) {
+        return jsonResponse({ workflow_runs: [{ id: 7, path: ".github/workflows/ci.yml", head_sha: intermediate, event: "push", status: "completed", conclusion: "success" }] });
+      }
+      const checkSha = url.includes(`/commits/${intermediate}/`) ? intermediate : head;
+      if (checkSha === intermediate && url.includes(`/commits/${intermediate}/check-runs?per_page=100&page=1`)) {
+        return jsonResponse({ check_runs: [{ id: 7, name: requiredContext, head_sha: intermediate, status: "completed", conclusion: checkConclusion, details_url: `https://github.com/example/repo/actions/runs/7/job/70`, app: { slug: "github-actions" } }] });
+      }
+      const checkResponse = successfulRequiredCheckResponse(url, checkSha, requiredContext);
       if (checkResponse) {
-        if (url.includes(`/commits/${head}/check-runs?per_page=100&page=1`)) {
-          return jsonResponse({ check_runs: [{ id: 7, name: requiredContext, head_sha: head, status: "completed", conclusion: checkConclusion }] });
+        if (url.includes(`/commits/${checkSha}/check-runs?per_page=100&page=1`)) {
+          return jsonResponse({ check_runs: [{ id: 7, name: requiredContext, head_sha: checkSha, status: "completed", conclusion: checkConclusion }] });
         }
         return checkResponse;
       }
@@ -354,13 +364,13 @@ test("release eligibility uses the validated push-event parent across multi-comm
     assert.equal(intermediate, await git(work, ["rev-parse", `${head}^1`]));
     assert.deepEqual(result, {
       status: "planned",
-      tag: `v3.4.13-dev.${head.slice(0, 12)}`,
+      tag: `v3.4.13-dev.${intermediate.slice(0, 12)}`,
       branch: "dev",
-      sha: head,
+      sha: intermediate,
       version: "3.4.13",
-      pullNumber: 9,
+      pullNumber: 10,
       requiredChecks: {
-        headSha: head,
+        headSha: intermediate,
         requiredRequirements: [{ context: "test", appId: null }],
         requiredContexts: ["test"],
         checkRuns: [{ id: "7", name: "test", status: "completed", conclusion: "success" }],
@@ -639,6 +649,103 @@ test("release eligibility catches up a version bump after a later non-version pu
       }),
       /history contains 3\.4\.14 above current 3\.4\.13/
     );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("consecutive version bumps are recovered in one atomic batch", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-release-tag-consecutive-bumps-"));
+  const bare = path.join(root, "origin.git");
+  const work = path.join(root, "work");
+  try {
+    await execFileAsync("git", ["init", "--bare", "-q", bare]);
+    await execFileAsync("git", ["init", "-q", work]);
+    await git(work, ["config", "user.email", "test@example.invalid"]);
+    await git(work, ["config", "user.name", "release-test"]);
+    await mkdir(path.join(work, "plugins/better-workflows/.codex-plugin"), { recursive: true });
+    await mkdir(path.join(work, "plugins/better-workflows"), { recursive: true });
+    const writeVersion = async (version) => {
+      await writeFile(path.join(work, "plugins/better-workflows/package.json"), JSON.stringify({ version }));
+      await writeFile(path.join(work, "plugins/better-workflows/.codex-plugin/plugin.json"), JSON.stringify({ version: `${version}+codex.test` }));
+    };
+    await writeVersion("3.4.12");
+    await git(work, ["add", "."]);
+    await git(work, ["commit", "-qm", "base"]);
+    await git(work, ["branch", "-M", "dev"]);
+    await git(work, ["remote", "add", "origin", bare]);
+    await git(work, ["push", "-q", "origin", "dev"]);
+    const eventBefore = await git(work, ["rev-parse", "HEAD"]);
+    await writeVersion("3.4.13");
+    await git(work, ["add", "."]);
+    await git(work, ["commit", "-qm", "release 3.4.13"]);
+    const bump13 = await git(work, ["rev-parse", "HEAD"]);
+    await writeVersion("3.4.14");
+    await git(work, ["add", "."]);
+    await git(work, ["commit", "-qm", "release 3.4.14"]);
+    const head = await git(work, ["rev-parse", "HEAD"]);
+    await git(work, ["push", "-q", "origin", "dev"]);
+
+    let mutationCalls = 0;
+    let mutationUpdates = null;
+    const fetchImpl = async (url, options = {}) => {
+      if (url.endsWith("/graphql")) {
+        const request = JSON.parse(options.body);
+        if (request.query.includes("repository(owner")) return jsonResponse({ data: { repository: { id: "R_123" } } });
+        mutationCalls += 1;
+        mutationUpdates = request.variables.refUpdates;
+        for (const update of mutationUpdates.filter(({ name }) => name.startsWith("refs/tags/"))) {
+          await git(bare, ["update-ref", update.name, update.afterOid]);
+        }
+        return jsonResponse({ data: { updateRefs: { clientMutationId: null } } });
+      }
+      if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
+        return jsonResponse([{ number: 14, base: { ref: "dev" }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: head }]);
+      }
+      if (url.endsWith(`/repos/example/repo/commits/${bump13}/pulls?per_page=100`)) {
+        return jsonResponse([{ number: 13, base: { ref: "dev" }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: bump13 }]);
+      }
+      if (url.endsWith("/branches/dev")) {
+        return jsonResponse({ protected: true, protection: { required_status_checks: { contexts: ["lint"], checks: [] } } });
+      }
+      for (const sha of [bump13, head]) {
+        if (url.includes(`/commits/${sha}/check-runs?per_page=100&page=1`)) {
+          const checkRuns = [{ id: sha === bump13 ? 13 : 14, name: "lint", head_sha: sha, status: "completed", conclusion: "success" }];
+          if (sha === bump13) {
+            checkRuns.push({ id: 101, name: "test", head_sha: sha, status: "completed", conclusion: "success", details_url: "https://github.com/example/repo/actions/runs/101/job/1", app: { slug: "github-actions" } });
+          }
+          return jsonResponse({ check_runs: checkRuns });
+        }
+        if (url.includes(`/commits/${sha}/statuses?per_page=100&page=1`)) return jsonResponse([]);
+      }
+      if (url.includes(`/actions/runs?head_sha=${bump13}&event=push&per_page=100&page=1`)) {
+        return jsonResponse({ workflow_runs: [{ id: 101, path: ".github/workflows/ci.yml", head_sha: bump13, event: "push", status: "completed", conclusion: "success" }] });
+      }
+      throw new Error(`Unexpected consecutive-bump fetch URL: ${url}`);
+    };
+    const env = {
+      GITHUB_EVENT_NAME: "push",
+      GITHUB_EVENT_BEFORE: eventBefore,
+      GITHUB_REF_NAME: "dev",
+      GITHUB_REPOSITORY: "example/repo",
+      GITHUB_SHA: head,
+      GITHUB_TOKEN: "test-token",
+      GITHUB_API_URL: "https://api.github.com"
+    };
+    const result = await runReleaseTag({ cwd: work, fetchImpl, env });
+    assert.deepEqual(result.tags, [
+      { tag: `v3.4.13-dev.${bump13.slice(0, 12)}`, sha: bump13, version: "3.4.13" },
+      { tag: `v3.4.14-dev.${head.slice(0, 12)}`, sha: head, version: "3.4.14" }
+    ]);
+    assert.equal(mutationCalls, 1);
+    assert.deepEqual(mutationUpdates, [
+      { name: "refs/heads/dev", beforeOid: head, afterOid: head, force: false },
+      { name: `refs/tags/v3.4.13-dev.${bump13.slice(0, 12)}`, beforeOid: "0".repeat(40), afterOid: bump13, force: false },
+      { name: `refs/tags/v3.4.14-dev.${head.slice(0, 12)}`, beforeOid: "0".repeat(40), afterOid: head, force: false }
+    ]);
+    const existing = await runReleaseTag({ cwd: work, fetchImpl, env });
+    assert.equal(existing.status, "existing");
+    assert.equal(mutationCalls, 1);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -296,11 +296,12 @@ async function validatedEventBeforeRevision(cwd, before, head) {
   return targetParent;
 }
 
-async function findCatchUpVersionBump({ cwd, branch, head, version, apiUrl, repository, token, fetchImpl }) {
+async function findEligibleVersionBumps({ cwd, branch, head, currentVersion, headPull, apiUrl, repository, token, fetchImpl }) {
   const revisions = (await git(cwd, ["rev-list", "--first-parent", `--max-count=${CATCH_UP_HISTORY_LIMIT}`, head]))
     .split(/\s+/)
     .filter(Boolean);
-  for (const candidate of revisions) {
+  const candidates = [];
+  for (const [order, candidate] of revisions.entries()) {
     let parent;
     try {
       parent = await git(cwd, ["rev-parse", "--verify", `${candidate}^1`]);
@@ -308,10 +309,10 @@ async function findCatchUpVersionBump({ cwd, branch, head, version, apiUrl, repo
       continue;
     }
     const candidateVersion = await versionAtCommit(cwd, candidate);
-    if (candidateVersion !== null && compareStableVersions(candidateVersion, version) > 0) {
-      throw new Error(`Release version history contains ${candidateVersion} above current ${version}; refusing catch-up publication`);
+    if (candidateVersion !== null && compareStableVersions(candidateVersion, currentVersion) > 0) {
+      throw new Error(`Release version history contains ${candidateVersion} above current ${currentVersion}; refusing catch-up publication`);
     }
-    if (candidateVersion !== version) continue;
+    if (candidateVersion === null) continue;
     const parentVersion = await versionAtCommit(cwd, parent);
     if (parentVersion === null || compareStableVersions(candidateVersion, parentVersion) <= 0) continue;
     try {
@@ -319,15 +320,30 @@ async function findCatchUpVersionBump({ cwd, branch, head, version, apiUrl, repo
     } catch {
       continue;
     }
-    const pulls = await repositoryPullRequests({
-      apiUrl,
-      repository,
+    const pull = candidate === head
+      ? headPull
+      : findMergedPullRequest(await repositoryPullRequests({
+        apiUrl,
+        repository,
+        sha: candidate,
+        token,
+        fetchImpl
+      }), { branch, sha: candidate });
+    if (!pull) continue;
+    const tag = releaseTagName({ branch, version: candidateVersion, sha: candidate });
+    const existingCommit = await remoteTag(cwd, tag);
+    if (existingCommit && existingCommit !== candidate) {
+      throw new Error(`${tag} already exists at ${existingCommit}; refusing to retarget it to ${candidate}`);
+    }
+    candidates.push({
+      order,
       sha: candidate,
-      token,
-      fetchImpl
+      pull,
+      parentVersion,
+      version: candidateVersion,
+      tag,
+      existingCommit
     });
-    const pull = findMergedPullRequest(pulls, { branch, sha: candidate });
-    if (pull) return { sha: candidate, pull, parentVersion };
   }
   if (revisions.length === CATCH_UP_HISTORY_LIMIT) {
     const oldest = revisions.at(-1);
@@ -338,7 +354,17 @@ async function findCatchUpVersionBump({ cwd, branch, head, version, apiUrl, repo
     }
     throw new Error(`Release catch-up history exceeded bounded first-parent search of ${CATCH_UP_HISTORY_LIMIT} commits; refusing to report release-version-unchanged`);
   }
-  return null;
+  const byTag = new Map();
+  for (const candidate of candidates) {
+    const prior = byTag.get(candidate.tag);
+    if (prior && prior.sha !== candidate.sha) {
+      throw new Error(`${candidate.tag} has multiple eligible version-bump commits; refusing ambiguous release reconciliation`);
+    }
+    if (!prior) byTag.set(candidate.tag, candidate);
+  }
+  return [...byTag.values()].sort((left, right) => (
+    compareStableVersions(left.version, right.version) || right.order - left.order
+  ));
 }
 
 function normalizeCheckAppId(check) {
@@ -559,63 +585,104 @@ export async function runReleaseTag({
   if (previous !== null && compareStableVersions(current, previous) < 0) {
     throw new Error(`Release version ${current} is lower than its parent ${previous}; refusing release eligibility`);
   }
-  let releaseSha = sha;
-  let pull = findMergedPullRequest(pulls, { branch, sha });
-  let requiredChecks = null;
-  if (!versionChanged(current, previous)) {
-    const catchUp = await findCatchUpVersionBump({
-      cwd,
-      branch,
-      head: sha,
-      version: current,
-      apiUrl,
-      repository,
-      token,
-      fetchImpl
-    });
-    if (!catchUp) {
-      return { status: "skipped", reason: "release-version-unchanged", branch, sha, version: current };
-    }
-    releaseSha = catchUp.sha;
-    pull = catchUp.pull;
-  }
-  if (!pull) {
+  const versionWasChanged = versionChanged(current, previous);
+  const headPull = findMergedPullRequest(pulls, { branch, sha });
+  if (!headPull && versionWasChanged) {
     return { status: "skipped", reason: "commit-is-not-an-exact-merged-pr-result", branch, sha };
   }
+  const candidates = await findEligibleVersionBumps({
+    cwd,
+    branch,
+    head: sha,
+    currentVersion: current,
+    headPull,
+    apiUrl,
+    repository,
+    token,
+    fetchImpl
+  });
   const highestPublished = await highestPublishedReleaseVersion(cwd, branch);
   if (highestPublished !== null && compareStableVersions(current, highestPublished) < 0) {
     throw new Error(`Release version ${current} is below the highest published ${branch} release ${highestPublished}; refusing release eligibility`);
   }
-  requiredChecks = await verifyCatchUpChecks({
-    apiUrl,
-    repository,
-    branch,
-    sha: releaseSha,
-    token,
-    fetchImpl,
-    requireWorkflowTest: releaseSha !== sha,
-    sleepImpl
-  });
-
-  const tag = releaseTagName({ branch, version: current, sha: releaseSha });
-  const existingCommit = await remoteTag(cwd, tag);
-  if (existingCommit) {
-    if (existingCommit !== releaseSha) throw new Error(`${tag} already exists at ${existingCommit}; refusing to retarget it to ${releaseSha}`);
+  const pendingCandidates = candidates.filter((candidate) => !candidate.existingCommit);
+  if (pendingCandidates.length === 0) {
+    if (!versionWasChanged && candidates.length === 0) {
+      return { status: "skipped", reason: "release-version-unchanged", branch, sha, version: current };
+    }
+    const existing = versionWasChanged
+      ? candidates.find((candidate) => candidate.sha === sha)
+      : candidates[0];
+    if (!existing) {
+      return { status: "skipped", reason: "commit-is-not-an-exact-merged-pr-result", branch, sha };
+    }
+    const requiredChecks = await verifyCatchUpChecks({
+      apiUrl,
+      repository,
+      branch,
+      sha: existing.sha,
+      token,
+      fetchImpl,
+      requireWorkflowTest: existing.sha !== sha,
+      sleepImpl
+    });
     if (await remoteHead(cwd, branch) !== sha) {
       throw new Error(`Remote ${branch} moved before existing release tag reconciliation; refusing to report a stale tag as current`);
     }
-    return { status: "existing", tag, branch, sha: releaseSha, version: current, pullNumber: pull.number, requiredChecks };
+    return {
+      status: "existing",
+      tag: existing.tag,
+      branch,
+      sha: existing.sha,
+      version: existing.version,
+      pullNumber: existing.pull.number,
+      requiredChecks
+    };
   }
 
+  const checkedCandidates = [];
+  for (const candidate of pendingCandidates) {
+    const requiredChecks = await verifyCatchUpChecks({
+      apiUrl,
+      repository,
+      branch,
+      sha: candidate.sha,
+      token,
+      fetchImpl,
+      requireWorkflowTest: candidate.sha !== sha,
+      sleepImpl
+    });
+    checkedCandidates.push({ candidate, requiredChecks });
+  }
+  const firstChecked = checkedCandidates[0];
   if (env.RELEASE_TAG_DRY_RUN === "1") {
-    return { status: "planned", tag, branch, sha: releaseSha, version: current, pullNumber: pull.number, requiredChecks };
+    const result = {
+      status: "planned",
+      tag: firstChecked.candidate.tag,
+      branch,
+      sha: firstChecked.candidate.sha,
+      version: firstChecked.candidate.version,
+      pullNumber: firstChecked.candidate.pull.number,
+      requiredChecks: firstChecked.requiredChecks
+    };
+    if (checkedCandidates.length > 1) {
+      result.tags = checkedCandidates.map(({ candidate }) => ({ tag: candidate.tag, sha: candidate.sha, version: candidate.version }));
+    }
+    return result;
   }
 
   if (await remoteHead(cwd, branch) !== sha) {
     throw new Error(`Remote ${branch} moved before release tag publication; refusing to tag a stale commit`);
   }
   const repositoryId = await githubRepositoryId({ apiUrl, repository, token, fetchImpl });
-  const mutation = releaseTagAtomicMutation({ repositoryId, branch, tag, sha: releaseSha, expectedBranchSha: sha });
+  const mutation = releaseTagAtomicMutation({
+    repositoryId,
+    branch,
+    tag: firstChecked.candidate.tag,
+    sha: firstChecked.candidate.sha,
+    expectedBranchSha: sha,
+    tagUpdates: checkedCandidates.map(({ candidate }) => ({ tag: candidate.tag, sha: candidate.sha }))
+  });
   const mutationData = await githubGraphql({
     apiUrl,
     token,
@@ -624,7 +691,19 @@ export async function runReleaseTag({
     variables: mutation.variables
   });
   if (!mutationData.updateRefs) throw new Error("GitHub atomic release ref update returned no result");
-  return { status: "created", tag, branch, sha: releaseSha, version: current, pullNumber: pull.number, requiredChecks };
+  const result = {
+    status: "created",
+    tag: firstChecked.candidate.tag,
+    branch,
+    sha: firstChecked.candidate.sha,
+    version: firstChecked.candidate.version,
+    pullNumber: firstChecked.candidate.pull.number,
+    requiredChecks: firstChecked.requiredChecks
+  };
+  if (checkedCandidates.length > 1) {
+    result.tags = checkedCandidates.map(({ candidate }) => ({ tag: candidate.tag, sha: candidate.sha, version: candidate.version }));
+  }
+  return result;
 }
 
 function mainModule() {
