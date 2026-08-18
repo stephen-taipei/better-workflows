@@ -2211,6 +2211,7 @@ async function registerOwnedResourceLocked(root, runId, run, runDir, { resource,
       provider: creationReceipt.provider,
       resource: providerResource,
       outcome: "success",
+      runId,
       remoteRevision: creationReceipt.remoteRevision,
       idempotencyKey: creationReceipt.idempotencyKey,
       attemptId: creationReceipt.attemptId,
@@ -4667,6 +4668,10 @@ async function verifyOwnedResourceCreationProof(manifest, record, providerReceip
   const marker = `sbw:${record.attemptId}:${record.idempotencyKey}`;
   const spentAt = Date.parse(record.spentAt ?? "");
   if (!Number.isFinite(spentAt)) throw new Error("Owned resource creation action lacks a valid consumed timestamp");
+  if (record.action === "pr.create" && record.provider === "github-cli" && providerReceipt.ownershipTransfer) {
+    await verifyTransferredPullRequestOwnership(manifest, record, providerReceipt, providerExecutablePath);
+    return providerExecutablePath;
+  }
   if (proof.marker !== marker || proof.attemptId !== record.attemptId || proof.idempotencyKey !== record.idempotencyKey) {
     throw new Error("Owned resource provider-native marker is not bound to the consumed action");
   }
@@ -4766,6 +4771,126 @@ async function verifyOwnedResourceCreationProof(manifest, record, providerReceip
       throw new Error("GitHub Actions creation proof lacks provider-native actor, timestamp, or idempotency marker");
     }
     return providerExecutablePath;
+  }
+}
+
+export async function verifyTransferredPullRequestOwnership(manifest, record, providerReceipt, providerExecutablePath) {
+  const transfer = providerReceipt.ownershipTransfer;
+  if (!transfer || typeof transfer !== "object" || Array.isArray(transfer)) {
+    throw new Error("Transferred pull request ownership proof is missing");
+  }
+  const repository = record.createRepository ?? record.providerAuthorization?.repository;
+  const sourceResource = `pull/${providerReceipt.number}`;
+  const authorizationPayload = {
+    kind: "user-approved-ownership-transfer",
+    sourceRunId: transfer.sourceRunId,
+    targetRunId: record.runId,
+    sourceResource,
+    targetAttemptId: record.attemptId,
+    repository,
+    number: providerReceipt.number
+  };
+  if (
+    transfer.schemaVersion !== 1 ||
+    transfer.authorization !== "user-approved" ||
+    transfer.targetRunId !== record.runId ||
+    transfer.targetAttemptId !== record.attemptId ||
+    typeof transfer.sourceRunId !== "string" ||
+    transfer.sourceRunId === record.runId ||
+    transfer.sourceResource !== sourceResource ||
+    typeof transfer.sourceAttemptId !== "string" ||
+    typeof transfer.sourceMarker !== "string" ||
+    !transfer.sourceMarker.startsWith("sbw:") ||
+    typeof transfer.sourceActionDigest !== "string" ||
+    !SHA256_DIGEST.test(transfer.sourceActionDigest) ||
+    typeof transfer.authorizationDigest !== "string" ||
+    transfer.authorizationDigest !== digestObject(authorizationPayload) ||
+    typeof transfer.transferredAt !== "string" ||
+    !Number.isFinite(Date.parse(transfer.transferredAt))
+  ) {
+    throw new Error("Transferred pull request ownership proof is malformed or not explicitly authorized");
+  }
+  const root = getStateRoot();
+  const sourceRun = await loadRun(root, transfer.sourceRunId);
+  if (!["cancelled_superseded", "cancelled_evidence_sufficient"].includes(sourceRun.state.status)) {
+    throw new Error("Transferred pull request ownership requires a terminal superseded source run");
+  }
+  const sourceRegistered = sourceRun.manifest.ownedResources?.find((entry) => (
+    entry?.resource === sourceResource && entry.ownerRunId === transfer.sourceRunId
+  ));
+  if (
+    sourceRun.contract.remoteRevision !== record.remoteRevision ||
+    sourceRun.manifest.sourceBinding?.originIdentity?.digest !== manifest.sourceBinding?.originIdentity?.digest ||
+    !sourceRegistered ||
+    typeof sourceRegistered.receiptDigest !== "string" ||
+    typeof sourceRegistered.creationActionDigest !== "string"
+  ) {
+    throw new Error("Transferred pull request ownership source run or registry is not bound to the target repository");
+  }
+  const sourceActions = await listJsonRecords(root, safeJoin(sourceRun.runDir, "actions"));
+  const sourceAction = sourceActions.find((action) => (
+    action.attemptId === transfer.sourceAttemptId &&
+    action.action === "pr.create" &&
+    action.provider === "github-cli" &&
+    action.status === "spent" &&
+    action.outcome === "success" &&
+    action.ownedResource === sourceResource
+  ));
+  const sourceProviderReceipt = sourceAction?.receipt?.providerReceipt;
+  const sourceMarker = sourceProviderReceipt?.ownershipTransfer?.sourceMarker ?? sourceProviderReceipt?.creationProof?.marker;
+  if (
+    !sourceAction ||
+    digestObject(sourceAction) !== transfer.sourceActionDigest ||
+    !sourceProviderReceipt ||
+    sourceProviderReceipt.number !== providerReceipt.number ||
+    sourceProviderReceipt.url !== providerReceipt.url ||
+    sourceProviderReceipt.base !== providerReceipt.base ||
+    sourceProviderReceipt.provider !== "github-cli" ||
+    sourceMarker !== transfer.sourceMarker ||
+    typeof sourceProviderReceipt.head !== "string" ||
+    !SHA.test(sourceProviderReceipt.head)
+  ) {
+    throw new Error("Transferred pull request ownership source receipt is not bound to the provider object");
+  }
+  if (
+    sourceRegistered.creationAttemptId !== sourceAction.attemptId ||
+    sourceRegistered.creationActionDigest !== ownedResourceCreationActionDigest(sourceAction)
+  ) {
+    throw new Error("Transferred pull request ownership source registry is not bound to its immutable creation receipt");
+  }
+  if (
+    !repository ||
+    await currentRepositoryIdentity(manifest.cwd) !== repository ||
+    repository !== record.providerAuthorization?.repository
+  ) {
+    throw new Error("Transferred pull request ownership repository changed after authorization");
+  }
+  const actual = JSON.parse((await execBoundGitHubCli(providerExecutablePath, [
+    "api", `repos/${repository.slice("github.com/".length)}/pulls/${providerReceipt.number}`
+  ], { cwd: manifest.cwd })).stdout);
+  const currentMarker = `<!-- ${transfer.sourceMarker} -->`;
+  if (
+    actual.node_id !== providerReceipt.creationProof?.providerObjectId ||
+    actual.user?.login !== record.providerAuthorization?.actor ||
+    actual.head?.sha !== providerReceipt.head ||
+    (record.expectedHead && actual.head?.sha !== record.expectedHead) ||
+    actual.base?.ref !== providerReceipt.base ||
+    (record.targetRef && actual.base?.ref !== record.targetRef) ||
+    actual.html_url !== providerReceipt.url ||
+    typeof actual.body !== "string" ||
+    !actual.body.includes(currentMarker) ||
+    actual.state !== "open"
+  ) {
+    throw new Error("Transferred pull request ownership proof does not match the live provider object");
+  }
+  const ancestry = await execBoundGitAuthority(manifest.cwd, [
+    "merge-base", "--is-ancestor", sourceProviderReceipt.head, providerReceipt.head
+  ]).catch(() => null);
+  if (!ancestry) {
+    throw new Error("Transferred pull request ownership requires the target head to descend from the source head");
+  }
+  if (providerReceipt.creationProof?.observedAt !== actual.created_at) {
+    throw new Error("Transferred pull request ownership proof timestamp does not match the provider object");
   }
 }
 
@@ -4995,19 +5120,26 @@ async function verifyProviderReceipt(manifest, record, receipt, contract = null)
       base: actual.baseRefName,
       url: actual.url
     };
+    if (providerReceipt.ownershipTransfer) {
+      await verifyTransferredPullRequestOwnership(manifest, record, providerReceipt, providerExecutablePath);
+    }
+    const request = {
+      action: record.action,
+      provider: record.provider,
+      resource: record.resource,
+      remoteRevision: record.remoteRevision,
+      repository,
+      targetRef: record.targetRef ?? null,
+      expectedHead: record.expectedHead ?? null,
+      ...(providerReceipt.ownershipTransfer ? { ownershipTransfer: providerReceipt.ownershipTransfer } : {})
+    };
     assertRecomputedProviderReceipt(
       providerReceipt,
-      {
-        action: record.action,
-        provider: record.provider,
-        resource: record.resource,
-        remoteRevision: record.remoteRevision,
-        repository,
-        targetRef: record.targetRef ?? null,
-        expectedHead: record.expectedHead ?? null
-      },
+      request,
       response,
-      `github:${repository}:pr.create:${actual.number}:${actual.headRefOid}`
+      providerReceipt.ownershipTransfer
+        ? `github:${repository}:pr.transfer:${record.runId}:${record.attemptId}:${actual.number}:${actual.headRefOid}`
+        : `github:${repository}:pr.create:${actual.number}:${actual.headRefOid}`
     );
     if (
       (record.resource !== "pull/new" && actual.number !== Number(String(record.resource).replace(/^pull\//, ""))) ||

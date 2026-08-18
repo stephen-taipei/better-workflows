@@ -73,6 +73,7 @@ import {
   setRunStatus,
   updateState,
   verifyRequiredChecksProvider,
+  verifyTransferredPullRequestOwnership,
   verifyGitHubCredentialActor,
   validateWorkflowDispatchCapability,
   workflowDispatchObservationRef,
@@ -3608,6 +3609,225 @@ fi
     await assert.rejects(stat(reservationPath));
   } finally {
     process.env.PATH = priorPath;
+  }
+});
+
+test("transferred PR ownership requires a terminal source registry and live descendant PR", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-pr-ownership-transfer-"));
+  const repository = path.join(root, "repository");
+  const bin = path.join(root, "bin");
+  const priorStateRoot = process.env.SBW_STATE_ROOT;
+  await mkdir(repository, { recursive: true });
+  await mkdir(bin, { recursive: true });
+  await execFileAsync("git", ["init", "-q", "-b", "codex/feature"], { cwd: repository });
+  await execFileAsync("git", ["config", "user.email", "sbw@example.invalid"], { cwd: repository });
+  await execFileAsync("git", ["config", "user.name", "SBW Test"], { cwd: repository });
+  await execFileAsync("git", ["remote", "add", "origin", "https://github.com/example/repo.git"], { cwd: repository });
+  await writeFile(path.join(repository, "README.md"), "transfer\n");
+  await execFileAsync("git", ["add", "README.md"], { cwd: repository });
+  await execFileAsync("git", ["commit", "-qm", "baseline"], { cwd: repository });
+  const head = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repository })).stdout.trim();
+  const remoteRevision = "a".repeat(40);
+  const taskContract = contract({ template: "pr-to-dev", authority: ["pr.create"], remoteRevision });
+  const sourceRun = await createRun({ root, contract: taskContract, requestedMode: "critical", cwd: repository });
+  const targetRun = await createRun({ root, contract: structuredClone(taskContract), requestedMode: "critical", cwd: repository });
+  const sourceRunDir = path.join(root, "runs", sourceRun.runId);
+  const targetRunDir = path.join(root, "runs", targetRun.runId);
+  const number = 17;
+  const url = `https://github.com/example/repo/pull/${number}`;
+  const sourceAttemptId = "source-pr-attempt";
+  const sourceIdempotencyKey = "source-pr-idempotency";
+  const targetAttemptId = "target-pr-attempt";
+  const targetIdempotencyKey = "target-pr-idempotency";
+  const sourceMarker = `sbw:${sourceAttemptId}:${sourceIdempotencyKey}`;
+  const sourceProviderReceipt = {
+    action: "pr.create",
+    provider: "github-cli",
+    resource: "pull/new",
+    outcome: "success",
+    runId: sourceRun.runId,
+    attemptId: sourceAttemptId,
+    idempotencyKey: sourceIdempotencyKey,
+    remoteRevision,
+    executionId: `github:github.com/example/repo:pr.create:${number}:${head}`,
+    proofKind: "github-pr-create",
+    requestDigest: "a".repeat(64),
+    responseDigest: "b".repeat(64),
+    verifiedAt: new Date().toISOString(),
+    terminalState: "success",
+    created: true,
+    creationProof: {
+      attemptId: sourceAttemptId,
+      idempotencyKey: sourceIdempotencyKey,
+      marker: sourceMarker,
+      providerObjectId: "node-17",
+      observedAt: new Date().toISOString()
+    },
+    creationPreconditionDigest: "c".repeat(64),
+    number,
+    head,
+    base: "dev",
+    url
+  };
+  const sourceAction = {
+    schemaVersion: 1,
+    tokenHash: sha256("source-token"),
+    status: "spent",
+    outcome: "success",
+    runId: sourceRun.runId,
+    action: "pr.create",
+    provider: "github-cli",
+    resource: "pull/new",
+    remoteRevision,
+    attemptId: sourceAttemptId,
+    idempotencyKey: sourceIdempotencyKey,
+    expectedHead: head,
+    targetRef: "dev",
+    headBranch: "codex/feature",
+    createRepository: "github.com/example/repo",
+    ownedResource: `pull/${number}`,
+    providerAuthorization: {
+      provider: "github-cli",
+      repository: "github.com/example/repo",
+      actor: "alice",
+      permissions: { admin: false, maintain: false, push: true }
+    },
+    receipt: {
+      action: "pr.create",
+      provider: "github-cli",
+      resource: "pull/new",
+      outcome: "success",
+      runId: sourceRun.runId,
+      attemptId: sourceAttemptId,
+      idempotencyKey: sourceIdempotencyKey,
+      remoteRevision,
+      evidenceIds: [],
+      providerReceipt: sourceProviderReceipt
+    }
+  };
+  const sourceManifestPath = path.join(sourceRunDir, "manifest.json");
+  const sourceManifest = JSON.parse(await readFile(sourceManifestPath, "utf8"));
+  sourceManifest.ownedResources = [{
+    resource: `pull/${number}`,
+    creationResource: "pull/new",
+    ownerRunId: sourceRun.runId,
+    receiptDigest: "d".repeat(64),
+    creationAttemptId: sourceAttemptId,
+    creationActionDigest: digestObject({
+      attemptId: sourceAction.attemptId,
+      action: sourceAction.action,
+      resource: sourceAction.resource,
+      outcome: sourceAction.outcome,
+      receipt: sourceAction.receipt
+    }),
+    creationReservation: { provider: "github-cli", repository: "github.com/example/repo", action: "pr.create", resource: "pull/new" },
+    registeredAt: new Date().toISOString()
+  }];
+  await writeFile(sourceManifestPath, `${JSON.stringify(sourceManifest)}\n`);
+  await writeFile(path.join(sourceRunDir, "actions", `${sourceAction.tokenHash}.json`), `${JSON.stringify(sourceAction)}\n`);
+  await updateState(root, sourceRun.runId, (state) => ({ ...state, status: "cancelled_superseded" }));
+  const targetManifest = JSON.parse(await readFile(path.join(targetRunDir, "manifest.json"), "utf8"));
+  const targetRecord = {
+    runId: targetRun.runId,
+    attemptId: targetAttemptId,
+    action: "pr.create",
+    provider: "github-cli",
+    resource: "pull/new",
+    remoteRevision,
+    expectedHead: head,
+    targetRef: "dev",
+    createRepository: "github.com/example/repo",
+    providerAuthorization: {
+      provider: "github-cli",
+      repository: "github.com/example/repo",
+      actor: "alice",
+      permissions: { admin: false, maintain: false, push: true }
+    }
+  };
+  const targetMarker = `sbw:${targetAttemptId}:${targetIdempotencyKey}`;
+  const actualCreatedAt = new Date().toISOString();
+  const actual = {
+    node_id: "node-17",
+    created_at: actualCreatedAt,
+    user: { login: "alice" },
+    head: { sha: head },
+    base: { ref: "dev" },
+    body: `Automated delivery. <!-- ${sourceMarker} -->`,
+    html_url: url,
+    state: "open"
+  };
+  const fakeGh = path.join(bin, "gh");
+  const ghScript = `#!/bin/sh
+if [ "$1" = "api" ] && [ "$2" = "user" ]; then
+  printf '%s\\n' '{"login":"alice"}'
+elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo" ]; then
+  printf '%s\\n' '{"full_name":"example/repo","permissions":{"admin":false,"maintain":false,"push":true}}'
+elif [ "$1" = "api" ]; then
+  printf '%s\\n' '${JSON.stringify(actual).replaceAll("'", "'\\''")}'
+else
+  printf '%s\\n' '{"number":17,"headRefOid":"${head}","baseRefName":"dev","url":"${url}"}'
+fi
+`;
+  await writeFile(fakeGh, ghScript);
+  await chmod(fakeGh, 0o755);
+  const ownershipTransfer = {
+    schemaVersion: 1,
+    authorization: "user-approved",
+    sourceRunId: sourceRun.runId,
+    sourceResource: `pull/${number}`,
+    sourceAttemptId,
+    sourceMarker,
+    sourceActionDigest: digestObject(sourceAction),
+    targetRunId: targetRun.runId,
+    targetAttemptId,
+    authorizationDigest: digestObject({
+      kind: "user-approved-ownership-transfer",
+      sourceRunId: sourceRun.runId,
+      targetRunId: targetRun.runId,
+      sourceResource: `pull/${number}`,
+      targetAttemptId,
+      repository: "github.com/example/repo",
+      number
+    }),
+    transferredAt: new Date().toISOString()
+  };
+  const providerReceipt = {
+    action: "pr.create",
+    provider: "github-cli",
+    resource: "pull/new",
+    outcome: "success",
+    runId: targetRun.runId,
+    attemptId: targetAttemptId,
+    idempotencyKey: targetIdempotencyKey,
+    remoteRevision,
+    executionId: `github:github.com/example/repo:pr.transfer:${targetRun.runId}:${targetAttemptId}:${number}:${head}`,
+    proofKind: "github-pr-create",
+    requestDigest: "e".repeat(64),
+    responseDigest: digestObject({ number, head, base: "dev", url }),
+    verifiedAt: new Date().toISOString(),
+    terminalState: "success",
+    created: true,
+    creationProof: { attemptId: targetAttemptId, idempotencyKey: targetIdempotencyKey, marker: targetMarker, providerObjectId: "node-17", observedAt: actualCreatedAt },
+    creationPreconditionDigest: "f".repeat(64),
+    ownershipTransfer,
+    number,
+    head,
+    base: "dev",
+    url
+  };
+  process.env.SBW_STATE_ROOT = root;
+  try {
+    await verifyTransferredPullRequestOwnership(targetManifest, targetRecord, providerReceipt, fakeGh);
+    sourceManifest.ownedResources = [];
+    await writeFile(sourceManifestPath, `${JSON.stringify(sourceManifest)}\n`);
+    await assert.rejects(
+      verifyTransferredPullRequestOwnership(targetManifest, targetRecord, providerReceipt, fakeGh),
+      /source run or registry is not bound/
+    );
+  } finally {
+    if (priorStateRoot === undefined) delete process.env.SBW_STATE_ROOT;
+    else process.env.SBW_STATE_ROOT = priorStateRoot;
+    await rm(root, { recursive: true, force: true });
   }
 });
 
