@@ -2792,6 +2792,7 @@ test("GitHub Actions dispatch invocation failure stays indeterminate and rejects
   await execFileAsync("git", ["add", "."], { cwd: repository });
   await execFileAsync("git", ["commit", "-qm", "dispatch failure fixture"], { cwd: repository });
   const remoteRevision = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repository })).stdout.trim();
+  const siblingRevision = "c".repeat(40);
   const taskContract = contract({
     authority: ["actions.dispatch"],
     remoteRevision,
@@ -2841,7 +2842,7 @@ elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo/git/ref/tags/dev" ]; then
 elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo/git/ref/heads/release" ]; then
   printf '%s\\n' '{"object":{"sha":"${remoteRevision}"}}'
 elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo/git/ref/tags/release" ]; then
-  printf '%s\\n' '{"object":{"sha":"${remoteRevision}"}}'
+  printf '%s\\n' '{"object":{"sha":"${siblingRevision}"}}'
 elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo/git/ref/heads/broken" ]; then
   printf '%s\\n' 'gh: authentication failed' >&2
   exit 1
@@ -2951,6 +2952,21 @@ fi
       }, "tree", await loadDefaults()),
       /ambiguous between a branch and tag ref/
     );
+    for (const scope of ["refs/heads/release", "refs/tags/release"]) {
+      await assert.rejects(
+        issueActionToken(root, run.runId, {
+          action: "actions.dispatch",
+          provider: "github-cli",
+          resource,
+          scope,
+          workflowFile,
+          dispatchInputs: { environment: "test" },
+          remoteRevision,
+          requiredEvidence: ["remote-authorization"]
+        }, "tree", await loadDefaults()),
+        /ambiguous between a fully qualified branch and tag ref/
+      );
+    }
     await assert.rejects(
       issueActionToken(root, run.runId, {
         action: "actions.dispatch",

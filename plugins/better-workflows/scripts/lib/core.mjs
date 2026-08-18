@@ -4380,6 +4380,18 @@ async function readOptionalBoundGitHubDispatchRefRevision(cwd, repository, dispa
 async function resolveBoundGitHubDispatchRef(cwd, repository, requestedRef, executablePath) {
   const ref = canonicalWorkflowRef(requestedRef);
   if (WORKFLOW_REF_IDENTITY.test(ref)) {
+    const [, kind, name] = ref.match(/^refs\/(heads|tags)\/(.+)$/);
+    const siblingKind = kind === "heads" ? "tags" : "heads";
+    const siblingRef = `refs/${siblingKind}/${name}`;
+    const siblingRevision = await readOptionalBoundGitHubDispatchRefRevision(
+      cwd,
+      repository,
+      siblingRef,
+      executablePath
+    );
+    if (siblingRevision !== null) {
+      throw new Error("GitHub Actions dispatch scope is ambiguous between a fully qualified branch and tag ref");
+    }
     return {
       ref,
       revision: await readBoundGitHubDispatchRefRevision(cwd, repository, ref, executablePath)
@@ -7403,13 +7415,13 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
       existingRunIds = existingRuns
         .map((run) => String(run?.databaseId ?? ""))
         .filter((runIdValue) => /^\d+$/.test(runIdValue));
-      const dispatchRefRevision = await readBoundGitHubDispatchRefRevision(
+      const resolvedDispatchRef = await resolveBoundGitHubDispatchRef(
         manifest.cwd,
         consumed.dispatchRepository,
         consumed.dispatchRef,
         providerExecutablePath
       );
-      if (dispatchRefRevision !== consumed.remoteRevision) {
+      if (resolvedDispatchRef.ref !== consumed.dispatchRef || resolvedDispatchRef.revision !== consumed.remoteRevision) {
         throw new Error("GitHub Actions dispatch ref changed before provider invocation");
       }
     } catch (error) {
@@ -7429,13 +7441,13 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
     // terminal preflight failure rather than stranded as indeterminate.
     const dispatchObservationStartedAt = nowIso();
     try {
-      const dispatchRefRevision = await readBoundGitHubDispatchRefRevision(
+      const resolvedDispatchRef = await resolveBoundGitHubDispatchRef(
         manifest.cwd,
         consumed.dispatchRepository,
         consumed.dispatchRef,
         providerExecutablePath
       );
-      if (dispatchRefRevision !== consumed.remoteRevision) {
+      if (resolvedDispatchRef.ref !== consumed.dispatchRef || resolvedDispatchRef.revision !== consumed.remoteRevision) {
         throw new Error("GitHub Actions dispatch ref changed immediately before provider invocation");
       }
     } catch (error) {
