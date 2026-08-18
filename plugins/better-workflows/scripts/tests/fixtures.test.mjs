@@ -141,6 +141,7 @@ test("generated HTML template inventory derives ci release stages from authorita
   for (const stage of ciTemplate.executionStages) assert.ok(useCases.includes(`['${stage.id}'`), stage.id);
   assert.ok(!useCases.includes("['push-preflight'"));
   assert.match(useCases, new RegExp(`13 / ${totalStages} stages`));
+  assert.match(useCases, /Thirteen templates and sixty-one stages/);
   assert.match(home, new RegExp(`13 個 template 合計 ${totalStages} stages`));
   assert.match(preview, new RegExp(`${totalStages} 個 stages`));
   assert.match(preview, new RegExp(`${totalStages} stages`));
