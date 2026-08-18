@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
@@ -474,6 +475,10 @@ function waitForReleaseChecks(delayMs) {
   return new Promise((resolve) => setTimeout(resolve, delayMs));
 }
 
+function digestRequiredCheckPolicy(requirements) {
+  return createHash("sha256").update(JSON.stringify(requirements)).digest("hex");
+}
+
 function requiredObservationState(selected) {
   if (!selected) return "missing";
   if (selected.kind === "check") {
@@ -484,7 +489,7 @@ function requiredObservationState(selected) {
   return ["pending", "queued", "in_progress"].includes(String(selected.record.state)) ? "pending" : "failure";
 }
 
-function workflowTestState({ branch, checkRuns, workflowRuns, sha }) {
+function workflowTestObservation({ branch, checkRuns, workflowRuns, sha }) {
   const candidateChecks = checkRuns.filter((check) => (
     String(check?.head_sha ?? "").toLowerCase() === sha &&
     String(check?.name ?? "") === RELEASE_WORKFLOW_TEST_CONTEXT &&
@@ -497,18 +502,22 @@ function workflowTestState({ branch, checkRuns, workflowRuns, sha }) {
     run?.head_branch === branch
   ));
   const latestRun = latestObservation(matchingRuns)?.record ?? null;
-  if (!latestRun) return "missing";
+  if (!latestRun) return { state: "missing", run: null, check: null };
   const runId = String(latestRun.id ?? "");
   const latestCheck = latestObservation(
     candidateChecks.filter((candidate) => workflowRunIdFromDetailsUrl(candidate) === runId)
   )?.record ?? null;
   if (!latestCheck || latestCheck.status !== "completed" || !latestCheck.conclusion ||
       latestRun.status !== "completed" || !latestRun.conclusion) {
-    return "pending";
+    return { state: "pending", run: latestRun, check: latestCheck };
   }
-  return latestCheck.conclusion === "success" && latestRun.conclusion === "success"
-    ? "success"
-    : "failure";
+  return {
+    state: latestCheck.conclusion === "success" && latestRun.conclusion === "success"
+      ? "success"
+      : "failure",
+    run: latestRun,
+    check: latestCheck
+  };
 }
 
 async function verifyCatchUpChecks({
@@ -519,6 +528,9 @@ async function verifyCatchUpChecks({
   token,
   fetchImpl,
   requireWorkflowTest = false,
+  mergeTime = null,
+  pullNumber = null,
+  mergeCommitSha = sha,
   sleepImpl = waitForReleaseChecks
 }) {
   const requiredRequirements = await repositoryRequiredChecks({ apiUrl, repository, branch, token, fetchImpl });
@@ -532,7 +544,8 @@ async function verifyCatchUpChecks({
     throw new Error("Release tag required-check configuration includes the integration-tag job; refusing a circular gate");
   }
   let observations = [];
-  let workflowState = "success";
+  let workflowObservation = { state: "success", run: null, check: null };
+  let workflowState = workflowObservation.state;
   for (let attempt = 0; attempt < REQUIRED_CHECK_POLL_ATTEMPTS; attempt += 1) {
     const checkRuns = await repositoryCheckRuns({ apiUrl, repository, sha, token, fetchImpl });
     const workflowRuns = requireWorkflowTest
@@ -552,9 +565,10 @@ async function verifyCatchUpChecks({
       const selected = latestRequiredObservation(matchingChecks, matchingStatuses);
       return { requirement, selected, state: requiredObservationState(selected) };
     });
-    workflowState = requireWorkflowTest
-      ? workflowTestState({ branch, checkRuns, workflowRuns, sha })
-      : "success";
+    workflowObservation = requireWorkflowTest
+      ? workflowTestObservation({ branch, checkRuns, workflowRuns, sha })
+      : { state: "success", run: null, check: null };
+    workflowState = workflowObservation.state;
     if (observations.some((item) => item.state === "failure")) {
       throw new Error(`Release catch-up requires all exact required checks and statuses to complete successfully: ${sha}`);
     }
@@ -574,7 +588,7 @@ async function verifyCatchUpChecks({
     throw new Error(`Release catch-up lacks an exact successful ${RELEASE_WORKFLOW_TEST_CONTEXT} workflow check: ${sha}`);
   }
   const requiredContexts = requiredRequirements.map((item) => item.context);
-  return {
+  const result = {
     headSha: sha,
     requiredRequirements,
     requiredContexts,
@@ -595,6 +609,76 @@ async function verifyCatchUpChecks({
       }))
       .sort((left, right) => `${left.context}:${left.state}`.localeCompare(`${right.context}:${right.state}`))
   };
+  if (mergeTime !== null) {
+    const mergedAtMs = Date.parse(String(mergeTime));
+    if (!Number.isFinite(mergedAtMs)) {
+      throw new Error(`Release catch-up candidate ${sha} lacks a valid pull-request merge timestamp`);
+    }
+    let normalizedMergeCommit;
+    try {
+      normalizedMergeCommit = assertCommitSha(mergeCommitSha);
+    } catch {
+      normalizedMergeCommit = null;
+    }
+    if (!Number.isInteger(pullNumber) || pullNumber <= 0 || normalizedMergeCommit !== sha) {
+      throw new Error(`Release catch-up candidate ${sha} lacks an immutable merged pull-request binding`);
+    }
+    const observedAt = (record, label) => {
+      const timestamp = observationTime(record);
+      if (!Number.isFinite(timestamp)) {
+        throw new Error(`Release catch-up candidate ${sha} lacks a timestamped ${label} receipt`);
+      }
+      if (timestamp > mergedAtMs) {
+        throw new Error(`Release catch-up candidate ${sha} has ${label} evidence after its pull-request merge`);
+      }
+      return new Date(timestamp).toISOString();
+    };
+    const mergeTimeReceipt = {
+      schemaVersion: 1,
+      kind: "merge-time-required-checks-v1",
+      headSha: sha,
+      pullNumber,
+      mergeCommitSha,
+      mergedAt: new Date(mergedAtMs).toISOString(),
+      requiredRequirements: result.requiredRequirements,
+      requiredCheckPolicyDigest: digestRequiredCheckPolicy(result.requiredRequirements),
+      checkRuns: [],
+      statuses: []
+    };
+    for (const item of observations) {
+      const recordedAt = observedAt(item.selected.record, `${item.requirement.context} required check`);
+      if (item.selected.kind === "check") {
+        mergeTimeReceipt.checkRuns.push({
+          id: String(item.selected.record.id ?? ""),
+          name: String(item.selected.record.name ?? ""),
+          status: item.selected.record.status,
+          conclusion: item.selected.record.conclusion,
+          recordedAt
+        });
+      } else {
+        mergeTimeReceipt.statuses.push({
+          context: String(item.selected.record.context ?? ""),
+          state: item.selected.record.state,
+          recordedAt
+        });
+      }
+    }
+    if (requireWorkflowTest) {
+      if (!workflowObservation.run || !workflowObservation.check) {
+        throw new Error(`Release catch-up candidate ${sha} lacks a timestamped workflow test receipt`);
+      }
+      mergeTimeReceipt.workflow = {
+        runId: String(workflowObservation.run.id ?? ""),
+        runConclusion: workflowObservation.run.conclusion,
+        runRecordedAt: observedAt(workflowObservation.run, "workflow run"),
+        checkId: String(workflowObservation.check.id ?? ""),
+        checkConclusion: workflowObservation.check.conclusion,
+        checkRecordedAt: observedAt(workflowObservation.check, "workflow test check")
+      };
+    }
+    result.mergeTimeReceipt = mergeTimeReceipt;
+  }
+  return result;
 }
 
 export async function runReleaseTag({
@@ -681,10 +765,6 @@ export async function runReleaseTag({
       throw new Error(`Release version ${regressedPending.version} is below the highest published ${branch} release ${highestPublished}; refusing release eligibility`);
     }
   }
-  const historicalPending = pendingCandidates.find((candidate) => candidate.sha !== sha);
-  if (historicalPending) {
-    throw new Error(`Release catch-up candidate ${historicalPending.sha} lacks a durable merge-time required-check receipt; refusing historical catch-up publication`);
-  }
   if (pendingCandidates.length === 0) {
     if (!versionWasChanged) {
       return { status: "skipped", reason: "release-version-unchanged", branch, sha, version: current };
@@ -701,6 +781,9 @@ export async function runReleaseTag({
       token,
       fetchImpl,
       requireWorkflowTest: existing.sha !== sha,
+      mergeTime: existing.sha !== sha ? existing.pull.merged_at : null,
+      pullNumber: existing.sha !== sha ? existing.pull.number : null,
+      mergeCommitSha: existing.sha !== sha ? existing.pull.merge_commit_sha : existing.sha,
       sleepImpl
     });
     if (await remoteHead(cwd, branch) !== sha) {
@@ -727,6 +810,9 @@ export async function runReleaseTag({
       token,
       fetchImpl,
       requireWorkflowTest: candidate.sha !== sha,
+      mergeTime: candidate.sha !== sha ? candidate.pull.merged_at : null,
+      pullNumber: candidate.sha !== sha ? candidate.pull.number : null,
+      mergeCommitSha: candidate.sha !== sha ? candidate.pull.merge_commit_sha : candidate.sha,
       sleepImpl
     });
     checkedCandidates.push({ candidate, requiredChecks });
