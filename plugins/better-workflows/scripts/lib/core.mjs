@@ -7167,6 +7167,24 @@ async function observeDispatchedWorkflow(cwd, record, providerExecutablePath, ex
         if (observed.headSha !== record.remoteRevision) {
           throw new Error(`GitHub Actions dispatch observed a nonce-bound workflow run at revision ${observed.headSha}, expected ${record.remoteRevision}`);
         }
+        const finalRuns = await listWorkflowRuns(cwd, record, providerExecutablePath, {
+          createdFilter: `>=${new Date(minimumCreatedAt).toISOString()}`
+        });
+        const finalCandidates = finalRuns.filter((run) => {
+          const runId = String(run?.databaseId ?? "");
+          const createdAt = Date.parse(run?.createdAt ?? "");
+          return (
+            /^\d+$/.test(runId) && !known.has(runId) &&
+            run.headBranch === expectedHeadBranch &&
+            WORKFLOW_DISPATCH_NONCE.test(String(record.dispatchNonce ?? "")) &&
+            typeof run.displayTitle === "string" &&
+            run.displayTitle.includes(record.dispatchNonce) &&
+            Number.isFinite(createdAt) && createdAt >= minimumCreatedAt
+          );
+        });
+        if (finalCandidates.length !== 1 || String(finalCandidates[0]?.databaseId) !== observedRunId) {
+          throw new Error("GitHub Actions dispatch produced more than one unclaimed matching run");
+        }
         return observed;
       }
     }

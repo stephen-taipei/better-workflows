@@ -2570,8 +2570,12 @@ test("GitHub Actions dispatch reconciliation resumes an indeterminate observatio
   };
   const listPath = path.join(root, "workflow-runs.json");
   const viewPath = path.join(root, "workflow-run.json");
+  const raceArmPath = path.join(root, "arm-second-workflow-run");
+  const raceTrippedPath = path.join(root, "second-workflow-run-listed");
+  const raceListPath = path.join(root, "workflow-runs-race.json");
   await writeFile(listPath, `${JSON.stringify([workflowRun])}\n`);
   await writeFile(viewPath, `${JSON.stringify(workflowRun)}\n`);
+  await writeFile(raceListPath, `${JSON.stringify([workflowRun, { ...workflowRun, databaseId: 54322 }])}\n`);
   const ghScript = `#!/bin/sh
 if [ "$1" = "api" ] && [ "$2" = "user" ]; then
   printf '%s\\n' '{"login":"alice"}'
@@ -2587,7 +2591,14 @@ elif [ "$1" = "api" ] && [ "$2" = "--paginate" ]; then
     *head_sha=*) printf '%s\n' 'workflow observation must not prefilter by head SHA' >&2; exit 42;;
   esac
   printf '%s' '[{"workflow_runs":'
-  cat ${JSON.stringify(listPath)}
+  if [ -f ${JSON.stringify(raceArmPath)} ] && [ ! -f ${JSON.stringify(raceTrippedPath)} ]; then
+    touch ${JSON.stringify(raceTrippedPath)}
+    cat ${JSON.stringify(listPath)}
+  elif [ -f ${JSON.stringify(raceTrippedPath)} ]; then
+    cat ${JSON.stringify(raceListPath)}
+  else
+    cat ${JSON.stringify(listPath)}
+  fi
   printf '%s\n' '}]'
 elif [ "$1" = "run" ] && [ "$2" = "view" ]; then
   case "$*" in
@@ -2756,6 +2767,20 @@ fi
     const persisted = JSON.parse(await readFile(path.join(actionDir, `${tokenHash}.json`), "utf8"));
     assert.equal(persisted.providerInvocation.dispatchState, "sent-or-indeterminate");
     assert.equal(persisted.providerInvocation.workflowRun, undefined);
+
+    await writeFile(listPath, `${JSON.stringify([workflowRun])}\n`);
+    await writeFile(viewPath, `${JSON.stringify(workflowRun)}\n`);
+    await writeFile(raceArmPath, "race\n");
+    await writeFile(path.join(actionDir, `${tokenHash}.json`), `${JSON.stringify(action)}\n`);
+    await assert.rejects(
+      resumeActionsDispatchObservation(root, run.runId, attemptId),
+      /more than one unclaimed matching run/
+    );
+    const racePersisted = JSON.parse(await readFile(path.join(actionDir, `${tokenHash}.json`), "utf8"));
+    assert.equal(racePersisted.providerInvocation.dispatchState, "sent-or-indeterminate");
+    assert.equal(racePersisted.providerInvocation.workflowRun, undefined);
+    await rm(raceArmPath, { force: true });
+    await rm(raceTrippedPath, { force: true });
 
     await writeFile(listPath, `${JSON.stringify([workflowRun])}\n`);
     await writeFile(path.join(actionDir, `${tokenHash}.json`), `${JSON.stringify(action)}\n`);
