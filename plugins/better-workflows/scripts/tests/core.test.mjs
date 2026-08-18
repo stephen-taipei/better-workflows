@@ -3314,6 +3314,30 @@ test("GitHub Actions dispatch capability requires nonce-aware workflow metadata"
     ),
     /duplicate workflow_dispatch input key: sbw_dispatch_nonce/
   );
+  for (const duplicateChild of ["description: public deployment environment", "required: false", "type: string"]) {
+    assert.throws(
+      () => validateWorkflowDispatchCapability(
+        workflow.replace(
+          "        type: string\njobs:",
+          `        type: string\n        ${duplicateChild}\njobs:`
+        ),
+        ".github/workflows/release.yml",
+        revision
+      ),
+      /duplicate workflow_dispatch input environment key:/
+    );
+  }
+  assert.throws(
+    () => validateWorkflowDispatchCapability(
+      workflow.replace(
+        "        type: string\njobs:",
+        "        type: string\n        malformed child\njobs:"
+      ),
+      ".github/workflows/release.yml",
+      revision
+    ),
+    /unsupported or unparsed workflow_dispatch input environment mapping entry/
+  );
   assert.throws(
     () => validateWorkflowDispatchCapability(
       workflow.replace("jobs:", "jobs: &shared_jobs"),
@@ -3612,7 +3636,7 @@ fi
   }
 });
 
-test("transferred PR ownership requires a terminal source registry and live descendant PR", async () => {
+test("transferred PR ownership rejects self-asserted authorization", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "sbw-pr-ownership-transfer-"));
   const repository = path.join(root, "repository");
   const bin = path.join(root, "bin");
@@ -3817,12 +3841,9 @@ fi
   };
   process.env.SBW_STATE_ROOT = root;
   try {
-    await verifyTransferredPullRequestOwnership(targetManifest, targetRecord, providerReceipt, fakeGh);
-    sourceManifest.ownedResources = [];
-    await writeFile(sourceManifestPath, `${JSON.stringify(sourceManifest)}\n`);
     await assert.rejects(
       verifyTransferredPullRequestOwnership(targetManifest, targetRecord, providerReceipt, fakeGh),
-      /source run or registry is not bound/
+      /host-signed authorization receipt/
     );
   } finally {
     if (priorStateRoot === undefined) delete process.env.SBW_STATE_ROOT;

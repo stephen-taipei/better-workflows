@@ -3543,6 +3543,22 @@ export function validateWorkflowDispatchCapability(content, workflowFile, revisi
   if (expectedRevisionIndex < 0) {
     throw new Error(`GitHub Actions workflow_dispatch must declare the reserved ${WORKFLOW_DISPATCH_EXPECTED_REVISION_INPUT} input`);
   }
+  // Validate every input's direct child mapping before interpreting any
+  // ordinary input.  The provider's YAML parser rejects duplicate keys and
+  // malformed children; the capability attestor must do the same instead of
+  // letting find(...) select one ambiguous declaration.
+  for (const inputEntry of inputEntries) {
+    const inputEnd = workflowInputBlockEnd(inputEntries, inputEntry.index, inputsStop);
+    assertCompleteDirectMapping(
+      lines,
+      inputEntry.index,
+      inputEnd,
+      inputEntry.parsed.indent,
+      `workflow_dispatch input ${inputEntry.parsed.key}`
+    );
+    const inputChildren = directWorkflowEntries(lines, inputEntry.index, inputEnd, inputEntry.parsed.indent);
+    assertUniqueWorkflowEntries(inputChildren, `workflow_dispatch input ${inputEntry.parsed.key}`);
+  }
   assertReservedWorkflowInputSchema(
     lines,
     nonceIndex,
@@ -4774,6 +4790,22 @@ async function verifyOwnedResourceCreationProof(manifest, record, providerReceip
   }
 }
 
+function ownershipTransferAuthorizationPayload(transfer, record, repository, number) {
+  return {
+    schemaVersion: 1,
+    kind: "host-signed-ownership-transfer-authorization",
+    sourceRunId: transfer.sourceRunId,
+    sourceResource: `pull/${number}`,
+    sourceAttemptId: transfer.sourceAttemptId,
+    sourceActionDigest: transfer.sourceActionDigest,
+    sourceMarker: transfer.sourceMarker,
+    targetRunId: record.runId,
+    targetAttemptId: record.attemptId,
+    repository,
+    number
+  };
+}
+
 export async function verifyTransferredPullRequestOwnership(manifest, record, providerReceipt, providerExecutablePath) {
   const transfer = providerReceipt.ownershipTransfer;
   if (!transfer || typeof transfer !== "object" || Array.isArray(transfer)) {
@@ -4781,18 +4813,16 @@ export async function verifyTransferredPullRequestOwnership(manifest, record, pr
   }
   const repository = record.createRepository ?? record.providerAuthorization?.repository;
   const sourceResource = `pull/${providerReceipt.number}`;
-  const authorizationPayload = {
-    kind: "user-approved-ownership-transfer",
-    sourceRunId: transfer.sourceRunId,
-    targetRunId: record.runId,
-    sourceResource,
-    targetAttemptId: record.attemptId,
+  const authorizationPayload = ownershipTransferAuthorizationPayload(
+    transfer,
+    record,
     repository,
-    number: providerReceipt.number
-  };
+    providerReceipt.number
+  );
+  const authorizationAttestation = transfer.authorizationAttestation;
   if (
     transfer.schemaVersion !== 1 ||
-    transfer.authorization !== "user-approved" ||
+    Object.hasOwn(transfer, "authorization") ||
     transfer.targetRunId !== record.runId ||
     transfer.targetAttemptId !== record.attemptId ||
     typeof transfer.sourceRunId !== "string" ||
@@ -4806,9 +4836,60 @@ export async function verifyTransferredPullRequestOwnership(manifest, record, pr
     typeof transfer.authorizationDigest !== "string" ||
     transfer.authorizationDigest !== digestObject(authorizationPayload) ||
     typeof transfer.transferredAt !== "string" ||
-    !Number.isFinite(Date.parse(transfer.transferredAt))
+    !Number.isFinite(Date.parse(transfer.transferredAt)) ||
+    !authorizationAttestation ||
+    typeof authorizationAttestation !== "object" ||
+    Array.isArray(authorizationAttestation) ||
+    Object.keys(authorizationAttestation).sort().join("\0") !== "attestationDigest\0fileDigest\0path" ||
+    typeof authorizationAttestation.path !== "string" ||
+    !path.isAbsolute(authorizationAttestation.path) ||
+    path.resolve(authorizationAttestation.path) !== authorizationAttestation.path ||
+    !SHA256_DIGEST.test(authorizationAttestation.attestationDigest ?? "") ||
+    !SHA256_DIGEST.test(authorizationAttestation.fileDigest ?? "")
   ) {
-    throw new Error("Transferred pull request ownership proof is malformed or not explicitly authorized");
+    throw new Error("Transferred pull request ownership proof is malformed or lacks a host-signed authorization receipt");
+  }
+  const authorizationBinding = {
+    base: record.remoteRevision,
+    head: providerReceipt.head,
+    instructionDigest: transfer.authorizationDigest,
+    model: "ownership-transfer-authorization",
+    packageId: `ownership-transfer-${transfer.authorizationDigest}`,
+    promptDigest: transfer.authorizationDigest,
+    reviewDigest: transfer.authorizationDigest,
+    reviewerId: "better-workflows-ownership-transfer",
+    runId: record.runId,
+    sentinelDigest: record.treeDigest
+  };
+  if (
+    !SHA.test(authorizationBinding.base) ||
+    !SHA.test(authorizationBinding.head) ||
+    !SHA256_DIGEST.test(authorizationBinding.sentinelDigest ?? "")
+  ) {
+    throw new Error("Transferred pull request ownership authorization is missing exact action bindings");
+  }
+  const { verifyTrustedNativeCriticAttestation } = await import("./providers.mjs");
+  const attestation = await verifyTrustedNativeCriticAttestation({
+    attestationPath: authorizationAttestation.path,
+    workspaceRoot: manifest.cwd,
+    binding: authorizationBinding
+  });
+  const authorizationFileDigest = sha256(await readFile(authorizationAttestation.path));
+  if (
+    authorizationFileDigest !== authorizationAttestation.fileDigest ||
+    attestation.attestationDigest !== authorizationAttestation.attestationDigest
+  ) {
+    throw new Error("Transferred pull request ownership authorization receipt digest changed");
+  }
+  const transferredAt = Date.parse(transfer.transferredAt);
+  const issuedAt = Date.parse(attestation.issuedAt ?? "");
+  const expiresAt = Date.parse(attestation.expiresAt ?? "");
+  if (
+    !Number.isFinite(issuedAt) || !Number.isFinite(expiresAt) ||
+    issuedAt > transferredAt || expiresAt <= transferredAt ||
+    transferredAt > Date.now() + 300_000
+  ) {
+    throw new Error("Transferred pull request ownership authorization receipt is expired or was issued after transfer");
   }
   const root = getStateRoot();
   const sourceRun = await loadRun(root, transfer.sourceRunId);
