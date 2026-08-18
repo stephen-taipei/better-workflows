@@ -366,6 +366,7 @@ test("release eligibility catches up a version bump after a later non-version pu
     await git(work, ["push", "-q", "origin", "dev"]);
     const head = await git(work, ["rev-parse", "HEAD"]);
     const graphqlCalls = [];
+    let candidateConclusion = "failure";
     const fetchImpl = async (url, options = {}) => {
       if (url.endsWith("/graphql")) {
         const request = JSON.parse(options.body);
@@ -379,20 +380,29 @@ test("release eligibility catches up a version bump after a later non-version pu
       if (url.endsWith(`/repos/example/repo/commits/${bump}/pulls?per_page=100`)) {
         return jsonResponse([{ number: 11, base: { ref: "dev" }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: bump }]);
       }
+      if (url.endsWith(`/repos/example/repo/commits/${bump}/check-runs?per_page=100`)) {
+        return jsonResponse({ check_runs: [{ id: 7, name: "test", head_sha: bump, status: "completed", conclusion: candidateConclusion }] });
+      }
       throw new Error(`Unexpected release-tag fetch URL: ${url}`);
     };
+    const runEnv = {
+      GITHUB_EVENT_NAME: "push",
+      GITHUB_EVENT_BEFORE: bump,
+      GITHUB_REF_NAME: "dev",
+      GITHUB_REPOSITORY: "example/repo",
+      GITHUB_SHA: head,
+      GITHUB_TOKEN: "test-token",
+      GITHUB_API_URL: "https://api.github.com"
+    };
+    await assert.rejects(
+      runReleaseTag({ cwd: work, fetchImpl, env: runEnv }),
+      /all exact release commit check-runs to complete successfully/
+    );
+    candidateConclusion = "success";
     const result = await runReleaseTag({
       cwd: work,
       fetchImpl,
-      env: {
-        GITHUB_EVENT_NAME: "push",
-        GITHUB_EVENT_BEFORE: bump,
-        GITHUB_REF_NAME: "dev",
-        GITHUB_REPOSITORY: "example/repo",
-        GITHUB_SHA: head,
-        GITHUB_TOKEN: "test-token",
-        GITHUB_API_URL: "https://api.github.com"
-      }
+      env: runEnv
     });
     assert.deepEqual(result, {
       status: "created",
@@ -400,7 +410,11 @@ test("release eligibility catches up a version bump after a later non-version pu
       branch: "dev",
       sha: bump,
       version: "3.4.13",
-      pullNumber: 11
+      pullNumber: 11,
+      requiredChecks: {
+        headSha: bump,
+        checkRuns: [{ id: "7", name: "test", status: "completed", conclusion: "success" }]
+      }
     });
     assert.equal(graphqlCalls.length, 2);
     assert.deepEqual(graphqlCalls[1].variables.refUpdates, [
@@ -421,6 +435,9 @@ test("release eligibility catches up a version bump after a later non-version pu
       }
       if (url.endsWith(`/repos/example/repo/commits/${bump}/pulls?per_page=100`)) {
         return jsonResponse([{ number: 11, base: { ref: "dev" }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: bump }]);
+      }
+      if (url.endsWith(`/repos/example/repo/commits/${bump}/check-runs?per_page=100`)) {
+        return jsonResponse({ check_runs: [{ id: 7, name: "test", head_sha: bump, status: "completed", conclusion: "success" }] });
       }
       throw new Error(`Unexpected unchanged release-tag fetch URL: ${url}`);
     };
@@ -444,7 +461,11 @@ test("release eligibility catches up a version bump after a later non-version pu
       branch: "dev",
       sha: bump,
       version: "3.4.13",
-      pullNumber: 11
+      pullNumber: 11,
+      requiredChecks: {
+        headSha: bump,
+        checkRuns: [{ id: "7", name: "test", status: "completed", conclusion: "success" }]
+      }
     });
   } finally {
     await rm(root, { recursive: true, force: true });

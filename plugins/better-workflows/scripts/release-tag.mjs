@@ -63,6 +63,24 @@ async function repositoryPullRequests({ apiUrl, repository, sha, token, fetchImp
   return payload;
 }
 
+async function repositoryCheckRuns({ apiUrl, repository, sha, token, fetchImpl = fetch }) {
+  const endpoint = `${apiUrl.replace(/\/$/, "")}/repos/${repository}/commits/${sha}/check-runs?per_page=100`;
+  const response = await fetchImpl(endpoint, {
+    headers: {
+      Accept: "application/vnd.github+json",
+      Authorization: `Bearer ${token}`,
+      "X-GitHub-Api-Version": "2022-11-28",
+      "User-Agent": "better-workflows-release-tag"
+    }
+  });
+  if (!response.ok) throw new Error(`GitHub exact release check query failed with HTTP ${response.status}`);
+  const payload = await response.json();
+  if (!payload || !Array.isArray(payload.check_runs)) {
+    throw new Error("GitHub exact release check query returned no check-runs array");
+  }
+  return payload.check_runs;
+}
+
 async function githubGraphql({ apiUrl, token, query, variables, fetchImpl = fetch }) {
   const response = await fetchImpl(githubGraphqlUrl(apiUrl), {
     method: "POST",
@@ -195,6 +213,32 @@ async function findCatchUpVersionBump({ cwd, branch, head, version, apiUrl, repo
   return null;
 }
 
+async function verifyCatchUpChecks({ apiUrl, repository, sha, token, fetchImpl }) {
+  const checkRuns = await repositoryCheckRuns({ apiUrl, repository, sha, token, fetchImpl });
+  if (checkRuns.length === 0) {
+    throw new Error(`Release catch-up requires fresh check-runs for exact release commit ${sha}`);
+  }
+  const invalid = checkRuns.filter((check) => (
+    String(check?.head_sha ?? "").toLowerCase() !== sha ||
+    check?.status !== "completed" ||
+    check?.conclusion !== "success"
+  ));
+  if (invalid.length > 0) {
+    throw new Error(`Release catch-up requires all exact release commit check-runs to complete successfully: ${sha}`);
+  }
+  return {
+    headSha: sha,
+    checkRuns: checkRuns
+      .map((check) => ({
+        id: String(check.id ?? ""),
+        name: String(check.name ?? ""),
+        status: check.status,
+        conclusion: check.conclusion
+      }))
+      .sort((left, right) => `${left.name}:${left.id}`.localeCompare(`${right.name}:${right.id}`))
+  };
+}
+
 export async function runReleaseTag({ env = process.env, cwd = process.cwd(), fetchImpl = fetch } = {}) {
   const eventName = String(env.GITHUB_EVENT_NAME ?? "");
   const branch = String(env.GITHUB_REF_NAME ?? "");
@@ -212,8 +256,9 @@ export async function runReleaseTag({ env = process.env, cwd = process.cwd(), fe
   const token = String(env.GITHUB_TOKEN ?? "");
   const repository = String(env.GITHUB_REPOSITORY ?? "");
   if (!token || !repository) throw new Error("GITHUB_TOKEN and GITHUB_REPOSITORY are required for release tagging");
+  const apiUrl = String(env.GITHUB_API_URL ?? "https://api.github.com");
   const pulls = await repositoryPullRequests({
-    apiUrl: String(env.GITHUB_API_URL ?? "https://api.github.com"),
+    apiUrl,
     repository,
     sha,
     token,
@@ -229,13 +274,14 @@ export async function runReleaseTag({ env = process.env, cwd = process.cwd(), fe
   }
   let releaseSha = sha;
   let pull = findMergedPullRequest(pulls, { branch, sha });
+  let catchUpChecks = null;
   if (!versionChanged(current, previous)) {
     const catchUp = await findCatchUpVersionBump({
       cwd,
       branch,
       head: sha,
       version: current,
-      apiUrl: String(env.GITHUB_API_URL ?? "https://api.github.com"),
+      apiUrl,
       repository,
       token,
       fetchImpl
@@ -245,6 +291,7 @@ export async function runReleaseTag({ env = process.env, cwd = process.cwd(), fe
     }
     releaseSha = catchUp.sha;
     pull = catchUp.pull;
+    catchUpChecks = await verifyCatchUpChecks({ apiUrl, repository, sha: releaseSha, token, fetchImpl });
   }
   if (!pull) {
     return { status: "skipped", reason: "commit-is-not-an-exact-merged-pr-result", branch, sha };
@@ -257,17 +304,16 @@ export async function runReleaseTag({ env = process.env, cwd = process.cwd(), fe
     if (await remoteHead(cwd, branch) !== sha) {
       throw new Error(`Remote ${branch} moved before existing release tag reconciliation; refusing to report a stale tag as current`);
     }
-    return { status: "existing", tag, branch, sha: releaseSha, version: current, pullNumber: pull.number };
+    return { status: "existing", tag, branch, sha: releaseSha, version: current, pullNumber: pull.number, ...(catchUpChecks ? { requiredChecks: catchUpChecks } : {}) };
   }
 
   if (env.RELEASE_TAG_DRY_RUN === "1") {
-    return { status: "planned", tag, branch, sha: releaseSha, version: current, pullNumber: pull.number };
+    return { status: "planned", tag, branch, sha: releaseSha, version: current, pullNumber: pull.number, ...(catchUpChecks ? { requiredChecks: catchUpChecks } : {}) };
   }
 
   if (await remoteHead(cwd, branch) !== sha) {
     throw new Error(`Remote ${branch} moved before release tag publication; refusing to tag a stale commit`);
   }
-  const apiUrl = String(env.GITHUB_API_URL ?? "https://api.github.com");
   const repositoryId = await githubRepositoryId({ apiUrl, repository, token, fetchImpl });
   const mutation = releaseTagAtomicMutation({ repositoryId, branch, tag, sha: releaseSha, expectedBranchSha: sha });
   const mutationData = await githubGraphql({
@@ -278,7 +324,7 @@ export async function runReleaseTag({ env = process.env, cwd = process.cwd(), fe
     variables: mutation.variables
   });
   if (!mutationData.updateRefs) throw new Error("GitHub atomic release ref update returned no result");
-  return { status: "created", tag, branch, sha: releaseSha, version: current, pullNumber: pull.number };
+  return { status: "created", tag, branch, sha: releaseSha, version: current, pullNumber: pull.number, ...(catchUpChecks ? { requiredChecks: catchUpChecks } : {}) };
 }
 
 function mainModule() {
