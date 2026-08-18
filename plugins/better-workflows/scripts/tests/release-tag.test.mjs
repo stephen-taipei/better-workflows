@@ -41,6 +41,8 @@ function successfulRequiredCheckResponse(url, sha, context = "test") {
   if (url.endsWith("/branches/dev")) {
     return jsonResponse({ protected: true, protection: { required_status_checks: { contexts: [context], checks: [] } } });
   }
+  const policyWorkflow = policyWorkflowResponse(url);
+  if (policyWorkflow) return policyWorkflow;
   if (url.includes("/actions/runs?event=pull_request&per_page=100&page=1")) {
     return jsonResponse({
       workflow_runs: [{
@@ -60,7 +62,7 @@ function successfulRequiredCheckResponse(url, sha, context = "test") {
     return jsonResponse({ check_runs: [{ id: 7, name: context, head_sha: sha, status: "completed", conclusion: "success", completed_at: "2026-08-14T23:55:00Z" }] });
   }
   if (url.includes(`/commits/${sha}/statuses?per_page=100&page=1`)) {
-    return jsonResponse([{ id: 7, context, state: "success" }]);
+    return jsonResponse([{ id: 7, context, state: "success" }, policyReceiptStatus(context)]);
   }
   return null;
 }

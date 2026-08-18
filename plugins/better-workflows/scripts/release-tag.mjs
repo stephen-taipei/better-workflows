@@ -669,12 +669,11 @@ async function verifyCatchUpChecks({
       });
       preMergeWorkflowObservation = pullRequestWorkflowObservation({ workflowRuns: pullRequestRuns, pullNumber });
       if (preMergeWorkflowObservation.state === "success") {
-        try {
-          testedRevision = assertCommitSha(preMergeWorkflowObservation.run.head_sha);
-        } catch {
-          preMergeWorkflowObservation = { state: "missing", run: preMergeWorkflowObservation.run };
-          testedRevision = normalizedPreMergeSha ?? sha;
+        const workflowHeadSha = assertCommitSha(preMergeWorkflowObservation.run.head_sha);
+        if (workflowHeadSha !== normalizedPreMergeSha) {
+          throw new Error(`Release catch-up candidate ${sha} has a pull-request workflow receipt for a different pre-merge SHA`);
         }
+        testedRevision = workflowHeadSha;
       }
     }
     const checkRuns = await repositoryCheckRuns({ apiUrl, repository, sha: testedRevision, token, fetchImpl });
@@ -732,7 +731,7 @@ async function verifyCatchUpChecks({
     if (workflowState === "failure" && observations.every((item) => item.state === "success")) {
       throw new Error(`Release catch-up lacks an exact successful ${RELEASE_WORKFLOW_TEST_CONTEXT} workflow check: ${sha}`);
     }
-    if (observations.every((item) => item.state === "success") && workflowState === "success" && preMergeWorkflowObservation.state === "success") break;
+    if (observations.every((item) => item.state === "success") && workflowState === "success" && preMergeWorkflowObservation.state === "success" && (mergeTime === null || policyReceipt)) break;
     if (attempt < REQUIRED_CHECK_POLL_ATTEMPTS - 1) await sleepImpl(REQUIRED_CHECK_POLL_DELAY_MS);
   }
   if (observations.some((item) => item.state === "missing")) {
@@ -743,6 +742,9 @@ async function verifyCatchUpChecks({
   }
   if (mergeTime !== null && preMergeWorkflowObservation.state !== "success") {
     throw new Error(`Release catch-up lacks an exact successful pull-request workflow receipt: ${sha}`);
+  }
+  if (mergeTime !== null && !policyReceipt) {
+    throw new Error(`Release catch-up lacks an authenticated merge-time required-check policy receipt: ${sha}`);
   }
   if (requireWorkflowTest && workflowState !== "success") {
     throw new Error(`Release catch-up lacks an exact successful ${RELEASE_WORKFLOW_TEST_CONTEXT} workflow check: ${sha}`);
