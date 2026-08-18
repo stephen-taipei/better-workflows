@@ -2199,6 +2199,10 @@ test("GitHub Actions dispatch adapter binds a fixed command and one observed run
     () => buildActionsDispatchCommand({ ...record, dispatchInputsDigest: "c".repeat(64) }),
     /input digest does not match/
   );
+  assert.throws(
+    () => buildActionsDispatchCommand({ ...record, dispatchRef: "refs/tags/release" }),
+    /tag refs are unsupported by branch-bound observation/
+  );
   const prototypeInputs = JSON.parse(JSON.stringify(inputs));
   Object.defineProperty(prototypeInputs, "__proto__", {
     value: "credential",
@@ -3033,19 +3037,30 @@ fi
       (error) => error?.code === 1 && String(error.stderr ?? "").includes("authentication failed")
     );
     assert.deepEqual((await inspectRun(root, run.runId)).actions, []);
-    for (const scope of ["refs/heads/release", "refs/tags/release"]) {
-      const qualified = await issueActionToken(root, run.runId, {
+    const qualified = await issueActionToken(root, run.runId, {
+      action: "actions.dispatch",
+      provider: "github-cli",
+      resource,
+      scope: "refs/heads/release",
+      workflowFile,
+      dispatchInputs: { environment: "test" },
+      remoteRevision,
+      requiredEvidence: ["remote-authorization"]
+    }, "tree", await loadDefaults());
+    assert.equal(qualified.dispatchRef, "refs/heads/release");
+    await assert.rejects(
+      issueActionToken(root, run.runId, {
         action: "actions.dispatch",
         provider: "github-cli",
         resource,
-        scope,
+        scope: "refs/tags/release",
         workflowFile,
         dispatchInputs: { environment: "test" },
         remoteRevision,
         requiredEvidence: ["remote-authorization"]
-      }, "tree", await loadDefaults());
-      assert.equal(qualified.dispatchRef, scope);
-    }
+      }, "tree", await loadDefaults()),
+      /tag refs are unsupported by branch-bound observation/
+    );
     const issued = await issueActionToken(root, run.runId, {
       action: "actions.dispatch",
       provider: "github-cli",

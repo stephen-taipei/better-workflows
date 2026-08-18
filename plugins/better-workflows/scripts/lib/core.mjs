@@ -3757,6 +3757,9 @@ export function buildActionsDispatchCommand(record) {
   ) {
     throw new Error("GitHub Actions dispatch command binding is incomplete");
   }
+  if (record.dispatchRef.startsWith("refs/tags/")) {
+    throw new Error("GitHub Actions dispatch tag refs are unsupported by branch-bound observation");
+  }
   const workflowFile = canonicalWorkflowFile(record.workflowFile);
   if (!workflowResourceMatchesFile(record) || record.resource !== `workflow:${workflowFile}`) {
     throw new Error("GitHub Actions dispatch command resource is not bound to workflowFile");
@@ -6441,6 +6444,9 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
         throw new Error("GitHub Actions dispatch resource must exactly bind the workflow-file selector");
       }
       const requestedDispatchRef = canonicalWorkflowRef(String(request.scope ?? ""));
+      if (requestedDispatchRef.startsWith("refs/tags/")) {
+        throw new Error("GitHub Actions dispatch tag refs are unsupported by branch-bound observation");
+      }
       await execBoundGitAuthority(manifest.cwd, ["ls-files", "--error-unmatch", "--", workflowFile]);
       const workflowDispatchCapability = await readBoundWorkflowDispatchCapability(
         manifest.cwd,
@@ -6474,6 +6480,9 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
       );
       if (resolvedDispatchRef.revision !== request.remoteRevision) {
         throw new Error("GitHub Actions dispatch ref does not resolve to the requested target revision");
+      }
+      if (resolvedDispatchRef.ref.startsWith("refs/tags/")) {
+        throw new Error("GitHub Actions dispatch tag refs are unsupported by branch-bound observation");
       }
       const dispatchBinding = {
         action: request.action,
