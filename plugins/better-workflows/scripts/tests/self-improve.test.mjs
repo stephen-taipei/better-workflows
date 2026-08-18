@@ -1162,6 +1162,14 @@ test("sanitizer preserves non-secret quoted ownerToken source values but rejects
       /unrecognized ownerToken expression/
     );
 
+    const changedTestSource = "plugins/better-workflows/scripts/tests/self-improve.test.mjs";
+    const [changedTestMaterial] = await readSanitizedCandidateMaterial({
+      cwd: repositoryRoot,
+      snapshot: { files: [await snapshotFile(repositoryRoot, changedTestSource)] },
+      maxFiles: 1
+    });
+    assert.equal(changedTestMaterial.path, changedTestSource);
+
     await writeFile(path.join(cwd, source), 'const config = { ownerToken: "AKIA1234567890ABCDEF" };\n');
     await assert.rejects(
       readSanitizedCandidateMaterial({

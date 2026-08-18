@@ -182,11 +182,11 @@ function redactOwnerTokenDisplay(match, keyQuote, rawValue) {
   return redactOwnerTokenDisplayWithPolicy(match, keyQuote, rawValue, true);
 }
 
-function redactOwnerTokenDisplayWithPolicy(match, keyQuote, rawValue, redactQuoted) {
+function redactOwnerTokenDisplayWithPolicy(match, keyQuote, rawValue, redactQuoted, redactUnquoted = false) {
   const valueQuote = rawValue.startsWith("\"") || rawValue.startsWith("'") ? rawValue[0] : "";
   const quotedValue = valueQuote ? rawValue.slice(1, -1) : "";
   if (valueQuote && !redactQuoted && OWNER_TOKEN_SAFE_QUOTED_LITERALS.has(quotedValue)) return match;
-  if (!valueQuote && !OWNER_TOKEN_UNQUOTED_LITERAL_PATTERN.test(rawValue)) return match;
+  if (!valueQuote && !OWNER_TOKEN_UNQUOTED_LITERAL_PATTERN.test(rawValue) && !redactUnquoted) return match;
   const replacement = "[redacted-owner-token]";
   const renderedValue = valueQuote ? `${valueQuote}${replacement}${valueQuote}` : replacement;
   return `${keyQuote}ownerToken${keyQuote}: ${renderedValue}`;
@@ -227,7 +227,10 @@ function assertSafeOwnerTokenExpressions(text, filePath, label, { allowSecretLit
 
 function sanitizeMaterialText(text, filePath, label) {
   const executableMaterial = /^plugins\/better-workflows\/scripts\/.+\.(?:mjs|c)$/.test(filePath);
-  if (executableMaterial) assertSafeOwnerTokenExpressions(text, filePath, label, { allowSecretLiterals: true });
+  const testFixtureMaterial = filePath.startsWith("plugins/better-workflows/scripts/tests/");
+  if (executableMaterial && !testFixtureMaterial) {
+    assertSafeOwnerTokenExpressions(text, filePath, label, { allowSecretLiterals: true });
+  }
   let sanitized = text;
   let redacted = false;
   if (SECRET_PATTERN.test(ownerTokenSecretScanText(text))) {
@@ -239,7 +242,7 @@ function sanitizeMaterialText(text, filePath, label) {
   }
   sanitized = sanitized.replace(
     PROMPT_DISPLAY_IDENTIFIER_PATTERN,
-    (match, keyQuote, rawValue) => redactOwnerTokenDisplayWithPolicy(match, keyQuote, rawValue, !executableMaterial)
+    (match, keyQuote, rawValue) => redactOwnerTokenDisplayWithPolicy(match, keyQuote, rawValue, !executableMaterial || testFixtureMaterial, testFixtureMaterial)
   );
   redacted ||= sanitized !== text;
   if (SECRET_PATTERN.test(ownerTokenSecretScanText(sanitized))) {

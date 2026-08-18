@@ -730,11 +730,11 @@ function redactOwnerTokenDisplay(match, keyQuote, rawValue) {
   return redactOwnerTokenDisplayWithPolicy(match, keyQuote, rawValue, true);
 }
 
-function redactOwnerTokenDisplayWithPolicy(match, keyQuote, rawValue, redactQuoted) {
+function redactOwnerTokenDisplayWithPolicy(match, keyQuote, rawValue, redactQuoted, redactUnquoted = false) {
   const valueQuote = rawValue.startsWith("\"") || rawValue.startsWith("'") ? rawValue[0] : "";
   const quotedValue = valueQuote ? rawValue.slice(1, -1) : "";
   if (valueQuote && !redactQuoted && OWNER_TOKEN_SAFE_QUOTED_LITERALS.has(quotedValue)) return match;
-  if (!valueQuote && !OWNER_TOKEN_UNQUOTED_LITERAL_PATTERN.test(rawValue)) return match;
+  if (!valueQuote && !OWNER_TOKEN_UNQUOTED_LITERAL_PATTERN.test(rawValue) && !redactUnquoted) return match;
   const replacement = "[redacted-owner-token]";
   const renderedValue = valueQuote ? `${valueQuote}${replacement}${valueQuote}` : replacement;
   return `${keyQuote}ownerToken${keyQuote}: ${renderedValue}`;
@@ -4269,7 +4269,10 @@ async function reconstructSanitizedMaterial({ repo, subject, revision, snapshot,
       const text = content.toString("utf8");
       if (Buffer.byteLength(text, "utf8") !== content.length) throw new Error(`Authoritative material is not valid UTF-8: ${file.path}`);
       const executableMaterial = /^plugins\/better-workflows\/scripts\/.+\.(?:mjs|c)$/.test(file.path);
-      if (executableMaterial) assertSafeOwnerTokenExpressions(text, file.path, { allowSecretLiterals: true });
+      const testFixtureMaterial = file.path.startsWith("plugins/better-workflows/scripts/tests/");
+      if (executableMaterial && !testFixtureMaterial) {
+        assertSafeOwnerTokenExpressions(text, file.path, { allowSecretLiterals: true });
+      }
       let sanitized = text;
       let redacted = false;
       if (secretPattern.test(ownerTokenSecretScanText(text))) {
@@ -4281,7 +4284,7 @@ async function reconstructSanitizedMaterial({ repo, subject, revision, snapshot,
       }
       sanitized = sanitized.replace(
         PROMPT_DISPLAY_IDENTIFIER_PATTERN,
-        (match, keyQuote, rawValue) => redactOwnerTokenDisplayWithPolicy(match, keyQuote, rawValue, !executableMaterial)
+        (match, keyQuote, rawValue) => redactOwnerTokenDisplayWithPolicy(match, keyQuote, rawValue, !executableMaterial || testFixtureMaterial, testFixtureMaterial)
       );
       redacted ||= sanitized !== text;
       if (secretPattern.test(ownerTokenSecretScanText(sanitized))) throw new Error(`Authoritative material contains unredactable secret-shaped content: ${file.path}`);
