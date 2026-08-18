@@ -156,7 +156,7 @@ function successfulRequiredCheckResponse(url, sha, context = "test", pullNumber 
   }
   const policyWorkflow = policyWorkflowResponse(url);
   if (policyWorkflow) return policyWorkflow;
-  if (url.includes("/actions/runs?event=pull_request&per_page=100&page=1")) {
+  if (url.includes("/actions/runs?") && url.includes("event=pull_request") && url.includes("per_page=100&page=1")) {
     return jsonResponse({
       workflow_runs: [{
         id: 900,
@@ -227,7 +227,7 @@ function policyWorkflowResponse(url) {
 }
 
 function pullRequestWorkflowResponse(url, entries) {
-  if (!url.includes("/actions/runs?event=pull_request&per_page=100&page=1")) return null;
+  if (!url.includes("/actions/runs?") || !url.includes("event=pull_request") || !url.includes("per_page=100&page=1")) return null;
   return jsonResponse({
     workflow_runs: entries.map(({ sha, pullNumber, id = 900 + pullNumber, conclusion = "success" }) => ({
       id,

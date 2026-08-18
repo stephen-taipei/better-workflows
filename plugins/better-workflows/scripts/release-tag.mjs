@@ -959,6 +959,7 @@ async function verifyCatchUpChecks({
       const pullRequestRuns = await repositoryWorkflowRuns({
         apiUrl,
         repository,
+        sha: normalizedPreMergeSha,
         event: "pull_request",
         pullNumber,
         token,
