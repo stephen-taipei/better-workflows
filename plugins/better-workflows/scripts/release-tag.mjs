@@ -301,6 +301,22 @@ async function findEligibleVersionBumps({ cwd, branch, head, currentVersion, eve
     .split(/\s+/)
     .filter(Boolean);
   const candidates = [];
+  const seen = [];
+  const pullCache = new Map();
+  const loadPull = async (sha) => {
+    if (pullCache.has(sha)) return pullCache.get(sha);
+    const pull = sha === head
+      ? headPull
+      : findMergedPullRequest(await repositoryPullRequests({
+        apiUrl,
+        repository,
+        sha,
+        token,
+        fetchImpl
+      }), { branch, sha });
+    pullCache.set(sha, pull);
+    return pull;
+  };
   for (const [order, candidate] of revisions.entries()) {
     let parent;
     try {
@@ -314,30 +330,35 @@ async function findEligibleVersionBumps({ cwd, branch, head, currentVersion, eve
     }
     if (candidateVersion === null) continue;
     const parentVersion = await versionAtCommit(cwd, parent);
+    seen.push({ order, sha: candidate, version: candidateVersion });
     if (parentVersion === null || compareStableVersions(candidateVersion, parentVersion) <= 0) continue;
     try {
       await git(cwd, ["merge-base", "--is-ancestor", candidate, head]);
     } catch {
       continue;
     }
-    const pull = candidate === head
-      ? headPull
-      : findMergedPullRequest(await repositoryPullRequests({
-        apiUrl,
-        repository,
-        sha: candidate,
-        token,
-        fetchImpl
-      }), { branch, sha: candidate });
+    let releaseSha = candidate;
+    let pull = await loadPull(candidate);
+    if (!pull) {
+      for (let index = seen.length - 2; index >= 0; index -= 1) {
+        const descendant = seen[index];
+        if (descendant.version !== candidateVersion) continue;
+        const descendantPull = await loadPull(descendant.sha);
+        if (!descendantPull) continue;
+        releaseSha = descendant.sha;
+        pull = descendantPull;
+        break;
+      }
+    }
     if (!pull) continue;
-    const tag = releaseTagName({ branch, version: candidateVersion, sha: candidate });
+    const tag = releaseTagName({ branch, version: candidateVersion, sha: releaseSha });
     const existingCommit = await remoteTag(cwd, tag);
-    if (existingCommit && existingCommit !== candidate) {
-      throw new Error(`${tag} already exists at ${existingCommit}; refusing to retarget it to ${candidate}`);
+    if (existingCommit && existingCommit !== releaseSha) {
+      throw new Error(`${tag} already exists at ${existingCommit}; refusing to retarget it to ${releaseSha}`);
     }
     candidates.push({
       order,
-      sha: candidate,
+      sha: releaseSha,
       pull,
       parentVersion,
       version: candidateVersion,

@@ -438,7 +438,13 @@ test("rebase-style merged PR keeps an earlier version bump eligible at final HEA
         return jsonResponse({ protected: true, protection: { required_status_checks: { contexts: ["lint"], checks: [] } } });
       }
       if (url.includes(`/commits/${head}/check-runs?per_page=100&page=1`)) {
-        return jsonResponse({ check_runs: [{ id: 33, name: "lint", head_sha: head, status: "completed", conclusion: "success" }] });
+        return jsonResponse({ check_runs: [
+          { id: 33, name: "lint", head_sha: head, status: "completed", conclusion: "success" },
+          { id: 34, name: "test", head_sha: head, status: "completed", conclusion: "success", details_url: "https://github.com/example/repo/actions/runs/33/job/1", app: { slug: "github-actions" } }
+        ] });
+      }
+      if (url.includes(`/actions/runs?head_sha=${head}&event=push&per_page=100&page=1`)) {
+        return jsonResponse({ workflow_runs: [{ id: 33, path: ".github/workflows/ci.yml", head_sha: head, event: "push", status: "completed", conclusion: "success" }] });
       }
       if (url.includes(`/commits/${head}/statuses?per_page=100&page=1`)) return jsonResponse([]);
       throw new Error(`Unexpected rebase release-tag fetch URL: ${url}`);
@@ -461,6 +467,29 @@ test("rebase-style merged PR keeps an earlier version bump eligible at final HEA
     assert.equal(result.sha, head);
     assert.equal(result.pullNumber, 33);
     assert.equal(result.tag, `v3.4.13-dev.${head.slice(0, 12)}`);
+    await writeFile(path.join(work, "README.md"), "later unchanged push\n");
+    await git(work, ["add", "README.md"]);
+    await git(work, ["commit", "-qm", "later unchanged push"]);
+    const followUp = await git(work, ["rev-parse", "HEAD"]);
+    await git(work, ["push", "-q", "origin", "dev"]);
+    const recovered = await runReleaseTag({
+      cwd: work,
+      fetchImpl,
+      env: {
+        GITHUB_EVENT_NAME: "push",
+        GITHUB_EVENT_BEFORE: head,
+        GITHUB_REF_NAME: "dev",
+        GITHUB_REPOSITORY: "example/repo",
+        GITHUB_SHA: followUp,
+        GITHUB_TOKEN: "test-token",
+        GITHUB_API_URL: "https://api.github.com",
+        RELEASE_TAG_DRY_RUN: "1"
+      }
+    });
+    assert.equal(recovered.status, "planned");
+    assert.equal(recovered.sha, head);
+    assert.equal(recovered.pullNumber, 33);
+    assert.equal(recovered.tag, `v3.4.13-dev.${head.slice(0, 12)}`);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
