@@ -112,7 +112,7 @@ async function repositoryCommitStatuses({ apiUrl, repository, sha, token, fetchI
 }
 
 async function repositoryRequiredChecks({ apiUrl, repository, branch, token, fetchImpl = fetch }) {
-  const endpoint = `${apiUrl.replace(/\/$/, "")}/repos/${repository}/branches/${encodeURIComponent(branch)}/protection/required_status_checks`;
+  const endpoint = `${apiUrl.replace(/\/$/, "")}/repos/${repository}/branches/${encodeURIComponent(branch)}`;
   const response = await fetchImpl(endpoint, {
     headers: {
       Accept: "application/vnd.github+json",
@@ -121,19 +121,24 @@ async function repositoryRequiredChecks({ apiUrl, repository, branch, token, fet
       "User-Agent": "better-workflows-release-tag"
     }
   });
-  if (!response.ok) throw new Error(`GitHub required release check configuration query failed with HTTP ${response.status}`);
+  if (!response.ok) throw new Error(`GitHub protected branch query failed with HTTP ${response.status}`);
   const payload = await response.json();
-  if (!Array.isArray(payload?.contexts) && !Array.isArray(payload?.checks)) {
+  const protection = payload?.protection;
+  const requiredStatusChecks = protection?.required_status_checks;
+  if (payload?.protected !== true || !requiredStatusChecks || typeof requiredStatusChecks !== "object") {
     throw new Error(`GitHub branch ${branch} returned no resolvable required status check configuration`);
   }
   const required = [];
-  for (const context of payload.contexts ?? []) {
+  if (!Array.isArray(requiredStatusChecks.contexts) && !Array.isArray(requiredStatusChecks.checks)) {
+    throw new Error(`GitHub branch ${branch} returned no resolvable required status check configuration`);
+  }
+  for (const context of requiredStatusChecks.contexts ?? []) {
     if (typeof context !== "string" || context.length === 0) {
       throw new Error(`GitHub branch ${branch} returned an invalid required status context`);
     }
     required.push({ context, appId: null });
   }
-  for (const check of payload.checks ?? []) {
+  for (const check of requiredStatusChecks.checks ?? []) {
     if (!check || typeof check.context !== "string" || check.context.length === 0) {
       throw new Error(`GitHub branch ${branch} returned an invalid app-bound required status check`);
     }

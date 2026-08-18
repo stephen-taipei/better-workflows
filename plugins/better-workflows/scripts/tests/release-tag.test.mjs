@@ -36,8 +36,8 @@ function jsonResponse(value, ok = true, status = 200, headers = {}) {
 }
 
 function successfulRequiredCheckResponse(url, sha, context = "test") {
-  if (url.endsWith("/branches/dev/protection/required_status_checks")) {
-    return jsonResponse({ contexts: [context], checks: [] });
+  if (url.endsWith("/branches/dev")) {
+    return jsonResponse({ protected: true, protection: { required_status_checks: { contexts: [context], checks: [] } } });
   }
   if (url.includes(`/commits/${sha}/check-runs?per_page=100&page=1`)) {
     return jsonResponse({ check_runs: [{ id: 7, name: context, head_sha: sha, status: "completed", conclusion: "success" }] });
@@ -435,8 +435,8 @@ test("release eligibility catches up a version bump after a later non-version pu
       if (url.endsWith(`/repos/example/repo/commits/${bump}/pulls?per_page=100`)) {
         return jsonResponse([{ number: 11, base: { ref: "dev" }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: bump }]);
       }
-      if (url.endsWith("/branches/dev/protection/required_status_checks")) {
-        return jsonResponse({ contexts: [], checks: [{ context: "test", app_id: requiredAppId }] });
+      if (url.endsWith("/branches/dev")) {
+        return jsonResponse({ protected: true, protection: { required_status_checks: { contexts: [], checks: [{ context: "test", app_id: requiredAppId }] } } });
       }
       if (url.includes(`/repos/example/repo/commits/${bump}/check-runs?per_page=100&page=1`)) {
         return jsonResponse(
@@ -531,8 +531,8 @@ test("release eligibility catches up a version bump after a later non-version pu
       if (url.endsWith(`/repos/example/repo/commits/${bump}/pulls?per_page=100`)) {
         return jsonResponse([{ number: 11, base: { ref: "dev" }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: bump }]);
       }
-      if (url.endsWith("/branches/dev/protection/required_status_checks")) {
-        return jsonResponse({ contexts: [], checks: [{ context: "test", app_id: 123 }] });
+      if (url.endsWith("/branches/dev")) {
+        return jsonResponse({ protected: true, protection: { required_status_checks: { contexts: [], checks: [{ context: "test", app_id: 123 }] } } });
       }
       if (url.includes(`/repos/example/repo/commits/${bump}/check-runs?per_page=100&page=1`)) {
         return jsonResponse({ check_runs: [{ id: 7, name: "test", head_sha: bump, status: "completed", conclusion: "success", app: { id: 123 } }] });

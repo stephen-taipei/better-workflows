@@ -30,6 +30,7 @@ jobs:
     permissions:
       contents: write
       checks: read
+      statuses: read
       pull-requests: read
     concurrency:
       group: integration-tag-${{ github.ref_name }}

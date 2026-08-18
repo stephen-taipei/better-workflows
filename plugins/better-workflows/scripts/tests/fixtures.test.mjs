@@ -132,7 +132,7 @@ test("integration-tag workflow grants check-read permission for catch-up reconci
   );
   assert.match(
     workflow,
-    /integration-tag:[\s\S]*?permissions:\s*\n\s+contents:\s+write\s*\n\s+checks:\s+read\s*\n\s+pull-requests:\s+read/
+    /integration-tag:[\s\S]*?permissions:\s*\n\s+contents:\s+write\s*\n\s+checks:\s+read\s*\n\s+statuses:\s+read\s*\n\s+pull-requests:\s+read/
   );
 });
 
