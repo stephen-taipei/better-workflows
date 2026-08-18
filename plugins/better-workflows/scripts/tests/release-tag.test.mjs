@@ -962,6 +962,64 @@ test("an exact HEAD version bump remains eligible past the catch-up history boun
   }
 });
 
+test("the exact catch-up history boundary returns a deterministic no-op", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-release-tag-root-boundary-"));
+  const bare = path.join(root, "origin.git");
+  const work = path.join(root, "work");
+  try {
+    await execFileAsync("git", ["init", "--bare", "-q", bare]);
+    await execFileAsync("git", ["init", "-q", work]);
+    await git(work, ["config", "user.email", "test@example.invalid"]);
+    await git(work, ["config", "user.name", "release-test"]);
+    await mkdir(path.join(work, "plugins/better-workflows/.codex-plugin"), { recursive: true });
+    await mkdir(path.join(work, "plugins/better-workflows"), { recursive: true });
+    await writeFile(path.join(work, "plugins/better-workflows/package.json"), JSON.stringify({ version: "3.4.12" }));
+    await writeFile(path.join(work, "plugins/better-workflows/.codex-plugin/plugin.json"), JSON.stringify({ version: "3.4.12+codex.test" }));
+    await git(work, ["add", "."]);
+    await git(work, ["commit", "-qm", "root"]);
+    await git(work, ["branch", "-M", "dev"]);
+    await git(work, ["remote", "add", "origin", bare]);
+    await git(work, ["push", "-q", "origin", "dev"]);
+    const tree = await git(work, ["rev-parse", "HEAD^{tree}"]);
+    let head = await git(work, ["rev-parse", "HEAD"]);
+    for (let index = 0; index < 127; index += 1) {
+      head = await git(work, ["commit-tree", tree, "-p", head, "-m", `history ${index + 1}`]);
+    }
+    await git(work, ["update-ref", "refs/heads/dev", head]);
+    await git(work, ["push", "-q", "origin", "dev"]);
+    const eventBefore = await git(work, ["rev-parse", "HEAD^1"]);
+    const fetchImpl = async (url) => {
+      if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
+        return jsonResponse([{ number: 34, base: { ref: "dev" }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: head }]);
+      }
+      throw new Error(`Unexpected root-boundary fetch URL: ${url}`);
+    };
+    const result = await runReleaseTag({
+      cwd: work,
+      fetchImpl,
+      env: {
+        GITHUB_EVENT_NAME: "push",
+        GITHUB_EVENT_BEFORE: eventBefore,
+        GITHUB_REF_NAME: "dev",
+        GITHUB_REPOSITORY: "example/repo",
+        GITHUB_SHA: head,
+        GITHUB_TOKEN: "test-token",
+        GITHUB_API_URL: "https://api.github.com",
+        RELEASE_TAG_DRY_RUN: "1"
+      }
+    });
+    assert.deepEqual(result, {
+      status: "skipped",
+      reason: "release-version-unchanged",
+      branch: "dev",
+      sha: head,
+      version: "3.4.12"
+    });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("catch-up publication requires the exact workflow test check on the release SHA", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "sbw-release-tag-workflow-test-"));
   const bare = path.join(root, "origin.git");

@@ -368,7 +368,7 @@ async function findEligibleVersionBumps({ cwd, branch, head, currentVersion, eve
     try {
       await git(cwd, ["rev-parse", "--verify", `${oldest}^1`]);
     } catch {
-      return null;
+      return candidates;
     }
     throw new Error(`Release catch-up history exceeded bounded first-parent search of ${CATCH_UP_HISTORY_LIMIT} commits; refusing to report release-version-unchanged`);
   }
