@@ -22,6 +22,7 @@ const PLUGIN_MANIFEST = "plugins/better-workflows/.codex-plugin/plugin.json";
 const RELEASE_WORKFLOW_TEST_CONTEXT = "test";
 const RELEASE_WORKFLOW_TEST_APP_SLUG = "github-actions";
 const RELEASE_WORKFLOW_FILE = ".github/workflows/ci.yml";
+const CATCH_UP_HISTORY_LIMIT = 128;
 const REQUIRED_CHECK_POLL_ATTEMPTS = 6;
 const REQUIRED_CHECK_POLL_DELAY_MS = 10_000;
 
@@ -296,7 +297,7 @@ async function validatedEventBeforeRevision(cwd, before, head) {
 }
 
 async function findCatchUpVersionBump({ cwd, branch, head, version, apiUrl, repository, token, fetchImpl }) {
-  const revisions = (await git(cwd, ["rev-list", "--first-parent", "--max-count=128", head]))
+  const revisions = (await git(cwd, ["rev-list", "--first-parent", `--max-count=${CATCH_UP_HISTORY_LIMIT}`, head]))
     .split(/\s+/)
     .filter(Boolean);
   for (const candidate of revisions) {
@@ -327,6 +328,15 @@ async function findCatchUpVersionBump({ cwd, branch, head, version, apiUrl, repo
     });
     const pull = findMergedPullRequest(pulls, { branch, sha: candidate });
     if (pull) return { sha: candidate, pull, parentVersion };
+  }
+  if (revisions.length === CATCH_UP_HISTORY_LIMIT) {
+    const oldest = revisions.at(-1);
+    try {
+      await git(cwd, ["rev-parse", "--verify", `${oldest}^1`]);
+    } catch {
+      return null;
+    }
+    throw new Error(`Release catch-up history exceeded bounded first-parent search of ${CATCH_UP_HISTORY_LIMIT} commits; refusing to report release-version-unchanged`);
   }
   return null;
 }
