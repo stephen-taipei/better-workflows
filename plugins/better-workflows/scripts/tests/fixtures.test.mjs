@@ -147,7 +147,8 @@ test("trusted pull-request-target workflow publishes the merged policy receipt",
   assert.doesNotMatch(testJob, /statuses:\s+write/);
   assert.match(workflow, /release-policy-receipt:\s*\n\s+name:\s+Release policy receipt\s*\n\s+if:\s+github\.event_name\s+==\s+'pull_request_target'\s+&&\s+github\.event\.action\s+==\s+'closed'\s+&&\s+github\.event\.pull_request\.merged\s+==\s+true/);
   assert.match(workflow, /release-policy-receipt:[\s\S]*?actions:\s+read\s*\n\s+statuses:\s+write/);
-  assert.match(workflow, /release-policy-receipt:[\s\S]*?ref:\s+\$\{\{\s*github\.event\.pull_request\.base\.sha\s*\}\}/);
+  assert.match(workflow, /pull_request_target:\s*\n\s+types:\s+\[closed\]/);
+  assert.match(workflow, /release-policy-receipt:[\s\S]*?ref:\s+\$\{\{\s*github\.event\.pull_request\.merge_commit_sha\s*\}\}/);
   assert.match(workflow, /release-policy-receipt:[\s\S]*?GITHUB_EVENT_NAME:\s+\$\{\{\s*github\.event_name\s*\}\}/);
   assert.match(workflow, /release-policy-receipt:[\s\S]*?GITHUB_EVENT_ACTION:\s+\$\{\{\s*github\.event\.action\s*\}\}/);
   assert.match(workflow, /release-policy-receipt:[\s\S]*?GITHUB_HEAD_SHA:\s+\$\{\{\s*github\.event\.pull_request\.head\.sha\s*\}\}/);

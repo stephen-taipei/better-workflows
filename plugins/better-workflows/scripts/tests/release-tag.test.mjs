@@ -358,6 +358,84 @@ exec /usr/bin/git "$@"
   }
 });
 
+test("merge-time policy receipt binds the pre-merge head separately from the merge commit", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-release-tag-policy-head-"));
+  const bare = path.join(root, "origin.git");
+  const work = path.join(root, "work");
+  const preMergeSha = "b".repeat(40);
+  const pullNumber = 17;
+  try {
+    await execFileAsync("git", ["init", "--bare", "-q", bare]);
+    await execFileAsync("git", ["init", "-q", work]);
+    await git(work, ["config", "user.email", "test@example.invalid"]);
+    await git(work, ["config", "user.name", "release-test"]);
+    await mkdir(path.join(work, "plugins/better-workflows/.codex-plugin"), { recursive: true });
+    await mkdir(path.join(work, "plugins/better-workflows"), { recursive: true });
+    await writeFile(path.join(work, "plugins/better-workflows/package.json"), JSON.stringify({ version: "3.4.12" }));
+    await writeFile(path.join(work, "plugins/better-workflows/.codex-plugin/plugin.json"), JSON.stringify({ version: "3.4.12+codex.test" }));
+    await git(work, ["add", "."]);
+    await git(work, ["commit", "-qm", "base"]);
+    await git(work, ["branch", "-M", "dev"]);
+    await git(work, ["remote", "add", "origin", bare]);
+    await git(work, ["push", "-q", "origin", "dev"]);
+    const eventBefore = await git(work, ["rev-parse", "HEAD"]);
+    await writeFile(path.join(work, "plugins/better-workflows/package.json"), JSON.stringify({ version: "3.4.13" }));
+    await writeFile(path.join(work, "plugins/better-workflows/.codex-plugin/plugin.json"), JSON.stringify({ version: "3.4.13+codex.test" }));
+    await git(work, ["add", "."]);
+    await git(work, ["commit", "-qm", "merge result"]);
+    await git(work, ["push", "-q", "origin", "dev"]);
+    const mergeSha = await git(work, ["rev-parse", "HEAD"]);
+    const fetchImpl = async (url) => {
+      if (url.endsWith(`/repos/example/repo/commits/${mergeSha}/pulls?per_page=100`)) {
+        return jsonResponse([{
+          number: pullNumber,
+          base: { ref: "dev" },
+          head: { sha: preMergeSha },
+          merged_at: "2026-08-15T00:00:00Z",
+          merge_commit_sha: mergeSha
+        }]);
+      }
+      const workflowResponse = pullRequestWorkflowResponse(url, [{ sha: preMergeSha, pullNumber }]);
+      if (workflowResponse) return workflowResponse;
+      if (url.endsWith("/branches/dev")) {
+        return jsonResponse({ protected: true, protection: { required_status_checks: { contexts: ["test"], checks: [] } } });
+      }
+      if (url.includes(`/commits/${preMergeSha}/check-runs?per_page=100&page=1`)) {
+        return jsonResponse({ check_runs: [{ id: 7, name: "test", head_sha: preMergeSha, status: "completed", conclusion: "success", completed_at: "2026-08-14T23:55:00Z" }] });
+      }
+      if (url.includes(`/commits/${preMergeSha}/statuses?per_page=100&page=1`)) {
+        return jsonResponse([
+          { id: 7, context: "test", state: "success" },
+          policyReceiptStatus("test", "2026-08-20T00:50:00Z", null, { pullNumber, headSha: preMergeSha, mergeSha })
+        ]);
+      }
+      const policyWorkflow = policyWorkflowResponse(url);
+      if (policyWorkflow) return policyWorkflow;
+      throw new Error(`Unexpected merge-time policy fetch URL: ${url}`);
+    };
+    const result = await runReleaseTag({
+      cwd: work,
+      fetchImpl,
+      env: {
+        GITHUB_EVENT_NAME: "push",
+        GITHUB_EVENT_BEFORE: eventBefore,
+        GITHUB_REF_NAME: "dev",
+        GITHUB_REPOSITORY: "example/repo",
+        GITHUB_SHA: mergeSha,
+        GITHUB_TOKEN: "test-token",
+        GITHUB_API_URL: "https://api.github.com",
+        RELEASE_TAG_DRY_RUN: "1"
+      }
+    });
+    assert.equal(result.status, "planned");
+    assert.equal(result.sha, mergeSha);
+    assert.equal(result.requiredChecks.mergeTimeReceipt.preMergeSha, preMergeSha);
+    assert.equal(result.requiredChecks.mergeTimeReceipt.mergeCommitSha, mergeSha);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("release eligibility uses the validated push-event parent across multi-commit integration", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "sbw-release-tag-parent-"));
   const bare = path.join(root, "origin.git");

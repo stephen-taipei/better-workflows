@@ -513,7 +513,7 @@ function policyReceiptMatches(record, policyDigest) {
     policyReceiptRunId(record) !== null;
 }
 
-async function verifyPolicyReceipt({ record, policyDigest, apiUrl, repository, branch, mergeTimeMs, token, fetchImpl, candidateSha, pullNumber, mergeCommitSha }) {
+async function verifyPolicyReceipt({ record, policyDigest, apiUrl, repository, branch, mergeTimeMs, token, fetchImpl, candidateSha, preMergeSha, pullNumber, mergeCommitSha }) {
   if (!policyReceiptMatches(record, policyDigest)) {
     throw new Error(`Release catch-up candidate ${candidateSha} has an unauthenticated merge-time required-check policy receipt`);
   }
@@ -529,7 +529,7 @@ async function verifyPolicyReceipt({ record, policyDigest, apiUrl, repository, b
   }
   if (
     targetUrl.searchParams.get("pr") !== String(pullNumber) ||
-    targetUrl.searchParams.get("head") !== candidateSha ||
+    targetUrl.searchParams.get("head") !== preMergeSha ||
     targetUrl.searchParams.get("base") !== branch ||
     targetUrl.searchParams.get("merge") !== mergeCommitSha
   ) {
@@ -726,6 +726,7 @@ async function verifyCatchUpChecks({
           token,
           fetchImpl,
           candidateSha: sha,
+          preMergeSha: normalizedPreMergeSha,
           pullNumber,
           mergeCommitSha
         });
