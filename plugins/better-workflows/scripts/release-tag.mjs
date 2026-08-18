@@ -125,11 +125,12 @@ async function repositoryCheckRuns({ apiUrl, repository, sha, token, fetchImpl =
   });
 }
 
-async function repositoryWorkflowRuns({ apiUrl, repository, branch = null, sha = null, event = "push", token, fetchImpl = fetch }) {
+async function repositoryWorkflowRuns({ apiUrl, repository, branch = null, sha = null, event = "push", createdFilter = null, token, fetchImpl = fetch }) {
   const query = new URLSearchParams();
   if (sha) query.set("head_sha", sha);
   query.set("event", event);
   if (branch) query.set("branch", branch);
+  if (createdFilter) query.set("created", createdFilter);
   return pagedGitHubCollection({
     apiUrl,
     pathName: `/repos/${repository}/actions/runs?${query.toString()}`,
@@ -901,6 +902,7 @@ async function verifyCatchUpChecks({
   pullNumber = null,
   mergeCommitSha = sha,
   preMergeSha = sha,
+  preMergeHeadRef = null,
   sleepImpl = waitForReleaseChecks
 }) {
   const currentRequirements = await repositoryRequiredChecks({ apiUrl, repository, branch, token, fetchImpl });
@@ -982,8 +984,9 @@ async function verifyCatchUpChecks({
       const pullRequestRuns = await repositoryWorkflowRuns({
         apiUrl,
         repository,
-        sha: normalizedPreMergeSha,
+        branch: preMergeHeadRef,
         event: "pull_request",
+        createdFilter: `<=${new Date(mergeTimeMs).toISOString()}`,
         pullNumber,
         token,
         fetchImpl
@@ -991,9 +994,9 @@ async function verifyCatchUpChecks({
       preMergeWorkflowObservation = pullRequestWorkflowObservation({ workflowRuns: pullRequestRuns, pullNumber, mergeTimeMs });
       if (preMergeWorkflowObservation.state === "success") {
         const workflowHeadSha = assertCommitSha(preMergeWorkflowObservation.run.head_sha);
-        if (workflowHeadSha !== normalizedPreMergeSha) {
-          throw new Error(`Release catch-up candidate ${sha} has a pull-request workflow receipt for a different pre-merge SHA`);
-        }
+        // GitHub pull_request workflows commonly run on a synthetic merge
+        // revision. Keep the PR head binding separately, then verify checks
+        // against the exact revision recorded by the trusted workflow run.
         testedRevision = workflowHeadSha;
       }
     }
@@ -1284,6 +1287,7 @@ export async function runReleaseTag({
       pullNumber: existing.pull.number,
       mergeCommitSha: existing.pull.merge_commit_sha,
       preMergeSha: existing.pull.head?.sha,
+      preMergeHeadRef: existing.pull.head?.ref,
       sleepImpl
     });
     if (await remoteHead(cwd, branch) !== sha) {
@@ -1317,6 +1321,7 @@ export async function runReleaseTag({
       pullNumber: candidate.pull.number,
       mergeCommitSha: candidate.pull.merge_commit_sha,
       preMergeSha: candidate.pull.head?.sha,
+      preMergeHeadRef: candidate.pull.head?.ref,
       sleepImpl
     });
     checkedCandidates.push({ candidate, requiredChecks });

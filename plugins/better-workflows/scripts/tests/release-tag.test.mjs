@@ -491,6 +491,7 @@ test("merge-time policy receipt binds the pre-merge head separately from the mer
   const bare = path.join(root, "origin.git");
   const work = path.join(root, "work");
   const preMergeSha = "b".repeat(40);
+  const syntheticMergeSha = "c".repeat(40);
   const pullNumber = 17;
   try {
     await execFileAsync("git", ["init", "--bare", "-q", bare]);
@@ -520,18 +521,21 @@ test("merge-time policy receipt binds the pre-merge head separately from the mer
         return jsonResponse([{
           number: pullNumber,
           base: { ref: "dev" },
-          head: { sha: preMergeSha },
+          head: { sha: preMergeSha, ref: "feature/release" },
           merged_at: "2026-08-15T00:00:00Z",
           merge_commit_sha: mergeSha
         }]);
       }
-      const workflowResponse = pullRequestWorkflowResponse(url, [{ sha: preMergeSha, pullNumber }]);
+      const workflowResponse = pullRequestWorkflowResponse(url, [{ sha: syntheticMergeSha, pullNumber }]);
       if (workflowResponse) return workflowResponse;
       if (url.endsWith("/branches/dev")) {
         return jsonResponse({ protected: true, protection: { required_status_checks: { contexts: ["current-only"], checks: [] } } });
       }
-      if (url.includes(`/commits/${preMergeSha}/check-runs?per_page=100&page=1`)) {
-        return jsonResponse({ check_runs: [{ id: 7, name: "test", head_sha: preMergeSha, status: "completed", conclusion: "success", completed_at: "2026-08-14T23:55:00Z" }] });
+      if (url.includes(`/commits/${syntheticMergeSha}/check-runs?per_page=100&page=1`)) {
+        return jsonResponse({ check_runs: [{ id: 7, name: "test", head_sha: syntheticMergeSha, status: "completed", conclusion: "success", completed_at: "2026-08-14T23:55:00Z" }] });
+      }
+      if (url.includes(`/commits/${syntheticMergeSha}/statuses?per_page=100&page=1`)) {
+        return jsonResponse([{ id: 7, context: "test", state: "success" }]);
       }
       if (url.includes(`/commits/${preMergeSha}/statuses?per_page=100&page=1`)) {
         return jsonResponse([
@@ -560,6 +564,7 @@ test("merge-time policy receipt binds the pre-merge head separately from the mer
     assert.equal(result.status, "planned");
     assert.equal(result.sha, mergeSha);
     assert.equal(result.requiredChecks.mergeTimeReceipt.preMergeSha, preMergeSha);
+    assert.equal(result.requiredChecks.mergeTimeReceipt.testedSha, syntheticMergeSha);
     assert.equal(result.requiredChecks.mergeTimeReceipt.mergeCommitSha, mergeSha);
     assert.deepEqual(result.requiredChecks.requiredRequirements, [{ context: "test", appId: null }]);
     assert.equal(policyArtifactUnavailableResponses, 0);

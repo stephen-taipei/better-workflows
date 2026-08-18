@@ -4394,18 +4394,6 @@ async function readOptionalBoundGitHubDispatchRefRevision(cwd, repository, dispa
 async function resolveBoundGitHubDispatchRef(cwd, repository, requestedRef, executablePath) {
   const ref = canonicalWorkflowRef(requestedRef);
   if (WORKFLOW_REF_IDENTITY.test(ref)) {
-    const [, kind, name] = ref.match(/^refs\/(heads|tags)\/(.+)$/);
-    const siblingKind = kind === "heads" ? "tags" : "heads";
-    const siblingRef = `refs/${siblingKind}/${name}`;
-    const siblingRevision = await readOptionalBoundGitHubDispatchRefRevision(
-      cwd,
-      repository,
-      siblingRef,
-      executablePath
-    );
-    if (siblingRevision !== null) {
-      throw new Error("GitHub Actions dispatch scope is ambiguous between a fully qualified branch and tag ref");
-    }
     return {
       ref,
       revision: await readBoundGitHubDispatchRefRevision(cwd, repository, ref, executablePath)

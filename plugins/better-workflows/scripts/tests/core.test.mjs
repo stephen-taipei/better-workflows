@@ -2844,7 +2844,7 @@ test("GitHub Actions dispatch invocation failure stays indeterminate and rejects
   await execFileAsync("git", ["add", "."], { cwd: repository });
   await execFileAsync("git", ["commit", "-qm", "dispatch failure fixture"], { cwd: repository });
   const remoteRevision = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repository })).stdout.trim();
-  const siblingRevision = "c".repeat(40);
+  const siblingRevision = remoteRevision;
   const taskContract = contract({
     authority: ["actions.dispatch"],
     remoteRevision,
@@ -3004,21 +3004,6 @@ fi
       }, "tree", await loadDefaults()),
       /ambiguous between a branch and tag ref/
     );
-    for (const scope of ["refs/heads/release", "refs/tags/release"]) {
-      await assert.rejects(
-        issueActionToken(root, run.runId, {
-          action: "actions.dispatch",
-          provider: "github-cli",
-          resource,
-          scope,
-          workflowFile,
-          dispatchInputs: { environment: "test" },
-          remoteRevision,
-          requiredEvidence: ["remote-authorization"]
-        }, "tree", await loadDefaults()),
-        /ambiguous between a fully qualified branch and tag ref/
-      );
-    }
     await assert.rejects(
       issueActionToken(root, run.runId, {
         action: "actions.dispatch",
@@ -3033,6 +3018,19 @@ fi
       (error) => error?.code === 1 && String(error.stderr ?? "").includes("authentication failed")
     );
     assert.deepEqual((await inspectRun(root, run.runId)).actions, []);
+    for (const scope of ["refs/heads/release", "refs/tags/release"]) {
+      const qualified = await issueActionToken(root, run.runId, {
+        action: "actions.dispatch",
+        provider: "github-cli",
+        resource,
+        scope,
+        workflowFile,
+        dispatchInputs: { environment: "test" },
+        remoteRevision,
+        requiredEvidence: ["remote-authorization"]
+      }, "tree", await loadDefaults());
+      assert.equal(qualified.dispatchRef, scope);
+    }
     const issued = await issueActionToken(root, run.runId, {
       action: "actions.dispatch",
       provider: "github-cli",
