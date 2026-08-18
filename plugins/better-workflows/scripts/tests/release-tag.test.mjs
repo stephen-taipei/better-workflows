@@ -557,6 +557,139 @@ test("catch-up rejects a direct version bump laundered through an unrelated PR",
   }
 });
 
+test("dev release rejects republishing a stable version at a new commit", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-release-tag-duplicate-published-version-"));
+  const bare = path.join(root, "origin.git");
+  const work = path.join(root, "work");
+  try {
+    await execFileAsync("git", ["init", "--bare", "-q", bare]);
+    await execFileAsync("git", ["init", "-q", work]);
+    await git(work, ["config", "user.email", "test@example.invalid"]);
+    await git(work, ["config", "user.name", "release-test"]);
+    await mkdir(path.join(work, "plugins/better-workflows/.codex-plugin"), { recursive: true });
+    await mkdir(path.join(work, "plugins/better-workflows"), { recursive: true });
+    const writeVersion = async (version) => {
+      await writeFile(path.join(work, "plugins/better-workflows/package.json"), JSON.stringify({ version }));
+      await writeFile(path.join(work, "plugins/better-workflows/.codex-plugin/plugin.json"), JSON.stringify({ version: `${version}+codex.test` }));
+    };
+    await writeVersion("3.4.12");
+    await git(work, ["add", "."]);
+    await git(work, ["commit", "-qm", "base"]);
+    await git(work, ["branch", "-M", "dev"]);
+    await git(work, ["remote", "add", "origin", bare]);
+    await git(work, ["push", "-q", "origin", "dev"]);
+    await writeVersion("3.4.13");
+    await git(work, ["add", "."]);
+    await git(work, ["commit", "-qm", "first 3.4.13 bump"]);
+    const firstBump = await git(work, ["rev-parse", "HEAD"]);
+    await git(work, ["push", "-q", "origin", "dev"]);
+    const publishedTag = `v3.4.13-dev.${firstBump.slice(0, 12)}`;
+    await git(work, ["tag", publishedTag, firstBump]);
+    await git(work, ["push", "-q", "origin", `refs/tags/${publishedTag}`]);
+    await writeVersion("3.4.12");
+    await git(work, ["add", "."]);
+    await git(work, ["commit", "-qm", "version regression"]);
+    const regression = await git(work, ["rev-parse", "HEAD"]);
+    await writeVersion("3.4.13");
+    await git(work, ["add", "."]);
+    await git(work, ["commit", "-qm", "restored 3.4.13 bump"]);
+    const head = await git(work, ["rev-parse", "HEAD"]);
+    await git(work, ["push", "-q", "origin", "dev"]);
+    const fetchImpl = async (url) => {
+      if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
+        return jsonResponse([{ number: 52, base: { ref: "dev" }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: head }]);
+      }
+      if (url.includes("/pulls?per_page=100")) return jsonResponse([]);
+      throw new Error(`Unexpected duplicate-version fetch URL: ${url}`);
+    };
+    await assert.rejects(
+      runReleaseTag({
+        cwd: work,
+        fetchImpl,
+        env: {
+          GITHUB_EVENT_NAME: "push",
+          GITHUB_EVENT_BEFORE: regression,
+          GITHUB_REF_NAME: "dev",
+          GITHUB_REPOSITORY: "example/repo",
+          GITHUB_SHA: head,
+          GITHUB_TOKEN: "test-token",
+          GITHUB_API_URL: "https://api.github.com",
+          RELEASE_TAG_DRY_RUN: "1"
+        }
+      }),
+      /equals the highest published dev release 3\.4\.13.*expected tag is absent/
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("release publication rejects duplicate stable versions in one candidate batch", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-release-tag-duplicate-candidates-"));
+  const bare = path.join(root, "origin.git");
+  const work = path.join(root, "work");
+  try {
+    await execFileAsync("git", ["init", "--bare", "-q", bare]);
+    await execFileAsync("git", ["init", "-q", work]);
+    await git(work, ["config", "user.email", "test@example.invalid"]);
+    await git(work, ["config", "user.name", "release-test"]);
+    await mkdir(path.join(work, "plugins/better-workflows/.codex-plugin"), { recursive: true });
+    await mkdir(path.join(work, "plugins/better-workflows"), { recursive: true });
+    const writeVersion = async (version) => {
+      await writeFile(path.join(work, "plugins/better-workflows/package.json"), JSON.stringify({ version }));
+      await writeFile(path.join(work, "plugins/better-workflows/.codex-plugin/plugin.json"), JSON.stringify({ version: `${version}+codex.test` }));
+    };
+    await writeVersion("3.4.12");
+    await git(work, ["add", "."]);
+    await git(work, ["commit", "-qm", "base"]);
+    await git(work, ["branch", "-M", "dev"]);
+    await git(work, ["remote", "add", "origin", bare]);
+    await git(work, ["push", "-q", "origin", "dev"]);
+    const eventBefore = await git(work, ["rev-parse", "HEAD"]);
+    await writeVersion("3.4.13");
+    await git(work, ["add", "."]);
+    await git(work, ["commit", "-qm", "first 3.4.13 bump"]);
+    const firstBump = await git(work, ["rev-parse", "HEAD"]);
+    await writeVersion("3.4.12");
+    await git(work, ["add", "."]);
+    await git(work, ["commit", "-qm", "version regression"]);
+    await writeVersion("3.4.13");
+    await git(work, ["add", "."]);
+    await git(work, ["commit", "-qm", "second 3.4.13 bump"]);
+    const head = await git(work, ["rev-parse", "HEAD"]);
+    await git(work, ["push", "-q", "origin", "dev"]);
+    const fetchImpl = async (url) => {
+      if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
+        return jsonResponse([{ number: 54, base: { ref: "dev" }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: head }]);
+      }
+      if (url.endsWith(`/repos/example/repo/commits/${firstBump}/pulls?per_page=100`)) {
+        return jsonResponse([{ number: 53, base: { ref: "dev" }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: firstBump }]);
+      }
+      if (url.includes("/pulls?per_page=100")) return jsonResponse([]);
+      throw new Error(`Unexpected duplicate-candidate fetch URL: ${url}`);
+    };
+    await assert.rejects(
+      runReleaseTag({
+        cwd: work,
+        fetchImpl,
+        env: {
+          GITHUB_EVENT_NAME: "push",
+          GITHUB_EVENT_BEFORE: eventBefore,
+          GITHUB_REF_NAME: "dev",
+          GITHUB_REPOSITORY: "example/repo",
+          GITHUB_SHA: head,
+          GITHUB_TOKEN: "test-token",
+          GITHUB_API_URL: "https://api.github.com",
+          RELEASE_TAG_DRY_RUN: "1"
+        }
+      }),
+      /Stable release version 3\.4\.13 has multiple eligible commits/
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("release eligibility catches up a version bump after a later non-version push", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "sbw-release-tag-race-") );
   const bare = path.join(root, "origin.git");

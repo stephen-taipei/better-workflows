@@ -663,6 +663,28 @@ export async function runReleaseTag({
     throw new Error(`Release version ${current} is below the highest published ${branch} release ${highestPublished}; refusing release eligibility`);
   }
   const pendingCandidates = candidates.filter((candidate) => !candidate.existingCommit);
+  const candidatesByVersion = new Map();
+  for (const candidate of candidates) {
+    const prior = candidatesByVersion.get(candidate.version);
+    if (prior && prior.sha !== candidate.sha) {
+      throw new Error(`Stable release version ${candidate.version} has multiple eligible commits (${prior.sha} and ${candidate.sha}); refusing ambiguous release publication`);
+    }
+    if (!prior) candidatesByVersion.set(candidate.version, candidate);
+  }
+  if (highestPublished !== null) {
+    const duplicatePending = pendingCandidates.find((candidate) => (
+      compareStableVersions(candidate.version, highestPublished) === 0
+    ));
+    if (duplicatePending) {
+      throw new Error(`Release version ${duplicatePending.version} equals the highest published ${branch} release ${highestPublished} but its expected tag is absent; refusing duplicate stable release publication`);
+    }
+    const regressedPending = pendingCandidates.find((candidate) => (
+      compareStableVersions(candidate.version, highestPublished) < 0
+    ));
+    if (regressedPending) {
+      throw new Error(`Release version ${regressedPending.version} is below the highest published ${branch} release ${highestPublished}; refusing release eligibility`);
+    }
+  }
   if (pendingCandidates.length === 0) {
     if (!versionWasChanged) {
       return { status: "skipped", reason: "release-version-unchanged", branch, sha, version: current };
