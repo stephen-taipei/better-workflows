@@ -115,6 +115,15 @@ async function currentVersion(cwd) {
   return versionSurfaces(packageJson, pluginManifest);
 }
 
+async function versionAtCommit(cwd, revision) {
+  const [packageJson, pluginManifest] = await Promise.all([
+    readJsonAtCommit(cwd, revision, REPOSITORY_PACKAGE),
+    readJsonAtCommit(cwd, revision, PLUGIN_MANIFEST)
+  ]);
+  if (!packageJson || !pluginManifest) return null;
+  return versionSurfaces(packageJson, pluginManifest);
+}
+
 async function previousVersion(cwd, revision) {
   if (revision === null) return null;
   const [packageJson, pluginManifest] = await Promise.all([
@@ -153,6 +162,39 @@ async function validatedEventBeforeRevision(cwd, before, head) {
   return targetParent;
 }
 
+async function findCatchUpVersionBump({ cwd, branch, head, version, apiUrl, repository, token, fetchImpl }) {
+  const revisions = (await git(cwd, ["rev-list", "--first-parent", "--max-count=128", head]))
+    .split(/\s+/)
+    .filter(Boolean);
+  for (const candidate of revisions) {
+    let parent;
+    try {
+      parent = await git(cwd, ["rev-parse", "--verify", `${candidate}^1`]);
+    } catch {
+      continue;
+    }
+    const candidateVersion = await versionAtCommit(cwd, candidate);
+    if (candidateVersion !== version) continue;
+    const parentVersion = await versionAtCommit(cwd, parent);
+    if (parentVersion === null || compareStableVersions(candidateVersion, parentVersion) <= 0) continue;
+    try {
+      await git(cwd, ["merge-base", "--is-ancestor", candidate, head]);
+    } catch {
+      continue;
+    }
+    const pulls = await repositoryPullRequests({
+      apiUrl,
+      repository,
+      sha: candidate,
+      token,
+      fetchImpl
+    });
+    const pull = findMergedPullRequest(pulls, { branch, sha: candidate });
+    if (pull) return { sha: candidate, pull, parentVersion };
+  }
+  return null;
+}
+
 export async function runReleaseTag({ env = process.env, cwd = process.cwd(), fetchImpl = fetch } = {}) {
   const eventName = String(env.GITHUB_EVENT_NAME ?? "");
   const branch = String(env.GITHUB_REF_NAME ?? "");
@@ -177,11 +219,6 @@ export async function runReleaseTag({ env = process.env, cwd = process.cwd(), fe
     token,
     fetchImpl
   });
-  const pull = findMergedPullRequest(pulls, { branch, sha });
-  if (!pull) {
-    return { status: "skipped", reason: "commit-is-not-an-exact-merged-pr-result", branch, sha };
-  }
-
   const targetParent = await validatedEventBeforeRevision(cwd, env.GITHUB_EVENT_BEFORE, sha);
   const [current, previous] = await Promise.all([
     currentVersion(cwd),
@@ -190,22 +227,41 @@ export async function runReleaseTag({ env = process.env, cwd = process.cwd(), fe
   if (previous !== null && compareStableVersions(current, previous) < 0) {
     throw new Error(`Release version ${current} is lower than its parent ${previous}; refusing release eligibility`);
   }
+  let releaseSha = sha;
+  let pull = findMergedPullRequest(pulls, { branch, sha });
   if (!versionChanged(current, previous)) {
-    return { status: "skipped", reason: "release-version-unchanged", branch, sha, version: current };
+    const catchUp = await findCatchUpVersionBump({
+      cwd,
+      branch,
+      head: sha,
+      version: current,
+      apiUrl: String(env.GITHUB_API_URL ?? "https://api.github.com"),
+      repository,
+      token,
+      fetchImpl
+    });
+    if (!catchUp) {
+      return { status: "skipped", reason: "release-version-unchanged", branch, sha, version: current };
+    }
+    releaseSha = catchUp.sha;
+    pull = catchUp.pull;
+  }
+  if (!pull) {
+    return { status: "skipped", reason: "commit-is-not-an-exact-merged-pr-result", branch, sha };
   }
 
-  const tag = releaseTagName({ branch, version: current, sha });
+  const tag = releaseTagName({ branch, version: current, sha: releaseSha });
   const existingCommit = await remoteTag(cwd, tag);
   if (existingCommit) {
-    if (existingCommit !== sha) throw new Error(`${tag} already exists at ${existingCommit}; refusing to retarget it to ${sha}`);
+    if (existingCommit !== releaseSha) throw new Error(`${tag} already exists at ${existingCommit}; refusing to retarget it to ${releaseSha}`);
     if (await remoteHead(cwd, branch) !== sha) {
       throw new Error(`Remote ${branch} moved before existing release tag reconciliation; refusing to report a stale tag as current`);
     }
-    return { status: "existing", tag, branch, sha, version: current, pullNumber: pull.number };
+    return { status: "existing", tag, branch, sha: releaseSha, version: current, pullNumber: pull.number };
   }
 
   if (env.RELEASE_TAG_DRY_RUN === "1") {
-    return { status: "planned", tag, branch, sha, version: current, pullNumber: pull.number };
+    return { status: "planned", tag, branch, sha: releaseSha, version: current, pullNumber: pull.number };
   }
 
   if (await remoteHead(cwd, branch) !== sha) {
@@ -213,7 +269,7 @@ export async function runReleaseTag({ env = process.env, cwd = process.cwd(), fe
   }
   const apiUrl = String(env.GITHUB_API_URL ?? "https://api.github.com");
   const repositoryId = await githubRepositoryId({ apiUrl, repository, token, fetchImpl });
-  const mutation = releaseTagAtomicMutation({ repositoryId, branch, tag, sha });
+  const mutation = releaseTagAtomicMutation({ repositoryId, branch, tag, sha: releaseSha, expectedBranchSha: sha });
   const mutationData = await githubGraphql({
     apiUrl,
     token,
@@ -222,7 +278,7 @@ export async function runReleaseTag({ env = process.env, cwd = process.cwd(), fe
     variables: mutation.variables
   });
   if (!mutationData.updateRefs) throw new Error("GitHub atomic release ref update returned no result");
-  return { status: "created", tag, branch, sha, version: current, pullNumber: pull.number };
+  return { status: "created", tag, branch, sha: releaseSha, version: current, pullNumber: pull.number };
 }
 
 function mainModule() {

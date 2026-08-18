@@ -805,7 +805,7 @@
       <div class="meta-cell"><span>Version</span><strong>3.4.13</strong></div>
       <div class="meta-cell"><span>Revision</span><strong>c5abd1f</strong></div>
       <div class="meta-cell"><span>Entrypoints</span><strong>17</strong></div>
-      <div class="meta-cell"><span>Templates</span><strong>13 / 62 stages</strong></div>
+      <div class="meta-cell"><span>Templates</span><strong>13 / 61 stages</strong></div>
       <div class="meta-cell"><span>Evidence catalog</span><strong>101 kinds</strong></div>
     </div>
 
@@ -1258,7 +1258,7 @@ node plugins/better-workflows/scripts/sbw.mjs action issue &lt;run-id&gt; \
 
     const templates = [
       { id:'browser-simulator-qa', mode:'verified', stages:4, entry:'browser-qa', scenario:'browser', family:'QA', desc:'用當前頁面／App 狀態與可重現 artifacts 做瀏覽器或模擬器 QA。', source:'plugins/better-workflows/templates/browser-simulator-qa.json:2–20' },
-      { id:'ci-release-monitor', mode:'critical', stages:6, entry:'ci-release', scenario:'release', family:'OPS', desc:'序列化 inventory、queue、dispatch/push preflight、執行監控與 provider reconciliation。', source:'plugins/better-workflows/templates/ci-release-monitor.json:2–22' },
+      { id:'ci-release-monitor', mode:'critical', stages:5, entry:'ci-release', scenario:'release', family:'OPS', desc:'序列化 inventory、queue、dispatch preflight、執行監控與 provider reconciliation；branch promotion 仍 deferred。', source:'plugins/better-workflows/templates/ci-release-monitor.json:2–22' },
       { id:'cross-platform-contract', mode:'deep', stages:5, entry:'cross-platform', scenario:'contract', family:'CODE', desc:'同步驗證 server 與 iOS、Android、Web client contract 相容性。', source:'plugins/better-workflows/templates/cross-platform-contract.json:2–21' },
       { id:'dependabot-consolidation-pr-cleanup', mode:'critical', stages:6, entry:'—', scenario:'dependency', family:'DELIVERY', desc:'分類相容依賴、合併單一 PR、驗證 lockfile 並精確清理 owned resources。', source:'plugins/better-workflows/templates/dependabot-consolidation-pr-cleanup.json:2–109' },
       { id:'ios-static-pbxproj', mode:'verified', stages:3, entry:'ios-static', scenario:'ios', family:'CODE', desc:'不做 local build 的 Swift 靜態 review 與序列化 pbxproj membership。', source:'plugins/better-workflows/templates/ios-static-pbxproj.json:2–16' },
@@ -1334,10 +1334,10 @@ node plugins/better-workflows/scripts/sbw.mjs action issue &lt;run-id&gt; \
         when:'要盤點 workflow、判斷 queue、序列化 deploy／promotion，並把 provider run 與 target revision 對帳。',
         avoid:'沒有 provider adapter／authority 卻想 dispatch，或同時有另一個 deploy 正在進行。',
         prompt:'$better-workflows:ci-release\n針對 <exact revision> 盤點 CI／deploy workflow 與 queue；同一時間只允許一個 deploy。監控 terminal run result，並以 provider receipt 與 live target revision 對帳；禁止用 stale green run 宣告完成。',
-        stages:[['inventory','workflow inventories'],['queue','queue-state'],['dispatch-preflight','pre-dispatch authorization'],['push-preflight','pre-push authorization'],['monitor-execute','run + required checks'],['provider-reconcile','provider-reconciliation']],
+        stages:[['inventory','workflow inventories'],['queue','queue-state'],['dispatch-preflight','pre-dispatch authorization'],['monitor-execute','run + required checks'],['provider-reconcile','provider-reconciliation']],
         evidence:['workflow-inventory','queue-state','target-revision','run-result','provider-reconciliation'],
         stops:['Concurrent deploy 尚未結束','Dispatch 沒有 fixed adapter 或 authority','Provider 或 live target 無法判定'],
-        success:'Exact revision 的 pipeline 與 provider/live state 皆達 terminal 並互相一致。', failure:'僅未具 adapter 的 deploy、release 與 branch promotion 仍為 deferred；GitHub Actions dispatch 與固定 Git push 已由受治理 adapter 啟用，且仍須通過對應 action gate。'
+        success:'Exact revision 的 pipeline 與 provider/live state 皆達 terminal 並互相一致。', failure:'未具 adapter 的 deploy、release 與 branch promotion 仍為 deferred；GitHub Actions dispatch 仍須通過受治理 adapter 與對應 action gate。'
       },
       {
         id:'contract', order:'07', group:'Cross-platform', title:'Backend 與三端 Client 的 Contract 變更', short:'跨平台 Contract', selector:'cross-platform', template:'cross-platform-contract', mode:'deep',
@@ -1436,7 +1436,7 @@ node plugins/better-workflows/scripts/sbw.mjs action issue &lt;run-id&gt; \
       { id:'ev-mode-routing', type:'fact', path:'plugins/better-workflows/skills/better-workflows/SKILL.md:129–147', title:'四種 mode 的選擇標準', note:'Risk、uncertainty、blast radius、irreversibility、evidence gap 共同決定 direct / verified / deep / critical；只能升不能降。' },
       { id:'ev-contract', type:'fact', path:'plugins/better-workflows/scripts/lib/core.mjs:1022–1402', title:'TaskContract v2 與 run creation', note:'驗證 goal、scope、acceptance、root-only authority、execution stages 與 gates；direct 不建立 governed run。' },
       { id:'ev-template-map', type:'fact', path:'plugins/better-workflows/skills/better-workflows/references/templates.md:1–38', title:'Template selection contract', note:'一次選一個 primary template；JSON definitions 是 required evidence 與 policy gate 的 machine-readable source，review-enabled template 另綁 capability profile。' },
-      { id:'ev-template-inventory', type:'fact', path:'plugins/better-workflows/templates/*.json → executionStages', title:'13 templates / 62 stages', note:'本版對目前 machine-readable templates 做 inventory；分布為 verified 4、deep 5、critical 4。' },
+      { id:'ev-template-inventory', type:'fact', path:'plugins/better-workflows/templates/*.json → executionStages', title:'13 templates / 61 stages', note:'本版對目前 machine-readable templates 做 inventory；分布為 verified 4、deep 5、critical 4。' },
       { id:'ev-dependabot-entry-gap', type:'inference', path:'entrypoint-catalog.json:3–105 + templates/dependabot-consolidation-pr-cleanup.json:2', title:'Dependabot template 的可發現性摩擦', note:'FACT：模板存在但 catalog 沒有同名 entry。INFERENCE：使用者需靠 auto/critical 再明確指定 template，學習成本較高。' },
       { id:'ev-state-contract', type:'fact', path:'plugins/better-workflows/skills/better-workflows/references/evidence-and-state.md:1–77', title:'Evidence 與 state 的公共契約', note:'Typed receipt、append-only events、attempt budgets、terminal states、resume fingerprint 與 completion conditions。文字 PASS 永不改狀態；review package 另綁 reviewProfile digest。' },
       { id:'ev-evidence', type:'fact', path:'plugins/better-workflows/scripts/lib/evidence.mjs:7–565', title:'Typed evidence admission / revalidation', note:'檢查 exact kind、producer allowlist、payload semantics、freshness、digest 與 dependencies；persisted evidence 仍會重新驗證。' },

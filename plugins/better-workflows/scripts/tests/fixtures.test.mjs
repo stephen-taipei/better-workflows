@@ -125,6 +125,27 @@ test("ci release dispatch is non-circular while branch promotion stays deferred"
   assert.equal(template.actionGates["actions.dispatch"].includes("required-checks"), false);
 });
 
+test("generated HTML template inventory derives ci release stages from authoritative templates", async () => {
+  const templateDirectory = path.join(pluginRoot(), "templates");
+  const templateFiles = (await readdir(templateDirectory)).filter((name) => name.endsWith(".json"));
+  const templates = await Promise.all(templateFiles.map(async (name) => (
+    JSON.parse(await readFile(path.join(templateDirectory, name), "utf8"))
+  )));
+  const totalStages = templates.reduce((sum, template) => sum + template.executionStages.length, 0);
+  const ciTemplate = templates.find((template) => template.name === "ci-release-monitor");
+  assert.ok(ciTemplate);
+  const useCases = await readFile(path.resolve(pluginRoot(), "../../docs/html/use-cases/index.html"), "utf8");
+  const home = await readFile(path.resolve(pluginRoot(), "../../docs/html/index.html"), "utf8");
+  const preview = await readFile(path.resolve(pluginRoot(), "../../docs/html/use-cases/preview.html"), "utf8");
+  assert.match(useCases, new RegExp(`id:'ci-release-monitor', mode:'critical', stages:${ciTemplate.executionStages.length},`));
+  for (const stage of ciTemplate.executionStages) assert.ok(useCases.includes(`['${stage.id}'`), stage.id);
+  assert.ok(!useCases.includes("['push-preflight'"));
+  assert.match(useCases, new RegExp(`13 / ${totalStages} stages`));
+  assert.match(home, new RegExp(`13 個 template 合計 ${totalStages} stages`));
+  assert.match(preview, new RegExp(`${totalStages} 個 stages`));
+  assert.match(preview, new RegExp(`${totalStages} stages`));
+});
+
 test("pr-to-dev push is issued in the post-review side-effect stage", async () => {
   const template = JSON.parse(
     await readFile(path.join(pluginRoot(), "templates", "pr-to-dev.json"), "utf8")

@@ -334,7 +334,7 @@ test("release eligibility uses the validated push-event parent across multi-comm
   }
 });
 
-test("release eligibility never carries a version bump to a later non-version push", async () => {
+test("release eligibility catches up a version bump after a later non-version push", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "sbw-release-tag-race-") );
   const bare = path.join(root, "origin.git");
   const work = path.join(root, "work");
@@ -365,9 +365,19 @@ test("release eligibility never carries a version bump to a later non-version pu
     await git(work, ["commit", "-qm", "follow-up"]);
     await git(work, ["push", "-q", "origin", "dev"]);
     const head = await git(work, ["rev-parse", "HEAD"]);
-    const fetchImpl = async (url) => {
+    const graphqlCalls = [];
+    const fetchImpl = async (url, options = {}) => {
+      if (url.endsWith("/graphql")) {
+        const request = JSON.parse(options.body);
+        graphqlCalls.push(request);
+        if (request.query.includes("repository(owner")) return jsonResponse({ data: { repository: { id: "R_123" } } });
+        return jsonResponse({ data: { updateRefs: { clientMutationId: null } } });
+      }
       if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
         return jsonResponse([{ number: 12, base: { ref: "dev" }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: head }]);
+      }
+      if (url.endsWith(`/repos/example/repo/commits/${bump}/pulls?per_page=100`)) {
+        return jsonResponse([{ number: 11, base: { ref: "dev" }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: bump }]);
       }
       throw new Error(`Unexpected release-tag fetch URL: ${url}`);
     };
@@ -381,17 +391,22 @@ test("release eligibility never carries a version bump to a later non-version pu
         GITHUB_REPOSITORY: "example/repo",
         GITHUB_SHA: head,
         GITHUB_TOKEN: "test-token",
-        GITHUB_API_URL: "https://api.github.com",
-        RELEASE_TAG_DRY_RUN: "1"
+        GITHUB_API_URL: "https://api.github.com"
       }
     });
     assert.deepEqual(result, {
-      status: "skipped",
-      reason: "release-version-unchanged",
+      status: "created",
+      tag: `v3.4.13-dev.${bump.slice(0, 12)}`,
       branch: "dev",
-      sha: head,
-      version: "3.4.13"
+      sha: bump,
+      version: "3.4.13",
+      pullNumber: 11
     });
+    assert.equal(graphqlCalls.length, 2);
+    assert.deepEqual(graphqlCalls[1].variables.refUpdates, [
+      { name: "refs/heads/dev", beforeOid: head, afterOid: head, force: false },
+      { name: `refs/tags/v3.4.13-dev.${bump.slice(0, 12)}`, beforeOid: "0".repeat(40), afterOid: bump, force: false }
+    ]);
     await writeFile(path.join(work, "README-2.md"), "unchanged version\n");
     await git(work, ["add", "README-2.md"]);
     await git(work, ["commit", "-qm", "unchanged version"]);
@@ -403,6 +418,9 @@ test("release eligibility never carries a version bump to a later non-version pu
       }
       if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
         return jsonResponse([{ number: 12, base: { ref: "dev" }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: head }]);
+      }
+      if (url.endsWith(`/repos/example/repo/commits/${bump}/pulls?per_page=100`)) {
+        return jsonResponse([{ number: 11, base: { ref: "dev" }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: bump }]);
       }
       throw new Error(`Unexpected unchanged release-tag fetch URL: ${url}`);
     };
@@ -421,11 +439,12 @@ test("release eligibility never carries a version bump to a later non-version pu
       }
     });
     assert.deepEqual(skipped, {
-      status: "skipped",
-      reason: "release-version-unchanged",
+      status: "planned",
+      tag: `v3.4.13-dev.${bump.slice(0, 12)}`,
       branch: "dev",
-      sha: unchangedHead,
-      version: "3.4.13"
+      sha: bump,
+      version: "3.4.13",
+      pullNumber: 11
     });
   } finally {
     await rm(root, { recursive: true, force: true });
