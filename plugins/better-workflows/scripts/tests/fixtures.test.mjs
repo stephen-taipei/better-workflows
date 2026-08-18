@@ -98,7 +98,7 @@ test("all thirteen templates are valid and side-effect templates declare action 
   }
 });
 
-test("ci release dispatch uses a non-circular pre-dispatch stage", async () => {
+test("ci release dispatch is non-circular while branch promotion stays deferred", async () => {
   const template = JSON.parse(
     await readFile(path.join(pluginRoot(), "templates", "ci-release-monitor.json"), "utf8")
   );
@@ -111,17 +111,14 @@ test("ci release dispatch uses a non-circular pre-dispatch stage", async () => {
     "target-revision",
     "remote-authorization"
   ]);
-  const pushStage = template.executionStages.find((stage) => stage.id === "push-preflight");
-  assert.ok(pushStage);
-  assert.deepEqual(pushStage.dependsOn, ["queue"]);
-  assert.deepEqual(pushStage.requiredEvidence, dispatchStage.requiredEvidence);
   const monitorStage = template.executionStages.find((stage) => stage.id === "monitor-execute");
   assert.ok(monitorStage);
-  assert.deepEqual(monitorStage.dependsOn, ["dispatch-preflight", "push-preflight"]);
+  assert.deepEqual(monitorStage.dependsOn, ["dispatch-preflight"]);
   assert.equal(template.actionStages["actions.dispatch"], "dispatch-preflight");
-  assert.equal(template.actionStages["git.push"], "push-preflight");
+  assert.equal(template.actionStages["git.push"], undefined);
   assert.deepEqual(template.actionGates["actions.dispatch"], dispatchStage.requiredEvidence);
-  assert.deepEqual(template.actionGates["git.push"], pushStage.requiredEvidence);
+  assert.equal(template.actionGates["git.push"], undefined);
+  assert.ok(template.deferredActions.includes("branch.promote"));
   assert.equal(template.executionStages.find((stage) => stage.id === "provider-reconcile").dependsOn[0], "monitor-execute");
   assert.equal(template.actionGates["actions.dispatch"].includes("provider-reconciliation"), false);
   assert.equal(template.actionGates["actions.dispatch"].includes("run-result"), false);
