@@ -168,7 +168,11 @@ function successfulRequiredCheckResponse(url, sha, context = "test", pullNumber 
         conclusion: "success",
         created_at: "2026-08-14T23:30:00Z",
         completed_at: "2026-08-14T23:55:00Z",
-        pull_requests: Array.from({ length: 200 }, (_, index) => ({ number: index + 1 }))
+        pull_requests: Array.from({ length: 200 }, (_, index) => ({
+          number: index + 1,
+          head: { sha },
+          base: { ref: "dev", repo: { full_name: "example/repo" } }
+        }))
       }]
     });
   }
@@ -232,7 +236,7 @@ function policyWorkflowResponse(url) {
 function pullRequestWorkflowResponse(url, entries) {
   if (!url.includes("/actions/runs?") || !url.includes("event=pull_request") || !url.includes("per_page=100&page=1")) return null;
   return jsonResponse({
-    workflow_runs: entries.map(({ sha, pullNumber, id = 900 + pullNumber, conclusion = "success" }) => ({
+    workflow_runs: entries.map(({ sha, pullNumber, pullHeadSha = sha, baseRef = "dev", id = 900 + pullNumber, conclusion = "success" }) => ({
       id,
       path: ".github/workflows/ci.yml",
       head_sha: sha,
@@ -241,7 +245,7 @@ function pullRequestWorkflowResponse(url, entries) {
       conclusion,
       created_at: "2026-08-14T23:30:00Z",
       completed_at: conclusion === null ? null : "2026-08-14T23:55:00Z",
-      pull_requests: [{ number: pullNumber }]
+      pull_requests: [{ number: pullNumber, head: { sha: pullHeadSha }, base: { ref: baseRef, repo: { full_name: "example/repo" } } }]
     }))
   });
 }
@@ -529,7 +533,10 @@ test("merge-time policy receipt binds the pre-merge head separately from the mer
           merge_commit_sha: mergeSha
         }]);
       }
-      const workflowResponse = pullRequestWorkflowResponse(url, [{ sha: syntheticMergeSha, pullNumber }]);
+      const workflowResponse = pullRequestWorkflowResponse(url, [
+        { sha: syntheticMergeSha, pullHeadSha: preMergeSha, pullNumber, id: 901 },
+        { sha: "d".repeat(40), pullHeadSha: "e".repeat(40), pullNumber, id: 999 }
+      ]);
       if (workflowResponse) return workflowResponse;
       if (url.endsWith("/branches/dev")) {
         return jsonResponse({ protected: true, protection: { required_status_checks: { contexts: ["current-only"], checks: [] } } });

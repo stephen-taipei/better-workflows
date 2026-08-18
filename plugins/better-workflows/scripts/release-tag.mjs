@@ -966,12 +966,25 @@ function workflowTestObservation({ branch, checkRuns, workflowRuns, sha }) {
   };
 }
 
-function pullRequestWorkflowObservation({ workflowRuns, pullNumber, mergeTimeMs = null }) {
+function pullRequestWorkflowObservation({ workflowRuns, pullNumber, expectedPreMergeSha = null, branch, repository, mergeTimeMs = null }) {
+  const expectedHead = expectedPreMergeSha ? String(expectedPreMergeSha).toLowerCase() : null;
+  const expectedRepository = String(repository ?? "").toLowerCase();
   const matchingRuns = workflowRuns.filter((run) => (
     run?.path === RELEASE_WORKFLOW_FILE &&
     run?.event === "pull_request" &&
     Array.isArray(run?.pull_requests) &&
-    run.pull_requests.some((pull) => Number(pull?.number) === pullNumber) &&
+    run.pull_requests.some((pull) => {
+      const baseRepository = String(
+        pull?.base?.repo?.full_name ??
+        pull?.base?.repository?.full_name ??
+        run?.repository?.full_name ??
+        ""
+      ).toLowerCase();
+      return Number(pull?.number) === pullNumber &&
+        (!expectedHead || String(pull?.head?.sha ?? "").toLowerCase() === expectedHead) &&
+        (!branch || String(pull?.base?.ref ?? "") === branch) &&
+        (!expectedRepository || baseRepository === expectedRepository);
+    }) &&
     (mergeTimeMs === null || observationTime(run) <= mergeTimeMs)
   ));
   const latestRun = latestObservation(matchingRuns)?.record ?? null;
@@ -1092,7 +1105,14 @@ async function verifyCatchUpChecks({
         token,
         fetchImpl
       });
-      preMergeWorkflowObservation = pullRequestWorkflowObservation({ workflowRuns: pullRequestRuns, pullNumber, mergeTimeMs });
+      preMergeWorkflowObservation = pullRequestWorkflowObservation({
+        workflowRuns: pullRequestRuns,
+        pullNumber,
+        expectedPreMergeSha: normalizedPreMergeSha,
+        branch,
+        repository,
+        mergeTimeMs
+      });
       if (preMergeWorkflowObservation.state === "success") {
         const workflowHeadSha = assertCommitSha(preMergeWorkflowObservation.run.head_sha);
         // GitHub pull_request workflows commonly run on a synthetic merge

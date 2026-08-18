@@ -7073,6 +7073,7 @@ function githubPreflightInvocation(runId, action, error) {
 const WORKFLOW_DISPATCH_OBSERVATION_TIMEOUT_MS = 45 * 60 * 1000;
 const WORKFLOW_DISPATCH_POLL_INTERVAL_MS = 10 * 1000;
 const WORKFLOW_DISPATCH_PREFLIGHT_LEASE_MS = 5 * 60 * 1000;
+const WORKFLOW_DISPATCH_MAX_RECENT_RUNS = 100;
 // Keep this list to fields supported by `gh run view --json`; in particular,
 // startedAt is not a valid gh field and would strand a sent dispatch during
 // nonce-bound observation.
@@ -7093,24 +7094,41 @@ function normalizeWorkflowRun(run) {
   };
 }
 
-async function listWorkflowRuns(cwd, record, providerExecutablePath, { createdFilter } = {}) {
+async function listWorkflowRuns(cwd, record, providerExecutablePath, { createdFilter, createdAtUpperBoundMs = null, maxRuns = WORKFLOW_DISPATCH_MAX_RECENT_RUNS } = {}) {
   const repository = canonicalGitHubRepositoryPath(record.dispatchRepository);
   const workflowFile = encodeURIComponent(path.posix.basename(canonicalWorkflowFile(record.workflowFile)));
   const branch = encodeURIComponent(workflowDispatchObservationRef(record.dispatchRef));
   const created = createdFilter ? `&created=${encodeURIComponent(createdFilter)}` : "";
+  const boundedMaxRuns = Number.isInteger(maxRuns) && maxRuns > 0
+    ? Math.min(maxRuns, WORKFLOW_DISPATCH_MAX_RECENT_RUNS)
+    : WORKFLOW_DISPATCH_MAX_RECENT_RUNS;
   const output = await execBoundGitHubCli(providerExecutablePath, [
-    "api", "--paginate", "--slurp",
-    `repos/${repository}/actions/workflows/${workflowFile}/runs?per_page=100&branch=${branch}${created}`,
+    "api",
+    `repos/${repository}/actions/workflows/${workflowFile}/runs?per_page=${boundedMaxRuns}&page=1&branch=${branch}${created}`,
     "--method", "GET"
   ], { cwd });
   const payload = JSON.parse(output.stdout);
   const pages = Array.isArray(payload) ? payload : [payload];
+  let declaredTotal = 0;
   const runs = pages.flatMap((page) => {
     if (Array.isArray(page)) return page;
-    if (Array.isArray(page?.workflow_runs)) return page.workflow_runs;
+    if (Array.isArray(page?.workflow_runs)) {
+      const total = Number(page.total_count);
+      if (Number.isInteger(total) && total >= 0) declaredTotal = Math.max(declaredTotal, total);
+      return page.workflow_runs;
+    }
     throw new Error("GitHub Actions workflow list returned an invalid page");
   });
-  return runs.map(normalizeWorkflowRun);
+  if (declaredTotal > boundedMaxRuns || runs.length > boundedMaxRuns) {
+    throw new Error(`GitHub Actions workflow list exceeded bounded recent run limit of ${boundedMaxRuns}`);
+  }
+  return runs
+    .map(normalizeWorkflowRun)
+    .filter((run) => {
+      if (!Number.isFinite(createdAtUpperBoundMs)) return true;
+      const createdAt = Date.parse(String(run?.createdAt ?? ""));
+      return Number.isFinite(createdAt) && createdAt <= createdAtUpperBoundMs;
+    });
 }
 
 async function viewWorkflowRun(cwd, record, providerExecutablePath, runId) {
@@ -7437,7 +7455,8 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
         throw new Error("GitHub Actions dispatch execution denied because the provider actor or permissions changed");
       }
       const existingRuns = await listWorkflowRuns(manifest.cwd, consumed, providerExecutablePath, {
-        createdFilter: `<=${startedAt}`
+        createdFilter: `>=${new Date(workflowDispatchMinimumCreatedAt(startedAt)).toISOString()}`,
+        createdAtUpperBoundMs: Date.parse(startedAt)
       });
       existingRunIds = existingRuns
         .map((run) => String(run?.databaseId ?? ""))

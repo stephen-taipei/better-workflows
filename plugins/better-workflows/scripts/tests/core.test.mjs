@@ -2581,25 +2581,28 @@ if [ "$1" = "api" ] && [ "$2" = "user" ]; then
   printf '%s\\n' '{"login":"alice"}'
 elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo" ]; then
   printf '%s\\n' '{"full_name":"example/repo","permissions":{"admin":false,"maintain":false,"push":true}}'
-elif [ "$1" = "api" ] && [ "$2" = "--paginate" ]; then
+elif [ "$1" = "api" ] && [ "\${2%%/runs*}" = "repos/example/repo/actions/workflows/release.yml" ]; then
   sleep 0.2
-  case "$4" in
-    repos/example/repo/actions/workflows/release.yml/runs?*) ;;
-    *) printf '%s\n' 'workflow endpoint must use the filename' >&2; exit 41;;
+  case "$2" in
+    *page=1*);;
+    *) printf '%s\n' 'workflow endpoint must use the bounded first page' >&2; exit 41;;
   esac
-  case "$4" in
+  case "$2" in
     *head_sha=*) printf '%s\n' 'workflow observation must not prefilter by head SHA' >&2; exit 42;;
   esac
-  printf '%s' '[{"workflow_runs":'
+  printf '%s' '{"total_count":'
   if [ -f ${JSON.stringify(raceArmPath)} ] && [ ! -f ${JSON.stringify(raceTrippedPath)} ]; then
     touch ${JSON.stringify(raceTrippedPath)}
+    printf '%s' '1,"workflow_runs":'
     cat ${JSON.stringify(listPath)}
   elif [ -f ${JSON.stringify(raceTrippedPath)} ]; then
+    printf '%s' '2,"workflow_runs":'
     cat ${JSON.stringify(raceListPath)}
   else
+    printf '%s' '1,"workflow_runs":'
     cat ${JSON.stringify(listPath)}
   fi
-  printf '%s\n' '}]'
+  printf '%s\n' '}'
 elif [ "$1" = "run" ] && [ "$2" = "view" ]; then
   case "$*" in
     *startedAt*) printf '%s\n' 'startedAt is not a supported gh run view field' >&2; exit 43;;
@@ -2709,6 +2712,18 @@ fi
     assert.equal(promoted.providerInvocation.dispatchState, "sent");
     assert.equal(promoted.providerInvocation.workflowRun.databaseId, 54321);
     assert.equal(promoted.providerInvocation.errorDigest, undefined);
+
+    const oversizedRuns = Array.from({ length: 101 }, (_, index) => ({
+      ...workflowRun,
+      databaseId: 60000 + index,
+      displayTitle: `Release ${dispatchNonce}`
+    }));
+    await writeFile(listPath, `${JSON.stringify(oversizedRuns)}\n`);
+    await writeFile(path.join(actionDir, `${tokenHash}.json`), `${JSON.stringify(action)}\n`);
+    await assert.rejects(
+      resumeActionsDispatchObservation(root, run.runId, attemptId),
+      /workflow list exceeded bounded recent run limit of 100/
+    );
 
     const driftedRun = {
       ...workflowRun,
@@ -2900,8 +2915,8 @@ elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo/git/ref/heads/broken" ]; t
   exit 1
 elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo/git/ref/tags/broken" ]; then
   printf '%s\\n' '{"object":{"sha":"${remoteRevision}"}}'
-elif [ "$1" = "api" ] && [ "$2" = "--paginate" ]; then
-  printf '%s\\n' '[{"workflow_runs":[]}]'
+elif [ "$1" = "api" ] && [ "\${2%%/runs*}" = "repos/example/repo/actions/workflows/release.yml" ]; then
+  printf '%s\\n' '{"total_count":0,"workflow_runs":[]}'
 elif [ "$1" = "workflow" ] && [ "$2" = "run" ]; then
   printf '%s\\n' 'provider dispatch failed before acceptance' >&2
   exit 23
@@ -3163,8 +3178,8 @@ elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo/git/ref/heads/dev" ]; then
 elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo/git/ref/tags/dev" ]; then
   printf '%s\\n' 'gh: Not Found (HTTP 404)' >&2
   exit 1
-elif [ "$1" = "api" ] && [ "$2" = "--paginate" ]; then
-  printf '%s\\n' '[{"workflow_runs":[]}]'
+elif [ "$1" = "api" ] && [ "\${2%%/runs*}" = "repos/example/repo/actions/workflows/release.yml" ]; then
+  printf '%s\\n' '{"total_count":0,"workflow_runs":[]}'
 elif [ "$1" = "workflow" ] && [ "$2" = "run" ]; then
   : > ${JSON.stringify(providerCallPath)}
 else
