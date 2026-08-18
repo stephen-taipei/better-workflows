@@ -79,11 +79,13 @@ has passed, and the stable package and plugin versions changed from the target
 branch parent. `main` receives `vX.Y.Z`; `dev` receives the matching
 `vX.Y.Z-dev.<short-sha>` prerelease tag. An integration commit whose version is
 unchanged receives no tag itself, but the job performs a bounded first-parent
-scan and can reconcile every earlier untagged merged version bump that remains
-reachable. This closes the consecutive-bump race without allowing a stale
-branch update. An existing tag pointing to a different commit is a fail-closed
-error; CI never force-moves tags. The final publication uses GitHub's
-server-side atomic `updateRefs` mutation: all recovered tags and an
+scan and can reconcile every earlier untagged merged version bump in its
+128-commit window. A fresh version bump at the exact event HEAD remains eligible
+even when older history exceeds that window; catch-up-only history beyond the
+bound fails closed. This closes the consecutive-bump race without allowing a
+stale branch update. An existing tag pointing to a different commit is a
+fail-closed error; CI never force-moves tags. The final publication uses
+GitHub's server-side atomic `updateRefs` mutation: all recovered tags and an
 expected-branch-tip CAS (`beforeOid` set to the push event SHA) are one
 transaction, so a branch move during publication rejects the entire batch.
 

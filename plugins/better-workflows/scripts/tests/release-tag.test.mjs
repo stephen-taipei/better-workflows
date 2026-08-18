@@ -808,6 +808,73 @@ test("catch-up history exhaustion fails closed instead of silently skipping an o
   }
 });
 
+test("an exact HEAD version bump remains eligible past the catch-up history bound", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-release-tag-head-history-boundary-"));
+  const bare = path.join(root, "origin.git");
+  const work = path.join(root, "work");
+  try {
+    await execFileAsync("git", ["init", "--bare", "-q", bare]);
+    await execFileAsync("git", ["init", "-q", work]);
+    await git(work, ["config", "user.email", "test@example.invalid"]);
+    await git(work, ["config", "user.name", "release-test"]);
+    await mkdir(path.join(work, "plugins/better-workflows/.codex-plugin"), { recursive: true });
+    await mkdir(path.join(work, "plugins/better-workflows"), { recursive: true });
+    await writeFile(path.join(work, "plugins/better-workflows/package.json"), JSON.stringify({ version: "3.4.12" }));
+    await writeFile(path.join(work, "plugins/better-workflows/.codex-plugin/plugin.json"), JSON.stringify({ version: "3.4.12+codex.test" }));
+    await git(work, ["add", "."]);
+    await git(work, ["commit", "-qm", "base"]);
+    await git(work, ["branch", "-M", "dev"]);
+    await git(work, ["remote", "add", "origin", bare]);
+    await git(work, ["push", "-q", "origin", "dev"]);
+    const tree = await git(work, ["rev-parse", "HEAD^{tree}"]);
+    let historyTip = await git(work, ["rev-parse", "HEAD"]);
+    for (let index = 0; index < 130; index += 1) {
+      historyTip = await git(work, ["commit-tree", tree, "-p", historyTip, "-m", `history ${index + 1}`]);
+    }
+    await git(work, ["update-ref", "refs/heads/dev", historyTip]);
+    await git(work, ["push", "-q", "origin", "dev"]);
+    const eventBefore = historyTip;
+    await writeFile(path.join(work, "plugins/better-workflows/package.json"), JSON.stringify({ version: "3.4.13" }));
+    await writeFile(path.join(work, "plugins/better-workflows/.codex-plugin/plugin.json"), JSON.stringify({ version: "3.4.13+codex.test" }));
+    await git(work, ["add", "."]);
+    await git(work, ["commit", "-qm", "fresh release after long history"]);
+    const head = await git(work, ["rev-parse", "HEAD"]);
+    await git(work, ["push", "-q", "origin", "dev"]);
+    const fetchImpl = async (url) => {
+      if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
+        return jsonResponse([{ number: 32, base: { ref: "dev" }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: head }]);
+      }
+      if (url.endsWith("/branches/dev")) {
+        return jsonResponse({ protected: true, protection: { required_status_checks: { contexts: ["lint"], checks: [] } } });
+      }
+      if (url.includes(`/commits/${head}/check-runs?per_page=100&page=1`)) {
+        return jsonResponse({ check_runs: [{ id: 32, name: "lint", head_sha: head, status: "completed", conclusion: "success" }] });
+      }
+      if (url.includes(`/commits/${head}/statuses?per_page=100&page=1`)) return jsonResponse([]);
+      throw new Error(`Unexpected long-history fetch URL: ${url}`);
+    };
+    const result = await runReleaseTag({
+      cwd: work,
+      fetchImpl,
+      env: {
+        GITHUB_EVENT_NAME: "push",
+        GITHUB_EVENT_BEFORE: eventBefore,
+        GITHUB_REF_NAME: "dev",
+        GITHUB_REPOSITORY: "example/repo",
+        GITHUB_SHA: head,
+        GITHUB_TOKEN: "test-token",
+        GITHUB_API_URL: "https://api.github.com",
+        RELEASE_TAG_DRY_RUN: "1"
+      }
+    });
+    assert.equal(result.status, "planned");
+    assert.equal(result.sha, head);
+    assert.equal(result.tag, `v3.4.13-dev.${head.slice(0, 12)}`);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("catch-up publication requires the exact workflow test check on the release SHA", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "sbw-release-tag-workflow-test-"));
   const bare = path.join(root, "origin.git");

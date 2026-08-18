@@ -345,7 +345,7 @@ async function findEligibleVersionBumps({ cwd, branch, head, currentVersion, hea
       existingCommit
     });
   }
-  if (revisions.length === CATCH_UP_HISTORY_LIMIT) {
+  if (revisions.length === CATCH_UP_HISTORY_LIMIT && !candidates.some((candidate) => candidate.sha === head)) {
     const oldest = revisions.at(-1);
     try {
       await git(cwd, ["rev-parse", "--verify", `${oldest}^1`]);
