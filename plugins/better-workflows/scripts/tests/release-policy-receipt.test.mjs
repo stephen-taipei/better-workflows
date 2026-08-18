@@ -8,7 +8,8 @@ import {
   buildPolicyStatus,
   normalizeRequiredChecks,
   policyDigest,
-  publishReleasePolicyReceipt
+  publishReleasePolicyReceipt,
+  waitForSourcePolicyReceipt
 } from "../release-policy-receipt.mjs";
 
 test("release policy receipt normalizes and digests the protected-branch policy", () => {
@@ -117,4 +118,38 @@ test("merge-bound policy receipt binds merge commit and unchanged pre-merge poli
     }),
     /changed required-check policy/
   );
+});
+
+test("closed receipt polling waits for the exact pre-merge status within a bounded window", async () => {
+  const headSha = "d".repeat(40);
+  const sourceStatus = {
+    id: 42,
+    state: "success",
+    context: RELEASE_POLICY_RECEIPT_CONTEXT,
+    target_url: `https://github.com/example/repo/actions/runs/42?phase=pre-merge&pr=17&head=${headSha}&base=dev`,
+    description: `${RELEASE_POLICY_RECEIPT_PREFIX}${"e".repeat(64)}`,
+    updated_at: "2026-08-18T00:00:02Z"
+  };
+  let queries = 0;
+  const sleeps = [];
+  const source = await waitForSourcePolicyReceipt({
+    apiUrl: "https://api.github.com",
+    repository: "example/repo",
+    branch: "dev",
+    headSha,
+    pullNumber: 17,
+    token: "token",
+    attempts: 3,
+    delayMs: 5_000,
+    sleepImpl: async (delay) => sleeps.push(delay),
+    fetchImpl: async (url) => {
+      queries += 1;
+      assert.equal(url, `https://api.github.com/repos/example/repo/commits/${headSha}/statuses?per_page=100&page=1`);
+      return { ok: true, status: 200, json: async () => (queries === 1 ? [] : [sourceStatus]) };
+    }
+  });
+  assert.equal(source.workflowRunId, "42");
+  assert.equal(source.policyDigest, "e".repeat(64));
+  assert.deepEqual(sleeps, [5_000]);
+  assert.equal(queries, 2);
 });

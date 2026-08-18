@@ -11,6 +11,8 @@ export const RELEASE_POLICY_RECEIPT_ARTIFACT_FILE = "release-policy-receipt.json
 export const RELEASE_POLICY_RECEIPT_ARTIFACT_KIND = "better-workflows/release-policy-receipt-v2";
 export const RELEASE_POLICY_RECEIPT_PREMERGE_ACTIONS = ["opened", "reopened", "synchronize"];
 export const RELEASE_POLICY_RECEIPT_MERGE_ACTION = "closed";
+export const RELEASE_POLICY_RECEIPT_SOURCE_POLL_ATTEMPTS = 12;
+export const RELEASE_POLICY_RECEIPT_SOURCE_POLL_DELAY_MS = 5_000;
 
 function assertSha(value) {
   const sha = String(value ?? "").trim().toLowerCase();
@@ -186,6 +188,37 @@ function sourcePolicyReceipt(status, { repository, branch, headSha, pullNumber }
   return { status, workflowRunId: runMatch[1], policyDigest: digest, updatedAt };
 }
 
+function waitForReceiptSource(delayMs) {
+  return new Promise((resolve) => setTimeout(resolve, delayMs));
+}
+
+export async function waitForSourcePolicyReceipt({
+  apiUrl,
+  repository,
+  branch,
+  headSha,
+  pullNumber,
+  token,
+  fetchImpl = fetch,
+  sleepImpl = waitForReceiptSource,
+  attempts = RELEASE_POLICY_RECEIPT_SOURCE_POLL_ATTEMPTS,
+  delayMs = RELEASE_POLICY_RECEIPT_SOURCE_POLL_DELAY_MS
+}) {
+  if (!Number.isInteger(attempts) || attempts <= 0) {
+    throw new Error("Release policy receipt source polling requires a positive bounded attempt count");
+  }
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const statuses = await repositoryCommitStatuses({ apiUrl, repository, sha: headSha, token, fetchImpl });
+    const source = statuses
+      .map((status) => sourcePolicyReceipt(status, { repository, branch, headSha, pullNumber }))
+      .filter(Boolean)
+      .sort((left, right) => right.updatedAt - left.updatedAt || String(right.status.id ?? "").localeCompare(String(left.status.id ?? "")))[0];
+    if (source) return source;
+    if (attempt < attempts - 1) await sleepImpl(delayMs);
+  }
+  return null;
+}
+
 export async function publishReleasePolicyReceipt({
   apiUrl,
   repository,
@@ -267,11 +300,14 @@ async function main() {
   if (eventAction === RELEASE_POLICY_RECEIPT_MERGE_ACTION) {
     const mergeCommitSha = assertSha(process.env.GITHUB_MERGE_COMMIT_SHA);
     const mergedAt = String(process.env.GITHUB_PR_MERGED_AT ?? "");
-    const statuses = await repositoryCommitStatuses({ apiUrl, repository, sha: headSha, token });
-    const source = statuses
-      .map((status) => sourcePolicyReceipt(status, { repository, branch, headSha, pullNumber }))
-      .filter(Boolean)
-      .sort((left, right) => right.updatedAt - left.updatedAt || String(right.status.id ?? "").localeCompare(String(left.status.id ?? "")))[0];
+    const source = await waitForSourcePolicyReceipt({
+      apiUrl,
+      repository,
+      branch,
+      headSha,
+      pullNumber,
+      token
+    });
     if (!source) throw new Error("Merge-bound release policy receipt requires one exact pre-merge policy status");
     targetUrl.searchParams.set("merge", mergeCommitSha);
     targetUrl.searchParams.set("source", source.workflowRunId);
