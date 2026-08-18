@@ -125,6 +125,17 @@ test("ci release dispatch is non-circular while branch promotion stays deferred"
   assert.equal(template.actionGates["actions.dispatch"].includes("required-checks"), false);
 });
 
+test("integration-tag workflow grants check-read permission for catch-up reconciliation", async () => {
+  const workflow = await readFile(
+    path.resolve(pluginRoot(), "../../.github/workflows/ci.yml"),
+    "utf8"
+  );
+  assert.match(
+    workflow,
+    /integration-tag:[\s\S]*?permissions:\s*\n\s+contents:\s+write\s*\n\s+checks:\s+read\s*\n\s+pull-requests:\s+read/
+  );
+});
+
 test("generated HTML template inventory derives ci release stages from authoritative templates", async () => {
   const templateDirectory = path.join(pluginRoot(), "templates");
   const templateFiles = (await readdir(templateDirectory)).filter((name) => name.endsWith(".json"));

@@ -26,8 +26,13 @@ async function git(cwd, args) {
   return (await execFileAsync("git", args, { cwd })).stdout.trim();
 }
 
-function jsonResponse(value, ok = true, status = 200) {
-  return { ok, status, async json() { return value; } };
+function jsonResponse(value, ok = true, status = 200, headers = {}) {
+  return {
+    ok,
+    status,
+    headers: { get(name) { return headers[String(name).toLowerCase()] ?? null; } },
+    async json() { return value; }
+  };
 }
 
 test("release tag names distinguish stable main from dev prerelease integration", () => {
@@ -367,6 +372,7 @@ test("release eligibility catches up a version bump after a later non-version pu
     const head = await git(work, ["rev-parse", "HEAD"]);
     const graphqlCalls = [];
     let candidateConclusion = "failure";
+    let secondPageConclusion = null;
     const fetchImpl = async (url, options = {}) => {
       if (url.endsWith("/graphql")) {
         const request = JSON.parse(options.body);
@@ -380,8 +386,22 @@ test("release eligibility catches up a version bump after a later non-version pu
       if (url.endsWith(`/repos/example/repo/commits/${bump}/pulls?per_page=100`)) {
         return jsonResponse([{ number: 11, base: { ref: "dev" }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: bump }]);
       }
-      if (url.endsWith(`/repos/example/repo/commits/${bump}/check-runs?per_page=100`)) {
-        return jsonResponse({ check_runs: [{ id: 7, name: "test", head_sha: bump, status: "completed", conclusion: candidateConclusion }] });
+      if (url.endsWith("/branches/dev/protection/required_status_checks")) {
+        return jsonResponse({ contexts: ["test"], checks: [] });
+      }
+      if (url.includes(`/repos/example/repo/commits/${bump}/check-runs?per_page=100&page=1`)) {
+        return jsonResponse(
+          { check_runs: [{ id: 7, name: "test", head_sha: bump, status: "completed", conclusion: candidateConclusion }] },
+          true,
+          200,
+          secondPageConclusion === null ? {} : { link: '<https://api.github.com/repos/example/repo/commits/bump/check-runs?per_page=100&page=2>; rel="next"' }
+        );
+      }
+      if (url.includes(`/repos/example/repo/commits/${bump}/check-runs?per_page=100&page=2`)) {
+        return jsonResponse({ check_runs: [{ id: 8, name: "test", head_sha: bump, status: "completed", conclusion: secondPageConclusion }] });
+      }
+      if (url.includes(`/repos/example/repo/commits/${bump}/statuses?per_page=100&page=1`)) {
+        return jsonResponse({ statuses: [{ context: "test", state: "success" }] });
       }
       throw new Error(`Unexpected release-tag fetch URL: ${url}`);
     };
@@ -396,9 +416,15 @@ test("release eligibility catches up a version bump after a later non-version pu
     };
     await assert.rejects(
       runReleaseTag({ cwd: work, fetchImpl, env: runEnv }),
-      /all exact release commit check-runs to complete successfully/
+      /all exact required checks and statuses to complete successfully/
     );
     candidateConclusion = "success";
+    secondPageConclusion = "failure";
+    await assert.rejects(
+      runReleaseTag({ cwd: work, fetchImpl, env: runEnv }),
+      /all exact required checks and statuses to complete successfully/
+    );
+    secondPageConclusion = "success";
     const result = await runReleaseTag({
       cwd: work,
       fetchImpl,
@@ -413,7 +439,12 @@ test("release eligibility catches up a version bump after a later non-version pu
       pullNumber: 11,
       requiredChecks: {
         headSha: bump,
-        checkRuns: [{ id: "7", name: "test", status: "completed", conclusion: "success" }]
+        checkRuns: [
+          { id: "7", name: "test", status: "completed", conclusion: "success" },
+          { id: "8", name: "test", status: "completed", conclusion: "success" }
+        ],
+        statuses: [{ context: "test", state: "success" }],
+        requiredContexts: ["test"]
       }
     });
     assert.equal(graphqlCalls.length, 2);
@@ -436,8 +467,14 @@ test("release eligibility catches up a version bump after a later non-version pu
       if (url.endsWith(`/repos/example/repo/commits/${bump}/pulls?per_page=100`)) {
         return jsonResponse([{ number: 11, base: { ref: "dev" }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: bump }]);
       }
-      if (url.endsWith(`/repos/example/repo/commits/${bump}/check-runs?per_page=100`)) {
+      if (url.endsWith("/branches/dev/protection/required_status_checks")) {
+        return jsonResponse({ contexts: ["test"], checks: [] });
+      }
+      if (url.includes(`/repos/example/repo/commits/${bump}/check-runs?per_page=100&page=1`)) {
         return jsonResponse({ check_runs: [{ id: 7, name: "test", head_sha: bump, status: "completed", conclusion: "success" }] });
+      }
+      if (url.includes(`/repos/example/repo/commits/${bump}/statuses?per_page=100&page=1`)) {
+        return jsonResponse({ statuses: [{ context: "test", state: "success" }] });
       }
       throw new Error(`Unexpected unchanged release-tag fetch URL: ${url}`);
     };
@@ -464,7 +501,9 @@ test("release eligibility catches up a version bump after a later non-version pu
       pullNumber: 11,
       requiredChecks: {
         headSha: bump,
-        checkRuns: [{ id: "7", name: "test", status: "completed", conclusion: "success" }]
+        checkRuns: [{ id: "7", name: "test", status: "completed", conclusion: "success" }],
+        statuses: [{ context: "test", state: "success" }],
+        requiredContexts: ["test"]
       }
     });
   } finally {

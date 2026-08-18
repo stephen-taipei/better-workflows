@@ -63,8 +63,55 @@ async function repositoryPullRequests({ apiUrl, repository, sha, token, fetchImp
   return payload;
 }
 
+async function pagedGitHubCollection({ apiUrl, pathName, key, token, fetchImpl = fetch, label }) {
+  const records = [];
+  for (let page = 1; page <= 100; page += 1) {
+    const endpoint = `${apiUrl.replace(/\/$/, "")}${pathName}?per_page=100&page=${page}`;
+    const response = await fetchImpl(endpoint, {
+      headers: {
+        Accept: "application/vnd.github+json",
+        Authorization: `Bearer ${token}`,
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "better-workflows-release-tag"
+      }
+    });
+    if (!response.ok) throw new Error(`GitHub ${label} query failed with HTTP ${response.status}`);
+    const payload = await response.json();
+    if (!payload || !Array.isArray(payload[key])) {
+      throw new Error(`GitHub ${label} query returned no ${key} array`);
+    }
+    records.push(...payload[key]);
+    const link = typeof response.headers?.get === "function" ? response.headers.get("link") ?? "" : "";
+    if (/<[^>]+[?&]page=\d+[^>]*>;\s*rel="next"/.test(link)) continue;
+    if (payload[key].length < 100) return records;
+  }
+  throw new Error(`GitHub ${label} pagination exceeded the bounded page limit`);
+}
+
 async function repositoryCheckRuns({ apiUrl, repository, sha, token, fetchImpl = fetch }) {
-  const endpoint = `${apiUrl.replace(/\/$/, "")}/repos/${repository}/commits/${sha}/check-runs?per_page=100`;
+  return pagedGitHubCollection({
+    apiUrl,
+    pathName: `/repos/${repository}/commits/${sha}/check-runs`,
+    key: "check_runs",
+    token,
+    fetchImpl,
+    label: "exact release check"
+  });
+}
+
+async function repositoryCommitStatuses({ apiUrl, repository, sha, token, fetchImpl = fetch }) {
+  return pagedGitHubCollection({
+    apiUrl,
+    pathName: `/repos/${repository}/commits/${sha}/statuses`,
+    key: "statuses",
+    token,
+    fetchImpl,
+    label: "exact release status"
+  });
+}
+
+async function repositoryRequiredChecks({ apiUrl, repository, branch, token, fetchImpl = fetch }) {
+  const endpoint = `${apiUrl.replace(/\/$/, "")}/repos/${repository}/branches/${encodeURIComponent(branch)}/protection/required_status_checks`;
   const response = await fetchImpl(endpoint, {
     headers: {
       Accept: "application/vnd.github+json",
@@ -73,12 +120,15 @@ async function repositoryCheckRuns({ apiUrl, repository, sha, token, fetchImpl =
       "User-Agent": "better-workflows-release-tag"
     }
   });
-  if (!response.ok) throw new Error(`GitHub exact release check query failed with HTTP ${response.status}`);
+  if (!response.ok) throw new Error(`GitHub required release check configuration query failed with HTTP ${response.status}`);
   const payload = await response.json();
-  if (!payload || !Array.isArray(payload.check_runs)) {
-    throw new Error("GitHub exact release check query returned no check-runs array");
-  }
-  return payload.check_runs;
+  const contexts = [
+    ...(Array.isArray(payload?.contexts) ? payload.contexts : []),
+    ...(Array.isArray(payload?.checks) ? payload.checks.map((item) => item?.context) : [])
+  ].filter((context) => typeof context === "string" && context.length > 0);
+  const required = [...new Set(contexts)].sort();
+  if (required.length === 0) throw new Error(`GitHub branch ${branch} has no resolvable required status checks`);
+  return required;
 }
 
 async function githubGraphql({ apiUrl, token, query, variables, fetchImpl = fetch }) {
@@ -213,29 +263,42 @@ async function findCatchUpVersionBump({ cwd, branch, head, version, apiUrl, repo
   return null;
 }
 
-async function verifyCatchUpChecks({ apiUrl, repository, sha, token, fetchImpl }) {
+async function verifyCatchUpChecks({ apiUrl, repository, branch, sha, token, fetchImpl }) {
+  const requiredContexts = await repositoryRequiredChecks({ apiUrl, repository, branch, token, fetchImpl });
   const checkRuns = await repositoryCheckRuns({ apiUrl, repository, sha, token, fetchImpl });
-  if (checkRuns.length === 0) {
-    throw new Error(`Release catch-up requires fresh check-runs for exact release commit ${sha}`);
+  const statuses = await repositoryCommitStatuses({ apiUrl, repository, sha, token, fetchImpl });
+  const observations = requiredContexts.map((context) => {
+    const matchingChecks = checkRuns.filter((check) => (
+      String(check?.head_sha ?? "").toLowerCase() === sha && String(check?.name ?? "") === context
+    ));
+    const matchingStatuses = statuses.filter((status) => String(status?.context ?? "") === context);
+    return { context, checks: matchingChecks, statuses: matchingStatuses };
+  });
+  if (observations.some((item) => item.checks.length === 0 && item.statuses.length === 0)) {
+    throw new Error(`Release catch-up lacks an exact required check or status context: ${sha}`);
   }
-  const invalid = checkRuns.filter((check) => (
-    String(check?.head_sha ?? "").toLowerCase() !== sha ||
-    check?.status !== "completed" ||
-    check?.conclusion !== "success"
-  ));
-  if (invalid.length > 0) {
-    throw new Error(`Release catch-up requires all exact release commit check-runs to complete successfully: ${sha}`);
+  if (observations.some((item) => (
+    item.checks.some((check) => check.status !== "completed" || check.conclusion !== "success") ||
+    item.statuses.some((status) => status.state !== "success")
+  ))) {
+    throw new Error(`Release catch-up requires all exact required checks and statuses to complete successfully: ${sha}`);
   }
   return {
     headSha: sha,
+    requiredContexts,
     checkRuns: checkRuns
+      .filter((check) => requiredContexts.includes(String(check.name ?? "")))
       .map((check) => ({
         id: String(check.id ?? ""),
         name: String(check.name ?? ""),
         status: check.status,
         conclusion: check.conclusion
       }))
-      .sort((left, right) => `${left.name}:${left.id}`.localeCompare(`${right.name}:${right.id}`))
+      .sort((left, right) => `${left.name}:${left.id}`.localeCompare(`${right.name}:${right.id}`)),
+    statuses: statuses
+      .filter((status) => requiredContexts.includes(String(status.context ?? "")))
+      .map((status) => ({ context: String(status.context), state: status.state }))
+      .sort((left, right) => `${left.context}:${left.state}`.localeCompare(`${right.context}:${right.state}`))
   };
 }
 
@@ -291,7 +354,7 @@ export async function runReleaseTag({ env = process.env, cwd = process.cwd(), fe
     }
     releaseSha = catchUp.sha;
     pull = catchUp.pull;
-    catchUpChecks = await verifyCatchUpChecks({ apiUrl, repository, sha: releaseSha, token, fetchImpl });
+    catchUpChecks = await verifyCatchUpChecks({ apiUrl, repository, branch, sha: releaseSha, token, fetchImpl });
   }
   if (!pull) {
     return { status: "skipped", reason: "commit-is-not-an-exact-merged-pr-result", branch, sha };
