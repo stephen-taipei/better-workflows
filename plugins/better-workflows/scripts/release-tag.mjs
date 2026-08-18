@@ -242,6 +242,21 @@ async function remoteTag(cwd, tag) {
   return parseRemoteTagCommit(output);
 }
 
+async function highestPublishedReleaseVersion(cwd, branch) {
+  const output = await git(cwd, ["ls-remote", "--tags", "origin"]);
+  const pattern = branch === "main"
+    ? /^refs\/tags\/v(\d+\.\d+\.\d+)$/
+    : /^refs\/tags\/v(\d+\.\d+\.\d+)-dev\.[0-9a-f]+$/;
+  let highest = null;
+  for (const line of output.split("\n")) {
+    const reference = line.split(/\s+/)[1] ?? "";
+    const match = pattern.exec(reference);
+    if (!match) continue;
+    if (highest === null || compareStableVersions(match[1], highest) > 0) highest = match[1];
+  }
+  return highest;
+}
+
 async function validatedEventBeforeRevision(cwd, before, head) {
   const targetParent = releaseTagParentRevision(before);
   if (targetParent === null) return null;
@@ -269,6 +284,9 @@ async function findCatchUpVersionBump({ cwd, branch, head, version, apiUrl, repo
       continue;
     }
     const candidateVersion = await versionAtCommit(cwd, candidate);
+    if (candidateVersion !== null && compareStableVersions(candidateVersion, version) > 0) {
+      throw new Error(`Release version history contains ${candidateVersion} above current ${version}; refusing catch-up publication`);
+    }
     if (candidateVersion !== version) continue;
     const parentVersion = await versionAtCommit(cwd, parent);
     if (parentVersion === null || compareStableVersions(candidateVersion, parentVersion) <= 0) continue;
@@ -337,6 +355,15 @@ function latestRequiredObservation(checks, statuses) {
 
 async function verifyCatchUpChecks({ apiUrl, repository, branch, sha, token, fetchImpl }) {
   const requiredRequirements = await repositoryRequiredChecks({ apiUrl, repository, branch, token, fetchImpl });
+  const selfContexts = new Set(["integration-tag", "tag merged release version"]);
+  if (requiredRequirements.some(({ context }) => {
+    const normalized = context.toLowerCase();
+    return [...selfContexts].some((selfContext) => (
+      normalized === selfContext || normalized.endsWith(` / ${selfContext}`) || normalized.endsWith(`: ${selfContext}`)
+    ));
+  })) {
+    throw new Error("Release tag required-check configuration includes the integration-tag job; refusing a circular gate");
+  }
   const checkRuns = await repositoryCheckRuns({ apiUrl, repository, sha, token, fetchImpl });
   const statuses = await repositoryCommitStatuses({ apiUrl, repository, sha, token, fetchImpl });
   const observations = requiredRequirements.map((requirement) => {
@@ -441,6 +468,10 @@ export async function runReleaseTag({ env = process.env, cwd = process.cwd(), fe
   }
   if (!pull) {
     return { status: "skipped", reason: "commit-is-not-an-exact-merged-pr-result", branch, sha };
+  }
+  const highestPublished = await highestPublishedReleaseVersion(cwd, branch);
+  if (highestPublished !== null && compareStableVersions(current, highestPublished) < 0) {
+    throw new Error(`Release version ${current} is below the highest published ${branch} release ${highestPublished}; refusing release eligibility`);
   }
   requiredChecks = await verifyCatchUpChecks({ apiUrl, repository, branch, sha: releaseSha, token, fetchImpl });
 

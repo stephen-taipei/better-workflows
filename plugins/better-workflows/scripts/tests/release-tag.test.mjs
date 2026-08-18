@@ -311,14 +311,15 @@ test("release eligibility uses the validated push-event parent across multi-comm
     await git(work, ["push", "-q", "origin", "dev"]);
     const head = await git(work, ["rev-parse", "HEAD"]);
     let checkConclusion = "failure";
+    let requiredContext = "integration-tag";
     const fetchImpl = async (url) => {
       if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
         return jsonResponse([{ number: 9, base: { ref: "dev" }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: head }]);
       }
-      const checkResponse = successfulRequiredCheckResponse(url, head);
+      const checkResponse = successfulRequiredCheckResponse(url, head, requiredContext);
       if (checkResponse) {
         if (url.includes(`/commits/${head}/check-runs?per_page=100&page=1`)) {
-          return jsonResponse({ check_runs: [{ id: 7, name: "test", head_sha: head, status: "completed", conclusion: checkConclusion }] });
+          return jsonResponse({ check_runs: [{ id: 7, name: requiredContext, head_sha: head, status: "completed", conclusion: checkConclusion }] });
         }
         return checkResponse;
       }
@@ -334,6 +335,11 @@ test("release eligibility uses the validated push-event parent across multi-comm
       GITHUB_API_URL: "https://api.github.com",
       RELEASE_TAG_DRY_RUN: "1"
     };
+    await assert.rejects(
+      runReleaseTag({ cwd: work, fetchImpl, env }),
+      /includes the integration-tag job/
+    );
+    requiredContext = "test";
     await assert.rejects(
       runReleaseTag({ cwd: work, fetchImpl, env }),
       /all exact required checks and statuses to complete successfully/
@@ -571,6 +577,58 @@ test("release eligibility catches up a version bump after a later non-version pu
         requiredContexts: ["test"]
       }
     });
+    await git(work, ["tag", "v3.4.14-dev.aaaaaaaaaaaa", bump]);
+    await git(work, ["push", "-q", "origin", "refs/tags/v3.4.14-dev.aaaaaaaaaaaa"]);
+    await assert.rejects(
+      runReleaseTag({
+        cwd: work,
+        fetchImpl: unchangedFetch,
+        env: {
+          GITHUB_EVENT_NAME: "push",
+          GITHUB_EVENT_BEFORE: head,
+          GITHUB_REF_NAME: "dev",
+          GITHUB_REPOSITORY: "example/repo",
+          GITHUB_SHA: unchangedHead,
+          GITHUB_TOKEN: "test-token",
+          GITHUB_API_URL: "https://api.github.com",
+          RELEASE_TAG_DRY_RUN: "1"
+        }
+      }),
+      /below the highest published dev release 3\.4\.14/
+    );
+    await writeFile(path.join(work, "plugins/better-workflows/package.json"), JSON.stringify({ version: "3.4.14" }));
+    await writeFile(path.join(work, "plugins/better-workflows/.codex-plugin/plugin.json"), JSON.stringify({ version: "3.4.14+codex.test" }));
+    await git(work, ["add", "."]);
+    await git(work, ["commit", "-qm", "higher version"]);
+    await writeFile(path.join(work, "plugins/better-workflows/package.json"), JSON.stringify({ version: "3.4.13" }));
+    await writeFile(path.join(work, "plugins/better-workflows/.codex-plugin/plugin.json"), JSON.stringify({ version: "3.4.13+codex.test" }));
+    await git(work, ["add", "."]);
+    await git(work, ["commit", "-qm", "version regression"]);
+    await git(work, ["push", "-q", "origin", "dev"]);
+    const regressedHead = await git(work, ["rev-parse", "HEAD"]);
+    const regressionFetch = async (url) => {
+      if (url.endsWith(`/repos/example/repo/commits/${regressedHead}/pulls?per_page=100`)) {
+        return jsonResponse([{ number: 14, base: { ref: "dev" }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: regressedHead }]);
+      }
+      throw new Error(`Unexpected regression release-tag fetch URL: ${url}`);
+    };
+    await assert.rejects(
+      runReleaseTag({
+        cwd: work,
+        fetchImpl: regressionFetch,
+        env: {
+          GITHUB_EVENT_NAME: "push",
+          GITHUB_EVENT_BEFORE: unchangedHead,
+          GITHUB_REF_NAME: "dev",
+          GITHUB_REPOSITORY: "example/repo",
+          GITHUB_SHA: regressedHead,
+          GITHUB_TOKEN: "test-token",
+          GITHUB_API_URL: "https://api.github.com",
+          RELEASE_TAG_DRY_RUN: "1"
+        }
+      }),
+      /history contains 3\.4\.14 above current 3\.4\.13/
+    );
   } finally {
     await rm(root, { recursive: true, force: true });
   }
