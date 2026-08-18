@@ -22,7 +22,103 @@ import {
 
 const SHA = "a".repeat(40);
 const execFileAsync = promisify(execFile);
-const runReleaseTag = (options = {}) => runReleaseTagImpl({ sleepImpl: async () => {}, ...options });
+let latestPolicyReceiptMetadata = {
+  pullNumber: 11,
+  headSha: SHA,
+  mergeSha: SHA,
+  base: "dev",
+  policy: [{ context: "test", appId: null }]
+};
+
+function zipStoredJson(filename, value) {
+  const name = Buffer.from(filename);
+  const data = Buffer.from(JSON.stringify(value));
+  const local = Buffer.alloc(30 + name.length);
+  local.writeUInt32LE(0x04034b50, 0);
+  local.writeUInt16LE(20, 4);
+  local.writeUInt16LE(0, 6);
+  local.writeUInt16LE(0, 8);
+  local.writeUInt32LE(0, 10);
+  local.writeUInt32LE(0, 14);
+  local.writeUInt32LE(data.length, 18);
+  local.writeUInt32LE(data.length, 22);
+  local.writeUInt16LE(name.length, 26);
+  local.writeUInt16LE(0, 28);
+  name.copy(local, 30);
+  const central = Buffer.alloc(46 + name.length);
+  central.writeUInt32LE(0x02014b50, 0);
+  central.writeUInt16LE(20, 4);
+  central.writeUInt16LE(20, 6);
+  central.writeUInt16LE(0, 8);
+  central.writeUInt16LE(0, 10);
+  central.writeUInt32LE(0, 12);
+  central.writeUInt32LE(0, 16);
+  central.writeUInt32LE(data.length, 20);
+  central.writeUInt32LE(data.length, 24);
+  central.writeUInt16LE(name.length, 28);
+  central.writeUInt16LE(0, 30);
+  central.writeUInt16LE(0, 32);
+  central.writeUInt16LE(0, 34);
+  central.writeUInt16LE(0, 36);
+  central.writeUInt32LE(0, 38);
+  central.writeUInt32LE(0, 42);
+  name.copy(central, 46);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(0, 8);
+  end.writeUInt16LE(1, 10);
+  end.writeUInt32LE(central.length, 12);
+  end.writeUInt32LE(local.length + data.length, 16);
+  return Buffer.concat([local, data, central, end]);
+}
+
+function policyArtifactResponse(url) {
+  const runMatch = /\/actions\/runs\/(\d+)\/artifacts/.exec(url) || /\/actions\/runs\/(\d+)\/receipt\.zip/.exec(url);
+  if (!runMatch) return null;
+  const runId = runMatch[1];
+  const artifact = {
+    schemaVersion: 1,
+    kind: "better-workflows/release-policy-receipt-v2",
+    repository: "example/repo",
+    workflowFile: ".github/workflows/ci.yml",
+    workflowRunId: runId,
+    eventName: "pull_request_target",
+    eventAction: "synchronize",
+    branch: latestPolicyReceiptMetadata.base,
+    pullNumber: latestPolicyReceiptMetadata.pullNumber,
+    headSha: latestPolicyReceiptMetadata.headSha,
+    policy: latestPolicyReceiptMetadata.policy,
+    policyDigest: createHash("sha256").update(JSON.stringify(latestPolicyReceiptMetadata.policy)).digest("hex"),
+    observedAt: "2026-08-14T23:50:00.000Z"
+  };
+  const archive = zipStoredJson("release-policy-receipt.json", artifact);
+  if (url.includes("/artifacts")) {
+    return jsonResponse({ artifacts: [{
+      id: 88,
+      name: `better-workflows-release-policy-receipt-${runId}`,
+      expired: false,
+      digest: `sha256:${createHash("sha256").update(archive).digest("hex")}`,
+      workflow_run: { id: Number(runId) },
+      archive_download_url: `https://artifact.invalid/actions/runs/${runId}/receipt.zip`
+    }] });
+  }
+  return {
+    ok: true,
+    status: 200,
+    headers: { get() { return null; } },
+    async arrayBuffer() { return archive.buffer.slice(archive.byteOffset, archive.byteOffset + archive.byteLength); }
+  };
+}
+
+function wrapFetchImpl(fetchImpl = fetch) {
+  return async (url, options = {}) => policyArtifactResponse(url) ?? fetchImpl(url, options);
+}
+
+const runReleaseTag = (options = {}) => runReleaseTagImpl({
+  sleepImpl: async () => {},
+  ...options,
+  fetchImpl: wrapFetchImpl(options.fetchImpl)
+});
 
 async function git(cwd, args) {
   return (await execFileAsync("git", args, { cwd })).stdout.trim();
@@ -75,6 +171,13 @@ function policyReceiptStatus(context, updatedAt = "2026-08-20T00:50:00Z", appId 
   const headSha = String(metadata.headSha ?? SHA);
   const mergeSha = String(metadata.mergeSha ?? headSha);
   const base = String(metadata.base ?? "dev");
+  latestPolicyReceiptMetadata = {
+    pullNumber,
+    headSha,
+    mergeSha,
+    base,
+    policy: [{ context, appId }]
+  };
   return {
     id: 8,
     context: "better-workflows/release-policy-v1",
@@ -82,7 +185,7 @@ function policyReceiptStatus(context, updatedAt = "2026-08-20T00:50:00Z", appId 
     description: `better-workflows-policy-v1:${policyDigest}`,
     updated_at: updatedAt,
     creator: { login: "github-actions[bot]", type: "Bot" },
-    target_url: `https://github.com/example/repo/actions/runs/8?pr=${pullNumber}&head=${headSha}&base=${base}&merge=${mergeSha}`
+    target_url: `https://github.com/example/repo/actions/runs/8?phase=pre-merge&pr=${pullNumber}&head=${headSha}&base=${base}&merge=${mergeSha}`
   };
 }
 
@@ -94,8 +197,8 @@ function policyWorkflowResponse(url) {
     event: "pull_request_target",
     status: "completed",
     conclusion: "success",
-    created_at: "2026-08-20T00:30:00Z",
-    completed_at: "2026-08-20T00:45:00Z",
+    created_at: "2026-08-14T23:30:00Z",
+    completed_at: "2026-08-14T23:45:00Z",
     repository: { full_name: "example/repo" },
     pull_requests: Array.from({ length: 200 }, (_, index) => ({ number: index + 1 }))
   });
@@ -431,6 +534,64 @@ test("merge-time policy receipt binds the pre-merge head separately from the mer
     assert.equal(result.sha, mergeSha);
     assert.equal(result.requiredChecks.mergeTimeReceipt.preMergeSha, preMergeSha);
     assert.equal(result.requiredChecks.mergeTimeReceipt.mergeCommitSha, mergeSha);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("first rollout skips tagging until the trusted base contains the policy publisher", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-release-tag-policy-bootstrap-"));
+  const bare = path.join(root, "origin.git");
+  const work = path.join(root, "work");
+  try {
+    await execFileAsync("git", ["init", "--bare", "-q", bare]);
+    await execFileAsync("git", ["init", "-q", work]);
+    await git(work, ["config", "user.email", "test@example.invalid"]);
+    await git(work, ["config", "user.name", "release-test"]);
+    await mkdir(path.join(work, ".github/workflows"), { recursive: true });
+    await mkdir(path.join(work, "plugins/better-workflows/.codex-plugin"), { recursive: true });
+    await mkdir(path.join(work, "plugins/better-workflows"), { recursive: true });
+    await writeFile(path.join(work, ".github/workflows/ci.yml"), "name: CI\n");
+    await writeFile(path.join(work, "plugins/better-workflows/package.json"), JSON.stringify({ version: "3.4.12" }));
+    await writeFile(path.join(work, "plugins/better-workflows/.codex-plugin/plugin.json"), JSON.stringify({ version: "3.4.12+codex.test" }));
+    await git(work, ["add", "."]);
+    await git(work, ["commit", "-qm", "base without publisher"]);
+    await git(work, ["branch", "-M", "dev"]);
+    await git(work, ["remote", "add", "origin", bare]);
+    await git(work, ["push", "-q", "origin", "dev"]);
+    const base = await git(work, ["rev-parse", "HEAD"]);
+    await writeFile(path.join(work, "plugins/better-workflows/package.json"), JSON.stringify({ version: "3.4.13" }));
+    await writeFile(path.join(work, "plugins/better-workflows/.codex-plugin/plugin.json"), JSON.stringify({ version: "3.4.13+codex.test" }));
+    await git(work, ["add", "."]);
+    await git(work, ["commit", "-qm", "first rollout"]);
+    await git(work, ["push", "-q", "origin", "dev"]);
+    const head = await git(work, ["rev-parse", "HEAD"]);
+    const result = await runReleaseTag({
+      cwd: work,
+      fetchImpl: async (url) => {
+        if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
+          return jsonResponse([{
+            number: 18,
+            base: { ref: "dev", sha: base },
+            head: { sha: "b".repeat(40) },
+            merged_at: "2026-08-15T00:00:00Z",
+            merge_commit_sha: head
+          }]);
+        }
+        throw new Error(`Unexpected bootstrap fetch URL: ${url}`);
+      },
+      env: {
+        GITHUB_EVENT_NAME: "push",
+        GITHUB_EVENT_BEFORE: base,
+        GITHUB_REF_NAME: "dev",
+        GITHUB_REPOSITORY: "example/repo",
+        GITHUB_SHA: head,
+        GITHUB_TOKEN: "test-token",
+        GITHUB_API_URL: "https://api.github.com"
+      }
+    });
+    assert.equal(result.status, "skipped");
+    assert.equal(result.reason, "release-policy-receipt-bootstrap-pending");
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -1161,8 +1322,8 @@ test("release eligibility catches up a version bump after a later non-version pu
         description: "better-workflows-policy-v1:e15de564cdc76464ee41d0c60ff1709f9eeb37e75c9a4d7b219026fcf6bd8635",
         publisher: "github-actions[bot]",
         workflowRunId: "8",
-        recordedAt: "2026-08-20T00:50:00.000Z",
-        workflowRecordedAt: "2026-08-20T00:45:00.000Z"
+        recordedAt: "2026-08-14T23:50:00.000Z",
+        workflowRecordedAt: "2026-08-14T23:45:00.000Z"
       },
       preMergeWorkflow: {
         runId: "911",

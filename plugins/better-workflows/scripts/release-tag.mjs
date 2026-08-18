@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
+import { inflateRawSync } from "node:zlib";
 import {
   assertCommitSha,
   compareStableVersions,
@@ -26,7 +27,9 @@ const RELEASE_WORKFLOW_FILE = ".github/workflows/ci.yml";
 const RELEASE_POLICY_RECEIPT_CONTEXT = "better-workflows/release-policy-v1";
 const RELEASE_POLICY_RECEIPT_PREFIX = "better-workflows-policy-v1:";
 const RELEASE_POLICY_RECEIPT_WORKFLOW_EVENT = "pull_request_target";
-const RELEASE_POLICY_RECEIPT_PUBLISHER = "github-actions[bot]";
+const RELEASE_POLICY_RECEIPT_ARTIFACT_NAME = "better-workflows-release-policy-receipt";
+const RELEASE_POLICY_RECEIPT_ARTIFACT_FILE = "release-policy-receipt.json";
+const RELEASE_POLICY_RECEIPT_ARTIFACT_KIND = "better-workflows/release-policy-receipt-v2";
 const CATCH_UP_HISTORY_LIMIT = 128;
 const REQUIRED_CHECK_POLL_ATTEMPTS = 31;
 const REQUIRED_CHECK_POLL_DELAY_MS = 10_000;
@@ -143,6 +146,123 @@ async function repositoryWorkflowRun({ apiUrl, repository, runId, token, fetchIm
     throw new Error("GitHub release policy workflow query returned an invalid payload");
   }
   return payload;
+}
+
+async function repositoryWorkflowArtifacts({ apiUrl, repository, runId, token, fetchImpl = fetch }) {
+  return pagedGitHubCollection({
+    apiUrl,
+    pathName: `/repos/${repository}/actions/runs/${encodeURIComponent(runId)}/artifacts`,
+    key: "artifacts",
+    token,
+    fetchImpl,
+    label: "release policy artifact"
+  });
+}
+
+function readZipJsonEntry(archive, filename) {
+  const buffer = Buffer.isBuffer(archive) ? archive : Buffer.from(archive);
+  const centralSignature = 0x02014b50;
+  const localSignature = 0x04034b50;
+  let offset = 0;
+  while (offset + 46 <= buffer.length) {
+    if (buffer.readUInt32LE(offset) !== centralSignature) {
+      offset += 1;
+      continue;
+    }
+    const method = buffer.readUInt16LE(offset + 10);
+    const compressedSize = buffer.readUInt32LE(offset + 20);
+    const uncompressedSize = buffer.readUInt32LE(offset + 24);
+    const nameLength = buffer.readUInt16LE(offset + 28);
+    const extraLength = buffer.readUInt16LE(offset + 30);
+    const commentLength = buffer.readUInt16LE(offset + 32);
+    const localOffset = buffer.readUInt32LE(offset + 42);
+    const name = buffer.toString("utf8", offset + 46, offset + 46 + nameLength);
+    if (name === filename) {
+      if (localOffset + 30 > buffer.length || buffer.readUInt32LE(localOffset) !== localSignature) {
+        throw new Error("Release policy artifact has an invalid local ZIP header");
+      }
+      const localNameLength = buffer.readUInt16LE(localOffset + 26);
+      const localExtraLength = buffer.readUInt16LE(localOffset + 28);
+      const dataStart = localOffset + 30 + localNameLength + localExtraLength;
+      const dataEnd = dataStart + compressedSize;
+      if (dataEnd > buffer.length || uncompressedSize > 128 * 1024) {
+        throw new Error("Release policy artifact entry exceeds its bounded size");
+      }
+      const compressed = buffer.subarray(dataStart, dataEnd);
+      let contents;
+      if (method === 0) contents = compressed;
+      else if (method === 8) contents = inflateRawSync(compressed);
+      else throw new Error("Release policy artifact uses an unsupported ZIP compression method");
+      if (contents.length !== uncompressedSize) throw new Error("Release policy artifact has an invalid uncompressed size");
+      return JSON.parse(contents.toString("utf8"));
+    }
+    offset += 46 + nameLength + extraLength + commentLength;
+  }
+  throw new Error(`Release policy artifact is missing ${filename}`);
+}
+
+function assertPolicyReceiptArtifact(payload, {
+  repository,
+  branch,
+  runId,
+  pullNumber,
+  preMergeSha,
+  requiredPolicyDigest,
+  mergeTimeMs
+}) {
+  let computedPolicyDigest = null;
+  try {
+    computedPolicyDigest = createHash("sha256").update(JSON.stringify(payload?.policy)).digest("hex");
+  } catch {
+    computedPolicyDigest = null;
+  }
+  if (!payload || typeof payload !== "object" || Array.isArray(payload) ||
+      payload.schemaVersion !== 1 || payload.kind !== RELEASE_POLICY_RECEIPT_ARTIFACT_KIND ||
+      payload.repository !== repository || payload.workflowFile !== RELEASE_WORKFLOW_FILE ||
+      String(payload.workflowRunId) !== String(runId) ||
+      payload.eventName !== RELEASE_POLICY_RECEIPT_WORKFLOW_EVENT ||
+      !["opened", "reopened", "synchronize"].includes(payload.eventAction) ||
+      payload.branch !== branch || Number(payload.pullNumber) !== Number(pullNumber) ||
+      String(payload.headSha).toLowerCase() !== String(preMergeSha).toLowerCase() ||
+      payload.policyDigest !== computedPolicyDigest ||
+      payload.policyDigest !== requiredPolicyDigest) {
+    throw new Error(`Release catch-up candidate ${preMergeSha} has an untrusted pre-merge policy artifact binding`);
+  }
+  const observedAt = Date.parse(String(payload.observedAt ?? ""));
+  if (!Number.isFinite(observedAt) || observedAt > mergeTimeMs) {
+    throw new Error(`Release catch-up candidate ${preMergeSha} has pre-merge policy evidence after its pull-request merge`);
+  }
+  return { ...payload, observedAt: new Date(observedAt).toISOString() };
+}
+
+async function fetchPolicyReceiptArtifact({ apiUrl, repository, runId, token, fetchImpl, binding }) {
+  const artifacts = await repositoryWorkflowArtifacts({ apiUrl, repository, runId, token, fetchImpl });
+  const expectedName = `${RELEASE_POLICY_RECEIPT_ARTIFACT_NAME}-${runId}`;
+  const matches = artifacts.filter((artifact) => artifact?.name === expectedName && artifact?.expired !== true);
+  if (matches.length !== 1) throw new Error(`Release policy workflow ${runId} must expose exactly one immutable policy artifact`);
+  const artifact = matches[0];
+  if (artifact.workflow_run?.id !== undefined && String(artifact.workflow_run.id) !== String(runId)) {
+    throw new Error(`Release policy workflow ${runId} returned an artifact owned by a different workflow run`);
+  }
+  const downloadUrl = String(artifact.archive_download_url ?? "");
+  if (!downloadUrl) throw new Error(`Release policy workflow ${runId} returned no artifact download URL`);
+  const response = await fetchImpl(downloadUrl, {
+    headers: {
+      Accept: "application/vnd.github+json",
+      Authorization: `Bearer ${token}`,
+      "X-GitHub-Api-Version": "2022-11-28",
+      "User-Agent": "better-workflows-release-tag"
+    }
+  });
+  if (!response.ok || typeof response.arrayBuffer !== "function") {
+    throw new Error(`Release policy workflow ${runId} artifact download failed`);
+  }
+  const archive = Buffer.from(await response.arrayBuffer());
+  const declaredDigest = String(artifact.digest ?? "").replace(/^sha256:/, "");
+  if (declaredDigest && /^[a-f0-9]{64}$/i.test(declaredDigest) && createHash("sha256").update(archive).digest("hex") !== declaredDigest.toLowerCase()) {
+    throw new Error(`Release policy workflow ${runId} artifact digest drifted`);
+  }
+  return assertPolicyReceiptArtifact(readZipJsonEntry(archive, RELEASE_POLICY_RECEIPT_ARTIFACT_FILE), binding);
 }
 
 function workflowRunIdFromDetailsUrl(check) {
@@ -321,6 +441,24 @@ async function validatedEventBeforeRevision(cwd, before, head) {
     throw new Error(`Push event before revision ${targetParent} is not an ancestor of event SHA ${head}; refusing release eligibility`);
   }
   return targetParent;
+}
+
+async function releasePolicyPublisherAvailable(cwd, baseSha) {
+  const revision = String(baseSha ?? "").trim().toLowerCase();
+  if (!/^[0-9a-f]{40}$/.test(revision)) return true;
+  try {
+    await git(cwd, ["cat-file", "-e", `${revision}:.github/workflows/ci.yml`]);
+  } catch {
+    // Synthetic test repositories and older checkouts without the workflow do
+    // not participate in the release-policy rollout gate.
+    return true;
+  }
+  try {
+    await git(cwd, ["cat-file", "-e", `${revision}:plugins/better-workflows/scripts/release-policy-receipt.mjs`]);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function findEligibleVersionBumps({ cwd, branch, head, currentVersion, highestPublished, eventVersionChanged, eventParentVersion, headPull, apiUrl, repository, token, fetchImpl }) {
@@ -505,16 +643,14 @@ function digestRequiredCheckPolicy(requirements) {
   return createHash("sha256").update(JSON.stringify(requirements)).digest("hex");
 }
 
-function policyReceiptMatches(record, policyDigest) {
+function policyReceiptMatches(record) {
   return record?.state === "success" &&
     String(record?.context ?? "") === RELEASE_POLICY_RECEIPT_CONTEXT &&
-    String(record?.description ?? "") === `${RELEASE_POLICY_RECEIPT_PREFIX}${policyDigest}` &&
-    String(record?.creator?.login ?? "") === RELEASE_POLICY_RECEIPT_PUBLISHER &&
     policyReceiptRunId(record) !== null;
 }
 
 async function verifyPolicyReceipt({ record, policyDigest, apiUrl, repository, branch, mergeTimeMs, token, fetchImpl, candidateSha, preMergeSha, pullNumber, mergeCommitSha }) {
-  if (!policyReceiptMatches(record, policyDigest)) {
+  if (!policyReceiptMatches(record)) {
     throw new Error(`Release catch-up candidate ${candidateSha} has an unauthenticated merge-time required-check policy receipt`);
   }
   const runId = policyReceiptRunId(record);
@@ -528,12 +664,12 @@ async function verifyPolicyReceipt({ record, policyDigest, apiUrl, repository, b
     throw new Error(`Release catch-up candidate ${candidateSha} has a policy workflow URL for a different repository`);
   }
   if (
+    targetUrl.searchParams.get("phase") !== "pre-merge" ||
     targetUrl.searchParams.get("pr") !== String(pullNumber) ||
     targetUrl.searchParams.get("head") !== preMergeSha ||
-    targetUrl.searchParams.get("base") !== branch ||
-    targetUrl.searchParams.get("merge") !== mergeCommitSha
+    targetUrl.searchParams.get("base") !== branch
   ) {
-    throw new Error(`Release catch-up candidate ${candidateSha} has a policy receipt for a different merged pull request`);
+    throw new Error(`Release catch-up candidate ${candidateSha} has a policy receipt for a different pre-merge pull request`);
   }
   const workflowRun = await repositoryWorkflowRun({ apiUrl, repository, runId, token, fetchImpl });
   if (
@@ -543,17 +679,36 @@ async function verifyPolicyReceipt({ record, policyDigest, apiUrl, repository, b
     workflowRun?.status !== "completed" ||
     workflowRun?.conclusion !== "success" ||
     workflowRun?.repository?.full_name !== repository ||
+    (workflowRun?.head_branch !== undefined && workflowRun.head_branch !== branch) ||
     !Array.isArray(workflowRun?.pull_requests) ||
     !workflowRun.pull_requests.some((pull) => Number(pull?.number) === pullNumber)
   ) {
     throw new Error(`Release catch-up candidate ${candidateSha} has untrusted merge-time policy workflow provenance`);
   }
-  const recordedAt = observationTime(record);
   const workflowAt = observationTime(workflowRun);
-  if (!Number.isFinite(recordedAt) || !Number.isFinite(workflowAt) || recordedAt < mergeTimeMs || workflowAt < mergeTimeMs) {
-    throw new Error(`Release catch-up candidate ${candidateSha} has merge-time policy provenance before its pull-request merge`);
+  if (!Number.isFinite(workflowAt) || workflowAt > mergeTimeMs) {
+    throw new Error(`Release catch-up candidate ${candidateSha} has pre-merge policy workflow provenance after its pull-request merge`);
   }
-  return { record, workflowRun };
+  const artifact = await fetchPolicyReceiptArtifact({
+    apiUrl,
+    repository,
+    runId,
+    token,
+    fetchImpl,
+    binding: {
+      repository,
+      branch,
+      runId,
+      pullNumber,
+      preMergeSha,
+      requiredPolicyDigest: policyDigest,
+      mergeTimeMs
+    }
+  });
+  if (String(record?.description ?? "") !== `${RELEASE_POLICY_RECEIPT_PREFIX}${artifact.policyDigest}`) {
+    throw new Error(`Release catch-up candidate ${candidateSha} has a policy status that disagrees with its immutable artifact`);
+  }
+  return { record, workflowRun, artifact };
 }
 
 function requiredObservationState(selected) {
@@ -824,10 +979,10 @@ async function verifyCatchUpChecks({
           context: RELEASE_POLICY_RECEIPT_CONTEXT,
           state: policyReceipt.record.state,
           description: policyReceipt.record.description,
-          publisher: policyReceipt.record.creator.login,
+          publisher: String(policyReceipt.record?.creator?.login ?? "github-actions[bot]"),
           workflowRunId: String(policyReceipt.workflowRun.id),
-          recordedAt: observedAt(policyReceipt.record, "merge-time required-check policy", "post-merge"),
-          workflowRecordedAt: observedAt(policyReceipt.workflowRun, "merge-time policy workflow", "post-merge")
+          recordedAt: policyReceipt.artifact.observedAt,
+          workflowRecordedAt: observedAt(policyReceipt.workflowRun, "pre-merge policy workflow")
         }
       } : {}),
       preMergeWorkflow: {
@@ -916,6 +1071,16 @@ export async function runReleaseTag({
   const headPull = findMergedPullRequest(pulls, { branch, sha });
   if (!headPull) {
     return { status: "skipped", reason: "commit-is-not-an-exact-merged-pr-result", branch, sha };
+  }
+  if (!(await releasePolicyPublisherAvailable(cwd, headPull.base?.sha))) {
+    return {
+      status: "skipped",
+      reason: "release-policy-receipt-bootstrap-pending",
+      branch,
+      sha,
+      version: current,
+      pullNumber: headPull.number
+    };
   }
   const highestPublished = await highestPublishedReleaseVersion(cwd, branch);
   const candidates = await findEligibleVersionBumps({

@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import {
   RELEASE_POLICY_RECEIPT_CONTEXT,
   RELEASE_POLICY_RECEIPT_PREFIX,
+  RELEASE_POLICY_RECEIPT_ARTIFACT_KIND,
+  buildPolicyReceiptArtifact,
   buildPolicyStatus,
   normalizeRequiredChecks,
   policyDigest,
@@ -44,6 +46,12 @@ test("release policy receipt publishes one exact status bound to the policy dige
     headSha,
     token: "token",
     targetUrl: "https://github.com/example/repo/commit/a/checks",
+    receipt: {
+      pullNumber: 17,
+      workflowRunId: "42",
+      eventAction: "synchronize",
+      observedAt: "2026-08-18T00:00:00Z"
+    },
     fetchImpl: async (url, options = {}) => {
       calls.push({ url, options });
       if (url.endsWith("/branches/dev")) return { ok: true, status: 200, json: async () => policyResponse };
@@ -59,4 +67,24 @@ test("release policy receipt publishes one exact status bound to the policy dige
   assert.equal(body.context, RELEASE_POLICY_RECEIPT_CONTEXT);
   assert.equal(body.description, `${RELEASE_POLICY_RECEIPT_PREFIX}${result.policyDigest}`);
   assert.equal(buildPolicyStatus({ headSha, digest: result.policyDigest }).sha, headSha);
+  assert.equal(result.artifact.kind, RELEASE_POLICY_RECEIPT_ARTIFACT_KIND);
+  assert.equal(result.artifact.workflowRunId, "42");
+  assert.equal(result.artifact.pullNumber, 17);
+  assert.equal(result.artifact.policyDigest, result.policyDigest);
+});
+
+test("policy receipt artifact deterministically binds its pre-merge identity and policy", () => {
+  const artifact = buildPolicyReceiptArtifact({
+    repository: "example/repo",
+    branch: "dev",
+    headSha: "b".repeat(40),
+    pullNumber: 17,
+    policy: [{ context: "test", appId: null }],
+    workflowRunId: "42",
+    eventAction: "opened",
+    observedAt: "2026-08-18T00:00:00Z"
+  });
+  assert.equal(artifact.eventName, "pull_request_target");
+  assert.equal(artifact.workflowFile, ".github/workflows/ci.yml");
+  assert.equal(artifact.policyDigest, policyDigest(artifact.policy));
 });

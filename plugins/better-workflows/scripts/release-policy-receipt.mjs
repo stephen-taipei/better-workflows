@@ -1,10 +1,14 @@
 import { createHash } from "node:crypto";
+import { writeFile } from "node:fs/promises";
 
 export const RELEASE_POLICY_RECEIPT_CONTEXT = "better-workflows/release-policy-v1";
 export const RELEASE_POLICY_RECEIPT_PREFIX = "better-workflows-policy-v1:";
 export const RELEASE_POLICY_RECEIPT_WORKFLOW_FILE = ".github/workflows/ci.yml";
 export const RELEASE_POLICY_RECEIPT_WORKFLOW_EVENT = "pull_request_target";
 export const RELEASE_POLICY_RECEIPT_PUBLISHER = "github-actions[bot]";
+export const RELEASE_POLICY_RECEIPT_ARTIFACT_NAME = "better-workflows-release-policy-receipt";
+export const RELEASE_POLICY_RECEIPT_ARTIFACT_FILE = "release-policy-receipt.json";
+export const RELEASE_POLICY_RECEIPT_ARTIFACT_KIND = "better-workflows/release-policy-receipt-v2";
 
 function assertSha(value) {
   const sha = String(value ?? "").trim().toLowerCase();
@@ -60,6 +64,43 @@ export function buildPolicyStatus({ headSha, digest, targetUrl }) {
   };
 }
 
+export function buildPolicyReceiptArtifact({
+  repository,
+  branch,
+  headSha,
+  pullNumber,
+  policy,
+  workflowRunId,
+  eventAction,
+  observedAt
+}) {
+  const normalizedHead = assertSha(headSha);
+  const normalizedPullNumber = Number(pullNumber);
+  if (!Number.isInteger(normalizedPullNumber) || normalizedPullNumber <= 0) {
+    throw new Error("Release policy receipt artifact requires a positive pull-request number");
+  }
+  const observedMs = Date.parse(String(observedAt ?? ""));
+  if (!Number.isFinite(observedMs)) throw new Error("Release policy receipt artifact requires an observation timestamp");
+  const runId = String(workflowRunId ?? "").trim();
+  if (!/^\d+$/.test(runId)) throw new Error("Release policy receipt artifact requires a workflow run id");
+  if (!repository || !branch || !eventAction) throw new Error("Release policy receipt artifact requires repository, branch, and event metadata");
+  return {
+    schemaVersion: 1,
+    kind: RELEASE_POLICY_RECEIPT_ARTIFACT_KIND,
+    repository: String(repository),
+    workflowFile: RELEASE_POLICY_RECEIPT_WORKFLOW_FILE,
+    workflowRunId: runId,
+    eventName: RELEASE_POLICY_RECEIPT_WORKFLOW_EVENT,
+    eventAction: String(eventAction),
+    branch: String(branch),
+    pullNumber: normalizedPullNumber,
+    headSha: normalizedHead,
+    policy,
+    policyDigest: policyDigest(policy),
+    observedAt: new Date(observedMs).toISOString()
+  };
+}
+
 async function requestJson({ apiUrl, path, token, options = {}, fetchImpl = fetch }) {
   const response = await fetchImpl(`${String(apiUrl).replace(/\/$/, "")}${path}`, {
     ...options,
@@ -82,6 +123,7 @@ export async function publishReleasePolicyReceipt({
   headSha,
   token,
   targetUrl,
+  receipt,
   fetchImpl = fetch
 }) {
   if (!token || !repository || !branch) throw new Error("Release policy receipt requires repository, branch, and token");
@@ -110,7 +152,16 @@ export async function publishReleasePolicyReceipt({
       })
     }
   });
-  return { status: "published", branch, headSha: normalizedHead, policy, policyDigest: digest, context: status.context };
+  const artifact = receipt
+    ? buildPolicyReceiptArtifact({
+      ...receipt,
+      repository,
+      branch,
+      headSha: normalizedHead,
+      policy
+    })
+    : null;
+  return { status: "published", branch, headSha: normalizedHead, policy, policyDigest: digest, context: status.context, artifact };
 }
 
 async function main() {
@@ -118,35 +169,38 @@ async function main() {
   if (eventName !== RELEASE_POLICY_RECEIPT_WORKFLOW_EVENT) {
     throw new Error(`Release policy receipt must run from the trusted ${RELEASE_POLICY_RECEIPT_WORKFLOW_EVENT} event`);
   }
-  if (String(process.env.GITHUB_EVENT_ACTION ?? "") !== "closed" || String(process.env.GITHUB_PR_MERGED ?? "") !== "true") {
-    throw new Error("Release policy receipt must run only for a merged pull-request closed event");
+  const eventAction = String(process.env.GITHUB_EVENT_ACTION ?? "");
+  if (!["opened", "reopened", "synchronize"].includes(eventAction) || String(process.env.GITHUB_PR_MERGED ?? "") === "true") {
+    throw new Error("Release policy receipt must run only for an unmerged pull-request pre-merge event");
   }
   const branch = String(process.env.GITHUB_BASE_REF ?? "");
   const headSha = assertSha(process.env.GITHUB_HEAD_SHA);
-  const mergeCommitSha = assertSha(process.env.GITHUB_MERGE_COMMIT_SHA);
   const pullNumber = Number(process.env.GITHUB_PR_NUMBER);
   if (!Number.isInteger(pullNumber) || pullNumber <= 0) throw new Error("Release policy receipt requires a positive pull-request number");
-  const mergedAt = Date.parse(String(process.env.GITHUB_PR_MERGED_AT ?? ""));
-  if (!Number.isFinite(mergedAt)) throw new Error("Release policy receipt requires the pull-request merge timestamp");
   const repository = String(process.env.GITHUB_REPOSITORY ?? "");
   const apiUrl = String(process.env.GITHUB_API_URL ?? "https://api.github.com");
   const token = String(process.env.GITHUB_TOKEN ?? "");
   const runId = String(process.env.GITHUB_RUN_ID ?? "").trim();
   if (!process.env.GITHUB_SERVER_URL || !repository || !runId) throw new Error("Release policy receipt requires a trusted workflow run URL");
+  const observedAt = new Date().toISOString();
   const targetUrl = new URL(`${process.env.GITHUB_SERVER_URL}/${repository}/actions/runs/${encodeURIComponent(runId)}`);
+  targetUrl.searchParams.set("phase", "pre-merge");
   targetUrl.searchParams.set("pr", String(pullNumber));
   targetUrl.searchParams.set("head", headSha);
   targetUrl.searchParams.set("base", branch);
-  targetUrl.searchParams.set("merge", mergeCommitSha);
-  targetUrl.searchParams.set("mergedAt", new Date(mergedAt).toISOString());
-  console.log(JSON.stringify(await publishReleasePolicyReceipt({
+  const result = await publishReleasePolicyReceipt({
     apiUrl,
     repository,
     branch,
     headSha,
     token,
-    targetUrl: targetUrl.toString()
-  })));
+    targetUrl: targetUrl.toString(),
+    receipt: { pullNumber, workflowRunId: runId, eventAction, observedAt }
+  });
+  const artifactPath = String(process.env.RELEASE_POLICY_RECEIPT_FILE ?? "").trim();
+  if (!artifactPath || !result.artifact) throw new Error("Release policy receipt requires an immutable artifact output path");
+  await writeFile(artifactPath, `${JSON.stringify(result.artifact)}\n`, { mode: 0o600, flag: "wx" });
+  console.log(JSON.stringify(result));
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
