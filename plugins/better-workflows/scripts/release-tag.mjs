@@ -827,11 +827,14 @@ export async function runReleaseTag({
       sha: existing.sha,
       token,
       fetchImpl,
+      // Historical candidates need an immutable post-merge workflow receipt;
+      // the event-head candidate is already serialized behind integration-tag
+      // `needs: test` in the push workflow, so its workflow gate is separate.
       requireWorkflowTest: existing.sha !== sha,
-      mergeTime: existing.sha !== sha ? existing.pull.merged_at : null,
-      pullNumber: existing.sha !== sha ? existing.pull.number : null,
-      mergeCommitSha: existing.sha !== sha ? existing.pull.merge_commit_sha : existing.sha,
-      preMergeSha: existing.sha !== sha ? existing.pull.head?.sha : existing.sha,
+      mergeTime: existing.pull.merged_at,
+      pullNumber: existing.pull.number,
+      mergeCommitSha: existing.pull.merge_commit_sha,
+      preMergeSha: existing.pull.head?.sha,
       sleepImpl
     });
     if (await remoteHead(cwd, branch) !== sha) {
@@ -857,11 +860,14 @@ export async function runReleaseTag({
       sha: candidate.sha,
       token,
       fetchImpl,
+      // Historical candidates need an immutable post-merge workflow receipt;
+      // the event-head candidate is already serialized behind integration-tag
+      // `needs: test` in the push workflow, so its workflow gate is separate.
       requireWorkflowTest: candidate.sha !== sha,
-      mergeTime: candidate.sha !== sha ? candidate.pull.merged_at : null,
-      pullNumber: candidate.sha !== sha ? candidate.pull.number : null,
-      mergeCommitSha: candidate.sha !== sha ? candidate.pull.merge_commit_sha : candidate.sha,
-      preMergeSha: candidate.sha !== sha ? candidate.pull.head?.sha : candidate.sha,
+      mergeTime: candidate.pull.merged_at,
+      pullNumber: candidate.pull.number,
+      mergeCommitSha: candidate.pull.merge_commit_sha,
+      preMergeSha: candidate.pull.head?.sha,
       sleepImpl
     });
     checkedCandidates.push({ candidate, requiredChecks });

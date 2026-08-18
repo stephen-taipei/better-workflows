@@ -1054,7 +1054,6 @@ test("sanitizer redacts ownerToken display identifiers before secret scanning", 
     assert.match(material.content.toString("utf8"), /\[redacted-owner-token\]/);
     for (const file of [
       "docs/README.zh-TW.md",
-      ".github/workflows/ci.yml",
       "docs/html/index.html"
     ]) {
       await mkdir(path.dirname(path.join(cwd, file)), { recursive: true });
@@ -1073,20 +1072,22 @@ test("sanitizer redacts ownerToken display identifiers before secret scanning", 
   }
 });
 
-test("sanitizer admits only the explicitly allowlisted CI workflow", async () => {
+test("sanitizer rejects CI workflow changes under standing consent", async () => {
   const cwd = await mkdtemp(path.join(os.tmpdir(), "sbw-ci-workflow-allowlist-"));
   try {
-    const allowed = ".github/workflows/ci.yml";
+    const workflow = ".github/workflows/ci.yml";
     const denied = ".github/workflows/release.yml";
-    await mkdir(path.dirname(path.join(cwd, allowed)), { recursive: true });
-    await writeFile(path.join(cwd, allowed), "name: CI\non:\n  workflow_dispatch:\njobs: {}\n");
+    await mkdir(path.dirname(path.join(cwd, workflow)), { recursive: true });
+    await writeFile(path.join(cwd, workflow), "name: CI\non:\n  workflow_dispatch:\njobs: {}\n");
     await writeFile(path.join(cwd, denied), "name: Release\n");
-    const [material] = await readSanitizedCandidateMaterial({
-      cwd,
-      snapshot: { files: [await snapshotFile(cwd, allowed)] },
-      maxFiles: 1
-    });
-    assert.equal(material.path, allowed);
+    await assert.rejects(
+      readSanitizedCandidateMaterial({
+        cwd,
+        snapshot: { files: [await snapshotFile(cwd, workflow)] },
+        maxFiles: 1
+      }),
+      /outside the sanitized allowlist/
+    );
     await assert.rejects(
       readSanitizedCandidateMaterial({
         cwd,
@@ -1692,12 +1693,14 @@ test("candidate sanitizer rejects unvalidated generated binary surfaces", async 
     const workflowFile = ".github/workflows/ci.yml";
     await mkdir(path.dirname(path.join(cwd, workflowFile)), { recursive: true });
     await writeFile(path.join(cwd, workflowFile), "name: CI\n");
-    const [workflowMaterial] = await readSanitizedCandidateMaterial({
-      cwd,
-      snapshot: { files: [await snapshotFile(cwd, workflowFile)] },
-      maxFiles: 1
-    });
-    assert.equal(workflowMaterial.path, workflowFile);
+    await assert.rejects(
+      readSanitizedCandidateMaterial({
+        cwd,
+        snapshot: { files: [await snapshotFile(cwd, workflowFile)] },
+        maxFiles: 1
+      }),
+      /outside the sanitized allowlist/
+    );
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }

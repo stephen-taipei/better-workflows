@@ -136,15 +136,15 @@ test("integration-tag workflow grants check-read permission for catch-up reconci
   );
 });
 
-test("release policy receipt workflow is pre-merge bound and writes an immutable status", async () => {
+test("required test workflow publishes the pre-merge policy receipt before completion", async () => {
   const workflow = await readFile(
     path.resolve(pluginRoot(), "../../.github/workflows/ci.yml"),
     "utf8"
   );
-  assert.match(workflow, /release-policy-receipt:[\s\S]*?needs:\s+test/);
-  assert.match(workflow, /release-policy-receipt:[\s\S]*?statuses:\s+write/);
-  assert.match(workflow, /release-policy-receipt\.mjs/);
-  assert.match(workflow, /GITHUB_HEAD_SHA:\s+\$\{\{\s*github\.event\.pull_request\.head\.sha\s*\|\|\s*github\.sha\s*\}\}/);
+  assert.match(workflow, /test:\s*\n[\s\S]*?permissions:\s*\n\s+contents:\s+read\s*\n\s+pull-requests:\s+read\s*\n\s+statuses:\s+write/);
+  assert.match(workflow, /test:\s*[\s\S]*?run:\s+node plugins\/better-workflows\/scripts\/release-policy-receipt\.mjs/);
+  assert.match(workflow, /test:\s*[\s\S]*?GITHUB_HEAD_SHA:\s+\$\{\{\s*github\.event\.pull_request\.head\.sha\s*\|\|\s*github\.sha\s*\}\}/);
+  assert.doesNotMatch(workflow, /release-policy-receipt:\s*\n/);
 });
 
 test("generated HTML template inventory derives ci release stages from authoritative templates", async () => {

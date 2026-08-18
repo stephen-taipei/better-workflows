@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -41,12 +42,37 @@ function successfulRequiredCheckResponse(url, sha, context = "test") {
     return jsonResponse({ protected: true, protection: { required_status_checks: { contexts: [context], checks: [] } } });
   }
   if (url.includes(`/commits/${sha}/check-runs?per_page=100&page=1`)) {
-    return jsonResponse({ check_runs: [{ id: 7, name: context, head_sha: sha, status: "completed", conclusion: "success" }] });
+    return jsonResponse({ check_runs: [{ id: 7, name: context, head_sha: sha, status: "completed", conclusion: "success", completed_at: "2026-08-14T23:55:00Z" }] });
   }
   if (url.includes(`/commits/${sha}/statuses?per_page=100&page=1`)) {
-    return jsonResponse([{ id: 7, context, state: "success" }]);
+    const policyDigest = createHash("sha256")
+      .update(JSON.stringify([{ context, appId: null }]))
+      .digest("hex");
+    return jsonResponse([
+      { id: 7, context, state: "success" },
+      {
+        id: 8,
+        context: "better-workflows/release-policy-v1",
+        state: "success",
+        description: `better-workflows-policy-v1:${policyDigest}`,
+        updated_at: "2026-08-14T23:50:00Z"
+      }
+    ]);
   }
   return null;
+}
+
+function policyReceiptStatus(context, updatedAt = "2026-08-14T23:50:00Z") {
+  const policyDigest = createHash("sha256")
+    .update(JSON.stringify([{ context, appId: null }]))
+    .digest("hex");
+  return {
+    id: 8,
+    context: "better-workflows/release-policy-v1",
+    state: "success",
+    description: `better-workflows-policy-v1:${policyDigest}`,
+    updated_at: updatedAt
+  };
 }
 
 test("release tag names distinguish stable main from dev prerelease integration", () => {
@@ -76,7 +102,7 @@ test("package and plugin manifest versions must agree", () => {
 });
 
 test("only the exact merged PR result for the target branch is eligible", () => {
-  const pull = { number: 42, base: { ref: "dev" }, merged_at: "2026-08-14T00:00:00Z", merge_commit_sha: SHA };
+  const pull = { number: 42, base: { ref: "dev" }, head: { sha: SHA }, merged_at: "2026-08-14T00:00:00Z", merge_commit_sha: SHA };
   assert.equal(findMergedPullRequest([pull], { branch: "dev", sha: SHA }), pull);
   assert.equal(findMergedPullRequest([pull], { branch: "main", sha: SHA }), null);
   assert.equal(findMergedPullRequest([{ ...pull, merge_commit_sha: "b".repeat(40) }], { branch: "dev", sha: SHA }), null);
@@ -144,7 +170,7 @@ test("release tag fails closed when the atomic branch CAS observes a concurrent 
     let mutationRequest;
     const fetchImpl = async (url, options = {}) => {
       if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
-        return jsonResponse([{ number: 7, base: { ref: "dev" }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: head }]);
+        return jsonResponse([{ number: 7, base: { ref: "dev" }, head: { sha: head }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: head }]);
       }
       const checkResponse = successfulRequiredCheckResponse(url, head);
       if (checkResponse) return checkResponse;
@@ -220,7 +246,7 @@ exec /usr/bin/git "$@"
     await writeFile(shim, shimScript, { mode: 0o700 });
     const fetchImpl = async (url) => {
       if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
-        return jsonResponse([{ number: 8, base: { ref: "dev" }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: head }]);
+        return jsonResponse([{ number: 8, base: { ref: "dev" }, head: { sha: head }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: head }]);
       }
       const checkResponse = successfulRequiredCheckResponse(url, head);
       if (checkResponse) return checkResponse;
@@ -262,7 +288,8 @@ exec /usr/bin/git "$@"
         GITHUB_API_URL: "https://api.github.com"
       }
     });
-    assert.deepEqual(reconciled, {
+    const { mergeTimeReceipt: reconciledReceipt, ...reconciledChecks } = reconciled.requiredChecks;
+    assert.deepEqual({ ...reconciled, requiredChecks: reconciledChecks }, {
       status: "existing",
       tag,
       branch: "dev",
@@ -277,6 +304,8 @@ exec /usr/bin/git "$@"
         statuses: []
       }
     });
+    assert.equal(reconciledReceipt.kind, "merge-time-required-checks-v1");
+    assert.equal(reconciledReceipt.preMergeSha, head);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -315,22 +344,22 @@ test("release eligibility uses the validated push-event parent across multi-comm
     let requiredContext = "integration-tag";
     const fetchImpl = async (url) => {
       if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
-        return jsonResponse([{ number: 9, base: { ref: "dev" }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: head }]);
+        return jsonResponse([{ number: 9, base: { ref: "dev" }, head: { sha: head }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: head }]);
       }
       if (url.endsWith(`/repos/example/repo/commits/${intermediate}/pulls?per_page=100`)) {
-        return jsonResponse([{ number: 10, base: { ref: "dev" }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: intermediate }]);
+        return jsonResponse([{ number: 10, base: { ref: "dev" }, head: { sha: intermediate }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: intermediate }]);
       }
       if (url.includes(`/repos/example/repo/actions/runs?head_sha=${intermediate}&event=push&branch=dev&per_page=100&page=1`)) {
         return jsonResponse({ workflow_runs: [{ id: 7, path: ".github/workflows/ci.yml", head_sha: intermediate, head_branch: "dev", event: "push", status: "completed", conclusion: "success" }] });
       }
       const checkSha = url.includes(`/commits/${intermediate}/`) ? intermediate : head;
       if (checkSha === intermediate && url.includes(`/commits/${intermediate}/check-runs?per_page=100&page=1`)) {
-        return jsonResponse({ check_runs: [{ id: 7, name: requiredContext, head_sha: intermediate, status: "completed", conclusion: checkConclusion, details_url: `https://github.com/example/repo/actions/runs/7/job/70`, app: { slug: "github-actions" } }] });
+        return jsonResponse({ check_runs: [{ id: 7, name: requiredContext, head_sha: intermediate, status: "completed", conclusion: checkConclusion, completed_at: "2026-08-14T23:55:00Z", details_url: `https://github.com/example/repo/actions/runs/7/job/70`, app: { slug: "github-actions" } }] });
       }
       const checkResponse = successfulRequiredCheckResponse(url, checkSha, requiredContext);
       if (checkResponse) {
         if (url.includes(`/commits/${checkSha}/check-runs?per_page=100&page=1`)) {
-          return jsonResponse({ check_runs: [{ id: 7, name: requiredContext, head_sha: checkSha, status: "completed", conclusion: checkConclusion }] });
+          return jsonResponse({ check_runs: [{ id: 7, name: requiredContext, head_sha: checkSha, status: "completed", conclusion: checkConclusion, completed_at: "2026-08-14T23:55:00Z" }] });
         }
         return checkResponse;
       }
@@ -362,7 +391,8 @@ test("release eligibility uses the validated push-event parent across multi-comm
       env
     });
     assert.equal(intermediate, await git(work, ["rev-parse", `${head}^1`]));
-    assert.deepEqual(result, {
+    const { mergeTimeReceipt: plannedReceipt, ...plannedChecks } = result.requiredChecks;
+    assert.deepEqual({ ...result, requiredChecks: plannedChecks }, {
       status: "planned",
       tag: `v3.4.13-dev.${head.slice(0, 12)}`,
       branch: "dev",
@@ -377,6 +407,8 @@ test("release eligibility uses the validated push-event parent across multi-comm
         statuses: []
       }
     });
+    assert.equal(plannedReceipt.kind, "merge-time-required-checks-v1");
+    assert.equal(plannedReceipt.preMergeSha, head);
     const unrelatedTree = await git(work, ["rev-parse", `${head}^{tree}`]);
     const unrelatedBefore = await git(work, ["commit-tree", unrelatedTree, "-m", "unrelated event parent"]);
     await assert.rejects(
@@ -432,7 +464,7 @@ test("catch-up release workflow must belong to the target branch", async () => {
     await git(work, ["push", "-q", "origin", "dev"]);
     const fetchImpl = async (url) => {
       if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
-        return jsonResponse([{ number: 72, base: { ref: "dev" }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: head }]);
+        return jsonResponse([{ number: 72, base: { ref: "dev" }, head: { sha: head }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: head }]);
       }
       if (url.endsWith(`/repos/example/repo/commits/${bump}/pulls?per_page=100`)) {
         return jsonResponse([{ number: 71, base: { ref: "dev" }, head: { sha: bump }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: bump }]);
@@ -514,7 +546,7 @@ test("unchanged-version direct push cannot publish an earlier release candidate"
     const fetchImpl = async (url) => {
       if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) return jsonResponse([]);
       if (url.endsWith(`/repos/example/repo/commits/${bump}/pulls?per_page=100`)) {
-        return jsonResponse([{ number: 82, base: { ref: "dev" }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: bump }]);
+        return jsonResponse([{ number: 82, base: { ref: "dev" }, head: { sha: bump }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: bump }]);
       }
       throw new Error(`Unexpected unmerged-head fetch URL: ${url}`);
     };
@@ -573,7 +605,7 @@ test("rebase-style merged PR keeps an earlier version bump eligible at final HEA
     await git(work, ["push", "-q", "origin", "dev"]);
     const fetchImpl = async (url) => {
       if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
-        return jsonResponse([{ number: 33, base: { ref: "dev", sha: eventBefore }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: head }]);
+        return jsonResponse([{ number: 33, base: { ref: "dev", sha: eventBefore }, head: { sha: head }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: head }]);
       }
       if (url.includes("/commits/") && url.endsWith("/pulls?per_page=100")) return jsonResponse([]);
       if (url.endsWith("/branches/dev")) {
@@ -581,14 +613,14 @@ test("rebase-style merged PR keeps an earlier version bump eligible at final HEA
       }
       if (url.includes(`/commits/${head}/check-runs?per_page=100&page=1`)) {
         return jsonResponse({ check_runs: [
-          { id: 33, name: "lint", head_sha: head, status: "completed", conclusion: "success" },
-          { id: 34, name: "test", head_sha: head, status: "completed", conclusion: "success", details_url: "https://github.com/example/repo/actions/runs/33/job/1", app: { slug: "github-actions" } }
+          { id: 33, name: "lint", head_sha: head, status: "completed", conclusion: "success", completed_at: "2026-08-17T23:55:00Z" },
+          { id: 34, name: "test", head_sha: head, status: "completed", conclusion: "success", completed_at: "2026-08-17T23:55:00Z", details_url: "https://github.com/example/repo/actions/runs/33/job/1", app: { slug: "github-actions" } }
         ] });
       }
       if (url.includes(`/actions/runs?head_sha=${head}&event=push&branch=dev&per_page=100&page=1`)) {
         return jsonResponse({ workflow_runs: [{ id: 33, path: ".github/workflows/ci.yml", head_sha: head, head_branch: "dev", event: "push", status: "completed", conclusion: "success" }] });
       }
-      if (url.includes(`/commits/${head}/statuses?per_page=100&page=1`)) return jsonResponse([]);
+      if (url.includes(`/commits/${head}/statuses?per_page=100&page=1`)) return jsonResponse([policyReceiptStatus("lint", "2026-08-17T23:50:00Z")]);
       throw new Error(`Unexpected rebase release-tag fetch URL: ${url}`);
     };
     const result = await runReleaseTag({
@@ -670,7 +702,7 @@ test("catch-up rejects a direct version bump laundered through an unrelated PR",
     await git(work, ["push", "-q", "origin", "dev"]);
     const fetchImpl = async (url) => {
       if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
-        return jsonResponse([{ number: 44, base: { ref: "dev", sha: bump }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: head }]);
+        return jsonResponse([{ number: 44, base: { ref: "dev", sha: bump }, head: { sha: head }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: head }]);
       }
       if (url.endsWith(`/repos/example/repo/commits/${bump}/pulls?per_page=100`)) return jsonResponse([]);
       throw new Error(`Unexpected laundered-bump fetch URL: ${url}`);
@@ -741,7 +773,7 @@ test("dev release rejects republishing a stable version at a new commit", async 
     await git(work, ["push", "-q", "origin", "dev"]);
     const fetchImpl = async (url) => {
       if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
-        return jsonResponse([{ number: 52, base: { ref: "dev" }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: head }]);
+        return jsonResponse([{ number: 52, base: { ref: "dev" }, head: { sha: head }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: head }]);
       }
       if (url.includes("/pulls?per_page=100")) return jsonResponse([]);
       throw new Error(`Unexpected duplicate-version fetch URL: ${url}`);
@@ -804,10 +836,10 @@ test("release publication rejects duplicate stable versions in one candidate bat
     await git(work, ["push", "-q", "origin", "dev"]);
     const fetchImpl = async (url) => {
       if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
-        return jsonResponse([{ number: 54, base: { ref: "dev" }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: head }]);
+        return jsonResponse([{ number: 54, base: { ref: "dev" }, head: { sha: head }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: head }]);
       }
       if (url.endsWith(`/repos/example/repo/commits/${firstBump}/pulls?per_page=100`)) {
-        return jsonResponse([{ number: 53, base: { ref: "dev" }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: firstBump }]);
+        return jsonResponse([{ number: 53, base: { ref: "dev" }, head: { sha: firstBump }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: firstBump }]);
       }
       if (url.includes("/pulls?per_page=100")) return jsonResponse([]);
       throw new Error(`Unexpected duplicate-candidate fetch URL: ${url}`);
@@ -880,7 +912,7 @@ test("release eligibility catches up a version bump after a later non-version pu
         return jsonResponse({ data: { updateRefs: { clientMutationId: null } } });
       }
       if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
-        return jsonResponse([{ number: 12, base: { ref: "dev" }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: head }]);
+        return jsonResponse([{ number: 12, base: { ref: "dev" }, head: { sha: head }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: head }]);
       }
       if (url.endsWith(`/repos/example/repo/commits/${bump}/pulls?per_page=100`)) {
         return jsonResponse([{ number: 11, base: { ref: "dev" }, head: { sha: bump }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: bump }]);
@@ -1013,10 +1045,10 @@ test("release eligibility catches up a version bump after a later non-version pu
     const unchangedHead = await git(work, ["rev-parse", "HEAD"]);
     const unchangedFetch = async (url) => {
       if (url.endsWith(`/repos/example/repo/commits/${unchangedHead}/pulls?per_page=100`)) {
-        return jsonResponse([{ number: 13, base: { ref: "dev" }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: unchangedHead }]);
+        return jsonResponse([{ number: 13, base: { ref: "dev" }, head: { sha: unchangedHead }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: unchangedHead }]);
       }
       if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
-        return jsonResponse([{ number: 12, base: { ref: "dev" }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: head }]);
+        return jsonResponse([{ number: 12, base: { ref: "dev" }, head: { sha: head }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: head }]);
       }
       if (url.endsWith(`/repos/example/repo/commits/${bump}/pulls?per_page=100`)) {
         return jsonResponse([{ number: 11, base: { ref: "dev" }, head: { sha: bump }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: bump }]);
@@ -1104,7 +1136,7 @@ test("release eligibility catches up a version bump after a later non-version pu
     const regressedHead = await git(work, ["rev-parse", "HEAD"]);
     const regressionFetch = async (url) => {
       if (url.endsWith(`/repos/example/repo/commits/${regressedHead}/pulls?per_page=100`)) {
-        return jsonResponse([{ number: 14, base: { ref: "dev" }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: regressedHead }]);
+        return jsonResponse([{ number: 14, base: { ref: "dev" }, head: { sha: regressedHead }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: regressedHead }]);
       }
       throw new Error(`Unexpected regression release-tag fetch URL: ${url}`);
     };
@@ -1176,7 +1208,7 @@ test("consecutive version bumps are recovered in one atomic batch", async () => 
         return jsonResponse({ data: { updateRefs: { clientMutationId: null } } });
       }
       if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
-        return jsonResponse([{ number: 14, base: { ref: "dev" }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: head }]);
+        return jsonResponse([{ number: 14, base: { ref: "dev" }, head: { sha: head }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: head }]);
       }
       if (url.endsWith(`/repos/example/repo/commits/${bump13}/pulls?per_page=100`)) {
         return jsonResponse([{ number: 13, base: { ref: "dev" }, head: { sha: bump13 }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: bump13 }]);
@@ -1193,9 +1225,7 @@ test("consecutive version bumps are recovered in one atomic batch", async () => 
           return jsonResponse({ check_runs: checkRuns });
         }
         if (url.includes(`/commits/${sha}/statuses?per_page=100&page=1`)) {
-          return jsonResponse(sha === bump13
-            ? [{ id: 90, context: "better-workflows/release-policy-v1", state: "success", description: "better-workflows-policy-v1:65fc264e296f666a3553e83b653b24a98db1f41f99895728f731f85624499ef0", updated_at: "2026-08-17T23:50:00Z" }]
-            : []);
+          return jsonResponse([policyReceiptStatus("lint", "2026-08-17T23:50:00Z")]);
         }
       }
       if (url.includes(`/actions/runs?head_sha=${bump13}&event=push&branch=dev&per_page=100&page=1`)) {
@@ -1262,7 +1292,7 @@ test("catch-up history exhaustion fails closed instead of silently skipping an o
     const head = await git(work, ["rev-parse", "HEAD"]);
     const fetchImpl = async (url) => {
       if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
-        return jsonResponse([{ number: 31, base: { ref: "dev" }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: head }]);
+        return jsonResponse([{ number: 31, base: { ref: "dev" }, head: { sha: head }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: head }]);
       }
       throw new Error(`Unexpected release-tag fetch URL: ${url}`);
     };
@@ -1323,15 +1353,15 @@ test("an exact HEAD version bump remains eligible past the catch-up history boun
     await git(work, ["push", "-q", "origin", "dev"]);
     const fetchImpl = async (url) => {
       if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
-        return jsonResponse([{ number: 32, base: { ref: "dev" }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: head }]);
+        return jsonResponse([{ number: 32, base: { ref: "dev" }, head: { sha: head }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: head }]);
       }
       if (url.endsWith("/branches/dev")) {
         return jsonResponse({ protected: true, protection: { required_status_checks: { contexts: ["lint"], checks: [] } } });
       }
       if (url.includes(`/commits/${head}/check-runs?per_page=100&page=1`)) {
-        return jsonResponse({ check_runs: [{ id: 32, name: "lint", head_sha: head, status: "completed", conclusion: "success" }] });
+        return jsonResponse({ check_runs: [{ id: 32, name: "lint", head_sha: head, status: "completed", conclusion: "success", completed_at: "2026-08-17T23:55:00Z" }] });
       }
-      if (url.includes(`/commits/${head}/statuses?per_page=100&page=1`)) return jsonResponse([]);
+      if (url.includes(`/commits/${head}/statuses?per_page=100&page=1`)) return jsonResponse([policyReceiptStatus("lint", "2026-08-17T23:50:00Z")]);
       throw new Error(`Unexpected long-history fetch URL: ${url}`);
     };
     const result = await runReleaseTag({
@@ -1387,7 +1417,7 @@ test("the exact catch-up history boundary returns a deterministic no-op", async 
     const eventBefore = await git(work, ["rev-parse", "HEAD^1"]);
     const fetchImpl = async (url) => {
       if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
-        return jsonResponse([{ number: 34, base: { ref: "dev" }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: head }]);
+        return jsonResponse([{ number: 34, base: { ref: "dev" }, head: { sha: head }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: head }]);
       }
       throw new Error(`Unexpected root-boundary fetch URL: ${url}`);
     };
@@ -1454,7 +1484,7 @@ test("catch-up publication requires the exact workflow test check on the release
     let workflowScenario = "single";
     const fetchImpl = async (url) => {
       if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
-        return jsonResponse([{ number: 22, base: { ref: "dev" }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: head }]);
+        return jsonResponse([{ number: 22, base: { ref: "dev" }, head: { sha: head }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: head }]);
       }
       if (url.endsWith(`/repos/example/repo/commits/${bump}/pulls?per_page=100`)) {
         return jsonResponse([{ number: 21, base: { ref: "dev" }, head: { sha: bump }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: bump }]);
@@ -1548,7 +1578,7 @@ test("release parent version surfaces fail closed for missing and malformed file
       const head = await git(work, ["rev-parse", "HEAD"]);
       const fetchImpl = async (url) => {
         if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
-          return jsonResponse([{ number: 10, base: { ref: "dev" }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: head }]);
+          return jsonResponse([{ number: 10, base: { ref: "dev" }, head: { sha: head }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: head }]);
         }
         throw new Error(`Unexpected release-tag fetch URL: ${url}`);
       };

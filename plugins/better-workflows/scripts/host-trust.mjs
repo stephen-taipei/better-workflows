@@ -695,7 +695,6 @@ const STANDING_CONSENT_DENIED_AUTHORITIES = Object.freeze([
 const STANDING_CONSENT_ALLOWED_PATH_PATTERNS = Object.freeze([
   "^(?:README|CODE_OF_CONDUCT|CONTRIBUTING|GOVERNANCE|SECURITY|SUPPORT)\\.md$",
   "^scripts/plugin-cache\\.mjs$",
-  "^\\.github/workflows/ci\\.yml$",
   "^docs/README\\.(?:zh-TW|zh-CN|ja|ko)\\.md$",
   "^docs/details/(?:en|zh-TW|zh-CN|ja|ko)\\.md$",
   "^docs/guide/(?:architecture|cli-reference|getting-started|readme-quality|security|workflows)\\.md$",
