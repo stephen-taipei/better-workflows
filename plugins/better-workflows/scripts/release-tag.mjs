@@ -504,7 +504,6 @@ async function findEligibleVersionBumps({ cwd, branch, head, currentVersion, hig
     .split(/\s+/)
     .filter(Boolean);
   const candidates = [];
-  const seen = [];
   const pullCache = new Map();
   const loadPull = async (sha) => {
     if (pullCache.has(sha)) return pullCache.get(sha);
@@ -533,7 +532,6 @@ async function findEligibleVersionBumps({ cwd, branch, head, currentVersion, hig
     }
     if (candidateVersion === null) continue;
     const parentVersion = await versionAtCommit(cwd, parent);
-    seen.push({ order, sha: candidate, version: candidateVersion });
     if (parentVersion === null || compareStableVersions(candidateVersion, parentVersion) <= 0) continue;
     try {
       await git(cwd, ["merge-base", "--is-ancestor", candidate, head]);
@@ -542,30 +540,9 @@ async function findEligibleVersionBumps({ cwd, branch, head, currentVersion, hig
     }
     let releaseSha = candidate;
     let pull = await loadPull(candidate);
-    if (!pull) {
-      for (let index = seen.length - 2; index >= 0; index -= 1) {
-        const descendant = seen[index];
-        if (descendant.version !== candidateVersion) continue;
-        const descendantPull = await loadPull(descendant.sha);
-        if (!descendantPull) continue;
-        let pullBaseSha;
-        try {
-          pullBaseSha = assertCommitSha(descendantPull.base?.sha);
-        } catch {
-          continue;
-        }
-        if (pullBaseSha === candidate) continue;
-        try {
-          await git(cwd, ["merge-base", "--is-ancestor", pullBaseSha, candidate]);
-          await git(cwd, ["merge-base", "--is-ancestor", candidate, descendant.sha]);
-        } catch {
-          continue;
-        }
-        releaseSha = descendant.sha;
-        pull = descendantPull;
-        break;
-      }
-    }
+    // A version-bump commit without its own exact merged PR is untrusted.
+    // Ancestry/equal-version checks cannot prove that a later PR introduced
+    // the version change, so never launder the candidate through a descendant.
     if (!pull) continue;
     const tag = releaseTagName({ branch, version: candidateVersion, sha: releaseSha });
     const existingCommit = await remoteTag(cwd, tag);

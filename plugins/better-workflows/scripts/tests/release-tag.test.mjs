@@ -1013,7 +1013,9 @@ test("catch-up rejects a direct version bump laundered through an unrelated PR",
     await git(work, ["push", "-q", "origin", "dev"]);
     const fetchImpl = async (url) => {
       if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
-        return jsonResponse([{ number: 44, base: { ref: "dev", sha: bump }, head: { sha: head }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: head }]);
+        // The PR branched before the unrelated direct bump; ancestry alone must
+        // not make that bump eligible for the later PR.
+        return jsonResponse([{ number: 44, base: { ref: "dev", sha: await git(work, ["rev-parse", `${bump}^`]) }, head: { sha: head }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: head }]);
       }
       if (url.endsWith(`/repos/example/repo/commits/${bump}/pulls?per_page=100`)) return jsonResponse([]);
       throw new Error(`Unexpected laundered-bump fetch URL: ${url}`);
