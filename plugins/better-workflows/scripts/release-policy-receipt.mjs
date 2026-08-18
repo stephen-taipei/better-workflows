@@ -2,6 +2,9 @@ import { createHash } from "node:crypto";
 
 export const RELEASE_POLICY_RECEIPT_CONTEXT = "better-workflows/release-policy-v1";
 export const RELEASE_POLICY_RECEIPT_PREFIX = "better-workflows-policy-v1:";
+export const RELEASE_POLICY_RECEIPT_WORKFLOW_FILE = ".github/workflows/ci.yml";
+export const RELEASE_POLICY_RECEIPT_WORKFLOW_EVENT = "pull_request_target";
+export const RELEASE_POLICY_RECEIPT_PUBLISHER = "github-actions[bot]";
 
 function assertSha(value) {
   const sha = String(value ?? "").trim().toLowerCase();
@@ -112,17 +115,19 @@ export async function publishReleasePolicyReceipt({
 
 async function main() {
   const eventName = String(process.env.GITHUB_EVENT_NAME ?? "");
-  const branch = eventName === "pull_request"
-    ? String(process.env.GITHUB_BASE_REF ?? "")
-    : String(process.env.GITHUB_REF_NAME ?? "");
-  const headSha = eventName === "pull_request"
-    ? String(process.env.GITHUB_HEAD_SHA ?? "")
-    : String(process.env.GITHUB_SHA ?? "");
+  if (eventName !== RELEASE_POLICY_RECEIPT_WORKFLOW_EVENT) {
+    throw new Error(`Release policy receipt must run from the trusted ${RELEASE_POLICY_RECEIPT_WORKFLOW_EVENT} event`);
+  }
+  const branch = String(process.env.GITHUB_BASE_REF ?? "");
+  const headSha = String(process.env.GITHUB_HEAD_SHA ?? "");
   const repository = String(process.env.GITHUB_REPOSITORY ?? "");
   const apiUrl = String(process.env.GITHUB_API_URL ?? "https://api.github.com");
   const token = String(process.env.GITHUB_TOKEN ?? "");
-  const targetUrl = process.env.GITHUB_SERVER_URL && repository
-    ? `${process.env.GITHUB_SERVER_URL}/${repository}/commit/${assertSha(headSha)}/checks`
+  const runId = String(process.env.GITHUB_RUN_ID ?? "").trim();
+  const targetUrl = process.env.GITHUB_SERVER_URL && repository && runId
+    ? `${process.env.GITHUB_SERVER_URL}/${repository}/actions/runs/${runId}`
+    : process.env.GITHUB_SERVER_URL && repository
+      ? `${process.env.GITHUB_SERVER_URL}/${repository}/commit/${assertSha(headSha)}/checks`
     : undefined;
   console.log(JSON.stringify(await publishReleasePolicyReceipt({
     apiUrl,

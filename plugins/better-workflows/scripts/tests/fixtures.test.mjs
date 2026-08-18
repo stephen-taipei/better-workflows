@@ -136,15 +136,22 @@ test("integration-tag workflow grants check-read permission for catch-up reconci
   );
 });
 
-test("required test workflow publishes the pre-merge policy receipt before completion", async () => {
+test("trusted pull-request-target workflow publishes the pre-merge policy receipt", async () => {
   const workflow = await readFile(
     path.resolve(pluginRoot(), "../../.github/workflows/ci.yml"),
     "utf8"
   );
-  assert.match(workflow, /test:\s*\n[\s\S]*?permissions:\s*\n\s+contents:\s+read\s*\n\s+pull-requests:\s+read\s*\n\s+statuses:\s+write/);
-  assert.match(workflow, /test:\s*[\s\S]*?run:\s+node plugins\/better-workflows\/scripts\/release-policy-receipt\.mjs/);
-  assert.match(workflow, /test:\s*[\s\S]*?GITHUB_HEAD_SHA:\s+\$\{\{\s*github\.event\.pull_request\.head\.sha\s*\|\|\s*github\.sha\s*\}\}/);
-  assert.doesNotMatch(workflow, /release-policy-receipt:\s*\n/);
+  assert.match(workflow, /test:\s*\n\s+if:\s+github\.event_name\s+!=\s+'pull_request_target'/);
+  assert.match(workflow, /test:\s*[\s\S]*?permissions:\s*\n\s+contents:\s+read\s*\n\s+pull-requests:\s+read/);
+  const testJob = workflow.match(/\n  test:\n[\s\S]*?(?=\n  [a-z-]+:|$)/)?.[0] ?? "";
+  assert.doesNotMatch(testJob, /statuses:\s+write/);
+  assert.match(workflow, /release-policy-receipt:\s*\n\s+name:\s+Release policy receipt\s*\n\s+if:\s+github\.event_name\s+==\s+'pull_request_target'/);
+  assert.match(workflow, /release-policy-receipt:[\s\S]*?actions:\s+read\s*\n\s+statuses:\s+write/);
+  assert.match(workflow, /release-policy-receipt:[\s\S]*?ref:\s+\$\{\{\s*github\.event\.pull_request\.base\.sha\s*\}\}/);
+  assert.match(workflow, /release-policy-receipt:[\s\S]*?GITHUB_EVENT_NAME:\s+\$\{\{\s*github\.event_name\s*\}\}/);
+  assert.match(workflow, /release-policy-receipt:[\s\S]*?GITHUB_HEAD_SHA:\s+\$\{\{\s*github\.event\.pull_request\.head\.sha\s*\}\}/);
+  assert.match(workflow, /release-policy-receipt:[\s\S]*?GITHUB_RUN_ID:\s+\$\{\{\s*github\.run_id\s*\}\}/);
+  assert.match(workflow, /release-policy-receipt:[\s\S]*?run:\s+node plugins\/better-workflows\/scripts\/release-policy-receipt\.mjs/);
 });
 
 test("generated HTML template inventory derives ci release stages from authoritative templates", async () => {
