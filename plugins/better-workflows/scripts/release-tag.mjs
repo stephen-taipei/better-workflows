@@ -37,6 +37,13 @@ const CATCH_UP_ARTIFACT_MAX_AGE_MS = 90 * 24 * 60 * 60 * 1000;
 const REQUIRED_CHECK_POLL_ATTEMPTS = 31;
 const REQUIRED_CHECK_POLL_DELAY_MS = 10_000;
 
+class PendingPolicyReceiptArtifactError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "PendingPolicyReceiptArtifactError";
+  }
+}
+
 async function git(cwd, args) {
   try {
     const result = await execFileAsync("git", args, {
@@ -276,7 +283,10 @@ function assertPolicyReceiptArtifact(payload, {
 async function fetchPolicyReceiptArtifact({ apiUrl, repository, runId, token, fetchImpl, binding }) {
   const artifacts = await repositoryWorkflowArtifacts({ apiUrl, repository, runId, token, fetchImpl });
   const expectedName = `${RELEASE_POLICY_RECEIPT_ARTIFACT_NAME}-${runId}`;
-  const matches = artifacts.filter((artifact) => artifact?.name === expectedName && artifact?.expired !== true);
+  const named = artifacts.filter((artifact) => artifact?.name === expectedName);
+  if (named.length === 0) throw new PendingPolicyReceiptArtifactError(`Release policy workflow ${runId} has not exposed its immutable policy artifact yet`);
+  if (named.some((artifact) => artifact?.expired === true)) throw new Error(`Release policy workflow ${runId} exposed an expired immutable policy artifact`);
+  const matches = named;
   if (matches.length !== 1) throw new Error(`Release policy workflow ${runId} must expose exactly one immutable policy artifact`);
   const artifact = matches[0];
   if (artifact.workflow_run?.id !== undefined && String(artifact.workflow_run.id) !== String(runId)) {
@@ -679,6 +689,9 @@ async function verifyPolicyReceipt({ record, policyDigest, apiUrl, repository, b
     throw new Error(`Release catch-up candidate ${candidateSha} has a policy workflow URL for a different repository`);
   }
   const phase = targetUrl.searchParams.get("phase");
+  if (mergeTimeMs !== null && phase !== "merge-bound") {
+    throw new Error(`Release catch-up candidate ${candidateSha} lacks a trusted merge-bound policy receipt`);
+  }
   if (
     targetUrl.searchParams.get("pr") !== String(pullNumber) ||
     targetUrl.searchParams.get("head") !== preMergeSha ||
@@ -707,24 +720,30 @@ async function verifyPolicyReceipt({ record, policyDigest, apiUrl, repository, b
   if (!Number.isFinite(workflowAt) || (phase === "pre-merge" ? workflowAt > mergeTimeMs : workflowAt < mergeTimeMs)) {
     throw new Error(`Release catch-up candidate ${candidateSha} has pre-merge policy workflow provenance after its pull-request merge`);
   }
-  const artifact = await fetchPolicyReceiptArtifact({
-    apiUrl,
-    repository,
-    runId,
-    token,
-    fetchImpl,
-    binding: {
+  let artifact;
+  try {
+    artifact = await fetchPolicyReceiptArtifact({
+      apiUrl,
       repository,
-      branch,
       runId,
-      pullNumber,
-      preMergeSha,
-      requiredPolicyDigest: policyDigest,
-      mergeTimeMs,
-      phase,
-      mergeCommitSha
-    }
-  });
+      token,
+      fetchImpl,
+      binding: {
+        repository,
+        branch,
+        runId,
+        pullNumber,
+        preMergeSha,
+        requiredPolicyDigest: policyDigest,
+        mergeTimeMs,
+        phase,
+        mergeCommitSha
+      }
+    });
+  } catch (error) {
+    if (error instanceof PendingPolicyReceiptArtifactError && phase === "merge-bound") return null;
+    throw error;
+  }
   if (String(record?.description ?? "") !== `${RELEASE_POLICY_RECEIPT_PREFIX}${artifact.policyDigest}`) {
     throw new Error(`Release catch-up candidate ${candidateSha} has a policy status that disagrees with its immutable artifact`);
   }
@@ -751,24 +770,30 @@ async function verifyPolicyReceipt({ record, policyDigest, apiUrl, repository, b
   if (!Number.isFinite(sourceWorkflowAt) || sourceWorkflowAt > mergeTimeMs) {
     throw new Error(`Release catch-up candidate ${candidateSha} has pre-merge policy workflow provenance after its pull-request merge`);
   }
-  const sourceArtifact = await fetchPolicyReceiptArtifact({
-    apiUrl,
-    repository,
-    runId: sourceRunId,
-    token,
-    fetchImpl,
-    binding: {
+  let sourceArtifact;
+  try {
+    sourceArtifact = await fetchPolicyReceiptArtifact({
+      apiUrl,
       repository,
-      branch,
       runId: sourceRunId,
-      pullNumber,
-      preMergeSha,
-      requiredPolicyDigest: artifact.policyDigest,
-      mergeTimeMs,
-      phase: "pre-merge",
-      mergeCommitSha
-    }
-  });
+      token,
+      fetchImpl,
+      binding: {
+        repository,
+        branch,
+        runId: sourceRunId,
+        pullNumber,
+        preMergeSha,
+        requiredPolicyDigest: artifact.policyDigest,
+        mergeTimeMs,
+        phase: "pre-merge",
+        mergeCommitSha
+      }
+    });
+  } catch (error) {
+    if (error instanceof PendingPolicyReceiptArtifactError) return null;
+    throw error;
+  }
   if (sourceArtifact.policyDigest !== artifact.sourcePolicyDigest || JSON.stringify(sourceArtifact.policy) !== JSON.stringify(artifact.policy)) {
     throw new Error(`Release catch-up candidate ${candidateSha} has a merge-bound policy continuity digest mismatch`);
   }
@@ -894,7 +919,15 @@ async function verifyCatchUpChecks({
   for (let attempt = 0; attempt < REQUIRED_CHECK_POLL_ATTEMPTS; attempt += 1) {
     if (mergeTime !== null && !policyReceipt) {
       policyStatuses = await repositoryCommitStatuses({ apiUrl, repository, sha: normalizedPreMergeSha, token, fetchImpl });
-      const policyRecords = policyStatuses.filter((status) => String(status?.context ?? "") === RELEASE_POLICY_RECEIPT_CONTEXT);
+      const policyRecords = policyStatuses.filter((status) => {
+        if (String(status?.context ?? "") !== RELEASE_POLICY_RECEIPT_CONTEXT) return false;
+        if (mergeTime === null) return true;
+        try {
+          return new URL(String(status.target_url ?? "")).searchParams.get("phase") === "merge-bound";
+        } catch {
+          return false;
+        }
+      });
       if (policyRecords.length > 0) {
         const policyRecord = latestObservation(policyRecords)?.record ?? null;
         policyReceipt = await verifyPolicyReceipt({
@@ -911,9 +944,11 @@ async function verifyCatchUpChecks({
           pullNumber,
           mergeCommitSha
         });
-        requiredRequirements = policyReceipt.artifact.policy;
-        requiredPolicyDigest = policyReceipt.artifact.policyDigest;
-        assertNoCircularRequirements(requiredRequirements);
+        if (policyReceipt) {
+          requiredRequirements = policyReceipt.artifact.policy;
+          requiredPolicyDigest = policyReceipt.artifact.policyDigest;
+          assertNoCircularRequirements(requiredRequirements);
+        }
       }
       if (!policyReceipt) {
         if (attempt < REQUIRED_CHECK_POLL_ATTEMPTS - 1) await sleepImpl(REQUIRED_CHECK_POLL_DELAY_MS);

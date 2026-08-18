@@ -30,6 +30,7 @@ let latestPolicyReceiptMetadata = {
   policy: [{ context: "test", appId: null }],
   mergedAt: "2026-08-15T00:00:00Z"
 };
+let policyArtifactUnavailableResponses = 0;
 
 function zipStoredJson(filename, value) {
   const name = Buffer.from(filename);
@@ -77,6 +78,10 @@ function policyArtifactResponse(url) {
   const runMatch = /\/actions\/runs\/(\d+)\/artifacts/.exec(url) || /\/actions\/runs\/(\d+)\/receipt\.zip/.exec(url);
   if (!runMatch) return null;
   const runId = runMatch[1];
+  if (url.includes("/artifacts") && policyArtifactUnavailableResponses > 0) {
+    policyArtifactUnavailableResponses -= 1;
+    return jsonResponse({ artifacts: [] });
+  }
   const sourceRunId = "7";
   const sourceArtifact = {
     schemaVersion: 1,
@@ -505,6 +510,7 @@ test("merge-time policy receipt binds the pre-merge head separately from the mer
     await git(work, ["commit", "-qm", "merge result"]);
     await git(work, ["push", "-q", "origin", "dev"]);
     const mergeSha = await git(work, ["rev-parse", "HEAD"]);
+    policyArtifactUnavailableResponses = 1;
     const fetchImpl = async (url) => {
       if (url.endsWith(`/repos/example/repo/commits/${mergeSha}/pulls?per_page=100`)) {
         return jsonResponse([{
@@ -552,7 +558,9 @@ test("merge-time policy receipt binds the pre-merge head separately from the mer
     assert.equal(result.requiredChecks.mergeTimeReceipt.preMergeSha, preMergeSha);
     assert.equal(result.requiredChecks.mergeTimeReceipt.mergeCommitSha, mergeSha);
     assert.deepEqual(result.requiredChecks.requiredRequirements, [{ context: "test", appId: null }]);
+    assert.equal(policyArtifactUnavailableResponses, 0);
   } finally {
+    policyArtifactUnavailableResponses = 0;
     await rm(root, { recursive: true, force: true });
   }
 });
