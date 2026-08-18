@@ -296,7 +296,7 @@ async function validatedEventBeforeRevision(cwd, before, head) {
   return targetParent;
 }
 
-async function findEligibleVersionBumps({ cwd, branch, head, currentVersion, headPull, apiUrl, repository, token, fetchImpl }) {
+async function findEligibleVersionBumps({ cwd, branch, head, currentVersion, eventVersionChanged, eventParentVersion, headPull, apiUrl, repository, token, fetchImpl }) {
   const revisions = (await git(cwd, ["rev-list", "--first-parent", `--max-count=${CATCH_UP_HISTORY_LIMIT}`, head]))
     .split(/\s+/)
     .filter(Boolean);
@@ -345,6 +345,24 @@ async function findEligibleVersionBumps({ cwd, branch, head, currentVersion, hea
       existingCommit
     });
   }
+  let hasExplicitHeadCandidate = false;
+  if (eventVersionChanged && headPull && !candidates.some((candidate) => candidate.sha === head)) {
+    const tag = releaseTagName({ branch, version: currentVersion, sha: head });
+    const existingCommit = await remoteTag(cwd, tag);
+    if (existingCommit && existingCommit !== head) {
+      throw new Error(`${tag} already exists at ${existingCommit}; refusing to retarget it to ${head}`);
+    }
+    candidates.push({
+      order: -1,
+      sha: head,
+      pull: headPull,
+      parentVersion: eventParentVersion,
+      version: currentVersion,
+      tag,
+      existingCommit
+    });
+    hasExplicitHeadCandidate = true;
+  }
   if (revisions.length === CATCH_UP_HISTORY_LIMIT && !candidates.some((candidate) => candidate.sha === head)) {
     const oldest = revisions.at(-1);
     try {
@@ -355,7 +373,10 @@ async function findEligibleVersionBumps({ cwd, branch, head, currentVersion, hea
     throw new Error(`Release catch-up history exceeded bounded first-parent search of ${CATCH_UP_HISTORY_LIMIT} commits; refusing to report release-version-unchanged`);
   }
   const byTag = new Map();
-  for (const candidate of candidates) {
+  const filteredCandidates = hasExplicitHeadCandidate
+    ? candidates.filter((candidate) => candidate.sha === head || candidate.version !== currentVersion)
+    : candidates;
+  for (const candidate of filteredCandidates) {
     const prior = byTag.get(candidate.tag);
     if (prior && prior.sha !== candidate.sha) {
       throw new Error(`${candidate.tag} has multiple eligible version-bump commits; refusing ambiguous release reconciliation`);
@@ -595,6 +616,8 @@ export async function runReleaseTag({
     branch,
     head: sha,
     currentVersion: current,
+    eventVersionChanged: versionWasChanged,
+    eventParentVersion: previous,
     headPull,
     apiUrl,
     repository,
@@ -607,12 +630,10 @@ export async function runReleaseTag({
   }
   const pendingCandidates = candidates.filter((candidate) => !candidate.existingCommit);
   if (pendingCandidates.length === 0) {
-    if (!versionWasChanged && candidates.length === 0) {
+    if (!versionWasChanged) {
       return { status: "skipped", reason: "release-version-unchanged", branch, sha, version: current };
     }
-    const existing = versionWasChanged
-      ? candidates.find((candidate) => candidate.sha === sha)
-      : candidates[0];
+    const existing = candidates.find((candidate) => candidate.sha === sha);
     if (!existing) {
       return { status: "skipped", reason: "commit-is-not-an-exact-merged-pr-result", branch, sha };
     }
