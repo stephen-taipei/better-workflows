@@ -343,7 +343,7 @@ test("release tag fails closed when the atomic branch CAS observes a concurrent 
       const workflowResponse = pullRequestWorkflowResponse(url, [{ sha: head, pullNumber: 7 }]);
       if (workflowResponse) return workflowResponse;
       if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
-        return jsonResponse([{ number: 7, base: { ref: "dev" }, head: { sha: head }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: head }]);
+        return jsonResponse([{ number: 7, base: { ref: "dev", sha: base }, head: { sha: head }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: head }]);
       }
       const checkResponse = successfulRequiredCheckResponse(url, head, "test", 7);
       if (checkResponse) return checkResponse;
@@ -421,7 +421,7 @@ exec /usr/bin/git "$@"
       const workflowResponse = pullRequestWorkflowResponse(url, [{ sha: head, pullNumber: 8 }]);
       if (workflowResponse) return workflowResponse;
       if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
-        return jsonResponse([{ number: 8, base: { ref: "dev" }, head: { sha: head }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: head }]);
+        return jsonResponse([{ number: 8, base: { ref: "dev", sha: base }, head: { sha: head }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: head }]);
       }
       const checkResponse = successfulRequiredCheckResponse(url, head, "test", 8);
       if (checkResponse) return checkResponse;
@@ -490,7 +490,6 @@ test("merge-time policy receipt binds the pre-merge head separately from the mer
   const root = await mkdtemp(path.join(os.tmpdir(), "sbw-release-tag-policy-head-"));
   const bare = path.join(root, "origin.git");
   const work = path.join(root, "work");
-  const preMergeSha = "b".repeat(40);
   const syntheticMergeSha = "c".repeat(40);
   const pullNumber = 17;
   try {
@@ -508,10 +507,14 @@ test("merge-time policy receipt binds the pre-merge head separately from the mer
     await git(work, ["remote", "add", "origin", bare]);
     await git(work, ["push", "-q", "origin", "dev"]);
     const eventBefore = await git(work, ["rev-parse", "HEAD"]);
+    await git(work, ["switch", "-c", "feature/release"]);
     await writeFile(path.join(work, "plugins/better-workflows/package.json"), JSON.stringify({ version: "3.4.13" }));
     await writeFile(path.join(work, "plugins/better-workflows/.codex-plugin/plugin.json"), JSON.stringify({ version: "3.4.13+codex.test" }));
     await git(work, ["add", "."]);
-    await git(work, ["commit", "-qm", "merge result"]);
+    await git(work, ["commit", "-qm", "release source"]);
+    const preMergeSha = await git(work, ["rev-parse", "HEAD"]);
+    await git(work, ["switch", "dev"]);
+    await git(work, ["merge", "--no-ff", "-qm", "merge result", "feature/release"]);
     await git(work, ["push", "-q", "origin", "dev"]);
     const mergeSha = await git(work, ["rev-parse", "HEAD"]);
     policyArtifactUnavailableResponses = 1;
@@ -520,7 +523,7 @@ test("merge-time policy receipt binds the pre-merge head separately from the mer
       if (url.endsWith(`/repos/example/repo/commits/${mergeSha}/pulls?per_page=100`)) {
         return jsonResponse([{
           number: pullNumber,
-          base: { ref: "dev" },
+          base: { ref: "dev", sha: eventBefore },
           head: { sha: preMergeSha, ref: "feature/release" },
           merged_at: "2026-08-15T00:00:00Z",
           merge_commit_sha: mergeSha
@@ -756,7 +759,7 @@ test("release eligibility uses the validated push-event parent across multi-comm
       ]);
       if (workflowResponse) return workflowResponse;
       if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
-        return jsonResponse([{ number: 9, base: { ref: "dev" }, head: { sha: head }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: head }]);
+        return jsonResponse([{ number: 9, base: { ref: "dev", sha: eventBefore }, head: { sha: head }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: head }]);
       }
       if (url.endsWith(`/repos/example/repo/commits/${intermediate}/pulls?per_page=100`)) {
         return jsonResponse([{ number: 10, base: { ref: "dev" }, head: { sha: intermediate }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: intermediate }]);
@@ -1028,11 +1031,11 @@ test("rebase-style merged PR keeps an earlier version bump eligible at final HEA
       if (url.includes(`/commits/${head}/check-runs?per_page=100&page=1`)) {
         return jsonResponse({ check_runs: [
           { id: 33, name: "lint", head_sha: head, status: "completed", conclusion: "success", completed_at: "2026-08-17T23:55:00Z" },
-          { id: 34, name: "test", head_sha: head, status: "completed", conclusion: "success", completed_at: "2026-08-17T23:55:00Z", details_url: "https://github.com/example/repo/actions/runs/33/job/1", app: { slug: "github-actions" } }
+          { id: 34, name: "test", head_sha: head, status: "completed", conclusion: "success", completed_at: "2026-08-18T00:05:00Z", details_url: "https://github.com/example/repo/actions/runs/33/job/1", app: { slug: "github-actions" } }
         ] });
       }
       if (url.includes(`/actions/runs?head_sha=${head}&event=push&branch=dev&per_page=100&page=1`)) {
-        return jsonResponse({ workflow_runs: [{ id: 33, path: ".github/workflows/ci.yml", head_sha: head, head_branch: "dev", event: "push", status: "completed", conclusion: "success" }] });
+        return jsonResponse({ workflow_runs: [{ id: 33, path: ".github/workflows/ci.yml", head_sha: head, head_branch: "dev", event: "push", status: "completed", conclusion: "success", created_at: "2026-08-18T00:01:00Z", completed_at: "2026-08-18T00:06:00Z" }] });
       }
       if (url.includes(`/commits/${head}/statuses?per_page=100&page=1`)) return jsonResponse([policyReceiptStatus("lint", "2026-08-20T00:50:00Z", null, { pullNumber: 33, headSha: head, mergeSha: head, mergedAt: "2026-08-18T00:00:00Z" })]);
       throw new Error(`Unexpected rebase release-tag fetch URL: ${url}`);
@@ -1074,12 +1077,11 @@ test("rebase-style merged PR keeps an earlier version bump eligible at final HEA
         RELEASE_TAG_DRY_RUN: "1"
       }
     });
-    assert.deepEqual(recovered, {
-      status: "skipped",
-      reason: "commit-is-not-an-exact-merged-pr-result",
-      branch: "dev",
-      sha: followUp
-    });
+    assert.equal(recovered.status, "planned");
+    assert.equal(recovered.sha, head);
+    assert.equal(recovered.version, "3.4.13");
+    assert.equal(recovered.pullNumber, 33);
+    assert.equal(recovered.tag, `v3.4.13-dev.${head.slice(0, 12)}`);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -1118,7 +1120,7 @@ test("catch-up rejects a direct version bump laundered through an unrelated PR",
       if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
         // The PR branched before the unrelated direct bump; ancestry alone must
         // not make that bump eligible for the later PR.
-        return jsonResponse([{ number: 44, base: { ref: "dev", sha: await git(work, ["rev-parse", `${bump}^`]) }, head: { sha: head }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: head }]);
+        return jsonResponse([{ number: 44, base: { ref: "dev", sha: await git(work, ["rev-parse", `${bump}^`]) }, head: { sha: await git(work, ["rev-parse", `${bump}^`]) }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: head }]);
       }
       if (url.endsWith(`/repos/example/repo/commits/${bump}/pulls?per_page=100`)) return jsonResponse([]);
       throw new Error(`Unexpected laundered-bump fetch URL: ${url}`);
@@ -1189,7 +1191,7 @@ test("dev release rejects republishing a stable version at a new commit", async 
     await git(work, ["push", "-q", "origin", "dev"]);
     const fetchImpl = async (url) => {
       if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
-        return jsonResponse([{ number: 52, base: { ref: "dev" }, head: { sha: head }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: head }]);
+        return jsonResponse([{ number: 52, base: { ref: "dev", sha: regression }, head: { sha: head }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: head }]);
       }
       if (url.includes("/pulls?per_page=100")) return jsonResponse([]);
       throw new Error(`Unexpected duplicate-version fetch URL: ${url}`);
@@ -1252,10 +1254,10 @@ test("release publication rejects duplicate stable versions in one candidate bat
     await git(work, ["push", "-q", "origin", "dev"]);
     const fetchImpl = async (url) => {
       if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
-        return jsonResponse([{ number: 54, base: { ref: "dev" }, head: { sha: head }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: head }]);
+        return jsonResponse([{ number: 54, base: { ref: "dev", sha: eventBefore }, head: { sha: head }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: head }]);
       }
       if (url.endsWith(`/repos/example/repo/commits/${firstBump}/pulls?per_page=100`)) {
-        return jsonResponse([{ number: 53, base: { ref: "dev" }, head: { sha: firstBump }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: firstBump }]);
+        return jsonResponse([{ number: 53, base: { ref: "dev", sha: eventBefore }, head: { sha: firstBump }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: firstBump }]);
       }
       if (url.includes("/pulls?per_page=100")) return jsonResponse([]);
       throw new Error(`Unexpected duplicate-candidate fetch URL: ${url}`);
@@ -1651,7 +1653,7 @@ test("consecutive version bumps are recovered in one atomic batch", async () => 
         return jsonResponse({ data: { updateRefs: { clientMutationId: null } } });
       }
       if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
-        return jsonResponse([{ number: 14, base: { ref: "dev" }, head: { sha: head }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: head }]);
+        return jsonResponse([{ number: 14, base: { ref: "dev", sha: eventBefore }, head: { sha: head }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: head }]);
       }
       if (url.endsWith(`/repos/example/repo/commits/${bump13}/pulls?per_page=100`)) {
         return jsonResponse([{ number: 13, base: { ref: "dev" }, head: { sha: bump13 }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: bump13 }]);
@@ -1804,7 +1806,7 @@ test("an exact HEAD version bump remains eligible past the catch-up history boun
       const pullWorkflow = pullRequestWorkflowResponse(url, [{ sha: head, pullNumber: 32 }]);
       if (pullWorkflow) return pullWorkflow;
       if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
-        return jsonResponse([{ number: 32, base: { ref: "dev" }, head: { sha: head }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: head }]);
+        return jsonResponse([{ number: 32, base: { ref: "dev", sha: eventBefore }, head: { sha: head }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: head }]);
       }
       if (url.endsWith("/branches/dev")) {
         return jsonResponse({ protected: true, protection: { required_status_checks: { contexts: ["lint"], checks: [] } } });

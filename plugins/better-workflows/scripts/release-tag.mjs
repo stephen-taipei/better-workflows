@@ -510,6 +510,29 @@ async function releasePolicyPublisherAvailable(cwd, baseSha) {
   }
 }
 
+async function revisionIsAncestor(cwd, ancestor, descendant) {
+  try {
+    await git(cwd, ["merge-base", "--is-ancestor", ancestor, descendant]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function authenticatedPullVersionTransition(cwd, pull, currentVersion) {
+  const baseSha = String(pull?.base?.sha ?? "").trim().toLowerCase();
+  const sourceSha = String(pull?.head?.sha ?? "").trim().toLowerCase();
+  if (!/^[0-9a-f]{40}$/.test(baseSha) || !/^[0-9a-f]{40}$/.test(sourceSha)) return null;
+  if (!(await revisionIsAncestor(cwd, baseSha, sourceSha))) return null;
+  const [baseVersion, sourceVersion] = await Promise.all([
+    versionAtCommit(cwd, baseSha),
+    versionAtCommit(cwd, sourceSha)
+  ]);
+  if (!baseVersion || !sourceVersion || compareStableVersions(sourceVersion, baseVersion) <= 0) return null;
+  if (compareStableVersions(sourceVersion, currentVersion) !== 0) return null;
+  return { baseSha, sourceSha, baseVersion, version: sourceVersion };
+}
+
 async function findEligibleVersionBumps({ cwd, branch, head, currentVersion, highestPublished, eventVersionChanged, eventParentVersion, headPull, apiUrl, repository, token, fetchImpl }) {
   const revisions = (await git(cwd, ["rev-list", "--first-parent", `--max-count=${CATCH_UP_HISTORY_LIMIT}`, head]))
     .split(/\s+/)
@@ -517,6 +540,7 @@ async function findEligibleVersionBumps({ cwd, branch, head, currentVersion, hig
   const candidates = [];
   const pullCache = new Map();
   const publisherAvailabilityCache = new Map();
+  const pullTransitionCache = new Map();
   const loadPull = async (sha) => {
     if (pullCache.has(sha)) return pullCache.get(sha);
     const pull = sha === head
@@ -541,6 +565,24 @@ async function findEligibleVersionBumps({ cwd, branch, head, currentVersion, hig
     }
     return publisherAvailabilityCache.get(boundary);
   };
+  const pullVersionTransition = async (pull) => {
+    const key = String(pull?.merge_commit_sha ?? pull?.head?.sha ?? "").toLowerCase();
+    if (!key) return null;
+    if (!pullTransitionCache.has(key)) {
+      pullTransitionCache.set(key, authenticatedPullVersionTransition(cwd, pull, currentVersion));
+    }
+    return pullTransitionCache.get(key);
+  };
+  const addCandidate = async ({ order, sha, pull, parentVersion, version, publisherBoundary, authenticatedRange = false }) => {
+    if (!(await publisherAvailableAtRevision(publisherBoundary))) return false;
+    const tag = releaseTagName({ branch, version, sha });
+    const existingCommit = await remoteTag(cwd, tag);
+    if (existingCommit && existingCommit !== sha) {
+      throw new Error(`${tag} already exists at ${existingCommit}; refusing to retarget it to ${sha}`);
+    }
+    candidates.push({ order, sha, pull, parentVersion, version, tag, existingCommit, authenticatedRange });
+    return true;
+  };
   for (const [order, candidate] of revisions.entries()) {
     let parent;
     try {
@@ -554,56 +596,107 @@ async function findEligibleVersionBumps({ cwd, branch, head, currentVersion, hig
     }
     if (candidateVersion === null) continue;
     const parentVersion = await versionAtCommit(cwd, parent);
-    if (parentVersion === null || compareStableVersions(candidateVersion, parentVersion) <= 0) continue;
+    if (parentVersion === null) continue;
+    if (compareStableVersions(candidateVersion, parentVersion) <= 0) {
+      // A rebased multi-commit PR may carry the version change in an earlier
+      // source commit while its exact merged result has no first-parent delta.
+      // Reconstruct the authenticated PR range from its immutable base to
+      // source head, and attribute the net change only to that exact result.
+      if (headPull && candidate !== head) continue;
+      const pull = await loadPull(candidate);
+      const transition = await pullVersionTransition(pull);
+      if (!transition || String(pull?.merge_commit_sha ?? "").toLowerCase() !== candidate) continue;
+      await addCandidate({
+        order,
+        sha: candidate,
+        pull,
+        parentVersion: transition.baseVersion,
+        version: transition.version,
+        publisherBoundary: transition.baseSha,
+        authenticatedRange: true
+      });
+      continue;
+    }
     try {
       await git(cwd, ["merge-base", "--is-ancestor", candidate, head]);
     } catch {
       continue;
     }
-    let releaseSha = candidate;
-    let pull = await loadPull(candidate);
+    const pull = await loadPull(candidate);
     // A version-bump commit without its own exact merged PR is untrusted.
     // Ancestry/equal-version checks cannot prove that a later PR introduced
     // the version change, so never launder the candidate through a descendant.
-    if (!pull) continue;
-    // A bump merged before the release-policy publisher existed on its PR
-    // base can never acquire the required immutable pre-merge receipt. Treat
-    // that bootstrap boundary as a durable historical exclusion so it cannot
-    // strand later eligible candidates in catch-up verification.
-    if (!(await publisherAvailableAtRevision(parent))) continue;
-    const tag = releaseTagName({ branch, version: candidateVersion, sha: releaseSha });
-    const existingCommit = await remoteTag(cwd, tag);
-    if (existingCommit && existingCommit !== releaseSha) {
-      throw new Error(`${tag} already exists at ${existingCommit}; refusing to retarget it to ${releaseSha}`);
+    if (pull && candidate === head) {
+      // The event-head candidate must be attributable to this exact PR's
+      // immutable base-to-source range; the push event parent alone can span
+      // unrelated commits from the same multi-commit push.
+      const transition = await pullVersionTransition(pull);
+      if (!transition || String(pull?.merge_commit_sha ?? "").toLowerCase() !== candidate) continue;
+      await addCandidate({
+        order: -1,
+        sha: candidate,
+        pull,
+        parentVersion: transition.baseVersion,
+        version: transition.version,
+        publisherBoundary: transition.baseSha,
+        authenticatedRange: true
+      });
+      continue;
     }
-    candidates.push({
-      order,
-      sha: releaseSha,
-      pull,
-      parentVersion,
-      version: candidateVersion,
-      tag,
-      existingCommit
-    });
+    if (pull && candidate !== head) {
+      // Prefer an immutable PR range whenever the provider exposes one. Older
+      // synthetic fixtures may omit that proof and retain the legacy parent
+      // boundary path, but they must not participate in authenticated
+      // duplicate-version ambiguity checks.
+      const transition = await pullVersionTransition(pull);
+      if (transition && String(pull?.merge_commit_sha ?? "").toLowerCase() === candidate) {
+        await addCandidate({
+          order,
+          sha: candidate,
+          pull,
+          parentVersion: transition.baseVersion,
+          version: transition.version,
+          publisherBoundary: transition.baseSha,
+          authenticatedRange: true
+        });
+        continue;
+      }
+    }
+    if (pull && !headPull && candidate !== head) {
+      // Catch-up may recover a rebase-style merge after a later push, but only
+      // when the historical PR exposes the same authenticated range proof.
+      const transition = await pullVersionTransition(pull);
+      if (!transition || String(pull?.merge_commit_sha ?? "").toLowerCase() !== candidate) continue;
+      await addCandidate({
+        order,
+        sha: candidate,
+        pull,
+        parentVersion: transition.baseVersion,
+        version: transition.version,
+        publisherBoundary: transition.baseSha,
+        authenticatedRange: true
+      });
+      continue;
+    }
+    if (pull) {
+      // A bump merged before the release-policy publisher existed on its PR
+      // base can never acquire the required immutable pre-merge receipt. Treat
+      // that bootstrap boundary as a durable historical exclusion so it cannot
+      // strand later eligible candidates in catch-up verification.
+      await addCandidate({
+        order,
+        sha: candidate,
+        pull,
+        parentVersion,
+        version: candidateVersion,
+        publisherBoundary: parent,
+        authenticatedRange: false
+      });
+      continue;
+    }
   }
   let hasExplicitHeadCandidate = false;
-  if (eventVersionChanged && headPull && !candidates.some((candidate) => candidate.sha === head)) {
-    const tag = releaseTagName({ branch, version: currentVersion, sha: head });
-    const existingCommit = await remoteTag(cwd, tag);
-    if (existingCommit && existingCommit !== head) {
-      throw new Error(`${tag} already exists at ${existingCommit}; refusing to retarget it to ${head}`);
-    }
-    candidates.push({
-      order: -1,
-      sha: head,
-      pull: headPull,
-      parentVersion: eventParentVersion,
-      version: currentVersion,
-      tag,
-      existingCommit
-    });
-    hasExplicitHeadCandidate = true;
-  }
+  hasExplicitHeadCandidate = candidates.some((candidate) => candidate.sha === head && candidate.version === currentVersion);
   if (revisions.length === CATCH_UP_HISTORY_LIMIT && !candidates.some((candidate) => candidate.sha === head)) {
     const oldest = revisions.at(-1);
     try {
@@ -615,6 +708,14 @@ async function findEligibleVersionBumps({ cwd, branch, head, currentVersion, hig
       return candidates;
     }
     throw new Error(`Release catch-up history exceeded bounded first-parent search of ${CATCH_UP_HISTORY_LIMIT} commits; refusing to report release-version-unchanged`);
+  }
+  const candidateVersions = new Map();
+  for (const candidate of candidates) {
+    const prior = candidateVersions.get(candidate.version);
+    if (prior && prior.sha !== candidate.sha && prior.authenticatedRange && candidate.authenticatedRange && !prior.existingCommit && !candidate.existingCommit) {
+      throw new Error(`Stable release version ${candidate.version} has multiple eligible commits (${prior.sha} and ${candidate.sha}); refusing ambiguous release publication`);
+    }
+    if (!prior) candidateVersions.set(candidate.version, candidate);
   }
   const byTag = new Map();
   const filteredCandidates = hasExplicitHeadCandidate
@@ -1207,12 +1308,9 @@ export async function runReleaseTag({
   }
   const versionWasChanged = versionChanged(current, previous);
   const headPull = findMergedPullRequest(pulls, { branch, sha });
-  if (!headPull) {
-    return { status: "skipped", reason: "commit-is-not-an-exact-merged-pr-result", branch, sha };
-  }
   // Bind the bootstrap gate to the validated push-event parent whenever one
   // exists; the live PR base ref may have advanced since the merge.
-  const publisherBoundary = targetParent ?? headPull.base?.sha;
+  const publisherBoundary = targetParent ?? headPull?.base?.sha;
   if (!(await releasePolicyPublisherAvailable(cwd, publisherBoundary))) {
     return {
       status: "skipped",
@@ -1220,7 +1318,7 @@ export async function runReleaseTag({
       branch,
       sha,
       version: current,
-      pullNumber: headPull.number
+      ...(headPull ? { pullNumber: headPull.number } : {})
     };
   }
   const highestPublished = await highestPublishedReleaseVersion(cwd, branch);
