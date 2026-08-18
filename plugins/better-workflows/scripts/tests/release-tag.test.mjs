@@ -1633,6 +1633,66 @@ test("release eligibility catches up a version bump after a later non-version pu
   }
 });
 
+test("catch-up fails closed when version surfaces are deleted and restored", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-release-tag-surface-discontinuity-"));
+  const bare = path.join(root, "origin.git");
+  const work = path.join(root, "work");
+  const packagePath = path.join(work, "plugins/better-workflows/package.json");
+  const pluginPath = path.join(work, "plugins/better-workflows/.codex-plugin/plugin.json");
+  try {
+    await execFileAsync("git", ["init", "--bare", "-q", bare]);
+    await execFileAsync("git", ["init", "-q", work]);
+    await git(work, ["config", "user.email", "test@example.invalid"]);
+    await git(work, ["config", "user.name", "release-test"]);
+    await mkdir(path.dirname(pluginPath), { recursive: true });
+    await writeFile(packagePath, JSON.stringify({ version: "3.4.12" }));
+    await writeFile(pluginPath, JSON.stringify({ version: "3.4.12+codex.test" }));
+    await git(work, ["add", "."]);
+    await git(work, ["commit", "-qm", "base"]);
+    await git(work, ["branch", "-M", "dev"]);
+    await git(work, ["remote", "add", "origin", bare]);
+    await git(work, ["push", "-q", "origin", "dev"]);
+    await writeFile(packagePath, JSON.stringify({ version: "3.4.13" }));
+    await writeFile(pluginPath, JSON.stringify({ version: "3.4.13+codex.test" }));
+    await git(work, ["add", "."]);
+    await git(work, ["commit", "-qm", "version bump"]);
+    await rm(pluginPath, { force: true });
+    await git(work, ["add", "."]);
+    await git(work, ["commit", "-qm", "delete version surface"]);
+    await writeFile(pluginPath, JSON.stringify({ version: "3.4.13+codex.test" }));
+    await git(work, ["add", "."]);
+    await git(work, ["commit", "-qm", "restore version surface"]);
+    const eventBefore = await git(work, ["rev-parse", "HEAD"]);
+    await writeFile(path.join(work, "README.md"), "unchanged release surface\n");
+    await git(work, ["add", "README.md"]);
+    await git(work, ["commit", "-qm", "unchanged push"]);
+    const head = await git(work, ["rev-parse", "HEAD"]);
+    await git(work, ["push", "-q", "origin", "dev"]);
+    await assert.rejects(
+      runReleaseTag({
+        cwd: work,
+        fetchImpl: async (url) => {
+          if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) return jsonResponse([]);
+          throw new Error(`Unexpected surface-discontinuity fetch URL: ${url}`);
+        },
+        env: {
+          GITHUB_EVENT_NAME: "push",
+          GITHUB_EVENT_BEFORE: eventBefore,
+          GITHUB_REF_NAME: "dev",
+          GITHUB_REPOSITORY: "example/repo",
+          GITHUB_SHA: head,
+          GITHUB_TOKEN: "test-token",
+          GITHUB_API_URL: "https://api.github.com",
+          RELEASE_TAG_DRY_RUN: "1"
+        }
+      }),
+      /version surfaces are missing at historical parent/
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("consecutive version bumps are recovered in one atomic batch", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "sbw-release-tag-consecutive-bumps-"));
   const bare = path.join(root, "origin.git");

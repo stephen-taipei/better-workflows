@@ -579,6 +579,7 @@ async function findEligibleVersionBumps({ cwd, branch, head, currentVersion, hig
     .split(/\s+/)
     .filter(Boolean);
   const candidates = [];
+  const versionSurfaceHistoryBound = eventParentVersion !== null;
   const pullCache = new Map();
   const publisherAvailabilityCache = new Map();
   const pullTransitionCache = new Map();
@@ -635,9 +636,19 @@ async function findEligibleVersionBumps({ cwd, branch, head, currentVersion, hig
     if (candidateVersion !== null && compareStableVersions(candidateVersion, currentVersion) > 0) {
       throw new Error(`Release version history contains ${candidateVersion} above current ${currentVersion}; refusing catch-up publication`);
     }
-    if (candidateVersion === null) continue;
+    if (candidateVersion === null) {
+      if (versionSurfaceHistoryBound) {
+        throw new Error(`Release version surfaces are missing at historical candidate ${candidate}; refusing eligibility`);
+      }
+      continue;
+    }
     const parentVersion = await versionAtCommit(cwd, parent);
-    if (parentVersion === null) continue;
+    if (parentVersion === null) {
+      if (versionSurfaceHistoryBound) {
+        throw new Error(`Release version surfaces are missing at historical parent ${parent}; refusing eligibility`);
+      }
+      continue;
+    }
     if (compareStableVersions(candidateVersion, parentVersion) <= 0) {
       // A rebased multi-commit PR may carry the version change in an earlier
       // source commit while its exact merged result has no first-parent delta.
