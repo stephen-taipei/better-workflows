@@ -296,7 +296,7 @@ async function validatedEventBeforeRevision(cwd, before, head) {
   return targetParent;
 }
 
-async function findEligibleVersionBumps({ cwd, branch, head, currentVersion, eventVersionChanged, eventParentVersion, headPull, apiUrl, repository, token, fetchImpl }) {
+async function findEligibleVersionBumps({ cwd, branch, head, currentVersion, highestPublished, eventVersionChanged, eventParentVersion, headPull, apiUrl, repository, token, fetchImpl }) {
   const revisions = (await git(cwd, ["rev-list", "--first-parent", `--max-count=${CATCH_UP_HISTORY_LIMIT}`, head]))
     .split(/\s+/)
     .filter(Boolean);
@@ -402,6 +402,9 @@ async function findEligibleVersionBumps({ cwd, branch, head, currentVersion, eve
     try {
       await git(cwd, ["rev-parse", "--verify", `${oldest}^1`]);
     } catch {
+      return candidates;
+    }
+    if (highestPublished !== null && compareStableVersions(currentVersion, highestPublished) <= 0) {
       return candidates;
     }
     throw new Error(`Release catch-up history exceeded bounded first-parent search of ${CATCH_UP_HISTORY_LIMIT} commits; refusing to report release-version-unchanged`);
@@ -634,14 +637,16 @@ export async function runReleaseTag({
   }
   const versionWasChanged = versionChanged(current, previous);
   const headPull = findMergedPullRequest(pulls, { branch, sha });
-  if (!headPull && versionWasChanged) {
+  if (!headPull) {
     return { status: "skipped", reason: "commit-is-not-an-exact-merged-pr-result", branch, sha };
   }
+  const highestPublished = await highestPublishedReleaseVersion(cwd, branch);
   const candidates = await findEligibleVersionBumps({
     cwd,
     branch,
     head: sha,
     currentVersion: current,
+    highestPublished,
     eventVersionChanged: versionWasChanged,
     eventParentVersion: previous,
     headPull,
@@ -650,7 +655,6 @@ export async function runReleaseTag({
     token,
     fetchImpl
   });
-  const highestPublished = await highestPublishedReleaseVersion(cwd, branch);
   if (highestPublished !== null && compareStableVersions(current, highestPublished) < 0) {
     throw new Error(`Release version ${current} is below the highest published ${branch} release ${highestPublished}; refusing release eligibility`);
   }
@@ -676,6 +680,10 @@ export async function runReleaseTag({
     if (regressedPending) {
       throw new Error(`Release version ${regressedPending.version} is below the highest published ${branch} release ${highestPublished}; refusing release eligibility`);
     }
+  }
+  const historicalPending = pendingCandidates.find((candidate) => candidate.sha !== sha);
+  if (historicalPending) {
+    throw new Error(`Release catch-up candidate ${historicalPending.sha} lacks a durable merge-time required-check receipt; refusing historical catch-up publication`);
   }
   if (pendingCandidates.length === 0) {
     if (!versionWasChanged) {

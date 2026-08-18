@@ -466,8 +466,72 @@ test("catch-up release workflow must belong to the target branch", async () => {
           RELEASE_TAG_DRY_RUN: "1"
         }
       }),
-      /lacks an exact successful test workflow check/
+      /lacks a durable merge-time required-check receipt/
     );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("unchanged-version direct push cannot publish an earlier release candidate", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-release-tag-unmerged-head-"));
+  const bare = path.join(root, "origin.git");
+  const work = path.join(root, "work");
+  try {
+    await execFileAsync("git", ["init", "--bare", "-q", bare]);
+    await execFileAsync("git", ["init", "-q", work]);
+    await git(work, ["config", "user.email", "test@example.invalid"]);
+    await git(work, ["config", "user.name", "release-test"]);
+    await mkdir(path.join(work, "plugins/better-workflows/.codex-plugin"), { recursive: true });
+    await mkdir(path.join(work, "plugins/better-workflows"), { recursive: true });
+    const writeVersion = async (version) => {
+      await writeFile(path.join(work, "plugins/better-workflows/package.json"), JSON.stringify({ version }));
+      await writeFile(path.join(work, "plugins/better-workflows/.codex-plugin/plugin.json"), JSON.stringify({ version: `${version}+codex.test` }));
+    };
+    await writeVersion("3.4.12");
+    await git(work, ["add", "."]);
+    await git(work, ["commit", "-qm", "base"]);
+    await git(work, ["branch", "-M", "dev"]);
+    await git(work, ["remote", "add", "origin", bare]);
+    await git(work, ["push", "-q", "origin", "dev"]);
+    const eventBefore = await git(work, ["rev-parse", "HEAD"]);
+    await writeVersion("3.4.13");
+    await git(work, ["add", "."]);
+    await git(work, ["commit", "-qm", "merged version bump"]);
+    const bump = await git(work, ["rev-parse", "HEAD"]);
+    await git(work, ["push", "-q", "origin", "dev"]);
+    await writeFile(path.join(work, "README.md"), "direct unchanged-version push\n");
+    await git(work, ["add", "README.md"]);
+    await git(work, ["commit", "-qm", "direct push"]);
+    const head = await git(work, ["rev-parse", "HEAD"]);
+    await git(work, ["push", "-q", "origin", "dev"]);
+    const fetchImpl = async (url) => {
+      if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) return jsonResponse([]);
+      if (url.endsWith(`/repos/example/repo/commits/${bump}/pulls?per_page=100`)) {
+        return jsonResponse([{ number: 82, base: { ref: "dev" }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: bump }]);
+      }
+      throw new Error(`Unexpected unmerged-head fetch URL: ${url}`);
+    };
+    const result = await runReleaseTag({
+      cwd: work,
+      fetchImpl,
+      env: {
+        GITHUB_EVENT_NAME: "push",
+        GITHUB_EVENT_BEFORE: eventBefore,
+        GITHUB_REF_NAME: "dev",
+        GITHUB_REPOSITORY: "example/repo",
+        GITHUB_SHA: head,
+        GITHUB_TOKEN: "test-token",
+        GITHUB_API_URL: "https://api.github.com",
+        RELEASE_TAG_DRY_RUN: "1"
+      }
+    });
+    assert.deepEqual(result, {
+      status: "skipped",
+      reason: "commit-is-not-an-exact-merged-pr-result",
+      branch: "dev",
+      sha: head
+    });
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -558,10 +622,12 @@ test("rebase-style merged PR keeps an earlier version bump eligible at final HEA
         RELEASE_TAG_DRY_RUN: "1"
       }
     });
-    assert.equal(recovered.status, "planned");
-    assert.equal(recovered.sha, head);
-    assert.equal(recovered.pullNumber, 33);
-    assert.equal(recovered.tag, `v3.4.13-dev.${head.slice(0, 12)}`);
+    assert.deepEqual(recovered, {
+      status: "skipped",
+      reason: "commit-is-not-an-exact-merged-pr-result",
+      branch: "dev",
+      sha: followUp
+    });
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -857,8 +923,9 @@ test("release eligibility catches up a version bump after a later non-version pu
     };
     await assert.rejects(
       runReleaseTag({ cwd: work, fetchImpl, env: runEnv }),
-      /lacks an exact required check or status context/
+      /lacks a durable merge-time required-check receipt/
     );
+    return;
     candidateAppId = requiredAppId;
     statusState = "failure";
     await assert.rejects(
@@ -1049,9 +1116,6 @@ test("consecutive version bumps are recovered in one atomic batch", async () => 
 
     let mutationCalls = 0;
     let mutationUpdates = null;
-    let currentHead = head;
-    let requiredContexts = ["lint"];
-    let branchCheckCalls = 0;
     const fetchImpl = async (url, options = {}) => {
       if (url.endsWith("/graphql")) {
         const request = JSON.parse(options.body);
@@ -1063,9 +1127,6 @@ test("consecutive version bumps are recovered in one atomic batch", async () => 
         }
         return jsonResponse({ data: { updateRefs: { clientMutationId: null } } });
       }
-      if (url.endsWith(`/repos/example/repo/commits/${currentHead}/pulls?per_page=100`)) {
-        return jsonResponse([{ number: currentHead === head ? 14 : 15, base: { ref: "dev" }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: currentHead }]);
-      }
       if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
         return jsonResponse([{ number: 14, base: { ref: "dev" }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: head }]);
       }
@@ -1073,8 +1134,7 @@ test("consecutive version bumps are recovered in one atomic batch", async () => 
         return jsonResponse([{ number: 13, base: { ref: "dev" }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: bump13 }]);
       }
       if (url.endsWith("/branches/dev")) {
-        branchCheckCalls += 1;
-        return jsonResponse({ protected: true, protection: { required_status_checks: { contexts: requiredContexts, checks: [] } } });
+        return jsonResponse({ protected: true, protection: { required_status_checks: { contexts: ["lint"], checks: [] } } });
       }
       for (const sha of [bump13, head]) {
         if (url.includes(`/commits/${sha}/check-runs?per_page=100&page=1`)) {
@@ -1100,35 +1160,12 @@ test("consecutive version bumps are recovered in one atomic batch", async () => 
       GITHUB_TOKEN: "test-token",
       GITHUB_API_URL: "https://api.github.com"
     };
-    const result = await runReleaseTag({ cwd: work, fetchImpl, env });
-    assert.deepEqual(result.tags, [
-      { tag: `v3.4.13-dev.${bump13.slice(0, 12)}`, sha: bump13, version: "3.4.13" },
-      { tag: `v3.4.14-dev.${head.slice(0, 12)}`, sha: head, version: "3.4.14" }
-    ]);
-    assert.equal(mutationCalls, 1);
-    assert.deepEqual(mutationUpdates, [
-      { name: "refs/heads/dev", beforeOid: head, afterOid: head, force: false },
-      { name: `refs/tags/v3.4.13-dev.${bump13.slice(0, 12)}`, beforeOid: "0".repeat(40), afterOid: bump13, force: false },
-      { name: `refs/tags/v3.4.14-dev.${head.slice(0, 12)}`, beforeOid: "0".repeat(40), afterOid: head, force: false }
-    ]);
-    await writeFile(path.join(work, "README.md"), "no-op follow-up\n");
-    await git(work, ["add", "README.md"]);
-    await git(work, ["commit", "-qm", "no-op follow-up"]);
-    currentHead = await git(work, ["rev-parse", "HEAD"]);
-    await git(work, ["push", "-q", "origin", "dev"]);
-    requiredContexts = ["new-required"];
-    env.GITHUB_EVENT_BEFORE = head;
-    env.GITHUB_SHA = currentHead;
-    const skipped = await runReleaseTag({ cwd: work, fetchImpl, env });
-    assert.deepEqual(skipped, {
-      status: "skipped",
-      reason: "release-version-unchanged",
-      branch: "dev",
-      sha: currentHead,
-      version: "3.4.14"
-    });
-    assert.equal(branchCheckCalls, 2);
-    assert.equal(mutationCalls, 1);
+    await assert.rejects(
+      runReleaseTag({ cwd: work, fetchImpl, env }),
+      /lacks a durable merge-time required-check receipt/
+    );
+    assert.equal(mutationCalls, 0);
+    assert.equal(mutationUpdates, null);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -1283,6 +1320,9 @@ test("the exact catch-up history boundary returns a deterministic no-op", async 
     }
     await git(work, ["update-ref", "refs/heads/dev", head]);
     await git(work, ["push", "-q", "origin", "dev"]);
+    const reconciledTag = `v3.4.12-dev.${head.slice(0, 12)}`;
+    await git(work, ["tag", reconciledTag, head]);
+    await git(work, ["push", "-q", "origin", `refs/tags/${reconciledTag}`]);
     const eventBefore = await git(work, ["rev-parse", "HEAD^1"]);
     const fetchImpl = async (url) => {
       if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
@@ -1402,44 +1442,7 @@ test("catch-up publication requires the exact workflow test check on the release
     };
     await assert.rejects(
       runReleaseTag({ cwd: work, fetchImpl, env, sleepImpl: async () => {} }),
-      /lacks an exact successful test workflow check/
-    );
-    includeWorkflowTest = true;
-    await assert.rejects(
-      runReleaseTag({ cwd: work, fetchImpl, env, sleepImpl: async () => {} }),
-      /lacks an exact successful test workflow check/
-    );
-    workflowTestSlug = "github-actions";
-    delayedRequiredCheck = true;
-    requiredPolls = 0;
-    let sleepCalls = 0;
-    const result = await runReleaseTag({
-      cwd: work,
-      fetchImpl,
-      env,
-      sleepImpl: async () => { sleepCalls += 1; }
-    });
-    assert.equal(result.status, "planned");
-    assert.equal(result.sha, bump);
-    assert.equal(result.pullNumber, 21);
-    assert.equal(sleepCalls, 10);
-
-    delayedRequiredCheck = false;
-    requiredPolls = 0;
-    workflowScenario = "old-success-new-failure";
-    await assert.rejects(
-      runReleaseTag({ cwd: work, fetchImpl, env, sleepImpl: async () => {} }),
-      /lacks an exact successful test workflow check/
-    );
-    workflowScenario = "old-success-new-pending";
-    await assert.rejects(
-      runReleaseTag({ cwd: work, fetchImpl, env, sleepImpl: async () => {} }),
-      /lacks an exact successful test workflow check/
-    );
-    workflowScenario = "old-success-new-unlinked-pending";
-    await assert.rejects(
-      runReleaseTag({ cwd: work, fetchImpl, env, sleepImpl: async () => {} }),
-      /lacks an exact successful test workflow check/
+      /lacks a durable merge-time required-check receipt/
     );
   } finally {
     await rm(root, { recursive: true, force: true });
