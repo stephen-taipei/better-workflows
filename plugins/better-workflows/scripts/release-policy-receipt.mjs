@@ -29,10 +29,13 @@ export function normalizeRequiredChecks(payload) {
   if (!Array.isArray(required.contexts) && !Array.isArray(required.checks)) {
     throw new Error("Release policy receipt requires a resolvable required status check configuration");
   }
+  if (typeof required.strict !== "boolean") {
+    throw new Error("Release policy receipt requires the protected-branch strict setting");
+  }
   const entries = [];
   for (const context of required.contexts ?? []) {
     if (typeof context !== "string" || context.length === 0) throw new Error("Release policy receipt received an invalid required status context");
-    entries.push({ context, appId: null });
+    entries.push({ context, appId: null, strict: required.strict });
   }
   for (const check of required.checks ?? []) {
     if (!check || typeof check.context !== "string" || check.context.length === 0) {
@@ -44,7 +47,7 @@ export function normalizeRequiredChecks(payload) {
     if (appId !== null && (!Number.isInteger(appId) || appId < 0)) {
       throw new Error("Release policy receipt received an invalid required status check app binding");
     }
-    entries.push({ context: check.context, appId });
+    entries.push({ context: check.context, appId, strict: required.strict });
   }
   const unique = new Map(entries.map((item) => [`${item.context}\u0000${item.appId ?? "*"}`, item]));
   const normalized = [...unique.values()].sort((left, right) => (

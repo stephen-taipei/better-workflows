@@ -219,10 +219,11 @@ function normalizePolicyReceiptRequirements(policy) {
   if (!Array.isArray(policy) || policy.length === 0) throw new Error("policy artifact requires non-empty requirements");
   const entries = policy.map((item) => {
     if (!item || typeof item.context !== "string" || !item.context ||
-        (item.appId !== null && (!Number.isInteger(item.appId) || item.appId < 0))) {
+        (item.appId !== null && (!Number.isInteger(item.appId) || item.appId < 0)) ||
+        typeof item.strict !== "boolean") {
       throw new Error("policy artifact contains an invalid requirement");
     }
-    return { context: item.context, appId: item.appId };
+    return { context: item.context, appId: item.appId, strict: item.strict };
   });
   const unique = new Map(entries.map((item) => [`${item.context}\u0000${item.appId ?? "*"}`, item]));
   return [...unique.values()].sort((left, right) => (
@@ -355,11 +356,14 @@ async function repositoryRequiredChecks({ apiUrl, repository, branch, token, fet
   if (!Array.isArray(requiredStatusChecks.contexts) && !Array.isArray(requiredStatusChecks.checks)) {
     throw new Error(`GitHub branch ${branch} returned no resolvable required status check configuration`);
   }
+  if (typeof requiredStatusChecks.strict !== "boolean") {
+    throw new Error(`GitHub branch ${branch} returned an invalid required status strict setting`);
+  }
   for (const context of requiredStatusChecks.contexts ?? []) {
     if (typeof context !== "string" || context.length === 0) {
       throw new Error(`GitHub branch ${branch} returned an invalid required status context`);
     }
-    required.push({ context, appId: null });
+    required.push({ context, appId: null, strict: requiredStatusChecks.strict });
   }
   for (const check of requiredStatusChecks.checks ?? []) {
     if (!check || typeof check.context !== "string" || check.context.length === 0) {
@@ -371,7 +375,7 @@ async function repositoryRequiredChecks({ apiUrl, repository, branch, token, fet
     if (appId !== null && (!Number.isInteger(appId) || appId < 0)) {
       throw new Error(`GitHub branch ${branch} returned an invalid required status check app binding`);
     }
-    required.push({ context: check.context, appId });
+    required.push({ context: check.context, appId, strict: requiredStatusChecks.strict });
   }
   const unique = new Map(required.map((item) => [`${item.context}\u0000${item.appId ?? "*"}`, item]));
   const normalized = [...unique.values()].sort((left, right) => (

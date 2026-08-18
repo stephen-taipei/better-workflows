@@ -19,18 +19,23 @@ test("release policy receipt normalizes and digests the protected-branch policy"
     protection: {
       required_status_checks: {
         contexts: ["lint"],
-        checks: [{ context: "test", app_id: 123 }]
+        checks: [{ context: "test", app_id: 123 }],
+        strict: true
       }
     }
   });
   assert.deepEqual(policy, [
-    { context: "lint", appId: null },
-    { context: "test", appId: 123 }
+    { context: "lint", appId: null, strict: true },
+    { context: "test", appId: 123, strict: true }
   ]);
   assert.match(policyDigest(policy), /^[a-f0-9]{64}$/);
   assert.throws(
-    () => normalizeRequiredChecks({ protected: true, protection: { required_status_checks: { contexts: [], checks: [] } } }),
+    () => normalizeRequiredChecks({ protected: true, protection: { required_status_checks: { contexts: [], checks: [], strict: true } } }),
     /cannot publish an empty required-check policy/
+  );
+  assert.throws(
+    () => normalizeRequiredChecks({ protected: true, protection: { required_status_checks: { contexts: ["test"], checks: [] } } }),
+    /strict setting/
   );
 });
 
@@ -38,7 +43,7 @@ test("release policy receipt publishes only after the prepared artifact is bound
   const headSha = "a".repeat(40);
   const policyResponse = {
     protected: true,
-    protection: { required_status_checks: { contexts: ["test"], checks: [] } }
+    protection: { required_status_checks: { contexts: ["test"], checks: [], strict: true } }
   };
   const calls = [];
   const prepared = await prepareReleasePolicyReceipt({
@@ -120,7 +125,7 @@ test("policy receipt artifact deterministically binds its pre-merge identity and
     branch: "dev",
     headSha: "b".repeat(40),
     pullNumber: 17,
-    policy: [{ context: "test", appId: null }],
+    policy: [{ context: "test", appId: null, strict: true }],
     workflowRunId: "42",
     eventAction: "opened",
     observedAt: "2026-08-18T00:00:00Z"
@@ -132,7 +137,7 @@ test("policy receipt artifact deterministically binds its pre-merge identity and
 
 test("merge-bound policy receipt binds merge commit and unchanged pre-merge policy", () => {
   const mergeCommitSha = "c".repeat(40);
-  const policy = [{ context: "test", appId: null }];
+  const policy = [{ context: "test", appId: null, strict: true }];
   const artifact = buildPolicyReceiptArtifact({
     repository: "example/repo",
     branch: "dev",
@@ -153,7 +158,15 @@ test("merge-bound policy receipt binds merge commit and unchanged pre-merge poli
   assert.throws(
     () => buildPolicyReceiptArtifact({
       ...artifact,
-      policy: [{ context: "different", appId: null }],
+      policy: [{ context: "different", appId: null, strict: true }],
+      sourcePolicyDigest: policyDigest(policy)
+    }),
+    /changed required-check policy/
+  );
+  assert.throws(
+    () => buildPolicyReceiptArtifact({
+      ...artifact,
+      policy: [{ context: "test", appId: null, strict: false }],
       sourcePolicyDigest: policyDigest(policy)
     }),
     /changed required-check policy/

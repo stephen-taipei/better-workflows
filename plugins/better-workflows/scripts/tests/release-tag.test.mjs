@@ -27,7 +27,7 @@ let latestPolicyReceiptMetadata = {
   headSha: SHA,
   mergeSha: SHA,
   base: "dev",
-  policy: [{ context: "test", appId: null }],
+  policy: [{ context: "test", appId: null, strict: true }],
   mergedAt: "2026-08-15T00:00:00Z"
 };
 let policyArtifactUnavailableResponses = 0;
@@ -153,7 +153,7 @@ function jsonResponse(value, ok = true, status = 200, headers = {}) {
 
 function successfulRequiredCheckResponse(url, sha, context = "test", pullNumber = 7) {
   if (url.endsWith("/branches/dev")) {
-    return jsonResponse({ protected: true, protection: { required_status_checks: { contexts: [context], checks: [] } } });
+    return jsonResponse({ protected: true, protection: { required_status_checks: { contexts: [context], checks: [], strict: true } } });
   }
   const policyWorkflow = policyWorkflowResponse(url);
   if (policyWorkflow) return policyWorkflow;
@@ -186,8 +186,9 @@ function successfulRequiredCheckResponse(url, sha, context = "test", pullNumber 
 }
 
 function policyReceiptStatus(context, updatedAt = "2026-08-20T00:50:00Z", appId = null, metadata = {}) {
+  const policy = [{ context, appId, strict: true }];
   const policyDigest = createHash("sha256")
-    .update(JSON.stringify([{ context, appId }]))
+    .update(JSON.stringify(policy))
     .digest("hex");
   const pullNumber = Number(metadata.pullNumber ?? 11);
   const headSha = String(metadata.headSha ?? SHA);
@@ -199,7 +200,7 @@ function policyReceiptStatus(context, updatedAt = "2026-08-20T00:50:00Z", appId 
     headSha,
     mergeSha,
     base,
-    policy: [{ context, appId }],
+    policy,
     mergedAt
   };
   return {
@@ -490,7 +491,7 @@ exec /usr/bin/git "$@"
       pullNumber: 8,
       requiredChecks: {
         headSha: head,
-        requiredRequirements: [{ context: "test", appId: null }],
+        requiredRequirements: [{ context: "test", appId: null, strict: true }],
         requiredContexts: ["test"],
         checkRuns: [{ id: "7", name: "test", status: "completed", conclusion: "success" }],
         statuses: []
@@ -552,7 +553,7 @@ test("merge-time policy receipt binds the pre-merge head separately from the mer
       ]);
       if (workflowResponse) return workflowResponse;
       if (url.endsWith("/branches/dev")) {
-        return jsonResponse({ protected: true, protection: { required_status_checks: { contexts: ["current-only"], checks: [] } } });
+        return jsonResponse({ protected: true, protection: { required_status_checks: { contexts: ["current-only"], checks: [], strict: true } } });
       }
       if (url.includes(`/commits/${syntheticMergeSha}/check-runs?per_page=100&page=1`)) {
         return jsonResponse({ check_runs: [{ id: 7, name: "test", head_sha: syntheticMergeSha, status: "completed", conclusion: "success", completed_at: "2026-08-14T23:55:00Z" }] });
@@ -589,7 +590,7 @@ test("merge-time policy receipt binds the pre-merge head separately from the mer
     assert.equal(result.requiredChecks.mergeTimeReceipt.preMergeSha, preMergeSha);
     assert.equal(result.requiredChecks.mergeTimeReceipt.testedSha, syntheticMergeSha);
     assert.equal(result.requiredChecks.mergeTimeReceipt.mergeCommitSha, mergeSha);
-    assert.deepEqual(result.requiredChecks.requiredRequirements, [{ context: "test", appId: null }]);
+    assert.deepEqual(result.requiredChecks.requiredRequirements, [{ context: "test", appId: null, strict: true }]);
     assert.equal(policyArtifactUnavailableResponses, 0);
   } finally {
     policyArtifactUnavailableResponses = 0;
@@ -837,7 +838,7 @@ test("release eligibility uses the validated push-event parent across multi-comm
       pullNumber: 9,
       requiredChecks: {
         headSha: head,
-        requiredRequirements: [{ context: "test", appId: null }],
+        requiredRequirements: [{ context: "test", appId: null, strict: true }],
         requiredContexts: ["test"],
         checkRuns: [{ id: "7", name: "test", status: "completed", conclusion: "success" }],
         statuses: []
@@ -910,7 +911,7 @@ test("catch-up release workflow must belong to the target branch", async () => {
         return jsonResponse([{ number: 71, base: { ref: "dev" }, head: { sha: bump }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: bump }]);
       }
       if (url.endsWith("/branches/dev")) {
-        return jsonResponse({ protected: true, protection: { required_status_checks: { contexts: ["test"], checks: [] } } });
+        return jsonResponse({ protected: true, protection: { required_status_checks: { contexts: ["test"], checks: [], strict: true } } });
       }
       if (url.includes(`/repos/example/repo/commits/${bump}/check-runs?per_page=100&page=1`)) {
         return jsonResponse({ check_runs: [{ id: 71, name: "test", head_sha: bump, status: "completed", conclusion: "success", details_url: "https://github.com/example/repo/actions/runs/71/job/1", app: { slug: "github-actions" } }] });
@@ -1052,7 +1053,7 @@ test("rebase-style merged PR keeps an earlier version bump eligible at final HEA
       }
       if (url.includes("/commits/") && url.endsWith("/pulls?per_page=100")) return jsonResponse([]);
       if (url.endsWith("/branches/dev")) {
-        return jsonResponse({ protected: true, protection: { required_status_checks: { contexts: ["lint"], checks: [] } } });
+        return jsonResponse({ protected: true, protection: { required_status_checks: { contexts: ["lint"], checks: [], strict: true } } });
       }
       if (url.includes(`/commits/${head}/check-runs?per_page=100&page=1`)) {
         return jsonResponse({ check_runs: [
@@ -1369,7 +1370,7 @@ test("release eligibility catches up a version bump after a later non-version pu
         return jsonResponse([{ number: 11, base: { ref: "dev" }, head: { sha: bump }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: bump }]);
       }
       if (url.endsWith("/branches/dev")) {
-        return jsonResponse({ protected: true, protection: { required_status_checks: { contexts: [], checks: [{ context: "test", app_id: requiredAppId }] } } });
+        return jsonResponse({ protected: true, protection: { required_status_checks: { contexts: [], checks: [{ context: "test", app_id: requiredAppId }], strict: true } } });
       }
       if (url.includes(`/repos/example/repo/commits/${bump}/check-runs?per_page=100&page=1`)) {
         return jsonResponse(
@@ -1449,7 +1450,7 @@ test("release eligibility catches up a version bump after a later non-version pu
       pullNumber: 11,
       requiredChecks: {
         headSha: bump,
-        requiredRequirements: [{ context: "test", appId: 123 }],
+        requiredRequirements: [{ context: "test", appId: 123, strict: true }],
         checkRuns: [
           { id: "8", name: "test", status: "completed", conclusion: "success" }
         ],
@@ -1466,14 +1467,14 @@ test("release eligibility catches up a version bump after a later non-version pu
       pullNumber: 11,
       mergeCommitSha: bump,
       mergedAt: "2026-08-15T00:00:00.000Z",
-      requiredRequirements: [{ context: "test", appId: 123 }],
-      requiredCheckPolicyDigest: "e15de564cdc76464ee41d0c60ff1709f9eeb37e75c9a4d7b219026fcf6bd8635",
+      requiredRequirements: [{ context: "test", appId: 123, strict: true }],
+      requiredCheckPolicyDigest: "131729412bee25f687b37852637c8a4c18b148a2b3b55fd7133af1a128056c24",
       checkRuns: [{ id: "8", name: "test", status: "completed", conclusion: "success", recordedAt: "2026-08-14T23:58:00.000Z" }],
       statuses: [],
       policyReceipt: {
         context: "better-workflows/release-policy-v1",
         state: "success",
-        description: "better-workflows-policy-v1:e15de564cdc76464ee41d0c60ff1709f9eeb37e75c9a4d7b219026fcf6bd8635",
+        description: "better-workflows-policy-v1:131729412bee25f687b37852637c8a4c18b148a2b3b55fd7133af1a128056c24",
         publisher: "github-actions[bot]",
         workflowRunId: "8",
         recordedAt: "2026-08-14T23:50:00.000Z",
@@ -1524,7 +1525,7 @@ test("release eligibility catches up a version bump after a later non-version pu
         return jsonResponse([{ number: 11, base: { ref: "dev" }, head: { sha: bump }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: bump }]);
       }
       if (url.endsWith("/branches/dev")) {
-        return jsonResponse({ protected: true, protection: { required_status_checks: { contexts: [], checks: [{ context: "test", app_id: 123 }] } } });
+        return jsonResponse({ protected: true, protection: { required_status_checks: { contexts: [], checks: [{ context: "test", app_id: 123 }], strict: true } } });
       }
       if (url.includes(`/repos/example/repo/commits/${bump}/check-runs?per_page=100&page=1`)) {
         return jsonResponse({ check_runs: [
@@ -1567,7 +1568,7 @@ test("release eligibility catches up a version bump after a later non-version pu
       pullNumber: 11,
       requiredChecks: {
         headSha: bump,
-        requiredRequirements: [{ context: "test", appId: 123 }],
+        requiredRequirements: [{ context: "test", appId: 123, strict: true }],
         checkRuns: [{ id: "7", name: "test", status: "completed", conclusion: "success" }],
         statuses: [],
         requiredContexts: ["test"]
@@ -1688,7 +1689,7 @@ test("consecutive version bumps are recovered in one atomic batch", async () => 
         return jsonResponse([{ number: 13, base: { ref: "dev" }, head: { sha: bump13 }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: bump13 }]);
       }
       if (url.endsWith("/branches/dev")) {
-        return jsonResponse({ protected: true, protection: { required_status_checks: { contexts: ["lint"], checks: [] } } });
+        return jsonResponse({ protected: true, protection: { required_status_checks: { contexts: ["lint"], checks: [], strict: true } } });
       }
       for (const sha of [bump13, head]) {
         if (url.includes(`/commits/${sha}/check-runs?per_page=100&page=1`)) {
@@ -1724,7 +1725,7 @@ test("consecutive version bumps are recovered in one atomic batch", async () => 
     assert.equal(result.requiredChecks.mergeTimeReceipt.kind, "merge-time-required-checks-v1");
     assert.equal(result.requiredChecks.mergeTimeReceipt.mergeCommitSha, bump13);
     assert.equal(result.requiredChecks.mergeTimeReceipt.requiredCheckPolicyDigest,
-      "65fc264e296f666a3553e83b653b24a98db1f41f99895728f731f85624499ef0");
+      "771bf6ad20392f2d828f9713244ee45b2f8a5d196f116fa8ac18c678769fde52");
     assert.equal(mutationCalls, 1);
     assert.deepEqual(mutationUpdates, [
       { name: "refs/heads/dev", beforeOid: head, afterOid: head, force: false },
@@ -1839,7 +1840,7 @@ test("an exact HEAD version bump remains eligible past the catch-up history boun
         return jsonResponse([{ number: 32, base: { ref: "dev", sha: eventBefore }, head: { sha: head }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: head }]);
       }
       if (url.endsWith("/branches/dev")) {
-        return jsonResponse({ protected: true, protection: { required_status_checks: { contexts: ["lint"], checks: [] } } });
+        return jsonResponse({ protected: true, protection: { required_status_checks: { contexts: ["lint"], checks: [], strict: true } } });
       }
       if (url.includes(`/commits/${head}/check-runs?per_page=100&page=1`)) {
         return jsonResponse({ check_runs: [{ id: 32, name: "lint", head_sha: head, status: "completed", conclusion: "success", completed_at: "2026-08-17T23:55:00Z" }] });
@@ -1979,7 +1980,7 @@ test("catch-up publication requires the exact workflow test check on the release
         return jsonResponse([{ number: 21, base: { ref: "dev" }, head: { sha: bump }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: bump }]);
       }
       if (url.endsWith("/branches/dev")) {
-        return jsonResponse({ protected: true, protection: { required_status_checks: { contexts: ["lint"], checks: [] } } });
+        return jsonResponse({ protected: true, protection: { required_status_checks: { contexts: ["lint"], checks: [], strict: true } } });
       }
       if (url.includes(`/commits/${bump}/check-runs?per_page=100&page=1`)) {
         const requiredReady = !delayedRequiredCheck || requiredPolls++ >= 10;
