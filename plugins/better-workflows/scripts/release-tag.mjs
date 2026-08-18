@@ -201,6 +201,21 @@ function readZipJsonEntry(archive, filename) {
   throw new Error(`Release policy artifact is missing ${filename}`);
 }
 
+function normalizePolicyReceiptRequirements(policy) {
+  if (!Array.isArray(policy) || policy.length === 0) throw new Error("policy artifact requires non-empty requirements");
+  const entries = policy.map((item) => {
+    if (!item || typeof item.context !== "string" || !item.context ||
+        (item.appId !== null && (!Number.isInteger(item.appId) || item.appId < 0))) {
+      throw new Error("policy artifact contains an invalid requirement");
+    }
+    return { context: item.context, appId: item.appId };
+  });
+  const unique = new Map(entries.map((item) => [`${item.context}\u0000${item.appId ?? "*"}`, item]));
+  return [...unique.values()].sort((left, right) => (
+    `${left.context}:${left.appId ?? ""}`.localeCompare(`${right.context}:${right.appId ?? ""}`)
+  ));
+}
+
 function assertPolicyReceiptArtifact(payload, {
   repository,
   branch,
@@ -211,8 +226,10 @@ function assertPolicyReceiptArtifact(payload, {
   mergeTimeMs
 }) {
   let computedPolicyDigest = null;
+  let normalizedPolicy = null;
   try {
-    computedPolicyDigest = createHash("sha256").update(JSON.stringify(payload?.policy)).digest("hex");
+    normalizedPolicy = normalizePolicyReceiptRequirements(payload?.policy);
+    computedPolicyDigest = createHash("sha256").update(JSON.stringify(normalizedPolicy)).digest("hex");
   } catch {
     computedPolicyDigest = null;
   }
@@ -224,15 +241,16 @@ function assertPolicyReceiptArtifact(payload, {
       !["opened", "reopened", "synchronize"].includes(payload.eventAction) ||
       payload.branch !== branch || Number(payload.pullNumber) !== Number(pullNumber) ||
       String(payload.headSha).toLowerCase() !== String(preMergeSha).toLowerCase() ||
+      JSON.stringify(payload.policy) !== JSON.stringify(normalizedPolicy) ||
       payload.policyDigest !== computedPolicyDigest ||
-      payload.policyDigest !== requiredPolicyDigest) {
+      (requiredPolicyDigest !== null && payload.policyDigest !== requiredPolicyDigest)) {
     throw new Error(`Release catch-up candidate ${preMergeSha} has an untrusted pre-merge policy artifact binding`);
   }
   const observedAt = Date.parse(String(payload.observedAt ?? ""));
   if (!Number.isFinite(observedAt) || observedAt > mergeTimeMs) {
     throw new Error(`Release catch-up candidate ${preMergeSha} has pre-merge policy evidence after its pull-request merge`);
   }
-  return { ...payload, observedAt: new Date(observedAt).toISOString() };
+  return { ...payload, policy: normalizedPolicy, observedAt: new Date(observedAt).toISOString() };
 }
 
 async function fetchPolicyReceiptArtifact({ apiUrl, repository, runId, token, fetchImpl, binding }) {
@@ -790,16 +808,18 @@ async function verifyCatchUpChecks({
   preMergeSha = sha,
   sleepImpl = waitForReleaseChecks
 }) {
-  const requiredRequirements = await repositoryRequiredChecks({ apiUrl, repository, branch, token, fetchImpl });
+  const currentRequirements = await repositoryRequiredChecks({ apiUrl, repository, branch, token, fetchImpl });
   const selfContexts = new Set(["integration-tag", "tag merged release version"]);
-  if (requiredRequirements.some(({ context }) => {
-    const normalized = context.toLowerCase();
-    return [...selfContexts].some((selfContext) => (
-      normalized === selfContext || normalized.endsWith(` / ${selfContext}`) || normalized.endsWith(`: ${selfContext}`)
-    ));
-  })) {
-    throw new Error("Release tag required-check configuration includes the integration-tag job; refusing a circular gate");
-  }
+  const assertNoCircularRequirements = (requirements) => {
+    if (requirements.some(({ context }) => {
+      const normalized = context.toLowerCase();
+      return [...selfContexts].some((selfContext) => (
+        normalized === selfContext || normalized.endsWith(` / ${selfContext}`) || normalized.endsWith(`: ${selfContext}`)
+      ));
+    })) throw new Error("Release tag required-check configuration includes the integration-tag job; refusing a circular gate");
+  };
+  assertNoCircularRequirements(currentRequirements);
+  let requiredRequirements = mergeTime === null ? currentRequirements : null;
   let observations = [];
   let workflowObservation = { state: "success", run: null, check: null };
   let workflowState = workflowObservation.state;
@@ -817,10 +837,39 @@ async function verifyCatchUpChecks({
     throw new Error(`Release catch-up candidate ${sha} lacks an immutable pre-merge commit binding`);
   }
   let testedRevision = normalizedPreMergeSha ?? sha;
-  const requiredPolicyDigest = digestRequiredCheckPolicy(requiredRequirements);
+  let requiredPolicyDigest = mergeTime === null ? digestRequiredCheckPolicy(currentRequirements) : null;
   let policyReceipt = null;
+  let policyStatuses = [];
   let preMergeWorkflowObservation = { state: mergeTime === null ? "success" : "missing", run: null };
   for (let attempt = 0; attempt < REQUIRED_CHECK_POLL_ATTEMPTS; attempt += 1) {
+    if (mergeTime !== null && !policyReceipt) {
+      policyStatuses = await repositoryCommitStatuses({ apiUrl, repository, sha: normalizedPreMergeSha, token, fetchImpl });
+      const policyRecords = policyStatuses.filter((status) => String(status?.context ?? "") === RELEASE_POLICY_RECEIPT_CONTEXT);
+      if (policyRecords.length > 0) {
+        const policyRecord = latestObservation(policyRecords)?.record ?? null;
+        policyReceipt = await verifyPolicyReceipt({
+          record: policyRecord,
+          policyDigest: null,
+          apiUrl,
+          repository,
+          branch,
+          mergeTimeMs,
+          token,
+          fetchImpl,
+          candidateSha: sha,
+          preMergeSha: normalizedPreMergeSha,
+          pullNumber,
+          mergeCommitSha
+        });
+        requiredRequirements = policyReceipt.artifact.policy;
+        requiredPolicyDigest = policyReceipt.artifact.policyDigest;
+        assertNoCircularRequirements(requiredRequirements);
+      }
+      if (!policyReceipt) {
+        if (attempt < REQUIRED_CHECK_POLL_ATTEMPTS - 1) await sleepImpl(REQUIRED_CHECK_POLL_DELAY_MS);
+        continue;
+      }
+    }
     if (mergeTime !== null) {
       const pullRequestRuns = await repositoryWorkflowRuns({
         apiUrl,
@@ -847,10 +896,7 @@ async function verifyCatchUpChecks({
       ? await repositoryWorkflowRuns({ apiUrl, repository, branch, sha, token, fetchImpl })
       : [];
     const statuses = await repositoryCommitStatuses({ apiUrl, repository, sha: testedRevision, token, fetchImpl });
-    const policyStatuses = mergeTime !== null && normalizedPreMergeSha && normalizedPreMergeSha !== testedRevision
-      ? await repositoryCommitStatuses({ apiUrl, repository, sha: normalizedPreMergeSha, token, fetchImpl })
-      : statuses;
-    observations = requiredRequirements.map((requirement) => {
+    observations = (requiredRequirements ?? []).map((requirement) => {
       const { context, appId } = requirement;
       const matchingChecks = checkRuns.filter((check) => (
         String(check?.head_sha ?? "").toLowerCase() === testedRevision &&
@@ -867,26 +913,6 @@ async function verifyCatchUpChecks({
       const selected = latestRequiredObservation(matchingChecks, matchingStatuses);
       return { requirement, selected, state: requiredObservationState(selected) };
     });
-    if (mergeTimeMs !== null) {
-      const policyRecords = policyStatuses.filter((status) => String(status?.context ?? "") === RELEASE_POLICY_RECEIPT_CONTEXT);
-      if (policyRecords.length > 0) {
-        const policyRecord = latestObservation(policyRecords)?.record ?? null;
-        policyReceipt = await verifyPolicyReceipt({
-          record: policyRecord,
-          policyDigest: requiredPolicyDigest,
-          apiUrl,
-          repository,
-          branch,
-          mergeTimeMs,
-          token,
-          fetchImpl,
-          candidateSha: sha,
-          preMergeSha: normalizedPreMergeSha,
-          pullNumber,
-          mergeCommitSha
-        });
-      }
-    }
     workflowObservation = requireWorkflowTest
       ? workflowTestObservation({ branch, checkRuns: workflowCheckRuns, workflowRuns, sha })
       : { state: "success", run: null, check: null };

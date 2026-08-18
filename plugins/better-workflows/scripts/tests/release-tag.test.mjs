@@ -501,7 +501,7 @@ test("merge-time policy receipt binds the pre-merge head separately from the mer
       const workflowResponse = pullRequestWorkflowResponse(url, [{ sha: preMergeSha, pullNumber }]);
       if (workflowResponse) return workflowResponse;
       if (url.endsWith("/branches/dev")) {
-        return jsonResponse({ protected: true, protection: { required_status_checks: { contexts: ["test"], checks: [] } } });
+        return jsonResponse({ protected: true, protection: { required_status_checks: { contexts: ["current-only"], checks: [] } } });
       }
       if (url.includes(`/commits/${preMergeSha}/check-runs?per_page=100&page=1`)) {
         return jsonResponse({ check_runs: [{ id: 7, name: "test", head_sha: preMergeSha, status: "completed", conclusion: "success", completed_at: "2026-08-14T23:55:00Z" }] });
@@ -534,6 +534,7 @@ test("merge-time policy receipt binds the pre-merge head separately from the mer
     assert.equal(result.sha, mergeSha);
     assert.equal(result.requiredChecks.mergeTimeReceipt.preMergeSha, preMergeSha);
     assert.equal(result.requiredChecks.mergeTimeReceipt.mergeCommitSha, mergeSha);
+    assert.deepEqual(result.requiredChecks.requiredRequirements, [{ context: "test", appId: null }]);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
