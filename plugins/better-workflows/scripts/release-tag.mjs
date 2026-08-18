@@ -515,6 +515,7 @@ async function findEligibleVersionBumps({ cwd, branch, head, currentVersion, hig
     .filter(Boolean);
   const candidates = [];
   const pullCache = new Map();
+  const publisherAvailabilityCache = new Map();
   const loadPull = async (sha) => {
     if (pullCache.has(sha)) return pullCache.get(sha);
     const pull = sha === head
@@ -528,6 +529,16 @@ async function findEligibleVersionBumps({ cwd, branch, head, currentVersion, hig
       }), { branch, sha });
     pullCache.set(sha, pull);
     return pull;
+  };
+  const publisherAvailableForPull = async (pull) => {
+    const baseSha = String(pull?.base?.sha ?? "").trim().toLowerCase();
+    // GitHub PR responses normally include base.sha. Preserve the existing
+    // synthetic-repository behavior when that optional field is unavailable.
+    if (!/^[0-9a-f]{40}$/.test(baseSha)) return true;
+    if (!publisherAvailabilityCache.has(baseSha)) {
+      publisherAvailabilityCache.set(baseSha, releasePolicyPublisherAvailable(cwd, baseSha));
+    }
+    return publisherAvailabilityCache.get(baseSha);
   };
   for (const [order, candidate] of revisions.entries()) {
     let parent;
@@ -554,6 +565,11 @@ async function findEligibleVersionBumps({ cwd, branch, head, currentVersion, hig
     // Ancestry/equal-version checks cannot prove that a later PR introduced
     // the version change, so never launder the candidate through a descendant.
     if (!pull) continue;
+    // A bump merged before the release-policy publisher existed on its PR
+    // base can never acquire the required immutable pre-merge receipt. Treat
+    // that bootstrap boundary as a durable historical exclusion so it cannot
+    // strand later eligible candidates in catch-up verification.
+    if (!(await publisherAvailableForPull(pull))) continue;
     const tag = releaseTagName({ branch, version: candidateVersion, sha: releaseSha });
     const existingCommit = await remoteTag(cwd, tag);
     if (existingCommit && existingCommit !== releaseSha) {

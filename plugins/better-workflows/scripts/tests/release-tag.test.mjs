@@ -623,6 +623,89 @@ test("first rollout skips tagging until the trusted base contains the policy pub
   }
 });
 
+test("bootstrap-skipped version bumps do not block a later publisher-backed catch-up", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-release-tag-policy-bootstrap-catch-up-"));
+  const bare = path.join(root, "origin.git");
+  const work = path.join(root, "work");
+  try {
+    await execFileAsync("git", ["init", "--bare", "-q", bare]);
+    await execFileAsync("git", ["init", "-q", work]);
+    await git(work, ["config", "user.email", "test@example.invalid"]);
+    await git(work, ["config", "user.name", "release-test"]);
+    await mkdir(path.join(work, ".github/workflows"), { recursive: true });
+    await mkdir(path.join(work, "plugins/better-workflows/.codex-plugin"), { recursive: true });
+    await mkdir(path.join(work, "plugins/better-workflows"), { recursive: true });
+    await mkdir(path.join(work, "plugins/better-workflows/scripts"), { recursive: true });
+    const writeVersion = async (version) => {
+      await writeFile(path.join(work, "plugins/better-workflows/package.json"), JSON.stringify({ version }));
+      await writeFile(path.join(work, "plugins/better-workflows/.codex-plugin/plugin.json"), JSON.stringify({ version: `${version}+codex.test` }));
+    };
+    await writeFile(path.join(work, ".github/workflows/ci.yml"), "name: CI\n");
+    await writeVersion("3.4.12");
+    await git(work, ["add", "."]);
+    await git(work, ["commit", "-qm", "base without publisher"]);
+    await git(work, ["branch", "-M", "dev"]);
+    await git(work, ["remote", "add", "origin", bare]);
+    await git(work, ["push", "-q", "origin", "dev"]);
+    const base = await git(work, ["rev-parse", "HEAD"]);
+
+    await writeVersion("3.4.13");
+    await git(work, ["add", "."]);
+    await git(work, ["commit", "-qm", "bootstrap version bump"]);
+    const bootstrapBump = await git(work, ["rev-parse", "HEAD"]);
+
+    await writeFile(path.join(work, "plugins/better-workflows/scripts/release-policy-receipt.mjs"), "export {};\n");
+    await git(work, ["add", "."]);
+    await git(work, ["commit", "-qm", "publish release policy"]);
+    const publisherBase = await git(work, ["rev-parse", "HEAD"]);
+
+    await writeVersion("3.4.14");
+    await git(work, ["add", "."]);
+    await git(work, ["commit", "-qm", "publisher-backed version bump"]);
+    const head = await git(work, ["rev-parse", "HEAD"]);
+    await git(work, ["push", "-q", "origin", "dev"]);
+    const fetchImpl = async (url) => {
+      const workflowResponse = pullRequestWorkflowResponse(url, [{ sha: head, pullNumber: 20 }]);
+      if (workflowResponse) return workflowResponse;
+      if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
+        return jsonResponse([{ number: 20, base: { ref: "dev", sha: publisherBase }, head: { sha: head }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: head }]);
+      }
+      if (url.endsWith(`/repos/example/repo/commits/${bootstrapBump}/pulls?per_page=100`)) {
+        return jsonResponse([{ number: 18, base: { ref: "dev", sha: base }, head: { sha: bootstrapBump }, merged_at: "2026-08-17T00:00:00Z", merge_commit_sha: bootstrapBump }]);
+      }
+      if (url.includes(`/commits/${head}/statuses?per_page=100&page=1`)) {
+        return jsonResponse([
+          { id: 7, context: "test", state: "success" },
+          policyReceiptStatus("test", "2026-08-18T00:50:00Z", null, { pullNumber: 20, headSha: head, mergeSha: head, mergedAt: "2026-08-18T00:00:00Z" })
+        ]);
+      }
+      const response = successfulRequiredCheckResponse(url, head, "test", 20);
+      if (response) return response;
+      throw new Error(`Unexpected bootstrap catch-up fetch URL: ${url}`);
+    };
+    const result = await runReleaseTag({
+      cwd: work,
+      fetchImpl,
+      env: {
+        GITHUB_EVENT_NAME: "push",
+        GITHUB_EVENT_BEFORE: publisherBase,
+        GITHUB_REF_NAME: "dev",
+        GITHUB_REPOSITORY: "example/repo",
+        GITHUB_SHA: head,
+        GITHUB_TOKEN: "test-token",
+        GITHUB_API_URL: "https://api.github.com",
+        RELEASE_TAG_DRY_RUN: "1"
+      }
+    });
+    assert.equal(result.status, "planned");
+    assert.equal(result.version, "3.4.14");
+    assert.equal(result.sha, head);
+    assert.equal(result.pullNumber, 20);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("release eligibility uses the validated push-event parent across multi-commit integration", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "sbw-release-tag-parent-"));
   const bare = path.join(root, "origin.git");
