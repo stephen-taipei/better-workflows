@@ -122,13 +122,34 @@ async function repositoryRequiredChecks({ apiUrl, repository, branch, token, fet
   });
   if (!response.ok) throw new Error(`GitHub required release check configuration query failed with HTTP ${response.status}`);
   const payload = await response.json();
-  const contexts = [
-    ...(Array.isArray(payload?.contexts) ? payload.contexts : []),
-    ...(Array.isArray(payload?.checks) ? payload.checks.map((item) => item?.context) : [])
-  ].filter((context) => typeof context === "string" && context.length > 0);
-  const required = [...new Set(contexts)].sort();
-  if (required.length === 0) throw new Error(`GitHub branch ${branch} has no resolvable required status checks`);
-  return required;
+  if (!Array.isArray(payload?.contexts) && !Array.isArray(payload?.checks)) {
+    throw new Error(`GitHub branch ${branch} returned no resolvable required status check configuration`);
+  }
+  const required = [];
+  for (const context of payload.contexts ?? []) {
+    if (typeof context !== "string" || context.length === 0) {
+      throw new Error(`GitHub branch ${branch} returned an invalid required status context`);
+    }
+    required.push({ context, appId: null });
+  }
+  for (const check of payload.checks ?? []) {
+    if (!check || typeof check.context !== "string" || check.context.length === 0) {
+      throw new Error(`GitHub branch ${branch} returned an invalid app-bound required status check`);
+    }
+    const rawAppId = check.app_id;
+    const numericAppId = rawAppId === undefined || rawAppId === null || rawAppId === "" ? null : Number(rawAppId);
+    const appId = numericAppId === null || numericAppId === -1 ? null : numericAppId;
+    if (appId !== null && (!Number.isInteger(appId) || appId < 0)) {
+      throw new Error(`GitHub branch ${branch} returned an invalid required status check app binding`);
+    }
+    required.push({ context: check.context, appId });
+  }
+  const unique = new Map(required.map((item) => [`${item.context}\u0000${item.appId ?? "*"}`, item]));
+  const normalized = [...unique.values()].sort((left, right) => (
+    `${left.context}:${left.appId ?? ""}`.localeCompare(`${right.context}:${right.appId ?? ""}`)
+  ));
+  if (normalized.length === 0) throw new Error(`GitHub branch ${branch} has no resolvable required status checks`);
+  return normalized;
 }
 
 async function githubGraphql({ apiUrl, token, query, variables, fetchImpl = fetch }) {
@@ -263,41 +284,98 @@ async function findCatchUpVersionBump({ cwd, branch, head, version, apiUrl, repo
   return null;
 }
 
+function normalizeCheckAppId(check) {
+  const value = check?.app?.id ?? check?.app_id;
+  if (value === undefined || value === null || value === "") return null;
+  const appId = Number(value);
+  return Number.isInteger(appId) && appId >= 0 ? appId : null;
+}
+
+function observationTime(record) {
+  for (const field of ["completed_at", "updated_at", "created_at", "started_at"]) {
+    const value = Date.parse(String(record?.[field] ?? ""));
+    if (Number.isFinite(value)) return value;
+  }
+  return Number.NEGATIVE_INFINITY;
+}
+
+function observationId(record) {
+  const value = Number(record?.id);
+  return Number.isFinite(value) ? value : Number.NEGATIVE_INFINITY;
+}
+
+function latestObservation(records) {
+  return records.reduce((latest, record, index) => {
+    const candidate = { record, index };
+    if (!latest) return candidate;
+    const timeDelta = observationTime(candidate.record) - observationTime(latest.record);
+    if (timeDelta !== 0) return timeDelta > 0 ? candidate : latest;
+    const idDelta = observationId(candidate.record) - observationId(latest.record);
+    if (idDelta !== 0) return idDelta > 0 ? candidate : latest;
+    return candidate.index > latest.index ? candidate : latest;
+  }, null);
+}
+
+function latestRequiredObservation(checks, statuses) {
+  const check = latestObservation(checks);
+  const status = latestObservation(statuses);
+  if (!check) return status ? { kind: "status", ...status } : null;
+  if (!status) return { kind: "check", ...check };
+  const checkTime = observationTime(check.record);
+  const statusTime = observationTime(status.record);
+  if (checkTime !== statusTime) return checkTime > statusTime ? { kind: "check", ...check } : { kind: "status", ...status };
+  const checkId = observationId(check.record);
+  const statusId = observationId(status.record);
+  return checkId >= statusId ? { kind: "check", ...check } : { kind: "status", ...status };
+}
+
 async function verifyCatchUpChecks({ apiUrl, repository, branch, sha, token, fetchImpl }) {
-  const requiredContexts = await repositoryRequiredChecks({ apiUrl, repository, branch, token, fetchImpl });
+  const requiredRequirements = await repositoryRequiredChecks({ apiUrl, repository, branch, token, fetchImpl });
   const checkRuns = await repositoryCheckRuns({ apiUrl, repository, sha, token, fetchImpl });
   const statuses = await repositoryCommitStatuses({ apiUrl, repository, sha, token, fetchImpl });
-  const observations = requiredContexts.map((context) => {
+  const observations = requiredRequirements.map((requirement) => {
+    const { context, appId } = requirement;
     const matchingChecks = checkRuns.filter((check) => (
-      String(check?.head_sha ?? "").toLowerCase() === sha && String(check?.name ?? "") === context
+      String(check?.head_sha ?? "").toLowerCase() === sha &&
+      String(check?.name ?? "") === context &&
+      (appId === null || normalizeCheckAppId(check) === appId)
     ));
-    const matchingStatuses = statuses.filter((status) => String(status?.context ?? "") === context);
-    return { context, checks: matchingChecks, statuses: matchingStatuses };
+    const matchingStatuses = appId === null
+      ? statuses.filter((status) => String(status?.context ?? "") === context)
+      : [];
+    const selected = latestRequiredObservation(matchingChecks, matchingStatuses);
+    return { requirement, selected };
   });
-  if (observations.some((item) => item.checks.length === 0 && item.statuses.length === 0)) {
+  if (observations.some((item) => !item.selected)) {
     throw new Error(`Release catch-up lacks an exact required check or status context: ${sha}`);
   }
   if (observations.some((item) => (
-    item.checks.some((check) => check.status !== "completed" || check.conclusion !== "success") ||
-    item.statuses.some((status) => status.state !== "success")
+    item.selected.kind === "check"
+      ? item.selected.record.status !== "completed" || item.selected.record.conclusion !== "success"
+      : item.selected.record.state !== "success"
   ))) {
     throw new Error(`Release catch-up requires all exact required checks and statuses to complete successfully: ${sha}`);
   }
+  const requiredContexts = requiredRequirements.map((item) => item.context);
   return {
     headSha: sha,
+    requiredRequirements,
     requiredContexts,
-    checkRuns: checkRuns
-      .filter((check) => requiredContexts.includes(String(check.name ?? "")))
-      .map((check) => ({
-        id: String(check.id ?? ""),
-        name: String(check.name ?? ""),
-        status: check.status,
-        conclusion: check.conclusion
+    checkRuns: observations
+      .filter((item) => item.selected.kind === "check")
+      .map((item) => ({
+        id: String(item.selected.record.id ?? ""),
+        name: String(item.selected.record.name ?? ""),
+        status: item.selected.record.status,
+        conclusion: item.selected.record.conclusion
       }))
       .sort((left, right) => `${left.name}:${left.id}`.localeCompare(`${right.name}:${right.id}`)),
-    statuses: statuses
-      .filter((status) => requiredContexts.includes(String(status.context ?? "")))
-      .map((status) => ({ context: String(status.context), state: status.state }))
+    statuses: observations
+      .filter((item) => item.selected.kind === "status")
+      .map((item) => ({
+        context: String(item.selected.record.context),
+        state: item.selected.record.state
+      }))
       .sort((left, right) => `${left.context}:${left.state}`.localeCompare(`${right.context}:${right.state}`))
   };
 }
@@ -337,7 +415,7 @@ export async function runReleaseTag({ env = process.env, cwd = process.cwd(), fe
   }
   let releaseSha = sha;
   let pull = findMergedPullRequest(pulls, { branch, sha });
-  let catchUpChecks = null;
+  let requiredChecks = null;
   if (!versionChanged(current, previous)) {
     const catchUp = await findCatchUpVersionBump({
       cwd,
@@ -354,11 +432,11 @@ export async function runReleaseTag({ env = process.env, cwd = process.cwd(), fe
     }
     releaseSha = catchUp.sha;
     pull = catchUp.pull;
-    catchUpChecks = await verifyCatchUpChecks({ apiUrl, repository, branch, sha: releaseSha, token, fetchImpl });
   }
   if (!pull) {
     return { status: "skipped", reason: "commit-is-not-an-exact-merged-pr-result", branch, sha };
   }
+  requiredChecks = await verifyCatchUpChecks({ apiUrl, repository, branch, sha: releaseSha, token, fetchImpl });
 
   const tag = releaseTagName({ branch, version: current, sha: releaseSha });
   const existingCommit = await remoteTag(cwd, tag);
@@ -367,11 +445,11 @@ export async function runReleaseTag({ env = process.env, cwd = process.cwd(), fe
     if (await remoteHead(cwd, branch) !== sha) {
       throw new Error(`Remote ${branch} moved before existing release tag reconciliation; refusing to report a stale tag as current`);
     }
-    return { status: "existing", tag, branch, sha: releaseSha, version: current, pullNumber: pull.number, ...(catchUpChecks ? { requiredChecks: catchUpChecks } : {}) };
+    return { status: "existing", tag, branch, sha: releaseSha, version: current, pullNumber: pull.number, requiredChecks };
   }
 
   if (env.RELEASE_TAG_DRY_RUN === "1") {
-    return { status: "planned", tag, branch, sha: releaseSha, version: current, pullNumber: pull.number, ...(catchUpChecks ? { requiredChecks: catchUpChecks } : {}) };
+    return { status: "planned", tag, branch, sha: releaseSha, version: current, pullNumber: pull.number, requiredChecks };
   }
 
   if (await remoteHead(cwd, branch) !== sha) {
@@ -387,7 +465,7 @@ export async function runReleaseTag({ env = process.env, cwd = process.cwd(), fe
     variables: mutation.variables
   });
   if (!mutationData.updateRefs) throw new Error("GitHub atomic release ref update returned no result");
-  return { status: "created", tag, branch, sha: releaseSha, version: current, pullNumber: pull.number, ...(catchUpChecks ? { requiredChecks: catchUpChecks } : {}) };
+  return { status: "created", tag, branch, sha: releaseSha, version: current, pullNumber: pull.number, requiredChecks };
 }
 
 function mainModule() {

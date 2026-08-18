@@ -35,6 +35,19 @@ function jsonResponse(value, ok = true, status = 200, headers = {}) {
   };
 }
 
+function successfulRequiredCheckResponse(url, sha, context = "test") {
+  if (url.endsWith("/branches/dev/protection/required_status_checks")) {
+    return jsonResponse({ contexts: [context], checks: [] });
+  }
+  if (url.includes(`/commits/${sha}/check-runs?per_page=100&page=1`)) {
+    return jsonResponse({ check_runs: [{ id: 7, name: context, head_sha: sha, status: "completed", conclusion: "success" }] });
+  }
+  if (url.includes(`/commits/${sha}/statuses?per_page=100&page=1`)) {
+    return jsonResponse({ statuses: [{ id: 7, context, state: "success" }] });
+  }
+  return null;
+}
+
 test("release tag names distinguish stable main from dev prerelease integration", () => {
   assert.equal(releaseTagName({ branch: "main", version: "3.4.10", sha: SHA }), "v3.4.10");
   assert.equal(releaseTagName({ branch: "dev", version: "3.4.10", sha: SHA }), "v3.4.10-dev.aaaaaaaaaaaa");
@@ -132,6 +145,8 @@ test("release tag fails closed when the atomic branch CAS observes a concurrent 
       if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
         return jsonResponse([{ number: 7, base: { ref: "dev" }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: head }]);
       }
+      const checkResponse = successfulRequiredCheckResponse(url, head);
+      if (checkResponse) return checkResponse;
       if (url.endsWith("/graphql")) {
         const body = JSON.parse(options.body);
         if (body.query.startsWith("query(")) return jsonResponse({ data: { repository: { id: "R_123" } } });
@@ -206,6 +221,8 @@ exec /usr/bin/git "$@"
       if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
         return jsonResponse([{ number: 8, base: { ref: "dev" }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: head }]);
       }
+      const checkResponse = successfulRequiredCheckResponse(url, head);
+      if (checkResponse) return checkResponse;
       throw new Error(`Unexpected release-tag fetch URL: ${url}`);
     };
     const priorPath = process.env.PATH;
@@ -250,7 +267,14 @@ exec /usr/bin/git "$@"
       branch: "dev",
       sha: head,
       version: "3.4.13",
-      pullNumber: 8
+      pullNumber: 8,
+      requiredChecks: {
+        headSha: head,
+        requiredRequirements: [{ context: "test", appId: null }],
+        requiredContexts: ["test"],
+        checkRuns: [{ id: "7", name: "test", status: "completed", conclusion: "success" }],
+        statuses: []
+      }
     });
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -286,25 +310,39 @@ test("release eligibility uses the validated push-event parent across multi-comm
     await git(work, ["commit", "-qm", "follow-up"]);
     await git(work, ["push", "-q", "origin", "dev"]);
     const head = await git(work, ["rev-parse", "HEAD"]);
+    let checkConclusion = "failure";
     const fetchImpl = async (url) => {
       if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
         return jsonResponse([{ number: 9, base: { ref: "dev" }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: head }]);
       }
+      const checkResponse = successfulRequiredCheckResponse(url, head);
+      if (checkResponse) {
+        if (url.includes(`/commits/${head}/check-runs?per_page=100&page=1`)) {
+          return jsonResponse({ check_runs: [{ id: 7, name: "test", head_sha: head, status: "completed", conclusion: checkConclusion }] });
+        }
+        return checkResponse;
+      }
       throw new Error(`Unexpected release-tag fetch URL: ${url}`);
     };
+    const env = {
+      GITHUB_EVENT_NAME: "push",
+      GITHUB_EVENT_BEFORE: eventBefore,
+      GITHUB_REF_NAME: "dev",
+      GITHUB_REPOSITORY: "example/repo",
+      GITHUB_SHA: head,
+      GITHUB_TOKEN: "test-token",
+      GITHUB_API_URL: "https://api.github.com",
+      RELEASE_TAG_DRY_RUN: "1"
+    };
+    await assert.rejects(
+      runReleaseTag({ cwd: work, fetchImpl, env }),
+      /all exact required checks and statuses to complete successfully/
+    );
+    checkConclusion = "success";
     const result = await runReleaseTag({
       cwd: work,
       fetchImpl,
-      env: {
-        GITHUB_EVENT_NAME: "push",
-        GITHUB_EVENT_BEFORE: eventBefore,
-        GITHUB_REF_NAME: "dev",
-        GITHUB_REPOSITORY: "example/repo",
-        GITHUB_SHA: head,
-        GITHUB_TOKEN: "test-token",
-        GITHUB_API_URL: "https://api.github.com",
-        RELEASE_TAG_DRY_RUN: "1"
-      }
+      env
     });
     assert.equal(intermediate, await git(work, ["rev-parse", `${head}^1`]));
     assert.deepEqual(result, {
@@ -313,7 +351,14 @@ test("release eligibility uses the validated push-event parent across multi-comm
       branch: "dev",
       sha: head,
       version: "3.4.13",
-      pullNumber: 9
+      pullNumber: 9,
+      requiredChecks: {
+        headSha: head,
+        requiredRequirements: [{ context: "test", appId: null }],
+        requiredContexts: ["test"],
+        checkRuns: [{ id: "7", name: "test", status: "completed", conclusion: "success" }],
+        statuses: []
+      }
     });
     const unrelatedTree = await git(work, ["rev-parse", `${head}^{tree}`]);
     const unrelatedBefore = await git(work, ["commit-tree", unrelatedTree, "-m", "unrelated event parent"]);
@@ -373,6 +418,9 @@ test("release eligibility catches up a version bump after a later non-version pu
     const graphqlCalls = [];
     let candidateConclusion = "failure";
     let secondPageConclusion = null;
+    let candidateAppId = 999;
+    let requiredAppId = 123;
+    let statusState = "failure";
     const fetchImpl = async (url, options = {}) => {
       if (url.endsWith("/graphql")) {
         const request = JSON.parse(options.body);
@@ -387,21 +435,21 @@ test("release eligibility catches up a version bump after a later non-version pu
         return jsonResponse([{ number: 11, base: { ref: "dev" }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: bump }]);
       }
       if (url.endsWith("/branches/dev/protection/required_status_checks")) {
-        return jsonResponse({ contexts: ["test"], checks: [] });
+        return jsonResponse({ contexts: [], checks: [{ context: "test", app_id: requiredAppId }] });
       }
       if (url.includes(`/repos/example/repo/commits/${bump}/check-runs?per_page=100&page=1`)) {
         return jsonResponse(
-          { check_runs: [{ id: 7, name: "test", head_sha: bump, status: "completed", conclusion: candidateConclusion }] },
+          { check_runs: [{ id: 7, name: "test", head_sha: bump, status: "completed", conclusion: candidateConclusion, app: { id: candidateAppId } }] },
           true,
           200,
           secondPageConclusion === null ? {} : { link: '<https://api.github.com/repos/example/repo/commits/bump/check-runs?per_page=100&page=2>; rel="next"' }
         );
       }
       if (url.includes(`/repos/example/repo/commits/${bump}/check-runs?per_page=100&page=2`)) {
-        return jsonResponse({ check_runs: [{ id: 8, name: "test", head_sha: bump, status: "completed", conclusion: secondPageConclusion }] });
+        return jsonResponse({ check_runs: [{ id: 8, name: "test", head_sha: bump, status: "completed", conclusion: secondPageConclusion, app: { id: candidateAppId } }] });
       }
       if (url.includes(`/repos/example/repo/commits/${bump}/statuses?per_page=100&page=1`)) {
-        return jsonResponse({ statuses: [{ context: "test", state: "success" }] });
+        return jsonResponse({ statuses: [{ context: "test", state: statusState }] });
       }
       throw new Error(`Unexpected release-tag fetch URL: ${url}`);
     };
@@ -414,6 +462,12 @@ test("release eligibility catches up a version bump after a later non-version pu
       GITHUB_TOKEN: "test-token",
       GITHUB_API_URL: "https://api.github.com"
     };
+    await assert.rejects(
+      runReleaseTag({ cwd: work, fetchImpl, env: runEnv }),
+      /lacks an exact required check or status context/
+    );
+    candidateAppId = requiredAppId;
+    statusState = "failure";
     await assert.rejects(
       runReleaseTag({ cwd: work, fetchImpl, env: runEnv }),
       /all exact required checks and statuses to complete successfully/
@@ -439,11 +493,11 @@ test("release eligibility catches up a version bump after a later non-version pu
       pullNumber: 11,
       requiredChecks: {
         headSha: bump,
+        requiredRequirements: [{ context: "test", appId: 123 }],
         checkRuns: [
-          { id: "7", name: "test", status: "completed", conclusion: "success" },
           { id: "8", name: "test", status: "completed", conclusion: "success" }
         ],
-        statuses: [{ context: "test", state: "success" }],
+        statuses: [],
         requiredContexts: ["test"]
       }
     });
@@ -468,13 +522,13 @@ test("release eligibility catches up a version bump after a later non-version pu
         return jsonResponse([{ number: 11, base: { ref: "dev" }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: bump }]);
       }
       if (url.endsWith("/branches/dev/protection/required_status_checks")) {
-        return jsonResponse({ contexts: ["test"], checks: [] });
+        return jsonResponse({ contexts: [], checks: [{ context: "test", app_id: 123 }] });
       }
       if (url.includes(`/repos/example/repo/commits/${bump}/check-runs?per_page=100&page=1`)) {
-        return jsonResponse({ check_runs: [{ id: 7, name: "test", head_sha: bump, status: "completed", conclusion: "success" }] });
+        return jsonResponse({ check_runs: [{ id: 7, name: "test", head_sha: bump, status: "completed", conclusion: "success", app: { id: 123 } }] });
       }
       if (url.includes(`/repos/example/repo/commits/${bump}/statuses?per_page=100&page=1`)) {
-        return jsonResponse({ statuses: [{ context: "test", state: "success" }] });
+        return jsonResponse({ statuses: [{ context: "test", state: "failure" }] });
       }
       throw new Error(`Unexpected unchanged release-tag fetch URL: ${url}`);
     };
@@ -501,8 +555,9 @@ test("release eligibility catches up a version bump after a later non-version pu
       pullNumber: 11,
       requiredChecks: {
         headSha: bump,
+        requiredRequirements: [{ context: "test", appId: 123 }],
         checkRuns: [{ id: "7", name: "test", status: "completed", conclusion: "success" }],
-        statuses: [{ context: "test", state: "success" }],
+        statuses: [],
         requiredContexts: ["test"]
       }
     });
