@@ -48,8 +48,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - name: Publish pre-merge required-check policy receipt
-        id: publish
+      - name: Prepare required-check policy receipt artifact
+        id: prepare
         if: hashFiles('plugins/better-workflows/scripts/release-policy-receipt.mjs') != ''
         env:
           GITHUB_API_URL: ${{ github.api_url }}
@@ -65,16 +65,36 @@ jobs:
           GITHUB_SERVER_URL: ${{ github.server_url }}
           GITHUB_RUN_ID: ${{ github.run_id }}
           GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_POLICY_RECEIPT_PHASE: prepare
           RELEASE_POLICY_RECEIPT_FILE: ${{ runner.temp }}/release-policy-receipt.json
         run: node plugins/better-workflows/scripts/release-policy-receipt.mjs
       - uses: actions/upload-artifact@v4
-        if: steps.publish.outcome == 'success'
+        if: steps.prepare.outcome == 'success'
         with:
           name: better-workflows-release-policy-receipt-${{ github.run_id }}
           path: ${{ runner.temp }}/release-policy-receipt.json
           if-no-files-found: error
           # Catch-up is bounded by 128 commits and this durable artifact horizon.
           retention-days: 90
+      - name: Publish required-check policy status after artifact upload
+        if: steps.prepare.outcome == 'success'
+        env:
+          GITHUB_API_URL: ${{ github.api_url }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_EVENT_ACTION: ${{ github.event.action }}
+          GITHUB_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          GITHUB_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          GITHUB_PR_NUMBER: ${{ github.event.pull_request.number }}
+          GITHUB_PR_MERGED: ${{ github.event.pull_request.merged }}
+          GITHUB_MERGE_COMMIT_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+          GITHUB_PR_MERGED_AT: ${{ github.event.pull_request.merged_at }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_SERVER_URL: ${{ github.server_url }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_POLICY_RECEIPT_PHASE: publish
+          RELEASE_POLICY_RECEIPT_FILE: ${{ runner.temp }}/release-policy-receipt.json
+        run: node plugins/better-workflows/scripts/release-policy-receipt.mjs
 
   integration-tag:
     name: Tag merged release version

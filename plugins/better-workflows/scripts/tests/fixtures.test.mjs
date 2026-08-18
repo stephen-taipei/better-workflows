@@ -158,7 +158,9 @@ test("trusted pull-request-target workflow publishes a pre-merge policy artifact
   assert.match(workflow, /release-policy-receipt:[\s\S]*?GITHUB_PR_MERGED_AT:\s+\$\{\{\s*github\.event\.pull_request\.merged_at\s*\}\}/);
   assert.match(workflow, /release-policy-receipt:[\s\S]*?GITHUB_RUN_ID:\s+\$\{\{\s*github\.run_id\s*\}\}/);
   assert.match(workflow, /release-policy-receipt:[\s\S]*?RELEASE_POLICY_RECEIPT_FILE:\s+\$\{\{\s*runner\.temp\s*\}\}\/release-policy-receipt\.json/);
+  assert.match(workflow, /id:\s+prepare[\s\S]*?RELEASE_POLICY_RECEIPT_PHASE:\s+prepare[\s\S]*?run:\s+node plugins\/better-workflows\/scripts\/release-policy-receipt\.mjs/);
   assert.match(workflow, /actions\/upload-artifact@v4/);
+  assert.match(workflow, /actions\/upload-artifact@v4[\s\S]*?name:\s+Publish required-check policy status after artifact upload[\s\S]*?RELEASE_POLICY_RECEIPT_PHASE:\s+publish/);
   assert.match(workflow, /better-workflows-release-policy-receipt-\$\{\{\s*github\.run_id\s*\}\}/);
   assert.match(workflow, /retention-days:\s+90/);
   assert.match(workflow, /release-policy-receipt:[\s\S]*?run:\s+node plugins\/better-workflows\/scripts\/release-policy-receipt\.mjs/);

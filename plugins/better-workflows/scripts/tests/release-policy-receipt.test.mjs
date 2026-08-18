@@ -7,6 +7,7 @@ import {
   buildPolicyReceiptArtifact,
   buildPolicyStatus,
   normalizeRequiredChecks,
+  prepareReleasePolicyReceipt,
   policyDigest,
   publishReleasePolicyReceipt,
   waitForSourcePolicyReceipt
@@ -33,14 +34,14 @@ test("release policy receipt normalizes and digests the protected-branch policy"
   );
 });
 
-test("release policy receipt publishes one exact status bound to the policy digest", async () => {
+test("release policy receipt publishes only after the prepared artifact is bound", async () => {
   const headSha = "a".repeat(40);
   const policyResponse = {
     protected: true,
     protection: { required_status_checks: { contexts: ["test"], checks: [] } }
   };
   const calls = [];
-  const result = await publishReleasePolicyReceipt({
+  const prepared = await prepareReleasePolicyReceipt({
     apiUrl: "https://api.github.com",
     repository: "example/repo",
     branch: "dev",
@@ -61,9 +62,30 @@ test("release policy receipt publishes one exact status bound to the policy dige
       return { ok: true, status: 201, json: async () => ({}) };
     }
   });
-  assert.equal(calls.length, 2);
+  assert.equal(calls.length, 1);
+  assert.equal(prepared.status, "prepared");
+  const result = await publishReleasePolicyReceipt({
+    apiUrl: "https://api.github.com",
+    repository: "example/repo",
+    branch: "dev",
+    headSha,
+    token: "token",
+    targetUrl: "https://github.com/example/repo/commit/a/checks",
+    artifact: prepared.artifact,
+    pullNumber: 17,
+    workflowRunId: "42",
+    eventAction: "synchronize",
+    fetchImpl: async (url, options = {}) => {
+      calls.push({ url, options });
+      if (url.endsWith("/branches/dev")) return { ok: true, status: 200, json: async () => policyResponse };
+      assert.equal(url, `https://api.github.com/repos/example/repo/statuses/${headSha}`);
+      assert.equal(options.method, "POST");
+      return { ok: true, status: 201, json: async () => ({}) };
+    }
+  });
+  assert.equal(calls.length, 3);
   assert.equal(result.status, "published");
-  const body = JSON.parse(calls[1].options.body);
+  const body = JSON.parse(calls[2].options.body);
   assert.equal(body.state, "success");
   assert.equal(body.context, RELEASE_POLICY_RECEIPT_CONTEXT);
   assert.equal(body.description, `${RELEASE_POLICY_RECEIPT_PREFIX}${result.policyDigest}`);
@@ -72,6 +94,24 @@ test("release policy receipt publishes one exact status bound to the policy dige
   assert.equal(result.artifact.workflowRunId, "42");
   assert.equal(result.artifact.pullNumber, 17);
   assert.equal(result.artifact.policyDigest, result.policyDigest);
+  await assert.rejects(
+    publishReleasePolicyReceipt({
+      apiUrl: "https://api.github.com",
+      repository: "example/repo",
+      branch: "dev",
+      headSha,
+      token: "token",
+      targetUrl: "https://github.com/example/repo/commit/a/checks",
+      artifact: { ...prepared.artifact, policyDigest: "f".repeat(64) },
+      pullNumber: 17,
+      workflowRunId: "42",
+      eventAction: "synchronize",
+      fetchImpl: async (url) => url.endsWith("/branches/dev")
+        ? { ok: true, status: 200, json: async () => policyResponse }
+        : { ok: true, status: 201, json: async () => ({}) }
+    }),
+    /not bound to the current workflow/
+  );
 });
 
 test("policy receipt artifact deterministically binds its pre-merge identity and policy", () => {

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 
 export const RELEASE_POLICY_RECEIPT_CONTEXT = "better-workflows/release-policy-v1";
 export const RELEASE_POLICY_RECEIPT_PREFIX = "better-workflows-policy-v1:";
@@ -219,7 +219,16 @@ export async function waitForSourcePolicyReceipt({
   return null;
 }
 
-export async function publishReleasePolicyReceipt({
+async function loadRequiredCheckPolicy({ apiUrl, repository, branch, token, fetchImpl = fetch }) {
+  return normalizeRequiredChecks(await requestJson({
+    apiUrl,
+    path: `/repos/${repository}/branches/${encodeURIComponent(branch)}`,
+    token,
+    fetchImpl
+  }));
+}
+
+export async function prepareReleasePolicyReceipt({
   apiUrl,
   repository,
   branch,
@@ -231,12 +240,49 @@ export async function publishReleasePolicyReceipt({
 }) {
   if (!token || !repository || !branch) throw new Error("Release policy receipt requires repository, branch, and token");
   const normalizedHead = assertSha(headSha);
-  const policy = normalizeRequiredChecks(await requestJson({
-    apiUrl,
-    path: `/repos/${repository}/branches/${encodeURIComponent(branch)}`,
-    token,
-    fetchImpl
-  }));
+  const policy = await loadRequiredCheckPolicy({ apiUrl, repository, branch, token, fetchImpl });
+  const digest = policyDigest(policy);
+  const artifact = receipt
+    ? buildPolicyReceiptArtifact({
+      ...receipt,
+      repository,
+      branch,
+      headSha: normalizedHead,
+      policy
+    })
+    : null;
+  if (!artifact) throw new Error("Release policy receipt requires an immutable artifact before status publication");
+  return { status: "prepared", branch, headSha: normalizedHead, policy, policyDigest: digest, context: RELEASE_POLICY_RECEIPT_CONTEXT, artifact, targetUrl };
+}
+
+function assertPreparedArtifact({ artifact, repository, branch, headSha, pullNumber, workflowRunId, eventAction, policy }) {
+  if (!artifact || artifact.schemaVersion !== 1 || artifact.kind !== RELEASE_POLICY_RECEIPT_ARTIFACT_KIND ||
+      artifact.eventName !== RELEASE_POLICY_RECEIPT_WORKFLOW_EVENT || artifact.workflowFile !== RELEASE_POLICY_RECEIPT_WORKFLOW_FILE ||
+      artifact.repository !== repository || artifact.branch !== branch || artifact.headSha !== headSha ||
+      Number(artifact.pullNumber) !== Number(pullNumber) || String(artifact.workflowRunId) !== String(workflowRunId) ||
+      artifact.eventAction !== eventAction || JSON.stringify(artifact.policy) !== JSON.stringify(policy) ||
+      artifact.policyDigest !== policyDigest(policy)) {
+    throw new Error("Release policy receipt artifact is not bound to the current workflow and required-check policy");
+  }
+}
+
+export async function publishReleasePolicyReceipt({
+  apiUrl,
+  repository,
+  branch,
+  headSha,
+  token,
+  targetUrl,
+  artifact,
+  pullNumber,
+  workflowRunId,
+  eventAction,
+  fetchImpl = fetch
+}) {
+  if (!token || !repository || !branch) throw new Error("Release policy receipt requires repository, branch, and token");
+  const normalizedHead = assertSha(headSha);
+  const policy = await loadRequiredCheckPolicy({ apiUrl, repository, branch, token, fetchImpl });
+  assertPreparedArtifact({ artifact, repository, branch, headSha: normalizedHead, pullNumber, workflowRunId, eventAction, policy });
   const digest = policyDigest(policy);
   const status = buildPolicyStatus({ headSha: normalizedHead, digest, targetUrl });
   await requestJson({
@@ -255,19 +301,14 @@ export async function publishReleasePolicyReceipt({
       })
     }
   });
-  const artifact = receipt
-    ? buildPolicyReceiptArtifact({
-      ...receipt,
-      repository,
-      branch,
-      headSha: normalizedHead,
-      policy
-    })
-    : null;
   return { status: "published", branch, headSha: normalizedHead, policy, policyDigest: digest, context: status.context, artifact };
 }
 
 async function main() {
+  const phase = String(process.env.RELEASE_POLICY_RECEIPT_PHASE ?? "").trim();
+  if (phase !== "prepare" && phase !== "publish") {
+    throw new Error("Release policy receipt requires RELEASE_POLICY_RECEIPT_PHASE=prepare or publish");
+  }
   const eventName = String(process.env.GITHUB_EVENT_NAME ?? "");
   if (eventName !== RELEASE_POLICY_RECEIPT_WORKFLOW_EVENT) {
     throw new Error(`Release policy receipt must run from the trusted ${RELEASE_POLICY_RECEIPT_WORKFLOW_EVENT} event`);
@@ -319,6 +360,27 @@ async function main() {
       sourcePolicyDigest: source.policyDigest
     };
   }
+  const artifactPath = String(process.env.RELEASE_POLICY_RECEIPT_FILE ?? "").trim();
+  if (!artifactPath) throw new Error("Release policy receipt requires an immutable artifact output path");
+  if (phase === "prepare") {
+    const prepared = await prepareReleasePolicyReceipt({
+      apiUrl,
+      repository,
+      branch,
+      headSha,
+      token,
+      targetUrl: targetUrl.toString(),
+      receipt
+    });
+    await writeFile(artifactPath, `${JSON.stringify(prepared.artifact)}\n`, { mode: 0o600, flag: "wx" });
+    console.log(JSON.stringify(prepared));
+    return;
+  }
+  const artifact = JSON.parse(await readFile(artifactPath, "utf8"));
+  if (eventAction === RELEASE_POLICY_RECEIPT_MERGE_ACTION &&
+      (artifact.sourceWorkflowRunId !== receipt.sourceWorkflowRunId || artifact.sourcePolicyDigest !== receipt.sourcePolicyDigest)) {
+    throw new Error("Merge-bound release policy receipt artifact does not match the current pre-merge source");
+  }
   const result = await publishReleasePolicyReceipt({
     apiUrl,
     repository,
@@ -326,11 +388,11 @@ async function main() {
     headSha,
     token,
     targetUrl: targetUrl.toString(),
-    receipt
+    artifact,
+    pullNumber,
+    workflowRunId: runId,
+    eventAction
   });
-  const artifactPath = String(process.env.RELEASE_POLICY_RECEIPT_FILE ?? "").trim();
-  if (!artifactPath || !result.artifact) throw new Error("Release policy receipt requires an immutable artifact output path");
-  await writeFile(artifactPath, `${JSON.stringify(result.artifact)}\n`, { mode: 0o600, flag: "wx" });
   console.log(JSON.stringify(result));
 }
 
