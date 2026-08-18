@@ -19,6 +19,7 @@ import {
 const execFileAsync = promisify(execFile);
 const REPOSITORY_PACKAGE = "plugins/better-workflows/package.json";
 const PLUGIN_MANIFEST = "plugins/better-workflows/.codex-plugin/plugin.json";
+const RELEASE_WORKFLOW_TEST_CONTEXT = "test";
 
 async function git(cwd, args) {
   try {
@@ -333,7 +334,7 @@ function latestObservation(records) {
     const candidate = { record, index };
     if (!latest) return candidate;
     const timeDelta = observationTime(candidate.record) - observationTime(latest.record);
-    if (timeDelta !== 0) return timeDelta > 0 ? candidate : latest;
+    if (Number.isFinite(timeDelta) && timeDelta !== 0) return timeDelta > 0 ? candidate : latest;
     const idDelta = observationId(candidate.record) - observationId(latest.record);
     if (idDelta !== 0) return idDelta > 0 ? candidate : latest;
     return candidate.index > latest.index ? candidate : latest;
@@ -353,7 +354,7 @@ function latestRequiredObservation(checks, statuses) {
   return checkId >= statusId ? { kind: "check", ...check } : { kind: "status", ...status };
 }
 
-async function verifyCatchUpChecks({ apiUrl, repository, branch, sha, token, fetchImpl }) {
+async function verifyCatchUpChecks({ apiUrl, repository, branch, sha, token, fetchImpl, requireWorkflowTest = false }) {
   const requiredRequirements = await repositoryRequiredChecks({ apiUrl, repository, branch, token, fetchImpl });
   const selfContexts = new Set(["integration-tag", "tag merged release version"]);
   if (requiredRequirements.some(({ context }) => {
@@ -388,6 +389,19 @@ async function verifyCatchUpChecks({ apiUrl, repository, branch, sha, token, fet
       : item.selected.record.state !== "success"
   ))) {
     throw new Error(`Release catch-up requires all exact required checks and statuses to complete successfully: ${sha}`);
+  }
+  if (requireWorkflowTest) {
+    const workflowTest = latestObservation(checkRuns.filter((check) => (
+      String(check?.head_sha ?? "").toLowerCase() === sha &&
+      String(check?.name ?? "") === RELEASE_WORKFLOW_TEST_CONTEXT
+    )));
+    if (
+      !workflowTest ||
+      workflowTest.record.status !== "completed" ||
+      workflowTest.record.conclusion !== "success"
+    ) {
+      throw new Error(`Release catch-up lacks an exact successful ${RELEASE_WORKFLOW_TEST_CONTEXT} workflow check: ${sha}`);
+    }
   }
   const requiredContexts = requiredRequirements.map((item) => item.context);
   return {
@@ -473,7 +487,15 @@ export async function runReleaseTag({ env = process.env, cwd = process.cwd(), fe
   if (highestPublished !== null && compareStableVersions(current, highestPublished) < 0) {
     throw new Error(`Release version ${current} is below the highest published ${branch} release ${highestPublished}; refusing release eligibility`);
   }
-  requiredChecks = await verifyCatchUpChecks({ apiUrl, repository, branch, sha: releaseSha, token, fetchImpl });
+  requiredChecks = await verifyCatchUpChecks({
+    apiUrl,
+    repository,
+    branch,
+    sha: releaseSha,
+    token,
+    fetchImpl,
+    requireWorkflowTest: releaseSha !== sha
+  });
 
   const tag = releaseTagName({ branch, version: current, sha: releaseSha });
   const existingCommit = await remoteTag(cwd, tag);
