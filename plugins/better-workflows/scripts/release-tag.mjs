@@ -552,26 +552,11 @@ async function authenticatedPullVersionTransition(cwd, pull, currentVersion) {
     return { baseSha, sourceSha, baseVersion, version: sourceVersion };
   }
 
-  // Fork, deleted-branch, squash, and rebase merges can leave the PR head
-  // unreachable in the base checkout. Bind the range to the exact merge
-  // result already selected by the candidate walk instead of requiring that
-  // untrusted source object to exist locally.
-  const mergeSha = String(pull?.merge_commit_sha ?? "").trim().toLowerCase();
-  if (!/^[0-9a-f]{40}$/.test(mergeSha) || !(await revisionExists(cwd, mergeSha))) return null;
-  if (!(await revisionIsAncestor(cwd, baseSha, mergeSha))) return null;
-  const [baseVersion, mergeVersion] = await Promise.all([
-    versionAtCommit(cwd, baseSha),
-    versionAtCommit(cwd, mergeSha)
-  ]);
-  if (!baseVersion || !mergeVersion || compareStableVersions(mergeVersion, baseVersion) <= 0) return null;
-  if (compareStableVersions(mergeVersion, currentVersion) !== 0) return null;
-  return {
-    baseSha,
-    sourceSha: mergeSha,
-    baseVersion,
-    version: mergeVersion,
-    sourceUnavailable: true
-  };
+  // A missing PR head is not authenticated patch/tree evidence. Comparing the
+  // PR base directly with the merge result would attribute an unrelated
+  // version bump to this PR, so fail closed and require an exact first-parent
+  // delta or a provider-authenticated source revision.
+  return null;
 }
 
 async function findEligibleVersionBumps({ cwd, branch, head, currentVersion, highestPublished, eventVersionChanged, eventParentVersion, headPull, apiUrl, repository, token, fetchImpl }) {

@@ -1010,7 +1010,7 @@ test("unchanged-version direct push cannot publish an earlier release candidate"
   }
 });
 
-test("rebase-style merged PR keeps an earlier version bump eligible at final HEAD", async () => {
+test("source-unavailable merged PR cannot attribute an earlier version bump at final HEAD", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "sbw-release-tag-rebase-"));
   const bare = path.join(root, "origin.git");
   const work = path.join(root, "work");
@@ -1084,10 +1084,12 @@ test("rebase-style merged PR keeps an earlier version bump eligible at final HEA
         RELEASE_TAG_DRY_RUN: "1"
       }
     });
-    assert.equal(result.status, "planned");
-    assert.equal(result.sha, head);
-    assert.equal(result.pullNumber, 33);
-    assert.equal(result.tag, `v3.4.13-dev.${head.slice(0, 12)}`);
+    assert.deepEqual(result, {
+      status: "skipped",
+      reason: "commit-is-not-an-exact-merged-pr-result",
+      branch: "dev",
+      sha: head
+    });
     await writeFile(path.join(work, "README.md"), "later unchanged push\n");
     await git(work, ["add", "README.md"]);
     await git(work, ["commit", "-qm", "later unchanged push"]);
@@ -1107,11 +1109,13 @@ test("rebase-style merged PR keeps an earlier version bump eligible at final HEA
         RELEASE_TAG_DRY_RUN: "1"
       }
     });
-    assert.equal(recovered.status, "planned");
-    assert.equal(recovered.sha, head);
-    assert.equal(recovered.version, "3.4.13");
-    assert.equal(recovered.pullNumber, 33);
-    assert.equal(recovered.tag, `v3.4.13-dev.${head.slice(0, 12)}`);
+    assert.deepEqual(recovered, {
+      status: "skipped",
+      reason: "release-version-unchanged",
+      branch: "dev",
+      sha: followUp,
+      version: "3.4.13"
+    });
   } finally {
     await rm(root, { recursive: true, force: true });
   }
