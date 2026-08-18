@@ -6977,11 +6977,11 @@ async function persistActionProviderInvocation(root, runId, action, invocation, 
 
 export async function resumeActionsDispatchObservation(root, runId, attemptId) {
   const run = await loadRun(root, runId);
-  assertMutableRun(run, "Resumable GitHub Actions dispatch reconciliation");
   const runDir = runDirectory(root, runId);
   const records = await listJsonRecords(root, safeJoin(runDir, "actions"));
   const action = records.find((item) => item.attemptId === attemptId);
   if (!action || action.action !== "actions.dispatch" || action.provider !== "github-cli") return action ?? null;
+  assertMutableRun(run, "Resumable GitHub Actions dispatch reconciliation");
   const invocation = action.providerInvocation;
   if (action.status !== "spent" || action.outcome !== "pending") return action;
   if (invocation?.dispatchState === "preflight") {
