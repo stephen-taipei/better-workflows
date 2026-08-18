@@ -435,7 +435,7 @@ test("catch-up release workflow must belong to the target branch", async () => {
         return jsonResponse([{ number: 72, base: { ref: "dev" }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: head }]);
       }
       if (url.endsWith(`/repos/example/repo/commits/${bump}/pulls?per_page=100`)) {
-        return jsonResponse([{ number: 71, base: { ref: "dev" }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: bump }]);
+        return jsonResponse([{ number: 71, base: { ref: "dev" }, head: { sha: bump }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: bump }]);
       }
       if (url.endsWith("/branches/dev")) {
         return jsonResponse({ protected: true, protection: { required_status_checks: { contexts: ["test"], checks: [] } } });
@@ -447,7 +447,13 @@ test("catch-up release workflow must belong to the target branch", async () => {
         return jsonResponse({ workflow_runs: [{ id: 71, path: ".github/workflows/ci.yml", head_sha: bump, head_branch: "feature/release-test", event: "push", status: "completed", conclusion: "success" }] });
       }
       if (url.includes(`/repos/example/repo/commits/${bump}/statuses?per_page=100&page=1`)) {
-        return jsonResponse([]);
+        return jsonResponse([{
+          id: 70,
+          context: "better-workflows/release-policy-v1",
+          state: "success",
+          description: "better-workflows-policy-v1:397eeefc2e54762230d633ba911ab0bca6ce79a90f1dc011ec7bed7f8e05c67a",
+          updated_at: "2026-08-14T23:50:00Z"
+        }]);
       }
       throw new Error(`Unexpected workflow-branch fetch URL: ${url}`);
     };
@@ -877,7 +883,7 @@ test("release eligibility catches up a version bump after a later non-version pu
         return jsonResponse([{ number: 12, base: { ref: "dev" }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: head }]);
       }
       if (url.endsWith(`/repos/example/repo/commits/${bump}/pulls?per_page=100`)) {
-        return jsonResponse([{ number: 11, base: { ref: "dev" }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: bump }]);
+        return jsonResponse([{ number: 11, base: { ref: "dev" }, head: { sha: bump }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: bump }]);
       }
       if (url.endsWith("/branches/dev")) {
         return jsonResponse({ protected: true, protection: { required_status_checks: { contexts: [], checks: [{ context: "test", app_id: requiredAppId }] } } });
@@ -891,17 +897,23 @@ test("release eligibility catches up a version bump after a later non-version pu
         );
       }
       if (url.includes(`/repos/example/repo/commits/${bump}/check-runs?per_page=100&page=2`)) {
-        return jsonResponse({ check_runs: [{ id: 8, name: "test", head_sha: bump, status: "completed", conclusion: secondPageConclusion, completed_at: "2026-08-14T23:58:00Z", updated_at: "2026-08-14T23:58:00Z", details_url: `https://github.com/example/repo/actions/runs/8/job/80`, app: { id: candidateAppId, slug: "github-actions" } }] });
+        return jsonResponse({ check_runs: [
+          { id: 8, name: "test", head_sha: bump, status: "completed", conclusion: secondPageConclusion, completed_at: "2026-08-14T23:58:00Z", updated_at: "2026-08-14T23:58:00Z", details_url: "https://github.com/example/repo/actions/runs/9/job/90", app: { id: candidateAppId, slug: "github-actions" } },
+          { id: 80, name: "test", head_sha: bump, status: "completed", conclusion: "success", completed_at: "2026-08-15T00:02:00Z", updated_at: "2026-08-15T00:02:00Z", details_url: "https://github.com/example/repo/actions/runs/8/job/80", app: { id: candidateAppId, slug: "github-actions" } }
+        ] });
       }
       if (url.includes(`/repos/example/repo/actions/runs?head_sha=${bump}&event=push&branch=dev&per_page=100&page=1`)) {
         return jsonResponse({ workflow_runs: [
-          { id: 7, path: ".github/workflows/ci.yml", head_sha: bump, head_branch: "dev", event: "push", status: "completed", conclusion: "success", created_at: "2026-08-14T23:57:00Z", completed_at: "2026-08-14T23:57:00Z" },
-          { id: 8, path: ".github/workflows/ci.yml", head_sha: bump, head_branch: "dev", event: "push", status: "completed", conclusion: "success", created_at: "2026-08-14T23:58:00Z", completed_at: "2026-08-14T23:58:00Z" }
+          { id: 7, path: ".github/workflows/ci.yml", head_sha: bump, head_branch: "dev", event: "push", status: "completed", conclusion: "success", created_at: "2026-08-15T00:01:00Z", completed_at: "2026-08-15T00:01:00Z" },
+          { id: 8, path: ".github/workflows/ci.yml", head_sha: bump, head_branch: "dev", event: "push", status: "completed", conclusion: "success", created_at: "2026-08-15T00:02:00Z", completed_at: "2026-08-15T00:02:00Z" }
         ] });
       }
       if (url.includes(`/repos/example/repo/commits/${bump}/statuses?per_page=100&page=1`)) {
         return jsonResponse(
-          [{ id: 7, context: "test", state: statusState }],
+          [
+            { id: 7, context: "test", state: statusState },
+            { id: 70, context: "better-workflows/release-policy-v1", state: "success", description: "better-workflows-policy-v1:e15de564cdc76464ee41d0c60ff1709f9eeb37e75c9a4d7b219026fcf6bd8635", updated_at: "2026-08-14T23:50:00Z" }
+          ],
           true,
           200,
           secondStatusState === null ? {} : { link: '<https://api.github.com/repos/example/repo/commits/bump/statuses?per_page=100&page=2>; rel="next"' }
@@ -966,6 +978,7 @@ test("release eligibility catches up a version bump after a later non-version pu
       schemaVersion: 1,
       kind: "merge-time-required-checks-v1",
       headSha: bump,
+      preMergeSha: bump,
       pullNumber: 11,
       mergeCommitSha: bump,
       mergedAt: "2026-08-15T00:00:00.000Z",
@@ -973,13 +986,19 @@ test("release eligibility catches up a version bump after a later non-version pu
       requiredCheckPolicyDigest: "e15de564cdc76464ee41d0c60ff1709f9eeb37e75c9a4d7b219026fcf6bd8635",
       checkRuns: [{ id: "8", name: "test", status: "completed", conclusion: "success", recordedAt: "2026-08-14T23:58:00.000Z" }],
       statuses: [],
+      policyReceipt: {
+        context: "better-workflows/release-policy-v1",
+        state: "success",
+        description: "better-workflows-policy-v1:e15de564cdc76464ee41d0c60ff1709f9eeb37e75c9a4d7b219026fcf6bd8635",
+        recordedAt: "2026-08-14T23:50:00.000Z"
+      },
       workflow: {
         runId: "8",
         runConclusion: "success",
-        runRecordedAt: "2026-08-14T23:58:00.000Z",
-        checkId: "8",
+        runRecordedAt: "2026-08-15T00:02:00.000Z",
+        checkId: "80",
         checkConclusion: "success",
-        checkRecordedAt: "2026-08-14T23:58:00.000Z"
+        checkRecordedAt: "2026-08-15T00:02:00.000Z"
       }
     });
     assert.equal(graphqlCalls.length, 2);
@@ -1000,19 +1019,25 @@ test("release eligibility catches up a version bump after a later non-version pu
         return jsonResponse([{ number: 12, base: { ref: "dev" }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: head }]);
       }
       if (url.endsWith(`/repos/example/repo/commits/${bump}/pulls?per_page=100`)) {
-        return jsonResponse([{ number: 11, base: { ref: "dev" }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: bump }]);
+        return jsonResponse([{ number: 11, base: { ref: "dev" }, head: { sha: bump }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: bump }]);
       }
       if (url.endsWith("/branches/dev")) {
         return jsonResponse({ protected: true, protection: { required_status_checks: { contexts: [], checks: [{ context: "test", app_id: 123 }] } } });
       }
       if (url.includes(`/repos/example/repo/commits/${bump}/check-runs?per_page=100&page=1`)) {
-        return jsonResponse({ check_runs: [{ id: 7, name: "test", head_sha: bump, status: "completed", conclusion: "success", completed_at: "2026-08-14T23:57:00Z", updated_at: "2026-08-14T23:57:00Z", details_url: `https://github.com/example/repo/actions/runs/7/job/70`, app: { id: 123, slug: "github-actions" } }] });
+        return jsonResponse({ check_runs: [
+          { id: 7, name: "test", head_sha: bump, status: "completed", conclusion: "success", completed_at: "2026-08-14T23:57:00Z", updated_at: "2026-08-14T23:57:00Z", details_url: "https://github.com/example/repo/actions/runs/9/job/90", app: { id: 123, slug: "github-actions" } },
+          { id: 80, name: "test", head_sha: bump, status: "completed", conclusion: "success", completed_at: "2026-08-15T00:01:00Z", updated_at: "2026-08-15T00:01:00Z", details_url: "https://github.com/example/repo/actions/runs/7/job/70", app: { id: 123, slug: "github-actions" } }
+        ] });
       }
       if (url.includes(`/repos/example/repo/actions/runs?head_sha=${bump}&event=push&branch=dev&per_page=100&page=1`)) {
-        return jsonResponse({ workflow_runs: [{ id: 7, path: ".github/workflows/ci.yml", head_sha: bump, head_branch: "dev", event: "push", status: "completed", conclusion: "success", created_at: "2026-08-14T23:57:00Z", completed_at: "2026-08-14T23:57:00Z" }] });
+        return jsonResponse({ workflow_runs: [{ id: 7, path: ".github/workflows/ci.yml", head_sha: bump, head_branch: "dev", event: "push", status: "completed", conclusion: "success", created_at: "2026-08-15T00:01:00Z", completed_at: "2026-08-15T00:01:00Z" }] });
       }
       if (url.includes(`/repos/example/repo/commits/${bump}/statuses?per_page=100&page=1`)) {
-        return jsonResponse([{ id: 7, context: "test", state: "failure" }]);
+        return jsonResponse([
+          { id: 7, context: "test", state: "failure" },
+          { id: 70, context: "better-workflows/release-policy-v1", state: "success", description: "better-workflows-policy-v1:e15de564cdc76464ee41d0c60ff1709f9eeb37e75c9a4d7b219026fcf6bd8635", updated_at: "2026-08-14T23:50:00Z" }
+        ]);
       }
       throw new Error(`Unexpected unchanged release-tag fetch URL: ${url}`);
     };
@@ -1154,7 +1179,7 @@ test("consecutive version bumps are recovered in one atomic batch", async () => 
         return jsonResponse([{ number: 14, base: { ref: "dev" }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: head }]);
       }
       if (url.endsWith(`/repos/example/repo/commits/${bump13}/pulls?per_page=100`)) {
-        return jsonResponse([{ number: 13, base: { ref: "dev" }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: bump13 }]);
+        return jsonResponse([{ number: 13, base: { ref: "dev" }, head: { sha: bump13 }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: bump13 }]);
       }
       if (url.endsWith("/branches/dev")) {
         return jsonResponse({ protected: true, protection: { required_status_checks: { contexts: ["lint"], checks: [] } } });
@@ -1163,14 +1188,18 @@ test("consecutive version bumps are recovered in one atomic batch", async () => 
         if (url.includes(`/commits/${sha}/check-runs?per_page=100&page=1`)) {
           const checkRuns = [{ id: sha === bump13 ? 13 : 14, name: "lint", head_sha: sha, status: "completed", conclusion: "success", completed_at: "2026-08-17T23:57:00Z", updated_at: "2026-08-17T23:57:00Z" }];
           if (sha === bump13) {
-            checkRuns.push({ id: 101, name: "test", head_sha: sha, status: "completed", conclusion: "success", completed_at: "2026-08-17T23:58:00Z", updated_at: "2026-08-17T23:58:00Z", details_url: "https://github.com/example/repo/actions/runs/101/job/1", app: { slug: "github-actions" } });
+            checkRuns.push({ id: 101, name: "test", head_sha: sha, status: "completed", conclusion: "success", completed_at: "2026-08-18T00:01:00Z", updated_at: "2026-08-18T00:01:00Z", details_url: "https://github.com/example/repo/actions/runs/101/job/1", app: { slug: "github-actions" } });
           }
           return jsonResponse({ check_runs: checkRuns });
         }
-        if (url.includes(`/commits/${sha}/statuses?per_page=100&page=1`)) return jsonResponse([]);
+        if (url.includes(`/commits/${sha}/statuses?per_page=100&page=1`)) {
+          return jsonResponse(sha === bump13
+            ? [{ id: 90, context: "better-workflows/release-policy-v1", state: "success", description: "better-workflows-policy-v1:65fc264e296f666a3553e83b653b24a98db1f41f99895728f731f85624499ef0", updated_at: "2026-08-17T23:50:00Z" }]
+            : []);
+        }
       }
       if (url.includes(`/actions/runs?head_sha=${bump13}&event=push&branch=dev&per_page=100&page=1`)) {
-        return jsonResponse({ workflow_runs: [{ id: 101, path: ".github/workflows/ci.yml", head_sha: bump13, head_branch: "dev", event: "push", status: "completed", conclusion: "success", created_at: "2026-08-17T23:58:00Z", completed_at: "2026-08-17T23:58:00Z" }] });
+        return jsonResponse({ workflow_runs: [{ id: 101, path: ".github/workflows/ci.yml", head_sha: bump13, head_branch: "dev", event: "push", status: "completed", conclusion: "success", created_at: "2026-08-18T00:01:00Z", completed_at: "2026-08-18T00:01:00Z" }] });
       }
       throw new Error(`Unexpected consecutive-bump fetch URL: ${url}`);
     };
@@ -1428,7 +1457,7 @@ test("catch-up publication requires the exact workflow test check on the release
         return jsonResponse([{ number: 22, base: { ref: "dev" }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: head }]);
       }
       if (url.endsWith(`/repos/example/repo/commits/${bump}/pulls?per_page=100`)) {
-        return jsonResponse([{ number: 21, base: { ref: "dev" }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: bump }]);
+        return jsonResponse([{ number: 21, base: { ref: "dev" }, head: { sha: bump }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: bump }]);
       }
       if (url.endsWith("/branches/dev")) {
         return jsonResponse({ protected: true, protection: { required_status_checks: { contexts: ["lint"], checks: [] } } });
@@ -1439,7 +1468,7 @@ test("catch-up publication requires the exact workflow test check on the release
           ? [{ id: 1, name: "lint", head_sha: bump, status: "completed", conclusion: "success", completed_at: "2026-08-14T23:55:00Z", updated_at: "2026-08-14T23:55:00Z" }]
           : [];
         if (includeWorkflowTest && requiredReady) {
-          checkRuns.push({ id: 2, name: "test", head_sha: bump, status: "completed", conclusion: "success", created_at: "2026-08-14T23:56:00Z", completed_at: "2026-08-14T23:56:00Z", details_url: `https://github.com/example/repo/actions/runs/2/job/20`, app: { slug: workflowTestSlug } });
+          checkRuns.push({ id: 2, name: "test", head_sha: bump, status: "completed", conclusion: "success", created_at: "2026-08-15T00:01:00Z", completed_at: "2026-08-15T00:01:00Z", details_url: `https://github.com/example/repo/actions/runs/2/job/20`, app: { slug: workflowTestSlug } });
           if (workflowScenario === "old-success-new-failure") {
             checkRuns.push({ id: 3, name: "test", head_sha: bump, status: "completed", conclusion: "failure", created_at: "2026-08-18T00:01:00Z", details_url: `https://github.com/example/repo/actions/runs/3/job/30`, app: { slug: workflowTestSlug } });
           } else if (workflowScenario === "old-success-new-pending") {
@@ -1449,7 +1478,7 @@ test("catch-up publication requires the exact workflow test check on the release
         return jsonResponse({ check_runs: checkRuns });
       }
       if (url.includes(`/repos/example/repo/actions/runs?head_sha=${bump}&event=push&branch=dev&per_page=100&page=1`)) {
-        const workflowRuns = [{ id: 2, path: ".github/workflows/ci.yml", head_sha: bump, head_branch: "dev", event: "push", status: "completed", conclusion: "success", created_at: "2026-08-14T23:56:00Z", completed_at: "2026-08-14T23:56:00Z" }];
+        const workflowRuns = [{ id: 2, path: ".github/workflows/ci.yml", head_sha: bump, head_branch: "dev", event: "push", status: "completed", conclusion: "success", created_at: "2026-08-15T00:01:00Z", completed_at: "2026-08-15T00:01:00Z" }];
         if (workflowScenario === "old-success-new-failure") {
           workflowRuns.push({ id: 3, path: ".github/workflows/ci.yml", head_sha: bump, head_branch: "dev", event: "push", status: "completed", conclusion: "failure", created_at: "2026-08-18T00:01:00Z" });
         } else if (workflowScenario === "old-success-new-pending") {
@@ -1459,7 +1488,15 @@ test("catch-up publication requires the exact workflow test check on the release
         }
         return jsonResponse({ workflow_runs: workflowRuns });
       }
-      if (url.includes(`/commits/${bump}/statuses?per_page=100&page=1`)) return jsonResponse([]);
+      if (url.includes(`/commits/${bump}/statuses?per_page=100&page=1`)) {
+        return jsonResponse([{
+          id: 90,
+          context: "better-workflows/release-policy-v1",
+          state: "success",
+          description: "better-workflows-policy-v1:65fc264e296f666a3553e83b653b24a98db1f41f99895728f731f85624499ef0",
+          updated_at: "2026-08-14T23:50:00Z"
+        }]);
+      }
       throw new Error(`Unexpected release-tag fetch URL: ${url}`);
     };
     const env = {

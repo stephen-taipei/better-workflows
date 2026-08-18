@@ -23,6 +23,8 @@ const PLUGIN_MANIFEST = "plugins/better-workflows/.codex-plugin/plugin.json";
 const RELEASE_WORKFLOW_TEST_CONTEXT = "test";
 const RELEASE_WORKFLOW_TEST_APP_SLUG = "github-actions";
 const RELEASE_WORKFLOW_FILE = ".github/workflows/ci.yml";
+const RELEASE_POLICY_RECEIPT_CONTEXT = "better-workflows/release-policy-v1";
+const RELEASE_POLICY_RECEIPT_PREFIX = "better-workflows-policy-v1:";
 const CATCH_UP_HISTORY_LIMIT = 128;
 const REQUIRED_CHECK_POLL_ATTEMPTS = 31;
 const REQUIRED_CHECK_POLL_DELAY_MS = 10_000;
@@ -479,6 +481,12 @@ function digestRequiredCheckPolicy(requirements) {
   return createHash("sha256").update(JSON.stringify(requirements)).digest("hex");
 }
 
+function policyReceiptMatches(record, policyDigest) {
+  return record?.state === "success" &&
+    String(record?.context ?? "") === RELEASE_POLICY_RECEIPT_CONTEXT &&
+    String(record?.description ?? "") === `${RELEASE_POLICY_RECEIPT_PREFIX}${policyDigest}`;
+}
+
 function requiredObservationState(selected) {
   if (!selected) return "missing";
   if (selected.kind === "check") {
@@ -531,6 +539,7 @@ async function verifyCatchUpChecks({
   mergeTime = null,
   pullNumber = null,
   mergeCommitSha = sha,
+  preMergeSha = sha,
   sleepImpl = waitForReleaseChecks
 }) {
   const requiredRequirements = await repositoryRequiredChecks({ apiUrl, repository, branch, token, fetchImpl });
@@ -546,27 +555,58 @@ async function verifyCatchUpChecks({
   let observations = [];
   let workflowObservation = { state: "success", run: null, check: null };
   let workflowState = workflowObservation.state;
+  const mergeTimeMs = mergeTime === null ? null : Date.parse(String(mergeTime));
+  if (mergeTime !== null && !Number.isFinite(mergeTimeMs)) {
+    throw new Error(`Release catch-up candidate ${sha} lacks a valid pull-request merge timestamp`);
+  }
+  let normalizedPreMergeSha;
+  try {
+    normalizedPreMergeSha = assertCommitSha(preMergeSha);
+  } catch {
+    normalizedPreMergeSha = null;
+  }
+  if (mergeTime !== null && !normalizedPreMergeSha) {
+    throw new Error(`Release catch-up candidate ${sha} lacks an immutable pre-merge commit binding`);
+  }
+  const requiredCheckSha = normalizedPreMergeSha ?? sha;
+  const requiredPolicyDigest = digestRequiredCheckPolicy(requiredRequirements);
+  let policyReceipt = null;
   for (let attempt = 0; attempt < REQUIRED_CHECK_POLL_ATTEMPTS; attempt += 1) {
-    const checkRuns = await repositoryCheckRuns({ apiUrl, repository, sha, token, fetchImpl });
+    const checkRuns = await repositoryCheckRuns({ apiUrl, repository, sha: requiredCheckSha, token, fetchImpl });
+    const workflowCheckRuns = requireWorkflowTest
+      ? await repositoryCheckRuns({ apiUrl, repository, sha, token, fetchImpl })
+      : [];
     const workflowRuns = requireWorkflowTest
       ? await repositoryWorkflowRuns({ apiUrl, repository, branch, sha, token, fetchImpl })
       : [];
-    const statuses = await repositoryCommitStatuses({ apiUrl, repository, sha, token, fetchImpl });
+    const statuses = await repositoryCommitStatuses({ apiUrl, repository, sha: requiredCheckSha, token, fetchImpl });
     observations = requiredRequirements.map((requirement) => {
       const { context, appId } = requirement;
       const matchingChecks = checkRuns.filter((check) => (
-        String(check?.head_sha ?? "").toLowerCase() === sha &&
+        String(check?.head_sha ?? "").toLowerCase() === requiredCheckSha &&
         String(check?.name ?? "") === context &&
-        (appId === null || normalizeCheckAppId(check) === appId)
+        (appId === null || normalizeCheckAppId(check) === appId) &&
+        (mergeTimeMs === null || observationTime(check) <= mergeTimeMs)
       ));
       const matchingStatuses = appId === null
-        ? statuses.filter((status) => String(status?.context ?? "") === context)
+        ? statuses.filter((status) => (
+          String(status?.context ?? "") === context &&
+          (mergeTimeMs === null || observationTime(status) <= mergeTimeMs)
+        ))
         : [];
       const selected = latestRequiredObservation(matchingChecks, matchingStatuses);
       return { requirement, selected, state: requiredObservationState(selected) };
     });
+    if (mergeTimeMs !== null) {
+      policyReceipt = latestObservation(
+        statuses.filter((status) => String(status?.context ?? "") === RELEASE_POLICY_RECEIPT_CONTEXT)
+      )?.record ?? null;
+      if (!policyReceiptMatches(policyReceipt, requiredPolicyDigest)) {
+        throw new Error(`Release catch-up candidate ${sha} lacks an immutable merge-time required-check policy receipt`);
+      }
+    }
     workflowObservation = requireWorkflowTest
-      ? workflowTestObservation({ branch, checkRuns, workflowRuns, sha })
+      ? workflowTestObservation({ branch, checkRuns: workflowCheckRuns, workflowRuns, sha })
       : { state: "success", run: null, check: null };
     workflowState = workflowObservation.state;
     if (observations.some((item) => item.state === "failure")) {
@@ -610,10 +650,7 @@ async function verifyCatchUpChecks({
       .sort((left, right) => `${left.context}:${left.state}`.localeCompare(`${right.context}:${right.state}`))
   };
   if (mergeTime !== null) {
-    const mergedAtMs = Date.parse(String(mergeTime));
-    if (!Number.isFinite(mergedAtMs)) {
-      throw new Error(`Release catch-up candidate ${sha} lacks a valid pull-request merge timestamp`);
-    }
+    const mergedAtMs = mergeTimeMs;
     let normalizedMergeCommit;
     try {
       normalizedMergeCommit = assertCommitSha(mergeCommitSha);
@@ -623,13 +660,16 @@ async function verifyCatchUpChecks({
     if (!Number.isInteger(pullNumber) || pullNumber <= 0 || normalizedMergeCommit !== sha) {
       throw new Error(`Release catch-up candidate ${sha} lacks an immutable merged pull-request binding`);
     }
-    const observedAt = (record, label) => {
+    const observedAt = (record, label, phase = "pre-merge") => {
       const timestamp = observationTime(record);
       if (!Number.isFinite(timestamp)) {
         throw new Error(`Release catch-up candidate ${sha} lacks a timestamped ${label} receipt`);
       }
-      if (timestamp > mergedAtMs) {
+      if (phase === "pre-merge" && timestamp > mergedAtMs) {
         throw new Error(`Release catch-up candidate ${sha} has ${label} evidence after its pull-request merge`);
+      }
+      if (phase === "post-merge" && timestamp < mergedAtMs) {
+        throw new Error(`Release catch-up candidate ${sha} has ${label} evidence before its pull-request merge`);
       }
       return new Date(timestamp).toISOString();
     };
@@ -637,13 +677,20 @@ async function verifyCatchUpChecks({
       schemaVersion: 1,
       kind: "merge-time-required-checks-v1",
       headSha: sha,
+      preMergeSha: requiredCheckSha,
       pullNumber,
       mergeCommitSha,
       mergedAt: new Date(mergedAtMs).toISOString(),
       requiredRequirements: result.requiredRequirements,
-      requiredCheckPolicyDigest: digestRequiredCheckPolicy(result.requiredRequirements),
+      requiredCheckPolicyDigest: requiredPolicyDigest,
       checkRuns: [],
-      statuses: []
+      statuses: [],
+      policyReceipt: {
+        context: RELEASE_POLICY_RECEIPT_CONTEXT,
+        state: policyReceipt.state,
+        description: policyReceipt.description,
+        recordedAt: observedAt(policyReceipt, "merge-time required-check policy")
+      }
     };
     for (const item of observations) {
       const recordedAt = observedAt(item.selected.record, `${item.requirement.context} required check`);
@@ -670,10 +717,10 @@ async function verifyCatchUpChecks({
       mergeTimeReceipt.workflow = {
         runId: String(workflowObservation.run.id ?? ""),
         runConclusion: workflowObservation.run.conclusion,
-        runRecordedAt: observedAt(workflowObservation.run, "workflow run"),
+        runRecordedAt: observedAt(workflowObservation.run, "workflow run", "post-merge"),
         checkId: String(workflowObservation.check.id ?? ""),
         checkConclusion: workflowObservation.check.conclusion,
-        checkRecordedAt: observedAt(workflowObservation.check, "workflow test check")
+        checkRecordedAt: observedAt(workflowObservation.check, "workflow test check", "post-merge")
       };
     }
     result.mergeTimeReceipt = mergeTimeReceipt;
@@ -784,6 +831,7 @@ export async function runReleaseTag({
       mergeTime: existing.sha !== sha ? existing.pull.merged_at : null,
       pullNumber: existing.sha !== sha ? existing.pull.number : null,
       mergeCommitSha: existing.sha !== sha ? existing.pull.merge_commit_sha : existing.sha,
+      preMergeSha: existing.sha !== sha ? existing.pull.head?.sha : existing.sha,
       sleepImpl
     });
     if (await remoteHead(cwd, branch) !== sha) {
@@ -813,6 +861,7 @@ export async function runReleaseTag({
       mergeTime: candidate.sha !== sha ? candidate.pull.merged_at : null,
       pullNumber: candidate.sha !== sha ? candidate.pull.number : null,
       mergeCommitSha: candidate.sha !== sha ? candidate.pull.merge_commit_sha : candidate.sha,
+      preMergeSha: candidate.sha !== sha ? candidate.pull.head?.sha : candidate.sha,
       sleepImpl
     });
     checkedCandidates.push({ candidate, requiredChecks });

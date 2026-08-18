@@ -136,6 +136,17 @@ test("integration-tag workflow grants check-read permission for catch-up reconci
   );
 });
 
+test("release policy receipt workflow is pre-merge bound and writes an immutable status", async () => {
+  const workflow = await readFile(
+    path.resolve(pluginRoot(), "../../.github/workflows/ci.yml"),
+    "utf8"
+  );
+  assert.match(workflow, /release-policy-receipt:[\s\S]*?needs:\s+test/);
+  assert.match(workflow, /release-policy-receipt:[\s\S]*?statuses:\s+write/);
+  assert.match(workflow, /release-policy-receipt\.mjs/);
+  assert.match(workflow, /GITHUB_HEAD_SHA:\s+\$\{\{\s*github\.event\.pull_request\.head\.sha\s*\|\|\s*github\.sha\s*\}\}/);
+});
+
 test("generated HTML template inventory derives ci release stages from authoritative templates", async () => {
   const templateDirectory = path.join(pluginRoot(), "templates");
   const templateFiles = (await readdir(templateDirectory)).filter((name) => name.endsWith(".json"));
