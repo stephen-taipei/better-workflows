@@ -5,7 +5,7 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { githubGraphqlUrl, runReleaseTag } from "../release-tag.mjs";
+import { githubGraphqlUrl, runReleaseTag as runReleaseTagImpl } from "../release-tag.mjs";
 import {
   compareStableVersions,
   findMergedPullRequest,
@@ -21,6 +21,7 @@ import {
 
 const SHA = "a".repeat(40);
 const execFileAsync = promisify(execFile);
+const runReleaseTag = (options = {}) => runReleaseTagImpl({ sleepImpl: async () => {}, ...options });
 
 async function git(cwd, args) {
   return (await execFileAsync("git", args, { cwd })).stdout.trim();
@@ -675,6 +676,8 @@ test("catch-up publication requires the exact workflow test check on the release
     const head = await git(work, ["rev-parse", "HEAD"]);
     let includeWorkflowTest = false;
     let workflowTestSlug = "untrusted-app";
+    let delayedRequiredCheck = false;
+    let requiredPolls = 0;
     const fetchImpl = async (url) => {
       if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
         return jsonResponse([{ number: 22, base: { ref: "dev" }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: head }]);
@@ -686,8 +689,11 @@ test("catch-up publication requires the exact workflow test check on the release
         return jsonResponse({ protected: true, protection: { required_status_checks: { contexts: ["lint"], checks: [] } } });
       }
       if (url.includes(`/commits/${bump}/check-runs?per_page=100&page=1`)) {
-        const checkRuns = [{ id: 1, name: "lint", head_sha: bump, status: "completed", conclusion: "success" }];
-        if (includeWorkflowTest) checkRuns.push({ id: 2, name: "test", head_sha: bump, status: "completed", conclusion: "success", details_url: `https://github.com/example/repo/actions/runs/2/job/20`, app: { slug: workflowTestSlug } });
+        const requiredReady = !delayedRequiredCheck || requiredPolls++ >= 2;
+        const checkRuns = requiredReady
+          ? [{ id: 1, name: "lint", head_sha: bump, status: "completed", conclusion: "success" }]
+          : [];
+        if (includeWorkflowTest && requiredReady) checkRuns.push({ id: 2, name: "test", head_sha: bump, status: "completed", conclusion: "success", details_url: `https://github.com/example/repo/actions/runs/2/job/20`, app: { slug: workflowTestSlug } });
         return jsonResponse({ check_runs: checkRuns });
       }
       if (url.includes(`/repos/example/repo/actions/runs?head_sha=${bump}&event=push&per_page=100&page=1`)) {
@@ -716,10 +722,19 @@ test("catch-up publication requires the exact workflow test check on the release
       /lacks an exact successful test workflow check/
     );
     workflowTestSlug = "github-actions";
-    const result = await runReleaseTag({ cwd: work, fetchImpl, env });
+    delayedRequiredCheck = true;
+    requiredPolls = 0;
+    let sleepCalls = 0;
+    const result = await runReleaseTag({
+      cwd: work,
+      fetchImpl,
+      env,
+      sleepImpl: async () => { sleepCalls += 1; }
+    });
     assert.equal(result.status, "planned");
     assert.equal(result.sha, bump);
     assert.equal(result.pullNumber, 21);
+    assert.equal(sleepCalls, 2);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -22,6 +22,8 @@ const PLUGIN_MANIFEST = "plugins/better-workflows/.codex-plugin/plugin.json";
 const RELEASE_WORKFLOW_TEST_CONTEXT = "test";
 const RELEASE_WORKFLOW_TEST_APP_SLUG = "github-actions";
 const RELEASE_WORKFLOW_FILE = ".github/workflows/ci.yml";
+const REQUIRED_CHECK_POLL_ATTEMPTS = 6;
+const REQUIRED_CHECK_POLL_DELAY_MS = 10_000;
 
 async function git(cwd, args) {
   try {
@@ -374,7 +376,61 @@ function latestRequiredObservation(checks, statuses) {
   return checkId >= statusId ? { kind: "check", ...check } : { kind: "status", ...status };
 }
 
-async function verifyCatchUpChecks({ apiUrl, repository, branch, sha, token, fetchImpl, requireWorkflowTest = false }) {
+function waitForReleaseChecks(delayMs) {
+  return new Promise((resolve) => setTimeout(resolve, delayMs));
+}
+
+function requiredObservationState(selected) {
+  if (!selected) return "missing";
+  if (selected.kind === "check") {
+    if (selected.record.status !== "completed" || !selected.record.conclusion) return "pending";
+    return selected.record.conclusion === "success" ? "success" : "failure";
+  }
+  if (selected.record.state === "success") return "success";
+  return ["pending", "queued", "in_progress"].includes(String(selected.record.state)) ? "pending" : "failure";
+}
+
+function workflowTestState({ checkRuns, workflowRuns, sha }) {
+  const candidateChecks = checkRuns.filter((check) => (
+    String(check?.head_sha ?? "").toLowerCase() === sha &&
+    String(check?.name ?? "") === RELEASE_WORKFLOW_TEST_CONTEXT &&
+    String(check?.app?.slug ?? "") === RELEASE_WORKFLOW_TEST_APP_SLUG
+  ));
+  const matchingRuns = workflowRuns.filter((run) => (
+    run?.path === RELEASE_WORKFLOW_FILE &&
+    String(run?.head_sha ?? "").toLowerCase() === sha &&
+    run?.event === "push"
+  ));
+  const linkedRunIds = new Set(candidateChecks.map((check) => workflowRunIdFromDetailsUrl(check)).filter(Boolean));
+  const linkedRuns = matchingRuns.filter((run) => linkedRunIds.has(String(run?.id ?? "")));
+  const successful = candidateChecks.some((check) => {
+    const workflowRunId = workflowRunIdFromDetailsUrl(check);
+    const workflowRun = matchingRuns.find((run) => String(run?.id ?? "") === workflowRunId);
+    return check.status === "completed" && check.conclusion === "success" &&
+      workflowRun?.status === "completed" && workflowRun?.conclusion === "success";
+  });
+  if (successful) return "success";
+  const terminalFailure = candidateChecks.some((check) => (
+    check.status === "completed" && check.conclusion && check.conclusion !== "success"
+  )) || linkedRuns.some((run) => (
+    run.status === "completed" && run.conclusion && run.conclusion !== "success"
+  ));
+  if (terminalFailure) return "failure";
+  const pending = candidateChecks.some((check) => check.status !== "completed" || !check.conclusion) ||
+    linkedRuns.some((run) => run.status !== "completed" || !run.conclusion);
+  return pending ? "pending" : "missing";
+}
+
+async function verifyCatchUpChecks({
+  apiUrl,
+  repository,
+  branch,
+  sha,
+  token,
+  fetchImpl,
+  requireWorkflowTest = false,
+  sleepImpl = waitForReleaseChecks
+}) {
   const requiredRequirements = await repositoryRequiredChecks({ apiUrl, repository, branch, token, fetchImpl });
   const selfContexts = new Set(["integration-tag", "tag merged release version"]);
   if (requiredRequirements.some(({ context }) => {
@@ -385,57 +441,47 @@ async function verifyCatchUpChecks({ apiUrl, repository, branch, sha, token, fet
   })) {
     throw new Error("Release tag required-check configuration includes the integration-tag job; refusing a circular gate");
   }
-  const checkRuns = await repositoryCheckRuns({ apiUrl, repository, sha, token, fetchImpl });
-  const workflowRuns = requireWorkflowTest
-    ? await repositoryWorkflowRuns({ apiUrl, repository, sha, token, fetchImpl })
-    : [];
-  const statuses = await repositoryCommitStatuses({ apiUrl, repository, sha, token, fetchImpl });
-  const observations = requiredRequirements.map((requirement) => {
-    const { context, appId } = requirement;
-    const matchingChecks = checkRuns.filter((check) => (
-      String(check?.head_sha ?? "").toLowerCase() === sha &&
-      String(check?.name ?? "") === context &&
-      (appId === null || normalizeCheckAppId(check) === appId)
-    ));
-    const matchingStatuses = appId === null
-      ? statuses.filter((status) => String(status?.context ?? "") === context)
+  let observations = [];
+  let workflowState = "success";
+  for (let attempt = 0; attempt < REQUIRED_CHECK_POLL_ATTEMPTS; attempt += 1) {
+    const checkRuns = await repositoryCheckRuns({ apiUrl, repository, sha, token, fetchImpl });
+    const workflowRuns = requireWorkflowTest
+      ? await repositoryWorkflowRuns({ apiUrl, repository, sha, token, fetchImpl })
       : [];
-    const selected = latestRequiredObservation(matchingChecks, matchingStatuses);
-    return { requirement, selected };
-  });
-  if (observations.some((item) => !item.selected)) {
-    throw new Error(`Release catch-up lacks an exact required check or status context: ${sha}`);
-  }
-  if (observations.some((item) => (
-    item.selected.kind === "check"
-      ? item.selected.record.status !== "completed" || item.selected.record.conclusion !== "success"
-      : item.selected.record.state !== "success"
-  ))) {
-    throw new Error(`Release catch-up requires all exact required checks and statuses to complete successfully: ${sha}`);
-  }
-  if (requireWorkflowTest) {
-    const workflowTest = latestObservation(checkRuns.filter((check) => (
-      String(check?.head_sha ?? "").toLowerCase() === sha &&
-      String(check?.name ?? "") === RELEASE_WORKFLOW_TEST_CONTEXT &&
-      String(check?.app?.slug ?? "") === RELEASE_WORKFLOW_TEST_APP_SLUG &&
-      (() => {
-        const workflowRunId = workflowRunIdFromDetailsUrl(check);
-        const workflowRun = workflowRuns.find((run) => String(run?.id ?? "") === workflowRunId);
-        return workflowRun &&
-          workflowRun.path === RELEASE_WORKFLOW_FILE &&
-          String(workflowRun.head_sha ?? "").toLowerCase() === sha &&
-          workflowRun.event === "push" &&
-          workflowRun.status === "completed" &&
-          workflowRun.conclusion === "success";
-      })()
-    )));
-    if (
-      !workflowTest ||
-      workflowTest.record.status !== "completed" ||
-      workflowTest.record.conclusion !== "success"
-    ) {
+    const statuses = await repositoryCommitStatuses({ apiUrl, repository, sha, token, fetchImpl });
+    observations = requiredRequirements.map((requirement) => {
+      const { context, appId } = requirement;
+      const matchingChecks = checkRuns.filter((check) => (
+        String(check?.head_sha ?? "").toLowerCase() === sha &&
+        String(check?.name ?? "") === context &&
+        (appId === null || normalizeCheckAppId(check) === appId)
+      ));
+      const matchingStatuses = appId === null
+        ? statuses.filter((status) => String(status?.context ?? "") === context)
+        : [];
+      const selected = latestRequiredObservation(matchingChecks, matchingStatuses);
+      return { requirement, selected, state: requiredObservationState(selected) };
+    });
+    workflowState = requireWorkflowTest
+      ? workflowTestState({ checkRuns, workflowRuns, sha })
+      : "success";
+    if (observations.some((item) => item.state === "failure")) {
+      throw new Error(`Release catch-up requires all exact required checks and statuses to complete successfully: ${sha}`);
+    }
+    if (workflowState === "failure" && observations.every((item) => item.state === "success")) {
       throw new Error(`Release catch-up lacks an exact successful ${RELEASE_WORKFLOW_TEST_CONTEXT} workflow check: ${sha}`);
     }
+    if (observations.every((item) => item.state === "success") && workflowState === "success") break;
+    if (attempt < REQUIRED_CHECK_POLL_ATTEMPTS - 1) await sleepImpl(REQUIRED_CHECK_POLL_DELAY_MS);
+  }
+  if (observations.some((item) => item.state === "missing")) {
+    throw new Error(`Release catch-up lacks an exact required check or status context: ${sha}`);
+  }
+  if (observations.some((item) => item.state !== "success")) {
+    throw new Error(`Release catch-up requires all exact required checks and statuses to complete successfully: ${sha}`);
+  }
+  if (requireWorkflowTest && workflowState !== "success") {
+    throw new Error(`Release catch-up lacks an exact successful ${RELEASE_WORKFLOW_TEST_CONTEXT} workflow check: ${sha}`);
   }
   const requiredContexts = requiredRequirements.map((item) => item.context);
   return {
@@ -461,7 +507,12 @@ async function verifyCatchUpChecks({ apiUrl, repository, branch, sha, token, fet
   };
 }
 
-export async function runReleaseTag({ env = process.env, cwd = process.cwd(), fetchImpl = fetch } = {}) {
+export async function runReleaseTag({
+  env = process.env,
+  cwd = process.cwd(),
+  fetchImpl = fetch,
+  sleepImpl = waitForReleaseChecks
+} = {}) {
   const eventName = String(env.GITHUB_EVENT_NAME ?? "");
   const branch = String(env.GITHUB_REF_NAME ?? "");
   if (eventName !== "push" || !isReleaseBranch(branch)) {
@@ -528,7 +579,8 @@ export async function runReleaseTag({ env = process.env, cwd = process.cwd(), fe
     sha: releaseSha,
     token,
     fetchImpl,
-    requireWorkflowTest: releaseSha !== sha
+    requireWorkflowTest: releaseSha !== sha,
+    sleepImpl
   });
 
   const tag = releaseTagName({ branch, version: current, sha: releaseSha });
