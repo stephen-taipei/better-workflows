@@ -413,22 +413,26 @@ function workflowTestState({ checkRuns, workflowRuns, sha }) {
   ));
   const linkedRunIds = new Set(candidateChecks.map((check) => workflowRunIdFromDetailsUrl(check)).filter(Boolean));
   const linkedRuns = matchingRuns.filter((run) => linkedRunIds.has(String(run?.id ?? "")));
-  const successful = candidateChecks.some((check) => {
-    const workflowRunId = workflowRunIdFromDetailsUrl(check);
-    const workflowRun = matchingRuns.find((run) => String(run?.id ?? "") === workflowRunId);
-    return check.status === "completed" && check.conclusion === "success" &&
-      workflowRun?.status === "completed" && workflowRun?.conclusion === "success";
-  });
-  if (successful) return "success";
-  const terminalFailure = candidateChecks.some((check) => (
-    check.status === "completed" && check.conclusion && check.conclusion !== "success"
-  )) || linkedRuns.some((run) => (
-    run.status === "completed" && run.conclusion && run.conclusion !== "success"
-  ));
-  if (terminalFailure) return "failure";
-  const pending = candidateChecks.some((check) => check.status !== "completed" || !check.conclusion) ||
-    linkedRuns.some((run) => run.status !== "completed" || !run.conclusion);
-  return pending ? "pending" : "missing";
+  const pairs = linkedRuns.map((run) => {
+    const runId = String(run?.id ?? "");
+    const check = latestObservation(
+      candidateChecks.filter((candidate) => workflowRunIdFromDetailsUrl(candidate) === runId)
+    )?.record ?? null;
+    const latest = latestObservation([run, ...(check ? [check] : [])]);
+    return { run, check, latest: latest?.record ?? null };
+  }).filter((pair) => pair.latest !== null);
+  const latestPair = latestObservation(pairs.map((pair) => pair.latest));
+  if (!latestPair) return "missing";
+  const pair = pairs[latestPair.index];
+  if (
+    pair.check?.status !== "completed" || !pair.check?.conclusion ||
+    pair.run?.status !== "completed" || !pair.run?.conclusion
+  ) {
+    return "pending";
+  }
+  return pair.check.conclusion === "success" && pair.run.conclusion === "success"
+    ? "success"
+    : "failure";
 }
 
 async function verifyCatchUpChecks({

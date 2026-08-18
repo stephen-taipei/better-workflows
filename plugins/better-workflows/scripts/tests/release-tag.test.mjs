@@ -735,6 +735,7 @@ test("catch-up publication requires the exact workflow test check on the release
     let workflowTestSlug = "untrusted-app";
     let delayedRequiredCheck = false;
     let requiredPolls = 0;
+    let workflowScenario = "single";
     const fetchImpl = async (url) => {
       if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
         return jsonResponse([{ number: 22, base: { ref: "dev" }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: head }]);
@@ -750,11 +751,24 @@ test("catch-up publication requires the exact workflow test check on the release
         const checkRuns = requiredReady
           ? [{ id: 1, name: "lint", head_sha: bump, status: "completed", conclusion: "success" }]
           : [];
-        if (includeWorkflowTest && requiredReady) checkRuns.push({ id: 2, name: "test", head_sha: bump, status: "completed", conclusion: "success", details_url: `https://github.com/example/repo/actions/runs/2/job/20`, app: { slug: workflowTestSlug } });
+        if (includeWorkflowTest && requiredReady) {
+          checkRuns.push({ id: 2, name: "test", head_sha: bump, status: "completed", conclusion: "success", created_at: "2026-08-18T00:00:00Z", details_url: `https://github.com/example/repo/actions/runs/2/job/20`, app: { slug: workflowTestSlug } });
+          if (workflowScenario === "old-success-new-failure") {
+            checkRuns.push({ id: 3, name: "test", head_sha: bump, status: "completed", conclusion: "failure", created_at: "2026-08-18T00:01:00Z", details_url: `https://github.com/example/repo/actions/runs/3/job/30`, app: { slug: workflowTestSlug } });
+          } else if (workflowScenario === "old-success-new-pending") {
+            checkRuns.push({ id: 3, name: "test", head_sha: bump, status: "in_progress", conclusion: null, created_at: "2026-08-18T00:01:00Z", details_url: `https://github.com/example/repo/actions/runs/3/job/30`, app: { slug: workflowTestSlug } });
+          }
+        }
         return jsonResponse({ check_runs: checkRuns });
       }
       if (url.includes(`/repos/example/repo/actions/runs?head_sha=${bump}&event=push&per_page=100&page=1`)) {
-        return jsonResponse({ workflow_runs: [{ id: 2, path: ".github/workflows/ci.yml", head_sha: bump, event: "push", status: "completed", conclusion: "success" }] });
+        const workflowRuns = [{ id: 2, path: ".github/workflows/ci.yml", head_sha: bump, event: "push", status: "completed", conclusion: "success", created_at: "2026-08-18T00:00:00Z" }];
+        if (workflowScenario === "old-success-new-failure") {
+          workflowRuns.push({ id: 3, path: ".github/workflows/ci.yml", head_sha: bump, event: "push", status: "completed", conclusion: "failure", created_at: "2026-08-18T00:01:00Z" });
+        } else if (workflowScenario === "old-success-new-pending") {
+          workflowRuns.push({ id: 3, path: ".github/workflows/ci.yml", head_sha: bump, event: "push", status: "in_progress", conclusion: null, created_at: "2026-08-18T00:01:00Z" });
+        }
+        return jsonResponse({ workflow_runs: workflowRuns });
       }
       if (url.includes(`/commits/${bump}/statuses?per_page=100&page=1`)) return jsonResponse([]);
       throw new Error(`Unexpected release-tag fetch URL: ${url}`);
@@ -792,6 +806,19 @@ test("catch-up publication requires the exact workflow test check on the release
     assert.equal(result.sha, bump);
     assert.equal(result.pullNumber, 21);
     assert.equal(sleepCalls, 10);
+
+    delayedRequiredCheck = false;
+    requiredPolls = 0;
+    workflowScenario = "old-success-new-failure";
+    await assert.rejects(
+      runReleaseTag({ cwd: work, fetchImpl, env, sleepImpl: async () => {} }),
+      /lacks an exact successful test workflow check/
+    );
+    workflowScenario = "old-success-new-pending";
+    await assert.rejects(
+      runReleaseTag({ cwd: work, fetchImpl, env, sleepImpl: async () => {} }),
+      /lacks an exact successful test workflow check/
+    );
   } finally {
     await rm(root, { recursive: true, force: true });
   }
