@@ -77,13 +77,14 @@ async function pagedGitHubCollection({ apiUrl, pathName, key, token, fetchImpl =
     });
     if (!response.ok) throw new Error(`GitHub ${label} query failed with HTTP ${response.status}`);
     const payload = await response.json();
-    if (!payload || !Array.isArray(payload[key])) {
-      throw new Error(`GitHub ${label} query returned no ${key} array`);
+    const pageRecords = key === null ? payload : payload?.[key];
+    if (!Array.isArray(pageRecords)) {
+      throw new Error(`GitHub ${label} query returned no ${key ?? "top-level"} array`);
     }
-    records.push(...payload[key]);
+    records.push(...pageRecords);
     const link = typeof response.headers?.get === "function" ? response.headers.get("link") ?? "" : "";
     if (/<[^>]+[?&]page=\d+[^>]*>;\s*rel="next"/.test(link)) continue;
-    if (payload[key].length < 100) return records;
+    if (pageRecords.length < 100) return records;
   }
   throw new Error(`GitHub ${label} pagination exceeded the bounded page limit`);
 }
@@ -103,7 +104,7 @@ async function repositoryCommitStatuses({ apiUrl, repository, sha, token, fetchI
   return pagedGitHubCollection({
     apiUrl,
     pathName: `/repos/${repository}/commits/${sha}/statuses`,
-    key: "statuses",
+    key: null,
     token,
     fetchImpl,
     label: "exact release status"

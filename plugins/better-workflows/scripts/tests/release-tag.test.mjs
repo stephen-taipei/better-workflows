@@ -43,7 +43,7 @@ function successfulRequiredCheckResponse(url, sha, context = "test") {
     return jsonResponse({ check_runs: [{ id: 7, name: context, head_sha: sha, status: "completed", conclusion: "success" }] });
   }
   if (url.includes(`/commits/${sha}/statuses?per_page=100&page=1`)) {
-    return jsonResponse({ statuses: [{ id: 7, context, state: "success" }] });
+    return jsonResponse([{ id: 7, context, state: "success" }]);
   }
   return null;
 }
@@ -418,6 +418,7 @@ test("release eligibility catches up a version bump after a later non-version pu
     const graphqlCalls = [];
     let candidateConclusion = "failure";
     let secondPageConclusion = null;
+    let secondStatusState = null;
     let candidateAppId = 999;
     let requiredAppId = 123;
     let statusState = "failure";
@@ -449,7 +450,15 @@ test("release eligibility catches up a version bump after a later non-version pu
         return jsonResponse({ check_runs: [{ id: 8, name: "test", head_sha: bump, status: "completed", conclusion: secondPageConclusion, app: { id: candidateAppId } }] });
       }
       if (url.includes(`/repos/example/repo/commits/${bump}/statuses?per_page=100&page=1`)) {
-        return jsonResponse({ statuses: [{ context: "test", state: statusState }] });
+        return jsonResponse(
+          [{ id: 7, context: "test", state: statusState }],
+          true,
+          200,
+          secondStatusState === null ? {} : { link: '<https://api.github.com/repos/example/repo/commits/bump/statuses?per_page=100&page=2>; rel="next"' }
+        );
+      }
+      if (url.includes(`/repos/example/repo/commits/${bump}/statuses?per_page=100&page=2`)) {
+        return jsonResponse([{ id: 8, context: "test", state: secondStatusState }]);
       }
       throw new Error(`Unexpected release-tag fetch URL: ${url}`);
     };
@@ -474,6 +483,7 @@ test("release eligibility catches up a version bump after a later non-version pu
     );
     candidateConclusion = "success";
     secondPageConclusion = "failure";
+    secondStatusState = "success";
     await assert.rejects(
       runReleaseTag({ cwd: work, fetchImpl, env: runEnv }),
       /all exact required checks and statuses to complete successfully/
@@ -528,7 +538,7 @@ test("release eligibility catches up a version bump after a later non-version pu
         return jsonResponse({ check_runs: [{ id: 7, name: "test", head_sha: bump, status: "completed", conclusion: "success", app: { id: 123 } }] });
       }
       if (url.includes(`/repos/example/repo/commits/${bump}/statuses?per_page=100&page=1`)) {
-        return jsonResponse({ statuses: [{ context: "test", state: "failure" }] });
+        return jsonResponse([{ id: 7, context: "test", state: "failure" }]);
       }
       throw new Error(`Unexpected unchanged release-tag fetch URL: ${url}`);
     };
