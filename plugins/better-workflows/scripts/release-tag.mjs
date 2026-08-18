@@ -20,6 +20,8 @@ const execFileAsync = promisify(execFile);
 const REPOSITORY_PACKAGE = "plugins/better-workflows/package.json";
 const PLUGIN_MANIFEST = "plugins/better-workflows/.codex-plugin/plugin.json";
 const RELEASE_WORKFLOW_TEST_CONTEXT = "test";
+const RELEASE_WORKFLOW_TEST_APP_SLUG = "github-actions";
+const RELEASE_WORKFLOW_FILE = ".github/workflows/ci.yml";
 
 async function git(cwd, args) {
   try {
@@ -67,7 +69,8 @@ async function repositoryPullRequests({ apiUrl, repository, sha, token, fetchImp
 async function pagedGitHubCollection({ apiUrl, pathName, key, token, fetchImpl = fetch, label }) {
   const records = [];
   for (let page = 1; page <= 100; page += 1) {
-    const endpoint = `${apiUrl.replace(/\/$/, "")}${pathName}?per_page=100&page=${page}`;
+    const separator = pathName.includes("?") ? "&" : "?";
+    const endpoint = `${apiUrl.replace(/\/$/, "")}${pathName}${separator}per_page=100&page=${page}`;
     const response = await fetchImpl(endpoint, {
       headers: {
         Accept: "application/vnd.github+json",
@@ -99,6 +102,23 @@ async function repositoryCheckRuns({ apiUrl, repository, sha, token, fetchImpl =
     fetchImpl,
     label: "exact release check"
   });
+}
+
+async function repositoryWorkflowRuns({ apiUrl, repository, sha, token, fetchImpl = fetch }) {
+  return pagedGitHubCollection({
+    apiUrl,
+    pathName: `/repos/${repository}/actions/runs?head_sha=${encodeURIComponent(sha)}&event=push`,
+    key: "workflow_runs",
+    token,
+    fetchImpl,
+    label: "exact release workflow"
+  });
+}
+
+function workflowRunIdFromDetailsUrl(check) {
+  const detailsUrl = String(check?.details_url ?? "");
+  const match = /\/actions\/runs\/(\d+)(?:\/|$)/.exec(detailsUrl);
+  return match?.[1] ?? null;
 }
 
 async function repositoryCommitStatuses({ apiUrl, repository, sha, token, fetchImpl = fetch }) {
@@ -366,6 +386,9 @@ async function verifyCatchUpChecks({ apiUrl, repository, branch, sha, token, fet
     throw new Error("Release tag required-check configuration includes the integration-tag job; refusing a circular gate");
   }
   const checkRuns = await repositoryCheckRuns({ apiUrl, repository, sha, token, fetchImpl });
+  const workflowRuns = requireWorkflowTest
+    ? await repositoryWorkflowRuns({ apiUrl, repository, sha, token, fetchImpl })
+    : [];
   const statuses = await repositoryCommitStatuses({ apiUrl, repository, sha, token, fetchImpl });
   const observations = requiredRequirements.map((requirement) => {
     const { context, appId } = requirement;
@@ -393,7 +416,18 @@ async function verifyCatchUpChecks({ apiUrl, repository, branch, sha, token, fet
   if (requireWorkflowTest) {
     const workflowTest = latestObservation(checkRuns.filter((check) => (
       String(check?.head_sha ?? "").toLowerCase() === sha &&
-      String(check?.name ?? "") === RELEASE_WORKFLOW_TEST_CONTEXT
+      String(check?.name ?? "") === RELEASE_WORKFLOW_TEST_CONTEXT &&
+      String(check?.app?.slug ?? "") === RELEASE_WORKFLOW_TEST_APP_SLUG &&
+      (() => {
+        const workflowRunId = workflowRunIdFromDetailsUrl(check);
+        const workflowRun = workflowRuns.find((run) => String(run?.id ?? "") === workflowRunId);
+        return workflowRun &&
+          workflowRun.path === RELEASE_WORKFLOW_FILE &&
+          String(workflowRun.head_sha ?? "").toLowerCase() === sha &&
+          workflowRun.event === "push" &&
+          workflowRun.status === "completed" &&
+          workflowRun.conclusion === "success";
+      })()
     )));
     if (
       !workflowTest ||

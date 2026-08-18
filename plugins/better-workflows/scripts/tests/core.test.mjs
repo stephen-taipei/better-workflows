@@ -2583,6 +2583,9 @@ elif [ "$1" = "api" ] && [ "$2" = "--paginate" ]; then
     repos/example/repo/actions/workflows/release.yml/runs?*) ;;
     *) printf '%s\n' 'workflow endpoint must use the filename' >&2; exit 41;;
   esac
+  case "$4" in
+    *head_sha=*) printf '%s\n' 'workflow observation must not prefilter by head SHA' >&2; exit 42;;
+  esac
   printf '%s' '[{"workflow_runs":'
   cat ${JSON.stringify(listPath)}
   printf '%s\n' '}]'
@@ -2692,6 +2695,27 @@ fi
     assert.equal(promoted.providerInvocation.dispatchState, "sent");
     assert.equal(promoted.providerInvocation.workflowRun.databaseId, 54321);
     assert.equal(promoted.providerInvocation.errorDigest, undefined);
+
+    const driftedRun = {
+      ...workflowRun,
+      databaseId: 54322,
+      headSha: "d".repeat(40),
+      displayTitle: `Release ${dispatchNonce}`
+    };
+    await writeFile(listPath, `${JSON.stringify([driftedRun])}\n`);
+    await writeFile(viewPath, `${JSON.stringify(driftedRun)}\n`);
+    await writeFile(path.join(actionDir, `${tokenHash}.json`), `${JSON.stringify(action)}\n`);
+    await assert.rejects(
+      resumeActionsDispatchObservation(root, run.runId, attemptId),
+      /observed a nonce-bound workflow run at revision .* expected/
+    );
+    const driftedPersisted = JSON.parse(await readFile(path.join(actionDir, `${tokenHash}.json`), "utf8"));
+    assert.equal(driftedPersisted.providerInvocation.dispatchState, "sent-or-indeterminate");
+    assert.equal(driftedPersisted.providerInvocation.observedRunId, "54322");
+    assert.equal(driftedPersisted.providerInvocation.workflowRun, undefined);
+
+    await writeFile(listPath, `${JSON.stringify([workflowRun])}\n`);
+    await writeFile(viewPath, `${JSON.stringify(workflowRun)}\n`);
 
     await writeFile(viewPath, `${JSON.stringify({ ...workflowRun, status: "in_progress", conclusion: null })}\n`);
     await writeFile(path.join(actionDir, `${tokenHash}.json`), `${JSON.stringify(action)}\n`);

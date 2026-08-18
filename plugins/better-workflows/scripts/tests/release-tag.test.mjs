@@ -446,14 +446,20 @@ test("release eligibility catches up a version bump after a later non-version pu
       }
       if (url.includes(`/repos/example/repo/commits/${bump}/check-runs?per_page=100&page=1`)) {
         return jsonResponse(
-          { check_runs: [{ id: 7, name: "test", head_sha: bump, status: "completed", conclusion: candidateConclusion, app: { id: candidateAppId } }] },
+          { check_runs: [{ id: 7, name: "test", head_sha: bump, status: "completed", conclusion: candidateConclusion, details_url: `https://github.com/example/repo/actions/runs/7/job/70`, app: { id: candidateAppId, slug: "github-actions" } }] },
           true,
           200,
           secondPageConclusion === null ? {} : { link: '<https://api.github.com/repos/example/repo/commits/bump/check-runs?per_page=100&page=2>; rel="next"' }
         );
       }
       if (url.includes(`/repos/example/repo/commits/${bump}/check-runs?per_page=100&page=2`)) {
-        return jsonResponse({ check_runs: [{ id: 8, name: "test", head_sha: bump, status: "completed", conclusion: secondPageConclusion, app: { id: candidateAppId } }] });
+        return jsonResponse({ check_runs: [{ id: 8, name: "test", head_sha: bump, status: "completed", conclusion: secondPageConclusion, details_url: `https://github.com/example/repo/actions/runs/8/job/80`, app: { id: candidateAppId, slug: "github-actions" } }] });
+      }
+      if (url.includes(`/repos/example/repo/actions/runs?head_sha=${bump}&event=push&per_page=100&page=1`)) {
+        return jsonResponse({ workflow_runs: [
+          { id: 7, path: ".github/workflows/ci.yml", head_sha: bump, event: "push", status: "completed", conclusion: "success" },
+          { id: 8, path: ".github/workflows/ci.yml", head_sha: bump, event: "push", status: "completed", conclusion: "success" }
+        ] });
       }
       if (url.includes(`/repos/example/repo/commits/${bump}/statuses?per_page=100&page=1`)) {
         return jsonResponse(
@@ -541,7 +547,10 @@ test("release eligibility catches up a version bump after a later non-version pu
         return jsonResponse({ protected: true, protection: { required_status_checks: { contexts: [], checks: [{ context: "test", app_id: 123 }] } } });
       }
       if (url.includes(`/repos/example/repo/commits/${bump}/check-runs?per_page=100&page=1`)) {
-        return jsonResponse({ check_runs: [{ id: 7, name: "test", head_sha: bump, status: "completed", conclusion: "success", app: { id: 123 } }] });
+        return jsonResponse({ check_runs: [{ id: 7, name: "test", head_sha: bump, status: "completed", conclusion: "success", details_url: `https://github.com/example/repo/actions/runs/7/job/70`, app: { id: 123, slug: "github-actions" } }] });
+      }
+      if (url.includes(`/repos/example/repo/actions/runs?head_sha=${bump}&event=push&per_page=100&page=1`)) {
+        return jsonResponse({ workflow_runs: [{ id: 7, path: ".github/workflows/ci.yml", head_sha: bump, event: "push", status: "completed", conclusion: "success" }] });
       }
       if (url.includes(`/repos/example/repo/commits/${bump}/statuses?per_page=100&page=1`)) {
         return jsonResponse([{ id: 7, context: "test", state: "failure" }]);
@@ -665,6 +674,7 @@ test("catch-up publication requires the exact workflow test check on the release
     await git(work, ["push", "-q", "origin", "dev"]);
     const head = await git(work, ["rev-parse", "HEAD"]);
     let includeWorkflowTest = false;
+    let workflowTestSlug = "untrusted-app";
     const fetchImpl = async (url) => {
       if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
         return jsonResponse([{ number: 22, base: { ref: "dev" }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: head }]);
@@ -677,8 +687,11 @@ test("catch-up publication requires the exact workflow test check on the release
       }
       if (url.includes(`/commits/${bump}/check-runs?per_page=100&page=1`)) {
         const checkRuns = [{ id: 1, name: "lint", head_sha: bump, status: "completed", conclusion: "success" }];
-        if (includeWorkflowTest) checkRuns.push({ id: 2, name: "test", head_sha: bump, status: "completed", conclusion: "success" });
+        if (includeWorkflowTest) checkRuns.push({ id: 2, name: "test", head_sha: bump, status: "completed", conclusion: "success", details_url: `https://github.com/example/repo/actions/runs/2/job/20`, app: { slug: workflowTestSlug } });
         return jsonResponse({ check_runs: checkRuns });
+      }
+      if (url.includes(`/repos/example/repo/actions/runs?head_sha=${bump}&event=push&per_page=100&page=1`)) {
+        return jsonResponse({ workflow_runs: [{ id: 2, path: ".github/workflows/ci.yml", head_sha: bump, event: "push", status: "completed", conclusion: "success" }] });
       }
       if (url.includes(`/commits/${bump}/statuses?per_page=100&page=1`)) return jsonResponse([]);
       throw new Error(`Unexpected release-tag fetch URL: ${url}`);
@@ -698,6 +711,11 @@ test("catch-up publication requires the exact workflow test check on the release
       /lacks an exact successful test workflow check/
     );
     includeWorkflowTest = true;
+    await assert.rejects(
+      runReleaseTag({ cwd: work, fetchImpl, env }),
+      /lacks an exact successful test workflow check/
+    );
+    workflowTestSlug = "github-actions";
     const result = await runReleaseTag({ cwd: work, fetchImpl, env });
     assert.equal(result.status, "planned");
     assert.equal(result.sha, bump);

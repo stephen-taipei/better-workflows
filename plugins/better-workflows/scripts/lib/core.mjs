@@ -7095,7 +7095,7 @@ async function listWorkflowRuns(cwd, record, providerExecutablePath, { createdFi
   const created = createdFilter ? `&created=${encodeURIComponent(createdFilter)}` : "";
   const output = await execBoundGitHubCli(providerExecutablePath, [
     "api", "--paginate", "--slurp",
-    `repos/${repository}/actions/workflows/${workflowFile}/runs?per_page=100&head_sha=${record.remoteRevision}&branch=${branch}${created}`,
+    `repos/${repository}/actions/workflows/${workflowFile}/runs?per_page=100&branch=${branch}${created}`,
     "--method", "GET"
   ], { cwd });
   const payload = JSON.parse(output.stdout);
@@ -7145,7 +7145,6 @@ async function observeDispatchedWorkflow(cwd, record, providerExecutablePath, ex
       return (
         /^\d+$/.test(runId) && !known.has(runId) &&
         run.headBranch === expectedHeadBranch &&
-        run.headSha === record.remoteRevision &&
         WORKFLOW_DISPATCH_NONCE.test(String(record.dispatchNonce ?? "")) &&
         typeof run.displayTitle === "string" &&
         run.displayTitle.includes(record.dispatchNonce) &&
@@ -7164,7 +7163,12 @@ async function observeDispatchedWorkflow(cwd, record, providerExecutablePath, ex
     }
     if (observedRunId) {
       const observed = await viewWorkflowRun(cwd, record, providerExecutablePath, observedRunId);
-      if (observed.status === "completed") return observed;
+      if (observed.status === "completed") {
+        if (observed.headSha !== record.remoteRevision) {
+          throw new Error(`GitHub Actions dispatch observed a nonce-bound workflow run at revision ${observed.headSha}, expected ${record.remoteRevision}`);
+        }
+        return observed;
+      }
     }
     await new Promise((resolve) => setTimeout(resolve, WORKFLOW_DISPATCH_POLL_INTERVAL_MS));
   }
