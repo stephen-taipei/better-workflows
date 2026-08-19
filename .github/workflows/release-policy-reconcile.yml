@@ -27,7 +27,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - name: Prepare required-check policy receipt artifact
+      - name: Validate exact closed merge trigger and prepare required-check policy receipt artifact
         id: prepare
         if: hashFiles('plugins/better-workflows/scripts/release-policy-receipt.mjs') != ''
         env:

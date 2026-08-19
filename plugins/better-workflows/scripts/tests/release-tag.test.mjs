@@ -405,7 +405,7 @@ test("delayed pre-merge policy artifacts require explicit source-run provenance"
     phase: "pre-merge"
   };
   assert.throws(() => assertPolicyReceiptArtifact(payload, binding), /pre-merge policy evidence after/);
-  assert.doesNotThrow(() => assertPolicyReceiptArtifact(payload, { ...binding, allowPostMergeObservation: true }));
+  assert.throws(() => assertPolicyReceiptArtifact(payload, { ...binding, allowPostMergeObservation: true }), /pre-merge policy evidence after/);
 });
 
 test("associated PR discovery fails closed when the first page is full", async () => {

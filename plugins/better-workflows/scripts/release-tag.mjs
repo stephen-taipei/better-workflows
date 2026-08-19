@@ -6,6 +6,10 @@ import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { inflateRawSync } from "node:zlib";
 import {
+  assertWorkflowRunReconciliationTrigger,
+  fetchWorkflowRunPolicyReceiptArtifact
+} from "./release-policy-receipt.mjs";
+import {
   assertCommitSha,
   compareStableVersions,
   findMergedPullRequest,
@@ -244,8 +248,7 @@ export function assertPolicyReceiptArtifact(payload, {
   phase = "pre-merge",
   mergeCommitSha = null,
   expectedEventName = null,
-  triggerWorkflowRunId = null,
-  allowPostMergeObservation = false
+  triggerWorkflowRunId = null
 }) {
   let computedPolicyDigest = null;
   let normalizedPolicy = null;
@@ -297,7 +300,7 @@ export function assertPolicyReceiptArtifact(payload, {
   }
   const observedAt = Date.parse(String(payload.observedAt ?? ""));
   if (!Number.isFinite(observedAt) ||
-      (phase === "pre-merge" && !allowPostMergeObservation && mergeTimeMs !== null && observedAt > mergeTimeMs) ||
+      (phase === "pre-merge" && mergeTimeMs !== null && observedAt > mergeTimeMs) ||
       (phase === "merge-bound" && observedAt < mergeTimeMs)) {
     throw new Error(`Release catch-up candidate ${preMergeSha} has pre-merge policy evidence after its pull-request merge`);
   }
@@ -1050,6 +1053,25 @@ async function verifyPolicyReceipt({ record, policyDigest, apiUrl, repository, b
     ) {
       throw new Error(`Release catch-up candidate ${candidateSha} has untrusted workflow-run reconciliation trigger provenance`);
     }
+    const triggerArtifact = await fetchWorkflowRunPolicyReceiptArtifact({
+      apiUrl,
+      repository,
+      runId: triggerWorkflowRunId,
+      token,
+      fetchImpl
+    });
+    assertWorkflowRunReconciliationTrigger({
+      repository,
+      run: triggerWorkflowRun,
+      pull: {
+        ...triggerPull,
+        state: "closed",
+        merged: true,
+        merge_commit_sha: mergeCommitSha,
+        merged_at: new Date(mergeTimeMs).toISOString()
+      },
+      artifact: triggerArtifact
+    });
   }
   let artifact;
   try {
@@ -1127,7 +1149,6 @@ async function verifyPolicyReceipt({ record, policyDigest, apiUrl, repository, b
         mergeTimeMs,
         phase: "pre-merge",
         mergeCommitSha,
-        allowPostMergeObservation: true
       }
     });
   } catch (error) {

@@ -8,6 +8,7 @@ import {
   buildPolicyStatus,
   normalizeRequiredChecks,
   parseWorkflowRunReconciliationEvent,
+  assertWorkflowRunReconciliationTrigger,
   prepareReleasePolicyReceipt,
   policyDigest,
   publishReleasePolicyReceipt,
@@ -229,6 +230,59 @@ test("workflow-run reconciliation requires one successful pull-request-target so
   );
 });
 
+test("workflow-run reconciliation requires the exact closed merge source artifact", () => {
+  const headSha = "b".repeat(40);
+  const mergeCommitSha = "c".repeat(40);
+  const mergedAt = "2026-08-18T00:00:00Z";
+  const policy = [{ context: "test", appId: null, strict: true }];
+  const run = {
+    id: 43,
+    path: ".github/workflows/ci.yml",
+    event: "pull_request_target",
+    status: "completed",
+    conclusion: "success",
+    head_sha: mergeCommitSha,
+    repository: { full_name: "example/repo" },
+    pull_requests: [{ number: 17, head: { sha: headSha }, base: { ref: "dev" } }]
+  };
+  const pull = {
+    number: 17,
+    state: "closed",
+    merged: true,
+    base: { ref: "dev" },
+    head: { sha: headSha },
+    merge_commit_sha: mergeCommitSha,
+    merged_at: mergedAt
+  };
+  const artifact = {
+    schemaVersion: 1,
+    kind: RELEASE_POLICY_RECEIPT_ARTIFACT_KIND,
+    workflowFile: ".github/workflows/ci.yml",
+    workflowRunId: "43",
+    eventName: "pull_request_target",
+    eventAction: "closed",
+    branch: "dev",
+    pullNumber: 17,
+    headSha,
+    mergeCommitSha,
+    mergedAt,
+    observedAt: "2026-08-18T00:00:05Z",
+    policy,
+    policyDigest: policyDigest(policy),
+    sourceWorkflowRunId: "42",
+    sourcePolicyDigest: policyDigest(policy)
+  };
+  assert.doesNotThrow(() => assertWorkflowRunReconciliationTrigger({ repository: "example/repo", run, pull, artifact }));
+  assert.throws(
+    () => assertWorkflowRunReconciliationTrigger({ repository: "example/repo", run, pull, artifact: { ...artifact, eventAction: "synchronize" } }),
+    /immutable closed-and-merged source receipt artifact/
+  );
+  assert.throws(
+    () => assertWorkflowRunReconciliationTrigger({ repository: "example/repo", run: { ...run, head_sha: "e".repeat(40) }, pull, artifact }),
+    /exact successful closed-and-merged pull-request-target run/
+  );
+});
+
 test("closed receipt polling waits for the exact pre-merge status within a bounded window", async () => {
   const headSha = "d".repeat(40);
   const baseSha = "1".repeat(40);
@@ -301,7 +355,7 @@ test("closed receipt polling ignores a newer pre-merge status published after me
   assert.equal(source.policyDigest, "a".repeat(64));
 });
 
-test("closed receipt accepts a source run created before merge even when it completes after merge", async () => {
+test("closed receipt rejects a source status observed after merge even when its run started before merge", async () => {
   const headSha = "e".repeat(40);
   const baseSha = "3".repeat(40);
   const status = {
@@ -320,6 +374,7 @@ test("closed receipt accepts a source run created before merge even when it comp
     pullNumber: 17,
     mergedAt: "2026-08-18T00:00:00Z",
     token: "token",
+    attempts: 1,
     fetchImpl: async (url) => {
       if (url.endsWith(`/commits/${headSha}/statuses?per_page=100&page=1`)) return { ok: true, status: 200, json: async () => [status] };
       if (url.endsWith("/actions/runs/52")) return { ok: true, status: 200, json: async () => ({
@@ -337,6 +392,44 @@ test("closed receipt accepts a source run created before merge even when it comp
       throw new Error(`Unexpected source receipt URL: ${url}`);
     }
   });
-  assert.equal(source.workflowRunId, "52");
-  assert.equal(source.updatedAt, Date.parse("2026-08-18T00:00:05Z"));
+  assert.equal(source, null);
+});
+
+test("closed receipt rejects a policy status observed after merge even when its run started before merge", async () => {
+  const headSha = "9".repeat(40);
+  const baseSha = "8".repeat(40);
+  const status = {
+    id: 92,
+    state: "success",
+    context: RELEASE_POLICY_RECEIPT_CONTEXT,
+    target_url: `https://github.com/example/repo/actions/runs/92?phase=pre-merge&pr=17&head=${headSha}&base=dev`,
+    description: `${RELEASE_POLICY_RECEIPT_PREFIX}${"f".repeat(64)}`,
+    updated_at: "2026-08-18T00:00:05Z"
+  };
+  const source = await waitForSourcePolicyReceipt({
+    apiUrl: "https://api.github.com",
+    repository: "example/repo",
+    branch: "dev",
+    headSha,
+    pullNumber: 17,
+    mergedAt: "2026-08-18T00:00:00Z",
+    token: "token",
+    attempts: 1,
+    fetchImpl: async (url) => {
+      if (url.endsWith(`/commits/${headSha}/statuses?per_page=100&page=1`)) return { ok: true, status: 200, json: async () => [status] };
+      if (url.endsWith("/actions/runs/92")) return { ok: true, status: 200, json: async () => ({
+        id: 92,
+        path: ".github/workflows/ci.yml",
+        event: "pull_request_target",
+        status: "completed",
+        conclusion: "success",
+        head_sha: baseSha,
+        created_at: "2026-08-17T23:59:00Z",
+        repository: { full_name: "example/repo" },
+        pull_requests: [{ number: 17, head: { sha: headSha }, base: { ref: "dev", sha: baseSha } }]
+      }) };
+      throw new Error(`Unexpected source receipt URL: ${url}`);
+    }
+  });
+  assert.equal(source, null);
 });
