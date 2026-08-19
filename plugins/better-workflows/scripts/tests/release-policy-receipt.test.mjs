@@ -231,6 +231,7 @@ test("workflow-run reconciliation requires one successful pull-request-target so
 
 test("closed receipt polling waits for the exact pre-merge status within a bounded window", async () => {
   const headSha = "d".repeat(40);
+  const baseSha = "1".repeat(40);
   const sourceStatus = {
     id: 42,
     state: "success",
@@ -252,7 +253,7 @@ test("closed receipt polling waits for the exact pre-merge status within a bound
     delayMs: 5_000,
     sleepImpl: async (delay) => sleeps.push(delay),
     fetchImpl: async (url) => {
-      if (url.endsWith(`/actions/runs/42`)) return { ok: true, status: 200, json: async () => ({ id: 42, path: ".github/workflows/ci.yml", event: "pull_request_target", status: "completed", conclusion: "success", head_sha: headSha, created_at: "2026-08-17T23:59:00Z", repository: { full_name: "example/repo" }, pull_requests: [{ number: 17, head: { sha: headSha }, base: { ref: "dev" } }] }) };
+      if (url.endsWith(`/actions/runs/42`)) return { ok: true, status: 200, json: async () => ({ id: 42, path: ".github/workflows/ci.yml", event: "pull_request_target", status: "completed", conclusion: "success", head_sha: baseSha, created_at: "2026-08-17T23:59:00Z", repository: { full_name: "example/repo" }, pull_requests: [{ number: 17, head: { sha: headSha }, base: { ref: "dev", sha: baseSha } }] }) };
       queries += 1;
       assert.equal(url, `https://api.github.com/repos/example/repo/commits/${headSha}/statuses?per_page=100&page=1`);
       return { ok: true, status: 200, json: async () => (queries === 1 ? [] : [sourceStatus]) };
@@ -266,6 +267,7 @@ test("closed receipt polling waits for the exact pre-merge status within a bound
 
 test("closed receipt polling ignores a newer pre-merge status published after merge", async () => {
   const headSha = "f".repeat(40);
+  const baseSha = "2".repeat(40);
   const status = (id, updatedAt, workflowRunId) => ({
     id,
     state: "success",
@@ -283,8 +285,8 @@ test("closed receipt polling ignores a newer pre-merge status published after me
     mergedAt: "2026-08-18T00:00:00Z",
     token: "token",
     fetchImpl: async (url) => {
-      if (url.endsWith("/actions/runs/42")) return { ok: true, status: 200, json: async () => ({ id: 42, path: ".github/workflows/ci.yml", event: "pull_request_target", status: "completed", conclusion: "success", head_sha: headSha, created_at: "2026-08-17T23:59:59Z", repository: { full_name: "example/repo" }, pull_requests: [{ number: 17, head: { sha: headSha }, base: { ref: "dev" } }] }) };
-      if (url.endsWith("/actions/runs/43")) return { ok: true, status: 200, json: async () => ({ id: 43, path: ".github/workflows/ci.yml", event: "pull_request_target", status: "completed", conclusion: "success", head_sha: headSha, created_at: "2026-08-18T00:00:01Z", repository: { full_name: "example/repo" }, pull_requests: [{ number: 17, head: { sha: headSha }, base: { ref: "dev" } }] }) };
+      if (url.endsWith("/actions/runs/42")) return { ok: true, status: 200, json: async () => ({ id: 42, path: ".github/workflows/ci.yml", event: "pull_request_target", status: "completed", conclusion: "success", head_sha: baseSha, created_at: "2026-08-17T23:59:59Z", repository: { full_name: "example/repo" }, pull_requests: [{ number: 17, head: { sha: headSha }, base: { ref: "dev", sha: baseSha } }] }) };
+      if (url.endsWith("/actions/runs/43")) return { ok: true, status: 200, json: async () => ({ id: 43, path: ".github/workflows/ci.yml", event: "pull_request_target", status: "completed", conclusion: "success", head_sha: baseSha, created_at: "2026-08-18T00:00:01Z", repository: { full_name: "example/repo" }, pull_requests: [{ number: 17, head: { sha: headSha }, base: { ref: "dev", sha: baseSha } }] }) };
       return {
       ok: true,
       status: 200,
@@ -301,6 +303,7 @@ test("closed receipt polling ignores a newer pre-merge status published after me
 
 test("closed receipt accepts a source run created before merge even when it completes after merge", async () => {
   const headSha = "e".repeat(40);
+  const baseSha = "3".repeat(40);
   const status = {
     id: 52,
     state: "success",
@@ -325,11 +328,11 @@ test("closed receipt accepts a source run created before merge even when it comp
         event: "pull_request_target",
         status: "completed",
         conclusion: "success",
-        head_sha: headSha,
+        head_sha: baseSha,
         created_at: "2026-08-17T23:59:00Z",
         completed_at: "2026-08-18T00:00:04Z",
         repository: { full_name: "example/repo" },
-        pull_requests: [{ number: 17, head: { sha: headSha }, base: { ref: "dev" } }]
+        pull_requests: [{ number: 17, head: { sha: headSha }, base: { ref: "dev", sha: baseSha } }]
       }) };
       throw new Error(`Unexpected source receipt URL: ${url}`);
     }

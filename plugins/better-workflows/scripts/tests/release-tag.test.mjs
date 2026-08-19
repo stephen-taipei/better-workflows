@@ -223,12 +223,14 @@ function policyReceiptStatus(context, updatedAt = "2026-08-20T00:50:00Z", appId 
   const headSha = String(metadata.headSha ?? SHA);
   const mergeSha = String(metadata.mergeSha ?? headSha);
   const base = String(metadata.base ?? "dev");
+  const baseSha = String(metadata.baseSha ?? "1".repeat(40));
   const mergedAt = String(metadata.mergedAt ?? "2026-08-15T00:00:00Z");
   latestPolicyReceiptMetadata = {
     pullNumber,
     headSha,
     mergeSha,
     base,
+    baseSha,
     policy,
     mergedAt
   };
@@ -252,12 +254,18 @@ function policyWorkflowResponse(url) {
     id: source ? 7 : 8,
     path: ".github/workflows/ci.yml",
     event: "pull_request_target",
+    head_sha: latestPolicyReceiptMetadata.baseSha,
+    head_branch: latestPolicyReceiptMetadata.base,
     status: source || policyWorkflowInProgressResponses === 0 ? "completed" : "in_progress",
     conclusion: source || policyWorkflowInProgressResponses === 0 ? "success" : null,
     created_at: source ? "2026-08-14T23:30:00Z" : new Date(mergedMs + 60 * 1000).toISOString(),
     completed_at: source ? "2026-08-14T23:45:00Z" : closedAt,
     repository: { full_name: "example/repo" },
-    pull_requests: Array.from({ length: 200 }, (_, index) => ({ number: index + 1 }))
+    pull_requests: Array.from({ length: 200 }, (_, index) => ({
+      number: index + 1,
+      head: { sha: latestPolicyReceiptMetadata.headSha },
+      base: { ref: latestPolicyReceiptMetadata.base, sha: latestPolicyReceiptMetadata.baseSha }
+    }))
   };
   if (!source && policyWorkflowInProgressResponses > 0) policyWorkflowInProgressResponses -= 1;
   return jsonResponse(workflow);

@@ -255,12 +255,14 @@ function sourceWorkflowRunMatches(run, { repository, branch, headSha, pullNumber
       String(run.id ?? "") !== String(workflowRunId) || String(run.path ?? "") !== RELEASE_POLICY_RECEIPT_WORKFLOW_FILE ||
       String(run.event ?? "") !== RELEASE_POLICY_RECEIPT_WORKFLOW_EVENT ||
       String(run.status ?? "") !== "completed" || String(run.conclusion ?? "") !== "success" ||
-      String(run.head_sha ?? "").toLowerCase() !== headSha ||
+      !/^[0-9a-f]{40}$/.test(String(run.head_sha ?? "").toLowerCase()) ||
       (run.repository?.full_name !== undefined && String(run.repository.full_name) !== repository) ||
       !Array.isArray(run.pull_requests)) return false;
   const pull = run.pull_requests.find((item) => Number(item?.number) === Number(pullNumber));
-  if (!pull || (pull.base?.ref !== undefined && String(pull.base.ref) !== branch) ||
-      (pull.head?.sha !== undefined && String(pull.head.sha).toLowerCase() !== headSha)) return false;
+  if (!pull || String(pull.base?.ref ?? "") !== branch || String(pull.head?.sha ?? "").toLowerCase() !== headSha) return false;
+  const baseSha = String(pull.base?.sha ?? "").toLowerCase();
+  if (baseSha && (!/^[0-9a-f]{40}$/.test(baseSha) || String(run.head_sha).toLowerCase() !== baseSha)) return false;
+  if (!baseSha && run.head_branch !== undefined && String(run.head_branch) !== branch) return false;
   const createdAt = Date.parse(String(run.created_at ?? ""));
   return Number.isFinite(createdAt) && (mergedAtMs === null || createdAt <= mergedAtMs);
 }
