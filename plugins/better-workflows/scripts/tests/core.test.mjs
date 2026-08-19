@@ -2241,6 +2241,22 @@ test("GitHub Actions dispatch adapter binds a fixed command and one observed run
     }),
     /requires a repository workflow file/
   );
+  for (const credential of [
+    "cap_0123456789abcdef",
+    "cap-0123456789abcdef",
+    "token_0123456789abcdef",
+    "token-0123456789abcdef"
+  ]) {
+    const credentialInputs = { ...inputs, environment: credential };
+    assert.throws(
+      () => buildActionsDispatchCommand({
+        ...record,
+        dispatchInputs: credentialInputs,
+        dispatchInputsDigest: digestObject(credentialInputs)
+      }),
+      /workflow input must be non-sensitive/
+    );
+  }
   assert.throws(
     () => buildActionsDispatchProviderReceipt({
       ...record,

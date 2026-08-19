@@ -693,7 +693,17 @@ const WORKFLOW_REF_IDENTITY = /^refs\/(?:heads|tags)\/[A-Za-z0-9][A-Za-z0-9._\/-
 const WORKFLOW_INPUT_KEY = /^[A-Za-z_][A-Za-z0-9_-]{0,63}$/;
 const WORKFLOW_INPUT_VALUE = /^[^\0\r\n]{0,4096}$/;
 const WORKFLOW_INPUT_SENSITIVE_KEY = /(?:^|[_-])(?:token|secret|password|passwd|credential|private[_-]?key|api[_-]?key|access[_-]?key|client[_-]?secret|authorization|bearer|cookie|session)(?:$|[_-])/i;
-const WORKFLOW_INPUT_SECRET_VALUE = /(?:-----BEGIN [^-]+ PRIVATE KEY-----|(?:^|\b)(?:gh[pousr]_|github_pat_|glpat-|xox[baprs]-|AKIA|ASIA|AIDA|AROA|sk_(?:live|test)_|rk_(?:live|test)_|sq0atp-|ya29\.|AIza[A-Za-z0-9_-]{20,}|dop_v1_|lin_api_|npm_|pypi-AgEI)[A-Za-z0-9._~+\/-]{8,}|\b(?:bearer|basic)\s+[A-Za-z0-9._~+/=-]{20,}|(?:^|[\s,;])(?:token|secret|password|passwd|api[_-]?key|access[_-]?key)\s*[:=]\s*\S+|^[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}$|^[A-Za-z0-9+/=_-]{32,}$|^(?=[^\s]{32,}$)(?=.*[A-Z])(?=.*[a-z])(?=.*\d)(?=.*[^A-Za-z0-9])[^\s]+$)/i;
+export const CREDENTIAL_SHAPED_VALUE_PATTERN = /(?:-----BEGIN [^-]+ PRIVATE KEY-----|(?:^|\b)(?:gh[pousr]_|github_pat_|glpat-|xox[baprs]-|AKIA|ASIA|AIDA|AROA|sk_(?:live|test)_|rk_(?:live|test)_|sq0atp-|ya29\.|AIza[A-Za-z0-9_-]{20,}|dop_v1_|lin_api_|npm_|pypi-AgEI|(?:cap|token)[_-])[A-Za-z0-9._~+\/-]{8,}|\b(?:bearer|basic)\s+[A-Za-z0-9._~+/=-]{20,}|(?:^|[\s,;])(?:token|secret|password|passwd|api[_-]?key|access[_-]?key)\s*[:=]\s*\S+|^[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}$|^[A-Za-z0-9+/=_-]{32,}$|^(?=[^\s]{32,}$)(?=.*[A-Z])(?=.*[a-z])(?=.*\d)(?=.*[^A-Za-z0-9])[^\s]+$)/i;
+const WORKFLOW_INPUT_SECRET_VALUE = CREDENTIAL_SHAPED_VALUE_PATTERN;
+export const CREDENTIAL_SHAPED_LITERAL_PATTERN = /(?:-----BEGIN [^-]+ PRIVATE KEY-----|(?<![A-Za-z0-9_-])(?:gh[pousr]_|github_pat_|glpat-|xox[baprs]-|AKIA|ASIA|AIDA|AROA|sk_(?:live|test)_|rk_(?:live|test)_|sq0atp-|ya29\.|AIza[A-Za-z0-9_-]{20,}|dop_v1_|lin_api_|npm_|pypi-AgEI|(?:cap|token)[_-])[A-Za-z0-9._~+\/-]{8,}(?![A-Za-z0-9._~+\/-])|\b(?:bearer|basic)\s+[A-Za-z0-9._~+/=-]{20,})/i;
+
+export function isCredentialShapedValue(value) {
+  return typeof value === "string" && CREDENTIAL_SHAPED_VALUE_PATTERN.test(value);
+}
+
+export function hasCredentialShapedMaterial(value) {
+  return typeof value === "string" && CREDENTIAL_SHAPED_LITERAL_PATTERN.test(value);
+}
 const WORKFLOW_INPUT_PROTOTYPE_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 const WORKFLOW_DISPATCH_NONCE_INPUT = "sbw_dispatch_nonce";
 const WORKFLOW_DISPATCH_EXPECTED_REVISION_INPUT = "sbw_expected_revision";

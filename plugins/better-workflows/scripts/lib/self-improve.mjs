@@ -1,6 +1,6 @@
 import { lstat, readFile, realpath } from "node:fs/promises";
 import path from "node:path";
-import { digestObject, sha256 } from "./core.mjs";
+import { CREDENTIAL_SHAPED_LITERAL_PATTERN, digestObject, hasCredentialShapedMaterial, sha256 } from "./core.mjs";
 import { runSourceGit } from "./git.mjs";
 import { STANDING_CONSENT_SECRET_PATTERN } from "./standing-consent.mjs";
 
@@ -9,6 +9,7 @@ const SHA256 = /^[a-f0-9]{64}$/;
 const DISPOSITIONS = new Set(["IMPLEMENT", "NO_CHANGE", "BLOCKED", "REJECTED_WITH_EVIDENCE"]);
 const SECRET_PATTERN = new RegExp(STANDING_CONSENT_SECRET_PATTERN, "i");
 const SECRET_PATTERN_GLOBAL = new RegExp(STANDING_CONSENT_SECRET_PATTERN, "gi");
+const CREDENTIAL_SHAPED_LITERAL_PATTERN_GLOBAL = new RegExp(CREDENTIAL_SHAPED_LITERAL_PATTERN.source, "gi");
 const PROMPT_DISPLAY_IDENTIFIER_PATTERN = /(["']?)ownerToken\1\s*:\s*((?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,}\]]+))/g;
 const OWNER_TOKEN_UNQUOTED_LITERAL_PATTERN = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|(?:gh[pousr]_|github_pat_|glpat-|xox[baprs]-)[A-Za-z0-9_-]{8,}|(?:cap|token)[_-][A-Za-z0-9]{8,})$/i;
 const OWNER_TOKEN_SAFE_QUOTED_LITERALS = new Set(["disabled"]);
@@ -22,6 +23,12 @@ const OWNER_TOKEN_SAFE_EXPRESSIONS = new Set([
   "request?.ownerToken",
   "config/owner-token"
 ]);
+
+function secretShaped(value) {
+  const raw = String(value);
+  const normalized = raw.replace(/\[redacted-(?:test-fixture|owner-token)\]/g, "");
+  return SECRET_PATTERN.test(raw) || hasCredentialShapedMaterial(normalized);
+}
 export const SELF_IMPROVE_LEGACY_CORPUS = "plugins/better-workflows/fixtures/self-improve-ops-evals.json";
 export const SELF_IMPROVE_V22_CORPUS = "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.2.json";
 export const SELF_IMPROVE_V23_CORPUS = "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.3.json";
@@ -247,7 +254,11 @@ function sanitizeMaterialText(text, filePath, label) {
     (match, keyQuote, rawValue) => redactOwnerTokenDisplayWithPolicy(match, keyQuote, rawValue, !executableMaterial || testFixtureMaterial, testFixtureMaterial)
   );
   redacted ||= sanitized !== text;
-  if (SECRET_PATTERN.test(ownerTokenSecretScanText(sanitized))) {
+  if (testFixtureMaterial && hasCredentialShapedMaterial(ownerTokenSecretScanText(sanitized))) {
+    sanitized = sanitized.replace(CREDENTIAL_SHAPED_LITERAL_PATTERN_GLOBAL, "[redacted-test-fixture]");
+    redacted = true;
+  }
+  if (secretShaped(ownerTokenSecretScanText(sanitized))) {
     throw new Error(`${label} material contains unredactable secret-shaped content: ${filePath}`);
   }
   assertSafeOwnerTokenExpressions(sanitized, filePath, label);
