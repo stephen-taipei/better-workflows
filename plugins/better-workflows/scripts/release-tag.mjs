@@ -6,8 +6,8 @@ import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { inflateRawSync } from "node:zlib";
 import {
-  assertWorkflowRunReconciliationTrigger,
-  fetchWorkflowRunPolicyReceiptArtifact
+  assertClosedPolicyReceiptBinding,
+  fetchWorkflowRunCloseBindingArtifact
 } from "./release-policy-receipt.mjs";
 import {
   assertCommitSha,
@@ -1045,7 +1045,6 @@ async function verifyPolicyReceipt({ record, policyDigest, apiUrl, repository, b
       triggerWorkflowRun?.path !== RELEASE_WORKFLOW_FILE ||
       triggerWorkflowRun?.event !== RELEASE_POLICY_RECEIPT_WORKFLOW_EVENT ||
       triggerWorkflowRun?.status !== "completed" ||
-      triggerWorkflowRun?.conclusion !== "success" ||
       triggerWorkflowRun?.repository?.full_name !== repository ||
       !triggerPull ||
       String(triggerPull?.base?.ref ?? "") !== branch ||
@@ -1053,14 +1052,14 @@ async function verifyPolicyReceipt({ record, policyDigest, apiUrl, repository, b
     ) {
       throw new Error(`Release catch-up candidate ${candidateSha} has untrusted workflow-run reconciliation trigger provenance`);
     }
-    const triggerArtifact = await fetchWorkflowRunPolicyReceiptArtifact({
+    const triggerBinding = await fetchWorkflowRunCloseBindingArtifact({
       apiUrl,
       repository,
       runId: triggerWorkflowRunId,
       token,
       fetchImpl
     });
-    assertWorkflowRunReconciliationTrigger({
+    assertClosedPolicyReceiptBinding({
       repository,
       run: triggerWorkflowRun,
       pull: {
@@ -1070,7 +1069,7 @@ async function verifyPolicyReceipt({ record, policyDigest, apiUrl, repository, b
         merge_commit_sha: mergeCommitSha,
         merged_at: new Date(mergeTimeMs).toISOString()
       },
-      artifact: triggerArtifact
+      binding: triggerBinding
     });
   }
   let artifact;

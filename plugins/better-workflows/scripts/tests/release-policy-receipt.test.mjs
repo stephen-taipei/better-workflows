@@ -4,11 +4,13 @@ import {
   RELEASE_POLICY_RECEIPT_CONTEXT,
   RELEASE_POLICY_RECEIPT_PREFIX,
   RELEASE_POLICY_RECEIPT_ARTIFACT_KIND,
+  RELEASE_POLICY_CLOSE_BINDING_ARTIFACT_KIND,
+  assertClosedPolicyReceiptBinding,
   buildPolicyReceiptArtifact,
+  buildClosedPolicyReceiptBinding,
   buildPolicyStatus,
   normalizeRequiredChecks,
   parseWorkflowRunReconciliationEvent,
-  assertWorkflowRunReconciliationTrigger,
   prepareReleasePolicyReceipt,
   policyDigest,
   publishReleasePolicyReceipt,
@@ -202,7 +204,7 @@ test("workflow-run reconciliation artifacts bind the completed source run", () =
   );
 });
 
-test("workflow-run reconciliation requires one successful pull-request-target source", () => {
+test("workflow-run reconciliation requires one completed pull-request-target source", () => {
   const payload = {
     action: "completed",
     workflow_run: {
@@ -220,21 +222,17 @@ test("workflow-run reconciliation requires one successful pull-request-target so
     branch: "dev",
     headSha: "b".repeat(40)
   });
-  assert.throws(
-    () => parseWorkflowRunReconciliationEvent({ ...payload, workflow_run: { ...payload.workflow_run, conclusion: "failure" } }),
-    /successful pull-request-target source run/
-  );
+  assert.equal(parseWorkflowRunReconciliationEvent({ ...payload, workflow_run: { ...payload.workflow_run, conclusion: "failure" } }).triggerWorkflowRunId, "43");
   assert.throws(
     () => parseWorkflowRunReconciliationEvent({ ...payload, workflow_run: { ...payload.workflow_run, pull_requests: [] } }),
     /exactly one associated pull request/
   );
 });
 
-test("workflow-run reconciliation requires the exact closed merge source artifact", () => {
+test("workflow-run reconciliation requires the exact closed merge binding", () => {
   const headSha = "b".repeat(40);
   const mergeCommitSha = "c".repeat(40);
   const mergedAt = "2026-08-18T00:00:00Z";
-  const policy = [{ context: "test", appId: null, strict: true }];
   const run = {
     id: 43,
     path: ".github/workflows/ci.yml",
@@ -254,9 +252,10 @@ test("workflow-run reconciliation requires the exact closed merge source artifac
     merge_commit_sha: mergeCommitSha,
     merged_at: mergedAt
   };
-  const artifact = {
+  const binding = {
     schemaVersion: 1,
-    kind: RELEASE_POLICY_RECEIPT_ARTIFACT_KIND,
+    kind: RELEASE_POLICY_CLOSE_BINDING_ARTIFACT_KIND,
+    repository: "example/repo",
     workflowFile: ".github/workflows/ci.yml",
     workflowRunId: "43",
     eventName: "pull_request_target",
@@ -265,22 +264,28 @@ test("workflow-run reconciliation requires the exact closed merge source artifac
     pullNumber: 17,
     headSha,
     mergeCommitSha,
-    mergedAt,
-    observedAt: "2026-08-18T00:00:05Z",
-    policy,
-    policyDigest: policyDigest(policy),
-    sourceWorkflowRunId: "42",
-    sourcePolicyDigest: policyDigest(policy)
+    mergedAt: "2026-08-18T00:00:00.000Z",
+    observedAt: "2026-08-18T00:00:05.000Z"
   };
-  assert.doesNotThrow(() => assertWorkflowRunReconciliationTrigger({ repository: "example/repo", run, pull, artifact }));
+  assert.doesNotThrow(() => assertClosedPolicyReceiptBinding({ repository: "example/repo", run, pull, binding }));
   assert.throws(
-    () => assertWorkflowRunReconciliationTrigger({ repository: "example/repo", run, pull, artifact: { ...artifact, eventAction: "synchronize" } }),
-    /immutable closed-and-merged source receipt artifact/
+    () => assertClosedPolicyReceiptBinding({ repository: "example/repo", run, pull, binding: { ...binding, eventAction: "synchronize" } }),
+    /immutable closed-and-merged source binding/
   );
   assert.throws(
-    () => assertWorkflowRunReconciliationTrigger({ repository: "example/repo", run: { ...run, head_sha: "e".repeat(40) }, pull, artifact }),
-    /exact successful closed-and-merged pull-request-target run/
+    () => assertClosedPolicyReceiptBinding({ repository: "example/repo", run: { ...run, head_sha: "e".repeat(40) }, pull, binding }),
+    /exact completed closed-and-merged pull-request-target run/
   );
+  assert.deepEqual(buildClosedPolicyReceiptBinding({
+    repository: "example/repo",
+    branch: "dev",
+    headSha,
+    pullNumber: 17,
+    workflowRunId: "43",
+    observedAt: "2026-08-18T00:00:05Z",
+    mergeCommitSha,
+    mergedAt
+  }), binding);
 });
 
 test("closed receipt polling waits for the exact pre-merge status within a bounded window", async () => {

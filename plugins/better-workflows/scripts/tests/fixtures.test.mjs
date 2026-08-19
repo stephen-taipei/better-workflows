@@ -162,6 +162,8 @@ test("trusted pull-request-target workflow publishes a pre-merge policy artifact
   assert.match(workflow, /release-policy-receipt:[\s\S]*?GITHUB_MERGE_COMMIT_SHA:\s+\$\{\{\s*github\.event\.pull_request\.merge_commit_sha\s*\}\}/);
   assert.match(workflow, /release-policy-receipt:[\s\S]*?GITHUB_PR_MERGED_AT:\s+\$\{\{\s*github\.event\.pull_request\.merged_at\s*\}\}/);
   assert.match(workflow, /release-policy-receipt:[\s\S]*?GITHUB_RUN_ID:\s+\$\{\{\s*github\.run_id\s*\}\}/);
+  assert.match(workflow, /id:\s+close-binding[\s\S]*?if:\s+github\.event\.action\s+==\s+'closed'[\s\S]*?RELEASE_POLICY_RECEIPT_PHASE:\s+close-binding/);
+  assert.match(workflow, /if:\s+always\(\)\s+&&\s+steps\.close-binding\.outcome\s+==\s+'success'[\s\S]*?better-workflows-release-policy-close-binding-\$\{\{\s*github\.run_id\s*\}\}/);
   assert.match(workflow, /release-policy-receipt:[\s\S]*?RELEASE_POLICY_RECEIPT_FILE:\s+\$\{\{\s*runner\.temp\s*\}\}\/release-policy-receipt\.json/);
   assert.match(workflow, /id:\s+prepare[\s\S]*?RELEASE_POLICY_RECEIPT_PHASE:\s+prepare[\s\S]*?run:\s+node plugins\/better-workflows\/scripts\/release-policy-receipt\.mjs/);
   assert.match(workflow, /actions\/upload-artifact@v4/);
@@ -170,10 +172,11 @@ test("trusted pull-request-target workflow publishes a pre-merge policy artifact
   assert.match(workflow, /retention-days:\s+90/);
   assert.match(workflow, /release-policy-receipt:[\s\S]*?run:\s+node plugins\/better-workflows\/scripts\/release-policy-receipt\.mjs/);
   assert.match(reconciliationWorkflow, /workflow_run:\s*\n\s+workflows:\s+\["CI"\]\s*\n\s+types:\s+\[completed\]/);
-  assert.match(reconciliationWorkflow, /release-policy-receipt:\s*\n\s+name:\s+Release policy receipt\s*\n\s+if:\s+github\.event\.workflow_run\.event\s+==\s+'pull_request_target'[\s\S]*?github\.event\.workflow_run\.conclusion\s+==\s+'success'/);
+  assert.match(reconciliationWorkflow, /release-policy-receipt:\s*\n\s+name:\s+Release policy receipt\s*\n\s+# The Node entrypoint rejects non-merged runs and skips runs without the immutable close binding\.\s*\n\s+if:\s+github\.event\.workflow_run\.event\s+==\s+'pull_request_target'/);
   assert.match(reconciliationWorkflow, /GITHUB_EVENT_PATH:\s+\$\{\{\s*github\.event_path\s*\}\}/);
   assert.match(reconciliationWorkflow, /RELEASE_POLICY_RECEIPT_PHASE:\s+prepare/);
   assert.match(reconciliationWorkflow, /RELEASE_POLICY_RECEIPT_PHASE:\s+publish/);
+  assert.match(reconciliationWorkflow, /Validate exact closed merge trigger and prepare required-check policy receipt artifact/);
 });
 
 test("generated HTML template inventory derives ci release stages from authoritative templates", async () => {
