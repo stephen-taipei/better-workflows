@@ -3275,6 +3275,19 @@ test("GitHub Actions dispatch capability requires nonce-aware workflow metadata"
   assert.deepEqual(capability.publicInputNames, ["environment"]);
   assert.equal(capability.runNameNonce, true);
   assert.match(capability.contentDigest, /^[a-f0-9]{64}$/);
+  assert.throws(
+    () => validateWorkflowDispatchCapability(
+      workflow.replace("jobs:", "concurrency:\n  group: release\n  cancel-in-progress: true\njobs:"),
+      ".github/workflows/release.yml",
+      revision
+    ),
+    /must not enable cancel-in-progress/
+  );
+  assert.doesNotThrow(() => validateWorkflowDispatchCapability(
+    workflow.replace("jobs:", "concurrency:\n  group: release\n  cancel-in-progress: false\njobs:"),
+    ".github/workflows/release.yml",
+    revision
+  ));
   const nonceBlock = "      sbw_dispatch_nonce:\n        required: true\n        type: string\n";
   const revisionBlock = "      sbw_expected_revision:\n        required: true\n        type: string\n";
   assert.doesNotThrow(() => validateWorkflowDispatchCapability(

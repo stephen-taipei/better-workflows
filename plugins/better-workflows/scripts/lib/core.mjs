@@ -3487,6 +3487,23 @@ function workflowInputBlockEnd(inputEntries, inputIndex, inputsStop) {
   return inputEntries.find(({ index }) => index > inputIndex)?.index ?? inputsStop;
 }
 
+function assertWorkflowConcurrencyDoesNotCancelRuns(lines, topEntries) {
+  const concurrencyIndex = topEntries.find(({ parsed }) => parsed.key === "concurrency")?.index ?? -1;
+  if (concurrencyIndex < 0) return;
+  const header = topEntries.find(({ index }) => index === concurrencyIndex);
+  assertWorkflowMappingHeader(header, "concurrency block");
+  const indent = header.parsed.indent;
+  const end = lines.findIndex(({ parsed }, index) => index > concurrencyIndex && parsed && parsed.indent <= indent);
+  const stop = end < 0 ? lines.length : end;
+  assertCompleteDirectMapping(lines, concurrencyIndex, stop, indent, "concurrency block");
+  const entries = directWorkflowEntries(lines, concurrencyIndex, stop, indent);
+  assertUniqueWorkflowEntries(entries, "concurrency block");
+  const cancel = entries.find(({ parsed }) => parsed.key === "cancel-in-progress");
+  if (cancel && unquoteWorkflowScalar(cancel.parsed.value).toLowerCase() !== "false") {
+    throw new Error("GitHub Actions workflow concurrency must not enable cancel-in-progress for governed dispatch");
+  }
+}
+
 function isExactWorkflowRevisionGate(value) {
   if (typeof value !== "string" || value.includes("#")) return false;
   const trimmed = value.trim();
@@ -3514,6 +3531,7 @@ export function validateWorkflowDispatchCapability(content, workflowFile, revisi
   assertCompleteDirectMapping(lines, -1, lines.length, -1, "top-level");
   const topEntries = directWorkflowEntries(lines, -1, lines.length, -1);
   assertUniqueWorkflowEntries(topEntries, "top-level");
+  assertWorkflowConcurrencyDoesNotCancelRuns(lines, topEntries);
   const topOn = topEntries.find(({ parsed }) => parsed.key === "on")?.index ?? -1;
   if (topOn < 0) throw new Error("GitHub Actions workflow must declare a top-level on block");
   assertWorkflowMappingHeader(topEntries.find(({ index }) => index === topOn), "on block");
