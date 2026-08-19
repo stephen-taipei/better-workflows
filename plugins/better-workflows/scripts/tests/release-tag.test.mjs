@@ -215,7 +215,7 @@ function successfulRequiredCheckResponse(url, sha, context = "test", pullNumber 
 }
 
 function policyReceiptStatus(context, updatedAt = "2026-08-20T00:50:00Z", appId = null, metadata = {}) {
-  const policy = [{ context, appId, strict: true }];
+  const policy = [{ context, appId, strict: metadata.strict ?? true }];
   const policyDigest = createHash("sha256")
     .update(JSON.stringify(policy))
     .digest("hex");
@@ -1036,6 +1036,90 @@ test("release eligibility uses the validated push-event parent across multi-comm
       }),
       /is not an ancestor of event SHA/
     );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("release eligibility accepts a version-bump PR whose source is behind the target first parent", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-release-tag-behind-target-"));
+  const bare = path.join(root, "origin.git");
+  const work = path.join(root, "work");
+  try {
+    await execFileAsync("git", ["init", "--bare", "-q", bare]);
+    await execFileAsync("git", ["init", "-q", work]);
+    await git(work, ["config", "user.email", "test@example.invalid"]);
+    await git(work, ["config", "user.name", "release-test"]);
+    await mkdir(path.join(work, "plugins/better-workflows/.codex-plugin"), { recursive: true });
+    await mkdir(path.join(work, "plugins/better-workflows"), { recursive: true });
+    const writeVersion = async (version) => {
+      await writeFile(path.join(work, "plugins/better-workflows/package.json"), JSON.stringify({ version }));
+      await writeFile(path.join(work, "plugins/better-workflows/.codex-plugin/plugin.json"), JSON.stringify({ version: `${version}+codex.test` }));
+    };
+    await writeVersion("3.4.12");
+    await git(work, ["add", "."]);
+    await git(work, ["commit", "-qm", "base"]);
+    await git(work, ["branch", "-M", "dev"]);
+    await git(work, ["remote", "add", "origin", bare]);
+    await git(work, ["push", "-q", "origin", "dev"]);
+    const base = await git(work, ["rev-parse", "HEAD"]);
+    await writeFile(path.join(work, "target-only.txt"), "target branch moved\n");
+    await git(work, ["add", "target-only.txt"]);
+    await git(work, ["commit", "-qm", "target branch advance"]);
+    const eventBefore = await git(work, ["rev-parse", "HEAD"]);
+    await git(work, ["branch", "feature", base]);
+    await git(work, ["switch", "feature"]);
+    await writeVersion("3.4.13");
+    await git(work, ["add", "."]);
+    await git(work, ["commit", "-qm", "version bump"]);
+    const source = await git(work, ["rev-parse", "HEAD"]);
+    await git(work, ["switch", "dev"]);
+    await git(work, ["merge", "--no-ff", "-q", "feature", "-m", "merge version bump"]);
+    const head = await git(work, ["rev-parse", "HEAD"]);
+    await git(work, ["push", "-q", "origin", "dev"]);
+    const mergedAt = "2026-08-18T00:00:00Z";
+    const fetchImpl = async (url) => {
+      if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
+        return jsonResponse([{ number: 30, base: { ref: "dev", sha: eventBefore }, head: { sha: source }, merged_at: mergedAt, merge_commit_sha: head }]);
+      }
+      if (url.endsWith("/branches/dev")) {
+        return jsonResponse({ protected: true, protection: { required_status_checks: { contexts: ["test"], checks: [], strict: false } } });
+      }
+      if (url.includes("/actions/runs?") && url.includes("event=pull_request")) {
+        return pullRequestWorkflowResponse(url, [{ sha: source, pullNumber: 30 }]);
+      }
+      if (url.includes(`/commits/${source}/check-runs?per_page=100&page=1`)) {
+        return jsonResponse({ check_runs: [{ id: 30, name: "test", head_sha: source, status: "completed", conclusion: "success", completed_at: "2026-08-17T23:55:00Z" }] });
+      }
+      if (url.includes(`/commits/${source}/statuses?per_page=100&page=1`)) {
+        return jsonResponse([
+          { id: 30, context: "test", state: "success" },
+          policyReceiptStatus("test", "2026-08-18T00:00:05Z", null, { pullNumber: 30, headSha: source, mergeSha: head, mergedAt, strict: false })
+        ]);
+      }
+      const policyWorkflow = policyWorkflowResponse(url);
+      if (policyWorkflow) return policyWorkflow;
+      if (url.includes("/commits/") && url.endsWith("/pulls?per_page=100")) return jsonResponse([]);
+      throw new Error(`Unexpected behind-target release-tag fetch URL: ${url}`);
+    };
+    const result = await runReleaseTag({
+      cwd: work,
+      fetchImpl,
+      env: {
+        GITHUB_EVENT_NAME: "push",
+        GITHUB_EVENT_BEFORE: eventBefore,
+        GITHUB_REF_NAME: "dev",
+        GITHUB_REPOSITORY: "example/repo",
+        GITHUB_SHA: head,
+        GITHUB_TOKEN: "test-token",
+        GITHUB_API_URL: "https://api.github.com",
+        RELEASE_TAG_DRY_RUN: "1"
+      }
+    });
+    assert.equal(result.status, "planned");
+    assert.equal(result.sha, head);
+    assert.equal(result.version, "3.4.13");
+    assert.equal(result.pullNumber, 30);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -641,12 +641,25 @@ async function authenticatedPullVersionTransition(cwd, pull, currentVersion, { a
   if (!(await revisionExists(cwd, baseSha))) return null;
   const baseVersion = await versionAtCommit(cwd, baseSha);
   if (!baseVersion) return null;
+  const mergeSha = String(pull?.merge_commit_sha ?? "").trim().toLowerCase();
+  const exactMergeMatchesSource = async (sourceVersion) => {
+    if (!suppliedBaseSha) return true;
+    if (!/^[0-9a-f]{40}$/.test(mergeSha) || !(await revisionExists(cwd, mergeSha)) ||
+        !(await revisionIsAncestor(cwd, baseSha, mergeSha))) return false;
+    const mergeVersion = await versionAtCommit(cwd, mergeSha);
+    return Boolean(mergeVersion) && compareStableVersions(mergeVersion, sourceVersion) === 0;
+  };
   const sourceAvailable = await revisionExists(cwd, sourceSha);
   if (sourceAvailable) {
-    if (!(await revisionIsAncestor(cwd, baseSha, sourceSha))) return null;
+    // An immutable push-event parent is the target branch's first parent. A
+    // normal PR may be based on an older target revision, so that parent need
+    // not be an ancestor of the PR head; the exact merge result must instead
+    // bind both revisions and carry the same version as the source tree.
+    if (!suppliedBaseSha && !(await revisionIsAncestor(cwd, baseSha, sourceSha))) return null;
     const sourceVersion = await versionAtCommit(cwd, sourceSha);
     if (!baseVersion || !sourceVersion || compareStableVersions(sourceVersion, baseVersion) <= 0) return null;
     if (compareStableVersions(sourceVersion, currentVersion) !== 0) return null;
+    if (!(await exactMergeMatchesSource(sourceVersion))) return null;
     return { baseSha, sourceSha, baseVersion, version: sourceVersion };
   }
 
@@ -656,7 +669,6 @@ async function authenticatedPullVersionTransition(cwd, pull, currentVersion, { a
   // prevents an unrelated base-branch bump from being attributed to the PR.
   const sourceVersion = await versionAtProviderCommit({ apiUrl, repository, revision: sourceSha, token, fetchImpl });
   if (!sourceVersion || compareStableVersions(sourceVersion, baseVersion) <= 0 || compareStableVersions(sourceVersion, currentVersion) !== 0) return null;
-  const mergeSha = String(pull?.merge_commit_sha ?? "").trim().toLowerCase();
   if (!/^[0-9a-f]{40}$/.test(mergeSha) || !(await revisionExists(cwd, mergeSha))) return null;
   if (!(await revisionIsAncestor(cwd, baseSha, mergeSha))) return null;
   const mergeVersion = await versionAtCommit(cwd, mergeSha);
