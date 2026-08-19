@@ -2532,6 +2532,16 @@ test("GitHub Actions dispatch observation lower bound uses provider-start time",
   assert.ok(observationIndex > providerCallIndex);
 });
 
+test("owned-resource registration forwards the creation action tree binding to provider verification", async () => {
+  const source = await readFile(new URL("../lib/core.mjs", import.meta.url), "utf8");
+  const registrationIndex = source.indexOf("async function registerOwnedResourceLocked");
+  const verificationIndex = source.indexOf("await verifyProviderReceipt(", registrationIndex);
+  const treeBindingIndex = source.indexOf("treeDigest: creationAction.treeDigest", verificationIndex);
+  assert.ok(registrationIndex >= 0);
+  assert.ok(verificationIndex > registrationIndex);
+  assert.ok(treeBindingIndex > verificationIndex);
+});
+
 test("GitHub Actions dispatch reconciliation resumes an indeterminate observation exactly once", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "sbw-actions-dispatch-resume-"));
   const repository = path.join(root, "repository");

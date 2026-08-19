@@ -2221,7 +2221,8 @@ async function registerOwnedResourceLocked(root, runId, run, runDir, { resource,
       createRepository: creationAction.createRepository,
       creationPrecondition: creationAction.creationPrecondition,
       targetRef: creationAction.targetRef,
-      expectedHead: creationAction.expectedHead
+      expectedHead: creationAction.expectedHead,
+      treeDigest: creationAction.treeDigest
     },
     { providerReceipt: creationReceipt.providerReceipt }
   );
