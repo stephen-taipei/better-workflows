@@ -905,7 +905,9 @@ test("release eligibility uses the validated push-event parent across multi-comm
       ]);
       if (workflowResponse) return workflowResponse;
       if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
-        return jsonResponse([{ number: 9, base: { ref: "dev", sha: eventBefore }, head: { sha: head }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: head }]);
+        // The live PR base has advanced after merge; eligibility must use the
+        // validated push-event parent instead of this mutable provider field.
+        return jsonResponse([{ number: 9, base: { ref: "dev", sha: "f".repeat(40) }, head: { sha: head }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: head }]);
       }
       if (url.endsWith(`/repos/example/repo/commits/${intermediate}/pulls?per_page=100`)) {
         return jsonResponse([{ number: 10, base: { ref: "dev" }, head: { sha: intermediate }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: intermediate }]);

@@ -618,8 +618,9 @@ async function revisionExists(cwd, revision) {
   }
 }
 
-async function authenticatedPullVersionTransition(cwd, pull, currentVersion, { apiUrl, repository, token, fetchImpl = fetch } = {}) {
-  const baseSha = String(pull?.base?.sha ?? "").trim().toLowerCase();
+async function authenticatedPullVersionTransition(cwd, pull, currentVersion, { apiUrl, repository, token, fetchImpl = fetch, immutableBaseSha = null } = {}) {
+  const suppliedBaseSha = String(immutableBaseSha ?? "").trim().toLowerCase();
+  const baseSha = suppliedBaseSha || String(pull?.base?.sha ?? "").trim().toLowerCase();
   const sourceSha = String(pull?.head?.sha ?? "").trim().toLowerCase();
   if (!/^[0-9a-f]{40}$/.test(baseSha) || !/^[0-9a-f]{40}$/.test(sourceSha)) return null;
   if (!(await revisionExists(cwd, baseSha))) return null;
@@ -654,7 +655,7 @@ async function authenticatedPullVersionTransition(cwd, pull, currentVersion, { a
   };
 }
 
-async function findEligibleVersionBumps({ cwd, branch, head, currentVersion, highestPublished, eventVersionChanged, eventParentVersion, headPull, apiUrl, repository, token, fetchImpl, publisherContext }) {
+async function findEligibleVersionBumps({ cwd, branch, head, currentVersion, highestPublished, eventVersionChanged, eventParentVersion, eventParentRevision, headPull, apiUrl, repository, token, fetchImpl, publisherContext }) {
   const revisions = (await git(cwd, ["rev-list", "--first-parent", `--max-count=${CATCH_UP_HISTORY_LIMIT}`, head]))
     .split(/\s+/)
     .filter(Boolean);
@@ -687,15 +688,16 @@ async function findEligibleVersionBumps({ cwd, branch, head, currentVersion, hig
     }
     return publisherAvailabilityCache.get(boundary);
   };
-  const pullVersionTransition = async (pull) => {
-    const key = String(pull?.merge_commit_sha ?? pull?.head?.sha ?? "").toLowerCase();
+  const pullVersionTransition = async (pull, immutableBaseSha = null) => {
+    const key = `${String(pull?.merge_commit_sha ?? pull?.head?.sha ?? "").toLowerCase()}\u0000${String(immutableBaseSha ?? "").toLowerCase()}`;
     if (!key) return null;
     if (!pullTransitionCache.has(key)) {
       pullTransitionCache.set(key, authenticatedPullVersionTransition(cwd, pull, currentVersion, {
         apiUrl,
         repository,
         token,
-        fetchImpl
+        fetchImpl,
+        immutableBaseSha
       }));
     }
     return pullTransitionCache.get(key);
@@ -740,7 +742,7 @@ async function findEligibleVersionBumps({ cwd, branch, head, currentVersion, hig
       // Reconstruct the authenticated PR range from its immutable base to
       // source head, and attribute the net change only to that exact result.
       const pull = await loadPull(candidate);
-      const transition = await pullVersionTransition(pull);
+      const transition = await pullVersionTransition(pull, candidate === head ? eventParentRevision : null);
       if (!transition || String(pull?.merge_commit_sha ?? "").toLowerCase() !== candidate) continue;
       await addCandidate({
         order,
@@ -766,7 +768,7 @@ async function findEligibleVersionBumps({ cwd, branch, head, currentVersion, hig
       // The event-head candidate must be attributable to this exact PR's
       // immutable base-to-source range; the push event parent alone can span
       // unrelated commits from the same multi-commit push.
-      const transition = await pullVersionTransition(pull);
+      const transition = await pullVersionTransition(pull, eventParentRevision);
       if (!transition || String(pull?.merge_commit_sha ?? "").toLowerCase() !== candidate) continue;
       await addCandidate({
         order: -1,
@@ -1520,6 +1522,7 @@ export async function runReleaseTag({
     highestPublished,
     eventVersionChanged: versionWasChanged,
     eventParentVersion: previous,
+    eventParentRevision: targetParent,
     headPull,
     apiUrl,
     repository,
