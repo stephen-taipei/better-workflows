@@ -24,6 +24,7 @@ const PLUGIN_MANIFEST = "plugins/better-workflows/.codex-plugin/plugin.json";
 const RELEASE_WORKFLOW_TEST_CONTEXT = "test";
 const RELEASE_WORKFLOW_TEST_APP_SLUG = "github-actions";
 const RELEASE_WORKFLOW_FILE = ".github/workflows/ci.yml";
+const RELEASE_POLICY_RECONCILIATION_WORKFLOW_FILE = ".github/workflows/release-policy-reconcile.yml";
 const RELEASE_POLICY_RECEIPT_CONTEXT = "better-workflows/release-policy-v1";
 const RELEASE_POLICY_RECEIPT_PREFIX = "better-workflows-policy-v1:";
 const RELEASE_POLICY_RECEIPT_WORKFLOW_EVENT = "pull_request_target";
@@ -243,7 +244,8 @@ export function assertPolicyReceiptArtifact(payload, {
   phase = "pre-merge",
   mergeCommitSha = null,
   expectedEventName = null,
-  triggerWorkflowRunId = null
+  triggerWorkflowRunId = null,
+  allowPostMergeObservation = false
 }) {
   let computedPolicyDigest = null;
   let normalizedPolicy = null;
@@ -254,6 +256,9 @@ export function assertPolicyReceiptArtifact(payload, {
     computedPolicyDigest = null;
   }
   const eventName = String(payload?.eventName ?? "");
+  const expectedWorkflowFile = eventName === RELEASE_POLICY_RECEIPT_RECONCILIATION_EVENT
+    ? RELEASE_POLICY_RECONCILIATION_WORKFLOW_FILE
+    : RELEASE_WORKFLOW_FILE;
   const expectedTrigger = String(triggerWorkflowRunId ?? "");
   const eventBindingInvalid = expectedEventName !== null
     ? eventName !== expectedEventName
@@ -264,7 +269,7 @@ export function assertPolicyReceiptArtifact(payload, {
     : payload?.triggerWorkflowRunId !== undefined;
   const commonBinding = !payload || typeof payload !== "object" || Array.isArray(payload) ||
       payload.schemaVersion !== 1 || payload.kind !== RELEASE_POLICY_RECEIPT_ARTIFACT_KIND ||
-      payload.repository !== repository || payload.workflowFile !== RELEASE_WORKFLOW_FILE ||
+      payload.repository !== repository || payload.workflowFile !== expectedWorkflowFile ||
       String(payload.workflowRunId) !== String(runId) ||
       eventBindingInvalid || triggerBindingInvalid ||
       payload.branch !== branch || Number(payload.pullNumber) !== Number(pullNumber) ||
@@ -291,7 +296,9 @@ export function assertPolicyReceiptArtifact(payload, {
     throw new Error(`Release catch-up candidate ${preMergeSha} has an unsupported policy artifact phase`);
   }
   const observedAt = Date.parse(String(payload.observedAt ?? ""));
-  if (!Number.isFinite(observedAt) || (phase === "pre-merge" && observedAt > mergeTimeMs) || (phase === "merge-bound" && observedAt < mergeTimeMs)) {
+  if (!Number.isFinite(observedAt) ||
+      (phase === "pre-merge" && !allowPostMergeObservation && mergeTimeMs !== null && observedAt > mergeTimeMs) ||
+      (phase === "merge-bound" && observedAt < mergeTimeMs)) {
     throw new Error(`Release catch-up candidate ${preMergeSha} has pre-merge policy evidence after its pull-request merge`);
   }
   return { ...payload, policy: normalizedPolicy, observedAt: new Date(observedAt).toISOString() };
@@ -561,21 +568,29 @@ async function defaultBranchReleasePolicyActivation({ apiUrl, repository, token,
   const repositoryPayload = await repositoryResponse.json();
   const defaultBranch = String(repositoryPayload?.default_branch ?? "").trim();
   if (!/^[A-Za-z0-9._/-]{1,255}$/.test(defaultBranch)) return false;
-  const workflowResponse = await fetchImpl(`${root}/actions/workflows/ci.yml`, requestOptions);
-  if (!workflowResponse.ok) return false;
-  const workflowPayload = await workflowResponse.json();
-  if (workflowPayload?.path !== RELEASE_WORKFLOW_FILE || workflowPayload?.state !== "active") return false;
-  const contentResponse = await fetchImpl(`${root}/contents/${RELEASE_WORKFLOW_FILE}?ref=${encodeURIComponent(defaultBranch)}`, requestOptions);
-  if (!contentResponse.ok) return false;
-  const contentPayload = await contentResponse.json();
-  if (contentPayload?.type !== "file" || contentPayload?.path !== RELEASE_WORKFLOW_FILE || contentPayload?.encoding !== "base64" || typeof contentPayload?.content !== "string") return false;
-  let workflowText;
-  try {
-    workflowText = Buffer.from(contentPayload.content.replace(/\s+/g, ""), "base64").toString("utf8");
-  } catch {
-    return false;
-  }
-  return /(?:^|\n)\s*pull_request_target\s*:/.test(workflowText) && /(?:^|\n)\s*release-policy-receipt\s*:/.test(workflowText);
+  const loadWorkflow = async (workflowFile) => {
+    const workflowResponse = await fetchImpl(`${root}/actions/workflows/${workflowFile.split("/").pop()}`, requestOptions);
+    if (!workflowResponse.ok) return null;
+    const workflowPayload = await workflowResponse.json();
+    if (workflowPayload?.path !== workflowFile || workflowPayload?.state !== "active") return null;
+    const contentResponse = await fetchImpl(`${root}/contents/${workflowFile}?ref=${encodeURIComponent(defaultBranch)}`, requestOptions);
+    if (!contentResponse.ok) return null;
+    const contentPayload = await contentResponse.json();
+    if (contentPayload?.type !== "file" || contentPayload?.path !== workflowFile || contentPayload?.encoding !== "base64" || typeof contentPayload?.content !== "string") return null;
+    try {
+      return Buffer.from(contentPayload.content.replace(/\s+/g, ""), "base64").toString("utf8");
+    } catch {
+      return null;
+    }
+  };
+  const ciWorkflowText = await loadWorkflow(RELEASE_WORKFLOW_FILE);
+  if (ciWorkflowText === null) return false;
+  const reconciliationWorkflowText = await loadWorkflow(RELEASE_POLICY_RECONCILIATION_WORKFLOW_FILE);
+  return ciWorkflowText !== null && reconciliationWorkflowText !== null &&
+    /(?:^|\n)\s*pull_request_target\s*:/.test(ciWorkflowText) &&
+    /(?:^|\n)\s*release-policy-receipt\s*:/.test(ciWorkflowText) &&
+    /(?:^|\n)\s*workflow_run\s*:/.test(reconciliationWorkflowText) &&
+    /(?:^|\n)\s*release-policy-receipt\s*:/.test(reconciliationWorkflowText);
 }
 
 async function releasePolicyPublisherAvailable(cwd, baseSha, remoteContext = {}) {
@@ -886,6 +901,11 @@ function observationTime(record) {
   return Number.NEGATIVE_INFINITY;
 }
 
+function workflowOriginTime(record) {
+  const value = Date.parse(String(record?.created_at ?? ""));
+  return Number.isFinite(value) ? value : Number.NEGATIVE_INFINITY;
+}
+
 function observationId(record) {
   const value = Number(record?.id);
   return Number.isFinite(value) ? value : Number.NEGATIVE_INFINITY;
@@ -962,8 +982,11 @@ async function verifyPolicyReceipt({ record, policyDigest, apiUrl, repository, b
   const workflowRun = await repositoryWorkflowRun({ apiUrl, repository, runId, token, fetchImpl });
   const workflowEvent = String(workflowRun?.event ?? "");
   const triggerWorkflowRunId = targetUrl.searchParams.get("trigger");
+  const expectedReceiptWorkflowFile = workflowEvent === RELEASE_POLICY_RECEIPT_RECONCILIATION_EVENT
+    ? RELEASE_POLICY_RECONCILIATION_WORKFLOW_FILE
+    : RELEASE_WORKFLOW_FILE;
   const commonWorkflowBindingInvalid = String(workflowRun?.id ?? "") !== runId ||
-    workflowRun?.path !== RELEASE_WORKFLOW_FILE ||
+    workflowRun?.path !== expectedReceiptWorkflowFile ||
     workflowRun?.repository?.full_name !== repository;
   const pullRequestTargetBindingInvalid = workflowEvent === RELEASE_POLICY_RECEIPT_WORKFLOW_EVENT && (
     (workflowRun?.head_branch !== undefined && workflowRun.head_branch !== branch) ||
@@ -1058,7 +1081,7 @@ async function verifyPolicyReceipt({ record, policyDigest, apiUrl, repository, b
   ) {
     throw new Error(`Release catch-up candidate ${candidateSha} has untrusted pre-merge policy workflow continuity`);
   }
-  const sourceWorkflowAt = observationTime(sourceWorkflowRun);
+  const sourceWorkflowAt = workflowOriginTime(sourceWorkflowRun);
   if (!Number.isFinite(sourceWorkflowAt) || sourceWorkflowAt > mergeTimeMs) {
     throw new Error(`Release catch-up candidate ${candidateSha} has pre-merge policy workflow provenance after its pull-request merge`);
   }
@@ -1079,7 +1102,8 @@ async function verifyPolicyReceipt({ record, policyDigest, apiUrl, repository, b
         requiredPolicyDigest: artifact.policyDigest,
         mergeTimeMs,
         phase: "pre-merge",
-        mergeCommitSha
+        mergeCommitSha,
+        allowPostMergeObservation: true
       }
     });
   } catch (error) {
@@ -1379,11 +1403,11 @@ async function verifyCatchUpChecks({
       throw new Error(`Release catch-up candidate ${sha} lacks an immutable merged pull-request binding`);
     }
     const observedAt = (record, label, phase = "pre-merge") => {
-      const timestamp = observationTime(record);
+      const timestamp = phase === "pre-merge-origin" ? workflowOriginTime(record) : observationTime(record);
       if (!Number.isFinite(timestamp)) {
         throw new Error(`Release catch-up candidate ${sha} lacks a timestamped ${label} receipt`);
       }
-      if (phase === "pre-merge" && timestamp > mergedAtMs) {
+      if ((phase === "pre-merge" || phase === "pre-merge-origin") && timestamp > mergedAtMs) {
         throw new Error(`Release catch-up candidate ${sha} has ${label} evidence after its pull-request merge`);
       }
       if (phase === "post-merge" && timestamp < mergedAtMs) {
@@ -1412,7 +1436,7 @@ async function verifyCatchUpChecks({
           publisher: String(policyReceipt.record?.creator?.login ?? "github-actions[bot]"),
           workflowRunId: String(policyReceipt.workflowRun.id),
           recordedAt: policyReceipt.sourceArtifact?.observedAt ?? policyReceipt.artifact.observedAt,
-          workflowRecordedAt: observedAt(policyReceipt.sourceWorkflowRun ?? policyReceipt.workflowRun, "pre-merge policy workflow")
+          workflowRecordedAt: observedAt(policyReceipt.sourceWorkflowRun ?? policyReceipt.workflowRun, "pre-merge policy workflow", "pre-merge-origin")
         }
       } : {}),
       preMergeWorkflow: {

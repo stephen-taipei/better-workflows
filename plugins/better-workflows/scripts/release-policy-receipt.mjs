@@ -4,6 +4,7 @@ import { readFile, writeFile } from "node:fs/promises";
 export const RELEASE_POLICY_RECEIPT_CONTEXT = "better-workflows/release-policy-v1";
 export const RELEASE_POLICY_RECEIPT_PREFIX = "better-workflows-policy-v1:";
 export const RELEASE_POLICY_RECEIPT_WORKFLOW_FILE = ".github/workflows/ci.yml";
+export const RELEASE_POLICY_RECEIPT_RECONCILIATION_WORKFLOW_FILE = ".github/workflows/release-policy-reconcile.yml";
 export const RELEASE_POLICY_RECEIPT_WORKFLOW_EVENT = "pull_request_target";
 export const RELEASE_POLICY_RECEIPT_RECONCILIATION_EVENT = "workflow_run";
 export const RELEASE_POLICY_RECEIPT_PUBLISHER = "github-actions[bot]";
@@ -113,7 +114,9 @@ export function buildPolicyReceiptArtifact({
     schemaVersion: 1,
     kind: RELEASE_POLICY_RECEIPT_ARTIFACT_KIND,
     repository: String(repository),
-    workflowFile: RELEASE_POLICY_RECEIPT_WORKFLOW_FILE,
+    workflowFile: normalizedEventName === RELEASE_POLICY_RECEIPT_RECONCILIATION_EVENT
+      ? RELEASE_POLICY_RECEIPT_RECONCILIATION_WORKFLOW_FILE
+      : RELEASE_POLICY_RECEIPT_WORKFLOW_FILE,
     workflowRunId: runId,
     eventName: normalizedEventName,
     eventAction: String(eventAction),
@@ -211,7 +214,7 @@ async function repositoryCommitStatuses({ apiUrl, repository, sha, token, fetchI
   throw new Error("Release policy receipt status query exceeded its bounded page limit");
 }
 
-function sourcePolicyReceipt(status, { repository, branch, headSha, pullNumber, mergedAtMs = null }) {
+function sourcePolicyReceipt(status, { repository, branch, headSha, pullNumber }) {
   if (status?.state !== "success" || status?.context !== RELEASE_POLICY_RECEIPT_CONTEXT) return null;
   let targetUrl;
   try {
@@ -234,8 +237,32 @@ function sourcePolicyReceipt(status, { repository, branch, headSha, pullNumber, 
     !/^[a-f0-9]{64}$/.test(digest)
   ) return null;
   const updatedAt = Date.parse(String(status.updated_at ?? status.created_at ?? ""));
-  if (!Number.isFinite(updatedAt) || (mergedAtMs !== null && updatedAt > mergedAtMs)) return null;
+  if (!Number.isFinite(updatedAt)) return null;
   return { status, workflowRunId: runMatch[1], policyDigest: digest, updatedAt };
+}
+
+async function repositoryWorkflowRun({ apiUrl, repository, runId, token, fetchImpl = fetch }) {
+  return requestJson({
+    apiUrl,
+    path: `/repos/${repository}/actions/runs/${encodeURIComponent(runId)}`,
+    token,
+    fetchImpl
+  });
+}
+
+function sourceWorkflowRunMatches(run, { repository, branch, headSha, pullNumber, workflowRunId, mergedAtMs }) {
+  if (!run || typeof run !== "object" || Array.isArray(run) ||
+      String(run.id ?? "") !== String(workflowRunId) || String(run.path ?? "") !== RELEASE_POLICY_RECEIPT_WORKFLOW_FILE ||
+      String(run.event ?? "") !== RELEASE_POLICY_RECEIPT_WORKFLOW_EVENT ||
+      String(run.status ?? "") !== "completed" || String(run.conclusion ?? "") !== "success" ||
+      String(run.head_sha ?? "").toLowerCase() !== headSha ||
+      (run.repository?.full_name !== undefined && String(run.repository.full_name) !== repository) ||
+      !Array.isArray(run.pull_requests)) return false;
+  const pull = run.pull_requests.find((item) => Number(item?.number) === Number(pullNumber));
+  if (!pull || (pull.base?.ref !== undefined && String(pull.base.ref) !== branch) ||
+      (pull.head?.sha !== undefined && String(pull.head.sha).toLowerCase() !== headSha)) return false;
+  const createdAt = Date.parse(String(run.created_at ?? ""));
+  return Number.isFinite(createdAt) && (mergedAtMs === null || createdAt <= mergedAtMs);
 }
 
 function waitForReceiptSource(delayMs) {
@@ -264,11 +291,22 @@ export async function waitForSourcePolicyReceipt({
   }
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const statuses = await repositoryCommitStatuses({ apiUrl, repository, sha: headSha, token, fetchImpl });
-    const source = statuses
-      .map((status) => sourcePolicyReceipt(status, { repository, branch, headSha, pullNumber, mergedAtMs }))
+    const sources = statuses
+      .map((status) => sourcePolicyReceipt(status, { repository, branch, headSha, pullNumber }))
       .filter(Boolean)
-      .sort((left, right) => right.updatedAt - left.updatedAt || String(right.status.id ?? "").localeCompare(String(left.status.id ?? "")))[0];
-    if (source) return source;
+      .sort((left, right) => right.updatedAt - left.updatedAt || String(right.status.id ?? "").localeCompare(String(left.status.id ?? "")));
+    for (const source of sources) {
+      const workflowRun = await repositoryWorkflowRun({
+        apiUrl,
+        repository,
+        runId: source.workflowRunId,
+        token,
+        fetchImpl
+      });
+      if (sourceWorkflowRunMatches(workflowRun, { repository, branch, headSha, pullNumber, workflowRunId: source.workflowRunId, mergedAtMs })) {
+        return { ...source, workflowRun };
+      }
+    }
     if (attempt < attempts - 1) await sleepImpl(delayMs);
   }
   return null;
@@ -313,8 +351,11 @@ export async function prepareReleasePolicyReceipt({
 function assertPreparedArtifact({ artifact, repository, branch, headSha, pullNumber, workflowRunId, eventAction, policy, eventName = RELEASE_POLICY_RECEIPT_WORKFLOW_EVENT, triggerWorkflowRunId = null }) {
   const expectedEventName = String(eventName ?? "").trim();
   const expectedTriggerRunId = String(triggerWorkflowRunId ?? "").trim();
+  const expectedWorkflowFile = expectedEventName === RELEASE_POLICY_RECEIPT_RECONCILIATION_EVENT
+    ? RELEASE_POLICY_RECEIPT_RECONCILIATION_WORKFLOW_FILE
+    : RELEASE_POLICY_RECEIPT_WORKFLOW_FILE;
   if (!artifact || artifact.schemaVersion !== 1 || artifact.kind !== RELEASE_POLICY_RECEIPT_ARTIFACT_KIND ||
-      artifact.eventName !== expectedEventName || artifact.workflowFile !== RELEASE_POLICY_RECEIPT_WORKFLOW_FILE ||
+      artifact.eventName !== expectedEventName || artifact.workflowFile !== expectedWorkflowFile ||
       artifact.repository !== repository || artifact.branch !== branch || artifact.headSha !== headSha ||
       Number(artifact.pullNumber) !== Number(pullNumber) || String(artifact.workflowRunId) !== String(workflowRunId) ||
       artifact.eventAction !== eventAction || JSON.stringify(artifact.policy) !== JSON.stringify(policy) ||

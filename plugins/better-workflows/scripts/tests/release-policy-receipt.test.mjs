@@ -193,6 +193,7 @@ test("workflow-run reconciliation artifacts bind the completed source run", () =
     sourcePolicyDigest: policyDigest(policy)
   });
   assert.equal(artifact.eventName, "workflow_run");
+  assert.equal(artifact.workflowFile, ".github/workflows/release-policy-reconcile.yml");
   assert.equal(artifact.triggerWorkflowRunId, "43");
   assert.throws(
     () => buildPolicyReceiptArtifact({ ...artifact, triggerWorkflowRunId: null }),
@@ -251,6 +252,7 @@ test("closed receipt polling waits for the exact pre-merge status within a bound
     delayMs: 5_000,
     sleepImpl: async (delay) => sleeps.push(delay),
     fetchImpl: async (url) => {
+      if (url.endsWith(`/actions/runs/42`)) return { ok: true, status: 200, json: async () => ({ id: 42, path: ".github/workflows/ci.yml", event: "pull_request_target", status: "completed", conclusion: "success", head_sha: headSha, created_at: "2026-08-17T23:59:00Z", repository: { full_name: "example/repo" }, pull_requests: [{ number: 17, head: { sha: headSha }, base: { ref: "dev" } }] }) };
       queries += 1;
       assert.equal(url, `https://api.github.com/repos/example/repo/commits/${headSha}/statuses?per_page=100&page=1`);
       return { ok: true, status: 200, json: async () => (queries === 1 ? [] : [sourceStatus]) };
@@ -280,15 +282,58 @@ test("closed receipt polling ignores a newer pre-merge status published after me
     pullNumber: 17,
     mergedAt: "2026-08-18T00:00:00Z",
     token: "token",
-    fetchImpl: async () => ({
+    fetchImpl: async (url) => {
+      if (url.endsWith("/actions/runs/42")) return { ok: true, status: 200, json: async () => ({ id: 42, path: ".github/workflows/ci.yml", event: "pull_request_target", status: "completed", conclusion: "success", head_sha: headSha, created_at: "2026-08-17T23:59:59Z", repository: { full_name: "example/repo" }, pull_requests: [{ number: 17, head: { sha: headSha }, base: { ref: "dev" } }] }) };
+      if (url.endsWith("/actions/runs/43")) return { ok: true, status: 200, json: async () => ({ id: 43, path: ".github/workflows/ci.yml", event: "pull_request_target", status: "completed", conclusion: "success", head_sha: headSha, created_at: "2026-08-18T00:00:01Z", repository: { full_name: "example/repo" }, pull_requests: [{ number: 17, head: { sha: headSha }, base: { ref: "dev" } }] }) };
+      return {
       ok: true,
       status: 200,
       json: async () => [
         status(42, "2026-08-17T23:59:59Z", 42),
         status(43, "2026-08-18T00:00:02Z", 43)
       ]
-    })
+      };
+    }
   });
   assert.equal(source.workflowRunId, "42");
   assert.equal(source.policyDigest, "a".repeat(64));
+});
+
+test("closed receipt accepts a source run created before merge even when it completes after merge", async () => {
+  const headSha = "e".repeat(40);
+  const status = {
+    id: 52,
+    state: "success",
+    context: RELEASE_POLICY_RECEIPT_CONTEXT,
+    target_url: `https://github.com/example/repo/actions/runs/52?phase=pre-merge&pr=17&head=${headSha}&base=dev`,
+    description: `${RELEASE_POLICY_RECEIPT_PREFIX}${"c".repeat(64)}`,
+    updated_at: "2026-08-18T00:00:05Z"
+  };
+  const source = await waitForSourcePolicyReceipt({
+    apiUrl: "https://api.github.com",
+    repository: "example/repo",
+    branch: "dev",
+    headSha,
+    pullNumber: 17,
+    mergedAt: "2026-08-18T00:00:00Z",
+    token: "token",
+    fetchImpl: async (url) => {
+      if (url.endsWith(`/commits/${headSha}/statuses?per_page=100&page=1`)) return { ok: true, status: 200, json: async () => [status] };
+      if (url.endsWith("/actions/runs/52")) return { ok: true, status: 200, json: async () => ({
+        id: 52,
+        path: ".github/workflows/ci.yml",
+        event: "pull_request_target",
+        status: "completed",
+        conclusion: "success",
+        head_sha: headSha,
+        created_at: "2026-08-17T23:59:00Z",
+        completed_at: "2026-08-18T00:00:04Z",
+        repository: { full_name: "example/repo" },
+        pull_requests: [{ number: 17, head: { sha: headSha }, base: { ref: "dev" } }]
+      }) };
+      throw new Error(`Unexpected source receipt URL: ${url}`);
+    }
+  });
+  assert.equal(source.workflowRunId, "52");
+  assert.equal(source.updatedAt, Date.parse("2026-08-18T00:00:05Z"));
 });

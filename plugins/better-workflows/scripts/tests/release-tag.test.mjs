@@ -130,9 +130,13 @@ function policyArtifactResponse(url) {
 
 function defaultBranchReleasePolicyResponse(url) {
   const activationText = "name: CI\non:\n  pull_request_target:\njobs:\n  release-policy-receipt:\n";
+  const reconciliationText = "name: Release policy reconciliation\non:\n  workflow_run:\njobs:\n  release-policy-receipt:\n";
   if (url.endsWith("/repos/example/repo")) return jsonResponse({ default_branch: "main" });
   if (url.endsWith("/repos/example/repo/actions/workflows/ci.yml")) {
     return jsonResponse({ path: ".github/workflows/ci.yml", state: "active" });
+  }
+  if (url.endsWith("/repos/example/repo/actions/workflows/release-policy-reconcile.yml")) {
+    return jsonResponse({ path: ".github/workflows/release-policy-reconcile.yml", state: "active" });
   }
   if (url.endsWith("/repos/example/repo/contents/.github/workflows/ci.yml?ref=main")) {
     return jsonResponse({
@@ -140,6 +144,14 @@ function defaultBranchReleasePolicyResponse(url) {
       path: ".github/workflows/ci.yml",
       encoding: "base64",
       content: Buffer.from(activationText).toString("base64")
+    });
+  }
+  if (url.endsWith("/repos/example/repo/contents/.github/workflows/release-policy-reconcile.yml?ref=main")) {
+    return jsonResponse({
+      type: "file",
+      path: ".github/workflows/release-policy-reconcile.yml",
+      encoding: "base64",
+      content: Buffer.from(reconciliationText).toString("base64")
     });
   }
   return null;
@@ -311,7 +323,7 @@ test("workflow-run merge receipt requires its successful trusted trigger binding
     schemaVersion: 1,
     kind: "better-workflows/release-policy-receipt-v2",
     repository: "example/repo",
-    workflowFile: ".github/workflows/ci.yml",
+    workflowFile: ".github/workflows/release-policy-reconcile.yml",
     workflowRunId: "44",
     eventName: "workflow_run",
     eventAction: "closed",
@@ -353,6 +365,39 @@ test("workflow-run merge receipt requires its successful trusted trigger binding
     expectedEventName: "workflow_run",
     triggerWorkflowRunId: "99"
   }), /untrusted merge-bound policy artifact binding/);
+});
+
+test("delayed pre-merge policy artifacts require explicit source-run provenance", () => {
+  const policy = [{ context: "test", appId: null, strict: true }];
+  const policyDigest = createHash("sha256").update(JSON.stringify(policy)).digest("hex");
+  const preMergeSha = "d".repeat(40);
+  const payload = {
+    schemaVersion: 1,
+    kind: "better-workflows/release-policy-receipt-v2",
+    repository: "example/repo",
+    workflowFile: ".github/workflows/ci.yml",
+    workflowRunId: "52",
+    eventName: "pull_request_target",
+    eventAction: "synchronize",
+    branch: "dev",
+    pullNumber: 17,
+    headSha: preMergeSha,
+    policy,
+    policyDigest,
+    observedAt: "2026-08-18T00:00:05Z"
+  };
+  const binding = {
+    repository: "example/repo",
+    branch: "dev",
+    runId: "52",
+    pullNumber: 17,
+    preMergeSha,
+    requiredPolicyDigest: policyDigest,
+    mergeTimeMs: Date.parse("2026-08-18T00:00:00Z"),
+    phase: "pre-merge"
+  };
+  assert.throws(() => assertPolicyReceiptArtifact(payload, binding), /pre-merge policy evidence after/);
+  assert.doesNotThrow(() => assertPolicyReceiptArtifact(payload, { ...binding, allowPostMergeObservation: true }));
 });
 
 test("associated PR discovery fails closed when the first page is full", async () => {
@@ -1621,7 +1666,7 @@ test("release eligibility catches up a version bump after a later non-version pu
         publisher: "github-actions[bot]",
         workflowRunId: "8",
         recordedAt: "2026-08-14T23:50:00.000Z",
-        workflowRecordedAt: "2026-08-14T23:45:00.000Z"
+        workflowRecordedAt: "2026-08-14T23:30:00.000Z"
       },
       preMergeWorkflow: {
         runId: "911",

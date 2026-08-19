@@ -7,9 +7,6 @@ on:
   pull_request:
   pull_request_target:
     types: [opened, reopened, synchronize, closed]
-  workflow_run:
-    workflows: ["CI"]
-    types: [completed]
 
 permissions:
   contents: read
@@ -33,7 +30,7 @@ jobs:
 
   release-policy-receipt:
     name: Release policy receipt
-    if: (github.event_name == 'pull_request_target' && (github.event.action == 'opened' || github.event.action == 'reopened' || github.event.action == 'synchronize' || (github.event.action == 'closed' && github.event.pull_request.merged == true))) || (github.event_name == 'workflow_run' && github.event.action == 'completed' && github.event.workflow_run.event == 'pull_request_target' && github.event.workflow_run.conclusion == 'success')
+    if: github.event_name == 'pull_request_target' && (github.event.action == 'opened' || github.event.action == 'reopened' || github.event.action == 'synchronize' || (github.event.action == 'closed' && github.event.pull_request.merged == true))
     runs-on: ubuntu-latest
     permissions:
       contents: read
