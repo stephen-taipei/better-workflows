@@ -6,7 +6,7 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { githubGraphqlUrl, repositoryPullRequests, runReleaseTag as runReleaseTagImpl } from "../release-tag.mjs";
+import { assertPolicyReceiptArtifact, githubGraphqlUrl, repositoryPullRequests, runReleaseTag as runReleaseTagImpl } from "../release-tag.mjs";
 import {
   compareStableVersions,
   findMergedPullRequest,
@@ -299,6 +299,60 @@ test("only the exact merged PR result for the target branch is eligible", () => 
   assert.equal(findMergedPullRequest([pull], { branch: "dev", sha: SHA }), pull);
   assert.equal(findMergedPullRequest([pull], { branch: "main", sha: SHA }), null);
   assert.equal(findMergedPullRequest([{ ...pull, merge_commit_sha: "b".repeat(40) }], { branch: "dev", sha: SHA }), null);
+});
+
+test("workflow-run merge receipt requires its successful trusted trigger binding", () => {
+  const policy = [{ context: "test", appId: null, strict: true }];
+  const policyDigest = createHash("sha256").update(JSON.stringify(policy)).digest("hex");
+  const preMergeSha = "b".repeat(40);
+  const mergeCommitSha = "c".repeat(40);
+  const mergeTimeMs = Date.parse("2026-08-18T00:00:00Z");
+  const payload = {
+    schemaVersion: 1,
+    kind: "better-workflows/release-policy-receipt-v2",
+    repository: "example/repo",
+    workflowFile: ".github/workflows/ci.yml",
+    workflowRunId: "44",
+    eventName: "workflow_run",
+    eventAction: "closed",
+    branch: "dev",
+    pullNumber: 17,
+    headSha: preMergeSha,
+    policy,
+    policyDigest,
+    observedAt: "2026-08-18T00:05:00Z",
+    mergeCommitSha,
+    mergedAt: "2026-08-18T00:00:00Z",
+    sourceWorkflowRunId: "42",
+    sourcePolicyDigest: policyDigest,
+    triggerWorkflowRunId: "43"
+  };
+  assert.doesNotThrow(() => assertPolicyReceiptArtifact(payload, {
+    repository: "example/repo",
+    branch: "dev",
+    runId: "44",
+    pullNumber: 17,
+    preMergeSha,
+    requiredPolicyDigest: policyDigest,
+    mergeTimeMs,
+    phase: "merge-bound",
+    mergeCommitSha,
+    expectedEventName: "workflow_run",
+    triggerWorkflowRunId: "43"
+  }));
+  assert.throws(() => assertPolicyReceiptArtifact(payload, {
+    repository: "example/repo",
+    branch: "dev",
+    runId: "44",
+    pullNumber: 17,
+    preMergeSha,
+    requiredPolicyDigest: policyDigest,
+    mergeTimeMs,
+    phase: "merge-bound",
+    mergeCommitSha,
+    expectedEventName: "workflow_run",
+    triggerWorkflowRunId: "99"
+  }), /untrusted merge-bound policy artifact binding/);
 });
 
 test("associated PR discovery fails closed when the first page is full", async () => {

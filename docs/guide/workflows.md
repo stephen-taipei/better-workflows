@@ -83,8 +83,13 @@ scan and can reconcile every earlier untagged merged version bump in its
 128-commit window and a 90-day immutable policy-artifact horizon. A fresh
 version bump at the exact event HEAD remains eligible even when older history
 exceeds that window; catch-up-only history beyond either bound fails closed.
-The trusted `pull_request_target` close/merge receipt is bound to the exact
-pre-merge policy artifact, PR head, base, and merge commit, so an old opened or
+The trusted `pull_request_target` pre-merge receipt is bound to the exact
+pre-merge policy artifact and PR boundary. A merged PR is reconciled by a
+durable `workflow_run` completion event for the successful trusted
+`pull_request_target` run; that event is bound to its trigger run, PR head,
+base, and merge commit. A one-minute poll is only a bounded fast path, never
+the sole opportunity to publish the merge-bound receipt, so a delayed source
+receipt can be retried by a later trusted completion event. An old opened or
 synchronize snapshot cannot stand in for merge-time policy continuity. This
 closes the consecutive-bump race without allowing a stale branch update. An
 existing tag pointing to a different commit is a fail-closed error; CI never

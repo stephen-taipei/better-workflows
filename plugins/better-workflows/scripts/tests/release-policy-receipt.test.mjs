@@ -7,6 +7,7 @@ import {
   buildPolicyReceiptArtifact,
   buildPolicyStatus,
   normalizeRequiredChecks,
+  parseWorkflowRunReconciliationEvent,
   prepareReleasePolicyReceipt,
   policyDigest,
   publishReleasePolicyReceipt,
@@ -170,6 +171,60 @@ test("merge-bound policy receipt binds merge commit and unchanged pre-merge poli
       sourcePolicyDigest: policyDigest(policy)
     }),
     /changed required-check policy/
+  );
+});
+
+test("workflow-run reconciliation artifacts bind the completed source run", () => {
+  const policy = [{ context: "test", appId: null, strict: true }];
+  const artifact = buildPolicyReceiptArtifact({
+    repository: "example/repo",
+    branch: "dev",
+    headSha: "b".repeat(40),
+    pullNumber: 17,
+    policy,
+    workflowRunId: "44",
+    eventName: "workflow_run",
+    triggerWorkflowRunId: "43",
+    eventAction: "closed",
+    observedAt: "2026-08-18T00:05:00Z",
+    mergeCommitSha: "c".repeat(40),
+    mergedAt: "2026-08-18T00:00:00Z",
+    sourceWorkflowRunId: "42",
+    sourcePolicyDigest: policyDigest(policy)
+  });
+  assert.equal(artifact.eventName, "workflow_run");
+  assert.equal(artifact.triggerWorkflowRunId, "43");
+  assert.throws(
+    () => buildPolicyReceiptArtifact({ ...artifact, triggerWorkflowRunId: null }),
+    /triggering workflow run id/
+  );
+});
+
+test("workflow-run reconciliation requires one successful pull-request-target source", () => {
+  const payload = {
+    action: "completed",
+    workflow_run: {
+      id: 43,
+      path: ".github/workflows/ci.yml",
+      event: "pull_request_target",
+      status: "completed",
+      conclusion: "success",
+      pull_requests: [{ number: 17, head: { sha: "b".repeat(40) }, base: { ref: "dev" } }]
+    }
+  };
+  assert.deepEqual(parseWorkflowRunReconciliationEvent(payload), {
+    triggerWorkflowRunId: "43",
+    pullNumber: 17,
+    branch: "dev",
+    headSha: "b".repeat(40)
+  });
+  assert.throws(
+    () => parseWorkflowRunReconciliationEvent({ ...payload, workflow_run: { ...payload.workflow_run, conclusion: "failure" } }),
+    /successful pull-request-target source run/
+  );
+  assert.throws(
+    () => parseWorkflowRunReconciliationEvent({ ...payload, workflow_run: { ...payload.workflow_run, pull_requests: [] } }),
+    /exactly one associated pull request/
   );
 });
 
