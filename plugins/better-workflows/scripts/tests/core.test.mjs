@@ -3639,6 +3639,121 @@ test("required-check probes require a bound executable identity and reject path 
   }
 });
 
+test("required-check verifier ignores optional skipped jobs and selects the newest protected context", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-required-check-optional-skipped-"));
+  const bin = path.join(root, "bin");
+  await mkdir(bin, { recursive: true });
+  const fakeGh = path.join(bin, "gh");
+  const head = "a".repeat(40);
+  const observedAt = new Date(Date.now() - 1000).toISOString();
+  const oldCompletedAt = new Date(Date.parse(observedAt) - 2000).toISOString();
+  const newestCompletedAt = new Date(Date.parse(observedAt) - 1000).toISOString();
+  const protection = {
+    enforce_admins: { enabled: true },
+    required_status_checks: {
+      contexts: ["test"],
+      checks: [{ context: "test", app_id: 15368 }]
+    },
+    required_pull_request_reviews: { required_approving_review_count: 1 },
+    allow_force_pushes: { enabled: false },
+    allow_deletions: { enabled: false }
+  };
+  const requiredStatusProtection = protection.required_status_checks;
+  const workflowPage = {
+    total_count: 1,
+    workflow_runs: [{
+      id: 501,
+      head_sha: head,
+      status: "completed",
+      conclusion: "success",
+      updated_at: oldCompletedAt
+    }]
+  };
+  const checkPage = {
+    total_count: 3,
+    check_runs: [
+      {
+        id: 101,
+        name: "test",
+        head_sha: head,
+        status: "completed",
+        conclusion: "success",
+        completed_at: oldCompletedAt,
+        app: { id: 15368 }
+      },
+      {
+        id: 102,
+        name: "test",
+        head_sha: head,
+        status: "completed",
+        conclusion: "success",
+        completed_at: newestCompletedAt,
+        app: { id: 15368 }
+      },
+      {
+        id: 103,
+        name: "optional-release-job",
+        head_sha: head,
+        status: "completed",
+        conclusion: "skipped",
+        completed_at: newestCompletedAt,
+        app: { id: 15368 }
+      }
+    ]
+  };
+  const emit = (value) => JSON.stringify(JSON.stringify(value));
+  const ghScript = [
+    "#!/bin/sh",
+    "[ \"$1\" = api ] || exit 9",
+    "endpoint=\"$2\"",
+    "if [ \"$2\" = --paginate ]; then endpoint=\"$4\"; fi",
+    `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo/branches/dev/protection")} ]; then printf '%s\\n' ${emit(protection)}; exit 0; fi`,
+    `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo/rules/branches/dev")} ]; then printf '%s\\n' '[]'; exit 0; fi`,
+    `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo/rulesets?includes_parents=true")} ]; then printf '%s\\n' '[[]]'; exit 0; fi`,
+    `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo/branches/dev/protection/required_status_checks")} ]; then printf '%s\\n' ${emit(requiredStatusProtection)}; exit 0; fi`,
+    `if [ \"$endpoint\" = ${JSON.stringify(`repos/example/repo/actions/runs?head_sha=${head}&per_page=100`)} ]; then printf '%s\\n' ${emit([workflowPage])}; exit 0; fi`,
+    `if [ \"$endpoint\" = ${JSON.stringify(`repos/example/repo/commits/${head}/check-runs?per_page=100`)} ]; then printf '%s\\n' ${emit([checkPage])}; exit 0; fi`,
+    "printf '%s\\n' \"unexpected gh endpoint: $endpoint\" >&2",
+    "exit 9"
+  ].join("\n");
+  await writeFile(fakeGh, ghScript, { mode: 0o700 });
+  const providerExecutable = { path: await realpath(fakeGh), digest: sha256(ghScript) };
+  const payload = {
+    provider: "github",
+    repository: "github.com/example/repo",
+    baseRefName: "dev",
+    head,
+    requiredStatusChecks: ["test"],
+    requiredStatusCheckApps: [{ context: "test", appId: 15368 }],
+    checkSet: ["test"],
+    providerRunIds: ["102"],
+    conclusions: ["success"],
+    checks: [{
+      name: "test#102",
+      providerName: "test",
+      providerRunId: "102",
+      conclusion: "success"
+    }],
+    providerExecutable,
+    observedAt
+  };
+  const priorPath = process.env.PATH;
+  process.env.PATH = `${bin}:${priorPath}`;
+  try {
+    await verifyRequiredChecksProvider(root, payload, providerExecutable);
+    await assert.rejects(
+      verifyRequiredChecksProvider(root, {
+        ...payload,
+        providerRunIds: ["101"],
+        checks: [{ ...payload.checks[0], name: "test#101", providerRunId: "101" }]
+      }, providerExecutable),
+      /canonical protected check-run set/
+    );
+  } finally {
+    process.env.PATH = priorPath;
+  }
+});
+
 test("failed PR creation preserves its reservation until provider absence is proven", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "sbw-pr-failure-absence-"));
   const repository = path.join(root, "repository");

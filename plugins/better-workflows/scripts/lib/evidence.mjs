@@ -391,13 +391,15 @@ async function assertFreshBinding(receipt, run, definition, kind) {
       !Array.isArray(payload?.conclusions) ||
       payload.conclusions.length !== checks.length ||
       new Set(checks.map((check) => check?.name)).size !== checks.length ||
+      new Set(checks.map((check) => check?.providerName ?? check?.name)).size !== checks.length ||
       new Set(checks.map((check) => check?.providerRunId)).size !== checks.length ||
       checks.some((check, index) => (
         !check ||
         typeof check.name !== "string" || check.name.trim() === "" ||
+        (check.providerName !== undefined && (typeof check.providerName !== "string" || check.providerName.trim() === "")) ||
         typeof check.providerRunId !== "string" || check.providerRunId.trim() === "" ||
         !["SUCCESS", "success", "PASS", "pass"].includes(String(check.conclusion)) ||
-        payload.checkSet[index] !== check.name ||
+        payload.checkSet[index] !== (check.providerName ?? check.name) ||
         payload.providerRunIds[index] !== check.providerRunId ||
         String(payload.conclusions[index]) !== String(check.conclusion)
       )) ||

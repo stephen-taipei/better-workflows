@@ -5755,18 +5755,48 @@ export async function verifyRequiredChecksProvider(cwd, payload, providerExecuta
   if (!Number.isInteger(checkRunTotal) || checkRunTotal !== checkRunCount || checkRuns.length === 0) {
     throw new Error("Required check provider response is not a complete GitHub check-run set");
   }
+  // The provider returns every check-run for the commit, including optional
+  // jobs that are intentionally skipped.  Only the protected status contexts
+  // are merge gates; choose the newest fresh successful run for each required
+  // context and ignore non-required check-runs for the action receipt.
+  const requiredCheckRuns = requiredStatusChecks.map((name) => {
+    const protectedApp = protectedCheckApps.find((candidate) => candidate.context === name);
+    const candidates = checkRuns
+      .filter((check) => check?.name === name && check?.head_sha === payload.head)
+      .filter((check) => {
+        const completedAt = check.completed_at ?? check.updated_at;
+        return (
+          check.status === "completed" &&
+          check.conclusion === "success" &&
+          protectedApp &&
+          check.app?.id === protectedApp.appId &&
+          Number.isFinite(Date.parse(completedAt ?? "")) &&
+          Date.parse(completedAt) <= observedAt
+        );
+      })
+      .sort((left, right) => {
+        const leftAt = Date.parse(left.completed_at ?? left.updated_at ?? "");
+        const rightAt = Date.parse(right.completed_at ?? right.updated_at ?? "");
+        return leftAt - rightAt || String(left.id).localeCompare(String(right.id));
+      });
+    const selected = candidates.at(-1);
+    if (!selected) {
+      throw new Error(`Required check provider has no fresh successful check-run for protected context: ${name}`);
+    }
+    return selected;
+  });
   const observedIds = new Set(payload.checks.map((check) => String(check.providerRunId)));
-  const providerIds = new Set(checkRuns.map((check) => String(check.id)));
-  if (observedIds.size !== checkRuns.length || observedIds.size !== payload.checks.length ||
-      [...providerIds].some((id) => !observedIds.has(id))) {
-    throw new Error("Required check evidence does not cover the complete GitHub check-run set");
+  const requiredProviderIds = new Set(requiredCheckRuns.map((check) => String(check.id)));
+  if (observedIds.size !== requiredCheckRuns.length || observedIds.size !== payload.checks.length ||
+      [...requiredProviderIds].some((id) => !observedIds.has(id))) {
+    throw new Error("Required check evidence does not cover the canonical protected check-run set");
   }
-  const observedRequired = new Set(payload.checks.map((check) => check.providerName));
+  const observedRequired = new Set(payload.checks.map((check) => check.providerName ?? check.name));
   if (requiredStatusChecks.some((name) => !observedRequired.has(name))) {
     throw new Error("Required check evidence does not include every protected status check");
   }
   for (const check of payload.checks) {
-    const checkRun = checkRuns.find((candidate) => String(candidate.id) === String(check.providerRunId));
+    const checkRun = requiredCheckRuns.find((candidate) => String(candidate.id) === String(check.providerRunId));
     const completedAt = checkRun?.completed_at ?? checkRun?.updated_at;
     const protectedApp = protectedCheckApps.find((candidate) => candidate.context === checkRun?.name);
     if (
@@ -5774,7 +5804,7 @@ export async function verifyRequiredChecksProvider(cwd, payload, providerExecuta
       checkRun.head_sha !== payload.head ||
       checkRun.status !== "completed" ||
       checkRun.conclusion !== "success" ||
-      check.providerName !== checkRun.name ||
+      (check.providerName ?? check.name) !== checkRun.name ||
       !protectedApp ||
       checkRun.app?.id !== protectedApp.appId ||
       check.name !== `${checkRun.name}#${checkRun.id}` ||
