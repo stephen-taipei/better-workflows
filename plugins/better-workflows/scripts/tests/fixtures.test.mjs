@@ -98,31 +98,18 @@ test("all thirteen templates are valid and side-effect templates declare action 
   }
 });
 
-test("ci release dispatch is non-circular while branch promotion stays deferred", async () => {
+test("ci release dispatch stays deferred while monitoring remains non-circular", async () => {
   const template = JSON.parse(
     await readFile(path.join(pluginRoot(), "templates", "ci-release-monitor.json"), "utf8")
   );
-  const dispatchStage = template.executionStages.find((stage) => stage.id === "dispatch-preflight");
-  assert.ok(dispatchStage);
-  assert.deepEqual(dispatchStage.dependsOn, ["queue"]);
-  assert.deepEqual(dispatchStage.requiredEvidence, [
-    "workflow-inventory",
-    "queue-state",
-    "target-revision",
-    "remote-authorization"
-  ]);
   const monitorStage = template.executionStages.find((stage) => stage.id === "monitor-execute");
   assert.ok(monitorStage);
-  assert.deepEqual(monitorStage.dependsOn, ["dispatch-preflight"]);
-  assert.equal(template.actionStages["actions.dispatch"], "dispatch-preflight");
-  assert.equal(template.actionStages["git.push"], undefined);
-  assert.deepEqual(template.actionGates["actions.dispatch"], dispatchStage.requiredEvidence);
-  assert.equal(template.actionGates["git.push"], undefined);
+  assert.deepEqual(monitorStage.dependsOn, ["queue"]);
+  assert.deepEqual(template.actionStages, {});
+  assert.deepEqual(template.actionGates, {});
+  assert.ok(template.deferredActions.includes("workflow.dispatch"));
   assert.ok(template.deferredActions.includes("branch.promote"));
   assert.equal(template.executionStages.find((stage) => stage.id === "provider-reconcile").dependsOn[0], "monitor-execute");
-  assert.equal(template.actionGates["actions.dispatch"].includes("provider-reconciliation"), false);
-  assert.equal(template.actionGates["actions.dispatch"].includes("run-result"), false);
-  assert.equal(template.actionGates["actions.dispatch"].includes("required-checks"), false);
 });
 
 test("integration-tag workflow grants check-read permission for catch-up reconciliation", async () => {
