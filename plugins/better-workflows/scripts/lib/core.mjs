@@ -5766,18 +5766,22 @@ export async function verifyRequiredChecksProvider(cwd, payload, providerExecuta
     const candidates = checkRuns
       .filter((check) => check?.name === name && check?.head_sha === payload.head)
       .filter((check) => {
-        const observedAtForCheck = check.completed_at ?? check.updated_at ?? check.started_at ?? check.created_at;
+        const createdAt = check.created_at;
         return (
           protectedApp &&
           check.app?.id === protectedApp.appId &&
-          Number.isFinite(Date.parse(observedAtForCheck ?? "")) &&
-          Date.parse(observedAtForCheck) <= observedAt
+          Number.isFinite(Date.parse(createdAt ?? "")) &&
+          Date.parse(createdAt) <= observedAt
         );
       })
       .sort((left, right) => {
-        const leftAt = Date.parse(left.completed_at ?? left.updated_at ?? left.started_at ?? left.created_at ?? "");
-        const rightAt = Date.parse(right.completed_at ?? right.updated_at ?? right.started_at ?? right.created_at ?? "");
-        return leftAt - rightAt || String(left.id).localeCompare(String(right.id));
+        const leftAt = Date.parse(left.created_at ?? "");
+        const rightAt = Date.parse(right.created_at ?? "");
+        const leftId = Number(left.id);
+        const rightId = Number(right.id);
+        return leftAt - rightAt || (Number.isSafeInteger(leftId) && Number.isSafeInteger(rightId)
+          ? leftId - rightId
+          : String(left.id).localeCompare(String(right.id)));
       });
     const selected = candidates.at(-1);
     if (!selected) {

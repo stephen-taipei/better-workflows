@@ -3646,6 +3646,9 @@ test("required-check verifier ignores optional skipped jobs and selects the newe
   const fakeGh = path.join(bin, "gh");
   const head = "a".repeat(40);
   const observedAt = new Date(Date.now() - 1000).toISOString();
+  const oldCreatedAt = new Date(Date.parse(observedAt) - 3000).toISOString();
+  const newestCreatedAt = new Date(Date.parse(observedAt) - 2000).toISOString();
+  const latestFailedCreatedAt = new Date(Date.parse(observedAt) - 1000).toISOString();
   const oldCompletedAt = new Date(Date.parse(observedAt) - 2000).toISOString();
   const newestCompletedAt = new Date(Date.parse(observedAt) - 1000).toISOString();
   const latestFailedAt = new Date(Date.parse(observedAt) - 500).toISOString();
@@ -3679,6 +3682,7 @@ test("required-check verifier ignores optional skipped jobs and selects the newe
         head_sha: head,
         status: "completed",
         conclusion: "success",
+        created_at: oldCreatedAt,
         completed_at: oldCompletedAt,
         app: { id: 15368 }
       },
@@ -3688,6 +3692,7 @@ test("required-check verifier ignores optional skipped jobs and selects the newe
         head_sha: head,
         status: "completed",
         conclusion: "success",
+        created_at: newestCreatedAt,
         completed_at: newestCompletedAt,
         app: { id: 15368 }
       },
@@ -3697,6 +3702,7 @@ test("required-check verifier ignores optional skipped jobs and selects the newe
         head_sha: head,
         status: "completed",
         conclusion: "skipped",
+        created_at: newestCreatedAt,
         completed_at: newestCompletedAt,
         app: { id: 15368 }
       }
@@ -3712,6 +3718,7 @@ test("required-check verifier ignores optional skipped jobs and selects the newe
         head_sha: head,
         status: "completed",
         conclusion: "failure",
+        created_at: latestFailedCreatedAt,
         completed_at: latestFailedAt,
         app: { id: 15368 }
       }
