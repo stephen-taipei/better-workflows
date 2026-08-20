@@ -389,6 +389,7 @@ async function assertFreshBinding(receipt, run, definition, kind) {
         authorization.base !== payload?.base ||
         authorization.baseRefName !== payload?.baseRefName ||
         authorization.adminBypass !== false ||
+        authorization.reviewPolicyException !== "solo-repository-zero-review-v1" ||
         typeof authorization.actor !== "string" || !authorization.actor ||
         authorization.runId !== run.manifest.runId ||
         authorization.contractDigest !== digestObject(run.contract) ||
@@ -439,6 +440,7 @@ async function assertFreshBinding(receipt, run, definition, kind) {
         baseRefName: payload.baseRefName,
         actor: authorization.actor,
         adminBypass: false,
+        reviewPolicyException: "solo-repository-zero-review-v1",
         approvedAt: authorization.approvedAt
       };
       if (

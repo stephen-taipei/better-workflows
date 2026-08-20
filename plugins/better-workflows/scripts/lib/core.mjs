@@ -2862,7 +2862,13 @@ export async function evaluateCompletion(root, runId) {
         try {
           await validateTypedEvidenceRecord(record, { manifest, contract, root, runDir, requireReconciled: true });
           if (record.kind === "required-checks") {
-            const boundAction = actions.find((action) => (
+            const mergeAction = actions.find((action) => (
+              action.action === "pr.merge" &&
+              action.provider === "github-cli" &&
+              action.pullRequest === Number(record.receipt.payload.pr) &&
+              action.reviewedHead === record.receipt.payload.head
+            ));
+            const boundAction = mergeAction ?? actions.find((action) => (
               action.provider === "github-cli" &&
               action.providerExecutable?.path &&
               ["pr.create", "pr.merge"].includes(action.action)
@@ -2874,18 +2880,32 @@ export async function evaluateCompletion(root, runId) {
             );
             if (checkVerification.humanApproval) {
               const approval = record.receipt.payload.humanApproval.authorization;
-              const remoteAuthorization = findExactMergeHumanAuthorization(evidence, {
-                action: "pr.merge",
-                provider: "github-cli",
-                resource: `pull/${record.receipt.payload.pr}`,
-                remoteRevision: contract.remoteRevision,
-                repository: record.receipt.payload.repository,
-                actor: approval.actor,
-                humanApprovalDigest: checkVerification.humanApproval.authorizationDigest
-              });
+              const remoteAuthorization = mergeAction
+                ? assertPersistedMergeHumanAuthorizationEvidence(
+                    mergeAction,
+                    evidence,
+                    checkVerification,
+                    { actor: mergeAction.providerAuthorization?.actor, repository: record.receipt.payload.repository }
+                  )
+                : findExactMergeHumanAuthorization(evidence, {
+                    action: "pr.merge",
+                    provider: "github-cli",
+                    resource: `pull/${record.receipt.payload.pr}`,
+                    remoteRevision: contract.remoteRevision,
+                    repository: record.receipt.payload.repository,
+                    actor: approval.actor,
+                    humanApprovalDigest: checkVerification.humanApproval.authorizationDigest
+                  });
               if (!remoteAuthorization) {
                 throw new Error("Governed PR merge human approval lacks exact user remote authorization");
               }
+              await validateTypedEvidenceRecord(remoteAuthorization, {
+                manifest,
+                contract,
+                root,
+                runDir,
+                requireReconciled: true
+              });
             }
           }
           validTypedEvidence.push(record);
@@ -4598,7 +4618,21 @@ async function verifyMergeProviderAtInvocation(root, runId, record, manifest) {
     requiredChecks.receipt.payload,
     record.providerExecutable
   );
-  assertPersistedMergeHumanApproval(record, checkVerification);
+  const mergeAuthorization = assertPersistedMergeHumanAuthorizationEvidence(
+    record,
+    evidence,
+    checkVerification,
+    { actor: authorization.actor, repository }
+  );
+  if (mergeAuthorization) {
+    await validateTypedEvidenceRecord(mergeAuthorization, {
+      manifest: run.manifest,
+      contract: run.contract,
+      root,
+      runDir: run.runDir,
+      requireReconciled: true
+    });
+  }
   return authorization;
 }
 
@@ -5572,6 +5606,7 @@ async function verifyProviderReceipt(manifest, record, receipt, contract = null)
 const PR_MERGE_HUMAN_APPROVAL_KIND = "host-signed-pr-merge-authorization";
 const PR_MERGE_HUMAN_APPROVAL_MODEL = "pr-merge-human-authorization";
 const PR_MERGE_HUMAN_APPROVAL_REVIEWER = "better-workflows-pr-merge-human-approval";
+const PR_MERGE_ZERO_REVIEW_POLICY = "solo-repository-zero-review-v1";
 
 export function findExactMergeHumanAuthorization(evidence, {
   action,
@@ -5619,6 +5654,43 @@ export function assertPersistedMergeHumanApproval(record, checkVerification) {
   }
 }
 
+export function assertPersistedMergeHumanAuthorizationEvidence(
+  record,
+  evidence,
+  checkVerification,
+  { actor, repository }
+) {
+  assertPersistedMergeHumanApproval(record, checkVerification);
+  const humanApproval = checkVerification?.humanApproval ?? null;
+  if (!humanApproval) {
+    if (record.mergeAuthorizationEvidenceId !== undefined) {
+      throw new Error("Governed PR merge authorization evidence remained bound after human approval disappeared");
+    }
+    return null;
+  }
+  if (
+    typeof record.mergeAuthorizationEvidenceId !== "string" ||
+    !record.mergeAuthorizationEvidenceId ||
+    humanApproval.actor !== actor
+  ) {
+    throw new Error("Governed PR merge authorization evidence or live actor changed after action issuance");
+  }
+  const candidate = evidence.find((item) => item.id === record.mergeAuthorizationEvidenceId) ?? null;
+  const exact = candidate && findExactMergeHumanAuthorization([candidate], {
+    action: record.action,
+    provider: record.provider,
+    resource: record.resource,
+    remoteRevision: record.remoteRevision,
+    repository,
+    actor,
+    humanApprovalDigest: humanApproval.authorizationDigest
+  });
+  if (!exact || exact.id !== record.mergeAuthorizationEvidenceId) {
+    throw new Error("Governed PR merge authorization evidence is absent, stale, replaced, or invalid");
+  }
+  return exact;
+}
+
 export async function verifyMergeHumanApproval(cwd, payload, { attestationVerifier = null } = {}) {
   const approval = payload?.humanApproval;
   const authorization = approval?.authorization;
@@ -5635,6 +5707,7 @@ export async function verifyMergeHumanApproval(cwd, payload, { attestationVerifi
     authorization.base !== payload?.base ||
     authorization.baseRefName !== payload?.baseRefName ||
     authorization.adminBypass !== false ||
+    authorization.reviewPolicyException !== PR_MERGE_ZERO_REVIEW_POLICY ||
     typeof authorization.actor !== "string" || !authorization.actor ||
     typeof authorization.runId !== "string" || !authorization.runId.startsWith("sbw-") ||
     typeof authorization.reviewPackageId !== "string" || !authorization.reviewPackageId.startsWith("review-") ||
@@ -5668,6 +5741,7 @@ export async function verifyMergeHumanApproval(cwd, payload, { attestationVerifi
     baseRefName: payload.baseRefName,
     actor: authorization.actor,
     adminBypass: false,
+    reviewPolicyException: PR_MERGE_ZERO_REVIEW_POLICY,
     approvedAt: authorization.approvedAt
   };
   const authorizationDigest = digestObject(expectedAuthorization);
@@ -5722,7 +5796,8 @@ export async function verifyMergeHumanApproval(cwd, payload, { attestationVerifi
     authorizationDigest,
     attestationDigest: verified.attestationDigest,
     sourceBindingDigest: currentSource.digest,
-    actor: authorization.actor
+    actor: authorization.actor,
+    reviewPolicyException: authorization.reviewPolicyException
   };
 }
 
@@ -5760,7 +5835,7 @@ export async function verifyRequiredChecksProvider(
   if (
     !Number.isInteger(requiredApprovingReviewCount) ||
     requiredApprovingReviewCount < 0 ||
-    (requiredApprovingReviewCount === 0 && !humanApproval)
+    (requiredApprovingReviewCount === 0 && humanApproval?.reviewPolicyException !== PR_MERGE_ZERO_REVIEW_POLICY)
   ) {
     throw new Error("Protected branch policy is missing required pull-request reviews");
   }
@@ -5858,7 +5933,8 @@ export async function verifyRequiredChecksProvider(
       pullRequestRule &&
       (!Number.isInteger(pullRequestRule.parameters?.required_approving_review_count) ||
         pullRequestRule.parameters.required_approving_review_count < 0 ||
-        (pullRequestRule.parameters.required_approving_review_count === 0 && !humanApproval))
+        (pullRequestRule.parameters.required_approving_review_count === 0 &&
+          humanApproval?.reviewPolicyException !== PR_MERGE_ZERO_REVIEW_POLICY))
     ) {
       throw new Error("Active protected branch ruleset has incomplete pull-request review policy");
     }
@@ -7371,7 +7447,21 @@ async function consumeActionTokenInternal(root, runId, token, currentTreeDigest,
           requiredChecks.receipt.payload,
           githubProviderExecutable
         );
-        assertPersistedMergeHumanApproval(record, checkVerification);
+        const mergeAuthorization = assertPersistedMergeHumanAuthorizationEvidence(
+          record,
+          evidence,
+          checkVerification,
+          { actor: record.providerAuthorization.actor, repository }
+        );
+        if (mergeAuthorization) {
+          await validateTypedEvidenceRecord(mergeAuthorization, {
+            manifest: run.manifest,
+            contract: run.contract,
+            root,
+            runDir,
+            requireReconciled: true
+          });
+        }
       }
     }
     if (record.action === "remote.sync") {

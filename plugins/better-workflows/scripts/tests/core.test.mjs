@@ -27,6 +27,7 @@ import {
   autonomousCommitAllocation,
   assertCurrentGitPushSourceBinding,
   assertPersistedMergeHumanApproval,
+  assertPersistedMergeHumanAuthorizationEvidence,
   assertProviderReceiptShape,
   buildBoundGitPushArgs,
   buildBoundGitPushEnvironment,
@@ -3716,6 +3717,7 @@ test("host-signed PR merge approval binds the exact run, review package, and liv
       baseRefName: "dev",
       actor: "example-user",
       adminBypass: false,
+      reviewPolicyException: "solo-repository-zero-review-v1",
       approvedAt: new Date().toISOString()
     };
     const authorizationDigest = digestObject(authorization);
@@ -3762,6 +3764,7 @@ test("host-signed PR merge approval binds the exact run, review package, and liv
     assert.equal(verification.authorizationDigest, authorizationDigest);
     assert.equal(verification.sourceBindingDigest, sourceBinding.digest);
     assert.equal(verification.actor, authorization.actor);
+    assert.equal(verification.reviewPolicyException, authorization.reviewPolicyException);
     await writeFile(path.join(repository, "README.md"), "drift\n");
     await assert.rejects(
       verifyMergeHumanApproval(repository, payload, {
@@ -3818,6 +3821,36 @@ test("PR merge human approval accepts only exact user-authority actor and digest
     }
   }];
   assert.equal(findExactMergeHumanAuthorization(evidence, binding), evidence[0]);
+  const actionRecord = {
+    ...binding,
+    mergeHumanApprovalDigest: humanApprovalDigest,
+    mergeAuthorizationEvidenceId: evidence[0].id
+  };
+  const checkVerification = { humanApproval: { authorizationDigest: humanApprovalDigest, actor: binding.actor } };
+  assert.equal(assertPersistedMergeHumanAuthorizationEvidence(
+    actionRecord,
+    evidence,
+    checkVerification,
+    { actor: binding.actor, repository: binding.repository }
+  ), evidence[0]);
+  assert.throws(
+    () => assertPersistedMergeHumanAuthorizationEvidence(
+      { ...actionRecord, mergeAuthorizationEvidenceId: "replacement" },
+      evidence,
+      checkVerification,
+      { actor: binding.actor, repository: binding.repository }
+    ),
+    /absent, stale, replaced, or invalid/
+  );
+  assert.throws(
+    () => assertPersistedMergeHumanAuthorizationEvidence(
+      actionRecord,
+      evidence,
+      checkVerification,
+      { actor: "other-user", repository: binding.repository }
+    ),
+    /live actor changed/
+  );
   assert.equal(findExactMergeHumanAuthorization(evidence, { ...binding, actor: "other-user" }), null);
   assert.equal(findExactMergeHumanAuthorization(evidence, {
     ...binding,
@@ -3980,12 +4013,24 @@ test("required-check verifier ignores optional skipped jobs and selects the newe
       /missing required pull-request reviews/
     );
     const humanApprovalDigest = "f".repeat(64);
+    await assert.rejects(
+      verifyRequiredChecksProvider(
+        root,
+        { ...payload, humanApproval: { schemaVersion: 1 } },
+        soloExecutable,
+        { humanApprovalVerifier: async () => ({ authorizationDigest: humanApprovalDigest }) }
+      ),
+      /missing required pull-request reviews/
+    );
     const soloVerification = await verifyRequiredChecksProvider(
       root,
       { ...payload, humanApproval: { schemaVersion: 1 } },
       soloExecutable,
       {
-        humanApprovalVerifier: async () => ({ authorizationDigest: humanApprovalDigest })
+        humanApprovalVerifier: async () => ({
+          authorizationDigest: humanApprovalDigest,
+          reviewPolicyException: "solo-repository-zero-review-v1"
+        })
       }
     );
     assert.equal(soloVerification.humanApproval.authorizationDigest, humanApprovalDigest);
@@ -4000,7 +4045,12 @@ test("required-check verifier ignores optional skipped jobs and selects the newe
         root,
         { ...payload, humanApproval: { schemaVersion: 1 } },
         { path: providerExecutable.path, digest: sha256(invalidNegativeGhScript) },
-        { humanApprovalVerifier: async () => ({ authorizationDigest: humanApprovalDigest }) }
+        {
+          humanApprovalVerifier: async () => ({
+            authorizationDigest: humanApprovalDigest,
+            reviewPolicyException: "solo-repository-zero-review-v1"
+          })
+        }
       ),
       /missing required pull-request reviews/
     );

@@ -373,6 +373,7 @@ test("typed required-check evidence binds host merge approval to the run source,
       baseRefName: "dev",
       actor: "example-user",
       adminBypass: false,
+      reviewPolicyException: "solo-repository-zero-review-v1",
       approvedAt: observedAt
     };
     const authorizationDigest = digestObject(authorization);
