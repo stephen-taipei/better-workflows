@@ -329,7 +329,7 @@ test("typed catalog covers exactly the 101 installed evidence kinds", async () =
   assert.ok(contracts["review-kernel-summary"]);
 });
 
-test("typed required-check evidence binds host merge approval to the run source, sentinel, and review package", async () => {
+test("typed required-check admission uses the production host verifier and rejects forged, missing, altered, invalidly signed, and source-drifted approvals", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "sbw-required-check-human-approval-"));
   const repository = path.join(root, "repository");
   const runId = "sbw-20260820T000000Z-123456789abc";
@@ -359,21 +359,6 @@ test("typed required-check evidence binds host merge approval to the run source,
     sourceBinding
   };
   const state = { lastSentinel: { digest: sourceSentinelDigest } };
-  const attestationPath = path.join(root, "merge-approval.attestation.json");
-  await writeFile(attestationPath, "{}\n");
-  const attestationDigest = "6".repeat(64);
-  const mergeHumanApprovalAttestationVerifier = async ({
-    attestationPath: actualPath,
-    workspaceRoot,
-    binding
-  }) => {
-    assert.equal(actualPath, attestationPath);
-    assert.equal(workspaceRoot, repository);
-    assert.equal(binding.runId, runId);
-    assert.equal(binding.base, base);
-    assert.equal(binding.head, head);
-    return { attestationDigest, attestationPath: await realpath(actualPath) };
-  };
   await mkdir(path.join(runDir, "review-packages"), { recursive: true });
   await writeFile(path.join(runDir, "state.json"), `${JSON.stringify(state)}\n`);
   await writeFile(path.join(runDir, "review-packages", `${reviewPackageId}.json`), `${JSON.stringify({
@@ -404,6 +389,35 @@ test("typed required-check evidence binds host merge approval to the run source,
       approvedAt: observedAt
     };
     const authorizationDigest = digestObject(authorization);
+    let trustRoot = null;
+    try {
+      trustRoot = JSON.parse(await readFile("/private/etc/better-workflows/codex-trust-root.json", "utf8"));
+    } catch {
+      // Portable test hosts may not provision the administrator trust root.
+      // Production admission must still reject an untrusted signer.
+    }
+    const attestationPath = path.join(root, "merge-approval.attestation.json");
+    const invalidAttestation = {
+      schemaVersion: 1,
+      provider: "codex-native-subagent",
+      base,
+      head,
+      instructionDigest: authorizationDigest,
+      model: "pr-merge-human-authorization",
+      packageId: `merge-approval-${authorizationDigest}`,
+      promptDigest: authorizationDigest,
+      reviewDigest: authorizationDigest,
+      reviewerId: "better-workflows-pr-merge-human-approval",
+      runId,
+      sentinelDigest: sourceSentinelDigest,
+      issuer: trustRoot?.issuer ?? "untrusted-test-issuer",
+      keyId: trustRoot?.publicKeys?.[0]?.keyId ?? "untrusted-test-key",
+      issuedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      signature: Buffer.alloc(64).toString("base64")
+    };
+    const invalidAttestationRaw = `${JSON.stringify(invalidAttestation)}\n`;
+    await writeFile(attestationPath, invalidAttestationRaw, { mode: 0o600 });
     const payload = {
       command: "pinned gh live required-check observation",
       result: true,
@@ -427,15 +441,12 @@ test("typed required-check evidence binds host merge approval to the run source,
         authorizationDigest,
         attestation: {
           path: attestationPath,
-          attestationDigest,
+          attestationDigest: "6".repeat(64),
           fileDigest: sha256(await readFile(attestationPath))
         }
       }
     };
-    const record = await gateRecord({ runId, contract }, "required-checks", payload, "required-checks-human-approval");
-    const run = { root, runDir, manifest, contract, state, mergeHumanApprovalAttestationVerifier };
-    const admitted = await admitTypedEvidence(record, run);
-    assert.equal(admitted.receipt.payload.humanApproval.authorizationDigest, authorizationDigest);
+    const run = { root, runDir, manifest, contract, state };
     const forgedAuthorization = { ...authorization, sourceBindingDigest: "8".repeat(64) };
     const forgedPayload = {
       ...payload,
@@ -452,13 +463,45 @@ test("typed required-check evidence binds host merge approval to the run source,
       ),
       /human approval binding is incomplete/
     );
-    await unlink(attestationPath);
     await assert.rejects(
       admitTypedEvidence(
-        await gateRecord({ runId, contract }, "required-checks", payload, "required-checks-missing-attestation"),
+        await gateRecord({ runId, contract }, "required-checks", {
+          ...payload,
+          humanApproval: {
+            ...payload.humanApproval,
+            attestation: {
+              ...payload.humanApproval.attestation,
+              path: path.join(root, "missing.attestation.json")
+            }
+          }
+        }, "required-checks-missing-attestation"),
         run
       ),
       /ENOENT|attestation/i
+    );
+    await writeFile(attestationPath, `${invalidAttestationRaw} `, { mode: 0o600 });
+    await assert.rejects(
+      admitTypedEvidence(
+        await gateRecord({ runId, contract }, "required-checks", payload, "required-checks-altered-attestation"),
+        run
+      ),
+      /attestation changed after authorization/
+    );
+    await writeFile(attestationPath, invalidAttestationRaw, { mode: 0o600 });
+    await assert.rejects(
+      admitTypedEvidence(
+        await gateRecord({ runId, contract }, "required-checks", payload, "required-checks-invalid-signature"),
+        run
+      ),
+      /signature is invalid|issuer is not trusted|key is not available|trust root is not provisioned/
+    );
+    await writeFile(path.join(repository, "README.md"), "drift\n");
+    await assert.rejects(
+      admitTypedEvidence(
+        await gateRecord({ runId, contract }, "required-checks", payload, "required-checks-source-drift"),
+        run
+      ),
+      /source registry binding is stale|source binding changed/
     );
   } finally {
     await rm(root, { recursive: true, force: true });

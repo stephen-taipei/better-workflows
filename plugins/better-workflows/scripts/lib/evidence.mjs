@@ -450,11 +450,7 @@ async function assertFreshBinding(receipt, run, definition, kind) {
       ) {
         throw new Error("Typed evidence required-checks human approval authorization is invalid");
       }
-      const attestationVerification = await verifyMergeHumanApproval(
-        run.manifest.cwd,
-        payload,
-        { attestationVerifier: run.mergeHumanApprovalAttestationVerifier ?? null }
-      );
+      const attestationVerification = await verifyMergeHumanApproval(run.manifest.cwd, payload);
       if (
         attestationVerification.authorizationDigest !== humanApproval.authorizationDigest ||
         attestationVerification.attestationDigest !== attestation.attestationDigest ||

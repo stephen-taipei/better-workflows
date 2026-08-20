@@ -28,6 +28,8 @@ import {
   assertCurrentGitPushSourceBinding,
   assertPersistedMergeHumanApproval,
   assertPersistedMergeHumanAuthorizationEvidence,
+  assertPersistedRequiredChecksEvidence,
+  assertPersistedSuccessfulMergeActionForRequiredChecks,
   assertProviderReceiptShape,
   buildBoundGitPushArgs,
   buildBoundGitPushEnvironment,
@@ -3680,7 +3682,7 @@ test("required-check probes require a bound executable identity and reject path 
   }
 });
 
-test("host-signed PR merge approval binds the exact run, review package, and live source registry", async () => {
+test("host-signed PR merge approval production verifier rejects missing, altered, invalidly signed, and source-drifted attestations", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "sbw-merge-human-approval-"));
   const repository = path.join(root, "repository");
   await mkdir(repository);
@@ -3697,9 +3699,6 @@ test("host-signed PR merge approval binds the exact run, review package, and liv
     await execFileAsync("git", ["commit", "-qm", "head"], { cwd: repository });
     const head = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repository, encoding: "utf8" })).stdout.trim();
     const sourceBinding = await captureSourceBinding(repository, { baseRevision: base, requireClean: true });
-    const attestationPath = path.join(root, "merge-approval.attestation.json");
-    await writeFile(attestationPath, "{}\n");
-    const attestationDigest = "d".repeat(64);
     const authorization = {
       schemaVersion: 1,
       kind: "host-signed-pr-merge-authorization",
@@ -3721,6 +3720,35 @@ test("host-signed PR merge approval binds the exact run, review package, and liv
       approvedAt: new Date().toISOString()
     };
     const authorizationDigest = digestObject(authorization);
+    let trustRoot = null;
+    try {
+      trustRoot = JSON.parse(await readFile("/private/etc/better-workflows/codex-trust-root.json", "utf8"));
+    } catch {
+      // A portable test host may not provision the production trust root. The
+      // production verifier must still reject rather than accept a fake signer.
+    }
+    const attestationPath = path.join(root, "merge-approval.attestation.json");
+    const invalidAttestation = {
+      schemaVersion: 1,
+      provider: "codex-native-subagent",
+      base,
+      head,
+      instructionDigest: authorizationDigest,
+      model: "pr-merge-human-authorization",
+      packageId: `merge-approval-${authorizationDigest}`,
+      promptDigest: authorizationDigest,
+      reviewDigest: authorizationDigest,
+      reviewerId: "better-workflows-pr-merge-human-approval",
+      runId: authorization.runId,
+      sentinelDigest: authorization.sourceSentinelDigest,
+      issuer: trustRoot?.issuer ?? "untrusted-test-issuer",
+      keyId: trustRoot?.publicKeys?.[0]?.keyId ?? "untrusted-test-key",
+      issuedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      signature: Buffer.alloc(64).toString("base64")
+    };
+    const invalidAttestationRaw = `${JSON.stringify(invalidAttestation)}\n`;
+    await writeFile(attestationPath, invalidAttestationRaw, { mode: 0o600 });
     const payload = {
       provider: "github",
       repository: authorization.repository,
@@ -3734,45 +3762,37 @@ test("host-signed PR merge approval binds the exact run, review package, and liv
         authorizationDigest,
         attestation: {
           path: attestationPath,
-          attestationDigest,
+          attestationDigest: "d".repeat(64),
           fileDigest: sha256(await readFile(attestationPath))
         }
       }
     };
-    const verification = await verifyMergeHumanApproval(repository, payload, {
-      attestationVerifier: async ({ attestationPath: actualPath, workspaceRoot, binding }) => {
-        assert.equal(actualPath, attestationPath);
-        assert.equal(workspaceRoot, repository);
-        assert.deepEqual(binding, {
-          base,
-          head,
-          instructionDigest: authorizationDigest,
-          model: "pr-merge-human-authorization",
-          packageId: `merge-approval-${authorizationDigest}`,
-          promptDigest: authorizationDigest,
-          reviewDigest: authorizationDigest,
-          reviewerId: "better-workflows-pr-merge-human-approval",
-          runId: authorization.runId,
-          sentinelDigest: authorization.sourceSentinelDigest
-        });
-        return {
-          attestationDigest,
-          attestationPath: await realpath(attestationPath)
-        };
-      }
-    });
-    assert.equal(verification.authorizationDigest, authorizationDigest);
-    assert.equal(verification.sourceBindingDigest, sourceBinding.digest);
-    assert.equal(verification.actor, authorization.actor);
-    assert.equal(verification.reviewPolicyException, authorization.reviewPolicyException);
+    await assert.rejects(
+      verifyMergeHumanApproval(repository, {
+        ...payload,
+        humanApproval: {
+          ...payload.humanApproval,
+          attestation: {
+            ...payload.humanApproval.attestation,
+            path: path.join(root, "missing.attestation.json")
+          }
+        }
+      }),
+      /ENOENT|attestation/i
+    );
+    await writeFile(attestationPath, `${invalidAttestationRaw} `, { mode: 0o600 });
+    await assert.rejects(
+      verifyMergeHumanApproval(repository, payload),
+      /attestation changed after authorization/
+    );
+    await writeFile(attestationPath, invalidAttestationRaw, { mode: 0o600 });
+    await assert.rejects(
+      verifyMergeHumanApproval(repository, payload),
+      /signature is invalid|issuer is not trusted|key is not available|trust root is not provisioned/
+    );
     await writeFile(path.join(repository, "README.md"), "drift\n");
     await assert.rejects(
-      verifyMergeHumanApproval(repository, payload, {
-        attestationVerifier: async () => ({
-          attestationDigest,
-          attestationPath: await realpath(attestationPath)
-        })
-      }),
+      verifyMergeHumanApproval(repository, payload),
       /source registry binding is stale/
     );
   } finally {
@@ -3861,6 +3881,177 @@ test("PR merge human approval accepts only exact user-authority actor and digest
     receipt: { ...evidence[0].receipt, producer: "codex-root" }
   }], binding), null);
   assert.equal(findExactMergeHumanAuthorization([{ ...evidence[0], stale: true }], binding), null);
+});
+
+test("required-check completion accepts only one exact issued and successfully invoked merge action", () => {
+  const runId = "sbw-20260820T000000Z-123456789abc";
+  const contractDigest = "a".repeat(64);
+  const base = "b".repeat(40);
+  const head = "c".repeat(40);
+  const repository = "github.com/example/repo";
+  const reviewPackageId = `review-${"d".repeat(32)}`;
+  const requiredChecks = {
+    id: "required-checks-exact",
+    kind: "required-checks",
+    status: "complete",
+    stale: false,
+    receipt: {
+      inputBinding: {
+        runId,
+        contractDigest,
+        remoteRevision: base,
+        reviewHead: head,
+        reviewBase: base,
+        pullRequest: 21,
+        repository,
+        baseRefName: "dev"
+      },
+      payload: {
+        provider: "github",
+        repository,
+        pr: 21,
+        head,
+        base,
+        baseRefName: "dev",
+        humanApproval: { authorization: { reviewPackageId } }
+      }
+    }
+  };
+  const attemptId = "merge-attempt";
+  const idempotencyKey = "merge-idempotency";
+  const tokenHash = "e".repeat(64);
+  const providerExecutable = { path: "/usr/bin/false", digest: "f".repeat(64) };
+  const mergeCommand = [
+    "gh", "pr", "merge", "21", "--repo", repository,
+    "--match-head-commit", head, "--merge", "--delete-branch=false"
+  ];
+  const invocationId = `github-pr-merge-wrapper:${runId}:${attemptId}`;
+  const providerReceipt = {
+    action: "pr.merge",
+    provider: "github-cli",
+    resource: "pull/21",
+    outcome: "success",
+    runId,
+    attemptId,
+    idempotencyKey,
+    remoteRevision: base,
+    executionId: "github:example/repo:pr.merge:21:merge-commit",
+    proofKind: "github-pr-merge",
+    requestDigest: "1".repeat(64),
+    responseDigest: "2".repeat(64),
+    verifiedAt: new Date().toISOString(),
+    terminalState: "success",
+    pr: 21,
+    state: "MERGED",
+    repository,
+    baseRefName: "dev",
+    mergeMethod: "merge",
+    adminBypass: false,
+    invocationId,
+    mergeCommand,
+    head,
+    mergeCommit: "3".repeat(40),
+    mergeBase: base,
+    mergeHead: head,
+    providerExecutableDigest: providerExecutable.digest
+  };
+  const action = {
+    schemaVersion: 1,
+    tokenHash,
+    status: "spent",
+    outcome: "success",
+    runId,
+    contractDigest,
+    action: "pr.merge",
+    provider: "github-cli",
+    resource: "pull/21",
+    remoteRevision: base,
+    requiredChecksEvidenceId: requiredChecks.id,
+    pullRequest: 21,
+    reviewedHead: head,
+    targetRef: "dev",
+    mergeRepository: repository,
+    mergeMethod: "merge",
+    adminBypass: false,
+    reviewPackageId,
+    reviewContinuityDigest: "4".repeat(64),
+    attemptId,
+    idempotencyKey,
+    providerExecutable,
+    providerInvocation: {
+      id: invocationId,
+      actionAttemptId: attemptId,
+      provider: "github-cli",
+      command: mergeCommand,
+      adminBypass: false,
+      exitCode: 0,
+      dispatchState: "sent"
+    },
+    mergeCommand,
+    receipt: {
+      action: "pr.merge",
+      provider: "github-cli",
+      resource: "pull/21",
+      outcome: "success",
+      runId,
+      attemptId,
+      idempotencyKey,
+      remoteRevision: base,
+      providerReceipt
+    }
+  };
+  assert.equal(
+    assertPersistedRequiredChecksEvidence(action, [requiredChecks], { repository }),
+    requiredChecks
+  );
+  assert.equal(
+    assertPersistedSuccessfulMergeActionForRequiredChecks(
+      [action],
+      requiredChecks,
+      { runId, contractDigest, repository }
+    ),
+    action
+  );
+  assert.throws(
+    () => assertPersistedSuccessfulMergeActionForRequiredChecks(
+      [{ ...action, action: "pr.create", requiredChecksEvidenceId: undefined }],
+      requiredChecks,
+      { runId, contractDigest, repository }
+    ),
+    /one exact issued merge action/
+  );
+  assert.throws(
+    () => assertPersistedSuccessfulMergeActionForRequiredChecks(
+      [{ ...action, status: "issued", outcome: null }],
+      requiredChecks,
+      { runId, contractDigest, repository }
+    ),
+    /not the exact successfully invoked merge action/
+  );
+  assert.throws(
+    () => assertPersistedSuccessfulMergeActionForRequiredChecks(
+      [{ ...action, providerInvocation: { ...action.providerInvocation, id: "replacement-invocation" } }],
+      requiredChecks,
+      { runId, contractDigest, repository }
+    ),
+    /not the exact successfully invoked merge action/
+  );
+  assert.throws(
+    () => assertPersistedSuccessfulMergeActionForRequiredChecks(
+      [action, { ...action, tokenHash: "5".repeat(64) }],
+      requiredChecks,
+      { runId, contractDigest, repository }
+    ),
+    /one exact issued merge action/
+  );
+  assert.throws(
+    () => assertPersistedSuccessfulMergeActionForRequiredChecks(
+      [{ ...action, reviewPackageId: `review-${"6".repeat(32)}` }],
+      requiredChecks,
+      { runId, contractDigest, repository }
+    ),
+    /not the exact successfully invoked merge action/
+  );
 });
 
 test("required-check verifier ignores optional skipped jobs and selects the newest protected context", async () => {
@@ -4012,28 +4203,14 @@ test("required-check verifier ignores optional skipped jobs and selects the newe
       verifyRequiredChecksProvider(root, payload, soloExecutable),
       /missing required pull-request reviews/
     );
-    const humanApprovalDigest = "f".repeat(64);
     await assert.rejects(
       verifyRequiredChecksProvider(
         root,
         { ...payload, humanApproval: { schemaVersion: 1 } },
-        soloExecutable,
-        { humanApprovalVerifier: async () => ({ authorizationDigest: humanApprovalDigest }) }
+        soloExecutable
       ),
-      /missing required pull-request reviews/
+      /human approval binding is incomplete/
     );
-    const soloVerification = await verifyRequiredChecksProvider(
-      root,
-      { ...payload, humanApproval: { schemaVersion: 1 } },
-      soloExecutable,
-      {
-        humanApprovalVerifier: async () => ({
-          authorizationDigest: humanApprovalDigest,
-          reviewPolicyException: "solo-repository-zero-review-v1"
-        })
-      }
-    );
-    assert.equal(soloVerification.humanApproval.authorizationDigest, humanApprovalDigest);
     const invalidNegativeProtection = {
       ...protection,
       required_pull_request_reviews: { required_approving_review_count: -1 }
@@ -4043,14 +4220,8 @@ test("required-check verifier ignores optional skipped jobs and selects the newe
     await assert.rejects(
       verifyRequiredChecksProvider(
         root,
-        { ...payload, humanApproval: { schemaVersion: 1 } },
-        { path: providerExecutable.path, digest: sha256(invalidNegativeGhScript) },
-        {
-          humanApprovalVerifier: async () => ({
-            authorizationDigest: humanApprovalDigest,
-            reviewPolicyException: "solo-repository-zero-review-v1"
-          })
-        }
+        payload,
+        { path: providerExecutable.path, digest: sha256(invalidNegativeGhScript) }
       ),
       /missing required pull-request reviews/
     );

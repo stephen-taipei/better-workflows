@@ -2862,26 +2862,33 @@ export async function evaluateCompletion(root, runId) {
         try {
           await validateTypedEvidenceRecord(record, { manifest, contract, root, runDir, requireReconciled: true });
           if (record.kind === "required-checks") {
-            const mergeAction = actions.find((action) => (
-              action.action === "pr.merge" &&
-              action.provider === "github-cli" &&
-              action.pullRequest === Number(record.receipt.payload.pr) &&
-              action.reviewedHead === record.receipt.payload.head
-            ));
-            const boundAction = mergeAction ?? actions.find((action) => (
-              action.provider === "github-cli" &&
-              action.providerExecutable?.path &&
-              ["pr.create", "pr.merge"].includes(action.action)
-            ));
-            const checkVerification = await verifyRequiredChecksProvider(
-              manifest.cwd,
-              record.receipt.payload,
-              boundAction?.providerExecutable ?? record.receipt.payload?.providerExecutable
-            );
-            if (checkVerification.humanApproval) {
-              if (!mergeAction) {
-                throw new Error("Governed PR merge completion lacks the exact issued merge action");
+            const mergeGated = contract.actionGates?.["pr.merge"]?.includes("required-checks") === true;
+            if (!mergeGated) {
+              if (record.receipt.payload.humanApproval !== undefined) {
+                throw new Error("Non-merge required-check completion cannot carry PR merge human approval");
               }
+              await verifyRequiredChecksProvider(
+                manifest.cwd,
+                record.receipt.payload,
+                record.receipt.payload.providerExecutable
+              );
+            } else {
+              const mergeAction = assertPersistedSuccessfulMergeActionForRequiredChecks(actions, record, {
+                runId,
+                contractDigest: digestObject(contract),
+                repository: record.receipt.payload.repository
+              });
+              const { assertReviewContinuity } = await import("./review.mjs");
+              await assertReviewContinuity(root, runId, {
+                packageId: mergeAction.reviewPackageId,
+                head: mergeAction.reviewedHead,
+                continuityDigest: mergeAction.reviewContinuityDigest
+              });
+              const checkVerification = await verifyRequiredChecksProvider(
+                manifest.cwd,
+                record.receipt.payload,
+                mergeAction.providerExecutable
+              );
               const providerExecutablePath = await verifyRecordedGitHubProvider(manifest, mergeAction);
               const liveAuthorization = await verifyGitHubProviderAuthorization(
                 manifest.cwd,
@@ -2891,19 +2898,22 @@ export async function evaluateCompletion(root, runId) {
               if (digestObject(liveAuthorization) !== digestObject(mergeAction.providerAuthorization)) {
                 throw new Error("Governed PR merge completion provider actor or permission changed");
               }
+              await verifyProviderReceipt(manifest, { ...mergeAction, outcome: "success" }, mergeAction.receipt, contract);
               const remoteAuthorization = assertPersistedMergeHumanAuthorizationEvidence(
                 mergeAction,
                 evidence,
                 checkVerification,
                 { actor: liveAuthorization.actor, repository: record.receipt.payload.repository }
               );
-              await validateTypedEvidenceRecord(remoteAuthorization, {
-                manifest,
-                contract,
-                root,
-                runDir,
-                requireReconciled: true
-              });
+              if (remoteAuthorization) {
+                await validateTypedEvidenceRecord(remoteAuthorization, {
+                  manifest,
+                  contract,
+                  root,
+                  runDir,
+                  requireReconciled: true
+                });
+              }
             }
           }
           validTypedEvidence.push(record);
@@ -4592,17 +4602,7 @@ async function verifyMergeProviderAtInvocation(root, runId, record, manifest) {
   if (!contract.actionGates?.[record.action]?.includes("required-checks")) return authorization;
   const run = await loadRun(root, runId);
   const evidence = await listJsonRecords(root, safeJoin(run.runDir, "evidence"));
-  const requiredChecks = evidence.find((item) => {
-    const payload = item.kind === "required-checks" ? item.receipt?.payload : null;
-    return (
-      item.status === "complete" &&
-      item.stale !== true &&
-      payload?.head === record.reviewedHead &&
-      payload?.base === record.remoteRevision &&
-      payload?.repository === repository
-    );
-  });
-  if (!requiredChecks) throw new Error("PR merge invocation requires exact required-check evidence");
+  const requiredChecks = assertPersistedRequiredChecksEvidence(record, evidence, { repository });
   const { validateTypedEvidenceRecord } = await import("./evidence.mjs");
   await validateTypedEvidenceRecord(requiredChecks, {
     manifest: run.manifest,
@@ -5689,7 +5689,81 @@ export function assertPersistedMergeHumanAuthorizationEvidence(
   return exact;
 }
 
-export async function verifyMergeHumanApproval(cwd, payload, { attestationVerifier = null } = {}) {
+export function assertPersistedRequiredChecksEvidence(record, evidence, { repository }) {
+  if (typeof record.requiredChecksEvidenceId !== "string" || !record.requiredChecksEvidenceId) {
+    throw new Error("Governed PR merge lacks the exact required-check evidence ID issued with the action");
+  }
+  const candidate = evidence.find((item) => item.id === record.requiredChecksEvidenceId) ?? null;
+  const payload = candidate?.kind === "required-checks" ? candidate.receipt?.payload : null;
+  const binding = candidate?.receipt?.inputBinding;
+  if (
+    !candidate || candidate.status !== "complete" || candidate.stale === true ||
+    candidate.id !== record.requiredChecksEvidenceId ||
+    binding?.runId !== record.runId ||
+    binding?.contractDigest !== record.contractDigest ||
+    binding?.remoteRevision !== record.remoteRevision ||
+    binding?.reviewHead !== record.reviewedHead ||
+    binding?.reviewBase !== record.remoteRevision ||
+    Number(binding?.pullRequest) !== record.pullRequest ||
+    binding?.repository !== repository ||
+    binding?.baseRefName !== record.targetRef ||
+    payload?.provider !== "github" ||
+    payload?.repository !== repository ||
+    Number(payload?.pr) !== record.pullRequest ||
+    payload?.head !== record.reviewedHead ||
+    payload?.base !== record.remoteRevision ||
+    payload?.baseRefName !== record.targetRef
+  ) {
+    throw new Error("Governed PR merge required-check evidence is absent, stale, replaced, or invalid");
+  }
+  return candidate;
+}
+
+export function assertPersistedSuccessfulMergeActionForRequiredChecks(
+  actions,
+  requiredChecks,
+  { runId, contractDigest, repository }
+) {
+  const candidates = actions.filter((action) => action.requiredChecksEvidenceId === requiredChecks?.id);
+  if (candidates.length !== 1) {
+    throw new Error("Governed PR merge completion requires one exact issued merge action for the required-check evidence ID");
+  }
+  const action = candidates[0];
+  const payload = requiredChecks?.receipt?.payload;
+  const authorization = payload?.humanApproval?.authorization;
+  if (
+    action.runId !== runId ||
+    action.contractDigest !== contractDigest ||
+    action.action !== "pr.merge" ||
+    action.provider !== "github-cli" ||
+    action.resource !== `pull/${payload?.pr}` ||
+    action.remoteRevision !== payload?.base ||
+    action.pullRequest !== Number(payload?.pr) ||
+    action.reviewedHead !== payload?.head ||
+    action.targetRef !== payload?.baseRefName ||
+    action.mergeRepository !== repository ||
+    action.status !== "spent" ||
+    action.outcome !== "success" ||
+    typeof action.tokenHash !== "string" || !SHA256_DIGEST.test(action.tokenHash) ||
+    typeof action.attemptId !== "string" || !action.attemptId ||
+    typeof action.reviewPackageId !== "string" || !action.reviewPackageId ||
+    !SHA256_DIGEST.test(action.reviewContinuityDigest ?? "") ||
+    (authorization && action.reviewPackageId !== authorization.reviewPackageId) ||
+    action.providerInvocation?.provider !== "github-cli" ||
+    action.providerInvocation?.actionAttemptId !== action.attemptId ||
+    action.providerInvocation?.adminBypass !== false ||
+    action.providerInvocation?.exitCode !== 0 ||
+    action.providerInvocation?.dispatchState !== "sent" ||
+    action.receipt?.providerReceipt?.invocationId !== action.providerInvocation?.id
+  ) {
+    throw new Error("Governed PR merge completion action is not the exact successfully invoked merge action");
+  }
+  assertPersistedRequiredChecksEvidence(action, [requiredChecks], { repository });
+  validateActionReceipt(action, "success", action.receipt);
+  return action;
+}
+
+export async function verifyMergeHumanApproval(cwd, payload) {
   const approval = payload?.humanApproval;
   const authorization = approval?.authorization;
   const attestation = approval?.attestation;
@@ -5761,17 +5835,8 @@ export async function verifyMergeHumanApproval(cwd, payload, { attestationVerifi
     runId: authorization.runId,
     sentinelDigest: authorization.sourceSentinelDigest
   };
-  const verifier = attestationVerifier ?? (await import("./providers.mjs")).verifyTrustedNativeCriticAttestation;
-  const verified = await verifier({
-    attestationPath: attestation.path,
-    workspaceRoot: cwd,
-    binding
-  });
-  if (
-    verified.attestationDigest !== attestation.attestationDigest ||
-    verified.attestationPath !== await realpath(attestation.path) ||
-    sha256(await readFile(verified.attestationPath)) !== attestation.fileDigest
-  ) {
+  const attestationPath = await realpath(attestation.path);
+  if (sha256(await readFile(attestationPath)) !== attestation.fileDigest) {
     throw new Error("Governed PR merge human approval attestation changed after authorization");
   }
   const { captureSourceBinding } = await import("./git.mjs");
@@ -5790,6 +5855,19 @@ export async function verifyMergeHumanApproval(cwd, payload, { attestationVerifi
   ) {
     throw new Error("Governed PR merge human approval source registry binding is stale");
   }
+  const { verifyTrustedNativeCriticAttestation } = await import("./providers.mjs");
+  const verified = await verifyTrustedNativeCriticAttestation({
+    attestationPath,
+    workspaceRoot: cwd,
+    binding
+  });
+  if (
+    verified.attestationDigest !== attestation.attestationDigest ||
+    verified.attestationPath !== attestationPath ||
+    sha256(await readFile(verified.attestationPath)) !== attestation.fileDigest
+  ) {
+    throw new Error("Governed PR merge human approval attestation changed after authorization");
+  }
   return {
     authorizationDigest,
     attestationDigest: verified.attestationDigest,
@@ -5802,8 +5880,7 @@ export async function verifyMergeHumanApproval(cwd, payload, { attestationVerifi
 export async function verifyRequiredChecksProvider(
   cwd,
   payload,
-  providerExecutable = null,
-  { humanApprovalVerifier = verifyMergeHumanApproval } = {}
+  providerExecutable = null
 ) {
   if (payload.provider !== "github") throw new Error("Required checks must be observed from GitHub");
   const executable = await verifyRecordedExecutable(
@@ -5820,7 +5897,7 @@ export async function verifyRequiredChecksProvider(
   }
   const repositoryPath = repository.slice(prefix.length);
   const humanApproval = payload.humanApproval
-    ? await humanApprovalVerifier(cwd, payload)
+    ? await verifyMergeHumanApproval(cwd, payload)
     : null;
   const protection = JSON.parse((await execBoundGitHubCli(executablePath, [
     "api",
@@ -7090,16 +7167,23 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
       const currentHead = (await execBoundGitAuthority(manifest.cwd, [
         "rev-parse", "--verify", "HEAD^{commit}"
       ])).stdout.trim();
-      const requiredChecks = admittedEvidence.find((item) => {
+      const requiredCheckCandidates = admittedEvidence.filter((item) => {
         const payload = item.kind === "required-checks" ? item.receipt?.payload : null;
         return payload?.head === currentHead && payload?.base === contract.remoteRevision && payload?.repository === repository;
       });
-      if (!requiredChecks) throw new Error("Action token denied until exact required-check provider evidence is present");
+      if (requiredCheckCandidates.length !== 1) {
+        throw new Error("Action token denied until one exact required-check provider evidence record is present");
+      }
+      const requiredChecks = requiredCheckCandidates[0];
       const checkVerification = await verifyRequiredChecksProvider(
         manifest.cwd,
         requiredChecks.receipt.payload,
         providerExecutable
       );
+      actionBinding = {
+        ...actionBinding,
+        requiredChecksEvidenceId: requiredChecks.id
+      };
       if (checkVerification.humanApproval) {
         const humanApprovalDigest = checkVerification.humanApproval.authorizationDigest;
         if (providerAuthorization?.actor !== checkVerification.humanApproval.actor) {
@@ -7422,17 +7506,7 @@ async function consumeActionTokenInternal(root, runId, token, currentTreeDigest,
       if (contract.actionGates?.[record.action]?.includes("required-checks")) {
         const repository = await currentRepositoryIdentity(manifest.cwd);
         const evidence = await listJsonRecords(root, safeJoin(runDir, "evidence"));
-        const requiredChecks = evidence.find((item) => {
-          const payload = item.kind === "required-checks" ? item.receipt?.payload : null;
-          return (
-            item.status === "complete" &&
-            item.stale !== true &&
-            payload?.head === record.reviewedHead &&
-            payload?.base === record.remoteRevision &&
-            payload?.repository === repository
-          );
-        });
-        if (!requiredChecks) throw new Error("Action consumption denied until exact required-check evidence is present");
+        const requiredChecks = assertPersistedRequiredChecksEvidence(record, evidence, { repository });
         const run = await loadRun(root, runId);
         const { validateTypedEvidenceRecord } = await import("./evidence.mjs");
         await validateTypedEvidenceRecord(requiredChecks, {
