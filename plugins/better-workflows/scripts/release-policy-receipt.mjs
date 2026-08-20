@@ -820,8 +820,21 @@ async function loadApplicableRulesetChecks({ apiUrl, repository, branch, token, 
   return checks;
 }
 
+async function assertRepositoryAdministrationRead({ apiUrl, repository, branch, token, fetchImpl = fetch }) {
+  const ruleSuites = await requestJson({
+    apiUrl,
+    path: `/repos/${repository}/rulesets/rule-suites?ref=${encodeURIComponent(`refs/heads/${branch}`)}&per_page=1&page=1`,
+    token,
+    fetchImpl
+  });
+  if (!Array.isArray(ruleSuites)) {
+    throw new Error("Release policy receipt Administration-read probe returned an invalid payload");
+  }
+}
+
 export async function loadRequiredCheckPolicy({ apiUrl, repository, branch, token, requireAdministration = false, fetchImpl = fetch }) {
   let branchProtection;
+  let classicProtectionAbsent = false;
   try {
     branchProtection = await requestJson({
       apiUrl,
@@ -831,19 +844,25 @@ export async function loadRequiredCheckPolicy({ apiUrl, repository, branch, toke
     });
   } catch (error) {
     if (error?.status !== 404 || requireAdministration !== true) throw error;
-    // A 404 is only an authoritative absence of classic protection after the
-    // same Administration credential proves that the target branch exists.
-    // Otherwise preserve fail-closed behavior for an unauthorized/ambiguous
-    // provider response.
+    // A branch lookup only proves that the target exists; it does not
+    // distinguish absent classic protection from a permission-masked 404.
     await requestJson({
       apiUrl,
       path: `/repos/${repository}/branches/${encodeURIComponent(branch)}`,
       token,
       fetchImpl
     });
-    branchProtection = { strict: true, contexts: [], checks: [] };
+    classicProtectionAbsent = true;
   }
   const rulesetRequiredChecks = await loadApplicableRulesetChecks({ apiUrl, repository, branch, token, fetchImpl });
+  if (classicProtectionAbsent) {
+    // Listing repository rulesets only requires Metadata read and therefore
+    // cannot authorize the 404 fallback. Listing rule suites requires
+    // repository Administration read, so a successful response makes the
+    // classic-protection absence authoritative for this credential.
+    await assertRepositoryAdministrationRead({ apiUrl, repository, branch, token, fetchImpl });
+    branchProtection = { strict: true, contexts: [], checks: [] };
+  }
   return normalizeRequiredChecks(branchProtection, { rulesetRequiredChecks });
 }
 
