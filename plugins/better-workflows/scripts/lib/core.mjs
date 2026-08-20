@@ -5821,7 +5821,12 @@ export async function verifyRequiredChecksProvider(cwd, payload, providerExecuta
     if (!selected) {
       throw new Error(`Required check provider has no fresh successful check-run for protected context: ${name}`);
     }
-    if (selected.status !== "completed" || selected.conclusion !== "success") {
+    if (
+      selected.status !== "completed" ||
+      selected.conclusion !== "success" ||
+      !Number.isFinite(Date.parse(selected.completed_at ?? "")) ||
+      Date.parse(selected.completed_at) > observedAt
+    ) {
       throw new Error(`Required check provider latest protected check-run is not successful: ${name}`);
     }
     return selected;
@@ -5838,7 +5843,6 @@ export async function verifyRequiredChecksProvider(cwd, payload, providerExecuta
   }
   for (const check of payload.checks) {
     const checkRun = requiredCheckRuns.find((candidate) => String(candidate.id) === String(check.providerRunId));
-    const completedAt = checkRun?.completed_at ?? checkRun?.updated_at;
     const protectedApp = protectedCheckApps.find((candidate) => candidate.context === checkRun?.name);
     if (
       !checkRun ||
@@ -5849,8 +5853,10 @@ export async function verifyRequiredChecksProvider(cwd, payload, providerExecuta
       !protectedApp ||
       (protectedApp.appId !== null && checkRun.app?.id !== protectedApp.appId) ||
       check.name !== `${checkRun.name}#${checkRun.id}` ||
-      !Number.isFinite(Date.parse(completedAt ?? "")) ||
-      Date.parse(completedAt) > observedAt
+      !Number.isFinite(Date.parse(checkRun.completed_at ?? "")) ||
+      Date.parse(checkRun.completed_at) > observedAt ||
+      !Number.isFinite(Date.parse(check.completedAt ?? "")) ||
+      Date.parse(check.completedAt) !== Date.parse(checkRun.completed_at)
     ) {
       throw new Error(`Required check provider check-run is not a fresh successful GitHub check: ${check.providerRunId}`);
     }

@@ -3792,6 +3792,7 @@ test("required-check verifier ignores optional skipped jobs and selects the newe
       name: "test#102",
       providerName: "test",
       providerRunId: "102",
+      completedAt: newestCompletedAt,
       conclusion: "success"
     }],
     providerExecutable,
@@ -3862,6 +3863,23 @@ test("required-check verifier ignores optional skipped jobs and selects the newe
       verifyRequiredChecksProvider(root, payload, {
         path: providerExecutable.path,
         digest: sha256(failedGhScript)
+      }),
+      /latest protected check-run is not successful/
+    );
+    const futureCompletionPage = {
+      ...checkPage,
+      check_runs: checkPage.check_runs.map((check) => (
+        check.id === 102
+          ? { ...check, completed_at: new Date(Date.parse(observedAt) + 1000).toISOString() }
+          : check
+      ))
+    };
+    const futureCompletionGhScript = ghScript.replace(emit([checkPage]), emit([futureCompletionPage]));
+    await writeFile(fakeGh, futureCompletionGhScript, { mode: 0o700 });
+    await assert.rejects(
+      verifyRequiredChecksProvider(root, payload, {
+        path: providerExecutable.path,
+        digest: sha256(futureCompletionGhScript)
       }),
       /latest protected check-run is not successful/
     );
@@ -3945,7 +3963,7 @@ test("required-check verifier preserves ruleset integration identity for same-na
     checkSet: ["test"],
     providerRunIds: ["601"],
     conclusions: ["success"],
-    checks: [{ name: "test#601", providerName: "test", providerRunId: "601", conclusion: "success" }],
+    checks: [{ name: "test#601", providerName: "test", providerRunId: "601", completedAt: observedAt, conclusion: "success" }],
     providerExecutable,
     observedAt
   };

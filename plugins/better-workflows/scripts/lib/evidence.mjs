@@ -398,6 +398,8 @@ async function assertFreshBinding(receipt, run, definition, kind) {
         typeof check.name !== "string" || check.name.trim() === "" ||
         (check.providerName !== undefined && (typeof check.providerName !== "string" || check.providerName.trim() === "")) ||
         typeof check.providerRunId !== "string" || check.providerRunId.trim() === "" ||
+        typeof check.completedAt !== "string" || !Number.isFinite(Date.parse(check.completedAt)) ||
+        Date.parse(check.completedAt) > observedAt ||
         !["SUCCESS", "success", "PASS", "pass"].includes(String(check.conclusion)) ||
         payload.checkSet[index] !== (check.providerName ?? check.name) ||
         payload.providerRunIds[index] !== check.providerRunId ||
