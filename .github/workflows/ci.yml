@@ -156,4 +156,5 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_SHA: ${{ github.sha }}
           GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_POLICY_ADMIN_TOKEN: ${{ secrets.BETTER_WORKFLOWS_POLICY_TOKEN }}
         run: node plugins/better-workflows/scripts/release-tag.mjs

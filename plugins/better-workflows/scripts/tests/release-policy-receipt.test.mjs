@@ -68,12 +68,54 @@ test("release policy loader fails closed when policy authorization is masked as 
       branch: "dev",
       token: "policy-reader",
       fetchImpl: async (url) => {
-        assert.match(url, /\/branches\/dev\/protection\/required_status_checks$/);
-        return { ok: false, status: 404, json: async () => ({}) };
+        if (url.endsWith("/branches/dev/protection/required_status_checks") || url.endsWith("/branches/dev")) {
+          return { ok: false, status: 404, json: async () => ({}) };
+        }
+        throw new Error(`Unexpected masked-policy URL: ${url}`);
       }
     }),
     /HTTP 404/
   );
+});
+
+test("ruleset-only protected branches continue after an authoritative classic-protection absence", async () => {
+  const calls = [];
+  const policy = await loadRequiredCheckPolicy({
+    apiUrl: "https://api.github.com",
+    repository: "example/repo",
+    branch: "dev",
+    token: "admin-reader",
+    requireAdministration: true,
+    fetchImpl: async (url) => {
+      calls.push(url);
+      if (url.endsWith("/branches/dev/protection/required_status_checks")) {
+        return { ok: false, status: 404, json: async () => ({}) };
+      }
+      if (url.endsWith("/branches/dev")) {
+        return { ok: true, status: 200, json: async () => ({ name: "dev", protected: true }) };
+      }
+      if (url.endsWith("/rulesets?includes_parents=true&per_page=100&page=1")) {
+        return { ok: true, status: 200, json: async () => [{ id: 7, enforcement: "active" }] };
+      }
+      if (url.endsWith("/rulesets/7")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            target: "branch",
+            conditions: { ref_name: { include: ["refs/heads/dev"] } },
+            rules: [{ type: "required_status_checks", parameters: {
+              strict_required_status_checks_policy: true,
+              required_status_checks: [{ context: "ruleset-only", integration_id: 42 }]
+            } }]
+          })
+        };
+      }
+      throw new Error(`Unexpected ruleset-only URL: ${url}`);
+    }
+  });
+  assert.deepEqual(policy, [{ context: "ruleset-only", appId: 42, strict: true }]);
+  assert.ok(calls.includes("https://api.github.com/repos/example/repo/branches/dev"));
 });
 
 test("release policy receipt publishes only after the prepared artifact is bound", async () => {

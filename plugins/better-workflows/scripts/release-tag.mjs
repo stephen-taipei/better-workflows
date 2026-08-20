@@ -359,7 +359,7 @@ async function repositoryCommitStatuses({ apiUrl, repository, sha, token, fetchI
 }
 
 async function repositoryRequiredChecks({ apiUrl, repository, branch, token, fetchImpl = fetch }) {
-  return loadRequiredCheckPolicy({ apiUrl, repository, branch, token, fetchImpl });
+  return loadRequiredCheckPolicy({ apiUrl, repository, branch, token, requireAdministration: true, fetchImpl });
 }
 
 async function githubGraphql({ apiUrl, token, query, variables, fetchImpl = fetch }) {
@@ -1208,6 +1208,7 @@ async function verifyCatchUpChecks({
   branch,
   sha,
   token,
+  policyToken = token,
   fetchImpl,
   requireWorkflowTest = false,
   mergeTime = null,
@@ -1217,7 +1218,10 @@ async function verifyCatchUpChecks({
   preMergeHeadRef = null,
   sleepImpl = waitForReleaseChecks
 }) {
-  const currentRequirements = await repositoryRequiredChecks({ apiUrl, repository, branch, token, fetchImpl });
+  if (!String(policyToken ?? "").trim()) {
+    throw new Error("Release catch-up requires RELEASE_POLICY_ADMIN_TOKEN with repository Administration read permission");
+  }
+  const currentRequirements = await repositoryRequiredChecks({ apiUrl, repository, branch, token: policyToken, fetchImpl });
   const selfContexts = new Set(["integration-tag", "tag merged release version"]);
   const assertNoCircularRequirements = (requirements) => {
     if (requirements.some(({ context }) => {
@@ -1511,8 +1515,10 @@ export async function runReleaseTag({
   }
 
   const token = String(env.GITHUB_TOKEN ?? "");
+  const policyToken = String(env.RELEASE_POLICY_ADMIN_TOKEN ?? "").trim();
   const repository = String(env.GITHUB_REPOSITORY ?? "");
   if (!token || !repository) throw new Error("GITHUB_TOKEN and GITHUB_REPOSITORY are required for release tagging");
+  if (!policyToken) throw new Error("RELEASE_POLICY_ADMIN_TOKEN with repository Administration read permission is required for release tagging");
   const apiUrl = String(env.GITHUB_API_URL ?? "https://api.github.com");
   const pulls = await repositoryPullRequests({
     apiUrl,
@@ -1608,6 +1614,7 @@ export async function runReleaseTag({
       branch,
       sha: existing.sha,
       token,
+      policyToken,
       fetchImpl,
       // Historical candidates need an immutable post-merge workflow receipt;
       // the event-head candidate is already serialized behind integration-tag
@@ -1642,6 +1649,7 @@ export async function runReleaseTag({
       branch,
       sha: candidate.sha,
       token,
+      policyToken,
       fetchImpl,
       // Historical candidates need an immutable post-merge workflow receipt;
       // the event-head candidate is already serialized behind integration-tag

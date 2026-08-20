@@ -121,6 +121,7 @@ test("integration-tag workflow grants check-read permission for catch-up reconci
     workflow,
     /integration-tag:[\s\S]*?permissions:\s*\n\s+contents:\s+write\s*\n\s+actions:\s+read\s*\n\s+checks:\s+read\s*\n\s+statuses:\s+read\s*\n\s+pull-requests:\s+read/
   );
+  assert.match(workflow, /integration-tag:[\s\S]*?RELEASE_POLICY_ADMIN_TOKEN:\s+\$\{\{\s*secrets\.BETTER_WORKFLOWS_POLICY_TOKEN\s*\}\}/);
 });
 
 test("trusted pull-request-target workflow publishes a pre-merge policy artifact", async () => {

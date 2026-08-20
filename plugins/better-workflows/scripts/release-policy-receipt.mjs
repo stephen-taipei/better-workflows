@@ -820,13 +820,29 @@ async function loadApplicableRulesetChecks({ apiUrl, repository, branch, token, 
   return checks;
 }
 
-export async function loadRequiredCheckPolicy({ apiUrl, repository, branch, token, fetchImpl = fetch }) {
-  const branchProtection = await requestJson({
-    apiUrl,
-    path: `/repos/${repository}/branches/${encodeURIComponent(branch)}/protection/required_status_checks`,
-    token,
-    fetchImpl
-  });
+export async function loadRequiredCheckPolicy({ apiUrl, repository, branch, token, requireAdministration = false, fetchImpl = fetch }) {
+  let branchProtection;
+  try {
+    branchProtection = await requestJson({
+      apiUrl,
+      path: `/repos/${repository}/branches/${encodeURIComponent(branch)}/protection/required_status_checks`,
+      token,
+      fetchImpl
+    });
+  } catch (error) {
+    if (error?.status !== 404 || requireAdministration !== true) throw error;
+    // A 404 is only an authoritative absence of classic protection after the
+    // same Administration credential proves that the target branch exists.
+    // Otherwise preserve fail-closed behavior for an unauthorized/ambiguous
+    // provider response.
+    await requestJson({
+      apiUrl,
+      path: `/repos/${repository}/branches/${encodeURIComponent(branch)}`,
+      token,
+      fetchImpl
+    });
+    branchProtection = { strict: true, contexts: [], checks: [] };
+  }
   const rulesetRequiredChecks = await loadApplicableRulesetChecks({ apiUrl, repository, branch, token, fetchImpl });
   return normalizeRequiredChecks(branchProtection, { rulesetRequiredChecks });
 }
@@ -844,7 +860,7 @@ export async function prepareReleasePolicyReceipt({
 }) {
   if (!token || !policyToken || !repository || !branch) throw new Error("Release policy receipt requires provider and policy-reader credentials");
   const normalizedHead = assertSha(headSha);
-  const policy = await loadRequiredCheckPolicy({ apiUrl, repository, branch, token: policyToken, fetchImpl });
+  const policy = await loadRequiredCheckPolicy({ apiUrl, repository, branch, token: policyToken, requireAdministration: true, fetchImpl });
   const digest = policyDigest(policy);
   const artifact = receipt
     ? buildPolicyReceiptArtifact({
@@ -896,7 +912,7 @@ export async function publishReleasePolicyReceipt({
 }) {
   if (!token || !policyToken || !repository || !branch) throw new Error("Release policy receipt requires provider and policy-reader credentials");
   const normalizedHead = assertSha(headSha);
-  const policy = await loadRequiredCheckPolicy({ apiUrl, repository, branch, token: policyToken, fetchImpl });
+  const policy = await loadRequiredCheckPolicy({ apiUrl, repository, branch, token: policyToken, requireAdministration: true, fetchImpl });
   assertPreparedArtifact({ artifact, repository, branch, headSha: normalizedHead, pullNumber, workflowRunId, eventAction, policy, eventName, triggerWorkflowRunId });
   const digest = policyDigest(policy);
   const status = buildPolicyStatus({ headSha: normalizedHead, digest, targetUrl });

@@ -166,6 +166,7 @@ const runReleaseTag = (options = {}) => runReleaseTagImpl({
   sleepImpl: async () => {},
   allowSyntheticMissingPolicyWorkflow: true,
   ...options,
+  env: { RELEASE_POLICY_ADMIN_TOKEN: "policy-token", ...(options.env ?? {}) },
   fetchImpl: wrapFetchImpl(options.fetchImpl)
 });
 
