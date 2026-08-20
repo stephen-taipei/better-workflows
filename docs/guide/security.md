@@ -55,12 +55,12 @@ rationale.
   or another action attempt remains rejected. This lets a verified receipt
   resume after a crash between reservation and action-record persistence
   without permitting replay.
-- `actions.dispatch` is available only through the fixed-argv GitHub CLI
-  adapter. The token binds the tracked workflow file, exact ref, normalized
-  inputs, repository, target revision, and pinned `gh` executable; execution
-  snapshots pre-existing runs and observes exactly one new completed run with
-  the requested revision. Ambiguous, missing, or indeterminate provider state
-  remains unreconciled and cannot be released as a successful dispatch.
+- `actions.dispatch` remains deferred. GitHub Actions workflow dispatch accepts
+  a mutable ref and cannot atomically bind provider execution to the
+  preflight-attested workflow bytes; a post-dispatch head check cannot undo
+  side effects from an unauthorized revision. Historical dispatch receipts may
+  still be reconciled read-only, but new tokens and executable provider paths
+  fail closed until an immutable provider binding exists.
 - GitHub provider probes are bound to the absolute executable path and content
   digest recorded when the action token is issued. A PATH, executable, or
   provider-authorization drift fails closed before the provider call; governed

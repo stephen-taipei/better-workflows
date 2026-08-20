@@ -1078,7 +1078,7 @@
 
           <div class="template-heading">
             <div><p class="kicker">13 governed playbooks</p><h3 style="margin:0">目前 template 全景</h3></div>
-            <p>依 default mode 篩選。Stage 數是 TaskContract v2 的執行骨架，不等於 agent 數；GitHub Actions dispatch 使用 fixed-argv adapter 與 live receipt verifier，deploy / release 等尚未具 adapter 的動作仍明確 deferred。</p>
+            <p>依 default mode 篩選。Stage 數是 TaskContract v2 的執行骨架，不等於 agent 數；GitHub Actions dispatch 目前 deferred，因 mutable ref 無法原子綁定 preflight revision；deploy / release 等尚未具 adapter 的動作也明確 deferred。</p>
           </div>
           <div class="filter-row" role="group" aria-label="Template mode 篩選" style="margin-bottom:14px">
             <button class="seg-btn active" type="button" aria-pressed="true" data-template-filter="all" data-i18n="filter.allTemplates">全部 · 13</button>
@@ -1797,7 +1797,7 @@ git status --short<button class="copy-btn" type="button">複製</button></div>
         },
         templateDescriptions: {
           'browser-simulator-qa': 'Reproducible current-state QA in a browser or simulator from bounded artifacts.',
-          'ci-release-monitor': 'Serialized monitoring and reconciliation for CI, deploy, and release; GitHub Actions dispatch uses a fixed adapter while deploy and release remain deferred.',
+          'ci-release-monitor': 'Serialized monitoring and reconciliation for CI, deploy, and release; GitHub Actions dispatch remains deferred until an immutable provider binding exists, while deploy and release remain deferred.',
           'cross-platform-contract': 'Checks API contract compatibility across backend, Web, iOS, and Android.',
           'dependabot-consolidation-pr-cleanup': 'Classifies Dependabot PRs, consolidates them into a governed PR, verifies the lockfile, and cleans up owned resources.',
           'ios-static-pbxproj': 'Static Swift review and serialized pbxproj membership without a local build.',

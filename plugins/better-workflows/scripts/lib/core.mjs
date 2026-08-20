@@ -741,9 +741,12 @@ const GIT_PUSH_RESOURCE = /^remote:([A-Za-z0-9._-]+):(refs\/heads\/[A-Za-z0-9._/
 const EXECUTABLE_ACTION_PROVIDERS = new Set([
   "git.push:git",
   "pr.create:github-cli",
-  "pr.merge:github-cli",
-  "actions.dispatch:github-cli"
+  "pr.merge:github-cli"
 ]);
+
+export function isExecutableActionProvider(action, provider) {
+  return EXECUTABLE_ACTION_PROVIDERS.has(`${action}:${provider}`);
+}
 
 const ACTION_PROVIDER_RECEIPT_SCHEMAS = {
   "branch.create:git": { proofKind: "git-branch-create" },
@@ -7494,7 +7497,7 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
   assertSupportedGovernedAction(actionRecord.action);
   const contract = await readJson(root, safeJoin(runDirectory(root, runId), "contract.json"));
   assertActionIsNotDeferred(contract, actionRecord.action);
-  if (!EXECUTABLE_ACTION_PROVIDERS.has(`${actionRecord.action}:${actionRecord.provider}`)) {
+  if (!isExecutableActionProvider(actionRecord.action, actionRecord.provider)) {
     throw new Error("The governed provider execution path only supports fixed GitHub/Git provider adapters");
   }
   let consumed = await consumeActionTokenInternal(root, runId, token, currentTreeDigest, true);

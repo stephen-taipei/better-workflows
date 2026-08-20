@@ -317,17 +317,11 @@ reservations may resume only for the same run, action attempt, token, execution
 identity, and recorded outcome after an interrupted action-record write, with
 one controlled unknown-to-terminal supersession and no second identity;
 superseded or legacy-format reservations remain rejected. `actions.dispatch`
-uses a fixed-argv GitHub CLI provider adapter: the action binds the tracked
-workflow file, exact ref, normalized inputs, repository, target revision, and
-pinned executable; it injects a reserved per-attempt `sbw_dispatch_nonce` that
-the target workflow revision must declare under `workflow_dispatch.inputs`,
-expose through a top-level `run-name`, and put an exact equality gate on every
-job's top-level `if` (`github.sha == inputs.sbw_expected_revision` or the event
-input equivalent); issuance and consumption fail closed
-when that capability is absent. The provider display title must carry the same
-nonce, after which the adapter correlates exactly one new completed provider
-run.
-Ambiguous or indeterminate dispatch state remains unreconciled.
+remains deferred because GitHub workflow dispatch accepts a mutable ref and
+cannot atomically bind execution to preflight-attested workflow bytes. New
+dispatch tokens and executable provider paths fail closed; historical dispatch
+records may be validated or reconciled read-only. Ambiguous or indeterminate
+dispatch state remains unreconciled.
 
 For governed GitHub actions, bind every provider probe to the absolute
 executable path and content digest captured at token issuance; do not resolve a

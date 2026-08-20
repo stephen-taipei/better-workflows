@@ -104,18 +104,11 @@ Ledger transition files may include `expectedLedgerDigest`; when present it
 must match the current canonical `ledger.json` digest. Transitions are
 root-owned, and stale expected digests or non-root actors fail closed.
 
-`actions.dispatch` uses the fixed-argv GitHub CLI adapter. Issue the token with
-the exact `workflow:<.github/workflows/file>` resource matching the tracked
-`--workflow-file`, the `--scope` ref, and optional scalar `--input` values;
-the adapter injects a reserved per-attempt `sbw_dispatch_nonce` input, so the
-target workflow revision must declare `workflow_dispatch.inputs.sbw_dispatch_nonce`
-and `sbw_expected_revision`, expose the nonce through a top-level `run-name`, and
-put an exact equality gate on every job's top-level `if`; otherwise issuance and
-consumption fail closed. The provider display title must expose the same nonce
-for correlation; `execute` pins the recorded `gh`
-identity, snapshots existing runs, dispatches once, and waits for exactly one
-new completed run at the requested revision. Missing, ambiguous, or
-indeterminate provider state remains unreconciled.
+`actions.dispatch` is currently deferred. GitHub workflow dispatch resolves a
+mutable ref and cannot atomically bind execution to the preflight-attested
+workflow bytes, so the governed lifecycle rejects new dispatch tokens and
+executable provider paths. Existing dispatch records can still be validated or
+reconciled read-only; do not treat a post-dispatch head check as authorization.
 
 Governed GitHub actions record an absolute `gh` executable path and content
 digest at token issuance. Provider probes and fixed-argv wrappers use that

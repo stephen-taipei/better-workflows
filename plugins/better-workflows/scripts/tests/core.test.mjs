@@ -52,6 +52,7 @@ import {
   getStateRoot,
   githubDispatchRefEndpoint,
   inspectRun,
+  isExecutableActionProvider,
   issueActionToken,
   loadDefaults,
   readBoundGitHubApi,
@@ -3610,6 +3611,12 @@ test("contract-deferred actions fail closed in the core lifecycle", async () => 
   );
   const completion = await evaluateCompletion(root, run.runId);
   assert.ok(completion.blockers.includes("deferred-governed-action:deploy"));
+});
+
+test("GitHub Actions dispatch remains non-executable until immutable provider binding exists", () => {
+  assert.equal(isExecutableActionProvider("actions.dispatch", "github-cli"), false);
+  assert.equal(isExecutableActionProvider("pr.create", "github-cli"), true);
+  assert.equal(isExecutableActionProvider("pr.merge", "github-cli"), true);
 });
 
 test("required-check probes require a bound executable identity and reject path drift", async () => {
