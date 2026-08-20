@@ -104,6 +104,10 @@ export function policyDigest(requirements) {
   return createHash("sha256").update(JSON.stringify(requirements)).digest("hex");
 }
 
+export function policyArtifactDigest(artifact) {
+  return createHash("sha256").update(JSON.stringify(artifact)).digest("hex");
+}
+
 export function buildPolicyStatus({ headSha, digest, targetUrl }) {
   return {
     state: "success",
@@ -127,6 +131,7 @@ export function buildPolicyReceiptArtifact({
   mergedAt = null,
   sourceWorkflowRunId = null,
   sourcePolicyDigest = null,
+  sourcePolicyArtifactDigest = null,
   eventName = RELEASE_POLICY_RECEIPT_WORKFLOW_EVENT,
   triggerWorkflowRunId = null
 }) {
@@ -181,7 +186,9 @@ export function buildPolicyReceiptArtifact({
   const mergedMs = Date.parse(String(mergedAt ?? ""));
   const sourceRunId = String(sourceWorkflowRunId ?? "").trim();
   const sourceDigest = String(sourcePolicyDigest ?? "").trim().toLowerCase();
-  if (!Number.isFinite(mergedMs) || !/^\d+$/.test(sourceRunId) || !/^[a-f0-9]{64}$/.test(sourceDigest)) {
+  const sourceArtifactDigest = String(sourcePolicyArtifactDigest ?? "").trim().toLowerCase();
+  if (!Number.isFinite(mergedMs) || !/^\d+$/.test(sourceRunId) || !/^[a-f0-9]{64}$/.test(sourceDigest) ||
+      !/^[a-f0-9]{64}$/.test(sourceArtifactDigest)) {
     throw new Error("Merge-bound release policy receipt artifact requires merge and pre-merge continuity fields");
   }
   if (policyDigest(policy) !== sourceDigest) {
@@ -193,6 +200,7 @@ export function buildPolicyReceiptArtifact({
     mergedAt: new Date(mergedMs).toISOString(),
     sourceWorkflowRunId: sourceRunId,
     sourcePolicyDigest: sourceDigest,
+    sourcePolicyArtifactDigest: sourceArtifactDigest,
     ...(normalizedEventName === RELEASE_POLICY_RECEIPT_RECONCILIATION_EVENT
       ? { triggerWorkflowRunId: normalizedTriggerRunId }
       : {})
@@ -468,6 +476,25 @@ function sourcePolicyReceipt(status, { repository, branch, headSha, pullNumber }
   return { status, workflowRunId: runMatch[1], policyDigest: digest, updatedAt };
 }
 
+export function assertPreMergePolicyReceiptArtifact({ artifact, repository, branch, headSha, pullNumber, workflowRunId, statusObservedAt }) {
+  const parseTimestamp = (value) => typeof value === "number" && Number.isFinite(value)
+    ? value
+    : Date.parse(String(value ?? ""));
+  const observedAt = parseTimestamp(artifact?.observedAt);
+  const statusAt = parseTimestamp(statusObservedAt);
+  if (!artifact || artifact.schemaVersion !== 1 || artifact.kind !== RELEASE_POLICY_RECEIPT_ARTIFACT_KIND ||
+      artifact.repository !== repository || artifact.workflowFile !== RELEASE_POLICY_RECEIPT_WORKFLOW_FILE ||
+      artifact.workflowRunId !== String(workflowRunId) || artifact.eventName !== RELEASE_POLICY_RECEIPT_WORKFLOW_EVENT ||
+      !RELEASE_POLICY_RECEIPT_PREMERGE_ACTIONS.includes(String(artifact.eventAction)) || artifact.branch !== branch ||
+      Number(artifact.pullNumber) !== Number(pullNumber) || String(artifact.headSha ?? "").toLowerCase() !== String(headSha).toLowerCase() ||
+      !Array.isArray(artifact.policy) || artifact.policy.length === 0 || artifact.policyDigest !== policyDigest(artifact.policy) ||
+      !/^[a-f0-9]{64}$/.test(String(artifact.policyDigest ?? "")) || !Number.isFinite(observedAt) ||
+      !Number.isFinite(statusAt) || observedAt > statusAt) {
+    throw new Error("Release policy receipt source artifact is not bound to the trusted pre-merge workflow");
+  }
+  return artifact;
+}
+
 async function repositoryWorkflowRun({ apiUrl, repository, runId, token, fetchImpl = fetch }) {
   return requestJson({
     apiUrl,
@@ -599,6 +626,7 @@ export async function waitForSourcePolicyReceipt({
   pullNumber,
   token,
   fetchImpl = fetch,
+  fetchArtifactImpl = fetchWorkflowRunPolicyReceiptArtifact,
   sleepImpl = waitForReceiptSource,
   attempts = RELEASE_POLICY_RECEIPT_SOURCE_POLL_ATTEMPTS,
   delayMs = RELEASE_POLICY_RECEIPT_SOURCE_POLL_DELAY_MS,
@@ -634,7 +662,37 @@ export async function waitForSourcePolicyReceipt({
         mergedAtMs,
         statusObservedAtMs: source.updatedAt
       })) {
-        return { ...source, workflowRun };
+        let artifact;
+        try {
+          artifact = await fetchArtifactImpl({
+            apiUrl,
+            repository,
+            runId: source.workflowRunId,
+            token,
+            fetchImpl
+          });
+          assertPreMergePolicyReceiptArtifact({
+            artifact,
+            repository,
+            branch,
+            headSha,
+            pullNumber,
+            workflowRunId: source.workflowRunId,
+            statusObservedAt: source.updatedAt
+          });
+        } catch {
+          // A status is only a locator. Do not fall back to an older status or
+          // treat an unavailable/forged artifact as continuity evidence; retry
+          // the bounded window until the exact immutable artifact is readable.
+          break;
+        }
+        return {
+          ...source,
+          workflowRun,
+          policyArtifact: artifact,
+          policyArtifactDigest: policyArtifactDigest(artifact),
+          policyDigest: artifact.policyDigest
+        };
       }
     }
     if (attempt < attempts - 1) await sleepImpl(delayMs);
@@ -993,7 +1051,8 @@ async function main() {
       mergeCommitSha,
       mergedAt,
       sourceWorkflowRunId: source.workflowRunId,
-      sourcePolicyDigest: source.policyDigest
+      sourcePolicyDigest: source.policyDigest,
+      sourcePolicyArtifactDigest: source.policyArtifactDigest
     };
   }
   const artifactPath = String(process.env.RELEASE_POLICY_RECEIPT_FILE ?? "").trim();
@@ -1015,7 +1074,8 @@ async function main() {
   }
   const artifact = JSON.parse(await readFile(artifactPath, "utf8"));
   if (eventAction === RELEASE_POLICY_RECEIPT_MERGE_ACTION &&
-      (artifact.sourceWorkflowRunId !== receipt.sourceWorkflowRunId || artifact.sourcePolicyDigest !== receipt.sourcePolicyDigest)) {
+      (artifact.sourceWorkflowRunId !== receipt.sourceWorkflowRunId || artifact.sourcePolicyDigest !== receipt.sourcePolicyDigest ||
+       artifact.sourcePolicyArtifactDigest !== receipt.sourcePolicyArtifactDigest)) {
     throw new Error("Merge-bound release policy receipt artifact does not match the current pre-merge source");
   }
   const result = await publishReleasePolicyReceipt({

@@ -5,6 +5,7 @@ import {
   RELEASE_POLICY_RECEIPT_PREFIX,
   RELEASE_POLICY_RECEIPT_ARTIFACT_KIND,
   RELEASE_POLICY_CLOSE_BINDING_ARTIFACT_KIND,
+  assertPreMergePolicyReceiptArtifact,
   assertClosedPolicyReceiptBinding,
   buildPolicyReceiptArtifact,
   buildClosedPolicyReceiptBinding,
@@ -15,6 +16,7 @@ import {
   parseWorkflowRunReconciliationEvent,
   prepareReleasePolicyReceipt,
   policyDigest,
+  policyArtifactDigest,
   publishReleasePolicyReceipt,
   waitForSourcePolicyReceipt
 } from "../release-policy-receipt.mjs";
@@ -307,19 +309,42 @@ test("ruleset policy pagination includes active rulesets after the first full pa
 });
 
 test("policy receipt artifact deterministically binds its pre-merge identity and policy", () => {
+  const policy = [{ context: "test", appId: null, strict: true }];
   const artifact = buildPolicyReceiptArtifact({
     repository: "example/repo",
     branch: "dev",
     headSha: "b".repeat(40),
     pullNumber: 17,
-    policy: [{ context: "test", appId: null, strict: true }],
+    policy,
     workflowRunId: "42",
-    eventAction: "opened",
+    eventAction: "synchronize",
     observedAt: "2026-08-18T00:00:00Z"
   });
   assert.equal(artifact.eventName, "pull_request_target");
   assert.equal(artifact.workflowFile, ".github/workflows/ci.yml");
   assert.equal(artifact.policyDigest, policyDigest(artifact.policy));
+  assert.doesNotThrow(() => assertPreMergePolicyReceiptArtifact({
+    artifact,
+    repository: "example/repo",
+    branch: "dev",
+    headSha: "b".repeat(40),
+    pullNumber: 17,
+    workflowRunId: "42",
+    statusObservedAt: "2026-08-18T00:00:02Z"
+  }));
+  assert.equal(policyArtifactDigest(artifact).length, 64);
+  assert.throws(
+    () => assertPreMergePolicyReceiptArtifact({
+      artifact: { ...artifact, policyDigest: "f".repeat(64) },
+      repository: "example/repo",
+      branch: "dev",
+      headSha: "b".repeat(40),
+      pullNumber: 17,
+      workflowRunId: "42",
+      statusObservedAt: "2026-08-18T00:00:02Z"
+    }),
+    /not bound to the trusted pre-merge workflow/
+  );
 });
 
 test("merge-bound policy receipt binds merge commit and unchanged pre-merge policy", () => {
@@ -337,7 +362,8 @@ test("merge-bound policy receipt binds merge commit and unchanged pre-merge poli
     mergeCommitSha,
     mergedAt: "2026-08-18T00:00:00Z",
     sourceWorkflowRunId: "42",
-    sourcePolicyDigest: policyDigest(policy)
+    sourcePolicyDigest: policyDigest(policy),
+    sourcePolicyArtifactDigest: "d".repeat(64)
   });
   assert.equal(artifact.eventAction, "closed");
   assert.equal(artifact.mergeCommitSha, mergeCommitSha);
@@ -376,7 +402,8 @@ test("workflow-run reconciliation artifacts bind the completed source run", () =
     mergeCommitSha: "c".repeat(40),
     mergedAt: "2026-08-18T00:00:00Z",
     sourceWorkflowRunId: "42",
-    sourcePolicyDigest: policyDigest(policy)
+    sourcePolicyDigest: policyDigest(policy),
+    sourcePolicyArtifactDigest: "e".repeat(64)
   });
   assert.equal(artifact.eventName, "workflow_run");
   assert.equal(artifact.workflowFile, ".github/workflows/release-policy-reconcile.yml");
@@ -546,12 +573,14 @@ test("delayed workflow-run reconciliation locates the exact closed merge run ins
 test("closed receipt polling waits for the exact pre-merge status within a bounded window", async () => {
   const headSha = "d".repeat(40);
   const baseSha = "1".repeat(40);
+  const policy = [{ context: "test", appId: null, strict: true }];
+  const sourceDigest = policyDigest(policy);
   const sourceStatus = {
     id: 42,
     state: "success",
     context: RELEASE_POLICY_RECEIPT_CONTEXT,
     target_url: `https://github.com/example/repo/actions/runs/42?phase=pre-merge&pr=17&head=${headSha}&base=dev`,
-    description: `${RELEASE_POLICY_RECEIPT_PREFIX}${"e".repeat(64)}`,
+    description: `${RELEASE_POLICY_RECEIPT_PREFIX}${sourceDigest}`,
     updated_at: "2026-08-18T00:00:02Z"
   };
   let queries = 0;
@@ -571,10 +600,24 @@ test("closed receipt polling waits for the exact pre-merge status within a bound
       queries += 1;
       assert.equal(url, `https://api.github.com/repos/example/repo/commits/${headSha}/statuses?per_page=100&page=1`);
       return { ok: true, status: 200, json: async () => (queries === 1 ? [] : [sourceStatus]) };
+    },
+    fetchArtifactImpl: async ({ runId }) => {
+      assert.equal(runId, "42");
+      return buildPolicyReceiptArtifact({
+        repository: "example/repo",
+        branch: "dev",
+        headSha,
+        pullNumber: 17,
+        policy,
+        workflowRunId: runId,
+        eventAction: "synchronize",
+        observedAt: "2026-08-18T00:00:01Z"
+      });
     }
   });
   assert.equal(source.workflowRunId, "42");
-  assert.equal(source.policyDigest, "e".repeat(64));
+  assert.equal(source.policyDigest, sourceDigest);
+  assert.equal(source.policyArtifactDigest.length, 64);
   assert.deepEqual(sleeps, [5_000]);
   assert.equal(queries, 2);
 });
@@ -582,12 +625,14 @@ test("closed receipt polling waits for the exact pre-merge status within a bound
 test("closed receipt polling ignores a newer pre-merge status published after merge", async () => {
   const headSha = "f".repeat(40);
   const baseSha = "2".repeat(40);
+  const policy = [{ context: "test", appId: null, strict: true }];
+  const sourceDigest = policyDigest(policy);
   const status = (id, updatedAt, workflowRunId) => ({
     id,
     state: "success",
     context: RELEASE_POLICY_RECEIPT_CONTEXT,
     target_url: `https://github.com/example/repo/actions/runs/${workflowRunId}?phase=pre-merge&pr=17&head=${headSha}&base=dev`,
-    description: `${RELEASE_POLICY_RECEIPT_PREFIX}${id === 42 ? "a".repeat(64) : "b".repeat(64)}`,
+    description: `${RELEASE_POLICY_RECEIPT_PREFIX}${id === 42 ? sourceDigest : "b".repeat(64)}`,
     updated_at: updatedAt
   });
   const source = await waitForSourcePolicyReceipt({
@@ -609,10 +654,23 @@ test("closed receipt polling ignores a newer pre-merge status published after me
         status(43, "2026-08-18T00:00:02Z", 43)
       ]
       };
+    },
+    fetchArtifactImpl: async ({ runId }) => {
+      assert.equal(runId, "42");
+      return buildPolicyReceiptArtifact({
+        repository: "example/repo",
+        branch: "dev",
+        headSha,
+        pullNumber: 17,
+        policy,
+        workflowRunId: runId,
+        eventAction: "synchronize",
+        observedAt: "2026-08-17T23:59:58Z"
+      });
     }
   });
   assert.equal(source.workflowRunId, "42");
-  assert.equal(source.policyDigest, "a".repeat(64));
+  assert.equal(source.policyDigest, sourceDigest);
 });
 
 test("closed receipt rejects a source status observed after merge even when its run started before merge", async () => {
