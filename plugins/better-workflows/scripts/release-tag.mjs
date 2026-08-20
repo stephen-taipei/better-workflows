@@ -1199,9 +1199,11 @@ function workflowTestObservation({ branch, checkRuns, workflowRuns, sha }) {
     return { state: "pending", run: latestRun, check: latestCheck };
   }
   return {
-    state: latestCheck.conclusion === "success" && latestRun.conclusion === "success"
-      ? "success"
-      : "failure",
+    // The exact `test` job/check is the independently authenticated gate.
+    // The enclosing workflow also contains integration-tag, which may fail
+    // after a branch-overtake/CAS race without invalidating a successful test
+    // job that already ran on this immutable candidate.
+    state: latestCheck.conclusion === "success" ? "success" : "failure",
     run: latestRun,
     check: latestCheck
   };

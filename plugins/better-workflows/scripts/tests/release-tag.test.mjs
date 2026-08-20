@@ -2362,7 +2362,9 @@ test("catch-up publication requires the exact workflow test check on the release
       }
       if (url.includes(`/repos/example/repo/actions/runs?head_sha=${bump}&event=push&branch=dev&per_page=100&page=1`)) {
         const workflowRuns = [{ id: 2, path: ".github/workflows/ci.yml", head_sha: bump, head_branch: "dev", event: "push", status: "completed", conclusion: "success", created_at: "2026-08-15T00:01:00Z", completed_at: "2026-08-20T00:05:00Z" }];
-        if (workflowScenario === "old-success-new-failure") {
+        if (workflowScenario === "integration-tag-failure") {
+          workflowRuns[0].conclusion = "failure";
+        } else if (workflowScenario === "old-success-new-failure") {
           workflowRuns.push({ id: 3, path: ".github/workflows/ci.yml", head_sha: bump, head_branch: "dev", event: "push", status: "completed", conclusion: "failure", created_at: "2026-08-18T00:01:00Z", completed_at: "2026-08-19T00:05:00Z" });
         } else if (workflowScenario === "old-success-new-pending") {
           workflowRuns.push({ id: 3, path: ".github/workflows/ci.yml", head_sha: bump, head_branch: "dev", event: "push", status: "in_progress", conclusion: null, created_at: "2026-08-18T00:01:00Z" });
@@ -2399,6 +2401,12 @@ test("catch-up publication requires the exact workflow test check on the release
         /lacks an exact successful test workflow check/
       );
     }
+    workflowScenario = "integration-tag-failure";
+    workflowTestSlug = "github-actions";
+    requiredPolls = 0;
+    const catchUp = await runReleaseTag({ cwd: work, fetchImpl, env, sleepImpl: async () => {} });
+    assert.equal(catchUp.status, "planned");
+    assert.equal(catchUp.version, "3.4.13");
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -3619,6 +3619,36 @@ test("GitHub Actions dispatch remains non-executable until immutable provider bi
   assert.equal(isExecutableActionProvider("pr.merge", "github-cli"), true);
 });
 
+test("GitHub Actions dispatch token issuance remains deferred until immutable provider binding exists", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-actions-dispatch-issuance-deferred-"));
+  try {
+    await execFileAsync("git", ["init", "-q", "-b", "codex/dispatch-deferred"], { cwd: root });
+    await execFileAsync("git", ["config", "user.email", "sbw@example.invalid"], { cwd: root });
+    await execFileAsync("git", ["config", "user.name", "SBW Test"], { cwd: root });
+    await writeFile(path.join(root, "README.md"), "dispatch issuance is deferred\n");
+    await execFileAsync("git", ["add", "README.md"], { cwd: root });
+    await execFileAsync("git", ["commit", "-qm", "dispatch deferred baseline"], { cwd: root });
+    const run = await createRun({
+      root,
+      contract: contract({ authority: ["actions.dispatch"], remoteRevision: "a".repeat(40) }),
+      requestedMode: "critical",
+      cwd: root
+    });
+    await assert.rejects(
+      issueActionToken(root, run.runId, {
+        action: "actions.dispatch",
+        provider: "github-cli",
+        resource: "workflow:.github/workflows/ci.yml",
+        remoteRevision: "a".repeat(40),
+        requiredEvidence: ["preflight"]
+      }, "tree", await loadDefaults()),
+      /GitHub Actions dispatch is deferred until immutable provider binding exists/
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("required-check probes require a bound executable identity and reject path drift", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "sbw-required-check-provider-"));
   const bin = path.join(root, "bin");

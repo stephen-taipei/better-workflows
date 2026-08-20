@@ -6302,6 +6302,9 @@ async function verifyAutonomousCommitTransition(manifest, contract, record) {
 }
 
 export async function issueActionToken(root, runId, request, currentTreeDigest, config) {
+  if (request.action === "actions.dispatch") {
+    throw new Error("GitHub Actions dispatch is deferred until immutable provider binding exists");
+  }
   assertSupportedGovernedAction(request.action);
   for (const field of ["action", "provider", "resource", "remoteRevision"]) {
     if (typeof request[field] !== "string" || !request[field]) throw new Error(`Action ${field} is required`);
