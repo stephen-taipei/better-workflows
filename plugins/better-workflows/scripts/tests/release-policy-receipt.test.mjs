@@ -498,7 +498,7 @@ test("delayed workflow-run reconciliation locates the exact closed merge run ins
     token: "token",
     fetchImpl: async (url) => {
       calls.push(url);
-      if (url.includes("/actions/workflows/.github%2Fworkflows%2Fci.yml/runs?")) {
+      if (url.includes("/actions/workflows/ci.yml/runs?")) {
         return { ok: true, status: 200, json: async () => ({ workflow_runs: [{ id: 7 }, { id: 99 }] }) };
       }
       if (url.endsWith("/actions/runs/7")) {

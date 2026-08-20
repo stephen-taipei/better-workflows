@@ -5,6 +5,7 @@ import { inflateRawSync } from "node:zlib";
 export const RELEASE_POLICY_RECEIPT_CONTEXT = "better-workflows/release-policy-v1";
 export const RELEASE_POLICY_RECEIPT_PREFIX = "better-workflows-policy-v1:";
 export const RELEASE_POLICY_RECEIPT_WORKFLOW_FILE = ".github/workflows/ci.yml";
+export const RELEASE_POLICY_RECEIPT_WORKFLOW_ID = RELEASE_POLICY_RECEIPT_WORKFLOW_FILE.split("/").pop();
 export const RELEASE_POLICY_RECEIPT_RECONCILIATION_WORKFLOW_FILE = ".github/workflows/release-policy-reconcile.yml";
 export const RELEASE_POLICY_RECEIPT_WORKFLOW_EVENT = "pull_request_target";
 export const RELEASE_POLICY_RECEIPT_RECONCILIATION_EVENT = "workflow_run";
@@ -502,7 +503,7 @@ export async function findClosedMergeWorkflowRun({
   for (let page = 1; page <= 10; page += 1) {
     const payload = await requestJson({
       apiUrl,
-      path: `/repos/${normalizedRepository}/actions/workflows/${encodeURIComponent(RELEASE_POLICY_RECEIPT_WORKFLOW_FILE)}/runs?event=${RELEASE_POLICY_RECEIPT_WORKFLOW_EVENT}&branch=${encodeURIComponent(normalizedBranch)}&per_page=100&page=${page}`,
+      path: `/repos/${normalizedRepository}/actions/workflows/${encodeURIComponent(RELEASE_POLICY_RECEIPT_WORKFLOW_ID)}/runs?event=${RELEASE_POLICY_RECEIPT_WORKFLOW_EVENT}&branch=${encodeURIComponent(normalizedBranch)}&per_page=100&page=${page}`,
       token,
       fetchImpl
     });

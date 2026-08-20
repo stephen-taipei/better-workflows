@@ -3761,6 +3761,14 @@ test("required-check verifier ignores optional skipped jobs and selects the newe
       }
     ]
   };
+  const statusPage = [{
+    id: 201,
+    context: "test",
+    sha: head,
+    state: "success",
+    created_at: newestCompletedAt,
+    updated_at: newestCompletedAt
+  }];
   const emit = (value) => JSON.stringify(JSON.stringify(value));
   const ghScript = [
     "#!/bin/sh",
@@ -3773,6 +3781,7 @@ test("required-check verifier ignores optional skipped jobs and selects the newe
     `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo/branches/dev/protection/required_status_checks")} ]; then printf '%s\\n' ${emit(requiredStatusProtection)}; exit 0; fi`,
     `if [ \"$endpoint\" = ${JSON.stringify(`repos/example/repo/actions/runs?head_sha=${head}&per_page=100`)} ]; then printf '%s\\n' ${emit([workflowPage])}; exit 0; fi`,
     `if [ \"$endpoint\" = ${JSON.stringify(`repos/example/repo/commits/${head}/check-runs?per_page=100`)} ]; then printf '%s\\n' ${emit([checkPage])}; exit 0; fi`,
+    `if [ \"$endpoint\" = ${JSON.stringify(`repos/example/repo/commits/${head}/statuses?per_page=100`)} ]; then printf '%s\\n' ${emit([statusPage])}; exit 0; fi`,
     "printf '%s\\n' \"unexpected gh endpoint: $endpoint\" >&2",
     "exit 9"
   ].join("\n");
@@ -3808,15 +3817,45 @@ test("required-check verifier ignores optional skipped jobs and selects the newe
     };
     const contextOnlyGhScript = ghScript
       .replace(emit(protection), emit(contextOnlyProtection))
-      .replace(emit(requiredStatusProtection), emit(contextOnlyProtection.required_status_checks));
+      .replace(emit(requiredStatusProtection), emit(contextOnlyProtection.required_status_checks))
+      .replace(emit([checkPage]), emit([{ total_count: 0, check_runs: [] }]));
     await writeFile(fakeGh, contextOnlyGhScript, { mode: 0o700 });
     await verifyRequiredChecksProvider(root, {
       ...payload,
-      requiredStatusCheckApps: [{ context: "test", appId: null }]
+      requiredStatusCheckApps: [{ context: "test", appId: null }],
+      providerRunIds: ["201"],
+      checks: [{
+        name: "test#201",
+        providerName: "test",
+        providerRunId: "201",
+        completedAt: newestCompletedAt,
+        conclusion: "success"
+      }]
     }, {
       path: providerExecutable.path,
       digest: sha256(contextOnlyGhScript)
     });
+    const failedStatusPage = [{ ...statusPage[0], id: 202, state: "failure", updated_at: latestFailedAt }];
+    const failedStatusGhScript = contextOnlyGhScript.replace(emit([statusPage]), emit([failedStatusPage]));
+    await writeFile(fakeGh, failedStatusGhScript, { mode: 0o700 });
+    await assert.rejects(
+      verifyRequiredChecksProvider(root, {
+        ...payload,
+        requiredStatusCheckApps: [{ context: "test", appId: null }],
+        providerRunIds: ["202"],
+        checks: [{
+          name: "test#202",
+          providerName: "test",
+          providerRunId: "202",
+          completedAt: latestFailedAt,
+          conclusion: "failure"
+        }]
+      }, {
+        path: providerExecutable.path,
+        digest: sha256(failedStatusGhScript)
+      }),
+      /latest protected check observation is not successful/
+    );
     const duplicateContextProtection = {
       ...protection,
       required_status_checks: {
@@ -3855,7 +3894,7 @@ test("required-check verifier ignores optional skipped jobs and selects the newe
         providerRunIds: ["101"],
         checks: [{ ...payload.checks[0], name: "test#101", providerRunId: "101" }]
       }, providerExecutable),
-      /canonical protected check-run set/
+      /canonical protected check observation set/
     );
     const failedGhScript = ghScript.replace(emit([checkPage]), emit([failedCheckPage]));
     await writeFile(fakeGh, failedGhScript, { mode: 0o700 });
@@ -3864,7 +3903,7 @@ test("required-check verifier ignores optional skipped jobs and selects the newe
         path: providerExecutable.path,
         digest: sha256(failedGhScript)
       }),
-      /latest protected check-run is not successful/
+      /latest protected check observation is not successful/
     );
     const futureCompletionPage = {
       ...checkPage,
@@ -3881,7 +3920,7 @@ test("required-check verifier ignores optional skipped jobs and selects the newe
         path: providerExecutable.path,
         digest: sha256(futureCompletionGhScript)
       }),
-      /latest protected check-run is not successful/
+      /latest protected check observation is not successful/
     );
   } finally {
     process.env.PATH = priorPath;
@@ -3948,6 +3987,7 @@ test("required-check verifier preserves ruleset integration identity for same-na
     `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo/branches/dev/protection/required_status_checks")} ]; then printf '%s\\n' ${emit(requiredStatusProtection)}; exit 0; fi`,
     `if [ \"$endpoint\" = ${JSON.stringify(`repos/example/repo/actions/runs?head_sha=${head}&per_page=100`)} ]; then printf '%s\\n' ${emit([workflowPage])}; exit 0; fi`,
     `if [ \"$endpoint\" = ${JSON.stringify(`repos/example/repo/commits/${head}/check-runs?per_page=100`)} ]; then printf '%s\\n' ${emit([checkPage])}; exit 0; fi`,
+    `if [ \"$endpoint\" = ${JSON.stringify(`repos/example/repo/commits/${head}/statuses?per_page=100`)} ]; then printf '%s\\n' ${emit([[]])}; exit 0; fi`,
     "printf '%s\\n' \"unexpected gh endpoint: $endpoint\" >&2",
     "exit 9"
   ].join("\n");
@@ -3982,7 +4022,7 @@ test("required-check verifier preserves ruleset integration identity for same-na
         path: providerExecutable.path,
         digest: sha256(unauthorizedGhScript)
       }),
-      /no fresh successful check-run for protected context/
+      /no fresh successful check observation for protected context/
     );
   } finally {
     process.env.PATH = priorPath;

@@ -5788,77 +5788,105 @@ export async function verifyRequiredChecksProvider(cwd, payload, providerExecuta
     .filter((check) => check?.head_sha === payload.head);
   const checkRunCount = checkRunPages.reduce((sum, page) => sum + page.check_runs.length, 0);
   const checkRunTotal = checkRunPages[0]?.total_count;
-  if (!Number.isInteger(checkRunTotal) || checkRunTotal !== checkRunCount || checkRuns.length === 0) {
+  if (!Number.isInteger(checkRunTotal) || checkRunTotal !== checkRunCount) {
     throw new Error("Required check provider response is not a complete GitHub check-run set");
   }
+  const statusPages = JSON.parse((await execBoundGitHubCli(executablePath, [
+    "api",
+    "--paginate",
+    "--slurp",
+    `repos/${repositoryPath}/commits/${encodeURIComponent(payload.head)}/statuses?per_page=100`
+  ], { cwd, encoding: "utf8" })).stdout);
+  if (!Array.isArray(statusPages) || statusPages.some((page) => !Array.isArray(page))) {
+    throw new Error("Required check provider response is not a complete GitHub commit-status set");
+  }
+  const commitStatuses = statusPages.flatMap((page) => page)
+    .filter((status) => status?.sha === payload.head);
   // The provider returns every check-run for the commit, including optional
   // jobs that are intentionally skipped.  Only the protected status contexts
-  // are merge gates; choose the newest fresh run for each required context,
-  // then require that authoritative observation to be completed successfully.
-  // Filtering out failed/pending runs before selection would let an older green
-  // run authorize an action after a newer run has failed or is still pending.
-  const requiredCheckRuns = protectedCheckApps.map(({ context: name, appId }) => {
-    const candidates = checkRuns
-      .filter((check) => check?.name === name && check?.head_sha === payload.head)
-      .filter((check) => {
-        const createdAt = check.created_at;
-        return (
-          (appId === null || check.app?.id === appId) &&
-          Number.isFinite(Date.parse(createdAt ?? "")) &&
-          Date.parse(createdAt) <= observedAt
-        );
-      })
-      .sort((left, right) => {
-        const leftAt = Date.parse(left.created_at ?? "");
-        const rightAt = Date.parse(right.created_at ?? "");
-        const leftId = Number(left.id);
-        const rightId = Number(right.id);
-        return leftAt - rightAt || (Number.isSafeInteger(leftId) && Number.isSafeInteger(rightId)
-          ? leftId - rightId
-          : String(left.id).localeCompare(String(right.id)));
+  // are merge gates; choose the newest authoritative check-run or commit
+  // status for each required context, then require that observation to be
+  // terminal success. App-bound requirements remain restricted to check-runs.
+  const requiredObservations = protectedCheckApps.map(({ context: name, appId }) => {
+    const candidates = [];
+    for (const check of checkRuns) {
+      if (check?.name !== name || check?.head_sha !== payload.head ||
+          (appId !== null && check?.app?.id !== appId)) continue;
+      const createdAt = Date.parse(check.created_at ?? "");
+      const completedAt = Date.parse(check.completed_at ?? "");
+      if (!Number.isFinite(createdAt)) continue;
+      candidates.push({
+        ...check,
+        observationKind: "check-run",
+        observationAt: createdAt,
+        completedAt
       });
+    }
+    if (appId === null) {
+      for (const status of commitStatuses) {
+        if (status?.context !== name || status?.sha !== payload.head) continue;
+        const observedStatusAt = Date.parse(status.updated_at ?? status.created_at ?? "");
+        if (!Number.isFinite(observedStatusAt) || status.id === undefined || status.id === null) continue;
+        candidates.push({
+          id: String(status.id),
+          name,
+          providerName: name,
+          head_sha: payload.head,
+          status: "completed",
+          conclusion: String(status.state ?? ""),
+          observationKind: "commit-status",
+          observationAt: observedStatusAt,
+          completedAt: observedStatusAt
+        });
+      }
+    }
+    candidates.sort((left, right) => (
+      left.observationAt - right.observationAt ||
+      String(left.observationKind).localeCompare(String(right.observationKind)) ||
+      String(left.id).localeCompare(String(right.id))
+    ));
     const selected = candidates.at(-1);
     if (!selected) {
-      throw new Error(`Required check provider has no fresh successful check-run for protected context: ${name}`);
+      throw new Error(`Required check provider has no fresh successful check observation for protected context: ${name}`);
     }
     if (
       selected.status !== "completed" ||
       selected.conclusion !== "success" ||
-      !Number.isFinite(Date.parse(selected.completed_at ?? "")) ||
-      Date.parse(selected.completed_at) > observedAt
+      !Number.isFinite(selected.completedAt) ||
+      selected.completedAt > observedAt
     ) {
-      throw new Error(`Required check provider latest protected check-run is not successful: ${name}`);
+      throw new Error(`Required check provider latest protected check observation is not successful: ${name}`);
     }
     return selected;
   });
   const observedIds = new Set(payload.checks.map((check) => String(check.providerRunId)));
-  const requiredProviderIds = new Set(requiredCheckRuns.map((check) => String(check.id)));
-  if (observedIds.size !== requiredCheckRuns.length || observedIds.size !== payload.checks.length ||
+  const requiredProviderIds = new Set(requiredObservations.map((check) => String(check.id)));
+  if (observedIds.size !== requiredObservations.length || observedIds.size !== payload.checks.length ||
       [...requiredProviderIds].some((id) => !observedIds.has(id))) {
-    throw new Error("Required check evidence does not cover the canonical protected check-run set");
+    throw new Error("Required check evidence does not cover the canonical protected check observation set");
   }
   const observedRequired = new Set(payload.checks.map((check) => check.providerName ?? check.name));
   if (requiredStatusChecks.some((name) => !observedRequired.has(name))) {
     throw new Error("Required check evidence does not include every protected status check");
   }
   for (const check of payload.checks) {
-    const checkRun = requiredCheckRuns.find((candidate) => String(candidate.id) === String(check.providerRunId));
-    const protectedApp = protectedCheckApps.find((candidate) => candidate.context === checkRun?.name);
+    const observation = requiredObservations.find((candidate) => String(candidate.id) === String(check.providerRunId));
+    const protectedApp = protectedCheckApps.find((candidate) => candidate.context === (observation?.providerName ?? observation?.name));
     if (
-      !checkRun ||
-      checkRun.head_sha !== payload.head ||
-      checkRun.status !== "completed" ||
-      checkRun.conclusion !== "success" ||
-      (check.providerName ?? check.name) !== checkRun.name ||
+      !observation ||
+      observation.head_sha !== payload.head ||
+      observation.status !== "completed" ||
+      observation.conclusion !== "success" ||
+      (check.providerName ?? check.name) !== (observation.providerName ?? observation.name) ||
       !protectedApp ||
-      (protectedApp.appId !== null && checkRun.app?.id !== protectedApp.appId) ||
-      check.name !== `${checkRun.name}#${checkRun.id}` ||
-      !Number.isFinite(Date.parse(checkRun.completed_at ?? "")) ||
-      Date.parse(checkRun.completed_at) > observedAt ||
+      (protectedApp.appId !== null && observation.app?.id !== protectedApp.appId) ||
+      check.name !== `${observation.name}#${observation.id}` ||
+      !Number.isFinite(observation.completedAt) ||
+      observation.completedAt > observedAt ||
       !Number.isFinite(Date.parse(check.completedAt ?? "")) ||
-      Date.parse(check.completedAt) !== Date.parse(checkRun.completed_at)
+      Date.parse(check.completedAt) !== observation.completedAt
     ) {
-      throw new Error(`Required check provider check-run is not a fresh successful GitHub check: ${check.providerRunId}`);
+      throw new Error(`Required check provider observation is not a fresh successful GitHub check: ${check.providerRunId}`);
     }
   }
 }
