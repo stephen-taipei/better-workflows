@@ -6,7 +6,7 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { assertPolicyReceiptArtifact, githubGraphqlUrl, repositoryPullRequests, runReleaseTag as runReleaseTagImpl } from "../release-tag.mjs";
+import { assertPolicyReceiptArtifact, githubGraphqlUrl, releasePolicyPublisherAvailable, repositoryPullRequests, runReleaseTag as runReleaseTagImpl } from "../release-tag.mjs";
 import {
   compareStableVersions,
   findMergedPullRequest,
@@ -163,6 +163,7 @@ function wrapFetchImpl(fetchImpl = fetch) {
 
 const runReleaseTag = (options = {}) => runReleaseTagImpl({
   sleepImpl: async () => {},
+  allowSyntheticMissingPolicyWorkflow: true,
   ...options,
   fetchImpl: wrapFetchImpl(options.fetchImpl)
 });
@@ -303,6 +304,28 @@ test("only a version change creates a release candidate", () => {
   assert.equal(compareStableVersions(`3.${"9".repeat(80)}.0`, `3.${"8".repeat(80)}.0`), 1);
   assert.equal(versionChanged("3.4.10", null), true);
   assert.equal(versionChanged("3.9007199254740993.0", "3.9007199254740992.0"), true);
+});
+
+test("remote-bound historical boundaries without CI workflow are unavailable to policy catch-up", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-release-tag-policy-boundary-"));
+  const work = path.join(root, "work");
+  try {
+    await execFileAsync("git", ["init", "-q", work]);
+    await git(work, ["config", "user.email", "test@example.invalid"]);
+    await git(work, ["config", "user.name", "release-test"]);
+    await mkdir(path.join(work, "plugins/better-workflows/scripts"), { recursive: true });
+    await writeFile(path.join(work, "plugins/better-workflows/scripts/release-policy-receipt.mjs"), "export {};\n");
+    await git(work, ["add", "."]);
+    await git(work, ["commit", "-qm", "policy publisher without CI workflow"]);
+    const revision = await git(work, ["rev-parse", "HEAD"]);
+    assert.equal(
+      await releasePolicyPublisherAvailable(work, revision, { repository: "example/repo", defaultBranchActivation: true }),
+      false
+    );
+    assert.equal(await releasePolicyPublisherAvailable(work, revision), true);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("package and plugin manifest versions must agree", () => {

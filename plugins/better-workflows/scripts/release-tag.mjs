@@ -596,15 +596,17 @@ async function defaultBranchReleasePolicyActivation({ apiUrl, repository, token,
     /(?:^|\n)\s*release-policy-receipt\s*:/.test(reconciliationWorkflowText);
 }
 
-async function releasePolicyPublisherAvailable(cwd, baseSha, remoteContext = {}) {
+export async function releasePolicyPublisherAvailable(cwd, baseSha, remoteContext = {}) {
   const revision = String(baseSha ?? "").trim().toLowerCase();
   if (!/^[0-9a-f]{40}$/.test(revision)) return true;
   try {
     await git(cwd, ["cat-file", "-e", `${revision}:.github/workflows/ci.yml`]);
   } catch {
-    // Synthetic test repositories and older checkouts without the workflow do
-    // not participate in the release-policy rollout gate.
-    return true;
+    // A real provider-bound candidate cannot have a policy receipt if its
+    // immutable boundary predates the CI workflow. Synthetic fixtures may
+    // opt in explicitly, but a remote-bound catch-up candidate is otherwise
+    // unavailable at this boundary.
+    return Boolean(remoteContext.allowSyntheticMissingWorkflow) || !remoteContext.repository;
   }
   try {
     await git(cwd, ["cat-file", "-e", `${revision}:plugins/better-workflows/scripts/release-policy-receipt.mjs`]);
@@ -1535,7 +1537,8 @@ export async function runReleaseTag({
   env = process.env,
   cwd = process.cwd(),
   fetchImpl = fetch,
-  sleepImpl = waitForReleaseChecks
+  sleepImpl = waitForReleaseChecks,
+  allowSyntheticMissingPolicyWorkflow = false
 } = {}) {
   const eventName = String(env.GITHUB_EVENT_NAME ?? "");
   const branch = String(env.GITHUB_REF_NAME ?? "");
@@ -1574,7 +1577,13 @@ export async function runReleaseTag({
   // Bind the bootstrap gate to the validated push-event parent whenever one
   // exists; the live PR base ref may have advanced since the merge.
   const publisherBoundary = targetParent ?? headPull?.base?.sha;
-  const publisherContext = { apiUrl, repository, token, fetchImpl };
+  const publisherContext = {
+    apiUrl,
+    repository,
+    token,
+    fetchImpl,
+    ...(allowSyntheticMissingPolicyWorkflow ? { allowSyntheticMissingWorkflow: true } : {})
+  };
   if (!(await releasePolicyPublisherAvailable(cwd, publisherBoundary, publisherContext))) {
     return {
       status: "skipped",
