@@ -552,19 +552,54 @@ function rulesetRefPatternMatches(pattern, branch, defaultBranch) {
   if (typeof pattern !== "string" || !pattern.startsWith("refs/heads/")) {
     throw new Error(`Release policy receipt ruleset has an unsupported ref pattern: ${String(pattern)}`);
   }
-  if (!pattern.includes("*")) return pattern === `refs/heads/${branch}`;
-  const escaped = pattern.split("*").map((part) => part.replace(/[.*+?^${}()|[\[\]\\]/g, "\\$&")).join(".*");
-  return new RegExp(`^${escaped}$`).test(`refs/heads/${branch}`);
+  let source = "^";
+  for (let index = 0; index < pattern.length; index += 1) {
+    const character = pattern[index];
+    if (character === "*") {
+      if (pattern[index + 1] === "*") {
+        source += ".*";
+        index += 1;
+      } else {
+        source += "[^/]*";
+      }
+      continue;
+    }
+    if (character === "?") {
+      source += "[^/]";
+      continue;
+    }
+    if (character === "[") {
+      const close = pattern.indexOf("]", index + 1);
+      if (close < 0) throw new Error(`Release policy receipt ruleset has an unterminated ref character class: ${pattern}`);
+      let classBody = pattern.slice(index + 1, close);
+      if (!classBody) throw new Error(`Release policy receipt ruleset has an empty ref character class: ${pattern}`);
+      if (classBody[0] === "!") classBody = `^${classBody.slice(1)}`;
+      classBody = classBody.replace(/[\\\]]/g, "\\$&");
+      source += `[${classBody}]`;
+      index = close;
+      continue;
+    }
+    source += character.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+  return new RegExp(`${source}$`).test(`refs/heads/${branch}`);
 }
 
 async function loadApplicableRulesetChecks({ apiUrl, repository, branch, token, fetchImpl = fetch }) {
-  const listed = await requestJson({
-    apiUrl,
-    path: `/repos/${repository}/rulesets?includes_parents=true&per_page=100&page=1`,
-    token,
-    fetchImpl
-  });
-  if (!Array.isArray(listed)) throw new Error("Release policy receipt ruleset query returned an invalid payload");
+  const listed = [];
+  const pageSize = 100;
+  const maxPages = 10;
+  for (let page = 1; page <= maxPages; page += 1) {
+    const pageItems = await requestJson({
+      apiUrl,
+      path: `/repos/${repository}/rulesets?includes_parents=true&per_page=${pageSize}&page=${page}`,
+      token,
+      fetchImpl
+    });
+    if (!Array.isArray(pageItems)) throw new Error("Release policy receipt ruleset query returned an invalid payload");
+    listed.push(...pageItems);
+    if (pageItems.length < pageSize) break;
+    if (page === maxPages) throw new Error(`Release policy receipt ruleset query exceeded its bounded ${maxPages}-page limit`);
+  }
   const checks = [];
   let defaultBranch = null;
   const resolveDefaultBranch = async () => {

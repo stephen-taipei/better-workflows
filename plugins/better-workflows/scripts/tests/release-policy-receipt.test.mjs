@@ -216,6 +216,71 @@ test("ruleset policy resolves default-branch and exclusion semantics, and reject
   );
 });
 
+test("ruleset fnmatch keeps single-star exclusions from crossing branch slashes", async () => {
+  const policy = await loadRequiredCheckPolicy({
+    apiUrl: "https://api.github.com",
+    repository: "example/repo",
+    branch: "releases/2026/hotfix",
+    token: "token",
+    fetchImpl: async (url) => {
+      if (url.endsWith("/branches/releases%2F2026%2Fhotfix/protection/required_status_checks")) return { ok: true, status: 200, json: async () => ({ strict: true, contexts: ["test"], checks: [] }) };
+      if (url.endsWith("/rulesets?includes_parents=true&per_page=100&page=1")) return { ok: true, status: 200, json: async () => [{ id: 10, enforcement: "active" }] };
+      if (url.endsWith("/rulesets/10")) return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          target: "branch",
+          conditions: { ref_name: { include: ["refs/heads/releases/**"], exclude: ["refs/heads/releases/*"] } },
+          rules: [{ type: "required_status_checks", parameters: {
+            strict_required_status_checks_policy: true,
+            required_status_checks: [{ context: "nested-release", integration_id: 42 }]
+          } }]
+        })
+      };
+      throw new Error(`Unexpected fnmatch URL: ${url}`);
+    }
+  });
+  assert.deepEqual(policy, [
+    { context: "nested-release", appId: 42, strict: true },
+    { context: "test", appId: null, strict: true }
+  ]);
+});
+
+test("ruleset policy pagination includes active rulesets after the first full page", async () => {
+  const firstPage = Array.from({ length: 100 }, (_, index) => ({ id: index + 1, enforcement: "inactive" }));
+  const calls = [];
+  const policy = await loadRequiredCheckPolicy({
+    apiUrl: "https://api.github.com",
+    repository: "example/repo",
+    branch: "dev",
+    token: "token",
+    fetchImpl: async (url) => {
+      calls.push(url);
+      if (url.endsWith("/branches/dev/protection/required_status_checks")) return { ok: true, status: 200, json: async () => ({ strict: true, contexts: ["test"], checks: [] }) };
+      if (url.endsWith("/rulesets?includes_parents=true&per_page=100&page=1")) return { ok: true, status: 200, json: async () => firstPage };
+      if (url.endsWith("/rulesets?includes_parents=true&per_page=100&page=2")) return { ok: true, status: 200, json: async () => [{ id: 101, enforcement: "active" }] };
+      if (url.endsWith("/rulesets/101")) return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          target: "branch",
+          conditions: { ref_name: { include: ["refs/heads/dev"] } },
+          rules: [{ type: "required_status_checks", parameters: {
+            strict_required_status_checks_policy: true,
+            required_status_checks: [{ context: "late-policy", integration_id: 7 }]
+          } }]
+        })
+      };
+      throw new Error(`Unexpected pagination URL: ${url}`);
+    }
+  });
+  assert.deepEqual(policy, [
+    { context: "late-policy", appId: 7, strict: true },
+    { context: "test", appId: null, strict: true }
+  ]);
+  assert.ok(calls.some((url) => url.endsWith("page=2")));
+});
+
 test("policy receipt artifact deterministically binds its pre-merge identity and policy", () => {
   const artifact = buildPolicyReceiptArtifact({
     repository: "example/repo",
