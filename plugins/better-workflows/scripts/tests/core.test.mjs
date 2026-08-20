@@ -3648,6 +3648,7 @@ test("required-check verifier ignores optional skipped jobs and selects the newe
   const observedAt = new Date(Date.now() - 1000).toISOString();
   const oldCompletedAt = new Date(Date.parse(observedAt) - 2000).toISOString();
   const newestCompletedAt = new Date(Date.parse(observedAt) - 1000).toISOString();
+  const latestFailedAt = new Date(Date.parse(observedAt) - 500).toISOString();
   const protection = {
     enforce_admins: { enabled: true },
     required_status_checks: {
@@ -3701,6 +3702,21 @@ test("required-check verifier ignores optional skipped jobs and selects the newe
       }
     ]
   };
+  const failedCheckPage = {
+    total_count: 4,
+    check_runs: [
+      ...checkPage.check_runs,
+      {
+        id: 104,
+        name: "test",
+        head_sha: head,
+        status: "completed",
+        conclusion: "failure",
+        completed_at: latestFailedAt,
+        app: { id: 15368 }
+      }
+    ]
+  };
   const emit = (value) => JSON.stringify(JSON.stringify(value));
   const ghScript = [
     "#!/bin/sh",
@@ -3748,6 +3764,15 @@ test("required-check verifier ignores optional skipped jobs and selects the newe
         checks: [{ ...payload.checks[0], name: "test#101", providerRunId: "101" }]
       }, providerExecutable),
       /canonical protected check-run set/
+    );
+    const failedGhScript = ghScript.replace(emit([checkPage]), emit([failedCheckPage]));
+    await writeFile(fakeGh, failedGhScript, { mode: 0o700 });
+    await assert.rejects(
+      verifyRequiredChecksProvider(root, payload, {
+        path: providerExecutable.path,
+        digest: sha256(failedGhScript)
+      }),
+      /latest protected check-run is not successful/
     );
   } finally {
     process.env.PATH = priorPath;

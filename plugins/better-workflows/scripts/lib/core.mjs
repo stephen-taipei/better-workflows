@@ -5757,31 +5757,34 @@ export async function verifyRequiredChecksProvider(cwd, payload, providerExecuta
   }
   // The provider returns every check-run for the commit, including optional
   // jobs that are intentionally skipped.  Only the protected status contexts
-  // are merge gates; choose the newest fresh successful run for each required
-  // context and ignore non-required check-runs for the action receipt.
+  // are merge gates; choose the newest fresh run for each required context,
+  // then require that authoritative observation to be completed successfully.
+  // Filtering out failed/pending runs before selection would let an older green
+  // run authorize an action after a newer run has failed or is still pending.
   const requiredCheckRuns = requiredStatusChecks.map((name) => {
     const protectedApp = protectedCheckApps.find((candidate) => candidate.context === name);
     const candidates = checkRuns
       .filter((check) => check?.name === name && check?.head_sha === payload.head)
       .filter((check) => {
-        const completedAt = check.completed_at ?? check.updated_at;
+        const observedAtForCheck = check.completed_at ?? check.updated_at ?? check.started_at ?? check.created_at;
         return (
-          check.status === "completed" &&
-          check.conclusion === "success" &&
           protectedApp &&
           check.app?.id === protectedApp.appId &&
-          Number.isFinite(Date.parse(completedAt ?? "")) &&
-          Date.parse(completedAt) <= observedAt
+          Number.isFinite(Date.parse(observedAtForCheck ?? "")) &&
+          Date.parse(observedAtForCheck) <= observedAt
         );
       })
       .sort((left, right) => {
-        const leftAt = Date.parse(left.completed_at ?? left.updated_at ?? "");
-        const rightAt = Date.parse(right.completed_at ?? right.updated_at ?? "");
+        const leftAt = Date.parse(left.completed_at ?? left.updated_at ?? left.started_at ?? left.created_at ?? "");
+        const rightAt = Date.parse(right.completed_at ?? right.updated_at ?? right.started_at ?? right.created_at ?? "");
         return leftAt - rightAt || String(left.id).localeCompare(String(right.id));
       });
     const selected = candidates.at(-1);
     if (!selected) {
       throw new Error(`Required check provider has no fresh successful check-run for protected context: ${name}`);
+    }
+    if (selected.status !== "completed" || selected.conclusion !== "success") {
+      throw new Error(`Required check provider latest protected check-run is not successful: ${name}`);
     }
     return selected;
   });
