@@ -3870,6 +3870,107 @@ test("required-check verifier ignores optional skipped jobs and selects the newe
   }
 });
 
+test("required-check verifier preserves ruleset integration identity for same-named checks", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-required-check-ruleset-app-"));
+  const bin = path.join(root, "bin");
+  await mkdir(bin, { recursive: true });
+  const fakeGh = path.join(bin, "gh");
+  const head = "b".repeat(40);
+  const observedAt = new Date(Date.now() - 1000).toISOString();
+  const protection = {
+    enforce_admins: { enabled: true },
+    required_status_checks: { contexts: [], checks: [] },
+    required_pull_request_reviews: { required_approving_review_count: 1 },
+    allow_force_pushes: { enabled: false },
+    allow_deletions: { enabled: false }
+  };
+  const requiredStatusProtection = { strict: true, contexts: [], checks: [] };
+  const rulesetSummary = [{ id: 9, enforcement: "active" }];
+  const rulesetDetail = {
+    id: 9,
+    target: "branch",
+    enforcement: "active",
+    bypass_actors: [],
+    conditions: { ref_name: { include: ["refs/heads/dev"] } },
+    rules: [
+      { type: "required_status_checks", parameters: {
+        strict_required_status_checks_policy: true,
+        required_status_checks: [{ context: "test", integration_id: 15368 }]
+      } },
+      { type: "pull_request", parameters: { required_approving_review_count: 1 } }
+    ]
+  };
+  const checkPage = {
+    total_count: 1,
+    check_runs: [{
+      id: 601,
+      name: "test",
+      head_sha: head,
+      status: "completed",
+      conclusion: "success",
+      created_at: observedAt,
+      completed_at: observedAt,
+      app: { id: 15368 }
+    }]
+  };
+  const workflowPage = {
+    total_count: 1,
+    workflow_runs: [{ id: 901, head_sha: head, status: "completed", conclusion: "success", updated_at: observedAt }]
+  };
+  const emit = (value) => JSON.stringify(JSON.stringify(value));
+  const ghScript = [
+    "#!/bin/sh",
+    "[ \"$1\" = api ] || exit 9",
+    "endpoint=\"$2\"",
+    "if [ \"$2\" = --paginate ]; then endpoint=\"$4\"; fi",
+    `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo/branches/dev/protection")} ]; then printf '%s\\n' ${emit(protection)}; exit 0; fi`,
+    `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo/rules/branches/dev")} ]; then printf '%s\\n' '[]'; exit 0; fi`,
+    `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo/rulesets?includes_parents=true")} ]; then printf '%s\\n' ${emit([rulesetSummary])}; exit 0; fi`,
+    `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo/rulesets/9")} ]; then printf '%s\\n' ${emit(rulesetDetail)}; exit 0; fi`,
+    `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo/branches/dev/protection/required_status_checks")} ]; then printf '%s\\n' ${emit(requiredStatusProtection)}; exit 0; fi`,
+    `if [ \"$endpoint\" = ${JSON.stringify(`repos/example/repo/actions/runs?head_sha=${head}&per_page=100`)} ]; then printf '%s\\n' ${emit([workflowPage])}; exit 0; fi`,
+    `if [ \"$endpoint\" = ${JSON.stringify(`repos/example/repo/commits/${head}/check-runs?per_page=100`)} ]; then printf '%s\\n' ${emit([checkPage])}; exit 0; fi`,
+    "printf '%s\\n' \"unexpected gh endpoint: $endpoint\" >&2",
+    "exit 9"
+  ].join("\n");
+  await writeFile(fakeGh, ghScript, { mode: 0o700 });
+  const providerExecutable = { path: await realpath(fakeGh), digest: sha256(ghScript) };
+  const payload = {
+    provider: "github",
+    repository: "github.com/example/repo",
+    baseRefName: "dev",
+    head,
+    requiredStatusChecks: ["test"],
+    requiredStatusCheckApps: [{ context: "test", appId: 15368 }],
+    checkSet: ["test"],
+    providerRunIds: ["601"],
+    conclusions: ["success"],
+    checks: [{ name: "test#601", providerName: "test", providerRunId: "601", conclusion: "success" }],
+    providerExecutable,
+    observedAt
+  };
+  const priorPath = process.env.PATH;
+  process.env.PATH = `${bin}:${priorPath}`;
+  try {
+    await verifyRequiredChecksProvider(root, payload, providerExecutable);
+    const unauthorizedCheckPage = {
+      ...checkPage,
+      check_runs: [{ ...checkPage.check_runs[0], app: { id: 9876 } }]
+    };
+    const unauthorizedGhScript = ghScript.replace(emit([checkPage]), emit([unauthorizedCheckPage]));
+    await writeFile(fakeGh, unauthorizedGhScript, { mode: 0o700 });
+    await assert.rejects(
+      verifyRequiredChecksProvider(root, payload, {
+        path: providerExecutable.path,
+        digest: sha256(unauthorizedGhScript)
+      }),
+      /no fresh successful check-run for protected context/
+    );
+  } finally {
+    process.env.PATH = priorPath;
+  }
+});
+
 test("failed PR creation preserves its reservation until provider absence is proven", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "sbw-pr-failure-absence-"));
   const repository = path.join(root, "repository");

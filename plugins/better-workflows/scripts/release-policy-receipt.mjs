@@ -541,9 +541,18 @@ export async function waitForSourcePolicyReceipt({
   return null;
 }
 
-function rulesetRefPatternMatches(pattern, branch) {
-  if (pattern === "~ALL" || pattern === "~DEFAULT_BRANCH" || pattern === `refs/heads/${branch}`) return true;
-  if (typeof pattern !== "string" || !pattern.includes("*")) return false;
+function rulesetRefPatternMatches(pattern, branch, defaultBranch) {
+  if (pattern === "~ALL") return true;
+  if (pattern === "~DEFAULT_BRANCH") {
+    if (typeof defaultBranch !== "string" || !defaultBranch) {
+      throw new Error("Release policy receipt ruleset requires the repository default branch to resolve ~DEFAULT_BRANCH");
+    }
+    return branch === defaultBranch;
+  }
+  if (typeof pattern !== "string" || !pattern.startsWith("refs/heads/")) {
+    throw new Error(`Release policy receipt ruleset has an unsupported ref pattern: ${String(pattern)}`);
+  }
+  if (!pattern.includes("*")) return pattern === `refs/heads/${branch}`;
   const escaped = pattern.split("*").map((part) => part.replace(/[.*+?^${}()|[\[\]\\]/g, "\\$&")).join(".*");
   return new RegExp(`^${escaped}$`).test(`refs/heads/${branch}`);
 }
@@ -557,6 +566,21 @@ async function loadApplicableRulesetChecks({ apiUrl, repository, branch, token, 
   });
   if (!Array.isArray(listed)) throw new Error("Release policy receipt ruleset query returned an invalid payload");
   const checks = [];
+  let defaultBranch = null;
+  const resolveDefaultBranch = async () => {
+    if (defaultBranch !== null) return defaultBranch;
+    const repositoryPayload = await requestJson({
+      apiUrl,
+      path: `/repos/${repository}`,
+      token,
+      fetchImpl
+    });
+    if (typeof repositoryPayload?.default_branch !== "string" || !repositoryPayload.default_branch) {
+      throw new Error("Release policy receipt cannot resolve the repository default branch for ruleset evaluation");
+    }
+    defaultBranch = repositoryPayload.default_branch;
+    return defaultBranch;
+  };
   for (const summary of listed.filter((item) => item?.enforcement === "active")) {
     const rulesetId = Number(summary?.id);
     if (!Number.isInteger(rulesetId) || rulesetId <= 0) {
@@ -569,10 +593,20 @@ async function loadApplicableRulesetChecks({ apiUrl, repository, branch, token, 
       fetchImpl
     });
     const includes = detail?.conditions?.ref_name?.include;
+    const excludes = detail?.conditions?.ref_name?.exclude ?? [];
     if (detail?.target === "branch" && !Array.isArray(includes)) {
       throw new Error("Release policy receipt ruleset has no complete ref-name condition");
     }
-    if (detail?.target !== "branch" || !includes.some((pattern) => rulesetRefPatternMatches(pattern, branch))) continue;
+    if (detail?.target === "branch" && !Array.isArray(excludes)) {
+      throw new Error("Release policy receipt ruleset has an invalid ref-name exclusion condition");
+    }
+    if (detail?.target !== "branch") continue;
+    if (includes.length === 0) throw new Error("Release policy receipt ruleset has no complete ref-name condition");
+    const patterns = [...includes, ...excludes];
+    if (patterns.includes("~DEFAULT_BRANCH")) await resolveDefaultBranch();
+    const appliesToTarget = includes.some((pattern) => rulesetRefPatternMatches(pattern, branch, defaultBranch)) &&
+      !excludes.some((pattern) => rulesetRefPatternMatches(pattern, branch, defaultBranch));
+    if (!appliesToTarget) continue;
     if (!Array.isArray(detail.rules)) throw new Error("Release policy receipt ruleset has no complete rule set");
     for (const rule of detail.rules.filter((item) => item?.type === "required_status_checks")) {
       const configured = rule.parameters?.required_status_checks;

@@ -154,7 +154,7 @@ test("required-check policy loader binds the dedicated protection response and a
           status: 200,
           json: async () => ({
             target: "branch",
-            conditions: { ref_name: { include: ["refs/heads/dev"] } },
+            conditions: { ref_name: { include: ["refs/heads/*"], exclude: ["refs/heads/blocked"] } },
             rules: [{
               type: "required_status_checks",
               parameters: {
@@ -174,6 +174,46 @@ test("required-check policy loader binds the dedicated protection response and a
   ]);
   assert.equal(calls[0], "https://api.github.com/repos/example/repo/branches/dev/protection/required_status_checks");
   assert.ok(calls.includes("https://api.github.com/repos/example/repo/rulesets?includes_parents=true&per_page=100&page=1"));
+});
+
+test("ruleset policy resolves default-branch and exclusion semantics, and rejects unsupported refs", async () => {
+  const fetchImpl = async (url) => {
+    if (url.endsWith("/branches/dev/protection/required_status_checks") || url.endsWith("/branches/main/protection/required_status_checks")) {
+      return { ok: true, status: 200, json: async () => ({ strict: true, contexts: ["test"], checks: [] }) };
+    }
+    if (url.endsWith("/repos/example/repo")) return { ok: true, status: 200, json: async () => ({ default_branch: "main" }) };
+    if (url.endsWith("/rulesets?includes_parents=true&per_page=100&page=1")) return { ok: true, status: 200, json: async () => [{ id: 8, enforcement: "active" }] };
+    if (url.endsWith("/rulesets/8")) return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        target: "branch",
+        conditions: { ref_name: { include: ["~DEFAULT_BRANCH"], exclude: ["refs/heads/blocked"] } },
+        rules: [{ type: "required_status_checks", parameters: {
+          strict_required_status_checks_policy: true,
+          required_status_checks: [{ context: "default-only", integration_id: 42 }]
+        } }]
+      })
+    };
+    throw new Error(`Unexpected default-branch ruleset URL: ${url}`);
+  };
+  const devPolicy = await loadRequiredCheckPolicy({ apiUrl: "https://api.github.com", repository: "example/repo", branch: "dev", token: "token", fetchImpl });
+  assert.deepEqual(devPolicy, [{ context: "test", appId: null, strict: true }]);
+  const mainPolicy = await loadRequiredCheckPolicy({ apiUrl: "https://api.github.com", repository: "example/repo", branch: "main", token: "token", fetchImpl });
+  assert.deepEqual(mainPolicy, [
+    { context: "default-only", appId: 42, strict: true },
+    { context: "test", appId: null, strict: true }
+  ]);
+  const unsupportedFetch = async (url) => {
+    if (url.endsWith("/branches/dev/protection/required_status_checks")) return { ok: true, status: 200, json: async () => ({ strict: true, contexts: ["test"], checks: [] }) };
+    if (url.endsWith("/rulesets?includes_parents=true&per_page=100&page=1")) return { ok: true, status: 200, json: async () => [{ id: 9, enforcement: "active" }] };
+    if (url.endsWith("/rulesets/9")) return { ok: true, status: 200, json: async () => ({ target: "branch", conditions: { ref_name: { include: ["refs/pull/*/merge"] } }, rules: [] }) };
+    throw new Error(`Unexpected unsupported ruleset URL: ${url}`);
+  };
+  await assert.rejects(
+    loadRequiredCheckPolicy({ apiUrl: "https://api.github.com", repository: "example/repo", branch: "dev", token: "token", fetchImpl: unsupportedFetch }),
+    /unsupported ref pattern/
+  );
 });
 
 test("policy receipt artifact deterministically binds its pre-merge identity and policy", () => {

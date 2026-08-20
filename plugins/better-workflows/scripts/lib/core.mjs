@@ -5610,6 +5610,11 @@ export async function verifyRequiredChecksProvider(cwd, payload, providerExecuta
   }
   const branchRef = `refs/heads/${payload.baseRefName}`;
   const rulesetRequiredStatusChecks = [];
+  const normalizeRulesetCheckAppId = (value) => {
+    if (value === undefined || value === null || value === "" || value === -1 || value === "-1") return null;
+    const appId = Number(value);
+    return Number.isInteger(appId) && appId >= 0 ? appId : undefined;
+  };
   const refPatternMatches = (pattern) => {
     if (pattern === "~ALL" || pattern === "~DEFAULT_BRANCH" || pattern === branchRef) return true;
     if (typeof pattern !== "string" || !pattern.includes("*")) return false;
@@ -5650,7 +5655,11 @@ export async function verifyRequiredChecksProvider(cwd, payload, providerExecuta
           if (typeof name !== "string" || !name) {
             throw new Error("Active protected branch ruleset has an incomplete required status check");
           }
-          rulesetRequiredStatusChecks.push(name);
+          const appId = normalizeRulesetCheckAppId(check?.integration_id ?? check?.app_id);
+          if (appId === undefined) {
+            throw new Error("Active protected branch ruleset has an invalid required status check app identity");
+          }
+          rulesetRequiredStatusChecks.push({ context: name, appId });
         }
       }
     }
@@ -5706,7 +5715,7 @@ export async function verifyRequiredChecksProvider(cwd, payload, providerExecuta
           appId: normalizeProtectedCheckAppId(check.app_id)
         }))
       : []),
-    ...rulesetRequiredStatusChecks.map((context) => ({ context, appId: null }))
+    ...rulesetRequiredStatusChecks
   ];
   if (protectedCheckApps.some((check) => !check.context || check.appId === undefined)) {
     throw new Error("Protected required checks contain malformed app identities");
