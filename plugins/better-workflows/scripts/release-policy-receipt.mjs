@@ -763,18 +763,12 @@ async function loadApplicableRulesetChecks({ apiUrl, repository, branch, token, 
 }
 
 export async function loadRequiredCheckPolicy({ apiUrl, repository, branch, token, fetchImpl = fetch }) {
-  let branchProtection;
-  try {
-    branchProtection = await requestJson({
-      apiUrl,
-      path: `/repos/${repository}/branches/${encodeURIComponent(branch)}/protection/required_status_checks`,
-      token,
-      fetchImpl
-    });
-  } catch (error) {
-    if (error.status !== 404) throw error;
-    branchProtection = { strict: true, contexts: [], checks: [] };
-  }
+  const branchProtection = await requestJson({
+    apiUrl,
+    path: `/repos/${repository}/branches/${encodeURIComponent(branch)}/protection/required_status_checks`,
+    token,
+    fetchImpl
+  });
   const rulesetRequiredChecks = await loadApplicableRulesetChecks({ apiUrl, repository, branch, token, fetchImpl });
   return normalizeRequiredChecks(branchProtection, { rulesetRequiredChecks });
 }
@@ -785,13 +779,14 @@ export async function prepareReleasePolicyReceipt({
   branch,
   headSha,
   token,
+  policyToken = token,
   targetUrl,
   receipt,
   fetchImpl = fetch
 }) {
-  if (!token || !repository || !branch) throw new Error("Release policy receipt requires repository, branch, and token");
+  if (!token || !policyToken || !repository || !branch) throw new Error("Release policy receipt requires provider and policy-reader credentials");
   const normalizedHead = assertSha(headSha);
-  const policy = await loadRequiredCheckPolicy({ apiUrl, repository, branch, token, fetchImpl });
+  const policy = await loadRequiredCheckPolicy({ apiUrl, repository, branch, token: policyToken, fetchImpl });
   const digest = policyDigest(policy);
   const artifact = receipt
     ? buildPolicyReceiptArtifact({
@@ -831,6 +826,7 @@ export async function publishReleasePolicyReceipt({
   branch,
   headSha,
   token,
+  policyToken = token,
   targetUrl,
   artifact,
   pullNumber,
@@ -840,9 +836,9 @@ export async function publishReleasePolicyReceipt({
   triggerWorkflowRunId = null,
   fetchImpl = fetch
 }) {
-  if (!token || !repository || !branch) throw new Error("Release policy receipt requires repository, branch, and token");
+  if (!token || !policyToken || !repository || !branch) throw new Error("Release policy receipt requires provider and policy-reader credentials");
   const normalizedHead = assertSha(headSha);
-  const policy = await loadRequiredCheckPolicy({ apiUrl, repository, branch, token, fetchImpl });
+  const policy = await loadRequiredCheckPolicy({ apiUrl, repository, branch, token: policyToken, fetchImpl });
   assertPreparedArtifact({ artifact, repository, branch, headSha: normalizedHead, pullNumber, workflowRunId, eventAction, policy, eventName, triggerWorkflowRunId });
   const digest = policyDigest(policy);
   const status = buildPolicyStatus({ headSha: normalizedHead, digest, targetUrl });
@@ -874,8 +870,12 @@ async function main() {
   const repository = String(process.env.GITHUB_REPOSITORY ?? "");
   const apiUrl = String(process.env.GITHUB_API_URL ?? "https://api.github.com");
   const token = String(process.env.GITHUB_TOKEN ?? "");
+  const policyToken = String(process.env.RELEASE_POLICY_ADMIN_TOKEN ?? "").trim();
   const runId = String(process.env.GITHUB_RUN_ID ?? "").trim();
   if (!process.env.GITHUB_SERVER_URL || !repository || !runId) throw new Error("Release policy receipt requires a trusted workflow run URL");
+  if ((phase === "prepare" || phase === "publish") && !policyToken) {
+    throw new Error("Release policy receipt requires RELEASE_POLICY_ADMIN_TOKEN with repository Administration read permission");
+  }
   let eventAction = String(process.env.GITHUB_EVENT_ACTION ?? "");
   let branch;
   let headSha;
@@ -1005,6 +1005,7 @@ async function main() {
       branch,
       headSha,
       token,
+      policyToken,
       targetUrl: targetUrl.toString(),
       receipt
     });
@@ -1023,6 +1024,7 @@ async function main() {
     branch,
     headSha,
     token,
+    policyToken,
     targetUrl: targetUrl.toString(),
     artifact,
     pullNumber,

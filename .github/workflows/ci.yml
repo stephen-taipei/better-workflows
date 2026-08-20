@@ -93,6 +93,7 @@ jobs:
           GITHUB_RUN_ID: ${{ github.run_id }}
           GITHUB_TOKEN: ${{ github.token }}
           RELEASE_POLICY_RECEIPT_PHASE: prepare
+          RELEASE_POLICY_ADMIN_TOKEN: ${{ secrets.BETTER_WORKFLOWS_POLICY_TOKEN }}
           RELEASE_POLICY_RECEIPT_FILE: ${{ runner.temp }}/release-policy-receipt.json
         run: node plugins/better-workflows/scripts/release-policy-receipt.mjs
       - uses: actions/upload-artifact@v4
@@ -120,6 +121,7 @@ jobs:
           GITHUB_RUN_ID: ${{ github.run_id }}
           GITHUB_TOKEN: ${{ github.token }}
           RELEASE_POLICY_RECEIPT_PHASE: publish
+          RELEASE_POLICY_ADMIN_TOKEN: ${{ secrets.BETTER_WORKFLOWS_POLICY_TOKEN }}
           RELEASE_POLICY_RECEIPT_FILE: ${{ runner.temp }}/release-policy-receipt.json
         run: node plugins/better-workflows/scripts/release-policy-receipt.mjs
 

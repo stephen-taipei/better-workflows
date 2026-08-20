@@ -58,6 +58,22 @@ test("release policy receipt normalizes and digests the protected-branch policy"
   );
 });
 
+test("release policy loader fails closed when policy authorization is masked as not found", async () => {
+  await assert.rejects(
+    loadRequiredCheckPolicy({
+      apiUrl: "https://api.github.com",
+      repository: "example/repo",
+      branch: "dev",
+      token: "policy-reader",
+      fetchImpl: async (url) => {
+        assert.match(url, /\/branches\/dev\/protection\/required_status_checks$/);
+        return { ok: false, status: 404, json: async () => ({}) };
+      }
+    }),
+    /HTTP 404/
+  );
+});
+
 test("release policy receipt publishes only after the prepared artifact is bound", async () => {
   const headSha = "a".repeat(40);
   const policyResponse = {
