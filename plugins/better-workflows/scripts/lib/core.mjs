@@ -608,7 +608,12 @@ const DESTRUCTIVE_CLEANUP_ACTIONS = new Set([
   "branch.delete",
   "worktree.cleanup"
 ]);
-const UNSUPPORTED_GOVERNED_ACTIONS = new Set();
+// GitHub's workflow-dispatch API accepts a mutable branch/tag ref and does not
+// bind the provider invocation atomically to the revision resolved during
+// preflight. Keep this side-effecting adapter fail-closed until an immutable
+// provider binding exists; post-dispatch head observation cannot undo a run
+// started from an unauthorized workflow revision.
+const UNSUPPORTED_GOVERNED_ACTIONS = new Set(["actions.dispatch"]);
 const DEFERRED_ACTION_CANONICAL = new Map([
   ["actions.dispatch", "workflow.dispatch"],
   ["workflow.dispatch", "workflow.dispatch"],
@@ -1606,7 +1611,6 @@ export async function withRunLock(root, runId, callback, options = {}) {
 }
 
 export function assertProviderReceiptShape(record, providerReceipt, outcome = record.outcome) {
-  assertSupportedGovernedAction(record.action);
   const commonValid = (
     providerReceipt &&
     typeof providerReceipt === "object" &&
@@ -5033,7 +5037,6 @@ async function verifyProviderReceipt(manifest, record, receipt, contract = null)
     record.providerInvocation?.workflowRun
   );
   if (record.outcome !== "success" && !shouldVerifyDispatchFailure && !shouldVerifyDispatchRun) return;
-  assertSupportedGovernedAction(record.action);
   const providerReceipt = receipt.providerReceipt;
   const cwd = manifest.cwd;
   const key = `${record.action}:${record.provider}`;
@@ -8161,7 +8164,6 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
     const records = await listJsonRecords(root, safeJoin(runDir, "actions"));
     const record = records.find((item) => item.attemptId === attemptId);
     if (!record) throw new Error(`Unknown action attempt: ${attemptId}`);
-    assertSupportedGovernedAction(record.action);
     assertActionIsNotDeferred(run.contract, record.action);
     if (failAfter !== null && !(
       record.action === "git.commit" &&

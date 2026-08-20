@@ -1,21 +1,19 @@
 {
   "name": "ci-release-monitor",
   "controlPlane": {"evidencePolicy":"typed-v1","ledgerPolicy":"ledger-v1","reviewPolicy":"none","designPacketPolicy":"none","refinementPolicy":"none","deliberationPolicy":"none"},
-  "executionStages": [{"id":"inventory","goal":"inventory","dependsOn":[],"requiredEvidence":["workflow-inventory","repository-actions-inventory"],"attemptBudget":3,"kind":"regular"},{"id":"queue","goal":"queue","dependsOn":["inventory"],"requiredEvidence":["queue-state"],"attemptBudget":3,"kind":"regular"},{"id":"dispatch-preflight","goal":"dispatch-preflight","dependsOn":["queue"],"requiredEvidence":["workflow-inventory","queue-state","target-revision","remote-authorization"],"attemptBudget":1,"kind":"side-effect"},{"id":"monitor-execute","goal":"monitor-execute","dependsOn":["dispatch-preflight"],"requiredEvidence":["run-result","required-checks"],"attemptBudget":1,"kind":"side-effect"},{"id":"provider-reconcile","goal":"provider-reconcile","dependsOn":["monitor-execute"],"requiredEvidence":["provider-reconciliation"],"attemptBudget":1,"kind":"side-effect"}],
-  "actionStages": {"actions.dispatch":"dispatch-preflight"},
-  "deferredActions": ["deploy", "release", "branch.promote"],
-  "description": "Monitor and reconcile serialized CI, deploy, release, and promotion operations. Branch promotion remains deferred until a dedicated adapter and pre-mutation proof exist; workflow dispatch is performed by an actor-bound fixed GitHub CLI command and reconciled against the exact completed run.",
+  "executionStages": [{"id":"inventory","goal":"inventory","dependsOn":[],"requiredEvidence":["workflow-inventory","repository-actions-inventory"],"attemptBudget":3,"kind":"regular"},{"id":"queue","goal":"queue","dependsOn":["inventory"],"requiredEvidence":["queue-state"],"attemptBudget":3,"kind":"regular"},{"id":"monitor-execute","goal":"monitor-execute","dependsOn":["queue"],"requiredEvidence":["run-result","required-checks"],"attemptBudget":1,"kind":"side-effect"},{"id":"provider-reconcile","goal":"provider-reconcile","dependsOn":["monitor-execute"],"requiredEvidence":["provider-reconciliation"],"attemptBudget":1,"kind":"side-effect"}],
+  "actionStages": {},
+  "deferredActions": ["workflow.dispatch", "deploy", "release", "branch.promote"],
+  "description": "Monitor and reconcile serialized CI, deploy, release, and promotion operations. Workflow dispatch remains deferred because the provider cannot bind a mutable ref atomically to an authorized revision; deploy, release, and branch promotion likewise require dedicated adapters and pre-mutation proofs.",
   "defaultMode": "critical",
-  "requiredEvidence": ["workflow-inventory", "queue-state", "target-revision", "run-result", "required-checks", "provider-reconciliation", "remote-authorization"],
+  "requiredEvidence": ["workflow-inventory", "queue-state", "target-revision", "run-result", "required-checks", "provider-reconciliation"],
   "acceptance": [
     {"id": "serialized", "description": "No conflicting Web/Admin deploy was queued or running.", "critical": true},
     {"id": "revision-bound", "description": "The action targeted the verified branch and revision.", "critical": true},
     {"id": "reconciled", "description": "The final provider state is known.", "critical": true}
   ],
   "policyGates": ["one-deploy-at-a-time", "dev-staging-main", "no-fast-forward-release", "integration-tag-only", "action-token"],
-  "actionGates": {
-    "actions.dispatch": ["workflow-inventory", "queue-state", "target-revision", "remote-authorization"]
-  },
+  "actionGates": {},
   "domainSkills": ["release-app"],
   "rootOnlyActions": ["workflow dispatch", "deploy", "release", "branch promotion"]
 }
