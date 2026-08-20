@@ -132,6 +132,7 @@ function defaultBranchReleasePolicyResponse(url) {
   const activationText = "name: CI\non:\n  pull_request_target:\njobs:\n  release-policy-receipt:\n";
   const reconciliationText = "name: Release policy reconciliation\non:\n  workflow_run:\njobs:\n  release-policy-receipt:\n";
   if (url.endsWith("/repos/example/repo")) return jsonResponse({ default_branch: "main" });
+  if (url.includes("/rulesets?includes_parents=true")) return jsonResponse([]);
   if (url.endsWith("/repos/example/repo/actions/workflows/ci.yml")) {
     return jsonResponse({ path: ".github/workflows/ci.yml", state: "active" });
   }
@@ -182,8 +183,8 @@ function jsonResponse(value, ok = true, status = 200, headers = {}) {
 }
 
 function successfulRequiredCheckResponse(url, sha, context = "test", pullNumber = 7) {
-  if (url.endsWith("/branches/dev")) {
-    return jsonResponse({ protected: true, protection: { required_status_checks: { contexts: [context], checks: [], strict: true } } });
+  if (url.endsWith("/branches/dev/protection/required_status_checks")) {
+    return jsonResponse({ strict: true, contexts: [context], checks: [] });
   }
   const policyWorkflow = policyWorkflowResponse(url);
   if (policyWorkflow) return policyWorkflow;
@@ -699,8 +700,8 @@ test("merge-time policy receipt binds the pre-merge head separately from the mer
         { sha: "d".repeat(40), pullHeadSha: "e".repeat(40), pullNumber, id: 999 }
       ]);
       if (workflowResponse) return workflowResponse;
-      if (url.endsWith("/branches/dev")) {
-        return jsonResponse({ protected: true, protection: { required_status_checks: { contexts: ["current-only"], checks: [], strict: true } } });
+      if (url.endsWith("/branches/dev/protection/required_status_checks")) {
+        return jsonResponse({ strict: true, contexts: ["current-only"], checks: [] });
       }
       if (url.includes(`/commits/${syntheticMergeSha}/check-runs?per_page=100&page=1`)) {
         return jsonResponse({ check_runs: [{ id: 7, name: "test", head_sha: syntheticMergeSha, status: "completed", conclusion: "success", completed_at: "2026-08-14T23:55:00Z" }] });
@@ -1113,8 +1114,8 @@ test("release eligibility accepts a version-bump PR whose source is behind the t
       if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
         return jsonResponse([{ number: 30, base: { ref: "dev", sha: eventBefore }, head: { sha: source }, merged_at: mergedAt, merge_commit_sha: head }]);
       }
-      if (url.endsWith("/branches/dev")) {
-        return jsonResponse({ protected: true, protection: { required_status_checks: { contexts: ["test"], checks: [], strict: false } } });
+      if (url.endsWith("/branches/dev/protection/required_status_checks")) {
+        return jsonResponse({ strict: false, contexts: ["test"], checks: [] });
       }
       if (url.includes("/actions/runs?") && url.includes("event=pull_request")) {
         return pullRequestWorkflowResponse(url, [{ sha: source, pullNumber: 30 }]);
@@ -1196,8 +1197,8 @@ test("catch-up release workflow must belong to the target branch", async () => {
       if (url.endsWith(`/repos/example/repo/commits/${bump}/pulls?per_page=100`)) {
         return jsonResponse([{ number: 71, base: { ref: "dev" }, head: { sha: bump }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: bump }]);
       }
-      if (url.endsWith("/branches/dev")) {
-        return jsonResponse({ protected: true, protection: { required_status_checks: { contexts: ["test"], checks: [], strict: true } } });
+      if (url.endsWith("/branches/dev/protection/required_status_checks")) {
+        return jsonResponse({ strict: true, contexts: ["test"], checks: [] });
       }
       if (url.includes(`/repos/example/repo/commits/${bump}/check-runs?per_page=100&page=1`)) {
         return jsonResponse({ check_runs: [{ id: 71, name: "test", head_sha: bump, status: "completed", conclusion: "success", details_url: "https://github.com/example/repo/actions/runs/71/job/1", app: { slug: "github-actions" } }] });
@@ -1346,8 +1347,8 @@ test("source-unavailable merged PR uses provider-bound source content at final H
         return jsonResponse([{ number: 33, base: { ref: "dev", sha: eventBefore }, head: { sha: unavailableSourceSha }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: head }]);
       }
       if (url.includes("/commits/") && url.endsWith("/pulls?per_page=100")) return jsonResponse([]);
-      if (url.endsWith("/branches/dev")) {
-        return jsonResponse({ protected: true, protection: { required_status_checks: { contexts: ["lint"], checks: [], strict: true } } });
+      if (url.endsWith("/branches/dev/protection/required_status_checks")) {
+        return jsonResponse({ strict: true, contexts: ["lint"], checks: [] });
       }
       if (url.includes(`/commits/${head}/check-runs?per_page=100&page=1`)) {
         return jsonResponse({ check_runs: [
@@ -1672,8 +1673,8 @@ test("release eligibility catches up a version bump after a later non-version pu
       if (url.endsWith(`/repos/example/repo/commits/${bump}/pulls?per_page=100`)) {
         return jsonResponse([{ number: 11, base: { ref: "dev" }, head: { sha: bump }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: bump }]);
       }
-      if (url.endsWith("/branches/dev")) {
-        return jsonResponse({ protected: true, protection: { required_status_checks: { contexts: [], checks: [{ context: "test", app_id: requiredAppId }], strict: true } } });
+      if (url.endsWith("/branches/dev/protection/required_status_checks")) {
+        return jsonResponse({ strict: true, contexts: ["test"], checks: [{ context: "test", app_id: requiredAppId }] });
       }
       if (url.includes(`/repos/example/repo/commits/${bump}/check-runs?per_page=100&page=1`)) {
         return jsonResponse(
@@ -1827,8 +1828,8 @@ test("release eligibility catches up a version bump after a later non-version pu
       if (url.endsWith(`/repos/example/repo/commits/${bump}/pulls?per_page=100`)) {
         return jsonResponse([{ number: 11, base: { ref: "dev" }, head: { sha: bump }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: bump }]);
       }
-      if (url.endsWith("/branches/dev")) {
-        return jsonResponse({ protected: true, protection: { required_status_checks: { contexts: [], checks: [{ context: "test", app_id: 123 }], strict: true } } });
+      if (url.endsWith("/branches/dev/protection/required_status_checks")) {
+        return jsonResponse({ strict: true, contexts: ["test"], checks: [{ context: "test", app_id: 123 }] });
       }
       if (url.includes(`/repos/example/repo/commits/${bump}/check-runs?per_page=100&page=1`)) {
         return jsonResponse({ check_runs: [
@@ -2051,8 +2052,8 @@ test("consecutive version bumps are recovered in one atomic batch", async () => 
       if (url.endsWith(`/repos/example/repo/commits/${bump13}/pulls?per_page=100`)) {
         return jsonResponse([{ number: 13, base: { ref: "dev" }, head: { sha: bump13 }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: bump13 }]);
       }
-      if (url.endsWith("/branches/dev")) {
-        return jsonResponse({ protected: true, protection: { required_status_checks: { contexts: ["lint"], checks: [], strict: true } } });
+      if (url.endsWith("/branches/dev/protection/required_status_checks")) {
+        return jsonResponse({ strict: true, contexts: ["lint"], checks: [] });
       }
       for (const sha of [bump13, head]) {
         if (url.includes(`/commits/${sha}/check-runs?per_page=100&page=1`)) {
@@ -2202,8 +2203,8 @@ test("an exact HEAD version bump remains eligible past the catch-up history boun
       if (url.endsWith(`/repos/example/repo/commits/${head}/pulls?per_page=100`)) {
         return jsonResponse([{ number: 32, base: { ref: "dev", sha: eventBefore }, head: { sha: head }, merged_at: "2026-08-18T00:00:00Z", merge_commit_sha: head }]);
       }
-      if (url.endsWith("/branches/dev")) {
-        return jsonResponse({ protected: true, protection: { required_status_checks: { contexts: ["lint"], checks: [], strict: true } } });
+      if (url.endsWith("/branches/dev/protection/required_status_checks")) {
+        return jsonResponse({ strict: true, contexts: ["lint"], checks: [] });
       }
       if (url.includes(`/commits/${head}/check-runs?per_page=100&page=1`)) {
         return jsonResponse({ check_runs: [{ id: 32, name: "lint", head_sha: head, status: "completed", conclusion: "success", completed_at: "2026-08-17T23:55:00Z" }] });
@@ -2342,8 +2343,8 @@ test("catch-up publication requires the exact workflow test check on the release
       if (url.endsWith(`/repos/example/repo/commits/${bump}/pulls?per_page=100`)) {
         return jsonResponse([{ number: 21, base: { ref: "dev" }, head: { sha: bump }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: bump }]);
       }
-      if (url.endsWith("/branches/dev")) {
-        return jsonResponse({ protected: true, protection: { required_status_checks: { contexts: ["lint"], checks: [], strict: true } } });
+      if (url.endsWith("/branches/dev/protection/required_status_checks")) {
+        return jsonResponse({ strict: true, contexts: ["lint"], checks: [] });
       }
       if (url.includes(`/commits/${bump}/check-runs?per_page=100&page=1`)) {
         const requiredReady = !delayedRequiredCheck || requiredPolls++ >= 10;

@@ -9,6 +9,7 @@ import {
   buildPolicyReceiptArtifact,
   buildClosedPolicyReceiptBinding,
   buildPolicyStatus,
+  loadRequiredCheckPolicy,
   normalizeRequiredChecks,
   parseWorkflowRunReconciliationEvent,
   prepareReleasePolicyReceipt,
@@ -18,6 +19,12 @@ import {
 } from "../release-policy-receipt.mjs";
 
 test("release policy receipt normalizes and digests the protected-branch policy", () => {
+  const directPolicy = normalizeRequiredChecks({
+    strict: true,
+    contexts: ["test"],
+    checks: [{ context: "test", app_id: 15368 }]
+  });
+  assert.deepEqual(directPolicy, [{ context: "test", appId: 15368, strict: true }]);
   const policy = normalizeRequiredChecks({
     protected: true,
     protection: {
@@ -29,7 +36,6 @@ test("release policy receipt normalizes and digests the protected-branch policy"
     }
   });
   assert.deepEqual(policy, [
-    { context: "lint", appId: null, strict: true },
     { context: "test", appId: 123, strict: true }
   ]);
   assert.match(policyDigest(policy), /^[a-f0-9]{64}$/);
@@ -65,13 +71,14 @@ test("release policy receipt publishes only after the prepared artifact is bound
     },
     fetchImpl: async (url, options = {}) => {
       calls.push({ url, options });
-      if (url.endsWith("/branches/dev")) return { ok: true, status: 200, json: async () => policyResponse };
+      if (url.endsWith("/branches/dev/protection/required_status_checks")) return { ok: true, status: 200, json: async () => ({ strict: true, contexts: ["test"], checks: [{ context: "test", app_id: 15368 }] }) };
+      if (url.includes("/rulesets?includes_parents=true")) return { ok: true, status: 200, json: async () => [] };
       assert.equal(url, `https://api.github.com/repos/example/repo/statuses/${headSha}`);
       assert.equal(options.method, "POST");
       return { ok: true, status: 201, json: async () => ({}) };
     }
   });
-  assert.equal(calls.length, 1);
+  assert.equal(calls.length, 2);
   assert.equal(prepared.status, "prepared");
   const result = await publishReleasePolicyReceipt({
     apiUrl: "https://api.github.com",
@@ -86,15 +93,16 @@ test("release policy receipt publishes only after the prepared artifact is bound
     eventAction: "synchronize",
     fetchImpl: async (url, options = {}) => {
       calls.push({ url, options });
-      if (url.endsWith("/branches/dev")) return { ok: true, status: 200, json: async () => policyResponse };
+      if (url.endsWith("/branches/dev/protection/required_status_checks")) return { ok: true, status: 200, json: async () => ({ strict: true, contexts: ["test"], checks: [{ context: "test", app_id: 15368 }] }) };
+      if (url.includes("/rulesets?includes_parents=true")) return { ok: true, status: 200, json: async () => [] };
       assert.equal(url, `https://api.github.com/repos/example/repo/statuses/${headSha}`);
       assert.equal(options.method, "POST");
       return { ok: true, status: 201, json: async () => ({}) };
     }
   });
-  assert.equal(calls.length, 3);
+  assert.equal(calls.length, 5);
   assert.equal(result.status, "published");
-  const body = JSON.parse(calls[2].options.body);
+  const body = JSON.parse(calls[4].options.body);
   assert.equal(body.state, "success");
   assert.equal(body.context, RELEASE_POLICY_RECEIPT_CONTEXT);
   assert.equal(body.description, `${RELEASE_POLICY_RECEIPT_PREFIX}${result.policyDigest}`);
@@ -115,12 +123,57 @@ test("release policy receipt publishes only after the prepared artifact is bound
       pullNumber: 17,
       workflowRunId: "42",
       eventAction: "synchronize",
-      fetchImpl: async (url) => url.endsWith("/branches/dev")
-        ? { ok: true, status: 200, json: async () => policyResponse }
-        : { ok: true, status: 201, json: async () => ({}) }
+      fetchImpl: async (url) => url.endsWith("/branches/dev/protection/required_status_checks")
+        ? { ok: true, status: 200, json: async () => ({ strict: true, contexts: ["test"], checks: [{ context: "test", app_id: 15368 }] }) }
+        : url.includes("/rulesets?includes_parents=true")
+          ? { ok: true, status: 200, json: async () => [] }
+          : { ok: true, status: 201, json: async () => ({}) }
     }),
     /not bound to the current workflow/
   );
+});
+
+test("required-check policy loader binds the dedicated protection response and applicable rulesets", async () => {
+  const calls = [];
+  const policy = await loadRequiredCheckPolicy({
+    apiUrl: "https://api.github.com",
+    repository: "example/repo",
+    branch: "dev",
+    token: "token",
+    fetchImpl: async (url) => {
+      calls.push(url);
+      if (url.endsWith("/branches/dev/protection/required_status_checks")) {
+        return { ok: true, status: 200, json: async () => ({ strict: true, contexts: ["test"], checks: [{ context: "test", app_id: 15368 }] }) };
+      }
+      if (url.endsWith("/rulesets?includes_parents=true&per_page=100&page=1")) {
+        return { ok: true, status: 200, json: async () => [{ id: 7, enforcement: "active" }] };
+      }
+      if (url.endsWith("/rulesets/7")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            target: "branch",
+            conditions: { ref_name: { include: ["refs/heads/dev"] } },
+            rules: [{
+              type: "required_status_checks",
+              parameters: {
+                strict_required_status_checks_policy: true,
+                required_status_checks: [{ context: "security", integration_id: 42 }]
+              }
+            }]
+          })
+        };
+      }
+      throw new Error(`Unexpected policy URL: ${url}`);
+    }
+  });
+  assert.deepEqual(policy, [
+    { context: "security", appId: 42, strict: true },
+    { context: "test", appId: 15368, strict: true }
+  ]);
+  assert.equal(calls[0], "https://api.github.com/repos/example/repo/branches/dev/protection/required_status_checks");
+  assert.ok(calls.includes("https://api.github.com/repos/example/repo/rulesets?includes_parents=true&per_page=100&page=1"));
 });
 
 test("policy receipt artifact deterministically binds its pre-merge identity and policy", () => {

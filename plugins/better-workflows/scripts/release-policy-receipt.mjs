@@ -33,11 +33,12 @@ function assertSha(value) {
   return sha;
 }
 
-export function normalizeRequiredChecks(payload) {
-  const protection = payload?.protection;
-  const required = protection?.required_status_checks;
-  if (payload?.protected !== true || !required || typeof required !== "object") {
-    throw new Error("Release policy receipt requires a protected branch with required status checks");
+export function normalizeRequiredChecks(payload, options = {}) {
+  const nestedRequired = payload?.protection?.required_status_checks;
+  const required = nestedRequired ?? payload;
+  if (!required || typeof required !== "object" || Array.isArray(required) ||
+      (nestedRequired && payload?.protected !== true)) {
+    throw new Error("Release policy receipt requires an authoritative required status check response");
   }
   if (!Array.isArray(required.contexts) && !Array.isArray(required.checks)) {
     throw new Error("Release policy receipt requires a resolvable required status check configuration");
@@ -46,7 +47,8 @@ export function normalizeRequiredChecks(payload) {
     throw new Error("Release policy receipt requires the protected-branch strict setting");
   }
   const entries = [];
-  for (const context of required.contexts ?? []) {
+  const structuredChecks = Array.isArray(required.checks) && required.checks.length > 0;
+  for (const context of structuredChecks ? [] : (required.contexts ?? [])) {
     if (typeof context !== "string" || context.length === 0) throw new Error("Release policy receipt received an invalid required status context");
     entries.push({ context, appId: null, strict: required.strict });
   }
@@ -62,11 +64,30 @@ export function normalizeRequiredChecks(payload) {
     }
     entries.push({ context: check.context, appId, strict: required.strict });
   }
+  for (const check of options.rulesetRequiredChecks ?? []) {
+    if (!check || typeof check.context !== "string" || check.context.length === 0 || typeof check.strict !== "boolean") {
+      throw new Error("Release policy receipt received an invalid ruleset required status check");
+    }
+    const rawAppId = check.appId;
+    const numericAppId = rawAppId === undefined || rawAppId === null || rawAppId === "" || rawAppId === -1 || rawAppId === "-1"
+      ? null
+      : Number(rawAppId);
+    const appId = numericAppId === null ? null : numericAppId;
+    if (appId !== null && (!Number.isInteger(appId) || appId < 0)) {
+      throw new Error("Release policy receipt received an invalid ruleset required status check app binding");
+    }
+    entries.push({ context: check.context, appId, strict: check.strict });
+  }
   const unique = new Map(entries.map((item) => [`${item.context}\u0000${item.appId ?? "*"}`, item]));
   const normalized = [...unique.values()].sort((left, right) => (
     `${left.context}:${left.appId ?? ""}`.localeCompare(`${right.context}:${right.appId ?? ""}`)
   ));
   if (normalized.length === 0) throw new Error("Release policy receipt cannot publish an empty required-check policy");
+  const contextCounts = new Map();
+  for (const item of normalized) contextCounts.set(item.context, (contextCounts.get(item.context) ?? 0) + 1);
+  if ([...contextCounts.values()].some((count) => count > 1)) {
+    throw new Error("Release policy receipt cannot represent duplicate required-check contexts");
+  }
   return normalized;
 }
 
@@ -387,7 +408,11 @@ async function requestJson({ apiUrl, path, token, options = {}, fetchImpl = fetc
       ...(options.headers ?? {})
     }
   });
-  if (!response.ok) throw new Error(`Release policy receipt GitHub request failed with HTTP ${response.status}`);
+  if (!response.ok) {
+    const error = new Error(`Release policy receipt GitHub request failed with HTTP ${response.status}`);
+    error.status = response.status;
+    throw error;
+  }
   return response.status === 204 ? null : response.json();
 }
 
@@ -516,13 +541,72 @@ export async function waitForSourcePolicyReceipt({
   return null;
 }
 
-async function loadRequiredCheckPolicy({ apiUrl, repository, branch, token, fetchImpl = fetch }) {
-  return normalizeRequiredChecks(await requestJson({
+function rulesetRefPatternMatches(pattern, branch) {
+  if (pattern === "~ALL" || pattern === "~DEFAULT_BRANCH" || pattern === `refs/heads/${branch}`) return true;
+  if (typeof pattern !== "string" || !pattern.includes("*")) return false;
+  const escaped = pattern.split("*").map((part) => part.replace(/[.*+?^${}()|[\[\]\\]/g, "\\$&")).join(".*");
+  return new RegExp(`^${escaped}$`).test(`refs/heads/${branch}`);
+}
+
+async function loadApplicableRulesetChecks({ apiUrl, repository, branch, token, fetchImpl = fetch }) {
+  const listed = await requestJson({
     apiUrl,
-    path: `/repos/${repository}/branches/${encodeURIComponent(branch)}`,
+    path: `/repos/${repository}/rulesets?includes_parents=true&per_page=100&page=1`,
     token,
     fetchImpl
-  }));
+  });
+  if (!Array.isArray(listed)) throw new Error("Release policy receipt ruleset query returned an invalid payload");
+  const checks = [];
+  for (const summary of listed.filter((item) => item?.enforcement === "active")) {
+    const rulesetId = Number(summary?.id);
+    if (!Number.isInteger(rulesetId) || rulesetId <= 0) {
+      throw new Error("Release policy receipt ruleset listing contains an incomplete identity");
+    }
+    const detail = await requestJson({
+      apiUrl,
+      path: `/repos/${repository}/rulesets/${rulesetId}`,
+      token,
+      fetchImpl
+    });
+    const includes = detail?.conditions?.ref_name?.include;
+    if (detail?.target === "branch" && !Array.isArray(includes)) {
+      throw new Error("Release policy receipt ruleset has no complete ref-name condition");
+    }
+    if (detail?.target !== "branch" || !includes.some((pattern) => rulesetRefPatternMatches(pattern, branch))) continue;
+    if (!Array.isArray(detail.rules)) throw new Error("Release policy receipt ruleset has no complete rule set");
+    for (const rule of detail.rules.filter((item) => item?.type === "required_status_checks")) {
+      const configured = rule.parameters?.required_status_checks;
+      const strict = rule.parameters?.strict_required_status_checks_policy;
+      if (!Array.isArray(configured) || typeof strict !== "boolean") {
+        throw new Error("Release policy receipt ruleset has incomplete required status checks");
+      }
+      for (const check of configured) {
+        const context = check?.context ?? check?.name;
+        if (typeof context !== "string" || context.length === 0) {
+          throw new Error("Release policy receipt ruleset has an incomplete required status check");
+        }
+        checks.push({ context, appId: check?.integration_id ?? null, strict });
+      }
+    }
+  }
+  return checks;
+}
+
+export async function loadRequiredCheckPolicy({ apiUrl, repository, branch, token, fetchImpl = fetch }) {
+  let branchProtection;
+  try {
+    branchProtection = await requestJson({
+      apiUrl,
+      path: `/repos/${repository}/branches/${encodeURIComponent(branch)}/protection/required_status_checks`,
+      token,
+      fetchImpl
+    });
+  } catch (error) {
+    if (error.status !== 404) throw error;
+    branchProtection = { strict: true, contexts: [], checks: [] };
+  }
+  const rulesetRequiredChecks = await loadApplicableRulesetChecks({ apiUrl, repository, branch, token, fetchImpl });
+  return normalizeRequiredChecks(branchProtection, { rulesetRequiredChecks });
 }
 
 export async function prepareReleasePolicyReceipt({

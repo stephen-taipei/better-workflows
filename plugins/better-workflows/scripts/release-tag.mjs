@@ -7,7 +7,8 @@ import { fileURLToPath } from "node:url";
 import { inflateRawSync } from "node:zlib";
 import {
   assertClosedPolicyReceiptBinding,
-  fetchWorkflowRunCloseBindingArtifact
+  fetchWorkflowRunCloseBindingArtifact,
+  loadRequiredCheckPolicy
 } from "./release-policy-receipt.mjs";
 import {
   assertCommitSha,
@@ -358,53 +359,7 @@ async function repositoryCommitStatuses({ apiUrl, repository, sha, token, fetchI
 }
 
 async function repositoryRequiredChecks({ apiUrl, repository, branch, token, fetchImpl = fetch }) {
-  const endpoint = `${apiUrl.replace(/\/$/, "")}/repos/${repository}/branches/${encodeURIComponent(branch)}`;
-  const response = await fetchImpl(endpoint, {
-    headers: {
-      Accept: "application/vnd.github+json",
-      Authorization: `Bearer ${token}`,
-      "X-GitHub-Api-Version": "2022-11-28",
-      "User-Agent": "better-workflows-release-tag"
-    }
-  });
-  if (!response.ok) throw new Error(`GitHub protected branch query failed with HTTP ${response.status}`);
-  const payload = await response.json();
-  const protection = payload?.protection;
-  const requiredStatusChecks = protection?.required_status_checks;
-  if (payload?.protected !== true || !requiredStatusChecks || typeof requiredStatusChecks !== "object") {
-    throw new Error(`GitHub branch ${branch} returned no resolvable required status check configuration`);
-  }
-  const required = [];
-  if (!Array.isArray(requiredStatusChecks.contexts) && !Array.isArray(requiredStatusChecks.checks)) {
-    throw new Error(`GitHub branch ${branch} returned no resolvable required status check configuration`);
-  }
-  if (typeof requiredStatusChecks.strict !== "boolean") {
-    throw new Error(`GitHub branch ${branch} returned an invalid required status strict setting`);
-  }
-  for (const context of requiredStatusChecks.contexts ?? []) {
-    if (typeof context !== "string" || context.length === 0) {
-      throw new Error(`GitHub branch ${branch} returned an invalid required status context`);
-    }
-    required.push({ context, appId: null, strict: requiredStatusChecks.strict });
-  }
-  for (const check of requiredStatusChecks.checks ?? []) {
-    if (!check || typeof check.context !== "string" || check.context.length === 0) {
-      throw new Error(`GitHub branch ${branch} returned an invalid app-bound required status check`);
-    }
-    const rawAppId = check.app_id;
-    const numericAppId = rawAppId === undefined || rawAppId === null || rawAppId === "" ? null : Number(rawAppId);
-    const appId = numericAppId === null || numericAppId === -1 ? null : numericAppId;
-    if (appId !== null && (!Number.isInteger(appId) || appId < 0)) {
-      throw new Error(`GitHub branch ${branch} returned an invalid required status check app binding`);
-    }
-    required.push({ context: check.context, appId, strict: requiredStatusChecks.strict });
-  }
-  const unique = new Map(required.map((item) => [`${item.context}\u0000${item.appId ?? "*"}`, item]));
-  const normalized = [...unique.values()].sort((left, right) => (
-    `${left.context}:${left.appId ?? ""}`.localeCompare(`${right.context}:${right.appId ?? ""}`)
-  ));
-  if (normalized.length === 0) throw new Error(`GitHub branch ${branch} has no resolvable required status checks`);
-  return normalized;
+  return loadRequiredCheckPolicy({ apiUrl, repository, branch, token, fetchImpl });
 }
 
 async function githubGraphql({ apiUrl, token, query, variables, fetchImpl = fetch }) {
