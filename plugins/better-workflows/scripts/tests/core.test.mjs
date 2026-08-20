@@ -3771,6 +3771,53 @@ test("required-check verifier ignores optional skipped jobs and selects the newe
   process.env.PATH = `${bin}:${priorPath}`;
   try {
     await verifyRequiredChecksProvider(root, payload, providerExecutable);
+    const contextOnlyProtection = {
+      ...protection,
+      required_status_checks: { contexts: ["test"], checks: [] }
+    };
+    const contextOnlyGhScript = ghScript
+      .replace(emit(protection), emit(contextOnlyProtection))
+      .replace(emit(requiredStatusProtection), emit(contextOnlyProtection.required_status_checks));
+    await writeFile(fakeGh, contextOnlyGhScript, { mode: 0o700 });
+    await verifyRequiredChecksProvider(root, {
+      ...payload,
+      requiredStatusCheckApps: [{ context: "test", appId: null }]
+    }, {
+      path: providerExecutable.path,
+      digest: sha256(contextOnlyGhScript)
+    });
+    const duplicateContextProtection = {
+      ...protection,
+      required_status_checks: {
+        contexts: [],
+        checks: [{ context: "test", app_id: 15368 }, { context: "test", app_id: 9876 }]
+      }
+    };
+    const duplicateContextGhScript = ghScript
+      .replace(emit(protection), emit(duplicateContextProtection))
+      .replace(emit(requiredStatusProtection), emit(duplicateContextProtection.required_status_checks));
+    await writeFile(fakeGh, duplicateContextGhScript, { mode: 0o700 });
+    await assert.rejects(
+      verifyRequiredChecksProvider(root, {
+        ...payload,
+        requiredStatusCheckApps: [
+          { context: "test", appId: 15368 },
+          { context: "test", appId: 9876 }
+        ],
+        checks: [
+          { name: "test#102", providerName: "test", providerRunId: "102", conclusion: "success" },
+          { name: "test#105", providerName: "test", providerRunId: "105", conclusion: "success" }
+        ],
+        checkSet: ["test", "test"],
+        providerRunIds: ["102", "105"],
+        conclusions: ["success", "success"]
+      }, {
+        path: providerExecutable.path,
+        digest: sha256(duplicateContextGhScript)
+      }),
+      /duplicate contexts that the evidence schema cannot represent/
+    );
+    await writeFile(fakeGh, ghScript, { mode: 0o700 });
     await assert.rejects(
       verifyRequiredChecksProvider(root, {
         ...payload,

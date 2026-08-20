@@ -5688,26 +5688,47 @@ export async function verifyRequiredChecksProvider(cwd, payload, providerExecuta
   ) {
     throw new Error("Protected branch status-check objects contain malformed entries");
   }
-  const requiredStatusChecks = [...new Set([
-    ...(Array.isArray(requiredStatusProtection.contexts) ? requiredStatusProtection.contexts : []),
-    ...(Array.isArray(requiredStatusProtection.checks) ? requiredStatusProtection.checks.map((check) => check.context ?? check.name) : []),
-    ...rulesetRequiredStatusChecks
-  ])].sort();
-  const protectedCheckApps = (Array.isArray(requiredStatusProtection.checks)
-    ? requiredStatusProtection.checks.map((check) => ({
-        context: check.context ?? check.name,
-        appId: check.app_id
-      }))
-    : []);
-  if (
-    requiredStatusChecks.length > 0 &&
-    (protectedCheckApps.length === 0 || protectedCheckApps.some((check) => !Number.isInteger(check.appId)))
-  ) {
-    throw new Error("Protected required checks lack a verifiable GitHub App identity");
+  const normalizeProtectedCheckAppId = (value) => {
+    // GitHub uses a missing/null (and, on older responses, -1) app id to
+    // express a context-only requirement that any check provider may satisfy.
+    if (value === undefined || value === null || value === -1 || value === "-1") return null;
+    const appId = Number(value);
+    return Number.isInteger(appId) && appId >= 0 ? appId : undefined;
+  };
+  const structuredProtectedChecks = Array.isArray(requiredStatusProtection.checks) && requiredStatusProtection.checks.length > 0;
+  const protectedCheckApps = [
+    ...(!structuredProtectedChecks && Array.isArray(requiredStatusProtection.contexts)
+      ? requiredStatusProtection.contexts.map((context) => ({ context, appId: null }))
+      : []),
+    ...(Array.isArray(requiredStatusProtection.checks)
+      ? requiredStatusProtection.checks.map((check) => ({
+          context: check.context ?? check.name,
+          appId: normalizeProtectedCheckAppId(check.app_id)
+        }))
+      : []),
+    ...rulesetRequiredStatusChecks.map((context) => ({ context, appId: null }))
+  ];
+  if (protectedCheckApps.some((check) => !check.context || check.appId === undefined)) {
+    throw new Error("Protected required checks contain malformed app identities");
   }
+  const requiredStatusChecks = [...new Set(protectedCheckApps.map((check) => check.context))].sort();
+  const protectedCheckContextCounts = new Map();
+  for (const check of protectedCheckApps) {
+    protectedCheckContextCounts.set(check.context, (protectedCheckContextCounts.get(check.context) ?? 0) + 1);
+  }
+  if ([...protectedCheckContextCounts.values()].some((count) => count > 1)) {
+    throw new Error("Protected required checks contain duplicate contexts that the evidence schema cannot represent");
+  }
+  if (requiredStatusChecks.length > 0 && protectedCheckApps.length === 0) {
+    throw new Error("Protected required checks lack a verifiable requirement identity");
+  }
+  const sortProtectedCheckApps = (left, right) => (
+    String(left?.context ?? "").localeCompare(String(right?.context ?? "")) ||
+    String(left?.appId ?? "any").localeCompare(String(right?.appId ?? "any"))
+  );
   if (
-    digestObject(protectedCheckApps.sort((left, right) => left.context.localeCompare(right.context))) !==
-    digestObject([...(payload.requiredStatusCheckApps ?? [])].sort((left, right) => String(left?.context).localeCompare(String(right?.context))))
+    digestObject([...protectedCheckApps].sort(sortProtectedCheckApps)) !==
+    digestObject([...(payload.requiredStatusCheckApps ?? [])].sort(sortProtectedCheckApps))
   ) {
     throw new Error("Required check evidence does not match protected GitHub App identities");
   }
@@ -5767,15 +5788,13 @@ export async function verifyRequiredChecksProvider(cwd, payload, providerExecuta
   // then require that authoritative observation to be completed successfully.
   // Filtering out failed/pending runs before selection would let an older green
   // run authorize an action after a newer run has failed or is still pending.
-  const requiredCheckRuns = requiredStatusChecks.map((name) => {
-    const protectedApp = protectedCheckApps.find((candidate) => candidate.context === name);
+  const requiredCheckRuns = protectedCheckApps.map(({ context: name, appId }) => {
     const candidates = checkRuns
       .filter((check) => check?.name === name && check?.head_sha === payload.head)
       .filter((check) => {
         const createdAt = check.created_at;
         return (
-          protectedApp &&
-          check.app?.id === protectedApp.appId &&
+          (appId === null || check.app?.id === appId) &&
           Number.isFinite(Date.parse(createdAt ?? "")) &&
           Date.parse(createdAt) <= observedAt
         );
@@ -5819,7 +5838,7 @@ export async function verifyRequiredChecksProvider(cwd, payload, providerExecuta
       checkRun.conclusion !== "success" ||
       (check.providerName ?? check.name) !== checkRun.name ||
       !protectedApp ||
-      checkRun.app?.id !== protectedApp.appId ||
+      (protectedApp.appId !== null && checkRun.app?.id !== protectedApp.appId) ||
       check.name !== `${checkRun.name}#${checkRun.id}` ||
       !Number.isFinite(Date.parse(completedAt ?? "")) ||
       Date.parse(completedAt) > observedAt
