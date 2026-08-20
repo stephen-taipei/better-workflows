@@ -9,6 +9,7 @@ import {
   buildPolicyReceiptArtifact,
   buildClosedPolicyReceiptBinding,
   buildPolicyStatus,
+  findClosedMergeWorkflowRun,
   loadRequiredCheckPolicy,
   normalizeRequiredChecks,
   parseWorkflowRunReconciliationEvent,
@@ -46,6 +47,14 @@ test("release policy receipt normalizes and digests the protected-branch policy"
   assert.throws(
     () => normalizeRequiredChecks({ protected: true, protection: { required_status_checks: { contexts: ["test"], checks: [] } } }),
     /strict setting/
+  );
+  assert.throws(
+    () => normalizeRequiredChecks({
+      strict: true,
+      contexts: ["test"],
+      checks: [],
+    }, { rulesetRequiredChecks: [{ context: "test", appId: null, strict: false }] }),
+    /conflicting strictness/
   );
 });
 
@@ -444,6 +453,78 @@ test("workflow-run reconciliation requires the exact closed merge binding", () =
     mergeCommitSha,
     mergedAt
   }), binding);
+});
+
+test("delayed workflow-run reconciliation locates the exact closed merge run instead of the triggering pre-merge run", async () => {
+  const headSha = "b".repeat(40);
+  const mergeCommitSha = "c".repeat(40);
+  const mergedAt = "2026-08-18T00:00:00Z";
+  const binding = {
+    schemaVersion: 1,
+    kind: RELEASE_POLICY_CLOSE_BINDING_ARTIFACT_KIND,
+    repository: "example/repo",
+    workflowFile: ".github/workflows/ci.yml",
+    workflowRunId: "99",
+    eventName: "pull_request_target",
+    eventAction: "closed",
+    branch: "dev",
+    pullNumber: 17,
+    headSha,
+    mergeCommitSha,
+    mergedAt: "2026-08-18T00:00:00.000Z",
+    observedAt: "2026-08-18T00:00:05.000Z"
+  };
+  const closedRun = {
+    id: 99,
+    path: ".github/workflows/ci.yml",
+    event: "pull_request_target",
+    status: "completed",
+    conclusion: "success",
+    head_sha: mergeCommitSha,
+    created_at: "2026-08-18T00:00:01Z",
+    completed_at: "2026-08-18T00:00:06Z",
+    repository: { full_name: "example/repo" },
+    pull_requests: [{ number: 17, head: { sha: headSha }, base: { ref: "dev" } }]
+  };
+  const calls = [];
+  const result = await findClosedMergeWorkflowRun({
+    apiUrl: "https://api.github.com",
+    repository: "example/repo",
+    branch: "dev",
+    pullNumber: 17,
+    headSha,
+    mergeCommitSha,
+    mergedAt,
+    token: "token",
+    fetchImpl: async (url) => {
+      calls.push(url);
+      if (url.includes("/actions/workflows/.github%2Fworkflows%2Fci.yml/runs?")) {
+        return { ok: true, status: 200, json: async () => ({ workflow_runs: [{ id: 7 }, { id: 99 }] }) };
+      }
+      if (url.endsWith("/actions/runs/7")) {
+        return { ok: true, status: 200, json: async () => ({
+          id: 7,
+          path: ".github/workflows/ci.yml",
+          event: "pull_request_target",
+          status: "completed",
+          conclusion: "success",
+          head_sha: headSha,
+          created_at: "2026-08-17T23:59:00Z",
+          pull_requests: [{ number: 17, head: { sha: headSha }, base: { ref: "dev" } }]
+        }) };
+      }
+      if (url.endsWith("/actions/runs/99")) return { ok: true, status: 200, json: async () => closedRun };
+      throw new Error(`Unexpected delayed reconciliation URL: ${url}`);
+    },
+    fetchCloseBindingImpl: async ({ runId }) => {
+      assert.equal(runId, "99");
+      return binding;
+    }
+  });
+  assert.equal(result.run.id, 99);
+  assert.equal(result.binding.workflowRunId, "99");
+  assert.ok(calls.some((url) => url.endsWith("/actions/runs/99")));
+  assert.ok(!calls.some((url) => url.endsWith("/actions/runs/43")));
 });
 
 test("closed receipt polling waits for the exact pre-merge status within a bounded window", async () => {

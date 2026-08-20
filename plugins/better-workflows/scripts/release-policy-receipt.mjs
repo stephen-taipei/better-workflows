@@ -78,7 +78,15 @@ export function normalizeRequiredChecks(payload, options = {}) {
     }
     entries.push({ context: check.context, appId, strict: check.strict });
   }
-  const unique = new Map(entries.map((item) => [`${item.context}\u0000${item.appId ?? "*"}`, item]));
+  const unique = new Map();
+  for (const item of entries) {
+    const key = `${item.context}\u0000${item.appId ?? "*"}`;
+    const previous = unique.get(key);
+    if (previous && previous.strict !== item.strict) {
+      throw new Error(`Release policy receipt cannot reconcile conflicting strictness for required check ${item.context}`);
+    }
+    if (!previous) unique.set(key, item);
+  }
   const normalized = [...unique.values()].sort((left, right) => (
     `${left.context}:${left.appId ?? ""}`.localeCompare(`${right.context}:${right.appId ?? ""}`)
   ));
@@ -468,6 +476,98 @@ async function repositoryWorkflowRun({ apiUrl, repository, runId, token, fetchIm
   });
 }
 
+export async function findClosedMergeWorkflowRun({
+  apiUrl,
+  repository,
+  branch,
+  pullNumber,
+  headSha,
+  mergeCommitSha,
+  mergedAt,
+  token,
+  fetchImpl = fetch,
+  fetchCloseBindingImpl = fetchWorkflowRunCloseBindingArtifact
+}) {
+  const normalizedRepository = String(repository ?? "").trim();
+  const normalizedBranch = String(branch ?? "").trim();
+  const normalizedPullNumber = Number(pullNumber);
+  const normalizedHeadSha = assertSha(headSha);
+  const normalizedMergeCommitSha = assertSha(mergeCommitSha);
+  const mergedAtMs = Date.parse(String(mergedAt ?? ""));
+  if (!normalizedRepository || !normalizedBranch || !Number.isInteger(normalizedPullNumber) || normalizedPullNumber <= 0 ||
+      !Number.isFinite(mergedAtMs)) {
+    throw new Error("Release policy reconciliation requires a complete merged pull-request binding");
+  }
+  const candidates = [];
+  for (let page = 1; page <= 10; page += 1) {
+    const payload = await requestJson({
+      apiUrl,
+      path: `/repos/${normalizedRepository}/actions/workflows/${encodeURIComponent(RELEASE_POLICY_RECEIPT_WORKFLOW_FILE)}/runs?event=${RELEASE_POLICY_RECEIPT_WORKFLOW_EVENT}&branch=${encodeURIComponent(normalizedBranch)}&per_page=100&page=${page}`,
+      token,
+      fetchImpl
+    });
+    if (!Array.isArray(payload?.workflow_runs)) {
+      throw new Error("Release policy reconciliation returned an invalid workflow-run listing");
+    }
+    candidates.push(...payload.workflow_runs);
+    if (payload.workflow_runs.length < 100) break;
+    if (page === 10) throw new Error("Release policy reconciliation exceeded its bounded workflow-run listing");
+  }
+  const matches = [];
+  for (const candidate of candidates) {
+    const candidateId = String(candidate?.id ?? "").trim();
+    if (!/^\d+$/.test(candidateId)) continue;
+    const run = await repositoryWorkflowRun({ apiUrl, repository: normalizedRepository, runId: candidateId, token, fetchImpl });
+    if (String(run?.path ?? "") !== RELEASE_POLICY_RECEIPT_WORKFLOW_FILE ||
+        String(run?.event ?? "") !== RELEASE_POLICY_RECEIPT_WORKFLOW_EVENT ||
+        String(run?.status ?? "") !== "completed" || !String(run?.conclusion ?? "") ||
+        String(run?.head_sha ?? "").toLowerCase() !== normalizedMergeCommitSha ||
+        !Array.isArray(run?.pull_requests)) continue;
+    const associatedPull = run.pull_requests.find((item) => Number(item?.number) === normalizedPullNumber);
+    if (!associatedPull || String(associatedPull?.base?.ref ?? "") !== normalizedBranch ||
+        String(associatedPull?.head?.sha ?? "").toLowerCase() !== normalizedHeadSha) continue;
+    const createdAtMs = Date.parse(String(run.created_at ?? ""));
+    if (!Number.isFinite(createdAtMs) || createdAtMs < mergedAtMs) continue;
+    const completedAtMs = Date.parse(String(run.completed_at ?? ""));
+    if (Number.isFinite(completedAtMs) && completedAtMs < mergedAtMs) continue;
+    let binding;
+    try {
+      binding = await fetchCloseBindingImpl({
+        apiUrl,
+        repository: normalizedRepository,
+        runId: candidateId,
+        token,
+        fetchImpl
+      });
+    } catch (error) {
+      if (error instanceof MissingPolicyCloseBindingArtifactError) continue;
+      throw error;
+    }
+    assertClosedPolicyReceiptBinding({
+      repository: normalizedRepository,
+      run,
+      pull: {
+        number: normalizedPullNumber,
+        state: "closed",
+        merged: true,
+        base: { ref: normalizedBranch },
+        head: { sha: normalizedHeadSha },
+        merge_commit_sha: normalizedMergeCommitSha,
+        merged_at: mergedAt
+      },
+      binding
+    });
+    matches.push({ run, binding });
+  }
+  if (matches.length === 0) {
+    throw new MissingPolicyCloseBindingArtifactError("Release policy reconciliation has no exact completed closed-merge binding");
+  }
+  if (matches.length !== 1) {
+    throw new Error("Release policy reconciliation found multiple exact completed closed-merge bindings");
+  }
+  return matches[0];
+}
+
 function sourceWorkflowRunMatches(run, { repository, branch, headSha, pullNumber, workflowRunId, mergedAtMs, statusObservedAtMs }) {
   if (!run || typeof run !== "object" || Array.isArray(run) ||
       String(run.id ?? "") !== String(workflowRunId) || String(run.path ?? "") !== RELEASE_POLICY_RECEIPT_WORKFLOW_FILE ||
@@ -801,14 +901,22 @@ async function main() {
       console.log(JSON.stringify({ status: "skipped", reason: "pull-request-not-merged" }));
       return;
     }
+    mergeCommitSha = assertSha(pull.merge_commit_sha);
+    mergedAt = String(pull.merged_at ?? "");
+    if (!Number.isFinite(Date.parse(mergedAt))) throw new Error("Workflow-run release policy reconciliation requires a valid merge timestamp");
     let closeBinding;
     try {
-      closeBinding = await fetchWorkflowRunCloseBindingArtifact({
+      const closedMerge = await findClosedMergeWorkflowRun({
         apiUrl,
         repository,
-        runId: triggerWorkflowRunId,
+        branch,
+        pullNumber,
+        headSha,
+        mergeCommitSha,
+        mergedAt,
         token
       });
+      closeBinding = closedMerge.binding;
     } catch (error) {
       if (error instanceof MissingPolicyCloseBindingArtifactError) {
         console.log(JSON.stringify({ status: "skipped", reason: "no-closed-merge-binding" }));
@@ -816,15 +924,6 @@ async function main() {
       }
       throw error;
     }
-    assertClosedPolicyReceiptBinding({
-      repository,
-      run: eventPayload.workflow_run,
-      pull,
-      binding: closeBinding
-    });
-    mergeCommitSha = assertSha(pull.merge_commit_sha);
-    mergedAt = String(pull.merged_at ?? "");
-    if (!Number.isFinite(Date.parse(mergedAt))) throw new Error("Workflow-run release policy reconciliation requires a valid merge timestamp");
     eventAction = RELEASE_POLICY_RECEIPT_MERGE_ACTION;
   } else if (eventName === RELEASE_POLICY_RECEIPT_WORKFLOW_EVENT) {
     const merged = String(process.env.GITHUB_PR_MERGED ?? "") === "true";
