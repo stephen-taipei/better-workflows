@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
-import { chmod, mkdtemp, mkdir, readdir, readFile, realpath, stat, unlink, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, readdir, readFile, realpath, rm, stat, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -19,7 +19,7 @@ import {
   rebindSourceBinding,
   sha256
 } from "../lib/core.mjs";
-import { assertPayloadFields, loadEvidenceContracts } from "../lib/evidence.mjs";
+import { admitTypedEvidence, assertPayloadFields, loadEvidenceContracts } from "../lib/evidence.mjs";
 import { compileLedger, deriveLedgerStatus, transitionLedger } from "../lib/ledger.mjs";
 import { deliberateForRun } from "../lib/deliberation-receipt.mjs";
 import {
@@ -327,6 +327,105 @@ test("typed catalog covers exactly the 101 installed evidence kinds", async () =
   assert.ok(contracts["remote-sync"]);
   assert.ok(contracts["work-unit-accounting"]);
   assert.ok(contracts["review-kernel-summary"]);
+});
+
+test("typed required-check evidence binds host merge approval to the run source, sentinel, and review package", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-required-check-human-approval-"));
+  const runId = "sbw-20260820T000000Z-123456789abc";
+  const runDir = path.join(root, "runs", runId);
+  const reviewPackageId = `review-${"c".repeat(32)}`;
+  const head = "1".repeat(40);
+  const base = "2".repeat(40);
+  const sourceBindingDigest = "3".repeat(64);
+  const sourceSentinelDigest = "4".repeat(64);
+  const observedAt = new Date().toISOString();
+  const completedAt = new Date(Date.parse(observedAt) - 1000).toISOString();
+  const contract = { schemaVersion: 2, remoteRevision: base };
+  const manifest = {
+    runId,
+    cwd: root,
+    sourceBinding: { digest: sourceBindingDigest, baseRevision: base, headRevision: head }
+  };
+  const state = { lastSentinel: { digest: sourceSentinelDigest } };
+  await mkdir(path.join(runDir, "review-packages"), { recursive: true });
+  await writeFile(path.join(runDir, "state.json"), `${JSON.stringify(state)}\n`);
+  await writeFile(path.join(runDir, "review-packages", `${reviewPackageId}.json`), `${JSON.stringify({
+    packageId: reviewPackageId,
+    head,
+    base,
+    broadReview: { complete: true }
+  })}\n`);
+  try {
+    const authorization = {
+      schemaVersion: 1,
+      kind: "host-signed-pr-merge-authorization",
+      action: "pr.merge",
+      resource: "pull/21",
+      runId,
+      contractDigest: digestObject(contract),
+      sourceBindingDigest,
+      sourceSentinelDigest,
+      reviewPackageId,
+      repository: "github.com/example/repo",
+      pr: 21,
+      head,
+      base,
+      baseRefName: "dev",
+      actor: "example-user",
+      adminBypass: false,
+      approvedAt: observedAt
+    };
+    const authorizationDigest = digestObject(authorization);
+    const payload = {
+      command: "pinned gh live required-check observation",
+      result: true,
+      pr: 21,
+      head,
+      base,
+      repository: authorization.repository,
+      baseRefName: "dev",
+      checkSet: ["test"],
+      providerRunIds: ["101"],
+      conclusions: ["success"],
+      checks: [{ name: "test#101", providerName: "test", providerRunId: "101", completedAt, conclusion: "success" }],
+      requiredStatusChecks: ["test"],
+      requiredStatusCheckApps: [{ context: "test", appId: 15368 }],
+      provider: "github",
+      providerExecutable: { path: "/usr/bin/false", digest: "5".repeat(64) },
+      observedAt,
+      humanApproval: {
+        schemaVersion: 1,
+        authorization,
+        authorizationDigest,
+        attestation: {
+          path: path.join(root, "merge-approval.attestation.json"),
+          attestationDigest: "6".repeat(64),
+          fileDigest: "7".repeat(64)
+        }
+      }
+    };
+    const record = await gateRecord({ runId, contract }, "required-checks", payload, "required-checks-human-approval");
+    const admitted = await admitTypedEvidence(record, { root, runDir, manifest, contract, state });
+    assert.equal(admitted.receipt.payload.humanApproval.authorizationDigest, authorizationDigest);
+    const forgedAuthorization = { ...authorization, sourceBindingDigest: "8".repeat(64) };
+    const forgedPayload = {
+      ...payload,
+      humanApproval: {
+        ...payload.humanApproval,
+        authorization: forgedAuthorization,
+        authorizationDigest: digestObject(forgedAuthorization)
+      }
+    };
+    await assert.rejects(
+      admitTypedEvidence(
+        await gateRecord({ runId, contract }, "required-checks", forgedPayload, "required-checks-forged-human-approval"),
+        { root, runDir, manifest, contract, state }
+      ),
+      /human approval binding is incomplete/
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("typed handoff evidence admits only its declared nullable evaluator authorization and policy digest", async () => {
