@@ -1258,7 +1258,7 @@ node plugins/better-workflows/scripts/sbw.mjs action issue &lt;run-id&gt; \
 
     const templates = [
       { id:'browser-simulator-qa', mode:'verified', stages:4, entry:'browser-qa', scenario:'browser', family:'QA', desc:'用當前頁面／App 狀態與可重現 artifacts 做瀏覽器或模擬器 QA。', source:'plugins/better-workflows/templates/browser-simulator-qa.json:2–20' },
-      { id:'ci-release-monitor', mode:'critical', stages:5, entry:'ci-release', scenario:'release', family:'OPS', desc:'序列化 inventory、queue、dispatch preflight、執行監控與 provider reconciliation；branch promotion 仍 deferred。', source:'plugins/better-workflows/templates/ci-release-monitor.json:2–22' },
+      { id:'ci-release-monitor', mode:'critical', stages:4, entry:'ci-release', scenario:'release', family:'OPS', desc:'序列化 inventory、queue、執行監控與 provider reconciliation；workflow dispatch、branch promotion、deploy 與 release 仍 deferred。', source:'plugins/better-workflows/templates/ci-release-monitor.json:2–22' },
       { id:'cross-platform-contract', mode:'deep', stages:5, entry:'cross-platform', scenario:'contract', family:'CODE', desc:'同步驗證 server 與 iOS、Android、Web client contract 相容性。', source:'plugins/better-workflows/templates/cross-platform-contract.json:2–21' },
       { id:'dependabot-consolidation-pr-cleanup', mode:'critical', stages:6, entry:'—', scenario:'dependency', family:'DELIVERY', desc:'分類相容依賴、合併單一 PR、驗證 lockfile 並精確清理 owned resources。', source:'plugins/better-workflows/templates/dependabot-consolidation-pr-cleanup.json:2–109' },
       { id:'ios-static-pbxproj', mode:'verified', stages:3, entry:'ios-static', scenario:'ios', family:'CODE', desc:'不做 local build 的 Swift 靜態 review 與序列化 pbxproj membership。', source:'plugins/better-workflows/templates/ios-static-pbxproj.json:2–16' },

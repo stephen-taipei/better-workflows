@@ -921,6 +921,10 @@ function workflowOriginTime(record) {
   return Number.isFinite(value) ? value : Number.NEGATIVE_INFINITY;
 }
 
+function creationTime(record) {
+  return workflowOriginTime(record);
+}
+
 function observationId(record) {
   const value = Number(record?.id);
   return Number.isFinite(value) ? value : Number.NEGATIVE_INFINITY;
@@ -930,7 +934,7 @@ function latestObservation(records) {
   return records.reduce((latest, record, index) => {
     const candidate = { record, index };
     if (!latest) return candidate;
-    const timeDelta = observationTime(candidate.record) - observationTime(latest.record);
+    const timeDelta = creationTime(candidate.record) - creationTime(latest.record);
     if (Number.isFinite(timeDelta) && timeDelta !== 0) return timeDelta > 0 ? candidate : latest;
     const idDelta = observationId(candidate.record) - observationId(latest.record);
     if (idDelta !== 0) return idDelta > 0 ? candidate : latest;
@@ -943,8 +947,8 @@ function latestRequiredObservation(checks, statuses) {
   const status = latestObservation(statuses);
   if (!check) return status ? { kind: "status", ...status } : null;
   if (!status) return { kind: "check", ...check };
-  const checkTime = observationTime(check.record);
-  const statusTime = observationTime(status.record);
+  const checkTime = creationTime(check.record);
+  const statusTime = creationTime(status.record);
   if (checkTime !== statusTime) return checkTime > statusTime ? { kind: "check", ...check } : { kind: "status", ...status };
   const checkId = observationId(check.record);
   const statusId = observationId(status.record);
