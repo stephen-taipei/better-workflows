@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { digestObject, listJsonRecords, pluginRoot, safeJoin } from "./core.mjs";
+import { digestObject, listJsonRecords, pluginRoot, safeJoin, verifyMergeHumanApproval } from "./core.mjs";
 import { captureSourceBinding } from "./git.mjs";
 import { SELF_IMPROVE_HANDOFF_KIND, validateSelfImproveDeliveryHandoff } from "./self-improve-handoff.mjs";
 import { reviewPackageBindingRequired } from "./review-policy.mjs";
@@ -449,6 +449,20 @@ async function assertFreshBinding(receipt, run, definition, kind) {
         humanApproval.authorizationDigest !== digestObject(expectedAuthorization)
       ) {
         throw new Error("Typed evidence required-checks human approval authorization is invalid");
+      }
+      const attestationVerification = await verifyMergeHumanApproval(
+        run.manifest.cwd,
+        payload,
+        { attestationVerifier: run.mergeHumanApprovalAttestationVerifier ?? null }
+      );
+      if (
+        attestationVerification.authorizationDigest !== humanApproval.authorizationDigest ||
+        attestationVerification.attestationDigest !== attestation.attestationDigest ||
+        attestationVerification.sourceBindingDigest !== authorization.sourceBindingDigest ||
+        attestationVerification.actor !== authorization.actor ||
+        attestationVerification.reviewPolicyException !== authorization.reviewPolicyException
+      ) {
+        throw new Error("Typed evidence required-checks human approval attestation is invalid");
       }
     }
     const checks = payload?.checks;

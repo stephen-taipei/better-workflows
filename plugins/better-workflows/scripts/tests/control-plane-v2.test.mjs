@@ -40,7 +40,7 @@ import {
   stableFindingId
 } from "../lib/review.mjs";
 import { updateState } from "../lib/core.mjs";
-import { captureSentinel } from "../lib/git.mjs";
+import { captureSentinel, captureSourceBinding } from "../lib/git.mjs";
 
 const contractTemplate = {
   requiredEvidence: ["environment-state"],
@@ -331,22 +331,49 @@ test("typed catalog covers exactly the 101 installed evidence kinds", async () =
 
 test("typed required-check evidence binds host merge approval to the run source, sentinel, and review package", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "sbw-required-check-human-approval-"));
+  const repository = path.join(root, "repository");
   const runId = "sbw-20260820T000000Z-123456789abc";
   const runDir = path.join(root, "runs", runId);
   const reviewPackageId = `review-${"c".repeat(32)}`;
-  const head = "1".repeat(40);
-  const base = "2".repeat(40);
-  const sourceBindingDigest = "3".repeat(64);
   const sourceSentinelDigest = "4".repeat(64);
   const observedAt = new Date().toISOString();
   const completedAt = new Date(Date.parse(observedAt) - 1000).toISOString();
+  await mkdir(repository);
+  await execFileAsync("git", ["init", "-q", "-b", "codex/merge-approval-admission"], { cwd: repository });
+  await execFileAsync("git", ["config", "user.email", "sbw@example.invalid"], { cwd: repository });
+  await execFileAsync("git", ["config", "user.name", "SBW Test"], { cwd: repository });
+  await writeFile(path.join(repository, "README.md"), "base\n");
+  await execFileAsync("git", ["add", "README.md"], { cwd: repository });
+  await execFileAsync("git", ["commit", "-qm", "base"], { cwd: repository });
+  const base = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repository, encoding: "utf8" })).stdout.trim();
+  await writeFile(path.join(repository, "README.md"), "head\n");
+  await execFileAsync("git", ["add", "README.md"], { cwd: repository });
+  await execFileAsync("git", ["commit", "-qm", "head"], { cwd: repository });
+  const head = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repository, encoding: "utf8" })).stdout.trim();
+  const sourceBinding = await captureSourceBinding(repository, { baseRevision: base, requireClean: true });
+  const sourceBindingDigest = sourceBinding.digest;
   const contract = { schemaVersion: 2, remoteRevision: base };
   const manifest = {
     runId,
-    cwd: root,
-    sourceBinding: { digest: sourceBindingDigest, baseRevision: base, headRevision: head }
+    cwd: repository,
+    sourceBinding
   };
   const state = { lastSentinel: { digest: sourceSentinelDigest } };
+  const attestationPath = path.join(root, "merge-approval.attestation.json");
+  await writeFile(attestationPath, "{}\n");
+  const attestationDigest = "6".repeat(64);
+  const mergeHumanApprovalAttestationVerifier = async ({
+    attestationPath: actualPath,
+    workspaceRoot,
+    binding
+  }) => {
+    assert.equal(actualPath, attestationPath);
+    assert.equal(workspaceRoot, repository);
+    assert.equal(binding.runId, runId);
+    assert.equal(binding.base, base);
+    assert.equal(binding.head, head);
+    return { attestationDigest, attestationPath: await realpath(actualPath) };
+  };
   await mkdir(path.join(runDir, "review-packages"), { recursive: true });
   await writeFile(path.join(runDir, "state.json"), `${JSON.stringify(state)}\n`);
   await writeFile(path.join(runDir, "review-packages", `${reviewPackageId}.json`), `${JSON.stringify({
@@ -399,14 +426,15 @@ test("typed required-check evidence binds host merge approval to the run source,
         authorization,
         authorizationDigest,
         attestation: {
-          path: path.join(root, "merge-approval.attestation.json"),
-          attestationDigest: "6".repeat(64),
-          fileDigest: "7".repeat(64)
+          path: attestationPath,
+          attestationDigest,
+          fileDigest: sha256(await readFile(attestationPath))
         }
       }
     };
     const record = await gateRecord({ runId, contract }, "required-checks", payload, "required-checks-human-approval");
-    const admitted = await admitTypedEvidence(record, { root, runDir, manifest, contract, state });
+    const run = { root, runDir, manifest, contract, state, mergeHumanApprovalAttestationVerifier };
+    const admitted = await admitTypedEvidence(record, run);
     assert.equal(admitted.receipt.payload.humanApproval.authorizationDigest, authorizationDigest);
     const forgedAuthorization = { ...authorization, sourceBindingDigest: "8".repeat(64) };
     const forgedPayload = {
@@ -420,9 +448,17 @@ test("typed required-check evidence binds host merge approval to the run source,
     await assert.rejects(
       admitTypedEvidence(
         await gateRecord({ runId, contract }, "required-checks", forgedPayload, "required-checks-forged-human-approval"),
-        { root, runDir, manifest, contract, state }
+        run
       ),
       /human approval binding is incomplete/
+    );
+    await unlink(attestationPath);
+    await assert.rejects(
+      admitTypedEvidence(
+        await gateRecord({ runId, contract }, "required-checks", payload, "required-checks-missing-attestation"),
+        run
+      ),
+      /ENOENT|attestation/i
     );
   } finally {
     await rm(root, { recursive: true, force: true });

@@ -2879,26 +2879,24 @@ export async function evaluateCompletion(root, runId) {
               boundAction?.providerExecutable ?? record.receipt.payload?.providerExecutable
             );
             if (checkVerification.humanApproval) {
-              const approval = record.receipt.payload.humanApproval.authorization;
-              const remoteAuthorization = mergeAction
-                ? assertPersistedMergeHumanAuthorizationEvidence(
-                    mergeAction,
-                    evidence,
-                    checkVerification,
-                    { actor: mergeAction.providerAuthorization?.actor, repository: record.receipt.payload.repository }
-                  )
-                : findExactMergeHumanAuthorization(evidence, {
-                    action: "pr.merge",
-                    provider: "github-cli",
-                    resource: `pull/${record.receipt.payload.pr}`,
-                    remoteRevision: contract.remoteRevision,
-                    repository: record.receipt.payload.repository,
-                    actor: approval.actor,
-                    humanApprovalDigest: checkVerification.humanApproval.authorizationDigest
-                  });
-              if (!remoteAuthorization) {
-                throw new Error("Governed PR merge human approval lacks exact user remote authorization");
+              if (!mergeAction) {
+                throw new Error("Governed PR merge completion lacks the exact issued merge action");
               }
+              const providerExecutablePath = await verifyRecordedGitHubProvider(manifest, mergeAction);
+              const liveAuthorization = await verifyGitHubProviderAuthorization(
+                manifest.cwd,
+                record.receipt.payload.repository,
+                providerExecutablePath
+              );
+              if (digestObject(liveAuthorization) !== digestObject(mergeAction.providerAuthorization)) {
+                throw new Error("Governed PR merge completion provider actor or permission changed");
+              }
+              const remoteAuthorization = assertPersistedMergeHumanAuthorizationEvidence(
+                mergeAction,
+                evidence,
+                checkVerification,
+                { actor: liveAuthorization.actor, repository: record.receipt.payload.repository }
+              );
               await validateTypedEvidenceRecord(remoteAuthorization, {
                 manifest,
                 contract,
@@ -7372,12 +7370,14 @@ async function consumeActionTokenInternal(root, runId, token, currentTreeDigest,
         record.providerAuthorizationExecutable ? "providerAuthorizationExecutable" : "providerExecutable"
       )
       : null;
+    let liveGithubAuthorization = null;
     if (record.providerAuthorization?.provider === "github-cli") {
       const repository = await currentRepositoryIdentity(manifest.cwd);
       const authorization = await verifyGitHubProviderAuthorization(manifest.cwd, repository, githubProviderExecutable.path);
       if (digestObject(authorization) !== digestObject(record.providerAuthorization)) {
         throw new Error("Action consumption denied because GitHub provider authorization changed");
       }
+      liveGithubAuthorization = authorization;
     }
     if (record.gitCredentialCheck) {
       const gitExecutable = await verifyRecordedExecutable(
@@ -7451,7 +7451,7 @@ async function consumeActionTokenInternal(root, runId, token, currentTreeDigest,
           record,
           evidence,
           checkVerification,
-          { actor: record.providerAuthorization.actor, repository }
+          { actor: liveGithubAuthorization?.actor, repository }
         );
         if (mergeAuthorization) {
           await validateTypedEvidenceRecord(mergeAuthorization, {
