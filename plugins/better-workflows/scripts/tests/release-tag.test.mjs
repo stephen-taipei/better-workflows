@@ -221,7 +221,7 @@ function successfulRequiredCheckResponse(url, sha, context = "test", pullNumber 
 }
 
 function policyReceiptStatus(context, updatedAt = "2026-08-20T00:50:00Z", appId = null, metadata = {}) {
-  const policy = [{ context, appId, strict: metadata.strict ?? true }];
+  const policy = metadata.policy ?? [{ context, appId, strict: metadata.strict ?? true }];
   const policyDigest = createHash("sha256")
     .update(JSON.stringify(policy))
     .digest("hex");
@@ -851,6 +851,7 @@ test("merge-time policy receipt binds the pre-merge head separately from the mer
     policyWorkflowInProgressResponses = 1;
     let newerPolicyStatus = null;
     let exerciseLatePolicy = false;
+    let includePolicySelfContext = false;
     let policyStatusQueries = 0;
     let checkQueries = 0;
     const fetchImpl = async (url) => {
@@ -883,7 +884,18 @@ test("merge-time policy receipt binds the pre-merge head separately from the mer
         policyStatusQueries += 1;
         return jsonResponse([
           { id: 7, context: "test", state: "success", created_at: "2026-08-14T23:40:00Z", updated_at: "2026-08-14T23:40:00Z" },
-          policyReceiptStatus("test", "2026-08-20T00:50:00Z", null, { pullNumber, headSha: preMergeSha, mergeSha, mergedAt: "2026-08-15T00:00:00Z" }),
+          policyReceiptStatus("test", "2026-08-20T00:50:00Z", null, {
+            pullNumber,
+            headSha: preMergeSha,
+            mergeSha,
+            mergedAt: "2026-08-15T00:00:00Z",
+            ...(includePolicySelfContext ? {
+              policy: [
+                { context: "better-workflows/release-policy-v1", appId: null, strict: true },
+                { context: "test", appId: null, strict: true }
+              ]
+            } : {})
+          }),
           ...(newerPolicyStatus && (!exerciseLatePolicy || policyStatusQueries >= 2) ? [newerPolicyStatus] : [])
         ]);
       }
@@ -912,6 +924,37 @@ test("merge-time policy receipt binds the pre-merge head separately from the mer
     assert.equal(result.requiredChecks.mergeTimeReceipt.mergeCommitSha, mergeSha);
     assert.deepEqual(result.requiredChecks.requiredRequirements, [{ context: "test", appId: null, strict: true }]);
     assert.equal(policyArtifactUnavailableResponses, 0);
+    includePolicySelfContext = true;
+    newerPolicyStatus = null;
+    exerciseLatePolicy = false;
+    policyStatusQueries = 0;
+    checkQueries = 0;
+    const selfContextResult = await runReleaseTag({
+      cwd: work,
+      fetchImpl,
+      env: {
+        GITHUB_EVENT_NAME: "push",
+        GITHUB_EVENT_BEFORE: eventBefore,
+        GITHUB_REF_NAME: "dev",
+        GITHUB_REPOSITORY: "example/repo",
+        GITHUB_SHA: mergeSha,
+        GITHUB_TOKEN: "test-token",
+        GITHUB_API_URL: "https://api.github.com",
+        RELEASE_TAG_DRY_RUN: "1"
+      }
+    });
+    assert.equal(selfContextResult.status, "planned");
+    assert.deepEqual(selfContextResult.requiredChecks.requiredRequirements, [
+      { context: "better-workflows/release-policy-v1", appId: null, strict: true },
+      { context: "test", appId: null, strict: true }
+    ]);
+    assert.deepEqual(selfContextResult.requiredChecks.statuses, []);
+    assert.deepEqual(selfContextResult.requiredChecks.requiredContexts, [
+      "better-workflows/release-policy-v1",
+      "test"
+    ]);
+    assert.equal(selfContextResult.requiredChecks.mergeTimeReceipt.policyReceipt.context, "better-workflows/release-policy-v1");
+    includePolicySelfContext = false;
     const newerPolicyBase = {
       ...policyReceiptStatus("test", "2026-08-20T01:00:00Z", null, { pullNumber, headSha: preMergeSha, mergeSha, mergedAt: "2026-08-15T00:00:00Z" }),
       id: 9,

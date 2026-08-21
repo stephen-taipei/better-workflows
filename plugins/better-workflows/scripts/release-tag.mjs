@@ -1255,6 +1255,39 @@ function requiredObservationState(selected, { notAfterMs = null } = {}) {
   return ["pending", "queued", "in_progress"].includes(String(selected.record.state)) ? "pending" : "failure";
 }
 
+function mergeTimePolicyReceiptObservation(policyReceipt, requirement, mergeTimeMs) {
+  if (
+    !policyReceipt ||
+    requirement?.context !== RELEASE_POLICY_RECEIPT_CONTEXT ||
+    requirement?.appId !== null
+  ) return null;
+  const sourcePolicy = policyReceipt.sourceArtifact?.policy;
+  if (!Array.isArray(sourcePolicy)) {
+    throw new Error("Release catch-up merge-time policy receipt lacks its authenticated pre-merge policy");
+  }
+  const sourceRequirement = sourcePolicy.find((item) => (
+    String(item?.context ?? "") === RELEASE_POLICY_RECEIPT_CONTEXT
+  ));
+  if (!sourceRequirement || sourceRequirement.appId !== requirement.appId || Boolean(sourceRequirement.strict) !== Boolean(requirement.strict)) {
+    throw new Error("Release catch-up merge-time policy receipt does not preserve the exact required policy context");
+  }
+  const observedAt = Date.parse(String(policyReceipt.sourceArtifact?.observedAt ?? ""));
+  if (!Number.isFinite(observedAt)) {
+    throw new Error("Release catch-up merge-time policy receipt lacks a timestamped pre-merge source artifact");
+  }
+  return {
+    kind: "policy-receipt",
+    record: {
+      id: String(policyReceipt.sourceArtifact.workflowRunId ?? ""),
+      context: RELEASE_POLICY_RECEIPT_CONTEXT,
+      state: "success",
+      created_at: new Date(observedAt).toISOString(),
+      updated_at: new Date(observedAt).toISOString()
+    },
+    state: observedAt <= mergeTimeMs ? "success" : "pending"
+  };
+}
+
 function workflowTestObservation({ branch, checkRuns, workflowRuns, sha }) {
   const candidateChecks = checkRuns.filter((check) => (
     String(check?.head_sha ?? "").toLowerCase() === sha &&
@@ -1477,6 +1510,12 @@ async function verifyCatchUpChecks({
           String(status?.context ?? "") === context
         ))
         : [];
+      const policyReceiptObservation = mergeTimeMs !== null
+        ? mergeTimePolicyReceiptObservation(policyReceipt, requirement, mergeTimeMs)
+        : null;
+      if (policyReceiptObservation) {
+        return { requirement, selected: policyReceiptObservation, state: policyReceiptObservation.state };
+      }
       const selected = latestRequiredObservation(matchingChecks, matchingStatuses);
       return { requirement, selected, state: requiredObservationState(selected, { notAfterMs: mergeTimeMs }) };
     });
