@@ -6150,7 +6150,11 @@ export async function verifyRequiredChecksProvider(
     for (const check of checkRuns) {
       if (check?.name !== name || check?.head_sha !== payload.head ||
           (appId !== null && check?.app?.id !== appId)) continue;
-      const createdAt = Date.parse(check.created_at ?? "");
+      // GitHub check-run responses expose the observation start as
+      // `started_at` (and do not consistently include `created_at`). Keep
+      // both shapes equivalent for freshness selection; completed_at remains
+      // the terminal-outcome boundary below.
+      const createdAt = Date.parse(check.created_at ?? check.started_at ?? "");
       const completedAt = Date.parse(check.completed_at ?? "");
       if (!Number.isFinite(createdAt)) continue;
       candidates.push({

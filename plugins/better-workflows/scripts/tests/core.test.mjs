@@ -4123,6 +4123,13 @@ test("required-check verifier ignores optional skipped jobs and selects the newe
       }
     ]
   };
+  const startedAtOnlyPage = {
+    ...checkPage,
+    check_runs: checkPage.check_runs.map(({ created_at: _createdAt, ...check }) => ({
+      ...check,
+      started_at: _createdAt ?? newestCreatedAt
+    }))
+  };
   const failedCheckPage = {
     total_count: 4,
     check_runs: [
@@ -4189,6 +4196,12 @@ test("required-check verifier ignores optional skipped jobs and selects the newe
   process.env.PATH = `${bin}:${priorPath}`;
   try {
     await verifyRequiredChecksProvider(root, payload, providerExecutable);
+    const startedAtOnlyGhScript = ghScript.replace(emit([checkPage]), emit([startedAtOnlyPage]));
+    await writeFile(fakeGh, startedAtOnlyGhScript, { mode: 0o700 });
+    await verifyRequiredChecksProvider(root, payload, {
+      path: providerExecutable.path,
+      digest: sha256(startedAtOnlyGhScript)
+    });
     const soloProtection = {
       ...protection,
       required_pull_request_reviews: { required_approving_review_count: 0 }
