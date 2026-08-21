@@ -1388,6 +1388,7 @@ test("release eligibility uses the validated push-event parent across multi-comm
     let duplicateProviderObservation = false;
     let largeStatusConflict = false;
     let duplicateStatusObservation = false;
+    let crossKindStatusConflict = false;
     let largeWorkflowConflict = false;
     let duplicateWorkflowObservation = false;
     const fetchImpl = async (url) => {
@@ -1426,6 +1427,15 @@ test("release eligibility uses the validated push-event parent across multi-comm
         return jsonResponse({ workflow_runs: [{ id: 7, path: ".github/workflows/ci.yml", head_sha: intermediate, head_branch: "dev", event: "push", status: "completed", conclusion: "success", created_at: "2026-08-14T23:50:00Z", completed_at: "2026-08-14T23:55:00Z" }] });
       }
       const checkSha = url.includes(`/commits/${intermediate}/`) ? intermediate : head;
+      if (crossKindStatusConflict && checkSha === head && url.includes(`/commits/${head}/check-runs?per_page=100&page=1`)) {
+        return jsonResponse({ check_runs: [{ id: 198, name: requiredContext, head_sha: head, status: "completed", conclusion: "failure", created_at: "2026-08-14T23:55:00Z", completed_at: "2026-08-14T23:55:00Z" }] });
+      }
+      if (crossKindStatusConflict && checkSha === head && url.includes(`/commits/${head}/statuses?per_page=100&page=1`)) {
+        return jsonResponse([
+          { id: 200, context: requiredContext, sha: head, state: "success", created_at: "2026-08-14T23:55:00Z", updated_at: "2026-08-14T23:55:00Z" },
+          policyReceiptStatus(requiredContext, "2026-08-20T00:50:00Z", null, { pullNumber: 9, headSha: head, mergeSha: head, mergedAt: "2026-08-15T00:00:00Z" })
+        ]);
+      }
       if ((largeStatusConflict || duplicateStatusObservation) && url.includes("/statuses?per_page=100&page=1")) {
         const statusRecord = (id, state) => ({
           id,
@@ -1494,7 +1504,7 @@ test("release eligibility uses the validated push-event parent across multi-comm
     requiredContext = "test";
     await assert.rejects(
       runReleaseTag({ cwd: work, fetchImpl, env }),
-      /all exact required checks and statuses to complete successfully|lacks a timestamped test required check receipt/
+      /all exact required checks and statuses to complete successfully|lacks a timestamped test required check receipt|ambiguous at the same timestamp/
     );
     checkConclusion = "success";
     startedAtOnlyNewerFailure = true;
@@ -1539,6 +1549,12 @@ test("release eligibility uses the validated push-event parent across multi-comm
       /ambiguous duplicate observation/
     );
     duplicateStatusObservation = false;
+    crossKindStatusConflict = true;
+    await assert.rejects(
+      runReleaseTag({ cwd: work, fetchImpl, env }),
+      /ambiguous at the same timestamp|all exact required checks/
+    );
+    crossKindStatusConflict = false;
     largeWorkflowConflict = true;
     await assert.rejects(
       runReleaseTag({ cwd: work, fetchImpl, env }),

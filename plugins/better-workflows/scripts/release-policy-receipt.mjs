@@ -299,7 +299,7 @@ export function buildClosedPolicyReceiptBinding({
   };
 }
 
-export function parseWorkflowRunReconciliationEvent(payload) {
+export function parseWorkflowRunReconciliationEvent(payload, { repository = null } = {}) {
   if (payload?.action !== "completed") {
     throw new Error("Workflow-run release policy reconciliation requires a completed event");
   }
@@ -308,7 +308,8 @@ export function parseWorkflowRunReconciliationEvent(payload) {
       String(run.path ?? "") !== RELEASE_POLICY_RECEIPT_WORKFLOW_FILE ||
       String(run.event ?? "") !== RELEASE_POLICY_RECEIPT_WORKFLOW_EVENT ||
       String(run.status ?? "") !== "completed" || !String(run.conclusion ?? "") ||
-      !Number.isFinite(Date.parse(String(run.completed_at ?? "")))) {
+      !Number.isFinite(Date.parse(String(run.completed_at ?? ""))) ||
+      (repository !== null && String(run.repository?.full_name ?? "") !== String(repository))) {
     throw new Error("Workflow-run release policy reconciliation requires a completed pull-request-target source run");
   }
   const triggerWorkflowRunId = canonicalWorkflowRunId(run.id, "reconciliation trigger");
@@ -325,12 +326,18 @@ export function parseWorkflowRunReconciliationEvent(payload) {
 }
 
 export function assertExactReconciliationTrigger({ triggerWorkflowRunId, closedMergeRunId }) {
-  const trigger = String(triggerWorkflowRunId ?? "").trim();
-  const closedMerge = String(closedMergeRunId ?? "").trim();
-  if (!/^\d+$/.test(trigger) || !/^\d+$/.test(closedMerge) || trigger !== closedMerge) {
-    throw new Error("Workflow-run release policy reconciliation requires the triggering run to be the exact closed-merge run");
+  let trigger;
+  let closedMerge;
+  try {
+    trigger = canonicalWorkflowRunId(triggerWorkflowRunId, "reconciliation trigger");
+    closedMerge = canonicalWorkflowRunId(closedMergeRunId, "closed-merge run");
+  } catch {
+    throw new Error("Workflow-run release policy reconciliation requires valid trigger and closed-merge workflow identities");
   }
-  return closedMerge;
+  // The workflow_run event may be emitted by a later completed trusted
+  // pull_request_target source run. Its identity need not equal the exact
+  // closed-merge run, which is independently proven by its close binding.
+  return { triggerWorkflowRunId: trigger, closedMergeRunId: closedMerge };
 }
 
 function readZipJsonEntry(buffer, filename) {
@@ -1256,7 +1263,7 @@ async function main() {
     const eventPath = String(process.env.GITHUB_EVENT_PATH ?? "").trim();
     if (!eventPath) throw new Error("Workflow-run release policy reconciliation requires GITHUB_EVENT_PATH");
     const eventPayload = JSON.parse(await readFile(eventPath, "utf8"));
-    const binding = parseWorkflowRunReconciliationEvent(eventPayload);
+    const binding = parseWorkflowRunReconciliationEvent(eventPayload, { repository });
     triggerWorkflowRunId = binding.triggerWorkflowRunId;
     pullNumber = binding.pullNumber;
     branch = binding.branch;

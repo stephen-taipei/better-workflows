@@ -4308,7 +4308,7 @@ test("required-check verifier ignores optional skipped jobs and selects the newe
         providerRunIds: ["200"],
         checks: [{ name: "test#200", providerName: "test", providerRunId: "200", completedAt: newestCompletedAt, conclusion: "failure" }]
       }, { path: providerExecutable.path, digest: sha256(crossKindGhScript) }),
-      /latest protected check observation is not successful/
+      /latest protected check observation is not successful|ambiguous cross-provider observations/
     );
     const reverseCrossKindCheck = { ...crossKindCheck, id: 201, conclusion: "failure" };
     const reverseCrossKindStatus = { ...crossKindStatus, id: 200, state: "success" };
@@ -4323,7 +4323,22 @@ test("required-check verifier ignores optional skipped jobs and selects the newe
         providerRunIds: ["201"],
         checks: [{ name: "test#201", providerName: "test", providerRunId: "201", completedAt: newestCompletedAt, conclusion: "failure" }]
       }, { path: providerExecutable.path, digest: sha256(reverseCrossKindGhScript) }),
-      /latest protected check observation is not successful/
+      /latest protected check observation is not successful|ambiguous cross-provider observations/
+    );
+    const largerStatusSuccessCheck = { ...crossKindCheck, id: 198, conclusion: "failure" };
+    const largerStatusSuccess = { ...crossKindStatus, id: 200, state: "success" };
+    const largerStatusSuccessGhScript = contextOnlyGhScript
+      .replace(emit([{ total_count: 0, check_runs: [] }]), emit([{ total_count: 1, check_runs: [largerStatusSuccessCheck] }]))
+      .replace(emit([statusPage]), emit([[largerStatusSuccess]]));
+    await writeFile(fakeGh, largerStatusSuccessGhScript, { mode: 0o700 });
+    await assert.rejects(
+      verifyRequiredChecksProvider(root, {
+        ...payload,
+        requiredStatusCheckApps: [{ context: "test", appId: null }],
+        providerRunIds: ["200"],
+        checks: [{ name: "test#200", providerName: "test", providerRunId: "200", completedAt: newestCompletedAt, conclusion: "success" }]
+      }, { path: providerExecutable.path, digest: sha256(largerStatusSuccessGhScript) }),
+      /ambiguous cross-provider observations/
     );
     const failedStatusPage = [{ ...statusPage[0], id: 202, state: "failure", updated_at: latestFailedAt }];
     const failedStatusGhScript = contextOnlyGhScript.replace(emit([statusPage]), emit([failedStatusPage]));

@@ -6213,7 +6213,17 @@ export async function verifyRequiredChecksProvider(
       }
       seenObservationIds.add(identity);
     }
-    const compareObservationIds = (left, right) => {
+    const latestObservationAt = Math.max(...candidates.map((candidate) => candidate.observationAt));
+    const latestCandidates = candidates.filter((candidate) => candidate.observationAt === latestObservationAt);
+    const latestKinds = new Set(latestCandidates.map((candidate) => candidate.observationKind));
+    const latestOutcomes = new Set(latestCandidates.map((candidate) => `${candidate.status}:${candidate.conclusion}:${candidate.completedAt}`));
+    if (latestKinds.size > 1 && latestOutcomes.size > 1) {
+      throw new Error(`Required check provider returned ambiguous cross-provider observations at the same timestamp: ${name}`);
+    }
+    // IDs from check-runs and commit-statuses are independent namespaces. Once
+    // the outcome is proven identical, use a fixed kind preference only; never
+    // compare IDs across provider resource types.
+    const compareSameKindObservationIds = (left, right) => {
       const leftId = String(left.id);
       const rightId = String(right.id);
       if (/^\d+$/.test(leftId) && /^\d+$/.test(rightId)) {
@@ -6223,12 +6233,11 @@ export async function verifyRequiredChecksProvider(
       }
       return leftId.localeCompare(rightId);
     };
-    candidates.sort((left, right) => (
-      left.observationAt - right.observationAt ||
-      compareObservationIds(left, right) ||
-      String(left.observationKind).localeCompare(String(right.observationKind))
+    latestCandidates.sort((left, right) => (
+      String(left.observationKind).localeCompare(String(right.observationKind)) ||
+      (latestKinds.size === 1 ? compareSameKindObservationIds(left, right) : 0)
     ));
-    const selected = candidates.at(-1);
+    const selected = latestCandidates.at(-1);
     if (!selected) {
       throw new Error(`Required check provider has no fresh successful check observation for protected context: ${name}`);
     }

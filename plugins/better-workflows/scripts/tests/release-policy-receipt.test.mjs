@@ -552,6 +552,7 @@ test("workflow-run reconciliation requires one completed pull-request-target sou
     action: "completed",
     workflow_run: {
       id: 43,
+      repository: { full_name: "example/repo" },
       path: ".github/workflows/ci.yml",
       event: "pull_request_target",
       status: "completed",
@@ -560,7 +561,7 @@ test("workflow-run reconciliation requires one completed pull-request-target sou
       pull_requests: [{ number: 17, head: { sha: "b".repeat(40) }, base: { ref: "dev" } }]
     }
   };
-  assert.deepEqual(parseWorkflowRunReconciliationEvent(payload), {
+  assert.deepEqual(parseWorkflowRunReconciliationEvent(payload, { repository: "example/repo" }), {
     triggerWorkflowRunId: "43",
     pullNumber: 17,
     branch: "dev",
@@ -570,6 +571,10 @@ test("workflow-run reconciliation requires one completed pull-request-target sou
   assert.throws(
     () => parseWorkflowRunReconciliationEvent({ ...payload, workflow_run: { ...payload.workflow_run, pull_requests: [] } }),
     /exactly one associated pull request/
+  );
+  assert.throws(
+    () => parseWorkflowRunReconciliationEvent(payload, { repository: "other/repo" }),
+    /completed pull-request-target source run/
   );
 });
 
@@ -640,13 +645,13 @@ test("workflow-run reconciliation requires the exact closed merge binding", () =
 });
 
 test("workflow-run reconciliation rejects a pre-merge trigger when a different closed merge run is discovered", () => {
-  assert.throws(
-    () => assertExactReconciliationTrigger({ triggerWorkflowRunId: "43", closedMergeRunId: "99" }),
-    /exact closed-merge run/
+  assert.deepEqual(
+    assertExactReconciliationTrigger({ triggerWorkflowRunId: "43", closedMergeRunId: "99" }),
+    { triggerWorkflowRunId: "43", closedMergeRunId: "99" }
   );
-  assert.equal(
-    assertExactReconciliationTrigger({ triggerWorkflowRunId: "99", closedMergeRunId: 99 }),
-    "99"
+  assert.throws(
+    () => assertExactReconciliationTrigger({ triggerWorkflowRunId: "unsafe", closedMergeRunId: 99 }),
+    /valid trigger and closed-merge workflow identities/
   );
 });
 

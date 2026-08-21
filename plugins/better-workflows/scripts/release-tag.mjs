@@ -1009,9 +1009,15 @@ function latestRequiredObservation(checks, statuses) {
   const checkTime = creationTime(check.record);
   const statusTime = creationTime(status.record);
   if (checkTime !== statusTime) return checkTime > statusTime ? { kind: "check", ...check } : { kind: "status", ...status };
-  const checkId = observationId(check.record);
-  const statusId = observationId(status.record);
-  return checkId >= statusId ? { kind: "check", ...check } : { kind: "status", ...status };
+  const checkOutcome = String(check.record?.conclusion ?? "");
+  const statusOutcome = `${String(status.record?.state ?? "")}`;
+  if (checkOutcome !== statusOutcome) {
+    throw new Error("Required check observations from different GitHub resource types are ambiguous at the same timestamp");
+  }
+  // Check-run and commit-status IDs are independent namespaces. When their
+  // terminal outcomes agree, prefer the structured check-run without comparing
+  // unrelated numeric IDs.
+  return { kind: "check", ...check };
 }
 
 function waitForReleaseChecks(delayMs) {
