@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
-import { chmod, mkdtemp, mkdir, readdir, readFile, realpath, stat, unlink, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, readdir, readFile, realpath, rm, stat, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -19,7 +19,7 @@ import {
   rebindSourceBinding,
   sha256
 } from "../lib/core.mjs";
-import { assertPayloadFields, loadEvidenceContracts } from "../lib/evidence.mjs";
+import { admitTypedEvidence, assertPayloadFields, loadEvidenceContracts } from "../lib/evidence.mjs";
 import { compileLedger, deriveLedgerStatus, transitionLedger } from "../lib/ledger.mjs";
 import { deliberateForRun } from "../lib/deliberation-receipt.mjs";
 import {
@@ -40,7 +40,7 @@ import {
   stableFindingId
 } from "../lib/review.mjs";
 import { updateState } from "../lib/core.mjs";
-import { captureSentinel } from "../lib/git.mjs";
+import { captureSentinel, captureSourceBinding } from "../lib/git.mjs";
 
 const contractTemplate = {
   requiredEvidence: ["environment-state"],
@@ -60,6 +60,16 @@ const contractTemplate = {
     attemptBudget: 3,
     kind: "regular"
   }]
+};
+
+const legacyReviewProfile = {
+  schemaVersion: 1,
+  id: "review-contract-v1",
+  changedSurfaceAccounting: "diff-manifest-v1",
+  anchorResolution: "package-bound-location-v1",
+  findingVerification: "broad-review-v1",
+  provenanceBinding: "review-package-v1",
+  specBinding: "instruction-digest-v1"
 };
 
 const execFileAsync = promisify(execFile);
@@ -147,6 +157,15 @@ function reviewKernelTemplate() {
   return {
     ...contractTemplate,
     scope: ["src", "README.md"],
+    reviewProfile: {
+      schemaVersion: 1,
+      id: "review-kernel-v2-pilot",
+      changedSurfaceAccounting: "work-unit-accounting-v1",
+      anchorResolution: "exact-quote-v1",
+      findingVerification: "finder-verifier-v1",
+      provenanceBinding: "host-attested-native-v1",
+      specBinding: "instruction-digest-v1"
+    },
     controlPlane: {
       ...contractTemplate.controlPlane,
       reviewPolicy: "code-v2-pilot",
@@ -272,6 +291,7 @@ async function reviewKernelFixture({ repeatedQuote = false } = {}) {
     instructionDigest: "d".repeat(64),
     sentinelDigest: sentinel.digest
   });
+  assert.equal(reviewPackage.reviewProfileDigest, digestObject(contract.reviewProfile));
   return { root, repository, source, run, started, sentinel, reviewPackage };
 }
 
@@ -307,6 +327,185 @@ test("typed catalog covers exactly the 101 installed evidence kinds", async () =
   assert.ok(contracts["remote-sync"]);
   assert.ok(contracts["work-unit-accounting"]);
   assert.ok(contracts["review-kernel-summary"]);
+});
+
+test("typed required-check admission uses the production host verifier and rejects forged, missing, altered, invalidly signed, and source-drifted approvals", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-required-check-human-approval-"));
+  const repository = path.join(root, "repository");
+  const runId = "sbw-20260820T000000Z-123456789abc";
+  const runDir = path.join(root, "runs", runId);
+  const reviewPackageId = `review-${"c".repeat(32)}`;
+  const sourceSentinelDigest = "4".repeat(64);
+  const observedAt = new Date().toISOString();
+  const completedAt = new Date(Date.parse(observedAt) - 1000).toISOString();
+  await mkdir(repository);
+  await execFileAsync("git", ["init", "-q", "-b", "codex/merge-approval-admission"], { cwd: repository });
+  await execFileAsync("git", ["config", "user.email", "sbw@example.invalid"], { cwd: repository });
+  await execFileAsync("git", ["config", "user.name", "SBW Test"], { cwd: repository });
+  await writeFile(path.join(repository, "README.md"), "base\n");
+  await execFileAsync("git", ["add", "README.md"], { cwd: repository });
+  await execFileAsync("git", ["commit", "-qm", "base"], { cwd: repository });
+  const base = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repository, encoding: "utf8" })).stdout.trim();
+  await writeFile(path.join(repository, "README.md"), "head\n");
+  await execFileAsync("git", ["add", "README.md"], { cwd: repository });
+  await execFileAsync("git", ["commit", "-qm", "head"], { cwd: repository });
+  const head = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repository, encoding: "utf8" })).stdout.trim();
+  const sourceBinding = await captureSourceBinding(repository, { baseRevision: base, requireClean: true });
+  const sourceBindingDigest = sourceBinding.digest;
+  const contract = { schemaVersion: 2, remoteRevision: base };
+  const manifest = {
+    runId,
+    cwd: repository,
+    sourceBinding
+  };
+  const state = { lastSentinel: { digest: sourceSentinelDigest } };
+  await mkdir(path.join(runDir, "review-packages"), { recursive: true });
+  await writeFile(path.join(runDir, "state.json"), `${JSON.stringify(state)}\n`);
+  await writeFile(path.join(runDir, "review-packages", `${reviewPackageId}.json`), `${JSON.stringify({
+    packageId: reviewPackageId,
+    head,
+    base,
+    broadReview: { complete: true }
+  })}\n`);
+  try {
+    const authorization = {
+      schemaVersion: 1,
+      kind: "host-signed-pr-merge-authorization",
+      action: "pr.merge",
+      resource: "pull/21",
+      runId,
+      contractDigest: digestObject(contract),
+      sourceBindingDigest,
+      sourceSentinelDigest,
+      reviewPackageId,
+      repository: "github.com/example/repo",
+      pr: 21,
+      head,
+      base,
+      baseRefName: "dev",
+      actor: "example-user",
+      adminBypass: false,
+      reviewPolicyException: "solo-repository-zero-review-v1",
+      approvedAt: observedAt
+    };
+    const authorizationDigest = digestObject(authorization);
+    let trustRoot = null;
+    try {
+      trustRoot = JSON.parse(await readFile("/private/etc/better-workflows/codex-trust-root.json", "utf8"));
+    } catch {
+      // Portable test hosts may not provision the administrator trust root.
+      // Production admission must still reject an untrusted signer.
+    }
+    const attestationPath = path.join(root, "merge-approval.attestation.json");
+    const invalidAttestation = {
+      schemaVersion: 1,
+      provider: "codex-native-subagent",
+      base,
+      head,
+      instructionDigest: authorizationDigest,
+      model: "pr-merge-human-authorization",
+      packageId: `merge-approval-${authorizationDigest}`,
+      promptDigest: authorizationDigest,
+      reviewDigest: authorizationDigest,
+      reviewerId: "better-workflows-pr-merge-human-approval",
+      runId,
+      sentinelDigest: sourceSentinelDigest,
+      issuer: trustRoot?.issuer ?? "untrusted-test-issuer",
+      keyId: trustRoot?.publicKeys?.[0]?.keyId ?? "untrusted-test-key",
+      issuedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      signature: Buffer.alloc(64).toString("base64")
+    };
+    const invalidAttestationRaw = `${JSON.stringify(invalidAttestation)}\n`;
+    await writeFile(attestationPath, invalidAttestationRaw, { mode: 0o600 });
+    const payload = {
+      command: "pinned gh live required-check observation",
+      result: true,
+      pr: 21,
+      head,
+      base,
+      repository: authorization.repository,
+      baseRefName: "dev",
+      checkSet: ["test"],
+      providerRunIds: ["101"],
+      conclusions: ["success"],
+      checks: [{ name: "test#101", providerName: "test", providerRunId: "101", observationKind: "check-run", completedAt, conclusion: "success" }],
+      requiredStatusChecks: ["test"],
+      requiredStatusCheckApps: [{ context: "test", appId: 15368 }],
+      provider: "github",
+      providerExecutable: { path: "/usr/bin/false", digest: "5".repeat(64) },
+      observedAt,
+      humanApproval: {
+        schemaVersion: 1,
+        authorization,
+        authorizationDigest,
+        attestation: {
+          path: attestationPath,
+          attestationDigest: "6".repeat(64),
+          fileDigest: sha256(await readFile(attestationPath))
+        }
+      }
+    };
+    const run = { root, runDir, manifest, contract, state };
+    const forgedAuthorization = { ...authorization, sourceBindingDigest: "8".repeat(64) };
+    const forgedPayload = {
+      ...payload,
+      humanApproval: {
+        ...payload.humanApproval,
+        authorization: forgedAuthorization,
+        authorizationDigest: digestObject(forgedAuthorization)
+      }
+    };
+    await assert.rejects(
+      admitTypedEvidence(
+        await gateRecord({ runId, contract }, "required-checks", forgedPayload, "required-checks-forged-human-approval"),
+        run
+      ),
+      /human approval binding is incomplete/
+    );
+    await assert.rejects(
+      admitTypedEvidence(
+        await gateRecord({ runId, contract }, "required-checks", {
+          ...payload,
+          humanApproval: {
+            ...payload.humanApproval,
+            attestation: {
+              ...payload.humanApproval.attestation,
+              path: path.join(root, "missing.attestation.json")
+            }
+          }
+        }, "required-checks-missing-attestation"),
+        run
+      ),
+      /ENOENT|attestation/i
+    );
+    await writeFile(attestationPath, `${invalidAttestationRaw} `, { mode: 0o600 });
+    await assert.rejects(
+      admitTypedEvidence(
+        await gateRecord({ runId, contract }, "required-checks", payload, "required-checks-altered-attestation"),
+        run
+      ),
+      /attestation changed after authorization/
+    );
+    await writeFile(attestationPath, invalidAttestationRaw, { mode: 0o600 });
+    await assert.rejects(
+      admitTypedEvidence(
+        await gateRecord({ runId, contract }, "required-checks", payload, "required-checks-invalid-signature"),
+        run
+      ),
+      /signature is invalid|issuer is not trusted|key is not available|trust root is not provisioned/
+    );
+    await writeFile(path.join(repository, "README.md"), "drift\n");
+    await assert.rejects(
+      admitTypedEvidence(
+        await gateRecord({ runId, contract }, "required-checks", payload, "required-checks-source-drift"),
+        run
+      ),
+      /source registry binding is stale|source binding changed/
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("typed handoff evidence admits only its declared nullable evaluator authorization and policy digest", async () => {
@@ -499,7 +698,7 @@ test("typed gate evidence rejects a failed result even when its shape is valid",
     checkSet: ["test"],
     providerRunIds: ["provider-run-1"],
     conclusions: ["SUCCESS"],
-    checks: [{ name: "test", providerRunId: "provider-run-1", conclusion: "SUCCESS" }],
+    checks: [{ name: "test#provider-run-1", providerName: "test", providerRunId: "provider-run-1", observationKind: "check-run", completedAt: new Date(Date.now() - 1000).toISOString(), conclusion: "SUCCESS" }],
     requiredStatusChecks: ["test"],
     provider: "github",
     providerExecutable: { path: "/usr/bin/gh", digest: "0".repeat(64) },
@@ -536,7 +735,7 @@ test("typed gate evidence rejects a failed result even when its shape is valid",
       checkSet: ["test", "lint"],
       providerRunIds: ["provider-run-1"],
       conclusions: ["SUCCESS"],
-      checks: [{ name: "test", providerRunId: "provider-run-1", conclusion: "SUCCESS" }]
+      checks: [{ name: "test", providerRunId: "provider-run-1", observationKind: "check-run", conclusion: "SUCCESS" }]
     }, "required-checks-cardinality")),
     /provider observation is incomplete/
   );
@@ -875,6 +1074,18 @@ test("ledger compilation rejects a terminal run", async () => {
   );
 });
 
+test("review package identity is pure across repeated and frozen digest inputs", () => {
+  const mutable = { schemaVersion: 1, immutable: true, identityFields: ["base"] };
+  const before = [...mutable.identityFields];
+  const first = reviewPackageDigest(mutable);
+  const second = reviewPackageDigest(mutable);
+  assert.equal(first, second);
+  assert.deepEqual(mutable.identityFields, before);
+  const frozen = Object.freeze({ schemaVersion: 1, immutable: true, identityFields: Object.freeze(["base"]) });
+  assert.doesNotThrow(() => reviewPackageDigest(frozen));
+  assert.equal(reviewPackageDigest(frozen), reviewPackageDigest(frozen));
+});
+
 test("review packages reject head drift with stable finding identity, block after the fifth scoped repair round, and require final broad review", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "sbw-v2-review-"));
   const repository = path.join(root, "repository");
@@ -893,7 +1104,12 @@ test("review packages reject head drift with stable finding identity, block afte
   const head = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repository })).stdout.trim();
   const contract = buildContract({
     template: "test-review",
-    templateDefinition: { ...contractTemplate, scope: ["src", "README.md"], controlPlane: { ...contractTemplate.controlPlane, reviewPolicy: "code-v1" } },
+    templateDefinition: {
+      ...contractTemplate,
+      scope: ["src", "README.md"],
+      reviewProfile: legacyReviewProfile,
+      controlPlane: { ...contractTemplate.controlPlane, reviewPolicy: "code-v1" }
+    },
     goal: "review",
     scope: ["src", "README.md"],
     risk: { risk: 1, uncertainty: 0, blastRadius: 1, irreversibility: 0, evidenceGap: 0 },
@@ -941,7 +1157,8 @@ test("review packages reject head drift with stable finding identity, block afte
     contractDigest: tampered.contractDigest,
     templateDigest: tampered.templateDigest,
     sentinelDigest: tampered.sentinelDigest,
-    instructionDigest: tampered.instructionDigest
+    instructionDigest: tampered.instructionDigest,
+    reviewProfileDigest: tampered.reviewProfileDigest
   };
   tampered.packageId = `review-${sha256(digestObject(tamperedIdentity)).slice(0, 32)}`;
   await writeFile(packagePath, `${JSON.stringify(tampered, null, 2)}\n`);
@@ -960,7 +1177,12 @@ test("review packages reject head drift with stable finding identity, block afte
   const divergentBase = (await execFileAsync("git", ["commit-tree", divergentTree, "-p", base, "-m", "divergent base"], { cwd: repository })).stdout.trim();
   const divergentContract = buildContract({
     template: "test-review-divergent",
-    templateDefinition: { ...contractTemplate, scope: ["src", "README.md"], controlPlane: { ...contractTemplate.controlPlane, reviewPolicy: "code-v1" } },
+    templateDefinition: {
+      ...contractTemplate,
+      scope: ["src", "README.md"],
+      reviewProfile: legacyReviewProfile,
+      controlPlane: { ...contractTemplate.controlPlane, reviewPolicy: "code-v1" }
+    },
     goal: "review divergent base",
     scope: ["src", "README.md"],
     risk: { risk: 1, uncertainty: 0, blastRadius: 1, irreversibility: 0, evidenceGap: 0 },

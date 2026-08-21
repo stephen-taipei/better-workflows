@@ -2,19 +2,162 @@ name: CI
 
 on:
   push:
+    branches:
+      - '**'
   pull_request:
+  pull_request_target:
+    types: [opened, reopened, synchronize, closed]
 
 permissions:
   contents: read
 
 jobs:
   test:
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 24
+          node-version: 24.12.0
       - run: npm test --prefix plugins/better-workflows
+      - run: npm run test:release-tag --prefix plugins/better-workflows
+
+  release-policy-receipt:
+    name: Release policy receipt
+    if: github.event_name == 'pull_request_target' && (github.event.action == 'opened' || github.event.action == 'reopened' || github.event.action == 'synchronize' || (github.event.action == 'closed' && github.event.pull_request.merged == true))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
+      statuses: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # pull_request_target keeps execution on the trusted base revision.
+          # The first rollout intentionally skips publication until this file
+          # exists on that base; release tagging remains fail-closed meanwhile.
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24.12.0
+      - name: Persist immutable close binding before source receipt polling
+        id: close-binding
+        if: github.event.action == 'closed' && github.event.pull_request.merged == true
+        env:
+          GITHUB_API_URL: ${{ github.api_url }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_EVENT_ACTION: ${{ github.event.action }}
+          GITHUB_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          GITHUB_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          GITHUB_PR_NUMBER: ${{ github.event.pull_request.number }}
+          GITHUB_PR_MERGED: ${{ github.event.pull_request.merged }}
+          GITHUB_MERGE_COMMIT_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+          GITHUB_PR_MERGED_AT: ${{ github.event.pull_request.merged_at }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_SERVER_URL: ${{ github.server_url }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_POLICY_RECEIPT_PHASE: close-binding
+          RELEASE_POLICY_RECEIPT_FILE: ${{ runner.temp }}/release-policy-close-binding.json
+        run: node plugins/better-workflows/scripts/release-policy-receipt.mjs
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always() && steps.close-binding.outcome == 'success'
+        with:
+          name: better-workflows-release-policy-close-binding-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/release-policy-close-binding.json
+          if-no-files-found: error
+          retention-days: 90
+      - name: Prepare required-check policy receipt artifact
+        id: prepare
+        if: hashFiles('plugins/better-workflows/scripts/release-policy-receipt.mjs') != ''
+        env:
+          GITHUB_API_URL: ${{ github.api_url }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_EVENT_ACTION: ${{ github.event.action }}
+          GITHUB_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          GITHUB_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          GITHUB_PR_NUMBER: ${{ github.event.pull_request.number }}
+          GITHUB_PR_MERGED: ${{ github.event.pull_request.merged }}
+          GITHUB_MERGE_COMMIT_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+          GITHUB_PR_MERGED_AT: ${{ github.event.pull_request.merged_at }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_SERVER_URL: ${{ github.server_url }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_POLICY_RECEIPT_PHASE: prepare
+          RELEASE_POLICY_ADMIN_TOKEN: ${{ secrets.BETTER_WORKFLOWS_POLICY_TOKEN }}
+          RELEASE_POLICY_RECEIPT_FILE: ${{ runner.temp }}/release-policy-receipt.json
+        run: node plugins/better-workflows/scripts/release-policy-receipt.mjs
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: steps.prepare.outcome == 'success'
+        with:
+          name: better-workflows-release-policy-receipt-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/release-policy-receipt.json
+          if-no-files-found: error
+          # Catch-up is bounded by 128 commits and this durable artifact horizon.
+          retention-days: 90
+      - name: Publish required-check policy status after artifact upload
+        if: steps.prepare.outcome == 'success'
+        env:
+          GITHUB_API_URL: ${{ github.api_url }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_EVENT_ACTION: ${{ github.event.action }}
+          GITHUB_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          GITHUB_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          GITHUB_PR_NUMBER: ${{ github.event.pull_request.number }}
+          GITHUB_PR_MERGED: ${{ github.event.pull_request.merged }}
+          GITHUB_MERGE_COMMIT_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+          GITHUB_PR_MERGED_AT: ${{ github.event.pull_request.merged_at }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_SERVER_URL: ${{ github.server_url }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_POLICY_RECEIPT_PHASE: publish
+          RELEASE_POLICY_ADMIN_TOKEN: ${{ secrets.BETTER_WORKFLOWS_POLICY_TOKEN }}
+          RELEASE_POLICY_RECEIPT_FILE: ${{ runner.temp }}/release-policy-receipt.json
+        run: node plugins/better-workflows/scripts/release-policy-receipt.mjs
+
+  integration-tag:
+    name: Tag merged release version
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main')
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+      checks: read
+      statuses: read
+      pull-requests: read
+    concurrency:
+      group: integration-tag-${{ github.ref_name }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24.12.0
+      - name: Create integration tag when eligible
+        env:
+          GITHUB_API_URL: ${{ github.api_url }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_EVENT_BEFORE: ${{ github.event.before }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_POLICY_ADMIN_TOKEN: ${{ secrets.BETTER_WORKFLOWS_POLICY_TOKEN }}
+        run: node plugins/better-workflows/scripts/release-tag.mjs

@@ -14,6 +14,11 @@
 | Graph View | Add structural failure diagnostics | Authorize, schedule, or relax policy |
 | Workspace recipe | Read declared paths and write bounded staged artifacts | Network, shell, workers, source mutation, evidence acceptance |
 
+Review profiles are descriptive provenance bindings, not permissions. The
+legacy `review-contract-v1` profile does not imply kernel guarantees, while the
+`review-kernel-v2-pilot` profile is restricted to `self-improve-ops` and remains
+shadow-only; neither profile can issue a side-effect token.
+
 If private history or sensitive operational material is the only proposed
 evidence and cannot be sanitized, reject the proposal without harvesting or
 transmitting that source. Persist only a redacted `REJECTED_WITH_EVIDENCE`
@@ -50,10 +55,12 @@ rationale.
   or another action attempt remains rejected. This lets a verified receipt
   resume after a crash between reservation and action-record persistence
   without permitting replay.
-- `actions.dispatch` is intentionally rejected by the core action-token
-  lifecycle until a fixed-argv provider adapter can correlate one requested
-  workflow dispatch to exactly one provider-assigned run. It must not be
-  treated as a generic creation action with a pre-known run ID.
+- `actions.dispatch` remains deferred. GitHub Actions workflow dispatch accepts
+  a mutable ref and cannot atomically bind provider execution to the
+  preflight-attested workflow bytes; a post-dispatch head check cannot undo
+  side effects from an unauthorized revision. Historical dispatch receipts may
+  still be reconciled read-only, but new tokens and executable provider paths
+  fail closed until an immutable provider binding exists.
 - GitHub provider probes are bound to the absolute executable path and content
   digest recorded when the action token is issued. A PATH, executable, or
   provider-authorization drift fails closed before the provider call; governed
@@ -305,6 +312,12 @@ Before sampling by file count or bytes, the sanitizer validates every changed
 path against a fixed plugin and repository-public-document allowlist. Paths
 outside it fail closed even when they would sort beyond the sampling limit.
 Only sampled valid UTF-8, non-secret-shaped content is sent to Codex.
+CI workflow files and generated HTML remain outside the standing-consent
+sanitizer and require explicit review/validation when changed. Approved
+generated Markdown assets remain allowlisted where configured; generated
+`.webp` assets are excluded from standing-consent evaluation and also require
+explicit review/validation. The complete changed-path manifest still binds
+every such file to the signed request.
 
 ## Threat-model boundary
 

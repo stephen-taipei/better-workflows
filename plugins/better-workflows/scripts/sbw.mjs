@@ -238,6 +238,36 @@ function assertKnownOptions(options, allowed) {
   if (unknown.length > 0) throw new Error(`Unknown option(s): ${unknown.map((key) => `--${key}`).join(", ")}`);
 }
 
+async function parseWorkflowInputOptions(options) {
+  const inputs = Object.create(null);
+  if (options["input-file"] !== undefined) {
+    const inputFile = String(options["input-file"]);
+    const parsed = JSON.parse(await readFile(path.resolve(inputFile), "utf8"));
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("Workflow dispatch input file must contain an object");
+    }
+    for (const key of Object.keys(parsed)) {
+      if (key === "__proto__" || key === "constructor" || key === "prototype") {
+        throw new Error(`Workflow dispatch input key is invalid: ${key}`);
+      }
+    }
+    Object.assign(inputs, parsed);
+  }
+  for (const raw of values(options.input)) {
+    const text = String(raw);
+    const separator = text.indexOf("=");
+    if (separator <= 0) throw new Error("Workflow dispatch --input values must use key=value");
+    const key = text.slice(0, separator);
+    if (!/^[A-Za-z_][A-Za-z0-9_-]{0,63}$/.test(key) ||
+        ["__proto__", "constructor", "prototype"].includes(key)) {
+      throw new Error(`Workflow dispatch input key is invalid: ${key}`);
+    }
+    if (Object.hasOwn(inputs, key)) throw new Error(`Workflow dispatch input is duplicated: ${key}`);
+    inputs[key] = text.slice(separator + 1);
+  }
+  return inputs;
+}
+
 function strongestRunMode(...modes) {
   for (const mode of modes) {
     if (mode && mode !== "auto" && !RUN_MODE_RANK.has(mode)) {
@@ -1964,7 +1994,8 @@ function help() {
       "sbw deliberation arbitrate --prompt-file <sanitized-file> [--mode <auto|direct|verified|deep|critical>] [--reasoning-effort <auto|medium|high>] [--allow-external-providers --sanitized]",
       "sbw graph validate [--template <name>|--run <run-id>]",
       "sbw graph inspect (--template <name>|--run <run-id>) [--format json|mermaid]",
-      "sbw action issue|consume|execute|reconcile <run-id> ...",
+      "sbw action issue <run-id> --action <kind> --provider <provider> --resource <id> --remote-revision <sha> [--scope <ref> --workflow-file <.github/workflows/file.yml> --input <key=value> ... --input-file <json>]",
+      "sbw action consume|execute|reconcile <run-id> ...",
       "sbw resource register <run-id> --resource <id> --receipt <creation-receipt.json>",
       "sbw ledger status <run-id>",
       "sbw ledger transition <run-id> --file <event.json>",
@@ -2108,16 +2139,26 @@ async function main() {
     const template = await loadTemplate(run.manifest.template);
     const templateEvidence = template.requiredEvidence ?? [];
     const boundEvidence = new Set(run.contract.requiredEvidence ?? []);
+    const reviewPolicy = run.contract.schemaVersion === 2
+      ? run.contract.controlPlane?.reviewPolicy
+      : "none";
+    const reviewEnabled = run.contract.schemaVersion === 2 && reviewPolicy !== "none";
+    const reviewProfileDrift = reviewEnabled
+      ? !template.reviewProfile || !run.contract.reviewProfile ||
+        digestObject(run.contract.reviewProfile) !== digestObject(template.reviewProfile)
+      : run.contract.reviewProfile !== undefined;
     if (
       !run.contract.templateDigest ||
       !run.contract.actionGates ||
       run.contract.templateDigest !== digestObject(template) ||
-      templateEvidence.some((kind) => !boundEvidence.has(kind))
+      templateEvidence.some((kind) => !boundEvidence.has(kind)) ||
+      reviewProfileDrift
     ) {
       migration = await bindLegacyRunTemplate(root, subcommand, {
         templateDigest: digestObject(template),
         actionGates: template.actionGates ?? {},
-        requiredEvidence: templateEvidence
+        requiredEvidence: templateEvidence,
+        reviewProfile: template.reviewProfile
       });
       run = await loadRun(root, subcommand);
     }
@@ -2337,6 +2378,10 @@ async function main() {
   if (command === "action") {
     if (!runId) throw new Error("action requires run id");
     if (subcommand === "issue") {
+      assertKnownOptions(options, [
+        "action", "provider", "resource", "scope", "remote-revision", "ttl",
+        "workflow-file", "input", "input-file"
+      ]);
       const run = await loadRun(root, runId);
       const template = await loadTemplate(run.manifest.template);
       const boundEvidence = new Set(run.contract.requiredEvidence ?? []);
@@ -2348,6 +2393,10 @@ async function main() {
         throw new Error(`Legacy run is unbound; run sbw resume ${runId} before issuing actions`);
       }
       const action = String(options.action ?? "");
+      const workflowOptionKeys = ["workflow-file", "input", "input-file"];
+      if (action !== "actions.dispatch" && workflowOptionKeys.some((key) => options[key] !== undefined)) {
+        throw new Error("Workflow dispatch options --workflow-file, --input, and --input-file are only valid for actions.dispatch");
+      }
       assertActionIsNotDeferred(run.contract, action);
       const requiredEvidence = run.contract.actionGates?.[action];
       if (!Array.isArray(requiredEvidence) || requiredEvidence.length === 0) {
@@ -2380,6 +2429,9 @@ async function main() {
         digest = await currentVerifiedDigest(root, runId);
       }
       const defaults = await loadDefaults();
+      const dispatchInputs = action === "actions.dispatch"
+        ? await parseWorkflowInputOptions(options)
+        : undefined;
       return {
         ok: true,
         action: await issueActionToken(
@@ -2392,6 +2444,8 @@ async function main() {
             scope: options.scope ? String(options.scope) : undefined,
             remoteRevision: String(options["remote-revision"] ?? ""),
             ttlSeconds: options.ttl ? integer(options.ttl) : undefined,
+            workflowFile: options["workflow-file"] ? String(options["workflow-file"]) : undefined,
+            dispatchInputs,
             requiredEvidence
           },
           digest,

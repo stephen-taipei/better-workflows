@@ -26,9 +26,15 @@ import {
   addEvidence,
   autonomousCommitAllocation,
   assertCurrentGitPushSourceBinding,
+  assertPersistedMergeHumanApproval,
+  assertPersistedMergeHumanAuthorizationEvidence,
+  assertPersistedRequiredChecksEvidence,
+  assertPersistedSuccessfulMergeActionForRequiredChecks,
   assertProviderReceiptShape,
   buildBoundGitPushArgs,
   buildBoundGitPushEnvironment,
+  buildActionsDispatchCommand,
+  buildActionsDispatchProviderReceipt,
   BOUND_CREDENTIAL_WORKSPACE_ROOT,
   buildGitPushActionBinding,
   buildPrCreateCommand,
@@ -42,13 +48,16 @@ import {
   digestObject,
   execBoundGitProcess,
   execBoundGitHubCli,
+  findExactMergeHumanAuthorization,
   terminateBoundChildForTest,
   ensureStateRoot,
   executeActionToken,
   evaluateCompletion,
   getCodexPluginCacheRoot,
   getStateRoot,
+  githubDispatchRefEndpoint,
   inspectRun,
+  isExecutableActionProvider,
   issueActionToken,
   loadDefaults,
   readBoundGitHubApi,
@@ -58,9 +67,11 @@ import {
   readJson,
   registerOwnedResource,
   reconcileAction,
+  resumeActionsDispatchObservation,
   resolveGitFetchOrigin,
   resolveGitPushDestination,
   resolveGitPushExecutionBinding,
+  resolveGitHubDispatchObjectRevision,
   resolveOptionalBoundBranchRevision,
   routeMode,
   safeJoin,
@@ -68,16 +79,69 @@ import {
   setRunStatus,
   updateState,
   verifyRequiredChecksProvider,
+  verifyMergeHumanApproval,
+  verifyTransferredPullRequestOwnership,
   verifyGitHubCredentialActor,
+  validateWorkflowDispatchCapability,
+  workflowDispatchObservationRef,
+  workflowDispatchMinimumCreatedAt,
   withRunLock,
   withBoundGitCredential
 } from "../lib/core.mjs";
-import { captureSentinel } from "../lib/git.mjs";
+import { captureSentinel, captureSourceBinding } from "../lib/git.mjs";
 import { buildAutonomyBinding, loadAutonomyProfile } from "../lib/autonomy.mjs";
 import { checkPluginCache, publishPluginCache, verifyPluginCacheReady } from "../lib/publication.mjs";
 
 const execFileAsync = promisify(execFile);
 const SBW_CLI = fileURLToPath(new URL("../sbw.mjs", import.meta.url));
+
+test("GitHub Actions dispatch ref endpoints encode slash-containing refs as one path parameter", () => {
+  assert.equal(
+    githubDispatchRefEndpoint("github.com/example/repo", "refs/heads/release/3.4"),
+    "repos/example/repo/git/ref/heads/release%2F3.4"
+  );
+  assert.equal(
+    githubDispatchRefEndpoint("github.com/example/repo", "refs/tags/v3.4.0"),
+    "repos/example/repo/git/ref/tags/v3.4.0"
+  );
+  assert.equal(workflowDispatchObservationRef("refs/heads/dev"), "dev");
+  assert.equal(workflowDispatchObservationRef("refs/tags/v3.4.0"), "v3.4.0");
+  assert.throws(
+    () => githubDispatchRefEndpoint("github.com/example/repo", "refs/pull/12/head"),
+    /refs\/heads or refs\/tags/
+  );
+  assert.throws(
+    () => githubDispatchRefEndpoint("github.com/example/repo", "a".repeat(40)),
+    /branch or tag ref, not a raw commit SHA/
+  );
+  assert.throws(
+    () => workflowDispatchObservationRef("release/3.4"),
+    /fully qualified refs\/heads or refs\/tags/
+  );
+});
+
+test("annotated workflow refs peel tag objects to a commit and reject cycles", async () => {
+  const tagOne = "a".repeat(40);
+  const tagTwo = "b".repeat(40);
+  const revision = "c".repeat(40);
+  const observed = [];
+  const peeled = await resolveGitHubDispatchObjectRevision(
+    { type: "tag", sha: tagOne },
+    async (sha) => {
+      observed.push(sha);
+      return { object: sha === tagOne ? { type: "tag", sha: tagTwo } : { type: "commit", sha: revision } };
+    }
+  );
+  assert.equal(peeled, revision);
+  assert.deepEqual(observed, [tagOne, tagTwo]);
+  await assert.rejects(
+    () => resolveGitHubDispatchObjectRevision(
+      { type: "tag", sha: tagOne },
+      async () => ({ object: { type: "tag", sha: tagOne } })
+    ),
+    /tag resolution detected a cycle/
+  );
+});
 
 test("branch ref authority accepts only exact absence and strict commit output", async () => {
   const absent = {
@@ -129,6 +193,50 @@ test("branch ref authority accepts only exact absence and strict commit output",
       }, "refs/heads/malformed"),
       /malformed commit revision/
     );
+  }
+});
+
+test("CLI rejects workflow-only options before issuing non-dispatch actions", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-cli-action-option-"));
+  const repository = path.join(root, "repository");
+  const stateRoot = path.join(root, "state");
+  try {
+    await mkdir(repository, { recursive: true });
+    await execFileAsync("git", ["init", "-q", "-b", "dev"], { cwd: repository });
+    await execFileAsync("git", ["config", "user.email", "sbw@example.invalid"], { cwd: repository });
+    await execFileAsync("git", ["config", "user.name", "SBW Test"], { cwd: repository });
+    await writeFile(path.join(repository, "README.md"), "cli option guard\n");
+    await execFileAsync("git", ["add", "README.md"], { cwd: repository });
+    await execFileAsync("git", ["commit", "-qm", "cli option guard baseline"], { cwd: repository });
+    const sourceHead = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repository, encoding: "utf8" })).stdout.trim();
+    const started = JSON.parse((await execFileAsync(process.execPath, [
+      SBW_CLI, "run", "--template", "review-to-issues", "--mode", "verified", "--goal", "Review source", "--scope", "."
+    ], { cwd: repository, encoding: "utf8", env: { ...process.env, SBW_STATE_ROOT: stateRoot } })).stdout);
+    const inputFile = path.join(root, "inputs.json");
+    await writeFile(inputFile, JSON.stringify({ example: "value" }));
+    for (const option of [
+      ["--workflow-file", ".github/workflows/ci.yml"],
+      ["--input", "example=value"],
+      ["--input-file", inputFile]
+    ]) {
+      await assert.rejects(
+        execFileAsync(process.execPath, [
+          SBW_CLI, "action", "issue", started.runId,
+          "--action", "git.commit", "--provider", "git", "--resource", "fixture", "--remote-revision", sourceHead,
+          ...option
+        ], {
+          cwd: repository,
+          encoding: "utf8",
+          env: { ...process.env, SBW_STATE_ROOT: stateRoot }
+        }),
+        (error) => {
+          assert.match(error.stderr ?? "", /only valid for actions\.dispatch/);
+          return true;
+        }
+      );
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
   }
 });
 
@@ -1987,23 +2095,1448 @@ test("linked worktrees share the canonical Git reservation identity", async () =
   );
 });
 
-test("unsupported GitHub Actions dispatch fails closed before issuing a token", async () => {
-  await assert.rejects(
-    issueActionToken("/private/tmp/sbw-unsupported-actions-dispatch", "sbw-20260803T000000Z-000000000000", {
+test("GitHub Actions dispatch adapter binds a fixed command and one observed run", () => {
+  const remoteRevision = "a".repeat(40);
+  const dispatchNonce = "c".repeat(32);
+  const inputs = {
+    environment: "production",
+    sbw_dispatch_nonce: dispatchNonce,
+    sbw_expected_revision: remoteRevision,
+    smoke: "true"
+  };
+  const workflowDispatchCapability = {
+    schemaVersion: 1,
+    workflowFile: ".github/workflows/release.yml",
+    revision: remoteRevision,
+    nonceInput: "sbw_dispatch_nonce",
+    expectedRevisionInput: "sbw_expected_revision",
+    publicInputNames: ["environment", "smoke"],
+    runNameNonce: true,
+    expectedRevisionGate: true,
+    contentDigest: "d".repeat(64)
+  };
+  const record = {
+    action: "actions.dispatch",
+    provider: "github-cli",
+    resource: "workflow:.github/workflows/release.yml",
+    remoteRevision,
+    dispatchRepository: "github.com/example/repo",
+    workflowFile: ".github/workflows/release.yml",
+    dispatchRef: "refs/heads/dev",
+    dispatchNonce,
+    dispatchInputs: inputs,
+    dispatchInputsDigest: digestObject(inputs),
+    workflowDispatchCapability,
+    workflowDispatchCapabilityDigest: digestObject(workflowDispatchCapability),
+    providerExecutable: { path: "/usr/local/bin/gh", digest: "b".repeat(64) },
+    providerAuthorizationExecutable: { path: "/usr/local/bin/gh", digest: "b".repeat(64) },
+    providerAuthorization: {
+      provider: "github-cli",
+      repository: "github.com/example/repo",
+      actor: "alice",
+      permissions: { admin: false, maintain: false, push: true }
+    },
+    runId: "sbw-20260814T000000Z-000000000000",
+    attemptId: "attempt-1",
+    idempotencyKey: "idempotency-1",
+    providerInvocation: {
+      id: "github-actions-dispatch-wrapper:run:attempt-1",
+      workflowRun: {
+        databaseId: 12345,
+        workflowName: "Release",
+        url: "https://github.com/example/repo/actions/runs/12345",
+        displayTitle: `Release ${dispatchNonce}`,
+        status: "completed",
+        conclusion: "success",
+        headSha: remoteRevision
+      }
+    }
+  };
+  assert.deepEqual(buildActionsDispatchCommand(record), [
+    "gh", "workflow", "run", ".github/workflows/release.yml",
+    "--repo", "example/repo", "--ref", "dev",
+    "--raw-field", `environment=production`, "--raw-field", `sbw_dispatch_nonce=${dispatchNonce}`,
+    "--raw-field", `sbw_expected_revision=${remoteRevision}`, "--raw-field", "smoke=true"
+  ]);
+  const receipt = buildActionsDispatchProviderReceipt(record);
+  assert.equal(receipt.runId, "12345");
+  assert.equal(receipt.repository, "github.com/example/repo");
+  assert.equal(receipt.executionId, "github:github.com/example/repo:actions.dispatch:12345");
+  assertProviderReceiptShape(record, receipt, "success");
+  const observedNonzeroReceipt = buildActionsDispatchProviderReceipt({
+    ...record,
+    providerInvocation: { ...record.providerInvocation, exitCode: 23 }
+  }, "success");
+  assert.doesNotThrow(() => assertProviderReceiptShape({
+    ...record,
+    providerInvocation: { ...record.providerInvocation, exitCode: 23 }
+  }, observedNonzeroReceipt, "success"));
+  const failedRecord = {
+    ...record,
+    providerInvocation: {
+      ...record.providerInvocation,
+      workflowRun: { ...record.providerInvocation.workflowRun, conclusion: "failure" }
+    }
+  };
+  const failedReceipt = buildActionsDispatchProviderReceipt(failedRecord, "failure");
+  assert.equal(failedReceipt.terminalState, "failure");
+  assert.doesNotThrow(() => assertProviderReceiptShape(failedRecord, failedReceipt, "failure"));
+  assert.throws(
+    () => buildActionsDispatchProviderReceipt(record, "failure"),
+    /completed non-success workflow conclusion/
+  );
+  assert.throws(
+    () => buildActionsDispatchProviderReceipt(record, "unknown"),
+    /Completed.*cannot remain unknown/
+  );
+  assert.throws(
+    () => assertProviderReceiptShape(record, { ...receipt, terminalState: "unknown" }, "unknown"),
+    /Completed.*cannot remain unknown/
+  );
+  assert.throws(
+    () => assertProviderReceiptShape(record, {
+      ...receipt,
+      status: "in_progress",
+      conclusion: null,
+      terminalState: "failure"
+    }, "unknown"),
+    /remain indeterminate/
+  );
+  assert.throws(
+    () => buildActionsDispatchCommand({ ...record, dispatchInputsDigest: "c".repeat(64) }),
+    /input digest does not match/
+  );
+  assert.throws(
+    () => buildActionsDispatchCommand({ ...record, dispatchRef: "refs/tags/release" }),
+    /tag refs are unsupported by branch-bound observation/
+  );
+  const prototypeInputs = JSON.parse(JSON.stringify(inputs));
+  Object.defineProperty(prototypeInputs, "__proto__", {
+    value: "credential",
+    enumerable: true,
+    configurable: true,
+    writable: true
+  });
+  assert.throws(
+    () => buildActionsDispatchCommand({
+      ...record,
+      dispatchInputs: prototypeInputs,
+      dispatchInputsDigest: digestObject(prototypeInputs)
+    }),
+    /workflow input key is invalid: __proto__/
+  );
+  assert.throws(
+    () => buildActionsDispatchCommand({ ...record, dispatchNonce: "d".repeat(32) }),
+    /provider-correlation nonce binding/
+  );
+  assert.throws(
+    () => buildActionsDispatchCommand({ ...record, resource: "workflow:.github/workflows/other.yml" }),
+    /resource is not bound to workflowFile/
+  );
+  assert.throws(
+    () => buildActionsDispatchProviderReceipt({
+      ...record,
+      resource: "workflow:release"
+    }),
+    /resource is not bound to workflowFile/
+  );
+  assert.throws(
+    () => buildActionsDispatchCommand({
+      ...record,
+      workflowFile: ".github/workflows/release/release.yml",
+      resource: "workflow:.github/workflows/release/release.yml"
+    }),
+    /requires a repository workflow file/
+  );
+  for (const credential of [
+    "cap_0123456789abcdef",
+    "cap-0123456789abcdef",
+    "token_0123456789abcdef",
+    "token-0123456789abcdef"
+  ]) {
+    const credentialInputs = { ...inputs, environment: credential };
+    assert.throws(
+      () => buildActionsDispatchCommand({
+        ...record,
+        dispatchInputs: credentialInputs,
+        dispatchInputsDigest: digestObject(credentialInputs)
+      }),
+      /workflow input must be non-sensitive/
+    );
+  }
+  assert.throws(
+    () => buildActionsDispatchProviderReceipt({
+      ...record,
+      providerInvocation: {
+        ...record.providerInvocation,
+        workflowRun: { ...record.providerInvocation.workflowRun, displayTitle: "Release without correlation" }
+      }
+    }),
+    /provider invocation is incomplete/
+  );
+});
+
+test("GitHub Actions preflight failure has an explicit not-sent terminal proof", async () => {
+  const remoteRevision = "a".repeat(40);
+  const dispatchNonce = "c".repeat(32);
+  const inputs = { sbw_dispatch_nonce: dispatchNonce, sbw_expected_revision: remoteRevision };
+  const invocation = {
+    id: "github-actions-dispatch-wrapper:run:not-sent",
+    provider: "github-cli",
+    dispatchState: "not-sent",
+    exitCode: null,
+    startedAt: "2026-08-15T00:00:00.000Z",
+    finishedAt: "2026-08-15T00:00:01.000Z",
+    errorDigest: "e".repeat(64)
+  };
+  const record = {
+    action: "actions.dispatch",
+    provider: "github-cli",
+    resource: "workflow:.github/workflows/ci.yml",
+    remoteRevision,
+    dispatchRepository: "github.com/example/repo",
+    workflowFile: ".github/workflows/ci.yml",
+    dispatchRef: "refs/heads/dev",
+    dispatchNonce,
+    dispatchInputs: inputs,
+    dispatchInputsDigest: digestObject(inputs),
+    workflowDispatchCapabilityDigest: "d".repeat(64),
+    dispatchCommand: ["gh", "workflow", "run", ".github/workflows/ci.yml", "--repo", "example/repo", "--ref", "dev"],
+    providerExecutable: { path: "/usr/local/bin/gh", digest: "b".repeat(64) },
+    providerAuthorizationExecutable: { path: "/usr/local/bin/gh", digest: "b".repeat(64) },
+    providerAuthorization: { provider: "github-cli", repository: "github.com/example/repo", actor: "alice" },
+    runId: "sbw-20260814T000000Z-000000000000",
+    attemptId: "not-sent-attempt",
+    idempotencyKey: "not-sent-idempotency",
+    providerInvocation: invocation
+  };
+  const receipt = buildActionsDispatchProviderReceipt(record, "failure");
+  assert.equal(receipt.created, false);
+  assert.equal(receipt.dispatchState, "not-sent");
+  assert.equal(receipt.terminalState, "failure");
+  assertProviderReceiptShape(record, receipt, "failure");
+  assert.throws(
+    () => buildActionsDispatchProviderReceipt(record, "success"),
+    /only reconcile as terminal failure/
+  );
+
+  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-actions-dispatch-not-sent-reconcile-"));
+  const repository = path.join(stateRoot, "repository");
+  try {
+    await mkdir(repository, { recursive: true });
+    await execFileAsync("git", ["init", "-q", "-b", "dev"], { cwd: repository });
+    await execFileAsync("git", ["config", "user.email", "sbw@example.invalid"], { cwd: repository });
+    await execFileAsync("git", ["config", "user.name", "SBW Test"], { cwd: repository });
+    await writeFile(path.join(repository, "README.md"), "not-sent dispatch\n");
+    await execFileAsync("git", ["add", "README.md"], { cwd: repository });
+    await execFileAsync("git", ["commit", "-qm", "not-sent dispatch baseline"], { cwd: repository });
+    const run = await createRun({
+      root: stateRoot,
+      contract: contract({ authority: ["actions.dispatch"], remoteRevision }),
+      requestedMode: "critical",
+      cwd: repository
+    });
+    const action = {
+      ...record,
+      runId: run.runId,
+      tokenHash: sha256("not-sent-reconcile-token"),
+      status: "spent",
+      outcome: "pending",
+      providerInvocation: { ...invocation, actionAttemptId: "not-sent-reconcile-attempt" },
+      attemptId: "not-sent-reconcile-attempt"
+    };
+    const actionPath = path.join(stateRoot, "runs", run.runId, "actions", `${action.tokenHash}.json`);
+    await writeFile(actionPath, `${JSON.stringify(action)}\n`);
+    const actionReceipt = {
+      action: action.action,
+      provider: action.provider,
+      resource: action.resource,
+      outcome: "failure",
+      runId: action.runId,
+      attemptId: action.attemptId,
+      idempotencyKey: action.idempotencyKey,
+      remoteRevision: action.remoteRevision,
+      providerReceipt: buildActionsDispatchProviderReceipt(action, "failure")
+    };
+    const reconciled = await reconcileAction(stateRoot, run.runId, action.attemptId, "failure", actionReceipt);
+    assert.equal(reconciled.outcome, "failure");
+    assert.equal(reconciled.receipt.providerReceipt.created, false);
+  } finally {
+    await rm(stateRoot, { recursive: true, force: true });
+  }
+});
+
+test("GitHub Actions failure conclusion is reconciled against live provider state", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-actions-dispatch-failure-reconcile-"));
+  const repository = path.join(root, "repository");
+  const bin = path.join(root, "bin");
+  await mkdir(repository, { recursive: true });
+  await mkdir(bin, { recursive: true });
+  await execFileAsync("git", ["init", "-q", "-b", "dev"], { cwd: repository });
+  await execFileAsync("git", ["config", "user.email", "sbw@example.invalid"], { cwd: repository });
+  await execFileAsync("git", ["config", "user.name", "SBW Test"], { cwd: repository });
+  await execFileAsync("git", ["remote", "add", "origin", "https://github.com/example/repo.git"], { cwd: repository });
+  await writeFile(path.join(repository, "README.md"), "dispatch failure\n");
+  await execFileAsync("git", ["add", "README.md"], { cwd: repository });
+  await execFileAsync("git", ["commit", "-qm", "baseline"], { cwd: repository });
+
+  const remoteRevision = "a".repeat(40);
+  const dispatchNonce = "c".repeat(32);
+  const workflowFile = ".github/workflows/release.yml";
+  const resource = `workflow:${workflowFile}`;
+  const inputs = {
+    sbw_dispatch_nonce: dispatchNonce,
+    sbw_expected_revision: remoteRevision
+  };
+  const workflowDispatchCapability = {
+    schemaVersion: 1,
+    workflowFile,
+    revision: remoteRevision,
+    nonceInput: "sbw_dispatch_nonce",
+    expectedRevisionInput: "sbw_expected_revision",
+    runNameNonce: true,
+    expectedRevisionGate: true,
+    contentDigest: "d".repeat(64)
+  };
+  const taskContract = contract({ authority: ["actions.dispatch"], remoteRevision });
+  const run = await createRun({ root, contract: taskContract, requestedMode: "critical", cwd: repository });
+  const runDir = path.join(root, "runs", run.runId);
+  const tokenHash = sha256("actions-dispatch-failure-token");
+  const attemptId = "actions-dispatch-failure-attempt";
+  const idempotencyKey = "actions-dispatch-failure-idempotency";
+  const providerAuthorization = {
+    provider: "github-cli",
+    repository: "github.com/example/repo",
+    actor: "alice",
+    permissions: { admin: false, maintain: false, push: true }
+  };
+  const responsePath = path.join(root, "workflow-run.json");
+  const fakeGh = path.join(bin, "gh");
+  const ghScript = `#!/bin/sh
+if [ "$1" = "api" ] && [ "$2" = "user" ]; then
+  printf '{"login":"alice"}\\n'
+elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo" ]; then
+  printf '{"full_name":"example/repo","permissions":{"admin":false,"maintain":false,"push":true}}\\n'
+elif [ "$1" = "run" ] && [ "$2" = "view" ]; then
+  if [ "$4" != "--repo" ] || [ "$5" != "example/repo" ]; then
+    printf '%s\\n' 'workflow receipt verification must bind --repo' >&2
+    exit 42
+  fi
+  cat ${JSON.stringify(responsePath)}
+else
+  exit 9
+fi
+`;
+  await writeFile(fakeGh, ghScript, { mode: 0o700 });
+  const providerExecutable = { path: await realpath(fakeGh), digest: sha256(ghScript) };
+  const workflowRun = {
+    databaseId: 12345,
+    workflowName: "Release",
+    url: "https://github.com/example/repo/actions/runs/12345",
+    displayTitle: `Release ${dispatchNonce}`,
+    status: "completed",
+    conclusion: "failure",
+    headSha: remoteRevision
+  };
+  const providerInvocation = {
+    id: `github-actions-dispatch-wrapper:${run.runId}:${attemptId}`,
+    provider: "github-cli",
+    command: ["gh", "workflow", "run", workflowFile, "--repo", "example/repo", "--ref", "dev"],
+    providerExecutable,
+    providerAuthorizationExecutable: providerExecutable,
+    providerAuthorization,
+    exitCode: 23,
+    dispatchState: "sent",
+    workflowRun
+  };
+  const action = {
+    schemaVersion: 1,
+    tokenHash,
+    status: "spent",
+    outcome: "pending",
+    runId: run.runId,
+    action: "actions.dispatch",
+    provider: "github-cli",
+    resource,
+    remoteRevision,
+    attemptId,
+    idempotencyKey,
+    dispatchRepository: "github.com/example/repo",
+    workflowFile,
+    dispatchRef: "refs/heads/dev",
+    dispatchNonce,
+    dispatchInputs: inputs,
+    dispatchInputsDigest: digestObject(inputs),
+    workflowDispatchCapability,
+    workflowDispatchCapabilityDigest: digestObject(workflowDispatchCapability),
+    dispatchCommand: providerInvocation.command,
+    providerExecutable,
+    providerAuthorizationExecutable: providerExecutable,
+    providerAuthorization,
+    providerInvocation
+  };
+  await writeFile(path.join(runDir, "actions", `${tokenHash}.json`), `${JSON.stringify(action)}\n`);
+  const receipt = buildActionsDispatchProviderReceipt(action, "failure");
+  const actionReceipt = {
+    action: action.action,
+    provider: action.provider,
+    resource,
+    outcome: "failure",
+    runId: run.runId,
+    attemptId,
+    idempotencyKey,
+    remoteRevision,
+    providerReceipt: receipt
+  };
+  const priorPath = process.env.PATH;
+  process.env.PATH = `${bin}:${priorPath}`;
+  try {
+    await writeFile(
+      path.join(runDir, "actions", `${tokenHash}.json`),
+      `${JSON.stringify({
+        ...action,
+        providerInvocation: { ...providerInvocation, providerAuthorizationExecutable: undefined }
+      })}\n`
+    );
+    await assert.rejects(
+      reconcileAction(root, run.runId, attemptId, "failure", actionReceipt),
+      /governed provider wrapper/
+    );
+    await writeFile(path.join(runDir, "actions", `${tokenHash}.json`), `${JSON.stringify(action)}\n`);
+    await writeFile(responsePath, `${JSON.stringify({
+      databaseId: 12345,
+      workflowName: "Release",
+      url: workflowRun.url,
+      status: "completed",
+      conclusion: "success",
+      headSha: remoteRevision,
+      displayTitle: workflowRun.displayTitle
+    })}\n`);
+    await assert.rejects(
+      reconcileAction(root, run.runId, attemptId, "failure", actionReceipt),
+      /Provider receipt digests|completed non-success|does not match provider state/
+    );
+    await writeFile(responsePath, `${JSON.stringify({
+      databaseId: 12345,
+      workflowName: "Release",
+      url: workflowRun.url,
+      status: "completed",
+      conclusion: "failure",
+      headSha: remoteRevision,
+      displayTitle: workflowRun.displayTitle
+    })}\n`);
+    const reconciled = await reconcileAction(root, run.runId, attemptId, "failure", actionReceipt);
+    assert.equal(reconciled.outcome, "failure");
+    assert.equal(reconciled.receipt.providerReceipt.terminalState, "failure");
+  } finally {
+    process.env.PATH = priorPath;
+  }
+});
+
+test("GitHub Actions dispatch observation lower bound uses provider-start time", async () => {
+  const providerStartedAt = "2026-08-15T00:00:00.000Z";
+  const providerReturnedAt = "2026-08-15T00:00:20.000Z";
+  const runCreatedAt = "2026-08-15T00:00:05.000Z";
+  const lowerBoundAtProviderStart = workflowDispatchMinimumCreatedAt(providerStartedAt);
+  const lowerBoundAtProviderReturn = workflowDispatchMinimumCreatedAt(providerReturnedAt);
+
+  assert.ok(Date.parse(runCreatedAt) >= lowerBoundAtProviderStart);
+  assert.ok(Date.parse(runCreatedAt) < lowerBoundAtProviderReturn);
+
+  const source = await readFile(new URL("../lib/core.mjs", import.meta.url), "utf8");
+  const providerStartIndex = source.indexOf("dispatchObservationStartedAt = nowIso();");
+  const preCallPersistIndex = source.indexOf("observationStartedAt: dispatchObservationStartedAt", providerStartIndex);
+  const providerCallIndex = source.indexOf("await execBoundGitHubCli(providerExecutablePath, expectedCommand.slice(1)");
+  const observationIndex = source.indexOf("observeDispatchedWorkflow(", providerCallIndex);
+  assert.ok(providerStartIndex >= 0);
+  assert.ok(preCallPersistIndex > providerStartIndex);
+  assert.ok(preCallPersistIndex < providerCallIndex);
+  assert.ok(providerCallIndex > providerStartIndex);
+  assert.ok(observationIndex > providerCallIndex);
+});
+
+test("owned-resource registration forwards the creation action tree binding to provider verification", async () => {
+  const source = await readFile(new URL("../lib/core.mjs", import.meta.url), "utf8");
+  const registrationIndex = source.indexOf("async function registerOwnedResourceLocked");
+  const verificationIndex = source.indexOf("await verifyProviderReceipt(", registrationIndex);
+  const treeBindingIndex = source.indexOf("treeDigest: creationAction.treeDigest", verificationIndex);
+  assert.ok(registrationIndex >= 0);
+  assert.ok(verificationIndex > registrationIndex);
+  assert.ok(treeBindingIndex > verificationIndex);
+});
+
+test("GitHub Actions dispatch reconciliation resumes an indeterminate observation exactly once", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-actions-dispatch-resume-"));
+  const repository = path.join(root, "repository");
+  const bin = path.join(root, "bin");
+  await mkdir(repository, { recursive: true });
+  await mkdir(bin, { recursive: true });
+  await execFileAsync("git", ["init", "-q", "-b", "dev"], { cwd: repository });
+  await execFileAsync("git", ["config", "user.email", "sbw@example.invalid"], { cwd: repository });
+  await execFileAsync("git", ["config", "user.name", "SBW Test"], { cwd: repository });
+  await execFileAsync("git", ["remote", "add", "origin", "https://github.com/example/repo.git"], { cwd: repository });
+  await writeFile(path.join(repository, "README.md"), "dispatch resume\n");
+  await execFileAsync("git", ["add", "README.md"], { cwd: repository });
+  await execFileAsync("git", ["commit", "-qm", "dispatch resume baseline"], { cwd: repository });
+  const run = await createRun({
+    root,
+    contract: contract({ authority: ["actions.dispatch"], remoteRevision: "a".repeat(40) }),
+    requestedMode: "verified",
+    cwd: repository
+  });
+  const runDir = path.join(root, "runs", run.runId);
+  const actionDir = path.join(runDir, "actions");
+  await mkdir(actionDir, { recursive: true });
+  const tokenHash = sha256("dispatch-resume-token");
+  const attemptId = "dispatch-resume-attempt";
+  const dispatchNonce = "b".repeat(32);
+  const remoteRevision = "a".repeat(40);
+  const dispatchedAt = new Date(Date.now() - 1_000).toISOString();
+  const createdAt = new Date().toISOString();
+  const workflowRun = {
+    databaseId: 54321,
+    workflowName: "Release",
+    url: "https://github.com/example/repo/actions/runs/54321",
+    status: "completed",
+    conclusion: "success",
+    headSha: remoteRevision,
+    headBranch: "dev",
+    createdAt,
+    startedAt: createdAt,
+    displayTitle: `Release ${dispatchNonce}`
+  };
+  const listPath = path.join(root, "workflow-runs.json");
+  const viewPath = path.join(root, "workflow-run.json");
+  const raceArmPath = path.join(root, "arm-second-workflow-run");
+  const raceTrippedPath = path.join(root, "second-workflow-run-listed");
+  const raceListPath = path.join(root, "workflow-runs-race.json");
+  await writeFile(listPath, `${JSON.stringify([workflowRun])}\n`);
+  await writeFile(viewPath, `${JSON.stringify(workflowRun)}\n`);
+  await writeFile(raceListPath, `${JSON.stringify([workflowRun, { ...workflowRun, databaseId: 54322 }])}\n`);
+  const ghScript = `#!/bin/sh
+if [ "$1" = "api" ] && [ "$2" = "user" ]; then
+  printf '%s\\n' '{"login":"alice"}'
+elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo" ]; then
+  printf '%s\\n' '{"full_name":"example/repo","permissions":{"admin":false,"maintain":false,"push":true}}'
+elif [ "$1" = "api" ] && [ "\${2%%/runs*}" = "repos/example/repo/actions/workflows/release.yml" ]; then
+  sleep 0.2
+  case "$2" in
+    *page=1*);;
+    *) printf '%s\n' 'workflow endpoint must use the bounded first page' >&2; exit 41;;
+  esac
+  case "$2" in
+    *head_sha=*) printf '%s\n' 'workflow observation must not prefilter by head SHA' >&2; exit 42;;
+  esac
+  printf '%s' '{"total_count":'
+  if [ -f ${JSON.stringify(raceArmPath)} ] && [ ! -f ${JSON.stringify(raceTrippedPath)} ]; then
+    touch ${JSON.stringify(raceTrippedPath)}
+    printf '%s' '1,"workflow_runs":'
+    cat ${JSON.stringify(listPath)}
+  elif [ -f ${JSON.stringify(raceTrippedPath)} ]; then
+    printf '%s' '2,"workflow_runs":'
+    cat ${JSON.stringify(raceListPath)}
+  else
+    printf '%s' '1,"workflow_runs":'
+    cat ${JSON.stringify(listPath)}
+  fi
+  printf '%s\n' '}'
+elif [ "$1" = "run" ] && [ "$2" = "view" ]; then
+  case "$*" in
+    *startedAt*) printf '%s\n' 'startedAt is not a supported gh run view field' >&2; exit 43;;
+  esac
+  cat ${JSON.stringify(viewPath)}
+else
+  exit 9
+fi
+`;
+  const fakeGh = path.join(bin, "gh");
+  await writeFile(fakeGh, ghScript, { mode: 0o700 });
+  const providerExecutable = { path: await realpath(fakeGh), digest: sha256(ghScript) };
+  const providerAuthorization = {
+    provider: "github-cli",
+    repository: "github.com/example/repo",
+    actor: "alice",
+    permissions: { admin: false, maintain: false, push: true }
+  };
+  const action = {
+    schemaVersion: 1,
+    tokenHash,
+    status: "spent",
+    outcome: "pending",
+    runId: run.runId,
+    action: "actions.dispatch",
+    provider: "github-cli",
+    resource: "workflow:.github/workflows/release.yml",
+    remoteRevision,
+    attemptId,
+    idempotencyKey: "dispatch-resume-idempotency",
+    dispatchRepository: "github.com/example/repo",
+    workflowFile: ".github/workflows/release.yml",
+    dispatchRef: "refs/heads/dev",
+    dispatchNonce,
+    dispatchInputs: { sbw_dispatch_nonce: dispatchNonce, sbw_expected_revision: remoteRevision },
+    dispatchCommand: ["gh", "workflow", "run", ".github/workflows/release.yml", "--repo", "example/repo", "--ref", "dev"],
+    providerExecutable,
+    providerAuthorizationExecutable: providerExecutable,
+    providerAuthorization,
+    providerInvocation: {
+      schemaVersion: 1,
+      id: `github-actions-dispatch-wrapper:${run.runId}:${attemptId}`,
+      actionAttemptId: attemptId,
+      provider: "github-cli",
+      command: ["gh", "workflow", "run", ".github/workflows/release.yml", "--repo", "example/repo", "--ref", "dev"],
+      providerExecutable,
+      providerAuthorizationExecutable: providerExecutable,
+      providerAuthorization,
+      startedAt: dispatchedAt,
+      finishedAt: dispatchedAt,
+      exitCode: null,
+      dispatchState: "sent-or-indeterminate",
+      preexistingRunIds: ["100"],
+      observationStartedAt: dispatchedAt,
+      errorDigest: sha256("observation timeout")
+    }
+  };
+  const priorPath = process.env.PATH;
+  process.env.PATH = `${bin}${path.delimiter}${priorPath}`;
+  try {
+    await writeFile(path.join(actionDir, `${tokenHash}.json`), `${JSON.stringify(action)}\n`);
+    const preflight = {
+      ...action,
+      providerInvocation: {
+        ...action.providerInvocation,
+        dispatchState: "preflight",
+        finishedAt: action.providerInvocation.startedAt,
+        preexistingRunIds: [],
+        errorDigest: undefined,
+        workflowRun: undefined,
+        executorLease: {
+          pid: process.pid,
+          host: os.hostname(),
+          expiresAt: new Date(Date.now() + 60_000).toISOString()
+        }
+      }
+    };
+    await writeFile(path.join(actionDir, `${tokenHash}.json`), `${JSON.stringify(preflight)}\n`);
+    await assert.rejects(
+      resumeActionsDispatchObservation(root, run.runId, attemptId),
+      /executor lease is active/
+    );
+
+    await writeFile(path.join(actionDir, `${tokenHash}.json`), `${JSON.stringify({
+      ...action,
+      providerInvocation: {
+        ...action.providerInvocation,
+        dispatchState: "preflight",
+        finishedAt: action.providerInvocation.startedAt,
+        preexistingRunIds: [],
+        errorDigest: undefined,
+        workflowRun: undefined,
+        executorLease: {
+          pid: 2147483647,
+          host: os.hostname(),
+          expiresAt: new Date(Date.now() - 1_000).toISOString()
+        }
+      }
+    })}\n`);
+    const recoveredNotSent = await resumeActionsDispatchObservation(root, run.runId, attemptId);
+    assert.equal(recoveredNotSent.providerInvocation.dispatchState, "not-sent");
+    assert.equal(recoveredNotSent.providerInvocation.exitCode, null);
+    assert.match(recoveredNotSent.providerInvocation.errorDigest, /^[a-f0-9]{64}$/);
+
+    await writeFile(path.join(actionDir, `${tokenHash}.json`), `${JSON.stringify(action)}\n`);
+    const promoted = await resumeActionsDispatchObservation(root, run.runId, attemptId);
+    assert.equal(promoted.providerInvocation.dispatchState, "sent");
+    assert.equal(promoted.providerInvocation.workflowRun.databaseId, 54321);
+    assert.equal(promoted.providerInvocation.errorDigest, undefined);
+
+    const oversizedRuns = Array.from({ length: 101 }, (_, index) => ({
+      ...workflowRun,
+      databaseId: 60000 + index,
+      displayTitle: `Release ${dispatchNonce}`
+    }));
+    await writeFile(listPath, `${JSON.stringify(oversizedRuns)}\n`);
+    await writeFile(path.join(actionDir, `${tokenHash}.json`), `${JSON.stringify(action)}\n`);
+    await assert.rejects(
+      resumeActionsDispatchObservation(root, run.runId, attemptId),
+      /workflow list exceeded bounded recent run limit of 100/
+    );
+
+    const driftedRun = {
+      ...workflowRun,
+      databaseId: 54322,
+      headSha: "d".repeat(40),
+      displayTitle: `Release ${dispatchNonce}`
+    };
+    await writeFile(listPath, `${JSON.stringify([driftedRun])}\n`);
+    await writeFile(viewPath, `${JSON.stringify(driftedRun)}\n`);
+    await writeFile(path.join(actionDir, `${tokenHash}.json`), `${JSON.stringify(action)}\n`);
+    await assert.rejects(
+      resumeActionsDispatchObservation(root, run.runId, attemptId),
+      /observed a nonce-bound workflow run at revision .* expected/
+    );
+    const driftedPersisted = JSON.parse(await readFile(path.join(actionDir, `${tokenHash}.json`), "utf8"));
+    assert.equal(driftedPersisted.providerInvocation.dispatchState, "sent-or-indeterminate");
+    assert.equal(driftedPersisted.providerInvocation.observedRunId, "54322");
+    assert.equal(driftedPersisted.providerInvocation.workflowRun, undefined);
+
+    await writeFile(listPath, `${JSON.stringify([workflowRun])}\n`);
+    await writeFile(viewPath, `${JSON.stringify(workflowRun)}\n`);
+
+    await writeFile(viewPath, `${JSON.stringify({ ...workflowRun, status: "in_progress", conclusion: null })}\n`);
+    await writeFile(path.join(actionDir, `${tokenHash}.json`), `${JSON.stringify(action)}\n`);
+    const pendingResume = resumeActionsDispatchObservation(root, run.runId, attemptId);
+    let candidatePersisted;
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      candidatePersisted = JSON.parse(await readFile(path.join(actionDir, `${tokenHash}.json`), "utf8"));
+      if (candidatePersisted.providerInvocation?.observedRunId === "54321") break;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    assert.equal(candidatePersisted.providerInvocation.observedRunId, "54321");
+    await writeFile(viewPath, `${JSON.stringify(workflowRun)}\n`);
+    const resumedAfterCandidate = await pendingResume;
+    assert.equal(resumedAfterCandidate.providerInvocation.dispatchState, "sent");
+    assert.equal(resumedAfterCandidate.providerInvocation.observedRunId, "54321");
+
+    await writeFile(path.join(actionDir, `${tokenHash}.json`), `${JSON.stringify({
+      ...action,
+      providerInvocation: { ...action.providerInvocation, exitCode: undefined }
+    })}\n`);
+    await assert.rejects(
+      resumeActionsDispatchObservation(root, run.runId, attemptId),
+      /recorded provider exit code and dispatch timestamp/
+    );
+
+    await writeFile(listPath, `${JSON.stringify([workflowRun, { ...workflowRun, databaseId: 54322 }])}\n`);
+    await writeFile(path.join(actionDir, `${tokenHash}.json`), `${JSON.stringify({
+      ...action,
+      providerInvocation: { ...action.providerInvocation }
+    })}\n`);
+    await assert.rejects(
+      resumeActionsDispatchObservation(root, run.runId, attemptId),
+      /more than one unclaimed matching run/
+    );
+    const persisted = JSON.parse(await readFile(path.join(actionDir, `${tokenHash}.json`), "utf8"));
+    assert.equal(persisted.providerInvocation.dispatchState, "sent-or-indeterminate");
+    assert.equal(persisted.providerInvocation.workflowRun, undefined);
+
+    await writeFile(listPath, `${JSON.stringify([workflowRun])}\n`);
+    await writeFile(viewPath, `${JSON.stringify(workflowRun)}\n`);
+    await writeFile(raceArmPath, "race\n");
+    await writeFile(path.join(actionDir, `${tokenHash}.json`), `${JSON.stringify(action)}\n`);
+    await assert.rejects(
+      resumeActionsDispatchObservation(root, run.runId, attemptId),
+      /more than one unclaimed matching run/
+    );
+    const racePersisted = JSON.parse(await readFile(path.join(actionDir, `${tokenHash}.json`), "utf8"));
+    assert.equal(racePersisted.providerInvocation.dispatchState, "sent-or-indeterminate");
+    assert.equal(racePersisted.providerInvocation.workflowRun, undefined);
+    await rm(raceArmPath, { force: true });
+    await rm(raceTrippedPath, { force: true });
+
+    await writeFile(listPath, `${JSON.stringify([workflowRun])}\n`);
+    await writeFile(path.join(actionDir, `${tokenHash}.json`), `${JSON.stringify(action)}\n`);
+    let mutationResolve;
+    const mutationDone = new Promise((resolve) => { mutationResolve = resolve; });
+    const mutationTimer = setTimeout(async () => {
+      await writeFile(path.join(actionDir, `${tokenHash}.json`), `${JSON.stringify({
+        ...action,
+        providerInvocation: { ...action.providerInvocation, errorDigest: sha256("concurrent-provider-writer") }
+      })}\n`);
+      mutationResolve();
+    }, 50);
+    await assert.rejects(
+      resumeActionsDispatchObservation(root, run.runId, attemptId),
+      /changed during resumable reconciliation/
+    );
+    await mutationDone;
+    clearTimeout(mutationTimer);
+    const raced = JSON.parse(await readFile(path.join(actionDir, `${tokenHash}.json`), "utf8"));
+    assert.equal(raced.providerInvocation.errorDigest, sha256("concurrent-provider-writer"));
+  } finally {
+    process.env.PATH = priorPath;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test.skip("GitHub Actions dispatch invocation failure stays indeterminate and rejects without retry", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-actions-dispatch-invocation-failure-"));
+  const repository = path.join(root, "repository");
+  const bin = path.join(root, "bin");
+  await mkdir(path.join(repository, ".github", "workflows"), { recursive: true });
+  await mkdir(bin, { recursive: true });
+  await execFileAsync("git", ["init", "-q", "-b", "codex/dispatch-failure"], { cwd: repository });
+  await execFileAsync("git", ["config", "user.email", "sbw@example.invalid"], { cwd: repository });
+  await execFileAsync("git", ["config", "user.name", "SBW Test"], { cwd: repository });
+  await execFileAsync("git", ["remote", "add", "origin", "https://github.com/example/repo.git"], { cwd: repository });
+  const workflowFile = ".github/workflows/release.yml";
+  await writeFile(path.join(repository, workflowFile), [
+    "name: Release",
+    "run-name: Release ${{ inputs.sbw_dispatch_nonce }}",
+    "on:",
+    "  workflow_dispatch:",
+    "    inputs:",
+    "      sbw_dispatch_nonce:",
+    "        required: true",
+    "        type: string",
+    "      sbw_expected_revision:",
+    "        required: true",
+    "        type: string",
+    "      environment:",
+    "        description: public deployment environment",
+    "        required: false",
+    "        type: string",
+    "jobs:",
+    "  release:",
+    "    if: github.sha == inputs.sbw_expected_revision",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - run: echo release"
+  ].join("\n") + "\n");
+  await execFileAsync("git", ["add", "."], { cwd: repository });
+  await execFileAsync("git", ["commit", "-qm", "dispatch failure fixture"], { cwd: repository });
+  const remoteRevision = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repository })).stdout.trim();
+  const siblingRevision = remoteRevision;
+  const taskContract = contract({
+    authority: ["actions.dispatch"],
+    remoteRevision,
+    templateDefinition: {
+      requiredEvidence: ["remote-authorization"],
+      acceptance: [{ id: "done", description: "Dispatch failure is bounded.", critical: true }]
+    }
+  });
+  const run = await createRun({ root, contract: taskContract, requestedMode: "verified", cwd: repository });
+  const resource = `workflow:${workflowFile}`;
+  await addEvidence(root, run.runId, {
+    id: "dispatch-remote-authorization",
+    kind: "remote-authorization",
+    summary: "Dispatch provider authorization",
+    status: "complete",
+    acceptanceIds: [],
+    sourceDigest: sha256(`remote-authorization:actions.dispatch:${remoteRevision}`),
+    receipt: {
+      producer: "github-cli",
+      payload: {
+        action: "actions.dispatch",
+        provider: "github-cli",
+        resource,
+        remoteRevision,
+        repository: "github.com/example/repo",
+        actor: "alice"
+      }
+    }
+  });
+  await updateState(root, run.runId, (state) => ({
+    ...state,
+    lastSentinel: { label: "dispatch-failure-test", digest: "tree" },
+    lastSentinelVerified: true,
+    lastSentinelComplete: true
+  }));
+  const fakeGh = path.join(bin, "gh");
+  const fakeGhScript = `#!/bin/sh
+if [ "$1" = "api" ] && [ "$2" = "user" ]; then
+  printf '%s\\n' '{"login":"alice"}'
+elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo" ]; then
+  printf '%s\\n' '{"full_name":"example/repo","permissions":{"admin":false,"maintain":false,"push":true}}'
+elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo/git/ref/heads/dev" ]; then
+  printf '%s\\n' '{"object":{"sha":"${remoteRevision}"}}'
+elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo/git/ref/tags/dev" ]; then
+  printf '%s\\n' 'gh: Not Found (HTTP 404)' >&2
+  exit 1
+elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo/git/ref/heads/release" ]; then
+  printf '%s\\n' '{"object":{"sha":"${remoteRevision}"}}'
+elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo/git/ref/tags/release" ]; then
+  printf '%s\\n' '{"object":{"sha":"${siblingRevision}"}}'
+elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo/git/ref/heads/broken" ]; then
+  printf '%s\\n' 'gh: authentication failed' >&2
+  exit 1
+elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo/git/ref/tags/broken" ]; then
+  printf '%s\\n' '{"object":{"sha":"${remoteRevision}"}}'
+elif [ "$1" = "api" ] && [ "\${2%%/runs*}" = "repos/example/repo/actions/workflows/release.yml" ]; then
+  printf '%s\\n' '{"total_count":0,"workflow_runs":[]}'
+elif [ "$1" = "workflow" ] && [ "$2" = "run" ]; then
+  printf '%s\\n' 'provider dispatch failed before acceptance' >&2
+  exit 23
+else
+  exit 9
+fi
+`;
+  await writeFile(fakeGh, fakeGhScript, { mode: 0o700 });
+  const providerExecutable = { path: await realpath(fakeGh), digest: sha256(fakeGhScript) };
+  const priorPath = process.env.PATH;
+  process.env.PATH = `${bin}:${priorPath}`;
+  try {
+    await assert.rejects(
+      issueActionToken(root, run.runId, {
+        action: "actions.dispatch",
+        provider: "github-cli",
+        resource,
+        scope: "dev",
+        workflowFile,
+        dispatchInputs: { release_token: "ghp_1234567890abcdefghijklmnopqrstuvwxyz" },
+        remoteRevision,
+        requiredEvidence: ["remote-authorization"]
+      }, "tree", await loadDefaults()),
+      /workflow input must (?:be explicitly public|be non-sensitive)/
+    );
+    for (const sensitiveKey of ["releaseToken", "apiKey", "accessToken", "clientSecret", "passwordValue"]) {
+      await assert.rejects(
+        issueActionToken(root, run.runId, {
+          action: "actions.dispatch",
+          provider: "github-cli",
+          resource,
+          scope: "dev",
+          workflowFile,
+          dispatchInputs: { [sensitiveKey]: "opaque-value" },
+          remoteRevision,
+          requiredEvidence: ["remote-authorization"]
+        }, "tree", await loadDefaults()),
+        /workflow input must (?:be explicitly public|be non-sensitive)/
+      );
+    }
+    await assert.rejects(
+      issueActionToken(root, run.runId, {
+        action: "actions.dispatch",
+        provider: "github-cli",
+        resource,
+        scope: "dev",
+        workflowFile,
+        dispatchInputs: { payload: "public" },
+        remoteRevision,
+        requiredEvidence: ["remote-authorization"]
+      }, "tree", await loadDefaults()),
+      /workflow input must be explicitly public/
+    );
+    for (const secretValue of [
+      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signatureValue123",
+      "AKIAIOSFODNN7EXAMPLE",
+      "opaqueHighEntropyCredential-9F4a7B2c8D6e0G1h",
+      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "prefixlessAlphanumericCredential9F4a7B2c8D6e0G1h2Jk3Lm4Nop5Qrs6Tuv"
+    ]) {
+      await assert.rejects(
+        issueActionToken(root, run.runId, {
+          action: "actions.dispatch",
+          provider: "github-cli",
+          resource,
+          scope: "dev",
+          workflowFile,
+          dispatchInputs: { environment: secretValue },
+          remoteRevision,
+          requiredEvidence: ["remote-authorization"]
+        }, "tree", await loadDefaults()),
+        /workflow input must be non-sensitive/
+      );
+    }
+    for (const scope of [remoteRevision, "refs/pull/12/head"]) {
+      await assert.rejects(
+        issueActionToken(root, run.runId, {
+          action: "actions.dispatch",
+          provider: "github-cli",
+          resource,
+          scope,
+          workflowFile,
+          dispatchInputs: { environment: "test" },
+          remoteRevision,
+          requiredEvidence: ["remote-authorization"]
+        }, "tree", await loadDefaults()),
+        /branch or tag ref|refs\/heads or refs\/tags/
+      );
+    }
+    await assert.rejects(
+      issueActionToken(root, run.runId, {
+        action: "actions.dispatch",
+        provider: "github-cli",
+        resource,
+        scope: "release",
+        workflowFile,
+        dispatchInputs: { environment: "test" },
+        remoteRevision,
+        requiredEvidence: ["remote-authorization"]
+      }, "tree", await loadDefaults()),
+      /ambiguous between a branch and tag ref/
+    );
+    await assert.rejects(
+      issueActionToken(root, run.runId, {
+        action: "actions.dispatch",
+        provider: "github-cli",
+        resource,
+        scope: "broken",
+        workflowFile,
+        dispatchInputs: { environment: "test" },
+        remoteRevision,
+        requiredEvidence: ["remote-authorization"]
+      }, "tree", await loadDefaults()),
+      (error) => error?.code === 1 && String(error.stderr ?? "").includes("authentication failed")
+    );
+    assert.deepEqual((await inspectRun(root, run.runId)).actions, []);
+    const qualified = await issueActionToken(root, run.runId, {
       action: "actions.dispatch",
       provider: "github-cli",
-      resource: "workflow:release.yml",
-      remoteRevision: "abc",
-      requiredEvidence: ["preflight"]
-    }, "tree", {}),
-    /unimplemented provider adapter/
+      resource,
+      scope: "refs/heads/release",
+      workflowFile,
+      dispatchInputs: { environment: "test" },
+      remoteRevision,
+      requiredEvidence: ["remote-authorization"]
+    }, "tree", await loadDefaults());
+    assert.equal(qualified.dispatchRef, "refs/heads/release");
+    await assert.rejects(
+      issueActionToken(root, run.runId, {
+        action: "actions.dispatch",
+        provider: "github-cli",
+        resource,
+        scope: "refs/tags/release",
+        workflowFile,
+        dispatchInputs: { environment: "test" },
+        remoteRevision,
+        requiredEvidence: ["remote-authorization"]
+      }, "tree", await loadDefaults()),
+      /tag refs are unsupported by branch-bound observation/
+    );
+    const issued = await issueActionToken(root, run.runId, {
+      action: "actions.dispatch",
+      provider: "github-cli",
+      resource,
+      scope: "dev",
+      workflowFile,
+      dispatchInputs: { environment: "test" },
+      remoteRevision,
+      requiredEvidence: ["remote-authorization"]
+    }, "tree", await loadDefaults());
+    assert.equal(issued.providerExecutable.path, providerExecutable.path);
+    let failure;
+    await assert.rejects(
+      executeActionToken(root, run.runId, issued.token, "tree"),
+      (error) => {
+        failure = error;
+        return error.code === "SBW_ACTIONS_DISPATCH_INDETERMINATE" &&
+          error.providerInvocation?.dispatchState === "sent-or-indeterminate" &&
+          error.providerInvocation?.exitCode === 23;
+      }
+    );
+    assert.match(failure.message, /automatic retry is prohibited/);
+    const action = (await inspectRun(root, run.runId)).actions.find((item) => item.tokenHash === sha256(issued.token));
+    assert.equal(action.status, "spent");
+    assert.equal(action.outcome, "pending");
+    assert.equal(action.providerInvocation.dispatchState, "sent-or-indeterminate");
+    assert.equal(action.providerInvocation.exitCode, 23);
+    assert.match(action.providerInvocation.errorDigest, /^[a-f0-9]{64}$/);
+    await assert.rejects(
+      executeActionToken(root, run.runId, issued.token, "tree"),
+      /Action token was already consumed/
+    );
+  } finally {
+    process.env.PATH = priorPath;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test.skip("GitHub Actions dispatch final ref drift is explicitly not-sent before provider invocation", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-actions-dispatch-ref-drift-"));
+  const repository = path.join(root, "repository");
+  const bin = path.join(root, "bin");
+  await mkdir(path.join(repository, ".github", "workflows"), { recursive: true });
+  await mkdir(bin, { recursive: true });
+  await execFileAsync("git", ["init", "-q", "-b", "codex/ref-drift"], { cwd: repository });
+  await execFileAsync("git", ["config", "user.email", "sbw@example.invalid"], { cwd: repository });
+  await execFileAsync("git", ["config", "user.name", "SBW Test"], { cwd: repository });
+  await execFileAsync("git", ["remote", "add", "origin", "https://github.com/example/repo.git"], { cwd: repository });
+  const workflowFile = ".github/workflows/release.yml";
+  await writeFile(path.join(repository, workflowFile), [
+    "name: Release",
+    "run-name: Release ${{ inputs.sbw_dispatch_nonce }}",
+    "on:",
+    "  workflow_dispatch:",
+    "    inputs:",
+    "      sbw_dispatch_nonce:",
+    "        required: true",
+    "        type: string",
+    "      sbw_expected_revision:",
+    "        required: true",
+    "        type: string",
+    "      environment:",
+    "        description: public deployment environment",
+    "        required: false",
+    "        type: string",
+    "jobs:",
+    "  release:",
+    "    if: github.sha == inputs.sbw_expected_revision",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - run: echo release"
+  ].join("\n") + "\n");
+  await execFileAsync("git", ["add", "."], { cwd: repository });
+  await execFileAsync("git", ["commit", "-qm", "dispatch ref drift fixture"], { cwd: repository });
+  const remoteRevision = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repository })).stdout.trim();
+  const driftRevision = "b".repeat(40);
+  const taskContract = contract({
+    authority: ["actions.dispatch"],
+    remoteRevision,
+    templateDefinition: {
+      requiredEvidence: ["remote-authorization"],
+      acceptance: [{ id: "done", description: "Dispatch ref drift is not sent.", critical: true }]
+    }
+  });
+  const run = await createRun({ root, contract: taskContract, requestedMode: "verified", cwd: repository });
+  const resource = `workflow:${workflowFile}`;
+  await addEvidence(root, run.runId, {
+    id: "dispatch-ref-drift-remote-authorization",
+    kind: "remote-authorization",
+    summary: "Dispatch provider authorization",
+    status: "complete",
+    acceptanceIds: [],
+    sourceDigest: sha256(`remote-authorization:actions.dispatch:${remoteRevision}`),
+    receipt: {
+      producer: "github-cli",
+      payload: {
+        action: "actions.dispatch",
+        provider: "github-cli",
+        resource,
+        remoteRevision,
+        repository: "github.com/example/repo",
+        actor: "alice"
+      }
+    }
+  });
+  await updateState(root, run.runId, (state) => ({
+    ...state,
+    lastSentinel: { label: "dispatch-ref-drift-test", digest: "tree" },
+    lastSentinelVerified: true,
+    lastSentinelComplete: true
+  }));
+  const refCountPath = path.join(root, "ref-count");
+  const providerCallPath = path.join(root, "provider-call");
+  const fakeGh = path.join(bin, "gh");
+  const fakeGhScript = `#!/bin/sh
+if [ "$1" = "api" ] && [ "$2" = "user" ]; then
+  printf '%s\\n' '{"login":"alice"}'
+elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo" ]; then
+  printf '%s\\n' '{"full_name":"example/repo","permissions":{"admin":false,"maintain":false,"push":true}}'
+elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo/git/ref/heads/dev" ]; then
+  count=0
+  if [ -f ${JSON.stringify(refCountPath)} ]; then count=$(cat ${JSON.stringify(refCountPath)}); fi
+  count=$((count + 1))
+  printf '%s' "$count" > ${JSON.stringify(refCountPath)}
+  if [ "$count" -ge 3 ]; then
+    printf '%s\\n' '{"object":{"sha":"${driftRevision}"}}'
+  else
+    printf '%s\\n' '{"object":{"sha":"${remoteRevision}"}}'
+  fi
+elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo/git/ref/tags/dev" ]; then
+  printf '%s\\n' 'gh: Not Found (HTTP 404)' >&2
+  exit 1
+elif [ "$1" = "api" ] && [ "\${2%%/runs*}" = "repos/example/repo/actions/workflows/release.yml" ]; then
+  printf '%s\\n' '{"total_count":0,"workflow_runs":[]}'
+elif [ "$1" = "workflow" ] && [ "$2" = "run" ]; then
+  : > ${JSON.stringify(providerCallPath)}
+else
+  exit 9
+fi
+`;
+  await writeFile(fakeGh, fakeGhScript, { mode: 0o700 });
+  const providerExecutable = { path: await realpath(fakeGh), digest: sha256(fakeGhScript) };
+  const priorPath = process.env.PATH;
+  process.env.PATH = `${bin}:${priorPath}`;
+  try {
+    const issued = await issueActionToken(root, run.runId, {
+      action: "actions.dispatch",
+      provider: "github-cli",
+      resource,
+      scope: "dev",
+      workflowFile,
+      dispatchInputs: { environment: "test" },
+      remoteRevision,
+      requiredEvidence: ["remote-authorization"]
+    }, "tree", await loadDefaults());
+    assert.equal(issued.providerExecutable.path, providerExecutable.path);
+    await assert.rejects(
+      executeActionToken(root, run.runId, issued.token, "tree"),
+      /GitHub Actions dispatch ref changed immediately before provider invocation/
+    );
+    const action = (await inspectRun(root, run.runId)).actions.find((item) => item.tokenHash === sha256(issued.token));
+    assert.equal(action.status, "spent");
+    assert.equal(action.outcome, "pending");
+    assert.equal(action.providerInvocation.dispatchState, "not-sent");
+    assert.equal(action.providerInvocation.exitCode, null);
+    await assert.rejects(access(providerCallPath));
+  } finally {
+    process.env.PATH = priorPath;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("GitHub Actions dispatch capability requires nonce-aware workflow metadata", () => {
+  const revision = "a".repeat(40);
+  const workflow = [
+    "name: Release",
+    "run-name: Release ${{ inputs.sbw_dispatch_nonce }}",
+    "on:",
+    "  workflow_dispatch:",
+    "    inputs:",
+    "      sbw_dispatch_nonce:",
+    "        required: true",
+    "        type: string",
+    "      sbw_expected_revision:",
+    "        required: true",
+    "        type: string",
+    "      environment:",
+    "        description: public deployment environment",
+    "        required: false",
+    "        type: string",
+    "jobs:",
+    "  release:",
+    "    runs-on: ubuntu-latest",
+    "    if: ${{ github.sha == inputs.sbw_expected_revision }}"
+  ].join("\n");
+  const capability = validateWorkflowDispatchCapability(
+    workflow,
+    ".github/workflows/release.yml",
+    revision
   );
-  await assert.rejects(
-    registerOwnedResource("/private/tmp/sbw-unsupported-actions-dispatch", "sbw-20260803T000000Z-000000000000", {
-      resource: "run:123",
-      creationReceipt: { action: "actions.dispatch" }
-    }),
-    /unimplemented provider adapter/
+  assert.equal(capability.nonceInput, "sbw_dispatch_nonce");
+  assert.deepEqual(capability.publicInputNames, ["environment"]);
+  assert.equal(capability.runNameNonce, true);
+  assert.match(capability.contentDigest, /^[a-f0-9]{64}$/);
+  assert.throws(
+    () => validateWorkflowDispatchCapability(
+      workflow.replace("jobs:", "concurrency:\n  group: release\n  cancel-in-progress: true\njobs:"),
+      ".github/workflows/release.yml",
+      revision
+    ),
+    /must not enable cancel-in-progress/
+  );
+  assert.doesNotThrow(() => validateWorkflowDispatchCapability(
+    workflow.replace("jobs:", "concurrency:\n  group: release\n  cancel-in-progress: false\njobs:"),
+    ".github/workflows/release.yml",
+    revision
+  ));
+  const nonceBlock = "      sbw_dispatch_nonce:\n        required: true\n        type: string\n";
+  const revisionBlock = "      sbw_expected_revision:\n        required: true\n        type: string\n";
+  assert.doesNotThrow(() => validateWorkflowDispatchCapability(
+    workflow.replace(`${nonceBlock}${revisionBlock}`, `${revisionBlock}${nonceBlock}`),
+    ".github/workflows/release.yml",
+    revision
+  ));
+  assert.throws(
+    () => validateWorkflowDispatchCapability(
+      workflow.replace("  release:", "  \"ev\\u0069l\":"),
+      ".github/workflows/release.yml",
+      revision
+    ),
+    /unsupported or unparsed jobs mapping entry/
+  );
+  assert.throws(
+    () => validateWorkflowDispatchCapability(
+      workflow.replace("jobs:", "\"jo\\u0062s\":"),
+      ".github/workflows/release.yml",
+      revision
+    ),
+    /unsupported or unparsed top-level mapping entry|jobs block/
+  );
+  assert.throws(
+    () => validateWorkflowDispatchCapability(
+      workflow.replace("jobs:", "\"jobs':"),
+      ".github/workflows/release.yml",
+      revision
+    ),
+    /unsupported or unparsed top-level mapping entry|jobs block/
+  );
+  for (const [replacement, message] of [
+    ["on: invalid", /on block must use a nested mapping/],
+    ["  workflow_dispatch: invalid", /workflow_dispatch must use a nested mapping/],
+    ["    inputs: invalid", /workflow_dispatch inputs must use a nested mapping/],
+    ["jobs: invalid", /jobs block must use a nested mapping/],
+    ["  release: invalid", /job release must use a nested mapping/],
+    ["      environment: invalid", /workflow_dispatch input environment must use a nested mapping/]
+  ]) {
+    assert.throws(
+      () => validateWorkflowDispatchCapability(
+        workflow.replace(replacement.replace(" invalid", ""), replacement),
+        ".github/workflows/release.yml",
+        revision
+      ),
+      message
+    );
+  }
+  assert.throws(
+    () => validateWorkflowDispatchCapability(
+      workflow.replace("  workflow_dispatch:", "  workflow_dispatch: {inputs: {}}"),
+      ".github/workflows/release.yml",
+      revision
+    ),
+    /flow mappings and sequences/
+  );
+  assert.throws(
+    () => validateWorkflowDispatchCapability(
+      workflow.replace("name: Release", "name: !str Release"),
+      ".github/workflows/release.yml",
+      revision
+    ),
+    /YAML tags/
+  );
+  const ordinaryBlock = "      ordinary_input:\n        required: false\n        type: string\n";
+  for (const variant of [
+    workflow.replace("      sbw_dispatch_nonce:", ordinaryBlock + "      sbw_dispatch_nonce:"),
+    workflow.replace("      sbw_expected_revision:", ordinaryBlock + "      sbw_expected_revision:"),
+    workflow.replace("jobs:", ordinaryBlock + "jobs:")
+  ]) {
+    assert.doesNotThrow(() => validateWorkflowDispatchCapability(
+      variant,
+      ".github/workflows/release.yml",
+      revision
+    ));
+  }
+  for (const replacement of [
+    ["        type: string", "        type: boolean"],
+    ["        type: string", "        type: choice\n        options:\n          - safe"],
+    ["        type: string", "        type: number"]
+  ]) {
+    assert.throws(
+      () => validateWorkflowDispatchCapability(
+        workflow.replace(...replacement),
+        ".github/workflows/release.yml",
+        revision
+      ),
+      /required: true and type: string|incompatible schema/
+    );
+  }
+  assert.throws(
+    () => validateWorkflowDispatchCapability(
+      workflow.replace(
+        "      sbw_dispatch_nonce:\n        required: true\n        type: string",
+        "      sbw_dispatch_nonce: true"
+      ),
+      ".github/workflows/release.yml",
+      revision
+    ),
+    /nested string schema/
+  );
+  assert.throws(
+    () => validateWorkflowDispatchCapability(
+      workflow.replace("workflow_dispatch:", "push:"),
+      ".github/workflows/release.yml",
+      revision
+    ),
+    /workflow_dispatch/
+  );
+  assert.throws(
+    () => validateWorkflowDispatchCapability(
+      workflow.replace("sbw_dispatch_nonce", "other_input"),
+      ".github/workflows/release.yml",
+      revision
+    ),
+    /reserved sbw_dispatch_nonce|run-name/
+  );
+  assert.throws(
+    () => validateWorkflowDispatchCapability(
+      workflow.replace("github.sha == inputs.sbw_expected_revision", "github.sha != inputs.sbw_expected_revision"),
+      ".github/workflows/release.yml",
+      revision
+    ),
+    /exact sbw_expected_revision gate/
+  );
+  for (const malformedGate of [
+    "github.sha == inputs.sbw_expected_revision }}",
+    "${{ github.sha == inputs.sbw_expected_revision"
+  ]) {
+    assert.throws(
+      () => validateWorkflowDispatchCapability(
+        workflow.replace("if: ${{ github.sha == inputs.sbw_expected_revision }}", `if: ${malformedGate}`),
+        ".github/workflows/release.yml",
+        revision
+      ),
+      /exact sbw_expected_revision gate/
+    );
+  }
+  assert.throws(
+    () => validateWorkflowDispatchCapability(
+      workflow.replace("    if: ${{ github.sha == inputs.sbw_expected_revision }}", "    # if: ${{ github.sha == inputs.sbw_expected_revision }}"),
+      ".github/workflows/release.yml",
+      revision
+    ),
+    /exact sbw_expected_revision gate/
+  );
+  assert.throws(
+    () => validateWorkflowDispatchCapability(
+      `${workflow}\njobs:\n  duplicate:\n    if: \${{ github.sha == inputs.sbw_expected_revision }}`,
+      ".github/workflows/release.yml",
+      revision
+    ),
+    /duplicate top-level key: jobs/
+  );
+  assert.throws(
+    () => validateWorkflowDispatchCapability(
+      workflow.replace("  workflow_dispatch:", "  workflow_dispatch:\n  workflow_dispatch:"),
+      ".github/workflows/release.yml",
+      revision
+    ),
+    /duplicate on block key: workflow_dispatch/
+  );
+  assert.throws(
+    () => validateWorkflowDispatchCapability(
+      workflow.replace("      sbw_dispatch_nonce:", "      sbw_dispatch_nonce:\n      sbw_dispatch_nonce:"),
+      ".github/workflows/release.yml",
+      revision
+    ),
+    /duplicate workflow_dispatch input key: sbw_dispatch_nonce/
+  );
+  for (const duplicateChild of ["description: public deployment environment", "required: false", "type: string"]) {
+    assert.throws(
+      () => validateWorkflowDispatchCapability(
+        workflow.replace(
+          "        type: string\njobs:",
+          `        type: string\n        ${duplicateChild}\njobs:`
+        ),
+        ".github/workflows/release.yml",
+        revision
+      ),
+      /duplicate workflow_dispatch input environment key:/
+    );
+  }
+  assert.throws(
+    () => validateWorkflowDispatchCapability(
+      workflow.replace(
+        "        type: string\njobs:",
+        "        type: string\n        malformed child\njobs:"
+      ),
+      ".github/workflows/release.yml",
+      revision
+    ),
+    /unsupported or unparsed workflow_dispatch input environment mapping entry/
+  );
+  assert.throws(
+    () => validateWorkflowDispatchCapability(
+      workflow.replace("jobs:", "jobs: &shared_jobs"),
+      ".github/workflows/release.yml",
+      revision
+    ),
+    /anchors, aliases, and merge keys are unsupported/
+  );
+  for (const header of ["|+", ">+", "|2", ">2", "|+2", ">+2", "|2+", ">2+"]) {
+    for (const [key, replacement] of [
+      ["      sbw_dispatch_nonce:", `      sbw_dispatch_nonce: ${header}`],
+      ["      sbw_expected_revision:", `      sbw_expected_revision: ${header}`],
+      ["jobs:", `jobs: ${header}`],
+      ["    if: ${{ github.sha == inputs.sbw_expected_revision }}", `    if: ${header}`]
+    ]) {
+      assert.throws(
+        () => validateWorkflowDispatchCapability(
+          workflow.replace(key, replacement),
+          ".github/workflows/release.yml",
+          revision
+        ),
+        /block scalars are unsupported/
+      );
+    }
+  }
+  assert.throws(
+    () => validateWorkflowDispatchCapability(
+      workflow.replace("run-name: Release ${{ inputs.sbw_dispatch_nonce }}", "run-name: Release # ${{ inputs.sbw_dispatch_nonce }}"),
+      ".github/workflows/release.yml",
+      revision
+    ),
+    /run-name/
   );
 });
 
@@ -2086,6 +3619,42 @@ test("contract-deferred actions fail closed in the core lifecycle", async () => 
   assert.ok(completion.blockers.includes("deferred-governed-action:deploy"));
 });
 
+test("GitHub Actions dispatch remains non-executable until immutable provider binding exists", () => {
+  assert.equal(isExecutableActionProvider("actions.dispatch", "github-cli"), false);
+  assert.equal(isExecutableActionProvider("pr.create", "github-cli"), true);
+  assert.equal(isExecutableActionProvider("pr.merge", "github-cli"), true);
+});
+
+test("GitHub Actions dispatch token issuance remains deferred until immutable provider binding exists", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-actions-dispatch-issuance-deferred-"));
+  try {
+    await execFileAsync("git", ["init", "-q", "-b", "codex/dispatch-deferred"], { cwd: root });
+    await execFileAsync("git", ["config", "user.email", "sbw@example.invalid"], { cwd: root });
+    await execFileAsync("git", ["config", "user.name", "SBW Test"], { cwd: root });
+    await writeFile(path.join(root, "README.md"), "dispatch issuance is deferred\n");
+    await execFileAsync("git", ["add", "README.md"], { cwd: root });
+    await execFileAsync("git", ["commit", "-qm", "dispatch deferred baseline"], { cwd: root });
+    const run = await createRun({
+      root,
+      contract: contract({ authority: ["actions.dispatch"], remoteRevision: "a".repeat(40) }),
+      requestedMode: "critical",
+      cwd: root
+    });
+    await assert.rejects(
+      issueActionToken(root, run.runId, {
+        action: "actions.dispatch",
+        provider: "github-cli",
+        resource: "workflow:.github/workflows/ci.yml",
+        remoteRevision: "a".repeat(40),
+        requiredEvidence: ["preflight"]
+      }, "tree", await loadDefaults()),
+      /GitHub Actions dispatch is deferred until immutable provider binding exists/
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("required-check probes require a bound executable identity and reject path drift", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "sbw-required-check-provider-"));
   const bin = path.join(root, "bin");
@@ -2107,6 +3676,1017 @@ test("required-check probes require a bound executable identity and reject path 
     await assert.rejects(
       verifyRequiredChecksProvider(root, payload, identity),
       /governed provider executable changed/
+    );
+  } finally {
+    process.env.PATH = priorPath;
+  }
+});
+
+test("host-signed PR merge approval production verifier rejects missing, altered, invalidly signed, and source-drifted attestations", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-merge-human-approval-"));
+  const repository = path.join(root, "repository");
+  await mkdir(repository);
+  try {
+    await execFileAsync("git", ["init", "-q", "-b", "codex/merge-approval"], { cwd: repository });
+    await execFileAsync("git", ["config", "user.email", "sbw@example.invalid"], { cwd: repository });
+    await execFileAsync("git", ["config", "user.name", "SBW Test"], { cwd: repository });
+    await writeFile(path.join(repository, "README.md"), "base\n");
+    await execFileAsync("git", ["add", "README.md"], { cwd: repository });
+    await execFileAsync("git", ["commit", "-qm", "base"], { cwd: repository });
+    const base = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repository, encoding: "utf8" })).stdout.trim();
+    await writeFile(path.join(repository, "README.md"), "head\n");
+    await execFileAsync("git", ["add", "README.md"], { cwd: repository });
+    await execFileAsync("git", ["commit", "-qm", "head"], { cwd: repository });
+    const head = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repository, encoding: "utf8" })).stdout.trim();
+    const sourceBinding = await captureSourceBinding(repository, { baseRevision: base, requireClean: true });
+    const authorization = {
+      schemaVersion: 1,
+      kind: "host-signed-pr-merge-authorization",
+      action: "pr.merge",
+      resource: "pull/21",
+      runId: "sbw-20260820T000000Z-123456789abc",
+      contractDigest: "a".repeat(64),
+      sourceBindingDigest: sourceBinding.digest,
+      sourceSentinelDigest: "b".repeat(64),
+      reviewPackageId: `review-${"c".repeat(32)}`,
+      repository: "github.com/example/repo",
+      pr: 21,
+      head,
+      base,
+      baseRefName: "dev",
+      actor: "example-user",
+      adminBypass: false,
+      reviewPolicyException: "solo-repository-zero-review-v1",
+      approvedAt: new Date().toISOString()
+    };
+    const authorizationDigest = digestObject(authorization);
+    let trustRoot = null;
+    try {
+      trustRoot = JSON.parse(await readFile("/private/etc/better-workflows/codex-trust-root.json", "utf8"));
+    } catch {
+      // A portable test host may not provision the production trust root. The
+      // production verifier must still reject rather than accept a fake signer.
+    }
+    const attestationPath = path.join(root, "merge-approval.attestation.json");
+    const invalidAttestation = {
+      schemaVersion: 1,
+      provider: "codex-native-subagent",
+      base,
+      head,
+      instructionDigest: authorizationDigest,
+      model: "pr-merge-human-authorization",
+      packageId: `merge-approval-${authorizationDigest}`,
+      promptDigest: authorizationDigest,
+      reviewDigest: authorizationDigest,
+      reviewerId: "better-workflows-pr-merge-human-approval",
+      runId: authorization.runId,
+      sentinelDigest: authorization.sourceSentinelDigest,
+      issuer: trustRoot?.issuer ?? "untrusted-test-issuer",
+      keyId: trustRoot?.publicKeys?.[0]?.keyId ?? "untrusted-test-key",
+      issuedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      signature: Buffer.alloc(64).toString("base64")
+    };
+    const invalidAttestationRaw = `${JSON.stringify(invalidAttestation)}\n`;
+    await writeFile(attestationPath, invalidAttestationRaw, { mode: 0o600 });
+    const payload = {
+      provider: "github",
+      repository: authorization.repository,
+      pr: authorization.pr,
+      head,
+      base,
+      baseRefName: "dev",
+      humanApproval: {
+        schemaVersion: 1,
+        authorization,
+        authorizationDigest,
+        attestation: {
+          path: attestationPath,
+          attestationDigest: "d".repeat(64),
+          fileDigest: sha256(await readFile(attestationPath))
+        }
+      }
+    };
+    await assert.rejects(
+      verifyMergeHumanApproval(repository, {
+        ...payload,
+        humanApproval: {
+          ...payload.humanApproval,
+          attestation: {
+            ...payload.humanApproval.attestation,
+            path: path.join(root, "missing.attestation.json")
+          }
+        }
+      }),
+      /ENOENT|attestation/i
+    );
+    await writeFile(attestationPath, `${invalidAttestationRaw} `, { mode: 0o600 });
+    await assert.rejects(
+      verifyMergeHumanApproval(repository, payload),
+      /attestation changed after authorization/
+    );
+    await writeFile(attestationPath, invalidAttestationRaw, { mode: 0o600 });
+    await assert.rejects(
+      verifyMergeHumanApproval(repository, payload),
+      /signature is invalid|issuer is not trusted|key is not available|trust root is not provisioned/
+    );
+    await writeFile(path.join(repository, "README.md"), "drift\n");
+    await assert.rejects(
+      verifyMergeHumanApproval(repository, payload),
+      /source registry binding is stale/
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("PR merge consumption rejects a human approval digest changed after token issuance", () => {
+  const digest = "a".repeat(64);
+  assert.doesNotThrow(() => assertPersistedMergeHumanApproval(
+    { mergeHumanApprovalDigest: digest },
+    { humanApproval: { authorizationDigest: digest } }
+  ));
+  assert.throws(
+    () => assertPersistedMergeHumanApproval(
+      { mergeHumanApprovalDigest: digest },
+      { humanApproval: { authorizationDigest: "b".repeat(64) } }
+    ),
+    /changed after action issuance/
+  );
+  assert.throws(
+    () => assertPersistedMergeHumanApproval({}, { humanApproval: { authorizationDigest: digest } }),
+    /changed after action issuance/
+  );
+});
+
+test("PR merge human approval accepts only exact user-authority actor and digest evidence", () => {
+  const humanApprovalDigest = "a".repeat(64);
+  const binding = {
+    action: "pr.merge",
+    provider: "github-cli",
+    resource: "pull/21",
+    remoteRevision: "b".repeat(40),
+    repository: "github.com/example/repo",
+    actor: "example-user",
+    humanApprovalDigest
+  };
+  const evidence = [{
+    id: "merge-human-authorization",
+    kind: "remote-authorization",
+    status: "complete",
+    stale: false,
+    receipt: {
+      producer: "user-authority",
+      payload: { ...binding }
+    }
+  }];
+  assert.equal(findExactMergeHumanAuthorization(evidence, binding), evidence[0]);
+  const actionRecord = {
+    ...binding,
+    mergeHumanApprovalDigest: humanApprovalDigest,
+    mergeAuthorizationEvidenceId: evidence[0].id
+  };
+  const checkVerification = { humanApproval: { authorizationDigest: humanApprovalDigest, actor: binding.actor } };
+  assert.equal(assertPersistedMergeHumanAuthorizationEvidence(
+    actionRecord,
+    evidence,
+    checkVerification,
+    { actor: binding.actor, repository: binding.repository }
+  ), evidence[0]);
+  assert.throws(
+    () => assertPersistedMergeHumanAuthorizationEvidence(
+      { ...actionRecord, mergeAuthorizationEvidenceId: "replacement" },
+      evidence,
+      checkVerification,
+      { actor: binding.actor, repository: binding.repository }
+    ),
+    /absent, stale, replaced, or invalid/
+  );
+  assert.throws(
+    () => assertPersistedMergeHumanAuthorizationEvidence(
+      actionRecord,
+      evidence,
+      checkVerification,
+      { actor: "other-user", repository: binding.repository }
+    ),
+    /live actor changed/
+  );
+  assert.equal(findExactMergeHumanAuthorization(evidence, { ...binding, actor: "other-user" }), null);
+  assert.equal(findExactMergeHumanAuthorization(evidence, {
+    ...binding,
+    humanApprovalDigest: "c".repeat(64)
+  }), null);
+  assert.equal(findExactMergeHumanAuthorization([{
+    ...evidence[0],
+    receipt: { ...evidence[0].receipt, producer: "codex-root" }
+  }], binding), null);
+  assert.equal(findExactMergeHumanAuthorization([{ ...evidence[0], stale: true }], binding), null);
+});
+
+test("required-check completion accepts only one exact issued and successfully invoked merge action", () => {
+  const runId = "sbw-20260820T000000Z-123456789abc";
+  const contractDigest = "a".repeat(64);
+  const base = "b".repeat(40);
+  const head = "c".repeat(40);
+  const repository = "github.com/example/repo";
+  const reviewPackageId = `review-${"d".repeat(32)}`;
+  const requiredChecks = {
+    id: "required-checks-exact",
+    kind: "required-checks",
+    status: "complete",
+    stale: false,
+    receipt: {
+      inputBinding: {
+        runId,
+        contractDigest,
+        remoteRevision: base,
+        reviewHead: head,
+        reviewBase: base,
+        pullRequest: 21,
+        repository,
+        baseRefName: "dev"
+      },
+      payload: {
+        provider: "github",
+        repository,
+        pr: 21,
+        head,
+        base,
+        baseRefName: "dev",
+        humanApproval: { authorization: { reviewPackageId } }
+      }
+    }
+  };
+  const attemptId = "merge-attempt";
+  const idempotencyKey = "merge-idempotency";
+  const tokenHash = "e".repeat(64);
+  const providerExecutable = { path: "/usr/bin/false", digest: "f".repeat(64) };
+  const mergeCommand = [
+    "gh", "pr", "merge", "21", "--repo", repository,
+    "--match-head-commit", head, "--merge", "--delete-branch=false"
+  ];
+  const invocationId = `github-pr-merge-wrapper:${runId}:${attemptId}`;
+  const providerReceipt = {
+    action: "pr.merge",
+    provider: "github-cli",
+    resource: "pull/21",
+    outcome: "success",
+    runId,
+    attemptId,
+    idempotencyKey,
+    remoteRevision: base,
+    executionId: "github:example/repo:pr.merge:21:merge-commit",
+    proofKind: "github-pr-merge",
+    requestDigest: "1".repeat(64),
+    responseDigest: "2".repeat(64),
+    verifiedAt: new Date().toISOString(),
+    terminalState: "success",
+    pr: 21,
+    state: "MERGED",
+    repository,
+    baseRefName: "dev",
+    mergeMethod: "merge",
+    adminBypass: false,
+    invocationId,
+    mergeCommand,
+    head,
+    mergeCommit: "3".repeat(40),
+    mergeBase: base,
+    mergeHead: head,
+    providerExecutableDigest: providerExecutable.digest
+  };
+  const action = {
+    schemaVersion: 1,
+    tokenHash,
+    status: "spent",
+    outcome: "success",
+    runId,
+    contractDigest,
+    action: "pr.merge",
+    provider: "github-cli",
+    resource: "pull/21",
+    remoteRevision: base,
+    requiredChecksEvidenceId: requiredChecks.id,
+    pullRequest: 21,
+    reviewedHead: head,
+    targetRef: "dev",
+    mergeRepository: repository,
+    mergeMethod: "merge",
+    adminBypass: false,
+    reviewPackageId,
+    reviewContinuityDigest: "4".repeat(64),
+    attemptId,
+    idempotencyKey,
+    providerExecutable,
+    providerInvocation: {
+      id: invocationId,
+      actionAttemptId: attemptId,
+      provider: "github-cli",
+      command: mergeCommand,
+      adminBypass: false,
+      exitCode: 0,
+      dispatchState: "sent"
+    },
+    mergeCommand,
+    receipt: {
+      action: "pr.merge",
+      provider: "github-cli",
+      resource: "pull/21",
+      outcome: "success",
+      runId,
+      attemptId,
+      idempotencyKey,
+      remoteRevision: base,
+      providerReceipt
+    }
+  };
+  assert.equal(
+    assertPersistedRequiredChecksEvidence(action, [requiredChecks], { repository }),
+    requiredChecks
+  );
+  assert.equal(
+    assertPersistedSuccessfulMergeActionForRequiredChecks(
+      [action],
+      requiredChecks,
+      { runId, contractDigest, repository }
+    ),
+    action
+  );
+  assert.throws(
+    () => assertPersistedSuccessfulMergeActionForRequiredChecks(
+      [{ ...action, action: "pr.create", requiredChecksEvidenceId: undefined }],
+      requiredChecks,
+      { runId, contractDigest, repository }
+    ),
+    /one exact issued merge action/
+  );
+  assert.throws(
+    () => assertPersistedSuccessfulMergeActionForRequiredChecks(
+      [{ ...action, status: "issued", outcome: null }],
+      requiredChecks,
+      { runId, contractDigest, repository }
+    ),
+    /not the exact successfully invoked merge action/
+  );
+  assert.throws(
+    () => assertPersistedSuccessfulMergeActionForRequiredChecks(
+      [{ ...action, providerInvocation: { ...action.providerInvocation, id: "replacement-invocation" } }],
+      requiredChecks,
+      { runId, contractDigest, repository }
+    ),
+    /not the exact successfully invoked merge action/
+  );
+  assert.throws(
+    () => assertPersistedSuccessfulMergeActionForRequiredChecks(
+      [action, { ...action, tokenHash: "5".repeat(64) }],
+      requiredChecks,
+      { runId, contractDigest, repository }
+    ),
+    /one exact issued merge action/
+  );
+  assert.throws(
+    () => assertPersistedSuccessfulMergeActionForRequiredChecks(
+      [{ ...action, reviewPackageId: `review-${"6".repeat(32)}` }],
+      requiredChecks,
+      { runId, contractDigest, repository }
+    ),
+    /not the exact successfully invoked merge action/
+  );
+});
+
+test("required-check verifier ignores optional skipped jobs and selects the newest protected context", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-required-check-optional-skipped-"));
+  const bin = path.join(root, "bin");
+  await mkdir(bin, { recursive: true });
+  const fakeGh = path.join(bin, "gh");
+  const head = "a".repeat(40);
+  const observedAt = new Date(Date.now() - 1000).toISOString();
+  const oldCreatedAt = new Date(Date.parse(observedAt) - 3000).toISOString();
+  const newestCreatedAt = new Date(Date.parse(observedAt) - 2000).toISOString();
+  const latestFailedCreatedAt = new Date(Date.parse(observedAt) - 1000).toISOString();
+  const oldCompletedAt = new Date(Date.parse(observedAt) - 2000).toISOString();
+  const newestCompletedAt = new Date(Date.parse(observedAt) - 1000).toISOString();
+  const latestFailedAt = new Date(Date.parse(observedAt) - 500).toISOString();
+  const protection = {
+    enforce_admins: { enabled: true },
+    required_status_checks: {
+      contexts: ["test"],
+      checks: [{ context: "test", app_id: 15368 }]
+    },
+    required_pull_request_reviews: { required_approving_review_count: 1 },
+    allow_force_pushes: { enabled: false },
+    allow_deletions: { enabled: false }
+  };
+  const requiredStatusProtection = protection.required_status_checks;
+  const workflowPage = {
+    total_count: 1,
+    workflow_runs: [{
+      id: 501,
+      head_sha: head,
+      status: "completed",
+      conclusion: "success",
+      updated_at: oldCompletedAt
+    }]
+  };
+  const checkPage = {
+    total_count: 3,
+    check_runs: [
+      {
+        id: 101,
+        name: "test",
+        head_sha: head,
+        status: "completed",
+        conclusion: "success",
+        created_at: oldCreatedAt,
+        completed_at: oldCompletedAt,
+        app: { id: 15368 }
+      },
+      {
+        id: 102,
+        name: "test",
+        head_sha: head,
+        status: "completed",
+        conclusion: "success",
+        created_at: newestCreatedAt,
+        completed_at: newestCompletedAt,
+        app: { id: 15368 }
+      },
+      {
+        id: 103,
+        name: "optional-release-job",
+        head_sha: head,
+        status: "completed",
+        conclusion: "skipped",
+        created_at: newestCreatedAt,
+        completed_at: newestCompletedAt,
+        app: { id: 15368 }
+      }
+    ]
+  };
+  const startedAtOnlyPage = {
+    ...checkPage,
+    check_runs: checkPage.check_runs.map(({ created_at: _createdAt, ...check }) => ({
+      ...check,
+      started_at: _createdAt ?? newestCreatedAt
+    }))
+  };
+  const failedCheckPage = {
+    total_count: 4,
+    check_runs: [
+      ...checkPage.check_runs,
+      {
+        id: 104,
+        name: "test",
+        head_sha: head,
+        status: "completed",
+        conclusion: "failure",
+        created_at: latestFailedCreatedAt,
+        completed_at: latestFailedAt,
+        app: { id: 15368 }
+      }
+    ]
+  };
+  const equalTimestampCheckPage = {
+    total_count: 2,
+    check_runs: [
+      {
+        id: 99,
+        name: "test",
+        head_sha: head,
+        status: "completed",
+        conclusion: "success",
+        created_at: newestCreatedAt,
+        completed_at: newestCompletedAt,
+        app: { id: 15368 }
+      },
+      {
+        id: 100,
+        name: "test",
+        head_sha: head,
+        status: "completed",
+        conclusion: "failure",
+        created_at: newestCreatedAt,
+        completed_at: newestCompletedAt,
+        app: { id: 15368 }
+      }
+    ]
+  };
+  const statusPage = [{
+    id: 201,
+    context: "test",
+    sha: head,
+    state: "success",
+    created_at: newestCompletedAt,
+    updated_at: newestCompletedAt
+  }];
+  const emit = (value) => JSON.stringify(JSON.stringify(value));
+  const ghScript = [
+    "#!/bin/sh",
+    "[ \"$1\" = api ] || exit 9",
+    "endpoint=\"$2\"",
+    "if [ \"$2\" = --paginate ]; then endpoint=\"$4\"; fi",
+    `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo/branches/dev/protection")} ]; then printf '%s\\n' ${emit(protection)}; exit 0; fi`,
+    `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo/rules/branches/dev")} ]; then printf '%s\\n' '[]'; exit 0; fi`,
+    `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo/rulesets?includes_parents=true")} ]; then printf '%s\\n' '[[]]'; exit 0; fi`,
+    `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo/branches/dev/protection/required_status_checks")} ]; then printf '%s\\n' ${emit(requiredStatusProtection)}; exit 0; fi`,
+    `if [ \"$endpoint\" = ${JSON.stringify(`repos/example/repo/actions/runs?head_sha=${head}&per_page=100`)} ]; then printf '%s\\n' ${emit([workflowPage])}; exit 0; fi`,
+    `if [ \"$endpoint\" = ${JSON.stringify(`repos/example/repo/commits/${head}/check-runs?per_page=100`)} ]; then printf '%s\\n' ${emit([checkPage])}; exit 0; fi`,
+    `if [ \"$endpoint\" = ${JSON.stringify(`repos/example/repo/commits/${head}/statuses?per_page=100`)} ]; then printf '%s\\n' ${emit([statusPage])}; exit 0; fi`,
+    "printf '%s\\n' \"unexpected gh endpoint: $endpoint\" >&2",
+    "exit 9"
+  ].join("\n");
+  await writeFile(fakeGh, ghScript, { mode: 0o700 });
+  const providerExecutable = { path: await realpath(fakeGh), digest: sha256(ghScript) };
+  const payload = {
+    provider: "github",
+    repository: "github.com/example/repo",
+    baseRefName: "dev",
+    head,
+    requiredStatusChecks: ["test"],
+    requiredStatusCheckApps: [{ context: "test", appId: 15368 }],
+    checkSet: ["test"],
+    providerRunIds: ["102"],
+    conclusions: ["success"],
+    checks: [{
+      name: "test#102",
+      providerName: "test",
+      providerRunId: "102",
+      observationKind: "check-run",
+      completedAt: newestCompletedAt,
+      conclusion: "success"
+    }],
+    providerExecutable,
+    observedAt
+  };
+  const priorPath = process.env.PATH;
+  process.env.PATH = `${bin}:${priorPath}`;
+  try {
+    await verifyRequiredChecksProvider(root, payload, providerExecutable);
+    const collisionProtection = {
+      ...protection,
+      required_status_checks: { contexts: ["test", "lint"], checks: [] }
+    };
+    const collisionRequiredStatusProtection = collisionProtection.required_status_checks;
+    const collisionCheckPage = {
+      total_count: 1,
+      check_runs: [{
+        id: 7,
+        name: "test",
+        head_sha: head,
+        status: "completed",
+        conclusion: "success",
+        created_at: newestCreatedAt,
+        completed_at: newestCompletedAt,
+        app: { id: 15368 }
+      }]
+    };
+    const collisionStatusPage = [{
+      id: 7,
+      context: "lint",
+      sha: head,
+      state: "success",
+      created_at: newestCreatedAt,
+      updated_at: newestCompletedAt
+    }];
+    const collisionGhScript = ghScript
+      .replace(emit(protection), emit(collisionProtection))
+      .replace(emit(requiredStatusProtection), emit(collisionRequiredStatusProtection))
+      .replace(emit([checkPage]), emit([collisionCheckPage]))
+      .replace(emit([statusPage]), emit([collisionStatusPage]));
+    await writeFile(fakeGh, collisionGhScript, { mode: 0o700 });
+    await verifyRequiredChecksProvider(root, {
+      ...payload,
+      requiredStatusChecks: ["lint", "test"],
+      requiredStatusCheckApps: [{ context: "test", appId: null }, { context: "lint", appId: null }],
+      checkSet: ["test", "lint"],
+      providerRunIds: ["7", "7"],
+      conclusions: ["success", "success"],
+      checks: [
+        { name: "test#7", providerName: "test", providerRunId: "7", observationKind: "check-run", completedAt: newestCompletedAt, conclusion: "success" },
+        { name: "lint#7", providerName: "lint", providerRunId: "7", observationKind: "commit-status", completedAt: newestCompletedAt, conclusion: "success" }
+      ]
+    }, { path: providerExecutable.path, digest: sha256(collisionGhScript) });
+    await writeFile(fakeGh, ghScript, { mode: 0o700 });
+    const startedAtOnlyGhScript = ghScript.replace(emit([checkPage]), emit([startedAtOnlyPage]));
+    await writeFile(fakeGh, startedAtOnlyGhScript, { mode: 0o700 });
+    await verifyRequiredChecksProvider(root, payload, {
+      path: providerExecutable.path,
+      digest: sha256(startedAtOnlyGhScript)
+    });
+    const soloProtection = {
+      ...protection,
+      required_pull_request_reviews: { required_approving_review_count: 0 }
+    };
+    const soloGhScript = ghScript.replace(emit(protection), emit(soloProtection));
+    const soloExecutable = {
+      path: providerExecutable.path,
+      digest: sha256(soloGhScript)
+    };
+    await writeFile(fakeGh, soloGhScript, { mode: 0o700 });
+    await assert.rejects(
+      verifyRequiredChecksProvider(root, payload, soloExecutable),
+      /missing required pull-request reviews/
+    );
+    await assert.rejects(
+      verifyRequiredChecksProvider(
+        root,
+        { ...payload, humanApproval: { schemaVersion: 1 } },
+        soloExecutable
+      ),
+      /human approval binding is incomplete/
+    );
+    const invalidNegativeProtection = {
+      ...protection,
+      required_pull_request_reviews: { required_approving_review_count: -1 }
+    };
+    const invalidNegativeGhScript = ghScript.replace(emit(protection), emit(invalidNegativeProtection));
+    await writeFile(fakeGh, invalidNegativeGhScript, { mode: 0o700 });
+    await assert.rejects(
+      verifyRequiredChecksProvider(
+        root,
+        payload,
+        { path: providerExecutable.path, digest: sha256(invalidNegativeGhScript) }
+      ),
+      /missing required pull-request reviews/
+    );
+    const contextOnlyProtection = {
+      ...protection,
+      required_status_checks: { contexts: ["test"], checks: [] }
+    };
+    const contextOnlyGhScript = ghScript
+      .replace(emit(protection), emit(contextOnlyProtection))
+      .replace(emit(requiredStatusProtection), emit(contextOnlyProtection.required_status_checks))
+      .replace(emit([checkPage]), emit([{ total_count: 0, check_runs: [] }]));
+    await writeFile(fakeGh, contextOnlyGhScript, { mode: 0o700 });
+    await verifyRequiredChecksProvider(root, {
+      ...payload,
+      requiredStatusCheckApps: [{ context: "test", appId: null }],
+      providerRunIds: ["201"],
+      checks: [{
+        name: "test#201",
+        providerName: "test",
+        providerRunId: "201",
+        observationKind: "commit-status",
+        completedAt: newestCompletedAt,
+        conclusion: "success"
+      }]
+    }, {
+      path: providerExecutable.path,
+      digest: sha256(contextOnlyGhScript)
+    });
+    const crossKindCheck = {
+      id: 199,
+      name: "test",
+      head_sha: head,
+      status: "completed",
+      conclusion: "success",
+      created_at: newestCompletedAt,
+      completed_at: newestCompletedAt
+    };
+    const crossKindStatus = { ...statusPage[0], id: 200, state: "failure", created_at: newestCompletedAt, updated_at: newestCompletedAt };
+    const crossKindGhScript = contextOnlyGhScript
+      .replace(emit([{ total_count: 0, check_runs: [] }]), emit([{ total_count: 1, check_runs: [crossKindCheck] }]))
+      .replace(emit([statusPage]), emit([[crossKindStatus]]));
+    await writeFile(fakeGh, crossKindGhScript, { mode: 0o700 });
+    await assert.rejects(
+      verifyRequiredChecksProvider(root, {
+        ...payload,
+        requiredStatusCheckApps: [{ context: "test", appId: null }],
+        providerRunIds: ["200"],
+        checks: [{ name: "test#200", providerName: "test", providerRunId: "200", observationKind: "commit-status", completedAt: newestCompletedAt, conclusion: "failure" }]
+      }, { path: providerExecutable.path, digest: sha256(crossKindGhScript) }),
+      /latest protected check observation is not successful|ambiguous cross-provider observations/
+    );
+    const reverseCrossKindCheck = { ...crossKindCheck, id: 201, conclusion: "failure" };
+    const reverseCrossKindStatus = { ...crossKindStatus, id: 200, state: "success" };
+    const reverseCrossKindGhScript = contextOnlyGhScript
+      .replace(emit([{ total_count: 0, check_runs: [] }]), emit([{ total_count: 1, check_runs: [reverseCrossKindCheck] }]))
+      .replace(emit([statusPage]), emit([[reverseCrossKindStatus]]));
+    await writeFile(fakeGh, reverseCrossKindGhScript, { mode: 0o700 });
+    await assert.rejects(
+      verifyRequiredChecksProvider(root, {
+        ...payload,
+        requiredStatusCheckApps: [{ context: "test", appId: null }],
+        providerRunIds: ["201"],
+        checks: [{ name: "test#201", providerName: "test", providerRunId: "201", observationKind: "commit-status", completedAt: newestCompletedAt, conclusion: "failure" }]
+      }, { path: providerExecutable.path, digest: sha256(reverseCrossKindGhScript) }),
+      /latest protected check observation is not successful|ambiguous cross-provider observations/
+    );
+    const largerStatusSuccessCheck = { ...crossKindCheck, id: 198, conclusion: "failure" };
+    const largerStatusSuccess = { ...crossKindStatus, id: 200, state: "success" };
+    const largerStatusSuccessGhScript = contextOnlyGhScript
+      .replace(emit([{ total_count: 0, check_runs: [] }]), emit([{ total_count: 1, check_runs: [largerStatusSuccessCheck] }]))
+      .replace(emit([statusPage]), emit([[largerStatusSuccess]]));
+    await writeFile(fakeGh, largerStatusSuccessGhScript, { mode: 0o700 });
+    await assert.rejects(
+      verifyRequiredChecksProvider(root, {
+        ...payload,
+        requiredStatusCheckApps: [{ context: "test", appId: null }],
+        providerRunIds: ["200"],
+        checks: [{ name: "test#200", providerName: "test", providerRunId: "200", observationKind: "commit-status", completedAt: newestCompletedAt, conclusion: "success" }]
+      }, { path: providerExecutable.path, digest: sha256(largerStatusSuccessGhScript) }),
+      /ambiguous cross-provider observations/
+    );
+    const failedStatusPage = [{ ...statusPage[0], id: 202, state: "failure", updated_at: latestFailedAt }];
+    const failedStatusGhScript = contextOnlyGhScript.replace(emit([statusPage]), emit([failedStatusPage]));
+    await writeFile(fakeGh, failedStatusGhScript, { mode: 0o700 });
+    await assert.rejects(
+      verifyRequiredChecksProvider(root, {
+        ...payload,
+        requiredStatusCheckApps: [{ context: "test", appId: null }],
+        providerRunIds: ["202"],
+        checks: [{
+          name: "test#202",
+          providerName: "test",
+          providerRunId: "202",
+          observationKind: "commit-status",
+          completedAt: latestFailedAt,
+          conclusion: "failure"
+        }]
+      }, {
+        path: providerExecutable.path,
+        digest: sha256(failedStatusGhScript)
+      }),
+      /latest protected check observation is not successful/
+    );
+    const duplicateContextProtection = {
+      ...protection,
+      required_status_checks: {
+        contexts: [],
+        checks: [{ context: "test", app_id: 15368 }, { context: "test", app_id: 9876 }]
+      }
+    };
+    const duplicateContextGhScript = ghScript
+      .replace(emit(protection), emit(duplicateContextProtection))
+      .replace(emit(requiredStatusProtection), emit(duplicateContextProtection.required_status_checks));
+    await writeFile(fakeGh, duplicateContextGhScript, { mode: 0o700 });
+    await assert.rejects(
+      verifyRequiredChecksProvider(root, {
+        ...payload,
+        requiredStatusCheckApps: [
+          { context: "test", appId: 15368 },
+          { context: "test", appId: 9876 }
+        ],
+        checks: [
+          { name: "test#102", providerName: "test", providerRunId: "102", observationKind: "check-run", conclusion: "success" },
+          { name: "test#105", providerName: "test", providerRunId: "105", observationKind: "check-run", conclusion: "success" }
+        ],
+        checkSet: ["test", "test"],
+        providerRunIds: ["102", "105"],
+        conclusions: ["success", "success"]
+      }, {
+        path: providerExecutable.path,
+        digest: sha256(duplicateContextGhScript)
+      }),
+      /duplicate contexts that the evidence schema cannot represent/
+    );
+    await writeFile(fakeGh, ghScript, { mode: 0o700 });
+    await assert.rejects(
+      verifyRequiredChecksProvider(root, {
+        ...payload,
+        providerRunIds: ["101"],
+        checks: [{ ...payload.checks[0], name: "test#101", providerRunId: "101", observationKind: "check-run" }]
+      }, providerExecutable),
+      /canonical protected check observation set/
+    );
+    const failedGhScript = ghScript.replace(emit([checkPage]), emit([failedCheckPage]));
+    await writeFile(fakeGh, failedGhScript, { mode: 0o700 });
+    await assert.rejects(
+      verifyRequiredChecksProvider(root, payload, {
+        path: providerExecutable.path,
+        digest: sha256(failedGhScript)
+      }),
+      /latest protected check observation is not successful/
+    );
+    const equalTimestampGhScript = ghScript.replace(emit([checkPage]), emit([equalTimestampCheckPage]));
+    await writeFile(fakeGh, equalTimestampGhScript, { mode: 0o700 });
+    await assert.rejects(
+      verifyRequiredChecksProvider(root, payload, {
+        path: providerExecutable.path,
+        digest: sha256(equalTimestampGhScript)
+      }),
+      /latest protected check observation is not successful/
+    );
+    const duplicateObservationPage = {
+      ...equalTimestampCheckPage,
+      check_runs: equalTimestampCheckPage.check_runs.map((check) => ({ ...check, id: 100 }))
+    };
+    const duplicateObservationGhScript = ghScript.replace(emit([checkPage]), emit([duplicateObservationPage]));
+    await writeFile(fakeGh, duplicateObservationGhScript, { mode: 0o700 });
+    await assert.rejects(
+      verifyRequiredChecksProvider(root, payload, {
+        path: providerExecutable.path,
+        digest: sha256(duplicateObservationGhScript)
+      }),
+      /ambiguous duplicate observations/
+    );
+    const unsafeCheckPage = {
+      ...checkPage,
+      check_runs: checkPage.check_runs.map((check) => (
+        check.id === 102 ? { ...check, id: Number.MAX_SAFE_INTEGER + 2 } : check
+      ))
+    };
+    const unsafeCheckGhScript = ghScript.replace(emit([checkPage]), emit([unsafeCheckPage]));
+    await writeFile(fakeGh, unsafeCheckGhScript, { mode: 0o700 });
+    await assert.rejects(
+      verifyRequiredChecksProvider(root, payload, {
+        path: providerExecutable.path,
+        digest: sha256(unsafeCheckGhScript)
+      }),
+      /unsafe observation identity/
+    );
+    const unsafeStatusPage = [{ ...statusPage[0], id: Number.MAX_SAFE_INTEGER + 2 }];
+    const unsafeStatusGhScript = contextOnlyGhScript.replace(emit([statusPage]), emit([unsafeStatusPage]));
+    await writeFile(fakeGh, unsafeStatusGhScript, { mode: 0o700 });
+    await assert.rejects(
+      verifyRequiredChecksProvider(root, {
+        ...payload,
+        requiredStatusCheckApps: [{ context: "test", appId: null }],
+        providerRunIds: [String(Number.MAX_SAFE_INTEGER + 2)],
+        checks: [{
+          name: `test#${Number.MAX_SAFE_INTEGER + 2}`,
+          providerName: "test",
+          providerRunId: String(Number.MAX_SAFE_INTEGER + 2),
+          observationKind: "commit-status",
+          completedAt: newestCompletedAt,
+          conclusion: "success"
+        }]
+      }, {
+        path: providerExecutable.path,
+        digest: sha256(unsafeStatusGhScript)
+      }),
+      /unsafe observation identity/
+    );
+    const missingOriginCheckPage = {
+      total_count: 4,
+      check_runs: [
+        ...checkPage.check_runs,
+        {
+          id: 105,
+          name: "test",
+          head_sha: head,
+          status: "queued",
+          conclusion: null,
+          created_at: null,
+          started_at: null,
+          completed_at: null,
+          app: { id: 15368 }
+        }
+      ]
+    };
+    const missingOriginGhScript = ghScript.replace(emit([checkPage]), emit([missingOriginCheckPage]));
+    await writeFile(fakeGh, missingOriginGhScript, { mode: 0o700 });
+    await assert.rejects(
+      verifyRequiredChecksProvider(root, payload, {
+        path: providerExecutable.path,
+        digest: sha256(missingOriginGhScript)
+      }),
+      /without a valid origin timestamp/
+    );
+    const missingTerminalStatus = (({ updated_at: _updatedAt, ...status }) => status)({
+      ...statusPage[0],
+      id: 203,
+      created_at: newestCompletedAt
+    });
+    const missingTerminalStatusGhScript = contextOnlyGhScript.replace(emit([statusPage]), emit([[missingTerminalStatus]]));
+    await writeFile(fakeGh, missingTerminalStatusGhScript, { mode: 0o700 });
+    await assert.rejects(
+      verifyRequiredChecksProvider(root, {
+        ...payload,
+        requiredStatusCheckApps: [{ context: "test", appId: null }],
+        providerRunIds: ["203"],
+        checks: [{
+          name: "test#203",
+          providerName: "test",
+          providerRunId: "203",
+          observationKind: "commit-status",
+          completedAt: newestCompletedAt,
+          conclusion: "success"
+        }]
+      }, {
+        path: providerExecutable.path,
+        digest: sha256(missingTerminalStatusGhScript)
+      }),
+      /without a valid terminal timestamp/
+    );
+    const futureCompletionPage = {
+      ...checkPage,
+      check_runs: checkPage.check_runs.map((check) => (
+        check.id === 102
+          ? { ...check, completed_at: new Date(Date.parse(observedAt) + 1000).toISOString() }
+          : check
+      ))
+    };
+    const futureCompletionGhScript = ghScript.replace(emit([checkPage]), emit([futureCompletionPage]));
+    await writeFile(fakeGh, futureCompletionGhScript, { mode: 0o700 });
+    await assert.rejects(
+      verifyRequiredChecksProvider(root, payload, {
+        path: providerExecutable.path,
+        digest: sha256(futureCompletionGhScript)
+      }),
+      /latest protected check observation is not successful/
+    );
+  } finally {
+    process.env.PATH = priorPath;
+  }
+});
+
+test("required-check verifier preserves ruleset integration identity for same-named checks", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-required-check-ruleset-app-"));
+  const bin = path.join(root, "bin");
+  await mkdir(bin, { recursive: true });
+  const fakeGh = path.join(bin, "gh");
+  const head = "b".repeat(40);
+  const observedAt = new Date(Date.now() - 1000).toISOString();
+  const protection = {
+    enforce_admins: { enabled: true },
+    required_status_checks: { contexts: [], checks: [] },
+    required_pull_request_reviews: { required_approving_review_count: 1 },
+    allow_force_pushes: { enabled: false },
+    allow_deletions: { enabled: false }
+  };
+  const requiredStatusProtection = { strict: true, contexts: [], checks: [] };
+  const rulesetSummary = [{ id: 9, enforcement: "active" }];
+  const rulesetDetail = {
+    id: 9,
+    target: "branch",
+    enforcement: "active",
+    bypass_actors: [],
+    conditions: { ref_name: { include: ["refs/heads/dev"] } },
+    rules: [
+      { type: "required_status_checks", parameters: {
+        strict_required_status_checks_policy: true,
+        required_status_checks: [{ context: "test", integration_id: 15368 }]
+      } },
+      { type: "pull_request", parameters: { required_approving_review_count: 1 } }
+    ]
+  };
+  const checkPage = {
+    total_count: 1,
+    check_runs: [{
+      id: 601,
+      name: "test",
+      head_sha: head,
+      status: "completed",
+      conclusion: "success",
+      created_at: observedAt,
+      completed_at: observedAt,
+      app: { id: 15368 }
+    }]
+  };
+  const workflowPage = {
+    total_count: 1,
+    workflow_runs: [{ id: 901, head_sha: head, status: "completed", conclusion: "success", updated_at: observedAt }]
+  };
+  const emit = (value) => JSON.stringify(JSON.stringify(value));
+  const ghScript = [
+    "#!/bin/sh",
+    "[ \"$1\" = api ] || exit 9",
+    "endpoint=\"$2\"",
+    "if [ \"$2\" = --paginate ]; then endpoint=\"$4\"; fi",
+    `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo/branches/dev/protection")} ]; then printf '%s\\n' ${emit(protection)}; exit 0; fi`,
+    `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo/rules/branches/dev")} ]; then printf '%s\\n' '[]'; exit 0; fi`,
+    `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo/rulesets?includes_parents=true")} ]; then printf '%s\\n' ${emit([rulesetSummary])}; exit 0; fi`,
+    `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo/rulesets/9")} ]; then printf '%s\\n' ${emit(rulesetDetail)}; exit 0; fi`,
+    `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo/branches/dev/protection/required_status_checks")} ]; then printf '%s\\n' ${emit(requiredStatusProtection)}; exit 0; fi`,
+    `if [ \"$endpoint\" = ${JSON.stringify(`repos/example/repo/actions/runs?head_sha=${head}&per_page=100`)} ]; then printf '%s\\n' ${emit([workflowPage])}; exit 0; fi`,
+    `if [ \"$endpoint\" = ${JSON.stringify(`repos/example/repo/commits/${head}/check-runs?per_page=100`)} ]; then printf '%s\\n' ${emit([checkPage])}; exit 0; fi`,
+    `if [ \"$endpoint\" = ${JSON.stringify(`repos/example/repo/commits/${head}/statuses?per_page=100`)} ]; then printf '%s\\n' ${emit([[]])}; exit 0; fi`,
+    "printf '%s\\n' \"unexpected gh endpoint: $endpoint\" >&2",
+    "exit 9"
+  ].join("\n");
+  await writeFile(fakeGh, ghScript, { mode: 0o700 });
+  const providerExecutable = { path: await realpath(fakeGh), digest: sha256(ghScript) };
+  const payload = {
+    provider: "github",
+    repository: "github.com/example/repo",
+    baseRefName: "dev",
+    head,
+    requiredStatusChecks: ["test"],
+    requiredStatusCheckApps: [{ context: "test", appId: 15368 }],
+    checkSet: ["test"],
+    providerRunIds: ["601"],
+    conclusions: ["success"],
+    checks: [{ name: "test#601", providerName: "test", providerRunId: "601", observationKind: "check-run", completedAt: observedAt, conclusion: "success" }],
+    providerExecutable,
+    observedAt
+  };
+  const priorPath = process.env.PATH;
+  process.env.PATH = `${bin}:${priorPath}`;
+  try {
+    await verifyRequiredChecksProvider(root, payload, providerExecutable);
+    const unauthorizedCheckPage = {
+      ...checkPage,
+      check_runs: [{ ...checkPage.check_runs[0], app: { id: 9876 } }]
+    };
+    const unauthorizedGhScript = ghScript.replace(emit([checkPage]), emit([unauthorizedCheckPage]));
+    await writeFile(fakeGh, unauthorizedGhScript, { mode: 0o700 });
+    await assert.rejects(
+      verifyRequiredChecksProvider(root, payload, {
+        path: providerExecutable.path,
+        digest: sha256(unauthorizedGhScript)
+      }),
+      /no fresh successful check observation for protected context/
     );
   } finally {
     process.env.PATH = priorPath;
@@ -2267,6 +4847,222 @@ fi
     await assert.rejects(stat(reservationPath));
   } finally {
     process.env.PATH = priorPath;
+  }
+});
+
+test("transferred PR ownership rejects self-asserted authorization", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-pr-ownership-transfer-"));
+  const repository = path.join(root, "repository");
+  const bin = path.join(root, "bin");
+  const priorStateRoot = process.env.SBW_STATE_ROOT;
+  await mkdir(repository, { recursive: true });
+  await mkdir(bin, { recursive: true });
+  await execFileAsync("git", ["init", "-q", "-b", "codex/feature"], { cwd: repository });
+  await execFileAsync("git", ["config", "user.email", "sbw@example.invalid"], { cwd: repository });
+  await execFileAsync("git", ["config", "user.name", "SBW Test"], { cwd: repository });
+  await execFileAsync("git", ["remote", "add", "origin", "https://github.com/example/repo.git"], { cwd: repository });
+  await writeFile(path.join(repository, "README.md"), "transfer\n");
+  await execFileAsync("git", ["add", "README.md"], { cwd: repository });
+  await execFileAsync("git", ["commit", "-qm", "baseline"], { cwd: repository });
+  const head = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repository })).stdout.trim();
+  const remoteRevision = "a".repeat(40);
+  const taskContract = contract({ template: "pr-to-dev", authority: ["pr.create"], remoteRevision });
+  const sourceRun = await createRun({ root, contract: taskContract, requestedMode: "critical", cwd: repository });
+  const targetRun = await createRun({ root, contract: structuredClone(taskContract), requestedMode: "critical", cwd: repository });
+  const sourceRunDir = path.join(root, "runs", sourceRun.runId);
+  const targetRunDir = path.join(root, "runs", targetRun.runId);
+  const number = 17;
+  const url = `https://github.com/example/repo/pull/${number}`;
+  const sourceAttemptId = "source-pr-attempt";
+  const sourceIdempotencyKey = "source-pr-idempotency";
+  const targetAttemptId = "target-pr-attempt";
+  const targetIdempotencyKey = "target-pr-idempotency";
+  const sourceMarker = `sbw:${sourceAttemptId}:${sourceIdempotencyKey}`;
+  const sourceProviderReceipt = {
+    action: "pr.create",
+    provider: "github-cli",
+    resource: "pull/new",
+    outcome: "success",
+    runId: sourceRun.runId,
+    attemptId: sourceAttemptId,
+    idempotencyKey: sourceIdempotencyKey,
+    remoteRevision,
+    executionId: `github:github.com/example/repo:pr.create:${number}:${head}`,
+    proofKind: "github-pr-create",
+    requestDigest: "a".repeat(64),
+    responseDigest: "b".repeat(64),
+    verifiedAt: new Date().toISOString(),
+    terminalState: "success",
+    created: true,
+    creationProof: {
+      attemptId: sourceAttemptId,
+      idempotencyKey: sourceIdempotencyKey,
+      marker: sourceMarker,
+      providerObjectId: "node-17",
+      observedAt: new Date().toISOString()
+    },
+    creationPreconditionDigest: "c".repeat(64),
+    number,
+    head,
+    base: "dev",
+    url
+  };
+  const sourceAction = {
+    schemaVersion: 1,
+    tokenHash: sha256("source-token"),
+    status: "spent",
+    outcome: "success",
+    runId: sourceRun.runId,
+    action: "pr.create",
+    provider: "github-cli",
+    resource: "pull/new",
+    remoteRevision,
+    attemptId: sourceAttemptId,
+    idempotencyKey: sourceIdempotencyKey,
+    expectedHead: head,
+    targetRef: "dev",
+    headBranch: "codex/feature",
+    createRepository: "github.com/example/repo",
+    ownedResource: `pull/${number}`,
+    providerAuthorization: {
+      provider: "github-cli",
+      repository: "github.com/example/repo",
+      actor: "alice",
+      permissions: { admin: false, maintain: false, push: true }
+    },
+    receipt: {
+      action: "pr.create",
+      provider: "github-cli",
+      resource: "pull/new",
+      outcome: "success",
+      runId: sourceRun.runId,
+      attemptId: sourceAttemptId,
+      idempotencyKey: sourceIdempotencyKey,
+      remoteRevision,
+      evidenceIds: [],
+      providerReceipt: sourceProviderReceipt
+    }
+  };
+  const sourceManifestPath = path.join(sourceRunDir, "manifest.json");
+  const sourceManifest = JSON.parse(await readFile(sourceManifestPath, "utf8"));
+  sourceManifest.ownedResources = [{
+    resource: `pull/${number}`,
+    creationResource: "pull/new",
+    ownerRunId: sourceRun.runId,
+    receiptDigest: "d".repeat(64),
+    creationAttemptId: sourceAttemptId,
+    creationActionDigest: digestObject({
+      attemptId: sourceAction.attemptId,
+      action: sourceAction.action,
+      resource: sourceAction.resource,
+      outcome: sourceAction.outcome,
+      receipt: sourceAction.receipt
+    }),
+    creationReservation: { provider: "github-cli", repository: "github.com/example/repo", action: "pr.create", resource: "pull/new" },
+    registeredAt: new Date().toISOString()
+  }];
+  await writeFile(sourceManifestPath, `${JSON.stringify(sourceManifest)}\n`);
+  await writeFile(path.join(sourceRunDir, "actions", `${sourceAction.tokenHash}.json`), `${JSON.stringify(sourceAction)}\n`);
+  await updateState(root, sourceRun.runId, (state) => ({ ...state, status: "cancelled_superseded" }));
+  const targetManifest = JSON.parse(await readFile(path.join(targetRunDir, "manifest.json"), "utf8"));
+  const targetRecord = {
+    runId: targetRun.runId,
+    attemptId: targetAttemptId,
+    action: "pr.create",
+    provider: "github-cli",
+    resource: "pull/new",
+    remoteRevision,
+    expectedHead: head,
+    targetRef: "dev",
+    createRepository: "github.com/example/repo",
+    providerAuthorization: {
+      provider: "github-cli",
+      repository: "github.com/example/repo",
+      actor: "alice",
+      permissions: { admin: false, maintain: false, push: true }
+    }
+  };
+  const targetMarker = `sbw:${targetAttemptId}:${targetIdempotencyKey}`;
+  const actualCreatedAt = new Date().toISOString();
+  const actual = {
+    node_id: "node-17",
+    created_at: actualCreatedAt,
+    user: { login: "alice" },
+    head: { sha: head },
+    base: { ref: "dev" },
+    body: `Automated delivery. <!-- ${sourceMarker} -->`,
+    html_url: url,
+    state: "open"
+  };
+  const fakeGh = path.join(bin, "gh");
+  const ghScript = `#!/bin/sh
+if [ "$1" = "api" ] && [ "$2" = "user" ]; then
+  printf '%s\\n' '{"login":"alice"}'
+elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo" ]; then
+  printf '%s\\n' '{"full_name":"example/repo","permissions":{"admin":false,"maintain":false,"push":true}}'
+elif [ "$1" = "api" ]; then
+  printf '%s\\n' '${JSON.stringify(actual).replaceAll("'", "'\\''")}'
+else
+  printf '%s\\n' '{"number":17,"headRefOid":"${head}","baseRefName":"dev","url":"${url}"}'
+fi
+`;
+  await writeFile(fakeGh, ghScript);
+  await chmod(fakeGh, 0o755);
+  const ownershipTransfer = {
+    schemaVersion: 1,
+    authorization: "user-approved",
+    sourceRunId: sourceRun.runId,
+    sourceResource: `pull/${number}`,
+    sourceAttemptId,
+    sourceMarker,
+    sourceActionDigest: digestObject(sourceAction),
+    targetRunId: targetRun.runId,
+    targetAttemptId,
+    authorizationDigest: digestObject({
+      kind: "user-approved-ownership-transfer",
+      sourceRunId: sourceRun.runId,
+      targetRunId: targetRun.runId,
+      sourceResource: `pull/${number}`,
+      targetAttemptId,
+      repository: "github.com/example/repo",
+      number
+    }),
+    transferredAt: new Date().toISOString()
+  };
+  const providerReceipt = {
+    action: "pr.create",
+    provider: "github-cli",
+    resource: "pull/new",
+    outcome: "success",
+    runId: targetRun.runId,
+    attemptId: targetAttemptId,
+    idempotencyKey: targetIdempotencyKey,
+    remoteRevision,
+    executionId: `github:github.com/example/repo:pr.transfer:${targetRun.runId}:${targetAttemptId}:${number}:${head}`,
+    proofKind: "github-pr-create",
+    requestDigest: "e".repeat(64),
+    responseDigest: digestObject({ number, head, base: "dev", url }),
+    verifiedAt: new Date().toISOString(),
+    terminalState: "success",
+    created: true,
+    creationProof: { attemptId: targetAttemptId, idempotencyKey: targetIdempotencyKey, marker: targetMarker, providerObjectId: "node-17", observedAt: actualCreatedAt },
+    creationPreconditionDigest: "f".repeat(64),
+    ownershipTransfer,
+    number,
+    head,
+    base: "dev",
+    url
+  };
+  process.env.SBW_STATE_ROOT = root;
+  try {
+    await assert.rejects(
+      verifyTransferredPullRequestOwnership(targetManifest, targetRecord, providerReceipt, fakeGh),
+      /host-signed authorization receipt/
+    );
+  } finally {
+    if (priorStateRoot === undefined) delete process.env.SBW_STATE_ROOT;
+    else process.env.SBW_STATE_ROOT = priorStateRoot;
+    await rm(root, { recursive: true, force: true });
   }
 });
 
@@ -2992,7 +5788,7 @@ test("unsupported action execution does not consume its token", async () => {
   }, "tree", await loadDefaults());
   await assert.rejects(
     executeActionToken(root, run.runId, issued.token, "tree"),
-    /only supports github-cli pr\.merge and git\.push/
+    /only supports fixed GitHub\/Git provider adapters/
   );
   const state = await inspectRun(root, run.runId);
   assert.equal(state.actions.find((item) => item.tokenHash === sha256(issued.token)).status, "issued");

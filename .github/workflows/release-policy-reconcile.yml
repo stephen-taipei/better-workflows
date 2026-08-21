@@ -1,0 +1,70 @@
+name: Release policy reconciliation
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  release-policy-receipt:
+    name: Release policy receipt
+    # The Node entrypoint rejects non-merged runs and skips runs without the immutable close binding.
+    if: github.event.workflow_run.event == 'pull_request_target'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
+      statuses: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # workflow_run is privileged; use the watcher workflow's trusted base.
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24.12.0
+      - name: Validate exact closed merge trigger and prepare required-check policy receipt artifact
+        id: prepare
+        if: hashFiles('plugins/better-workflows/scripts/release-policy-receipt.mjs') != ''
+        env:
+          GITHUB_API_URL: ${{ github.api_url }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_EVENT_ACTION: ${{ github.event.action }}
+          GITHUB_EVENT_PATH: ${{ github.event_path }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_SERVER_URL: ${{ github.server_url }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_POLICY_RECEIPT_PHASE: prepare
+          RELEASE_POLICY_ADMIN_TOKEN: ${{ secrets.BETTER_WORKFLOWS_POLICY_TOKEN }}
+          RELEASE_POLICY_RECEIPT_FILE: ${{ runner.temp }}/release-policy-receipt.json
+        run: node plugins/better-workflows/scripts/release-policy-receipt.mjs
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: steps.prepare.outcome == 'success'
+        with:
+          name: better-workflows-release-policy-receipt-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/release-policy-receipt.json
+          if-no-files-found: error
+          retention-days: 90
+      - name: Publish required-check policy status after artifact upload
+        if: steps.prepare.outcome == 'success'
+        env:
+          GITHUB_API_URL: ${{ github.api_url }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_EVENT_ACTION: ${{ github.event.action }}
+          GITHUB_EVENT_PATH: ${{ github.event_path }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_SERVER_URL: ${{ github.server_url }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_POLICY_RECEIPT_PHASE: publish
+          RELEASE_POLICY_ADMIN_TOKEN: ${{ secrets.BETTER_WORKFLOWS_POLICY_TOKEN }}
+          RELEASE_POLICY_RECEIPT_FILE: ${{ runner.temp }}/release-policy-receipt.json
+        run: node plugins/better-workflows/scripts/release-policy-receipt.mjs

@@ -21,6 +21,13 @@ unbounded agent runtime.
 - **Fail-closed completion:** stale, missing, conflicting, or unknown evidence
   cannot silently become success.
 
+Review capability is bound separately from model selection. Review-enabled
+templates declare `review-contract-v1` for the legacy diff/package/broad-review
+contract, while `self-improve-ops` alone declares the observe-only
+`review-kernel-v2-pilot` with exact work-unit accounting and distinct
+host-attested finder/verifier executions. Editing a profile cannot add action
+authority or promote the pilot.
+
 ```mermaid
 flowchart LR
   A["Goal"] --> B["Route"]

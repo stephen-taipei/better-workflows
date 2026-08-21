@@ -1,6 +1,6 @@
 {
   "name": "better-workflows",
-  "version": "3.4.8",
+  "version": "3.4.13",
   "description": "Native-first, evidence-driven workflows for Codex.",
   "license": "MIT",
   "private": true,
@@ -13,6 +13,7 @@
   },
   "scripts": {
     "test": "node scripts/sbw.mjs eval",
-    "validate": "node scripts/sbw.mjs eval"
+    "validate": "node scripts/sbw.mjs eval",
+    "test:release-tag": "node --test scripts/tests/release-tag.test.mjs"
   }
 }

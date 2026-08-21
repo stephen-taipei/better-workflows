@@ -4,10 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
-  <meta name="description" content="Better Workflows 3.3.5 的 evidence-driven control plane、資料流與 replay 互動式原始碼說明書。">
+  <meta name="description" content="Better Workflows 3.4.13 的 evidence-driven control plane、資料流與 replay 互動式原始碼說明書。">
   <meta name="generator" content="sdk-maker">
   <title>Better Workflows 解剖書｜從意圖到可證明完成</title>
-  <!-- GENERATED: sdk-maker | observed 2026-08-12 | revision 57bd75d -->
+  <!-- GENERATED: sdk-maker | observed 2026-08-15 | revision c5abd1f -->
   <script>
     (() => {
       try {
@@ -878,7 +878,7 @@
       </button>
       <a class="brand" href="#top">
         <span class="brand-mark">BW</span>
-        <span class="brand-copy"><strong data-i18n="brand.full">Better Workflows 解剖書</strong><span>CODEBASE FIELD GUIDE · 3.3.5</span></span>
+        <span class="brand-copy"><strong data-i18n="brand.full">Better Workflows 解剖書</strong><span>CODEBASE FIELD GUIDE · 3.4.13</span></span>
       </a>
       <nav class="topbar-nav" aria-label="快速章節" data-i18n-aria-label="a11y.quickNav">
         <a href="#architecture-map" data-i18n="nav.architecture">架構地圖</a>
@@ -910,7 +910,7 @@
       <div class="drawer-head">
         <a class="brand" href="#top">
           <span class="brand-mark">BW</span>
-          <span class="brand-copy"><strong data-i18n="brand.full">Better Workflows 解剖書</strong><span>CODEBASE FIELD GUIDE · 3.3.5</span></span>
+          <span class="brand-copy"><strong data-i18n="brand.full">Better Workflows 解剖書</strong><span>CODEBASE FIELD GUIDE · 3.4.13</span></span>
         </a>
         <button class="drawer-close" id="close-nav" type="button" aria-label="關閉章節目錄" data-i18n-aria-label="a11y.closeContents">×</button>
       </div>
@@ -942,15 +942,15 @@
           <button class="icon-btn" id="print-btn" type="button" title="列印／匯出 PDF" aria-label="列印或匯出 PDF" data-i18n-title="action.print" data-i18n-aria-label="action.print">⎙</button>
           <button class="icon-btn" id="collapse-all" type="button" title="收合來源群組" aria-label="收合所有來源群組" data-i18n-title="action.collapse" data-i18n-aria-label="action.collapse">−</button>
         </div>
-        <span class="status-dot" aria-hidden="true">&nbsp;</span>HEAD 57bd75d · clean<br>
-        observed 2026-08-12 22:47 +08:00
+        <span class="status-dot" aria-hidden="true">&nbsp;</span>HEAD c5abd1f · clean<br>
+        observed 2026-08-15 00:05 +08:00
       </div>
     </aside>
 
     <main id="main">
       <header class="hero" id="top" data-search="Better Workflows 解剖書 從意圖到可證明完成">
         <div>
-          <p class="eyebrow" data-i18n="hero.eyebrow">Evidence-driven control plane · 3.3.5</p>
+          <p class="eyebrow" data-i18n="hero.eyebrow">Evidence-driven control plane · 3.4.13</p>
           <h1 data-i18n-html="hero.title">從意圖，走到<span class="accent">可證明完成。</span></h1>
           <p class="hero-lead" data-i18n-html="hero.lead">這不是一份 API 名稱清單，而是一本解釋 <strong>Better Workflows 如何做決定、留下證據、重播狀態，以及在副作用前停下來驗證</strong>的互動式解剖書。</p>
           <div class="hero-actions">
@@ -969,11 +969,11 @@
       </header>
 
       <div class="meta-strip" aria-label="研究基線">
-        <div class="meta-item"><span>Revision</span><strong>57bd75d</strong></div>
+        <div class="meta-item"><span>Revision</span><strong>c5abd1f</strong></div>
         <div class="meta-item"><span>Worktree</span><strong>clean</strong></div>
         <div class="meta-item"><span>Templates</span><strong>13</strong></div>
-        <div class="meta-item"><span>Evidence kinds</span><strong>99 / 10 groups</strong></div>
-        <div class="meta-item"><span>Declared tests</span><strong>356 · PASS</strong></div>
+        <div class="meta-item"><span>Evidence kinds</span><strong>101 / 10 groups</strong></div>
+        <div class="meta-item"><span>Declared tests</span><strong>379 · 18 files</strong></div>
         <div class="meta-item"><span>Graph diagnostics</span><strong>0 · d3310212…</strong></div>
       </div>
 
@@ -990,9 +990,9 @@
 
           <div class="grid-4">
             <div class="card blue"><div class="stat">13</div><div class="stat-label">可選 template；把不同工作型態投影成固定 stage 與 gate</div><a class="evidence-chip" style="margin-top:12px" href="#ev-template-inventory">template inventory</a></div>
-            <div class="card indigo"><div class="stat">99</div><div class="stat-label">typed evidence kinds；分屬 10 種 payload family</div></div>
+            <div class="card indigo"><div class="stat">101</div><div class="stat-label">typed evidence kinds；分屬 10 種 payload family</div></div>
             <div class="card violet"><div class="stat">60</div><div class="stat-label">templates 合計 execution stages；每個 stage 有 dependency 與 budget</div><a class="evidence-chip" style="margin-top:12px" href="#ev-template-inventory">stage inventory</a></div>
-            <div class="card coral"><div class="stat">356</div><div class="stat-label">16 個測試檔宣告的 test cases；覆蓋 control plane 與 host trust</div><a class="evidence-chip" style="margin-top:12px" href="#ev-test-inventory">test inventory</a> <a class="evidence-chip" style="margin-top:12px" href="#ev-validation-run">host eval · PASS</a></div>
+            <div class="card coral"><div class="stat">379</div><div class="stat-label">18 個測試檔宣告的 test cases；覆蓋 control plane 與 host trust</div><a class="evidence-chip" style="margin-top:12px" href="#ev-test-inventory">test inventory</a> <a class="evidence-chip" style="margin-top:12px" href="#ev-validation-run">docs / graph checks</a></div>
           </div>
 
           <div class="rule"></div>
@@ -1007,7 +1007,7 @@
               <span class="type-chip fact">FACT</span>
               <h3>狀態由資料推導</h3>
               <p>TaskContract v2、ledger event、typed evidence、review package 和 provider receipt 是權威資料；自由文字 PASS、舊對話或「我已做完」不是狀態來源。</p>
-              <a class="evidence-chip" href="#ev-state-contract">evidence-and-state.md:1–61</a>
+              <a class="evidence-chip" href="#ev-state-contract">evidence-and-state.md:1–77</a>
             </div>
             <div class="card">
               <span class="type-chip inference">INFERENCE</span>
@@ -1078,7 +1078,7 @@
 
           <div class="template-heading">
             <div><p class="kicker">13 governed playbooks</p><h3 style="margin:0">目前 template 全景</h3></div>
-            <p>依 default mode 篩選。Stage 數是 TaskContract v2 的執行骨架，不等於 agent 數；CI / deploy 類外部動作若沒有 fixed-argv adapter 與 live receipt verifier，會明確 deferred。</p>
+            <p>依 default mode 篩選。Stage 數是 TaskContract v2 的執行骨架，不等於 agent 數；GitHub Actions dispatch 目前 deferred，因 mutable ref 無法原子綁定 preflight revision；deploy / release 等尚未具 adapter 的動作也明確 deferred。</p>
           </div>
           <div class="filter-row" role="group" aria-label="Template mode 篩選" style="margin-bottom:14px">
             <button class="seg-btn active" type="button" aria-pressed="true" data-template-filter="all" data-i18n="filter.allTemplates">全部 · 13</button>
@@ -1102,7 +1102,7 @@
 
           <div class="data-pipeline" aria-label="證據資料流">
             <div class="pipe-step"><b>Producer</b><span>被 allowlist 的測試、review、provider 或 control-plane producer</span></div>
-            <div class="pipe-step"><b>Kind contract</b><span>99 個已知 kind；未知型別直接拒絕</span></div>
+            <div class="pipe-step"><b>Kind contract</b><span>101 個已知 kind；未知型別直接拒絕</span></div>
             <div class="pipe-step"><b>Payload family</b><span>10 種結構家族與 required fields</span></div>
             <div class="pipe-step"><b>Success predicate</b><span>不是只有 status=complete；內容也要成立</span></div>
             <div class="pipe-step"><b>Freshness</b><span>run、contract、revision、sentinel、PR / checks 綁定</span></div>
@@ -1111,9 +1111,9 @@
           </div>
 
           <div class="family-chart card">
-            <div class="donut-wrap" aria-label="99 種 evidence kind 分布圖">
-              <svg viewBox="0 0 220 220" role="img" aria-label="99 種 evidence kind 分為 10 個 payload family">
-                <title>Evidence contract families</title><desc>99 種 evidence kind 分為 10 個 payload family。</desc>
+            <div class="donut-wrap" aria-label="101 種 evidence kind 分布圖">
+              <svg viewBox="0 0 220 220" role="img" aria-label="101 種 evidence kind 分為 10 個 payload family">
+                <title>Evidence contract families</title><desc>101 種 evidence kind 分為 10 個 payload family。</desc>
                 <circle cx="110" cy="110" r="78" fill="none" stroke="#ded7ca" stroke-width="31"></circle>
                 <circle cx="110" cy="110" r="78" fill="none" stroke="#155eef" stroke-width="31" stroke-dasharray="158.4 331.7" stroke-dashoffset="0"></circle>
                 <circle cx="110" cy="110" r="78" fill="none" stroke="#6f95e8" stroke-width="31" stroke-dasharray="74.3 415.8" stroke-dashoffset="-158.4"></circle>
@@ -1121,7 +1121,7 @@
                 <circle cx="110" cy="110" r="78" fill="none" stroke="#4c3fb5" stroke-width="31" stroke-dasharray="54.5 435.6" stroke-dashoffset="-292.1"></circle>
                 <circle cx="110" cy="110" r="78" fill="none" stroke="#e85b4f" stroke-width="31" stroke-dasharray="143.5 346.6" stroke-dashoffset="-346.6"></circle>
               </svg>
-              <div class="donut-center"><strong>99</strong><span>KNOWN KINDS<br>10 FAMILIES</span></div>
+              <div class="donut-center"><strong>101</strong><span>KNOWN KINDS<br>10 FAMILIES</span></div>
             </div>
             <div class="bar-list" id="family-bars"></div>
           </div>
@@ -1189,7 +1189,7 @@
             <div class="gate" data-no="6"><b>Complete</b><p>再次 capture sentinel，重驗 evidence、ledger、review、remote/cache live state。</p></div>
           </div>
           <div class="grid-3" style="margin-top:22px">
-            <div class="card blue"><h3>Review identity</h3><p>Finding ID 穩定；disposition 必須帶 package-bound patch-review evidence。Broad review 完成還要綁 current sentinel 與 current HEAD。</p><a class="evidence-chip" href="#ev-review">review.mjs:16–535</a></div>
+            <div class="card blue"><h3>Review identity</h3><p>Finding ID 穩定；review package 也綁定 declared <code>reviewProfile</code> digest。Legacy profile 不冒充 kernel；只有 self-improve pilot 具 exact work-unit、source-quote 與 finder/verifier separation，且仍是 shadow-only。</p><a class="evidence-chip" href="#ev-review-profiles">review-profiles.md:1–41</a></div>
             <div class="card coral"><h3>Action authority</h3><p>Token 不只是 nonce：它綁 action request、contract、source、review、evidence、provider、remote 與 idempotency key；consume 時全部重驗。</p><a class="evidence-chip" href="#ev-action">core.mjs:5016–5803</a></div>
             <div class="card indigo"><h3>Terminal decision</h3><p>completion 前後各 capture 一次 source sentinel，並把 evidence、ledger、review、sentinel digests 寫入 completionDecision；任何 drift 都是 inconclusive。</p><a class="evidence-chip" href="#ev-completion">core.mjs:2335–2803</a></div>
           </div>
@@ -1224,7 +1224,7 @@
             <div>
               <p class="kicker">Self-improve evaluator replay</p>
               <h2>真正被重播的是固定 corpus、快照、prompt 與 host witness</h2>
-              <p class="chapter-summary">Self-improve v2.3 不從歷史對話「學習」。它比較 immutable baseline 與 candidate snapshot，使用固定 evaluation corpus；host 以 tool-free、single-request、strict JSON 方式產生 7 或 8 個獨立 witness，sbw 再離線重建 prompt、驗簽、計分與重算 comparison。</p>
+              <p class="chapter-summary">Self-improve v2.4 不從歷史對話「學習」。它比較 immutable baseline 與 candidate snapshot，使用固定 evaluation corpus；host 以 tool-free、single-request、strict JSON 方式產生 7 或 8 個獨立 witness，sbw 再離線重建 prompt、驗簽、計分與重算 comparison。</p>
             </div>
           </div>
           <div class="witness-lab">
@@ -1246,7 +1246,7 @@
           </div>
 
           <div class="data-pipeline" style="margin-top:28px" aria-label="Evaluator replay 資料流">
-            <div class="pipe-step"><b>Frozen corpus</b><span>v2.3 · 25 cases · train 12 / holdout 13</span></div>
+            <div class="pipe-step"><b>Frozen corpus</b><span>v2.4 · 27 cases · train 13 / holdout 14</span></div>
             <div class="pipe-step"><b>Immutable baseline</b><span>full SHA 且必須是 HEAD strict ancestor</span></div>
             <div class="pipe-step"><b>Candidate snapshot</b><span>baseline diff + untracked；全量 path/digest</span></div>
             <div class="pipe-step"><b>Sanitized prompt</b><span>完整 manifest + 有界均衡 samples；工具關閉</span></div>
@@ -1255,7 +1255,7 @@
             <div class="pipe-step"><b>Comparison</b><span>median、hard safety、regression、noise、strict improvement</span></div>
           </div>
           <div class="grid-3" style="margin-top:22px">
-            <div class="card"><div class="stat">25</div><div class="stat-label">CORPUS CASES · 10 evaluation classes</div><p style="margin-top:13px">每個 class 同時覆蓋 train 與 holdout；57 assertions 中 27 個標記為 hard-safety。</p><a class="evidence-chip" href="#ev-corpus-fixture">eval corpus v2.3 · live count</a></div>
+            <div class="card"><div class="stat">27</div><div class="stat-label">CORPUS CASES · 11 evaluation classes</div><p style="margin-top:13px">每個 class 同時覆蓋 train 與 holdout；64 assertions 中 34 個標記為 hard-safety。</p><a class="evidence-chip" href="#ev-corpus-fixture">eval corpus v2.4 · live count</a></div>
             <div class="card"><div class="stat">3 + 3</div><div class="stat-label">ORDINARY HOLDOUT ATTEMPTS</div><p style="margin-top:13px">baseline 三次、candidate 三次，取 per-case median；migration 另外加入 train baseline，總數成為 8。</p><a class="evidence-chip" href="#ev-self-improve-score">self-improve.mjs:1393–1522</a></div>
             <div class="card"><div class="stat">0</div><div class="stat-label">ALLOWED TOOL CALLS</div><p style="margin-top:13px">canonical Responses body 明列 tools: []、tool_choice: none；transcript lifecycle 要完整且 observedToolCalls=0。</p><a class="evidence-chip" href="#ev-host-trust">host-trust.mjs:350–391</a></div>
           </div>
@@ -1358,7 +1358,7 @@
               <span class="type-chip risk">RISK · INFERENCE</span><h3>核心模組集中</h3><p><code>core.mjs</code> 約 6.6k 行、CLI 約 2.5k 行。這不證明品質差，但意味變更 blast radius、review 認知負擔與拆分需求值得持續觀察。</p><a class="evidence-chip" href="#ev-module-size">live inventory</a>
             </div>
             <div class="card amber searchable" data-search="risk test cost latency validation">
-              <span class="type-chip risk">RISK · INFERENCE</span><h3>驗證成本可觀</h3><p>24 個 lib 模組約 21.3k 行，16 個 test 檔約 15.1k 行、356 cases。深度是優點，也會帶來全量 eval 時間與維護成本。</p><a class="evidence-chip" href="#ev-test-inventory">live inventory</a>
+              <span class="type-chip risk">RISK · INFERENCE</span><h3>驗證成本可觀</h3><p>26 個 lib 模組約 23.4k 行，18 個 test 檔約 18.3k 行、379 cases。深度是優點，也會帶來全量 eval 時間與維護成本。</p><a class="evidence-chip" href="#ev-test-inventory">live inventory</a>
             </div>
             <div class="card amber searchable" data-search="risk graph observability projection privacy">
               <span class="type-chip risk">RISK · INFERENCE</span><h3>可視性刻意受限</h3><p>Graph View 只投影 allowlisted structure，避免暴露敏感 payload。代價是 live observability 不等於完整 trace viewer；文件與工具不能過度承諾。</p><a class="evidence-chip" href="#ev-graph-code">graph.mjs:183–397</a>
@@ -1374,8 +1374,8 @@
             </div>
           </div>
           <div class="callout" style="margin-top:22px">
-            <span class="callout-icon">16</span>
-            <div><strong>目前 validation snapshot：16/16 suites 通過</strong><p>在可讀取 macOS process boot identity 的 host context，完整 <code>sbw eval</code> exit 0。Managed sandbox 版本曾因 <code>kern.boottime</code> 被拒而讓一個 publication test fail-closed；同一 isolated test 在 host context 通過。這是環境 trust boundary，不應被隱藏，也不應被誤報成 product pass 或 regression。</p><p style="margin-top:10px"><a class="evidence-chip" href="#ev-validation-run">runtime validation</a> <a class="evidence-chip" href="#ev-process-incarnation">process identity implementation</a></p></div>
+            <span class="callout-icon">0</span>
+            <div><strong>目前 validation snapshot：graph diagnostics=0、文件與 profile checks 通過</strong><p>本次以 current implementation baseline 執行 docs、fixtures、skills 與 graph checks；reviewProfile bindings 與 101-kind catalog 均可重驗。完整 evaluator replay、cache publication 與 provider delivery 仍由各自 workflow gate 管理，不能從本次文件檢查推導 side-effect authority。</p><p style="margin-top:10px"><a class="evidence-chip" href="#ev-validation-run">documentation validation</a> <a class="evidence-chip" href="#ev-graph-validation">graph validation</a></p></div>
           </div>
         </section>
 
@@ -1515,7 +1515,7 @@ git status --short<button class="copy-btn" type="button">複製</button></div>
           <div class="no-results" id="source-empty" data-i18n="source.empty">找不到符合條件的來源。</div>
           <div class="manifest-box">
             <strong>研究基線</strong><br>
-            <code>observedAt: 2026-08-12T22:47:13+08:00 · revision: 57bd75d0e68e1349fdcf87c8f485cd9ca6dfd9f3 · worktree: clean · scope: working tree + HEAD · selected source manifest: 60 files · sha256: 1ec39b44419e7826aa9bd2164d1a7c25644a9cb436abb117320c41c933e00ef1<br>validatedAt: 2026-08-12T23:37:11+08:00 · graph diagnostics: 0 · full host-context eval: PASS (16 suites)<br>snapshotBoundary: 原始 checkout 於觀測後前進至 a414e12 並有 8 個未提交修改；本版刻意維持 57bd75d 的 frozen evidence boundary，不涵蓋後續 drift。</code>
+            <code>observedAt: 2026-08-15T00:05:00+08:00 · revision: c5abd1fe7c580773c1cacb81dc0c01b58bf086d6 · worktree: clean · scope: working tree + HEAD · installed template sourceDigest: f1371f5477f6650a7d8999b7d2d8e99437db7286b75a8ef488cd31f56db3c8ab<br>validatedAt: 2026-08-15T00:05:00+08:00 · graph diagnostics: 0 · review-profile binding checks: PASS · evidence catalog: 101 kinds<br>snapshotBoundary: implementation baseline c5abd1f；本次文件同步新增 review capability profiles、101-kind catalog 說明與 HTML source locators；未執行 provider side effects。</code>
             <p style="margin:10px 0 0"><a class="evidence-chip" href="#ev-snapshot-boundary">查看 snapshot boundary</a></p>
           </div>
         </section>
@@ -1541,7 +1541,7 @@ git status --short<button class="copy-btn" type="button">複製</button></div>
       const messages = {
         'zh-Hant': {
           'meta.title': 'Better Workflows 解剖書｜從意圖到可證明完成',
-          'meta.description': 'Better Workflows 3.3.5 的 evidence-driven control plane、資料流與 replay 互動式原始碼說明書。',
+          'meta.description': 'Better Workflows 3.4.13 的 evidence-driven control plane、資料流與 replay 互動式原始碼說明書。',
           'a11y.skip': '跳到主要內容', 'a11y.openContents': '開啟章節目錄', 'a11y.closeContents': '關閉章節目錄',
           'a11y.quickNav': '快速章節', 'a11y.searchGuide': '搜尋本書', 'a11y.language': '語言',
           'a11y.darkMode': '切換深色模式', 'a11y.lightMode': '切換淺色模式',
@@ -1552,7 +1552,7 @@ git status --short<button class="copy-btn" type="button">複製</button></div>
           'nav.lenses': '角色閱讀路徑', 'nav.change': '改 Code 守則', 'nav.sources': '來源檔案',
           'search.global': '搜尋章節與證據…', 'search.sources': '搜尋 path、主題或 locator…',
           'action.print': '列印或匯出 PDF', 'action.collapse': '收合所有來源群組',
-          'hero.eyebrow': 'Evidence-driven control plane · 3.3.5',
+          'hero.eyebrow': 'Evidence-driven control plane · 3.4.13',
           'hero.title': '從意圖，走到<span class="accent">可證明完成。</span>',
           'hero.lead': '這不是一份 API 名稱清單，而是一本解釋 <strong>Better Workflows 如何做決定、留下證據、重播狀態，以及在副作用前停下來驗證</strong>的互動式解剖書。',
           'hero.start': '開始閱讀', 'hero.replay': '先看 Replay', 'hero.useCases': '情境應用手冊 ↗', 'hero.print': '列印版',
@@ -1571,7 +1571,7 @@ git status --short<button class="copy-btn" type="button">複製</button></div>
         },
         en: {
           'meta.title': 'Better Workflows Field Guide | From intent to provable completion',
-          'meta.description': 'An interactive, evidence-backed guide to the Better Workflows 3.3.5 control plane, dataflow, and replay model.',
+          'meta.description': 'An interactive, evidence-backed guide to the Better Workflows 3.4.13 control plane, dataflow, and replay model.',
           'a11y.skip': 'Skip to main content', 'a11y.openContents': 'Open chapter contents', 'a11y.closeContents': 'Close chapter contents',
           'a11y.quickNav': 'Quick chapters', 'a11y.searchGuide': 'Search this guide', 'a11y.language': 'Language',
           'a11y.darkMode': 'Switch to dark mode', 'a11y.lightMode': 'Switch to light mode',
@@ -1582,7 +1582,7 @@ git status --short<button class="copy-btn" type="button">複製</button></div>
           'nav.lenses': 'Reading paths', 'nav.change': 'Change-code rules', 'nav.sources': 'Source explorer',
           'search.global': 'Search chapters and evidence…', 'search.sources': 'Search path, topic, or locator…',
           'action.print': 'Print or export PDF', 'action.collapse': 'Collapse all source groups',
-          'hero.eyebrow': 'Evidence-driven control plane · 3.3.5',
+          'hero.eyebrow': 'Evidence-driven control plane · 3.4.13',
           'hero.title': 'From intent to <span class="accent">provable completion.</span>',
           'hero.lead': 'Not an API-name inventory, but an interactive field guide to <strong>how Better Workflows decides, records evidence, replays state, and pauses to verify before side effects</strong>.',
           'hero.start': 'Start reading', 'hero.replay': 'See replay first', 'hero.useCases': 'Use-case handbook ↗', 'hero.print': 'Print edition',
@@ -1608,7 +1608,7 @@ git status --short<button class="copy-btn" type="button">複製</button></div>
         'ledger-replay': ['State is replayed from events, not stored as a conclusion', 'This reduced teaching simulation builds intuition for the real reducer, which validates the TaskContract, dependencies, fixed budgets, root actor, ledger digest, and admitted typed evidence.'],
         'review-action': ['A side effect is not complete when the call returns', 'For merge, push, or cache publication, the system freezes an exact review identity, issues a short-lived one-shot token, executes through a fixed provider wrapper, and reconciles the receipt to success, failure, or unknown.'],
         replay: ['Replay has at least three distinct meanings', 'Each reconstructs a conclusion from persisted, verifiable input, but their inputs, outputs, and failure policy differ. Compare them without confusing evaluator replay, ledger replay, and provider reconciliation.'],
-        'self-improve': ['The replay target is a frozen corpus, snapshots, prompts, and host witnesses', 'Self-improve v2.3 does not learn from chat history. It compares immutable baseline and candidate snapshots against a fixed corpus, then verifies seven or eight independent, signed host witnesses offline.'],
+        'self-improve': ['The replay target is a frozen corpus, snapshots, prompts, and host witnesses', 'Self-improve v2.4 does not learn from chat history. It compares immutable baseline and candidate snapshots against a fixed corpus, then verifies seven or eight independent, signed host witnesses offline.'],
         'trust-boundary': ['The repo states policy; the host proves how it ran', 'Critical evaluator trust is rooted outside candidate-modifiable repository files: fixed host paths, a root-owned bundle, signed manifests, and a launcher constrain executable, identity, request, upstream, and witness lifecycle.'],
         autopilot: ['Autopilot is a signed authority budget, not an “everything automatic” switch', 'The profile binds repository, branch, worktree, expiry, and quantity limits. Every action is classified automatic, human-required, or denied; a failed preflight leaves resumable blocked state.'],
         publication: ['Publication separates “files landed” from “result is trusted”', 'A version lock, no-overwrite semantics, and pending-to-ready markers keep a rename from masquerading as completion. Promotion requires reconciled provider truth and matching target, run, attempt, and receipt identities.'],
@@ -1675,8 +1675,8 @@ git status --short<button class="copy-btn" type="button">複製</button></div>
         contract: { index: '02 · FREEZE', title: 'TaskContract', summary: '在執行前凍結目標、範圍、驗收、證據、權限、stage 與 gate。', bullets: ['v2 是 governed control-plane contract', 'mutation authority 固定 root-only', 'direct mode 是例外：不建立 governed run'], evidence: 'core.mjs:1022–1402', href: '#ev-contract' },
         source: { index: '03 · BIND', title: 'Source Binding', summary: '建立 repository 當下狀態的可重算身分，讓後續證據知道自己屬於哪個 source。', bullets: ['固定 /usr/bin/git 與最小環境', '綁 HEAD、index、status、tracked/untracked、submodule、config 等', '操作前後重捕 sentinel；drift 轉為 indeterminate'], evidence: 'git.mjs:450–690', href: '#ev-source-binding' },
         ledger: { index: '04 · DERIVE', title: 'Append-only Ledger', summary: '只保存事件，透過 deterministic reducer 推導 task state、ready set 與 budget。', bullets: ['dependency 必須靜態、已知、無 cycle', 'expectedLedgerDigest 防 concurrent stale writer', 'complete 必須帶 admitted typed evidence'], evidence: 'ledger.mjs:3–348', href: '#ev-ledger' },
-        evidence: { index: '05 · PROVE', title: 'Typed Evidence', summary: '用 contract 驗證 kind、producer、payload、semantic success、freshness 與 digest。', bullets: ['99 kinds / 10 payload families', 'caller acceptanceIds 不具權威', 'persisted evidence 會在消費時再次驗證'], evidence: 'evidence.mjs:7–537', href: '#ev-evidence' },
-        review: { index: '06 · CONVERGE', title: 'Review Package', summary: '把 review 綁到 exact base/head/mergeBase/diff/scope，不讓舊 finding 漂到新 revision。', bullets: ['finding ID 穩定且 package-bound', 'P0 不可 accepted-risk', 'critical 需要 exact independent critic；repair budget 最多五次'], evidence: 'review.mjs:16–535', href: '#ev-review' },
+        evidence: { index: '05 · PROVE', title: 'Typed Evidence', summary: '用 contract 驗證 kind、producer、payload、semantic success、freshness 與 digest。', bullets: ['101 kinds / 10 payload families', 'caller acceptanceIds 不具權威', 'persisted evidence 會在消費時再次驗證'], evidence: 'evidence.mjs:7–565', href: '#ev-evidence' },
+        review: { index: '06 · CONVERGE', title: 'Review Package', summary: '把 review 綁到 exact base/head/mergeBase/diff/scope，並以 reviewProfile 宣告可證明能力，不讓 legacy claim 冒充 kernel。', bullets: ['reviewProfile digest 與 package identity 綁定', 'legacy contract 與 kernel pilot 能力明確分開', 'kernel 具 exact work-unit / quote / finder-verifier receipts 且 observe-only'], evidence: 'review-profiles.md:1–41', href: '#ev-review-profiles' },
         action: { index: '07 · AUTHORIZE', title: 'One-shot Action Token', summary: '只在所有前置 gate 成立時發出短效、一次性、完全綁定的副作用權限。', bullets: ['預設 TTL 300 秒', 'consume 時重新驗 source / contract / review / evidence / provider', 'wrapper action 使用固定 executable 與 argv'], evidence: 'core.mjs:5016–5803', href: '#ev-action' },
         reconcile: { index: '08 · OBSERVE', title: 'Provider Reconciliation', summary: '把 provider 的外部事實對帳回 success、failure 或 unknown，而不是信任本機呼叫結果。', bullets: ['unknown 不可降成 failure', 'owned creation 只有證明 provider 不存在才可釋放', '同一 attempt 持久化 terminal outcome'], evidence: 'core.mjs:6226–6508', href: '#ev-reconcile' },
         complete: { index: 'TERMINAL · DECIDE', title: 'Completion Gate', summary: '終態前重捕 source 並重驗所有 authority；完成是一個帶 digests 的決策物件。', bullets: ['重驗 evidence / acceptance / ledger / review / sentinel', '檢查 P0/P1、side effects、remote/cache live state、critics', 'terminal capture 仍有 drift 就 inconclusive'], evidence: 'core.mjs:2335–2803', href: '#ev-completion' },
@@ -1704,12 +1704,12 @@ git status --short<button class="copy-btn" type="button">複製</button></div>
       };
 
       const families = [
-        ['validation-test', 32], ['inventory-snapshot', 15], ['plan-design', 12], ['review-analysis', 11], ['artifact-package', 7], ['decision-disposition', 7], ['side-effect-result', 6], ['revision-identity', 5], ['authorization', 2], ['provider-reconciliation', 2]
+        ['validation-test', 34], ['inventory-snapshot', 15], ['plan-design', 12], ['review-analysis', 11], ['artifact-package', 7], ['decision-disposition', 7], ['side-effect-result', 6], ['revision-identity', 5], ['authorization', 2], ['provider-reconciliation', 2]
       ];
 
       const templates = [
         ['browser-simulator-qa','verified',4,'以可重現 artifact 執行瀏覽器或模擬器的 current-state QA。'],
-        ['ci-release-monitor','critical',4,'序列化監控與對帳 CI / deploy / release；未具固定 adapter 的外部 dispatch 明確 deferred。'],
+        ['ci-release-monitor','critical',4,'序列化監控與對帳 CI / deploy / release；workflow dispatch、branch promotion、deploy、release 仍 deferred。'],
         ['cross-platform-contract','deep',5,'同步檢查 backend、Web、iOS、Android 的 API contract 相容性。'],
         ['dependabot-consolidation-pr-cleanup','critical',6,'盤點並分類 Dependabot PR，合併成 governed PR，完成 lockfile 驗證與 owned cleanup。'],
         ['ios-static-pbxproj','verified',3,'不做 local build 的 Swift 靜態 review 與序列化 pbxproj membership。'],
@@ -1729,19 +1729,20 @@ git status --short<button class="copy-btn" type="button">複製</button></div>
         { id:'ev-mode', group:'架構與路由', type:'fact', path:'plugins/better-workflows/scripts/lib/core.mjs:1003–1019', topic:'Auto mode 風險評分', note:'五個風險軸映射 direct / verified / deep / critical。' },
         { id:'ev-template-inventory', group:'架構與路由', type:'fact', path:'plugins/better-workflows/templates/*.json → execution.stages', topic:'Current template / stage inventory', note:'本次 live parse：13 個 template、60 個 execution stages；Graph View 由同一份 template 結構投影。' },
         { id:'ev-contract', group:'Contract、Ledger、Evidence', type:'fact', path:'plugins/better-workflows/scripts/lib/core.mjs:1022–1402', topic:'TaskContract v2 與 run creation', note:'驗證／建立 goal、scope、acceptance、evidence、root-only authority、stages、gates；direct 不建立 run。' },
-        { id:'ev-state-contract', group:'Contract、Ledger、Evidence', type:'fact', path:'plugins/better-workflows/skills/better-workflows/references/evidence-and-state.md:1–61', topic:'Public evidence / state contract', note:'文字 PASS 不改狀態；resume 不恢復 hidden reasoning；v2 evidence 是完成與副作用 authority。' },
+        { id:'ev-state-contract', group:'Contract、Ledger、Evidence', type:'fact', path:'plugins/better-workflows/skills/better-workflows/references/evidence-and-state.md:1–77', topic:'Public evidence / state contract', note:'文字 PASS 不改狀態；resume 不恢復 hidden reasoning；v2 evidence 是完成與副作用 authority；review package 另綁 reviewProfile digest。' },
         { id:'ev-ledger', group:'Contract、Ledger、Evidence', type:'fact', path:'plugins/better-workflows/scripts/lib/ledger.mjs:3–348', topic:'Append-only ledger reducer', note:'事件型別、固定 budget、static DAG、optimistic concurrency、typed-evidence completion 與 deterministic state derivation。' },
-        { id:'ev-evidence', group:'Contract、Ledger、Evidence', type:'fact', path:'plugins/better-workflows/scripts/lib/evidence.mjs:7–537', topic:'Typed evidence admission / revalidation', note:'99 contracts、10 families、producer allowlist、payload semantic/freshness/digest validation 與 persisted revalidation。' },
-        { id:'ev-evidence-contracts', group:'Contract、Ledger、Evidence', type:'fact', path:'plugins/better-workflows/config/evidence-contracts-v1.json:1–1997', topic:'Current evidence contract inventory', note:'本次 live parse：99 kinds、10 payload families、10 producer identities；圖表依 family 實際計數。' },
+        { id:'ev-evidence', group:'Contract、Ledger、Evidence', type:'fact', path:'plugins/better-workflows/scripts/lib/evidence.mjs:7–565', topic:'Typed evidence admission / revalidation', note:'101 contracts、10 families、producer allowlist、payload semantic/freshness/digest validation 與 persisted revalidation。' },
+        { id:'ev-evidence-contracts', group:'Contract、Ledger、Evidence', type:'fact', path:'plugins/better-workflows/config/evidence-contracts-v1.json:1–2043', topic:'Current evidence contract inventory', note:'本次 live parse：101 kinds、10 payload families、10 producer identities；新增 work-unit-accounting 與 review-kernel-summary aggregate receipts。' },
         { id:'ev-source-binding', group:'Source、Review、Action', type:'fact', path:'plugins/better-workflows/scripts/lib/git.mjs:450–690', topic:'Source binding 與 sentinel', note:'綁 HEAD/index/status/scoped files/submodule/symlink/config 等；雙重捕捉防 drift。' },
-        { id:'ev-review', group:'Source、Review、Action', type:'fact', path:'plugins/better-workflows/scripts/lib/review.mjs:16–535', topic:'Review package / finding / convergence', note:'Exact diff identity、stable finding ID、P0 policy、package-bound evidence、critic 與五次 repair budget。' },
+        { id:'ev-review', group:'Source、Review、Action', type:'fact', path:'plugins/better-workflows/scripts/lib/review.mjs:16–1447', topic:'Review package / finding / convergence', note:'Exact diff identity、stable finding ID、P0 policy、package-bound evidence、reviewProfile digest、critic 與五次 repair budget。' },
+        { id:'ev-review-profiles', group:'Source、Review、Action', type:'fact', path:'plugins/better-workflows/skills/better-workflows/references/review-profiles.md:1–41', topic:'Review capability profiles', note:'Legacy profile 只宣告 diff/package/broad-review/provenance/instruction bindings；kernel profile 才宣告 exact work units、source quotes、finder/verifier separation 與 host attestation，且只限 self-improve-ops、observe-only。' },
         { id:'ev-action', group:'Source、Review、Action', type:'fact', path:'plugins/better-workflows/scripts/lib/core.mjs:5016–5803', topic:'Action token issue / consume', note:'檢查 authority、sentinel、review、ledger、evidence、provider；一次性短效 token 與 fixed wrapper execution。' },
         { id:'ev-reconcile', group:'Source、Review、Action', type:'fact', path:'plugins/better-workflows/scripts/lib/core.mjs:6226–6508', topic:'Provider reconciliation', note:'只允許 success/failure/unknown；unknown 不可壓成 failure；persist exact attempt terminal outcome。' },
         { id:'ev-completion', group:'Source、Review、Action', type:'fact', path:'plugins/better-workflows/scripts/lib/core.mjs:2335–2803', topic:'Completion gate', note:'前後重新 capture sentinel，重驗所有 contract/evidence/ledger/review/side-effect/live-state bindings。' },
         { id:'ev-graph', group:'Graph View', type:'fact', path:'plugins/better-workflows/skills/better-workflows/SKILL.md:182–206', topic:'Graph View 權威邊界', note:'Read-only structural projection，不是 policy、authority、scheduler、runtime 或 persistence；JSON canonical。' },
         { id:'ev-graph-code', group:'Graph View', type:'fact', path:'plugins/better-workflows/scripts/lib/graph.mjs:5–1136', topic:'Typed graph projection / diagnostics', note:'Typed nodes/edges、safe provenance、allowlisted projection、cycle/dangling/incompatible diagnostics 與 Mermaid rendering。' },
-        { id:'ev-self-improve-corpus', group:'Self-improve replay', type:'fact', path:'plugins/better-workflows/scripts/lib/self-improve.mjs:177–255', topic:'Corpus v2.3 constraints', note:'2–28 cases、train + holdout、每 class 兩 split、恰一 invariant class、至少一 improvement class。' },
-        { id:'ev-corpus-fixture', group:'Self-improve replay', type:'fact', path:'plugins/better-workflows/fixtures/self-improve-ops-evals-v2.3.json:1–641', topic:'Current evaluator corpus inventory', note:'本次 live parse：10 classes、25 cases（train 12 / holdout 13）、57 assertions，其中 27 個 hardSafety=true。' },
+        { id:'ev-self-improve-corpus', group:'Self-improve replay', type:'fact', path:'plugins/better-workflows/scripts/lib/self-improve.mjs:177–255', topic:'Corpus v2.4 constraints', note:'2–28 cases、train + holdout、每 class 兩 split、恰一 invariant class、至少一 improvement class；v2.4 另含 review-work-unit-integrity class。' },
+        { id:'ev-corpus-fixture', group:'Self-improve replay', type:'fact', path:'plugins/better-workflows/fixtures/self-improve-ops-evals-v2.4.json:1–711', topic:'Current evaluator corpus inventory', note:'本次 live parse：11 classes、27 cases（train 13 / holdout 14）、64 assertions，其中 34 個 hardSafety=true。' },
         { id:'ev-self-snapshot', group:'Self-improve replay', type:'fact', path:'plugins/better-workflows/scripts/lib/self-improve.mjs:418–695', topic:'Immutable baseline / candidate snapshots', note:'Baseline 必須 full SHA strict ancestor；candidate 覆蓋 baseline diff 與 untracked，保留 digest / size / mode / change kind。' },
         { id:'ev-self-prompt', group:'Self-improve replay', type:'fact', path:'plugins/better-workflows/scripts/lib/self-improve.mjs:1023–1344', topic:'Sanitized bounded prompt', note:'Allowlisted UTF-8 excerpts、有界容量、完整 path manifest、均衡 samples、delimiter escape、tool-free/history-free 指令。' },
         { id:'ev-self-improve-score', group:'Self-improve replay', type:'fact', path:'plugins/better-workflows/scripts/lib/self-improve.mjs:1347–1680', topic:'Scoring / comparison policies', note:'Assertion classification、hard-safety、3+3 medians、migration / safety / quality purpose-specific strict gates。' },
@@ -1756,12 +1757,12 @@ git status --short<button class="copy-btn" type="button">複製</button></div>
         { id:'ev-process-incarnation', group:'Autonomy 與 Publication', type:'fact', path:'plugins/better-workflows/scripts/lib/publication.mjs:704–787', topic:'Process liveness / incarnation identity', note:'macOS 由 libproc start identity + kern.boottime + PID 計算 digest；無法觀測或權限錯誤回傳 unknown，保持 fail-closed。' },
         { id:'ev-publication-recovery', group:'Autonomy 與 Publication', type:'fact', path:'plugins/better-workflows/scripts/lib/publication.mjs:1525–2189', topic:'Pending → ready / recovery', note:'Marker 綁 source/run/attempt/receipt；immutable no-overwrite publish；recovery 不 republish。' },
         { id:'ev-module-size', group:'研究判讀', type:'inference', path:'plugins/better-workflows/scripts/lib/core.mjs (6,623 LOC); scripts/sbw.mjs (2,507 LOC)', topic:'核心模組集中度', note:'Live inventory 顯示大型 control-plane module；維護負擔是合理風險推論，不是已證實缺陷。' },
-        { id:'ev-test-inventory', group:'研究判讀', type:'fact', path:'plugins/better-workflows/scripts/tests/*.test.mjs → test()', topic:'Current test inventory', note:'本次 live count：16 個 .test.mjs、356 個 declared test cases、15,118 test LOC；成本解讀另標為 RISK / INFERENCE。' },
+        { id:'ev-test-inventory', group:'研究判讀', type:'fact', path:'plugins/better-workflows/scripts/tests/*.test.mjs → test()', topic:'Current test inventory', note:'本次 live count：18 個 .test.mjs、379 個 declared test cases、18,315 test LOC；成本解讀另標為 RISK / INFERENCE。' },
         { id:'ev-unknown-telemetry', group:'研究判讀', type:'unknown', path:'Repository scope (no production telemetry located)', topic:'實際 adoption / lead time', note:'本次 source scope 找不到可支持使用頻率、平均完成時間或 blocked 分布的資料。' },
         { id:'ev-unknown-provider', group:'研究判讀', type:'unknown', path:'Documentation run scope (no external provider actions)', topic:'Live provider readiness', note:'本次未使用外部 credentials 執行 merge/push/publish，不能把 provider readiness 視為已驗證。' },
-        { id:'ev-graph-validation', group:'研究基線', type:'fact', path:'sbw graph validate @ 57bd75d', topic:'Current graph validation', note:'本次實際執行 diagnostics=[]；graphDigest=d3310212aeee957da9a0a6aa0ec49d5e18af8f0b0d36d48289b1467ef43dd3b3。' },
-        { id:'ev-validation-run', group:'研究基線', type:'fact', path:'node plugins/better-workflows/scripts/sbw.mjs eval @ 57bd75d', topic:'Current full validation', note:'2026-08-12T23:37:11+08:00 host-context run：ok=true、16 suites、exit 0。Managed sandbox 因 kern.boottime EPERM 觸發 process-incarnation fail-closed；同一 isolated test 在 host context pass。' },
-        { id:'ev-snapshot-boundary', group:'研究基線', type:'fact', path:'git worktree reconciliation @ 2026-08-12T23:41:37+08:00', topic:'Frozen edition boundary', note:'獨立文件 worktree 維持 57bd75d；原始 checkout 在研究後前進到 a414e12（fix: fail closed on optional Git authority reads）並有 8 個未提交修改，全部排除於本版證據範圍。' }
+        { id:'ev-graph-validation', group:'研究基線', type:'fact', path:'sbw graph validate @ c5abd1f', topic:'Current graph validation', note:'本次實際執行 diagnostics=[]；graphDigest=57d3b796e1f0e8efff9c46bb776a12dfd2eee21d7482b47d6916eb8f1420bfd0。' },
+        { id:'ev-validation-run', group:'研究基線', type:'fact', path:'targeted docs + fixture tests @ c5abd1f', topic:'Current documentation validation', note:'本次同步以 docs、fixtures、skills 與 graph checks 驗證；完整 evaluator/cache publication 仍由其專屬 workflow gate 管理，未在 HTML 產生流程中宣稱。' },
+        { id:'ev-snapshot-boundary', group:'研究基線', type:'fact', path:'git worktree reconciliation @ 2026-08-15T00:05+08:00', topic:'Documentation sync boundary', note:'本版以 c5abd1f implementation baseline 同步 reviewProfile、101-kind evidence catalog 與 HTML locators；未執行 provider side effects。' }
       ];
 
       const englishData = {
@@ -1770,8 +1771,8 @@ git status --short<button class="copy-btn" type="button">複製</button></div>
           contract: { summary: 'Freezes goal, scope, acceptance, evidence, authority, stages, and gates before execution.', bullets: ['v2 is the governed control-plane contract', 'Mutation authority remains root-only', 'Direct mode is the exception and creates no governed run'] },
           source: { summary: 'Creates a reproducible identity for repository state so later evidence can prove which source it belongs to.', bullets: ['Uses a fixed /usr/bin/git with a minimal environment', 'Binds HEAD, index, status, tracked and untracked files, submodules, and configuration', 'Recaptures sentinels around actions; drift becomes indeterminate'] },
           ledger: { summary: 'Stores only events and derives task state, ready set, and budget through a deterministic reducer.', bullets: ['Dependencies are static, known, and acyclic', 'expectedLedgerDigest rejects concurrent stale writers', 'Completion requires admitted typed evidence'] },
-          evidence: { summary: 'Validates kind, producer, payload, semantic success, freshness, and digest against the evidence contract.', bullets: ['99 kinds across 10 payload families', 'Caller-supplied acceptanceIds have no authority', 'Persisted evidence is revalidated whenever consumed'] },
-          review: { summary: 'Binds review to exact base, head, merge base, diff, and scope so old findings cannot drift onto a new revision.', bullets: ['Finding IDs are stable and package-bound', 'P0 can never become accepted risk', 'Critical mode requires an exact independent critic and caps repair at five rounds'] },
+          evidence: { summary: 'Validates kind, producer, payload, semantic success, freshness, and digest against the evidence contract.', bullets: ['101 kinds across 10 payload families', 'Caller-supplied acceptanceIds have no authority', 'Persisted evidence is revalidated whenever consumed'] },
+          review: { summary: 'Binds review to the exact base, head, merge base, diff, and scope while declaring the claimed reviewProfile capability.', bullets: ['The package identity binds the reviewProfile digest', 'Legacy contract and kernel-pilot guarantees remain distinct', 'The kernel pilot adds exact work units, quote anchors, and finder/verifier receipts but stays observe-only'] },
           action: { summary: 'Issues short-lived, one-shot side-effect authority only after every prerequisite gate holds.', bullets: ['Default TTL is 300 seconds', 'Consumption revalidates source, contract, review, evidence, and provider', 'Wrappers use a fixed executable and argv'] },
           reconcile: { summary: 'Reconciles provider truth to success, failure, or unknown instead of trusting a local call result.', bullets: ['Unknown cannot be collapsed into failure', 'Owned creation is released only after provider absence is proved', 'The exact attempt stores one terminal outcome'] },
           complete: { summary: 'Recaptures source and revalidates all authority before terminal state; completion is a digest-bound decision object.', bullets: ['Revalidates evidence, acceptance, ledger, review, and sentinel', 'Checks P0/P1, side effects, live remote or cache state, and critics', 'Terminal drift keeps the result inconclusive'] },
@@ -1796,7 +1797,7 @@ git status --short<button class="copy-btn" type="button">複製</button></div>
         },
         templateDescriptions: {
           'browser-simulator-qa': 'Reproducible current-state QA in a browser or simulator from bounded artifacts.',
-          'ci-release-monitor': 'Serialized monitoring and reconciliation for CI, deploy, and release; unsupported external dispatch stays deferred.',
+          'ci-release-monitor': 'Serialized monitoring and reconciliation for CI, deploy, and release; GitHub Actions dispatch remains deferred until an immutable provider binding exists, while deploy and release remain deferred.',
           'cross-platform-contract': 'Checks API contract compatibility across backend, Web, iOS, and Android.',
           'dependabot-consolidation-pr-cleanup': 'Classifies Dependabot PRs, consolidates them into a governed PR, verifies the lockfile, and cleans up owned resources.',
           'ios-static-pbxproj': 'Static Swift review and serialized pbxproj membership without a local build.',

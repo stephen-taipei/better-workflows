@@ -39,7 +39,10 @@ Code-review templates additionally use immutable review packages and stable
 finding IDs. Scoped repair is bounded to five unique rounds and each repair
 result must bind `repairAttemptId`, `idempotencyKey`, and the immutable
 `packageDigest`; an identical retry is idempotent. A final broad review is
-required before an action token can be issued.
+required before an action token can be issued. The package identity also binds
+the template's `reviewProfile` digest when one is declared, so changing the
+claimed review capability invalidates the package instead of silently changing
+the review contract.
 
 `self-improve-ops` pilots `code-v2-pilot` in shadow mode. Its immutable package
 adds exact BASE/HEAD blob work units and two to five declared finder lanes.

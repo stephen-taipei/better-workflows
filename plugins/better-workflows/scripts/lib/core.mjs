@@ -35,7 +35,7 @@ import {
   parseNulNameStatusPaths,
   readRawLocalConfigValues
 } from "./autonomy-snapshot.mjs";
-import { REVIEW_POLICIES, reviewKernelEnabled } from "./review-policy.mjs";
+import { REVIEW_POLICIES, reviewKernelEnabled, validateReviewProfile } from "./review-policy.mjs";
 
 const BOUND_GIT_EXECUTABLE = "/usr/bin/git";
 const BOUND_GIT_PATH = "/usr/bin:/bin:/usr/sbin:/sbin";
@@ -566,7 +566,7 @@ function assertNoAmbientGitAuthorityOverrides() {
   }
 }
 
-export const VERSION = "3.4.8";
+export const VERSION = "3.4.13";
 export const MODES = new Set(["auto", "direct", "verified", "deep", "critical"]);
 export const RUN_STATES = new Set([
   "pending",
@@ -608,6 +608,11 @@ const DESTRUCTIVE_CLEANUP_ACTIONS = new Set([
   "branch.delete",
   "worktree.cleanup"
 ]);
+// GitHub's workflow-dispatch API accepts a mutable branch/tag ref and does not
+// bind the provider invocation atomically to the revision resolved during
+// preflight. Keep this side-effecting adapter fail-closed until an immutable
+// provider binding exists; post-dispatch head observation cannot undo a run
+// started from an unauthorized workflow revision.
 const UNSUPPORTED_GOVERNED_ACTIONS = new Set(["actions.dispatch"]);
 const DEFERRED_ACTION_CANONICAL = new Map([
   ["actions.dispatch", "workflow.dispatch"],
@@ -687,12 +692,61 @@ function ownedResourceCreationActionDigest(action) {
 }
 const OWNED_RESOURCE = /^[^\0\r\n]{1,512}$/;
 const SHA256_DIGEST = /^[a-f0-9]{64}$/;
+const WORKFLOW_FILE = /^\.github\/workflows\/[A-Za-z0-9][A-Za-z0-9._-]{0,200}\.(?:yml|yaml)$/;
+const WORKFLOW_REF = /^[A-Za-z0-9._\/-]{1,128}$/;
+const WORKFLOW_REF_IDENTITY = /^refs\/(?:heads|tags)\/[A-Za-z0-9][A-Za-z0-9._\/-]{0,127}$/;
+const WORKFLOW_INPUT_KEY = /^[A-Za-z_][A-Za-z0-9_-]{0,63}$/;
+const WORKFLOW_INPUT_VALUE = /^[^\0\r\n]{0,4096}$/;
+const WORKFLOW_INPUT_SENSITIVE_KEY = /(?:^|[_-])(?:token|secret|password|passwd|credential|private[_-]?key|api[_-]?key|access[_-]?key|client[_-]?secret|authorization|bearer|cookie|session)(?:$|[_-])/i;
+export const CREDENTIAL_SHAPED_VALUE_PATTERN = /(?:-----BEGIN [^-]+ PRIVATE KEY-----|(?:^|\b)(?:gh[pousr]_|github_pat_|glpat-|xox[baprs]-|AKIA|ASIA|AIDA|AROA|sk_(?:live|test)_|rk_(?:live|test)_|sq0atp-|ya29\.|AIza[A-Za-z0-9_-]{20,}|dop_v1_|lin_api_|npm_|pypi-AgEI|(?:cap|token)[_-])[A-Za-z0-9._~+\/-]{8,}|\b(?:bearer|basic)\s+[A-Za-z0-9._~+/=-]{20,}|(?:^|[\s,;])(?:token|secret|password|passwd|api[_-]?key|access[_-]?key)\s*[:=]\s*\S+|^[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}$|^[A-Za-z0-9+/=_-]{32,}$|^(?=[^\s]{32,}$)(?=.*[A-Z])(?=.*[a-z])(?=.*\d)(?=.*[^A-Za-z0-9])[^\s]+$)/i;
+const WORKFLOW_INPUT_SECRET_VALUE = CREDENTIAL_SHAPED_VALUE_PATTERN;
+export const CREDENTIAL_SHAPED_LITERAL_PATTERN = /(?:-----BEGIN [^-]+ PRIVATE KEY-----|(?<![A-Za-z0-9_-])(?:gh[pousr]_|github_pat_|glpat-|xox[baprs]-|AKIA|ASIA|AIDA|AROA|sk_(?:live|test)_|rk_(?:live|test)_|sq0atp-|ya29\.|AIza[A-Za-z0-9_-]{20,}|dop_v1_|lin_api_|npm_|pypi-AgEI|(?:cap|token)[_-])[A-Za-z0-9._~+\/-]{8,}(?![A-Za-z0-9._~+\/-])|\b(?:bearer|basic)\s+[A-Za-z0-9._~+/=-]{20,})/i;
+
+export function isCredentialShapedValue(value) {
+  return typeof value === "string" && CREDENTIAL_SHAPED_VALUE_PATTERN.test(value);
+}
+
+export function hasCredentialShapedMaterial(value) {
+  return typeof value === "string" && CREDENTIAL_SHAPED_LITERAL_PATTERN.test(value);
+}
+const WORKFLOW_INPUT_PROTOTYPE_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+const WORKFLOW_DISPATCH_NONCE_INPUT = "sbw_dispatch_nonce";
+const WORKFLOW_DISPATCH_EXPECTED_REVISION_INPUT = "sbw_expected_revision";
+const WORKFLOW_DISPATCH_NONCE = /^[a-f0-9]{32}$/;
+const WORKFLOW_DISPATCH_NONCE_EXPRESSION = /\$\{\{\s*(?:inputs|github\.event\.inputs)\.sbw_dispatch_nonce\s*\}\}/;
+
+function workflowInputKeyIsSensitive(key) {
+  const separatedKey = key.replace(/([a-z0-9])([A-Z])/g, "$1_$2");
+  return WORKFLOW_INPUT_SENSITIVE_KEY.test(key) || WORKFLOW_INPUT_SENSITIVE_KEY.test(separatedKey);
+}
+
+function workflowConclusionIsSuccess(value) {
+  return typeof value === "string" && value.toLowerCase() === "success";
+}
+
+function workflowConclusionIsNonSuccess(value) {
+  return typeof value === "string" && value.length > 0 && !workflowConclusionIsSuccess(value);
+}
+
+function workflowDispatchConclusionMatchesOutcome(status, conclusion, outcome) {
+  if (outcome === "success") {
+    return status === "completed" && workflowConclusionIsSuccess(conclusion);
+  }
+  if (outcome === "failure") {
+    return status === "completed" && workflowConclusionIsNonSuccess(conclusion);
+  }
+  return false;
+}
 const GIT_PUSH_RESOURCE = /^remote:([A-Za-z0-9._-]+):(refs\/heads\/[A-Za-z0-9._/-]+)$/;
 const EXECUTABLE_ACTION_PROVIDERS = new Set([
   "git.push:git",
   "pr.create:github-cli",
   "pr.merge:github-cli"
 ]);
+
+export function isExecutableActionProvider(action, provider) {
+  return EXECUTABLE_ACTION_PROVIDERS.has(`${action}:${provider}`);
+}
 
 const ACTION_PROVIDER_RECEIPT_SCHEMAS = {
   "branch.create:git": { proofKind: "git-branch-create" },
@@ -704,6 +758,7 @@ const ACTION_PROVIDER_RECEIPT_SCHEMAS = {
   "issue.create:github-cli": { proofKind: "github-issue-create" },
   "pr.close:github-cli": { proofKind: "github-pr-close" },
   "actions.cancel:github-cli": { proofKind: "github-actions-cancel" },
+  "actions.dispatch:github-cli": { proofKind: "github-actions-dispatch" },
   "pr.merge:github-cli": { proofKind: "github-pr-merge" },
   "remote.sync:git": { proofKind: "git-remote-sync" },
   "worktree.cleanup:git": { proofKind: "git-worktree-cleanup" },
@@ -1146,6 +1201,19 @@ export function validateContract(contract) {
         throw new Error(`TaskContract v2.controlPlane.${key} is invalid`);
       }
     }
+    const reviewEnabled = controlPlane.reviewPolicy !== "none";
+    if (reviewEnabled && contract.reviewProfile === undefined) {
+      throw new Error("TaskContract review-enabled policy requires reviewProfile");
+    }
+    if (!reviewEnabled && contract.reviewProfile !== undefined) {
+      throw new Error("TaskContract cannot weaken template control-plane policy: reviewProfile is not allowed when review policy is none");
+    }
+    if (contract.reviewProfile !== undefined) {
+      validateReviewProfile(contract.reviewProfile, {
+        template: contract.template,
+        reviewPolicy: controlPlane.reviewPolicy
+      });
+    }
     const baseControlPlaneKeys = [
       "evidencePolicy",
       "ledgerPolicy",
@@ -1348,6 +1416,9 @@ export function buildContract({
     ...(isV2
       ? {
           controlPlane: structuredClone(templateDefinition.controlPlane),
+          ...(templateDefinition.reviewProfile
+            ? { reviewProfile: structuredClone(templateDefinition.reviewProfile) }
+            : {}),
           executionStages: structuredClone(templateDefinition.executionStages),
           actionGates: structuredClone(templateDefinition.actionGates ?? {}),
           ...(templateDefinition.actionStages
@@ -1543,7 +1614,6 @@ export async function withRunLock(root, runId, callback, options = {}) {
 }
 
 export function assertProviderReceiptShape(record, providerReceipt, outcome = record.outcome) {
-  assertSupportedGovernedAction(record.action);
   const commonValid = (
     providerReceipt &&
     typeof providerReceipt === "object" &&
@@ -1562,6 +1632,80 @@ export function assertProviderReceiptShape(record, providerReceipt, outcome = re
     providerReceipt.terminalState.length > 0
   );
   if (!commonValid) throw new Error("Provider receipt lacks a structured execution proof");
+  if (record.action === "actions.dispatch" && !workflowResourceMatchesFile(record)) {
+    throw new Error("GitHub Actions dispatch receipt resource is not bound to workflowFile");
+  }
+  if (record.action === "actions.dispatch") {
+    const notSentShapeComplete = (
+      providerReceipt.created === false &&
+      providerReceipt.dispatchState === "not-sent" &&
+      record.providerInvocation?.provider === "github-cli" &&
+      outcome === "failure" &&
+      providerReceipt.terminalState === "failure" &&
+      typeof providerReceipt.repository === "string" &&
+      providerReceipt.repository === canonicalGitHubRepository(record.dispatchRepository) &&
+      typeof providerReceipt.workflowFile === "string" && providerReceipt.workflowFile === record.workflowFile &&
+      typeof providerReceipt.ref === "string" && providerReceipt.ref === record.dispatchRef &&
+      typeof providerReceipt.dispatchNonce === "string" && providerReceipt.dispatchNonce === record.dispatchNonce &&
+      typeof providerReceipt.dispatchInputsDigest === "string" && SHA256_DIGEST.test(providerReceipt.dispatchInputsDigest) &&
+      typeof providerReceipt.workflowDispatchCapabilityDigest === "string" &&
+      providerReceipt.workflowDispatchCapabilityDigest === record.workflowDispatchCapabilityDigest &&
+      typeof providerReceipt.invocationId === "string" && providerReceipt.invocationId === record.providerInvocation?.id &&
+      typeof providerReceipt.errorDigest === "string" && SHA256_DIGEST.test(providerReceipt.errorDigest) &&
+      providerReceipt.responseDigest === digestObject(actionsDispatchNotSentReceiptResponse(record, record.providerInvocation))
+    );
+    if (notSentShapeComplete) {
+      if (providerReceipt.proofKind !== "github-actions-dispatch") {
+        throw new Error("GitHub Actions not-sent proof kind is invalid");
+      }
+    } else {
+      const dispatchShapeComplete = (
+        providerReceipt.created === true &&
+        typeof providerReceipt.runId === "string" &&
+        /^\d+$/.test(providerReceipt.runId) &&
+        typeof providerReceipt.url === "string" && providerReceipt.url.length > 0 &&
+        typeof providerReceipt.repository === "string" &&
+        providerReceipt.repository === canonicalGitHubRepository(record.dispatchRepository) &&
+        typeof providerReceipt.workflowName === "string" && providerReceipt.workflowName.length > 0 &&
+        typeof providerReceipt.workflowFile === "string" && providerReceipt.workflowFile === record.workflowFile &&
+        typeof providerReceipt.ref === "string" && providerReceipt.ref === record.dispatchRef &&
+        typeof providerReceipt.headSha === "string" && SHA.test(providerReceipt.headSha) &&
+        providerReceipt.headSha === record.remoteRevision &&
+        typeof providerReceipt.dispatchNonce === "string" && providerReceipt.dispatchNonce === record.dispatchNonce &&
+        typeof providerReceipt.displayTitle === "string" && providerReceipt.displayTitle.includes(record.dispatchNonce) &&
+        typeof providerReceipt.dispatchInputsDigest === "string" && SHA256_DIGEST.test(providerReceipt.dispatchInputsDigest) &&
+        typeof providerReceipt.workflowDispatchCapabilityDigest === "string" &&
+        providerReceipt.workflowDispatchCapabilityDigest === record.workflowDispatchCapabilityDigest &&
+        typeof providerReceipt.invocationId === "string" && providerReceipt.invocationId === record.providerInvocation?.id
+      );
+      if (!dispatchShapeComplete) throw new Error("GitHub Actions dispatch proof is incomplete");
+      if (
+        outcome === "unknown" &&
+        providerReceipt.status === "completed" &&
+        typeof providerReceipt.conclusion === "string" &&
+        providerReceipt.conclusion.length > 0
+      ) {
+        throw new Error("Completed GitHub Actions dispatch receipt cannot remain unknown");
+      }
+      if (outcome === "unknown" && providerReceipt.terminalState !== "unknown") {
+        throw new Error("Unknown GitHub Actions dispatch outcome must remain indeterminate");
+      }
+      if (outcome !== "unknown" && !workflowDispatchConclusionMatchesOutcome(
+        providerReceipt.status,
+        providerReceipt.conclusion,
+        outcome
+      )) {
+        throw new Error(
+          outcome === "success"
+            ? "Successful GitHub Actions dispatch receipt requires completed success"
+            : "Failed GitHub Actions dispatch receipt requires completed non-success"
+        );
+      }
+      if (outcome !== "unknown" && providerReceipt.terminalState !== outcome) {
+        throw new Error("GitHub Actions dispatch receipt terminal state does not match its outcome");
+      }
+    }
+  }
   if (outcome === "success" && providerReceipt.terminalState !== "success") {
     throw new Error("Successful provider receipt must have terminalState success");
   }
@@ -1659,18 +1803,6 @@ export function assertProviderReceiptShape(record, providerReceipt, outcome = re
       typeof providerReceipt.url !== "string" || !providerReceipt.url)
   ) {
     throw new Error("GitHub issue creation proof is incomplete");
-  }
-  if (
-    outcome === "success" &&
-    record.action === "actions.dispatch" &&
-    (!providerReceipt.created || typeof providerReceipt.runId !== "string" || !providerReceipt.runId ||
-      typeof providerReceipt.url !== "string" || !providerReceipt.url ||
-      providerReceipt.terminalState !== "success" ||
-      !["SUCCESS", "success", "PASS", "pass"].includes(String(providerReceipt.conclusion)) ||
-      (record.resource.startsWith("run:") && providerReceipt.runId !== record.resource.slice("run:".length)) ||
-      (record.resource.startsWith("workflow:") && providerReceipt.workflowName !== record.resource.slice("workflow:".length)))
-  ) {
-    throw new Error("GitHub Actions dispatch proof is incomplete");
   }
   if (
     outcome === "success" &&
@@ -2096,6 +2228,7 @@ async function registerOwnedResourceLocked(root, runId, run, runDir, { resource,
       provider: creationReceipt.provider,
       resource: providerResource,
       outcome: "success",
+      runId,
       remoteRevision: creationReceipt.remoteRevision,
       idempotencyKey: creationReceipt.idempotencyKey,
       attemptId: creationReceipt.attemptId,
@@ -2105,7 +2238,8 @@ async function registerOwnedResourceLocked(root, runId, run, runDir, { resource,
       createRepository: creationAction.createRepository,
       creationPrecondition: creationAction.creationPrecondition,
       targetRef: creationAction.targetRef,
-      expectedHead: creationAction.expectedHead
+      expectedHead: creationAction.expectedHead,
+      treeDigest: creationAction.treeDigest
     },
     { providerReceipt: creationReceipt.providerReceipt }
   );
@@ -2158,7 +2292,7 @@ export async function registerOwnedResource(root, runId, { resource, creationRec
 export async function bindLegacyRunTemplate(
   root,
   runId,
-  { templateDigest, actionGates, requiredEvidence }
+  { templateDigest, actionGates, requiredEvidence, reviewProfile }
 ) {
   if (typeof templateDigest !== "string" || templateDigest.length < 16) {
     throw new Error("Legacy run migration requires a template digest");
@@ -2180,23 +2314,46 @@ export async function bindLegacyRunTemplate(
     }
     const currentEvidence = new Set(contract.requiredEvidence ?? []);
     const missingEvidence = requiredEvidence.filter((kind) => !currentEvidence.has(kind));
+    const reviewPolicy = contract.schemaVersion === 2 ? contract.controlPlane?.reviewPolicy : "none";
+    const reviewEnabled = contract.schemaVersion === 2 && reviewPolicy !== "none";
+    const reviewProfileDrift = reviewEnabled
+      ? !reviewProfile || !contract.reviewProfile || digestObject(contract.reviewProfile) !== digestObject(reviewProfile)
+      : contract.reviewProfile !== undefined;
     if (
       contract.templateDigest === templateDigest &&
       contract.actionGates &&
-      missingEvidence.length === 0
+      missingEvidence.length === 0 &&
+      !reviewProfileDrift
     ) {
       return { migrated: false, contract, manifest, state };
     }
-    if (!["1.0.0", "2.0.1", "2.1.0", "2.5.0", "2.6.0"].includes(manifest.version)) {
+    const knownLegacyVersion = ["1.0.0", "2.0.1", "2.1.0", "2.5.0", "2.6.0"].includes(manifest.version);
+    const [currentMajor, currentMinor, currentPatch] = VERSION.split(".").map(Number);
+    const normalizedManifestVersion = String(manifest.version ?? "").split("+")[0];
+    const currentFamilyMatch = new RegExp(`^${currentMajor}\\.${currentMinor}\\.(\\d+)$`).exec(normalizedManifestVersion);
+    const currentFamilyVersion = currentFamilyMatch && Number(currentFamilyMatch[1]) <= currentPatch;
+    if (!knownLegacyVersion && !currentFamilyVersion) {
       throw new Error(
         `Run ${runId} lacks current template minimums but was not created by a migratable workflow version`
       );
+    }
+    if (reviewEnabled) {
+      if (!reviewProfile) {
+        throw new Error("Legacy run migration requires the current reviewProfile");
+      }
+      validateReviewProfile(reviewProfile, {
+        template: contract.template,
+        reviewPolicy
+      });
+    } else if (reviewProfileDrift) {
+      throw new Error("Legacy run migration rejects reviewProfile when review policy is none");
     }
     const nextContract = {
       ...contract,
       templateDigest,
       actionGates: structuredClone(actionGates ?? {}),
-      requiredEvidence: [...new Set([...(contract.requiredEvidence ?? []), ...requiredEvidence])]
+      requiredEvidence: [...new Set([...(contract.requiredEvidence ?? []), ...requiredEvidence])],
+      ...(reviewEnabled ? { reviewProfile: structuredClone(reviewProfile) } : {})
     };
     const migratedAt = nowIso();
     const nextManifest = {
@@ -2705,16 +2862,59 @@ export async function evaluateCompletion(root, runId) {
         try {
           await validateTypedEvidenceRecord(record, { manifest, contract, root, runDir, requireReconciled: true });
           if (record.kind === "required-checks") {
-            const boundAction = actions.find((action) => (
-              action.provider === "github-cli" &&
-              action.providerExecutable?.path &&
-              ["pr.create", "pr.merge"].includes(action.action)
-            ));
-            await verifyRequiredChecksProvider(
-              manifest.cwd,
-              record.receipt.payload,
-              boundAction?.providerExecutable ?? record.receipt.payload?.providerExecutable
-            );
+            const mergeGated = contract.actionGates?.["pr.merge"]?.includes("required-checks") === true;
+            if (!mergeGated) {
+              if (record.receipt.payload.humanApproval !== undefined) {
+                throw new Error("Non-merge required-check completion cannot carry PR merge human approval");
+              }
+              await verifyRequiredChecksProvider(
+                manifest.cwd,
+                record.receipt.payload,
+                record.receipt.payload.providerExecutable
+              );
+            } else {
+              const mergeAction = assertPersistedSuccessfulMergeActionForRequiredChecks(actions, record, {
+                runId,
+                contractDigest: digestObject(contract),
+                repository: record.receipt.payload.repository
+              });
+              const { assertReviewContinuity } = await import("./review.mjs");
+              await assertReviewContinuity(root, runId, {
+                packageId: mergeAction.reviewPackageId,
+                head: mergeAction.reviewedHead,
+                continuityDigest: mergeAction.reviewContinuityDigest
+              });
+              const checkVerification = await verifyRequiredChecksProvider(
+                manifest.cwd,
+                record.receipt.payload,
+                mergeAction.providerExecutable
+              );
+              const providerExecutablePath = await verifyRecordedGitHubProvider(manifest, mergeAction);
+              const liveAuthorization = await verifyGitHubProviderAuthorization(
+                manifest.cwd,
+                record.receipt.payload.repository,
+                providerExecutablePath
+              );
+              if (digestObject(liveAuthorization) !== digestObject(mergeAction.providerAuthorization)) {
+                throw new Error("Governed PR merge completion provider actor or permission changed");
+              }
+              await verifyProviderReceipt(manifest, { ...mergeAction, outcome: "success" }, mergeAction.receipt, contract);
+              const remoteAuthorization = assertPersistedMergeHumanAuthorizationEvidence(
+                mergeAction,
+                evidence,
+                checkVerification,
+                { actor: liveAuthorization.actor, repository: record.receipt.payload.repository }
+              );
+              if (remoteAuthorization) {
+                await validateTypedEvidenceRecord(remoteAuthorization, {
+                  manifest,
+                  contract,
+                  root,
+                  runDir,
+                  requireReconciled: true
+                });
+              }
+            }
           }
           validTypedEvidence.push(record);
         } catch (error) {
@@ -3165,6 +3365,623 @@ export function buildPrCreateCommand(record) {
   ];
 }
 
+function normalizeWorkflowInputs(value, { allowedPublicInputNames } = {}) {
+  if (value === undefined || value === null) return {};
+  if (typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("GitHub Actions workflow inputs must be an object");
+  }
+  const publicInputNames = new Set(
+    Array.isArray(allowedPublicInputNames) ? allowedPublicInputNames : []
+  );
+  const entries = Object.entries(value).sort(([left], [right]) => left.localeCompare(right));
+  if (entries.length > 20) throw new Error("GitHub Actions workflow inputs are limited to 20 fields");
+  const normalized = Object.create(null);
+  for (const [key, rawValue] of entries) {
+    if (!WORKFLOW_INPUT_KEY.test(key) || WORKFLOW_INPUT_PROTOTYPE_KEYS.has(key)) {
+      throw new Error(`GitHub Actions workflow input key is invalid: ${key}`);
+    }
+    if (rawValue !== null && !["string", "number", "boolean"].includes(typeof rawValue)) {
+      throw new Error(`GitHub Actions workflow input value must be a scalar: ${key}`);
+    }
+    if (typeof rawValue === "number" && !Number.isFinite(rawValue)) {
+      throw new Error(`GitHub Actions workflow input value is not finite: ${key}`);
+    }
+    const inputValue = String(rawValue ?? "");
+    if (!WORKFLOW_INPUT_VALUE.test(inputValue)) {
+      throw new Error(`GitHub Actions workflow input value is invalid: ${key}`);
+    }
+    const isProviderCorrelationInput = [
+      WORKFLOW_DISPATCH_NONCE_INPUT,
+      WORKFLOW_DISPATCH_EXPECTED_REVISION_INPUT
+    ].includes(key);
+    if (!isProviderCorrelationInput && publicInputNames && !publicInputNames.has(key)) {
+      throw new Error(`GitHub Actions workflow input must be explicitly public in the bound workflow: ${key}`);
+    }
+    if (!isProviderCorrelationInput &&
+        (workflowInputKeyIsSensitive(key) || WORKFLOW_INPUT_SECRET_VALUE.test(inputValue))) {
+      throw new Error(`GitHub Actions workflow input must be non-sensitive: ${key}`);
+    }
+    normalized[key] = inputValue;
+  }
+  if (Object.keys(normalized).length !== entries.length ||
+      entries.some(([key]) => !Object.hasOwn(normalized, key))) {
+    throw new Error("GitHub Actions workflow input normalization lost an accepted key");
+  }
+  return normalized;
+}
+
+function stripWorkflowYamlComment(value) {
+  let quote = null;
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+    if (quote === "'") {
+      if (character === "'" && value[index + 1] === "'") {
+        index += 1;
+      } else if (character === "'") {
+        quote = null;
+      }
+      continue;
+    }
+    if (quote === '"') {
+      if (character === "\\") {
+        index += 1;
+      } else if (character === '"') {
+        quote = null;
+      }
+      continue;
+    }
+    if (character === "'" || character === '"') {
+      quote = character;
+    } else if (character === "#" && (index === 0 || /\s/.test(value[index - 1]))) {
+      return value.slice(0, index).trim();
+    }
+  }
+  return value.trim();
+}
+
+function workflowKeyLine(line) {
+  const match = /^(\s*)(?:(['"])([A-Za-z0-9_-]+)\2|([A-Za-z0-9_-]+))\s*:(.*)$/.exec(line);
+  return match ? { indent: match[1].length, key: match[3] ?? match[4], value: stripWorkflowYamlComment(match[5]) } : null;
+}
+
+function workflowYamlStructuralLine(line) {
+  return String(line ?? "")
+    .replace(/"(?:\\.|[^"\\])*"/g, "\"\"")
+    .replace(/'(?:''|[^'])*'/g, "''")
+    .replace(/\s+#.*$/, "");
+}
+
+function assertSupportedWorkflowYaml(lines) {
+  for (const { raw, parsed } of lines) {
+    const structural = workflowYamlStructuralLine(raw);
+    if (/(?:^|[\s,:{\[(])(?:&[A-Za-z_][A-Za-z0-9_-]*|\*[A-Za-z_][A-Za-z0-9_-]*)(?=$|[\s,}\]])/.test(structural) ||
+        /(?:^|\s)<<\s*:/.test(structural)) {
+      throw new Error("GitHub Actions workflow anchors, aliases, and merge keys are unsupported");
+    }
+    if (parsed?.value && /^(?:[|>](?:[+-]?[1-9]?|[1-9]?[+-]?))$/.test(parsed.value)) {
+      throw new Error("GitHub Actions workflow block scalars are unsupported for capability attestation");
+    }
+    if (parsed?.value && /^[\[{]/.test(parsed.value.trim())) {
+      throw new Error("GitHub Actions workflow flow mappings and sequences are unsupported for capability attestation");
+    }
+    if (parsed?.value && /^![A-Za-z_]/.test(parsed.value.trim())) {
+      throw new Error("GitHub Actions workflow YAML tags are unsupported for capability attestation");
+    }
+  }
+}
+
+function assertCompleteDirectMapping(lines, start, end, parentIndent, label) {
+  const candidates = [];
+  for (let index = Math.max(0, start + 1); index < end; index += 1) {
+    const raw = String(lines[index]?.raw ?? "");
+    if (!raw.trim() || raw.trimStart().startsWith("#")) continue;
+    const indent = raw.match(/^\s*/)?.[0].length ?? 0;
+    if (indent > parentIndent) candidates.push({ index, indent, parsed: lines[index].parsed });
+  }
+  if (candidates.length === 0) return;
+  const childIndent = Math.min(...candidates.map(({ indent }) => indent));
+  for (const candidate of candidates.filter(({ indent }) => indent === childIndent)) {
+    if (!candidate.parsed || candidate.parsed.indent !== childIndent) {
+      throw new Error(`GitHub Actions workflow contains an unsupported or unparsed ${label} mapping entry`);
+    }
+  }
+}
+
+function assertWorkflowMappingHeader(entry, label) {
+  if (entry?.parsed?.value) {
+    throw new Error(`GitHub Actions workflow ${label} must use a nested mapping`);
+  }
+}
+
+function directWorkflowEntries(lines, start, end, parentIndent) {
+  const entries = lines
+    .map(({ parsed }, index) => ({ parsed, index }))
+    .filter(({ parsed, index }) => index > start && index < end && parsed && parsed.indent > parentIndent);
+  if (entries.length === 0) return [];
+  const childIndent = Math.min(...entries.map(({ parsed }) => parsed.indent));
+  return entries.filter(({ parsed }) => parsed.indent === childIndent);
+}
+
+function assertUniqueWorkflowEntries(entries, label) {
+  const seen = new Set();
+  for (const { parsed } of entries) {
+    if (seen.has(parsed.key)) throw new Error(`GitHub Actions workflow has duplicate ${label} key: ${parsed.key}`);
+    seen.add(parsed.key);
+  }
+}
+
+function unquoteWorkflowScalar(value) {
+  const text = String(value ?? "").trim();
+  if ((text.startsWith("\"") && text.endsWith("\"")) || (text.startsWith("'") && text.endsWith("'"))) {
+    return text.slice(1, -1);
+  }
+  return text;
+}
+
+function assertReservedWorkflowInputSchema(lines, inputIndex, inputEnd, inputKey) {
+  const header = lines[inputIndex]?.parsed;
+  if (!header || header.value) {
+    throw new Error(`GitHub Actions reserved input ${inputKey} must use a nested string schema`);
+  }
+  const children = directWorkflowEntries(lines, inputIndex, inputEnd, header.indent);
+  assertUniqueWorkflowEntries(children, `reserved input ${inputKey}`);
+  const required = children.find(({ parsed }) => parsed.key === "required")?.parsed.value;
+  const type = children.find(({ parsed }) => parsed.key === "type")?.parsed.value;
+  if (unquoteWorkflowScalar(required) !== "true" || unquoteWorkflowScalar(type) !== "string") {
+    throw new Error(`GitHub Actions reserved input ${inputKey} must declare required: true and type: string`);
+  }
+  if (children.some(({ parsed }) => ["options", "choice", "boolean", "number"].includes(parsed.key))) {
+    throw new Error(`GitHub Actions reserved input ${inputKey} has an incompatible schema`);
+  }
+}
+
+function workflowInputIsExplicitlyPublic(lines, inputIndex, inputEnd) {
+  const header = lines[inputIndex]?.parsed;
+  if (!header || header.value) return false;
+  const children = directWorkflowEntries(lines, inputIndex, inputEnd, header.indent);
+  const description = children.find(({ parsed }) => parsed.key === "description")?.parsed.value;
+  return /^public(?:\s|:|$)/i.test(unquoteWorkflowScalar(description));
+}
+
+function workflowInputBlockEnd(inputEntries, inputIndex, inputsStop) {
+  return inputEntries.find(({ index }) => index > inputIndex)?.index ?? inputsStop;
+}
+
+function assertWorkflowConcurrencyDoesNotCancelRuns(lines, topEntries) {
+  const concurrencyIndex = topEntries.find(({ parsed }) => parsed.key === "concurrency")?.index ?? -1;
+  if (concurrencyIndex < 0) return;
+  const header = topEntries.find(({ index }) => index === concurrencyIndex);
+  assertWorkflowMappingHeader(header, "concurrency block");
+  const indent = header.parsed.indent;
+  const end = lines.findIndex(({ parsed }, index) => index > concurrencyIndex && parsed && parsed.indent <= indent);
+  const stop = end < 0 ? lines.length : end;
+  assertCompleteDirectMapping(lines, concurrencyIndex, stop, indent, "concurrency block");
+  const entries = directWorkflowEntries(lines, concurrencyIndex, stop, indent);
+  assertUniqueWorkflowEntries(entries, "concurrency block");
+  const cancel = entries.find(({ parsed }) => parsed.key === "cancel-in-progress");
+  if (cancel && unquoteWorkflowScalar(cancel.parsed.value).toLowerCase() !== "false") {
+    throw new Error("GitHub Actions workflow concurrency must not enable cancel-in-progress for governed dispatch");
+  }
+}
+
+function isExactWorkflowRevisionGate(value) {
+  if (typeof value !== "string" || value.includes("#")) return false;
+  const trimmed = value.trim();
+  const wrapped = trimmed.startsWith("${{") || trimmed.endsWith("}}");
+  if (wrapped && (!trimmed.startsWith("${{") || !trimmed.endsWith("}}"))) return false;
+  const expression = (wrapped ? trimmed.slice(3, -2) : trimmed).trim();
+  if (expression.includes("${{") || expression.includes("}}")) return false;
+  return new Set([
+    "github.sha == inputs.sbw_expected_revision",
+    "github.sha == github.event.inputs.sbw_expected_revision",
+    "inputs.sbw_expected_revision == github.sha",
+    "github.event.inputs.sbw_expected_revision == github.sha"
+  ]).has(expression);
+}
+
+export function validateWorkflowDispatchCapability(content, workflowFile, revision) {
+  if (typeof content !== "string" || !content) {
+    throw new Error(`GitHub Actions workflow ${workflowFile} has no readable content`);
+  }
+  const lines = content.split(/\r?\n/).map((line) => ({
+    raw: line,
+    parsed: line.trimStart().startsWith("#") ? null : workflowKeyLine(line)
+  }));
+  assertSupportedWorkflowYaml(lines);
+  assertCompleteDirectMapping(lines, -1, lines.length, -1, "top-level");
+  const topEntries = directWorkflowEntries(lines, -1, lines.length, -1);
+  assertUniqueWorkflowEntries(topEntries, "top-level");
+  assertWorkflowConcurrencyDoesNotCancelRuns(lines, topEntries);
+  const topOn = topEntries.find(({ parsed }) => parsed.key === "on")?.index ?? -1;
+  if (topOn < 0) throw new Error("GitHub Actions workflow must declare a top-level on block");
+  assertWorkflowMappingHeader(topEntries.find(({ index }) => index === topOn), "on block");
+  const onIndent = lines[topOn].parsed.indent;
+  const onEnd = lines.findIndex(({ parsed }, index) => index > topOn && parsed && parsed.indent <= onIndent);
+  const onStop = onEnd < 0 ? lines.length : onEnd;
+  assertCompleteDirectMapping(lines, topOn, onStop, onIndent, "on block");
+  const onEntries = directWorkflowEntries(lines, topOn, onStop, onIndent);
+  assertUniqueWorkflowEntries(onEntries, "on block");
+  const dispatchIndex = onEntries.find(({ parsed }) => parsed.key === "workflow_dispatch")?.index ?? -1;
+  if (dispatchIndex < 0) throw new Error("GitHub Actions workflow must declare workflow_dispatch");
+  assertWorkflowMappingHeader(onEntries.find(({ index }) => index === dispatchIndex), "workflow_dispatch");
+  const dispatchIndent = lines[dispatchIndex].parsed.indent;
+  const dispatchEnd = lines.findIndex(({ parsed }, index) => (
+    index > dispatchIndex && index < onStop && parsed && parsed.indent <= dispatchIndent
+  ));
+  const dispatchStop = dispatchEnd < 0 ? onStop : dispatchEnd;
+  assertCompleteDirectMapping(lines, dispatchIndex, dispatchStop, dispatchIndent, "workflow_dispatch");
+  const dispatchEntries = directWorkflowEntries(lines, dispatchIndex, dispatchStop, dispatchIndent);
+  assertUniqueWorkflowEntries(dispatchEntries, "workflow_dispatch");
+  const inputsIndex = dispatchEntries.find(({ parsed }) => parsed.key === "inputs")?.index ?? -1;
+  if (inputsIndex < 0) throw new Error("GitHub Actions workflow_dispatch must declare inputs");
+  assertWorkflowMappingHeader(dispatchEntries.find(({ index }) => index === inputsIndex), "workflow_dispatch inputs");
+  const inputsIndent = lines[inputsIndex].parsed.indent;
+  const inputsEnd = lines.findIndex(({ parsed }, index) => (
+    index > inputsIndex && index < dispatchStop && parsed && parsed.indent <= inputsIndent
+  ));
+  const inputsStop = inputsEnd < 0 ? dispatchStop : inputsEnd;
+  assertCompleteDirectMapping(lines, inputsIndex, inputsStop, inputsIndent, "workflow_dispatch input");
+  const inputEntries = directWorkflowEntries(lines, inputsIndex, inputsStop, inputsIndent);
+  assertUniqueWorkflowEntries(inputEntries, "workflow_dispatch input");
+  const nonceIndex = inputEntries.find(({ parsed }) => parsed.key === WORKFLOW_DISPATCH_NONCE_INPUT)?.index ?? -1;
+  if (nonceIndex < 0) {
+    throw new Error(`GitHub Actions workflow_dispatch must declare the reserved ${WORKFLOW_DISPATCH_NONCE_INPUT} input`);
+  }
+  const expectedRevisionIndex = inputEntries.find(({ parsed }) => parsed.key === WORKFLOW_DISPATCH_EXPECTED_REVISION_INPUT)?.index ?? -1;
+  if (expectedRevisionIndex < 0) {
+    throw new Error(`GitHub Actions workflow_dispatch must declare the reserved ${WORKFLOW_DISPATCH_EXPECTED_REVISION_INPUT} input`);
+  }
+  // Validate every input's direct child mapping before interpreting any
+  // ordinary input.  The provider's YAML parser rejects duplicate keys and
+  // malformed children; the capability attestor must do the same instead of
+  // letting find(...) select one ambiguous declaration.
+  for (const inputEntry of inputEntries) {
+    if (![WORKFLOW_DISPATCH_NONCE_INPUT, WORKFLOW_DISPATCH_EXPECTED_REVISION_INPUT].includes(inputEntry.parsed.key)) {
+      assertWorkflowMappingHeader(inputEntry, `workflow_dispatch input ${inputEntry.parsed.key}`);
+    }
+    const inputEnd = workflowInputBlockEnd(inputEntries, inputEntry.index, inputsStop);
+    assertCompleteDirectMapping(
+      lines,
+      inputEntry.index,
+      inputEnd,
+      inputEntry.parsed.indent,
+      `workflow_dispatch input ${inputEntry.parsed.key}`
+    );
+    const inputChildren = directWorkflowEntries(lines, inputEntry.index, inputEnd, inputEntry.parsed.indent);
+    assertUniqueWorkflowEntries(inputChildren, `workflow_dispatch input ${inputEntry.parsed.key}`);
+  }
+  assertReservedWorkflowInputSchema(
+    lines,
+    nonceIndex,
+    workflowInputBlockEnd(inputEntries, nonceIndex, inputsStop),
+    WORKFLOW_DISPATCH_NONCE_INPUT
+  );
+  assertReservedWorkflowInputSchema(
+    lines,
+    expectedRevisionIndex,
+    workflowInputBlockEnd(inputEntries, expectedRevisionIndex, inputsStop),
+    WORKFLOW_DISPATCH_EXPECTED_REVISION_INPUT
+  );
+  const publicInputNames = inputEntries
+    .filter(({ parsed }) => ![
+      WORKFLOW_DISPATCH_NONCE_INPUT,
+      WORKFLOW_DISPATCH_EXPECTED_REVISION_INPUT
+    ].includes(parsed.key))
+    .filter(({ index }) => workflowInputIsExplicitlyPublic(
+      lines,
+      index,
+      workflowInputBlockEnd(inputEntries, index, inputsStop)
+    ))
+    .map(({ parsed }) => parsed.key)
+    .sort();
+  const runName = topEntries.find(({ parsed }) => parsed.key === "run-name");
+  if (!runName || !WORKFLOW_DISPATCH_NONCE_EXPRESSION.test(runName.parsed.value)) {
+    throw new Error(`GitHub Actions workflow run-name must expose ${WORKFLOW_DISPATCH_NONCE_INPUT}`);
+  }
+  const jobs = topEntries.find(({ parsed }) => parsed.key === "jobs")?.index ?? -1;
+  if (jobs < 0) throw new Error("GitHub Actions workflow must declare a top-level jobs block");
+  assertWorkflowMappingHeader(topEntries.find(({ index }) => index === jobs), "jobs block");
+  const jobsIndent = lines[jobs].parsed.indent;
+  const jobsEnd = lines.findIndex(({ parsed }, index) => index > jobs && parsed && parsed.indent <= jobsIndent);
+  const jobsStop = jobsEnd < 0 ? lines.length : jobsEnd;
+  assertCompleteDirectMapping(lines, jobs, jobsStop, jobsIndent, "jobs");
+  const jobHeaders = directWorkflowEntries(lines, jobs, jobsStop, jobsIndent);
+  assertUniqueWorkflowEntries(jobHeaders, "jobs");
+  if (jobHeaders.length === 0) throw new Error("GitHub Actions workflow must declare at least one job");
+  for (const [position, header] of jobHeaders.entries()) {
+    assertWorkflowMappingHeader(header, `job ${header.parsed.key}`);
+    const blockEnd = jobHeaders[position + 1]?.index ?? jobsStop;
+    assertCompleteDirectMapping(lines, header.index, blockEnd, header.parsed.indent, `job ${header.parsed.key}`);
+    const jobEntries = directWorkflowEntries(lines, header.index, blockEnd, header.parsed.indent);
+    assertUniqueWorkflowEntries(jobEntries, `job ${header.parsed.key}`);
+    const gateLines = jobEntries.filter(({ parsed }) => parsed.key === "if");
+    if (gateLines.length !== 1 || !isExactWorkflowRevisionGate(gateLines[0]?.parsed.value)) {
+      throw new Error(`Every GitHub Actions job must have an exact ${WORKFLOW_DISPATCH_EXPECTED_REVISION_INPUT} gate`);
+    }
+  }
+  return {
+    schemaVersion: 1,
+    workflowFile,
+    revision,
+    nonceInput: WORKFLOW_DISPATCH_NONCE_INPUT,
+    expectedRevisionInput: WORKFLOW_DISPATCH_EXPECTED_REVISION_INPUT,
+    publicInputNames,
+    runNameNonce: true,
+    expectedRevisionGate: true,
+    contentDigest: sha256(content)
+  };
+}
+
+async function readBoundWorkflowDispatchCapability(cwd, workflowFile, revision) {
+  if (!SHA.test(String(revision ?? ""))) {
+    throw new Error("GitHub Actions workflow capability requires an exact target revision");
+  }
+  const canonicalFile = canonicalWorkflowFile(workflowFile);
+  const content = (await execBoundGitAuthority(cwd, ["show", `${revision}:${canonicalFile}`])).stdout;
+  return validateWorkflowDispatchCapability(content, canonicalFile, revision);
+}
+
+function canonicalGitHubRepositoryPath(value) {
+  const repository = typeof value === "string" && value.startsWith("github.com/")
+    ? value.slice("github.com/".length)
+    : value;
+  if (typeof repository !== "string" || !/^([A-Za-z0-9-]+)\/([A-Za-z0-9_.-]+)$/.test(repository)) {
+    throw new Error("GitHub Actions dispatch requires an owner/repository binding");
+  }
+  return repository;
+}
+
+function canonicalGitHubRepository(value) {
+  return `github.com/${canonicalGitHubRepositoryPath(value)}`;
+}
+
+function canonicalWorkflowFile(value) {
+  if (typeof value !== "string" || !WORKFLOW_FILE.test(value)) {
+    throw new Error("GitHub Actions dispatch requires a repository workflow file under .github/workflows");
+  }
+  const segments = value.split("/");
+  if (segments.some((segment) => !segment || segment === "." || segment === "..")) {
+    throw new Error("GitHub Actions workflow file path contains an unsafe segment");
+  }
+  return value;
+}
+
+function canonicalWorkflowResource(value) {
+  if (typeof value !== "string" || !value.startsWith("workflow:")) {
+    throw new Error("GitHub Actions dispatch resources must use workflow:<.github/workflows file>");
+  }
+  const workflowFile = canonicalWorkflowFile(value.slice("workflow:".length));
+  return `workflow:${workflowFile}`;
+}
+
+function workflowResourceMatchesFile(record) {
+  if (!record || typeof record.resource !== "string" || typeof record.workflowFile !== "string") return false;
+  try {
+    return canonicalWorkflowResource(record.resource) === `workflow:${canonicalWorkflowFile(record.workflowFile)}`;
+  } catch {
+    return false;
+  }
+}
+
+function canonicalWorkflowRef(value) {
+  if (typeof value !== "string" || !WORKFLOW_REF.test(value)) {
+    throw new Error("GitHub Actions dispatch requires an exact branch or tag scope");
+  }
+  if (SHA.test(value)) {
+    throw new Error("GitHub Actions dispatch scope must be a branch or tag ref, not a raw commit SHA");
+  }
+  const segments = value.split("/");
+  if (segments.some((segment) => !segment || segment === "." || segment === "..") || value.includes("@{")) {
+    throw new Error("GitHub Actions dispatch ref contains an unsafe segment");
+  }
+  if (value.startsWith("refs/") && !WORKFLOW_REF_IDENTITY.test(value)) {
+    throw new Error("GitHub Actions dispatch scope must use refs/heads or refs/tags");
+  }
+  return value;
+}
+
+function canonicalWorkflowDispatchIdentity(value) {
+  const ref = canonicalWorkflowRef(value);
+  if (!WORKFLOW_REF_IDENTITY.test(ref)) {
+    throw new Error("GitHub Actions dispatch requires a fully qualified refs/heads or refs/tags identity");
+  }
+  return ref;
+}
+
+export function workflowDispatchObservationRef(value) {
+  const ref = canonicalWorkflowDispatchIdentity(value);
+  return ref.slice(ref.indexOf("/", "refs/".length) + 1);
+}
+
+function actionsDispatchReceiptRequest(record) {
+  return {
+    action: record.action,
+    provider: record.provider,
+    resource: record.resource,
+    remoteRevision: record.remoteRevision,
+    repository: canonicalGitHubRepository(record.dispatchRepository),
+    workflowFile: record.workflowFile,
+    ref: record.dispatchRef,
+    dispatchNonce: record.dispatchNonce,
+    dispatchInputsDigest: record.dispatchInputsDigest,
+    workflowDispatchCapabilityDigest: record.workflowDispatchCapabilityDigest,
+    providerExecutable: record.providerExecutable
+  };
+}
+
+function actionsDispatchNotSentReceiptResponse(record, invocation) {
+  return {
+    dispatchState: "not-sent",
+    invocationId: invocation?.id ?? null,
+    exitCode: invocation?.exitCode ?? null,
+    errorDigest: invocation?.errorDigest ?? null,
+    commandDigest: digestObject(record.dispatchCommand),
+    providerExecutableDigest: digestObject(record.providerExecutable),
+    providerAuthorizationExecutableDigest: digestObject(record.providerAuthorizationExecutable),
+    providerAuthorizationDigest: digestObject(record.providerAuthorization),
+    startedAt: invocation?.startedAt ?? null,
+    finishedAt: invocation?.finishedAt ?? null
+  };
+}
+
+export function buildActionsDispatchCommand(record) {
+  if (
+    !record ||
+    record.action !== "actions.dispatch" ||
+    record.provider !== "github-cli" ||
+    typeof record.dispatchRepository !== "string" ||
+      !canonicalGitHubRepositoryPath(record.dispatchRepository) ||
+    typeof record.dispatchRef !== "string" ||
+      canonicalWorkflowDispatchIdentity(record.dispatchRef) !== record.dispatchRef
+  ) {
+    throw new Error("GitHub Actions dispatch command binding is incomplete");
+  }
+  if (record.dispatchRef.startsWith("refs/tags/")) {
+    throw new Error("GitHub Actions dispatch tag refs are unsupported by branch-bound observation");
+  }
+  const workflowFile = canonicalWorkflowFile(record.workflowFile);
+  if (!workflowResourceMatchesFile(record) || record.resource !== `workflow:${workflowFile}`) {
+    throw new Error("GitHub Actions dispatch command resource is not bound to workflowFile");
+  }
+  const inputs = normalizeWorkflowInputs(record.dispatchInputs, {
+    allowedPublicInputNames: record.workflowDispatchCapability?.publicInputNames
+  });
+  if (!WORKFLOW_DISPATCH_NONCE.test(String(record.dispatchNonce ?? "")) ||
+      inputs[WORKFLOW_DISPATCH_NONCE_INPUT] !== record.dispatchNonce ||
+      inputs[WORKFLOW_DISPATCH_EXPECTED_REVISION_INPUT] !== record.remoteRevision) {
+    throw new Error("GitHub Actions dispatch command is missing its provider-correlation nonce binding");
+  }
+  if (record.dispatchInputsDigest !== digestObject(inputs)) {
+    throw new Error("GitHub Actions dispatch input digest does not match the fixed command binding");
+  }
+  const command = [
+    "gh",
+    "workflow",
+    "run",
+    workflowFile,
+    "--repo",
+    canonicalGitHubRepositoryPath(record.dispatchRepository),
+    "--ref",
+    workflowDispatchObservationRef(record.dispatchRef)
+  ];
+  for (const [key, value] of Object.entries(inputs)) {
+    command.push("--raw-field", `${key}=${value}`);
+  }
+  return command;
+}
+
+export function buildActionsDispatchProviderReceipt(record, outcome = "success") {
+  if (!["success", "failure", "unknown"].includes(outcome)) {
+    throw new Error("GitHub Actions dispatch receipt outcome is invalid");
+  }
+  if (!workflowResourceMatchesFile(record)) {
+    throw new Error("GitHub Actions dispatch receipt resource is not bound to workflowFile");
+  }
+  if (record?.providerInvocation?.dispatchState === "not-sent") {
+    if (outcome !== "failure") {
+      throw new Error("A not-sent GitHub Actions dispatch can only reconcile as terminal failure");
+    }
+    const invocation = record.providerInvocation;
+    if (typeof invocation.id !== "string" || typeof invocation.errorDigest !== "string" ||
+        !SHA256_DIGEST.test(invocation.errorDigest) || typeof invocation.startedAt !== "string" ||
+        typeof invocation.finishedAt !== "string") {
+      throw new Error("GitHub Actions not-sent provider invocation is incomplete");
+    }
+    const repository = canonicalGitHubRepository(record.dispatchRepository);
+    const response = actionsDispatchNotSentReceiptResponse(record, invocation);
+    return {
+      action: record.action,
+      provider: record.provider,
+      resource: record.resource,
+      outcome,
+      attemptId: record.attemptId,
+      idempotencyKey: record.idempotencyKey,
+      remoteRevision: record.remoteRevision,
+      executionId: `github:${repository}:actions.dispatch:not-sent:${record.runId}:${record.attemptId}`,
+      proofKind: "github-actions-dispatch",
+      requestDigest: digestObject(actionsDispatchReceiptRequest(record)),
+      responseDigest: digestObject(response),
+      verifiedAt: nowIso(),
+      terminalState: "failure",
+      created: false,
+      dispatchState: "not-sent",
+      repository,
+      workflowFile: record.workflowFile,
+      ref: record.dispatchRef,
+      dispatchNonce: record.dispatchNonce,
+      dispatchInputsDigest: record.dispatchInputsDigest,
+      workflowDispatchCapabilityDigest: record.workflowDispatchCapabilityDigest,
+      invocationId: invocation.id,
+      errorDigest: invocation.errorDigest
+    };
+  }
+  if (!record?.providerInvocation?.workflowRun) {
+    throw new Error("GitHub Actions dispatch provider invocation lacks an observed workflow run");
+  }
+  const run = record.providerInvocation.workflowRun;
+  const runId = String(run.databaseId ?? run.runId ?? "");
+  if (!/^\d+$/.test(runId) || typeof run.workflowName !== "string" || !run.workflowName ||
+      typeof run.url !== "string" || !run.url || typeof run.headSha !== "string" || !SHA.test(run.headSha) ||
+      run.headSha !== record.remoteRevision ||
+      !WORKFLOW_DISPATCH_NONCE.test(String(record.dispatchNonce ?? "")) ||
+      typeof run.displayTitle !== "string" || !run.displayTitle.includes(record.dispatchNonce) ||
+      run.status !== "completed" || typeof run.conclusion !== "string" || !run.conclusion) {
+    throw new Error("GitHub Actions dispatch provider invocation is incomplete");
+  }
+  const repository = canonicalGitHubRepository(record.dispatchRepository);
+  if (!workflowDispatchConclusionMatchesOutcome(run.status, run.conclusion, outcome)) {
+    throw new Error(
+      outcome === "success"
+        ? "Successful GitHub Actions dispatch receipt requires a successful workflow conclusion"
+        : outcome === "failure"
+          ? "Failed GitHub Actions dispatch receipt requires a completed non-success workflow conclusion"
+          : "Completed GitHub Actions dispatch receipt cannot remain unknown"
+    );
+  }
+  const response = {
+    runId,
+    workflowName: run.workflowName,
+    url: run.url,
+    status: run.status,
+    conclusion: run.conclusion,
+    headSha: run.headSha,
+    displayTitle: run.displayTitle,
+    dispatchNonce: record.dispatchNonce,
+    workflowDispatchCapabilityDigest: record.workflowDispatchCapabilityDigest
+  };
+  const executionId = `github:${repository}:actions.dispatch:${runId}`;
+  return {
+    action: record.action,
+    provider: record.provider,
+    resource: record.resource,
+    outcome,
+    runId,
+    attemptId: record.attemptId,
+    idempotencyKey: record.idempotencyKey,
+    remoteRevision: record.remoteRevision,
+    executionId,
+    proofKind: "github-actions-dispatch",
+    requestDigest: digestObject(actionsDispatchReceiptRequest(record)),
+    responseDigest: digestObject(response),
+    verifiedAt: nowIso(),
+    terminalState: outcome === "success" ? "success" : "failure",
+    created: true,
+    repository,
+    workflowName: run.workflowName,
+    workflowFile: record.workflowFile,
+    ref: record.dispatchRef,
+    url: run.url,
+    status: run.status,
+    conclusion: run.conclusion,
+    headSha: run.headSha,
+    displayTitle: run.displayTitle,
+    dispatchNonce: record.dispatchNonce,
+    dispatchInputsDigest: record.dispatchInputsDigest,
+    workflowDispatchCapabilityDigest: record.workflowDispatchCapabilityDigest,
+    invocationId: record.providerInvocation.id
+  };
+}
+
 export async function readBoundGitHubCredential(executablePath, { homePath = os.homedir() } = {}) {
   if (typeof executablePath !== "string" || !path.isAbsolute(executablePath) ||
       path.resolve(executablePath) !== executablePath || typeof homePath !== "string" ||
@@ -3540,17 +4357,35 @@ function boundGitHubCredentialEnvironment(homePath, credential) {
   return env;
 }
 
-export async function readBoundGitHubApi(cwd, executablePath, endpoint, { credential = null, homePath = os.homedir() } = {}) {
+function isAuthoritativeGitHubNotFound(error) {
+  if (error?.code !== 1) return false;
+  const detail = [error?.stderr, error?.stdout, error?.message]
+    .map((value) => Buffer.isBuffer(value) ? value.toString("utf8") : String(value ?? ""))
+    .join("\n");
+  return /\bHTTP\s*404\b|\b404\s+Not\s+Found\b/i.test(detail);
+}
+
+export async function readBoundGitHubApi(cwd, executablePath, endpoint, {
+  credential = null,
+  homePath = os.homedir(),
+  allowNotFound = false
+} = {}) {
   if (typeof executablePath !== "string" || !path.isAbsolute(executablePath) ||
       typeof endpoint !== "string" || !endpoint || /[\0\r\n]/.test(endpoint)) {
     throw new Error("Bound GitHub API request requires an absolute executable and canonical endpoint");
   }
-  const result = await execBoundGitHubCli(executablePath, ["api", endpoint, "--hostname", "github.com"], {
-    cwd,
-    env: credential
-      ? boundGitHubCredentialEnvironment(homePath, credential)
-      : boundGitHubEnvironment(homePath)
-  });
+  let result;
+  try {
+    result = await execBoundGitHubCli(executablePath, ["api", endpoint, "--hostname", "github.com"], {
+      cwd,
+      env: credential
+        ? boundGitHubCredentialEnvironment(homePath, credential)
+        : boundGitHubEnvironment(homePath)
+    });
+  } catch (error) {
+    if (allowNotFound && isAuthoritativeGitHubNotFound(error)) return null;
+    throw error;
+  }
   return JSON.parse(result.stdout);
 }
 
@@ -3569,6 +4404,96 @@ async function readBoundGitHubRefRevision(cwd, repository, ref, executablePath) 
     throw new Error("Bound GitHub ref observation did not return an exact revision");
   }
   return revision;
+}
+
+export function githubDispatchRefEndpoint(repository, dispatchRef) {
+  if (!repository.startsWith("github.com/")) {
+    throw new Error("Bound GitHub workflow dispatch ref observation requires a canonical repository and ref");
+  }
+  const ref = canonicalWorkflowDispatchIdentity(dispatchRef);
+  const [, kind, name] = ref.match(/^refs\/(heads|tags)\/(.+)$/);
+  const repositoryPath = repository.slice("github.com/".length);
+  return `repos/${repositoryPath}/git/ref/${kind}/${encodeURIComponent(name)}`;
+}
+
+async function readBoundGitHubDispatchRefRevision(cwd, repository, dispatchRef, executablePath) {
+  const actual = await readBoundGitHubApi(
+    cwd,
+    executablePath,
+    githubDispatchRefEndpoint(repository, dispatchRef)
+  );
+  const repositoryPath = repository.slice("github.com/".length);
+  const revision = await resolveGitHubDispatchObjectRevision(
+    actual?.object,
+    async (tagSha) => readBoundGitHubApi(cwd, executablePath, `repos/${repositoryPath}/git/tags/${tagSha}`)
+  );
+  if (!SHA.test(revision ?? "")) {
+    throw new Error("Bound GitHub workflow dispatch ref observation did not return an exact commit revision");
+  }
+  return revision;
+}
+
+export async function resolveGitHubDispatchObjectRevision(object, readTagObject) {
+  let current = object;
+  const seen = new Set();
+  for (let depth = 0; depth <= 8; depth += 1) {
+    const revision = current?.sha;
+    if ((current?.type === undefined || current.type === "commit") && SHA.test(revision ?? "")) {
+      return revision;
+    }
+    if (current?.type !== "tag" || !SHA.test(revision ?? "")) {
+      throw new Error("Bound GitHub workflow dispatch ref observation returned a non-commit object");
+    }
+    if (seen.has(revision)) {
+      throw new Error("Bound GitHub workflow dispatch tag resolution detected a cycle");
+    }
+    seen.add(revision);
+    const tagObject = await readTagObject(revision);
+    current = tagObject?.object;
+  }
+  throw new Error("Bound GitHub workflow dispatch tag resolution exceeded the maximum depth");
+}
+
+async function readOptionalBoundGitHubDispatchRefRevision(cwd, repository, dispatchRef, executablePath) {
+  const actual = await readBoundGitHubApi(
+    cwd,
+    executablePath,
+    githubDispatchRefEndpoint(repository, dispatchRef),
+    { allowNotFound: true }
+  );
+  if (actual === null) return null;
+  const repositoryPath = repository.slice("github.com/".length);
+  const revision = await resolveGitHubDispatchObjectRevision(
+    actual?.object,
+    async (tagSha) => readBoundGitHubApi(cwd, executablePath, `repos/${repositoryPath}/git/tags/${tagSha}`)
+  );
+  if (!SHA.test(revision ?? "")) {
+    throw new Error("Bound GitHub workflow dispatch ref observation did not return an exact commit revision");
+  }
+  return revision;
+}
+
+async function resolveBoundGitHubDispatchRef(cwd, repository, requestedRef, executablePath) {
+  const ref = canonicalWorkflowRef(requestedRef);
+  if (WORKFLOW_REF_IDENTITY.test(ref)) {
+    return {
+      ref,
+      revision: await readBoundGitHubDispatchRefRevision(cwd, repository, ref, executablePath)
+    };
+  }
+  const candidates = [];
+  for (const kind of ["heads", "tags"]) {
+    const candidateRef = `refs/${kind}/${ref}`;
+    const revision = await readOptionalBoundGitHubDispatchRefRevision(cwd, repository, candidateRef, executablePath);
+    if (revision !== null) candidates.push({ ref: candidateRef, revision });
+  }
+  if (candidates.length === 0) {
+    throw new Error("GitHub Actions dispatch scope did not resolve to a branch or tag ref");
+  }
+  if (candidates.length > 1) {
+    throw new Error("GitHub Actions dispatch scope is ambiguous between a branch and tag ref");
+  }
+  return candidates[0];
 }
 
 async function verifyGitPushCredential(
@@ -3677,17 +4602,7 @@ async function verifyMergeProviderAtInvocation(root, runId, record, manifest) {
   if (!contract.actionGates?.[record.action]?.includes("required-checks")) return authorization;
   const run = await loadRun(root, runId);
   const evidence = await listJsonRecords(root, safeJoin(run.runDir, "evidence"));
-  const requiredChecks = evidence.find((item) => {
-    const payload = item.kind === "required-checks" ? item.receipt?.payload : null;
-    return (
-      item.status === "complete" &&
-      item.stale !== true &&
-      payload?.head === record.reviewedHead &&
-      payload?.base === record.remoteRevision &&
-      payload?.repository === repository
-    );
-  });
-  if (!requiredChecks) throw new Error("PR merge invocation requires exact required-check evidence");
+  const requiredChecks = assertPersistedRequiredChecksEvidence(record, evidence, { repository });
   const { validateTypedEvidenceRecord } = await import("./evidence.mjs");
   await validateTypedEvidenceRecord(requiredChecks, {
     manifest: run.manifest,
@@ -3696,7 +4611,26 @@ async function verifyMergeProviderAtInvocation(root, runId, record, manifest) {
     runDir: run.runDir,
     requireReconciled: true
   });
-  await verifyRequiredChecksProvider(manifest.cwd, requiredChecks.receipt.payload, record.providerExecutable);
+  const checkVerification = await verifyRequiredChecksProvider(
+    manifest.cwd,
+    requiredChecks.receipt.payload,
+    record.providerExecutable
+  );
+  const mergeAuthorization = assertPersistedMergeHumanAuthorizationEvidence(
+    record,
+    evidence,
+    checkVerification,
+    { actor: authorization.actor, repository }
+  );
+  if (mergeAuthorization) {
+    await validateTypedEvidenceRecord(mergeAuthorization, {
+      manifest: run.manifest,
+      contract: run.contract,
+      root,
+      runDir: run.runDir,
+      requireReconciled: true
+    });
+  }
   return authorization;
 }
 
@@ -3855,6 +4789,10 @@ async function verifyOwnedResourceCreationProof(manifest, record, providerReceip
   const marker = `sbw:${record.attemptId}:${record.idempotencyKey}`;
   const spentAt = Date.parse(record.spentAt ?? "");
   if (!Number.isFinite(spentAt)) throw new Error("Owned resource creation action lacks a valid consumed timestamp");
+  if (record.action === "pr.create" && record.provider === "github-cli" && providerReceipt.ownershipTransfer) {
+    await verifyTransferredPullRequestOwnership(manifest, record, providerReceipt, providerExecutablePath);
+    return providerExecutablePath;
+  }
   if (proof.marker !== marker || proof.attemptId !== record.attemptId || proof.idempotencyKey !== record.idempotencyKey) {
     throw new Error("Owned resource provider-native marker is not bound to the consumed action");
   }
@@ -3947,6 +4885,7 @@ async function verifyOwnedResourceCreationProof(manifest, record, providerReceip
       actual.actor?.login !== record.providerAuthorization?.actor ||
       typeof actual.displayTitle !== "string" ||
       !actual.displayTitle.includes(marker) ||
+      actual.headSha !== record.remoteRevision ||
       proof.observedAt !== actual.createdAt ||
       createdAt < minimumObservedAt
     ) {
@@ -3956,12 +4895,222 @@ async function verifyOwnedResourceCreationProof(manifest, record, providerReceip
   }
 }
 
+function ownershipTransferAuthorizationPayload(transfer, record, repository, number) {
+  return {
+    schemaVersion: 1,
+    kind: "host-signed-ownership-transfer-authorization",
+    sourceRunId: transfer.sourceRunId,
+    sourceResource: `pull/${number}`,
+    sourceAttemptId: transfer.sourceAttemptId,
+    sourceActionDigest: transfer.sourceActionDigest,
+    sourceMarker: transfer.sourceMarker,
+    targetRunId: record.runId,
+    targetAttemptId: record.attemptId,
+    repository,
+    number
+  };
+}
+
+export async function verifyTransferredPullRequestOwnership(manifest, record, providerReceipt, providerExecutablePath) {
+  const transfer = providerReceipt.ownershipTransfer;
+  if (!transfer || typeof transfer !== "object" || Array.isArray(transfer)) {
+    throw new Error("Transferred pull request ownership proof is missing");
+  }
+  const repository = record.createRepository ?? record.providerAuthorization?.repository;
+  const sourceResource = `pull/${providerReceipt.number}`;
+  const authorizationPayload = ownershipTransferAuthorizationPayload(
+    transfer,
+    record,
+    repository,
+    providerReceipt.number
+  );
+  const authorizationAttestation = transfer.authorizationAttestation;
+  if (
+    transfer.schemaVersion !== 1 ||
+    Object.hasOwn(transfer, "authorization") ||
+    transfer.targetRunId !== record.runId ||
+    transfer.targetAttemptId !== record.attemptId ||
+    typeof transfer.sourceRunId !== "string" ||
+    transfer.sourceRunId === record.runId ||
+    transfer.sourceResource !== sourceResource ||
+    typeof transfer.sourceAttemptId !== "string" ||
+    typeof transfer.sourceMarker !== "string" ||
+    !transfer.sourceMarker.startsWith("sbw:") ||
+    typeof transfer.sourceActionDigest !== "string" ||
+    !SHA256_DIGEST.test(transfer.sourceActionDigest) ||
+    typeof transfer.authorizationDigest !== "string" ||
+    transfer.authorizationDigest !== digestObject(authorizationPayload) ||
+    typeof transfer.transferredAt !== "string" ||
+    !Number.isFinite(Date.parse(transfer.transferredAt)) ||
+    !authorizationAttestation ||
+    typeof authorizationAttestation !== "object" ||
+    Array.isArray(authorizationAttestation) ||
+    Object.keys(authorizationAttestation).sort().join("\0") !== "attestationDigest\0fileDigest\0path" ||
+    typeof authorizationAttestation.path !== "string" ||
+    !path.isAbsolute(authorizationAttestation.path) ||
+    path.resolve(authorizationAttestation.path) !== authorizationAttestation.path ||
+    !SHA256_DIGEST.test(authorizationAttestation.attestationDigest ?? "") ||
+    !SHA256_DIGEST.test(authorizationAttestation.fileDigest ?? "")
+  ) {
+    throw new Error("Transferred pull request ownership proof is malformed or lacks a host-signed authorization receipt");
+  }
+  const authorizationBinding = {
+    base: record.remoteRevision,
+    head: providerReceipt.head,
+    instructionDigest: transfer.authorizationDigest,
+    model: "ownership-transfer-authorization",
+    packageId: `ownership-transfer-${transfer.authorizationDigest}`,
+    promptDigest: transfer.authorizationDigest,
+    reviewDigest: transfer.authorizationDigest,
+    reviewerId: "better-workflows-ownership-transfer",
+    runId: record.runId,
+    sentinelDigest: record.treeDigest
+  };
+  if (
+    !SHA.test(authorizationBinding.base) ||
+    !SHA.test(authorizationBinding.head) ||
+    !SHA256_DIGEST.test(authorizationBinding.sentinelDigest ?? "")
+  ) {
+    throw new Error("Transferred pull request ownership authorization is missing exact action bindings");
+  }
+  const { verifyTrustedNativeCriticAttestation } = await import("./providers.mjs");
+  const attestation = await verifyTrustedNativeCriticAttestation({
+    attestationPath: authorizationAttestation.path,
+    workspaceRoot: manifest.cwd,
+    binding: authorizationBinding
+  });
+  const authorizationFileDigest = sha256(await readFile(authorizationAttestation.path));
+  if (
+    authorizationFileDigest !== authorizationAttestation.fileDigest ||
+    attestation.attestationDigest !== authorizationAttestation.attestationDigest
+  ) {
+    throw new Error("Transferred pull request ownership authorization receipt digest changed");
+  }
+  const transferredAt = Date.parse(transfer.transferredAt);
+  const issuedAt = Date.parse(attestation.issuedAt ?? "");
+  const expiresAt = Date.parse(attestation.expiresAt ?? "");
+  if (
+    !Number.isFinite(issuedAt) || !Number.isFinite(expiresAt) ||
+    issuedAt > transferredAt || expiresAt <= transferredAt ||
+    transferredAt > Date.now() + 300_000
+  ) {
+    throw new Error("Transferred pull request ownership authorization receipt is expired or was issued after transfer");
+  }
+  const root = getStateRoot();
+  const sourceRun = await loadRun(root, transfer.sourceRunId);
+  if (!["cancelled_superseded", "cancelled_evidence_sufficient"].includes(sourceRun.state.status)) {
+    throw new Error("Transferred pull request ownership requires a terminal superseded source run");
+  }
+  const sourceRegistered = sourceRun.manifest.ownedResources?.find((entry) => (
+    entry?.resource === sourceResource && entry.ownerRunId === transfer.sourceRunId
+  ));
+  if (
+    sourceRun.contract.remoteRevision !== record.remoteRevision ||
+    sourceRun.manifest.sourceBinding?.originIdentity?.digest !== manifest.sourceBinding?.originIdentity?.digest ||
+    !sourceRegistered ||
+    typeof sourceRegistered.receiptDigest !== "string" ||
+    typeof sourceRegistered.creationActionDigest !== "string"
+  ) {
+    throw new Error("Transferred pull request ownership source run or registry is not bound to the target repository");
+  }
+  const sourceActions = await listJsonRecords(root, safeJoin(sourceRun.runDir, "actions"));
+  const sourceAction = sourceActions.find((action) => (
+    action.attemptId === transfer.sourceAttemptId &&
+    action.action === "pr.create" &&
+    action.provider === "github-cli" &&
+    action.status === "spent" &&
+    action.outcome === "success" &&
+    action.ownedResource === sourceResource
+  ));
+  const sourceProviderReceipt = sourceAction?.receipt?.providerReceipt;
+  const sourceMarker = sourceProviderReceipt?.ownershipTransfer?.sourceMarker ?? sourceProviderReceipt?.creationProof?.marker;
+  if (
+    !sourceAction ||
+    digestObject(sourceAction) !== transfer.sourceActionDigest ||
+    !sourceProviderReceipt ||
+    sourceProviderReceipt.number !== providerReceipt.number ||
+    sourceProviderReceipt.url !== providerReceipt.url ||
+    sourceProviderReceipt.base !== providerReceipt.base ||
+    sourceProviderReceipt.provider !== "github-cli" ||
+    sourceMarker !== transfer.sourceMarker ||
+    typeof sourceProviderReceipt.head !== "string" ||
+    !SHA.test(sourceProviderReceipt.head)
+  ) {
+    throw new Error("Transferred pull request ownership source receipt is not bound to the provider object");
+  }
+  if (
+    sourceRegistered.creationAttemptId !== sourceAction.attemptId ||
+    sourceRegistered.creationActionDigest !== ownedResourceCreationActionDigest(sourceAction)
+  ) {
+    throw new Error("Transferred pull request ownership source registry is not bound to its immutable creation receipt");
+  }
+  if (
+    !repository ||
+    await currentRepositoryIdentity(manifest.cwd) !== repository ||
+    repository !== record.providerAuthorization?.repository
+  ) {
+    throw new Error("Transferred pull request ownership repository changed after authorization");
+  }
+  const actual = JSON.parse((await execBoundGitHubCli(providerExecutablePath, [
+    "api", `repos/${repository.slice("github.com/".length)}/pulls/${providerReceipt.number}`
+  ], { cwd: manifest.cwd })).stdout);
+  const currentMarker = `<!-- ${transfer.sourceMarker} -->`;
+  if (
+    actual.node_id !== providerReceipt.creationProof?.providerObjectId ||
+    actual.user?.login !== record.providerAuthorization?.actor ||
+    actual.head?.sha !== providerReceipt.head ||
+    (record.expectedHead && actual.head?.sha !== record.expectedHead) ||
+    actual.base?.ref !== providerReceipt.base ||
+    (record.targetRef && actual.base?.ref !== record.targetRef) ||
+    actual.html_url !== providerReceipt.url ||
+    typeof actual.body !== "string" ||
+    !actual.body.includes(currentMarker) ||
+    actual.state !== "open"
+  ) {
+    throw new Error("Transferred pull request ownership proof does not match the live provider object");
+  }
+  const ancestry = await execBoundGitAuthority(manifest.cwd, [
+    "merge-base", "--is-ancestor", sourceProviderReceipt.head, providerReceipt.head
+  ]).catch(() => null);
+  if (!ancestry) {
+    throw new Error("Transferred pull request ownership requires the target head to descend from the source head");
+  }
+  if (providerReceipt.creationProof?.observedAt !== actual.created_at) {
+    throw new Error("Transferred pull request ownership proof timestamp does not match the provider object");
+  }
+}
+
 async function verifyProviderReceipt(manifest, record, receipt, contract = null) {
-  if (record.outcome !== "success") return;
-  assertSupportedGovernedAction(record.action);
+  const shouldVerifyDispatchFailure = (
+    record.action === "actions.dispatch" &&
+    record.provider === "github-cli" &&
+    record.outcome === "failure"
+  );
+  const shouldVerifyDispatchRun = (
+    record.action === "actions.dispatch" &&
+    record.provider === "github-cli" &&
+    record.providerInvocation?.workflowRun
+  );
+  if (record.outcome !== "success" && !shouldVerifyDispatchFailure && !shouldVerifyDispatchRun) return;
   const providerReceipt = receipt.providerReceipt;
   const cwd = manifest.cwd;
   const key = `${record.action}:${record.provider}`;
+  if (key === "actions.dispatch:github-cli" && providerReceipt.dispatchState === "not-sent") {
+    if (record.outcome !== "failure" || record.providerInvocation?.provider !== "github-cli" ||
+        record.providerInvocation?.dispatchState !== "not-sent" ||
+        providerReceipt.invocationId !== record.providerInvocation?.id ||
+        providerReceipt.errorDigest !== record.providerInvocation?.errorDigest ||
+        providerReceipt.responseDigest !== digestObject(actionsDispatchNotSentReceiptResponse(record, record.providerInvocation))) {
+      throw new Error("GitHub Actions not-sent proof is not bound to the host preflight invocation");
+    }
+    assertRecomputedProviderReceipt(
+      providerReceipt,
+      actionsDispatchReceiptRequest(record),
+      actionsDispatchNotSentReceiptResponse(record, record.providerInvocation),
+      `github:${canonicalGitHubRepository(record.dispatchRepository)}:actions.dispatch:not-sent:${record.runId}:${record.attemptId}`
+    );
+    return;
+  }
   if (key === "git.push:git" || key === "remote.sync:git") {
     const currentSourceBinding = await assertCurrentGitPushSourceBinding(manifest, record.sourceBindingDigest);
     if (
@@ -4156,19 +5305,26 @@ async function verifyProviderReceipt(manifest, record, receipt, contract = null)
       base: actual.baseRefName,
       url: actual.url
     };
+    if (providerReceipt.ownershipTransfer) {
+      await verifyTransferredPullRequestOwnership(manifest, record, providerReceipt, providerExecutablePath);
+    }
+    const request = {
+      action: record.action,
+      provider: record.provider,
+      resource: record.resource,
+      remoteRevision: record.remoteRevision,
+      repository,
+      targetRef: record.targetRef ?? null,
+      expectedHead: record.expectedHead ?? null,
+      ...(providerReceipt.ownershipTransfer ? { ownershipTransfer: providerReceipt.ownershipTransfer } : {})
+    };
     assertRecomputedProviderReceipt(
       providerReceipt,
-      {
-        action: record.action,
-        provider: record.provider,
-        resource: record.resource,
-        remoteRevision: record.remoteRevision,
-        repository,
-        targetRef: record.targetRef ?? null,
-        expectedHead: record.expectedHead ?? null
-      },
+      request,
       response,
-      `github:${repository}:pr.create:${actual.number}:${actual.headRefOid}`
+      providerReceipt.ownershipTransfer
+        ? `github:${repository}:pr.transfer:${record.runId}:${record.attemptId}:${actual.number}:${actual.headRefOid}`
+        : `github:${repository}:pr.create:${actual.number}:${actual.headRefOid}`
     );
     if (
       (record.resource !== "pull/new" && actual.number !== Number(String(record.resource).replace(/^pull\//, ""))) ||
@@ -4202,31 +5358,53 @@ async function verifyProviderReceipt(manifest, record, receipt, contract = null)
     return;
   }
   if (key === "actions.dispatch:github-cli") {
+    if (!workflowResourceMatchesFile(record)) {
+      throw new Error("GitHub Actions dispatch proof resource is not bound to workflowFile");
+    }
     const actual = JSON.parse((await execBoundGitHubCli(providerExecutablePath, [
-      "run", "view", String(providerReceipt.runId), "--json", "databaseId,workflowName,url,status,conclusion,headSha"
+      "run", "view", String(providerReceipt.runId), "--repo", canonicalGitHubRepositoryPath(record.dispatchRepository), "--json", "databaseId,workflowName,url,status,conclusion,headSha,displayTitle"
     ], { cwd })).stdout);
     const repository = await currentRepositoryIdentity(cwd);
+    if (repository !== canonicalGitHubRepository(record.dispatchRepository)) {
+      throw new Error("GitHub Actions dispatch proof repository changed after authorization");
+    }
     const response = {
       runId: String(actual.databaseId),
       workflowName: actual.workflowName,
       url: actual.url,
       status: actual.status,
       conclusion: actual.conclusion,
-      headSha: actual.headSha
+      headSha: actual.headSha,
+      displayTitle: actual.displayTitle,
+      dispatchNonce: record.dispatchNonce,
+      workflowDispatchCapabilityDigest: record.workflowDispatchCapabilityDigest
     };
     assertRecomputedProviderReceipt(
       providerReceipt,
-      { action: record.action, provider: record.provider, resource: record.resource, remoteRevision: record.remoteRevision, repository },
+      actionsDispatchReceiptRequest(record),
       response,
       `github:${repository}:actions.dispatch:${actual.databaseId}`
     );
+    const liveConclusionMatchesOutcome = record.outcome === "unknown"
+      ? actual.status !== "completed" || typeof actual.conclusion !== "string" || actual.conclusion.length === 0
+      : workflowDispatchConclusionMatchesOutcome(actual.status, actual.conclusion, record.outcome);
     if (
       String(actual.databaseId) !== String(providerReceipt.runId) ||
       actual.url !== providerReceipt.url ||
-      actual.status !== "completed" ||
-      actual.conclusion !== "SUCCESS" ||
+      !liveConclusionMatchesOutcome ||
       actual.headSha !== record.remoteRevision ||
-      (record.resource.startsWith("workflow:") && actual.workflowName !== record.resource.slice("workflow:".length))
+      typeof actual.displayTitle !== "string" ||
+      !WORKFLOW_DISPATCH_NONCE.test(String(record.dispatchNonce ?? "")) ||
+      !actual.displayTitle.includes(record.dispatchNonce) ||
+      actual.workflowName !== providerReceipt.workflowName ||
+      providerReceipt.repository !== repository ||
+      providerReceipt.workflowFile !== record.workflowFile ||
+      providerReceipt.ref !== record.dispatchRef ||
+      providerReceipt.dispatchNonce !== record.dispatchNonce ||
+      providerReceipt.displayTitle !== actual.displayTitle ||
+      providerReceipt.workflowDispatchCapabilityDigest !== record.workflowDispatchCapabilityDigest ||
+      providerReceipt.dispatchInputsDigest !== record.dispatchInputsDigest ||
+      providerReceipt.invocationId !== record.providerInvocation?.id
     ) throw new Error("GitHub Actions dispatch proof does not match provider state");
     return;
   }
@@ -4423,7 +5601,287 @@ async function verifyProviderReceipt(manifest, record, receipt, contract = null)
   }
 }
 
-export async function verifyRequiredChecksProvider(cwd, payload, providerExecutable = null) {
+const PR_MERGE_HUMAN_APPROVAL_KIND = "host-signed-pr-merge-authorization";
+const PR_MERGE_HUMAN_APPROVAL_MODEL = "pr-merge-human-authorization";
+const PR_MERGE_HUMAN_APPROVAL_REVIEWER = "better-workflows-pr-merge-human-approval";
+const PR_MERGE_ZERO_REVIEW_POLICY = "solo-repository-zero-review-v1";
+
+export function findExactMergeHumanAuthorization(evidence, {
+  action,
+  provider,
+  resource,
+  remoteRevision,
+  repository,
+  actor,
+  humanApprovalDigest
+}) {
+  if (
+    action !== "pr.merge" ||
+    typeof provider !== "string" || !provider ||
+    typeof resource !== "string" || !/^pull\/\d+$/.test(resource) ||
+    typeof remoteRevision !== "string" || !remoteRevision ||
+    typeof repository !== "string" || !repository ||
+    typeof actor !== "string" || !actor ||
+    !/^[a-f0-9]{64}$/.test(humanApprovalDigest ?? "")
+  ) {
+    return null;
+  }
+  return evidence.find((item) => {
+    if (item.kind !== "remote-authorization" || item.status !== "complete" || item.stale) return false;
+    const payload = item.receipt?.payload;
+    const producer = typeof item.receipt?.producer === "string"
+      ? item.receipt.producer
+      : item.receipt?.producer?.provider;
+    return (
+      producer === "user-authority" &&
+      payload?.action === action &&
+      payload?.provider === provider &&
+      payload?.resource === resource &&
+      payload?.remoteRevision === remoteRevision &&
+      payload?.repository === repository &&
+      payload?.actor === actor &&
+      payload?.humanApprovalDigest === humanApprovalDigest
+    );
+  }) ?? null;
+}
+
+export function assertPersistedMergeHumanApproval(record, checkVerification) {
+  const observedDigest = checkVerification?.humanApproval?.authorizationDigest ?? null;
+  if ((record.mergeHumanApprovalDigest ?? null) !== observedDigest) {
+    throw new Error("Governed PR merge human approval changed after action issuance");
+  }
+}
+
+export function assertPersistedMergeHumanAuthorizationEvidence(
+  record,
+  evidence,
+  checkVerification,
+  { actor, repository }
+) {
+  assertPersistedMergeHumanApproval(record, checkVerification);
+  const humanApproval = checkVerification?.humanApproval ?? null;
+  if (!humanApproval) {
+    if (record.mergeAuthorizationEvidenceId !== undefined) {
+      throw new Error("Governed PR merge authorization evidence remained bound after human approval disappeared");
+    }
+    return null;
+  }
+  if (
+    typeof record.mergeAuthorizationEvidenceId !== "string" ||
+    !record.mergeAuthorizationEvidenceId ||
+    humanApproval.actor !== actor
+  ) {
+    throw new Error("Governed PR merge authorization evidence or live actor changed after action issuance");
+  }
+  const candidate = evidence.find((item) => item.id === record.mergeAuthorizationEvidenceId) ?? null;
+  const exact = candidate && findExactMergeHumanAuthorization([candidate], {
+    action: record.action,
+    provider: record.provider,
+    resource: record.resource,
+    remoteRevision: record.remoteRevision,
+    repository,
+    actor,
+    humanApprovalDigest: humanApproval.authorizationDigest
+  });
+  if (!exact || exact.id !== record.mergeAuthorizationEvidenceId) {
+    throw new Error("Governed PR merge authorization evidence is absent, stale, replaced, or invalid");
+  }
+  return exact;
+}
+
+export function assertPersistedRequiredChecksEvidence(record, evidence, { repository }) {
+  if (typeof record.requiredChecksEvidenceId !== "string" || !record.requiredChecksEvidenceId) {
+    throw new Error("Governed PR merge lacks the exact required-check evidence ID issued with the action");
+  }
+  const candidate = evidence.find((item) => item.id === record.requiredChecksEvidenceId) ?? null;
+  const payload = candidate?.kind === "required-checks" ? candidate.receipt?.payload : null;
+  const binding = candidate?.receipt?.inputBinding;
+  if (
+    !candidate || candidate.status !== "complete" || candidate.stale === true ||
+    candidate.id !== record.requiredChecksEvidenceId ||
+    binding?.runId !== record.runId ||
+    binding?.contractDigest !== record.contractDigest ||
+    binding?.remoteRevision !== record.remoteRevision ||
+    binding?.reviewHead !== record.reviewedHead ||
+    binding?.reviewBase !== record.remoteRevision ||
+    Number(binding?.pullRequest) !== record.pullRequest ||
+    binding?.repository !== repository ||
+    binding?.baseRefName !== record.targetRef ||
+    payload?.provider !== "github" ||
+    payload?.repository !== repository ||
+    Number(payload?.pr) !== record.pullRequest ||
+    payload?.head !== record.reviewedHead ||
+    payload?.base !== record.remoteRevision ||
+    payload?.baseRefName !== record.targetRef
+  ) {
+    throw new Error("Governed PR merge required-check evidence is absent, stale, replaced, or invalid");
+  }
+  return candidate;
+}
+
+export function assertPersistedSuccessfulMergeActionForRequiredChecks(
+  actions,
+  requiredChecks,
+  { runId, contractDigest, repository }
+) {
+  const candidates = actions.filter((action) => action.requiredChecksEvidenceId === requiredChecks?.id);
+  if (candidates.length !== 1) {
+    throw new Error("Governed PR merge completion requires one exact issued merge action for the required-check evidence ID");
+  }
+  const action = candidates[0];
+  const payload = requiredChecks?.receipt?.payload;
+  const authorization = payload?.humanApproval?.authorization;
+  if (
+    action.runId !== runId ||
+    action.contractDigest !== contractDigest ||
+    action.action !== "pr.merge" ||
+    action.provider !== "github-cli" ||
+    action.resource !== `pull/${payload?.pr}` ||
+    action.remoteRevision !== payload?.base ||
+    action.pullRequest !== Number(payload?.pr) ||
+    action.reviewedHead !== payload?.head ||
+    action.targetRef !== payload?.baseRefName ||
+    action.mergeRepository !== repository ||
+    action.status !== "spent" ||
+    action.outcome !== "success" ||
+    typeof action.tokenHash !== "string" || !SHA256_DIGEST.test(action.tokenHash) ||
+    typeof action.attemptId !== "string" || !action.attemptId ||
+    typeof action.reviewPackageId !== "string" || !action.reviewPackageId ||
+    !SHA256_DIGEST.test(action.reviewContinuityDigest ?? "") ||
+    (authorization && action.reviewPackageId !== authorization.reviewPackageId) ||
+    action.providerInvocation?.provider !== "github-cli" ||
+    action.providerInvocation?.actionAttemptId !== action.attemptId ||
+    action.providerInvocation?.adminBypass !== false ||
+    action.providerInvocation?.exitCode !== 0 ||
+    action.providerInvocation?.dispatchState !== "sent" ||
+    action.receipt?.providerReceipt?.invocationId !== action.providerInvocation?.id
+  ) {
+    throw new Error("Governed PR merge completion action is not the exact successfully invoked merge action");
+  }
+  assertPersistedRequiredChecksEvidence(action, [requiredChecks], { repository });
+  validateActionReceipt(action, "success", action.receipt);
+  return action;
+}
+
+export async function verifyMergeHumanApproval(cwd, payload) {
+  const approval = payload?.humanApproval;
+  const authorization = approval?.authorization;
+  const attestation = approval?.attestation;
+  if (
+    !approval || approval.schemaVersion !== 1 ||
+    !authorization || authorization.schemaVersion !== 1 ||
+    authorization.kind !== PR_MERGE_HUMAN_APPROVAL_KIND ||
+    authorization.action !== "pr.merge" ||
+    authorization.resource !== `pull/${payload?.pr}` ||
+    authorization.repository !== payload?.repository ||
+    authorization.pr !== payload?.pr ||
+    authorization.head !== payload?.head ||
+    authorization.base !== payload?.base ||
+    authorization.baseRefName !== payload?.baseRefName ||
+    authorization.adminBypass !== false ||
+    authorization.reviewPolicyException !== PR_MERGE_ZERO_REVIEW_POLICY ||
+    typeof authorization.actor !== "string" || !authorization.actor ||
+    typeof authorization.runId !== "string" || !authorization.runId.startsWith("sbw-") ||
+    typeof authorization.reviewPackageId !== "string" || !authorization.reviewPackageId.startsWith("review-") ||
+    !/^[a-f0-9]{64}$/.test(authorization.contractDigest ?? "") ||
+    !/^[a-f0-9]{64}$/.test(authorization.sourceBindingDigest ?? "") ||
+    !/^[a-f0-9]{64}$/.test(authorization.sourceSentinelDigest ?? "") ||
+    !attestation || typeof attestation.path !== "string" || !path.isAbsolute(attestation.path) ||
+    !/^[a-f0-9]{64}$/.test(attestation.attestationDigest ?? "") ||
+    !/^[a-f0-9]{64}$/.test(attestation.fileDigest ?? "")
+  ) {
+    throw new Error("Governed PR merge human approval binding is incomplete");
+  }
+  const approvedAt = Date.parse(authorization.approvedAt ?? "");
+  if (!Number.isFinite(approvedAt) || approvedAt > Date.now() + 300_000 || Date.now() - approvedAt > 24 * 60 * 60 * 1000) {
+    throw new Error("Governed PR merge human approval is stale or invalid");
+  }
+  const expectedAuthorization = {
+    schemaVersion: 1,
+    kind: PR_MERGE_HUMAN_APPROVAL_KIND,
+    action: "pr.merge",
+    resource: `pull/${payload.pr}`,
+    runId: authorization.runId,
+    contractDigest: authorization.contractDigest,
+    sourceBindingDigest: authorization.sourceBindingDigest,
+    sourceSentinelDigest: authorization.sourceSentinelDigest,
+    reviewPackageId: authorization.reviewPackageId,
+    repository: payload.repository,
+    pr: payload.pr,
+    head: payload.head,
+    base: payload.base,
+    baseRefName: payload.baseRefName,
+    actor: authorization.actor,
+    adminBypass: false,
+    reviewPolicyException: PR_MERGE_ZERO_REVIEW_POLICY,
+    approvedAt: authorization.approvedAt
+  };
+  const authorizationDigest = digestObject(expectedAuthorization);
+  if (
+    digestObject(authorization) !== authorizationDigest ||
+    approval.authorizationDigest !== authorizationDigest
+  ) {
+    throw new Error("Governed PR merge human approval authorization digest is invalid");
+  }
+  const binding = {
+    base: payload.base,
+    head: payload.head,
+    instructionDigest: authorizationDigest,
+    model: PR_MERGE_HUMAN_APPROVAL_MODEL,
+    packageId: `merge-approval-${authorizationDigest}`,
+    promptDigest: authorizationDigest,
+    reviewDigest: authorizationDigest,
+    reviewerId: PR_MERGE_HUMAN_APPROVAL_REVIEWER,
+    runId: authorization.runId,
+    sentinelDigest: authorization.sourceSentinelDigest
+  };
+  const attestationPath = await realpath(attestation.path);
+  if (sha256(await readFile(attestationPath)) !== attestation.fileDigest) {
+    throw new Error("Governed PR merge human approval attestation changed after authorization");
+  }
+  const { captureSourceBinding } = await import("./git.mjs");
+  let currentSource;
+  try {
+    currentSource = await captureSourceBinding(path.resolve(cwd), {
+      baseRevision: payload.base,
+      requireClean: true
+    });
+  } catch (error) {
+    throw new Error(`Governed PR merge human approval source registry binding is stale: ${error.message}`);
+  }
+  if (
+    currentSource?.headRevision !== payload.head ||
+    currentSource?.digest !== authorization.sourceBindingDigest
+  ) {
+    throw new Error("Governed PR merge human approval source registry binding is stale");
+  }
+  const { verifyTrustedNativeCriticAttestation } = await import("./providers.mjs");
+  const verified = await verifyTrustedNativeCriticAttestation({
+    attestationPath,
+    workspaceRoot: cwd,
+    binding
+  });
+  if (
+    verified.attestationDigest !== attestation.attestationDigest ||
+    verified.attestationPath !== attestationPath ||
+    sha256(await readFile(verified.attestationPath)) !== attestation.fileDigest
+  ) {
+    throw new Error("Governed PR merge human approval attestation changed after authorization");
+  }
+  return {
+    authorizationDigest,
+    attestationDigest: verified.attestationDigest,
+    sourceBindingDigest: currentSource.digest,
+    actor: authorization.actor,
+    reviewPolicyException: authorization.reviewPolicyException
+  };
+}
+
+export async function verifyRequiredChecksProvider(
+  cwd,
+  payload,
+  providerExecutable = null
+) {
   if (payload.provider !== "github") throw new Error("Required checks must be observed from GitHub");
   const executable = await verifyRecordedExecutable(
     providerExecutable ?? payload.providerExecutable,
@@ -4438,6 +5896,9 @@ export async function verifyRequiredChecksProvider(cwd, payload, providerExecuta
     throw new Error("Required checks evidence must include the protected branch status-check set");
   }
   const repositoryPath = repository.slice(prefix.length);
+  const humanApproval = payload.humanApproval
+    ? await verifyMergeHumanApproval(cwd, payload)
+    : null;
   const protection = JSON.parse((await execBoundGitHubCli(executablePath, [
     "api",
     `repos/${repositoryPath}/branches/${encodeURIComponent(payload.baseRefName)}/protection`
@@ -4445,10 +5906,11 @@ export async function verifyRequiredChecksProvider(cwd, payload, providerExecuta
   if (protection.enforce_admins?.enabled !== true || !protection.required_status_checks) {
     throw new Error("Protected branch policy is missing enforce-admins or required status checks");
   }
+  const requiredApprovingReviewCount = protection.required_pull_request_reviews?.required_approving_review_count;
   if (
-    !protection.required_pull_request_reviews ||
-    !Number.isInteger(protection.required_pull_request_reviews.required_approving_review_count) ||
-    protection.required_pull_request_reviews.required_approving_review_count < 1
+    !Number.isInteger(requiredApprovingReviewCount) ||
+    requiredApprovingReviewCount < 0 ||
+    (requiredApprovingReviewCount === 0 && humanApproval?.reviewPolicyException !== PR_MERGE_ZERO_REVIEW_POLICY)
   ) {
     throw new Error("Protected branch policy is missing required pull-request reviews");
   }
@@ -4484,6 +5946,11 @@ export async function verifyRequiredChecksProvider(cwd, payload, providerExecuta
   }
   const branchRef = `refs/heads/${payload.baseRefName}`;
   const rulesetRequiredStatusChecks = [];
+  const normalizeRulesetCheckAppId = (value) => {
+    if (value === undefined || value === null || value === "" || value === -1 || value === "-1") return null;
+    const appId = Number(value);
+    return Number.isInteger(appId) && appId >= 0 ? appId : undefined;
+  };
   const refPatternMatches = (pattern) => {
     if (pattern === "~ALL" || pattern === "~DEFAULT_BRANCH" || pattern === branchRef) return true;
     if (typeof pattern !== "string" || !pattern.includes("*")) return false;
@@ -4524,7 +5991,11 @@ export async function verifyRequiredChecksProvider(cwd, payload, providerExecuta
           if (typeof name !== "string" || !name) {
             throw new Error("Active protected branch ruleset has an incomplete required status check");
           }
-          rulesetRequiredStatusChecks.push(name);
+          const appId = normalizeRulesetCheckAppId(check?.integration_id ?? check?.app_id);
+          if (appId === undefined) {
+            throw new Error("Active protected branch ruleset has an invalid required status check app identity");
+          }
+          rulesetRequiredStatusChecks.push({ context: name, appId });
         }
       }
     }
@@ -4536,7 +6007,9 @@ export async function verifyRequiredChecksProvider(cwd, payload, providerExecuta
       appliesToTarget &&
       pullRequestRule &&
       (!Number.isInteger(pullRequestRule.parameters?.required_approving_review_count) ||
-        pullRequestRule.parameters.required_approving_review_count < 1)
+        pullRequestRule.parameters.required_approving_review_count < 0 ||
+        (pullRequestRule.parameters.required_approving_review_count === 0 &&
+          humanApproval?.reviewPolicyException !== PR_MERGE_ZERO_REVIEW_POLICY))
     ) {
       throw new Error("Active protected branch ruleset has incomplete pull-request review policy");
     }
@@ -4562,26 +6035,47 @@ export async function verifyRequiredChecksProvider(cwd, payload, providerExecuta
   ) {
     throw new Error("Protected branch status-check objects contain malformed entries");
   }
-  const requiredStatusChecks = [...new Set([
-    ...(Array.isArray(requiredStatusProtection.contexts) ? requiredStatusProtection.contexts : []),
-    ...(Array.isArray(requiredStatusProtection.checks) ? requiredStatusProtection.checks.map((check) => check.context ?? check.name) : []),
+  const normalizeProtectedCheckAppId = (value) => {
+    // GitHub uses a missing/null (and, on older responses, -1) app id to
+    // express a context-only requirement that any check provider may satisfy.
+    if (value === undefined || value === null || value === -1 || value === "-1") return null;
+    const appId = Number(value);
+    return Number.isInteger(appId) && appId >= 0 ? appId : undefined;
+  };
+  const structuredProtectedChecks = Array.isArray(requiredStatusProtection.checks) && requiredStatusProtection.checks.length > 0;
+  const protectedCheckApps = [
+    ...(!structuredProtectedChecks && Array.isArray(requiredStatusProtection.contexts)
+      ? requiredStatusProtection.contexts.map((context) => ({ context, appId: null }))
+      : []),
+    ...(Array.isArray(requiredStatusProtection.checks)
+      ? requiredStatusProtection.checks.map((check) => ({
+          context: check.context ?? check.name,
+          appId: normalizeProtectedCheckAppId(check.app_id)
+        }))
+      : []),
     ...rulesetRequiredStatusChecks
-  ])].sort();
-  const protectedCheckApps = (Array.isArray(requiredStatusProtection.checks)
-    ? requiredStatusProtection.checks.map((check) => ({
-        context: check.context ?? check.name,
-        appId: check.app_id
-      }))
-    : []);
-  if (
-    requiredStatusChecks.length > 0 &&
-    (protectedCheckApps.length === 0 || protectedCheckApps.some((check) => !Number.isInteger(check.appId)))
-  ) {
-    throw new Error("Protected required checks lack a verifiable GitHub App identity");
+  ];
+  if (protectedCheckApps.some((check) => !check.context || check.appId === undefined)) {
+    throw new Error("Protected required checks contain malformed app identities");
   }
+  const requiredStatusChecks = [...new Set(protectedCheckApps.map((check) => check.context))].sort();
+  const protectedCheckContextCounts = new Map();
+  for (const check of protectedCheckApps) {
+    protectedCheckContextCounts.set(check.context, (protectedCheckContextCounts.get(check.context) ?? 0) + 1);
+  }
+  if ([...protectedCheckContextCounts.values()].some((count) => count > 1)) {
+    throw new Error("Protected required checks contain duplicate contexts that the evidence schema cannot represent");
+  }
+  if (requiredStatusChecks.length > 0 && protectedCheckApps.length === 0) {
+    throw new Error("Protected required checks lack a verifiable requirement identity");
+  }
+  const sortProtectedCheckApps = (left, right) => (
+    String(left?.context ?? "").localeCompare(String(right?.context ?? "")) ||
+    String(left?.appId ?? "any").localeCompare(String(right?.appId ?? "any"))
+  );
   if (
-    digestObject(protectedCheckApps.sort((left, right) => left.context.localeCompare(right.context))) !==
-    digestObject([...(payload.requiredStatusCheckApps ?? [])].sort((left, right) => String(left?.context).localeCompare(String(right?.context))))
+    digestObject([...protectedCheckApps].sort(sortProtectedCheckApps)) !==
+    digestObject([...(payload.requiredStatusCheckApps ?? [])].sort(sortProtectedCheckApps))
   ) {
     throw new Error("Required check evidence does not match protected GitHub App identities");
   }
@@ -4632,38 +6126,184 @@ export async function verifyRequiredChecksProvider(cwd, payload, providerExecuta
     .filter((check) => check?.head_sha === payload.head);
   const checkRunCount = checkRunPages.reduce((sum, page) => sum + page.check_runs.length, 0);
   const checkRunTotal = checkRunPages[0]?.total_count;
-  if (!Number.isInteger(checkRunTotal) || checkRunTotal !== checkRunCount || checkRuns.length === 0) {
+  if (!Number.isInteger(checkRunTotal) || checkRunTotal !== checkRunCount) {
     throw new Error("Required check provider response is not a complete GitHub check-run set");
   }
-  const observedIds = new Set(payload.checks.map((check) => String(check.providerRunId)));
-  const providerIds = new Set(checkRuns.map((check) => String(check.id)));
-  if (observedIds.size !== checkRuns.length || observedIds.size !== payload.checks.length ||
-      [...providerIds].some((id) => !observedIds.has(id))) {
-    throw new Error("Required check evidence does not cover the complete GitHub check-run set");
+  const statusPages = JSON.parse((await execBoundGitHubCli(executablePath, [
+    "api",
+    "--paginate",
+    "--slurp",
+    `repos/${repositoryPath}/commits/${encodeURIComponent(payload.head)}/statuses?per_page=100`
+  ], { cwd, encoding: "utf8" })).stdout);
+  if (!Array.isArray(statusPages) || statusPages.some((page) => !Array.isArray(page))) {
+    throw new Error("Required check provider response is not a complete GitHub commit-status set");
   }
-  const observedRequired = new Set(payload.checks.map((check) => check.providerName));
+  const commitStatuses = statusPages.flatMap((page) => page)
+    .filter((status) => status?.sha === payload.head);
+  const canonicalRequiredCheckObservationId = (value, label = "required check observation") => {
+    const raw = typeof value === "string"
+      ? value.trim()
+      : Number.isSafeInteger(value) && value >= 0 ? String(value) : "";
+    if (!/^(0|[1-9]\d*)$/.test(raw)) {
+      throw new Error(`Required check provider returned an unsafe observation identity: ${label}`);
+    }
+    return raw;
+  };
+  const canonicalRequiredCheckObservationKind = (value, label = "required check observation") => {
+    const raw = String(value ?? "").trim();
+    if (!["check-run", "commit-status"].includes(raw)) {
+      throw new Error(`Required check provider returned an unsafe observation kind: ${label}`);
+    }
+    return raw;
+  };
+  const requiredCheckObservationIdentity = (kind, id, label) => (
+    `${canonicalRequiredCheckObservationKind(kind, label)}:${canonicalRequiredCheckObservationId(id, label)}`
+  );
+  // The provider returns every check-run for the commit, including optional
+  // jobs that are intentionally skipped.  Only the protected status contexts
+  // are merge gates; choose the newest authoritative check-run or commit
+  // status for each required context, then require that observation to be
+  // terminal success. App-bound requirements remain restricted to check-runs.
+  const requiredObservations = protectedCheckApps.map(({ context: name, appId }) => {
+    const candidates = [];
+    for (const check of checkRuns) {
+      if (check?.name !== name || check?.head_sha !== payload.head ||
+          (appId !== null && check?.app?.id !== appId)) continue;
+      const identity = canonicalRequiredCheckObservationId(check.id, `${name} check-run`);
+      // GitHub check-run responses expose the observation start as
+      // `started_at` (and do not consistently include `created_at`). Keep
+      // both shapes equivalent for freshness selection; completed_at remains
+      // the terminal-outcome boundary below.
+      const createdAt = Date.parse(check.created_at ?? check.started_at ?? "");
+      const completedAt = Date.parse(check.completed_at ?? "");
+      if (!Number.isFinite(createdAt)) {
+        throw new Error(`Required check provider returned a matching observation without a valid origin timestamp: ${name}`);
+      }
+      candidates.push({
+        ...check,
+        id: identity,
+        observationKind: "check-run",
+        observationIdentity: requiredCheckObservationIdentity("check-run", identity, `${name} check-run`),
+        observationAt: createdAt,
+        completedAt
+      });
+    }
+    if (appId === null) {
+      for (const status of commitStatuses) {
+        if (status?.context !== name || status?.sha !== payload.head) continue;
+        const identity = canonicalRequiredCheckObservationId(status.id, `${name} commit-status`);
+        const originAt = Date.parse(status.created_at ?? status.started_at ?? "");
+        const observedStatusAt = Date.parse(status.updated_at ?? status.completed_at ?? "");
+        if (!Number.isFinite(originAt)) {
+          throw new Error(`Required check provider returned a matching status without a valid origin timestamp: ${name}`);
+        }
+        if (!Number.isFinite(observedStatusAt)) {
+          throw new Error(`Required check provider returned a matching status without a valid terminal timestamp: ${name}`);
+        }
+        candidates.push({
+          id: identity,
+          name,
+          providerName: name,
+          head_sha: payload.head,
+          status: "completed",
+          conclusion: String(status.state ?? ""),
+          observationKind: "commit-status",
+          observationIdentity: requiredCheckObservationIdentity("commit-status", identity, `${name} commit-status`),
+          observationAt: originAt,
+          completedAt: observedStatusAt
+        });
+      }
+    }
+    const seenObservationIds = new Set();
+    for (const candidate of candidates) {
+      const identity = String(candidate.observationIdentity ?? "").trim();
+      if (!identity) {
+        throw new Error(`Required check provider returned an observation without an identity: ${name}`);
+      }
+      if (seenObservationIds.has(identity)) {
+        throw new Error(`Required check provider returned ambiguous duplicate observations: ${name}#${identity}`);
+      }
+      seenObservationIds.add(identity);
+    }
+    const latestObservationAt = Math.max(...candidates.map((candidate) => candidate.observationAt));
+    const latestCandidates = candidates.filter((candidate) => candidate.observationAt === latestObservationAt);
+    const latestKinds = new Set(latestCandidates.map((candidate) => candidate.observationKind));
+    const latestOutcomes = new Set(latestCandidates.map((candidate) => `${candidate.status}:${candidate.conclusion}:${candidate.completedAt}`));
+    if (latestKinds.size > 1 && latestOutcomes.size > 1) {
+      throw new Error(`Required check provider returned ambiguous cross-provider observations at the same timestamp: ${name}`);
+    }
+    // IDs from check-runs and commit-statuses are independent namespaces. Once
+    // the outcome is proven identical, use a fixed kind preference only; never
+    // compare IDs across provider resource types.
+    const compareSameKindObservationIds = (left, right) => {
+      const leftId = String(left.id);
+      const rightId = String(right.id);
+      if (/^\d+$/.test(leftId) && /^\d+$/.test(rightId)) {
+        const delta = BigInt(leftId) - BigInt(rightId);
+        if (delta < 0n) return -1;
+        if (delta > 0n) return 1;
+      }
+      return leftId.localeCompare(rightId);
+    };
+    latestCandidates.sort((left, right) => (
+      String(left.observationKind).localeCompare(String(right.observationKind)) ||
+      (latestKinds.size === 1 ? compareSameKindObservationIds(left, right) : 0)
+    ));
+    const selected = latestCandidates.at(-1);
+    if (!selected) {
+      throw new Error(`Required check provider has no fresh successful check observation for protected context: ${name}`);
+    }
+    if (
+      selected.status !== "completed" ||
+      selected.conclusion !== "success" ||
+      !Number.isFinite(selected.completedAt) ||
+      selected.completedAt > observedAt
+    ) {
+      throw new Error(`Required check provider latest protected check observation is not successful: ${name}`);
+    }
+    return selected;
+  });
+  const observedIdentities = new Set(payload.checks.map((check) => (
+    requiredCheckObservationIdentity(
+      check.observationKind,
+      check.providerRunId,
+      `${check.name ?? "required check"} evidence`
+    )
+  )));
+  const requiredProviderIdentities = new Set(requiredObservations.map((check) => String(check.observationIdentity)));
+  if (observedIdentities.size !== requiredObservations.length || observedIdentities.size !== payload.checks.length ||
+      [...requiredProviderIdentities].some((identity) => !observedIdentities.has(identity))) {
+    throw new Error("Required check evidence does not cover the canonical protected check observation set");
+  }
+  const observedRequired = new Set(payload.checks.map((check) => check.providerName ?? check.name));
   if (requiredStatusChecks.some((name) => !observedRequired.has(name))) {
     throw new Error("Required check evidence does not include every protected status check");
   }
   for (const check of payload.checks) {
-    const checkRun = checkRuns.find((candidate) => String(candidate.id) === String(check.providerRunId));
-    const completedAt = checkRun?.completed_at ?? checkRun?.updated_at;
-    const protectedApp = protectedCheckApps.find((candidate) => candidate.context === checkRun?.name);
+    const observationKind = canonicalRequiredCheckObservationKind(check.observationKind, `${check.name ?? "required check"} evidence`);
+    const providerRunId = canonicalRequiredCheckObservationId(check.providerRunId, `${check.name ?? "required check"} evidence`);
+    const observationIdentity = `${observationKind}:${providerRunId}`;
+    const observation = requiredObservations.find((candidate) => candidate.observationIdentity === observationIdentity);
+    const protectedApp = protectedCheckApps.find((candidate) => candidate.context === (observation?.providerName ?? observation?.name));
     if (
-      !checkRun ||
-      checkRun.head_sha !== payload.head ||
-      checkRun.status !== "completed" ||
-      checkRun.conclusion !== "success" ||
-      check.providerName !== checkRun.name ||
+      !observation ||
+      observation.head_sha !== payload.head ||
+      observation.status !== "completed" ||
+      observation.conclusion !== "success" ||
+      (check.providerName ?? check.name) !== (observation.providerName ?? observation.name) ||
+      check.observationKind !== observation.observationKind ||
       !protectedApp ||
-      checkRun.app?.id !== protectedApp.appId ||
-      check.name !== `${checkRun.name}#${checkRun.id}` ||
-      !Number.isFinite(Date.parse(completedAt ?? "")) ||
-      Date.parse(completedAt) > observedAt
+      (protectedApp.appId !== null && observation.app?.id !== protectedApp.appId) ||
+      check.name !== `${observation.name}#${observation.id}` ||
+      !Number.isFinite(observation.completedAt) ||
+      observation.completedAt > observedAt ||
+      !Number.isFinite(Date.parse(check.completedAt ?? "")) ||
+      Date.parse(check.completedAt) !== observation.completedAt
     ) {
-      throw new Error(`Required check provider check-run is not a fresh successful GitHub check: ${check.providerRunId}`);
+      throw new Error(`Required check provider observation is not a fresh successful GitHub check: ${check.providerRunId}`);
     }
   }
+  return { humanApproval };
 }
 
 async function assertPullEvidenceBinding(admittedEvidence, request, reviewPackage, contract, expectedRepository) {
@@ -5120,6 +6760,9 @@ async function verifyAutonomousCommitTransition(manifest, contract, record) {
 }
 
 export async function issueActionToken(root, runId, request, currentTreeDigest, config) {
+  if (request.action === "actions.dispatch") {
+    throw new Error("GitHub Actions dispatch is deferred until immutable provider binding exists");
+  }
   assertSupportedGovernedAction(request.action);
   for (const field of ["action", "provider", "resource", "remoteRevision"]) {
     if (typeof request[field] !== "string" || !request[field]) throw new Error(`Action ${field} is required`);
@@ -5334,6 +6977,86 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
         }
       }
     }
+    if (request.action === "actions.dispatch") {
+      if (request.provider !== "github-cli") {
+        throw new Error("GitHub Actions dispatch requires the github-cli provider");
+      }
+      if (!repository?.startsWith("github.com/")) {
+        throw new Error("GitHub Actions dispatch requires a canonical GitHub repository");
+      }
+      if (!request.requiredEvidence.includes("remote-authorization")) {
+        throw new Error("GitHub Actions dispatch requires remote-authorization evidence");
+      }
+      if (!SHA.test(request.remoteRevision)) {
+        throw new Error("GitHub Actions dispatch requires an exact target revision");
+      }
+      const workflowFile = canonicalWorkflowFile(String(request.workflowFile ?? ""));
+      const workflowResource = canonicalWorkflowResource(String(request.resource ?? ""));
+      if (workflowResource !== `workflow:${workflowFile}`) {
+        throw new Error("GitHub Actions dispatch resource must exactly bind the workflow-file selector");
+      }
+      const requestedDispatchRef = canonicalWorkflowRef(String(request.scope ?? ""));
+      if (requestedDispatchRef.startsWith("refs/tags/")) {
+        throw new Error("GitHub Actions dispatch tag refs are unsupported by branch-bound observation");
+      }
+      await execBoundGitAuthority(manifest.cwd, ["ls-files", "--error-unmatch", "--", workflowFile]);
+      const workflowDispatchCapability = await readBoundWorkflowDispatchCapability(
+        manifest.cwd,
+        workflowFile,
+        request.remoteRevision
+      );
+      const dispatchInputs = normalizeWorkflowInputs(request.dispatchInputs, {
+        allowedPublicInputNames: workflowDispatchCapability.publicInputNames
+      });
+      for (const reservedInput of [WORKFLOW_DISPATCH_NONCE_INPUT, WORKFLOW_DISPATCH_EXPECTED_REVISION_INPUT]) {
+        if (Object.hasOwn(dispatchInputs, reservedInput)) {
+          throw new Error(`GitHub Actions dispatch input ${reservedInput} is reserved`);
+        }
+      }
+      if (Object.keys(dispatchInputs).length > 18) {
+        throw new Error("GitHub Actions dispatch requires two input slots for its provider-correlation gates");
+      }
+      const dispatchNonce = randomBytes(16).toString("hex");
+      const boundDispatchInputs = normalizeWorkflowInputs({
+        ...dispatchInputs,
+        [WORKFLOW_DISPATCH_NONCE_INPUT]: dispatchNonce,
+        [WORKFLOW_DISPATCH_EXPECTED_REVISION_INPUT]: request.remoteRevision
+      }, {
+        allowedPublicInputNames: workflowDispatchCapability.publicInputNames
+      });
+      const resolvedDispatchRef = await resolveBoundGitHubDispatchRef(
+        manifest.cwd,
+        repository,
+        requestedDispatchRef,
+        (providerExecutable ?? await currentProviderExecutableIdentity("gh")).path
+      );
+      if (resolvedDispatchRef.revision !== request.remoteRevision) {
+        throw new Error("GitHub Actions dispatch ref does not resolve to the requested target revision");
+      }
+      if (resolvedDispatchRef.ref.startsWith("refs/tags/")) {
+        throw new Error("GitHub Actions dispatch tag refs are unsupported by branch-bound observation");
+      }
+      const dispatchBinding = {
+        action: request.action,
+        provider: request.provider,
+        resource: request.resource,
+        remoteRevision: request.remoteRevision,
+        workflowFile,
+        dispatchRepository: repository,
+        dispatchRef: resolvedDispatchRef.ref,
+        dispatchNonce,
+        dispatchInputs: boundDispatchInputs,
+        dispatchInputsDigest: digestObject(boundDispatchInputs),
+        workflowDispatchCapability,
+        workflowDispatchCapabilityDigest: digestObject(workflowDispatchCapability),
+        providerExecutable: providerExecutable ?? await currentProviderExecutableIdentity("gh")
+      };
+      actionBinding = {
+        ...actionBinding,
+        ...dispatchBinding,
+        dispatchCommand: buildActionsDispatchCommand(dispatchBinding)
+      };
+    }
     if (request.action === "pr.create") {
       if (request.resource !== "pull/new") {
         throw new Error("Governed PR creation requires the pull/new resource");
@@ -5520,12 +7243,46 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
       const currentHead = (await execBoundGitAuthority(manifest.cwd, [
         "rev-parse", "--verify", "HEAD^{commit}"
       ])).stdout.trim();
-      const requiredChecks = admittedEvidence.find((item) => {
+      const requiredCheckCandidates = admittedEvidence.filter((item) => {
         const payload = item.kind === "required-checks" ? item.receipt?.payload : null;
         return payload?.head === currentHead && payload?.base === contract.remoteRevision && payload?.repository === repository;
       });
-      if (!requiredChecks) throw new Error("Action token denied until exact required-check provider evidence is present");
-      await verifyRequiredChecksProvider(manifest.cwd, requiredChecks.receipt.payload, providerExecutable);
+      if (requiredCheckCandidates.length !== 1) {
+        throw new Error("Action token denied until one exact required-check provider evidence record is present");
+      }
+      const requiredChecks = requiredCheckCandidates[0];
+      const checkVerification = await verifyRequiredChecksProvider(
+        manifest.cwd,
+        requiredChecks.receipt.payload,
+        providerExecutable
+      );
+      actionBinding = {
+        ...actionBinding,
+        requiredChecksEvidenceId: requiredChecks.id
+      };
+      if (checkVerification.humanApproval) {
+        const humanApprovalDigest = checkVerification.humanApproval.authorizationDigest;
+        if (providerAuthorization?.actor !== checkVerification.humanApproval.actor) {
+          throw new Error("Governed PR merge human approval actor does not match the live provider actor");
+        }
+        const mergeAuthorization = findExactMergeHumanAuthorization(admittedEvidence, {
+          action: request.action,
+          provider: request.provider,
+          resource: request.resource,
+          remoteRevision: request.remoteRevision,
+          repository,
+          actor: providerAuthorization.actor,
+          humanApprovalDigest
+        });
+        if (!mergeAuthorization) {
+          throw new Error("Governed PR merge human approval is not bound to exact user remote authorization");
+        }
+        actionBinding = {
+          ...actionBinding,
+          mergeHumanApprovalDigest: humanApprovalDigest,
+          mergeAuthorizationEvidenceId: mergeAuthorization.id
+        };
+      }
     }
     if (request.action === "pr.merge") {
       await verifyPullRequestBeforeMerge(manifest.cwd, actionBinding, providerExecutable?.path);
@@ -5727,6 +7484,19 @@ async function consumeActionTokenInternal(root, runId, token, currentTreeDigest,
     if (record.treeDigest !== currentTreeDigest) throw new Error("Action token tree binding changed");
     if (record.contractDigest !== digestObject(contract)) throw new Error("Action token contract binding changed");
     const manifest = await readJson(root, safeJoin(runDir, "manifest.json"));
+    if (record.action === "actions.dispatch" && record.provider === "github-cli") {
+      const liveWorkflowCapability = await readBoundWorkflowDispatchCapability(
+        manifest.cwd,
+        record.workflowFile,
+        record.remoteRevision
+      );
+      if (
+        digestObject(liveWorkflowCapability) !== record.workflowDispatchCapabilityDigest ||
+        digestObject(record.workflowDispatchCapability ?? {}) !== record.workflowDispatchCapabilityDigest
+      ) {
+        throw new Error("Action consumption denied because the workflow dispatch capability changed or is unbound");
+      }
+    }
     if (record.reviewPackageId) {
       const { assertReviewContinuity } = await import("./review.mjs");
       await assertReviewContinuity(root, runId, {
@@ -5760,12 +7530,14 @@ async function consumeActionTokenInternal(root, runId, token, currentTreeDigest,
         record.providerAuthorizationExecutable ? "providerAuthorizationExecutable" : "providerExecutable"
       )
       : null;
+    let liveGithubAuthorization = null;
     if (record.providerAuthorization?.provider === "github-cli") {
       const repository = await currentRepositoryIdentity(manifest.cwd);
       const authorization = await verifyGitHubProviderAuthorization(manifest.cwd, repository, githubProviderExecutable.path);
       if (digestObject(authorization) !== digestObject(record.providerAuthorization)) {
         throw new Error("Action consumption denied because GitHub provider authorization changed");
       }
+      liveGithubAuthorization = authorization;
     }
     if (record.gitCredentialCheck) {
       const gitExecutable = await verifyRecordedExecutable(
@@ -5796,7 +7568,7 @@ async function consumeActionTokenInternal(root, runId, token, currentTreeDigest,
     }
     const actionExecutable = record.action === "git.push"
       ? await currentProviderExecutableIdentity(BOUND_GIT_EXECUTABLE)
-      : ["pr.create", "pr.merge"].includes(record.action)
+      : ["pr.create", "pr.merge", "actions.dispatch"].includes(record.action)
         ? githubProviderExecutable
         : null;
     if (actionExecutable) {
@@ -5810,17 +7582,7 @@ async function consumeActionTokenInternal(root, runId, token, currentTreeDigest,
       if (contract.actionGates?.[record.action]?.includes("required-checks")) {
         const repository = await currentRepositoryIdentity(manifest.cwd);
         const evidence = await listJsonRecords(root, safeJoin(runDir, "evidence"));
-        const requiredChecks = evidence.find((item) => {
-          const payload = item.kind === "required-checks" ? item.receipt?.payload : null;
-          return (
-            item.status === "complete" &&
-            item.stale !== true &&
-            payload?.head === record.reviewedHead &&
-            payload?.base === record.remoteRevision &&
-            payload?.repository === repository
-          );
-        });
-        if (!requiredChecks) throw new Error("Action consumption denied until exact required-check evidence is present");
+        const requiredChecks = assertPersistedRequiredChecksEvidence(record, evidence, { repository });
         const run = await loadRun(root, runId);
         const { validateTypedEvidenceRecord } = await import("./evidence.mjs");
         await validateTypedEvidenceRecord(requiredChecks, {
@@ -5830,7 +7592,26 @@ async function consumeActionTokenInternal(root, runId, token, currentTreeDigest,
           runDir,
           requireReconciled: true
         });
-        await verifyRequiredChecksProvider(manifest.cwd, requiredChecks.receipt.payload, githubProviderExecutable);
+        const checkVerification = await verifyRequiredChecksProvider(
+          manifest.cwd,
+          requiredChecks.receipt.payload,
+          githubProviderExecutable
+        );
+        const mergeAuthorization = assertPersistedMergeHumanAuthorizationEvidence(
+          record,
+          evidence,
+          checkVerification,
+          { actor: liveGithubAuthorization?.actor, repository }
+        );
+        if (mergeAuthorization) {
+          await validateTypedEvidenceRecord(mergeAuthorization, {
+            manifest: run.manifest,
+            contract: run.contract,
+            root,
+            runDir,
+            requireReconciled: true
+          });
+        }
       }
     }
     if (record.action === "remote.sync") {
@@ -5842,13 +7623,21 @@ async function consumeActionTokenInternal(root, runId, token, currentTreeDigest,
         await assertCreationReservation(root, runId, record.creationReservation, tokenHash, record.expiresAt);
       }
       const attemptId = randomUUID();
+      const spentAt = nowIso();
       const next = {
         ...record,
         status: "spent",
         outcome: "pending",
-        spentAt: nowIso(),
+        spentAt,
         attemptId
       };
+      if (record.action === "actions.dispatch" && record.provider === "github-cli") {
+        // Bind the consumed token to an explicit pre-invocation boundary in
+        // the same durable write. A crash after consumption but before the
+        // first provider write can then be reconciled as not-sent without a
+        // second dispatch attempt.
+        next.providerInvocation = workflowDispatchPreInvocation(runId, { ...record, attemptId }, spentAt);
+      }
       await atomicWriteJson(root, target, next);
       await appendJournal(root, runDir, "action.consumed", { attemptId, tokenHash });
       return next;
@@ -5887,6 +7676,326 @@ function githubPreflightInvocation(runId, action, error) {
   };
 }
 
+const WORKFLOW_DISPATCH_OBSERVATION_TIMEOUT_MS = 45 * 60 * 1000;
+const WORKFLOW_DISPATCH_POLL_INTERVAL_MS = 10 * 1000;
+const WORKFLOW_DISPATCH_PREFLIGHT_LEASE_MS = 5 * 60 * 1000;
+const WORKFLOW_DISPATCH_MAX_RECENT_RUNS = 100;
+// Keep this list to fields supported by `gh run view --json`; in particular,
+// startedAt is not a valid gh field and would strand a sent dispatch during
+// nonce-bound observation.
+const WORKFLOW_RUN_JSON_FIELDS = "databaseId,workflowName,displayTitle,status,conclusion,headSha,headBranch,createdAt,url";
+
+function normalizeWorkflowRun(run) {
+  return {
+    databaseId: run?.databaseId ?? run?.id,
+    workflowName: run?.workflowName ?? run?.name,
+    displayTitle: run?.displayTitle ?? run?.display_title,
+    status: run?.status,
+    conclusion: run?.conclusion,
+    headSha: run?.headSha ?? run?.head_sha,
+    headBranch: run?.headBranch ?? run?.head_branch,
+    createdAt: run?.createdAt ?? run?.created_at,
+    startedAt: run?.startedAt ?? run?.run_started_at,
+    url: run?.url ?? run?.html_url
+  };
+}
+
+async function listWorkflowRuns(cwd, record, providerExecutablePath, { createdFilter, createdAtUpperBoundMs = null, maxRuns = WORKFLOW_DISPATCH_MAX_RECENT_RUNS } = {}) {
+  const repository = canonicalGitHubRepositoryPath(record.dispatchRepository);
+  const workflowFile = encodeURIComponent(path.posix.basename(canonicalWorkflowFile(record.workflowFile)));
+  const branch = encodeURIComponent(workflowDispatchObservationRef(record.dispatchRef));
+  const created = createdFilter ? `&created=${encodeURIComponent(createdFilter)}` : "";
+  const boundedMaxRuns = Number.isInteger(maxRuns) && maxRuns > 0
+    ? Math.min(maxRuns, WORKFLOW_DISPATCH_MAX_RECENT_RUNS)
+    : WORKFLOW_DISPATCH_MAX_RECENT_RUNS;
+  const output = await execBoundGitHubCli(providerExecutablePath, [
+    "api",
+    `repos/${repository}/actions/workflows/${workflowFile}/runs?per_page=${boundedMaxRuns}&page=1&branch=${branch}${created}`,
+    "--method", "GET"
+  ], { cwd });
+  const payload = JSON.parse(output.stdout);
+  const pages = Array.isArray(payload) ? payload : [payload];
+  let declaredTotal = 0;
+  const runs = pages.flatMap((page) => {
+    if (Array.isArray(page)) return page;
+    if (Array.isArray(page?.workflow_runs)) {
+      const total = Number(page.total_count);
+      if (Number.isInteger(total) && total >= 0) declaredTotal = Math.max(declaredTotal, total);
+      return page.workflow_runs;
+    }
+    throw new Error("GitHub Actions workflow list returned an invalid page");
+  });
+  if (declaredTotal > boundedMaxRuns || runs.length > boundedMaxRuns) {
+    throw new Error(`GitHub Actions workflow list exceeded bounded recent run limit of ${boundedMaxRuns}`);
+  }
+  return runs
+    .map(normalizeWorkflowRun)
+    .filter((run) => {
+      if (!Number.isFinite(createdAtUpperBoundMs)) return true;
+      const createdAt = Date.parse(String(run?.createdAt ?? ""));
+      return Number.isFinite(createdAt) && createdAt <= createdAtUpperBoundMs;
+    });
+}
+
+async function viewWorkflowRun(cwd, record, providerExecutablePath, runId) {
+  const output = await execBoundGitHubCli(providerExecutablePath, [
+    "run", "view", String(runId),
+    "--repo", canonicalGitHubRepositoryPath(record.dispatchRepository),
+    "--json", WORKFLOW_RUN_JSON_FIELDS
+  ], { cwd });
+  const run = JSON.parse(output.stdout);
+  if (!run || typeof run !== "object" || Array.isArray(run)) {
+    throw new Error("GitHub Actions workflow view returned an invalid result");
+  }
+  return run;
+}
+
+export function workflowDispatchMinimumCreatedAt(observationStartedAt) {
+  const startedAt = Date.parse(observationStartedAt);
+  if (!Number.isFinite(startedAt)) {
+    throw new Error("GitHub Actions dispatch observation lower bound is invalid");
+  }
+  return startedAt - 10_000;
+}
+
+async function observeDispatchedWorkflow(cwd, record, providerExecutablePath, existingRunIds, observationStartedAt, { persistCandidate } = {}) {
+  const known = new Set(existingRunIds.map(String));
+  const expectedHeadBranch = workflowDispatchObservationRef(record.dispatchRef);
+  const minimumCreatedAt = workflowDispatchMinimumCreatedAt(observationStartedAt);
+  let observedRunId = record.providerInvocation?.observedRunId ? String(record.providerInvocation.observedRunId) : null;
+  const deadline = Date.now() + WORKFLOW_DISPATCH_OBSERVATION_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const runs = await listWorkflowRuns(cwd, record, providerExecutablePath, {
+      createdFilter: `>=${new Date(minimumCreatedAt).toISOString()}`
+    });
+    const candidates = runs.filter((run) => {
+      const runId = String(run?.databaseId ?? "");
+      const createdAt = Date.parse(run?.createdAt ?? "");
+      return (
+        /^\d+$/.test(runId) && !known.has(runId) &&
+        run.headBranch === expectedHeadBranch &&
+        WORKFLOW_DISPATCH_NONCE.test(String(record.dispatchNonce ?? "")) &&
+        typeof run.displayTitle === "string" &&
+        run.displayTitle.includes(record.dispatchNonce) &&
+        Number.isFinite(createdAt) && createdAt >= minimumCreatedAt
+      );
+    });
+    const additionalCandidates = observedRunId
+      ? candidates.filter((run) => String(run.databaseId) !== observedRunId)
+      : candidates;
+    if (observedRunId ? additionalCandidates.length > 0 : additionalCandidates.length > 1) {
+      throw new Error("GitHub Actions dispatch produced more than one unclaimed matching run");
+    }
+    if (!observedRunId && additionalCandidates.length === 1) {
+      observedRunId = String(additionalCandidates[0].databaseId);
+      if (persistCandidate) await persistCandidate(observedRunId);
+    }
+    if (observedRunId) {
+      const observed = await viewWorkflowRun(cwd, record, providerExecutablePath, observedRunId);
+      if (observed.status === "completed") {
+        if (observed.headSha !== record.remoteRevision) {
+          throw new Error(`GitHub Actions dispatch observed a nonce-bound workflow run at revision ${observed.headSha}, expected ${record.remoteRevision}`);
+        }
+        const finalRuns = await listWorkflowRuns(cwd, record, providerExecutablePath, {
+          createdFilter: `>=${new Date(minimumCreatedAt).toISOString()}`
+        });
+        const finalCandidates = finalRuns.filter((run) => {
+          const runId = String(run?.databaseId ?? "");
+          const createdAt = Date.parse(run?.createdAt ?? "");
+          return (
+            /^\d+$/.test(runId) && !known.has(runId) &&
+            run.headBranch === expectedHeadBranch &&
+            WORKFLOW_DISPATCH_NONCE.test(String(record.dispatchNonce ?? "")) &&
+            typeof run.displayTitle === "string" &&
+            run.displayTitle.includes(record.dispatchNonce) &&
+            Number.isFinite(createdAt) && createdAt >= minimumCreatedAt
+          );
+        });
+        if (finalCandidates.length !== 1 || String(finalCandidates[0]?.databaseId) !== observedRunId) {
+          throw new Error("GitHub Actions dispatch produced more than one unclaimed matching run");
+        }
+        return observed;
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, WORKFLOW_DISPATCH_POLL_INTERVAL_MS));
+  }
+  throw new Error("GitHub Actions dispatch did not reach a completed provider run within the bounded observation window");
+}
+
+async function persistActionProviderInvocation(root, runId, action, invocation, {
+  journalEvent = "action.provider-invoked",
+  expectedProviderInvocation
+} = {}) {
+  return withRunLock(root, runId, async ({ runDir }) => {
+    const target = safeJoin(runDir, "actions", `${action.tokenHash}.json`);
+    const current = await readJson(root, target);
+    if (current.status !== "spent" || current.outcome !== "pending" || current.attemptId !== action.attemptId) {
+      throw new Error("GitHub Actions provider invocation is not bound to the consumed action attempt");
+    }
+    const expectedInvocation = expectedProviderInvocation === undefined
+      ? (action.providerInvocation ?? null)
+      : expectedProviderInvocation;
+    const currentInvocation = current.providerInvocation ?? null;
+    if (digestObject(currentInvocation) !== digestObject(expectedInvocation)) {
+      throw new Error("GitHub Actions provider invocation changed during resumable reconciliation");
+    }
+    const next = { ...current, providerInvocation: invocation };
+    await atomicWriteJson(root, target, next);
+    await appendJournal(root, runDir, journalEvent, {
+      attemptId: action.attemptId,
+      invocationId: invocation.id,
+      dispatchState: invocation.dispatchState,
+      exitCode: invocation.exitCode
+    });
+    return next;
+  }, { ttlMs: 300_000 });
+}
+
+export async function resumeActionsDispatchObservation(root, runId, attemptId) {
+  const run = await loadRun(root, runId);
+  const runDir = runDirectory(root, runId);
+  const records = await listJsonRecords(root, safeJoin(runDir, "actions"));
+  const action = records.find((item) => item.attemptId === attemptId);
+  if (!action || action.action !== "actions.dispatch" || action.provider !== "github-cli") return action ?? null;
+  assertMutableRun(run, "Resumable GitHub Actions dispatch reconciliation");
+  const invocation = action.providerInvocation;
+  if (action.status !== "spent" || action.outcome !== "pending") return action;
+  if (invocation?.dispatchState === "preflight") {
+    if (typeof invocation.startedAt !== "string" || !Number.isFinite(Date.parse(invocation.startedAt)) ||
+        invocation.exitCode !== null) {
+      throw new Error("Resumable GitHub Actions dispatch preflight recovery requires a valid pre-call timestamp and null exit code");
+    }
+    const lease = invocation.executorLease;
+    const leaseExpiresAt = Date.parse(lease?.expiresAt ?? "");
+    if (!lease || !Number.isInteger(lease.pid) || lease.pid <= 0 || typeof lease.host !== "string" || lease.host.length === 0 ||
+        !Number.isFinite(leaseExpiresAt)) {
+      throw new Error("Resumable GitHub Actions dispatch preflight recovery requires a valid executor lease");
+    }
+    if (lease.host !== os.hostname()) {
+      throw new Error(`Resumable GitHub Actions dispatch preflight lease expired on host ${lease.host}; refusing cross-host recovery`);
+    }
+    if (leaseExpiresAt > Date.now() || processAlive(lease.pid)) {
+      throw new Error("Resumable GitHub Actions dispatch preflight recovery is blocked while its executor lease is active");
+    }
+    const recoveredInvocation = workflowDispatchInvocation(runId, action, {
+      startedAt: invocation.startedAt,
+      exitCode: null,
+      dispatchState: "not-sent",
+      preexistingRunIds: [],
+      errorDigest: sha256("GitHub Actions dispatch provider invocation did not start before process termination")
+    });
+    return persistActionProviderInvocation(root, runId, action, recoveredInvocation, {
+      journalEvent: "action.provider-preflight-recovered",
+      expectedProviderInvocation: invocation
+    });
+  }
+  if (action.status !== "spent" || action.outcome !== "pending" ||
+      !invocation || invocation.dispatchState !== "sent-or-indeterminate" || invocation.workflowRun) {
+    return action;
+  }
+  const observationStartedAt = invocation.observationStartedAt ?? invocation.dispatchedAt;
+  if ((invocation.exitCode !== null && !Number.isInteger(invocation.exitCode)) || typeof observationStartedAt !== "string") {
+    throw new Error("Resumable GitHub Actions dispatch reconciliation requires a recorded provider exit code and dispatch timestamp");
+  }
+  const manifest = await readJson(root, safeJoin(runDir, "manifest.json"));
+  const providerExecutablePath = await verifyRecordedGitHubProvider(manifest, action);
+  const providerExecutable = await currentProviderExecutableIdentity("gh");
+  if (providerExecutable.path !== providerExecutablePath ||
+      digestObject(providerExecutable) !== digestObject(action.providerExecutable)) {
+    throw new Error("Resumable GitHub Actions dispatch reconciliation denied because the governed provider executable changed");
+  }
+  const providerAuthorization = await verifyGitHubProviderAuthorization(
+    manifest.cwd,
+    action.providerAuthorization.repository,
+    providerExecutablePath
+  );
+  if (digestObject(providerAuthorization) !== digestObject(action.providerAuthorization)) {
+    throw new Error("Resumable GitHub Actions dispatch reconciliation denied because the provider actor or permissions changed");
+  }
+  const preexistingRunIds = Array.isArray(invocation.preexistingRunIds)
+    ? invocation.preexistingRunIds.map(String).filter((value) => /^\d+$/.test(value))
+    : [];
+  let currentAction = action;
+  const persistCandidate = async (observedRunId) => {
+    const currentInvocation = currentAction.providerInvocation;
+    const candidateInvocation = workflowDispatchInvocation(runId, currentAction, {
+      startedAt: currentInvocation.startedAt,
+      exitCode: currentInvocation.exitCode,
+      dispatchState: "sent-or-indeterminate",
+      preexistingRunIds,
+      dispatchedAt: currentInvocation.dispatchedAt,
+      observationStartedAt,
+      observedRunId
+    });
+    currentAction = await persistActionProviderInvocation(root, runId, currentAction, candidateInvocation, {
+      expectedProviderInvocation: currentInvocation
+    });
+  };
+  const workflowRun = await observeDispatchedWorkflow(
+    manifest.cwd,
+    currentAction,
+    providerExecutablePath,
+    preexistingRunIds,
+    observationStartedAt,
+    { persistCandidate }
+  );
+  const currentInvocation = currentAction.providerInvocation;
+  const promotedInvocation = workflowDispatchInvocation(runId, currentAction, {
+    startedAt: currentInvocation.startedAt,
+    exitCode: currentInvocation.exitCode,
+    dispatchState: "sent",
+    preexistingRunIds,
+    dispatchedAt: currentInvocation.dispatchedAt,
+    observationStartedAt,
+    observedRunId: currentInvocation.observedRunId,
+    workflowRun
+  });
+  return persistActionProviderInvocation(root, runId, currentAction, promotedInvocation, {
+    journalEvent: "action.provider-reconciled",
+    expectedProviderInvocation: currentInvocation
+  });
+}
+
+function workflowDispatchInvocation(runId, action, invocation) {
+  return {
+    schemaVersion: 1,
+    id: `github-actions-dispatch-wrapper:${runId}:${action.attemptId}`,
+    actionAttemptId: action.attemptId,
+    provider: "github-cli",
+    command: action.dispatchCommand,
+    providerExecutable: action.providerExecutable,
+    providerAuthorizationExecutable: action.providerAuthorizationExecutable,
+    providerAuthorization: action.providerAuthorization,
+    startedAt: invocation.startedAt,
+    finishedAt: nowIso(),
+    exitCode: invocation.exitCode,
+    dispatchState: invocation.dispatchState,
+    preexistingRunIds: invocation.preexistingRunIds,
+    ...(invocation.executorLease ? { executorLease: invocation.executorLease } : {}),
+    ...(invocation.dispatchedAt ? { dispatchedAt: invocation.dispatchedAt } : {}),
+    ...(invocation.observationStartedAt ? { observationStartedAt: invocation.observationStartedAt } : {}),
+    ...(invocation.observedRunId ? { observedRunId: String(invocation.observedRunId) } : {}),
+    ...(invocation.workflowRun ? { workflowRun: invocation.workflowRun } : {}),
+    ...(invocation.errorDigest ? { errorDigest: invocation.errorDigest } : {})
+  };
+}
+
+function workflowDispatchPreInvocation(runId, action, startedAt) {
+  const startedAtMs = Date.parse(startedAt);
+  if (!Number.isFinite(startedAtMs)) throw new Error("GitHub Actions dispatch preflight timestamp is invalid");
+  return workflowDispatchInvocation(runId, action, {
+    startedAt,
+    exitCode: null,
+    dispatchState: "preflight",
+    preexistingRunIds: [],
+    executorLease: {
+      pid: process.pid,
+      host: os.hostname(),
+      expiresAt: new Date(startedAtMs + WORKFLOW_DISPATCH_PREFLIGHT_LEASE_MS).toISOString()
+    }
+  });
+}
+
 async function persistPreflightProviderInvocation(root, runId, action, error) {
   return withRunLock(root, runId, async ({ runDir }) => {
     const target = safeJoin(runDir, "actions", `${action.tokenHash}.json`);
@@ -5913,10 +8022,10 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
   assertSupportedGovernedAction(actionRecord.action);
   const contract = await readJson(root, safeJoin(runDirectory(root, runId), "contract.json"));
   assertActionIsNotDeferred(contract, actionRecord.action);
-  if (!EXECUTABLE_ACTION_PROVIDERS.has(`${actionRecord.action}:${actionRecord.provider}`)) {
-    throw new Error("The governed provider execution path only supports github-cli pr.merge and git.push");
+  if (!isExecutableActionProvider(actionRecord.action, actionRecord.provider)) {
+    throw new Error("The governed provider execution path only supports fixed GitHub/Git provider adapters");
   }
-  const consumed = await consumeActionTokenInternal(root, runId, token, currentTreeDigest, true);
+  let consumed = await consumeActionTokenInternal(root, runId, token, currentTreeDigest, true);
   if (contract.autonomyProfile) {
     const run = await loadRun(root, runId);
     if (run.state.autonomy?.status !== "ready" || run.state.lastSentinelVerified !== true || run.state.lastSentinelComplete !== true) {
@@ -5925,6 +8034,181 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
     const snapshot = await currentAutonomySnapshot(run.manifest, run.contract, run.state);
     assertAutonomySnapshotIdentity(snapshot, run.state.autonomy.snapshot, "Action execution");
     assertAutonomySnapshotIdentity(snapshot, consumed.autonomySnapshot, "Action execution token");
+  }
+  if (consumed.action === "actions.dispatch" && consumed.provider === "github-cli") {
+    const manifest = await readJson(root, safeJoin(runDirectory(root, runId), "manifest.json"));
+    const startedAt = nowIso();
+    let expectedCommand;
+    let providerExecutablePath;
+    let existingRunIds = [];
+    try {
+      expectedCommand = buildActionsDispatchCommand(consumed);
+      if (JSON.stringify(consumed.dispatchCommand) !== JSON.stringify(expectedCommand)) {
+        throw new Error("GitHub Actions dispatch execution command is not the fixed workflow binding");
+      }
+      providerExecutablePath = await verifyRecordedGitHubProvider(manifest, consumed);
+      const providerExecutable = await currentProviderExecutableIdentity("gh");
+      if (providerExecutable.path !== providerExecutablePath ||
+          digestObject(providerExecutable) !== digestObject(consumed.providerExecutable)) {
+        throw new Error("GitHub Actions dispatch execution denied because the governed provider executable changed");
+      }
+      const providerAuthorization = await verifyGitHubProviderAuthorization(
+        manifest.cwd,
+        consumed.providerAuthorization.repository,
+        providerExecutablePath
+      );
+      if (digestObject(providerAuthorization) !== digestObject(consumed.providerAuthorization)) {
+        throw new Error("GitHub Actions dispatch execution denied because the provider actor or permissions changed");
+      }
+      const existingRuns = await listWorkflowRuns(manifest.cwd, consumed, providerExecutablePath, {
+        createdFilter: `>=${new Date(workflowDispatchMinimumCreatedAt(startedAt)).toISOString()}`,
+        createdAtUpperBoundMs: Date.parse(startedAt)
+      });
+      existingRunIds = existingRuns
+        .map((run) => String(run?.databaseId ?? ""))
+        .filter((runIdValue) => /^\d+$/.test(runIdValue));
+      const resolvedDispatchRef = await resolveBoundGitHubDispatchRef(
+        manifest.cwd,
+        consumed.dispatchRepository,
+        consumed.dispatchRef,
+        providerExecutablePath
+      );
+      if (resolvedDispatchRef.ref !== consumed.dispatchRef || resolvedDispatchRef.revision !== consumed.remoteRevision) {
+        throw new Error("GitHub Actions dispatch ref changed before provider invocation");
+      }
+    } catch (error) {
+      const preflight = workflowDispatchInvocation(runId, consumed, {
+        startedAt,
+        exitCode: null,
+        dispatchState: "not-sent",
+        preexistingRunIds: existingRunIds,
+        errorDigest: sha256(error?.message ?? "workflow dispatch preflight failed")
+      });
+      consumed = await persistActionProviderInvocation(root, runId, consumed, preflight);
+      throw error;
+    }
+    // Re-check the ref immediately before recording the crash-observation
+    // boundary. A drift here proves that the provider command was not sent,
+    // so the attempt remains explicitly not-sent and may be reconciled as a
+    // terminal preflight failure rather than stranded as indeterminate.
+    const dispatchObservationStartedAt = nowIso();
+    try {
+      const resolvedDispatchRef = await resolveBoundGitHubDispatchRef(
+        manifest.cwd,
+        consumed.dispatchRepository,
+        consumed.dispatchRef,
+        providerExecutablePath
+      );
+      if (resolvedDispatchRef.ref !== consumed.dispatchRef || resolvedDispatchRef.revision !== consumed.remoteRevision) {
+        throw new Error("GitHub Actions dispatch ref changed immediately before provider invocation");
+      }
+    } catch (error) {
+      const preflight = workflowDispatchInvocation(runId, consumed, {
+        startedAt,
+        exitCode: null,
+        dispatchState: "not-sent",
+        preexistingRunIds: existingRunIds,
+        errorDigest: sha256(error?.message ?? "workflow dispatch final preflight failed")
+      });
+      consumed = await persistActionProviderInvocation(root, runId, consumed, preflight);
+      throw error;
+    }
+    // Persist the observation lower bound before the provider call. A crash
+    // after the call but before its result is durable must still be resumable.
+    consumed = await persistActionProviderInvocation(root, runId, consumed, workflowDispatchInvocation(runId, consumed, {
+      startedAt,
+      exitCode: null,
+      // Once the token is consumed, a crash can occur immediately before or
+      // after the provider call. Keep the attempt indeterminate until the
+      // provider run is observed; never release it as a not-sent failure.
+      dispatchState: "sent-or-indeterminate",
+      preexistingRunIds: existingRunIds,
+      observationStartedAt: dispatchObservationStartedAt
+    }));
+    let exitCode = 0;
+    try {
+      await execBoundGitHubCli(providerExecutablePath, expectedCommand.slice(1), { cwd: manifest.cwd });
+    } catch (error) {
+      exitCode = Number.isInteger(error?.code) ? error.code : 1;
+      const failedInvocation = workflowDispatchInvocation(runId, consumed, {
+        startedAt,
+        exitCode,
+        dispatchState: "sent-or-indeterminate",
+        preexistingRunIds: existingRunIds,
+        dispatchedAt: nowIso(),
+        observationStartedAt: dispatchObservationStartedAt,
+        errorDigest: sha256(error?.message ?? "workflow dispatch failed")
+      });
+      consumed = await persistActionProviderInvocation(root, runId, consumed, failedInvocation);
+      throw Object.assign(
+        new Error("GitHub Actions dispatch invocation failed; provider state is indeterminate and automatic retry is prohibited", {
+          cause: error
+        }),
+        {
+          code: "SBW_ACTIONS_DISPATCH_INDETERMINATE",
+          providerInvocation: failedInvocation
+        }
+      );
+    }
+    const dispatchedAt = nowIso();
+    consumed = await persistActionProviderInvocation(root, runId, consumed, workflowDispatchInvocation(runId, consumed, {
+      startedAt,
+      exitCode,
+      dispatchState: "sent-or-indeterminate",
+      preexistingRunIds: existingRunIds,
+      dispatchedAt,
+      observationStartedAt: dispatchObservationStartedAt
+    }));
+    try {
+      const persistCandidate = async (observedRunId) => {
+        const currentInvocation = consumed.providerInvocation;
+        const candidateInvocation = workflowDispatchInvocation(runId, consumed, {
+          startedAt,
+          exitCode,
+          dispatchState: "sent-or-indeterminate",
+          preexistingRunIds: existingRunIds,
+          dispatchedAt,
+          observationStartedAt: dispatchObservationStartedAt,
+          observedRunId
+        });
+        consumed = await persistActionProviderInvocation(root, runId, consumed, candidateInvocation, {
+          expectedProviderInvocation: currentInvocation
+        });
+      };
+      const workflowRun = await observeDispatchedWorkflow(
+        manifest.cwd,
+        consumed,
+        providerExecutablePath,
+        existingRunIds,
+        dispatchObservationStartedAt,
+        { persistCandidate }
+      );
+      const completedInvocation = workflowDispatchInvocation(runId, consumed, {
+        startedAt,
+        exitCode,
+        dispatchState: "sent",
+        preexistingRunIds: existingRunIds,
+        dispatchedAt,
+        observationStartedAt: dispatchObservationStartedAt,
+        observedRunId: consumed.providerInvocation?.observedRunId,
+        workflowRun
+      });
+      consumed = await persistActionProviderInvocation(root, runId, consumed, completedInvocation);
+      return consumed;
+    } catch (error) {
+      const indeterminateInvocation = workflowDispatchInvocation(runId, consumed, {
+        startedAt,
+        exitCode,
+        dispatchState: "sent-or-indeterminate",
+        preexistingRunIds: existingRunIds,
+        dispatchedAt,
+        observationStartedAt: dispatchObservationStartedAt,
+        observedRunId: consumed.providerInvocation?.observedRunId,
+        errorDigest: sha256(error?.message ?? "workflow run observation failed")
+      });
+      consumed = await persistActionProviderInvocation(root, runId, consumed, indeterminateInvocation);
+      throw error;
+    }
   }
   if (consumed.action === "git.push" && consumed.provider === "git") {
     const { remote, pushUrl, ref, command: expectedCommand } = resolveGitPushExecutionBinding(consumed);
@@ -6175,7 +8459,9 @@ function validateActionReceipt(record, outcome, receipt) {
     receipt.providerReceipt.resource !== record.resource ||
     receipt.providerReceipt.outcome !== outcome ||
     receipt.providerReceipt.provider !== record.provider ||
-    !bindingFields.every((field) => receipt.providerReceipt[field] === record[field]) ||
+    !bindingFields
+      .filter((field) => !(record.action === "actions.dispatch" && field === "runId"))
+      .every((field) => receipt.providerReceipt[field] === record[field]) ||
     typeof receipt.providerReceipt.executionId !== "string" ||
     !receipt.providerReceipt.executionId
   ) {
@@ -6399,13 +8685,13 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
       throw new Error(`Injected autonomous Git commit reconciliation failure after ${point}`);
     }
   };
+  await resumeActionsDispatchObservation(root, runId, attemptId);
   return withRunLock(root, runId, async ({ runDir }) => {
     const run = await loadRun(root, runId);
     assertMutableRun(run, "Action reconciliation");
     const records = await listJsonRecords(root, safeJoin(runDir, "actions"));
     const record = records.find((item) => item.attemptId === attemptId);
     if (!record) throw new Error(`Unknown action attempt: ${attemptId}`);
-    assertSupportedGovernedAction(record.action);
     assertActionIsNotDeferred(run.contract, record.action);
     if (failAfter !== null && !(
       record.action === "git.commit" &&
@@ -6553,6 +8839,28 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
         JSON.stringify(record.providerInvocation.command) !== JSON.stringify(record.pushCommand))
     ) {
       throw new Error("Successful Git push reconciliation requires the governed actor-bound provider wrapper");
+    }
+    const notSentDispatchFailure = (
+      record.action === "actions.dispatch" &&
+      outcome === "failure" &&
+      record.providerInvocation?.dispatchState === "not-sent"
+    );
+    if (
+      record.action === "actions.dispatch" &&
+      !notSentDispatchFailure &&
+      // A nonzero CLI exit is not itself a provider conclusion: a nonce-bound
+      // completed run remains authoritative and may be reconciled without retry.
+      (!record.providerInvocation ||
+        record.providerInvocation.provider !== "github-cli" ||
+        record.providerInvocation.dispatchState !== "sent" ||
+        digestObject(record.providerInvocation.providerExecutable) !== digestObject(record.providerExecutable) ||
+        digestObject(record.providerInvocation.providerAuthorizationExecutable) !== digestObject(record.providerAuthorizationExecutable) ||
+        digestObject(record.providerInvocation.providerAuthorization) !== digestObject(record.providerAuthorization) ||
+        JSON.stringify(record.providerInvocation.command) !== JSON.stringify(record.dispatchCommand) ||
+        !record.providerInvocation.workflowRun ||
+        receipt.providerReceipt.invocationId !== record.providerInvocation.id)
+    ) {
+      throw new Error("GitHub Actions dispatch reconciliation requires the governed provider wrapper");
     }
     const duplicateExecution = records.some((candidate) => (
       candidate.tokenHash !== record.tokenHash &&

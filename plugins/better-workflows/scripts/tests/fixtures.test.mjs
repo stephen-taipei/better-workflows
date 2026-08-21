@@ -2,8 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
-import { pluginRoot, routeMode, VERSION } from "../lib/core.mjs";
+import { buildContract, pluginRoot, routeMode, VERSION } from "../lib/core.mjs";
 import { loadAutonomyProfile } from "../lib/autonomy.mjs";
+import { validateReviewProfile } from "../lib/review-policy.mjs";
 
 test("all historical and adversarial routing fixtures select the expected mode", async () => {
   const cases = JSON.parse(
@@ -60,6 +61,15 @@ test("all thirteen templates are valid and side-effect templates declare action 
   for (const name of names) {
     const template = JSON.parse(await readFile(path.join(directory, name), "utf8"));
     assert.equal(template.name, name.slice(0, -5));
+    if (template.controlPlane.reviewPolicy === "none") {
+      assert.equal(template.reviewProfile, undefined, `${name} must not declare a review profile`);
+    } else {
+      assert.ok(template.reviewProfile, `${name} must declare its review profile`);
+      assert.doesNotThrow(() => validateReviewProfile(template.reviewProfile, {
+        template: template.name,
+        reviewPolicy: template.controlPlane.reviewPolicy
+      }), name);
+    }
     assert.ok(template.requiredEvidence.length > 0);
     assert.ok(template.acceptance.length > 0);
     assert.ok(template.policyGates.length > 0);
@@ -73,14 +83,132 @@ test("all thirteen templates are valid and side-effect templates declare action 
       }
     }
     if (template.deferredActions?.length > 0) {
-      assert.deepEqual(template.actionStages ?? {}, {}, `${name} deferred actions must not be active stages`);
-      assert.deepEqual(template.actionGates ?? {}, {}, `${name} deferred actions must not have action gates`);
+      const deferred = new Set(template.deferredActions);
+      for (const action of Object.keys(template.actionStages ?? {})) {
+        assert.ok(!deferred.has(action), `${name} deferred action must not be an active stage: ${action}`);
+      }
+      for (const action of Object.keys(template.actionGates ?? {})) {
+        assert.ok(!deferred.has(action), `${name} deferred action must not have an action gate: ${action}`);
+      }
     }
     if (template.rootOnlyActions.some((action) => /deploy|release|issue create|pr create|pr merge/i.test(action)) &&
         !(template.deferredActions?.length > 0)) {
       assert.ok(template.actionGates && Object.keys(template.actionGates).length > 0, name);
     }
   }
+});
+
+test("ci release dispatch stays deferred while monitoring remains non-circular", async () => {
+  const template = JSON.parse(
+    await readFile(path.join(pluginRoot(), "templates", "ci-release-monitor.json"), "utf8")
+  );
+  const monitorStage = template.executionStages.find((stage) => stage.id === "monitor-execute");
+  assert.ok(monitorStage);
+  assert.deepEqual(monitorStage.dependsOn, ["queue"]);
+  assert.deepEqual(template.actionStages, {});
+  assert.deepEqual(template.actionGates, {});
+  assert.ok(template.deferredActions.includes("workflow.dispatch"));
+  assert.ok(template.deferredActions.includes("branch.promote"));
+  assert.equal(template.executionStages.find((stage) => stage.id === "provider-reconcile").dependsOn[0], "monitor-execute");
+});
+
+test("integration-tag workflow grants check-read permission for catch-up reconciliation", async () => {
+  const workflow = await readFile(
+    path.resolve(pluginRoot(), "../../.github/workflows/ci.yml"),
+    "utf8"
+  );
+  assert.match(
+    workflow,
+    /integration-tag:[\s\S]*?permissions:\s*\n\s+contents:\s+write\s*\n\s+actions:\s+read\s*\n\s+checks:\s+read\s*\n\s+statuses:\s+read\s*\n\s+pull-requests:\s+read/
+  );
+  assert.match(workflow, /integration-tag:[\s\S]*?RELEASE_POLICY_ADMIN_TOKEN:\s+\$\{\{\s*secrets\.BETTER_WORKFLOWS_POLICY_TOKEN\s*\}\}/);
+});
+
+test("trusted pull-request-target workflow publishes a pre-merge policy artifact", async () => {
+  const workflow = await readFile(
+    path.resolve(pluginRoot(), "../../.github/workflows/ci.yml"),
+    "utf8"
+  );
+  const reconciliationWorkflow = await readFile(
+    path.resolve(pluginRoot(), "../../.github/workflows/release-policy-reconcile.yml"),
+    "utf8"
+  );
+  assert.match(workflow, /test:\s*\n\s+if:\s+github\.event_name\s+==\s+'push'\s+\|\|\s+github\.event_name\s+==\s+'pull_request'/);
+  assert.match(workflow, /test:\s*[\s\S]*?permissions:\s*\n\s+contents:\s+read\s*\n\s+pull-requests:\s+read/);
+  const testJob = workflow.match(/\n  test:\n[\s\S]*?(?=\n  [a-z-]+:|$)/)?.[0] ?? "";
+  assert.doesNotMatch(testJob, /statuses:\s+write/);
+  assert.match(workflow, /pull_request_target:\s*\n\s+types:\s+\[opened, reopened, synchronize, closed\]/);
+  assert.doesNotMatch(workflow, /workflow_run:/);
+  assert.match(workflow, /release-policy-receipt:\s*\n\s+name:\s+Release policy receipt\s*\n\s+if:\s+github\.event_name\s+==\s+'pull_request_target'[\s\S]*?github\.event\.action\s+==\s+'closed'[\s\S]*?github\.event\.pull_request\.merged\s+==\s+true/);
+  assert.match(workflow, /release-policy-receipt:[\s\S]*?actions:\s+read\s*\n\s+statuses:\s+write/);
+  assert.match(workflow, /release-policy-receipt:[\s\S]*?ref:\s+\$\{\{\s*github\.sha\s*\}\}/);
+  assert.match(workflow, /release-policy-receipt:[\s\S]*?GITHUB_EVENT_NAME:\s+\$\{\{\s*github\.event_name\s*\}\}/);
+  assert.match(workflow, /release-policy-receipt:[\s\S]*?GITHUB_EVENT_ACTION:\s+\$\{\{\s*github\.event\.action\s*\}\}/);
+  assert.match(workflow, /release-policy-receipt:[\s\S]*?GITHUB_HEAD_SHA:\s+\$\{\{\s*github\.event\.pull_request\.head\.sha\s*\}\}/);
+  assert.match(workflow, /release-policy-receipt:[\s\S]*?GITHUB_PR_NUMBER:\s+\$\{\{\s*github\.event\.pull_request\.number\s*\}\}/);
+  assert.match(workflow, /release-policy-receipt:[\s\S]*?GITHUB_PR_MERGED:\s+\$\{\{\s*github\.event\.pull_request\.merged\s*\}\}/);
+  assert.match(workflow, /release-policy-receipt:[\s\S]*?GITHUB_MERGE_COMMIT_SHA:\s+\$\{\{\s*github\.event\.pull_request\.merge_commit_sha\s*\}\}/);
+  assert.match(workflow, /release-policy-receipt:[\s\S]*?GITHUB_PR_MERGED_AT:\s+\$\{\{\s*github\.event\.pull_request\.merged_at\s*\}\}/);
+  assert.match(workflow, /release-policy-receipt:[\s\S]*?GITHUB_RUN_ID:\s+\$\{\{\s*github\.run_id\s*\}\}/);
+  assert.match(workflow, /release-policy-receipt:[\s\S]*?GITHUB_RUN_ATTEMPT:\s+\$\{\{\s*github\.run_attempt\s*\}\}/);
+  assert.match(workflow, /RELEASE_POLICY_RECEIPT_PHASE:\s+prepare[\s\S]*?RELEASE_POLICY_ADMIN_TOKEN:\s+\$\{\{\s*secrets\.BETTER_WORKFLOWS_POLICY_TOKEN\s*\}\}/);
+  assert.match(workflow, /id:\s+close-binding[\s\S]*?if:\s+github\.event\.action\s+==\s+'closed'[\s\S]*?RELEASE_POLICY_RECEIPT_PHASE:\s+close-binding/);
+  assert.match(workflow, /if:\s+always\(\)\s+&&\s+steps\.close-binding\.outcome\s+==\s+'success'[\s\S]*?better-workflows-release-policy-close-binding-\$\{\{\s*github\.run_id\s*\}\}-\$\{\{\s*github\.run_attempt\s*\}\}/);
+  assert.match(workflow, /release-policy-receipt:[\s\S]*?RELEASE_POLICY_RECEIPT_FILE:\s+\$\{\{\s*runner\.temp\s*\}\}\/release-policy-receipt\.json/);
+  assert.match(workflow, /id:\s+prepare[\s\S]*?RELEASE_POLICY_RECEIPT_PHASE:\s+prepare[\s\S]*?run:\s+node plugins\/better-workflows\/scripts\/release-policy-receipt\.mjs/);
+  assert.match(workflow, /actions\/checkout@11d5960a326750d5838078e36cf38b85af677262\s+# v4/);
+  assert.match(workflow, /actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020\s+# v4[\s\S]*?node-version:\s+24\.12\.0/);
+  assert.match(workflow, /actions\/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02\s+# v4/);
+  assert.match(workflow, /actions\/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02[\s\S]*?name:\s+Publish required-check policy status after artifact upload[\s\S]*?RELEASE_POLICY_RECEIPT_PHASE:\s+publish/);
+  assert.match(workflow, /better-workflows-release-policy-receipt-\$\{\{\s*github\.run_id\s*\}\}-\$\{\{\s*github\.run_attempt\s*\}\}/);
+  assert.match(workflow, /retention-days:\s+90/);
+  assert.match(workflow, /release-policy-receipt:[\s\S]*?run:\s+node plugins\/better-workflows\/scripts\/release-policy-receipt\.mjs/);
+  assert.match(reconciliationWorkflow, /workflow_run:\s*\n\s+workflows:\s+\["CI"\]\s*\n\s+types:\s+\[completed\]/);
+  assert.match(reconciliationWorkflow, /release-policy-receipt:\s*\n\s+name:\s+Release policy receipt\s*\n\s+# The Node entrypoint rejects non-merged runs and skips runs without the immutable close binding\.\s*\n\s+if:\s+github\.event\.workflow_run\.event\s+==\s+'pull_request_target'/);
+  assert.match(reconciliationWorkflow, /GITHUB_EVENT_PATH:\s+\$\{\{\s*github\.event_path\s*\}\}/);
+  assert.match(reconciliationWorkflow, /RELEASE_POLICY_RECEIPT_PHASE:\s+prepare/);
+  assert.match(reconciliationWorkflow, /RELEASE_POLICY_RECEIPT_PHASE:\s+prepare[\s\S]*?RELEASE_POLICY_ADMIN_TOKEN:\s+\$\{\{\s*secrets\.BETTER_WORKFLOWS_POLICY_TOKEN\s*\}\}/);
+  assert.match(reconciliationWorkflow, /RELEASE_POLICY_RECEIPT_PHASE:\s+publish/);
+  assert.match(reconciliationWorkflow, /GITHUB_RUN_ATTEMPT:\s+\$\{\{\s*github\.run_attempt\s*\}\}/);
+  assert.match(reconciliationWorkflow, /better-workflows-release-policy-receipt-\$\{\{\s*github\.run_id\s*\}\}-\$\{\{\s*github\.run_attempt\s*\}\}/);
+  assert.match(reconciliationWorkflow, /Validate exact closed merge trigger and prepare required-check policy receipt artifact/);
+  assert.match(reconciliationWorkflow, /actions\/checkout@11d5960a326750d5838078e36cf38b85af677262\s+# v4/);
+  assert.match(reconciliationWorkflow, /actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020\s+# v4[\s\S]*?node-version:\s+24\.12\.0/);
+  assert.match(reconciliationWorkflow, /actions\/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02\s+# v4/);
+  for (const [name, text] of [["ci.yml", workflow], ["release-policy-reconcile.yml", reconciliationWorkflow]]) {
+    assert.doesNotMatch(text, /uses:\s+actions\/[A-Za-z0-9_.-]+@(?![0-9a-f]{40}\b)\S+/i, `${name} contains a mutable action ref`);
+    assert.doesNotMatch(text, /node-version:\s+24(?:\s|$)/, `${name} contains a floating Node 24 runtime`);
+  }
+});
+
+test("generated HTML template inventory derives ci release stages from authoritative templates", async () => {
+  const templateDirectory = path.join(pluginRoot(), "templates");
+  const templateFiles = (await readdir(templateDirectory)).filter((name) => name.endsWith(".json"));
+  const templates = await Promise.all(templateFiles.map(async (name) => (
+    JSON.parse(await readFile(path.join(templateDirectory, name), "utf8"))
+  )));
+  const totalStages = templates.reduce((sum, template) => sum + template.executionStages.length, 0);
+  const ciTemplate = templates.find((template) => template.name === "ci-release-monitor");
+  assert.ok(ciTemplate);
+  const useCases = await readFile(path.resolve(pluginRoot(), "../../docs/html/use-cases/index.html"), "utf8");
+  const home = await readFile(path.resolve(pluginRoot(), "../../docs/html/index.html"), "utf8");
+  const preview = await readFile(path.resolve(pluginRoot(), "../../docs/html/use-cases/preview.html"), "utf8");
+  assert.match(useCases, new RegExp(`id:'ci-release-monitor', mode:'critical', stages:${ciTemplate.executionStages.length},`));
+  for (const stage of ciTemplate.executionStages) assert.ok(useCases.includes(`['${stage.id}'`), stage.id);
+  assert.ok(!useCases.includes("['push-preflight'"));
+  assert.match(useCases, new RegExp(`13 / ${totalStages} stages`));
+  assert.match(useCases, /Thirteen templates and sixty stages/);
+  assert.match(home, new RegExp(`13 個 template 合計 ${totalStages} stages`));
+  assert.match(preview, new RegExp(`${totalStages} 個 stages`));
+  assert.match(preview, new RegExp(`${totalStages} stages`));
+});
+
+test("pr-to-dev push is issued in the post-review side-effect stage", async () => {
+  const template = JSON.parse(
+    await readFile(path.join(pluginRoot(), "templates", "pr-to-dev.json"), "utf8")
+  );
+  assert.equal(template.actionStages["git.push"], "pr-checks");
+  assert.equal(template.executionStages.find((stage) => stage.id === "pr-checks").dependsOn[0], "review");
 });
 
 test("workspace recipes require explicit trust and independently gated artifact promotion", async () => {
@@ -105,6 +233,84 @@ test("workspace recipes require explicit trust and independently gated artifact 
   ]);
   assert.ok(template.policyGates.includes("no-untrusted-execution"));
   assert.ok(template.policyGates.includes("no-automatic-scaffold-promotion-or-execution"));
+});
+
+test("review profiles are copied into the bound task contract", async () => {
+  const template = JSON.parse(
+    await readFile(path.join(pluginRoot(), "templates", "self-improve-ops.json"), "utf8")
+  );
+  const contract = buildContract({
+    template: template.name,
+    templateDefinition: template,
+    goal: "profile binding fixture",
+    scope: ["templates/self-improve-ops.json"],
+    risk: { risk: 1, uncertainty: 1, blastRadius: 1, irreversibility: 0, evidenceGap: 1 }
+  });
+  assert.deepEqual(contract.reviewProfile, template.reviewProfile);
+});
+
+test("review-enabled contracts require a bound profile and review-none contracts reject one", async () => {
+  const template = JSON.parse(
+    await readFile(path.join(pluginRoot(), "templates", "self-improve-ops.json"), "utf8")
+  );
+  const reviewEnabledWithoutProfile = structuredClone(template);
+  reviewEnabledWithoutProfile.controlPlane.reviewPolicy = "code-v1";
+  delete reviewEnabledWithoutProfile.controlPlane.workUnitPolicy;
+  delete reviewEnabledWithoutProfile.controlPlane.reviewLanes;
+  delete reviewEnabledWithoutProfile.reviewProfile;
+  assert.throws(() => buildContract({
+    template: "review-enabled-without-profile",
+    templateDefinition: reviewEnabledWithoutProfile,
+    goal: "missing profile",
+    scope: ["plugins"],
+    risk: { risk: 1, uncertainty: 1, blastRadius: 1, irreversibility: 0, evidenceGap: 1 }
+  }), /review-enabled policy requires reviewProfile/);
+
+  const reviewNoneWithProfile = structuredClone(template);
+  reviewNoneWithProfile.controlPlane.reviewPolicy = "none";
+  delete reviewNoneWithProfile.controlPlane.workUnitPolicy;
+  delete reviewNoneWithProfile.controlPlane.reviewLanes;
+  assert.throws(() => buildContract({
+    template: "review-none-with-profile",
+    templateDefinition: reviewNoneWithProfile,
+    goal: "extraneous profile",
+    scope: ["plugins"],
+    risk: { risk: 1, uncertainty: 1, blastRadius: 1, irreversibility: 0, evidenceGap: 1 }
+  }), /reviewProfile is not allowed when review policy is none/);
+});
+
+test("review profile validation prevents capability escalation by template editing", () => {
+  const legacy = {
+    schemaVersion: 1,
+    id: "review-contract-v1",
+    changedSurfaceAccounting: "diff-manifest-v1",
+    anchorResolution: "package-bound-location-v1",
+    findingVerification: "broad-review-v1",
+    provenanceBinding: "review-package-v1",
+    specBinding: "instruction-digest-v1"
+  };
+  assert.doesNotThrow(() => validateReviewProfile(legacy, {
+    template: "pr-to-dev",
+    reviewPolicy: "code-v1"
+  }));
+  assert.throws(() => validateReviewProfile({
+    ...legacy,
+    anchorResolution: "exact-quote-v1"
+  }, {
+    template: "pr-to-dev",
+    reviewPolicy: "code-v1"
+  }), /capability set is invalid/);
+  assert.throws(() => validateReviewProfile({
+    ...legacy,
+    id: "review-kernel-v2-pilot",
+    changedSurfaceAccounting: "work-unit-accounting-v1",
+    anchorResolution: "exact-quote-v1",
+    findingVerification: "finder-verifier-v1",
+    provenanceBinding: "host-attested-native-v1"
+  }, {
+    template: "pr-to-dev",
+    reviewPolicy: "code-v2-pilot"
+  }), /restricted to self-improve-ops/);
 });
 
 test("pr-to-dev enforces batched commits, a dev-targeted PR, and remote reconciliation", async () => {
@@ -187,6 +393,11 @@ test("self improve keeps strict holdout and delegates delivery side effects", as
   );
   assert.equal(template.defaultMode, "critical");
   assert.equal(template.controlPlane.reviewPolicy, "code-v2-pilot");
+  assert.equal(template.reviewProfile.id, "review-kernel-v2-pilot");
+  assert.equal(template.reviewProfile.changedSurfaceAccounting, "work-unit-accounting-v1");
+  assert.equal(template.reviewProfile.anchorResolution, "exact-quote-v1");
+  assert.equal(template.reviewProfile.findingVerification, "finder-verifier-v1");
+  assert.equal(template.reviewProfile.provenanceBinding, "host-attested-native-v1");
   assert.equal(template.controlPlane.workUnitPolicy, "diff-files-v1");
   assert.equal(template.requiredEvidence.includes("patch-review"), false);
   assert.deepEqual(

@@ -5,6 +5,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import {
   STANDING_CONSENT_AUTHORITY_STATEMENT,
+  STANDING_CONSENT_ALLOWED_PATH_PATTERNS,
   STANDING_CONSENT_DENIED_AUTHORITIES,
   consentDigest,
   loadStandingConsentPolicy,
@@ -81,6 +82,13 @@ test("standing evaluator consent is exact, bounded, and delivery-denying", async
   assert.deepEqual(policy.value.deniedAuthorities, [...STANDING_CONSENT_DENIED_AUTHORITIES]);
   assert.equal(policy.value.execution.sandbox, "read-only");
   assert.equal(policy.value.execution.tools, false);
+});
+
+test("standing-consent path catalog keeps generated HTML outside standing consent", async () => {
+  const policy = await loadStandingConsentPolicy(REPOSITORY);
+  assert.deepEqual(policy.value.sanitization.allowedPathPatterns, [...STANDING_CONSENT_ALLOWED_PATH_PATTERNS]);
+  assert.ok(STANDING_CONSENT_ALLOWED_PATH_PATTERNS.every((pattern) => !/docs\/html\/(?:index|preview)/.test(pattern)));
+  assert.ok(STANDING_CONSENT_ALLOWED_PATH_PATTERNS.some((pattern) => pattern.includes("docs/html/use-cases/assets")));
 });
 
 test("standing evaluator consent fails closed for scope, identity, authority, and policy drift", async () => {

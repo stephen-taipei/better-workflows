@@ -136,6 +136,9 @@ source/cache digest verification.
    - `critical`: require independent external evidence and all fail-closed gates.
 3. Never lower a user-requested mode. Model output may raise risk but may not lower it.
 4. Select one template from [templates.md](references/templates.md).
+   When changing a review-enabled template, also read
+   [review-profiles.md](references/review-profiles.md) and keep its declared
+   capability profile aligned with the runtime policy.
 
 For `research-deliberation`, also read
 [deliberation-roster.md](references/deliberation-roster.md). It defines the
@@ -313,9 +316,12 @@ Provider-execution
 reservations may resume only for the same run, action attempt, token, execution
 identity, and recorded outcome after an interrupted action-record write, with
 one controlled unknown-to-terminal supersession and no second identity;
-superseded or legacy-format reservations remain rejected. `actions.dispatch` is
-not supported until a fixed-argv provider adapter can correlate one requested
-workflow dispatch to exactly one provider-assigned run.
+superseded or legacy-format reservations remain rejected. `actions.dispatch`
+remains deferred because GitHub workflow dispatch accepts a mutable ref and
+cannot atomically bind execution to preflight-attested workflow bytes. New
+dispatch tokens and executable provider paths fail closed; historical dispatch
+records may be validated or reconciled read-only. Ambiguous or indeterminate
+dispatch state remains unreconciled.
 
 For governed GitHub actions, bind every provider probe to the absolute
 executable path and content digest captured at token issuance; do not resolve a
