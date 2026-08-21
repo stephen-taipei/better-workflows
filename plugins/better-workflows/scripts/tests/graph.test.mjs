@@ -189,6 +189,82 @@ test("template graphs are canonical, byte-stable, and presentation-free", () => 
   assert.doesNotMatch(JSON.stringify(first), /2026-07-27|\/Users\//);
 });
 
+test("template graphs reject an invalid review capability profile", () => {
+  const graph = buildTemplateGraph({
+    template: template({
+      controlPlane: {
+        evidencePolicy: "typed-v1",
+        ledgerPolicy: "ledger-v1",
+        reviewPolicy: "code-v1",
+        designPacketPolicy: "none",
+        refinementPolicy: "none",
+        deliberationPolicy: "none"
+      },
+      reviewProfile: {
+        schemaVersion: 1,
+        id: "review-contract-v1",
+        changedSurfaceAccounting: "work-unit-accounting-v1",
+        anchorResolution: "exact-quote-v1",
+        findingVerification: "finder-verifier-v1",
+        provenanceBinding: "host-attested-native-v1",
+        specBinding: "instruction-digest-v1"
+      }
+    }),
+    sourcePath: "templates/graph-fixture.json"
+  });
+  assert.ok(graph.diagnostics.some((item) => item.code === "invalid-review-profile"));
+  assert.equal(graphHasErrors(graph), true);
+});
+
+test("template graphs reject a review-enabled policy without a review profile", () => {
+  const graph = buildTemplateGraph({
+    template: template({
+      controlPlane: {
+        evidencePolicy: "typed-v1",
+        ledgerPolicy: "ledger-v1",
+        reviewPolicy: "code-v1",
+        designPacketPolicy: "none",
+        refinementPolicy: "none",
+        deliberationPolicy: "none"
+      }
+    }),
+    sourcePath: "templates/graph-fixture.json"
+  });
+  assert.ok(graph.diagnostics.some((item) => (
+    item.code === "invalid-review-profile" && /requires reviewProfile/.test(item.message)
+  )));
+  assert.equal(graphHasErrors(graph), true);
+});
+
+test("template graphs reject a review profile when review policy is none", () => {
+  const graph = buildTemplateGraph({
+    template: template({
+      controlPlane: {
+        evidencePolicy: "typed-v1",
+        ledgerPolicy: "ledger-v1",
+        reviewPolicy: "none",
+        designPacketPolicy: "none",
+        refinementPolicy: "none",
+        deliberationPolicy: "none"
+      },
+      reviewProfile: {
+        schemaVersion: 1,
+        id: "review-contract-v1",
+        changedSurfaceAccounting: "diff-manifest-v1",
+        anchorResolution: "package-bound-location-v1",
+        findingVerification: "broad-review-v1",
+        provenanceBinding: "review-package-v1",
+        specBinding: "instruction-digest-v1"
+      }
+    }),
+    sourcePath: "templates/graph-fixture.json"
+  });
+  assert.ok(graph.diagnostics.some((item) => (
+    item.code === "invalid-review-profile" && /requires an enabled review policy/.test(item.message)
+  )));
+  assert.equal(graphHasErrors(graph), true);
+});
+
 test("equivalent object key order and fresh processes produce identical graphs", async () => {
   const original = template();
   const reordered = Object.fromEntries(
@@ -1003,6 +1079,53 @@ test("legacy resume migrates an already-bound run when the template digest drift
   assert.equal(migratedContract.templateDigest, digestObject(definition));
 });
 
+test("legacy resume migrates a persisted v2 run that predates the required review profile", async () => {
+  const cwd = await repository();
+  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-graph-review-profile-migration-"));
+  const copied = await copiedPlugin();
+  const started = await cli(
+    cwd,
+    stateRoot,
+    [
+      "run",
+      "--template",
+      "review-to-issues",
+      "--mode",
+      "verified",
+      "--goal",
+      "Review profile migration",
+      "--scope",
+      "src"
+    ],
+    { executable: copied.cli }
+  );
+  const runDirectory = path.join(stateRoot, "runs", started.json.runId);
+  const contractPath = path.join(runDirectory, "contract.json");
+  const manifestPath = path.join(runDirectory, "manifest.json");
+  const contract = JSON.parse(await readFile(contractPath, "utf8"));
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+  delete contract.reviewProfile;
+  manifest.version = "3.4.13";
+  manifest.contractDigest = digestObject(contract);
+  await writeFile(contractPath, `${JSON.stringify(contract, null, 2)}\n`);
+  await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+
+  const resumed = await cli(
+    cwd,
+    stateRoot,
+    ["resume", started.json.runId],
+    { allowFailure: true, executable: copied.cli }
+  );
+  assert.equal(resumed.code, 2);
+  assert.equal(resumed.json.migration.migrated, true);
+  const migrated = JSON.parse(await readFile(contractPath, "utf8"));
+  const templateDefinition = JSON.parse(
+    await readFile(path.join(copied.root, "templates", "review-to-issues.json"), "utf8")
+  );
+  assert.deepEqual(migrated.reviewProfile, templateDefinition.reviewProfile);
+  assert.equal(JSON.parse(await readFile(path.join(runDirectory, "state.json"), "utf8")).status, "stale");
+});
+
 test("graph derivation failures remain system errors and cannot create a run", async () => {
   const cwd = await repository();
   const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-graph-system-gate-"));
@@ -1064,6 +1187,7 @@ test("warning-only run graphs do not block resume, authorized action issue, or c
             "provider-reconciliation"
           ],
           controlPlane: structuredClone(templateDefinition.controlPlane),
+          reviewProfile: structuredClone(templateDefinition.reviewProfile),
           executionStages: structuredClone(templateDefinition.executionStages),
           actionStages: structuredClone(templateDefinition.actionStages),
           authority: { rootOnlyMutation: true, externalSideEffects: authority ? ["issue.create"] : [] },

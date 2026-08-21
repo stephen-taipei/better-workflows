@@ -6,7 +6,7 @@
 
 Codex 작업을 “Prompt를 주고 성공을 기대하는” 상태에서 의도, 검증, provider reconciliation을 거친 delivery로 전환합니다.
 
-[![Version](https://img.shields.io/badge/version-3.4.8-2563EB?style=flat-square)](../plugins/better-workflows/package.json)
+[![Version](https://img.shields.io/badge/version-3.4.13-2563EB?style=flat-square)](../plugins/better-workflows/package.json)
 [![Node](https://img.shields.io/badge/Node.js-%E2%89%A524-3C873A?style=flat-square)](../plugins/better-workflows/package.json)
 [![Dependencies](https://img.shields.io/badge/runtime_dependencies-0-0F766E?style=flat-square)](../plugins/better-workflows/package.json)
 [![License](https://img.shields.io/badge/license-MIT-64748B?style=flat-square)](../LICENSE)
@@ -62,6 +62,8 @@ Control plane이 없으면 합리적인 지시도 오래된 상태를 사용하�
 **Fail closed.** drift, 오래된 증거 또는 알 수 없는 provider 상태가 있으면 workflow는 반드시 중단됩니다.
 
 **Review-kernel pilot.** `self-improve-ops`는 exact changed-file work units를 인벤토리화하고 독립 attested finder와 verifier를 분리하며 exact source anchors에 바인딩해 deterministic coverage/synthesis evidence를 생성합니다. 이 pilot은 shadow-only이므로 side effects를 승인할 수 없습니다.
+
+다른 review-enabled templates는 TaskContract와 review package identity에 legacy `review-contract-v1` capability profile을 바인딩합니다. 이 profile은 immutable diff manifest, package-bound locations, broad-review receipt, provenance, instruction digest만 보장하며 kernel work-unit 또는 finder/verifier 능력을 주장하지 않습니다. `review-kernel-v2-pilot`은 `self-improve-ops`만 사용할 수 있고 profile 자체로 side-effect authority를 얻을 수 없습니다.
 
 ![Prompt에서 read-only Graph까지 이어지는 Better Workflows 권한 계층](assets/better-workflows-engineering-stack.svg)
 

@@ -378,6 +378,14 @@ findings still requires all lanes plus current `work-unit-accounting` and
 invalidates broad completion. Because the pilot is shadow-only, it cannot issue
 an action token or authorize delivery.
 
+Other review-enabled templates bind a `review-contract-v1` profile in the
+TaskContract. It claims only the immutable diff manifest, package-bound
+location, broad-review receipt, review-package provenance, and instruction
+digest guarantees. It does not claim kernel work-unit accounting, exact quote
+re-anchoring, or symmetric finder/verifier execution. Only `self-improve-ops`
+may use `review-kernel-v2-pilot`; editing a profile cannot grant side-effect
+authority.
+
 `safety-remediation-v1` is a separate run-creation purpose. It uses the fixed
 `plugins/better-workflows/config/self-improve-safety-remediation-v1.json` policy
 and its digest-bound v2.2 corpus, retaining the universal invariant and three
@@ -547,6 +555,12 @@ Before file-count or byte sampling, every changed path must match the fixed
 plugin or repository-public-document allowlist. An out-of-scope path rejects
 the replay even if it would sort beyond the sampling limit; only sampled valid
 UTF-8, non-secret-shaped content is sent to Codex.
+CI workflow files and generated HTML remain outside the standing-consent
+sanitizer and require explicit review/validation when changed. Approved
+generated Markdown assets remain allowlisted where configured; generated
+`.webp` assets are excluded from standing-consent evaluation and require
+explicit review/validation before inclusion. The complete changed-path
+manifest still binds them to the request.
 
 ### Governed workspace recipes
 
@@ -863,6 +877,25 @@ node scripts/plugin-cache.mjs check
 ```
 
 The runtime uses only Node.js standard-library modules.
+
+### Release tag policy
+
+Release tags are integration markers, not progress markers. CI only considers a
+push to `dev` or `main` after the exact commit is proven by the GitHub API to be
+the merged result of a pull request into that branch, the branch has not moved,
+CI has passed, and the stable package and plugin versions changed from the
+target-branch parent. `main` receives `vX.Y.Z`; `dev` receives the matching
+`vX.Y.Z-dev.<short-sha>` prerelease tag. The integration commit itself receives
+no tag when its version is unchanged, but a bounded first-parent scan may
+reconcile every earlier untagged merged version bump in its 128-commit window;
+this closes the race where consecutive version bumps are overtaken by a later
+push. A fresh version bump at the exact event HEAD remains eligible even when
+older history exceeds that window; catch-up-only history beyond the bound fails
+closed. If an existing tag points to a different commit, CI fails closed and
+never force-moves the tag. Publication uses GitHub's server-side atomic
+`updateRefs` mutation: all recovered tags and an expected-branch-tip CAS
+(`beforeOid` = the event SHA) are one transaction, so a branch move during
+publication rejects the entire batch.
 
 Plugin cache versions are immutable. Every content change must use a new build
 version; issue the delegated `plugin.cache.publish` action for resource `plugin-cache:<source-head-revision>`, then run `SBW_STATE_ROOT=<state-root> node scripts/plugin-cache.mjs sync --handoff-run <pr-to-dev-run-id> --token <plugin-cache-action-token>`. It requires a fresh typed handoff while the source HEAD is unchanged, then stages a missing version, verifies

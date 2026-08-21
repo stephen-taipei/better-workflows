@@ -259,6 +259,8 @@ Evaluation v2.4 逐 byte 保留 v2.3 的全部 classes 與 25 個 cases，新增
 
 Review kernel 只在 `self-improve-ops` 以 `code-v2-pilot` 啟用。每個 required lane 必須對 immutable BASE/HEAD blob work unit 各記錄一次，axis 與 claim verification 都必須綁定不同的 host-signed、read-only native execution。finder 不得驗證自己的 finding；互相衝突的 verifier 結果會變成 `INCONCLUSIVE`，ambiguous 或 missing quote anchor 持續 blocking。即使 zero findings，也必須完成所有 lanes，並產生目前有效的 `work-unit-accounting` 與 `review-kernel-summary` typed evidence；之後新增任何 receipt 或 finding 都會使 broad completion 失效。此 pilot 為 shadow-only，不能發行 action token 或授權 delivery。
 
+其他 review-enabled template 會在 bound TaskContract 內聲明 `review-contract-v1` profile：它只承諾 immutable diff manifest、package-bound location、broad-review receipt、review-package provenance 與 instruction digest binding。這些欄位讓 selector、template、review package 與 prompt provenance 可被 deterministic 比對，但不宣稱 kernel 的逐檔 work-unit、exact quote 或 finder/verifier 能力。只有 `self-improve-ops` 可以使用 `review-kernel-v2-pilot`；不能靠修改 JSON profile 就取得 side-effect authority。
+
 Migration admission 另會釘住 v2.3 file 與 canonical suite digest，要求每個 inherited class 的 identity、semantics 與既有 path mapping 維持不變，且全部 25 個 inherited cases 完整一致。新 coverage 可新增 path，或使用新的 class／case id；遺失、弱化、重新 mapping 或重分類 inherited coverage 會在 replay 前 fail closed。若確實要修改 inherited coverage，必須使用獨立版本、digest-bound 且經獨立審查的 compatibility policy。
 
 `safety-remediation-v1` 是獨立的 run-creation purpose。它使用固定的
@@ -298,6 +300,10 @@ node plugins/better-workflows/scripts/sbw.mjs \
 都符合固定的 plugin 或 repository 公開文件 allowlist。即使不合格路徑排序
 在取樣範圍之外，replay 仍會直接拒絕；只有實際取樣、有效 UTF-8 且不含
 secret-shaped 內容的資料才會傳給 Codex。
+CI workflow 檔案與生成的 HTML 都不屬於 standing-consent sanitizer，變更時必須
+經過明確的 review/validation；核准的生成 Markdown asset 則依設定保留
+allowlist。生成的 `.webp` asset 不納入 standing-consent 評估，也必須經過明確
+驗證。完整 changed-path manifest 仍會把這些檔案綁定到 signed request。
 
 ### 受治理的 workspace recipes
 
@@ -480,6 +486,18 @@ node scripts/plugin-cache.mjs check
 ```
 
 Runtime 只使用 Node.js standard library。
+
+### Release TAG 政策
+
+Release TAG 是整合里程碑，不是中間進度標記。CI 只有在 push 到 `dev` 或
+`main`、能由 GitHub API 證明目前 exact commit 是合併至該 branch 的 PR 結果、
+branch 在工作流期間沒有漂移、CI 通過，而且 stable package/plugin version 相對
+target branch parent 確實變更時才建立 TAG。`main` 建立 `vX.Y.Z`；`dev` 建立
+對應的 `vX.Y.Z-dev.<short-sha>` 預發布 TAG。feature branch commit 與沒有 version
+變更的整合 commit 都不建立 TAG。若既有 TAG 指向不同 commit，CI 會 fail closed，
+絕不 force-move TAG。發布時使用 GitHub server-side atomic `updateRefs` mutation，
+把 TAG 建立與 expected branch tip 的 CAS（`beforeOid` = event SHA）
+放在同一個 transaction；若 branch 在發布期間漂移，兩個更新都會被拒絕。
 
 Plugin cache version 是 immutable。任何內容變更都必須使用新的 build
 version；`SBW_STATE_ROOT=<state-root> node scripts/plugin-cache.mjs sync --handoff-run <pr-to-dev-run-id> --token <plugin-cache-action-token>` 只會在 fresh typed handoff 通過、governed cache token 消費成功且 source HEAD 未改變時 stage 尚不存在的版本，

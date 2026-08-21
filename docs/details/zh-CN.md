@@ -272,6 +272,10 @@ node plugins/better-workflows/scripts/sbw.mjs \
 都符合固定的 plugin 或 repository 公共文档 allowlist。即使不合格路径排序
 在采样范围之外，replay 仍会直接拒绝；只有实际采样、有效 UTF-8 且不含
 secret-shaped 内容的数据才会传给 Codex。
+CI workflow 文件和生成的 HTML 都不属于 standing-consent sanitizer，变更时必须
+经过明确的 review/validation；获准的生成 Markdown asset 则依配置保留
+allowlist。生成的 `.webp` asset 不纳入 standing-consent 评估，也必须经过明确
+验证。完整 changed-path manifest 仍会将这些文件绑定到 signed request。
 
 ### 受治理的 workspace recipes
 
@@ -298,6 +302,8 @@ node plugins/better-workflows/scripts/sbw.mjs recipe run <id> \
 Evaluation v2.4 逐 byte 保留 v2.3 的全部 classes 与 25 个 cases，并新增独立的 review-work-unit-integrity class，覆盖 exact changed-surface accounting、独立 attested finder/verifier provenance、source anchor、deterministic synthesis、broad-review invalidation 与 shadow-only rollout。一次性 migration 以 immutable v2.3 为 source，并将 source/target 两份 suite digest 绑定到八份 signed executions。每份 replay 都执行完整 target split；target-only baseline 必须保留 headroom，candidate 必须逐 case 严格改善，且不得出现 hard-safety failure、regression 或 noisy replay。ordinary evaluation 仍只按照 changed paths 选择适用 classes。
 
 Review kernel 仅在 `self-improve-ops` 以 `code-v2-pilot` 启用。每个 required lane 必须对 immutable BASE/HEAD blob work unit 各记录一次，axis 与 claim verification 必须绑定不同的 host-signed、read-only native execution。finder 不能验证自己的 finding；冲突结果会归为 `INCONCLUSIVE`，ambiguous 或 missing quote anchor 持续 blocking。zero findings 仍需完整 coverage 与 `work-unit-accounting`、`review-kernel-summary` typed evidence。该 pilot 为 shadow-only，不能签发 action token。
+
+其他 review-enabled template 会在 bound TaskContract 中声明 `review-contract-v1` profile；它只承诺 immutable diff manifest、package-bound location、broad-review receipt、review-package provenance 与 instruction digest binding，不宣称 kernel work-unit、exact quote re-anchoring 或对称 finder/verifier 执行能力。只有 `self-improve-ops` 可以使用 `review-kernel-v2-pilot`；修改 profile 本身不能取得 side-effect authority。
 
 Migration admission 还会钉住 v2.3 file 与 canonical suite digest，要求每个 inherited class 的 identity、semantics 与既有 path mapping 保持不变，并确保全部 25 个 inherited cases 完全一致。新增 coverage 可以增加 path，或使用新的 class／case id；缺失、弱化、重新 mapping 或重分类 inherited coverage 会在 replay 前 fail closed。若确实需要修改 inherited coverage，必须使用独立版本、digest-bound 且经独立审查的 compatibility policy。
 

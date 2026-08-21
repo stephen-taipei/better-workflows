@@ -245,14 +245,14 @@ test("autonomy binding rejects invalid repository, branch, path, expiry, and lim
 
 test("root-owned host bundle binding uses protocol artifacts, not repository source bytes", () => {
   const status = {
-    signer: { path: "/private/var/db/better-workflows/bin/bw-host-trust.mjs", version: "2.4.0", digest: "a".repeat(64) },
+    signer: { path: "/private/var/db/better-workflows/bin/bw-host-trust.mjs", version: "2.5.0", digest: "a".repeat(64) },
     runtime: { path: "/private/var/db/better-workflows/bin/bw-host-node." + "b".repeat(64), digest: "b".repeat(64) },
     launcher: { path: "/private/var/db/better-workflows/bin/bw-host-exec-launcher", digest: "c".repeat(64) },
     readinessReceipt: {
       digest: "d".repeat(64),
       bindingDigest: "e".repeat(64),
       binding: {
-        signer: { version: "2.4.0", digest: "a".repeat(64) },
+        signer: { version: "2.5.0", digest: "a".repeat(64) },
         runtime: { digest: "b".repeat(64) },
         launcher: { digest: "c".repeat(64) }
       }
@@ -273,7 +273,7 @@ test("formal host bundle manifests are independently shaped and cannot be broade
     schemaVersion: 1,
     kind: "better-workflows-host-bundle",
     protocolVersion: 1,
-    bundleVersion: "2.4.0",
+    bundleVersion: "2.5.0",
     signerPath: "/private/var/db/better-workflows/bin/bw-host-trust.mjs",
     signerDigest: "a".repeat(64),
     launcherPath: "/private/var/db/better-workflows/bin/bw-host-exec-launcher",

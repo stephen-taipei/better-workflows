@@ -1124,6 +1124,7 @@ test("root-authoritative evidence indexes ignore regex literals after declaratio
 test("root signer validates the repository standing-consent policy without sanitizer drift", async () => {
   const policy = JSON.parse(await readFile(STANDING_CONSENT_POLICY, "utf8"));
   assert.deepEqual(validateStandingConsentPolicy(policy), policy);
+  assert.equal(policy.sanitization.allowedPathPatterns.some((pattern) => pattern.includes("webp")), false);
   assert.throws(
     () => validateStandingConsentPolicy({
       ...policy,
@@ -1204,7 +1205,7 @@ test("host trust helper fixes authority paths and does not accept environment pa
   assert.match(source, /QUALITY_REMEDIATION_POLICY_PATH/);
   assert.match(source, /self-improve-quality-remediation-v1\.json/);
   assert.match(source, /QUALITY_REMEDIATION_POLICY_VERSION/);
-  assert.match(source, /HOST_SIGNER_VERSION = "2\.4\.0"/);
+  assert.match(source, /HOST_SIGNER_VERSION = "2\.5\.0"/);
   assert.match(source, /"--strict-config"/);
   assert.match(source, /EVALUATOR_DISABLED_FEATURES\.flatMap\(\(feature\) => \["--disable", feature\]\)/);
   assert.match(source, /EVALUATOR_DISABLED_TOOL_CONFIGS\.flatMap\(\(config\) => \["-c", config\]\)/);
@@ -1346,10 +1347,22 @@ test("installed host signer remains a self-contained single-file capability repo
     const report = JSON.parse(stdout);
     assert.equal(report.ok, true);
     assert.equal(report.kind, "host-signer-capabilities");
-    assert.equal(report.version, "2.4.0");
+    assert.equal(report.version, "2.5.0");
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("host and repository ownerToken expression policies remain in parity", async () => {
+  const hostSource = await readFile(SCRIPT, "utf8");
+  const repositorySource = await readFile(path.join(path.dirname(SCRIPT), "lib", "self-improve.mjs"), "utf8");
+  const expressions = (source) => {
+    const start = source.indexOf("const OWNER_TOKEN_SAFE_EXPRESSIONS = new Set([");
+    const end = source.indexOf("]);", start);
+    assert.ok(start >= 0 && end > start);
+    return [...source.slice(start, end).matchAll(/\"([^\"]+)\"/g)].map((match) => match[1]).sort();
+  };
+  assert.deepEqual(expressions(hostSource), expressions(repositorySource));
 });
 
 test("root standing reconstruction reads candidate authority from bound commit objects", async () => {
@@ -1366,6 +1379,18 @@ test("root standing reconstruction reads candidate authority from bound commit o
   const materialEnd = source.indexOf("const UNTRUSTED_PROMPT_BOUNDARY_MARKERS", materialStart);
   const materialBlock = source.slice(materialStart, materialEnd);
   assert.match(materialBlock, /authoritativeSnapshotBlob\(repo, subject, revision, file\)/);
+  assert.match(materialBlock, /redactOwnerTokenDisplayWithPolicy/);
+  assert.match(source, /OWNER_TOKEN_UNQUOTED_LITERAL_PATTERN/);
+  assert.match(source, /OWNER_TOKEN_SAFE_QUOTED_LITERALS/);
+  assert.match(source, /quotedValue !== "\[redacted-owner-token\]"/);
+  assert.match(source, /function ownerTokenSecretScanText\(text\)/);
+  assert.match(materialBlock, /secretPattern\.test\(ownerTokenSecretScanText\(text\)\)/);
+  assert.match(materialBlock, /secretPattern\.test\(ownerTokenSecretScanText\(sanitized\)\)/);
+  const executableMaterialIndex = materialBlock.indexOf("const executableMaterial =");
+  const executableOwnerTokenValidationIndex = materialBlock.indexOf("assertSafeOwnerTokenExpressions(text, file.path", executableMaterialIndex);
+  const executableSanitizationIndex = materialBlock.indexOf("let sanitized = text;", executableMaterialIndex);
+  assert.ok(executableOwnerTokenValidationIndex > executableMaterialIndex);
+  assert.ok(executableOwnerTokenValidationIndex < executableSanitizationIndex);
   assert.doesNotMatch(materialBlock, /\["show"/);
   assert.doesNotMatch(materialBlock, /readFile\(path\.resolve\(repo/);
 

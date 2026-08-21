@@ -18,14 +18,21 @@ Choose exactly one primary template. Existing domain skills remain authoritative
 | `monorepo-refactor` | Inventory a monorepo and implement every eligible bounded recommendation with validation and rollback evidence |
 
 Use the JSON definitions under the plugin `templates/` directory as the machine-readable source of required evidence and policy gates.
+The review capability matrix and authoring SOP are in
+[`review-profiles.md`](review-profiles.md).
 
 Every installed template now declares a v2 control-plane policy and execution
 stages. Non-direct runs receive typed evidence admission and a replayable
 `ledger.json`; review-enabled templates additionally require an immutable review
-package and final broad-review closure. `self-improve-ops` alone uses the
-shadow-only `code-v2-pilot` with exact work-unit accounting, independently
-attested review lanes, finder/verifier separation, deterministic synthesis, and
-two aggregate typed receipts; all other review templates retain their existing
-policies. Only `monorepo-refactor` and
+package and final broad-review closure. Review-enabled templates also declare a
+bound `reviewProfile` in their task contract. The profile is a capability
+statement, not a model roster: legacy profiles bind the immutable diff manifest,
+package-bound locations, broad-review receipt, package provenance, and the exact
+instruction digest. `self-improve-ops` alone uses the shadow-only
+`code-v2-pilot` profile with exact work-unit accounting, independently attested
+review lanes, finder/verifier separation, deterministic source-quote
+resolution, and two aggregate typed receipts; it remains unable to authorize
+side effects. Do not infer kernel guarantees from a legacy profile or promote
+the pilot by changing a template JSON field alone. Only `monorepo-refactor` and
 `self-improve-ops` enable the design-packet/refinement pilots, and only
 `research-deliberation` plus `self-improve-ops` enable atomic deliberation.

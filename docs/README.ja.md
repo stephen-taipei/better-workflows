@@ -6,7 +6,7 @@
 
 Codex の作業を「Prompt を渡して成功を祈る」状態から、意図、検証、provider reconciliation を経た delivery へ進めます。
 
-[![Version](https://img.shields.io/badge/version-3.4.8-2563EB?style=flat-square)](../plugins/better-workflows/package.json)
+[![Version](https://img.shields.io/badge/version-3.4.13-2563EB?style=flat-square)](../plugins/better-workflows/package.json)
 [![Node](https://img.shields.io/badge/Node.js-%E2%89%A524-3C873A?style=flat-square)](../plugins/better-workflows/package.json)
 [![Dependencies](https://img.shields.io/badge/runtime_dependencies-0-0F766E?style=flat-square)](../plugins/better-workflows/package.json)
 [![License](https://img.shields.io/badge/license-MIT-64748B?style=flat-square)](../LICENSE)
@@ -62,6 +62,8 @@ Control plane がないと、妥当な指示でも古い状態を使い、scope 
 **Fail closed。** drift、古い証拠、または不明な provider 状態があれば、workflow は必ず停止します。
 
 **Review-kernel pilot。** `self-improve-ops` は exact changed-file work units を列挙し、独立 attested finder と verifier を分離し、exact source anchors に束縛して deterministic coverage/synthesis evidence を生成します。この pilot は shadow-only で side effects を認可できません。
+
+その他の review-enabled templates は TaskContract と review package identity に legacy `review-contract-v1` capability profile を bind します。これは immutable diff manifest、package-bound locations、broad-review receipt、provenance、instruction digest だけを保証し、kernel work-unit や finder/verifier の能力は主張しません。`review-kernel-v2-pilot` を使えるのは `self-improve-ops` だけで、profile 自体が side-effect authority を与えることはありません。
 
 ![Prompt から read-only Graph までの Better Workflows 権限レイヤー](assets/better-workflows-engineering-stack.svg)
 
