@@ -505,6 +505,7 @@ test("policy artifact continuity binds the exact downloaded archive bytes", asyn
     repository: "example/repo",
     workflowFile: ".github/workflows/ci.yml",
     workflowRunId: "42",
+    workflowRunAttempt: "2",
     eventName: "pull_request_target",
     eventAction: "synchronize",
     branch: "dev",
@@ -520,6 +521,7 @@ test("policy artifact continuity binds the exact downloaded archive bytes", asyn
     repository: "example/repo",
     branch: "dev",
     runId: "42",
+    workflowRunAttempt: "2",
     pullNumber: 17,
     preMergeSha: receipt.headSha,
     requiredPolicyDigest: receipt.policyDigest,
@@ -528,10 +530,10 @@ test("policy artifact continuity binds the exact downloaded archive bytes", asyn
   };
   const fetchFor = (downloaded) => async (url) => {
     if (url.includes("/artifacts?")) return jsonResponse({ artifacts: [{
-      name: "better-workflows-release-policy-receipt-42",
+      name: "better-workflows-release-policy-receipt-42-2",
       expired: false,
       digest: `sha256:${archiveDigest}`,
-      workflow_run: { id: 42 },
+      workflow_run: { id: 42, run_attempt: 2 },
       archive_download_url: "https://artifact.invalid/receipt.zip"
     }] });
     return {
@@ -545,6 +547,7 @@ test("policy artifact continuity binds the exact downloaded archive bytes", asyn
     apiUrl: "https://api.github.com",
     repository: "example/repo",
     runId: "42",
+    runAttempt: "2",
     token: "token",
     fetchImpl: fetchFor(archive),
     binding
@@ -555,12 +558,71 @@ test("policy artifact continuity binds the exact downloaded archive bytes", asyn
       apiUrl: "https://api.github.com",
       repository: "example/repo",
       runId: "42",
+      runAttempt: "2",
       token: "token",
       fetchImpl: fetchFor(Buffer.concat([archive, Buffer.from("\n")])),
       binding
     }),
     /artifact digest drifted/
   );
+});
+
+test("merge-bound policy artifact reruns select the exact target attempt and preserve source attempt", async () => {
+  const policy = [{ context: "test", appId: null, strict: true }];
+  const policyDigest = createHash("sha256").update(JSON.stringify(policy)).digest("hex");
+  const mergeTimeMs = Date.parse("2026-08-18T00:00:00Z");
+  const receipt = {
+    schemaVersion: 1,
+    kind: "better-workflows/release-policy-receipt-v2",
+    repository: "example/repo",
+    workflowFile: ".github/workflows/ci.yml",
+    workflowRunId: "42",
+    workflowRunAttempt: "2",
+    eventName: "pull_request_target",
+    eventAction: "closed",
+    branch: "dev",
+    pullNumber: 17,
+    headSha: "b".repeat(40),
+    policy,
+    policyDigest,
+    observedAt: "2026-08-18T00:00:05Z",
+    mergeCommitSha: "c".repeat(40),
+    mergedAt: "2026-08-18T00:00:00Z",
+    sourceWorkflowRunId: "41",
+    sourceWorkflowRunAttempt: "4",
+    sourcePolicyDigest: policyDigest,
+    sourcePolicyArtifactDigest: "d".repeat(64)
+  };
+  const archive = zipStoredJson("release-policy-receipt.json", receipt);
+  const archiveDigest = createHash("sha256").update(archive).digest("hex");
+  const fetched = await fetchPolicyReceiptArtifact({
+    apiUrl: "https://api.github.com",
+    repository: "example/repo",
+    runId: "42",
+    runAttempt: "2",
+    token: "token",
+    fetchImpl: async (url) => url.includes("/artifacts?")
+      ? jsonResponse({ artifacts: [
+        { id: 41, name: "better-workflows-release-policy-receipt-42-1", expired: false, digest: "sha256:" + "e".repeat(64), workflow_run: { id: 42, run_attempt: 1 }, archive_download_url: "https://artifact.invalid/old.zip" },
+        { id: 42, name: "better-workflows-release-policy-receipt-42-2", expired: false, digest: `sha256:${archiveDigest}`, workflow_run: { id: 42, run_attempt: 2 }, archive_download_url: "https://artifact.invalid/current.zip" }
+      ] })
+      : { ok: true, status: 200, arrayBuffer: async () => archive.buffer.slice(archive.byteOffset, archive.byteOffset + archive.byteLength) },
+    binding: {
+      repository: "example/repo",
+      branch: "dev",
+      runId: "42",
+      workflowRunAttempt: "2",
+      pullNumber: 17,
+      preMergeSha: receipt.headSha,
+      requiredPolicyDigest: policyDigest,
+      mergeTimeMs,
+      phase: "merge-bound",
+      mergeCommitSha: receipt.mergeCommitSha,
+      sourceWorkflowRunAttempt: "4"
+    }
+  });
+  assert.equal(fetched.workflowRunAttempt, "2");
+  assert.equal(fetched.sourceWorkflowRunAttempt, "4");
 });
 
 test("delayed pre-merge policy artifacts require explicit source-run provenance", () => {

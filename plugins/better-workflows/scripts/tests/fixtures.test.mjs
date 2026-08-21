@@ -150,16 +150,17 @@ test("trusted pull-request-target workflow publishes a pre-merge policy artifact
   assert.match(workflow, /release-policy-receipt:[\s\S]*?GITHUB_MERGE_COMMIT_SHA:\s+\$\{\{\s*github\.event\.pull_request\.merge_commit_sha\s*\}\}/);
   assert.match(workflow, /release-policy-receipt:[\s\S]*?GITHUB_PR_MERGED_AT:\s+\$\{\{\s*github\.event\.pull_request\.merged_at\s*\}\}/);
   assert.match(workflow, /release-policy-receipt:[\s\S]*?GITHUB_RUN_ID:\s+\$\{\{\s*github\.run_id\s*\}\}/);
+  assert.match(workflow, /release-policy-receipt:[\s\S]*?GITHUB_RUN_ATTEMPT:\s+\$\{\{\s*github\.run_attempt\s*\}\}/);
   assert.match(workflow, /RELEASE_POLICY_RECEIPT_PHASE:\s+prepare[\s\S]*?RELEASE_POLICY_ADMIN_TOKEN:\s+\$\{\{\s*secrets\.BETTER_WORKFLOWS_POLICY_TOKEN\s*\}\}/);
   assert.match(workflow, /id:\s+close-binding[\s\S]*?if:\s+github\.event\.action\s+==\s+'closed'[\s\S]*?RELEASE_POLICY_RECEIPT_PHASE:\s+close-binding/);
-  assert.match(workflow, /if:\s+always\(\)\s+&&\s+steps\.close-binding\.outcome\s+==\s+'success'[\s\S]*?better-workflows-release-policy-close-binding-\$\{\{\s*github\.run_id\s*\}\}/);
+  assert.match(workflow, /if:\s+always\(\)\s+&&\s+steps\.close-binding\.outcome\s+==\s+'success'[\s\S]*?better-workflows-release-policy-close-binding-\$\{\{\s*github\.run_id\s*\}\}-\$\{\{\s*github\.run_attempt\s*\}\}/);
   assert.match(workflow, /release-policy-receipt:[\s\S]*?RELEASE_POLICY_RECEIPT_FILE:\s+\$\{\{\s*runner\.temp\s*\}\}\/release-policy-receipt\.json/);
   assert.match(workflow, /id:\s+prepare[\s\S]*?RELEASE_POLICY_RECEIPT_PHASE:\s+prepare[\s\S]*?run:\s+node plugins\/better-workflows\/scripts\/release-policy-receipt\.mjs/);
   assert.match(workflow, /actions\/checkout@11d5960a326750d5838078e36cf38b85af677262\s+# v4/);
   assert.match(workflow, /actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020\s+# v4[\s\S]*?node-version:\s+24\.12\.0/);
   assert.match(workflow, /actions\/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02\s+# v4/);
   assert.match(workflow, /actions\/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02[\s\S]*?name:\s+Publish required-check policy status after artifact upload[\s\S]*?RELEASE_POLICY_RECEIPT_PHASE:\s+publish/);
-  assert.match(workflow, /better-workflows-release-policy-receipt-\$\{\{\s*github\.run_id\s*\}\}/);
+  assert.match(workflow, /better-workflows-release-policy-receipt-\$\{\{\s*github\.run_id\s*\}\}-\$\{\{\s*github\.run_attempt\s*\}\}/);
   assert.match(workflow, /retention-days:\s+90/);
   assert.match(workflow, /release-policy-receipt:[\s\S]*?run:\s+node plugins\/better-workflows\/scripts\/release-policy-receipt\.mjs/);
   assert.match(reconciliationWorkflow, /workflow_run:\s*\n\s+workflows:\s+\["CI"\]\s*\n\s+types:\s+\[completed\]/);
@@ -168,6 +169,8 @@ test("trusted pull-request-target workflow publishes a pre-merge policy artifact
   assert.match(reconciliationWorkflow, /RELEASE_POLICY_RECEIPT_PHASE:\s+prepare/);
   assert.match(reconciliationWorkflow, /RELEASE_POLICY_RECEIPT_PHASE:\s+prepare[\s\S]*?RELEASE_POLICY_ADMIN_TOKEN:\s+\$\{\{\s*secrets\.BETTER_WORKFLOWS_POLICY_TOKEN\s*\}\}/);
   assert.match(reconciliationWorkflow, /RELEASE_POLICY_RECEIPT_PHASE:\s+publish/);
+  assert.match(reconciliationWorkflow, /GITHUB_RUN_ATTEMPT:\s+\$\{\{\s*github\.run_attempt\s*\}\}/);
+  assert.match(reconciliationWorkflow, /better-workflows-release-policy-receipt-\$\{\{\s*github\.run_id\s*\}\}-\$\{\{\s*github\.run_attempt\s*\}\}/);
   assert.match(reconciliationWorkflow, /Validate exact closed merge trigger and prepare required-check policy receipt artifact/);
   assert.match(reconciliationWorkflow, /actions\/checkout@11d5960a326750d5838078e36cf38b85af677262\s+# v4/);
   assert.match(reconciliationWorkflow, /actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020\s+# v4[\s\S]*?node-version:\s+24\.12\.0/);

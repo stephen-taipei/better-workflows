@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import {
   RELEASE_POLICY_RECEIPT_CONTEXT,
   RELEASE_POLICY_RECEIPT_PREFIX,
@@ -32,6 +33,41 @@ function withDownloadedArchiveDigest(artifact, digest = "d".repeat(64)) {
     configurable: false
   });
   return artifact;
+}
+
+function zipStoredJson(filename, value) {
+  const name = Buffer.from(filename);
+  const data = Buffer.from(JSON.stringify(value));
+  const local = Buffer.alloc(30 + name.length);
+  local.writeUInt32LE(0x04034b50, 0);
+  local.writeUInt16LE(20, 4);
+  local.writeUInt16LE(0, 6);
+  local.writeUInt16LE(0, 8);
+  local.writeUInt32LE(0, 10);
+  local.writeUInt32LE(0, 14);
+  local.writeUInt32LE(data.length, 18);
+  local.writeUInt32LE(data.length, 22);
+  local.writeUInt16LE(name.length, 26);
+  name.copy(local, 30);
+  const central = Buffer.alloc(46 + name.length);
+  central.writeUInt32LE(0x02014b50, 0);
+  central.writeUInt16LE(20, 4);
+  central.writeUInt16LE(20, 6);
+  central.writeUInt16LE(0, 8);
+  central.writeUInt16LE(0, 10);
+  central.writeUInt32LE(0, 12);
+  central.writeUInt32LE(0, 16);
+  central.writeUInt32LE(data.length, 20);
+  central.writeUInt32LE(data.length, 24);
+  central.writeUInt16LE(name.length, 28);
+  name.copy(central, 46);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(0, 8);
+  end.writeUInt16LE(1, 10);
+  end.writeUInt32LE(central.length, 12);
+  end.writeUInt32LE(local.length + data.length, 16);
+  return Buffer.concat([local, data, central, end]);
 }
 
 test("release policy receipt normalizes and digests the protected-branch policy", () => {
@@ -543,6 +579,7 @@ test("workflow-run reconciliation requires the exact closed merge binding", () =
   const mergedAt = "2026-08-18T00:00:00Z";
   const run = {
     id: 43,
+    run_attempt: 1,
     path: ".github/workflows/ci.yml",
     event: "pull_request_target",
     status: "completed",
@@ -567,6 +604,7 @@ test("workflow-run reconciliation requires the exact closed merge binding", () =
     repository: "example/repo",
     workflowFile: ".github/workflows/ci.yml",
     workflowRunId: "43",
+    workflowRunAttempt: "1",
     eventName: "pull_request_target",
     eventAction: "closed",
     branch: "dev",
@@ -858,6 +896,46 @@ test("policy artifact lookup enumerates bounded pages before enforcing exact-nam
     /must expose exactly one immutable policy artifact/
   );
   assert.equal(pageRequests, 2);
+});
+
+test("policy artifact lookup selects the exact rerun attempt for one workflow run", async () => {
+  const policy = [{ context: "test", appId: null, strict: true }];
+  const makeArtifact = (attempt) => buildPolicyReceiptArtifact({
+    repository: "example/repo",
+    branch: "dev",
+    headSha: "a".repeat(40),
+    pullNumber: 17,
+    policy,
+    workflowRunId: "88",
+    workflowRunAttempt: String(attempt),
+    eventAction: "synchronize",
+    observedAt: "2026-08-18T00:00:01Z"
+  });
+  const attemptOne = zipStoredJson("release-policy-receipt.json", makeArtifact(1));
+  const attemptTwo = zipStoredJson("release-policy-receipt.json", makeArtifact(2));
+  const digestOne = createHash("sha256").update(attemptOne).digest("hex");
+  const digestTwo = createHash("sha256").update(attemptTwo).digest("hex");
+  const fetched = await fetchWorkflowRunPolicyReceiptArtifact({
+    apiUrl: "https://api.github.com",
+    repository: "example/repo",
+    runId: "88",
+    runAttempt: "2",
+    token: "token",
+    fetchImpl: async (url) => {
+      if (url.includes("/artifacts?")) return {
+        ok: true,
+        status: 200,
+        json: async () => ({ artifacts: [
+          { id: 1, name: "better-workflows-release-policy-receipt-88-1", expired: false, digest: `sha256:${digestOne}`, workflow_run: { id: 88, run_attempt: 1 }, archive_download_url: "https://artifact.invalid/attempt-1.zip" },
+          { id: 2, name: "better-workflows-release-policy-receipt-88-2", expired: false, digest: `sha256:${digestTwo}`, workflow_run: { id: 88, run_attempt: 2 }, archive_download_url: "https://artifact.invalid/attempt-2.zip" }
+        ] })
+      };
+      const archive = url.endsWith("attempt-2.zip") ? attemptTwo : attemptOne;
+      return { ok: true, status: 200, arrayBuffer: async () => archive.buffer.slice(archive.byteOffset, archive.byteOffset + archive.byteLength) };
+    }
+  });
+  assert.equal(fetched.workflowRunAttempt, "2");
+  assert.equal(fetched.workflowRunId, "88");
 });
 
 test("closed receipt polling blocks a newer pre-merge status published after merge", async () => {

@@ -139,11 +139,13 @@ export function buildPolicyReceiptArtifact({
   pullNumber,
   policy,
   workflowRunId,
+  workflowRunAttempt = "1",
   eventAction,
   observedAt,
   mergeCommitSha = null,
   mergedAt = null,
   sourceWorkflowRunId = null,
+  sourceWorkflowRunAttempt = null,
   sourcePolicyDigest = null,
   sourcePolicyArtifactDigest = null,
   eventName = RELEASE_POLICY_RECEIPT_WORKFLOW_EVENT,
@@ -163,6 +165,12 @@ export function buildPolicyReceiptArtifact({
     throw new Error("Release policy receipt artifact requires a workflow run id");
   }
   if (!/^\d+$/.test(runId)) throw new Error("Release policy receipt artifact requires a workflow run id");
+  let runAttempt;
+  try {
+    runAttempt = canonicalWorkflowRunId(workflowRunAttempt, "receipt artifact run attempt");
+  } catch {
+    throw new Error("Release policy receipt artifact requires a workflow run attempt");
+  }
   if (!repository || !branch || !eventAction) throw new Error("Release policy receipt artifact requires repository, branch, and event metadata");
   const normalizedEventName = String(eventName ?? "").trim();
   if (![RELEASE_POLICY_RECEIPT_WORKFLOW_EVENT, RELEASE_POLICY_RECEIPT_RECONCILIATION_EVENT].includes(normalizedEventName)) {
@@ -187,6 +195,7 @@ export function buildPolicyReceiptArtifact({
       ? RELEASE_POLICY_RECEIPT_RECONCILIATION_WORKFLOW_FILE
       : RELEASE_POLICY_RECEIPT_WORKFLOW_FILE,
     workflowRunId: runId,
+    workflowRunAttempt: runAttempt,
     eventName: normalizedEventName,
     eventAction: String(eventAction),
     branch: String(branch),
@@ -208,6 +217,12 @@ export function buildPolicyReceiptArtifact({
   const normalizedMergeCommitSha = assertSha(mergeCommitSha);
   const mergedMs = Date.parse(String(mergedAt ?? ""));
   const sourceRunId = String(sourceWorkflowRunId ?? "").trim();
+  let sourceRunAttempt;
+  try {
+    sourceRunAttempt = canonicalWorkflowRunId(sourceWorkflowRunAttempt ?? runAttempt, "source policy receipt run attempt");
+  } catch {
+    throw new Error("Merge-bound release policy receipt artifact requires a source workflow run attempt");
+  }
   const sourceDigest = String(sourcePolicyDigest ?? "").trim().toLowerCase();
   const sourceArtifactDigest = String(sourcePolicyArtifactDigest ?? "").trim().toLowerCase();
   if (!Number.isFinite(mergedMs) || !/^\d+$/.test(sourceRunId) || !/^[a-f0-9]{64}$/.test(sourceDigest) ||
@@ -222,6 +237,7 @@ export function buildPolicyReceiptArtifact({
     mergeCommitSha: normalizedMergeCommitSha,
     mergedAt: new Date(mergedMs).toISOString(),
     sourceWorkflowRunId: sourceRunId,
+    sourceWorkflowRunAttempt: sourceRunAttempt,
     sourcePolicyDigest: sourceDigest,
     sourcePolicyArtifactDigest: sourceArtifactDigest,
     ...(normalizedEventName === RELEASE_POLICY_RECEIPT_RECONCILIATION_EVENT
@@ -236,6 +252,7 @@ export function buildClosedPolicyReceiptBinding({
   headSha,
   pullNumber,
   workflowRunId,
+  workflowRunAttempt = "1",
   observedAt,
   mergeCommitSha,
   mergedAt,
@@ -251,6 +268,12 @@ export function buildClosedPolicyReceiptBinding({
   } catch {
     throw new Error("Release policy close binding requires an observed closed-and-merged pull-request event");
   }
+  let runAttempt;
+  try {
+    runAttempt = canonicalWorkflowRunId(workflowRunAttempt, "close binding run attempt");
+  } catch {
+    throw new Error("Release policy close binding requires a workflow run attempt");
+  }
   const observedMs = Date.parse(String(observedAt ?? ""));
   const mergedMs = Date.parse(String(mergedAt ?? ""));
   if (!repository || !branch || !/^\d+$/.test(runId) || !Number.isInteger(normalizedPullNumber) || normalizedPullNumber <= 0 ||
@@ -264,6 +287,7 @@ export function buildClosedPolicyReceiptBinding({
     repository: String(repository),
     workflowFile: RELEASE_POLICY_RECEIPT_WORKFLOW_FILE,
     workflowRunId: runId,
+    workflowRunAttempt: runAttempt,
     eventName,
     eventAction,
     branch: String(branch),
@@ -350,12 +374,20 @@ function readZipJsonEntry(buffer, filename) {
   throw new Error(`Release policy artifact is missing ${filename}`);
 }
 
-async function fetchWorkflowRunArtifactJson({ apiUrl, repository, runId, token, artifactName, artifactFile, fetchImpl = fetch }) {
+async function fetchWorkflowRunArtifactJson({ apiUrl, repository, runId, runAttempt = null, token, artifactName, artifactFile, fetchImpl = fetch }) {
   let normalizedRunId;
   try {
     normalizedRunId = canonicalWorkflowRunId(runId, "artifact lookup workflow run");
   } catch {
     throw new Error("Release policy artifact lookup requires a canonical workflow run id");
+  }
+  let normalizedRunAttempt = null;
+  if (runAttempt !== null && runAttempt !== undefined) {
+    try {
+      normalizedRunAttempt = canonicalWorkflowRunId(runAttempt, "artifact lookup workflow run attempt");
+    } catch {
+      throw new Error("Release policy artifact lookup requires a canonical workflow run attempt");
+    }
   }
   const listedArtifacts = [];
   const listedById = new Map();
@@ -407,7 +439,9 @@ async function fetchWorkflowRunArtifactJson({ apiUrl, repository, runId, token, 
       throw new Error(`Release policy workflow ${normalizedRunId} artifact listing exceeded its bounded page limit`);
     }
   }
-  const expectedName = `${artifactName}-${normalizedRunId}`;
+  const expectedName = normalizedRunAttempt === null
+    ? `${artifactName}-${normalizedRunId}`
+    : `${artifactName}-${normalizedRunId}-${normalizedRunAttempt}`;
   const named = listedArtifacts
     .filter(({ artifact }) => artifact?.name === expectedName)
     .map(({ artifact }) => artifact);
@@ -424,7 +458,16 @@ async function fetchWorkflowRunArtifactJson({ apiUrl, repository, runId, token, 
       throw new Error(`Release policy workflow ${normalizedRunId} exposed an invalid immutable policy artifact`);
     }
   }
-  if (artifact.expired === true || (artifactWorkflowRunId !== null && artifactWorkflowRunId !== normalizedRunId)) {
+  let artifactWorkflowRunAttempt = null;
+  if (artifact.workflow_run?.run_attempt !== undefined) {
+    try {
+      artifactWorkflowRunAttempt = canonicalWorkflowRunId(artifact.workflow_run.run_attempt, "provider artifact workflow run attempt");
+    } catch {
+      throw new Error(`Release policy workflow ${normalizedRunId} exposed an invalid immutable policy artifact`);
+    }
+  }
+  if (artifact.expired === true || (artifactWorkflowRunId !== null && artifactWorkflowRunId !== normalizedRunId) ||
+      (normalizedRunAttempt !== null && artifactWorkflowRunAttempt !== normalizedRunAttempt)) {
     throw new Error(`Release policy workflow ${normalizedRunId} exposed an invalid immutable policy artifact`);
   }
   const downloadUrl = String(artifact.archive_download_url ?? "");
@@ -450,6 +493,9 @@ async function fetchWorkflowRunArtifactJson({ apiUrl, repository, runId, token, 
     throw new Error(`Release policy workflow ${normalizedRunId} artifact digest drifted`);
   }
   const parsed = readZipJsonEntry(archive, artifactFile);
+  if (normalizedRunAttempt !== null && String(parsed?.workflowRunAttempt ?? "") !== normalizedRunAttempt) {
+    throw new Error(`Release policy workflow ${normalizedRunId} artifact is not bound to workflow run attempt ${normalizedRunAttempt}`);
+  }
   Object.defineProperty(parsed, "downloadedArchiveDigest", {
     value: downloadedArchiveDigest,
     enumerable: false,
@@ -459,11 +505,12 @@ async function fetchWorkflowRunArtifactJson({ apiUrl, repository, runId, token, 
   return parsed;
 }
 
-export async function fetchWorkflowRunPolicyReceiptArtifact({ apiUrl, repository, runId, token, fetchImpl = fetch }) {
+export async function fetchWorkflowRunPolicyReceiptArtifact({ apiUrl, repository, runId, runAttempt = null, token, fetchImpl = fetch }) {
   return fetchWorkflowRunArtifactJson({
     apiUrl,
     repository,
     runId,
+    runAttempt,
     token,
     artifactName: RELEASE_POLICY_RECEIPT_ARTIFACT_NAME,
     artifactFile: RELEASE_POLICY_RECEIPT_ARTIFACT_FILE,
@@ -471,11 +518,12 @@ export async function fetchWorkflowRunPolicyReceiptArtifact({ apiUrl, repository
   });
 }
 
-export async function fetchWorkflowRunCloseBindingArtifact({ apiUrl, repository, runId, token, fetchImpl = fetch }) {
+export async function fetchWorkflowRunCloseBindingArtifact({ apiUrl, repository, runId, runAttempt = null, token, fetchImpl = fetch }) {
   return fetchWorkflowRunArtifactJson({
     apiUrl,
     repository,
     runId,
+    runAttempt,
     token,
     artifactName: RELEASE_POLICY_CLOSE_BINDING_ARTIFACT_NAME,
     artifactFile: RELEASE_POLICY_CLOSE_BINDING_ARTIFACT_FILE,
@@ -491,6 +539,14 @@ export function assertClosedPolicyReceiptBinding({ run, pull, binding, repositor
     throw new Error("Workflow-run release policy reconciliation requires the exact completed closed-and-merged pull-request-target run");
   }
   const pullNumber = Number(pull?.number);
+  let runAttempt = null;
+  if (run?.run_attempt !== undefined) {
+    try {
+      runAttempt = canonicalWorkflowRunId(run.run_attempt, "closed-merge run attempt");
+    } catch {
+      throw new Error("Workflow-run release policy reconciliation requires the exact completed closed-and-merged pull-request-target run");
+    }
+  }
   const branch = String(pull?.base?.ref ?? "");
   const headSha = assertSha(pull?.head?.sha);
   const mergeCommitSha = assertSha(pull?.merge_commit_sha);
@@ -514,6 +570,7 @@ export function assertClosedPolicyReceiptBinding({ run, pull, binding, repositor
   const bindingObservedAt = Date.parse(String(binding?.observedAt ?? ""));
   if (!binding || binding.schemaVersion !== 1 || binding.kind !== RELEASE_POLICY_CLOSE_BINDING_ARTIFACT_KIND ||
       binding.workflowFile !== RELEASE_POLICY_RECEIPT_WORKFLOW_FILE || String(binding.workflowRunId) !== runId ||
+      (runAttempt !== null && String(binding.workflowRunAttempt) !== runAttempt) ||
       binding.eventName !== RELEASE_POLICY_RECEIPT_WORKFLOW_EVENT || binding.eventAction !== RELEASE_POLICY_RECEIPT_MERGE_ACTION ||
       binding.repository !== (repository === null ? binding.repository : repository) || binding.branch !== branch ||
       Number(binding.pullNumber) !== pullNumber || String(binding.headSha ?? "").toLowerCase() !== headSha ||
@@ -522,7 +579,7 @@ export function assertClosedPolicyReceiptBinding({ run, pull, binding, repositor
       !Number.isFinite(bindingObservedAt) || bindingObservedAt < mergedAtMs) {
     throw new Error("Workflow-run release policy reconciliation requires an immutable closed-and-merged source binding");
   }
-  return { runId, pullNumber, branch, headSha, mergeCommitSha, mergedAt: new Date(mergedAtMs).toISOString() };
+  return { runId, runAttempt, pullNumber, branch, headSha, mergeCommitSha, mergedAt: new Date(mergedAtMs).toISOString() };
 }
 
 async function requestJson({ apiUrl, path, token, options = {}, fetchImpl = fetch }) {
@@ -560,7 +617,7 @@ async function repositoryCommitStatuses({ apiUrl, repository, sha, token, fetchI
   throw new Error("Release policy receipt status query exceeded its bounded page limit");
 }
 
-function sourcePolicyReceipt(status, { repository, branch, headSha, pullNumber }) {
+function sourcePolicyReceipt(status, { repository, branch, headSha, pullNumber, requireWorkflowRunAttempt = false }) {
   if (status?.context !== RELEASE_POLICY_RECEIPT_CONTEXT) return null;
   const rawStatusId = typeof status?.id === "string"
     ? status.id.trim()
@@ -590,6 +647,17 @@ function sourcePolicyReceipt(status, { repository, branch, headSha, pullNumber }
     throw new Error(`Release policy receipt source status has an invalid exact workflow binding: ${rawStatusId}`);
   }
   const workflowRunId = canonicalWorkflowRunId(runMatch[1], "source policy status workflow run");
+  const rawRunAttempt = targetUrl.searchParams.get("attempt");
+  let workflowRunAttempt = null;
+  if (rawRunAttempt !== null) {
+    try {
+      workflowRunAttempt = canonicalWorkflowRunId(rawRunAttempt, "source policy status workflow run attempt");
+    } catch {
+      throw new Error(`Release policy receipt source status has an invalid workflow run attempt: ${rawStatusId}`);
+    }
+  } else if (requireWorkflowRunAttempt) {
+    throw new Error(`Release policy receipt source status has no workflow run attempt: ${rawStatusId}`);
+  }
   const originAt = Date.parse(String(status.created_at ?? status.started_at ?? ""));
   const terminalAt = Date.parse(String(status.updated_at ?? status.completed_at ?? ""));
   if (!Number.isFinite(originAt) || !Number.isFinite(terminalAt)) {
@@ -599,6 +667,7 @@ function sourcePolicyReceipt(status, { repository, branch, headSha, pullNumber }
     status,
     statusId: rawStatusId,
     workflowRunId,
+    workflowRunAttempt,
     state: String(status.state ?? ""),
     policyDigest: digest,
     originAt,
@@ -614,7 +683,7 @@ function compareDecimalIds(left, right) {
   return 0;
 }
 
-export function assertPreMergePolicyReceiptArtifact({ artifact, repository, branch, headSha, pullNumber, workflowRunId, statusObservedAt }) {
+export function assertPreMergePolicyReceiptArtifact({ artifact, repository, branch, headSha, pullNumber, workflowRunId, workflowRunAttempt = null, statusObservedAt }) {
   const parseTimestamp = (value) => typeof value === "number" && Number.isFinite(value)
     ? value
     : Date.parse(String(value ?? ""));
@@ -623,6 +692,7 @@ export function assertPreMergePolicyReceiptArtifact({ artifact, repository, bran
   if (!artifact || artifact.schemaVersion !== 1 || artifact.kind !== RELEASE_POLICY_RECEIPT_ARTIFACT_KIND ||
       artifact.repository !== repository || artifact.workflowFile !== RELEASE_POLICY_RECEIPT_WORKFLOW_FILE ||
       artifact.workflowRunId !== String(workflowRunId) || artifact.eventName !== RELEASE_POLICY_RECEIPT_WORKFLOW_EVENT ||
+      (workflowRunAttempt !== null && String(artifact.workflowRunAttempt) !== String(workflowRunAttempt)) ||
       !RELEASE_POLICY_RECEIPT_PREMERGE_ACTIONS.includes(String(artifact.eventAction)) || artifact.branch !== branch ||
       Number(artifact.pullNumber) !== Number(pullNumber) || String(artifact.headSha ?? "").toLowerCase() !== String(headSha).toLowerCase() ||
       !Array.isArray(artifact.policy) || artifact.policy.length === 0 || artifact.policyDigest !== policyDigest(artifact.policy) ||
@@ -723,6 +793,7 @@ export async function findClosedMergeWorkflowRun({
         apiUrl,
         repository: normalizedRepository,
         runId: candidateId,
+        runAttempt: run?.run_attempt ?? null,
         token,
         fetchImpl
       });
@@ -798,7 +869,8 @@ export async function waitForSourcePolicyReceipt({
   sleepImpl = waitForReceiptSource,
   attempts = RELEASE_POLICY_RECEIPT_SOURCE_POLL_ATTEMPTS,
   delayMs = RELEASE_POLICY_RECEIPT_SOURCE_POLL_DELAY_MS,
-  mergedAt = null
+  mergedAt = null,
+  requireWorkflowRunAttempt = false
 }) {
   if (!Number.isInteger(attempts) || attempts <= 0) {
     throw new Error("Release policy receipt source polling requires a positive bounded attempt count");
@@ -813,7 +885,7 @@ export async function waitForSourcePolicyReceipt({
     const sources = [];
     for (const status of statuses) {
       if (status?.context !== RELEASE_POLICY_RECEIPT_CONTEXT) continue;
-      const source = sourcePolicyReceipt(status, { repository, branch, headSha, pullNumber });
+      const source = sourcePolicyReceipt(status, { repository, branch, headSha, pullNumber, requireWorkflowRunAttempt });
       if (!source) continue;
       const serialized = JSON.stringify(status);
       const prior = sourceById.get(source.statusId);
@@ -857,6 +929,7 @@ export async function waitForSourcePolicyReceipt({
             apiUrl,
             repository,
             runId: source.workflowRunId,
+            runAttempt: source.workflowRunAttempt,
             token,
             fetchImpl
           });
@@ -867,6 +940,7 @@ export async function waitForSourcePolicyReceipt({
             headSha,
             pullNumber,
             workflowRunId: source.workflowRunId,
+            workflowRunAttempt: source.workflowRunAttempt,
             statusObservedAt: source.terminalAt
           });
           if (artifact.policyDigest !== source.policyDigest) {
@@ -1088,7 +1162,7 @@ export async function prepareReleasePolicyReceipt({
   return { status: "prepared", branch, headSha: normalizedHead, policy, policyDigest: digest, context: RELEASE_POLICY_RECEIPT_CONTEXT, artifact, targetUrl };
 }
 
-function assertPreparedArtifact({ artifact, repository, branch, headSha, pullNumber, workflowRunId, eventAction, policy, eventName = RELEASE_POLICY_RECEIPT_WORKFLOW_EVENT, triggerWorkflowRunId = null }) {
+function assertPreparedArtifact({ artifact, repository, branch, headSha, pullNumber, workflowRunId, workflowRunAttempt = null, eventAction, policy, eventName = RELEASE_POLICY_RECEIPT_WORKFLOW_EVENT, triggerWorkflowRunId = null }) {
   const expectedEventName = String(eventName ?? "").trim();
   const expectedTriggerRunId = String(triggerWorkflowRunId ?? "").trim();
   const expectedWorkflowFile = expectedEventName === RELEASE_POLICY_RECEIPT_RECONCILIATION_EVENT
@@ -1098,6 +1172,7 @@ function assertPreparedArtifact({ artifact, repository, branch, headSha, pullNum
       artifact.eventName !== expectedEventName || artifact.workflowFile !== expectedWorkflowFile ||
       artifact.repository !== repository || artifact.branch !== branch || artifact.headSha !== headSha ||
       Number(artifact.pullNumber) !== Number(pullNumber) || String(artifact.workflowRunId) !== String(workflowRunId) ||
+      (workflowRunAttempt !== null && String(artifact.workflowRunAttempt) !== String(workflowRunAttempt)) ||
       artifact.eventAction !== eventAction || JSON.stringify(artifact.policy) !== JSON.stringify(policy) ||
       artifact.policyDigest !== policyDigest(policy) ||
       (expectedEventName === RELEASE_POLICY_RECEIPT_RECONCILIATION_EVENT
@@ -1118,6 +1193,7 @@ export async function publishReleasePolicyReceipt({
   artifact,
   pullNumber,
   workflowRunId,
+  workflowRunAttempt = null,
   eventAction,
   eventName = RELEASE_POLICY_RECEIPT_WORKFLOW_EVENT,
   triggerWorkflowRunId = null,
@@ -1126,7 +1202,7 @@ export async function publishReleasePolicyReceipt({
   if (!token || !policyToken || !repository || !branch) throw new Error("Release policy receipt requires provider and policy-reader credentials");
   const normalizedHead = assertSha(headSha);
   const policy = await loadRequiredCheckPolicy({ apiUrl, repository, branch, token: policyToken, requireAdministration: true, fetchImpl });
-  assertPreparedArtifact({ artifact, repository, branch, headSha: normalizedHead, pullNumber, workflowRunId, eventAction, policy, eventName, triggerWorkflowRunId });
+  assertPreparedArtifact({ artifact, repository, branch, headSha: normalizedHead, pullNumber, workflowRunId, workflowRunAttempt, eventAction, policy, eventName, triggerWorkflowRunId });
   const digest = policyDigest(policy);
   const status = buildPolicyStatus({ headSha: normalizedHead, digest, targetUrl });
   await requestJson({
@@ -1159,6 +1235,12 @@ async function main() {
   const token = String(process.env.GITHUB_TOKEN ?? "");
   const policyToken = String(process.env.RELEASE_POLICY_ADMIN_TOKEN ?? "").trim();
   const runId = String(process.env.GITHUB_RUN_ID ?? "").trim();
+  const runAttempt = String(process.env.GITHUB_RUN_ATTEMPT ?? "").trim();
+  try {
+    canonicalWorkflowRunId(runAttempt, "workflow run attempt");
+  } catch {
+    throw new Error("Release policy receipt requires a trusted workflow run attempt");
+  }
   if (!process.env.GITHUB_SERVER_URL || !repository || !runId) throw new Error("Release policy receipt requires a trusted workflow run URL");
   if ((phase === "prepare" || phase === "publish") && !policyToken) {
     throw new Error("Release policy receipt requires RELEASE_POLICY_ADMIN_TOKEN with repository Administration read permission");
@@ -1251,6 +1333,7 @@ async function main() {
       headSha,
       pullNumber,
       workflowRunId: runId,
+      workflowRunAttempt: runAttempt,
       observedAt,
       mergeCommitSha,
       mergedAt
@@ -1261,11 +1344,12 @@ async function main() {
   }
   const targetUrl = new URL(`${process.env.GITHUB_SERVER_URL}/${repository}/actions/runs/${encodeURIComponent(runId)}`);
   targetUrl.searchParams.set("phase", eventAction === RELEASE_POLICY_RECEIPT_MERGE_ACTION ? "merge-bound" : "pre-merge");
+  targetUrl.searchParams.set("attempt", runAttempt);
   targetUrl.searchParams.set("pr", String(pullNumber));
   targetUrl.searchParams.set("head", headSha);
   targetUrl.searchParams.set("base", branch);
   if (eventName === RELEASE_POLICY_RECEIPT_RECONCILIATION_EVENT) targetUrl.searchParams.set("trigger", triggerWorkflowRunId);
-  let receipt = { pullNumber, workflowRunId: runId, eventAction, observedAt, eventName, triggerWorkflowRunId };
+  let receipt = { pullNumber, workflowRunId: runId, workflowRunAttempt: runAttempt, eventAction, observedAt, eventName, triggerWorkflowRunId };
   if (eventAction === RELEASE_POLICY_RECEIPT_MERGE_ACTION) {
     const source = await waitForSourcePolicyReceipt({
       apiUrl,
@@ -1274,16 +1358,19 @@ async function main() {
       headSha,
       pullNumber,
       mergedAt,
-      token
+      token,
+      requireWorkflowRunAttempt: true
     });
     if (!source) throw new Error("Merge-bound release policy receipt requires one exact pre-merge policy status");
     targetUrl.searchParams.set("merge", mergeCommitSha);
     targetUrl.searchParams.set("source", source.workflowRunId);
+    if (source.workflowRunAttempt !== null) targetUrl.searchParams.set("sourceAttempt", source.workflowRunAttempt);
     receipt = {
       ...receipt,
       mergeCommitSha,
       mergedAt,
       sourceWorkflowRunId: source.workflowRunId,
+      sourceWorkflowRunAttempt: source.workflowRunAttempt,
       sourcePolicyDigest: source.policyDigest,
       sourcePolicyArtifactDigest: source.policyArtifactDigest
     };
@@ -1322,6 +1409,7 @@ async function main() {
     artifact,
     pullNumber,
     workflowRunId: runId,
+    workflowRunAttempt: runAttempt,
     eventAction,
     eventName,
     triggerWorkflowRunId
