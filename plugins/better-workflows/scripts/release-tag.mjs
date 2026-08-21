@@ -268,7 +268,9 @@ export function assertPolicyReceiptArtifact(payload, {
   mergeCommitSha = null,
   expectedEventName = null,
   triggerWorkflowRunId = null,
-  sourceWorkflowRunAttempt = null
+  sourceWorkflowRunAttempt = null,
+  closedMergeWorkflowRunId = null,
+  closedMergeWorkflowRunAttempt = null
 }) {
   let computedPolicyDigest = null;
   let normalizedPolicy = null;
@@ -310,6 +312,8 @@ export function assertPolicyReceiptArtifact(payload, {
     const normalizedMergeSha = String(mergeCommitSha ?? "").toLowerCase();
     const sourceRunId = String(payload?.sourceWorkflowRunId ?? "");
     const sourceRunAttempt = String(payload?.sourceWorkflowRunAttempt ?? "");
+    const closedRunId = String(payload?.closedMergeWorkflowRunId ?? "");
+    const closedRunAttempt = String(payload?.closedMergeWorkflowRunAttempt ?? "");
     const sourceDigest = String(payload?.sourcePolicyDigest ?? "").toLowerCase();
     const sourceArtifactDigest = String(payload?.sourcePolicyArtifactDigest ?? "").toLowerCase();
     if (commonBinding || payload?.eventAction !== RELEASE_POLICY_RECEIPT_MERGE_ACTION ||
@@ -317,7 +321,11 @@ export function assertPolicyReceiptArtifact(payload, {
         !Number.isFinite(mergedAt) || mergedAt !== mergeTimeMs ||
         !/^\d+$/.test(sourceRunId) || !/^[a-f0-9]{64}$/.test(sourceDigest) || sourceDigest !== payload.policyDigest ||
         !/^[a-f0-9]{64}$/.test(sourceArtifactDigest) ||
-        (sourceWorkflowRunAttempt !== null && sourceRunAttempt !== sourceWorkflowRunAttempt)) {
+        (sourceWorkflowRunAttempt !== null && sourceRunAttempt !== sourceWorkflowRunAttempt) ||
+        (eventName === RELEASE_POLICY_RECEIPT_RECONCILIATION_EVENT &&
+         (!/^\d+$/.test(closedRunId) || !/^\d+$/.test(closedRunAttempt) ||
+          (closedMergeWorkflowRunId !== null && closedRunId !== closedMergeWorkflowRunId) ||
+          (closedMergeWorkflowRunAttempt !== null && closedRunAttempt !== closedMergeWorkflowRunAttempt)))) {
       throw new Error(`Release catch-up candidate ${preMergeSha} has an untrusted merge-bound policy artifact binding`);
     }
   } else {
@@ -1084,11 +1092,21 @@ async function verifyPolicyReceipt({ record, policyDigest, apiUrl, repository, b
   }
   const workflowEvent = String(workflowRun?.event ?? "");
   let triggerWorkflowRunId = null;
+  let closedMergeWorkflowRunId = null;
+  let closedMergeWorkflowRunAttempt = null;
   if (targetUrl.searchParams.has("trigger")) {
     try {
       triggerWorkflowRunId = canonicalWorkflowRunId(targetUrl.searchParams.get("trigger"), "merge-time policy trigger workflow run");
     } catch {
       throw new Error(`Release catch-up candidate ${candidateSha} has an unsafe merge-time policy trigger identity`);
+    }
+  }
+  if (targetUrl.searchParams.has("closed") || targetUrl.searchParams.has("closedAttempt")) {
+    try {
+      closedMergeWorkflowRunId = canonicalWorkflowRunId(targetUrl.searchParams.get("closed"), "merge-time closed-merge workflow run");
+      closedMergeWorkflowRunAttempt = canonicalWorkflowRunId(targetUrl.searchParams.get("closedAttempt"), "merge-time closed-merge workflow run attempt");
+    } catch {
+      throw new Error(`Release catch-up candidate ${candidateSha} has an unsafe closed-merge workflow binding`);
     }
   }
   const expectedReceiptWorkflowFile = workflowEvent === RELEASE_POLICY_RECEIPT_RECONCILIATION_EVENT
@@ -1110,7 +1128,8 @@ async function verifyPolicyReceipt({ record, policyDigest, apiUrl, repository, b
     (pullRequestTargetPull?.base?.sha === undefined && workflowRun?.head_branch !== undefined && workflowRun.head_branch !== branch)
   );
   const reconciliationBindingInvalid = workflowEvent === RELEASE_POLICY_RECEIPT_RECONCILIATION_EVENT && (
-    phase !== "merge-bound" || !/^\d+$/.test(triggerWorkflowRunId ?? "")
+    phase !== "merge-bound" || !/^\d+$/.test(triggerWorkflowRunId ?? "") ||
+    closedMergeWorkflowRunId === null || closedMergeWorkflowRunAttempt === null
   );
   if (commonWorkflowBindingInvalid || (workflowEvent !== RELEASE_POLICY_RECEIPT_WORKFLOW_EVENT && workflowEvent !== RELEASE_POLICY_RECEIPT_RECONCILIATION_EVENT) ||
       pullRequestTargetBindingInvalid || reconciliationBindingInvalid) {
@@ -1158,25 +1177,35 @@ async function verifyPolicyReceipt({ record, policyDigest, apiUrl, repository, b
     ) {
       throw new Error(`Release catch-up candidate ${candidateSha} has untrusted workflow-run reconciliation trigger provenance`);
     }
-    const triggerBinding = await fetchWorkflowRunCloseBindingArtifact({
+    const closedMergeRun = await repositoryWorkflowRun({
       apiUrl,
       repository,
-      runId: triggerWorkflowRunId,
-      runAttempt: triggerWorkflowRun?.run_attempt ?? null,
+      runId: closedMergeWorkflowRunId,
+      token,
+      fetchImpl
+    });
+    const closedMergePull = Array.isArray(closedMergeRun?.pull_requests)
+      ? closedMergeRun.pull_requests.find((pull) => Number(pull?.number) === pullNumber)
+      : null;
+    const closedBinding = await fetchWorkflowRunCloseBindingArtifact({
+      apiUrl,
+      repository,
+      runId: closedMergeWorkflowRunId,
+      runAttempt: closedMergeWorkflowRunAttempt,
       token,
       fetchImpl
     });
     assertClosedPolicyReceiptBinding({
       repository,
-      run: triggerWorkflowRun,
+      run: closedMergeRun,
       pull: {
-        ...triggerPull,
+        ...closedMergePull,
         state: "closed",
         merged: true,
         merge_commit_sha: mergeCommitSha,
         merged_at: new Date(mergeTimeMs).toISOString()
       },
-      binding: triggerBinding
+      binding: closedBinding
     });
   }
   let artifact;
@@ -1196,6 +1225,8 @@ async function verifyPolicyReceipt({ record, policyDigest, apiUrl, repository, b
         preMergeSha,
         requiredPolicyDigest: policyDigest,
         workflowRunAttempt,
+        closedMergeWorkflowRunId,
+        closedMergeWorkflowRunAttempt,
         mergeTimeMs,
         phase,
         mergeCommitSha,

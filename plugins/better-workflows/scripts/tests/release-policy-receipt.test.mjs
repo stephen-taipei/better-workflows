@@ -536,11 +536,15 @@ test("workflow-run reconciliation artifacts bind the completed source run", () =
     mergedAt: "2026-08-18T00:00:00Z",
     sourceWorkflowRunId: "42",
     sourcePolicyDigest: policyDigest(policy),
-    sourcePolicyArtifactDigest: "e".repeat(64)
+    sourcePolicyArtifactDigest: "e".repeat(64),
+    closedMergeWorkflowRunId: "45",
+    closedMergeWorkflowRunAttempt: "2"
   });
   assert.equal(artifact.eventName, "workflow_run");
   assert.equal(artifact.workflowFile, ".github/workflows/release-policy-reconcile.yml");
   assert.equal(artifact.triggerWorkflowRunId, "43");
+  assert.equal(artifact.closedMergeWorkflowRunId, "45");
+  assert.equal(artifact.closedMergeWorkflowRunAttempt, "2");
   assert.throws(
     () => buildPolicyReceiptArtifact({ ...artifact, triggerWorkflowRunId: null }),
     /triggering workflow run id/

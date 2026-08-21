@@ -375,7 +375,9 @@ test("workflow-run merge receipt requires its successful trusted trigger binding
     sourceWorkflowRunId: "42",
     sourcePolicyDigest: policyDigest,
     sourcePolicyArtifactDigest: "e".repeat(64),
-    triggerWorkflowRunId: "43"
+    triggerWorkflowRunId: "43",
+    closedMergeWorkflowRunId: "99",
+    closedMergeWorkflowRunAttempt: "1"
   };
   assert.doesNotThrow(() => assertPolicyReceiptArtifact(payload, {
     repository: "example/repo",
@@ -388,7 +390,9 @@ test("workflow-run merge receipt requires its successful trusted trigger binding
     phase: "merge-bound",
     mergeCommitSha,
     expectedEventName: "workflow_run",
-    triggerWorkflowRunId: "43"
+    triggerWorkflowRunId: "43",
+    closedMergeWorkflowRunId: "99",
+    closedMergeWorkflowRunAttempt: "1"
   }));
   assert.throws(() => assertPolicyReceiptArtifact(payload, {
     repository: "example/repo",
@@ -401,7 +405,24 @@ test("workflow-run merge receipt requires its successful trusted trigger binding
     phase: "merge-bound",
     mergeCommitSha,
     expectedEventName: "workflow_run",
-    triggerWorkflowRunId: "99"
+    triggerWorkflowRunId: "99",
+    closedMergeWorkflowRunId: "99",
+    closedMergeWorkflowRunAttempt: "1"
+  }), /untrusted merge-bound policy artifact binding/);
+  assert.throws(() => assertPolicyReceiptArtifact({ ...payload, closedMergeWorkflowRunId: "98" }, {
+    repository: "example/repo",
+    branch: "dev",
+    runId: "44",
+    pullNumber: 17,
+    preMergeSha,
+    requiredPolicyDigest: policyDigest,
+    mergeTimeMs,
+    phase: "merge-bound",
+    mergeCommitSha,
+    expectedEventName: "workflow_run",
+    triggerWorkflowRunId: "43",
+    closedMergeWorkflowRunId: "99",
+    closedMergeWorkflowRunAttempt: "1"
   }), /untrusted merge-bound policy artifact binding/);
   const sourceArtifact = { schemaVersion: 1, kind: "better-workflows/release-policy-receipt-v2", observedAt: "2026-08-17T23:59:00.000Z" };
   const sourceArtifactDigest = "e".repeat(64);
