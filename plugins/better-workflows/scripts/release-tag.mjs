@@ -238,6 +238,18 @@ function normalizePolicyReceiptRequirements(policy) {
   ));
 }
 
+function policyArtifactDigest(artifact) {
+  return createHash("sha256").update(JSON.stringify(artifact)).digest("hex");
+}
+
+export function assertSourcePolicyArtifactDigest({ artifact, sourceArtifact }) {
+  const expected = String(artifact?.sourcePolicyArtifactDigest ?? "").trim().toLowerCase();
+  if (!/^[a-f0-9]{64}$/.test(expected) || policyArtifactDigest(sourceArtifact) !== expected) {
+    throw new Error("Release catch-up merge-bound policy receipt has a source policy artifact digest mismatch");
+  }
+  return expected;
+}
+
 export function assertPolicyReceiptArtifact(payload, {
   repository,
   branch,
@@ -290,10 +302,12 @@ export function assertPolicyReceiptArtifact(payload, {
     const normalizedMergeSha = String(mergeCommitSha ?? "").toLowerCase();
     const sourceRunId = String(payload?.sourceWorkflowRunId ?? "");
     const sourceDigest = String(payload?.sourcePolicyDigest ?? "").toLowerCase();
+    const sourceArtifactDigest = String(payload?.sourcePolicyArtifactDigest ?? "").toLowerCase();
     if (commonBinding || payload?.eventAction !== RELEASE_POLICY_RECEIPT_MERGE_ACTION ||
         !/^[0-9a-f]{40}$/.test(normalizedMergeSha) || String(payload?.mergeCommitSha).toLowerCase() !== normalizedMergeSha ||
         !Number.isFinite(mergedAt) || mergedAt !== mergeTimeMs ||
-        !/^\d+$/.test(sourceRunId) || !/^[a-f0-9]{64}$/.test(sourceDigest) || sourceDigest !== payload.policyDigest) {
+        !/^\d+$/.test(sourceRunId) || !/^[a-f0-9]{64}$/.test(sourceDigest) || sourceDigest !== payload.policyDigest ||
+        !/^[a-f0-9]{64}$/.test(sourceArtifactDigest)) {
       throw new Error(`Release catch-up candidate ${preMergeSha} has an untrusted merge-bound policy artifact binding`);
     }
   } else {
@@ -873,6 +887,21 @@ function observationTime(record) {
   return Number.NEGATIVE_INFINITY;
 }
 
+function workflowRunTerminalTime(record) {
+  const value = Date.parse(String(record?.completed_at ?? ""));
+  return Number.isFinite(value) ? value : Number.NEGATIVE_INFINITY;
+}
+
+export function assertWorkflowRunTerminal(record, label = "workflow run", { notAfterMs = null, notBeforeMs = null } = {}) {
+  const completedAtMs = workflowRunTerminalTime(record);
+  if (record?.status !== "completed" || !String(record?.conclusion ?? "") || !Number.isFinite(completedAtMs) ||
+      (notAfterMs !== null && completedAtMs > notAfterMs) ||
+      (notBeforeMs !== null && completedAtMs < notBeforeMs)) {
+    throw new Error(`Release catch-up ${label} lacks a valid completed_at terminal receipt`);
+  }
+  return completedAtMs;
+}
+
 function checkRunTerminalTime(record) {
   const value = Date.parse(String(record?.completed_at ?? ""));
   return Number.isFinite(value) ? value : Number.NEGATIVE_INFINITY;
@@ -1014,7 +1043,11 @@ async function verifyPolicyReceipt({ record, policyDigest, apiUrl, repository, b
   if (workflowConclusion !== "success") {
     throw new Error(`Release catch-up candidate ${candidateSha} has an unsuccessful merge-time policy workflow`);
   }
-  const workflowAt = observationTime(workflowRun);
+  const workflowAt = assertWorkflowRunTerminal(
+    workflowRun,
+    "merge-time policy workflow",
+    phase === "pre-merge" ? { notAfterMs: mergeTimeMs } : { notBeforeMs: mergeTimeMs }
+  );
   if (!Number.isFinite(workflowAt) || (phase === "pre-merge" ? workflowAt > mergeTimeMs : workflowAt < mergeTimeMs)) {
     throw new Error(`Release catch-up candidate ${candidateSha} has pre-merge policy workflow provenance after its pull-request merge`);
   }
@@ -1029,6 +1062,7 @@ async function verifyPolicyReceipt({ record, policyDigest, apiUrl, repository, b
       triggerWorkflowRun?.path !== RELEASE_WORKFLOW_FILE ||
       triggerWorkflowRun?.event !== RELEASE_POLICY_RECEIPT_WORKFLOW_EVENT ||
       triggerWorkflowRun?.status !== "completed" ||
+      !Number.isFinite(workflowRunTerminalTime(triggerWorkflowRun)) ||
       triggerWorkflowRun?.repository?.full_name !== repository ||
       !triggerPull ||
       String(triggerPull?.base?.ref ?? "") !== branch ||
@@ -1100,6 +1134,7 @@ async function verifyPolicyReceipt({ record, policyDigest, apiUrl, repository, b
     sourceWorkflowRun?.event !== RELEASE_POLICY_RECEIPT_WORKFLOW_EVENT ||
     sourceWorkflowRun?.status !== "completed" ||
     sourceWorkflowRun?.conclusion !== "success" ||
+    !Number.isFinite(workflowRunTerminalTime(sourceWorkflowRun)) ||
     sourceWorkflowRun?.repository?.full_name !== repository ||
     !sourcePull ||
     String(sourcePull?.base?.ref ?? "") !== branch ||
@@ -1138,6 +1173,7 @@ async function verifyPolicyReceipt({ record, policyDigest, apiUrl, repository, b
     if (error instanceof PendingPolicyReceiptArtifactError) return null;
     throw error;
   }
+  assertSourcePolicyArtifactDigest({ artifact, sourceArtifact });
   if (sourceArtifact.policyDigest !== artifact.sourcePolicyDigest || JSON.stringify(sourceArtifact.policy) !== JSON.stringify(artifact.policy)) {
     throw new Error(`Release catch-up candidate ${candidateSha} has a merge-bound policy continuity digest mismatch`);
   }
@@ -1175,7 +1211,8 @@ function workflowTestObservation({ branch, checkRuns, workflowRuns, sha }) {
   )?.record ?? null;
   if (!latestCheck || latestCheck.status !== "completed" || !latestCheck.conclusion ||
       !Number.isFinite(checkRunTerminalTime(latestCheck)) ||
-      latestRun.status !== "completed" || !latestRun.conclusion) {
+      latestRun.status !== "completed" || !latestRun.conclusion ||
+      !Number.isFinite(workflowRunTerminalTime(latestRun))) {
     return { state: "pending", run: latestRun, check: latestCheck };
   }
   return {
@@ -1208,11 +1245,11 @@ function pullRequestWorkflowObservation({ workflowRuns, pullNumber, expectedPreM
         (!branch || String(pull?.base?.ref ?? "") === branch) &&
         (!expectedRepository || baseRepository === expectedRepository);
     }) &&
-    (mergeTimeMs === null || observationTime(run) <= mergeTimeMs)
+    (mergeTimeMs === null || workflowRunTerminalTime(run) <= mergeTimeMs)
   ));
   const latestRun = latestObservation(matchingRuns)?.record ?? null;
   if (!latestRun) return { state: "missing", run: null };
-  if (latestRun.status !== "completed" || !latestRun.conclusion) {
+  if (latestRun.status !== "completed" || !latestRun.conclusion || !Number.isFinite(workflowRunTerminalTime(latestRun))) {
     return { state: "pending", run: latestRun };
   }
   return {

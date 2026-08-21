@@ -6,7 +6,7 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { assertPolicyReceiptArtifact, githubGraphqlUrl, releasePolicyPublisherAvailable, repositoryPullRequests, runReleaseTag as runReleaseTagImpl } from "../release-tag.mjs";
+import { assertPolicyReceiptArtifact, assertSourcePolicyArtifactDigest, assertWorkflowRunTerminal, githubGraphqlUrl, releasePolicyPublisherAvailable, repositoryPullRequests, runReleaseTag as runReleaseTagImpl } from "../release-tag.mjs";
 import {
   compareStableVersions,
   findMergedPullRequest,
@@ -107,6 +107,7 @@ function policyArtifactResponse(url) {
     mergedAt: latestPolicyReceiptMetadata.mergedAt,
     sourceWorkflowRunId: sourceRunId,
     sourcePolicyDigest: sourceArtifact.policyDigest,
+    sourcePolicyArtifactDigest: createHash("sha256").update(JSON.stringify(sourceArtifact)).digest("hex"),
     observedAt: new Date(Date.parse(latestPolicyReceiptMetadata.mergedAt) + 5 * 60 * 1000).toISOString()
   };
   const archive = zipStoredJson("release-policy-receipt.json", artifact);
@@ -370,6 +371,7 @@ test("workflow-run merge receipt requires its successful trusted trigger binding
     mergedAt: "2026-08-18T00:00:00Z",
     sourceWorkflowRunId: "42",
     sourcePolicyDigest: policyDigest,
+    sourcePolicyArtifactDigest: "e".repeat(64),
     triggerWorkflowRunId: "43"
   };
   assert.doesNotThrow(() => assertPolicyReceiptArtifact(payload, {
@@ -398,6 +400,37 @@ test("workflow-run merge receipt requires its successful trusted trigger binding
     expectedEventName: "workflow_run",
     triggerWorkflowRunId: "99"
   }), /untrusted merge-bound policy artifact binding/);
+  const sourceArtifact = { schemaVersion: 1, kind: "better-workflows/release-policy-receipt-v2", observedAt: "2026-08-17T23:59:00.000Z" };
+  const sourceArtifactDigest = createHash("sha256").update(JSON.stringify(sourceArtifact)).digest("hex");
+  assert.doesNotThrow(() => assertSourcePolicyArtifactDigest({ artifact: { sourcePolicyArtifactDigest: sourceArtifactDigest }, sourceArtifact }));
+  assert.throws(
+    () => assertSourcePolicyArtifactDigest({ artifact: {}, sourceArtifact }),
+    /source policy artifact digest mismatch/
+  );
+  assert.throws(
+    () => assertSourcePolicyArtifactDigest({ artifact: { sourcePolicyArtifactDigest: "f".repeat(64) }, sourceArtifact }),
+    /source policy artifact digest mismatch/
+  );
+});
+
+test("workflow-run terminal evidence requires completed_at and bounded terminal ordering", () => {
+  const completedAt = Date.parse("2026-08-18T00:00:01Z");
+  assert.equal(
+    assertWorkflowRunTerminal({ status: "completed", conclusion: "success", created_at: "2026-08-17T23:59:00Z", completed_at: "2026-08-18T00:00:01Z" }),
+    completedAt
+  );
+  assert.throws(
+    () => assertWorkflowRunTerminal({ status: "completed", conclusion: "success", created_at: "2026-08-17T23:59:00Z" }),
+    /completed_at terminal receipt/
+  );
+  assert.throws(
+    () => assertWorkflowRunTerminal({ status: "completed", conclusion: "success", completed_at: "not-a-timestamp" }),
+    /completed_at terminal receipt/
+  );
+  assert.throws(
+    () => assertWorkflowRunTerminal({ status: "completed", conclusion: "success", completed_at: "2026-08-18T00:00:02Z" }, "workflow run", { notAfterMs: completedAt }),
+    /completed_at terminal receipt/
+  );
 });
 
 test("delayed pre-merge policy artifacts require explicit source-run provenance", () => {

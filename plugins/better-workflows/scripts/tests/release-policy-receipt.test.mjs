@@ -8,6 +8,7 @@ import {
   assertPreMergePolicyReceiptArtifact,
   assertClosedPolicyReceiptBinding,
   assertExactReconciliationTrigger,
+  canonicalWorkflowRunId,
   buildPolicyReceiptArtifact,
   buildClosedPolicyReceiptBinding,
   buildPolicyStatus,
@@ -595,6 +596,13 @@ test("workflow-run reconciliation rejects a pre-merge trigger when a different c
   );
 });
 
+test("workflow-run reconciliation canonicalizes large IDs and rejects unsafe identities", () => {
+  assert.equal(canonicalWorkflowRunId("9007199254740993"), "9007199254740993");
+  assert.equal(canonicalWorkflowRunId(99), "99");
+  assert.throws(() => canonicalWorkflowRunId(9007199254740993), /missing or unsafe workflow-run identity/);
+  assert.throws(() => canonicalWorkflowRunId("01"), /missing or unsafe workflow-run identity/);
+});
+
 test("delayed workflow-run reconciliation locates the exact closed merge run instead of the triggering pre-merge run", async () => {
   const headSha = "b".repeat(40);
   const mergeCommitSha = "c".repeat(40);
@@ -639,7 +647,7 @@ test("delayed workflow-run reconciliation locates the exact closed merge run ins
     fetchImpl: async (url) => {
       calls.push(url);
       if (url.includes("/actions/workflows/ci.yml/runs?")) {
-        return { ok: true, status: 200, json: async () => ({ workflow_runs: [{ id: 7 }, { id: 99 }] }) };
+        return { ok: true, status: 200, json: async () => ({ workflow_runs: [{ id: 7 }, { id: 99 }, { id: 99 }] }) };
       }
       if (url.endsWith("/actions/runs/7")) {
         return { ok: true, status: 200, json: async () => ({
@@ -665,6 +673,25 @@ test("delayed workflow-run reconciliation locates the exact closed merge run ins
   assert.equal(result.binding.workflowRunId, "99");
   assert.ok(calls.some((url) => url.endsWith("/actions/runs/99")));
   assert.ok(!calls.some((url) => url.endsWith("/actions/runs/43")));
+});
+
+test("closed merge workflow reconciliation rejects conflicting duplicate run identities", async () => {
+  await assert.rejects(
+    findClosedMergeWorkflowRun({
+      apiUrl: "https://api.github.com",
+      repository: "example/repo",
+      branch: "dev",
+      pullNumber: 17,
+      headSha: "b".repeat(40),
+      mergeCommitSha: "c".repeat(40),
+      mergedAt: "2026-08-18T00:00:00Z",
+      token: "token",
+      fetchImpl: async (url) => url.includes("/actions/workflows/ci.yml/runs?")
+        ? { ok: true, status: 200, json: async () => ({ workflow_runs: [{ id: 99 }, { id: 99, path: "other.yml" }] }) }
+        : { ok: true, status: 200, json: async () => ({}) }
+    }),
+    /ambiguous duplicate workflow-run identity/
+  );
 });
 
 test("closed receipt polling waits for the exact pre-merge status within a bounded window", async () => {
@@ -693,7 +720,7 @@ test("closed receipt polling waits for the exact pre-merge status within a bound
     delayMs: 5_000,
     sleepImpl: async (delay) => sleeps.push(delay),
     fetchImpl: async (url) => {
-      if (url.endsWith(`/actions/runs/42`)) return { ok: true, status: 200, json: async () => ({ id: 42, path: ".github/workflows/ci.yml", event: "pull_request_target", status: "completed", conclusion: "success", head_sha: baseSha, created_at: "2026-08-17T23:59:00Z", repository: { full_name: "example/repo" }, pull_requests: [{ number: 17, head: { sha: headSha }, base: { ref: "dev", sha: baseSha } }] }) };
+      if (url.endsWith(`/actions/runs/42`)) return { ok: true, status: 200, json: async () => ({ id: 42, path: ".github/workflows/ci.yml", event: "pull_request_target", status: "completed", conclusion: "success", head_sha: baseSha, created_at: "2026-08-17T23:59:00Z", completed_at: "2026-08-17T23:59:30Z", repository: { full_name: "example/repo" }, pull_requests: [{ number: 17, head: { sha: headSha }, base: { ref: "dev", sha: baseSha } }] }) };
       queries += 1;
       assert.equal(url, `https://api.github.com/repos/example/repo/commits/${headSha}/statuses?per_page=100&page=1`);
       return { ok: true, status: 200, json: async () => (queries === 1 ? [] : [sourceStatus]) };
@@ -741,8 +768,8 @@ test("closed receipt polling ignores a newer pre-merge status published after me
     mergedAt: "2026-08-18T00:00:00Z",
     token: "token",
     fetchImpl: async (url) => {
-      if (url.endsWith("/actions/runs/42")) return { ok: true, status: 200, json: async () => ({ id: 42, path: ".github/workflows/ci.yml", event: "pull_request_target", status: "completed", conclusion: "success", head_sha: baseSha, created_at: "2026-08-17T23:59:59Z", repository: { full_name: "example/repo" }, pull_requests: [{ number: 17, head: { sha: headSha }, base: { ref: "dev", sha: baseSha } }] }) };
-      if (url.endsWith("/actions/runs/43")) return { ok: true, status: 200, json: async () => ({ id: 43, path: ".github/workflows/ci.yml", event: "pull_request_target", status: "completed", conclusion: "success", head_sha: baseSha, created_at: "2026-08-18T00:00:01Z", repository: { full_name: "example/repo" }, pull_requests: [{ number: 17, head: { sha: headSha }, base: { ref: "dev", sha: baseSha } }] }) };
+      if (url.endsWith("/actions/runs/42")) return { ok: true, status: 200, json: async () => ({ id: 42, path: ".github/workflows/ci.yml", event: "pull_request_target", status: "completed", conclusion: "success", head_sha: baseSha, created_at: "2026-08-17T23:59:59Z", completed_at: "2026-08-17T23:59:59Z", repository: { full_name: "example/repo" }, pull_requests: [{ number: 17, head: { sha: headSha }, base: { ref: "dev", sha: baseSha } }] }) };
+      if (url.endsWith("/actions/runs/43")) return { ok: true, status: 200, json: async () => ({ id: 43, path: ".github/workflows/ci.yml", event: "pull_request_target", status: "completed", conclusion: "success", head_sha: baseSha, created_at: "2026-08-18T00:00:01Z", completed_at: "2026-08-18T00:00:03Z", repository: { full_name: "example/repo" }, pull_requests: [{ number: 17, head: { sha: headSha }, base: { ref: "dev", sha: baseSha } }] }) };
       return {
       ok: true,
       status: 200,
@@ -791,6 +818,7 @@ test("closed receipt polling orders equal-time provider IDs numerically and reje
     conclusion: "success",
     head_sha: baseSha,
     created_at: "2026-08-17T23:59:59Z",
+    completed_at: "2026-08-18T00:00:00Z",
     repository: { full_name: "example/repo" },
     pull_requests: [{ number: 17, head: { sha: headSha }, base: { ref: "dev", sha: baseSha } }]
   });
