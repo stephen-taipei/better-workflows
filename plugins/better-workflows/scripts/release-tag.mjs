@@ -710,7 +710,7 @@ async function authenticatedPullVersionTransition(cwd, pull, currentVersion, { a
   };
 }
 
-async function findEligibleVersionBumps({ cwd, branch, head, currentVersion, highestPublished, eventVersionChanged, eventParentVersion, eventParentRevision, headPull, apiUrl, repository, token, fetchImpl, publisherContext }) {
+async function findEligibleVersionBumps({ cwd, branch, head, currentVersion, highestPublished, eventVersionChanged, eventParentVersion, headPull, apiUrl, repository, token, fetchImpl, publisherContext }) {
   const revisions = (await git(cwd, ["rev-list", "--first-parent", `--max-count=${CATCH_UP_HISTORY_LIMIT}`, head]))
     .split(/\s+/)
     .filter(Boolean);
@@ -743,7 +743,7 @@ async function findEligibleVersionBumps({ cwd, branch, head, currentVersion, hig
     }
     return publisherAvailabilityCache.get(boundary);
   };
-  const pullVersionTransition = async (pull, immutableBaseSha = null) => {
+  const pullVersionTransition = async (pull, immutableBaseSha = String(pull?.base?.sha ?? "").trim().toLowerCase() || null) => {
     const key = `${String(pull?.merge_commit_sha ?? pull?.head?.sha ?? "").toLowerCase()}\u0000${String(immutableBaseSha ?? "").toLowerCase()}`;
     if (!key) return null;
     if (!pullTransitionCache.has(key)) {
@@ -797,7 +797,11 @@ async function findEligibleVersionBumps({ cwd, branch, head, currentVersion, hig
       // Reconstruct the authenticated PR range from its immutable base to
       // source head, and attribute the net change only to that exact result.
       const pull = await loadPull(candidate);
-      const transition = await pullVersionTransition(pull, candidate === head ? eventParentRevision : null);
+      // The PR's immutable base SHA is the only trustworthy version boundary
+      // for an exact merged PR result. A push-event before SHA may span an
+      // earlier version bump in the same integration batch and would launder
+      // that bump into this later PR.
+      const transition = await pullVersionTransition(pull);
       if (!transition || String(pull?.merge_commit_sha ?? "").toLowerCase() !== candidate) continue;
       await addCandidate({
         order,
@@ -823,7 +827,11 @@ async function findEligibleVersionBumps({ cwd, branch, head, currentVersion, hig
       // The event-head candidate must be attributable to this exact PR's
       // immutable base-to-source range; the push event parent alone can span
       // unrelated commits from the same multi-commit push.
-      const transition = await pullVersionTransition(pull, eventParentRevision);
+      // Do not use the broad push-event before SHA as a PR version baseline:
+      // it can include unrelated commits merged earlier in the same push.
+      // authenticatedPullVersionTransition binds this candidate to the PR's
+      // immutable base SHA and exact merge result instead.
+      const transition = await pullVersionTransition(pull);
       if (!transition || String(pull?.merge_commit_sha ?? "").toLowerCase() !== candidate) continue;
       await addCandidate({
         order: -1,
@@ -872,10 +880,10 @@ async function findEligibleVersionBumps({ cwd, branch, head, currentVersion, hig
       continue;
     }
     if (pull) {
-      // A bump merged before the release-policy publisher existed on its PR
-      // base can never acquire the required immutable pre-merge receipt. Treat
-      // that bootstrap boundary as a durable historical exclusion so it cannot
-      // strand later eligible candidates in catch-up verification.
+      // Historical candidates may predate the release-policy publisher and
+      // retain the legacy first-parent bootstrap exclusion. The event-head
+      // path above never reaches this fallback, so an earlier bump cannot be
+      // laundered into the current PR through the push-event baseline.
       await addCandidate({
         order,
         sha: candidate,
@@ -1828,7 +1836,6 @@ export async function runReleaseTag({
     highestPublished,
     eventVersionChanged: versionWasChanged,
     eventParentVersion: previous,
-    eventParentRevision: targetParent,
     headPull,
     apiUrl,
     repository,
