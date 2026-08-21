@@ -479,16 +479,7 @@ async function fetchWorkflowRunArtifactJson({ apiUrl, repository, runId, runAtte
       throw new Error(`Release policy workflow ${normalizedRunId} exposed an invalid immutable policy artifact`);
     }
   }
-  let artifactWorkflowRunAttempt = null;
-  if (artifact.workflow_run?.run_attempt !== undefined) {
-    try {
-      artifactWorkflowRunAttempt = canonicalWorkflowRunId(artifact.workflow_run.run_attempt, "provider artifact workflow run attempt");
-    } catch {
-      throw new Error(`Release policy workflow ${normalizedRunId} exposed an invalid immutable policy artifact`);
-    }
-  }
-  if (artifact.expired === true || (artifactWorkflowRunId !== null && artifactWorkflowRunId !== normalizedRunId) ||
-      (normalizedRunAttempt !== null && artifactWorkflowRunAttempt !== normalizedRunAttempt)) {
+  if (artifact.expired === true || (artifactWorkflowRunId !== null && artifactWorkflowRunId !== normalizedRunId)) {
     throw new Error(`Release policy workflow ${normalizedRunId} exposed an invalid immutable policy artifact`);
   }
   const downloadUrl = String(artifact.archive_download_url ?? "");

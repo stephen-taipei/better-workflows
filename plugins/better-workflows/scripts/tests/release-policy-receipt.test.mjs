@@ -935,8 +935,8 @@ test("policy artifact lookup selects the exact rerun attempt for one workflow ru
         ok: true,
         status: 200,
         json: async () => ({ artifacts: [
-          { id: 1, name: "better-workflows-release-policy-receipt-88-1", expired: false, digest: `sha256:${digestOne}`, workflow_run: { id: 88, run_attempt: 1 }, archive_download_url: "https://artifact.invalid/attempt-1.zip" },
-          { id: 2, name: "better-workflows-release-policy-receipt-88-2", expired: false, digest: `sha256:${digestTwo}`, workflow_run: { id: 88, run_attempt: 2 }, archive_download_url: "https://artifact.invalid/attempt-2.zip" }
+          { id: 1, name: "better-workflows-release-policy-receipt-88-1", expired: false, digest: `sha256:${digestOne}`, workflow_run: { id: 88 }, archive_download_url: "https://artifact.invalid/attempt-1.zip" },
+          { id: 2, name: "better-workflows-release-policy-receipt-88-2", expired: false, digest: `sha256:${digestTwo}`, workflow_run: { id: 88 }, archive_download_url: "https://artifact.invalid/attempt-2.zip" }
         ] })
       };
       const archive = url.endsWith("attempt-2.zip") ? attemptTwo : attemptOne;
@@ -945,6 +945,24 @@ test("policy artifact lookup selects the exact rerun attempt for one workflow ru
   });
   assert.equal(fetched.workflowRunAttempt, "2");
   assert.equal(fetched.workflowRunId, "88");
+  await assert.rejects(
+    fetchWorkflowRunPolicyReceiptArtifact({
+      apiUrl: "https://api.github.com",
+      repository: "example/repo",
+      runId: "88",
+      runAttempt: "2",
+      token: "token",
+      fetchImpl: async (url) => {
+        if (url.includes("/artifacts?")) return {
+          ok: true,
+          status: 200,
+          json: async () => ({ artifacts: [{ id: 3, name: "better-workflows-release-policy-receipt-88-2", expired: false, digest: `sha256:${digestOne}`, workflow_run: { id: 88 }, archive_download_url: "https://artifact.invalid/mismatched.zip" }] })
+        };
+        return { ok: true, status: 200, arrayBuffer: async () => attemptOne.buffer.slice(attemptOne.byteOffset, attemptOne.byteOffset + attemptOne.byteLength) };
+      }
+    }),
+    /not bound to workflow run attempt 2/
+  );
 });
 
 test("closed receipt polling blocks a newer pre-merge status published after merge", async () => {

@@ -362,17 +362,6 @@ export async function fetchPolicyReceiptArtifact({ apiUrl, repository, runId, ru
   if (artifact.workflow_run?.id !== undefined && String(artifact.workflow_run.id) !== String(runId)) {
     throw new Error(`Release policy workflow ${runId} returned an artifact owned by a different workflow run`);
   }
-  if (normalizedRunAttempt !== null) {
-    let artifactAttempt;
-    try {
-      artifactAttempt = canonicalWorkflowRunId(artifact.workflow_run?.run_attempt, "policy artifact provider workflow run attempt");
-    } catch {
-      throw new Error(`Release policy workflow ${runId} returned an artifact without an exact workflow run attempt`);
-    }
-    if (artifactAttempt !== normalizedRunAttempt) {
-      throw new Error(`Release policy workflow ${runId} returned an artifact for a different workflow run attempt`);
-    }
-  }
   const downloadUrl = String(artifact.archive_download_url ?? "");
   if (!downloadUrl) throw new Error(`Release policy workflow ${runId} returned no artifact download URL`);
   const response = await fetchImpl(downloadUrl, {

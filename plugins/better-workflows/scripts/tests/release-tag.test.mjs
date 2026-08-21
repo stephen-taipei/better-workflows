@@ -554,7 +554,7 @@ test("policy artifact continuity binds the exact downloaded archive bytes", asyn
       name: "better-workflows-release-policy-receipt-42-2",
       expired: false,
       digest: `sha256:${archiveDigest}`,
-      workflow_run: { id: 42, run_attempt: 2 },
+      workflow_run: { id: 42 },
       archive_download_url: "https://artifact.invalid/receipt.zip"
     }] });
     return {
@@ -624,8 +624,8 @@ test("merge-bound policy artifact reruns select the exact target attempt and pre
     token: "token",
     fetchImpl: async (url) => url.includes("/artifacts?")
       ? jsonResponse({ artifacts: [
-        { id: 41, name: "better-workflows-release-policy-receipt-42-1", expired: false, digest: "sha256:" + "e".repeat(64), workflow_run: { id: 42, run_attempt: 1 }, archive_download_url: "https://artifact.invalid/old.zip" },
-        { id: 42, name: "better-workflows-release-policy-receipt-42-2", expired: false, digest: `sha256:${archiveDigest}`, workflow_run: { id: 42, run_attempt: 2 }, archive_download_url: "https://artifact.invalid/current.zip" }
+        { id: 41, name: "better-workflows-release-policy-receipt-42-1", expired: false, digest: "sha256:" + "e".repeat(64), workflow_run: { id: 42 }, archive_download_url: "https://artifact.invalid/old.zip" },
+        { id: 42, name: "better-workflows-release-policy-receipt-42-2", expired: false, digest: `sha256:${archiveDigest}`, workflow_run: { id: 42 }, archive_download_url: "https://artifact.invalid/current.zip" }
       ] })
       : { ok: true, status: 200, arrayBuffer: async () => archive.buffer.slice(archive.byteOffset, archive.byteOffset + archive.byteLength) },
     binding: {
