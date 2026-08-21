@@ -6225,8 +6225,8 @@ export async function verifyRequiredChecksProvider(
     };
     candidates.sort((left, right) => (
       left.observationAt - right.observationAt ||
-      String(left.observationKind).localeCompare(String(right.observationKind)) ||
-      compareObservationIds(left, right)
+      compareObservationIds(left, right) ||
+      String(left.observationKind).localeCompare(String(right.observationKind))
     ));
     const selected = candidates.at(-1);
     if (!selected) {

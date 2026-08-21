@@ -4287,6 +4287,44 @@ test("required-check verifier ignores optional skipped jobs and selects the newe
       path: providerExecutable.path,
       digest: sha256(contextOnlyGhScript)
     });
+    const crossKindCheck = {
+      id: 199,
+      name: "test",
+      head_sha: head,
+      status: "completed",
+      conclusion: "success",
+      created_at: newestCompletedAt,
+      completed_at: newestCompletedAt
+    };
+    const crossKindStatus = { ...statusPage[0], id: 200, state: "failure", created_at: newestCompletedAt, updated_at: newestCompletedAt };
+    const crossKindGhScript = contextOnlyGhScript
+      .replace(emit([{ total_count: 0, check_runs: [] }]), emit([{ total_count: 1, check_runs: [crossKindCheck] }]))
+      .replace(emit([statusPage]), emit([[crossKindStatus]]));
+    await writeFile(fakeGh, crossKindGhScript, { mode: 0o700 });
+    await assert.rejects(
+      verifyRequiredChecksProvider(root, {
+        ...payload,
+        requiredStatusCheckApps: [{ context: "test", appId: null }],
+        providerRunIds: ["200"],
+        checks: [{ name: "test#200", providerName: "test", providerRunId: "200", completedAt: newestCompletedAt, conclusion: "failure" }]
+      }, { path: providerExecutable.path, digest: sha256(crossKindGhScript) }),
+      /latest protected check observation is not successful/
+    );
+    const reverseCrossKindCheck = { ...crossKindCheck, id: 201, conclusion: "failure" };
+    const reverseCrossKindStatus = { ...crossKindStatus, id: 200, state: "success" };
+    const reverseCrossKindGhScript = contextOnlyGhScript
+      .replace(emit([{ total_count: 0, check_runs: [] }]), emit([{ total_count: 1, check_runs: [reverseCrossKindCheck] }]))
+      .replace(emit([statusPage]), emit([[reverseCrossKindStatus]]));
+    await writeFile(fakeGh, reverseCrossKindGhScript, { mode: 0o700 });
+    await assert.rejects(
+      verifyRequiredChecksProvider(root, {
+        ...payload,
+        requiredStatusCheckApps: [{ context: "test", appId: null }],
+        providerRunIds: ["201"],
+        checks: [{ name: "test#201", providerName: "test", providerRunId: "201", completedAt: newestCompletedAt, conclusion: "failure" }]
+      }, { path: providerExecutable.path, digest: sha256(reverseCrossKindGhScript) }),
+      /latest protected check observation is not successful/
+    );
     const failedStatusPage = [{ ...statusPage[0], id: 202, state: "failure", updated_at: latestFailedAt }];
     const failedStatusGhScript = contextOnlyGhScript.replace(emit([statusPage]), emit([failedStatusPage]));
     await writeFile(fakeGh, failedStatusGhScript, { mode: 0o700 });

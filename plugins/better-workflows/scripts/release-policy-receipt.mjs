@@ -351,24 +351,80 @@ function readZipJsonEntry(buffer, filename) {
 }
 
 async function fetchWorkflowRunArtifactJson({ apiUrl, repository, runId, token, artifactName, artifactFile, fetchImpl = fetch }) {
-  const normalizedRunId = String(runId ?? "").trim();
-  if (!/^\d+$/.test(normalizedRunId)) throw new Error("Release policy artifact lookup requires a workflow run id");
-  const payload = await requestJson({
-    apiUrl,
-    path: `/repos/${repository}/actions/runs/${encodeURIComponent(normalizedRunId)}/artifacts?per_page=100&page=1`,
-    token,
-    fetchImpl
-  });
+  let normalizedRunId;
+  try {
+    normalizedRunId = canonicalWorkflowRunId(runId, "artifact lookup workflow run");
+  } catch {
+    throw new Error("Release policy artifact lookup requires a canonical workflow run id");
+  }
+  const listedArtifacts = [];
+  const listedById = new Map();
+  let listedCount = 0;
+  let reportedTotalCount = null;
+  for (let page = 1; page <= 10; page += 1) {
+    const payload = await requestJson({
+      apiUrl,
+      path: `/repos/${repository}/actions/runs/${encodeURIComponent(normalizedRunId)}/artifacts?per_page=100&page=${page}`,
+      token,
+      fetchImpl
+    });
+    if (!Array.isArray(payload?.artifacts)) {
+      throw new Error(`Release policy workflow ${normalizedRunId} returned an invalid artifact listing`);
+    }
+    if (payload.total_count !== undefined) {
+      if (!Number.isSafeInteger(payload.total_count) || payload.total_count < 0 ||
+          (reportedTotalCount !== null && payload.total_count !== reportedTotalCount)) {
+        throw new Error(`Release policy workflow ${normalizedRunId} returned an invalid artifact listing count`);
+      }
+      reportedTotalCount = payload.total_count;
+    }
+    listedCount += payload.artifacts.length;
+    for (const artifact of payload.artifacts) {
+      let artifactId;
+      try {
+        artifactId = canonicalWorkflowRunId(artifact?.id, "provider artifact");
+      } catch {
+        throw new Error(`Release policy workflow ${normalizedRunId} returned an invalid provider artifact identity`);
+      }
+      const serialized = JSON.stringify(artifact);
+      const prior = listedById.get(artifactId);
+      if (prior !== undefined) {
+        if (prior !== serialized) {
+          throw new Error(`Release policy workflow ${normalizedRunId} returned an ambiguous duplicate provider artifact: ${artifactId}`);
+        }
+        continue;
+      }
+      listedById.set(artifactId, serialized);
+      listedArtifacts.push({ artifact, artifactId });
+    }
+    if (payload.artifacts.length < 100) {
+      if (reportedTotalCount !== null && listedCount < reportedTotalCount) {
+        throw new Error(`Release policy workflow ${normalizedRunId} artifact listing is incomplete`);
+      }
+      break;
+    }
+    if (page === 10) {
+      throw new Error(`Release policy workflow ${normalizedRunId} artifact listing exceeded its bounded page limit`);
+    }
+  }
   const expectedName = `${artifactName}-${normalizedRunId}`;
-  const named = Array.isArray(payload?.artifacts)
-    ? payload.artifacts.filter((artifact) => artifact?.name === expectedName)
-    : [];
+  const named = listedArtifacts
+    .filter(({ artifact }) => artifact?.name === expectedName)
+    .map(({ artifact }) => artifact);
   if (named.length === 0 && artifactName === RELEASE_POLICY_CLOSE_BINDING_ARTIFACT_NAME) {
     throw new MissingPolicyCloseBindingArtifactError(`Release policy workflow ${normalizedRunId} has no immutable close binding artifact`);
   }
   if (named.length !== 1) throw new Error(`Release policy workflow ${normalizedRunId} must expose exactly one immutable policy artifact`);
   const artifact = named[0];
-  if (artifact.expired === true || (artifact.workflow_run?.id !== undefined && String(artifact.workflow_run.id) !== normalizedRunId)) {
+  let artifactWorkflowRunId = null;
+  if (artifact.workflow_run?.id !== undefined) {
+    try {
+      artifactWorkflowRunId = canonicalWorkflowRunId(artifact.workflow_run.id, "provider artifact workflow run");
+    } catch {
+      throw new Error(`Release policy workflow ${normalizedRunId} exposed an invalid immutable policy artifact`);
+    }
+  }
+  if (artifact.expired === true || (artifactWorkflowRunId !== null && artifactWorkflowRunId !== normalizedRunId)) {
     throw new Error(`Release policy workflow ${normalizedRunId} exposed an invalid immutable policy artifact`);
   }
   const downloadUrl = String(artifact.archive_download_url ?? "");
@@ -700,8 +756,16 @@ export async function findClosedMergeWorkflowRun({
 }
 
 function sourceWorkflowRunMatches(run, { repository, branch, headSha, pullNumber, workflowRunId, mergedAtMs, statusObservedAtMs }) {
+  let returnedRunId;
+  let expectedRunId;
+  try {
+    returnedRunId = canonicalWorkflowRunId(run?.id, "source policy workflow run response");
+    expectedRunId = canonicalWorkflowRunId(workflowRunId, "source policy workflow run binding");
+  } catch {
+    return false;
+  }
   if (!run || typeof run !== "object" || Array.isArray(run) ||
-      String(run.id ?? "") !== String(workflowRunId) || String(run.path ?? "") !== RELEASE_POLICY_RECEIPT_WORKFLOW_FILE ||
+      returnedRunId !== expectedRunId || String(run.path ?? "") !== RELEASE_POLICY_RECEIPT_WORKFLOW_FILE ||
       String(run.event ?? "") !== RELEASE_POLICY_RECEIPT_WORKFLOW_EVENT ||
       String(run.status ?? "") !== "completed" || String(run.conclusion ?? "") !== "success" ||
       !/^[0-9a-f]{40}$/.test(String(run.head_sha ?? "").toLowerCase()) ||

@@ -20,6 +20,7 @@ import {
   policyDigest,
   policyArtifactDigest,
   publishReleasePolicyReceipt,
+  fetchWorkflowRunPolicyReceiptArtifact,
   waitForSourcePolicyReceipt
 } from "../release-policy-receipt.mjs";
 
@@ -788,6 +789,75 @@ test("source status terminal proof cannot fall back to its origin timestamp", as
     }),
     /invalid observation timestamp/
   );
+});
+
+test("source workflow receipt rejects unsafe numeric workflow identities", async () => {
+  const headSha = "7".repeat(40);
+  const baseSha = "6".repeat(40);
+  const status = {
+    id: 78,
+    state: "success",
+    context: RELEASE_POLICY_RECEIPT_CONTEXT,
+    target_url: `https://github.com/example/repo/actions/runs/78?phase=pre-merge&pr=17&head=${headSha}&base=dev`,
+    description: `${RELEASE_POLICY_RECEIPT_PREFIX}${"b".repeat(64)}`,
+    created_at: "2026-08-18T00:00:01Z",
+    updated_at: "2026-08-18T00:00:02Z"
+  };
+  const source = await waitForSourcePolicyReceipt({
+    apiUrl: "https://api.github.com",
+    repository: "example/repo",
+    branch: "dev",
+    headSha,
+    pullNumber: 17,
+    token: "token",
+    attempts: 1,
+    fetchImpl: async (url) => {
+      if (url.endsWith(`/repos/example/repo/commits/${headSha}/statuses?per_page=100&page=1`)) {
+        return { ok: true, status: 200, json: async () => [status] };
+      }
+      if (url.endsWith("/actions/runs/78")) {
+        return { ok: true, status: 200, json: async () => ({
+          id: Number.MAX_SAFE_INTEGER + 2,
+          path: ".github/workflows/ci.yml",
+          event: "pull_request_target",
+          status: "completed",
+          conclusion: "success",
+          head_sha: baseSha,
+          created_at: "2026-08-17T23:59:00Z",
+          completed_at: "2026-08-17T23:59:30Z",
+          repository: { full_name: "example/repo" },
+          pull_requests: [{ number: 17, head: { sha: headSha }, base: { ref: "dev", sha: baseSha } }]
+        }) };
+      }
+      throw new Error(`Unexpected unsafe workflow identity URL: ${url}`);
+    }
+  });
+  assert.equal(source, null);
+});
+
+test("policy artifact lookup enumerates bounded pages before enforcing exact-name uniqueness", async () => {
+  let pageRequests = 0;
+  await assert.rejects(
+    fetchWorkflowRunPolicyReceiptArtifact({
+      apiUrl: "https://api.github.com",
+      repository: "example/repo",
+      runId: "88",
+      token: "token",
+      fetchImpl: async (url) => {
+        if (!url.includes("/artifacts?")) throw new Error(`Unexpected artifact download URL: ${url}`);
+        pageRequests += 1;
+        if (url.endsWith("page=1")) {
+          return { ok: true, status: 200, json: async () => ({ artifacts: Array.from({ length: 100 }, (_, index) => ({ id: index + 1, name: `other-${index}`, expired: false })) }) };
+        }
+        return { ok: true, status: 200, json: async () => ({ artifacts: [
+          { id: 101, name: "better-workflows-release-policy-receipt-88", expired: false },
+          { id: 102, name: "better-workflows-release-policy-receipt-88", expired: false }
+        ] }) };
+      }
+    }),
+    /must expose exactly one immutable policy artifact/
+  );
+  assert.equal(pageRequests, 2);
 });
 
 test("closed receipt polling blocks a newer pre-merge status published after merge", async () => {
