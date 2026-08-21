@@ -6,7 +6,7 @@
 
 讓 Codex 工作不再停在「下 Prompt 然後期待成功」，而是沿著有界路徑，從意圖走到已驗證、已對帳的交付。
 
-[![Version](https://img.shields.io/badge/version-3.4.8-2563EB?style=flat-square)](../plugins/better-workflows/package.json)
+[![Version](https://img.shields.io/badge/version-3.4.13-2563EB?style=flat-square)](../plugins/better-workflows/package.json)
 [![Node](https://img.shields.io/badge/Node.js-%E2%89%A524-3C873A?style=flat-square)](../plugins/better-workflows/package.json)
 [![Dependencies](https://img.shields.io/badge/runtime_dependencies-0-0F766E?style=flat-square)](../plugins/better-workflows/package.json)
 [![License](https://img.shields.io/badge/license-MIT-64748B?style=flat-square)](../LICENSE)
@@ -61,6 +61,8 @@ provider 結果。Better Workflows 把這些落差轉成明確 gates。
 **Fail closed。** 只要出現 drift、過期證據或未知 provider 狀態，工作流就會停止。
 
 **Review-kernel pilot。** `self-improve-ops` 會盤點 exact changed-file work units、分離獨立 attested finder 與 verifier、綁定 exact source anchors，並產生 deterministic coverage/synthesis evidence。此 pilot 為 shadow-only，不能授權 side effects。
+
+其他 review-enabled templates 會在 TaskContract 與 review package identity 綁定 legacy `review-contract-v1` capability profile；它只涵蓋 immutable diff manifest、package-bound locations、broad-review receipt、provenance 與 instruction digest，不宣稱 kernel work-unit 或 finder/verifier 能力。只有 `self-improve-ops` 可以使用 `review-kernel-v2-pilot`，profile 本身也不會授予 side-effect authority。
 
 ![Better Workflows 從 Prompt 到唯讀 Graph 的權限分層](assets/better-workflows-engineering-stack.svg)
 

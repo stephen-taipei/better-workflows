@@ -88,6 +88,13 @@ request for `review axis` or `review verify` must include the receipt's exact
 `executionId`; a legacy v1 native-critic request may omit it but cannot satisfy
 either v2 command.
 
+Every review-enabled template also binds a `reviewProfile` into its
+TaskContract and review-package identity. `review-contract-v1` records the
+legacy-compatible diff-manifest, package-location, broad-review, provenance,
+and instruction-digest guarantees. Only `review-kernel-v2-pilot` records exact
+work-unit accounting, source-quote anchors, finder/verifier separation, and
+host-attested native provenance; it remains restricted to `self-improve-ops`.
+
 Evaluator attestation request generation uses the unique currently valid
 host-approved native Codex binary by default. If more than one valid entry is
 installed, pass its exact canonical path with `--binary`; PATH wrappers and
@@ -97,10 +104,11 @@ Ledger transition files may include `expectedLedgerDigest`; when present it
 must match the current canonical `ledger.json` digest. Transitions are
 root-owned, and stale expected digests or non-root actors fail closed.
 
-`actions.dispatch` is intentionally rejected by the core action-token lifecycle
-until a fixed-argv provider adapter can correlate one requested workflow
-dispatch to exactly one provider-assigned run. Do not use `run:<id>` or
-`workflow:<name>` as a substitute for that adapter.
+`actions.dispatch` is currently deferred. GitHub workflow dispatch resolves a
+mutable ref and cannot atomically bind execution to the preflight-attested
+workflow bytes, so the governed lifecycle rejects new dispatch tokens and
+executable provider paths. Existing dispatch records can still be validated or
+reconciled read-only; do not treat a post-dispatch head check as authorization.
 
 Governed GitHub actions record an absolute `gh` executable path and content
 digest at token issuance. Provider probes and fixed-argv wrappers use that

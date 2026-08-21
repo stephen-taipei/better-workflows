@@ -4,8 +4,8 @@
   "maxCodexCritics": 2,
   "thirdCriticOnContradictionOnly": true,
   "sentinel": {
-    "maxFiles": 5000,
-    "maxBytes": 52428800,
+    "maxFiles": 12000,
+    "maxBytes": 209715200,
     "maxSingleFileBytes": 2097152,
     "volatileExclusions": ["node_modules", "DerivedData", ".derivedData", "dist", "build", ".nx/cache", ".cache"]
   },

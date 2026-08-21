@@ -42,6 +42,16 @@ import {
 
 const execFileAsync = promisify(execFile);
 
+async function snapshotFile(cwd, file) {
+  const content = await readFile(path.join(cwd, file));
+  return {
+    path: file,
+    state: "file",
+    digest: sha256(content),
+    size: content.length
+  };
+}
+
 const suite = JSON.parse(await readFile(path.join(pluginRoot(), "fixtures", "self-improve-ops-evals.json"), "utf8"));
 const suiteV2 = JSON.parse(await readFile(path.join(pluginRoot(), "fixtures", "self-improve-ops-evals-v2.json"), "utf8"));
 const suiteV21Bytes = await readFile(path.join(pluginRoot(), "fixtures", "self-improve-ops-evals-v2.1.json"));
@@ -852,7 +862,7 @@ test("balanced sanitizer covers every changed material group under the 24-file a
       await mkdir(path.dirname(path.join(cwd, file)), { recursive: true });
       const content = "x".repeat(12 * 1024);
       await writeFile(path.join(cwd, file), content);
-      files.push({ path: file, state: "file", digest: String(index).padStart(64, "0"), size: content.length });
+      files.push({ path: file, state: "file", digest: sha256(content), size: content.length });
     }
     const material = await readSanitizedCandidateMaterial({ cwd, snapshot: { files }, maxFiles: 24, maxBytes: 96 * 1024 });
     assert.ok(material.length <= 24);
@@ -941,7 +951,7 @@ test("syntax-aware evidence indexes ignore comments, strings, and regex literals
     ].join("\n"));
     const [material] = await readSanitizedCandidateMaterial({
       cwd,
-      snapshot: { files: [{ path: source, state: "file", digest: "f".repeat(64) }] },
+      snapshot: { files: [await snapshotFile(cwd, source)] },
       maxFiles: 1
     });
     assert.deepEqual(material.evidenceIndex.exportedSymbols, ["verifiedExecutableSymbol"]);
@@ -970,7 +980,7 @@ test("sanitizer redacts secret-shaped public test fixtures but still rejects non
     await writeFile(path.join(cwd, fixture), `const stripe = ${JSON.stringify(stripeFixture)};\nconst slack = ${JSON.stringify(slackFixture)};\ncredentials: { password: stripe };\n`);
     const [material] = await readSanitizedCandidateMaterial({
       cwd,
-      snapshot: { files: [{ path: fixture, state: "file", digest: "d".repeat(64) }] },
+      snapshot: { files: [await snapshotFile(cwd, fixture)] },
       maxFiles: 1
     });
     assert.equal(material.redacted, true);
@@ -983,7 +993,7 @@ test("sanitizer redacts secret-shaped public test fixtures but still rejects non
     await assert.rejects(
       readSanitizedCandidateMaterial({
         cwd,
-        snapshot: { files: [{ path: source, state: "file", digest: "e".repeat(64) }] },
+        snapshot: { files: [await snapshotFile(cwd, source)] },
         maxFiles: 1
       }),
       /secret-shaped content/
@@ -995,7 +1005,7 @@ test("sanitizer redacts secret-shaped public test fixtures but still rejects non
     await assert.rejects(
       readSanitizedCandidateMaterial({
         cwd,
-        snapshot: { files: [{ path: standaloneTokenSource, state: "file", digest: "f".repeat(64) }] },
+        snapshot: { files: [await snapshotFile(cwd, standaloneTokenSource)] },
         maxFiles: 1
       }),
       /secret-shaped content/
@@ -1010,7 +1020,7 @@ test("sanitizer redacts secret-shaped public test fixtures but still rejects non
       await assert.rejects(
         readSanitizedCandidateMaterial({
           cwd,
-          snapshot: { files: [{ path: familySource, state: "file", digest: "a".repeat(64) }] },
+          snapshot: { files: [await snapshotFile(cwd, familySource)] },
           maxFiles: 1
         }),
         /secret-shaped content/
@@ -1018,6 +1028,185 @@ test("sanitizer redacts secret-shaped public test fixtures but still rejects non
     }
   } finally {
     await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("sanitizer redacts ownerToken display identifiers before secret scanning", async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), "sbw-owner-token-redaction-"));
+  try {
+    const source = "docs/README.zh-TW.md";
+    await mkdir(path.dirname(path.join(cwd, source)), { recursive: true });
+    const ownerTokenMaterial = [
+      "ownerToken: 00000000-0000-4000-8000-000000000099",
+      '\"ownerToken\": \"display\"',
+      "ownerToken: cap_0123456789abcdef"
+    ].join("\n") + "\n";
+    await writeFile(path.join(cwd, source), ownerTokenMaterial);
+    const [material] = await readSanitizedCandidateMaterial({
+      cwd,
+      snapshot: { files: [await snapshotFile(cwd, source)] },
+      maxFiles: 1
+    });
+    assert.equal(material.redacted, true);
+    assert.match(material.content.toString("utf8"), /^ownerToken:/);
+    assert.match(material.content.toString("utf8"), /"ownerToken"\s*:/);
+    assert.doesNotMatch(material.content.toString("utf8"), /00000000-0000-4000-8000-000000000099|ghp_[A-Za-z0-9]{20,}/);
+    assert.match(material.content.toString("utf8"), /\[redacted-owner-token\]/);
+    for (const file of [
+      "docs/README.zh-TW.md",
+      "docs/details/en.md"
+    ]) {
+      await mkdir(path.dirname(path.join(cwd, file)), { recursive: true });
+      await writeFile(path.join(cwd, file), `\"ownerToken\": \"ghp_${"A".repeat(24)}\"\n`);
+      await assert.rejects(
+        readSanitizedCandidateMaterial({
+          cwd,
+          snapshot: { files: [await snapshotFile(cwd, file)] },
+          maxFiles: 1
+        }),
+        /secret-shaped content/
+      );
+    }
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("sanitizer rejects CI workflow changes under standing consent", async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), "sbw-ci-workflow-allowlist-"));
+  try {
+    const workflow = ".github/workflows/ci.yml";
+    const denied = ".github/workflows/release.yml";
+    await mkdir(path.dirname(path.join(cwd, workflow)), { recursive: true });
+    await writeFile(path.join(cwd, workflow), "name: CI\non:\n  workflow_dispatch:\njobs: {}\n");
+    await writeFile(path.join(cwd, denied), "name: Release\n");
+    await assert.rejects(
+      readSanitizedCandidateMaterial({
+        cwd,
+        snapshot: { files: [await snapshotFile(cwd, workflow)] },
+        maxFiles: 1
+      }),
+      /outside the sanitized allowlist/
+    );
+    await assert.rejects(
+      readSanitizedCandidateMaterial({
+        cwd,
+        snapshot: { files: [await snapshotFile(cwd, denied)] },
+        maxFiles: 1
+      }),
+      /outside the sanitized allowlist/
+    );
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("sanitizer preserves executable ownerToken expressions", async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), "sbw-owner-token-expression-"));
+  try {
+    const source = "docs/README.zh-TW.md";
+    await mkdir(path.dirname(path.join(cwd, source)), { recursive: true });
+    const content = [
+      "ownerToken: request.ownerToken",
+      "ownerToken: config/owner-token",
+      "ownerToken: request?.ownerToken",
+      "ownerToken: cap_0123456789abcdef"
+    ].join("\n") + "\n";
+    await writeFile(path.join(cwd, source), content);
+    const [material] = await readSanitizedCandidateMaterial({
+      cwd,
+      snapshot: { files: [await snapshotFile(cwd, source)] },
+      maxFiles: 1
+    });
+    assert.match(material.content, /ownerToken: request\.ownerToken/);
+    assert.match(material.content, /ownerToken: config\/owner-token/);
+    assert.match(material.content, /ownerToken: request\?\.ownerToken/);
+    assert.equal((material.content.match(/ownerToken: \[redacted-owner-token\]/g) ?? []).length, 1);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("sanitizer preserves non-secret quoted ownerToken source values but rejects quoted secrets", async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), "sbw-owner-token-source-quote-"));
+  try {
+    const source = "plugins/better-workflows/scripts/candidate.mjs";
+    await mkdir(path.dirname(path.join(cwd, source)), { recursive: true });
+    await writeFile(path.join(cwd, source), 'const config = { ownerToken: "disabled" };\n');
+    const [material] = await readSanitizedCandidateMaterial({
+      cwd,
+      snapshot: { files: [await snapshotFile(cwd, source)] },
+      maxFiles: 1
+    });
+    assert.match(material.content, /ownerToken:\s*"disabled"/);
+    assert.doesNotMatch(material.content, /redacted-owner-token/);
+
+    for (const literal of ["00000000-0000-4000-8000-000000000099", "opaqueCredential"]) {
+      await writeFile(path.join(cwd, source), `const config = { ownerToken: "${literal}" };\n`);
+      await assert.rejects(
+        readSanitizedCandidateMaterial({
+          cwd,
+          snapshot: { files: [await snapshotFile(cwd, source)] },
+          maxFiles: 1
+        }),
+        /secret-shaped content|unrecognized ownerToken expression/
+      );
+    }
+
+    await writeFile(path.join(cwd, source), 'const config = { ownerToken: "allow" };\n');
+    await assert.rejects(
+      readSanitizedCandidateMaterial({
+        cwd,
+        snapshot: { files: [await snapshotFile(cwd, source)] },
+        maxFiles: 1
+      }),
+      /unrecognized ownerToken expression/
+    );
+
+    const changedTestSource = "plugins/better-workflows/scripts/tests/self-improve.test.mjs";
+    const [changedTestMaterial] = await readSanitizedCandidateMaterial({
+      cwd: repositoryRoot,
+      snapshot: { files: [await snapshotFile(repositoryRoot, changedTestSource)] },
+      maxFiles: 1
+    });
+    assert.equal(changedTestMaterial.path, changedTestSource);
+
+    await writeFile(path.join(cwd, source), 'const config = { ownerToken: "AKIA1234567890ABCDEF" };\n');
+    await assert.rejects(
+      readSanitizedCandidateMaterial({
+        cwd,
+        snapshot: { files: [await snapshotFile(cwd, source)] },
+        maxFiles: 1
+      }),
+      /secret-shaped content/
+    );
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("sanitizer still rejects secret-shaped unquoted ownerToken values", async () => {
+  for (const [value, pattern] of [
+    ["AKIA1234567890ABCDEF", /secret-shaped content/],
+    ["opaqueCredentialABC123456789", /secret-shaped content/],
+    ["nQxTzLmPrVwKsHf", /unrecognized ownerToken expression/]
+  ]) {
+    const cwd = await mkdtemp(path.join(os.tmpdir(), "sbw-owner-token-secret-scan-"));
+    try {
+      const source = "docs/README.zh-TW.md";
+      await mkdir(path.dirname(path.join(cwd, source)), { recursive: true });
+      await writeFile(path.join(cwd, source), `ownerToken: ${value}\n`);
+      await assert.rejects(
+        readSanitizedCandidateMaterial({
+          cwd,
+          snapshot: { files: [await snapshotFile(cwd, source)] },
+          maxFiles: 1
+        }),
+        pattern
+      );
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
   }
 });
 
@@ -1052,7 +1241,7 @@ test("balanced sanitizer prioritizes public entry and security documents within 
     const material = await readSanitizedCandidateMaterial({
       cwd,
       snapshot: {
-        files: files.map((file) => ({ path: file, state: "file", digest: "c".repeat(64) }))
+        files: await Promise.all(files.map((file) => snapshotFile(cwd, file)))
       },
       maxFiles: 10
     });
@@ -1082,7 +1271,8 @@ test("bounded README sampling preserves the model-brand and transport boundary",
       files: [{
         path: file,
         state: "file",
-        digest: createHash("sha256").update(content).digest("hex")
+        digest: createHash("sha256").update(content).digest("hex"),
+        size: content.length
       }]
     },
     maxFiles: 1,
@@ -1416,7 +1606,7 @@ test("candidate sanitizer admits declared public docs and checks all paths befor
     const material = await readSanitizedCandidateMaterial({
       cwd,
       snapshot: {
-        files: publicFiles.map((file) => ({ path: file, state: "file", digest: "a".repeat(64) }))
+        files: await Promise.all(publicFiles.map((file) => snapshotFile(cwd, file)))
       },
       maxFiles: publicFiles.length
     });
@@ -1427,7 +1617,7 @@ test("candidate sanitizer admits declared public docs and checks all paths befor
       const file = `plugins/better-workflows/config/safe-${String(index).padStart(2, "0")}.json`;
       await mkdir(path.dirname(path.join(cwd, file)), { recursive: true });
       await writeFile(path.join(cwd, file), "{}\n");
-      allowed.push({ path: file, state: "file", digest: "b".repeat(64) });
+      allowed.push(await snapshotFile(cwd, file));
     }
     await writeFile(path.join(cwd, "zz-private.txt"), "must remain outside the bundle\n");
     await writeFile(path.join(cwd, "scripts/other-publisher.mjs"), "must remain outside the bundle\n");
@@ -1442,6 +1632,82 @@ test("candidate sanitizer admits declared public docs and checks all paths befor
           ]
         },
         maxFiles: 24
+      }),
+      /outside the sanitized allowlist/
+    );
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("candidate sanitizer rejects generated HTML while preserving approved Markdown assets", async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), "sbw-public-generated-surfaces-"));
+  try {
+    const deniedHtmlFiles = [
+      "docs/html/index.html",
+      "docs/html/preview.html",
+      "docs/html/use-cases/index.html",
+      "docs/html/use-cases/preview.html"
+    ];
+    const textFiles = [
+      "docs/html/use-cases/assets/color-system.md",
+      "docs/html/use-cases/assets/imagegen-manifest.md"
+    ];
+    const binaryFiles = [
+      "docs/html/assets/control-plane.webp",
+      "docs/html/use-cases/assets/hero.webp"
+    ];
+    for (const file of [...deniedHtmlFiles, ...textFiles]) {
+      await mkdir(path.dirname(path.join(cwd, file)), { recursive: true });
+      await writeFile(path.join(cwd, file), deniedHtmlFiles.includes(file)
+        ? `<script>alert(1)</script><div onclick="send()"><iframe src="https://example.invalid"></iframe></div>\n`
+        : `public generated material for ${file}\n`);
+    }
+    for (const file of deniedHtmlFiles) {
+      await assert.rejects(
+        readSanitizedCandidateMaterial({ cwd, snapshot: { files: [await snapshotFile(cwd, file)] }, maxFiles: 1 }),
+        /outside the sanitized allowlist/
+      );
+    }
+    const textSnapshots = await Promise.all(textFiles.map((file) => snapshotFile(cwd, file)));
+    const material = await readSanitizedCandidateMaterial({ cwd, snapshot: { files: textSnapshots }, maxFiles: textSnapshots.length });
+    assert.deepEqual(material.map((item) => item.path).sort(), textSnapshots.map((item) => item.path).sort());
+    for (const item of material) {
+      assert.match(item.content, /public generated material/);
+      assert.ok(item.sampledBytes > 0);
+    }
+    const binaryFile = binaryFiles[0];
+    await mkdir(path.dirname(path.join(cwd, binaryFile)), { recursive: true });
+    await writeFile(path.join(cwd, binaryFile), Buffer.from([0x52, 0x49, 0xff, 0x00, 0x01]));
+    const binarySnapshot = await snapshotFile(cwd, binaryFile);
+    await assert.rejects(
+      readSanitizedCandidateMaterial({ cwd, snapshot: { files: [...textSnapshots, binarySnapshot] }, maxFiles: textSnapshots.length + 1 }),
+      /outside the sanitized allowlist/
+    );
+    await assert.rejects(
+      readSanitizedCandidateMaterial({
+        cwd,
+        snapshot: { files: textSnapshots.map((file) => file.path === textFiles[0] ? { ...file, digest: "0".repeat(64) } : file) },
+        maxFiles: textSnapshots.length
+      }),
+      /material bytes do not match the candidate snapshot/
+    );
+    await assert.rejects(
+      readSanitizedCandidateMaterial({
+        cwd,
+        snapshot: { files: textSnapshots.map((file) => file.path === textFiles[0] ? { ...file, size: file.size + 1 } : file) },
+        maxFiles: textSnapshots.length
+      }),
+      /material bytes do not match the candidate snapshot/
+    );
+    const workflowFile = ".github/workflows/ci.yml";
+    await mkdir(path.dirname(path.join(cwd, workflowFile)), { recursive: true });
+    await writeFile(path.join(cwd, workflowFile), "name: CI\n");
+    await assert.rejects(
+      readSanitizedCandidateMaterial({
+        cwd,
+        snapshot: { files: [await snapshotFile(cwd, workflowFile)] },
+        maxFiles: 1
       }),
       /outside the sanitized allowlist/
     );

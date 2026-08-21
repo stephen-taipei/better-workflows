@@ -58,6 +58,46 @@ Compatibility aliases remain available for `auto-improve`, `auto-issues`,
 | `monorepo-refactor` | Bounded refactor queue with invariant checks |
 | `pr-to-dev` | Atomic delivery to protected `dev` |
 
+## Review capability profiles
+
+Every review-enabled template declares one capability profile in its
+TaskContract and immutable review-package identity. The legacy
+`review-contract-v1` profile covers diff-manifest, package-location,
+broad-review, provenance, and instruction-digest bindings. The stronger
+`review-kernel-v2-pilot` profile is observe-only and is currently restricted to
+`self-improve-ops`; it adds exact work-unit accounting, source-quote anchors,
+and host-attested finder/verifier separation. A profile describes evidence
+capability and never grants action authority. See the [review profile matrix and
+authoring SOP](../../plugins/better-workflows/skills/better-workflows/references/review-profiles.md).
+
+## Release tag policy
+
+Release tags are integration markers, not progress markers. The CI tag job only
+considers a push to `dev` or `main` after the exact commit is proven to be the
+merged result of a pull request into that branch, the branch has not moved, CI
+has passed, and the stable package and plugin versions changed from the target
+branch parent. `main` receives `vX.Y.Z`; `dev` receives the matching
+`vX.Y.Z-dev.<short-sha>` prerelease tag. An integration commit whose version is
+unchanged receives no tag itself, but the job performs a bounded first-parent
+scan and can reconcile every earlier untagged merged version bump in its
+128-commit window and a 90-day immutable policy-artifact horizon. A fresh
+version bump at the exact event HEAD remains eligible even when older history
+exceeds that window; catch-up-only history beyond either bound fails closed.
+The trusted `pull_request_target` pre-merge receipt is bound to the exact
+pre-merge policy artifact and PR boundary. A merged PR is reconciled by a
+durable `workflow_run` completion event for the successful trusted
+`pull_request_target` run; that event is bound to its trigger run, PR head,
+base, and merge commit. A one-minute poll is only a bounded fast path, never
+the sole opportunity to publish the merge-bound receipt, so a delayed source
+receipt can be retried by a later trusted completion event. An old opened or
+synchronize snapshot cannot stand in for merge-time policy continuity. This
+closes the consecutive-bump race without allowing a stale branch update. An
+existing tag pointing to a different commit is a fail-closed error; CI never
+force-moves tags. The final publication uses
+GitHub's server-side atomic `updateRefs` mutation: all recovered tags and an
+expected-branch-tip CAS (`beforeOid` set to the push event SHA) are one
+transaction, so a branch move during publication rejects the entire batch.
+
 ## Common paths
 
 ```mermaid

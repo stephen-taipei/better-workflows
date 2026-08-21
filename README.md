@@ -7,7 +7,7 @@
 Turn Codex work from “prompt and hope” into a bounded path from intent to
 verified, provider-reconciled delivery.
 
-[![Version](https://img.shields.io/badge/version-3.4.8-2563EB?style=flat-square)](plugins/better-workflows/package.json)
+[![Version](https://img.shields.io/badge/version-3.4.13-2563EB?style=flat-square)](plugins/better-workflows/package.json)
 [![Node](https://img.shields.io/badge/Node.js-%E2%89%A524-3C873A?style=flat-square)](plugins/better-workflows/package.json)
 [![Dependencies](https://img.shields.io/badge/runtime_dependencies-0-0F766E?style=flat-square)](plugins/better-workflows/package.json)
 [![License](https://img.shields.io/badge/license-MIT-64748B?style=flat-square)](LICENSE)
@@ -70,6 +70,13 @@ work units, separates independently attested finders from verifiers, binds
 findings to exact source anchors, and reduces private receipts into deterministic
 coverage and synthesis evidence. The pilot is shadow-only and cannot authorize
 side effects.
+
+Other review-enabled templates bind the legacy `review-contract-v1` capability
+profile into the TaskContract and review-package identity. It covers the
+immutable diff manifest, package-bound locations, broad-review receipt,
+provenance, and instruction digest; it does not claim kernel work-unit or
+finder/verifier guarantees. Only `self-improve-ops` may use the
+`review-kernel-v2-pilot`, and a profile never grants side-effect authority.
 
 ![Better Workflows authority layers from prompt through read-only graph](docs/assets/better-workflows-engineering-stack.svg)
 
