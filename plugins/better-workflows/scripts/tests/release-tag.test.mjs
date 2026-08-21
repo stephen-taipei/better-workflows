@@ -2099,7 +2099,7 @@ test("release eligibility catches up a version bump after a later non-version pu
       }
       if (url.includes(`/repos/example/repo/commits/${bump}/check-runs?per_page=100&page=1`)) {
         return jsonResponse(
-          { check_runs: [{ id: 7, name: "test", head_sha: bump, status: "completed", conclusion: candidateConclusion, completed_at: "2026-08-14T23:57:00Z", updated_at: "2026-08-14T23:57:00Z", details_url: `https://github.com/example/repo/actions/runs/7/job/70`, app: { id: candidateAppId, slug: "github-actions" } }] },
+          { check_runs: [{ id: 7, name: "test", head_sha: bump, status: "completed", conclusion: candidateConclusion, created_at: "2026-08-14T23:57:00Z", completed_at: "2026-08-14T23:57:00Z", updated_at: "2026-08-14T23:57:00Z", details_url: `https://github.com/example/repo/actions/runs/7/job/70`, app: { id: candidateAppId, slug: "github-actions" } }] },
           true,
           200,
           secondPageConclusion === null ? {} : { link: '<https://api.github.com/repos/example/repo/commits/bump/check-runs?per_page=100&page=2>; rel="next"' }
@@ -2107,8 +2107,8 @@ test("release eligibility catches up a version bump after a later non-version pu
       }
       if (url.includes(`/repos/example/repo/commits/${bump}/check-runs?per_page=100&page=2`)) {
         return jsonResponse({ check_runs: [
-          { id: 8, name: "test", head_sha: bump, status: "completed", conclusion: secondPageConclusion, completed_at: "2026-08-14T23:58:00Z", updated_at: "2026-08-14T23:58:00Z", details_url: "https://github.com/example/repo/actions/runs/9/job/90", app: { id: candidateAppId, slug: "github-actions" } },
-          { id: 80, name: "test", head_sha: bump, status: "completed", conclusion: "success", completed_at: "2026-08-15T00:02:00Z", updated_at: "2026-08-15T00:02:00Z", details_url: "https://github.com/example/repo/actions/runs/8/job/80", app: { id: candidateAppId, slug: "github-actions" } }
+          { id: 8, name: "test", head_sha: bump, status: "completed", conclusion: secondPageConclusion, created_at: "2026-08-14T23:58:00Z", completed_at: "2026-08-14T23:58:00Z", updated_at: "2026-08-14T23:58:00Z", details_url: "https://github.com/example/repo/actions/runs/9/job/90", app: { id: candidateAppId, slug: "github-actions" } },
+          { id: 80, name: "test", head_sha: bump, status: "completed", conclusion: "success", created_at: "2026-08-14T23:56:00Z", completed_at: "2026-08-15T00:02:00Z", updated_at: "2026-08-15T00:02:00Z", details_url: "https://github.com/example/repo/actions/runs/8/job/80", app: { id: candidateAppId, slug: "github-actions" } }
         ] });
       }
       if (url.includes(`/repos/example/repo/actions/runs?head_sha=${bump}&event=push&branch=dev&per_page=100&page=1`)) {
@@ -2254,8 +2254,8 @@ test("release eligibility catches up a version bump after a later non-version pu
       }
       if (url.includes(`/repos/example/repo/commits/${bump}/check-runs?per_page=100&page=1`)) {
         return jsonResponse({ check_runs: [
-          { id: 7, name: "test", head_sha: bump, status: "completed", conclusion: "success", completed_at: "2026-08-14T23:57:00Z", updated_at: "2026-08-14T23:57:00Z", details_url: "https://github.com/example/repo/actions/runs/9/job/90", app: { id: 123, slug: "github-actions" } },
-          { id: 80, name: "test", head_sha: bump, status: "completed", conclusion: "success", completed_at: "2026-08-15T00:01:00Z", updated_at: "2026-08-15T00:01:00Z", details_url: "https://github.com/example/repo/actions/runs/7/job/70", app: { id: 123, slug: "github-actions" } }
+          { id: 7, name: "test", head_sha: bump, status: "completed", conclusion: "success", created_at: "2026-08-14T23:57:00Z", completed_at: "2026-08-14T23:57:00Z", updated_at: "2026-08-14T23:57:00Z", details_url: "https://github.com/example/repo/actions/runs/9/job/90", app: { id: 123, slug: "github-actions" } },
+          { id: 80, name: "test", head_sha: bump, status: "completed", conclusion: "success", created_at: "2026-08-14T23:56:00Z", completed_at: "2026-08-15T00:01:00Z", updated_at: "2026-08-15T00:01:00Z", details_url: "https://github.com/example/repo/actions/runs/7/job/70", app: { id: 123, slug: "github-actions" } }
         ] });
       }
       if (url.includes(`/repos/example/repo/actions/runs?head_sha=${bump}&event=push&branch=dev&per_page=100&page=1`)) {
@@ -2478,9 +2478,9 @@ test("consecutive version bumps are recovered in one atomic batch", async () => 
       }
       for (const sha of [bump13, head]) {
         if (url.includes(`/commits/${sha}/check-runs?per_page=100&page=1`)) {
-          const checkRuns = [{ id: sha === bump13 ? 13 : 14, name: "lint", head_sha: sha, status: "completed", conclusion: "success", completed_at: "2026-08-17T23:57:00Z", updated_at: "2026-08-17T23:57:00Z" }];
+          const checkRuns = [{ id: sha === bump13 ? 13 : 14, name: "lint", head_sha: sha, status: "completed", conclusion: "success", created_at: "2026-08-17T23:56:00Z", completed_at: "2026-08-17T23:57:00Z", updated_at: "2026-08-17T23:57:00Z" }];
           if (sha === bump13) {
-            checkRuns.push({ id: 101, name: "test", head_sha: sha, status: "completed", conclusion: "success", completed_at: "2026-08-18T00:01:00Z", updated_at: "2026-08-18T00:01:00Z", details_url: "https://github.com/example/repo/actions/runs/101/job/1", app: { slug: "github-actions" } });
+            checkRuns.push({ id: 101, name: "test", head_sha: sha, status: "completed", conclusion: "success", created_at: "2026-08-17T23:59:00Z", completed_at: "2026-08-18T00:01:00Z", updated_at: "2026-08-18T00:01:00Z", details_url: "https://github.com/example/repo/actions/runs/101/job/1", app: { slug: "github-actions" } });
           }
           return jsonResponse({ check_runs: checkRuns });
         }
@@ -2628,7 +2628,7 @@ test("an exact HEAD version bump remains eligible past the catch-up history boun
         return jsonResponse({ strict: true, contexts: ["lint"], checks: [] });
       }
       if (url.includes(`/commits/${head}/check-runs?per_page=100&page=1`)) {
-        return jsonResponse({ check_runs: [{ id: 32, name: "lint", head_sha: head, status: "completed", conclusion: "success", completed_at: "2026-08-17T23:55:00Z" }] });
+        return jsonResponse({ check_runs: [{ id: 32, name: "lint", head_sha: head, status: "completed", conclusion: "success", created_at: "2026-08-17T23:54:00Z", completed_at: "2026-08-17T23:55:00Z" }] });
       }
       if (url.includes(`/commits/${head}/statuses?per_page=100&page=1`)) return jsonResponse([policyReceiptStatus("lint", "2026-08-20T00:50:00Z", null, { pullNumber: 32, headSha: head, mergeSha: head, mergedAt: "2026-08-18T00:00:00Z" })]);
       if (url.includes("/commits/") && url.endsWith("/pulls?per_page=100")) return jsonResponse([]);
