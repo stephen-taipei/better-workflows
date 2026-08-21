@@ -505,7 +505,7 @@ async function repositoryCommitStatuses({ apiUrl, repository, sha, token, fetchI
 }
 
 function sourcePolicyReceipt(status, { repository, branch, headSha, pullNumber }) {
-  if (status?.state !== "success" || status?.context !== RELEASE_POLICY_RECEIPT_CONTEXT) return null;
+  if (status?.context !== RELEASE_POLICY_RECEIPT_CONTEXT) return null;
   const rawStatusId = typeof status?.id === "string"
     ? status.id.trim()
     : Number.isSafeInteger(status?.id) && status.id >= 0 ? String(status.id) : "";
@@ -516,7 +516,7 @@ function sourcePolicyReceipt(status, { repository, branch, headSha, pullNumber }
   try {
     targetUrl = new URL(String(status.target_url ?? ""));
   } catch {
-    return null;
+    throw new Error("Release policy receipt source status has a malformed provider URL");
   }
   const runMatch = /\/actions\/runs\/(\d+)(?:[/?]|$)/.exec(targetUrl.pathname);
   const description = String(status.description ?? "");
@@ -529,12 +529,25 @@ function sourcePolicyReceipt(status, { repository, branch, headSha, pullNumber }
     targetUrl.searchParams.get("pr") !== String(pullNumber) ||
     targetUrl.searchParams.get("head") !== headSha ||
     targetUrl.searchParams.get("base") !== branch ||
-    !runMatch?.[1] ||
-    !/^[a-f0-9]{64}$/.test(digest)
-  ) return null;
-  const updatedAt = Date.parse(String(status.updated_at ?? status.created_at ?? ""));
-  if (!Number.isFinite(updatedAt)) return null;
-  return { status, statusId: rawStatusId, workflowRunId: runMatch[1], policyDigest: digest, updatedAt };
+    !runMatch?.[1]
+  ) {
+    throw new Error(`Release policy receipt source status has an invalid exact workflow binding: ${rawStatusId}`);
+  }
+  const workflowRunId = canonicalWorkflowRunId(runMatch[1], "source policy status workflow run");
+  const originAt = Date.parse(String(status.created_at ?? status.started_at ?? status.updated_at ?? ""));
+  const updatedAt = Date.parse(String(status.updated_at ?? status.created_at ?? status.started_at ?? ""));
+  if (!Number.isFinite(originAt) || !Number.isFinite(updatedAt)) {
+    throw new Error(`Release policy receipt source status has an invalid observation timestamp: ${rawStatusId}`);
+  }
+  return {
+    status,
+    statusId: rawStatusId,
+    workflowRunId,
+    state: String(status.state ?? ""),
+    policyDigest: digest,
+    originAt,
+    updatedAt
+  };
 }
 
 function compareDecimalIds(left, right) {
@@ -735,7 +748,7 @@ export async function waitForSourcePolicyReceipt({
     const sourceById = new Map();
     const sources = [];
     for (const status of statuses) {
-      if (status?.state !== "success" || status?.context !== RELEASE_POLICY_RECEIPT_CONTEXT) continue;
+      if (status?.context !== RELEASE_POLICY_RECEIPT_CONTEXT) continue;
       const source = sourcePolicyReceipt(status, { repository, branch, headSha, pullNumber });
       if (!source) continue;
       const serialized = JSON.stringify(status);
@@ -749,24 +762,31 @@ export async function waitForSourcePolicyReceipt({
       sourceById.set(source.statusId, serialized);
       sources.push(source);
     }
-    sources.sort((left, right) => right.updatedAt - left.updatedAt || compareDecimalIds(right.statusId, left.statusId));
-    for (const source of sources) {
-      const workflowRun = await repositoryWorkflowRun({
-        apiUrl,
-        repository,
-        runId: source.workflowRunId,
-        token,
-        fetchImpl
-      });
-      if (sourceWorkflowRunMatches(workflowRun, {
-        repository,
-        branch,
-        headSha,
-        pullNumber,
-        workflowRunId: source.workflowRunId,
-        mergedAtMs,
-        statusObservedAtMs: source.updatedAt
-      })) {
+    sources.sort((left, right) => left.originAt - right.originAt || compareDecimalIds(left.statusId, right.statusId));
+    const source = sources.at(-1) ?? null;
+    if (source) {
+      let workflowRun;
+      try {
+        workflowRun = await repositoryWorkflowRun({
+          apiUrl,
+          repository,
+          runId: source.workflowRunId,
+          token,
+          fetchImpl
+        });
+      } catch {
+        workflowRun = null;
+      }
+      if (workflowRun && source.state === "success" && /^[a-f0-9]{64}$/.test(source.policyDigest) &&
+          sourceWorkflowRunMatches(workflowRun, {
+            repository,
+            branch,
+            headSha,
+            pullNumber,
+            workflowRunId: source.workflowRunId,
+            mergedAtMs,
+            statusObservedAtMs: source.updatedAt
+          })) {
         let artifact;
         try {
           artifact = await fetchArtifactImpl({
@@ -785,19 +805,24 @@ export async function waitForSourcePolicyReceipt({
             workflowRunId: source.workflowRunId,
             statusObservedAt: source.updatedAt
           });
+          if (artifact.policyDigest !== source.policyDigest) {
+            throw new Error("Release policy receipt source status disagrees with its immutable artifact");
+          }
         } catch {
-          // A status is only a locator. Do not fall back to an older status or
-          // treat an unavailable/forged artifact as continuity evidence; retry
-          // the bounded window until the exact immutable artifact is readable.
-          break;
+          // The newest status is authoritative. Do not fall back to an older
+          // status or treat an unavailable/forged artifact as continuity
+          // evidence; retry the bounded window until the exact artifact is readable.
+          artifact = null;
         }
-        return {
-          ...source,
-          workflowRun,
-          policyArtifact: artifact,
-          policyArtifactDigest: policyArtifactDigest(artifact),
-          policyDigest: artifact.policyDigest
-        };
+        if (artifact) {
+          return {
+            ...source,
+            workflowRun,
+            policyArtifact: artifact,
+            policyArtifactDigest: policyArtifactDigest(artifact),
+            policyDigest: artifact.policyDigest
+          };
+        }
       }
     }
     if (attempt < attempts - 1) await sleepImpl(delayMs);

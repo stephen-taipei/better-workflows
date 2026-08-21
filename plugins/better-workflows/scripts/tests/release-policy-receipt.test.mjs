@@ -761,7 +761,7 @@ test("closed receipt polling waits for the exact pre-merge status within a bound
   assert.equal(queries, 2);
 });
 
-test("closed receipt polling ignores a newer pre-merge status published after merge", async () => {
+test("closed receipt polling blocks a newer pre-merge status published after merge", async () => {
   const headSha = "f".repeat(40);
   const baseSha = "2".repeat(40);
   const policy = [{ context: "test", appId: null, strict: true }];
@@ -782,6 +782,7 @@ test("closed receipt polling ignores a newer pre-merge status published after me
     pullNumber: 17,
     mergedAt: "2026-08-18T00:00:00Z",
     token: "token",
+    attempts: 1,
     fetchImpl: async (url) => {
       if (url.endsWith("/actions/runs/42")) return { ok: true, status: 200, json: async () => ({ id: 42, path: ".github/workflows/ci.yml", event: "pull_request_target", status: "completed", conclusion: "success", head_sha: baseSha, created_at: "2026-08-17T23:59:59Z", completed_at: "2026-08-17T23:59:59Z", repository: { full_name: "example/repo" }, pull_requests: [{ number: 17, head: { sha: headSha }, base: { ref: "dev", sha: baseSha } }] }) };
       if (url.endsWith("/actions/runs/43")) return { ok: true, status: 200, json: async () => ({ id: 43, path: ".github/workflows/ci.yml", event: "pull_request_target", status: "completed", conclusion: "success", head_sha: baseSha, created_at: "2026-08-18T00:00:01Z", completed_at: "2026-08-18T00:00:03Z", repository: { full_name: "example/repo" }, pull_requests: [{ number: 17, head: { sha: headSha }, base: { ref: "dev", sha: baseSha } }] }) };
@@ -808,8 +809,7 @@ test("closed receipt polling ignores a newer pre-merge status published after me
       }));
     }
   });
-  assert.equal(source.workflowRunId, "42");
-  assert.equal(source.policyDigest, sourceDigest);
+  assert.equal(source, null);
 });
 
 test("closed receipt polling orders equal-time provider IDs numerically and rejects conflicting duplicates", async () => {
