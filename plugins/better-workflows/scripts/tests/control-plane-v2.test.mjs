@@ -429,7 +429,7 @@ test("typed required-check admission uses the production host verifier and rejec
       checkSet: ["test"],
       providerRunIds: ["101"],
       conclusions: ["success"],
-      checks: [{ name: "test#101", providerName: "test", providerRunId: "101", completedAt, conclusion: "success" }],
+      checks: [{ name: "test#101", providerName: "test", providerRunId: "101", observationKind: "check-run", completedAt, conclusion: "success" }],
       requiredStatusChecks: ["test"],
       requiredStatusCheckApps: [{ context: "test", appId: 15368 }],
       provider: "github",
@@ -698,7 +698,7 @@ test("typed gate evidence rejects a failed result even when its shape is valid",
     checkSet: ["test"],
     providerRunIds: ["provider-run-1"],
     conclusions: ["SUCCESS"],
-    checks: [{ name: "test#provider-run-1", providerName: "test", providerRunId: "provider-run-1", completedAt: new Date(Date.now() - 1000).toISOString(), conclusion: "SUCCESS" }],
+    checks: [{ name: "test#provider-run-1", providerName: "test", providerRunId: "provider-run-1", observationKind: "check-run", completedAt: new Date(Date.now() - 1000).toISOString(), conclusion: "SUCCESS" }],
     requiredStatusChecks: ["test"],
     provider: "github",
     providerExecutable: { path: "/usr/bin/gh", digest: "0".repeat(64) },
@@ -735,7 +735,7 @@ test("typed gate evidence rejects a failed result even when its shape is valid",
       checkSet: ["test", "lint"],
       providerRunIds: ["provider-run-1"],
       conclusions: ["SUCCESS"],
-      checks: [{ name: "test", providerRunId: "provider-run-1", conclusion: "SUCCESS" }]
+      checks: [{ name: "test", providerRunId: "provider-run-1", observationKind: "check-run", conclusion: "SUCCESS" }]
     }, "required-checks-cardinality")),
     /provider observation is incomplete/
   );

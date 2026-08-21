@@ -4211,6 +4211,7 @@ test("required-check verifier ignores optional skipped jobs and selects the newe
       name: "test#102",
       providerName: "test",
       providerRunId: "102",
+      observationKind: "check-run",
       completedAt: newestCompletedAt,
       conclusion: "success"
     }],
@@ -4221,6 +4222,51 @@ test("required-check verifier ignores optional skipped jobs and selects the newe
   process.env.PATH = `${bin}:${priorPath}`;
   try {
     await verifyRequiredChecksProvider(root, payload, providerExecutable);
+    const collisionProtection = {
+      ...protection,
+      required_status_checks: { contexts: ["test", "lint"], checks: [] }
+    };
+    const collisionRequiredStatusProtection = collisionProtection.required_status_checks;
+    const collisionCheckPage = {
+      total_count: 1,
+      check_runs: [{
+        id: 7,
+        name: "test",
+        head_sha: head,
+        status: "completed",
+        conclusion: "success",
+        created_at: newestCreatedAt,
+        completed_at: newestCompletedAt,
+        app: { id: 15368 }
+      }]
+    };
+    const collisionStatusPage = [{
+      id: 7,
+      context: "lint",
+      sha: head,
+      state: "success",
+      created_at: newestCreatedAt,
+      updated_at: newestCompletedAt
+    }];
+    const collisionGhScript = ghScript
+      .replace(emit(protection), emit(collisionProtection))
+      .replace(emit(requiredStatusProtection), emit(collisionRequiredStatusProtection))
+      .replace(emit([checkPage]), emit([collisionCheckPage]))
+      .replace(emit([statusPage]), emit([collisionStatusPage]));
+    await writeFile(fakeGh, collisionGhScript, { mode: 0o700 });
+    await verifyRequiredChecksProvider(root, {
+      ...payload,
+      requiredStatusChecks: ["lint", "test"],
+      requiredStatusCheckApps: [{ context: "test", appId: null }, { context: "lint", appId: null }],
+      checkSet: ["test", "lint"],
+      providerRunIds: ["7", "7"],
+      conclusions: ["success", "success"],
+      checks: [
+        { name: "test#7", providerName: "test", providerRunId: "7", observationKind: "check-run", completedAt: newestCompletedAt, conclusion: "success" },
+        { name: "lint#7", providerName: "lint", providerRunId: "7", observationKind: "commit-status", completedAt: newestCompletedAt, conclusion: "success" }
+      ]
+    }, { path: providerExecutable.path, digest: sha256(collisionGhScript) });
+    await writeFile(fakeGh, ghScript, { mode: 0o700 });
     const startedAtOnlyGhScript = ghScript.replace(emit([checkPage]), emit([startedAtOnlyPage]));
     await writeFile(fakeGh, startedAtOnlyGhScript, { mode: 0o700 });
     await verifyRequiredChecksProvider(root, payload, {
@@ -4280,6 +4326,7 @@ test("required-check verifier ignores optional skipped jobs and selects the newe
         name: "test#201",
         providerName: "test",
         providerRunId: "201",
+        observationKind: "commit-status",
         completedAt: newestCompletedAt,
         conclusion: "success"
       }]
@@ -4306,7 +4353,7 @@ test("required-check verifier ignores optional skipped jobs and selects the newe
         ...payload,
         requiredStatusCheckApps: [{ context: "test", appId: null }],
         providerRunIds: ["200"],
-        checks: [{ name: "test#200", providerName: "test", providerRunId: "200", completedAt: newestCompletedAt, conclusion: "failure" }]
+        checks: [{ name: "test#200", providerName: "test", providerRunId: "200", observationKind: "commit-status", completedAt: newestCompletedAt, conclusion: "failure" }]
       }, { path: providerExecutable.path, digest: sha256(crossKindGhScript) }),
       /latest protected check observation is not successful|ambiguous cross-provider observations/
     );
@@ -4321,7 +4368,7 @@ test("required-check verifier ignores optional skipped jobs and selects the newe
         ...payload,
         requiredStatusCheckApps: [{ context: "test", appId: null }],
         providerRunIds: ["201"],
-        checks: [{ name: "test#201", providerName: "test", providerRunId: "201", completedAt: newestCompletedAt, conclusion: "failure" }]
+        checks: [{ name: "test#201", providerName: "test", providerRunId: "201", observationKind: "commit-status", completedAt: newestCompletedAt, conclusion: "failure" }]
       }, { path: providerExecutable.path, digest: sha256(reverseCrossKindGhScript) }),
       /latest protected check observation is not successful|ambiguous cross-provider observations/
     );
@@ -4336,7 +4383,7 @@ test("required-check verifier ignores optional skipped jobs and selects the newe
         ...payload,
         requiredStatusCheckApps: [{ context: "test", appId: null }],
         providerRunIds: ["200"],
-        checks: [{ name: "test#200", providerName: "test", providerRunId: "200", completedAt: newestCompletedAt, conclusion: "success" }]
+        checks: [{ name: "test#200", providerName: "test", providerRunId: "200", observationKind: "commit-status", completedAt: newestCompletedAt, conclusion: "success" }]
       }, { path: providerExecutable.path, digest: sha256(largerStatusSuccessGhScript) }),
       /ambiguous cross-provider observations/
     );
@@ -4352,6 +4399,7 @@ test("required-check verifier ignores optional skipped jobs and selects the newe
           name: "test#202",
           providerName: "test",
           providerRunId: "202",
+          observationKind: "commit-status",
           completedAt: latestFailedAt,
           conclusion: "failure"
         }]
@@ -4380,8 +4428,8 @@ test("required-check verifier ignores optional skipped jobs and selects the newe
           { context: "test", appId: 9876 }
         ],
         checks: [
-          { name: "test#102", providerName: "test", providerRunId: "102", conclusion: "success" },
-          { name: "test#105", providerName: "test", providerRunId: "105", conclusion: "success" }
+          { name: "test#102", providerName: "test", providerRunId: "102", observationKind: "check-run", conclusion: "success" },
+          { name: "test#105", providerName: "test", providerRunId: "105", observationKind: "check-run", conclusion: "success" }
         ],
         checkSet: ["test", "test"],
         providerRunIds: ["102", "105"],
@@ -4397,7 +4445,7 @@ test("required-check verifier ignores optional skipped jobs and selects the newe
       verifyRequiredChecksProvider(root, {
         ...payload,
         providerRunIds: ["101"],
-        checks: [{ ...payload.checks[0], name: "test#101", providerRunId: "101" }]
+        checks: [{ ...payload.checks[0], name: "test#101", providerRunId: "101", observationKind: "check-run" }]
       }, providerExecutable),
       /canonical protected check observation set/
     );
@@ -4459,6 +4507,7 @@ test("required-check verifier ignores optional skipped jobs and selects the newe
           name: `test#${Number.MAX_SAFE_INTEGER + 2}`,
           providerName: "test",
           providerRunId: String(Number.MAX_SAFE_INTEGER + 2),
+          observationKind: "commit-status",
           completedAt: newestCompletedAt,
           conclusion: "success"
         }]
@@ -4510,6 +4559,7 @@ test("required-check verifier ignores optional skipped jobs and selects the newe
           name: "test#203",
           providerName: "test",
           providerRunId: "203",
+          observationKind: "commit-status",
           completedAt: newestCompletedAt,
           conclusion: "success"
         }]
@@ -4617,7 +4667,7 @@ test("required-check verifier preserves ruleset integration identity for same-na
     checkSet: ["test"],
     providerRunIds: ["601"],
     conclusions: ["success"],
-    checks: [{ name: "test#601", providerName: "test", providerRunId: "601", completedAt: observedAt, conclusion: "success" }],
+    checks: [{ name: "test#601", providerName: "test", providerRunId: "601", observationKind: "check-run", completedAt: observedAt, conclusion: "success" }],
     providerExecutable,
     observedAt
   };

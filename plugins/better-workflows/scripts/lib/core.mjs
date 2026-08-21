@@ -6149,6 +6149,16 @@ export async function verifyRequiredChecksProvider(
     }
     return raw;
   };
+  const canonicalRequiredCheckObservationKind = (value, label = "required check observation") => {
+    const raw = String(value ?? "").trim();
+    if (!["check-run", "commit-status"].includes(raw)) {
+      throw new Error(`Required check provider returned an unsafe observation kind: ${label}`);
+    }
+    return raw;
+  };
+  const requiredCheckObservationIdentity = (kind, id, label) => (
+    `${canonicalRequiredCheckObservationKind(kind, label)}:${canonicalRequiredCheckObservationId(id, label)}`
+  );
   // The provider returns every check-run for the commit, including optional
   // jobs that are intentionally skipped.  Only the protected status contexts
   // are merge gates; choose the newest authoritative check-run or commit
@@ -6173,6 +6183,7 @@ export async function verifyRequiredChecksProvider(
         ...check,
         id: identity,
         observationKind: "check-run",
+        observationIdentity: requiredCheckObservationIdentity("check-run", identity, `${name} check-run`),
         observationAt: createdAt,
         completedAt
       });
@@ -6197,6 +6208,7 @@ export async function verifyRequiredChecksProvider(
           status: "completed",
           conclusion: String(status.state ?? ""),
           observationKind: "commit-status",
+          observationIdentity: requiredCheckObservationIdentity("commit-status", identity, `${name} commit-status`),
           observationAt: originAt,
           completedAt: observedStatusAt
         });
@@ -6204,7 +6216,7 @@ export async function verifyRequiredChecksProvider(
     }
     const seenObservationIds = new Set();
     for (const candidate of candidates) {
-      const identity = String(candidate.id ?? "").trim();
+      const identity = String(candidate.observationIdentity ?? "").trim();
       if (!identity) {
         throw new Error(`Required check provider returned an observation without an identity: ${name}`);
       }
@@ -6251,10 +6263,16 @@ export async function verifyRequiredChecksProvider(
     }
     return selected;
   });
-  const observedIds = new Set(payload.checks.map((check) => canonicalRequiredCheckObservationId(check.providerRunId, `${check.name ?? "required check"} evidence`)));
-  const requiredProviderIds = new Set(requiredObservations.map((check) => String(check.id)));
-  if (observedIds.size !== requiredObservations.length || observedIds.size !== payload.checks.length ||
-      [...requiredProviderIds].some((id) => !observedIds.has(id))) {
+  const observedIdentities = new Set(payload.checks.map((check) => (
+    requiredCheckObservationIdentity(
+      check.observationKind,
+      check.providerRunId,
+      `${check.name ?? "required check"} evidence`
+    )
+  )));
+  const requiredProviderIdentities = new Set(requiredObservations.map((check) => String(check.observationIdentity)));
+  if (observedIdentities.size !== requiredObservations.length || observedIdentities.size !== payload.checks.length ||
+      [...requiredProviderIdentities].some((identity) => !observedIdentities.has(identity))) {
     throw new Error("Required check evidence does not cover the canonical protected check observation set");
   }
   const observedRequired = new Set(payload.checks.map((check) => check.providerName ?? check.name));
@@ -6262,8 +6280,10 @@ export async function verifyRequiredChecksProvider(
     throw new Error("Required check evidence does not include every protected status check");
   }
   for (const check of payload.checks) {
+    const observationKind = canonicalRequiredCheckObservationKind(check.observationKind, `${check.name ?? "required check"} evidence`);
     const providerRunId = canonicalRequiredCheckObservationId(check.providerRunId, `${check.name ?? "required check"} evidence`);
-    const observation = requiredObservations.find((candidate) => candidate.id === providerRunId);
+    const observationIdentity = `${observationKind}:${providerRunId}`;
+    const observation = requiredObservations.find((candidate) => candidate.observationIdentity === observationIdentity);
     const protectedApp = protectedCheckApps.find((candidate) => candidate.context === (observation?.providerName ?? observation?.name));
     if (
       !observation ||
@@ -6271,6 +6291,7 @@ export async function verifyRequiredChecksProvider(
       observation.status !== "completed" ||
       observation.conclusion !== "success" ||
       (check.providerName ?? check.name) !== (observation.providerName ?? observation.name) ||
+      check.observationKind !== observation.observationKind ||
       !protectedApp ||
       (protectedApp.appId !== null && observation.app?.id !== protectedApp.appId) ||
       check.name !== `${observation.name}#${observation.id}` ||

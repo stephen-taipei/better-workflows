@@ -480,11 +480,12 @@ async function assertFreshBinding(receipt, run, definition, kind) {
       payload.conclusions.length !== checks.length ||
       new Set(checks.map((check) => check?.name)).size !== checks.length ||
       new Set(checks.map((check) => check?.providerName ?? check?.name)).size !== checks.length ||
-      new Set(checks.map((check) => check?.providerRunId)).size !== checks.length ||
+      new Set(checks.map((check) => `${check?.observationKind}:${check?.providerRunId}`)).size !== checks.length ||
       checks.some((check, index) => (
         !check ||
         typeof check.name !== "string" || check.name.trim() === "" ||
         (check.providerName !== undefined && (typeof check.providerName !== "string" || check.providerName.trim() === "")) ||
+        !["check-run", "commit-status"].includes(check.observationKind) ||
         typeof check.providerRunId !== "string" || check.providerRunId.trim() === "" ||
         typeof check.completedAt !== "string" || !Number.isFinite(Date.parse(check.completedAt)) ||
         Date.parse(check.completedAt) > observedAt ||
@@ -493,7 +494,7 @@ async function assertFreshBinding(receipt, run, definition, kind) {
         payload.providerRunIds[index] !== check.providerRunId ||
         String(payload.conclusions[index]) !== String(check.conclusion)
       )) ||
-      new Set(payload.providerRunIds.map(String)).size !== payload.providerRunIds.length ||
+      new Set(checks.map((check) => `${check.observationKind}:${check.providerRunId}`)).size !== checks.length ||
       payload.checkSet.some((value) => typeof value !== "string" || value.trim() === "") ||
       payload.providerRunIds.some((value) => typeof value !== "string" || value.trim() === "") ||
       payload.conclusions.some((value) => !["SUCCESS", "success", "PASS", "pass"].includes(String(value)))
