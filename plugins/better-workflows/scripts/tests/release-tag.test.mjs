@@ -212,7 +212,7 @@ function successfulRequiredCheckResponse(url, sha, context = "test", pullNumber 
     });
   }
   if (url.includes(`/commits/${sha}/check-runs?per_page=100&page=1`)) {
-    return jsonResponse({ check_runs: [{ id: 7, name: context, head_sha: sha, status: "completed", conclusion: "success", completed_at: "2026-08-14T23:55:00Z" }] });
+    return jsonResponse({ check_runs: [{ id: 7, name: context, head_sha: sha, status: "completed", conclusion: "success", created_at: "2026-08-14T23:50:00Z", completed_at: "2026-08-14T23:55:00Z" }] });
   }
   if (url.includes(`/commits/${sha}/statuses?per_page=100&page=1`)) {
     return jsonResponse([{ id: 7, context, state: "success" }, policyReceiptStatus(context, "2026-08-20T00:50:00Z", null, { pullNumber, headSha: sha, mergeSha: sha, mergedAt: "2026-08-15T00:00:00Z" })]);
@@ -472,6 +472,28 @@ test("pull-request workflow selection does not fall back to an older pre-merge s
   });
   assert.equal(result.state, "pending");
   assert.equal(result.run.id, 42);
+  assert.throws(
+    () => pullRequestWorkflowObservation({
+      workflowRuns: [
+        result.run,
+        {
+          ...result.run,
+          id: 43,
+          status: "in_progress",
+          conclusion: null,
+          created_at: undefined,
+          started_at: undefined,
+          completed_at: null
+        }
+      ],
+      pullNumber: 17,
+      expectedPreMergeSha: headSha,
+      branch: "dev",
+      repository: "example/repo",
+      mergeTimeMs
+    }),
+    /missing or malformed origin timestamp/
+  );
 });
 
 test("policy artifact continuity binds the exact downloaded archive bytes", async () => {
@@ -845,7 +867,7 @@ test("merge-time policy receipt binds the pre-merge head separately from the mer
         return jsonResponse({ strict: true, contexts: ["current-only"], checks: [] });
       }
       if (url.includes(`/commits/${syntheticMergeSha}/check-runs?per_page=100&page=1`)) {
-        return jsonResponse({ check_runs: [{ id: 7, name: "test", head_sha: syntheticMergeSha, status: "completed", conclusion: "success", completed_at: "2026-08-14T23:55:00Z" }] });
+        return jsonResponse({ check_runs: [{ id: 7, name: "test", head_sha: syntheticMergeSha, status: "completed", conclusion: "success", created_at: "2026-08-14T23:50:00Z", completed_at: "2026-08-14T23:55:00Z" }] });
       }
       if (url.includes(`/commits/${syntheticMergeSha}/statuses?per_page=100&page=1`)) return jsonResponse([]);
       if (url.includes(`/commits/${preMergeSha}/statuses?per_page=100&page=1`)) {
@@ -1158,7 +1180,7 @@ test("release eligibility uses the validated push-event parent across multi-comm
         return jsonResponse([{ number: 10, base: { ref: "dev" }, head: { sha: intermediate }, merged_at: "2026-08-15T00:00:00Z", merge_commit_sha: intermediate }]);
       }
       if (url.includes(`/repos/example/repo/actions/runs?head_sha=${intermediate}&event=push&branch=dev&per_page=100&page=1`)) {
-        return jsonResponse({ workflow_runs: [{ id: 7, path: ".github/workflows/ci.yml", head_sha: intermediate, head_branch: "dev", event: "push", status: "completed", conclusion: "success" }] });
+        return jsonResponse({ workflow_runs: [{ id: 7, path: ".github/workflows/ci.yml", head_sha: intermediate, head_branch: "dev", event: "push", status: "completed", conclusion: "success", created_at: "2026-08-14T23:50:00Z", completed_at: "2026-08-14T23:55:00Z" }] });
       }
       const checkSha = url.includes(`/commits/${intermediate}/`) ? intermediate : head;
       if ((largeStatusConflict || duplicateStatusObservation) && url.includes("/statuses?per_page=100&page=1")) {
@@ -1167,8 +1189,8 @@ test("release eligibility uses the validated push-event parent across multi-comm
           context: "test",
           sha: checkSha,
           state,
-          created_at: "2026-08-14T23:40:00Z",
-          updated_at: "2026-08-14T23:40:00Z"
+          created_at: "2026-08-14T23:55:00Z",
+          updated_at: "2026-08-14T23:55:00Z"
         });
         return jsonResponse([
           ...(largeStatusConflict
@@ -1178,7 +1200,7 @@ test("release eligibility uses the validated push-event parent across multi-comm
         ]);
       }
       if (checkSha === intermediate && url.includes(`/commits/${intermediate}/check-runs?per_page=100&page=1`)) {
-        return jsonResponse({ check_runs: [{ id: 7, name: requiredContext, head_sha: intermediate, status: "completed", conclusion: checkConclusion, completed_at: "2026-08-14T23:55:00Z", details_url: `https://github.com/example/repo/actions/runs/7/job/70`, app: { slug: "github-actions" } }] });
+        return jsonResponse({ check_runs: [{ id: 7, name: requiredContext, head_sha: intermediate, status: "completed", conclusion: checkConclusion, created_at: "2026-08-14T23:50:00Z", completed_at: "2026-08-14T23:55:00Z", details_url: `https://github.com/example/repo/actions/runs/7/job/70`, app: { slug: "github-actions" } }] });
       }
       if (startedAtOnlyNewerFailure && checkSha === head && url.includes(`/commits/${head}/check-runs?per_page=100&page=1`)) {
         return jsonResponse({ check_runs: [
@@ -1206,7 +1228,7 @@ test("release eligibility uses the validated push-event parent across multi-comm
       const checkResponse = successfulRequiredCheckResponse(url, checkSha, requiredContext, checkSha === intermediate ? 10 : 9);
       if (checkResponse) {
         if (url.includes(`/commits/${checkSha}/check-runs?per_page=100&page=1`)) {
-          return jsonResponse({ check_runs: [{ id: 7, name: requiredContext, head_sha: checkSha, status: "completed", conclusion: checkConclusion, completed_at: "2026-08-14T23:55:00Z" }] });
+          return jsonResponse({ check_runs: [{ id: 7, name: requiredContext, head_sha: checkSha, status: "completed", conclusion: checkConclusion, created_at: "2026-08-14T23:50:00Z", completed_at: "2026-08-14T23:55:00Z" }] });
         }
         return checkResponse;
       }
@@ -1382,7 +1404,7 @@ test("release eligibility accepts a version-bump PR whose source is behind the t
         return pullRequestWorkflowResponse(url, [{ sha: source, pullNumber: 30 }]);
       }
       if (url.includes(`/commits/${source}/check-runs?per_page=100&page=1`)) {
-        return jsonResponse({ check_runs: [{ id: 30, name: "test", head_sha: source, status: "completed", conclusion: "success", completed_at: "2026-08-17T23:55:00Z" }] });
+        return jsonResponse({ check_runs: [{ id: 30, name: "test", head_sha: source, status: "completed", conclusion: "success", created_at: "2026-08-17T23:50:00Z", completed_at: "2026-08-17T23:55:00Z" }] });
       }
       if (url.includes(`/commits/${source}/statuses?per_page=100&page=1`)) {
         return jsonResponse([
@@ -1462,10 +1484,10 @@ test("catch-up release workflow must belong to the target branch", async () => {
         return jsonResponse({ strict: true, contexts: ["test"], checks: [] });
       }
       if (url.includes(`/repos/example/repo/commits/${bump}/check-runs?per_page=100&page=1`)) {
-        return jsonResponse({ check_runs: [{ id: 71, name: "test", head_sha: bump, status: "completed", conclusion: "success", completed_at: "2026-08-17T23:55:00Z", details_url: "https://github.com/example/repo/actions/runs/71/job/1", app: { slug: "github-actions" } }] });
+        return jsonResponse({ check_runs: [{ id: 71, name: "test", head_sha: bump, status: "completed", conclusion: "success", created_at: "2026-08-17T23:50:00Z", completed_at: "2026-08-17T23:55:00Z", details_url: "https://github.com/example/repo/actions/runs/71/job/1", app: { slug: "github-actions" } }] });
       }
       if (url.includes(`/repos/example/repo/actions/runs?head_sha=${bump}&event=push&branch=dev&per_page=100&page=1`)) {
-        return jsonResponse({ workflow_runs: [{ id: 71, path: ".github/workflows/ci.yml", head_sha: bump, head_branch: "feature/release-test", event: "push", status: "completed", conclusion: "success" }] });
+        return jsonResponse({ workflow_runs: [{ id: 71, path: ".github/workflows/ci.yml", head_sha: bump, head_branch: "feature/release-test", event: "push", status: "completed", conclusion: "success", created_at: "2026-08-17T23:50:00Z", completed_at: "2026-08-17T23:55:00Z" }] });
       }
       if (url.includes(`/repos/example/repo/commits/${bump}/statuses?per_page=100&page=1`)) {
         return jsonResponse([policyReceiptStatus("test", "2026-08-20T00:50:00Z", null, { pullNumber: 71, headSha: bump, mergeSha: bump, mergedAt: "2026-08-18T00:00:00Z" })]);
@@ -1613,8 +1635,8 @@ test("source-unavailable merged PR uses provider-bound source content at final H
       }
       if (url.includes(`/commits/${head}/check-runs?per_page=100&page=1`)) {
         return jsonResponse({ check_runs: [
-          { id: 33, name: "lint", head_sha: head, status: "completed", conclusion: "success", completed_at: "2026-08-17T23:55:00Z" },
-          { id: 34, name: "test", head_sha: head, status: "completed", conclusion: "success", completed_at: "2026-08-18T00:05:00Z", details_url: "https://github.com/example/repo/actions/runs/33/job/1", app: { slug: "github-actions" } }
+          { id: 33, name: "lint", head_sha: head, status: "completed", conclusion: "success", created_at: "2026-08-17T23:50:00Z", completed_at: "2026-08-17T23:55:00Z" },
+          { id: 34, name: "test", head_sha: head, status: "completed", conclusion: "success", created_at: "2026-08-18T00:01:00Z", completed_at: "2026-08-18T00:05:00Z", details_url: "https://github.com/example/repo/actions/runs/33/job/1", app: { slug: "github-actions" } }
         ] });
       }
       if (url.includes(`/actions/runs?head_sha=${head}&event=push&branch=dev&per_page=100&page=1`)) {

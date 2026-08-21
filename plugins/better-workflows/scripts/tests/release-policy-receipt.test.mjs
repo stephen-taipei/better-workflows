@@ -720,6 +720,7 @@ test("closed receipt polling waits for the exact pre-merge status within a bound
     context: RELEASE_POLICY_RECEIPT_CONTEXT,
     target_url: `https://github.com/example/repo/actions/runs/42?phase=pre-merge&pr=17&head=${headSha}&base=dev`,
     description: `${RELEASE_POLICY_RECEIPT_PREFIX}${sourceDigest}`,
+    created_at: "2026-08-18T00:00:01Z",
     updated_at: "2026-08-18T00:00:02Z"
   };
   let queries = 0;
@@ -772,6 +773,7 @@ test("closed receipt polling blocks a newer pre-merge status published after mer
     context: RELEASE_POLICY_RECEIPT_CONTEXT,
     target_url: `https://github.com/example/repo/actions/runs/${workflowRunId}?phase=pre-merge&pr=17&head=${headSha}&base=dev`,
     description: `${RELEASE_POLICY_RECEIPT_PREFIX}${id === 42 ? sourceDigest : "b".repeat(64)}`,
+    created_at: updatedAt,
     updated_at: updatedAt
   });
   const source = await waitForSourcePolicyReceipt({
@@ -823,6 +825,7 @@ test("closed receipt polling orders equal-time provider IDs numerically and reje
     context: RELEASE_POLICY_RECEIPT_CONTEXT,
     target_url: `https://github.com/example/repo/actions/runs/${id}?phase=pre-merge&pr=17&head=${headSha}&base=dev`,
     description: `${RELEASE_POLICY_RECEIPT_PREFIX}${digest}`,
+    created_at: "2026-08-18T00:00:01Z",
     updated_at: "2026-08-18T00:00:02Z"
   });
   const run = (id) => ({
@@ -890,6 +893,7 @@ test("closed receipt rejects a source status observed after merge even when its 
     context: RELEASE_POLICY_RECEIPT_CONTEXT,
     target_url: `https://github.com/example/repo/actions/runs/52?phase=pre-merge&pr=17&head=${headSha}&base=dev`,
     description: `${RELEASE_POLICY_RECEIPT_PREFIX}${"c".repeat(64)}`,
+    created_at: "2026-08-17T23:59:55Z",
     updated_at: "2026-08-18T00:00:05Z"
   };
   const source = await waitForSourcePolicyReceipt({
@@ -930,6 +934,7 @@ test("closed receipt rejects a policy status observed after merge even when its 
     context: RELEASE_POLICY_RECEIPT_CONTEXT,
     target_url: `https://github.com/example/repo/actions/runs/92?phase=pre-merge&pr=17&head=${headSha}&base=dev`,
     description: `${RELEASE_POLICY_RECEIPT_PREFIX}${"f".repeat(64)}`,
+    created_at: "2026-08-17T23:59:55Z",
     updated_at: "2026-08-18T00:00:05Z"
   };
   const source = await waitForSourcePolicyReceipt({

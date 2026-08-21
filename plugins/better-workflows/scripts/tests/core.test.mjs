@@ -4415,6 +4415,32 @@ test("required-check verifier ignores optional skipped jobs and selects the newe
       }),
       /unsafe observation identity/
     );
+    const missingOriginCheckPage = {
+      total_count: 4,
+      check_runs: [
+        ...checkPage.check_runs,
+        {
+          id: 105,
+          name: "test",
+          head_sha: head,
+          status: "queued",
+          conclusion: null,
+          created_at: null,
+          started_at: null,
+          completed_at: null,
+          app: { id: 15368 }
+        }
+      ]
+    };
+    const missingOriginGhScript = ghScript.replace(emit([checkPage]), emit([missingOriginCheckPage]));
+    await writeFile(fakeGh, missingOriginGhScript, { mode: 0o700 });
+    await assert.rejects(
+      verifyRequiredChecksProvider(root, payload, {
+        path: providerExecutable.path,
+        digest: sha256(missingOriginGhScript)
+      }),
+      /without a valid origin timestamp/
+    );
     const futureCompletionPage = {
       ...checkPage,
       check_runs: checkPage.check_runs.map((check) => (

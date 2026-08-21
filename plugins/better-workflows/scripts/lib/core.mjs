@@ -6166,7 +6166,9 @@ export async function verifyRequiredChecksProvider(
       // the terminal-outcome boundary below.
       const createdAt = Date.parse(check.created_at ?? check.started_at ?? "");
       const completedAt = Date.parse(check.completed_at ?? "");
-      if (!Number.isFinite(createdAt)) continue;
+      if (!Number.isFinite(createdAt)) {
+        throw new Error(`Required check provider returned a matching observation without a valid origin timestamp: ${name}`);
+      }
       candidates.push({
         ...check,
         id: identity,
@@ -6179,8 +6181,14 @@ export async function verifyRequiredChecksProvider(
       for (const status of commitStatuses) {
         if (status?.context !== name || status?.sha !== payload.head) continue;
         const identity = canonicalRequiredCheckObservationId(status.id, `${name} commit-status`);
-        const observedStatusAt = Date.parse(status.updated_at ?? status.created_at ?? "");
-        if (!Number.isFinite(observedStatusAt)) continue;
+        const originAt = Date.parse(status.created_at ?? status.started_at ?? "");
+        const observedStatusAt = Date.parse(status.updated_at ?? status.completed_at ?? status.created_at ?? "");
+        if (!Number.isFinite(originAt)) {
+          throw new Error(`Required check provider returned a matching status without a valid origin timestamp: ${name}`);
+        }
+        if (!Number.isFinite(observedStatusAt)) {
+          throw new Error(`Required check provider returned a matching status without a valid terminal timestamp: ${name}`);
+        }
         candidates.push({
           id: identity,
           name,
@@ -6189,7 +6197,7 @@ export async function verifyRequiredChecksProvider(
           status: "completed",
           conclusion: String(status.state ?? ""),
           observationKind: "commit-status",
-          observationAt: observedStatusAt,
+          observationAt: originAt,
           completedAt: observedStatusAt
         });
       }

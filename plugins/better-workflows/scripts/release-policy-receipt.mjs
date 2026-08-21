@@ -534,7 +534,7 @@ function sourcePolicyReceipt(status, { repository, branch, headSha, pullNumber }
     throw new Error(`Release policy receipt source status has an invalid exact workflow binding: ${rawStatusId}`);
   }
   const workflowRunId = canonicalWorkflowRunId(runMatch[1], "source policy status workflow run");
-  const originAt = Date.parse(String(status.created_at ?? status.started_at ?? status.updated_at ?? ""));
+  const originAt = Date.parse(String(status.created_at ?? status.started_at ?? ""));
   const updatedAt = Date.parse(String(status.updated_at ?? status.created_at ?? status.started_at ?? ""));
   if (!Number.isFinite(originAt) || !Number.isFinite(updatedAt)) {
     throw new Error(`Release policy receipt source status has an invalid observation timestamp: ${rawStatusId}`);

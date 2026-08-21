@@ -939,12 +939,16 @@ function observationId(record) {
   return BigInt(raw);
 }
 
-function latestObservation(records) {
+function latestObservation(records, { requireOrigin = true } = {}) {
   const seen = new Map();
   const unique = [];
   for (const record of records) {
     const id = observationId(record);
     if (id === null) throw new Error("Release catch-up provider observation has a missing or malformed identity");
+    const origin = creationTime(record);
+    if (requireOrigin && !Number.isFinite(origin)) {
+      throw new Error("Release catch-up provider observation has a missing or malformed origin timestamp");
+    }
     const key = id.toString();
     const serialized = JSON.stringify(record);
     const prior = seen.get(key);
@@ -968,7 +972,7 @@ function latestObservation(records) {
 
 function latestRequiredObservation(checks, statuses) {
   const check = latestObservation(checks);
-  const status = latestObservation(statuses);
+  const status = latestObservation(statuses, { requireOrigin: false });
   if (!check) return status ? { kind: "status", ...status } : null;
   if (!status) return { kind: "check", ...check };
   const checkTime = creationTime(check.record);
@@ -1356,7 +1360,7 @@ async function verifyCatchUpChecks({
         }
       });
       if (policyRecords.length > 0) {
-        const policyRecord = latestObservation(policyRecords)?.record ?? null;
+        const policyRecord = latestObservation(policyRecords, { requireOrigin: false })?.record ?? null;
         policyReceipt = await verifyPolicyReceipt({
           record: policyRecord,
           policyDigest: null,
