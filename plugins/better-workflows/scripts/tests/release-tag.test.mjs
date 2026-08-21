@@ -6,7 +6,7 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { assertPolicyReceiptArtifact, assertSourcePolicyArtifactDigest, assertWorkflowRunTerminal, githubGraphqlUrl, releasePolicyPublisherAvailable, repositoryPullRequests, runReleaseTag as runReleaseTagImpl } from "../release-tag.mjs";
+import { assertPolicyReceiptArtifact, assertSourcePolicyArtifactDigest, assertWorkflowRunTerminal, fetchPolicyReceiptArtifact, githubGraphqlUrl, pullRequestWorkflowObservation, releasePolicyPublisherAvailable, repositoryPullRequests, runReleaseTag as runReleaseTagImpl } from "../release-tag.mjs";
 import {
   compareStableVersions,
   findMergedPullRequest,
@@ -99,6 +99,8 @@ function policyArtifactResponse(url) {
     policyDigest: createHash("sha256").update(JSON.stringify(latestPolicyReceiptMetadata.policy)).digest("hex"),
     observedAt: "2026-08-14T23:50:00.000Z"
   };
+  const sourceArchive = zipStoredJson("release-policy-receipt.json", sourceArtifact);
+  const sourceArchiveDigest = createHash("sha256").update(sourceArchive).digest("hex");
   const artifact = runId === sourceRunId ? sourceArtifact : {
     ...sourceArtifact,
     workflowRunId: runId,
@@ -107,7 +109,7 @@ function policyArtifactResponse(url) {
     mergedAt: latestPolicyReceiptMetadata.mergedAt,
     sourceWorkflowRunId: sourceRunId,
     sourcePolicyDigest: sourceArtifact.policyDigest,
-    sourcePolicyArtifactDigest: createHash("sha256").update(JSON.stringify(sourceArtifact)).digest("hex"),
+    sourcePolicyArtifactDigest: sourceArchiveDigest,
     observedAt: new Date(Date.parse(latestPolicyReceiptMetadata.mergedAt) + 5 * 60 * 1000).toISOString()
   };
   const archive = zipStoredJson("release-policy-receipt.json", artifact);
@@ -401,7 +403,8 @@ test("workflow-run merge receipt requires its successful trusted trigger binding
     triggerWorkflowRunId: "99"
   }), /untrusted merge-bound policy artifact binding/);
   const sourceArtifact = { schemaVersion: 1, kind: "better-workflows/release-policy-receipt-v2", observedAt: "2026-08-17T23:59:00.000Z" };
-  const sourceArtifactDigest = createHash("sha256").update(JSON.stringify(sourceArtifact)).digest("hex");
+  const sourceArtifactDigest = "e".repeat(64);
+  Object.defineProperty(sourceArtifact, "downloadedArchiveDigest", { value: sourceArtifactDigest, enumerable: false });
   assert.doesNotThrow(() => assertSourcePolicyArtifactDigest({ artifact: { sourcePolicyArtifactDigest: sourceArtifactDigest }, sourceArtifact }));
   assert.throws(
     () => assertSourcePolicyArtifactDigest({ artifact: {}, sourceArtifact }),
@@ -430,6 +433,110 @@ test("workflow-run terminal evidence requires completed_at and bounded terminal 
   assert.throws(
     () => assertWorkflowRunTerminal({ status: "completed", conclusion: "success", completed_at: "2026-08-18T00:00:02Z" }, "workflow run", { notAfterMs: completedAt }),
     /completed_at terminal receipt/
+  );
+});
+
+test("pull-request workflow selection does not fall back to an older pre-merge success", () => {
+  const headSha = "b".repeat(40);
+  const mergeTimeMs = Date.parse("2026-08-18T00:00:00Z");
+  const result = pullRequestWorkflowObservation({
+    workflowRuns: [
+      {
+        id: 41,
+        path: ".github/workflows/ci.yml",
+        event: "pull_request",
+        status: "completed",
+        conclusion: "success",
+        created_at: "2026-08-17T23:50:00Z",
+        completed_at: "2026-08-17T23:55:00Z",
+        repository: { full_name: "example/repo" },
+        pull_requests: [{ number: 17, head: { sha: headSha }, base: { ref: "dev", repo: { full_name: "example/repo" } } }]
+      },
+      {
+        id: 42,
+        path: ".github/workflows/ci.yml",
+        event: "pull_request",
+        status: "in_progress",
+        conclusion: null,
+        created_at: "2026-08-18T00:01:00Z",
+        completed_at: null,
+        repository: { full_name: "example/repo" },
+        pull_requests: [{ number: 17, head: { sha: headSha }, base: { ref: "dev", repo: { full_name: "example/repo" } } }]
+      }
+    ],
+    pullNumber: 17,
+    expectedPreMergeSha: headSha,
+    branch: "dev",
+    repository: "example/repo",
+    mergeTimeMs
+  });
+  assert.equal(result.state, "pending");
+  assert.equal(result.run.id, 42);
+});
+
+test("policy artifact continuity binds the exact downloaded archive bytes", async () => {
+  const policy = [{ context: "test", appId: null, strict: true }];
+  const receipt = {
+    schemaVersion: 1,
+    kind: "better-workflows/release-policy-receipt-v2",
+    repository: "example/repo",
+    workflowFile: ".github/workflows/ci.yml",
+    workflowRunId: "42",
+    eventName: "pull_request_target",
+    eventAction: "synchronize",
+    branch: "dev",
+    pullNumber: 17,
+    headSha: "b".repeat(40),
+    policy,
+    policyDigest: createHash("sha256").update(JSON.stringify(policy)).digest("hex"),
+    observedAt: "2026-08-17T23:59:00Z"
+  };
+  const archive = zipStoredJson("release-policy-receipt.json", receipt);
+  const archiveDigest = createHash("sha256").update(archive).digest("hex");
+  const binding = {
+    repository: "example/repo",
+    branch: "dev",
+    runId: "42",
+    pullNumber: 17,
+    preMergeSha: receipt.headSha,
+    requiredPolicyDigest: receipt.policyDigest,
+    mergeTimeMs: null,
+    phase: "pre-merge"
+  };
+  const fetchFor = (downloaded) => async (url) => {
+    if (url.includes("/artifacts?")) return jsonResponse({ artifacts: [{
+      name: "better-workflows-release-policy-receipt-42",
+      expired: false,
+      digest: `sha256:${archiveDigest}`,
+      workflow_run: { id: 42 },
+      archive_download_url: "https://artifact.invalid/receipt.zip"
+    }] });
+    return {
+      ok: true,
+      status: 200,
+      headers: { get() { return null; } },
+      async arrayBuffer() { return downloaded.buffer.slice(downloaded.byteOffset, downloaded.byteOffset + downloaded.byteLength); }
+    };
+  };
+  const fetched = await fetchPolicyReceiptArtifact({
+    apiUrl: "https://api.github.com",
+    repository: "example/repo",
+    runId: "42",
+    token: "token",
+    fetchImpl: fetchFor(archive),
+    binding
+  });
+  assert.equal(fetched.downloadedArchiveDigest, archiveDigest);
+  await assert.rejects(
+    fetchPolicyReceiptArtifact({
+      apiUrl: "https://api.github.com",
+      repository: "example/repo",
+      runId: "42",
+      token: "token",
+      fetchImpl: fetchFor(Buffer.concat([archive, Buffer.from("\n")])),
+      binding
+    }),
+    /artifact digest drifted/
   );
 });
 

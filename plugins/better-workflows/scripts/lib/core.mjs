@@ -6140,6 +6140,15 @@ export async function verifyRequiredChecksProvider(
   }
   const commitStatuses = statusPages.flatMap((page) => page)
     .filter((status) => status?.sha === payload.head);
+  const canonicalRequiredCheckObservationId = (value, label = "required check observation") => {
+    const raw = typeof value === "string"
+      ? value.trim()
+      : Number.isSafeInteger(value) && value >= 0 ? String(value) : "";
+    if (!/^(0|[1-9]\d*)$/.test(raw)) {
+      throw new Error(`Required check provider returned an unsafe observation identity: ${label}`);
+    }
+    return raw;
+  };
   // The provider returns every check-run for the commit, including optional
   // jobs that are intentionally skipped.  Only the protected status contexts
   // are merge gates; choose the newest authoritative check-run or commit
@@ -6150,6 +6159,7 @@ export async function verifyRequiredChecksProvider(
     for (const check of checkRuns) {
       if (check?.name !== name || check?.head_sha !== payload.head ||
           (appId !== null && check?.app?.id !== appId)) continue;
+      const identity = canonicalRequiredCheckObservationId(check.id, `${name} check-run`);
       // GitHub check-run responses expose the observation start as
       // `started_at` (and do not consistently include `created_at`). Keep
       // both shapes equivalent for freshness selection; completed_at remains
@@ -6159,6 +6169,7 @@ export async function verifyRequiredChecksProvider(
       if (!Number.isFinite(createdAt)) continue;
       candidates.push({
         ...check,
+        id: identity,
         observationKind: "check-run",
         observationAt: createdAt,
         completedAt
@@ -6167,10 +6178,11 @@ export async function verifyRequiredChecksProvider(
     if (appId === null) {
       for (const status of commitStatuses) {
         if (status?.context !== name || status?.sha !== payload.head) continue;
+        const identity = canonicalRequiredCheckObservationId(status.id, `${name} commit-status`);
         const observedStatusAt = Date.parse(status.updated_at ?? status.created_at ?? "");
-        if (!Number.isFinite(observedStatusAt) || status.id === undefined || status.id === null) continue;
+        if (!Number.isFinite(observedStatusAt)) continue;
         candidates.push({
-          id: String(status.id),
+          id: identity,
           name,
           providerName: name,
           head_sha: payload.head,
@@ -6222,7 +6234,7 @@ export async function verifyRequiredChecksProvider(
     }
     return selected;
   });
-  const observedIds = new Set(payload.checks.map((check) => String(check.providerRunId)));
+  const observedIds = new Set(payload.checks.map((check) => canonicalRequiredCheckObservationId(check.providerRunId, `${check.name ?? "required check"} evidence`)));
   const requiredProviderIds = new Set(requiredObservations.map((check) => String(check.id)));
   if (observedIds.size !== requiredObservations.length || observedIds.size !== payload.checks.length ||
       [...requiredProviderIds].some((id) => !observedIds.has(id))) {
@@ -6233,7 +6245,8 @@ export async function verifyRequiredChecksProvider(
     throw new Error("Required check evidence does not include every protected status check");
   }
   for (const check of payload.checks) {
-    const observation = requiredObservations.find((candidate) => String(candidate.id) === String(check.providerRunId));
+    const providerRunId = canonicalRequiredCheckObservationId(check.providerRunId, `${check.name ?? "required check"} evidence`);
+    const observation = requiredObservations.find((candidate) => candidate.id === providerRunId);
     const protectedApp = protectedCheckApps.find((candidate) => candidate.context === (observation?.providerName ?? observation?.name));
     if (
       !observation ||

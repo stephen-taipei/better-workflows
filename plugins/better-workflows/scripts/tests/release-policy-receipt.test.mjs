@@ -23,6 +23,16 @@ import {
   waitForSourcePolicyReceipt
 } from "../release-policy-receipt.mjs";
 
+function withDownloadedArchiveDigest(artifact, digest = "d".repeat(64)) {
+  Object.defineProperty(artifact, "downloadedArchiveDigest", {
+    value: digest,
+    enumerable: false,
+    writable: false,
+    configurable: false
+  });
+  return artifact;
+}
+
 test("release policy receipt normalizes and digests the protected-branch policy", () => {
   const directPolicy = normalizeRequiredChecks({
     strict: true,
@@ -413,7 +423,12 @@ test("policy receipt artifact deterministically binds its pre-merge identity and
     workflowRunId: "42",
     statusObservedAt: "2026-08-18T00:00:02Z"
   }));
+  withDownloadedArchiveDigest(artifact);
   assert.equal(policyArtifactDigest(artifact).length, 64);
+  assert.throws(
+    () => policyArtifactDigest({ ...artifact }),
+    /missing the exact downloaded archive digest/
+  );
   assert.throws(
     () => assertPreMergePolicyReceiptArtifact({
       artifact: { ...artifact, policyDigest: "f".repeat(64) },
@@ -727,7 +742,7 @@ test("closed receipt polling waits for the exact pre-merge status within a bound
     },
     fetchArtifactImpl: async ({ runId }) => {
       assert.equal(runId, "42");
-      return buildPolicyReceiptArtifact({
+      return withDownloadedArchiveDigest(buildPolicyReceiptArtifact({
         repository: "example/repo",
         branch: "dev",
         headSha,
@@ -736,7 +751,7 @@ test("closed receipt polling waits for the exact pre-merge status within a bound
         workflowRunId: runId,
         eventAction: "synchronize",
         observedAt: "2026-08-18T00:00:01Z"
-      });
+      }));
     }
   });
   assert.equal(source.workflowRunId, "42");
@@ -781,7 +796,7 @@ test("closed receipt polling ignores a newer pre-merge status published after me
     },
     fetchArtifactImpl: async ({ runId }) => {
       assert.equal(runId, "42");
-      return buildPolicyReceiptArtifact({
+      return withDownloadedArchiveDigest(buildPolicyReceiptArtifact({
         repository: "example/repo",
         branch: "dev",
         headSha,
@@ -790,7 +805,7 @@ test("closed receipt polling ignores a newer pre-merge status published after me
         workflowRunId: runId,
         eventAction: "synchronize",
         observedAt: "2026-08-17T23:59:58Z"
-      });
+      }));
     }
   });
   assert.equal(source.workflowRunId, "42");
@@ -836,7 +851,7 @@ test("closed receipt polling orders equal-time provider IDs numerically and reje
     },
     fetchArtifactImpl: async ({ runId }) => {
       assert.equal(runId, "10");
-      return buildPolicyReceiptArtifact({
+      return withDownloadedArchiveDigest(buildPolicyReceiptArtifact({
         repository: "example/repo",
         branch: "dev",
         headSha,
@@ -845,7 +860,7 @@ test("closed receipt polling orders equal-time provider IDs numerically and reje
         workflowRunId: runId,
         eventAction: "synchronize",
         observedAt: "2026-08-18T00:00:01Z"
-      });
+      }));
     }
   });
   assert.equal(source.workflowRunId, "10");

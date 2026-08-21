@@ -115,7 +115,11 @@ export function policyDigest(requirements) {
 }
 
 export function policyArtifactDigest(artifact) {
-  return createHash("sha256").update(JSON.stringify(artifact)).digest("hex");
+  const digest = String(artifact?.downloadedArchiveDigest ?? "").trim().toLowerCase();
+  if (!/^[a-f0-9]{64}$/.test(digest)) {
+    throw new Error("Release policy receipt artifact is missing the exact downloaded archive digest");
+  }
+  return digest;
 }
 
 export function buildPolicyStatus({ headSha, digest, targetUrl }) {
@@ -381,11 +385,22 @@ async function fetchWorkflowRunArtifactJson({ apiUrl, repository, runId, token, 
     throw new Error(`Release policy workflow ${normalizedRunId} artifact download failed`);
   }
   const archive = Buffer.from(await response.arrayBuffer());
-  const declaredDigest = String(artifact.digest ?? "").replace(/^sha256:/, "").toLowerCase();
-  if (declaredDigest && /^[a-f0-9]{64}$/.test(declaredDigest) && createHash("sha256").update(archive).digest("hex") !== declaredDigest) {
+  const downloadedArchiveDigest = createHash("sha256").update(archive).digest("hex");
+  const declaredDigest = String(artifact.digest ?? "").replace(/^sha256:/i, "").toLowerCase();
+  if (!/^[a-f0-9]{64}$/.test(declaredDigest)) {
+    throw new Error(`Release policy workflow ${normalizedRunId} returned a missing or malformed artifact digest`);
+  }
+  if (downloadedArchiveDigest !== declaredDigest) {
     throw new Error(`Release policy workflow ${normalizedRunId} artifact digest drifted`);
   }
-  return readZipJsonEntry(archive, artifactFile);
+  const parsed = readZipJsonEntry(archive, artifactFile);
+  Object.defineProperty(parsed, "downloadedArchiveDigest", {
+    value: downloadedArchiveDigest,
+    enumerable: false,
+    writable: false,
+    configurable: false
+  });
+  return parsed;
 }
 
 export async function fetchWorkflowRunPolicyReceiptArtifact({ apiUrl, repository, runId, token, fetchImpl = fetch }) {

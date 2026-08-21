@@ -4379,6 +4379,42 @@ test("required-check verifier ignores optional skipped jobs and selects the newe
       }),
       /ambiguous duplicate observations/
     );
+    const unsafeCheckPage = {
+      ...checkPage,
+      check_runs: checkPage.check_runs.map((check) => (
+        check.id === 102 ? { ...check, id: Number.MAX_SAFE_INTEGER + 2 } : check
+      ))
+    };
+    const unsafeCheckGhScript = ghScript.replace(emit([checkPage]), emit([unsafeCheckPage]));
+    await writeFile(fakeGh, unsafeCheckGhScript, { mode: 0o700 });
+    await assert.rejects(
+      verifyRequiredChecksProvider(root, payload, {
+        path: providerExecutable.path,
+        digest: sha256(unsafeCheckGhScript)
+      }),
+      /unsafe observation identity/
+    );
+    const unsafeStatusPage = [{ ...statusPage[0], id: Number.MAX_SAFE_INTEGER + 2 }];
+    const unsafeStatusGhScript = contextOnlyGhScript.replace(emit([statusPage]), emit([unsafeStatusPage]));
+    await writeFile(fakeGh, unsafeStatusGhScript, { mode: 0o700 });
+    await assert.rejects(
+      verifyRequiredChecksProvider(root, {
+        ...payload,
+        requiredStatusCheckApps: [{ context: "test", appId: null }],
+        providerRunIds: [String(Number.MAX_SAFE_INTEGER + 2)],
+        checks: [{
+          name: `test#${Number.MAX_SAFE_INTEGER + 2}`,
+          providerName: "test",
+          providerRunId: String(Number.MAX_SAFE_INTEGER + 2),
+          completedAt: newestCompletedAt,
+          conclusion: "success"
+        }]
+      }, {
+        path: providerExecutable.path,
+        digest: sha256(unsafeStatusGhScript)
+      }),
+      /unsafe observation identity/
+    );
     const futureCompletionPage = {
       ...checkPage,
       check_runs: checkPage.check_runs.map((check) => (
