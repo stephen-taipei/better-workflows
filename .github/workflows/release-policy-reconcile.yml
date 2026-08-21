@@ -20,14 +20,14 @@ jobs:
       actions: read
       statuses: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           # workflow_run is privileged; use the watcher workflow's trusted base.
           ref: ${{ github.sha }}
           fetch-depth: 1
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 24
+          node-version: 24.12.0
       - name: Validate exact closed merge trigger and prepare required-check policy receipt artifact
         id: prepare
         if: hashFiles('plugins/better-workflows/scripts/release-policy-receipt.mjs') != ''
@@ -44,7 +44,7 @@ jobs:
           RELEASE_POLICY_ADMIN_TOKEN: ${{ secrets.BETTER_WORKFLOWS_POLICY_TOKEN }}
           RELEASE_POLICY_RECEIPT_FILE: ${{ runner.temp }}/release-policy-receipt.json
         run: node plugins/better-workflows/scripts/release-policy-receipt.mjs
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: steps.prepare.outcome == 'success'
         with:
           name: better-workflows-release-policy-receipt-${{ github.run_id }}
