@@ -7,6 +7,7 @@ import {
   RELEASE_POLICY_CLOSE_BINDING_ARTIFACT_KIND,
   assertPreMergePolicyReceiptArtifact,
   assertClosedPolicyReceiptBinding,
+  assertExactReconciliationTrigger,
   buildPolicyReceiptArtifact,
   buildClosedPolicyReceiptBinding,
   buildPolicyStatus,
@@ -575,6 +576,17 @@ test("workflow-run reconciliation requires the exact closed merge binding", () =
     mergeCommitSha,
     mergedAt
   }), binding);
+});
+
+test("workflow-run reconciliation rejects a pre-merge trigger when a different closed merge run is discovered", () => {
+  assert.throws(
+    () => assertExactReconciliationTrigger({ triggerWorkflowRunId: "43", closedMergeRunId: "99" }),
+    /exact closed-merge run/
+  );
+  assert.equal(
+    assertExactReconciliationTrigger({ triggerWorkflowRunId: "99", closedMergeRunId: 99 }),
+    "99"
+  );
 });
 
 test("delayed workflow-run reconciliation locates the exact closed merge run instead of the triggering pre-merge run", async () => {

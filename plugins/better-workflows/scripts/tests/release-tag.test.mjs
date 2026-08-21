@@ -977,6 +977,8 @@ test("release eligibility uses the validated push-event parent across multi-comm
     let checkConclusion = "failure";
     let requiredContext = "integration-tag";
     let startedAtOnlyNewerFailure = false;
+    let missingCompletedAt = false;
+    let invalidCompletedAt = false;
     const fetchImpl = async (url) => {
       const workflowResponse = pullRequestWorkflowResponse(url, [
         { sha: head, pullNumber: 9 },
@@ -1002,6 +1004,11 @@ test("release eligibility uses the validated push-event parent across multi-comm
         return jsonResponse({ check_runs: [
           { id: 7, name: requiredContext, head_sha: head, status: "completed", conclusion: "success", created_at: "2026-08-14T23:50:00Z", completed_at: "2026-08-14T23:55:00Z" },
           { id: 8, name: requiredContext, head_sha: head, status: "completed", conclusion: "failure", started_at: "2026-08-14T23:56:00Z", completed_at: "2026-08-14T23:57:00Z" }
+        ] });
+      }
+      if ((missingCompletedAt || invalidCompletedAt) && checkSha === head && url.includes(`/commits/${head}/check-runs?per_page=100&page=1`)) {
+        return jsonResponse({ check_runs: [
+          { id: 7, name: requiredContext, head_sha: head, status: "completed", conclusion: "success", created_at: "2026-08-14T23:55:00Z", ...(invalidCompletedAt ? { completed_at: "not-a-timestamp" } : {}) }
         ] });
       }
       const checkResponse = successfulRequiredCheckResponse(url, checkSha, requiredContext, checkSha === intermediate ? 10 : 9);
@@ -1030,7 +1037,7 @@ test("release eligibility uses the validated push-event parent across multi-comm
     requiredContext = "test";
     await assert.rejects(
       runReleaseTag({ cwd: work, fetchImpl, env }),
-      /all exact required checks and statuses to complete successfully/
+      /all exact required checks and statuses to complete successfully|lacks a timestamped test required check receipt/
     );
     checkConclusion = "success";
     startedAtOnlyNewerFailure = true;
@@ -1039,6 +1046,18 @@ test("release eligibility uses the validated push-event parent across multi-comm
       /all exact required checks and statuses to complete successfully/
     );
     startedAtOnlyNewerFailure = false;
+    missingCompletedAt = true;
+    await assert.rejects(
+      runReleaseTag({ cwd: work, fetchImpl, env }),
+      /all exact required checks and statuses to complete successfully|lacks a timestamped test required check receipt/
+    );
+    missingCompletedAt = false;
+    invalidCompletedAt = true;
+    await assert.rejects(
+      runReleaseTag({ cwd: work, fetchImpl, env }),
+      /all exact required checks and statuses to complete successfully|lacks a timestamped test required check receipt/
+    );
+    invalidCompletedAt = false;
     const result = await runReleaseTag({
       cwd: work,
       fetchImpl,

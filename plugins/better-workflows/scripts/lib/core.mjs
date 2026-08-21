@@ -6182,10 +6182,31 @@ export async function verifyRequiredChecksProvider(
         });
       }
     }
+    const seenObservationIds = new Set();
+    for (const candidate of candidates) {
+      const identity = String(candidate.id ?? "").trim();
+      if (!identity) {
+        throw new Error(`Required check provider returned an observation without an identity: ${name}`);
+      }
+      if (seenObservationIds.has(identity)) {
+        throw new Error(`Required check provider returned ambiguous duplicate observations: ${name}#${identity}`);
+      }
+      seenObservationIds.add(identity);
+    }
+    const compareObservationIds = (left, right) => {
+      const leftId = String(left.id);
+      const rightId = String(right.id);
+      if (/^\d+$/.test(leftId) && /^\d+$/.test(rightId)) {
+        const delta = BigInt(leftId) - BigInt(rightId);
+        if (delta < 0n) return -1;
+        if (delta > 0n) return 1;
+      }
+      return leftId.localeCompare(rightId);
+    };
     candidates.sort((left, right) => (
       left.observationAt - right.observationAt ||
       String(left.observationKind).localeCompare(String(right.observationKind)) ||
-      String(left.id).localeCompare(String(right.id))
+      compareObservationIds(left, right)
     ));
     const selected = candidates.at(-1);
     if (!selected) {

@@ -272,6 +272,15 @@ export function parseWorkflowRunReconciliationEvent(payload) {
   return { triggerWorkflowRunId, pullNumber, branch, headSha };
 }
 
+export function assertExactReconciliationTrigger({ triggerWorkflowRunId, closedMergeRunId }) {
+  const trigger = String(triggerWorkflowRunId ?? "").trim();
+  const closedMerge = String(closedMergeRunId ?? "").trim();
+  if (!/^\d+$/.test(trigger) || !/^\d+$/.test(closedMerge) || trigger !== closedMerge) {
+    throw new Error("Workflow-run release policy reconciliation requires the triggering run to be the exact closed-merge run");
+  }
+  return closedMerge;
+}
+
 function readZipJsonEntry(buffer, filename) {
   const centralSignature = 0x02014b50;
   const localSignature = 0x04034b50;
@@ -1009,6 +1018,10 @@ async function main() {
         mergeCommitSha,
         mergedAt,
         token
+      });
+      assertExactReconciliationTrigger({
+        triggerWorkflowRunId,
+        closedMergeRunId: closedMerge.run?.id
       });
       closeBinding = closedMerge.binding;
     } catch (error) {

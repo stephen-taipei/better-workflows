@@ -873,6 +873,11 @@ function observationTime(record) {
   return Number.NEGATIVE_INFINITY;
 }
 
+function checkRunTerminalTime(record) {
+  const value = Date.parse(String(record?.completed_at ?? ""));
+  return Number.isFinite(value) ? value : Number.NEGATIVE_INFINITY;
+}
+
 function workflowOriginTime(record) {
   const value = Date.parse(String(record?.created_at ?? record?.started_at ?? ""));
   return Number.isFinite(value) ? value : Number.NEGATIVE_INFINITY;
@@ -1124,7 +1129,8 @@ async function verifyPolicyReceipt({ record, policyDigest, apiUrl, repository, b
 function requiredObservationState(selected) {
   if (!selected) return "missing";
   if (selected.kind === "check") {
-    if (selected.record.status !== "completed" || !selected.record.conclusion) return "pending";
+    if (selected.record.status !== "completed" || !selected.record.conclusion ||
+        !Number.isFinite(checkRunTerminalTime(selected.record))) return "pending";
     return selected.record.conclusion === "success" ? "success" : "failure";
   }
   if (selected.record.state === "success") return "success";
@@ -1150,6 +1156,7 @@ function workflowTestObservation({ branch, checkRuns, workflowRuns, sha }) {
     candidateChecks.filter((candidate) => workflowRunIdFromDetailsUrl(candidate) === runId)
   )?.record ?? null;
   if (!latestCheck || latestCheck.status !== "completed" || !latestCheck.conclusion ||
+      !Number.isFinite(checkRunTerminalTime(latestCheck)) ||
       latestRun.status !== "completed" || !latestRun.conclusion) {
     return { state: "pending", run: latestRun, check: latestCheck };
   }
@@ -1341,7 +1348,8 @@ async function verifyCatchUpChecks({
         String(check?.head_sha ?? "").toLowerCase() === testedRevision &&
         String(check?.name ?? "") === context &&
         (appId === null || normalizeCheckAppId(check) === appId) &&
-        (mergeTimeMs === null || observationTime(check) <= mergeTimeMs)
+        Number.isFinite(checkRunTerminalTime(check)) &&
+        (mergeTimeMs === null || checkRunTerminalTime(check) <= mergeTimeMs)
       ));
       const matchingStatuses = appId === null
         ? statuses.filter((status) => (

@@ -4146,6 +4146,31 @@ test("required-check verifier ignores optional skipped jobs and selects the newe
       }
     ]
   };
+  const equalTimestampCheckPage = {
+    total_count: 2,
+    check_runs: [
+      {
+        id: 99,
+        name: "test",
+        head_sha: head,
+        status: "completed",
+        conclusion: "success",
+        created_at: newestCreatedAt,
+        completed_at: newestCompletedAt,
+        app: { id: 15368 }
+      },
+      {
+        id: 100,
+        name: "test",
+        head_sha: head,
+        status: "completed",
+        conclusion: "failure",
+        created_at: newestCreatedAt,
+        completed_at: newestCompletedAt,
+        app: { id: 15368 }
+      }
+    ]
+  };
   const statusPage = [{
     id: 201,
     context: "test",
@@ -4331,6 +4356,28 @@ test("required-check verifier ignores optional skipped jobs and selects the newe
         digest: sha256(failedGhScript)
       }),
       /latest protected check observation is not successful/
+    );
+    const equalTimestampGhScript = ghScript.replace(emit([checkPage]), emit([equalTimestampCheckPage]));
+    await writeFile(fakeGh, equalTimestampGhScript, { mode: 0o700 });
+    await assert.rejects(
+      verifyRequiredChecksProvider(root, payload, {
+        path: providerExecutable.path,
+        digest: sha256(equalTimestampGhScript)
+      }),
+      /latest protected check observation is not successful/
+    );
+    const duplicateObservationPage = {
+      ...equalTimestampCheckPage,
+      check_runs: equalTimestampCheckPage.check_runs.map((check) => ({ ...check, id: 100 }))
+    };
+    const duplicateObservationGhScript = ghScript.replace(emit([checkPage]), emit([duplicateObservationPage]));
+    await writeFile(fakeGh, duplicateObservationGhScript, { mode: 0o700 });
+    await assert.rejects(
+      verifyRequiredChecksProvider(root, payload, {
+        path: providerExecutable.path,
+        digest: sha256(duplicateObservationGhScript)
+      }),
+      /ambiguous duplicate observations/
     );
     const futureCompletionPage = {
       ...checkPage,
