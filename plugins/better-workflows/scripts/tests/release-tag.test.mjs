@@ -976,6 +976,7 @@ test("release eligibility uses the validated push-event parent across multi-comm
     const head = await git(work, ["rev-parse", "HEAD"]);
     let checkConclusion = "failure";
     let requiredContext = "integration-tag";
+    let startedAtOnlyNewerFailure = false;
     const fetchImpl = async (url) => {
       const workflowResponse = pullRequestWorkflowResponse(url, [
         { sha: head, pullNumber: 9 },
@@ -996,6 +997,12 @@ test("release eligibility uses the validated push-event parent across multi-comm
       const checkSha = url.includes(`/commits/${intermediate}/`) ? intermediate : head;
       if (checkSha === intermediate && url.includes(`/commits/${intermediate}/check-runs?per_page=100&page=1`)) {
         return jsonResponse({ check_runs: [{ id: 7, name: requiredContext, head_sha: intermediate, status: "completed", conclusion: checkConclusion, completed_at: "2026-08-14T23:55:00Z", details_url: `https://github.com/example/repo/actions/runs/7/job/70`, app: { slug: "github-actions" } }] });
+      }
+      if (startedAtOnlyNewerFailure && checkSha === head && url.includes(`/commits/${head}/check-runs?per_page=100&page=1`)) {
+        return jsonResponse({ check_runs: [
+          { id: 7, name: requiredContext, head_sha: head, status: "completed", conclusion: "success", created_at: "2026-08-14T23:50:00Z", completed_at: "2026-08-14T23:55:00Z" },
+          { id: 8, name: requiredContext, head_sha: head, status: "completed", conclusion: "failure", started_at: "2026-08-14T23:56:00Z", completed_at: "2026-08-14T23:57:00Z" }
+        ] });
       }
       const checkResponse = successfulRequiredCheckResponse(url, checkSha, requiredContext, checkSha === intermediate ? 10 : 9);
       if (checkResponse) {
@@ -1026,6 +1033,12 @@ test("release eligibility uses the validated push-event parent across multi-comm
       /all exact required checks and statuses to complete successfully/
     );
     checkConclusion = "success";
+    startedAtOnlyNewerFailure = true;
+    await assert.rejects(
+      runReleaseTag({ cwd: work, fetchImpl, env }),
+      /all exact required checks and statuses to complete successfully/
+    );
+    startedAtOnlyNewerFailure = false;
     const result = await runReleaseTag({
       cwd: work,
       fetchImpl,

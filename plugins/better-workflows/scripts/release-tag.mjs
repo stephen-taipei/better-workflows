@@ -874,7 +874,7 @@ function observationTime(record) {
 }
 
 function workflowOriginTime(record) {
-  const value = Date.parse(String(record?.created_at ?? ""));
+  const value = Date.parse(String(record?.created_at ?? record?.started_at ?? ""));
   return Number.isFinite(value) ? value : Number.NEGATIVE_INFINITY;
 }
 
