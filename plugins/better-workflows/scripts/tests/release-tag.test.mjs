@@ -850,6 +850,9 @@ test("merge-time policy receipt binds the pre-merge head separately from the mer
     policyArtifactUnavailableResponses = 1;
     policyWorkflowInProgressResponses = 1;
     let newerPolicyStatus = null;
+    let exerciseLatePolicy = false;
+    let policyStatusQueries = 0;
+    let checkQueries = 0;
     const fetchImpl = async (url) => {
       if (url.endsWith(`/repos/example/repo/commits/${mergeSha}/pulls?per_page=100`)) {
         return jsonResponse([{
@@ -869,14 +872,19 @@ test("merge-time policy receipt binds the pre-merge head separately from the mer
         return jsonResponse({ strict: true, contexts: ["current-only"], checks: [] });
       }
       if (url.includes(`/commits/${syntheticMergeSha}/check-runs?per_page=100&page=1`)) {
+        checkQueries += 1;
+        if (exerciseLatePolicy && checkQueries === 1) {
+          return jsonResponse({ check_runs: [{ id: 7, name: "test", head_sha: syntheticMergeSha, status: "in_progress", conclusion: null, created_at: "2026-08-14T23:50:00Z", completed_at: null }] });
+        }
         return jsonResponse({ check_runs: [{ id: 7, name: "test", head_sha: syntheticMergeSha, status: "completed", conclusion: "success", created_at: "2026-08-14T23:50:00Z", completed_at: "2026-08-14T23:55:00Z" }] });
       }
       if (url.includes(`/commits/${syntheticMergeSha}/statuses?per_page=100&page=1`)) return jsonResponse([]);
       if (url.includes(`/commits/${preMergeSha}/statuses?per_page=100&page=1`)) {
+        policyStatusQueries += 1;
         return jsonResponse([
           { id: 7, context: "test", state: "success", created_at: "2026-08-14T23:40:00Z", updated_at: "2026-08-14T23:40:00Z" },
           policyReceiptStatus("test", "2026-08-20T00:50:00Z", null, { pullNumber, headSha: preMergeSha, mergeSha, mergedAt: "2026-08-15T00:00:00Z" }),
-          ...(newerPolicyStatus ? [newerPolicyStatus] : [])
+          ...(newerPolicyStatus && (!exerciseLatePolicy || policyStatusQueries >= 2) ? [newerPolicyStatus] : [])
         ]);
       }
       const policyWorkflow = policyWorkflowResponse(url);
@@ -910,6 +918,27 @@ test("merge-time policy receipt binds the pre-merge head separately from the mer
       state: "pending"
     };
     newerPolicyStatus = newerPolicyBase;
+    exerciseLatePolicy = true;
+    policyStatusQueries = 0;
+    checkQueries = 0;
+    await assert.rejects(
+      runReleaseTag({
+        cwd: work,
+        fetchImpl,
+        env: {
+          GITHUB_EVENT_NAME: "push",
+          GITHUB_EVENT_BEFORE: eventBefore,
+          GITHUB_REF_NAME: "dev",
+          GITHUB_REPOSITORY: "example/repo",
+          GITHUB_SHA: mergeSha,
+          GITHUB_TOKEN: "test-token",
+          GITHUB_API_URL: "https://api.github.com",
+          RELEASE_TAG_DRY_RUN: "1"
+        }
+      }),
+      /unauthenticated merge-time required-check policy receipt/
+    );
+    exerciseLatePolicy = false;
     await assert.rejects(
       runReleaseTag({
         cwd: work,
@@ -967,6 +996,48 @@ test("merge-time policy receipt binds the pre-merge head separately from the mer
         }
       }),
       /trusted merge-bound policy receipt/
+    );
+    const { updated_at: _updatedAt, ...missingTerminalPolicyStatus } = newerPolicyBase;
+    newerPolicyStatus = { ...missingTerminalPolicyStatus, id: 12, state: "success" };
+    await assert.rejects(
+      runReleaseTag({
+        cwd: work,
+        fetchImpl,
+        env: {
+          GITHUB_EVENT_NAME: "push",
+          GITHUB_EVENT_BEFORE: eventBefore,
+          GITHUB_REF_NAME: "dev",
+          GITHUB_REPOSITORY: "example/repo",
+          GITHUB_SHA: mergeSha,
+          GITHUB_TOKEN: "test-token",
+          GITHUB_API_URL: "https://api.github.com",
+          RELEASE_TAG_DRY_RUN: "1"
+        }
+      }),
+      /policy status without a valid terminal timestamp/
+    );
+    newerPolicyStatus = {
+      ...newerPolicyBase,
+      id: 13,
+      state: "success",
+      target_url: newerPolicyBase.target_url.replace("/actions/runs/8", "/actions/runs/0008")
+    };
+    await assert.rejects(
+      runReleaseTag({
+        cwd: work,
+        fetchImpl,
+        env: {
+          GITHUB_EVENT_NAME: "push",
+          GITHUB_EVENT_BEFORE: eventBefore,
+          GITHUB_REF_NAME: "dev",
+          GITHUB_REPOSITORY: "example/repo",
+          GITHUB_SHA: mergeSha,
+          GITHUB_TOKEN: "test-token",
+          GITHUB_API_URL: "https://api.github.com",
+          RELEASE_TAG_DRY_RUN: "1"
+        }
+      }),
+      /missing or unsafe workflow-run identity/
     );
   } finally {
     policyArtifactUnavailableResponses = 0;

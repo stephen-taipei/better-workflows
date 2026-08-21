@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { inflateRawSync } from "node:zlib";
 import {
   assertClosedPolicyReceiptBinding,
+  canonicalWorkflowRunId,
   fetchWorkflowRunCloseBindingArtifact,
   loadRequiredCheckPolicy
 } from "./release-policy-receipt.mjs";
@@ -373,7 +374,8 @@ export async function fetchPolicyReceiptArtifact({ apiUrl, repository, runId, to
 function workflowRunIdFromDetailsUrl(check) {
   const detailsUrl = String(check?.details_url ?? "");
   const match = /\/actions\/runs\/(\d+)(?:\/|$)/.exec(detailsUrl);
-  return match?.[1] ?? null;
+  if (!match) return null;
+  return canonicalWorkflowRunId(match[1], "check details workflow run");
 }
 
 async function repositoryCommitStatuses({ apiUrl, repository, sha, token, fetchImpl = fetch }) {
@@ -895,7 +897,7 @@ function normalizeCheckAppId(check) {
 }
 
 function observationTime(record) {
-  for (const field of ["completed_at", "updated_at", "created_at", "started_at"]) {
+  for (const field of ["completed_at", "updated_at"]) {
     const value = Date.parse(String(record?.[field] ?? ""));
     if (Number.isFinite(value)) return value;
   }
@@ -1001,6 +1003,9 @@ async function verifyPolicyReceipt({ record, policyDigest, apiUrl, repository, b
   if (!policyReceiptMatches(record)) {
     throw new Error(`Release catch-up candidate ${candidateSha} has an unauthenticated merge-time required-check policy receipt`);
   }
+  if (!Number.isFinite(observationTime(record))) {
+    throw new Error(`Release catch-up candidate ${candidateSha} has a policy status without a valid terminal timestamp`);
+  }
   const runId = policyReceiptRunId(record);
   let targetUrl;
   try {
@@ -1027,12 +1032,25 @@ async function verifyPolicyReceipt({ record, policyDigest, apiUrl, repository, b
     throw new Error(`Release catch-up candidate ${candidateSha} has a policy receipt for a different pull request boundary`);
   }
   const workflowRun = await repositoryWorkflowRun({ apiUrl, repository, runId, token, fetchImpl });
+  let workflowRunResponseId;
+  try {
+    workflowRunResponseId = canonicalWorkflowRunId(workflowRun?.id, "merge-time policy workflow run");
+  } catch {
+    throw new Error(`Release catch-up candidate ${candidateSha} has an unsafe merge-time policy workflow identity`);
+  }
   const workflowEvent = String(workflowRun?.event ?? "");
-  const triggerWorkflowRunId = targetUrl.searchParams.get("trigger");
+  let triggerWorkflowRunId = null;
+  if (targetUrl.searchParams.has("trigger")) {
+    try {
+      triggerWorkflowRunId = canonicalWorkflowRunId(targetUrl.searchParams.get("trigger"), "merge-time policy trigger workflow run");
+    } catch {
+      throw new Error(`Release catch-up candidate ${candidateSha} has an unsafe merge-time policy trigger identity`);
+    }
+  }
   const expectedReceiptWorkflowFile = workflowEvent === RELEASE_POLICY_RECEIPT_RECONCILIATION_EVENT
     ? RELEASE_POLICY_RECONCILIATION_WORKFLOW_FILE
     : RELEASE_WORKFLOW_FILE;
-  const commonWorkflowBindingInvalid = String(workflowRun?.id ?? "") !== runId ||
+  const commonWorkflowBindingInvalid = workflowRunResponseId !== runId ||
     workflowRun?.path !== expectedReceiptWorkflowFile ||
     workflowRun?.repository?.full_name !== repository;
   const pullRequestTargetPull = Array.isArray(workflowRun?.pull_requests)
@@ -1077,7 +1095,13 @@ async function verifyPolicyReceipt({ record, policyDigest, apiUrl, repository, b
       ? triggerWorkflowRun.pull_requests.find((pull) => Number(pull?.number) === pullNumber)
       : null;
     if (
-      String(triggerWorkflowRun?.id ?? "") !== triggerWorkflowRunId ||
+    (() => {
+      try {
+        return canonicalWorkflowRunId(triggerWorkflowRun?.id, "merge-time policy trigger workflow run") !== triggerWorkflowRunId;
+      } catch {
+        return true;
+      }
+    })() ||
       triggerWorkflowRun?.path !== RELEASE_WORKFLOW_FILE ||
       triggerWorkflowRun?.event !== RELEASE_POLICY_RECEIPT_WORKFLOW_EVENT ||
       triggerWorkflowRun?.status !== "completed" ||
@@ -1139,8 +1163,15 @@ async function verifyPolicyReceipt({ record, policyDigest, apiUrl, repository, b
     throw new Error(`Release catch-up candidate ${candidateSha} has a policy status that disagrees with its immutable artifact`);
   }
   if (phase === "pre-merge") return { record, workflowRun, artifact };
-  const sourceRunId = String(artifact.sourceWorkflowRunId);
-  if (targetUrl.searchParams.get("source") !== sourceRunId) {
+  let sourceRunId;
+  let targetSourceRunId;
+  try {
+    sourceRunId = canonicalWorkflowRunId(artifact.sourceWorkflowRunId, "merge-bound source workflow run");
+    targetSourceRunId = canonicalWorkflowRunId(targetUrl.searchParams.get("source"), "merge-bound source workflow run");
+  } catch {
+    throw new Error(`Release catch-up candidate ${candidateSha} has an unsafe source workflow identity`);
+  }
+  if (targetSourceRunId !== sourceRunId) {
     throw new Error(`Release catch-up candidate ${candidateSha} has a merge-bound receipt for a different source workflow`);
   }
   const sourceWorkflowRun = await repositoryWorkflowRun({ apiUrl, repository, runId: sourceRunId, token, fetchImpl });
@@ -1148,7 +1179,13 @@ async function verifyPolicyReceipt({ record, policyDigest, apiUrl, repository, b
     ? sourceWorkflowRun.pull_requests.find((pull) => Number(pull?.number) === pullNumber)
     : null;
   if (
-    String(sourceWorkflowRun?.id ?? "") !== sourceRunId ||
+    (() => {
+      try {
+        return canonicalWorkflowRunId(sourceWorkflowRun?.id, "pre-merge policy workflow run") !== sourceRunId;
+      } catch {
+        return true;
+      }
+    })() ||
     sourceWorkflowRun?.path !== RELEASE_WORKFLOW_FILE ||
     sourceWorkflowRun?.event !== RELEASE_POLICY_RECEIPT_WORKFLOW_EVENT ||
     sourceWorkflowRun?.status !== "completed" ||
@@ -1289,7 +1326,8 @@ export function pullRequestWorkflowObservation({ workflowRuns, pullNumber, expec
 function policyReceiptRunId(record) {
   const targetUrl = String(record?.target_url ?? "");
   const match = /\/actions\/runs\/(\d+)(?:[/?]|$)/.exec(targetUrl);
-  return match?.[1] ?? null;
+  if (!match) return null;
+  return canonicalWorkflowRunId(match[1], "policy receipt workflow run");
 }
 
 async function verifyCatchUpChecks({
@@ -1348,7 +1386,13 @@ async function verifyCatchUpChecks({
   let policyStatuses = [];
   let preMergeWorkflowObservation = { state: mergeTime === null ? "success" : "missing", run: null };
   for (let attempt = 0; attempt < REQUIRED_CHECK_POLL_ATTEMPTS; attempt += 1) {
-    if (mergeTime !== null && !policyReceipt) {
+    if (mergeTime !== null) {
+      // Reconcile the policy context on every bounded poll. A receipt that was
+      // valid on an earlier attempt must not hide a newer pending, malformed,
+      // or otherwise changed provider observation.
+      policyReceipt = null;
+      requiredRequirements = null;
+      requiredPolicyDigest = null;
       policyStatuses = await repositoryCommitStatuses({ apiUrl, repository, sha: normalizedPreMergeSha, token, fetchImpl });
       // Order every status published for this context before interpreting its
       // URL/phase. A newer pending, malformed, or alternate-phase observation
