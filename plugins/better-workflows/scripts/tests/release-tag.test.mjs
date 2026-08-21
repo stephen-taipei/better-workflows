@@ -849,6 +849,7 @@ test("merge-time policy receipt binds the pre-merge head separately from the mer
     const mergeSha = await git(work, ["rev-parse", "HEAD"]);
     policyArtifactUnavailableResponses = 1;
     policyWorkflowInProgressResponses = 1;
+    let newerPolicyStatus = null;
     const fetchImpl = async (url) => {
       if (url.endsWith(`/repos/example/repo/commits/${mergeSha}/pulls?per_page=100`)) {
         return jsonResponse([{
@@ -874,7 +875,8 @@ test("merge-time policy receipt binds the pre-merge head separately from the mer
       if (url.includes(`/commits/${preMergeSha}/statuses?per_page=100&page=1`)) {
         return jsonResponse([
           { id: 7, context: "test", state: "success", created_at: "2026-08-14T23:40:00Z", updated_at: "2026-08-14T23:40:00Z" },
-          policyReceiptStatus("test", "2026-08-20T00:50:00Z", null, { pullNumber, headSha: preMergeSha, mergeSha, mergedAt: "2026-08-15T00:00:00Z" })
+          policyReceiptStatus("test", "2026-08-20T00:50:00Z", null, { pullNumber, headSha: preMergeSha, mergeSha, mergedAt: "2026-08-15T00:00:00Z" }),
+          ...(newerPolicyStatus ? [newerPolicyStatus] : [])
         ]);
       }
       const policyWorkflow = policyWorkflowResponse(url);
@@ -902,6 +904,70 @@ test("merge-time policy receipt binds the pre-merge head separately from the mer
     assert.equal(result.requiredChecks.mergeTimeReceipt.mergeCommitSha, mergeSha);
     assert.deepEqual(result.requiredChecks.requiredRequirements, [{ context: "test", appId: null, strict: true }]);
     assert.equal(policyArtifactUnavailableResponses, 0);
+    const newerPolicyBase = {
+      ...policyReceiptStatus("test", "2026-08-20T01:00:00Z", null, { pullNumber, headSha: preMergeSha, mergeSha, mergedAt: "2026-08-15T00:00:00Z" }),
+      id: 9,
+      state: "pending"
+    };
+    newerPolicyStatus = newerPolicyBase;
+    await assert.rejects(
+      runReleaseTag({
+        cwd: work,
+        fetchImpl,
+        env: {
+          GITHUB_EVENT_NAME: "push",
+          GITHUB_EVENT_BEFORE: eventBefore,
+          GITHUB_REF_NAME: "dev",
+          GITHUB_REPOSITORY: "example/repo",
+          GITHUB_SHA: mergeSha,
+          GITHUB_TOKEN: "test-token",
+          GITHUB_API_URL: "https://api.github.com",
+          RELEASE_TAG_DRY_RUN: "1"
+        }
+      }),
+      /unauthenticated merge-time required-check policy receipt/
+    );
+    newerPolicyStatus = { ...newerPolicyBase, id: 10, state: "success", target_url: "not-a-provider-url" };
+    await assert.rejects(
+      runReleaseTag({
+        cwd: work,
+        fetchImpl,
+        env: {
+          GITHUB_EVENT_NAME: "push",
+          GITHUB_EVENT_BEFORE: eventBefore,
+          GITHUB_REF_NAME: "dev",
+          GITHUB_REPOSITORY: "example/repo",
+          GITHUB_SHA: mergeSha,
+          GITHUB_TOKEN: "test-token",
+          GITHUB_API_URL: "https://api.github.com",
+          RELEASE_TAG_DRY_RUN: "1"
+        }
+      }),
+      /unauthenticated merge-time required-check policy receipt/
+    );
+    newerPolicyStatus = {
+      ...newerPolicyBase,
+      id: 11,
+      state: "success",
+      target_url: newerPolicyBase.target_url.replace("phase=merge-bound", "phase=pre-merge")
+    };
+    await assert.rejects(
+      runReleaseTag({
+        cwd: work,
+        fetchImpl,
+        env: {
+          GITHUB_EVENT_NAME: "push",
+          GITHUB_EVENT_BEFORE: eventBefore,
+          GITHUB_REF_NAME: "dev",
+          GITHUB_REPOSITORY: "example/repo",
+          GITHUB_SHA: mergeSha,
+          GITHUB_TOKEN: "test-token",
+          GITHUB_API_URL: "https://api.github.com",
+          RELEASE_TAG_DRY_RUN: "1"
+        }
+      }),
+      /trusted merge-bound policy receipt/
+    );
   } finally {
     policyArtifactUnavailableResponses = 0;
     policyWorkflowInProgressResponses = 0;

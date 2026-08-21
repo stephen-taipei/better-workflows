@@ -762,6 +762,34 @@ test("closed receipt polling waits for the exact pre-merge status within a bound
   assert.equal(queries, 2);
 });
 
+test("source status terminal proof cannot fall back to its origin timestamp", async () => {
+  const headSha = "8".repeat(40);
+  const status = {
+    id: 77,
+    state: "success",
+    context: RELEASE_POLICY_RECEIPT_CONTEXT,
+    target_url: `https://github.com/example/repo/actions/runs/77?phase=pre-merge&pr=17&head=${headSha}&base=dev`,
+    description: `${RELEASE_POLICY_RECEIPT_PREFIX}${"a".repeat(64)}`,
+    created_at: "2026-08-18T00:00:01Z"
+  };
+  await assert.rejects(
+    waitForSourcePolicyReceipt({
+      apiUrl: "https://api.github.com",
+      repository: "example/repo",
+      branch: "dev",
+      headSha,
+      pullNumber: 17,
+      token: "token",
+      attempts: 1,
+      fetchImpl: async (url) => {
+        assert.equal(url, `https://api.github.com/repos/example/repo/commits/${headSha}/statuses?per_page=100&page=1`);
+        return { ok: true, status: 200, json: async () => [status] };
+      }
+    }),
+    /invalid observation timestamp/
+  );
+});
+
 test("closed receipt polling blocks a newer pre-merge status published after merge", async () => {
   const headSha = "f".repeat(40);
   const baseSha = "2".repeat(40);

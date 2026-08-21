@@ -1350,15 +1350,12 @@ async function verifyCatchUpChecks({
   for (let attempt = 0; attempt < REQUIRED_CHECK_POLL_ATTEMPTS; attempt += 1) {
     if (mergeTime !== null && !policyReceipt) {
       policyStatuses = await repositoryCommitStatuses({ apiUrl, repository, sha: normalizedPreMergeSha, token, fetchImpl });
-      const policyRecords = policyStatuses.filter((status) => {
-        if (String(status?.context ?? "") !== RELEASE_POLICY_RECEIPT_CONTEXT) return false;
-        if (mergeTime === null) return true;
-        try {
-          return new URL(String(status.target_url ?? "")).searchParams.get("phase") === "merge-bound";
-        } catch {
-          return false;
-        }
-      });
+      // Order every status published for this context before interpreting its
+      // URL/phase. A newer pending, malformed, or alternate-phase observation
+      // must not be hidden behind an older merge-bound success.
+      const policyRecords = policyStatuses.filter((status) => (
+        String(status?.context ?? "") === RELEASE_POLICY_RECEIPT_CONTEXT
+      ));
       if (policyRecords.length > 0) {
         const policyRecord = latestObservation(policyRecords)?.record ?? null;
         policyReceipt = await verifyPolicyReceipt({

@@ -535,8 +535,8 @@ function sourcePolicyReceipt(status, { repository, branch, headSha, pullNumber }
   }
   const workflowRunId = canonicalWorkflowRunId(runMatch[1], "source policy status workflow run");
   const originAt = Date.parse(String(status.created_at ?? status.started_at ?? ""));
-  const updatedAt = Date.parse(String(status.updated_at ?? status.created_at ?? status.started_at ?? ""));
-  if (!Number.isFinite(originAt) || !Number.isFinite(updatedAt)) {
+  const terminalAt = Date.parse(String(status.updated_at ?? status.completed_at ?? ""));
+  if (!Number.isFinite(originAt) || !Number.isFinite(terminalAt)) {
     throw new Error(`Release policy receipt source status has an invalid observation timestamp: ${rawStatusId}`);
   }
   return {
@@ -546,7 +546,7 @@ function sourcePolicyReceipt(status, { repository, branch, headSha, pullNumber }
     state: String(status.state ?? ""),
     policyDigest: digest,
     originAt,
-    updatedAt
+    terminalAt
   };
 }
 
@@ -785,7 +785,7 @@ export async function waitForSourcePolicyReceipt({
             pullNumber,
             workflowRunId: source.workflowRunId,
             mergedAtMs,
-            statusObservedAtMs: source.updatedAt
+            statusObservedAtMs: source.terminalAt
           })) {
         let artifact;
         try {
@@ -803,7 +803,7 @@ export async function waitForSourcePolicyReceipt({
             headSha,
             pullNumber,
             workflowRunId: source.workflowRunId,
-            statusObservedAt: source.updatedAt
+            statusObservedAt: source.terminalAt
           });
           if (artifact.policyDigest !== source.policyDigest) {
             throw new Error("Release policy receipt source status disagrees with its immutable artifact");

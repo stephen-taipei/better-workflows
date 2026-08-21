@@ -4441,6 +4441,31 @@ test("required-check verifier ignores optional skipped jobs and selects the newe
       }),
       /without a valid origin timestamp/
     );
+    const missingTerminalStatus = (({ updated_at: _updatedAt, ...status }) => status)({
+      ...statusPage[0],
+      id: 203,
+      created_at: newestCompletedAt
+    });
+    const missingTerminalStatusGhScript = contextOnlyGhScript.replace(emit([statusPage]), emit([[missingTerminalStatus]]));
+    await writeFile(fakeGh, missingTerminalStatusGhScript, { mode: 0o700 });
+    await assert.rejects(
+      verifyRequiredChecksProvider(root, {
+        ...payload,
+        requiredStatusCheckApps: [{ context: "test", appId: null }],
+        providerRunIds: ["203"],
+        checks: [{
+          name: "test#203",
+          providerName: "test",
+          providerRunId: "203",
+          completedAt: newestCompletedAt,
+          conclusion: "success"
+        }]
+      }, {
+        path: providerExecutable.path,
+        digest: sha256(missingTerminalStatusGhScript)
+      }),
+      /without a valid terminal timestamp/
+    );
     const futureCompletionPage = {
       ...checkPage,
       check_runs: checkPage.check_runs.map((check) => (

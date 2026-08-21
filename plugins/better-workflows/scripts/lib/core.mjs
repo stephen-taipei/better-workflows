@@ -6182,7 +6182,7 @@ export async function verifyRequiredChecksProvider(
         if (status?.context !== name || status?.sha !== payload.head) continue;
         const identity = canonicalRequiredCheckObservationId(status.id, `${name} commit-status`);
         const originAt = Date.parse(status.created_at ?? status.started_at ?? "");
-        const observedStatusAt = Date.parse(status.updated_at ?? status.completed_at ?? status.created_at ?? "");
+        const observedStatusAt = Date.parse(status.updated_at ?? status.completed_at ?? "");
         if (!Number.isFinite(originAt)) {
           throw new Error(`Required check provider returned a matching status without a valid origin timestamp: ${name}`);
         }
