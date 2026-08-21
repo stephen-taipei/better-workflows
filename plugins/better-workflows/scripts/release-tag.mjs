@@ -972,7 +972,7 @@ function latestObservation(records, { requireOrigin = true } = {}) {
 
 function latestRequiredObservation(checks, statuses) {
   const check = latestObservation(checks);
-  const status = latestObservation(statuses, { requireOrigin: false });
+  const status = latestObservation(statuses);
   if (!check) return status ? { kind: "status", ...status } : null;
   if (!status) return { kind: "check", ...check };
   const checkTime = creationTime(check.record);
@@ -1360,7 +1360,7 @@ async function verifyCatchUpChecks({
         }
       });
       if (policyRecords.length > 0) {
-        const policyRecord = latestObservation(policyRecords, { requireOrigin: false })?.record ?? null;
+        const policyRecord = latestObservation(policyRecords)?.record ?? null;
         policyReceipt = await verifyPolicyReceipt({
           record: policyRecord,
           policyDigest: null,

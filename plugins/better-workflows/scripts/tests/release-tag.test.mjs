@@ -215,7 +215,7 @@ function successfulRequiredCheckResponse(url, sha, context = "test", pullNumber 
     return jsonResponse({ check_runs: [{ id: 7, name: context, head_sha: sha, status: "completed", conclusion: "success", created_at: "2026-08-14T23:50:00Z", completed_at: "2026-08-14T23:55:00Z" }] });
   }
   if (url.includes(`/commits/${sha}/statuses?per_page=100&page=1`)) {
-    return jsonResponse([{ id: 7, context, state: "success" }, policyReceiptStatus(context, "2026-08-20T00:50:00Z", null, { pullNumber, headSha: sha, mergeSha: sha, mergedAt: "2026-08-15T00:00:00Z" })]);
+    return jsonResponse([{ id: 7, context, state: "success", created_at: "2026-08-14T23:50:00Z", updated_at: "2026-08-14T23:55:00Z" }, policyReceiptStatus(context, "2026-08-20T00:50:00Z", null, { pullNumber, headSha: sha, mergeSha: sha, mergedAt: "2026-08-15T00:00:00Z" })]);
   }
   return null;
 }
@@ -245,6 +245,7 @@ function policyReceiptStatus(context, updatedAt = "2026-08-20T00:50:00Z", appId 
     context: "better-workflows/release-policy-v1",
     state: "success",
     description: `better-workflows-policy-v1:${policyDigest}`,
+    created_at: updatedAt,
     updated_at: updatedAt,
     creator: { login: "github-actions[bot]", type: "Bot" },
     target_url: `https://github.com/example/repo/actions/runs/8?phase=merge-bound&pr=${pullNumber}&head=${headSha}&base=${base}&merge=${mergeSha}&source=7`
@@ -872,7 +873,7 @@ test("merge-time policy receipt binds the pre-merge head separately from the mer
       if (url.includes(`/commits/${syntheticMergeSha}/statuses?per_page=100&page=1`)) return jsonResponse([]);
       if (url.includes(`/commits/${preMergeSha}/statuses?per_page=100&page=1`)) {
         return jsonResponse([
-          { id: 7, context: "test", state: "success" },
+          { id: 7, context: "test", state: "success", created_at: "2026-08-14T23:40:00Z", updated_at: "2026-08-14T23:40:00Z" },
           policyReceiptStatus("test", "2026-08-20T00:50:00Z", null, { pullNumber, headSha: preMergeSha, mergeSha, mergedAt: "2026-08-15T00:00:00Z" })
         ]);
       }
@@ -1075,7 +1076,7 @@ test("bootstrap-skipped version bumps do not block a later publisher-backed catc
       }
       if (url.includes(`/commits/${head}/statuses?per_page=100&page=1`)) {
         return jsonResponse([
-          { id: 7, context: "test", state: "success" },
+          { id: 7, context: "test", state: "success", created_at: "2026-08-14T23:40:00Z", updated_at: "2026-08-14T23:40:00Z" },
           policyReceiptStatus("test", "2026-08-18T00:50:00Z", null, { pullNumber: 20, headSha: head, mergeSha: head, mergedAt: "2026-08-18T00:00:00Z" })
         ]);
       }
@@ -1408,7 +1409,7 @@ test("release eligibility accepts a version-bump PR whose source is behind the t
       }
       if (url.includes(`/commits/${source}/statuses?per_page=100&page=1`)) {
         return jsonResponse([
-          { id: 30, context: "test", state: "success" },
+          { id: 30, context: "test", state: "success", created_at: "2026-08-17T23:40:00Z", updated_at: "2026-08-17T23:40:00Z" },
           policyReceiptStatus("test", "2026-08-18T00:00:05Z", null, { pullNumber: 30, headSha: source, mergeSha: head, mergedAt, strict: false })
         ]);
       }
@@ -1982,7 +1983,7 @@ test("release eligibility catches up a version bump after a later non-version pu
       if (url.includes(`/repos/example/repo/commits/${bump}/statuses?per_page=100&page=1`)) {
         return jsonResponse(
           [
-            { id: 7, context: "test", state: statusState },
+            { id: 7, context: "test", state: statusState, created_at: "2026-08-14T23:40:00Z", updated_at: "2026-08-14T23:40:00Z" },
             policyReceiptStatus("test", "2026-08-20T00:50:00Z", requiredAppId, { pullNumber: 11, headSha: bump, mergeSha: bump, mergedAt: "2026-08-15T00:00:00Z" })
           ],
           true,
@@ -1991,7 +1992,7 @@ test("release eligibility catches up a version bump after a later non-version pu
         );
       }
       if (url.includes(`/repos/example/repo/commits/${bump}/statuses?per_page=100&page=2`)) {
-        return jsonResponse([{ id: 8, context: "test", state: secondStatusState }]);
+        return jsonResponse([{ id: 8, context: "test", state: secondStatusState, created_at: "2026-08-14T23:41:00Z", updated_at: "2026-08-14T23:41:00Z" }]);
       }
       throw new Error(`Unexpected release-tag fetch URL: ${url}`);
     };
@@ -2125,7 +2126,7 @@ test("release eligibility catches up a version bump after a later non-version pu
       }
       if (url.includes(`/repos/example/repo/commits/${bump}/statuses?per_page=100&page=1`)) {
         return jsonResponse([
-          { id: 7, context: "test", state: "failure" },
+          { id: 7, context: "test", state: "failure", created_at: "2026-08-14T23:40:00Z", updated_at: "2026-08-14T23:40:00Z" },
           policyReceiptStatus("test", "2026-08-20T00:50:00Z", 123, { pullNumber: 11, headSha: bump, mergeSha: bump, mergedAt: "2026-08-15T00:00:00Z" })
         ]);
       }
