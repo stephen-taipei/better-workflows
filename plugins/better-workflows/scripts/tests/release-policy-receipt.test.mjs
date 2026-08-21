@@ -503,6 +503,7 @@ test("workflow-run reconciliation requires one completed pull-request-target sou
       event: "pull_request_target",
       status: "completed",
       conclusion: "success",
+      completed_at: "2026-08-18T00:00:06Z",
       pull_requests: [{ number: 17, head: { sha: "b".repeat(40) }, base: { ref: "dev" } }]
     }
   };
@@ -529,6 +530,7 @@ test("workflow-run reconciliation requires the exact closed merge binding", () =
     event: "pull_request_target",
     status: "completed",
     conclusion: "success",
+    completed_at: "2026-08-18T00:00:06Z",
     head_sha: mergeCommitSha,
     repository: { full_name: "example/repo" },
     pull_requests: [{ number: 17, head: { sha: headSha }, base: { ref: "dev" } }]
@@ -558,6 +560,10 @@ test("workflow-run reconciliation requires the exact closed merge binding", () =
     observedAt: "2026-08-18T00:00:05.000Z"
   };
   assert.doesNotThrow(() => assertClosedPolicyReceiptBinding({ repository: "example/repo", run, pull, binding }));
+  assert.throws(
+    () => assertClosedPolicyReceiptBinding({ repository: "example/repo", run: { ...run, completed_at: undefined }, pull, binding }),
+    /exact completed closed-and-merged pull-request-target run/
+  );
   assert.throws(
     () => assertClosedPolicyReceiptBinding({ repository: "example/repo", run, pull, binding: { ...binding, eventAction: "synchronize" } }),
     /immutable closed-and-merged source binding/
@@ -762,6 +768,74 @@ test("closed receipt polling ignores a newer pre-merge status published after me
   });
   assert.equal(source.workflowRunId, "42");
   assert.equal(source.policyDigest, sourceDigest);
+});
+
+test("closed receipt polling orders equal-time provider IDs numerically and rejects conflicting duplicates", async () => {
+  const headSha = "1".repeat(40);
+  const baseSha = "2".repeat(40);
+  const policy = [{ context: "test", appId: null, strict: true }];
+  const sourceDigest = policyDigest(policy);
+  const status = (id, digest = sourceDigest) => ({
+    id,
+    state: "success",
+    context: RELEASE_POLICY_RECEIPT_CONTEXT,
+    target_url: `https://github.com/example/repo/actions/runs/${id}?phase=pre-merge&pr=17&head=${headSha}&base=dev`,
+    description: `${RELEASE_POLICY_RECEIPT_PREFIX}${digest}`,
+    updated_at: "2026-08-18T00:00:02Z"
+  });
+  const run = (id) => ({
+    id: Number(id),
+    path: ".github/workflows/ci.yml",
+    event: "pull_request_target",
+    status: "completed",
+    conclusion: "success",
+    head_sha: baseSha,
+    created_at: "2026-08-17T23:59:59Z",
+    repository: { full_name: "example/repo" },
+    pull_requests: [{ number: 17, head: { sha: headSha }, base: { ref: "dev", sha: baseSha } }]
+  });
+  const source = await waitForSourcePolicyReceipt({
+    apiUrl: "https://api.github.com",
+    repository: "example/repo",
+    branch: "dev",
+    headSha,
+    pullNumber: 17,
+    token: "token",
+    fetchImpl: async (url) => {
+      if (url.endsWith("/actions/runs/10")) return { ok: true, status: 200, json: async () => run("10") };
+      if (url.includes("/commits/")) return { ok: true, status: 200, json: async () => [status("9"), status("10")] };
+      throw new Error(`Unexpected source ordering URL: ${url}`);
+    },
+    fetchArtifactImpl: async ({ runId }) => {
+      assert.equal(runId, "10");
+      return buildPolicyReceiptArtifact({
+        repository: "example/repo",
+        branch: "dev",
+        headSha,
+        pullNumber: 17,
+        policy,
+        workflowRunId: runId,
+        eventAction: "synchronize",
+        observedAt: "2026-08-18T00:00:01Z"
+      });
+    }
+  });
+  assert.equal(source.workflowRunId, "10");
+  await assert.rejects(
+    waitForSourcePolicyReceipt({
+      apiUrl: "https://api.github.com",
+      repository: "example/repo",
+      branch: "dev",
+      headSha,
+      pullNumber: 17,
+      token: "token",
+      attempts: 1,
+      fetchImpl: async (url) => url.includes("/commits/")
+        ? { ok: true, status: 200, json: async () => [status("10"), status("10", "a".repeat(64))] }
+        : { ok: true, status: 200, json: async () => run("10") }
+    }),
+    /ambiguous duplicate provider identity/
+  );
 });
 
 test("closed receipt rejects a source status observed after merge even when its run started before merge", async () => {

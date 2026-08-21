@@ -255,7 +255,8 @@ export function parseWorkflowRunReconciliationEvent(payload) {
   if (!run || typeof run !== "object" || Array.isArray(run) ||
       String(run.path ?? "") !== RELEASE_POLICY_RECEIPT_WORKFLOW_FILE ||
       String(run.event ?? "") !== RELEASE_POLICY_RECEIPT_WORKFLOW_EVENT ||
-      String(run.status ?? "") !== "completed" || !String(run.conclusion ?? "")) {
+      String(run.status ?? "") !== "completed" || !String(run.conclusion ?? "") ||
+      !Number.isFinite(Date.parse(String(run.completed_at ?? "")))) {
     throw new Error("Workflow-run release policy reconciliation requires a completed pull-request-target source run");
   }
   const triggerWorkflowRunId = String(run.id ?? "").trim();
@@ -395,12 +396,14 @@ export function assertClosedPolicyReceiptBinding({ run, pull, binding, repositor
   const headSha = assertSha(pull?.head?.sha);
   const mergeCommitSha = assertSha(pull?.merge_commit_sha);
   const mergedAtMs = Date.parse(String(pull?.merged_at ?? ""));
+  const completedAtMs = Date.parse(String(run?.completed_at ?? ""));
   const associatedPull = Array.isArray(run?.pull_requests)
     ? run.pull_requests.find((item) => Number(item?.number) === pullNumber)
     : null;
   if (!/^\d+$/.test(runId) || String(run?.path ?? "") !== RELEASE_POLICY_RECEIPT_WORKFLOW_FILE ||
       String(run?.event ?? "") !== RELEASE_POLICY_RECEIPT_WORKFLOW_EVENT ||
       String(run?.status ?? "") !== "completed" || !String(run?.conclusion ?? "") ||
+      !Number.isFinite(completedAtMs) || completedAtMs < mergedAtMs ||
       (repository !== null && String(run?.repository?.full_name ?? "") !== String(repository)) ||
       !Number.isInteger(pullNumber) || pullNumber <= 0 || !branch || pull?.state !== "closed" || pull?.merged !== true ||
       !associatedPull || String(associatedPull?.base?.ref ?? "") !== branch || String(associatedPull?.head?.sha ?? "").toLowerCase() !== headSha ||
@@ -460,6 +463,12 @@ async function repositoryCommitStatuses({ apiUrl, repository, sha, token, fetchI
 
 function sourcePolicyReceipt(status, { repository, branch, headSha, pullNumber }) {
   if (status?.state !== "success" || status?.context !== RELEASE_POLICY_RECEIPT_CONTEXT) return null;
+  const rawStatusId = typeof status?.id === "string"
+    ? status.id.trim()
+    : Number.isSafeInteger(status?.id) && status.id >= 0 ? String(status.id) : "";
+  if (!/^(0|[1-9]\d*)$/.test(rawStatusId)) {
+    throw new Error("Release policy receipt source status has a missing or malformed provider identity");
+  }
   let targetUrl;
   try {
     targetUrl = new URL(String(status.target_url ?? ""));
@@ -482,7 +491,15 @@ function sourcePolicyReceipt(status, { repository, branch, headSha, pullNumber }
   ) return null;
   const updatedAt = Date.parse(String(status.updated_at ?? status.created_at ?? ""));
   if (!Number.isFinite(updatedAt)) return null;
-  return { status, workflowRunId: runMatch[1], policyDigest: digest, updatedAt };
+  return { status, statusId: rawStatusId, workflowRunId: runMatch[1], policyDigest: digest, updatedAt };
+}
+
+function compareDecimalIds(left, right) {
+  const leftId = BigInt(String(left));
+  const rightId = BigInt(String(right));
+  if (leftId < rightId) return -1;
+  if (leftId > rightId) return 1;
+  return 0;
 }
 
 export function assertPreMergePolicyReceiptArtifact({ artifact, repository, branch, headSha, pullNumber, workflowRunId, statusObservedAt }) {
@@ -566,7 +583,7 @@ export async function findClosedMergeWorkflowRun({
     const createdAtMs = Date.parse(String(run.created_at ?? ""));
     if (!Number.isFinite(createdAtMs) || createdAtMs < mergedAtMs) continue;
     const completedAtMs = Date.parse(String(run.completed_at ?? ""));
-    if (Number.isFinite(completedAtMs) && completedAtMs < mergedAtMs) continue;
+    if (!Number.isFinite(completedAtMs) || completedAtMs < mergedAtMs) continue;
     let binding;
     try {
       binding = await fetchCloseBindingImpl({
@@ -650,10 +667,24 @@ export async function waitForSourcePolicyReceipt({
   }
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const statuses = await repositoryCommitStatuses({ apiUrl, repository, sha: headSha, token, fetchImpl });
-    const sources = statuses
-      .map((status) => sourcePolicyReceipt(status, { repository, branch, headSha, pullNumber }))
-      .filter(Boolean)
-      .sort((left, right) => right.updatedAt - left.updatedAt || String(right.status.id ?? "").localeCompare(String(left.status.id ?? "")));
+    const sourceById = new Map();
+    const sources = [];
+    for (const status of statuses) {
+      if (status?.state !== "success" || status?.context !== RELEASE_POLICY_RECEIPT_CONTEXT) continue;
+      const source = sourcePolicyReceipt(status, { repository, branch, headSha, pullNumber });
+      if (!source) continue;
+      const serialized = JSON.stringify(status);
+      const prior = sourceById.get(source.statusId);
+      if (prior) {
+        if (prior !== serialized) {
+          throw new Error(`Release policy receipt source status has an ambiguous duplicate provider identity: ${source.statusId}`);
+        }
+        continue;
+      }
+      sourceById.set(source.statusId, serialized);
+      sources.push(source);
+    }
+    sources.sort((left, right) => right.updatedAt - left.updatedAt || compareDecimalIds(right.statusId, left.statusId));
     for (const source of sources) {
       const workflowRun = await repositoryWorkflowRun({
         apiUrl,

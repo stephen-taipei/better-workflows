@@ -888,19 +888,37 @@ function creationTime(record) {
 }
 
 function observationId(record) {
-  const value = Number(record?.id);
-  return Number.isFinite(value) ? value : Number.NEGATIVE_INFINITY;
+  const raw = typeof record?.id === "string"
+    ? record.id.trim()
+    : Number.isSafeInteger(record?.id) && record.id >= 0 ? String(record.id) : "";
+  if (!/^(0|[1-9]\d*)$/.test(raw)) return null;
+  return BigInt(raw);
 }
 
 function latestObservation(records) {
-  return records.reduce((latest, record, index) => {
-    const candidate = { record, index };
+  const seen = new Map();
+  const unique = [];
+  for (const record of records) {
+    const id = observationId(record);
+    if (id === null) throw new Error("Release catch-up provider observation has a missing or malformed identity");
+    const key = id.toString();
+    const serialized = JSON.stringify(record);
+    const prior = seen.get(key);
+    if (prior) {
+      if (prior !== serialized) {
+        throw new Error(`Release catch-up provider returned an ambiguous duplicate observation: ${key}`);
+      }
+      continue;
+    }
+    seen.set(key, serialized);
+    unique.push({ record, id });
+  }
+  return unique.reduce((latest, candidate) => {
     if (!latest) return candidate;
     const timeDelta = creationTime(candidate.record) - creationTime(latest.record);
     if (Number.isFinite(timeDelta) && timeDelta !== 0) return timeDelta > 0 ? candidate : latest;
-    const idDelta = observationId(candidate.record) - observationId(latest.record);
-    if (idDelta !== 0) return idDelta > 0 ? candidate : latest;
-    return candidate.index > latest.index ? candidate : latest;
+    if (candidate.id !== latest.id) return candidate.id > latest.id ? candidate : latest;
+    return latest;
   }, null);
 }
 

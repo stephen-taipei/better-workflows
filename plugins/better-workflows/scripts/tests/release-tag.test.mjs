@@ -979,7 +979,31 @@ test("release eligibility uses the validated push-event parent across multi-comm
     let startedAtOnlyNewerFailure = false;
     let missingCompletedAt = false;
     let invalidCompletedAt = false;
+    let largeIdConflict = false;
+    let duplicateProviderObservation = false;
+    let largeStatusConflict = false;
+    let duplicateStatusObservation = false;
+    let largeWorkflowConflict = false;
+    let duplicateWorkflowObservation = false;
     const fetchImpl = async (url) => {
+      if ((largeWorkflowConflict || duplicateWorkflowObservation) && url.includes("/actions/runs?") && url.includes("event=pull_request")) {
+        const workflowSha = url.includes(`head_sha=${intermediate}`) ? intermediate : head;
+        const workflowPullNumber = workflowSha === intermediate ? 10 : 9;
+        const workflowRun = (id, conclusion) => ({
+          id,
+          path: ".github/workflows/ci.yml",
+          head_sha: workflowSha,
+          event: "pull_request",
+          status: "completed",
+          conclusion,
+          created_at: "2026-08-14T23:30:00Z",
+          completed_at: "2026-08-14T23:55:00Z",
+          pull_requests: [{ number: workflowPullNumber, head: { sha: workflowSha }, base: { ref: "dev", repo: { full_name: "example/repo" } } }]
+        });
+        return jsonResponse(largeWorkflowConflict
+          ? { workflow_runs: [workflowRun("9007199254740993", "failure"), workflowRun("9007199254740992", "success")] }
+          : { workflow_runs: [workflowRun("9007199254740993", "success"), workflowRun("9007199254740993", "failure")] });
+      }
       const workflowResponse = pullRequestWorkflowResponse(url, [
         { sha: head, pullNumber: 9 },
         { sha: intermediate, pullNumber: 10 }
@@ -997,6 +1021,22 @@ test("release eligibility uses the validated push-event parent across multi-comm
         return jsonResponse({ workflow_runs: [{ id: 7, path: ".github/workflows/ci.yml", head_sha: intermediate, head_branch: "dev", event: "push", status: "completed", conclusion: "success" }] });
       }
       const checkSha = url.includes(`/commits/${intermediate}/`) ? intermediate : head;
+      if ((largeStatusConflict || duplicateStatusObservation) && url.includes("/statuses?per_page=100&page=1")) {
+        const statusRecord = (id, state) => ({
+          id,
+          context: "test",
+          sha: checkSha,
+          state,
+          created_at: "2026-08-14T23:40:00Z",
+          updated_at: "2026-08-14T23:40:00Z"
+        });
+        return jsonResponse([
+          ...(largeStatusConflict
+            ? [statusRecord("9007199254740993", "failure"), statusRecord("9007199254740992", "success")]
+            : [statusRecord("9007199254740993", "success"), statusRecord("9007199254740993", "failure")]),
+          policyReceiptStatus("test", "2026-08-20T00:50:00Z", null, { pullNumber: checkSha === intermediate ? 10 : 9, headSha: checkSha, mergeSha: checkSha, mergedAt: "2026-08-15T00:00:00Z" })
+        ]);
+      }
       if (checkSha === intermediate && url.includes(`/commits/${intermediate}/check-runs?per_page=100&page=1`)) {
         return jsonResponse({ check_runs: [{ id: 7, name: requiredContext, head_sha: intermediate, status: "completed", conclusion: checkConclusion, completed_at: "2026-08-14T23:55:00Z", details_url: `https://github.com/example/repo/actions/runs/7/job/70`, app: { slug: "github-actions" } }] });
       }
@@ -1009,6 +1049,18 @@ test("release eligibility uses the validated push-event parent across multi-comm
       if ((missingCompletedAt || invalidCompletedAt) && checkSha === head && url.includes(`/commits/${head}/check-runs?per_page=100&page=1`)) {
         return jsonResponse({ check_runs: [
           { id: 7, name: requiredContext, head_sha: head, status: "completed", conclusion: "success", created_at: "2026-08-14T23:55:00Z", ...(invalidCompletedAt ? { completed_at: "not-a-timestamp" } : {}) }
+        ] });
+      }
+      if (largeIdConflict && checkSha === head && url.includes(`/commits/${head}/check-runs?per_page=100&page=1`)) {
+        return jsonResponse({ check_runs: [
+          { id: "9007199254740993", name: requiredContext, head_sha: head, status: "completed", conclusion: "failure", created_at: "2026-08-14T23:55:00Z", completed_at: "2026-08-14T23:56:00Z" },
+          { id: "9007199254740992", name: requiredContext, head_sha: head, status: "completed", conclusion: "success", created_at: "2026-08-14T23:55:00Z", completed_at: "2026-08-14T23:56:00Z" }
+        ] });
+      }
+      if (duplicateProviderObservation && checkSha === head && url.includes(`/commits/${head}/check-runs?per_page=100&page=1`)) {
+        return jsonResponse({ check_runs: [
+          { id: "9007199254740993", name: requiredContext, head_sha: head, status: "completed", conclusion: "success", created_at: "2026-08-14T23:55:00Z", completed_at: "2026-08-14T23:56:00Z" },
+          { id: "9007199254740993", name: requiredContext, head_sha: head, status: "completed", conclusion: "failure", created_at: "2026-08-14T23:55:00Z", completed_at: "2026-08-14T23:56:00Z" }
         ] });
       }
       const checkResponse = successfulRequiredCheckResponse(url, checkSha, requiredContext, checkSha === intermediate ? 10 : 9);
@@ -1058,6 +1110,42 @@ test("release eligibility uses the validated push-event parent across multi-comm
       /all exact required checks and statuses to complete successfully|lacks a timestamped test required check receipt/
     );
     invalidCompletedAt = false;
+    largeIdConflict = true;
+    await assert.rejects(
+      runReleaseTag({ cwd: work, fetchImpl, env }),
+      /all exact required checks and statuses to complete successfully/
+    );
+    largeIdConflict = false;
+    duplicateProviderObservation = true;
+    await assert.rejects(
+      runReleaseTag({ cwd: work, fetchImpl, env }),
+      /ambiguous duplicate observation/
+    );
+    duplicateProviderObservation = false;
+    largeStatusConflict = true;
+    await assert.rejects(
+      runReleaseTag({ cwd: work, fetchImpl, env }),
+      /all exact required checks and statuses to complete successfully|lacks an exact required check/
+    );
+    largeStatusConflict = false;
+    duplicateStatusObservation = true;
+    await assert.rejects(
+      runReleaseTag({ cwd: work, fetchImpl, env }),
+      /ambiguous duplicate observation/
+    );
+    duplicateStatusObservation = false;
+    largeWorkflowConflict = true;
+    await assert.rejects(
+      runReleaseTag({ cwd: work, fetchImpl, env }),
+      /lacks an exact successful test workflow check|lacks an exact successful pull-request workflow receipt|all exact required checks/
+    );
+    largeWorkflowConflict = false;
+    duplicateWorkflowObservation = true;
+    await assert.rejects(
+      runReleaseTag({ cwd: work, fetchImpl, env }),
+      /ambiguous duplicate observation/
+    );
+    duplicateWorkflowObservation = false;
     const result = await runReleaseTag({
       cwd: work,
       fetchImpl,
@@ -1234,7 +1322,7 @@ test("catch-up release workflow must belong to the target branch", async () => {
         return jsonResponse({ strict: true, contexts: ["test"], checks: [] });
       }
       if (url.includes(`/repos/example/repo/commits/${bump}/check-runs?per_page=100&page=1`)) {
-        return jsonResponse({ check_runs: [{ id: 71, name: "test", head_sha: bump, status: "completed", conclusion: "success", details_url: "https://github.com/example/repo/actions/runs/71/job/1", app: { slug: "github-actions" } }] });
+        return jsonResponse({ check_runs: [{ id: 71, name: "test", head_sha: bump, status: "completed", conclusion: "success", completed_at: "2026-08-17T23:55:00Z", details_url: "https://github.com/example/repo/actions/runs/71/job/1", app: { slug: "github-actions" } }] });
       }
       if (url.includes(`/repos/example/repo/actions/runs?head_sha=${bump}&event=push&branch=dev&per_page=100&page=1`)) {
         return jsonResponse({ workflow_runs: [{ id: 71, path: ".github/workflows/ci.yml", head_sha: bump, head_branch: "feature/release-test", event: "push", status: "completed", conclusion: "success" }] });
