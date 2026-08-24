@@ -566,7 +566,7 @@ function assertNoAmbientGitAuthorityOverrides() {
   }
 }
 
-export const VERSION = "3.4.13";
+export const VERSION = "3.4.14";
 export const MODES = new Set(["auto", "direct", "verified", "deep", "critical"]);
 export const RUN_STATES = new Set([
   "pending",
@@ -2860,7 +2860,7 @@ export async function evaluateCompletion(root, runId) {
       }
       if (isTypedEvidence(record) && !record.stale) {
         try {
-          await validateTypedEvidenceRecord(record, { manifest, contract, root, runDir, requireReconciled: true });
+          await validateTypedEvidenceRecord(record, { manifest, contract, state, root, runDir, requireReconciled: true });
           if (record.kind === "required-checks") {
             const mergeGated = contract.actionGates?.["pr.merge"]?.includes("required-checks") === true;
             if (!mergeGated) {
