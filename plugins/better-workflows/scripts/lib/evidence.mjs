@@ -174,8 +174,15 @@ const ARRAY_FIELDS = new Set([
   "providerRunIds", "requiredStatusCheckApps", "requiredStatusChecks", "resources", "roleReceipts", "roles", "scope", "tasks", "witnessDigests"
 ]);
 const OBJECT_FIELDS = new Set([
-  "actionProof", "artifact", "authorization", "counts", "decision", "diffManifest", "evaluatorAuthorization", "manifest", "metadata", "permissions",
+  "actionProof", "artifact", "authorization", "counts", "diffManifest", "evaluatorAuthorization", "manifest", "metadata", "permissions",
   "providerAuthorization", "providerExecutable", "receipt", "scopeDigest", "summary", "target", "workflow"
+]);
+const OBJECT_FIELDS_BY_KIND = new Map([
+  // Most decision-disposition records use a string decision.  The quorum
+  // contract deliberately carries policyId and verdict together, so keep
+  // that object shape scoped to its versioned evidence kind instead of
+  // weakening the legacy decision-record contract.
+  ["agent-review-quorum", new Set(["decision"])]
 ]);
 const INTEGER_FIELDS = new Set(["number", "pr", "providerRunId", "repairRound"]);
 const BOOLEAN_FIELDS = new Set(["adminBypass", "protected", "result", "success", "valid"]);
@@ -183,6 +190,10 @@ const DATE_FIELDS = new Set(["createdAt", "expiresAt", "observedAt", "verifiedAt
 
 export function assertPayloadFields(payload, requiredFields, kind, nullableFields = []) {
   const nullable = new Set(nullableFields);
+  const objectFields = new Set([
+    ...OBJECT_FIELDS,
+    ...(OBJECT_FIELDS_BY_KIND.get(kind) ?? [])
+  ]);
   for (const field of requiredFields) {
     if (!(field in payload) || payload[field] === "") {
       throw new Error(`Typed evidence ${kind} payload is missing required field: ${field}`);
@@ -195,7 +206,7 @@ export function assertPayloadFields(payload, requiredFields, kind, nullableField
     if (ARRAY_FIELDS.has(field) && !Array.isArray(value)) {
       throw new Error(`Typed evidence ${kind} payload field ${field} must be an array`);
     }
-    if (OBJECT_FIELDS.has(field) && (typeof value !== "object" || Array.isArray(value))) {
+    if (objectFields.has(field) && (typeof value !== "object" || Array.isArray(value))) {
       throw new Error(`Typed evidence ${kind} payload field ${field} must be an object`);
     }
     if (field === "providerExecutable") {
@@ -225,7 +236,7 @@ export function assertPayloadFields(payload, requiredFields, kind, nullableField
       throw new Error(`Typed evidence ${kind} payload field ${field} must be an ISO date`);
     }
     if (
-      !ARRAY_FIELDS.has(field) && !OBJECT_FIELDS.has(field) && !INTEGER_FIELDS.has(field) &&
+      !ARRAY_FIELDS.has(field) && !objectFields.has(field) && !INTEGER_FIELDS.has(field) &&
       !BOOLEAN_FIELDS.has(field) && !DATE_FIELDS.has(field) && typeof value !== "string"
     ) {
       throw new Error(`Typed evidence ${kind} payload field ${field} must be a string`);
