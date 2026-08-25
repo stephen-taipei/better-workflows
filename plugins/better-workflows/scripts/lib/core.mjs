@@ -6368,7 +6368,13 @@ function assertTargetBranchEvidence(admittedEvidence, request, expectedRepositor
   if (!exact) throw new Error("Action token denied until target-branch-dev is bound to the selected repository and dev revision");
 }
 
-function assertRemoteAuthorizationEvidence(admittedEvidence, request, providerAuthorization, expectedRepository) {
+export function assertRemoteAuthorizationEvidence(
+  admittedEvidence,
+  request,
+  providerAuthorization,
+  expectedRepository,
+  expectedAuthorizedRevision = request.remoteRevision
+) {
   const exact = admittedEvidence.some((record) => {
     if (record.kind !== "remote-authorization" || record.status !== "complete" || record.stale) return false;
     const payload = record.receipt?.payload;
@@ -6382,7 +6388,7 @@ function assertRemoteAuthorizationEvidence(admittedEvidence, request, providerAu
       payload?.action === request.action &&
       payload?.provider === request.provider &&
       payload?.resource === request.resource &&
-      payload?.remoteRevision === request.remoteRevision &&
+      payload?.remoteRevision === expectedAuthorizedRevision &&
       typeof payload?.repository === "string" && payload.repository.length > 0 &&
       typeof payload?.actor === "string" && payload.actor.length > 0 &&
       (!gitPush || (
@@ -6987,7 +6993,17 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
             gitExecutablePath: gitProviderExecutable.path
           }
         );
-        assertRemoteAuthorizationEvidence(admittedEvidence, request, providerAuthorization, repository);
+        // A governed git.push has two deliberate revision anchors:
+        // request.remoteRevision protects the reviewed/target base, while
+        // expectedRevision is the exact commit that the credential dry-run
+        // and fixed-argv push will transfer. PR actions use one revision.
+        assertRemoteAuthorizationEvidence(
+          admittedEvidence,
+          request,
+          providerAuthorization,
+          repository,
+          expectedRevision
+        );
       }
       if (isDevDeliveryTemplate(contract.template)) {
         const currentBranch = (await execBoundGitAuthority(manifest.cwd, ["branch", "--show-current"])).stdout.trim();

@@ -26,6 +26,7 @@ import {
   addEvidence,
   autonomousCommitAllocation,
   assertCurrentGitPushSourceBinding,
+  assertRemoteAuthorizationEvidence,
   assertPersistedMergeHumanApproval,
   assertPersistedMergeHumanAuthorizationEvidence,
   assertPersistedRequiredChecksEvidence,
@@ -970,7 +971,7 @@ test("live integration: fresh autonomy preflight issues the same run's governed 
         action: "git.push",
         provider: "git",
         resource: pushResource,
-        remoteRevision: fixture.sourceHead,
+        remoteRevision: revision,
         repository: repositoryIdentity,
         actor,
         remote: "origin",
@@ -1126,6 +1127,51 @@ test("git push action bindings persist the exact effective destination used by t
       command: binding.pushCommand
     }
   );
+});
+
+test("git.push authorization separates protected base revision from pushed source revision", () => {
+  const baseRevision = "a".repeat(40);
+  const sourceRevision = "b".repeat(40);
+  const repository = "github.com/example/repository";
+  const resource = "remote:origin:refs/heads/codex/aggregate";
+  const request = {
+    action: "git.push",
+    provider: "git",
+    resource,
+    remoteRevision: baseRevision
+  };
+  const providerAuthorization = { repository, actor: "example-actor" };
+  const evidence = [{
+    kind: "remote-authorization",
+    status: "complete",
+    stale: false,
+    receipt: {
+      producer: { provider: "github-cli-and-git" },
+      payload: {
+        action: "git.push",
+        provider: "git",
+        resource,
+        remoteRevision: sourceRevision,
+        repository,
+        actor: "example-actor",
+        remote: "origin",
+        ref: "refs/heads/codex/aggregate",
+        credentialCheck: "github-cli-token-actor"
+      }
+    }
+  }];
+
+  assert.throws(
+    () => assertRemoteAuthorizationEvidence(evidence, request, providerAuthorization, repository),
+    /remote authorization is bound/
+  );
+  assert.doesNotThrow(() => assertRemoteAuthorizationEvidence(
+    evidence,
+    request,
+    providerAuthorization,
+    repository,
+    sourceRevision
+  ));
 });
 
 test("git push execution clears ambient helpers and binds one captured credential file", () => {

@@ -142,6 +142,13 @@ reserved for non-wrapper side effects that the root performs before a separate
 reconciliation. Contract `deferredActions` are rejected by the core lifecycle,
 even when a template has no active action stage.
 
+For governed `git.push`, `--remote-revision` remains the protected task/base
+revision used by the contract and review gates. The action binding separately
+captures the exact current source commit (`expectedRevision`) that the pinned
+credential dry-run and fixed-argv push will transfer. Remote-authorization
+evidence must bind its `payload.remoteRevision` to that source commit; PR merge
+authorization continues to bind its payload to the protected base revision.
+
 ## Graph View
 
 ```bash
