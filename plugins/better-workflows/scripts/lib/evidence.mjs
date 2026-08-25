@@ -358,6 +358,7 @@ async function assertQuorumEvidence(payload, kind, run) {
       sourceSentinelDigest: run.state.lastSentinel?.digest,
       contractDigest: digestObject(run.contract),
       templateDigest: run.contract.templateDigest,
+      instructionDigest: reviewPackage.instructionDigest,
       reviewPackageId: reviewPackage.packageId,
       reviewPackageDigest: reviewPackageDigest(reviewPackage),
       base: reviewPackage.base,

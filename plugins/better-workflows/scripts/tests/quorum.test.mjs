@@ -303,9 +303,18 @@ test("agent quorum is evaluated after commit creation", async () => {
 });
 
 test("high-risk, unknown, stale, and tampered bindings fail closed", () => {
-  const highRisk = buildManifest({ changedPaths: ["plugins/better-workflows/scripts/lib/core.mjs"] });
-  assert.equal(classifyTrustTier(highRisk.changedPaths).tier, "host-trusted");
-  assertHold(highRisk, /host-trusted review path/);
+  for (const changedPath of [
+    "plugins/better-workflows/scripts/lib/core.mjs",
+    "plugins/better-workflows/scripts/lib/autonomy.mjs",
+    "plugins/better-workflows/scripts/lib/ledger.mjs",
+    "plugins/better-workflows/scripts/lib/publication.mjs",
+    "plugins/better-workflows/config/defaults.json",
+    "plugins/better-workflows/config/self-improve-standing-consent-v1.json"
+  ]) {
+    const highRisk = buildManifest({ changedPaths: [changedPath] });
+    assert.equal(classifyTrustTier(highRisk.changedPaths).tier, "host-trusted", changedPath);
+    assertHold(highRisk, /host-trusted review path/);
+  }
 
   const unknown = buildManifest({ changedPaths: [] });
   assertHold(unknown, /Unknown quorum routing tier|changedPaths must not be empty/);
@@ -394,6 +403,19 @@ test("typed admission revalidates the source-bound review package and payload sh
   const identityRegistry = registryFor(manifest);
   const identityRegistryPath = path.join(root, "identity-registry.json");
   await writeFile(identityRegistryPath, `${JSON.stringify(identityRegistry)}\n`);
+  const originalInstructionDigest = manifest.instructionDigest;
+  manifest.instructionDigest = DIGEST("wrong-instruction");
+  refreshReceiptBindings(manifest);
+  refreshManifestDigest(manifest);
+  const wrongInstructionResult = reduceQuorum(manifest, {
+    identityRegistry,
+    expected: { instructionDigest: reviewPackage.instructionDigest }
+  });
+  assert.equal(wrongInstructionResult.ok, false);
+  assert.match(wrongInstructionResult.blockers.join("\n"), /instructionDigest/);
+  manifest.instructionDigest = originalInstructionDigest;
+  refreshReceiptBindings(manifest);
+  refreshManifestDigest(manifest);
   const result = reduceQuorum(manifest, {
     identityRegistry,
     expected: {
@@ -402,6 +424,7 @@ test("typed admission revalidates the source-bound review package and payload sh
       sourceSentinelDigest: sentinel.digest,
       contractDigest: digestObject(contract),
       templateDigest: contract.templateDigest,
+      instructionDigest: reviewPackage.instructionDigest,
       reviewPackageId: reviewPackage.packageId,
       reviewPackageDigest: reviewPackageDigest(reviewPackage),
       base,
@@ -422,6 +445,22 @@ test("typed admission revalidates the source-bound review package and payload sh
   assert.equal(cliResult.ok, true);
   assert.equal(cliResult.report.hostSignerInvoked, false);
   assert.equal(cliResult.result.verdict, "PASS");
+  const checkoutRegistryPath = path.join(repository, "identity-registry.json");
+  await writeFile(checkoutRegistryPath, `${JSON.stringify(identityRegistry)}\n`);
+  let cliInsideCheckout;
+  try {
+    cliInsideCheckout = await execFileAsync(
+      process.execPath,
+      [path.join(repositoryRoot, "plugins/better-workflows/scripts/sbw.mjs"), "review", "quorum", "verify", created.runId, "--file", manifestPath],
+      { cwd: path.join(repository, "src"), env: { ...process.env, SBW_STATE_ROOT: root, SBW_QUORUM_IDENTITY_REGISTRY: checkoutRegistryPath } }
+    );
+  } catch (error) {
+    cliInsideCheckout = error;
+  }
+  const cliInsideCheckoutResult = JSON.parse(cliInsideCheckout.stdout);
+  assert.equal(cliInsideCheckoutResult.ok, false);
+  assert.match(cliInsideCheckoutResult.result.blockers.join("\n"), /identity registry/);
+  await rm(checkoutRegistryPath, { force: true });
   const cliRun = await execFileAsync(
     process.execPath,
     [path.join(repositoryRoot, "plugins/better-workflows/scripts/sbw.mjs"), "review", "quorum", "run", created.runId, "--file", manifestPath],

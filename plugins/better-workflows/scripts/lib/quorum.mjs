@@ -1,5 +1,5 @@
 import { createPublicKey, verify as verifySignature } from "node:crypto";
-import { lstatSync, readFileSync } from "node:fs";
+import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 
 import { canonicalJson, digestObject } from "./core.mjs";
@@ -100,9 +100,9 @@ const IDENTITY_REGISTRY_KEYS = Object.freeze(["entries", "kind", "registryId", "
 
 const HIGH_RISK_PATTERNS = Object.freeze([
   /^\.github\/workflows\//,
-  /^plugins\/better-workflows\/scripts\/lib\/git\.mjs$/,
-  /^plugins\/better-workflows\/scripts\/(?:lib\/)?(?:attestations|core|evidence|graph|host-bundle|host-trust|providers|quorum|review|review-policy|routing|sbw|self-improve|self-improve-handoff|self-improve-replay|standing-consent)\.mjs$/,
-  /^plugins\/better-workflows\/config\/(?:evidence-contracts-v1|entrypoint-catalog|.*(?:host-bundle|identity|quorum|routing|trust).*?)\.json$/,
+  /^plugins\/better-workflows\/scripts\/lib\/.+\.mjs$/,
+  /^plugins\/better-workflows\/scripts\/(?:sbw|host-.+|release-.+)\.(?:mjs|c)$/,
+  /^plugins\/better-workflows\/config\/.+\.json$/,
   /^plugins\/better-workflows\/templates\/.+\.json$/,
   /^plugins\/better-workflows\/(?:\.codex-plugin|skills\/better-workflows)\//
 ]);
@@ -191,18 +191,46 @@ function canonicalManifestIdentity(value) {
   return copy;
 }
 
+function checkoutRootSync(cwd) {
+  let current;
+  try {
+    current = realpathSync(path.resolve(cwd));
+  } catch {
+    return null;
+  }
+  while (true) {
+    try {
+      const marker = lstatSync(path.join(current, ".git"));
+      if (marker.isDirectory() || marker.isFile()) return current;
+    } catch {
+      // Keep walking until the filesystem root; an absent marker is HOLD.
+    }
+    const parent = path.dirname(current);
+    if (parent === current) return null;
+    current = parent;
+  }
+}
+
+function isInsidePath(root, candidate) {
+  const relative = path.relative(root, candidate);
+  return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative));
+}
+
 function configuredIdentityRegistryPath() {
   // The registry is an operator-provisioned input, deliberately outside the
   // checked-out repository. A PR must not be able to add or replace its own
-  // trust material; absent or unreadable registry state fails closed.
+  // trust material; resolve both the checkout root and parent symlinks before
+  // accepting a candidate, and fail closed on absent or unreadable state.
   const candidate = process.env.SBW_QUORUM_IDENTITY_REGISTRY;
   if (typeof candidate !== "string" || !path.isAbsolute(candidate)) return null;
-  const resolved = path.resolve(candidate);
-  const relative = path.relative(process.cwd(), resolved);
-  if (!relative || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative))) return null;
+  const checkoutRoot = checkoutRootSync(process.cwd());
+  if (!checkoutRoot) return null;
   try {
-    const info = lstatSync(resolved);
+    const absolute = path.resolve(candidate);
+    const info = lstatSync(absolute);
     if (!info.isFile() || info.isSymbolicLink()) return null;
+    const resolved = path.join(realpathSync(path.dirname(absolute)), path.basename(absolute));
+    if (isInsidePath(checkoutRoot, resolved)) return null;
     return resolved;
   } catch {
     return null;

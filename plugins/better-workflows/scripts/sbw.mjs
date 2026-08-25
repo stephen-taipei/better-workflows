@@ -1815,6 +1815,7 @@ function quorumExpectedBindings(run, reviewPackage = null) {
     Object.assign(expected, {
       reviewPackageId: reviewPackage.packageId,
       reviewPackageDigest: reviewPackageDigest(reviewPackage),
+      instructionDigest: reviewPackage.instructionDigest,
       base: reviewPackage.base,
       head: reviewPackage.head,
       mergeBase: reviewPackage.mergeBase,
