@@ -971,7 +971,7 @@ test("live integration: fresh autonomy preflight issues the same run's governed 
         action: "git.push",
         provider: "git",
         resource: pushResource,
-        remoteRevision: fixture.sourceHead,
+        remoteRevision: revision,
         repository: repositoryIdentity,
         actor,
         remote: "origin",
