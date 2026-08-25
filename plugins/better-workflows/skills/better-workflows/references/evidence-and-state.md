@@ -54,7 +54,11 @@ provider, conflict, or classifier failures produce HOLD. A manifest's changed
 paths are rederived from the immutable review package before admission, so a
 role cannot relabel a high-risk diff as ordinary. The quorum verifier is
 software-layer only and never invokes the host signer; high-risk changes keep
-the host-trusted route.
+the host-trusted route. `SBW_QUORUM_IDENTITY_REGISTRY` must resolve to an
+operator-provisioned, checkout-external registry with exactly the five fixed
+roles; its digest is pinned in the manifest and every receipt signs the full
+review-package/head binding. Missing or mismatched registry state is HOLD, and
+this registry is not a root-owned Ed25519 trust root.
 
 `self-improve-ops` pilots `code-v2-pilot` in shadow mode. Its immutable package
 adds exact BASE/HEAD blob work units and two to five declared finder lanes.

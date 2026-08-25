@@ -298,6 +298,15 @@ unclassified input is HOLD. This path reports `hostSignerInvoked: false` and
 does not call `sudo`; governance changes, evaluator/identity/routing changes,
 and any other high-risk surface remain on the legacy host-trusted path.
 
+The verifier also requires `SBW_QUORUM_IDENTITY_REGISTRY` to point to an
+operator-provisioned JSON registry outside the checkout. It must contain
+exactly one trusted entry for each fixed role, with unique identities, keys,
+and public keys plus the provider/provider-family/model binding. The manifest
+pins that registry's digest and each receipt signs the complete package/head
+binding. A missing, unreadable, symlinked, malformed, or mismatched registry
+is HOLD; the registry is software-layer trust material and is not equivalent
+to the root-owned host signing key.
+
 `sbw deliberation deliberate --run <run-id> --prompt-file <sanitized-file>` is
 available only to the research and self-improve pilots. It writes one atomic,
 idempotent bundle and prints only its digest, participant statuses, and decision
