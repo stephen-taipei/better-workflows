@@ -6,7 +6,7 @@ import vm from "node:vm";
 import { fileURLToPath } from "node:url";
 
 const testDirectory = path.dirname(fileURLToPath(import.meta.url));
-const repoRoot = path.resolve(testDirectory, "..");
+const repoRoot = path.resolve(testDirectory, "../../../..");
 const cinemaDirectory = path.join(repoRoot, "docs", "html", "evidence-cinema");
 const pagePath = path.join(cinemaDirectory, "index.html");
 const manifestPath = path.join(cinemaDirectory, "assets", "imagegen-manifest.md");

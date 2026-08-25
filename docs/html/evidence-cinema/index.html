@@ -1089,7 +1089,7 @@
         title: "Verifier 的工作，是找出不想看到的那格",
         dialogue: "確認證據與反證都要留下；finder 不能替自己的 finding 蓋章。",
         state: "claim checked → finding open", badge: "COUNTER-EVIDENCE",
-        fact: "Verifier 與 finder 分離。衝突結果變成 INCONCLUSIVE；missing 或 ambiguous anchor 仍然 blocking。",
+        fact: "這一幕明確標示為 review-kernel-v2-pilot 的 observe-only 分支：Verifier 與 finder 分離；衝突結果變成 INCONCLUSIVE，missing 或 ambiguous anchor 仍然 blocking。它在 action 前結束，不替可執行 workflow 宣稱額外的 finder/verifier 權限。",
         source: { label: "review.mjs · finding / verification separation", href: "../../../plugins/better-workflows/scripts/lib/review.mjs" },
         records: [
           { kind: "claim-verification", id: "demo-verify-21", status: "complete", summary: "獨立 verifier 重驗 claim 與 exact anchor", binding: "reviewer · work unit · quote", digest: "sha256:demo-1c90…" },
@@ -1132,7 +1132,7 @@
         title: "橋先不放下：token 要把權限綁到這一次",
         dialogue: "Action token 綁 action、provider、resource、revision、review、evidence 與 idempotency key。",
         state: "authority checked → one attempt issued", badge: "TOKEN ISSUED",
-        fact: "只有 root 能為既有授權申請 token。Wrapper 送出後若 outcome unknown，不能把非零退出直接當成安全失敗。",
+        fact: "本頁是 sanitized teaching replay，不會真的發 token；可執行 workflow 仍須依自己的 review contract、source freshness、provider binding 與 protected authorization 申請 action。Wrapper 送出後若 outcome unknown，不能把非零退出直接當成安全失敗。",
         source: { label: "core.mjs · action issue / execute / consume", href: "../../../plugins/better-workflows/scripts/lib/core.mjs" },
         records: [
           { kind: "action-token", id: "demo-token-41", status: "issued", summary: "短效 token 綁定唯一 provider resource", binding: "action · provider · revision", digest: "token:demo-redacted" },
