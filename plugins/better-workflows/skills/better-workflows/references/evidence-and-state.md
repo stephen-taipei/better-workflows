@@ -12,7 +12,7 @@ Evidence records must contain:
 - creation time
 
 New non-direct runs use TaskContract v2. Their evidence must use the typed-v1
-catalog in `config/evidence-contracts-v1.json` (101 exact kinds). The CLI
+catalog in `config/evidence-contracts-v1.json` (102 exact kinds). The CLI
 recomputes and verifies the receipt payload digest and semantic success fields;
 unknown kinds, unauthorized producers, stale run or revision bindings, empty
 payloads, and digest mismatches fail closed. v2
@@ -43,6 +43,22 @@ required before an action token can be issued. The package identity also binds
 the template's `reviewProfile` digest when one is declared, so changing the
 claimed review capability invalidates the package instead of silently changing
 the review contract.
+
+The `agent-review-quorum` contract is version-disjoint from legacy host-signed
+critic records. It stores a canonical `quorum-manifest-v1` with exact
+run/source/package bindings, five signed role receipts, bounded expiry,
+provider-family diversity, routing tier, dissent, blockers, and report digest.
+The reducer is deterministic: only five PASS receipts on an ordinary path can
+produce PASS; missing, duplicate, stale, BLOCK, INCONCLUSIVE, identity,
+provider, conflict, or classifier failures produce HOLD. A manifest's changed
+paths are rederived from the immutable review package before admission, so a
+role cannot relabel a high-risk diff as ordinary. The quorum verifier is
+software-layer only and never invokes the host signer; high-risk changes keep
+the host-trusted route. `SBW_QUORUM_IDENTITY_REGISTRY` must resolve to an
+operator-provisioned, checkout-external registry with exactly the five fixed
+roles; its digest is pinned in the manifest and every receipt signs the full
+review-package/head binding. Missing or mismatched registry state is HOLD, and
+this registry is not a root-owned Ed25519 trust root.
 
 `self-improve-ops` pilots `code-v2-pilot` in shadow mode. Its immutable package
 adds exact BASE/HEAD blob work units and two to five declared finder lanes.

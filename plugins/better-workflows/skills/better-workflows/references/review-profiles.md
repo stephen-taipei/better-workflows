@@ -6,20 +6,26 @@ grant authority to a reviewer or provider.
 
 ## Capability matrix
 
-| Capability | `review-contract-v1` | `review-kernel-v2-pilot` |
+| Capability | `review-contract-v1` | `review-kernel-v2-pilot` | `review-quorum-v1` |
 |---|---|---|
-| Changed surface | Immutable `BASE..HEAD` diff manifest | Deterministic `diff-files-v1` work-unit universe |
-| Location binding | Package-bound path/location | Exact blob, content digest, and unique source quote |
-| Finding verification | Final broad-review receipt and applicable independent critic | Different host-attested finder/verifier executions; `CONFIRMED`, `REFUTED`, `PARTIAL`, `OUT_OF_SCOPE`, or `INCONCLUSIVE` |
-| Provenance | Immutable review package, contract, template, and sentinel bindings | Same bindings plus native read-only execution attestation |
-| Spec/prompt | Exact review instruction digest | Exact review instruction digest plus lane/claim input digests |
-| Authority | Existing template action gates | Observe-only; no action token |
+| Changed surface | Immutable `BASE..HEAD` diff manifest | Deterministic `diff-files-v1` work-unit universe | Immutable package diff, rederived at admission |
+| Location binding | Package-bound path/location | Exact blob, content digest, and unique source quote | Package-bound paths plus base/head/merge-base and changed-path classifier |
+| Finding verification | Final broad-review receipt and applicable independent critic | Different host-attested finder/verifier executions; `CONFIRMED`, `REFUTED`, `PARTIAL`, `OUT_OF_SCOPE`, or `INCONCLUSIVE` | Five fixed roles; all signed `PASS`, otherwise `HOLD` |
+| Provenance | Immutable review package, contract, template, and sentinel bindings | Same bindings plus native read-only execution attestation | Same bindings plus unique identity/key, provider-family diversity, receipt signatures, and bounded expiry |
+| Spec/prompt | Exact review instruction digest | Exact review instruction digest plus lane/claim input digests | Exact instruction, dossier, policy, role-assignment, and report digests |
+| Authority | Existing template action gates | Observe-only; no action token | Existing protected action gates; no admin bypass or direct protected-branch push |
 
 `review-contract-v1` is intentionally honest about the legacy review path. It
 does not imply per-file accounting, exact source re-anchoring, or symmetric
 finder/verifier review. `review-kernel-v2-pilot` is restricted to
 `self-improve-ops` until its receipts, prompts, and action lifecycle are
 integrated for another workflow.
+
+`review-quorum-v1` is restricted to the separate `pr-to-dev-agent-quorum`
+template and ordinary low-risk diffs. It is a software-layer review route, not
+a replacement for the host trust root. The classifier sends governance,
+evaluator, identity, evidence-verifier, routing/authority, workflow, template,
+and other ambiguous changes to the host-trusted legacy path.
 
 ## Authoring SOP
 
