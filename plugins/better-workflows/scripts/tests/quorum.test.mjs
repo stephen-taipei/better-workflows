@@ -6,6 +6,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
 
 import {
   buildContract,
@@ -34,6 +35,8 @@ const HEAD = "2".repeat(40);
 const MERGE_BASE = BASE;
 const DIGEST = (label) => sha256(`quorum-fixture:${label}`);
 const execFileAsync = promisify(execFile);
+const testDirectory = path.dirname(fileURLToPath(import.meta.url));
+const repositoryRoot = path.resolve(testDirectory, "../../../..");
 
 function timestampFixture({ expired = false } = {}) {
   const now = Date.now();
@@ -258,7 +261,7 @@ test("typed admission revalidates the source-bound review package and payload sh
   await execFileAsync("git", ["add", "."], { cwd: repository });
   await execFileAsync("git", ["commit", "-qm", "head"], { cwd: repository });
   const head = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repository })).stdout.trim();
-  const template = JSON.parse(await readFile(path.resolve("plugins/better-workflows/templates/pr-to-dev-agent-quorum.json"), "utf8"));
+  const template = JSON.parse(await readFile(path.join(repositoryRoot, "plugins/better-workflows/templates/pr-to-dev-agent-quorum.json"), "utf8"));
   const contract = buildContract({
     template: template.name,
     templateDefinition: template,
@@ -322,7 +325,7 @@ test("typed admission revalidates the source-bound review package and payload sh
   await writeFile(manifestPath, `${JSON.stringify(manifest)}\n`);
   const cli = await execFileAsync(
     process.execPath,
-    [path.resolve("plugins/better-workflows/scripts/sbw.mjs"), "review", "quorum", "verify", created.runId, "--file", manifestPath],
+    [path.join(repositoryRoot, "plugins/better-workflows/scripts/sbw.mjs"), "review", "quorum", "verify", created.runId, "--file", manifestPath],
     { cwd: repository, env: { ...process.env, SBW_STATE_ROOT: root } }
   );
   const cliResult = JSON.parse(cli.stdout);
@@ -331,7 +334,7 @@ test("typed admission revalidates the source-bound review package and payload sh
   assert.equal(cliResult.result.verdict, "PASS");
   const cliRun = await execFileAsync(
     process.execPath,
-    [path.resolve("plugins/better-workflows/scripts/sbw.mjs"), "review", "quorum", "run", created.runId, "--file", manifestPath],
+    [path.join(repositoryRoot, "plugins/better-workflows/scripts/sbw.mjs"), "review", "quorum", "run", created.runId, "--file", manifestPath],
     { cwd: repository, env: { ...process.env, SBW_STATE_ROOT: root } }
   );
   const runResult = JSON.parse(cliRun.stdout);
@@ -341,7 +344,7 @@ test("typed admission revalidates the source-bound review package and payload sh
   assert.equal(runResult.evidence.typedAdmission.producer, "quorum-verifier");
   const cliStatus = await execFileAsync(
     process.execPath,
-    [path.resolve("plugins/better-workflows/scripts/sbw.mjs"), "review", "quorum", "status", created.runId],
+    [path.join(repositoryRoot, "plugins/better-workflows/scripts/sbw.mjs"), "review", "quorum", "status", created.runId],
     { cwd: repository, env: { ...process.env, SBW_STATE_ROOT: root } }
   );
   const statusResult = JSON.parse(cliStatus.stdout);
