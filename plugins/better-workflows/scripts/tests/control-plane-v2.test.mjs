@@ -12,6 +12,7 @@ import {
   consumeActionToken,
   createRun,
   digestObject,
+  evaluateCompletion,
   executeActionToken,
   inspectRun,
   issueActionToken,
@@ -321,12 +322,13 @@ async function recordAxis(root, runId, reviewPackage, lane, index, { findings = 
   });
 }
 
-test("typed catalog covers exactly the 101 installed evidence kinds", async () => {
+test("typed catalog covers exactly the 102 installed evidence kinds", async () => {
   const contracts = await loadEvidenceContracts({ refresh: true });
-  assert.equal(Object.keys(contracts).length, 101);
+  assert.equal(Object.keys(contracts).length, 102);
   assert.ok(contracts["remote-sync"]);
   assert.ok(contracts["work-unit-accounting"]);
   assert.ok(contracts["review-kernel-summary"]);
+  assert.ok(contracts["agent-review-quorum"]);
 });
 
 test("typed required-check admission uses the production host verifier and rejects forged, missing, altered, invalidly signed, and source-drifted approvals", async () => {
@@ -931,6 +933,100 @@ test("ledger status reloads run state before validating sentinel-bound evidence"
   const status = await deriveLedgerStatus(root, started.runId);
   assert.deepEqual(status.blockers, []);
   assert.deepEqual(status.readySet, ["decision"]);
+});
+
+test("completion validates sentinel-bound evidence with its loaded state", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "sbw-v2-completion-sentinel-workspace-"));
+  await execFileAsync("git", ["init", "-q"], { cwd: workspace });
+  await execFileAsync("git", ["config", "user.email", "test@example.com"], { cwd: workspace });
+  await execFileAsync("git", ["config", "user.name", "Better Workflows Test"], { cwd: workspace });
+  await writeFile(path.join(workspace, "source.txt"), "completion-sentinel-bound\n");
+  await execFileAsync("git", ["add", "source.txt"], { cwd: workspace });
+  await execFileAsync("git", ["commit", "-qm", "initial"], { cwd: workspace });
+
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-v2-completion-sentinel-state-"));
+  const contract = buildContract({
+    template: "test-completion-sentinel",
+    templateDefinition: {
+      ...contractTemplate,
+      requiredEvidence: ["decision-record"],
+      executionStages: [{
+        id: "decision",
+        dependsOn: [],
+        requiredEvidence: ["decision-record"],
+        attemptBudget: 3,
+        kind: "regular"
+      }]
+    },
+    goal: "completion sentinel context",
+    scope: ["."],
+    risk: { risk: 1, uncertainty: 0, blastRadius: 1, irreversibility: 0, evidenceGap: 0 },
+    sensitivity: "internal",
+    authority: []
+  });
+  const started = await createRun({ root, contract, requestedMode: "verified", cwd: workspace });
+  const sentinel = await captureSentinel(workspace, contract, await loadDefaults());
+  await updateState(root, started.runId, (state) => ({
+    ...state,
+    lastSentinel: { label: "completion-sentinel", digest: sentinel.digest },
+    lastSentinelVerified: true,
+    lastSentinelComplete: true
+  }));
+  const run = await inspectRun(root, started.runId);
+  const payload = { decision: "IMPLEMENT" };
+  await addEvidence(root, started.runId, {
+    schemaVersion: 2,
+    id: "completion-sentinel-decision",
+    kind: "decision-record",
+    status: "complete",
+    summary: "Current decision evidence is bound to the completion sentinel",
+    receipt: {
+      contractId: "evidence-contracts-v1:decision-record",
+      contractVersion: 1,
+      runId: started.runId,
+      producer: { provider: "codex-root" },
+      inputBinding: {
+        runId: started.runId,
+        contractDigest: digestObject(run.contract),
+        remoteRevision: null,
+        sourceBindingDigest: run.manifest.sourceBinding.digest,
+        sourceSentinelDigest: sentinel.digest
+      },
+      payload,
+      payloadDigest: digestObject(payload),
+      producedAt: new Date().toISOString()
+    }
+  });
+
+  const initialLedger = JSON.parse(await readFile(path.join(run.runDir, "ledger.json"), "utf8"));
+  await transitionLedger(root, started.runId, {
+    eventId: "start-completion-decision",
+    type: "start",
+    taskId: "decision",
+    expectedLedgerDigest: digestObject(initialLedger)
+  });
+  const startedLedger = JSON.parse(await readFile(path.join(run.runDir, "ledger.json"), "utf8"));
+  await transitionLedger(root, started.runId, {
+    eventId: "complete-completion-decision",
+    type: "complete",
+    taskId: "decision",
+    evidenceKinds: ["decision-record"],
+    expectedLedgerDigest: digestObject(startedLedger)
+  });
+
+  const completion = await evaluateCompletion(root, started.runId);
+  assert.equal(completion.ok, true);
+  assert.equal(completion.blockers.includes("invalid-typed-evidence:completion-sentinel-decision"), false);
+
+  await updateState(root, started.runId, (state) => ({
+    ...state,
+    lastSentinel: { label: "stale-completion-sentinel", digest: "f".repeat(64) }
+  }));
+  const staleCompletion = await evaluateCompletion(root, started.runId);
+  assert.equal(staleCompletion.ok, false);
+  assert.equal(staleCompletion.blockers.includes("invalid-typed-evidence:completion-sentinel-decision"), true);
+  await rm(workspace, { recursive: true, force: true });
+  await rm(root, { recursive: true, force: true });
 });
 
 test("ledger completion rejects self-reported evidence without a typed receipt", async () => {

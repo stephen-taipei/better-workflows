@@ -127,6 +127,29 @@
         "sourceSentinelDigest"
       ]
     },
+    "agent-review-quorum": {
+      "id": "evidence-contracts-v1:agent-review-quorum",
+      "producerAllowlist": [
+        "quorum-verifier"
+      ],
+      "payloadFamily": "decision-disposition",
+      "requiredFields": [
+        "decision",
+        "manifest",
+        "manifestDigest",
+        "routing",
+        "roleReceipts",
+        "blockers",
+        "reportDigest"
+      ],
+      "freshnessBinding": [
+        "runId",
+        "contractDigest",
+        "remoteRevision",
+        "sourceBindingDigest",
+        "sourceSentinelDigest"
+      ]
+    },
     "architecture-risk-map": {
       "id": "evidence-contracts-v1:architecture-risk-map",
       "producerAllowlist": [

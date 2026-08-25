@@ -35,7 +35,7 @@ import {
   parseNulNameStatusPaths,
   readRawLocalConfigValues
 } from "./autonomy-snapshot.mjs";
-import { REVIEW_POLICIES, reviewKernelEnabled, validateReviewProfile } from "./review-policy.mjs";
+import { REVIEW_POLICIES, quorumReviewEnabled, reviewKernelEnabled, validateReviewProfile } from "./review-policy.mjs";
 
 const BOUND_GIT_EXECUTABLE = "/usr/bin/git";
 const BOUND_GIT_PATH = "/usr/bin:/bin:/usr/sbin:/sbin";
@@ -50,6 +50,10 @@ const BOUND_PROCESS_GROUP_CLEANUP_GRACE_MS = 250;
 const BOUND_TIMEOUT_PROCESS_GROUP_CLEANUP_GRACE_MS = 1_000;
 const BOUND_CREDENTIAL_ROOT = process.platform === "darwin" ? "/private/tmp" : "/tmp";
 export const BOUND_CREDENTIAL_WORKSPACE_ROOT = BOUND_CREDENTIAL_ROOT;
+const DEV_DELIVERY_TEMPLATES = new Set(["pr-to-dev", "pr-to-dev-agent-quorum"]);
+function isDevDeliveryTemplate(template) {
+  return DEV_DELIVERY_TEMPLATES.has(template);
+}
 
 // Keep a verified process-group leader alive until every bounded provider
 // descendant has been terminated.  The supervisor reports the target's exit
@@ -566,7 +570,7 @@ function assertNoAmbientGitAuthorityOverrides() {
   }
 }
 
-export const VERSION = "3.4.13";
+export const VERSION = "3.4.14";
 export const MODES = new Set(["auto", "direct", "verified", "deep", "critical"]);
 export const RUN_STATES = new Set([
   "pending",
@@ -2860,7 +2864,7 @@ export async function evaluateCompletion(root, runId) {
       }
       if (isTypedEvidence(record) && !record.stale) {
         try {
-          await validateTypedEvidenceRecord(record, { manifest, contract, root, runDir, requireReconciled: true });
+          await validateTypedEvidenceRecord(record, { manifest, contract, state, root, runDir, requireReconciled: true });
           if (record.kind === "required-checks") {
             const mergeGated = contract.actionGates?.["pr.merge"]?.includes("required-checks") === true;
             if (!mergeGated) {
@@ -2970,7 +2974,7 @@ export async function evaluateCompletion(root, runId) {
     blockers.push("side-effect-not-reconciled");
   }
   if (
-    contract.template === "pr-to-dev" &&
+    isDevDeliveryTemplate(contract.template) &&
     availableEvidence.has("remote-sync") &&
     !actions.some((action) => (
       action.action === "remote.sync" &&
@@ -3041,7 +3045,7 @@ export async function evaluateCompletion(root, runId) {
       }
     }
   }
-  if (contract.template === "pr-to-dev") {
+  if (isDevDeliveryTemplate(contract.template)) {
     const remoteSyncAction = actions.find((action) => (
       action.action === "remote.sync" &&
       action.status === "spent" &&
@@ -3058,6 +3062,8 @@ export async function evaluateCompletion(root, runId) {
     }
   }
   const { isIndependentCriticEvidence } = await import("./evidence.mjs");
+  const { isQuorumEvidence, changedPathsFromDiffManifest } = await import("./quorum.mjs");
+  const { reviewPackageDigest } = await import("./review.mjs");
   const hasLegacyIndependentCritic = admittedEvidence.some((item) => isIndependentCriticEvidence(item, {
     reviewPackage: completionReview?.package,
     sentinelDigest: state.lastSentinel?.digest
@@ -3071,7 +3077,25 @@ export async function evaluateCompletion(root, runId) {
       axis.providerExecution?.trustAttested === true
     )).length >= 2
   );
-  const hasIndependentCritic = hasLegacyIndependentCritic || hasKernelIndependentCritic;
+  const hasQuorumEvidence = quorumReviewEnabled(contract.controlPlane?.reviewPolicy) && admittedEvidence.some((item) => isQuorumEvidence(item, {
+    registryCwd: manifest.cwd,
+    expected: {
+      runId,
+      sourceBindingDigest: manifest.sourceBinding?.digest,
+      sourceSentinelDigest: state.lastSentinel?.digest,
+      contractDigest: digestObject(contract),
+      templateDigest: contract.templateDigest,
+      reviewPackageId: completionReview?.package?.packageId ?? undefined,
+      ...(completionReview?.package ? {
+        reviewPackageDigest: reviewPackageDigest(completionReview.package),
+        base: completionReview.package.base,
+        head: completionReview.package.head,
+        mergeBase: completionReview.package.mergeBase,
+        changedPaths: changedPathsFromDiffManifest(completionReview.package.diffManifest)
+      } : {})
+    }
+  }));
+  const hasIndependentCritic = hasLegacyIndependentCritic || hasKernelIndependentCritic || hasQuorumEvidence;
   if (["deep", "critical"].includes(manifest.mode) && !hasIndependentCritic) {
     blockers.push("missing-independent-critic");
   }
@@ -5509,7 +5533,7 @@ async function verifyProviderReceipt(manifest, record, receipt, contract = null)
     return;
   }
   if (key === "remote.sync:git") {
-    if (manifest.template === "pr-to-dev" && record.resource !== "refs/heads/dev") {
+    if (isDevDeliveryTemplate(manifest.template) && record.resource !== "refs/heads/dev") {
       throw new Error("pr-to-dev remote synchronization is restricted to refs/heads/dev");
     }
     const branchRef = /^refs\/heads\/(.+)$/.exec(record.resource)?.[1];
@@ -6309,7 +6333,7 @@ export async function verifyRequiredChecksProvider(
 async function assertPullEvidenceBinding(admittedEvidence, request, reviewPackage, contract, expectedRepository) {
   const pullMatch = /^pull\/(\d+)$/.exec(request.resource);
   if (!pullMatch) throw new Error("PR merge resources must use pull/<number>");
-  const expectedBaseRef = contract.template === "pr-to-dev" ? "dev" : null;
+  const expectedBaseRef = isDevDeliveryTemplate(contract.template) ? "dev" : null;
   for (const kind of ["pr-state", "required-checks"]) {
     if (!request.requiredEvidence.includes(kind)) continue;
     const records = admittedEvidence.filter((item) => item.kind === kind && item.status === "complete" && !item.stale);
@@ -6344,7 +6368,13 @@ function assertTargetBranchEvidence(admittedEvidence, request, expectedRepositor
   if (!exact) throw new Error("Action token denied until target-branch-dev is bound to the selected repository and dev revision");
 }
 
-function assertRemoteAuthorizationEvidence(admittedEvidence, request, providerAuthorization, expectedRepository) {
+export function assertRemoteAuthorizationEvidence(
+  admittedEvidence,
+  request,
+  providerAuthorization,
+  expectedRepository,
+  expectedAuthorizedRevision = request.remoteRevision
+) {
   const exact = admittedEvidence.some((record) => {
     if (record.kind !== "remote-authorization" || record.status !== "complete" || record.stale) return false;
     const payload = record.receipt?.payload;
@@ -6358,7 +6388,7 @@ function assertRemoteAuthorizationEvidence(admittedEvidence, request, providerAu
       payload?.action === request.action &&
       payload?.provider === request.provider &&
       payload?.resource === request.resource &&
-      payload?.remoteRevision === request.remoteRevision &&
+      payload?.remoteRevision === expectedAuthorizedRevision &&
       typeof payload?.repository === "string" && payload.repository.length > 0 &&
       typeof payload?.actor === "string" && payload.actor.length > 0 &&
       (!gitPush || (
@@ -6794,7 +6824,7 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
       if (autonomyProfileDigest(profile) !== contract.autonomyProfile.profileDigest) {
         throw new Error("Autonomy profile bundle drifted after run creation");
       }
-      const requestedScope = request.action === "pr.create" && contract.template === "pr-to-dev"
+      const requestedScope = request.action === "pr.create" && isDevDeliveryTemplate(contract.template)
         ? "dev"
         : request.scope;
       const decision = decideAutonomyAction(profile, request.action, {
@@ -6838,7 +6868,7 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
     ) {
       throw new Error("PR creation already succeeded for this run; reuse the registered pull request");
     }
-    if (request.action === "pr.merge" && contract.template === "pr-to-dev") {
+    if (request.action === "pr.merge" && isDevDeliveryTemplate(contract.template)) {
       assertRunOwnedPullRequest(manifest, actions, runId, request.resource);
     }
     if (!state.lastSentinelVerified || state.lastSentinel?.digest !== currentTreeDigest) {
@@ -6922,7 +6952,7 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
       }
       const [, remote, ref] = GIT_PUSH_RESOURCE.exec(request.resource) ?? [];
       if (!remote) throw new Error("Git push resources must use remote:<name>:refs/heads/<branch>");
-      if (contract.template === "pr-to-dev" && ref === "refs/heads/dev") {
+      if (isDevDeliveryTemplate(contract.template) && ref === "refs/heads/dev") {
         throw new Error("pr-to-dev forbids direct pushes to protected dev");
       }
       const currentSourceBinding = await assertCurrentGitPushSourceBinding(manifest);
@@ -6934,7 +6964,7 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
       if (remoteRepository !== repository) {
         throw new Error("Git push effective destination must match the authorized origin repository");
       }
-      if (contract.template === "pr-to-dev" && (remote !== "origin" || remoteRepository !== repository)) {
+      if (isDevDeliveryTemplate(contract.template) && (remote !== "origin" || remoteRepository !== repository)) {
         throw new Error("pr-to-dev git.push must use the canonical origin repository");
       }
       const expectedBranch = ref.slice("refs/heads/".length);
@@ -6963,9 +6993,19 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
             gitExecutablePath: gitProviderExecutable.path
           }
         );
-        assertRemoteAuthorizationEvidence(admittedEvidence, request, providerAuthorization, repository);
+        // A governed git.push has two deliberate revision anchors:
+        // request.remoteRevision protects the reviewed/target base, while
+        // expectedRevision is the exact commit that the credential dry-run
+        // and fixed-argv push will transfer. PR actions use one revision.
+        assertRemoteAuthorizationEvidence(
+          admittedEvidence,
+          request,
+          providerAuthorization,
+          repository,
+          expectedRevision
+        );
       }
-      if (contract.template === "pr-to-dev") {
+      if (isDevDeliveryTemplate(contract.template)) {
         const currentBranch = (await execBoundGitAuthority(manifest.cwd, ["branch", "--show-current"])).stdout.trim();
         const currentBranchEvidence = admittedEvidence.find((item) => (
           item.kind === "current-branch" && item.status === "complete" && !item.stale &&
@@ -7065,7 +7105,7 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
         "rev-parse", "--verify", "HEAD^{commit}"
       ])).stdout.trim();
       if (!SHA.test(expectedHead)) throw new Error("PR creation requires an exact candidate source head");
-      const targetRef = contract.template === "pr-to-dev" ? "dev" : String(request.scope ?? "");
+      const targetRef = isDevDeliveryTemplate(contract.template) ? "dev" : String(request.scope ?? "");
       if (!/^[A-Za-z0-9._/-]+$/.test(targetRef)) {
         throw new Error("PR creation requires an exact target branch via --scope");
       }
@@ -7101,7 +7141,7 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
         ...actionBinding,
         pullRequest,
         reviewedHead: currentHead,
-        ...(contract.template === "pr-to-dev" ? { targetRef: "dev" } : {}),
+        ...(isDevDeliveryTemplate(contract.template) ? { targetRef: "dev" } : {}),
         mergeMethod: "merge",
         adminBypass: false,
         providerExecutable: providerExecutable ?? await currentProviderExecutableIdentity("gh"),
@@ -7135,7 +7175,7 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
       });
       actionBinding.creationReservation = creationReservation;
     }
-    if (request.action === "remote.sync" && contract.template === "pr-to-dev" && request.resource !== "refs/heads/dev") {
+    if (request.action === "remote.sync" && isDevDeliveryTemplate(contract.template) && request.resource !== "refs/heads/dev") {
       throw new Error("pr-to-dev remote synchronization is restricted to refs/heads/dev");
     }
     if (request.action === "remote.sync") {
@@ -7189,6 +7229,8 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
     let creationPrecondition = null;
     if (request.action === "pr.merge" && contract.controlPlane?.reviewPolicy !== "none") {
       const { isIndependentCriticEvidence } = await import("./evidence.mjs");
+      const { isQuorumEvidence, changedPathsFromDiffManifest } = await import("./quorum.mjs");
+      const { reviewPackageDigest } = await import("./review.mjs");
       const { assertReviewContinuity, reviewStatus } = await import("./review.mjs");
       const review = await reviewStatus(root, runId);
       const currentHead = (await execBoundGitAuthority(manifest.cwd, [
@@ -7200,8 +7242,23 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
       const hasIndependentCritic = admittedEvidence.some((item) => isIndependentCriticEvidence(item, {
         reviewPackage: review.package,
         sentinelDigest: state.lastSentinel?.digest
-      }));
-      if (!hasIndependentCritic) throw new Error("Action token denied until the exact independent critic is admitted");
+      })) || (quorumReviewEnabled(contract.controlPlane?.reviewPolicy) && admittedEvidence.some((item) => isQuorumEvidence(item, {
+        registryCwd: manifest.cwd,
+        expected: {
+          runId,
+          sourceBindingDigest: manifest.sourceBinding?.digest,
+          sourceSentinelDigest: state.lastSentinel?.digest,
+          contractDigest: digestObject(contract),
+          templateDigest: contract.templateDigest,
+          reviewPackageId: review.package.packageId,
+          reviewPackageDigest: reviewPackageDigest(review.package),
+          base: review.package.base,
+          head: review.package.head,
+          mergeBase: review.package.mergeBase,
+          changedPaths: changedPathsFromDiffManifest(review.package.diffManifest)
+        }
+      })));
+      if (!hasIndependentCritic) throw new Error("Action token denied until the exact independent critic or agent-review-quorum evidence is admitted");
       await assertPullEvidenceBinding(admittedEvidence, request, review.package, contract, repository);
       const continuity = await assertReviewContinuity(root, runId);
       actionBinding = {
@@ -7303,7 +7360,7 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
       const cleanupPlan = admittedEvidence.find((item) => item.kind === "actions-cleanup-plan");
       assertCleanupResourceBinding(manifest, runId, request, cleanupPlan, actions);
       if (
-        contract.template === "pr-to-dev" &&
+        isDevDeliveryTemplate(contract.template) &&
         !actions.some((action) => (
           action.action === "remote.sync" &&
           action.status === "spent" &&
@@ -7338,7 +7395,7 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
     }
     const token = randomBytes(32).toString("base64url");
     const tokenHash = sha256(token);
-    const persistedScope = request.action === "pr.create" && contract.template === "pr-to-dev"
+    const persistedScope = request.action === "pr.create" && isDevDeliveryTemplate(contract.template)
       ? "dev"
       : request.scope ?? request.resource;
     const ttlSeconds = Number(request.ttlSeconds ?? config.actionToken.ttlSeconds);

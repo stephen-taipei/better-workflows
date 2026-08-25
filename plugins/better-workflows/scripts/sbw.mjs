@@ -127,10 +127,18 @@ import {
   recordReviewAxis,
   recordReviewCoverage,
   recordReviewSynthesis,
+  reviewPackageDigest,
   reviewKernelStatus,
   reviewStatus
 } from "./lib/review.mjs";
 import { reviewKernelEnabled, reviewPackageBindingRequired } from "./lib/review-policy.mjs";
+import {
+  QUORUM_EVIDENCE_KIND,
+  QUORUM_POLICY_ID,
+  buildQuorumEvidencePayload,
+  changedPathsFromDiffManifest,
+  reduceQuorum
+} from "./lib/quorum.mjs";
 import { recordRefinement, refinementStatus } from "./lib/refinement.mjs";
 import {
   recipeArtifactPromote,
@@ -1795,6 +1803,110 @@ async function commandDoctor(root, options) {
   };
 }
 
+function quorumExpectedBindings(run, reviewPackage = null) {
+  const expected = {
+    runId: run.manifest.runId,
+    sourceBindingDigest: run.manifest.sourceBinding?.digest,
+    sourceSentinelDigest: run.state.lastSentinel?.digest,
+    contractDigest: digestObject(run.contract),
+    templateDigest: run.contract.templateDigest
+  };
+  if (reviewPackage) {
+    Object.assign(expected, {
+      reviewPackageId: reviewPackage.packageId,
+      reviewPackageDigest: reviewPackageDigest(reviewPackage),
+      instructionDigest: reviewPackage.instructionDigest,
+      base: reviewPackage.base,
+      head: reviewPackage.head,
+      mergeBase: reviewPackage.mergeBase,
+      changedPaths: changedPathsFromDiffManifest(reviewPackage.diffManifest)
+    });
+  }
+  return expected;
+}
+
+async function commandReviewQuorum(root, action, runId, options) {
+  if (!runId) throw new Error("review quorum requires a run id");
+  assertKnownOptions(options, ["file"]);
+  const run = await loadRun(root, runId);
+  if (action === "status") {
+    const records = (await listJsonRecords(root, safeJoin(run.runDir, "evidence")))
+      .filter((record) => record.kind === QUORUM_EVIDENCE_KIND)
+      .map((record) => ({
+        id: record.id,
+        stale: record.stale === true,
+        manifestDigest: record.receipt?.payload?.manifestDigest ?? null,
+        verdict: record.receipt?.payload?.decision?.verdict ?? null,
+        routing: record.receipt?.payload?.routing ?? null,
+        blockers: record.receipt?.payload?.blockers ?? []
+      }));
+    return { ok: true, runId, policy: QUORUM_POLICY_ID, records };
+  }
+  if (!["run", "verify"].includes(action) || !options.file) {
+    throw new Error("review quorum usage: sbw review quorum run|verify|status <run-id> [--file <manifest.json>]");
+  }
+  if (!run.state.lastSentinelVerified || !run.state.lastSentinelComplete) {
+    throw new Error("Quorum verification requires a verified complete current sentinel");
+  }
+  const manifest = JSON.parse(await readFile(path.resolve(String(options.file)), "utf8"));
+  const review = await reviewStatus(root, runId);
+  if (!review.package) throw new Error("Quorum verification requires an immutable current review package");
+  const result = reduceQuorum(manifest, {
+    registryCwd: run.manifest.cwd,
+    expected: quorumExpectedBindings(run, review.package)
+  });
+  const report = {
+    schemaVersion: 1,
+    policyId: QUORUM_POLICY_ID,
+    runId,
+    manifestDigest: result.manifestDigest,
+    verdict: result.verdict,
+    routing: result.routing,
+    roleStatuses: result.roleStatuses,
+    blockers: result.blockers,
+    dissent: result.dissent,
+    hostSignerInvoked: false
+  };
+  if (action === "verify" || !result.ok) {
+    return { ok: result.ok, runId, policy: QUORUM_POLICY_ID, result, report };
+  }
+  const payload = buildQuorumEvidencePayload(manifest, result);
+  const id = `agent-review-quorum-${result.manifestDigest.slice(0, 32)}`;
+  const record = {
+    schemaVersion: 2,
+    id,
+    kind: QUORUM_EVIDENCE_KIND,
+    status: "complete",
+    summary: "Five-role agent review quorum passed for the exact ordinary-PR review package.",
+    acceptanceIds: run.contract.acceptance.map((item) => item.id),
+    dependencyInputs: { files: [] },
+    receipt: {
+      contractId: `evidence-contracts-v1:${QUORUM_EVIDENCE_KIND}`,
+      contractVersion: 1,
+      runId,
+      producer: { provider: "quorum-verifier", policyId: QUORUM_POLICY_ID },
+      inputBinding: {
+        runId,
+        contractDigest: digestObject(run.contract),
+        remoteRevision: run.contract.remoteRevision ?? null,
+        sourceBindingDigest: run.manifest.sourceBinding?.digest ?? null,
+        sourceSentinelDigest: run.state.lastSentinel?.digest ?? null
+      },
+      payload,
+      payloadDigest: digestObject(payload),
+      producedAt: nowIso()
+    }
+  };
+  return {
+    ok: true,
+    runId,
+    policy: QUORUM_POLICY_ID,
+    result,
+    report,
+    evidence: await addEvidence(root, runId, await enrichEvidence(root, runId, record))
+  };
+}
+
 async function commandRoute(root, subcommand, action, options) {
   if (subcommand === "preview") {
     assertKnownOptions(options, [
@@ -2002,6 +2114,7 @@ function help() {
       "sbw ledger compile <run-id> --design-packet <packet.json>",
       "sbw refinement status|apply <run-id> [--file <receipt.json>]",
       "sbw review package|finding|axis-digest|axis|verify-digest|verify|coverage|synthesize|status|repair|broad <run-id> ...",
+      "sbw review quorum run|verify|status <run-id> [--file <manifest.json>]",
       "sbw recipe init",
       "sbw recipe scaffold <id>",
       "sbw recipe list",
@@ -2519,6 +2632,9 @@ async function main() {
       return { ok: true, ledger: await compileLedger(root, runId, packet) };
     }
     throw new Error("ledger subcommand must be status, transition, or compile");
+  }
+  if (command === "review" && subcommand === "quorum") {
+    return commandReviewQuorum(root, runId, fourth, options);
   }
   if (command === "review") {
     if (!runId) throw new Error("review requires run id");

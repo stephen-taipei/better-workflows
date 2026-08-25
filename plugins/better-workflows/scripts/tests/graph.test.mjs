@@ -659,7 +659,7 @@ test("every installed template has zero hard Graph View diagnostics", async () =
   const templates = (await readdir(path.join(pluginRoot(), "templates")))
     .filter((name) => name.endsWith(".json"))
     .sort();
-  assert.equal(templates.length, 13);
+  assert.equal(templates.length, 14);
   for (const name of templates) {
     const definition = JSON.parse(
       await readFile(path.join(pluginRoot(), "templates", name), "utf8")

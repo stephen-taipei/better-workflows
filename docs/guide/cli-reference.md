@@ -36,6 +36,7 @@ sbw run --template pr-to-dev --mode critical --goal "<goal>" --scope <path> \
   --self-improve-run <self-improve-run-id>
 sbw run --template pr-to-dev --mode critical --goal "<goal>" --scope <path> \
   --autonomy-profile bounded-autopilot-v1
+sbw run --template pr-to-dev-agent-quorum --mode critical --goal "<ordinary PR goal>" --scope <path>
 sbw self-improve handoff <pr-to-dev-run-id> --source-run <self-improve-run-id>
 sbw run --route-receipt <route-receipt-id>
 sbw status <run-id>
@@ -63,6 +64,9 @@ sbw review verify <run-id> --file <verification-receipt.json> \
 sbw review coverage <run-id>
 sbw review synthesize <run-id>
 sbw review status <run-id>
+sbw review quorum status <run-id>
+sbw review quorum verify <run-id> --file <quorum-manifest.json>
+sbw review quorum run <run-id> --file <quorum-manifest.json>
 sbw review finding <run-id> --file <finding.json>
 sbw review repair <run-id> --package <package-id> --file <result.json>
 sbw review broad <run-id> --package <package-id> --head <sha> --sentinel-digest <sha256>
@@ -94,6 +98,14 @@ legacy-compatible diff-manifest, package-location, broad-review, provenance,
 and instruction-digest guarantees. Only `review-kernel-v2-pilot` records exact
 work-unit accounting, source-quote anchors, finder/verifier separation, and
 host-attested native provenance; it remains restricted to `self-improve-ops`.
+
+`pr-to-dev-agent-quorum` binds `review-quorum-v1` and the
+`agent-review-quorum-v1` policy. It is intended only for ordinary low-risk PR
+diffs. The five fixed role receipts must all be PASS and must satisfy the
+identity/provider diversity rules. `review quorum verify` is read-only;
+`review quorum run` admits the typed receipt after the same checks. Neither
+command invokes `sudo` or the host signer. A high-risk or unclassified diff is
+HOLD and must be handled by the existing host-trusted `pr-to-dev` path.
 
 Evaluator attestation request generation uses the unique currently valid
 host-approved native Codex binary by default. If more than one valid entry is
@@ -129,6 +141,13 @@ Use `sbw action execute` for wrapper-backed `git.push`, `pr.create`, and
 reserved for non-wrapper side effects that the root performs before a separate
 reconciliation. Contract `deferredActions` are rejected by the core lifecycle,
 even when a template has no active action stage.
+
+For governed `git.push`, `--remote-revision` remains the protected task/base
+revision used by the contract and review gates. The action binding separately
+captures the exact current source commit (`expectedRevision`) that the pinned
+credential dry-run and fixed-argv push will transfer. Remote-authorization
+evidence must bind its `payload.remoteRevision` to that source commit; PR merge
+authorization continues to bind its payload to the protected base revision.
 
 ## Graph View
 

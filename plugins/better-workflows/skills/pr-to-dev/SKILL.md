@@ -9,6 +9,15 @@ Read `../better-workflows/SKILL.md` completely and follow it, including the Goal
 
 Use template `pr-to-dev` with minimum mode `critical`. Inventory every in-scope change, stage explicit atomic commit batches, rebind the source after an intended commit wave with `sbw source rebind` before review (which invalidates all prior complete evidence and resets the v2 ledger), publish the candidate through the governed fixed-argv `pr.create` provider wrapper, require the PR to target the exact `dev` branch, verify fresh required checks for the current head, merge only the run-owned canonical PR without admin bypass, reconcile remote `dev`, and clean only resources owned by this run. A task that explicitly selects `bounded-autopilot-v1` may automate the bounded commit, cache, `codex/*` push, and `dev` PR stages after `sbw autonomy preflight`; protected merge, deploy, direct protected-branch push, and destructive cleanup remain separate human-authority gates.
 
+For a new ordinary, low-risk PR that does not touch governance or authority
+surfaces, use the isolated `pr-to-dev-agent-quorum` template instead. It keeps
+the same fresh-check, run-owned PR, protected merge, `adminBypass:false`, and
+remote-reconciliation gates, but replaces the legacy host-signed critic with
+the five-role `agent-review-quorum-v1` contract. Verify and admit the manifest
+with `sbw review quorum verify|run`; missing, stale, conflicting, or
+high-risk input is HOLD. The verifier does not invoke `sudo`; high-risk work
+must use this skill's host-trusted `pr-to-dev` route.
+
 When this delivery is handing off an accepted Better Workflows
 self-improvement, start the run with the source run explicitly bound:
 

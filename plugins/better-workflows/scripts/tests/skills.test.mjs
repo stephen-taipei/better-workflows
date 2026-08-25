@@ -45,7 +45,7 @@ test("main skill defines persistent goal lifecycle", async () => {
   assert.match(content, /sbw route preview/);
   assert.match(content, /workspace Profile/);
   assert.match(content, /single-use receipt/);
-  assert.match(content, /101-kind catalog/);
+  assert.match(content, /102-kind catalog/);
 });
 
 test("auto entry requires capability snapshot and route preview before selection", async () => {
