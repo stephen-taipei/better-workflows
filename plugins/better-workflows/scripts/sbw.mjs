@@ -1815,6 +1815,7 @@ function quorumExpectedBindings(run, reviewPackage = null) {
     Object.assign(expected, {
       reviewPackageId: reviewPackage.packageId,
       reviewPackageDigest: reviewPackageDigest(reviewPackage),
+      instructionDigest: reviewPackage.instructionDigest,
       base: reviewPackage.base,
       head: reviewPackage.head,
       mergeBase: reviewPackage.mergeBase,
@@ -1851,6 +1852,7 @@ async function commandReviewQuorum(root, action, runId, options) {
   const review = await reviewStatus(root, runId);
   if (!review.package) throw new Error("Quorum verification requires an immutable current review package");
   const result = reduceQuorum(manifest, {
+    registryCwd: run.manifest.cwd,
     expected: quorumExpectedBindings(run, review.package)
   });
   const report = {

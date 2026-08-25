@@ -352,12 +352,14 @@ async function assertQuorumEvidence(payload, kind, run) {
     throw new Error("Quorum evidence review package binding is stale");
   }
   validateQuorumEvidencePayload(payload, {
+    registryCwd: run.manifest.cwd,
     expected: {
       runId: run.manifest.runId,
       sourceBindingDigest: run.manifest.sourceBinding?.digest,
       sourceSentinelDigest: run.state.lastSentinel?.digest,
       contractDigest: digestObject(run.contract),
       templateDigest: run.contract.templateDigest,
+      instructionDigest: reviewPackage.instructionDigest,
       reviewPackageId: reviewPackage.packageId,
       reviewPackageDigest: reviewPackageDigest(reviewPackage),
       base: reviewPackage.base,
