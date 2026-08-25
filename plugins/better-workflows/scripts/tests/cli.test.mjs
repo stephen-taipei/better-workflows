@@ -205,7 +205,7 @@ test("CLI lists exactly the installed workflow templates", async () => {
   const cwd = await repository();
   const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-cli-list-"));
   const result = await cli(cwd, stateRoot, ["templates"]);
-  assert.equal(result.json.templates.length, 13);
+  assert.equal(result.json.templates.length, 14);
 });
 
 test("CLI routes the self-improve selector to its critical template", async () => {

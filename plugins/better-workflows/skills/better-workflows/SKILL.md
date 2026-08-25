@@ -259,7 +259,7 @@ Do not complete with open P0/P1 findings, stale evidence, expired accepted risk,
 
 All newly-created non-direct template runs use TaskContract v2. The run creates
 an append-only execution ledger and accepts only typed evidence receipts from
-the 101-kind catalog; v1 runs remain on the v1 reader and are never silently
+the 102-kind catalog; v1 runs remain on the v1 reader and are never silently
 upgraded. A v2 completion cannot be authorized by text or caller-supplied
 `acceptanceIds`.
 
@@ -281,6 +281,22 @@ sbw review package <run-id> --base <40-char-sha> --head <40-char-sha> \
   --instruction-digest <sha256> --sentinel-digest <sha256>
 sbw review status <run-id>
 ~~~
+
+For ordinary, low-risk PR delivery, use the isolated `pr-to-dev-agent-quorum`
+template. After the immutable review package is closed, provide a source-bound
+`quorum-manifest-v1` from the five fixed software roles and verify it with:
+
+~~~bash
+sbw review quorum verify <run-id> --file <quorum-manifest.json>
+sbw review quorum run <run-id> --file <quorum-manifest.json>
+~~~
+
+`run` records one `agent-review-quorum` receipt only when every role is PASS,
+the identities and provider families satisfy the diversity policy, and the
+classifier returns `ordinary`. Missing, conflicting, stale, high-risk, or
+unclassified input is HOLD. This path reports `hostSignerInvoked: false` and
+does not call `sudo`; governance changes, evaluator/identity/routing changes,
+and any other high-risk surface remain on the legacy host-trusted path.
 
 `sbw deliberation deliberate --run <run-id> --prompt-file <sanitized-file>` is
 available only to the research and self-improve pilots. It writes one atomic,
