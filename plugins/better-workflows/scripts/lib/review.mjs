@@ -1,6 +1,7 @@
 import { appendJournal, assertMutableRun, atomicWriteJson, canonicalizeScope, digestObject, listJsonRecords, loadDefaults, loadRun, nowIso, readJson, safeJoin, sha256, withRunLock } from "./core.mjs";
 import { captureSentinel, runSourceGit } from "./git.mjs";
-import { reviewKernelEnabled } from "./review-policy.mjs";
+import { quorumReviewEnabled, reviewKernelEnabled } from "./review-policy.mjs";
+import { changedPathsFromDiffManifest, isQuorumEvidence } from "./quorum.mjs";
 
 const SHA = /^[0-9a-f]{40}$/;
 const DIGEST = /^[0-9a-f]{64}$/;
@@ -1102,6 +1103,26 @@ async function assertBroadReviewEvidence(root, run, reviewPackage, kernel = null
   ));
   if (!diff) throw new Error("Broad review requires final package-bound diff-review evidence");
   await validateTypedEvidenceRecord(diff, run);
+  if (quorumReviewEnabled(run.contract.controlPlane?.reviewPolicy)) {
+    const quorum = evidence.find((item) => isQuorumEvidence(item, {
+      expected: {
+        runId: run.manifest.runId,
+        sourceBindingDigest: run.manifest.sourceBinding?.digest,
+        sourceSentinelDigest: run.state.lastSentinel?.digest,
+        contractDigest: digestObject(run.contract),
+        templateDigest: run.contract.templateDigest,
+        reviewPackageId: reviewPackage.packageId,
+        reviewPackageDigest: reviewPackageDigest(reviewPackage),
+        base: reviewPackage.base,
+        head: reviewPackage.head,
+        mergeBase: reviewPackage.mergeBase,
+        changedPaths: changedPathsFromDiffManifest(reviewPackage.diffManifest)
+      }
+    }));
+    if (!quorum) throw new Error("Broad review requires a passing agent-review-quorum evidence record");
+    await validateTypedEvidenceRecord(quorum, run);
+    return;
+  }
   if (run.manifest.mode === "critical") {
     const critic = evidence.find((item) => (
       isIndependentCriticEvidence(item, {

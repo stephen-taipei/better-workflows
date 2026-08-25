@@ -321,12 +321,13 @@ async function recordAxis(root, runId, reviewPackage, lane, index, { findings = 
   });
 }
 
-test("typed catalog covers exactly the 101 installed evidence kinds", async () => {
+test("typed catalog covers exactly the 102 installed evidence kinds", async () => {
   const contracts = await loadEvidenceContracts({ refresh: true });
-  assert.equal(Object.keys(contracts).length, 101);
+  assert.equal(Object.keys(contracts).length, 102);
   assert.ok(contracts["remote-sync"]);
   assert.ok(contracts["work-unit-accounting"]);
   assert.ok(contracts["review-kernel-summary"]);
+  assert.ok(contracts["agent-review-quorum"]);
 });
 
 test("typed required-check admission uses the production host verifier and rejects forged, missing, altered, invalidly signed, and source-drifted approvals", async () => {

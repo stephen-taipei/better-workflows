@@ -4,6 +4,7 @@ import { digestObject, listJsonRecords, pluginRoot, safeJoin, verifyMergeHumanAp
 import { captureSourceBinding } from "./git.mjs";
 import { SELF_IMPROVE_HANDOFF_KIND, validateSelfImproveDeliveryHandoff } from "./self-improve-handoff.mjs";
 import { reviewPackageBindingRequired } from "./review-policy.mjs";
+import { QUORUM_EVIDENCE_KIND, changedPathsFromDiffManifest, validateQuorumEvidencePayload } from "./quorum.mjs";
 
 const CONTRACT_FILE = path.join(pluginRoot(), "config", "evidence-contracts-v1.json");
 const HEX_DIGEST = /^[a-f0-9]{64}$/;
@@ -32,8 +33,8 @@ export async function loadEvidenceContracts({ refresh = false } = {}) {
     throw new Error("evidence-contracts-v1 must contain schemaVersion 1 and contracts");
   }
   const entries = Object.entries(value.contracts);
-  if (entries.length !== 101) {
-    throw new Error(`evidence-contracts-v1 must cover exactly 101 kinds, found ${entries.length}`);
+  if (entries.length !== 102) {
+    throw new Error(`evidence-contracts-v1 must cover exactly 102 kinds, found ${entries.length}`);
   }
   for (const [kind, entry] of entries) {
     if (entry?.id !== `evidence-contracts-v1:${kind}`) {
@@ -169,11 +170,11 @@ async function assertActionProofPayload(payload, kind, run, evidenceId) {
 }
 
 const ARRAY_FIELDS = new Set([
-  "acceptanceIds", "batches", "checkSet", "checks", "commits", "conclusions", "files", "items",
-  "providerRunIds", "requiredStatusCheckApps", "requiredStatusChecks", "resources", "roles", "scope", "tasks", "witnessDigests"
+  "acceptanceIds", "batches", "blockers", "checkSet", "checks", "commits", "conclusions", "files", "items",
+  "providerRunIds", "requiredStatusCheckApps", "requiredStatusChecks", "resources", "roleReceipts", "roles", "scope", "tasks", "witnessDigests"
 ]);
 const OBJECT_FIELDS = new Set([
-  "actionProof", "artifact", "authorization", "counts", "diffManifest", "evaluatorAuthorization", "metadata", "permissions",
+  "actionProof", "artifact", "authorization", "counts", "decision", "diffManifest", "evaluatorAuthorization", "manifest", "metadata", "permissions",
   "providerAuthorization", "providerExecutable", "receipt", "scopeDigest", "summary", "target", "workflow"
 ]);
 const INTEGER_FIELDS = new Set(["number", "pr", "providerRunId", "repairRound"]);
@@ -318,6 +319,42 @@ async function assertReviewKernelEvidence(payload, kind, run) {
     payload.findingSetDigest !== kernel.findingSetDigest || payload.convergenceDigest !== kernel.convergenceDigest ||
     digestObject(payload.items) !== digestObject(kernel.findings)
   ) throw new Error("Typed evidence review-kernel-summary does not match deterministic synthesis");
+}
+
+async function assertQuorumEvidence(payload, kind, run) {
+  if (kind !== QUORUM_EVIDENCE_KIND) return;
+  const manifest = payload?.manifest;
+  const packageId = manifest?.reviewPackageId;
+  const root = path.dirname(path.dirname(run.runDir));
+  const packages = await listJsonRecords(root, safeJoin(run.runDir, "review-packages"));
+  const reviewPackage = packages.find((item) => item.packageId === packageId);
+  if (!reviewPackage || reviewPackage.immutable !== true) {
+    throw new Error("Quorum evidence must bind to an immutable current review package");
+  }
+  const { reviewPackageDigest } = await import("./review.mjs");
+  if (
+    reviewPackage.contractDigest !== digestObject(run.contract) ||
+    reviewPackage.templateDigest !== run.contract.templateDigest ||
+    reviewPackage.sentinelDigest !== run.state.lastSentinel?.digest ||
+    reviewPackage.diffManifestDigest !== digestObject(reviewPackage.diffManifest)
+  ) {
+    throw new Error("Quorum evidence review package binding is stale");
+  }
+  validateQuorumEvidencePayload(payload, {
+    expected: {
+      runId: run.manifest.runId,
+      sourceBindingDigest: run.manifest.sourceBinding?.digest,
+      sourceSentinelDigest: run.state.lastSentinel?.digest,
+      contractDigest: digestObject(run.contract),
+      templateDigest: run.contract.templateDigest,
+      reviewPackageId: reviewPackage.packageId,
+      reviewPackageDigest: reviewPackageDigest(reviewPackage),
+      base: reviewPackage.base,
+      head: reviewPackage.head,
+      mergeBase: reviewPackage.mergeBase,
+      changedPaths: changedPathsFromDiffManifest(reviewPackage.diffManifest)
+    }
+  });
 }
 
 async function assertFreshBinding(receipt, run, definition, kind) {
@@ -557,6 +594,7 @@ export async function admitTypedEvidence(record, run, { persisted = false } = {}
   await assertActionProofPayload(receipt.payload, record.kind, run, record.id);
   assertPayloadFields(receipt.payload, definition.requiredFields, record.kind, definition.nullableFields ?? []);
   await assertReviewKernelEvidence(receipt.payload, record.kind, run);
+  await assertQuorumEvidence(receipt.payload, record.kind, run);
   if (record.kind === SELF_IMPROVE_HANDOFF_KIND) {
     await validateSelfImproveDeliveryHandoff(receipt.payload, run);
   }

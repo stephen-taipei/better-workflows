@@ -38,7 +38,7 @@ test("bounded-autopilot policy is separate from templates and cannot authorize p
   assert.ok(profile.deniedActions.includes("password.capture"));
 });
 
-test("all thirteen templates are valid and side-effect templates declare action gates", async () => {
+test("all fourteen templates are valid and side-effect templates declare action gates", async () => {
   const directory = path.join(pluginRoot(), "templates");
   const names = (await readdir(directory))
     .filter((name) => name.endsWith(".json"))
@@ -52,6 +52,7 @@ test("all thirteen templates are valid and side-effect templates declare action 
     "issues-to-root-fix-pr-merge-cleanup.json",
     "localization-41.json",
     "monorepo-refactor.json",
+    "pr-to-dev-agent-quorum.json",
     "pr-to-dev.json",
     "research-deliberation.json",
     "review-to-issues.json",
@@ -196,9 +197,9 @@ test("generated HTML template inventory derives ci release stages from authorita
   assert.match(useCases, new RegExp(`id:'ci-release-monitor', mode:'critical', stages:${ciTemplate.executionStages.length},`));
   for (const stage of ciTemplate.executionStages) assert.ok(useCases.includes(`['${stage.id}'`), stage.id);
   assert.ok(!useCases.includes("['push-preflight'"));
-  assert.match(useCases, new RegExp(`13 / ${totalStages} stages`));
-  assert.match(useCases, /Thirteen templates and sixty stages/);
-  assert.match(home, new RegExp(`13 個 template 合計 ${totalStages} stages`));
+  assert.match(useCases, new RegExp(`14 / ${totalStages} stages`));
+  assert.match(useCases, /Fourteen templates and sixty-six stages/);
+  assert.match(home, new RegExp(`14 個 template 合計 ${totalStages} stages`));
   assert.match(preview, new RegExp(`${totalStages} 個 stages`));
   assert.match(preview, new RegExp(`${totalStages} stages`));
 });

@@ -771,7 +771,7 @@
       <a href="#change-rules"><span class="toc-num">10</span><span>改 code 守則</span></a>
       <a href="#source-files"><span class="toc-num">11</span><span>來源檔案</span></a>
     </nav>
-    <div class="sidebar-note"><b>SYNCED EDITION</b>本版依 implementation baseline <code>c5abd1f</code> 同步 template review profiles 與 101-kind evidence catalog；未執行 provider side effects。</div>
+    <div class="sidebar-note"><b>SYNCED EDITION</b>本版依 implementation baseline <code>c5abd1f</code> 同步 template review profiles 與 102-kind evidence catalog；未執行 provider side effects。</div>
   </aside>
 
   <main id="main-content">
@@ -792,7 +792,7 @@
           <div class="ticket-body">
             <div class="ticket-row"><span>ENTRY</span><strong>/ → 搜尋 better</strong></div>
             <div class="ticket-row"><span>DEFAULT</span><strong>$better-workflows:auto</strong></div>
-            <div class="ticket-row"><span>TEMPLATES</span><strong>13 exact workflows</strong></div>
+            <div class="ticket-row"><span>TEMPLATES</span><strong>14 exact workflows</strong></div>
             <div class="ticket-row"><span>MODES</span><strong>direct / verified / deep / critical</strong></div>
             <div class="ticket-row"><span>STOP RULE</span><strong>unknown ≠ complete</strong></div>
           </div>
@@ -805,8 +805,8 @@
       <div class="meta-cell"><span>Version</span><strong>3.4.13</strong></div>
       <div class="meta-cell"><span>Revision</span><strong>c5abd1f</strong></div>
       <div class="meta-cell"><span>Entrypoints</span><strong>17</strong></div>
-      <div class="meta-cell"><span>Templates</span><strong>13 / 60 stages</strong></div>
-      <div class="meta-cell"><span>Evidence catalog</span><strong>101 kinds</strong></div>
+      <div class="meta-cell"><span>Templates</span><strong>14 / 66 stages</strong></div>
+      <div class="meta-cell"><span>Evidence catalog</span><strong>102 kinds</strong></div>
     </div>
 
     <section class="book-section" id="scenario-finder" data-title="情境決策器">
@@ -862,18 +862,18 @@
         </div>
         <div class="fact-grid">
           <div class="mini-stat card"><strong>17</strong><span>Catalog entrypoints；其中 4 個是純 mode selector。</span></div>
-          <div class="mini-stat card"><strong>13</strong><span>Machine-readable templates；每次只選一個 primary。</span></div>
-          <div class="mini-stat card"><strong>101</strong><span>TaskContract v2 可接收的 exact evidence kinds。</span></div>
+          <div class="mini-stat card"><strong>14</strong><span>Machine-readable templates；每次只選一個 primary。</span></div>
+          <div class="mini-stat card"><strong>102</strong><span>TaskContract v2 可接收的 exact evidence kinds。</span></div>
           <div class="mini-stat card"><strong>3 / 5 / 1</strong><span>regular / review / side-effect stage 的嘗試預算。</span></div>
         </div>
-        <div class="atlas-head"><div><p class="kicker">Template atlas</p><h3>13 條可機器驗證的任務路線</h3></div><div class="filter-row" id="template-filters" aria-label="依模式篩選模板"></div></div>
+        <div class="atlas-head"><div><p class="kicker">Template atlas</p><h3>14 條可機器驗證的任務路線</h3></div><div class="filter-row" id="template-filters" aria-label="依模式篩選模板"></div></div>
         <div class="template-grid" id="template-grid"></div>
         <div class="distribution card">
-          <div class="donut" role="img" aria-label="13 個模板：verified 4、deep 5、critical 4"></div>
+          <div class="donut" role="img" aria-label="14 個模板：verified 4、deep 5、critical 5"></div>
           <div class="legend">
             <div class="legend-row" style="--c:var(--cyan);--w:80%"><i></i><span>verified</span><div class="bar"><span></span></div><b>4</b></div>
             <div class="legend-row" style="--c:var(--violet);--w:100%"><i></i><span>deep</span><div class="bar"><span></span></div><b>5</b></div>
-            <div class="legend-row" style="--c:var(--coral);--w:80%"><i></i><span>critical</span><div class="bar"><span></span></div><b>4</b></div>
+            <div class="legend-row" style="--c:var(--coral);--w:100%"><i></i><span>critical</span><div class="bar"><span></span></div><b>5</b></div>
             <p class="micro-note">direct 沒有模板：它保留 Goal persistence，但不建立 Better Workflows run、ledger 或 review package。</p>
           </div>
         </div>
@@ -882,7 +882,7 @@
 
     <section class="book-section" id="tutorials" data-title="14 種實戰教學">
       <div class="container">
-        <div class="section-heading"><span class="chapter-no">04</span><div><p class="kicker">Scenario tutorials</p><h2>十四種常見任務，從第一句話教到停手</h2><p>左側挑情境；右側會顯示可直接改寫的任務描述、正確入口、stage 流、證據清單與 fail-closed 紅燈。第 14 種是 direct 快速路徑，因此模板總數仍是 13。</p></div></div>
+        <div class="section-heading"><span class="chapter-no">04</span><div><p class="kicker">Scenario tutorials</p><h2>十四種常見任務，從第一句話教到停手</h2><p>左側挑情境；右側會顯示可直接改寫的任務描述、正確入口、stage 流、證據清單與 fail-closed 紅燈。direct 是快速路徑，另有一般 PR 的五角色 quorum 路線。</p></div></div>
         <div class="tutorial-shell">
           <nav class="scenario-index card" id="scenario-index" aria-label="實戰情境選單"></nav>
           <article class="tutorial-panel card" id="tutorial-panel" aria-live="polite"></article>
@@ -974,7 +974,7 @@ node plugins/better-workflows/scripts/sbw.mjs action issue &lt;run-id&gt; \
       <div class="container">
         <div class="section-heading"><span class="chapter-no">09</span><div><p class="kicker">Strengths, risks &amp; unknowns</p><h2>可靠之處與摩擦之處，都要有證據</h2><p>以下把 FACT、INFERENCE、RISK 與 UNKNOWN 分開。看不到 production telemetry，就不把完整的型別系統推論成已證實的營運成功。</p></div></div>
         <div class="balance-grid">
-          <div class="balance-card card"><h3>已被設計與測試支持</h3><div class="signal-list"><div class="signal good"><b>FACT</b><p>TaskContract v2 只接受 101-kind catalog 中的 typed evidence，並重驗 digest 與 semantic success。</p></div><div class="signal good"><b>FACT</b><p>Ledger append-only，依固定 reducer 重建狀態；嘗試預算耗盡是 machine-readable blocked。</p></div><div class="signal good"><b>FACT</b><p>Action token 短效且一次性；unknown provider outcome 不可被猜成 failure。</p></div><div class="signal good"><b>FACT</b><p>Review-enabled templates 會綁定 capability profile；kernel pilot 仍 observe-only，不會直接取得 action token。</p></div></div></div>
+          <div class="balance-card card"><h3>已被設計與測試支持</h3><div class="signal-list"><div class="signal good"><b>FACT</b><p>TaskContract v2 只接受 102-kind catalog 中的 typed evidence，並重驗 digest 與 semantic success。</p></div><div class="signal good"><b>FACT</b><p>Ledger append-only，依固定 reducer 重建狀態；嘗試預算耗盡是 machine-readable blocked。</p></div><div class="signal good"><b>FACT</b><p>Action token 短效且一次性；unknown provider outcome 不可被猜成 failure。</p></div><div class="signal good"><b>FACT</b><p>Review-enabled templates 會綁定 capability profile；kernel pilot 與 ordinary quorum 都不會直接取得 action token。</p></div></div></div>
           <div class="balance-card card"><h3>紅燈診療室</h3><div class="signal-list"><div class="signal risk"><b>GREEN ≠ DONE</b><p>測試成功不等於 target revision、provider state 或 live environment 已對帳。</p></div><div class="signal risk"><b>GRAPH ≠ AUTH</b><p>Graph View 是結構投影，不是 scheduler、policy input 或 authority source。</p></div><div class="signal risk"><b>RESUME ≠ MEMORY</b><p>Resume 重用 persisted evidence；不會恢復模型 hidden reasoning。</p></div><div class="signal risk"><b>CONSENT ≠ DELIVERY</b><p>Evaluator standing consent 不能擴張成 push、merge、deploy 或 cleanup 權限。</p></div></div></div>
         </div>
       </div>
@@ -1000,7 +1000,7 @@ node plugins/better-workflows/scripts/sbw.mjs action issue &lt;run-id&gt; \
         <div class="section-heading"><span class="chapter-no">11</span><div><p class="kicker">Evidence appendix</p><h2>每個重要說法，都能回到檔案與行號</h2><p>來源清單同時保存事實、推論、風險與未知。本手冊是導覽層；machine-readable JSON、CLI validation 與 provider records 才是執行時權威。</p></div></div>
         <div class="source-toolbar"><input class="source-search" id="source-search" type="search" placeholder="搜尋檔名、主題或證據…" aria-label="搜尋來源檔案"><div class="filter-row" id="source-filters" aria-label="依證據類型篩選"></div></div>
         <div class="source-list" id="source-list"></div>
-        <div class="provenance"><b>SYNC MANIFEST</b><br>observedAt: 2026-08-15T00:05:00+08:00 · implementation baseline: c5abd1fe7c580773c1cacb81dc0c01b58bf086d6 · documentation worktree: clean · scope: current Markdown + HTML surfaces<br>installed template sourceDigest: f1371f5477f6650a7d8999b7d2d8e99437db7286b75a8ef488cd31f56db3c8ab · evidence catalog: 101 kinds · review profiles: legacy contract + self-improve kernel pilot<br>validation boundary: graph diagnostics=0、review-profile binding checks PASS；本版未執行 provider actions，未將文件檢查宣稱為 delivery authority。</div>
+        <div class="provenance"><b>SYNC MANIFEST</b><br>observedAt: 2026-08-15T00:05:00+08:00 · implementation baseline: c5abd1fe7c580773c1cacb81dc0c01b58bf086d6 · documentation worktree: clean · scope: current Markdown + HTML surfaces<br>installed template sourceDigest: f1371f5477f6650a7d8999b7d2d8e99437db7286b75a8ef488cd31f56db3c8ab · evidence catalog: 102 kinds · review profiles: legacy contract + self-improve kernel pilot + ordinary agent quorum<br>validation boundary: graph diagnostics=0、review-profile binding checks PASS；本版未執行 provider actions，未將文件檢查宣稱為 delivery authority。</div>
       </div>
     </section>
   </main>
@@ -1088,10 +1088,10 @@ node plugins/better-workflows/scripts/sbw.mjs action issue &lt;run-id&gt; \
       'Machine-readable templates；每次只選一個 primary。': 'Machine-readable templates; exactly one primary per run.',
       'TaskContract v2 可接收的 exact evidence kinds。': 'Exact evidence kinds accepted by TaskContract v2.',
       'regular / review / side-effect stage 的嘗試預算。': 'Attempt budgets for regular, review, and side-effect stages.',
-      '13 條可機器驗證的任務路線': '13 machine-verifiable task routes',
+      '14 條可機器驗證的任務路線': '14 machine-verifiable task routes',
       'direct 沒有模板：它保留 Goal persistence，但不建立 Better Workflows run、ledger 或 review package。': 'Direct has no template. It keeps Goal persistence but creates no Better Workflows run, ledger, or review package.',
       '十四種常見任務，從第一句話教到停手': 'Fourteen common tasks, from the first sentence to the stop condition',
-      '左側挑情境；右側會顯示可直接改寫的任務描述、正確入口、stage 流、證據清單與 fail-closed 紅燈。第 14 種是 direct 快速路徑，因此模板總數仍是 13。': 'Choose a scenario on the left. The right side shows an adaptable task brief, the correct entry, stage flow, evidence checklist, and fail-closed stop lights. Scenario 14 is the direct fast path, so the template total remains 13.',
+      '左側挑情境；右側會顯示可直接改寫的任務描述、正確入口、stage 流、證據清單與 fail-closed 紅燈。direct 是快速路徑，另有一般 PR 的五角色 quorum 路線。': 'Choose a scenario on the left. The right side shows an adaptable task brief, the correct entry, stage flow, evidence checklist, and fail-closed stop lights. Direct is the fast path; ordinary PRs also have a five-role quorum route.',
       '把模糊願望改寫成可驗收的任務合約': 'Turn a vague wish into an acceptance-ready task contract',
       '這個產生器只組合文字，不會執行任何指令或外部動作。請先移除 secrets、私人程式碼與未授權資料。': 'This composer only assembles text. It runs no command or external action. Remove secrets, private source, and unauthorized data first.',
       '情境': 'Scenario', '精確範圍': 'Exact scope', '完成條件': 'Acceptance conditions',
@@ -1177,7 +1177,7 @@ node plugins/better-workflows/scripts/sbw.mjs action issue &lt;run-id&gt; \
       '101 種 evidence 與 host/provider gates 提高安全，也提高學習與營運成本。': 'One hundred one evidence kinds and host/provider gates improve safety while increasing learning and operating cost.',
       '可靠之處與摩擦之處，都要有證據': 'Both reliability and friction need evidence',
       '以下把 FACT、INFERENCE、RISK 與 UNKNOWN 分開。看不到 production telemetry，就不把完整的型別系統推論成已證實的營運成功。': 'The following separates FACT, INFERENCE, RISK, and UNKNOWN. A complete type system is not treated as proven operational success without production telemetry.',
-      '已被設計與測試支持': 'Supported by design and tests', 'TaskContract v2 只接受 101-kind catalog 中的 typed evidence，並重驗 digest 與 semantic success。': 'TaskContract v2 accepts only typed evidence from the 101-kind catalog and revalidates digest and semantic success.', 'Review-enabled templates 會綁定 capability profile；kernel pilot 仍 observe-only，不會直接取得 action token。': 'Review-enabled templates bind a capability profile; the kernel pilot remains observe-only and cannot issue an action token.',
+      '已被設計與測試支持': 'Supported by design and tests', 'TaskContract v2 只接受 102-kind catalog 中的 typed evidence，並重驗 digest 與 semantic success。': 'TaskContract v2 accepts only typed evidence from the 102-kind catalog and revalidates digest and semantic success.', 'Review-enabled templates 會綁定 capability profile；kernel pilot 與 ordinary quorum 都不會直接取得 action token。': 'Review-enabled templates bind a capability profile; the kernel pilot and ordinary quorum cannot issue an action token.',
       'Ledger append-only，依固定 reducer 重建狀態；嘗試預算耗盡是 machine-readable blocked。': 'The ledger is append-only and state is rebuilt by a fixed reducer; exhausted attempt budgets become machine-readable blocked states.',
       'Action token 短效且一次性；unknown provider outcome 不可被猜成 failure。': 'Action tokens are short-lived and one-time; an unknown provider outcome cannot be guessed into failure.',
       'Direct 明確保持 stateless，不把沒有 journal 的工作宣稱成可 replay run。': 'Direct is explicitly stateless and never calls journal-free work a replayable run.',
@@ -1203,7 +1203,7 @@ node plugins/better-workflows/scripts/sbw.mjs action issue &lt;run-id&gt; \
       '來源清單同時保存事實、推論、風險與未知。本手冊是導覽層；machine-readable JSON、CLI validation 與 provider records 才是執行時權威。': 'The source list preserves facts, inferences, risks, and unknowns. This guide is a navigation layer; machine-readable JSON, CLI validation, and provider records are runtime authority.',
       '讀完情境後，回到': 'After the scenarios, return to the', '架構解剖書': 'architecture field guide', '深挖 Replay 與證據資料流。': 'for a deeper treatment of replay and evidence flow.',
       '已複製': 'Copied', '本手冊的互動決策器需要 JavaScript；靜態章節與應用文仍可閱讀。': 'The interactive finder requires JavaScript; static chapters and essays remain readable.',
-      '看使用教學 →': 'Open tutorial →', '全部 13': 'All 13', '打開完整教學 →': 'Open full tutorial →',
+      '看使用教學 →': 'Open tutorial →', '全部 14': 'All 14', '打開完整教學 →': 'Open full tutorial →',
       '可以直接改寫的任務描述': 'Adaptable task brief', 'Stage 與 evidence 流': 'Stage and evidence flow',
       '驗收證據與紅燈': 'Acceptance evidence and stop lights', 'CLI 路線（手冊用途，不自動執行）': 'CLI route (documentation only; not executed)',
       '沒有符合的章節或證據。': 'No matching chapter or evidence.', '找不到符合條件的來源。': 'No matching source.',
@@ -1265,6 +1265,7 @@ node plugins/better-workflows/scripts/sbw.mjs action issue &lt;run-id&gt; \
       { id:'issues-to-root-fix-pr-merge-cleanup', mode:'deep', stages:5, entry:'fix-issues-pr', scenario:'fix', family:'DELIVERY', desc:'重驗 issues、Root 修復、review、PR/merge，最後只清理 run-owned resources。', source:'plugins/better-workflows/templates/issues-to-root-fix-pr-merge-cleanup.json:2–24' },
       { id:'localization-41', mode:'deep', stages:4, entry:'localization', scenario:'localization', family:'CONTENT', desc:'更新 41 語系，做 deterministic parse、key count、order 與 regional review。', source:'plugins/better-workflows/templates/localization-41.json:2–16' },
       { id:'monorepo-refactor', mode:'deep', stages:4, entry:'monorepo-refactor', scenario:'monorepo', family:'CODE', desc:'全 workspace inventory 後完成所有 eligible bounded refactors 與 rollback evidence。', source:'plugins/better-workflows/templates/monorepo-refactor.json:2–70' },
+      { id:'pr-to-dev-agent-quorum', mode:'critical', stages:6, entry:'—', scenario:'delivery', family:'DELIVERY', desc:'一般低風險 PR 使用五角色 software quorum；高風險變更 HOLD 並回到 host-trusted path。', source:'plugins/better-workflows/templates/pr-to-dev-agent-quorum.json:1–18' },
       { id:'pr-to-dev', mode:'critical', stages:6, entry:'pr-to-dev', scenario:'delivery', family:'DELIVERY', desc:'Atomic commits → dev PR → fresh checks → protected merge → remote reconcile → cleanup。', source:'plugins/better-workflows/templates/pr-to-dev.json:2–101' },
       { id:'research-deliberation', mode:'deep', stages:5, entry:'research', scenario:'research', family:'RESEARCH', desc:'CLI-proven roles、反證、claim reconciliation 與可執行 decision plan。', source:'plugins/better-workflows/templates/research-deliberation.json:2–19' },
       { id:'review-to-issues', mode:'verified', stages:5, entry:'review-issues', scenario:'review', family:'REVIEW', desc:'唯讀 review、finding 去重、revision freshness，最後由 Root 建立 issues。', source:'plugins/better-workflows/templates/review-to-issues.json:2–20' },
@@ -1436,11 +1437,11 @@ node plugins/better-workflows/scripts/sbw.mjs action issue &lt;run-id&gt; \
       { id:'ev-mode-routing', type:'fact', path:'plugins/better-workflows/skills/better-workflows/SKILL.md:129–147', title:'四種 mode 的選擇標準', note:'Risk、uncertainty、blast radius、irreversibility、evidence gap 共同決定 direct / verified / deep / critical；只能升不能降。' },
       { id:'ev-contract', type:'fact', path:'plugins/better-workflows/scripts/lib/core.mjs:1022–1402', title:'TaskContract v2 與 run creation', note:'驗證 goal、scope、acceptance、root-only authority、execution stages 與 gates；direct 不建立 governed run。' },
       { id:'ev-template-map', type:'fact', path:'plugins/better-workflows/skills/better-workflows/references/templates.md:1–38', title:'Template selection contract', note:'一次選一個 primary template；JSON definitions 是 required evidence 與 policy gate 的 machine-readable source，review-enabled template 另綁 capability profile。' },
-      { id:'ev-template-inventory', type:'fact', path:'plugins/better-workflows/templates/*.json → executionStages', title:'13 templates / 60 stages', note:'本版對目前 machine-readable templates 做 inventory；分布為 verified 4、deep 5、critical 4。' },
+      { id:'ev-template-inventory', type:'fact', path:'plugins/better-workflows/templates/*.json → executionStages', title:'14 templates / 66 stages', note:'本版對目前 machine-readable templates 做 inventory；分布為 verified 4、deep 5、critical 5。' },
       { id:'ev-dependabot-entry-gap', type:'inference', path:'entrypoint-catalog.json:3–105 + templates/dependabot-consolidation-pr-cleanup.json:2', title:'Dependabot template 的可發現性摩擦', note:'FACT：模板存在但 catalog 沒有同名 entry。INFERENCE：使用者需靠 auto/critical 再明確指定 template，學習成本較高。' },
       { id:'ev-state-contract', type:'fact', path:'plugins/better-workflows/skills/better-workflows/references/evidence-and-state.md:1–77', title:'Evidence 與 state 的公共契約', note:'Typed receipt、append-only events、attempt budgets、terminal states、resume fingerprint 與 completion conditions。文字 PASS 永不改狀態；review package 另綁 reviewProfile digest。' },
       { id:'ev-evidence', type:'fact', path:'plugins/better-workflows/scripts/lib/evidence.mjs:7–565', title:'Typed evidence admission / revalidation', note:'檢查 exact kind、producer allowlist、payload semantics、freshness、digest 與 dependencies；persisted evidence 仍會重新驗證。' },
-      { id:'ev-evidence-contracts', type:'fact', path:'plugins/better-workflows/config/evidence-contracts-v1.json:1–2043', title:'101-kind evidence catalog', note:'Current catalog 有 101 個 exact kinds；新增 work-unit-accounting 與 review-kernel-summary aggregate receipts。未知 kind、空 payload、semantic failure 或 digest mismatch fail closed。' },
+      { id:'ev-evidence-contracts', type:'fact', path:'plugins/better-workflows/config/evidence-contracts-v1.json:1–2043', title:'102-kind evidence catalog', note:'Current catalog 有 102 個 exact kinds；新增 work-unit-accounting、review-kernel-summary 與 agent-review-quorum aggregate receipts。未知 kind、空 payload、semantic failure 或 digest mismatch fail closed。' },
       { id:'ev-ledger', type:'fact', path:'plugins/better-workflows/scripts/lib/ledger.mjs:3–348', title:'Append-only ledger reducer', note:'start/complete/fail/block/release/cancel 事件依 static DAG 重播；regular/review/side-effect budget 分別為 3/5/1。' },
       { id:'ev-source-binding', type:'fact', path:'plugins/better-workflows/scripts/lib/git.mjs:450–690', title:'Git source binding 與 sentinel', note:'綁定 HEAD、index、status、scope files、submodules、symlinks 與 config；雙重捕捉防止 wave drift。' },
       { id:'ev-review', type:'fact', path:'plugins/better-workflows/scripts/lib/review.mjs:16–1447', title:'Immutable review package 與 finding convergence', note:'Exact diff identity、stable finding ID、P0 policy、reviewProfile digest、五次 repair budget 與 final broad review。' },
@@ -1451,7 +1452,7 @@ node plugins/better-workflows/scripts/sbw.mjs action issue &lt;run-id&gt; \
       { id:'ev-completion', type:'fact', path:'plugins/better-workflows/scripts/lib/core.mjs:2335–2803', title:'Completion gate', note:'完成前重新檢查 contract、evidence、ledger、review、sentinel、source 與 side-effect bindings。' },
       { id:'ev-autopilot', type:'fact', path:'plugins/better-workflows/config/autonomy/bounded-autopilot-v1.json:1–43', title:'Bounded autopilot 的權限投影', note:'可自動 read/test/replay/commit/codex push/dev PR；merge、deploy、dev/main push、cleanup 仍是 human gates；最多 80 files、12 commits、1 PR。' },
       { id:'ev-direct-risk', type:'risk', path:'evidence-and-state.md:58–77 + SKILL.md:129–138', title:'Direct 沒有 governed replay', note:'這是刻意設計，不是缺陷；風險在於把高不確定或外部副作用工作錯放進 direct，卻仍期待 ledger/review evidence。' },
-      { id:'ev-operability-risk', type:'risk', path:'evidence-contracts-v1.json:1–2043 + templates/*.json', title:'治理完整度帶來營運負擔', note:'101 kinds、13 templates 與 host/provider gates 提高 fail-closed 能力；推論上也提高 onboarding、fixture 與故障排查成本。' },
+      { id:'ev-operability-risk', type:'risk', path:'evidence-contracts-v1.json:1–2043 + templates/*.json', title:'治理完整度帶來營運負擔', note:'102 kinds、14 templates 與 host/provider gates 提高 fail-closed 能力；推論上也提高 onboarding、fixture 與故障排查成本。' },
       { id:'ev-replay-meaning', type:'fact', path:'evidence-and-state.md:30–56 + scripts/lib/self-improve-replay.mjs:47–529', title:'Replay 是重算，不是恢復隱藏思考', note:'Ledger 從事件重建 state；evaluator 從 frozen inputs 與 witnesses 重算 comparison；resume 只重用 fingerprint 仍匹配的 evidence。' },
       { id:'ev-unknown-telemetry', type:'unknown', path:'Repository scope (no production telemetry located)', title:'實際 adoption、lead time 與 blocked 分布', note:'Codebase 沒有足以證明真實使用頻率、各 mode 完成時間或 blocked 原因分布的 production dataset。' },
       { id:'ev-unknown-provider', type:'unknown', path:'Documentation run scope (no external provider mutation)', title:'Live provider readiness', note:'本次文件工作不執行 push、merge、deploy、account mutation 或 artifact promotion，不能把 provider readiness 視為已驗證。' },
@@ -1511,11 +1512,11 @@ node plugins/better-workflows/scripts/sbw.mjs action issue &lt;run-id&gt; \
       'ev-mode-routing':['Selection criteria for four modes','Risk, uncertainty, blast radius, irreversibility, and evidence gap select direct, verified, deep, or critical. Mode may be raised, never lowered.'],
       'ev-contract':['TaskContract v2 and run creation','Validates goal, scope, acceptance, root-only authority, execution stages, and gates. Direct creates no governed run.'],
       'ev-template-map':['Template selection contract','Select exactly one primary template. JSON definitions are the machine-readable source for required evidence and policy gates.'],
-      'ev-template-inventory':['Thirteen templates and sixty stages','Live inventory of machine-readable templates with workflow dispatch deferred: four verified, five deep, and four critical.'],
+      'ev-template-inventory':['Fourteen templates and sixty-six stages','Live inventory of machine-readable templates with workflow dispatch deferred: four verified, five deep, and five critical.'],
       'ev-dependabot-entry-gap':['Dependabot template discoverability friction','FACT: the template exists but has no same-named catalog entry. INFERENCE: users must reach it through auto/critical and explicitly select the template.'],
       'ev-state-contract':['Public evidence and state contract','Typed receipts, append-only events, attempt budgets, terminal states, resume fingerprints, and completion conditions. Text PASS never changes state.'],
       'ev-evidence':['Typed evidence admission and revalidation','Checks exact kind, producer allowlist, payload semantics, freshness, digest, and dependencies. Persisted evidence is revalidated.'],
-      'ev-evidence-contracts':['One-hundred-one-kind evidence catalog','The current catalog contains 101 exact kinds, including aggregate review-kernel receipts. Unknown kind, empty payload, semantic failure, or digest mismatch fails closed.'],
+      'ev-evidence-contracts':['One-hundred-two-kind evidence catalog','The current catalog contains 102 exact kinds, including aggregate review-kernel and agent-quorum receipts. Unknown kind, empty payload, semantic failure, or digest mismatch fails closed.'],
       'ev-ledger':['Append-only ledger reducer','start, complete, fail, block, release, and cancel replay over a static DAG. Budgets for regular, review, and side-effect stages are 3, 5, and 1.'],
       'ev-source-binding':['Git source binding and sentinel','Binds HEAD, index, status, scoped files, submodules, symlinks, and configuration. Double capture detects wave drift.'],
       'ev-review':['Immutable review package and finding convergence','Exact diff identity, stable finding IDs, P0 policy, five repair rounds, and final broad review.'],
@@ -1525,7 +1526,7 @@ node plugins/better-workflows/scripts/sbw.mjs action issue &lt;run-id&gt; \
       'ev-completion':['Completion gate','Rechecks contract, evidence, ledger, review, sentinel, source, and side-effect bindings before completion.'],
       'ev-autopilot':['Bounded-autopilot authority projection','May automate read, test, replay, commit, codex push, and a dev PR. Merge, deploy, dev/main push, and cleanup remain human gates. Limits include 80 files, 12 commits, and one PR.'],
       'ev-direct-risk':['Direct has no governed replay','This is intentional. The risk is routing high-uncertainty or externally consequential work into direct while still expecting ledger or review evidence.'],
-      'ev-operability-risk':['Governance completeness adds operating cost','One hundred one kinds, thirteen templates, and host/provider gates improve fail-closed behavior while increasing onboarding, fixture, and diagnostic cost.'],
+      'ev-operability-risk':['Governance completeness adds operating cost','One hundred two kinds, fourteen templates, and host/provider gates improve fail-closed behavior while increasing onboarding, fixture, and diagnostic cost.'],
       'ev-replay-meaning':['Replay is recomputation, not hidden-memory recovery','Ledger rebuilds state from events; evaluator replay recomputes comparison from frozen inputs and witnesses; resume reuses only evidence whose fingerprints still match.'],
       'ev-unknown-telemetry':['Real adoption, lead time, and blocked distribution','The codebase contains no production dataset sufficient to prove usage, completion time by mode, or the distribution of blocked causes.'],
       'ev-unknown-provider':['Live provider readiness','This documentation run performs no push, merge, deploy, account mutation, or artifact promotion; provider readiness is therefore unverified.'],
@@ -1552,7 +1553,7 @@ node plugins/better-workflows/scripts/sbw.mjs action issue &lt;run-id&gt; \
     let templateFilter = 'all';
     function renderTemplates() {
       const filters = ['all','verified','deep','critical'];
-      $('#template-filters').innerHTML = filters.map(key => `<button class="filter-btn ${key === templateFilter ? 'active' : ''}" type="button" data-template-filter="${key}">${key === 'all' ? tr('全部 13') : key}</button>`).join('');
+      $('#template-filters').innerHTML = filters.map(key => `<button class="filter-btn ${key === templateFilter ? 'active' : ''}" type="button" data-template-filter="${key}">${key === 'all' ? tr('全部 14') : key}</button>`).join('');
       const visible = templates.filter(item => templateFilter === 'all' || item.mode === templateFilter);
       $('#template-grid').innerHTML = visible.map(item => { const desc = currentLocale === 'en' ? (templateEn[item.id] || item.desc) : item.desc; return `<article class="template-card card" data-stages="${item.stages}" data-search="${esc(`${item.id} ${desc} ${item.family}`)}"><span class="pill mode-${item.mode}">${item.mode} · ${item.stages} stages</span><h4>${esc(item.id)}</h4><p>${esc(desc)}</p><button type="button" data-open-scenario="${item.scenario}">${esc(tr('看使用教學 →'))}</button></article>`; }).join('');
       $$('[data-template-filter]').forEach(button => button.addEventListener('click', () => { templateFilter = button.dataset.templateFilter; renderTemplates(); }));

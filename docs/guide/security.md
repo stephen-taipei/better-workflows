@@ -19,6 +19,24 @@ legacy `review-contract-v1` profile does not imply kernel guarantees, while the
 `review-kernel-v2-pilot` profile is restricted to `self-improve-ops` and remains
 shadow-only; neither profile can issue a side-effect token.
 
+The ordinary-PR `review-quorum-v1` profile is a separate software-layer trust
+tier. It requires exactly five signed role receipts—security, implementation,
+adversarial, operator/UX, and rollout—with unique execution identities and
+keys, at least three provider/model families, and separate security and
+adversarial families. The reducer accepts no majority, role substitution, or
+automatic fallback: any missing, duplicate, stale, BLOCK, INCONCLUSIVE,
+identity-revocation, provider outage, conflict, or classifier ambiguity is
+HOLD. The manifest's source, review package, contract, template, sentinel,
+changed paths, and canonical digests are revalidated at admission.
+
+Changes to host trust, evaluators, evidence verification, quorum policy,
+identity providers, routing/authority, workflow files, templates, or the
+Better Workflows governance code are classified high-risk and cannot use the
+ordinary quorum. They remain on the host-trusted path. The quorum CLI emits
+`hostSignerInvoked: false`; no local root password is requested on an ordinary
+path. This does not claim user-space quorum is equivalent to the root-owned
+trust anchor under a fully compromised local account.
+
 If private history or sensitive operational material is the only proposed
 evidence and cannot be sanitized, reject the proposal without harvesting or
 transmitting that source. Persist only a redacted `REJECTED_WITH_EVIDENCE`
