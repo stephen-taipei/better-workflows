@@ -8,7 +8,6 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 import {
-  addEvidence,
   buildContract,
   canonicalJson,
   createRun,
@@ -330,34 +329,25 @@ test("typed admission revalidates the source-bound review package and payload sh
   assert.equal(cliResult.ok, true);
   assert.equal(cliResult.report.hostSignerInvoked, false);
   assert.equal(cliResult.result.verdict, "PASS");
-  const payload = buildQuorumEvidencePayload(manifest, result);
-  const admitted = await addEvidence(root, created.runId, {
-    schemaVersion: 2,
-    id: `agent-review-quorum-${manifest.manifestDigest.slice(0, 16)}`,
-    kind: "agent-review-quorum",
-    status: "complete",
-    summary: "Source-bound quorum fixture",
-    acceptanceIds: [],
-    dependencyInputs: { files: [] },
-    receipt: {
-      contractId: "evidence-contracts-v1:agent-review-quorum",
-      contractVersion: 1,
-      runId: created.runId,
-      producer: { provider: "quorum-verifier", policyId: "agent-review-quorum-v1" },
-      inputBinding: {
-        runId: created.runId,
-        contractDigest: digestObject(contract),
-        remoteRevision: base,
-        sourceBindingDigest: run.manifest.sourceBinding.digest,
-        sourceSentinelDigest: sentinel.digest
-      },
-      payload,
-      payloadDigest: digestObject(payload),
-      producedAt: new Date().toISOString()
-    }
-  });
-  assert.equal(admitted.kind, "agent-review-quorum");
-  assert.equal(admitted.typedAdmission.producer, "quorum-verifier");
+  const cliRun = await execFileAsync(
+    process.execPath,
+    [path.resolve("plugins/better-workflows/scripts/sbw.mjs"), "review", "quorum", "run", created.runId, "--file", manifestPath],
+    { cwd: repository, env: { ...process.env, SBW_STATE_ROOT: root } }
+  );
+  const runResult = JSON.parse(cliRun.stdout);
+  assert.equal(runResult.ok, true);
+  assert.equal(runResult.report.hostSignerInvoked, false);
+  assert.equal(runResult.evidence.kind, "agent-review-quorum");
+  assert.equal(runResult.evidence.typedAdmission.producer, "quorum-verifier");
+  const cliStatus = await execFileAsync(
+    process.execPath,
+    [path.resolve("plugins/better-workflows/scripts/sbw.mjs"), "review", "quorum", "status", created.runId],
+    { cwd: repository, env: { ...process.env, SBW_STATE_ROOT: root } }
+  );
+  const statusResult = JSON.parse(cliStatus.stdout);
+  assert.equal(statusResult.ok, true);
+  assert.equal(statusResult.records.length, 1);
+  assert.equal(statusResult.records[0].verdict, "PASS");
   await rm(root, { recursive: true, force: true });
 });
 
