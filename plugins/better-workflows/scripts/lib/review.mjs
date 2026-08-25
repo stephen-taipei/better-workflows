@@ -1105,6 +1105,7 @@ async function assertBroadReviewEvidence(root, run, reviewPackage, kernel = null
   await validateTypedEvidenceRecord(diff, run);
   if (quorumReviewEnabled(run.contract.controlPlane?.reviewPolicy)) {
     const quorum = evidence.find((item) => isQuorumEvidence(item, {
+      registryCwd: run.manifest.cwd,
       expected: {
         runId: run.manifest.runId,
         sourceBindingDigest: run.manifest.sourceBinding?.digest,

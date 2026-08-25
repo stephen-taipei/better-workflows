@@ -216,14 +216,14 @@ function isInsidePath(root, candidate) {
   return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative));
 }
 
-function configuredIdentityRegistryPath() {
+function configuredIdentityRegistryPath(cwd = process.cwd()) {
   // The registry is an operator-provisioned input, deliberately outside the
   // checked-out repository. A PR must not be able to add or replace its own
   // trust material; resolve both the checkout root and parent symlinks before
   // accepting a candidate, and fail closed on absent or unreadable state.
   const candidate = process.env.SBW_QUORUM_IDENTITY_REGISTRY;
   if (typeof candidate !== "string" || !path.isAbsolute(candidate)) return null;
-  const checkoutRoot = checkoutRootSync(process.cwd());
+  const checkoutRoot = checkoutRootSync(cwd);
   if (!checkoutRoot) return null;
   try {
     const absolute = path.resolve(candidate);
@@ -237,8 +237,8 @@ function configuredIdentityRegistryPath() {
   }
 }
 
-export function loadConfiguredIdentityRegistry() {
-  const registryPath = configuredIdentityRegistryPath();
+export function loadConfiguredIdentityRegistry(cwd = process.cwd()) {
+  const registryPath = configuredIdentityRegistryPath(cwd);
   if (!registryPath) return null;
   try {
     return validateIdentityRegistry(JSON.parse(readFileSync(registryPath, "utf8")));
@@ -428,7 +428,7 @@ function validateReceipts(receipts, assignments, manifest, nowMs, manifestIssued
   return normalized;
 }
 
-export function validateQuorumManifest(manifest, { now = new Date(), allowHostTrustedRoute = false, expected = {}, revokedIdentityIds = [], identityRegistry = null } = {}) {
+export function validateQuorumManifest(manifest, { now = new Date(), allowHostTrustedRoute = false, expected = {}, revokedIdentityIds = [], identityRegistry = null, registryCwd = null } = {}) {
   exactKeys(manifest, MANIFEST_KEYS, "Quorum manifest");
   if (manifest.schemaVersion !== 1 || manifest.kind !== QUORUM_MANIFEST_KIND || manifest.policyId !== QUORUM_POLICY_ID) {
     throw new Error("Quorum manifest identity is invalid");
@@ -470,7 +470,7 @@ export function validateQuorumManifest(manifest, { now = new Date(), allowHostTr
   if (!Number.isFinite(nowMs) || issuedMs > nowMs + 5 * 60 * 1000 || expiresMs <= nowMs || expiresMs <= issuedMs || expiresMs - issuedMs > QUORUM_MAX_WINDOW_MS) {
     throw new Error("Quorum manifest is stale or outside the bounded window");
   }
-  const trustedRegistry = validateIdentityRegistry(identityRegistry ?? loadConfiguredIdentityRegistry());
+  const trustedRegistry = validateIdentityRegistry(identityRegistry ?? loadConfiguredIdentityRegistry(registryCwd ?? process.cwd()));
   if (manifest.identityRegistryDigest !== digestObject(trustedRegistry)) {
     throw new Error("Quorum identity registry digest mismatch");
   }

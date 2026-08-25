@@ -447,6 +447,9 @@ test("typed admission revalidates the source-bound review package and payload sh
   assert.equal(cliResult.result.verdict, "PASS");
   const checkoutRegistryPath = path.join(repository, "identity-registry.json");
   await writeFile(checkoutRegistryPath, `${JSON.stringify(identityRegistry)}\n`);
+  const callerRepository = path.join(root, "caller-repository");
+  await mkdir(callerRepository, { recursive: true });
+  await execFileAsync("git", ["init", "-q", "-b", "caller"], { cwd: callerRepository });
   let cliInsideCheckout;
   try {
     cliInsideCheckout = await execFileAsync(
@@ -460,6 +463,19 @@ test("typed admission revalidates the source-bound review package and payload sh
   const cliInsideCheckoutResult = JSON.parse(cliInsideCheckout.stdout);
   assert.equal(cliInsideCheckoutResult.ok, false);
   assert.match(cliInsideCheckoutResult.result.blockers.join("\n"), /identity registry/);
+  let cliFromOtherCheckout;
+  try {
+    cliFromOtherCheckout = await execFileAsync(
+      process.execPath,
+      [path.join(repositoryRoot, "plugins/better-workflows/scripts/sbw.mjs"), "review", "quorum", "verify", created.runId, "--file", manifestPath],
+      { cwd: callerRepository, env: { ...process.env, SBW_STATE_ROOT: root, SBW_QUORUM_IDENTITY_REGISTRY: checkoutRegistryPath } }
+    );
+  } catch (error) {
+    cliFromOtherCheckout = error;
+  }
+  const cliFromOtherCheckoutResult = JSON.parse(cliFromOtherCheckout.stdout);
+  assert.equal(cliFromOtherCheckoutResult.ok, false);
+  assert.match(cliFromOtherCheckoutResult.result.blockers.join("\n"), /identity registry/);
   await rm(checkoutRegistryPath, { force: true });
   const cliRun = await execFileAsync(
     process.execPath,

@@ -3078,6 +3078,7 @@ export async function evaluateCompletion(root, runId) {
     )).length >= 2
   );
   const hasQuorumEvidence = quorumReviewEnabled(contract.controlPlane?.reviewPolicy) && admittedEvidence.some((item) => isQuorumEvidence(item, {
+    registryCwd: manifest.cwd,
     expected: {
       runId,
       sourceBindingDigest: manifest.sourceBinding?.digest,
@@ -7226,6 +7227,7 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
         reviewPackage: review.package,
         sentinelDigest: state.lastSentinel?.digest
       })) || (quorumReviewEnabled(contract.controlPlane?.reviewPolicy) && admittedEvidence.some((item) => isQuorumEvidence(item, {
+        registryCwd: manifest.cwd,
         expected: {
           runId,
           sourceBindingDigest: manifest.sourceBinding?.digest,
