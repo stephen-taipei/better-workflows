@@ -23,10 +23,12 @@ import { captureSentinel } from "../lib/git.mjs";
 import { createReviewPackage, reviewPackageDigest } from "../lib/review.mjs";
 import {
   QUORUM_POLICY_DIGEST,
+  QUORUM_IDENTITY_REGISTRY_KIND,
   QUORUM_ROLES,
   buildQuorumEvidencePayload,
   classifyTrustTier,
   reduceQuorum,
+  validateIdentityRegistry,
   validateQuorumEvidencePayload
 } from "../lib/quorum.mjs";
 
@@ -37,6 +39,7 @@ const DIGEST = (label) => sha256(`quorum-fixture:${label}`);
 const execFileAsync = promisify(execFile);
 const testDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(testDirectory, "../../../..");
+const manifestKeys = new WeakMap();
 
 function timestampFixture({ expired = false } = {}) {
   const now = Date.now();
@@ -48,7 +51,7 @@ function timestampFixture({ expired = false } = {}) {
   };
 }
 
-function signedReceipt({ role, index, providerFamily, verdict, timestamps, keys }) {
+function signedReceipt({ role, index, providerFamily, verdict, timestamps, keys, reviewBinding }) {
   const key = keys[index];
   const unsigned = {
     dependencies: {
@@ -66,6 +69,7 @@ function signedReceipt({ role, index, providerFamily, verdict, timestamps, keys 
     provider: `provider-${index}`,
     providerFamily,
     publicKey: key.publicKey,
+    reviewBinding,
     role,
     verdict
   };
@@ -75,6 +79,47 @@ function signedReceipt({ role, index, providerFamily, verdict, timestamps, keys 
     key.privateKey
   ).toString("base64");
   return { ...unsigned, signature };
+}
+
+function registryFor(manifest) {
+  return validateIdentityRegistry({
+    schemaVersion: 1,
+    kind: QUORUM_IDENTITY_REGISTRY_KIND,
+    registryId: "fixture-registry",
+    entries: manifest.roleAssignments
+  });
+}
+
+function manifestReviewBinding(manifest) {
+  return {
+    base: manifest.base,
+    contractDigest: manifest.contractDigest,
+    dossierDigest: manifest.dossierDigest,
+    head: manifest.head,
+    identityRegistryDigest: manifest.identityRegistryDigest,
+    instructionDigest: manifest.instructionDigest,
+    mergeBase: manifest.mergeBase,
+    repository: manifest.repository,
+    reviewPackageDigest: manifest.reviewPackageDigest,
+    reviewPackageId: manifest.reviewPackageId,
+    runId: manifest.runId,
+    sourceBindingDigest: manifest.sourceBindingDigest,
+    sourceSentinelDigest: manifest.sourceSentinelDigest,
+    templateDigest: manifest.templateDigest
+  };
+}
+
+function refreshReceiptBindings(manifest) {
+  const keys = manifestKeys.get(manifest);
+  const reviewBinding = manifestReviewBinding(manifest);
+  for (const receipt of manifest.receipts) {
+    receipt.reviewBinding = reviewBinding;
+    const key = keys.find((candidate) => candidate.publicKey === receipt.publicKey).privateKey;
+    const unsigned = { ...receipt };
+    delete unsigned.signature;
+    receipt.signature = sign(null, Buffer.from(canonicalJson(unsigned), "utf8"), key).toString("base64");
+  }
+  return manifest;
 }
 
 function buildManifest({
@@ -91,14 +136,6 @@ function buildManifest({
       publicKey: pair.publicKey.export({ type: "spki", format: "der" }).toString("base64")
     };
   });
-  const receipts = QUORUM_ROLES.map((role, index) => signedReceipt({
-    role,
-    index,
-    providerFamily: providerFamilies[index],
-    verdict: verdicts[role] ?? "PASS",
-    timestamps,
-    keys
-  }));
   const roleAssignments = QUORUM_ROLES.map((role, index) => ({
     identityId: `identity-${role}`,
     keyId: `key-${role}`,
@@ -108,6 +145,12 @@ function buildManifest({
     publicKey: keys[index].publicKey,
     role
   })).sort((left, right) => left.role.localeCompare(right.role));
+  const registry = validateIdentityRegistry({
+    schemaVersion: 1,
+    kind: QUORUM_IDENTITY_REGISTRY_KIND,
+    registryId: "fixture-registry",
+    entries: roleAssignments
+  });
   const manifest = {
     base: BASE,
     blockers: [],
@@ -117,6 +160,7 @@ function buildManifest({
     dossierDigest: DIGEST("dossier"),
     expiresAt: timestamps.expiresAt,
     head: HEAD,
+    identityRegistryDigest: digestObject(registry),
     instructionDigest: DIGEST("instruction"),
     issuedAt: timestamps.issuedAt,
     kind: "quorum-manifest-v1",
@@ -124,7 +168,7 @@ function buildManifest({
     mergeBase: MERGE_BASE,
     policyDigest: QUORUM_POLICY_DIGEST,
     policyId: "agent-review-quorum-v1",
-    receipts,
+    receipts: [],
     reportDigest: null,
     repository: "stephen-taipei/better-workflows",
     reviewPackageDigest: DIGEST("review-package"),
@@ -138,24 +182,34 @@ function buildManifest({
     templateDigest: DIGEST("template"),
     runId: "sbw-20260825T000000Z-quorumfixture"
   };
+  manifest.receipts = QUORUM_ROLES.map((role, index) => signedReceipt({
+    role,
+    index,
+    providerFamily: providerFamilies[index],
+    verdict: verdicts[role] ?? "PASS",
+    timestamps,
+    keys,
+    reviewBinding: manifestReviewBinding(manifest)
+  }));
+  manifestKeys.set(manifest, keys);
   const withoutManifestDigest = { ...manifest };
   delete withoutManifestDigest.manifestDigest;
   delete withoutManifestDigest.reportDigest;
   manifest.manifestDigest = digestObject(withoutManifestDigest);
-  const roleStatuses = receipts
+  const roleStatuses = manifest.receipts
     .map((receipt) => ({ role: receipt.role, verdict: receipt.verdict, executionId: receipt.executionId }))
     .sort((left, right) => left.role.localeCompare(right.role));
   manifest.reportDigest = digestObject({
     manifestDigest: manifest.manifestDigest,
     routing: manifest.routing,
     roleStatuses,
-    blockers: [...new Set(receipts.filter((receipt) => receipt.verdict !== "PASS").map((receipt) => `${receipt.role}:${receipt.verdict}`))].sort()
+    blockers: [...new Set(manifest.receipts.filter((receipt) => receipt.verdict !== "PASS").map((receipt) => `${receipt.role}:${receipt.verdict}`))].sort()
   });
   return manifest;
 }
 
-function assertHold(manifest, pattern) {
-  const result = reduceQuorum(manifest);
+function assertHold(manifest, pattern, options = {}) {
+  const result = reduceQuorum(manifest, { identityRegistry: registryFor(manifest), ...options });
   assert.equal(result.ok, false);
   assert.equal(result.verdict, "HOLD");
   if (pattern) assert.match(result.blockers.join("\n"), pattern);
@@ -186,14 +240,14 @@ function refreshManifestDigest(manifest) {
 
 test("five distinct roles with bounded diversity reduce to PASS for ordinary paths", () => {
   const manifest = buildManifest();
-  const result = reduceQuorum(manifest);
+  const result = reduceQuorum(manifest, { identityRegistry: registryFor(manifest) });
   assert.equal(result.ok, true);
   assert.equal(result.verdict, "PASS");
   assert.equal(result.routing.tier, "ordinary");
   assert.equal(result.roleStatuses.length, 5);
   const payload = buildQuorumEvidencePayload(manifest, result);
   assert.doesNotThrow(() => assertPayloadFields(payload, ["decision", "manifest", "manifestDigest", "routing", "roleReceipts", "blockers", "reportDigest"], "agent-review-quorum"));
-  assert.doesNotThrow(() => validateQuorumEvidencePayload(payload));
+  assert.doesNotThrow(() => validateQuorumEvidencePayload(payload, { identityRegistry: registryFor(manifest) }));
 });
 
 test("missing, duplicate, BLOCK, and INCONCLUSIVE receipts always HOLD", () => {
@@ -215,6 +269,37 @@ test("provider-family diversity and security/adversarial separation are enforced
   assertHold(buildManifest({ providerFamilies: ["family-a", "family-a", "family-a", "family-b", "family-b"] }), /at least three provider families/);
   assertHold(buildManifest({ providerFamilies: ["family-a", "family-b", "family-a", "family-c", "family-d"] }), /Security and adversarial/);
   assertHold(buildManifest({ providerFamilies: ["family-a", "family-b", "family-c", "family-c", "family-c"] }), /provider family cannot fill more than two/);
+  const sameProvider = buildManifest();
+  const securityAssignment = sameProvider.roleAssignments.find((entry) => entry.role === "security-architect");
+  const adversarialAssignment = sameProvider.roleAssignments.find((entry) => entry.role === "adversarial-reviewer");
+  adversarialAssignment.provider = securityAssignment.provider;
+  const securityReceipt = sameProvider.receipts.find((entry) => entry.role === "security-architect");
+  const adversarialReceipt = sameProvider.receipts.find((entry) => entry.role === "adversarial-reviewer");
+  adversarialReceipt.provider = securityReceipt.provider;
+  sameProvider.roleAssignmentDigest = digestObject(sameProvider.roleAssignments);
+  sameProvider.identityRegistryDigest = digestObject(registryFor(sameProvider));
+  refreshReceiptBindings(sameProvider);
+  refreshManifestDigest(sameProvider);
+  assertHold(sameProvider, /Security and adversarial quorum roles must use different providers/);
+});
+
+test("identity registries are exact, complete, and reject duplicate roles", () => {
+  const manifest = buildManifest();
+  const registry = registryFor(manifest);
+  assert.doesNotThrow(() => validateIdentityRegistry(registry));
+  assert.throws(() => validateIdentityRegistry({ ...registry, entries: registry.entries.slice(0, 4) }), /exactly 5 entries/);
+  assert.throws(() => validateIdentityRegistry({
+    ...registry,
+    entries: [...registry.entries.slice(0, 4), { ...registry.entries[0] }]
+  }), /cover every role/);
+});
+
+test("agent quorum is evaluated after commit creation", async () => {
+  const template = JSON.parse(await readFile(path.join(repositoryRoot, "plugins/better-workflows/templates/pr-to-dev-agent-quorum.json"), "utf8"));
+  assert.ok(!template.actionGates["git.commit"].includes("agent-review-quorum"));
+  for (const action of ["plugin.cache.publish", "git.push", "pr.create", "pr.merge"]) {
+    assert.ok(template.actionGates[action].includes("agent-review-quorum"), action);
+  }
 });
 
 test("high-risk, unknown, stale, and tampered bindings fail closed", () => {
@@ -229,7 +314,7 @@ test("high-risk, unknown, stale, and tampered bindings fail closed", () => {
 
   const tampered = buildManifest();
   tampered.head = "3".repeat(40);
-  assertHold(tampered, /manifest digest mismatch|binding/);
+  assertHold(tampered, /manifest digest mismatch|bound|binding/);
 });
 
 test("classifier checks both sides of renames and rejects unsafe path syntax", () => {
@@ -240,7 +325,7 @@ test("classifier checks both sides of renames and rejects unsafe path syntax", (
 
 test("revoked execution identities cannot replay an otherwise valid quorum", () => {
   const manifest = buildManifest();
-  const result = reduceQuorum(manifest, { revokedIdentityIds: ["identity-security-architect"] });
+  const result = reduceQuorum(manifest, { identityRegistry: registryFor(manifest), revokedIdentityIds: ["identity-security-architect"] });
   assert.equal(result.verdict, "HOLD");
   assert.match(result.blockers.join("\n"), /identity is revoked/);
 });
@@ -304,8 +389,13 @@ test("typed admission revalidates the source-bound review package and payload sh
     reviewPackageDigest: reviewPackageDigest(reviewPackage),
     instructionDigest: reviewPackage.instructionDigest
   });
+  refreshReceiptBindings(manifest);
   refreshManifestDigest(manifest);
+  const identityRegistry = registryFor(manifest);
+  const identityRegistryPath = path.join(root, "identity-registry.json");
+  await writeFile(identityRegistryPath, `${JSON.stringify(identityRegistry)}\n`);
   const result = reduceQuorum(manifest, {
+    identityRegistry,
     expected: {
       runId: created.runId,
       sourceBindingDigest: run.manifest.sourceBinding.digest,
@@ -326,7 +416,7 @@ test("typed admission revalidates the source-bound review package and payload sh
   const cli = await execFileAsync(
     process.execPath,
     [path.join(repositoryRoot, "plugins/better-workflows/scripts/sbw.mjs"), "review", "quorum", "verify", created.runId, "--file", manifestPath],
-    { cwd: repository, env: { ...process.env, SBW_STATE_ROOT: root } }
+    { cwd: repository, env: { ...process.env, SBW_STATE_ROOT: root, SBW_QUORUM_IDENTITY_REGISTRY: identityRegistryPath } }
   );
   const cliResult = JSON.parse(cli.stdout);
   assert.equal(cliResult.ok, true);
@@ -335,7 +425,7 @@ test("typed admission revalidates the source-bound review package and payload sh
   const cliRun = await execFileAsync(
     process.execPath,
     [path.join(repositoryRoot, "plugins/better-workflows/scripts/sbw.mjs"), "review", "quorum", "run", created.runId, "--file", manifestPath],
-    { cwd: repository, env: { ...process.env, SBW_STATE_ROOT: root } }
+    { cwd: repository, env: { ...process.env, SBW_STATE_ROOT: root, SBW_QUORUM_IDENTITY_REGISTRY: identityRegistryPath } }
   );
   const runResult = JSON.parse(cliRun.stdout);
   assert.equal(runResult.ok, true);
@@ -356,8 +446,8 @@ test("typed admission revalidates the source-bound review package and payload sh
 
 test("legacy policy inputs cannot be interpreted as quorum evidence", () => {
   const manifest = buildManifest();
-  const result = reduceQuorum(manifest);
+  const result = reduceQuorum(manifest, { identityRegistry: registryFor(manifest) });
   const payload = buildQuorumEvidencePayload(manifest, result);
   payload.decision.policyId = "code-v1";
-  assert.throws(() => validateQuorumEvidencePayload(payload), /not bound to the verified manifest/);
+  assert.throws(() => validateQuorumEvidencePayload(payload, { identityRegistry: registryFor(manifest) }), /not bound to the verified manifest/);
 });
