@@ -16,10 +16,12 @@ verified, provider-reconciled delivery.
 
 </div>
 
-[Quick start](docs/guide/getting-started.md) · [Workflows](docs/guide/workflows.md) · [Architecture](docs/guide/architecture.md) · [Security](docs/guide/security.md) · [CLI](docs/guide/cli-reference.md) · [Full details](docs/details/en.md) · [Sponsor on Ko-fi](https://ko-fi.com/betterworkflows)
+[Quick start](docs/guide/getting-started.md) · [Workflows](docs/guide/workflows.md) · [Architecture](docs/guide/architecture.md) · [Security](docs/guide/security.md) · [CLI](docs/guide/cli-reference.md) · [Full details](docs/details/en.md)
 
 <!-- readme-roster -->
 **Model roster:** Codex · Claude · Gemini · GPT-OSS · Grok · Cursor · Kimi · Qwen · Kiro. `agy` transports Gemini-, Claude-, and GPT-OSS-branded models; it is transport metadata, not another model brand.
+
+[Sponsor Better Workflows on Ko-fi](https://ko-fi.com/betterworkflows) — one-time support only.
 
 <!-- readme-section:promise-audience -->
 ## Why Better Workflows
