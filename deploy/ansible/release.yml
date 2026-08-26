@@ -335,8 +335,7 @@
             group: "{{ frontend_deploy_group }}"
             mode: "u=rwX,go=rX"
           when: not frontend_release_is_sealed
-          async: 1800
-          poll: 5
+          timeout: 1800
 
         - name: Verify release entrypoints before activation
           ansible.builtin.stat:

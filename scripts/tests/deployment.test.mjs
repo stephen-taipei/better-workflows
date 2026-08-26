@@ -90,6 +90,14 @@ test("isolated ingress changes only Better Workflows service paths", async () =>
       release.indexOf("Create a new isolated incoming release directory")
   );
   assert.match(release, /Verify the exact extracted tree and every payload digest/);
+  assert.match(
+    release,
+    /Upload and extract only into the fresh incoming directory[\s\S]*?timeout: 1800/
+  );
+  assert.doesNotMatch(
+    release,
+    /Upload and extract only into the fresh incoming directory[\s\S]*?async: 1800/
+  );
   assert.match(release, /! -type f ! -type d/);
   assert.match(release, /manifest\.directories/);
   assert.match(release, /frontend_deploy_lock: \/run\/lock\/betterworkflows-deploy\.lock/);
