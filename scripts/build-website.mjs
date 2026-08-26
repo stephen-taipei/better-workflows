@@ -61,6 +61,13 @@ async function assertSafeOutputDirectory() {
     ...(repositoryDistIsSafe ? [candidateDistRoot] : []),
     ...temporaryRoots
   ];
+  const candidateInsideRepository = candidate === canonicalRepository ||
+    isStrictDescendant(candidate, canonicalRepository);
+  const candidateInsideAuthorizedDist = repositoryDistIsSafe &&
+    requestedThroughRepositoryDist && isStrictDescendant(candidate, candidateDistRoot);
+  if (candidateInsideRepository && !candidateInsideAuthorizedDist) {
+    throw new Error("SITE_OUTPUT_DIR must not replace or delete repository content outside canonical dist");
+  }
   if (!allowedRoots.some((root) => isStrictDescendant(candidate, root))) {
     throw new Error("SITE_OUTPUT_DIR must be a child of repository dist or an operating-system temporary directory");
   }

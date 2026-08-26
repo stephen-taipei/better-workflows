@@ -27,8 +27,14 @@ function runBuild(environment) {
 test("website build refuses an output path outside dist or temporary roots", async () => {
   const result = await runBuild({ SITE_OUTPUT_DIR: repoRoot });
   assert.notEqual(result.code, 0);
-  assert.match(result.stderr, /SITE_OUTPUT_DIR must be a child/);
+  assert.match(result.stderr, /must not replace or delete repository content outside canonical dist/);
   assert.equal((await readFile(path.join(repoRoot, "README.md"), "utf8")).includes("Better Workflows"), true);
+});
+
+test("website build explicitly rejects repository content outside canonical dist", async () => {
+  const source = await readFile(path.join(repoRoot, "scripts", "build-website.mjs"), "utf8");
+  assert.match(source, /candidateInsideRepository && !candidateInsideAuthorizedDist/);
+  assert.match(source, /must not replace or delete repository content outside canonical dist/);
 });
 
 test("website build refuses a repository dist symlink that escapes the checkout", async () => {

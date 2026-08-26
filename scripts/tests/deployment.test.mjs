@@ -78,6 +78,8 @@ test("isolated ingress changes only Better Workflows service paths", async () =>
   assert.match(release, /Refuse unowned or mismatched interrupted release state/);
   assert.match(release, /frontend_transaction_receipt_path/);
   assert.match(release, /Restore the persisted previous release before cleaning an interrupted active candidate/);
+  assert.match(release, /Verify interrupted-candidate rollback before cleanup/);
+  assert.match(release, /frontend_interrupted_rollback_verified/);
   assert.ok(
     release.indexOf("Persist the exact transaction owner before artifact extraction") <
       release.indexOf("Create a new isolated incoming release directory")

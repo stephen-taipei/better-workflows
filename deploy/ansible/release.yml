@@ -210,6 +210,47 @@
             - frontend_previous_current.stdout == frontend_release_path
             - frontend_interrupted_transaction.previousCurrent | length == 0
 
+        - name: Read the current target after interrupted-candidate rollback
+          ansible.builtin.command:
+            argv:
+              - /usr/bin/readlink
+              - -f
+              - "{{ frontend_current_path }}"
+          changed_when: false
+          failed_when: false
+          register: frontend_after_interrupted_rollback
+          when:
+            - frontend_release_state.results[3].stat.exists
+            - frontend_release_state.results[0].stat.exists
+            - not frontend_release_state.results[1].stat.exists
+            - frontend_previous_current.stdout == frontend_release_path
+
+        - name: Verify interrupted-candidate rollback before cleanup
+          ansible.builtin.assert:
+            that:
+              - >-
+                (frontend_interrupted_transaction.previousCurrent | length > 0 and
+                frontend_after_interrupted_rollback.rc == 0 and
+                frontend_after_interrupted_rollback.stdout ==
+                frontend_interrupted_transaction.previousCurrent) or
+                (frontend_interrupted_transaction.previousCurrent | length == 0 and
+                frontend_after_interrupted_rollback.rc != 0)
+            fail_msg: Interrupted rollback could not be verified; candidate and receipt were preserved.
+          when:
+            - frontend_release_state.results[3].stat.exists
+            - frontend_release_state.results[0].stat.exists
+            - not frontend_release_state.results[1].stat.exists
+            - frontend_previous_current.stdout == frontend_release_path
+
+        - name: Record verified interrupted-candidate rollback
+          ansible.builtin.set_fact:
+            frontend_interrupted_rollback_verified: true
+          when:
+            - frontend_release_state.results[3].stat.exists
+            - frontend_release_state.results[0].stat.exists
+            - not frontend_release_state.results[1].stat.exists
+            - frontend_previous_current.stdout == frontend_release_path
+
         - name: Remove only matching interrupted transaction trees before retry
           ansible.builtin.file:
             path: "{{ item.path }}"
@@ -217,13 +258,19 @@
           loop:
             - path: "{{ frontend_incoming_path }}"
               exists: "{{ frontend_release_state.results[2].stat.exists }}"
+              was_active: false
             - path: "{{ frontend_release_path }}"
               exists: >-
                 {{ frontend_release_state.results[0].stat.exists and
                 not frontend_release_state.results[1].stat.exists }}
+              was_active: >-
+                {{ frontend_release_state.results[0].stat.exists and
+                not frontend_release_state.results[1].stat.exists and
+                frontend_previous_current.stdout == frontend_release_path }}
           when:
             - frontend_release_state.results[3].stat.exists
             - item.exists | bool
+            - not item.was_active | bool or frontend_interrupted_rollback_verified | default(false)
 
         - name: Select a fresh validation tree or the sealed release
           ansible.builtin.set_fact:
