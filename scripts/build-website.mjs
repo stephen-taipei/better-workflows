@@ -45,11 +45,22 @@ function isStrictDescendant(candidate, root) {
 
 async function assertSafeOutputDirectory() {
   const candidate = await canonicalPotentialPath(outputDirectory);
-  const allowedRoots = await Promise.all([
-    canonicalPotentialPath(path.join(repoRoot, "dist")),
+  const canonicalRepository = await realpath(repoRoot);
+  const candidateDistRoot = await canonicalPotentialPath(path.join(repoRoot, "dist"));
+  const temporaryRoots = await Promise.all([
     canonicalPotentialPath(tmpdir()),
     canonicalPotentialPath("/tmp")
   ]);
+  const repositoryDistIsSafe = isStrictDescendant(candidateDistRoot, canonicalRepository) &&
+    path.relative(canonicalRepository, candidateDistRoot) === "dist";
+  const requestedThroughRepositoryDist = isStrictDescendant(outputDirectory, path.join(repoRoot, "dist"));
+  if (requestedThroughRepositoryDist && !repositoryDistIsSafe) {
+    throw new Error("SITE_OUTPUT_DIR must not traverse a symlinked repository dist directory");
+  }
+  const allowedRoots = [
+    ...(repositoryDistIsSafe ? [candidateDistRoot] : []),
+    ...temporaryRoots
+  ];
   if (!allowedRoots.some((root) => isStrictDescendant(candidate, root))) {
     throw new Error("SITE_OUTPUT_DIR must be a child of repository dist or an operating-system temporary directory");
   }

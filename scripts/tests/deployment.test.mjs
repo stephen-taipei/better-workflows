@@ -75,7 +75,13 @@ test("isolated ingress changes only Better Workflows service paths", async () =>
   assert.match(release, /frontend_artifact\.stat\.checksum == frontend_expected_artifact_digest/);
   assert.match(release, /sha256sum/);
   assert.match(release, /frontend_incoming_path/);
-  assert.match(release, /Refuse release ID reuse or a stale incoming tree/);
+  assert.match(release, /Refuse unowned or mismatched interrupted release state/);
+  assert.match(release, /frontend_transaction_receipt_path/);
+  assert.match(release, /Restore the persisted previous release before cleaning an interrupted active candidate/);
+  assert.ok(
+    release.indexOf("Persist the exact transaction owner before artifact extraction") <
+      release.indexOf("Create a new isolated incoming release directory")
+  );
   assert.match(release, /Verify the exact extracted tree and every payload digest/);
   assert.match(release, /! -type f ! -type d/);
   assert.match(release, /manifest\.directories/);
@@ -97,6 +103,10 @@ test("isolated ingress changes only Better Workflows service paths", async () =>
   assert.match(release, /frontend_candidate_receipt\.locales \| int == 41/);
   assert.match(release, /Restore the previous Better Workflows release target/);
   assert.match(release, /Remove the failed first-release activation symlink/);
+  assert.match(playbook, /Reconcile the isolated ingress as one rollback-bounded transaction/);
+  assert.match(playbook, /Back up every existing project-owned ingress file/);
+  assert.match(playbook, /Remove only firewall rules added by this failed transaction/);
+  assert.match(playbook, /Restore only the isolated service's prior state/);
   assert.doesNotMatch(release, /\/etc\//);
   assert.doesNotMatch(release, /systemd|community\.general\.ufw|nginx\.service/);
   assert.doesNotMatch(release, /api\.sdi\.internal|sdi-web|sdi\.stephen\.taipei/);

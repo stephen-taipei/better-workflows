@@ -119,6 +119,11 @@ release IDs, and concurrent deployment transactions. New content is verified
 inside a fresh `.incoming-<release-id>` directory before an atomic rename. The
 kernel releases the project-only `flock` lease if its holder exits, and normal
 failures remove only the incoming or unsealed release owned by that transaction.
+An exact project-only transaction receipt lets a later invocation recover a
+matching interrupted release, including restoring the persisted previous
+`current` target before rebuilding the candidate. The isolated-ingress play
+backs up its own config, unit, renewal file, hook, firewall additions, and
+service state, then restores only those Better Workflows resources on failure.
 
 ## Dry checks
 

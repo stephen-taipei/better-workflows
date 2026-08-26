@@ -23,6 +23,18 @@
     frontend_isolated_log_root: /var/log/nginx/betterworkflows
     frontend_isolated_runtime_root: /run/betterworkflows-nginx
     frontend_isolated_service_name: betterworkflows-nginx
+    frontend_isolated_service_unit: /etc/systemd/system/betterworkflows-nginx.service
+    frontend_certbot_deploy_hook: /etc/letsencrypt/renewal-hooks/deploy/betterworkflows-nginx
+    frontend_managed_files:
+      - "{{ frontend_isolated_config_path }}"
+      - "{{ frontend_isolated_service_unit }}"
+      - "{{ frontend_certbot_renewal_path }}"
+      - "{{ frontend_certbot_deploy_hook }}"
+    frontend_managed_directories:
+      - "{{ frontend_isolated_config_root }}"
+      - "{{ frontend_isolated_log_root }}"
+      - "{{ frontend_isolated_runtime_root }}"
+      - "{{ frontend_letsencrypt_webroot }}"
     frontend_cloudflare_networks:
       - 173.245.48.0/20
       - 103.21.244.0/22
@@ -93,197 +105,319 @@
       when: frontend_manage_ufw | bool
 
   tasks:
-    - name: Create only the isolated Better Workflows Nginx directories
-      ansible.builtin.file:
-        path: "{{ item.path }}"
-        state: directory
-        owner: "{{ item.owner }}"
-        group: "{{ item.group }}"
-        mode: "{{ item.mode }}"
-      loop:
-        - path: "{{ frontend_isolated_config_root }}"
-          owner: root
-          group: root
-          mode: "0755"
-        - path: "{{ frontend_isolated_log_root }}"
-          owner: www-data
-          group: adm
-          mode: "0750"
-        - path: "{{ frontend_isolated_runtime_root }}"
-          owner: root
-          group: root
-          mode: "0755"
-        - path: "{{ frontend_letsencrypt_webroot }}/.well-known/acme-challenge"
-          owner: root
-          group: root
-          mode: "0755"
+    - name: Reconcile the isolated ingress as one rollback-bounded transaction
+      block:
+        - name: Inspect every project-owned mutable ingress file
+          ansible.builtin.stat:
+            path: "{{ item }}"
+          loop: "{{ frontend_managed_files }}"
+          register: frontend_managed_file_state
 
-    - name: Render only the isolated Better Workflows Nginx configuration
-      ansible.builtin.template:
-        src: betterworkflows-isolated-nginx.conf.j2
-        dest: "{{ frontend_isolated_config_path }}"
-        owner: root
-        group: root
-        mode: "0644"
-      register: frontend_isolated_nginx_config
+        - name: Inspect every project-owned ingress directory
+          ansible.builtin.stat:
+            path: "{{ item }}"
+          loop: "{{ frontend_managed_directories }}"
+          register: frontend_managed_directory_state
 
-    - name: Validate only the isolated Better Workflows Nginx configuration
-      ansible.builtin.command:
-        argv:
-          - "{{ frontend_nginx_binary }}"
-          - -t
-          - -c
-          - "{{ frontend_isolated_config_path }}"
-      changed_when: false
+        - name: Create a project-only ingress rollback directory
+          ansible.builtin.tempfile:
+            state: directory
+            path: /run
+            prefix: betterworkflows-ingress-rollback-
+          register: frontend_ingress_rollback
+          changed_when: false
 
-    - name: Install only the Better Workflows isolated systemd unit
-      ansible.builtin.template:
-        src: betterworkflows-nginx.service.j2
-        dest: "/etc/systemd/system/{{ frontend_isolated_service_name }}.service"
-        owner: root
-        group: root
-        mode: "0644"
-      register: frontend_isolated_systemd_unit
+        - name: Back up every existing project-owned ingress file
+          ansible.builtin.copy:
+            src: "{{ item.item }}"
+            dest: "{{ frontend_ingress_rollback.path }}/file-{{ managed_index }}"
+            remote_src: true
+            mode: preserve
+          loop: "{{ frontend_managed_file_state.results }}"
+          loop_control:
+            index_var: managed_index
+          when: item.stat.exists
+          changed_when: false
 
-    - name: Allow only Cloudflare networks to reach the project origin ports
-      community.general.ufw:
-        rule: allow
-        direction: in
-        from_ip: "{{ item.0 }}"
-        to_port: "{{ item.1 | string }}"
-        proto: tcp
-        comment: Better Workflows Cloudflare origin
-      loop: >-
-        {{ frontend_cloudflare_networks |
-        product([frontend_http_origin_port, frontend_https_origin_port]) | list }}
-      when: frontend_manage_ufw | bool
+        - name: Read the prior isolated service active state
+          ansible.builtin.command:
+            argv:
+              - /usr/bin/systemctl
+              - is-active
+              - "{{ frontend_isolated_service_name }}.service"
+          changed_when: false
+          failed_when: false
+          register: frontend_prior_service_active
 
-    - name: Enable and reconcile only the Better Workflows origin service
-      ansible.builtin.systemd:
-        name: "{{ frontend_isolated_service_name }}"
-        enabled: true
-        daemon_reload: "{{ frontend_isolated_systemd_unit.changed }}"
-        state: >-
-          {{ 'restarted' if (frontend_isolated_nginx_config.changed or
-          frontend_isolated_systemd_unit.changed) else 'started' }}
+        - name: Read the prior isolated service enablement state
+          ansible.builtin.command:
+            argv:
+              - /usr/bin/systemctl
+              - is-enabled
+              - "{{ frontend_isolated_service_name }}.service"
+          changed_when: false
+          failed_when: false
+          register: frontend_prior_service_enabled
 
-    - name: Wait for the isolated project ports
-      ansible.builtin.wait_for:
-        host: 127.0.0.1
-        port: "{{ item }}"
-        state: started
-        timeout: 15
-      loop:
-        - "{{ frontend_http_origin_port }}"
-        - "{{ frontend_https_origin_port }}"
+        - name: Create only the isolated Better Workflows Nginx directories
+          ansible.builtin.file:
+            path: "{{ item.path }}"
+            state: directory
+            owner: "{{ item.owner }}"
+            group: "{{ item.group }}"
+            mode: "{{ item.mode }}"
+          loop:
+            - path: "{{ frontend_isolated_config_root }}"
+              owner: root
+              group: root
+              mode: "0755"
+            - path: "{{ frontend_isolated_log_root }}"
+              owner: www-data
+              group: adm
+              mode: "0750"
+            - path: "{{ frontend_isolated_runtime_root }}"
+              owner: root
+              group: root
+              mode: "0755"
+            - path: "{{ frontend_letsencrypt_webroot }}/.well-known/acme-challenge"
+              owner: root
+              group: root
+              mode: "0755"
 
-    - name: Verify the primary HTTPS project health endpoint
-      ansible.builtin.uri:
-        url: "https://127.0.0.1:{{ frontend_https_origin_port }}/healthz"
-        headers:
-          Host: "{{ frontend_primary_domain }}"
-        validate_certs: false
-        return_content: true
-        status_code: 200
-      register: frontend_primary_health
-      failed_when: >-
-        frontend_primary_health.status != 200 or
-        frontend_primary_health.content != 'ok\n'
+        - name: Render only the isolated Better Workflows Nginx configuration
+          ansible.builtin.template:
+            src: betterworkflows-isolated-nginx.conf.j2
+            dest: "{{ frontend_isolated_config_path }}"
+            owner: root
+            group: root
+            mode: "0644"
+          register: frontend_isolated_nginx_config
 
-    - name: Verify the HTTPS alias canonical redirect
-      ansible.builtin.uri:
-        url: "https://127.0.0.1:{{ frontend_https_origin_port }}/docs/"
-        headers:
-          Host: "{{ frontend_alias_domains[0] }}"
-        validate_certs: false
-        follow_redirects: none
-        status_code: 301
-      register: frontend_alias_redirect
-      failed_when: >-
-        frontend_alias_redirect.status != 301 or
-        frontend_alias_redirect.location !=
-        'https://' + frontend_primary_domain + '/docs/'
+        - name: Validate only the isolated Better Workflows Nginx configuration
+          ansible.builtin.command:
+            argv:
+              - "{{ frontend_nginx_binary }}"
+              - -t
+              - -c
+              - "{{ frontend_isolated_config_path }}"
+          changed_when: false
 
-    - name: Verify the HTTP canonical redirect
-      ansible.builtin.uri:
-        url: "http://127.0.0.1:{{ frontend_http_origin_port }}/docs/"
-        headers:
-          Host: "{{ frontend_primary_domain }}"
-        follow_redirects: none
-        status_code: 301
-      register: frontend_http_redirect
-      failed_when: >-
-        frontend_http_redirect.status != 301 or
-        frontend_http_redirect.location !=
-        'https://' + frontend_primary_domain + '/docs/'
+        - name: Install only the Better Workflows isolated systemd unit
+          ansible.builtin.template:
+            src: betterworkflows-nginx.service.j2
+            dest: "{{ frontend_isolated_service_unit }}"
+            owner: root
+            group: root
+            mode: "0644"
+          register: frontend_isolated_systemd_unit
 
-    - name: Verify ACME HTTP-01 stays on the project webroot
-      ansible.builtin.uri:
-        url: >-
-          http://127.0.0.1:{{ frontend_http_origin_port }}/.well-known/acme-challenge/better-workflows-nonexistent-probe
-        headers:
-          Host: "{{ frontend_primary_domain }}"
-        follow_redirects: none
-        status_code: 404
+        - name: Allow only Cloudflare networks to reach the project origin ports
+          community.general.ufw:
+            rule: allow
+            direction: in
+            from_ip: "{{ item.0 }}"
+            to_port: "{{ item.1 | string }}"
+            proto: tcp
+            comment: Better Workflows Cloudflare origin
+          loop: >-
+            {{ frontend_cloudflare_networks |
+            product([frontend_http_origin_port, frontend_https_origin_port]) | list }}
+          when: frontend_manage_ufw | bool
+          register: frontend_ufw_rules
 
-    - name: Use the project webroot for this certificate's renewal
-      community.general.ini_file:
-        path: "{{ frontend_certbot_renewal_path }}"
-        section: renewalparams
-        option: authenticator
-        value: webroot
-        no_extra_spaces: true
-        backup: true
+        - name: Enable and reconcile only the Better Workflows origin service
+          ansible.builtin.systemd:
+            name: "{{ frontend_isolated_service_name }}"
+            enabled: true
+            daemon_reload: "{{ frontend_isolated_systemd_unit.changed }}"
+            state: >-
+              {{ 'restarted' if (frontend_isolated_nginx_config.changed or
+              frontend_isolated_systemd_unit.changed) else 'started' }}
 
-    - name: Persist the project webroot for every certificate hostname
-      community.general.ini_file:
-        path: "{{ frontend_certbot_renewal_path }}"
-        section: renewalparams
-        option: webroot_path
-        value: "{{ frontend_letsencrypt_webroot }},"
-        no_extra_spaces: true
-        backup: true
+        - name: Wait for the isolated project ports
+          ansible.builtin.wait_for:
+            host: 127.0.0.1
+            port: "{{ item }}"
+            state: started
+            timeout: 15
+          loop:
+            - "{{ frontend_http_origin_port }}"
+            - "{{ frontend_https_origin_port }}"
 
-    - name: Install only this certificate's deploy hook
-      ansible.builtin.template:
-        src: betterworkflows-certbot-deploy-hook.sh.j2
-        dest: /etc/letsencrypt/renewal-hooks/deploy/betterworkflows-nginx
-        owner: root
-        group: root
-        mode: "0755"
+        - name: Verify the primary HTTPS project health endpoint
+          ansible.builtin.uri:
+            url: "https://127.0.0.1:{{ frontend_https_origin_port }}/healthz"
+            headers:
+              Host: "{{ frontend_primary_domain }}"
+            validate_certs: false
+            return_content: true
+            status_code: 200
+          register: frontend_primary_health
+          failed_when: >-
+            frontend_primary_health.status != 200 or
+            frontend_primary_health.content != 'ok\n'
 
-    - name: Validate the project certificate deploy hook
-      ansible.builtin.command:
-        argv:
-          - /bin/sh
-          - -n
-          - /etc/letsencrypt/renewal-hooks/deploy/betterworkflows-nginx
-      changed_when: false
+        - name: Verify the HTTPS alias canonical redirect
+          ansible.builtin.uri:
+            url: "https://127.0.0.1:{{ frontend_https_origin_port }}/docs/"
+            headers:
+              Host: "{{ frontend_alias_domains[0] }}"
+            validate_certs: false
+            follow_redirects: none
+            status_code: 301
+          register: frontend_alias_redirect
+          failed_when: >-
+            frontend_alias_redirect.status != 301 or
+            frontend_alias_redirect.location !=
+            'https://' + frontend_primary_domain + '/docs/'
 
-    - name: Prove the project certificate can renew through Cloudflare
-      ansible.builtin.command:
-        argv:
-          - /usr/bin/certbot
-          - renew
-          - --cert-name
-          - "{{ frontend_certificate_name }}"
-          - --dry-run
-          - --non-interactive
-          - --no-random-sleep-on-renew
-      changed_when: false
-      when: frontend_certbot_dry_run | bool
+        - name: Verify the HTTP canonical redirect
+          ansible.builtin.uri:
+            url: "http://127.0.0.1:{{ frontend_http_origin_port }}/docs/"
+            headers:
+              Host: "{{ frontend_primary_domain }}"
+            follow_redirects: none
+            status_code: 301
+          register: frontend_http_redirect
+          failed_when: >-
+            frontend_http_redirect.status != 301 or
+            frontend_http_redirect.location !=
+            'https://' + frontend_primary_domain + '/docs/'
 
-    - name: Verify the active project release receipt
-      ansible.builtin.uri:
-        url: "https://127.0.0.1:{{ frontend_https_origin_port }}/release.json"
-        headers:
-          Host: "{{ frontend_primary_domain }}"
-        validate_certs: false
-        return_content: true
-        status_code: 200
-      register: frontend_release_receipt
-      failed_when: >-
-        frontend_release_receipt.status != 200 or
-        (frontend_release_receipt.content | from_json).project != 'better-workflows' or
-        (frontend_release_receipt.content | from_json).canonical !=
-        'https://' + frontend_primary_domain + '/'
+        - name: Verify ACME HTTP-01 stays on the project webroot
+          ansible.builtin.uri:
+            url: >-
+              http://127.0.0.1:{{ frontend_http_origin_port }}/.well-known/acme-challenge/better-workflows-nonexistent-probe
+            headers:
+              Host: "{{ frontend_primary_domain }}"
+            follow_redirects: none
+            status_code: 404
+
+        - name: Use the project webroot for this certificate's renewal
+          community.general.ini_file:
+            path: "{{ frontend_certbot_renewal_path }}"
+            section: renewalparams
+            option: authenticator
+            value: webroot
+            no_extra_spaces: true
+
+        - name: Persist the project webroot for every certificate hostname
+          community.general.ini_file:
+            path: "{{ frontend_certbot_renewal_path }}"
+            section: renewalparams
+            option: webroot_path
+            value: "{{ frontend_letsencrypt_webroot }},"
+            no_extra_spaces: true
+
+        - name: Install only this certificate's deploy hook
+          ansible.builtin.template:
+            src: betterworkflows-certbot-deploy-hook.sh.j2
+            dest: "{{ frontend_certbot_deploy_hook }}"
+            owner: root
+            group: root
+            mode: "0755"
+
+        - name: Validate the project certificate deploy hook
+          ansible.builtin.command:
+            argv:
+              - /bin/sh
+              - -n
+              - "{{ frontend_certbot_deploy_hook }}"
+          changed_when: false
+
+        - name: Prove the project certificate can renew through Cloudflare
+          ansible.builtin.command:
+            argv:
+              - /usr/bin/certbot
+              - renew
+              - --cert-name
+              - "{{ frontend_certificate_name }}"
+              - --dry-run
+              - --non-interactive
+              - --no-random-sleep-on-renew
+          changed_when: false
+          when: frontend_certbot_dry_run | bool
+
+        - name: Verify the active project release receipt
+          ansible.builtin.uri:
+            url: "https://127.0.0.1:{{ frontend_https_origin_port }}/release.json"
+            headers:
+              Host: "{{ frontend_primary_domain }}"
+            validate_certs: false
+            return_content: true
+            status_code: 200
+          register: frontend_release_receipt
+          failed_when: >-
+            frontend_release_receipt.status != 200 or
+            (frontend_release_receipt.content | from_json).project != 'better-workflows' or
+            (frontend_release_receipt.content | from_json).canonical !=
+            'https://' + frontend_primary_domain + '/'
+
+      rescue:
+        - name: Remove only firewall rules added by this failed transaction
+          community.general.ufw:
+            rule: allow
+            delete: true
+            direction: in
+            from_ip: "{{ item.item.0 }}"
+            to_port: "{{ item.item.1 | string }}"
+            proto: tcp
+          loop: "{{ frontend_ufw_rules.results | default([]) }}"
+          when:
+            - frontend_manage_ufw | bool
+            - item.changed | default(false)
+          failed_when: false
+
+        - name: Restore every project-owned ingress file that existed before the transaction
+          ansible.builtin.copy:
+            src: "{{ frontend_ingress_rollback.path }}/file-{{ managed_index }}"
+            dest: "{{ item.item }}"
+            remote_src: true
+            owner: "{{ item.stat.pw_name | default('root') }}"
+            group: "{{ item.stat.gr_name | default('root') }}"
+            mode: "{{ item.stat.mode }}"
+          loop: "{{ frontend_managed_file_state.results }}"
+          loop_control:
+            index_var: managed_index
+          when: item.stat.exists
+          failed_when: false
+
+        - name: Remove project-owned ingress files created by the failed transaction
+          ansible.builtin.file:
+            path: "{{ item.item }}"
+            state: absent
+          loop: "{{ frontend_managed_file_state.results }}"
+          when: not item.stat.exists
+          failed_when: false
+
+        - name: Remove project-owned ingress directories created by the failed transaction
+          ansible.builtin.file:
+            path: "{{ item.item }}"
+            state: absent
+          loop: "{{ frontend_managed_directory_state.results }}"
+          when: not item.stat.exists
+          failed_when: false
+
+        - name: Reload systemd after restoring the isolated unit
+          ansible.builtin.systemd:
+            daemon_reload: true
+          failed_when: false
+
+        - name: Restore only the isolated service's prior state
+          ansible.builtin.systemd:
+            name: "{{ frontend_isolated_service_name }}"
+            enabled: "{{ frontend_prior_service_enabled.stdout == 'enabled' }}"
+            state: "{{ 'started' if frontend_prior_service_active.stdout == 'active' else 'stopped' }}"
+          failed_when: false
+
+        - name: Stop after restoring the prior Better Workflows ingress state
+          ansible.builtin.fail:
+            msg: Isolated ingress reconciliation failed and its project-owned state was rolled back.
+
+      always:
+        - name: Remove the project-only ingress rollback directory
+          ansible.builtin.file:
+            path: "{{ frontend_ingress_rollback.path }}"
+            state: absent
+          when: frontend_ingress_rollback is defined
+          changed_when: false

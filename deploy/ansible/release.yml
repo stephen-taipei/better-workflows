@@ -18,6 +18,7 @@
     frontend_releases_root: "{{ frontend_deploy_root }}/releases"
     frontend_release_path: "{{ frontend_releases_root }}/{{ frontend_release_id }}"
     frontend_incoming_path: "{{ frontend_releases_root }}/.incoming-{{ frontend_release_id }}"
+    frontend_transaction_receipt_path: "{{ frontend_releases_root }}/.transaction-{{ frontend_release_id }}.json"
     frontend_release_marker: "{{ frontend_release_path }}/.better-workflows-release-complete"
     frontend_deploy_lock: /run/lock/betterworkflows-deploy.lock
     frontend_verification_prefix: "/run/betterworkflows-verify-{{ frontend_release_id }}"
@@ -110,31 +111,7 @@
           ansible.builtin.set_fact:
             frontend_deploy_lock_acquired: true
 
-        - name: Inspect the immutable release and seal
-          ansible.builtin.stat:
-            path: "{{ item }}"
-          loop:
-            - "{{ frontend_release_path }}"
-            - "{{ frontend_release_marker }}"
-            - "{{ frontend_incoming_path }}"
-          register: frontend_release_state
-
-        - name: Refuse release ID reuse or a stale incoming tree
-          ansible.builtin.assert:
-            that:
-              - not frontend_release_state.results[2].stat.exists
-              - >-
-                not frontend_release_state.results[0].stat.exists or
-                frontend_release_state.results[1].stat.exists
-            fail_msg: A release ID may be reused only when its sealed immutable release already exists.
-
-        - name: Select a fresh validation tree or the sealed release
-          ansible.builtin.set_fact:
-            frontend_release_is_sealed: "{{ frontend_release_state.results[1].stat.exists }}"
-            frontend_validation_path: >-
-              {{ frontend_release_path if frontend_release_state.results[1].stat.exists else frontend_incoming_path }}
-
-        - name: Read the previous project release target for bounded rollback
+        - name: Read the current project release target for recovery and rollback
           ansible.builtin.command:
             argv:
               - /usr/bin/readlink
@@ -143,6 +120,110 @@
           changed_when: false
           failed_when: false
           register: frontend_previous_current
+
+        - name: Inspect the immutable release, seal, and transaction receipt
+          ansible.builtin.stat:
+            path: "{{ item }}"
+          loop:
+            - "{{ frontend_release_path }}"
+            - "{{ frontend_release_marker }}"
+            - "{{ frontend_incoming_path }}"
+            - "{{ frontend_transaction_receipt_path }}"
+          register: frontend_release_state
+
+        - name: Read an interrupted transaction receipt when present
+          ansible.builtin.slurp:
+            src: "{{ frontend_transaction_receipt_path }}"
+          register: frontend_interrupted_transaction_raw
+          when: frontend_release_state.results[3].stat.exists
+
+        - name: Decode the interrupted transaction receipt
+          ansible.builtin.set_fact:
+            frontend_interrupted_transaction: >-
+              {{ frontend_interrupted_transaction_raw.content | b64decode | from_json }}
+          when: frontend_release_state.results[3].stat.exists
+
+        - name: Refuse unowned or mismatched interrupted release state
+          ansible.builtin.assert:
+            that:
+              - >-
+                not (frontend_release_state.results[2].stat.exists or
+                (frontend_release_state.results[0].stat.exists and
+                not frontend_release_state.results[1].stat.exists)) or
+                frontend_release_state.results[3].stat.exists
+              - >-
+                not frontend_release_state.results[3].stat.exists or
+                (frontend_interrupted_transaction.releaseId == frontend_release_id and
+                frontend_interrupted_transaction.revision == frontend_expected_revision and
+                frontend_interrupted_transaction.artifactDigest == frontend_expected_artifact_digest and
+                frontend_interrupted_transaction.contentDigest == frontend_expected_content_digest and
+                frontend_interrupted_transaction.receiptDigest == frontend_expected_receipt_digest)
+              - >-
+                not frontend_release_state.results[3].stat.exists or
+                frontend_interrupted_transaction.previousCurrent == '' or
+                frontend_interrupted_transaction.previousCurrent is
+                match('^/var/www/betterworkflows[.]dev/releases/[a-f0-9]{12}-[0-9]{8}T[0-9]{6}Z$')
+              - >-
+                frontend_previous_current.rc != 0 or
+                frontend_previous_current.stdout == frontend_release_path or
+                frontend_previous_current.stdout is
+                match('^/var/www/betterworkflows[.]dev/releases/[a-f0-9]{12}-[0-9]{8}T[0-9]{6}Z$')
+            fail_msg: Interrupted release state must be owned by the exact authorized transaction.
+
+        - name: Authorize bounded recovery of the matching transaction
+          ansible.builtin.set_fact:
+            frontend_transaction_authorized: true
+
+        - name: Restore the persisted previous release before cleaning an interrupted active candidate
+          ansible.builtin.file:
+            src: "{{ frontend_interrupted_transaction.previousCurrent }}"
+            dest: "{{ frontend_current_path }}"
+            state: link
+            force: true
+            owner: "{{ frontend_deploy_user }}"
+            group: "{{ frontend_deploy_group }}"
+          when:
+            - frontend_release_state.results[3].stat.exists
+            - frontend_release_state.results[0].stat.exists
+            - not frontend_release_state.results[1].stat.exists
+            - frontend_previous_current.stdout == frontend_release_path
+            - frontend_interrupted_transaction.previousCurrent | length > 0
+
+        - name: Remove an interrupted first-release activation before recovery
+          ansible.builtin.file:
+            path: "{{ frontend_current_path }}"
+            state: absent
+          when:
+            - frontend_release_state.results[3].stat.exists
+            - frontend_release_state.results[0].stat.exists
+            - not frontend_release_state.results[1].stat.exists
+            - frontend_previous_current.stdout == frontend_release_path
+            - frontend_interrupted_transaction.previousCurrent | length == 0
+
+        - name: Remove only matching interrupted transaction trees before retry
+          ansible.builtin.file:
+            path: "{{ item.path }}"
+            state: absent
+          loop:
+            - path: "{{ frontend_incoming_path }}"
+              exists: "{{ frontend_release_state.results[2].stat.exists }}"
+            - path: "{{ frontend_release_path }}"
+              exists: >-
+                {{ frontend_release_state.results[0].stat.exists and
+                not frontend_release_state.results[1].stat.exists }}
+          when:
+            - frontend_release_state.results[3].stat.exists
+            - item.exists | bool
+
+        - name: Select a fresh validation tree or the sealed release
+          ansible.builtin.set_fact:
+            frontend_release_is_sealed: "{{ frontend_release_state.results[1].stat.exists }}"
+            frontend_validation_path: >-
+              {{ frontend_release_path if frontend_release_state.results[1].stat.exists else frontend_incoming_path }}
+            frontend_previous_target: >-
+              {{ frontend_interrupted_transaction.previousCurrent
+              if frontend_release_state.results[3].stat.exists
+              else (frontend_previous_current.stdout if frontend_previous_current.rc == 0 else '') }}
 
         - name: Create only Better Workflows base release directories
           ansible.builtin.file:
@@ -154,6 +235,23 @@
           loop:
             - "{{ frontend_deploy_root }}"
             - "{{ frontend_releases_root }}"
+
+        - name: Persist the exact transaction owner before artifact extraction
+          ansible.builtin.copy:
+            dest: "{{ frontend_transaction_receipt_path }}"
+            owner: root
+            group: root
+            mode: "0600"
+            content: >-
+              {{ {
+                'releaseId': frontend_release_id,
+                'revision': frontend_expected_revision,
+                'artifactDigest': frontend_expected_artifact_digest,
+                'contentDigest': frontend_expected_content_digest,
+                'receiptDigest': frontend_expected_receipt_digest,
+                'previousCurrent': frontend_previous_target
+              } | to_nice_json }}
+          when: not frontend_release_is_sealed
 
         - name: Create a new isolated incoming release directory
           ansible.builtin.file:
@@ -321,26 +419,28 @@
                 access_time: preserve
               when: not frontend_release_is_sealed
 
+            - name: Record a complete release transaction
+              ansible.builtin.set_fact:
+                frontend_release_transaction_complete: true
+
           rescue:
             - name: Restore the previous Better Workflows release target
               ansible.builtin.file:
-                src: "{{ frontend_previous_current.stdout }}"
+                src: "{{ frontend_previous_target }}"
                 dest: "{{ frontend_current_path }}"
                 state: link
                 force: true
                 owner: "{{ frontend_deploy_user }}"
                 group: "{{ frontend_deploy_group }}"
               when:
-                - frontend_previous_current.rc == 0
-                - frontend_previous_current.stdout | length > 0
+                - frontend_previous_target | length > 0
 
             - name: Remove the failed first-release activation symlink
               ansible.builtin.file:
                 path: "{{ frontend_current_path }}"
                 state: absent
               when: >-
-                frontend_previous_current.rc != 0 or
-                frontend_previous_current.stdout | length == 0
+                frontend_previous_target | length == 0
 
             - name: Remove only this transaction's failed unsealed release
               ansible.builtin.file:
@@ -358,6 +458,22 @@
             path: "{{ frontend_incoming_path }}"
             state: absent
           when: frontend_incoming_created | default(false)
+          changed_when: false
+
+        - name: Remove only this transaction's failed unsealed published release
+          ansible.builtin.file:
+            path: "{{ frontend_release_path }}"
+            state: absent
+          when:
+            - frontend_release_published | default(false)
+            - not frontend_release_transaction_complete | default(false)
+          changed_when: false
+
+        - name: Remove the authorized transaction recovery receipt
+          ansible.builtin.file:
+            path: "{{ frontend_transaction_receipt_path }}"
+            state: absent
+          when: frontend_transaction_authorized | default(false)
           changed_when: false
 
         - name: Remove bounded verification scratch files

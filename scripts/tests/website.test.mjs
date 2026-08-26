@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { access, mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm, stat, symlink } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { execFile, spawn } from "node:child_process";
@@ -29,6 +29,21 @@ test("website build refuses an output path outside dist or temporary roots", asy
   assert.notEqual(result.code, 0);
   assert.match(result.stderr, /SITE_OUTPUT_DIR must be a child/);
   assert.equal((await readFile(path.join(repoRoot, "README.md"), "utf8")).includes("Better Workflows"), true);
+});
+
+test("website build refuses a repository dist symlink that escapes the checkout", async () => {
+  const externalRoot = await mkdtemp(path.join(os.tmpdir(), "better-workflows-external-dist-"));
+  const distPath = path.join(repoRoot, "dist");
+  assert.equal(await exists(distPath), false, "dist must be absent before the symlink boundary test");
+  try {
+    await symlink(externalRoot, distPath);
+    const result = await runBuild({ SITE_OUTPUT_DIR: path.join(distPath, "website") });
+    assert.notEqual(result.code, 0);
+    assert.match(result.stderr, /must not traverse a symlinked repository dist/);
+  } finally {
+    await rm(distPath, { force: true });
+    await rm(externalRoot, { recursive: true, force: true });
+  }
 });
 const buildScript = path.join(repoRoot, "scripts", "build-website.mjs");
 
