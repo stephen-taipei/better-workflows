@@ -90,6 +90,14 @@ test("isolated ingress changes only Better Workflows service paths", async () =>
       release.indexOf("Create a new isolated incoming release directory")
   );
   assert.match(release, /Verify the exact extracted tree and every payload digest/);
+  assert.match(
+    release,
+    /Upload and extract only into the fresh incoming directory[\s\S]*?timeout: 1800/
+  );
+  assert.doesNotMatch(
+    release,
+    /Upload and extract only into the fresh incoming directory[\s\S]*?async: 1800/
+  );
   assert.match(release, /! -type f ! -type d/);
   assert.match(release, /manifest\.directories/);
   assert.match(release, /frontend_deploy_lock: \/run\/lock\/betterworkflows-deploy\.lock/);
@@ -137,7 +145,11 @@ test("isolated ingress changes only Better Workflows service paths", async () =>
   );
   assert.match(playbook, /Back up every existing project-owned ingress file/);
   assert.match(playbook, /Remove only firewall rules added by this failed transaction/);
-  assert.match(playbook, /Restore only the isolated service's prior state/);
+  assert.match(playbook, /Restore only the isolated service's prior state and loaded configuration/);
+  assert.match(
+    playbook,
+    /state: "\{\{ 'restarted' if frontend_prior_service_active\.stdout == 'active' else 'stopped' \}\}"/
+  );
   assert.match(playbook, /frontend_ingress_rollback_complete/);
   assert.match(playbook, /frontend_ingress_transaction_complete/);
   const ingressTransaction = playbook.slice(
