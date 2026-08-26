@@ -134,6 +134,7 @@ test("locale catalog matches Connectors iOS, preserves key order, and rejects fr
   assert.doesNotMatch(JSON.stringify(japanese), /証明可能|provider reconciliation|外部作用/iu);
   assert.doesNotMatch(JSON.stringify(korean), /증명 가능한|provider reconciliation|제어면|외부 효과/iu);
   assert.doesNotMatch(JSON.stringify(locales.find((locale) => locale.code === "hi").messages), /\b(?:agent workflows?|review gates?|open-source|goal-first|control plane)\b/iu);
+  assert.doesNotMatch(JSON.stringify(locales), /41(?:[-\s]*(?:languages?|language localization)|\s*(?:種|种)?\s*(?:語言|语言|言語)|개\s*언어)/iu);
 });
 
 test("generated repository documentation covers the exact 41 locales", async () => {
@@ -166,6 +167,7 @@ test("generated repository documentation covers the exact 41 locales", async () 
     "docs/html/evidence-cinema/index.html"
   ].map(async (relativePath) => readFile(path.join(repoRoot, relativePath), "utf8")));
   assert.doesNotMatch(publicChineseSources.join("\n"), /新鮮(?:的)?證據|新鲜(?:的)?证据|即時證據|实时证据/);
+  assert.doesNotMatch(publicChineseSources.join("\n"), /41\s*(?:種|种)?\s*(?:語言|语言)/u);
 });
 
 test("build emits 41 localized homepages and five documentation routes with complete SEO metadata", async () => {
@@ -274,6 +276,10 @@ test("build emits 41 localized homepages and five documentation routes with comp
         assert.equal(navigation.syncFrameHash("#architecture"), "#architecture");
       }
     }
+
+    const localizedDocTemplate = await readFile(path.join(repoRoot, "scripts", "templates", "localized-doc-page.html"), "utf8");
+    assert.match(localizedDocTemplate, /41 · BCP 47/);
+    assert.doesNotMatch(localizedDocTemplate, /41 · __I18N_LANGUAGE__/);
 
     const notFound = await readFile(path.join(outputDirectory, "404.html"), "utf8");
     assert.doesNotMatch(notFound, /NOT FOUND|這個 route 不存在/);

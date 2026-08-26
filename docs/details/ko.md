@@ -231,7 +231,7 @@ $better-workflows:auto <완료하려는 결과를 설명>
 | `$better-workflows:pr-to-dev` | Scope 내 변경을 atomic commit으로 나누고 `dev` 대상 PR 하나를 만든 뒤 fresh checks 후 merge, remote 동기화, 소유 resource cleanup. | `$better-workflows:pr-to-dev 현재 변경을 분할 commit하고 dev PR을 checks 후 merge한 뒤 remote dev와 worktree를 정리.` |
 | `$better-workflows:cross-platform` | Backend, iOS, Android, Web의 schema, optional, enum, sync, version gate, headers. | `$better-workflows:cross-platform backend, iOS, Android contact sync contract를 확인하고 수정 후 PR 생성.` |
 | `$better-workflows:ios-static` | 로컬 build를 피하는 Swift/iOS 정적 Review와 직렬 `project.pbxproj` 검증. | `$better-workflows:ios-static build 없이 iOS 변경을 Review하고 새 Swift 파일의 pbxproj 등록 확인.` |
-| `$better-workflows:localization` | 다국어 변경, 특히 41 locales의 key 수, 순서, 정확한 scope, 지역 변형. | `$better-workflows:localization 41개 locales에 keys를 추가하고 동일한 순서인지 검증.` |
+| `$better-workflows:localization` | 다국어 변경, 특히 41개 로캘 버전의 key 수, 순서, 정확한 scope, 지역 변형. | `$better-workflows:localization 41개 로캘 버전에 keys를 추가하고 동일한 순서인지 검증.` |
 | `$better-workflows:ci-release` | CI failure, runner queue, 직렬 deploy, release, 원격 모니터링, receipt 검증. | `$better-workflows:ci-release 실패한 PR checks를 수정하고 직렬 dev deploy를 모니터링.` |
 | `$better-workflows:browser-qa` | 최신 UI 증거, screenshots, 재현 가능한 action log가 필요한 Webwright／simulator QA. | `$better-workflows:browser-qa signup과 contact sync를 검증하고 screenshot evidence 첨부.` |
 | `$better-workflows:research` | CLI로 검증한 multi-model 역할, 증거 기반 architecture 비교, 반증 및 실행 가능한 Plan. 다수결로 결정하지 않음. | `$better-workflows:research 세 가지 sync architecture를 비교·반증하고 구현 가능한 Plan 생성.` |
