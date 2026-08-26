@@ -166,14 +166,14 @@ test("generated repository documentation covers the exact 41 locales", async () 
     assert.ok(row, `${locale}: localization table row`);
     return [locale, row];
   }));
-  assert.match(regionalTaxonomyRows["zh-Hant-TW"], /41 個語系版本/);
-  assert.doesNotMatch(regionalTaxonomyRows["zh-Hant-TW"], /41\s*(?:種)?\s*(?:語言|語系)(?!版本)/u);
-  assert.match(regionalTaxonomyRows["zh-Hans"], /41 个本地化版本/);
-  assert.doesNotMatch(regionalTaxonomyRows["zh-Hans"], /41\s*(?:种)?\s*语言/u);
-  assert.match(regionalTaxonomyRows.ja, /41 ロケール版/);
+  assert.equal(occurrences(regionalTaxonomyRows["zh-Hant-TW"], /41 個語系版本/gu), 2);
+  assert.doesNotMatch(regionalTaxonomyRows["zh-Hant-TW"], /41\s*(?:個|種)?\s*(?:語言|語系)(?!版本)/u);
+  assert.equal(occurrences(regionalTaxonomyRows["zh-Hans"], /41 个本地化版本/gu), 2);
+  assert.doesNotMatch(regionalTaxonomyRows["zh-Hans"], /41\s*(?:个|种)?\s*语言/u);
+  assert.equal(occurrences(regionalTaxonomyRows.ja, /41 ロケール版/gu), 2);
   assert.doesNotMatch(regionalTaxonomyRows.ja, /41\s*(?:locales?|言語|か国語)/iu);
-  assert.match(regionalTaxonomyRows.ko, /41개 로캘 버전/);
-  assert.doesNotMatch(regionalTaxonomyRows.ko, /41\s*(?:locales?|개\s*언어)/iu);
+  assert.equal(occurrences(regionalTaxonomyRows.ko, /41개 로캘 버전/gu), 2);
+  assert.doesNotMatch(regionalTaxonomyRows.ko, /41(?:개)?\s*(?:locales?|언어)/iu);
 
   const publicChineseSources = await Promise.all([
     "docs/README.zh-TW.md",
