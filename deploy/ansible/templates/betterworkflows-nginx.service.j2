@@ -1,0 +1,22 @@
+[Unit]
+Description=Better Workflows isolated Nginx origin
+After=network.target
+
+[Service]
+Type=forking
+PIDFile={{ frontend_isolated_runtime_root }}/nginx.pid
+RuntimeDirectory=betterworkflows-nginx
+RuntimeDirectoryMode=0755
+ExecStartPre={{ frontend_nginx_binary }} -t -c {{ frontend_isolated_config_path }}
+ExecStart={{ frontend_nginx_binary }} -c {{ frontend_isolated_config_path }}
+ExecReload=/bin/kill -s HUP $MAINPID
+ExecStop=/bin/kill -s QUIT $MAINPID
+Restart=on-failure
+RestartSec=2s
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths={{ frontend_isolated_runtime_root }} {{ frontend_isolated_log_root }}
+
+[Install]
+WantedBy=multi-user.target

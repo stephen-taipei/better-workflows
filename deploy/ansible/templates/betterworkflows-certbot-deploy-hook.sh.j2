@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+
+if [ "${RENEWED_LINEAGE:-}" = "/etc/letsencrypt/live/{{ frontend_certificate_name }}" ]; then
+    /bin/systemctl reload {{ frontend_isolated_service_name }}.service
+fi
+

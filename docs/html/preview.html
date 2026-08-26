@@ -469,7 +469,7 @@
     <div class="topbar-inner">
       <a class="brand" href="#top">
         <span class="brand-mark">BW</span>
-        <span class="brand-copy"><strong data-i18n="brand.title">Better Workflows 快速導覽</strong><span>QUICK GUIDE · 3.4.13</span></span>
+        <span class="brand-copy"><strong data-i18n="brand.title">Better Workflows 快速導覽</strong><span>QUICK GUIDE · 3.4.14</span></span>
       </a>
       <div class="top-actions">
         <div class="locale-switch" role="group" aria-label="語言" data-i18n-aria-label="a11y.language">
@@ -490,7 +490,7 @@
       <div>
         <p class="eyebrow" data-i18n="hero.eyebrow">5–10 分鐘快速建立心智模型</p>
         <h1 data-i18n-html="hero.title">先看懂控制面，<span class="accent">再深入原始碼。</span></h1>
-        <p class="hero-lead" data-i18n-html="hero.lead">Better Workflows 的重點不是「agent 做了多少」，而是 <strong>每一個關鍵結論是否有新鮮、可重驗、綁定正確來源的證據</strong>。</p>
+        <p class="hero-lead" data-i18n-html="hero.lead">Better Workflows 的重點不是「agent 做了多少」，而是 <strong>每一個關鍵結論是否有即時、可重驗、綁定正確來源的證據</strong>。</p>
         <div class="hero-actions">
           <a class="btn primary" href="#quick-tabs"><span data-i18n="hero.start">開始快速導覽</span><span aria-hidden="true">↓</span></a>
           <a class="btn" href="index.html" data-i18n="nav.fullArrow">直接看完整版 ↗</a>
@@ -552,7 +552,7 @@
           </div>
           <div class="mode-grid">
             <article class="card mode-card"><span class="level">LEVEL 1 / 4</span><h3>direct</h3><p data-i18n="mode.direct">低風險、可回復；root 直接執行，不建立 governed run。</p><div class="meter"><span class="on"></span><span></span><span></span><span></span></div></article>
-            <article class="card mode-card"><span class="level">LEVEL 2 / 4</span><h3>verified</h3><p data-i18n="mode.verified">新鮮證據，加上 1–3 個唯讀 reviewer 做交叉驗證。</p><div class="meter"><span class="on"></span><span class="on"></span><span></span><span></span></div></article>
+            <article class="card mode-card"><span class="level">LEVEL 2 / 4</span><h3>verified</h3><p data-i18n="mode.verified">即時證據，加上 1–3 個唯讀 reviewer 做交叉驗證。</p><div class="meter"><span class="on"></span><span class="on"></span><span></span><span></span></div></article>
             <article class="card mode-card"><span class="level">LEVEL 3 / 4</span><h3>deep</h3><p data-i18n="mode.deep">在 verified wave 後加入獨立 Codex critics 與 broad review。</p><div class="meter"><span class="on"></span><span class="on"></span><span class="on"></span><span></span></div></article>
             <article class="card mode-card"><span class="level">LEVEL 4 / 4</span><h3>critical</h3><p data-i18n="mode.critical">不可逆副作用要求完整 authority、exact critic 與 reconciliation。</p><div class="meter"><span class="on"></span><span class="on"></span><span class="on"></span><span class="on"></span></div></article>
           </div>
@@ -619,14 +619,14 @@
       let locale = root.dataset.locale === 'en' ? 'en' : 'zh-Hant';
       const messages = {
         'zh-Hant': {
-          'meta.title': 'Better Workflows 快速導覽｜從意圖到可證明完成',
-          'meta.description': '用 5–10 分鐘建立 Better Workflows 的控制面、證據、replay 與完成邊界心智模型。',
+          'meta.title': 'Better Workflows 快速導覽｜控制面與即時證據',
+          'meta.description': '用 5–10 分鐘理解 Better Workflows 的控制面、即時證據、replay 與可證明完成邊界。',
           'a11y.skip': '跳到主要內容', 'a11y.language': '語言', 'a11y.summary': '導覽摘要', 'a11y.depth': '導覽深度',
           'theme.dark': '切換深色模式', 'theme.light': '切換淺色模式',
           'brand.title': 'Better Workflows 快速導覽', 'nav.full': '查看完整版', 'nav.fullArrow': '直接看完整版 ↗',
           'hero.eyebrow': '5–10 分鐘快速建立心智模型',
           'hero.title': '先看懂控制面，<span class="accent">再深入原始碼。</span>',
-          'hero.lead': 'Better Workflows 的重點不是「agent 做了多少」，而是 <strong>每一個關鍵結論是否有新鮮、可重驗、綁定正確來源的證據</strong>。',
+          'hero.lead': 'Better Workflows 的重點不是「agent 做了多少」，而是 <strong>每一個關鍵結論是否有即時、可重驗、綁定正確來源的證據</strong>。',
           'hero.start': '開始快速導覽',
           'hero.artAlt': '以典藏帳冊、證據印記、重播迴圈與對帳節點構成的 Better Workflows 控制面插畫',
           'hero.artCaption': '把「我做完了」變成一條可以回放、驗證與對帳的證據鏈。',
@@ -644,7 +644,7 @@
           'concept.truth.title': '外部已對帳', 'concept.truth.copy': 'Provider 的實際狀態必須由 receipt 或查詢重建，而非相信本機呼叫。',
           'concept.complete.title': '可以宣告完成', 'concept.complete.copy': '重驗 ledger、review、evidence、sentinel 與 side effects 後才有終態。',
           'mode.title': 'Mode 是驗證強度，不是 agent 數', 'mode.summary': '風險提高時，系統增加 governed run、fresh evidence、獨立 critics 與 fail-closed gates；mutation authority 仍在 root。',
-          'mode.direct': '低風險、可回復；root 直接執行，不建立 governed run。', 'mode.verified': '新鮮證據，加上 1–3 個唯讀 reviewer 做交叉驗證。',
+          'mode.direct': '低風險、可回復；root 直接執行，不建立 governed run。', 'mode.verified': '即時證據，加上 1–3 個唯讀 reviewer 做交叉驗證。',
           'mode.deep': '在 verified wave 後加入獨立 Codex critics 與 broad review。', 'mode.critical': '不可逆副作用要求完整 authority、exact critic 與 reconciliation。',
           'replay.title': 'Replay 至少有三種語義', 'replay.summary': '它們都用持久化輸入重建結論，但輸入、輸出和 failure policy 不同；reconciliation 更不是「再送一次」。',
           'replay.ledger': 'TaskContract + ordered events + admitted evidence 重建 ready set 與 task state。',
@@ -660,8 +660,8 @@
           'closing.cta': '開啟完整版', 'footer.note': '快速版建立心智模型；所有精確證據與 implementation baseline、同步後 locators 以完整版為準。', 'footer.back': '↑ 回到頁首'
         },
         en: {
-          'meta.title': 'Better Workflows Quick Guide | From intent to provable completion',
-          'meta.description': 'Build a mental model of the Better Workflows control plane, evidence, replay, and completion boundaries in 5–10 minutes.',
+          'meta.title': 'Better Workflows Quick Guide | Control plane and current evidence',
+          'meta.description': 'Understand the Better Workflows control plane, current evidence, replay, and provable-completion boundaries in 5–10 minutes.',
           'a11y.skip': 'Skip to main content', 'a11y.language': 'Language', 'a11y.summary': 'Guide summary', 'a11y.depth': 'Guide depth',
           'theme.dark': 'Switch to dark mode', 'theme.light': 'Switch to light mode',
           'brand.title': 'Better Workflows Quick Guide', 'nav.full': 'View full guide', 'nav.fullArrow': 'Go straight to the full guide ↗',

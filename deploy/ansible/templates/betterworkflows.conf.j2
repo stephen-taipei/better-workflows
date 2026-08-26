@@ -1,0 +1,85 @@
+# Better Workflows only. Managed by deploy/ansible/site.yml.
+# This file intentionally does not remove or edit any other Nginx site.
+
+{% if frontend_render_tls_enabled | bool %}
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+
+    server_name {{ frontend_primary_domain }};
+    root {{ frontend_current_path }};
+    index index.html;
+
+    ssl_certificate {{ frontend_ssl_certificate }};
+    ssl_certificate_key {{ frontend_ssl_certificate_key }};
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_timeout 1d;
+    ssl_session_cache shared:BWSSL:10m;
+    ssl_session_tickets off;
+
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
+
+    location = /healthz {
+        add_header Cache-Control "no-store" always;
+        try_files /healthz =404;
+        access_log off;
+    }
+
+    location ~* \.(?:js|css|png|jpg|jpeg|gif|ico|svg|webp|avif|woff|woff2|ttf|eot)$ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+        access_log off;
+    }
+
+    location ~* \.html$ {
+        expires -1;
+        add_header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0";
+    }
+
+    location / { try_files $uri $uri/ /index.html; }
+    location ~ /\. { deny all; access_log off; log_not_found off; }
+    location ~* (?:\.env|\.git|\.htaccess|\.htpasswd|\.DS_Store)$ { deny all; access_log off; log_not_found off; }
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name {{ frontend_alias_domains | join(' ') }};
+    ssl_certificate {{ frontend_ssl_certificate }};
+    ssl_certificate_key {{ frontend_ssl_certificate_key }};
+    ssl_protocols TLSv1.2 TLSv1.3;
+    return 301 https://{{ frontend_primary_domain }}$request_uri;
+}
+{% endif %}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name {{ ([frontend_primary_domain] + frontend_alias_domains) | join(' ') }};
+
+    location ^~ /.well-known/acme-challenge/ {
+        root {{ frontend_letsencrypt_webroot }};
+        default_type text/plain;
+        try_files $uri =404;
+    }
+
+    {% if frontend_render_tls_enabled | bool %}
+    location / { return 301 https://{{ frontend_primary_domain }}$request_uri; }
+    {% else %}
+    root {{ frontend_current_path }};
+    index index.html;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    location = /healthz { add_header Cache-Control "no-store" always; try_files /healthz =404; access_log off; }
+    location ~* \.(?:js|css|png|jpg|jpeg|gif|ico|svg|webp|avif|woff|woff2|ttf|eot)$ { expires 1y; add_header Cache-Control "public, immutable"; access_log off; }
+    location / { try_files $uri $uri/ /index.html; }
+    location ~ /\. { deny all; access_log off; log_not_found off; }
+    location ~* (?:\.env|\.git|\.htaccess|\.htpasswd|\.DS_Store)$ { deny all; access_log off; log_not_found off; }
+    {% endif %}
+}

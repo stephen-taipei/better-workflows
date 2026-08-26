@@ -3,9 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Better Workflows 3.4.13 情境應用手冊：從任務辨識、模板與模式選擇，到證據、Replay、外部副作用與完成條件。">
+  <meta name="description" content="依任務風險選擇 Better Workflows template、mode、evidence、review、replay 與外部副作用關卡。">
   <meta name="color-scheme" content="dark light">
-  <title>Better Workflows 情境應用手冊 · 3.4.13</title>
+  <title>Better Workflows 情境應用手冊</title>
   <!-- GENERATED: sdk-maker | observed 2026-08-15 | revision c5abd1f -->
   <style>
     :root {
@@ -744,7 +744,7 @@
   <header class="topbar">
     <a class="brand" href="#top" aria-label="回到頁首" data-i18n-aria-label="backTop">
       <span class="brand-mark">BW</span>
-      <span class="brand-copy"><strong data-i18n="brandTitle">Better Workflows 情境手冊</strong><span>SCENARIO PLAYBOOK · 3.4.13</span></span>
+      <span class="brand-copy"><strong data-i18n="brandTitle">Better Workflows 情境手冊</strong><span>SCENARIO PLAYBOOK · 3.4.14</span></span>
     </a>
     <div class="top-actions">
       <a class="book-link preview-link" href="preview.html" data-i18n="previewEdition">預覽版 →</a>
@@ -802,7 +802,7 @@
     </section>
 
     <div class="meta-strip" aria-label="研究版本資訊">
-      <div class="meta-cell"><span>Version</span><strong>3.4.13</strong></div>
+      <div class="meta-cell"><span>Version</span><strong>3.4.14</strong></div>
       <div class="meta-cell"><span>Revision</span><strong>c5abd1f</strong></div>
       <div class="meta-cell"><span>Entrypoints</span><strong>17</strong></div>
       <div class="meta-cell"><span>Templates</span><strong>14 / 66 stages</strong></div>
@@ -817,7 +817,7 @@
           <div class="finder-head"><h3>路線判讀台</h3><span class="step-tag">LIVE DECISION AID</span></div>
           <div class="finder-form">
             <div class="field"><label for="task-select">01 · 我要完成什麼？</label><select id="task-select"></select></div>
-            <div class="field"><label for="scope-select">02 · 範圍與不確定性</label><select id="scope-select"><option value="direct">單點、熟悉、可快速回復</option><option value="verified">需要新鮮證據或交叉檢查</option><option value="deep">跨模組／架構／高認知負荷</option><option value="critical">關鍵、不可逆或需獨立外證</option></select></div>
+            <div class="field"><label for="scope-select">02 · 範圍與不確定性</label><select id="scope-select"><option value="direct">單點、熟悉、可快速回復</option><option value="verified">需要即時證據或交叉檢查</option><option value="deep">跨模組／架構／高認知負荷</option><option value="critical">關鍵、不可逆或需獨立外證</option></select></div>
             <div class="field"><label for="effect-select">03 · 會碰外部世界嗎？</label><select id="effect-select"><option value="none">不會，只讀或本地修改</option><option value="repo">會，commit / bounded repo write</option><option value="provider">會，issue / PR / account / provider</option><option value="production">會，merge / deploy / production</option></select></div>
           </div>
           <div class="finder-result" id="finder-result" aria-live="polite"></div>
@@ -1051,7 +1051,7 @@ node plugins/better-workflows/scripts/sbw.mjs action issue &lt;run-id&gt; \
     const msg = key => uiMessages[currentLocale]?.[key] || uiMessages['zh-Hant'][key] || key;
 
     const enText = Object.freeze({
-      'Better Workflows 情境應用手冊 · 3.4.13': 'Better Workflows Scenario Playbook · 3.4.13',
+      'Better Workflows 情境應用手冊': 'Better Workflows Scenario Playbook',
       '跳到主要內容': 'Skip to main content',
       '情境決策器': 'Scenario finder', '架構地圖': 'Architecture map', '機制盤點': 'Mechanism inventory',
       '14 種實戰教學': '14 scenario tutorials', '應用文選讀': 'Applied essays', '新手路徑': 'Newcomer path',
@@ -1070,7 +1070,7 @@ node plugins/better-workflows/scripts/sbw.mjs action issue &lt;run-id&gt; \
       '，它不是一個模板；必須根據證據再選一個真實 template。': ', it is not a template. Current evidence must select a real template.',
       '路線判讀台': 'Route decision desk', '01 · 我要完成什麼？': '01 · What must be completed?',
       '02 · 範圍與不確定性': '02 · Scope and uncertainty', '單點、熟悉、可快速回復': 'Local, familiar, quickly reversible',
-      '需要新鮮證據或交叉檢查': 'Needs fresh evidence or cross-checking', '跨模組／架構／高認知負荷': 'Cross-module, architectural, high cognitive load',
+      '需要即時證據或交叉檢查': 'Needs fresh evidence or cross-checking', '跨模組／架構／高認知負荷': 'Cross-module, architectural, high cognitive load',
       '關鍵、不可逆或需獨立外證': 'Critical, irreversible, or needs independent external evidence',
       '03 · 會碰外部世界嗎？': '03 · Does it touch the external world?', '不會，只讀或本地修改': 'No—read-only or local changes',
       '會，commit / bounded repo write': 'Yes—commit or bounded repository write', '會，issue / PR / account / provider': 'Yes—issue, PR, account, or provider',
@@ -1223,9 +1223,9 @@ node plugins/better-workflows/scripts/sbw.mjs action issue &lt;run-id&gt; \
       },
       verified: {
         level: 2,
-        title: 'verified · 新鮮證據與獨立檢查',
+        title: 'verified · 即時證據與獨立檢查',
         subtitle: '1–3 read-only reviewers · v2 run',
-        summary: '建立 governed run，以一到三個唯讀研究／review 角色取得 fresh evidence。適合瀏覽器 QA、靜態 iOS review、review-to-issues 與 recipe trust。',
+        summary: '建立 governed run，以一到三個唯讀研究／review 角色取得即時、可重驗的 evidence。適合瀏覽器 QA、靜態 iOS review、review-to-issues 與 recipe trust。',
         good: ['需要交叉檢查', '結果依賴當前畫面或 revision', '可控制的外部 side effect'],
         stop: 'Reviewer 不可修改檔案、接受風險、執行外部動作或宣告完成；Root 必須重驗。'
       },
@@ -1777,9 +1777,9 @@ node plugins/better-workflows/scripts/sbw.mjs action issue &lt;run-id&gt; \
       $$('[data-i18n-aria-label]').forEach(element => { element.setAttribute('aria-label', msg(element.dataset.i18nAriaLabel)); });
       $$('[data-i18n-title]').forEach(element => { element.title = msg(element.dataset.i18nTitle); });
       $$('[data-i18n-alt]').forEach(element => { element.alt = msg(element.dataset.i18nAlt); });
-      document.title = currentLocale === 'en' ? 'Better Workflows Scenario Playbook · 3.4.13' : 'Better Workflows 情境應用手冊 · 3.4.13';
+      document.title = currentLocale === 'en' ? 'Better Workflows Scenario Playbook' : 'Better Workflows 情境應用手冊';
       const description = $('meta[name="description"]');
-      if (description) description.content = currentLocale === 'en' ? 'Better Workflows 3.4.13 scenario playbook: choose a task route, verification mode, typed evidence, replay boundary, and authorized terminal action.' : 'Better Workflows 3.4.13 情境應用手冊：從任務辨識、模板與模式選擇，到證據、Replay、外部副作用與完成條件。';
+      if (description) description.content = currentLocale === 'en' ? 'Choose a Better Workflows task route, verification mode, typed evidence, replay boundary, and authorized terminal action.' : '依任務風險選擇 Better Workflows template、mode、evidence、review、replay 與外部副作用關卡。';
       document.documentElement.lang = currentLocale;
       document.documentElement.dataset.locale = currentLocale;
       $('#locale-select').value = currentLocale;
