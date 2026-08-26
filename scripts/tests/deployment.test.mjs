@@ -137,7 +137,11 @@ test("isolated ingress changes only Better Workflows service paths", async () =>
   );
   assert.match(playbook, /Back up every existing project-owned ingress file/);
   assert.match(playbook, /Remove only firewall rules added by this failed transaction/);
-  assert.match(playbook, /Restore only the isolated service's prior state/);
+  assert.match(playbook, /Restore only the isolated service's prior state and loaded configuration/);
+  assert.match(
+    playbook,
+    /state: "\{\{ 'restarted' if frontend_prior_service_active\.stdout == 'active' else 'stopped' \}\}"/
+  );
   assert.match(playbook, /frontend_ingress_rollback_complete/);
   assert.match(playbook, /frontend_ingress_transaction_complete/);
   const ingressTransaction = playbook.slice(

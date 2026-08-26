@@ -450,11 +450,11 @@
           ansible.builtin.systemd:
             daemon_reload: true
 
-        - name: Restore only the isolated service's prior state
+        - name: Restore only the isolated service's prior state and loaded configuration
           ansible.builtin.systemd:
             name: "{{ frontend_isolated_service_name }}"
             enabled: "{{ frontend_prior_service_enabled.stdout == 'enabled' }}"
-            state: "{{ 'started' if frontend_prior_service_active.stdout == 'active' else 'stopped' }}"
+            state: "{{ 'restarted' if frontend_prior_service_active.stdout == 'active' else 'stopped' }}"
 
         - name: Record a complete isolated ingress rollback
           ansible.builtin.set_fact:
