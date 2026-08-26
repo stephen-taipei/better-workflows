@@ -41,6 +41,7 @@ test("official website build is self-contained and includes docs/html", async ()
     assert.deepEqual(release.domains, ["betterworkflows.dev", "betterworkflows.org"]);
     assert.equal(release.repository, "https://github.com/stephen-taipei/better-workflows");
     assert.equal(release.sponsorUrl, "https://ko-fi.com/betterworkflows");
+    assert.equal(release.sponsorMode, "one-time-only");
     assert.equal(release.locales, 41);
     assert.equal(release.defaultLocale, "zh-Hant-TW");
     assert.match(release.assetVersion, /^[a-f0-9]{12}$/);
@@ -60,6 +61,7 @@ test("official website build is self-contained and includes docs/html", async ()
       "en/index.html",
       "zh-Hant-HK/index.html",
       "locales.json",
+      "manifest.sha256",
       "plugins/better-workflows/skills/better-workflows/references/evidence-and-state.md"
     ]) assert.equal(await exists(path.join(outputDirectory, relativePath)), true, relativePath);
 

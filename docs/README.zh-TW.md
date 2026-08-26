@@ -15,7 +15,7 @@
 
 </div>
 
-[快速開始](guide/getting-started.md) · [工作流](guide/workflows.md) · [架構](guide/architecture.md) · [安全](guide/security.md) · [CLI](guide/cli-reference.md) · [完整細節](details/zh-TW.md) · [透過 Ko-fi 支持](https://ko-fi.com/betterworkflows)
+[快速開始](guide/getting-started.md) · [工作流](guide/workflows.md) · [架構](guide/architecture.md) · [安全](guide/security.md) · [CLI](guide/cli-reference.md) · [完整細節](details/zh-TW.md) · [透過 Ko-fi 單次贊助](https://ko-fi.com/betterworkflows)
 
 <!-- readme-roster -->
 **Model roster：** Codex · Claude · Gemini · GPT-OSS · Grok · Cursor · Kimi · Qwen · Kiro。`agy` 傳輸 Gemini、Claude 與 GPT-OSS 品牌模型；它是 transport metadata，不是另一個模型品牌。
@@ -178,7 +178,7 @@ Better Workflows 記錄並檢查 control plane；它不是無限制 agent runtim
 [Contributing](../CONTRIBUTING.md) · [Code of conduct](../CODE_OF_CONDUCT.md) ·
 [Governance](../GOVERNANCE.md) · [Support](../SUPPORT.md) · [Security policy](../SECURITY.md)
 
-一次性 [Ko-fi 支持](https://ko-fi.com/betterworkflows)將用於開源維護、文件、41 種語言的在地化與網站託管；不包含會員資格，也不提供 roadmap 或技術支援優先權。
+單次 [Ko-fi 贊助](https://ko-fi.com/betterworkflows)將用於開源維護、文件、41 種語言的在地化與網站託管；不包含會員資格，也不提供 roadmap 或技術支援優先權。
 
 <details>
 <summary>開發 Better Workflows</summary>

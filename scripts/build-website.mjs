@@ -19,6 +19,7 @@ const pluginSource = path.join(repoRoot, "plugins", "better-workflows");
 const canonicalOrigin = "https://betterworkflows.dev";
 const repositoryUrl = "https://github.com/stephen-taipei/better-workflows";
 const sponsorUrl = "https://ko-fi.com/betterworkflows";
+const sponsorMode = "one-time-only";
 
 const openGraphLocales = {
   ar: "ar_AR", ca: "ca_ES", cs: "cs_CZ", da: "da_DK", de: "de_DE", el: "el_GR", en: "en_US", es: "es_ES", "es-MX": "es_MX", fi: "fi_FI", fil: "fil_PH", fr: "fr_FR", he: "he_IL", hi: "hi_IN", hr: "hr_HR", hu: "hu_HU", id: "id_ID", it: "it_IT", ja: "ja_JP", km: "km_KH", ko: "ko_KR", lo: "lo_LA", ms: "ms_MY", my: "my_MM", nb: "nb_NO", nl: "nl_NL", pl: "pl_PL", pt: "pt_PT", "pt-BR": "pt_BR", ro: "ro_RO", ru: "ru_RU", sk: "sk_SK", sv: "sv_SE", th: "th_TH", tr: "tr_TR", uk: "uk_UA", vi: "vi_VN", "zh-Hans": "zh_CN", "zh-Hant": "zh_TW", "zh-Hant-HK": "zh_HK", "zh-Hant-TW": "zh_TW"
@@ -55,26 +56,25 @@ async function websiteAssetVersion() {
   return hash.digest("hex").slice(0, 12);
 }
 
-async function contentDigest(directory) {
+async function contentManifest(directory) {
   const files = [];
   async function walk(currentDirectory) {
     for (const entry of await readdir(currentDirectory, { withFileTypes: true })) {
       const filePath = path.join(currentDirectory, entry.name);
       if (entry.isDirectory()) await walk(filePath);
-      else if (entry.isFile() && path.relative(directory, filePath) !== "release.json") files.push(filePath);
+      else if (entry.isFile() && !["release.json", "manifest.sha256"].includes(path.relative(directory, filePath))) files.push(filePath);
     }
   }
   await walk(directory);
   files.sort((left, right) => left.localeCompare(right, "en"));
-  const hash = createHash("sha256");
+  const lines = [];
   for (const filePath of files) {
     const relativePath = path.relative(directory, filePath).split(path.sep).join("/");
-    hash.update(relativePath);
-    hash.update("\0");
-    hash.update(await readFile(filePath));
-    hash.update("\0");
+    const digest = createHash("sha256").update(await readFile(filePath)).digest("hex");
+    lines.push(`${digest}  ${relativePath}`);
   }
-  return hash.digest("hex");
+  const manifest = `${lines.join("\n")}\n`;
+  return { manifest, digest: createHash("sha256").update(manifest).digest("hex") };
 }
 
 function escapeHtml(value) {
@@ -288,7 +288,9 @@ await writeFile(path.join(outputDirectory, "locales.json"), `${JSON.stringify({
   locales: locales.map(({ code, label, dir = "ltr" }) => ({ code, label, dir, url: localeUrl(code) }))
 }, null, 2)}\n`);
 await writeFile(path.join(outputDirectory, "sitemap.xml"), sitemapXml(builtAt));
-const artifactContentDigest = await contentDigest(outputDirectory);
+const artifactManifest = await contentManifest(outputDirectory);
+await writeFile(path.join(outputDirectory, "manifest.sha256"), artifactManifest.manifest);
+const artifactContentDigest = artifactManifest.digest;
 await writeFile(path.join(outputDirectory, "release.json"), `${JSON.stringify({
   project: "better-workflows",
   version,
@@ -298,6 +300,7 @@ await writeFile(path.join(outputDirectory, "release.json"), `${JSON.stringify({
   domains: ["betterworkflows.dev", "betterworkflows.org"],
   repository: repositoryUrl,
   sponsorUrl,
+  sponsorMode,
   locales: locales.length,
   defaultLocale: DEFAULT_LOCALE,
   assetVersion,
@@ -305,4 +308,4 @@ await writeFile(path.join(outputDirectory, "release.json"), `${JSON.stringify({
   artifact: "static-frontend"
 }, null, 2)}\n`);
 
-console.log(JSON.stringify({ outputDirectory, version, revision, builtAt, assetVersion, contentDigest: artifactContentDigest, locales: locales.length, repository: repositoryUrl, sponsorUrl }, null, 2));
+console.log(JSON.stringify({ outputDirectory, version, revision, builtAt, assetVersion, contentDigest: artifactContentDigest, locales: locales.length, repository: repositoryUrl, sponsorUrl, sponsorMode }, null, 2));

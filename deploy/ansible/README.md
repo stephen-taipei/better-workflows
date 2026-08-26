@@ -14,14 +14,15 @@ layout used by the reference frontend projects:
 The playbook is deliberately narrow. It creates or updates only:
 
 - `/var/www/betterworkflows.dev/**`
-- `/etc/nginx/sites-available/betterworkflows.conf`
-- `/etc/nginx/sites-enabled/betterworkflows.conf`
-- the two project's own certificate paths when certificate issuance is explicitly requested
+- `/etc/nginx/betterworkflows/nginx.conf`
+- `/etc/systemd/system/betterworkflows-nginx.service`
+- `/run/betterworkflows-nginx/**`
+- `/var/log/nginx/betterworkflows/**`
+- this project's own certificate renewal profile and deploy hook
 
-It does not remove, disable, rewrite, or restart other projects, vhosts,
-upstreams, release directories, or services. `nginx -t` validates the whole
-host configuration and therefore fails closed if an unrelated existing config
-is already invalid; the playbook does not repair that unrelated config.
+It does not create or edit shared `sites-available`, `sites-enabled`,
+`conf.d`, the host-level `nginx.conf`, or `nginx.service`. The legacy shared
+Nginx playbook is intentionally absent from this repository.
 
 ## Isolated project origin
 
@@ -95,6 +96,8 @@ verifies the 41-locale receipt and expected content digest, and rolls the
 export SITE_RELEASE_ID="$(git rev-parse --short=12 HEAD)-$(date -u +%Y%m%dT%H%M%SZ)"
 export SITE_ARTIFACT_PATH="/tmp/betterworkflows-website-${SITE_RELEASE_ID}.tar.gz"
 export SITE_CONTENT_DIGEST="$(node -p \"require('./dist/website/release.json').contentDigest\")"
+export SITE_ARTIFACT_SHA256="$(shasum -a 256 \"${SITE_ARTIFACT_PATH}\" | awk '{print $1}')"
+export SITE_REVISION="$(git rev-parse HEAD)"
 
 ansible-playbook \
   -i deploy/ansible/inventory/frontend.ini \
@@ -107,44 +110,21 @@ ansible-playbook \
 
 The second command reconciles only the project-owned isolated Nginx process;
 it does not load or restart the host's shared Nginx service or another vhost.
+The release playbook verifies the externally supplied tarball SHA-256 before
+upload, then verifies every extracted payload file against `manifest.sha256`
+and checks that manifest against `SITE_CONTENT_DIGEST` before activation.
 
 ## Dry checks
 
 ```sh
-ansible-playbook -i deploy/ansible/inventory/frontend.ini.example deploy/ansible/site.yml --syntax-check
+ANSIBLE_LOCAL_TEMP=/tmp/betterworkflows-ansible-local \
+  ansible-playbook -i deploy/ansible/inventory/frontend.ini.example \
+  deploy/ansible/release.yml --syntax-check
+
+ANSIBLE_LOCAL_TEMP=/tmp/betterworkflows-ansible-local \
+  ansible-playbook -i deploy/ansible/inventory/frontend.ini.example \
+  deploy/ansible/isolated-ingress.yml --syntax-check
 ```
-
-For an actual release, use a fresh immutable release identifier and a local
-artifact path. The first pass keeps TLS disabled so Nginx can serve the ACME
-webroot and validates the host's whole configuration before any reload:
-
-```sh
-export SITE_RELEASE_ID="$(git rev-parse HEAD)"
-export SITE_ARTIFACT_PATH="/tmp/betterworkflows-website-${SITE_RELEASE_ID}.tar.gz"
-export CERTBOT_EMAIL="admin@betterworkflows.dev"
-
-ansible-playbook \
-  -i deploy/ansible/inventory/frontend.ini \
-  deploy/ansible/site.yml \
-```
-
-Because this host currently has no listener on port 80 while its existing
-Nginx configuration is invalid, a project-scoped standalone certificate pass
-can be used without editing another vhost. It binds port 80 only for the
-ACME challenge, writes only this project's certificate, then renders this
-project's TLS config. The final whole-host `nginx -t` remains a hard gate:
-
-```sh
-ansible-playbook \
-  -i deploy/ansible/inventory/frontend.ini \
-  deploy/ansible/site.yml \
-  -e frontend_issue_certificate=true \
-  -e frontend_certbot_method=standalone
-```
-
-For later releases, set `frontend_tls_enabled=true` and leave
-`frontend_issue_certificate=false`; the existing project certificate is then
-referenced without requesting a new one.
 
 Do not commit a real inventory file or private key material. Verify the
 host's pinned SSH key before using the inventory, and inspect the Ansible

@@ -767,14 +767,19 @@ const sponsorCopy = {
   tr: ["Ko-fi üzerinden destekle", "Better Workflows’un bakımına yardımcı olun.", "Tek seferlik destek; açık kaynak bakımı, belgeler, 41 dilde yerelleştirme ve site barındırmasına katkı sağlar. Üyelik ya da roadmap ve destek önceliği satın almaz."],
   uk: ["Підтримати на Ko-fi", "Допоможіть підтримувати Better Workflows.", "Одноразова підтримка допомагає відкритому коду, документації, локалізації 41 мовою та хостингу сайту. Вона не надає членства чи пріоритету в roadmap або підтримці."],
   vi: ["Ủng hộ qua Ko-fi", "Hãy giúp duy trì Better Workflows.", "Khoản ủng hộ một lần hỗ trợ bảo trì mã nguồn mở, tài liệu, bản địa hóa 41 ngôn ngữ và lưu trữ website. Khoản này không mua tư cách thành viên hay ưu tiên roadmap hoặc hỗ trợ."],
-  "zh-Hans": ["通过 Ko-fi 支持", "帮助 Better Workflows 持续维护。", "一次性支持将用于开源维护、文档、41 种语言的本地化与网站托管；不包含会员资格，也不提供 roadmap 或技术支持优先权。"],
-  "zh-Hant": ["透過 Ko-fi 支持", "協助 Better Workflows 持續維護。", "一次性支持將用於開源維護、文件、41 種語言的在地化與網站託管；不包含會員資格，也不提供 roadmap 或技術支援優先權。"],
-  "zh-Hant-HK": ["透過 Ko-fi 支持", "協助 Better Workflows 持續維護。", "一次性支持會用於開源維護、文件、41 種語言本地化同網站託管；唔包括會員資格，亦唔會提供 roadmap 或技術支援優先權。"],
-  "zh-Hant-TW": ["透過 Ko-fi 支持", "一起支持 Better Workflows 持續維護。", "一次性支持將用於開源維護、文件、41 種語言的在地化與網站託管；不包含會員資格，也不提供 roadmap 或技術支援優先權。"]
+  "zh-Hans": ["通过 Ko-fi 单次赞助", "帮助 Better Workflows 持续维护。", "单次赞助将用于开源维护、文档、41 种语言的本地化与网站托管；不包含会员资格，也不提供 roadmap 或技术支持优先权。"],
+  "zh-Hant": ["透過 Ko-fi 單次贊助", "協助 Better Workflows 持續維護。", "單次贊助將用於開源維護、文件、41 種語言的在地化與網站託管；不包含會員資格，也不提供 roadmap 或技術支援優先權。"],
+  "zh-Hant-HK": ["透過 Ko-fi 一次過贊助", "協助 Better Workflows 持續維護。", "一次過贊助會用於開源維護、文件、41 種語言本地化同網站託管；唔包括會員資格，亦唔會提供 roadmap 或技術支援優先權。"],
+  "zh-Hant-TW": ["透過 Ko-fi 單次贊助", "一起支持 Better Workflows 持續維護。", "單次贊助將用於開源維護、文件、41 種語言的在地化與網站託管；不包含會員資格，也不提供 roadmap 或技術支援優先權。"]
+};
+
+export const SPONSOR_ONE_TIME_MARKERS = {
+  ar: "لمرة واحدة", ca: "puntual", cs: "Jednorázová", da: "engangsbidrag", de: "einmalige", el: "εφάπαξ", en: "one-time", es: "única", "es-MX": "único", fi: "Kertaluonteinen", fil: "minsanan", fr: "ponctuel", he: "חד-פעמית", hi: "एक बार", hr: "Jednokratna", hu: "egyszeri", id: "satu kali", it: "una tantum", ja: "一度限り", km: "ម្តង", ko: "일회성", lo: "ຄັ້ງດຽວ", ms: "sekali", my: "တစ်ကြိမ်တည်း", nb: "engangsbidrag", nl: "eenmalige", pl: "Jednorazowe", pt: "pontual", "pt-BR": "único", ro: "unică", ru: "Разовая", sk: "Jednorazová", sv: "engångsbidrag", th: "ครั้งเดียว", tr: "Tek seferlik", uk: "Одноразова", vi: "một lần", "zh-Hans": "单次赞助", "zh-Hant": "單次贊助", "zh-Hant-HK": "一次過贊助", "zh-Hant-TW": "單次贊助"
 };
 
 for (const locale of locales) {
   const copy = sponsorCopy[locale.code];
   if (!copy) throw new Error(`Missing sponsor copy: ${locale.code}`);
+  if (!copy[2].includes(SPONSOR_ONE_TIME_MARKERS[locale.code])) throw new Error(`Sponsor copy is not explicitly one-time: ${locale.code}`);
   Object.assign(locale.messages, { SPONSOR_CTA: copy[0], SPONSOR_TITLE: copy[1], SPONSOR_BODY: copy[2] });
 }

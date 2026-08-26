@@ -8,7 +8,9 @@
     frontend_deploy_root: /var/www/betterworkflows.dev
     frontend_release_id: "{{ lookup('env', 'SITE_RELEASE_ID') }}"
     frontend_artifact_path: "{{ lookup('env', 'SITE_ARTIFACT_PATH') }}"
+    frontend_expected_artifact_digest: "{{ lookup('env', 'SITE_ARTIFACT_SHA256') }}"
     frontend_expected_content_digest: "{{ lookup('env', 'SITE_CONTENT_DIGEST') }}"
+    frontend_expected_revision: "{{ lookup('env', 'SITE_REVISION') }}"
     frontend_deploy_user: deploy
     frontend_deploy_group: deploy
     frontend_current_path: "{{ frontend_deploy_root }}/current"
@@ -22,13 +24,17 @@
         that:
           - frontend_release_id | length > 0
           - frontend_release_id is match('^[A-Za-z0-9._-]+$')
+          - frontend_expected_artifact_digest is match('^[a-f0-9]{64}$')
           - frontend_expected_content_digest is match('^[a-f0-9]{64}$')
+          - frontend_expected_revision is match('^[a-f0-9]{40}$')
         fail_msg: >-
-          SITE_RELEASE_ID and the 64-character SITE_CONTENT_DIGEST are required.
+          SITE_RELEASE_ID, SITE_REVISION, SITE_ARTIFACT_SHA256, and
+          SITE_CONTENT_DIGEST are required.
 
     - name: Require a local static artifact
       ansible.builtin.stat:
         path: "{{ frontend_artifact_path }}"
+        checksum_algorithm: sha256
       delegate_to: localhost
       become: false
       register: frontend_artifact
@@ -38,6 +44,7 @@
         that:
           - frontend_artifact.stat.exists
           - frontend_artifact.stat.isreg
+          - frontend_artifact.stat.checksum == frontend_expected_artifact_digest
         fail_msg: SITE_ARTIFACT_PATH must point to the built website tarball.
 
     - name: Confirm the existing deploy account
@@ -85,6 +92,7 @@
         - index.html
         - healthz
         - release.json
+        - manifest.sha256
         - locales.json
         - sitemap.xml
       register: frontend_entrypoints
@@ -96,6 +104,27 @@
           - item.stat.isreg
         fail_msg: "The Better Workflows artifact is missing {{ item.item }}."
       loop: "{{ frontend_entrypoints.results }}"
+
+    - name: Verify every extracted Better Workflows payload file
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/sha256sum
+          - --check
+          - manifest.sha256
+        chdir: "{{ frontend_release_path }}"
+      changed_when: false
+
+    - name: Calculate the extracted manifest digest independently
+      ansible.builtin.stat:
+        path: "{{ frontend_release_path }}/manifest.sha256"
+        checksum_algorithm: sha256
+      register: frontend_manifest
+
+    - name: Refuse a payload manifest outside the authorized release
+      ansible.builtin.assert:
+        that:
+          - frontend_manifest.stat.checksum == frontend_expected_content_digest
+        fail_msg: The extracted payload manifest does not match SITE_CONTENT_DIGEST.
 
     - name: Read the candidate release receipt
       ansible.builtin.slurp:
@@ -113,6 +142,10 @@
           - frontend_candidate_receipt.project == 'better-workflows'
           - frontend_candidate_receipt.canonical == 'https://betterworkflows.dev/'
           - frontend_candidate_receipt.repository == 'https://github.com/stephen-taipei/better-workflows'
+          - frontend_candidate_receipt.revision == frontend_expected_revision[:12]
+          - frontend_candidate_receipt.domains == ['betterworkflows.dev', 'betterworkflows.org']
+          - frontend_candidate_receipt.sponsorUrl == 'https://ko-fi.com/betterworkflows'
+          - frontend_candidate_receipt.sponsorMode == 'one-time-only'
           - frontend_candidate_receipt.locales | int == 41
           - frontend_candidate_receipt.contentDigest == frontend_expected_content_digest
         fail_msg: The candidate receipt does not match the expected project artifact.
@@ -165,6 +198,14 @@
             - frontend_previous_current.rc == 0
             - frontend_previous_current.stdout | length > 0
 
+        - name: Remove the failed first-release activation symlink
+          ansible.builtin.file:
+            path: "{{ frontend_current_path }}"
+            state: absent
+          when: >-
+            frontend_previous_current.rc != 0 or
+            frontend_previous_current.stdout | length == 0
+
         - name: Stop after bounded rollback
           ansible.builtin.fail:
-            msg: Candidate activation failed; the previous Better Workflows release was restored.
+            msg: Candidate activation failed; the project current symlink was rolled back safely.

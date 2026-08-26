@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -6,7 +7,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { CONNECTORS_LOCALES, DEFAULT_LOCALE, LOCALE_KEYS, locales } from "../website-locales.mjs";
+import { CONNECTORS_LOCALES, DEFAULT_LOCALE, LOCALE_KEYS, SPONSOR_ONE_TIME_MARKERS, locales } from "../website-locales.mjs";
 
 const execFileAsync = promisify(execFile);
 const testDirectory = path.dirname(fileURLToPath(import.meta.url));
@@ -31,8 +32,9 @@ test("locale catalog matches Connectors iOS and preserves key order", () => {
   assert.doesNotMatch(JSON.stringify(locales.filter((locale) => locale.code.startsWith("zh-"))), /新鮮證據/);
   assert.equal(locales.find((locale) => locale.code === "ar").dir, "rtl");
   assert.equal(locales.find((locale) => locale.code === "he").dir, "rtl");
-  assert.match(locales.find((locale) => locale.code === "zh-Hant-TW").messages.SPONSOR_BODY, /一次性支持/);
-  assert.match(locales.find((locale) => locale.code === "en").messages.SPONSOR_BODY, /one-time contribution/i);
+  assert.deepEqual(Object.keys(SPONSOR_ONE_TIME_MARKERS), CONNECTORS_LOCALES);
+  for (const locale of locales) assert.ok(locale.messages.SPONSOR_BODY.includes(SPONSOR_ONE_TIME_MARKERS[locale.code]), `${locale.code}.SPONSOR_BODY one-time marker`);
+  assert.match(locales.find((locale) => locale.code === "zh-Hant-TW").messages.SPONSOR_BODY, /單次贊助/);
 });
 
 test("build emits 41 crawlable locale editions and complete SEO metadata", async () => {
@@ -81,6 +83,10 @@ test("build emits 41 crawlable locale editions and complete SEO metadata", async
     assert.equal(release.locales, 41);
     assert.equal(release.repository, repositoryUrl);
     assert.equal(release.sponsorUrl, sponsorUrl);
+    assert.equal(release.sponsorMode, "one-time-only");
+    const contentManifest = await readFile(path.join(outputDirectory, "manifest.sha256"), "utf8");
+    assert.equal(createHash("sha256").update(contentManifest).digest("hex"), release.contentDigest);
+    await execFileAsync("shasum", ["-a", "256", "--check", "manifest.sha256"], { cwd: outputDirectory });
     assert.match(release.assetVersion, /^[a-f0-9]{12}$/);
     assert.match(release.contentDigest, /^[a-f0-9]{64}$/);
 

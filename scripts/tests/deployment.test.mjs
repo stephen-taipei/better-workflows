@@ -17,6 +17,7 @@ test("isolated ingress changes only Better Workflows service paths", async () =>
   const nginx = await source("deploy/ansible/templates/betterworkflows-isolated-nginx.conf.j2");
   const service = await source("deploy/ansible/templates/betterworkflows-nginx.service.j2");
   const certbotHook = await source("deploy/ansible/templates/betterworkflows-certbot-deploy-hook.sh.j2");
+  const ci = await source(".github/workflows/ci.yml");
 
   assert.match(playbook, /frontend_isolated_service_name: betterworkflows-nginx/);
   assert.match(playbook, /frontend_isolated_config_path: \/etc\/nginx\/betterworkflows\/nginx\.conf/);
@@ -51,7 +52,9 @@ test("isolated ingress changes only Better Workflows service paths", async () =>
     "Referrer-Policy",
     "Permissions-Policy",
     "Cross-Origin-Opener-Policy"
-  ]) assert.equal((nginx.match(new RegExp(`add_header ${header}`, "g")) ?? []).length, 4, header);
+  ]) assert.equal((nginx.match(new RegExp(`add_header ${header}`, "g")) ?? []).length, 5, header);
+  assert.match(nginx, /Cache-Control "public, immutable"/);
+  assert.match(nginx, /Cache-Control "public, max-age=3600, must-revalidate"/);
   assert.match(nginx, /location \^~ \/\.well-known\/acme-challenge\//);
   assert.equal((nginx.match(/allow \{\{ network \}\};/g) ?? []).length, 5);
 
@@ -65,10 +68,25 @@ test("isolated ingress changes only Better Workflows service paths", async () =>
 
   assert.match(release, /frontend_deploy_root: \/var\/www\/betterworkflows\.dev/);
   assert.match(release, /frontend_expected_content_digest/);
+  assert.match(release, /frontend_expected_artifact_digest/);
+  assert.match(release, /frontend_artifact\.stat\.checksum == frontend_expected_artifact_digest/);
+  assert.match(release, /sha256sum/);
+  assert.match(release, /manifest\.sha256/);
+  assert.match(release, /frontend_manifest\.stat\.checksum == frontend_expected_content_digest/);
   assert.match(release, /frontend_candidate_receipt\.contentDigest == frontend_expected_content_digest/);
+  assert.match(release, /frontend_candidate_receipt\.sponsorMode == 'one-time-only'/);
   assert.match(release, /frontend_candidate_receipt\.locales \| int == 41/);
   assert.match(release, /Restore the previous Better Workflows release target/);
+  assert.match(release, /Remove the failed first-release activation symlink/);
   assert.doesNotMatch(release, /\/etc\//);
   assert.doesNotMatch(release, /systemd|community\.general\.ufw|nginx\.service/);
   assert.doesNotMatch(release, /api\.sdi\.internal|sdi-web|sdi\.stephen\.taipei/);
+
+  await assert.rejects(source("deploy/ansible/site.yml"), { code: "ENOENT" });
+  await assert.rejects(source("deploy/ansible/templates/betterworkflows.conf.j2"), { code: "ENOENT" });
+  assert.doesNotMatch(`${release}\n${playbook}\n${nginx}\n${service}\n${certbotHook}`, /sites-(?:available|enabled)|reload nginx\.service/);
+  assert.match(ci, /node --test scripts\/tests\/\*\.test\.mjs/);
+  assert.match(ci, /ansible-core==2\.21\.3/);
+  assert.match(ci, /community\.general:==13\.0\.1/);
+  assert.equal((ci.match(/ansible-playbook .*--syntax-check/g) ?? []).length, 2);
 });
