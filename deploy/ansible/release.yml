@@ -21,6 +21,8 @@
     frontend_transaction_receipt_path: "{{ frontend_releases_root }}/.transaction-{{ frontend_release_id }}.json"
     frontend_release_marker: "{{ frontend_release_path }}/.better-workflows-release-complete"
     frontend_deploy_lock: /run/lock/betterworkflows-deploy.lock
+    frontend_lock_lifetime_seconds: 3600
+    frontend_publish_deadline_seconds: 3300
     frontend_verification_prefix: "/run/betterworkflows-verify-{{ frontend_release_id }}"
     frontend_https_origin_port: 8443
 
@@ -92,7 +94,7 @@
                 while test -e "$transaction_root/lease"; do /usr/bin/sleep 1; done
               - betterworkflows-deploy-lock
               - "{{ frontend_lock_transaction.path }}"
-          async: 1800
+          async: "{{ frontend_lock_lifetime_seconds }}"
           poll: 0
           register: frontend_lock_job
           changed_when: false
@@ -110,6 +112,14 @@
         - name: Record ownership of the deployment lock
           ansible.builtin.set_fact:
             frontend_deploy_lock_acquired: true
+
+        - name: Record the serialized transaction start time
+          ansible.builtin.command:
+            argv:
+              - /usr/bin/date
+              - +%s
+          register: frontend_transaction_started
+          changed_when: false
 
         - name: Read the current project release target for recovery and rollback
           ansible.builtin.command:
@@ -276,6 +286,8 @@
             group: "{{ frontend_deploy_group }}"
             mode: "u=rwX,go=rX"
           when: not frontend_release_is_sealed
+          async: 1800
+          poll: 5
 
         - name: Verify release entrypoints before activation
           ansible.builtin.stat:
@@ -320,6 +332,8 @@
               - "{{ frontend_validation_path }}"
               - "{{ frontend_verification_prefix }}"
           changed_when: false
+          async: 600
+          poll: 5
 
         - name: Calculate the extracted manifest digest independently
           ansible.builtin.stat:
@@ -368,6 +382,25 @@
               - frontend_candidate_receipt.locales | int == 41
               - frontend_candidate_receipt.contentDigest == frontend_expected_content_digest
             fail_msg: The candidate receipt does not match the expected project artifact.
+
+        - name: Read the time before the irreversible publish boundary
+          ansible.builtin.command:
+            argv:
+              - /usr/bin/date
+              - +%s
+          register: frontend_before_publish
+          changed_when: false
+          when: not frontend_release_is_sealed
+
+        - name: Refuse to publish after the bounded lock-safe deadline
+          ansible.builtin.assert:
+            that:
+              - >-
+                (frontend_before_publish.stdout | int) -
+                (frontend_transaction_started.stdout | int) <
+                frontend_publish_deadline_seconds
+            fail_msg: The candidate exceeded its lock-safe publish deadline and was not activated.
+          when: not frontend_release_is_sealed
 
         - name: Atomically publish the verified incoming release
           ansible.builtin.command:
@@ -442,11 +475,30 @@
               when: >-
                 frontend_previous_target | length == 0
 
-            - name: Remove only this transaction's failed unsealed release
-              ansible.builtin.file:
-                path: "{{ frontend_release_path }}"
-                state: absent
-              when: frontend_release_published | default(false)
+            - name: Read the project release target after rollback
+              ansible.builtin.command:
+                argv:
+                  - /usr/bin/readlink
+                  - -f
+                  - "{{ frontend_current_path }}"
+              changed_when: false
+              failed_when: false
+              register: frontend_after_rollback
+
+            - name: Verify rollback before authorizing candidate cleanup
+              ansible.builtin.assert:
+                that:
+                  - >-
+                    (frontend_previous_target | length > 0 and
+                    frontend_after_rollback.rc == 0 and
+                    frontend_after_rollback.stdout == frontend_previous_target) or
+                    (frontend_previous_target | length == 0 and
+                    frontend_after_rollback.rc != 0)
+                fail_msg: Rollback could not be verified; candidate and recovery receipt were preserved.
+
+            - name: Record verified rollback of the project current target
+              ansible.builtin.set_fact:
+                frontend_rollback_verified: true
 
             - name: Stop after bounded rollback
               ansible.builtin.fail:
@@ -466,14 +518,18 @@
             state: absent
           when:
             - frontend_release_published | default(false)
-            - not frontend_release_transaction_complete | default(false)
+            - frontend_rollback_verified | default(false)
           changed_when: false
 
         - name: Remove the authorized transaction recovery receipt
           ansible.builtin.file:
             path: "{{ frontend_transaction_receipt_path }}"
             state: absent
-          when: frontend_transaction_authorized | default(false)
+          when:
+            - frontend_transaction_authorized | default(false)
+            - >-
+              frontend_release_transaction_complete | default(false) or
+              frontend_rollback_verified | default(false)
           changed_when: false
 
         - name: Remove bounded verification scratch files

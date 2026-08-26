@@ -353,6 +353,10 @@
             (frontend_release_receipt.content | from_json).canonical !=
             'https://' + frontend_primary_domain + '/'
 
+        - name: Record a complete isolated ingress transaction
+          ansible.builtin.set_fact:
+            frontend_ingress_transaction_complete: true
+
       rescue:
         - name: Remove only firewall rules added by this failed transaction
           community.general.ufw:
@@ -366,7 +370,6 @@
           when:
             - frontend_manage_ufw | bool
             - item.changed | default(false)
-          failed_when: false
 
         - name: Restore every project-owned ingress file that existed before the transaction
           ansible.builtin.copy:
@@ -380,7 +383,6 @@
           loop_control:
             index_var: managed_index
           when: item.stat.exists
-          failed_when: false
 
         - name: Remove project-owned ingress files created by the failed transaction
           ansible.builtin.file:
@@ -388,7 +390,6 @@
             state: absent
           loop: "{{ frontend_managed_file_state.results }}"
           when: not item.stat.exists
-          failed_when: false
 
         - name: Remove project-owned ingress directories created by the failed transaction
           ansible.builtin.file:
@@ -396,19 +397,20 @@
             state: absent
           loop: "{{ frontend_managed_directory_state.results }}"
           when: not item.stat.exists
-          failed_when: false
 
         - name: Reload systemd after restoring the isolated unit
           ansible.builtin.systemd:
             daemon_reload: true
-          failed_when: false
 
         - name: Restore only the isolated service's prior state
           ansible.builtin.systemd:
             name: "{{ frontend_isolated_service_name }}"
             enabled: "{{ frontend_prior_service_enabled.stdout == 'enabled' }}"
             state: "{{ 'started' if frontend_prior_service_active.stdout == 'active' else 'stopped' }}"
-          failed_when: false
+
+        - name: Record a complete isolated ingress rollback
+          ansible.builtin.set_fact:
+            frontend_ingress_rollback_complete: true
 
         - name: Stop after restoring the prior Better Workflows ingress state
           ansible.builtin.fail:
@@ -419,5 +421,9 @@
           ansible.builtin.file:
             path: "{{ frontend_ingress_rollback.path }}"
             state: absent
-          when: frontend_ingress_rollback is defined
+          when:
+            - frontend_ingress_rollback is defined
+            - >-
+              frontend_ingress_transaction_complete | default(false) or
+              frontend_ingress_rollback_complete | default(false)
           changed_when: false

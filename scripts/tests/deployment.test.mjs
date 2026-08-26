@@ -89,11 +89,14 @@ test("isolated ingress changes only Better Workflows service paths", async () =>
   assert.match(release, /Start the kernel-released project deployment lock/);
   assert.match(release, /Release the project-only deployment lock lease/);
   assert.match(release, /\/usr\/bin\/flock/);
+  assert.match(release, /frontend_lock_lifetime_seconds: 3600/);
+  assert.match(release, /frontend_publish_deadline_seconds: 3300/);
+  assert.match(release, /Refuse to publish after the bounded lock-safe deadline/);
   assert.match(release, /Start the kernel-released project deployment lock[\s\S]*?changed_when: false/);
   assert.match(release, /Seal the immutable release after activation succeeds[\s\S]*?when: not frontend_release_is_sealed/);
   assert.match(release, /Release the project-only deployment lock lease[\s\S]*?changed_when: false/);
   assert.match(release, /Remove only this transaction's unpublished incoming tree/);
-  assert.match(release, /Remove only this transaction's failed unsealed release/);
+  assert.match(release, /Remove only this transaction's failed unsealed published release/);
   assert.match(release, /\$0 != "release\.json"/);
   assert.match(release, /manifest\.sha256/);
   assert.match(release, /frontend_manifest\.stat\.checksum == frontend_expected_content_digest/);
@@ -103,10 +106,18 @@ test("isolated ingress changes only Better Workflows service paths", async () =>
   assert.match(release, /frontend_candidate_receipt\.locales \| int == 41/);
   assert.match(release, /Restore the previous Better Workflows release target/);
   assert.match(release, /Remove the failed first-release activation symlink/);
+  assert.match(release, /Verify rollback before authorizing candidate cleanup/);
+  assert.match(release, /frontend_rollback_verified/);
   assert.match(playbook, /Reconcile the isolated ingress as one rollback-bounded transaction/);
   assert.match(playbook, /Back up every existing project-owned ingress file/);
   assert.match(playbook, /Remove only firewall rules added by this failed transaction/);
   assert.match(playbook, /Restore only the isolated service's prior state/);
+  assert.match(playbook, /frontend_ingress_rollback_complete/);
+  assert.match(playbook, /frontend_ingress_transaction_complete/);
+  assert.doesNotMatch(
+    playbook.match(/rescue:[\s\S]*?always:/)?.[0] ?? "",
+    /failed_when: false/
+  );
   assert.doesNotMatch(release, /\/etc\//);
   assert.doesNotMatch(release, /systemd|community\.general\.ufw|nginx\.service/);
   assert.doesNotMatch(release, /api\.sdi\.internal|sdi-web|sdi\.stephen\.taipei/);

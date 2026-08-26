@@ -124,6 +124,10 @@ matching interrupted release, including restoring the persisted previous
 `current` target before rebuilding the candidate. The isolated-ingress play
 backs up its own config, unit, renewal file, hook, firewall additions, and
 service state, then restores only those Better Workflows resources on failure.
+Candidate publication has a 55-minute deadline inside a 60-minute kernel lock;
+artifact extraction and verification have smaller explicit bounds. Failed
+rollback verification preserves the candidate and recovery receipt, while an
+ingress restore error preserves its project-only backup directory.
 
 ## Dry checks
 
