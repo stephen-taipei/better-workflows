@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
 import { createHash } from "node:crypto";
-import { cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -20,6 +21,39 @@ const canonicalOrigin = "https://betterworkflows.dev";
 const repositoryUrl = "https://github.com/stephen-taipei/better-workflows";
 const sponsorUrl = "https://ko-fi.com/betterworkflows";
 const sponsorMode = "one-time-only";
+
+async function canonicalPotentialPath(targetPath) {
+  let existingPath = path.resolve(targetPath);
+  const missingSegments = [];
+  while (true) {
+    try {
+      return path.join(await realpath(existingPath), ...missingSegments.reverse());
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+      const parent = path.dirname(existingPath);
+      if (parent === existingPath) throw error;
+      missingSegments.push(path.basename(existingPath));
+      existingPath = parent;
+    }
+  }
+}
+
+function isStrictDescendant(candidate, root) {
+  const relative = path.relative(root, candidate);
+  return relative.length > 0 && relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+}
+
+async function assertSafeOutputDirectory() {
+  const candidate = await canonicalPotentialPath(outputDirectory);
+  const allowedRoots = await Promise.all([
+    canonicalPotentialPath(path.join(repoRoot, "dist")),
+    canonicalPotentialPath(tmpdir()),
+    canonicalPotentialPath("/tmp")
+  ]);
+  if (!allowedRoots.some((root) => isStrictDescendant(candidate, root))) {
+    throw new Error("SITE_OUTPUT_DIR must be a child of repository dist or an operating-system temporary directory");
+  }
+}
 
 const openGraphLocales = {
   ar: "ar_AR", ca: "ca_ES", cs: "cs_CZ", da: "da_DK", de: "de_DE", el: "el_GR", en: "en_US", es: "es_ES", "es-MX": "es_MX", fi: "fi_FI", fil: "fil_PH", fr: "fr_FR", he: "he_IL", hi: "hi_IN", hr: "hr_HR", hu: "hu_HU", id: "id_ID", it: "it_IT", ja: "ja_JP", km: "km_KH", ko: "ko_KR", lo: "lo_LA", ms: "ms_MY", my: "my_MM", nb: "nb_NO", nl: "nl_NL", pl: "pl_PL", pt: "pt_PT", "pt-BR": "pt_BR", ro: "ro_RO", ru: "ru_RU", sk: "sk_SK", sv: "sv_SE", th: "th_TH", tr: "tr_TR", uk: "uk_UA", vi: "vi_VN", "zh-Hans": "zh_CN", "zh-Hant": "zh_TW", "zh-Hant-HK": "zh_HK", "zh-Hant-TW": "zh_TW"
@@ -260,6 +294,7 @@ for (const locale of locales) {
   if (JSON.stringify(Object.keys(locale.messages)) !== JSON.stringify(LOCALE_KEYS)) throw new Error(`Locale key order mismatch: ${locale.code}`);
 }
 
+await assertSafeOutputDirectory();
 await rm(outputDirectory, { recursive: true, force: true });
 await mkdir(outputDirectory, { recursive: true });
 await cp(websiteSource, outputDirectory, { recursive: true });

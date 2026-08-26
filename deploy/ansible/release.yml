@@ -10,6 +10,7 @@
     frontend_artifact_path: "{{ lookup('env', 'SITE_ARTIFACT_PATH') }}"
     frontend_expected_artifact_digest: "{{ lookup('env', 'SITE_ARTIFACT_SHA256') }}"
     frontend_expected_content_digest: "{{ lookup('env', 'SITE_CONTENT_DIGEST') }}"
+    frontend_expected_receipt_digest: "{{ lookup('env', 'SITE_RECEIPT_SHA256') }}"
     frontend_expected_revision: "{{ lookup('env', 'SITE_REVISION') }}"
     frontend_deploy_user: deploy
     frontend_deploy_group: deploy
@@ -29,10 +30,11 @@
           - frontend_release_id is match('^[a-f0-9]{12}-[0-9]{8}T[0-9]{6}Z$')
           - frontend_expected_artifact_digest is match('^[a-f0-9]{64}$')
           - frontend_expected_content_digest is match('^[a-f0-9]{64}$')
+          - frontend_expected_receipt_digest is match('^[a-f0-9]{64}$')
           - frontend_expected_revision is match('^[a-f0-9]{40}$')
         fail_msg: >-
           SITE_RELEASE_ID must be <12-char-sha>-<UTC timestamp>; SITE_REVISION,
-          SITE_ARTIFACT_SHA256, and SITE_CONTENT_DIGEST are required.
+          SITE_ARTIFACT_SHA256, SITE_CONTENT_DIGEST, and SITE_RECEIPT_SHA256 are required.
 
     - name: Require the exact local static artifact
       ansible.builtin.stat:
@@ -58,12 +60,51 @@
   tasks:
     - name: Run one serialized Better Workflows deployment transaction
       block:
-        - name: Acquire the project-only deployment lock
+        - name: Create a unique project-only lock transaction directory
+          ansible.builtin.tempfile:
+            state: directory
+            path: /run
+            prefix: betterworkflows-deploy-
+          register: frontend_lock_transaction
+          changed_when: false
+
+        - name: Create the project-only lock lease
+          ansible.builtin.file:
+            path: "{{ frontend_lock_transaction.path }}/lease"
+            state: touch
+            mode: "0600"
+          changed_when: false
+
+        - name: Start the kernel-released project deployment lock
           ansible.builtin.command:
             argv:
-              - /usr/bin/mkdir
+              - /usr/bin/flock
+              - --nonblock
               - "{{ frontend_deploy_lock }}"
+              - /bin/bash
+              - -c
+              - |
+                set -euo pipefail
+                transaction_root="$1"
+                trap '/usr/bin/rm -rf -- "$transaction_root"' EXIT
+                /usr/bin/touch "$transaction_root/ready"
+                while test -e "$transaction_root/lease"; do /usr/bin/sleep 1; done
+              - betterworkflows-deploy-lock
+              - "{{ frontend_lock_transaction.path }}"
+          async: 1800
+          poll: 0
+          register: frontend_lock_job
           changed_when: false
+
+        - name: Record the lock request for bounded cleanup
+          ansible.builtin.set_fact:
+            frontend_deploy_lock_requested: true
+
+        - name: Require exclusive ownership of the project deployment lock
+          ansible.builtin.wait_for:
+            path: "{{ frontend_lock_transaction.path }}/ready"
+            state: present
+            timeout: 10
 
         - name: Record ownership of the deployment lock
           ansible.builtin.set_fact:
@@ -123,6 +164,11 @@
             mode: "0755"
           when: not frontend_release_is_sealed
 
+        - name: Record ownership of the fresh incoming tree
+          ansible.builtin.set_fact:
+            frontend_incoming_created: true
+          when: not frontend_release_is_sealed
+
         - name: Upload and extract only into the fresh incoming directory
           ansible.builtin.unarchive:
             src: "{{ frontend_artifact_path }}"
@@ -166,7 +212,7 @@
                 cd "$1"
                 if find . -mindepth 1 ! -type f ! -type d -print -quit | grep -q .; then exit 40; fi
                 if find . -mindepth 1 -perm /022 -print -quit | grep -q .; then exit 41; fi
-                find . -type f ! -name release.json ! -name manifest.sha256 ! -name .better-workflows-release-complete -printf '%P\n' | LC_ALL=C sort > "$2.files"
+                find . -type f -printf '%P\n' | awk '$0 != "release.json" && $0 != "manifest.sha256" && $0 != ".better-workflows-release-complete"' | LC_ALL=C sort > "$2.files"
                 awk '{print substr($0, 67)}' manifest.sha256 | LC_ALL=C sort > "$2.expected-files"
                 diff -u "$2.expected-files" "$2.files"
                 find . -mindepth 1 -type d -printf '%P\n' | LC_ALL=C sort > "$2.directories"
@@ -193,6 +239,18 @@
           ansible.builtin.slurp:
             src: "{{ frontend_validation_path }}/release.json"
           register: frontend_candidate_receipt_raw
+
+        - name: Calculate the root release receipt digest independently
+          ansible.builtin.stat:
+            path: "{{ frontend_validation_path }}/release.json"
+            checksum_algorithm: sha256
+          register: frontend_receipt
+
+        - name: Refuse a root receipt outside the authorized release
+          ansible.builtin.assert:
+            that:
+              - frontend_receipt.stat.checksum == frontend_expected_receipt_digest
+            fail_msg: The extracted release.json does not match SITE_RECEIPT_SHA256.
 
         - name: Decode the candidate release receipt
           ansible.builtin.set_fact:
@@ -221,6 +279,11 @@
               - "{{ frontend_release_path }}"
           when: not frontend_release_is_sealed
           changed_when: true
+
+        - name: Record ownership of the published candidate
+          ansible.builtin.set_fact:
+            frontend_release_published: true
+          when: not frontend_release_is_sealed
 
         - name: Activate and verify only the Better Workflows release
           block:
@@ -279,11 +342,24 @@
                 frontend_previous_current.rc != 0 or
                 frontend_previous_current.stdout | length == 0
 
+            - name: Remove only this transaction's failed unsealed release
+              ansible.builtin.file:
+                path: "{{ frontend_release_path }}"
+                state: absent
+              when: frontend_release_published | default(false)
+
             - name: Stop after bounded rollback
               ansible.builtin.fail:
                 msg: Candidate activation failed; the project current symlink was rolled back safely.
 
       always:
+        - name: Remove only this transaction's unpublished incoming tree
+          ansible.builtin.file:
+            path: "{{ frontend_incoming_path }}"
+            state: absent
+          when: frontend_incoming_created | default(false)
+          changed_when: false
+
         - name: Remove bounded verification scratch files
           ansible.builtin.file:
             path: "{{ item }}"
@@ -295,9 +371,35 @@
           when: frontend_deploy_lock_acquired | default(false)
           changed_when: false
 
-        - name: Release the project-only deployment lock
+        - name: Release the project-only deployment lock lease
           ansible.builtin.file:
-            path: "{{ frontend_deploy_lock }}"
+            path: "{{ frontend_lock_transaction.path }}/lease"
             state: absent
-          when: frontend_deploy_lock_acquired | default(false)
+          when: frontend_lock_transaction is defined
+          changed_when: false
+
+        - name: Wait for the lock holder to release the kernel lock
+          ansible.builtin.async_status:
+            jid: "{{ frontend_lock_job.ansible_job_id }}"
+          register: frontend_lock_release
+          until: frontend_lock_release.finished
+          retries: 10
+          delay: 1
+          failed_when: false
+          changed_when: false
+          when: frontend_deploy_lock_requested | default(false)
+
+        - name: Remove the project-only asynchronous lock record
+          ansible.builtin.async_status:
+            jid: "{{ frontend_lock_job.ansible_job_id }}"
+            mode: cleanup
+          failed_when: false
+          changed_when: false
+          when: frontend_deploy_lock_requested | default(false)
+
+        - name: Remove the unique project-only lock transaction directory
+          ansible.builtin.file:
+            path: "{{ frontend_lock_transaction.path }}"
+            state: absent
+          when: frontend_lock_transaction is defined
           changed_when: false

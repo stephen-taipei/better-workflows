@@ -97,6 +97,7 @@ export SITE_RELEASE_ID="$(git rev-parse --short=12 HEAD)-$(date -u +%Y%m%dT%H%M%
 export SITE_ARTIFACT_PATH="/tmp/betterworkflows-website-${SITE_RELEASE_ID}.tar.gz"
 export SITE_CONTENT_DIGEST="$(node -p \"require('./dist/website/release.json').contentDigest\")"
 export SITE_ARTIFACT_SHA256="$(shasum -a 256 \"${SITE_ARTIFACT_PATH}\" | awk '{print $1}')"
+export SITE_RECEIPT_SHA256="$(shasum -a 256 dist/website/release.json | awk '{print $1}')"
 export SITE_REVISION="$(git rev-parse HEAD)"
 
 ansible-playbook \
@@ -115,7 +116,9 @@ upload, then verifies every extracted payload file against `manifest.sha256`
 and checks that manifest against `SITE_CONTENT_DIGEST` before activation. It
 also rejects special files, unexpected files or directories, reused unsealed
 release IDs, and concurrent deployment transactions. New content is verified
-inside a fresh `.incoming-<release-id>` directory before an atomic rename.
+inside a fresh `.incoming-<release-id>` directory before an atomic rename. The
+kernel releases the project-only `flock` lease if its holder exits, and normal
+failures remove only the incoming or unsealed release owned by that transaction.
 
 ## Dry checks
 

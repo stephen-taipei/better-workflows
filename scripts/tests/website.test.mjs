@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { access, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -10,6 +10,26 @@ import { fileURLToPath } from "node:url";
 const execFileAsync = promisify(execFile);
 const testDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(testDirectory, "../..");
+
+function runBuild(environment) {
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, [path.join(repoRoot, "scripts", "build-website.mjs")], {
+      cwd: repoRoot,
+      env: { ...process.env, ...environment },
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    let stderr = "";
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.on("close", (code) => resolve({ code, stderr }));
+  });
+}
+
+test("website build refuses an output path outside dist or temporary roots", async () => {
+  const result = await runBuild({ SITE_OUTPUT_DIR: repoRoot });
+  assert.notEqual(result.code, 0);
+  assert.match(result.stderr, /SITE_OUTPUT_DIR must be a child/);
+  assert.equal((await readFile(path.join(repoRoot, "README.md"), "utf8")).includes("Better Workflows"), true);
+});
 const buildScript = path.join(repoRoot, "scripts", "build-website.mjs");
 
 async function exists(filePath) {
