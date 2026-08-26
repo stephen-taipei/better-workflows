@@ -20,8 +20,7 @@ verified, provider-reconciled delivery.
 
 <!-- readme-roster -->
 **Model roster:** Codex · Claude · Gemini · GPT-OSS · Grok · Cursor · Kimi · Qwen · Kiro. `agy` transports Gemini-, Claude-, and GPT-OSS-branded models; it is transport metadata, not another model brand.
-
-[Sponsor Better Workflows on Ko-fi](https://ko-fi.com/betterworkflows) — one-time support only.
+<br>[Sponsor Better Workflows on Ko-fi](https://ko-fi.com/betterworkflows) — one-time support only.
 
 <!-- readme-section:promise-audience -->
 ## Why Better Workflows
