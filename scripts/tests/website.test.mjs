@@ -23,6 +23,16 @@ function relativeTargets(content) {
     .map((target) => target.split("#", 1)[0].split("?", 1)[0]);
 }
 
+function contrastRatio(left, right) {
+  const luminance = (hex) => {
+    const channels = hex.match(/[a-f0-9]{2}/gi).map((value) => parseInt(value, 16) / 255);
+    const linear = channels.map((value) => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4);
+    return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
+  };
+  const [lighter, darker] = [luminance(left), luminance(right)].sort((a, b) => b - a);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
 test("official website build is self-contained and includes docs/html", async () => {
   const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "better-workflows-site-"));
   const outputDirectory = path.join(temporaryRoot, "website");
@@ -91,4 +101,12 @@ test("official website build is self-contained and includes docs/html", async ()
 test("GitHub funding configuration exposes only the verified Ko-fi account", async () => {
   const funding = await readFile(path.join(repoRoot, ".github", "FUNDING.yml"), "utf8");
   assert.equal(funding, "ko_fi: betterworkflows\n");
+});
+
+test("Ko-fi CTA contrast and responsive navigation satisfy accessibility bounds", async () => {
+  const styles = await readFile(path.join(repoRoot, "website", "styles.css"), "utf8");
+  const backgrounds = [...styles.matchAll(/\.button-kofi[^\{]*\{[^}]*background:\s*(#[a-f0-9]{6})/gi)].map((match) => match[1]);
+  assert.equal(backgrounds.length, 2);
+  for (const background of backgrounds) assert.ok(contrastRatio(background, "#ffffff") >= 4.5, background);
+  assert.match(styles, /@media \(max-width: 1080px\)[^{]*\{[^}]*\.header-inner/);
 });
