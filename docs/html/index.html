@@ -4,9 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
-  <meta name="description" content="Better Workflows 3.4.13 的 evidence-driven control plane、資料流與 replay 互動式原始碼說明書。">
+  <meta name="description" content="Better Workflows evidence-driven control plane、資料流、review、action、reconciliation 與 replay 的互動式官方文件。">
   <meta name="generator" content="sdk-maker">
-  <title>Better Workflows 解剖書｜從意圖到可證明完成</title>
+  <title>Better Workflows 解剖書｜控制面與證據架構</title>
   <!-- GENERATED: sdk-maker | observed 2026-08-15 | revision c5abd1f -->
   <script>
     (() => {
@@ -878,7 +878,7 @@
       </button>
       <a class="brand" href="#top">
         <span class="brand-mark">BW</span>
-        <span class="brand-copy"><strong data-i18n="brand.full">Better Workflows 解剖書</strong><span>CODEBASE FIELD GUIDE · 3.4.13</span></span>
+        <span class="brand-copy"><strong data-i18n="brand.full">Better Workflows 解剖書</strong><span>CODEBASE FIELD GUIDE · 3.4.14</span></span>
       </a>
       <nav class="topbar-nav" aria-label="快速章節" data-i18n-aria-label="a11y.quickNav">
         <a href="#architecture-map" data-i18n="nav.architecture">架構地圖</a>
@@ -910,7 +910,7 @@
       <div class="drawer-head">
         <a class="brand" href="#top">
           <span class="brand-mark">BW</span>
-          <span class="brand-copy"><strong data-i18n="brand.full">Better Workflows 解剖書</strong><span>CODEBASE FIELD GUIDE · 3.4.13</span></span>
+          <span class="brand-copy"><strong data-i18n="brand.full">Better Workflows 解剖書</strong><span>CODEBASE FIELD GUIDE · 3.4.14</span></span>
         </a>
         <button class="drawer-close" id="close-nav" type="button" aria-label="關閉章節目錄" data-i18n-aria-label="a11y.closeContents">×</button>
       </div>
@@ -950,7 +950,7 @@
     <main id="main">
       <header class="hero" id="top" data-search="Better Workflows 解剖書 從意圖到可證明完成">
         <div>
-          <p class="eyebrow" data-i18n="hero.eyebrow">Evidence-driven control plane · 3.4.13</p>
+          <p class="eyebrow" data-i18n="hero.eyebrow">Evidence-driven control plane · 3.4.14</p>
           <h1 data-i18n-html="hero.title">從意圖，走到<span class="accent">可證明完成。</span></h1>
           <p class="hero-lead" data-i18n-html="hero.lead">這不是一份 API 名稱清單，而是一本解釋 <strong>Better Workflows 如何做決定、留下證據、重播狀態，以及在副作用前停下來驗證</strong>的互動式解剖書。</p>
           <div class="hero-actions">
@@ -1541,8 +1541,8 @@ git status --short<button class="copy-btn" type="button">複製</button></div>
       let currentLocale = rootElement.dataset.locale === 'en' ? 'en' : 'zh-Hant';
       const messages = {
         'zh-Hant': {
-          'meta.title': 'Better Workflows 解剖書｜從意圖到可證明完成',
-          'meta.description': 'Better Workflows 3.4.13 的 evidence-driven control plane、資料流與 replay 互動式原始碼說明書。',
+          'meta.title': 'Better Workflows 解剖書｜控制面與證據架構',
+          'meta.description': 'Better Workflows evidence-driven control plane、資料流、review、action、reconciliation 與 replay 的互動式官方文件。',
           'a11y.skip': '跳到主要內容', 'a11y.openContents': '開啟章節目錄', 'a11y.closeContents': '關閉章節目錄',
           'a11y.quickNav': '快速章節', 'a11y.searchGuide': '搜尋本書', 'a11y.language': '語言',
           'a11y.darkMode': '切換深色模式', 'a11y.lightMode': '切換淺色模式',
@@ -1553,7 +1553,7 @@ git status --short<button class="copy-btn" type="button">複製</button></div>
           'nav.lenses': '角色閱讀路徑', 'nav.change': '改 Code 守則', 'nav.sources': '來源檔案',
           'search.global': '搜尋章節與證據…', 'search.sources': '搜尋 path、主題或 locator…',
           'action.print': '列印或匯出 PDF', 'action.collapse': '收合所有來源群組',
-          'hero.eyebrow': 'Evidence-driven control plane · 3.4.13',
+          'hero.eyebrow': 'Evidence-driven control plane · 3.4.14',
           'hero.title': '從意圖，走到<span class="accent">可證明完成。</span>',
           'hero.lead': '這不是一份 API 名稱清單，而是一本解釋 <strong>Better Workflows 如何做決定、留下證據、重播狀態，以及在副作用前停下來驗證</strong>的互動式解剖書。',
           'hero.start': '開始閱讀', 'hero.replay': '先看 Replay', 'hero.cinema': '證據動畫劇場 ↗', 'hero.useCases': '情境應用手冊 ↗', 'hero.print': '列印版',
@@ -1571,8 +1571,8 @@ git status --short<button class="copy-btn" type="button">複製</button></div>
           'footer.backTop': '↑ 回到頁首', 'toast.copied': '已複製命令', 'toast.clipboardDenied': '瀏覽器未允許剪貼簿'
         },
         en: {
-          'meta.title': 'Better Workflows Field Guide | From intent to provable completion',
-          'meta.description': 'An interactive, evidence-backed guide to the Better Workflows 3.4.13 control plane, dataflow, and replay model.',
+          'meta.title': 'Better Workflows Field Guide | Control plane and evidence architecture',
+          'meta.description': 'The official interactive guide to the Better Workflows control plane, dataflow, review, action, reconciliation, and replay model.',
           'a11y.skip': 'Skip to main content', 'a11y.openContents': 'Open chapter contents', 'a11y.closeContents': 'Close chapter contents',
           'a11y.quickNav': 'Quick chapters', 'a11y.searchGuide': 'Search this guide', 'a11y.language': 'Language',
           'a11y.darkMode': 'Switch to dark mode', 'a11y.lightMode': 'Switch to light mode',
@@ -1583,7 +1583,7 @@ git status --short<button class="copy-btn" type="button">複製</button></div>
           'nav.lenses': 'Reading paths', 'nav.change': 'Change-code rules', 'nav.sources': 'Source explorer',
           'search.global': 'Search chapters and evidence…', 'search.sources': 'Search path, topic, or locator…',
           'action.print': 'Print or export PDF', 'action.collapse': 'Collapse all source groups',
-          'hero.eyebrow': 'Evidence-driven control plane · 3.4.13',
+          'hero.eyebrow': 'Evidence-driven control plane · 3.4.14',
           'hero.title': 'From intent to <span class="accent">provable completion.</span>',
           'hero.lead': 'Not an API-name inventory, but an interactive field guide to <strong>how Better Workflows decides, records evidence, replays state, and pauses to verify before side effects</strong>.',
           'hero.start': 'Start reading', 'hero.replay': 'See replay first', 'hero.cinema': 'Evidence cinema ↗', 'hero.useCases': 'Use-case handbook ↗', 'hero.print': 'Print edition',
@@ -1686,7 +1686,7 @@ git status --short<button class="copy-btn" type="button">複製</button></div>
 
       const modeData = {
         direct: { level: 1, title: 'direct · Root 直接執行', summary: '適合範圍小、風險低、可快速驗證的工作。它不建立 run directory、journal、ledger 或 critics；因此也不應被誤認為 governed replay。', meta: ['run: none', 'critics: 0', 'journal: none', '適用：低風險、可回復'] },
-        verified: { level: 2, title: 'verified · 新鮮證據 + 獨立檢查', summary: '建立 governed run，加入 1–3 個唯讀 agent / reviewer 與 freshness evidence，適合需要交叉驗證但尚非關鍵不可逆的工作。', meta: ['run: v2', 'read-only critics', 'fresh evidence', 'root-only mutation'] },
+        verified: { level: 2, title: 'verified · 即時證據 + 獨立檢查', summary: '建立 governed run，加入 1–3 個唯讀 agent / reviewer 與即時、可重驗的 evidence，適合需要交叉驗證但尚非關鍵不可逆的工作。', meta: ['run: v2', 'read-only critics', 'fresh evidence', 'root-only mutation'] },
         deep: { level: 3, title: 'deep · Verified wave + Codex critics', summary: '在 verified 的基礎上加入獨立 Codex critics 與更完整的 review convergence，用於架構、跨模組或高認知負荷變更。', meta: ['run: v2', 'max Codex critics: 2', 'broad review', '更高驗證成本'] },
         critical: { level: 4, title: 'critical · Fail-closed critical gates', summary: '用於不可逆 side effects、自我改善與高風險交付；要求完整 source binding、host / provider authority、exact critic 與 reconciliation。', meta: ['run: v2', 'exact independent critic', 'action token', 'unknown → indeterminate'] }
       };

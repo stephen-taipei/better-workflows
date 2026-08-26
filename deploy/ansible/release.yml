@@ -1,0 +1,626 @@
+---
+- name: Deploy an immutable Better Workflows frontend release
+  hosts: frontend
+  become: true
+  gather_facts: false
+  vars:
+    frontend_primary_domain: betterworkflows.dev
+    frontend_deploy_root: /var/www/betterworkflows.dev
+    frontend_release_id: "{{ lookup('env', 'SITE_RELEASE_ID') }}"
+    frontend_artifact_path: "{{ lookup('env', 'SITE_ARTIFACT_PATH') }}"
+    frontend_expected_artifact_digest: "{{ lookup('env', 'SITE_ARTIFACT_SHA256') }}"
+    frontend_expected_content_digest: "{{ lookup('env', 'SITE_CONTENT_DIGEST') }}"
+    frontend_expected_receipt_digest: "{{ lookup('env', 'SITE_RECEIPT_SHA256') }}"
+    frontend_expected_revision: "{{ lookup('env', 'SITE_REVISION') }}"
+    frontend_deploy_user: deploy
+    frontend_deploy_group: deploy
+    frontend_current_path: "{{ frontend_deploy_root }}/current"
+    frontend_releases_root: "{{ frontend_deploy_root }}/releases"
+    frontend_release_path: "{{ frontend_releases_root }}/{{ frontend_release_id }}"
+    frontend_incoming_path: "{{ frontend_releases_root }}/.incoming-{{ frontend_release_id }}"
+    frontend_transaction_receipt_path: "{{ frontend_releases_root }}/.transaction-{{ frontend_release_id }}.json"
+    frontend_release_marker: "{{ frontend_release_path }}/.better-workflows-release-complete"
+    frontend_deploy_lock: /run/lock/betterworkflows-deploy.lock
+    frontend_lock_lifetime_seconds: 3600
+    frontend_publish_deadline_seconds: 3300
+    frontend_verification_prefix: "/run/betterworkflows-verify-{{ frontend_release_id }}"
+    frontend_https_origin_port: 8443
+
+  pre_tasks:
+    - name: Require bounded immutable release inputs
+      ansible.builtin.assert:
+        that:
+          - frontend_release_id is match('^[a-f0-9]{12}-[0-9]{8}T[0-9]{6}Z$')
+          - frontend_expected_artifact_digest is match('^[a-f0-9]{64}$')
+          - frontend_expected_content_digest is match('^[a-f0-9]{64}$')
+          - frontend_expected_receipt_digest is match('^[a-f0-9]{64}$')
+          - frontend_expected_revision is match('^[a-f0-9]{40}$')
+        fail_msg: >-
+          SITE_RELEASE_ID must be <12-char-sha>-<UTC timestamp>; SITE_REVISION,
+          SITE_ARTIFACT_SHA256, SITE_CONTENT_DIGEST, and SITE_RECEIPT_SHA256 are required.
+
+    - name: Require the exact local static artifact
+      ansible.builtin.stat:
+        path: "{{ frontend_artifact_path }}"
+        checksum_algorithm: sha256
+      delegate_to: localhost
+      become: false
+      register: frontend_artifact
+
+    - name: Refuse a missing, non-file, or mismatched artifact
+      ansible.builtin.assert:
+        that:
+          - frontend_artifact.stat.exists
+          - frontend_artifact.stat.isreg
+          - frontend_artifact.stat.checksum == frontend_expected_artifact_digest
+        fail_msg: SITE_ARTIFACT_PATH and SITE_ARTIFACT_SHA256 must identify the authorized tarball.
+
+    - name: Confirm the existing deploy account
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ frontend_deploy_user }}"
+
+  tasks:
+    - name: Run one serialized Better Workflows deployment transaction
+      block:
+        - name: Create a unique project-only lock transaction directory
+          ansible.builtin.tempfile:
+            state: directory
+            path: /run
+            prefix: betterworkflows-deploy-
+          register: frontend_lock_transaction
+          changed_when: false
+
+        - name: Create the project-only lock lease
+          ansible.builtin.file:
+            path: "{{ frontend_lock_transaction.path }}/lease"
+            state: touch
+            mode: "0600"
+          changed_when: false
+
+        - name: Start the kernel-released project deployment lock
+          ansible.builtin.command:
+            argv:
+              - /usr/bin/flock
+              - --nonblock
+              - "{{ frontend_deploy_lock }}"
+              - /bin/bash
+              - -c
+              - |
+                set -euo pipefail
+                transaction_root="$1"
+                trap '/usr/bin/rm -rf -- "$transaction_root"' EXIT
+                /usr/bin/touch "$transaction_root/ready"
+                while test -e "$transaction_root/lease"; do /usr/bin/sleep 1; done
+              - betterworkflows-deploy-lock
+              - "{{ frontend_lock_transaction.path }}"
+          async: "{{ frontend_lock_lifetime_seconds }}"
+          poll: 0
+          register: frontend_lock_job
+          changed_when: false
+
+        - name: Record the lock request for bounded cleanup
+          ansible.builtin.set_fact:
+            frontend_deploy_lock_requested: true
+
+        - name: Require exclusive ownership of the project deployment lock
+          ansible.builtin.wait_for:
+            path: "{{ frontend_lock_transaction.path }}/ready"
+            state: present
+            timeout: 10
+
+        - name: Record ownership of the deployment lock
+          ansible.builtin.set_fact:
+            frontend_deploy_lock_acquired: true
+
+        - name: Record the serialized transaction start time
+          ansible.builtin.command:
+            argv:
+              - /usr/bin/date
+              - +%s
+          register: frontend_transaction_started
+          changed_when: false
+
+        - name: Read the current project release target for recovery and rollback
+          ansible.builtin.command:
+            argv:
+              - /usr/bin/readlink
+              - -f
+              - "{{ frontend_current_path }}"
+          changed_when: false
+          failed_when: false
+          register: frontend_previous_current
+
+        - name: Inspect the immutable release, seal, and transaction receipt
+          ansible.builtin.stat:
+            path: "{{ item }}"
+          loop:
+            - "{{ frontend_release_path }}"
+            - "{{ frontend_release_marker }}"
+            - "{{ frontend_incoming_path }}"
+            - "{{ frontend_transaction_receipt_path }}"
+          register: frontend_release_state
+
+        - name: Read an interrupted transaction receipt when present
+          ansible.builtin.slurp:
+            src: "{{ frontend_transaction_receipt_path }}"
+          register: frontend_interrupted_transaction_raw
+          when: frontend_release_state.results[3].stat.exists
+
+        - name: Decode the interrupted transaction receipt
+          ansible.builtin.set_fact:
+            frontend_interrupted_transaction: >-
+              {{ frontend_interrupted_transaction_raw.content | b64decode | from_json }}
+          when: frontend_release_state.results[3].stat.exists
+
+        - name: Refuse unowned or mismatched interrupted release state
+          ansible.builtin.assert:
+            that:
+              - >-
+                not (frontend_release_state.results[2].stat.exists or
+                (frontend_release_state.results[0].stat.exists and
+                not frontend_release_state.results[1].stat.exists)) or
+                frontend_release_state.results[3].stat.exists
+              - >-
+                not frontend_release_state.results[3].stat.exists or
+                (frontend_interrupted_transaction.releaseId == frontend_release_id and
+                frontend_interrupted_transaction.revision == frontend_expected_revision and
+                frontend_interrupted_transaction.artifactDigest == frontend_expected_artifact_digest and
+                frontend_interrupted_transaction.contentDigest == frontend_expected_content_digest and
+                frontend_interrupted_transaction.receiptDigest == frontend_expected_receipt_digest)
+              - >-
+                not frontend_release_state.results[3].stat.exists or
+                frontend_interrupted_transaction.previousCurrent == '' or
+                frontend_interrupted_transaction.previousCurrent is
+                match('^/var/www/betterworkflows[.]dev/releases/[a-f0-9]{12}-[0-9]{8}T[0-9]{6}Z$')
+              - >-
+                frontend_previous_current.rc != 0 or
+                frontend_previous_current.stdout == frontend_release_path or
+                frontend_previous_current.stdout is
+                match('^/var/www/betterworkflows[.]dev/releases/[a-f0-9]{12}-[0-9]{8}T[0-9]{6}Z$')
+            fail_msg: Interrupted release state must be owned by the exact authorized transaction.
+
+        - name: Authorize bounded recovery of the matching transaction
+          ansible.builtin.set_fact:
+            frontend_transaction_authorized: true
+
+        - name: Restore the persisted previous release before cleaning an interrupted active candidate
+          ansible.builtin.file:
+            src: "{{ frontend_interrupted_transaction.previousCurrent }}"
+            dest: "{{ frontend_current_path }}"
+            state: link
+            force: true
+            owner: "{{ frontend_deploy_user }}"
+            group: "{{ frontend_deploy_group }}"
+          when:
+            - frontend_release_state.results[3].stat.exists
+            - frontend_release_state.results[0].stat.exists
+            - not frontend_release_state.results[1].stat.exists
+            - frontend_previous_current.stdout == frontend_release_path
+            - frontend_interrupted_transaction.previousCurrent | length > 0
+
+        - name: Remove an interrupted first-release activation before recovery
+          ansible.builtin.file:
+            path: "{{ frontend_current_path }}"
+            state: absent
+          when:
+            - frontend_release_state.results[3].stat.exists
+            - frontend_release_state.results[0].stat.exists
+            - not frontend_release_state.results[1].stat.exists
+            - frontend_previous_current.stdout == frontend_release_path
+            - frontend_interrupted_transaction.previousCurrent | length == 0
+
+        - name: Read the current target after interrupted-candidate rollback
+          ansible.builtin.command:
+            argv:
+              - /usr/bin/readlink
+              - -f
+              - "{{ frontend_current_path }}"
+          changed_when: false
+          failed_when: false
+          register: frontend_after_interrupted_rollback
+          when:
+            - frontend_release_state.results[3].stat.exists
+            - frontend_release_state.results[0].stat.exists
+            - not frontend_release_state.results[1].stat.exists
+            - frontend_previous_current.stdout == frontend_release_path
+
+        - name: Verify interrupted-candidate rollback before cleanup
+          ansible.builtin.assert:
+            that:
+              - >-
+                (frontend_interrupted_transaction.previousCurrent | length > 0 and
+                frontend_after_interrupted_rollback.rc == 0 and
+                frontend_after_interrupted_rollback.stdout ==
+                frontend_interrupted_transaction.previousCurrent) or
+                (frontend_interrupted_transaction.previousCurrent | length == 0 and
+                frontend_after_interrupted_rollback.rc != 0)
+            fail_msg: Interrupted rollback could not be verified; candidate and receipt were preserved.
+          when:
+            - frontend_release_state.results[3].stat.exists
+            - frontend_release_state.results[0].stat.exists
+            - not frontend_release_state.results[1].stat.exists
+            - frontend_previous_current.stdout == frontend_release_path
+
+        - name: Record verified interrupted-candidate rollback
+          ansible.builtin.set_fact:
+            frontend_interrupted_rollback_verified: true
+          when:
+            - frontend_release_state.results[3].stat.exists
+            - frontend_release_state.results[0].stat.exists
+            - not frontend_release_state.results[1].stat.exists
+            - frontend_previous_current.stdout == frontend_release_path
+
+        - name: Remove only matching interrupted transaction trees before retry
+          ansible.builtin.file:
+            path: "{{ item.path }}"
+            state: absent
+          loop:
+            - path: "{{ frontend_incoming_path }}"
+              exists: "{{ frontend_release_state.results[2].stat.exists }}"
+              was_active: false
+            - path: "{{ frontend_release_path }}"
+              exists: >-
+                {{ frontend_release_state.results[0].stat.exists and
+                not frontend_release_state.results[1].stat.exists }}
+              was_active: >-
+                {{ frontend_release_state.results[0].stat.exists and
+                not frontend_release_state.results[1].stat.exists and
+                frontend_previous_current.stdout == frontend_release_path }}
+          when:
+            - frontend_release_state.results[3].stat.exists
+            - item.exists | bool
+            - not item.was_active | bool or frontend_interrupted_rollback_verified | default(false)
+
+        - name: Select a fresh validation tree or the sealed release
+          ansible.builtin.set_fact:
+            frontend_release_is_sealed: "{{ frontend_release_state.results[1].stat.exists }}"
+            frontend_validation_path: >-
+              {{ frontend_release_path if frontend_release_state.results[1].stat.exists else frontend_incoming_path }}
+            frontend_previous_target: >-
+              {{ (frontend_previous_current.stdout if frontend_previous_current.rc == 0 else '')
+              if frontend_release_state.results[1].stat.exists
+              else (frontend_interrupted_transaction.previousCurrent
+              if frontend_release_state.results[3].stat.exists
+              else (frontend_previous_current.stdout if frontend_previous_current.rc == 0 else '')) }}
+
+        - name: Create only Better Workflows base release directories
+          ansible.builtin.file:
+            path: "{{ item }}"
+            state: directory
+            owner: "{{ frontend_deploy_user }}"
+            group: "{{ frontend_deploy_group }}"
+            mode: "0755"
+          loop:
+            - "{{ frontend_deploy_root }}"
+            - "{{ frontend_releases_root }}"
+
+        - name: Persist the exact transaction owner before artifact extraction
+          ansible.builtin.copy:
+            dest: "{{ frontend_transaction_receipt_path }}"
+            owner: root
+            group: root
+            mode: "0600"
+            content: >-
+              {{ {
+                'releaseId': frontend_release_id,
+                'revision': frontend_expected_revision,
+                'artifactDigest': frontend_expected_artifact_digest,
+                'contentDigest': frontend_expected_content_digest,
+                'receiptDigest': frontend_expected_receipt_digest,
+                'previousCurrent': frontend_previous_target
+              } | to_nice_json }}
+          when: not frontend_release_is_sealed
+
+        - name: Create a new isolated incoming release directory
+          ansible.builtin.file:
+            path: "{{ frontend_incoming_path }}"
+            state: directory
+            owner: "{{ frontend_deploy_user }}"
+            group: "{{ frontend_deploy_group }}"
+            mode: "0755"
+          when: not frontend_release_is_sealed
+
+        - name: Record ownership of the fresh incoming tree
+          ansible.builtin.set_fact:
+            frontend_incoming_created: true
+          when: not frontend_release_is_sealed
+
+        - name: Upload and extract only into the fresh incoming directory
+          ansible.builtin.unarchive:
+            src: "{{ frontend_artifact_path }}"
+            dest: "{{ frontend_incoming_path }}"
+            remote_src: false
+            owner: "{{ frontend_deploy_user }}"
+            group: "{{ frontend_deploy_group }}"
+            mode: "u=rwX,go=rX"
+          when: not frontend_release_is_sealed
+          async: 1800
+          poll: 5
+
+        - name: Verify release entrypoints before activation
+          ansible.builtin.stat:
+            path: "{{ frontend_validation_path }}/{{ item }}"
+          loop:
+            - index.html
+            - healthz
+            - release.json
+            - locales.json
+            - sitemap.xml
+            - manifest.directories
+            - manifest.sha256
+          register: frontend_entrypoints
+
+        - name: Refuse an incomplete static release
+          ansible.builtin.assert:
+            that:
+              - item.stat.exists
+              - item.stat.isreg
+            fail_msg: "The Better Workflows artifact is missing {{ item.item }}."
+          loop: "{{ frontend_entrypoints.results }}"
+
+        - name: Verify the exact extracted tree and every payload digest
+          ansible.builtin.command:
+            argv:
+              - /bin/bash
+              - -o
+              - pipefail
+              - -c
+              - |
+                set -euo pipefail
+                cd "$1"
+                if find . -mindepth 1 ! -type f ! -type d -print -quit | grep -q .; then exit 40; fi
+                if find . -mindepth 1 -perm /022 -print -quit | grep -q .; then exit 41; fi
+                find . -type f -printf '%P\n' | awk '$0 != "release.json" && $0 != "manifest.sha256" && $0 != ".better-workflows-release-complete"' | LC_ALL=C sort > "$2.files"
+                awk '{print substr($0, 67)}' manifest.sha256 | LC_ALL=C sort > "$2.expected-files"
+                diff -u "$2.expected-files" "$2.files"
+                find . -mindepth 1 -type d -printf '%P\n' | LC_ALL=C sort > "$2.directories"
+                diff -u manifest.directories "$2.directories"
+                /usr/bin/sha256sum --check manifest.sha256
+              - betterworkflows-verify
+              - "{{ frontend_validation_path }}"
+              - "{{ frontend_verification_prefix }}"
+          changed_when: false
+          async: 600
+          poll: 5
+
+        - name: Calculate the extracted manifest digest independently
+          ansible.builtin.stat:
+            path: "{{ frontend_validation_path }}/manifest.sha256"
+            checksum_algorithm: sha256
+          register: frontend_manifest
+
+        - name: Refuse a payload manifest outside the authorized release
+          ansible.builtin.assert:
+            that:
+              - frontend_manifest.stat.checksum == frontend_expected_content_digest
+            fail_msg: The extracted payload manifest does not match SITE_CONTENT_DIGEST.
+
+        - name: Read the candidate release receipt
+          ansible.builtin.slurp:
+            src: "{{ frontend_validation_path }}/release.json"
+          register: frontend_candidate_receipt_raw
+
+        - name: Calculate the root release receipt digest independently
+          ansible.builtin.stat:
+            path: "{{ frontend_validation_path }}/release.json"
+            checksum_algorithm: sha256
+          register: frontend_receipt
+
+        - name: Refuse a root receipt outside the authorized release
+          ansible.builtin.assert:
+            that:
+              - frontend_receipt.stat.checksum == frontend_expected_receipt_digest
+            fail_msg: The extracted release.json does not match SITE_RECEIPT_SHA256.
+
+        - name: Decode the candidate release receipt
+          ansible.builtin.set_fact:
+            frontend_candidate_receipt: >-
+              {{ frontend_candidate_receipt_raw.content | b64decode | from_json }}
+
+        - name: Refuse a release outside the Better Workflows contract
+          ansible.builtin.assert:
+            that:
+              - frontend_candidate_receipt.project == 'better-workflows'
+              - frontend_candidate_receipt.canonical == 'https://betterworkflows.dev/'
+              - frontend_candidate_receipt.repository == 'https://github.com/stephen-taipei/better-workflows'
+              - frontend_candidate_receipt.revision == frontend_expected_revision[:12]
+              - frontend_candidate_receipt.domains == ['betterworkflows.dev', 'betterworkflows.org']
+              - frontend_candidate_receipt.sponsorUrl == 'https://ko-fi.com/betterworkflows'
+              - frontend_candidate_receipt.sponsorMode == 'one-time-only'
+              - frontend_candidate_receipt.locales | int == 41
+              - frontend_candidate_receipt.contentDigest == frontend_expected_content_digest
+            fail_msg: The candidate receipt does not match the expected project artifact.
+
+        - name: Read the time before the irreversible publish boundary
+          ansible.builtin.command:
+            argv:
+              - /usr/bin/date
+              - +%s
+          register: frontend_before_publish
+          changed_when: false
+          when: not frontend_release_is_sealed
+
+        - name: Refuse to publish after the bounded lock-safe deadline
+          ansible.builtin.assert:
+            that:
+              - >-
+                (frontend_before_publish.stdout | int) -
+                (frontend_transaction_started.stdout | int) <
+                frontend_publish_deadline_seconds
+            fail_msg: The candidate exceeded its lock-safe publish deadline and was not activated.
+          when: not frontend_release_is_sealed
+
+        - name: Atomically publish the verified incoming release
+          ansible.builtin.command:
+            argv:
+              - /usr/bin/mv
+              - "{{ frontend_incoming_path }}"
+              - "{{ frontend_release_path }}"
+          when: not frontend_release_is_sealed
+          changed_when: true
+
+        - name: Record ownership of the published candidate
+          ansible.builtin.set_fact:
+            frontend_release_published: true
+          when: not frontend_release_is_sealed
+
+        - name: Activate and verify only the Better Workflows release
+          block:
+            - name: Point the project symlink at the candidate release
+              ansible.builtin.file:
+                src: "{{ frontend_release_path }}"
+                dest: "{{ frontend_current_path }}"
+                state: link
+                force: true
+                owner: "{{ frontend_deploy_user }}"
+                group: "{{ frontend_deploy_group }}"
+
+            - name: Verify the activated receipt through the isolated origin
+              ansible.builtin.uri:
+                url: "https://127.0.0.1:{{ frontend_https_origin_port }}/release.json"
+                headers:
+                  Host: "{{ frontend_primary_domain }}"
+                validate_certs: false
+                return_content: true
+                status_code: 200
+              register: frontend_live_receipt
+              failed_when: >-
+                frontend_live_receipt.status != 200 or
+                (frontend_live_receipt.content | from_json).contentDigest !=
+                frontend_expected_content_digest
+
+            - name: Seal the immutable release after activation succeeds
+              ansible.builtin.file:
+                path: "{{ frontend_release_marker }}"
+                state: touch
+                owner: "{{ frontend_deploy_user }}"
+                group: "{{ frontend_deploy_group }}"
+                mode: "0644"
+                modification_time: preserve
+                access_time: preserve
+              when: not frontend_release_is_sealed
+
+            - name: Record a complete release transaction
+              ansible.builtin.set_fact:
+                frontend_release_transaction_complete: true
+
+          rescue:
+            - name: Restore the previous Better Workflows release target
+              ansible.builtin.file:
+                src: "{{ frontend_previous_target }}"
+                dest: "{{ frontend_current_path }}"
+                state: link
+                force: true
+                owner: "{{ frontend_deploy_user }}"
+                group: "{{ frontend_deploy_group }}"
+              when:
+                - frontend_previous_target | length > 0
+
+            - name: Remove the failed first-release activation symlink
+              ansible.builtin.file:
+                path: "{{ frontend_current_path }}"
+                state: absent
+              when: >-
+                frontend_previous_target | length == 0
+
+            - name: Read the project release target after rollback
+              ansible.builtin.command:
+                argv:
+                  - /usr/bin/readlink
+                  - -f
+                  - "{{ frontend_current_path }}"
+              changed_when: false
+              failed_when: false
+              register: frontend_after_rollback
+
+            - name: Verify rollback before authorizing candidate cleanup
+              ansible.builtin.assert:
+                that:
+                  - >-
+                    (frontend_previous_target | length > 0 and
+                    frontend_after_rollback.rc == 0 and
+                    frontend_after_rollback.stdout == frontend_previous_target) or
+                    (frontend_previous_target | length == 0 and
+                    frontend_after_rollback.rc != 0)
+                fail_msg: Rollback could not be verified; candidate and recovery receipt were preserved.
+
+            - name: Record verified rollback of the project current target
+              ansible.builtin.set_fact:
+                frontend_rollback_verified: true
+
+            - name: Stop after bounded rollback
+              ansible.builtin.fail:
+                msg: Candidate activation failed; the project current symlink was rolled back safely.
+
+      always:
+        - name: Remove only this transaction's unpublished incoming tree
+          ansible.builtin.file:
+            path: "{{ frontend_incoming_path }}"
+            state: absent
+          when: frontend_incoming_created | default(false)
+          changed_when: false
+
+        - name: Remove only this transaction's failed unsealed published release
+          ansible.builtin.file:
+            path: "{{ frontend_release_path }}"
+            state: absent
+          when:
+            - frontend_release_published | default(false)
+            - frontend_rollback_verified | default(false)
+          changed_when: false
+
+        - name: Remove the authorized transaction recovery receipt
+          ansible.builtin.file:
+            path: "{{ frontend_transaction_receipt_path }}"
+            state: absent
+          when:
+            - frontend_transaction_authorized | default(false)
+            - >-
+              frontend_release_transaction_complete | default(false) or
+              frontend_rollback_verified | default(false)
+          changed_when: false
+
+        - name: Remove bounded verification scratch files
+          ansible.builtin.file:
+            path: "{{ item }}"
+            state: absent
+          loop:
+            - "{{ frontend_verification_prefix }}.files"
+            - "{{ frontend_verification_prefix }}.expected-files"
+            - "{{ frontend_verification_prefix }}.directories"
+          when: frontend_deploy_lock_acquired | default(false)
+          changed_when: false
+
+        - name: Release the project-only deployment lock lease
+          ansible.builtin.file:
+            path: "{{ frontend_lock_transaction.path }}/lease"
+            state: absent
+          when: frontend_lock_transaction is defined
+          changed_when: false
+
+        - name: Wait for the lock holder to release the kernel lock
+          ansible.builtin.async_status:
+            jid: "{{ frontend_lock_job.ansible_job_id }}"
+          register: frontend_lock_release
+          until: frontend_lock_release.finished
+          retries: 10
+          delay: 1
+          failed_when: false
+          changed_when: false
+          when: frontend_deploy_lock_requested | default(false)
+
+        - name: Remove the project-only asynchronous lock record
+          ansible.builtin.async_status:
+            jid: "{{ frontend_lock_job.ansible_job_id }}"
+            mode: cleanup
+          failed_when: false
+          changed_when: false
+          when: frontend_deploy_lock_requested | default(false)
+
+        - name: Remove the unique project-only lock transaction directory
+          ansible.builtin.file:
+            path: "{{ frontend_lock_transaction.path }}"
+            state: absent
+          when: frontend_lock_transaction is defined
+          changed_when: false
