@@ -40,12 +40,14 @@ test("official website build is self-contained and includes docs/html", async ()
     assert.equal(release.project, "better-workflows");
     assert.deepEqual(release.domains, ["betterworkflows.dev", "betterworkflows.org"]);
     assert.equal(release.repository, "https://github.com/stephen-taipei/better-workflows");
+    assert.equal(release.sponsorUrl, "https://ko-fi.com/betterworkflows");
     assert.equal(release.locales, 41);
     assert.equal(release.defaultLocale, "zh-Hant-TW");
     assert.match(release.assetVersion, /^[a-f0-9]{12}$/);
     assert.match(release.contentDigest, /^[a-f0-9]{64}$/);
     assert.match(landing, new RegExp(`/styles\\.css\\?v=${release.assetVersion}`));
     assert.match(landing, new RegExp(`/site\\.js\\?v=${release.assetVersion}`));
+    assert.match(landing, /href="https:\/\/ko-fi\.com\/betterworkflows" target="_blank" rel="noopener noreferrer"/);
     assert.equal(await readFile(path.join(outputDirectory, "healthz"), "utf8"), "ok\n");
 
     for (const relativePath of [
@@ -82,4 +84,9 @@ test("official website build is self-contained and includes docs/html", async ()
   } finally {
     await rm(temporaryRoot, { recursive: true, force: true });
   }
+});
+
+test("GitHub funding configuration exposes only the verified Ko-fi account", async () => {
+  const funding = await readFile(path.join(repoRoot, ".github", "FUNDING.yml"), "utf8");
+  assert.equal(funding, "ko_fi: betterworkflows\n");
 });

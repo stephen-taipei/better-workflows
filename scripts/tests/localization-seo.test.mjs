@@ -13,6 +13,7 @@ const testDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(testDirectory, "../..");
 const buildScript = path.join(repoRoot, "scripts", "build-website.mjs");
 const repositoryUrl = "https://github.com/stephen-taipei/better-workflows";
+const sponsorUrl = "https://ko-fi.com/betterworkflows";
 
 function occurrences(content, pattern) {
   return [...content.matchAll(pattern)].length;
@@ -30,6 +31,8 @@ test("locale catalog matches Connectors iOS and preserves key order", () => {
   assert.doesNotMatch(JSON.stringify(locales.filter((locale) => locale.code.startsWith("zh-"))), /新鮮證據/);
   assert.equal(locales.find((locale) => locale.code === "ar").dir, "rtl");
   assert.equal(locales.find((locale) => locale.code === "he").dir, "rtl");
+  assert.match(locales.find((locale) => locale.code === "zh-Hant-TW").messages.SPONSOR_BODY, /一次性支持/);
+  assert.match(locales.find((locale) => locale.code === "en").messages.SPONSOR_BODY, /one-time contribution/i);
 });
 
 test("build emits 41 crawlable locale editions and complete SEO metadata", async () => {
@@ -52,6 +55,8 @@ test("build emits 41 crawlable locale editions and complete SEO metadata", async
       assert.match(html, /<meta name="twitter:card" content="summary_large_image">/);
       assert.match(html, /<meta property="og:image:alt"/);
       assert.match(html, new RegExp(repositoryUrl.replaceAll("/", "\\/")));
+      assert.match(html, new RegExp(sponsorUrl.replaceAll("/", "\\/")));
+      assert.match(html, /id="sponsor"/);
       assert.match(html, /\/styles\.css\?v=[a-f0-9]{12}/);
       assert.match(html, /\/site\.js\?v=[a-f0-9]{12}/);
       assert.match(html, /better-workflows#get-your-first-result/);
@@ -75,6 +80,7 @@ test("build emits 41 crawlable locale editions and complete SEO metadata", async
     assert.equal(manifest.defaultLocale, DEFAULT_LOCALE);
     assert.equal(release.locales, 41);
     assert.equal(release.repository, repositoryUrl);
+    assert.equal(release.sponsorUrl, sponsorUrl);
     assert.match(release.assetVersion, /^[a-f0-9]{12}$/);
     assert.match(release.contentDigest, /^[a-f0-9]{64}$/);
 

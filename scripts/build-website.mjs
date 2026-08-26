@@ -18,6 +18,7 @@ const docsSource = path.join(repoRoot, "docs", "html");
 const pluginSource = path.join(repoRoot, "plugins", "better-workflows");
 const canonicalOrigin = "https://betterworkflows.dev";
 const repositoryUrl = "https://github.com/stephen-taipei/better-workflows";
+const sponsorUrl = "https://ko-fi.com/betterworkflows";
 
 const openGraphLocales = {
   ar: "ar_AR", ca: "ca_ES", cs: "cs_CZ", da: "da_DK", de: "de_DE", el: "el_GR", en: "en_US", es: "es_ES", "es-MX": "es_MX", fi: "fi_FI", fil: "fil_PH", fr: "fr_FR", he: "he_IL", hi: "hi_IN", hr: "hr_HR", hu: "hu_HU", id: "id_ID", it: "it_IT", ja: "ja_JP", km: "km_KH", ko: "ko_KR", lo: "lo_LA", ms: "ms_MY", my: "my_MM", nb: "nb_NO", nl: "nl_NL", pl: "pl_PL", pt: "pt_PT", "pt-BR": "pt_BR", ro: "ro_RO", ru: "ru_RU", sk: "sk_SK", sv: "sv_SE", th: "th_TH", tr: "tr_TR", uk: "uk_UA", vi: "vi_VN", "zh-Hans": "zh_CN", "zh-Hant": "zh_TW", "zh-Hant-HK": "zh_HK", "zh-Hant-TW": "zh_TW"
@@ -113,7 +114,7 @@ function structuredData({ locale, title, description, canonical, version }) {
         name: "Better Workflows",
         alternateName: ["BW", "betterworkflows.dev"],
         inLanguage: CONNECTORS_LOCALES,
-        sameAs: [repositoryUrl]
+        sameAs: [repositoryUrl, sponsorUrl]
       },
       {
         "@type": "SoftwareSourceCode",
@@ -296,6 +297,7 @@ await writeFile(path.join(outputDirectory, "release.json"), `${JSON.stringify({
   canonical: `${canonicalOrigin}/`,
   domains: ["betterworkflows.dev", "betterworkflows.org"],
   repository: repositoryUrl,
+  sponsorUrl,
   locales: locales.length,
   defaultLocale: DEFAULT_LOCALE,
   assetVersion,
@@ -303,4 +305,4 @@ await writeFile(path.join(outputDirectory, "release.json"), `${JSON.stringify({
   artifact: "static-frontend"
 }, null, 2)}\n`);
 
-console.log(JSON.stringify({ outputDirectory, version, revision, builtAt, assetVersion, contentDigest: artifactContentDigest, locales: locales.length, repository: repositoryUrl }, null, 2));
+console.log(JSON.stringify({ outputDirectory, version, revision, builtAt, assetVersion, contentDigest: artifactContentDigest, locales: locales.length, repository: repositoryUrl, sponsorUrl }, null, 2));

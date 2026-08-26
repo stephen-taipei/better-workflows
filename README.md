@@ -16,7 +16,7 @@ verified, provider-reconciled delivery.
 
 </div>
 
-[Quick start](docs/guide/getting-started.md) · [Workflows](docs/guide/workflows.md) · [Architecture](docs/guide/architecture.md) · [Security](docs/guide/security.md) · [CLI](docs/guide/cli-reference.md) · [Full details](docs/details/en.md)
+[Quick start](docs/guide/getting-started.md) · [Workflows](docs/guide/workflows.md) · [Architecture](docs/guide/architecture.md) · [Security](docs/guide/security.md) · [CLI](docs/guide/cli-reference.md) · [Full details](docs/details/en.md) · [Sponsor on Ko-fi](https://ko-fi.com/betterworkflows)
 
 <!-- readme-roster -->
 **Model roster:** Codex · Claude · Gemini · GPT-OSS · Grok · Cursor · Kimi · Qwen · Kiro. `agy` transports Gemini-, Claude-, and GPT-OSS-branded models; it is transport metadata, not another model brand.
@@ -32,7 +32,7 @@ Better Workflows is for developers and teams who want fast assistance on small
 tasks without giving up explicit scope, review, freshness, or protected
 delivery when the blast radius grows.
 
-It provides 13 outcome-oriented workflow templates, governed workspace recipes,
+It provides 14 outcome-oriented workflow templates, governed workspace recipes,
 and a read-only Graph View. You choose the outcome; the route adds only the
 verification needed for the current risk.
 
@@ -198,6 +198,8 @@ Sensitive or private history is never harvested; it is rejected with a redacted 
 
 [Contributing](CONTRIBUTING.md) · [Code of conduct](CODE_OF_CONDUCT.md) ·
 [Governance](GOVERNANCE.md) · [Support](SUPPORT.md) · [Security policy](SECURITY.md)
+
+One-time [Ko-fi support](https://ko-fi.com/betterworkflows) helps maintain the open-source code, documentation, 41-language localization, and website hosting. It does not provide membership, roadmap priority, or support priority.
 
 <details>
 <summary>Develop Better Workflows</summary>

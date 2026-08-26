@@ -17,7 +17,10 @@ export const LOCALE_KEYS = [
   "DOCS_TITLE",
   "CLOSING_TITLE",
   "THEME_LIGHT",
-  "THEME_DARK"
+  "THEME_DARK",
+  "SPONSOR_CTA",
+  "SPONSOR_TITLE",
+  "SPONSOR_BODY"
 ];
 
 export const CONNECTORS_LOCALES = [
@@ -725,3 +728,53 @@ export const locales = [
     }
   }
 ];
+
+const sponsorCopy = {
+  ar: ["ادعم عبر Ko-fi", "ساعد Better Workflows على الاستمرار.", "يساعد الدعم لمرة واحدة في صيانة الشيفرة المفتوحة والوثائق والترجمة إلى 41 لغة واستضافة الموقع. ولا يمنح عضوية أو أولوية في خارطة الطريق أو الدعم."],
+  ca: ["Dona suport a Ko-fi", "Ajuda a mantenir Better Workflows.", "Una aportació puntual ajuda a mantenir el codi obert, la documentació, la localització en 41 idiomes i l’allotjament web. No compra cap membresia ni prioritat de full de ruta o suport."],
+  cs: ["Podpořit přes Ko-fi", "Pomozte udržovat Better Workflows.", "Jednorázová podpora pomáhá udržovat open-source kód, dokumentaci, lokalizaci do 41 jazyků a provoz webu. Nezakládá členství ani prioritu v plánu či podpoře."],
+  da: ["Støt via Ko-fi", "Hjælp med at holde Better Workflows i gang.", "Et engangsbidrag støtter vedligeholdelse af open source-kode, dokumentation, 41 sprog og webhosting. Det giver ikke medlemskab eller prioritet i roadmap eller support."],
+  de: ["Über Ko-fi unterstützen", "Hilf mit, Better Workflows nachhaltig zu pflegen.", "Eine einmalige Unterstützung hilft bei Open-Source-Code, Dokumentation, 41 Sprachversionen und Webhosting. Sie begründet keine Mitgliedschaft oder Priorität bei Roadmap und Support."],
+  el: ["Υποστήριξη μέσω Ko-fi", "Βοηθήστε να διατηρείται το Better Workflows.", "Μια εφάπαξ συνεισφορά στηρίζει τον ανοιχτό κώδικα, την τεκμηρίωση, τις 41 γλώσσες και τη φιλοξενία. Δεν αγοράζει συνδρομή ή προτεραιότητα σε roadmap και υποστήριξη."],
+  en: ["Support on Ko-fi", "Help keep Better Workflows maintained.", "A one-time contribution supports open-source maintenance, documentation, 41-language localization, and website hosting. It does not buy membership, roadmap priority, or support priority."],
+  es: ["Apoyar en Ko-fi", "Ayuda a mantener Better Workflows.", "Una aportación única apoya el mantenimiento open source, la documentación, la localización en 41 idiomas y el alojamiento web. No compra membresía ni prioridad en el roadmap o el soporte."],
+  "es-MX": ["Apoyar en Ko-fi", "Ayuda a mantener Better Workflows.", "Un apoyo único ayuda a mantener el código abierto, la documentación, la localización en 41 idiomas y el sitio web. No compra membresía ni prioridad en el roadmap o soporte."],
+  fi: ["Tue Ko-fi-palvelussa", "Auta pitämään Better Workflows ylläpidettynä.", "Kertaluonteinen tuki auttaa avoimen lähdekoodin, dokumentaation, 41 kielen lokalisoinnin ja verkkosivun ylläpidossa. Se ei anna jäsenyyttä eikä etusijaa kehityksessä tai tuessa."],
+  fil: ["Sumuporta sa Ko-fi", "Tulungang mapanatili ang Better Workflows.", "Ang minsanang suporta ay tumutulong sa open-source maintenance, dokumentasyon, 41-wikang localization, at website hosting. Hindi ito kapalit ng membership o priority sa roadmap o support."],
+  fr: ["Soutenir sur Ko-fi", "Aidez à maintenir Better Workflows.", "Un soutien ponctuel finance la maintenance open source, la documentation, la localisation en 41 langues et l’hébergement du site. Il n’achète ni adhésion ni priorité de roadmap ou de support."],
+  he: ["תמיכה דרך Ko-fi", "עזרו לשמור על Better Workflows מתוחזק.", "תמיכה חד-פעמית מסייעת בתחזוקת הקוד הפתוח, התיעוד, הלוקליזציה ל-41 שפות ואחסון האתר. היא אינה מקנה חברות או קדימות במפת הדרכים או בתמיכה."],
+  hi: ["Ko-fi पर सहयोग करें", "Better Workflows के रखरखाव में मदद करें।", "एक बार का सहयोग open-source रखरखाव, दस्तावेज़, 41 भाषाओं के localization और वेबसाइट hosting में मदद करता है। इससे membership, roadmap या support priority नहीं मिलती।"],
+  hr: ["Podrži putem Ko-fi", "Pomozite održavati Better Workflows.", "Jednokratna podrška pomaže održavanju otvorenog koda, dokumentacije, lokalizacije na 41 jezik i web-hostinga. Ne donosi članstvo ni prioritet za plan razvoja ili podršku."],
+  hu: ["Támogatás Ko-fi-n", "Segíts a Better Workflows fenntartásában.", "Az egyszeri támogatás a nyílt forráskód, a dokumentáció, a 41 nyelvű lokalizáció és a webtárhely fenntartását segíti. Nem jár tagsággal, ütemtervi vagy támogatási elsőbbséggel."],
+  id: ["Dukung di Ko-fi", "Bantu menjaga Better Workflows tetap terawat.", "Dukungan satu kali membantu pemeliharaan open source, dokumentasi, lokalisasi 41 bahasa, dan hosting situs. Dukungan tidak membeli keanggotaan atau prioritas roadmap maupun bantuan."],
+  it: ["Sostieni su Ko-fi", "Aiuta a mantenere Better Workflows.", "Un contributo una tantum sostiene manutenzione open source, documentazione, localizzazione in 41 lingue e hosting del sito. Non acquista iscrizioni né priorità di roadmap o assistenza."],
+  ja: ["Ko-fi で支援", "Better Workflows の継続的なメンテナンスを支えてください。", "一度限りの支援は、オープンソースの保守、ドキュメント、41 言語のローカライズ、Web サイト運営に役立ちます。会員資格、roadmap、サポートの優先権を購入するものではありません。"],
+  km: ["គាំទ្រតាម Ko-fi", "ជួយរក្សា Better Workflows ឱ្យបន្តថែទាំ។", "ការគាំទ្រម្តងជួយថែទាំកូដប្រភពបើកចំហ ឯកសារ ការបកប្រែ 41 ភាសា និងការបង្ហោះគេហទំព័រ។ វាមិនផ្តល់សមាជិកភាព ឬអាទិភាព roadmap និង support ទេ។"],
+  ko: ["Ko-fi에서 후원", "Better Workflows의 꾸준한 유지 관리를 도와주세요.", "일회성 후원은 오픈 소스 유지 관리, 문서, 41개 언어 현지화와 웹사이트 운영에 사용됩니다. 멤버십이나 roadmap 및 지원 우선권을 구매하는 것은 아닙니다."],
+  lo: ["ສະໜັບສະໜູນຜ່ານ Ko-fi", "ຊ່ວຍໃຫ້ Better Workflows ໄດ້ຮັບການດູແລຕໍ່ໄປ.", "ການສະໜັບສະໜູນຄັ້ງດຽວຊ່ວຍບຳລຸງ open source, ເອກະສານ, ການແປ 41 ພາສາ ແລະ hosting. ບໍ່ໄດ້ຮັບສະມາຊິກ ຫຼືສິດກ່ອນໃນ roadmap/support."],
+  ms: ["Sokong di Ko-fi", "Bantu kekalkan Better Workflows.", "Sokongan sekali membantu penyelenggaraan sumber terbuka, dokumentasi, penyetempatan 41 bahasa dan pengehosan laman. Ia tidak membeli keahlian atau keutamaan roadmap dan sokongan."],
+  my: ["Ko-fi မှ ပံ့ပိုးပါ", "Better Workflows ကို ဆက်လက်ထိန်းသိမ်းနိုင်ရန် ကူညီပါ။", "တစ်ကြိမ်တည်း ပံ့ပိုးမှုသည် open-source ထိန်းသိမ်းမှု၊ စာရွက်စာတမ်း၊ ဘာသာစကား ၄၁ မျိုးနှင့် website hosting ကို ကူညီသည်။ membership သို့မဟုတ် roadmap/support ဦးစားပေးမှု မရပါ။"],
+  nb: ["Støtt på Ko-fi", "Hjelp oss å vedlikeholde Better Workflows.", "Et engangsbidrag støtter vedlikehold av åpen kildekode, dokumentasjon, 41 språk og webhosting. Det gir ikke medlemskap eller prioritet i veikart eller brukerstøtte."],
+  nl: ["Steun via Ko-fi", "Help Better Workflows onderhouden.", "Een eenmalige bijdrage ondersteunt open-sourceonderhoud, documentatie, lokalisatie in 41 talen en websitehosting. Ze geeft geen lidmaatschap of voorrang op de roadmap of ondersteuning."],
+  pl: ["Wesprzyj przez Ko-fi", "Pomóż utrzymywać Better Workflows.", "Jednorazowe wsparcie pomaga utrzymywać otwarty kod, dokumentację, lokalizację na 41 języków i hosting strony. Nie zapewnia członkostwa ani priorytetu w planie lub pomocy technicznej."],
+  pt: ["Apoiar no Ko-fi", "Ajude a manter o Better Workflows.", "Um apoio pontual contribui para o código aberto, documentação, localização em 41 idiomas e alojamento do site. Não compra filiação nem prioridade no roadmap ou suporte."],
+  "pt-BR": ["Apoiar no Ko-fi", "Ajude a manter o Better Workflows.", "Um apoio único contribui para manutenção open source, documentação, localização em 41 idiomas e hospedagem do site. Não compra associação nem prioridade no roadmap ou suporte."],
+  ro: ["Susține pe Ko-fi", "Ajută la întreținerea Better Workflows.", "O contribuție unică susține codul open source, documentația, localizarea în 41 de limbi și găzduirea site-ului. Nu oferă abonament sau prioritate pentru roadmap ori suport."],
+  ru: ["Поддержать на Ko-fi", "Помогите поддерживать Better Workflows.", "Разовая поддержка помогает развивать открытый код, документацию, локализацию на 41 язык и хостинг сайта. Она не дает членство или приоритет в roadmap и поддержке."],
+  sk: ["Podporiť cez Ko-fi", "Pomôžte udržiavať Better Workflows.", "Jednorazová podpora pomáha udržiavať otvorený kód, dokumentáciu, lokalizáciu do 41 jazykov a webhosting. Neprináša členstvo ani prioritu v pláne či podpore."],
+  sv: ["Stöd via Ko-fi", "Hjälp till att underhålla Better Workflows.", "Ett engångsbidrag stöder underhåll av öppen källkod, dokumentation, 41 språk och webbhosting. Det ger inget medlemskap eller prioritet i roadmap eller support."],
+  th: ["สนับสนุนผ่าน Ko-fi", "ช่วยให้ Better Workflows ได้รับการดูแลต่อเนื่อง", "การสนับสนุนครั้งเดียวช่วยดูแลโอเพนซอร์ส เอกสาร การแปล 41 ภาษา และเว็บโฮสติ้ง โดยไม่ให้สมาชิกหรือสิทธิ์ลำดับความสำคัญใน roadmap และ support"],
+  tr: ["Ko-fi üzerinden destekle", "Better Workflows’un bakımına yardımcı olun.", "Tek seferlik destek; açık kaynak bakımı, belgeler, 41 dilde yerelleştirme ve site barındırmasına katkı sağlar. Üyelik ya da roadmap ve destek önceliği satın almaz."],
+  uk: ["Підтримати на Ko-fi", "Допоможіть підтримувати Better Workflows.", "Одноразова підтримка допомагає відкритому коду, документації, локалізації 41 мовою та хостингу сайту. Вона не надає членства чи пріоритету в roadmap або підтримці."],
+  vi: ["Ủng hộ qua Ko-fi", "Hãy giúp duy trì Better Workflows.", "Khoản ủng hộ một lần hỗ trợ bảo trì mã nguồn mở, tài liệu, bản địa hóa 41 ngôn ngữ và lưu trữ website. Khoản này không mua tư cách thành viên hay ưu tiên roadmap hoặc hỗ trợ."],
+  "zh-Hans": ["通过 Ko-fi 支持", "帮助 Better Workflows 持续维护。", "一次性支持将用于开源维护、文档、41 种语言的本地化与网站托管；不包含会员资格，也不提供 roadmap 或技术支持优先权。"],
+  "zh-Hant": ["透過 Ko-fi 支持", "協助 Better Workflows 持續維護。", "一次性支持將用於開源維護、文件、41 種語言的在地化與網站託管；不包含會員資格，也不提供 roadmap 或技術支援優先權。"],
+  "zh-Hant-HK": ["透過 Ko-fi 支持", "協助 Better Workflows 持續維護。", "一次性支持會用於開源維護、文件、41 種語言本地化同網站託管；唔包括會員資格，亦唔會提供 roadmap 或技術支援優先權。"],
+  "zh-Hant-TW": ["透過 Ko-fi 支持", "一起支持 Better Workflows 持續維護。", "一次性支持將用於開源維護、文件、41 種語言的在地化與網站託管；不包含會員資格，也不提供 roadmap 或技術支援優先權。"]
+};
+
+for (const locale of locales) {
+  const copy = sponsorCopy[locale.code];
+  if (!copy) throw new Error(`Missing sponsor copy: ${locale.code}`);
+  Object.assign(locale.messages, { SPONSOR_CTA: copy[0], SPONSOR_TITLE: copy[1], SPONSOR_BODY: copy[2] });
+}
