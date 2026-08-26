@@ -155,6 +155,21 @@ test("generated repository documentation covers the exact 41 locales", async () 
     for (const pattern of UNNATURAL_EVIDENCE_PATTERNS[locale.code] || []) assert.doesNotMatch(markdown, pattern, locale.code);
   }
 
+  const regionalTaxonomySources = {
+    "zh-Hant-TW": await readFile(path.join(repoRoot, "docs/details/zh-TW.md"), "utf8"),
+    "zh-Hans": await readFile(path.join(repoRoot, "docs/details/zh-CN.md"), "utf8"),
+    ja: await readFile(path.join(repoRoot, "docs/details/ja.md"), "utf8"),
+    ko: await readFile(path.join(repoRoot, "docs/details/ko.md"), "utf8")
+  };
+  assert.match(regionalTaxonomySources["zh-Hant-TW"], /41 個語系版本/);
+  assert.doesNotMatch(regionalTaxonomySources["zh-Hant-TW"], /41\s*(?:種)?\s*語言/u);
+  assert.match(regionalTaxonomySources["zh-Hans"], /41 个本地化版本/);
+  assert.doesNotMatch(regionalTaxonomySources["zh-Hans"], /41\s*(?:种)?\s*语言/u);
+  assert.match(regionalTaxonomySources.ja, /41 ロケール版/);
+  assert.doesNotMatch(regionalTaxonomySources.ja, /41\s*(?:言語|か国語)/u);
+  assert.match(regionalTaxonomySources.ko, /41개 로캘 버전/);
+  assert.doesNotMatch(regionalTaxonomySources.ko, /41개\s*언어/u);
+
   const publicChineseSources = await Promise.all([
     "docs/README.zh-TW.md",
     "docs/README.zh-CN.md",
