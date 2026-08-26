@@ -3,6 +3,8 @@
 | [README](README.md) | [Contributing](CONTRIBUTING.md) | [Code of conduct](CODE_OF_CONDUCT.md) | [Security](SECURITY.md) | [Governance](GOVERNANCE.md) | **Support** |
 | :---: | :---: | :---: | :---: | :---: | :---: |
 
+[41-locale localized overview and official web entry points](docs/LANGUAGES.md). This support policy remains canonical in English.
+
 ## Start here
 
 - Installation and first run: [Getting started](docs/guide/getting-started.md)

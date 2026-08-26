@@ -970,7 +970,7 @@
         </button>
         <button class="cast-card" type="button" data-cast-scene="2">
           <img src="assets/character-pixel.webp" width="420" height="630" loading="lazy" alt="珊瑚紅松鼠 Scout Pixel 全身卡通人物圖">
-          <span class="cast-copy"><small>FINDER</small><strong>Scout Pixel</strong><span>沿 exact source 取證，留下 provenance 與 freshness。</span><em>跳到第 03 幕 →</em></span>
+          <span class="cast-copy"><small>FINDER</small><strong>Scout Pixel</strong><span>沿 exact source 取證，留下 provenance 與時效性資訊。</span><em>跳到第 03 幕 →</em></span>
         </button>
         <button class="cast-card" type="button" data-cast-scene="4">
           <img src="assets/character-ledger.webp" width="420" height="630" loading="lazy" alt="靛藍水獺 Ledger 全身卡通人物圖">
@@ -1009,7 +1009,7 @@
           <span class="source-icon">02</span><span><strong>Append-only ledger reducer</strong><span>合法事件、static DAG、attempt budgets、expectedLedgerDigest 與 derived ready set。</span></span>
         </a>
         <a class="source-card" href="../../../plugins/better-workflows/scripts/lib/evidence.mjs">
-          <span class="source-icon">03</span><span><strong>Typed evidence admission</strong><span>Kind contract、producer、payload semantics、digest 與 freshness revalidation。</span></span>
+          <span class="source-icon">03</span><span><strong>Typed evidence admission</strong><span>Kind contract、producer、payload semantics、digest 與時效性重驗。</span></span>
         </a>
         <a class="source-card" href="../../../plugins/better-workflows/scripts/lib/review.mjs">
           <span class="source-icon">04</span><span><strong>Review package and findings</strong><span>Immutable package、stable finding ID、bounded repair 與 final broad review。</span></span>
@@ -1064,7 +1064,7 @@
         source: { label: "git.mjs · source binding / sentinel", href: "../../../plugins/better-workflows/scripts/lib/git.mjs" },
         records: [
           { kind: "source-binding", id: "demo-source-01", status: "complete", summary: "HEAD、index、status 與 scoped files 已綁定", binding: "revision · tree · scope", digest: "sha256:demo-a81c…" },
-          { kind: "source-sentinel", id: "demo-sentinel-01", status: "complete", summary: "目前 tree capture 可供後續 freshness 重驗", binding: "files · submodules · symlinks", digest: "sentinel:demo-77ea" }
+          { kind: "source-sentinel", id: "demo-sentinel-01", status: "complete", summary: "目前 tree capture 可供後續時效性重驗", binding: "files · submodules · symlinks", digest: "sentinel:demo-77ea" }
         ]
       },
       {
@@ -1132,7 +1132,7 @@
         title: "橋先不放下：token 要把權限綁到這一次",
         dialogue: "Action token 綁 action、provider、resource、revision、review、evidence 與 idempotency key。",
         state: "authority checked → one attempt issued", badge: "TOKEN ISSUED",
-        fact: "本頁是 sanitized teaching replay，不會真的發 token；可執行 workflow 仍須依自己的 review contract、source freshness、provider binding 與 protected authorization 申請 action。Wrapper 送出後若 outcome unknown，不能把非零退出直接當成安全失敗。",
+        fact: "本頁是 sanitized teaching replay，不會真的發 token；可執行 workflow 仍須依自己的 review contract、來源時效性、provider binding 與 protected authorization 申請 action。Wrapper 送出後若 outcome unknown，不能把非零退出直接當成安全失敗。",
         source: { label: "core.mjs · action issue / execute / consume", href: "../../../plugins/better-workflows/scripts/lib/core.mjs" },
         records: [
           { kind: "action-token", id: "demo-token-41", status: "issued", summary: "短效 token 綁定唯一 provider resource", binding: "action · provider · revision", digest: "token:demo-redacted" },

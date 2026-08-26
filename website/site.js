@@ -3,6 +3,7 @@ const themeToggle = document.querySelector("[data-theme-toggle]");
 const menuToggle = document.querySelector(".menu-toggle");
 const siteNav = document.querySelector("#site-nav");
 const localeSelect = document.querySelector("[data-locale-select]");
+const referenceFrame = document.querySelector("iframe.reference-frame");
 
 function setTheme(theme) {
   root.dataset.theme = theme;
@@ -32,3 +33,14 @@ siteNav?.querySelectorAll("a").forEach((link) => link.addEventListener("click", 
   siteNav.classList.remove("is-open");
   menuToggle?.setAttribute("aria-expanded", "false");
 }));
+
+function syncReferenceHash() {
+  if (!referenceFrame || !window.location.hash) return;
+  const target = new URL(referenceFrame.getAttribute("src"), window.location.origin);
+  target.hash = window.location.hash;
+  const nextSource = `${target.pathname}${target.hash}`;
+  if (referenceFrame.getAttribute("src") !== nextSource) referenceFrame.setAttribute("src", nextSource);
+}
+
+syncReferenceHash();
+window.addEventListener("hashchange", syncReferenceHash);

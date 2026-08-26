@@ -5,6 +5,8 @@ Thank you for helping improve Better Workflows.
 | [README](README.md) | **Contributing** | [Code of conduct](CODE_OF_CONDUCT.md) | [Security](SECURITY.md) | [Governance](GOVERNANCE.md) | [Support](SUPPORT.md) |
 | :---: | :---: | :---: | :---: | :---: | :---: |
 
+[41-locale localized overview and official web entry points](docs/LANGUAGES.md). This normative contribution policy remains canonical in English.
+
 ## Before you start
 
 - Use an issue or discussion first for a new public contract, workflow

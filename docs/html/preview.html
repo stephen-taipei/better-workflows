@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
   <meta name="description" content="用 5–10 分鐘建立 Better Workflows 的控制面、證據、replay 與完成邊界心智模型。">
-  <title>Better Workflows 快速導覽｜從意圖到可證明完成</title>
+  <title>Better Workflows 快速導覽｜從意圖到完成且可驗證</title>
   <script>
     (() => {
       try {
@@ -498,7 +498,7 @@
         <div class="quick-facts" aria-label="導覽摘要" data-i18n-aria-label="a11y.summary">
           <span class="fact-chip" data-i18n="fact.boundaries">8 個權威邊界</span>
           <span class="fact-chip" data-i18n="fact.replays">3 種 replay</span>
-          <span class="fact-chip" data-i18n="fact.evidence">101 種 evidence</span>
+          <span class="fact-chip" data-i18n="fact.evidence">102 種 evidence</span>
           <span class="fact-chip" data-i18n="fact.time">約 8 分鐘</span>
         </div>
       </div>
@@ -517,7 +517,7 @@
       <section class="tab-panel" id="panel-basic" role="tabpanel" aria-labelledby="tab-basic" tabindex="0">
         <section class="section reveal">
           <div class="section-head">
-            <div><p class="section-kicker">01 · CONTROL FLOW</p><h2 data-i18n="flow.title">一條請求，怎麼走到可證明完成</h2></div>
+            <div><p class="section-kicker">01 · CONTROL FLOW</p><h2 data-i18n="flow.title">一條請求，如何完成並留下可驗證結果</h2></div>
             <p class="section-summary" data-i18n="flow.summary">先記住資料與權威的方向。關鍵不是步驟數，而是任何一個 binding 失配都必須停下。</p>
           </div>
           <div class="flow">
@@ -525,7 +525,7 @@
             <article class="flow-step"><small>02 · FREEZE</small><strong>TaskContract</strong><p data-i18n="flow.contract.copy">凍結 goal、scope、驗收、權限與 stages。</p></article>
             <article class="flow-step"><small>03 · BIND</small><strong data-i18n="flow.source.title">來源綁定</strong><p data-i18n="flow.source.copy">HEAD、index、status 與 sentinel 形成來源身分。</p></article>
             <article class="flow-step"><small>04 · DERIVE</small><strong>Ledger</strong><p data-i18n="flow.ledger.copy">Append-only events 重播成 ready / blocked / complete。</p></article>
-            <article class="flow-step"><small>05 · PROVE</small><strong data-i18n="flow.evidence.title">型別證據</strong><p data-i18n="flow.evidence.copy">Producer、payload、digest 與 freshness 全部要成立。</p></article>
+            <article class="flow-step"><small>05 · PROVE</small><strong data-i18n="flow.evidence.title">型別證據</strong><p data-i18n="flow.evidence.copy">證據產生者、內容、摘要與時效性都必須通過驗證。</p></article>
             <article class="flow-step"><small>06 · REVIEW</small><strong data-i18n="flow.review.title">精確審查</strong><p data-i18n="flow.review.copy">Finding 綁 exact diff；P0/P1 必須收斂。</p></article>
             <article class="flow-step"><small>07 · ACT</small><strong data-i18n="flow.action.title">一次性授權</strong><p data-i18n="flow.action.copy">短效 token 只允許固定 executable / argv。</p></article>
             <article class="flow-step"><small>08 · RECONCILE</small><strong data-i18n="flow.complete.title">對帳再完成</strong><p data-i18n="flow.complete.copy">Provider receipt 與最後 sentinel 決定終態。</p></article>
@@ -539,7 +539,7 @@
           </div>
           <div class="concept-grid">
             <article class="card blue"><span class="card-mark">01</span><h3 data-i18n="concept.execute.title">執行成功</h3><p data-i18n="concept.execute.copy">命令或 agent 回傳成功，只說明那次執行沒有直接失敗。</p></article>
-            <article class="card indigo"><span class="card-mark">02</span><h3 data-i18n="concept.proof.title">證據有效</h3><p data-i18n="concept.proof.copy">證據必須符合 kind、producer、schema、freshness 與 digest。</p></article>
+            <article class="card indigo"><span class="card-mark">02</span><h3 data-i18n="concept.proof.title">證據有效</h3><p data-i18n="concept.proof.copy">證據必須符合 kind、producer、schema、時效性與 digest。</p></article>
             <article class="card amber"><span class="card-mark">03</span><h3 data-i18n="concept.truth.title">外部已對帳</h3><p data-i18n="concept.truth.copy">Provider 的實際狀態必須由 receipt 或查詢重建，而非相信本機呼叫。</p></article>
             <article class="card coral"><span class="card-mark">04</span><h3 data-i18n="concept.complete.title">可以宣告完成</h3><p data-i18n="concept.complete.copy">重驗 ledger、review、evidence、sentinel 與 side effects 後才有終態。</p></article>
           </div>
@@ -548,11 +548,11 @@
         <section class="section reveal">
           <div class="section-head">
             <div><p class="section-kicker">03 · ASSURANCE MODES</p><h2 data-i18n="mode.title">Mode 是驗證強度，不是 agent 數</h2></div>
-            <p class="section-summary" data-i18n="mode.summary">風險提高時，系統增加 governed run、fresh evidence、獨立 critics 與 fail-closed gates；mutation authority 仍在 root。</p>
+            <p class="section-summary" data-i18n="mode.summary">風險提高時，系統會增加 governed run、與目前來源一致且仍有效的 evidence、獨立 critics 與 fail-closed gates；mutation authority 仍在 root。</p>
           </div>
           <div class="mode-grid">
             <article class="card mode-card"><span class="level">LEVEL 1 / 4</span><h3>direct</h3><p data-i18n="mode.direct">低風險、可回復；root 直接執行，不建立 governed run。</p><div class="meter"><span class="on"></span><span></span><span></span><span></span></div></article>
-            <article class="card mode-card"><span class="level">LEVEL 2 / 4</span><h3>verified</h3><p data-i18n="mode.verified">即時證據，加上 1–3 個唯讀 reviewer 做交叉驗證。</p><div class="meter"><span class="on"></span><span class="on"></span><span></span><span></span></div></article>
+            <article class="card mode-card"><span class="level">LEVEL 2 / 4</span><h3>verified</h3><p data-i18n="mode.verified">使用與目前來源一致且仍有效的證據，並由 1–3 個唯讀 reviewer 交叉驗證。</p><div class="meter"><span class="on"></span><span class="on"></span><span></span><span></span></div></article>
             <article class="card mode-card"><span class="level">LEVEL 3 / 4</span><h3>deep</h3><p data-i18n="mode.deep">在 verified wave 後加入獨立 Codex critics 與 broad review。</p><div class="meter"><span class="on"></span><span class="on"></span><span class="on"></span><span></span></div></article>
             <article class="card mode-card"><span class="level">LEVEL 4 / 4</span><h3>critical</h3><p data-i18n="mode.critical">不可逆副作用要求完整 authority、exact critic 與 reconciliation。</p><div class="meter"><span class="on"></span><span class="on"></span><span class="on"></span><span class="on"></span></div></article>
           </div>
@@ -619,8 +619,8 @@
       let locale = root.dataset.locale === 'en' ? 'en' : 'zh-Hant';
       const messages = {
         'zh-Hant': {
-          'meta.title': 'Better Workflows 快速導覽｜控制面與即時證據',
-          'meta.description': '用 5–10 分鐘理解 Better Workflows 的控制面、即時證據、replay 與可證明完成邊界。',
+          'meta.title': 'Better Workflows 快速導覽｜控制面與證據時效性',
+          'meta.description': '用 5–10 分鐘理解 Better Workflows 的控制面、證據時效性、replay 與可驗證的完成條件。',
           'a11y.skip': '跳到主要內容', 'a11y.language': '語言', 'a11y.summary': '導覽摘要', 'a11y.depth': '導覽深度',
           'theme.dark': '切換深色模式', 'theme.light': '切換淺色模式',
           'brand.title': 'Better Workflows 快速導覽', 'nav.full': '查看完整版', 'nav.fullArrow': '直接看完整版 ↗',
@@ -630,21 +630,21 @@
           'hero.start': '開始快速導覽',
           'hero.artAlt': '以典藏帳冊、證據印記、重播迴圈與對帳節點構成的 Better Workflows 控制面插畫',
           'hero.artCaption': '把「我做完了」變成一條可以回放、驗證與對帳的證據鏈。',
-          'fact.boundaries': '8 個權威邊界', 'fact.replays': '3 種 replay', 'fact.evidence': '101 種 evidence', 'fact.time': '約 8 分鐘',
+          'fact.boundaries': '8 個權威邊界', 'fact.replays': '3 種 replay', 'fact.evidence': '102 種 evidence', 'fact.time': '約 8 分鐘',
           'tab.basic': '快速認識', 'tab.deep': '深入理解',
-          'flow.title': '一條請求，怎麼走到可證明完成', 'flow.summary': '先記住資料與權威的方向。關鍵不是步驟數，而是任何一個 binding 失配都必須停下。',
+          'flow.title': '一條請求，如何完成並留下可驗證結果', 'flow.summary': '先記住資料與權威的方向。關鍵不是步驟數，而是任何一個 binding 失配都必須停下。',
           'flow.route.title': '選路與模式', 'flow.route.copy': '意圖、能力與風險決定 template / mode。',
           'flow.contract.copy': '凍結 goal、scope、驗收、權限與 stages。', 'flow.source.title': '來源綁定', 'flow.source.copy': 'HEAD、index、status 與 sentinel 形成來源身分。',
-          'flow.ledger.copy': 'Append-only events 重播成 ready / blocked / complete。', 'flow.evidence.title': '型別證據', 'flow.evidence.copy': 'Producer、payload、digest 與 freshness 全部要成立。',
+          'flow.ledger.copy': 'Append-only events 重播成 ready / blocked / complete。', 'flow.evidence.title': '型別證據', 'flow.evidence.copy': '證據產生者、內容、摘要與時效性都必須通過驗證。',
           'flow.review.title': '精確審查', 'flow.review.copy': 'Finding 綁 exact diff；P0/P1 必須收斂。', 'flow.action.title': '一次性授權', 'flow.action.copy': '短效 token 只允許固定 executable / argv。',
           'flow.complete.title': '對帳再完成', 'flow.complete.copy': 'Provider receipt 與最後 sentinel 決定終態。',
           'concept.title': '四件事，不能互相代替', 'concept.summary': '這是理解整套系統最重要的分界：成功執行不等於有證據，有證據也不等於外部世界已完成。',
           'concept.execute.title': '執行成功', 'concept.execute.copy': '命令或 agent 回傳成功，只說明那次執行沒有直接失敗。',
-          'concept.proof.title': '證據有效', 'concept.proof.copy': '證據必須符合 kind、producer、schema、freshness 與 digest。',
+          'concept.proof.title': '證據有效', 'concept.proof.copy': '證據必須符合 kind、producer、schema、時效性與 digest。',
           'concept.truth.title': '外部已對帳', 'concept.truth.copy': 'Provider 的實際狀態必須由 receipt 或查詢重建，而非相信本機呼叫。',
           'concept.complete.title': '可以宣告完成', 'concept.complete.copy': '重驗 ledger、review、evidence、sentinel 與 side effects 後才有終態。',
-          'mode.title': 'Mode 是驗證強度，不是 agent 數', 'mode.summary': '風險提高時，系統增加 governed run、fresh evidence、獨立 critics 與 fail-closed gates；mutation authority 仍在 root。',
-          'mode.direct': '低風險、可回復；root 直接執行，不建立 governed run。', 'mode.verified': '即時證據，加上 1–3 個唯讀 reviewer 做交叉驗證。',
+          'mode.title': 'Mode 是驗證強度，不是 agent 數', 'mode.summary': '風險提高時，系統會增加 governed run、與目前來源一致且仍有效的 evidence、獨立 critics 與 fail-closed gates；mutation authority 仍在 root。',
+          'mode.direct': '低風險、可回復；root 直接執行，不建立 governed run。', 'mode.verified': '使用與目前來源一致且仍有效的證據，並由 1–3 個唯讀 reviewer 交叉驗證。',
           'mode.deep': '在 verified wave 後加入獨立 Codex critics 與 broad review。', 'mode.critical': '不可逆副作用要求完整 authority、exact critic 與 reconciliation。',
           'replay.title': 'Replay 至少有三種語義', 'replay.summary': '它們都用持久化輸入重建結論，但輸入、輸出和 failure policy 不同；reconciliation 更不是「再送一次」。',
           'replay.ledger': 'TaskContract + ordered events + admitted evidence 重建 ready set 與 task state。',
@@ -671,7 +671,7 @@
           'hero.start': 'Start the quick guide',
           'hero.artAlt': 'Editorial illustration of the Better Workflows control plane built from an archival ledger, evidence seals, replay loops, and reconciliation nodes',
           'hero.artCaption': 'Turn “I finished” into an evidence chain that can be replayed, verified, and reconciled.',
-          'fact.boundaries': '8 authority boundaries', 'fact.replays': '3 replay types', 'fact.evidence': '101 evidence kinds', 'fact.time': 'about 8 minutes',
+          'fact.boundaries': '8 authority boundaries', 'fact.replays': '3 replay types', 'fact.evidence': '102 evidence kinds', 'fact.time': 'about 8 minutes',
           'tab.basic': 'Quick model', 'tab.deep': 'Deeper view',
           'flow.title': 'How one request reaches provable completion', 'flow.summary': 'Remember the direction of data and authority. The point is not the step count: any broken binding must stop the flow.',
           'flow.route.title': 'Route and mode', 'flow.route.copy': 'Intent, capability, and risk select the template and mode.',

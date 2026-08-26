@@ -3,6 +3,8 @@
 | [Overview](../../README.md) | [Details](../details/en.md) | [Quick start](getting-started.md) | [Workflows](workflows.md) | **Architecture** | [Security](security.md) | [CLI](cli-reference.md) |
 | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 
+[41-locale localized overview and official web entry points](../LANGUAGES.md). This normative guide remains canonical in English.
+
 ## Design contract
 
 Better Workflows is a governed orchestration and control plane, not an

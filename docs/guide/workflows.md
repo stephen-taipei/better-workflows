@@ -3,6 +3,8 @@
 | [Overview](../../README.md) | [Details](../details/en.md) | [Quick start](getting-started.md) | **Workflows** | [Architecture](architecture.md) | [Security](security.md) | [CLI](cli-reference.md) |
 | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 
+[41-locale localized overview and official web entry points](../LANGUAGES.md). Template IDs and runtime semantics remain canonical in English.
+
 ## Verification modes
 
 | Mode | Use when | Behavior |

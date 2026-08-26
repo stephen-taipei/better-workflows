@@ -16,7 +16,7 @@
     <meta property="og:image" content="https://betterworkflows.dev/docs/assets/better-workflows-control-plane-blue.webp">
     <meta property="og:image:width" content="1536">
     <meta property="og:image:height" content="1024">
-    <meta property="og:image:alt" content="Better Workflows control plane">
+    <meta property="og:image:alt" content="__SITE_IMAGE_ALT__">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="__I18N_TITLE__">
     <meta name="twitter:description" content="__I18N_DESCRIPTION__">
@@ -34,14 +34,13 @@
     <a class="skip-link" href="#main">__I18N_SKIP__</a>
     <header class="site-header">
       <div class="shell header-inner">
-        <a class="brand" href="/" aria-label="Better Workflows">
+        <a class="brand" href="__SITE_HOME_PATH__" aria-label="Better Workflows">
           <span class="brand-mark" aria-hidden="true">BW</span>
-          <span class="brand-copy"><strong>Better Workflows</strong><span>CONTROL PLANE FOR AGENT WORK</span></span>
+          <span class="brand-copy"><strong>Better Workflows</strong><span>__I18N_HERO_ACCENT__</span></span>
         </a>
         <button class="menu-toggle" type="button" aria-controls="site-nav" aria-expanded="false">__I18N_MENU__</button>
         <nav class="site-nav" id="site-nav" aria-label="__I18N_MENU__">
-          <a href="#control-plane">Control plane</a>
-          <a href="/docs/">Docs</a>
+          <a href="__SITE_DOCS_PATH__">__I18N_DOCS_CTA__</a>
           <a href="#sponsor">__I18N_SPONSOR_CTA__</a>
           <a class="nav-github" href="https://github.com/stephen-taipei/better-workflows" target="_blank" rel="noopener noreferrer">GitHub ↗</a>
           <label class="locale-picker"><span class="visually-hidden">__I18N_LANGUAGE__</span><select data-locale-select aria-label="__I18N_LANGUAGE__">__SITE_LOCALE_OPTIONS__</select></label>
@@ -53,52 +52,42 @@
     <main id="main">
       <section class="hero shell">
         <div class="hero-copy">
-          <p class="eyebrow"><span class="status-dot" aria-hidden="true"></span> OPEN SOURCE · v__SITE_VERSION__ · __SITE_REVISION__</p>
+          <p class="eyebrow"><span class="status-dot" aria-hidden="true"></span> BETTER WORKFLOWS · v__SITE_VERSION__ · __SITE_REVISION__</p>
           <h1>__I18N_HERO_TITLE__ <em>__I18N_HERO_ACCENT__</em></h1>
           <p class="hero-lead">__I18N_HERO_LEAD__</p>
           <div class="hero-actions">
-            <a class="button button-primary" href="/docs/">__I18N_DOCS_CTA__ <span aria-hidden="true">↗</span></a>
+            <a class="button button-primary" href="__SITE_DOCS_PATH__">__I18N_DOCS_CTA__ <span aria-hidden="true">↗</span></a>
             <a class="button button-secondary" href="https://github.com/stephen-taipei/better-workflows" target="_blank" rel="noopener noreferrer">__I18N_GITHUB_CTA__ <span aria-hidden="true">↗</span></a>
           </div>
-          <div class="hero-note"><span>GOAL-FIRST</span><span>CURRENT EVIDENCE</span><span>FAIL-CLOSED</span></div>
         </div>
         <div class="hero-art-wrap">
           <div class="hero-orbit orbit-one" aria-hidden="true"></div>
           <div class="hero-orbit orbit-two" aria-hidden="true"></div>
           <figure class="hero-art">
-            <img src="/docs/assets/better-workflows-control-plane-blue.webp" width="1536" height="1024" alt="Better Workflows control plane" fetchpriority="high">
-            <figcaption><span>ILLUSTRATED CONTROL PLANE</span><strong>Goal → Evidence → Review → Reconciliation</strong></figcaption>
+            <img src="/docs/assets/better-workflows-control-plane-blue.webp" width="1536" height="1024" alt="__SITE_IMAGE_ALT__" fetchpriority="high">
+            <figcaption><span>BETTER WORKFLOWS</span><strong>__I18N_CONTROL_TITLE__</strong></figcaption>
           </figure>
-        </div>
-      </section>
-
-      <section class="metric-bar" aria-label="Better Workflows codebase inventory">
-        <div class="shell metric-grid">
-          <div><strong>14</strong><span>workflow templates</span></div>
-          <div><strong>102</strong><span>typed evidence kinds</span></div>
-          <div><strong>66</strong><span>execution stages</span></div>
-          <div><strong>41</strong><span>localized editions</span></div>
         </div>
       </section>
 
       <section class="section shell" id="control-plane">
         <div class="section-heading">
-          <p class="eyebrow">THE CONTROL PLANE</p>
+          <p class="eyebrow">BETTER WORKFLOWS</p>
           <h2>__I18N_CONTROL_TITLE__</h2>
           <p>__I18N_CONTROL_SUMMARY__</p>
         </div>
         <div class="flow-grid compact-flow">
-          <article class="flow-card flow-blue"><span class="flow-number">01</span><h3>Define</h3><p>Goal · Scope · Authority</p><span class="flow-tag">TaskContract</span></article>
-          <article class="flow-card flow-violet"><span class="flow-number">02</span><h3>Verify</h3><p>Source · Current evidence</p><span class="flow-tag">Evidence</span></article>
-          <article class="flow-card flow-coral"><span class="flow-number">03</span><h3>Reconcile</h3><p>External side effects</p><span class="flow-tag">Provider truth</span></article>
-          <article class="flow-card flow-amber"><span class="flow-number">04</span><h3>Complete</h3><p>Known terminal state</p><span class="flow-tag">Decision</span></article>
+          <article class="flow-card flow-blue"><span class="flow-number">01</span><h3><code>TaskContract</code></h3><p>__I18N_HERO_LEAD__</p></article>
+          <article class="flow-card flow-violet"><span class="flow-number">02</span><h3><code>evidence</code></h3><p>__I18N_DESCRIPTION__</p></article>
+          <article class="flow-card flow-coral"><span class="flow-number">03</span><h3><code>reconciliation</code></h3><p>__I18N_CONTROL_SUMMARY__</p></article>
+          <article class="flow-card flow-amber"><span class="flow-number">04</span><h3><code>terminal state</code></h3><p>__I18N_CLOSING_TITLE__</p></article>
         </div>
       </section>
 
       <section class="section section-dark repo-section" id="repository">
         <div class="shell principle-layout">
           <div class="section-heading light-heading">
-            <p class="eyebrow">OPEN SOURCE ON GITHUB</p>
+            <p class="eyebrow">GITHUB</p>
             <h2>__I18N_REPO_TITLE__</h2>
             <p>__I18N_REPO_BODY__</p>
           </div>
@@ -112,25 +101,34 @@
         </div>
       </section>
 
+      <section class="section shell docs-section" id="docs">
+        <div class="section-heading">
+          <p class="eyebrow">BETTER WORKFLOWS · __SITE_LOCALE__</p>
+          <h2>__I18N_DOCS_TITLE__</h2>
+          <p>__I18N_REPO_BODY__</p>
+        </div>
+        <div class="docs-grid">__SITE_DOC_CARDS__</div>
+      </section>
+
       <section class="section shell sponsor-section" id="sponsor">
         <div class="sponsor-card">
-          <div><p class="eyebrow">OPEN-SOURCE SUPPORT</p><h2>__I18N_SPONSOR_TITLE__</h2><p>__I18N_SPONSOR_BODY__</p></div>
+          <div><p class="eyebrow">KO-FI</p><h2>__I18N_SPONSOR_TITLE__</h2><p>__I18N_SPONSOR_BODY__</p></div>
           <a class="button button-kofi" href="https://ko-fi.com/betterworkflows" target="_blank" rel="noopener noreferrer">__I18N_SPONSOR_CTA__ <span aria-hidden="true">↗</span></a>
         </div>
       </section>
 
       <section class="closing shell localized-closing">
         <div class="closing-card">
-          <div><p class="eyebrow">OFFICIAL DOCUMENTATION</p><h2>__I18N_DOCS_TITLE__</h2><p>__I18N_CLOSING_TITLE__</p></div>
-          <a class="button button-light" href="/docs/">__I18N_DOCS_CTA__ <span aria-hidden="true">↗</span></a>
+          <div><p class="eyebrow">BETTER WORKFLOWS</p><h2>__I18N_DOCS_TITLE__</h2><p>__I18N_CLOSING_TITLE__</p></div>
+          <a class="button button-light" href="__SITE_DOCS_PATH__">__I18N_DOCS_CTA__ <span aria-hidden="true">↗</span></a>
         </div>
       </section>
     </main>
 
     <footer class="site-footer">
       <div class="shell footer-inner">
-        <div><a class="brand" href="/"><span class="brand-mark" aria-hidden="true">BW</span><span class="brand-copy"><strong>Better Workflows</strong><span>OFFICIAL SITE</span></span></a><p>Goal-first · Current evidence · Fail-closed</p></div>
-        <div class="footer-links"><a href="/docs/">Docs</a><a href="https://github.com/stephen-taipei/better-workflows" target="_blank" rel="noopener noreferrer">GitHub</a><a href="https://ko-fi.com/betterworkflows" target="_blank" rel="noopener noreferrer">Ko-fi</a><a href="https://betterworkflows.dev/">betterworkflows.dev</a></div>
+        <div><a class="brand" href="__SITE_HOME_PATH__"><span class="brand-mark" aria-hidden="true">BW</span><span class="brand-copy"><strong>Better Workflows</strong><span>__I18N_TITLE__</span></span></a><p>__I18N_CLOSING_TITLE__</p></div>
+        <div class="footer-links"><a href="__SITE_DOCS_PATH__">__I18N_DOCS_CTA__</a><a href="https://github.com/stephen-taipei/better-workflows" target="_blank" rel="noopener noreferrer">GitHub</a><a href="https://ko-fi.com/betterworkflows" target="_blank" rel="noopener noreferrer">Ko-fi</a><a href="https://betterworkflows.dev/">betterworkflows.dev</a></div>
         <div class="footer-meta">MIT License · v__SITE_VERSION__<br>__SITE_REVISION__</div>
       </div>
     </footer>

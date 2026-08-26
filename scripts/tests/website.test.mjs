@@ -94,23 +94,37 @@ test("official website build is self-contained and includes docs/html", async ()
     assert.equal(release.sponsorUrl, "https://ko-fi.com/betterworkflows");
     assert.equal(release.sponsorMode, "one-time-only");
     assert.equal(release.locales, 41);
+    assert.equal(release.publicDocumentationPages, 5);
     assert.equal(release.defaultLocale, "zh-Hant-TW");
     assert.match(release.assetVersion, /^[a-f0-9]{12}$/);
     assert.match(release.contentDigest, /^[a-f0-9]{64}$/);
+    assert.ok(release.sourceModifiedAt && !Number.isNaN(Date.parse(release.sourceModifiedAt)));
     assert.match(landing, new RegExp(`/styles\\.css\\?v=${release.assetVersion}`));
     assert.match(landing, new RegExp(`/site\\.js\\?v=${release.assetVersion}`));
     assert.match(landing, /href="https:\/\/ko-fi\.com\/betterworkflows" target="_blank" rel="noopener noreferrer"/);
     assert.equal(await readFile(path.join(outputDirectory, "healthz"), "utf8"), "ok\n");
 
+    const defaultDocs = await readFile(path.join(outputDirectory, "docs", "index.html"), "utf8");
+    assert.match(defaultDocs, /<iframe class="reference-frame" src="\/docs\/reference\/index\.html"/);
+    assert.match(defaultDocs, /"@type":"WebPage"/);
+    assert.doesNotMatch(defaultDocs, /TechArticle/);
+    assert.match(await readFile(path.join(outputDirectory, "en", "index.html"), "utf8"), /<a class="brand" href="\/en\/"/);
+
     for (const relativePath of [
       "docs/index.html",
+      "docs/quick/index.html",
       "docs/preview.html",
       "docs/evidence-cinema/index.html",
-      "docs/evidence-cinema/assets/scene-01-goal.webp",
+      "docs/reference/evidence-cinema/assets/scene-01-goal.webp",
+      "docs/reference/index.html",
       "docs/use-cases/index.html",
+      "docs/use-cases/quick/index.html",
       "docs/use-cases/preview.html",
       "en/index.html",
+      "en/docs/index.html",
+      "en/docs/evidence-cinema/index.html",
       "zh-Hant-HK/index.html",
+      "zh-Hant-HK/docs/use-cases/index.html",
       "locales.json",
       "manifest.directories",
       "manifest.sha256",
@@ -120,11 +134,16 @@ test("official website build is self-contained and includes docs/html", async ()
     for (const htmlPath of [
       path.join(outputDirectory, "index.html"),
       path.join(outputDirectory, "docs", "index.html"),
+      path.join(outputDirectory, "docs", "quick", "index.html"),
       path.join(outputDirectory, "docs", "preview.html"),
       path.join(outputDirectory, "docs", "evidence-cinema", "index.html"),
+      path.join(outputDirectory, "docs", "reference", "index.html"),
       path.join(outputDirectory, "docs", "use-cases", "index.html"),
+      path.join(outputDirectory, "docs", "use-cases", "quick", "index.html"),
       path.join(outputDirectory, "docs", "use-cases", "preview.html"),
-      path.join(outputDirectory, "en", "index.html")
+      path.join(outputDirectory, "en", "index.html"),
+      path.join(outputDirectory, "en", "docs", "index.html"),
+      path.join(outputDirectory, "zh-Hant-HK", "docs", "use-cases", "index.html")
     ]) {
       const html = await readFile(htmlPath, "utf8");
       for (const target of relativeTargets(html)) {

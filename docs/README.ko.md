@@ -4,21 +4,21 @@
 
 **Goal-first · Evidence-driven · Fail-closed**
 
-Codex 작업을 “Prompt를 주고 성공을 기대하는” 상태에서 의도, 검증, provider reconciliation을 거친 delivery로 전환합니다.
+Codex 작업을 “Prompt를 주고 성공을 기대하는” 상태에서 의도, 검증, provider 상태 대조를 거친 delivery로 전환합니다.
 
 [![Version](https://img.shields.io/badge/version-3.4.14-2563EB?style=flat-square)](../plugins/better-workflows/package.json)
 [![Node](https://img.shields.io/badge/Node.js-%E2%89%A524-3C873A?style=flat-square)](../plugins/better-workflows/package.json)
 [![Dependencies](https://img.shields.io/badge/runtime_dependencies-0-0F766E?style=flat-square)](../plugins/better-workflows/package.json)
 [![License](https://img.shields.io/badge/license-MIT-64748B?style=flat-square)](../LICENSE)
 
-[English](../README.md) · [繁體中文](README.zh-TW.md) · [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · **한국어**
+[English](../README.md) · [繁體中文](README.zh-TW.md) · [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · **한국어** · [전체 41개 로캘 버전](LANGUAGES.md)
 
 </div>
 
-[빠른 시작](guide/getting-started.md) · [Workflows](guide/workflows.md) · [Architecture](guide/architecture.md) · [Security](guide/security.md) · [CLI](guide/cli-reference.md) · [상세 사양](details/ko.md) · [Ko-fi에서 후원](https://ko-fi.com/betterworkflows)
+[빠른 시작](guide/getting-started.md) · [Workflows](guide/workflows.md) · [Architecture](guide/architecture.md) · [Security](guide/security.md) · [CLI](guide/cli-reference.md) · [상세 설명](details/ko.md) · [Ko-fi에서 후원](https://ko-fi.com/betterworkflows)
 
 <!-- readme-roster -->
-**Model roster:** Codex · Claude · Gemini · GPT-OSS · Grok · Cursor · Kimi · Qwen · Kiro. `agy`는 Gemini, Claude, GPT-OSS 브랜드 model을 transport하지만 그 자체가 model 브랜드는 아닙니다.
+**Model roster:** Codex · Claude · Gemini · GPT-OSS · Grok · Cursor · Kimi · Qwen · Kiro. `agy`는 Gemini, Claude, GPT-OSS 브랜드 모델에 연결하는 전송 계층이며 그 자체가 모델 브랜드는 아닙니다.
 
 <!-- readme-section:promise-audience -->
 ## Better Workflows가 필요한 이유
@@ -28,7 +28,7 @@ Codex는 repository를 분석하고 코드를 수정하며 check를 실행하고
 것”을 분리해야 합니다.
 
 Better Workflows는 작은 작업의 속도를 유지하면서도 blast radius가 커질 때 명확한
-scope, review, freshness, protected delivery를 포기하지 않으려는 개발자와 팀을 위한 도구입니다.
+scope, review, 증거의 시점 유효성, protected delivery를 포기하지 않으려는 개발자와 팀을 위한 도구입니다.
 
 결과 중심의 14 workflow templates, 통제된 workspace recipes, read-only Graph View를
 제공합니다. 결과를 선택하면 route는 현재 risk에 필요한 검증만 추가합니다.
@@ -56,7 +56,7 @@ Control plane이 없으면 합리적인 지시도 오래된 상태를 사용하�
 **Root-owned mutation.** Root만 수정, 통합, 배포, 위험 수용, 완료 선언을 할 수 있습니다.
 
 <!-- readme-claim:evidence-before-action -->
-**Action 전에 증거.** 모든 side effect에는 fresh evidence, provenance, 대상에 bind된 action이 필요합니다.
+**Action 전에 증거.** 모든 side effect에는 현재 소스에 바인딩되어 여전히 유효한 evidence, provenance, 대상에 bind된 action이 필요합니다.
 
 <!-- readme-claim:unknown-stop -->
 **Fail closed.** drift, 오래된 증거 또는 알 수 없는 provider 상태가 있으면 workflow는 반드시 중단됩니다.
@@ -126,10 +126,10 @@ Security reviewer는 [Security](guide/security.md), operator는
 flowchart LR
   A["결과 설명"] --> B["scope와 현재 context bind"]
   B --> C["제한된 작업 실행"]
-  C --> D["review와 fresh evidence 검증"]
+  C --> D["review와 현재 소스에 바인딩된 유효한 evidence 검증"]
   D --> E{"이 target에 대한 권한이 있는가?"}
   E -- "예" --> F["한 번의 side effect"]
-  F --> G["provider와 repository reconcile"]
+  F --> G["provider와 repository 상태 대조"]
   G --> H["완료와 owned resource cleanup"]
   E -- "아니요/알 수 없음" --> I["안전하게 중단"]
   G -- "알 수 없음" --> I
@@ -137,7 +137,7 @@ flowchart LR
 
 <!-- readme-visual-fallback:lifecycle -->
 **텍스트 동등 설명:** 결과를 설명하고 정확한 scope와 현재 context를 bind한 뒤 제한된 작업과
-fresh evidence review를 수행합니다. Target-bound authority가 있을 때만 한 번의 side effect를
+현재 소스에 바인딩된 유효한 evidence review를 수행합니다. Target-bound authority가 있을 때만 한 번의 side effect를
 실행합니다. Completion과 owned cleanup 전에 provider와 repository를 reconcile하며, 누락,
 오래된 상태 또는 알 수 없는 결과가 있으면 workflow를 중단합니다.
 
@@ -171,18 +171,18 @@ Better Workflows는 control plane을 기록하고 검사하지만 무제한 agen
 
 | 필요한 정보 | 문서 |
 | --- | --- |
-| 첫 install과 route | [Getting started](guide/getting-started.md) |
-| Workflow 또는 mode 선택 | [Workflows](guide/workflows.md) |
-| Control-plane design과 비교 | [Architecture](guide/architecture.md) |
-| Privacy, authority, actions, attestations | [Security](guide/security.md) |
-| Commands와 exit behavior | [CLI reference](guide/cli-reference.md) |
-| 완전한 한국어 사양 | [상세 사양](details/ko.md) |
+| 첫 install과 route | [Getting started (English)](guide/getting-started.md) |
+| Workflow 또는 mode 선택 | [Workflows (English)](guide/workflows.md) |
+| Control-plane design과 비교 | [Architecture (English)](guide/architecture.md) |
+| Privacy, authority, actions, attestations | [Security (English)](guide/security.md) |
+| Commands와 exit behavior | [CLI reference (English)](guide/cli-reference.md) |
+| 한국어 상세 설명 | [상세 설명](details/ko.md) |
 | README narrative와 품질 규칙 | [README quality blueprint](guide/readme-quality.md) |
 
 [Contributing](../CONTRIBUTING.md) · [Code of conduct](../CODE_OF_CONDUCT.md) ·
 [Governance](../GOVERNANCE.md) · [Support](../SUPPORT.md) · [Security policy](../SECURITY.md)
 
-일회성 [Ko-fi 후원](https://ko-fi.com/betterworkflows)은 오픈 소스 유지 관리, 문서, 41개 언어 현지화와 웹사이트 운영에 사용됩니다. 멤버십이나 roadmap 및 지원 우선권을 제공하지 않습니다.
+일회성 [Ko-fi 후원](https://ko-fi.com/betterworkflows)은 오픈 소스 유지 관리, 문서, 41개 로캘용 현지화 버전과 웹사이트 운영에 사용됩니다. 멤버십이나 개발 계획 및 지원 우선권을 제공하지 않습니다.
 
 <details>
 <summary>Better Workflows 개발</summary>
