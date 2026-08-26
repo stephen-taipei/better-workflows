@@ -71,6 +71,7 @@ test("official website build is self-contained and includes docs/html", async ()
       "en/index.html",
       "zh-Hant-HK/index.html",
       "locales.json",
+      "manifest.directories",
       "manifest.sha256",
       "plugins/better-workflows/skills/better-workflows/references/evidence-and-state.md"
     ]) assert.equal(await exists(path.join(outputDirectory, relativePath)), true, relativePath);

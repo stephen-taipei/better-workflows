@@ -14,24 +14,27 @@
     frontend_deploy_user: deploy
     frontend_deploy_group: deploy
     frontend_current_path: "{{ frontend_deploy_root }}/current"
-    frontend_release_path: "{{ frontend_deploy_root }}/releases/{{ frontend_release_id }}"
+    frontend_releases_root: "{{ frontend_deploy_root }}/releases"
+    frontend_release_path: "{{ frontend_releases_root }}/{{ frontend_release_id }}"
+    frontend_incoming_path: "{{ frontend_releases_root }}/.incoming-{{ frontend_release_id }}"
     frontend_release_marker: "{{ frontend_release_path }}/.better-workflows-release-complete"
+    frontend_deploy_lock: /run/lock/betterworkflows-deploy.lock
+    frontend_verification_prefix: "/run/betterworkflows-verify-{{ frontend_release_id }}"
     frontend_https_origin_port: 8443
 
   pre_tasks:
     - name: Require bounded immutable release inputs
       ansible.builtin.assert:
         that:
-          - frontend_release_id | length > 0
-          - frontend_release_id is match('^[A-Za-z0-9._-]+$')
+          - frontend_release_id is match('^[a-f0-9]{12}-[0-9]{8}T[0-9]{6}Z$')
           - frontend_expected_artifact_digest is match('^[a-f0-9]{64}$')
           - frontend_expected_content_digest is match('^[a-f0-9]{64}$')
           - frontend_expected_revision is match('^[a-f0-9]{40}$')
         fail_msg: >-
-          SITE_RELEASE_ID, SITE_REVISION, SITE_ARTIFACT_SHA256, and
-          SITE_CONTENT_DIGEST are required.
+          SITE_RELEASE_ID must be <12-char-sha>-<UTC timestamp>; SITE_REVISION,
+          SITE_ARTIFACT_SHA256, and SITE_CONTENT_DIGEST are required.
 
-    - name: Require a local static artifact
+    - name: Require the exact local static artifact
       ansible.builtin.stat:
         path: "{{ frontend_artifact_path }}"
         checksum_algorithm: sha256
@@ -39,13 +42,13 @@
       become: false
       register: frontend_artifact
 
-    - name: Refuse a missing or non-file artifact
+    - name: Refuse a missing, non-file, or mismatched artifact
       ansible.builtin.assert:
         that:
           - frontend_artifact.stat.exists
           - frontend_artifact.stat.isreg
           - frontend_artifact.stat.checksum == frontend_expected_artifact_digest
-        fail_msg: SITE_ARTIFACT_PATH must point to the built website tarball.
+        fail_msg: SITE_ARTIFACT_PATH and SITE_ARTIFACT_SHA256 must identify the authorized tarball.
 
     - name: Confirm the existing deploy account
       ansible.builtin.getent:
@@ -53,159 +56,248 @@
         key: "{{ frontend_deploy_user }}"
 
   tasks:
-    - name: Read the previous project release target for bounded rollback
-      ansible.builtin.command:
-        argv:
-          - /usr/bin/readlink
-          - -f
-          - "{{ frontend_current_path }}"
-      changed_when: false
-      failed_when: false
-      register: frontend_previous_current
-
-    - name: Create only Better Workflows release directories
-      ansible.builtin.file:
-        path: "{{ item }}"
-        state: directory
-        owner: "{{ frontend_deploy_user }}"
-        group: "{{ frontend_deploy_group }}"
-        mode: "0755"
-      loop:
-        - "{{ frontend_deploy_root }}"
-        - "{{ frontend_deploy_root }}/releases"
-        - "{{ frontend_release_path }}"
-
-    - name: Upload and extract the immutable website release once
-      ansible.builtin.unarchive:
-        src: "{{ frontend_artifact_path }}"
-        dest: "{{ frontend_release_path }}"
-        remote_src: false
-        owner: "{{ frontend_deploy_user }}"
-        group: "{{ frontend_deploy_group }}"
-        mode: "u=rwX,go=rX"
-        creates: "{{ frontend_release_marker }}"
-
-    - name: Verify release entrypoints before activation
-      ansible.builtin.stat:
-        path: "{{ frontend_release_path }}/{{ item }}"
-      loop:
-        - index.html
-        - healthz
-        - release.json
-        - manifest.sha256
-        - locales.json
-        - sitemap.xml
-      register: frontend_entrypoints
-
-    - name: Refuse an incomplete static release
-      ansible.builtin.assert:
-        that:
-          - item.stat.exists
-          - item.stat.isreg
-        fail_msg: "The Better Workflows artifact is missing {{ item.item }}."
-      loop: "{{ frontend_entrypoints.results }}"
-
-    - name: Verify every extracted Better Workflows payload file
-      ansible.builtin.command:
-        argv:
-          - /usr/bin/sha256sum
-          - --check
-          - manifest.sha256
-        chdir: "{{ frontend_release_path }}"
-      changed_when: false
-
-    - name: Calculate the extracted manifest digest independently
-      ansible.builtin.stat:
-        path: "{{ frontend_release_path }}/manifest.sha256"
-        checksum_algorithm: sha256
-      register: frontend_manifest
-
-    - name: Refuse a payload manifest outside the authorized release
-      ansible.builtin.assert:
-        that:
-          - frontend_manifest.stat.checksum == frontend_expected_content_digest
-        fail_msg: The extracted payload manifest does not match SITE_CONTENT_DIGEST.
-
-    - name: Read the candidate release receipt
-      ansible.builtin.slurp:
-        src: "{{ frontend_release_path }}/release.json"
-      register: frontend_candidate_receipt_raw
-
-    - name: Decode the candidate release receipt
-      ansible.builtin.set_fact:
-        frontend_candidate_receipt: >-
-          {{ frontend_candidate_receipt_raw.content | b64decode | from_json }}
-
-    - name: Refuse a release outside the Better Workflows contract
-      ansible.builtin.assert:
-        that:
-          - frontend_candidate_receipt.project == 'better-workflows'
-          - frontend_candidate_receipt.canonical == 'https://betterworkflows.dev/'
-          - frontend_candidate_receipt.repository == 'https://github.com/stephen-taipei/better-workflows'
-          - frontend_candidate_receipt.revision == frontend_expected_revision[:12]
-          - frontend_candidate_receipt.domains == ['betterworkflows.dev', 'betterworkflows.org']
-          - frontend_candidate_receipt.sponsorUrl == 'https://ko-fi.com/betterworkflows'
-          - frontend_candidate_receipt.sponsorMode == 'one-time-only'
-          - frontend_candidate_receipt.locales | int == 41
-          - frontend_candidate_receipt.contentDigest == frontend_expected_content_digest
-        fail_msg: The candidate receipt does not match the expected project artifact.
-
-    - name: Activate and verify only the Better Workflows release
+    - name: Run one serialized Better Workflows deployment transaction
       block:
-        - name: Point the project symlink at the candidate release
+        - name: Acquire the project-only deployment lock
+          ansible.builtin.command:
+            argv:
+              - /usr/bin/mkdir
+              - "{{ frontend_deploy_lock }}"
+          changed_when: false
+
+        - name: Record ownership of the deployment lock
+          ansible.builtin.set_fact:
+            frontend_deploy_lock_acquired: true
+
+        - name: Inspect the immutable release and seal
+          ansible.builtin.stat:
+            path: "{{ item }}"
+          loop:
+            - "{{ frontend_release_path }}"
+            - "{{ frontend_release_marker }}"
+            - "{{ frontend_incoming_path }}"
+          register: frontend_release_state
+
+        - name: Refuse release ID reuse or a stale incoming tree
+          ansible.builtin.assert:
+            that:
+              - not frontend_release_state.results[2].stat.exists
+              - >-
+                not frontend_release_state.results[0].stat.exists or
+                frontend_release_state.results[1].stat.exists
+            fail_msg: A release ID may be reused only when its sealed immutable release already exists.
+
+        - name: Select a fresh validation tree or the sealed release
+          ansible.builtin.set_fact:
+            frontend_release_is_sealed: "{{ frontend_release_state.results[1].stat.exists }}"
+            frontend_validation_path: >-
+              {{ frontend_release_path if frontend_release_state.results[1].stat.exists else frontend_incoming_path }}
+
+        - name: Read the previous project release target for bounded rollback
+          ansible.builtin.command:
+            argv:
+              - /usr/bin/readlink
+              - -f
+              - "{{ frontend_current_path }}"
+          changed_when: false
+          failed_when: false
+          register: frontend_previous_current
+
+        - name: Create only Better Workflows base release directories
           ansible.builtin.file:
-            src: "{{ frontend_release_path }}"
-            dest: "{{ frontend_current_path }}"
-            state: link
-            force: true
+            path: "{{ item }}"
+            state: directory
             owner: "{{ frontend_deploy_user }}"
             group: "{{ frontend_deploy_group }}"
+            mode: "0755"
+          loop:
+            - "{{ frontend_deploy_root }}"
+            - "{{ frontend_releases_root }}"
 
-        - name: Verify the activated receipt through the isolated origin
-          ansible.builtin.uri:
-            url: "https://127.0.0.1:{{ frontend_https_origin_port }}/release.json"
-            headers:
-              Host: "{{ frontend_primary_domain }}"
-            validate_certs: false
-            return_content: true
-            status_code: 200
-          register: frontend_live_receipt
-          failed_when: >-
-            frontend_live_receipt.status != 200 or
-            (frontend_live_receipt.content | from_json).contentDigest !=
-            frontend_expected_content_digest
-
-        - name: Seal the immutable release after activation succeeds
+        - name: Create a new isolated incoming release directory
           ansible.builtin.file:
-            path: "{{ frontend_release_marker }}"
-            state: touch
+            path: "{{ frontend_incoming_path }}"
+            state: directory
             owner: "{{ frontend_deploy_user }}"
             group: "{{ frontend_deploy_group }}"
-            mode: "0644"
-            modification_time: preserve
-            access_time: preserve
+            mode: "0755"
+          when: not frontend_release_is_sealed
 
-      rescue:
-        - name: Restore the previous Better Workflows release target
-          ansible.builtin.file:
-            src: "{{ frontend_previous_current.stdout }}"
-            dest: "{{ frontend_current_path }}"
-            state: link
-            force: true
+        - name: Upload and extract only into the fresh incoming directory
+          ansible.builtin.unarchive:
+            src: "{{ frontend_artifact_path }}"
+            dest: "{{ frontend_incoming_path }}"
+            remote_src: false
             owner: "{{ frontend_deploy_user }}"
             group: "{{ frontend_deploy_group }}"
-          when:
-            - frontend_previous_current.rc == 0
-            - frontend_previous_current.stdout | length > 0
+            mode: "u=rwX,go=rX"
+          when: not frontend_release_is_sealed
 
-        - name: Remove the failed first-release activation symlink
+        - name: Verify release entrypoints before activation
+          ansible.builtin.stat:
+            path: "{{ frontend_validation_path }}/{{ item }}"
+          loop:
+            - index.html
+            - healthz
+            - release.json
+            - locales.json
+            - sitemap.xml
+            - manifest.directories
+            - manifest.sha256
+          register: frontend_entrypoints
+
+        - name: Refuse an incomplete static release
+          ansible.builtin.assert:
+            that:
+              - item.stat.exists
+              - item.stat.isreg
+            fail_msg: "The Better Workflows artifact is missing {{ item.item }}."
+          loop: "{{ frontend_entrypoints.results }}"
+
+        - name: Verify the exact extracted tree and every payload digest
+          ansible.builtin.command:
+            argv:
+              - /bin/bash
+              - -o
+              - pipefail
+              - -c
+              - |
+                set -euo pipefail
+                cd "$1"
+                if find . -mindepth 1 ! -type f ! -type d -print -quit | grep -q .; then exit 40; fi
+                if find . -mindepth 1 -perm /022 -print -quit | grep -q .; then exit 41; fi
+                find . -type f ! -name release.json ! -name manifest.sha256 ! -name .better-workflows-release-complete -printf '%P\n' | LC_ALL=C sort > "$2.files"
+                awk '{print substr($0, 67)}' manifest.sha256 | LC_ALL=C sort > "$2.expected-files"
+                diff -u "$2.expected-files" "$2.files"
+                find . -mindepth 1 -type d -printf '%P\n' | LC_ALL=C sort > "$2.directories"
+                diff -u manifest.directories "$2.directories"
+                /usr/bin/sha256sum --check manifest.sha256
+              - betterworkflows-verify
+              - "{{ frontend_validation_path }}"
+              - "{{ frontend_verification_prefix }}"
+          changed_when: false
+
+        - name: Calculate the extracted manifest digest independently
+          ansible.builtin.stat:
+            path: "{{ frontend_validation_path }}/manifest.sha256"
+            checksum_algorithm: sha256
+          register: frontend_manifest
+
+        - name: Refuse a payload manifest outside the authorized release
+          ansible.builtin.assert:
+            that:
+              - frontend_manifest.stat.checksum == frontend_expected_content_digest
+            fail_msg: The extracted payload manifest does not match SITE_CONTENT_DIGEST.
+
+        - name: Read the candidate release receipt
+          ansible.builtin.slurp:
+            src: "{{ frontend_validation_path }}/release.json"
+          register: frontend_candidate_receipt_raw
+
+        - name: Decode the candidate release receipt
+          ansible.builtin.set_fact:
+            frontend_candidate_receipt: >-
+              {{ frontend_candidate_receipt_raw.content | b64decode | from_json }}
+
+        - name: Refuse a release outside the Better Workflows contract
+          ansible.builtin.assert:
+            that:
+              - frontend_candidate_receipt.project == 'better-workflows'
+              - frontend_candidate_receipt.canonical == 'https://betterworkflows.dev/'
+              - frontend_candidate_receipt.repository == 'https://github.com/stephen-taipei/better-workflows'
+              - frontend_candidate_receipt.revision == frontend_expected_revision[:12]
+              - frontend_candidate_receipt.domains == ['betterworkflows.dev', 'betterworkflows.org']
+              - frontend_candidate_receipt.sponsorUrl == 'https://ko-fi.com/betterworkflows'
+              - frontend_candidate_receipt.sponsorMode == 'one-time-only'
+              - frontend_candidate_receipt.locales | int == 41
+              - frontend_candidate_receipt.contentDigest == frontend_expected_content_digest
+            fail_msg: The candidate receipt does not match the expected project artifact.
+
+        - name: Atomically publish the verified incoming release
+          ansible.builtin.command:
+            argv:
+              - /usr/bin/mv
+              - "{{ frontend_incoming_path }}"
+              - "{{ frontend_release_path }}"
+          when: not frontend_release_is_sealed
+          changed_when: true
+
+        - name: Activate and verify only the Better Workflows release
+          block:
+            - name: Point the project symlink at the candidate release
+              ansible.builtin.file:
+                src: "{{ frontend_release_path }}"
+                dest: "{{ frontend_current_path }}"
+                state: link
+                force: true
+                owner: "{{ frontend_deploy_user }}"
+                group: "{{ frontend_deploy_group }}"
+
+            - name: Verify the activated receipt through the isolated origin
+              ansible.builtin.uri:
+                url: "https://127.0.0.1:{{ frontend_https_origin_port }}/release.json"
+                headers:
+                  Host: "{{ frontend_primary_domain }}"
+                validate_certs: false
+                return_content: true
+                status_code: 200
+              register: frontend_live_receipt
+              failed_when: >-
+                frontend_live_receipt.status != 200 or
+                (frontend_live_receipt.content | from_json).contentDigest !=
+                frontend_expected_content_digest
+
+            - name: Seal the immutable release after activation succeeds
+              ansible.builtin.file:
+                path: "{{ frontend_release_marker }}"
+                state: touch
+                owner: "{{ frontend_deploy_user }}"
+                group: "{{ frontend_deploy_group }}"
+                mode: "0644"
+                modification_time: preserve
+                access_time: preserve
+              when: not frontend_release_is_sealed
+
+          rescue:
+            - name: Restore the previous Better Workflows release target
+              ansible.builtin.file:
+                src: "{{ frontend_previous_current.stdout }}"
+                dest: "{{ frontend_current_path }}"
+                state: link
+                force: true
+                owner: "{{ frontend_deploy_user }}"
+                group: "{{ frontend_deploy_group }}"
+              when:
+                - frontend_previous_current.rc == 0
+                - frontend_previous_current.stdout | length > 0
+
+            - name: Remove the failed first-release activation symlink
+              ansible.builtin.file:
+                path: "{{ frontend_current_path }}"
+                state: absent
+              when: >-
+                frontend_previous_current.rc != 0 or
+                frontend_previous_current.stdout | length == 0
+
+            - name: Stop after bounded rollback
+              ansible.builtin.fail:
+                msg: Candidate activation failed; the project current symlink was rolled back safely.
+
+      always:
+        - name: Remove bounded verification scratch files
           ansible.builtin.file:
-            path: "{{ frontend_current_path }}"
+            path: "{{ item }}"
             state: absent
-          when: >-
-            frontend_previous_current.rc != 0 or
-            frontend_previous_current.stdout | length == 0
+          loop:
+            - "{{ frontend_verification_prefix }}.files"
+            - "{{ frontend_verification_prefix }}.expected-files"
+            - "{{ frontend_verification_prefix }}.directories"
+          when: frontend_deploy_lock_acquired | default(false)
+          changed_when: false
 
-        - name: Stop after bounded rollback
-          ansible.builtin.fail:
-            msg: Candidate activation failed; the project current symlink was rolled back safely.
+        - name: Release the project-only deployment lock
+          ansible.builtin.file:
+            path: "{{ frontend_deploy_lock }}"
+            state: absent
+          when: frontend_deploy_lock_acquired | default(false)
+          changed_when: false

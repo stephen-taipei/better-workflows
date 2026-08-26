@@ -112,7 +112,10 @@ The second command reconciles only the project-owned isolated Nginx process;
 it does not load or restart the host's shared Nginx service or another vhost.
 The release playbook verifies the externally supplied tarball SHA-256 before
 upload, then verifies every extracted payload file against `manifest.sha256`
-and checks that manifest against `SITE_CONTENT_DIGEST` before activation.
+and checks that manifest against `SITE_CONTENT_DIGEST` before activation. It
+also rejects special files, unexpected files or directories, reused unsealed
+release IDs, and concurrent deployment transactions. New content is verified
+inside a fresh `.incoming-<release-id>` directory before an atomic rename.
 
 ## Dry checks
 

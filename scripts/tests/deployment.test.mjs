@@ -68,9 +68,22 @@ test("isolated ingress changes only Better Workflows service paths", async () =>
 
   assert.match(release, /frontend_deploy_root: \/var\/www\/betterworkflows\.dev/);
   assert.match(release, /frontend_expected_content_digest/);
+  assert.match(release, /\^\[a-f0-9\]\{12\}-\[0-9\]\{8\}T\[0-9\]\{6\}Z\$/);
+  assert.doesNotMatch(release, /\^\[A-Za-z0-9\._-\]\+\$/);
   assert.match(release, /frontend_expected_artifact_digest/);
   assert.match(release, /frontend_artifact\.stat\.checksum == frontend_expected_artifact_digest/);
   assert.match(release, /sha256sum/);
+  assert.match(release, /frontend_incoming_path/);
+  assert.match(release, /Refuse release ID reuse or a stale incoming tree/);
+  assert.match(release, /Verify the exact extracted tree and every payload digest/);
+  assert.match(release, /! -type f ! -type d/);
+  assert.match(release, /manifest\.directories/);
+  assert.match(release, /frontend_deploy_lock: \/run\/lock\/betterworkflows-deploy\.lock/);
+  assert.match(release, /Acquire the project-only deployment lock/);
+  assert.match(release, /Release the project-only deployment lock/);
+  assert.match(release, /Acquire the project-only deployment lock[\s\S]*?changed_when: false/);
+  assert.match(release, /Seal the immutable release after activation succeeds[\s\S]*?when: not frontend_release_is_sealed/);
+  assert.match(release, /Release the project-only deployment lock[\s\S]*?changed_when: false/);
   assert.match(release, /manifest\.sha256/);
   assert.match(release, /frontend_manifest\.stat\.checksum == frontend_expected_content_digest/);
   assert.match(release, /frontend_candidate_receipt\.contentDigest == frontend_expected_content_digest/);

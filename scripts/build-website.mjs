@@ -63,6 +63,7 @@ async function contentManifest(directory) {
       const filePath = path.join(currentDirectory, entry.name);
       if (entry.isDirectory()) await walk(filePath);
       else if (entry.isFile() && !["release.json", "manifest.sha256"].includes(path.relative(directory, filePath))) files.push(filePath);
+      else if (!entry.isFile()) throw new Error(`Unsupported website artifact entry: ${path.relative(directory, filePath)}`);
     }
   }
   await walk(directory);
@@ -75,6 +76,23 @@ async function contentManifest(directory) {
   }
   const manifest = `${lines.join("\n")}\n`;
   return { manifest, digest: createHash("sha256").update(manifest).digest("hex") };
+}
+
+async function directoryManifest(directory) {
+  const directories = [];
+  async function walk(currentDirectory) {
+    for (const entry of await readdir(currentDirectory, { withFileTypes: true })) {
+      const entryPath = path.join(currentDirectory, entry.name);
+      if (entry.isDirectory()) {
+        directories.push(path.relative(directory, entryPath).split(path.sep).join("/"));
+        await walk(entryPath);
+      } else if (!entry.isFile()) {
+        throw new Error(`Unsupported website artifact entry: ${path.relative(directory, entryPath)}`);
+      }
+    }
+  }
+  await walk(directory);
+  return `${directories.sort((left, right) => left.localeCompare(right, "en")).join("\n")}\n`;
 }
 
 function escapeHtml(value) {
@@ -288,6 +306,7 @@ await writeFile(path.join(outputDirectory, "locales.json"), `${JSON.stringify({
   locales: locales.map(({ code, label, dir = "ltr" }) => ({ code, label, dir, url: localeUrl(code) }))
 }, null, 2)}\n`);
 await writeFile(path.join(outputDirectory, "sitemap.xml"), sitemapXml(builtAt));
+await writeFile(path.join(outputDirectory, "manifest.directories"), await directoryManifest(outputDirectory));
 const artifactManifest = await contentManifest(outputDirectory);
 await writeFile(path.join(outputDirectory, "manifest.sha256"), artifactManifest.manifest);
 const artifactContentDigest = artifactManifest.digest;
