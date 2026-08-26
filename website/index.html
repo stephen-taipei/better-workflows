@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="zh-Hant-TW" data-theme="light" data-theme-label-light="切換淺色模式" data-theme-label-dark="切換深色模式">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f4f7fb">
+    <meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1">
+    <meta name="description" content="Better Workflows 是開源、goal-first 的 agent 工作流控制面，以即時證據、審查關卡、來源綁定與 provider 對帳，讓結果可重新驗證。">
+    <meta name="generator" content="Better Workflows official site">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Better Workflows">
+    <meta property="og:locale" content="zh_TW">
+    <meta property="og:url" content="https://betterworkflows.dev/">
+    <meta property="og:title" content="Better Workflows｜可證明完成的 Agent 工作流">
+    <meta property="og:description" content="以即時證據、來源綁定、審查關卡與 provider 對帳，把 agent 工作帶到可重新驗證的完成狀態。">
+    <meta property="og:image" content="https://betterworkflows.dev/docs/assets/better-workflows-control-plane-blue.webp">
+    <meta property="og:image:width" content="1536">
+    <meta property="og:image:height" content="1024">
+    <meta property="og:image:alt" content="Better Workflows agent 工作流控制面插畫">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Better Workflows｜可證明完成的 Agent 工作流">
+    <meta name="twitter:description" content="以即時證據、來源綁定、審查關卡與 provider 對帳，把 agent 工作帶到可重新驗證的完成狀態。">
+    <meta name="twitter:image" content="https://betterworkflows.dev/docs/assets/better-workflows-control-plane-blue.webp">
+    <link rel="canonical" href="https://betterworkflows.dev/">
+    __SITE_HREFLANG_LINKS__
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="preload" href="/docs/assets/better-workflows-control-plane-blue.webp" as="image" type="image/webp" fetchpriority="high">
+    <link rel="stylesheet" href="/styles.css?v=__SITE_ASSET_VERSION__">
+    <script type="application/ld+json">__SITE_STRUCTURED_DATA__</script>
+    <script type="module" src="/site.js?v=__SITE_ASSET_VERSION__"></script>
+    <title>Better Workflows｜可證明完成的 Agent 工作流</title>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">跳到主要內容</a>
+    <header class="site-header">
+      <div class="shell header-inner">
+        <a class="brand" href="/" aria-label="Better Workflows 首頁">
+          <span class="brand-mark" aria-hidden="true">BW</span>
+          <span class="brand-copy"><strong>Better Workflows</strong><span>CONTROL PLANE FOR AGENT WORK</span></span>
+        </a>
+        <button class="menu-toggle" type="button" aria-controls="site-nav" aria-expanded="false">選單</button>
+        <nav class="site-nav" id="site-nav" aria-label="主選單">
+          <a href="#control-plane">控制面</a>
+          <a href="#principles">原則</a>
+          <a href="/docs/">互動文件</a>
+          <a href="/docs/evidence-cinema/">Evidence Cinema</a>
+          <a href="#sponsor">單次贊助</a>
+          <a class="nav-github" href="https://github.com/stephen-taipei/better-workflows" target="_blank" rel="noopener noreferrer">GitHub ↗</a>
+          <label class="locale-picker"><span class="visually-hidden">語言</span><select data-locale-select aria-label="語言">__SITE_LOCALE_OPTIONS__</select></label>
+          <button class="theme-toggle" type="button" data-theme-toggle aria-label="切換深色模式" aria-pressed="false">◐</button>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main">
+      <section class="hero shell">
+        <div class="hero-copy">
+          <p class="eyebrow"><span class="status-dot" aria-hidden="true"></span> v__SITE_VERSION__ · __SITE_REVISION__ · pure frontend</p>
+          <h1>讓 agent 工作，<em>走到可證明完成。</em></h1>
+          <p class="hero-lead">Better Workflows 把 goal、scope、證據、審查、外部副作用與終態拆成可重驗的邊界。你選擇想完成的結果；控制面負責讓每一步都能被驗證、對帳，或在未知時安全停下。</p>
+          <div class="hero-actions">
+            <a class="button button-primary" href="/docs/">探索互動文件 <span aria-hidden="true">↗</span></a>
+            <a class="button button-secondary" href="https://github.com/stephen-taipei/better-workflows#get-your-first-result" target="_blank" rel="noopener noreferrer">開始使用 <span aria-hidden="true">↗</span></a>
+          </div>
+          <div class="hero-note"><span>GOAL-FIRST</span><span>EVIDENCE-DRIVEN</span><span>FAIL-CLOSED</span></div>
+        </div>
+        <div class="hero-art-wrap">
+          <div class="hero-orbit orbit-one" aria-hidden="true"></div>
+          <div class="hero-orbit orbit-two" aria-hidden="true"></div>
+          <figure class="hero-art">
+            <img src="/docs/assets/better-workflows-control-plane-blue.webp" width="1536" height="1024" alt="以帳冊、證據印記、重播迴圈與對帳節點構成的 Better Workflows 控制面插畫" fetchpriority="high">
+            <figcaption><span>ILLUSTRATED CONTROL PLANE</span><strong>每個結論都沿著事件、證據與 receipt 回到可重驗的來源。</strong></figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section class="metric-bar" aria-label="目前 codebase inventory">
+        <div class="shell metric-grid">
+          <div><strong>14</strong><span>workflow templates</span></div>
+          <div><strong>102</strong><span>typed evidence kinds</span></div>
+          <div><strong>66</strong><span>execution stages</span></div>
+          <div><strong>41</strong><span>localized editions</span></div>
+        </div>
+      </section>
+
+      <section class="section shell" id="control-plane">
+        <div class="section-heading">
+          <p class="eyebrow">THE CONTROL PLANE</p>
+          <h2>把「做完」拆成四個可驗證問題。</h2>
+          <p>執行成功不等於證據有效；證據有效也不等於外部副作用已對帳。Better Workflows 讓每個狀態都有明確的資料來源與終止條件。</p>
+        </div>
+        <div class="flow-grid">
+          <article class="flow-card flow-blue"><span class="flow-number">01</span><h3>Define</h3><p>凍結 goal、scope、acceptance、authority 與風險適配的 route。</p><span class="flow-tag">TaskContract</span></article>
+          <article class="flow-card flow-violet"><span class="flow-number">02</span><h3>Verify</h3><p>用 source sentinel、typed evidence、graph 與 review receipt 綁住當前來源。</p><span class="flow-tag">Evidence</span></article>
+          <article class="flow-card flow-coral"><span class="flow-number">03</span><h3>Reconcile</h3><p>副作用只使用一次性 authority；未知 provider 狀態先查明，不盲目重試。</p><span class="flow-tag">Provider truth</span></article>
+          <article class="flow-card flow-amber"><span class="flow-number">04</span><h3>Complete</h3><p>前後重取 sentinel，重新驗證 acceptance、ledger、review 與遠端結果。</p><span class="flow-tag">Terminal decision</span></article>
+        </div>
+      </section>
+
+      <section class="section section-dark" id="principles">
+        <div class="shell principle-layout">
+          <div class="section-heading light-heading">
+            <p class="eyebrow">BOUNDARIES OVER PROMISES</p>
+            <h2>速度可以很快，<em>證據必須即時有效。</em></h2>
+            <p>這是一套 native-first、evidence-driven 的工作流方法：讓小任務保持輕量，讓高風險操作自動提升驗證、審查與 reconciliation 的門檻。</p>
+          </div>
+          <div class="principle-list">
+            <article><span>01</span><div><h3>Prompt 不是 authority</h3><p>意圖描述想做什麼，但不會自行授予修改、整合、部署或宣告完成的權力。</p></div></article>
+            <article><span>02</span><div><h3>Evidence before action</h3><p>每個 side effect 都要有即時、可追溯且綁定目標的 evidence。</p></div></article>
+            <article><span>03</span><div><h3>Unknown 停止，不猜測</h3><p>drift、stale evidence 與未對帳的 provider outcome 都回到 blocked / indeterminate。</p></div></article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section repo-section" id="repository">
+        <div class="shell repo-layout">
+          <div class="section-heading">
+            <p class="eyebrow">OPEN SOURCE ON GITHUB</p>
+            <h2>官方原始碼，公開在 GitHub。</h2>
+            <p>Better Workflows 的核心程式碼、workflow templates、evidence contracts、測試與變更紀錄都能在公開 repository 查閱；README 是安裝與 Quick Start 的官方入口。</p>
+          </div>
+          <div class="repo-panel repo-panel-light">
+            <div class="repo-identity"><span class="brand-mark" aria-hidden="true">GH</span><div><strong>stephen-taipei / better-workflows</strong><span>Public · MIT License</span></div></div>
+            <code>github.com/stephen-taipei/better-workflows</code>
+            <div class="hero-actions">
+              <a class="button button-primary" href="https://github.com/stephen-taipei/better-workflows" target="_blank" rel="noopener noreferrer">查看 GitHub Repository ↗</a>
+              <a class="button button-secondary" href="https://github.com/stephen-taipei/better-workflows#get-your-first-result" target="_blank" rel="noopener noreferrer">Quick Start ↗</a>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section shell sponsor-section" id="sponsor">
+        <div class="sponsor-card">
+          <div><p class="eyebrow">OPEN-SOURCE SUPPORT</p><h2>一起支持 Better Workflows 持續維護。</h2><p>單次贊助將用於開源維護、文件、41 種語言的在地化與網站託管；不包含會員資格，也不提供 roadmap 或技術支援優先權。</p></div>
+          <a class="button button-kofi" href="https://ko-fi.com/betterworkflows" target="_blank" rel="noopener noreferrer">透過 Ko-fi 單次贊助 <span aria-hidden="true">↗</span></a>
+        </div>
+      </section>
+
+      <section class="section shell docs-section" id="docs">
+        <div class="section-heading">
+          <p class="eyebrow">READ THE SYSTEM</p>
+          <h2>從架構地圖，走到實際情境。</h2>
+          <p>官方文件以目前 repo 的成果為基礎，將 control plane、證據資料流、replay 與 14 種工作情境整理成可以直接閱讀與操作的前端體驗。</p>
+        </div>
+        <div class="docs-grid">
+          <a class="doc-card doc-card-featured" href="/docs/">
+            <div class="doc-icon">◎</div><div><span class="doc-kicker">FULL FIELD GUIDE</span><h3>互動式架構解剖書</h3><p>從意圖到可證明完成，查看 routing、TaskContract、ledger、review、action 與 completion 的完整關係。</p></div><span class="doc-arrow">↗</span>
+          </a>
+          <a class="doc-card" href="/docs/use-cases/">
+            <div class="doc-icon">↯</div><div><span class="doc-kicker">14 PRACTICAL ROUTES</span><h3>情境應用手冊</h3><p>依 small fix、review、QA、CI/release、跨平台與研究工作選擇 route。</p></div><span class="doc-arrow">↗</span>
+          </a>
+          <a class="doc-card" href="/docs/evidence-cinema/">
+            <div class="doc-icon">▶</div><div><span class="doc-kicker">REPLAY EXPERIENCE</span><h3>Evidence Cinema</h3><p>以六位原創角色和八個場景，重播從 goal 到 reconciliation 的 evidence lifecycle。</p></div><span class="doc-arrow">↗</span>
+          </a>
+          <a class="doc-card" href="/docs/preview.html">
+            <div class="doc-icon">▱</div><div><span class="doc-kicker">QUICK PREVIEW</span><h3>快速導覽版</h3><p>先用較短的路徑理解控制面，再進入完整版文件。</p></div><span class="doc-arrow">↗</span>
+          </a>
+        </div>
+      </section>
+
+      <section class="closing shell">
+        <div class="closing-card">
+          <div><p class="eyebrow">BUILT FOR TRUSTED DELIVERY</p><h2>重要的不是「跑了命令」，而是能不能證明它真的完成。</h2></div>
+          <a class="button button-light" href="/docs/">開啟官方文件 <span aria-hidden="true">↗</span></a>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="shell footer-inner">
+        <div><a class="brand" href="/"><span class="brand-mark" aria-hidden="true">BW</span><span class="brand-copy"><strong>Better Workflows</strong><span>OFFICIAL SITE</span></span></a><p>Goal-first · Evidence-driven · Fail-closed</p></div>
+        <div class="footer-links"><a href="/docs/">Docs</a><a href="https://github.com/stephen-taipei/better-workflows" target="_blank" rel="noopener noreferrer">GitHub</a><a href="https://ko-fi.com/betterworkflows" target="_blank" rel="noopener noreferrer">Ko-fi</a><a href="https://betterworkflows.dev/">betterworkflows.dev</a><span>betterworkflows.org → .dev</span></div>
+        <div class="footer-meta">MIT License · v__SITE_VERSION__<br>Built __SITE_BUILD_TIME__ · __SITE_REVISION__</div>
+      </div>
+    </footer>
+  </body>
+</html>

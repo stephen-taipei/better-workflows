@@ -15,7 +15,7 @@ Codex の作業を「Prompt を渡して成功を祈る」状態から、意図�
 
 </div>
 
-[クイックスタート](guide/getting-started.md) · [Workflows](guide/workflows.md) · [Architecture](guide/architecture.md) · [Security](guide/security.md) · [CLI](guide/cli-reference.md) · [詳細仕様](details/ja.md)
+[クイックスタート](guide/getting-started.md) · [Workflows](guide/workflows.md) · [Architecture](guide/architecture.md) · [Security](guide/security.md) · [CLI](guide/cli-reference.md) · [詳細仕様](details/ja.md) · [Ko-fi で支援](https://ko-fi.com/betterworkflows)
 
 <!-- readme-roster -->
 **Model roster:** Codex · Claude · Gemini · GPT-OSS · Grok · Cursor · Kimi · Qwen · Kiro。`agy` は Gemini、Claude、GPT-OSS ブランドの model を transport しますが、それ自体は model ブランドではありません。
@@ -30,7 +30,7 @@ Codex は repository の分析、コード編集、check 実行、provider 操�
 Better Workflows は、小さな作業の速度を保ちながら、blast radius が広がる場面では
 明確な scope、review、freshness、protected delivery を維持したい開発者とチーム向けです。
 
-成果別の 13 workflow templates、統制された workspace recipes、read-only Graph View を
+成果別の 14 workflow templates、統制された workspace recipes、read-only Graph View を
 提供します。成果を選ぶと、route は現在の risk に必要な検証だけを追加します。
 
 <!-- readme-section:problem-outcome -->
@@ -181,6 +181,8 @@ Better Workflows は control plane を記録して検証しますが、無制限
 
 [Contributing](../CONTRIBUTING.md) · [Code of conduct](../CODE_OF_CONDUCT.md) ·
 [Governance](../GOVERNANCE.md) · [Support](../SUPPORT.md) · [Security policy](../SECURITY.md)
+
+一度限りの [Ko-fi 支援](https://ko-fi.com/betterworkflows)は、オープンソースの保守、ドキュメント、41 言語のローカライズ、Web サイト運営に役立ちます。会員資格、roadmap、サポートの優先権を提供するものではありません。
 
 <details>
 <summary>Better Workflows を開発する</summary>

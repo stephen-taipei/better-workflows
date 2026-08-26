@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title>Better Workflows</title>
+  <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#2b68e8"/><stop offset="1" stop-color="#7556e8"/></linearGradient></defs>
+  <rect width="64" height="64" rx="18" fill="url(#g)"/>
+  <path d="M17 21h9.5c7.3 0 11 2.3 11 6.9 0 2.8-1.5 4.8-4.4 5.9 4.2.9 6.3 3.2 6.3 6.8C39.4 46.2 35 49 26.5 49H17V21Zm8.4 11.1h1.9c3.4 0 5.1-1 5.1-3s-1.6-2.9-4.8-2.9h-2.2v5.9Zm0 11.1h3.1c3.7 0 5.5-1.1 5.5-3.4 0-2.2-1.8-3.3-5.5-3.3h-3.1v6.7Z" fill="white"/>
+</svg>
