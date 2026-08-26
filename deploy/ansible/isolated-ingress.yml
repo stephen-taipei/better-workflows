@@ -25,6 +25,7 @@
     frontend_isolated_service_name: betterworkflows-nginx
     frontend_isolated_service_unit: /etc/systemd/system/betterworkflows-nginx.service
     frontend_certbot_deploy_hook: /etc/letsencrypt/renewal-hooks/deploy/betterworkflows-nginx
+    frontend_ingress_lock: /run/lock/betterworkflows-ingress.lock
     frontend_managed_files:
       - "{{ frontend_isolated_config_path }}"
       - "{{ frontend_isolated_service_unit }}"
@@ -105,6 +106,53 @@
       when: frontend_manage_ufw | bool
 
   tasks:
+    - name: Acquire the serialized Better Workflows ingress lock
+      block:
+        - name: Create a unique project-only ingress lock owner directory
+          ansible.builtin.tempfile:
+            state: directory
+            path: /run
+            prefix: betterworkflows-ingress-owner-
+          register: frontend_ingress_lock_transaction
+          changed_when: false
+
+        - name: Atomically acquire the persistent project ingress lock
+          ansible.builtin.command:
+            argv:
+              - /usr/bin/mkdir
+              - --mode=0700
+              - "{{ frontend_ingress_lock }}"
+          register: frontend_ingress_lock_directory
+          changed_when: true
+
+        - name: Bind the persistent ingress lock to this exact transaction
+          ansible.builtin.copy:
+            dest: "{{ frontend_ingress_lock }}/owner"
+            owner: root
+            group: root
+            mode: "0600"
+            content: "{{ frontend_ingress_lock_transaction.path }}\n"
+
+        - name: Record ownership of the project ingress lock
+          ansible.builtin.set_fact:
+            frontend_ingress_lock_acquired: true
+
+      rescue:
+        - name: Remove only this failed contender's owner directory
+          ansible.builtin.file:
+            path: "{{ frontend_ingress_lock_transaction.path }}"
+            state: absent
+          when:
+            - frontend_ingress_lock_transaction is defined
+            - (frontend_ingress_lock_directory.rc | default(1)) != 0
+          changed_when: false
+
+        - name: Stop when the project ingress lock cannot be acquired
+          ansible.builtin.fail:
+            msg: >-
+              The persistent Better Workflows ingress lock could not be acquired.
+              An active or interrupted transaction requires owner-verified reconciliation.
+
     - name: Reconcile the isolated ingress as one rollback-bounded transaction
       block:
         - name: Inspect every project-owned mutable ingress file
@@ -423,6 +471,54 @@
             state: absent
           when:
             - frontend_ingress_rollback is defined
+            - >-
+              frontend_ingress_transaction_complete | default(false) or
+              frontend_ingress_rollback_complete | default(false)
+          changed_when: false
+
+        - name: Read the persistent ingress lock owner before release
+          ansible.builtin.slurp:
+            src: "{{ frontend_ingress_lock }}/owner"
+          register: frontend_ingress_lock_owner
+          when:
+            - frontend_ingress_lock_acquired | default(false)
+            - >-
+              frontend_ingress_transaction_complete | default(false) or
+              frontend_ingress_rollback_complete | default(false)
+
+        - name: Verify exact ingress lock ownership before release
+          ansible.builtin.assert:
+            that:
+              - >-
+                (frontend_ingress_lock_owner.content | b64decode | trim) ==
+                frontend_ingress_lock_transaction.path
+            fail_msg: The ingress lock owner changed; the persistent lock was preserved.
+          when:
+            - frontend_ingress_lock_acquired | default(false)
+            - >-
+              frontend_ingress_transaction_complete | default(false) or
+              frontend_ingress_rollback_complete | default(false)
+
+        - name: Release only this transaction's persistent ingress lock
+          ansible.builtin.file:
+            path: "{{ frontend_ingress_lock }}"
+            state: absent
+          register: frontend_ingress_lock_release
+          when:
+            - frontend_ingress_lock_acquired | default(false)
+            - >-
+              frontend_ingress_transaction_complete | default(false) or
+              frontend_ingress_rollback_complete | default(false)
+          changed_when: false
+
+        - name: Remove the unique project-only ingress lock owner directory
+          ansible.builtin.file:
+            path: "{{ frontend_ingress_lock_transaction.path }}"
+            state: absent
+          when:
+            - frontend_ingress_lock_transaction is defined
+            - frontend_ingress_lock_acquired | default(false)
+            - not (frontend_ingress_lock_release.failed | default(true))
             - >-
               frontend_ingress_transaction_complete | default(false) or
               frontend_ingress_rollback_complete | default(false)

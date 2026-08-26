@@ -81,6 +81,10 @@ test("isolated ingress changes only Better Workflows service paths", async () =>
   assert.match(release, /Restore the persisted previous release before cleaning an interrupted active candidate/);
   assert.match(release, /Verify interrupted-candidate rollback before cleanup/);
   assert.match(release, /frontend_interrupted_rollback_verified/);
+  assert.match(
+    release,
+    /frontend_previous_target:[\s\S]*?frontend_previous_current\.stdout[\s\S]*?if frontend_release_state\.results\[1\]\.stat\.exists/
+  );
   assert.ok(
     release.indexOf("Persist the exact transaction owner before artifact extraction") <
       release.indexOf("Create a new isolated incoming release directory")
@@ -112,13 +116,35 @@ test("isolated ingress changes only Better Workflows service paths", async () =>
   assert.match(release, /Verify rollback before authorizing candidate cleanup/);
   assert.match(release, /frontend_rollback_verified/);
   assert.match(playbook, /Reconcile the isolated ingress as one rollback-bounded transaction/);
+  assert.match(playbook, /frontend_ingress_lock: \/run\/lock\/betterworkflows-ingress\.lock/);
+  assert.match(playbook, /Atomically acquire the persistent project ingress lock/);
+  assert.match(playbook, /Bind the persistent ingress lock to this exact transaction/);
+  assert.match(playbook, /register: frontend_ingress_lock_directory/);
+  assert.match(
+    playbook,
+    /Remove only this failed contender's owner directory[\s\S]*?frontend_ingress_lock_directory\.rc \| default\(1\)/
+  );
+  assert.match(playbook, /Verify exact ingress lock ownership before release/);
+  assert.match(playbook, /Release only this transaction's persistent ingress lock/);
+  assert.match(
+    playbook,
+    /Release only this transaction's persistent ingress lock[\s\S]*?frontend_ingress_transaction_complete[\s\S]*?frontend_ingress_rollback_complete/
+  );
+  assert.doesNotMatch(playbook, /frontend_ingress_lock_lifetime_seconds|async:.*frontend_ingress_lock/s);
+  assert.ok(
+    playbook.indexOf("Record ownership of the project ingress lock") <
+      playbook.indexOf("Inspect every project-owned mutable ingress file")
+  );
   assert.match(playbook, /Back up every existing project-owned ingress file/);
   assert.match(playbook, /Remove only firewall rules added by this failed transaction/);
   assert.match(playbook, /Restore only the isolated service's prior state/);
   assert.match(playbook, /frontend_ingress_rollback_complete/);
   assert.match(playbook, /frontend_ingress_transaction_complete/);
+  const ingressTransaction = playbook.slice(
+    playbook.indexOf("Reconcile the isolated ingress as one rollback-bounded transaction")
+  );
   assert.doesNotMatch(
-    playbook.match(/rescue:[\s\S]*?always:/)?.[0] ?? "",
+    ingressTransaction.match(/rescue:[\s\S]*?always:/)?.[0] ?? "",
     /failed_when: false/
   );
   assert.doesNotMatch(release, /\/etc\//);

@@ -278,9 +278,11 @@
             frontend_validation_path: >-
               {{ frontend_release_path if frontend_release_state.results[1].stat.exists else frontend_incoming_path }}
             frontend_previous_target: >-
-              {{ frontend_interrupted_transaction.previousCurrent
+              {{ (frontend_previous_current.stdout if frontend_previous_current.rc == 0 else '')
+              if frontend_release_state.results[1].stat.exists
+              else (frontend_interrupted_transaction.previousCurrent
               if frontend_release_state.results[3].stat.exists
-              else (frontend_previous_current.stdout if frontend_previous_current.rc == 0 else '') }}
+              else (frontend_previous_current.stdout if frontend_previous_current.rc == 0 else '')) }}
 
         - name: Create only Better Workflows base release directories
           ansible.builtin.file:
