@@ -7,6 +7,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { runInNewContext } from "node:vm";
 import { PUBLIC_DOC_PAGES, UNNATURAL_EVIDENCE_PATTERNS, publicDocCopy, publicDocPath } from "../public-docs.mjs";
 import { CONNECTORS_LOCALES, DEFAULT_LOCALE, LOCALE_KEYS, SPONSOR_LOCALE_MARKERS, SPONSOR_ONE_TIME_MARKERS, locales } from "../website-locales.mjs";
 
@@ -24,6 +25,61 @@ function occurrences(content, pattern) {
 
 function outputHtmlPath(outputDirectory, urlPath) {
   return path.join(outputDirectory, urlPath.slice(1), "index.html");
+}
+
+function referenceNavigationHarness(html) {
+  const script = html.match(/<script>(\(\(\)=>\{const locales=[\s\S]*?\}\)\(\);)<\/script>/)?.[1];
+  assert.ok(script, "reference navigation script");
+  const frameLocation = new URL("https://betterworkflows.dev/docs/reference/index.html");
+  const assigned = [];
+  const opened = [];
+  const topLocation = {
+    pathname: "/ja/docs/",
+    hash: "",
+    assign(value) { assigned.push(value); }
+  };
+  let clickHandler;
+  let hashHandler;
+  const frameWindow = {
+    location: frameLocation,
+    top: { location: topLocation },
+    open(...args) { opened.push(args); },
+    addEventListener(type, handler) {
+      if (type === "hashchange") hashHandler = handler;
+    }
+  };
+  const document = {
+    addEventListener(type, handler) {
+      if (type === "click") clickHandler = handler;
+    }
+  };
+  runInNewContext(script, { document, location: frameLocation, URL, window: frameWindow });
+  assert.equal(typeof clickHandler, "function");
+  assert.equal(typeof hashHandler, "function");
+  return {
+    click(href, { target = "", download = false } = {}) {
+      assigned.length = 0;
+      opened.length = 0;
+      let prevented = false;
+      const link = { href: new URL(href, frameLocation).href, target, download };
+      clickHandler({
+        defaultPrevented: false,
+        button: 0,
+        metaKey: false,
+        ctrlKey: false,
+        shiftKey: false,
+        altKey: false,
+        target: { closest: () => link },
+        preventDefault() { prevented = true; }
+      });
+      return { prevented, assigned: assigned[0] ?? null, opened: opened[0] ?? null, topHash: topLocation.hash };
+    },
+    syncFrameHash(hash) {
+      frameLocation.hash = hash;
+      hashHandler();
+      return topLocation.hash;
+    }
+  };
 }
 
 const UNLOCALIZED_UI_PATTERNS = {
@@ -207,6 +263,16 @@ test("build emits 41 localized homepages and five documentation routes with comp
       assert.equal(occurrences(localeSelector[1], / selected\b/g), 1, page.id);
       assert.match(localeSelector[1], /^<option value="" selected disabled>—<\/option>/);
       assert.match(reference, /window\.top\.location\.assign\(prefix\+route\+target\.hash\)/);
+      assert.match(reference, /window\.addEventListener\("hashchange",syncTopHash\)/);
+      assert.match(reference, /window\.open\(target\.href,"_blank","noopener,noreferrer"\)/);
+      if (page.id === "guide") {
+        const navigation = referenceNavigationHarness(reference);
+        assert.deepEqual(navigation.click("#replay"), { prevented: true, assigned: null, opened: null, topHash: "#replay" });
+        assert.deepEqual(navigation.click("/docs/reference/preview.html#flow"), { prevented: true, assigned: "/ja/docs/quick/#flow", opened: null, topHash: "#replay" });
+        assert.deepEqual(navigation.click("/plugins/better-workflows/README.md"), { prevented: true, assigned: null, opened: ["https://betterworkflows.dev/plugins/better-workflows/README.md", "_blank", "noopener,noreferrer"], topHash: "#replay" });
+        assert.deepEqual(navigation.click("https://github.com/stephen-taipei/better-workflows"), { prevented: true, assigned: null, opened: ["https://github.com/stephen-taipei/better-workflows", "_blank", "noopener,noreferrer"], topHash: "#replay" });
+        assert.equal(navigation.syncFrameHash("#architecture"), "#architecture");
+      }
     }
 
     const notFound = await readFile(path.join(outputDirectory, "404.html"), "utf8");
