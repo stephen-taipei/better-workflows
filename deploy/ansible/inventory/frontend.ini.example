@@ -1,2 +1,2 @@
 [frontend]
-betterworkflows-frontend ansible_host=64.176.35.245 ansible_user=stephen ansible_ssh_private_key_file=/Users/stephen.chuang/.ssh/fhtd-cicd.key ansible_ssh_common_args='-o IdentitiesOnly=yes -o StrictHostKeyChecking=yes'
+betterworkflows-frontend ansible_host=192.0.2.10 ansible_user=deploy-operator ansible_ssh_private_key_file=/path/to/project-deploy-key ansible_ssh_common_args='-o IdentitiesOnly=yes -o StrictHostKeyChecking=yes'

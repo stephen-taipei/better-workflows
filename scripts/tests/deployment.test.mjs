@@ -17,6 +17,7 @@ test("isolated ingress changes only Better Workflows service paths", async () =>
   const nginx = await source("deploy/ansible/templates/betterworkflows-isolated-nginx.conf.j2");
   const service = await source("deploy/ansible/templates/betterworkflows-nginx.service.j2");
   const certbotHook = await source("deploy/ansible/templates/betterworkflows-certbot-deploy-hook.sh.j2");
+  const inventoryExample = await source("deploy/ansible/inventory/frontend.ini.example");
   const ci = await source(".github/workflows/ci.yml");
 
   assert.match(playbook, /frontend_isolated_service_name: betterworkflows-nginx/);
@@ -127,6 +128,8 @@ test("isolated ingress changes only Better Workflows service paths", async () =>
   await assert.rejects(source("deploy/ansible/site.yml"), { code: "ENOENT" });
   await assert.rejects(source("deploy/ansible/templates/betterworkflows.conf.j2"), { code: "ENOENT" });
   assert.doesNotMatch(`${release}\n${playbook}\n${nginx}\n${service}\n${certbotHook}`, /sites-(?:available|enabled)|reload nginx\.service/);
+  assert.match(inventoryExample, /ansible_host=192\.0\.2\.10/);
+  assert.doesNotMatch(inventoryExample, /64\.176\.35\.245|stephen|\/Users\//);
   assert.match(ci, /node --test scripts\/tests\/\*\.test\.mjs/);
   assert.match(ci, /ansible-core==2\.21\.3/);
   assert.match(ci, /community\.general:==13\.0\.1/);
