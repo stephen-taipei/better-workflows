@@ -94,10 +94,11 @@ URL. The bootstrap transfers a per-process bearer through the URL fragment,
 stores it only in that `localhost:9300` tab's `sessionStorage`, removes the
 fragment from browser history, and sends it only in the replay API header.
 Replay never sets a localhost cookie, so the bearer is not forwarded to a
-different localhost port. If the default browser opener fails, the same
+different localhost port. If the default browser opener fails or times out,
+the URL given to that possibly late opener is revoked and a newly issued
 `bootstrapUrl` is printed with the warning for manual opening. A spawned opener
-counts as successful only after its terminal exit is zero; nonzero exit or a
-bounded timeout preserves the manual handoff. Opening a clean URL without its
+counts as successful only after its terminal exit is zero. Opening a clean URL
+without its
 session, or reusing an expired/single-use bootstrap URL in a browser, shows one
 recovery state that hides the inactive player and tells the operator to stop
 the foreground server and launch a fresh replay command.

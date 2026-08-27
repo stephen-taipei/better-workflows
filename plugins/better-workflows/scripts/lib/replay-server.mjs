@@ -191,13 +191,15 @@ export async function openReplayBrowser(url, options = {}) {
   });
   await new Promise((resolve, reject) => {
     let settled = false;
+    let timeout;
+    const clearTimer = options.clearTimeout ?? clearTimeout;
     const finish = (callback, value) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timeout);
+      clearTimer(timeout);
       callback(value);
     };
-    const timeout = setTimeout(() => {
+    timeout = (options.setTimeout ?? setTimeout)(() => {
       const error = new Error("Replay browser opener did not report a terminal result");
       error.code = "REPLAY_BROWSER_OPEN_TIMEOUT";
       finish(reject, error);
@@ -217,6 +219,29 @@ export async function openReplayBrowser(url, options = {}) {
     });
   });
   return { executable: command.executable, args: command.args };
+}
+
+export async function openReplayBrowserWithRecovery(replay, options = {}) {
+  if (
+    !replay
+      || typeof replay.bootstrapUrl !== "string"
+      || typeof replay.rotateBootstrapUrl !== "function"
+  ) {
+    throw new ReplayServerError(
+      "REPLAY_BOOTSTRAP_RECOVERY_INVALID",
+      "Replay browser recovery requires a live replay server"
+    );
+  }
+  const openerBootstrapUrl = replay.bootstrapUrl;
+  try {
+    return await openReplayBrowser(openerBootstrapUrl, options);
+  } catch (error) {
+    // The detached opener may still navigate after a timeout or failed exit.
+    // Revoke the URL it received before handing a different one to the
+    // operator, so a late opener cannot consume the manual recovery token.
+    replay.rotateBootstrapUrl(openerBootstrapUrl);
+    throw error;
+  }
 }
 
 export function replayStartedEvent(replay, { opened = false, noOpen = false } = {}) {
@@ -245,9 +270,9 @@ export async function startReplayServer(options = {}) {
   }
   const requestedPort = options.port ?? REPLAY_PORT;
   const bootstrapTtlMs = options.bootstrapTtlMs ?? REPLAY_BOOTSTRAP_TTL_MS;
-  let bootstrapToken = randomBytes(32).toString("base64url");
-  const bootstrapExpiresAt = Date.now() + bootstrapTtlMs;
-  const sessionToken = randomBytes(32).toString("base64url");
+  let bootstrapToken = null;
+  let bootstrapExpiresAt = 0;
+  let sessionToken = randomBytes(32).toString("base64url");
   const sockets = new Set();
   let boundPort = requestedPort;
 
@@ -350,7 +375,25 @@ export async function startReplayServer(options = {}) {
   boundPort = typeof address === "object" && address ? address.port : requestedPort;
   const origin = `http://${REPLAY_PUBLIC_HOST}:${boundPort}`;
   const cleanUrl = `${origin}${cleanPathForRun(requestedRunId)}`;
-  const bootstrapUrl = `${origin}/bootstrap/${bootstrapToken}`;
+  let replay;
+  const issueBootstrapUrl = () => {
+    bootstrapToken = randomBytes(32).toString("base64url");
+    bootstrapExpiresAt = Date.now() + bootstrapTtlMs;
+    return `${origin}/bootstrap/${bootstrapToken}`;
+  };
+  const rotateBootstrapUrl = (expectedUrl) => {
+    if (!replay || typeof expectedUrl !== "string" || expectedUrl !== replay.bootstrapUrl) {
+      throw new ReplayServerError(
+        "REPLAY_BOOTSTRAP_ROTATION_REJECTED",
+        "Replay bootstrap rotation did not match the active handoff"
+      );
+    }
+    bootstrapToken = null;
+    bootstrapExpiresAt = 0;
+    sessionToken = randomBytes(32).toString("base64url");
+    replay.bootstrapUrl = issueBootstrapUrl();
+    return replay.bootstrapUrl;
+  };
 
   const close = async () => {
     bootstrapToken = null;
@@ -367,7 +410,7 @@ export async function startReplayServer(options = {}) {
     });
   };
 
-  return {
+  replay = {
     server,
     stateRoot,
     runId: requestedRunId,
@@ -375,7 +418,9 @@ export async function startReplayServer(options = {}) {
     port: boundPort,
     origin,
     cleanUrl,
-    bootstrapUrl,
+    bootstrapUrl: issueBootstrapUrl(),
+    rotateBootstrapUrl,
     close
   };
+  return replay;
 }

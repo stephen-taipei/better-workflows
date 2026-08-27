@@ -34,6 +34,7 @@ import {
   REPLAY_SESSION_HEADER,
   ReplayServerError,
   openReplayBrowser,
+  openReplayBrowserWithRecovery,
   platformOpenCommand,
   replayStartedEvent,
   startReplayServer
@@ -1232,7 +1233,92 @@ test("browser opener requires a successful terminal exit before consuming the ha
   );
 });
 
-test("browser opener failure preserves the one-shot bootstrap handoff", () => {
+test("browser opener nonzero exit rotates to a distinct recovery handoff", async () => {
+  const replay = {
+    bootstrapUrl: "http://localhost:9300/bootstrap/opener-token",
+    rotateBootstrapUrl(expectedUrl) {
+      assert.equal(expectedUrl, "http://localhost:9300/bootstrap/opener-token");
+      this.bootstrapUrl = "http://localhost:9300/bootstrap/manual-token";
+      return this.bootstrapUrl;
+    }
+  };
+  const child = new EventEmitter();
+  child.unref = () => undefined;
+  await assert.rejects(
+    openReplayBrowserWithRecovery(replay, {
+      platform: "darwin",
+      access: async () => undefined,
+      timeoutMs: 100,
+      spawn: () => {
+        queueMicrotask(() => {
+          child.emit("spawn");
+          child.emit("close", 1, null);
+        });
+        return child;
+      }
+    }),
+    (error) => error.code === "REPLAY_BROWSER_OPEN_FAILED" && error.exitCode === 1
+  );
+  assert.equal(replay.bootstrapUrl, "http://localhost:9300/bootstrap/manual-token");
+});
+
+test("browser opener timeout rotates the handoff before a late opener can consume it", async (context) => {
+  const fixture = await makeRun();
+  context.after(() => removeFixture(fixture.root));
+  const server = await startReplayServer({ stateRoot: fixture.root, runId: fixture.runId, port: 0 });
+  context.after(() => server.close());
+  const openerBootstrapUrl = server.bootstrapUrl;
+  const child = new EventEmitter();
+  child.unref = () => undefined;
+  let triggerTimeout;
+
+  const opening = openReplayBrowserWithRecovery(server, {
+    platform: "darwin",
+    access: async () => undefined,
+    setTimeout: (callback) => {
+      triggerTimeout = callback;
+      return "controlled-timeout";
+    },
+    clearTimeout: () => undefined,
+    spawn: () => {
+      queueMicrotask(() => child.emit("spawn"));
+      return child;
+    }
+  });
+  const racedBootstrap = await request(server, new URL(openerBootstrapUrl).pathname);
+  assert.equal(racedBootstrap.status, 303);
+  const racedSession = new URL(racedBootstrap.headers.location, server.origin).hash
+    .slice(`#${REPLAY_SESSION_FRAGMENT}=`.length);
+  triggerTimeout();
+  await assert.rejects(opening, (error) => error.code === "REPLAY_BROWSER_OPEN_TIMEOUT");
+
+  const manualBootstrapUrl = server.bootstrapUrl;
+  assert.notEqual(manualBootstrapUrl, openerBootstrapUrl);
+  assert.equal(
+    (await request(server, `/api/v1/runs/${fixture.runId}/replay`, { session: racedSession })).status,
+    401,
+    "a bootstrap consumed by a timed-out opener must not retain a live session"
+  );
+  assert.equal((await request(server, new URL(openerBootstrapUrl).pathname)).status, 401);
+  child.emit("close", 0, null);
+  assert.equal((await request(server, new URL(openerBootstrapUrl).pathname)).status, 401);
+  assert.throws(
+    () => server.rotateBootstrapUrl(openerBootstrapUrl),
+    (error) => error.code === "REPLAY_BOOTSTRAP_ROTATION_REJECTED"
+  );
+  assert.equal(server.bootstrapUrl, manualBootstrapUrl);
+  const manualBootstrap = await request(server, new URL(manualBootstrapUrl).pathname);
+  assert.equal(manualBootstrap.status, 303);
+  const manualSession = new URL(manualBootstrap.headers.location, server.origin).hash
+    .slice(`#${REPLAY_SESSION_FRAGMENT}=`.length);
+  assert.notEqual(manualSession, racedSession);
+  assert.equal(
+    (await request(server, `/api/v1/runs/${fixture.runId}/replay`, { session: manualSession })).status,
+    200
+  );
+});
+
+test("replay started events expose only the currently active manual handoff", () => {
   const replay = {
     cleanUrl: "http://localhost:9300/runs/sbw-20260826T070000Z-123456abcdef",
     bootstrapUrl: "http://localhost:9300/bootstrap/one-shot",

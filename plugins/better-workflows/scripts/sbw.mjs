@@ -172,7 +172,7 @@ import {
   graphHasErrors,
   renderGraphMermaid
 } from "./lib/graph.mjs";
-import { openReplayBrowser, replayStartedEvent, startReplayServer } from "./lib/replay-server.mjs";
+import { openReplayBrowserWithRecovery, replayStartedEvent, startReplayServer } from "./lib/replay-server.mjs";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const TEMPLATE_DIR = path.join(pluginRoot(), "templates");
@@ -1989,13 +1989,15 @@ async function commandEvidenceReplay(root, runId, options) {
   let opened = false;
   if (!noOpen) {
     try {
-      await openReplayBrowser(replay.bootstrapUrl);
+      await openReplayBrowserWithRecovery(replay);
       opened = true;
-    } catch {
+    } catch (error) {
       printEvent({
         ok: false,
         event: "replay.browser-open-warning",
-        error: "REPLAY_BROWSER_OPEN_FAILED"
+        error: ["REPLAY_BROWSER_OPEN_FAILED", "REPLAY_BROWSER_OPEN_TIMEOUT"].includes(error?.code)
+          ? error.code
+          : "REPLAY_BROWSER_OPEN_FAILED"
       }, process.stderr);
     }
   }
