@@ -2,6 +2,7 @@ import { constants as fsConstants } from "node:fs";
 import { lstat, open, opendir, realpath } from "node:fs/promises";
 import path from "node:path";
 import { digestObject, sha256 } from "./core.mjs";
+import { assertPayloadFields, loadEvidenceContracts } from "./evidence.mjs";
 import { reduceLedgerSnapshot } from "./ledger.mjs";
 
 export const REPLAY_MANIFEST_KIND = "evidence-replay-manifest-v1";
@@ -13,6 +14,7 @@ export const REPLAY_DIRECTORY_ENTRY_LIMIT = 10_000;
 
 const RUN_ID = /^sbw-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{12}$/;
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+const EVIDENCE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const DIGEST = /^[a-f0-9]{64}$/;
 const SHA = /^[a-f0-9]{40}$/;
 const JSON_DIRECTORIES = [
@@ -403,35 +405,96 @@ function producerId(record) {
   return SAFE_ID.test(String(value ?? "")) ? String(value) : null;
 }
 
-function validateRecordedEvidence(record, raw, contractDigest) {
+function satisfiesRecordedSuccess(payload, definition) {
+  const predicate = definition?.success;
+  if (!predicate) return true;
+  const value = payload?.[predicate.field];
+  if (predicate.equals !== undefined) return value === predicate.equals;
+  if (Array.isArray(predicate.oneOf)) return predicate.oneOf.some((candidate) => value === candidate);
+  return Boolean(value && typeof value === "object" && Object.keys(value).length > 0);
+}
+
+function recordedFreshnessBindingValid(binding, raw, contractDigest, definition, payload) {
+  if (!binding || typeof binding !== "object" || Array.isArray(binding)) return false;
+  if (definition.freshnessBinding.some((field) => !(field in binding))) return false;
+  if (
+    binding.runId !== raw.runId ||
+    binding.contractDigest !== contractDigest ||
+    binding.remoteRevision !== (raw.contract?.remoteRevision ?? null)
+  ) return false;
+  if (
+    definition.freshnessBinding.includes("sourceBindingDigest") &&
+    (!raw.manifest?.sourceBinding?.digest || binding.sourceBindingDigest !== raw.manifest.sourceBinding.digest)
+  ) return false;
+  if (
+    definition.freshnessBinding.includes("sourceSentinelDigest") &&
+    (!raw.state?.lastSentinel?.digest || binding.sourceSentinelDigest !== raw.state.lastSentinel.digest)
+  ) return false;
+  for (const [bindingField, payloadField] of [
+    ["reviewHead", "head"],
+    ["reviewBase", "base"],
+    ["repository", "repository"],
+    ["baseRefName", "baseRefName"],
+    ["observedAt", "observedAt"]
+  ]) {
+    if (definition.freshnessBinding.includes(bindingField) && binding[bindingField] !== payload?.[payloadField]) {
+      return false;
+    }
+  }
+  if (
+    definition.freshnessBinding.includes("pullRequest") &&
+    String(binding.pullRequest) !== String(payload?.pr)
+  ) return false;
+  return true;
+}
+
+function validateRecordedEvidence(record, raw, contractDigest, contracts) {
   const id = safeId(record?.id);
   const kind = safeId(record?.kind);
+  const definition = contracts?.[kind];
   const receipt = record?.receipt;
   const admission = record?.typedAdmission;
   const binding = receipt?.inputBinding;
-  const payloadDigest = receipt?.payload && typeof receipt.payload === "object" && !Array.isArray(receipt.payload)
-    ? digestObject(receipt.payload)
+  const payload = receipt?.payload;
+  const payloadDigest = payload && typeof payload === "object" && !Array.isArray(payload)
+    ? digestObject(payload)
     : null;
-  const expectedSourceBinding = safeDigest(raw.manifest?.sourceBinding?.digest);
-  const expectedSentinel = safeDigest(raw.state?.lastSentinel?.digest);
+  const producer = producerId(record);
+  let payloadSchemaValid = false;
+  if (definition && payload && typeof payload === "object" && !Array.isArray(payload) && Object.keys(payload).length > 0) {
+    try {
+      assertPayloadFields(payload, definition.requiredFields, kind, definition.nullableFields ?? []);
+      payloadSchemaValid = satisfiesRecordedSuccess(payload, definition);
+    } catch {
+      payloadSchemaValid = false;
+    }
+  }
+  const independentCritic = record?.sourceKind === "independent-critic";
   const valid = Boolean(
     record?.schemaVersion === 2 &&
+    EVIDENCE_ID.test(String(record?.id ?? "")) &&
+    SAFE_ID.test(String(record?.kind ?? "")) &&
+    definition &&
     admission &&
     receipt &&
     record.status === "complete" &&
+    nonEmptyText(record.summary) &&
+    receipt.contractId === definition.id &&
     receipt.contractId === evidenceContractId(kind) &&
     admission.contractId === receipt.contractId &&
     admission.contractVersion === 1 &&
     receipt.contractVersion === 1 &&
     receipt.runId === raw.runId &&
-    binding?.runId === raw.runId &&
-    binding?.contractDigest === contractDigest &&
-    (binding.sourceBindingDigest === undefined || binding.sourceBindingDigest === expectedSourceBinding) &&
-    (binding.sourceSentinelDigest === undefined || binding.sourceSentinelDigest === expectedSentinel) &&
+    producer &&
+    definition.producerAllowlist.includes(producer) &&
+    recordedFreshnessBindingValid(binding, raw, contractDigest, definition, payload) &&
+    payloadSchemaValid &&
     DIGEST.test(String(payloadDigest ?? "")) &&
     receipt.payloadDigest === payloadDigest &&
     record.sourceDigest === payloadDigest &&
-    admission.producer === producerId(record) &&
+    safeTimestamp(receipt.producedAt) !== null &&
+    admission.producer === producer &&
+    (independentCritic ? admission.independentCritic === true : admission.independentCritic !== true) &&
     record.stale !== true
   );
   return { valid, id, kind, digest: valid ? payloadDigest : safeDigest(record?.sourceDigest) };
@@ -441,7 +504,7 @@ function recordTimestamp(record) {
   return safeTimestamp(record?.receipt?.producedAt) ?? safeTimestamp(record?.updatedAt) ?? safeTimestamp(record?.createdAt);
 }
 
-function sanitizeEvidence(records, raw, contractDigest, blockers) {
+function sanitizeEvidence(records, raw, contractDigest, contracts, blockers) {
   return records.map((record) => {
     if (raw.contract?.schemaVersion !== 2) {
       return {
@@ -456,7 +519,7 @@ function sanitizeEvidence(records, raw, contractDigest, blockers) {
         digest: safeDigest(record?.sourceDigest)
       };
     }
-    const validation = validateRecordedEvidence(record, raw, contractDigest);
+    const validation = validateRecordedEvidence(record, raw, contractDigest, contracts);
     if (!validation.valid) blockers.push(`INVALID_TYPED_EVIDENCE:${validation.id}`);
     return {
       category: "evidence",
@@ -565,9 +628,9 @@ function actionCompletionBlockers(records) {
   return blockers;
 }
 
-function matchingValidEvidence(raw, contractDigest, predicate) {
+function matchingValidEvidence(raw, contractDigest, contracts, predicate) {
   return raw.directories.evidence.filter((record) => (
-    validateRecordedEvidence(record, raw, contractDigest).valid && predicate(record)
+    validateRecordedEvidence(record, raw, contractDigest, contracts).valid && predicate(record)
   ));
 }
 
@@ -600,7 +663,7 @@ function reviewPackageBindingBlockers(reviewPackage, raw, contractDigest) {
   return blockers;
 }
 
-function legacyReviewBlockers(raw, reviewPackage, contractDigest) {
+function legacyReviewBlockers(raw, reviewPackage, contractDigest, contracts) {
   const packageId = safeId(reviewPackage?.packageId ?? reviewPackage?.id);
   const scopedFindings = raw.directories["review-findings"].filter((record) => record?.packageId === reviewPackage?.packageId);
   const blockers = findingCompletionBlockers(scopedFindings, raw, "REVIEW_FINDING");
@@ -620,7 +683,7 @@ function legacyReviewBlockers(raw, reviewPackage, contractDigest) {
     blockers.push(`REVIEW_BROAD_CLOSURE_REQUIRED:${packageId}`);
   }
 
-  const diffReview = matchingValidEvidence(raw, contractDigest, (record) => {
+  const diffReview = matchingValidEvidence(raw, contractDigest, contracts, (record) => {
     const payload = record?.receipt?.payload;
     return record?.kind === "diff-review" && payload?.verdict === "PASS" &&
       payload.packageId === reviewPackage?.packageId &&
@@ -643,7 +706,7 @@ function kernelReviewBlockers(reviewPackage) {
   return [`REVIEW_KERNEL_REPLAY_REQUIRES_REVERIFICATION:${safeId(reviewPackage?.packageId ?? reviewPackage?.id)}`];
 }
 
-function independentReviewBlockers(raw, reviewPackage, contractDigest) {
+function independentReviewBlockers(raw, reviewPackage, contractDigest, contracts) {
   if (!["deep", "critical"].includes(raw.manifest?.mode)) return [];
   const binding = {
     packageId: reviewPackage?.packageId,
@@ -654,7 +717,7 @@ function independentReviewBlockers(raw, reviewPackage, contractDigest) {
     instructionDigest: reviewPackage?.instructionDigest,
     sentinelDigest: raw.state?.lastSentinel?.digest
   };
-  const matches = matchingValidEvidence(raw, contractDigest, (record) => (
+  const matches = matchingValidEvidence(raw, contractDigest, contracts, (record) => (
     record?.sourceKind === "independent-critic" &&
     record?.kind === "patch-review" &&
     record?.typedAdmission?.independentCritic === true &&
@@ -667,7 +730,7 @@ function independentReviewBlockers(raw, reviewPackage, contractDigest) {
   return matches.length === 1 ? [] : ["INDEPENDENT_REVIEW_REQUIRED"];
 }
 
-function reviewCompletionBlockers(raw, contractDigest) {
+function reviewCompletionBlockers(raw, contractDigest, contracts) {
   const policy = raw.contract?.controlPlane?.reviewPolicy ?? "none";
   if (policy === "none") return [];
   const expectedHead = safeRevision(raw.manifest?.sourceBinding?.headRevision);
@@ -675,19 +738,19 @@ function reviewCompletionBlockers(raw, contractDigest) {
   if (matchingPackages.length !== 1) return ["REVIEW_CURRENT_PACKAGE_REQUIRED"];
   const reviewPackage = matchingPackages[0];
   const blockers = reviewPackageBindingBlockers(reviewPackage, raw, contractDigest);
-  if (reviewPackage.schemaVersion === 1) blockers.push(...legacyReviewBlockers(raw, reviewPackage, contractDigest));
+  if (reviewPackage.schemaVersion === 1) blockers.push(...legacyReviewBlockers(raw, reviewPackage, contractDigest, contracts));
   else if (reviewPackage.schemaVersion === 2) blockers.push(...kernelReviewBlockers(reviewPackage));
   else blockers.push("REVIEW_PACKAGE_SCHEMA_UNSUPPORTED");
-  blockers.push(...independentReviewBlockers(raw, reviewPackage, contractDigest));
+  blockers.push(...independentReviewBlockers(raw, reviewPackage, contractDigest, contracts));
   return blockers;
 }
 
-function recordedCompletionBlockers(raw, contractDigest, validTypedKinds) {
+function recordedCompletionBlockers(raw, contractDigest, contracts, validTypedKinds) {
   if (raw.contract?.schemaVersion !== 2) return [];
   const blockers = [
     ...findingCompletionBlockers(raw.directories.findings, raw),
     ...actionCompletionBlockers(raw.directories.actions),
-    ...reviewCompletionBlockers(raw, contractDigest)
+    ...reviewCompletionBlockers(raw, contractDigest, contracts)
   ];
   if (raw.state?.lastSentinelVerified !== true) blockers.push("CURRENT_SENTINEL_NOT_VERIFIED");
   if (raw.state?.lastSentinelComplete !== true) blockers.push("BOUNDED_SENTINEL_INCOMPLETE");
@@ -712,12 +775,16 @@ function recordedCompletionBlockers(raw, contractDigest, validTypedKinds) {
 }
 
 function outcomeFromState(raw, blockers, ledgerStatus) {
-  if (raw.contract?.schemaVersion !== 2) return "LEGACY_RECORDED";
-  const status = String(raw.state?.status ?? "unknown");
+  const status = String(raw.state?.status ?? "unknown").toLowerCase();
   if (status.startsWith("cancelled")) return "CANCELLED";
   if (status === "inconclusive") return "INCONCLUSIVE";
   if (status === "indeterminate") return "INDETERMINATE";
   if (["stale", "blocked", "hold", "failed_terminal", "blocked_external_reviewer"].includes(status)) return "HOLD";
+  if (raw.contract?.schemaVersion !== 2) {
+    if (["completed", "no_op"].includes(status)) return "LEGACY_RECORDED";
+    if (["running", "pending", "ready", "failed_retryable"].includes(status)) return "UNSEALED";
+    return "INDETERMINATE";
+  }
   if (["completed", "no_op"].includes(status)) {
     return blockers.length === 0 && (!raw.ledger || ledgerStatus?.complete === true)
       ? "RECORDED_COMPLETED"
@@ -818,7 +885,7 @@ function buildScenes(records, outcome, ledgerStatus, raw, blockers) {
   });
 }
 
-function projectRawRun(raw) {
+async function projectRawRun(raw) {
   if (raw.manifest?.runId !== raw.runId || raw.state?.runId !== raw.runId) {
     throw replayError("REPLAY_RUN_BINDING_MISMATCH", "Replay run records disagree on run identity", 422);
   }
@@ -828,9 +895,10 @@ function projectRawRun(raw) {
   if (raw.contract?.schemaVersion === 2 && raw.ledger && raw.ledger.contractDigest !== contractDigest) blockers.push("LEDGER_CONTRACT_MISMATCH");
   if (raw.ledger && raw.ledger.runId !== raw.runId) blockers.push("LEDGER_RUN_MISMATCH");
 
-  const evidence = sanitizeEvidence(raw.directories.evidence, raw, contractDigest, blockers);
+  const contracts = raw.contract?.schemaVersion === 2 ? await loadEvidenceContracts() : {};
+  const evidence = sanitizeEvidence(raw.directories.evidence, raw, contractDigest, contracts, blockers);
   const validTypedKinds = evidence.filter((record) => record.status === "complete" && !record.stale).map((record) => record.kind);
-  blockers.push(...recordedCompletionBlockers(raw, contractDigest, validTypedKinds));
+  blockers.push(...recordedCompletionBlockers(raw, contractDigest, contracts, validTypedKinds));
   let ledgerStatus = null;
   if (raw.ledger) {
     try {
@@ -896,7 +964,7 @@ export async function buildReplaySnapshot(root, runId, options = {}) {
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     const before = await captureRawRun(root, runId);
     if (typeof options.afterFirstRead === "function") await options.afterFirstRead({ attempt, before });
-    const projected = projectRawRun(before);
+    const projected = await projectRawRun(before);
     const after = await captureRawRun(root, runId);
     if (before.identityDigest === after.identityDigest) return projected;
   }

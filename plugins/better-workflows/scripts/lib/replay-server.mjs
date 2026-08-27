@@ -15,7 +15,8 @@ import {
 export const REPLAY_HOST = "127.0.0.1";
 export const REPLAY_PUBLIC_HOST = "localhost";
 export const REPLAY_PORT = 9300;
-export const REPLAY_SESSION_COOKIE = "sbw_replay_session";
+export const REPLAY_SESSION_HEADER = "X-SBW-Replay-Session";
+export const REPLAY_SESSION_FRAGMENT = "sbw-replay-session";
 export const REPLAY_BOOTSTRAP_TTL_MS = 30_000;
 export const REPLAY_UI_FILE_LIMIT_BYTES = 4 * 1024 * 1024;
 
@@ -92,15 +93,9 @@ function constantTimeEqual(left, right) {
   return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
 }
 
-function cookieValue(request, name) {
-  const header = request.headers.cookie;
-  if (typeof header !== "string") return null;
-  for (const pair of header.split(";")) {
-    const equal = pair.indexOf("=");
-    if (equal < 1) continue;
-    if (pair.slice(0, equal).trim() === name) return pair.slice(equal + 1).trim();
-  }
-  return null;
+function sessionHeaderValue(request) {
+  const value = request.headers[REPLAY_SESSION_HEADER.toLowerCase()];
+  return typeof value === "string" ? value : null;
 }
 
 function cleanPathForRun(runId) {
@@ -195,6 +190,20 @@ export async function openReplayBrowser(url, options = {}) {
   return { executable: command.executable, args: command.args };
 }
 
+export function replayStartedEvent(replay, { opened = false, noOpen = false } = {}) {
+  return {
+    ok: true,
+    event: "replay.started",
+    url: replay.cleanUrl,
+    ...((noOpen || !opened) ? { bootstrapUrl: replay.bootstrapUrl } : {}),
+    runId: replay.runId,
+    host: REPLAY_PUBLIC_HOST,
+    port: replay.port,
+    opened,
+    noOpen
+  };
+}
+
 export async function startReplayServer(options = {}) {
   if (typeof options.stateRoot !== "string" || !path.isAbsolute(options.stateRoot)) {
     throw new ReplayServerError("REPLAY_STATE_ROOT_INVALID", "Replay state root must be an absolute path");
@@ -232,24 +241,29 @@ export async function startReplayServer(options = {}) {
         bootstrapToken = null;
         response.writeHead(303, secureHeaders({
           "Content-Length": "0",
-          "Location": cleanPathForRun(requestedRunId),
-          "Set-Cookie": `${REPLAY_SESSION_COOKIE}=${sessionToken}; HttpOnly; SameSite=Strict; Path=/`
+          "Location": `${cleanPathForRun(requestedRunId)}#${REPLAY_SESSION_FRAGMENT}=${sessionToken}`
         }));
         response.end();
         return;
       }
 
-      if (!constantTimeEqual(cookieValue(request, REPLAY_SESSION_COOKIE), sessionToken)) {
-        throw requestError("REPLAY_SESSION_REQUIRED", 401);
-      }
-
       if (url.pathname === "/api/v1/runs") {
+        if (!constantTimeEqual(sessionHeaderValue(request), sessionToken)) {
+          throw requestError("REPLAY_SESSION_REQUIRED", 401);
+        }
+        if (requestedRunId) throw requestError("REPLAY_RUN_SCOPE_REJECTED", 403);
         const value = await listReplayRuns(stateRoot);
         writeJson(response, 200, value, headOnly);
         return;
       }
       const replayApi = /^\/api\/v1\/runs\/(sbw-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{12})\/replay$/.exec(url.pathname);
       if (replayApi) {
+        if (!constantTimeEqual(sessionHeaderValue(request), sessionToken)) {
+          throw requestError("REPLAY_SESSION_REQUIRED", 401);
+        }
+        if (requestedRunId && replayApi[1] !== requestedRunId) {
+          throw requestError("REPLAY_RUN_SCOPE_REJECTED", 403);
+        }
         const value = await buildReplaySnapshot(stateRoot, replayApi[1]);
         writeJson(response, 200, value, headOnly);
         return;

@@ -134,6 +134,28 @@
   const root = document.documentElement;
   const replayMode = root.dataset.replayMode || "demo";
   const assetBase = root.dataset.assetBase || (replayMode === "runtime" ? "/assets/" : "assets/");
+  const replaySessionHeader = "X-SBW-Replay-Session";
+  const replaySessionFragment = "#sbw-replay-session=";
+  const replaySessionStorageKey = "sbw:evidence-replay:session-v1";
+  const replaySessionToken = (() => {
+    if (replayMode !== "runtime") return null;
+    let token = null;
+    if (location.hash.startsWith(replaySessionFragment)) {
+      token = location.hash.slice(replaySessionFragment.length);
+      try {
+        if (/^[A-Za-z0-9_-]{43}$/.test(token)) sessionStorage.setItem(replaySessionStorageKey, token);
+        else sessionStorage.removeItem(replaySessionStorageKey);
+      } catch {}
+      history.replaceState(null, "", location.pathname + location.search);
+    } else {
+      try {
+        token = sessionStorage.getItem(replaySessionStorageKey);
+      } catch {
+        token = null;
+      }
+    }
+    return /^[A-Za-z0-9_-]{43}$/.test(String(token ?? "")) ? token : null;
+  })();
   const actorAvatars = {
     "Captain Root": "character-root.webp",
     "Scout Pixel": "character-pixel.webp",
@@ -171,8 +193,11 @@
 
   const fetchJson = async (url) => {
     const response = await fetch(url, {
-      credentials: "same-origin",
-      headers: { "Accept": "application/json" }
+      credentials: "omit",
+      headers: {
+        "Accept": "application/json",
+        ...(replaySessionToken ? { [replaySessionHeader]: replaySessionToken } : {})
+      }
     });
     const value = await response.json().catch(() => ({ ok: false, error: "REPLAY_RESPONSE_INVALID" }));
     if (!response.ok) throw new Error(value.error || "REPLAY_REQUEST_FAILED");

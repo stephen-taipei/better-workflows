@@ -29,8 +29,11 @@ import {
 import {
   REPLAY_HOST,
   REPLAY_PORT,
+  REPLAY_SESSION_FRAGMENT,
+  REPLAY_SESSION_HEADER,
   ReplayServerError,
   platformOpenCommand,
+  replayStartedEvent,
   startReplayServer
 } from "../lib/replay-server.mjs";
 
@@ -160,6 +163,7 @@ function request(server, requestPath, options = {}) {
     const headers = {
       Host: options.host ?? `localhost:${server.port}`,
       ...(options.cookie ? { Cookie: options.cookie } : {}),
+      ...(options.session ? { [REPLAY_SESSION_HEADER]: options.session } : {}),
       ...(options.origin ? { Origin: options.origin } : {})
     };
     const operation = http.request({
@@ -240,6 +244,30 @@ test("recorded outcomes distinguish active, legacy, and inconsistent snapshots",
     evidence: false,
     updatedAt: "2026-08-26T07:07:00.000Z"
   });
+  const legacyRunning = await makeRun({
+    root,
+    runId: "sbw-20260826T070201Z-abcdefabcdef",
+    schemaVersion: 1,
+    evidence: false,
+    status: "running",
+    updatedAt: "2026-08-26T07:01:00.000Z"
+  });
+  const legacyCancelled = await makeRun({
+    root,
+    runId: "sbw-20260826T070202Z-abcdefabcdef",
+    schemaVersion: 1,
+    evidence: false,
+    status: "cancelled_by_user",
+    updatedAt: "2026-08-26T07:02:00.000Z"
+  });
+  const legacyInconclusive = await makeRun({
+    root,
+    runId: "sbw-20260826T070203Z-abcdefabcdef",
+    schemaVersion: 1,
+    evidence: false,
+    status: "inconclusive",
+    updatedAt: "2026-08-26T07:03:00.000Z"
+  });
   const inconsistent = await makeRun({
     root,
     runId: "sbw-20260826T070300Z-123456abcdef",
@@ -251,13 +279,75 @@ test("recorded outcomes distinguish active, legacy, and inconsistent snapshots",
 
   assert.equal((await buildReplaySnapshot(root, running.runId)).manifest.assurance.outcome, "UNSEALED");
   assert.equal((await buildReplaySnapshot(root, legacy.runId)).manifest.assurance.outcome, "LEGACY_RECORDED");
+  const activeLegacy = await buildReplaySnapshot(root, legacyRunning.runId);
+  assert.equal(activeLegacy.manifest.assurance.outcome, "UNSEALED");
+  assert.equal(activeLegacy.manifest.assurance.mutableSnapshot, true);
+  assert.equal((await buildReplaySnapshot(root, legacyCancelled.runId)).manifest.assurance.outcome, "CANCELLED");
+  assert.equal((await buildReplaySnapshot(root, legacyInconclusive.runId)).manifest.assurance.outcome, "INCONCLUSIVE");
   const held = await buildReplaySnapshot(root, inconsistent.runId);
   assert.equal(held.manifest.assurance.outcome, "HOLD");
   assert.ok(held.manifest.assurance.blockers.includes("CONTRACT_DIGEST_MISMATCH"));
   const library = await listReplayRuns(root);
-  assert.equal(library.totalRuns, 3);
+  assert.equal(library.totalRuns, 6);
   assert.equal(library.runs[0].runId, inconsistent.runId);
   assert.equal(library.generatedAt, "2026-08-26T07:08:00.000Z");
+});
+
+test("recorded typed evidence replays the installed contract verifier fail closed", async (context) => {
+  const root = await mkdtemp(tempPrefix("sbw-replay-typed-contracts-"));
+  context.after(() => removeFixture(root));
+  const cases = [
+    {
+      runId: "sbw-20260826T070401Z-111111111111",
+      mutate: (record) => {
+        record.receipt.inputBinding.remoteRevision = "f".repeat(40);
+      }
+    },
+    {
+      runId: "sbw-20260826T070402Z-222222222222",
+      mutate: (record) => {
+        record.kind = "executable-plan";
+        record.receipt.contractId = "evidence-contracts-v1:executable-plan";
+        record.typedAdmission.contractId = record.receipt.contractId;
+        record.receipt.payload = { objective: "Bounded replay plan" };
+        record.receipt.payloadDigest = digestObject(record.receipt.payload);
+        record.sourceDigest = record.receipt.payloadDigest;
+        delete record.receipt.inputBinding.sourceBindingDigest;
+      }
+    },
+    {
+      runId: "sbw-20260826T070403Z-333333333333",
+      mutate: (record) => {
+        record.receipt.producer = { provider: "untrusted-reviewer" };
+        record.typedAdmission.producer = "untrusted-reviewer";
+      }
+    },
+    {
+      runId: "sbw-20260826T070404Z-444444444444",
+      mutate: (record) => {
+        record.kind = "repo-gates";
+        record.receipt.contractId = "evidence-contracts-v1:repo-gates";
+        record.typedAdmission.contractId = record.receipt.contractId;
+        record.receipt.payload = { command: "npm test", result: false };
+        record.receipt.payloadDigest = digestObject(record.receipt.payload);
+        record.sourceDigest = record.receipt.payloadDigest;
+      }
+    }
+  ];
+
+  for (const item of cases) {
+    const fixture = await makeRun({ root, runId: item.runId });
+    const evidencePath = path.join(fixture.runDir, "evidence", "environment.json");
+    const record = JSON.parse(await readFile(evidencePath, "utf8"));
+    item.mutate(record);
+    await writeJson(evidencePath, record);
+    const snapshot = await buildReplaySnapshot(root, fixture.runId);
+    assert.equal(snapshot.manifest.assurance.outcome, "HOLD", item.runId);
+    assert.ok(snapshot.manifest.assurance.blockers.includes("INVALID_TYPED_EVIDENCE:environment"), item.runId);
+    const projected = snapshot.manifest.scenes.flatMap((scene) => scene.records)
+      .find((candidate) => candidate.id === "environment");
+    assert.equal(projected.status, "invalid", item.runId);
+  }
 });
 
 test("recorded completion fails closed on persisted findings, risk, actions, sentinel, and review blockers", async (context) => {
@@ -560,6 +650,10 @@ test("snapshot races, malformed input, symlinks, and oversized files fail closed
 
 test("localhost server uses one-shot session bootstrap and strict allowlisted routes", async (context) => {
   const fixture = await makeRun();
+  const other = await makeRun({
+    root: fixture.root,
+    runId: "sbw-20260826T070500Z-555555555555"
+  });
   context.after(() => removeFixture(fixture.root));
   const server = await startReplayServer({ stateRoot: fixture.root, runId: fixture.runId, port: 0 });
   context.after(() => server.close());
@@ -568,34 +662,46 @@ test("localhost server uses one-shot session bootstrap and strict allowlisted ro
   assert.equal(server.cleanUrl, `http://localhost:${server.port}/runs/${fixture.runId}`);
   assert.doesNotMatch(server.cleanUrl, /bootstrap/);
 
-  const unauthenticated = await request(server, "/");
+  const publicShell = await request(server, `/runs/${fixture.runId}`);
+  assert.equal(publicShell.status, 200);
+  assert.match(publicShell.body.toString("utf8"), /data-replay-mode="runtime"/);
+  const unauthenticated = await request(server, `/api/v1/runs/${fixture.runId}/replay`);
   assert.equal(unauthenticated.status, 401);
   assert.deepEqual(JSON.parse(unauthenticated.body), { ok: false, error: "REPLAY_SESSION_REQUIRED" });
 
   const bootstrapPath = new URL(server.bootstrapUrl).pathname;
   const bootstrap = await request(server, bootstrapPath);
   assert.equal(bootstrap.status, 303);
-  assert.equal(bootstrap.headers.location, `/runs/${fixture.runId}`);
-  assert.match(bootstrap.headers["set-cookie"][0], /HttpOnly; SameSite=Strict; Path=\//);
-  const cookie = bootstrap.headers["set-cookie"][0].split(";", 1)[0];
+  const redirect = new URL(bootstrap.headers.location, server.origin);
+  assert.equal(redirect.pathname, `/runs/${fixture.runId}`);
+  assert.match(redirect.hash, new RegExp(`^#${REPLAY_SESSION_FRAGMENT}=[A-Za-z0-9_-]{43}$`));
+  assert.equal(bootstrap.headers["set-cookie"], undefined, "replay must not create a localhost cookie");
+  const session = redirect.hash.slice(`#${REPLAY_SESSION_FRAGMENT}=`.length);
   assert.equal((await request(server, bootstrapPath)).status, 401, "bootstrap token must be single-use");
+  assert.equal(
+    (await request(server, `/api/v1/runs/${fixture.runId}/replay`, { cookie: `sbw_replay_session=${session}` })).status,
+    401,
+    "a localhost cookie must never authenticate replay"
+  );
 
-  const api = await request(server, `/api/v1/runs/${fixture.runId}/replay`, { cookie });
+  const api = await request(server, `/api/v1/runs/${fixture.runId}/replay`, { session });
   assert.equal(api.status, 200);
   assert.equal(JSON.parse(api.body).manifest.run.runId, fixture.runId);
   assert.match(api.headers["content-security-policy"], /default-src 'none'/);
   assert.equal(api.headers["cache-control"], "no-store");
 
-  const html = await request(server, `/runs/${fixture.runId}`, { cookie });
+  const html = await request(server, `/runs/${fixture.runId}`);
   assert.equal(html.status, 200);
   assert.match(html.body.toString("utf8"), /data-replay-mode="runtime"/);
-  assert.equal((await request(server, "/assets/cast-lineup.webp", { cookie })).status, 200);
-  assert.equal((await request(server, "/api/v1/runs?leak=true", { cookie })).status, 400);
-  assert.equal((await request(server, "http://evil.example/", { cookie })).status, 400);
-  assert.equal((await request(server, "/", { cookie, method: "POST" })).status, 405);
-  assert.equal((await request(server, "/", { cookie, host: `evil.example:${server.port}` })).status, 421);
+  assert.equal((await request(server, "/assets/cast-lineup.webp")).status, 200);
+  assert.equal((await request(server, "/api/v1/runs", { session })).status, 403, "run-bound sessions must not enumerate the library");
+  assert.equal((await request(server, `/api/v1/runs/${other.runId}/replay`, { session })).status, 403);
+  assert.equal((await request(server, "/api/v1/runs?leak=true", { session })).status, 400);
+  assert.equal((await request(server, "http://evil.example/", { session })).status, 400);
+  assert.equal((await request(server, "/", { session, method: "POST" })).status, 405);
+  assert.equal((await request(server, "/", { session, host: `evil.example:${server.port}` })).status, 421);
   assert.equal((await request(server, "/", {
-    cookie,
+    session,
     origin: "http://evil.example"
   })).status, 403);
 });
@@ -638,6 +744,21 @@ test("browser opener is fixed-argv and replay modules contain no privileged revi
   ]);
   assert.doesNotMatch(`${serverSource}\n${replaySource}`, /\bsudo\b|host-trust|runCodexCritic|runAgyCritic/);
   assert.match(serverSource, /shell: false/);
+});
+
+test("browser opener failure preserves the one-shot bootstrap handoff", () => {
+  const replay = {
+    cleanUrl: "http://localhost:9300/runs/sbw-20260826T070000Z-123456abcdef",
+    bootstrapUrl: "http://localhost:9300/bootstrap/one-shot",
+    runId: defaultRunId,
+    port: REPLAY_PORT
+  };
+  const opened = replayStartedEvent(replay, { opened: true, noOpen: false });
+  assert.equal(opened.bootstrapUrl, undefined);
+  const failed = replayStartedEvent(replay, { opened: false, noOpen: false });
+  assert.equal(failed.bootstrapUrl, replay.bootstrapUrl);
+  const manual = replayStartedEvent(replay, { opened: false, noOpen: true });
+  assert.equal(manual.bootstrapUrl, replay.bootstrapUrl);
 });
 
 test("CLI help exposes the built-in evidence replay entrypoint", async () => {
@@ -700,7 +821,9 @@ test("CLI no-open prints the single-use manual bootstrap URL", async (context) =
 
   const bootstrap = await request({ port: REPLAY_PORT }, new URL(started.bootstrapUrl).pathname);
   assert.equal(bootstrap.status, 303);
-  assert.equal(bootstrap.headers.location, `/runs/${fixture.runId}`);
+  const redirect = new URL(bootstrap.headers.location, `http://localhost:${REPLAY_PORT}`);
+  assert.equal(redirect.pathname, `/runs/${fixture.runId}`);
+  assert.match(redirect.hash, /^#sbw-replay-session=[A-Za-z0-9_-]{43}$/);
   child.kill("SIGTERM");
   const exitCode = child.exitCode ?? await new Promise((resolve) => child.once("exit", resolve));
   assert.equal(exitCode, 0);

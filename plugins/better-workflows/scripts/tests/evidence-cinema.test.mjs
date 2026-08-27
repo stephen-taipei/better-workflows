@@ -171,5 +171,11 @@ test("runtime cinema is CSP-compatible, sanitized, and shares the canonical rend
   assert.doesNotMatch(runtime, /<style\b|<script>([\s\S]*?)<\/script>|\son\w+=/i);
   assert.match(renderer, /fetchJson\("\/api\/v1\/runs"\)/);
   assert.match(renderer, /\/api\/v1\/runs\/" \+ encodeURIComponent\(match\[1\]\) \+ "\/replay"/);
+  assert.match(renderer, /#sbw-replay-session=/);
+  assert.match(renderer, /sessionStorage\.setItem\(replaySessionStorageKey, token\)/);
+  assert.match(renderer, /history\.replaceState\(null, "", location\.pathname \+ location\.search\)/);
+  assert.match(renderer, /credentials: "omit"/);
+  assert.match(renderer, /X-SBW-Replay-Session/);
+  assert.doesNotMatch(renderer, /document\.cookie/);
   assert.doesNotMatch(renderer, /\.innerHTML\b|\beval\s*\(|new Function\b/);
 });

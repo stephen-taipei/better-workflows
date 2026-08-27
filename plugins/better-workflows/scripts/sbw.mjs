@@ -172,7 +172,7 @@ import {
   graphHasErrors,
   renderGraphMermaid
 } from "./lib/graph.mjs";
-import { openReplayBrowser, startReplayServer } from "./lib/replay-server.mjs";
+import { openReplayBrowser, replayStartedEvent, startReplayServer } from "./lib/replay-server.mjs";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const TEMPLATE_DIR = path.join(pluginRoot(), "templates");
@@ -1999,17 +1999,7 @@ async function commandEvidenceReplay(root, runId, options) {
       }, process.stderr);
     }
   }
-  printEvent({
-    ok: true,
-    event: "replay.started",
-    url: replay.cleanUrl,
-    ...(noOpen ? { bootstrapUrl: replay.bootstrapUrl } : {}),
-    runId: replay.runId,
-    host: "localhost",
-    port: replay.port,
-    opened,
-    noOpen
-  });
+  printEvent(replayStartedEvent(replay, { opened, noOpen }));
   let onSigint;
   let onSigterm;
   try {
