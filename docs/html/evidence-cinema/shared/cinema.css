@@ -249,7 +249,7 @@ main { overflow: hidden; }
 }
 .runtime-error:focus { outline: 2px solid var(--bad); outline-offset: 3px; }
 .runtime-error-code { overflow-wrap: anywhere; }
-.runtime-recovery { margin: 4px 0 0; color: var(--text); font: 500 15px/1.6 var(--sans); }
+.runtime-recovery { margin: 4px 0 0; color: var(--ink); font: 500 15px/1.6 var(--sans); }
 .runtime-recovery-command {
   width: fit-content;
   max-width: 100%;
@@ -296,6 +296,13 @@ main { overflow: hidden; }
   margin-bottom: 40px;
 }
 .section-no { color: var(--amber); font: 760 66px/.9 var(--serif); letter-spacing: -.05em; }
+.section-no.runtime-section-label {
+  padding-top: 7px;
+  color: var(--amber);
+  font: 800 clamp(12px, 1.3vw, 16px)/1.2 var(--mono);
+  letter-spacing: .12em;
+  white-space: nowrap;
+}
 .kicker { margin: 0 0 8px; color: var(--cobalt); font: 800 10px/1.5 var(--mono); letter-spacing: .14em; text-transform: uppercase; }
 h2 { max-width: 940px; margin: 0; font: 740 clamp(34px, 4.2vw, 58px)/1.07 var(--serif); letter-spacing: -.04em; }
 .section-summary { max-width: 860px; margin: 17px 0 0; color: var(--muted); font-size: 17px; }

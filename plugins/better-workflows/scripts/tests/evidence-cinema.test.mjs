@@ -152,7 +152,10 @@ test("cast lineup keeps its intrinsic ratio at desktop and mobile breakpoints", 
   assert.equal(css, mirroredCss);
   assert.match(content, /cast-lineup\.webp" width="1693" height="929"/);
   assert.match(runtime, /cast-lineup\.webp" width="1693" height="929"/);
+  assert.match(runtime, /class="section-no runtime-section-label"[^>]*>REPLAY<\/span>/);
   assert.match(css, /\.hero-art img \{[\s\S]*?width: 100%;[\s\S]*?max-width: 100%;[\s\S]*?height: auto;[\s\S]*?aspect-ratio: 1693 \/ 929;[\s\S]*?object-fit: contain;/);
+  assert.match(css, /\.section-no\.runtime-section-label \{[\s\S]*?font: 800 clamp\(12px, 1\.3vw, 16px\)\/1\.2 var\(--mono\);[\s\S]*?white-space: nowrap;/);
+  assert.doesNotMatch(css, /var\(--text\)/);
   assert.match(css, /@media \(max-width: 1120px\)[\s\S]*?\.hero-art \{ max-width: 850px; margin-inline: auto; \}/);
   assert.match(css, /@media \(max-width: 520px\)[\s\S]*?\.hero-art \{ transform: none; \}/);
   assert.doesNotMatch(css, /data:image/);
