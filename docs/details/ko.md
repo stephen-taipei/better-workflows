@@ -327,7 +327,7 @@ structural error는 `eval`, run 생성, action-token issue, completion을 추가
 fail closed하고 heuristic diagnostics는 warning만 생성합니다.
 각 gate는 installed template 또는 private run records에서 structural
 validation을 다시 계산합니다. graph envelope, graph digest, Mermaid,
-persisted graph를 policy input으로 받지 않으며 표시 실패는
+persisted graph를 policy input으로 받지 않으며 presentation(표시) 실패는
 authority를 부여하거나 완화할 수 없습니다.
 
 ```bash

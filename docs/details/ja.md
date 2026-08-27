@@ -328,7 +328,7 @@ structural error は `eval`、run 作成、action-token issue、completion を�
 fail closed にします。Heuristic diagnostics は warning のみです。
 各 gate は installed template または private run records から structural
 validation を再計算します。graph envelope、graph digest、Mermaid、persisted
-graph を policy input として受け取らず、表示の失敗が authority を
+graph を policy input として受け取らず、presentation（表示）の失敗が authority を
 付与・緩和することはありません。
 
 ```bash

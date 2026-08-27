@@ -108,7 +108,7 @@
           "prompt-not-authority": "Prompt 可以描述意圖，但永遠不會授予權限。",
           "root-only-mutation": "只有 Root 可以修改、整合、部署、接受風險或宣告完成。",
           "evidence-before-action": "每個 side effect 都必須具備與目前來源一致且仍有效的 evidence、provenance，以及綁定預定目標的 action。",
-          "unknown-stop": "只要出現 drift、過期證據或未知 provider 狀態，工作流就會停止。",
+          "unknown-stop": "只要出現 drift、過期證據或未知 provider 狀態，工作流程就會停止。",
           "private-history": "敏感或私人歷史絕不會被擷取；只能以經遮蔽的 `REJECTED_WITH_EVIDENCE` disposition 拒絕。"
         }
       },
@@ -139,7 +139,7 @@
         "locale": "ja",
         "path": "docs/README.ja.md",
         "detailsTarget": "docs/details/ja.md",
-        "preambleRoster": "**Model roster:** Codex · Claude · Gemini · GPT-OSS · Grok · Cursor · Kimi · Qwen · Kiro。`agy` は Gemini、Claude、GPT-OSS ブランドの model を transport しますが、それ自体は model ブランドではありません。",
+        "preambleRoster": "**Model roster:** Codex · Claude · Gemini · GPT-OSS · Grok · Cursor · Kimi · Qwen · Kiro。`agy` は Gemini、Claude、GPT-OSS ブランドのモデルへの接続に使う転送レイヤーであり、それ自体はモデルブランドではありません。",
         "headings": [
           "Better Workflows が必要な理由",
           "Prompt から統制された成果へ",
@@ -162,7 +162,7 @@
         "locale": "ko",
         "path": "docs/README.ko.md",
         "detailsTarget": "docs/details/ko.md",
-        "preambleRoster": "**Model roster:** Codex · Claude · Gemini · GPT-OSS · Grok · Cursor · Kimi · Qwen · Kiro. `agy`는 Gemini, Claude, GPT-OSS 브랜드 model을 transport하지만 그 자체가 model 브랜드는 아닙니다.",
+        "preambleRoster": "**Model roster:** Codex · Claude · Gemini · GPT-OSS · Grok · Cursor · Kimi · Qwen · Kiro. `agy`는 Gemini, Claude, GPT-OSS 브랜드 모델에 연결하는 전송 계층이며 그 자체가 모델 브랜드는 아닙니다.",
         "headings": [
           "Better Workflows가 필요한 이유",
           "Prompt에서 통제된 결과로",
