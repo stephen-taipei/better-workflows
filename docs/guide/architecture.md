@@ -41,6 +41,45 @@ flowchart LR
   G -- "unknown" --> I
 ```
 
+### Host-neutral core and host adapters
+
+`host-support-v1` is the single registry for the CLI, README, website,
+structured data, packaging, and conformance matrix. Codex, Claude Code, Gemini
+CLI, and Qwen Code on macOS/Linux are Tier 1 only when their exact host/OS
+receipt passes. Windows and Kimi Code CLI, Kiro, Grok Build, Cursor, and GitHub
+Copilot are Preview in v4.0.0.
+
+TaskContract, typed evidence, freshness, ledger, Replay, action gates,
+reconciliation, risk assessment, and task-worktree ownership are host-neutral.
+Codex's native Goal, picker, subagent, self-improve host trust, and plugin-cache
+publication remain Codex-specific. A core bridge is a supported integration;
+it is not evidence that every host has the same native UX.
+
+### Risk-adaptive Auto and workspace ownership
+
+```mermaid
+flowchart TD
+  A["Read Goal, scope, repo, revision"] --> B{"Mutation?"}
+  B -- "No" --> C["Read-only in current checkout"]
+  B -- "Yes" --> D["Bind source branch, base SHA, target"]
+  D --> E["Create or reuse task-owned worktree"]
+  C --> F{"AutoRiskAssessmentV1"}
+  E --> F
+  F -- "All low-risk conditions pass" --> G["Direct + targeted check"]
+  F -- "Any risk, uncertainty, exclusion" --> H["Evidence-required route"]
+  G --> I["Validate integrated result"]
+  H --> I
+  I --> J["Reconcile target"]
+  J --> K["Cleanup exact owned resources only"]
+```
+
+`TaskWorkspaceLeaseV1` binds repository identity, source checkout,
+`sourceBranch`, `baseRevision`, `integrationTarget`, task branch, worktree path,
+ownership nonce, lifecycle state, and exact resource digests. Worktree
+isolation protects mutation state; it does not replace evidence verification.
+Multiple repositories receive independent leases and serialized integration;
+there is no claim of cross-repository atomicity.
+
 ## Routing precedence
 
 1. Host hard constraints.

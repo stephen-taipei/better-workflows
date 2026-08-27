@@ -7,13 +7,32 @@
 
 | Mode | Use when | Behavior |
 | --- | --- | --- |
-| `direct` | Small, reversible, well-understood work | Root works normally; persistent Goal, no workflow journal |
+| `direct` | Small, reversible, well-understood work | No evidence journal; targeted check; Git mutation still requires a minimal task worktree lease |
 | `verified` | Normal engineering work | Root plus one to three bounded read-only research/review roles |
 | `deep` | Architecture, broad refactors, security | Verified flow plus up to two sequential independent critics |
 | `critical` | Release, migration, destructive or irreversible work | Complete fail-closed evidence, authority, and reconciliation gates |
 
 A user-selected mode is a floor. Profiles and model advice may raise it but
 never lower it.
+
+### How Auto decides
+
+Auto always inspects the Goal, scope, repository instructions, current source
+revision, mutation intent, capabilities, and integration target. Root records
+`AutoRiskAssessmentV1`. Direct is available only when acceptance is explicit,
+irreversibility is zero, every other risk dimension is at most one, the total
+is at most two, and no hard exclusion or protected/remote target applies.
+
+Direct is not “skip verification.” It runs a bounded targeted check with no
+network or external side effect and a total expected duration no longer than
+120 seconds. A failed or unexplained result cannot be reported as complete.
+Scope or risk drift invalidates the assessment and triggers a new route.
+
+For a Git mutation, Direct remains evidence-workflow-stateless but keeps a
+minimal `TaskWorkspaceLeaseV1`. The task edits, tests, commits, validates,
+integrates, and cleans only its owned worktree and branch. A dirty source,
+detached or missing target, ownership conflict, merge conflict, failed check,
+unknown provider state, or target drift fails closed.
 
 ## Picker entries
 
@@ -72,31 +91,19 @@ authoring SOP](../../plugins/better-workflows/skills/better-workflows/references
 
 ## Release tag policy
 
-Release tags are integration markers, not progress markers. The CI tag job only
-considers a push to `dev` or `main` after the exact commit is proven to be the
-merged result of a pull request into that branch, the branch has not moved, CI
-has passed, and the stable package and plugin versions changed from the target
-branch parent. `main` receives `vX.Y.Z`; `dev` receives the matching
-`vX.Y.Z-dev.<short-sha>` prerelease tag. An integration commit whose version is
-unchanged receives no tag itself, but the job performs a bounded first-parent
-scan and can reconcile every earlier untagged merged version bump in its
-128-commit window and a 90-day immutable policy-artifact horizon. A fresh
-version bump at the exact event HEAD remains eligible even when older history
-exceeds that window; catch-up-only history beyond either bound fails closed.
-The trusted `pull_request_target` pre-merge receipt is bound to the exact
-pre-merge policy artifact and PR boundary. A merged PR is reconciled by a
-durable `workflow_run` completion event for the successful trusted
-`pull_request_target` run; that event is bound to its trigger run, PR head,
-base, and merge commit. A one-minute poll is only a bounded fast path, never
-the sole opportunity to publish the merge-bound receipt, so a delayed source
-receipt can be retried by a later trusted completion event. An old opened or
-synchronize snapshot cannot stand in for merge-time policy continuity. This
-closes the consecutive-bump race without allowing a stale branch update. An
-existing tag pointing to a different commit is a fail-closed error; CI never
-force-moves tags. The final publication uses
-GitHub's server-side atomic `updateRefs` mutation: all recovered tags and an
-expected-branch-tip CAS (`beforeOid` set to the push event SHA) are one
-transaction, so a branch move during publication rejects the entire batch.
+Stable tags are release outcomes, not merge side effects. A push or PR merge to
+`main` does **not** automatically create `vX.Y.Z`. `dev` may still receive an
+integration-only `vX.Y.Z-dev.<short-sha>` marker after its exact merged commit
+and fresh CI are proven.
+
+The stable release controller accepts an exact `main` SHA only after fresh CI,
+all eight authenticated Tier 1 host/OS conformance receipts, task-worktree
+lifecycle tests, an exact-SHA website deployment receipt, public QA of all 41
+locale URLs, version-manifest agreement, and explicit release authority. It
+then creates `vX.Y.Z` and the non-draft, non-prerelease GitHub Release as one
+governed publication sequence. Existing conflicting tags, branch drift,
+missing receipts, unknown provider state, or website digest mismatch fail
+closed; tags are never force-moved.
 
 ## Common paths
 

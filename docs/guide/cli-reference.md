@@ -19,11 +19,49 @@ sbw doctor
 sbw doctor --capabilities
 sbw route preview --goal "<goal>" --scope <path>
 sbw route preview --goal "<goal>" --scope <path> \
+  --mutation modify --acceptance-defined \
+  --risk 0 --uncertainty 0 --blast-radius 1 \
+  --irreversibility 0 --evidence-gap 0 \
+  --basic-check "<targeted check>" \
+  --integration-target <local-branch>
+sbw route preview --goal "<goal>" --scope <path> \
   --autonomy-profile bounded-autopilot-v1
 sbw route profile validate --file <profile.json>
 sbw route profile install --file <profile.json>
 sbw route profile show
 ```
+
+The recorded preview includes `AutoRiskAssessmentV1`. Direct is selected only
+when every low-risk condition passes. `--protected-target`, any hard exclusion,
+an unknown mutation intent, missing acceptance, or missing Git integration
+target promotes the route to evidence-required.
+
+## Hosts and workspaces
+
+```bash
+sbw host list
+sbw host doctor [host-id] [--os macos|linux|windows]
+sbw host conformance [host-id] [--os macos|linux|windows] [--write-receipt]
+
+sbw workspace preflight [--intent read-only|modify] \
+  [--task-id <id>] [--integration-target <local-branch>] \
+  [--profile-target <local-branch>]
+sbw workspace create --goal "<goal>" [--task-id <id>] \
+  [--integration-target <local-branch>] [--profile-target <local-branch>]
+sbw workspace validate --repository-id <id> --task-id <id> \
+  --check-file <checks.json>
+sbw workspace rebind --repository-id <id> --task-id <id> \
+  --integration-target <local-branch>
+sbw workspace integrate --repository-id <id> --task-id <id>
+sbw workspace cleanup --repository-id <id> --task-id <id>
+sbw workspace status --repository-id <id> --task-id <id>
+```
+
+The workspace commands never infer cleanup ownership from a branch prefix or
+path. `integrate` supports only a clean, non-protected local target. Protected
+or remote delivery must continue through the governed PR and provider
+reconciliation commands; until terminal merge proof exists, the task lease and
+recovery resources remain in place.
 
 ## Runs, evidence, and findings
 

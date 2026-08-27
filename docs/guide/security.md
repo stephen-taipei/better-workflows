@@ -42,6 +42,27 @@ evidence and cannot be sanitized, reject the proposal without harvesting or
 transmitting that source. Persist only a redacted `REJECTED_WITH_EVIDENCE`
 rationale.
 
+## Task worktree isolation
+
+`task-worktree-v1` grants a deliberately narrow local capability: discover a
+repository, create a unique task branch and worktree from an exact base SHA,
+make bounded commits there, validate a candidate integration, compare-and-swap
+a clean non-protected local target, and remove exact resources owned by the
+same `TaskWorkspaceLeaseV1`.
+
+It does not authorize push, PR merge, deploy, release, protected-branch bypass,
+force removal, `git worktree prune`, stash, patch copying, or temporary commits
+in a dirty source checkout. Read-only and non-Git work do not create worktrees.
+Detached HEAD, a missing or renamed target, dirty source or target, ownership
+conflict, repeated target drift, merge conflict, failed validation, and unknown
+provider state all stop before integration or cleanup.
+
+Cleanup requires terminal integration proof, a clean task worktree, exact
+lease ownership, and target reconciliation. Failure preserves the task branch
+and worktree as recovery state. Names, path prefixes, or globs are never used as
+cleanup authority. Nested repositories and submodules require independent
+leases; multiple-repository integration is serialized and is not atomic.
+
 ## Local state
 
 - Private state directories use mode `0700`.

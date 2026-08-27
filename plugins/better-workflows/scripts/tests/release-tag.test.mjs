@@ -1321,7 +1321,7 @@ test("bootstrap-skipped version bumps do not block a later publisher-backed catc
     await git(work, ["commit", "-qm", "publish release policy"]);
     const publisherBase = await git(work, ["rev-parse", "HEAD"]);
 
-    await writeVersion("3.4.14");
+    await writeVersion("3.4.15");
     await git(work, ["add", "."]);
     await git(work, ["commit", "-qm", "publisher-backed version bump"]);
     const head = await git(work, ["rev-parse", "HEAD"]);
@@ -1363,7 +1363,7 @@ test("bootstrap-skipped version bumps do not block a later publisher-backed catc
       }
     });
     assert.equal(result.status, "planned");
-    assert.equal(result.version, "3.4.14");
+    assert.equal(result.version, "3.4.15");
     assert.equal(result.sha, head);
     assert.equal(result.pullNumber, 20);
   } finally {
@@ -2505,8 +2505,8 @@ test("release eligibility catches up a version bump after a later non-version pu
     });
     assert.equal(skippedReceipt.kind, "merge-time-required-checks-v1");
     assert.equal(skippedReceipt.pullNumber, 11);
-    await git(work, ["tag", "v3.4.14-dev.aaaaaaaaaaaa", bump]);
-    await git(work, ["push", "-q", "origin", "refs/tags/v3.4.14-dev.aaaaaaaaaaaa"]);
+    await git(work, ["tag", "v3.4.15-dev.aaaaaaaaaaaa", bump]);
+    await git(work, ["push", "-q", "origin", "refs/tags/v3.4.15-dev.aaaaaaaaaaaa"]);
     await assert.rejects(
       runReleaseTag({
         cwd: work,
@@ -2524,8 +2524,8 @@ test("release eligibility catches up a version bump after a later non-version pu
       }),
       /below the highest published dev release 3\.4\.14/
     );
-    await writeFile(path.join(work, "plugins/better-workflows/package.json"), JSON.stringify({ version: "3.4.14" }));
-    await writeFile(path.join(work, "plugins/better-workflows/.codex-plugin/plugin.json"), JSON.stringify({ version: "3.4.14+codex.test" }));
+    await writeFile(path.join(work, "plugins/better-workflows/package.json"), JSON.stringify({ version: "3.4.15" }));
+    await writeFile(path.join(work, "plugins/better-workflows/.codex-plugin/plugin.json"), JSON.stringify({ version: "3.4.15+codex.test" }));
     await git(work, ["add", "."]);
     await git(work, ["commit", "-qm", "higher version"]);
     await writeFile(path.join(work, "plugins/better-workflows/package.json"), JSON.stringify({ version: "3.4.13" }));
@@ -2648,9 +2648,9 @@ test("consecutive version bumps are recovered in one atomic batch", async () => 
     await git(work, ["add", "."]);
     await git(work, ["commit", "-qm", "release 3.4.13"]);
     const bump13 = await git(work, ["rev-parse", "HEAD"]);
-    await writeVersion("3.4.14");
+    await writeVersion("3.4.15");
     await git(work, ["add", "."]);
-    await git(work, ["commit", "-qm", "release 3.4.14"]);
+    await git(work, ["commit", "-qm", "release 3.4.15"]);
     const head = await git(work, ["rev-parse", "HEAD"]);
     await git(work, ["push", "-q", "origin", "dev"]);
 
@@ -2709,7 +2709,7 @@ test("consecutive version bumps are recovered in one atomic batch", async () => 
     const result = await runReleaseTag({ cwd: work, fetchImpl, env });
     assert.deepEqual(result.tags, [
       { tag: `v3.4.13-dev.${bump13.slice(0, 12)}`, sha: bump13, version: "3.4.13" },
-      { tag: `v3.4.14-dev.${head.slice(0, 12)}`, sha: head, version: "3.4.14" }
+      { tag: `v3.4.15-dev.${head.slice(0, 12)}`, sha: head, version: "3.4.15" }
     ]);
     assert.equal(result.requiredChecks.mergeTimeReceipt.kind, "merge-time-required-checks-v1");
     assert.equal(result.requiredChecks.mergeTimeReceipt.mergeCommitSha, bump13);
@@ -2719,7 +2719,7 @@ test("consecutive version bumps are recovered in one atomic batch", async () => 
     assert.deepEqual(mutationUpdates, [
       { name: "refs/heads/dev", beforeOid: head, afterOid: head, force: false },
       { name: `refs/tags/v3.4.13-dev.${bump13.slice(0, 12)}`, beforeOid: "0".repeat(40), afterOid: bump13, force: false },
-      { name: `refs/tags/v3.4.14-dev.${head.slice(0, 12)}`, beforeOid: "0".repeat(40), afterOid: head, force: false }
+      { name: `refs/tags/v3.4.15-dev.${head.slice(0, 12)}`, beforeOid: "0".repeat(40), afterOid: head, force: false }
     ]);
   } finally {
     await rm(root, { recursive: true, force: true });

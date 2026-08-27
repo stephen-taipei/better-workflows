@@ -8,6 +8,11 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { CONNECTORS_LOCALES, DEFAULT_LOCALE, LOCALE_KEYS, locales } from "./website-locales.mjs";
+import {
+  loadHostSupportRegistry,
+  renderHostSupportHtml
+} from "../plugins/better-workflows/scripts/lib/hosts.mjs";
+import { digestObject } from "../plugins/better-workflows/scripts/lib/core.mjs";
 
 const execFileAsync = promisify(execFile);
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
@@ -79,7 +84,7 @@ const openGraphLocales = {
 
 async function gitRevision() {
   try {
-    const { stdout } = await execFileAsync("git", ["rev-parse", "--short=12", "HEAD"], { cwd: repoRoot });
+    const { stdout } = await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repoRoot });
     return stdout.trim() || "unknown";
   } catch {
     return "unknown";
@@ -173,7 +178,7 @@ function localeOptions(currentLocale) {
   }).join("");
 }
 
-function structuredData({ locale, title, description, canonical, version }) {
+function structuredData({ locale, title, description, canonical, version, runtimePlatforms }) {
   return JSON.stringify({
     "@context": "https://schema.org",
     "@graph": [
@@ -196,7 +201,7 @@ function structuredData({ locale, title, description, canonical, version }) {
         codeRepository: repositoryUrl,
         license: `${repositoryUrl}/blob/main/LICENSE`,
         programmingLanguage: ["JavaScript", "HTML", "CSS"],
-        runtimePlatform: "Codex",
+        runtimePlatform: runtimePlatforms,
         version,
         inLanguage: locale,
         isPartOf: { "@id": `${canonicalOrigin}/#website` }
@@ -207,6 +212,11 @@ function structuredData({ locale, title, description, canonical, version }) {
 
 function replaceSiteTokens(content, values) {
   return content.replace(/__SITE_([A-Z0-9_]+)__/g, (_, key) => values[key] ?? "unknown");
+}
+
+function renderLocalizedList(value, className) {
+  const items = String(value).split("|").map((item) => item.trim()).filter(Boolean);
+  return `<ol class="${className}">${items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ol>`;
 }
 
 function renderLocalizedPage(template, locale, commonValues) {
@@ -221,7 +231,16 @@ function renderLocalizedPage(template, locale, commonValues) {
     CANONICAL: canonical,
     HREFLANG_LINKS: hreflangLinks(),
     LOCALE_OPTIONS: localeOptions(locale.code),
-    STRUCTURED_DATA: structuredData({ locale: locale.code, title: locale.messages.TITLE, description: locale.messages.DESCRIPTION, canonical, version: commonValues.VERSION })
+    AUTO_FLOW_ITEMS: renderLocalizedList(locale.messages.V4_AUTO_FLOW, "auto-flow-list"),
+    BOUNDARY_ITEMS: renderLocalizedList(locale.messages.V4_BOUNDARIES, "boundary-list"),
+    STRUCTURED_DATA: structuredData({
+      locale: locale.code,
+      title: locale.messages.TITLE,
+      description: locale.messages.DESCRIPTION,
+      canonical,
+      version: commonValues.VERSION,
+      runtimePlatforms: commonValues.RUNTIME_PLATFORMS
+    })
   });
 }
 
@@ -303,7 +322,19 @@ const version = await packageVersion();
 const revision = await gitRevision();
 const builtAt = buildTime();
 const assetVersion = await websiteAssetVersion();
-const commonValues = { VERSION: version, REVISION: revision, BUILD_TIME: builtAt, ASSET_VERSION: assetVersion };
+const hostSupportRegistry = await loadHostSupportRegistry();
+const hostRegistryDigest = digestObject(hostSupportRegistry);
+const runtimePlatforms = hostSupportRegistry.hosts
+  .filter((host) => host.supportTier === "tier1")
+  .map((host) => host.displayName);
+const commonValues = {
+  VERSION: version,
+  REVISION: revision,
+  BUILD_TIME: builtAt,
+  ASSET_VERSION: assetVersion,
+  HOST_SUPPORT_MATRIX: renderHostSupportHtml(hostSupportRegistry),
+  RUNTIME_PLATFORMS: runtimePlatforms
+};
 
 if (locales.length !== 41 || JSON.stringify(locales.map((locale) => locale.code)) !== JSON.stringify(CONNECTORS_LOCALES)) {
   throw new Error("Website locale scope must match the Connectors iOS 41-locale inventory exactly");
@@ -334,7 +365,15 @@ await writeFile(rootPath, replaceSiteTokens(rootContent, {
   ...commonValues,
   HREFLANG_LINKS: hreflangLinks(),
   LOCALE_OPTIONS: localeOptions(DEFAULT_LOCALE),
-  STRUCTURED_DATA: structuredData({ locale: DEFAULT_LOCALE, title: defaultLocale.messages.TITLE, description: defaultLocale.messages.DESCRIPTION, canonical: rootCanonical, version })
+  HOST_SUPPORT_MATRIX: commonValues.HOST_SUPPORT_MATRIX,
+  STRUCTURED_DATA: structuredData({
+    locale: DEFAULT_LOCALE,
+    title: defaultLocale.messages.TITLE,
+    description: defaultLocale.messages.DESCRIPTION,
+    canonical: rootCanonical,
+    version,
+    runtimePlatforms
+  })
 }));
 
 const localizedTemplate = await readFile(localizedTemplatePath, "utf8");
@@ -376,8 +415,10 @@ await writeFile(path.join(outputDirectory, "release.json"), `${JSON.stringify({
   locales: locales.length,
   defaultLocale: DEFAULT_LOCALE,
   assetVersion,
+  hostRegistryId: hostSupportRegistry.id,
+  hostRegistryDigest,
   contentDigest: artifactContentDigest,
   artifact: "static-frontend"
 }, null, 2)}\n`);
 
-console.log(JSON.stringify({ outputDirectory, version, revision, builtAt, assetVersion, contentDigest: artifactContentDigest, locales: locales.length, repository: repositoryUrl, sponsorUrl, sponsorMode }, null, 2));
+console.log(JSON.stringify({ outputDirectory, version, revision, builtAt, assetVersion, hostRegistryDigest, contentDigest: artifactContentDigest, locales: locales.length, repository: repositoryUrl, sponsorUrl, sponsorMode }, null, 2));

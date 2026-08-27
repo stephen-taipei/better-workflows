@@ -4,9 +4,9 @@
 
 **Goal-first · Evidence-driven · Fail-closed**
 
-Codex の作業を「Prompt を渡して成功を祈る」状態から、意図、検証、provider reconciliation を経た delivery へ進めます。
+複数ブランドの AI agent がリスクに応じて検証強度を選び、隔離環境で安全に作業を完了します。
 
-[![Version](https://img.shields.io/badge/version-3.4.14-2563EB?style=flat-square)](../plugins/better-workflows/package.json)
+[![Version](https://img.shields.io/badge/version-4.0.0-2563EB?style=flat-square)](../plugins/better-workflows/package.json)
 [![Node](https://img.shields.io/badge/Node.js-%E2%89%A524-3C873A?style=flat-square)](../plugins/better-workflows/package.json)
 [![Dependencies](https://img.shields.io/badge/runtime_dependencies-0-0F766E?style=flat-square)](../plugins/better-workflows/package.json)
 [![License](https://img.shields.io/badge/license-MIT-64748B?style=flat-square)](../LICENSE)
@@ -20,8 +20,12 @@ Codex の作業を「Prompt を渡して成功を祈る」状態から、意図�
 <!-- readme-roster -->
 **Model roster:** Codex · Claude · Gemini · GPT-OSS · Grok · Cursor · Kimi · Qwen · Kiro。`agy` は Gemini、Claude、GPT-OSS ブランドの model を transport しますが、それ自体は model ブランドではありません。
 
+**正式 Tier 1：** Codex、Claude Code、Gemini CLI、Qwen Code × macOS／Linux。**公式推奨：macOS + Codex**。Windows とその他の host は Preview です。
+
 <!-- readme-section:promise-audience -->
 ## Better Workflows が必要な理由
+
+平たく言えば「証拠を最優先する AI エンジニアリング QA ＋デリバリーの門番」です。単純な変更は速く、重要な作業は段階ごとに検証し、Git 変更は既定で task 専用 worktree を使います。
 
 Codex は repository の分析、コード編集、check 実行、provider 操作を行えます。
 能力が高まるほど、「利用者の意図」と「現在の証拠と権限が実際に許すこと」を

@@ -95,11 +95,18 @@ test("official website build is self-contained and includes docs/html", async ()
     assert.equal(release.sponsorMode, "one-time-only");
     assert.equal(release.locales, 41);
     assert.equal(release.defaultLocale, "zh-Hant-TW");
+    assert.equal(release.hostRegistryId, "host-support-v1");
+    assert.match(release.hostRegistryDigest, /^[a-f0-9]{64}$/);
+    assert.match(release.revision, /^[a-f0-9]{40}$/);
     assert.match(release.assetVersion, /^[a-f0-9]{12}$/);
     assert.match(release.contentDigest, /^[a-f0-9]{64}$/);
     assert.match(landing, new RegExp(`/styles\\.css\\?v=${release.assetVersion}`));
     assert.match(landing, new RegExp(`/site\\.js\\?v=${release.assetVersion}`));
     assert.match(landing, /href="https:\/\/ko-fi\.com\/betterworkflows" target="_blank" rel="noopener noreferrer"/);
+    assert.match(landing, /證據至上的 AI 工程 QA/);
+    assert.match(landing, /官方推薦：macOS \+ Codex/);
+    assert.match(landing, /class="support-matrix"/);
+    assert.match(landing, /Replay 是重播/);
     assert.equal(await readFile(path.join(outputDirectory, "healthz"), "utf8"), "ok\n");
 
     for (const relativePath of [

@@ -20,6 +20,15 @@ function occurrences(content, pattern) {
   return [...content.matchAll(pattern)].length;
 }
 
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
 test("locale catalog matches Connectors iOS and preserves key order", () => {
   assert.equal(locales.length, 41);
   assert.deepEqual(locales.map((locale) => locale.code), CONNECTORS_LOCALES);
@@ -27,8 +36,16 @@ test("locale catalog matches Connectors iOS and preserves key order", () => {
   for (const locale of locales) {
     assert.deepEqual(Object.keys(locale.messages), LOCALE_KEYS, locale.code);
     for (const key of LOCALE_KEYS) assert.ok(locale.messages[key].trim().length > 0, `${locale.code}.${key}`);
+    assert.equal(locale.messages.V4_AUTO_FLOW.split("|").length, 5, `${locale.code}.V4_AUTO_FLOW`);
+    assert.equal(locale.messages.V4_BOUNDARIES.split("|").length, 3, `${locale.code}.V4_BOUNDARIES`);
+    assert.match(locale.messages.V4_RECOMMENDED, /macOS \+ Codex/, `${locale.code}.V4_RECOMMENDED`);
+    assert.ok(locale.messages.V4_CLAIM_LIMIT.length >= 80, `${locale.code}.V4_CLAIM_LIMIT`);
   }
-  assert.match(locales.find((locale) => locale.code === "zh-Hant-TW").messages.DESCRIPTION, /即時證據/);
+  assert.match(locales.find((locale) => locale.code === "zh-Hant-TW").messages.DESCRIPTION, /依風險.*專屬 worktree/);
+  const englishPositioning = locales.find((locale) => locale.code === "en").messages.V4_POSITIONING;
+  for (const locale of locales.filter((item) => item.code !== "en")) {
+    assert.notEqual(locale.messages.V4_POSITIONING, englishPositioning, `${locale.code} must not fall back to English v4 copy`);
+  }
   assert.doesNotMatch(JSON.stringify(locales.filter((locale) => locale.code.startsWith("zh-"))), /新鮮證據/);
   assert.equal(locales.find((locale) => locale.code === "ar").dir, "rtl");
   assert.equal(locales.find((locale) => locale.code === "he").dir, "rtl");
@@ -59,6 +76,16 @@ test("build emits 41 crawlable locale editions and complete SEO metadata", async
       assert.match(html, new RegExp(repositoryUrl.replaceAll("/", "\\/")));
       assert.match(html, new RegExp(sponsorUrl.replaceAll("/", "\\/")));
       assert.match(html, /id="sponsor"/);
+      assert.match(html, /id="v4-overview"/);
+      assert.match(html, /id="host-support"/);
+      assert.match(html, /class="support-matrix"/);
+      assert.match(html, /macOS \+ Codex/);
+      assert.match(html, /Replay/);
+      assert.ok(
+        html.includes(escapeHtml(locale.messages.V4_CLAIM_LIMIT)),
+        `${locale.code}.V4_CLAIM_LIMIT must be rendered in its localized form`
+      );
+      assert.equal(occurrences(html, /class="auto-flow-list"/g), 1, locale.code);
       assert.match(html, /\/styles\.css\?v=[a-f0-9]{12}/);
       assert.match(html, /\/site\.js\?v=[a-f0-9]{12}/);
       assert.match(html, /better-workflows#get-your-first-result/);
@@ -74,6 +101,7 @@ test("build emits 41 crawlable locale editions and complete SEO metadata", async
       const source = jsonLd["@graph"].find((item) => item["@type"] === "SoftwareSourceCode");
       assert.equal(source.codeRepository, repositoryUrl);
       assert.equal(source.url, canonical);
+      assert.deepEqual(source.runtimePlatform, ["Codex", "Claude Code", "Gemini CLI", "Qwen Code"]);
     }
 
     const manifest = JSON.parse(await readFile(path.join(outputDirectory, "locales.json"), "utf8"));
@@ -84,6 +112,9 @@ test("build emits 41 crawlable locale editions and complete SEO metadata", async
     assert.equal(release.repository, repositoryUrl);
     assert.equal(release.sponsorUrl, sponsorUrl);
     assert.equal(release.sponsorMode, "one-time-only");
+    assert.equal(release.hostRegistryId, "host-support-v1");
+    assert.match(release.hostRegistryDigest, /^[a-f0-9]{64}$/);
+    assert.match(release.revision, /^[a-f0-9]{40}$/);
     const contentManifest = await readFile(path.join(outputDirectory, "manifest.sha256"), "utf8");
     assert.equal(createHash("sha256").update(contentManifest).digest("hex"), release.contentDigest);
     await execFileAsync("shasum", ["-a", "256", "--check", "manifest.sha256"], { cwd: outputDirectory });

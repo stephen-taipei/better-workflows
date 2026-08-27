@@ -5,12 +5,19 @@
 
 ## Requirements
 
-- Codex with plugin support.
+- A Tier 1 host: Codex, Claude Code, Gemini CLI, or Qwen Code on macOS or Linux.
 - Node.js 24 or newer for the bundled `sbw` helper.
 - A trusted local repository. Better Workflows does not claim to sandbox
   malicious repository code.
 
+The official reference experience is **macOS + Codex**. It has the deepest
+native integration. Other Tier 1 hosts use the same TaskContract, evidence,
+Replay, action-gate, and worktree semantics through the core bridge, but their
+picker, subagent, host-trust, and publication UX is not identical.
+
 ## Install
+
+### Codex — recommended reference
 
 ```bash
 codex plugin marketplace add stephen-taipei/better-workflows
@@ -18,6 +25,48 @@ codex plugin add better-workflows@better-workflows
 ```
 
 Open a new Codex task after installation so its skill catalog refreshes.
+
+### Claude Code
+
+From Claude Code, use its official plugin marketplace commands:
+
+```text
+/plugin marketplace add stephen-taipei/better-workflows
+/plugin install better-workflows@better-workflows
+```
+
+Restart or run `/reload-plugins` when Claude Code asks you to activate the
+cached plugin. The repository ships `.claude-plugin/marketplace.json` and the
+plugin ships `.claude-plugin/plugin.json` plus its `skills/` directory.
+
+### Gemini CLI
+
+```bash
+gemini extensions install https://github.com/stephen-taipei/better-workflows \
+  --ref v4.0.0
+```
+
+Gemini CLI copies the extension. Restart the session after installation; use
+`gemini extensions update better-workflows` to refresh it later.
+
+### Qwen Code
+
+Pin the release before installing the local extension copy:
+
+```bash
+git clone --branch v4.0.0 --depth 1 \
+  https://github.com/stephen-taipei/better-workflows.git
+qwen extensions install ./better-workflows
+```
+
+Qwen Code also copies the extension, so restart the session after installation
+and use `qwen extensions update better-workflows` for later updates.
+
+These mechanisms follow the official [Claude Code plugin](https://code.claude.com/docs/en/plugins),
+[Gemini CLI extension](https://geminicli.com/docs/extensions/reference/), and
+[Qwen Code extension](https://qwenlm.github.io/qwen-code-docs/en/developers/extensions/extension/)
+contracts. Tier 1 release claims still require Better Workflows conformance;
+the presence of an upstream extension feature alone is not proof.
 
 ## Pick a workflow
 
@@ -73,9 +122,33 @@ scope, Profiles, catalog, capabilities, or plugin bundle.
 
 ```bash
 node plugins/better-workflows/scripts/sbw.mjs doctor
+node plugins/better-workflows/scripts/sbw.mjs host list
+node plugins/better-workflows/scripts/sbw.mjs host doctor <host-id>
+node plugins/better-workflows/scripts/sbw.mjs host conformance <host-id>
 node plugins/better-workflows/scripts/sbw.mjs graph validate
 node plugins/better-workflows/scripts/sbw.mjs eval
 ```
+
+Use `codex`, `claude-code`, `gemini-cli`, or `qwen-code` as `<host-id>`. A
+local conformance PASS proves the current executable, manifest, and core bridge
+are present. It is intentionally not a release receipt; v4.0.0 requires an
+authenticated CI/provider envelope for all eight Tier 1 host/OS combinations.
+
+## Before a repository mutation
+
+Auto starts with a read-only workspace preflight:
+
+```bash
+node plugins/better-workflows/scripts/sbw.mjs workspace preflight \
+  --intent modify \
+  --integration-target <local-branch>
+```
+
+Non-Git and read-only tasks do not create a worktree. A mutating Git task must
+create or reuse a task-owned `TaskWorkspaceLeaseV1`. Dirty source state stops
+before any stash, copy, commit, or worktree creation. Detached HEAD or a missing
+target requires an explicit integration target. Protected or remote targets
+are promoted to governed PR delivery.
 
 ## Optional: initialize workspace recipes
 

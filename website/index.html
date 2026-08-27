@@ -5,21 +5,21 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#f4f7fb">
     <meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1">
-    <meta name="description" content="Better Workflows 是開源、goal-first 的 agent 工作流控制面，以即時證據、審查關卡、來源綁定與 provider 對帳，讓結果可重新驗證。">
+    <meta name="description" content="Better Workflows 是證據至上的 AI 工程 QA＋交付守門人：依風險選擇驗證強度，Git 修改預設在專屬 worktree 隔離執行。">
     <meta name="generator" content="Better Workflows official site">
     <meta property="og:type" content="website">
     <meta property="og:site_name" content="Better Workflows">
     <meta property="og:locale" content="zh_TW">
     <meta property="og:url" content="https://betterworkflows.dev/">
-    <meta property="og:title" content="Better Workflows｜可證明完成的 Agent 工作流">
-    <meta property="og:description" content="以即時證據、來源綁定、審查關卡與 provider 對帳，把 agent 工作帶到可重新驗證的完成狀態。">
+    <meta property="og:title" content="Better Workflows｜證據至上的 AI 工程 QA＋交付守門人">
+    <meta property="og:description" content="單純修改快速完成；重要工作使用證據 gate；Git 修改預設使用專屬 worktree。官方推薦 macOS + Codex。">
     <meta property="og:image" content="https://betterworkflows.dev/docs/assets/better-workflows-control-plane-blue.webp">
     <meta property="og:image:width" content="1536">
     <meta property="og:image:height" content="1024">
     <meta property="og:image:alt" content="Better Workflows agent 工作流控制面插畫">
     <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="Better Workflows｜可證明完成的 Agent 工作流">
-    <meta name="twitter:description" content="以即時證據、來源綁定、審查關卡與 provider 對帳，把 agent 工作帶到可重新驗證的完成狀態。">
+    <meta name="twitter:title" content="Better Workflows｜證據至上的 AI 工程 QA＋交付守門人">
+    <meta name="twitter:description" content="單純修改快速完成；重要工作使用證據 gate；Git 修改預設使用專屬 worktree。官方推薦 macOS + Codex。">
     <meta name="twitter:image" content="https://betterworkflows.dev/docs/assets/better-workflows-control-plane-blue.webp">
     <link rel="canonical" href="https://betterworkflows.dev/">
     __SITE_HREFLANG_LINKS__
@@ -28,7 +28,7 @@
     <link rel="stylesheet" href="/styles.css?v=__SITE_ASSET_VERSION__">
     <script type="application/ld+json">__SITE_STRUCTURED_DATA__</script>
     <script type="module" src="/site.js?v=__SITE_ASSET_VERSION__"></script>
-    <title>Better Workflows｜可證明完成的 Agent 工作流</title>
+    <title>Better Workflows｜證據至上的 AI 工程 QA＋交付守門人</title>
   </head>
   <body>
     <a class="skip-link" href="#main">跳到主要內容</a>
@@ -40,7 +40,8 @@
         </a>
         <button class="menu-toggle" type="button" aria-controls="site-nav" aria-expanded="false">選單</button>
         <nav class="site-nav" id="site-nav" aria-label="主選單">
-          <a href="#control-plane">控制面</a>
+          <a href="#v4-overview">v4 核心</a>
+          <a href="#host-support">AI / OS 支援</a>
           <a href="#principles">原則</a>
           <a href="/docs/">互動文件</a>
           <a href="/docs/evidence-cinema/">Evidence Cinema</a>
@@ -56,13 +57,13 @@
       <section class="hero shell">
         <div class="hero-copy">
           <p class="eyebrow"><span class="status-dot" aria-hidden="true"></span> v__SITE_VERSION__ · __SITE_REVISION__ · pure frontend</p>
-          <h1>讓 agent 工作，<em>走到可證明完成。</em></h1>
-          <p class="hero-lead">Better Workflows 把 goal、scope、證據、審查、外部副作用與終態拆成可重驗的邊界。你選擇想完成的結果；控制面負責讓每一步都能被驗證、對帳，或在未知時安全停下。</p>
+          <h1>證據至上的 AI 工程 QA，<em>也是交付守門人。</em></h1>
+          <p class="hero-lead">讓 AI agent 依風險選擇驗證強度，在隔離環境安全完成工作。單純修改快速完成；重要工作使用證據 gate；Git 修改預設使用專屬 worktree。</p>
           <div class="hero-actions">
             <a class="button button-primary" href="/docs/">探索互動文件 <span aria-hidden="true">↗</span></a>
             <a class="button button-secondary" href="https://github.com/stephen-taipei/better-workflows#get-your-first-result" target="_blank" rel="noopener noreferrer">開始使用 <span aria-hidden="true">↗</span></a>
           </div>
-          <div class="hero-note"><span>GOAL-FIRST</span><span>EVIDENCE-DRIVEN</span><span>FAIL-CLOSED</span></div>
+          <div class="hero-note"><span>RISK-ADAPTIVE</span><span>CURRENT EVIDENCE</span><span>ISOLATED GIT</span></div>
         </div>
         <div class="hero-art-wrap">
           <div class="hero-orbit orbit-one" aria-hidden="true"></div>
@@ -71,6 +72,50 @@
             <img src="/docs/assets/better-workflows-control-plane-blue.webp" width="1536" height="1024" alt="以帳冊、證據印記、重播迴圈與對帳節點構成的 Better Workflows 控制面插畫" fetchpriority="high">
             <figcaption><span>ILLUSTRATED CONTROL PLANE</span><strong>每個結論都沿著事件、證據與 receipt 回到可重驗的來源。</strong></figcaption>
           </figure>
+        </div>
+      </section>
+
+      <section class="section shell v4-overview" id="v4-overview">
+        <div class="section-heading v4-heading">
+          <p class="eyebrow">BETTER WORKFLOWS v4.0.0</p>
+          <h2>單純工作不被流程拖慢，重要工作不能沒有證據。</h2>
+          <p class="v4-lead">Auto 會先看 Goal、scope、repository 現況與風險，再決定使用快速 Direct 或完整 evidence workflow。</p>
+          <p>它像一位極度嚴謹的專業 QA：證據必須綁定目前版本與範圍、可追溯、可重播；證據缺失、過期、衝突或結果不明，就先停下查清楚。</p>
+        </div>
+        <div class="v4-grid">
+          <article class="v4-card">
+            <p class="eyebrow">AUTO MODE</p>
+            <ol class="auto-flow-list">
+              <li>檢查 repository、Goal、scope 與原分支</li>
+              <li>建立隔離 task worktree</li>
+              <li>判斷 Direct 或 evidence-required</li>
+              <li>驗證後安全回併</li>
+              <li>只清理本任務擁有的 branch 與 worktree</li>
+            </ol>
+          </article>
+          <article class="v4-card recommendation-card">
+            <p class="eyebrow">REFERENCE EXPERIENCE</p>
+            <p class="recommendation-copy">官方推薦：macOS + Codex——原生整合最深、參考體驗最完整。</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section shell support-section" id="host-support">
+        <div class="section-heading">
+          <p class="eyebrow">HOST-SUPPORT-V1</p>
+          <h2>不同 AI 品牌與作業系統，核心安全語意一致，原生操作體驗不假裝相同。</h2>
+        </div>
+        <div class="table-scroll">__SITE_HOST_SUPPORT_MATRIX__</div>
+      </section>
+
+      <section class="section shell boundary-section" id="proof-boundaries">
+        <div class="boundary-card">
+          <ul class="boundary-list">
+            <li>Direct 仍會執行 targeted check，且絕不繞過 protected branch。</li>
+            <li>Protected 或 remote target 必須走受治理 PR、fresh checks 與 merge authority。</li>
+            <li>Replay 是重播已記錄證據的判斷，不會重新 merge、push 或 deploy。</li>
+          </ul>
+          <p class="claim-limit">Better Workflows 能阻擋錯 repository、錯 revision、stale evidence、未授權副作用與過早 cleanup 等可觀測錯誤；但尚未以統計證明長期任務的整體 scope drift、rework 或錯誤決策率下降。</p>
         </div>
       </section>
 

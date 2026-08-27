@@ -3,6 +3,7 @@ import { access, readFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 import { pluginRoot, VERSION } from "../lib/core.mjs";
+import { loadHostSupportRegistry, renderHostSupportMarkdown } from "../lib/hosts.mjs";
 
 const repoRoot = path.resolve(pluginRoot(), "../..");
 const overview = path.join(repoRoot, "README.md");
@@ -516,7 +517,7 @@ test("README quality rejects hidden comments, fenced examples, wrong-section cla
       label: "table columns",
       content: content.replace(
         "| Without governance | With Better Workflows |",
-        "| A | B | C |\n| --- | --- | --- |\n| 1 | 2 | 3 |\n\n| Without governance | With Better Workflows |"
+        "| A | B | C | D | E |\n| --- | --- | --- | --- | --- |\n| 1 | 2 | 3 | 4 | 5 |\n\n| Without governance | With Better Workflows |"
       )
     },
     {
@@ -578,7 +579,7 @@ test("README quality rejects hidden comments, fenced examples, wrong-section cla
     },
     {
       label: "H2 narrative order",
-      content: `${content.replace("## Why Better Workflows", "## A different visible heading")}\n\`\`\`text\n## Why Better Workflows\n\`\`\`\n`
+      content: `${content.replace("## Better Workflows in plain language", "## A different visible heading")}\n\`\`\`text\n## Better Workflows in plain language\n\`\`\`\n`
     }
   ];
   for (const item of cases) {
@@ -611,6 +612,54 @@ test("all five README version badges match the runtime semantic version", async 
     const escapedVersion = VERSION.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     assert.match(await readFile(file, "utf8"), new RegExp(`version-${escapedVersion}-`), file);
   }
+});
+
+test("public host support matrix and extension versions stay bound to host-support-v1", async (context) => {
+  try {
+    await access(overview);
+  } catch {
+    context.skip("repository public files are not part of the installed plugin cache bundle");
+    return;
+  }
+  const registry = await loadHostSupportRegistry();
+  const readme = await readFile(overview, "utf8");
+  const block = readme.match(/<!-- host-support-v1:start -->\n([\s\S]*?)\n<!-- host-support-v1:end -->/);
+  assert.ok(block, "README host-support-v1 block");
+  assert.equal(block[1], renderHostSupportMarkdown(registry));
+  assert.match(readme, /Official recommendation: macOS \+ Codex/);
+  assert.match(readme, /host-native UX may differ/);
+
+  for (const relativePath of [
+    ".claude-plugin/marketplace.json",
+    "gemini-extension.json",
+    "qwen-extension.json",
+    "plugins/better-workflows/.claude-plugin/plugin.json",
+    "plugins/better-workflows/gemini-extension.json",
+    "plugins/better-workflows/qwen-extension.json"
+  ]) {
+    const manifest = JSON.parse(await readFile(path.join(repoRoot, relativePath), "utf8"));
+    const declared = relativePath.endsWith("marketplace.json") ? manifest.plugins[0].version : manifest.version;
+    assert.equal(declared, VERSION, relativePath);
+  }
+});
+
+test("Auto and Direct skills enforce repository preflight, risk admission, isolation, and honest completion", async () => {
+  const files = [
+    path.join(pluginRoot(), "skills", "auto", "SKILL.md"),
+    path.join(pluginRoot(), "skills", "direct", "SKILL.md"),
+    path.join(pluginRoot(), "skills", "better-workflows", "SKILL.md")
+  ];
+  const content = (await Promise.all(files.map((file) => readFile(file, "utf8")))).join("\n");
+  assert.match(content, /workspace preflight --intent read-only/);
+  assert.match(content, /workspace preflight[^\n]*--intent modify|--intent modify/);
+  assert.match(content, /AutoRiskAssessmentV1/);
+  assert.match(content, /irreversibility[^\n]*zero|irreversibility `0`/);
+  assert.match(content, /total[^\n]*two|total[^\n]*`2`/);
+  assert.match(content, /TaskWorkspaceLeaseV1/);
+  assert.match(content, /Never auto-stash|Never stash/);
+  assert.match(content, /120-second/);
+  assert.match(content, /pr-required[^\n]*not completion/);
+  assert.match(content, /補做證據驗證/);
 });
 
 test("split English guides preserve the complete detailed contract", async (context) => {
