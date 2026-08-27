@@ -34,6 +34,14 @@ integrates, and cleans only its owned worktree and branch. A dirty source,
 detached or missing target, ownership conflict, merge conflict, failed check,
 unknown provider state, or target drift fails closed.
 
+A clean host-provided task worktree can be explicitly registered at its exact
+pre-mutation base. Registration prevents nested worktrees but does not transfer
+deletion authority: host-owned task resources are preserved after integration.
+Protected targets remain evidence-required. Their lease reaches `integrated`
+only after `workspace reconcile` finds an exact successful governed PR merge
+and matching remote-sync action in the same run; squash cleanup additionally
+binds the reviewed task head to the provider merge commit.
+
 ## Picker entries
 
 | Entry | Best fit |

@@ -43,7 +43,10 @@ the risk.
 For mutating Git work, “Direct” does not mean “edit the user's checkout.” The
 task still receives a minimal `TaskWorkspaceLeaseV1`, its own branch, and its
 own worktree. That lease proves resource ownership and recovery state; it is
-not a substitute for the full evidence ledger.
+not a substitute for the full evidence ledger. If the AI host already created
+a clean, exclusive task worktree at the exact base, `workspace register` adopts
+it without nesting; the host-owned branch and worktree remain preserved during
+Better Workflows cleanup.
 
 ### What Auto does before changing code
 
@@ -57,6 +60,10 @@ Dirty source checkouts are never auto-stashed, copied, or committed. Detached
 HEAD or a missing/renamed target must be rebound by the user. `main`, `dev`,
 remote targets, releases, deployments, credentials, migrations, and other
 high-risk surfaces always use governed evidence and authority gates.
+Protected cleanup stays locked until the same governed run contains one exact
+successful PR merge receipt and one remote-sync receipt for the target. A
+squash result may delete the task ref only when those receipts bind the exact
+reviewed head and provider merge commit.
 
 ### AI and operating-system support
 
@@ -228,6 +235,8 @@ Sensitive or private history is never harvested; it is rejected with a redacted 
 - `task-worktree-v1` authorizes only task-owned local worktree/branch creation,
   bounded commits, safe local integration, and exact cleanup. It does not
   authorize push, PR merge, deployment, release, or protected-branch bypass.
+  Registered host-provided resources are reused but preserved for the host;
+  Better Workflows never treats registration as deletion authority.
 - Self-improve evaluator replay may use one root-signed standing consent limited
   to sanitized, read-only `gpt-5.6-terra` batches; it never authorizes delivery.
 - A task may explicitly select `bounded-autopilot-v1` once. It can run bounded

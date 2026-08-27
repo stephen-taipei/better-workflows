@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { access, chmod, mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, mkdtemp, readFile, readdir, realpath, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -803,6 +803,51 @@ test("CLI Direct Git route requires an isolated lease and completes the owned wo
   assert.equal(cleaned.json.status, "cleaned");
   assert.equal(await readFile(path.join(cwd, "src", "value.txt"), "utf8"), "two\n");
   await assert.rejects(access(created.json.lease.taskWorktree));
+});
+
+test("CLI registers and reuses an exact host-provided worktree without nesting or claiming cleanup ownership", async () => {
+  const cwd = await repository();
+  await git(cwd, "checkout", "-qb", "feature");
+  const stateRoot = path.join(await mkdtemp(path.join(os.tmpdir(), "sbw-cli-host-worktree-state-")), "state");
+  const hostRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-cli-host-worktree-"));
+  const taskWorktree = path.join(hostRoot, "task");
+  const baseRevision = await revision(cwd);
+  await git(cwd, "worktree", "add", "-q", "-b", "codex/cli-host-task", taskWorktree, baseRevision);
+  const before = (await execFileAsync("git", ["worktree", "list", "--porcelain"], {
+    cwd,
+    encoding: "utf8"
+  })).stdout;
+  const args = [
+    "workspace",
+    "register",
+    "--task-id",
+    "task-cli-host-worktree",
+    "--base-revision",
+    baseRevision,
+    "--integration-target",
+    "feature",
+    "--source-checkout",
+    cwd
+  ];
+  const registered = await cli(taskWorktree, stateRoot, args);
+  assert.equal(registered.json.status, "registered");
+  assert.equal(registered.json.lease.resourceOrigin, "host-provided");
+  assert.equal(registered.json.lease.taskWorktree, await realpath(taskWorktree));
+  assert.equal(registered.json.registration.resourceDisposition, "preserve-host-provided");
+  const reused = await cli(taskWorktree, stateRoot, args);
+  assert.equal(reused.json.status, "reused");
+  const mismatchedTarget = await cli(taskWorktree, stateRoot, [
+    ...args.slice(0, 7),
+    "dev",
+    ...args.slice(8)
+  ], { allowFailure: true });
+  assert.notEqual(mismatchedTarget.code, 0);
+  assert.equal(mismatchedTarget.json.status, "ownership-conflict");
+  const after = (await execFileAsync("git", ["worktree", "list", "--porcelain"], {
+    cwd,
+    encoding: "utf8"
+  })).stdout;
+  assert.equal(after, before);
 });
 
 test("CLI host list and conformance expose registry truth without turning a local receipt into release proof", async () => {

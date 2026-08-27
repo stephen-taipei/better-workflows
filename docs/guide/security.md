@@ -63,6 +63,21 @@ and worktree as recovery state. Names, path prefixes, or globs are never used as
 cleanup authority. Nested repositories and submodules require independent
 leases; multiple-repository integration is serialized and is not atomic.
 
+Host-provided worktrees are accepted only through explicit registration while
+the worktree and separate source checkout are clean, the task branch is a
+distinct `codex/*` ref, and both share the same Git common directory and exact
+base commit. Their lease records `resourceOrigin: host-provided`; cleanup
+removes Better Workflows integration candidates but preserves the host branch
+and worktree.
+
+Protected integration is not accepted from prose or a standalone JSON file.
+`workspace reconcile` reads the private governed run and requires exactly one
+successful `pr.merge` action plus its matching successful `remote.sync` action,
+both bound to the validated task head and target. Merge commits must contain
+the task head. Squash cleanup is allowed only when the provider receipt binds
+that exact reviewed head and its merge commit, and the synchronized local
+target contains that commit.
+
 ## Local state
 
 - Private state directories use mode `0700`.

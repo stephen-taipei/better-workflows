@@ -46,9 +46,11 @@
   ],
   "authorizedActions": [
     "worktree.create",
+    "host-worktree.register-preserve",
     "task-branch.create",
     "task-branch.commit",
     "local-target.integrate-cas",
+    "protected-receipt.reconcile",
     "owned-worktree.cleanup",
     "owned-branch.cleanup"
   ],

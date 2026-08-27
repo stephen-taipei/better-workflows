@@ -1760,6 +1760,57 @@ test("remote synchronization receipts bind the raw source remote identity", () =
   }));
 });
 
+test("governed PR merge receipts bind an exact squash result to the reviewed head", () => {
+  const base = "a".repeat(40);
+  const head = "b".repeat(40);
+  const mergeCommit = "c".repeat(40);
+  const providerExecutable = { path: "/usr/bin/false", digest: "d".repeat(64) };
+  const command = [
+    "gh", "pr", "merge", "12", "--repo", "github.com/example/repository",
+    "--match-head-commit", head, "--squash", "--delete-branch=false"
+  ];
+  const record = {
+    action: "pr.merge",
+    provider: "github-cli",
+    resource: "pull/12",
+    outcome: "success",
+    remoteRevision: base,
+    reviewedHead: head,
+    targetRef: "dev",
+    mergeRepository: "github.com/example/repository",
+    mergeMethod: "squash",
+    mergeCommand: command,
+    providerExecutable,
+    providerInvocation: { id: "squash-invocation" }
+  };
+  const receipt = {
+    executionId: `github:example/repository:pr.merge:12:${mergeCommit}`,
+    proofKind: "github-pr-merge",
+    requestDigest: "e".repeat(64),
+    responseDigest: "f".repeat(64),
+    verifiedAt: new Date().toISOString(),
+    terminalState: "success",
+    pr: 12,
+    state: "MERGED",
+    repository: record.mergeRepository,
+    baseRefName: "dev",
+    mergeMethod: "squash",
+    adminBypass: false,
+    invocationId: record.providerInvocation.id,
+    mergeCommand: command,
+    head,
+    mergeCommit,
+    mergeBase: base,
+    mergeHead: head,
+    providerExecutableDigest: providerExecutable.digest
+  };
+  assert.doesNotThrow(() => assertProviderReceiptShape(record, receipt));
+  assert.throws(
+    () => assertProviderReceiptShape(record, { ...receipt, mergeHead: base }),
+    /merge proof is incomplete/
+  );
+});
+
 test("PR creation receipts bind to the exact candidate source head", () => {
   const expectedHead = "a".repeat(40);
   const record = {

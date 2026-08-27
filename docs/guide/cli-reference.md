@@ -48,20 +48,27 @@ sbw workspace preflight [--intent read-only|modify] \
   [--profile-target <local-branch>]
 sbw workspace create --goal "<goal>" [--task-id <id>] \
   [--integration-target <local-branch>] [--profile-target <local-branch>]
+sbw workspace register --task-id <id> --base-revision <sha> \
+  --integration-target <local-branch> [--source-checkout <path>] \
+  [--source-branch <local-branch>]
 sbw workspace validate --repository-id <id> --task-id <id> \
   --check-file <checks.json>
 sbw workspace rebind --repository-id <id> --task-id <id> \
   --integration-target <local-branch>
 sbw workspace integrate --repository-id <id> --task-id <id>
+sbw workspace reconcile --repository-id <id> --task-id <id> \
+  --run-id <governed-run-id>
 sbw workspace cleanup --repository-id <id> --task-id <id>
 sbw workspace status --repository-id <id> --task-id <id>
 ```
 
 The workspace commands never infer cleanup ownership from a branch prefix or
-path. `integrate` supports only a clean, non-protected local target. Protected
-or remote delivery must continue through the governed PR and provider
-reconciliation commands; until terminal merge proof exists, the task lease and
-recovery resources remain in place.
+path. `register` reuses a clean exact-base host worktree without taking deletion
+authority over it. `integrate` supports only a clean, non-protected local
+target. Protected or remote delivery must continue through the governed PR and
+provider reconciliation commands; `reconcile` accepts only the matching
+successful merge and remote-sync actions from that governed run. Until both
+terminal receipts exist, the task lease and recovery resources remain in place.
 
 ## Runs, evidence, and findings
 

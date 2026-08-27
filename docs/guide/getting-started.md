@@ -150,6 +150,23 @@ before any stash, copy, commit, or worktree creation. Detached HEAD or a missing
 target requires an explicit integration target. Protected or remote targets
 are promoted to governed PR delivery.
 
+If Codex or another host already created the current task's clean worktree,
+register it before editing instead of creating a nested worktree:
+
+```bash
+node plugins/better-workflows/scripts/sbw.mjs workspace register \
+  --task-id <task-id> \
+  --base-revision <exact-40-character-sha> \
+  --integration-target <local-branch> \
+  --source-checkout <separate-clean-checkout>
+```
+
+Registration requires a distinct `codex/*` task branch at the unchanged base,
+the same Git common directory, and a clean source checkout. Better Workflows
+uses the worktree but preserves the host-owned branch and path during cleanup.
+For a protected target, run the evidence workflow first, then bind its exact PR
+merge and remote-sync receipts with `workspace reconcile --run-id <run-id>`.
+
 ## Optional: initialize workspace recipes
 
 Nothing is created automatically. From the Git worktree root:

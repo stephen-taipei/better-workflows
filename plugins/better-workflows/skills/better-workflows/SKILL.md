@@ -68,6 +68,21 @@ worktree from another task's worktree. Branches, worktrees, commits, checks,
 integration candidates, and cleanup belong to the lease; a name or path prefix
 alone is never ownership proof.
 
+Register a host-created worktree only before mutation, while it and a separate
+source checkout are clean and still bound to the exact base:
+
+~~~bash
+sbw workspace register --task-id <task-id> --base-revision <exact-sha> \
+  --integration-target <local-branch> --source-checkout <clean-checkout>
+~~~
+
+Registration records host ownership; Better Workflows must preserve that task
+branch and worktree during cleanup. For protected delivery, do not move the
+lease to integrated from prose or a copied receipt. After the governed run has
+reconciled its exact `pr.merge` and `remote.sync` actions, bind that run with
+`sbw workspace reconcile ... --run-id <run-id>`. Until it succeeds, retain the
+task resources and report PR-ready rather than completion.
+
 Detached HEAD, an absent source branch, or a target deleted or renamed during
 the task requires the user to select or rebind the integration target. Offer at
 most three evidence-ranked local candidates: repository Profile, task

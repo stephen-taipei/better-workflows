@@ -26,6 +26,7 @@
 ## Better Workflows가 필요한 이유
 
 쉽게 말하면 “증거를 최우선으로 하는 AI 엔지니어링 QA + 전달 게이트키퍼”입니다. 단순한 수정은 빠르게, 중요한 작업은 단계별로 검증하며, Git 변경은 기본적으로 task 전용 worktree를 사용합니다.
+AI host가 clean하고 전용인 worktree를 이미 만들었다면 명시적으로 등록해 nested worktree를 피하고 host 리소스를 보존합니다. Protected／squash 통합 cleanup은 같은 governed run의 exact merge 및 remote-sync receipts가 대조된 뒤에만 허용됩니다.
 
 Codex는 repository를 분석하고 코드를 수정하며 check를 실행하고 provider를 조작할 수
 있습니다. 능력이 강해질수록 “사용자가 원하는 것”과 “현재 증거와 권한이 실제로 허용하는

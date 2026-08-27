@@ -176,6 +176,8 @@ import {
   workspaceCreate,
   workspaceIntegrate,
   workspacePreflight,
+  workspaceReconcileProtected,
+  workspaceRegister,
   workspaceRebindTarget,
   workspaceStatus,
   workspaceValidate
@@ -1923,6 +1925,21 @@ async function commandWorkspace(root, subcommand, options) {
       profileTarget: options["profile-target"] ? String(options["profile-target"]) : null
     });
   }
+  if (subcommand === "register") {
+    assertKnownOptions(options, ["task-id", "base-revision", "integration-target", "source-checkout", "source-branch"]);
+    for (const required of ["task-id", "base-revision", "integration-target"]) {
+      if (!options[required]) throw new Error(`workspace register requires --${required}`);
+    }
+    return workspaceRegister({
+      cwd: process.cwd(),
+      stateRoot: root,
+      taskId: String(options["task-id"]),
+      baseRevision: String(options["base-revision"]),
+      integrationTarget: String(options["integration-target"]),
+      sourceCheckout: options["source-checkout"] ? String(options["source-checkout"]) : null,
+      sourceBranch: options["source-branch"] ? String(options["source-branch"]) : null
+    });
+  }
   if (subcommand === "validate") {
     assertKnownOptions(options, ["repository-id", "task-id", "check-file"]);
     for (const required of ["repository-id", "task-id", "check-file"]) {
@@ -1945,6 +1962,18 @@ async function commandWorkspace(root, subcommand, options) {
       stateRoot: root,
       repositoryId: String(options["repository-id"]),
       taskId: String(options["task-id"])
+    });
+  }
+  if (subcommand === "reconcile") {
+    assertKnownOptions(options, ["repository-id", "task-id", "run-id"]);
+    for (const required of ["repository-id", "task-id", "run-id"]) {
+      if (!options[required]) throw new Error(`workspace reconcile requires --${required}`);
+    }
+    return workspaceReconcileProtected({
+      stateRoot: root,
+      repositoryId: String(options["repository-id"]),
+      taskId: String(options["task-id"]),
+      runId: String(options["run-id"])
     });
   }
   if (subcommand === "rebind") {
@@ -1981,7 +2010,7 @@ async function commandWorkspace(root, subcommand, options) {
       taskId: String(options["task-id"])
     });
   }
-  throw new Error("workspace subcommand must be preflight, create, validate, integrate, rebind, cleanup, or status");
+  throw new Error("workspace subcommand must be preflight, create, register, validate, integrate, reconcile, rebind, cleanup, or status");
 }
 
 function quorumExpectedBindings(run, reviewPackage = null) {
@@ -2311,7 +2340,7 @@ function help() {
       "sbw deliberation arbitrate --prompt-file <sanitized-file> [--mode <auto|direct|verified|deep|critical>] [--reasoning-effort <auto|medium|high>] [--allow-external-providers --sanitized]",
       "sbw graph validate [--template <name>|--run <run-id>]",
       "sbw graph inspect (--template <name>|--run <run-id>) [--format json|mermaid]",
-      "sbw action issue <run-id> --action <kind> --provider <provider> --resource <id> --remote-revision <sha> [--scope <ref> --workflow-file <.github/workflows/file.yml> --input <key=value> ... --input-file <json>]",
+      "sbw action issue <run-id> --action <kind> --provider <provider> --resource <id> --remote-revision <sha> [--scope <ref> --merge-method <merge|squash> --workflow-file <.github/workflows/file.yml> --input <key=value> ... --input-file <json>]",
       "sbw action consume|execute|reconcile <run-id> ...",
       "sbw resource register <run-id> --resource <id> --receipt <creation-receipt.json>",
       "sbw ledger status <run-id>",
@@ -2337,9 +2366,11 @@ function help() {
       "sbw host conformance [host-id] [--os macos|linux|windows] [--write-receipt]",
       "sbw workspace preflight [--intent read-only|modify] [--task-id <id>] [--integration-target <local-branch>] [--profile-target <local-branch>]",
       "sbw workspace create --goal <text> [--task-id <id>] [--integration-target <local-branch>] [--profile-target <local-branch>]",
+      "sbw workspace register --task-id <id> --base-revision <sha> --integration-target <local-branch> [--source-checkout <path>] [--source-branch <local-branch>]",
       "sbw workspace validate --repository-id <id> --task-id <id> --check-file <checks.json>",
       "sbw workspace rebind --repository-id <id> --task-id <id> --integration-target <local-branch>",
       "sbw workspace integrate|cleanup|status --repository-id <id> --task-id <id>",
+      "sbw workspace reconcile --repository-id <id> --task-id <id> --run-id <governed-run-id>",
       "sbw eval",
       "sbw cleanup [--older-than-days 30] [--apply]",
       "sbw templates"
@@ -2706,7 +2737,7 @@ async function main() {
     if (subcommand === "issue") {
       assertKnownOptions(options, [
         "action", "provider", "resource", "scope", "remote-revision", "ttl",
-        "workflow-file", "input", "input-file"
+        "workflow-file", "input", "input-file", "merge-method"
       ]);
       const run = await loadRun(root, runId);
       const template = await loadTemplate(run.manifest.template);
@@ -2722,6 +2753,9 @@ async function main() {
       const workflowOptionKeys = ["workflow-file", "input", "input-file"];
       if (action !== "actions.dispatch" && workflowOptionKeys.some((key) => options[key] !== undefined)) {
         throw new Error("Workflow dispatch options --workflow-file, --input, and --input-file are only valid for actions.dispatch");
+      }
+      if (action !== "pr.merge" && options["merge-method"] !== undefined) {
+        throw new Error("--merge-method is only valid for pr.merge");
       }
       assertActionIsNotDeferred(run.contract, action);
       const requiredEvidence = run.contract.actionGates?.[action];
@@ -2772,6 +2806,7 @@ async function main() {
             ttlSeconds: options.ttl ? integer(options.ttl) : undefined,
             workflowFile: options["workflow-file"] ? String(options["workflow-file"]) : undefined,
             dispatchInputs,
+            mergeMethod: options["merge-method"] ? String(options["merge-method"]) : undefined,
             requiredEvidence
           },
           digest,

@@ -13,10 +13,12 @@ import os from "node:os";
 import path from "node:path";
 import {
   atomicWriteJson,
+  assertProviderReceiptShape,
   digestObject,
   ensurePrivateDir,
   execBoundGit,
   execBoundProcess,
+  inspectRun,
   nowIso,
   pluginRoot,
   readJson,
@@ -387,6 +389,17 @@ async function findLeaseByWorktree(stateRoot, repositoryId, targetPath) {
   return null;
 }
 
+async function findLeaseByTaskBranch(stateRoot, repositoryId, taskBranch) {
+  const directory = leaseDirectory(stateRoot, repositoryId);
+  if (!(await exists(directory))) return null;
+  const names = (await readdir(directory)).filter((name) => name.endsWith(".json")).slice(0, 256);
+  for (const name of names) {
+    const lease = await readLeaseAt(stateRoot, safeJoin(directory, name));
+    if (lease.taskBranch === taskBranch && lease.lifecycleState !== "cleaned") return lease;
+  }
+  return null;
+}
+
 async function branchSuggestions(cwd, baseRevision, profileTarget = null) {
   const suggestions = [];
   const add = (branch, reason) => {
@@ -615,6 +628,8 @@ function baseLease({ taskId, goal, preflight, stateRoot }) {
     baseRevision: preflight.baseRevision,
     targetRevisionAtBind: preflight.integrationTargetRevision,
     protectedTarget: preflight.protectedTarget === true,
+    resourceOrigin: "better-workflows",
+    registration: null,
     taskBranch,
     taskWorktree,
     ownershipNonce: randomBytes(16).toString("hex"),
@@ -634,6 +649,230 @@ function baseLease({ taskId, goal, preflight, stateRoot }) {
     cleanup: null,
     leaseDigest: null
   };
+}
+
+export async function workspaceRegister({
+  cwd = process.cwd(),
+  stateRoot,
+  taskId,
+  baseRevision,
+  integrationTarget,
+  sourceCheckout = null,
+  sourceBranch = null
+} = {}) {
+  if (!stateRoot) throw new Error("Workspace registration requires a state root");
+  const normalizedTaskId = normalizeTaskId(taskId);
+  const base = String(baseRevision ?? "").toLowerCase();
+  const targetBranch = String(integrationTarget ?? "");
+  const originalBranch = String(sourceBranch ?? targetBranch);
+  if (!SHA1.test(base)) throw new Error("Workspace registration requires an exact 40-character base revision");
+  if (!BRANCH.test(targetBranch) || targetBranch.startsWith("origin/") || targetBranch.startsWith("refs/remotes/")) {
+    throw new Error("Workspace registration requires an existing local integration target");
+  }
+  if (!BRANCH.test(originalBranch) || originalBranch.startsWith("origin/") || originalBranch.startsWith("refs/remotes/")) {
+    throw new Error("Workspace registration requires an existing local source branch");
+  }
+
+  const requestedTaskPath = await realpath(path.resolve(cwd));
+  const taskRepository = await repositoryInfo(requestedTaskPath);
+  if (!taskRepository) throw new Error("Workspace registration requires a Git worktree");
+  const taskPath = taskRepository.topLevel;
+  const policy = await loadTaskWorktreePolicy();
+  const taskBranch = await currentBranch(taskPath);
+  const taskHead = await headRevision(taskPath);
+  const taskState = await worktreeState(taskPath);
+  if (!taskState.clean) throw new Error("Host-provided task worktree must be clean before registration");
+  if (!taskBranch || !taskBranch.startsWith(policy.taskBranchPrefix) || taskBranch === targetBranch) {
+    throw new Error(`Host-provided task branch must be a distinct ${policy.taskBranchPrefix} branch`);
+  }
+  if (taskHead !== base) {
+    throw new Error("Host-provided task worktree must still be at the exact pre-mutation base revision");
+  }
+
+  const records = await worktreeList(taskPath);
+  let taskRecord = null;
+  for (const record of records) {
+    const candidate = await realpath(record.path).catch(() => path.resolve(record.path));
+    if (candidate === taskPath) {
+      taskRecord = record;
+      break;
+    }
+  }
+  if (!taskRecord || taskRecord.bare || taskRecord.detached || taskRecord.prunable !== null ||
+      taskRecord.branch !== branchRef(taskBranch) || taskRecord.head !== taskHead) {
+    throw new Error("Host-provided task worktree does not match Git's exact worktree record");
+  }
+
+  let sourcePath;
+  if (sourceCheckout !== null) {
+    sourcePath = await realpath(path.resolve(String(sourceCheckout)));
+  } else {
+    let targetRecord = null;
+    let fallback = null;
+    for (const record of records) {
+      const candidate = await realpath(record.path).catch(() => path.resolve(record.path));
+      if (candidate === taskPath) continue;
+      if (!fallback && !record.bare && !record.detached) fallback = record;
+      if (record.branch === branchRef(targetBranch)) {
+        targetRecord = record;
+        break;
+      }
+    }
+    const selected = targetRecord ?? fallback;
+    if (!selected) {
+      throw new Error("Workspace registration cannot infer a separate source checkout; provide --source-checkout");
+    }
+    sourcePath = await realpath(selected.path);
+  }
+  const sourceRepository = await repositoryInfo(sourcePath);
+  if (!sourceRepository || sourceRepository.repositoryDigest !== taskRepository.repositoryDigest) {
+    throw new Error("Workspace registration source checkout belongs to a different repository");
+  }
+  sourcePath = sourceRepository.topLevel;
+  if (sourcePath === taskPath) throw new Error("Workspace registration source checkout must be separate from the task worktree");
+  const sourceState = await worktreeState(sourcePath);
+  if (!sourceState.clean) throw new Error("Workspace registration source checkout must be clean");
+  const targetRevision = await resolveLocalBranch(sourcePath, targetBranch);
+  const sourceRevision = await resolveLocalBranch(sourcePath, originalBranch);
+  if (!targetRevision || !sourceRevision) throw new Error("Workspace registration source or integration branch is missing");
+  const baseObject = await git(sourcePath, ["rev-parse", "--verify", `${base}^{commit}`], { allowFailure: true });
+  if (!baseObject.ok || oneLine(baseObject.stdout, "Registration base revision", SHA1).toLowerCase() !== base) {
+    throw new Error("Workspace registration base revision is unavailable");
+  }
+  if (!(await isAncestor(sourcePath, base, targetRevision))) {
+    throw new Error("Workspace registration target no longer contains the task base revision");
+  }
+  if (!(await isAncestor(sourcePath, base, sourceRevision))) {
+    throw new Error("Workspace registration source branch no longer contains the task base revision");
+  }
+
+  const existingByPath = await findLeaseByWorktree(stateRoot, sourceRepository.repositoryId, taskPath);
+  if (existingByPath) {
+    if (
+      existingByPath.taskId === normalizedTaskId &&
+      existingByPath.resourceOrigin === "host-provided" &&
+      existingByPath.registration?.receiptDigest === digestObject(
+        Object.fromEntries(Object.entries(existingByPath.registration).filter(([key]) => key !== "receiptDigest"))
+      ) &&
+      existingByPath.sourceCheckout === sourcePath &&
+      existingByPath.sourceBranch === originalBranch &&
+      existingByPath.integrationTarget === targetBranch &&
+      existingByPath.baseRevision === base &&
+      existingByPath.taskBranch === taskBranch &&
+      existingByPath.taskWorktree === taskPath
+    ) {
+      return { ok: true, status: "reused", lease: existingByPath };
+    }
+    return { ok: false, status: "ownership-conflict", lease: existingByPath };
+  }
+  const sourceOwner = await findLeaseByWorktree(stateRoot, sourceRepository.repositoryId, sourcePath);
+  if (sourceOwner && sourceOwner.taskId !== normalizedTaskId) {
+    return { ok: false, status: "ownership-conflict", lease: sourceOwner };
+  }
+  const target = leasePath(stateRoot, sourceRepository.repositoryId, normalizedTaskId);
+  if (await exists(target)) {
+    return { ok: false, status: "ownership-conflict", lease: await readLeaseAt(stateRoot, target) };
+  }
+  const existingByBranch = await findLeaseByTaskBranch(stateRoot, sourceRepository.repositoryId, taskBranch);
+  if (existingByBranch) return { ok: false, status: "ownership-conflict", lease: existingByBranch };
+
+  return withRepositoryLock(stateRoot, sourceRepository.repositoryId, async () => {
+    if (await exists(target)) {
+      return { ok: false, status: "ownership-conflict", lease: await readLeaseAt(stateRoot, target) };
+    }
+    const lockedPathOwner = await findLeaseByWorktree(stateRoot, sourceRepository.repositoryId, taskPath);
+    const lockedBranchOwner = await findLeaseByTaskBranch(stateRoot, sourceRepository.repositoryId, taskBranch);
+    const lockedSourceOwner = await findLeaseByWorktree(stateRoot, sourceRepository.repositoryId, sourcePath);
+    if (lockedPathOwner || lockedBranchOwner || (lockedSourceOwner && lockedSourceOwner.taskId !== normalizedTaskId)) {
+      return { ok: false, status: "ownership-conflict", lease: lockedPathOwner ?? lockedBranchOwner ?? lockedSourceOwner };
+    }
+    const lockedTaskRepository = await repositoryInfo(taskPath);
+    const lockedSourceRepository = await repositoryInfo(sourcePath);
+    const lockedTaskState = await worktreeState(taskPath);
+    const lockedSourceState = await worktreeState(sourcePath);
+    const lockedTaskBranch = await currentBranch(taskPath);
+    const lockedTaskHead = await headRevision(taskPath);
+    const lockedTargetRevision = await resolveLocalBranch(sourcePath, targetBranch);
+    const lockedSourceRevision = await resolveLocalBranch(sourcePath, originalBranch);
+    const lockedRecords = await worktreeList(sourcePath);
+    let lockedTaskRecord = null;
+    for (const record of lockedRecords) {
+      const candidate = await realpath(record.path).catch(() => path.resolve(record.path));
+      if (candidate === taskPath) {
+        lockedTaskRecord = record;
+        break;
+      }
+    }
+    if (
+      !lockedTaskRepository ||
+      !lockedSourceRepository ||
+      lockedTaskRepository.repositoryDigest !== sourceRepository.repositoryDigest ||
+      lockedSourceRepository.repositoryDigest !== sourceRepository.repositoryDigest ||
+      !lockedTaskState.clean ||
+      !lockedSourceState.clean ||
+      lockedTaskBranch !== taskBranch ||
+      lockedTaskHead !== base ||
+      !lockedTargetRevision ||
+      !lockedSourceRevision ||
+      !lockedTaskRecord ||
+      lockedTaskRecord.bare ||
+      lockedTaskRecord.detached ||
+      lockedTaskRecord.prunable !== null ||
+      lockedTaskRecord.branch !== branchRef(taskBranch) ||
+      lockedTaskRecord.head !== base ||
+      !(await isAncestor(sourcePath, base, lockedTargetRevision)) ||
+      !(await isAncestor(sourcePath, base, lockedSourceRevision))
+    ) {
+      throw new Error("Host-provided workspace changed while registration was being bound");
+    }
+    const preflight = {
+      repository: sourceRepository,
+      sourceBranch: originalBranch,
+      integrationTarget: targetBranch,
+      baseRevision: base,
+      integrationTargetRevision: lockedTargetRevision,
+      protectedTarget: isProtectedBranch(targetBranch, policy.protectedBranchPatterns)
+    };
+    const initial = baseLease({ taskId: normalizedTaskId, goal: taskBranch, preflight, stateRoot });
+    const registrationPayload = {
+      schemaVersion: 1,
+      kind: "HostWorkspaceRegistrationV1",
+      taskId: normalizedTaskId,
+      repositoryDigest: sourceRepository.repositoryDigest,
+      sourceCheckout: sourcePath,
+      sourceBranch: originalBranch,
+      integrationTarget: targetBranch,
+      baseRevision: base,
+      taskBranch,
+      taskWorktree: taskPath,
+      taskHead,
+      resourceDisposition: "preserve-host-provided",
+      registeredAt: nowIso()
+    };
+    const registration = { ...registrationPayload, receiptDigest: digestObject(registrationPayload) };
+    const lease = await writeLease(stateRoot, target, {
+      ...initial,
+      policyDigest: digestObject(policy),
+      sourceCheckout: sourcePath,
+      sourceBranch: originalBranch,
+      integrationTarget: targetBranch,
+      baseRevision: base,
+      targetRevisionAtBind: lockedTargetRevision,
+      protectedTarget: preflight.protectedTarget,
+      resourceOrigin: "host-provided",
+      registration,
+      taskBranch,
+      taskWorktree: taskPath,
+      lifecycleState: "isolated",
+      resources: {
+        taskBranch: { ref: branchRef(taskBranch), createdAtRevision: base, currentRevision: taskHead },
+        taskWorktree: { path: taskPath, head: taskHead },
+        integrationBranch: null,
+        integrationWorktree: null
+      }
+    });
+    return { ok: true, status: "registered", lease, registration };
+  });
 }
 
 export async function workspaceRebindTarget({
@@ -1175,6 +1414,140 @@ export async function workspaceIntegrate({
   });
 }
 
+function exactSuccessfulAction(actions, runId, predicate, label) {
+  const matches = actions.filter((action) => (
+    action.status === "spent" &&
+    action.outcome === "success" &&
+    action.runId === runId &&
+    action.receipt?.action === action.action &&
+    action.receipt?.provider === action.provider &&
+    action.receipt?.resource === action.resource &&
+    action.receipt?.outcome === action.outcome &&
+    action.receipt?.runId === runId &&
+    action.receipt?.attemptId === action.attemptId &&
+    action.receipt?.idempotencyKey === action.idempotencyKey &&
+    action.receipt?.remoteRevision === action.remoteRevision &&
+    action.receipt?.providerReceipt?.action === action.action &&
+    action.receipt?.providerReceipt?.provider === action.provider &&
+    action.receipt?.providerReceipt?.resource === action.resource &&
+    action.receipt?.providerReceipt?.outcome === action.outcome &&
+    action.receipt?.providerReceipt?.runId === runId &&
+    action.receipt?.providerReceipt?.attemptId === action.attemptId &&
+    action.receipt?.providerReceipt?.idempotencyKey === action.idempotencyKey &&
+    action.receipt?.providerReceipt?.remoteRevision === action.remoteRevision &&
+    predicate(action, action.receipt.providerReceipt)
+  ));
+  if (matches.length !== 1) throw new Error(`${label} requires exactly one matching successful governed action`);
+  const action = matches[0];
+  assertProviderReceiptShape(action, action.receipt.providerReceipt, "success");
+  return action;
+}
+
+export async function workspaceReconcileProtected({
+  stateRoot,
+  repositoryId,
+  taskId,
+  runId,
+  inspect = inspectRun
+}) {
+  const target = leasePath(stateRoot, repositoryId, normalizeTaskId(taskId));
+  let lease = await readLeaseAt(stateRoot, target);
+  if (!lease.protectedTarget || lease.lifecycleState !== "integration-ready" || lease.blockedState !== null || !lease.validation) {
+    throw new Error("Protected reconciliation requires an unblocked integration-ready protected lease");
+  }
+  if (typeof runId !== "string" || !runId) throw new Error("Protected reconciliation requires a governed run id");
+  if (typeof inspect !== "function") throw new Error("Protected reconciliation inspector must be a function");
+
+  return withRepositoryLock(stateRoot, repositoryId, async () => {
+    lease = await readLeaseAt(stateRoot, target);
+    if (!lease.protectedTarget || lease.lifecycleState !== "integration-ready" || lease.blockedState !== null || !lease.validation) {
+      throw new Error("Protected reconciliation lease changed before the repository lock was acquired");
+    }
+    const run = await inspect(stateRoot, runId);
+    const runRepository = await repositoryInfo(run.manifest?.cwd ?? "").catch(() => null);
+    if (!runRepository || runRepository.repositoryDigest !== lease.repository.repositoryDigest) {
+      throw new Error("Governed delivery run belongs to a different repository");
+    }
+    if (run.manifest?.sourceBinding?.headRevision !== lease.validation.head) {
+      throw new Error("Governed delivery run is not bound to the validated task head");
+    }
+    const actions = Array.isArray(run.actions) ? run.actions : [];
+    const taskHead = lease.validation.head;
+    const mergeAction = exactSuccessfulAction(
+      actions,
+      runId,
+      (action, receipt) => (
+        action.action === "pr.merge" &&
+        action.provider === "github-cli" &&
+        action.reviewedHead === taskHead &&
+        action.targetRef === lease.integrationTarget &&
+        receipt.terminalState === "success" &&
+        receipt.state === "MERGED" &&
+        receipt.head === taskHead &&
+        receipt.mergeHead === taskHead &&
+        receipt.baseRefName === lease.integrationTarget &&
+        ["merge", "squash"].includes(receipt.mergeMethod)
+      ),
+      "Protected reconciliation"
+    );
+    const mergeReceipt = mergeAction.receipt.providerReceipt;
+    if (!SHA1.test(mergeReceipt.mergeCommit)) throw new Error("Protected merge receipt is missing an exact merge commit");
+    const syncAction = exactSuccessfulAction(
+      actions,
+      runId,
+      (action, receipt) => (
+        action.action === "remote.sync" &&
+        action.provider === "git" &&
+        action.resource === `refs/heads/${lease.integrationTarget}` &&
+        action.reviewedHead === taskHead &&
+        action.pullRequest === mergeReceipt.pr &&
+        action.mergeCommit === mergeReceipt.mergeCommit &&
+        receipt.terminalState === "success" &&
+        receipt.ref === `refs/heads/${lease.integrationTarget}` &&
+        receipt.providerRevision === mergeReceipt.mergeCommit &&
+        receipt.localRevision === mergeReceipt.mergeCommit
+      ),
+      "Protected target reconciliation"
+    );
+    const syncReceipt = syncAction.receipt.providerReceipt;
+    const currentTarget = await resolveLocalBranch(lease.sourceCheckout, lease.integrationTarget);
+    if (!currentTarget || !(await isAncestor(lease.sourceCheckout, syncReceipt.localRevision, currentTarget))) {
+      lease = await setBlocked(stateRoot, target, lease, "unknown-integration", "local target does not contain the provider-reconciled merge commit");
+      return { ok: false, status: "unknown-integration", lease };
+    }
+    if (mergeReceipt.mergeMethod === "merge" && !(await isAncestor(lease.sourceCheckout, taskHead, mergeReceipt.mergeCommit))) {
+      lease = await setBlocked(stateRoot, target, lease, "unknown-integration", "merge commit does not contain the exact validated task head");
+      return { ok: false, status: "unknown-integration", lease };
+    }
+    if (!(await isAncestor(lease.sourceCheckout, mergeReceipt.mergeCommit, currentTarget))) {
+      lease = await setBlocked(stateRoot, target, lease, "unknown-integration", "current target no longer contains the reconciled merge commit");
+      return { ok: false, status: "unknown-integration", lease };
+    }
+    const integration = {
+      schemaVersion: 1,
+      method: `governed-pr-${mergeReceipt.mergeMethod}`,
+      taskHead,
+      finalTargetRevision: syncReceipt.localRevision,
+      observedTargetRevision: currentTarget,
+      governedRunId: runId,
+      mergeAttemptId: mergeAction.attemptId,
+      syncAttemptId: syncAction.attemptId,
+      pullRequest: mergeReceipt.pr,
+      mergeCommit: mergeReceipt.mergeCommit,
+      mergeReceiptDigest: digestObject(mergeReceipt),
+      syncReceiptDigest: digestObject(syncReceipt),
+      reconciledAt: nowIso()
+    };
+    lease = await writeLease(stateRoot, target, {
+      ...lease,
+      lifecycleState: "integrated",
+      blockedState: null,
+      integration
+    });
+    return { ok: true, status: "integrated", lease, integration };
+  });
+}
+
 export async function workspaceCleanup({ stateRoot, repositoryId, taskId }) {
   const target = leasePath(stateRoot, repositoryId, normalizeTaskId(taskId));
   let lease = await readLeaseAt(stateRoot, target);
@@ -1191,6 +1564,14 @@ export async function workspaceCleanup({ stateRoot, repositoryId, taskId }) {
     throw new Error("Run cleanup from outside the task worktree so Git can remove it safely");
   }
   return withRepositoryLock(stateRoot, repositoryId, async () => {
+    lease = await readLeaseAt(stateRoot, target);
+    if (lease.blockedState !== null) throw new Error(`Cleanup is blocked by ${lease.blockedState}`);
+    if (lease.lifecycleState !== "integrated" && !(lease.lifecycleState === "integration-ready" && lease.validation?.noOp === true)) {
+      throw new Error("Cleanup lease changed before the repository lock was acquired");
+    }
+    if (lease.protectedTarget && lease.lifecycleState !== "integrated") {
+      throw new Error("Protected delivery cannot be cleaned before an exact provider merge receipt is reconciled");
+    }
     const taskState = await worktreeState(lease.taskWorktree);
     const taskHead = await headRevision(lease.taskWorktree);
     if (!taskState.clean || taskHead !== lease.validation.head) {
@@ -1200,13 +1581,25 @@ export async function workspaceCleanup({ stateRoot, repositoryId, taskId }) {
       ? lease.targetRevisionAtBind
       : lease.integration?.finalTargetRevision;
     const currentTargetHead = await resolveLocalBranch(lease.sourceCheckout, lease.integrationTarget);
+    const governedSquash = (
+      lease.integration?.method === "governed-pr-squash" &&
+      lease.integration?.taskHead === taskHead &&
+      SHA1.test(lease.integration?.mergeCommit ?? "") &&
+      /^[a-f0-9]{64}$/.test(lease.integration?.mergeReceiptDigest ?? "") &&
+      /^[a-f0-9]{64}$/.test(lease.integration?.syncReceiptDigest ?? "")
+    );
+    const taskContained = currentTargetHead
+      ? (governedSquash
+          ? await isAncestor(lease.sourceCheckout, lease.integration.mergeCommit, currentTargetHead)
+          : await isAncestor(lease.sourceCheckout, taskHead, currentTargetHead))
+      : false;
     if (
       !integratedTargetHead ||
       !currentTargetHead ||
       !(await isAncestor(lease.sourceCheckout, integratedTargetHead, currentTargetHead)) ||
-      !(await isAncestor(lease.sourceCheckout, taskHead, currentTargetHead))
+      !taskContained
     ) {
-      throw new Error("Integration target does not contain the exact task head; preserving task resources");
+      throw new Error("Integration target does not contain the reconciled task result; preserving task resources");
     }
     lease = await writeLease(stateRoot, target, { ...lease, lifecycleState: "cleanup-ready" });
     if (lease.resources.integrationWorktree || lease.resources.integrationBranch) {
@@ -1216,10 +1609,13 @@ export async function workspaceCleanup({ stateRoot, repositoryId, taskId }) {
         resources: { ...lease.resources, integrationBranch: null, integrationWorktree: null }
       });
     }
-    await git(lease.sourceCheckout, ["worktree", "remove", lease.taskWorktree]);
-    const taskRefHead = await resolveLocalBranch(lease.sourceCheckout, lease.taskBranch);
-    if (taskRefHead !== taskHead) throw new Error("Task branch drifted during cleanup; preserving its ref");
-    await git(lease.sourceCheckout, ["update-ref", "-d", branchRef(lease.taskBranch), taskHead]);
+    const preserveHostResources = lease.resourceOrigin === "host-provided";
+    if (!preserveHostResources) {
+      await git(lease.sourceCheckout, ["worktree", "remove", lease.taskWorktree]);
+      const taskRefHead = await resolveLocalBranch(lease.sourceCheckout, lease.taskBranch);
+      if (taskRefHead !== taskHead) throw new Error("Task branch drifted during cleanup; preserving its ref");
+      await git(lease.sourceCheckout, ["update-ref", "-d", branchRef(lease.taskBranch), taskHead]);
+    }
     const cleanupPayload = {
       schemaVersion: 1,
       kind: "WorkspaceCleanupReceiptV1",
@@ -1228,11 +1624,18 @@ export async function workspaceCleanup({ stateRoot, repositoryId, taskId }) {
       integrationTarget: lease.integrationTarget,
       finalTargetRevision: currentTargetHead,
       removed: {
-        taskBranch: lease.taskBranch,
-        taskWorktree: lease.taskWorktree,
+        taskBranch: preserveHostResources ? null : lease.taskBranch,
+        taskWorktree: preserveHostResources ? null : lease.taskWorktree,
         integrationBranch: lease.integration?.candidateBranch ?? null,
         integrationWorktree: lease.integration?.candidateWorktree ?? null
       },
+      preserved: preserveHostResources
+        ? {
+            taskBranch: lease.taskBranch,
+            taskWorktree: lease.taskWorktree,
+            reason: "host-provided-resources-remain-under-host-ownership"
+          }
+        : null,
       cleanedAt: nowIso()
     };
     const cleanup = { ...cleanupPayload, receiptDigest: digestObject(cleanupPayload) };
@@ -1243,8 +1646,8 @@ export async function workspaceCleanup({ stateRoot, repositoryId, taskId }) {
       lifecycleState: "cleaned",
       cleanup: { ...cleanup, path: cleanupPath },
       resources: {
-        taskBranch: null,
-        taskWorktree: null,
+        taskBranch: preserveHostResources ? lease.resources.taskBranch : null,
+        taskWorktree: preserveHostResources ? lease.resources.taskWorktree : null,
         integrationBranch: null,
         integrationWorktree: null
       }
@@ -1258,19 +1661,33 @@ export async function workspaceStatus({ stateRoot, repositoryId, taskId }) {
   const resources = {
     taskWorktreeExists: lease.taskWorktree ? await exists(lease.taskWorktree) : false,
     taskBranchRevision: lease.taskBranch ? await resolveLocalBranch(lease.sourceCheckout, lease.taskBranch) : null,
-    integrationTargetRevision: lease.integrationTarget ? await resolveLocalBranch(lease.sourceCheckout, lease.integrationTarget) : null
+    integrationTargetRevision: lease.integrationTarget ? await resolveLocalBranch(lease.sourceCheckout, lease.integrationTarget) : null,
+    resourceOrigin: lease.resourceOrigin ?? "better-workflows",
+    cleanupDisposition: lease.resourceOrigin === "host-provided" ? "preserve-host-provided" : "remove-run-owned"
   };
   return { ok: lease.blockedState === null, lease, resources };
 }
 
-export function directCompletionNotice({ targetBranch, checks, integrated, cleaned }) {
+export function directCompletionNotice({
+  targetBranch,
+  checks,
+  integrated,
+  cleaned,
+  cleanupDisposition = "remove-run-owned"
+}) {
   if (!integrated || !cleaned) throw new Error("Direct completion notice requires terminal integration and cleanup");
   if (!targetBranch || !Array.isArray(checks) || checks.length === 0) {
     throw new Error("Direct completion notice requires the target branch and actual checks");
   }
+  if (!["remove-run-owned", "preserve-host-provided"].includes(cleanupDisposition)) {
+    throw new Error("Direct completion notice cleanup disposition is invalid");
+  }
+  const isolationStatus = cleanupDisposition === "preserve-host-provided"
+    ? `Git 隔離狀態：已在 host 提供的本任務專屬 worktree 完成並安全整合至 ${targetBranch}；Better Workflows 已完成 lease cleanup，task branch 與 worktree 依 host ownership 保留，交由 host 釋放。`
+    : `Git 隔離狀態：已在本任務專屬 worktree 完成，安全整合至 ${targetBranch}，並且只清理本任務擁有的 branch 與 worktree。`;
   return [
     "本次工作經 Auto 評估為範圍明確、可回復的低風險修改，因此採用 Direct 路徑，未啟用完整的 Better Workflows 證據工作流。",
-    `Git 隔離狀態：已在本任務專屬 worktree 完成，安全整合至 ${targetBranch}，並且只清理本任務擁有的 branch 與 worktree。`,
+    isolationStatus,
     `已完成的基本檢查：${checks.join("、")}。`,
     "本次成果已通過上述基本檢查，但不等同於完整、可重播的證據驗證。如需升級驗證強度，請回覆「補做證據驗證」，Better Workflows 將至少改走 Verified 路徑。"
   ].join("\n\n");

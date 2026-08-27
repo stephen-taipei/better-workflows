@@ -55,10 +55,19 @@ checks within the 120-second bound. It validates the exact task head, safely
 integrates only an eligible non-protected local target, and cleans only exact
 resources owned by the same lease after terminal integration proof.
 
+If the host already supplied the current task's worktree, use `workspace
+register` at the unchanged exact base instead of nesting another worktree.
+Registered host resources are preserved during cleanup; only Better Workflows
+integration candidates may be removed by this lease.
+
 Protected or remote targets are governed delivery: create or update the
 run-owned PR only through the selected evidence workflow, require fresh checks,
 the exact PR head, terminal provider reconciliation, and merge authority.
 `pr-required` or `PR ready` is not completion and does not permit cleanup.
+After merge, `workspace reconcile` must find the exact successful governed
+`pr.merge` and matching `remote.sync` actions in the same run before protected
+cleanup. Squash cleanup additionally requires the receipt-bound reviewed head
+and provider merge commit; a branch-name match or local diff is insufficient.
 
 If scope, source revision, target, acceptance, risk, or capability state changes
 during execution, invalidate the assessment and route receipt and preview
@@ -83,3 +92,6 @@ Explain that the result used the low-risk Direct path and is not a complete
 replayable evidence workflow. Invite the user to reply `補做證據驗證`; that
 follow-up must route at least to `verified`. If integration or cleanup is still
 pending, report the recovery state instead and never emit the completion notice.
+When `cleanupDisposition` is `preserve-host-provided`, explicitly say the lease
+was closed but the host-owned task branch and worktree were retained; never use
+the run-owned-resource removal wording for that case.

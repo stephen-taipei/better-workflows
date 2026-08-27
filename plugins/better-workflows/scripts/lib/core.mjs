@@ -1817,6 +1817,7 @@ export function assertProviderReceiptShape(record, providerReceipt, outcome = re
       typeof providerReceipt.repository !== "string" || !providerReceipt.repository ||
       typeof providerReceipt.baseRefName !== "string" || !providerReceipt.baseRefName ||
       (record.targetRef && providerReceipt.baseRefName !== record.targetRef) ||
+      !["merge", "squash"].includes(providerReceipt.mergeMethod) ||
       providerReceipt.mergeMethod !== record.mergeMethod ||
       providerReceipt.adminBypass !== false ||
       providerReceipt.invocationId !== record.providerInvocation?.id ||
@@ -5484,7 +5485,8 @@ async function verifyProviderReceipt(manifest, record, receipt, contract = null)
       ? mergeDetails.parents.map((parent) => parent?.sha).filter(Boolean)
       : [];
     const mergeBase = mergeParents[0];
-    const mergeHead = mergeParents[1];
+    const mergeHead = record.mergeMethod === "squash" ? actual.headRefOid : mergeParents[1];
+    const expectedParentCount = record.mergeMethod === "squash" ? 1 : 2;
     const response = {
       number: actual.number,
       state: actual.state,
@@ -5525,7 +5527,7 @@ async function verifyProviderReceipt(manifest, record, receipt, contract = null)
       providerReceipt.repository !== repository ||
       providerReceipt.mergeBase !== record.remoteRevision ||
       mergeBase !== record.remoteRevision ||
-      mergeParents.length !== 2 ||
+      mergeParents.length !== expectedParentCount ||
       providerReceipt.mergeHead !== record.reviewedHead ||
       mergeHead !== record.reviewedHead ||
       providerReceipt.providerExecutableDigest !== record.providerExecutable?.digest
@@ -7134,6 +7136,10 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
     if (request.action === "pr.merge") {
       const pullRequest = Number(String(request.resource).replace(/^pull\//, ""));
       if (!Number.isInteger(pullRequest)) throw new Error("PR merge resources must use pull/<number>");
+      const mergeMethod = String(request.mergeMethod ?? "merge");
+      if (!["merge", "squash"].includes(mergeMethod)) {
+        throw new Error("Governed PR merge method must be merge or squash");
+      }
       const currentHead = (await execBoundGitAuthority(manifest.cwd, [
         "rev-parse", "--verify", "HEAD^{commit}"
       ])).stdout.trim();
@@ -7142,7 +7148,7 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
         pullRequest,
         reviewedHead: currentHead,
         ...(isDevDeliveryTemplate(contract.template) ? { targetRef: "dev" } : {}),
-        mergeMethod: "merge",
+        mergeMethod,
         adminBypass: false,
         providerExecutable: providerExecutable ?? await currentProviderExecutableIdentity("gh"),
         mergeRepository: repository,
@@ -7155,7 +7161,7 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
           repository,
           "--match-head-commit",
           currentHead,
-          "--merge",
+          mergeMethod === "merge" ? "--merge" : "--squash",
           "--delete-branch=false"
         ]
       };
@@ -8417,10 +8423,11 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
     consumed.mergeRepository,
     "--match-head-commit",
     consumed.reviewedHead,
-    "--merge",
+    consumed.mergeMethod === "merge" ? "--merge" : consumed.mergeMethod === "squash" ? "--squash" : "--invalid-merge-method",
     "--delete-branch=false"
   ];
-  if (!consumed.mergeRepository || JSON.stringify(consumed.mergeCommand) !== JSON.stringify(expectedCommand)) {
+  if (!consumed.mergeRepository || !["merge", "squash"].includes(consumed.mergeMethod) ||
+      JSON.stringify(consumed.mergeCommand) !== JSON.stringify(expectedCommand)) {
     throw new Error("PR merge execution command is not the fixed non-admin invocation");
   }
   const manifest = await readJson(root, safeJoin(runDirectory(root, runId), "manifest.json"));

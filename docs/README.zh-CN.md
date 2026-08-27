@@ -26,6 +26,7 @@
 ## 为什么需要 Better Workflows
 
 用白话说，它是“证据至上的 AI 工程 QA＋交付守门人”：简单修改快速完成；重要工作逐阶段验证；Git 修改默认使用本任务专属 worktree。
+若 AI host 已创建干净且专属的 worktree，可明确注册后直接使用而不再嵌套创建；host 资源会保留。Protected／squash 集成只有在同一 governed run 的 exact merge 与 remote-sync receipts 对账成功后才允许 cleanup。
 
 Codex 可以分析 repository、修改代码、运行检查并操作 provider。能力越强，越需要
 清楚区分“用户想要什么”与“当前证据和权限实际允许什么”。

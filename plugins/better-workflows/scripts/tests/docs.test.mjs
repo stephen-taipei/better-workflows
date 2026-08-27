@@ -656,6 +656,10 @@ test("Auto and Direct skills enforce repository preflight, risk admission, isola
   assert.match(content, /irreversibility[^\n]*zero|irreversibility `0`/);
   assert.match(content, /total[^\n]*two|total[^\n]*`2`/);
   assert.match(content, /TaskWorkspaceLeaseV1/);
+  assert.match(content, /workspace register/);
+  assert.match(content, /host[^\n]*preserv|preserve[^\n]*host/i);
+  assert.match(content, /workspace reconcile/);
+  assert.match(content, /squash[^\n]*receipt|receipt[^\n]*squash/i);
   assert.match(content, /Never auto-stash|Never stash/);
   assert.match(content, /120-second/);
   assert.match(content, /pr-required[^\n]*not completion/);

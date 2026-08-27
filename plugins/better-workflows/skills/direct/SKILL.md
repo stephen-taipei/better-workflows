@@ -21,6 +21,10 @@ ownership conflict, release/deploy/security/migration scope, or any unclear or
 irreversible effect is incompatible with Direct and must stop or be raised to
 the governed evidence route.
 
+A host-provided task worktree must be explicitly registered while clean and at
+the exact pre-mutation base; never create a nested worktree. Its branch and path
+remain host-owned and must be preserved during Better Workflows cleanup.
+
 Run actual local, offline targeted checks within the 120-second Direct bound.
 Only after exact-head validation, safe target integration, and exact owned
 cleanup may Root emit the standard Direct completion notice. If any of those

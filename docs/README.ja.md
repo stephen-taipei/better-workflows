@@ -26,6 +26,7 @@
 ## Better Workflows が必要な理由
 
 平たく言えば「証拠を最優先する AI エンジニアリング QA ＋デリバリーの門番」です。単純な変更は速く、重要な作業は段階ごとに検証し、Git 変更は既定で task 専用 worktree を使います。
+AI host が clean で専用の worktree をすでに作成した場合は、明示的に登録して nested worktree を避け、host 資源を保持します。Protected／squash 統合の cleanup は、同じ governed run の exact merge と remote-sync receipts が照合された後だけ許可されます。
 
 Codex は repository の分析、コード編集、check 実行、provider 操作を行えます。
 能力が高まるほど、「利用者の意図」と「現在の証拠と権限が実際に許すこと」を

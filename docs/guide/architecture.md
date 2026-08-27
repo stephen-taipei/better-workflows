@@ -80,6 +80,14 @@ isolation protects mutation state; it does not replace evidence verification.
 Multiple repositories receive independent leases and serialized integration;
 there is no claim of cross-repository atomicity.
 
+An explicitly registered host worktree adds a digested
+`HostWorkspaceRegistrationV1` record and `resourceOrigin: host-provided`.
+Better Workflows may validate and integrate from it but leaves its branch and
+path for the host to release. Protected leases cross `integration-ready →
+integrated` only by reconciling the exact governed `pr.merge` and `remote.sync`
+actions; this receipt pair is also the sole exception that permits CAS deletion
+after an exact squash merge where ordinary Git ancestry cannot prove inclusion.
+
 ## Routing precedence
 
 1. Host hard constraints.

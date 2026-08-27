@@ -12,6 +12,8 @@ import {
   workspaceCreate,
   workspaceIntegrate,
   workspacePreflight,
+  workspaceReconcileProtected,
+  workspaceRegister,
   workspaceRebindTarget,
   workspaceStatus,
   workspaceValidate
@@ -184,6 +186,79 @@ test("mutation lifecycle isolates, reuses by owner, validates, integrates with C
   assert.equal(status.resources.taskBranchRevision, null);
 });
 
+test("a verified host-provided task worktree is registered without nesting and remains host-owned after cleanup", async () => {
+  const cwd = await repository();
+  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-workspace-state-"));
+  const hostRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-host-worktree-"));
+  const taskWorktree = path.join(hostRoot, "task");
+  const baseRevision = (await git(cwd, "rev-parse", "HEAD")).stdout.trim();
+  const taskBranch = "codex/host-provided-task";
+  await git(cwd, "worktree", "add", "-q", "-b", taskBranch, taskWorktree, baseRevision);
+  const before = (await git(cwd, "worktree", "list", "--porcelain")).stdout;
+
+  const registered = await workspaceRegister({
+    cwd: taskWorktree,
+    stateRoot,
+    taskId: "task-host-provided",
+    baseRevision,
+    integrationTarget: "feature",
+    sourceCheckout: cwd
+  });
+  assert.equal(registered.ok, true);
+  assert.equal(registered.status, "registered");
+  assert.equal(registered.lease.resourceOrigin, "host-provided");
+  assert.equal(registered.lease.registration.resourceDisposition, "preserve-host-provided");
+  assert.equal((await git(cwd, "worktree", "list", "--porcelain")).stdout, before);
+
+  const reused = await workspacePreflight({
+    cwd: taskWorktree,
+    stateRoot,
+    intent: "modify",
+    taskId: "task-host-provided"
+  });
+  assert.equal(reused.status, "task-worktree-reused");
+  const conflict = await workspacePreflight({
+    cwd: taskWorktree,
+    stateRoot,
+    intent: "modify",
+    taskId: "task-another-host"
+  });
+  assert.equal(conflict.status, "ownership-conflict");
+
+  const taskHead = await commitFile(taskWorktree, "host.txt", "host task\n", "host task change");
+  await workspaceValidate({
+    stateRoot,
+    repositoryId: registered.lease.repository.repositoryId,
+    taskId: registered.lease.taskId,
+    checks: passingChecks()
+  });
+  const integrated = await workspaceIntegrate({
+    stateRoot,
+    repositoryId: registered.lease.repository.repositoryId,
+    taskId: registered.lease.taskId
+  });
+  assert.equal(integrated.ok, true);
+  assert.equal((await git(cwd, "rev-parse", "HEAD")).stdout.trim(), taskHead);
+  const cleaned = await workspaceCleanup({
+    stateRoot,
+    repositoryId: registered.lease.repository.repositoryId,
+    taskId: registered.lease.taskId
+  });
+  assert.equal(cleaned.ok, true);
+  assert.equal(cleaned.cleanup.removed.taskBranch, null);
+  assert.equal(cleaned.cleanup.removed.taskWorktree, null);
+  assert.equal(cleaned.cleanup.preserved.taskBranch, taskBranch);
+  assert.equal(await realpath(taskWorktree), registered.lease.taskWorktree);
+  assert.equal((await git(cwd, "rev-parse", "--verify", `refs/heads/${taskBranch}`)).stdout.trim(), taskHead);
+  const status = await workspaceStatus({
+    stateRoot,
+    repositoryId: registered.lease.repository.repositoryId,
+    taskId: registered.lease.taskId
+  });
+  assert.equal(status.resources.taskWorktreeExists, true);
+  assert.equal(status.resources.cleanupDisposition, "preserve-host-provided");
+});
+
 test("advanced local target is merged in a candidate, revalidated, then fast-forwarded", async () => {
   const cwd = await repository();
   const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-workspace-state-"));
@@ -245,6 +320,208 @@ test("protected targets stop at PR ready and never authorize cleanup", async () 
     }),
     /terminal integration success|Protected delivery/
   );
+});
+
+test("protected squash cleanup requires exact governed merge and remote-sync receipts", async () => {
+  const cwd = await repository({ branch: "dev" });
+  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-workspace-state-"));
+  const baseRevision = (await git(cwd, "rev-parse", "HEAD")).stdout.trim();
+  const created = await workspaceCreate({
+    cwd,
+    stateRoot,
+    goal: "Protected squash change",
+    taskId: "task-protected-squash"
+  });
+  const taskHead = await commitFile(created.lease.taskWorktree, "squash.txt", "squashed task\n", "task commit");
+  await workspaceValidate({
+    stateRoot,
+    repositoryId: created.lease.repository.repositoryId,
+    taskId: created.lease.taskId,
+    checks: passingChecks()
+  });
+  await writeFile(path.join(cwd, "squash.txt"), "squashed task\n");
+  await git(cwd, "add", "squash.txt");
+  await git(cwd, "commit", "-qm", "provider squash result");
+  const mergeCommit = (await git(cwd, "rev-parse", "HEAD")).stdout.trim();
+  assert.equal(await git(cwd, "merge-base", "--is-ancestor", taskHead, mergeCommit).then(() => true, () => false), false);
+
+  const runId = "sbw-20260827T000000Z-123456789abc";
+  const repositoryName = "github.com/example/repository";
+  const providerExecutable = { path: "/usr/bin/false", digest: "e".repeat(64) };
+  const mergeAttemptId = "merge-attempt-squash";
+  const mergeCommand = [
+    "gh", "pr", "merge", "44", "--repo", repositoryName,
+    "--match-head-commit", taskHead, "--squash", "--delete-branch=false"
+  ];
+  const invocationId = `github-pr-merge-wrapper:${runId}:${mergeAttemptId}`;
+  const mergeProviderReceipt = {
+    action: "pr.merge",
+    provider: "github-cli",
+    resource: "pull/44",
+    outcome: "success",
+    runId,
+    attemptId: mergeAttemptId,
+    idempotencyKey: "merge-squash-idempotency",
+    remoteRevision: baseRevision,
+    executionId: `github:example/repository:pr.merge:44:${mergeCommit}`,
+    proofKind: "github-pr-merge",
+    requestDigest: "1".repeat(64),
+    responseDigest: "2".repeat(64),
+    verifiedAt: new Date().toISOString(),
+    terminalState: "success",
+    pr: 44,
+    state: "MERGED",
+    repository: repositoryName,
+    baseRefName: "dev",
+    mergeMethod: "squash",
+    adminBypass: false,
+    invocationId,
+    mergeCommand,
+    head: taskHead,
+    mergeCommit,
+    mergeBase: baseRevision,
+    mergeHead: taskHead,
+    providerExecutableDigest: providerExecutable.digest
+  };
+  const mergeAction = {
+    schemaVersion: 1,
+    status: "spent",
+    outcome: "success",
+    runId,
+    action: "pr.merge",
+    provider: "github-cli",
+    resource: "pull/44",
+    remoteRevision: baseRevision,
+    reviewedHead: taskHead,
+    targetRef: "dev",
+    pullRequest: 44,
+    mergeRepository: repositoryName,
+    mergeMethod: "squash",
+    adminBypass: false,
+    attemptId: mergeAttemptId,
+    idempotencyKey: "merge-squash-idempotency",
+    providerExecutable,
+    providerInvocation: { id: invocationId },
+    mergeCommand,
+    receipt: {
+      action: "pr.merge",
+      provider: "github-cli",
+      resource: "pull/44",
+      outcome: "success",
+      runId,
+      attemptId: mergeAttemptId,
+      idempotencyKey: "merge-squash-idempotency",
+      remoteRevision: baseRevision,
+      providerReceipt: mergeProviderReceipt
+    }
+  };
+  const syncAttemptId = "sync-attempt-squash";
+  const syncRecord = {
+    schemaVersion: 1,
+    status: "spent",
+    outcome: "success",
+    runId,
+    action: "remote.sync",
+    provider: "git",
+    resource: "refs/heads/dev",
+    remoteRevision: baseRevision,
+    reviewedHead: taskHead,
+    pullRequest: 44,
+    mergeCommit,
+    attemptId: syncAttemptId,
+    idempotencyKey: "sync-squash-idempotency",
+    remote: "origin",
+    remoteRepository: repositoryName,
+    remoteUrlDigest: "3".repeat(64),
+    sourceBindingDigest: "4".repeat(64),
+    sourceRemoteBindingDigest: "5".repeat(64)
+  };
+  const syncProviderReceipt = {
+    action: "remote.sync",
+    provider: "git",
+    resource: "refs/heads/dev",
+    outcome: "success",
+    runId,
+    attemptId: syncAttemptId,
+    idempotencyKey: syncRecord.idempotencyKey,
+    remoteRevision: baseRevision,
+    executionId: `git:example/repository:remote.sync:refs/heads/dev:${mergeCommit}`,
+    proofKind: "git-remote-sync",
+    requestDigest: "6".repeat(64),
+    responseDigest: "7".repeat(64),
+    verifiedAt: new Date().toISOString(),
+    terminalState: "success",
+    ref: "refs/heads/dev",
+    remote: "origin",
+    repository: created.lease.repository.commonDirectory,
+    remoteRepository: repositoryName,
+    remoteUrlDigest: syncRecord.remoteUrlDigest,
+    sourceBindingDigest: syncRecord.sourceBindingDigest,
+    sourceRemoteBindingDigest: syncRecord.sourceRemoteBindingDigest,
+    providerRevision: mergeCommit,
+    localRevision: mergeCommit
+  };
+  syncRecord.receipt = {
+    action: "remote.sync",
+    provider: "git",
+    resource: "refs/heads/dev",
+    outcome: "success",
+    runId,
+    attemptId: syncAttemptId,
+    idempotencyKey: syncRecord.idempotencyKey,
+    remoteRevision: baseRevision,
+    providerReceipt: syncProviderReceipt
+  };
+
+  await assert.rejects(
+    workspaceReconcileProtected({
+      stateRoot,
+      repositoryId: created.lease.repository.repositoryId,
+      taskId: created.lease.taskId,
+      runId,
+      inspect: async () => ({
+        manifest: { cwd: created.lease.taskWorktree, sourceBinding: { headRevision: taskHead } },
+        actions: [
+          {
+            ...mergeAction,
+            receipt: {
+              ...mergeAction.receipt,
+              providerReceipt: { ...mergeProviderReceipt, mergeHead: baseRevision }
+            }
+          },
+          syncRecord
+        ]
+      })
+    }),
+    /exactly one matching successful governed action/
+  );
+
+  const reconciled = await workspaceReconcileProtected({
+    stateRoot,
+    repositoryId: created.lease.repository.repositoryId,
+    taskId: created.lease.taskId,
+    runId,
+    inspect: async () => ({
+      manifest: {
+        cwd: created.lease.taskWorktree,
+        sourceBinding: { headRevision: taskHead }
+      },
+      actions: [mergeAction, syncRecord]
+    })
+  });
+  assert.equal(reconciled.ok, true);
+  assert.equal(reconciled.integration.method, "governed-pr-squash");
+  assert.equal(reconciled.integration.mergeCommit, mergeCommit);
+
+  const cleaned = await workspaceCleanup({
+    stateRoot,
+    repositoryId: created.lease.repository.repositoryId,
+    taskId: created.lease.taskId
+  });
+  assert.equal(cleaned.ok, true);
+  assert.equal(cleaned.cleanup.finalTargetRevision, mergeCommit);
+  await assert.rejects(realpath(created.lease.taskWorktree));
+  await assert.rejects(git(cwd, "rev-parse", "--verify", `refs/heads/${created.lease.taskBranch}`));
 });
 
 test("merge conflict, dirty validation, and dirty cleanup preserve owned resources", async () => {
@@ -537,4 +814,13 @@ test("Direct completion notice is impossible before both integration and cleanup
   });
   assert.match(notice, /不等同於完整、可重播的證據驗證/);
   assert.match(notice, /補做證據驗證/);
+  const hostNotice = directCompletionNotice({
+    targetBranch: "feature",
+    checks: ["node test"],
+    integrated: true,
+    cleaned: true,
+    cleanupDisposition: "preserve-host-provided"
+  });
+  assert.match(hostNotice, /host ownership 保留/);
+  assert.doesNotMatch(hostNotice, /清理本任務擁有的 branch/);
 });
