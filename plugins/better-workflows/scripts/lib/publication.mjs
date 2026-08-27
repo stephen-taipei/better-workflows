@@ -780,6 +780,7 @@ export function processLiveness(pid, probe = process.kill) {
 
 const DARWIN_PROCESS_IDENTITY_SCRIPT = [
   "import ctypes, os, struct, sys",
+  "if sys.flags.isolated != 1 or sys.flags.no_site != 1: raise SystemExit(5)",
   "pid = int(sys.argv[1])",
   "lib = ctypes.CDLL('/usr/lib/libproc.dylib')",
   "proc_pidinfo = lib.proc_pidinfo",
@@ -961,13 +962,21 @@ export function createProcessBootIdentityProbe({
 
 const processBootIdentity = createProcessBootIdentityProbe();
 
-async function readDarwinProcessStartIdentity(pid) {
-  const { stdout } = await execFileAsync("/usr/bin/python3", ["-c", DARWIN_PROCESS_IDENTITY_SCRIPT, String(pid)], {
+export async function readDarwinProcessStartIdentity(pid, {
+  execute = execFileAsync,
+  validateTempRoot = assertDarwinPythonTempRoot
+} = {}) {
+  if (!Number.isInteger(pid) || pid < 1) throw new Error("macOS process identity PID was invalid");
+  await validateTempRoot();
+  const { stdout, stderr } = await execute("/usr/bin/python3", ["-I", "-S", "-c", DARWIN_PROCESS_IDENTITY_SCRIPT, String(pid)], {
     encoding: "utf8",
     timeout: 5_000,
     killSignal: "SIGKILL",
-    env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", LC_ALL: "C" }
+    maxBuffer: 4_096,
+    shell: false,
+    env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", LC_ALL: "C", TMPDIR: DARWIN_PYTHON_TEMP_ROOT }
   });
+  if (stderr !== "") throw new Error("macOS process start identity emitted stderr");
   return stdout.trim();
 }
 

@@ -17,6 +17,7 @@ import {
   publishPluginCache,
   processIncarnationDigest,
   processLiveness,
+  readDarwinProcessStartIdentity,
   recoverPendingPluginCachePublication,
   validateDarwinPythonTempRoot,
   verifyPluginCacheReady
@@ -524,6 +525,44 @@ test("publication accepts only the fixed root-owned sticky Darwin Python temp ro
   ]) {
     assert.throws(() => validateDarwinPythonTempRoot(info, resolvedPath), /Unsafe fixed macOS Python temporary root/);
   }
+});
+
+test("publication Darwin process-start probe uses an isolated fixed Python boundary", async () => {
+  let invocation;
+  let tempRootChecks = 0;
+  const value = await readDarwinProcessStartIdentity(1234, {
+    validateTempRoot: async () => { tempRootChecks += 1; },
+    execute: async (...args) => {
+      invocation = args;
+      return { stdout: "123:456\n", stderr: "" };
+    }
+  });
+  assert.equal(value, "123:456");
+  assert.equal(tempRootChecks, 1);
+  assert.equal(invocation[0], "/usr/bin/python3");
+  assert.deepEqual(invocation[1].slice(0, 3), ["-I", "-S", "-c"]);
+  assert.match(invocation[1][3], /sys\.flags\.isolated != 1 or sys\.flags\.no_site != 1/);
+  assert.equal(invocation[1][4], "1234");
+  assert.deepEqual(invocation[2], {
+    encoding: "utf8",
+    timeout: 5_000,
+    killSignal: "SIGKILL",
+    maxBuffer: 4_096,
+    shell: false,
+    env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", LC_ALL: "C", TMPDIR: "/private/tmp" }
+  });
+});
+
+test("publication Darwin process-start probe rejects invalid PIDs and stderr", async () => {
+  const execute = async () => ({ stdout: "123:456\n", stderr: "startup hook output\n" });
+  await assert.rejects(
+    readDarwinProcessStartIdentity(0, { execute, validateTempRoot: async () => {} }),
+    /PID was invalid/
+  );
+  await assert.rejects(
+    readDarwinProcessStartIdentity(1234, { execute, validateTempRoot: async () => {} }),
+    /emitted stderr/
+  );
 });
 
 test("publication Darwin boot probe caches primary success without invoking fallback", async () => {
