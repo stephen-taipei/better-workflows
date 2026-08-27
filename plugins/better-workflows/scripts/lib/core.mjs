@@ -571,6 +571,39 @@ function assertNoAmbientGitAuthorityOverrides() {
 }
 
 export const VERSION = "4.0.0";
+const MIGRATABLE_LEGACY_EXACT_VERSIONS = new Set([
+  "1.0.0",
+  "2.0.1",
+  "2.1.0",
+  "2.5.0",
+  "2.6.0"
+]);
+const MIGRATABLE_LEGACY_FAMILIES = Object.freeze([
+  // Before v4, every 3.4.x manifest no newer than the running plugin was
+  // eligible. 3.4.14 was the final v3.4 control-plane version, so preserve
+  // that bounded upgrade path after the major bump.
+  Object.freeze({ major: 3, minor: 4, maxPatch: 14 })
+]);
+
+export function isMigratableWorkflowVersion(version) {
+  if (MIGRATABLE_LEGACY_EXACT_VERSIONS.has(version)) return true;
+  const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(
+    String(version ?? "")
+  );
+  if (!match) return false;
+  const [, majorText, minorText, patchText] = match;
+  const major = Number(majorText);
+  const minor = Number(minorText);
+  const patch = Number(patchText);
+  const [currentMajor, currentMinor, currentPatch] = VERSION.split(".").map(Number);
+  if (major === currentMajor && minor === currentMinor) {
+    return patch <= currentPatch;
+  }
+  return MIGRATABLE_LEGACY_FAMILIES.some((family) => (
+    major === family.major && minor === family.minor && patch <= family.maxPatch
+  ));
+}
+
 export const MODES = new Set(["auto", "direct", "verified", "deep", "critical"]);
 export const RUN_STATES = new Set([
   "pending",
@@ -2332,12 +2365,7 @@ export async function bindLegacyRunTemplate(
     ) {
       return { migrated: false, contract, manifest, state };
     }
-    const knownLegacyVersion = ["1.0.0", "2.0.1", "2.1.0", "2.5.0", "2.6.0"].includes(manifest.version);
-    const [currentMajor, currentMinor, currentPatch] = VERSION.split(".").map(Number);
-    const normalizedManifestVersion = String(manifest.version ?? "").split("+")[0];
-    const currentFamilyMatch = new RegExp(`^${currentMajor}\\.${currentMinor}\\.(\\d+)$`).exec(normalizedManifestVersion);
-    const currentFamilyVersion = currentFamilyMatch && Number(currentFamilyMatch[1]) <= currentPatch;
-    if (!knownLegacyVersion && !currentFamilyVersion) {
+    if (!isMigratableWorkflowVersion(manifest.version)) {
       throw new Error(
         `Run ${runId} lacks current template minimums but was not created by a migratable workflow version`
       );
