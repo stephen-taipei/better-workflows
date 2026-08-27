@@ -840,6 +840,67 @@ test("delayed workflow-run reconciliation locates the exact closed merge run ins
   assert.ok(!calls.some((url) => url.endsWith("/actions/runs/43")));
 });
 
+test("closed merge reconciliation queries both head and base workflow-run representations", async () => {
+  const headSha = "b".repeat(40);
+  const mergeCommitSha = "c".repeat(40);
+  const headRef = "codex/release-3.4.14";
+  const mergedAt = "2026-08-18T00:00:00Z";
+  const binding = buildClosedPolicyReceiptBinding({
+    repository: "example/repo",
+    branch: "dev",
+    headSha,
+    pullNumber: 17,
+    workflowRunId: "99",
+    observedAt: "2026-08-18T00:00:04Z",
+    mergeCommitSha,
+    mergedAt
+  });
+  const closedRun = {
+    id: 99,
+    path: ".github/workflows/ci.yml",
+    event: "pull_request_target",
+    status: "completed",
+    conclusion: "success",
+    head_sha: mergeCommitSha,
+    head_branch: "dev",
+    created_at: "2026-08-18T00:00:01Z",
+    completed_at: "2026-08-18T00:00:06Z",
+    repository: { full_name: "example/repo" },
+    pull_requests: [{ number: 17, head: { sha: headSha }, base: { ref: "dev" } }]
+  };
+  const listedBranches = [];
+  const result = await findClosedMergeWorkflowRun({
+    apiUrl: "https://api.github.com",
+    repository: "example/repo",
+    branch: "dev",
+    pullNumber: 17,
+    headSha,
+    headRef,
+    mergeCommitSha,
+    mergedAt,
+    token: "token",
+    fetchImpl: async (url) => {
+      if (url.includes("/actions/workflows/ci.yml/runs?")) {
+        const listedBranch = new URL(url).searchParams.get("branch");
+        listedBranches.push(listedBranch);
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ workflow_runs: listedBranch === "dev" ? [{ id: 99 }] : [] })
+        };
+      }
+      if (url.endsWith("/actions/runs/99")) return { ok: true, status: 200, json: async () => closedRun };
+      throw new Error(`Unexpected branch-representation URL: ${url}`);
+    },
+    fetchCloseBindingImpl: async ({ runId }) => {
+      assert.equal(runId, "99");
+      return binding;
+    }
+  });
+  assert.equal(result.run.id, 99);
+  assert.deepEqual(listedBranches, [headRef, "dev"]);
+});
+
 test("closed merge reconciliation accepts sparse provider metadata only with the exact head branch and close-binding artifact", async () => {
   const headSha = "b".repeat(40);
   const mergeCommitSha = "c".repeat(40);

@@ -849,19 +849,22 @@ export async function findClosedMergeWorkflowRun({
     throw new Error("Release policy reconciliation requires a complete merged pull-request binding");
   }
   const candidates = [];
-  for (let page = 1; page <= 10; page += 1) {
-    const payload = await requestJson({
-      apiUrl,
-      path: `/repos/${normalizedRepository}/actions/workflows/${encodeURIComponent(RELEASE_POLICY_RECEIPT_WORKFLOW_ID)}/runs?event=${RELEASE_POLICY_RECEIPT_WORKFLOW_EVENT}&branch=${encodeURIComponent(normalizedHeadRef || normalizedBranch)}&per_page=100&page=${page}`,
-      token,
-      fetchImpl
-    });
-    if (!Array.isArray(payload?.workflow_runs)) {
-      throw new Error("Release policy reconciliation returned an invalid workflow-run listing");
+  const branchFilters = [...new Set([normalizedHeadRef, normalizedBranch].filter(Boolean))];
+  for (const branchFilter of branchFilters) {
+    for (let page = 1; page <= 10; page += 1) {
+      const payload = await requestJson({
+        apiUrl,
+        path: `/repos/${normalizedRepository}/actions/workflows/${encodeURIComponent(RELEASE_POLICY_RECEIPT_WORKFLOW_ID)}/runs?event=${RELEASE_POLICY_RECEIPT_WORKFLOW_EVENT}&branch=${encodeURIComponent(branchFilter)}&per_page=100&page=${page}`,
+        token,
+        fetchImpl
+      });
+      if (!Array.isArray(payload?.workflow_runs)) {
+        throw new Error("Release policy reconciliation returned an invalid workflow-run listing");
+      }
+      candidates.push(...payload.workflow_runs);
+      if (payload.workflow_runs.length < 100) break;
+      if (page === 10) throw new Error("Release policy reconciliation exceeded its bounded workflow-run listing");
     }
-    candidates.push(...payload.workflow_runs);
-    if (payload.workflow_runs.length < 100) break;
-    if (page === 10) throw new Error("Release policy reconciliation exceeded its bounded workflow-run listing");
   }
   const matches = [];
   const listedById = new Map();
