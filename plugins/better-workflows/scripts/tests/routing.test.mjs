@@ -14,6 +14,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
+  assessAutoRisk,
   capabilitySnapshot,
   claimRouteReceipt,
   installPersonalRoutingProfile,
@@ -569,4 +570,88 @@ test("route receipts bind profiles and capabilities, expire safely, and are sing
     validateRouteReceipt({ stateRoot, cwd, receiptId: third.receiptId }),
     /expired/
   );
+});
+
+test("AutoRiskAssessmentV1 admits Direct only within every low-risk boundary", async () => {
+  const cwd = await workspace();
+  const direct = await assessAutoRisk({
+    cwd,
+    goal: "Rename one local label",
+    scope: ["src/label.txt"],
+    acceptanceDefined: true,
+    mutationIntent: "modify",
+    risk: {
+      risk: 1,
+      uncertainty: 0,
+      blastRadius: 1,
+      irreversibility: 0,
+      evidenceGap: 0
+    },
+    basicCheckPlan: ["node --test label.test.mjs"]
+  });
+  assert.equal(direct.kind, "AutoRiskAssessmentV1");
+  assert.equal(direct.decision, "direct-fast-path");
+  assert.equal(direct.riskTotal, 2);
+  assert.equal(direct.workspaceLifecycle, "not-applicable");
+  assert.deepEqual(direct.reasonCodes, ["direct-threshold-satisfied"]);
+  assert.match(direct.assessmentDigest, /^[a-f0-9]{64}$/);
+
+  for (const input of [
+    { acceptanceDefined: false, expected: "acceptance-undefined" },
+    { mutationIntent: "unknown", expected: "mutation-intent-unknown" },
+    { risk: { risk: 1, uncertainty: 1, blastRadius: 1, irreversibility: 0, evidenceGap: 0 }, expected: "risk-total-above-direct-limit" },
+    { risk: { risk: 0, uncertainty: 0, blastRadius: 0, irreversibility: 1, evidenceGap: 0 }, expected: "irreversibility-nonzero" },
+    { hardExclusions: ["credential"], expected: "hard-exclusion:credential" },
+    { protectedTarget: true, expected: "protected-target" },
+    { integrationTarget: "origin/dev", expected: "remote-target" },
+    { routeConstraint: true, expected: "explicit-route-or-mode-constraint" }
+  ]) {
+    const assessment = await assessAutoRisk({
+      cwd,
+      goal: "Bounded change",
+      scope: ["src"],
+      acceptanceDefined: input.acceptanceDefined ?? true,
+      mutationIntent: input.mutationIntent ?? "modify",
+      risk: input.risk ?? {},
+      hardExclusions: input.hardExclusions ?? [],
+      protectedTarget: input.protectedTarget ?? false,
+      integrationTarget: input.integrationTarget ?? null,
+      routeConstraint: input.routeConstraint ?? false
+    });
+    assert.equal(assessment.decision, "evidence-required");
+    assert.ok(assessment.reasonCodes.includes(input.expected));
+  }
+});
+
+test("built-in Auto returns a reviewable Direct route only when acceptance and mutation intent are explicit", async () => {
+  const cwd = await workspace();
+  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-routing-direct-"));
+  const direct = await previewRoute({
+    cwd,
+    stateRoot,
+    goal: "Update one local label",
+    scope: ["label.txt"],
+    acceptanceDefined: true,
+    mutationIntent: "modify",
+    risk: { risk: 1, uncertainty: 0, blastRadius: 0, irreversibility: 0, evidenceGap: 0 },
+    basicCheckPlan: ["targeted label test"]
+  });
+  assert.equal(direct.source, "built-in-auto");
+  assert.equal(direct.effectiveMode, "direct");
+  assert.equal(direct.needsSelection, false);
+  assert.equal(direct.autoRiskAssessment.decision, "direct-fast-path");
+
+  const protectedRoute = await previewRoute({
+    cwd,
+    stateRoot,
+    goal: "Update one local label",
+    scope: ["label.txt"],
+    acceptanceDefined: true,
+    mutationIntent: "modify",
+    integrationTarget: "dev",
+    protectedTarget: true
+  });
+  assert.equal(protectedRoute.needsSelection, true);
+  assert.equal(protectedRoute.autoRiskAssessment.decision, "evidence-required");
+  assert.ok(protectedRoute.autoRiskAssessment.reasonCodes.includes("protected-target"));
 });

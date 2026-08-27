@@ -1,7 +1,7 @@
 {
   "name": "better-workflows",
-  "version": "3.4.14",
-  "description": "Native-first, evidence-driven workflows for Codex.",
+  "version": "4.0.0",
+  "description": "Evidence-first, risk-adaptive workflows for multiple AI engineering hosts.",
   "license": "MIT",
   "private": true,
   "type": "module",

@@ -26,6 +26,8 @@ import {
 import { inspectCachedDeliberationRoster } from "./deliberation.mjs";
 import { bundleDigest } from "./publication.mjs";
 import { autonomyProfileDigest, loadAutonomyProfile } from "./autonomy.mjs";
+import { isGitRepository, runSourceGit } from "./git.mjs";
+import { isProtectedBranch, loadTaskWorktreePolicy } from "./workspace.mjs";
 
 const CATALOG_PATH = path.join(pluginRoot(), "config", "entrypoint-catalog.json");
 const PROFILE_RELATIVE_PATH = path.join(".codex", "better-workflows.json");
@@ -761,6 +763,120 @@ function strongestMode(...modes) {
   return concrete.sort((left, right) => MODE_RANK.get(right) - MODE_RANK.get(left))[0];
 }
 
+function autoRiskScore(value, label) {
+  const normalized = value ?? 0;
+  if (!Number.isInteger(normalized) || normalized < 0 || normalized > 3) {
+    throw new Error(`${label} must be an integer from 0 to 3`);
+  }
+  return normalized;
+}
+
+async function currentSourceRevision(cwd) {
+  if (!(await isGitRepository(cwd))) return null;
+  const result = await runSourceGit(cwd, ["rev-parse", "HEAD"]);
+  if (result?.ok !== true || !/^[a-f0-9]{40}\n$/i.test(result.stdout)) {
+    throw new Error("Auto risk assessment could not bind an exact source revision");
+  }
+  return result.stdout.trim().toLowerCase();
+}
+
+export async function assessAutoRisk({
+  cwd = process.cwd(),
+  goal,
+  scope = ["."],
+  sourceRevision = undefined,
+  risk = {},
+  hardExclusions = [],
+  basicCheckPlan = [],
+  mutationIntent = "unknown",
+  acceptanceDefined = false,
+  integrationTarget = null,
+  protectedTarget = false,
+  routeConstraint = false
+} = {}) {
+  const resolvedCwd = path.resolve(cwd);
+  const routeGoal = String(goal ?? "").trim();
+  if (!routeGoal) throw new Error("Auto risk assessment requires a goal");
+  const routeScope = stringArray(scope, "scope");
+  if (routeScope.length === 0) throw new Error("Auto risk assessment requires at least one scope");
+  if (!["unknown", "read-only", "modify"].includes(mutationIntent)) {
+    throw new Error("mutationIntent must be unknown, read-only, or modify");
+  }
+  const scores = {
+    risk: autoRiskScore(risk.risk, "risk"),
+    uncertainty: autoRiskScore(risk.uncertainty, "uncertainty"),
+    blastRadius: autoRiskScore(risk.blastRadius, "blastRadius"),
+    irreversibility: autoRiskScore(risk.irreversibility, "irreversibility"),
+    evidenceGap: autoRiskScore(risk.evidenceGap, "evidenceGap")
+  };
+  const exclusions = stringArray(hardExclusions, "hardExclusions");
+  const checks = stringArray(basicCheckPlan, "basicCheckPlan");
+  const repository = await isGitRepository(resolvedCwd);
+  const revision = sourceRevision === undefined
+    ? await currentSourceRevision(resolvedCwd)
+    : sourceRevision;
+  if (revision !== null && (typeof revision !== "string" || !/^[a-f0-9]{40}$/i.test(revision))) {
+    throw new Error("Auto risk assessment sourceRevision must be a full commit SHA or null");
+  }
+  const target = integrationTarget === null ? null : String(integrationTarget);
+  const remoteTarget = target !== null && /^(?:refs\/remotes\/|origin\/)/.test(target);
+  const policy = await loadTaskWorktreePolicy();
+  const targetIsProtected = protectedTarget === true || (target !== null && !remoteTarget && isProtectedBranch(target, policy.protectedBranchPatterns));
+  const total = Object.values(scores).reduce((sum, value) => sum + value, 0);
+  const reasonCodes = [];
+  if (!acceptanceDefined) reasonCodes.push("acceptance-undefined");
+  if (mutationIntent === "unknown") reasonCodes.push("mutation-intent-unknown");
+  if (repository && mutationIntent === "modify" && target === null) reasonCodes.push("integration-target-undefined");
+  if (scores.irreversibility !== 0) reasonCodes.push("irreversibility-nonzero");
+  for (const key of ["risk", "uncertainty", "blastRadius", "evidenceGap"]) {
+    if (scores[key] > 1) reasonCodes.push(`${key}-above-direct-limit`);
+  }
+  if (total > 2) reasonCodes.push("risk-total-above-direct-limit");
+  if (targetIsProtected) reasonCodes.push("protected-target");
+  if (remoteTarget) reasonCodes.push("remote-target");
+  if (routeConstraint) reasonCodes.push("explicit-route-or-mode-constraint");
+  for (const exclusion of exclusions) reasonCodes.push(`hard-exclusion:${exclusion}`);
+  const decision = reasonCodes.length === 0 ? "direct-fast-path" : "evidence-required";
+  if (decision === "direct-fast-path") reasonCodes.push("direct-threshold-satisfied");
+  const workspaceLifecycle = !repository
+    ? "not-applicable"
+    : mutationIntent === "read-only"
+      ? "read-only"
+      : mutationIntent === "modify" && (targetIsProtected || remoteTarget)
+        ? "governed-pr"
+        : mutationIntent === "modify"
+          ? "isolated-worktree"
+          : "read-only";
+  const stablePayload = {
+    schemaVersion: 1,
+    kind: "AutoRiskAssessmentV1",
+    goalDigest: digestObject({ goal: routeGoal }),
+    scopeDigest: digestObject({ cwd: resolvedCwd, scope: routeScope }),
+    sourceRevision: revision,
+    repository,
+    risk: scores.risk,
+    uncertainty: scores.uncertainty,
+    blastRadius: scores.blastRadius,
+    irreversibility: scores.irreversibility,
+    evidenceGap: scores.evidenceGap,
+    riskTotal: total,
+    hardExclusions: exclusions,
+    reasonCodes,
+    basicCheckPlan: checks.length > 0 ? checks : ["targeted-local-check<=120s"],
+    decision,
+    workspaceLifecycle,
+    mutationIntent,
+    acceptanceDefined: acceptanceDefined === true,
+    integrationTarget: target,
+    protectedTarget: targetIsProtected
+  };
+  return {
+    ...stablePayload,
+    assessedAt: nowIso(),
+    assessmentDigest: digestObject(stablePayload)
+  };
+}
+
 function routeFromEntry(entry, templateMap) {
   const template = entry.template === "auto" ? null : templateMap.get(entry.template);
   if (entry.template !== "auto" && !template) {
@@ -795,7 +911,14 @@ export async function previewRoute({
   mode = "auto",
   domains = [],
   tags = [],
-  autonomyProfile = null
+  autonomyProfile = null,
+  risk = {},
+  hardExclusions = [],
+  basicCheckPlan = [],
+  mutationIntent = "unknown",
+  acceptanceDefined = false,
+  integrationTarget = null,
+  protectedTarget = false
 } = {}) {
   const resolvedCwd = path.resolve(cwd);
   const routeGoal = String(goal ?? "").trim();
@@ -882,7 +1005,22 @@ export async function previewRoute({
     }
   }
   const minimumMode = profileRule?.route.minimumMode ?? null;
-  const effectiveMode = strongestMode(selected.baseMode, minimumMode, mode);
+  const autoRiskAssessment = await assessAutoRisk({
+    cwd: resolvedCwd,
+    goal: input.goal,
+    scope: input.scope,
+    risk,
+    hardExclusions,
+    basicCheckPlan,
+    mutationIntent,
+    acceptanceDefined,
+    integrationTarget,
+    protectedTarget,
+    routeConstraint: source !== "built-in-auto" || mode !== "auto"
+  });
+  const effectiveMode = source === "built-in-auto" && autoRiskAssessment.decision === "direct-fast-path"
+    ? "direct"
+    : strongestMode(selected.baseMode, minimumMode, mode);
   const supportSkills = (profileRule?.route.supportSkills ?? []).slice(0, 3);
   const requiredCapabilities = [
     ...(selected.entry ? [`entry:${selected.entry}`] : []),
@@ -927,7 +1065,8 @@ export async function previewRoute({
     scopeDigest: digestObject({ cwd: resolvedCwd, scope: input.scope }),
     capabilityDigest: snapshot.digest,
     bundleDigest: await pluginBundleDigest(),
-    autonomy
+    autonomy,
+    autoRiskAssessmentDigest: autoRiskAssessment.assessmentDigest
   };
   const primary = {
     entry: selected.entry,
@@ -971,8 +1110,22 @@ export async function previewRoute({
       reason: "No Node-only host hard-constraint input was supplied"
     },
     autonomyProfile: autonomy,
-    needsSelection: !selected.template,
-    input
+    autoRiskAssessment,
+    needsSelection: !selected.template && autoRiskAssessment.decision !== "direct-fast-path",
+    input: {
+      ...input,
+      risk: autoRiskAssessment.risk,
+      uncertainty: autoRiskAssessment.uncertainty,
+      blastRadius: autoRiskAssessment.blastRadius,
+      irreversibility: autoRiskAssessment.irreversibility,
+      evidenceGap: autoRiskAssessment.evidenceGap,
+      hardExclusions: autoRiskAssessment.hardExclusions,
+      basicCheckPlan: autoRiskAssessment.basicCheckPlan,
+      mutationIntent: autoRiskAssessment.mutationIntent,
+      acceptanceDefined: autoRiskAssessment.acceptanceDefined,
+      integrationTarget: autoRiskAssessment.integrationTarget,
+      protectedTarget: autoRiskAssessment.protectedTarget
+    }
   };
 }
 
@@ -1042,7 +1195,20 @@ export async function validateRouteReceipt({
     entry: receipt.requested.entry,
     template: receipt.requested.template,
     mode: receipt.requested.mode,
-    autonomyProfile: receipt.route?.autonomyProfile?.id ?? null
+    autonomyProfile: receipt.route?.autonomyProfile?.id ?? null,
+    risk: {
+      risk: receipt.input.risk,
+      uncertainty: receipt.input.uncertainty,
+      blastRadius: receipt.input.blastRadius,
+      irreversibility: receipt.input.irreversibility,
+      evidenceGap: receipt.input.evidenceGap
+    },
+    hardExclusions: receipt.input.hardExclusions,
+    basicCheckPlan: receipt.input.basicCheckPlan,
+    mutationIntent: receipt.input.mutationIntent,
+    acceptanceDefined: receipt.input.acceptanceDefined,
+    integrationTarget: receipt.input.integrationTarget,
+    protectedTarget: receipt.input.protectedTarget
   });
   const changed = Object.keys(receipt.bindings).filter(
     (key) => receipt.bindings[key] !== preview.bindings[key]

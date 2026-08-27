@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "project": "better-workflows",
+  "version": "4.0.0",
+  "releaseTag": "v4.0.0",
+  "releaseName": "Better Workflows v4.0.0",
+  "breakingChanges": [
+    "Direct Git mutation is workflow-stateless but requires a minimal TaskWorkspaceLeaseV1.",
+    "Mutating Git tasks default to task-owned worktrees and never modify a dirty source checkout.",
+    "Stable tags are created only after exact-SHA website QA and authenticated Tier 1 conformance gates."
+  ],
+  "policies": [
+    "host-support-v1",
+    "task-worktree-v1",
+    "bounded-autopilot-v1"
+  ],
+  "stableReleaseGates": {
+    "freshCi": true,
+    "tierOneConformanceReceipts": 8,
+    "websiteExactShaReceipt": true,
+    "localizedPublicQa": 41,
+    "releaseAuthority": true
+  }
+}

@@ -165,6 +165,22 @@ import {
   validateRoutingProfileFile
 } from "./lib/routing.mjs";
 import {
+  hostConformance,
+  hostDoctor,
+  hostList,
+  normalizeHostOs,
+  releaseConformanceMatrix
+} from "./lib/hosts.mjs";
+import {
+  workspaceCleanup,
+  workspaceCreate,
+  workspaceIntegrate,
+  workspacePreflight,
+  workspaceRebindTarget,
+  workspaceStatus,
+  workspaceValidate
+} from "./lib/workspace.mjs";
+import {
   applyDelegatedSelfImproveContract,
   buildRunGraph,
   buildTemplateCatalogGraph,
@@ -1541,7 +1557,9 @@ async function commandRun(root, options) {
     "evaluation-purpose",
     "self-improve-run",
     "route-receipt",
-    "autonomy-profile"
+    "autonomy-profile",
+    "workspace-task-id",
+    "workspace-repository-id"
   ]);
   let receiptBinding = null;
   if (options["route-receipt"]) {
@@ -1556,7 +1574,61 @@ async function commandRun(root, options) {
       receiptId: String(options["route-receipt"])
     });
     if (!receiptBinding.preview.primary.template) {
-      throw new Error("Route receipt does not resolve a concrete template");
+      const assessment = receiptBinding.preview.autoRiskAssessment;
+      if (assessment?.decision !== "direct-fast-path") {
+        throw new Error("Route receipt does not resolve a concrete template");
+      }
+      let workspaceLease = null;
+      if (assessment.workspaceLifecycle === "isolated-worktree") {
+        if (!options["workspace-task-id"] || !options["workspace-repository-id"]) {
+          throw new Error("Direct Git mutation requires --workspace-task-id and --workspace-repository-id");
+        }
+        const status = await workspaceStatus({
+          stateRoot: root,
+          repositoryId: String(options["workspace-repository-id"]),
+          taskId: String(options["workspace-task-id"])
+        });
+        workspaceLease = status.lease;
+        if (
+          !["isolated", "working"].includes(workspaceLease.lifecycleState) ||
+          workspaceLease.sourceCheckout !== receiptBinding.receipt.cwd ||
+          workspaceLease.integrationTarget !== assessment.integrationTarget
+        ) {
+          throw new Error("Direct Git mutation workspace lease does not match the route receipt");
+        }
+      } else if (options["workspace-task-id"] || options["workspace-repository-id"]) {
+        throw new Error("Workspace lease options are only valid for a Direct Git mutation route");
+      }
+      await claimRouteReceipt({
+        stateRoot: root,
+        receiptId: receiptBinding.receipt.receiptId
+      });
+      await markRouteReceiptUsed({
+        stateRoot: root,
+        receiptId: receiptBinding.receipt.receiptId,
+        runId: null
+      });
+      return {
+        ok: true,
+        direct: true,
+        runId: null,
+        mode: "direct",
+        routeReceipt: receiptBinding.receipt.receiptId,
+        autoRiskAssessment: assessment,
+        workspaceLease: workspaceLease
+          ? {
+              taskId: workspaceLease.taskId,
+              repositoryId: workspaceLease.repository.repositoryId,
+              taskBranch: workspaceLease.taskBranch,
+              taskWorktree: workspaceLease.taskWorktree,
+              integrationTarget: workspaceLease.integrationTarget,
+              lifecycleState: workspaceLease.lifecycleState
+            }
+          : null,
+        instruction: workspaceLease
+          ? "Direct Git mode: make, test, and commit changes only inside the task-owned worktree."
+          : "Direct mode: perform only the bounded work and targeted local checks recorded in the assessment."
+      };
     }
   }
   const templateName = receiptBinding
@@ -1803,6 +1875,115 @@ async function commandDoctor(root, options) {
   };
 }
 
+async function commandHost(root, subcommand, hostId, options) {
+  if (subcommand === "list") {
+    assertKnownOptions(options, []);
+    return { ok: true, ...(await hostList()), releaseConformanceMatrix: await releaseConformanceMatrix() };
+  }
+  if (subcommand === "doctor") {
+    assertKnownOptions(options, ["os"]);
+    return hostDoctor({
+      hostId: String(hostId ?? "codex"),
+      osId: String(options.os ?? normalizeHostOs())
+    });
+  }
+  if (subcommand === "conformance") {
+    assertKnownOptions(options, ["os", "write-receipt"]);
+    return hostConformance({
+      hostId: String(hostId ?? "codex"),
+      osId: String(options.os ?? normalizeHostOs()),
+      stateRoot: root,
+      writeReceipt: optionEnabled(options["write-receipt"])
+    });
+  }
+  throw new Error("host subcommand must be list, doctor, or conformance");
+}
+
+async function commandWorkspace(root, subcommand, options) {
+  if (subcommand === "preflight") {
+    assertKnownOptions(options, ["intent", "task-id", "integration-target", "profile-target"]);
+    return workspacePreflight({
+      cwd: process.cwd(),
+      stateRoot: root,
+      intent: String(options.intent ?? "read-only"),
+      taskId: options["task-id"] ? String(options["task-id"]) : null,
+      integrationTarget: options["integration-target"] ? String(options["integration-target"]) : null,
+      profileTarget: options["profile-target"] ? String(options["profile-target"]) : null
+    });
+  }
+  if (subcommand === "create") {
+    assertKnownOptions(options, ["goal", "task-id", "integration-target", "profile-target"]);
+    if (!options.goal) throw new Error("workspace create requires --goal");
+    return workspaceCreate({
+      cwd: process.cwd(),
+      stateRoot: root,
+      goal: String(options.goal),
+      taskId: options["task-id"] ? String(options["task-id"]) : null,
+      integrationTarget: options["integration-target"] ? String(options["integration-target"]) : null,
+      profileTarget: options["profile-target"] ? String(options["profile-target"]) : null
+    });
+  }
+  if (subcommand === "validate") {
+    assertKnownOptions(options, ["repository-id", "task-id", "check-file"]);
+    for (const required of ["repository-id", "task-id", "check-file"]) {
+      if (!options[required]) throw new Error(`workspace validate requires --${required}`);
+    }
+    const checks = JSON.parse(await readFile(path.resolve(String(options["check-file"])), "utf8"));
+    return workspaceValidate({
+      stateRoot: root,
+      repositoryId: String(options["repository-id"]),
+      taskId: String(options["task-id"]),
+      checks
+    });
+  }
+  if (subcommand === "integrate") {
+    assertKnownOptions(options, ["repository-id", "task-id"]);
+    if (!options["repository-id"] || !options["task-id"]) {
+      throw new Error("workspace integrate requires --repository-id and --task-id");
+    }
+    return workspaceIntegrate({
+      stateRoot: root,
+      repositoryId: String(options["repository-id"]),
+      taskId: String(options["task-id"])
+    });
+  }
+  if (subcommand === "rebind") {
+    assertKnownOptions(options, ["repository-id", "task-id", "integration-target"]);
+    if (!options["repository-id"] || !options["task-id"] || !options["integration-target"]) {
+      throw new Error("workspace rebind requires --repository-id, --task-id, and --integration-target");
+    }
+    return workspaceRebindTarget({
+      stateRoot: root,
+      repositoryId: String(options["repository-id"]),
+      taskId: String(options["task-id"]),
+      integrationTarget: String(options["integration-target"])
+    });
+  }
+  if (subcommand === "cleanup") {
+    assertKnownOptions(options, ["repository-id", "task-id"]);
+    if (!options["repository-id"] || !options["task-id"]) {
+      throw new Error("workspace cleanup requires --repository-id and --task-id");
+    }
+    return workspaceCleanup({
+      stateRoot: root,
+      repositoryId: String(options["repository-id"]),
+      taskId: String(options["task-id"])
+    });
+  }
+  if (subcommand === "status") {
+    assertKnownOptions(options, ["repository-id", "task-id"]);
+    if (!options["repository-id"] || !options["task-id"]) {
+      throw new Error("workspace status requires --repository-id and --task-id");
+    }
+    return workspaceStatus({
+      stateRoot: root,
+      repositoryId: String(options["repository-id"]),
+      taskId: String(options["task-id"])
+    });
+  }
+  throw new Error("workspace subcommand must be preflight, create, validate, integrate, rebind, cleanup, or status");
+}
+
 function quorumExpectedBindings(run, reviewPackage = null) {
   const expected = {
     runId: run.manifest.runId,
@@ -1918,7 +2099,18 @@ async function commandRoute(root, subcommand, action, options) {
       "domain",
       "tag",
       "record",
-      "autonomy-profile"
+      "autonomy-profile",
+      "risk",
+      "uncertainty",
+      "blast-radius",
+      "irreversibility",
+      "evidence-gap",
+      "hard-exclusion",
+      "basic-check",
+      "mutation",
+      "acceptance-defined",
+      "integration-target",
+      "protected-target"
     ]);
     const preview = await previewRoute({
       cwd: process.cwd(),
@@ -1930,7 +2122,20 @@ async function commandRoute(root, subcommand, action, options) {
       mode: String(options.mode ?? "auto"),
       domains: values(options.domain).map(String),
       tags: values(options.tag).map(String),
-      autonomyProfile: options["autonomy-profile"] ? String(options["autonomy-profile"]) : null
+      autonomyProfile: options["autonomy-profile"] ? String(options["autonomy-profile"]) : null,
+      risk: {
+        risk: integer(options.risk),
+        uncertainty: integer(options.uncertainty),
+        blastRadius: integer(options["blast-radius"]),
+        irreversibility: integer(options.irreversibility),
+        evidenceGap: integer(options["evidence-gap"])
+      },
+      hardExclusions: values(options["hard-exclusion"]).map(String),
+      basicCheckPlan: values(options["basic-check"]).map(String),
+      mutationIntent: String(options.mutation ?? "unknown"),
+      acceptanceDefined: optionEnabled(options["acceptance-defined"]),
+      integrationTarget: options["integration-target"] ? String(options["integration-target"]) : null,
+      protectedTarget: optionEnabled(options["protected-target"])
     });
     if (optionEnabled(options.record)) {
       const receipt = await recordRouteReceipt({
@@ -2082,7 +2287,7 @@ function help() {
     usage: [
       "sbw run --template <name> --mode <auto|direct|verified|deep|critical> --goal <text> [--scope <path>] [--autonomy-profile bounded-autopilot-v1] [--baseline <git-revision> for self-improve] [--evaluation-purpose ordinary|evaluator-migration|safety-remediation-v1|quality-remediation-v1] [--self-improve-run <run-id> for delegated pr-to-dev]",
       "sbw run --route-receipt <route-receipt-id>",
-      "sbw route preview --goal <text> [--scope <path>] [--entry <id>|--template <name>] [--mode <mode>] [--domain <name>] [--tag <name>] [--record]",
+      "sbw route preview --goal <text> [--scope <path>] [--entry <id>|--template <name>] [--mode <mode>] [--mutation unknown|read-only|modify] [--acceptance-defined] [--risk 0..3 --uncertainty 0..3 --blast-radius 0..3 --irreversibility 0..3 --evidence-gap 0..3] [--hard-exclusion <code>] [--basic-check <label>] [--integration-target <branch> --protected-target] [--record]",
       "sbw route profile validate|install --file <profile.json>",
       "sbw route profile show",
       "sbw status <run-id>",
@@ -2127,6 +2332,14 @@ function help() {
       "sbw complete <run-id>",
       "sbw doctor [--agy --model <model>]",
       "sbw doctor --capabilities",
+      "sbw host list",
+      "sbw host doctor [host-id] [--os macos|linux|windows]",
+      "sbw host conformance [host-id] [--os macos|linux|windows] [--write-receipt]",
+      "sbw workspace preflight [--intent read-only|modify] [--task-id <id>] [--integration-target <local-branch>] [--profile-target <local-branch>]",
+      "sbw workspace create --goal <text> [--task-id <id>] [--integration-target <local-branch>] [--profile-target <local-branch>]",
+      "sbw workspace validate --repository-id <id> --task-id <id> --check-file <checks.json>",
+      "sbw workspace rebind --repository-id <id> --task-id <id> --integration-target <local-branch>",
+      "sbw workspace integrate|cleanup|status --repository-id <id> --task-id <id>",
       "sbw eval",
       "sbw cleanup [--older-than-days 30] [--apply]",
       "sbw templates"
@@ -2839,6 +3052,8 @@ async function main() {
     return completeRun(root, subcommand, completionDecision);
   }
   if (command === "doctor") return commandDoctor(root, options);
+  if (command === "host") return commandHost(root, subcommand, runId, options);
+  if (command === "workspace") return commandWorkspace(root, subcommand, options);
   if (command === "eval") return commandEval();
   if (command === "cleanup") {
     const defaults = await loadDefaults();
