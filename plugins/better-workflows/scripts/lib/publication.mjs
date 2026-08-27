@@ -814,30 +814,63 @@ async function processBootIdentity() {
   return null;
 }
 
-async function processStartIdentity(pid) {
-  if (process.platform === "darwin") {
-    const { stdout } = await execFileAsync("/usr/bin/python3", ["-c", DARWIN_PROCESS_IDENTITY_SCRIPT, String(pid)], {
-      encoding: "utf8",
-      timeout: 5_000,
-      killSignal: "SIGKILL",
-      env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", LC_ALL: "C" }
-    });
-    const value = stdout.trim();
-    if (!/^\d+:\d+$/.test(value)) throw new Error("macOS process start identity was malformed");
-    return value;
-  }
-  if (process.platform === "linux") {
-    const stat = await readFile(`/proc/${pid}/stat`, "utf8");
-    const closing = stat.lastIndexOf(")");
-    const fields = closing >= 0 ? stat.slice(closing + 1).trim().split(/\s+/) : [];
-    const value = fields[19];
-    if (!/^\d+$/.test(value ?? "")) throw new Error("Linux process start ticks were unavailable");
-    return value;
-  }
-  throw new Error("Process start identity is unavailable on this platform");
+async function readDarwinProcessStartIdentity(pid) {
+  const { stdout } = await execFileAsync("/usr/bin/python3", ["-c", DARWIN_PROCESS_IDENTITY_SCRIPT, String(pid)], {
+    encoding: "utf8",
+    timeout: 5_000,
+    killSignal: "SIGKILL",
+    env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", LC_ALL: "C" }
+  });
+  return stdout.trim();
 }
 
+async function readLinuxProcessStartIdentity(pid) {
+  const stat = await readFile(`/proc/${pid}/stat`, "utf8");
+  const closing = stat.lastIndexOf(")");
+  const fields = closing >= 0 ? stat.slice(closing + 1).trim().split(/\s+/) : [];
+  return fields[19];
+}
+
+export function createProcessStartIdentityProbe({
+  platform = process.platform,
+  selfPid = process.pid,
+  darwinProbe = readDarwinProcessStartIdentity,
+  linuxProbe = readLinuxProcessStartIdentity
+} = {}) {
+  let cachedDarwinSelfIdentity = null;
+  let pendingDarwinSelfIdentity = null;
+
+  return async function processStartIdentity(pid) {
+    if (platform === "darwin") {
+      if (pid === selfPid && cachedDarwinSelfIdentity !== null) return cachedDarwinSelfIdentity;
+      if (pid === selfPid && pendingDarwinSelfIdentity !== null) return pendingDarwinSelfIdentity;
+      const probe = (async () => {
+        const value = await darwinProbe(pid);
+        if (!/^\d+:\d+$/.test(value ?? "")) throw new Error("macOS process start identity was malformed");
+        if (pid === selfPid) cachedDarwinSelfIdentity = value;
+        return value;
+      })();
+      if (pid !== selfPid) return probe;
+      pendingDarwinSelfIdentity = probe;
+      try {
+        return await probe;
+      } finally {
+        if (pendingDarwinSelfIdentity === probe) pendingDarwinSelfIdentity = null;
+      }
+    }
+    if (platform === "linux") {
+      const value = await linuxProbe(pid);
+      if (!/^\d+$/.test(value ?? "")) throw new Error("Linux process start ticks were unavailable");
+      return value;
+    }
+    throw new Error("Process start identity is unavailable on this platform");
+  };
+}
+
+const processStartIdentity = createProcessStartIdentityProbe();
+
 const waitForProcessIdentityRetry = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+const PROCESS_IDENTITY_RETRY_DELAYS_MS = Object.freeze([50, 250]);
 
 export async function processIncarnationDigest(pid, {
   liveness = processLiveness,
@@ -849,7 +882,7 @@ export async function processIncarnationDigest(pid, {
   const initialLiveness = liveness(pid);
   if (initialLiveness === "absent") return null;
   if (initialLiveness === "unknown") return "unknown";
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  for (let attempt = 0; attempt <= PROCESS_IDENTITY_RETRY_DELAYS_MS.length; attempt += 1) {
     try {
       const start = await startIdentity(pid);
       const boot = await bootIdentity();
@@ -864,7 +897,9 @@ export async function processIncarnationDigest(pid, {
       const finalLiveness = liveness(pid);
       if (finalLiveness === "absent") return null;
       if (finalLiveness === "unknown") return "unknown";
-      if (attempt < 2) await wait(10);
+      if (attempt < PROCESS_IDENTITY_RETRY_DELAYS_MS.length) {
+        await wait(PROCESS_IDENTITY_RETRY_DELAYS_MS[attempt]);
+      }
     }
   }
   // A live process whose incarnation cannot be read after the fixed retry

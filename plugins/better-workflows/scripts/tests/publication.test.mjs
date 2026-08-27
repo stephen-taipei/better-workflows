@@ -8,6 +8,7 @@ import { promisify } from "node:util";
 import {
   bundleDigest,
   checkPluginCache,
+  createProcessStartIdentityProbe,
   markPluginCacheReady,
   removeUnreadyPluginCachePublication,
   publishPluginCache,
@@ -368,7 +369,7 @@ test("publication process identity retries transient probes with a fixed budget"
   assert.match(digest, /^[a-f0-9]{64}$/);
   assert.equal(startProbes, 3);
   assert.equal(bootProbes, 1);
-  assert.deepEqual(waits, [10, 10]);
+  assert.deepEqual(waits, [50, 250]);
 });
 
 test("publication process identity exhaustion remains fail-closed", async () => {
@@ -390,7 +391,7 @@ test("publication process identity exhaustion remains fail-closed", async () => 
   assert.equal(digest, "unknown");
   assert.equal(startProbes, 3);
   assert.equal(bootProbes, 0);
-  assert.deepEqual(waits, [10, 10]);
+  assert.deepEqual(waits, [50, 250]);
 });
 
 test("publication process identity does not probe an initially absent or unknown owner", async () => {
@@ -448,6 +449,90 @@ test("publication process identity refreshes both components after a boot probe 
   assert.equal(startProbes, 2);
   assert.equal(bootProbes, 2);
   assert.equal(waits, 1);
+});
+
+test("publication process identity caches only a validated Darwin self identity", async () => {
+  let startProbes = 0;
+  let livenessProbes = 0;
+  const startIdentity = createProcessStartIdentityProbe({
+    platform: "darwin",
+    selfPid: 1234,
+    darwinProbe: async () => {
+      startProbes += 1;
+      return "123:456";
+    }
+  });
+  const options = {
+    liveness: () => {
+      livenessProbes += 1;
+      return "alive";
+    },
+    startIdentity,
+    bootIdentity: async () => "boot-id"
+  };
+  assert.match(await processIncarnationDigest(1234, options), /^[a-f0-9]{64}$/);
+  assert.match(await processIncarnationDigest(1234, options), /^[a-f0-9]{64}$/);
+  assert.equal(startProbes, 1);
+  assert.equal(livenessProbes, 4);
+});
+
+test("publication process identity does not cache failed or malformed Darwin self probes", async () => {
+  const outcomes = [new Error("transient"), "", "malformed", "123:456"];
+  let startProbes = 0;
+  const startIdentity = createProcessStartIdentityProbe({
+    platform: "darwin",
+    selfPid: 1234,
+    darwinProbe: async () => {
+      const value = outcomes[startProbes];
+      startProbes += 1;
+      if (value instanceof Error) throw value;
+      return value;
+    }
+  });
+  await assert.rejects(startIdentity(1234), /transient/);
+  await assert.rejects(startIdentity(1234), /malformed/);
+  await assert.rejects(startIdentity(1234), /malformed/);
+  assert.equal(await startIdentity(1234), "123:456");
+  assert.equal(await startIdentity(1234), "123:456");
+  assert.equal(startProbes, 4);
+});
+
+test("publication process identity never caches an external Darwin PID", async () => {
+  let startProbes = 0;
+  const startIdentity = createProcessStartIdentityProbe({
+    platform: "darwin",
+    selfPid: 1234,
+    darwinProbe: async () => {
+      startProbes += 1;
+      return `789:${startProbes}`;
+    }
+  });
+  assert.equal(await startIdentity(789), "789:1");
+  assert.equal(await startIdentity(789), "789:2");
+  assert.equal(startProbes, 2);
+});
+
+test("publication process identity shares an in-flight Darwin self probe and retries a shared rejection", async () => {
+  let startProbes = 0;
+  let rejectFirstProbe;
+  const firstProbe = new Promise((resolve, reject) => { rejectFirstProbe = reject; });
+  const startIdentity = createProcessStartIdentityProbe({
+    platform: "darwin",
+    selfPid: 1234,
+    darwinProbe: async () => {
+      startProbes += 1;
+      if (startProbes === 1) return firstProbe;
+      return "123:456";
+    }
+  });
+  const pending = Promise.allSettled([startIdentity(1234), startIdentity(1234)]);
+  rejectFirstProbe(new Error("shared transient rejection"));
+  const shared = await pending;
+  assert.equal(startProbes, 1);
+  assert.deepEqual(shared.map((item) => item.status), ["rejected", "rejected"]);
+  assert.match(shared[0].reason.message, /shared transient rejection/);
+  assert.equal(await startIdentity(1234), "123:456");
+  assert.equal(startProbes, 2);
 });
 
 test("a live separate publisher retains its process-incarnation lease", async () => {
