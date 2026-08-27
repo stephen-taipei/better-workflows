@@ -247,6 +247,19 @@ main { overflow: hidden; }
   background: rgba(255,138,124,.08);
   font: 12px/1.5 var(--mono);
 }
+.runtime-error:focus { outline: 2px solid var(--bad); outline-offset: 3px; }
+.runtime-error-code { overflow-wrap: anywhere; }
+.runtime-recovery { margin: 4px 0 0; color: var(--text); font: 500 15px/1.6 var(--sans); }
+.runtime-recovery-command {
+  width: fit-content;
+  max-width: 100%;
+  margin-top: 4px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  color: var(--amber);
+  background: rgba(242,196,105,.09);
+  overflow-wrap: anywhere;
+}
 .runtime-error[hidden], [hidden] { display: none !important; }
 .runtime-intro { max-width: 1500px; margin: 0 auto; }
 .runtime-intro .hero { min-height: 640px; }

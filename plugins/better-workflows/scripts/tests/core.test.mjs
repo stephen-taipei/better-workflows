@@ -3858,7 +3858,20 @@ test("host-signed PR merge approval production verifier rejects missing, altered
         now: Date.parse(authorization.approvedAt),
         recordedSourceBinding: sourceBinding
       }),
-      /signature is invalid|issuer is not trusted|key is not available|trust root is not provisioned/
+      /fixed administrator artifact root/
+    );
+    await assert.rejects(
+      verifyMergeHumanApproval(repository, {
+        ...payload,
+        humanApproval: {
+          ...payload.humanApproval,
+          attestation: { ...payload.humanApproval.attestation, path: "/dev/zero" }
+        }
+      }, {
+        now: Date.parse(authorization.approvedAt),
+        recordedSourceBinding: sourceBinding
+      }),
+      /fixed administrator artifact root/
     );
   } finally {
     await rm(root, { recursive: true, force: true });

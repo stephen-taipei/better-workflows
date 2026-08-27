@@ -19,6 +19,7 @@ export const REPLAY_SESSION_HEADER = "X-SBW-Replay-Session";
 export const REPLAY_SESSION_FRAGMENT = "sbw-replay-session";
 export const REPLAY_BOOTSTRAP_TTL_MS = 30_000;
 export const REPLAY_UI_FILE_LIMIT_BYTES = 4 * 1024 * 1024;
+const REPLAY_BROWSER_OPEN_TIMEOUT_MS = 5_000;
 
 const UI_ROOT = path.join(pluginRoot(), "ui", "evidence-cinema");
 const PUBLIC_ASSETS = new Map([
@@ -96,6 +97,12 @@ function constantTimeEqual(left, right) {
 function sessionHeaderValue(request) {
   const value = request.headers[REPLAY_SESSION_HEADER.toLowerCase()];
   return typeof value === "string" ? value : null;
+}
+
+function requestAcceptsHtml(request) {
+  return String(request.headers.accept ?? "").split(",").some((value) => (
+    value.trim().split(";", 1)[0].toLowerCase() === "text/html"
+  ));
 }
 
 function cleanPathForRun(runId) {
@@ -176,17 +183,39 @@ export function platformOpenCommand(url, platform = process.platform) {
 
 export async function openReplayBrowser(url, options = {}) {
   const command = platformOpenCommand(url, options.platform);
-  await access(command.executable);
+  await (options.access ?? access)(command.executable);
   const child = (options.spawn ?? spawn)(command.executable, command.args, {
     detached: true,
     shell: false,
     stdio: "ignore"
   });
   await new Promise((resolve, reject) => {
-    child.once("spawn", resolve);
-    child.once("error", reject);
+    let settled = false;
+    const finish = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      callback(value);
+    };
+    const timeout = setTimeout(() => {
+      const error = new Error("Replay browser opener did not report a terminal result");
+      error.code = "REPLAY_BROWSER_OPEN_TIMEOUT";
+      finish(reject, error);
+    }, options.timeoutMs ?? REPLAY_BROWSER_OPEN_TIMEOUT_MS);
+    child.once("spawn", () => child.unref());
+    child.once("error", (error) => finish(reject, error));
+    child.once("close", (code, signal) => {
+      if (code === 0 && signal === null) {
+        finish(resolve);
+        return;
+      }
+      const error = new Error("Replay browser opener exited without opening the bootstrap URL");
+      error.code = "REPLAY_BROWSER_OPEN_FAILED";
+      error.exitCode = code;
+      error.signal = signal;
+      finish(reject, error);
+    });
   });
-  child.unref();
   return { executable: command.executable, args: command.args };
 }
 
@@ -282,6 +311,16 @@ export async function startReplayServer(options = {}) {
     } catch (error) {
       const statusCode = error instanceof ReplayError ? error.statusCode : 500;
       const code = error instanceof ReplayError ? error.code : "REPLAY_INTERNAL_ERROR";
+      if (
+        code === "REPLAY_BOOTSTRAP_REJECTED" &&
+        request.method === "GET" &&
+        String(request.url ?? "").startsWith("/bootstrap/") &&
+        requestAcceptsHtml(request)
+      ) {
+        const value = await runtimeHtml();
+        writeResponse(response, statusCode, { "Content-Type": value.contentType }, value.body, false);
+        return;
+      }
       writeJson(response, statusCode, { ok: false, error: code }, headOnly);
     }
   });

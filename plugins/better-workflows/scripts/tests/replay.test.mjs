@@ -14,6 +14,7 @@ import {
   writeFile
 } from "node:fs/promises";
 import http from "node:http";
+import { EventEmitter } from "node:events";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -32,6 +33,7 @@ import {
   REPLAY_SESSION_FRAGMENT,
   REPLAY_SESSION_HEADER,
   ReplayServerError,
+  openReplayBrowser,
   platformOpenCommand,
   replayStartedEvent,
   startReplayServer
@@ -155,6 +157,7 @@ async function makeRun(options = {}) {
 }
 
 async function replaceTypedEvidence(fixture, {
+  id = "environment",
   kind,
   payload,
   producer = "codex-root",
@@ -164,7 +167,7 @@ async function replaceTypedEvidence(fixture, {
   const payloadDigest = digestObject(payload);
   const value = {
     schemaVersion: 2,
-    id: "environment",
+    id,
     kind,
     status: "complete",
     summary: `Recorded ${kind} fixture`,
@@ -196,7 +199,7 @@ async function replaceTypedEvidence(fixture, {
     },
     ...record
   };
-  await writeJson(path.join(fixture.runDir, "evidence", "environment.json"), value);
+  await writeJson(path.join(fixture.runDir, "evidence", `${id}.json`), value);
   return value;
 }
 
@@ -210,7 +213,8 @@ function request(server, requestPath, options = {}) {
       Host: options.host ?? `localhost:${server.port}`,
       ...(options.cookie ? { Cookie: options.cookie } : {}),
       ...(options.session ? { [REPLAY_SESSION_HEADER]: options.session } : {}),
-      ...(options.origin ? { Origin: options.origin } : {})
+      ...(options.origin ? { Origin: options.origin } : {}),
+      ...(options.accept ? { Accept: options.accept } : {})
     };
     const operation = http.request({
       hostname: "127.0.0.1",
@@ -632,6 +636,170 @@ test("recorded specialized evidence never falls back to generic digest-only acce
   ));
 });
 
+test("recorded finding dispositions require one current finding-bound typed evidence record", async (context) => {
+  const root = await mkdtemp(tempPrefix("sbw-replay-finding-disposition-"));
+  context.after(() => removeFixture(root));
+
+  async function installResolvedFinding(fixture, findingId) {
+    const evidencePath = path.join(fixture.runDir, "evidence", "environment.json");
+    const evidence = JSON.parse(await readFile(evidencePath, "utf8"));
+    evidence.receipt.payload.findingIds = [findingId];
+    evidence.receipt.payloadDigest = digestObject(evidence.receipt.payload);
+    evidence.sourceDigest = evidence.receipt.payloadDigest;
+    await writeJson(evidencePath, evidence);
+    const directory = path.join(fixture.runDir, "findings");
+    await mkdir(directory, { recursive: true, mode: 0o700 });
+    const findingPath = path.join(directory, `${findingId}.json`);
+    await writeJson(findingPath, {
+      schemaVersion: 1,
+      id: findingId,
+      severity: "P2",
+      status: "resolved",
+      summary: "Recorded disposition must remain evidence-bound",
+      evidenceId: evidence.id
+    });
+    return { evidence, evidencePath, findingPath };
+  }
+
+  const cases = [
+    { runId: "sbw-20260826T070601Z-111111111111", expected: null, mutate: async () => {} },
+    {
+      runId: "sbw-20260826T070602Z-222222222222",
+      expected: "INVALID_FINDING_DISPOSITION:recorded-finding",
+      mutate: async ({ evidencePath }) => rm(evidencePath)
+    },
+    {
+      runId: "sbw-20260826T070603Z-333333333333",
+      expected: "INVALID_FINDING_DISPOSITION:recorded-finding",
+      mutate: async ({ findingPath }) => {
+        const finding = JSON.parse(await readFile(findingPath, "utf8"));
+        finding.evidenceId = "missing-evidence";
+        await writeJson(findingPath, finding);
+      }
+    },
+    {
+      runId: "sbw-20260826T070604Z-444444444444",
+      expected: "INVALID_FINDING_DISPOSITION:recorded-finding",
+      mutate: async ({ evidence, evidencePath }) => {
+        delete evidence.receipt.payload.findingIds;
+        evidence.receipt.payloadDigest = digestObject(evidence.receipt.payload);
+        evidence.sourceDigest = evidence.receipt.payloadDigest;
+        await writeJson(evidencePath, evidence);
+      }
+    },
+    {
+      runId: "sbw-20260826T070605Z-555555555555",
+      expected: "INVALID_FINDING_DISPOSITION:recorded-finding",
+      mutate: async ({ evidence, evidencePath }) => {
+        evidence.sourceDigest = "0".repeat(64);
+        await writeJson(evidencePath, evidence);
+      }
+    },
+    {
+      runId: "sbw-20260826T070606Z-666666666666",
+      expected: "INVALID_FINDING_DISPOSITION:recorded-finding",
+      mutate: async ({ evidence }, fixture) => {
+        await writeJson(path.join(fixture.runDir, "evidence", "duplicate.json"), evidence);
+      }
+    }
+  ];
+
+  for (const item of cases) {
+    const fixture = await makeRun({ root, runId: item.runId });
+    const installed = await installResolvedFinding(fixture, "recorded-finding");
+    await item.mutate(installed, fixture);
+    const snapshot = await buildReplaySnapshot(root, fixture.runId);
+    if (item.expected === null) {
+      assert.equal(snapshot.manifest.assurance.outcome, "RECORDED_COMPLETED", item.runId);
+    } else {
+      assert.equal(snapshot.manifest.assurance.outcome, "HOLD", item.runId);
+      assert.ok(snapshot.manifest.assurance.blockers.includes(item.expected), `${item.runId}: ${item.expected}`);
+    }
+  }
+});
+
+test("recorded legacy review finding dispositions remain bound to their immutable package", async (context) => {
+  const fixture = await makeRun({
+    runId: "sbw-20260826T070607Z-777777777777",
+    mode: "verified",
+    contract: {
+      schemaVersion: 2,
+      goal: "Replay a package-bound review disposition",
+      remoteRevision: null,
+      templateDigest: "2".repeat(64),
+      controlPlane: { reviewPolicy: "code-v1" }
+    }
+  });
+  context.after(() => removeFixture(fixture.root));
+  const scope = ["src/replay.mjs"];
+  const diffManifest = { files: [{ status: "M", path: "src/replay.mjs" }] };
+  const reviewPackage = {
+    schemaVersion: 1,
+    immutable: true,
+    packageId: "legacy-package",
+    base: "b".repeat(40),
+    head: fixture.manifest.sourceBinding.headRevision,
+    mergeBase: "b".repeat(40),
+    scope,
+    scopeDigest: digestObject(scope),
+    diffManifest,
+    diffManifestDigest: digestObject(diffManifest),
+    contractDigest: digestObject(fixture.contract),
+    templateDigest: fixture.contract.templateDigest,
+    sentinelDigest: fixture.state.lastSentinel.digest,
+    instructionDigest: "4".repeat(64),
+    repairRounds: 0
+  };
+  const reviewFinding = {
+    schemaVersion: 1,
+    id: "review-finding",
+    packageId: reviewPackage.packageId,
+    path: "src/replay.mjs",
+    location: "recorded reducer",
+    rule: "package-binding",
+    severity: "P2",
+    status: "resolved",
+    summary: "Package-bound disposition",
+    evidenceId: "finding-proof"
+  };
+  reviewPackage.broadReview = {
+    complete: true,
+    head: reviewPackage.head,
+    sentinelDigest: reviewPackage.sentinelDigest,
+    findingSetDigest: digestObject([reviewFinding])
+  };
+  await mkdir(path.join(fixture.runDir, "review-packages"), { recursive: true, mode: 0o700 });
+  await mkdir(path.join(fixture.runDir, "review-findings"), { recursive: true, mode: 0o700 });
+  await writeJson(path.join(fixture.runDir, "review-packages", `${reviewPackage.packageId}.json`), reviewPackage);
+  await writeJson(path.join(fixture.runDir, "review-findings", `${reviewFinding.id}.json`), reviewFinding);
+  const packagePayload = {
+    verdict: "PASS",
+    packageId: reviewPackage.packageId,
+    base: reviewPackage.base,
+    head: reviewPackage.head,
+    scopeDigest: reviewPackage.scopeDigest,
+    diffManifestDigest: reviewPackage.diffManifestDigest,
+    instructionDigest: reviewPackage.instructionDigest
+  };
+  await replaceTypedEvidence(fixture, { id: "diff-proof", kind: "diff-review", payload: packagePayload });
+  const findingEvidence = await replaceTypedEvidence(fixture, {
+    id: "finding-proof",
+    kind: "patch-review",
+    payload: { ...packagePayload, findingIds: [reviewFinding.id] }
+  });
+  assert.equal((await buildReplaySnapshot(fixture.root, fixture.runId)).manifest.assurance.outcome, "RECORDED_COMPLETED");
+
+  findingEvidence.receipt.payload.packageId = "wrong-package";
+  findingEvidence.receipt.payloadDigest = digestObject(findingEvidence.receipt.payload);
+  findingEvidence.sourceDigest = findingEvidence.receipt.payloadDigest;
+  await writeJson(path.join(fixture.runDir, "evidence", "finding-proof.json"), findingEvidence);
+  const held = await buildReplaySnapshot(fixture.root, fixture.runId);
+  assert.equal(held.manifest.assurance.outcome, "HOLD");
+  assert.ok(held.manifest.assurance.blockers.includes(
+    "INVALID_REVIEW_FINDING_DISPOSITION:review-finding"
+  ));
+});
+
 test("recorded completion fails closed on persisted findings, risk, actions, sentinel, and review blockers", async (context) => {
   const root = await mkdtemp(tempPrefix("sbw-replay-completion-blockers-"));
   context.after(() => removeFixture(root));
@@ -960,6 +1128,10 @@ test("localhost server uses one-shot session bootstrap and strict allowlisted ro
   assert.equal(bootstrap.headers["set-cookie"], undefined, "replay must not create a localhost cookie");
   const session = redirect.hash.slice(`#${REPLAY_SESSION_FRAGMENT}=`.length);
   assert.equal((await request(server, bootstrapPath)).status, 401, "bootstrap token must be single-use");
+  const rejectedBrowserBootstrap = await request(server, bootstrapPath, { accept: "text/html,application/xhtml+xml" });
+  assert.equal(rejectedBrowserBootstrap.status, 401);
+  assert.match(rejectedBrowserBootstrap.headers["content-type"], /^text\/html/);
+  assert.match(rejectedBrowserBootstrap.body.toString("utf8"), /data-replay-mode="runtime"/);
   assert.equal(
     (await request(server, `/api/v1/runs/${fixture.runId}/replay`, { cookie: `sbw_replay_session=${session}` })).status,
     401,
@@ -1030,6 +1202,34 @@ test("browser opener is fixed-argv and replay modules contain no privileged revi
   ]);
   assert.doesNotMatch(`${serverSource}\n${replaySource}`, /\bsudo\b|host-trust|runCodexCritic|runAgyCritic/);
   assert.match(serverSource, /shell: false/);
+});
+
+test("browser opener requires a successful terminal exit before consuming the handoff", async () => {
+  const fakeChild = (code, signal = null) => {
+    const child = new EventEmitter();
+    child.unref = () => undefined;
+    queueMicrotask(() => {
+      child.emit("spawn");
+      child.emit("close", code, signal);
+    });
+    return child;
+  };
+  const common = {
+    platform: "darwin",
+    access: async () => undefined,
+    timeoutMs: 100
+  };
+  await assert.doesNotReject(openReplayBrowser("http://localhost:9300/bootstrap/token", {
+    ...common,
+    spawn: () => fakeChild(0)
+  }));
+  await assert.rejects(
+    openReplayBrowser("http://localhost:9300/bootstrap/token", {
+      ...common,
+      spawn: () => fakeChild(1)
+    }),
+    (error) => error.code === "REPLAY_BROWSER_OPEN_FAILED" && error.exitCode === 1
+  );
 });
 
 test("browser opener failure preserves the one-shot bootstrap handoff", () => {

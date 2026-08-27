@@ -641,6 +641,42 @@ function findingCompletionBlockers(records, raw, prefix = "FINDING") {
   return blockers;
 }
 
+function findingDispositionEvidenceBlockers(records, raw, validRecords, {
+  prefix = "FINDING",
+  reviewPackage = null
+} = {}) {
+  const blockers = [];
+  for (const record of records) {
+    const status = String(record?.status ?? "open").toLowerCase();
+    if (!["resolved", "rejected-with-evidence"].includes(status) || !nonEmptyText(record?.evidenceId)) continue;
+    const findingId = safeId(record?.id ?? record?.findingId);
+    const matches = raw.directories.evidence.filter((candidate) => candidate?.id === record.evidenceId);
+    const evidence = matches.length === 1 ? matches[0] : null;
+    const payload = evidence?.receipt?.payload;
+    let bound = Boolean(
+      evidence &&
+      validRecords.has(evidence) &&
+      Array.isArray(payload?.findingIds) &&
+      payload.findingIds.filter((candidate) => candidate === (record?.id ?? record?.findingId)).length === 1
+    );
+    if (reviewPackage !== null) {
+      bound = Boolean(
+        bound &&
+        evidence.kind === "patch-review" &&
+        reviewPackage.schemaVersion === 1 &&
+        reviewPackage.immutable === true &&
+        payload.packageId === reviewPackage.packageId &&
+        payload.base === reviewPackage.base &&
+        payload.head === reviewPackage.head &&
+        payload.scopeDigest === reviewPackage.scopeDigest &&
+        payload.diffManifestDigest === reviewPackage.diffManifestDigest
+      );
+    }
+    if (!bound) blockers.push(`INVALID_${prefix}_DISPOSITION:${findingId}`);
+  }
+  return blockers;
+}
+
 function actionCompletionBlockers(records) {
   const blockers = [];
   for (const record of records) {
@@ -692,7 +728,13 @@ function reviewPackageBindingBlockers(reviewPackage, raw, contractDigest) {
 function legacyReviewBlockers(raw, reviewPackage, validRecords) {
   const packageId = safeId(reviewPackage?.packageId ?? reviewPackage?.id);
   const scopedFindings = raw.directories["review-findings"].filter((record) => record?.packageId === reviewPackage?.packageId);
-  const blockers = findingCompletionBlockers(scopedFindings, raw, "REVIEW_FINDING");
+  const blockers = [
+    ...findingCompletionBlockers(scopedFindings, raw, "REVIEW_FINDING"),
+    ...findingDispositionEvidenceBlockers(scopedFindings, raw, validRecords, {
+      prefix: "REVIEW_FINDING",
+      reviewPackage
+    })
+  ];
   const open = scopedFindings.filter((record) => String(record?.status ?? "open").toLowerCase() === "open");
   if (open.length > 0) blockers.push(`REVIEW_SCOPED_CLOSURE_REQUIRED:${packageId}`);
   if (Number(reviewPackage?.repairRounds) >= 5 && open.some((record) => ["P0", "P1"].includes(record?.severity))) {
@@ -775,6 +817,7 @@ function recordedCompletionBlockers(raw, contractDigest, validRecords, validType
   if (raw.contract?.schemaVersion !== 2) return [];
   const blockers = [
     ...findingCompletionBlockers(raw.directories.findings, raw),
+    ...findingDispositionEvidenceBlockers(raw.directories.findings, raw, validRecords),
     ...actionCompletionBlockers(raw.directories.actions),
     ...reviewCompletionBlockers(raw, contractDigest, validRecords)
   ];

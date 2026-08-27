@@ -5011,11 +5011,11 @@ export async function verifyTransferredPullRequestOwnership(manifest, record, pr
   const attestation = await verifyTrustedNativeCriticAttestation({
     attestationPath: authorizationAttestation.path,
     workspaceRoot: manifest.cwd,
-    binding: authorizationBinding
+    binding: authorizationBinding,
+    expectedFileDigest: authorizationAttestation.fileDigest
   });
-  const authorizationFileDigest = sha256(await readFile(authorizationAttestation.path));
   if (
-    authorizationFileDigest !== authorizationAttestation.fileDigest ||
+    attestation.fileDigest !== authorizationAttestation.fileDigest ||
     attestation.attestationDigest !== authorizationAttestation.attestationDigest
   ) {
     throw new Error("Transferred pull request ownership authorization receipt digest changed");
@@ -5873,10 +5873,6 @@ export async function verifyMergeHumanApproval(cwd, payload, {
     runId: authorization.runId,
     sentinelDigest: authorization.sourceSentinelDigest
   };
-  const attestationPath = await realpath(attestation.path);
-  if (sha256(await readFile(attestationPath)) !== attestation.fileDigest) {
-    throw new Error("Governed PR merge human approval attestation changed after authorization");
-  }
   let currentSource;
   if (recordedSourceBinding !== null) {
     const { digest, ...identity } = recordedSourceBinding ?? {};
@@ -5910,15 +5906,17 @@ export async function verifyMergeHumanApproval(cwd, payload, {
   }
   const { verifyTrustedNativeCriticAttestation } = await import("./providers.mjs");
   const verified = await verifyTrustedNativeCriticAttestation({
-    attestationPath,
+    attestationPath: attestation.path,
     workspaceRoot: cwd,
     binding,
-    now: nowMs
+    now: nowMs,
+    requireFixedHostRoot: recordedSourceBinding !== null,
+    expectedFileDigest: attestation.fileDigest
   });
   if (
     verified.attestationDigest !== attestation.attestationDigest ||
-    verified.attestationPath !== attestationPath ||
-    sha256(await readFile(verified.attestationPath)) !== attestation.fileDigest
+    verified.attestationPath !== attestation.path ||
+    verified.fileDigest !== attestation.fileDigest
   ) {
     throw new Error("Governed PR merge human approval attestation changed after authorization");
   }

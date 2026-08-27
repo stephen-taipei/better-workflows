@@ -207,11 +207,26 @@
   const renderRuntimeError = (code) => {
     const target = byId("runtime-error");
     if (!target) return;
+    const library = byId("run-library");
+    const cinema = byId("cinema");
+    if (library) library.hidden = true;
+    if (cinema) cinema.hidden = true;
+    const normalized = String(code || "REPLAY_REQUEST_FAILED");
+    const message = normalized === "REPLAY_BOOTSTRAP_REJECTED"
+      ? "這個單次啟動網址已過期、已使用，或不屬於目前的 replay server。"
+      : normalized === "REPLAY_SESSION_REQUIRED"
+        ? "此頁沒有有效的本機 replay session；收藏或直接輸入的 clean URL 不含啟動權限。"
+        : "本機 replay session 無法讀取這份 sanitized 快照。";
     target.hidden = false;
+    target.tabIndex = -1;
     target.replaceChildren(
       create("strong", null, "證據重播目前無法建立"),
-      create("span", null, String(code || "REPLAY_REQUEST_FAILED"))
+      create("span", "runtime-error-code", "錯誤代碼 · " + normalized),
+      create("p", "runtime-recovery", message),
+      create("p", "runtime-recovery", "請回到啟動服務的 Terminal，按 Ctrl+C 停止，再重新執行下列指令取得新的單次啟動網址："),
+      create("code", "runtime-recovery-command", "sbw evidence replay [<run-id>]")
     );
+    target.focus();
   };
 
   const renderLibrary = (value) => {
@@ -257,6 +272,7 @@
 
   const configureRuntime = async () => {
     if (replayMode !== "runtime") return true;
+    if (location.pathname.startsWith("/bootstrap/")) throw new Error("REPLAY_BOOTSTRAP_REJECTED");
     if (location.pathname === "/") {
       renderLibrary(await fetchJson("/api/v1/runs"));
       return false;

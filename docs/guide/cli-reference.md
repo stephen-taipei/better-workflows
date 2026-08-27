@@ -93,7 +93,12 @@ stores it only in that `localhost:9300` tab's `sessionStorage`, removes the
 fragment from browser history, and sends it only in the replay API header.
 Replay never sets a localhost cookie, so the bearer is not forwarded to a
 different localhost port. If the default browser opener fails, the same
-`bootstrapUrl` is printed with the warning for manual opening.
+`bootstrapUrl` is printed with the warning for manual opening. A spawned opener
+counts as successful only after its terminal exit is zero; nonzero exit or a
+bounded timeout preserves the manual handoff. Opening a clean URL without its
+session, or reusing an expired/single-use bootstrap URL in a browser, shows one
+recovery state that hides the inactive player and tells the operator to stop
+the foreground server and launch a fresh replay command.
 
 A run-bound launch keeps the library navigation usable, but `/api/v1/runs`
 returns only that one bound run and rejects every other run replay route. Typed
@@ -101,6 +106,16 @@ records are rechecked with the installed kind-specific deterministic validators
 at their recorded admission time. Action proofs, required-check observations,
 review-kernel summaries, and quorum receipts therefore fail closed after
 semantic mutation even if an attacker recomputes the unkeyed payload digests.
+Resolved or evidence-rejected findings must still reference exactly one valid,
+current typed record whose payload names that finding; legacy review findings
+also require an exact immutable package/base/head/scope/diff binding. Missing,
+duplicate, stale, invalid, unrelated, or cross-package disposition evidence is
+therefore a recorded `HOLD`. Recorded required-check human approvals accept
+attestations only from the canonical administrator attestation root. The same
+nonblocking, no-follow file handle verifies regular-file type, single-link
+identity, owner/mode, bounded size, content digest, and JSON before signature
+verification, so state-controlled FIFO, device, symlink, oversized, or external
+paths are rejected before an unbounded read.
 Legacy independent-critic records without a replay-verifiable attestation
 reference, and self-improve handoffs that require live source-run validation,
 are shown as `UNVERIFIABLE_TYPED_EVIDENCE` and keep the reel on `HOLD`.

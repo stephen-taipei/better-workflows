@@ -176,6 +176,10 @@ test("runtime cinema is CSP-compatible, sanitized, and shares the canonical rend
   assert.match(renderer, /history\.replaceState\(null, "", location\.pathname \+ location\.search\)/);
   assert.match(renderer, /credentials: "omit"/);
   assert.match(renderer, /X-SBW-Replay-Session/);
+  assert.match(renderer, /location\.pathname\.startsWith\("\/bootstrap\/"\)/);
+  assert.match(renderer, /sbw evidence replay \[<run-id>\]/);
+  assert.match(renderer, /if \(cinema\) cinema\.hidden = true/);
+  assert.match(renderer, /target\.focus\(\)/);
   assert.doesNotMatch(renderer, /document\.cookie/);
   assert.doesNotMatch(renderer, /\.innerHTML\b|\beval\s*\(|new Function\b/);
 });
