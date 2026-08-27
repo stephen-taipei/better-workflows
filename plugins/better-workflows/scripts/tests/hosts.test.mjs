@@ -20,12 +20,16 @@ test("host-support-v1 keeps one recommended reference, eight Tier 1 combinations
   assert.equal(listed.hosts.length, 9);
   assert.deepEqual(listed.recommended, registry.recommended);
   assert.equal(registry.recommended.label, "macOS + Codex");
-  assert.equal((await releaseConformanceMatrix()).length, 8);
+  const matrix = await releaseConformanceMatrix();
+  assert.equal(matrix.length, 8);
+  assert.ok(matrix.every((entry) => entry.packageName && entry.packageVersion && entry.executable && entry.runner));
   assert.deepEqual(
     registry.hosts.filter((host) => host.supportTier === "tier1").map((host) => host.id).sort(),
     ["claude-code", "codex", "gemini-cli", "qwen-code"]
   );
   assert.ok(registry.hosts.every((host) => host.osSupport.windows === "preview"));
+  assert.ok(registry.hosts.filter((host) => host.supportTier === "tier1").every((host) => host.conformancePackage));
+  assert.ok(registry.hosts.filter((host) => host.supportTier !== "tier1").every((host) => host.conformancePackage === null));
   const capabilityIds = registry.capabilityDefinitions.map((capability) => capability.id).sort();
   for (const host of registry.hosts) assert.deepEqual(Object.keys(host.capabilities).sort(), capabilityIds);
 });
@@ -65,6 +69,8 @@ test("host doctor and conformance bind an executable, manifest, registry, and no
   assert.equal(receipt.capabilities.length, 5);
   assert.ok(receipt.capabilities.every((capability) => capability.result === "PASS"));
   assert.equal(receipt.authentication.releaseEligible, false);
+  assert.match(receipt.versionProbe.runtime.digest, /^[a-f0-9]{64}$/);
+  assert.equal(receipt.versionProbe.runtime.path, process.execPath);
   assert.match(receipt.receiptDigest, /^[a-f0-9]{64}$/);
   assert.equal(JSON.parse(await readFile(receipt.receiptPath, "utf8")).receiptDigest, receipt.receiptDigest);
 });
@@ -95,4 +101,24 @@ test("host doctor distinguishes a declared support tier from a missing local exe
   assert.equal(doctor.ok, false);
   assert.deepEqual(doctor.blockers, ["host-executable-missing"]);
   assert.ok(doctor.manifest);
+});
+
+test("every Tier 1 bridge has a version-aligned manifest and a real non-symlink component", async () => {
+  const bin = await mkdtemp(path.join(os.tmpdir(), "sbw-tier1-host-bin-"));
+  const commands = new Map([
+    ["codex", "codex"],
+    ["claude-code", "claude"],
+    ["gemini-cli", "gemini"],
+    ["qwen-code", "qwen"]
+  ]);
+  for (const command of commands.values()) {
+    const executable = path.join(bin, command);
+    await writeFile(executable, `#!/bin/sh\nprintf '${command}-test 4.0.0\\n'\n`);
+    await chmod(executable, 0o755);
+  }
+  for (const [hostId] of commands) {
+    const doctor = await hostDoctor({ hostId, osId: "linux", env: { PATH: bin } });
+    assert.equal(doctor.ok, true, `${hostId}: ${doctor.blockers.join(", ")}`);
+    assert.equal(doctor.manifest.version.startsWith("4.0.0"), true, hostId);
+  }
 });

@@ -69,6 +69,7 @@
           "displayName",
           "supportTier",
           "executable",
+          "conformancePackage",
           "manifestPath",
           "extensionMechanism",
           "officialDocumentation",
@@ -81,6 +82,20 @@
           "displayName": { "type": "string" },
           "supportTier": { "$ref": "#/$defs/supportTier" },
           "executable": { "type": "string" },
+          "conformancePackage": {
+            "oneOf": [
+              { "type": "null" },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name", "version"],
+                "properties": {
+                  "name": { "type": "string" },
+                  "version": { "type": "string" }
+                }
+              }
+            ]
+          },
           "manifestPath": { "type": ["string", "null"] },
           "extensionMechanism": { "type": "string" },
           "officialDocumentation": { "type": ["string", "null"], "format": "uri" },

@@ -269,7 +269,8 @@ function parseWorktreeList(output) {
     else throw new Error(`Unknown git worktree porcelain field: ${key}`);
   }
   if (current) records.push(current);
-  for (const record of records) {
+  for (let index = 0; index < records.length; index += 1) {
+    const record = records[index];
     if (typeof record.path !== "string" || !record.path || (record.head !== null && !SHA1.test(record.head))) {
       throw new Error("Git worktree list contains a malformed record");
     }
@@ -290,7 +291,8 @@ function parseStatus(output) {
     untracked: [],
     conflicts: []
   };
-  for (const record of records) {
+  for (let index = 0; index < records.length; index += 1) {
+    const record = records[index];
     if (record.startsWith("? ")) {
       state.untracked.push(record.slice(2));
       continue;
@@ -300,9 +302,14 @@ function parseStatus(output) {
       continue;
     }
     if (record.startsWith("1 ") || record.startsWith("2 ")) {
+      const originalPath = record.startsWith("2 ") ? records[++index] : null;
+      if (record.startsWith("2 ") && originalPath === undefined) {
+        throw new Error("Git status porcelain v2 rename record is incomplete");
+      }
       const xy = record.split(" ", 3)[1] ?? "..";
-      if (xy[0] !== ".") state.staged.push(record);
-      if (xy[1] !== ".") state.unstaged.push(record);
+      const normalized = originalPath === null ? record : `${record}\0${originalPath}`;
+      if (xy[0] !== ".") state.staged.push(normalized);
+      if (xy[1] !== ".") state.unstaged.push(normalized);
       continue;
     }
     throw new Error("Git status porcelain v2 returned an unknown record");
@@ -700,24 +707,69 @@ export async function workspaceCreate({
   if (!preflight.ok) return { ok: false, status: preflight.status, lease: null, preflight };
   const policy = await loadTaskWorktreePolicy();
   const target = leasePath(stateRoot, preflight.repository.repositoryId, normalizedTaskId);
+  let resumed = false;
+  let lease;
   if (await exists(target)) {
-    const existing = await readLeaseAt(stateRoot, target);
-    if (existing.lifecycleState !== "cleaned") {
-      return { ok: false, status: "ownership-conflict", lease: existing, preflight };
+    lease = await readLeaseAt(stateRoot, target);
+    if (lease.lifecycleState === "cleaned") {
+      throw new Error("Task id was already used by a cleaned lease; generate a new task id");
     }
-    throw new Error("Task id was already used by a cleaned lease; generate a new task id");
+    if (
+      lease.repository.repositoryDigest !== preflight.repository.repositoryDigest ||
+      lease.sourceCheckout !== preflight.repository.topLevel ||
+      lease.sourceBranch !== preflight.sourceBranch ||
+      lease.baseRevision !== preflight.baseRevision ||
+      lease.integrationTarget !== preflight.integrationTarget ||
+      lease.policyDigest !== digestObject(policy)
+    ) {
+      return { ok: false, status: "ownership-conflict", lease, preflight };
+    }
+    if (lease.blockedState !== null) {
+      return { ok: false, status: lease.blockedState, lease, preflight };
+    }
+    resumed = true;
+  } else {
+    lease = baseLease({ taskId: normalizedTaskId, goal, preflight, stateRoot });
+    lease.policyDigest = digestObject(policy);
+    lease = await writeLease(stateRoot, target, lease);
   }
-  let lease = baseLease({ taskId: normalizedTaskId, goal, preflight, stateRoot });
-  lease.policyDigest = digestObject(policy);
-  lease = await writeLease(stateRoot, target, lease);
   return withRepositoryLock(stateRoot, preflight.repository.repositoryId, async () => {
+    if (["isolated", "working", "validated", "integration-ready"].includes(lease.lifecycleState)) {
+      const canonicalTaskWorktree = await realpath(lease.taskWorktree).catch(() => null);
+      const branchRevision = await resolveLocalBranch(cwd, lease.taskBranch);
+      const records = await worktreeList(cwd);
+      const record = canonicalTaskWorktree
+        ? records.find((candidate) => path.resolve(candidate.path) === canonicalTaskWorktree)
+        : null;
+      if (
+        !record ||
+        record.branch !== branchRef(lease.taskBranch) ||
+        branchRevision === null ||
+        record.head !== branchRevision
+      ) {
+        lease = await setBlocked(stateRoot, target, lease, "ownership-conflict", "recorded task worktree no longer matches its branch");
+        return { ok: false, status: "ownership-conflict", lease, preflight };
+      }
+      return { ok: true, status: "reused", lease, preflight, resumed: true };
+    }
+    if (!["planned", "target-bound"].includes(lease.lifecycleState)) {
+      return { ok: false, status: "ownership-conflict", lease, preflight };
+    }
     const branchExisting = await resolveLocalBranch(cwd, lease.taskBranch);
-    if (branchExisting || await exists(lease.taskWorktree)) {
+    if (lease.lifecycleState === "planned" && (branchExisting || await exists(lease.taskWorktree))) {
       lease = await setBlocked(stateRoot, target, lease, "ownership-conflict", "task branch or worktree path already exists");
       return { ok: false, status: "ownership-conflict", lease, preflight };
     }
-    lease = await writeLease(stateRoot, target, { ...lease, lifecycleState: "target-bound" });
-    await git(cwd, ["branch", "--no-track", lease.taskBranch, lease.baseRevision]);
+    if (lease.lifecycleState === "planned") {
+      lease = await writeLease(stateRoot, target, { ...lease, lifecycleState: "target-bound" });
+    }
+    if (branchExisting !== null && branchExisting !== lease.baseRevision) {
+      lease = await setBlocked(stateRoot, target, lease, "ownership-conflict", "task branch exists at an unexpected revision");
+      return { ok: false, status: "ownership-conflict", lease, preflight };
+    }
+    if (branchExisting === null) {
+      await git(cwd, ["branch", "--no-track", lease.taskBranch, lease.baseRevision]);
+    }
     lease = await writeLease(stateRoot, target, {
       ...lease,
       resources: {
@@ -731,7 +783,9 @@ export async function workspaceCreate({
     });
     try {
       await ensurePrivateDir(path.dirname(lease.taskWorktree));
-      await git(cwd, ["worktree", "add", lease.taskWorktree, lease.taskBranch]);
+      if (!(await exists(lease.taskWorktree))) {
+        await git(cwd, ["worktree", "add", lease.taskWorktree, lease.taskBranch]);
+      }
     } catch (error) {
       const current = await resolveLocalBranch(cwd, lease.taskBranch);
       if (current === lease.baseRevision && !(await exists(lease.taskWorktree))) {
@@ -765,7 +819,7 @@ export async function workspaceCreate({
         taskWorktree: { path: canonicalTaskWorktree, head: lease.baseRevision }
       }
     });
-    return { ok: true, status: "isolated", lease, preflight };
+    return { ok: true, status: resumed ? "reused" : "isolated", lease, preflight, resumed };
   });
 }
 

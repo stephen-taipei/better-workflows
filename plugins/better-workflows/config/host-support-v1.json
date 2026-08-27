@@ -71,6 +71,10 @@
       "displayName": "Codex",
       "supportTier": "tier1",
       "executable": "codex",
+      "conformancePackage": {
+        "name": "@openai/codex",
+        "version": "0.150.1"
+      },
       "manifestPath": ".codex-plugin/plugin.json",
       "extensionMechanism": "Codex plugin",
       "officialDocumentation": "https://developers.openai.com/codex/",
@@ -97,6 +101,10 @@
       "displayName": "Claude Code",
       "supportTier": "tier1",
       "executable": "claude",
+      "conformancePackage": {
+        "name": "@anthropic-ai/claude-code",
+        "version": "2.1.247"
+      },
       "manifestPath": ".claude-plugin/plugin.json",
       "extensionMechanism": "Claude Code plugin",
       "officialDocumentation": "https://code.claude.com/docs/en/plugins",
@@ -125,6 +133,10 @@
       "displayName": "Gemini CLI",
       "supportTier": "tier1",
       "executable": "gemini",
+      "conformancePackage": {
+        "name": "@google/gemini-cli",
+        "version": "0.57.0"
+      },
       "manifestPath": "gemini-extension.json",
       "extensionMechanism": "Gemini CLI extension",
       "officialDocumentation": "https://geminicli.com/docs/extensions/reference/",
@@ -153,6 +165,10 @@
       "displayName": "Qwen Code",
       "supportTier": "tier1",
       "executable": "qwen",
+      "conformancePackage": {
+        "name": "@qwen-code/qwen-code",
+        "version": "0.22.2"
+      },
       "manifestPath": "qwen-extension.json",
       "extensionMechanism": "Qwen Code extension",
       "officialDocumentation": "https://qwenlm.github.io/qwen-code-docs/en/developers/extensions/extension/",
@@ -181,6 +197,7 @@
       "displayName": "Kimi Code CLI",
       "supportTier": "preview",
       "executable": "kimi",
+      "conformancePackage": null,
       "manifestPath": null,
       "extensionMechanism": "Compatibility pack",
       "officialDocumentation": null,
@@ -209,6 +226,7 @@
       "displayName": "Kiro",
       "supportTier": "preview",
       "executable": "kiro-cli",
+      "conformancePackage": null,
       "manifestPath": null,
       "extensionMechanism": "Compatibility pack",
       "officialDocumentation": null,
@@ -237,6 +255,7 @@
       "displayName": "Grok Build",
       "supportTier": "preview",
       "executable": "grok",
+      "conformancePackage": null,
       "manifestPath": null,
       "extensionMechanism": "Compatibility pack",
       "officialDocumentation": null,
@@ -265,6 +284,7 @@
       "displayName": "Cursor",
       "supportTier": "preview",
       "executable": "cursor",
+      "conformancePackage": null,
       "manifestPath": null,
       "extensionMechanism": "Compatibility pack",
       "officialDocumentation": null,
@@ -293,6 +313,7 @@
       "displayName": "GitHub Copilot",
       "supportTier": "preview",
       "executable": "gh",
+      "conformancePackage": null,
       "manifestPath": null,
       "extensionMechanism": "Compatibility pack",
       "officialDocumentation": null,

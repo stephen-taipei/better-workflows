@@ -88,6 +88,7 @@ function validateRegistry(registry) {
         "displayName",
         "supportTier",
         "executable",
+        "conformancePackage",
         "manifestPath",
         "extensionMechanism",
         "officialDocumentation",
@@ -100,6 +101,14 @@ function validateRegistry(registry) {
     if (!SUPPORT_TIERS.has(host.supportTier)) throw new Error(`Invalid support tier for ${host.id}`);
     if (typeof host.executable !== "string" || !host.executable || host.executable.includes(path.sep)) {
       throw new Error(`Host executable must be a command name: ${host.id}`);
+    }
+    if (host.supportTier === "tier1") {
+      exactKeys(host.conformancePackage, ["name", "version"], `hosts.${host.id}.conformancePackage`);
+      if (!/^@[a-z0-9._-]+\/[a-z0-9._-]+$/.test(host.conformancePackage.name) || !/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(host.conformancePackage.version)) {
+        throw new Error(`Tier 1 conformance package is invalid: ${host.id}`);
+      }
+    } else if (host.conformancePackage !== null) {
+      throw new Error(`Preview or unsupported hosts cannot declare a release conformance package: ${host.id}`);
     }
     if (host.manifestPath !== null && (typeof host.manifestPath !== "string" || path.isAbsolute(host.manifestPath) || host.manifestPath.includes(".."))) {
       throw new Error(`Host manifest path is unsafe: ${host.id}`);
@@ -194,6 +203,41 @@ async function manifestIdentity(host, root = pluginRoot()) {
   }
 }
 
+async function manifestCompatibilityBlockers(host, manifestIdentityValue, root = pluginRoot()) {
+  if (!manifestIdentityValue) return [];
+  const blockers = [];
+  const packageManifest = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
+  const manifest = manifestIdentityValue.manifest;
+  if (manifest.version !== packageManifest.version && host.id !== "codex") blockers.push("host-manifest-version-mismatch");
+  if (host.id === "codex" && !String(manifest.version ?? "").startsWith(`${packageManifest.version}+codex.`)) {
+    blockers.push("host-manifest-version-mismatch");
+  }
+  let componentPath = null;
+  if (host.id === "codex") componentPath = manifest.skills;
+  else if (host.id === "claude-code") componentPath = "skills";
+  else if (host.id === "gemini-cli" || host.id === "qwen-code") componentPath = manifest.contextFileName;
+  if (typeof componentPath !== "string" || !componentPath.trim() || path.isAbsolute(componentPath) || componentPath.includes("..")) {
+    blockers.push("host-component-path-invalid");
+    return blockers;
+  }
+  const target = path.resolve(root, componentPath);
+  const relative = path.relative(path.resolve(root), target);
+  if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    blockers.push("host-component-path-invalid");
+    return blockers;
+  }
+  try {
+    const info = await lstat(target);
+    const expectedDirectory = host.id === "codex" || host.id === "claude-code";
+    if (info.isSymbolicLink() || (expectedDirectory ? !info.isDirectory() : !info.isFile())) {
+      blockers.push("host-component-missing");
+    }
+  } catch {
+    blockers.push("host-component-missing");
+  }
+  return blockers;
+}
+
 export async function hostList() {
   const registry = await loadHostSupportRegistry();
   return {
@@ -221,6 +265,7 @@ export async function hostDoctor({
   const blockers = [];
   if (!executable) blockers.push("host-executable-missing");
   if (host.manifestPath !== null && !manifest) blockers.push("host-manifest-missing");
+  blockers.push(...await manifestCompatibilityBlockers(host, manifest));
   if (supportTier === "unsupported") blockers.push("host-os-unsupported");
   return {
     schemaVersion: 1,
@@ -242,11 +287,20 @@ export async function hostDoctor({
 async function versionProbe(executable) {
   if (!executable) return { ok: false, reason: "host-executable-missing" };
   const controlledPath = path.dirname(executable.resolvedPath);
+  const runtimeInfo = await lstat(process.execPath);
+  if (!runtimeInfo.isFile() || runtimeInfo.size > MAX_EXECUTABLE_BYTES) {
+    return { ok: false, reason: "node-runtime-identity-invalid" };
+  }
+  const runtime = {
+    path: process.execPath,
+    size: runtimeInfo.size,
+    digest: sha256(await readFile(process.execPath))
+  };
   try {
     const result = await execBoundProcess(executable.resolvedPath, ["--version"], {
       cwd: os.tmpdir(),
       env: {
-        PATH: controlledPath,
+        PATH: `${path.dirname(process.execPath)}${path.delimiter}${controlledPath}`,
         HOME: "/var/empty",
         LANG: "C",
         LC_ALL: "C",
@@ -259,9 +313,9 @@ async function versionProbe(executable) {
       label: "Host version probe"
     });
     const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`.trim().slice(0, 512);
-    return { ok: true, outputDigest: sha256(output), output };
+    return { ok: true, runtime, outputDigest: sha256(output), output };
   } catch (error) {
-    return { ok: false, reason: String(error.message).slice(0, 512) };
+    return { ok: false, runtime, reason: String(error.message).slice(0, 512) };
   }
 }
 
@@ -321,7 +375,14 @@ export async function releaseConformanceMatrix() {
   const registry = await loadHostSupportRegistry();
   return registry.hosts
     .filter((host) => host.supportTier === "tier1")
-    .flatMap((host) => ["macos", "linux"].map((osId) => ({ hostId: host.id, osId })))
+    .flatMap((host) => ["macos", "linux"].map((osId) => ({
+      hostId: host.id,
+      osId,
+      runner: osId === "macos" ? "macos-15" : "ubuntu-latest",
+      packageName: host.conformancePackage.name,
+      packageVersion: host.conformancePackage.version,
+      executable: host.executable
+    })))
     .sort((left, right) => `${left.hostId}/${left.osId}`.localeCompare(`${right.hostId}/${right.osId}`, "en"));
 }
 

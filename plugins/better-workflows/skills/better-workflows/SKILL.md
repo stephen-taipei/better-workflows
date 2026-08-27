@@ -46,12 +46,41 @@ Goal mode controls persistence; the Better Workflows mode controls verification
 depth. They are independent. `direct` therefore uses a persistent goal without
 creating a Better Workflows journal.
 
+## Preflight every workspace
+
+Before substantial work in every task, run the host-neutral read-only preflight:
+
+~~~bash
+sbw workspace preflight --intent read-only
+~~~
+
+This distinguishes a non-Git directory, read-only use of a repository, an
+existing task-owned worktree, and an ownership conflict without creating Git
+resources. If the task may modify a repository, rerun with `--intent modify`
+and bind the exact existing local integration target before any edit. A dirty
+source checkout stops. Never stash, copy, temporarily commit, or silently omit
+staged, unstaged, untracked, conflict, or dirty-submodule state.
+
+Every Git mutation, including Direct, uses either a newly created
+`TaskWorkspaceLeaseV1` or a host-provided worktree that has been explicitly
+registered and verified as exclusive to the current task. Never create a nested
+worktree from another task's worktree. Branches, worktrees, commits, checks,
+integration candidates, and cleanup belong to the lease; a name or path prefix
+alone is never ownership proof.
+
+Detached HEAD, an absent source branch, or a target deleted or renamed during
+the task requires the user to select or rebind the integration target. Offer at
+most three evidence-ranked local candidates: repository Profile, task
+convention such as `dev`, then upstream/origin default or a local branch that
+contains the base revision. Never silently choose `main` from `origin/main`.
+
 ## Preview the route
 
 For `$better-workflows:auto`, natural-language `$better-workflows`, and every
 task selector except the explicit `direct` fast path, run a capability snapshot
-and route preview before substantial work. An explicit selector is the highest
-user-controlled route and Profiles may not replace it:
+and route preview before substantial work. The workspace preflight above still
+applies to explicit Direct. An explicit selector is the highest user-controlled
+route and Profiles may not replace it:
 
 ~~~bash
 sbw doctor --capabilities
@@ -130,7 +159,7 @@ source/cache digest verification.
 
 1. Read all applicable `AGENTS.md` files and repo-local skills before acting.
 2. Classify the task using risk, uncertainty, blast radius, irreversibility, and evidence gap:
-   - `direct`: trivial, reversible, well-understood work. Continue normally and do not invoke `sbw`.
+   - `direct`: trivial, reversible, well-understood work. Do not create an evidence journal, but keep workspace preflight, task-owned worktree isolation for Git mutation, bounded targeted checks, safe integration, and exact cleanup.
    - `verified`: use one to three native research/review/refutation agents.
    - `deep`: run `verified`, then one or two sequential model-pinned Codex critics.
    - `critical`: require independent external evidence and all fail-closed gates.
@@ -138,7 +167,18 @@ source/cache digest verification.
 4. Select one template from [templates.md](references/templates.md).
    When changing a review-enabled template, also read
    [review-profiles.md](references/review-profiles.md) and keep its declared
-   capability profile aligned with the runtime policy.
+capability profile aligned with the runtime policy.
+
+For Auto, record `AutoRiskAssessmentV1`. Direct requires explicit acceptance
+and mutation intent, irreversibility `0`, every other score at most `1`, total
+at most `2`, no hard exclusion, and no selector, Profile, host constraint, or
+protected/remote target requiring more. Unknown is evidence-required. Scope,
+source, target, risk, or capability drift invalidates the assessment and route.
+
+Direct checks are local, offline, side-effect-free, and bounded to 120 seconds.
+Failure or an unexplained result blocks completion. A Direct Git mutation keeps
+the minimal workspace lease but no evidence ledger. That lease is recovery and
+ownership state, not replayable proof.
 
 For `research-deliberation`, also read
 [deliberation-roster.md](references/deliberation-roster.md). It defines the

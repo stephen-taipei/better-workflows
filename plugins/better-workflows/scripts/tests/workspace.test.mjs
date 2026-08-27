@@ -81,6 +81,17 @@ test("dirty source and detached HEAD fail closed before branch or worktree creat
   assert.equal(dirty.status, "dirty-source");
   await assert.rejects(git(cwd, "rev-parse", "--verify", "refs/heads/codex/change-app-source"));
 
+  const renamedRepo = await repository();
+  await git(renamedRepo, "mv", "app.txt", "renamed.txt");
+  const renamed = await workspacePreflight({
+    cwd: renamedRepo,
+    stateRoot,
+    intent: "modify"
+  });
+  assert.equal(renamed.ok, false);
+  assert.equal(renamed.status, "dirty-source");
+  assert.equal(renamed.sourceState.staged.length, 1);
+
   const detachedRepo = await repository();
   await git(detachedRepo, "checkout", "--detach", "-q");
   const detached = await workspacePreflight({
@@ -108,6 +119,16 @@ test("mutation lifecycle isolates, reuses by owner, validates, integrates with C
   assert.equal(created.lease.integrationTarget, "feature");
   assert.equal(created.lease.lifecycleState, "isolated");
   assert.equal(await realpath(created.lease.taskWorktree), created.lease.taskWorktree);
+
+  const sourceResume = await workspaceCreate({
+    cwd,
+    stateRoot,
+    goal: "Update app label",
+    taskId: "task-happy-path"
+  });
+  assert.equal(sourceResume.ok, true);
+  assert.equal(sourceResume.status, "reused");
+  assert.equal(sourceResume.lease.ownershipNonce, created.lease.ownershipNonce);
 
   const reused = await workspacePreflight({
     cwd: created.lease.taskWorktree,
@@ -270,6 +291,37 @@ test("merge conflict, dirty validation, and dirty cleanup preserve owned resourc
   });
   assert.equal(dirtyValidation.status, "validation-failed");
   assert.equal(await realpath(dirtyCreated.lease.taskWorktree), dirtyCreated.lease.taskWorktree);
+
+  const cleanupRepo = await repository();
+  const cleanupState = await mkdtemp(path.join(os.tmpdir(), "sbw-workspace-state-"));
+  const cleanupCreated = await workspaceCreate({
+    cwd: cleanupRepo,
+    stateRoot: cleanupState,
+    goal: "Dirty cleanup",
+    taskId: "task-dirty-cleanup"
+  });
+  await commitFile(cleanupCreated.lease.taskWorktree, "cleanup.txt", "task\n", "cleanup task");
+  await workspaceValidate({
+    stateRoot: cleanupState,
+    repositoryId: cleanupCreated.lease.repository.repositoryId,
+    taskId: cleanupCreated.lease.taskId,
+    checks: passingChecks()
+  });
+  await workspaceIntegrate({
+    stateRoot: cleanupState,
+    repositoryId: cleanupCreated.lease.repository.repositoryId,
+    taskId: cleanupCreated.lease.taskId
+  });
+  await writeFile(path.join(cleanupCreated.lease.taskWorktree, "late-untracked.txt"), "preserve me\n");
+  await assert.rejects(
+    workspaceCleanup({
+      stateRoot: cleanupState,
+      repositoryId: cleanupCreated.lease.repository.repositoryId,
+      taskId: cleanupCreated.lease.taskId
+    }),
+    /dirty or drifted/
+  );
+  assert.equal(await realpath(cleanupCreated.lease.taskWorktree), cleanupCreated.lease.taskWorktree);
 });
 
 test("validated no-op removes only its owned branch and worktree", async () => {
@@ -281,6 +333,11 @@ test("validated no-op removes only its owned branch and worktree", async () => {
     goal: "No operation",
     taskId: "task-no-op-cleanup"
   });
+  await git(cwd, "branch", "unrelated-worktree");
+  const unrelatedPath = await mkdtemp(path.join(os.tmpdir(), "sbw-unrelated-parent-"));
+  const unrelatedWorktree = path.join(unrelatedPath, "checkout");
+  await git(cwd, "worktree", "add", unrelatedWorktree, "unrelated-worktree");
+  const unrelatedCanonical = await realpath(unrelatedWorktree);
   const validated = await workspaceValidate({
     stateRoot,
     repositoryId: created.lease.repository.repositoryId,
@@ -295,6 +352,8 @@ test("validated no-op removes only its owned branch and worktree", async () => {
   });
   assert.equal(cleaned.status, "cleaned");
   assert.equal(cleaned.cleanup.finalTargetRevision, created.lease.baseRevision);
+  assert.equal(await realpath(unrelatedWorktree), unrelatedCanonical);
+  assert.match((await git(cwd, "rev-parse", "--verify", "refs/heads/unrelated-worktree")).stdout, /^[a-f0-9]{40}\n$/);
 });
 
 test("deleted or renamed integration targets require an explicit rebind", async () => {
@@ -368,6 +427,34 @@ test("target moving during both CAS attempts stops with target-drift and preserv
   assert.equal(await realpath(created.lease.taskWorktree), created.lease.taskWorktree);
 });
 
+test("a dirty target checkout blocks integration and preserves the validated task", async () => {
+  const cwd = await repository();
+  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-workspace-state-"));
+  const created = await workspaceCreate({
+    cwd,
+    stateRoot,
+    goal: "Dirty target guard",
+    taskId: "task-dirty-target"
+  });
+  await commitFile(created.lease.taskWorktree, "task.txt", "task\n", "task change");
+  await workspaceValidate({
+    stateRoot,
+    repositoryId: created.lease.repository.repositoryId,
+    taskId: created.lease.taskId,
+    checks: passingChecks()
+  });
+  await writeFile(path.join(cwd, "target-untracked.txt"), "do not overwrite\n");
+  const integrated = await workspaceIntegrate({
+    stateRoot,
+    repositoryId: created.lease.repository.repositoryId,
+    taskId: created.lease.taskId
+  });
+  assert.equal(integrated.ok, false);
+  assert.equal(integrated.status, "target-drift");
+  assert.equal(await realpath(created.lease.taskWorktree), created.lease.taskWorktree);
+  assert.equal(await readFile(path.join(cwd, "target-untracked.txt"), "utf8"), "do not overwrite\n");
+});
+
 test("branch collisions and task-owned subdirectories never overwrite or share resources", async () => {
   const cwd = await repository();
   const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-workspace-state-"));
@@ -416,6 +503,25 @@ test("nested repositories have independent identities and branch policy is expli
   assert.equal(isProtectedBranch("main"), true);
   assert.equal(isProtectedBranch("release/4.0"), true);
   assert.equal(isProtectedBranch("feature"), false);
+});
+
+test("repository discovery canonicalizes symlinks and dirty submodules fail closed", async () => {
+  const cwd = await repository();
+  const linkParent = await mkdtemp(path.join(os.tmpdir(), "sbw-workspace-link-"));
+  const linked = path.join(linkParent, "repository-link");
+  await symlink(cwd, linked, "dir");
+  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-workspace-state-"));
+  const linkedPreflight = await workspacePreflight({ cwd: linked, stateRoot, intent: "read-only" });
+  assert.equal(linkedPreflight.repository.topLevel, await realpath(cwd));
+
+  const child = await repository({ prefix: "sbw-submodule-source-" });
+  await git(cwd, "-c", "protocol.file.allow=always", "submodule", "add", "-q", child, "vendor/child");
+  await git(cwd, "commit", "-qm", "add submodule");
+  await writeFile(path.join(cwd, "vendor", "child", "app.txt"), "dirty submodule\n");
+  const dirty = await workspacePreflight({ cwd, stateRoot, intent: "modify" });
+  assert.equal(dirty.ok, false);
+  assert.equal(dirty.status, "dirty-source");
+  assert.ok(dirty.sourceState.dirtySubmodules.length > 0 || dirty.sourceState.unstaged.length > 0);
 });
 
 test("Direct completion notice is impossible before both integration and cleanup", () => {
