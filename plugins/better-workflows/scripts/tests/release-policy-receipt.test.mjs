@@ -14,6 +14,7 @@ import {
   buildClosedPolicyReceiptBinding,
   buildPolicyStatus,
   findClosedMergeWorkflowRun,
+  isValidPullRequestHeadRef,
   loadRequiredCheckPolicy,
   normalizeRequiredChecks,
   parseWorkflowRunReconciliationEvent,
@@ -597,7 +598,7 @@ test("workflow-run reconciliation resolves one sparse provider association throu
       completed_at: null,
       updated_at: "2026-08-18T00:00:06Z",
       head_sha: headSha,
-      head_branch: "codex/release-3.4.14",
+      head_branch: "release/v3+hotfix@candidate",
       pull_requests: []
     }
   };
@@ -615,7 +616,7 @@ test("workflow-run reconciliation resolves one sparse provider association throu
         merged_at: "2026-08-18T00:00:05Z",
         merge_commit_sha: "c".repeat(40),
         base: { ref: "dev" },
-        head: { sha: headSha, ref: "codex/release-3.4.14" }
+        head: { sha: headSha, ref: "release/v3+hotfix@candidate" }
       }] };
     }
   });
@@ -727,6 +728,14 @@ test("workflow-run reconciliation requires the exact closed merge binding", () =
     /exact completed closed-and-merged pull-request-target run/
   );
   assert.throws(
+    () => assertClosedPolicyReceiptBinding({ repository: "example/repo", run: { ...run, run_attempt: undefined }, pull, binding }),
+    /exact completed closed-and-merged pull-request-target run/
+  );
+  assert.throws(
+    () => assertClosedPolicyReceiptBinding({ repository: "example/repo", run, pull, binding: { ...binding, workflowRunAttempt: "2" } }),
+    /immutable closed-and-merged source binding/
+  );
+  assert.throws(
     () => assertClosedPolicyReceiptBinding({ repository: "example/repo", run, pull, binding: { ...binding, eventAction: "synchronize" } }),
     /immutable closed-and-merged source binding/
   );
@@ -768,6 +777,16 @@ test("workflow-run reconciliation canonicalizes large IDs and rejects unsafe ide
   assert.throws(() => canonicalWorkflowRunId("01"), /missing or unsafe workflow-run identity/);
 });
 
+test("pull-request head refs follow bounded Git-compatible branch semantics", () => {
+  for (const headRef of ["release/v3+hotfix", "feature/foo@bar", "@", "ümlaut/功能"]) {
+    assert.equal(isValidPullRequestHeadRef(headRef), true, headRef);
+  }
+  for (const headRef of ["", "bad..ref", "-leading", "trailing.", "foo@{bar", "foo//bar", "foo/.hidden", "foo/bar.lock", "foo bar", "foo\\bar"]) {
+    assert.equal(isValidPullRequestHeadRef(headRef), false, headRef);
+  }
+  assert.equal(isValidPullRequestHeadRef("a".repeat(256)), false);
+});
+
 test("delayed workflow-run reconciliation locates the exact closed merge run instead of the triggering pre-merge run", async () => {
   const headSha = "b".repeat(40);
   const mergeCommitSha = "c".repeat(40);
@@ -778,6 +797,7 @@ test("delayed workflow-run reconciliation locates the exact closed merge run ins
     repository: "example/repo",
     workflowFile: ".github/workflows/ci.yml",
     workflowRunId: "99",
+    workflowRunAttempt: "1",
     eventName: "pull_request_target",
     eventAction: "closed",
     branch: "dev",
@@ -789,6 +809,7 @@ test("delayed workflow-run reconciliation locates the exact closed merge run ins
   };
   const closedRun = {
     id: 99,
+    run_attempt: 1,
     path: ".github/workflows/ci.yml",
     event: "pull_request_target",
     status: "completed",
@@ -829,8 +850,9 @@ test("delayed workflow-run reconciliation locates the exact closed merge run ins
       if (url.endsWith("/actions/runs/99")) return { ok: true, status: 200, json: async () => closedRun };
       throw new Error(`Unexpected delayed reconciliation URL: ${url}`);
     },
-    fetchCloseBindingImpl: async ({ runId }) => {
+    fetchCloseBindingImpl: async ({ runId, runAttempt }) => {
       assert.equal(runId, "99");
+      assert.equal(runAttempt, "1");
       return binding;
     }
   });
@@ -843,7 +865,7 @@ test("delayed workflow-run reconciliation locates the exact closed merge run ins
 test("closed merge reconciliation queries both head and base workflow-run representations", async () => {
   const headSha = "b".repeat(40);
   const mergeCommitSha = "c".repeat(40);
-  const headRef = "codex/release-3.4.14";
+  const headRef = "release/v3+hotfix@candidate";
   const mergedAt = "2026-08-18T00:00:00Z";
   const binding = buildClosedPolicyReceiptBinding({
     repository: "example/repo",
@@ -851,12 +873,14 @@ test("closed merge reconciliation queries both head and base workflow-run repres
     headSha,
     pullNumber: 17,
     workflowRunId: "99",
+    workflowRunAttempt: "2",
     observedAt: "2026-08-18T00:00:04Z",
     mergeCommitSha,
     mergedAt
   });
   const closedRun = {
     id: 99,
+    run_attempt: 2,
     path: ".github/workflows/ci.yml",
     event: "pull_request_target",
     status: "completed",
@@ -892,13 +916,38 @@ test("closed merge reconciliation queries both head and base workflow-run repres
       if (url.endsWith("/actions/runs/99")) return { ok: true, status: 200, json: async () => closedRun };
       throw new Error(`Unexpected branch-representation URL: ${url}`);
     },
-    fetchCloseBindingImpl: async ({ runId }) => {
+    fetchCloseBindingImpl: async ({ runId, runAttempt }) => {
       assert.equal(runId, "99");
+      assert.equal(runAttempt, "2");
       return binding;
     }
   });
   assert.equal(result.run.id, 99);
   assert.deepEqual(listedBranches, [headRef, "dev"]);
+
+  let artifactLookups = 0;
+  await assert.rejects(
+    findClosedMergeWorkflowRun({
+      apiUrl: "https://api.github.com",
+      repository: "example/repo",
+      branch: "dev",
+      pullNumber: 17,
+      headSha,
+      headRef,
+      mergeCommitSha,
+      mergedAt,
+      token: "token",
+      fetchImpl: async (url) => url.includes("/actions/workflows/ci.yml/runs?")
+        ? { ok: true, status: 200, json: async () => ({ workflow_runs: [{ id: 99 }] }) }
+        : { ok: true, status: 200, json: async () => ({ ...closedRun, run_attempt: undefined }) },
+      fetchCloseBindingImpl: async () => {
+        artifactLookups += 1;
+        return binding;
+      }
+    }),
+    /no exact completed closed-merge binding/
+  );
+  assert.equal(artifactLookups, 0);
 });
 
 test("closed merge reconciliation accepts sparse provider metadata only with the exact head branch and close-binding artifact", async () => {
@@ -953,7 +1002,7 @@ test("closed merge reconciliation accepts sparse provider metadata only with the
     },
     fetchCloseBindingImpl: async ({ runId, runAttempt }) => {
       assert.equal(runId, "99");
-      assert.equal(runAttempt, 2);
+      assert.equal(runAttempt, "2");
       return binding;
     }
   });

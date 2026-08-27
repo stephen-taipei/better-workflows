@@ -9,6 +9,7 @@ import {
   assertClosedPolicyReceiptBinding,
   canonicalWorkflowRunId,
   fetchWorkflowRunCloseBindingArtifact,
+  isValidPullRequestHeadRef,
   loadRequiredCheckPolicy
 } from "./release-policy-receipt.mjs";
 import {
@@ -969,8 +970,8 @@ export function pullRequestTargetProviderBinding(run, { pullNumber, branch, head
         ? /^[0-9a-f]{40}$/.test(associatedBaseSha) && runHeadSha === associatedBaseSha
         : run?.head_branch === undefined || String(run.head_branch) === branch)
     ));
-  const normalizedHeadRef = String(headRef ?? "").trim();
-  const sparseBoundary = runPullRequests?.length === 0 && /^[A-Za-z0-9._/-]{1,255}$/.test(normalizedHeadRef) &&
+  const normalizedHeadRef = headRef === null || headRef === undefined ? "" : String(headRef);
+  const sparseBoundary = runPullRequests?.length === 0 && isValidPullRequestHeadRef(normalizedHeadRef) &&
     String(run?.head_branch ?? "") === normalizedHeadRef && runHeadSha === headSha;
   return { matches: associatedBoundary || sparseBoundary, associatedPull, sparseBoundary };
 }

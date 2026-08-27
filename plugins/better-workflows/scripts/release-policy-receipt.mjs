@@ -47,6 +47,17 @@ export function canonicalWorkflowRunId(value, label = "workflow run") {
   return raw;
 }
 
+export function isValidPullRequestHeadRef(value) {
+  if (typeof value !== "string" || value.length === 0 || Buffer.byteLength(value, "utf8") > 255) return false;
+  if (value.startsWith("-") || value.startsWith("/") || value.endsWith("/") || value.endsWith(".")) return false;
+  if (value.includes("..") || value.includes("//") || value.includes("@{")) return false;
+  if (/[\u0000-\u0020\u007f]/u.test(value)) return false;
+  if (["~", "^", ":", "?", "*", "[", "\\"].some((token) => value.includes(token))) return false;
+  return value.split("/").every((component) => (
+    component.length > 0 && !component.startsWith(".") && !component.endsWith(".lock")
+  ));
+}
+
 export function normalizeRequiredChecks(payload, options = {}) {
   const nestedRequired = payload?.protection?.required_status_checks;
   const required = nestedRequired ?? payload;
@@ -408,8 +419,8 @@ export async function resolveWorkflowRunReconciliationEvent({
     throw new Error("Workflow-run release policy reconciliation requires exactly one associated pull request");
   }
   const headSha = assertSha(run.head_sha);
-  const headRef = String(run.head_branch ?? "").trim();
-  if (!/^[A-Za-z0-9._/-]{1,255}$/.test(headRef)) {
+  const headRef = typeof run.head_branch === "string" ? run.head_branch : "";
+  if (!isValidPullRequestHeadRef(headRef)) {
     throw new Error("Workflow-run release policy reconciliation cannot recover an exact source branch");
   }
   const associatedPulls = await repositoryPullRequestsForCommit({
@@ -645,13 +656,11 @@ export function assertClosedPolicyReceiptBinding({ run, pull, binding, repositor
     throw new Error("Workflow-run release policy reconciliation requires the exact completed closed-and-merged pull-request-target run");
   }
   const pullNumber = Number(pull?.number);
-  let runAttempt = null;
-  if (run?.run_attempt !== undefined) {
-    try {
-      runAttempt = canonicalWorkflowRunId(run.run_attempt, "closed-merge run attempt");
-    } catch {
-      throw new Error("Workflow-run release policy reconciliation requires the exact completed closed-and-merged pull-request-target run");
-    }
+  let runAttempt;
+  try {
+    runAttempt = canonicalWorkflowRunId(run?.run_attempt, "closed-merge run attempt");
+  } catch {
+    throw new Error("Workflow-run release policy reconciliation requires the exact completed closed-and-merged pull-request-target run");
   }
   const branch = String(pull?.base?.ref ?? "");
   const headSha = assertSha(pull?.head?.sha);
@@ -682,7 +691,7 @@ export function assertClosedPolicyReceiptBinding({ run, pull, binding, repositor
   const bindingObservedAt = Date.parse(String(binding?.observedAt ?? ""));
   if (!binding || binding.schemaVersion !== 1 || binding.kind !== RELEASE_POLICY_CLOSE_BINDING_ARTIFACT_KIND ||
       binding.workflowFile !== RELEASE_POLICY_RECEIPT_WORKFLOW_FILE || String(binding.workflowRunId) !== runId ||
-      (runAttempt !== null && String(binding.workflowRunAttempt) !== runAttempt) ||
+      String(binding.workflowRunAttempt) !== runAttempt ||
       binding.eventName !== RELEASE_POLICY_RECEIPT_WORKFLOW_EVENT || binding.eventAction !== RELEASE_POLICY_RECEIPT_MERGE_ACTION ||
       binding.repository !== (repository === null ? binding.repository : repository) || binding.branch !== branch ||
       Number(binding.pullNumber) !== pullNumber || String(binding.headSha ?? "").toLowerCase() !== headSha ||
@@ -839,7 +848,7 @@ export async function findClosedMergeWorkflowRun({
 }) {
   const normalizedRepository = String(repository ?? "").trim();
   const normalizedBranch = String(branch ?? "").trim();
-  const normalizedHeadRef = String(headRef ?? "").trim();
+  const normalizedHeadRef = headRef === null || headRef === undefined ? "" : String(headRef);
   const normalizedPullNumber = Number(pullNumber);
   const normalizedHeadSha = assertSha(headSha);
   const normalizedMergeCommitSha = assertSha(mergeCommitSha);
@@ -847,6 +856,9 @@ export async function findClosedMergeWorkflowRun({
   if (!normalizedRepository || !normalizedBranch || !Number.isInteger(normalizedPullNumber) || normalizedPullNumber <= 0 ||
       !Number.isFinite(mergedAtMs)) {
     throw new Error("Release policy reconciliation requires a complete merged pull-request binding");
+  }
+  if (normalizedHeadRef && !isValidPullRequestHeadRef(normalizedHeadRef)) {
+    throw new Error("Release policy reconciliation requires an exact Git-compatible source branch");
   }
   const candidates = [];
   const branchFilters = [...new Set([normalizedHeadRef, normalizedBranch].filter(Boolean))];
@@ -886,8 +898,10 @@ export async function findClosedMergeWorkflowRun({
     listedById.set(candidateId, serializedCandidate);
     const run = await repositoryWorkflowRun({ apiUrl, repository: normalizedRepository, runId: candidateId, token, fetchImpl });
     let returnedRunId;
+    let returnedRunAttempt;
     try {
       returnedRunId = canonicalWorkflowRunId(run?.id, "workflow-run response");
+      returnedRunAttempt = canonicalWorkflowRunId(run?.run_attempt, "workflow-run attempt response");
     } catch {
       continue;
     }
@@ -920,7 +934,7 @@ export async function findClosedMergeWorkflowRun({
         apiUrl,
         repository: normalizedRepository,
         runId: candidateId,
-        runAttempt: run?.run_attempt ?? null,
+        runAttempt: returnedRunAttempt,
         token,
         fetchImpl
       });
@@ -1007,8 +1021,8 @@ function sparseSourceWorkflowRunMatches(run, {
   artifactDigest,
   mergedAtMs
 }) {
-  const normalizedHeadRef = String(headRef ?? "").trim();
-  if (!/^[A-Za-z0-9._/-]{1,255}$/.test(normalizedHeadRef) || source?.workflowRunAttempt === null) return false;
+  const normalizedHeadRef = headRef === null || headRef === undefined ? "" : String(headRef);
+  if (!isValidPullRequestHeadRef(normalizedHeadRef) || source?.workflowRunAttempt === null) return false;
   let returnedRunId;
   let returnedRunAttempt;
   try {
@@ -1485,8 +1499,8 @@ async function main() {
     mergeCommitSha = assertSha(pull.merge_commit_sha);
     mergedAt = String(pull.merged_at ?? "");
     if (!Number.isFinite(Date.parse(mergedAt))) throw new Error("Workflow-run release policy reconciliation requires a valid merge timestamp");
-    headRef = String(pull?.head?.ref ?? "").trim();
-    if (!/^[A-Za-z0-9._/-]{1,255}$/.test(headRef)) {
+    headRef = typeof pull?.head?.ref === "string" ? pull.head.ref : "";
+    if (!isValidPullRequestHeadRef(headRef)) {
       throw new Error("Workflow-run release policy reconciliation requires an exact source branch");
     }
     let closeBinding;
@@ -1532,8 +1546,8 @@ async function main() {
     }
     branch = String(process.env.GITHUB_BASE_REF ?? "");
     headSha = assertSha(process.env.GITHUB_HEAD_SHA);
-    headRef = String(process.env.GITHUB_HEAD_REF ?? "").trim();
-    if (!/^[A-Za-z0-9._/-]{1,255}$/.test(headRef)) {
+    headRef = String(process.env.GITHUB_HEAD_REF ?? "");
+    if (!isValidPullRequestHeadRef(headRef)) {
       throw new Error("Release policy receipt requires an exact source branch");
     }
     pullNumber = Number(process.env.GITHUB_PR_NUMBER);

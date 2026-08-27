@@ -470,14 +470,14 @@ test("release receipt consumers accept sparse pull-request-target metadata only 
   const headSha = "b".repeat(40);
   const sparseRun = {
     head_sha: headSha,
-    head_branch: "codex/release-3.4.14",
+    head_branch: "release/v3+hotfix@candidate",
     pull_requests: []
   };
   const boundary = {
     pullNumber: 17,
     branch: "dev",
     headSha,
-    headRef: "codex/release-3.4.14"
+    headRef: "release/v3+hotfix@candidate"
   };
   assert.equal(pullRequestTargetProviderBinding(sparseRun, boundary).matches, true);
   assert.equal(pullRequestTargetProviderBinding({ ...sparseRun, head_branch: "other/source" }, boundary).matches, false);
