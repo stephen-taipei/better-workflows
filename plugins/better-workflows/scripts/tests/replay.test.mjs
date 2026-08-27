@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import {
   access,
   lstat,
@@ -648,4 +648,60 @@ test("CLI help exposes the built-in evidence replay entrypoint", async () => {
   );
   assert.equal(stderr, "");
   assert.match(stdout, /sbw evidence replay \[<run-id>\] \[--no-open\]/);
+});
+
+test("CLI no-open prints the single-use manual bootstrap URL", async (context) => {
+  const fixture = await makeRun();
+  context.after(() => removeFixture(fixture.root));
+  const child = spawn(
+    process.execPath,
+    [path.join(scriptDirectory, "sbw.mjs"), "evidence", "replay", fixture.runId, "--no-open"],
+    {
+      cwd: path.resolve(scriptDirectory, "../../.."),
+      env: { ...process.env, SBW_STATE_ROOT: fixture.root },
+      stdio: ["ignore", "pipe", "pipe"]
+    }
+  );
+  context.after(() => {
+    if (child.exitCode === null) child.kill("SIGTERM");
+  });
+  const started = await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error("no-open replay did not start")), 10_000);
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+      const newline = stdout.indexOf("\n");
+      if (newline === -1) return;
+      clearTimeout(timeout);
+      try {
+        resolve(JSON.parse(stdout.slice(0, newline)));
+      } catch (error) {
+        reject(error);
+      }
+    });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.once("error", (error) => {
+      clearTimeout(timeout);
+      reject(error);
+    });
+    child.once("exit", (code) => {
+      if (stdout.includes("\n")) return;
+      clearTimeout(timeout);
+      reject(new Error(`no-open replay exited early (${code}): ${stderr}`));
+    });
+  });
+  assert.equal(started.event, "replay.started");
+  assert.equal(started.noOpen, true);
+  assert.equal(started.opened, false);
+  assert.equal(started.url, `http://localhost:${REPLAY_PORT}/runs/${fixture.runId}`);
+  assert.equal(new URL(started.bootstrapUrl).origin, `http://localhost:${REPLAY_PORT}`);
+  assert.match(new URL(started.bootstrapUrl).pathname, /^\/bootstrap\/[A-Za-z0-9_-]+$/);
+
+  const bootstrap = await request({ port: REPLAY_PORT }, new URL(started.bootstrapUrl).pathname);
+  assert.equal(bootstrap.status, 303);
+  assert.equal(bootstrap.headers.location, `/runs/${fixture.runId}`);
+  child.kill("SIGTERM");
+  const exitCode = child.exitCode ?? await new Promise((resolve) => child.once("exit", resolve));
+  assert.equal(exitCode, 0);
 });

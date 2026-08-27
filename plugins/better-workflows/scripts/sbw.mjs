@@ -2003,6 +2003,7 @@ async function commandEvidenceReplay(root, runId, options) {
     ok: true,
     event: "replay.started",
     url: replay.cleanUrl,
+    ...(noOpen ? { bootstrapUrl: replay.bootstrapUrl } : {}),
     runId: replay.runId,
     host: "localhost",
     port: replay.port,

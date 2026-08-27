@@ -50,6 +50,7 @@ sbw sentinel verify <run-id> --label <label>
 sbw evidence add <run-id> --file <evidence.json>
 sbw evidence replay
 sbw evidence replay <run-id>
+sbw evidence replay [<run-id>] --no-open
 sbw finding add <run-id> --file <finding.json>
 sbw finding update <run-id> --file <finding.json>
 sbw ledger status <run-id>
@@ -85,6 +86,9 @@ path never invokes `sudo`, the host signer, providers, action issuance, or
 completion. It reads bounded, symlink-free snapshots from `SBW_STATE_ROOT`,
 serves only allowlisted sanitized metadata, and marks active runs `UNSEALED`.
 Recorded outcomes are presentation-only and are not live re-verification.
+For a manual handoff, `--no-open` does not launch a browser and prints a
+short-lived, single-use `bootstrapUrl`; open that URL rather than the clean
+URL, which intentionally requires the HttpOnly replay-session cookie.
 
 `source rebind` is root-only and pre-review/pre-side-effect. It invalidates all
 prior complete evidence and resets the v2 execution ledger, so the next
