@@ -814,42 +814,62 @@ async function processBootIdentity() {
   return null;
 }
 
-export async function processIncarnationDigest(pid, { liveness = processLiveness } = {}) {
+async function processStartIdentity(pid) {
+  if (process.platform === "darwin") {
+    const { stdout } = await execFileAsync("/usr/bin/python3", ["-c", DARWIN_PROCESS_IDENTITY_SCRIPT, String(pid)], {
+      encoding: "utf8",
+      timeout: 5_000,
+      killSignal: "SIGKILL",
+      env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", LC_ALL: "C" }
+    });
+    const value = stdout.trim();
+    if (!/^\d+:\d+$/.test(value)) throw new Error("macOS process start identity was malformed");
+    return value;
+  }
+  if (process.platform === "linux") {
+    const stat = await readFile(`/proc/${pid}/stat`, "utf8");
+    const closing = stat.lastIndexOf(")");
+    const fields = closing >= 0 ? stat.slice(closing + 1).trim().split(/\s+/) : [];
+    const value = fields[19];
+    if (!/^\d+$/.test(value ?? "")) throw new Error("Linux process start ticks were unavailable");
+    return value;
+  }
+  throw new Error("Process start identity is unavailable on this platform");
+}
+
+const waitForProcessIdentityRetry = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+export async function processIncarnationDigest(pid, {
+  liveness = processLiveness,
+  startIdentity = processStartIdentity,
+  bootIdentity = processBootIdentity,
+  wait = waitForProcessIdentityRetry
+} = {}) {
   if (!Number.isInteger(pid) || pid < 1) return null;
   const initialLiveness = liveness(pid);
   if (initialLiveness === "absent") return null;
   if (initialLiveness === "unknown") return "unknown";
-  try {
-    let startIdentity;
-    if (process.platform === "darwin") {
-      const { stdout } = await execFileAsync("/usr/bin/python3", ["-c", DARWIN_PROCESS_IDENTITY_SCRIPT, String(pid)], {
-        encoding: "utf8",
-        timeout: 5_000,
-        killSignal: "SIGKILL",
-        env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", LC_ALL: "C" }
-      });
-      startIdentity = stdout.trim();
-      if (!/^\d+:\d+$/.test(startIdentity)) throw new Error("macOS process start identity was malformed");
-    } else if (process.platform === "linux") {
-      const stat = await readFile(`/proc/${pid}/stat`, "utf8");
-      const closing = stat.lastIndexOf(")");
-      const fields = closing >= 0 ? stat.slice(closing + 1).trim().split(/\s+/) : [];
-      startIdentity = fields[19];
-      if (!/^\d+$/.test(startIdentity ?? "")) throw new Error("Linux process start ticks were unavailable");
-    } else {
-      return "unknown";
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const start = await startIdentity(pid);
+      const boot = await bootIdentity();
+      if (typeof start !== "string" || !start || typeof boot !== "string" || !boot) {
+        throw new Error("Process incarnation identity was incomplete");
+      }
+      const finalLiveness = liveness(pid);
+      if (finalLiveness === "absent") return null;
+      if (finalLiveness === "unknown") return "unknown";
+      return sha256(`${process.platform}\0${pid}\0${boot}\0${start}`);
+    } catch {
+      const finalLiveness = liveness(pid);
+      if (finalLiveness === "absent") return null;
+      if (finalLiveness === "unknown") return "unknown";
+      if (attempt < 2) await wait(10);
     }
-    const bootIdentity = await processBootIdentity();
-    if (!bootIdentity) return "unknown";
-    return sha256(`${process.platform}\0${pid}\0${bootIdentity}\0${startIdentity}`);
-  } catch {
-    const finalLiveness = liveness(pid);
-    if (finalLiveness === "absent") return null;
-    // A live or unobservable process whose incarnation cannot be read is not
-    // reclaimable, even when the failure was EPERM/EACCES or another host
-    // inspection error.
-    return "unknown";
   }
+  // A live process whose incarnation cannot be read after the fixed retry
+  // budget is not reclaimable. Availability retries never weaken this HOLD.
+  return "unknown";
 }
 
 async function readPublicationLockRecord(lockPath, { allowHardlink = false, pinned = null } = {}) {

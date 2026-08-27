@@ -348,6 +348,108 @@ test("publication process liveness fails closed for an unobservable owner", asyn
   assert.equal(processLiveness(1234, absentProbe), "absent");
 });
 
+test("publication process identity retries transient probes with a fixed budget", async () => {
+  let startProbes = 0;
+  let bootProbes = 0;
+  const waits = [];
+  const digest = await processIncarnationDigest(1234, {
+    liveness: () => "alive",
+    startIdentity: async () => {
+      startProbes += 1;
+      if (startProbes < 3) throw new Error("transient process start probe failure");
+      return "123:456";
+    },
+    bootIdentity: async () => {
+      bootProbes += 1;
+      return "boot-id";
+    },
+    wait: async (milliseconds) => waits.push(milliseconds)
+  });
+  assert.match(digest, /^[a-f0-9]{64}$/);
+  assert.equal(startProbes, 3);
+  assert.equal(bootProbes, 1);
+  assert.deepEqual(waits, [10, 10]);
+});
+
+test("publication process identity exhaustion remains fail-closed", async () => {
+  let startProbes = 0;
+  let bootProbes = 0;
+  const waits = [];
+  const digest = await processIncarnationDigest(1234, {
+    liveness: () => "alive",
+    startIdentity: async () => {
+      startProbes += 1;
+      throw new Error("persistent process start probe failure");
+    },
+    bootIdentity: async () => {
+      bootProbes += 1;
+      return "boot-id";
+    },
+    wait: async (milliseconds) => waits.push(milliseconds)
+  });
+  assert.equal(digest, "unknown");
+  assert.equal(startProbes, 3);
+  assert.equal(bootProbes, 0);
+  assert.deepEqual(waits, [10, 10]);
+});
+
+test("publication process identity does not probe an initially absent or unknown owner", async () => {
+  for (const [liveness, expected] of [["absent", null], ["unknown", "unknown"]]) {
+    let probes = 0;
+    let waits = 0;
+    assert.equal(await processIncarnationDigest(1234, {
+      liveness: () => liveness,
+      startIdentity: async () => { probes += 1; return "123:456"; },
+      bootIdentity: async () => { probes += 1; return "boot-id"; },
+      wait: async () => { waits += 1; }
+    }), expected);
+    assert.equal(probes, 0);
+    assert.equal(waits, 0);
+  }
+});
+
+test("publication process identity stops retrying when liveness changes", async () => {
+  for (const [transition, expected] of [["absent", null], ["unknown", "unknown"]]) {
+    const livenessStates = ["alive", transition];
+    let startProbes = 0;
+    let waits = 0;
+    assert.equal(await processIncarnationDigest(1234, {
+      liveness: () => livenessStates.shift() ?? transition,
+      startIdentity: async () => {
+        startProbes += 1;
+        throw new Error("process identity probe failed during transition");
+      },
+      bootIdentity: async () => "boot-id",
+      wait: async () => { waits += 1; }
+    }), expected);
+    assert.equal(startProbes, 1);
+    assert.equal(waits, 0);
+  }
+});
+
+test("publication process identity refreshes both components after a boot probe failure", async () => {
+  let startProbes = 0;
+  let bootProbes = 0;
+  let waits = 0;
+  const digest = await processIncarnationDigest(1234, {
+    liveness: () => "alive",
+    startIdentity: async () => {
+      startProbes += 1;
+      return `123:${startProbes}`;
+    },
+    bootIdentity: async () => {
+      bootProbes += 1;
+      if (bootProbes === 1) throw new Error("transient boot identity probe failure");
+      return "boot-id";
+    },
+    wait: async () => { waits += 1; }
+  });
+  assert.match(digest, /^[a-f0-9]{64}$/);
+  assert.equal(startProbes, 2);
+  assert.equal(bootProbes, 2);
+  assert.equal(waits, 1);
+});
+
 test("a live separate publisher retains its process-incarnation lease", async () => {
   const version = "1.1.0+test.live-cross-process-lease";
   const sourceRoot = await sourceFixture(version);
