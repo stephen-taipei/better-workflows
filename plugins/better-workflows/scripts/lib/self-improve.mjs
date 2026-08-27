@@ -1028,7 +1028,16 @@ function materialEvidenceIndex(text, filePath) {
         return collect([/^#{1,6}\s+([^\r\n]{1,200})$/gm], 48);
       })()
     : [];
-  const semanticAnchors = prioritize(lexical.strings.map((item) => item.value)
+  const markdownSemanticLines = filePath.endsWith(".md")
+    ? sourceText.split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => line.length >= 4 && line.length <= 200)
+        .filter((line) => /^<!--[\s\S]*(?:roster|boundary)[\s\S]*-->$/i.test(line))
+    : [];
+  const semanticAnchors = prioritize([
+    ...lexical.strings.map((item) => item.value),
+    ...markdownSemanticLines
+  ]
     .filter((value) => value.length >= 4 && value.length <= 200)
     .filter((value) => /git|push|delegat|handoff|self.?improve|migration|train-(?:candidate|baseline)|(?:candidate|baseline):[1-3]|publication|cache|marker|markdown|readme|destination|ledger|evidence|acceptance|review|direct|budget|exhaust|typed|receipt|broad|fence|comment|artifact|sentinel|digest|roster|transport|action|stage|upstream|unauthor|forg/i.test(value))).slice(0, 16);
   return { exportedSymbols, namedSymbols, tests, ids, headings, semanticAnchors };
@@ -1040,7 +1049,7 @@ function boundedMaterialEvidenceIndex(index, filePath, maxBytes) {
     : filePath.endsWith(".json")
       ? ["ids", "semanticAnchors", "exportedSymbols", "namedSymbols", "tests", "headings"]
       : filePath.endsWith(".md")
-        ? ["headings", "semanticAnchors", "exportedSymbols", "namedSymbols", "tests", "ids"]
+        ? ["semanticAnchors", "headings", "exportedSymbols", "namedSymbols", "tests", "ids"]
         : ["exportedSymbols", "semanticAnchors", "namedSymbols", "tests", "ids", "headings"];
   let bounded = { exportedSymbols: [], namedSymbols: [], tests: [], ids: [], headings: [], semanticAnchors: [] };
   const appendWithinBudget = (key, value) => {
@@ -1082,7 +1091,7 @@ function evidenceCategoryOrder(filePath) {
     : filePath.endsWith(".json")
       ? ["ids", "semanticAnchors", "exportedSymbols", "namedSymbols", "tests", "headings"]
       : filePath.endsWith(".md")
-        ? ["headings", "semanticAnchors", "exportedSymbols", "namedSymbols", "tests", "ids"]
+        ? ["semanticAnchors", "headings", "exportedSymbols", "namedSymbols", "tests", "ids"]
         : ["exportedSymbols", "semanticAnchors", "namedSymbols", "tests", "ids", "headings"];
 }
 
@@ -1110,7 +1119,22 @@ function materialEvidenceOffsets(sourceText, filePath, evidenceIndex) {
           /\btest\s*\(\s*$/.test(lexical.code.slice(Math.max(0, entry.start - 80), entry.start)));
         append(value, item?.start);
       } else if (key === "semanticAnchors") {
-        append(value, lexical.strings.find((entry) => entry.value === value)?.start);
+        if (filePath.endsWith(".md")) {
+          const markerOffset = sourceText.indexOf(value);
+          const lineBreakOffset = markerOffset >= 0
+            ? sourceText.indexOf("\n", markerOffset + value.length)
+            : -1;
+          const anchoredLineStart = lineBreakOffset >= 0 ? lineBreakOffset + 1 : markerOffset;
+          const anchoredLineEnd = anchoredLineStart >= 0
+            ? sourceText.indexOf("\n", anchoredLineStart)
+            : -1;
+          const anchoredLineLength = anchoredLineEnd >= anchoredLineStart
+            ? anchoredLineEnd - anchoredLineStart
+            : 0;
+          append(value, anchoredLineStart + Math.floor(anchoredLineLength / 3));
+        } else {
+          append(value, lexical.strings.find((entry) => entry.value === value)?.start);
+        }
       } else if (key === "headings") {
         append(value, new RegExp(`^#{1,6}\\s+${escape(value)}\\s*$`, "m").exec(sourceText)?.index);
       } else if (key === "ids") {

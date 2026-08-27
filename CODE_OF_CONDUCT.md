@@ -3,6 +3,8 @@
 | [README](README.md) | [Contributing](CONTRIBUTING.md) | **Code of conduct** | [Security](SECURITY.md) | [Governance](GOVERNANCE.md) | [Support](SUPPORT.md) |
 | :---: | :---: | :---: | :---: | :---: | :---: |
 
+[41-locale localized overview and official web entry points](docs/LANGUAGES.md). This normative community policy remains canonical in English.
+
 ## Our standard
 
 We are committed to a respectful, technically rigorous, and harassment-free

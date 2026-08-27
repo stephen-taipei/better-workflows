@@ -817,7 +817,7 @@
           <div class="finder-head"><h3>路線判讀台</h3><span class="step-tag">LIVE DECISION AID</span></div>
           <div class="finder-form">
             <div class="field"><label for="task-select">01 · 我要完成什麼？</label><select id="task-select"></select></div>
-            <div class="field"><label for="scope-select">02 · 範圍與不確定性</label><select id="scope-select"><option value="direct">單點、熟悉、可快速回復</option><option value="verified">需要即時證據或交叉檢查</option><option value="deep">跨模組／架構／高認知負荷</option><option value="critical">關鍵、不可逆或需獨立外證</option></select></div>
+            <div class="field"><label for="scope-select">02 · 範圍與不確定性</label><select id="scope-select"><option value="direct">單點、熟悉、可快速回復</option><option value="verified">需要具時效性的證據或交叉檢查</option><option value="deep">跨模組／架構／高認知負荷</option><option value="critical">關鍵、不可逆或需獨立外證</option></select></div>
             <div class="field"><label for="effect-select">03 · 會碰外部世界嗎？</label><select id="effect-select"><option value="none">不會，只讀或本地修改</option><option value="repo">會，commit / bounded repo write</option><option value="provider">會，issue / PR / account / provider</option><option value="production">會，merge / deploy / production</option></select></div>
           </div>
           <div class="finder-result" id="finder-result" aria-live="polite"></div>
@@ -842,7 +842,7 @@
             <h3>證據資料流</h3>
             <div class="loop-list">
               <div class="loop-item"><b>1</b><span>Source binding<small>HEAD / index / status / scope / digest</small></span></div>
-              <div class="loop-item"><b>2</b><span>Typed receipt admission<small>kind / producer / payload / freshness</small></span></div>
+              <div class="loop-item"><b>2</b><span>Typed receipt admission<small>kind / producer / payload / 時效性</small></span></div>
               <div class="loop-item"><b>3</b><span>Ledger reducer<small>append-only events → derived task state</small></span></div>
               <div class="loop-item"><b>4</b><span>Review convergence<small>immutable package / stable findings / repair budget</small></span></div>
               <div class="loop-item"><b>5</b><span>Action &amp; reconciliation<small>one-time token / exact provider outcome</small></span></div>
@@ -928,7 +928,7 @@ node plugins/better-workflows/scripts/sbw.mjs action issue &lt;run-id&gt; \
         <div class="section-heading"><span class="chapter-no">05</span><div><p class="kicker">Applied essays</p><h2>把規則放回真實工作的摩擦裡</h2><p>以下不是抽象規範，而是六篇可拿來做團隊共識、onboarding 或 ADR 前言的短文。每篇都指出何時要快、何時必須慢，以及證據如何改變決策。</p></div></div>
         <div class="essay-stack">
           <details class="essay card" open><summary><span class="essay-no">01</span><div><h3>二十分鐘的小修，為什麼不必開完整 run</h3><p>Direct 的價值不是偷工，而是讓治理成本和風險成比例。</p></div><span class="essay-toggle">＋</span></summary><div class="essay-body"><div class="essay-copy"><p>一個拼字錯誤、一段明確的型別修正，若範圍單點、可逆，而且驗證方式早已確定，建立 ledger、review package 與獨立 critic 可能比變更本身更昂貴。此時 direct 是合理選擇：Root 直接完成工作，仍保留 persistent Goal，卻不建立 governed replay。</p><p>關鍵不在「檔案少」，而在<strong>不確定性、爆炸半徑與副作用</strong>。只要小修改開始牽涉 shared API、帳號狀態、production 或無法可靠回復，direct 就失去資格。快速路徑應該有清楚出口，而不是變成高風險工作的別名。</p></div><aside class="margin-note"><b>可直接引用</b>「我們不是為每一行程式碼建立儀式；我們只為無法靠記憶與直覺承擔的後果建立證明。」</aside></div></details>
-          <details class="essay card"><summary><span class="essay-no">02</span><div><h3>把 Code Review 變成可交付的 Issues</h3><p>找到問題只是中間產物；去重、freshness 與 provider 終態才是交付。</p></div><span class="essay-toggle">＋</span></summary><div class="essay-body"><div class="essay-copy"><p>傳統 review 容易把「看見」誤當「完成」。review-to-issues 把工作拆成 package、findings、dedupe、freshness 與 issue-action。Reviewer 維持唯讀；真正建立 issue 的外部副作用只由 Root 執行。</p><p>這個順序保護兩件事：第一，不把舊 SHA 的問題貼到已經修好的程式碼上；第二，不用重複 issue 污染 backlog。最後若 provider 回應 unknown，流程不能把它猜成失敗再送一次，而要查詢 provider 對帳。</p></div><aside class="margin-note"><b>團隊問題</b>我們的 review KPI 是「留言數」，還是「經過去重、可追蹤、綁定當前 revision 的有效 finding」？</aside></div></details>
+          <details class="essay card"><summary><span class="essay-no">02</span><div><h3>把 Code Review 變成可交付的 Issues</h3><p>找到問題只是中間產物；去重、證據時效性與 provider 終態才構成交付。</p></div><span class="essay-toggle">＋</span></summary><div class="essay-body"><div class="essay-copy"><p>傳統 review 容易把「看見」誤當「完成」。review-to-issues 把工作拆成 package、findings、dedupe、時效性驗證與 issue-action。Reviewer 維持唯讀；真正建立 issue 的外部副作用只由 Root 執行。</p><p>這個順序保護兩件事：第一，不把舊 SHA 的問題貼到已經修好的程式碼上；第二，不用重複 issue 污染 backlog。最後若 provider 回應 unknown，流程不能把它猜成失敗再送一次，而要查詢 provider 對帳。</p></div><aside class="margin-note"><b>團隊問題</b>我們的 review KPI 是「留言數」，還是「經過去重、可追蹤、綁定當前 revision 的有效 finding」？</aside></div></details>
           <details class="essay card"><summary><span class="essay-no">03</span><div><h3>跨四端 API 變更，不能靠「同一天上線」</h3><p>Compatibility 是資料流，不是一場同步會議。</p></div><span class="essay-toggle">＋</span></summary><div class="essay-body"><div class="essay-copy"><p>Backend、Web、iOS、Android 的 release cadence 天生不同。「大家今天一起改」無法證明使用者手上的舊 mobile build 仍可運作。cross-platform-contract 先固定 server contract，再讓三個 client 分支檢查 model 與 headers，最後在 contract-tests 聚合。</p><p>若是 breaking change，two-phase policy 要求先擴充、再遷移、最後移除。Migration 與 API deploy 不是測試綠燈自然帶來的權限；它們仍是 Root-only action，必須綁定 scope、revision 與明確授權。</p></div><aside class="margin-note"><b>設計原則</b>「相容性窗口」要寫進 contract 與 evidence，而不是留在 release channel 的口頭約定。</aside></div></details>
           <details class="essay card"><summary><span class="essay-no">04</span><div><h3>CI 綠燈不是終點：外部世界還要對帳</h3><p>Run success、deploy success 與 live state 是三種不同證據。</p></div><span class="essay-toggle">＋</span></summary><div class="essay-body"><div class="essay-copy"><p>Workflow 顯示綠燈，只能證明那個 run 的 terminal result；它不能自動證明 target revision 正確、deploy 沒有被另一個 run 超車，或 production 已經 serving 新版本。ci-release-monitor 因此先 inventory、再 queue，序列化 monitor-execute，最後做 provider reconciliation。</p><p>目前同步版將沒有 immutable provider binding 的 actions 明確 deferred；GitHub Actions dispatch 不能用 mutable ref 原子綁定 preflight revision，因此不開放新的 executable token。缺少 provider authority 或 live reconciliation 時，正確終態是 blocked、inconclusive 或 indeterminate，而不是「大概成功」。</p></div><aside class="margin-note"><b>營運句型</b>「綠燈是 pipeline 的結論；完成是使用者要求的終態。兩者之間需要 revision 與 provider 證據。」</aside></div></details>
           <details class="essay card"><summary><span class="essay-no">05</span><div><h3>把 SOP 做成 Recipe，但不讓它偷偷寫 Source</h3><p>可重複執行不等於可以自由執行。</p></div><span class="essay-toggle">＋</span></summary><div class="essay-body"><div class="essay-copy"><p>當團隊反覆做同一組 deterministic 步驟，workspace recipe 能把 SOP 固化成受治理的 Node.js artifact。流程先定義 contract，再以 fixture dry-run 比對真實執行語義，經 digest-bound trust 後才 promotion。</p><p>安全界線刻意狹窄：預設不允許 network、child process 或 source write；candidate evidence 也不會自動等同 acceptance。Promotion、execution 與 artifact publication 是不同的決策，不能因為 scaffold 成功就一路自動放行。</p></div><aside class="margin-note"><b>判斷題</b>如果 SOP 仍頻繁改變、輸入不穩定，或需要人工語意判斷，先改善流程本身，不要急著 recipe 化。</aside></div></details>
@@ -954,7 +954,7 @@ node plugins/better-workflows/scripts/sbw.mjs action issue &lt;run-id&gt; \
         <div class="section-heading"><span class="chapter-no">07</span><div><p class="kicker">Senior engineer lens</p><h2>讀 digest 鏈，不只讀最後一句 PASS</h2><p>資深工程師最有價值的介入點，是找出 source、contract、evidence、review package 與 provider state 之間是否仍然同一個世界。</p></div></div>
         <div class="lens-grid">
           <div class="lens-card card"><span class="ordinal">01 · IDENTITY</span><h3>先確認你驗的是哪棵樹</h3><p>HEAD、index、dirty status、scope、submodule、symlink 與 remote revision 都可能漂移。</p><ul><li>Commit 後重新 source rebind</li><li>Wave 前後 capture / verify sentinel</li><li>Drift 時丟棄該 wave 結論</li></ul></div>
-          <div class="lens-card card"><span class="ordinal">02 · SEMANTICS</span><h3>Evidence kind 不是標籤</h3><p>Receipt 必須符合 producer allowlist、payload semantics、freshness、digest 與 dependency fingerprints。</p><ul><li>文字 PASS 不會改 ledger</li><li>acceptanceIds 不能由 caller 自行宣告</li><li>Resume 只重用 fingerprint 仍匹配的節點</li></ul></div>
+          <div class="lens-card card"><span class="ordinal">02 · SEMANTICS</span><h3>Evidence kind 不是標籤</h3><p>Receipt 必須符合 producer allowlist、payload semantics、時效性、digest 與 dependency fingerprints。</p><ul><li>文字 PASS 不會改 ledger</li><li>acceptanceIds 不能由 caller 自行宣告</li><li>Resume 只重用 fingerprint 仍匹配的節點</li></ul></div>
           <div class="lens-card card"><span class="ordinal">03 · CONSEQUENCE</span><h3>Action 是一個新信任邊界</h3><p>Action token 只把既有授權綁成短效、一次性的 exact attempt；它不創造權限。</p><ul><li>Root-only request</li><li>Fixed wrapper actions 使用 execute</li><li>Unknown outcome 必須 provider query</li></ul></div>
         </div>
       </div>
@@ -965,7 +965,7 @@ node plugins/better-workflows/scripts/sbw.mjs action issue &lt;run-id&gt; \
         <div class="section-heading"><span class="chapter-no">08</span><div><p class="kicker">CTO lens</p><h2>治理的產出，是更可靠的決策邊界</h2><p>這套系統最值得衡量的不是 agent 數量，而是未知狀態被保留的比例、重複副作用被阻止的次數，以及從 source revision 到 provider 終態的可追溯性。</p></div></div>
         <div class="balance-grid">
           <div class="balance-card card"><h3>適合制度化的指標</h3><div class="signal-list"><div class="signal good"><b>FRESHNESS</b><p>完成時 evidence 與 current-tree sentinel 仍匹配的比例。</p></div><div class="signal good"><b>RECONCILE</b><p>外部 action 有 terminal provider receipt 的比例。</p></div><div class="signal good"><b>NO-CHANGE</b><p>在證據不足或 candidate 無提升時，正確不採用的比例。</p></div><div class="signal good"><b>ROLLBACK</b><p>交付變更具有 bounded rollback evidence 的比例。</p></div></div></div>
-          <div class="balance-card card"><h3>目前不能由 codebase 證明</h3><div class="signal-list"><div class="signal unknown"><b>ADOPTION</b><p>Repository 未提供真實使用頻率或團隊滲透率 telemetry。</p></div><div class="signal unknown"><b>LEAD TIME</b><p>沒有足夠 production runs 可估算各 mode 的平均完成時間。</p></div><div class="signal unknown"><b>ROI</b><p>無事故成本與治理成本對照，不能從測試數量推導商業回報。</p></div><div class="signal risk"><b>OPERABILITY</b><p>101 種 evidence 與 host/provider gates 提高安全，也提高學習與營運成本。</p></div></div></div>
+          <div class="balance-card card"><h3>目前不能由 codebase 證明</h3><div class="signal-list"><div class="signal unknown"><b>ADOPTION</b><p>Repository 未提供真實使用頻率或團隊滲透率 telemetry。</p></div><div class="signal unknown"><b>LEAD TIME</b><p>沒有足夠 production runs 可估算各 mode 的平均完成時間。</p></div><div class="signal unknown"><b>ROI</b><p>無事故成本與治理成本對照，不能從測試數量推導商業回報。</p></div><div class="signal risk"><b>OPERABILITY</b><p>102 種 evidence 與 host/provider gates 提高安全，也提高學習與營運成本。</p></div></div></div>
         </div>
       </div>
     </section>
@@ -987,7 +987,7 @@ node plugins/better-workflows/scripts/sbw.mjs action issue &lt;run-id&gt; \
           <div class="rule-row header" role="row"><span>變更面</span><span>必須同步檢查</span><span>不能省略的驗證</span></div>
           <div class="rule-row" role="row"><b>ENTRY</b><p>entrypoint-catalog、selector skill、README / guide，以及最低 mode 是否一致。</p><p>Catalog parse、所有 selector 可解析；auto 不可偽造成 template。</p></div>
           <div class="rule-row" role="row"><b>TEMPLATE</b><p>executionStages、requiredEvidence、policyGates、actionStages、rootOnlyActions。</p><p><code>graph validate --template &lt;name&gt;</code>，並覆蓋 action-to-stage mapping。</p></div>
-          <div class="rule-row" role="row"><b>EVIDENCE</b><p>evidence-contracts、producer allowlist、payload semantics、freshness 與 revalidation。</p><p>未知 kind、空 payload、digest mismatch 與 stale binding 必須 fail closed。</p></div>
+          <div class="rule-row" role="row"><b>EVIDENCE</b><p>evidence-contracts、producer allowlist、payload semantics、時效性與 revalidation。</p><p>未知 kind、空 payload、digest mismatch 與 stale binding 必須 fail closed。</p></div>
           <div class="rule-row" role="row"><b>LEDGER</b><p>合法 transition、budget、dependency DAG、expectedLedgerDigest 與 terminal states。</p><p>Replay determinism；caller 文字或 acceptanceIds 不能越權完成。</p></div>
           <div class="rule-row" role="row"><b>ACTION</b><p>authority、exact provider/resource/revision、token TTL、wrapper 與 reconciliation。</p><p>Unknown / interrupted / duplicate reservation 路徑；禁止 blind retry。</p></div>
           <div class="rule-row" role="row"><b>DOCS</b><p>原始碼 locator、版本 metadata、FACT / RISK / UNKNOWN 分類與可執行範例。</p><p>內部連結、script parse、secret scan、desktop/mobile browser QA。</p></div>
@@ -1070,7 +1070,7 @@ node plugins/better-workflows/scripts/sbw.mjs action issue &lt;run-id&gt; \
       '，它不是一個模板；必須根據證據再選一個真實 template。': ', it is not a template. Current evidence must select a real template.',
       '路線判讀台': 'Route decision desk', '01 · 我要完成什麼？': '01 · What must be completed?',
       '02 · 範圍與不確定性': '02 · Scope and uncertainty', '單點、熟悉、可快速回復': 'Local, familiar, quickly reversible',
-      '需要即時證據或交叉檢查': 'Needs fresh evidence or cross-checking', '跨模組／架構／高認知負荷': 'Cross-module, architectural, high cognitive load',
+      '需要具時效性的證據或交叉檢查': 'Needs fresh evidence or cross-checking', '跨模組／架構／高認知負荷': 'Cross-module, architectural, high cognitive load',
       '關鍵、不可逆或需獨立外證': 'Critical, irreversible, or needs independent external evidence',
       '03 · 會碰外部世界嗎？': '03 · Does it touch the external world?', '不會，只讀或本地修改': 'No—read-only or local changes',
       '會，commit / bounded repo write': 'Yes—commit or bounded repository write', '會，issue / PR / account / provider': 'Yes—issue, PR, account, or provider',
@@ -1120,8 +1120,8 @@ node plugins/better-workflows/scripts/sbw.mjs action issue &lt;run-id&gt; \
       '。只要小修改開始牽涉 shared API、帳號狀態、production 或無法可靠回復，direct 就失去資格。快速路徑應該有清楚出口，而不是變成高風險工作的別名。': '. Once a small change touches a shared API, account state, production, or something that cannot be reliably reversed, direct no longer qualifies. A fast path needs a clear exit, not a high-risk alias.',
       '可直接引用': 'Reusable line', '「我們不是為每一行程式碼建立儀式；我們只為無法靠記憶與直覺承擔的後果建立證明。」': '“We do not build ceremony around every line of code. We build proof around consequences that memory and intuition cannot safely carry.”',
       '把 Code Review 變成可交付的 Issues': 'Turn code review into deliverable issues',
-      '找到問題只是中間產物；去重、freshness 與 provider 終態才是交付。': 'Finding a problem is an intermediate result; deduplication, freshness, and provider terminal state make it deliverable.',
-      '傳統 review 容易把「看見」誤當「完成」。review-to-issues 把工作拆成 package、findings、dedupe、freshness 與 issue-action。Reviewer 維持唯讀；真正建立 issue 的外部副作用只由 Root 執行。': 'Traditional review often mistakes seeing for completing. review-to-issues separates package, findings, dedupe, freshness, and issue action. Reviewers stay read-only; only Root performs the external issue-creation effect.',
+      '找到問題只是中間產物；去重、證據時效性與 provider 終態才構成交付。': 'Finding a problem is an intermediate result; deduplication, freshness, and provider terminal state make it deliverable.',
+      '傳統 review 容易把「看見」誤當「完成」。review-to-issues 把工作拆成 package、findings、dedupe、時效性驗證與 issue-action。Reviewer 維持唯讀；真正建立 issue 的外部副作用只由 Root 執行。': 'Traditional review often mistakes seeing for completing. review-to-issues separates package, findings, dedupe, freshness, and issue action. Reviewers stay read-only; only Root performs the external issue-creation effect.',
       '這個順序保護兩件事：第一，不把舊 SHA 的問題貼到已經修好的程式碼上；第二，不用重複 issue 污染 backlog。最後若 provider 回應 unknown，流程不能把它猜成失敗再送一次，而要查詢 provider 對帳。': 'This order protects two things: stale-SHA findings are not posted against already-fixed code, and duplicate issues do not pollute the backlog. If the provider returns unknown, the workflow queries and reconciles instead of guessing failure and sending again.',
       '團隊問題': 'Team question', '我們的 review KPI 是「留言數」，還是「經過去重、可追蹤、綁定當前 revision 的有效 finding」？': 'Is our review KPI “comment count,” or deduplicated, traceable findings bound to the current revision?',
       '跨四端 API 變更，不能靠「同一天上線」': 'A four-client API change cannot rely on “shipping the same day”',
@@ -1160,7 +1160,7 @@ node plugins/better-workflows/scripts/sbw.mjs action issue &lt;run-id&gt; \
       '先確認你驗的是哪棵樹': 'First confirm which tree you verified', 'HEAD、index、dirty status、scope、submodule、symlink 與 remote revision 都可能漂移。': 'HEAD, index, dirty status, scope, submodules, symlinks, and remote revision can all drift.',
       'Commit 後重新 source rebind': 'Rebind source after an intended commit', 'Wave 前後 capture / verify sentinel': 'Capture and verify the sentinel before and after each wave',
       'Drift 時丟棄該 wave 結論': 'Discard the wave’s conclusions on drift', 'Evidence kind 不是標籤': 'An evidence kind is not a label',
-      'Receipt 必須符合 producer allowlist、payload semantics、freshness、digest 與 dependency fingerprints。': 'A receipt must satisfy producer allowlists, payload semantics, freshness, digest, and dependency fingerprints.',
+      'Receipt 必須符合 producer allowlist、payload semantics、時效性、digest 與 dependency fingerprints。': 'A receipt must satisfy producer allowlists, payload semantics, freshness, digest, and dependency fingerprints.',
       '文字 PASS 不會改 ledger': 'The word PASS never changes the ledger', 'acceptanceIds 不能由 caller 自行宣告': 'Callers cannot self-declare acceptanceIds',
       'Resume 只重用 fingerprint 仍匹配的節點': 'Resume reuses only nodes whose fingerprints still match',
       'Action 是一個新信任邊界': 'An action is a new trust boundary',
@@ -1174,7 +1174,7 @@ node plugins/better-workflows/scripts/sbw.mjs action issue &lt;run-id&gt; \
       'Repository 未提供真實使用頻率或團隊滲透率 telemetry。': 'The repository provides no production telemetry for real usage or team adoption.',
       '沒有足夠 production runs 可估算各 mode 的平均完成時間。': 'There are not enough production runs to estimate mean completion time by mode.',
       '無事故成本與治理成本對照，不能從測試數量推導商業回報。': 'Without incident-cost and governance-cost baselines, test count cannot establish business ROI.',
-      '101 種 evidence 與 host/provider gates 提高安全，也提高學習與營運成本。': 'One hundred one evidence kinds and host/provider gates improve safety while increasing learning and operating cost.',
+      '102 種 evidence 與 host/provider gates 提高安全，也提高學習與營運成本。': 'One hundred two evidence kinds and host/provider gates improve safety while increasing learning and operating cost.',
       '可靠之處與摩擦之處，都要有證據': 'Both reliability and friction need evidence',
       '以下把 FACT、INFERENCE、RISK 與 UNKNOWN 分開。看不到 production telemetry，就不把完整的型別系統推論成已證實的營運成功。': 'The following separates FACT, INFERENCE, RISK, and UNKNOWN. A complete type system is not treated as proven operational success without production telemetry.',
       '已被設計與測試支持': 'Supported by design and tests', 'TaskContract v2 只接受 102-kind catalog 中的 typed evidence，並重驗 digest 與 semantic success。': 'TaskContract v2 accepts only typed evidence from the 102-kind catalog and revalidates digest and semantic success.', 'Review-enabled templates 會綁定 capability profile；kernel pilot 與 ordinary quorum 都不會直接取得 action token。': 'Review-enabled templates bind a capability profile; the kernel pilot and ordinary quorum cannot issue an action token.',
@@ -1191,7 +1191,7 @@ node plugins/better-workflows/scripts/sbw.mjs action issue &lt;run-id&gt; \
       'entrypoint-catalog、selector skill、README / guide，以及最低 mode 是否一致。': 'entrypoint catalog, selector skill, README/guide, and minimum-mode consistency.',
       'Catalog parse、所有 selector 可解析；auto 不可偽造成 template。': 'Catalog parses, every selector resolves, and auto is never presented as a template.',
       '，並覆蓋 action-to-stage mapping。': ', including action-to-stage mapping.',
-      'evidence-contracts、producer allowlist、payload semantics、freshness 與 revalidation。': 'evidence contracts, producer allowlists, payload semantics, freshness, and revalidation.',
+      'evidence-contracts、producer allowlist、payload semantics、時效性與 revalidation。': 'evidence contracts, producer allowlists, payload semantics, freshness, and revalidation.',
       '未知 kind、空 payload、digest mismatch 與 stale binding 必須 fail closed。': 'Unknown kinds, empty payloads, digest mismatches, and stale bindings must fail closed.',
       '合法 transition、budget、dependency DAG、expectedLedgerDigest 與 terminal states。': 'Legal transitions, budgets, dependency DAG, expectedLedgerDigest, and terminal states.',
       'Replay determinism；caller 文字或 acceptanceIds 不能越權完成。': 'Replay determinism; caller text or acceptanceIds cannot authorize completion.',
@@ -1223,7 +1223,7 @@ node plugins/better-workflows/scripts/sbw.mjs action issue &lt;run-id&gt; \
       },
       verified: {
         level: 2,
-        title: 'verified · 即時證據與獨立檢查',
+        title: 'verified · 具時效性的證據與獨立檢查',
         subtitle: '1–3 read-only reviewers · v2 run',
         summary: '建立 governed run，以一到三個唯讀研究／review 角色取得即時、可重驗的 evidence。適合瀏覽器 QA、靜態 iOS review、review-to-issues 與 recipe trust。',
         good: ['需要交叉檢查', '結果依賴當前畫面或 revision', '可控制的外部 side effect'],
@@ -1251,7 +1251,7 @@ node plugins/better-workflows/scripts/sbw.mjs action issue &lt;run-id&gt; \
       { id:'route', no:'01', label:'Route', title:'把目標翻成一條真實路線', text:'能力快照與 route preview 依 explicit selector、workspace profile、personal profile、built-in auto 的優先序選 primary template 與 mode。built-in auto 的 template 故意是 null，不能把 auto 當模板。', source:'ev-routing' },
       { id:'contract', no:'02', label:'Contract', title:'固定 goal、scope 與權限邊界', text:'非 direct run 建立 TaskContract v2，保存 acceptance、ignored paths、source binding、stage DAG、required evidence 與 root-only responsibilities。文字不能事後改寫契約。', source:'ev-contract' },
       { id:'source', no:'03', label:'Source', title:'證明所有人看的是同一棵樹', text:'Sentinel 綁定 HEAD、index、status、scope files 與其他 Git 身分。Wave 前後驗證；若 intended commit 改變 HEAD，必須在 review／side effect 前由 Root rebind。', source:'ev-source-binding' },
-      { id:'ledger', no:'04', label:'Evidence', title:'Typed receipt 驅動 ledger 狀態', text:'Evidence admission 檢查 exact kind、producer、payload semantics、freshness、digest 與 dependencies。Append-only ledger 再以固定 reducer 重建 ready、running、complete 或 blocked。', source:'ev-ledger' },
+      { id:'ledger', no:'04', label:'Evidence', title:'Typed receipt 驅動 ledger 狀態', text:'Evidence admission 檢查 exact kind、producer、payload semantics、時效性、digest 與 dependencies。Append-only ledger 再以固定 reducer 重建 ready、running、complete 或 blocked。', source:'ev-ledger' },
       { id:'review', no:'05', label:'Review', title:'先收斂 findings，再靠近副作用', text:'有 review policy 的 template 建立 immutable package，以 stable finding ID 做 bounded repairs，最後 broad review。Graph View 只能幫忙看結構，不能提供 action authority。', source:'ev-review' },
       { id:'terminal', no:'06', label:'Terminal', title:'外部終態要對帳，完成要重算', text:'Action token 綁 exact provider/resource/revision 且短效一次性。執行後以 provider receipt/query reconciliation；完成時重新檢查 evidence、ledger、review、sentinel 與所有 side-effect outcome。', source:'ev-completion' }
     ];
@@ -1268,7 +1268,7 @@ node plugins/better-workflows/scripts/sbw.mjs action issue &lt;run-id&gt; \
       { id:'pr-to-dev-agent-quorum', mode:'critical', stages:6, entry:'—', scenario:'delivery', family:'DELIVERY', desc:'一般低風險 PR 使用五角色 software quorum；高風險變更 HOLD 並回到 host-trusted path。', source:'plugins/better-workflows/templates/pr-to-dev-agent-quorum.json:1–18' },
       { id:'pr-to-dev', mode:'critical', stages:6, entry:'pr-to-dev', scenario:'delivery', family:'DELIVERY', desc:'Atomic commits → dev PR → fresh checks → protected merge → remote reconcile → cleanup。', source:'plugins/better-workflows/templates/pr-to-dev.json:2–101' },
       { id:'research-deliberation', mode:'deep', stages:5, entry:'research', scenario:'research', family:'RESEARCH', desc:'CLI-proven roles、反證、claim reconciliation 與可執行 decision plan。', source:'plugins/better-workflows/templates/research-deliberation.json:2–19' },
-      { id:'review-to-issues', mode:'verified', stages:5, entry:'review-issues', scenario:'review', family:'REVIEW', desc:'唯讀 review、finding 去重、revision freshness，最後由 Root 建立 issues。', source:'plugins/better-workflows/templates/review-to-issues.json:2–20' },
+      { id:'review-to-issues', mode:'verified', stages:5, entry:'review-issues', scenario:'review', family:'REVIEW', desc:'唯讀 review、finding 去重、revision 時效性驗證，最後由 Root 建立 issues。', source:'plugins/better-workflows/templates/review-to-issues.json:2–20' },
       { id:'self-improve-ops', mode:'critical', stages:5, entry:'self-improve', scenario:'self-improve', family:'GOVERNANCE', desc:'以近期證據建立 candidate，用 train/holdout replay 做 change-or-no-change。', source:'plugins/better-workflows/templates/self-improve-ops.json:2–126' },
       { id:'workspace-recipe', mode:'verified', stages:4, entry:'workspace-recipe', scenario:'recipe', family:'AUTOMATION', desc:'把 deterministic SOP 做成 digest-bound、可 promotion 的受限 Node.js recipe。', source:'plugins/better-workflows/templates/workspace-recipe.json:2–75' }
     ];
@@ -1440,7 +1440,7 @@ node plugins/better-workflows/scripts/sbw.mjs action issue &lt;run-id&gt; \
       { id:'ev-template-inventory', type:'fact', path:'plugins/better-workflows/templates/*.json → executionStages', title:'14 templates / 66 stages', note:'本版對目前 machine-readable templates 做 inventory；分布為 verified 4、deep 5、critical 5。' },
       { id:'ev-dependabot-entry-gap', type:'inference', path:'entrypoint-catalog.json:3–105 + templates/dependabot-consolidation-pr-cleanup.json:2', title:'Dependabot template 的可發現性摩擦', note:'FACT：模板存在但 catalog 沒有同名 entry。INFERENCE：使用者需靠 auto/critical 再明確指定 template，學習成本較高。' },
       { id:'ev-state-contract', type:'fact', path:'plugins/better-workflows/skills/better-workflows/references/evidence-and-state.md:1–77', title:'Evidence 與 state 的公共契約', note:'Typed receipt、append-only events、attempt budgets、terminal states、resume fingerprint 與 completion conditions。文字 PASS 永不改狀態；review package 另綁 reviewProfile digest。' },
-      { id:'ev-evidence', type:'fact', path:'plugins/better-workflows/scripts/lib/evidence.mjs:7–565', title:'Typed evidence admission / revalidation', note:'檢查 exact kind、producer allowlist、payload semantics、freshness、digest 與 dependencies；persisted evidence 仍會重新驗證。' },
+      { id:'ev-evidence', type:'fact', path:'plugins/better-workflows/scripts/lib/evidence.mjs:7–565', title:'Typed evidence admission / revalidation', note:'檢查 exact kind、producer allowlist、payload semantics、時效性、digest 與 dependencies；persisted evidence 仍會重新驗證。' },
       { id:'ev-evidence-contracts', type:'fact', path:'plugins/better-workflows/config/evidence-contracts-v1.json:1–2043', title:'102-kind evidence catalog', note:'Current catalog 有 102 個 exact kinds；新增 work-unit-accounting、review-kernel-summary 與 agent-review-quorum aggregate receipts。未知 kind、空 payload、semantic failure 或 digest mismatch fail closed。' },
       { id:'ev-ledger', type:'fact', path:'plugins/better-workflows/scripts/lib/ledger.mjs:3–348', title:'Append-only ledger reducer', note:'start/complete/fail/block/release/cancel 事件依 static DAG 重播；regular/review/side-effect budget 分別為 3/5/1。' },
       { id:'ev-source-binding', type:'fact', path:'plugins/better-workflows/scripts/lib/git.mjs:450–690', title:'Git source binding 與 sentinel', note:'綁定 HEAD、index、status、scope files、submodules、symlinks 與 config；雙重捕捉防止 wave drift。' },

@@ -4,18 +4,18 @@
 
 **Goal-first · Evidence-driven · Fail-closed**
 
-讓 Codex 工作不再停在「下 Prompt 然後期待成功」，而是沿著有界路徑，從意圖走到已驗證、已對帳的交付。
+讓 Codex 工作不再停在「只輸入 prompt 就期待成功」，而是沿著有界路徑，從意圖走到已驗證、已對帳的交付。
 
 [![Version](https://img.shields.io/badge/version-3.4.14-2563EB?style=flat-square)](../plugins/better-workflows/package.json)
 [![Node](https://img.shields.io/badge/Node.js-%E2%89%A524-3C873A?style=flat-square)](../plugins/better-workflows/package.json)
 [![Dependencies](https://img.shields.io/badge/runtime_dependencies-0-0F766E?style=flat-square)](../plugins/better-workflows/package.json)
 [![License](https://img.shields.io/badge/license-MIT-64748B?style=flat-square)](../LICENSE)
 
-[English](../README.md) · **繁體中文** · [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · [한국어](README.ko.md)
+[English](../README.md) · **繁體中文** · [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · [한국어](README.ko.md) · [全部 41 個語系版本](LANGUAGES.md)
 
 </div>
 
-[快速開始](guide/getting-started.md) · [工作流](guide/workflows.md) · [架構](guide/architecture.md) · [安全](guide/security.md) · [CLI](guide/cli-reference.md) · [完整細節](details/zh-TW.md) · [透過 Ko-fi 單次贊助](https://ko-fi.com/betterworkflows)
+[快速開始](guide/getting-started.md) · [工作流程](guide/workflows.md) · [架構](guide/architecture.md) · [安全](guide/security.md) · [CLI](guide/cli-reference.md) · [詳細說明](details/zh-TW.md) · [透過 Ko-fi 單次贊助](https://ko-fi.com/betterworkflows)
 
 <!-- readme-roster -->
 **Model roster：** Codex · Claude · Gemini · GPT-OSS · Grok · Cursor · Kimi · Qwen · Kiro。`agy` 傳輸 Gemini、Claude 與 GPT-OSS 品牌模型；它是 transport metadata，不是另一個模型品牌。
@@ -27,7 +27,7 @@ Codex 可以分析 repository、修改程式、執行檢查並操作 provider。
 越需要清楚區分「使用者想要什麼」與「目前證據和權限實際允許什麼」。
 
 Better Workflows 適合希望小任務仍然快速，但在 blast radius 增加時，
-不放棄明確 scope、review、freshness 與受保護交付的開發者和團隊。
+不放棄明確 scope、review、證據時效性與受保護交付的開發者和團隊。
 
 它提供 14 個依成果設計的 workflow templates、受治理的 workspace recipes，
 以及唯讀 Graph View。你選擇成果，route 只加入當前風險所需的驗證。
@@ -55,10 +55,10 @@ provider 結果。Better Workflows 把這些落差轉成明確 gates。
 **Root 掌握修改權。** 只有 Root 可以修改、整合、部署、接受風險或宣告完成。
 
 <!-- readme-claim:evidence-before-action -->
-**Action 前先有證據。** 每個 side effect 都必須具備 fresh evidence、provenance，以及綁定預定目標的 action。
+**Action 前先有證據。** 每個 side effect 都必須具備與目前來源一致且仍有效的 evidence、provenance，以及綁定預定目標的 action。
 
 <!-- readme-claim:unknown-stop -->
-**Fail closed。** 只要出現 drift、過期證據或未知 provider 狀態，工作流就會停止。
+**Fail closed。** 只要出現 drift、過期證據或未知 provider 狀態，工作流程就會停止。
 
 **Review-kernel pilot。** `self-improve-ops` 會盤點 exact changed-file work units、分離獨立 attested finder 與 verifier、綁定 exact source anchors，並產生 deterministic coverage/synthesis evidence。此 pilot 為 shadow-only，不能授權 side effects。
 
@@ -97,7 +97,7 @@ $better-workflows:auto <describe the outcome you need>
 成功代表 automatic route 選出一個具體 template 與最低驗證 mode；它不能補授權、
 安裝工具或擴大原本 scope。
 
-[安裝、驗證並執行第一個工作流 →](guide/getting-started.md)
+[安裝、驗證並執行第一個工作流程 →](guide/getting-started.md)
 
 <!-- readme-section:choose-next-path -->
 ## 選擇下一條路徑
@@ -113,7 +113,7 @@ $better-workflows:auto <describe the outcome you need>
 | 保存 deterministic SOP mechanics | `$better-workflows:workspace-recipe` |
 | 依 held-out evidence 改善 Better Workflows | `$better-workflows:self-improve` |
 
-完整 selectors、modes 與 templates 請見[工作流](guide/workflows.md)。安全 reviewer
+完整 selectors、modes 與 templates 請見[工作流程](guide/workflows.md)。安全 reviewer
 可先看[安全](guide/security.md)，operator 可直接查 [CLI reference](guide/cli-reference.md)。
 
 <!-- readme-section:lifecycle -->
@@ -123,10 +123,10 @@ $better-workflows:auto <describe the outcome you need>
 flowchart LR
   A["說明成果"] --> B["綁定 scope 與目前 context"]
   B --> C["執行有界工作"]
-  C --> D["Review 並驗證 fresh evidence"]
+  C --> D["Review 並驗證與目前來源一致且仍有效的 evidence"]
   D --> E{"已獲授權操作此 target？"}
   E -- "是" --> F["執行一次 side effect"]
-  F --> G["對帳 provider 與 repository 狀態"]
+  F --> G["核對 provider 與 repository 狀態"]
   G --> H["完成並清理 owned resources"]
   E -- "否或未知" --> I["安全停止"]
   G -- "未知" --> I
@@ -134,9 +134,9 @@ flowchart LR
 
 <!-- readme-visual-fallback:lifecycle -->
 **文字等價說明：** 先說明成果，再綁定精確 scope 與目前 context，執行有界工作並
-review fresh evidence。只有獲得 target-bound 授權後才能執行一次 side effect；
-completion 與 owned cleanup 前必須對帳 provider 和 repository。任何缺失、過期或
-未知狀態都會停止工作流。
+review 與目前來源一致且仍有效的 evidence。只有獲得 target-bound 授權後才能執行一次 side effect；
+completion 與 owned cleanup 前必須核對 provider 和 repository。任何缺失、過期或
+未知狀態都會停止工作流程。
 
 <!-- readme-section:trust-limits -->
 ## 信任邊界與限制
@@ -167,18 +167,18 @@ Better Workflows 記錄並檢查 control plane；它不是無限制 agent runtim
 
 | 需求 | 文件 |
 | --- | --- |
-| 首次安裝與 route | [快速開始](guide/getting-started.md) |
-| 選擇 workflow 或 mode | [工作流](guide/workflows.md) |
-| Control-plane 設計與比較 | [架構](guide/architecture.md) |
-| Privacy、authority、actions 與 attestations | [安全](guide/security.md) |
-| Commands 與 exit behavior | [CLI reference](guide/cli-reference.md) |
-| 完整繁體中文規格 | [完整細節](details/zh-TW.md) |
+| 首次安裝與 route | [快速開始（English）](guide/getting-started.md) |
+| 選擇 workflow 或 mode | [工作流程（English）](guide/workflows.md) |
+| Control-plane 設計與比較 | [架構（English）](guide/architecture.md) |
+| Privacy、authority、actions 與 attestations | [安全（English）](guide/security.md) |
+| Commands 與 exit behavior | [CLI reference（English）](guide/cli-reference.md) |
+| 繁體中文詳細說明 | [詳細說明](details/zh-TW.md) |
 | README 敘事與品質規則 | [README quality blueprint](guide/readme-quality.md) |
 
 [Contributing](../CONTRIBUTING.md) · [Code of conduct](../CODE_OF_CONDUCT.md) ·
 [Governance](../GOVERNANCE.md) · [Support](../SUPPORT.md) · [Security policy](../SECURITY.md)
 
-單次 [Ko-fi 贊助](https://ko-fi.com/betterworkflows)將用於開源維護、文件、41 種語言的在地化與網站託管；不包含會員資格，也不提供 roadmap 或技術支援優先權。
+單次 [Ko-fi 贊助](https://ko-fi.com/betterworkflows)將用於開源維護、文件、41 個在地化版本與網站託管；不包含會員資格，也不提供開發規劃或技術支援優先權。
 
 <details>
 <summary>開發 Better Workflows</summary>

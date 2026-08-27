@@ -107,8 +107,8 @@
         "claims": {
           "prompt-not-authority": "Prompt 可以描述意圖，但永遠不會授予權限。",
           "root-only-mutation": "只有 Root 可以修改、整合、部署、接受風險或宣告完成。",
-          "evidence-before-action": "每個 side effect 都必須具備 fresh evidence、provenance，以及綁定預定目標的 action。",
-          "unknown-stop": "只要出現 drift、過期證據或未知 provider 狀態，工作流就會停止。",
+          "evidence-before-action": "每個 side effect 都必須具備與目前來源一致且仍有效的 evidence、provenance，以及綁定預定目標的 action。",
+          "unknown-stop": "只要出現 drift、過期證據或未知 provider 狀態，工作流程就會停止。",
           "private-history": "敏感或私人歷史絕不會被擷取；只能以經遮蔽的 `REJECTED_WITH_EVIDENCE` disposition 拒絕。"
         }
       },
@@ -130,7 +130,7 @@
         "claims": {
           "prompt-not-authority": "Prompt 可以描述意图，但永远不会授予权限。",
           "root-only-mutation": "只有 Root 可以修改、集成、部署、接受风险或宣告完成。",
-          "evidence-before-action": "每个 side effect 都必须具备 fresh evidence、provenance，以及绑定预定目标的 action。",
+          "evidence-before-action": "每个 side effect 都必须具备与当前来源一致且仍有效的 evidence、provenance，以及绑定预定目标的 action。",
           "unknown-stop": "只要出现 drift、过期证据或未知 provider 状态，工作流就会停止。",
           "private-history": "敏感或私人历史绝不会被采集；只能以经过遮蔽的 `REJECTED_WITH_EVIDENCE` disposition 拒绝。"
         }
@@ -139,7 +139,7 @@
         "locale": "ja",
         "path": "docs/README.ja.md",
         "detailsTarget": "docs/details/ja.md",
-        "preambleRoster": "**Model roster:** Codex · Claude · Gemini · GPT-OSS · Grok · Cursor · Kimi · Qwen · Kiro。`agy` は Gemini、Claude、GPT-OSS ブランドの model を transport しますが、それ自体は model ブランドではありません。",
+        "preambleRoster": "**Model roster:** Codex · Claude · Gemini · GPT-OSS · Grok · Cursor · Kimi · Qwen · Kiro。`agy` は Gemini、Claude、GPT-OSS ブランドのモデルへの接続に使う転送レイヤーであり、それ自体はモデルブランドではありません。",
         "headings": [
           "Better Workflows が必要な理由",
           "Prompt から統制された成果へ",
@@ -153,7 +153,7 @@
         "claims": {
           "prompt-not-authority": "Prompt は意図を記述できますが、権限を付与することはありません。",
           "root-only-mutation": "編集、統合、デプロイ、リスク受容、完了宣言を行えるのは Root だけです。",
-          "evidence-before-action": "すべての side effect には fresh evidence、provenance、対象に bind された action が必要です。",
+          "evidence-before-action": "すべての side effect には現在のソースに紐付き、なお有効な evidence、provenance、対象に bind された action が必要です。",
           "unknown-stop": "drift、古い証拠、または不明な provider 状態があれば、workflow は必ず停止します。",
           "private-history": "機密または私的な履歴は収集せず、redacted `REJECTED_WITH_EVIDENCE` disposition で拒否します。"
         }
@@ -162,7 +162,7 @@
         "locale": "ko",
         "path": "docs/README.ko.md",
         "detailsTarget": "docs/details/ko.md",
-        "preambleRoster": "**Model roster:** Codex · Claude · Gemini · GPT-OSS · Grok · Cursor · Kimi · Qwen · Kiro. `agy`는 Gemini, Claude, GPT-OSS 브랜드 model을 transport하지만 그 자체가 model 브랜드는 아닙니다.",
+        "preambleRoster": "**Model roster:** Codex · Claude · Gemini · GPT-OSS · Grok · Cursor · Kimi · Qwen · Kiro. `agy`는 Gemini, Claude, GPT-OSS 브랜드 모델에 연결하는 전송 계층이며 그 자체가 모델 브랜드는 아닙니다.",
         "headings": [
           "Better Workflows가 필요한 이유",
           "Prompt에서 통제된 결과로",
@@ -176,7 +176,7 @@
         "claims": {
           "prompt-not-authority": "Prompt는 의도를 설명할 수 있지만 권한을 부여하지는 않습니다.",
           "root-only-mutation": "Root만 수정, 통합, 배포, 위험 수용, 완료 선언을 할 수 있습니다.",
-          "evidence-before-action": "모든 side effect에는 fresh evidence, provenance, 대상에 bind된 action이 필요합니다.",
+          "evidence-before-action": "모든 side effect에는 현재 소스에 바인딩되어 여전히 유효한 evidence, provenance, 대상에 bind된 action이 필요합니다.",
           "unknown-stop": "drift, 오래된 증거 또는 알 수 없는 provider 상태가 있으면 workflow는 반드시 중단됩니다.",
           "private-history": "민감하거나 사적인 기록은 수집하지 않으며, redacted `REJECTED_WITH_EVIDENCE` disposition으로 거부합니다."
         }

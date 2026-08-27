@@ -3,6 +3,8 @@
 | [README](README.md) | [Contributing](CONTRIBUTING.md) | [Code of conduct](CODE_OF_CONDUCT.md) | [Security](SECURITY.md) | **Governance** | [Support](SUPPORT.md) |
 | :---: | :---: | :---: | :---: | :---: | :---: |
 
+[41-locale localized overview and official web entry points](docs/LANGUAGES.md). This normative governance policy remains canonical in English.
+
 Better Workflows is maintainer-led.
 
 ## Decision model

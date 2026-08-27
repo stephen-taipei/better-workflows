@@ -1,6 +1,6 @@
 # Better Workflows — 詳細
 
-[English](../../README.md) | [繁體中文](../README.zh-TW.md) | [简体中文](../README.zh-CN.md) | [日本語](../README.ja.md) | [한국어](../README.ko.md)
+[English](../../README.md) | [繁體中文](../README.zh-TW.md) | [简体中文](../README.zh-CN.md) | [日本語](../README.ja.md) | [한국어](../README.ko.md) | [全 41 ロケール版](../LANGUAGES.md)
 
 | [概要](../README.ja.md) | **詳細** | [Getting Started](../guide/getting-started.md) | [Workflows](../guide/workflows.md) | [Architecture](../guide/architecture.md) | [Security](../guide/security.md) | [CLI](../guide/cli-reference.md) |
 | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
@@ -12,7 +12,7 @@ Better Workflows は、Codex 向けのネイティブ優先・証拠駆動ワー
 Better Workflows は無制限の agent swarm ではなく、ガバナンスを備えた orchestration layer です。主な原則は次のとおりです。
 
 - **Root-owned mutation：** Root だけが変更、統合、Git/GitHub mutation、deploy、リスク受容、完了宣言を行います。
-- **Evidence before side effects：** side effect の前に evidence、freshness、権限、provider reconciliation を要求し、unknown outcome は fail closed にします。
+- **Evidence before side effects：** side effect の前に evidence、その有効性の再検証、権限、provider 状態の照合を要求し、unknown outcome は fail closed にします。
 - **Bounded delegation：** native subagents は調査、Review、テスト証拠、反証に限定します。direct children は最大 3 つ、再帰 delegation は禁止し、独立 critics は順番に実行します。
 - **Persistent intent：** `/goal` は turn をまたいでユーザーの目標を保持します。template と mode は検証の深さだけを決め、目標を暗黙に変更しません。
 - **Deterministic control plane：** `sbw` は contract、private state、sentinel、evidence、findings、lease、action token、reconciliation を記録しますが、model が生成した command は実行しません。
@@ -34,7 +34,7 @@ Better Workflows は無制限の agent swarm ではなく、ガバナンスを�
 最大の違いは orchestration posture と authority です。
 
 - **Dynamic Workflows は適応的な広さを優先：** タスクごとの JavaScript harness を生成し、多数の agent を並列化し、model/worktree を選び、検証と停止条件に基づく反復を行います。
-- **Better Workflows は governed convergence を優先：** mutation を Root に残し、delegated research を bounded にし、deterministic state/evidence を記録します。freshness、権限、reconciliation、completion evidence が不足すれば fail closed です。
+- **Better Workflows は governed convergence を優先：** mutation を Root に残し、delegated research を bounded にし、deterministic state/evidence を記録します。証拠の有効性、権限、reconciliation、completion evidence が不足すれば fail closed です。
 
 これは能力の排他ではありません。Better Workflows にも research/deep review があり、Dynamic Workflows も実装や release に使えます。違いは最初に最適化する対象、つまり **runtime exploration scale と deterministic mutation control** です。
 
@@ -47,11 +47,11 @@ Better Workflows は無制限の agent swarm ではなく、ガバナンスを�
 | タスクごとの JavaScript harness | 明示的な template、mode、deterministic helper logic。 | 動的 harness は速く適応できますが、runtime で実行計画が変わります。本 repo は mutation 前の control plane を検査可能に保ちます。 |
 | 大規模または無制限 fan-out | direct native children は最大 3、再帰 delegation は禁止。 | token コスト、共有ファイル衝突、blast radius を bounded にします。 |
 | Adversarial verification | Refutation、research findings、最大 2 つの順次 model-pinned critics。 | 反証は保ちますが、生成 subtask ごとに無制限に増えず、数と順序を監査できます。 |
-| Loop-until-done | Persistent Goal、implementation queue、checkpoint、明示的 completion gates。 | validated slice をまたいで継続できますが、scope や spawn を新鮮な evidence なしに黙って拡大しません。 |
+| Loop-until-done | Persistent Goal、implementation queue、checkpoint、明示的 completion gates。 | validated slice をまたいで継続できますが、現在のソースに紐付き、なお有効な evidence なしに scope や spawn を黙って拡大しません。 |
 | 自動 worktree swarm | Branch/protected-branch と cleanup gates。生成 subtask ごとの自動 worktree は作りません。 | Root が integration/cleanup ownership を保持し、並列 mutation の責任を明確にします。 |
 | 無人の長時間実行 | Durable run state と resume 可能な Goal。ただし明示的な権限と reconciliation が必要。 | resume は有用ですが、autonomous daemon には lease、資源、cancel、side-effect protocol が別途必要です。 |
 
-**不適切なのでしょうか？** いいえ。contract が既知で、誤った mutation の下振れリスクが大きい場合、Better Workflows が適しています：release、protected branch、API 変更、security-sensitive refactor、Review、maintenance です。不確実性と規模が支配するなら Dynamic Workflows を最初に使うのが適切です。両方を使う場合は、広く探索し、versioned handoff に正規化し、Better Workflows が独立に検証して実装を governance します。これは operating pattern であり native interoperability ではありません。
+**不適切なのでしょうか？** いいえ。contract が既知で、誤った mutation が及ぼす影響が非対称な場合、Better Workflows が適しています：release、protected branch、API 変更、security-sensitive refactor、Review、maintenance です。不確実性と規模が支配するなら Dynamic Workflows を最初に使うのが適切です。両方を使う場合は、広く探索し、versioned handoff に正規化し、Better Workflows が独立に検証して実装を governance します。これは operating pattern であり native interoperability ではありません。
 
 | 観点 | Better Workflows | Claude Dynamic Workflows |
 | --- | --- | --- |
@@ -60,7 +60,7 @@ Better Workflows は無制限の agent swarm ではなく、ガバナンスを�
 | Mutation boundary | Root が変更、統合、Git/GitHub、deploy、リスク受容、完了を担当。delegated agents は contract 上 read-only。 | 生成 harness が subagent、model、worktree を選べます。タスク script が run の形を決めます。 |
 | State と完了 | Persistent Goal、private state、sentinel、evidence、lease、action token、reconciliation、fail-closed。 | progress を保存して resume でき、harness が収束を調整します。 |
 | コストと blast radius | 意図的に保守的で、コスト・mutation surface・停止条件を bounded にしやすい。 | 規模の可能性は高いが、公式に大幅な token 消費があり得ると説明されています。 |
-| 使い始める場面 | 既知の contract、release、refactor、Review、下振れリスクが非対称な変更。 | 未知の規模の探索、大規模 migration、repo 全体の audit、大規模並列化が有効な作業。 |
+| 使い始める場面 | 既知の contract、release、refactor、Review、または失敗時の影響が非対称な変更。 | 未知の規模の探索、大規模 migration、repo 全体の audit、大規模並列化が有効な作業。 |
 
 ### Explore → Gate → Execute → Maintain
 
@@ -97,7 +97,7 @@ Better Workflows は package を独立に検証し、Goal/contract/evidence stat
 | 状況 | 推奨ルート | 理由 |
 | --- | --- | --- |
 | 小さく可逆で明確な変更 | Better Workflows `direct` | dynamic orchestration のコストを払う必要がありません。 |
-| contract は既知だが検証または release リスクがある | Better Workflows `verified`、`deep`、`critical` | fan-out より fresh evidence と authority gates が重要です。 |
+| contract は既知だが検証または release リスクがある | Better Workflows `verified`、`deep`、`critical` | fan-out より現在のソースに紐付き、なお有効な evidence と authority gates が重要です。 |
 | アーキテクチャが未知、仮説が多い、大規模 migration | Dynamic Workflows → handoff gate | 広さで不確実性を下げ、統合 controls は迂回しません。 |
 | 設計確定後の production maintenance | Better Workflows | contract、evidence、rollback、監査可能な ownership を保ちます。 |
 
@@ -184,7 +184,7 @@ flowchart LR
   E --> F{"Workspace、Profile、scope、<br/>catalog、capability、bundle に drift？"}
   F -- "Yes" --> D
   F -- "No" --> G["Single-use sbw run<br/>mode floor を保持"]
-  G --> H["Template-bound action gates<br/>fresh evidence と reconciliation"]
+  G --> H["Template-bound action gates<br/>現在のソースに紐付く有効な evidence と reconciliation"]
 ```
 
 Receipt は goal/scope、route、catalog、workspace/personal Profiles、
@@ -231,7 +231,7 @@ $better-workflows:auto <達成したい結果を記述>
 | `$better-workflows:pr-to-dev` | Scope 内の変更を atomic commit に分割し、`dev` 向け PR を一つ作成。Fresh checks 後に merge、remote 同期、所有 resource の cleanup。 | `$better-workflows:pr-to-dev 現在の変更を分割 commit し、dev PR を checks 後に merge、remote dev を同期して worktree を cleanup。` |
 | `$better-workflows:cross-platform` | Backend、iOS、Android、Web の schema、optional、enum、sync、version gate、headers。 | `$better-workflows:cross-platform backend、iOS、Android の contact sync contract を確認し、修正して PR を作成。` |
 | `$better-workflows:ios-static` | ローカル build を避ける Swift/iOS 静的 Review と直列化された `project.pbxproj` 検証。 | `$better-workflows:ios-static build せず iOS 変更を Review し、新規 Swift ファイルの pbxproj 登録を確認。` |
-| `$better-workflows:localization` | 多言語更新、特に 41 locales の key 数、順序、正確な scope、地域差。 | `$better-workflows:localization 全 41 locales に keys を追加し、順序が一致することを検証。` |
+| `$better-workflows:localization` | 多言語更新、特に 41 ロケール版の key 数、順序、正確な scope、地域差。 | `$better-workflows:localization 全 41 ロケール版に keys を追加し、順序が一致することを検証。` |
 | `$better-workflows:ci-release` | CI failure、runner queue、直列 deploy、release、遠隔監視、receipt 検証。 | `$better-workflows:ci-release 失敗した PR checks を修正し、直列 dev deploy を監視。` |
 | `$better-workflows:browser-qa` | 最新 UI 証拠、screenshots、再現可能な action log が必要な Webwright／simulator QA。 | `$better-workflows:browser-qa signup と contact sync を検証し、screenshot evidence を添付。` |
 | `$better-workflows:research` | CLI で実証した複数 model の役割、証拠駆動の設計比較、反証、実行可能な Plan。多数決では決めない。 | `$better-workflows:research 3 つの sync architecture を比較・反証し、実装可能な Plan を作成。` |
@@ -328,7 +328,7 @@ structural error は `eval`、run 作成、action-token issue、completion を�
 fail closed にします。Heuristic diagnostics は warning のみです。
 各 gate は installed template または private run records から structural
 validation を再計算します。graph envelope、graph digest、Mermaid、persisted
-graph を policy input として受け取らず、presentation failure が authority を
+graph を policy input として受け取らず、presentation（表示）の失敗が authority を
 付与・緩和することはありません。
 
 ```bash
@@ -437,7 +437,7 @@ cleanup は拒否します。
 | 入口 | 推奨シーン | 例 |
 | --- | --- | --- |
 | `$better-workflows:direct` | 小さく可逆で明確、速度優先。Goal は使うが workflow journal/critics は使わない。 | `$better-workflows:direct 1 行の documentation typo を修正し diff を確認。` |
-| `$better-workflows:verified` | 通常の開発で、1–3 read-only agents と freshness evidence が必要。 | `$better-workflows:verified pagination bug を Review・修正し PR を作成。` |
+| `$better-workflows:verified` | 通常の開発で、1–3 read-only agents と証拠の有効性を示す evidence が必要。 | `$better-workflows:verified pagination bug を Review・修正し PR を作成。` |
 | `$better-workflows:deep` | Architecture、security、広範囲 refactor、不確実な変更。Verified wave と独立 Codex critics を使用。 | `$better-workflows:deep auth redesign を Review し、検証済み問題を修正して migration-safe PR を作成。` |
 | `$better-workflows:critical` | Release、migration、production、破壊的 cleanup、不可逆 side effects。完全な fail-closed gates が必要。 | `$better-workflows:critical policy、remote SHA、reconciliation gates 通過後のみ production release を実行。` |
 

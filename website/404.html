@@ -1,14 +1,48 @@
 <!doctype html>
-<html lang="zh-Hant">
+<html lang="__SITE_DEFAULT_LOCALE__" dir="__SITE_DEFAULT_DIRECTION__">
   <head>
-    <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="robots" content="noindex">
-    <link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="/styles.css?v=__SITE_ASSET_VERSION__">
-    <title>找不到頁面｜Better Workflows</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex,follow">
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="/styles.css?v=__SITE_ASSET_VERSION__">
+    <title>404 | __SITE_DEFAULT_TITLE__</title>
   </head>
   <body>
     <main class="shell" style="min-height:70vh;display:grid;place-items:center;text-align:center">
-      <div><p class="eyebrow">404 · NOT FOUND</p><h1 style="font-size:clamp(44px,8vw,80px)">這個 route 不存在。</h1><p class="hero-lead" style="margin-inline:auto">回到官方首頁，或從互動文件重新選擇一條可驗證的工作路線。</p><a class="button button-primary" href="/">回到首頁 ↗</a><a class="button button-secondary" href="/docs/">開啟文件 ↗</a></div>
+      <div>
+        <p class="eyebrow">404</p>
+        <h1 id="not-found-title" style="font-size:clamp(34px,7vw,72px)">__SITE_DEFAULT_TITLE__</h1>
+        <p class="hero-lead" id="not-found-description" style="margin-inline:auto">__SITE_DEFAULT_DESCRIPTION__</p>
+        <div class="hero-actions" style="justify-content:center">
+          <a class="button button-primary" id="not-found-home" href="__SITE_DEFAULT_HOME_PATH__">Better Workflows ↗</a>
+          <a class="button button-secondary" id="not-found-docs" href="__SITE_DEFAULT_DOCS_PATH__">__SITE_DEFAULT_DOCS_CTA__ ↗</a>
+        </div>
+        <label class="locale-picker" style="display:inline-flex;margin-top:24px"><span id="not-found-language">__SITE_DEFAULT_LANGUAGE__</span><select id="not-found-locale" aria-label="__SITE_DEFAULT_LANGUAGE__">__SITE_LOCALE_OPTIONS__</select></label>
+      </div>
     </main>
+    <script type="application/json" id="not-found-locales">__SITE_NOT_FOUND_DATA__</script>
+    <script>
+      (() => {
+        const editions = JSON.parse(document.querySelector("#not-found-locales").textContent);
+        const firstSegment = location.pathname.split("/").filter(Boolean)[0];
+        const requested = new URLSearchParams(location.search).get("locale") || firstSegment;
+        const locale = editions[requested] ? requested : __SITE_DEFAULT_LOCALE_JSON__;
+        const copy = editions[locale];
+        document.documentElement.lang = locale;
+        document.documentElement.dir = copy.dir;
+        document.title = `404 | ${copy.title}`;
+        document.querySelector("#not-found-title").textContent = copy.title;
+        document.querySelector("#not-found-description").textContent = copy.description;
+        document.querySelector("#not-found-home").href = copy.home;
+        document.querySelector("#not-found-docs").href = copy.docs;
+        document.querySelector("#not-found-docs").textContent = `${copy.docsCta} ↗`;
+        document.querySelector("#not-found-language").textContent = copy.language;
+        const selector = document.querySelector("#not-found-locale");
+        selector.setAttribute("aria-label", copy.language);
+        selector.value = copy.home;
+        selector.addEventListener("change", () => { if (selector.value) location.assign(selector.value); });
+      })();
+    </script>
   </body>
 </html>

@@ -1278,6 +1278,8 @@ test("bounded README sampling preserves the model-brand and transport boundary",
     maxFiles: 1,
     maxBytes: 2 * 1024
   });
+  assert.ok(material.evidenceIndex.semanticAnchors.includes("<!-- readme-roster -->"));
+  assert.match(material.content, /\[BOUND_SOURCE_EXCERPT byte=\d+\]/);
   for (const brand of ["Codex", "Claude", "Gemini", "GPT-OSS", "Grok", "Cursor", "Kimi", "Qwen", "Kiro"]) {
     assert.match(material.content, new RegExp(brand), brand);
   }

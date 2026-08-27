@@ -3,6 +3,8 @@
 | [README](README.md) | [Contributing](CONTRIBUTING.md) | [Code of conduct](CODE_OF_CONDUCT.md) | **Security** | [Governance](GOVERNANCE.md) | [Support](SUPPORT.md) |
 | :---: | :---: | :---: | :---: | :---: | :---: |
 
+[41-locale localized overview and official web entry points](docs/LANGUAGES.md). This normative security policy remains canonical in English.
+
 If the only proposed evidence source contains private history or sensitive
 operational material that cannot be sanitized, do not harvest or transmit it.
 Record only a redacted `REJECTED_WITH_EVIDENCE` rationale.

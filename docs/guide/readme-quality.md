@@ -1,5 +1,7 @@
 # README quality blueprint
 
+[41-locale localized overview and official web entry points](../LANGUAGES.md). This editorial blueprint remains canonical in English.
+
 A Better Workflows README is a landing page, not a compressed reference
 manual. Its job is to help a reader answer five questions in order:
 
