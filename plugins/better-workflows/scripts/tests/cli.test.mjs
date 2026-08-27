@@ -528,7 +528,7 @@ test("evaluator migration attestation binds eight distinct migration witnesses, 
       }
       return;
     }
-    assert.match(requested.stderr, /Administrator host runtime is not ready|host-trust upgrade first/);
+    assert.match(requested.stderr, /Administrator host runtime(?: or signed host bundle)? is not ready|host-trust upgrade first/);
     return;
   }
   assert.equal(requested.json.requests.length, 7);
