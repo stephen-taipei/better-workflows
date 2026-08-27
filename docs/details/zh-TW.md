@@ -1,22 +1,22 @@
 # Better Workflows — 詳細說明
 
-[English](../../README.md) | [繁體中文](../README.zh-TW.md) | [简体中文](../README.zh-CN.md) | [日本語](../README.ja.md) | [한국어](../README.ko.md)
+[English](../../README.md) | [繁體中文](../README.zh-TW.md) | [简体中文](../README.zh-CN.md) | [日本語](../README.ja.md) | [한국어](../README.ko.md) | [全部 41 個語系版本](../LANGUAGES.md)
 
 | [概覽](../README.zh-TW.md) | **詳細說明** | [Getting Started](../guide/getting-started.md) | [Workflows](../guide/workflows.md) | [Architecture](../guide/architecture.md) | [Security](../guide/security.md) | [CLI](../guide/cli-reference.md) |
 | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 
-Better Workflows 是為 Codex 設計的原生優先、證據驅動工作流。Root 是唯一能修改程式碼、執行 Git/GitHub、deploy、接受風險與宣告完成的 authority；subagents 專注於研究、Review、測試證據與反證。
+Better Workflows 是為 Codex 設計的原生優先、證據驅動工作流程。Root 是唯一能修改程式碼、執行 Git/GitHub、deploy、接受風險與宣告完成的 authority；subagents 專注於研究、Review、測試證據與反證。
 
 ## 設計原理
 
 Better Workflows 是治理型的 orchestration layer，不是無限制的 agent swarm。核心原則是：
 
 - **Root-owned mutation：** Root 是唯一能修改、整合、執行 Git/GitHub mutation、deploy、接受風險與宣告完成的 authority。
-- **Evidence before side effects：** side effect 前必須有證據、freshness、授權與 provider reconciliation；unknown outcome 一律 fail closed。
+- **Evidence before side effects：** side effect 前必須有證據、時效性驗證、授權與 provider 狀態核對；unknown outcome 一律 fail closed。
 - **Bounded delegation：** native subagents 只負責研究、Review、測試證據與反證；最多三個 direct children，禁止遞迴 delegation，獨立 critics 依序執行。
 - **Persistent intent：** `/goal` 跨 turn 保存使用者目標；template 與 mode 只決定驗證深度，不會偷偷改變目標。
 - **Deterministic control plane：** `sbw` 記錄 contract、private state、sentinel、evidence、findings、lease、action token 與 reconciliation，但不執行 model 生成的 command。
-- **Explicit completion：** 只有 acceptance evidence 仍然新鮮、必要檢查通過、rollback 可用，且沒有未解決的高風險或 unknown state，才能完成。
+- **Explicit completion：** 只有 acceptance evidence 仍與目前來源一致且在有效期內、必要檢查通過、rollback 可用，且沒有未解決的高風險或 unknown state，才能完成。
 - **Fast path remains explicit：** 小型且可逆的工作可使用 `direct`，不必承擔完整 workflow journal 成本。
 
 這個取捨是用部分最高平行吞吐量，換取較小、可檢查的 mutation surface 與可預期的停止條件。目的是讓不安全的進度難以被隱藏，即使因此需要暫停等待證據或使用者授權。
@@ -34,7 +34,7 @@ Better Workflows 是治理型的 orchestration layer，不是無限制的 agent 
 核心差異是 orchestration posture 與 authority：
 
 - **Dynamic Workflows 優先自適應廣度：** 依任務生成 JavaScript harness，平行展開多個 agents，選擇 model/worktree，驗證結果並依停止條件迭代。
-- **Better Workflows 優先治理式收斂：** Root 保留 mutation，限制 delegated research，記錄 deterministic state/evidence；freshness、授權、reconciliation 或 completion evidence 不足時 fail closed。
+- **Better Workflows 優先治理式收斂：** Root 保留 mutation，限制 delegated research，記錄 deterministic state/evidence；證據時效性、授權、reconciliation 或 completion evidence 不足時 fail closed。
 
 這不是能力互斥：Better Workflows 也能 research/deep review，Dynamic Workflows 也能實作與 release。真正的差異是優先最佳化的對象：**runtime exploration scale 對 deterministic mutation control**。
 
@@ -51,7 +51,7 @@ Better Workflows 是治理型的 orchestration layer，不是無限制的 agent 
 | 自動 worktree swarm | Branch/protected-branch 與 cleanup gates；不為每個生成子任務自動建立 worktree。 | Root 保留 integration/cleanup ownership，避免平行 mutation 的責任不清。 |
 | 無人值守長時間執行 | Durable run state 與可 resume 的 Goal，但仍需明確授權與 reconciliation。 | 可恢復很有用；autonomous daemon 還需要獨立的 lease、資源、取消與 side-effect protocol。 |
 
-**所以它不適合嗎？** 不是。當 contract 已知，且錯誤 mutation 的下行風險不對稱時，Better Workflows 更合適：release、protected branch、API 變更、安全敏感 refactor、Review 與 maintenance。當不確定性與規模主導時，Dynamic Workflows 更適合作為第一棒。兩者並用通常更強：先廣泛探索，再正規化版本化 handoff，最後由 Better Workflows 獨立驗證並治理實作。這是 operating pattern，不是 native interoperability。
+**所以它不適合嗎？** 不是。當 contract 已知，且錯誤 mutation 造成的影響不對稱時，Better Workflows 更合適：release、protected branch、API 變更、安全敏感 refactor、Review 與 maintenance。當不確定性與規模主導時，Dynamic Workflows 更適合作為第一棒。兩者並用通常更強：先廣泛探索，再正規化版本化 handoff，最後由 Better Workflows 獨立驗證並治理實作。這是 operating pattern，不是 native interoperability。
 
 | 面向 | Better Workflows | Claude Dynamic Workflows |
 | --- | --- | --- |
@@ -60,7 +60,7 @@ Better Workflows 是治理型的 orchestration layer，不是無限制的 agent 
 | Mutation boundary | Root 掌握修改、整合、Git/GitHub、deploy、風險接受與完成宣告；delegated agents 依 contract 唯讀。 | 生成的 harness 可選擇 subagent、model 與 worktree；該任務 script 決定治理形狀。 |
 | State 與完成 | Persistent Goal、private state、sentinel、evidence、lease、action token、reconciliation、fail-closed。 | 保存 progress 並可 resume，由 harness 協調收斂後回傳結果。 |
 | 成本與 blast radius | 刻意保守，較容易界定成本、mutation surface 與停止條件。 | 規模潛力高，但官方提醒可能使用明顯更多 token。 |
-| 適合的起點 | 已知 contract、release、refactor、Review 或下行風險不對稱的變更。 | 未知規模探索、大型 migration、全 repo audit 或值得大量平行化的工作。 |
+| 適合的起點 | 已知 contract、release、refactor、Review，或錯誤修改造成的影響不對稱時。 | 未知規模探索、大型 migration、全 repo audit 或值得大量平行化的工作。 |
 
 ### Explore → Gate → Execute → Maintain
 
@@ -72,7 +72,7 @@ flowchart LR
   B --> C{"版本化 handoff gate<br/>goal · scope · invariants · evidence · ownership"}
   C -- "過期、漂移、衝突或缺少授權" --> B
   C -- "接受" --> D["Better Workflows<br/>Root 控制執行"]
-  D --> E["新鮮驗證<br/>contract · tests · rollback"]
+  D --> E["重新驗證<br/>contract · tests · rollback"]
   E --> F["授權整合或 release"]
   F --> G["有界維護<br/>保留可審計狀態"]
   G -- "新不確定性或 scope 擴張" --> B
@@ -97,7 +97,7 @@ Better Workflows 接受探索結果前，先正規化成版本化 handoff packag
 | 情境 | 建議路徑 | 原因 |
 | --- | --- | --- |
 | 小型、可逆、明確的變更 | Better Workflows `direct` | 不值得支付 dynamic orchestration 成本。 |
-| 已知 contract，但有驗證或 release 風險 | Better Workflows `verified`、`deep` 或 `critical` | 新鮮證據與 authority gates 比 fan-out 更重要。 |
+| 已知 contract，但有驗證或 release 風險 | Better Workflows `verified`、`deep` 或 `critical` | 與目前來源一致且仍有效的證據與 authority gates 比 fan-out 更重要。 |
 | 架構未知、假設很多或大型 migration | 先 Dynamic Workflows，再進 handoff gate | 用廣度降低不確定性，但不能繞過整合控制。 |
 | 設計已穩定後的 production 維護 | Better Workflows | 長期保留 contract、證據、rollback 與可審計 ownership。 |
 
@@ -185,7 +185,7 @@ flowchart LR
   E --> F{"Workspace、Profile、scope、<br/>catalog、capability 或 bundle 漂移？"}
   F -- "是" --> D
   F -- "否" --> G["單次 sbw run<br/>保留 mode floor"]
-  G --> H["Template-bound action gates<br/>新鮮證據與 reconciliation"]
+  G --> H["Template-bound action gates<br/>與目前來源一致且仍有效的證據與 reconciliation"]
 ```
 
 Receipt 會綁定 goal/scope、選定路由、catalog、workspace/personal Profiles、
@@ -237,7 +237,7 @@ $better-workflows:cross-platform 檢查 backend、iOS 和 Android 的 contact sy
 | `$better-workflows:pr-to-dev` | 將範圍內修改分成 atomic commits，建立唯一 target 為 `dev` 的 PR，fresh checks 後 merge、同步 remote 並精準清理。 | `$better-workflows:pr-to-dev 分批 commit 目前修改，發 PR 至 dev，checks 通過後 merge、同步 remote dev 並清理本次 worktree。` |
 | `$better-workflows:cross-platform` | Backend、iOS、Android、Web 的 schema、optional 欄位、enum、sync、version gate 與 headers。 | `$better-workflows:cross-platform 檢查 backend、iOS 和 Android 的 contact sync contract，修復問題並建立 PR。` |
 | `$better-workflows:ios-static` | 不適合本機 build 時的 Swift/iOS 靜態 Review，以及序列化 `project.pbxproj` 驗證。 | `$better-workflows:ios-static 不做 build，Review iOS 變更、檢查新 Swift 檔已加入 pbxproj 並修復靜態問題。` |
-| `$better-workflows:localization` | 多語系更新，特別是 41 語系 key 數量、順序、精準 scope 與區域變體。 | `$better-workflows:localization 將這些 keys 加到全部 41 語系，並驗證 key 順序一致。` |
+| `$better-workflows:localization` | 多語系更新，特別是 41 個語系版本的 key 數量、順序、精準 scope 與區域變體。 | `$better-workflows:localization 將這些 keys 加到全部 41 個語系版本，並驗證 key 順序一致。` |
 | `$better-workflows:ci-release` | CI failure、runner queue、序列化 deploy、release、遠端監控與 receipt 驗證。 | `$better-workflows:ci-release 診斷失敗的 PR checks、修復並監控序列化 dev deploy。` |
 | `$better-workflows:browser-qa` | 需要最新 UI 證據、截圖與可重現 action log 的 Webwright／模擬器 QA。 | `$better-workflows:browser-qa 驗證 signup 與 contact sync，並附上 screenshot evidence。` |
 | `$better-workflows:research` | CLI 實測的多模型角色、證據驅動架構比較、反證與可執行 Plan；不以多數決決策。 | `$better-workflows:research 比較三種 sync 架構、反證每個方案並產出可實作的 Plan。` |
@@ -395,7 +395,7 @@ SOP 會依序完成：
 
 ```mermaid
 flowchart LR
-  A["新鮮 Dependabot inventory"] --> B["逐一分類\nconsolidate · separate · defer · exclude"]
+  A["最新 Dependabot 清單"] --> B["逐一分類\nconsolidate · separate · defer · exclude"]
   B --> C["相容性矩陣\npeer · runtime · lockfile · security"]
   C --> D["單一 consolidation branch 與 bounded diff"]
   D --> E["install、lockfile、lint、typecheck、test、audit"]
@@ -442,13 +442,13 @@ node plugins/better-workflows/scripts/sbw.mjs run \
 | 入口 | 建議情境 | 範例 |
 | --- | --- | --- |
 | `$better-workflows:direct` | 小型、可逆、明確且重視速度的任務。保留 Goal，但不建立 workflow journal 或 critics。 | `$better-workflows:direct 修正這個一行文件 typo 並檢查 diff。` |
-| `$better-workflows:verified` | 一般工程任務，需要 1–3 個唯讀 research／Review／refutation agents 與 freshness evidence。 | `$better-workflows:verified Review 並修復 pagination bug，然後建立 PR。` |
+| `$better-workflows:verified` | 一般工程任務，需要 1–3 個唯讀 research／Review／refutation agents 與證據時效性驗證。 | `$better-workflows:verified Review 並修復 pagination bug，然後建立 PR。` |
 | `$better-workflows:deep` | 架構、安全、廣泛 refactor 或高不確定性變更，需要 verified wave 加獨立 Codex critics。 | `$better-workflows:deep Review auth redesign、修復已驗證問題並建立 migration-safe PR。` |
 | `$better-workflows:critical` | Release、migration、production、破壞性 cleanup 或不可逆 side effects，必須 fail closed。 | `$better-workflows:critical 只有 policy、remote SHA 與 reconciliation gates 全部通過才執行 production release。` |
 
 ### Compatibility aliases
 
-這些入口保留舊使用習慣，但底層都改走同一套 Goal-first、Root-owned 工作流，不會復活已淘汰的平行寫入流程。
+這些入口保留舊使用習慣，但底層都改走同一套 Goal-first、Root-owned 工作流程，不會復活已淘汰的平行寫入流程。
 
 | 入口 | 建議情境 | 對應路由 |
 | --- | --- | --- |
@@ -469,7 +469,7 @@ node plugins/better-workflows/scripts/sbw.mjs run \
 ## 安全模型
 
 - Root 是唯一修改、Git/GitHub、deploy、接受風險與宣告完成的 authority。
-- Side effects 在 freshness、授權或 reconciliation 不完整時 fail closed。
+- Side effects 在證據時效性、授權或 reconciliation 不完整時 fail closed。
 - Agy 只允許經授權、去敏且非機密的資料。
 - 多模型 roster 保留所有設定品牌，但只使用最多 24 小時的 CLI 實測結果；到期、`--refresh`、roster 設定或 CLI 身分變動時必須重新驗證。
 - Unknown provider outcome 必須先 query reconciliation，不會盲目重試。
@@ -491,7 +491,7 @@ Runtime 只使用 Node.js standard library。
 
 Release TAG 是整合里程碑，不是中間進度標記。CI 只有在 push 到 `dev` 或
 `main`、能由 GitHub API 證明目前 exact commit 是合併至該 branch 的 PR 結果、
-branch 在工作流期間沒有漂移、CI 通過，而且 stable package/plugin version 相對
+branch 在工作流程期間沒有漂移、CI 通過，而且 stable package/plugin version 相對
 target branch parent 確實變更時才建立 TAG。`main` 建立 `vX.Y.Z`；`dev` 建立
 對應的 `vX.Y.Z-dev.<short-sha>` 預發布 TAG。feature branch commit 與沒有 version
 變更的整合 commit 都不建立 TAG。若既有 TAG 指向不同 commit，CI 會 fail closed，

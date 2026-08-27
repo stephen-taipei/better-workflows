@@ -12,7 +12,7 @@ verified, provider-reconciled delivery.
 [![Dependencies](https://img.shields.io/badge/runtime_dependencies-0-0F766E?style=flat-square)](plugins/better-workflows/package.json)
 [![License](https://img.shields.io/badge/license-MIT-64748B?style=flat-square)](LICENSE)
 
-**English** · [繁體中文](docs/README.zh-TW.md) · [简体中文](docs/README.zh-CN.md) · [日本語](docs/README.ja.md) · [한국어](docs/README.ko.md)
+**English** · [繁體中文](docs/README.zh-TW.md) · [简体中文](docs/README.zh-CN.md) · [日本語](docs/README.ja.md) · [한국어](docs/README.ko.md) · [All 41 locales](docs/LANGUAGES.md)
 
 </div>
 
@@ -200,7 +200,7 @@ Sensitive or private history is never harvested; it is rejected with a redacted 
 [Contributing](CONTRIBUTING.md) · [Code of conduct](CODE_OF_CONDUCT.md) ·
 [Governance](GOVERNANCE.md) · [Support](SUPPORT.md) · [Security policy](SECURITY.md)
 
-One-time [Ko-fi support](https://ko-fi.com/betterworkflows) helps maintain the open-source code, documentation, 41-language localization, and website hosting. It does not provide membership, roadmap priority, or support priority.
+One-time [Ko-fi support](https://ko-fi.com/betterworkflows) helps maintain the open-source code, documentation, 41 localized editions, and website hosting. It does not provide membership, roadmap priority, or support priority.
 
 <details>
 <summary>Develop Better Workflows</summary>

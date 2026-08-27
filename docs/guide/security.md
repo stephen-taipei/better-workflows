@@ -3,6 +3,8 @@
 | [Overview](../../README.md) | [Details](../details/en.md) | [Quick start](getting-started.md) | [Workflows](workflows.md) | [Architecture](architecture.md) | **Security** | [CLI](cli-reference.md) |
 | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 
+[41-locale localized overview and official web entry points](../LANGUAGES.md). This normative security guide remains canonical in English.
+
 ## Authority boundaries
 
 | Surface | May do | Must not do |

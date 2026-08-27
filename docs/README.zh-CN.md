@@ -4,18 +4,18 @@
 
 **Goal-first · Evidence-driven · Fail-closed**
 
-让 Codex 工作不再停留在“下 Prompt 然后期待成功”，而是沿着有界路径，从意图走到已验证、已对账的交付。
+让 Codex 工作不再停留在“只输入 prompt 就期待成功”，而是沿着有界路径，从意图走到已验证、已对账的交付。
 
 [![Version](https://img.shields.io/badge/version-3.5.0-2563EB?style=flat-square)](../plugins/better-workflows/package.json)
 [![Node](https://img.shields.io/badge/Node.js-%E2%89%A524-3C873A?style=flat-square)](../plugins/better-workflows/package.json)
 [![Dependencies](https://img.shields.io/badge/runtime_dependencies-0-0F766E?style=flat-square)](../plugins/better-workflows/package.json)
 [![License](https://img.shields.io/badge/license-MIT-64748B?style=flat-square)](../LICENSE)
 
-[English](../README.md) · [繁體中文](README.zh-TW.md) · **简体中文** · [日本語](README.ja.md) · [한국어](README.ko.md)
+[English](../README.md) · [繁體中文](README.zh-TW.md) · **简体中文** · [日本語](README.ja.md) · [한국어](README.ko.md) · [全部 41 个本地化版本](LANGUAGES.md)
 
 </div>
 
-[快速开始](guide/getting-started.md) · [工作流](guide/workflows.md) · [架构](guide/architecture.md) · [安全](guide/security.md) · [CLI](guide/cli-reference.md) · [完整细节](details/zh-CN.md) · [通过 Ko-fi 单次赞助](https://ko-fi.com/betterworkflows)
+[快速开始](guide/getting-started.md) · [工作流](guide/workflows.md) · [架构](guide/architecture.md) · [安全](guide/security.md) · [CLI](guide/cli-reference.md) · [详细说明](details/zh-CN.md) · [通过 Ko-fi 单次赞助](https://ko-fi.com/betterworkflows)
 
 <!-- readme-roster -->
 **Model roster：** Codex · Claude · Gemini · GPT-OSS · Grok · Cursor · Kimi · Qwen · Kiro。`agy` 传输 Gemini、Claude 与 GPT-OSS 品牌模型；它是 transport metadata，不是另一个模型品牌。
@@ -27,7 +27,7 @@ Codex 可以分析 repository、修改代码、运行检查并操作 provider。
 清楚区分“用户想要什么”与“当前证据和权限实际允许什么”。
 
 Better Workflows 适合希望小任务仍然快速，但在 blast radius 增加时，不放弃明确
-scope、review、freshness 与受保护交付的开发者和团队。
+scope、review、证据时效性与受保护交付的开发者和团队。
 
 它提供 14 个按成果设计的 workflow templates、受治理的 workspace recipes，以及
 只读 Graph View。你选择成果，route 只加入当前风险所需的验证。
@@ -55,7 +55,7 @@ Prompt 可以描述意图，但永远不会授予权限。
 **Root 掌握修改权。** 只有 Root 可以修改、集成、部署、接受风险或宣告完成。
 
 <!-- readme-claim:evidence-before-action -->
-**Action 前先有证据。** 每个 side effect 都必须具备 fresh evidence、provenance，以及绑定预定目标的 action。
+**Action 前先有证据。** 每个 side effect 都必须具备与当前来源一致且仍有效的 evidence、provenance，以及绑定预定目标的 action。
 
 <!-- readme-claim:unknown-stop -->
 **Fail closed。** 只要出现 drift、过期证据或未知 provider 状态，工作流就会停止。
@@ -123,10 +123,10 @@ $better-workflows:auto <describe the outcome you need>
 flowchart LR
   A["说明成果"] --> B["绑定 scope 与当前 context"]
   B --> C["执行有界工作"]
-  C --> D["Review 并验证 fresh evidence"]
+  C --> D["Review 并验证与当前来源一致且仍有效的 evidence"]
   D --> E{"已获授权操作此 target？"}
   E -- "是" --> F["执行一次 side effect"]
-  F --> G["对账 provider 与 repository 状态"]
+  F --> G["核对 provider 与 repository 状态"]
   G --> H["完成并清理 owned resources"]
   E -- "否或未知" --> I["安全停止"]
   G -- "未知" --> I
@@ -134,8 +134,8 @@ flowchart LR
 
 <!-- readme-visual-fallback:lifecycle -->
 **文字等价说明：** 先说明成果，再绑定精确 scope 与当前 context，执行有界工作并
-review fresh evidence。只有获得 target-bound 授权后才能执行一次 side effect；
-completion 与 owned cleanup 前必须对账 provider 和 repository。任何缺失、过期或
+review 与当前来源一致且仍有效的 evidence。只有获得 target-bound 授权后才能执行一次 side effect；
+completion 与 owned cleanup 前必须核对 provider 和 repository。任何缺失、过期或
 未知状态都会停止工作流。
 
 <!-- readme-section:trust-limits -->
@@ -167,18 +167,18 @@ Better Workflows 记录并检查 control plane；它不是无限制 agent runtim
 
 | 需求 | 文档 |
 | --- | --- |
-| 首次安装与 route | [快速开始](guide/getting-started.md) |
-| 选择 workflow 或 mode | [工作流](guide/workflows.md) |
-| Control-plane 设计与比较 | [架构](guide/architecture.md) |
-| Privacy、authority、actions 与 attestations | [安全](guide/security.md) |
-| Commands 与 exit behavior | [CLI reference](guide/cli-reference.md) |
-| 完整简体中文规范 | [完整细节](details/zh-CN.md) |
+| 首次安装与 route | [快速开始（English）](guide/getting-started.md) |
+| 选择 workflow 或 mode | [工作流（English）](guide/workflows.md) |
+| Control-plane 设计与比较 | [架构（English）](guide/architecture.md) |
+| Privacy、authority、actions 与 attestations | [安全（English）](guide/security.md) |
+| Commands 与 exit behavior | [CLI reference（English）](guide/cli-reference.md) |
+| 简体中文详细说明 | [详细说明](details/zh-CN.md) |
 | README 叙事与质量规则 | [README quality blueprint](guide/readme-quality.md) |
 
 [Contributing](../CONTRIBUTING.md) · [Code of conduct](../CODE_OF_CONDUCT.md) ·
 [Governance](../GOVERNANCE.md) · [Support](../SUPPORT.md) · [Security policy](../SECURITY.md)
 
-单次 [Ko-fi 赞助](https://ko-fi.com/betterworkflows)将用于开源维护、文档、41 种语言的本地化与网站托管；不包含会员资格，也不提供 roadmap 或技术支持优先权。
+单次 [Ko-fi 赞助](https://ko-fi.com/betterworkflows)将用于开源维护、文档、41 个本地化版本与网站托管；不包含会员资格，也不提供开发规划或技术支持优先权。
 
 <details>
 <summary>开发 Better Workflows</summary>

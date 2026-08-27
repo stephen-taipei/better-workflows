@@ -1,5 +1,7 @@
 # Better Workflows frontend deployment
 
+[41-locale localized overview and official web entry points](../../docs/LANGUAGES.md). This operational procedure remains canonical in English.
+
 This is a static-only deployment for `betterworkflows.dev` with
 `betterworkflows.org` as the canonical redirect alias. It follows the release
 layout used by the reference frontend projects:

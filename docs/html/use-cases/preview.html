@@ -331,7 +331,7 @@
       <div class="fact"><span>ENTRYPOINTS</span><strong>17</strong></div>
       <div class="fact"><span>TEMPLATES</span><strong>14</strong></div>
       <div class="fact"><span>MODES</span><strong>4</strong></div>
-      <div class="fact"><span>EVIDENCE KINDS</span><strong>101</strong></div>
+      <div class="fact"><span>EVIDENCE KINDS</span><strong>102</strong></div>
     </div>
 
     <nav class="edition-switch" aria-label="預覽深度" data-i18n-aria="previewDepth">
@@ -449,11 +449,11 @@
             ship:{low:['pr-to-dev','verified','拆 atomic commits、fresh checks、建立 PR',['對 remote 有副作用','先完成 preview']],medium:['ci-release','deep','監控 pipeline、驗證 artifact 與 deploy',['交付鏈跨多階段','失敗需可診斷']],high:['ci-release','critical','不可逆 side effects 前完整關卡',['release 影響外部使用者','缺 evidence 就停止']]},
             research:{low:['research','verified','多來源研究、反證與選項比較',['研究不等於實作','結論要可追溯']],medium:['research','deep','加入 critics 與架構決策證據',['決策影響後續實作','需要反方視角']],high:['research','critical','高後果決策採完整 fail-closed',['假設錯誤代價高','UNKNOWN 必須顯式保留']]}
           },
-          modes:[['01','direct','直接、無狀態','範圍明確、低後果、可由 root 自行驗證。','bounded local scope'],['02','verified','加入即時證據','1–3 個唯讀驗證者，要求即時且可重驗的 evidence。','fresh checks + critics'],['03','deep','擴大反證深度','verified 之後再加入獨立 critics。','coverage + counterevidence'],['04','critical','副作用前關卡','不可逆行為與完成條件完整 fail-closed。','side-effect gates']],
+          modes:[['01','direct','直接、無狀態','範圍明確、低後果、可由 root 自行驗證。','bounded local scope'],['02','verified','加入具時效性的證據','1–3 個唯讀驗證者，要求與目前來源一致且仍有效、可重驗的 evidence。','current checks + critics'],['03','deep','擴大反證深度','verified 之後再加入獨立 critics。','coverage + counterevidence'],['04','critical','副作用前關卡','不可逆行為與完成條件完整 fail-closed。','side-effect gates']],
           boundaries:[['EVIDENCE','證據：發生了什麼','append-only、typed、可追溯；它是判斷輸入，不是判斷本身。',['command output','artifact hash','review receipt']],['STATE','狀態：現在走到哪裡','由 stage evaluator 根據必要證據寫入；不是看到一個 PASS 就直接完成。',['stage status','terminal reason','blocker details']],['REPLAY','Replay：重新求值','載入既有 run record 與 evidence，再跑 evaluator；外部 side effects 保持封閉。',['same inputs','same rules','replay report']]],
           replay:[['01','LOAD','讀取 run record'],['02','ROUTE','重建 route'],['03','READ','載入 evidence'],['04','EVAL','重評 stage'],['05','REPORT','輸出報告']],
           logs:['[load] run.json + state.json','[route] selector and template restored','[evidence] typed records loaded; no commands executed','[evaluate] required evidence rechecked','[terminal] replay-report emitted; side effects = 0'],
-          stops:[['UNKNOWN','必要事實未知','不能把未執行、逾時或拿不到的資料折算成 PASS。'],['STALE','證據已過期','驗證基準、SHA 或外部狀態改變，就應重新取得 fresh evidence。'],['MISSING','必要 evidence 缺失','缺必要 kind、scope 或來源時，stage 不得前進。'],['SIDE EFFECT','將重做外部副作用','Replay 若會再次 push、merge、deploy 或發訊息，必須阻止。']]
+          stops:[['UNKNOWN','必要事實未知','不能把未執行、逾時或拿不到的資料折算成 PASS。'],['STALE','證據已過期','驗證基準、SHA 或外部狀態改變，就應重新取得與目前來源一致且仍有效的 evidence。'],['MISSING','必要 evidence 缺失','缺必要 kind、scope 或來源時，stage 不得前進。'],['SIDE EFFECT','將重做外部副作用','Replay 若會再次 push、merge、deploy 或發訊息，必須阻止。']]
         },
         en: {
           tasks:[['fix','Bounded change'],['review','Read-only review'],['ship','Delivery / release'],['research','Research decision']],

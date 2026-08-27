@@ -3,6 +3,8 @@
 | [Overview](../../README.md) | [Details](../details/en.md) | [Quick start](getting-started.md) | [Workflows](workflows.md) | [Architecture](architecture.md) | [Security](security.md) | **CLI** |
 | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 
+[41-locale localized overview and official web entry points](../LANGUAGES.md). Commands and identifiers remain canonical in English.
+
 Run from a checkout with:
 
 ```bash

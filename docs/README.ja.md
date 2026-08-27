@@ -4,21 +4,21 @@
 
 **Goal-first · Evidence-driven · Fail-closed**
 
-Codex の作業を「Prompt を渡して成功を祈る」状態から、意図、検証、provider reconciliation を経た delivery へ進めます。
+Codex の作業を、プロンプトを渡して成功を祈るだけの状態から、検証と外部状態の照合を経る確実なデリバリーへ移行します。
 
 [![Version](https://img.shields.io/badge/version-3.5.0-2563EB?style=flat-square)](../plugins/better-workflows/package.json)
 [![Node](https://img.shields.io/badge/Node.js-%E2%89%A524-3C873A?style=flat-square)](../plugins/better-workflows/package.json)
 [![Dependencies](https://img.shields.io/badge/runtime_dependencies-0-0F766E?style=flat-square)](../plugins/better-workflows/package.json)
 [![License](https://img.shields.io/badge/license-MIT-64748B?style=flat-square)](../LICENSE)
 
-[English](../README.md) · [繁體中文](README.zh-TW.md) · [简体中文](README.zh-CN.md) · **日本語** · [한국어](README.ko.md)
+[English](../README.md) · [繁體中文](README.zh-TW.md) · [简体中文](README.zh-CN.md) · **日本語** · [한국어](README.ko.md) · [全 41 ロケール版](LANGUAGES.md)
 
 </div>
 
-[クイックスタート](guide/getting-started.md) · [Workflows](guide/workflows.md) · [Architecture](guide/architecture.md) · [Security](guide/security.md) · [CLI](guide/cli-reference.md) · [詳細仕様](details/ja.md) · [Ko-fi で支援](https://ko-fi.com/betterworkflows)
+[クイックスタート](guide/getting-started.md) · [Workflows](guide/workflows.md) · [Architecture](guide/architecture.md) · [Security](guide/security.md) · [CLI](guide/cli-reference.md) · [詳細説明](details/ja.md) · [Ko-fi で支援](https://ko-fi.com/betterworkflows)
 
 <!-- readme-roster -->
-**Model roster:** Codex · Claude · Gemini · GPT-OSS · Grok · Cursor · Kimi · Qwen · Kiro。`agy` は Gemini、Claude、GPT-OSS ブランドの model を transport しますが、それ自体は model ブランドではありません。
+**Model roster:** Codex · Claude · Gemini · GPT-OSS · Grok · Cursor · Kimi · Qwen · Kiro。`agy` は Gemini、Claude、GPT-OSS ブランドのモデルへの接続に使う転送レイヤーであり、それ自体はモデルブランドではありません。
 
 <!-- readme-section:promise-audience -->
 ## Better Workflows が必要な理由
@@ -28,7 +28,7 @@ Codex は repository の分析、コード編集、check 実行、provider 操�
 区別する必要があります。
 
 Better Workflows は、小さな作業の速度を保ちながら、blast radius が広がる場面では
-明確な scope、review、freshness、protected delivery を維持したい開発者とチーム向けです。
+明確な scope、review、証拠の有効性、protected delivery を維持したい開発者とチーム向けです。
 
 成果別の 14 workflow templates、統制された workspace recipes、read-only Graph View を
 提供します。成果を選ぶと、route は現在の risk に必要な検証だけを追加します。
@@ -56,7 +56,7 @@ Control plane がないと、妥当な指示でも古い状態を使い、scope 
 **Root-owned mutation。** 編集、統合、デプロイ、リスク受容、完了宣言を行えるのは Root だけです。
 
 <!-- readme-claim:evidence-before-action -->
-**Action の前に証拠。** すべての side effect には fresh evidence、provenance、対象に bind された action が必要です。
+**Action の前に証拠。** すべての side effect には現在のソースに紐付き、なお有効な evidence、provenance、対象に bind された action が必要です。
 
 <!-- readme-claim:unknown-stop -->
 **Fail closed。** drift、古い証拠、または不明な provider 状態があれば、workflow は必ず停止します。
@@ -126,10 +126,10 @@ Security reviewer は [Security](guide/security.md)、operator は
 flowchart LR
   A["成果を述べる"] --> B["scope と現在の context を bind"]
   B --> C["有界な作業を実行"]
-  C --> D["review と fresh evidence の検証"]
+  C --> D["review と現在のソースに紐付く有効な evidence の検証"]
   D --> E{"この target への権限がある？"}
   E -- "はい" --> F["一回の side effect"]
-  F --> G["provider と repository を reconcile"]
+  F --> G["provider と repository の状態を照合"]
   G --> H["完了と owned resource cleanup"]
   E -- "いいえ／不明" --> I["安全に停止"]
   G -- "不明" --> I
@@ -137,9 +137,9 @@ flowchart LR
 
 <!-- readme-visual-fallback:lifecycle -->
 **テキストによる同等説明：** 成果を述べ、正確な scope と現在の context を bind し、
-有界な作業と fresh evidence の review を行います。Target-bound authority がある場合だけ
+有界な作業と現在のソースに紐付く有効な evidence の review を行います。Target-bound authority がある場合だけ
 一回の side effect を実行します。Completion と owned cleanup の前に provider と
-repository を reconcile し、欠落、古い状態、不明な結果があれば workflow を停止します。
+repository の状態を照合し、欠落、古い状態、不明な結果があれば workflow を停止します。
 
 <!-- readme-section:trust-limits -->
 ## 信頼境界と制限
@@ -171,18 +171,18 @@ Better Workflows は control plane を記録して検証しますが、無制限
 
 | 必要な情報 | ドキュメント |
 | --- | --- |
-| 最初の install と route | [Getting started](guide/getting-started.md) |
-| Workflow または mode の選択 | [Workflows](guide/workflows.md) |
-| Control-plane design と比較 | [Architecture](guide/architecture.md) |
-| Privacy、authority、actions、attestations | [Security](guide/security.md) |
-| Commands と exit behavior | [CLI reference](guide/cli-reference.md) |
-| 完全な日本語仕様 | [詳細仕様](details/ja.md) |
+| 最初の install と route | [Getting started（English）](guide/getting-started.md) |
+| Workflow または mode の選択 | [Workflows（English）](guide/workflows.md) |
+| Control-plane design と比較 | [Architecture（English）](guide/architecture.md) |
+| Privacy、authority、actions、attestations | [Security（English）](guide/security.md) |
+| Commands と exit behavior | [CLI reference（English）](guide/cli-reference.md) |
+| 日本語版の詳細 | [詳細説明](details/ja.md) |
 | README の narrative と品質規則 | [README quality blueprint](guide/readme-quality.md) |
 
 [Contributing](../CONTRIBUTING.md) · [Code of conduct](../CODE_OF_CONDUCT.md) ·
 [Governance](../GOVERNANCE.md) · [Support](../SUPPORT.md) · [Security policy](../SECURITY.md)
 
-一度限りの [Ko-fi 支援](https://ko-fi.com/betterworkflows)は、オープンソースの保守、ドキュメント、41 言語のローカライズ、Web サイト運営に役立ちます。会員資格、roadmap、サポートの優先権を提供するものではありません。
+一度限りの [Ko-fi 支援](https://ko-fi.com/betterworkflows)は、オープンソースの保守、ドキュメント、41 ロケール向けのローカライズ版、Web サイト運営に役立ちます。会員資格、開発計画、サポートの優先権を提供するものではありません。
 
 <details>
 <summary>Better Workflows を開発する</summary>

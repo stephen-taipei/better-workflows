@@ -28,7 +28,7 @@
       source: { label: "git.mjs · source binding / sentinel", href: "../../../plugins/better-workflows/scripts/lib/git.mjs" },
       records: [
         { kind: "source-binding", id: "demo-source-01", status: "complete", summary: "HEAD、index、status 與 scoped files 已綁定", binding: "revision · tree · scope", digest: "sha256:demo-a81c…" },
-        { kind: "source-sentinel", id: "demo-sentinel-01", status: "complete", summary: "目前 tree capture 可供後續 freshness 重驗", binding: "files · submodules · symlinks", digest: "sentinel:demo-77ea" }
+        { kind: "source-sentinel", id: "demo-sentinel-01", status: "complete", summary: "目前 tree capture 可供後續時效性重驗", binding: "files · submodules · symlinks", digest: "sentinel:demo-77ea" }
       ]
     },
     {
@@ -96,7 +96,7 @@
       title: "橋先不放下：token 要把權限綁到這一次",
       dialogue: "Action token 綁 action、provider、resource、revision、review、evidence 與 idempotency key。",
       state: "authority checked → one attempt issued", badge: "TOKEN ISSUED",
-      fact: "本頁是 sanitized teaching replay，不會真的發 token；可執行 workflow 仍須依自己的 review contract、source freshness、provider binding 與 protected authorization 申請 action。Wrapper 送出後若 outcome unknown，不能把非零退出直接當成安全失敗。",
+      fact: "本頁是 sanitized teaching replay，不會真的發 token；可執行 workflow 仍須依自己的 review contract、來源時效性、provider binding 與 protected authorization 申請 action。Wrapper 送出後若 outcome unknown，不能把非零退出直接當成安全失敗。",
       source: { label: "core.mjs · action issue / execute / consume", href: "../../../plugins/better-workflows/scripts/lib/core.mjs" },
       records: [
         { kind: "action-token", id: "demo-token-41", status: "issued", summary: "短效 token 綁定唯一 provider resource", binding: "action · provider · revision", digest: "token:demo-redacted" },

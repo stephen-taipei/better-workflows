@@ -1,5 +1,7 @@
 # Third-party notices
 
+[41-locale localized overview and official web entry points](docs/LANGUAGES.md). This legal notice remains canonical in English.
+
 Better Workflows was independently implemented with Node.js standard-library modules. It does not vendor source code, workflow definitions, or runtime components from the projects below.
 
 The following projects informed the architectural research and are acknowledged as conceptual references only:
