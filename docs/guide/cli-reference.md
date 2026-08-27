@@ -48,6 +48,8 @@ sbw source rebind <run-id> --reason <text>
 sbw sentinel capture <run-id> --label <label>
 sbw sentinel verify <run-id> --label <label>
 sbw evidence add <run-id> --file <evidence.json>
+sbw evidence replay
+sbw evidence replay <run-id>
 sbw finding add <run-id> --file <finding.json>
 sbw finding update <run-id> --file <finding.json>
 sbw ledger status <run-id>
@@ -74,6 +76,15 @@ sbw refinement status <run-id>
 sbw refinement apply <run-id> --file <receipt.json>
 sbw complete <run-id>
 ```
+
+`evidence replay` starts a foreground-only, read-only cinema at
+`http://localhost:9300` and opens a single-use bootstrap URL in the default
+browser. With a run ID it opens that recorded reel directly; without one it
+shows the local run library. Press `Ctrl+C` to stop it. The ordinary launch
+path never invokes `sudo`, the host signer, providers, action issuance, or
+completion. It reads bounded, symlink-free snapshots from `SBW_STATE_ROOT`,
+serves only allowlisted sanitized metadata, and marks active runs `UNSEALED`.
+Recorded outcomes are presentation-only and are not live re-verification.
 
 `source rebind` is root-only and pre-review/pre-side-effect. It invalidates all
 prior complete evidence and resets the v2 execution ledger, so the next

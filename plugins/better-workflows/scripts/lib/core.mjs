@@ -570,7 +570,10 @@ function assertNoAmbientGitAuthorityOverrides() {
   }
 }
 
-export const VERSION = "3.4.14";
+export const VERSION = "3.5.0";
+const PRIOR_MIGRATABLE_VERSION_FAMILIES = Object.freeze([
+  { major: 3, minor: 4, maximumPatch: 14 }
+]);
 export const MODES = new Set(["auto", "direct", "verified", "deep", "critical"]);
 export const RUN_STATES = new Set([
   "pending",
@@ -2334,9 +2337,16 @@ export async function bindLegacyRunTemplate(
     const knownLegacyVersion = ["1.0.0", "2.0.1", "2.1.0", "2.5.0", "2.6.0"].includes(manifest.version);
     const [currentMajor, currentMinor, currentPatch] = VERSION.split(".").map(Number);
     const normalizedManifestVersion = String(manifest.version ?? "").split("+")[0];
-    const currentFamilyMatch = new RegExp(`^${currentMajor}\\.${currentMinor}\\.(\\d+)$`).exec(normalizedManifestVersion);
-    const currentFamilyVersion = currentFamilyMatch && Number(currentFamilyMatch[1]) <= currentPatch;
-    if (!knownLegacyVersion && !currentFamilyVersion) {
+    const familyMatch = /^(\d+)\.(\d+)\.(\d+)$/.exec(normalizedManifestVersion);
+    const migratableFamilyVersion = familyMatch && [
+      { major: currentMajor, minor: currentMinor, maximumPatch: currentPatch },
+      ...PRIOR_MIGRATABLE_VERSION_FAMILIES
+    ].some((family) => (
+      Number(familyMatch[1]) === family.major &&
+      Number(familyMatch[2]) === family.minor &&
+      Number(familyMatch[3]) <= family.maximumPatch
+    ));
+    if (!knownLegacyVersion && !migratableFamilyVersion) {
       throw new Error(
         `Run ${runId} lacks current template minimums but was not created by a migratable workflow version`
       );

@@ -237,6 +237,14 @@ function reduceLedger(ledger, typedEvidenceKinds = new Set()) {
   };
 }
 
+// Evidence Replay needs the same deterministic reducer without using the
+// stateful run reader. Keep this boundary pure: it validates a caller-owned
+// snapshot and never reads, writes, or re-verifies provider state.
+export function reduceLedgerSnapshot(value, typedEvidenceKinds = []) {
+  const ledger = normalizeLedger(structuredClone(value));
+  return reduceLedger(ledger, new Set(typedEvidenceKinds));
+}
+
 export async function initializeLedger(root, runDir, contract, runIdOverride = null) {
   if (contract.schemaVersion !== 2) return null;
   const tasks = contract.executionStages.map(normalizeStage);

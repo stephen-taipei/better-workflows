@@ -172,6 +172,7 @@ import {
   graphHasErrors,
   renderGraphMermaid
 } from "./lib/graph.mjs";
+import { openReplayBrowser, startReplayServer } from "./lib/replay-server.mjs";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const TEMPLATE_DIR = path.join(pluginRoot(), "templates");
@@ -184,6 +185,10 @@ const GRAPH_ENFORCEMENT_ENABLED = true;
 
 function print(value) {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
+}
+
+function printEvent(value, stream = process.stdout) {
+  stream.write(`${JSON.stringify(value)}\n`);
 }
 
 function fail(error, code = 1) {
@@ -1977,6 +1982,50 @@ function optionEnabled(value) {
   return value === true || value === "true";
 }
 
+async function commandEvidenceReplay(root, runId, options) {
+  assertKnownOptions(options, ["no-open"]);
+  const noOpen = optionEnabled(options["no-open"]);
+  const replay = await startReplayServer({ stateRoot: root, runId });
+  let opened = false;
+  if (!noOpen) {
+    try {
+      await openReplayBrowser(replay.bootstrapUrl);
+      opened = true;
+    } catch {
+      printEvent({
+        ok: false,
+        event: "replay.browser-open-warning",
+        error: "REPLAY_BROWSER_OPEN_FAILED"
+      }, process.stderr);
+    }
+  }
+  printEvent({
+    ok: true,
+    event: "replay.started",
+    url: replay.cleanUrl,
+    runId: replay.runId,
+    host: "localhost",
+    port: replay.port,
+    opened,
+    noOpen
+  });
+  let onSigint;
+  let onSigterm;
+  try {
+    await new Promise((resolve) => {
+      onSigint = () => resolve();
+      onSigterm = () => resolve();
+      process.once("SIGINT", onSigint);
+      process.once("SIGTERM", onSigterm);
+    });
+  } finally {
+    if (onSigint) process.off("SIGINT", onSigint);
+    if (onSigterm) process.off("SIGTERM", onSigterm);
+    await replay.close();
+  }
+  printEvent({ ok: true, event: "replay.stopped", url: replay.cleanUrl });
+}
+
 async function commandDeliberation(root, subcommand, options) {
   const sharedOptions = ["provider", "allow-external-providers", "sanitized", "refresh", "reasoning-effort", "mode", "timeout-seconds"];
   assertKnownOptions(options, subcommand === "roster" ? sharedOptions : [...sharedOptions, "prompt-file", ...(subcommand === "deliberate" ? ["run"] : [])]);
@@ -2093,6 +2142,7 @@ function help() {
       "sbw source rebind <run-id> --reason <text>",
       "sbw sentinel capture|verify <run-id> --label <label>",
       "sbw evidence add <run-id> --file <json>",
+      "sbw evidence replay [<run-id>] [--no-open]",
       "sbw self-improve evaluate --run <run-id> --cases <file> --baseline <git-revision> --candidate-root <path> --backend <codex|fixture> --split <train|holdout> [--trusted-codex-execution <host-file>] [--request-manifest <host-file> --request-manifest-digest <sha256>] [--purpose ordinary|evaluator-migration|safety-remediation-v1|quality-remediation-v1] [--next-cases <v2-file>]",
       "sbw self-improve host status",
       "sbw self-improve consent status|prepare|revoke",
@@ -2326,8 +2376,11 @@ async function main() {
     throw new Error("sentinel subcommand must be capture or verify");
   }
   if (command === "evidence") {
+    if (subcommand === "replay") {
+      return commandEvidenceReplay(root, runId, options);
+    }
     if (subcommand !== "add" || !runId || !options.file) {
-      throw new Error("evidence usage: sbw evidence add <run-id> --file <json>");
+      throw new Error("evidence usage: sbw evidence add <run-id> --file <json> | sbw evidence replay [<run-id>] [--no-open]");
     }
     const record = JSON.parse(await readFile(path.resolve(String(options.file)), "utf8"));
     if (record.sourceKind === "independent-critic") {
@@ -2852,7 +2905,7 @@ async function main() {
 
 main()
   .then((result) => {
-    print(result);
+    if (result !== undefined) print(result);
     if (result?.ok === false) process.exitCode = 2;
   })
-  .catch((error) => fail(error));
+  .catch((error) => fail(error, error?.exitCode ?? 1));
