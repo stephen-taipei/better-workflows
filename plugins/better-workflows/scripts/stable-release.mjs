@@ -5,7 +5,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
-import { atomicWriteJson, digestObject, safeJoin } from "./lib/core.mjs";
+import { atomicWriteJson, digestObject, safeJoin, sha256 } from "./lib/core.mjs";
 
 const execFileAsync = promisify(execFile);
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
@@ -98,13 +98,21 @@ const websiteReceipt = await exactJsonReceipt(websiteReceiptPath, "WorkspaceWebs
 if (hostReceipt.requiredCombinations !== 8 || hostReceipt.receipts?.length !== 8) throw new Error("Eight Tier 1 conformance receipts are required");
 if (websiteReceipt.locales?.length !== 41) throw new Error("Forty-one public locale receipts are required");
 if (hostReceipt.registryDigest !== websiteReceipt.hostRegistryDigest) throw new Error("Host registry drifted between conformance and website QA");
-if (!hostReceipt.receipts.every((receipt) => receipt.attestation === "github-oidc-verified" && SHA256.test(receipt.attestationVerificationDigest))) {
-  throw new Error("Tier 1 conformance gate lacks exact attestation verification digests");
+if (!hostReceipt.receipts.every((receipt) => (
+  receipt.attestation === "github-oidc-verified" &&
+  SHA256.test(receipt.attestationVerificationDigest) &&
+  SHA256.test(receipt.extensionProbeDigest) &&
+  SHA256.test(receipt.helperDigest) &&
+  ((receipt.hostId === "gemini-cli" || receipt.hostId === "qwen-code")
+    ? SHA256.test(receipt.installedBundleDigest)
+    : receipt.installedBundleDigest === null)
+))) {
+  throw new Error("Tier 1 conformance gate lacks exact attestation or installed-bundle digests");
 }
 if (websiteReceipt.authentication?.status !== "awaiting-github-oidc-attestation" || websiteReceipt.authentication?.releaseEligible !== false) {
   throw new Error("Website QA receipt bypassed its external attestation requirement");
 }
-await execFileAsync("gh", [
+const { stdout: websiteAttestationOutput } = await execFileAsync("gh", [
   "attestation", "verify", websiteReceiptPath,
   "--repo", required("GITHUB_REPOSITORY"),
   "--signer-workflow", `${required("GITHUB_REPOSITORY")}/.github/workflows/stable-release.yml`,
@@ -185,6 +193,7 @@ const payload = {
   freshRequiredCheck: "test",
   hostGateReceiptDigest: hostReceipt.receiptDigest,
   websiteQaReceiptDigest: websiteReceipt.receiptDigest,
+  websiteAttestationVerificationDigest: sha256(websiteAttestationOutput),
   publicContentDigest: websiteReceipt.contentDigest,
   tagCreated,
   releaseCreated,

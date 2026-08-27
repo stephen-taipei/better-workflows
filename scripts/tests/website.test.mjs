@@ -106,6 +106,7 @@ test("official website build is self-contained and includes docs/html", async ()
     assert.match(landing, /證據至上的 AI 工程 QA/);
     assert.match(landing, /官方推薦：macOS \+ Codex/);
     assert.match(landing, /class="support-matrix"/);
+    assert.match(landing, /class="capability-matrix"/);
     assert.match(landing, /Replay 是重播/);
     assert.equal(await readFile(path.join(outputDirectory, "healthz"), "utf8"), "ok\n");
 

@@ -46,14 +46,35 @@ flowchart LR
 `host-support-v1` is the single registry for the CLI, README, website,
 structured data, packaging, and conformance matrix. Codex, Claude Code, Gemini
 CLI, and Qwen Code on macOS/Linux are Tier 1 only when their exact host/OS
-receipt passes. Windows and Kimi Code CLI, Kiro, Grok Build, Cursor, and GitHub
-Copilot are Preview in v4.0.0.
+receipt passes. Each Tier 1 receipt binds the pinned official CLI version, the
+source manifest and helper, the host's official validation or isolated-install
+path, and the common safety tests. Gemini and Qwen receipts additionally prove
+that an isolated installed repository distribution contains the exact source
+manifest, context, and helper bytes. Windows and Kimi Code CLI, Kiro, Grok
+Build, Cursor, and GitHub Copilot are Preview in v4.0.0.
+The five Preview hosts ship a plugin-local compatibility manifest plus shared
+manual bridge instructions. `host doctor` verifies that pack for a local smoke
+check, but it is not a native host extension or release-eligible conformance.
+
+The public host contract is declared in
+`plugins/better-workflows/types/host-support-v1.d.ts`: `HostId`,
+`SupportTier`, `CapabilityStatus`, `HostAdapterManifest`, and
+`HostCapabilityReceipt`. The declaration mirrors `host-support-v1`; it does
+not turn a Preview adapter or local receipt into release proof.
 
 TaskContract, typed evidence, freshness, ledger, Replay, action gates,
 reconciliation, risk assessment, and task-worktree ownership are host-neutral.
 Codex's native Goal, picker, subagent, self-improve host trust, and plugin-cache
 publication remain Codex-specific. A core bridge is a supported integration;
 it is not evidence that every host has the same native UX.
+
+Core state follows the same host-neutral boundary. `SBW_STATE_ROOT` is the
+explicit override; otherwise v4 uses `XDG_STATE_HOME/better-workflows` when
+available and `~/.better-workflows` as the portable default. `CODEX_HOME`
+continues to govern Codex-only plugin-cache and host-trust surfaces, but no
+longer selects the shared state root implicitly. Existing v3 state remains
+usable by explicitly binding `SBW_STATE_ROOT` to its old `<CODEX_HOME>/sbw`
+path.
 
 ### Risk-adaptive Auto and workspace ownership
 
@@ -80,6 +101,18 @@ isolation protects mutation state; it does not replace evidence verification.
 Multiple repositories receive independent leases and serialized integration;
 there is no claim of cross-repository atomicity.
 
+Repository mutation is serialized by a lock that binds host, PID, and an
+OS-observed process-incarnation digest. An interrupted task may reclaim only a
+lock whose exact owner is proven gone or whose PID was reused; unknown or live
+ownership remains blocking. Lease discovery scans the complete bounded
+registry and fails closed at its safety limit instead of ignoring old records.
+Candidate branch/worktree identities are written to the lease before creation.
+If a process stops after target CAS but before the integration record, the next
+run reuses that exact candidate and reconciles the already-updated target.
+Cleanup records each exact resource removal under `cleanup-ready`, so a restart
+continues from the remaining owned branch/worktree and reuses one digested
+cleanup receipt instead of creating duplicate resources.
+
 An explicitly registered host worktree adds a digested
 `HostWorkspaceRegistrationV1` record and `resourceOrigin: host-provided`.
 Better Workflows may validate and integrate from it but leaves its branch and
@@ -92,7 +125,8 @@ after an exact squash merge where ordinary Git ancestry cannot prove inclusion.
 
 1. Host hard constraints.
 2. Explicit entry, template, and mode.
-3. Workspace Profile at `.codex/better-workflows.json`.
+3. Workspace Profile at `.better-workflows/profile.json` (or the legacy
+   `.codex/better-workflows.json` only when the v4 path is absent).
 4. Personal Profile at `$SBW_STATE_ROOT/routing/profile.json`.
 5. Built-in `auto`.
 

@@ -80,7 +80,7 @@ flowchart LR
 
 ### 版本化 handoff package
 
-Better Workflows 接受探索結果前，先正規化成版本化 handoff package，作為防止 scope drift 的邊界：
+Better Workflows 接受探索結果前，先正規化成版本化 handoff package，用來阻擋可觀測的 handoff drift；這不等於已用統計證明長期 scope drift 下降：
 
 | Gate | 必要資料 | 何時拒絕並回到探索 |
 | --- | --- | --- |
@@ -147,7 +147,7 @@ picker 入口。
 | ---: | --- | --- |
 | 1 | Host hard constraints | 本機設定不可降低；host 沒提供輸入時顯示 `unverified`。 |
 | 2 | 明確 entry/template/mode | 使用者的 picker 或 CLI 選擇優先。 |
-| 3 | Workspace Profile | `<repo>/.codex/better-workflows.json`；匹配時取代 personal route。 |
+| 3 | Workspace Profile | `<repo>/.better-workflows/profile.json`；只有 v4 路徑不存在時才讀取舊版 `<repo>/.codex/better-workflows.json`，匹配時取代 personal route。 |
 | 4 | Personal Profile | `$SBW_STATE_ROOT/routing/profile.json`。 |
 | 5 | 內建 `auto` | 在證據選出真實 template 前回傳 `template: null`。 |
 
@@ -461,7 +461,7 @@ node plugins/better-workflows/scripts/sbw.mjs run \
 
 | Mode | 行為 |
 | --- | --- |
-| `direct` | Root 直接工作，不建立 durable workflow state。 |
+| `direct` | Root 不建立 evidence workflow state；Git 修改仍保存最小 `TaskWorkspaceLeaseV1`，並使用本任務專屬 worktree。 |
 | `verified` | Root 加 1–3 個唯讀研究／Review／反證 agents。 |
 | `deep` | `verified` 後序列加入最多兩個 Codex critics。 |
 | `critical` | 完整 evidence、side-effect gates，以及 policy 要求的外部 reviewer。 |

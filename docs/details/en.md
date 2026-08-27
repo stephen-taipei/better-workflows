@@ -114,7 +114,8 @@ flowchart LR
 ### The versioned handoff package
 
 Before Better Workflows accepts exploratory output, normalize it into a
-versioned handoff package. This is the anti-drift boundary:
+versioned handoff package. This gates observable handoff drift; it is not
+statistical proof that long-running scope drift declines:
 
 | Gate | Required artifact | Reject and return to exploration when |
 | --- | --- | --- |
@@ -186,7 +187,7 @@ lower the mode, or replace an explicit picker choice.
 | ---: | --- | --- |
 | 1 | Host hard constraints | Never lowered by local configuration; absent host input is reported `unverified`. |
 | 2 | Explicit entry/template/mode | The user's picker or CLI choice wins. |
-| 3 | Workspace Profile | `<repo>/.codex/better-workflows.json`; a matching rule replaces personal routing. |
+| 3 | Workspace Profile | `<repo>/.better-workflows/profile.json`; legacy `<repo>/.codex/better-workflows.json` is read only when the v4 path is absent. A matching rule replaces personal routing. |
 | 4 | Personal Profile | `$SBW_STATE_ROOT/routing/profile.json`. |
 | 5 | Built-in `auto` | Returns `template: null` until current evidence selects a real template. |
 
@@ -583,7 +584,8 @@ node plugins/better-workflows/scripts/sbw.mjs recipe validate json-keyset-audit
 ```
 
 This creates `.codex/better-workflows/` at that Git root. The separate
-`.codex/better-workflows.json` remains a routing Profile and cannot authorize a
+`.better-workflows/profile.json` (or its single-path legacy fallback
+`.codex/better-workflows.json`) remains a routing Profile and cannot authorize a
 recipe. A recipe cloned from Git is always untrusted on the new workspace.
 Promotion requires a `workspace-recipe` run, complete evidence, a current
 sentinel, no open P0/P1 finding, fixture parity, a consumed `recipe.promote`
@@ -813,7 +815,7 @@ Better Workflows chooses one of four modes:
 
 | Mode | Behavior |
 | --- | --- |
-| `direct` | Root works normally without durable workflow state. |
+| `direct` | Root creates no evidence workflow state; Git mutation still stores a minimal `TaskWorkspaceLeaseV1` and uses an isolated task worktree. |
 | `verified` | Root plus one to three native research/review/refutation agents. |
 | `deep` | Verified work followed by up to two sequential Codex critics. |
 | `critical` | Full evidence and side-effect gates plus a required external reviewer when policy demands it. |

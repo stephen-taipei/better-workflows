@@ -54,6 +54,12 @@ Before substantial work in every task, run the host-neutral read-only preflight:
 sbw workspace preflight --intent read-only
 ~~~
 
+Shared state defaults to `XDG_STATE_HOME/better-workflows` when available and
+otherwise `~/.better-workflows`; `SBW_STATE_ROOT` binds an explicit location.
+Do not infer the core state root from `CODEX_HOME`. A v3 Codex state remains
+usable only when its exact `<CODEX_HOME>/sbw` path is explicitly supplied as
+`SBW_STATE_ROOT`.
+
 This distinguishes a non-Git directory, read-only use of a repository, an
 existing task-owned worktree, and an ownership conflict without creating Git
 resources. If the task may modify a repository, rerun with `--intent modify`
@@ -114,7 +120,8 @@ Routing precedence is:
 1. host hard constraints;
 2. explicit entry, template, and mode;
 3. the first matching workspace Profile at
-   `<repo>/.codex/better-workflows.json`;
+   `<repo>/.better-workflows/profile.json` (or legacy
+   `<repo>/.codex/better-workflows.json` only when the v4 path is absent);
 4. the first matching personal Profile at
    `$SBW_STATE_ROOT/routing/profile.json`;
 5. built-in `auto`.
@@ -190,8 +197,12 @@ at most `2`, no hard exclusion, and no selector, Profile, host constraint, or
 protected/remote target requiring more. Unknown is evidence-required. Scope,
 source, target, risk, or capability drift invalidates the assessment and route.
 
-Direct checks are local, offline, side-effect-free, and bounded to 120 seconds.
-Failure or an unexplained result blocks completion. A Direct Git mutation keeps
+Direct checks are local, offline, side-effect-free outside task scratch, and
+bounded to 120 seconds. Reads stay within the task worktree and scratch. They
+use only the guarded Node runner; npm/pnpm, child processes, workers, native
+addons, network use, checkout-external reads, or isolation-override flags
+require an evidence route. This is a trusted-code seat belt, not a malicious
+code sandbox. Failure or an unexplained result blocks completion. A Direct Git mutation keeps
 the minimal workspace lease but no evidence ledger. That lease is recovery and
 ownership state, not replayable proof.
 

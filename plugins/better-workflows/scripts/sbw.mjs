@@ -8,6 +8,7 @@ import {
   readFile,
   readdir,
   readlink,
+  realpath,
   stat
 } from "node:fs/promises";
 import path from "node:path";
@@ -172,10 +173,13 @@ import {
   releaseConformanceMatrix
 } from "./lib/hosts.mjs";
 import {
+  workspaceBeginDirect,
   workspaceCleanup,
   workspaceCreate,
+  workspaceDirectCompletionNotice,
   workspaceIntegrate,
   workspacePreflight,
+  readWorkspaceLease,
   workspaceReconcileProtected,
   workspaceRegister,
   workspaceRebindTarget,
@@ -1570,11 +1574,35 @@ async function commandRun(root, options) {
         throw new Error(`--route-receipt cannot be combined with --${conflicting}`);
       }
     }
+    const hasWorkspaceTask = Boolean(options["workspace-task-id"]);
+    const hasWorkspaceRepository = Boolean(options["workspace-repository-id"]);
+    if (hasWorkspaceTask !== hasWorkspaceRepository) {
+      throw new Error("Direct Git mutation requires both --workspace-task-id and --workspace-repository-id");
+    }
+    const pendingWorkspaceLease = hasWorkspaceTask
+      ? await readWorkspaceLease({
+          stateRoot: root,
+          repositoryId: String(options["workspace-repository-id"]),
+          taskId: String(options["workspace-task-id"])
+        })
+      : null;
+    const expectedClaimant = pendingWorkspaceLease
+      ? {
+          kind: "direct-workspace-v1",
+          ownershipNonce: pendingWorkspaceLease.ownershipNonce,
+          repositoryId: String(options["workspace-repository-id"]),
+          taskId: String(options["workspace-task-id"])
+        }
+      : null;
     receiptBinding = await validateRouteReceipt({
       stateRoot: root,
       cwd: process.cwd(),
-      receiptId: String(options["route-receipt"])
+      receiptId: String(options["route-receipt"]),
+      expectedClaimant
     });
+    if (receiptBinding.preview.primary.template && pendingWorkspaceLease) {
+      throw new Error("Workspace lease options are only valid for a Direct Git mutation route");
+    }
     if (!receiptBinding.preview.primary.template) {
       const assessment = receiptBinding.preview.autoRiskAssessment;
       if (assessment?.decision !== "direct-fast-path") {
@@ -1585,26 +1613,42 @@ async function commandRun(root, options) {
         if (!options["workspace-task-id"] || !options["workspace-repository-id"]) {
           throw new Error("Direct Git mutation requires --workspace-task-id and --workspace-repository-id");
         }
-        const status = await workspaceStatus({
+        const claimant = expectedClaimant;
+        const receiptWorkspace = await realpath(receiptBinding.receipt.cwd);
+        const pendingLeaseWorkspace = await realpath(pendingWorkspaceLease.sourceCheckout);
+        if (pendingLeaseWorkspace !== receiptWorkspace) {
+          throw new Error("Direct Git mutation workspace lease does not match the route receipt");
+        }
+        await claimRouteReceipt({
+          stateRoot: root,
+          receiptId: receiptBinding.receipt.receiptId,
+          claimant
+        });
+        const startedWorkspace = await workspaceBeginDirect({
           stateRoot: root,
           repositoryId: String(options["workspace-repository-id"]),
-          taskId: String(options["workspace-task-id"])
+          taskId: String(options["workspace-task-id"]),
+          routeReceiptId: receiptBinding.receipt.receiptId,
+          assessmentDigest: assessment.assessmentDigest,
+          sourceRevision: assessment.sourceRevision,
+          integrationTarget: assessment.integrationTarget,
+          integrationTargetRevision: assessment.integrationTargetRevision,
+          basicCheckPlan: assessment.basicCheckPlan
         });
-        workspaceLease = status.lease;
-        if (
-          !["isolated", "working"].includes(workspaceLease.lifecycleState) ||
-          workspaceLease.sourceCheckout !== receiptBinding.receipt.cwd ||
-          workspaceLease.integrationTarget !== assessment.integrationTarget
-        ) {
+        workspaceLease = startedWorkspace.lease;
+        const startedLeaseWorkspace = await realpath(workspaceLease.sourceCheckout);
+        if (startedLeaseWorkspace !== receiptWorkspace) {
           throw new Error("Direct Git mutation workspace lease does not match the route receipt");
         }
       } else if (options["workspace-task-id"] || options["workspace-repository-id"]) {
         throw new Error("Workspace lease options are only valid for a Direct Git mutation route");
       }
-      await claimRouteReceipt({
-        stateRoot: root,
-        receiptId: receiptBinding.receipt.receiptId
-      });
+      if (assessment.workspaceLifecycle !== "isolated-worktree") {
+        await claimRouteReceipt({
+          stateRoot: root,
+          receiptId: receiptBinding.receipt.receiptId
+        });
+      }
       await markRouteReceiptUsed({
         stateRoot: root,
         receiptId: receiptBinding.receipt.receiptId,
@@ -2010,7 +2054,18 @@ async function commandWorkspace(root, subcommand, options) {
       taskId: String(options["task-id"])
     });
   }
-  throw new Error("workspace subcommand must be preflight, create, register, validate, integrate, reconcile, rebind, cleanup, or status");
+  if (subcommand === "completion-notice") {
+    assertKnownOptions(options, ["repository-id", "task-id"]);
+    if (!options["repository-id"] || !options["task-id"]) {
+      throw new Error("workspace completion-notice requires --repository-id and --task-id");
+    }
+    return workspaceDirectCompletionNotice({
+      stateRoot: root,
+      repositoryId: String(options["repository-id"]),
+      taskId: String(options["task-id"])
+    });
+  }
+  throw new Error("workspace subcommand must be preflight, create, register, validate, integrate, reconcile, rebind, cleanup, status, or completion-notice");
 }
 
 function quorumExpectedBindings(run, reviewPackage = null) {
@@ -2153,11 +2208,11 @@ async function commandRoute(root, subcommand, action, options) {
       tags: values(options.tag).map(String),
       autonomyProfile: options["autonomy-profile"] ? String(options["autonomy-profile"]) : null,
       risk: {
-        risk: integer(options.risk),
-        uncertainty: integer(options.uncertainty),
-        blastRadius: integer(options["blast-radius"]),
-        irreversibility: integer(options.irreversibility),
-        evidenceGap: integer(options["evidence-gap"])
+        risk: integer(options.risk, null),
+        uncertainty: integer(options.uncertainty, null),
+        blastRadius: integer(options["blast-radius"], null),
+        irreversibility: integer(options.irreversibility, null),
+        evidenceGap: integer(options["evidence-gap"], null)
       },
       hardExclusions: values(options["hard-exclusion"]).map(String),
       basicCheckPlan: values(options["basic-check"]).map(String),
@@ -2369,7 +2424,7 @@ function help() {
       "sbw workspace register --task-id <id> --base-revision <sha> --integration-target <local-branch> [--source-checkout <path>] [--source-branch <local-branch>]",
       "sbw workspace validate --repository-id <id> --task-id <id> --check-file <checks.json>",
       "sbw workspace rebind --repository-id <id> --task-id <id> --integration-target <local-branch>",
-      "sbw workspace integrate|cleanup|status --repository-id <id> --task-id <id>",
+      "sbw workspace integrate|cleanup|status|completion-notice --repository-id <id> --task-id <id>",
       "sbw workspace reconcile --repository-id <id> --task-id <id> --run-id <governed-run-id>",
       "sbw eval",
       "sbw cleanup [--older-than-days 30] [--apply]",

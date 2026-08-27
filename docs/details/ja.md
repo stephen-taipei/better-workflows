@@ -80,7 +80,7 @@ flowchart LR
 
 ### Versioned handoff package
 
-Better Workflows が探索結果を受け入れる前に、versioned handoff package に正規化します。これが scope drift を防ぐ境界です。
+Better Workflows が探索結果を受け入れる前に、versioned handoff package に正規化します。これは観測可能な handoff drift を止める gate であり、長期的な scope drift の減少を統計的に証明するものではありません。
 
 | Gate | 必須情報 | 探索へ戻す条件 |
 | --- | --- | --- |
@@ -147,7 +147,7 @@ Routing Profile は primary entry または template を一つだけ選択しま
 | ---: | --- | --- |
 | 1 | Host hard constraints | Local config では下げられず、host input がなければ `unverified`。 |
 | 2 | 明示的 entry/template/mode | User の picker／CLI 選択が優先。 |
-| 3 | Workspace Profile | `<repo>/.codex/better-workflows.json`。Match した rule が personal route を置換。 |
+| 3 | Workspace Profile | `<repo>/.better-workflows/profile.json`。v4 path がない場合のみ legacy `<repo>/.codex/better-workflows.json` を読み、Match した rule が personal route を置換。 |
 | 4 | Personal Profile | `$SBW_STATE_ROOT/routing/profile.json`。 |
 | 5 | Built-in `auto` | Evidence が実 template を選ぶまで `template: null`。 |
 
@@ -454,7 +454,7 @@ cleanup は拒否します。
 
 | Mode | 動作 |
 | --- | --- |
-| `direct` | Root が直接作業し、durable workflow state は作らない。 |
+| `direct` | Root は evidence workflow state を作らない。Git 変更では最小の `TaskWorkspaceLeaseV1` を保存し、タスク専用 worktree を使用する。 |
 | `verified` | Root と 1–3 の read-only research/review/refutation agents。 |
 | `deep` | `verified` 後、最大 2 つの Codex critics を直列実行。 |
 | `critical` | 完全な evidence/side-effect gates と、policy 必須の外部 reviewer。 |

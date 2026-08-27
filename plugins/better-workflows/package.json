@@ -5,6 +5,7 @@
   "license": "MIT",
   "private": true,
   "type": "module",
+  "types": "types/host-support-v1.d.ts",
   "engines": {
     "node": ">=24.0.0"
   },

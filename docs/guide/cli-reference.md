@@ -33,8 +33,12 @@ sbw route profile show
 
 The recorded preview includes `AutoRiskAssessmentV1`. Direct is selected only
 when every low-risk condition passes. `--protected-target`, any hard exclusion,
-an unknown mutation intent, missing acceptance, or missing Git integration
-target promotes the route to evidence-required.
+an unknown mutation intent, missing acceptance, an omitted risk score, or a
+missing targeted-check plan promotes the route to evidence-required. A Git
+mutation also requires an existing local integration target; its current exact
+revision is bound into the assessment, while a missing, remote, or protected
+target uses the governed route.
+Omitted risk scores normalize to the conservative value `3`, never to zero.
 
 ## Hosts and workspaces
 
@@ -60,6 +64,7 @@ sbw workspace reconcile --repository-id <id> --task-id <id> \
   --run-id <governed-run-id>
 sbw workspace cleanup --repository-id <id> --task-id <id>
 sbw workspace status --repository-id <id> --task-id <id>
+sbw workspace completion-notice --repository-id <id> --task-id <id>
 ```
 
 The workspace commands never infer cleanup ownership from a branch prefix or
@@ -69,6 +74,9 @@ target. Protected or remote delivery must continue through the governed PR and
 provider reconciliation commands; `reconcile` accepts only the matching
 successful merge and remote-sync actions from that governed run. Until both
 terminal receipts exist, the task lease and recovery resources remain in place.
+`completion-notice` derives the Direct message from the route-bound lease,
+successful actual checks, current target reconciliation, and exact cleanup
+receipt; it rejects caller-supplied completion claims.
 
 ## Runs, evidence, and findings
 

@@ -79,6 +79,7 @@ test("build emits 41 crawlable locale editions and complete SEO metadata", async
       assert.match(html, /id="v4-overview"/);
       assert.match(html, /id="host-support"/);
       assert.match(html, /class="support-matrix"/);
+      assert.match(html, /class="capability-matrix"/);
       assert.match(html, /macOS \+ Codex/);
       assert.match(html, /Replay/);
       assert.ok(

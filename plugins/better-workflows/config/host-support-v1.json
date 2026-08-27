@@ -75,6 +75,14 @@
         "name": "@openai/codex",
         "version": "0.150.1"
       },
+      "conformanceProbe": {
+        "kind": "native-contract",
+        "arguments": [],
+        "installArguments": null,
+        "installedManifestPath": null
+      },
+      "distributionRoot": "plugin",
+      "helperPath": "scripts/sbw.mjs",
       "manifestPath": ".codex-plugin/plugin.json",
       "extensionMechanism": "Codex plugin",
       "officialDocumentation": "https://developers.openai.com/codex/",
@@ -105,6 +113,14 @@
         "name": "@anthropic-ai/claude-code",
         "version": "2.1.247"
       },
+      "conformanceProbe": {
+        "kind": "cli-validate",
+        "arguments": ["plugin", "validate", "{distributionRoot}", "--strict"],
+        "installArguments": null,
+        "installedManifestPath": null
+      },
+      "distributionRoot": "plugin",
+      "helperPath": "scripts/sbw.mjs",
       "manifestPath": ".claude-plugin/plugin.json",
       "extensionMechanism": "Claude Code plugin",
       "officialDocumentation": "https://code.claude.com/docs/en/plugins",
@@ -137,6 +153,14 @@
         "name": "@google/gemini-cli",
         "version": "0.57.0"
       },
+      "conformanceProbe": {
+        "kind": "cli-validate-install",
+        "arguments": ["extensions", "validate", "{distributionRoot}"],
+        "installArguments": ["extensions", "install", "{distributionRoot}", "--consent"],
+        "installedManifestPath": ".gemini/extensions/better-workflows/gemini-extension.json"
+      },
+      "distributionRoot": "repository",
+      "helperPath": "plugins/better-workflows/scripts/sbw.mjs",
       "manifestPath": "gemini-extension.json",
       "extensionMechanism": "Gemini CLI extension",
       "officialDocumentation": "https://geminicli.com/docs/extensions/reference/",
@@ -169,6 +193,14 @@
         "name": "@qwen-code/qwen-code",
         "version": "0.22.2"
       },
+      "conformanceProbe": {
+        "kind": "isolated-install",
+        "arguments": ["extensions", "install", "{distributionRoot}", "--consent"],
+        "installArguments": null,
+        "installedManifestPath": ".qwen/extensions/better-workflows/qwen-extension.json"
+      },
+      "distributionRoot": "repository",
+      "helperPath": "plugins/better-workflows/scripts/sbw.mjs",
       "manifestPath": "qwen-extension.json",
       "extensionMechanism": "Qwen Code extension",
       "officialDocumentation": "https://qwenlm.github.io/qwen-code-docs/en/developers/extensions/extension/",
@@ -198,7 +230,10 @@
       "supportTier": "preview",
       "executable": "kimi",
       "conformancePackage": null,
-      "manifestPath": null,
+      "conformanceProbe": null,
+      "distributionRoot": null,
+      "helperPath": null,
+      "manifestPath": "compatibility/preview/kimi-code-cli.json",
       "extensionMechanism": "Compatibility pack",
       "officialDocumentation": null,
       "osSupport": {
@@ -227,7 +262,10 @@
       "supportTier": "preview",
       "executable": "kiro-cli",
       "conformancePackage": null,
-      "manifestPath": null,
+      "conformanceProbe": null,
+      "distributionRoot": null,
+      "helperPath": null,
+      "manifestPath": "compatibility/preview/kiro.json",
       "extensionMechanism": "Compatibility pack",
       "officialDocumentation": null,
       "osSupport": {
@@ -256,7 +294,10 @@
       "supportTier": "preview",
       "executable": "grok",
       "conformancePackage": null,
-      "manifestPath": null,
+      "conformanceProbe": null,
+      "distributionRoot": null,
+      "helperPath": null,
+      "manifestPath": "compatibility/preview/grok-build.json",
       "extensionMechanism": "Compatibility pack",
       "officialDocumentation": null,
       "osSupport": {
@@ -285,7 +326,10 @@
       "supportTier": "preview",
       "executable": "cursor",
       "conformancePackage": null,
-      "manifestPath": null,
+      "conformanceProbe": null,
+      "distributionRoot": null,
+      "helperPath": null,
+      "manifestPath": "compatibility/preview/cursor.json",
       "extensionMechanism": "Compatibility pack",
       "officialDocumentation": null,
       "osSupport": {
@@ -314,7 +358,10 @@
       "supportTier": "preview",
       "executable": "gh",
       "conformancePackage": null,
-      "manifestPath": null,
+      "conformanceProbe": null,
+      "distributionRoot": null,
+      "helperPath": null,
+      "manifestPath": "compatibility/preview/github-copilot.json",
       "extensionMechanism": "Compatibility pack",
       "officialDocumentation": null,
       "osSupport": {

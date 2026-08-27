@@ -101,8 +101,9 @@ const payload = {
   },
   testSuite: {
     result: "PASS",
-    command: "node --test hosts.test.mjs routing.test.mjs workspace.test.mjs providers.test.mjs; targeted CLI host/direct, typed-evidence/provider-reconciliation, and evaluator Replay tests",
+    command: "pinned host version plus official extension probe; node --test hosts.test.mjs routing.test.mjs workspace.test.mjs providers.test.mjs; targeted CLI host/direct plus source-bound ledger, typed-evidence, completion Replay, and provider-reconciliation tests",
     coverage: [
+      "host-extension-validation",
       "repo-discovery",
       "worktree-create-resume-integrate-cleanup",
       "auto-direct-routing",

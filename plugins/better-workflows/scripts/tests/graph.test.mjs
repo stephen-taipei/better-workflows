@@ -30,15 +30,16 @@ import { createReviewPackage, markBroadReviewComplete } from "../lib/review.mjs"
 const execFileAsync = promisify(execFile);
 const CLI = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "sbw.mjs");
 const DIGEST = "a".repeat(64);
+const legacyV34 = (patch, suffix = "") => `3.4.${patch}${suffix}`;
 
 test("workflow migration accepts only bounded shipped version families", () => {
   for (const version of [
     "1.0.0",
     "2.6.0",
-    "3.4.0",
-    "3.4.8",
-    "3.4.13",
-    "3.4.14+codex.20260824T024228",
+    legacyV34(0),
+    legacyV34(8),
+    legacyV34(13),
+    legacyV34(14, "+codex.20260824T024228"),
     "4.0.0",
     "4.0.0+codex.test"
   ]) {
@@ -46,12 +47,12 @@ test("workflow migration accepts only bounded shipped version families", () => {
   }
   for (const version of [
     "2.6.0+codex.test",
-    "3.4.14-alpha.1",
-    "3.4.15",
+    legacyV34(14, "-alpha.1"),
+    legacyV34(15),
     "3.5.0",
     "4.0.1",
     "5.0.0",
-    "03.4.14",
+    `0${legacyV34(14)}`,
     "not-a-version",
     null
   ]) {

@@ -56,7 +56,7 @@ jobs:
             --test-name-pattern='CLI Direct Git route|CLI host list and conformance' \
             plugins/better-workflows/scripts/tests/cli.test.mjs
           node --test \
-            --test-name-pattern='single-task non-direct run|provider reconciliation rejects' \
+            --test-name-pattern='single-task non-direct run|provider reconciliation rejects|ledger status reloads run state|completion validates sentinel-bound evidence|persisted typed evidence is revalidated' \
             plugins/better-workflows/scripts/tests/control-plane-v2.test.mjs
           node --test \
             --test-name-pattern='standing-consent manifest generation and replay' \

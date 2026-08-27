@@ -77,14 +77,38 @@ claimed to be identical.
 | --- | --- | --- | --- |
 | Recommended reference | **macOS + Codex** | macOS | Deepest native integration and complete reference UX |
 | Tier 1 | Codex, Claude Code, Gemini CLI, Qwen Code | macOS, Linux | Shared core safety semantics; host-native UX may differ |
-| Preview | Kimi Code CLI, Kiro, Grok Build, Cursor, GitHub Copilot | macOS, Linux | Compatibility pack with published limitations |
+| Preview | Kimi Code CLI, Kiro, Grok Build, Cursor, GitHub Copilot | macOS, Linux | [Manual compatibility pack](plugins/better-workflows/compatibility/preview/INSTRUCTIONS.md) with published limitations |
 | OS Preview | All listed hosts | Windows | Not covered by the v4.0.0 Tier 1 guarantee |
+
+Capability status: `native` = host-native integration; `core-bridge` = shared Better Workflows control layer; `unverified` and `unavailable` are not equivalent to support.
+
+| AI host | task-contract | typed-evidence | replay | action-gate | task-worktree | native-picker | native-subagents | self-improve-host-trust | plugin-cache-publication |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Codex | native | native | native | native | core-bridge | native | native | native | native |
+| Claude Code | core-bridge | core-bridge | core-bridge | core-bridge | core-bridge | unavailable | unverified | unavailable | unavailable |
+| Gemini CLI | core-bridge | core-bridge | core-bridge | core-bridge | core-bridge | unavailable | unverified | unavailable | unavailable |
+| Qwen Code | core-bridge | core-bridge | core-bridge | core-bridge | core-bridge | unavailable | unverified | unavailable | unavailable |
+| Kimi Code CLI | core-bridge | core-bridge | core-bridge | unverified | core-bridge | unavailable | unverified | unavailable | unavailable |
+| Kiro | core-bridge | core-bridge | core-bridge | unverified | core-bridge | unavailable | unverified | unavailable | unavailable |
+| Grok Build | core-bridge | core-bridge | core-bridge | unverified | core-bridge | unavailable | unverified | unavailable | unavailable |
+| Cursor | core-bridge | core-bridge | core-bridge | unverified | core-bridge | unavailable | unverified | unavailable | unavailable |
+| GitHub Copilot | core-bridge | core-bridge | core-bridge | unverified | core-bridge | unavailable | unverified | unavailable | unavailable |
 <!-- host-support-v1:end -->
 
 Use `sbw host list`, `sbw host doctor`, and `sbw host conformance` to inspect the
-registry and the current machine. A local PASS binds the executable and core
-bridge, but does not become release proof until it is wrapped by an authenticated
-CI/provider receipt.
+registry and the current machine. A local PASS binds the pinned CLI version,
+source manifest and helper, official extension validation path, and core
+bridge. Gemini and Qwen conformance also install the repository distribution
+into an isolated home and compare the installed manifest, context, and helper
+digests. A local PASS does not become release proof until the same result is
+wrapped by an authenticated, source-bound CI/provider receipt for the exact
+host/OS combination.
+
+Shared v4 state is host-neutral: `SBW_STATE_ROOT` overrides
+`XDG_STATE_HOME/better-workflows`, with `~/.better-workflows` as the portable
+default. `CODEX_HOME` is reserved for Codex-specific surfaces and no longer
+implicitly owns shared state. Existing v3 users can keep the old state by
+explicitly setting `SBW_STATE_ROOT` to their exact `<CODEX_HOME>/sbw` path.
 
 <!-- readme-section:problem-outcome -->
 ## From prompts to governed outcomes
@@ -165,10 +189,14 @@ $better-workflows:auto <describe the outcome you need>
 Success means the automatic route selects one concrete template and a minimum
 verification mode, or admits a fully bounded Direct route. Direct still cannot
 grant missing authority, install tools, widen scope, bypass a protected target,
-or skip the task worktree required for Git mutation.
+or skip the task worktree required for Git mutation. Its bounded runner accepts
+only guarded Node checks, reads only the task worktree/scratch, writes only to
+scratch, and promotes package-manager, network, child-process, native or
+checkout-external validation to the evidence route.
 
-Claude Code, Gemini CLI, and Qwen Code use their official extension mechanisms
-with the same `plugins/better-workflows` package. See the
+Claude Code uses the plugin package; Gemini CLI and Qwen Code install the
+repository-root extension, whose bridge is the same
+`plugins/better-workflows` package. See the
 [getting-started guide](docs/guide/getting-started.md) for host-specific install
 commands and capability differences.
 

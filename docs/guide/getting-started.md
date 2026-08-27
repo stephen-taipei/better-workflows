@@ -15,6 +15,12 @@ native integration. Other Tier 1 hosts use the same TaskContract, evidence,
 Replay, action-gate, and worktree semantics through the core bridge, but their
 picker, subagent, host-trust, and publication UX is not identical.
 
+The v4 state root is host-neutral: `SBW_STATE_ROOT` wins when set, then
+`XDG_STATE_HOME/better-workflows`, otherwise `~/.better-workflows`. It no
+longer defaults under `CODEX_HOME`. To keep using an existing v3 Codex state
+without moving it, set `SBW_STATE_ROOT` explicitly to that exact
+`<CODEX_HOME>/sbw` directory before invoking `sbw`.
+
 ## Install
 
 ### Codex — recommended reference
@@ -49,6 +55,19 @@ gemini extensions install https://github.com/stephen-taipei/better-workflows \
 Gemini CLI copies the extension. Restart the session after installation; use
 `gemini extensions update better-workflows` to refresh it later.
 
+The extension context resolves the bridge from its own loaded source path, not
+from your project working directory. For a standard user-scoped install, the
+equivalent manual check is:
+
+```bash
+SBW_GEMINI_ROOT="$HOME/.gemini/extensions/better-workflows"
+node "$SBW_GEMINI_ROOT/plugins/better-workflows/scripts/sbw.mjs" \
+  host doctor gemini-cli
+```
+
+For a linked or workspace-scoped extension, use the exact extension root shown
+by the host. Do not substitute a similarly named checkout.
+
 ### Qwen Code
 
 Pin the release before installing the local extension copy:
@@ -62,11 +81,36 @@ qwen extensions install ./better-workflows
 Qwen Code also copies the extension, so restart the session after installation
 and use `qwen extensions update better-workflows` for later updates.
 
+For a standard user-scoped install, the equivalent manual bridge check is:
+
+```bash
+SBW_QWEN_ROOT="$HOME/.qwen/extensions/better-workflows"
+node "$SBW_QWEN_ROOT/plugins/better-workflows/scripts/sbw.mjs" \
+  host doctor qwen-code
+```
+
+The same exact-root rule applies to linked or workspace-scoped installs.
+
 These mechanisms follow the official [Claude Code plugin](https://code.claude.com/docs/en/plugins),
 [Gemini CLI extension](https://geminicli.com/docs/extensions/reference/), and
 [Qwen Code extension](https://qwenlm.github.io/qwen-code-docs/en/developers/extensions/extension/)
 contracts. Tier 1 release claims still require Better Workflows conformance;
-the presence of an upstream extension feature alone is not proof.
+the presence of an upstream extension feature alone is not proof. Conformance
+checks the pinned CLI version, runs the official Claude/Gemini validator,
+installs the Gemini and Qwen repository distributions into an isolated home,
+and verifies the installed manifest, context, and helper against the exact
+source digests before exercising the shared safety suite. Claude validation
+uses strict mode so warnings cannot silently become Tier 1 release proof. The
+release gate authenticates that exact host/OS receipt in CI.
+
+### Preview hosts
+
+Kimi Code CLI, Kiro, Grok Build, Cursor, and GitHub Copilot use the
+[plugin-local manual compatibility pack](../../plugins/better-workflows/compatibility/preview/INSTRUCTIONS.md).
+Load the matching manifest and shared instructions through the host's own
+repository-instruction mechanism, then call the plugin-local `sbw` helper.
+This path is a local smoke-tested core bridge, not a native extension or Tier 1
+promise. Windows remains OS Preview for every host in v4.0.0.
 
 ## Pick a workflow
 

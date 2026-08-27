@@ -70,6 +70,9 @@
           "supportTier",
           "executable",
           "conformancePackage",
+          "conformanceProbe",
+          "distributionRoot",
+          "helperPath",
           "manifestPath",
           "extensionMechanism",
           "officialDocumentation",
@@ -96,6 +99,37 @@
               }
             ]
           },
+          "conformanceProbe": {
+            "oneOf": [
+              { "type": "null" },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["kind", "arguments", "installArguments", "installedManifestPath"],
+                "properties": {
+                  "kind": { "enum": ["native-contract", "cli-validate", "isolated-install", "cli-validate-install"] },
+                  "arguments": {
+                    "type": "array",
+                    "maxItems": 8,
+                    "items": { "type": "string" }
+                  },
+                  "installArguments": {
+                    "oneOf": [
+                      { "type": "null" },
+                      {
+                        "type": "array",
+                        "maxItems": 8,
+                        "items": { "type": "string" }
+                      }
+                    ]
+                  },
+                  "installedManifestPath": { "type": ["string", "null"] }
+                }
+              }
+            ]
+          },
+          "distributionRoot": { "enum": ["plugin", "repository", null] },
+          "helperPath": { "type": ["string", "null"] },
           "manifestPath": { "type": ["string", "null"] },
           "extensionMechanism": { "type": "string" },
           "officialDocumentation": { "type": ["string", "null"], "format": "uri" },

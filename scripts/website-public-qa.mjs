@@ -97,7 +97,9 @@ for (let offset = 0; offset < locales.length; offset += 6) {
     if (!requiredLocalizedMessages.every((message) => html.includes(escapeHtml(message)))) {
       throw new Error(`Locale v4 translation boundary missing: ${locale.code}`);
     }
-    if (!html.includes("support-matrix") || !html.includes("macOS + Codex") || !html.includes("Replay") || !html.includes(sourceRevision)) {
+    if (!html.includes("support-matrix") || !html.includes("capability-matrix") ||
+        !html.includes("core-bridge") || !html.includes("macOS + Codex") ||
+        !html.includes("Replay") || !html.includes(sourceRevision)) {
       throw new Error(`Locale support or revision content missing: ${locale.code}`);
     }
     const responseDigest = sha256(body);

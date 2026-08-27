@@ -742,6 +742,14 @@ test("CLI Direct Git route requires an isolated lease and completes the owned wo
     "--acceptance-defined",
     "--risk",
     "1",
+    "--uncertainty",
+    "0",
+    "--blast-radius",
+    "0",
+    "--irreversibility",
+    "0",
+    "--evidence-gap",
+    "0",
     "--integration-target",
     "feature",
     "--basic-check",
@@ -782,6 +790,40 @@ test("CLI Direct Git route requires an isolated lease and completes the owned wo
   assert.equal(started.json.direct, true);
   assert.equal(started.json.runId, null);
   assert.equal(started.json.workspaceLease.taskWorktree, created.json.lease.taskWorktree);
+  assert.equal(started.json.workspaceLease.lifecycleState, "working");
+  const resumedStart = await cli(cwd, stateRoot, [
+    "run",
+    "--route-receipt",
+    preview.json.receipt.id,
+    "--workspace-task-id",
+    created.json.lease.taskId,
+    "--workspace-repository-id",
+    created.json.lease.repository.repositoryId
+  ]);
+  assert.equal(resumedStart.json.direct, true);
+  assert.equal(resumedStart.json.workspaceLease.lifecycleState, "working");
+  const conflictingLease = await cli(cwd, stateRoot, [
+    "workspace",
+    "create",
+    "--goal",
+    "Update a conflicting value",
+    "--task-id",
+    "task-conflicting-claim",
+    "--integration-target",
+    "feature"
+  ]);
+  assert.equal(conflictingLease.json.status, "isolated");
+  const conflictingStart = await cli(cwd, stateRoot, [
+    "run",
+    "--route-receipt",
+    preview.json.receipt.id,
+    "--workspace-task-id",
+    conflictingLease.json.lease.taskId,
+    "--workspace-repository-id",
+    conflictingLease.json.lease.repository.repositoryId
+  ], { allowFailure: true });
+  assert.notEqual(conflictingStart.code, 0);
+  assert.match(conflictingStart.stderr, /different consumer/);
   await assert.rejects(access(path.join(stateRoot, "runs")));
 
   await writeFile(path.join(created.json.lease.taskWorktree, "src", "value.txt"), "two\n");
@@ -801,6 +843,11 @@ test("CLI Direct Git route requires an isolated lease and completes the owned wo
   assert.equal(integrated.json.status, "integrated");
   const cleaned = await cli(cwd, stateRoot, ["workspace", "cleanup", ...common]);
   assert.equal(cleaned.json.status, "cleaned");
+  const completion = await cli(cwd, stateRoot, ["workspace", "completion-notice", ...common]);
+  assert.equal(completion.json.status, "complete");
+  assert.equal(completion.json.targetBranch, "feature");
+  assert.deepEqual(completion.json.checks, ["targeted node check"]);
+  assert.match(completion.json.notice, /補做證據驗證/);
   assert.equal(await readFile(path.join(cwd, "src", "value.txt"), "utf8"), "two\n");
   await assert.rejects(access(created.json.lease.taskWorktree));
 });
@@ -860,7 +907,7 @@ test("CLI host list and conformance expose registry truth without turning a loca
 
   const bin = await mkdtemp(path.join(os.tmpdir(), "sbw-cli-host-bin-"));
   const executable = path.join(bin, "codex");
-  await writeFile(executable, "#!/bin/sh\nprintf 'codex-test 4.0.0\\n'\n");
+  await writeFile(executable, "#!/bin/sh\nprintf 'codex-cli 0.150.1\\n'\n");
   await chmod(executable, 0o755);
   const conformance = await cli(
     cwd,

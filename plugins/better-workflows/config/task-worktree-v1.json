@@ -14,10 +14,15 @@
     "timeoutMs": 120000,
     "maxOutputBytes": 1048576,
     "allowedExecutables": [
-      "node",
-      "npm",
-      "pnpm"
-    ]
+      "node"
+    ],
+    "isolation": {
+      "id": "trusted-node-offline-v1",
+      "nodePermissionModel": true,
+      "networkGuard": "deny-standard-node-network",
+      "filesystemReads": "task-worktree-and-scratch-only",
+      "filesystemWrites": "task-scoped-scratch-only"
+    }
   },
   "integration": {
     "casRetries": 1,

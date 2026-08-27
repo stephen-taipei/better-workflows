@@ -551,7 +551,7 @@
             <p class="section-summary" data-i18n="mode.summary">風險提高時，系統增加 governed run、fresh evidence、獨立 critics 與 fail-closed gates；mutation authority 仍在 root。</p>
           </div>
           <div class="mode-grid">
-            <article class="card mode-card"><span class="level">LEVEL 1 / 4</span><h3>direct</h3><p data-i18n="mode.direct">低風險、可回復；root 直接執行，不建立 governed run。</p><div class="meter"><span class="on"></span><span></span><span></span><span></span></div></article>
+            <article class="card mode-card"><span class="level">LEVEL 1 / 4</span><h3>direct</h3><p data-i18n="mode.direct">低風險、可回復；不建立 evidence run，Git 修改仍使用最小 lease 與隔離 worktree。</p><div class="meter"><span class="on"></span><span></span><span></span><span></span></div></article>
             <article class="card mode-card"><span class="level">LEVEL 2 / 4</span><h3>verified</h3><p data-i18n="mode.verified">即時證據，加上 1–3 個唯讀 reviewer 做交叉驗證。</p><div class="meter"><span class="on"></span><span class="on"></span><span></span><span></span></div></article>
             <article class="card mode-card"><span class="level">LEVEL 3 / 4</span><h3>deep</h3><p data-i18n="mode.deep">在 verified wave 後加入獨立 Codex critics 與 broad review。</p><div class="meter"><span class="on"></span><span class="on"></span><span class="on"></span><span></span></div></article>
             <article class="card mode-card"><span class="level">LEVEL 4 / 4</span><h3>critical</h3><p data-i18n="mode.critical">不可逆副作用要求完整 authority、exact critic 與 reconciliation。</p><div class="meter"><span class="on"></span><span class="on"></span><span class="on"></span><span class="on"></span></div></article>
@@ -644,7 +644,7 @@
           'concept.truth.title': '外部已對帳', 'concept.truth.copy': 'Provider 的實際狀態必須由 receipt 或查詢重建，而非相信本機呼叫。',
           'concept.complete.title': '可以宣告完成', 'concept.complete.copy': '重驗 ledger、review、evidence、sentinel 與 side effects 後才有終態。',
           'mode.title': 'Mode 是驗證強度，不是 agent 數', 'mode.summary': '風險提高時，系統增加 governed run、fresh evidence、獨立 critics 與 fail-closed gates；mutation authority 仍在 root。',
-          'mode.direct': '低風險、可回復；root 直接執行，不建立 governed run。', 'mode.verified': '即時證據，加上 1–3 個唯讀 reviewer 做交叉驗證。',
+          'mode.direct': '低風險、可回復；不建立 evidence run，Git 修改仍使用最小 lease 與隔離 worktree。', 'mode.verified': '即時證據，加上 1–3 個唯讀 reviewer 做交叉驗證。',
           'mode.deep': '在 verified wave 後加入獨立 Codex critics 與 broad review。', 'mode.critical': '不可逆副作用要求完整 authority、exact critic 與 reconciliation。',
           'replay.title': 'Replay 至少有三種語義', 'replay.summary': '它們都用持久化輸入重建結論，但輸入、輸出和 failure policy 不同；reconciliation 更不是「再送一次」。',
           'replay.ledger': 'TaskContract + ordered events + admitted evidence 重建 ready set 與 task state。',
@@ -685,7 +685,7 @@
           'concept.truth.title': 'External truth reconciled', 'concept.truth.copy': 'Actual provider state is rebuilt from a receipt or query, not inferred from a local call.',
           'concept.complete.title': 'Completion can be declared', 'concept.complete.copy': 'Ledger, review, evidence, sentinel, and side effects are all revalidated.',
           'mode.title': 'Mode is assurance depth, not agent count', 'mode.summary': 'As risk rises, governed runs add fresh evidence, independent critics, and fail-closed gates; mutation authority remains with root.',
-          'mode.direct': 'Low risk and reversible; root executes directly with no governed run.', 'mode.verified': 'Fresh evidence plus one to three read-only reviewers for cross-checking.',
+          'mode.direct': 'Low risk and reversible; no evidence run, while Git mutation still uses a minimal lease and isolated worktree.', 'mode.verified': 'Fresh evidence plus one to three read-only reviewers for cross-checking.',
           'mode.deep': 'Independent Codex critics and broad review after the verified wave.', 'mode.critical': 'Irreversible effects require full authority, exact critics, and reconciliation.',
           'replay.title': 'Replay has at least three meanings', 'replay.summary': 'Each rebuilds a conclusion from persisted input, but inputs, outputs, and failure policies differ. Reconciliation never means “send it again.”',
           'replay.ledger': 'TaskContract + ordered events + admitted evidence rebuild the ready set and task state.',

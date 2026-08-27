@@ -51,7 +51,11 @@ For a Direct Git mutation, create or reuse the returned task-owned
 `TaskWorkspaceLeaseV1` before consuming the route receipt. Make, generate,
 test, and commit every change only in that worktree. Direct has no evidence
 journal or critics, but it still runs the recorded local, offline targeted
-checks within the 120-second bound. It validates the exact task head, safely
+checks within the 120-second bound. Direct accepts only the guarded Node runner;
+reads stay inside the task worktree and scratch, and writes stay in scratch.
+Package-manager scripts, checkout-external or symlink-store access, child
+processes, network use, or stronger sandbox requirements promote the work to an
+evidence route. It validates the exact task head, safely
 integrates only an eligible non-protected local target, and cleans only exact
 resources owned by the same lease after terminal integration proof.
 
@@ -86,8 +90,10 @@ and one PR targeting `dev`. It never grants protected merge, deploy, direct
 `dev/main` push, or destructive cleanup authority. Keep model aliases internal
 unless the user asks for them.
 
-After a Direct Git task, emit the standard completion notice only when both
-integration and cleanup are terminal and include the actual target and checks.
+After a Direct Git task, emit only the message returned by
+`sbw workspace completion-notice`; it derives terminal integration or no-op
+reconciliation, cleanup, the actual target, and checks from the bound lease.
+Never compose the notice from caller-supplied booleans or remembered state.
 Explain that the result used the low-risk Direct path and is not a complete
 replayable evidence workflow. Invite the user to reply `補做證據驗證`; that
 follow-up must route at least to `verified`. If integration or cleanup is still

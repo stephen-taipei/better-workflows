@@ -580,8 +580,8 @@ const MIGRATABLE_LEGACY_EXACT_VERSIONS = new Set([
 ]);
 const MIGRATABLE_LEGACY_FAMILIES = Object.freeze([
   // Before v4, every 3.4.x manifest no newer than the running plugin was
-  // eligible. 3.4.14 was the final v3.4 control-plane version, so preserve
-  // that bounded upgrade path after the major bump.
+  // eligible. Preserve that bounded final-v3.4 upgrade path after the major
+  // bump without exposing a historical patch label as an active version.
   Object.freeze({ major: 3, minor: 4, maxPatch: 14 })
 ]);
 
@@ -973,10 +973,15 @@ export function digestObject(value) {
 
 export function getStateRoot(env = process.env) {
   if (env.SBW_STATE_ROOT) return path.resolve(env.SBW_STATE_ROOT);
-  const codexHome = env.CODEX_HOME
-    ? path.resolve(env.CODEX_HOME)
-    : path.join(os.homedir(), ".codex");
-  return path.join(codexHome, "sbw");
+  if (env.XDG_STATE_HOME) {
+    return path.join(path.resolve(env.XDG_STATE_HOME), "better-workflows");
+  }
+  const home = env.HOME
+    ? path.resolve(env.HOME)
+    : env.USERPROFILE
+      ? path.resolve(env.USERPROFILE)
+      : os.homedir();
+  return path.join(home, ".better-workflows");
 }
 
 export function getCodexPluginCacheRoot(env = process.env) {

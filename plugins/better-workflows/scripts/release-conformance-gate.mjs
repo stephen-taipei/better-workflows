@@ -20,6 +20,7 @@ const TEST_FILES = Object.freeze([
   "plugins/better-workflows/scripts/tests/self-improve.test.mjs"
 ]);
 const COVERAGE = Object.freeze([
+  "host-extension-validation",
   "repo-discovery",
   "worktree-create-resume-integrate-cleanup",
   "auto-direct-routing",
@@ -89,6 +90,8 @@ for (const file of files) {
   if (payload.kind !== "better-workflows-host-conformance-envelope" || payload.schemaVersion !== 1) throw new Error(`Envelope identity mismatch: ${file}`);
   if (payload.hostId !== combination.hostId || payload.osId !== combination.osId) throw new Error(`Envelope combination mismatch: ${file}`);
   if (payload.sourceRevision !== sourceRevision || payload.registryDigest !== registryDigest) throw new Error(`Envelope source or registry drift: ${file}`);
+  const registryHost = registry.hosts.find((host) => host.id === payload.hostId);
+  if (!registryHost || registryHost.supportTier !== "tier1") throw new Error(`Envelope host is not Tier 1: ${file}`);
   const expectedWorkflowRef = `${repository}/.github/workflows/host-conformance.yml@refs/heads/main`;
   const expectedRunnerOs = payload.osId === "macos" ? "macOS" : "Linux";
   if (
@@ -104,11 +107,63 @@ for (const file of files) {
     payload.hostPackage?.executable !== combination.executable
   ) throw new Error(`Envelope host package drift: ${file}`);
   if (payload.testSuite?.result !== "PASS" || payload.coreReceipt?.result !== "PASS") throw new Error(`Conformance did not pass: ${file}`);
+  if (
+    payload.coreReceipt.hostId !== payload.hostId ||
+    payload.coreReceipt.osId !== payload.osId ||
+    payload.coreReceipt.registryDigest !== registryDigest ||
+    payload.coreReceipt.supportTier !== "tier1"
+  ) throw new Error(`Core receipt host, OS, support, or registry drift: ${file}`);
   if (payload.authentication?.status !== "awaiting-github-oidc-attestation" || payload.authentication?.releaseEligible !== false) {
     throw new Error(`Envelope must require external attestation verification: ${file}`);
   }
   if (!payload.coreReceipt?.versionProbe?.runtime?.digest || !payload.coreReceipt?.executable?.digest) {
     throw new Error(`Executable or runtime identity missing: ${file}`);
+  }
+  if (
+    payload.coreReceipt.versionProbe.expectedVersion !== combination.packageVersion ||
+    payload.coreReceipt.versionProbe.versionMatched !== true
+  ) {
+    throw new Error(`Pinned host version was not proven: ${file}`);
+  }
+  const { probeDigest, ...extensionProbePayload } = payload.coreReceipt.extensionProbe ?? {};
+  if (!SHA256.test(probeDigest) || digestObject(extensionProbePayload) !== probeDigest || extensionProbePayload.result !== "PASS") {
+    throw new Error(`Official host extension probe is missing or invalid: ${file}`);
+  }
+  const expectedProbeKind = {
+    codex: "native-contract",
+    "claude-code": "cli-validate",
+    "gemini-cli": "cli-validate-install",
+    "qwen-code": "isolated-install"
+  }[payload.hostId];
+  if (extensionProbePayload.kind !== expectedProbeKind || !SHA256.test(extensionProbePayload.helperDigest)) {
+    throw new Error(`Host helper or extension probe kind is invalid: ${file}`);
+  }
+  if (payload.coreReceipt.manifest?.digest !== extensionProbePayload.manifestDigest) {
+    throw new Error(`Doctor and extension probe manifest bindings differ: ${file}`);
+  }
+  const distributionPrefix = registryHost.distributionRoot === "plugin"
+    ? ["plugins", "better-workflows"]
+    : [];
+  const currentManifestDigest = sha256(await readFile(path.join(repositoryRoot, ...distributionPrefix, registryHost.manifestPath)));
+  const currentHelperDigest = sha256(await readFile(path.join(repositoryRoot, ...distributionPrefix, registryHost.helperPath)));
+  if (currentManifestDigest !== extensionProbePayload.manifestDigest || currentHelperDigest !== extensionProbePayload.helperDigest) {
+    throw new Error(`Host manifest or helper drifted from the exact release source: ${file}`);
+  }
+  const installedBundleRequired = payload.hostId === "gemini-cli" || payload.hostId === "qwen-code";
+  if (installedBundleRequired && (
+    !SHA256.test(extensionProbePayload.manifestDigest) ||
+    extensionProbePayload.installedManifestDigest !== extensionProbePayload.manifestDigest ||
+    extensionProbePayload.installedHelperDigest !== extensionProbePayload.helperDigest ||
+    !SHA256.test(extensionProbePayload.componentDigest) ||
+    extensionProbePayload.installedComponentDigest !== extensionProbePayload.componentDigest ||
+    !SHA256.test(extensionProbePayload.bundleDigest) ||
+    extensionProbePayload.installedBundleDigest !== extensionProbePayload.bundleDigest ||
+    !Number.isInteger(extensionProbePayload.bundleFileCount) || extensionProbePayload.bundleFileCount < 1 ||
+    extensionProbePayload.installedBundleFileCount !== extensionProbePayload.bundleFileCount ||
+    !Number.isInteger(extensionProbePayload.bundleBytes) || extensionProbePayload.bundleBytes < 1 ||
+    extensionProbePayload.installedBundleBytes !== extensionProbePayload.bundleBytes
+  )) {
+    throw new Error(`Installed host distribution is not source-identical: ${file}`);
   }
   const { receiptDigest, receiptPath: _receiptPath, ...corePayload } = payload.coreReceipt;
   if (!SHA256.test(receiptDigest) || digestObject(corePayload) !== receiptDigest || payload.coreReceiptDigest !== receiptDigest) {
@@ -147,6 +202,9 @@ for (const file of files) {
     coreReceiptDigest: receiptDigest,
     executableDigest: payload.coreReceipt.executable.digest,
     runtimeDigest: payload.coreReceipt.versionProbe.runtime.digest,
+    extensionProbeDigest: probeDigest,
+    helperDigest: extensionProbePayload.helperDigest,
+    installedBundleDigest: installedBundleRequired ? extensionProbePayload.installedBundleDigest : null,
     attestation: "github-oidc-verified",
     attestationVerificationDigest: sha256(attestationOutput)
   });

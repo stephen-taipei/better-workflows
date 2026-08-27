@@ -148,9 +148,13 @@ h1 em, h2 em { color: var(--blue); font-style: normal; }
 .auto-flow-list li::before { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 50%; background: var(--blue); color: #fff; content: counter(v4-step); counter-increment: v4-step; font-size: 12px; font-weight: 850; }
 .boundary-list li::before { color: var(--blue); content: "✓"; font-weight: 900; }
 .table-scroll { overflow-x: auto; }
-.support-matrix { width: 100%; min-width: 780px; overflow: hidden; border-collapse: collapse; border-radius: 20px; background: var(--surface); box-shadow: var(--shadow); }
-.support-matrix th, .support-matrix td { padding: 16px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
-.support-matrix thead th { background: color-mix(in srgb, var(--blue) 7%, var(--surface-solid)); color: var(--muted); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+.support-matrix, .capability-matrix { width: 100%; overflow: hidden; border-collapse: collapse; border-radius: 20px; background: var(--surface); box-shadow: var(--shadow); }
+.support-matrix { min-width: 780px; }
+.capability-matrix { min-width: 1420px; }
+.support-matrix th, .support-matrix td, .capability-matrix th, .capability-matrix td { padding: 16px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+.support-matrix thead th, .capability-matrix thead th { background: color-mix(in srgb, var(--blue) 7%, var(--surface-solid)); color: var(--muted); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+.capability-matrix code { white-space: nowrap; font-size: 12px; }
+.capability-legend { margin: 22px 2px 12px; color: var(--muted); font-size: 13px; }
 .claim-limit { margin: 24px 0 0; padding-top: 20px; border-top: 1px solid var(--line); color: var(--muted); }
 
 .docs-section { padding-bottom: 130px; }.docs-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }

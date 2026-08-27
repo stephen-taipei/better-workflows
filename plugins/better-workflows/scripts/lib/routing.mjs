@@ -26,11 +26,12 @@ import {
 import { inspectCachedDeliberationRoster } from "./deliberation.mjs";
 import { bundleDigest } from "./publication.mjs";
 import { autonomyProfileDigest, loadAutonomyProfile } from "./autonomy.mjs";
-import { isGitRepository, runSourceGit } from "./git.mjs";
+import { canonicalSourceRoot, isGitRepository, runSourceGit } from "./git.mjs";
 import { isProtectedBranch, loadTaskWorktreePolicy } from "./workspace.mjs";
 
 const CATALOG_PATH = path.join(pluginRoot(), "config", "entrypoint-catalog.json");
-const PROFILE_RELATIVE_PATH = path.join(".codex", "better-workflows.json");
+const PROFILE_RELATIVE_PATH = path.join(".better-workflows", "profile.json");
+const LEGACY_PROFILE_RELATIVE_PATH = path.join(".codex", "better-workflows.json");
 const PROFILE_SCHEMA_VERSION = 1;
 const RECEIPT_SCHEMA_VERSION = 1;
 const MAX_PROFILE_BYTES = 256 * 1024;
@@ -41,6 +42,9 @@ const SAFE_CAPABILITY = /^[A-Za-z0-9][A-Za-z0-9:._/-]{0,191}$/;
 const SHA1 = /^[a-f0-9]{40}$/;
 const SHA256 = /^[a-f0-9]{64}$/;
 const RECEIPT_ID = /^route-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{12}$/;
+const WORKSPACE_REPOSITORY_ID = /^[a-f0-9]{16}$/;
+const WORKSPACE_TASK_ID = /^[a-z0-9][a-z0-9-]{5,63}$/;
+const WORKSPACE_OWNERSHIP_NONCE = /^[a-f0-9]{32}$/;
 const ROUTE_MODES = ["direct", "verified", "deep", "critical"];
 const MODE_RANK = new Map(ROUTE_MODES.map((mode, index) => [mode, index]));
 const BLOCKING_CAPABILITY_STATES = new Set([
@@ -744,15 +748,28 @@ function chooseRule(profile, input) {
 }
 
 async function loadProfiles({ cwd, stateRoot }) {
+  const resolvedCwd = path.resolve(cwd);
+  const workspaceRoot = await isGitRepository(resolvedCwd)
+    ? await canonicalSourceRoot(resolvedCwd)
+    : resolvedCwd;
   const resolvedStateRoot = path.resolve(stateRoot ?? getStateRoot());
-  const workspacePath = path.join(path.resolve(cwd), PROFILE_RELATIVE_PATH);
+  const workspacePath = path.join(workspaceRoot, PROFILE_RELATIVE_PATH);
+  const legacyWorkspacePath = path.join(workspaceRoot, LEGACY_PROFILE_RELATIVE_PATH);
   const personalPath = safeJoin(resolvedStateRoot, "routing", "profile.json");
-  const workspaceRaw = await readSafeJson(path.resolve(cwd), workspacePath, { allowMissing: true });
+  const workspaceRaw = await readSafeJson(workspaceRoot, workspacePath, { allowMissing: true });
+  const legacyWorkspaceRaw = await readSafeJson(workspaceRoot, legacyWorkspacePath, { allowMissing: true });
+  if (workspaceRaw && legacyWorkspaceRaw) {
+    throw new Error(
+      "Both v4 .better-workflows/profile.json and legacy .codex/better-workflows.json exist; keep exactly one workspace routing Profile"
+    );
+  }
   const personalRaw = await readSafeJson(resolvedStateRoot, personalPath, { allowMissing: true });
-  const workspace = workspaceRaw ? validateRoutingProfile(workspaceRaw) : null;
+  const selectedWorkspaceRaw = workspaceRaw ?? legacyWorkspaceRaw;
+  const selectedWorkspacePath = workspaceRaw ? workspacePath : legacyWorkspaceRaw ? legacyWorkspacePath : workspacePath;
+  const workspace = selectedWorkspaceRaw ? validateRoutingProfile(selectedWorkspaceRaw) : null;
   const personal = personalRaw ? validateRoutingProfile(personalRaw) : null;
   return {
-    workspace: workspace ? { path: workspacePath, profile: workspace, digest: digestObject(workspace) } : null,
+    workspace: workspace ? { path: selectedWorkspacePath, profile: workspace, digest: digestObject(workspace) } : null,
     personal: personal ? { path: personalPath, profile: personal, digest: digestObject(personal) } : null
   };
 }
@@ -764,7 +781,8 @@ function strongestMode(...modes) {
 }
 
 function autoRiskScore(value, label) {
-  const normalized = value ?? 0;
+  if (value === undefined || value === null) return 3;
+  const normalized = value;
   if (!Number.isInteger(normalized) || normalized < 0 || normalized > 3) {
     throw new Error(`${label} must be an integer from 0 to 3`);
   }
@@ -802,6 +820,9 @@ export async function assessAutoRisk({
   if (!["unknown", "read-only", "modify"].includes(mutationIntent)) {
     throw new Error("mutationIntent must be unknown, read-only, or modify");
   }
+  if (typeof acceptanceDefined !== "boolean" || typeof protectedTarget !== "boolean" || typeof routeConstraint !== "boolean") {
+    throw new Error("Auto risk boolean inputs must be explicit booleans");
+  }
   const scores = {
     risk: autoRiskScore(risk.risk, "risk"),
     uncertainty: autoRiskScore(risk.uncertainty, "uncertainty"),
@@ -810,7 +831,10 @@ export async function assessAutoRisk({
     evidenceGap: autoRiskScore(risk.evidenceGap, "evidenceGap")
   };
   const exclusions = stringArray(hardExclusions, "hardExclusions");
-  const checks = stringArray(basicCheckPlan, "basicCheckPlan");
+  const checks = stringArray(basicCheckPlan, "basicCheckPlan", { max: 16 });
+  if (checks.some((check) => check.length > 160 || /[\r\n]/.test(check))) {
+    throw new Error("basicCheckPlan must contain at most 16 one-line names of 160 characters or fewer");
+  }
   const repository = await isGitRepository(resolvedCwd);
   const revision = sourceRevision === undefined
     ? await currentSourceRevision(resolvedCwd)
@@ -820,6 +844,17 @@ export async function assessAutoRisk({
   }
   const target = integrationTarget === null ? null : String(integrationTarget);
   const remoteTarget = target !== null && /^(?:refs\/remotes\/|origin\/)/.test(target);
+  let targetRevision = null;
+  if (repository && mutationIntent === "modify" && target !== null && !remoteTarget) {
+    const targetProbe = await runSourceGit(
+      resolvedCwd,
+      ["rev-parse", "--verify", `refs/heads/${target}^{commit}`],
+      { allowFailure: true }
+    );
+    if (targetProbe.ok && /^[a-f0-9]{40}\n$/i.test(targetProbe.stdout)) {
+      targetRevision = targetProbe.stdout.trim().toLowerCase();
+    }
+  }
   const policy = await loadTaskWorktreePolicy();
   const targetIsProtected = protectedTarget === true || (target !== null && !remoteTarget && isProtectedBranch(target, policy.protectedBranchPatterns));
   const total = Object.values(scores).reduce((sum, value) => sum + value, 0);
@@ -827,6 +862,10 @@ export async function assessAutoRisk({
   if (!acceptanceDefined) reasonCodes.push("acceptance-undefined");
   if (mutationIntent === "unknown") reasonCodes.push("mutation-intent-unknown");
   if (repository && mutationIntent === "modify" && target === null) reasonCodes.push("integration-target-undefined");
+  if (repository && mutationIntent === "modify" && target !== null && !remoteTarget && targetRevision === null) {
+    reasonCodes.push("integration-target-unverified");
+  }
+  if (checks.length === 0) reasonCodes.push("basic-check-plan-undefined");
   if (scores.irreversibility !== 0) reasonCodes.push("irreversibility-nonzero");
   for (const key of ["risk", "uncertainty", "blastRadius", "evidenceGap"]) {
     if (scores[key] > 1) reasonCodes.push(`${key}-above-direct-limit`);
@@ -862,12 +901,13 @@ export async function assessAutoRisk({
     riskTotal: total,
     hardExclusions: exclusions,
     reasonCodes,
-    basicCheckPlan: checks.length > 0 ? checks : ["targeted-local-check<=120s"],
+    basicCheckPlan: checks,
     decision,
     workspaceLifecycle,
     mutationIntent,
     acceptanceDefined: acceptanceDefined === true,
     integrationTarget: target,
+    integrationTargetRevision: targetRevision,
     protectedTarget: targetIsProtected
   };
   return {
@@ -1167,10 +1207,62 @@ export async function recordRouteReceipt({ stateRoot, cwd = process.cwd(), previ
   return { receiptId, path: target, receipt };
 }
 
+function normalizeRouteClaimant(claimant) {
+  if (claimant === null || claimant === undefined) return null;
+  if (!claimant || typeof claimant !== "object" || Array.isArray(claimant)) {
+    throw new Error("Route receipt claimant must be an object");
+  }
+  const keys = Object.keys(claimant).sort();
+  if (JSON.stringify(keys) !== JSON.stringify(["kind", "ownershipNonce", "repositoryId", "taskId"])) {
+    throw new Error("Route receipt claimant keys must bind kind, ownershipNonce, repositoryId, and taskId");
+  }
+  const normalized = {
+    kind: String(claimant.kind),
+    ownershipNonce: String(claimant.ownershipNonce).toLowerCase(),
+    repositoryId: String(claimant.repositoryId),
+    taskId: String(claimant.taskId).toLowerCase()
+  };
+  if (
+    normalized.kind !== "direct-workspace-v1" ||
+    !WORKSPACE_OWNERSHIP_NONCE.test(normalized.ownershipNonce) ||
+    !WORKSPACE_REPOSITORY_ID.test(normalized.repositoryId) ||
+    !WORKSPACE_TASK_ID.test(normalized.taskId)
+  ) {
+    throw new Error("Route receipt claimant identity is invalid");
+  }
+  return normalized;
+}
+
+async function matchingRouteClaim(stateRoot, receiptId, expectedClaimant) {
+  const claimPath = safeJoin(stateRoot, "route-receipts", `${receiptId}.claim`);
+  if (!(await pathExists(claimPath))) return null;
+  const claim = await readSafeJson(stateRoot, claimPath);
+  const legacyClaim = claim?.schemaVersion === undefined && claim?.claimant === undefined;
+  const claimant = legacyClaim ? null : normalizeRouteClaimant(claim?.claimant);
+  if (
+    (!legacyClaim && claim?.schemaVersion !== 1) ||
+    claim?.receiptId !== receiptId ||
+    !Number.isInteger(claim?.pid) ||
+    claim.pid < 1 ||
+    Number.isNaN(Date.parse(claim?.claimedAt))
+  ) {
+    throw new Error("Route receipt claim is malformed");
+  }
+  if (
+    expectedClaimant === null ||
+    claimant === null ||
+    digestObject(claimant) !== digestObject(expectedClaimant)
+  ) {
+    throw new Error("Route receipt was already claimed by a different consumer");
+  }
+  return { ...claim, claimant };
+}
+
 export async function validateRouteReceipt({
   stateRoot,
   cwd = process.cwd(),
-  receiptId
+  receiptId,
+  expectedClaimant = null
 }) {
   if (!RECEIPT_ID.test(String(receiptId))) throw new Error("Invalid route receipt id");
   const target = safeJoin(stateRoot, "route-receipts", `${receiptId}.json`);
@@ -1181,8 +1273,8 @@ export async function validateRouteReceipt({
   if (!Number.isFinite(Date.parse(receipt.expiresAt)) || Date.parse(receipt.expiresAt) <= Date.now()) {
     throw new Error("Route receipt expired");
   }
-  const claimPath = safeJoin(stateRoot, "route-receipts", `${receiptId}.claim`);
-  if (await pathExists(claimPath)) throw new Error("Route receipt was already claimed");
+  const normalizedClaimant = normalizeRouteClaimant(expectedClaimant);
+  const claim = await matchingRouteClaim(stateRoot, receiptId, normalizedClaimant);
   const resolvedCwd = path.resolve(cwd);
   if (receipt.cwd !== resolvedCwd) throw new Error("Route receipt workspace binding changed");
   const preview = await previewRoute({
@@ -1218,24 +1310,37 @@ export async function validateRouteReceipt({
     throw new Error(`Route receipt is stale: ${[...new Set(changed)].join(", ")}`);
   }
   if (!preview.ok) throw new Error(`Route receipt is blocked: ${preview.blockers.join(", ")}`);
-  return { receipt, preview, path: target };
+  return { receipt, preview, path: target, claim };
 }
 
-export async function claimRouteReceipt({ stateRoot, receiptId }) {
+export async function claimRouteReceipt({ stateRoot, receiptId, claimant = null }) {
   if (!RECEIPT_ID.test(String(receiptId))) throw new Error("Invalid route receipt id");
+  const normalizedClaimant = normalizeRouteClaimant(claimant);
   const directory = safeJoin(stateRoot, "route-receipts");
   const target = safeJoin(directory, `${receiptId}.claim`);
-  const handle = await open(target, "wx", 0o600).catch((error) => {
-    if (error.code === "EEXIST") throw new Error("Route receipt was already claimed");
-    throw error;
-  });
+  let handle;
   try {
-    await handle.writeFile(`${JSON.stringify({ receiptId, claimedAt: nowIso(), pid: process.pid })}\n`);
+    handle = await open(target, "wx", 0o600);
+  } catch (error) {
+    if (error.code !== "EEXIST") throw error;
+    const existing = await matchingRouteClaim(stateRoot, receiptId, normalizedClaimant);
+    if (existing) return { path: target, claim: existing, resumed: true };
+    throw new Error("Route receipt was already claimed");
+  }
+  const claim = {
+    schemaVersion: 1,
+    receiptId,
+    claimedAt: nowIso(),
+    pid: process.pid,
+    claimant: normalizedClaimant
+  };
+  try {
+    await handle.writeFile(`${JSON.stringify(claim)}\n`);
     await handle.sync();
   } finally {
     await handle.close();
   }
-  return target;
+  return { path: target, claim, resumed: false };
 }
 
 export async function markRouteReceiptUsed({ stateRoot, receiptId, runId }) {

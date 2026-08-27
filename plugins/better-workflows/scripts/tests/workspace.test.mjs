@@ -1,15 +1,19 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, realpath, symlink, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, readdir, realpath, symlink, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
+import { digestObject } from "../lib/core.mjs";
+import { processIncarnationDigest } from "../lib/publication.mjs";
 import {
   directCompletionNotice,
   isProtectedBranch,
+  workspaceBeginDirect,
   workspaceCleanup,
   workspaceCreate,
+  workspaceDirectCompletionNotice,
   workspaceIntegrate,
   workspacePreflight,
   workspaceReconcileProtected,
@@ -50,6 +54,32 @@ function passingChecks() {
       argv: ["node", "-e", "process.exit(0)"]
     }
   ];
+}
+
+function lockRecord(repositoryId, { pid, processIncarnation }) {
+  const payload = {
+    schemaVersion: 1,
+    repositoryId,
+    token: "a".repeat(48),
+    pid,
+    host: os.hostname(),
+    processIncarnation,
+    createdAt: "2026-08-27T00:00:00.000Z"
+  };
+  return { ...payload, lockDigest: digestObject(payload) };
+}
+
+function minimalLease(taskId, taskWorktree, lifecycleState = "cleaned") {
+  const payload = {
+    schemaVersion: 1,
+    kind: "TaskWorkspaceLeaseV1",
+    taskId,
+    lifecycleState,
+    blockedState: null,
+    taskWorktree,
+    taskBranch: `codex/${taskId}`
+  };
+  return { ...payload, leaseDigest: digestObject(payload) };
 }
 
 test("workspace preflight does not create Git resources for non-repositories or read-only work", async () => {
@@ -104,6 +134,204 @@ test("dirty source and detached HEAD fail closed before branch or worktree creat
   assert.equal(detached.ok, false);
   assert.equal(detached.status, "target-missing");
   assert.ok(detached.suggestions.some((item) => item.branch === "feature"));
+
+  await git(detachedRepo, "update-ref", "refs/remotes/origin/ghost", "HEAD");
+  await git(detachedRepo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/ghost");
+  const remoteOnly = await workspacePreflight({ cwd: detachedRepo, stateRoot, intent: "modify" });
+  assert.equal(remoteOnly.suggestions.some((item) => item.branch === "ghost"), false);
+
+  await git(detachedRepo, "branch", "main", "HEAD");
+  await git(detachedRepo, "update-ref", "refs/remotes/origin/main", "HEAD");
+  await git(detachedRepo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main");
+  const originHead = await workspacePreflight({ cwd: detachedRepo, stateRoot, intent: "modify" });
+  assert.ok(originHead.suggestions.some((item) => item.branch === "main" && item.reason === "origin-head"));
+});
+
+test("repository locks reclaim only proven stale process incarnations and preserve live owners", async () => {
+  const cwd = await repository();
+  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-workspace-lock-state-"));
+  const preflight = await workspacePreflight({ cwd, stateRoot, intent: "modify" });
+  const lockDirectory = path.join(stateRoot, "workspace-locks");
+  const lockPath = path.join(lockDirectory, `${preflight.repository.repositoryId}.lock`);
+  await mkdir(lockDirectory, { recursive: true });
+  await writeFile(lockPath, `${JSON.stringify(lockRecord(preflight.repository.repositoryId, {
+    pid: 2_147_483_647,
+    processIncarnation: "b".repeat(64)
+  }))}\n`);
+
+  const recovered = await workspaceCreate({
+    cwd,
+    stateRoot,
+    goal: "Recover interrupted task",
+    taskId: "task-stale-lock"
+  });
+  assert.equal(recovered.ok, true);
+  assert.deepEqual(await readdir(lockDirectory), []);
+  await workspaceValidate({
+    stateRoot,
+    repositoryId: recovered.lease.repository.repositoryId,
+    taskId: recovered.lease.taskId,
+    checks: passingChecks()
+  });
+  await workspaceCleanup({
+    stateRoot,
+    repositoryId: recovered.lease.repository.repositoryId,
+    taskId: recovered.lease.taskId
+  });
+
+  const liveIncarnation = await processIncarnationDigest(process.pid);
+  if (/^[a-f0-9]{64}$/.test(liveIncarnation ?? "")) {
+    await writeFile(lockPath, `${JSON.stringify(lockRecord(preflight.repository.repositoryId, {
+      pid: process.pid,
+      processIncarnation: liveIncarnation
+    }))}\n`);
+    await assert.rejects(
+      workspaceCreate({
+        cwd,
+        stateRoot,
+        goal: "Do not steal live task",
+        taskId: "task-live-lock"
+      }),
+      /held by live pid/
+    );
+    assert.equal(JSON.parse(await readFile(lockPath, "utf8")).processIncarnation, liveIncarnation);
+  }
+});
+
+test("unowned task branch or path collisions allocate a new task id without overwriting", async () => {
+  const cwd = await repository();
+  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-workspace-collision-state-"));
+  await git(cwd, "branch", "codex/change-app-collision", "HEAD");
+  const branchCollision = await workspaceCreate({
+    cwd,
+    stateRoot,
+    goal: "Change app",
+    taskId: "task-branch-collision"
+  });
+  assert.equal(branchCollision.ok, true);
+  assert.equal(branchCollision.taskIdRegenerated, true);
+  assert.notEqual(branchCollision.lease.taskId, "task-branch-collision");
+  assert.equal((await git(cwd, "rev-parse", "refs/heads/codex/change-app-collision")).stdout.trim(), branchCollision.lease.baseRevision);
+  await workspaceValidate({
+    stateRoot,
+    repositoryId: branchCollision.lease.repository.repositoryId,
+    taskId: branchCollision.lease.taskId,
+    checks: passingChecks()
+  });
+  await workspaceCleanup({
+    stateRoot,
+    repositoryId: branchCollision.lease.repository.repositoryId,
+    taskId: branchCollision.lease.taskId
+  });
+
+  const preflight = await workspacePreflight({ cwd, stateRoot, intent: "modify" });
+  const occupiedPath = path.join(stateRoot, "worktrees", preflight.repository.repositoryId, "task-path-collision");
+  await mkdir(occupiedPath, { recursive: true });
+  await writeFile(path.join(occupiedPath, "owner.txt"), "external\n");
+  const pathCollision = await workspaceCreate({
+    cwd,
+    stateRoot,
+    goal: "Change path",
+    taskId: "task-path-collision"
+  });
+  assert.equal(pathCollision.ok, true);
+  assert.equal(pathCollision.taskIdRegenerated, true);
+  assert.equal(await readFile(path.join(occupiedPath, "owner.txt"), "utf8"), "external\n");
+  await workspaceValidate({
+    stateRoot,
+    repositoryId: pathCollision.lease.repository.repositoryId,
+    taskId: pathCollision.lease.taskId,
+    checks: passingChecks()
+  });
+  await workspaceCleanup({
+    stateRoot,
+    repositoryId: pathCollision.lease.repository.repositoryId,
+    taskId: pathCollision.lease.taskId
+  });
+});
+
+test("Direct activation binds exact route, source, and target revisions before entering working", async () => {
+  const cwd = await repository();
+  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-workspace-direct-start-state-"));
+  const created = await workspaceCreate({
+    cwd,
+    stateRoot,
+    goal: "Start Direct task",
+    taskId: "task-direct-start"
+  });
+  const input = {
+    stateRoot,
+    repositoryId: created.lease.repository.repositoryId,
+    taskId: created.lease.taskId,
+    routeReceiptId: "route-20260827T120000Z-aaaaaaaaaaaa",
+    assessmentDigest: "b".repeat(64),
+    sourceRevision: created.lease.baseRevision,
+    integrationTarget: created.lease.integrationTarget,
+    integrationTargetRevision: created.lease.targetRevisionAtBind,
+    basicCheckPlan: ["targeted node check"]
+  };
+  const started = await workspaceBeginDirect(input);
+  assert.equal(started.status, "working");
+  assert.equal(started.lease.directRoute.sourceRevision, created.lease.baseRevision);
+  assert.match(started.lease.directRoute.bindingDigest, /^[a-f0-9]{64}$/);
+  const resumed = await workspaceBeginDirect(input);
+  assert.equal(resumed.resumed, true);
+  await assert.rejects(
+    workspaceRebindTarget({
+      stateRoot,
+      repositoryId: created.lease.repository.repositoryId,
+      taskId: created.lease.taskId,
+      integrationTarget: "feature"
+    }),
+    /started Direct route cannot change integration target/
+  );
+  await workspaceValidate({ ...input, checks: passingChecks() });
+  await workspaceCleanup({
+    stateRoot,
+    repositoryId: created.lease.repository.repositoryId,
+    taskId: created.lease.taskId
+  });
+  const noOpNotice = await workspaceDirectCompletionNotice({
+    stateRoot,
+    repositoryId: created.lease.repository.repositoryId,
+    taskId: created.lease.taskId
+  });
+  assert.equal(noOpNotice.noOp, true);
+  assert.match(noOpNotice.notice, /沒有 repository diff/);
+
+  const staleRepo = await repository();
+  const staleCreated = await workspaceCreate({
+    cwd: staleRepo,
+    stateRoot,
+    goal: "Reject stale Direct task",
+    taskId: "task-direct-stale"
+  });
+  const advanced = await commitFile(staleRepo, "source.txt", "advanced\n", "advance source");
+  await assert.rejects(
+    workspaceBeginDirect({
+      stateRoot,
+      repositoryId: staleCreated.lease.repository.repositoryId,
+      taskId: staleCreated.lease.taskId,
+      routeReceiptId: "route-20260827T120001Z-cccccccccccc",
+      assessmentDigest: "d".repeat(64),
+      sourceRevision: advanced,
+      integrationTarget: staleCreated.lease.integrationTarget,
+      integrationTargetRevision: advanced,
+      basicCheckPlan: ["targeted node check"]
+    }),
+    /does not match the source-bound route assessment/
+  );
+  await workspaceValidate({
+    stateRoot,
+    repositoryId: staleCreated.lease.repository.repositoryId,
+    taskId: staleCreated.lease.taskId,
+    checks: passingChecks()
+  });
+  await workspaceCleanup({
+    stateRoot,
+    repositoryId: staleCreated.lease.repository.repositoryId,
+    taskId: staleCreated.lease.taskId
+  });
 });
 
 test("mutation lifecycle isolates, reuses by owner, validates, integrates with CAS, and cleans exact resources", async () => {
@@ -184,6 +412,95 @@ test("mutation lifecycle isolates, reuses by owner, validates, integrates with C
   });
   assert.equal(status.resources.taskWorktreeExists, false);
   assert.equal(status.resources.taskBranchRevision, null);
+});
+
+test("Direct targeted checks deny network, external writes, child processes, and isolation overrides", async () => {
+  const cwd = await repository();
+  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-workspace-check-guard-state-"));
+  const created = await workspaceCreate({
+    cwd,
+    stateRoot,
+    goal: "Guard Direct check",
+    taskId: "task-direct-check-guard"
+  });
+  const common = {
+    stateRoot,
+    repositoryId: created.lease.repository.repositoryId,
+    taskId: created.lease.taskId
+  };
+
+  const network = await workspaceValidate({
+    ...common,
+    checks: [{
+      name: "network must be denied",
+      argv: ["node", "-e", "require('node:http').get('http://127.0.0.1:9')"]
+    }]
+  });
+  assert.equal(network.ok, false);
+  assert.equal(network.validation.checks[0].failureCode, "network-denied");
+  assert.match(network.validation.checks[0].guardDigest, /^[a-f0-9]{64}$/);
+  assert.match(network.validation.checks[0].stderrDigest, /^[a-f0-9]{64}$/);
+
+  const outside = path.join(os.tmpdir(), `sbw-direct-check-outside-${Date.now()}`);
+  const filesystem = await workspaceValidate({
+    ...common,
+    checks: [{
+      name: "external write must be denied",
+      argv: ["node", "-e", `require('node:fs').writeFileSync(${JSON.stringify(outside)}, 'blocked')`]
+    }]
+  });
+  assert.equal(filesystem.ok, false);
+  assert.equal(filesystem.validation.checks[0].failureCode, "permission-denied");
+  await assert.rejects(readFile(outside), (error) => error.code === "ENOENT");
+
+  const externalRead = path.join(os.tmpdir(), `sbw-direct-check-read-${Date.now()}`);
+  await writeFile(externalRead, "private\n");
+  const filesystemRead = await workspaceValidate({
+    ...common,
+    checks: [{
+      name: "external read must be denied",
+      argv: ["node", "-e", `require('node:fs').readFileSync(${JSON.stringify(externalRead)})`]
+    }]
+  });
+  assert.equal(filesystemRead.ok, false);
+  assert.equal(filesystemRead.validation.checks[0].failureCode, "permission-denied");
+  await unlink(externalRead);
+
+  const child = await workspaceValidate({
+    ...common,
+    checks: [{
+      name: "child process must be denied",
+      argv: ["node", "-e", "const result = require('node:child_process').spawnSync(process.execPath, ['--version']); if (result.error) throw result.error"]
+    }]
+  });
+  assert.equal(child.ok, false);
+  assert.equal(child.validation.checks[0].failureCode, "permission-denied");
+
+  await assert.rejects(
+    workspaceValidate({
+      ...common,
+      checks: [{ name: "cannot weaken isolation", argv: ["node", "--allow-child-process", "-e", "process.exit(0)"] }]
+    }),
+    /weaken Direct check isolation/
+  );
+  await assert.rejects(
+    workspaceValidate({
+      ...common,
+      checks: [{ name: "cannot disable legacy permission mode", argv: ["node", "--no-experimental-permission", "-e", "process.exit(0)"] }]
+    }),
+    /weaken Direct check isolation/
+  );
+  await assert.rejects(
+    workspaceValidate({
+      ...common,
+      checks: [{ name: "no credentials in argv", argv: ["node", "-e", "const token='github_pat_abcdefghijklmnopqrstuvwxyz123456';"] }]
+    }),
+    /credential-shaped material/
+  );
+
+  const recovered = await workspaceValidate({ ...common, checks: passingChecks() });
+  assert.equal(recovered.ok, true);
+  await workspaceCleanup(common);
 });
 
 test("a verified host-provided task worktree is registered without nesting and remains host-owned after cleanup", async () => {
@@ -270,6 +587,15 @@ test("advanced local target is merged in a candidate, revalidated, then fast-for
   });
   await commitFile(created.lease.taskWorktree, "task.txt", "task\n", "task branch");
   await commitFile(cwd, "target.txt", "target\n", "target advanced");
+  const resumedAfterTargetAdvance = await workspaceCreate({
+    cwd,
+    stateRoot,
+    goal: "Add task file",
+    taskId: created.lease.taskId
+  });
+  assert.equal(resumedAfterTargetAdvance.ok, true);
+  assert.equal(resumedAfterTargetAdvance.status, "reused");
+  assert.equal(resumedAfterTargetAdvance.lease.baseRevision, created.lease.baseRevision);
   await workspaceValidate({
     stateRoot,
     repositoryId: created.lease.repository.repositoryId,
@@ -286,6 +612,93 @@ test("advanced local target is merged in a candidate, revalidated, then fast-for
   assert.equal(await readFile(path.join(cwd, "task.txt"), "utf8"), "task\n");
   assert.equal(await readFile(path.join(cwd, "target.txt"), "utf8"), "target\n");
   assert.equal((await git(cwd, "rev-list", "--parents", "-n", "1", "HEAD")).stdout.trim().split(" ").length, 3);
+});
+
+test("integration and cleanup resume exact owned resources after process interruption", async () => {
+  const cwd = await repository();
+  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-workspace-resume-state-"));
+  const created = await workspaceCreate({
+    cwd,
+    stateRoot,
+    goal: "Resume interrupted delivery",
+    taskId: "task-interrupted-delivery"
+  });
+  const taskHead = await commitFile(created.lease.taskWorktree, "resume.txt", "resume\n", "resumable task");
+  await workspaceValidate({
+    stateRoot,
+    repositoryId: created.lease.repository.repositoryId,
+    taskId: created.lease.taskId,
+    checks: passingChecks()
+  });
+
+  await assert.rejects(
+    workspaceIntegrate({
+      stateRoot,
+      repositoryId: created.lease.repository.repositoryId,
+      taskId: created.lease.taskId,
+      afterTargetUpdate: async () => {
+        throw new Error("simulated interruption after target update");
+      }
+    }),
+    /simulated interruption after target update/
+  );
+  assert.equal((await git(cwd, "rev-parse", "HEAD")).stdout.trim(), taskHead);
+  const interruptedIntegration = await workspaceStatus({
+    stateRoot,
+    repositoryId: created.lease.repository.repositoryId,
+    taskId: created.lease.taskId
+  });
+  assert.equal(interruptedIntegration.lease.lifecycleState, "integration-ready");
+  assert.equal(interruptedIntegration.lease.resources.integrationBranch.state, "validated");
+  const worktreesBeforeResume = (await git(cwd, "worktree", "list", "--porcelain")).stdout;
+
+  const resumedIntegration = await workspaceIntegrate({
+    stateRoot,
+    repositoryId: created.lease.repository.repositoryId,
+    taskId: created.lease.taskId
+  });
+  assert.equal(resumedIntegration.ok, true);
+  assert.equal(resumedIntegration.integration.method, "recovered-target-update");
+  assert.equal(resumedIntegration.integration.candidateHead, taskHead);
+  assert.equal((await git(cwd, "worktree", "list", "--porcelain")).stdout, worktreesBeforeResume);
+
+  await assert.rejects(
+    workspaceCleanup({
+      stateRoot,
+      repositoryId: created.lease.repository.repositoryId,
+      taskId: created.lease.taskId,
+      afterTaskWorktreeRemoval: async () => {
+        throw new Error("simulated interruption after task worktree removal");
+      }
+    }),
+    /simulated interruption after task worktree removal/
+  );
+  const interruptedCleanup = await workspaceStatus({
+    stateRoot,
+    repositoryId: created.lease.repository.repositoryId,
+    taskId: created.lease.taskId
+  });
+  assert.equal(interruptedCleanup.lease.lifecycleState, "cleanup-ready");
+  assert.equal(interruptedCleanup.resources.taskWorktreeExists, false);
+  assert.equal(interruptedCleanup.resources.taskBranchRevision, taskHead);
+
+  const resumedCleanup = await workspaceCleanup({
+    stateRoot,
+    repositoryId: created.lease.repository.repositoryId,
+    taskId: created.lease.taskId
+  });
+  assert.equal(resumedCleanup.ok, true);
+  assert.equal(resumedCleanup.status, "cleaned");
+  assert.equal(resumedCleanup.cleanup.finalTargetRevision, taskHead);
+  await assert.rejects(git(cwd, "rev-parse", "--verify", `refs/heads/${created.lease.taskBranch}`));
+
+  const idempotentCleanup = await workspaceCleanup({
+    stateRoot,
+    repositoryId: created.lease.repository.repositoryId,
+    taskId: created.lease.taskId
+  });
+  assert.equal(idempotentCleanup.resumed, true);
+  assert.equal(idempotentCleanup.cleanup.receiptDigest, resumedCleanup.cleanup.receiptDigest);
 });
 
 test("protected targets stop at PR ready and never authorize cleanup", async () => {
@@ -633,6 +1046,33 @@ test("validated no-op removes only its owned branch and worktree", async () => {
   assert.match((await git(cwd, "rev-parse", "--verify", "refs/heads/unrelated-worktree")).stdout, /^[a-f0-9]{40}\n$/);
 });
 
+test("validated protected-target no-op cleans owned resources without inventing a PR", async () => {
+  const cwd = await repository({ branch: "main" });
+  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-workspace-state-"));
+  const created = await workspaceCreate({
+    cwd,
+    stateRoot,
+    goal: "Protected no operation",
+    taskId: "task-protected-no-op"
+  });
+  assert.equal(created.lease.protectedTarget, true);
+  const validated = await workspaceValidate({
+    stateRoot,
+    repositoryId: created.lease.repository.repositoryId,
+    taskId: created.lease.taskId,
+    checks: passingChecks()
+  });
+  assert.equal(validated.status, "no-op");
+  const cleaned = await workspaceCleanup({
+    stateRoot,
+    repositoryId: created.lease.repository.repositoryId,
+    taskId: created.lease.taskId
+  });
+  assert.equal(cleaned.status, "cleaned");
+  assert.equal(cleaned.cleanup.finalTargetRevision, created.lease.baseRevision);
+  await assert.rejects(git(cwd, "rev-parse", "--verify", `refs/heads/${created.lease.taskBranch}`));
+});
+
 test("deleted or renamed integration targets require an explicit rebind", async () => {
   const cwd = await repository();
   const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-workspace-state-"));
@@ -704,6 +1144,47 @@ test("target moving during both CAS attempts stops with target-drift and preserv
   assert.equal(await realpath(created.lease.taskWorktree), created.lease.taskWorktree);
 });
 
+test("a validated candidate that drifts before target update cannot pollute the checked-out target", async () => {
+  const cwd = await repository();
+  const baseRevision = (await git(cwd, "rev-parse", "HEAD")).stdout.trim();
+  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-workspace-candidate-drift-"));
+  const created = await workspaceCreate({
+    cwd,
+    stateRoot,
+    goal: "Reject candidate drift",
+    taskId: "task-candidate-drift"
+  });
+  await commitFile(created.lease.taskWorktree, "task.txt", "task\n", "validated task");
+  await workspaceValidate({
+    stateRoot,
+    repositoryId: created.lease.repository.repositoryId,
+    taskId: created.lease.taskId,
+    checks: passingChecks()
+  });
+  const integrated = await workspaceIntegrate({
+    stateRoot,
+    repositoryId: created.lease.repository.repositoryId,
+    taskId: created.lease.taskId,
+    beforeTargetUpdate: async ({ lease }) => {
+      await commitFile(
+        lease.resources.integrationWorktree.path,
+        "unvalidated.txt",
+        "must not integrate\n",
+        "unvalidated candidate drift"
+      );
+    }
+  });
+  assert.equal(integrated.ok, false);
+  assert.equal(integrated.status, "ownership-conflict");
+  assert.equal((await git(cwd, "rev-parse", "HEAD")).stdout.trim(), baseRevision);
+  await assert.rejects(access(path.join(cwd, "unvalidated.txt")));
+  assert.equal(await realpath(created.lease.taskWorktree), created.lease.taskWorktree);
+  assert.equal(
+    await realpath(integrated.lease.resources.integrationWorktree.path),
+    integrated.lease.resources.integrationWorktree.path
+  );
+});
+
 test("a dirty target checkout blocks integration and preserves the validated task", async () => {
   const cwd = await repository();
   const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-workspace-state-"));
@@ -763,6 +1244,33 @@ test("branch collisions and task-owned subdirectories never overwrite or share r
   assert.equal(await realpath(first.lease.taskWorktree), first.lease.taskWorktree);
 });
 
+test("ownership discovery scans beyond 256 historical leases instead of silently truncating", async () => {
+  const cwd = await repository();
+  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-workspace-many-leases-"));
+  const preflight = await workspacePreflight({ cwd, stateRoot, intent: "read-only" });
+  const directory = path.join(stateRoot, "workspace-leases", preflight.repository.repositoryId);
+  await mkdir(directory, { recursive: true });
+  for (let index = 0; index < 300; index += 1) {
+    const taskId = `task-history-${String(index).padStart(4, "0")}`;
+    await writeFile(
+      path.join(directory, `${taskId}.json`),
+      `${JSON.stringify(minimalLease(taskId, path.join(stateRoot, "retired", taskId)))}\n`
+    );
+  }
+  const active = minimalLease("task-zzzz-active", await realpath(cwd), "isolated");
+  await writeFile(path.join(directory, "task-zzzz-active.json"), `${JSON.stringify(active)}\n`);
+
+  const conflict = await workspacePreflight({
+    cwd,
+    stateRoot,
+    intent: "modify",
+    taskId: "task-different-owner"
+  });
+  assert.equal(conflict.ok, false);
+  assert.equal(conflict.status, "ownership-conflict");
+  assert.equal(conflict.ownerTaskId, "task-zzzz-active");
+});
+
 test("nested repositories have independent identities and branch policy is explicit", async () => {
   const parent = await repository();
   const child = path.join(parent, "nested");
@@ -804,7 +1312,7 @@ test("repository discovery canonicalizes symlinks and dirty submodules fail clos
 test("Direct completion notice is impossible before both integration and cleanup", () => {
   assert.throws(
     () => directCompletionNotice({ targetBranch: "feature", checks: ["node test"], integrated: true, cleaned: false }),
-    /terminal integration and cleanup/
+    /terminal integration or no-op reconciliation plus cleanup/
   );
   const notice = directCompletionNotice({
     targetBranch: "feature",
@@ -823,4 +1331,12 @@ test("Direct completion notice is impossible before both integration and cleanup
   });
   assert.match(hostNotice, /host ownership 保留/);
   assert.doesNotMatch(hostNotice, /清理本任務擁有的 branch/);
+  assert.throws(
+    () => directCompletionNotice({ targetBranch: "main", checks: ["node test"], integrated: true, cleaned: true }),
+    /non-protected local target/
+  );
+  assert.throws(
+    () => directCompletionNotice({ targetBranch: "feature", checks: ["PASS\n未驗證"], integrated: true, cleaned: true }),
+    /actual checks/
+  );
 });

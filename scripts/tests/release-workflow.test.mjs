@@ -24,6 +24,7 @@ test("Tier 1 conformance publishes exactly eight source-bound OIDC-attested rece
   const tierOne = registry.hosts.filter((host) => host.supportTier === "tier1");
   assert.equal(tierOne.length * 2, 8);
   assert.ok(tierOne.every((host) => host.conformancePackage?.name && host.conformancePackage?.version));
+  assert.ok(tierOne.every((host) => host.conformanceProbe?.kind));
   assert.match(workflow, /host-conformance-matrix\.mjs/);
   assert.match(workflow, /fromJSON\(needs\.matrix\.outputs\.matrix\)/);
   for (const token of [
@@ -34,7 +35,10 @@ test("Tier 1 conformance publishes exactly eight source-bound OIDC-attested rece
     "providers.test.mjs",
     "control-plane-v2.test.mjs",
     "self-improve.test.mjs",
-    "CLI Direct Git route"
+    "CLI Direct Git route",
+    "ledger status reloads run state",
+    "completion validates sentinel-bound evidence",
+    "persisted typed evidence is revalidated"
   ]) assert.match(workflow, new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), token);
   for (const host of tierOne) assert.match(JSON.stringify(registry), new RegExp(host.conformancePackage.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 
@@ -43,6 +47,10 @@ test("Tier 1 conformance publishes exactly eight source-bound OIDC-attested rece
   assert.match(gate, /--signer-workflow/);
   assert.match(gate, /--deny-self-hosted-runners/);
   assert.match(gate, /Conformance test or coverage manifest is incomplete/);
+  assert.match(gate, /Pinned host version was not proven/);
+  assert.match(gate, /Official host extension probe is missing or invalid/);
+  assert.match(gate, /Installed host distribution is not source-identical/);
+  assert.match(gate, /installedBundleDigest/);
 });
 
 test("stable release is dispatch-only and orders all gates before publication", async () => {
@@ -72,6 +80,9 @@ test("release controller fails closed on main drift, conflicting tags, missing c
   assert.match(controller, /check\.app\?\.slug === "github-actions"/);
   assert.match(controller, /requiredCombinations !== 8/);
   assert.match(controller, /locales\?\.length !== 41/);
+  assert.match(controller, /extensionProbeDigest/);
+  assert.match(controller, /installedBundleDigest/);
+  assert.match(controller, /websiteAttestationVerificationDigest/);
   assert.match(controller, /draft: false/);
   assert.match(controller, /prerelease: false/);
   assert.match(controller, /--signer-workflow/);

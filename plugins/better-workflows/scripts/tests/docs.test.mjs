@@ -628,6 +628,19 @@ test("public host support matrix and extension versions stay bound to host-suppo
   assert.equal(block[1], renderHostSupportMarkdown(registry));
   assert.match(readme, /Official recommendation: macOS \+ Codex/);
   assert.match(readme, /host-native UX may differ/);
+  assert.match(readme, /XDG_STATE_HOME\/better-workflows/);
+  assert.match(readme, /CODEX_HOME[\s\S]{0,120}no longer[\s\S]{0,80}shared state/);
+
+  for (const [hostId, contextFile] of [["gemini-cli", "GEMINI.md"], ["qwen-code", "QWEN.md"]]) {
+    const host = registry.hosts.find((candidate) => candidate.id === hostId);
+    assert.equal(host.distributionRoot, "repository", hostId);
+    assert.equal(host.helperPath, "plugins/better-workflows/scripts/sbw.mjs", hostId);
+    const context = await readFile(path.join(repoRoot, contextFile), "utf8");
+    assert.match(context, /<extension-root>\/plugins\/better-workflows\/scripts\/sbw\.mjs/);
+    assert.match(context, /never from a path relative to the user's current repository/i);
+    assert.match(context, /XDG_STATE_HOME\/better-workflows/);
+    assert.match(context, /SBW_STATE_ROOT/);
+  }
 
   for (const relativePath of [
     ".claude-plugin/marketplace.json",
@@ -662,8 +675,12 @@ test("Auto and Direct skills enforce repository preflight, risk admission, isola
   assert.match(content, /squash[^\n]*receipt|receipt[^\n]*squash/i);
   assert.match(content, /Never auto-stash|Never stash/);
   assert.match(content, /120-second/);
+  assert.match(content, /workspace completion-notice/);
   assert.match(content, /pr-required[^\n]*not completion/);
   assert.match(content, /補做證據驗證/);
+  assert.match(content, /XDG_STATE_HOME\/better-workflows/);
+  assert.match(content, /Do not infer the core state root from `CODEX_HOME`/);
+  assert.match(content, /\.better-workflows\/profile\.json/);
 });
 
 test("split English guides preserve the complete detailed contract", async (context) => {
@@ -691,6 +708,10 @@ test("localized details pages preserve complete detailed coverage", async (conte
   for (const document of localizedDocuments) {
     const content = await readFile(document.details, "utf8");
     assertDetailedCoverage(content, document.details);
+    assert.match(content, /TaskWorkspaceLeaseV1/, document.details);
+    assert.match(content, /worktree/i, document.details);
+    assert.match(content, /\.better-workflows\/profile\.json/, document.details);
+    assert.doesNotMatch(content, /direct[^\n]*without durable workflow state/i, document.details);
     assert.doesNotMatch(content, /Gemini[（(](?:經|经|Agy 経由|Agy 경유).*Agy.*Grok/);
   }
 });

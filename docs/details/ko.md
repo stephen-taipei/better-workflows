@@ -80,7 +80,7 @@ flowchart LR
 
 ### 버전이 있는 handoff package
 
-Better Workflows가 탐색 결과를 받기 전에 versioned handoff package로 정규화합니다. 이것이 scope drift를 막는 경계입니다.
+Better Workflows가 탐색 결과를 받기 전에 versioned handoff package로 정규화합니다. 이는 관찰 가능한 handoff drift를 차단하는 gate이며, 장기 scope drift 감소를 통계적으로 입증했다는 뜻은 아닙니다.
 
 | Gate | 필요한 자료 | 탐색으로 되돌리는 조건 |
 | --- | --- | --- |
@@ -147,7 +147,7 @@ required capabilities, 최대 3개의**자문 전용** support skills를 지정�
 | ---: | --- | --- |
 | 1 | Host hard constraints | Local config로 낮출 수 없고 host input이 없으면 `unverified`. |
 | 2 | 명시적 entry/template/mode | 사용자의 picker 또는 CLI 선택이 우선. |
-| 3 | Workspace Profile | `<repo>/.codex/better-workflows.json`; match 시 personal route를 대체. |
+| 3 | Workspace Profile | `<repo>/.better-workflows/profile.json`; v4 path가 없을 때만 legacy `<repo>/.codex/better-workflows.json`을 읽고, match 시 personal route를 대체. |
 | 4 | Personal Profile | `$SBW_STATE_ROOT/routing/profile.json`. |
 | 5 | Built-in `auto` | Evidence가 실제 template을 고를 때까지 `template: null`. |
 
@@ -453,7 +453,7 @@ admin bypass, stale checks, 미검토 commit, remote reconciliation 전 cleanup�
 
 | Mode | 동작 |
 | --- | --- |
-| `direct` | Root가 직접 작업하며 durable workflow state를 만들지 않음. |
+| `direct` | Root는 evidence workflow state를 만들지 않음. Git 변경은 최소 `TaskWorkspaceLeaseV1`를 저장하고 작업 전용 worktree를 사용함. |
 | `verified` | Root와 1–3 read-only research/review/refutation agents. |
 | `deep` | `verified` 후 최대 2개의 Codex critics를 직렬 실행. |
 | `critical` | 전체 evidence/side-effect gates와 policy 필수 외부 reviewer. |

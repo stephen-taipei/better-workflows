@@ -25,14 +25,24 @@ is at most two, and no hard exclusion or protected/remote target applies.
 
 Direct is not “skip verification.” It runs a bounded targeted check with no
 network or external side effect and a total expected duration no longer than
-120 seconds. A failed or unexplained result cannot be reported as complete.
+120 seconds. The v4 runner accepts only guarded Node checks, restricts reads to
+the task worktree and task scratch, confines writes to that scratch, and denies
+standard Node network and process-spawn surfaces. Checks that need
+package-manager scripts, checkout-external files or stronger hostile-code
+isolation use the governed route. A failed or unexplained result cannot be
+reported as complete.
 Scope or risk drift invalidates the assessment and triggers a new route.
 
-For a Git mutation, Direct remains evidence-workflow-stateless but keeps a
-minimal `TaskWorkspaceLeaseV1`. The task edits, tests, commits, validates,
+For a Git mutation, Direct creates no governed evidence run but keeps a minimal
+`TaskWorkspaceLeaseV1`. The task edits, tests, commits, validates,
 integrates, and cleans only its owned worktree and branch. A dirty source,
 detached or missing target, ownership conflict, merge conflict, failed check,
 unknown provider state, or target drift fails closed.
+
+The route receipt is claimed before that lease enters `working`. An interrupted
+start can resume only with the same repository, task, and lease ownership
+nonce; another or same-named replacement task cannot consume the receipt or
+inherit the partially started workspace.
 
 A clean host-provided task worktree can be explicitly registered at its exact
 pre-mutation base. Registration prevents nested worktrees but does not transfer
