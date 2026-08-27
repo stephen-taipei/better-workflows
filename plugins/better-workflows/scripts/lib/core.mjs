@@ -5797,7 +5797,10 @@ export function assertPersistedSuccessfulMergeActionForRequiredChecks(
   return action;
 }
 
-export async function verifyMergeHumanApproval(cwd, payload) {
+export async function verifyMergeHumanApproval(cwd, payload, {
+  now = Date.now(),
+  recordedSourceBinding = null
+} = {}) {
   const approval = payload?.humanApproval;
   const authorization = approval?.authorization;
   const attestation = approval?.attestation;
@@ -5826,8 +5829,9 @@ export async function verifyMergeHumanApproval(cwd, payload) {
   ) {
     throw new Error("Governed PR merge human approval binding is incomplete");
   }
+  const nowMs = now instanceof Date ? now.getTime() : Number(now);
   const approvedAt = Date.parse(authorization.approvedAt ?? "");
-  if (!Number.isFinite(approvedAt) || approvedAt > Date.now() + 300_000 || Date.now() - approvedAt > 24 * 60 * 60 * 1000) {
+  if (!Number.isFinite(nowMs) || !Number.isFinite(approvedAt) || approvedAt > nowMs + 300_000 || nowMs - approvedAt > 24 * 60 * 60 * 1000) {
     throw new Error("Governed PR merge human approval is stale or invalid");
   }
   const expectedAuthorization = {
@@ -5873,15 +5877,30 @@ export async function verifyMergeHumanApproval(cwd, payload) {
   if (sha256(await readFile(attestationPath)) !== attestation.fileDigest) {
     throw new Error("Governed PR merge human approval attestation changed after authorization");
   }
-  const { captureSourceBinding } = await import("./git.mjs");
   let currentSource;
-  try {
-    currentSource = await captureSourceBinding(path.resolve(cwd), {
-      baseRevision: payload.base,
-      requireClean: true
-    });
-  } catch (error) {
-    throw new Error(`Governed PR merge human approval source registry binding is stale: ${error.message}`);
+  if (recordedSourceBinding !== null) {
+    const { digest, ...identity } = recordedSourceBinding ?? {};
+    const canonicalCwd = await realpath(path.resolve(cwd));
+    if (
+      !recordedSourceBinding || typeof recordedSourceBinding !== "object" || Array.isArray(recordedSourceBinding) ||
+      digestObject(identity) !== digest ||
+      recordedSourceBinding.cwd !== canonicalCwd ||
+      recordedSourceBinding.baseRevision !== payload.base ||
+      recordedSourceBinding.headRevision !== payload.head
+    ) {
+      throw new Error("Governed PR merge human approval recorded source registry binding is invalid");
+    }
+    currentSource = recordedSourceBinding;
+  } else {
+    const { captureSourceBinding } = await import("./git.mjs");
+    try {
+      currentSource = await captureSourceBinding(path.resolve(cwd), {
+        baseRevision: payload.base,
+        requireClean: true
+      });
+    } catch (error) {
+      throw new Error(`Governed PR merge human approval source registry binding is stale: ${error.message}`);
+    }
   }
   if (
     currentSource?.headRevision !== payload.head ||
@@ -5893,7 +5912,8 @@ export async function verifyMergeHumanApproval(cwd, payload) {
   const verified = await verifyTrustedNativeCriticAttestation({
     attestationPath,
     workspaceRoot: cwd,
-    binding
+    binding,
+    now: nowMs
   });
   if (
     verified.attestationDigest !== attestation.attestationDigest ||

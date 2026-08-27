@@ -154,6 +154,52 @@ async function makeRun(options = {}) {
   return { root, runDir, runId, contract, manifest, state };
 }
 
+async function replaceTypedEvidence(fixture, {
+  kind,
+  payload,
+  producer = "codex-root",
+  inputBinding = {},
+  record = {}
+}) {
+  const payloadDigest = digestObject(payload);
+  const value = {
+    schemaVersion: 2,
+    id: "environment",
+    kind,
+    status: "complete",
+    summary: `Recorded ${kind} fixture`,
+    sourceDigest: payloadDigest,
+    stale: false,
+    receipt: {
+      contractId: `evidence-contracts-v1:${kind}`,
+      contractVersion: 1,
+      runId: fixture.runId,
+      producer: { provider: producer },
+      inputBinding: {
+        runId: fixture.runId,
+        contractDigest: digestObject(fixture.contract),
+        remoteRevision: fixture.contract.remoteRevision ?? null,
+        sourceBindingDigest: fixture.manifest.sourceBinding.digest,
+        sourceSentinelDigest: fixture.state.lastSentinel.digest,
+        ...inputBinding
+      },
+      payload,
+      payloadDigest,
+      producedAt: updatedAt
+    },
+    typedAdmission: {
+      contractId: `evidence-contracts-v1:${kind}`,
+      contractVersion: 1,
+      admittedAt: updatedAt,
+      producer,
+      ...(record.sourceKind === "independent-critic" ? { independentCritic: true } : {})
+    },
+    ...record
+  };
+  await writeJson(path.join(fixture.runDir, "evidence", "environment.json"), value);
+  return value;
+}
+
 async function removeFixture(root) {
   await rm(root, { recursive: true, force: true });
 }
@@ -348,6 +394,242 @@ test("recorded typed evidence replays the installed contract verifier fail close
       .find((candidate) => candidate.id === "environment");
     assert.equal(projected.status, "invalid", item.runId);
   }
+});
+
+test("recorded action-proof evidence must reference the persisted reconciled action", async (context) => {
+  const fixture = await makeRun({ runId: "sbw-20260826T070405Z-555555555555" });
+  context.after(() => removeFixture(fixture.root));
+  const providerReceipt = {
+    action: "provider.reconcile",
+    provider: "github-cli",
+    resource: "pull/32",
+    outcome: "success",
+    runId: fixture.runId,
+    attemptId: "action-proof-1",
+    idempotencyKey: "provider-reconcile-32",
+    remoteRevision: "b".repeat(40),
+    executionId: "provider-execution-1",
+    proofKind: "github-api",
+    requestDigest: "4".repeat(64),
+    responseDigest: "5".repeat(64),
+    verifiedAt: updatedAt,
+    terminalState: "success"
+  };
+  const actionProof = {
+    schemaVersion: 1,
+    runId: fixture.runId,
+    actionAttemptId: "action-proof-1",
+    action: providerReceipt.action,
+    provider: providerReceipt.provider,
+    resource: providerReceipt.resource,
+    outcome: "success",
+    idempotencyKey: providerReceipt.idempotencyKey,
+    remoteRevision: providerReceipt.remoteRevision,
+    providerExecutionId: providerReceipt.executionId,
+    providerReceiptDigest: digestObject(providerReceipt)
+  };
+  const payload = { provider: "github-cli", receipt: providerReceipt, actionProof };
+  await replaceTypedEvidence(fixture, { kind: "provider-reconciliation", payload });
+  await mkdir(path.join(fixture.runDir, "actions"), { recursive: true, mode: 0o700 });
+  await writeJson(path.join(fixture.runDir, "actions", "action-proof-1.json"), {
+    attemptId: "action-proof-1",
+    runId: fixture.runId,
+    action: providerReceipt.action,
+    provider: providerReceipt.provider,
+    resource: providerReceipt.resource,
+    idempotencyKey: providerReceipt.idempotencyKey,
+    remoteRevision: providerReceipt.remoteRevision,
+    status: "spent",
+    outcome: "success",
+    receipt: { evidenceIds: ["environment"], providerReceipt }
+  });
+  assert.equal((await buildReplaySnapshot(fixture.root, fixture.runId)).manifest.assurance.outcome, "RECORDED_COMPLETED");
+
+  actionProof.actionAttemptId = "missing-action";
+  providerReceipt.attemptId = "missing-action";
+  actionProof.providerReceiptDigest = digestObject(providerReceipt);
+  await replaceTypedEvidence(fixture, { kind: "provider-reconciliation", payload });
+  const held = await buildReplaySnapshot(fixture.root, fixture.runId);
+  assert.equal(held.manifest.assurance.outcome, "HOLD");
+  assert.ok(held.manifest.assurance.blockers.includes("INVALID_TYPED_EVIDENCE:environment"));
+});
+
+test("recorded required-check observations use the admission-time semantic verifier", async (context) => {
+  const root = await mkdtemp(tempPrefix("sbw-replay-required-checks-"));
+  context.after(() => removeFixture(root));
+  const basePayload = {
+    command: "gh pr checks 32",
+    result: true,
+    pr: 32,
+    head: "a".repeat(40),
+    base: "b".repeat(40),
+    repository: "github.com/example/repo",
+    baseRefName: "dev",
+    checkSet: ["test"],
+    providerRunIds: ["run-1"],
+    conclusions: ["SUCCESS"],
+    checks: [{
+      name: "test#run-1",
+      providerName: "test",
+      providerRunId: "run-1",
+      observationKind: "check-run",
+      completedAt: "2026-08-26T07:04:00.000Z",
+      conclusion: "SUCCESS"
+    }],
+    requiredStatusChecks: ["test"],
+    provider: "github",
+    providerExecutable: { path: "/usr/bin/gh", digest: "6".repeat(64) },
+    observedAt: "2026-08-26T07:04:30.000Z"
+  };
+  const cases = [
+    {
+      runId: "sbw-20260826T070406Z-666666666666",
+      mutate: (payload) => { payload.checks = []; }
+    },
+    {
+      runId: "sbw-20260826T070407Z-777777777777",
+      mutate: (payload) => {
+        payload.checkSet = ["test", "lint"];
+        payload.providerRunIds = ["run-1", "run-1"];
+        payload.conclusions = ["SUCCESS", "SUCCESS"];
+        payload.checks = [
+          payload.checks[0],
+          { ...payload.checks[0], name: "lint#run-1", providerName: "lint" }
+        ];
+      }
+    },
+    {
+      runId: "sbw-20260826T070408Z-888888888888",
+      mutate: (payload) => { payload.observedAt = "2026-08-26T06:00:00.000Z"; }
+    },
+    {
+      runId: "sbw-20260826T070409Z-999999999999",
+      mutate: (payload) => {
+        payload.conclusions = ["FAILURE"];
+        payload.checks[0].conclusion = "FAILURE";
+      }
+    }
+  ];
+  for (const item of cases) {
+    const fixture = await makeRun({ root, runId: item.runId });
+    const payload = structuredClone(basePayload);
+    item.mutate(payload);
+    await replaceTypedEvidence(fixture, {
+      kind: "required-checks",
+      payload,
+      inputBinding: {
+        reviewHead: payload.head,
+        reviewBase: payload.base,
+        pullRequest: payload.pr,
+        repository: payload.repository,
+        baseRefName: payload.baseRefName,
+        observedAt: payload.observedAt
+      }
+    });
+    const snapshot = await buildReplaySnapshot(root, fixture.runId);
+    assert.equal(snapshot.manifest.assurance.outcome, "HOLD", item.runId);
+    assert.ok(snapshot.manifest.assurance.blockers.includes("INVALID_TYPED_EVIDENCE:environment"), item.runId);
+  }
+});
+
+test("recorded specialized evidence never falls back to generic digest-only acceptance", async (context) => {
+  const root = await mkdtemp(tempPrefix("sbw-replay-specialized-"));
+  context.after(() => removeFixture(root));
+  const cases = [
+    {
+      runId: "sbw-20260826T070410Z-aaaaaaaaaaaa",
+      kind: "agent-review-quorum",
+      producer: "quorum-verifier",
+      payload: {
+        decision: { policyId: "agent-review-quorum-v1", verdict: "HOLD" },
+        manifest: {},
+        manifestDigest: "7".repeat(64),
+        routing: "ordinary",
+        roleReceipts: [],
+        blockers: [],
+        reportDigest: "8".repeat(64)
+      },
+      blocker: "INVALID_TYPED_EVIDENCE:environment"
+    },
+    {
+      runId: "sbw-20260826T070411Z-bbbbbbbbbbbb",
+      kind: "review-kernel-summary",
+      producer: "better-workflows-kernel",
+      payload: {
+        result: true,
+        packageId: "missing-kernel-package",
+        repairRound: 0,
+        workUniverseDigest: "1".repeat(64),
+        axisSetDigest: "2".repeat(64),
+        verificationSetDigest: "3".repeat(64),
+        coverageDigest: "4".repeat(64),
+        findingSetDigest: "5".repeat(64),
+        convergenceDigest: "6".repeat(64),
+        items: []
+      },
+      blocker: "INVALID_TYPED_EVIDENCE:environment"
+    },
+    {
+      runId: "sbw-20260826T070412Z-cccccccccccc",
+      kind: "self-improve-delivery-handoff",
+      producer: "codex-root",
+      payload: {
+        artifact: { kind: "self-improve-delivery-handoff", digest: "1".repeat(64) },
+        sourceRunId: "sbw-20260825T000000Z-111111111111",
+        sourceBaselineRevision: "1".repeat(40),
+        sourceHeadRevision: "2".repeat(40),
+        sourceBindingDigest: "3".repeat(64),
+        pluginBundleDigest: "4".repeat(64),
+        requestManifestDigest: "5".repeat(64),
+        evaluatorAuthorization: null,
+        comparisonDigest: "6".repeat(64),
+        candidateDigest: "7".repeat(64),
+        candidateRoot: "/private/tmp/candidate",
+        purpose: "ordinary",
+        policyDigest: null,
+        witnessDigests: Array.from({ length: 7 }, (_, index) => String(index + 1).repeat(64))
+      },
+      blocker: "UNVERIFIABLE_TYPED_EVIDENCE:environment:self-improve-delivery-handoff"
+    }
+  ];
+  for (const item of cases) {
+    const fixture = await makeRun({ root, runId: item.runId });
+    await replaceTypedEvidence(fixture, item);
+    const snapshot = await buildReplaySnapshot(root, fixture.runId);
+    assert.equal(snapshot.manifest.assurance.outcome, "HOLD", item.runId);
+    assert.ok(snapshot.manifest.assurance.blockers.includes(item.blocker), item.runId);
+  }
+
+  const criticFixture = await makeRun({ root, runId: "sbw-20260826T070413Z-dddddddddddd" });
+  const review = { verdict: "PASS", summary: "Recorded critic", findings: [] };
+  const execution = {
+    provider: "codex-native-subagent",
+    model: "gpt-5",
+    modelAssurance: "host-signed-attestation",
+    trustAttested: true,
+    promptDigest: "9".repeat(64),
+    reviewDigest: digestObject(review),
+    transport: "native",
+    sandbox: "read-only"
+  };
+  execution.executionDigest = digestObject(execution);
+  await replaceTypedEvidence(criticFixture, {
+    kind: "patch-review",
+    producer: "codex-native-subagent",
+    payload: { verdict: "PASS" },
+    record: {
+      sourceKind: "independent-critic",
+      dependencies: { model: execution.model, promptDigest: execution.promptDigest },
+      providerExecution: execution,
+      review,
+      nativeReviewer: { attestationDigest: "a".repeat(64) }
+    }
+  });
+  const criticSnapshot = await buildReplaySnapshot(root, criticFixture.runId);
+  assert.equal(criticSnapshot.manifest.assurance.outcome, "HOLD");
+  assert.ok(criticSnapshot.manifest.assurance.blockers.includes(
+    "UNVERIFIABLE_TYPED_EVIDENCE:environment:patch-review"
+  ));
 });
 
 test("recorded completion fails closed on persisted findings, risk, actions, sentinel, and review blockers", async (context) => {
@@ -694,7 +976,11 @@ test("localhost server uses one-shot session bootstrap and strict allowlisted ro
   assert.equal(html.status, 200);
   assert.match(html.body.toString("utf8"), /data-replay-mode="runtime"/);
   assert.equal((await request(server, "/assets/cast-lineup.webp")).status, 200);
-  assert.equal((await request(server, "/api/v1/runs", { session })).status, 403, "run-bound sessions must not enumerate the library");
+  const scopedLibraryResponse = await request(server, "/api/v1/runs", { session });
+  assert.equal(scopedLibraryResponse.status, 200);
+  const scopedLibrary = JSON.parse(scopedLibraryResponse.body);
+  assert.equal(scopedLibrary.totalRuns, 1);
+  assert.deepEqual(scopedLibrary.runs.map((run) => run.runId), [fixture.runId], "run-bound sessions must expose only their bound run");
   assert.equal((await request(server, `/api/v1/runs/${other.runId}/replay`, { session })).status, 403);
   assert.equal((await request(server, "/api/v1/runs?leak=true", { session })).status, 400);
   assert.equal((await request(server, "http://evil.example/", { session })).status, 400);

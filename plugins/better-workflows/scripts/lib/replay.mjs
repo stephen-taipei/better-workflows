@@ -2,7 +2,7 @@ import { constants as fsConstants } from "node:fs";
 import { lstat, open, opendir, realpath } from "node:fs/promises";
 import path from "node:path";
 import { digestObject, sha256 } from "./core.mjs";
-import { assertPayloadFields, loadEvidenceContracts } from "./evidence.mjs";
+import { assertPayloadFields, assertRecordedEvidenceSemantics, loadEvidenceContracts } from "./evidence.mjs";
 import { reduceLedgerSnapshot } from "./ledger.mjs";
 
 export const REPLAY_MANIFEST_KIND = "evidence-replay-manifest-v1";
@@ -448,7 +448,7 @@ function recordedFreshnessBindingValid(binding, raw, contractDigest, definition,
   return true;
 }
 
-function validateRecordedEvidence(record, raw, contractDigest, contracts) {
+async function validateRecordedEvidence(record, raw, contractDigest, contracts) {
   const id = safeId(record?.id);
   const kind = safeId(record?.kind);
   const definition = contracts?.[kind];
@@ -470,7 +470,7 @@ function validateRecordedEvidence(record, raw, contractDigest, contracts) {
     }
   }
   const independentCritic = record?.sourceKind === "independent-critic";
-  const valid = Boolean(
+  const structurallyValid = Boolean(
     record?.schemaVersion === 2 &&
     EVIDENCE_ID.test(String(record?.id ?? "")) &&
     SAFE_ID.test(String(record?.kind ?? "")) &&
@@ -493,19 +493,42 @@ function validateRecordedEvidence(record, raw, contractDigest, contracts) {
     receipt.payloadDigest === payloadDigest &&
     record.sourceDigest === payloadDigest &&
     safeTimestamp(receipt.producedAt) !== null &&
+    safeTimestamp(admission.admittedAt) !== null &&
     admission.producer === producer &&
     (independentCritic ? admission.independentCritic === true : admission.independentCritic !== true) &&
     record.stale !== true
   );
-  return { valid, id, kind, digest: valid ? payloadDigest : safeDigest(record?.sourceDigest) };
+  let valid = structurallyValid;
+  if (valid) {
+    try {
+      await assertRecordedEvidenceSemantics(record, raw);
+    } catch {
+      valid = false;
+    }
+  }
+  const unverifiable = structurallyValid && !valid && (
+    independentCritic || kind === "self-improve-delivery-handoff"
+  );
+  return {
+    valid,
+    id,
+    kind,
+    digest: valid ? payloadDigest : safeDigest(record?.sourceDigest),
+    blocker: valid
+      ? null
+      : unverifiable
+        ? `UNVERIFIABLE_TYPED_EVIDENCE:${id}:${kind}`
+        : `INVALID_TYPED_EVIDENCE:${id}`
+  };
 }
 
 function recordTimestamp(record) {
   return safeTimestamp(record?.receipt?.producedAt) ?? safeTimestamp(record?.updatedAt) ?? safeTimestamp(record?.createdAt);
 }
 
-function sanitizeEvidence(records, raw, contractDigest, contracts, blockers) {
-  return records.map((record) => {
+async function sanitizeEvidence(records, raw, contractDigest, contracts, blockers) {
+  const validRecords = new Set();
+  const projected = await Promise.all(records.map(async (record) => {
     if (raw.contract?.schemaVersion !== 2) {
       return {
         category: "evidence",
@@ -519,8 +542,9 @@ function sanitizeEvidence(records, raw, contractDigest, contracts, blockers) {
         digest: safeDigest(record?.sourceDigest)
       };
     }
-    const validation = validateRecordedEvidence(record, raw, contractDigest, contracts);
-    if (!validation.valid) blockers.push(`INVALID_TYPED_EVIDENCE:${validation.id}`);
+    const validation = await validateRecordedEvidence(record, raw, contractDigest, contracts);
+    if (validation.valid) validRecords.add(record);
+    else blockers.push(validation.blocker);
     return {
       category: "evidence",
       id: validation.id,
@@ -532,7 +556,9 @@ function sanitizeEvidence(records, raw, contractDigest, contracts, blockers) {
       producedAt: recordTimestamp(record),
       digest: validation.digest
     };
-  }).sort((a, b) => `${a.kind}:${a.id}`.localeCompare(`${b.kind}:${b.id}`));
+  }));
+  projected.sort((a, b) => `${a.kind}:${a.id}`.localeCompare(`${b.kind}:${b.id}`));
+  return { records: projected, validRecords };
 }
 
 function sanitizeFindings(records, category = "finding") {
@@ -628,9 +654,9 @@ function actionCompletionBlockers(records) {
   return blockers;
 }
 
-function matchingValidEvidence(raw, contractDigest, contracts, predicate) {
+function matchingValidEvidence(raw, validRecords, predicate) {
   return raw.directories.evidence.filter((record) => (
-    validateRecordedEvidence(record, raw, contractDigest, contracts).valid && predicate(record)
+    validRecords.has(record) && predicate(record)
   ));
 }
 
@@ -663,7 +689,7 @@ function reviewPackageBindingBlockers(reviewPackage, raw, contractDigest) {
   return blockers;
 }
 
-function legacyReviewBlockers(raw, reviewPackage, contractDigest, contracts) {
+function legacyReviewBlockers(raw, reviewPackage, validRecords) {
   const packageId = safeId(reviewPackage?.packageId ?? reviewPackage?.id);
   const scopedFindings = raw.directories["review-findings"].filter((record) => record?.packageId === reviewPackage?.packageId);
   const blockers = findingCompletionBlockers(scopedFindings, raw, "REVIEW_FINDING");
@@ -683,7 +709,7 @@ function legacyReviewBlockers(raw, reviewPackage, contractDigest, contracts) {
     blockers.push(`REVIEW_BROAD_CLOSURE_REQUIRED:${packageId}`);
   }
 
-  const diffReview = matchingValidEvidence(raw, contractDigest, contracts, (record) => {
+  const diffReview = matchingValidEvidence(raw, validRecords, (record) => {
     const payload = record?.receipt?.payload;
     return record?.kind === "diff-review" && payload?.verdict === "PASS" &&
       payload.packageId === reviewPackage?.packageId &&
@@ -706,7 +732,7 @@ function kernelReviewBlockers(reviewPackage) {
   return [`REVIEW_KERNEL_REPLAY_REQUIRES_REVERIFICATION:${safeId(reviewPackage?.packageId ?? reviewPackage?.id)}`];
 }
 
-function independentReviewBlockers(raw, reviewPackage, contractDigest, contracts) {
+function independentReviewBlockers(raw, reviewPackage, validRecords) {
   if (!["deep", "critical"].includes(raw.manifest?.mode)) return [];
   const binding = {
     packageId: reviewPackage?.packageId,
@@ -717,7 +743,7 @@ function independentReviewBlockers(raw, reviewPackage, contractDigest, contracts
     instructionDigest: reviewPackage?.instructionDigest,
     sentinelDigest: raw.state?.lastSentinel?.digest
   };
-  const matches = matchingValidEvidence(raw, contractDigest, contracts, (record) => (
+  const matches = matchingValidEvidence(raw, validRecords, (record) => (
     record?.sourceKind === "independent-critic" &&
     record?.kind === "patch-review" &&
     record?.typedAdmission?.independentCritic === true &&
@@ -730,7 +756,7 @@ function independentReviewBlockers(raw, reviewPackage, contractDigest, contracts
   return matches.length === 1 ? [] : ["INDEPENDENT_REVIEW_REQUIRED"];
 }
 
-function reviewCompletionBlockers(raw, contractDigest, contracts) {
+function reviewCompletionBlockers(raw, contractDigest, validRecords) {
   const policy = raw.contract?.controlPlane?.reviewPolicy ?? "none";
   if (policy === "none") return [];
   const expectedHead = safeRevision(raw.manifest?.sourceBinding?.headRevision);
@@ -738,19 +764,19 @@ function reviewCompletionBlockers(raw, contractDigest, contracts) {
   if (matchingPackages.length !== 1) return ["REVIEW_CURRENT_PACKAGE_REQUIRED"];
   const reviewPackage = matchingPackages[0];
   const blockers = reviewPackageBindingBlockers(reviewPackage, raw, contractDigest);
-  if (reviewPackage.schemaVersion === 1) blockers.push(...legacyReviewBlockers(raw, reviewPackage, contractDigest, contracts));
+  if (reviewPackage.schemaVersion === 1) blockers.push(...legacyReviewBlockers(raw, reviewPackage, validRecords));
   else if (reviewPackage.schemaVersion === 2) blockers.push(...kernelReviewBlockers(reviewPackage));
   else blockers.push("REVIEW_PACKAGE_SCHEMA_UNSUPPORTED");
-  blockers.push(...independentReviewBlockers(raw, reviewPackage, contractDigest, contracts));
+  blockers.push(...independentReviewBlockers(raw, reviewPackage, validRecords));
   return blockers;
 }
 
-function recordedCompletionBlockers(raw, contractDigest, contracts, validTypedKinds) {
+function recordedCompletionBlockers(raw, contractDigest, validRecords, validTypedKinds) {
   if (raw.contract?.schemaVersion !== 2) return [];
   const blockers = [
     ...findingCompletionBlockers(raw.directories.findings, raw),
     ...actionCompletionBlockers(raw.directories.actions),
-    ...reviewCompletionBlockers(raw, contractDigest, contracts)
+    ...reviewCompletionBlockers(raw, contractDigest, validRecords)
   ];
   if (raw.state?.lastSentinelVerified !== true) blockers.push("CURRENT_SENTINEL_NOT_VERIFIED");
   if (raw.state?.lastSentinelComplete !== true) blockers.push("BOUNDED_SENTINEL_INCOMPLETE");
@@ -896,9 +922,10 @@ async function projectRawRun(raw) {
   if (raw.ledger && raw.ledger.runId !== raw.runId) blockers.push("LEDGER_RUN_MISMATCH");
 
   const contracts = raw.contract?.schemaVersion === 2 ? await loadEvidenceContracts() : {};
-  const evidence = sanitizeEvidence(raw.directories.evidence, raw, contractDigest, contracts, blockers);
+  const sanitizedEvidence = await sanitizeEvidence(raw.directories.evidence, raw, contractDigest, contracts, blockers);
+  const evidence = sanitizedEvidence.records;
   const validTypedKinds = evidence.filter((record) => record.status === "complete" && !record.stale).map((record) => record.kind);
-  blockers.push(...recordedCompletionBlockers(raw, contractDigest, contracts, validTypedKinds));
+  blockers.push(...recordedCompletionBlockers(raw, contractDigest, sanitizedEvidence.validRecords, validTypedKinds));
   let ledgerStatus = null;
   if (raw.ledger) {
     try {
@@ -997,7 +1024,7 @@ async function runSummary(root, runId) {
   }
 }
 
-export async function listReplayRuns(root) {
+export async function listReplayRuns(root, { runId = null } = {}) {
   let canonicalRoot;
   try {
     canonicalRoot = await assertReadOnlyRoot(root);
@@ -1033,6 +1060,21 @@ export async function listReplayRuns(root) {
   const info = await lstat(runsDirectory);
   if (!info.isDirectory() || info.isSymbolicLink()) {
     throw replayError("REPLAY_UNSAFE_RUNS_ROOT", "Replay runs root is unsafe", 400);
+  }
+  if (runId !== null) {
+    const safeRunId = assertReplayRunId(runId);
+    const summary = await runSummary(canonicalRoot, safeRunId);
+    if (summary.blockerCode === "REPLAY_RUN_NOT_FOUND") {
+      throw replayError("REPLAY_RUN_NOT_FOUND", "Replay run was not found", 404);
+    }
+    return {
+      schemaVersion: 1,
+      generatedAt: summary.updatedAt,
+      stateRootPresent: true,
+      truncated: false,
+      totalRuns: 1,
+      runs: [summary]
+    };
   }
   const ids = [];
   let entries = 0;

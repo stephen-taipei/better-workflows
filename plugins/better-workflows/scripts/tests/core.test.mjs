@@ -3841,6 +3841,25 @@ test("host-signed PR merge approval production verifier rejects missing, altered
       verifyMergeHumanApproval(repository, payload),
       /source registry binding is stale/
     );
+    const { digest: recordedSourceDigest, ...recordedSourceIdentity } = sourceBinding;
+    assert.equal(digestObject(recordedSourceIdentity), recordedSourceDigest);
+    assert.equal(sourceBinding.cwd, await realpath(repository));
+    assert.equal(sourceBinding.baseRevision, base);
+    assert.equal(sourceBinding.headRevision, head);
+    await assert.rejects(
+      verifyMergeHumanApproval(repository, payload, {
+        now: Date.parse(authorization.approvedAt),
+        recordedSourceBinding: { ...sourceBinding, digest: "e".repeat(64) }
+      }),
+      /recorded source registry binding is invalid/
+    );
+    await assert.rejects(
+      verifyMergeHumanApproval(repository, payload, {
+        now: Date.parse(authorization.approvedAt),
+        recordedSourceBinding: sourceBinding
+      }),
+      /signature is invalid|issuer is not trusted|key is not available|trust root is not provisioned/
+    );
   } finally {
     await rm(root, { recursive: true, force: true });
   }

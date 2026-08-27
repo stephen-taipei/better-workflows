@@ -926,6 +926,19 @@ export async function reviewKernelStatus(root, runId) {
   return deriveReviewKernel(root, run, await currentReviewPackage(root, run));
 }
 
+export async function recordedReviewKernelStatus(root, runId, packageId) {
+  const run = await loadRun(root, runId);
+  const packages = await listJsonRecords(root, packageDirectory(run.runDir));
+  const matches = packages.filter((item) => item.packageId === packageId);
+  if (matches.length !== 1) {
+    throw new Error("Recorded review kernel requires one exact immutable review package");
+  }
+  if (matches[0].immutable !== true) {
+    throw new Error("Recorded review kernel package is not immutable");
+  }
+  return deriveReviewKernel(root, run, matches[0]);
+}
+
 export async function recordReviewCoverage(root, runId) {
   return withRunLock(root, runId, async ({ runDir }) => {
     const run = await loadRun(root, runId);

@@ -95,6 +95,16 @@ Replay never sets a localhost cookie, so the bearer is not forwarded to a
 different localhost port. If the default browser opener fails, the same
 `bootstrapUrl` is printed with the warning for manual opening.
 
+A run-bound launch keeps the library navigation usable, but `/api/v1/runs`
+returns only that one bound run and rejects every other run replay route. Typed
+records are rechecked with the installed kind-specific deterministic validators
+at their recorded admission time. Action proofs, required-check observations,
+review-kernel summaries, and quorum receipts therefore fail closed after
+semantic mutation even if an attacker recomputes the unkeyed payload digests.
+Legacy independent-critic records without a replay-verifiable attestation
+reference, and self-improve handoffs that require live source-run validation,
+are shown as `UNVERIFIABLE_TYPED_EVIDENCE` and keep the reel on `HOLD`.
+
 `source rebind` is root-only and pre-review/pre-side-effect. It invalidates all
 prior complete evidence and resets the v2 execution ledger, so the next
 sentinel, evidence, and review must be captured from the rebound source.

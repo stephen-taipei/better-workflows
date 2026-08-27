@@ -901,7 +901,7 @@ export function nativeCriticBindingFields(binding) {
   ];
 }
 
-export async function verifyTrustedNativeCriticAttestation({ attestationPath, workspaceRoot, binding }) {
+export async function verifyTrustedNativeCriticAttestation({ attestationPath, workspaceRoot, binding, now = Date.now() }) {
   if (!attestationPath) throw new Error("Native critic requires a host-signed attestation");
   const workspace = await realpath(workspaceRoot);
   const [attestationFile, trustRootFile] = await Promise.all([
@@ -927,7 +927,8 @@ export async function verifyTrustedNativeCriticAttestation({ attestationPath, wo
   if (!key || typeof key.publicKey !== "string") throw new Error("Native critic attestation key is not available in the trust root");
   const issuedAt = Date.parse(requiredString(attestation.issuedAt, "Native critic attestation issuedAt"));
   const expiresAt = Date.parse(requiredString(attestation.expiresAt, "Native critic attestation expiresAt"));
-  if (!Number.isFinite(issuedAt) || !Number.isFinite(expiresAt) || issuedAt > Date.now() + 300_000 || expiresAt <= Date.now()) {
+  const nowMs = now instanceof Date ? now.getTime() : Number(now);
+  if (!Number.isFinite(nowMs) || !Number.isFinite(issuedAt) || !Number.isFinite(expiresAt) || issuedAt > nowMs + 300_000 || expiresAt <= nowMs) {
     throw new Error("Native critic attestation is not currently valid");
   }
   const publicKey = createPublicKey({ key: Buffer.from(key.publicKey, "base64"), format: "der", type: "spki" });

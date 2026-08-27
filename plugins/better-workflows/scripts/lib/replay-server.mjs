@@ -251,8 +251,7 @@ export async function startReplayServer(options = {}) {
         if (!constantTimeEqual(sessionHeaderValue(request), sessionToken)) {
           throw requestError("REPLAY_SESSION_REQUIRED", 401);
         }
-        if (requestedRunId) throw requestError("REPLAY_RUN_SCOPE_REJECTED", 403);
-        const value = await listReplayRuns(stateRoot);
+        const value = await listReplayRuns(stateRoot, requestedRunId ? { runId: requestedRunId } : {});
         writeJson(response, 200, value, headOnly);
         return;
       }
