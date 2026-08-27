@@ -17,6 +17,7 @@ import {
   loadRequiredCheckPolicy,
   normalizeRequiredChecks,
   parseWorkflowRunReconciliationEvent,
+  resolveWorkflowRunReconciliationEvent,
   prepareReleasePolicyReceipt,
   policyDigest,
   policyArtifactDigest,
@@ -582,6 +583,103 @@ test("workflow-run reconciliation requires one completed pull-request-target sou
   );
 });
 
+test("workflow-run reconciliation resolves one sparse provider association through the exact merged commit pull request", async () => {
+  const headSha = "b".repeat(40);
+  const payload = {
+    action: "completed",
+    workflow_run: {
+      id: 43,
+      repository: { full_name: "example/repo" },
+      path: ".github/workflows/ci.yml",
+      event: "pull_request_target",
+      status: "completed",
+      conclusion: "success",
+      completed_at: null,
+      updated_at: "2026-08-18T00:00:06Z",
+      head_sha: headSha,
+      head_branch: "codex/release-3.4.14",
+      pull_requests: []
+    }
+  };
+  const requests = [];
+  const binding = await resolveWorkflowRunReconciliationEvent({
+    payload,
+    apiUrl: "https://api.github.com",
+    repository: "example/repo",
+    token: "token",
+    fetchImpl: async (url) => {
+      requests.push(url);
+      return { ok: true, status: 200, json: async () => [{
+        number: 17,
+        state: "closed",
+        merged_at: "2026-08-18T00:00:05Z",
+        merge_commit_sha: "c".repeat(40),
+        base: { ref: "dev" },
+        head: { sha: headSha, ref: "codex/release-3.4.14" }
+      }] };
+    }
+  });
+  assert.deepEqual(binding, {
+    triggerWorkflowRunId: "43",
+    pullNumber: 17,
+    branch: "dev",
+    headSha
+  });
+  assert.deepEqual(requests, [
+    `https://api.github.com/repos/example/repo/commits/${headSha}/pulls?per_page=100&page=1`
+  ]);
+});
+
+test("workflow-run reconciliation rejects ambiguous or mismatched sparse provider associations", async () => {
+  const headSha = "b".repeat(40);
+  const payload = {
+    action: "completed",
+    workflow_run: {
+      id: 43,
+      repository: { full_name: "example/repo" },
+      path: ".github/workflows/ci.yml",
+      event: "pull_request_target",
+      status: "completed",
+      conclusion: "success",
+      updated_at: "2026-08-18T00:00:06Z",
+      head_sha: headSha,
+      head_branch: "codex/release-3.4.14",
+      pull_requests: []
+    }
+  };
+  const exactPull = {
+    number: 17,
+    state: "closed",
+    merged_at: "2026-08-18T00:00:05Z",
+    merge_commit_sha: "c".repeat(40),
+    base: { ref: "dev" },
+    head: { sha: headSha, ref: "codex/release-3.4.14" }
+  };
+  await assert.rejects(
+    resolveWorkflowRunReconciliationEvent({
+      payload,
+      apiUrl: "https://api.github.com",
+      repository: "example/repo",
+      token: "token",
+      fetchImpl: async () => ({ ok: true, status: 200, json: async () => [exactPull, { ...exactPull, number: 18 }] })
+    }),
+    /exactly one associated merged pull request/
+  );
+  await assert.rejects(
+    resolveWorkflowRunReconciliationEvent({
+      payload,
+      apiUrl: "https://api.github.com",
+      repository: "example/repo",
+      token: "token",
+      fetchImpl: async () => ({ ok: true, status: 200, json: async () => [{
+        ...exactPull,
+        head: { ...exactPull.head, ref: "other/source" }
+      }] })
+    }),
+    /exactly one associated merged pull request/
+  );
+});
+
 test("workflow-run reconciliation requires the exact closed merge binding", () => {
   const headSha = "b".repeat(40);
   const mergeCommitSha = "c".repeat(40);
@@ -635,6 +733,10 @@ test("workflow-run reconciliation requires the exact closed merge binding", () =
   assert.throws(
     () => assertClosedPolicyReceiptBinding({ repository: "example/repo", run: { ...run, head_sha: "e".repeat(40) }, pull, binding }),
     /exact completed closed-and-merged pull-request-target run/
+  );
+  assert.throws(
+    () => assertClosedPolicyReceiptBinding({ repository: "example/repo", run, pull, binding: { ...binding, observedAt: "2026-08-18T00:00:07.000Z" } }),
+    /immutable closed-and-merged source binding/
   );
   assert.deepEqual(buildClosedPolicyReceiptBinding({
     repository: "example/repo",
@@ -738,6 +840,84 @@ test("delayed workflow-run reconciliation locates the exact closed merge run ins
   assert.ok(!calls.some((url) => url.endsWith("/actions/runs/43")));
 });
 
+test("closed merge reconciliation accepts sparse provider metadata only with the exact head branch and close-binding artifact", async () => {
+  const headSha = "b".repeat(40);
+  const mergeCommitSha = "c".repeat(40);
+  const headRef = "codex/release-3.4.14";
+  const mergedAt = "2026-08-18T00:00:00Z";
+  const binding = buildClosedPolicyReceiptBinding({
+    repository: "example/repo",
+    branch: "dev",
+    headSha,
+    pullNumber: 17,
+    workflowRunId: "99",
+    workflowRunAttempt: "2",
+    observedAt: "2026-08-18T00:00:04Z",
+    mergeCommitSha,
+    mergedAt
+  });
+  const sparseRun = {
+    id: 99,
+    run_attempt: 2,
+    path: ".github/workflows/ci.yml",
+    event: "pull_request_target",
+    status: "completed",
+    conclusion: "failure",
+    head_sha: headSha,
+    head_branch: headRef,
+    created_at: "2026-08-18T00:00:01Z",
+    completed_at: null,
+    updated_at: "2026-08-18T00:00:06Z",
+    repository: { full_name: "example/repo" },
+    pull_requests: []
+  };
+  const calls = [];
+  const result = await findClosedMergeWorkflowRun({
+    apiUrl: "https://api.github.com",
+    repository: "example/repo",
+    branch: "dev",
+    pullNumber: 17,
+    headSha,
+    headRef,
+    mergeCommitSha,
+    mergedAt,
+    token: "token",
+    fetchImpl: async (url) => {
+      calls.push(url);
+      if (url.includes("/actions/workflows/ci.yml/runs?")) {
+        return { ok: true, status: 200, json: async () => ({ workflow_runs: [{ id: 99 }] }) };
+      }
+      if (url.endsWith("/actions/runs/99")) return { ok: true, status: 200, json: async () => sparseRun };
+      throw new Error(`Unexpected sparse close-binding URL: ${url}`);
+    },
+    fetchCloseBindingImpl: async ({ runId, runAttempt }) => {
+      assert.equal(runId, "99");
+      assert.equal(runAttempt, 2);
+      return binding;
+    }
+  });
+  assert.equal(result.run.id, 99);
+  assert.ok(calls.some((url) => url.includes(`branch=${encodeURIComponent(headRef)}`)));
+  await assert.rejects(
+    findClosedMergeWorkflowRun({
+      apiUrl: "https://api.github.com",
+      repository: "example/repo",
+      branch: "dev",
+      pullNumber: 17,
+      headSha,
+      headRef: "other/source",
+      mergeCommitSha,
+      mergedAt,
+      token: "token",
+      fetchImpl: async (url) => url.includes("/actions/workflows/ci.yml/runs?")
+        ? { ok: true, status: 200, json: async () => ({ workflow_runs: [{ id: 99 }] }) }
+        : { ok: true, status: 200, json: async () => sparseRun },
+      fetchCloseBindingImpl: async () => binding
+    }),
+    /no exact completed closed-merge binding/
+  );
+});
+
 test("closed merge workflow reconciliation rejects conflicting duplicate run identities", async () => {
   await assert.rejects(
     findClosedMergeWorkflowRun({
@@ -808,6 +988,79 @@ test("closed receipt polling waits for the exact pre-merge status within a bound
   assert.equal(source.policyArtifactDigest.length, 64);
   assert.deepEqual(sleeps, [5_000]);
   assert.equal(queries, 2);
+});
+
+test("closed receipt polling accepts sparse provider metadata only with the exact source branch, run attempt, artifact, and pre-merge time", async () => {
+  const headSha = "d".repeat(40);
+  const headRef = "codex/release-3.4.14";
+  const policy = [{ context: "test", appId: null, strict: true }];
+  const sourceDigest = policyDigest(policy);
+  const sourceStatus = {
+    id: 42,
+    state: "success",
+    context: RELEASE_POLICY_RECEIPT_CONTEXT,
+    target_url: `https://github.com/example/repo/actions/runs/42?phase=pre-merge&attempt=1&pr=17&head=${headSha}&base=dev`,
+    description: `${RELEASE_POLICY_RECEIPT_PREFIX}${sourceDigest}`,
+    created_at: "2026-08-17T23:59:50Z",
+    updated_at: "2026-08-17T23:59:55Z"
+  };
+  const artifact = () => withDownloadedArchiveDigest(buildPolicyReceiptArtifact({
+    repository: "example/repo",
+    branch: "dev",
+    headSha,
+    pullNumber: 17,
+    policy,
+    workflowRunId: "42",
+    workflowRunAttempt: "1",
+    eventAction: "synchronize",
+    observedAt: "2026-08-17T23:59:54Z"
+  }));
+  const sparseRun = (overrides = {}) => ({
+    id: 42,
+    run_attempt: 1,
+    path: ".github/workflows/ci.yml",
+    event: "pull_request_target",
+    status: "completed",
+    conclusion: "success",
+    head_sha: headSha,
+    head_branch: headRef,
+    created_at: "2026-08-17T23:59:40Z",
+    completed_at: null,
+    updated_at: "2026-08-17T23:59:56Z",
+    repository: { full_name: "example/repo" },
+    pull_requests: [],
+    ...overrides
+  });
+  const poll = async ({ run = sparseRun(), requestedHeadRef = headRef, fetchedArtifact = artifact() } = {}) => waitForSourcePolicyReceipt({
+    apiUrl: "https://api.github.com",
+    repository: "example/repo",
+    branch: "dev",
+    headSha,
+    headRef: requestedHeadRef,
+    pullNumber: 17,
+    mergedAt: "2026-08-18T00:00:00Z",
+    token: "token",
+    attempts: 1,
+    requireWorkflowRunAttempt: true,
+    fetchImpl: async (url) => {
+      if (url.includes("/commits/")) return { ok: true, status: 200, json: async () => [sourceStatus] };
+      if (url.endsWith("/actions/runs/42")) return { ok: true, status: 200, json: async () => run };
+      throw new Error(`Unexpected sparse source URL: ${url}`);
+    },
+    fetchArtifactImpl: async ({ runId, runAttempt }) => {
+      assert.equal(runId, "42");
+      assert.equal(runAttempt, "1");
+      return fetchedArtifact;
+    }
+  });
+  const source = await poll();
+  assert.equal(source.workflowRunId, "42");
+  assert.equal(source.workflowRunAttempt, "1");
+  assert.equal(source.policyArtifactDigest, "d".repeat(64));
+  assert.equal(await poll({ requestedHeadRef: "other/source" }), null);
+  assert.equal(await poll({ run: sparseRun({ run_attempt: 2 }) }), null);
+  assert.equal(await poll({ run: sparseRun({ updated_at: "2026-08-18T00:00:01Z" }) }), null);
+  assert.equal(await poll({ fetchedArtifact: withDownloadedArchiveDigest({ ...artifact(), policyDigest: "a".repeat(64) }) }), null);
 });
 
 test("source status terminal proof cannot fall back to its origin timestamp", async () => {
