@@ -7,14 +7,18 @@ import test from "node:test";
 import { promisify } from "node:util";
 import {
   bundleDigest,
+  canonicalizeDarwinBootIdentity,
   checkPluginCache,
+  createProcessBootIdentityProbe,
   createProcessStartIdentityProbe,
+  isDarwinSysctlPermissionDenied,
   markPluginCacheReady,
   removeUnreadyPluginCachePublication,
   publishPluginCache,
   processIncarnationDigest,
   processLiveness,
   recoverPendingPluginCachePublication,
+  validateDarwinPythonTempRoot,
   verifyPluginCacheReady
 } from "../lib/publication.mjs";
 import { captureSourceBinding } from "../lib/git.mjs";
@@ -449,6 +453,216 @@ test("publication process identity refreshes both components after a boot probe 
   assert.equal(startProbes, 2);
   assert.equal(bootProbes, 2);
   assert.equal(waits, 1);
+});
+
+const DARWIN_BOOT_IDENTITY_FIXTURE = "{ sec = 2147483648, usec = 123456 } Sun Jan  5 01:02:03 2038\n";
+const DARWIN_BOOT_IDENTITY_CANONICAL = "{ sec = 2147483648, usec = 123456 } Sun Jan 5 01:02:03 2038";
+
+function darwinSysctlPermissionError(overrides = {}) {
+  return Object.assign(new Error("Command failed"), {
+    code: 1,
+    killed: false,
+    signal: null,
+    stdout: "",
+    stderr: "sysctl: sysctl fmt -1 1024 1: Operation not permitted\n"
+  }, overrides);
+}
+
+test("publication canonicalizes legacy Darwin boot identities without 2038 truncation", () => {
+  assert.equal(canonicalizeDarwinBootIdentity(DARWIN_BOOT_IDENTITY_FIXTURE), DARWIN_BOOT_IDENTITY_CANONICAL);
+  assert.equal(
+    canonicalizeDarwinBootIdentity("{ sec = 2208988800, usec = 999999 } Sun Jan 1 00:00:00 2040\n"),
+    "{ sec = 2208988800, usec = 999999 } Sun Jan 1 00:00:00 2040"
+  );
+  assert.equal(
+    canonicalizeDarwinBootIdentity("{ sec = 1710052200, usec = 1 } Sun Mar 10 03:30:00 2024"),
+    "{ sec = 1710052200, usec = 1 } Sun Mar 10 03:30:00 2024"
+  );
+  assert.equal(
+    canonicalizeDarwinBootIdentity("{ sec = 1730615400, usec = 0 } Sun Nov 3 01:30:00 2024"),
+    "{ sec = 1730615400, usec = 0 } Sun Nov 3 01:30:00 2024"
+  );
+  for (const malformed of [
+    "{ sec = 0, usec = 1 } Sun Jan 1 00:00:00 1970",
+    "{ sec = 2147483648, usec = 1000000 } Sun Jan 5 01:02:03 2038",
+    "{ sec = 2147483648, usec = 1 } Sun Jan 32 24:60:60 2038",
+    `${DARWIN_BOOT_IDENTITY_CANONICAL}\nuntrusted output`,
+    "2147483648:123456"
+  ]) {
+    assert.throws(() => canonicalizeDarwinBootIdentity(malformed), /malformed/);
+  }
+});
+
+test("publication permits the Darwin utmpx fallback only for an exact sysctl EPERM", () => {
+  assert.equal(isDarwinSysctlPermissionDenied(darwinSysctlPermissionError()), true);
+  for (const error of [
+    darwinSysctlPermissionError({ code: "ENOENT" }),
+    darwinSysctlPermissionError({ signal: "SIGKILL" }),
+    darwinSysctlPermissionError({ killed: true }),
+    darwinSysctlPermissionError({ stdout: "partial output" }),
+    darwinSysctlPermissionError({ stderr: "sysctl: unknown oid 'kern.boottime'\n" }),
+    darwinSysctlPermissionError({ stderr: "prefix\nsysctl: Operation not permitted\n" })
+  ]) {
+    assert.equal(isDarwinSysctlPermissionDenied(error), false);
+  }
+});
+
+test("publication accepts only the fixed root-owned sticky Darwin Python temp root", () => {
+  const safe = {
+    uid: 0,
+    mode: 0o41777,
+    isDirectory: () => true,
+    isSymbolicLink: () => false
+  };
+  assert.doesNotThrow(() => validateDarwinPythonTempRoot(safe, "/private/tmp"));
+  for (const [info, resolvedPath] of [
+    [{ ...safe, uid: 501 }, "/private/tmp"],
+    [{ ...safe, mode: 0o40777 }, "/private/tmp"],
+    [{ ...safe, isDirectory: () => false }, "/private/tmp"],
+    [{ ...safe, isSymbolicLink: () => true }, "/private/tmp"],
+    [safe, "/tmp"]
+  ]) {
+    assert.throws(() => validateDarwinPythonTempRoot(info, resolvedPath), /Unsafe fixed macOS Python temporary root/);
+  }
+});
+
+test("publication Darwin boot probe caches primary success without invoking fallback", async () => {
+  let primaryProbes = 0;
+  let fallbackProbes = 0;
+  const bootIdentity = createProcessBootIdentityProbe({
+    platform: "darwin",
+    darwinPrimaryProbe: async () => {
+      primaryProbes += 1;
+      return DARWIN_BOOT_IDENTITY_FIXTURE;
+    },
+    darwinFallbackProbe: async () => {
+      fallbackProbes += 1;
+      return DARWIN_BOOT_IDENTITY_FIXTURE;
+    }
+  });
+  assert.equal(await bootIdentity(), DARWIN_BOOT_IDENTITY_CANONICAL);
+  assert.equal(await bootIdentity(), DARWIN_BOOT_IDENTITY_CANONICAL);
+  assert.equal(primaryProbes, 1);
+  assert.equal(fallbackProbes, 0);
+});
+
+test("publication Darwin boot probe shares and caches an EPERM fallback", async () => {
+  let primaryProbes = 0;
+  let fallbackProbes = 0;
+  let releaseFallback;
+  const pendingFallback = new Promise((resolve) => { releaseFallback = resolve; });
+  const bootIdentity = createProcessBootIdentityProbe({
+    platform: "darwin",
+    darwinPrimaryProbe: async () => {
+      primaryProbes += 1;
+      throw darwinSysctlPermissionError();
+    },
+    darwinFallbackProbe: async () => {
+      fallbackProbes += 1;
+      await pendingFallback;
+      return DARWIN_BOOT_IDENTITY_FIXTURE;
+    }
+  });
+  const first = bootIdentity();
+  const second = bootIdentity();
+  releaseFallback();
+  assert.deepEqual(await Promise.all([first, second]), [DARWIN_BOOT_IDENTITY_CANONICAL, DARWIN_BOOT_IDENTITY_CANONICAL]);
+  assert.equal(await bootIdentity(), DARWIN_BOOT_IDENTITY_CANONICAL);
+  assert.equal(primaryProbes, 1);
+  assert.equal(fallbackProbes, 1);
+});
+
+test("publication Darwin utmpx fallback ignores hostile parent environment", { skip: process.platform !== "darwin" }, async () => {
+  const keys = ["TMPDIR", "PYTHONPATH", "PYTHONHOME", "DYLD_INSERT_LIBRARIES", "TZ"];
+  const previous = new Map(keys.map((key) => [key, process.env[key]]));
+  Object.assign(process.env, {
+    TMPDIR: "/definitely/not/the/fixed/root",
+    PYTHONPATH: "/private/tmp/untrusted-python-path",
+    PYTHONHOME: "/private/tmp/untrusted-python-home",
+    DYLD_INSERT_LIBRARIES: "/private/tmp/untrusted.dylib",
+    TZ: "Pacific/Kiritimati"
+  });
+  try {
+    const bootIdentity = createProcessBootIdentityProbe({
+      platform: "darwin",
+      darwinPrimaryProbe: async () => { throw darwinSysctlPermissionError(); }
+    });
+    assert.match(await bootIdentity(), /^\{ sec = [1-9]\d*, usec = \d{1,6} \}/);
+  } finally {
+    for (const [key, value] of previous) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
+
+test("publication Darwin boot fallback preserves legacy process-incarnation digests", async () => {
+  const primaryBootIdentity = createProcessBootIdentityProbe({
+    platform: "darwin",
+    darwinPrimaryProbe: async () => DARWIN_BOOT_IDENTITY_FIXTURE
+  });
+  const fallbackBootIdentity = createProcessBootIdentityProbe({
+    platform: "darwin",
+    darwinPrimaryProbe: async () => { throw darwinSysctlPermissionError(); },
+    darwinFallbackProbe: async () => DARWIN_BOOT_IDENTITY_FIXTURE
+  });
+  const options = {
+    liveness: () => "alive",
+    startIdentity: async () => "123:456",
+    wait: async () => {}
+  };
+  const primaryDigest = await processIncarnationDigest(1234, { ...options, bootIdentity: primaryBootIdentity });
+  const fallbackDigest = await processIncarnationDigest(1234, { ...options, bootIdentity: fallbackBootIdentity });
+  assert.match(primaryDigest, /^[a-f0-9]{64}$/);
+  assert.equal(fallbackDigest, primaryDigest);
+});
+
+test("publication Darwin boot probe never downgrades malformed success or non-EPERM errors", async () => {
+  for (const primaryError of [
+    null,
+    Object.assign(new Error("timed out"), { code: null, killed: true, signal: "SIGKILL", stdout: "", stderr: "" }),
+    Object.assign(new Error("missing"), { code: "ENOENT", killed: false, signal: null, stdout: "", stderr: "" }),
+    Object.assign(new Error("denied differently"), { code: 1, killed: false, signal: null, stdout: "", stderr: "sysctl: permission denied\n" })
+  ]) {
+    let fallbackProbes = 0;
+    const bootIdentity = createProcessBootIdentityProbe({
+      platform: "darwin",
+      darwinPrimaryProbe: async () => {
+        if (primaryError) throw primaryError;
+        return "malformed success";
+      },
+      darwinFallbackProbe: async () => {
+        fallbackProbes += 1;
+        return DARWIN_BOOT_IDENTITY_FIXTURE;
+      }
+    });
+    await assert.rejects(bootIdentity());
+    assert.equal(fallbackProbes, 0);
+  }
+});
+
+test("publication Darwin fallback failures remain fail-closed after the fixed retry budget", async () => {
+  let primaryProbes = 0;
+  let fallbackProbes = 0;
+  const bootIdentity = createProcessBootIdentityProbe({
+    platform: "darwin",
+    darwinPrimaryProbe: async () => {
+      primaryProbes += 1;
+      throw darwinSysctlPermissionError();
+    },
+    darwinFallbackProbe: async () => {
+      fallbackProbes += 1;
+      throw new Error("utmpx BOOT_TIME was ambiguous");
+    }
+  });
+  assert.equal(await processIncarnationDigest(1234, {
+    liveness: () => "alive",
+    startIdentity: async () => "123:456",
+    bootIdentity,
+    wait: async () => {}
+  }), "unknown");
+  assert.equal(primaryProbes, 3);
+  assert.equal(fallbackProbes, 3);
 });
 
 test("publication process identity caches only a validated Darwin self identity", async () => {
