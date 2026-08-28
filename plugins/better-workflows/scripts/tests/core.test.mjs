@@ -1067,6 +1067,7 @@ test("autonomous commit reconciliation repairs every persisted transition bounda
     "source-manifest",
     "source-state",
     "action-persistence",
+    "evidence-transition-journal",
     "evidence-invalidation"
   ]) {
     await rm(fixture.stateRoot, { recursive: true, force: true });
@@ -1110,9 +1111,95 @@ test("autonomous commit reconciliation repairs every persisted transition bounda
     assert.equal(journal.filter((item) => (
       item.event === "action.autonomous-commit-transition-repaired" && item.attemptId === spent.attemptId
     )).length, 1);
-    assert.equal(journal.filter((item) => (
+    const invalidationParents = journal.filter((item) => (
       item.event === "evidence.invalidated" && item.actionAttemptId === spent.attemptId
-    )).length, 1);
+    ));
+    assert.equal(invalidationParents.length, 1);
+    const invalidationParent = invalidationParents[0];
+    const childTransitions = journal.filter((item) => (
+      item.event === "evidence.freshness-transition" &&
+      item.protocolVersion === 2 &&
+      item.cause?.kind === "autonomous-commit-reconciled" &&
+      item.cause.actionAttemptId === spent.attemptId
+    )).map((item) => ({
+      evidenceId: item.evidenceId,
+      evidenceDigest: item.evidenceDigest,
+      transitionDigest: item.transitionDigest
+    })).sort((left, right) => left.evidenceId.localeCompare(right.evidenceId));
+    const invalidationBinding = {
+      schemaVersion: 1,
+      actionAttemptId: spent.attemptId,
+      reason: "autonomous-commit-reconciled",
+      invalidated: childTransitions.length,
+      children: childTransitions
+    };
+    assert.deepEqual(invalidationParent.children, childTransitions);
+    assert.equal(invalidationParent.invalidated, childTransitions.length);
+    assert.equal(invalidationParent.invalidationDigest, digestObject(invalidationBinding));
+  }
+
+  const journalPath = path.join(fixture.stateRoot, "runs", fixture.run.runId, "journal.jsonl");
+  const originalJournalText = await readFile(journalPath, "utf8");
+  const originalJournal = originalJournalText.split("\n").filter(Boolean).map((line) => JSON.parse(line));
+  const parentIndex = originalJournal.findIndex((item) => (
+    item.event === "evidence.invalidated" && item.actionAttemptId === spent.attemptId
+  ));
+  assert.notEqual(parentIndex, -1);
+  const parent = originalJournal[parentIndex];
+  const parentForChildren = (children) => {
+    const binding = {
+      schemaVersion: 1,
+      actionAttemptId: spent.attemptId,
+      reason: "autonomous-commit-reconciled",
+      invalidated: children.length,
+      children
+    };
+    return { ...parent, ...binding, invalidationDigest: digestObject(binding) };
+  };
+  const tamperedJournals = [
+    [...originalJournal, parent],
+    originalJournal.map((item, index) => index === parentIndex
+      ? { ...item, invalidated: item.invalidated + 1 }
+      : item),
+    originalJournal.map((item, index) => index === parentIndex
+      ? parentForChildren(item.children.slice(1))
+      : item),
+    originalJournal.map((item, index) => index === parentIndex
+      ? parentForChildren([
+          ...item.children,
+          {
+            evidenceId: "unbound-evidence-child",
+            evidenceDigest: "a".repeat(64),
+            transitionDigest: "b".repeat(64)
+          }
+        ].sort((left, right) => left.evidenceId.localeCompare(right.evidenceId)))
+      : item)
+  ];
+  for (const tamperedJournal of tamperedJournals) {
+    await writeFile(journalPath, `${tamperedJournal.map((item) => JSON.stringify(item)).join("\n")}\n`);
+    const completion = await evaluateCompletion(fixture.stateRoot, fixture.run.runId);
+    assert.ok(completion.blockers.some((item) => (
+      item.includes("Evidence invalidation journal parent") ||
+      item.includes("Evidence invalidation")
+    )));
+  }
+  await writeFile(journalPath, originalJournalText);
+
+  const evidenceDir = path.join(fixture.stateRoot, "runs", fixture.run.runId, "evidence");
+  const evidenceFiles = await readdir(evidenceDir);
+  const evidenceSnapshots = new Map();
+  for (const filename of evidenceFiles) {
+    const target = path.join(evidenceDir, filename);
+    evidenceSnapshots.set(filename, await readFile(target));
+    await rm(target);
+  }
+  const missingChildren = await evaluateCompletion(fixture.stateRoot, fixture.run.runId);
+  assert.ok(missingChildren.blockers.some((item) => (
+    item.includes("Evidence invalidation journal references missing evidence")
+  )));
+  for (const [filename, contents] of evidenceSnapshots) {
+    const target = path.join(evidenceDir, filename);
+    await writeFile(target, contents, { mode: 0o600 });
   }
 });
 

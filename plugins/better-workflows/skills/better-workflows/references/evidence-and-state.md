@@ -70,6 +70,24 @@ Once a supersession binds its target and replacement digests, routine resume or
 action freshness checks never rewrite either file; a later freshness failure
 blocks the action while preserving both original byte streams.
 
+Freshness mutation is itself append-only. Protocol v2 first appends an
+`evidence.freshness-transition` intent that binds the admission digest, prior
+and next full evidence digests, immutable projection, transition cause, and an
+exact freshness patch. Only then does it atomically replace the evidence file.
+If the process stops between those writes, canonical resume reconstructs the
+same next bytes from the pending intent and completes it without adding a
+second transition. Every consumer replays the complete admission-to-current
+journal chain, including records whose persisted `stale` flag is false.
+
+An autonomous commit additionally appends exactly one
+`evidence.invalidated` parent for its action attempt. That parent binds the
+sorted complete child set by evidence ID, resulting evidence digest, and
+transition digest. A missing or duplicate parent, omitted or extra child,
+digest mismatch, unsupported protocol, or evidence bytes edited back to fresh
+is blocking. Legacy freshness entries remain readable under their original
+format; a run is checked under protocol v2 once it records a versioned
+transition, and no existing legacy bytes are rewritten as an upgrade.
+
 Code-review templates additionally use immutable review packages and stable
 finding IDs. Scoped repair is bounded to five unique rounds and each repair
 result must bind `repairAttemptId`, `idempotencyKey`, and the immutable

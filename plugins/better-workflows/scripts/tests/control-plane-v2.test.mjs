@@ -180,7 +180,11 @@ function currentEvidenceDependencies(run, files = []) {
   };
 }
 
-async function providerReconciliationSupersessionFixture({ dependencyPath = null } = {}) {
+async function providerReconciliationSupersessionFixture({
+  dependencyPath = null,
+  malformedDependencies = {},
+  replacementDependencies = {}
+} = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "sbw-v2-evidence-supersession-"));
   let dependencyInputs = { files: [] };
   let dependencyFiles = [];
@@ -270,7 +274,7 @@ async function providerReconciliationSupersessionFixture({ dependencyPath = null
     idempotencyKey
   };
   await writeFile(actionPath, `${JSON.stringify(action, null, 2)}\n`);
-  const recordFor = (id, providerReceipt) => {
+  const recordFor = (id, providerReceipt, dependencyOverrides = {}) => {
     const payload = {
       provider: "local-workspace",
       receipt: providerReceipt,
@@ -295,7 +299,10 @@ async function providerReconciliationSupersessionFixture({ dependencyPath = null
       status: "complete",
       summary: `Provider reconciliation ${id}`,
       dependencyInputs,
-      dependencies: currentEvidenceDependencies(run, dependencyFiles),
+      dependencies: {
+        ...currentEvidenceDependencies(run, dependencyFiles),
+        ...dependencyOverrides
+      },
       receipt: {
         contractId: "evidence-contracts-v1:provider-reconciliation",
         contractVersion: 1,
@@ -312,8 +319,16 @@ async function providerReconciliationSupersessionFixture({ dependencyPath = null
       }
     };
   };
-  const malformed = await addEvidence(root, started.runId, recordFor("provider-proof-malformed", malformedReceipt));
-  const replacement = await addEvidence(root, started.runId, recordFor("provider-proof-corrected", correctedReceipt));
+  const malformed = await addEvidence(
+    root,
+    started.runId,
+    recordFor("provider-proof-malformed", malformedReceipt, malformedDependencies)
+  );
+  const replacement = await addEvidence(
+    root,
+    started.runId,
+    recordFor("provider-proof-corrected", correctedReceipt, replacementDependencies)
+  );
   const actionReceipt = {
     action: "artifact.promote",
     provider: "local-workspace",
@@ -1189,6 +1204,106 @@ test("freshness transitions preserve an append-only digest chain from admitted e
   }
 });
 
+test("legacy freshness transitions retain their original replay semantics", async () => {
+  const fixture = await providerReconciliationSupersessionFixture({
+    dependencyPath: "provider-legacy-freshness-input.txt"
+  });
+  try {
+    await writeFile(fixture.dependencyPath, "provider-legacy-freshness-input-drifted\n");
+    await refreshEvidence(fixture.root, fixture.started.runId);
+    const journalPath = path.join(fixture.run.runDir, "journal.jsonl");
+    const journal = (await readFile(journalPath, "utf8"))
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+    const legacyJournal = journal.map((entry) => {
+      if (entry.event !== "evidence.freshness-transition") return entry;
+      const binding = {
+        evidenceId: entry.evidenceId,
+        previousEvidenceDigest: entry.previousEvidenceDigest,
+        evidenceDigest: entry.evidenceDigest,
+        immutableEvidenceDigest: entry.immutableEvidenceDigest,
+        freshnessState: entry.freshnessState,
+        cause: entry.cause
+      };
+      return {
+        at: entry.at,
+        event: entry.event,
+        ...binding,
+        transitionDigest: digestObject(binding)
+      };
+    });
+    await writeFile(journalPath, `${legacyJournal.map((entry) => JSON.stringify(entry)).join("\n")}\n`);
+    const replay = await listEffectiveEvidenceRecords(fixture.root, fixture.started.runId);
+    assert.equal(replay.length, 2);
+    assert.ok(replay.every((record) => record.stale === true));
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("freshness replay rejects a journaled stale record edited back to fresh across every consumer", async () => {
+  const fixture = await providerReconciliationSupersessionFixture({
+    dependencyPath: "provider-journal-replay-input.txt"
+  });
+  try {
+    await writeFile(fixture.dependencyPath, "provider-journal-replay-input-drifted\n");
+    await refreshEvidence(fixture.root, fixture.started.runId);
+    const malformedPath = path.join(fixture.run.runDir, "evidence", `${fixture.malformed.id}.json`);
+    const journaledStale = JSON.parse(await readFile(malformedPath, "utf8"));
+    const forgedFresh = { ...journaledStale, stale: false };
+    delete forgedFresh.freshnessCheckedAt;
+    delete forgedFresh.currentDependencyFiles;
+    delete forgedFresh.staleReason;
+    await writeFile(malformedPath, `${JSON.stringify(forgedFresh, null, 2)}\n`);
+
+    await assert.rejects(
+      listEffectiveEvidenceRecords(fixture.root, fixture.started.runId),
+      /Evidence admission provenance is invalid|append-only freshness journal/
+    );
+    const ledger = await deriveLedgerStatus(fixture.root, fixture.started.runId);
+    assert.ok(ledger.blockers.some((item) => item.includes("Evidence admission provenance is invalid")));
+    const completion = await evaluateCompletion(fixture.root, fixture.started.runId);
+    assert.ok(completion.blockers.some((item) => item.includes("Evidence admission provenance is invalid")));
+    await assert.rejects(
+      supersedeEvidence(fixture.root, fixture.started.runId, {
+        schemaVersion: 1,
+        id: "forged-fresh-journal-correction",
+        supersededEvidenceId: forgedFresh.id,
+        supersededEvidenceDigest: digestObject(forgedFresh),
+        replacementEvidenceId: fixture.replacement.id,
+        replacementEvidenceDigest: digestObject(
+          JSON.parse(await readFile(
+            path.join(fixture.run.runDir, "evidence", `${fixture.replacement.id}.json`),
+            "utf8"
+          ))
+        ),
+        actionAttemptId: fixture.attemptId,
+        reason: "A stale record edited back to fresh must not enter evidence supersession"
+      }),
+      /Evidence admission provenance is invalid|append-only freshness journal/
+    );
+    await assert.rejects(
+      issueActionToken(
+        fixture.root,
+        fixture.started.runId,
+        {
+          action: "artifact.promote",
+          provider: "local-workspace",
+          resource: "artifact/fixture-artifact",
+          remoteRevision: fixture.run.contract.remoteRevision,
+          requiredEvidence: ["provider-reconciliation"]
+        },
+        "e".repeat(64),
+        await loadDefaults()
+      ),
+      /Evidence admission provenance is invalid|append-only freshness journal/
+    );
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test("evidence supersession replay rejects duplicate and filename-rebound identities", async () => {
   const duplicateCases = [
     {
@@ -1339,7 +1454,7 @@ test("evidence supersession rejects cross-attempt input and manually forged stal
         actionAttemptId: fixture.attemptId,
         reason: "A policy-drifted replacement must not supersede current evidence"
       }),
-      /source or policy binding changed/
+      /Evidence immutable admission binding changed/
     );
     await writeFile(replacementPath, replacementBytes);
     const malformedPath = path.join(fixture.run.runDir, "evidence", `${fixture.malformed.id}.json`);
@@ -1352,29 +1467,20 @@ test("evidence supersession rejects cross-attempt input and manually forged stal
 });
 
 test("evidence supersession requires the current canonical policy dependency projection", async () => {
-  const fixture = await providerReconciliationSupersessionFixture();
+  const arbitraryPolicyDigest = "f".repeat(64);
+  const fixture = await providerReconciliationSupersessionFixture({
+    malformedDependencies: { policyDigest: arbitraryPolicyDigest },
+    replacementDependencies: { policyDigest: arbitraryPolicyDigest }
+  });
   try {
-    const malformedPath = path.join(fixture.run.runDir, "evidence", `${fixture.malformed.id}.json`);
-    const replacementPath = path.join(fixture.run.runDir, "evidence", `${fixture.replacement.id}.json`);
-    const arbitraryPolicyDigest = "f".repeat(64);
-    const malformed = {
-      ...fixture.malformed,
-      dependencies: { ...fixture.malformed.dependencies, policyDigest: arbitraryPolicyDigest }
-    };
-    const replacement = {
-      ...fixture.replacement,
-      dependencies: { ...fixture.replacement.dependencies, policyDigest: arbitraryPolicyDigest }
-    };
-    await writeFile(malformedPath, `${JSON.stringify(malformed, null, 2)}\n`);
-    await writeFile(replacementPath, `${JSON.stringify(replacement, null, 2)}\n`);
     await assert.rejects(
       supersedeEvidence(fixture.root, fixture.started.runId, {
         schemaVersion: 1,
         id: "forged-shared-policy-correction",
-        supersededEvidenceId: malformed.id,
-        supersededEvidenceDigest: digestObject(malformed),
-        replacementEvidenceId: replacement.id,
-        replacementEvidenceDigest: digestObject(replacement),
+        supersededEvidenceId: fixture.malformed.id,
+        supersededEvidenceDigest: digestObject(fixture.malformed),
+        replacementEvidenceId: fixture.replacement.id,
+        replacementEvidenceDigest: digestObject(fixture.replacement),
         actionAttemptId: fixture.attemptId,
         reason: "Reject two identically forged policy projections for one provider action"
       }),
@@ -1382,6 +1488,59 @@ test("evidence supersession requires the current canonical policy dependency pro
     );
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("evidence supersession requires one complete canonical dependency projection", async () => {
+  const cases = [
+    {
+      label: "prompt digest mismatch",
+      malformedDependencies: { promptDigest: "a".repeat(64) },
+      replacementDependencies: {}
+    },
+    {
+      label: "model mismatch",
+      malformedDependencies: { model: "gpt-fixture" },
+      replacementDependencies: {}
+    },
+    {
+      label: "review binding mismatch",
+      malformedDependencies: { reviewBinding: { packageId: "review-fixture" } },
+      replacementDependencies: {}
+    },
+    {
+      label: "shared self-authorized review fields",
+      malformedDependencies: {
+        promptDigest: "b".repeat(64),
+        model: "gpt-fixture",
+        reviewBinding: { packageId: "review-fixture" }
+      },
+      replacementDependencies: {
+        promptDigest: "b".repeat(64),
+        model: "gpt-fixture",
+        reviewBinding: { packageId: "review-fixture" }
+      }
+    }
+  ];
+  for (const testCase of cases) {
+    const fixture = await providerReconciliationSupersessionFixture(testCase);
+    try {
+      await assert.rejects(
+        supersedeEvidence(fixture.root, fixture.started.runId, {
+          schemaVersion: 1,
+          id: `non-canonical-${testCase.label.replaceAll(" ", "-")}`,
+          supersededEvidenceId: fixture.malformed.id,
+          supersededEvidenceDigest: digestObject(fixture.malformed),
+          replacementEvidenceId: fixture.replacement.id,
+          replacementEvidenceDigest: digestObject(fixture.replacement),
+          actionAttemptId: fixture.attemptId,
+          reason: "Provider reconciliation review dependencies must be canonical and identical"
+        }),
+        /source or policy binding changed|provider reconciliation dependencies are not canonical/
+      );
+    } finally {
+      await rm(fixture.root, { recursive: true, force: true });
+    }
   }
 });
 
@@ -1721,12 +1880,12 @@ test("persisted typed evidence is revalidated before ledger admission", async ()
       type: "start",
       taskId: "environment"
     }),
-    /invalid-typed-evidence:environment/
+    /Evidence immutable admission binding changed: environment/
   );
   const ledger = JSON.parse(await readFile(path.join(run.runDir, "ledger.json"), "utf8"));
   assert.equal(ledger.events.length, 0);
   const status = await deriveLedgerStatus(root, started.runId);
-  assert.ok(status.blockers.includes("invalid-typed-evidence:environment"));
+  assert.ok(status.blockers.some((item) => item.includes("Evidence immutable admission binding changed: environment")));
   assert.equal(status.complete, false);
 });
 

@@ -2942,6 +2942,8 @@ const EVIDENCE_DEPENDENCY_KEYS = new Set([
   "remoteRevision"
 ]);
 const EVIDENCE_FRESHNESS_EVENT = "evidence.freshness-transition";
+const EVIDENCE_FRESHNESS_PROTOCOL_VERSION = 2;
+const EVIDENCE_INVALIDATION_PARENT_SCHEMA_VERSION = 1;
 
 function assertExactObjectKeys(value, expected, label) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -2998,7 +3000,86 @@ function evidenceFreshnessState(record) {
   };
 }
 
-function evidenceAdmissionJournalBinding(record, journal) {
+function evidenceFreshnessPatch(record) {
+  const currentDependencyFilesPresent = Object.hasOwn(record, "currentDependencyFiles");
+  const staleReasonPresent = Object.hasOwn(record, "staleReason");
+  return {
+    stale: record.stale === true,
+    freshnessCheckedAt: Object.hasOwn(record, "freshnessCheckedAt")
+      ? record.freshnessCheckedAt
+      : null,
+    currentDependencyFilesPresent,
+    currentDependencyFiles: currentDependencyFilesPresent
+      ? structuredClone(record.currentDependencyFiles)
+      : null,
+    staleReasonPresent,
+    staleReason: staleReasonPresent ? record.staleReason : null
+  };
+}
+
+function applyEvidenceFreshnessPatch(record, patch) {
+  assertExactObjectKeys(
+    patch,
+    new Set([
+      "stale",
+      "freshnessCheckedAt",
+      "currentDependencyFilesPresent",
+      "currentDependencyFiles",
+      "staleReasonPresent",
+      "staleReason"
+    ]),
+    "Evidence freshness patch"
+  );
+  if (
+    typeof patch.stale !== "boolean" ||
+    (patch.freshnessCheckedAt !== null && (
+      typeof patch.freshnessCheckedAt !== "string" ||
+      !Number.isFinite(Date.parse(patch.freshnessCheckedAt))
+    )) ||
+    typeof patch.currentDependencyFilesPresent !== "boolean" ||
+    (patch.currentDependencyFilesPresent
+      ? !Array.isArray(patch.currentDependencyFiles)
+      : patch.currentDependencyFiles !== null) ||
+    typeof patch.staleReasonPresent !== "boolean" ||
+    (patch.staleReasonPresent
+      ? typeof patch.staleReason !== "string" || patch.staleReason.length === 0
+      : patch.staleReason !== null)
+  ) {
+    throw new Error("Evidence freshness patch is invalid");
+  }
+  const next = evidenceImmutableProjection(record);
+  next.stale = patch.stale;
+  if (patch.freshnessCheckedAt !== null) next.freshnessCheckedAt = patch.freshnessCheckedAt;
+  if (patch.currentDependencyFilesPresent) {
+    next.currentDependencyFiles = structuredClone(patch.currentDependencyFiles);
+  }
+  if (patch.staleReasonPresent) next.staleReason = patch.staleReason;
+  return next;
+}
+
+function evidenceFreshnessTransitionBinding(recordId, entry) {
+  const binding = {
+    evidenceId: recordId,
+    previousEvidenceDigest: entry.previousEvidenceDigest,
+    evidenceDigest: entry.evidenceDigest,
+    immutableEvidenceDigest: entry.immutableEvidenceDigest,
+    freshnessState: entry.freshnessState,
+    cause: entry.cause
+  };
+  if (entry.protocolVersion === EVIDENCE_FRESHNESS_PROTOCOL_VERSION) {
+    return {
+      protocolVersion: EVIDENCE_FRESHNESS_PROTOCOL_VERSION,
+      ...binding,
+      freshnessPatch: entry.freshnessPatch
+    };
+  }
+  if (entry.protocolVersion !== undefined) {
+    throw new Error(`Evidence freshness protocol is unsupported: ${recordId}`);
+  }
+  return binding;
+}
+
+function evidenceAdmissionJournalBinding(record, journal, { allowPending = false } = {}) {
   const added = journal.filter((entry) => entry.event === "evidence.added" && entry.evidenceId === record.id);
   if (
     added.length !== 1 ||
@@ -3013,17 +3094,11 @@ function evidenceAdmissionJournalBinding(record, journal) {
   }
   let headDigest = added[0].evidenceDigest;
   let lastTransition = null;
-  for (const entry of journal.filter((candidate) => (
+  const transitions = journal.filter((candidate) => (
     candidate.event === EVIDENCE_FRESHNESS_EVENT && candidate.evidenceId === record.id
-  ))) {
-    const transitionBinding = {
-      evidenceId: record.id,
-      previousEvidenceDigest: entry.previousEvidenceDigest,
-      evidenceDigest: entry.evidenceDigest,
-      immutableEvidenceDigest: entry.immutableEvidenceDigest,
-      freshnessState: entry.freshnessState,
-      cause: entry.cause
-    };
+  ));
+  for (const entry of transitions) {
+    const transitionBinding = evidenceFreshnessTransitionBinding(record.id, entry);
     if (
       entry.previousEvidenceDigest !== headDigest ||
       !SHA256_DIGEST.test(entry.evidenceDigest ?? "") ||
@@ -3032,36 +3107,98 @@ function evidenceAdmissionJournalBinding(record, journal) {
     ) {
       throw new Error(`Evidence freshness journal chain is invalid: ${record.id}`);
     }
+    if (
+      entry.protocolVersion === EVIDENCE_FRESHNESS_PROTOCOL_VERSION &&
+      digestObject(applyEvidenceFreshnessPatch(record, entry.freshnessPatch)) !== entry.evidenceDigest
+    ) {
+      throw new Error(`Evidence freshness patch does not reproduce the journal digest: ${record.id}`);
+    }
     headDigest = entry.evidenceDigest;
     lastTransition = entry;
   }
-  if (headDigest !== digestObject(record)) {
+  const recordDigest = digestObject(record);
+  let pendingTransition = null;
+  if (
+    headDigest !== recordDigest &&
+    allowPending &&
+    lastTransition?.protocolVersion === EVIDENCE_FRESHNESS_PROTOCOL_VERSION &&
+    lastTransition.previousEvidenceDigest === recordDigest
+  ) {
+    pendingTransition = lastTransition;
+  } else if (headDigest !== recordDigest) {
     throw new Error(`Evidence bytes do not match the append-only freshness journal: ${record.id}`);
   }
-  return { immutableEvidenceDigest, headDigest, lastTransition };
+  return {
+    immutableEvidenceDigest,
+    headDigest: pendingTransition ? recordDigest : headDigest,
+    lastTransition: pendingTransition ? transitions.at(-2) ?? null : lastTransition,
+    pendingTransition
+  };
 }
 
-async function writeEvidenceFreshnessTransition(root, runDir, current, next, cause) {
+function sameEvidenceFreshnessSemantics(left, right) {
+  return digestObject({
+    stale: left.stale === true,
+    currentDependencyFiles: left.currentDependencyFiles ?? null,
+    staleReason: left.staleReason ?? null
+  }) === digestObject({
+    stale: right.stale === true,
+    currentDependencyFiles: right.currentDependencyFiles ?? null,
+    staleReason: right.staleReason ?? null
+  });
+}
+
+async function writeEvidenceFreshnessTransition(
+  root,
+  runDir,
+  current,
+  next,
+  cause,
+  { onPrepared = null } = {}
+) {
   const journal = await readJournalRecords(root, runDir);
-  const binding = evidenceAdmissionJournalBinding(current, journal);
+  const binding = evidenceAdmissionJournalBinding(current, journal, { allowPending: true });
+  if (binding.pendingTransition) {
+    const pending = binding.pendingTransition;
+    if (
+      digestObject(pending.cause) !== digestObject(cause) ||
+      pending.immutableEvidenceDigest !== binding.immutableEvidenceDigest
+    ) {
+      throw new Error(`Evidence freshness transition has a conflicting pending intent: ${current.id}`);
+    }
+    const recovered = applyEvidenceFreshnessPatch(current, pending.freshnessPatch);
+    if (digestObject(recovered) !== pending.evidenceDigest) {
+      throw new Error(`Evidence freshness pending transition cannot be recovered: ${current.id}`);
+    }
+    await atomicWriteJson(root, safeJoin(runDir, "evidence", `${current.id}.json`), recovered);
+    if (!sameEvidenceFreshnessSemantics(recovered, next)) {
+      return writeEvidenceFreshnessTransition(root, runDir, recovered, next, cause);
+    }
+    return { record: recovered, transition: pending, recovered: true };
+  }
   const immutableEvidenceDigest = digestObject(evidenceImmutableProjection(next));
   if (immutableEvidenceDigest !== binding.immutableEvidenceDigest) {
     throw new Error(`Evidence freshness transition attempted to mutate admitted bytes: ${current.id}`);
   }
+  const freshnessPatch = evidenceFreshnessPatch(next);
+  const canonicalNext = applyEvidenceFreshnessPatch(current, freshnessPatch);
   const transitionBinding = {
+    protocolVersion: EVIDENCE_FRESHNESS_PROTOCOL_VERSION,
     evidenceId: current.id,
     previousEvidenceDigest: digestObject(current),
-    evidenceDigest: digestObject(next),
+    evidenceDigest: digestObject(canonicalNext),
     immutableEvidenceDigest,
-    freshnessState: evidenceFreshnessState(next),
-    cause
+    freshnessState: evidenceFreshnessState(canonicalNext),
+    cause,
+    freshnessPatch
   };
-  await appendJournal(root, runDir, EVIDENCE_FRESHNESS_EVENT, {
+  const transition = await appendJournal(root, runDir, EVIDENCE_FRESHNESS_EVENT, {
     ...transitionBinding,
     transitionDigest: digestObject(transitionBinding)
   });
-  await atomicWriteJson(root, safeJoin(runDir, "evidence", `${current.id}.json`), next);
-  return next;
+  if (onPrepared) await onPrepared(transition);
+  await atomicWriteJson(root, safeJoin(runDir, "evidence", `${current.id}.json`), canonicalNext);
+  return { record: canonicalNext, transition, recovered: false };
 }
 
 async function assertEvidenceSupersessionIdentity(run, target, replacement) {
@@ -3097,16 +3234,18 @@ async function assertEvidenceSupersessionIdentity(run, target, replacement) {
   ) {
     throw new Error("Evidence supersession provider action remote revision is stale");
   }
-  const dependencyFields = [
-    "contractDigest",
-    "workflowVersion",
-    "sourceBindingDigest",
-    "sourceSentinelDigest",
-    "policyDigest",
-    "remoteRevision"
-  ];
-  if (dependencyFields.some((field) => target.dependencies?.[field] !== replacement.dependencies?.[field])) {
+  for (const [label, record] of [["target", target], ["replacement", replacement]]) {
+    assertExactObjectKeys(record.dependencies, EVIDENCE_DEPENDENCY_KEYS, `Evidence supersession ${label} dependencies`);
+  }
+  if (digestObject(target.dependencies) !== digestObject(replacement.dependencies)) {
     throw new Error("Evidence supersession source or policy binding changed");
+  }
+  if ([target, replacement].some((record) => (
+    record.dependencies.promptDigest !== null ||
+    record.dependencies.model !== null ||
+    record.dependencies.reviewBinding !== null
+  ))) {
+    throw new Error("Evidence supersession provider reconciliation dependencies are not canonical");
   }
   if (
     target.typedAdmission.contractId !== replacement.typedAdmission.contractId ||
@@ -3131,7 +3270,6 @@ async function assertEvidenceSupersessionIdentity(run, target, replacement) {
     throw new Error("Evidence supersession requires complete current source and policy dependencies");
   }
   for (const [label, record] of [["target", target], ["replacement", replacement]]) {
-    assertExactObjectKeys(record.dependencies, EVIDENCE_DEPENDENCY_KEYS, `Evidence supersession ${label} dependencies`);
     const freshness = await currentEvidenceFreshness(run, record);
     if (freshness.stale || digestObject(record.dependencies) !== digestObject(freshness.expectedDependencies)) {
       throw new Error(`Evidence supersession ${label} is not bound to the current canonical dependency projection`);
@@ -3230,6 +3368,13 @@ async function currentEvidenceFreshness(run, record) {
     current.push(await fingerprintEvidenceDependency(run.manifest.cwd, candidate));
   }
   if (digestObject(current) !== digestObject(record.dependencies?.files ?? [])) stale = true;
+  const canonicalReviewDependencies = kind === "provider-reconciliation"
+    ? { promptDigest: null, model: null, reviewBinding: null }
+    : {
+        promptDigest: record.dependencies?.promptDigest ?? null,
+        model: record.dependencies?.model ?? null,
+        reviewBinding: record.dependencies?.reviewBinding ?? null
+      };
   const expectedDependencies = {
     contractDigest: run.manifest.contractDigest,
     workflowVersion: VERSION,
@@ -3237,11 +3382,10 @@ async function currentEvidenceFreshness(run, record) {
     sourceBindingDigest: sourceBindingRequired ? run.manifest.sourceBinding?.digest ?? null : null,
     sourceSentinelDigest: sourceSentinelRequired ? run.state.lastSentinel?.digest ?? null : null,
     policyDigest: canonicalEvidencePolicyDigest(run.contract),
-    promptDigest: record.dependencies?.promptDigest ?? null,
-    model: record.dependencies?.model ?? null,
-    reviewBinding: record.dependencies?.reviewBinding ?? null,
+    ...canonicalReviewDependencies,
     remoteRevision: run.contract.remoteRevision ?? null
   };
+  if (digestObject(record.dependencies ?? null) !== digestObject(expectedDependencies)) stale = true;
   const projectionDigest = digestObject({
     dependencyInputs: record.dependencyInputs,
     expectedDependencies,
@@ -3250,16 +3394,122 @@ async function currentEvidenceFreshness(run, record) {
   return { stale, currentDependencyFiles: current, expectedDependencies, projectionDigest };
 }
 
-async function assertStaleEvidenceProvenance(root, run, records, journal) {
+function autonomousInvalidationChildren(journal, attemptId, recordsById = null) {
+  const transitions = journal.filter((entry) => (
+    entry.event === EVIDENCE_FRESHNESS_EVENT &&
+    entry.protocolVersion === EVIDENCE_FRESHNESS_PROTOCOL_VERSION &&
+    entry.cause?.kind === "autonomous-commit-reconciled" &&
+    entry.cause.actionAttemptId === attemptId
+  ));
+  const children = transitions.map((entry) => {
+    if (recordsById && !recordsById.has(entry.evidenceId)) {
+      throw new Error(`Evidence invalidation journal references missing evidence: ${entry.evidenceId}`);
+    }
+    if (
+      !SHA256_DIGEST.test(entry.evidenceDigest ?? "") ||
+      !SHA256_DIGEST.test(entry.transitionDigest ?? "")
+    ) {
+      throw new Error(`Evidence invalidation child binding is invalid: ${entry.evidenceId ?? "unknown"}`);
+    }
+    return {
+      evidenceId: entry.evidenceId,
+      evidenceDigest: entry.evidenceDigest,
+      transitionDigest: entry.transitionDigest
+    };
+  }).sort((left, right) => left.evidenceId.localeCompare(right.evidenceId));
+  if (new Set(children.map((child) => child.evidenceId)).size !== children.length) {
+    throw new Error(`Evidence invalidation has duplicate child transitions: ${attemptId}`);
+  }
+  return children;
+}
+
+function evidenceInvalidationParentBinding(attemptId, children) {
+  return {
+    schemaVersion: EVIDENCE_INVALIDATION_PARENT_SCHEMA_VERSION,
+    actionAttemptId: attemptId,
+    reason: "autonomous-commit-reconciled",
+    invalidated: children.length,
+    children
+  };
+}
+
+function validateEvidenceInvalidationParent(journal, attemptId, recordsById = null) {
+  const children = autonomousInvalidationChildren(journal, attemptId, recordsById);
+  if (children.length === 0) {
+    throw new Error(`Evidence invalidation has no bound child transitions: ${attemptId}`);
+  }
+  const parents = journal.filter((entry) => (
+    entry.event === "evidence.invalidated" && entry.actionAttemptId === attemptId
+  ));
+  if (parents.length !== 1) {
+    throw new Error(`Evidence invalidation journal parent is missing or ambiguous: ${attemptId}`);
+  }
+  const expected = evidenceInvalidationParentBinding(attemptId, children);
+  const parent = parents[0];
+  if (
+    parent.schemaVersion !== expected.schemaVersion ||
+    parent.reason !== expected.reason ||
+    parent.invalidated !== expected.invalidated ||
+    digestObject(parent.children) !== digestObject(expected.children) ||
+    parent.invalidationDigest !== digestObject(expected)
+  ) {
+    throw new Error(`Evidence invalidation journal parent binding is invalid: ${attemptId}`);
+  }
+  return { parent, children, binding: expected };
+}
+
+async function appendEvidenceInvalidationParent(root, runDir, attemptId) {
+  const journal = await readJournalRecords(root, runDir);
+  const children = autonomousInvalidationChildren(journal, attemptId);
+  if (children.length === 0) return null;
+  const existing = journal.filter((entry) => (
+    entry.event === "evidence.invalidated" && entry.actionAttemptId === attemptId
+  ));
+  const binding = evidenceInvalidationParentBinding(attemptId, children);
+  if (existing.length === 0) {
+    return appendJournal(root, runDir, "evidence.invalidated", {
+      ...binding,
+      invalidationDigest: digestObject(binding)
+    });
+  }
+  return validateEvidenceInvalidationParent(journal, attemptId).parent;
+}
+
+async function assertEvidenceJournalProvenance(root, run, records, journal) {
+  const bindings = new Map();
+  for (const record of records) {
+    try {
+      bindings.set(record.id, evidenceAdmissionJournalBinding(record, journal));
+    } catch (error) {
+      const label = record.stale === true ? "stale" : "admission";
+      throw new Error(`Evidence ${label} provenance is invalid: ${record.id ?? "unknown"}: ${error.message}`);
+    }
+  }
+  const recordsById = new Map(records.map((record) => [record.id, record]));
+  const autonomousInvalidationAttemptIds = new Set([
+    ...journal.filter((entry) => (
+      entry.event === EVIDENCE_FRESHNESS_EVENT &&
+      entry.protocolVersion === EVIDENCE_FRESHNESS_PROTOCOL_VERSION &&
+      entry.cause?.kind === "autonomous-commit-reconciled"
+    )).map((entry) => entry.cause.actionAttemptId),
+    ...journal.filter((entry) => (
+      entry.event === "evidence.invalidated" && entry.schemaVersion !== undefined
+    )).map((entry) => entry.actionAttemptId)
+  ]);
+  const invalidationsByAttempt = new Map();
+  for (const attemptId of autonomousInvalidationAttemptIds) {
+    if (typeof attemptId !== "string" || !SAFE_ID.test(attemptId)) {
+      throw new Error("Evidence invalidation action attempt binding is invalid");
+    }
+    invalidationsByAttempt.set(
+      attemptId,
+      validateEvidenceInvalidationParent(journal, attemptId, recordsById)
+    );
+  }
   for (const record of records) {
     if (record.stale !== true) continue;
     let authorized = false;
-    let binding;
-    try {
-      binding = evidenceAdmissionJournalBinding(record, journal);
-    } catch {
-      binding = null;
-    }
+    const binding = bindings.get(record.id);
     const transition = binding?.lastTransition;
     if (
       transition?.freshnessState?.stale === true &&
@@ -3276,11 +3526,21 @@ async function assertStaleEvidenceProvenance(root, run, records, journal) {
           entry.reason === transition.cause.reason
         ));
       } else if (transition.cause?.kind === "autonomous-commit-reconciled") {
-        authorized = journal.some((entry) => (
-          entry.event === "evidence.invalidated" &&
-          entry.actionAttemptId === transition.cause.actionAttemptId &&
-          entry.reason === "autonomous-commit-reconciled"
-        ));
+        if (transition.protocolVersion === EVIDENCE_FRESHNESS_PROTOCOL_VERSION) {
+          const invalidation = invalidationsByAttempt.get(transition.cause.actionAttemptId);
+          authorized = invalidation.children.some((child) => (
+            child.evidenceId === record.id &&
+            child.evidenceDigest === transition.evidenceDigest &&
+            child.transitionDigest === transition.transitionDigest
+          ));
+        } else {
+          authorized = journal.some((entry) => (
+            entry.event === "evidence.invalidated" &&
+            entry.schemaVersion === undefined &&
+            entry.actionAttemptId === transition.cause.actionAttemptId &&
+            entry.reason === "autonomous-commit-reconciled"
+          ));
+        }
       } else if (transition.cause?.kind === "dependency-refresh") {
         authorized = (await currentEvidenceFreshness(run, record)).stale;
       }
@@ -3411,7 +3671,7 @@ async function validateEvidenceSupersessionRecord(root, run, recordsById, journa
 async function loadEvidenceSupersessions(root, run, records) {
   const directory = safeJoin(run.runDir, "evidence-supersessions");
   const journal = await readJournalRecords(root, run.runDir);
-  await assertStaleEvidenceProvenance(root, run, records, journal);
+  await assertEvidenceJournalProvenance(root, run, records, journal);
   const supersessions = await listIdentityBoundJsonRecords(root, directory, "Evidence supersession");
   const journalEntries = journal.filter((entry) => entry.event === "evidence.superseded");
   if (supersessions.length === 0 && journalEntries.length === 0) {
@@ -3446,7 +3706,16 @@ export async function loadEffectiveEvidenceState(root, runId, { run: suppliedRun
   const records = run.contract.schemaVersion === 2
     ? await listIdentityBoundJsonRecords(root, safeJoin(run.runDir, "evidence"), "Evidence")
     : await listJsonRecords(root, safeJoin(run.runDir, "evidence"));
-  if (run.contract.schemaVersion !== 2) return { records, supersessions: [] };
+  if (run.contract.schemaVersion !== 2) {
+    const journal = await readJournalRecords(root, run.runDir);
+    const usesCanonicalFreshnessProtocol = journal.some((entry) => (
+      entry.event === EVIDENCE_FRESHNESS_EVENT && entry.protocolVersion !== undefined
+    ));
+    if (usesCanonicalFreshnessProtocol) {
+      await assertEvidenceJournalProvenance(root, run, records, journal);
+    }
+    return { records, supersessions: [] };
+  }
   const { records: supersessions, supersededIds } = await loadEvidenceSupersessions(root, run, records);
   return {
     records: records.filter((record) => !supersededIds.has(record.id)),
@@ -3552,6 +3821,8 @@ export async function supersedeEvidence(root, runId, input) {
       throw new Error("Evidence supersession reason must be 12 to 512 characters");
     }
     const evidence = await listIdentityBoundJsonRecords(root, safeJoin(runDir, "evidence"), "Evidence");
+    const evidenceJournal = await readJournalRecords(root, runDir);
+    await assertEvidenceJournalProvenance(root, run, evidence, evidenceJournal);
     const recordsById = new Map(evidence.map((record) => [record.id, record]));
     const target = recordsById.get(input.supersededEvidenceId);
     const replacement = recordsById.get(input.replacementEvidenceId);
@@ -9596,11 +9867,13 @@ async function transitionAutonomousCommitSourceBinding(root, runDir, contract, r
 
 async function invalidateEvidenceAfterAutonomousCommit(root, runDir, record, transitionedAt, onBoundary = () => {}) {
   const evidence = await listJsonRecords(root, safeJoin(runDir, "evidence"));
-  let invalidated = 0;
+  let transitionBoundaryArmed = true;
   for (const item of evidence) {
     if (item.status !== "complete") continue;
     if (item.stale === true) {
-      if (item.staleReason === `autonomous-commit-reconciled:${record.attemptId}`) invalidated += 1;
+      if (item.staleReason === `autonomous-commit-reconciled:${record.attemptId}`) {
+        transitionBoundaryArmed = false;
+      }
       continue;
     }
     const next = {
@@ -9609,21 +9882,26 @@ async function invalidateEvidenceAfterAutonomousCommit(root, runDir, record, tra
       freshnessCheckedAt: transitionedAt,
       staleReason: `autonomous-commit-reconciled:${record.attemptId}`
     };
-    await writeEvidenceFreshnessTransition(root, runDir, item, next, {
-      kind: "autonomous-commit-reconciled",
-      actionAttemptId: record.attemptId
-    });
-    invalidated += 1;
+    await writeEvidenceFreshnessTransition(
+      root,
+      runDir,
+      item,
+      next,
+      {
+        kind: "autonomous-commit-reconciled",
+        actionAttemptId: record.attemptId
+      },
+      {
+        onPrepared: transitionBoundaryArmed
+          ? () => onBoundary("evidence-transition-journal")
+          : null
+      }
+    );
+    transitionBoundaryArmed = false;
     await onBoundary("evidence-invalidation");
   }
-  if (invalidated > 0) {
-    await appendJournalOnceForAttempt(root, runDir, "evidence.invalidated", record.attemptId, {
-      actionAttemptId: record.attemptId,
-      reason: "autonomous-commit-reconciled",
-      invalidated
-    });
-  }
-  return invalidated;
+  const parent = await appendEvidenceInvalidationParent(root, runDir, record.attemptId);
+  return parent?.invalidated ?? 0;
 }
 
 const AUTONOMOUS_COMMIT_RECONCILE_FAILURE_POINTS = new Set([
@@ -9631,6 +9909,7 @@ const AUTONOMOUS_COMMIT_RECONCILE_FAILURE_POINTS = new Set([
   "source-manifest",
   "source-state",
   "action-persistence",
+  "evidence-transition-journal",
   "evidence-invalidation"
 ]);
 

@@ -270,6 +270,16 @@ After admission, freshness checks preserve the target and replacement bytes and
 block instead of rewriting either digest-bound record. Do not use this lifecycle
 to hide valid evidence or as a substitute for source rebind.
 
+Canonical freshness writes use a journal-first protocol: the durable
+`evidence.freshness-transition` intent binds the admission digest, previous and
+next evidence digests, immutable projection, cause, and an exact replay patch
+before the evidence file is replaced. Resume must replay that same intent; it
+must not append a competing transition. Autonomous-commit invalidation also
+requires exactly one digest-bound `evidence.invalidated` parent covering the
+complete child transition set. Missing, duplicate, partial, or conflicting
+chains block every evidence consumer. Legacy transition records keep their
+original reader and are not silently upgraded.
+
 All newly-created non-direct template runs use TaskContract v2. The run creates
 an append-only execution ledger and accepts only typed evidence receipts from
 the 102-kind catalog; v1 runs remain on the v1 reader and are never silently
