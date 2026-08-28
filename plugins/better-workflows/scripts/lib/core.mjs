@@ -832,6 +832,40 @@ export function buildGitPushActionBinding({
   };
 }
 
+export function buildPrMergeActionBinding({
+  prior = {},
+  pullRequest,
+  reviewedHead,
+  remoteRevision,
+  targetRef = null,
+  providerExecutable,
+  repository
+}) {
+  return {
+    ...prior,
+    pullRequest,
+    reviewedHead,
+    remoteRevision,
+    ...(targetRef ? { targetRef } : {}),
+    mergeMethod: "merge",
+    adminBypass: false,
+    providerExecutable,
+    mergeRepository: repository,
+    mergeCommand: [
+      "gh",
+      "pr",
+      "merge",
+      String(pullRequest),
+      "--repo",
+      repository,
+      "--match-head-commit",
+      reviewedHead,
+      "--merge",
+      "--delete-branch=false"
+    ]
+  };
+}
+
 export function resolveGitPushExecutionBinding(record) {
   const [, resourceRemote, resourceRef] = GIT_PUSH_RESOURCE.exec(record.resource) ?? [];
   const expectedRef = `refs/heads/${record.expectedBranch}`;
@@ -7158,28 +7192,15 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
       const currentHead = (await execBoundGitAuthority(manifest.cwd, [
         "rev-parse", "--verify", "HEAD^{commit}"
       ])).stdout.trim();
-      actionBinding = {
-        ...actionBinding,
+      actionBinding = buildPrMergeActionBinding({
+        prior: actionBinding,
         pullRequest,
         reviewedHead: currentHead,
-        ...(isDevDeliveryTemplate(contract.template) ? { targetRef: "dev" } : {}),
-        mergeMethod: "merge",
-        adminBypass: false,
+        remoteRevision: request.remoteRevision,
+        targetRef: isDevDeliveryTemplate(contract.template) ? "dev" : null,
         providerExecutable: providerExecutable ?? await currentProviderExecutableIdentity("gh"),
-        mergeRepository: repository,
-        mergeCommand: [
-          "gh",
-          "pr",
-          "merge",
-          String(pullRequest),
-          "--repo",
-          repository,
-          "--match-head-commit",
-          currentHead,
-          "--merge",
-          "--delete-branch=false"
-        ]
-      };
+        repository
+      });
     }
     if (providerAuthorization) actionBinding.providerAuthorization = providerAuthorization;
     if (providerAuthorizationExecutable) actionBinding.providerAuthorizationExecutable = providerAuthorizationExecutable;

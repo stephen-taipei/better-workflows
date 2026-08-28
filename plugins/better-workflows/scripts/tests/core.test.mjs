@@ -38,6 +38,7 @@ import {
   buildActionsDispatchProviderReceipt,
   BOUND_CREDENTIAL_WORKSPACE_ROOT,
   buildGitPushActionBinding,
+  buildPrMergeActionBinding,
   buildPrCreateCommand,
   buildContract,
   captureAutonomyReadinessSnapshot,
@@ -119,6 +120,31 @@ test("GitHub Actions dispatch ref endpoints encode slash-containing refs as one 
     () => workflowDispatchObservationRef("release/3.4"),
     /fully qualified refs\/heads or refs\/tags/
   );
+});
+
+test("PR merge action binding carries the exact reviewed base into live verification", () => {
+  const reviewedHead = "a".repeat(40);
+  const remoteRevision = "b".repeat(40);
+  const providerExecutable = { path: "/usr/bin/false", digest: "c".repeat(64) };
+  const binding = buildPrMergeActionBinding({
+    prior: { requiredChecksEvidenceId: "checks" },
+    pullRequest: 41,
+    reviewedHead,
+    remoteRevision,
+    targetRef: "dev",
+    providerExecutable,
+    repository: "github.com/example/repo"
+  });
+
+  assert.equal(binding.remoteRevision, remoteRevision);
+  assert.equal(binding.targetRef, "dev");
+  assert.equal(binding.reviewedHead, reviewedHead);
+  assert.equal(binding.adminBypass, false);
+  assert.equal(binding.requiredChecksEvidenceId, "checks");
+  assert.deepEqual(binding.mergeCommand, [
+    "gh", "pr", "merge", "41", "--repo", "github.com/example/repo",
+    "--match-head-commit", reviewedHead, "--merge", "--delete-branch=false"
+  ]);
 });
 
 test("annotated workflow refs peel tag objects to a commit and reject cycles", async () => {
