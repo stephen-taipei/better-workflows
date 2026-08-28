@@ -160,11 +160,11 @@ async function gateRecord(run, kind, payload, id = kind) {
   };
 }
 
-function currentEvidenceDependencies(run) {
+function currentEvidenceDependencies(run, files = []) {
   return {
     contractDigest: run.manifest.contractDigest,
     workflowVersion: VERSION,
-    files: [],
+    files,
     sourceBindingDigest: null,
     sourceSentinelDigest: null,
     policyDigest: digestObject({
@@ -180,8 +180,25 @@ function currentEvidenceDependencies(run) {
   };
 }
 
-async function providerReconciliationSupersessionFixture() {
+async function providerReconciliationSupersessionFixture({ dependencyPath = null } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "sbw-v2-evidence-supersession-"));
+  let dependencyInputs = { files: [] };
+  let dependencyFiles = [];
+  let absoluteDependencyPath = null;
+  if (dependencyPath) {
+    absoluteDependencyPath = path.join(root, dependencyPath);
+    const dependencyBytes = Buffer.from("provider-dependency-v1\n");
+    await writeFile(absoluteDependencyPath, dependencyBytes);
+    const info = await stat(absoluteDependencyPath);
+    dependencyInputs = { files: [dependencyPath] };
+    dependencyFiles = [{
+      path: dependencyPath,
+      type: "file",
+      mode: info.mode,
+      size: info.size,
+      digest: sha256(dependencyBytes)
+    }];
+  }
   const taskContract = buildContract({
     template: "test-v2-evidence-supersession",
     templateDefinition: {
@@ -277,8 +294,8 @@ async function providerReconciliationSupersessionFixture() {
       kind: "provider-reconciliation",
       status: "complete",
       summary: `Provider reconciliation ${id}`,
-      dependencyInputs: { files: [] },
-      dependencies: currentEvidenceDependencies(run),
+      dependencyInputs,
+      dependencies: currentEvidenceDependencies(run, dependencyFiles),
       receipt: {
         contractId: "evidence-contracts-v1:provider-reconciliation",
         contractVersion: 1,
@@ -321,7 +338,16 @@ async function providerReconciliationSupersessionFixture() {
     lastSentinelVerified: true,
     lastSentinelComplete: true
   }));
-  return { root, run, started, attemptId, malformed, replacement };
+  return {
+    root,
+    run,
+    started,
+    attemptId,
+    malformed,
+    replacement,
+    dependencyPath: absoluteDependencyPath,
+    dependencyOriginalBytes: absoluteDependencyPath ? Buffer.from("provider-dependency-v1\n") : null
+  };
 }
 
 function reviewKernelTemplate() {
@@ -1051,6 +1077,7 @@ test("resume freshness and action issuance preserve supersession-bound evidence 
     }, "e".repeat(64), await loadDefaults());
     assert.equal(issued.action, "artifact.promote");
     assert.equal(typeof issued.token, "string");
+    assert.match(issued.evidenceSupersessionFreshnessDigest, /^[a-f0-9]{64}$/);
     assert.deepEqual(
       await Promise.all([readFile(malformedPath, "utf8"), readFile(replacementPath, "utf8")]),
       originalBytes
@@ -1060,6 +1087,103 @@ test("resume freshness and action issuance preserve supersession-bound evidence 
     assert.deepEqual(replayTwo, replayOne);
     assert.deepEqual(replayOne.map((record) => record.id), [fixture.replacement.id]);
     assert.equal(supersession.replacementEvidence.id, fixture.replacement.id);
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("action authority recomputes immutable supersession freshness at issue and consume", async () => {
+  const fixture = await providerReconciliationSupersessionFixture({
+    dependencyPath: "provider-dependency.txt"
+  });
+  try {
+    await supersedeEvidence(fixture.root, fixture.started.runId, {
+      schemaVersion: 1,
+      id: "provider-proof-freshness-authority",
+      supersededEvidenceId: fixture.malformed.id,
+      supersededEvidenceDigest: digestObject(fixture.malformed),
+      replacementEvidenceId: fixture.replacement.id,
+      replacementEvidenceDigest: digestObject(fixture.replacement),
+      actionAttemptId: fixture.attemptId,
+      reason: "Bind immutable provider receipts to action issue and consumption freshness"
+    });
+    const request = {
+      action: "artifact.promote",
+      provider: "local-workspace",
+      resource: "artifact/fixture-artifact",
+      remoteRevision: fixture.run.contract.remoteRevision,
+      requiredEvidence: ["provider-reconciliation"]
+    };
+    await writeFile(fixture.dependencyPath, "provider-dependency-drifted\n");
+    await assert.rejects(
+      issueActionToken(
+        fixture.root,
+        fixture.started.runId,
+        request,
+        "e".repeat(64),
+        await loadDefaults()
+      ),
+      /stale immutable supersession evidence|current canonical dependency projection/
+    );
+
+    await writeFile(fixture.dependencyPath, fixture.dependencyOriginalBytes);
+    const issued = await issueActionToken(
+      fixture.root,
+      fixture.started.runId,
+      request,
+      "e".repeat(64),
+      await loadDefaults()
+    );
+    assert.match(issued.evidenceSupersessionFreshnessDigest, /^[a-f0-9]{64}$/);
+    await writeFile(fixture.dependencyPath, "provider-dependency-drifted-after-issue\n");
+    await assert.rejects(
+      consumeActionToken(fixture.root, fixture.started.runId, issued.token, "e".repeat(64)),
+      /stale immutable supersession evidence|current canonical dependency projection|immutable evidence freshness changed/
+    );
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("freshness transitions preserve an append-only digest chain from admitted evidence", async () => {
+  const fixture = await providerReconciliationSupersessionFixture({
+    dependencyPath: "provider-freshness-input.txt"
+  });
+  try {
+    await writeFile(fixture.dependencyPath, "provider-freshness-input-drifted\n");
+    const freshness = await refreshEvidence(fixture.root, fixture.started.runId);
+    assert.deepEqual(freshness.stale.sort(), [fixture.malformed.id, fixture.replacement.id].sort());
+    const journal = (await readFile(path.join(fixture.run.runDir, "journal.jsonl"), "utf8"))
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+    const transitions = journal.filter((entry) => entry.event === "evidence.freshness-transition");
+    assert.equal(transitions.length, 2);
+    assert.ok(transitions.every((entry) => (
+      /^[a-f0-9]{64}$/.test(entry.previousEvidenceDigest) &&
+      /^[a-f0-9]{64}$/.test(entry.evidenceDigest) &&
+      /^[a-f0-9]{64}$/.test(entry.immutableEvidenceDigest) &&
+      /^[a-f0-9]{64}$/.test(entry.transitionDigest) &&
+      entry.cause?.kind === "dependency-refresh"
+    )));
+    const replay = await listEffectiveEvidenceRecords(fixture.root, fixture.started.runId);
+    assert.ok(replay.every((record) => record.stale === true));
+
+    const malformedPath = path.join(fixture.run.runDir, "evidence", `${fixture.malformed.id}.json`);
+    const staleRecord = JSON.parse(await readFile(malformedPath, "utf8"));
+    await writeFile(malformedPath, `${JSON.stringify({
+      ...staleRecord,
+      dependencyInputs: { files: ["forged-missing-input.txt"] },
+      dependencies: {
+        ...staleRecord.dependencies,
+        files: [{ path: "forged-missing-input.txt", type: "missing" }]
+      },
+      currentDependencyFiles: [{ path: "forged-missing-input.txt", type: "missing" }]
+    }, null, 2)}\n`);
+    await assert.rejects(
+      listEffectiveEvidenceRecords(fixture.root, fixture.started.runId),
+      /Evidence stale provenance is invalid/
+    );
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }
@@ -1222,6 +1346,40 @@ test("evidence supersession rejects cross-attempt input and manually forged stal
     await writeFile(malformedPath, `${JSON.stringify({ ...fixture.malformed, stale: true }, null, 2)}\n`);
     const forged = await deriveLedgerStatus(fixture.root, fixture.started.runId);
     assert.ok(forged.blockers.some((item) => item.includes("Evidence stale provenance is invalid")));
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("evidence supersession requires the current canonical policy dependency projection", async () => {
+  const fixture = await providerReconciliationSupersessionFixture();
+  try {
+    const malformedPath = path.join(fixture.run.runDir, "evidence", `${fixture.malformed.id}.json`);
+    const replacementPath = path.join(fixture.run.runDir, "evidence", `${fixture.replacement.id}.json`);
+    const arbitraryPolicyDigest = "f".repeat(64);
+    const malformed = {
+      ...fixture.malformed,
+      dependencies: { ...fixture.malformed.dependencies, policyDigest: arbitraryPolicyDigest }
+    };
+    const replacement = {
+      ...fixture.replacement,
+      dependencies: { ...fixture.replacement.dependencies, policyDigest: arbitraryPolicyDigest }
+    };
+    await writeFile(malformedPath, `${JSON.stringify(malformed, null, 2)}\n`);
+    await writeFile(replacementPath, `${JSON.stringify(replacement, null, 2)}\n`);
+    await assert.rejects(
+      supersedeEvidence(fixture.root, fixture.started.runId, {
+        schemaVersion: 1,
+        id: "forged-shared-policy-correction",
+        supersededEvidenceId: malformed.id,
+        supersededEvidenceDigest: digestObject(malformed),
+        replacementEvidenceId: replacement.id,
+        replacementEvidenceDigest: digestObject(replacement),
+        actionAttemptId: fixture.attemptId,
+        reason: "Reject two identically forged policy projections for one provider action"
+      }),
+      /current canonical dependency projection/
+    );
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }
@@ -2027,6 +2185,7 @@ fi
     remoteRevision: base,
     treeDigest: sentinel.digest,
     contractDigest: digestObject(contract),
+    evidenceSupersessionFreshnessDigest: digestObject([]),
     idempotencyKey: "review-provider-continuity-idempotency",
     reviewedHead: continuity.head,
     reviewPackageId: continuity.packageId,
@@ -2106,6 +2265,7 @@ fi
     remoteRevision: base,
     treeDigest: sentinel.digest,
     contractDigest: digestObject(contract),
+    evidenceSupersessionFreshnessDigest: digestObject([]),
     idempotencyKey: "review-continuity-idempotency",
     reviewedHead: continuity.head,
     reviewPackageId: continuity.packageId,

@@ -1110,6 +1110,9 @@ test("autonomous commit reconciliation repairs every persisted transition bounda
     assert.equal(journal.filter((item) => (
       item.event === "action.autonomous-commit-transition-repaired" && item.attemptId === spent.attemptId
     )).length, 1);
+    assert.equal(journal.filter((item) => (
+      item.event === "evidence.invalidated" && item.actionAttemptId === spent.attemptId
+    )).length, 1);
   }
 });
 

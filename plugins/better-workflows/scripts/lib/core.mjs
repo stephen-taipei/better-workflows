@@ -2542,11 +2542,18 @@ export async function rebindSourceBinding(root, runId, reason) {
     const evidence = await listJsonRecords(root, safeJoin(runDir, "evidence"));
     for (const record of evidence) {
       if (record.status === "complete" && record.stale !== true) {
-        await atomicWriteJson(root, safeJoin(runDir, "evidence", `${record.id}.json`), {
+        const next = {
           ...record,
           stale: true,
           freshnessCheckedAt: reboundAt,
           staleReason: "source-binding-rebound"
+        };
+        await writeEvidenceFreshnessTransition(root, runDir, record, next, {
+          kind: "source-binding-rebound",
+          from: run.manifest.sourceBinding?.digest ?? null,
+          to: current.digest,
+          headRevision: current.headRevision,
+          reason: normalizedReason
         });
       }
     }
@@ -2775,7 +2782,11 @@ export async function addEvidence(root, runId, record) {
       ...admitted
     };
     await atomicWriteJson(root, target, value);
-    await appendJournal(root, runDir, "evidence.added", { evidenceId: admitted.id });
+    await appendJournal(root, runDir, "evidence.added", {
+      evidenceId: admitted.id,
+      evidenceDigest: digestObject(value),
+      immutableEvidenceDigest: digestObject(evidenceImmutableProjection(value))
+    });
     return value;
   });
 }
@@ -2918,6 +2929,19 @@ const EVIDENCE_SUPERSESSION_ACTION_KEYS = new Set([
   "remoteRevision",
   "providerExecutionId"
 ]);
+const EVIDENCE_DEPENDENCY_KEYS = new Set([
+  "contractDigest",
+  "workflowVersion",
+  "files",
+  "sourceBindingDigest",
+  "sourceSentinelDigest",
+  "policyDigest",
+  "promptDigest",
+  "model",
+  "reviewBinding",
+  "remoteRevision"
+]);
+const EVIDENCE_FRESHNESS_EVENT = "evidence.freshness-transition";
 
 function assertExactObjectKeys(value, expected, label) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -2947,7 +2971,100 @@ function actionProofIdentity(record) {
   };
 }
 
-function assertEvidenceSupersessionIdentity(target, replacement) {
+function canonicalEvidencePolicyDigest(contract) {
+  return digestObject({
+    authority: contract.authority,
+    sensitivity: contract.sensitivity,
+    volatileExclusions: contract.volatileExclusions,
+    highRiskIgnored: contract.highRiskIgnored
+  });
+}
+
+function evidenceImmutableProjection(record) {
+  const projection = structuredClone(record);
+  delete projection.stale;
+  delete projection.freshnessCheckedAt;
+  delete projection.currentDependencyFiles;
+  delete projection.staleReason;
+  return projection;
+}
+
+function evidenceFreshnessState(record) {
+  return {
+    stale: record.stale === true,
+    freshnessCheckedAt: record.freshnessCheckedAt ?? null,
+    currentDependencyFiles: record.currentDependencyFiles ?? null,
+    staleReason: record.staleReason ?? null
+  };
+}
+
+function evidenceAdmissionJournalBinding(record, journal) {
+  const added = journal.filter((entry) => entry.event === "evidence.added" && entry.evidenceId === record.id);
+  if (
+    added.length !== 1 ||
+    !SHA256_DIGEST.test(added[0].evidenceDigest ?? "") ||
+    !SHA256_DIGEST.test(added[0].immutableEvidenceDigest ?? "")
+  ) {
+    throw new Error(`Evidence admission journal binding is missing or ambiguous: ${record.id}`);
+  }
+  const immutableEvidenceDigest = digestObject(evidenceImmutableProjection(record));
+  if (added[0].immutableEvidenceDigest !== immutableEvidenceDigest) {
+    throw new Error(`Evidence immutable admission binding changed: ${record.id}`);
+  }
+  let headDigest = added[0].evidenceDigest;
+  let lastTransition = null;
+  for (const entry of journal.filter((candidate) => (
+    candidate.event === EVIDENCE_FRESHNESS_EVENT && candidate.evidenceId === record.id
+  ))) {
+    const transitionBinding = {
+      evidenceId: record.id,
+      previousEvidenceDigest: entry.previousEvidenceDigest,
+      evidenceDigest: entry.evidenceDigest,
+      immutableEvidenceDigest: entry.immutableEvidenceDigest,
+      freshnessState: entry.freshnessState,
+      cause: entry.cause
+    };
+    if (
+      entry.previousEvidenceDigest !== headDigest ||
+      !SHA256_DIGEST.test(entry.evidenceDigest ?? "") ||
+      entry.immutableEvidenceDigest !== immutableEvidenceDigest ||
+      entry.transitionDigest !== digestObject(transitionBinding)
+    ) {
+      throw new Error(`Evidence freshness journal chain is invalid: ${record.id}`);
+    }
+    headDigest = entry.evidenceDigest;
+    lastTransition = entry;
+  }
+  if (headDigest !== digestObject(record)) {
+    throw new Error(`Evidence bytes do not match the append-only freshness journal: ${record.id}`);
+  }
+  return { immutableEvidenceDigest, headDigest, lastTransition };
+}
+
+async function writeEvidenceFreshnessTransition(root, runDir, current, next, cause) {
+  const journal = await readJournalRecords(root, runDir);
+  const binding = evidenceAdmissionJournalBinding(current, journal);
+  const immutableEvidenceDigest = digestObject(evidenceImmutableProjection(next));
+  if (immutableEvidenceDigest !== binding.immutableEvidenceDigest) {
+    throw new Error(`Evidence freshness transition attempted to mutate admitted bytes: ${current.id}`);
+  }
+  const transitionBinding = {
+    evidenceId: current.id,
+    previousEvidenceDigest: digestObject(current),
+    evidenceDigest: digestObject(next),
+    immutableEvidenceDigest,
+    freshnessState: evidenceFreshnessState(next),
+    cause
+  };
+  await appendJournal(root, runDir, EVIDENCE_FRESHNESS_EVENT, {
+    ...transitionBinding,
+    transitionDigest: digestObject(transitionBinding)
+  });
+  await atomicWriteJson(root, safeJoin(runDir, "evidence", `${current.id}.json`), next);
+  return next;
+}
+
+async function assertEvidenceSupersessionIdentity(run, target, replacement) {
   if (
     target.kind !== "provider-reconciliation" ||
     replacement.kind !== "provider-reconciliation" ||
@@ -2972,6 +3089,13 @@ function assertEvidenceSupersessionIdentity(target, replacement) {
   }
   if (digestObject(targetIdentity) !== digestObject(replacementIdentity)) {
     throw new Error("Evidence supersession requires the same provider action attempt");
+  }
+  if (
+    targetIdentity.remoteRevision !== (run.contract.remoteRevision ?? null) ||
+    target.receipt?.inputBinding?.remoteRevision !== (run.contract.remoteRevision ?? null) ||
+    replacement.receipt?.inputBinding?.remoteRevision !== (run.contract.remoteRevision ?? null)
+  ) {
+    throw new Error("Evidence supersession provider action remote revision is stale");
   }
   const dependencyFields = [
     "contractDigest",
@@ -3005,6 +3129,13 @@ function assertEvidenceSupersessionIdentity(target, replacement) {
     )
   ) {
     throw new Error("Evidence supersession requires complete current source and policy dependencies");
+  }
+  for (const [label, record] of [["target", target], ["replacement", replacement]]) {
+    assertExactObjectKeys(record.dependencies, EVIDENCE_DEPENDENCY_KEYS, `Evidence supersession ${label} dependencies`);
+    const freshness = await currentEvidenceFreshness(run, record);
+    if (freshness.stale || digestObject(record.dependencies) !== digestObject(freshness.expectedDependencies)) {
+      throw new Error(`Evidence supersession ${label} is not bound to the current canonical dependency projection`);
+    }
   }
   return replacementIdentity;
 }
@@ -3060,15 +3191,38 @@ async function currentEvidenceFreshness(run, record) {
       requireClean: run.manifest.template === "self-improve-ops"
     });
   }
+  const inputBinding = record.receipt?.inputBinding;
+  const dependencyInputsValid = Boolean(
+    record.dependencyInputs &&
+    typeof record.dependencyInputs === "object" &&
+    !Array.isArray(record.dependencyInputs) &&
+    Object.keys(record.dependencyInputs).length === 1 &&
+    Object.hasOwn(record.dependencyInputs, "files") &&
+    Array.isArray(record.dependencyInputs.files) &&
+    record.dependencyInputs.files.every((candidate) => typeof candidate === "string" && candidate.length > 0)
+  );
   let stale =
+    run.manifest.contractDigest !== digestObject(run.contract) ||
     record.dependencies?.contractDigest !== run.manifest.contractDigest ||
     record.dependencies?.workflowVersion !== VERSION ||
     (sourceBindingRequired && (!sourceBinding || record.dependencies?.sourceBindingDigest !== sourceBinding.digest)) ||
-    (sourceSentinelRequired && record.dependencies?.sourceSentinelDigest !== run.state.lastSentinel?.digest);
-  if (!Array.isArray(record.dependencyInputs?.files)) {
+    (!sourceBindingRequired && (record.dependencies?.sourceBindingDigest ?? null) !== null) ||
+    (sourceSentinelRequired && record.dependencies?.sourceSentinelDigest !== run.state.lastSentinel?.digest) ||
+    (!sourceSentinelRequired && (record.dependencies?.sourceSentinelDigest ?? null) !== null) ||
+    (record.schemaVersion === 2 && (
+      record.dependencies?.policyDigest !== canonicalEvidencePolicyDigest(run.contract) ||
+      (record.dependencies?.remoteRevision ?? null) !== (run.contract.remoteRevision ?? null) ||
+      !inputBinding ||
+      inputBinding.runId !== run.manifest.runId ||
+      inputBinding.contractDigest !== digestObject(run.contract) ||
+      (inputBinding.remoteRevision ?? null) !== (run.contract.remoteRevision ?? null)
+    ));
+  if (!dependencyInputsValid) {
     return {
       stale: true,
-      currentDependencyFiles: []
+      currentDependencyFiles: [],
+      expectedDependencies: null,
+      projectionDigest: digestObject({ invalidDependencyInputs: true })
     };
   }
   const current = [];
@@ -3076,45 +3230,60 @@ async function currentEvidenceFreshness(run, record) {
     current.push(await fingerprintEvidenceDependency(run.manifest.cwd, candidate));
   }
   if (digestObject(current) !== digestObject(record.dependencies?.files ?? [])) stale = true;
-  return { stale, currentDependencyFiles: current };
-}
-
-async function evidenceIsCurrentlyStale(run, record) {
-  if (!Array.isArray(record.dependencyInputs?.files)) {
-    return Array.isArray(record.currentDependencyFiles) && record.currentDependencyFiles.length === 0;
-  }
-  return (await currentEvidenceFreshness(run, record)).stale;
+  const expectedDependencies = {
+    contractDigest: run.manifest.contractDigest,
+    workflowVersion: VERSION,
+    files: current,
+    sourceBindingDigest: sourceBindingRequired ? run.manifest.sourceBinding?.digest ?? null : null,
+    sourceSentinelDigest: sourceSentinelRequired ? run.state.lastSentinel?.digest ?? null : null,
+    policyDigest: canonicalEvidencePolicyDigest(run.contract),
+    promptDigest: record.dependencies?.promptDigest ?? null,
+    model: record.dependencies?.model ?? null,
+    reviewBinding: record.dependencies?.reviewBinding ?? null,
+    remoteRevision: run.contract.remoteRevision ?? null
+  };
+  const projectionDigest = digestObject({
+    dependencyInputs: record.dependencyInputs,
+    expectedDependencies,
+    currentSourceBindingDigest: sourceBinding?.digest ?? null
+  });
+  return { stale, currentDependencyFiles: current, expectedDependencies, projectionDigest };
 }
 
 async function assertStaleEvidenceProvenance(root, run, records, journal) {
   for (const record of records) {
     if (record.stale !== true) continue;
     let authorized = false;
-    if (record.staleReason === "source-binding-rebound") {
-      const transition = (run.manifest.sourceBindingHistory ?? []).find((item) => (
-        item.at === record.freshnessCheckedAt &&
-        journal.some((entry) => (
-          entry.event === "source-binding.rebound" &&
-          entry.from === item.from &&
-          entry.to === item.to &&
-          entry.headRevision === item.headRevision &&
-          entry.reason === item.reason
-        ))
-      ));
-      authorized = Boolean(transition);
-    } else if (typeof record.staleReason === "string" && record.staleReason.startsWith("autonomous-commit-reconciled:")) {
-      const attemptId = record.staleReason.slice("autonomous-commit-reconciled:".length);
-      authorized = journal.some((entry) => (
-        entry.event === "evidence.invalidated" &&
-        entry.actionAttemptId === attemptId &&
-        entry.reason === "autonomous-commit-reconciled"
-      ));
-    } else if (
-      typeof record.freshnessCheckedAt === "string" &&
-      !Number.isNaN(Date.parse(record.freshnessCheckedAt)) &&
-      Array.isArray(record.currentDependencyFiles)
+    let binding;
+    try {
+      binding = evidenceAdmissionJournalBinding(record, journal);
+    } catch {
+      binding = null;
+    }
+    const transition = binding?.lastTransition;
+    if (
+      transition?.freshnessState?.stale === true &&
+      transition.freshnessState.freshnessCheckedAt === record.freshnessCheckedAt &&
+      transition.freshnessState.staleReason === (record.staleReason ?? null) &&
+      digestObject(transition.freshnessState.currentDependencyFiles) === digestObject(record.currentDependencyFiles ?? null)
     ) {
-      authorized = await evidenceIsCurrentlyStale(run, record);
+      if (transition.cause?.kind === "source-binding-rebound") {
+        authorized = journal.some((entry) => (
+          entry.event === "source-binding.rebound" &&
+          entry.from === transition.cause.from &&
+          entry.to === transition.cause.to &&
+          entry.headRevision === transition.cause.headRevision &&
+          entry.reason === transition.cause.reason
+        ));
+      } else if (transition.cause?.kind === "autonomous-commit-reconciled") {
+        authorized = journal.some((entry) => (
+          entry.event === "evidence.invalidated" &&
+          entry.actionAttemptId === transition.cause.actionAttemptId &&
+          entry.reason === "autonomous-commit-reconciled"
+        ));
+      } else if (transition.cause?.kind === "dependency-refresh") {
+        authorized = (await currentEvidenceFreshness(run, record)).stale;
+      }
     }
     if (!authorized) {
       throw new Error(`Evidence stale provenance is invalid: ${record.id ?? "unknown"}`);
@@ -3181,7 +3350,7 @@ async function validateEvidenceSupersessionRecord(root, run, recordsById, journa
   ) {
     throw new Error("Evidence supersession chronology is invalid");
   }
-  const identity = assertEvidenceSupersessionIdentity(target, replacement);
+  const identity = await assertEvidenceSupersessionIdentity(run, target, replacement);
   if (digestObject(identity) !== digestObject(record.action)) {
     throw new Error("Evidence supersession action binding changed");
   }
@@ -3285,6 +3454,32 @@ export async function loadEffectiveEvidenceState(root, runId, { run: suppliedRun
   };
 }
 
+async function currentEvidenceSupersessionFreshnessDigest(root, run) {
+  const evidence = await listIdentityBoundJsonRecords(root, safeJoin(run.runDir, "evidence"), "Evidence");
+  const supersessionState = await loadEvidenceSupersessions(root, run, evidence);
+  const recordsById = new Map(evidence.map((record) => [record.id, record]));
+  const projection = [];
+  for (const supersession of supersessionState.records) {
+    for (const role of ["supersededEvidence", "replacementEvidence"]) {
+      const binding = supersession[role];
+      const record = recordsById.get(binding.id);
+      const freshness = await currentEvidenceFreshness(run, record);
+      if (freshness.stale) {
+        throw new Error(`Action token denied by stale immutable supersession evidence: ${record.id}`);
+      }
+      projection.push({
+        supersessionId: supersession.id,
+        supersessionDigest: digestObject(supersession),
+        role,
+        evidenceId: record.id,
+        evidenceDigest: digestObject(record),
+        freshnessProjectionDigest: freshness.projectionDigest
+      });
+    }
+  }
+  return digestObject(projection);
+}
+
 export async function listEffectiveEvidenceRecords(root, runId, options = {}) {
   return (await loadEffectiveEvidenceState(root, runId, options)).records;
 }
@@ -3311,12 +3506,16 @@ export async function refreshEvidence(root, runId) {
       if (immutableIds.has(record.id)) {
         if (freshness.stale) immutableStale.push(record.id);
       } else {
-        await atomicWriteJson(root, safeJoin(runDir, "evidence", `${record.id}.json`), {
+        const checkedAt = nowIso();
+        const next = {
           ...record,
           stale: freshness.stale,
-          freshnessCheckedAt: nowIso(),
+          freshnessCheckedAt: checkedAt,
           currentDependencyFiles: freshness.currentDependencyFiles
-        });
+        };
+        if (freshness.stale) next.staleReason = "dependency-freshness-check";
+        else delete next.staleReason;
+        await writeEvidenceFreshnessTransition(root, runDir, record, next, { kind: "dependency-refresh" });
       }
       (freshness.stale ? stale : fresh).push(record.id);
     }
@@ -3363,7 +3562,7 @@ export async function supersedeEvidence(root, runId, input) {
     ) {
       throw new Error("Evidence supersession input digest does not match persisted evidence");
     }
-    const action = assertEvidenceSupersessionIdentity(target, replacement);
+    const action = await assertEvidenceSupersessionIdentity(run, target, replacement);
     if (action.attemptId !== input.actionAttemptId) {
       throw new Error("Evidence supersession actionAttemptId changed");
     }
@@ -7481,6 +7680,9 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
     const evidence = await listEffectiveEvidenceRecords(root, runId, {
       run: { runDir, manifest, contract, state }
     });
+    const evidenceSupersessionFreshnessDigest = contract.schemaVersion === 2
+      ? await currentEvidenceSupersessionFreshnessDigest(root, { runDir, manifest, contract, state })
+      : null;
     const actions = await listJsonRecords(root, safeJoin(runDir, "actions"));
     let autonomyDecision = null;
     let autonomyDecisionReceipt = null;
@@ -8092,6 +8294,12 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
             tokenHash
           })
         : null;
+      const finalEvidenceSupersessionFreshnessDigest = contract.schemaVersion === 2
+        ? await currentEvidenceSupersessionFreshnessDigest(root, { runDir, manifest, contract, state })
+        : null;
+      if (finalEvidenceSupersessionFreshnessDigest !== evidenceSupersessionFreshnessDigest) {
+        throw new Error("Action token denied because immutable evidence freshness changed during issuance");
+      }
       const record = {
         schemaVersion: 1,
         tokenHash,
@@ -8110,6 +8318,9 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
         ...(creationPrecondition ? { creationPrecondition } : {}),
         treeDigest: currentTreeDigest,
         contractDigest: digestObject(contract),
+        ...(finalEvidenceSupersessionFreshnessDigest
+          ? { evidenceSupersessionFreshnessDigest: finalEvidenceSupersessionFreshnessDigest }
+          : {}),
         idempotencyKey: `sbw-${runId}-${randomUUID()}`
       };
       await atomicWriteJson(root, safeJoin(runDir, "actions", `${tokenHash}.json`), record);
@@ -8198,6 +8409,20 @@ async function consumeActionTokenInternal(root, runId, token, currentTreeDigest,
     if (record.treeDigest !== currentTreeDigest) throw new Error("Action token tree binding changed");
     if (record.contractDigest !== digestObject(contract)) throw new Error("Action token contract binding changed");
     const manifest = await readJson(root, safeJoin(runDir, "manifest.json"));
+    if (contract.schemaVersion === 2) {
+      if (!SHA256_DIGEST.test(record.evidenceSupersessionFreshnessDigest ?? "")) {
+        throw new Error("Action consumption denied because immutable evidence freshness is unbound");
+      }
+      const currentFreshnessDigest = await currentEvidenceSupersessionFreshnessDigest(root, {
+        runDir,
+        manifest,
+        contract,
+        state
+      });
+      if (currentFreshnessDigest !== record.evidenceSupersessionFreshnessDigest) {
+        throw new Error("Action consumption denied because immutable evidence freshness changed");
+      }
+    }
     if (record.action === "actions.dispatch" && record.provider === "github-cli") {
       const liveWorkflowCapability = await readBoundWorkflowDispatchCapability(
         manifest.cwd,
@@ -8333,6 +8558,17 @@ async function consumeActionTokenInternal(root, runId, token, currentTreeDigest,
     if (record.action === "remote.sync") {
       const actions = await listJsonRecords(root, safeJoin(runDir, "actions"));
       assertPersistedSuccessfulMergeAction(actions, record);
+    }
+    if (contract.schemaVersion === 2) {
+      const finalFreshnessDigest = await currentEvidenceSupersessionFreshnessDigest(root, {
+        runDir,
+        manifest,
+        contract,
+        state
+      });
+      if (finalFreshnessDigest !== record.evidenceSupersessionFreshnessDigest) {
+        throw new Error("Action consumption denied because immutable evidence freshness changed before execution");
+      }
     }
     const consume = async () => {
       if (OWNED_RESOURCE_CREATION_ACTIONS.has(record.action)) {
@@ -9362,18 +9598,26 @@ async function invalidateEvidenceAfterAutonomousCommit(root, runDir, record, tra
   const evidence = await listJsonRecords(root, safeJoin(runDir, "evidence"));
   let invalidated = 0;
   for (const item of evidence) {
-    if (item.status !== "complete" || item.stale === true) continue;
-    await atomicWriteJson(root, safeJoin(runDir, "evidence", `${item.id}.json`), {
+    if (item.status !== "complete") continue;
+    if (item.stale === true) {
+      if (item.staleReason === `autonomous-commit-reconciled:${record.attemptId}`) invalidated += 1;
+      continue;
+    }
+    const next = {
       ...item,
       stale: true,
       freshnessCheckedAt: transitionedAt,
       staleReason: `autonomous-commit-reconciled:${record.attemptId}`
+    };
+    await writeEvidenceFreshnessTransition(root, runDir, item, next, {
+      kind: "autonomous-commit-reconciled",
+      actionAttemptId: record.attemptId
     });
     invalidated += 1;
     await onBoundary("evidence-invalidation");
   }
   if (invalidated > 0) {
-    await appendJournal(root, runDir, "evidence.invalidated", {
+    await appendJournalOnceForAttempt(root, runDir, "evidence.invalidated", record.attemptId, {
       actionAttemptId: record.attemptId,
       reason: "autonomous-commit-reconciled",
       invalidated
