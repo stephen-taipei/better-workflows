@@ -42,6 +42,7 @@ import {
   pluginRoot,
   readJson,
   reconcileAction,
+  refreshEvidence,
   rebindSourceBinding,
   routeMode,
   registerOwnedResource,
@@ -605,51 +606,6 @@ async function enrichEvidence(root, runId, record) {
       remoteRevision: record.dependencies?.remoteRevision ?? run.contract.remoteRevision ?? null
     }
   };
-}
-
-async function refreshEvidence(root, runId) {
-  return withRunLock(root, runId, async ({ runDir }) => {
-    const run = await loadRun(root, runId);
-    assertMutableRun(run, "Evidence freshness");
-    const evidence = await listJsonRecords(root, safeJoin(runDir, "evidence"));
-    const sourceBinding = run.manifest.sourceBinding
-      ? await captureSourceBinding(run.manifest.cwd, {
-          baseRevision: run.manifest.sourceBinding.baseRevision,
-          requireClean: run.manifest.template === "self-improve-ops"
-        })
-      : null;
-    const stale = [];
-    const fresh = [];
-    for (const record of evidence) {
-      const definition = await evidenceDefinition(record);
-      const sourceBindingRequired = definition?.freshnessBinding?.includes("sourceBindingDigest") === true;
-      const sourceSentinelRequired = definition?.freshnessBinding?.includes("sourceSentinelDigest") === true;
-      let current = [];
-      let isStale =
-        record.dependencies?.contractDigest !== run.manifest.contractDigest ||
-        record.dependencies?.workflowVersion !== VERSION ||
-        (sourceBindingRequired && (!run.manifest.sourceBinding || record.dependencies?.sourceBindingDigest !== sourceBinding?.digest));
-      if (sourceSentinelRequired && (!run.manifest.sourceBinding || record.dependencies?.sourceSentinelDigest !== run.state.lastSentinel?.digest)) {
-        isStale = true;
-      }
-      if (!Array.isArray(record.dependencyInputs?.files)) isStale = true;
-      else {
-        for (const candidate of record.dependencyInputs.files) {
-          current.push(await fingerprintPath(run.manifest.cwd, candidate));
-        }
-        if (digestObject(current) !== digestObject(record.dependencies?.files ?? [])) isStale = true;
-      }
-      const next = {
-        ...record,
-        stale: isStale,
-        freshnessCheckedAt: nowIso(),
-        currentDependencyFiles: current
-      };
-      await atomicWriteJson(root, safeJoin(runDir, "evidence", `${record.id}.json`), next);
-      (isStale ? stale : fresh).push(record.id);
-    }
-    return { stale, fresh };
-  });
 }
 
 async function evidenceDefinition(record) {
@@ -2523,7 +2479,10 @@ async function main() {
         const graph = await runGraph(root, runId);
         if (graphHasErrors(graph)) return graphStructuralFailure(graph, "action.issue");
       }
-      await refreshEvidence(root, runId);
+      const freshness = await refreshEvidence(root, runId);
+      if (freshness.immutableStale.length > 0) {
+        throw new Error(`Action token denied by stale immutable supersession evidence: ${freshness.immutableStale.join(", ")}`);
+      }
       if (run.contract.templateDigest !== digestObject(template)) {
         throw new Error("Workflow template drifted after run creation");
       }

@@ -64,7 +64,11 @@ execution identity, both complete record digests, contract, source, policy, and
 remote revision. The original evidence file remains unchanged and auditable;
 reducers omit it only after validating the complete supersession. Cross-run,
 cross-attempt, stale, missing, chained, duplicate, conflicting, or manually
-forged stale/supersession state is blocking.
+forged stale/supersession state is blocking. Each evidence and supersession ID
+must also match its canonical JSON filename and be unique in its directory.
+Once a supersession binds its target and replacement digests, routine resume or
+action freshness checks never rewrite either file; a later freshness failure
+blocks the action while preserving both original byte streams.
 
 Code-review templates additionally use immutable review packages and stable
 finding IDs. Scoped repair is bounded to five unique rounds and each repair

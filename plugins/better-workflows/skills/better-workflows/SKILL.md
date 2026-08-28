@@ -265,8 +265,10 @@ never edits or deletes the original record. The append-only supersession must
 bind both exact evidence digests and the same run, action attempt, execution,
 source, contract, policy, and remote revision; the replacement must be the exact
 evidence ID reconciled by the action. Missing, stale, cross-attempt, chained,
-conflicting, or hand-edited bindings fail closed. Do not use this lifecycle to
-hide valid evidence or as a substitute for source rebind.
+conflicting, duplicate, filename-rebound, or hand-edited bindings fail closed.
+After admission, freshness checks preserve the target and replacement bytes and
+block instead of rewriting either digest-bound record. Do not use this lifecycle
+to hide valid evidence or as a substitute for source rebind.
 
 All newly-created non-direct template runs use TaskContract v2. The run creates
 an append-only execution ledger and accepts only typed evidence receipts from

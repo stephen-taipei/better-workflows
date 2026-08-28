@@ -19,6 +19,7 @@ import {
   issueActionToken,
   listEffectiveEvidenceRecords,
   loadDefaults,
+  refreshEvidence,
   rebindSourceBinding,
   sha256,
   supersedeEvidence,
@@ -192,13 +193,15 @@ async function providerReconciliationSupersessionFixture() {
         requiredEvidence: ["provider-reconciliation"],
         attemptBudget: 3,
         kind: "regular"
-      }]
+      }],
+      actionStages: { "artifact.promote": "provider" },
+      actionGates: { "artifact.promote": ["provider-reconciliation"] }
     },
     goal: "Recover a corrected same-attempt provider receipt",
     scope: ["."],
     risk: { risk: 2, uncertainty: 1, blastRadius: 1, irreversibility: 1, evidenceGap: 1 },
     sensitivity: "internal",
-    authority: [],
+    authority: ["artifact.promote"],
     remoteRevision: "b".repeat(40)
   });
   const started = await createRun({ root, contract: taskContract, requestedMode: "verified", cwd: root });
@@ -207,26 +210,24 @@ async function providerReconciliationSupersessionFixture() {
   const idempotencyKey = "provider-idempotency-1";
   const tokenHash = "a".repeat(64);
   const response = {
-    number: 42,
-    head: "c".repeat(40),
-    base: "dev",
-    url: "https://github.com/example/repo/pull/42"
+    artifact: "fixture-artifact",
+    digest: "c".repeat(64),
+    location: "/private/tmp/fixture-artifact"
   };
   const commonReceipt = {
-    action: "pr.create",
-    provider: "github-cli",
-    resource: "pull/new",
+    action: "artifact.promote",
+    provider: "local-workspace",
+    resource: "artifact/fixture-artifact",
     outcome: "success",
     runId: started.runId,
     attemptId,
     idempotencyKey,
     remoteRevision: taskContract.remoteRevision,
-    executionId: `github:github.com/example/repo:pr.create:42:${response.head}`,
-    proofKind: "github-pr-create",
+    executionId: `local:artifact.promote:${response.digest}`,
+    proofKind: "local-workspace:artifact.promote",
     requestDigest: "d".repeat(64),
     verifiedAt: new Date().toISOString(),
     terminalState: "success",
-    created: true,
     ...response
   };
   const malformedReceipt = {
@@ -244,9 +245,9 @@ async function providerReconciliationSupersessionFixture() {
     status: "spent",
     outcome: "unknown",
     runId: started.runId,
-    action: "pr.create",
-    provider: "github-cli",
-    resource: "pull/new",
+    action: "artifact.promote",
+    provider: "local-workspace",
+    resource: "artifact/fixture-artifact",
     remoteRevision: taskContract.remoteRevision,
     attemptId,
     idempotencyKey
@@ -254,15 +255,15 @@ async function providerReconciliationSupersessionFixture() {
   await writeFile(actionPath, `${JSON.stringify(action, null, 2)}\n`);
   const recordFor = (id, providerReceipt) => {
     const payload = {
-      provider: "github-cli",
+      provider: "local-workspace",
       receipt: providerReceipt,
       actionProof: {
         schemaVersion: 1,
         runId: started.runId,
         actionAttemptId: attemptId,
-        action: "pr.create",
-        provider: "github-cli",
-        resource: "pull/new",
+        action: "artifact.promote",
+        provider: "local-workspace",
+        resource: "artifact/fixture-artifact",
         outcome: "success",
         idempotencyKey,
         remoteRevision: taskContract.remoteRevision,
@@ -282,7 +283,7 @@ async function providerReconciliationSupersessionFixture() {
         contractId: "evidence-contracts-v1:provider-reconciliation",
         contractVersion: 1,
         runId: started.runId,
-        producer: { provider: "github-cli" },
+        producer: { provider: "provider" },
         inputBinding: {
           runId: started.runId,
           contractDigest: digestObject(taskContract),
@@ -297,9 +298,9 @@ async function providerReconciliationSupersessionFixture() {
   const malformed = await addEvidence(root, started.runId, recordFor("provider-proof-malformed", malformedReceipt));
   const replacement = await addEvidence(root, started.runId, recordFor("provider-proof-corrected", correctedReceipt));
   const actionReceipt = {
-    action: "pr.create",
-    provider: "github-cli",
-    resource: "pull/new",
+    action: "artifact.promote",
+    provider: "local-workspace",
+    resource: "artifact/fixture-artifact",
     outcome: "success",
     runId: started.runId,
     attemptId,
@@ -1017,6 +1018,153 @@ test("same-attempt provider evidence supersession is append-only and restores de
     assert.deepEqual(completion.evidenceSupersessions.map((record) => record.id), [supersession.id]);
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("resume freshness and action issuance preserve supersession-bound evidence bytes", async () => {
+  const fixture = await providerReconciliationSupersessionFixture();
+  try {
+    const supersession = await supersedeEvidence(fixture.root, fixture.started.runId, {
+      schemaVersion: 1,
+      id: "provider-proof-immutable-refresh",
+      supersededEvidenceId: fixture.malformed.id,
+      supersededEvidenceDigest: digestObject(fixture.malformed),
+      replacementEvidenceId: fixture.replacement.id,
+      replacementEvidenceDigest: digestObject(fixture.replacement),
+      actionAttemptId: fixture.attemptId,
+      reason: "Preserve both provider receipts across resume and action freshness checks"
+    });
+    const malformedPath = path.join(fixture.run.runDir, "evidence", `${fixture.malformed.id}.json`);
+    const replacementPath = path.join(fixture.run.runDir, "evidence", `${fixture.replacement.id}.json`);
+    const originalBytes = await Promise.all([readFile(malformedPath, "utf8"), readFile(replacementPath, "utf8")]);
+    const firstRefresh = await refreshEvidence(fixture.root, fixture.started.runId);
+    const secondRefresh = await refreshEvidence(fixture.root, fixture.started.runId);
+    assert.deepEqual(firstRefresh.immutableEvidenceIds, [fixture.replacement.id, fixture.malformed.id].sort());
+    assert.deepEqual(secondRefresh.immutableEvidenceIds, firstRefresh.immutableEvidenceIds);
+    assert.deepEqual(firstRefresh.immutableStale, []);
+    const issued = await issueActionToken(fixture.root, fixture.started.runId, {
+      action: "artifact.promote",
+      provider: "local-workspace",
+      resource: "artifact/fixture-artifact",
+      remoteRevision: fixture.run.contract.remoteRevision,
+      requiredEvidence: ["provider-reconciliation"]
+    }, "e".repeat(64), await loadDefaults());
+    assert.equal(issued.action, "artifact.promote");
+    assert.equal(typeof issued.token, "string");
+    assert.deepEqual(
+      await Promise.all([readFile(malformedPath, "utf8"), readFile(replacementPath, "utf8")]),
+      originalBytes
+    );
+    const replayOne = await listEffectiveEvidenceRecords(fixture.root, fixture.started.runId);
+    const replayTwo = await listEffectiveEvidenceRecords(fixture.root, fixture.started.runId);
+    assert.deepEqual(replayTwo, replayOne);
+    assert.deepEqual(replayOne.map((record) => record.id), [fixture.replacement.id]);
+    assert.equal(supersession.replacementEvidence.id, fixture.replacement.id);
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("evidence supersession replay rejects duplicate and filename-rebound identities", async () => {
+  const duplicateCases = [
+    {
+      label: "target",
+      duplicateName: "duplicate-target.json",
+      record(fixture) { return fixture.malformed; }
+    },
+    {
+      label: "replacement",
+      duplicateName: "duplicate-replacement.json",
+      record(fixture) { return fixture.replacement; }
+    },
+    {
+      label: "valid and malformed target",
+      duplicateName: "valid-target-alias.json",
+      record(fixture) { return { ...fixture.replacement, id: fixture.malformed.id }; }
+    }
+  ];
+  for (const duplicateCase of duplicateCases) {
+    const fixture = await providerReconciliationSupersessionFixture();
+    try {
+      await supersedeEvidence(fixture.root, fixture.started.runId, {
+        schemaVersion: 1,
+        id: `provider-proof-duplicate-${duplicateCase.label.replaceAll(" ", "-")}`,
+        supersededEvidenceId: fixture.malformed.id,
+        supersededEvidenceDigest: digestObject(fixture.malformed),
+        replacementEvidenceId: fixture.replacement.id,
+        replacementEvidenceDigest: digestObject(fixture.replacement),
+        actionAttemptId: fixture.attemptId,
+        reason: "Reject duplicate persisted evidence identities during deterministic replay"
+      });
+      await writeFile(
+        path.join(fixture.run.runDir, "evidence", duplicateCase.duplicateName),
+        `${JSON.stringify(duplicateCase.record(fixture), null, 2)}\n`
+      );
+      await assert.rejects(
+        listEffectiveEvidenceRecords(fixture.root, fixture.started.runId),
+        /Evidence record id is duplicated/
+      );
+    } finally {
+      await rm(fixture.root, { recursive: true, force: true });
+    }
+  }
+
+  const supersessionDuplicate = await providerReconciliationSupersessionFixture();
+  try {
+    const record = await supersedeEvidence(supersessionDuplicate.root, supersessionDuplicate.started.runId, {
+      schemaVersion: 1,
+      id: "provider-proof-duplicate-supersession",
+      supersededEvidenceId: supersessionDuplicate.malformed.id,
+      supersededEvidenceDigest: digestObject(supersessionDuplicate.malformed),
+      replacementEvidenceId: supersessionDuplicate.replacement.id,
+      replacementEvidenceDigest: digestObject(supersessionDuplicate.replacement),
+      actionAttemptId: supersessionDuplicate.attemptId,
+      reason: "Reject a duplicated supersession identity before evidence reduction"
+    });
+    await writeFile(
+      path.join(supersessionDuplicate.run.runDir, "evidence-supersessions", "duplicate-supersession.json"),
+      `${JSON.stringify(record, null, 2)}\n`
+    );
+    await assert.rejects(
+      supersedeEvidence(supersessionDuplicate.root, supersessionDuplicate.started.runId, {
+        schemaVersion: 1,
+        id: record.id,
+        supersededEvidenceId: supersessionDuplicate.malformed.id,
+        supersededEvidenceDigest: digestObject(supersessionDuplicate.malformed),
+        replacementEvidenceId: supersessionDuplicate.replacement.id,
+        replacementEvidenceDigest: digestObject(supersessionDuplicate.replacement),
+        actionAttemptId: supersessionDuplicate.attemptId,
+        reason: record.reason
+      }),
+      /Evidence supersession record id is duplicated/
+    );
+    await assert.rejects(
+      listEffectiveEvidenceRecords(supersessionDuplicate.root, supersessionDuplicate.started.runId),
+      /Evidence supersession record id is duplicated/
+    );
+  } finally {
+    await rm(supersessionDuplicate.root, { recursive: true, force: true });
+  }
+
+  const filenameMismatch = await providerReconciliationSupersessionFixture();
+  try {
+    await writeFile(
+      path.join(filenameMismatch.run.runDir, "evidence", "wrong-filename.json"),
+      `${JSON.stringify({ ...filenameMismatch.replacement, id: "filename-bound-evidence" }, null, 2)}\n`
+    );
+    await assert.rejects(
+      listEffectiveEvidenceRecords(filenameMismatch.root, filenameMismatch.started.runId),
+      /Evidence filename does not match record id/
+    );
+    await assert.rejects(
+      addEvidence(filenameMismatch.root, filenameMismatch.started.runId, {
+        ...filenameMismatch.replacement,
+        id: "new-provider-proof"
+      }),
+      /Evidence filename does not match record id/
+    );
+  } finally {
+    await rm(filenameMismatch.root, { recursive: true, force: true });
   }
 });
 
@@ -1794,6 +1942,7 @@ test("review packages reject head drift with stable finding identity, block afte
   const fakeGh = path.join(bin, "gh");
   const providerCounter = path.join(root, "provider-counter");
   const providerMergeMarker = path.join(root, "provider-merge-invoked");
+  const providerInjectionMode = path.join(root, "provider-injection-mode");
   const lateFindingId = stableFindingId({
     packageId: first.packageId,
     path: "src/a.ts",
@@ -1802,6 +1951,10 @@ test("review packages reject head drift with stable finding identity, block afte
   });
   const lateFindingSource = path.join(root, "late-provider-finding.json");
   const lateFindingTarget = path.join(runDir, "review-findings", `${lateFindingId}.json`);
+  const lateSupersessionSource = path.join(root, "late-provider-supersession.json");
+  const lateSupersessionDirectory = path.join(runDir, "evidence-supersessions");
+  const lateSupersessionTarget = path.join(lateSupersessionDirectory, "late-invalid-supersession.json");
+  await mkdir(lateSupersessionDirectory, { recursive: true });
   await writeFile(lateFindingSource, `${JSON.stringify({
     schemaVersion: 1,
     id: lateFindingId,
@@ -1815,6 +1968,11 @@ test("review packages reject head drift with stable finding identity, block afte
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
   })}\n`);
+  await writeFile(lateSupersessionSource, `${JSON.stringify({
+    schemaVersion: 1,
+    id: "late-invalid-supersession",
+    runId: started.runId
+  })}\n`);
   const fakeGhScript = `#!/bin/sh
 if [ "$1" = "api" ] && [ "$2" = "user" ]; then
   printf '%s\\n' '{"login":"alice"}'
@@ -1825,7 +1983,13 @@ elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo/pulls/12" ]; then
   if [ -f '${providerCounter}' ]; then count=$(/bin/cat '${providerCounter}'); fi
   count=$((count + 1))
   printf '%s' "$count" > '${providerCounter}'
-  if [ "$count" -eq 2 ]; then /bin/cp '${lateFindingSource}' '${lateFindingTarget}'; fi
+  if [ "$count" -eq 2 ]; then
+    if [ -f '${providerInjectionMode}' ]; then
+      /bin/cp '${lateSupersessionSource}' '${lateSupersessionTarget}'
+    else
+      /bin/cp '${lateFindingSource}' '${lateFindingTarget}'
+    fi
+  fi
   printf '%s\\n' '{"number":12,"state":"open","head":{"sha":"${head}"},"base":{"ref":"main","sha":"${base}"},"mergeable":true,"mergeable_state":"clean"}'
 elif [ "$1" = "pr" ] && [ "$2" = "merge" ]; then
   /usr/bin/touch '${providerMergeMarker}'
@@ -1849,7 +2013,7 @@ fi
     "gh", "pr", "merge", "12", "--repo", "github.com/example/repo",
     "--match-head-commit", head, "--merge", "--delete-branch=false"
   ];
-  await writeFile(path.join(runDir, "actions", `${mergeTokenHash}.json`), `${JSON.stringify({
+  const mergeActionRecord = {
     schemaVersion: 1,
     tokenHash: mergeTokenHash,
     status: "issued",
@@ -1875,7 +2039,8 @@ fi
     providerExecutable,
     providerAuthorizationExecutable: providerExecutable,
     providerAuthorization
-  }, null, 2)}\n`);
+  };
+  await writeFile(path.join(runDir, "actions", `${mergeTokenHash}.json`), `${JSON.stringify(mergeActionRecord, null, 2)}\n`);
   const priorPath = process.env.PATH;
   process.env.PATH = `${bin}:${priorPath}`;
   try {
@@ -1892,6 +2057,37 @@ fi
   assert.equal(stoppedMerge.providerInvocation.dispatchState, "not-sent");
   await unlink(path.join(runDir, "actions", `${mergeTokenHash}.json`));
   await unlink(lateFindingTarget);
+  assert.equal((await reviewStatus(root, started.runId)).complete, true);
+  await unlink(providerCounter);
+  await writeFile(providerInjectionMode, "supersession\n");
+  const supersessionToken = "review-provider-supersession-token";
+  const supersessionTokenHash = sha256(supersessionToken);
+  await writeFile(path.join(runDir, "actions", `${supersessionTokenHash}.json`), `${JSON.stringify({
+    ...mergeActionRecord,
+    tokenHash: supersessionTokenHash,
+    issuedAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    idempotencyKey: "review-provider-supersession-idempotency"
+  }, null, 2)}\n`);
+  process.env.PATH = `${bin}:${priorPath}`;
+  try {
+    await assert.rejects(
+      executeActionToken(root, started.runId, supersessionToken, sentinel.digest),
+      /Evidence supersession record keys are invalid/
+    );
+  } finally {
+    process.env.PATH = priorPath;
+  }
+  await assert.rejects(stat(providerMergeMarker));
+  const supersessionStoppedMerge = (await inspectRun(root, started.runId)).actions.find(
+    (item) => item.tokenHash === supersessionTokenHash
+  );
+  assert.equal(supersessionStoppedMerge.status, "spent");
+  assert.equal(supersessionStoppedMerge.providerInvocation.dispatchState, "not-sent");
+  await unlink(path.join(runDir, "actions", `${supersessionTokenHash}.json`));
+  await unlink(lateSupersessionTarget);
+  await unlink(providerInjectionMode);
+  await unlink(providerCounter);
   assert.equal((await reviewStatus(root, started.runId)).complete, true);
   const token = "review-continuity-token";
   const tokenHash = sha256(token);

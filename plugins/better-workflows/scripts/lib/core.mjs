@@ -2749,6 +2749,9 @@ export async function addEvidence(root, runId, record) {
   return withRunLock(root, runId, async ({ runDir }) => {
     const boundRun = await loadRun(root, runId);
     assertMutableRun(boundRun, "Evidence");
+    if (boundRun.contract.schemaVersion === 2) {
+      await listIdentityBoundJsonRecords(root, safeJoin(runDir, "evidence"), "Evidence");
+    }
     const admitted = boundRun.contract.schemaVersion === 2
       ? await (await import("./evidence.mjs")).admitTypedEvidence(record, { ...boundRun, root, requireReconciled: false })
       : record;
@@ -2857,6 +2860,28 @@ export async function listJsonRecords(root, directory) {
   await assertNoSymlinkUnder(root, directory);
   const entries = (await readdir(directory)).filter((name) => name.endsWith(".json")).sort();
   return Promise.all(entries.map((name) => readJson(root, safeJoin(directory, name))));
+}
+
+async function listIdentityBoundJsonRecords(root, directory, label) {
+  if (!(await pathExists(directory))) return [];
+  await assertNoSymlinkUnder(root, directory);
+  const entries = (await readdir(directory)).filter((name) => name.endsWith(".json")).sort();
+  const records = await Promise.all(entries.map(async (name) => ({
+    name,
+    record: await readJson(root, safeJoin(directory, name))
+  })));
+  const ids = new Set();
+  for (const { record } of records) {
+    validateRecordId(record?.id, label.toLowerCase());
+    if (ids.has(record.id)) throw new Error(`${label} record id is duplicated: ${record.id}`);
+    ids.add(record.id);
+  }
+  for (const { name, record } of records) {
+    if (name !== `${record.id}.json`) {
+      throw new Error(`${label} filename does not match record id: ${name}`);
+    }
+  }
+  return records.map(({ record }) => record);
 }
 
 const EVIDENCE_SUPERSESSION_SCHEMA_VERSION = 1;
@@ -3017,7 +3042,7 @@ async function fingerprintEvidenceDependency(cwd, candidate) {
   }
 }
 
-async function evidenceIsCurrentlyStale(run, record) {
+async function currentEvidenceFreshness(run, record) {
   const { loadEvidenceContracts } = await import("./evidence.mjs");
   const contracts = await loadEvidenceContracts();
   const sourceKind = record.sourceKind ?? record.kind;
@@ -3041,14 +3066,24 @@ async function evidenceIsCurrentlyStale(run, record) {
     (sourceBindingRequired && (!sourceBinding || record.dependencies?.sourceBindingDigest !== sourceBinding.digest)) ||
     (sourceSentinelRequired && record.dependencies?.sourceSentinelDigest !== run.state.lastSentinel?.digest);
   if (!Array.isArray(record.dependencyInputs?.files)) {
-    return Array.isArray(record.currentDependencyFiles) && record.currentDependencyFiles.length === 0;
+    return {
+      stale: true,
+      currentDependencyFiles: []
+    };
   }
   const current = [];
   for (const candidate of record.dependencyInputs.files) {
     current.push(await fingerprintEvidenceDependency(run.manifest.cwd, candidate));
   }
   if (digestObject(current) !== digestObject(record.dependencies?.files ?? [])) stale = true;
-  return stale;
+  return { stale, currentDependencyFiles: current };
+}
+
+async function evidenceIsCurrentlyStale(run, record) {
+  if (!Array.isArray(record.dependencyInputs?.files)) {
+    return Array.isArray(record.currentDependencyFiles) && record.currentDependencyFiles.length === 0;
+  }
+  return (await currentEvidenceFreshness(run, record)).stale;
 }
 
 async function assertStaleEvidenceProvenance(root, run, records, journal) {
@@ -3208,7 +3243,7 @@ async function loadEvidenceSupersessions(root, run, records) {
   const directory = safeJoin(run.runDir, "evidence-supersessions");
   const journal = await readJournalRecords(root, run.runDir);
   await assertStaleEvidenceProvenance(root, run, records, journal);
-  const supersessions = await listJsonRecords(root, directory);
+  const supersessions = await listIdentityBoundJsonRecords(root, directory, "Evidence supersession");
   const journalEntries = journal.filter((entry) => entry.event === "evidence.superseded");
   if (supersessions.length === 0 && journalEntries.length === 0) {
     return { records: [], supersededIds: new Set(), journal };
@@ -3239,7 +3274,9 @@ async function loadEvidenceSupersessions(root, run, records) {
 
 export async function loadEffectiveEvidenceState(root, runId, { run: suppliedRun = null } = {}) {
   const run = suppliedRun ?? await loadRun(root, runId);
-  const records = await listJsonRecords(root, safeJoin(run.runDir, "evidence"));
+  const records = run.contract.schemaVersion === 2
+    ? await listIdentityBoundJsonRecords(root, safeJoin(run.runDir, "evidence"), "Evidence")
+    : await listJsonRecords(root, safeJoin(run.runDir, "evidence"));
   if (run.contract.schemaVersion !== 2) return { records, supersessions: [] };
   const { records: supersessions, supersededIds } = await loadEvidenceSupersessions(root, run, records);
   return {
@@ -3250,6 +3287,46 @@ export async function loadEffectiveEvidenceState(root, runId, { run: suppliedRun
 
 export async function listEffectiveEvidenceRecords(root, runId, options = {}) {
   return (await loadEffectiveEvidenceState(root, runId, options)).records;
+}
+
+export async function refreshEvidence(root, runId) {
+  return withRunLock(root, runId, async ({ runDir }) => {
+    const run = await loadRun(root, runId);
+    assertMutableRun(run, "Evidence freshness");
+    const evidence = run.contract.schemaVersion === 2
+      ? await listIdentityBoundJsonRecords(root, safeJoin(runDir, "evidence"), "Evidence")
+      : await listJsonRecords(root, safeJoin(runDir, "evidence"));
+    const supersessionState = run.contract.schemaVersion === 2
+      ? await loadEvidenceSupersessions(root, run, evidence)
+      : { records: [] };
+    const immutableIds = new Set(supersessionState.records.flatMap((record) => [
+      record.supersededEvidence.id,
+      record.replacementEvidence.id
+    ]));
+    const stale = [];
+    const fresh = [];
+    const immutableStale = [];
+    for (const record of evidence) {
+      const freshness = await currentEvidenceFreshness(run, record);
+      if (immutableIds.has(record.id)) {
+        if (freshness.stale) immutableStale.push(record.id);
+      } else {
+        await atomicWriteJson(root, safeJoin(runDir, "evidence", `${record.id}.json`), {
+          ...record,
+          stale: freshness.stale,
+          freshnessCheckedAt: nowIso(),
+          currentDependencyFiles: freshness.currentDependencyFiles
+        });
+      }
+      (freshness.stale ? stale : fresh).push(record.id);
+    }
+    return {
+      stale,
+      fresh,
+      immutableEvidenceIds: [...immutableIds].sort(),
+      immutableStale: immutableStale.sort()
+    };
+  });
 }
 
 export async function supersedeEvidence(root, runId, input) {
@@ -3275,7 +3352,7 @@ export async function supersedeEvidence(root, runId, input) {
     if (typeof input.reason !== "string" || input.reason.trim().length < 12 || input.reason.length > 512) {
       throw new Error("Evidence supersession reason must be 12 to 512 characters");
     }
-    const evidence = await listJsonRecords(root, safeJoin(runDir, "evidence"));
+    const evidence = await listIdentityBoundJsonRecords(root, safeJoin(runDir, "evidence"), "Evidence");
     const recordsById = new Map(evidence.map((record) => [record.id, record]));
     const target = recordsById.get(input.supersededEvidenceId);
     const replacement = recordsById.get(input.replacementEvidenceId);
@@ -3290,6 +3367,11 @@ export async function supersedeEvidence(root, runId, input) {
     if (action.attemptId !== input.actionAttemptId) {
       throw new Error("Evidence supersession actionAttemptId changed");
     }
+    await listIdentityBoundJsonRecords(
+      root,
+      safeJoin(runDir, "evidence-supersessions"),
+      "Evidence supersession"
+    );
     const targetPath = safeJoin(runDir, "evidence-supersessions", `${input.id}.json`);
     let record;
     if (await pathExists(targetPath)) {
@@ -5188,10 +5270,9 @@ async function verifyMergeProviderAtInvocation(root, runId, record, manifest) {
     throw new Error("PR merge provider actor or permission changed before invocation");
   }
   await verifyPullRequestBeforeMerge(manifest.cwd, record, providerExecutablePath);
-  const contract = await readJson(root, safeJoin(runDirectory(root, runId), "contract.json"));
-  if (!contract.actionGates?.[record.action]?.includes("required-checks")) return authorization;
   const run = await loadRun(root, runId);
-  const evidence = await listJsonRecords(root, safeJoin(run.runDir, "evidence"));
+  if (!run.contract.actionGates?.[record.action]?.includes("required-checks")) return authorization;
+  const evidence = await listEffectiveEvidenceRecords(root, runId, { run });
   const requiredChecks = assertPersistedRequiredChecksEvidence(record, evidence, { repository });
   const { validateTypedEvidenceRecord } = await import("./evidence.mjs");
   await validateTypedEvidenceRecord(requiredChecks, {
@@ -9001,18 +9082,9 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
   if (!consumed.mergeRepository || JSON.stringify(consumed.mergeCommand) !== JSON.stringify(expectedCommand)) {
     throw new Error("PR merge execution command is not the fixed non-admin invocation");
   }
-  const manifest = await readJson(root, safeJoin(runDirectory(root, runId), "manifest.json"));
   const executable = await currentProviderExecutableIdentity("gh");
   if (digestObject(executable) !== digestObject(consumed.providerExecutable)) {
     throw new Error("PR merge execution denied because the governed provider executable changed");
-  }
-  // Re-check provider actor, branch policy, PR head, and fresh checks immediately before gh invocation.
-  let providerAuthorization;
-  try {
-    providerAuthorization = await verifyMergeProviderAtInvocation(root, runId, consumed, manifest);
-  } catch (error) {
-    await persistPreflightProviderInvocation(root, runId, consumed, error);
-    throw error;
   }
   return withRunLock(root, runId, async ({ runDir }) => {
     const run = await loadRun(root, runId);
@@ -9022,15 +9094,27 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
     if (current.status !== "spent" || current.attemptId !== consumed.attemptId) {
       throw new Error("PR merge provider invocation is not bound to the consumed action attempt");
     }
-    if (consumed.reviewPackageId) {
-      try {
+    // Keep the canonical evidence replay, provider/PR checks, and provider
+    // invocation inside one run lock. No local state writer can introduce an
+    // invalid supersession after the final replay but before `gh pr merge`.
+    let providerAuthorization;
+    try {
+      providerAuthorization = await verifyMergeProviderAtInvocation(root, runId, current, run.manifest);
+      // Provider observations may take time. Replay every local immutable gate
+      // once more at the last instruction boundary while the run lock is still
+      // held, so neither late review state nor a malformed supersession can be
+      // introduced between preflight and the provider call.
+      await listEffectiveEvidenceRecords(root, runId, { run: await loadRun(root, runId) });
+      if (current.reviewPackageId) {
         const { assertReviewContinuity } = await import("./review.mjs");
         await assertReviewContinuity(root, runId, {
-          packageId: consumed.reviewPackageId,
-          head: consumed.reviewedHead,
-          continuityDigest: consumed.reviewContinuityDigest
+          packageId: current.reviewPackageId,
+          head: current.reviewedHead,
+          continuityDigest: current.reviewContinuityDigest
         });
-      } catch (error) {
+      }
+    } catch (error) {
+      if (!current.providerInvocation) {
         const invocation = githubPreflightInvocation(runId, consumed, error);
         const next = { ...current, providerInvocation: invocation };
         await atomicWriteJson(root, target, next);
@@ -9039,8 +9123,8 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
           invocationId: invocation.id,
           dispatchState: invocation.dispatchState
         });
-        throw error;
       }
+      throw error;
     }
     const startedAt = nowIso();
     let exitCode = 0;
