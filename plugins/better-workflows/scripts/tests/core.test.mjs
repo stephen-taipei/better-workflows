@@ -1457,6 +1457,11 @@ async function assertBoundProcessGone(pid) {
   assert.fail(`bound child ${pid} survived process-group cleanup`);
 }
 
+// These fixtures must first prove that a real descendant was created. The
+// bounded deadline still forces cleanup, but must tolerate supervisor and
+// target startup on loaded hosts before the PID receipt is written.
+const FORKING_PROCESS_TIMEOUT_MS = 5_000;
+
 async function successfulForkLauncher(root) {
   const launcher = path.join(root, "fork-success");
   const descendantSource = "process.on('SIGTERM', () => {}); setInterval(() => {}, 10000);";
@@ -1497,7 +1502,7 @@ test("bound GitHub CLI timeout cleans a SIGTERM-ignoring descendant before rejec
       () => execBoundGitHubCli(executable, [pidPath], {
         cwd: root,
         env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", HOME: root, LC_ALL: "C" },
-        timeoutMs: 500
+        timeoutMs: FORKING_PROCESS_TIMEOUT_MS
       }),
       (error) => error?.code === "ETIMEDOUT"
     );
@@ -1516,7 +1521,7 @@ test("bound Git timeout cleans a SIGTERM-ignoring descendant before rejecting", 
       () => execBoundGitProcess(executable, [pidPath], {
         cwd: root,
         env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", HOME: root, LC_ALL: "C" },
-        timeoutMs: 500
+        timeoutMs: FORKING_PROCESS_TIMEOUT_MS
       }),
       (error) => error?.code === "ETIMEDOUT"
     );
