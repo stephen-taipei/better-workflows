@@ -3770,9 +3770,6 @@ export async function currentActionEvidenceGateBinding(root, runId, run, action)
       baseRevision: run.manifest.sourceBinding.baseRevision,
       requireClean: false
     });
-    if (!currentSourceBinding || currentSourceBinding.digest !== run.manifest.sourceBinding.digest) {
-      throw new Error("Action token denied because the current source binding changed");
-    }
     currentSourceBindingDigest = currentSourceBinding.digest;
   }
   const effective = await loadEffectiveEvidenceState(root, runId, { run });

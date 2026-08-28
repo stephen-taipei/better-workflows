@@ -83,10 +83,14 @@ Review finding and broad-review consumers select evidence only from that
 effective replay and then recompute the selected records' dependency
 fingerprints. Action issuance derives a canonical projection of every current
 typed record selected by the complete configured action gate. The projection
-also binds the contract authority, policy, source binding, source sentinel,
-remote revision, and effective supersession set. It is checked again at the
-last issuance boundary and immediately before consumption is persisted; stale,
-missing, added, replaced, or dependency-drifted gate evidence invalidates the
+also binds the contract authority, policy, persisted run source binding, live
+operational source binding, verified source sentinel, remote revision, and
+effective supersession set. A reconciled earlier action may deliberately change
+the live workspace; after a fresh verified sentinel, a later token binds that
+new operational state without rewriting the run's historical source anchor.
+The projection is checked again at the last issuance boundary and immediately
+before consumption is persisted; live source drift after issuance, or stale,
+missing, added, replaced, or dependency-drifted gate evidence, invalidates the
 token.
 
 An autonomous commit additionally appends exactly one

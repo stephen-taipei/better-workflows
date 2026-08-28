@@ -1226,7 +1226,7 @@ test("action consumption replays the complete configured evidence gate without s
   }
 });
 
-test("action consumption binds the live source snapshot selected by the configured gate", async () => {
+test("action gates permit prior governed workspace mutation and bind the live source through consumption", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "sbw-v2-action-source-gate-"));
   const repository = path.join(root, "repository");
   try {
@@ -1265,17 +1265,43 @@ test("action consumption binds the live source snapshot selected by the configur
       dependencyInputs: { files: [] },
       dependencies: currentEvidenceDependencies(run, [])
     });
+    await writeFile(path.join(repository, "README.md"), "source-v2\n");
+    const currentSentinel = await captureSentinel(repository, taskContract, await loadDefaults());
+    await updateState(root, started.runId, (state) => ({
+      ...state,
+      lastSentinel: { label: "action-source-gate-current", digest: currentSentinel.digest },
+      lastSentinelVerified: true,
+      lastSentinelComplete: true
+    }));
+    const currentGate = await currentActionEvidenceGateBinding(
+      root,
+      started.runId,
+      await inspectRun(root, started.runId),
+      "artifact.promote"
+    );
+    assert.equal(currentGate.projection.sourceBindingDigest, run.manifest.sourceBinding.digest);
+    assert.notEqual(
+      currentGate.projection.currentSourceBindingDigest,
+      currentGate.projection.sourceBindingDigest
+    );
     const issued = await issueActionToken(root, started.runId, {
       action: "artifact.promote",
       provider: "local-workspace",
       resource: "artifact/fixture-artifact",
       remoteRevision: head,
       requiredEvidence: ["environment-state"]
-    }, "e".repeat(64), await loadDefaults());
-    await writeFile(path.join(repository, "README.md"), "source-v2\n");
+    }, currentSentinel.digest, await loadDefaults());
+    await writeFile(path.join(repository, "README.md"), "source-v3\n");
+    const contentDriftSentinel = await captureSentinel(repository, taskContract, await loadDefaults());
     await assert.rejects(
-      consumeActionToken(root, started.runId, issued.token, "e".repeat(64)),
-      /current source binding changed/
+      consumeActionToken(root, started.runId, issued.token, contentDriftSentinel.digest),
+      /tree binding changed/
+    );
+    await writeFile(path.join(repository, "README.md"), "source-v2\n");
+    await writeFile(path.join(repository, "SECOND.md"), "new dirty surface\n");
+    await assert.rejects(
+      consumeActionToken(root, started.runId, issued.token, currentSentinel.digest),
+      /configured evidence gate changed/
     );
     const action = (await inspectRun(root, started.runId)).actions.find((item) => item.tokenHash === issued.tokenHash);
     assert.equal(action.status, "issued");
