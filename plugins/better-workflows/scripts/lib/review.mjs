@@ -1,4 +1,4 @@
-import { appendJournal, assertMutableRun, atomicWriteJson, canonicalizeScope, digestObject, listJsonRecords, loadDefaults, loadRun, nowIso, readJson, safeJoin, sha256, withRunLock } from "./core.mjs";
+import { appendJournal, assertCurrentEvidenceFreshness, assertMutableRun, atomicWriteJson, canonicalizeScope, digestObject, listEffectiveEvidenceRecords, listJsonRecords, loadDefaults, loadRun, nowIso, readJson, safeJoin, sha256, withRunLock } from "./core.mjs";
 import { captureSentinel, runSourceGit } from "./git.mjs";
 import { quorumReviewEnabled, reviewKernelEnabled } from "./review-policy.mjs";
 import { changedPathsFromDiffManifest, isQuorumEvidence } from "./quorum.mjs";
@@ -1031,14 +1031,15 @@ function validateFindingDisposition(finding) {
 
 async function assertFindingEvidence(root, run, finding) {
   if (!["resolved", "rejected-with-evidence"].includes(finding.status)) return;
-  const evidence = (await listJsonRecords(root, safeJoin(run.runDir, "evidence"))).find(
+  const evidence = (await listEffectiveEvidenceRecords(root, run.manifest.runId, { run })).find(
     (item) => item.id === finding.evidenceId
   );
   if (!evidence || evidence.stale || evidence.schemaVersion !== 2 || !evidence.typedAdmission) {
     throw new Error(`Review finding ${finding.id ?? "unknown"} references unverified evidence`);
   }
   const { validateTypedEvidenceRecord } = await import("./evidence.mjs");
-  await validateTypedEvidenceRecord(evidence, run);
+  await validateTypedEvidenceRecord(evidence, { ...run, root, requireReconciled: true });
+  await assertCurrentEvidenceFreshness(run, evidence, "Review finding evidence");
   if (evidence.kind !== "patch-review") {
     throw new Error(`Review finding ${finding.id ?? "unknown"} must reference patch-review evidence`);
   }
@@ -1063,7 +1064,7 @@ async function assertFindingEvidence(root, run, finding) {
 
 async function assertBroadReviewEvidence(root, run, reviewPackage, kernel = null) {
   if (run.contract.controlPlane?.reviewPolicy === "none") return;
-  const evidence = await listJsonRecords(root, safeJoin(run.runDir, "evidence"));
+  const evidence = await listEffectiveEvidenceRecords(root, run.manifest.runId, { run });
   const { isIndependentCriticEvidence, validateTypedEvidenceRecord } = await import("./evidence.mjs");
   if (reviewPackage.schemaVersion === 2) {
     const liveKernel = kernel ?? await deriveReviewKernel(root, run, reviewPackage);
@@ -1076,7 +1077,8 @@ async function assertBroadReviewEvidence(root, run, reviewPackage, kernel = null
       item.receipt?.payload?.coverageDigest === liveKernel.coverageDigest
     ));
     if (!accounting) throw new Error("Broad review requires current work-unit-accounting evidence");
-    await validateTypedEvidenceRecord(accounting, { ...run, root });
+    await validateTypedEvidenceRecord(accounting, { ...run, root, requireReconciled: true });
+    await assertCurrentEvidenceFreshness(run, accounting, "Broad review work-unit-accounting evidence");
     const summary = evidence.find((item) => (
       item.kind === "review-kernel-summary" && item.status === "complete" && !item.stale &&
       item.receipt?.payload?.result === true && item.receipt?.payload?.packageId === reviewPackage.packageId &&
@@ -1086,7 +1088,8 @@ async function assertBroadReviewEvidence(root, run, reviewPackage, kernel = null
       item.receipt?.payload?.convergenceDigest === liveKernel.convergenceDigest
     ));
     if (!summary) throw new Error("Broad review requires current review-kernel-summary evidence");
-    await validateTypedEvidenceRecord(summary, { ...run, root });
+    await validateTypedEvidenceRecord(summary, { ...run, root, requireReconciled: true });
+    await assertCurrentEvidenceFreshness(run, summary, "Broad review kernel-summary evidence");
     return;
   }
   const diff = evidence.find((item) => (
@@ -1102,7 +1105,8 @@ async function assertBroadReviewEvidence(root, run, reviewPackage, kernel = null
     item.receipt?.payload?.instructionDigest === reviewPackage.instructionDigest
   ));
   if (!diff) throw new Error("Broad review requires final package-bound diff-review evidence");
-  await validateTypedEvidenceRecord(diff, run);
+  await validateTypedEvidenceRecord(diff, { ...run, root, requireReconciled: true });
+  await assertCurrentEvidenceFreshness(run, diff, "Broad review diff-review evidence");
   if (quorumReviewEnabled(run.contract.controlPlane?.reviewPolicy)) {
     const quorum = evidence.find((item) => isQuorumEvidence(item, {
       registryCwd: run.manifest.cwd,
@@ -1121,7 +1125,8 @@ async function assertBroadReviewEvidence(root, run, reviewPackage, kernel = null
       }
     }));
     if (!quorum) throw new Error("Broad review requires a passing agent-review-quorum evidence record");
-    await validateTypedEvidenceRecord(quorum, run);
+    await validateTypedEvidenceRecord(quorum, { ...run, root, requireReconciled: true });
+    await assertCurrentEvidenceFreshness(run, quorum, "Broad review quorum evidence");
     return;
   }
   if (run.manifest.mode === "critical") {
@@ -1132,7 +1137,8 @@ async function assertBroadReviewEvidence(root, run, reviewPackage, kernel = null
       })
     ));
     if (!critic) throw new Error("Critical broad review requires an exact independent critic receipt");
-    await validateTypedEvidenceRecord(critic, run);
+    await validateTypedEvidenceRecord(critic, { ...run, root, requireReconciled: true });
+    await assertCurrentEvidenceFreshness(run, critic, "Broad review independent critic evidence");
   }
 }
 

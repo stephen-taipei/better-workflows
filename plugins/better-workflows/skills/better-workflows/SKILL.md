@@ -280,6 +280,18 @@ complete child transition set. Missing, duplicate, partial, or conflicting
 chains block every evidence consumer. Legacy transition records keep their
 original reader and are not silently upgraded.
 
+Review finding dispositions and final broad-review gates read only the
+effective journal-replayed evidence set and revalidate each selected record's
+current dependency fingerprints. A persisted `stale: false` field is never an
+authority source by itself. Action tokens additionally bind a canonical digest
+of every current typed record selected by the contract's complete configured
+gate, together with source, sentinel, policy, authority, and effective
+supersession state. The digest is recomputed at the final issuance boundary and
+again immediately before token consumption is persisted; any change blocks the
+action. If an autonomous commit encounters any supersession record, its
+reconciliation fails before provider reservation, source-state transition, or
+evidence mutation so both bound evidence byte streams remain unchanged.
+
 All newly-created non-direct template runs use TaskContract v2. The run creates
 an append-only execution ledger and accepts only typed evidence receipts from
 the 102-kind catalog; v1 runs remain on the v1 reader and are never silently

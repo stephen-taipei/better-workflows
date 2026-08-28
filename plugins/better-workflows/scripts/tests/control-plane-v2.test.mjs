@@ -9,9 +9,11 @@ import { promisify } from "node:util";
 import {
   addEvidence,
   addFinding,
+  assertAutonomousCommitEvidenceInvalidationSafe,
   buildContract,
   consumeActionToken,
   createRun,
+  currentActionEvidenceGateBinding,
   digestObject,
   evaluateCompletion,
   executeActionToken,
@@ -439,6 +441,7 @@ async function admitKernelEvidence(root, run, kind, kernel) {
     summary: `Typed ${kind}`,
     acceptanceIds: [],
     dependencyInputs: { files: [] },
+    dependencies: currentEvidenceDependencies(run, []),
     receipt: {
       contractId: `evidence-contracts-v1:${kind}`,
       contractVersion: 1,
@@ -1160,6 +1163,160 @@ test("action authority recomputes immutable supersession freshness at issue and 
   }
 });
 
+test("action consumption replays the complete configured evidence gate without supersessions", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-v2-action-evidence-gate-"));
+  try {
+    const dependencyPath = path.join(root, "gate-input.txt");
+    await writeFile(dependencyPath, "gate-input-v1\n");
+    const taskContract = buildContract({
+      template: "test-v2-action-evidence-gate",
+      templateDefinition: {
+        ...contractTemplate,
+        actionStages: { "artifact.promote": "environment" },
+        actionGates: { "artifact.promote": ["environment-state"] }
+      },
+      goal: "Bind every configured evidence gate record through consumption",
+      scope: ["."],
+      risk: { risk: 2, uncertainty: 1, blastRadius: 1, irreversibility: 1, evidenceGap: 1 },
+      sensitivity: "internal",
+      authority: ["artifact.promote"],
+      remoteRevision: "b".repeat(40)
+    });
+    const started = await createRun({ root, contract: taskContract, requestedMode: "verified", cwd: root });
+    const run = await inspectRun(root, started.runId);
+    await updateState(root, started.runId, (state) => ({
+      ...state,
+      lastSentinel: { label: "action-evidence-gate", digest: "e".repeat(64) },
+      lastSentinelVerified: true,
+      lastSentinelComplete: true
+    }));
+    const dependencyBytes = Buffer.from("gate-input-v1\n");
+    const dependencyInfo = await stat(dependencyPath);
+    await addEvidence(root, started.runId, {
+      ...await typedRecord({ runId: started.runId, contract: run.contract }),
+      dependencyInputs: { files: ["gate-input.txt"] },
+      dependencies: currentEvidenceDependencies(run, [{
+        path: "gate-input.txt",
+        type: "file",
+        mode: dependencyInfo.mode,
+        size: dependencyInfo.size,
+        digest: sha256(dependencyBytes)
+      }])
+    });
+    const issued = await issueActionToken(root, started.runId, {
+      action: "artifact.promote",
+      provider: "local-workspace",
+      resource: "artifact/fixture-artifact",
+      remoteRevision: taskContract.remoteRevision,
+      requiredEvidence: ["environment-state"]
+    }, "e".repeat(64), await loadDefaults());
+    assert.deepEqual(issued.evidenceGate, ["environment-state"]);
+    assert.match(issued.evidenceGateDigest, /^[a-f0-9]{64}$/);
+    await writeFile(dependencyPath, "gate-input-v2\n");
+    const refreshed = await refreshEvidence(root, started.runId);
+    assert.deepEqual(refreshed.stale, ["environment"]);
+    await assert.rejects(
+      consumeActionToken(root, started.runId, issued.token, "e".repeat(64)),
+      /configured evidence gate|Evidence stale provenance|Action token missing evidence/
+    );
+    const action = (await inspectRun(root, started.runId)).actions.find((item) => item.tokenHash === issued.tokenHash);
+    assert.equal(action.status, "issued");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("action consumption binds the live source snapshot selected by the configured gate", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-v2-action-source-gate-"));
+  const repository = path.join(root, "repository");
+  try {
+    await mkdir(repository, { recursive: true });
+    await execFileAsync("git", ["init", "-q"], { cwd: repository });
+    await execFileAsync("git", ["config", "user.email", "test@example.com"], { cwd: repository });
+    await execFileAsync("git", ["config", "user.name", "Test User"], { cwd: repository });
+    await writeFile(path.join(repository, "README.md"), "source-v1\n");
+    await execFileAsync("git", ["add", "README.md"], { cwd: repository });
+    await execFileAsync("git", ["commit", "-q", "-m", "source"], { cwd: repository });
+    const head = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repository })).stdout.trim();
+    const taskContract = buildContract({
+      template: "test-v2-action-source-gate",
+      templateDefinition: {
+        ...contractTemplate,
+        actionStages: { "artifact.promote": "environment" },
+        actionGates: { "artifact.promote": ["environment-state"] }
+      },
+      goal: "Bind the live source snapshot through action consumption",
+      scope: ["."],
+      risk: { risk: 2, uncertainty: 1, blastRadius: 1, irreversibility: 1, evidenceGap: 1 },
+      sensitivity: "internal",
+      authority: ["artifact.promote"],
+      remoteRevision: head
+    });
+    const started = await createRun({ root, contract: taskContract, requestedMode: "verified", cwd: repository });
+    const run = await inspectRun(root, started.runId);
+    await updateState(root, started.runId, (state) => ({
+      ...state,
+      lastSentinel: { label: "action-source-gate", digest: "e".repeat(64) },
+      lastSentinelVerified: true,
+      lastSentinelComplete: true
+    }));
+    await addEvidence(root, started.runId, {
+      ...await typedRecord({ runId: started.runId, contract: run.contract }),
+      dependencyInputs: { files: [] },
+      dependencies: currentEvidenceDependencies(run, [])
+    });
+    const issued = await issueActionToken(root, started.runId, {
+      action: "artifact.promote",
+      provider: "local-workspace",
+      resource: "artifact/fixture-artifact",
+      remoteRevision: head,
+      requiredEvidence: ["environment-state"]
+    }, "e".repeat(64), await loadDefaults());
+    await writeFile(path.join(repository, "README.md"), "source-v2\n");
+    await assert.rejects(
+      consumeActionToken(root, started.runId, issued.token, "e".repeat(64)),
+      /current source binding changed/
+    );
+    const action = (await inspectRun(root, started.runId)).actions.find((item) => item.tokenHash === issued.tokenHash);
+    assert.equal(action.status, "issued");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("autonomous invalidation preflight preserves supersession-bound evidence bytes", async () => {
+  const fixture = await providerReconciliationSupersessionFixture();
+  try {
+    const supersession = await supersedeEvidence(fixture.root, fixture.started.runId, {
+      schemaVersion: 1,
+      id: "provider-proof-autonomous-invalidation-guard",
+      supersededEvidenceId: fixture.malformed.id,
+      supersededEvidenceDigest: digestObject(fixture.malformed),
+      replacementEvidenceId: fixture.replacement.id,
+      replacementEvidenceDigest: digestObject(fixture.replacement),
+      actionAttemptId: fixture.attemptId,
+      reason: "Preserve supersession-bound evidence before autonomous invalidation"
+    });
+    const paths = [
+      path.join(fixture.run.runDir, "evidence", `${fixture.malformed.id}.json`),
+      path.join(fixture.run.runDir, "evidence", `${fixture.replacement.id}.json`),
+      path.join(fixture.run.runDir, "evidence-supersessions", `${supersession.id}.json`),
+      path.join(fixture.run.runDir, "journal.jsonl"),
+      path.join(fixture.run.runDir, "manifest.json"),
+      path.join(fixture.run.runDir, "state.json")
+    ];
+    const before = await Promise.all(paths.map((target) => readFile(target)));
+    await assert.rejects(
+      assertAutonomousCommitEvidenceInvalidationSafe(fixture.root, fixture.started.runId),
+      /cannot invalidate supersession-bound evidence without mutating admitted bytes/
+    );
+    const after = await Promise.all(paths.map((target) => readFile(target)));
+    assert.deepEqual(after, before);
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test("freshness transitions preserve an append-only digest chain from admitted evidence", async () => {
   const fixture = await providerReconciliationSupersessionFixture({
     dependencyPath: "provider-freshness-input.txt"
@@ -1654,7 +1811,11 @@ test("ledger reducer derives ready set and rejects duplicate event identity", as
   });
   const started = await createRun({ root, contract, requestedMode: "verified", cwd: root });
   const run = await inspectRun(root, started.runId);
-  await addEvidence(root, started.runId, await typedRecord({ runId: started.runId, contract: run.contract }));
+  await addEvidence(root, started.runId, {
+    ...await typedRecord({ runId: started.runId, contract: run.contract }),
+    dependencyInputs: { files: [] },
+    dependencies: currentEvidenceDependencies(run, [])
+  });
   const initialLedger = JSON.parse(await readFile(path.join(run.runDir, "ledger.json"), "utf8"));
   await transitionLedger(root, started.runId, { eventId: "start-environment", type: "start", taskId: "environment", expectedLedgerDigest: digestObject(initialLedger) });
   await assert.rejects(
@@ -1997,6 +2158,10 @@ test("review packages reject head drift with stable finding identity, block afte
   await execFileAsync("git", ["init", "-q"], { cwd: repository });
   await execFileAsync("git", ["config", "user.email", "test@example.com"], { cwd: repository });
   await execFileAsync("git", ["config", "user.name", "Test User"], { cwd: repository });
+  const patchReviewDependencyPath = path.join(repository, ".git", "sbw-patch-review.dep");
+  const diffReviewDependencyPath = path.join(repository, ".git", "sbw-diff-review.dep");
+  await writeFile(patchReviewDependencyPath, "patch-review-v1\n");
+  await writeFile(diffReviewDependencyPath, "diff-review-v1\n");
   await writeFile(path.join(repository, "README.md"), "base\n");
   await execFileAsync("git", ["add", "README.md"], { cwd: repository });
   await execFileAsync("git", ["commit", "-q", "-m", "base"], { cwd: repository });
@@ -2006,19 +2171,28 @@ test("review packages reject head drift with stable finding identity, block afte
   await execFileAsync("git", ["add", "src/a.ts"], { cwd: repository });
   await execFileAsync("git", ["commit", "-q", "-m", "change"], { cwd: repository });
   const head = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repository })).stdout.trim();
+  await execFileAsync("git", ["remote", "add", "origin", "https://github.com/example/repo.git"], { cwd: repository });
   const contract = buildContract({
     template: "test-review",
     templateDefinition: {
       ...contractTemplate,
       scope: ["src", "README.md"],
       reviewProfile: legacyReviewProfile,
-      controlPlane: { ...contractTemplate.controlPlane, reviewPolicy: "code-v1" }
+      controlPlane: { ...contractTemplate.controlPlane, reviewPolicy: "code-v1" },
+      actionStages: {
+        "pr.merge": "environment",
+        "worktree.cleanup": "environment"
+      },
+      actionGates: {
+        "pr.merge": ["diff-review"],
+        "worktree.cleanup": ["diff-review"]
+      }
     },
     goal: "review",
     scope: ["src", "README.md"],
     risk: { risk: 1, uncertainty: 0, blastRadius: 1, irreversibility: 0, evidenceGap: 0 },
     sensitivity: "internal",
-    authority: ["pr.merge"],
+    authority: ["pr.merge", "worktree.cleanup"],
     remoteRevision: base
   });
   const started = await createRun({ root, contract, requestedMode: "verified", cwd: repository });
@@ -2168,7 +2342,11 @@ test("review packages reject head drift with stable finding identity, block afte
   assert.equal(accepted.owner, "owner");
   assert.equal(accepted.reason, "bounded exception");
   assert.ok(accepted.expiry);
-  await addEvidence(root, started.runId, await gateRecord(
+  const patchReviewRun = await inspectRun(root, started.runId);
+  const patchDependencyBytes = Buffer.from("patch-review-v1\n");
+  const patchDependencyInfo = await stat(patchReviewDependencyPath);
+  const patchReviewInput = {
+    ...await gateRecord(
     { runId: started.runId, contract: (await inspectRun(root, started.runId)).contract },
     "patch-review",
     {
@@ -2182,7 +2360,51 @@ test("review packages reject head drift with stable finding identity, block afte
       diffManifestDigest: first.diffManifestDigest
     },
     "review-proof"
-  ));
+    ),
+    dependencyInputs: { files: [".git/sbw-patch-review.dep"] },
+    dependencies: currentEvidenceDependencies(patchReviewRun, [{
+      path: ".git/sbw-patch-review.dep",
+      type: "file",
+      mode: patchDependencyInfo.mode,
+      size: patchDependencyInfo.size,
+      digest: sha256(patchDependencyBytes)
+    }])
+  };
+  await addEvidence(root, started.runId, patchReviewInput);
+  const patchEvidencePath = path.join((await inspectRun(root, started.runId)).runDir, "evidence", "review-proof.json");
+  const patchFreshBytes = await readFile(patchEvidencePath);
+  await writeFile(patchReviewDependencyPath, "patch-review-v2\n");
+  await refreshEvidence(root, started.runId);
+  const patchStaleBytes = await readFile(patchEvidencePath);
+  await writeFile(patchEvidencePath, patchFreshBytes);
+  await assert.rejects(
+    addReviewFinding(root, started.runId, {
+      packageId: first.packageId,
+      path: "src/a.ts",
+      location: "1",
+      rule: "unsafe",
+      severity: "P1",
+      status: "resolved",
+      evidenceId: "review-proof",
+      summary: "forged fresh review evidence must fail"
+    }, { update: true }),
+    /Evidence admission provenance is invalid|append-only freshness journal/
+  );
+  await writeFile(patchEvidencePath, patchStaleBytes);
+  const patchCurrentDependencyBytes = Buffer.from("patch-review-v2\n");
+  const patchCurrentDependencyInfo = await stat(patchReviewDependencyPath);
+  await addEvidence(root, started.runId, {
+    ...patchReviewInput,
+    id: "review-proof-current",
+    dependencyInputs: { files: [".git/sbw-patch-review.dep"] },
+    dependencies: currentEvidenceDependencies(patchReviewRun, [{
+      path: ".git/sbw-patch-review.dep",
+      type: "file",
+      mode: patchCurrentDependencyInfo.mode,
+      size: patchCurrentDependencyInfo.size,
+      digest: sha256(patchCurrentDependencyBytes)
+    }])
+  });
   const packageDigest = reviewPackageDigest(first);
   const repairResult = (round) => ({
     repairAttemptId: `repair-${round}`,
@@ -2207,7 +2429,7 @@ test("review packages reject head drift with stable finding identity, block afte
     rule: "unsafe",
     severity: "P1",
     status: "resolved",
-    evidenceId: "review-proof",
+    evidenceId: "review-proof-current",
     summary: "fixed"
   }, { update: true });
   const closed = await reviewStatus(root, started.runId);
@@ -2219,11 +2441,15 @@ test("review packages reject head drift with stable finding identity, block afte
     rule: "risk",
     severity: "P2",
     status: "resolved",
-    evidenceId: "review-proof",
+    evidenceId: "review-proof-current",
     summary: "accepted risk expired by policy"
   }, { update: true });
   assert.equal((await reviewStatus(root, started.runId)).scopedClosed, true);
-  await addEvidence(root, started.runId, await gateRecord(
+  const diffReviewRun = await inspectRun(root, started.runId);
+  const diffDependencyBytes = Buffer.from("diff-review-v1\n");
+  const diffDependencyInfo = await stat(diffReviewDependencyPath);
+  const diffReviewInput = {
+    ...await gateRecord(
     { runId: started.runId, contract: (await inspectRun(root, started.runId)).contract },
     "diff-review",
     {
@@ -2237,7 +2463,17 @@ test("review packages reject head drift with stable finding identity, block afte
       instructionDigest: first.instructionDigest
     },
     "diff-review-proof"
-  ));
+    ),
+    dependencyInputs: { files: [".git/sbw-diff-review.dep"] },
+    dependencies: currentEvidenceDependencies(diffReviewRun, [{
+      path: ".git/sbw-diff-review.dep",
+      type: "file",
+      mode: diffDependencyInfo.mode,
+      size: diffDependencyInfo.size,
+      digest: sha256(diffDependencyBytes)
+    }])
+  };
+  await addEvidence(root, started.runId, diffReviewInput);
   const driftPath = path.join(repository, "workspace-drift.txt");
   await writeFile(driftPath, "drift\n");
   await assert.rejects(
@@ -2247,13 +2483,70 @@ test("review packages reject head drift with stable finding identity, block afte
   await unlink(driftPath);
   const restoredSentinel = await captureSentinel(repository, contract, await loadDefaults());
   assert.equal(restoredSentinel.digest, sentinel.digest);
+  const diffEvidencePath = path.join((await inspectRun(root, started.runId)).runDir, "evidence", "diff-review-proof.json");
+  const diffFreshBytes = await readFile(diffEvidencePath);
+  await writeFile(diffReviewDependencyPath, "diff-review-v2\n");
+  await refreshEvidence(root, started.runId);
+  const diffStaleBytes = await readFile(diffEvidencePath);
+  const patchBroadDependencyInfo = await stat(patchReviewDependencyPath);
+  await addEvidence(root, started.runId, {
+    ...patchReviewInput,
+    id: "review-proof-broad",
+    dependencyInputs: { files: [".git/sbw-patch-review.dep"] },
+    dependencies: currentEvidenceDependencies(patchReviewRun, [{
+      path: ".git/sbw-patch-review.dep",
+      type: "file",
+      mode: patchBroadDependencyInfo.mode,
+      size: patchBroadDependencyInfo.size,
+      digest: sha256(patchCurrentDependencyBytes)
+    }])
+  });
+  await addReviewFinding(root, started.runId, {
+    packageId: first.packageId,
+    path: "src/a.ts",
+    location: "1",
+    rule: "unsafe",
+    severity: "P1",
+    status: "resolved",
+    evidenceId: "review-proof-broad",
+    summary: "fresh proof after broad-review dependency refresh"
+  }, { update: true });
+  await addReviewFinding(root, started.runId, {
+    packageId: first.packageId,
+    path: "src/a.ts",
+    location: "2",
+    rule: "risk",
+    severity: "P2",
+    status: "resolved",
+    evidenceId: "review-proof-broad",
+    summary: "fresh risk proof after broad-review dependency refresh"
+  }, { update: true });
+  await writeFile(diffEvidencePath, diffFreshBytes);
+  await assert.rejects(
+    markBroadReviewComplete(root, started.runId, first.packageId, head, sentinel.digest),
+    /Evidence admission provenance is invalid|append-only freshness journal/
+  );
+  await writeFile(diffEvidencePath, diffStaleBytes);
+  const diffCurrentDependencyBytes = Buffer.from("diff-review-v2\n");
+  const diffCurrentDependencyInfo = await stat(diffReviewDependencyPath);
+  await addEvidence(root, started.runId, {
+    ...diffReviewInput,
+    id: "diff-review-proof-current",
+    dependencyInputs: { files: [".git/sbw-diff-review.dep"] },
+    dependencies: currentEvidenceDependencies(diffReviewRun, [{
+      path: ".git/sbw-diff-review.dep",
+      type: "file",
+      mode: diffCurrentDependencyInfo.mode,
+      size: diffCurrentDependencyInfo.size,
+      digest: sha256(diffCurrentDependencyBytes)
+    }])
+  });
   await markBroadReviewComplete(root, started.runId, first.packageId, head, sentinel.digest);
   assert.equal((await reviewStatus(root, started.runId)).complete, true);
   const broadRetry = await createReviewPackage(input);
   assert.equal(broadRetry.packageId, first.packageId);
   const continuity = await assertReviewContinuity(root, started.runId);
   const runDir = (await inspectRun(root, started.runId)).runDir;
-  await execFileAsync("git", ["remote", "add", "origin", "https://github.com/example/repo.git"], { cwd: repository });
   const bin = path.join(root, "bin");
   await mkdir(bin);
   const fakeGh = path.join(bin, "gh");
@@ -2330,6 +2623,12 @@ fi
     "gh", "pr", "merge", "12", "--repo", "github.com/example/repo",
     "--match-head-commit", head, "--merge", "--delete-branch=false"
   ];
+  const mergeGateBinding = await currentActionEvidenceGateBinding(
+    root,
+    started.runId,
+    await inspectRun(root, started.runId),
+    "pr.merge"
+  );
   const mergeActionRecord = {
     schemaVersion: 1,
     tokenHash: mergeTokenHash,
@@ -2345,6 +2644,8 @@ fi
     treeDigest: sentinel.digest,
     contractDigest: digestObject(contract),
     evidenceSupersessionFreshnessDigest: digestObject([]),
+    evidenceGate: mergeGateBinding.configuredGate,
+    evidenceGateDigest: mergeGateBinding.digest,
     idempotencyKey: "review-provider-continuity-idempotency",
     reviewedHead: continuity.head,
     reviewPackageId: continuity.packageId,
@@ -2409,6 +2710,12 @@ fi
   assert.equal((await reviewStatus(root, started.runId)).complete, true);
   const token = "review-continuity-token";
   const tokenHash = sha256(token);
+  const cleanupGateBinding = await currentActionEvidenceGateBinding(
+    root,
+    started.runId,
+    await inspectRun(root, started.runId),
+    "worktree.cleanup"
+  );
   await writeFile(path.join(runDir, "actions", `${tokenHash}.json`), `${JSON.stringify({
     schemaVersion: 1,
     tokenHash,
@@ -2425,6 +2732,8 @@ fi
     treeDigest: sentinel.digest,
     contractDigest: digestObject(contract),
     evidenceSupersessionFreshnessDigest: digestObject([]),
+    evidenceGate: cleanupGateBinding.configuredGate,
+    evidenceGateDigest: cleanupGateBinding.digest,
     idempotencyKey: "review-continuity-idempotency",
     reviewedHead: continuity.head,
     reviewPackageId: continuity.packageId,
@@ -2636,7 +2945,11 @@ test("action tokens require the mapped ledger stage to be ready", async () => {
   });
   const started = await createRun({ root, contract, requestedMode: "verified", cwd: root });
   const run = await inspectRun(root, started.runId);
-  await addEvidence(root, started.runId, await typedRecord({ runId: started.runId, contract: run.contract }));
+  await addEvidence(root, started.runId, {
+    ...await typedRecord({ runId: started.runId, contract: run.contract }),
+    dependencyInputs: { files: [] },
+    dependencies: currentEvidenceDependencies(run, [])
+  });
   await updateState(root, started.runId, (state) => ({
     ...state,
     lastSentinel: { label: "test", digest: "tree" },

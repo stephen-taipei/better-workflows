@@ -79,6 +79,16 @@ same next bytes from the pending intent and completes it without adding a
 second transition. Every consumer replays the complete admission-to-current
 journal chain, including records whose persisted `stale` flag is false.
 
+Review finding and broad-review consumers select evidence only from that
+effective replay and then recompute the selected records' dependency
+fingerprints. Action issuance derives a canonical projection of every current
+typed record selected by the complete configured action gate. The projection
+also binds the contract authority, policy, source binding, source sentinel,
+remote revision, and effective supersession set. It is checked again at the
+last issuance boundary and immediately before consumption is persisted; stale,
+missing, added, replaced, or dependency-drifted gate evidence invalidates the
+token.
+
 An autonomous commit additionally appends exactly one
 `evidence.invalidated` parent for its action attempt. That parent binds the
 sorted complete child set by evidence ID, resulting evidence digest, and
@@ -87,6 +97,10 @@ digest mismatch, unsupported protocol, or evidence bytes edited back to fresh
 is blocking. Legacy freshness entries remain readable under their original
 format; a run is checked under protocol v2 once it records a versioned
 transition, and no existing legacy bytes are rewritten as an upgrade.
+Because supersession targets and replacements are immutable full-record
+bindings, autonomous-commit reconciliation rejects any run containing a
+supersession before provider reservation, source-state transition, or evidence
+mutation. It never rewrites either bound file to express invalidation.
 
 Code-review templates additionally use immutable review packages and stable
 finding IDs. Scoped repair is bounded to five unique rounds and each repair

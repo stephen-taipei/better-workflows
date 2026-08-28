@@ -3394,6 +3394,14 @@ async function currentEvidenceFreshness(run, record) {
   return { stale, currentDependencyFiles: current, expectedDependencies, projectionDigest };
 }
 
+export async function assertCurrentEvidenceFreshness(run, record, context = "Evidence") {
+  const freshness = await currentEvidenceFreshness(run, record);
+  if (freshness.stale) {
+    throw new Error(`${context} is stale: ${record?.id ?? "unknown"}`);
+  }
+  return freshness;
+}
+
 function autonomousInvalidationChildren(journal, attemptId, recordsById = null) {
   const transitions = journal.filter((entry) => (
     entry.event === EVIDENCE_FRESHNESS_EVENT &&
@@ -3747,6 +3755,120 @@ async function currentEvidenceSupersessionFreshnessDigest(root, run) {
     }
   }
   return digestObject(projection);
+}
+
+export async function currentActionEvidenceGateBinding(root, runId, run, action) {
+  const configuredGate = run.contract.actionGates?.[action];
+  if (!Array.isArray(configuredGate) || configuredGate.length === 0) {
+    throw new Error(`No pre-action evidence gate is defined for: ${action}`);
+  }
+  const gateKinds = new Set(configuredGate);
+  let currentSourceBindingDigest = null;
+  if (run.manifest.sourceBinding) {
+    const { captureSourceBinding } = await import("./git.mjs");
+    const currentSourceBinding = await captureSourceBinding(run.manifest.cwd, {
+      baseRevision: run.manifest.sourceBinding.baseRevision,
+      requireClean: false
+    });
+    if (!currentSourceBinding || currentSourceBinding.digest !== run.manifest.sourceBinding.digest) {
+      throw new Error("Action token denied because the current source binding changed");
+    }
+    currentSourceBindingDigest = currentSourceBinding.digest;
+  }
+  const effective = await loadEffectiveEvidenceState(root, runId, { run });
+  const { validateTypedEvidenceRecord } = await import("./evidence.mjs");
+  const selected = [];
+  for (const record of effective.records.filter((item) => gateKinds.has(item.kind))) {
+    if (
+      record.schemaVersion !== 2 ||
+      !record.typedAdmission ||
+      record.status !== "complete" ||
+      record.stale === true
+    ) continue;
+    await validateTypedEvidenceRecord(record, {
+      manifest: run.manifest,
+      contract: run.contract,
+      state: run.state,
+      root,
+      runDir: run.runDir,
+      requireReconciled: true
+    });
+    const freshness = await assertCurrentEvidenceFreshness(
+      run,
+      record,
+      "Action token configured evidence gate"
+    );
+    selected.push({
+      kind: record.kind,
+      evidenceId: record.id,
+      evidenceDigest: digestObject(record),
+      admissionDigest: digestObject(record.typedAdmission),
+      dependencyBindingDigest: digestObject(record.dependencies ?? null),
+      expectedDependencyDigest: digestObject(freshness.expectedDependencies),
+      currentDependencyFilesDigest: digestObject(freshness.currentDependencyFiles),
+      freshnessProjectionDigest: freshness.projectionDigest
+    });
+  }
+  selected.sort((left, right) => (
+    left.kind.localeCompare(right.kind) || left.evidenceId.localeCompare(right.evidenceId)
+  ));
+  const available = new Set(selected.map((item) => item.kind));
+  const missing = configuredGate.filter((kind) => !available.has(kind));
+  if (missing.length > 0) {
+    throw new Error(`Action token missing evidence: ${missing.join(", ")}`);
+  }
+  const supersessions = [...effective.supersessions]
+    .sort((left, right) => left.id.localeCompare(right.id))
+    .map((record) => ({ id: record.id, digest: digestObject(record) }));
+  const projection = {
+    schemaVersion: 1,
+    runId,
+    action,
+    configuredGate: [...configuredGate],
+    contractDigest: digestObject(run.contract),
+    authorityDigest: digestObject(run.contract.authority ?? null),
+    policyDigest: canonicalEvidencePolicyDigest(run.contract),
+    sourceBindingDigest: run.manifest.sourceBinding?.digest ?? null,
+    currentSourceBindingDigest,
+    sourceSentinelDigest: run.state.lastSentinel?.digest ?? null,
+    remoteRevision: run.contract.remoteRevision ?? null,
+    workflowVersion: VERSION,
+    effectiveSupersessions: supersessions,
+    evidence: selected
+  };
+  return {
+    configuredGate: [...configuredGate],
+    digest: digestObject(projection),
+    projection
+  };
+}
+
+export async function assertAutonomousCommitEvidenceInvalidationSafe(
+  root,
+  runId,
+  { run: suppliedRun = null } = {}
+) {
+  const run = suppliedRun ?? await loadRun(root, runId);
+  if (run.contract.schemaVersion !== 2) return { ok: true, supersessionIds: [] };
+  const supersessions = await listIdentityBoundJsonRecords(
+    root,
+    safeJoin(run.runDir, "evidence-supersessions"),
+    "Evidence supersession"
+  );
+  const journal = await readJournalRecords(root, run.runDir);
+  const journalIds = journal
+    .filter((entry) => entry.event === "evidence.superseded")
+    .map((entry) => entry.supersessionId);
+  if (supersessions.length === 0 && journalIds.length === 0) {
+    return { ok: true, supersessionIds: [] };
+  }
+  const supersessionIds = [...new Set([
+    ...supersessions.map((record) => record.id),
+    ...journalIds
+  ])].sort();
+  throw new Error(
+    `Autonomous Git commit reconciliation cannot invalidate supersession-bound evidence without mutating admitted bytes: ${supersessionIds.join(", ")}`
+  );
 }
 
 export async function listEffectiveEvidenceRecords(root, runId, options = {}) {
@@ -8056,6 +8178,14 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
         item.schemaVersion === 2 && item.typedAdmission && item.stale !== true
       ));
     }
+    const initialActionEvidenceGateBinding = contract.schemaVersion === 2
+      ? await currentActionEvidenceGateBinding(
+          root,
+          runId,
+          { runDir, manifest, contract, state },
+          request.action
+        )
+      : null;
     if (
       contract.actionStages &&
       Object.hasOwn(contract.actionStages, request.action) &&
@@ -8571,6 +8701,17 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
       if (finalEvidenceSupersessionFreshnessDigest !== evidenceSupersessionFreshnessDigest) {
         throw new Error("Action token denied because immutable evidence freshness changed during issuance");
       }
+      const finalActionEvidenceGateBinding = contract.schemaVersion === 2
+        ? await currentActionEvidenceGateBinding(
+            root,
+            runId,
+            await loadRun(root, runId),
+            request.action
+          )
+        : null;
+      if (finalActionEvidenceGateBinding?.digest !== initialActionEvidenceGateBinding?.digest) {
+        throw new Error("Action token denied because the configured evidence gate changed during issuance");
+      }
       const record = {
         schemaVersion: 1,
         tokenHash,
@@ -8591,6 +8732,12 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
         contractDigest: digestObject(contract),
         ...(finalEvidenceSupersessionFreshnessDigest
           ? { evidenceSupersessionFreshnessDigest: finalEvidenceSupersessionFreshnessDigest }
+          : {}),
+        ...(finalActionEvidenceGateBinding
+          ? {
+              evidenceGate: finalActionEvidenceGateBinding.configuredGate,
+              evidenceGateDigest: finalActionEvidenceGateBinding.digest
+            }
           : {}),
         idempotencyKey: `sbw-${runId}-${randomUUID()}`
       };
@@ -8692,6 +8839,24 @@ async function consumeActionTokenInternal(root, runId, token, currentTreeDigest,
       });
       if (currentFreshnessDigest !== record.evidenceSupersessionFreshnessDigest) {
         throw new Error("Action consumption denied because immutable evidence freshness changed");
+      }
+      const configuredGate = contract.actionGates?.[record.action];
+      if (
+        !Array.isArray(record.evidenceGate) ||
+        !Array.isArray(configuredGate) ||
+        digestObject(record.evidenceGate) !== digestObject(configuredGate) ||
+        !SHA256_DIGEST.test(record.evidenceGateDigest ?? "")
+      ) {
+        throw new Error("Action consumption denied because the configured evidence gate is unbound");
+      }
+      const currentGateBinding = await currentActionEvidenceGateBinding(
+        root,
+        runId,
+        await loadRun(root, runId),
+        record.action
+      );
+      if (currentGateBinding.digest !== record.evidenceGateDigest) {
+        throw new Error("Action consumption denied because the configured evidence gate changed");
       }
     }
     if (record.action === "actions.dispatch" && record.provider === "github-cli") {
@@ -8839,6 +9004,15 @@ async function consumeActionTokenInternal(root, runId, token, currentTreeDigest,
       });
       if (finalFreshnessDigest !== record.evidenceSupersessionFreshnessDigest) {
         throw new Error("Action consumption denied because immutable evidence freshness changed before execution");
+      }
+      const finalGateBinding = await currentActionEvidenceGateBinding(
+        root,
+        runId,
+        await loadRun(root, runId),
+        record.action
+      );
+      if (finalGateBinding.digest !== record.evidenceGateDigest) {
+        throw new Error("Action consumption denied because the configured evidence gate changed before execution");
       }
     }
     const consume = async () => {
@@ -9866,6 +10040,13 @@ async function transitionAutonomousCommitSourceBinding(root, runDir, contract, r
 }
 
 async function invalidateEvidenceAfterAutonomousCommit(root, runDir, record, transitionedAt, onBoundary = () => {}) {
+  const run = {
+    runDir,
+    manifest: await readJson(root, safeJoin(runDir, "manifest.json")),
+    contract: await readJson(root, safeJoin(runDir, "contract.json")),
+    state: await readJson(root, safeJoin(runDir, "state.json"))
+  };
+  await assertAutonomousCommitEvidenceInvalidationSafe(root, run.manifest.runId, { run });
   const evidence = await listJsonRecords(root, safeJoin(runDir, "evidence"));
   let transitionBoundaryArmed = true;
   for (const item of evidence) {
@@ -9988,6 +10169,7 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
       validateActionReceipt(record, outcome, receipt);
       const manifest = await readJson(root, safeJoin(runDir, "manifest.json"));
       await verifyProviderReceipt(manifest, { ...record, outcome: "success" }, receipt, run.contract);
+      await assertAutonomousCommitEvidenceInvalidationSafe(root, runId, { run });
       const transition = await transitionAutonomousCommitSourceBinding(root, runDir, run.contract, record, onBoundary);
       await invalidateEvidenceAfterAutonomousCommit(root, runDir, record, transition.transitionedAt, onBoundary);
       await appendJournalOnceForAttempt(root, runDir, "action.autonomous-commit-transition-repaired", attemptId, {
@@ -10141,14 +10323,18 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
       }
     }
     await verifyProviderReceipt(manifest, { ...record, outcome }, receipt, run.contract);
-    await reserveProviderExecution(root, record, receipt.providerReceipt.executionId, outcome);
-    await onBoundary("provider-reservation");
-    const autonomousCommitTransition = (
+    const autonomousCommitTransitionRequired = (
       record.action === "git.commit" &&
       record.provider === "git" &&
       outcome === "success" &&
       record.autonomyDecision?.decision === "auto-approved"
-    )
+    );
+    if (autonomousCommitTransitionRequired) {
+      await assertAutonomousCommitEvidenceInvalidationSafe(root, runId, { run });
+    }
+    await reserveProviderExecution(root, record, receipt.providerReceipt.executionId, outcome);
+    await onBoundary("provider-reservation");
+    const autonomousCommitTransition = autonomousCommitTransitionRequired
       ? await transitionAutonomousCommitSourceBinding(root, runDir, run.contract, record, onBoundary)
       : null;
     const target = safeJoin(runDir, "actions", `${record.tokenHash}.json`);
