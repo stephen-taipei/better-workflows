@@ -32,6 +32,10 @@ import { currentAutonomyBranchFromGit, readRawLocalConfigValues } from "../lib/a
 
 const execFileAsync = promisify(execFile);
 const SYSTEM_GIT = "/usr/bin/git";
+// The bounded timeout includes scheduling the supervisor and its target. Give
+// loaded CI hosts enough time to start the fixture while still forcing both
+// intentionally non-terminating process trees through the timeout cleanup.
+const FORKING_PREFLIGHT_TIMEOUT_MS = 5_000;
 
 async function autonomyRepositoryFixture() {
   const root = await mkdtemp(path.join(os.tmpdir(), "sbw-autonomy-preflight-"));
@@ -350,7 +354,7 @@ test("autonomy Git and GitHub preflight wrappers terminate forking children", as
   ].join("\n"));
   const alias = `alias.autonomy-hang=!${JSON.stringify(process.execPath)} ${JSON.stringify(helper)} ${JSON.stringify(gitPidFile)}`;
   await assert.rejects(
-    runAutonomyGitCommandForTest(root, ["-c", alias, "autonomy-hang"], { timeoutMs: 1_000 }),
+    runAutonomyGitCommandForTest(root, ["-c", alias, "autonomy-hang"], { timeoutMs: FORKING_PREFLIGHT_TIMEOUT_MS }),
     /timed out/
   );
   await assertProcessGone(Number(await readFile(gitPidFile, "utf8")));
@@ -363,7 +367,7 @@ test("autonomy Git and GitHub preflight wrappers terminate forking children", as
     { mode: 0o755 }
   );
   await assert.rejects(
-    probeAutonomyGithubCredential(root, githubShim, { timeoutMs: 1_000 }),
+    probeAutonomyGithubCredential(root, githubShim, { timeoutMs: FORKING_PREFLIGHT_TIMEOUT_MS }),
     /timed out/
   );
   await assertProcessGone(Number(await readFile(githubPidFile, "utf8")));
