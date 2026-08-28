@@ -48,6 +48,7 @@ import {
   safeJoin,
   setRunStatus,
   sha256,
+  supersedeEvidence,
   updateState,
   validateContract,
   withRunLock
@@ -2092,7 +2093,7 @@ function help() {
       "sbw cancel <run-id> [--reason <text>]",
       "sbw source rebind <run-id> --reason <text>",
       "sbw sentinel capture|verify <run-id> --label <label>",
-      "sbw evidence add <run-id> --file <json>",
+      "sbw evidence add|supersede <run-id> --file <json>",
       "sbw self-improve evaluate --run <run-id> --cases <file> --baseline <git-revision> --candidate-root <path> --backend <codex|fixture> --split <train|holdout> [--trusted-codex-execution <host-file>] [--request-manifest <host-file> --request-manifest-digest <sha256>] [--purpose ordinary|evaluator-migration|safety-remediation-v1|quality-remediation-v1] [--next-cases <v2-file>]",
       "sbw self-improve host status",
       "sbw self-improve consent status|prepare|revoke",
@@ -2326,10 +2327,13 @@ async function main() {
     throw new Error("sentinel subcommand must be capture or verify");
   }
   if (command === "evidence") {
-    if (subcommand !== "add" || !runId || !options.file) {
-      throw new Error("evidence usage: sbw evidence add <run-id> --file <json>");
+    if (!["add", "supersede"].includes(subcommand) || !runId || !options.file) {
+      throw new Error("evidence usage: sbw evidence add|supersede <run-id> --file <json>");
     }
     const record = JSON.parse(await readFile(path.resolve(String(options.file)), "utf8"));
+    if (subcommand === "supersede") {
+      return { ok: true, supersession: await supersedeEvidence(root, runId, record) };
+    }
     if (record.sourceKind === "independent-critic") {
       throw new Error("Independent critic evidence must be emitted by a provider boundary, not sbw evidence add");
     }

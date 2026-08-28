@@ -35,6 +35,37 @@ such as `PASS` never changes a task state.
 An event may include an `expectedLedgerDigest`; stale values and non-root
 actors are rejected.
 
+Evidence is append-only. A typed `provider-reconciliation` record admitted
+before terminal action reconciliation can be superseded only when the
+replacement is already the exact evidence ID in the same persisted successful
+action receipt. Use:
+
+~~~sh
+sbw evidence supersede <run-id> --file <supersession.json>
+~~~
+
+The input is exact-keyed and uses the two persisted full-record digests:
+
+~~~json
+{
+  "schemaVersion": 1,
+  "id": "provider-proof-correction-1",
+  "supersededEvidenceId": "provider-proof-malformed",
+  "supersededEvidenceDigest": "<sha256>",
+  "replacementEvidenceId": "provider-proof-corrected",
+  "replacementEvidenceDigest": "<sha256>",
+  "actionAttemptId": "<persisted-attempt-id>",
+  "reason": "Correct a malformed receipt for the same terminal provider attempt"
+}
+~~~
+
+The supersession record and journal event bind the run, action attempt,
+execution identity, both complete record digests, contract, source, policy, and
+remote revision. The original evidence file remains unchanged and auditable;
+reducers omit it only after validating the complete supersession. Cross-run,
+cross-attempt, stale, missing, chained, duplicate, conflicting, or manually
+forged stale/supersession state is blocking.
+
 Code-review templates additionally use immutable review packages and stable
 finding IDs. Scoped repair is bounded to five unique rounds and each repair
 result must bind `repairAttemptId`, `idempotencyKey`, and the immutable

@@ -9,6 +9,7 @@ import {
   open,
   readdir,
   readFile,
+  readlink,
   realpath,
   rename,
   rm,
@@ -1092,6 +1093,20 @@ export async function appendJournal(root, runDir, event, details = {}) {
   }
   await chmod(target, 0o600);
   return record;
+}
+
+async function readJournalRecords(root, runDir) {
+  const target = safeJoin(runDir, "journal.jsonl");
+  await assertNoSymlinkUnder(root, target);
+  if (!(await pathExists(target))) return [];
+  const info = await lstat(target);
+  if (info.isSymbolicLink() || !info.isFile() || info.nlink !== 1) {
+    throw new Error(`Unsafe journal path: ${target}`);
+  }
+  return (await readFile(target, "utf8"))
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line));
 }
 
 async function appendJournalOnceForAttempt(root, runDir, event, attemptId, details = {}) {
@@ -2704,6 +2719,7 @@ export async function completeRun(root, runId, completionDecision) {
         sourceDigest: item.sourceDigest,
         stale: item.stale === true
       }))),
+      evidenceSupersessionDigest: digestObject(terminalResult.evidenceSupersessions ?? []),
       ledgerDigest: contract.schemaVersion === 2
         ? digestObject(await readJson(root, safeJoin(runDir, "ledger.json")))
         : null,
@@ -2786,7 +2802,7 @@ async function assertFindingEvidence(root, run, runDir, record) {
   if (run.contract.schemaVersion !== 2) {
     throw new Error("Resolved or rejected findings require typed evidence");
   }
-  const evidence = (await listJsonRecords(root, safeJoin(runDir, "evidence"))).find(
+  const evidence = (await listEffectiveEvidenceRecords(root, run.manifest.runId, { run })).find(
     (item) => item.id === record.evidenceId
   );
   if (
@@ -2843,12 +2859,528 @@ export async function listJsonRecords(root, directory) {
   return Promise.all(entries.map((name) => readJson(root, safeJoin(directory, name))));
 }
 
+const EVIDENCE_SUPERSESSION_SCHEMA_VERSION = 1;
+const EVIDENCE_SUPERSESSION_KEYS = new Set([
+  "schemaVersion",
+  "id",
+  "runId",
+  "supersededEvidence",
+  "replacementEvidence",
+  "action",
+  "contractDigest",
+  "sourceBindingDigest",
+  "policyDigest",
+  "reason",
+  "actor",
+  "createdAt"
+]);
+const EVIDENCE_SUPERSESSION_INPUT_KEYS = new Set([
+  "schemaVersion",
+  "id",
+  "supersededEvidenceId",
+  "supersededEvidenceDigest",
+  "replacementEvidenceId",
+  "replacementEvidenceDigest",
+  "actionAttemptId",
+  "reason"
+]);
+const EVIDENCE_SUPERSESSION_ACTION_KEYS = new Set([
+  "attemptId",
+  "action",
+  "provider",
+  "resource",
+  "idempotencyKey",
+  "remoteRevision",
+  "providerExecutionId"
+]);
+
+function assertExactObjectKeys(value, expected, label) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${label} must be an object`);
+  }
+  const keys = Object.keys(value);
+  const unknown = keys.filter((key) => !expected.has(key));
+  const missing = [...expected].filter((key) => !Object.hasOwn(value, key));
+  if (unknown.length > 0 || missing.length > 0) {
+    throw new Error(`${label} keys are invalid`);
+  }
+}
+
+function actionProofIdentity(record) {
+  const proof = record?.receipt?.payload?.actionProof;
+  if (!proof || proof.schemaVersion !== 1) {
+    throw new Error("Evidence supersession requires a provider action proof");
+  }
+  return {
+    attemptId: proof.actionAttemptId,
+    action: proof.action,
+    provider: proof.provider,
+    resource: proof.resource,
+    idempotencyKey: proof.idempotencyKey,
+    remoteRevision: proof.remoteRevision,
+    providerExecutionId: proof.providerExecutionId
+  };
+}
+
+function assertEvidenceSupersessionIdentity(target, replacement) {
+  if (
+    target.kind !== "provider-reconciliation" ||
+    replacement.kind !== "provider-reconciliation" ||
+    target.schemaVersion !== 2 ||
+    replacement.schemaVersion !== 2 ||
+    !target.typedAdmission ||
+    !replacement.typedAdmission ||
+    target.status !== "complete" ||
+    replacement.status !== "complete" ||
+    target.stale === true ||
+    replacement.stale === true
+  ) {
+    throw new Error("Evidence supersession only supports current typed provider-reconciliation records");
+  }
+  const targetIdentity = actionProofIdentity(target);
+  const replacementIdentity = actionProofIdentity(replacement);
+  if (
+    !SAFE_ID.test(String(replacementIdentity.attemptId ?? "")) ||
+    Object.values(replacementIdentity).some((value) => typeof value !== "string" || !value)
+  ) {
+    throw new Error("Evidence supersession provider action identity is incomplete");
+  }
+  if (digestObject(targetIdentity) !== digestObject(replacementIdentity)) {
+    throw new Error("Evidence supersession requires the same provider action attempt");
+  }
+  const dependencyFields = [
+    "contractDigest",
+    "workflowVersion",
+    "sourceBindingDigest",
+    "sourceSentinelDigest",
+    "policyDigest",
+    "remoteRevision"
+  ];
+  if (dependencyFields.some((field) => target.dependencies?.[field] !== replacement.dependencies?.[field])) {
+    throw new Error("Evidence supersession source or policy binding changed");
+  }
+  if (
+    target.typedAdmission.contractId !== replacement.typedAdmission.contractId ||
+    target.typedAdmission.contractVersion !== replacement.typedAdmission.contractVersion ||
+    target.typedAdmission.producer !== replacement.typedAdmission.producer ||
+    digestObject(target.receipt?.producer ?? null) !== digestObject(replacement.receipt?.producer ?? null) ||
+    digestObject(target.receipt?.inputBinding ?? null) !== digestObject(replacement.receipt?.inputBinding ?? null) ||
+    digestObject(target.dependencyInputs ?? null) !== digestObject(replacement.dependencyInputs ?? null)
+  ) {
+    throw new Error("Evidence supersession admission provenance changed");
+  }
+  if (
+    !SHA256_DIGEST.test(target.dependencies?.contractDigest ?? "") ||
+    !SHA256_DIGEST.test(target.dependencies?.policyDigest ?? "") ||
+    target.dependencies?.workflowVersion !== VERSION ||
+    target.dependencies?.remoteRevision !== targetIdentity.remoteRevision ||
+    (
+      target.dependencies?.sourceBindingDigest !== null &&
+      !SHA256_DIGEST.test(target.dependencies?.sourceBindingDigest ?? "")
+    )
+  ) {
+    throw new Error("Evidence supersession requires complete current source and policy dependencies");
+  }
+  return replacementIdentity;
+}
+
+async function fingerprintEvidenceDependency(cwd, candidate) {
+  const absolute = path.resolve(cwd, candidate);
+  const relative = path.relative(cwd, absolute);
+  if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    throw new Error(`Evidence dependency escapes workspace: ${candidate}`);
+  }
+  try {
+    const info = await lstat(absolute);
+    if (info.isSymbolicLink()) {
+      return { path: relative || ".", type: "symlink", target: await readlink(absolute), mode: info.mode };
+    }
+    if (!info.isFile()) {
+      return {
+        path: relative || ".",
+        type: info.isDirectory() ? "directory" : "other",
+        mode: info.mode,
+        mtimeMs: Math.trunc(info.mtimeMs)
+      };
+    }
+    const contents = await readFile(absolute);
+    return {
+      path: relative || ".",
+      type: "file",
+      mode: info.mode,
+      size: info.size,
+      digest: sha256(contents)
+    };
+  } catch (error) {
+    if (error.code === "ENOENT") return { path: relative || ".", type: "missing" };
+    throw error;
+  }
+}
+
+async function evidenceIsCurrentlyStale(run, record) {
+  const { loadEvidenceContracts } = await import("./evidence.mjs");
+  const contracts = await loadEvidenceContracts();
+  const sourceKind = record.sourceKind ?? record.kind;
+  const kind = sourceKind === "independent-critic" || sourceKind === "evaluation-migration"
+    ? (sourceKind === "independent-critic" ? "patch-review" : "evaluation-suite")
+    : sourceKind;
+  const definition = contracts[kind];
+  const sourceBindingRequired = definition?.freshnessBinding?.includes("sourceBindingDigest") === true;
+  const sourceSentinelRequired = definition?.freshnessBinding?.includes("sourceSentinelDigest") === true;
+  let sourceBinding = null;
+  if (sourceBindingRequired && run.manifest.sourceBinding) {
+    const { captureSourceBinding } = await import("./git.mjs");
+    sourceBinding = await captureSourceBinding(run.manifest.cwd, {
+      baseRevision: run.manifest.sourceBinding.baseRevision,
+      requireClean: run.manifest.template === "self-improve-ops"
+    });
+  }
+  let stale =
+    record.dependencies?.contractDigest !== run.manifest.contractDigest ||
+    record.dependencies?.workflowVersion !== VERSION ||
+    (sourceBindingRequired && (!sourceBinding || record.dependencies?.sourceBindingDigest !== sourceBinding.digest)) ||
+    (sourceSentinelRequired && record.dependencies?.sourceSentinelDigest !== run.state.lastSentinel?.digest);
+  if (!Array.isArray(record.dependencyInputs?.files)) {
+    return Array.isArray(record.currentDependencyFiles) && record.currentDependencyFiles.length === 0;
+  }
+  const current = [];
+  for (const candidate of record.dependencyInputs.files) {
+    current.push(await fingerprintEvidenceDependency(run.manifest.cwd, candidate));
+  }
+  if (digestObject(current) !== digestObject(record.dependencies?.files ?? [])) stale = true;
+  return stale;
+}
+
+async function assertStaleEvidenceProvenance(root, run, records, journal) {
+  for (const record of records) {
+    if (record.stale !== true) continue;
+    let authorized = false;
+    if (record.staleReason === "source-binding-rebound") {
+      const transition = (run.manifest.sourceBindingHistory ?? []).find((item) => (
+        item.at === record.freshnessCheckedAt &&
+        journal.some((entry) => (
+          entry.event === "source-binding.rebound" &&
+          entry.from === item.from &&
+          entry.to === item.to &&
+          entry.headRevision === item.headRevision &&
+          entry.reason === item.reason
+        ))
+      ));
+      authorized = Boolean(transition);
+    } else if (typeof record.staleReason === "string" && record.staleReason.startsWith("autonomous-commit-reconciled:")) {
+      const attemptId = record.staleReason.slice("autonomous-commit-reconciled:".length);
+      authorized = journal.some((entry) => (
+        entry.event === "evidence.invalidated" &&
+        entry.actionAttemptId === attemptId &&
+        entry.reason === "autonomous-commit-reconciled"
+      ));
+    } else if (
+      typeof record.freshnessCheckedAt === "string" &&
+      !Number.isNaN(Date.parse(record.freshnessCheckedAt)) &&
+      Array.isArray(record.currentDependencyFiles)
+    ) {
+      authorized = await evidenceIsCurrentlyStale(run, record);
+    }
+    if (!authorized) {
+      throw new Error(`Evidence stale provenance is invalid: ${record.id ?? "unknown"}`);
+    }
+  }
+}
+
+async function validateEvidenceSupersessionRecord(root, run, recordsById, journal, record) {
+  assertExactObjectKeys(record, EVIDENCE_SUPERSESSION_KEYS, "Evidence supersession record");
+  if (record.schemaVersion !== EVIDENCE_SUPERSESSION_SCHEMA_VERSION) {
+    throw new Error("Evidence supersession schemaVersion must be 1");
+  }
+  validateRecordId(record.id, "evidence supersession");
+  if (record.runId !== run.manifest.runId || record.actor !== "root") {
+    throw new Error("Evidence supersession run or actor binding is invalid");
+  }
+  if (typeof record.reason !== "string" || record.reason.trim().length < 12 || record.reason.length > 512) {
+    throw new Error("Evidence supersession reason must be 12 to 512 characters");
+  }
+  if (typeof record.createdAt !== "string" || Number.isNaN(Date.parse(record.createdAt))) {
+    throw new Error("Evidence supersession createdAt is invalid");
+  }
+  for (const [label, binding] of [
+    ["superseded", record.supersededEvidence],
+    ["replacement", record.replacementEvidence]
+  ]) {
+    assertExactObjectKeys(binding, new Set(["id", "digest"]), `Evidence supersession ${label} binding`);
+    validateRecordId(binding.id, `${label} evidence`);
+    if (!SHA256_DIGEST.test(binding.digest)) {
+      throw new Error(`Evidence supersession ${label} digest is invalid`);
+    }
+  }
+  if (record.supersededEvidence.id === record.replacementEvidence.id) {
+    throw new Error("Evidence supersession target and replacement must differ");
+  }
+  assertExactObjectKeys(record.action, EVIDENCE_SUPERSESSION_ACTION_KEYS, "Evidence supersession action binding");
+  for (const value of Object.values(record.action)) {
+    if (typeof value !== "string" || !value) throw new Error("Evidence supersession action binding is incomplete");
+  }
+  if (
+    record.contractDigest !== run.manifest.contractDigest ||
+    record.contractDigest !== digestObject(run.contract) ||
+    record.sourceBindingDigest !== (run.manifest.sourceBinding?.digest ?? null)
+  ) {
+    throw new Error("Evidence supersession contract or source binding is stale");
+  }
+  const target = recordsById.get(record.supersededEvidence.id);
+  const replacement = recordsById.get(record.replacementEvidence.id);
+  if (!target || !replacement) throw new Error("Evidence supersession target or replacement is missing");
+  if (
+    digestObject(target) !== record.supersededEvidence.digest ||
+    digestObject(replacement) !== record.replacementEvidence.digest
+  ) {
+    throw new Error("Evidence supersession evidence digest changed");
+  }
+  const targetCreatedAt = Date.parse(target.createdAt ?? "");
+  const replacementCreatedAt = Date.parse(replacement.createdAt ?? "");
+  const supersededAt = Date.parse(record.createdAt);
+  if (
+    !Number.isFinite(targetCreatedAt) ||
+    !Number.isFinite(replacementCreatedAt) ||
+    targetCreatedAt > replacementCreatedAt ||
+    replacementCreatedAt > supersededAt
+  ) {
+    throw new Error("Evidence supersession chronology is invalid");
+  }
+  const identity = assertEvidenceSupersessionIdentity(target, replacement);
+  if (digestObject(identity) !== digestObject(record.action)) {
+    throw new Error("Evidence supersession action binding changed");
+  }
+  if (
+    record.policyDigest !== (replacement.dependencies?.policyDigest ?? null) ||
+    record.policyDigest !== (target.dependencies?.policyDigest ?? null)
+  ) {
+    throw new Error("Evidence supersession policy binding changed");
+  }
+  const { validateTypedEvidenceRecord } = await import("./evidence.mjs");
+  await validateTypedEvidenceRecord(target, {
+    manifest: run.manifest,
+    contract: run.contract,
+    state: run.state,
+    requireReconciled: false
+  });
+  let targetStillValid = true;
+  try {
+    await validateTypedEvidenceRecord(target, {
+      manifest: run.manifest,
+      contract: run.contract,
+      state: run.state,
+      root,
+      runDir: run.runDir,
+      requireReconciled: true
+    });
+  } catch {
+    targetStillValid = false;
+  }
+  if (targetStillValid) throw new Error("Evidence supersession cannot replace already-valid evidence");
+  await validateTypedEvidenceRecord(replacement, {
+    manifest: run.manifest,
+    contract: run.contract,
+    state: run.state,
+    root,
+    runDir: run.runDir,
+    requireReconciled: true
+  });
+  const recordDigest = digestObject(record);
+  const matchingJournal = journal.filter((entry) => (
+    entry.event === "evidence.superseded" &&
+    entry.supersessionId === record.id &&
+    entry.supersessionDigest === recordDigest &&
+    entry.supersededEvidenceId === record.supersededEvidence.id &&
+    entry.supersededEvidenceDigest === record.supersededEvidence.digest &&
+    entry.replacementEvidenceId === record.replacementEvidence.id &&
+    entry.replacementEvidenceDigest === record.replacementEvidence.digest &&
+    entry.actionAttemptId === record.action.attemptId &&
+    typeof entry.at === "string" &&
+    Date.parse(entry.at) >= supersededAt
+  ));
+  if (matchingJournal.length !== 1) {
+    throw new Error("Evidence supersession journal binding is missing or ambiguous");
+  }
+  return { record, target, replacement };
+}
+
+async function loadEvidenceSupersessions(root, run, records) {
+  const directory = safeJoin(run.runDir, "evidence-supersessions");
+  const journal = await readJournalRecords(root, run.runDir);
+  await assertStaleEvidenceProvenance(root, run, records, journal);
+  const supersessions = await listJsonRecords(root, directory);
+  const journalEntries = journal.filter((entry) => entry.event === "evidence.superseded");
+  if (supersessions.length === 0 && journalEntries.length === 0) {
+    return { records: [], supersededIds: new Set(), journal };
+  }
+  const recordsById = new Map(records.map((record) => [record.id, record]));
+  const validated = [];
+  const supersededIds = new Set();
+  const replacementIds = new Set();
+  for (const supersession of supersessions) {
+    const result = await validateEvidenceSupersessionRecord(root, run, recordsById, journal, supersession);
+    const targetId = result.record.supersededEvidence.id;
+    const replacementId = result.record.replacementEvidence.id;
+    if (supersededIds.has(targetId) || replacementIds.has(replacementId)) {
+      throw new Error("Evidence supersession is duplicated or conflicting");
+    }
+    if (replacementIds.has(targetId) || supersededIds.has(replacementId)) {
+      throw new Error("Evidence supersession chains or cycles are forbidden");
+    }
+    supersededIds.add(targetId);
+    replacementIds.add(replacementId);
+    validated.push(result.record);
+  }
+  if (journalEntries.length !== validated.length) {
+    throw new Error("Evidence supersession journal contains an unbound event");
+  }
+  return { records: validated, supersededIds, journal };
+}
+
+export async function loadEffectiveEvidenceState(root, runId, { run: suppliedRun = null } = {}) {
+  const run = suppliedRun ?? await loadRun(root, runId);
+  const records = await listJsonRecords(root, safeJoin(run.runDir, "evidence"));
+  if (run.contract.schemaVersion !== 2) return { records, supersessions: [] };
+  const { records: supersessions, supersededIds } = await loadEvidenceSupersessions(root, run, records);
+  return {
+    records: records.filter((record) => !supersededIds.has(record.id)),
+    supersessions
+  };
+}
+
+export async function listEffectiveEvidenceRecords(root, runId, options = {}) {
+  return (await loadEffectiveEvidenceState(root, runId, options)).records;
+}
+
+export async function supersedeEvidence(root, runId, input) {
+  return withRunLock(root, runId, async ({ runDir }) => {
+    const run = await loadRun(root, runId);
+    assertMutableRun(run, "Evidence supersession");
+    if (run.contract.schemaVersion !== 2) {
+      throw new Error("Evidence supersession requires a TaskContract v2 run");
+    }
+    assertExactObjectKeys(input, EVIDENCE_SUPERSESSION_INPUT_KEYS, "Evidence supersession input");
+    if (input.schemaVersion !== EVIDENCE_SUPERSESSION_SCHEMA_VERSION) {
+      throw new Error("Evidence supersession input schemaVersion must be 1");
+    }
+    validateRecordId(input.id, "evidence supersession");
+    validateRecordId(input.supersededEvidenceId, "superseded evidence");
+    validateRecordId(input.replacementEvidenceId, "replacement evidence");
+    if (!SHA256_DIGEST.test(input.supersededEvidenceDigest) || !SHA256_DIGEST.test(input.replacementEvidenceDigest)) {
+      throw new Error("Evidence supersession input digests are invalid");
+    }
+    if (typeof input.actionAttemptId !== "string" || !SAFE_ID.test(input.actionAttemptId)) {
+      throw new Error("Evidence supersession actionAttemptId is required");
+    }
+    if (typeof input.reason !== "string" || input.reason.trim().length < 12 || input.reason.length > 512) {
+      throw new Error("Evidence supersession reason must be 12 to 512 characters");
+    }
+    const evidence = await listJsonRecords(root, safeJoin(runDir, "evidence"));
+    const recordsById = new Map(evidence.map((record) => [record.id, record]));
+    const target = recordsById.get(input.supersededEvidenceId);
+    const replacement = recordsById.get(input.replacementEvidenceId);
+    if (!target || !replacement) throw new Error("Evidence supersession target or replacement is missing");
+    if (
+      digestObject(target) !== input.supersededEvidenceDigest ||
+      digestObject(replacement) !== input.replacementEvidenceDigest
+    ) {
+      throw new Error("Evidence supersession input digest does not match persisted evidence");
+    }
+    const action = assertEvidenceSupersessionIdentity(target, replacement);
+    if (action.attemptId !== input.actionAttemptId) {
+      throw new Error("Evidence supersession actionAttemptId changed");
+    }
+    const targetPath = safeJoin(runDir, "evidence-supersessions", `${input.id}.json`);
+    let record;
+    if (await pathExists(targetPath)) {
+      record = await readJson(root, targetPath);
+      if (
+        record.supersededEvidence?.id !== target.id ||
+        record.supersededEvidence?.digest !== input.supersededEvidenceDigest ||
+        record.replacementEvidence?.id !== replacement.id ||
+        record.replacementEvidence?.digest !== input.replacementEvidenceDigest ||
+        record.action?.attemptId !== input.actionAttemptId ||
+        record.reason !== input.reason
+      ) {
+        throw new Error(`Evidence supersession already exists: ${input.id}`);
+      }
+    } else {
+      const existingSupersessions = await loadEvidenceSupersessions(root, run, evidence);
+      if (
+        existingSupersessions.records.some((existing) => (
+          existing.supersededEvidence.id === target.id ||
+          existing.replacementEvidence.id === target.id ||
+          existing.supersededEvidence.id === replacement.id ||
+          existing.replacementEvidence.id === replacement.id
+        ))
+      ) {
+        throw new Error("Evidence supersession target or replacement is already bound");
+      }
+      record = {
+        schemaVersion: EVIDENCE_SUPERSESSION_SCHEMA_VERSION,
+        id: input.id,
+        runId,
+        supersededEvidence: { id: target.id, digest: input.supersededEvidenceDigest },
+        replacementEvidence: { id: replacement.id, digest: input.replacementEvidenceDigest },
+        action,
+        contractDigest: run.manifest.contractDigest,
+        sourceBindingDigest: run.manifest.sourceBinding?.digest ?? null,
+        policyDigest: replacement.dependencies?.policyDigest ?? null,
+        reason: input.reason,
+        actor: "root",
+        createdAt: nowIso()
+      };
+      await atomicWriteJson(root, targetPath, record);
+    }
+    const journal = await readJournalRecords(root, runDir);
+    const recordDigest = digestObject(record);
+    const journalDetails = {
+      supersessionId: record.id,
+      supersessionDigest: recordDigest,
+      supersededEvidenceId: record.supersededEvidence.id,
+      supersededEvidenceDigest: record.supersededEvidence.digest,
+      replacementEvidenceId: record.replacementEvidence.id,
+      replacementEvidenceDigest: record.replacementEvidence.digest,
+      actionAttemptId: record.action.attemptId
+    };
+    const existingJournal = journal.filter((entry) => entry.event === "evidence.superseded" && entry.supersessionId === record.id);
+    if (existingJournal.length === 0) {
+      await validateEvidenceSupersessionRecord(
+        root,
+        run,
+        recordsById,
+        [...journal, { event: "evidence.superseded", at: nowIso(), ...journalDetails }],
+        record
+      );
+      await appendJournal(root, runDir, "evidence.superseded", journalDetails);
+    } else if (existingJournal.length !== 1 || existingJournal[0].supersessionDigest !== recordDigest) {
+      throw new Error("Evidence supersession journal binding conflicts with the persisted record");
+    }
+    const refreshed = await loadEvidenceSupersessions(root, run, evidence);
+    if (!refreshed.records.some((item) => item.id === record.id)) {
+      throw new Error("Evidence supersession was not admitted by canonical replay");
+    }
+    return record;
+  });
+}
+
 export async function evaluateCompletion(root, runId) {
   const { runDir, manifest, contract, state } = await loadRun(root, runId);
-  const evidence = await listJsonRecords(root, safeJoin(runDir, "evidence"));
+  let evidence = [];
+  let evidenceSupersessions = [];
   const findings = await listJsonRecords(root, safeJoin(runDir, "findings"));
   const actions = await listJsonRecords(root, safeJoin(runDir, "actions"));
   const blockers = [];
+  try {
+    const effective = await loadEffectiveEvidenceState(root, runId, {
+      run: { runDir, manifest, contract, state }
+    });
+    evidence = effective.records;
+    evidenceSupersessions = effective.supersessions;
+  } catch (error) {
+    blockers.push(`invalid-evidence-supersession:${error.message}`);
+    evidence = await listJsonRecords(root, safeJoin(runDir, "evidence"));
+  }
   for (const action of actions) {
     if (UNSUPPORTED_GOVERNED_ACTIONS.has(action.action)) {
       blockers.push(`unsupported-governed-action:${action.action}`);
@@ -3143,7 +3675,7 @@ export async function evaluateCompletion(root, runId) {
   ) {
     blockers.push("missing-required-agy-critic");
   }
-  return { ok: blockers.length === 0, blockers, evidence, findings, actions };
+  return { ok: blockers.length === 0, blockers, evidence, evidenceSupersessions, findings, actions };
 }
 
 function assertCleanupResourceBinding(manifest, runId, request, cleanupPlan, actions = []) {
@@ -6865,7 +7397,9 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
       throw new Error(`Action token denied because bounded autopilot is not ready: ${state.autonomy?.blockedReason ?? "preflight-required"}`);
     }
     const findings = await listJsonRecords(root, safeJoin(runDir, "findings"));
-    const evidence = await listJsonRecords(root, safeJoin(runDir, "evidence"));
+    const evidence = await listEffectiveEvidenceRecords(root, runId, {
+      run: { runDir, manifest, contract, state }
+    });
     const actions = await listJsonRecords(root, safeJoin(runDir, "actions"));
     let autonomyDecision = null;
     let autonomyDecisionReceipt = null;
@@ -7680,7 +8214,9 @@ async function consumeActionTokenInternal(root, runId, token, currentTreeDigest,
       await verifyPullRequestBeforeMerge(manifest.cwd, record, githubProviderExecutable?.path);
       if (contract.actionGates?.[record.action]?.includes("required-checks")) {
         const repository = await currentRepositoryIdentity(manifest.cwd);
-        const evidence = await listJsonRecords(root, safeJoin(runDir, "evidence"));
+        const evidence = await listEffectiveEvidenceRecords(root, runId, {
+          run: await loadRun(root, runId)
+        });
         const requiredChecks = assertPersistedRequiredChecksEvidence(record, evidence, { repository });
         const run = await loadRun(root, runId);
         const { validateTypedEvidenceRecord } = await import("./evidence.mjs");
@@ -9083,6 +9619,7 @@ export async function inspectRun(root, runId) {
   return {
     ...run,
     evidence: await listJsonRecords(root, safeJoin(run.runDir, "evidence")),
+    evidenceSupersessions: await listJsonRecords(root, safeJoin(run.runDir, "evidence-supersessions")),
     findings: await listJsonRecords(root, safeJoin(run.runDir, "findings")),
     actions: await listJsonRecords(root, safeJoin(run.runDir, "actions"))
   };

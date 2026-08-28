@@ -250,12 +250,23 @@ Read [evidence-and-state.md](references/evidence-and-state.md) before adding evi
 
 ~~~bash
 sbw evidence add <run-id> --file <evidence.json>
+sbw evidence supersede <run-id> --file <supersession.json>
 sbw finding add <run-id> --file <finding.json>
 sbw finding update <run-id> --file <finding.json>
 sbw complete <run-id>
 ~~~
 
 Do not complete with open P0/P1 findings, stale evidence, expired accepted risk, unknown reconciliation, missing acceptance evidence, or an invalid current-tree sentinel.
+
+`evidence supersede` is a narrow recovery lifecycle for a typed
+`provider-reconciliation` candidate that was admitted before action
+reconciliation and later proven malformed by the persisted terminal action. It
+never edits or deletes the original record. The append-only supersession must
+bind both exact evidence digests and the same run, action attempt, execution,
+source, contract, policy, and remote revision; the replacement must be the exact
+evidence ID reconciled by the action. Missing, stale, cross-attempt, chained,
+conflicting, or hand-edited bindings fail closed. Do not use this lifecycle to
+hide valid evidence or as a substitute for source rebind.
 
 All newly-created non-direct template runs use TaskContract v2. The run creates
 an append-only execution ledger and accepts only typed evidence receipts from

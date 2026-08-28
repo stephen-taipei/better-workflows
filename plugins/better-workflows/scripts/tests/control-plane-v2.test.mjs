@@ -4,6 +4,7 @@ import { execFile, spawn } from "node:child_process";
 import { chmod, mkdtemp, mkdir, readdir, readFile, realpath, rm, stat, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import {
   addEvidence,
@@ -16,9 +17,12 @@ import {
   executeActionToken,
   inspectRun,
   issueActionToken,
+  listEffectiveEvidenceRecords,
   loadDefaults,
   rebindSourceBinding,
-  sha256
+  sha256,
+  supersedeEvidence,
+  VERSION
 } from "../lib/core.mjs";
 import { admitTypedEvidence, assertPayloadFields, loadEvidenceContracts } from "../lib/evidence.mjs";
 import { compileLedger, deriveLedgerStatus, transitionLedger } from "../lib/ledger.mjs";
@@ -74,6 +78,7 @@ const legacyReviewProfile = {
 };
 
 const execFileAsync = promisify(execFile);
+const SBW_CLI = fileURLToPath(new URL("../sbw.mjs", import.meta.url));
 
 function gitWithInput(cwd, args, input) {
   return new Promise((resolve, reject) => {
@@ -152,6 +157,170 @@ async function gateRecord(run, kind, payload, id = kind) {
       producedAt: new Date().toISOString()
     }
   };
+}
+
+function currentEvidenceDependencies(run) {
+  return {
+    contractDigest: run.manifest.contractDigest,
+    workflowVersion: VERSION,
+    files: [],
+    sourceBindingDigest: null,
+    sourceSentinelDigest: null,
+    policyDigest: digestObject({
+      authority: run.contract.authority,
+      sensitivity: run.contract.sensitivity,
+      volatileExclusions: run.contract.volatileExclusions,
+      highRiskIgnored: run.contract.highRiskIgnored
+    }),
+    promptDigest: null,
+    model: null,
+    reviewBinding: null,
+    remoteRevision: run.contract.remoteRevision ?? null
+  };
+}
+
+async function providerReconciliationSupersessionFixture() {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-v2-evidence-supersession-"));
+  const taskContract = buildContract({
+    template: "test-v2-evidence-supersession",
+    templateDefinition: {
+      ...contractTemplate,
+      requiredEvidence: ["provider-reconciliation"],
+      executionStages: [{
+        id: "provider",
+        dependsOn: [],
+        requiredEvidence: ["provider-reconciliation"],
+        attemptBudget: 3,
+        kind: "regular"
+      }]
+    },
+    goal: "Recover a corrected same-attempt provider receipt",
+    scope: ["."],
+    risk: { risk: 2, uncertainty: 1, blastRadius: 1, irreversibility: 1, evidenceGap: 1 },
+    sensitivity: "internal",
+    authority: [],
+    remoteRevision: "b".repeat(40)
+  });
+  const started = await createRun({ root, contract: taskContract, requestedMode: "verified", cwd: root });
+  const run = await inspectRun(root, started.runId);
+  const attemptId = "provider-attempt-1";
+  const idempotencyKey = "provider-idempotency-1";
+  const tokenHash = "a".repeat(64);
+  const response = {
+    number: 42,
+    head: "c".repeat(40),
+    base: "dev",
+    url: "https://github.com/example/repo/pull/42"
+  };
+  const commonReceipt = {
+    action: "pr.create",
+    provider: "github-cli",
+    resource: "pull/new",
+    outcome: "success",
+    runId: started.runId,
+    attemptId,
+    idempotencyKey,
+    remoteRevision: taskContract.remoteRevision,
+    executionId: `github:github.com/example/repo:pr.create:42:${response.head}`,
+    proofKind: "github-pr-create",
+    requestDigest: "d".repeat(64),
+    verifiedAt: new Date().toISOString(),
+    terminalState: "success",
+    created: true,
+    ...response
+  };
+  const malformedReceipt = {
+    ...commonReceipt,
+    responseDigest: digestObject({ ...response, baseRevision: taskContract.remoteRevision })
+  };
+  const correctedReceipt = {
+    ...commonReceipt,
+    responseDigest: digestObject(response)
+  };
+  const actionPath = path.join(run.runDir, "actions", `${tokenHash}.json`);
+  const action = {
+    schemaVersion: 1,
+    tokenHash,
+    status: "spent",
+    outcome: "unknown",
+    runId: started.runId,
+    action: "pr.create",
+    provider: "github-cli",
+    resource: "pull/new",
+    remoteRevision: taskContract.remoteRevision,
+    attemptId,
+    idempotencyKey
+  };
+  await writeFile(actionPath, `${JSON.stringify(action, null, 2)}\n`);
+  const recordFor = (id, providerReceipt) => {
+    const payload = {
+      provider: "github-cli",
+      receipt: providerReceipt,
+      actionProof: {
+        schemaVersion: 1,
+        runId: started.runId,
+        actionAttemptId: attemptId,
+        action: "pr.create",
+        provider: "github-cli",
+        resource: "pull/new",
+        outcome: "success",
+        idempotencyKey,
+        remoteRevision: taskContract.remoteRevision,
+        providerExecutionId: providerReceipt.executionId,
+        providerReceiptDigest: digestObject(providerReceipt)
+      }
+    };
+    return {
+      schemaVersion: 2,
+      id,
+      kind: "provider-reconciliation",
+      status: "complete",
+      summary: `Provider reconciliation ${id}`,
+      dependencyInputs: { files: [] },
+      dependencies: currentEvidenceDependencies(run),
+      receipt: {
+        contractId: "evidence-contracts-v1:provider-reconciliation",
+        contractVersion: 1,
+        runId: started.runId,
+        producer: { provider: "github-cli" },
+        inputBinding: {
+          runId: started.runId,
+          contractDigest: digestObject(taskContract),
+          remoteRevision: taskContract.remoteRevision
+        },
+        payload,
+        payloadDigest: digestObject(payload),
+        producedAt: new Date().toISOString()
+      }
+    };
+  };
+  const malformed = await addEvidence(root, started.runId, recordFor("provider-proof-malformed", malformedReceipt));
+  const replacement = await addEvidence(root, started.runId, recordFor("provider-proof-corrected", correctedReceipt));
+  const actionReceipt = {
+    action: "pr.create",
+    provider: "github-cli",
+    resource: "pull/new",
+    outcome: "success",
+    runId: started.runId,
+    attemptId,
+    idempotencyKey,
+    remoteRevision: taskContract.remoteRevision,
+    providerReceipt: correctedReceipt,
+    evidenceIds: [replacement.id]
+  };
+  await writeFile(actionPath, `${JSON.stringify({
+    ...action,
+    outcome: "success",
+    receipt: actionReceipt,
+    reconciledAt: new Date().toISOString()
+  }, null, 2)}\n`);
+  await updateState(root, started.runId, (state) => ({
+    ...state,
+    lastSentinel: { label: "fixture", digest: "e".repeat(64) },
+    lastSentinelVerified: true,
+    lastSentinelComplete: true
+  }));
+  return { root, run, started, attemptId, malformed, replacement };
 }
 
 function reviewKernelTemplate() {
@@ -772,6 +941,180 @@ test("provider reconciliation rejects structurally forged action proofs", async 
     })),
     /actionProof is structurally invalid/
   );
+});
+
+test("same-attempt provider evidence supersession is append-only and restores deterministic ledger completion", async () => {
+  const fixture = await providerReconciliationSupersessionFixture();
+  try {
+    const before = await deriveLedgerStatus(fixture.root, fixture.started.runId);
+    assert.ok(before.blockers.includes(`invalid-typed-evidence:${fixture.malformed.id}`));
+    const malformedPath = path.join(fixture.run.runDir, "evidence", `${fixture.malformed.id}.json`);
+    const malformedBytes = await readFile(malformedPath, "utf8");
+    const input = {
+      schemaVersion: 1,
+      id: "provider-proof-correction-1",
+      supersededEvidenceId: fixture.malformed.id,
+      supersededEvidenceDigest: digestObject(fixture.malformed),
+      replacementEvidenceId: fixture.replacement.id,
+      replacementEvidenceDigest: digestObject(fixture.replacement),
+      actionAttemptId: fixture.attemptId,
+      reason: "Correct the response digest while preserving the exact provider action attempt"
+    };
+    const inputPath = path.join(fixture.root, "supersession-input.json");
+    await writeFile(inputPath, `${JSON.stringify(input, null, 2)}\n`);
+    const command = await execFileAsync(process.execPath, [
+      SBW_CLI,
+      "evidence",
+      "supersede",
+      fixture.started.runId,
+      "--file",
+      inputPath
+    ], {
+      cwd: fixture.root,
+      encoding: "utf8",
+      env: { ...process.env, SBW_STATE_ROOT: fixture.root }
+    });
+    const supersession = JSON.parse(command.stdout).supersession;
+    const retried = await supersedeEvidence(fixture.root, fixture.started.runId, input);
+    assert.equal(digestObject(retried), digestObject(supersession));
+    await assert.rejects(
+      supersedeEvidence(fixture.root, fixture.started.runId, {
+        ...input,
+        id: "provider-proof-conflicting-correction"
+      }),
+      /already bound/
+    );
+    const journal = (await readFile(path.join(fixture.run.runDir, "journal.jsonl"), "utf8"))
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+    assert.equal(journal.filter((entry) => entry.event === "evidence.superseded").length, 1);
+    assert.equal(await readFile(malformedPath, "utf8"), malformedBytes);
+    assert.equal(supersession.actor, "root");
+    assert.equal(supersession.action.attemptId, fixture.attemptId);
+    const effective = await listEffectiveEvidenceRecords(fixture.root, fixture.started.runId);
+    assert.deepEqual(effective.map((record) => record.id), [fixture.replacement.id]);
+    const after = await deriveLedgerStatus(fixture.root, fixture.started.runId);
+    assert.equal(after.blockers.some((item) => item.startsWith("invalid-typed-evidence:")), false);
+    await transitionLedger(fixture.root, fixture.started.runId, {
+      eventId: "start-provider",
+      type: "start",
+      taskId: "provider"
+    });
+    await transitionLedger(fixture.root, fixture.started.runId, {
+      eventId: "complete-provider",
+      type: "complete",
+      taskId: "provider",
+      evidenceKinds: ["provider-reconciliation"]
+    });
+    const terminalOne = await deriveLedgerStatus(fixture.root, fixture.started.runId);
+    const terminalTwo = await deriveLedgerStatus(fixture.root, fixture.started.runId);
+    assert.deepEqual(terminalTwo, terminalOne);
+    assert.equal(terminalOne.complete, true);
+    const completion = await evaluateCompletion(fixture.root, fixture.started.runId);
+    assert.equal(completion.ok, true, completion.blockers.join(", "));
+    assert.deepEqual(completion.evidence.map((record) => record.id), [fixture.replacement.id]);
+    assert.deepEqual(completion.evidenceSupersessions.map((record) => record.id), [supersession.id]);
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("evidence supersession rejects cross-attempt input and manually forged stale state", async () => {
+  const fixture = await providerReconciliationSupersessionFixture();
+  try {
+    await assert.rejects(
+      supersedeEvidence(fixture.root, fixture.started.runId, {
+        schemaVersion: 1,
+        id: "cross-attempt-correction",
+        supersededEvidenceId: fixture.malformed.id,
+        supersededEvidenceDigest: digestObject(fixture.malformed),
+        replacementEvidenceId: fixture.replacement.id,
+        replacementEvidenceDigest: digestObject(fixture.replacement),
+        actionAttemptId: "different-attempt",
+        reason: "A different attempt must never supersede this evidence"
+      }),
+      /actionAttemptId changed/
+    );
+    await assert.rejects(
+      supersedeEvidence(fixture.root, fixture.started.runId, {
+        schemaVersion: 1,
+        id: "missing-replacement-correction",
+        supersededEvidenceId: fixture.malformed.id,
+        supersededEvidenceDigest: digestObject(fixture.malformed),
+        replacementEvidenceId: "missing-provider-proof",
+        replacementEvidenceDigest: "f".repeat(64),
+        actionAttemptId: fixture.attemptId,
+        reason: "A missing replacement must leave the original evidence blocking"
+      }),
+      /target or replacement is missing/
+    );
+    const replacementPath = path.join(fixture.run.runDir, "evidence", `${fixture.replacement.id}.json`);
+    const replacementBytes = await readFile(replacementPath, "utf8");
+    const policyDrifted = {
+      ...fixture.replacement,
+      dependencies: { ...fixture.replacement.dependencies, policyDigest: "f".repeat(64) }
+    };
+    await writeFile(replacementPath, `${JSON.stringify(policyDrifted, null, 2)}\n`);
+    await assert.rejects(
+      supersedeEvidence(fixture.root, fixture.started.runId, {
+        schemaVersion: 1,
+        id: "policy-drift-correction",
+        supersededEvidenceId: fixture.malformed.id,
+        supersededEvidenceDigest: digestObject(fixture.malformed),
+        replacementEvidenceId: policyDrifted.id,
+        replacementEvidenceDigest: digestObject(policyDrifted),
+        actionAttemptId: fixture.attemptId,
+        reason: "A policy-drifted replacement must not supersede current evidence"
+      }),
+      /source or policy binding changed/
+    );
+    await writeFile(replacementPath, replacementBytes);
+    const malformedPath = path.join(fixture.run.runDir, "evidence", `${fixture.malformed.id}.json`);
+    await writeFile(malformedPath, `${JSON.stringify({ ...fixture.malformed, stale: true }, null, 2)}\n`);
+    const forged = await deriveLedgerStatus(fixture.root, fixture.started.runId);
+    assert.ok(forged.blockers.some((item) => item.includes("Evidence stale provenance is invalid")));
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("evidence supersession replay rejects tampered records and unjournaled legacy-shaped files", async () => {
+  const fixture = await providerReconciliationSupersessionFixture();
+  try {
+    const input = {
+      schemaVersion: 1,
+      id: "provider-proof-correction-2",
+      supersededEvidenceId: fixture.malformed.id,
+      supersededEvidenceDigest: digestObject(fixture.malformed),
+      replacementEvidenceId: fixture.replacement.id,
+      replacementEvidenceDigest: digestObject(fixture.replacement),
+      actionAttemptId: fixture.attemptId,
+      reason: "Correct the malformed receipt using the reconciled replacement"
+    };
+    const record = await supersedeEvidence(fixture.root, fixture.started.runId, input);
+    const supersessionPath = path.join(fixture.run.runDir, "evidence-supersessions", `${record.id}.json`);
+    await writeFile(supersessionPath, `${JSON.stringify({ ...record, reason: `${record.reason} tampered` }, null, 2)}\n`);
+    const tampered = await deriveLedgerStatus(fixture.root, fixture.started.runId);
+    assert.ok(tampered.blockers.some((item) => item.startsWith("invalid-evidence-supersession:")));
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+
+  const legacy = await providerReconciliationSupersessionFixture();
+  try {
+    const directory = path.join(legacy.run.runDir, "evidence-supersessions");
+    await mkdir(directory, { recursive: true });
+    await writeFile(path.join(directory, "manual.json"), `${JSON.stringify({
+      schemaVersion: 1,
+      id: "manual",
+      runId: legacy.started.runId
+    })}\n`);
+    const status = await deriveLedgerStatus(legacy.root, legacy.started.runId);
+    assert.ok(status.blockers.some((item) => item.startsWith("invalid-evidence-supersession:")));
+  } finally {
+    await rm(legacy.root, { recursive: true, force: true });
+  }
 });
 
 test("cache publication evidence requires a bound local-workspace action proof", async () => {
