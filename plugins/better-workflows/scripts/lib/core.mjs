@@ -832,6 +832,40 @@ export function buildGitPushActionBinding({
   };
 }
 
+export function buildPrMergeActionBinding({
+  prior = {},
+  pullRequest,
+  reviewedHead,
+  remoteRevision,
+  targetRef = null,
+  providerExecutable,
+  repository
+}) {
+  return {
+    ...prior,
+    pullRequest,
+    reviewedHead,
+    remoteRevision,
+    ...(targetRef ? { targetRef } : {}),
+    mergeMethod: "merge",
+    adminBypass: false,
+    providerExecutable,
+    mergeRepository: repository,
+    mergeCommand: [
+      "gh",
+      "pr",
+      "merge",
+      String(pullRequest),
+      "--repo",
+      repository,
+      "--match-head-commit",
+      reviewedHead,
+      "--merge",
+      "--delete-branch=false"
+    ]
+  };
+}
+
 export function resolveGitPushExecutionBinding(record) {
   const [, resourceRemote, resourceRef] = GIT_PUSH_RESOURCE.exec(record.resource) ?? [];
   const expectedRef = `refs/heads/${record.expectedBranch}`;
@@ -5920,6 +5954,26 @@ export async function verifyRequiredChecksProvider(
     throw new Error("Required checks evidence must include the protected branch status-check set");
   }
   const repositoryPath = repository.slice(prefix.length);
+  if (!Number.isSafeInteger(payload.pr) || payload.pr < 1) {
+    throw new Error("Required checks evidence must include a safe pull-request identity");
+  }
+  const pull = JSON.parse((await execBoundGitHubCli(executablePath, [
+    "api",
+    `repos/${repositoryPath}/pulls/${payload.pr}`
+  ], { cwd, encoding: "utf8" })).stdout);
+  if (
+    pull.number !== payload.pr ||
+    pull.state !== "open" ||
+    pull.draft !== false ||
+    pull.head?.sha !== payload.head ||
+    typeof pull.head?.ref !== "string" ||
+    !pull.head.ref ||
+    pull.base?.sha !== payload.base ||
+    pull.base?.ref !== payload.baseRefName
+  ) {
+    throw new Error("Required checks evidence does not match the live open pull request");
+  }
+  const headRefName = pull.head.ref;
   const humanApproval = payload.humanApproval
     ? await verifyMergeHumanApproval(cwd, payload)
     : null;
@@ -6115,12 +6169,13 @@ export async function verifyRequiredChecksProvider(
   if (!Array.isArray(workflowPages) || workflowPages.some((page) => !page || !Array.isArray(page.workflow_runs))) {
     throw new Error("Required check provider response is not a complete GitHub workflow-run set");
   }
-  const runs = workflowPages.flatMap((page) => page.workflow_runs)
+  const allHeadRuns = workflowPages.flatMap((page) => page.workflow_runs)
     .filter((run) => run?.head_sha === payload.head);
+  const runs = allHeadRuns.filter((run) => run.head_branch === headRefName);
   const workflowCount = workflowPages.reduce((sum, page) => sum + page.workflow_runs.length, 0);
   const workflowTotal = workflowPages[0]?.total_count;
   if (!Number.isInteger(workflowTotal) || workflowTotal !== workflowCount || runs.length === 0) {
-    throw new Error("Required check provider response is not a complete GitHub workflow-run set");
+    throw new Error("Required check provider response has no complete workflow-run set for the live pull-request head ref");
   }
   const observedAt = Date.parse(payload.observedAt ?? "");
   if (!Number.isFinite(observedAt)) {
@@ -7137,28 +7192,15 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
       const currentHead = (await execBoundGitAuthority(manifest.cwd, [
         "rev-parse", "--verify", "HEAD^{commit}"
       ])).stdout.trim();
-      actionBinding = {
-        ...actionBinding,
+      actionBinding = buildPrMergeActionBinding({
+        prior: actionBinding,
         pullRequest,
         reviewedHead: currentHead,
-        ...(isDevDeliveryTemplate(contract.template) ? { targetRef: "dev" } : {}),
-        mergeMethod: "merge",
-        adminBypass: false,
+        remoteRevision: request.remoteRevision,
+        targetRef: isDevDeliveryTemplate(contract.template) ? "dev" : null,
         providerExecutable: providerExecutable ?? await currentProviderExecutableIdentity("gh"),
-        mergeRepository: repository,
-        mergeCommand: [
-          "gh",
-          "pr",
-          "merge",
-          String(pullRequest),
-          "--repo",
-          repository,
-          "--match-head-commit",
-          currentHead,
-          "--merge",
-          "--delete-branch=false"
-        ]
-      };
+        repository
+      });
     }
     if (providerAuthorization) actionBinding.providerAuthorization = providerAuthorization;
     if (providerAuthorizationExecutable) actionBinding.providerAuthorizationExecutable = providerAuthorizationExecutable;

@@ -38,6 +38,7 @@ import {
   buildActionsDispatchProviderReceipt,
   BOUND_CREDENTIAL_WORKSPACE_ROOT,
   buildGitPushActionBinding,
+  buildPrMergeActionBinding,
   buildPrCreateCommand,
   buildContract,
   captureAutonomyReadinessSnapshot,
@@ -119,6 +120,31 @@ test("GitHub Actions dispatch ref endpoints encode slash-containing refs as one 
     () => workflowDispatchObservationRef("release/3.4"),
     /fully qualified refs\/heads or refs\/tags/
   );
+});
+
+test("PR merge action binding carries the exact reviewed base into live verification", () => {
+  const reviewedHead = "a".repeat(40);
+  const remoteRevision = "b".repeat(40);
+  const providerExecutable = { path: "/usr/bin/false", digest: "c".repeat(64) };
+  const binding = buildPrMergeActionBinding({
+    prior: { requiredChecksEvidenceId: "checks" },
+    pullRequest: 41,
+    reviewedHead,
+    remoteRevision,
+    targetRef: "dev",
+    providerExecutable,
+    repository: "github.com/example/repo"
+  });
+
+  assert.equal(binding.remoteRevision, remoteRevision);
+  assert.equal(binding.targetRef, "dev");
+  assert.equal(binding.reviewedHead, reviewedHead);
+  assert.equal(binding.adminBypass, false);
+  assert.equal(binding.requiredChecksEvidenceId, "checks");
+  assert.deepEqual(binding.mergeCommand, [
+    "gh", "pr", "merge", "41", "--repo", "github.com/example/repo",
+    "--match-head-commit", reviewedHead, "--merge", "--delete-branch=false"
+  ]);
 });
 
 test("annotated workflow refs peel tag objects to a commit and reject cycles", async () => {
@@ -1431,6 +1457,11 @@ async function assertBoundProcessGone(pid) {
   assert.fail(`bound child ${pid} survived process-group cleanup`);
 }
 
+// These fixtures must first prove that a real descendant was created. The
+// bounded deadline still forces cleanup, but must tolerate supervisor and
+// target startup on loaded hosts before the PID receipt is written.
+const FORKING_PROCESS_TIMEOUT_MS = 5_000;
+
 async function successfulForkLauncher(root) {
   const launcher = path.join(root, "fork-success");
   const descendantSource = "process.on('SIGTERM', () => {}); setInterval(() => {}, 10000);";
@@ -1471,7 +1502,7 @@ test("bound GitHub CLI timeout cleans a SIGTERM-ignoring descendant before rejec
       () => execBoundGitHubCli(executable, [pidPath], {
         cwd: root,
         env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", HOME: root, LC_ALL: "C" },
-        timeoutMs: 500
+        timeoutMs: FORKING_PROCESS_TIMEOUT_MS
       }),
       (error) => error?.code === "ETIMEDOUT"
     );
@@ -1490,7 +1521,7 @@ test("bound Git timeout cleans a SIGTERM-ignoring descendant before rejecting", 
       () => execBoundGitProcess(executable, [pidPath], {
         cwd: root,
         env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", HOME: root, LC_ALL: "C" },
-        timeoutMs: 500
+        timeoutMs: FORKING_PROCESS_TIMEOUT_MS
       }),
       (error) => error?.code === "ETIMEDOUT"
     );
@@ -4100,12 +4131,15 @@ test("required-check completion accepts only one exact issued and successfully i
   );
 });
 
-test("required-check verifier ignores optional skipped jobs and selects the newest protected context", async () => {
+test("required-check verifier binds workflows to the live PR head ref and selects the newest protected context", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "sbw-required-check-optional-skipped-"));
   const bin = path.join(root, "bin");
   await mkdir(bin, { recursive: true });
   const fakeGh = path.join(bin, "gh");
   const head = "a".repeat(40);
+  const base = "b".repeat(40);
+  const pr = 21;
+  const headRefName = "codex/current-required-checks";
   const observedAt = new Date(Date.now() - 1000).toISOString();
   const oldCreatedAt = new Date(Date.parse(observedAt) - 3000).toISOString();
   const newestCreatedAt = new Date(Date.parse(observedAt) - 2000).toISOString();
@@ -4124,15 +4158,33 @@ test("required-check verifier ignores optional skipped jobs and selects the newe
     allow_deletions: { enabled: false }
   };
   const requiredStatusProtection = protection.required_status_checks;
+  const pull = {
+    number: pr,
+    state: "open",
+    draft: false,
+    head: { sha: head, ref: headRefName },
+    base: { sha: base, ref: "dev" }
+  };
   const workflowPage = {
-    total_count: 1,
-    workflow_runs: [{
-      id: 501,
-      head_sha: head,
-      status: "completed",
-      conclusion: "success",
-      updated_at: oldCompletedAt
-    }]
+    total_count: 2,
+    workflow_runs: [
+      {
+        id: 501,
+        head_sha: head,
+        head_branch: headRefName,
+        status: "completed",
+        conclusion: "success",
+        updated_at: oldCompletedAt
+      },
+      {
+        id: 502,
+        head_sha: head,
+        head_branch: "codex/closed-required-checks",
+        status: "completed",
+        conclusion: "skipped",
+        updated_at: oldCompletedAt
+      }
+    ]
   };
   const checkPage = {
     total_count: 3,
@@ -4232,6 +4284,7 @@ test("required-check verifier ignores optional skipped jobs and selects the newe
     "endpoint=\"$2\"",
     "if [ \"$2\" = --paginate ]; then endpoint=\"$4\"; fi",
     `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo/branches/dev/protection")} ]; then printf '%s\\n' ${emit(protection)}; exit 0; fi`,
+    `if [ \"$endpoint\" = ${JSON.stringify(`repos/example/repo/pulls/${pr}`)} ]; then printf '%s\\n' ${emit(pull)}; exit 0; fi`,
     `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo/rules/branches/dev")} ]; then printf '%s\\n' '[]'; exit 0; fi`,
     `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo/rulesets?includes_parents=true")} ]; then printf '%s\\n' '[[]]'; exit 0; fi`,
     `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo/branches/dev/protection/required_status_checks")} ]; then printf '%s\\n' ${emit(requiredStatusProtection)}; exit 0; fi`,
@@ -4247,7 +4300,9 @@ test("required-check verifier ignores optional skipped jobs and selects the newe
     provider: "github",
     repository: "github.com/example/repo",
     baseRefName: "dev",
+    pr,
     head,
+    base,
     requiredStatusChecks: ["test"],
     requiredStatusCheckApps: [{ context: "test", appId: 15368 }],
     checkSet: ["test"],
@@ -4268,6 +4323,22 @@ test("required-check verifier ignores optional skipped jobs and selects the newe
   process.env.PATH = `${bin}:${priorPath}`;
   try {
     await verifyRequiredChecksProvider(root, payload, providerExecutable);
+    const sameBranchSkippedPage = {
+      ...workflowPage,
+      workflow_runs: workflowPage.workflow_runs.map((run) => (
+        run.id === 502 ? { ...run, head_branch: headRefName } : run
+      ))
+    };
+    const sameBranchSkippedGhScript = ghScript.replace(emit([workflowPage]), emit([sameBranchSkippedPage]));
+    await writeFile(fakeGh, sameBranchSkippedGhScript, { mode: 0o700 });
+    await assert.rejects(
+      verifyRequiredChecksProvider(root, payload, {
+        path: providerExecutable.path,
+        digest: sha256(sameBranchSkippedGhScript)
+      }),
+      /Required check workflow run is not a fresh successful GitHub run: 502/
+    );
+    await writeFile(fakeGh, ghScript, { mode: 0o700 });
     const collisionProtection = {
       ...protection,
       required_status_checks: { contexts: ["test", "lint"], checks: [] }
@@ -4643,6 +4714,9 @@ test("required-check verifier preserves ruleset integration identity for same-na
   await mkdir(bin, { recursive: true });
   const fakeGh = path.join(bin, "gh");
   const head = "b".repeat(40);
+  const base = "c".repeat(40);
+  const pr = 22;
+  const headRefName = "codex/ruleset-required-checks";
   const observedAt = new Date(Date.now() - 1000).toISOString();
   const protection = {
     enforce_admins: { enabled: true },
@@ -4682,7 +4756,14 @@ test("required-check verifier preserves ruleset integration identity for same-na
   };
   const workflowPage = {
     total_count: 1,
-    workflow_runs: [{ id: 901, head_sha: head, status: "completed", conclusion: "success", updated_at: observedAt }]
+    workflow_runs: [{ id: 901, head_sha: head, head_branch: headRefName, status: "completed", conclusion: "success", updated_at: observedAt }]
+  };
+  const pull = {
+    number: pr,
+    state: "open",
+    draft: false,
+    head: { sha: head, ref: headRefName },
+    base: { sha: base, ref: "dev" }
   };
   const emit = (value) => JSON.stringify(JSON.stringify(value));
   const ghScript = [
@@ -4691,6 +4772,7 @@ test("required-check verifier preserves ruleset integration identity for same-na
     "endpoint=\"$2\"",
     "if [ \"$2\" = --paginate ]; then endpoint=\"$4\"; fi",
     `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo/branches/dev/protection")} ]; then printf '%s\\n' ${emit(protection)}; exit 0; fi`,
+    `if [ \"$endpoint\" = ${JSON.stringify(`repos/example/repo/pulls/${pr}`)} ]; then printf '%s\\n' ${emit(pull)}; exit 0; fi`,
     `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo/rules/branches/dev")} ]; then printf '%s\\n' '[]'; exit 0; fi`,
     `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo/rulesets?includes_parents=true")} ]; then printf '%s\\n' ${emit([rulesetSummary])}; exit 0; fi`,
     `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo/rulesets/9")} ]; then printf '%s\\n' ${emit(rulesetDetail)}; exit 0; fi`,
@@ -4707,7 +4789,9 @@ test("required-check verifier preserves ruleset integration identity for same-na
     provider: "github",
     repository: "github.com/example/repo",
     baseRefName: "dev",
+    pr,
     head,
+    base,
     requiredStatusChecks: ["test"],
     requiredStatusCheckApps: [{ context: "test", appId: 15368 }],
     checkSet: ["test"],
