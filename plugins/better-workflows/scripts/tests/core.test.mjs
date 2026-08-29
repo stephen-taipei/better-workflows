@@ -4384,6 +4384,20 @@ test("required-check verifier binds workflows to the live PR head ref and select
     created_at: newestCompletedAt,
     updated_at: newestCompletedAt
   }];
+  const branchRules = [];
+  const rulesetPages = [[]];
+  const protectiveBranchRules = [{ type: "deletion" }, { type: "non_fast_forward" }];
+  const protectiveRulesetPages = [[{ id: 88, enforcement: "active" }]];
+  const protectiveRuleset = {
+    id: 88,
+    target: "branch",
+    enforcement: "active",
+    conditions: {
+      ref_name: { include: ["refs/heads/dev"], exclude: [] }
+    },
+    bypass_actors: [],
+    rules: [{ type: "deletion" }, { type: "non_fast_forward" }]
+  };
   const emit = (value) => JSON.stringify(JSON.stringify(value));
   const ghScript = [
     "#!/bin/sh",
@@ -4393,8 +4407,9 @@ test("required-check verifier binds workflows to the live PR head ref and select
     `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo/branches/dev/protection")} ]; then printf '%s\\n' ${emit(protection)}; exit 0; fi`,
     `if [ \"$endpoint\" = ${JSON.stringify(`repos/example/repo/pulls/${pr}`)} ]; then printf '%s\\n' ${emit(pull)}; exit 0; fi`,
     `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo")} ]; then printf '%s\\n' ${emit({ default_branch: "dev" })}; exit 0; fi`,
-    `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo/rules/branches/dev")} ]; then printf '%s\\n' '[]'; exit 0; fi`,
-    `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo/rulesets?includes_parents=true")} ]; then printf '%s\\n' '[[]]'; exit 0; fi`,
+    `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo/rules/branches/dev")} ]; then printf '%s\\n' ${emit(branchRules)}; exit 0; fi`,
+    `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo/rulesets?includes_parents=true")} ]; then printf '%s\\n' ${emit(rulesetPages)}; exit 0; fi`,
+    `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo/rulesets/88")} ]; then printf '%s\\n' ${emit(protectiveRuleset)}; exit 0; fi`,
     `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo/branches/dev/protection/required_status_checks")} ]; then printf '%s\\n' ${emit(requiredStatusProtection)}; exit 0; fi`,
     `if [ \"$endpoint\" = ${JSON.stringify(`repos/example/repo/actions/runs?head_sha=${head}&per_page=100`)} ]; then printf '%s\\n' ${emit([workflowPage])}; exit 0; fi`,
     `if [ \"$endpoint\" = ${JSON.stringify(`repos/example/repo/commits/${head}/check-runs?per_page=100`)} ]; then printf '%s\\n' ${emit([checkPage])}; exit 0; fi`,
@@ -4436,6 +4451,15 @@ test("required-check verifier binds workflows to the live PR head ref and select
       policy: "strict-required-status-checks",
       enforced: true
     });
+    const protectiveRulesGhScript = ghScript
+      .replace(emit(branchRules), emit(protectiveBranchRules))
+      .replace(emit(rulesetPages), emit(protectiveRulesetPages));
+    await writeFile(fakeGh, protectiveRulesGhScript, { mode: 0o700 });
+    await verifyRequiredChecksProvider(root, payload, {
+      path: providerExecutable.path,
+      digest: sha256(protectiveRulesGhScript)
+    });
+    await writeFile(fakeGh, ghScript, { mode: 0o700 });
     const nonStrictProtection = {
       ...protection,
       required_status_checks: { ...requiredStatusProtection, strict: false }

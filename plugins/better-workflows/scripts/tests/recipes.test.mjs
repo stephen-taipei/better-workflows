@@ -5,6 +5,7 @@ import {
   appendFile,
   cp,
   link,
+  lstat,
   mkdir,
   mkdtemp,
   readFile,
@@ -21,6 +22,7 @@ import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import {
   addEvidence as addCoreEvidence,
+  addFinding,
   currentActionEvidenceGateBinding,
   digestObject,
   inspectRun,
@@ -31,7 +33,7 @@ import {
 } from "../lib/core.mjs";
 import { captureSentinel, captureSourceBinding } from "../lib/git.mjs";
 import { transitionLedger } from "../lib/ledger.mjs";
-import { recipeArtifactPromote } from "../lib/recipes.mjs";
+import { recipeArtifactPromote, recipePromote } from "../lib/recipes.mjs";
 import { createReviewPackage, markBroadReviewComplete, reviewStatus } from "../lib/review.mjs";
 
 const execFileAsync = promisify(execFile);
@@ -441,6 +443,36 @@ test("reference recipe completes governed promotion, dry-run, atomic run, artifa
     "recipe.promote",
     `recipe:json-keyset-audit:${digest}`
   );
+  const stalePromotionState = await mkdtemp(path.join(os.tmpdir(), "sbw-recipe-stale-authority-"));
+  await cp(stateRoot, stalePromotionState, { recursive: true });
+  const priorPromotionStateRoot = process.env.SBW_STATE_ROOT;
+  process.env.SBW_STATE_ROOT = stalePromotionState;
+  try {
+    await assert.rejects(
+      recipePromote(cwd, "json-keyset-audit", {
+        run: runId,
+        attempt: attemptId,
+        confirmDigest: digest,
+        async onProviderBoundary(boundary) {
+          if (boundary !== "before-authority-replay") return;
+          await addFinding(stalePromotionState, runId, {
+            id: "late-p1-before-recipe-provider-write",
+            severity: "P1",
+            status: "open",
+            summary: "Late review finding must invalidate the spent action before local writes"
+          });
+        }
+      }),
+      /unresolved P0\/P1 finding|non-source action authority changed/
+    );
+    const unchangedConfig = JSON.parse(
+      await readFile(path.join(cwd, ".codex", "better-workflows", "config.json"), "utf8")
+    );
+    assert.equal(unchangedConfig.enabled, false);
+  } finally {
+    if (priorPromotionStateRoot === undefined) delete process.env.SBW_STATE_ROOT;
+    else process.env.SBW_STATE_ROOT = priorPromotionStateRoot;
+  }
   const promoted = await cli(cwd, stateRoot, [
     "recipe",
     "promote",
@@ -587,7 +619,35 @@ test("reference recipe completes governed promotion, dry-run, atomic run, artifa
   const priorStateRoot = process.env.SBW_STATE_ROOT;
   process.env.SBW_STATE_ROOT = stateRoot;
   try {
-    for (const boundary of ["before-copy", "before-link"]) {
+    const staleArtifactState = await mkdtemp(path.join(os.tmpdir(), "sbw-artifact-stale-authority-"));
+    await cp(stateRoot, staleArtifactState, { recursive: true });
+    process.env.SBW_STATE_ROOT = staleArtifactState;
+    try {
+      await assert.rejects(
+        recipeArtifactPromote(
+          cwd,
+          executed.json.receiptId,
+          "report-markdown",
+          destination,
+          {
+            async onDestinationBoundary(boundary) {
+              if (boundary !== "before-authority-replay") return;
+              await addFinding(staleArtifactState, runId, {
+                id: "late-p1-before-artifact-provider-write",
+                severity: "P1",
+                status: "open",
+                summary: "Late review finding must invalidate artifact publication authority"
+              });
+            }
+          }
+        ),
+        /unresolved P0\/P1 finding|non-source action authority changed/
+      );
+      await assert.rejects(access(path.join(cwd, destination)));
+    } finally {
+      process.env.SBW_STATE_ROOT = stateRoot;
+    }
+    for (const boundary of ["before-copy", "before-link", "after-parent-check"]) {
       const displacedParent = path.join(cwd, `reports-${boundary}`);
       let swapped = false;
       try {
@@ -606,7 +666,7 @@ test("reference recipe completes governed promotion, dry-run, atomic run, artifa
               }
             }
           ),
-          /unsafe artifact destination parent|destination ancestry changed at the write boundary/
+          /unsafe artifact destination parent|destination ancestry changed at the write boundary|process cwd is not the immutable destination parent/
         );
         assert.equal(swapped, true);
         await assert.rejects(access(path.join(gitHooks, path.basename(destination))));
@@ -624,6 +684,44 @@ test("reference recipe completes governed promotion, dry-run, atomic run, artifa
     if (priorStateRoot === undefined) delete process.env.SBW_STATE_ROOT;
     else process.env.SBW_STATE_ROOT = priorStateRoot;
   }
+  const priorCrashStateRoot = process.env.SBW_STATE_ROOT;
+  process.env.SBW_STATE_ROOT = stateRoot;
+  try {
+    await assert.rejects(
+      recipeArtifactPromote(
+        cwd,
+        executed.json.receiptId,
+        "report-markdown",
+        destination,
+        {
+          async onDestinationBoundary(boundary) {
+            if (boundary === "after-artifact-link") {
+              throw new Error("simulated crash after durable artifact link");
+            }
+          }
+        }
+      ),
+      /simulated crash after durable artifact link/
+    );
+  } finally {
+    if (priorCrashStateRoot === undefined) delete process.env.SBW_STATE_ROOT;
+    else process.env.SBW_STATE_ROOT = priorCrashStateRoot;
+  }
+  const intentPath = path.join(
+    stateRoot,
+    "runs",
+    runId,
+    "local-provider-intents",
+    `${artifactAttemptId}.json`
+  );
+  const interruptedIntent = JSON.parse(await readFile(intentPath, "utf8"));
+  assert.equal(interruptedIntent.status, "prepared");
+  const interruptedTarget = await lstat(path.join(cwd, destination));
+  const interruptedTemporaryPath = path.join(destinationParent, interruptedIntent.binding.temporaryName);
+  const interruptedTemporary = await lstat(interruptedTemporaryPath);
+  assert.equal(interruptedTarget.ino, interruptedTemporary.ino);
+  assert.equal(interruptedTarget.nlink, 2);
+  assert.equal(interruptedTemporary.nlink, 2);
   const artifactPromotion = await cli(cwd, stateRoot, [
     "recipe",
     "artifact",
@@ -635,6 +733,10 @@ test("reference recipe completes governed promotion, dry-run, atomic run, artifa
     destination
   ]);
   assert.equal(artifactPromotion.json.destination, destination);
+  const publishedIntent = JSON.parse(await readFile(intentPath, "utf8"));
+  assert.equal(publishedIntent.status, "published");
+  assert.equal((await lstat(path.join(cwd, destination))).nlink, 1);
+  await assert.rejects(access(interruptedTemporaryPath));
   const artifactRun = await inspectRun(stateRoot, runId);
   const artifactAction = artifactRun.actions.find((item) => item.attemptId === artifactAttemptId);
   assert.equal(artifactAction.outcome, "success");

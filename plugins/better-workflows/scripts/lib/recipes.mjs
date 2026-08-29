@@ -4,7 +4,6 @@ import { constants as fsConstants } from "node:fs";
 import {
   chmod,
   copyFile,
-  link,
   lstat,
   mkdir,
   open,
@@ -14,13 +13,16 @@ import {
   rename,
   rm,
   stat,
-  unlink,
   writeFile
 } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   addEvidence,
+  appendJournal,
+  assertMutableRun,
+  assertSpentActionNonSourceAuthority,
+  assertSpentActionProviderAuthority,
   atomicWriteJson,
   canonicalJson,
   digestObject,
@@ -30,17 +32,20 @@ import {
   inspectRun,
   listJsonRecords,
   loadDefaults,
+  loadRun,
   nowIso,
   pluginRoot,
   readJson,
   reconcileAction,
   safeJoin,
-  sha256
+  sha256,
+  withRunLock
 } from "./core.mjs";
 import { captureSentinel, captureSourceBinding, runSourceGit } from "./git.mjs";
 import { pluginBundleDigest } from "./routing.mjs";
 
 const RUNTIME_PATH = fileURLToPath(new URL("./recipe-runtime.mjs", import.meta.url));
+const ARTIFACT_PUBLISHER_PATH = fileURLToPath(new URL("./recipe-artifact-publisher.mjs", import.meta.url));
 const RECIPE_SCHEMA_VERSION = 1;
 const CONFIG_SCHEMA_VERSION = 1;
 const TRUST_SCHEMA_VERSION = 1;
@@ -209,6 +214,52 @@ function providerActionSourceMutation({
     },
     ...(recipeConfig ? { recipeConfig } : {})
   };
+}
+
+function sourceRecoveryProjection(sentinel, allowedPaths) {
+  const allowed = new Set(allowedPaths);
+  const recordsWithoutAllowedPaths = (records) => (
+    (records ?? []).filter((record) => !allowed.has(record.path))
+  );
+  return {
+    schemaVersion: sentinel.schemaVersion,
+    cwd: sentinel.cwd,
+    complete: sentinel.complete,
+    head: sentinel.head,
+    indexDigest: sentinel.indexDigest,
+    scopes: sentinel.scopes,
+    scopeDigest: {
+      complete: sentinel.scopeDigest?.complete,
+      skipped: sentinel.scopeDigest?.skipped ?? [],
+      records: recordsWithoutAllowedPaths(sentinel.scopeDigest?.records)
+    },
+    untracked: {
+      complete: sentinel.untracked?.complete,
+      skipped: sentinel.untracked?.skipped ?? [],
+      records: recordsWithoutAllowedPaths(sentinel.untracked?.records)
+    },
+    authorityMetadata: sentinel.authorityMetadata,
+    attributes: sentinel.attributes,
+    exclusions: sentinel.exclusions,
+    highRiskIgnored: sentinel.highRiskIgnored,
+    submodules: sentinel.submodules,
+    symlinks: {
+      records: recordsWithoutAllowedPaths(sentinel.symlinks?.records)
+    },
+    skipped: sentinel.skipped ?? []
+  };
+}
+
+function assertExpectedSourceRecovery(baseline, current, allowedPaths, context) {
+  if (!baseline.complete || !current.complete) {
+    throw recipeError(`${context} source sentinel is incomplete`);
+  }
+  if (
+    digestObject(sourceRecoveryProjection(baseline, allowedPaths)) !==
+    digestObject(sourceRecoveryProjection(current, allowedPaths))
+  ) {
+    throw recipeError(`${context} contains an undeclared source mutation`);
+  }
 }
 
 async function exists(target) {
@@ -1167,9 +1218,34 @@ async function assertPromotionRun(stateRoot, runIdValue, attemptId, recipe, bind
   return { run, action, baselineSentinel, currentSentinel: sentinel };
 }
 
+async function currentLocalActionAttempt(stateRoot, run, expected, context) {
+  const current = await readJson(
+    stateRoot,
+    safeJoin(run.runDir, "actions", `${expected.tokenHash}.json`)
+  );
+  if (
+    current.status !== "spent" || current.attemptId !== expected.attemptId ||
+    current.tokenHash !== expected.tokenHash || current.action !== expected.action ||
+    current.provider !== expected.provider || current.resource !== expected.resource ||
+    current.idempotencyKey !== expected.idempotencyKey ||
+    current.remoteRevision !== expected.remoteRevision ||
+    current.treeDigest !== expected.treeDigest ||
+    current.evidenceGateDigest !== expected.evidenceGateDigest ||
+    current.evidenceSupersessionFreshnessDigest !== expected.evidenceSupersessionFreshnessDigest ||
+    !["pending", "success"].includes(current.outcome)
+  ) {
+    throw recipeError(`${context} is not bound to the consumed local provider action attempt`);
+  }
+  return current;
+}
+
 export async function recipePromote(cwd, id, options) {
   if (!options.run || !options.attempt || !options.confirmDigest) {
     throw recipeError("promote requires --run, --attempt, and --confirm-digest");
+  }
+  const onProviderBoundary = options.onProviderBoundary ?? null;
+  if (onProviderBoundary !== null && typeof onProviderBoundary !== "function") {
+    throw recipeError("recipe provider boundary hook must be a function");
   }
   const recipe = await loadRecipe(cwd, id);
   const binding = await executionBinding(recipe);
@@ -1223,7 +1299,6 @@ export async function recipePromote(cwd, id, options) {
     }
   }
   const paths = privateRecipePaths(stateRoot, binding.workspaceDigest, recipe.manifest.id);
-  await ensurePrivateDir(paths.root);
   const promotedAt = promotion.action.spentAt;
   const trust = {
     schemaVersion: TRUST_SCHEMA_VERSION,
@@ -1240,12 +1315,76 @@ export async function recipePromote(cwd, id, options) {
       treeDigest: promotion.action.treeDigest
     }
   };
-  await atomicWriteJson(stateRoot, paths.trust, trust);
   const beforeConfig = { ...structuredClone(recipe.config), enabled: false };
-  if (recipe.config.enabled !== true) {
-    await writeWorkspaceJson(recipe.root, recipe.paths.config, { ...recipe.config, enabled: true });
+  if (promotion.action.outcome === "success") {
+    const completedTrust = await readTrust(stateRoot, binding, recipe.manifest.id);
+    const completedConfig = validateConfig(JSON.parse(await readFile(recipe.paths.config, "utf8")));
+    const completedReceipt = promotion.action.receipt?.providerReceipt;
+    if (
+      completedConfig.enabled !== true ||
+      digestObject(completedTrust.trust ?? null) !== digestObject(trust) ||
+      completedReceipt?.action !== "recipe.promote" ||
+      completedReceipt?.attemptId !== promotion.action.attemptId ||
+      completedReceipt?.sourceMutation?.path !== ".codex/better-workflows/config.json"
+    ) {
+      throw recipeError("completed recipe promotion is not replay-valid");
+    }
+    return {
+      ok: true,
+      id: recipe.manifest.id,
+      executionDigest: binding.executionDigest,
+      fixtureParityDigest: firstDigest,
+      trusted: true
+    };
   }
-  const afterConfig = validateConfig(JSON.parse(await readFile(recipe.paths.config, "utf8")));
+  if (onProviderBoundary) await onProviderBoundary("before-authority-replay");
+  let afterConfig;
+  await withRunLock(stateRoot, options.run, async () => {
+    const run = await loadRun(stateRoot, options.run);
+    assertMutableRun(run, "Recipe promotion provider invocation");
+    const action = await currentLocalActionAttempt(
+      stateRoot,
+      run,
+      promotion.action,
+      "Recipe promotion provider invocation"
+    );
+    const liveConfig = validateConfig(JSON.parse(await readFile(recipe.paths.config, "utf8")));
+    const liveTrust = await readTrust(stateRoot, binding, recipe.manifest.id);
+    const recovery = (
+      liveConfig.enabled === true &&
+      digestObject(liveTrust.trust ?? null) === digestObject(trust)
+    );
+    if (recovery) {
+      await assertSpentActionNonSourceAuthority(
+        stateRoot,
+        options.run,
+        run,
+        action,
+        "Recipe promotion provider recovery"
+      );
+      const currentSentinel = await captureSentinel(recipe.root, run.contract, await loadDefaults());
+      assertExpectedSourceRecovery(
+        promotion.baselineSentinel,
+        currentSentinel,
+        [".codex/better-workflows/config.json"],
+        "recipe promotion recovery"
+      );
+    } else {
+      await assertSpentActionProviderAuthority(
+        stateRoot,
+        options.run,
+        run,
+        action,
+        "Recipe promotion provider invocation"
+      );
+    }
+    await ensurePrivateDir(paths.root);
+    await atomicWriteJson(stateRoot, paths.trust, trust);
+    if (liveConfig.enabled !== true) {
+      await writeWorkspaceJson(recipe.root, recipe.paths.config, { ...liveConfig, enabled: true });
+    }
+    afterConfig = validateConfig(JSON.parse(await readFile(recipe.paths.config, "utf8")));
+  }, { ttlMs: 300_000 });
   const afterSentinel = await captureSentinel(recipe.root, promotion.run.contract, await loadDefaults());
   const beforeSourceBinding = promotion.action.sourceAuthorityAtIssue?.sourceBinding;
   if (!beforeSourceBinding) throw recipeError("promotion action source binding is missing");
@@ -1461,6 +1600,329 @@ async function findArtifactAction(stateRoot, resource) {
   return matches[0];
 }
 
+async function runPinnedArtifactPublisher({
+  mode,
+  parent,
+  parentIdentity,
+  targetName,
+  temporaryName,
+  artifact,
+  artifactBytes,
+  targetIdentity = null
+}) {
+  const args = [
+    ARTIFACT_PUBLISHER_PATH,
+    mode,
+    parentIdentity,
+    targetName,
+    temporaryName,
+    artifact.sha256,
+    String(artifact.bytes),
+    targetIdentity ?? "-"
+  ];
+  const child = spawn(process.execPath, args, {
+    cwd: parent,
+    shell: false,
+    stdio: ["pipe", "pipe", "pipe"],
+    env: {
+      LANG: "C.UTF-8",
+      LC_ALL: "C.UTF-8",
+      TZ: "UTC",
+      NODE_NO_WARNINGS: "1"
+    }
+  });
+  let stdout = Buffer.alloc(0);
+  let stderr = Buffer.alloc(0);
+  let outputExceeded = false;
+  const append = (current, chunk) => {
+    const next = Buffer.concat([current, chunk]);
+    if (next.length > 64 * 1024) {
+      outputExceeded = true;
+      child.kill("SIGKILL");
+      return next.subarray(0, 64 * 1024);
+    }
+    return next;
+  };
+  child.stdout.on("data", (chunk) => { stdout = append(stdout, chunk); });
+  child.stderr.on("data", (chunk) => { stderr = append(stderr, chunk); });
+  child.stdin.on("error", () => undefined);
+  child.stdin.end(mode === "link" ? artifactBytes : undefined);
+  const result = await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(recipeError("pinned artifact publisher timed out"));
+    }, 300_000);
+    child.once("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.once("close", (code, signal) => {
+      clearTimeout(timer);
+      resolve({ code, signal });
+    });
+  });
+  if (outputExceeded) throw recipeError("pinned artifact publisher output exceeded 64 KiB");
+  if (result.code !== 0 || result.signal) {
+    throw recipeError(
+      `pinned artifact publisher failed${stderr.length ? `: ${stderr.toString("utf8").trim()}` : ""}`
+    );
+  }
+  let payload;
+  try {
+    payload = JSON.parse(stdout.toString("utf8"));
+  } catch {
+    throw recipeError("pinned artifact publisher returned invalid JSON");
+  }
+  if (
+    payload?.ok !== true || payload.parentIdentity !== parentIdentity ||
+    payload.target?.sha256 !== artifact.sha256 || payload.target?.size !== artifact.bytes ||
+    !/^\d+:\d+$/.test(payload.target?.identity ?? "")
+  ) {
+    throw recipeError("pinned artifact publisher receipt is not bound to the requested artifact");
+  }
+  return payload;
+}
+
+function artifactPublicationIntentPath(runDir, action) {
+  if (!SAFE_SENTINEL_LABEL.test(action.attemptId ?? "")) {
+    throw recipeError("artifact publication attempt identity is unsafe");
+  }
+  return safeJoin(runDir, "local-provider-intents", `${action.attemptId}.json`);
+}
+
+function artifactPublicationBinding({
+  runIdValue,
+  action,
+  normalized,
+  parentRelative,
+  parentIdentity,
+  targetName,
+  temporaryName,
+  artifact,
+  publisherDigest
+}) {
+  return {
+    schemaVersion: 1,
+    kind: "artifact-publication",
+    runId: runIdValue,
+    actionAttemptId: action.attemptId,
+    tokenHash: action.tokenHash,
+    action: action.action,
+    provider: action.provider,
+    resource: action.resource,
+    idempotencyKey: action.idempotencyKey,
+    remoteRevision: action.remoteRevision,
+    treeDigest: action.treeDigest,
+    evidenceGateDigest: action.evidenceGateDigest,
+    evidenceSupersessionFreshnessDigest: action.evidenceSupersessionFreshnessDigest,
+    target: normalized,
+    parent: parentRelative,
+    parentIdentity,
+    targetName,
+    temporaryName,
+    artifactSha256: artifact.sha256,
+    artifactBytes: artifact.bytes,
+    publisherDigest
+  };
+}
+
+function validateArtifactPublicationIntent(intent, expected) {
+  if (
+    !intent || intent.schemaVersion !== 1 || intent.kind !== "artifact-publication" ||
+    !["prepared", "linked", "published"].includes(intent.status) ||
+    digestObject(intent.binding ?? null) !== intent.bindingDigest ||
+    intent.binding.runId !== expected.runIdValue ||
+    intent.binding.actionAttemptId !== expected.action.attemptId ||
+    intent.binding.tokenHash !== expected.action.tokenHash ||
+    intent.binding.action !== expected.action.action ||
+    intent.binding.provider !== expected.action.provider ||
+    intent.binding.resource !== expected.action.resource ||
+    intent.binding.idempotencyKey !== expected.action.idempotencyKey ||
+    intent.binding.remoteRevision !== expected.action.remoteRevision ||
+    intent.binding.treeDigest !== expected.action.treeDigest ||
+    intent.binding.evidenceGateDigest !== expected.action.evidenceGateDigest ||
+    intent.binding.evidenceSupersessionFreshnessDigest !== expected.action.evidenceSupersessionFreshnessDigest ||
+    intent.binding.target !== expected.normalized ||
+    intent.binding.parent !== expected.parentRelative ||
+    intent.binding.parentIdentity !== expected.parentIdentity ||
+    intent.binding.targetName !== expected.targetName ||
+    !/^\.sbw-artifact-[a-f0-9]{32}\.tmp$/.test(intent.binding.temporaryName ?? "") ||
+    intent.binding.artifactSha256 !== expected.artifact.sha256 ||
+    intent.binding.artifactBytes !== expected.artifact.bytes ||
+    intent.binding.publisherDigest !== expected.publisherDigest ||
+    (["linked", "published"].includes(intent.status) && !/^\d+:\d+$/.test(intent.targetIdentity ?? ""))
+  ) {
+    throw recipeError("artifact publication intent is stale or malformed");
+  }
+  return intent;
+}
+
+async function writeArtifactPublicationIntent(stateRoot, run, intent, event) {
+  const target = artifactPublicationIntentPath(run.runDir, { attemptId: intent.binding.actionAttemptId });
+  await ensurePrivateDir(path.dirname(target));
+  await atomicWriteJson(stateRoot, target, intent);
+  await appendJournal(stateRoot, run.runDir, event, {
+    attemptId: intent.binding.actionAttemptId,
+    intentDigest: digestObject(intent),
+    status: intent.status,
+    target: intent.binding.target,
+    targetIdentity: intent.targetIdentity ?? null
+  });
+  return intent;
+}
+
+async function publishArtifactWithIntent({
+  stateRoot,
+  pending,
+  baselineSentinel,
+  workspace,
+  target,
+  normalized,
+  parentChain,
+  protectedIdentities,
+  artifact,
+  artifactBytes,
+  onDestinationBoundary
+}) {
+  return withRunLock(stateRoot, pending.runId, async () => {
+    const run = await loadRun(stateRoot, pending.runId);
+    assertMutableRun(run, "Artifact promotion provider invocation");
+    const action = await currentLocalActionAttempt(
+      stateRoot,
+      run,
+      pending.action,
+      "Artifact promotion provider invocation"
+    );
+    const checkedParentChain = await assertSafeDestination(
+      workspace.root,
+      target,
+      protectedIdentities,
+      { expectedParentChain: parentChain, requireCompleteParent: true }
+    );
+    const parent = path.dirname(target);
+    const parentRelative = path.relative(workspace.root, parent).split(path.sep).join("/") || ".";
+    const parentIdentity = checkedParentChain.at(-1)?.identity;
+    if (!/^\d+:\d+$/.test(parentIdentity ?? "")) {
+      throw recipeError("artifact destination parent identity is missing");
+    }
+    const targetName = path.basename(target);
+    const publisherDigest = sha256(await readFile(ARTIFACT_PUBLISHER_PATH));
+    const intentPath = artifactPublicationIntentPath(run.runDir, action);
+    let intent = await exists(intentPath) ? await readJson(stateRoot, intentPath) : null;
+    const expected = {
+      runIdValue: pending.runId,
+      action,
+      normalized,
+      parentRelative,
+      parentIdentity,
+      targetName,
+      artifact,
+      publisherDigest
+    };
+    const currentSentinel = await captureSentinel(workspace.root, run.contract, await loadDefaults());
+    if (intent) {
+      intent = validateArtifactPublicationIntent(intent, expected);
+      if (currentSentinel.digest === action.treeDigest) {
+        await assertSpentActionProviderAuthority(
+          stateRoot,
+          pending.runId,
+          run,
+          action,
+          "Artifact promotion provider recovery"
+        );
+      } else {
+        await assertSpentActionNonSourceAuthority(
+          stateRoot,
+          pending.runId,
+          run,
+          action,
+          "Artifact promotion provider recovery"
+        );
+        const temporaryRelative = parentRelative === "."
+          ? intent.binding.temporaryName
+          : `${parentRelative}/${intent.binding.temporaryName}`;
+        assertExpectedSourceRecovery(
+          baselineSentinel,
+          currentSentinel,
+          [normalized, temporaryRelative],
+          "artifact promotion recovery"
+        );
+      }
+    } else {
+      await assertSpentActionProviderAuthority(
+        stateRoot,
+        pending.runId,
+        run,
+        action,
+        "Artifact promotion provider invocation"
+      );
+      if (currentSentinel.digest !== action.treeDigest) {
+        throw recipeError("artifact promotion source changed before publication intent creation");
+      }
+      const binding = artifactPublicationBinding({
+        ...expected,
+        temporaryName: `.sbw-artifact-${randomBytes(16).toString("hex")}.tmp`
+      });
+      intent = await writeArtifactPublicationIntent(stateRoot, run, {
+        schemaVersion: 1,
+        kind: "artifact-publication",
+        binding,
+        bindingDigest: digestObject(binding),
+        status: "prepared",
+        targetIdentity: null,
+        preparedAt: nowIso(),
+        updatedAt: nowIso()
+      }, "action.local-provider-intent-prepared");
+    }
+    if (onDestinationBoundary) {
+      await onDestinationBoundary("after-parent-check", { target, parent, intent });
+    }
+    const linked = await runPinnedArtifactPublisher({
+      mode: "link",
+      parent,
+      parentIdentity,
+      targetName,
+      temporaryName: intent.binding.temporaryName,
+      artifact,
+      artifactBytes,
+      targetIdentity: intent.targetIdentity
+    });
+    if (onDestinationBoundary) {
+      await onDestinationBoundary("after-artifact-link", { target, parent, intent, receipt: linked });
+    }
+    if (intent.targetIdentity && intent.targetIdentity !== linked.target.identity) {
+      throw recipeError("artifact publication target identity changed during recovery");
+    }
+    intent = await writeArtifactPublicationIntent(stateRoot, run, {
+      ...intent,
+      status: "linked",
+      targetIdentity: linked.target.identity,
+      linkedAt: intent.linkedAt ?? nowIso(),
+      updatedAt: nowIso()
+    }, "action.local-provider-intent-linked");
+    const published = await runPinnedArtifactPublisher({
+      mode: "finalize",
+      parent,
+      parentIdentity,
+      targetName,
+      temporaryName: intent.binding.temporaryName,
+      artifact,
+      artifactBytes,
+      targetIdentity: intent.targetIdentity
+    });
+    if (onDestinationBoundary) {
+      await onDestinationBoundary("after-artifact-finalize", { target, parent, intent, receipt: published });
+    }
+    intent = await writeArtifactPublicationIntent(stateRoot, run, {
+      ...intent,
+      status: "published",
+      publishedAt: intent.publishedAt ?? nowIso(),
+      updatedAt: nowIso()
+    }, "action.local-provider-intent-published");
+    return { intent, publisherReceipt: published, parentChain: checkedParentChain };
+  }, { ttlMs: 300_000 });
+}
+
 export async function recipeArtifactPromote(
   cwd,
   receiptId,
@@ -1516,10 +1978,7 @@ export async function recipeArtifactPromote(
     await loadDefaults()
   );
   const targetExists = await exists(target);
-  if (
-    !currentSentinel.complete ||
-    (currentSentinel.digest !== pending.action.treeDigest && !targetExists)
-  ) {
+  if (!currentSentinel.complete) {
     throw recipeError("artifact promotion action tree binding is stale or incomplete");
   }
   if (
@@ -1540,22 +1999,30 @@ export async function recipeArtifactPromote(
   if (sha256(artifactBytes) !== artifact.sha256) throw recipeError("artifact digest drifted");
   const protectedIdentities = await artifactPromotionProtectedIdentities(workspace);
   let parentChain = await assertSafeDestination(workspace.root, target, protectedIdentities);
-  if (targetExists) {
-    if (onDestinationBoundary) {
-      await onDestinationBoundary("before-existing-read", { target, parent: path.dirname(target) });
-    }
+  if (pending.action.outcome === "success") {
     parentChain = await assertSafeDestination(workspace.root, target, protectedIdentities, {
       expectedParentChain: parentChain,
       requireCompleteParent: true
     });
     const targetInfo = await lstat(target);
-    if (!targetInfo.isFile() || targetInfo.isSymbolicLink() || targetInfo.nlink !== 1) {
-      throw recipeError(`artifact destination is not a safe regular file: ${normalized}`);
+    const providerReceipt = pending.action.receipt?.providerReceipt;
+    if (
+      !targetInfo.isFile() || targetInfo.isSymbolicLink() || targetInfo.nlink !== 1 ||
+      sha256(await readFile(target)) !== artifact.sha256 ||
+      providerReceipt?.action !== "artifact.promote" ||
+      providerReceipt?.attemptId !== pending.action.attemptId ||
+      providerReceipt?.digest !== artifact.sha256 ||
+      providerReceipt?.sourceMutation?.path !== normalized
+    ) {
+      throw recipeError("completed artifact promotion is not replay-valid");
     }
-    if (sha256(await readFile(target)) !== artifact.sha256) {
-      throw recipeError(`artifact destination already exists with different bytes: ${normalized}`);
+    return { ok: true, receiptId, artifactId, destination: normalized, sha256: artifact.sha256 };
+  }
+  if (targetExists) {
+    if (onDestinationBoundary) {
+      await onDestinationBoundary("before-existing-read", { target, parent: path.dirname(target) });
     }
-    await assertSafeDestination(workspace.root, target, protectedIdentities, {
+    parentChain = await assertSafeDestination(workspace.root, target, protectedIdentities, {
       expectedParentChain: parentChain,
       requireCompleteParent: true
     });
@@ -1572,70 +2039,48 @@ export async function recipeArtifactPromote(
       protectedIdentities,
       parentChain
     );
-    const temp = `${target}.${randomBytes(6).toString("hex")}.tmp`;
-    let tempCreated = false;
-    try {
-      if (onDestinationBoundary) {
-        await onDestinationBoundary("before-copy", { target, temp, parent: path.dirname(target) });
-      }
-      await assertSafeDestination(workspace.root, target, protectedIdentities, {
-        expectedParentChain: parentChain,
-        requireCompleteParent: true
-      });
-      if (await exists(target)) {
-        throw recipeError(`artifact destination appeared before the write boundary: ${normalized}`);
-      }
-      await copyFile(source, temp, fsConstants.COPYFILE_EXCL);
-      tempCreated = true;
-      const tempInfo = await lstat(temp);
-      if (
-        tempInfo.isSymbolicLink() ||
-        !tempInfo.isFile() ||
-        tempInfo.nlink !== 1 ||
-        sha256(await readFile(temp)) !== artifact.sha256
-      ) {
-        throw recipeError("artifact temporary copy changed before promotion");
-      }
-      if (onDestinationBoundary) {
-        await onDestinationBoundary("before-link", { target, temp, parent: path.dirname(target) });
-      }
-      await assertSafeDestination(workspace.root, target, protectedIdentities, {
-        expectedParentChain: parentChain,
-        requireCompleteParent: true
-      });
-      if (await exists(target)) {
-        throw recipeError(`artifact destination appeared before the final write boundary: ${normalized}`);
-      }
-      await link(temp, target);
-      await unlink(temp);
-      tempCreated = false;
-      await assertSafeDestination(workspace.root, target, protectedIdentities, {
-        expectedParentChain: parentChain,
-        requireCompleteParent: true
-      });
-      const targetInfo = await lstat(target);
-      if (
-        targetInfo.isSymbolicLink() ||
-        !targetInfo.isFile() ||
-        targetInfo.nlink !== 1 ||
-        sha256(await readFile(target)) !== artifact.sha256
-      ) {
-        throw recipeError("artifact destination changed at the final write boundary");
-      }
-    } catch (error) {
-      if (tempCreated) {
-        await assertSafeDestination(workspace.root, temp, protectedIdentities, {
-          expectedParentChain: parentChain,
-          requireCompleteParent: true
-        }).then(async () => {
-          const info = await lstat(temp).catch(() => null);
-          if (info?.isFile() && !info.isSymbolicLink() && info.nlink === 1) {
-            await unlink(temp).catch(() => undefined);
-          }
-        }).catch(() => undefined);
-      }
-      throw error;
-    }
+  }
+  if (onDestinationBoundary) {
+    await onDestinationBoundary("before-copy", { target, parent: path.dirname(target) });
+  }
+  parentChain = await assertSafeDestination(workspace.root, target, protectedIdentities, {
+    expectedParentChain: parentChain,
+    requireCompleteParent: true
+  });
+  if (onDestinationBoundary) {
+    await onDestinationBoundary("before-link", { target, parent: path.dirname(target) });
+  }
+  parentChain = await assertSafeDestination(workspace.root, target, protectedIdentities, {
+    expectedParentChain: parentChain,
+    requireCompleteParent: true
+  });
+  if (onDestinationBoundary) {
+    await onDestinationBoundary("before-authority-replay", { target, parent: path.dirname(target) });
+  }
+  const publication = await publishArtifactWithIntent({
+    stateRoot,
+    pending,
+    baselineSentinel,
+    workspace,
+    target,
+    normalized,
+    parentChain,
+    protectedIdentities,
+    artifact,
+    artifactBytes,
+    onDestinationBoundary
+  });
+  parentChain = await assertSafeDestination(workspace.root, target, protectedIdentities, {
+    expectedParentChain: publication.parentChain,
+    requireCompleteParent: true
+  });
+  const targetInfo = await lstat(target);
+  if (
+    targetInfo.isSymbolicLink() || !targetInfo.isFile() || targetInfo.nlink !== 1 ||
+    sha256(await readFile(target)) !== artifact.sha256 ||
+    filesystemIdentity(targetInfo) !== publication.intent.targetIdentity
+  ) {
+    throw recipeError("artifact destination changed at the final write boundary");
   }
   const afterSentinel = await captureSentinel(
     pendingRun.manifest.cwd,

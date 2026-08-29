@@ -4678,13 +4678,31 @@ async function currentActionSourceAuthorityBinding(root, run, action) {
   };
 }
 
-export async function currentActionEvidenceGateBinding(root, runId, run, action) {
+const ACTION_GATE_SOURCE_PROJECTION_FIELDS = new Set([
+  "initialSourceBindingDigest",
+  "sourceBindingDigest",
+  "currentSourceBindingDigest",
+  "sourceTransitionDigest",
+  "sourceTransitions",
+  "autonomySnapshotDigest",
+  "sourceSentinelDigest"
+]);
+
+function actionEvidencePolicyProjection(projection) {
+  if (!projection || typeof projection !== "object" || Array.isArray(projection)) {
+    throw new Error("Action evidence gate projection is missing");
+  }
+  return Object.fromEntries(
+    Object.entries(projection).filter(([key]) => !ACTION_GATE_SOURCE_PROJECTION_FIELDS.has(key))
+  );
+}
+
+export async function currentActionNonSourceAuthorityBinding(root, runId, run, action) {
   const configuredGate = run.contract.actionGates?.[action];
   if (!Array.isArray(configuredGate) || configuredGate.length === 0) {
     throw new Error(`No pre-action evidence gate is defined for: ${action}`);
   }
   const gateKinds = new Set(configuredGate);
-  const sourceAuthority = await currentActionSourceAuthorityBinding(root, run, action);
   const effective = await loadEffectiveEvidenceState(root, runId, { run });
   const findingDispositionBinding = await currentFindingDispositionBinding(root, runId, run);
   const { validateTypedEvidenceRecord } = await import("./evidence.mjs");
@@ -4739,13 +4757,6 @@ export async function currentActionEvidenceGateBinding(root, runId, run, action)
     contractDigest: digestObject(run.contract),
     authorityDigest: digestObject(run.contract.authority ?? null),
     policyDigest: canonicalEvidencePolicyDigest(run.contract),
-    initialSourceBindingDigest: sourceAuthority.initialSourceBindingDigest,
-    sourceBindingDigest: sourceAuthority.sourceBindingDigest,
-    currentSourceBindingDigest: sourceAuthority.currentSourceBindingDigest,
-    sourceTransitionDigest: sourceAuthority.sourceTransitionDigest,
-    sourceTransitions: sourceAuthority.sourceTransitions,
-    autonomySnapshotDigest: sourceAuthority.autonomySnapshotDigest ?? null,
-    sourceSentinelDigest: sourceAuthority.sourceSentinelDigest,
     remoteRevision: run.contract.remoteRevision ?? null,
     workflowVersion: VERSION,
     effectiveSupersessions: supersessions,
@@ -4761,7 +4772,42 @@ export async function currentActionEvidenceGateBinding(root, runId, run, action)
   };
 }
 
-async function assertSpentActionEvidenceGate(root, runId, run, record, context) {
+export async function currentActionEvidenceGateBinding(root, runId, run, action) {
+  const policy = await currentActionNonSourceAuthorityBinding(root, runId, run, action);
+  const sourceAuthority = await currentActionSourceAuthorityBinding(root, run, action);
+  const projection = {
+    schemaVersion: policy.projection.schemaVersion,
+    runId: policy.projection.runId,
+    action: policy.projection.action,
+    configuredGate: policy.projection.configuredGate,
+    contractDigest: policy.projection.contractDigest,
+    authorityDigest: policy.projection.authorityDigest,
+    policyDigest: policy.projection.policyDigest,
+    initialSourceBindingDigest: sourceAuthority.initialSourceBindingDigest,
+    sourceBindingDigest: sourceAuthority.sourceBindingDigest,
+    currentSourceBindingDigest: sourceAuthority.currentSourceBindingDigest,
+    sourceTransitionDigest: sourceAuthority.sourceTransitionDigest,
+    sourceTransitions: sourceAuthority.sourceTransitions,
+    autonomySnapshotDigest: sourceAuthority.autonomySnapshotDigest ?? null,
+    sourceSentinelDigest: sourceAuthority.sourceSentinelDigest,
+    remoteRevision: policy.projection.remoteRevision,
+    workflowVersion: policy.projection.workflowVersion,
+    effectiveSupersessions: policy.projection.effectiveSupersessions,
+    findingDispositionDigest: policy.projection.findingDispositionDigest,
+    findingDispositions: policy.projection.findingDispositions,
+    findingInventory: policy.projection.findingInventory,
+    evidence: policy.projection.evidence
+  };
+  return {
+    configuredGate: [...policy.configuredGate],
+    digest: digestObject(projection),
+    projection,
+    policyDigest: policy.digest,
+    policyProjection: policy.projection
+  };
+}
+
+export async function assertSpentActionNonSourceAuthority(root, runId, run, record, context) {
   if (run.contract.schemaVersion !== 2) return null;
   const configuredGate = run.contract.actionGates?.[record.action];
   if (
@@ -4770,7 +4816,8 @@ async function assertSpentActionEvidenceGate(root, runId, run, record, context) 
     !Array.isArray(record.evidenceGate) ||
     digestObject(record.evidenceGate) !== digestObject(configuredGate) ||
     !SHA256_DIGEST.test(record.evidenceGateDigest ?? "") ||
-    !SHA256_DIGEST.test(record.evidenceSupersessionFreshnessDigest ?? "")
+    !SHA256_DIGEST.test(record.evidenceSupersessionFreshnessDigest ?? "") ||
+    digestObject(record.evidenceGateProjection ?? null) !== record.evidenceGateDigest
   ) {
     throw new Error(`${context} denied because the spent action evidence gate is unbound`);
   }
@@ -4778,6 +4825,17 @@ async function assertSpentActionEvidenceGate(root, runId, run, record, context) 
   if (supersessionFreshnessDigest !== record.evidenceSupersessionFreshnessDigest) {
     throw new Error(`${context} denied because immutable evidence freshness changed`);
   }
+  const expectedPolicyProjection = actionEvidencePolicyProjection(record.evidenceGateProjection);
+  const currentPolicy = await currentActionNonSourceAuthorityBinding(root, runId, run, record.action);
+  if (currentPolicy.digest !== digestObject(expectedPolicyProjection)) {
+    throw new Error(`${context} denied because non-source action authority changed`);
+  }
+  return currentPolicy;
+}
+
+async function assertSpentActionEvidenceGate(root, runId, run, record, context) {
+  if (run.contract.schemaVersion !== 2) return null;
+  await assertSpentActionNonSourceAuthority(root, runId, run, record, context);
   const currentGate = await currentActionEvidenceGateBinding(root, runId, run, record.action);
   if (currentGate.digest !== record.evidenceGateDigest) {
     throw new Error(`${context} denied because the configured evidence gate changed`);
@@ -4786,6 +4844,10 @@ async function assertSpentActionEvidenceGate(root, runId, run, record, context) 
     throw new Error(`${context} denied because the content-complete source sentinel changed`);
   }
   return currentGate;
+}
+
+export async function assertSpentActionProviderAuthority(root, runId, run, record, context) {
+  return assertSpentActionEvidenceGate(root, runId, run, record, context);
 }
 
 export async function assertAutonomousCommitEvidenceInvalidationSafe(
@@ -8183,9 +8245,9 @@ export async function verifyRequiredChecksProvider(
   if (branchRules.some((rule) => !rule || typeof rule.type !== "string" || !rule.type)) {
     throw new Error("Protected branch rules contain an incomplete rule definition");
   }
-  if (branchRules.some((rule) => ["deletion", "non_fast_forward"].includes(rule.type))) {
-    throw new Error("Protected branch rules permit deletion or non-fast-forward updates");
-  }
+  // GitHub's `deletion` and `non_fast_forward` rule types are prohibitions.
+  // Their presence strengthens protection; the classic allow_* flags above
+  // remain the independent proof that these operations are not permitted.
   const rulesetPages = JSON.parse((await execBoundGitHubCli(executablePath, [
     "api",
     "--paginate",
@@ -8265,9 +8327,8 @@ export async function verifyRequiredChecksProvider(
       throw new Error("Active protected branch ruleset has no complete rule set");
     }
     const rules = Array.isArray(detail.rules) ? detail.rules : [];
-    if (appliesToTarget && rules.some((rule) => ["deletion", "non_fast_forward"].includes(rule?.type))) {
-      throw new Error("Active protected branch ruleset permits deletion or non-fast-forward updates");
-    }
+    // Ruleset `deletion` and `non_fast_forward` entries are protective
+    // restrictions, not permission grants.
     const requiredStatusRules = rules.filter((rule) => rule?.type === "required_status_checks");
     for (const requiredStatusRule of requiredStatusRules) {
       if (appliesToTarget && !Array.isArray(requiredStatusRule.parameters?.required_status_checks)) {
