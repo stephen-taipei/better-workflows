@@ -3930,21 +3930,28 @@ function parsePorcelainV2Entries(stdout) {
   const parts = stdout.split("\0");
   if (parts.at(-1) === "") parts.pop();
   const entries = [];
+  const pathAfterFields = (record, fieldCount) => {
+    let separator = -1;
+    for (let count = 0; count < fieldCount; count += 1) {
+      separator = record.indexOf(" ", separator + 1);
+      if (separator < 0) throw new Error("Git status returned a malformed porcelain record");
+    }
+    return record.slice(separator + 1);
+  };
   for (let index = 0; index < parts.length; index += 1) {
     const record = parts[index];
     if (!record) throw new Error("Git status returned an empty porcelain record");
     const type = record[0];
-    if (["1", "u"].includes(type)) {
-      const separator = record.indexOf("\t");
-      if (separator < 0) throw new Error("Git status returned a malformed porcelain record");
-      entries.push({ type, paths: [record.slice(separator + 1)], parts: [record] });
+    if (type === "1") {
+      entries.push({ type, paths: [pathAfterFields(record, 8)], parts: [record] });
+    } else if (type === "u") {
+      entries.push({ type, paths: [pathAfterFields(record, 10)], parts: [record] });
     } else if (type === "2") {
-      const separator = record.indexOf("\t");
       const original = parts[index + 1];
-      if (separator < 0 || original === undefined) {
+      if (original === undefined) {
         throw new Error("Git status returned a malformed rename record");
       }
-      entries.push({ type, paths: [record.slice(separator + 1), original], parts: [record, original] });
+      entries.push({ type, paths: [pathAfterFields(record, 9), original], parts: [record, original] });
       index += 1;
     } else if (["?", "!"].includes(type) && record[1] === " ") {
       entries.push({ type, paths: [record.slice(2)], parts: [record] });
