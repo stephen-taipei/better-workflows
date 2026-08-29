@@ -1246,9 +1246,6 @@ async function spawnRecipe(recipe, input, stagingPath, { preserve = false } = {}
       NODE_NO_WARNINGS: "1"
     }
   });
-  const completion = awaitPinnedChildTerminal(child, {
-    timeoutMessage: "pinned artifact publisher timed out"
-  });
   let stdout = Buffer.alloc(0);
   let stderr = Buffer.alloc(0);
   let outputBytes = 0;
@@ -2475,6 +2472,9 @@ async function runPinnedArtifactPublisher({
       TZ: "UTC",
       NODE_NO_WARNINGS: "1"
     }
+  });
+  const completion = awaitPinnedChildTerminal(child, {
+    timeoutMessage: "pinned artifact publisher timed out"
   });
   let stdout = Buffer.alloc(0);
   let stderr = Buffer.alloc(0);
