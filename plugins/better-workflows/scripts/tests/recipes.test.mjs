@@ -17,7 +17,17 @@ import path from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
-import { digestObject, pluginRoot, sha256 } from "../lib/core.mjs";
+import {
+  addEvidence as addCoreEvidence,
+  currentActionEvidenceGateBinding,
+  digestObject,
+  inspectRun,
+  loadDefaults,
+  pluginRoot,
+  reconcileAction,
+  sha256
+} from "../lib/core.mjs";
+import { captureSentinel, captureSourceBinding } from "../lib/git.mjs";
 import { transitionLedger } from "../lib/ledger.mjs";
 import { createReviewPackage, markBroadReviewComplete, reviewStatus } from "../lib/review.mjs";
 
@@ -264,6 +274,13 @@ async function issueAndConsume(cwd, stateRoot, runId, action, resource) {
   return consumed.json.action.attemptId;
 }
 
+function testSentinelPathBinding(sentinel, relativePath) {
+  const tracked = (sentinel.scopeDigest?.records ?? []).find((item) => item.path === relativePath);
+  if (tracked) return { surface: "tracked", record: tracked };
+  const untracked = (sentinel.untracked?.records ?? []).find((item) => item.path === relativePath);
+  return untracked ? { surface: "untracked", record: untracked } : null;
+}
+
 test("recipe commands never initialize silently and strict validation rejects unknown fields", async () => {
   const cwd = await repository();
   const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-recipe-state-"));
@@ -433,6 +450,19 @@ test("reference recipe completes governed promotion, dry-run, atomic run, artifa
     digest
   ]);
   assert.equal(promoted.json.trusted, true);
+  const promotedRun = await inspectRun(stateRoot, runId);
+  const promotedAction = promotedRun.actions.find((item) => item.attemptId === attemptId);
+  assert.equal(promotedAction.outcome, "success");
+  assert.equal(promotedAction.sourceBindingTransition.kind, "provider-action");
+  assert.equal(promotedAction.sourceBindingTransition.path, ".codex/better-workflows/config.json");
+  assert.equal(
+    promotedRun.manifest.sourceBinding.digest,
+    promotedAction.sourceBindingTransition.to
+  );
+  assert.equal(
+    promotedRun.state.lastSentinel.digest,
+    promotedAction.sourceBindingTransition.sourceSentinelTo
+  );
   await ledgerTransition(stateRoot, runId, "trust-complete", "complete", "trust", ["digest-confirmation", "promotion-decision"]);
   await ledgerTransition(stateRoot, runId, "artifact-start", "start", "artifact-promotion");
   const config = JSON.parse(
@@ -521,7 +551,7 @@ test("reference recipe completes governed promotion, dry-run, atomic run, artifa
   const artifactHead = (await git(cwd, "rev-parse", "HEAD")).stdout.trim();
   await markBroadReviewComplete(stateRoot, runId, artifactReview.package.packageId, artifactHead, artifactSentinel.json.sentinel.digest);
   const destination = "reports/keyset-report.md";
-  await issueAndConsume(
+  const artifactAttemptId = await issueAndConsume(
     cwd,
     stateRoot,
     runId,
@@ -539,6 +569,32 @@ test("reference recipe completes governed promotion, dry-run, atomic run, artifa
     destination
   ]);
   assert.equal(artifactPromotion.json.destination, destination);
+  const artifactRun = await inspectRun(stateRoot, runId);
+  const artifactAction = artifactRun.actions.find((item) => item.attemptId === artifactAttemptId);
+  assert.equal(artifactAction.outcome, "success");
+  assert.equal(artifactAction.sourceBindingTransition.kind, "provider-action");
+  assert.equal(artifactAction.sourceBindingTransition.path, destination);
+  assert.equal(artifactRun.manifest.sourceBinding.digest, artifactAction.sourceBindingTransition.to);
+  assert.equal(
+    artifactRun.manifest.sourceBindingHistory.filter((item) => item.kind === "provider-action").length,
+    2
+  );
+  const tamperState = await mkdtemp(path.join(os.tmpdir(), "sbw-recipe-transition-tamper-"));
+  await cp(stateRoot, tamperState, { recursive: true });
+  const tamperManifestPath = path.join(tamperState, "runs", runId, "manifest.json");
+  const tamperManifest = JSON.parse(await readFile(tamperManifestPath, "utf8"));
+  tamperManifest.sourceBindingHistory.at(-1).sourceMutationDigest = "0".repeat(64);
+  await writeFile(tamperManifestPath, `${JSON.stringify(tamperManifest)}\n`);
+  const tamperedRun = await inspectRun(tamperState, runId);
+  await assert.rejects(
+    currentActionEvidenceGateBinding(
+      tamperState,
+      runId,
+      tamperedRun,
+      "artifact.promote"
+    ),
+    /provider action source transition is not replay-valid/
+  );
   await ledgerTransition(stateRoot, runId, "artifact-complete", "complete", "artifact-promotion", ["artifact-receipt"]);
   assert.match(await readFile(path.join(cwd, destination), "utf8"), /JSON key-set audit/);
 
@@ -587,6 +643,147 @@ test("reference recipe completes governed promotion, dry-run, atomic run, artifa
   await cli(cwd, stateRoot, ["recipe", "untrust", "json-keyset-audit"]);
   const untrusted = await cli(cwd, stateRoot, ["recipe", "status", "json-keyset-audit"]);
   assert.equal(untrusted.json.trusted, false);
+});
+
+test("recipe promotion source transition rejects one undeclared extra path", async () => {
+  const cwd = await repository();
+  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-recipe-source-transition-attack-"));
+  await cli(cwd, stateRoot, ["recipe", "init"]);
+  await cli(cwd, stateRoot, ["recipe", "scaffold", "json-keyset-audit"]);
+  await git(cwd, "add", ".");
+  await git(cwd, "commit", "-qm", "add governed recipe");
+  const validation = await cli(cwd, stateRoot, ["recipe", "validate", "json-keyset-audit"]);
+  const runId = await governedRun(cwd, stateRoot);
+  const attemptId = await issueAndConsume(
+    cwd,
+    stateRoot,
+    runId,
+    "recipe.promote",
+    `recipe:json-keyset-audit:${validation.json.executionDigest}`
+  );
+  const run = await inspectRun(stateRoot, runId);
+  const action = run.actions.find((item) => item.attemptId === attemptId);
+  const configPath = path.join(cwd, ".codex", "better-workflows", "config.json");
+  const beforeConfig = JSON.parse(await readFile(configPath, "utf8"));
+  const afterConfig = { ...beforeConfig, enabled: true };
+  await writeFile(configPath, `${JSON.stringify(afterConfig, null, 2)}\n`);
+  await writeFile(path.join(cwd, "undeclared-provider-write.txt"), "must be rejected\n");
+  const baselineSentinel = JSON.parse(await readFile(
+    path.join(
+      stateRoot,
+      "runs",
+      runId,
+      "sentinels",
+      `${action.sourceAuthorityAtIssue.sourceSentinel.label}.json`
+    ),
+    "utf8"
+  ));
+  const afterSentinel = await captureSentinel(cwd, run.contract, await loadDefaults());
+  const afterSourceBinding = await captureSourceBinding(cwd, {
+    baseRevision: action.sourceAuthorityAtIssue.sourceBinding.baseRevision,
+    requireClean: false
+  });
+  const sourceMutation = {
+    schemaVersion: 1,
+    kind: "provider-action",
+    actionAttemptId: action.attemptId,
+    action: action.action,
+    provider: action.provider,
+    resource: action.resource,
+    path: ".codex/better-workflows/config.json",
+    sourceBinding: {
+      from: action.sourceAuthorityAtIssue.sourceBinding.digest,
+      to: afterSourceBinding.digest,
+      headRevision: afterSourceBinding.headRevision
+    },
+    sentinel: { from: baselineSentinel.digest, to: afterSentinel.digest },
+    pathTransition: {
+      before: testSentinelPathBinding(baselineSentinel, ".codex/better-workflows/config.json"),
+      after: testSentinelPathBinding(afterSentinel, ".codex/better-workflows/config.json")
+    },
+    recipeConfig: { before: beforeConfig, after: afterConfig }
+  };
+  const request = {
+    action: action.action,
+    provider: action.provider,
+    resource: action.resource,
+    remoteRevision: action.remoteRevision,
+    idempotencyKey: action.idempotencyKey
+  };
+  const providerReceipt = {
+    ...request,
+    outcome: "success",
+    runId,
+    attemptId,
+    executionId: `local-workspace:recipe.promote:${attemptId}`,
+    proofKind: "local-workspace:recipe.promote",
+    requestDigest: digestObject(request),
+    responseDigest: digestObject({
+      kind: "workspace-recipe",
+      digest: "c".repeat(64),
+      sourceMutationDigest: digestObject(sourceMutation)
+    }),
+    verifiedAt: action.spentAt,
+    terminalState: "success",
+    kind: "workspace-recipe",
+    digest: "c".repeat(64),
+    sourceMutation
+  };
+  const payload = {
+    provider: action.provider,
+    actionProof: {
+      schemaVersion: 1,
+      runId,
+      actionAttemptId: attemptId,
+      action: action.action,
+      provider: action.provider,
+      resource: action.resource,
+      outcome: "success",
+      idempotencyKey: action.idempotencyKey,
+      remoteRevision: action.remoteRevision,
+      providerExecutionId: providerReceipt.executionId,
+      providerReceiptDigest: digestObject(providerReceipt)
+    },
+    receipt: providerReceipt
+  };
+  const providerEvidence = await addCoreEvidence(stateRoot, runId, {
+    schemaVersion: 2,
+    id: `action-proof-${attemptId}`,
+    kind: "provider-reconciliation",
+    status: "complete",
+    summary: "Provider receipt for attacked recipe promotion",
+    acceptanceIds: [],
+    dependencyInputs: { files: [] },
+    sourceDigest: digestObject(payload),
+    receipt: {
+      contractId: "evidence-contracts-v1:provider-reconciliation",
+      contractVersion: 1,
+      runId,
+      producer: { provider: "codex-root" },
+      inputBinding: {
+        runId,
+        contractDigest: digestObject(run.contract),
+        remoteRevision: run.contract.remoteRevision ?? null
+      },
+      payload,
+      payloadDigest: digestObject(payload),
+      producedAt: action.spentAt
+    }
+  });
+  await assert.rejects(
+    reconcileAction(stateRoot, runId, attemptId, "success", {
+      ...request,
+      outcome: "success",
+      runId,
+      attemptId,
+      providerReceipt,
+      evidenceIds: [providerEvidence.id]
+    }),
+    (error) => error?.code === "SBW_ACTION_AUTHORITY_INDETERMINATE"
+  );
+  const persisted = (await inspectRun(stateRoot, runId)).actions.find((item) => item.attemptId === attemptId);
+  assert.equal(persisted.outcome, "unknown");
+  assert.equal(persisted.receipt, null);
 });
 
 test("candidate runner rejects source writes, undeclared reads, timeouts, and oversized output", async () => {
