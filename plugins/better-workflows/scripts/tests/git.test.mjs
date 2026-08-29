@@ -188,6 +188,19 @@ test("bounded sentinel detects tracked, untracked, symlink, and high-risk ignore
   assert.ok(comparison.changed.includes("highRiskIgnored"));
 });
 
+test("bounded sentinel hashes same-path untracked content instead of trusting surface metadata", async () => {
+  const cwd = await repository();
+  const defaults = await loadDefaults();
+  const target = path.join(cwd, "src", "untracked.txt");
+  await writeFile(target, "one\n");
+  const before = await captureSentinel(cwd, taskContract(), defaults);
+  await writeFile(target, "two\n");
+  const after = await captureSentinel(cwd, taskContract(), defaults);
+  assert.equal(before.statusDigest, after.statusDigest);
+  assert.notEqual(before.untracked.digest, after.untracked.digest);
+  assert.equal(compareSentinels(before, after).same, false);
+});
+
 test("volatile exclusions are explicit and do not pretend to be complete coverage", async () => {
   const cwd = await repository();
   const defaults = await loadDefaults();

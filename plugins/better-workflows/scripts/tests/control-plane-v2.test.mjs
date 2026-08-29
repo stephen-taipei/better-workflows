@@ -21,6 +21,7 @@ import {
   issueActionToken,
   listEffectiveEvidenceRecords,
   loadDefaults,
+  reconcileAction,
   refreshEvidence,
   rebindSourceBinding,
   sha256,
@@ -1226,7 +1227,127 @@ test("action consumption replays the complete configured evidence gate without s
   }
 });
 
-test("action gates permit prior governed workspace mutation and bind the live source through consumption", async () => {
+test("successful external reconciliation becomes audited unknown when its issued gate drifts", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-v2-reconcile-gate-drift-"));
+  try {
+    const dependencyPath = path.join(root, "environment-input.txt");
+    const dependencyBytes = Buffer.from("environment-v1\n");
+    await writeFile(dependencyPath, dependencyBytes);
+    const dependencyInfo = await stat(dependencyPath);
+    const taskContract = buildContract({
+      template: "test-v2-reconcile-gate-drift",
+      templateDefinition: {
+        ...contractTemplate,
+        actionStages: { "artifact.promote": "environment" },
+        actionGates: { "artifact.promote": ["environment-state"] }
+      },
+      goal: "Prevent post-invocation evidence drift from authorizing success",
+      scope: ["."],
+      risk: { risk: 2, uncertainty: 1, blastRadius: 1, irreversibility: 1, evidenceGap: 1 },
+      sensitivity: "internal",
+      authority: ["artifact.promote"],
+      remoteRevision: "b".repeat(40)
+    });
+    const started = await createRun({ root, contract: taskContract, requestedMode: "verified", cwd: root });
+    const run = await inspectRun(root, started.runId);
+    await updateState(root, started.runId, (state) => ({
+      ...state,
+      lastSentinel: { label: "reconcile-gate", digest: "e".repeat(64) },
+      lastSentinelVerified: true,
+      lastSentinelComplete: true
+    }));
+    await addEvidence(root, started.runId, {
+      ...await typedRecord({ runId: started.runId, contract: run.contract }),
+      dependencyInputs: { files: ["environment-input.txt"] },
+      dependencies: currentEvidenceDependencies(run, [{
+        path: "environment-input.txt",
+        type: "file",
+        mode: dependencyInfo.mode,
+        size: dependencyInfo.size,
+        digest: sha256(dependencyBytes)
+      }])
+    });
+    const issued = await issueActionToken(root, started.runId, {
+      action: "artifact.promote",
+      provider: "local-workspace",
+      resource: "artifact/fixture-artifact",
+      remoteRevision: taskContract.remoteRevision,
+      requiredEvidence: ["environment-state"]
+    }, "e".repeat(64), await loadDefaults());
+    const spent = await consumeActionToken(root, started.runId, issued.token, "e".repeat(64));
+    const request = {
+      action: spent.action,
+      provider: spent.provider,
+      resource: spent.resource,
+      remoteRevision: spent.remoteRevision,
+      idempotencyKey: spent.idempotencyKey
+    };
+    const response = { kind: "fixture-artifact", digest: "c".repeat(64) };
+    const providerReceipt = {
+      action: spent.action,
+      provider: spent.provider,
+      resource: spent.resource,
+      outcome: "success",
+      runId: started.runId,
+      attemptId: spent.attemptId,
+      idempotencyKey: spent.idempotencyKey,
+      remoteRevision: spent.remoteRevision,
+      executionId: `local-workspace:artifact.promote:${spent.attemptId}`,
+      proofKind: "local-workspace:artifact.promote",
+      requestDigest: digestObject(request),
+      responseDigest: digestObject(response),
+      verifiedAt: new Date().toISOString(),
+      terminalState: "success",
+      ...response
+    };
+    const actionProof = {
+      schemaVersion: 1,
+      runId: started.runId,
+      actionAttemptId: spent.attemptId,
+      action: spent.action,
+      provider: spent.provider,
+      resource: spent.resource,
+      outcome: "success",
+      idempotencyKey: spent.idempotencyKey,
+      remoteRevision: spent.remoteRevision,
+      providerExecutionId: providerReceipt.executionId,
+      providerReceiptDigest: digestObject(providerReceipt)
+    };
+    const providerEvidence = await gateRecord(
+      run,
+      "provider-reconciliation",
+      { provider: "local-workspace", receipt: providerReceipt, actionProof },
+      "provider-reconciliation-proof"
+    );
+    providerEvidence.dependencyInputs = { files: [] };
+    providerEvidence.dependencies = currentEvidenceDependencies(run, []);
+    await addEvidence(root, started.runId, providerEvidence);
+    const receipt = {
+      ...request,
+      outcome: "success",
+      runId: started.runId,
+      attemptId: spent.attemptId,
+      providerReceipt,
+      evidenceIds: [providerEvidence.id]
+    };
+    await writeFile(dependencyPath, "environment-drifted-after-provider-invocation\n");
+    await assert.rejects(
+      reconcileAction(root, started.runId, spent.attemptId, "success", receipt),
+      (error) => error?.code === "SBW_ACTION_AUTHORITY_INDETERMINATE"
+    );
+    const persisted = (await inspectRun(root, started.runId)).actions.find(
+      (item) => item.attemptId === spent.attemptId
+    );
+    assert.equal(persisted.outcome, "unknown");
+    assert.equal(persisted.receipt, null);
+    assert.equal(persisted.authorityFailure.observedProviderExecutionId, providerReceipt.executionId);
+    assert.equal(persisted.authorityFailure.providerExecutionReservationOutcome, "unknown");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("action gates reject direct source writes and same-dirty-path content drift", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "sbw-v2-action-source-gate-"));
   const repository = path.join(root, "repository");
   try {
@@ -1254,54 +1375,48 @@ test("action gates permit prior governed workspace mutation and bind the live so
     });
     const started = await createRun({ root, contract: taskContract, requestedMode: "verified", cwd: repository });
     const run = await inspectRun(root, started.runId);
-    await updateState(root, started.runId, (state) => ({
-      ...state,
-      lastSentinel: { label: "action-source-gate", digest: "e".repeat(64) },
-      lastSentinelVerified: true,
-      lastSentinelComplete: true
-    }));
     await addEvidence(root, started.runId, {
       ...await typedRecord({ runId: started.runId, contract: run.contract }),
       dependencyInputs: { files: [] },
       dependencies: currentEvidenceDependencies(run, [])
     });
-    await writeFile(path.join(repository, "README.md"), "source-v2\n");
-    const currentSentinel = await captureSentinel(repository, taskContract, await loadDefaults());
+    const baselineSentinel = await captureSentinel(repository, taskContract, await loadDefaults());
     await updateState(root, started.runId, (state) => ({
       ...state,
-      lastSentinel: { label: "action-source-gate-current", digest: currentSentinel.digest },
+      lastSentinel: { label: "action-source-gate-baseline", digest: baselineSentinel.digest },
       lastSentinelVerified: true,
       lastSentinelComplete: true
     }));
-    const currentGate = await currentActionEvidenceGateBinding(
-      root,
-      started.runId,
-      await inspectRun(root, started.runId),
-      "artifact.promote"
-    );
-    assert.equal(currentGate.projection.sourceBindingDigest, run.manifest.sourceBinding.digest);
-    assert.notEqual(
-      currentGate.projection.currentSourceBindingDigest,
-      currentGate.projection.sourceBindingDigest
-    );
     const issued = await issueActionToken(root, started.runId, {
       action: "artifact.promote",
       provider: "local-workspace",
       resource: "artifact/fixture-artifact",
       remoteRevision: head,
       requiredEvidence: ["environment-state"]
-    }, currentSentinel.digest, await loadDefaults());
-    await writeFile(path.join(repository, "README.md"), "source-v3\n");
-    const contentDriftSentinel = await captureSentinel(repository, taskContract, await loadDefaults());
+    }, baselineSentinel.digest, await loadDefaults());
+    await writeFile(path.join(repository, "README.md"), "same-path-content-drift\n");
     await assert.rejects(
-      consumeActionToken(root, started.runId, issued.token, contentDriftSentinel.digest),
-      /tree binding changed/
+      // Supplying the old caller digest must not bypass the internally captured
+      // content-complete source sentinel.
+      consumeActionToken(root, started.runId, issued.token, baselineSentinel.digest),
+      /current source binding changed outside a governed transition|content-complete source sentinel changed/
     );
-    await writeFile(path.join(repository, "README.md"), "source-v2\n");
-    await writeFile(path.join(repository, "SECOND.md"), "new dirty surface\n");
+    const driftedSentinel = await captureSentinel(repository, taskContract, await loadDefaults());
+    await updateState(root, started.runId, (state) => ({
+      ...state,
+      lastSentinel: { label: "action-source-gate-direct-write", digest: driftedSentinel.digest },
+      lastSentinelVerified: true,
+      lastSentinelComplete: true
+    }));
     await assert.rejects(
-      consumeActionToken(root, started.runId, issued.token, currentSentinel.digest),
-      /configured evidence gate changed/
+      issueActionToken(root, started.runId, {
+        action: "artifact.promote",
+        provider: "local-workspace",
+        resource: "artifact/second-fixture",
+        remoteRevision: head,
+        requiredEvidence: ["environment-state"]
+      }, driftedSentinel.digest, await loadDefaults()),
+      /current source binding changed outside a governed transition/
     );
     const action = (await inspectRun(root, started.runId)).actions.find((item) => item.tokenHash === issued.tokenHash);
     assert.equal(action.status, "issued");
@@ -2056,7 +2171,11 @@ test("persisted typed evidence is revalidated before ledger admission", async ()
   });
   const started = await createRun({ root, contract, requestedMode: "verified", cwd: root });
   const run = await inspectRun(root, started.runId);
-  await addEvidence(root, started.runId, await typedRecord({ runId: started.runId, contract: run.contract }));
+  await addEvidence(root, started.runId, {
+    ...await typedRecord({ runId: started.runId, contract: run.contract }),
+    dependencyInputs: { files: [] },
+    dependencies: currentEvidenceDependencies(run, [])
+  });
   const evidencePath = path.join(run.runDir, "evidence", "environment.json");
   const tampered = JSON.parse(await readFile(evidencePath, "utf8"));
   tampered.receipt.payloadDigest = "0".repeat(64);
@@ -2080,16 +2199,25 @@ test("generic finding dispositions and terminal mutations fail closed", async ()
   const root = await mkdtemp(path.join(os.tmpdir(), "sbw-v2-terminal-mutations-"));
   const contract = buildContract({
     template: "test-terminal-mutations",
-    templateDefinition: contractTemplate,
+    templateDefinition: {
+      ...contractTemplate,
+      actionStages: { "artifact.promote": "environment" },
+      actionGates: { "artifact.promote": ["environment-state"] }
+    },
     goal: "terminal mutation guards",
     scope: ["."],
     risk: { risk: 1, uncertainty: 0, blastRadius: 1, irreversibility: 0, evidenceGap: 0 },
     sensitivity: "internal",
-    authority: []
+    authority: ["artifact.promote"],
+    remoteRevision: "b".repeat(40)
   });
   const started = await createRun({ root, contract, requestedMode: "verified", cwd: root });
   const run = await inspectRun(root, started.runId);
-  await addEvidence(root, started.runId, await typedRecord({ runId: started.runId, contract: run.contract }));
+  await addEvidence(root, started.runId, {
+    ...await typedRecord({ runId: started.runId, contract: run.contract }),
+    dependencyInputs: { files: [] },
+    dependencies: currentEvidenceDependencies(run, [])
+  });
   await addFinding(root, started.runId, {
     id: "generic-finding",
     severity: "P1",
@@ -2114,6 +2242,61 @@ test("generic finding dispositions and terminal mutations fail closed", async ()
       summary: "unbound disposition proof"
     }, { update: true }),
     /not bound to the finding/
+  );
+  const dependencyPath = path.join(root, "finding-disposition.txt");
+  const dependencyBytes = Buffer.from("finding-disposition-v1\n");
+  await writeFile(dependencyPath, dependencyBytes);
+  const dependencyInfo = await stat(dependencyPath);
+  const disposition = await typedRecord(
+    { runId: started.runId, contract: run.contract },
+    "finding-disposition"
+  );
+  disposition.receipt.payload.findingIds = ["generic-finding"];
+  disposition.receipt.payloadDigest = digestObject(disposition.receipt.payload);
+  disposition.dependencyInputs = { files: ["finding-disposition.txt"] };
+  disposition.dependencies = currentEvidenceDependencies(run, [{
+    path: "finding-disposition.txt",
+    type: "file",
+    mode: dependencyInfo.mode,
+    size: dependencyInfo.size,
+    digest: sha256(dependencyBytes)
+  }]);
+  await addEvidence(root, started.runId, disposition);
+  await writeFile(dependencyPath, "finding-disposition-drifted-before-resolution\n");
+  await assert.rejects(
+    addFinding(root, started.runId, {
+      id: "generic-finding",
+      severity: "P1",
+      status: "resolved",
+      evidenceId: "finding-disposition",
+      summary: "stale disposition proof"
+    }, { update: true }),
+    /Finding disposition evidence is stale/
+  );
+  await writeFile(dependencyPath, dependencyBytes);
+  await addFinding(root, started.runId, {
+    id: "generic-finding",
+    severity: "P1",
+    status: "resolved",
+    evidenceId: "finding-disposition",
+    summary: "fresh disposition proof"
+  }, { update: true });
+  await updateState(root, started.runId, (state) => ({
+    ...state,
+    lastSentinel: { label: "finding-disposition", digest: "e".repeat(64) },
+    lastSentinelVerified: true,
+    lastSentinelComplete: true
+  }));
+  await writeFile(dependencyPath, "finding-disposition-drifted-after-resolution\n");
+  await assert.rejects(
+    issueActionToken(root, started.runId, {
+      action: "artifact.promote",
+      provider: "local-workspace",
+      resource: "artifact/finding-disposition",
+      remoteRevision: contract.remoteRevision,
+      requiredEvidence: ["environment-state"]
+    }, "e".repeat(64), await loadDefaults()),
+    /Finding disposition evidence is stale/
   );
   await updateState(root, started.runId, (state) => ({ ...state, status: "completed" }));
   await assert.rejects(
@@ -2619,8 +2802,10 @@ elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo/pulls/12" ]; then
   if [ -f '${providerCounter}' ]; then count=$(/bin/cat '${providerCounter}'); fi
   count=$((count + 1))
   printf '%s' "$count" > '${providerCounter}'
-  if [ "$count" -eq 2 ]; then
-    if [ -f '${providerInjectionMode}' ]; then
+  mode=""
+  if [ -f '${providerInjectionMode}' ]; then mode=$(/bin/cat '${providerInjectionMode}'); fi
+  if [ "$count" -eq 2 ] && [ "$mode" != "after-invocation" ]; then
+    if [ "$mode" = "before-supersession" ]; then
       /bin/cp '${lateSupersessionSource}' '${lateSupersessionTarget}'
     else
       /bin/cp '${lateFindingSource}' '${lateFindingTarget}'
@@ -2628,6 +2813,9 @@ elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo/pulls/12" ]; then
   fi
   printf '%s\\n' '{"number":12,"state":"open","head":{"sha":"${head}"},"base":{"ref":"main","sha":"${base}"},"mergeable":true,"mergeable_state":"clean"}'
 elif [ "$1" = "pr" ] && [ "$2" = "merge" ]; then
+  if [ -f '${providerInjectionMode}' ] && [ "$(/bin/cat '${providerInjectionMode}')" = "after-invocation" ]; then
+    /bin/cp '${lateSupersessionSource}' '${lateSupersessionTarget}'
+  fi
   /usr/bin/touch '${providerMergeMarker}'
   printf '%s\\n' '{"merged":true}'
 else
@@ -2704,7 +2892,7 @@ fi
   await unlink(lateFindingTarget);
   assert.equal((await reviewStatus(root, started.runId)).complete, true);
   await unlink(providerCounter);
-  await writeFile(providerInjectionMode, "supersession\n");
+  await writeFile(providerInjectionMode, "before-supersession\n");
   const supersessionToken = "review-provider-supersession-token";
   const supersessionTokenHash = sha256(supersessionToken);
   await writeFile(path.join(runDir, "actions", `${supersessionTokenHash}.json`), `${JSON.stringify({
@@ -2731,6 +2919,40 @@ fi
   assert.equal(supersessionStoppedMerge.providerInvocation.dispatchState, "not-sent");
   await unlink(path.join(runDir, "actions", `${supersessionTokenHash}.json`));
   await unlink(lateSupersessionTarget);
+  await unlink(providerCounter);
+  await writeFile(providerInjectionMode, "after-invocation\n");
+  const postInvocationToken = "review-provider-post-invocation-token";
+  const postInvocationTokenHash = sha256(postInvocationToken);
+  await writeFile(path.join(runDir, "actions", `${postInvocationTokenHash}.json`), `${JSON.stringify({
+    ...mergeActionRecord,
+    tokenHash: postInvocationTokenHash,
+    issuedAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    idempotencyKey: "review-provider-post-invocation-idempotency"
+  }, null, 2)}\n`);
+  process.env.PATH = `${bin}:${priorPath}`;
+  try {
+    await assert.rejects(
+      executeActionToken(root, started.runId, postInvocationToken, sentinel.digest),
+      (error) => error?.code === "SBW_ACTION_AUTHORITY_INDETERMINATE"
+    );
+  } finally {
+    process.env.PATH = priorPath;
+  }
+  await stat(providerMergeMarker);
+  const postInvocationStoppedMerge = (await inspectRun(root, started.runId)).actions.find(
+    (item) => item.tokenHash === postInvocationTokenHash
+  );
+  assert.equal(postInvocationStoppedMerge.status, "spent");
+  assert.equal(postInvocationStoppedMerge.outcome, "unknown");
+  assert.equal(postInvocationStoppedMerge.providerInvocation.dispatchState, "sent-or-indeterminate");
+  assert.equal(postInvocationStoppedMerge.providerInvocation.authorityGateStatus, "drifted-after-invocation");
+  assert.equal(postInvocationStoppedMerge.authorityFailure.kind, "post-invocation-action-authority-drift");
+  assert.equal(postInvocationStoppedMerge.authorityFailure.runId, started.runId);
+  assert.equal(postInvocationStoppedMerge.authorityFailure.actionAttemptId, postInvocationStoppedMerge.attemptId);
+  await unlink(path.join(runDir, "actions", `${postInvocationTokenHash}.json`));
+  await unlink(lateSupersessionTarget);
+  await unlink(providerMergeMarker);
   await unlink(providerInjectionMode);
   await unlink(providerCounter);
   assert.equal((await reviewStatus(root, started.runId)).complete, true);

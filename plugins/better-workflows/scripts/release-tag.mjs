@@ -958,7 +958,10 @@ export function assertWorkflowRunTerminal(record, label = "workflow run", { notA
 
 export function pullRequestTargetProviderBinding(run, { pullNumber, branch, headSha, headRef, bindAssociatedRunHead = true }) {
   const runPullRequests = Array.isArray(run?.pull_requests) ? run.pull_requests : null;
-  const associatedPull = runPullRequests?.find((pull) => Number(pull?.number) === Number(pullNumber)) ?? null;
+  const associatedPull = runPullRequests?.length === 1 &&
+    Number(runPullRequests[0]?.number) === Number(pullNumber)
+    ? runPullRequests[0]
+    : null;
   const runHeadSha = String(run?.head_sha ?? "").toLowerCase();
   const associatedBaseSha = String(associatedPull?.base?.sha ?? "").toLowerCase();
   const associatedBoundary = Boolean(associatedPull) &&
@@ -1218,8 +1221,10 @@ export async function verifyPolicyReceipt({
       token,
       fetchImpl
     });
-    const closedMergePull = Array.isArray(closedMergeRun?.pull_requests)
-      ? closedMergeRun.pull_requests.find((pull) => Number(pull?.number) === pullNumber)
+    const closedMergePull = Array.isArray(closedMergeRun?.pull_requests) &&
+      closedMergeRun.pull_requests.length === 1 &&
+      Number(closedMergeRun.pull_requests[0]?.number) === pullNumber
+      ? closedMergeRun.pull_requests[0]
       : null;
     const closedBinding = await fetchWorkflowRunCloseBindingArtifact({
       apiUrl,
@@ -1459,7 +1464,8 @@ export function pullRequestWorkflowObservation({ workflowRuns, pullNumber, expec
     run?.path === RELEASE_WORKFLOW_FILE &&
     run?.event === "pull_request" &&
     Array.isArray(run?.pull_requests) &&
-    run.pull_requests.some((pull) => {
+    run.pull_requests.length === 1 &&
+    [run.pull_requests[0]].some((pull) => {
       const baseRepository = String(
         pull?.base?.repo?.full_name ??
         pull?.base?.repository?.full_name ??

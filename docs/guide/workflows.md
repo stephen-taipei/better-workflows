@@ -89,11 +89,14 @@ The trusted `pull_request_target` pre-merge receipt is bound to the exact
 pre-merge policy artifact and PR boundary. A merged PR is reconciled by a
 durable `workflow_run` completion event for the successful trusted
 `pull_request_target` run; that event is bound to its trigger run, PR head,
-base, and merge commit. When GitHub omits the run's `pull_requests` association,
-reconciliation remains fail-closed: it accepts only one commit-associated,
-already-merged PR whose source branch and head SHA exactly match the provider
-run. The pre-merge status, run attempt, downloaded artifact digest, and all
-terminal timestamps must still predate the merge; the closed run must likewise
+base, and merge commit. A non-empty provider `pull_requests` association must
+contain exactly one PR and that sole PR must match every bound number, head,
+branch, base, and merge field; two associations are ambiguous even when one
+looks correct. Only an actually empty association may use sparse recovery, and
+then reconciliation remains fail-closed: it accepts exactly one
+commit-associated, already-merged PR whose source branch and head SHA match the
+provider run. The pre-merge status, run attempt, downloaded artifact digest,
+and all terminal timestamps must still predate the merge; the closed run must likewise
 match its immutable close-binding artifact. Missing, conflicting, post-merge,
 or multiply associated evidence is rejected. A one-minute poll is only a
 bounded fast path, never the sole opportunity to publish the merge-bound

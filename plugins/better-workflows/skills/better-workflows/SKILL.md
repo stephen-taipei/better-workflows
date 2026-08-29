@@ -285,10 +285,16 @@ effective journal-replayed evidence set and revalidate each selected record's
 current dependency fingerprints. A persisted `stale: false` field is never an
 authority source by itself. Action tokens additionally bind a canonical digest
 of every current typed record selected by the contract's complete configured
-gate, together with source, sentinel, policy, authority, and effective
-supersession state. The digest is recomputed at the final issuance boundary and
-again immediately before token consumption is persisted; any change blocks the
-action. If an autonomous commit encounters any supersession record, its
+gate, together with the immutable initial source anchor, replay-valid source
+transition chain, freshly captured source binding, content-complete sentinel,
+policy, authority, effective supersession state, and current evidence-backed
+P0/P1 finding dispositions. The digest is recomputed at the final issuance
+boundary, before token consumption, immediately before and after a governed
+provider call, and before successful reconciliation reservation and
+persistence. Pre-call drift is `not-sent`; post-call drift is an audited
+`unknown` bound to the invocation digest and cannot be retried or reconciled as
+success from the stale gate. If an autonomous commit encounters any
+supersession record, its
 reconciliation fails before provider reservation, source-state transition, or
 evidence mutation so both bound evidence byte streams remain unchanged.
 
@@ -390,7 +396,11 @@ receipt, or reconciliation probes. A `pr.create` wrapper failure after its
 preflight is `sent-or-indeterminate`, not immediate failure; an explicit
 preflight record marked `not-sent` can release `pull/new` directly, while a
 fresh pinned-provider absence proof may reconcile the same unknown attempt as
-failure.
+failure. If any configured evidence, finding disposition, source-transition,
+or sentinel authority changes after the wrapper has called the provider, the
+action record itself becomes terminal `unknown` and retains the provider
+invocation audit marker; never rewrite it to pending or invoke the provider a
+second time.
 Creation reservation, consume, release, and expiry-reap operations are
 serialized by a resource lease namespaced by provider repository, action, and
 resource, so unrelated repositories do not share a `pull/new` reservation. An

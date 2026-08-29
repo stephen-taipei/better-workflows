@@ -669,7 +669,10 @@ export function assertClosedPolicyReceiptBinding({ run, pull, binding, repositor
   const mergedAtMs = Date.parse(String(pull?.merged_at ?? ""));
   const terminalAtMs = workflowRunTerminalTime(run);
   const runPullRequests = Array.isArray(run?.pull_requests) ? run.pull_requests : null;
-  const associatedPull = runPullRequests?.find((item) => Number(item?.number) === pullNumber) ?? null;
+  const associatedPull = runPullRequests?.length === 1 &&
+    Number(runPullRequests[0]?.number) === pullNumber
+    ? runPullRequests[0]
+    : null;
   const runHeadSha = String(run?.head_sha ?? "").toLowerCase();
   const associatedProviderBinding = Boolean(associatedPull) &&
     String(associatedPull?.base?.ref ?? "") === branch &&
@@ -907,7 +910,10 @@ export async function findClosedMergeWorkflowRun({
     }
     if (returnedRunId !== candidateId) continue;
     const runPullRequests = Array.isArray(run?.pull_requests) ? run.pull_requests : null;
-    const associatedPull = runPullRequests?.find((item) => Number(item?.number) === normalizedPullNumber) ?? null;
+    const associatedPull = runPullRequests?.length === 1 &&
+      Number(runPullRequests[0]?.number) === normalizedPullNumber
+      ? runPullRequests[0]
+      : null;
     const runHeadSha = String(run?.head_sha ?? "").toLowerCase();
     const associatedProviderBinding = Boolean(associatedPull) &&
       String(associatedPull?.base?.ref ?? "") === normalizedBranch &&
@@ -998,7 +1004,8 @@ function sourceWorkflowRunMatches(run, {
       String(run.repository?.full_name ?? "") !== repository ||
       (workflowRunAttempt !== null && returnedRunAttempt !== String(workflowRunAttempt)) ||
       !Array.isArray(run.pull_requests)) return false;
-  const pull = run.pull_requests.find((item) => Number(item?.number) === Number(pullNumber));
+  if (run.pull_requests.length !== 1) return false;
+  const pull = run.pull_requests[0];
   if (!pull || String(pull.base?.ref ?? "") !== branch || String(pull.head?.sha ?? "").toLowerCase() !== headSha) return false;
   const baseSha = String(pull.base?.sha ?? "").toLowerCase();
   if (baseSha && (!/^[0-9a-f]{40}$/.test(baseSha) || String(run.head_sha).toLowerCase() !== baseSha)) return false;

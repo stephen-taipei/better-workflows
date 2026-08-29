@@ -724,6 +724,21 @@ test("workflow-run reconciliation requires the exact closed merge binding", () =
   };
   assert.doesNotThrow(() => assertClosedPolicyReceiptBinding({ repository: "example/repo", run, pull, binding }));
   assert.throws(
+    () => assertClosedPolicyReceiptBinding({
+      repository: "example/repo",
+      run: {
+        ...run,
+        pull_requests: [
+          ...run.pull_requests,
+          { number: 18, head: { sha: "d".repeat(40) }, base: { ref: "dev" } }
+        ]
+      },
+      pull,
+      binding
+    }),
+    /exact completed closed-and-merged pull-request-target run/
+  );
+  assert.throws(
     () => assertClosedPolicyReceiptBinding({ repository: "example/repo", run: { ...run, completed_at: undefined }, pull, binding }),
     /exact completed closed-and-merged pull-request-target run/
   );
@@ -860,6 +875,39 @@ test("delayed workflow-run reconciliation locates the exact closed merge run ins
   assert.equal(result.binding.workflowRunId, "99");
   assert.ok(calls.some((url) => url.endsWith("/actions/runs/99")));
   assert.ok(!calls.some((url) => url.endsWith("/actions/runs/43")));
+  await assert.rejects(
+    findClosedMergeWorkflowRun({
+      apiUrl: "https://api.github.com",
+      repository: "example/repo",
+      branch: "dev",
+      pullNumber: 17,
+      headSha,
+      mergeCommitSha,
+      mergedAt,
+      token: "token",
+      fetchImpl: async (url) => {
+        if (url.includes("/actions/workflows/ci.yml/runs?")) {
+          return { ok: true, status: 200, json: async () => ({ workflow_runs: [{ id: 99 }] }) };
+        }
+        if (url.endsWith("/actions/runs/99")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              ...closedRun,
+              pull_requests: [
+                ...closedRun.pull_requests,
+                { number: 18, head: { sha: "d".repeat(40) }, base: { ref: "dev" } }
+              ]
+            })
+          };
+        }
+        throw new Error(`Unexpected multiply-associated reconciliation URL: ${url}`);
+      },
+      fetchCloseBindingImpl: async () => binding
+    }),
+    /no exact completed closed-merge binding/
+  );
 });
 
 test("closed merge reconciliation queries both head and base workflow-run representations", async () => {
@@ -1098,6 +1146,48 @@ test("closed receipt polling waits for the exact pre-merge status within a bound
   assert.equal(source.policyArtifactDigest.length, 64);
   assert.deepEqual(sleeps, [5_000]);
   assert.equal(queries, 2);
+  const multiplyAssociated = await waitForSourcePolicyReceipt({
+    apiUrl: "https://api.github.com",
+    repository: "example/repo",
+    branch: "dev",
+    headSha,
+    pullNumber: 17,
+    token: "token",
+    attempts: 1,
+    fetchImpl: async (url) => url.endsWith("/actions/runs/42")
+      ? {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            id: 42,
+            run_attempt: 1,
+            path: ".github/workflows/ci.yml",
+            event: "pull_request_target",
+            status: "completed",
+            conclusion: "success",
+            head_sha: baseSha,
+            created_at: "2026-08-17T23:59:00Z",
+            completed_at: "2026-08-17T23:59:30Z",
+            repository: { full_name: "example/repo" },
+            pull_requests: [
+              { number: 17, head: { sha: headSha }, base: { ref: "dev", sha: baseSha } },
+              { number: 18, head: { sha: "e".repeat(40) }, base: { ref: "dev", sha: baseSha } }
+            ]
+          })
+        }
+      : { ok: true, status: 200, json: async () => [sourceStatus] },
+    fetchArtifactImpl: async ({ runId }) => withDownloadedArchiveDigest(buildPolicyReceiptArtifact({
+      repository: "example/repo",
+      branch: "dev",
+      headSha,
+      pullNumber: 17,
+      policy,
+      workflowRunId: runId,
+      eventAction: "synchronize",
+      observedAt: "2026-08-18T00:00:01Z"
+    }))
+  });
+  assert.equal(multiplyAssociated, null);
 });
 
 test("closed receipt polling accepts sparse provider metadata only with the exact source branch, run attempt, artifact, and pre-merge time", async () => {

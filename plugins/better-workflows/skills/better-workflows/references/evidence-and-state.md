@@ -83,15 +83,26 @@ Review finding and broad-review consumers select evidence only from that
 effective replay and then recompute the selected records' dependency
 fingerprints. Action issuance derives a canonical projection of every current
 typed record selected by the complete configured action gate. The projection
-also binds the contract authority, policy, persisted run source binding, live
-operational source binding, verified source sentinel, remote revision, and
-effective supersession set. A reconciled earlier action may deliberately change
-the live workspace; after a fresh verified sentinel, a later token binds that
-new operational state without rewriting the run's historical source anchor.
-The projection is checked again at the last issuance boundary and immediately
-before consumption is persisted; live source drift after issuance, or stale,
-missing, added, replaced, or dependency-drifted gate evidence, invalidates the
-token.
+also binds the contract authority, policy, initial source anchor, persisted and
+freshly captured source bindings, replay-valid append-only source-transition
+history, content-complete verified source sentinel, remote revision, effective
+supersession set, and the fresh evidence-backed dispositions of every P0/P1
+finding. The source sentinel hashes untracked file bytes as well as tracked
+state; replacing an untracked file with different same-size bytes is drift. A
+reconciled autonomous commit or explicit pre-review source rebind may advance
+the operational source only through its canonical journal-bound transition;
+the initial source anchor remains immutable.
+
+The complete projection is checked at the final issuance boundary,
+immediately before token consumption is persisted, immediately before a
+governed provider invocation, after that invocation before its result is
+persisted, and again before provider reservation and successful reconciliation
+persistence. Live source or transition drift, a sentinel mismatch, changed
+finding disposition, or stale, missing, added, replaced, superseded, or
+dependency-drifted gate evidence invalidates the action. Drift detected before
+the provider call is recorded as `not-sent`. Drift detected after a provider
+call is durably recorded as an audited `unknown` outcome with the exact
+invocation digest; it cannot authorize success or an automatic retry.
 
 An autonomous commit additionally appends exactly one
 `evidence.invalidated` parent for its action attempt. That parent binds the
@@ -144,7 +155,12 @@ requires complete lane coverage. Any later axis, verification, finding,
 coverage, or synthesis digest invalidates broad completion. This pilot cannot
 issue side-effect action tokens.
 
-Findings use only `open`, `resolved`, `accepted-risk` with owner/reason/future expiry, or `rejected-with-evidence`. P0 findings cannot be accepted automatically.
+Findings use only `open`, `resolved`, `accepted-risk` with
+owner/reason/future expiry, or `rejected-with-evidence`. P0 findings cannot be
+accepted automatically. Every resolved or rejected P0/P1 disposition is
+replayed against its current typed-evidence freshness both at action gates and
+at completion; a stale generic finding receipt cannot remain authoritative
+merely because the finding JSON still says `resolved`.
 
 Run states are:
 

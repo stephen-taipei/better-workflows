@@ -1546,6 +1546,7 @@ export async function createRun({ root = getStateRoot(), contract, requestedMode
       evaluationPurpose: contract.selfImprovePurpose ?? "ordinary",
       pluginCacheRoot: getCodexPluginCacheRoot(),
       sourceBinding,
+      initialSourceBindingDigest: sourceBinding?.digest ?? null,
       ...(contract.autonomyProfile
         ? {
             autonomyProfile: {
@@ -2812,7 +2813,7 @@ function validateFinding(record) {
 }
 
 async function assertFindingEvidence(root, run, runDir, record) {
-  if (!["resolved", "rejected-with-evidence"].includes(record.status)) return;
+  if (!["resolved", "rejected-with-evidence"].includes(record.status)) return null;
   if (run.contract.schemaVersion !== 2) {
     throw new Error("Resolved or rejected findings require typed evidence");
   }
@@ -2835,10 +2836,42 @@ async function assertFindingEvidence(root, run, runDir, record) {
     runDir,
     requireReconciled: true
   });
+  const freshness = await assertCurrentEvidenceFreshness(
+    run,
+    evidence,
+    "Finding disposition evidence"
+  );
   const payload = evidence.receipt?.payload;
   if (!Array.isArray(payload?.findingIds) || !payload.findingIds.includes(record.id)) {
     throw new Error("Finding disposition evidence is not bound to the finding");
   }
+  return {
+    findingId: record.id,
+    severity: record.severity,
+    status: record.status,
+    evidenceId: evidence.id,
+    evidenceDigest: digestObject(evidence),
+    freshnessProjectionDigest: freshness.projectionDigest
+  };
+}
+
+async function currentFindingDispositionBinding(root, runId, run) {
+  const findings = await listJsonRecords(root, safeJoin(run.runDir, "findings"));
+  const dispositions = [];
+  for (const finding of findings) {
+    validateFinding(finding);
+    if (["P0", "P1"].includes(finding.severity) && finding.status === "open") {
+      throw new Error("Action token denied by unresolved P0/P1 finding");
+    }
+    if (!["P0", "P1"].includes(finding.severity)) continue;
+    const binding = await assertFindingEvidence(root, run, run.runDir, finding);
+    if (binding) dispositions.push(binding);
+  }
+  dispositions.sort((left, right) => left.findingId.localeCompare(right.findingId));
+  return {
+    digest: digestObject(dispositions),
+    dispositions
+  };
 }
 
 export async function addFinding(root, runId, record, { update = false } = {}) {
@@ -3757,22 +3790,140 @@ async function currentEvidenceSupersessionFreshnessDigest(root, run) {
   return digestObject(projection);
 }
 
+async function currentActionSourceAuthorityBinding(root, run, action) {
+  const sourceBinding = run.manifest.sourceBinding ?? null;
+  if (!sourceBinding) {
+    if (run.manifest.initialSourceBindingDigest !== null && run.manifest.initialSourceBindingDigest !== undefined) {
+      throw new Error("Action token denied because the initial source binding is malformed");
+    }
+    return {
+      initialSourceBindingDigest: null,
+      sourceBindingDigest: null,
+      currentSourceBindingDigest: null,
+      sourceTransitionDigest: digestObject([]),
+      sourceTransitions: [],
+      sourceSentinelDigest: run.state.lastSentinel?.digest ?? null
+    };
+  }
+  if (
+    sourceBinding.schemaVersion !== 3 ||
+    !SHA256_DIGEST.test(sourceBinding.digest ?? "") ||
+    run.state.lastSentinelVerified !== true ||
+    run.state.lastSentinelComplete !== true ||
+    !SHA256_DIGEST.test(run.state.lastSentinel?.digest ?? "")
+  ) {
+    throw new Error("Action token denied because current source authority is incomplete");
+  }
+  const { captureSentinel, captureSourceBinding } = await import("./git.mjs");
+  const currentSourceBinding = await captureSourceBinding(run.manifest.cwd, {
+    baseRevision: sourceBinding.baseRevision,
+    requireClean: false
+  });
+  let autonomySnapshotDigest = null;
+  if (!currentSourceBinding) {
+    throw new Error("Action token denied because the current source binding is unavailable");
+  }
+  if (currentSourceBinding.digest !== sourceBinding.digest) {
+    if (
+      action !== "git.commit" || !run.contract.autonomyProfile ||
+      run.state.autonomy?.status !== "ready" || !run.state.autonomy?.snapshot
+    ) {
+      throw new Error("Action token denied because the current source binding changed outside a governed transition");
+    }
+    const snapshot = await currentAutonomySnapshot(run.manifest, run.contract, run.state);
+    assertAutonomySnapshotIdentity(snapshot, run.state.autonomy.snapshot, "Action source authority");
+    autonomySnapshotDigest = digestObject(snapshot);
+  }
+  const currentSentinel = await captureSentinel(run.manifest.cwd, run.contract, await loadDefaults());
+  if (!currentSentinel.complete || currentSentinel.digest !== run.state.lastSentinel.digest) {
+    throw new Error("Action token denied because the content-complete source sentinel changed");
+  }
+
+  const history = Array.isArray(run.manifest.sourceBindingHistory)
+    ? run.manifest.sourceBindingHistory
+    : [];
+  const initialSourceBindingDigest = run.manifest.initialSourceBindingDigest ??
+    history[0]?.from ?? sourceBinding.digest;
+  if (initialSourceBindingDigest !== null && !SHA256_DIGEST.test(initialSourceBindingDigest)) {
+    throw new Error("Action token denied because the initial source binding is malformed");
+  }
+  const journal = history.length > 0 ? await readJournalRecords(root, run.runDir) : [];
+  const actions = history.some((entry) => entry?.kind === "autonomous-commit")
+    ? await listJsonRecords(root, safeJoin(run.runDir, "actions"))
+    : [];
+  const transitions = [];
+  let prior = initialSourceBindingDigest;
+  for (const entry of history) {
+    if (
+      !entry || typeof entry !== "object" || Array.isArray(entry) ||
+      entry.from !== prior || !SHA256_DIGEST.test(entry.to ?? "") ||
+      !SHA.test(entry.headRevision ?? "") || !Number.isFinite(Date.parse(entry.at ?? ""))
+    ) {
+      throw new Error("Action token denied because source transition history is malformed");
+    }
+    if (entry.kind === "autonomous-commit") {
+      const action = actions.find((candidate) => candidate.attemptId === entry.actionAttemptId);
+      const journalEntry = journal.find((candidate) => (
+        candidate.event === "source-binding.autonomous-commit" &&
+        candidate.actionAttemptId === entry.actionAttemptId &&
+        candidate.from === entry.from && candidate.to === entry.to &&
+        candidate.headRevision === entry.headRevision
+      ));
+      if (
+        !action || action.action !== "git.commit" || action.provider !== "git" ||
+        action.status !== "spent" || action.outcome !== "success" ||
+        action.sourceBindingTransition?.from !== entry.from ||
+        action.sourceBindingTransition?.to !== entry.to ||
+        action.sourceBindingTransition?.headRevision !== entry.headRevision ||
+        !journalEntry
+      ) {
+        throw new Error("Action token denied because an autonomous source transition is not replay-valid");
+      }
+    } else {
+      const journalEntry = journal.find((candidate) => (
+        candidate.event === "source-binding.rebound" &&
+        candidate.from === entry.from && candidate.to === entry.to &&
+        candidate.headRevision === entry.headRevision && candidate.reason === entry.reason
+      ));
+      if (typeof entry.reason !== "string" || !entry.reason || !journalEntry) {
+        throw new Error("Action token denied because a source rebind is not replay-valid");
+      }
+    }
+    transitions.push({
+      kind: entry.kind ?? "source-rebind",
+      actionAttemptId: entry.actionAttemptId ?? null,
+      from: entry.from,
+      to: entry.to,
+      headRevision: entry.headRevision,
+      reason: entry.reason,
+      at: entry.at,
+      digest: digestObject(entry)
+    });
+    prior = entry.to;
+  }
+  if (prior !== sourceBinding.digest) {
+    throw new Error("Action token denied because source transition history does not reach the live source");
+  }
+  return {
+    initialSourceBindingDigest,
+    sourceBindingDigest: sourceBinding.digest,
+    currentSourceBindingDigest: currentSourceBinding.digest,
+    sourceTransitionDigest: digestObject(transitions),
+    sourceTransitions: transitions,
+    autonomySnapshotDigest,
+    sourceSentinelDigest: currentSentinel.digest
+  };
+}
+
 export async function currentActionEvidenceGateBinding(root, runId, run, action) {
   const configuredGate = run.contract.actionGates?.[action];
   if (!Array.isArray(configuredGate) || configuredGate.length === 0) {
     throw new Error(`No pre-action evidence gate is defined for: ${action}`);
   }
   const gateKinds = new Set(configuredGate);
-  let currentSourceBindingDigest = null;
-  if (run.manifest.sourceBinding) {
-    const { captureSourceBinding } = await import("./git.mjs");
-    const currentSourceBinding = await captureSourceBinding(run.manifest.cwd, {
-      baseRevision: run.manifest.sourceBinding.baseRevision,
-      requireClean: false
-    });
-    currentSourceBindingDigest = currentSourceBinding.digest;
-  }
+  const sourceAuthority = await currentActionSourceAuthorityBinding(root, run, action);
   const effective = await loadEffectiveEvidenceState(root, runId, { run });
+  const findingDispositionBinding = await currentFindingDispositionBinding(root, runId, run);
   const { validateTypedEvidenceRecord } = await import("./evidence.mjs");
   const selected = [];
   for (const record of effective.records.filter((item) => gateKinds.has(item.kind))) {
@@ -3825,12 +3976,18 @@ export async function currentActionEvidenceGateBinding(root, runId, run, action)
     contractDigest: digestObject(run.contract),
     authorityDigest: digestObject(run.contract.authority ?? null),
     policyDigest: canonicalEvidencePolicyDigest(run.contract),
-    sourceBindingDigest: run.manifest.sourceBinding?.digest ?? null,
-    currentSourceBindingDigest,
-    sourceSentinelDigest: run.state.lastSentinel?.digest ?? null,
+    initialSourceBindingDigest: sourceAuthority.initialSourceBindingDigest,
+    sourceBindingDigest: sourceAuthority.sourceBindingDigest,
+    currentSourceBindingDigest: sourceAuthority.currentSourceBindingDigest,
+    sourceTransitionDigest: sourceAuthority.sourceTransitionDigest,
+    sourceTransitions: sourceAuthority.sourceTransitions,
+    autonomySnapshotDigest: sourceAuthority.autonomySnapshotDigest ?? null,
+    sourceSentinelDigest: sourceAuthority.sourceSentinelDigest,
     remoteRevision: run.contract.remoteRevision ?? null,
     workflowVersion: VERSION,
     effectiveSupersessions: supersessions,
+    findingDispositionDigest: findingDispositionBinding.digest,
+    findingDispositions: findingDispositionBinding.dispositions,
     evidence: selected
   };
   return {
@@ -3838,6 +3995,33 @@ export async function currentActionEvidenceGateBinding(root, runId, run, action)
     digest: digestObject(projection),
     projection
   };
+}
+
+async function assertSpentActionEvidenceGate(root, runId, run, record, context) {
+  if (run.contract.schemaVersion !== 2) return null;
+  const configuredGate = run.contract.actionGates?.[record.action];
+  if (
+    record.status !== "spent" || !record.attemptId ||
+    !Array.isArray(configuredGate) || configuredGate.length === 0 ||
+    !Array.isArray(record.evidenceGate) ||
+    digestObject(record.evidenceGate) !== digestObject(configuredGate) ||
+    !SHA256_DIGEST.test(record.evidenceGateDigest ?? "") ||
+    !SHA256_DIGEST.test(record.evidenceSupersessionFreshnessDigest ?? "")
+  ) {
+    throw new Error(`${context} denied because the spent action evidence gate is unbound`);
+  }
+  const supersessionFreshnessDigest = await currentEvidenceSupersessionFreshnessDigest(root, run);
+  if (supersessionFreshnessDigest !== record.evidenceSupersessionFreshnessDigest) {
+    throw new Error(`${context} denied because immutable evidence freshness changed`);
+  }
+  const currentGate = await currentActionEvidenceGateBinding(root, runId, run, record.action);
+  if (currentGate.digest !== record.evidenceGateDigest) {
+    throw new Error(`${context} denied because the configured evidence gate changed`);
+  }
+  if (currentGate.projection.sourceSentinelDigest !== record.treeDigest) {
+    throw new Error(`${context} denied because the content-complete source sentinel changed`);
+  }
+  return currentGate;
 }
 
 export async function assertAutonomousCommitEvidenceInvalidationSafe(
@@ -4077,6 +4261,14 @@ export async function evaluateCompletion(root, runId) {
     }
   }
   for (const finding of findings) {
+    try {
+      validateFinding(finding);
+      if (["P0", "P1"].includes(finding.severity)) {
+        await assertFindingEvidence(root, { runDir, manifest, contract, state }, runDir, finding);
+      }
+    } catch (error) {
+      blockers.push(`invalid-finding-disposition:${finding.id}:${error.message}`);
+    }
     if (["P0", "P1"].includes(finding.severity) && finding.status === "open") {
       blockers.push(`open-${finding.severity}:${finding.id}`);
     }
@@ -9070,6 +9262,23 @@ function githubPreflightInvocation(runId, action, error) {
   };
 }
 
+function providerInvocationAuthorityFailure(action, invocation, error) {
+  return {
+    schemaVersion: 1,
+    kind: "post-invocation-action-authority-drift",
+    runId: action.runId,
+    actionAttemptId: action.attemptId,
+    action: action.action,
+    provider: action.provider,
+    resource: action.resource,
+    remoteRevision: action.remoteRevision,
+    providerInvocationId: invocation.id,
+    providerInvocationDigest: digestObject(invocation),
+    errorDigest: sha256(error?.message ?? "action authority drifted after provider invocation"),
+    observedAt: nowIso()
+  };
+}
+
 const WORKFLOW_DISPATCH_OBSERVATION_TIMEOUT_MS = 45 * 60 * 1000;
 const WORKFLOW_DISPATCH_POLL_INTERVAL_MS = 10 * 1000;
 const WORKFLOW_DISPATCH_PREFLIGHT_LEASE_MS = 5 * 60 * 1000;
@@ -9218,7 +9427,8 @@ async function observeDispatchedWorkflow(cwd, record, providerExecutablePath, ex
 
 async function persistActionProviderInvocation(root, runId, action, invocation, {
   journalEvent = "action.provider-invoked",
-  expectedProviderInvocation
+  expectedProviderInvocation,
+  requireAuthorityGate = false
 } = {}) {
   return withRunLock(root, runId, async ({ runDir }) => {
     const target = safeJoin(runDir, "actions", `${action.tokenHash}.json`);
@@ -9233,14 +9443,62 @@ async function persistActionProviderInvocation(root, runId, action, invocation, 
     if (digestObject(currentInvocation) !== digestObject(expectedInvocation)) {
       throw new Error("GitHub Actions provider invocation changed during resumable reconciliation");
     }
-    const next = { ...current, providerInvocation: invocation };
+    let authorityGateError = null;
+    if (requireAuthorityGate) {
+      try {
+        await assertSpentActionEvidenceGate(
+          root,
+          runId,
+          await loadRun(root, runId),
+          current,
+          "GitHub Actions provider result persistence"
+        );
+      } catch (error) {
+        authorityGateError = error;
+      }
+    }
+    const persistedInvocation = authorityGateError
+      ? {
+          ...invocation,
+          dispatchState: "sent-or-indeterminate",
+          authorityGateStatus: "drifted-after-invocation",
+          authorityGateErrorDigest: sha256(
+            authorityGateError?.message ?? "action authority drifted before provider result persistence"
+          )
+        }
+      : requireAuthorityGate
+        ? { ...invocation, authorityGateStatus: "verified", authorityGateErrorDigest: null }
+        : invocation;
+    const authorityFailure = authorityGateError
+      ? providerInvocationAuthorityFailure(current, persistedInvocation, authorityGateError)
+      : null;
+    const next = {
+      ...current,
+      providerInvocation: persistedInvocation,
+      ...(authorityFailure ? { outcome: "unknown", authorityFailure } : {})
+    };
     await atomicWriteJson(root, target, next);
     await appendJournal(root, runDir, journalEvent, {
       attemptId: action.attemptId,
-      invocationId: invocation.id,
-      dispatchState: invocation.dispatchState,
-      exitCode: invocation.exitCode
+      invocationId: persistedInvocation.id,
+      dispatchState: persistedInvocation.dispatchState,
+      exitCode: persistedInvocation.exitCode,
+      authorityGateStatus: persistedInvocation.authorityGateStatus ?? null
     });
+    if (authorityGateError) {
+      await appendJournal(root, runDir, "action.authority-drifted", {
+        attemptId: current.attemptId,
+        outcome: "unknown",
+        providerInvocationId: persistedInvocation.id,
+        authorityFailureDigest: digestObject(authorityFailure)
+      });
+      throw Object.assign(
+        new Error("GitHub Actions provider result is non-authorizing because action authority drifted", {
+          cause: authorityGateError
+        }),
+        { code: "SBW_ACTION_AUTHORITY_INDETERMINATE", providerInvocation: persistedInvocation }
+      );
+    }
     return next;
   }, { ttlMs: 300_000 });
 }
@@ -9509,6 +9767,20 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
     }
     // Persist the observation lower bound before the provider call. A crash
     // after the call but before its result is durable must still be resumable.
+    await withRunLock(root, runId, async () => {
+      const run = await loadRun(root, runId);
+      const current = await readJson(
+        root,
+        safeJoin(run.runDir, "actions", `${consumed.tokenHash}.json`)
+      );
+      await assertSpentActionEvidenceGate(
+        root,
+        runId,
+        run,
+        current,
+        "GitHub Actions dispatch provider invocation"
+      );
+    });
     consumed = await persistActionProviderInvocation(root, runId, consumed, workflowDispatchInvocation(runId, consumed, {
       startedAt,
       exitCode: null,
@@ -9520,39 +9792,123 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
       observationStartedAt: dispatchObservationStartedAt
     }));
     let exitCode = 0;
-    try {
-      await execBoundGitHubCli(providerExecutablePath, expectedCommand.slice(1), { cwd: manifest.cwd });
-    } catch (error) {
-      exitCode = Number.isInteger(error?.code) ? error.code : 1;
-      const failedInvocation = workflowDispatchInvocation(runId, consumed, {
-        startedAt,
-        exitCode,
-        dispatchState: "sent-or-indeterminate",
-        preexistingRunIds: existingRunIds,
-        dispatchedAt: nowIso(),
-        observationStartedAt: dispatchObservationStartedAt,
-        errorDigest: sha256(error?.message ?? "workflow dispatch failed")
-      });
-      consumed = await persistActionProviderInvocation(root, runId, consumed, failedInvocation);
-      throw Object.assign(
-        new Error("GitHub Actions dispatch invocation failed; provider state is indeterminate and automatic retry is prohibited", {
-          cause: error
+    let providerError = null;
+    let authorityGateError = null;
+    let dispatchedAt = null;
+    consumed = await withRunLock(root, runId, async ({ runDir }) => {
+      const run = await loadRun(root, runId);
+      const target = safeJoin(runDir, "actions", `${consumed.tokenHash}.json`);
+      const current = await readJson(root, target);
+      if (current.status !== "spent" || current.attemptId !== consumed.attemptId) {
+        throw new Error("GitHub Actions dispatch invocation is not bound to the consumed action attempt");
+      }
+      try {
+        await assertSpentActionEvidenceGate(
+          root,
+          runId,
+          run,
+          current,
+          "GitHub Actions dispatch provider invocation"
+        );
+      } catch (error) {
+        const notSent = {
+          ...workflowDispatchInvocation(runId, current, {
+            startedAt,
+            exitCode: null,
+            dispatchState: "not-sent",
+            preexistingRunIds: existingRunIds,
+            observationStartedAt: dispatchObservationStartedAt,
+            errorDigest: sha256(error?.message ?? "action authority drifted before dispatch")
+          }),
+          authorityGateStatus: "drifted-before-invocation",
+          authorityGateErrorDigest: sha256(error?.message ?? "action authority drifted before dispatch")
+        };
+        const next = { ...current, providerInvocation: notSent };
+        await atomicWriteJson(root, target, next);
+        await appendJournal(root, runDir, "action.provider-preflight-failed", {
+          attemptId: current.attemptId,
+          invocationId: notSent.id,
+          dispatchState: notSent.dispatchState,
+          authorityGateStatus: notSent.authorityGateStatus
+        });
+        throw error;
+      }
+      try {
+        await execBoundGitHubCli(providerExecutablePath, expectedCommand.slice(1), { cwd: manifest.cwd });
+      } catch (error) {
+        providerError = error;
+        exitCode = Number.isInteger(error?.code) ? error.code : 1;
+      }
+      dispatchedAt = nowIso();
+      try {
+        await assertSpentActionEvidenceGate(
+          root,
+          runId,
+          await loadRun(root, runId),
+          current,
+          "GitHub Actions dispatch provider result persistence"
+        );
+      } catch (error) {
+        authorityGateError = error;
+      }
+      const invocation = {
+        ...workflowDispatchInvocation(runId, current, {
+          startedAt,
+          exitCode,
+          dispatchState: "sent-or-indeterminate",
+          preexistingRunIds: existingRunIds,
+          dispatchedAt,
+          observationStartedAt: dispatchObservationStartedAt,
+          ...(providerError
+            ? { errorDigest: sha256(providerError?.message ?? "workflow dispatch failed") }
+            : {})
         }),
-        {
-          code: "SBW_ACTIONS_DISPATCH_INDETERMINATE",
-          providerInvocation: failedInvocation
-        }
+        authorityGateStatus: authorityGateError ? "drifted-after-invocation" : "verified",
+        authorityGateErrorDigest: authorityGateError
+          ? sha256(authorityGateError?.message ?? "action authority drifted after dispatch")
+          : null
+      };
+      const authorityFailure = authorityGateError
+        ? providerInvocationAuthorityFailure(current, invocation, authorityGateError)
+        : null;
+      const next = {
+        ...current,
+        providerInvocation: invocation,
+        ...(authorityFailure ? { outcome: "unknown", authorityFailure } : {})
+      };
+      await atomicWriteJson(root, target, next);
+      await appendJournal(root, runDir, "action.provider-invoked", {
+        attemptId: current.attemptId,
+        invocationId: invocation.id,
+        exitCode,
+        authorityGateStatus: invocation.authorityGateStatus
+      });
+      if (authorityFailure) {
+        await appendJournal(root, runDir, "action.authority-drifted", {
+          attemptId: current.attemptId,
+          outcome: "unknown",
+          providerInvocationId: invocation.id,
+          authorityFailureDigest: digestObject(authorityFailure)
+        });
+      }
+      return next;
+    }, { ttlMs: 300_000 });
+    if (authorityGateError) {
+      throw Object.assign(
+        new Error("GitHub Actions dispatch provider state is indeterminate because action authority drifted after invocation", {
+          cause: authorityGateError
+        }),
+        { code: "SBW_ACTION_AUTHORITY_INDETERMINATE", providerInvocation: consumed.providerInvocation }
       );
     }
-    const dispatchedAt = nowIso();
-    consumed = await persistActionProviderInvocation(root, runId, consumed, workflowDispatchInvocation(runId, consumed, {
-      startedAt,
-      exitCode,
-      dispatchState: "sent-or-indeterminate",
-      preexistingRunIds: existingRunIds,
-      dispatchedAt,
-      observationStartedAt: dispatchObservationStartedAt
-    }));
+    if (providerError) {
+      throw Object.assign(
+        new Error("GitHub Actions dispatch invocation failed; provider state is indeterminate and automatic retry is prohibited", {
+          cause: providerError
+        }),
+        { code: "SBW_ACTIONS_DISPATCH_INDETERMINATE", providerInvocation: consumed.providerInvocation }
+      );
+    }
     try {
       const persistCandidate = async (observedRunId) => {
         const currentInvocation = consumed.providerInvocation;
@@ -9566,7 +9922,8 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
           observedRunId
         });
         consumed = await persistActionProviderInvocation(root, runId, consumed, candidateInvocation, {
-          expectedProviderInvocation: currentInvocation
+          expectedProviderInvocation: currentInvocation,
+          requireAuthorityGate: true
         });
       };
       const workflowRun = await observeDispatchedWorkflow(
@@ -9587,9 +9944,12 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
         observedRunId: consumed.providerInvocation?.observedRunId,
         workflowRun
       });
-      consumed = await persistActionProviderInvocation(root, runId, consumed, completedInvocation);
+      consumed = await persistActionProviderInvocation(root, runId, consumed, completedInvocation, {
+        requireAuthorityGate: true
+      });
       return consumed;
     } catch (error) {
+      if (error?.code === "SBW_ACTION_AUTHORITY_INDETERMINATE") throw error;
       const indeterminateInvocation = workflowDispatchInvocation(runId, consumed, {
         startedAt,
         exitCode,
@@ -9600,7 +9960,9 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
         observedRunId: consumed.providerInvocation?.observedRunId,
         errorDigest: sha256(error?.message ?? "workflow run observation failed")
       });
-      consumed = await persistActionProviderInvocation(root, runId, consumed, indeterminateInvocation);
+      consumed = await persistActionProviderInvocation(root, runId, consumed, indeterminateInvocation, {
+        requireAuthorityGate: true
+      });
       throw error;
     }
   }
@@ -9650,6 +10012,13 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
       if (current.status !== "spent" || current.attemptId !== consumed.attemptId) {
         throw new Error("Git push provider invocation is not bound to the consumed action attempt");
       }
+      await assertSpentActionEvidenceGate(
+        root,
+        runId,
+        run,
+        current,
+        "Git push provider invocation"
+      );
       const startedAt = nowIso();
       let exitCode = 0;
       try {
@@ -9664,6 +10033,18 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
       } catch (error) {
         exitCode = Number.isInteger(error?.code) ? error.code : 1;
       }
+      let authorityGateError = null;
+      try {
+        await assertSpentActionEvidenceGate(
+          root,
+          runId,
+          await loadRun(root, runId),
+          current,
+          "Git push provider result persistence"
+        );
+      } catch (error) {
+        authorityGateError = error;
+      }
       const invocation = {
         schemaVersion: 1,
         id: `git-push-wrapper:${runId}:${consumed.attemptId}`,
@@ -9677,15 +10058,43 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
         startedAt,
         finishedAt: nowIso(),
         exitCode,
-        dispatchState: exitCode === 0 ? "sent" : "sent-or-indeterminate"
+        dispatchState: exitCode === 0 && !authorityGateError ? "sent" : "sent-or-indeterminate",
+        authorityGateStatus: authorityGateError ? "drifted-after-invocation" : "verified",
+        authorityGateErrorDigest: authorityGateError
+          ? sha256(authorityGateError?.message ?? "action authority drifted after provider invocation")
+          : null
       };
-      const next = { ...current, providerInvocation: invocation };
+      const authorityFailure = authorityGateError
+        ? providerInvocationAuthorityFailure(current, invocation, authorityGateError)
+        : null;
+      const next = {
+        ...current,
+        providerInvocation: invocation,
+        ...(authorityFailure ? { outcome: "unknown", authorityFailure } : {})
+      };
       await atomicWriteJson(root, target, next);
       await appendJournal(root, runDir, "action.provider-invoked", {
         attemptId: consumed.attemptId,
         invocationId: invocation.id,
-        exitCode
+        exitCode,
+        authorityGateStatus: invocation.authorityGateStatus
       });
+      if (authorityFailure) {
+        await appendJournal(root, runDir, "action.authority-drifted", {
+          attemptId: current.attemptId,
+          outcome: "unknown",
+          providerInvocationId: invocation.id,
+          authorityFailureDigest: digestObject(authorityFailure)
+        });
+      }
+      if (authorityGateError) {
+        throw Object.assign(
+          new Error("Git push provider state is indeterminate because action authority drifted after invocation", {
+            cause: authorityGateError
+          }),
+          { code: "SBW_ACTION_AUTHORITY_INDETERMINATE", providerInvocation: invocation }
+        );
+      }
       return next;
     }, { ttlMs: 300_000 });
   }
@@ -9709,6 +10118,13 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
       if (current.status !== "spent" || current.attemptId !== consumed.attemptId) {
         throw new Error("PR creation provider invocation is not bound to the consumed action attempt");
       }
+      await assertSpentActionEvidenceGate(
+        root,
+        runId,
+        run,
+        current,
+        "PR creation provider invocation"
+      );
       const startedAt = nowIso();
       let exitCode = 0;
       try {
@@ -9717,6 +10133,18 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
         });
       } catch (error) {
         exitCode = Number.isInteger(error?.code) ? error.code : 1;
+      }
+      let authorityGateError = null;
+      try {
+        await assertSpentActionEvidenceGate(
+          root,
+          runId,
+          await loadRun(root, runId),
+          current,
+          "PR creation provider result persistence"
+        );
+      } catch (error) {
+        authorityGateError = error;
       }
       const invocation = {
         schemaVersion: 1,
@@ -9730,15 +10158,43 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
         startedAt,
         finishedAt: nowIso(),
         exitCode,
-        dispatchState: exitCode === 0 ? "sent" : "sent-or-indeterminate"
+        dispatchState: exitCode === 0 && !authorityGateError ? "sent" : "sent-or-indeterminate",
+        authorityGateStatus: authorityGateError ? "drifted-after-invocation" : "verified",
+        authorityGateErrorDigest: authorityGateError
+          ? sha256(authorityGateError?.message ?? "action authority drifted after provider invocation")
+          : null
       };
-      const next = { ...current, providerInvocation: invocation };
+      const authorityFailure = authorityGateError
+        ? providerInvocationAuthorityFailure(current, invocation, authorityGateError)
+        : null;
+      const next = {
+        ...current,
+        providerInvocation: invocation,
+        ...(authorityFailure ? { outcome: "unknown", authorityFailure } : {})
+      };
       await atomicWriteJson(root, target, next);
       await appendJournal(root, runDir, "action.provider-invoked", {
         attemptId: consumed.attemptId,
         invocationId: invocation.id,
-        exitCode
+        exitCode,
+        authorityGateStatus: invocation.authorityGateStatus
       });
+      if (authorityFailure) {
+        await appendJournal(root, runDir, "action.authority-drifted", {
+          attemptId: current.attemptId,
+          outcome: "unknown",
+          providerInvocationId: invocation.id,
+          authorityFailureDigest: digestObject(authorityFailure)
+        });
+      }
+      if (authorityGateError) {
+        throw Object.assign(
+          new Error("PR creation provider state is indeterminate because action authority drifted after invocation", {
+            cause: authorityGateError
+          }),
+          { code: "SBW_ACTION_AUTHORITY_INDETERMINATE", providerInvocation: invocation }
+        );
+      }
       return next;
     }, { ttlMs: 300_000 });
   }
@@ -9791,6 +10247,13 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
           continuityDigest: current.reviewContinuityDigest
         });
       }
+      await assertSpentActionEvidenceGate(
+        root,
+        runId,
+        await loadRun(root, runId),
+        current,
+        "PR merge provider invocation"
+      );
     } catch (error) {
       if (!current.providerInvocation) {
         const invocation = githubPreflightInvocation(runId, consumed, error);
@@ -9811,6 +10274,18 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
     } catch (error) {
       exitCode = Number.isInteger(error?.code) ? error.code : 1;
     }
+    let authorityGateError = null;
+    try {
+      await assertSpentActionEvidenceGate(
+        root,
+        runId,
+        await loadRun(root, runId),
+        current,
+        "PR merge provider result persistence"
+      );
+    } catch (error) {
+      authorityGateError = error;
+    }
     const invocation = {
       schemaVersion: 1,
       id: `github-pr-merge-wrapper:${runId}:${consumed.attemptId}`,
@@ -9824,15 +10299,43 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
       startedAt,
       finishedAt: nowIso(),
       exitCode,
-      dispatchState: exitCode === 0 ? "sent" : "sent-or-indeterminate"
+      dispatchState: exitCode === 0 && !authorityGateError ? "sent" : "sent-or-indeterminate",
+      authorityGateStatus: authorityGateError ? "drifted-after-invocation" : "verified",
+      authorityGateErrorDigest: authorityGateError
+        ? sha256(authorityGateError?.message ?? "action authority drifted after provider invocation")
+        : null
     };
-    const next = { ...current, providerInvocation: invocation };
+    const authorityFailure = authorityGateError
+      ? providerInvocationAuthorityFailure(current, invocation, authorityGateError)
+      : null;
+    const next = {
+      ...current,
+      providerInvocation: invocation,
+      ...(authorityFailure ? { outcome: "unknown", authorityFailure } : {})
+    };
     await atomicWriteJson(root, target, next);
     await appendJournal(root, runDir, "action.provider-invoked", {
       attemptId: consumed.attemptId,
       invocationId: invocation.id,
-      exitCode
+      exitCode,
+      authorityGateStatus: invocation.authorityGateStatus
     });
+    if (authorityFailure) {
+      await appendJournal(root, runDir, "action.authority-drifted", {
+        attemptId: current.attemptId,
+        outcome: "unknown",
+        providerInvocationId: invocation.id,
+        authorityFailureDigest: digestObject(authorityFailure)
+      });
+    }
+    if (authorityGateError) {
+      throw Object.assign(
+        new Error("PR merge provider state is indeterminate because action authority drifted after invocation", {
+          cause: authorityGateError
+        }),
+        { code: "SBW_ACTION_AUTHORITY_INDETERMINATE", providerInvocation: invocation }
+      );
+    }
     return next;
   }, { ttlMs: 300_000 });
 }
@@ -10091,6 +10594,44 @@ const AUTONOMOUS_COMMIT_RECONCILE_FAILURE_POINTS = new Set([
   "evidence-invalidation"
 ]);
 
+async function persistActionAuthorityDriftUnknown(
+  root,
+  runDir,
+  record,
+  receipt,
+  error,
+  { providerExecutionReservationOutcome }
+) {
+  const observedAt = nowIso();
+  const authorityFailure = {
+    schemaVersion: 1,
+    kind: "post-invocation-action-authority-drift",
+    actionAttemptId: record.attemptId,
+    observedProviderOutcome: "success",
+    observedProviderExecutionId: receipt.providerReceipt.executionId,
+    observedProviderReceiptDigest: digestObject(receipt.providerReceipt),
+    providerExecutionReservationOutcome,
+    errorDigest: sha256(error?.message ?? "action authority drifted"),
+    observedAt
+  };
+  const next = {
+    ...record,
+    outcome: "unknown",
+    receipt: null,
+    reconciledAt: observedAt,
+    authorityFailure
+  };
+  await atomicWriteJson(root, safeJoin(runDir, "actions", `${record.tokenHash}.json`), next);
+  await appendJournal(root, runDir, "action.authority-drifted", {
+    attemptId: record.attemptId,
+    outcome: "unknown",
+    providerExecutionId: receipt.providerReceipt.executionId,
+    providerExecutionReservationOutcome,
+    authorityFailureDigest: digestObject(authorityFailure)
+  });
+  return next;
+}
+
 export async function reconcileAction(root, runId, attemptId, outcome, receipt = null, {
   failAfter = null
 } = {}) {
@@ -10226,6 +10767,7 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
         record.providerInvocation.adminBypass !== false ||
         record.providerInvocation.exitCode !== 0 ||
         record.providerInvocation.dispatchState === "not-sent" ||
+        String(record.providerInvocation.authorityGateStatus ?? "").startsWith("drifted-") ||
         digestObject(record.providerInvocation.providerExecutable) !== digestObject(record.providerExecutable) ||
         digestObject(record.providerInvocation.providerAuthorizationExecutable) !== digestObject(record.providerAuthorizationExecutable) ||
         JSON.stringify(record.providerInvocation.command) !== JSON.stringify(record.mergeCommand) ||
@@ -10240,6 +10782,7 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
         record.providerInvocation.provider !== "github-cli" ||
         (record.outcome !== "unknown" && record.providerInvocation.exitCode !== 0) ||
         record.providerInvocation.dispatchState === "not-sent" ||
+        String(record.providerInvocation.authorityGateStatus ?? "").startsWith("drifted-") ||
         digestObject(record.providerInvocation.providerExecutable) !== digestObject(record.providerExecutable) ||
         digestObject(record.providerInvocation.providerAuthorizationExecutable) !== digestObject(record.providerAuthorizationExecutable) ||
         digestObject(record.providerInvocation.providerAuthorization) !== digestObject(record.providerAuthorization) ||
@@ -10253,6 +10796,7 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
       (!record.providerInvocation ||
         record.providerInvocation.provider !== "git" ||
         record.providerInvocation.exitCode !== 0 ||
+        String(record.providerInvocation.authorityGateStatus ?? "").startsWith("drifted-") ||
         digestObject(record.providerInvocation.providerExecutable) !== digestObject(record.providerExecutable) ||
         digestObject(record.providerInvocation.providerAuthorizationExecutable) !== digestObject(record.providerAuthorizationExecutable) ||
         digestObject(record.providerInvocation.providerAuthorization) !== digestObject(record.providerAuthorization) ||
@@ -10274,6 +10818,7 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
       (!record.providerInvocation ||
         record.providerInvocation.provider !== "github-cli" ||
         record.providerInvocation.dispatchState !== "sent" ||
+        String(record.providerInvocation.authorityGateStatus ?? "").startsWith("drifted-") ||
         digestObject(record.providerInvocation.providerExecutable) !== digestObject(record.providerExecutable) ||
         digestObject(record.providerInvocation.providerAuthorizationExecutable) !== digestObject(record.providerAuthorizationExecutable) ||
         digestObject(record.providerInvocation.providerAuthorization) !== digestObject(record.providerAuthorization) ||
@@ -10326,11 +10871,66 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
       outcome === "success" &&
       record.autonomyDecision?.decision === "auto-approved"
     );
+    const sourceMutatingReconciliation = autonomousCommitTransitionRequired ||
+      (record.action === "worktree.cleanup" && outcome === "success");
+    if (outcome === "success" && run.contract.schemaVersion === 2 && !sourceMutatingReconciliation) {
+      try {
+        await assertSpentActionEvidenceGate(
+          root,
+          runId,
+          await loadRun(root, runId),
+          record,
+          "Action success reconciliation"
+        );
+      } catch (error) {
+        await reserveProviderExecution(root, record, receipt.providerReceipt.executionId, "unknown");
+        await persistActionAuthorityDriftUnknown(
+          root,
+          runDir,
+          record,
+          receipt,
+          error,
+          { providerExecutionReservationOutcome: "unknown" }
+        );
+        throw Object.assign(
+          new Error("Provider result is non-authorizing because action authority drifted before reconciliation", {
+            cause: error
+          }),
+          { code: "SBW_ACTION_AUTHORITY_INDETERMINATE" }
+        );
+      }
+    }
     if (autonomousCommitTransitionRequired) {
       await assertAutonomousCommitEvidenceInvalidationSafe(root, runId, { run });
     }
     await reserveProviderExecution(root, record, receipt.providerReceipt.executionId, outcome);
     await onBoundary("provider-reservation");
+    if (outcome === "success" && run.contract.schemaVersion === 2 && !sourceMutatingReconciliation) {
+      try {
+        await assertSpentActionEvidenceGate(
+          root,
+          runId,
+          await loadRun(root, runId),
+          record,
+          "Action success persistence"
+        );
+      } catch (error) {
+        await persistActionAuthorityDriftUnknown(
+          root,
+          runDir,
+          record,
+          receipt,
+          error,
+          { providerExecutionReservationOutcome: "success" }
+        );
+        throw Object.assign(
+          new Error("Provider result is non-authorizing because action authority drifted before persistence", {
+            cause: error
+          }),
+          { code: "SBW_ACTION_AUTHORITY_INDETERMINATE" }
+        );
+      }
+    }
     const autonomousCommitTransition = autonomousCommitTransitionRequired
       ? await transitionAutonomousCommitSourceBinding(root, runDir, run.contract, record, onBoundary)
       : null;

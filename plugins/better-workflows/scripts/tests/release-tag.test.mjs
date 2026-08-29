@@ -203,11 +203,11 @@ function successfulRequiredCheckResponse(url, sha, context = "test", pullNumber 
         conclusion: "success",
         created_at: "2026-08-14T23:30:00Z",
         completed_at: "2026-08-14T23:55:00Z",
-        pull_requests: Array.from({ length: 200 }, (_, index) => ({
-          number: index + 1,
+        pull_requests: [{
+          number: pullNumber,
           head: { sha },
           base: { ref: "dev", repo: { full_name: "example/repo" } }
-        }))
+        }]
       }]
     });
   }
@@ -268,11 +268,11 @@ function policyWorkflowResponse(url) {
     created_at: source ? "2026-08-14T23:30:00Z" : new Date(mergedMs + 60 * 1000).toISOString(),
     completed_at: source ? "2026-08-14T23:45:00Z" : closedAt,
     repository: { full_name: "example/repo" },
-    pull_requests: Array.from({ length: 200 }, (_, index) => ({
-      number: index + 1,
+    pull_requests: [{
+      number: latestPolicyReceiptMetadata.pullNumber,
       head: { sha: latestPolicyReceiptMetadata.headSha },
       base: { ref: latestPolicyReceiptMetadata.base, sha: latestPolicyReceiptMetadata.baseSha }
-    }))
+    }]
   };
   if (!source && policyWorkflowInProgressResponses > 0) policyWorkflowInProgressResponses -= 1;
   return jsonResponse(workflow);
@@ -436,6 +436,52 @@ test("workflow-run merge receipt requires its successful trusted trigger binding
     () => assertSourcePolicyArtifactDigest({ artifact: { sourcePolicyArtifactDigest: "f".repeat(64) }, sourceArtifact }),
     /source policy artifact digest mismatch/
   );
+});
+
+test("pull-request workflow bindings reject multiply associated provider runs", () => {
+  const headSha = "b".repeat(40);
+  const baseSha = "c".repeat(40);
+  const exactPull = {
+    number: 17,
+    base: { ref: "dev", sha: baseSha, repo: { full_name: "example/repo" } },
+    head: { sha: headSha }
+  };
+  const exactRun = {
+    path: ".github/workflows/ci.yml",
+    event: "pull_request",
+    status: "completed",
+    conclusion: "success",
+    completed_at: "2026-08-18T00:00:00Z",
+    head_sha: baseSha,
+    repository: { full_name: "example/repo" },
+    pull_requests: [exactPull]
+  };
+  assert.equal(pullRequestTargetProviderBinding(exactRun, {
+    pullNumber: 17,
+    branch: "dev",
+    headSha,
+    headRef: "codex/source"
+  }).matches, true);
+  const multiplyAssociated = {
+    ...exactRun,
+    pull_requests: [
+      exactPull,
+      { number: 18, base: { ref: "dev", sha: baseSha }, head: { sha: "d".repeat(40) } }
+    ]
+  };
+  assert.equal(pullRequestTargetProviderBinding(multiplyAssociated, {
+    pullNumber: 17,
+    branch: "dev",
+    headSha,
+    headRef: "codex/source"
+  }).matches, false);
+  assert.equal(pullRequestWorkflowObservation({
+    workflowRuns: [multiplyAssociated],
+    pullNumber: 17,
+    expectedPreMergeSha: headSha,
+    branch: "dev",
+    repository: "example/repo"
+  }).state, "missing");
 });
 
 test("workflow-run terminal evidence uses completed_at or the completed provider updated_at and preserves bounded ordering", () => {

@@ -326,26 +326,11 @@ function parseUntracked(statusOutput) {
     .map((record) => record.slice(2));
 }
 
-async function untrackedMetadata(cwd, paths, exclusions, maxFiles) {
-  const records = [];
-  const skipped = [];
-  for (const relative of [...new Set(paths)].sort()) {
-    if (excluded(relative, exclusions)) {
-      skipped.push({ path: relative, reason: "volatile-exclusion" });
-      continue;
-    }
-    if (records.length >= maxFiles) {
-      skipped.push({ path: relative, reason: "file-count-budget" });
-      continue;
-    }
-    try {
-      records.push({ path: relative, ...(await metadata(path.resolve(cwd, relative))) });
-    } catch (error) {
-      if (error.code !== "ENOENT") throw error;
-      records.push({ path: relative, type: "missing" });
-    }
-  }
-  return { records, skipped, digest: sha256(canonicalJson(records)) };
+async function untrackedMetadata(cwd, paths, exclusions, budget) {
+  // Untracked paths are part of the mutable source surface. Hash their bytes
+  // with the same bounded policy as tracked scope files; names, sizes, and
+  // mtimes alone cannot distinguish same-path content replacement.
+  return digestPaths(cwd, paths, budget, exclusions);
 }
 
 async function gitPath(cwd, name) {
@@ -707,7 +692,7 @@ export async function captureSentinel(cwd, contract, defaults, {
     repository,
     parseUntracked(status.stdout),
     exclusions,
-    budget.maxFiles
+    budget
   );
   const submodules = await captureStrictSubmoduleStatus(sourceGit, repository);
   const symlinks = await trackedSymlinks(repository);
