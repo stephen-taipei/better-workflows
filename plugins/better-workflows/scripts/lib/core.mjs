@@ -4066,7 +4066,12 @@ async function validateProviderActionSourceMutation(root, run, record, providerR
   ) {
     throw new Error("Provider action source transition is not bound to the issued evidence projection");
   }
-  const { captureSentinel, captureSourceBinding, runSourceGit } = await import("./git.mjs");
+  const {
+    captureSentinel,
+    captureSourceBinding,
+    normalizeSourceBindingWorktreeStatus,
+    runSourceGit
+  } = await import("./git.mjs");
   const currentSentinel = await captureSentinel(run.manifest.cwd, run.contract, await loadDefaults());
   const currentSourceBinding = await captureSourceBinding(run.manifest.cwd, {
     baseRevision: baseline.authority.sourceBinding.baseRevision,
@@ -4079,16 +4084,20 @@ async function validateProviderActionSourceMutation(root, run, record, providerR
     runSourceGit(run.manifest.cwd, ["status", "--porcelain=v2", "-z", "--untracked-files=all"]),
     runSourceGit(run.manifest.cwd, ["status", "--porcelain=v2", "-z", "--untracked-files=all", "--ignored"])
   ]);
+  const normalizedSourceBindingStatus = await normalizeSourceBindingWorktreeStatus(
+    run.manifest.cwd,
+    sourceBindingStatus.stdout
+  );
   if (
     sha256(sentinelStatus.stdout) !== currentSentinel.statusDigest ||
-    sha256(sourceBindingStatus.stdout) !== currentSourceBinding.worktreeStatusDigest
+    sha256(normalizedSourceBindingStatus) !== currentSourceBinding.worktreeStatusDigest
   ) {
     throw new Error("Provider action source changed during transition verification");
   }
   const expectedStatusType = record.action === "recipe.promote" ? "1" : "?";
   if (
     statusDigestOutsideMutation(sentinelStatus.stdout, relativePath, expectedStatusType) !== baseline.sentinel.statusDigest ||
-    statusDigestOutsideMutation(sourceBindingStatus.stdout, relativePath, expectedStatusType) !==
+    statusDigestOutsideMutation(normalizedSourceBindingStatus, relativePath, expectedStatusType) !==
       baseline.authority.sourceBinding.worktreeStatusDigest
   ) {
     throw new Error("Provider action source mutation includes undeclared Git status drift");

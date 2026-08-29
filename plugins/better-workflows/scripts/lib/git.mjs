@@ -6,6 +6,9 @@ const SOURCE_GIT_EXECUTABLE = "/usr/bin/git";
 const SOURCE_GIT_PATH = "/usr/bin:/bin:/usr/sbin:/sbin";
 const SOURCE_GIT_TIMEOUT_MS = 30_000;
 const SOURCE_GIT_MAX_BUFFER = 4 * 1024 * 1024;
+const MANAGED_RECIPE_ARTIFACT_ROOT = ".codex/better-workflows/artifacts";
+const MANAGED_RECIPE_ARTIFACT_MARKER = `${MANAGED_RECIPE_ARTIFACT_ROOT}/.gitignore`;
+const MANAGED_RECIPE_ARTIFACT_MARKER_BYTES = "*\n!.gitignore\n";
 
 function isolatedGitEnvironment() {
   return {
@@ -473,6 +476,67 @@ async function highRiskIgnored(cwd, requested, budget) {
   return digestPaths(cwd, paths, budget, []);
 }
 
+async function managedIgnoredSourceSurfaces(cwd) {
+  const tracked = await sourceGit(
+    cwd,
+    ["ls-files", "--error-unmatch", "--", MANAGED_RECIPE_ARTIFACT_MARKER],
+    { allowFailure: true }
+  );
+  if (tracked.ok !== true) {
+    if (isExactGitAbsence(tracked, { absentCodes: [1] })) return [];
+    throw new Error("Managed recipe artifact marker tracking is indeterminate");
+  }
+  if (tracked.stdout !== `${MANAGED_RECIPE_ARTIFACT_MARKER}\n`) {
+    throw new Error("Managed recipe artifact marker tracking returned malformed output");
+  }
+  const markerPath = path.join(cwd, ...MANAGED_RECIPE_ARTIFACT_MARKER.split("/"));
+  const info = await lstat(markerPath);
+  if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1) {
+    throw new Error("Managed recipe artifact marker is not a safe regular file");
+  }
+  const bytes = await readFile(markerPath, "utf8");
+  if (bytes !== MANAGED_RECIPE_ARTIFACT_MARKER_BYTES) {
+    throw new Error("Managed recipe artifact marker policy changed");
+  }
+  return [{
+    path: MANAGED_RECIPE_ARTIFACT_ROOT,
+    marker: MANAGED_RECIPE_ARTIFACT_MARKER,
+    markerDigest: sha256(bytes),
+    policy: "ignored-recipe-artifacts-v1"
+  }];
+}
+
+function normalizeManagedIgnoredStatus(stdout, surfaces) {
+  if (typeof stdout !== "string") throw new Error("Source binding status returned non-text output");
+  const parts = stdout.split("\0");
+  if (parts.at(-1) === "") parts.pop();
+  const managedRoots = new Set(surfaces.map((surface) => surface.path));
+  const retained = [];
+  for (let index = 0; index < parts.length; index += 1) {
+    const record = parts[index];
+    if (!record) throw new Error("Source binding status returned an empty porcelain record");
+    if (record.startsWith("2 ")) {
+      const original = parts[index + 1];
+      if (original === undefined) throw new Error("Source binding status returned a malformed rename record");
+      retained.push(record, original);
+      index += 1;
+      continue;
+    }
+    if (record.startsWith("! ")) {
+      const relative = record.slice(2).replace(/\/$/, "");
+      if ([...managedRoots].some((root) => relative === root || relative.startsWith(`${root}/`))) {
+        continue;
+      }
+    }
+    retained.push(record);
+  }
+  return retained.length > 0 ? `${retained.join("\0")}\0` : "";
+}
+
+export async function normalizeSourceBindingWorktreeStatus(cwd, stdout) {
+  return normalizeManagedIgnoredStatus(stdout, await managedIgnoredSourceSurfaces(cwd));
+}
+
 export async function captureSourceBinding(cwd, {
   baseRevision = null,
   requireClean = false,
@@ -516,7 +580,9 @@ export async function captureSourceBinding(cwd, {
   await assertNoLegacyGrafts(initialLayout.gitDir.path, initialLayout.gitCommonDir.path);
   assertCompleteGitAncestry(initialLayout);
 
-  const worktreeStatus = (await sourceGit(repository, ["status", "--porcelain=v2", "-z", "--untracked-files=all", "--ignored"])).stdout;
+  const managedIgnoredSurfaces = await managedIgnoredSourceSurfaces(repository);
+  const rawWorktreeStatus = (await sourceGit(repository, ["status", "--porcelain=v2", "-z", "--untracked-files=all", "--ignored"])).stdout;
+  const worktreeStatus = normalizeManagedIgnoredStatus(rawWorktreeStatus, managedIgnoredSurfaces);
   const hiddenIndex = await hiddenIndexEntries(repository, { isolatedConfig: true });
   const worktreeClean = worktreeStatus.length === 0 && hiddenIndex.records.length === 0;
   if (requireClean && !worktreeClean) {
@@ -571,7 +637,9 @@ export async function captureSourceBinding(cwd, {
       ])).stdout
     : "";
   if (beforeFinalCheck) await beforeFinalCheck({ repository, headRevision });
-  const finalWorktreeStatus = (await sourceGit(repository, ["status", "--porcelain=v2", "-z", "--untracked-files=all", "--ignored"])).stdout;
+  const finalManagedIgnoredSurfaces = await managedIgnoredSourceSurfaces(repository);
+  const finalRawWorktreeStatus = (await sourceGit(repository, ["status", "--porcelain=v2", "-z", "--untracked-files=all", "--ignored"])).stdout;
+  const finalWorktreeStatus = normalizeManagedIgnoredStatus(finalRawWorktreeStatus, finalManagedIgnoredSurfaces);
   const finalHiddenIndex = await hiddenIndexEntries(repository, { isolatedConfig: true });
   const finalOriginUrls = await localConfigValues(repository, "remote.origin.url");
   const finalOriginPushUrls = await localConfigValues(repository, "remote.origin.pushurl");
@@ -593,6 +661,7 @@ export async function captureSourceBinding(cwd, {
     JSON.stringify(finalLayout.gitCommonDir) !== JSON.stringify(initialLayout.gitCommonDir) ||
     finalWorktreeStatus !== worktreeStatus ||
     finalHiddenIndex.digest !== hiddenIndex.digest ||
+    canonicalJson(finalManagedIgnoredSurfaces) !== canonicalJson(managedIgnoredSurfaces) ||
     !sameOrigin ||
     finalHeadRef !== headRef ||
     finalOriginHeadRef !== originHeadRef
@@ -630,7 +699,8 @@ export async function captureSourceBinding(cwd, {
     worktreeStatusDigest: sha256(worktreeStatus),
     hiddenIndexDigest: hiddenIndex.digest,
     hiddenIndexCount: hiddenIndex.records.length,
-    diffManifestDigest
+    diffManifestDigest,
+    ...(managedIgnoredSurfaces.length > 0 ? { managedIgnoredSurfaces } : {})
   };
   return { ...stable, digest: sha256(canonicalJson(stable)) };
 }
