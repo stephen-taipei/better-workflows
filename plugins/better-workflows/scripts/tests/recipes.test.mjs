@@ -473,6 +473,45 @@ test("reference recipe completes governed promotion, dry-run, atomic run, artifa
     if (priorPromotionStateRoot === undefined) delete process.env.SBW_STATE_ROOT;
     else process.env.SBW_STATE_ROOT = priorPromotionStateRoot;
   }
+  const configRaceState = await mkdtemp(path.join(os.tmpdir(), "sbw-recipe-config-parent-race-"));
+  await cp(stateRoot, configRaceState, { recursive: true });
+  const workspaceConfigParent = path.join(cwd, ".codex", "better-workflows");
+  const displacedConfigParent = path.join(cwd, ".codex", "better-workflows-displaced");
+  const configAttackDirectory = path.join(cwd, ".git", "hooks");
+  const configAttackTarget = path.join(configAttackDirectory, "config.json");
+  const priorConfigRaceStateRoot = process.env.SBW_STATE_ROOT;
+  process.env.SBW_STATE_ROOT = configRaceState;
+  let configParentSwapped = false;
+  try {
+    await assert.rejects(access(configAttackTarget));
+    await assert.rejects(
+      recipePromote(cwd, "json-keyset-audit", {
+        run: runId,
+        attempt: attemptId,
+        confirmDigest: digest,
+        async onProviderBoundary(boundary) {
+          if (boundary !== "config-before-pinned-write") return;
+          await rename(workspaceConfigParent, displacedConfigParent);
+          await symlink(configAttackDirectory, workspaceConfigParent);
+          configParentSwapped = true;
+        }
+      }),
+      /process cwd is not the immutable destination parent|destination ancestry changed at the write boundary/
+    );
+    assert.equal(configParentSwapped, true);
+    await assert.rejects(access(configAttackTarget));
+  } finally {
+    if (configParentSwapped) {
+      await unlink(workspaceConfigParent);
+      await rename(displacedConfigParent, workspaceConfigParent);
+    }
+    if (priorConfigRaceStateRoot === undefined) delete process.env.SBW_STATE_ROOT;
+    else process.env.SBW_STATE_ROOT = priorConfigRaceStateRoot;
+  }
+  const unchangedRaceConfig = JSON.parse(
+    await readFile(path.join(workspaceConfigParent, "config.json"), "utf8")
+  );
+  assert.equal(unchangedRaceConfig.enabled, false);
   const promoted = await cli(cwd, stateRoot, [
     "recipe",
     "promote",
@@ -606,7 +645,7 @@ test("reference recipe completes governed promotion, dry-run, atomic run, artifa
   assert.notEqual(authorityAliasAttempt.code, 0);
   assert.match(authorityAliasAttempt.stderr, /safe tracked repo-relative path outside Git authority/);
   await assert.rejects(access(path.join(cwd, ".git", "hooks", "better-workflows-artifact-attack")));
-  const destination = "reports/keyset-report.md";
+  const destination = "reports/nested-pinned-parent/keyset-report.md";
   const artifactAttemptId = await issueAndConsume(
     cwd,
     stateRoot,
@@ -614,7 +653,8 @@ test("reference recipe completes governed promotion, dry-run, atomic run, artifa
     "artifact.promote",
     `artifact:${executed.json.receiptId}:report-markdown:${destination}`
   );
-  const destinationParent = path.join(cwd, "reports");
+  const destinationAncestor = path.join(cwd, "reports");
+  const destinationParent = path.join(destinationAncestor, "nested-pinned-parent");
   const gitHooks = path.join(cwd, ".git", "hooks");
   const priorStateRoot = process.env.SBW_STATE_ROOT;
   process.env.SBW_STATE_ROOT = stateRoot;
@@ -644,8 +684,38 @@ test("reference recipe completes governed promotion, dry-run, atomic run, artifa
         /unresolved P0\/P1 finding|non-source action authority changed/
       );
       await assert.rejects(access(path.join(cwd, destination)));
+      await assert.rejects(access(destinationAncestor));
     } finally {
       process.env.SBW_STATE_ROOT = stateRoot;
+    }
+    await mkdir(destinationAncestor, { mode: 0o755 });
+    const displacedAncestor = path.join(cwd, "reports-parent-create-displaced");
+    let ancestorSwapped = false;
+    try {
+      await assert.rejects(
+        recipeArtifactPromote(
+          cwd,
+          executed.json.receiptId,
+          "report-markdown",
+          destination,
+          {
+            async onDestinationBoundary(boundary, details) {
+              if (boundary !== "before-parent-create" || details.component !== "nested-pinned-parent") return;
+              await rename(destinationAncestor, displacedAncestor);
+              await symlink(gitHooks, destinationAncestor);
+              ancestorSwapped = true;
+            }
+          }
+        ),
+        /process cwd is not the immutable destination parent|destination ancestry changed at the write boundary/
+      );
+      assert.equal(ancestorSwapped, true);
+      await assert.rejects(access(path.join(gitHooks, "nested-pinned-parent")));
+    } finally {
+      if (ancestorSwapped) {
+        await unlink(destinationAncestor);
+        await rename(displacedAncestor, destinationAncestor);
+      }
     }
     for (const boundary of ["before-copy", "before-link", "after-parent-check"]) {
       const displacedParent = path.join(cwd, `reports-${boundary}`);

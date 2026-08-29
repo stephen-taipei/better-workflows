@@ -2748,6 +2748,30 @@ test("owned-resource registration forwards the creation action tree binding to p
   assert.ok(treeBindingIndex > verificationIndex);
 });
 
+test("provider execution reservations durably sync directory entries before reconciliation advances", async () => {
+  const source = await readFile(new URL("../lib/core.mjs", import.meta.url), "utf8");
+  const reservationStart = source.indexOf("async function reserveProviderExecution");
+  const reservationEnd = source.indexOf("function validateCreationReservationIdentity", reservationStart);
+  const directoryCreate = source.indexOf("await mkdir(directory, { mode: 0o700 })", reservationStart);
+  const rootDirectorySync = source.indexOf("if (directoryCreated) await fsyncDirectory(root)", directoryCreate);
+  const reservationOpen = source.indexOf('const handle = await open(target, "wx", 0o600)', rootDirectorySync);
+  const reservationFileSync = source.indexOf("await handle.sync()", reservationOpen);
+  const reservationDirectorySync = source.indexOf("await fsyncDirectory(directory)", reservationFileSync);
+  const reconcileStart = source.indexOf("export async function reconcileAction");
+  const reservationCall = source.indexOf("await reserveProviderExecution(root, record, receipt.providerReceipt.executionId, outcome)", reconcileStart);
+  const providerBoundary = source.indexOf('await onBoundary("provider-reservation")', reservationCall);
+
+  assert.ok(reservationStart >= 0);
+  assert.ok(directoryCreate > reservationStart);
+  assert.ok(rootDirectorySync > directoryCreate);
+  assert.ok(reservationOpen > rootDirectorySync);
+  assert.ok(reservationFileSync > reservationOpen);
+  assert.ok(reservationDirectorySync > reservationFileSync);
+  assert.ok(reservationDirectorySync < reservationEnd);
+  assert.ok(reservationCall > reconcileStart);
+  assert.ok(providerBoundary > reservationCall);
+});
+
 test("GitHub Actions dispatch reconciliation resumes an indeterminate observation exactly once", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "sbw-actions-dispatch-resume-"));
   const repository = path.join(root, "repository");

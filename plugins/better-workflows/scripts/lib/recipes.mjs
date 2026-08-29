@@ -1017,26 +1017,79 @@ function parityDigest(execution) {
   });
 }
 
-async function writeWorkspaceJson(root, target, value) {
-  pathContained(root, target, "workspace JSON");
-  await assertSafeDestination(root, target);
-  if (await exists(target)) {
-    const info = await lstat(target);
-    if (info.isSymbolicLink() || !info.isFile() || info.nlink !== 1) {
+async function readWorkspaceFileRecord(target) {
+  let handle;
+  try {
+    handle = await open(target, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+  } catch (error) {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  }
+  try {
+    const info = await handle.stat();
+    if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1) {
       throw recipeError(`unsafe workspace JSON target: ${target}`);
     }
-  }
-  const parent = path.dirname(target);
-  await mkdir(parent, { recursive: true });
-  const temp = path.join(parent, `.${path.basename(target)}.${randomBytes(6).toString("hex")}.tmp`);
-  const handle = await open(temp, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL, 0o600);
-  try {
-    await handle.writeFile(`${JSON.stringify(value, null, 2)}\n`, "utf8");
-    await handle.sync();
+    const bytes = await handle.readFile();
+    return {
+      identity: filesystemIdentity(info),
+      nlink: info.nlink,
+      size: info.size,
+      sha256: sha256(bytes)
+    };
   } finally {
     await handle.close();
   }
-  await rename(temp, target);
+}
+
+async function writeWorkspaceJson(root, target, value, { onBoundary = null } = {}) {
+  if (onBoundary !== null && typeof onBoundary !== "function") {
+    throw recipeError("workspace JSON boundary hook must be a function");
+  }
+  pathContained(root, target, "workspace JSON");
+  const parentChain = await assertSafeDestination(root, target, new Set(), {
+    requireCompleteParent: true
+  });
+  const parent = path.dirname(target);
+  const parentIdentity = parentChain.at(-1)?.identity;
+  if (!/^\d+:\d+$/.test(parentIdentity ?? "")) {
+    throw recipeError("workspace JSON parent identity is missing");
+  }
+  const priorTarget = await readWorkspaceFileRecord(target);
+  const bytes = Buffer.from(`${JSON.stringify(value, null, 2)}\n`, "utf8");
+  const artifact = {
+    sha256: sha256(bytes),
+    bytes: bytes.length
+  };
+  if (onBoundary) {
+    await onBoundary("before-pinned-write", { target, parent, parentIdentity, priorTarget });
+  }
+  const published = await runPinnedArtifactPublisher({
+    mode: "replace",
+    parent,
+    parentIdentity,
+    targetName: path.basename(target),
+    temporaryName: `.sbw-workspace-json-${randomBytes(16).toString("hex")}.tmp`,
+    artifact,
+    artifactBytes: bytes,
+    targetIdentity: priorTarget?.identity ?? null,
+    priorTarget
+  });
+  if (onBoundary) {
+    await onBoundary("after-pinned-write", { target, parent, parentIdentity, priorTarget, receipt: published });
+  }
+  await assertSafeDestination(root, target, new Set(), {
+    expectedParentChain: parentChain,
+    requireCompleteParent: true
+  });
+  const current = await readWorkspaceFileRecord(target);
+  if (
+    !current || current.identity !== published.target.identity ||
+    current.sha256 !== artifact.sha256 || current.size !== artifact.bytes
+  ) {
+    throw recipeError("workspace JSON changed at the final pinned write boundary");
+  }
+  return current;
 }
 
 export async function recipeInit(cwd) {
@@ -1381,7 +1434,16 @@ export async function recipePromote(cwd, id, options) {
     await ensurePrivateDir(paths.root);
     await atomicWriteJson(stateRoot, paths.trust, trust);
     if (liveConfig.enabled !== true) {
-      await writeWorkspaceJson(recipe.root, recipe.paths.config, { ...liveConfig, enabled: true });
+      await writeWorkspaceJson(
+        recipe.root,
+        recipe.paths.config,
+        { ...liveConfig, enabled: true },
+        {
+          onBoundary: onProviderBoundary
+            ? async (boundary, details) => onProviderBoundary(`config-${boundary}`, details)
+            : null
+        }
+      );
     }
     afterConfig = validateConfig(JSON.parse(await readFile(recipe.paths.config, "utf8")));
   }, { ttlMs: 300_000 });
@@ -1608,7 +1670,8 @@ async function runPinnedArtifactPublisher({
   temporaryName,
   artifact,
   artifactBytes,
-  targetIdentity = null
+  targetIdentity = null,
+  priorTarget = null
 }) {
   const args = [
     ARTIFACT_PUBLISHER_PATH,
@@ -1618,7 +1681,9 @@ async function runPinnedArtifactPublisher({
     temporaryName,
     artifact.sha256,
     String(artifact.bytes),
-    targetIdentity ?? "-"
+    targetIdentity ?? "-",
+    priorTarget?.sha256 ?? "-",
+    priorTarget ? String(priorTarget.size) : "-"
   ];
   const child = spawn(process.execPath, args, {
     cwd: parent,
@@ -1660,7 +1725,7 @@ async function runPinnedArtifactPublisher({
       resolve({ code, signal });
     });
   });
-  child.stdin.end(mode === "link" ? artifactBytes : undefined);
+  child.stdin.end(["link", "replace"].includes(mode) ? artifactBytes : undefined);
   const result = await completion;
   if (outputExceeded) throw recipeError("pinned artifact publisher output exceeded 64 KiB");
   if (result.code !== 0 || result.signal) {
@@ -1680,6 +1745,73 @@ async function runPinnedArtifactPublisher({
     !/^\d+:\d+$/.test(payload.target?.identity ?? "")
   ) {
     throw recipeError("pinned artifact publisher receipt is not bound to the requested artifact");
+  }
+  return payload;
+}
+
+async function runPinnedDestinationParentCreator({ parent, parentIdentity, component }) {
+  const args = [
+    ARTIFACT_PUBLISHER_PATH,
+    "mkdir",
+    parentIdentity,
+    component
+  ];
+  const child = spawn(process.execPath, args, {
+    cwd: parent,
+    shell: false,
+    stdio: ["ignore", "pipe", "pipe"],
+    env: {
+      LANG: "C.UTF-8",
+      LC_ALL: "C.UTF-8",
+      TZ: "UTC",
+      NODE_NO_WARNINGS: "1"
+    }
+  });
+  let stdout = Buffer.alloc(0);
+  let stderr = Buffer.alloc(0);
+  let outputExceeded = false;
+  const append = (current, chunk) => {
+    const next = Buffer.concat([current, chunk]);
+    if (next.length > 64 * 1024) {
+      outputExceeded = true;
+      child.kill("SIGKILL");
+      return next.subarray(0, 64 * 1024);
+    }
+    return next;
+  };
+  child.stdout.on("data", (chunk) => { stdout = append(stdout, chunk); });
+  child.stderr.on("data", (chunk) => { stderr = append(stderr, chunk); });
+  const result = await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(recipeError("pinned destination parent creator timed out"));
+    }, 300_000);
+    child.once("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.once("close", (code, signal) => {
+      clearTimeout(timer);
+      resolve({ code, signal });
+    });
+  });
+  if (outputExceeded) throw recipeError("pinned destination parent creator output exceeded 64 KiB");
+  if (result.code !== 0 || result.signal) {
+    throw recipeError(
+      `pinned destination parent creator failed${stderr.length ? `: ${stderr.toString("utf8").trim()}` : ""}`
+    );
+  }
+  let payload;
+  try {
+    payload = JSON.parse(stdout.toString("utf8"));
+  } catch {
+    throw recipeError("pinned destination parent creator returned invalid JSON");
+  }
+  if (
+    payload?.ok !== true || payload.parentIdentity !== parentIdentity ||
+    payload.state !== "directory-ready" || !/^\d+:\d+$/.test(payload.child?.identity ?? "")
+  ) {
+    throw recipeError("pinned destination parent receipt is not bound to the requested component");
   }
   return payload;
 }
@@ -1794,34 +1926,40 @@ async function publishArtifactWithIntent({
       pending.action,
       "Artifact promotion provider invocation"
     );
-    const checkedParentChain = await assertSafeDestination(
+    let checkedParentChain = await assertSafeDestination(
       workspace.root,
       target,
       protectedIdentities,
-      { expectedParentChain: parentChain, requireCompleteParent: true }
+      { expectedParentChain: parentChain }
     );
     const parent = path.dirname(target);
     const parentRelative = path.relative(workspace.root, parent).split(path.sep).join("/") || ".";
-    const parentIdentity = checkedParentChain.at(-1)?.identity;
-    if (!/^\d+:\d+$/.test(parentIdentity ?? "")) {
-      throw recipeError("artifact destination parent identity is missing");
-    }
     const targetName = path.basename(target);
     const publisherDigest = sha256(await readFile(ARTIFACT_PUBLISHER_PATH));
     const intentPath = artifactPublicationIntentPath(run.runDir, action);
     let intent = await exists(intentPath) ? await readJson(stateRoot, intentPath) : null;
-    const expected = {
-      runIdValue: pending.runId,
-      action,
-      normalized,
-      parentRelative,
-      parentIdentity,
-      targetName,
-      artifact,
-      publisherDigest
-    };
     const currentSentinel = await captureSentinel(workspace.root, run.contract, await loadDefaults());
     if (intent) {
+      checkedParentChain = await assertSafeDestination(
+        workspace.root,
+        target,
+        protectedIdentities,
+        { expectedParentChain: checkedParentChain, requireCompleteParent: true }
+      );
+      const parentIdentity = checkedParentChain.at(-1)?.identity;
+      if (!/^\d+:\d+$/.test(parentIdentity ?? "")) {
+        throw recipeError("artifact destination parent identity is missing");
+      }
+      const expected = {
+        runIdValue: pending.runId,
+        action,
+        normalized,
+        parentRelative,
+        parentIdentity,
+        targetName,
+        artifact,
+        publisherDigest
+      };
       intent = validateArtifactPublicationIntent(intent, expected);
       if (currentSentinel.digest === action.treeDigest) {
         await assertSpentActionProviderAuthority(
@@ -1860,6 +1998,27 @@ async function publishArtifactWithIntent({
       if (currentSentinel.digest !== action.treeDigest) {
         throw recipeError("artifact promotion source changed before publication intent creation");
       }
+      checkedParentChain = await ensureSafeDestinationParents(
+        workspace.root,
+        target,
+        protectedIdentities,
+        checkedParentChain,
+        onDestinationBoundary
+      );
+      const parentIdentity = checkedParentChain.at(-1)?.identity;
+      if (!/^\d+:\d+$/.test(parentIdentity ?? "")) {
+        throw recipeError("artifact destination parent identity is missing");
+      }
+      const expected = {
+        runIdValue: pending.runId,
+        action,
+        normalized,
+        parentRelative,
+        parentIdentity,
+        targetName,
+        artifact,
+        publisherDigest
+      };
       const binding = artifactPublicationBinding({
         ...expected,
         temporaryName: `.sbw-artifact-${randomBytes(16).toString("hex")}.tmp`
@@ -1875,6 +2034,24 @@ async function publishArtifactWithIntent({
         updatedAt: nowIso()
       }, "action.local-provider-intent-prepared");
     }
+    const parentIdentity = checkedParentChain.at(-1)?.identity;
+    if (!/^\d+:\d+$/.test(parentIdentity ?? "")) {
+      throw recipeError("artifact destination parent identity is missing");
+    }
+    if (onDestinationBoundary) {
+      await onDestinationBoundary("before-copy", { target, parent, intent });
+    }
+    checkedParentChain = await assertSafeDestination(workspace.root, target, protectedIdentities, {
+      expectedParentChain: checkedParentChain,
+      requireCompleteParent: true
+    });
+    if (onDestinationBoundary) {
+      await onDestinationBoundary("before-link", { target, parent, intent });
+    }
+    checkedParentChain = await assertSafeDestination(workspace.root, target, protectedIdentities, {
+      expectedParentChain: checkedParentChain,
+      requireCompleteParent: true
+    });
     if (onDestinationBoundary) {
       await onDestinationBoundary("after-parent-check", { target, parent, intent });
     }
@@ -1978,7 +2155,6 @@ export async function recipeArtifactPromote(
     pendingRun.contract,
     await loadDefaults()
   );
-  const targetExists = await exists(target);
   if (!currentSentinel.complete) {
     throw recipeError("artifact promotion action tree binding is stale or incomplete");
   }
@@ -2019,42 +2195,6 @@ export async function recipeArtifactPromote(
     }
     return { ok: true, receiptId, artifactId, destination: normalized, sha256: artifact.sha256 };
   }
-  if (targetExists) {
-    if (onDestinationBoundary) {
-      await onDestinationBoundary("before-existing-read", { target, parent: path.dirname(target) });
-    }
-    parentChain = await assertSafeDestination(workspace.root, target, protectedIdentities, {
-      expectedParentChain: parentChain,
-      requireCompleteParent: true
-    });
-  } else {
-    if (onDestinationBoundary) {
-      await onDestinationBoundary("before-mkdir", { target, parent: path.dirname(target) });
-    }
-    parentChain = await assertSafeDestination(workspace.root, target, protectedIdentities, {
-      expectedParentChain: parentChain
-    });
-    parentChain = await ensureSafeDestinationParents(
-      workspace.root,
-      target,
-      protectedIdentities,
-      parentChain
-    );
-  }
-  if (onDestinationBoundary) {
-    await onDestinationBoundary("before-copy", { target, parent: path.dirname(target) });
-  }
-  parentChain = await assertSafeDestination(workspace.root, target, protectedIdentities, {
-    expectedParentChain: parentChain,
-    requireCompleteParent: true
-  });
-  if (onDestinationBoundary) {
-    await onDestinationBoundary("before-link", { target, parent: path.dirname(target) });
-  }
-  parentChain = await assertSafeDestination(workspace.root, target, protectedIdentities, {
-    expectedParentChain: parentChain,
-    requireCompleteParent: true
-  });
   if (onDestinationBoundary) {
     await onDestinationBoundary("before-authority-replay", { target, parent: path.dirname(target) });
   }
@@ -2231,20 +2371,54 @@ async function assertSafeDestination(
   return parentChain;
 }
 
-async function ensureSafeDestinationParents(root, target, protectedIdentities, expectedParentChain) {
+async function ensureSafeDestinationParents(
+  root,
+  target,
+  protectedIdentities,
+  expectedParentChain,
+  onDestinationBoundary = null
+) {
   const parent = path.dirname(target);
   let parentChain = expectedParentChain;
   let current = path.resolve(root);
   for (const component of path.relative(root, parent).split(path.sep).filter(Boolean)) {
     current = path.join(current, component);
-    if (await exists(current)) continue;
-    await assertSafeDestination(root, target, protectedIdentities, {
+    const verified = await assertSafeDestination(root, target, protectedIdentities, {
       expectedParentChain: parentChain
     });
-    await mkdir(current, { mode: 0o755 }).catch((error) => {
-      if (error.code !== "EEXIST") throw error;
+    parentChain = verified;
+    if (await exists(current)) continue;
+    const pinnedParent = path.dirname(current);
+    const pinnedParentIdentity = parentChain.at(-1)?.identity;
+    if (!/^\d+:\d+$/.test(pinnedParentIdentity ?? "")) {
+      throw recipeError("artifact destination ancestor identity is missing");
+    }
+    if (onDestinationBoundary) {
+      await onDestinationBoundary("before-parent-create", {
+        target,
+        parent: pinnedParent,
+        component,
+        parentIdentity: pinnedParentIdentity
+      });
+    }
+    const receipt = await runPinnedDestinationParentCreator({
+      parent: pinnedParent,
+      parentIdentity: pinnedParentIdentity,
+      component
     });
+    if (onDestinationBoundary) {
+      await onDestinationBoundary("after-parent-create", {
+        target,
+        parent: pinnedParent,
+        component,
+        parentIdentity: pinnedParentIdentity,
+        receipt
+      });
+    }
     parentChain = await assertSafeDestination(root, target, protectedIdentities);
+    if (parentChain.at(-1)?.identity !== receipt.child.identity) {
+      throw recipeError("artifact destination component changed after pinned creation");
+    }
   }
   return assertSafeDestination(root, target, protectedIdentities, {
     expectedParentChain: parentChain,

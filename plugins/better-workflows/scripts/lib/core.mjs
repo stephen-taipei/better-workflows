@@ -1968,7 +1968,19 @@ export function assertProviderReceiptShape(record, providerReceipt, outcome = re
 
 async function reserveProviderExecution(root, record, executionId, outcome = record.outcome) {
   const directory = safeJoin(root, "provider-executions");
-  await mkdir(directory, { recursive: true, mode: 0o700 });
+  let directoryCreated = false;
+  try {
+    await mkdir(directory, { mode: 0o700 });
+    directoryCreated = true;
+  } catch (error) {
+    if (error.code !== "EEXIST") throw error;
+  }
+  const directoryInfo = await lstat(directory);
+  if (directoryInfo.isSymbolicLink() || !directoryInfo.isDirectory()) {
+    throw new Error("Provider execution reservation directory is unsafe");
+  }
+  await chmod(directory, 0o700);
+  if (directoryCreated) await fsyncDirectory(root);
   const target = safeJoin(directory, `${sha256(executionId)}.json`);
   const reservations = await listJsonRecords(root, directory);
   const sameAttempt = reservations.filter((item) => (
@@ -2033,9 +2045,13 @@ async function reserveProviderExecution(root, record, executionId, outcome = rec
   }
   try {
     const handle = await open(target, "wx", 0o600);
-    await handle.writeFile(`${JSON.stringify({ schemaVersion: PROVIDER_EXECUTION_SCHEMA_VERSION, executionId, runId: record.runId, attemptId: record.attemptId, tokenHash: record.tokenHash, action: record.action, outcome, recordedAt: nowIso() })}\n`);
-    await handle.sync();
-    await handle.close();
+    try {
+      await handle.writeFile(`${JSON.stringify({ schemaVersion: PROVIDER_EXECUTION_SCHEMA_VERSION, executionId, runId: record.runId, attemptId: record.attemptId, tokenHash: record.tokenHash, action: record.action, outcome, recordedAt: nowIso() })}\n`);
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    await fsyncDirectory(directory);
   } catch (error) {
     if (error.code === "EEXIST") {
       const existing = await readJson(root, target).catch(() => null);
