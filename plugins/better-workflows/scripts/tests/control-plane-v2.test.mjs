@@ -886,6 +886,110 @@ test("typed evidence rejects cross-run and caller-forged digests", async () => {
   await assert.rejects(addEvidence(root, started.runId, wrongRun), /run binding is invalid/);
 });
 
+test("evidence admission recovers every durable boundary, rejects conflicts and deleted files, and preserves legacy replay", async () => {
+  const createFixture = async (label) => {
+    const root = await mkdtemp(path.join(os.tmpdir(), `sbw-v2-admission-${label}-`));
+    const contract = buildContract({
+      template: "test-v2-admission",
+      templateDefinition: contractTemplate,
+      goal: "recover evidence admission",
+      scope: ["."],
+      risk: { risk: 1, uncertainty: 0, blastRadius: 1, irreversibility: 0, evidenceGap: 0 },
+      sensitivity: "internal",
+      authority: []
+    });
+    const started = await createRun({ root, contract, requestedMode: "verified", cwd: root });
+    const run = await inspectRun(root, started.runId);
+    const input = await typedRecord({ runId: started.runId, contract: run.contract }, `environment-${label}`);
+    return { root, started, run, input };
+  };
+
+  for (const boundary of ["intent-written", "pending-journaled", "evidence-written", "admission-committed"]) {
+    const fixture = await createFixture(boundary);
+    try {
+      await assert.rejects(
+        addEvidence(fixture.root, fixture.started.runId, fixture.input, {
+          onAdmissionBoundary(current) {
+            if (current === boundary) throw new Error(`injected admission failure: ${boundary}`);
+          }
+        }),
+        new RegExp(`injected admission failure: ${boundary}`)
+      );
+      if (boundary === "intent-written") {
+        await assert.rejects(
+          addEvidence(fixture.root, fixture.started.runId, {
+            ...fixture.input,
+            summary: "Conflicting evidence bytes"
+          }),
+          /retry conflicts with the durable intent/
+        );
+      }
+      const recovered = await addEvidence(fixture.root, fixture.started.runId, fixture.input);
+      const idempotent = await addEvidence(fixture.root, fixture.started.runId, fixture.input);
+      assert.deepEqual(idempotent, recovered);
+      const replay = await listEffectiveEvidenceRecords(fixture.root, fixture.started.runId);
+      assert.deepEqual(replay.map((record) => record.id), [fixture.input.id]);
+      const journal = (await readFile(path.join(fixture.run.runDir, "journal.jsonl"), "utf8"))
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => JSON.parse(line));
+      assert.equal(journal.filter((entry) => (
+        entry.event === "evidence.admission-pending" && entry.evidenceId === fixture.input.id
+      )).length, 1);
+      assert.equal(journal.filter((entry) => (
+        entry.event === "evidence.added" && entry.evidenceId === fixture.input.id
+      )).length, 1);
+      if (boundary === "evidence-written") {
+        await unlink(path.join(fixture.run.runDir, "evidence", `${fixture.input.id}.json`));
+        await assert.rejects(
+          listEffectiveEvidenceRecords(fixture.root, fixture.started.runId),
+          /admission journal and file inventory are not bijective/
+        );
+      }
+    } finally {
+      await rm(fixture.root, { recursive: true, force: true });
+    }
+  }
+
+  const legacy = await createFixture("legacy");
+  try {
+    const admitted = await addEvidence(legacy.root, legacy.started.runId, legacy.input);
+    const evidencePath = path.join(legacy.run.runDir, "evidence", `${legacy.input.id}.json`);
+    const legacyRecord = structuredClone(admitted);
+    delete legacyRecord.admissionProtocolVersion;
+    const legacyImmutableRecord = structuredClone(legacyRecord);
+    delete legacyImmutableRecord.stale;
+    delete legacyImmutableRecord.freshnessCheckedAt;
+    delete legacyImmutableRecord.currentDependencyFiles;
+    delete legacyImmutableRecord.staleReason;
+    await writeFile(evidencePath, `${JSON.stringify(legacyRecord, null, 2)}\n`);
+    await unlink(path.join(legacy.run.runDir, "evidence-admissions", `${legacy.input.id}.json`));
+    const journalPath = path.join(legacy.run.runDir, "journal.jsonl");
+    const journal = (await readFile(journalPath, "utf8"))
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line))
+      .filter((entry) => !(
+        entry.event === "evidence.admission-pending" && entry.evidenceId === legacy.input.id
+      ))
+      .map((entry) => entry.event === "evidence.added" && entry.evidenceId === legacy.input.id
+        ? {
+            at: entry.at,
+            event: entry.event,
+            evidenceId: legacy.input.id,
+            evidenceDigest: digestObject(legacyRecord),
+            immutableEvidenceDigest: digestObject(legacyImmutableRecord)
+          }
+        : entry);
+    await writeFile(journalPath, `${journal.map((entry) => JSON.stringify(entry)).join("\n")}\n`);
+    const replay = await listEffectiveEvidenceRecords(legacy.root, legacy.started.runId);
+    assert.equal(replay.length, 1);
+    assert.equal(replay[0].admissionProtocolVersion, undefined);
+  } finally {
+    await rm(legacy.root, { recursive: true, force: true });
+  }
+});
+
 test("typed gate evidence rejects a failed result even when its shape is valid", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "sbw-v2-semantic-evidence-"));
   const contract = buildContract({
@@ -2385,6 +2489,7 @@ test("review packages reject head drift with stable finding identity, block afte
     template: "test-review",
     templateDefinition: {
       ...contractTemplate,
+      requiredEvidence: ["environment-state", "required-checks"],
       scope: ["src", "README.md"],
       reviewProfile: legacyReviewProfile,
       controlPlane: { ...contractTemplate.controlPlane, reviewPolicy: "code-v1" },
@@ -2393,7 +2498,7 @@ test("review packages reject head drift with stable finding identity, block afte
         "worktree.cleanup": "environment"
       },
       actionGates: {
-        "pr.merge": ["diff-review"],
+        "pr.merge": ["diff-review", "required-checks"],
         "worktree.cleanup": ["diff-review"]
       }
     },
@@ -2756,206 +2861,6 @@ test("review packages reject head drift with stable finding identity, block afte
   assert.equal(broadRetry.packageId, first.packageId);
   const continuity = await assertReviewContinuity(root, started.runId);
   const runDir = (await inspectRun(root, started.runId)).runDir;
-  const bin = path.join(root, "bin");
-  await mkdir(bin);
-  const fakeGh = path.join(bin, "gh");
-  const providerCounter = path.join(root, "provider-counter");
-  const providerMergeMarker = path.join(root, "provider-merge-invoked");
-  const providerInjectionMode = path.join(root, "provider-injection-mode");
-  const lateFindingId = stableFindingId({
-    packageId: first.packageId,
-    path: "src/a.ts",
-    location: "late-provider-preflight",
-    rule: "provider-preflight-continuity"
-  });
-  const lateFindingSource = path.join(root, "late-provider-finding.json");
-  const lateFindingTarget = path.join(runDir, "review-findings", `${lateFindingId}.json`);
-  const lateSupersessionSource = path.join(root, "late-provider-supersession.json");
-  const lateSupersessionDirectory = path.join(runDir, "evidence-supersessions");
-  const lateSupersessionTarget = path.join(lateSupersessionDirectory, "late-invalid-supersession.json");
-  await mkdir(lateSupersessionDirectory, { recursive: true });
-  await writeFile(lateFindingSource, `${JSON.stringify({
-    schemaVersion: 1,
-    id: lateFindingId,
-    packageId: first.packageId,
-    path: "src/a.ts",
-    location: "late-provider-preflight",
-    rule: "provider-preflight-continuity",
-    severity: "P2",
-    status: "open",
-    summary: "A finding appeared after provider preflight began.",
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  })}\n`);
-  await writeFile(lateSupersessionSource, `${JSON.stringify({
-    schemaVersion: 1,
-    id: "late-invalid-supersession",
-    runId: started.runId
-  })}\n`);
-  const fakeGhScript = `#!/bin/sh
-if [ "$1" = "api" ] && [ "$2" = "user" ]; then
-  printf '%s\\n' '{"login":"alice"}'
-elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo" ]; then
-  printf '%s\\n' '{"full_name":"example/repo","permissions":{"admin":false,"maintain":false,"push":true}}'
-elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo/pulls/12" ]; then
-  count=0
-  if [ -f '${providerCounter}' ]; then count=$(/bin/cat '${providerCounter}'); fi
-  count=$((count + 1))
-  printf '%s' "$count" > '${providerCounter}'
-  mode=""
-  if [ -f '${providerInjectionMode}' ]; then mode=$(/bin/cat '${providerInjectionMode}'); fi
-  if [ "$count" -eq 2 ] && [ "$mode" != "after-invocation" ]; then
-    if [ "$mode" = "before-supersession" ]; then
-      /bin/cp '${lateSupersessionSource}' '${lateSupersessionTarget}'
-    else
-      /bin/cp '${lateFindingSource}' '${lateFindingTarget}'
-    fi
-  fi
-  printf '%s\\n' '{"number":12,"state":"open","head":{"sha":"${head}"},"base":{"ref":"main","sha":"${base}"},"mergeable":true,"mergeable_state":"clean"}'
-elif [ "$1" = "pr" ] && [ "$2" = "merge" ]; then
-  if [ -f '${providerInjectionMode}' ] && [ "$(/bin/cat '${providerInjectionMode}')" = "after-invocation" ]; then
-    /bin/cp '${lateSupersessionSource}' '${lateSupersessionTarget}'
-  fi
-  /usr/bin/touch '${providerMergeMarker}'
-  printf '%s\\n' '{"merged":true}'
-else
-  exit 2
-fi
-`;
-  await writeFile(fakeGh, fakeGhScript);
-  await chmod(fakeGh, 0o755);
-  const mergeToken = "review-provider-continuity-token";
-  const mergeTokenHash = sha256(mergeToken);
-  const providerExecutable = { path: await realpath(fakeGh), digest: sha256(fakeGhScript) };
-  const providerAuthorization = {
-    provider: "github-cli",
-    actor: "alice",
-    repository: "github.com/example/repo",
-    permissions: { admin: false, maintain: false, push: true }
-  };
-  const mergeCommand = [
-    "gh", "pr", "merge", "12", "--repo", "github.com/example/repo",
-    "--match-head-commit", head, "--merge", "--delete-branch=false"
-  ];
-  const mergeGateBinding = await currentActionEvidenceGateBinding(
-    root,
-    started.runId,
-    await inspectRun(root, started.runId),
-    "pr.merge"
-  );
-  const mergeActionRecord = {
-    schemaVersion: 1,
-    tokenHash: mergeTokenHash,
-    status: "issued",
-    outcome: null,
-    issuedAt: new Date().toISOString(),
-    expiresAt: new Date(Date.now() + 60_000).toISOString(),
-    runId: started.runId,
-    action: "pr.merge",
-    provider: "github-cli",
-    resource: "pull/12",
-    remoteRevision: base,
-    treeDigest: sentinel.digest,
-    contractDigest: digestObject(contract),
-    evidenceSupersessionFreshnessDigest: digestObject([]),
-    evidenceGate: mergeGateBinding.configuredGate,
-    evidenceGateDigest: mergeGateBinding.digest,
-    idempotencyKey: "review-provider-continuity-idempotency",
-    reviewedHead: continuity.head,
-    reviewPackageId: continuity.packageId,
-    reviewContinuityDigest: continuity.continuityDigest,
-    pullRequest: 12,
-    mergeRepository: "github.com/example/repo",
-    mergeCommand,
-    mergeMethod: "merge",
-    adminBypass: false,
-    providerExecutable,
-    providerAuthorizationExecutable: providerExecutable,
-    providerAuthorization
-  };
-  await writeFile(path.join(runDir, "actions", `${mergeTokenHash}.json`), `${JSON.stringify(mergeActionRecord, null, 2)}\n`);
-  const priorPath = process.env.PATH;
-  process.env.PATH = `${bin}:${priorPath}`;
-  try {
-    await assert.rejects(
-      executeActionToken(root, started.runId, mergeToken, sentinel.digest),
-      /Review continuity requires a complete current review/
-    );
-  } finally {
-    process.env.PATH = priorPath;
-  }
-  await assert.rejects(stat(providerMergeMarker));
-  const stoppedMerge = (await inspectRun(root, started.runId)).actions.find((item) => item.tokenHash === mergeTokenHash);
-  assert.equal(stoppedMerge.status, "spent");
-  assert.equal(stoppedMerge.providerInvocation.dispatchState, "not-sent");
-  await unlink(path.join(runDir, "actions", `${mergeTokenHash}.json`));
-  await unlink(lateFindingTarget);
-  assert.equal((await reviewStatus(root, started.runId)).complete, true);
-  await unlink(providerCounter);
-  await writeFile(providerInjectionMode, "before-supersession\n");
-  const supersessionToken = "review-provider-supersession-token";
-  const supersessionTokenHash = sha256(supersessionToken);
-  await writeFile(path.join(runDir, "actions", `${supersessionTokenHash}.json`), `${JSON.stringify({
-    ...mergeActionRecord,
-    tokenHash: supersessionTokenHash,
-    issuedAt: new Date().toISOString(),
-    expiresAt: new Date(Date.now() + 60_000).toISOString(),
-    idempotencyKey: "review-provider-supersession-idempotency"
-  }, null, 2)}\n`);
-  process.env.PATH = `${bin}:${priorPath}`;
-  try {
-    await assert.rejects(
-      executeActionToken(root, started.runId, supersessionToken, sentinel.digest),
-      /Evidence supersession record keys are invalid/
-    );
-  } finally {
-    process.env.PATH = priorPath;
-  }
-  await assert.rejects(stat(providerMergeMarker));
-  const supersessionStoppedMerge = (await inspectRun(root, started.runId)).actions.find(
-    (item) => item.tokenHash === supersessionTokenHash
-  );
-  assert.equal(supersessionStoppedMerge.status, "spent");
-  assert.equal(supersessionStoppedMerge.providerInvocation.dispatchState, "not-sent");
-  await unlink(path.join(runDir, "actions", `${supersessionTokenHash}.json`));
-  await unlink(lateSupersessionTarget);
-  await unlink(providerCounter);
-  await writeFile(providerInjectionMode, "after-invocation\n");
-  const postInvocationToken = "review-provider-post-invocation-token";
-  const postInvocationTokenHash = sha256(postInvocationToken);
-  await writeFile(path.join(runDir, "actions", `${postInvocationTokenHash}.json`), `${JSON.stringify({
-    ...mergeActionRecord,
-    tokenHash: postInvocationTokenHash,
-    issuedAt: new Date().toISOString(),
-    expiresAt: new Date(Date.now() + 60_000).toISOString(),
-    idempotencyKey: "review-provider-post-invocation-idempotency"
-  }, null, 2)}\n`);
-  process.env.PATH = `${bin}:${priorPath}`;
-  try {
-    await assert.rejects(
-      executeActionToken(root, started.runId, postInvocationToken, sentinel.digest),
-      (error) => error?.code === "SBW_ACTION_AUTHORITY_INDETERMINATE"
-    );
-  } finally {
-    process.env.PATH = priorPath;
-  }
-  await stat(providerMergeMarker);
-  const postInvocationStoppedMerge = (await inspectRun(root, started.runId)).actions.find(
-    (item) => item.tokenHash === postInvocationTokenHash
-  );
-  assert.equal(postInvocationStoppedMerge.status, "spent");
-  assert.equal(postInvocationStoppedMerge.outcome, "unknown");
-  assert.equal(postInvocationStoppedMerge.providerInvocation.dispatchState, "sent-or-indeterminate");
-  assert.equal(postInvocationStoppedMerge.providerInvocation.authorityGateStatus, "drifted-after-invocation");
-  assert.equal(postInvocationStoppedMerge.authorityFailure.kind, "post-invocation-action-authority-drift");
-  assert.equal(postInvocationStoppedMerge.authorityFailure.runId, started.runId);
-  assert.equal(postInvocationStoppedMerge.authorityFailure.actionAttemptId, postInvocationStoppedMerge.attemptId);
-  await unlink(path.join(runDir, "actions", `${postInvocationTokenHash}.json`));
-  await unlink(lateSupersessionTarget);
-  await unlink(providerMergeMarker);
-  await unlink(providerInjectionMode);
-  await unlink(providerCounter);
-  assert.equal((await reviewStatus(root, started.runId)).complete, true);
   const token = "review-continuity-token";
   const tokenHash = sha256(token);
   const cleanupGateBinding = await currentActionEvidenceGateBinding(

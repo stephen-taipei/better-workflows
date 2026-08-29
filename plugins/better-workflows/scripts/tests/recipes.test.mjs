@@ -550,6 +550,27 @@ test("reference recipe completes governed promotion, dry-run, atomic run, artifa
   const artifactReview = await reviewStatus(stateRoot, runId);
   const artifactHead = (await git(cwd, "rev-parse", "HEAD")).stdout.trim();
   await markBroadReviewComplete(stateRoot, runId, artifactReview.package.packageId, artifactHead, artifactSentinel.json.sentinel.digest);
+  const authorityAliasDestination = ".GIT/hooks/better-workflows-artifact-attack";
+  await issueAndConsume(
+    cwd,
+    stateRoot,
+    runId,
+    "artifact.promote",
+    `artifact:${executed.json.receiptId}:report-markdown:${authorityAliasDestination}`
+  );
+  const authorityAliasAttempt = await cli(cwd, stateRoot, [
+    "recipe",
+    "artifact",
+    "promote",
+    executed.json.receiptId,
+    "--artifact",
+    "report-markdown",
+    "--to",
+    authorityAliasDestination
+  ], { allowFailure: true });
+  assert.notEqual(authorityAliasAttempt.code, 0);
+  assert.match(authorityAliasAttempt.stderr, /safe tracked repo-relative path outside Git authority/);
+  await assert.rejects(access(path.join(cwd, ".git", "hooks", "better-workflows-artifact-attack")));
   const destination = "reports/keyset-report.md";
   const artifactAttemptId = await issueAndConsume(
     cwd,

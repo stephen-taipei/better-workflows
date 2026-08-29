@@ -44,7 +44,10 @@ const BOUND_GITHUB_CLI_TIMEOUT_MS = 30_000;
 const BOUND_GITHUB_CLI_MAX_BUFFER = 1024 * 1024;
 const BOUND_GIT_TIMEOUT_MS = 30_000;
 const BOUND_GIT_MAX_BUFFER = 4 * 1024 * 1024;
-// The in-process supervisor force-kills its dedicated group after 100 ms. A
+// The in-process supervisor force-kills its dedicated group after 100 ms when
+// signalled. A completed target writes its result synchronously and schedules
+// immediate group teardown, avoiding per-command latency while retaining the
+// signal grace for hanging descendants. A
 // short parent grace keeps the cleanup proof bounded without adding a full
 // second of idle latency to every successful Git/provider call.
 const BOUND_PROCESS_GROUP_CLEANUP_GRACE_MS = 250;
@@ -71,11 +74,11 @@ const BOUND_PROCESS_SUPERVISOR_SOURCE = [
   "let reported = false;",
   "const parentPid = process.ppid;",
   "const forceKill = () => { try { process.kill(-process.pid, 'SIGKILL'); } catch {} };",
-  "const scheduleForceKill = () => { if (forceScheduled) return; forceScheduled = true; setTimeout(forceKill, 100); };",
+  "const scheduleForceKill = (delayMs = 100) => { if (forceScheduled) return; forceScheduled = true; setTimeout(forceKill, delayMs); };",
   "for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP', 'SIGQUIT']) process.on(signal, scheduleForceKill);",
   "const watchdog = setInterval(() => { if (process.ppid !== parentPid) { forceKill(); } }, 25);",
   "watchdog.unref();",
-  "const report = (code, signal) => { if (reported) return; reported = true; try { fs.writeSync(3, JSON.stringify({ schemaVersion: 1, code: code ?? null, signal: signal ?? null }) + '\\n'); } catch {} };",
+  "const report = (code, signal) => { if (reported) return; reported = true; try { fs.writeSync(3, JSON.stringify({ schemaVersion: 1, code: code ?? null, signal: signal ?? null }) + '\\n'); } catch {} finally { scheduleForceKill(0); } };",
   "let child;",
   "try { child = spawn(target, targetArgs, { cwd, env: process.env, stdio: ['ignore', 'inherit', 'inherit', 'ignore'] }); } catch { report(126, null); }",
   "child?.once('error', () => report(126, null));",
@@ -1359,6 +1362,14 @@ export function validateContract(contract) {
           throw new Error(`TaskContract v2 action gate has no execution stage: ${action}`);
         }
       }
+      if (Object.hasOwn(contract.actionStages, "pr.merge")) {
+        if (!actionGates["pr.merge"]?.includes("required-checks")) {
+          throw new Error("TaskContract v2 pr.merge must be gated by required-checks for atomic protected-base synchronization");
+        }
+        if (!contract.requiredEvidence.includes("required-checks")) {
+          throw new Error("TaskContract v2 pr.merge must declare required-checks evidence");
+        }
+      }
     } else if (Object.keys(contract.actionGates ?? {}).length > 0) {
       throw new Error("TaskContract v2 action gates require actionStages");
     }
@@ -1530,7 +1541,7 @@ export async function createRun({ root = getStateRoot(), contract, requestedMode
   }
   try {
     await chmod(stagingDir, 0o700);
-    for (const child of ["evidence", "findings", "sentinels", "actions"]) {
+    for (const child of ["evidence", "evidence-admissions", "findings", "sentinels", "actions"]) {
       await ensurePrivateDir(safeJoin(stagingDir, child));
     }
     const createdAt = nowIso();
@@ -2758,10 +2769,85 @@ function validateRecordId(id, kind) {
   if (typeof id !== "string" || !SAFE_ID.test(id)) throw new Error(`Invalid ${kind} id`);
 }
 
-export async function addEvidence(root, runId, record) {
+function evidenceValueForAdmission(admitted, existing = null) {
+  const normalized = structuredClone(admitted);
+  if (existing?.typedAdmission?.admittedAt && normalized.typedAdmission) {
+    normalized.typedAdmission = {
+      ...normalized.typedAdmission,
+      admittedAt: existing.typedAdmission.admittedAt
+    };
+  }
+  return {
+    schemaVersion: 1,
+    stale: false,
+    createdAt: existing?.createdAt ?? nowIso(),
+    dependencies: {},
+    producer: {},
+    ...normalized,
+    admissionProtocolVersion: EVIDENCE_ADMISSION_PROTOCOL_VERSION
+  };
+}
+
+function evidenceAdmissionIntentBinding(intent) {
+  return {
+    protocolVersion: intent.protocolVersion,
+    runId: intent.runId,
+    evidenceId: intent.evidenceId,
+    evidenceDigest: intent.evidenceDigest,
+    immutableEvidenceDigest: intent.immutableEvidenceDigest
+  };
+}
+
+function validateEvidenceAdmissionIntent(intent, runId, evidenceId) {
+  assertExactObjectKeys(intent, EVIDENCE_ADMISSION_INTENT_KEYS, "Evidence admission intent");
+  if (
+    intent.schemaVersion !== 1 ||
+    intent.protocolVersion !== EVIDENCE_ADMISSION_PROTOCOL_VERSION ||
+    intent.id !== evidenceId ||
+    intent.evidenceId !== evidenceId ||
+    intent.runId !== runId ||
+    !intent.evidenceRecord ||
+    typeof intent.evidenceRecord !== "object" ||
+    Array.isArray(intent.evidenceRecord) ||
+    intent.evidenceRecord.id !== evidenceId ||
+    intent.evidenceRecord.admissionProtocolVersion !== EVIDENCE_ADMISSION_PROTOCOL_VERSION ||
+    intent.evidenceDigest !== digestObject(intent.evidenceRecord) ||
+    intent.immutableEvidenceDigest !== digestObject(evidenceImmutableProjection(intent.evidenceRecord)) ||
+    intent.intentDigest !== digestObject(evidenceAdmissionIntentBinding(intent))
+  ) {
+    throw new Error(`Evidence admission intent binding is invalid: ${evidenceId}`);
+  }
+  return intent;
+}
+
+function evidenceAdmissionJournalDetails(intent) {
+  return {
+    protocolVersion: EVIDENCE_ADMISSION_PROTOCOL_VERSION,
+    runId: intent.runId,
+    evidenceId: intent.evidenceId,
+    evidenceDigest: intent.evidenceDigest,
+    immutableEvidenceDigest: intent.immutableEvidenceDigest,
+    intentDigest: intent.intentDigest
+  };
+}
+
+function matchesEvidenceAdmissionJournalEntry(entry, event, intent) {
+  const expected = evidenceAdmissionJournalDetails(intent);
+  return Boolean(
+    entry?.event === event &&
+    typeof entry.at === "string" &&
+    Number.isFinite(Date.parse(entry.at)) &&
+    Object.entries(expected).every(([key, value]) => entry[key] === value)
+  );
+}
+
+export async function addEvidence(root, runId, record, { onAdmissionBoundary = null } = {}) {
   return withRunLock(root, runId, async ({ runDir }) => {
     const boundRun = await loadRun(root, runId);
     assertMutableRun(boundRun, "Evidence");
+    if (onAdmissionBoundary !== null && typeof onAdmissionBoundary !== "function") {
+      throw new Error("Evidence admission boundary hook must be a function");
+    }
     if (boundRun.contract.schemaVersion === 2) {
       await listIdentityBoundJsonRecords(root, safeJoin(runDir, "evidence"), "Evidence");
     }
@@ -2778,22 +2864,85 @@ export async function addEvidence(root, runId, record) {
       throw new Error("Evidence sourceDigest is required");
     }
     const target = safeJoin(runDir, "evidence", `${admitted.id}.json`);
-    if (await pathExists(target)) throw new Error(`Evidence already exists: ${record.id}`);
-    const value = {
-      schemaVersion: 1,
-      stale: false,
-      createdAt: nowIso(),
-      dependencies: {},
-      producer: {},
-      ...admitted
-    };
-    await atomicWriteJson(root, target, value);
-    await appendJournal(root, runDir, "evidence.added", {
-      evidenceId: admitted.id,
-      evidenceDigest: digestObject(value),
-      immutableEvidenceDigest: digestObject(evidenceImmutableProjection(value))
+    const intentTarget = safeJoin(runDir, "evidence-admissions", `${admitted.id}.json`);
+    const existingRecords = await listIdentityBoundJsonRecords(root, safeJoin(runDir, "evidence"), "Evidence");
+    let journal = await readJournalRecords(root, runDir);
+    await assertEvidenceJournalProvenance(root, boundRun, existingRecords, journal, {
+      ignoreEvidenceId: admitted.id
     });
-    return value;
+
+    let intent;
+    if (await pathExists(intentTarget)) {
+      intent = validateEvidenceAdmissionIntent(await readJson(root, intentTarget), runId, admitted.id);
+      const retryValue = evidenceValueForAdmission(admitted, intent.evidenceRecord);
+      if (digestObject(retryValue) !== intent.evidenceDigest) {
+        throw new Error(`Evidence admission retry conflicts with the durable intent: ${admitted.id}`);
+      }
+    } else {
+      const currentAdmissionEvents = journal.filter((entry) => (
+        [EVIDENCE_ADMISSION_PENDING_EVENT, "evidence.added"].includes(entry.event) &&
+        entry.evidenceId === admitted.id
+      ));
+      if ((await pathExists(target)) || currentAdmissionEvents.length > 0) {
+        throw new Error(`Evidence already exists without a recoverable admission intent: ${admitted.id}`);
+      }
+      const value = evidenceValueForAdmission(admitted);
+      const binding = {
+        protocolVersion: EVIDENCE_ADMISSION_PROTOCOL_VERSION,
+        runId,
+        evidenceId: admitted.id,
+        evidenceDigest: digestObject(value),
+        immutableEvidenceDigest: digestObject(evidenceImmutableProjection(value))
+      };
+      intent = {
+        schemaVersion: 1,
+        id: admitted.id,
+        ...binding,
+        evidenceRecord: value,
+        intentDigest: digestObject(binding)
+      };
+      await atomicWriteJson(root, intentTarget, intent);
+    }
+    await onAdmissionBoundary?.("intent-written");
+
+    journal = await readJournalRecords(root, runDir);
+    const pending = journal.filter((entry) => (
+      entry.event === EVIDENCE_ADMISSION_PENDING_EVENT && entry.evidenceId === admitted.id
+    ));
+    if (pending.length === 0) {
+      await appendJournal(root, runDir, EVIDENCE_ADMISSION_PENDING_EVENT, evidenceAdmissionJournalDetails(intent));
+    } else if (pending.length !== 1 || !matchesEvidenceAdmissionJournalEntry(
+      pending[0],
+      EVIDENCE_ADMISSION_PENDING_EVENT,
+      intent
+    )) {
+      throw new Error(`Evidence admission pending journal binding is missing or ambiguous: ${admitted.id}`);
+    }
+    await onAdmissionBoundary?.("pending-journaled");
+
+    if (await pathExists(target)) {
+      const existing = await readJson(root, target);
+      if (digestObject(existing) !== intent.evidenceDigest) {
+        throw new Error(`Evidence file conflicts with the durable admission intent: ${admitted.id}`);
+      }
+    } else {
+      await atomicWriteJson(root, target, intent.evidenceRecord);
+    }
+    await onAdmissionBoundary?.("evidence-written");
+
+    journal = await readJournalRecords(root, runDir);
+    const added = journal.filter((entry) => entry.event === "evidence.added" && entry.evidenceId === admitted.id);
+    if (added.length === 0) {
+      await appendJournal(root, runDir, "evidence.added", evidenceAdmissionJournalDetails(intent));
+    } else if (added.length !== 1 || !matchesEvidenceAdmissionJournalEntry(
+      added[0],
+      "evidence.added",
+      intent
+    )) {
+      throw new Error(`Evidence admission commit journal binding is missing or ambiguous: ${admitted.id}`);
+    }
+    await onAdmissionBoundary?.("admission-committed");
+    return intent.evidenceRecord;
   });
 }
 
@@ -2985,6 +3134,19 @@ const EVIDENCE_DEPENDENCY_KEYS = new Set([
 ]);
 const EVIDENCE_FRESHNESS_EVENT = "evidence.freshness-transition";
 const EVIDENCE_FRESHNESS_PROTOCOL_VERSION = 2;
+const EVIDENCE_ADMISSION_PROTOCOL_VERSION = 1;
+const EVIDENCE_ADMISSION_PENDING_EVENT = "evidence.admission-pending";
+const EVIDENCE_ADMISSION_INTENT_KEYS = new Set([
+  "schemaVersion",
+  "id",
+  "protocolVersion",
+  "runId",
+  "evidenceId",
+  "evidenceDigest",
+  "immutableEvidenceDigest",
+  "evidenceRecord",
+  "intentDigest"
+]);
 const EVIDENCE_INVALIDATION_PARENT_SCHEMA_VERSION = 1;
 
 function assertExactObjectKeys(value, expected, label) {
@@ -3121,7 +3283,11 @@ function evidenceFreshnessTransitionBinding(recordId, entry) {
   return binding;
 }
 
-function evidenceAdmissionJournalBinding(record, journal, { allowPending = false } = {}) {
+function evidenceAdmissionJournalBinding(record, journal, {
+  allowPending = false,
+  intent = null,
+  runId = null
+} = {}) {
   const added = journal.filter((entry) => entry.event === "evidence.added" && entry.evidenceId === record.id);
   if (
     added.length !== 1 ||
@@ -3129,6 +3295,32 @@ function evidenceAdmissionJournalBinding(record, journal, { allowPending = false
     !SHA256_DIGEST.test(added[0].immutableEvidenceDigest ?? "")
   ) {
     throw new Error(`Evidence admission journal binding is missing or ambiguous: ${record.id}`);
+  }
+  const pending = journal.filter((entry) => (
+    entry.event === EVIDENCE_ADMISSION_PENDING_EVENT && entry.evidenceId === record.id
+  ));
+  if (record.admissionProtocolVersion === undefined) {
+    if (intent !== null || pending.length !== 0 || added[0].protocolVersion !== undefined) {
+      throw new Error(`Legacy evidence admission was reinterpreted by a newer protocol: ${record.id}`);
+    }
+  } else if (record.admissionProtocolVersion === EVIDENCE_ADMISSION_PROTOCOL_VERSION) {
+    if (runId === null || intent === null) {
+      throw new Error(`Evidence admission intent is missing: ${record.id}`);
+    }
+    validateEvidenceAdmissionIntent(intent, runId, record.id);
+    if (
+      pending.length !== 1 ||
+      !matchesEvidenceAdmissionJournalEntry(
+        pending[0],
+        EVIDENCE_ADMISSION_PENDING_EVENT,
+        intent
+      ) ||
+      !matchesEvidenceAdmissionJournalEntry(added[0], "evidence.added", intent)
+    ) {
+      throw new Error(`Evidence two-phase admission journal chain is invalid: ${record.id}`);
+    }
+  } else {
+    throw new Error(`Evidence admission protocol is unsupported: ${record.id}`);
   }
   const immutableEvidenceDigest = digestObject(evidenceImmutableProjection(record));
   if (added[0].immutableEvidenceDigest !== immutableEvidenceDigest) {
@@ -3199,7 +3391,20 @@ async function writeEvidenceFreshnessTransition(
   { onPrepared = null } = {}
 ) {
   const journal = await readJournalRecords(root, runDir);
-  const binding = evidenceAdmissionJournalBinding(current, journal, { allowPending: true });
+  let admissionIntent = null;
+  let admissionRunId = null;
+  if (current.admissionProtocolVersion === EVIDENCE_ADMISSION_PROTOCOL_VERSION) {
+    admissionRunId = (await readJson(root, safeJoin(runDir, "manifest.json"))).runId;
+    admissionIntent = await readJson(
+      root,
+      safeJoin(runDir, "evidence-admissions", `${current.id}.json`)
+    );
+  }
+  const binding = evidenceAdmissionJournalBinding(current, journal, {
+    allowPending: true,
+    intent: admissionIntent,
+    runId: admissionRunId
+  });
   if (binding.pendingTransition) {
     const pending = binding.pendingTransition;
     if (
@@ -3525,17 +3730,23 @@ async function appendEvidenceInvalidationParent(root, runDir, attemptId) {
   return validateEvidenceInvalidationParent(journal, attemptId).parent;
 }
 
-async function assertEvidenceJournalProvenance(root, run, records, journal) {
-  const bindings = new Map();
-  for (const record of records) {
-    try {
-      bindings.set(record.id, evidenceAdmissionJournalBinding(record, journal));
-    } catch (error) {
-      const label = record.stale === true ? "stale" : "admission";
-      throw new Error(`Evidence ${label} provenance is invalid: ${record.id ?? "unknown"}: ${error.message}`);
-    }
+async function assertEvidenceJournalProvenance(root, run, records, journal, { ignoreEvidenceId = null } = {}) {
+  if (ignoreEvidenceId !== null) validateRecordId(ignoreEvidenceId, "ignored evidence");
+  const relevantRecords = records.filter((record) => record.id !== ignoreEvidenceId);
+  const intents = (await listIdentityBoundJsonRecords(
+    root,
+    safeJoin(run.runDir, "evidence-admissions"),
+    "Evidence admission"
+  )).filter((intent) => intent.id !== ignoreEvidenceId);
+  const admissionEvents = journal.filter((entry) => (
+    [EVIDENCE_ADMISSION_PENDING_EVENT, "evidence.added"].includes(entry.event) &&
+    entry.evidenceId !== ignoreEvidenceId
+  ));
+  for (const entry of admissionEvents) {
+    validateRecordId(entry.evidenceId, "evidence admission journal");
   }
-  const recordsById = new Map(records.map((record) => [record.id, record]));
+  const recordsById = new Map(relevantRecords.map((record) => [record.id, record]));
+  const intentsById = new Map(intents.map((intent) => [intent.id, intent]));
   const autonomousInvalidationAttemptIds = new Set([
     ...journal.filter((entry) => (
       entry.event === EVIDENCE_FRESHNESS_EVENT &&
@@ -3556,7 +3767,45 @@ async function assertEvidenceJournalProvenance(root, run, records, journal) {
       validateEvidenceInvalidationParent(journal, attemptId, recordsById)
     );
   }
-  for (const record of records) {
+  const added = admissionEvents.filter((entry) => entry.event === "evidence.added");
+  const pending = admissionEvents.filter((entry) => entry.event === EVIDENCE_ADMISSION_PENDING_EVENT);
+  const addedIds = new Set(added.map((entry) => entry.evidenceId));
+  const protocolRecordIds = new Set(relevantRecords
+    .filter((record) => record.admissionProtocolVersion === EVIDENCE_ADMISSION_PROTOCOL_VERSION)
+    .map((record) => record.id));
+  const protocolAdded = added.filter((entry) => entry.protocolVersion !== undefined);
+  const protocolPendingIds = new Set(pending.map((entry) => entry.evidenceId));
+  const sameSet = (left, right) => (
+    left.size === right.size && [...left].every((value) => right.has(value))
+  );
+  if (
+    added.length !== relevantRecords.length ||
+    !sameSet(addedIds, new Set(recordsById.keys())) ||
+    intents.length !== protocolRecordIds.size ||
+    !sameSet(new Set(intentsById.keys()), protocolRecordIds) ||
+    pending.length !== protocolRecordIds.size ||
+    !sameSet(protocolPendingIds, protocolRecordIds) ||
+    protocolAdded.length !== protocolRecordIds.size ||
+    protocolAdded.some((entry) => (
+      entry.protocolVersion !== EVIDENCE_ADMISSION_PROTOCOL_VERSION ||
+      !protocolRecordIds.has(entry.evidenceId)
+    ))
+  ) {
+    throw new Error("Evidence admission journal and file inventory are not bijective");
+  }
+  const bindings = new Map();
+  for (const record of relevantRecords) {
+    try {
+      bindings.set(record.id, evidenceAdmissionJournalBinding(record, journal, {
+        intent: intentsById.get(record.id) ?? null,
+        runId: run.manifest.runId
+      }));
+    } catch (error) {
+      const label = record.stale === true ? "stale" : "admission";
+      throw new Error(`Evidence ${label} provenance is invalid: ${record.id ?? "unknown"}: ${error.message}`);
+    }
+  }
+  for (const record of relevantRecords) {
     if (record.stale !== true) continue;
     let authorized = false;
     const binding = bindings.get(record.id);
@@ -3761,7 +4010,14 @@ export async function loadEffectiveEvidenceState(root, runId, { run: suppliedRun
     const usesCanonicalFreshnessProtocol = journal.some((entry) => (
       entry.event === EVIDENCE_FRESHNESS_EVENT && entry.protocolVersion !== undefined
     ));
-    if (usesCanonicalFreshnessProtocol) {
+    const usesCanonicalAdmissionProtocol = (
+      journal.some((entry) => (
+        entry.event === EVIDENCE_ADMISSION_PENDING_EVENT ||
+        (entry.event === "evidence.added" && entry.protocolVersion !== undefined)
+      )) ||
+      await pathExists(safeJoin(run.runDir, "evidence-admissions"))
+    );
+    if (usesCanonicalFreshnessProtocol || usesCanonicalAdmissionProtocol) {
       await assertEvidenceJournalProvenance(root, run, records, journal);
     }
     return { records, supersessions: [] };
@@ -3870,12 +4126,13 @@ function providerActionMutationPath(record, sourceMutation) {
   if (!resource || resource[3] !== candidate) {
     throw new Error("Artifact promotion source mutation path is not resource-bound");
   }
-  const components = candidate.split("/");
+  const components = candidate.toLowerCase().split("/");
   const authorityFiles = new Set([".git", ".gitattributes", ".gitignore", ".gitmodules"]);
+  const foldedCandidate = candidate.toLowerCase();
   if (
     components.some((component) => authorityFiles.has(component)) ||
-    candidate === ".codex/better-workflows" ||
-    candidate.startsWith(".codex/better-workflows/")
+    foldedCandidate === ".codex/better-workflows" ||
+    foldedCandidate.startsWith(".codex/better-workflows/")
   ) {
     throw new Error("Artifact promotion cannot mutate Git authority or reserved recipe state");
   }
@@ -6509,7 +6766,9 @@ async function verifyMergeProviderAtInvocation(root, runId, record, manifest) {
   }
   await verifyPullRequestBeforeMerge(manifest.cwd, record, providerExecutablePath);
   const run = await loadRun(root, runId);
-  if (!run.contract.actionGates?.[record.action]?.includes("required-checks")) return authorization;
+  if (!run.contract.actionGates?.[record.action]?.includes("required-checks")) {
+    throw new Error("PR merge is deferred until required-checks provide atomic protected-base synchronization");
+  }
   const evidence = await listEffectiveEvidenceRecords(root, runId, { run });
   const requiredChecks = assertPersistedRequiredChecksEvidence(record, evidence, { repository });
   const { validateTypedEvidenceRecord } = await import("./evidence.mjs");
@@ -7882,6 +8141,7 @@ export async function verifyRequiredChecksProvider(
   }
   const branchRef = `refs/heads/${payload.baseRefName}`;
   const rulesetRequiredStatusChecks = [];
+  let rulesetStrictBaseSynchronization = false;
   const normalizeRulesetCheckAppId = (value) => {
     if (value === undefined || value === null || value === "" || value === -1 || value === "-1") return null;
     const appId = Number(value);
@@ -7922,6 +8182,10 @@ export async function verifyRequiredChecksProvider(
         throw new Error("Active protected branch ruleset has incomplete required status checks");
       }
       if (appliesToTarget) {
+        if (typeof requiredStatusRule.parameters?.strict_required_status_checks_policy !== "boolean") {
+          throw new Error("Active protected branch ruleset has incomplete strict status-check policy");
+        }
+        rulesetStrictBaseSynchronization ||= requiredStatusRule.parameters.strict_required_status_checks_policy === true;
         for (const check of requiredStatusRule.parameters.required_status_checks) {
           const name = check?.context ?? check?.name;
           if (typeof name !== "string" || !name) {
@@ -7954,6 +8218,13 @@ export async function verifyRequiredChecksProvider(
     "api",
     `repos/${repositoryPath}/branches/${encodeURIComponent(payload.baseRefName)}/protection/required_status_checks`
   ], { cwd, encoding: "utf8" })).stdout);
+  const protectionStrictBaseSynchronization = (
+    protection.required_status_checks?.strict === true &&
+    requiredStatusProtection.strict === true
+  );
+  if (!protectionStrictBaseSynchronization && !rulesetStrictBaseSynchronization) {
+    throw new Error("Protected branch policy does not atomically require the PR head to be current with its base");
+  }
   if (
     requiredStatusProtection.contexts !== undefined &&
     (!Array.isArray(requiredStatusProtection.contexts) ||
@@ -8240,7 +8511,14 @@ export async function verifyRequiredChecksProvider(
       throw new Error(`Required check provider observation is not a fresh successful GitHub check: ${check.providerRunId}`);
     }
   }
-  return { humanApproval };
+  return {
+    humanApproval,
+    baseSynchronization: {
+      provider: "github",
+      policy: "strict-required-status-checks",
+      enforced: true
+    }
+  };
 }
 
 async function assertPullEvidenceBinding(admittedEvidence, request, reviewPackage, contract, expectedRepository) {

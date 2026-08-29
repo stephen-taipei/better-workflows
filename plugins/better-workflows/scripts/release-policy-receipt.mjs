@@ -1006,7 +1006,12 @@ function sourceWorkflowRunMatches(run, {
       !Array.isArray(run.pull_requests)) return false;
   if (run.pull_requests.length !== 1) return false;
   const pull = run.pull_requests[0];
-  if (!pull || String(pull.base?.ref ?? "") !== branch || String(pull.head?.sha ?? "").toLowerCase() !== headSha) return false;
+  if (
+    !pull ||
+    Number(pull.number) !== pullNumber ||
+    String(pull.base?.ref ?? "") !== branch ||
+    String(pull.head?.sha ?? "").toLowerCase() !== headSha
+  ) return false;
   const baseSha = String(pull.base?.sha ?? "").toLowerCase();
   if (baseSha && (!/^[0-9a-f]{40}$/.test(baseSha) || String(run.head_sha).toLowerCase() !== baseSha)) return false;
   if (!baseSha && run.head_branch !== undefined && String(run.head_branch) !== branch) return false;

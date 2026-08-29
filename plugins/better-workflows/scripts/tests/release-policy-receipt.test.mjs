@@ -973,6 +973,37 @@ test("closed merge reconciliation queries both head and base workflow-run repres
   assert.equal(result.run.id, 99);
   assert.deepEqual(listedBranches, [headRef, "dev"]);
 
+  let mismatchedPullArtifactLookups = 0;
+  await assert.rejects(
+    findClosedMergeWorkflowRun({
+      apiUrl: "https://api.github.com",
+      repository: "example/repo",
+      branch: "dev",
+      pullNumber: 17,
+      headSha,
+      headRef,
+      mergeCommitSha,
+      mergedAt,
+      token: "token",
+      fetchImpl: async (url) => url.includes("/actions/workflows/ci.yml/runs?")
+        ? { ok: true, status: 200, json: async () => ({ workflow_runs: [{ id: 99 }] }) }
+        : {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              ...closedRun,
+              pull_requests: [{ number: 18, head: { sha: headSha }, base: { ref: "dev" } }]
+            })
+          },
+      fetchCloseBindingImpl: async () => {
+        mismatchedPullArtifactLookups += 1;
+        return binding;
+      }
+    }),
+    /no exact completed closed-merge binding/
+  );
+  assert.equal(mismatchedPullArtifactLookups, 0);
+
   let artifactLookups = 0;
   await assert.rejects(
     findClosedMergeWorkflowRun({

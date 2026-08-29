@@ -1533,6 +1533,22 @@ test("bound Git process terminates a hanging process group at the fixed deadline
   );
 });
 
+test("bound process supervisor self-terminates after every successful target result", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-bound-success-cleanup-"));
+  const successful = path.join(root, "git");
+  await writeFile(successful, "#!/bin/sh\nexit 0\n", { mode: 0o700 });
+  const executable = await realpath(successful);
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const result = await execBoundGitProcess(executable, ["status"], {
+      cwd: root,
+      env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", HOME: root, LC_ALL: "C" },
+      timeoutMs: 2_000
+    });
+    assert.equal(result.code, 0);
+    assert.equal(result.groupTerminated, true);
+  }
+});
+
 async function assertBoundProcessGone(pid) {
   const deadline = Date.now() + 5_000;
   while (Date.now() < deadline) {
@@ -4240,6 +4256,7 @@ test("required-check verifier binds workflows to the live PR head ref and select
   const protection = {
     enforce_admins: { enabled: true },
     required_status_checks: {
+      strict: true,
       contexts: ["test"],
       checks: [{ context: "test", app_id: 15368 }]
     },
@@ -4412,7 +4429,28 @@ test("required-check verifier binds workflows to the live PR head ref and select
   const priorPath = process.env.PATH;
   process.env.PATH = `${bin}:${priorPath}`;
   try {
-    await verifyRequiredChecksProvider(root, payload, providerExecutable);
+    const verified = await verifyRequiredChecksProvider(root, payload, providerExecutable);
+    assert.deepEqual(verified.baseSynchronization, {
+      provider: "github",
+      policy: "strict-required-status-checks",
+      enforced: true
+    });
+    const nonStrictProtection = {
+      ...protection,
+      required_status_checks: { ...requiredStatusProtection, strict: false }
+    };
+    const nonStrictGhScript = ghScript
+      .replace(emit(protection), emit(nonStrictProtection))
+      .replace(emit(requiredStatusProtection), emit(nonStrictProtection.required_status_checks));
+    await writeFile(fakeGh, nonStrictGhScript, { mode: 0o700 });
+    await assert.rejects(
+      verifyRequiredChecksProvider(root, payload, {
+        path: providerExecutable.path,
+        digest: sha256(nonStrictGhScript)
+      }),
+      /does not atomically require the PR head to be current with its base/
+    );
+    await writeFile(fakeGh, ghScript, { mode: 0o700 });
     const sameBranchSkippedPage = {
       ...workflowPage,
       workflow_runs: workflowPage.workflow_runs.map((run) => (
@@ -4431,7 +4469,7 @@ test("required-check verifier binds workflows to the live PR head ref and select
     await writeFile(fakeGh, ghScript, { mode: 0o700 });
     const collisionProtection = {
       ...protection,
-      required_status_checks: { contexts: ["test", "lint"], checks: [] }
+      required_status_checks: { strict: true, contexts: ["test", "lint"], checks: [] }
     };
     const collisionRequiredStatusProtection = collisionProtection.required_status_checks;
     const collisionCheckPage = {
@@ -4518,7 +4556,7 @@ test("required-check verifier binds workflows to the live PR head ref and select
     );
     const contextOnlyProtection = {
       ...protection,
-      required_status_checks: { contexts: ["test"], checks: [] }
+      required_status_checks: { strict: true, contexts: ["test"], checks: [] }
     };
     const contextOnlyGhScript = ghScript
       .replace(emit(protection), emit(contextOnlyProtection))
@@ -4619,6 +4657,7 @@ test("required-check verifier binds workflows to the live PR head ref and select
     const duplicateContextProtection = {
       ...protection,
       required_status_checks: {
+        strict: true,
         contexts: [],
         checks: [{ context: "test", app_id: 15368 }, { context: "test", app_id: 9876 }]
       }
@@ -4810,7 +4849,7 @@ test("required-check verifier preserves ruleset integration identity for same-na
   const observedAt = new Date(Date.now() - 1000).toISOString();
   const protection = {
     enforce_admins: { enabled: true },
-    required_status_checks: { contexts: [], checks: [] },
+    required_status_checks: { strict: true, contexts: [], checks: [] },
     required_pull_request_reviews: { required_approving_review_count: 1 },
     allow_force_pushes: { enabled: false },
     allow_deletions: { enabled: false }

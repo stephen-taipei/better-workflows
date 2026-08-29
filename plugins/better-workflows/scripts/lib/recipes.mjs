@@ -59,6 +59,12 @@ const MAX_TOTAL_ARTIFACT_BYTES = 100 * 1024 * 1024;
 const CONFIG_RELATIVE = path.join(".codex", "better-workflows");
 const ARTIFACT_RELATIVE = path.join(CONFIG_RELATIVE, "artifacts");
 const RESERVED_READ_ROOT = CONFIG_RELATIVE.split(path.sep).join("/");
+const RESERVED_ARTIFACT_AUTHORITY_COMPONENTS = new Set([
+  ".git",
+  ".gitattributes",
+  ".gitignore",
+  ".gitmodules"
+]);
 const REFERENCE_ROOT = path.join(pluginRoot(), "fixtures", "recipes");
 const ALLOWED_BUILTIN_IMPORTS = new Set([
   "node:assert",
@@ -244,6 +250,53 @@ function pathContained(root, target, label) {
     throw recipeError(`${label} escapes the workspace`);
   }
   return resolvedTarget;
+}
+
+function artifactDestinationTouchesReservedAuthority(normalized) {
+  const folded = normalized.toLowerCase();
+  const foldedComponents = folded.split("/");
+  const foldedReservedRoot = RESERVED_READ_ROOT.toLowerCase();
+  return (
+    foldedComponents.some((component) => RESERVED_ARTIFACT_AUTHORITY_COMPONENTS.has(component)) ||
+    folded === foldedReservedRoot ||
+    folded.startsWith(`${foldedReservedRoot}/`)
+  );
+}
+
+function filesystemIdentity(info) {
+  return `${String(info.dev)}:${String(info.ino)}`;
+}
+
+async function artifactPromotionProtectedIdentities(workspace) {
+  const gitDirectory = (await runSourceGit(workspace.root, ["rev-parse", "--absolute-git-dir"], {
+    maxBuffer: 1024 * 1024
+  })).stdout.trim();
+  const gitCommonDirectory = (await runSourceGit(workspace.root, [
+    "rev-parse",
+    "--path-format=absolute",
+    "--git-common-dir"
+  ], { maxBuffer: 1024 * 1024 })).stdout.trim();
+  const protectedRoots = [
+    gitDirectory,
+    gitCommonDirectory,
+    workspace.paths.base,
+    workspace.paths.recipes,
+    workspace.paths.artifacts
+  ];
+  const identities = new Set();
+  for (const candidate of protectedRoots) {
+    const resolved = path.isAbsolute(candidate)
+      ? candidate
+      : path.resolve(workspace.root, candidate);
+    if (!(await exists(resolved))) continue;
+    const canonical = await realpath(resolved);
+    const info = await lstat(canonical);
+    if (info.isSymbolicLink() || !info.isDirectory()) {
+      throw recipeError(`protected artifact authority root is unsafe: ${resolved}`);
+    }
+    identities.add(filesystemIdentity(info));
+  }
+  return identities;
 }
 
 async function assertSafeExistingPath(root, relativePath, label, { file = false } = {}) {
@@ -1432,11 +1485,8 @@ export async function recipeArtifactPromote(cwd, receiptId, artifactId, destinat
     normalized.startsWith("../") ||
     path.posix.normalize(normalized) !== normalized ||
     /[\0\r\n\t]/.test(normalized) ||
-    destinationComponents.some((component) =>
-      [".git", ".gitattributes", ".gitignore", ".gitmodules"].includes(component)
-    ) ||
-    normalized === RESERVED_READ_ROOT ||
-    normalized.startsWith(`${RESERVED_READ_ROOT}/`)
+    destinationComponents.some((component) => /[\0\r\n\t]/.test(component)) ||
+    artifactDestinationTouchesReservedAuthority(normalized)
   ) {
     throw recipeError("--to must be a safe tracked repo-relative path outside Git authority and .codex/better-workflows");
   }
@@ -1476,7 +1526,11 @@ export async function recipeArtifactPromote(cwd, receiptId, artifactId, destinat
     { file: true }
   );
   if (sha256(await readFile(source)) !== artifact.sha256) throw recipeError("artifact digest drifted");
-  await assertSafeDestination(workspace.root, target);
+  await assertSafeDestination(
+    workspace.root,
+    target,
+    await artifactPromotionProtectedIdentities(workspace)
+  );
   if (targetExists) {
     const targetInfo = await lstat(target);
     if (!targetInfo.isFile() || targetInfo.isSymbolicLink() || targetInfo.nlink !== 1) {
@@ -1597,7 +1651,7 @@ export async function recipePrune(cwd, { apply = false } = {}) {
   };
 }
 
-async function assertSafeDestination(root, target) {
+async function assertSafeDestination(root, target, protectedIdentities = new Set()) {
   pathContained(root, target, "artifact destination");
   const relative = path.relative(root, path.dirname(target));
   let current = path.resolve(root);
@@ -1607,6 +1661,9 @@ async function assertSafeDestination(root, target) {
     const info = await lstat(current);
     if (info.isSymbolicLink() || !info.isDirectory()) {
       throw recipeError(`unsafe artifact destination parent: ${current}`);
+    }
+    if (protectedIdentities.has(filesystemIdentity(info))) {
+      throw recipeError(`artifact destination resolves through Git authority or reserved recipe state: ${current}`);
     }
   }
 }
