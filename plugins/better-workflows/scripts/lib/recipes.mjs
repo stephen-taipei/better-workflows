@@ -1433,8 +1433,97 @@ async function loadRecipeConfigRecoveryIntent(stateRoot, runIdValue, attemptId, 
     afterConfig,
     afterBytes,
     parentChain,
+    target,
+    parent,
+    temporaryPath,
+    temporary,
     allowedPaths: [normalizedTarget, temporaryRelative]
   };
+}
+
+async function discardRecipeConfigRecoveryTemporary(
+  stateRoot,
+  runIdValue,
+  attemptId,
+  recipe,
+  recovery
+) {
+  if (!recovery?.temporary || recipe.config.enabled === true) return { discarded: false };
+  return withRunLock(stateRoot, runIdValue, async () => {
+    const run = await loadRun(stateRoot, runIdValue);
+    assertMutableRun(run, "Recipe promotion temporary recovery");
+    const action = await currentLocalActionAttempt(
+      stateRoot,
+      run,
+      recovery.action,
+      "Recipe promotion temporary recovery"
+    );
+    if (action.attemptId !== attemptId) {
+      throw recipeError("recipe config temporary recovery attempt changed");
+    }
+    const currentRecovery = await loadRecipeConfigRecoveryIntent(
+      stateRoot,
+      runIdValue,
+      attemptId,
+      recipe
+    );
+    if (
+      !currentRecovery?.temporary ||
+      digestObject(currentRecovery.intent) !== digestObject(recovery.intent)
+    ) {
+      throw recipeError("recipe config temporary recovery intent changed after preflight");
+    }
+    await assertSpentActionNonSourceAuthority(
+      stateRoot,
+      runIdValue,
+      run,
+      action,
+      "Recipe promotion temporary recovery"
+    );
+    const baselineSentinel = await issuedSourceSentinel(stateRoot, run, action);
+    const currentSentinel = await captureSentinel(recipe.root, run.contract, await loadDefaults());
+    assertExpectedSourceRecovery(
+      baselineSentinel,
+      currentSentinel,
+      currentRecovery.allowedPaths,
+      "recipe promotion temporary recovery"
+    );
+    const parentChain = await assertSafeDestination(
+      recipe.root,
+      currentRecovery.target,
+      new Set(),
+      {
+        expectedParentChain: currentRecovery.parentChain,
+        requireCompleteParent: true
+      }
+    );
+    const parentIdentity = parentChain.at(-1)?.identity;
+    if (parentIdentity !== currentRecovery.expected.parentIdentity) {
+      throw recipeError("recipe config temporary recovery parent identity changed");
+    }
+    const discarded = await runPinnedArtifactPublisher({
+      mode: "discard",
+      parent: currentRecovery.parent,
+      parentIdentity,
+      targetName: currentRecovery.expected.targetName,
+      temporaryName: currentRecovery.intent.binding.temporaryName,
+      artifact: currentRecovery.expected.artifact,
+      artifactBytes: null,
+      targetIdentity: currentRecovery.expected.priorTarget.identity,
+      priorTarget: currentRecovery.expected.priorTarget
+    });
+    const recoveredSentinel = await captureSentinel(recipe.root, run.contract, await loadDefaults());
+    if (!recoveredSentinel.complete || recoveredSentinel.digest !== action.treeDigest) {
+      throw recipeError("recipe config temporary cleanup did not restore the action source binding");
+    }
+    await appendJournal(stateRoot, run.runDir, "action.local-provider-config-temporary-discarded", {
+      attemptId: action.attemptId,
+      intentDigest: digestObject(currentRecovery.intent),
+      temporary: path.relative(recipe.root, currentRecovery.temporaryPath).split(path.sep).join("/"),
+      receiptDigest: digestObject(discarded)
+    });
+    return { discarded: true, receipt: discarded };
+  }, { ttlMs: 300_000 });
 }
 
 async function assertPromotionRun(
@@ -1541,12 +1630,30 @@ export async function recipePromote(cwd, id, options) {
     throw recipeError(`confirmed digest does not match ${binding.executionDigest}`);
   }
   const stateRoot = getStateRoot();
-  const configRecovery = await loadRecipeConfigRecoveryIntent(
+  let configRecovery = await loadRecipeConfigRecoveryIntent(
     stateRoot,
     options.run,
     options.attempt,
     recipe
   );
+  if (configRecovery?.temporary && recipe.config.enabled !== true) {
+    await discardRecipeConfigRecoveryTemporary(
+      stateRoot,
+      options.run,
+      options.attempt,
+      recipe,
+      configRecovery
+    );
+    configRecovery = await loadRecipeConfigRecoveryIntent(
+      stateRoot,
+      options.run,
+      options.attempt,
+      recipe
+    );
+    if (configRecovery?.temporary) {
+      throw recipeError("recipe config temporary cleanup did not reach a durable absence");
+    }
+  }
   const promotion = await assertPromotionRun(
     stateRoot,
     options.run,
@@ -2012,6 +2119,9 @@ async function runPinnedArtifactPublisher({
   targetIdentity = null,
   priorTarget = null
 }) {
+  if (mode === "discard" && (!priorTarget || targetIdentity !== priorTarget.identity)) {
+    throw recipeError("pinned artifact temporary discard requires the exact prior target identity");
+  }
   const args = [
     ARTIFACT_PUBLISHER_PATH,
     mode,
@@ -2078,10 +2188,16 @@ async function runPinnedArtifactPublisher({
   } catch {
     throw recipeError("pinned artifact publisher returned invalid JSON");
   }
+  const receiptSha256 = mode === "discard" ? priorTarget.sha256 : artifact.sha256;
+  const receiptBytes = mode === "discard" ? priorTarget.size : artifact.bytes;
   if (
     payload?.ok !== true || payload.parentIdentity !== parentIdentity ||
-    payload.target?.sha256 !== artifact.sha256 || payload.target?.size !== artifact.bytes ||
-    !/^\d+:\d+$/.test(payload.target?.identity ?? "")
+    payload.target?.sha256 !== receiptSha256 || payload.target?.size !== receiptBytes ||
+    !/^\d+:\d+$/.test(payload.target?.identity ?? "") ||
+    (mode === "discard" && (
+      payload.state !== "discarded" || payload.recovered !== true || payload.temporary !== null ||
+      payload.target.identity !== priorTarget?.identity
+    ))
   ) {
     throw recipeError("pinned artifact publisher receipt is not bound to the requested artifact");
   }

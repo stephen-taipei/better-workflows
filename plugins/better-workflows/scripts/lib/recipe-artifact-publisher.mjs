@@ -225,6 +225,37 @@ async function replacePublication({
   return { state: "replaced", recovered: false, target, temporary: null };
 }
 
+async function discardReplacementTemporary({
+  targetName,
+  temporaryName,
+  expectedTemporarySha256,
+  expectedTemporaryBytes,
+  expectedPriorIdentity,
+  expectedPriorSha256,
+  expectedPriorBytes
+}) {
+  assertPriorTarget(
+    await readRecord(targetName),
+    expectedPriorIdentity,
+    expectedPriorSha256,
+    expectedPriorBytes
+  );
+  const temporary = await readRecord(temporaryName);
+  assertArtifact(
+    temporary,
+    expectedTemporarySha256,
+    expectedTemporaryBytes,
+    "replacement temporary file"
+  );
+  if (temporary.nlink !== 1) fail("replacement temporary file has an unexpected link count");
+  await unlink(temporaryName);
+  await syncDirectory();
+  const target = await readRecord(targetName);
+  assertPriorTarget(target, expectedPriorIdentity, expectedPriorSha256, expectedPriorBytes);
+  if (await readRecord(temporaryName)) fail("replacement temporary cleanup did not reach a durable absence");
+  return { state: "discarded", recovered: true, target, temporary: null };
+}
+
 async function createDirectory(name) {
   let created = false;
   try {
@@ -257,8 +288,8 @@ async function main() {
     priorSha256Arg = "-",
     priorBytesArg = "-"
   ] = process.argv.slice(2);
-  if (!["link", "finalize", "replace", "mkdir"].includes(mode)) {
-    fail("mode must be link, finalize, replace, or mkdir");
+  if (!["link", "finalize", "replace", "discard", "mkdir"].includes(mode)) {
+    fail("mode must be link, finalize, replace, discard, or mkdir");
   }
   if (!/^\d+:\d+$/.test(expectedParentIdentity ?? "")) fail("parent identity is invalid");
   const targetName = safeName(targetArg, "target name");
@@ -282,23 +313,36 @@ async function main() {
   if (expectedTargetIdentity !== null && !/^\d+:\d+$/.test(expectedTargetIdentity)) {
     fail("target identity is invalid");
   }
+  if (mode === "discard" && expectedTargetIdentity === null) {
+    fail("replacement temporary discard requires a prior target identity");
+  }
   let expectedPriorSha256 = null;
   let expectedPriorBytes = null;
-  if (mode === "replace" && expectedTargetIdentity !== null) {
+  if (["replace", "discard"].includes(mode) && expectedTargetIdentity !== null) {
     if (!SHA256.test(priorSha256Arg)) fail("prior target digest is invalid");
     expectedPriorSha256 = priorSha256Arg;
     expectedPriorBytes = Number(priorBytesArg);
     if (!Number.isSafeInteger(expectedPriorBytes) || expectedPriorBytes < 0 || expectedPriorBytes > MAX_ARTIFACT_BYTES) {
       fail("prior target byte count is invalid");
     }
-  } else if (mode === "replace" && (priorSha256Arg !== "-" || priorBytesArg !== "-")) {
+  } else if (["replace", "discard"].includes(mode) && (priorSha256Arg !== "-" || priorBytesArg !== "-")) {
     fail("absent replacement target must not declare prior bytes");
   }
   const result = mode === "link"
     ? await linkPublication({ targetName, temporaryName, expectedSha256, expectedBytes, expectedTargetIdentity })
     : mode === "finalize"
       ? await finalizePublication({ targetName, temporaryName, expectedSha256, expectedBytes, expectedTargetIdentity })
-      : await replacePublication({
+      : mode === "discard"
+        ? await discardReplacementTemporary({
+            targetName,
+            temporaryName,
+            expectedTemporarySha256: expectedSha256,
+            expectedTemporaryBytes: expectedBytes,
+            expectedPriorIdentity: expectedTargetIdentity,
+            expectedPriorSha256,
+            expectedPriorBytes
+          })
+        : await replacePublication({
           targetName,
           temporaryName,
           expectedSha256,
