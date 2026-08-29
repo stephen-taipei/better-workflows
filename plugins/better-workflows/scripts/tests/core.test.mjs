@@ -71,6 +71,7 @@ import {
   readJson,
   registerOwnedResource,
   reconcileAction,
+  reserveProviderExecution,
   resumeActionsDispatchObservation,
   resolveGitFetchOrigin,
   resolveGitPushDestination,
@@ -183,6 +184,59 @@ test("provider execution EEXIST replay requires the exact outcome and unsupersed
     () => classifyProviderExecutionReplay({ ...existing, tokenHash: "b".repeat(64) }, record, executionId, "unknown"),
     /reserved globally/
   );
+});
+
+test("provider execution create race rejects a conflicting winner and governs unknown resolution", async () => {
+  const record = {
+    runId: "run-provider-create-race",
+    attemptId: "attempt-provider-create-race",
+    tokenHash: "c".repeat(64),
+    action: "pr.create",
+    outcome: "unknown"
+  };
+  const executionId = "github:pr.create:provider-create-race";
+  const reservation = (outcome) => ({
+    schemaVersion: 1,
+    executionId,
+    runId: record.runId,
+    attemptId: record.attemptId,
+    tokenHash: record.tokenHash,
+    action: record.action,
+    outcome,
+    recordedAt: "2026-08-30T00:00:00.000Z"
+  });
+  const conflictRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-provider-create-conflict-"));
+  await assert.rejects(
+    reserveProviderExecution(conflictRoot, record, executionId, "success", {
+      async onBoundary(boundary) {
+        if (boundary !== "provider-reservation-before-create") return;
+        await writeFile(
+          path.join(conflictRoot, "provider-executions", `${sha256(executionId)}.json`),
+          `${JSON.stringify(reservation("failure"))}\n`,
+          { flag: "wx", mode: 0o600 }
+        );
+      }
+    }),
+    /different terminal outcome/
+  );
+
+  const recoveryRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-provider-create-recovery-"));
+  await reserveProviderExecution(recoveryRoot, record, executionId, "success", {
+    async onBoundary(boundary) {
+      if (boundary !== "provider-reservation-before-create") return;
+      await writeFile(
+        path.join(recoveryRoot, "provider-executions", `${sha256(executionId)}.json`),
+        `${JSON.stringify(reservation("unknown"))}\n`,
+        { flag: "wx", mode: 0o600 }
+      );
+    }
+  });
+  const recovered = JSON.parse(await readFile(
+    path.join(recoveryRoot, "provider-executions", `${sha256(executionId)}.json`),
+    "utf8"
+  ));
+  assert.equal(recovered.outcome, "success");
+  assert.match(recovered.terminalAt, /^\d{4}-\d{2}-\d{2}T/);
 });
 
 test("durable file removal propagates unexpected unlink failures and verifies absence", async () => {

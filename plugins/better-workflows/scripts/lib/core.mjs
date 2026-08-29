@@ -2022,7 +2022,7 @@ export function classifyProviderExecutionReplay(existing, record, executionId, o
   throw new Error("Provider execution identity is already bound to a different terminal outcome");
 }
 
-async function reserveProviderExecution(
+export async function reserveProviderExecution(
   root,
   record,
   executionId,
@@ -2104,6 +2104,7 @@ async function reserveProviderExecution(
       supersededAt: nowIso()
     });
   }
+  await onBoundary?.("provider-reservation-before-create");
   try {
     const handle = await open(target, "wx", 0o600);
     try {
