@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
+import { EventEmitter } from "node:events";
 import {
   access,
   appendFile,
@@ -18,6 +19,7 @@ import {
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import {
@@ -33,12 +35,22 @@ import {
 } from "../lib/core.mjs";
 import { captureSentinel, captureSourceBinding } from "../lib/git.mjs";
 import { transitionLedger } from "../lib/ledger.mjs";
-import { recipeArtifactPromote, recipePromote } from "../lib/recipes.mjs";
+import {
+  awaitPinnedChildTerminal,
+  recipeArtifactPromote,
+  recipePromote
+} from "../lib/recipes.mjs";
 import { createReviewPackage, markBroadReviewComplete, reviewStatus } from "../lib/review.mjs";
 
 const execFileAsync = promisify(execFile);
 const CLI = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "sbw.mjs");
 const RUNTIME = path.join(pluginRoot(), "scripts", "lib", "recipe-runtime.mjs");
+const ARTIFACT_PUBLISHER = path.join(
+  pluginRoot(),
+  "scripts",
+  "lib",
+  "recipe-artifact-publisher.mjs"
+);
 
 function runRuntime(request) {
   return new Promise((resolve, reject) => {
@@ -71,6 +83,109 @@ async function repository() {
   await git(cwd, "commit", "-qm", "fixture");
   return cwd;
 }
+
+test("pinned child timeout waits for terminal close after SIGKILL", async () => {
+  const child = new EventEmitter();
+  let killed = false;
+  child.kill = (signal) => {
+    assert.equal(signal, "SIGKILL");
+    killed = true;
+    return true;
+  };
+  let settled = false;
+  const terminal = awaitPinnedChildTerminal(child, {
+    timeoutMs: 10,
+    timeoutMessage: "fixture timed out"
+  }).then(
+    (value) => ({ ok: true, value }),
+    (error) => ({ ok: false, error })
+  );
+  terminal.then(() => { settled = true; });
+  await delay(30);
+  assert.equal(killed, true);
+  assert.equal(settled, false);
+  child.emit("close", null, "SIGKILL");
+  const result = await terminal;
+  assert.equal(result.ok, false);
+  assert.match(result.error.message, /fixture timed out/);
+  assert.equal(settled, true);
+});
+
+test("discard publisher quarantines a raced pathname without deleting the replacement inode", async () => {
+  const parent = await mkdtemp(path.join(os.tmpdir(), "sbw-publisher-quarantine-"));
+  const controls = await mkdtemp(path.join(os.tmpdir(), "sbw-publisher-controls-"));
+  const targetName = "config.json";
+  const temporaryName = ".replacement.tmp";
+  const displacedName = ".replacement.original";
+  const priorBytes = Buffer.from("{\"enabled\":false}\n");
+  const artifactBytes = Buffer.from("{\"enabled\":true}\n");
+  await writeFile(path.join(parent, targetName), priorBytes);
+  await writeFile(path.join(parent, temporaryName), artifactBytes);
+  const parentInfo = await lstat(parent);
+  const targetInfo = await lstat(path.join(parent, targetName));
+  const parentIdentity = `${parentInfo.dev}:${parentInfo.ino}`;
+  const targetIdentity = `${targetInfo.dev}:${targetInfo.ino}`;
+  const child = spawn(process.execPath, [
+    ARTIFACT_PUBLISHER,
+    "discard",
+    parentIdentity,
+    targetName,
+    temporaryName,
+    sha256(artifactBytes),
+    String(artifactBytes.length),
+    targetIdentity,
+    sha256(priorBytes),
+    String(priorBytes.length)
+  ], {
+    cwd: parent,
+    shell: false,
+    stdio: ["ignore", "pipe", "pipe"],
+    env: {
+      LANG: "C.UTF-8",
+      LC_ALL: "C.UTF-8",
+      TZ: "UTC",
+      NODE_NO_WARNINGS: "1",
+      SBW_RECIPE_PUBLISHER_TEST_ROOT: controls
+    }
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  child.stdout.on("data", (chunk) => { stdout += chunk; });
+  child.stderr.on("data", (chunk) => { stderr += chunk; });
+  const terminal = new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", (code, signal) => resolve({ code, signal }));
+  });
+  const ready = path.join(controls, "before-discard-quarantine-rename.ready");
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    try {
+      await access(ready);
+      break;
+    } catch (error) {
+      if (attempt === 199) throw error;
+      await delay(5);
+    }
+  }
+  await rename(path.join(parent, temporaryName), path.join(parent, displacedName));
+  await writeFile(path.join(parent, temporaryName), artifactBytes, { flag: "wx" });
+  const replacementInfo = await lstat(path.join(parent, temporaryName));
+  await writeFile(path.join(controls, "before-discard-quarantine-rename.continue"), "continue\n");
+  const result = await terminal;
+  assert.notEqual(result.code, 0, stdout);
+  assert.match(stderr, /identity changed at the quarantine boundary/);
+  assert.deepEqual(await readFile(path.join(parent, targetName)), priorBytes);
+  assert.deepEqual(await readFile(path.join(parent, displacedName)), artifactBytes);
+  await assert.rejects(access(path.join(parent, temporaryName)));
+  const quarantineNames = (await readdir(parent)).filter((name) => name.startsWith(".sbw-discard-quarantine-"));
+  assert.equal(quarantineNames.length, 1);
+  const quarantinedPath = path.join(parent, quarantineNames[0], "artifact");
+  const quarantinedInfo = await lstat(quarantinedPath);
+  assert.equal(quarantinedInfo.dev, replacementInfo.dev);
+  assert.equal(quarantinedInfo.ino, replacementInfo.ino);
+  assert.deepEqual(await readFile(quarantinedPath), artifactBytes);
+});
 
 async function cli(cwd, stateRoot, args, { allowFailure = false } = {}) {
   try {
@@ -522,17 +637,21 @@ test("reference recipe completes governed promotion, dry-run, atomic run, artifa
         attempt: attemptId,
         confirmDigest: digest,
         async onProviderBoundary(boundary, details) {
-          if (boundary !== "config-intent-prepared") return;
-          interruptedConfigIntent = details.intent;
+          if (boundary !== "config-intent-intent-written") return;
+          interruptedConfigIntent = details.admission.intent;
+          const artifactBytes = Buffer.from(`${JSON.stringify({
+            ...unchangedRaceConfig,
+            enabled: true
+          }, null, 2)}\n`);
           await writeFile(
-            path.join(details.parent, details.intent.binding.temporaryName),
-            details.artifactBytes,
+            path.join(workspaceConfigParent, interruptedConfigIntent.binding.temporaryName),
+            artifactBytes,
             { flag: "wx", mode: 0o644 }
           );
-          throw new Error("simulated crash after durable recipe config temporary creation");
+          throw new Error("simulated crash after admitted config intent write and temporary creation");
         }
       }),
-      /simulated crash after durable recipe config temporary creation/
+      /simulated crash after admitted config intent write and temporary creation/
     );
   } finally {
     if (priorConfigCrashStateRoot === undefined) delete process.env.SBW_STATE_ROOT;
@@ -548,6 +667,27 @@ test("reference recipe completes governed promotion, dry-run, atomic run, artifa
   );
   const persistedConfigIntent = JSON.parse(await readFile(configIntentPath, "utf8"));
   assert.equal(persistedConfigIntent.bindingDigest, interruptedConfigIntent.bindingDigest);
+  const preparedAdmissionPath = path.join(
+    stateRoot,
+    "runs",
+    runId,
+    "local-provider-intent-admissions",
+    `${attemptId}.prepared.json`
+  );
+  const preparedAdmission = JSON.parse(await readFile(preparedAdmissionPath, "utf8"));
+  assert.equal(preparedAdmission.intentDigest, digestObject(persistedConfigIntent));
+  const interruptedJournal = (await readFile(
+    path.join(stateRoot, "runs", runId, "journal.jsonl"),
+    "utf8"
+  )).split("\n").filter(Boolean).map((line) => JSON.parse(line));
+  assert.equal(interruptedJournal.filter((entry) => (
+    entry.event === "action.local-provider-config-intent-admission-pending" &&
+    entry.attemptId === attemptId && entry.status === "prepared"
+  )).length, 1);
+  assert.equal(interruptedJournal.filter((entry) => (
+    entry.event === "action.local-provider-config-intent-prepared" &&
+    entry.attemptId === attemptId && entry.status === "prepared"
+  )).length, 0);
   const interruptedConfigTemporary = path.join(
     workspaceConfigParent,
     persistedConfigIntent.binding.temporaryName
@@ -557,6 +697,83 @@ test("reference recipe completes governed promotion, dry-run, atomic run, artifa
     JSON.parse(await readFile(path.join(workspaceConfigParent, "config.json"), "utf8")).enabled,
     false
   );
+
+  const tamperedIntentState = await mkdtemp(path.join(os.tmpdir(), "sbw-recipe-intent-journal-attack-"));
+  await cp(stateRoot, tamperedIntentState, { recursive: true });
+  const tamperedIntentPath = path.join(
+    tamperedIntentState,
+    "runs",
+    runId,
+    "local-provider-intents",
+    `${attemptId}.json`
+  );
+  const tamperedAdmissionPath = path.join(
+    tamperedIntentState,
+    "runs",
+    runId,
+    "local-provider-intent-admissions",
+    `${attemptId}.prepared.json`
+  );
+  const tamperedIntent = structuredClone(persistedConfigIntent);
+  tamperedIntent.binding.priorTarget.identity = "1:1";
+  tamperedIntent.bindingDigest = digestObject(tamperedIntent.binding);
+  const tamperedAdmission = structuredClone(preparedAdmission);
+  tamperedAdmission.intent = tamperedIntent;
+  tamperedAdmission.intentDigest = digestObject(tamperedIntent);
+  tamperedAdmission.admissionDigest = digestObject({
+    schemaVersion: tamperedAdmission.schemaVersion,
+    kind: tamperedAdmission.kind,
+    runId: tamperedAdmission.runId,
+    actionAttemptId: tamperedAdmission.actionAttemptId,
+    status: tamperedAdmission.status,
+    event: tamperedAdmission.event,
+    intentDigest: tamperedAdmission.intentDigest
+  });
+  await writeFile(tamperedIntentPath, `${JSON.stringify(tamperedIntent, null, 2)}\n`);
+  await writeFile(tamperedAdmissionPath, `${JSON.stringify(tamperedAdmission, null, 2)}\n`);
+  const priorTamperedStateRoot = process.env.SBW_STATE_ROOT;
+  process.env.SBW_STATE_ROOT = tamperedIntentState;
+  try {
+    await assert.rejects(
+      recipePromote(cwd, "json-keyset-audit", {
+        run: runId,
+        attempt: attemptId,
+        confirmDigest: digest
+      }),
+      /pending journal binding is missing or ambiguous|not the admitted journal-bound record/
+    );
+  } finally {
+    if (priorTamperedStateRoot === undefined) delete process.env.SBW_STATE_ROOT;
+    else process.env.SBW_STATE_ROOT = priorTamperedStateRoot;
+  }
+  assert.equal((await lstat(interruptedConfigTemporary)).nlink, 1);
+
+  const priorSourceBindingAttackStateRoot = process.env.SBW_STATE_ROOT;
+  process.env.SBW_STATE_ROOT = stateRoot;
+  let hiddenIndexMutated = false;
+  try {
+    await assert.rejects(
+      recipePromote(cwd, "json-keyset-audit", {
+        run: runId,
+        attempt: attemptId,
+        confirmDigest: digest,
+        async onProviderBoundary(boundary) {
+          if (boundary !== "config-before-temporary-discard") return;
+          await git(cwd, "update-index", "--skip-worktree", ".codex/better-workflows/config.json");
+          hiddenIndexMutated = true;
+        }
+      }),
+      /source authority changed before cleanup/
+    );
+    assert.equal(hiddenIndexMutated, true);
+    assert.equal((await lstat(interruptedConfigTemporary)).nlink, 1);
+  } finally {
+    if (hiddenIndexMutated) {
+      await git(cwd, "update-index", "--no-skip-worktree", ".codex/better-workflows/config.json");
+    }
+    if (priorSourceBindingAttackStateRoot === undefined) delete process.env.SBW_STATE_ROOT;
+    else process.env.SBW_STATE_ROOT = priorSourceBindingAttackStateRoot;
+  }
   const promoted = await cli(cwd, stateRoot, [
     "recipe",
     "promote",
@@ -572,6 +789,20 @@ test("reference recipe completes governed promotion, dry-run, atomic run, artifa
   const publishedConfigIntent = JSON.parse(await readFile(configIntentPath, "utf8"));
   assert.equal(publishedConfigIntent.status, "published");
   assert.match(publishedConfigIntent.targetIdentity, /^\d+:\d+$/);
+  const completedJournal = (await readFile(
+    path.join(stateRoot, "runs", runId, "journal.jsonl"),
+    "utf8"
+  )).split("\n").filter(Boolean).map((line) => JSON.parse(line));
+  for (const status of ["prepared", "published"]) {
+    assert.equal(completedJournal.filter((entry) => (
+      entry.event === "action.local-provider-config-intent-admission-pending" &&
+      entry.attemptId === attemptId && entry.status === status
+    )).length, 1);
+    assert.equal(completedJournal.filter((entry) => (
+      entry.event === `action.local-provider-config-intent-${status}` &&
+      entry.attemptId === attemptId && entry.status === status
+    )).length, 1);
+  }
   await assert.rejects(access(interruptedConfigTemporary));
   const promotedRun = await inspectRun(stateRoot, runId);
   const promotedAction = promotedRun.actions.find((item) => item.attemptId === attemptId);

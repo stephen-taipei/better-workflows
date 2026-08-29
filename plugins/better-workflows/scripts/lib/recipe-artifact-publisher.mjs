@@ -1,7 +1,8 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
-import { link, lstat, mkdir, open, rename, unlink } from "node:fs/promises";
+import { link, lstat, mkdir, open, rename, rmdir, unlink } from "node:fs/promises";
 import path from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 
 const SHA256 = /^[a-f0-9]{64}$/;
 const MAX_ARTIFACT_BYTES = 100 * 1024 * 1024;
@@ -73,6 +74,55 @@ async function syncDirectory() {
   } finally {
     await handle.close();
   }
+}
+
+async function syncNamedDirectory(name) {
+  const handle = await open(name, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+  try {
+    const info = await handle.stat();
+    if (!info.isDirectory() || info.isSymbolicLink()) fail("quarantine is not a regular directory");
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
+
+async function testBoundary(name) {
+  const root = process.env.SBW_RECIPE_PUBLISHER_TEST_ROOT;
+  if (!root) return;
+  if (!path.isAbsolute(root)) fail("test boundary root must be absolute");
+  const info = await lstat(root);
+  if (!info.isDirectory() || info.isSymbolicLink()) fail("test boundary root is unsafe");
+  const ready = path.join(root, `${name}.ready`);
+  const proceed = path.join(root, `${name}.continue`);
+  const handle = await open(ready, "wx", 0o600);
+  await handle.close();
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    try {
+      const proceedInfo = await lstat(proceed);
+      if (!proceedInfo.isFile() || proceedInfo.isSymbolicLink()) fail("test boundary continuation is unsafe");
+      return;
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+    await delay(5);
+  }
+  fail(`test boundary timed out: ${name}`);
+}
+
+async function createDiscardQuarantine() {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const name = `.sbw-discard-quarantine-${randomBytes(24).toString("hex")}`;
+    try {
+      await mkdir(name, { mode: 0o700 });
+      await syncDirectory();
+      return { name, artifact: path.join(name, "artifact") };
+    } catch (error) {
+      if (error.code !== "EEXIST") throw error;
+    }
+  }
+  fail("could not allocate an exclusive discard quarantine");
 }
 
 async function createTemporary(name, bytes) {
@@ -248,9 +298,37 @@ async function discardReplacementTemporary({
     "replacement temporary file"
   );
   if (temporary.nlink !== 1) fail("replacement temporary file has an unexpected link count");
-  await unlink(temporaryName);
+  const quarantine = await createDiscardQuarantine();
+  await testBoundary("before-discard-quarantine-rename");
+  await rename(temporaryName, quarantine.artifact);
   await syncDirectory();
-  const target = await readRecord(targetName);
+  await syncNamedDirectory(quarantine.name);
+  let target = await readRecord(targetName);
+  assertPriorTarget(target, expectedPriorIdentity, expectedPriorSha256, expectedPriorBytes);
+  if (await readRecord(temporaryName)) fail("replacement temporary name was recreated during quarantine");
+  let quarantined = await readRecord(quarantine.artifact);
+  if (
+    !quarantined || quarantined.identity !== temporary.identity || quarantined.nlink !== 1 ||
+    quarantined.sha256 !== expectedTemporarySha256 || quarantined.size !== expectedTemporaryBytes
+  ) {
+    fail("replacement temporary identity changed at the quarantine boundary");
+  }
+  await testBoundary("before-discard-quarantine-unlink");
+  target = await readRecord(targetName);
+  assertPriorTarget(target, expectedPriorIdentity, expectedPriorSha256, expectedPriorBytes);
+  quarantined = await readRecord(quarantine.artifact);
+  if (
+    !quarantined || quarantined.identity !== temporary.identity || quarantined.nlink !== 1 ||
+    quarantined.sha256 !== expectedTemporarySha256 || quarantined.size !== expectedTemporaryBytes
+  ) {
+    fail("replacement quarantine identity changed at the destructive boundary");
+  }
+  await unlink(quarantine.artifact);
+  await syncNamedDirectory(quarantine.name);
+  if (await readRecord(quarantine.artifact)) fail("replacement quarantine did not reach a durable absence");
+  await rmdir(quarantine.name);
+  await syncDirectory();
+  target = await readRecord(targetName);
   assertPriorTarget(target, expectedPriorIdentity, expectedPriorSha256, expectedPriorBytes);
   if (await readRecord(temporaryName)) fail("replacement temporary cleanup did not reach a durable absence");
   return { state: "discarded", recovered: true, target, temporary: null };

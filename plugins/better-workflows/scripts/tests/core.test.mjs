@@ -43,6 +43,7 @@ import {
   buildContract,
   captureAutonomyReadinessSnapshot,
   cleanupRuns,
+  classifyProviderExecutionReplay,
   consumeActionToken,
   completeRun,
   createRun,
@@ -81,6 +82,7 @@ import {
   sha256,
   setRunStatus,
   updateState,
+  unlinkDurableFile,
   verifyRequiredChecksProvider,
   verifyMergeHumanApproval,
   verifyTransferredPullRequestOwnership,
@@ -146,6 +148,59 @@ test("PR merge action binding carries the exact reviewed base into live verifica
     "gh", "pr", "merge", "41", "--repo", "github.com/example/repo",
     "--match-head-commit", reviewedHead, "--merge", "--delete-branch=false"
   ]);
+});
+
+test("provider execution EEXIST replay requires the exact outcome and unsuperseded identity", () => {
+  const record = {
+    runId: "run-provider-race",
+    attemptId: "attempt-provider-race",
+    tokenHash: "a".repeat(64),
+    action: "pr.create",
+    outcome: "unknown"
+  };
+  const executionId = "github:pr.create:provider-race";
+  const existing = {
+    schemaVersion: 1,
+    executionId,
+    runId: record.runId,
+    attemptId: record.attemptId,
+    tokenHash: record.tokenHash,
+    action: record.action,
+    outcome: "unknown",
+    recordedAt: "2026-08-30T00:00:00.000Z"
+  };
+  assert.equal(classifyProviderExecutionReplay(existing, record, executionId, "unknown"), "replay");
+  assert.equal(classifyProviderExecutionReplay(existing, record, executionId, "success"), "resolve");
+  assert.throws(
+    () => classifyProviderExecutionReplay({ ...existing, outcome: "failure" }, record, executionId, "success"),
+    /different terminal outcome/
+  );
+  assert.throws(
+    () => classifyProviderExecutionReplay({ ...existing, supersededBy: "replacement-execution" }, record, executionId, "unknown"),
+    /superseded by another identity/
+  );
+  assert.throws(
+    () => classifyProviderExecutionReplay({ ...existing, tokenHash: "b".repeat(64) }, record, executionId, "unknown"),
+    /reserved globally/
+  );
+});
+
+test("durable file removal propagates unexpected unlink failures and verifies absence", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "sbw-durable-unlink-"));
+  const target = path.join(directory, "reservation.json");
+  await writeFile(target, "{}\n");
+  assert.deepEqual(await unlinkDurableFile(directory, target), { removed: true });
+  await assert.rejects(access(target));
+  assert.deepEqual(
+    await unlinkDurableFile(directory, target, { allowAbsent: true }),
+    { removed: false }
+  );
+  await mkdir(target);
+  await assert.rejects(
+    unlinkDurableFile(directory, target),
+    /EISDIR|EPERM|operation not permitted|illegal operation/i
+  );
+  assert.equal((await lstat(target)).isDirectory(), true);
 });
 
 test("annotated workflow refs peel tag objects to a commit and reject cycles", async () => {

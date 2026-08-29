@@ -1051,6 +1051,30 @@ async function fsyncDirectory(directory) {
   }
 }
 
+async function readJsonIfExists(root, target) {
+  try {
+    return await readJson(root, target);
+  } catch (error) {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+export async function unlinkDurableFile(directory, target, { allowAbsent = false } = {}) {
+  let removed = true;
+  try {
+    await unlink(target);
+  } catch (error) {
+    if (error.code !== "ENOENT" || !allowAbsent) throw error;
+    removed = false;
+  }
+  await fsyncDirectory(directory);
+  if (await pathExists(target)) {
+    throw new Error(`Durable file removal did not reach an absent state: ${target}`);
+  }
+  return { removed };
+}
+
 export async function atomicWriteJson(root, target, value) {
   const parent = path.dirname(target);
   await assertNoSymlinkUnder(root, parent);
@@ -1103,7 +1127,7 @@ export async function appendJournal(root, runDir, event, details = {}) {
   return record;
 }
 
-async function readJournalRecords(root, runDir) {
+export async function readJournalRecords(root, runDir) {
   const target = safeJoin(runDir, "journal.jsonl");
   await assertNoSymlinkUnder(root, target);
   if (!(await pathExists(target))) return [];
@@ -1966,6 +1990,38 @@ export function assertProviderReceiptShape(record, providerReceipt, outcome = re
   }
 }
 
+export function classifyProviderExecutionReplay(existing, record, executionId, outcome) {
+  if (
+    existing?.schemaVersion !== PROVIDER_EXECUTION_SCHEMA_VERSION ||
+    typeof existing?.executionId !== "string" ||
+    !["unknown", "success", "failure"].includes(existing?.outcome)
+  ) {
+    throw new Error("Legacy provider execution reservation cannot be recovered; preserve the reservation");
+  }
+  if (
+    existing.executionId !== executionId ||
+    existing.runId !== record.runId ||
+    existing.attemptId !== record.attemptId ||
+    existing.tokenHash !== record.tokenHash ||
+    existing.action !== record.action
+  ) {
+    throw new Error("Provider execution identity is already reserved globally");
+  }
+  if (existing.supersededBy !== undefined && existing.supersededBy !== null) {
+    throw new Error("Provider execution identity was superseded by another identity");
+  }
+  if (existing.outcome === outcome) return "replay";
+  if (
+    OWNED_RESOURCE_CREATION_ACTIONS.has(record.action) &&
+    record.outcome === "unknown" &&
+    existing.outcome === "unknown" &&
+    ["success", "failure"].includes(outcome)
+  ) {
+    return "resolve";
+  }
+  throw new Error("Provider execution identity is already bound to a different terminal outcome");
+}
+
 async function reserveProviderExecution(
   root,
   record,
@@ -2014,31 +2070,17 @@ async function reserveProviderExecution(
   const actionReservations = sameAttempt.filter((item) => item.action === record.action);
   const exact = actionReservations.find((item) => item.executionId === executionId);
   if (exact) {
-    if (exact.supersededBy && exact.supersededBy !== executionId) {
-      throw new Error("Provider execution identity was superseded by another identity");
-    }
-    if (exact.outcome === outcome) {
-      await fsyncDirectory(directory);
-      await onBoundary?.("provider-reservation-replay-durable");
-      return;
-    }
-    const canResolveSameIdentity = (
-      OWNED_RESOURCE_CREATION_ACTIONS.has(record.action) &&
-      record.outcome === "unknown" &&
-      exact.outcome === "unknown" &&
-      ["success", "failure"].includes(outcome)
-    );
-    if (canResolveSameIdentity) {
+    const replay = classifyProviderExecutionReplay(exact, record, executionId, outcome);
+    if (replay === "resolve") {
       await atomicWriteJson(root, target, {
         ...exact,
         outcome,
         terminalAt: nowIso()
       });
-      await fsyncDirectory(directory);
-      await onBoundary?.("provider-reservation-replay-durable");
-      return;
     }
-    throw new Error("Provider execution identity is already bound to a different terminal outcome");
+    await fsyncDirectory(directory);
+    await onBoundary?.("provider-reservation-replay-durable");
+    return;
   }
   const terminal = actionReservations.find((item) => ["success", "failure"].includes(item.outcome));
   const unknown = actionReservations.find((item) => item.outcome === "unknown");
@@ -2075,25 +2117,18 @@ async function reserveProviderExecution(
     await onBoundary?.("provider-reservation-directory-durable");
   } catch (error) {
     if (error.code === "EEXIST") {
-      const existing = await readJson(root, target).catch(() => null);
-      if (
-        existing?.schemaVersion !== PROVIDER_EXECUTION_SCHEMA_VERSION ||
-        !["unknown", "success", "failure"].includes(existing?.outcome)
-      ) {
-        throw new Error("Legacy provider execution reservation cannot be recovered; preserve the reservation");
+      const existing = await readJson(root, target);
+      const replay = classifyProviderExecutionReplay(existing, record, executionId, outcome);
+      if (replay === "resolve") {
+        await atomicWriteJson(root, target, {
+          ...existing,
+          outcome,
+          terminalAt: nowIso()
+        });
       }
-      if (
-        existing?.executionId === executionId &&
-        existing?.runId === record.runId &&
-        existing?.attemptId === record.attemptId &&
-        existing?.tokenHash === record.tokenHash &&
-        existing?.action === record.action
-      ) {
-        await fsyncDirectory(directory);
-        await onBoundary?.("provider-reservation-replay-durable");
-        return;
-      }
-      throw new Error("Provider execution identity is already reserved globally");
+      await fsyncDirectory(directory);
+      await onBoundary?.("provider-reservation-replay-durable");
+      return;
     }
     throw error;
   }
@@ -2175,7 +2210,7 @@ async function withCreationReservationLock(root, identity, callback, options = {
       break;
     } catch (error) {
       if (error.code !== "EEXIST") throw error;
-      const existing = await readJson(root, lockPath).catch(() => null);
+      const existing = await readJsonIfExists(root, lockPath);
       const expired = existing && Date.parse(existing.expiresAt) < Date.now();
       if (!expired || existing?.host !== os.hostname() || processAlive(existing?.pid)) {
         if (expired && existing?.host && existing.host !== os.hostname()) {
@@ -2191,10 +2226,13 @@ async function withCreationReservationLock(root, identity, callback, options = {
   try {
     return await callback();
   } finally {
-    const existing = await readJson(root, lockPath).catch(() => null);
-    if (existing?.token === token) {
-      await unlink(lockPath).catch(() => undefined);
-      await fsyncDirectory(directory);
+    const existing = await readJsonIfExists(root, lockPath);
+    if (existing === null) {
+      await unlinkDurableFile(directory, lockPath, { allowAbsent: true });
+    } else if (existing.token !== token || existing.reservationKey !== reservationKey) {
+      throw new Error("Creation reservation lease identity changed before release");
+    } else {
+      await unlinkDurableFile(directory, lockPath);
     }
   }
 }
@@ -2208,7 +2246,7 @@ async function reserveCreationResource(root, runId, identity, tokenHash, expires
       throw new Error("Legacy unscoped creation reservation requires explicit reconciliation");
     }
     const target = creationReservationPath(root, reservationIdentity);
-    const existing = await readJson(root, target).catch(() => null);
+    const existing = await readJsonIfExists(root, target);
     const existingAction = existing?.runId && existing?.tokenHash
       ? await readJson(root, safeJoin(runDirectory(root, existing.runId), "actions", `${existing.tokenHash}.json`)).catch(() => null)
       : null;
@@ -2246,14 +2284,23 @@ async function releaseCreationResource(root, runId, identity, tokenHash = null) 
   return withCreationReservationLock(root, reservationIdentity, async () => {
     const directory = safeJoin(root, "creation-reservations");
     const target = creationReservationPath(root, reservationIdentity);
-    const reservation = await readJson(root, target).catch(() => null);
-    if (
-      reservation?.runId === runId &&
-      (tokenHash === null || reservation.tokenHash === tokenHash)
-    ) {
-      await unlink(target).catch(() => undefined);
-      await fsyncDirectory(directory);
+    const reservation = await readJsonIfExists(root, target);
+    if (reservation === null) {
+      await unlinkDurableFile(directory, target, { allowAbsent: true });
+      return;
     }
+    if (
+      reservation.runId !== runId ||
+      (tokenHash !== null && reservation.tokenHash !== tokenHash) ||
+      reservation.reservationKey !== creationReservationKey(reservationIdentity) ||
+      reservation.provider !== reservationIdentity.provider ||
+      reservation.repository !== reservationIdentity.repository ||
+      reservation.action !== reservationIdentity.action ||
+      reservation.resource !== reservationIdentity.resource
+    ) {
+      throw new Error("Creation reservation identity changed before release");
+    }
+    await unlinkDurableFile(directory, target);
   });
 }
 

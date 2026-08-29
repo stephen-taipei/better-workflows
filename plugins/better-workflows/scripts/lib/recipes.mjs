@@ -36,6 +36,7 @@ import {
   nowIso,
   pluginRoot,
   readJson,
+  readJournalRecords,
   reconcileAction,
   safeJoin,
   sha256,
@@ -177,6 +178,24 @@ async function issuedSourceSentinel(stateRoot, run, action) {
     throw recipeError("issued source sentinel is stale or incomplete");
   }
   return sentinel;
+}
+
+function issuedSourceBinding(action) {
+  const binding = action.sourceAuthorityAtIssue?.sourceBinding;
+  if (binding?.schemaVersion !== 3 || !SHA256.test(binding?.digest ?? "")) {
+    throw recipeError("action lacks an immutable issued source binding");
+  }
+  return binding;
+}
+
+function recoveryComparableSourceBinding(sourceBinding) {
+  const {
+    digest: _digest,
+    worktreeClean: _worktreeClean,
+    worktreeStatusDigest: _worktreeStatusDigest,
+    ...authority
+  } = sourceBinding;
+  return authority;
 }
 
 function providerActionSourceMutation({
@@ -820,6 +839,138 @@ function recipeConfigReplacementIntentPath(runDir, actionAttemptId) {
   return safeJoin(runDir, "local-provider-intents", `${actionAttemptId}.json`);
 }
 
+function recipeConfigIntentAdmissionPath(runDir, actionAttemptId, status) {
+  if (!SAFE_SENTINEL_LABEL.test(actionAttemptId ?? "") || !["prepared", "published"].includes(status)) {
+    throw recipeError("recipe config replacement admission identity is unsafe");
+  }
+  return safeJoin(
+    runDir,
+    "local-provider-intent-admissions",
+    `${actionAttemptId}.${status}.json`
+  );
+}
+
+function recipeConfigIntentEvent(status) {
+  return status === "prepared"
+    ? "action.local-provider-config-intent-prepared"
+    : "action.local-provider-config-intent-published";
+}
+
+function recipeConfigIntentImmutableProjection(intent) {
+  const {
+    preparedAt: _preparedAt,
+    publishedAt: _publishedAt,
+    updatedAt: _updatedAt,
+    ...immutable
+  } = structuredClone(intent);
+  return immutable;
+}
+
+function recipeConfigIntentAdmissionBinding(admission) {
+  return {
+    schemaVersion: admission.schemaVersion,
+    kind: admission.kind,
+    runId: admission.runId,
+    actionAttemptId: admission.actionAttemptId,
+    status: admission.status,
+    event: admission.event,
+    intentDigest: admission.intentDigest
+  };
+}
+
+function validateRecipeConfigIntentAdmission(admission, run, actionAttemptId, status) {
+  if (
+    !admission || admission.schemaVersion !== 1 ||
+    admission.kind !== "recipe-config-replacement-intent-admission" ||
+    admission.runId !== run.manifest.runId ||
+    admission.actionAttemptId !== actionAttemptId ||
+    admission.status !== status ||
+    admission.event !== recipeConfigIntentEvent(status) ||
+    admission.intent?.binding?.actionAttemptId !== actionAttemptId ||
+    admission.intent?.status !== status ||
+    admission.intentDigest !== digestObject(admission.intent ?? null) ||
+    admission.admissionDigest !== digestObject(recipeConfigIntentAdmissionBinding(admission))
+  ) {
+    throw recipeError("recipe config replacement intent admission is stale or malformed");
+  }
+  return admission;
+}
+
+function recipeConfigIntentJournalDetails(admission) {
+  return {
+    runId: admission.runId,
+    attemptId: admission.actionAttemptId,
+    status: admission.status,
+    intentDigest: admission.intentDigest,
+    admissionDigest: admission.admissionDigest,
+    target: admission.intent.binding.target,
+    targetIdentity: admission.intent.targetIdentity ?? null
+  };
+}
+
+function matchesRecipeConfigIntentJournal(entry, event, admission) {
+  const expected = recipeConfigIntentJournalDetails(admission);
+  return Boolean(
+    entry?.event === event &&
+    typeof entry.at === "string" &&
+    Number.isFinite(Date.parse(entry.at)) &&
+    Object.entries(expected).every(([key, value]) => entry[key] === value)
+  );
+}
+
+async function assertRecipeConfigIntentJournalBinding(stateRoot, run, intent) {
+  const attemptId = intent?.binding?.actionAttemptId;
+  const status = intent?.status;
+  const admissionPath = recipeConfigIntentAdmissionPath(run.runDir, attemptId, status);
+  const admission = validateRecipeConfigIntentAdmission(
+    await readJson(stateRoot, admissionPath),
+    run,
+    attemptId,
+    status
+  );
+  if (digestObject(intent) !== admission.intentDigest) {
+    throw recipeError("recipe config replacement intent is not the admitted journal-bound record");
+  }
+  const journal = await readJournalRecords(stateRoot, run.runDir);
+  const pending = journal.filter((entry) => (
+    entry.event === "action.local-provider-config-intent-admission-pending" &&
+    entry.attemptId === attemptId && entry.status === status
+  ));
+  if (
+    pending.length !== 1 ||
+    !matchesRecipeConfigIntentJournal(
+      pending[0],
+      "action.local-provider-config-intent-admission-pending",
+      admission
+    )
+  ) {
+    throw recipeError("recipe config replacement intent pending journal binding is missing or ambiguous");
+  }
+  const committed = journal.filter((entry) => (
+    entry.event === admission.event && entry.attemptId === attemptId && entry.status === status
+  ));
+  if (
+    committed.length > 1 ||
+    (committed.length === 1 && !matchesRecipeConfigIntentJournal(committed[0], admission.event, admission))
+  ) {
+    throw recipeError("recipe config replacement intent commit journal binding is ambiguous");
+  }
+  return { admission, committed: committed.length === 1 };
+}
+
+async function commitRecipeConfigIntentAdmission(stateRoot, run, intent) {
+  const binding = await assertRecipeConfigIntentJournalBinding(stateRoot, run, intent);
+  if (!binding.committed) {
+    await appendJournal(
+      stateRoot,
+      run.runDir,
+      binding.admission.event,
+      recipeConfigIntentJournalDetails(binding.admission)
+    );
+  }
+  return binding.admission.intent;
+}
+
 function recipeConfigReplacementBinding({
   runIdValue,
   action,
@@ -904,18 +1055,121 @@ function validateRecipeConfigReplacementIntent(intent, expected) {
   return intent;
 }
 
-async function writeRecipeConfigReplacementIntent(stateRoot, run, intent, event) {
+async function writeRecipeConfigReplacementIntent(
+  stateRoot,
+  run,
+  intent,
+  event,
+  { onBoundary = null } = {}
+) {
   const target = recipeConfigReplacementIntentPath(run.runDir, intent.binding.actionAttemptId);
+  const admissionTarget = recipeConfigIntentAdmissionPath(
+    run.runDir,
+    intent.binding.actionAttemptId,
+    intent.status
+  );
+  if (event !== recipeConfigIntentEvent(intent.status)) {
+    throw recipeError("recipe config replacement intent event does not match its phase");
+  }
+  if (onBoundary !== null && typeof onBoundary !== "function") {
+    throw recipeError("recipe config replacement intent boundary hook must be a function");
+  }
   await ensurePrivateDir(path.dirname(target));
-  await atomicWriteJson(stateRoot, target, intent);
-  await appendJournal(stateRoot, run.runDir, event, {
-    attemptId: intent.binding.actionAttemptId,
-    intentDigest: digestObject(intent),
-    status: intent.status,
-    target: intent.binding.target,
-    targetIdentity: intent.targetIdentity ?? null
-  });
-  return intent;
+  await ensurePrivateDir(path.dirname(admissionTarget));
+
+  let admission;
+  if (await exists(admissionTarget)) {
+    admission = validateRecipeConfigIntentAdmission(
+      await readJson(stateRoot, admissionTarget),
+      run,
+      intent.binding.actionAttemptId,
+      intent.status
+    );
+    if (
+      digestObject(recipeConfigIntentImmutableProjection(admission.intent)) !==
+      digestObject(recipeConfigIntentImmutableProjection(intent))
+    ) {
+      throw recipeError("recipe config replacement intent retry conflicts with its durable admission");
+    }
+  } else {
+    const journal = await readJournalRecords(stateRoot, run.runDir);
+    const unexpected = journal.some((entry) => (
+      ["action.local-provider-config-intent-admission-pending", event].includes(entry.event) &&
+      entry.attemptId === intent.binding.actionAttemptId && entry.status === intent.status
+    ));
+    if (unexpected) {
+      throw recipeError("recipe config replacement intent journal exists without its immutable admission");
+    }
+    const candidate = {
+      schemaVersion: 1,
+      kind: "recipe-config-replacement-intent-admission",
+      runId: run.manifest.runId,
+      actionAttemptId: intent.binding.actionAttemptId,
+      status: intent.status,
+      event,
+      intent,
+      intentDigest: digestObject(intent)
+    };
+    admission = {
+      ...candidate,
+      admissionDigest: digestObject(recipeConfigIntentAdmissionBinding(candidate))
+    };
+    await atomicWriteJson(stateRoot, admissionTarget, admission);
+  }
+  await onBoundary?.("admission-written", { admission });
+
+  let journal = await readJournalRecords(stateRoot, run.runDir);
+  const pending = journal.filter((entry) => (
+    entry.event === "action.local-provider-config-intent-admission-pending" &&
+    entry.attemptId === admission.actionAttemptId && entry.status === admission.status
+  ));
+  if (pending.length === 0) {
+    await appendJournal(
+      stateRoot,
+      run.runDir,
+      "action.local-provider-config-intent-admission-pending",
+      recipeConfigIntentJournalDetails(admission)
+    );
+  } else if (
+    pending.length !== 1 ||
+    !matchesRecipeConfigIntentJournal(
+      pending[0],
+      "action.local-provider-config-intent-admission-pending",
+      admission
+    )
+  ) {
+    throw recipeError("recipe config replacement intent pending admission conflicts with replay");
+  }
+  await onBoundary?.("pending-journaled", { admission });
+
+  if (await exists(target)) {
+    const existing = await readJson(stateRoot, target);
+    if (digestObject(existing) !== admission.intentDigest) {
+      await assertRecipeConfigIntentJournalBinding(stateRoot, run, existing);
+      if (
+        existing.status !== "prepared" || admission.status !== "published" ||
+        existing.bindingDigest !== admission.intent.bindingDigest
+      ) {
+        throw recipeError("recipe config replacement active intent conflicts with its admission");
+      }
+      await atomicWriteJson(stateRoot, target, admission.intent);
+    }
+  } else {
+    await atomicWriteJson(stateRoot, target, admission.intent);
+  }
+  await onBoundary?.("intent-written", { admission });
+
+  const committedIntent = await commitRecipeConfigIntentAdmission(stateRoot, run, admission.intent);
+  await onBoundary?.("admission-committed", { admission });
+  journal = await readJournalRecords(stateRoot, run.runDir);
+  const committed = journal.filter((entry) => (
+    entry.event === event && entry.attemptId === admission.actionAttemptId &&
+    entry.status === admission.status
+  ));
+  if (committed.length !== 1 || !matchesRecipeConfigIntentJournal(committed[0], event, admission)) {
+    throw recipeError("recipe config replacement intent commit was not durable");
+  }
+  return committedIntent;
 }
 
 async function readTrust(stateRoot, binding, recipeId) {
@@ -1359,7 +1613,9 @@ async function loadRecipeConfigRecoveryIntent(stateRoot, runIdValue, attemptId, 
   if (!action) return null;
   const intentPath = recipeConfigReplacementIntentPath(run.runDir, attemptId);
   if (!(await exists(intentPath))) return null;
-  const intent = await readJson(stateRoot, intentPath);
+  const activeIntent = await readJson(stateRoot, intentPath);
+  const journalBinding = await assertRecipeConfigIntentJournalBinding(stateRoot, run, activeIntent);
+  const intent = journalBinding.admission.intent;
   const target = recipe.paths.config;
   const parent = path.dirname(target);
   const parentChain = await assertSafeDestination(recipe.root, target, new Set(), {
@@ -1376,8 +1632,12 @@ async function loadRecipeConfigRecoveryIntent(stateRoot, runIdValue, attemptId, 
   const beforeBytes = Buffer.from(`${JSON.stringify(beforeConfig, null, 2)}\n`, "utf8");
   const afterBytes = Buffer.from(`${JSON.stringify(afterConfig, null, 2)}\n`, "utf8");
   const artifact = { sha256: sha256(afterBytes), bytes: afterBytes.length };
+  const currentTarget = await readWorkspaceFileRecord(target);
+  const priorTargetIdentity = recipe.config.enabled === false
+    ? currentTarget?.identity
+    : journalBinding.admission.intent.binding?.priorTarget?.identity;
   const priorTarget = {
-    identity: intent.binding?.priorTarget?.identity,
+    identity: priorTargetIdentity,
     nlink: 1,
     size: beforeBytes.length,
     sha256: sha256(beforeBytes)
@@ -1394,7 +1654,6 @@ async function loadRecipeConfigRecoveryIntent(stateRoot, runIdValue, attemptId, 
     publisherDigest: sha256(await readFile(ARTIFACT_PUBLISHER_PATH))
   };
   validateRecipeConfigReplacementIntent(intent, expected);
-  const currentTarget = await readWorkspaceFileRecord(target);
   if (recipe.config.enabled === true) {
     if (
       !currentTarget || currentTarget.sha256 !== artifact.sha256 ||
@@ -1446,7 +1705,8 @@ async function discardRecipeConfigRecoveryTemporary(
   runIdValue,
   attemptId,
   recipe,
-  recovery
+  recovery,
+  { onProviderBoundary = null } = {}
 ) {
   if (!recovery?.temporary || recipe.config.enabled === true) return { discarded: false };
   return withRunLock(stateRoot, runIdValue, async () => {
@@ -1473,6 +1733,11 @@ async function discardRecipeConfigRecoveryTemporary(
     ) {
       throw recipeError("recipe config temporary recovery intent changed after preflight");
     }
+    currentRecovery.intent = await commitRecipeConfigIntentAdmission(
+      stateRoot,
+      run,
+      currentRecovery.intent
+    );
     await assertSpentActionNonSourceAuthority(
       stateRoot,
       runIdValue,
@@ -1480,7 +1745,16 @@ async function discardRecipeConfigRecoveryTemporary(
       action,
       "Recipe promotion temporary recovery"
     );
+    if (onProviderBoundary !== null && typeof onProviderBoundary !== "function") {
+      throw recipeError("recipe temporary recovery boundary hook must be a function");
+    }
+    await onProviderBoundary?.("config-before-temporary-discard", {
+      intent: currentRecovery.intent,
+      target: currentRecovery.target,
+      temporary: currentRecovery.temporaryPath
+    });
     const baselineSentinel = await issuedSourceSentinel(stateRoot, run, action);
+    const baselineSourceBinding = issuedSourceBinding(action);
     const currentSentinel = await captureSentinel(recipe.root, run.contract, await loadDefaults());
     assertExpectedSourceRecovery(
       baselineSentinel,
@@ -1488,6 +1762,17 @@ async function discardRecipeConfigRecoveryTemporary(
       currentRecovery.allowedPaths,
       "recipe promotion temporary recovery"
     );
+    const currentSourceBinding = await captureSourceBinding(recipe.root, {
+      baseRevision: baselineSourceBinding.baseRevision,
+      requireClean: false
+    });
+    if (
+      !currentSourceBinding ||
+      digestObject(recoveryComparableSourceBinding(currentSourceBinding)) !==
+        digestObject(recoveryComparableSourceBinding(baselineSourceBinding))
+    ) {
+      throw recipeError("recipe config temporary recovery source authority changed before cleanup");
+    }
     const parentChain = await assertSafeDestination(
       recipe.root,
       currentRecovery.target,
@@ -1514,7 +1799,14 @@ async function discardRecipeConfigRecoveryTemporary(
     });
     const recoveredSentinel = await captureSentinel(recipe.root, run.contract, await loadDefaults());
     if (!recoveredSentinel.complete || recoveredSentinel.digest !== action.treeDigest) {
-      throw recipeError("recipe config temporary cleanup did not restore the action source binding");
+      throw recipeError("recipe config temporary cleanup did not restore the action source sentinel");
+    }
+    const recoveredSourceBinding = await captureSourceBinding(recipe.root, {
+      baseRevision: baselineSourceBinding.baseRevision,
+      requireClean: false
+    });
+    if (!recoveredSourceBinding || recoveredSourceBinding.digest !== baselineSourceBinding.digest) {
+      throw recipeError("recipe config temporary cleanup did not restore the exact issued source binding");
     }
     await appendJournal(stateRoot, run.runDir, "action.local-provider-config-temporary-discarded", {
       attemptId: action.attemptId,
@@ -1642,7 +1934,8 @@ export async function recipePromote(cwd, id, options) {
       options.run,
       options.attempt,
       recipe,
-      configRecovery
+      configRecovery,
+      { onProviderBoundary }
     );
     configRecovery = await loadRecipeConfigRecoveryIntent(
       stateRoot,
@@ -1758,6 +2051,7 @@ export async function recipePromote(cwd, id, options) {
       if (!context || digestObject(intent) !== digestObject(context.intent)) {
         throw recipeError("recipe config replacement intent changed after preflight");
       }
+      intent = await commitRecipeConfigIntentAdmission(stateRoot, run, intent);
       const currentSentinel = await captureSentinel(recipe.root, run.contract, await loadDefaults());
       if (currentSentinel.digest === action.treeDigest) {
         await assertSpentActionProviderAuthority(
@@ -1835,7 +2129,11 @@ export async function recipePromote(cwd, id, options) {
         targetIdentity: null,
         preparedAt: nowIso(),
         updatedAt: nowIso()
-      }, "action.local-provider-config-intent-prepared");
+      }, "action.local-provider-config-intent-prepared", {
+        onBoundary: onProviderBoundary
+          ? async (boundary, details) => onProviderBoundary(`config-intent-${boundary}`, details)
+          : null
+      });
       const temporaryRelative = normalizedParent === "."
         ? replacementBinding.temporaryName
         : `${normalizedParent}/${replacementBinding.temporaryName}`;
@@ -1887,7 +2185,11 @@ export async function recipePromote(cwd, id, options) {
         targetIdentity: currentTarget.identity,
         publishedAt: nowIso(),
         updatedAt: nowIso()
-      }, "action.local-provider-config-intent-published");
+      }, "action.local-provider-config-intent-published", {
+        onBoundary: onProviderBoundary
+          ? async (boundary, details) => onProviderBoundary(`config-intent-${boundary}`, details)
+          : null
+      });
     } else if (intent.targetIdentity !== currentTarget.identity) {
       throw recipeError("recipe config replacement target identity changed during replay");
     }
@@ -2108,6 +2410,32 @@ async function findArtifactAction(stateRoot, resource) {
   return matches[0];
 }
 
+export async function awaitPinnedChildTerminal(child, {
+  timeoutMs = 300_000,
+  timeoutMessage
+} = {}) {
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || typeof timeoutMessage !== "string" || !timeoutMessage) {
+    throw recipeError("pinned child terminal wait requires a bounded timeout and message");
+  }
+  let timedOut = false;
+  const result = await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGKILL");
+    }, timeoutMs);
+    child.once("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.once("close", (code, signal) => {
+      clearTimeout(timer);
+      resolve({ code, signal });
+    });
+  });
+  if (timedOut) throw recipeError(timeoutMessage);
+  return result;
+}
+
 async function runPinnedArtifactPublisher({
   mode,
   parent,
@@ -2160,22 +2488,10 @@ async function runPinnedArtifactPublisher({
   child.stdout.on("data", (chunk) => { stdout = append(stdout, chunk); });
   child.stderr.on("data", (chunk) => { stderr = append(stderr, chunk); });
   child.stdin.on("error", () => undefined);
-  const completion = new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      child.kill("SIGKILL");
-      reject(recipeError("pinned artifact publisher timed out"));
-    }, 300_000);
-    child.once("error", (error) => {
-      clearTimeout(timer);
-      reject(error);
-    });
-    child.once("close", (code, signal) => {
-      clearTimeout(timer);
-      resolve({ code, signal });
-    });
-  });
   child.stdin.end(["link", "replace"].includes(mode) ? artifactBytes : undefined);
-  const result = await completion;
+  const result = await awaitPinnedChildTerminal(child, {
+    timeoutMessage: "pinned artifact publisher timed out"
+  });
   if (outputExceeded) throw recipeError("pinned artifact publisher output exceeded 64 KiB");
   if (result.code !== 0 || result.signal) {
     throw recipeError(
@@ -2236,19 +2552,8 @@ async function runPinnedDestinationParentCreator({ parent, parentIdentity, compo
   };
   child.stdout.on("data", (chunk) => { stdout = append(stdout, chunk); });
   child.stderr.on("data", (chunk) => { stderr = append(stderr, chunk); });
-  const result = await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      child.kill("SIGKILL");
-      reject(recipeError("pinned destination parent creator timed out"));
-    }, 300_000);
-    child.once("error", (error) => {
-      clearTimeout(timer);
-      reject(error);
-    });
-    child.once("close", (code, signal) => {
-      clearTimeout(timer);
-      resolve({ code, signal });
-    });
+  const result = await awaitPinnedChildTerminal(child, {
+    timeoutMessage: "pinned destination parent creator timed out"
   });
   if (outputExceeded) throw recipeError("pinned destination parent creator output exceeded 64 KiB");
   if (result.code !== 0 || result.signal) {
