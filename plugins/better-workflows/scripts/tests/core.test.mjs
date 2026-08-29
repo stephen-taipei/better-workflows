@@ -4392,6 +4392,7 @@ test("required-check verifier binds workflows to the live PR head ref and select
     "if [ \"$2\" = --paginate ]; then endpoint=\"$4\"; fi",
     `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo/branches/dev/protection")} ]; then printf '%s\\n' ${emit(protection)}; exit 0; fi`,
     `if [ \"$endpoint\" = ${JSON.stringify(`repos/example/repo/pulls/${pr}`)} ]; then printf '%s\\n' ${emit(pull)}; exit 0; fi`,
+    `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo")} ]; then printf '%s\\n' ${emit({ default_branch: "dev" })}; exit 0; fi`,
     `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo/rules/branches/dev")} ]; then printf '%s\\n' '[]'; exit 0; fi`,
     `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo/rulesets?includes_parents=true")} ]; then printf '%s\\n' '[[]]'; exit 0; fi`,
     `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo/branches/dev/protection/required_status_checks")} ]; then printf '%s\\n' ${emit(requiredStatusProtection)}; exit 0; fi`,
@@ -4861,7 +4862,7 @@ test("required-check verifier preserves ruleset integration identity for same-na
     target: "branch",
     enforcement: "active",
     bypass_actors: [],
-    conditions: { ref_name: { include: ["refs/heads/dev"] } },
+    conditions: { ref_name: { include: ["refs/heads/dev"], exclude: [] } },
     rules: [
       { type: "required_status_checks", parameters: {
         strict_required_status_checks_policy: true,
@@ -4902,6 +4903,7 @@ test("required-check verifier preserves ruleset integration identity for same-na
     "if [ \"$2\" = --paginate ]; then endpoint=\"$4\"; fi",
     `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo/branches/dev/protection")} ]; then printf '%s\\n' ${emit(protection)}; exit 0; fi`,
     `if [ \"$endpoint\" = ${JSON.stringify(`repos/example/repo/pulls/${pr}`)} ]; then printf '%s\\n' ${emit(pull)}; exit 0; fi`,
+    `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo")} ]; then printf '%s\\n' ${emit({ default_branch: "dev" })}; exit 0; fi`,
     `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo/rules/branches/dev")} ]; then printf '%s\\n' '[]'; exit 0; fi`,
     `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo/rulesets?includes_parents=true")} ]; then printf '%s\\n' ${emit([rulesetSummary])}; exit 0; fi`,
     `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo/rulesets/9")} ]; then printf '%s\\n' ${emit(rulesetDetail)}; exit 0; fi`,
@@ -4934,6 +4936,50 @@ test("required-check verifier preserves ruleset integration identity for same-na
   process.env.PATH = `${bin}:${priorPath}`;
   try {
     await verifyRequiredChecksProvider(root, payload, providerExecutable);
+    const nonStrictProtection = {
+      ...protection,
+      required_status_checks: { ...protection.required_status_checks, strict: false }
+    };
+    const nonStrictRequiredStatusProtection = {
+      ...requiredStatusProtection,
+      strict: false
+    };
+    const rulesetScript = (detail, repositoryMetadata = { default_branch: "dev" }) => ghScript
+      .replace(emit(protection), emit(nonStrictProtection))
+      .replace(emit(requiredStatusProtection), emit(nonStrictRequiredStatusProtection))
+      .replace(emit(rulesetDetail), emit(detail))
+      .replace(emit({ default_branch: "dev" }), emit(repositoryMetadata));
+    const excludedRulesetScript = rulesetScript({
+      ...rulesetDetail,
+      conditions: { ref_name: { include: ["~ALL"], exclude: ["refs/heads/dev"] } }
+    });
+    await writeFile(fakeGh, excludedRulesetScript, { mode: 0o700 });
+    await assert.rejects(
+      verifyRequiredChecksProvider(root, payload, {
+        path: providerExecutable.path,
+        digest: sha256(excludedRulesetScript)
+      }),
+      /does not atomically require the PR head to be current with its base/
+    );
+    const defaultBranchRuleset = {
+      ...rulesetDetail,
+      conditions: { ref_name: { include: ["~DEFAULT_BRANCH"], exclude: [] } }
+    };
+    const nonDefaultBranchScript = rulesetScript(defaultBranchRuleset, { default_branch: "main" });
+    await writeFile(fakeGh, nonDefaultBranchScript, { mode: 0o700 });
+    await assert.rejects(
+      verifyRequiredChecksProvider(root, payload, {
+        path: providerExecutable.path,
+        digest: sha256(nonDefaultBranchScript)
+      }),
+      /does not atomically require the PR head to be current with its base/
+    );
+    const actualDefaultBranchScript = rulesetScript(defaultBranchRuleset);
+    await writeFile(fakeGh, actualDefaultBranchScript, { mode: 0o700 });
+    await verifyRequiredChecksProvider(root, payload, {
+      path: providerExecutable.path,
+      digest: sha256(actualDefaultBranchScript)
+    });
     const unauthorizedCheckPage = {
       ...checkPage,
       check_runs: [{ ...checkPage.check_runs[0], app: { id: 9876 } }]

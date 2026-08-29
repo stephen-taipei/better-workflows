@@ -4,6 +4,7 @@ import { constants as fsConstants } from "node:fs";
 import {
   chmod,
   copyFile,
+  link,
   lstat,
   mkdir,
   open,
@@ -13,6 +14,7 @@ import {
   rename,
   rm,
   stat,
+  unlink,
   writeFile
 } from "node:fs/promises";
 import path from "node:path";
@@ -1459,9 +1461,18 @@ async function findArtifactAction(stateRoot, resource) {
   return matches[0];
 }
 
-export async function recipeArtifactPromote(cwd, receiptId, artifactId, destination) {
+export async function recipeArtifactPromote(
+  cwd,
+  receiptId,
+  artifactId,
+  destination,
+  { onDestinationBoundary = null } = {}
+) {
   if (!artifactId || !destination) {
     throw recipeError("artifact promote requires --artifact <id> --to <relative-path>");
+  }
+  if (onDestinationBoundary !== null && typeof onDestinationBoundary !== "function") {
+    throw recipeError("artifact destination boundary hook must be a function");
   }
   const workspace = await loadWorkspace(cwd);
   const stateRoot = getStateRoot();
@@ -1525,13 +1536,18 @@ export async function recipeArtifactPromote(cwd, receiptId, artifactId, destinat
     "artifact source",
     { file: true }
   );
-  if (sha256(await readFile(source)) !== artifact.sha256) throw recipeError("artifact digest drifted");
-  await assertSafeDestination(
-    workspace.root,
-    target,
-    await artifactPromotionProtectedIdentities(workspace)
-  );
+  const artifactBytes = await readFile(source);
+  if (sha256(artifactBytes) !== artifact.sha256) throw recipeError("artifact digest drifted");
+  const protectedIdentities = await artifactPromotionProtectedIdentities(workspace);
+  let parentChain = await assertSafeDestination(workspace.root, target, protectedIdentities);
   if (targetExists) {
+    if (onDestinationBoundary) {
+      await onDestinationBoundary("before-existing-read", { target, parent: path.dirname(target) });
+    }
+    parentChain = await assertSafeDestination(workspace.root, target, protectedIdentities, {
+      expectedParentChain: parentChain,
+      requireCompleteParent: true
+    });
     const targetInfo = await lstat(target);
     if (!targetInfo.isFile() || targetInfo.isSymbolicLink() || targetInfo.nlink !== 1) {
       throw recipeError(`artifact destination is not a safe regular file: ${normalized}`);
@@ -1539,11 +1555,87 @@ export async function recipeArtifactPromote(cwd, receiptId, artifactId, destinat
     if (sha256(await readFile(target)) !== artifact.sha256) {
       throw recipeError(`artifact destination already exists with different bytes: ${normalized}`);
     }
+    await assertSafeDestination(workspace.root, target, protectedIdentities, {
+      expectedParentChain: parentChain,
+      requireCompleteParent: true
+    });
   } else {
-    await mkdir(path.dirname(target), { recursive: true });
+    if (onDestinationBoundary) {
+      await onDestinationBoundary("before-mkdir", { target, parent: path.dirname(target) });
+    }
+    parentChain = await assertSafeDestination(workspace.root, target, protectedIdentities, {
+      expectedParentChain: parentChain
+    });
+    parentChain = await ensureSafeDestinationParents(
+      workspace.root,
+      target,
+      protectedIdentities,
+      parentChain
+    );
     const temp = `${target}.${randomBytes(6).toString("hex")}.tmp`;
-    await copyFile(source, temp, fsConstants.COPYFILE_EXCL);
-    await rename(temp, target);
+    let tempCreated = false;
+    try {
+      if (onDestinationBoundary) {
+        await onDestinationBoundary("before-copy", { target, temp, parent: path.dirname(target) });
+      }
+      await assertSafeDestination(workspace.root, target, protectedIdentities, {
+        expectedParentChain: parentChain,
+        requireCompleteParent: true
+      });
+      if (await exists(target)) {
+        throw recipeError(`artifact destination appeared before the write boundary: ${normalized}`);
+      }
+      await copyFile(source, temp, fsConstants.COPYFILE_EXCL);
+      tempCreated = true;
+      const tempInfo = await lstat(temp);
+      if (
+        tempInfo.isSymbolicLink() ||
+        !tempInfo.isFile() ||
+        tempInfo.nlink !== 1 ||
+        sha256(await readFile(temp)) !== artifact.sha256
+      ) {
+        throw recipeError("artifact temporary copy changed before promotion");
+      }
+      if (onDestinationBoundary) {
+        await onDestinationBoundary("before-link", { target, temp, parent: path.dirname(target) });
+      }
+      await assertSafeDestination(workspace.root, target, protectedIdentities, {
+        expectedParentChain: parentChain,
+        requireCompleteParent: true
+      });
+      if (await exists(target)) {
+        throw recipeError(`artifact destination appeared before the final write boundary: ${normalized}`);
+      }
+      await link(temp, target);
+      await unlink(temp);
+      tempCreated = false;
+      await assertSafeDestination(workspace.root, target, protectedIdentities, {
+        expectedParentChain: parentChain,
+        requireCompleteParent: true
+      });
+      const targetInfo = await lstat(target);
+      if (
+        targetInfo.isSymbolicLink() ||
+        !targetInfo.isFile() ||
+        targetInfo.nlink !== 1 ||
+        sha256(await readFile(target)) !== artifact.sha256
+      ) {
+        throw recipeError("artifact destination changed at the final write boundary");
+      }
+    } catch (error) {
+      if (tempCreated) {
+        await assertSafeDestination(workspace.root, temp, protectedIdentities, {
+          expectedParentChain: parentChain,
+          requireCompleteParent: true
+        }).then(async () => {
+          const info = await lstat(temp).catch(() => null);
+          if (info?.isFile() && !info.isSymbolicLink() && info.nlink === 1) {
+            await unlink(temp).catch(() => undefined);
+          }
+        }).catch(() => undefined);
+      }
+      throw error;
+    }
   }
   const afterSentinel = await captureSentinel(
     pendingRun.manifest.cwd,
@@ -1651,13 +1743,27 @@ export async function recipePrune(cwd, { apply = false } = {}) {
   };
 }
 
-async function assertSafeDestination(root, target, protectedIdentities = new Set()) {
+async function assertSafeDestination(
+  root,
+  target,
+  protectedIdentities = new Set(),
+  { expectedParentChain = null, requireCompleteParent = false } = {}
+) {
   pathContained(root, target, "artifact destination");
   const relative = path.relative(root, path.dirname(target));
   let current = path.resolve(root);
+  const rootInfo = await lstat(current);
+  if (rootInfo.isSymbolicLink() || !rootInfo.isDirectory()) {
+    throw recipeError("Git worktree root is unsafe");
+  }
+  const parentChain = [{ relative: ".", identity: filesystemIdentity(rootInfo) }];
+  let complete = true;
   for (const component of relative.split(path.sep).filter(Boolean)) {
     current = path.join(current, component);
-    if (!(await exists(current))) break;
+    if (!(await exists(current))) {
+      complete = false;
+      break;
+    }
     const info = await lstat(current);
     if (info.isSymbolicLink() || !info.isDirectory()) {
       throw recipeError(`unsafe artifact destination parent: ${current}`);
@@ -1665,7 +1771,39 @@ async function assertSafeDestination(root, target, protectedIdentities = new Set
     if (protectedIdentities.has(filesystemIdentity(info))) {
       throw recipeError(`artifact destination resolves through Git authority or reserved recipe state: ${current}`);
     }
+    parentChain.push({
+      relative: path.relative(root, current).split(path.sep).join("/"),
+      identity: filesystemIdentity(info)
+    });
   }
+  if (requireCompleteParent && !complete) {
+    throw recipeError("artifact destination parent is missing at the write boundary");
+  }
+  if (expectedParentChain !== null && digestObject(parentChain) !== digestObject(expectedParentChain)) {
+    throw recipeError("artifact destination ancestry changed at the write boundary");
+  }
+  return parentChain;
+}
+
+async function ensureSafeDestinationParents(root, target, protectedIdentities, expectedParentChain) {
+  const parent = path.dirname(target);
+  let parentChain = expectedParentChain;
+  let current = path.resolve(root);
+  for (const component of path.relative(root, parent).split(path.sep).filter(Boolean)) {
+    current = path.join(current, component);
+    if (await exists(current)) continue;
+    await assertSafeDestination(root, target, protectedIdentities, {
+      expectedParentChain: parentChain
+    });
+    await mkdir(current, { mode: 0o755 }).catch((error) => {
+      if (error.code !== "EEXIST") throw error;
+    });
+    parentChain = await assertSafeDestination(root, target, protectedIdentities);
+  }
+  return assertSafeDestination(root, target, protectedIdentities, {
+    expectedParentChain: parentChain,
+    requireCompleteParent: true
+  });
 }
 
 async function workspaceArtifactBytes(artifactsRoot) {

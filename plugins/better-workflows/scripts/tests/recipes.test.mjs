@@ -9,7 +9,9 @@ import {
   mkdtemp,
   readFile,
   readdir,
+  rename,
   symlink,
+  unlink,
   writeFile
 } from "node:fs/promises";
 import os from "node:os";
@@ -29,6 +31,7 @@ import {
 } from "../lib/core.mjs";
 import { captureSentinel, captureSourceBinding } from "../lib/git.mjs";
 import { transitionLedger } from "../lib/ledger.mjs";
+import { recipeArtifactPromote } from "../lib/recipes.mjs";
 import { createReviewPackage, markBroadReviewComplete, reviewStatus } from "../lib/review.mjs";
 
 const execFileAsync = promisify(execFile);
@@ -579,6 +582,48 @@ test("reference recipe completes governed promotion, dry-run, atomic run, artifa
     "artifact.promote",
     `artifact:${executed.json.receiptId}:report-markdown:${destination}`
   );
+  const destinationParent = path.join(cwd, "reports");
+  const gitHooks = path.join(cwd, ".git", "hooks");
+  const priorStateRoot = process.env.SBW_STATE_ROOT;
+  process.env.SBW_STATE_ROOT = stateRoot;
+  try {
+    for (const boundary of ["before-copy", "before-link"]) {
+      const displacedParent = path.join(cwd, `reports-${boundary}`);
+      let swapped = false;
+      try {
+        await assert.rejects(
+          recipeArtifactPromote(
+            cwd,
+            executed.json.receiptId,
+            "report-markdown",
+            destination,
+            {
+              async onDestinationBoundary(current) {
+                if (current !== boundary) return;
+                await rename(destinationParent, displacedParent);
+                await symlink(gitHooks, destinationParent);
+                swapped = true;
+              }
+            }
+          ),
+          /unsafe artifact destination parent|destination ancestry changed at the write boundary/
+        );
+        assert.equal(swapped, true);
+        await assert.rejects(access(path.join(gitHooks, path.basename(destination))));
+      } finally {
+        if (swapped) {
+          await unlink(destinationParent);
+          await rename(displacedParent, destinationParent);
+          for (const name of await readdir(destinationParent)) {
+            if (name.endsWith(".tmp")) await unlink(path.join(destinationParent, name));
+          }
+        }
+      }
+    }
+  } finally {
+    if (priorStateRoot === undefined) delete process.env.SBW_STATE_ROOT;
+    else process.env.SBW_STATE_ROOT = priorStateRoot;
+  }
   const artifactPromotion = await cli(cwd, stateRoot, [
     "recipe",
     "artifact",

@@ -951,10 +951,8 @@ test("evidence admission recovers every durable boundary, rejects conflicts and 
     }
   }
 
-  const legacy = await createFixture("legacy");
-  try {
-    const admitted = await addEvidence(legacy.root, legacy.started.runId, legacy.input);
-    const evidencePath = path.join(legacy.run.runDir, "evidence", `${legacy.input.id}.json`);
+  const rewriteEvidenceAsLegacy = async (fixture, input, admitted) => {
+    const evidencePath = path.join(fixture.run.runDir, "evidence", `${input.id}.json`);
     const legacyRecord = structuredClone(admitted);
     delete legacyRecord.admissionProtocolVersion;
     const legacyImmutableRecord = structuredClone(legacyRecord);
@@ -963,25 +961,68 @@ test("evidence admission recovers every durable boundary, rejects conflicts and 
     delete legacyImmutableRecord.currentDependencyFiles;
     delete legacyImmutableRecord.staleReason;
     await writeFile(evidencePath, `${JSON.stringify(legacyRecord, null, 2)}\n`);
-    await unlink(path.join(legacy.run.runDir, "evidence-admissions", `${legacy.input.id}.json`));
-    const journalPath = path.join(legacy.run.runDir, "journal.jsonl");
+    await unlink(path.join(fixture.run.runDir, "evidence-admissions", `${input.id}.json`));
+    const journalPath = path.join(fixture.run.runDir, "journal.jsonl");
     const journal = (await readFile(journalPath, "utf8"))
       .split("\n")
       .filter(Boolean)
       .map((line) => JSON.parse(line))
       .filter((entry) => !(
-        entry.event === "evidence.admission-pending" && entry.evidenceId === legacy.input.id
+        entry.event === "evidence.admission-pending" && entry.evidenceId === input.id
       ))
-      .map((entry) => entry.event === "evidence.added" && entry.evidenceId === legacy.input.id
+      .map((entry) => entry.event === "evidence.added" && entry.evidenceId === input.id
         ? {
             at: entry.at,
             event: entry.event,
-            evidenceId: legacy.input.id,
+            evidenceId: input.id,
             evidenceDigest: digestObject(legacyRecord),
             immutableEvidenceDigest: digestObject(legacyImmutableRecord)
           }
         : entry);
     await writeFile(journalPath, `${journal.map((entry) => JSON.stringify(entry)).join("\n")}\n`);
+  };
+
+  const downgrade = await createFixture("downgrade");
+  try {
+    const admitted = await addEvidence(downgrade.root, downgrade.started.runId, downgrade.input);
+    await rewriteEvidenceAsLegacy(downgrade, downgrade.input, admitted);
+    await assert.rejects(
+      listEffectiveEvidenceRecords(downgrade.root, downgrade.started.runId),
+      /protocol downgrade is forbidden by run history/
+    );
+  } finally {
+    await rm(downgrade.root, { recursive: true, force: true });
+  }
+
+  const legacy = await createFixture("genuine-legacy");
+  try {
+    const contractPath = path.join(legacy.run.runDir, "contract.json");
+    const manifestPath = path.join(legacy.run.runDir, "manifest.json");
+    const journalPath = path.join(legacy.run.runDir, "journal.jsonl");
+    const legacyContract = JSON.parse(await readFile(contractPath, "utf8"));
+    const legacyManifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    delete legacyContract.evidenceAdmissionProtocolVersion;
+    delete legacyManifest.evidenceAdmissionProtocolVersion;
+    legacyManifest.contractDigest = digestObject(legacyContract);
+    const creationJournal = (await readFile(journalPath, "utf8"))
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line))
+      .map((entry) => {
+        if (entry.event !== "run.created") return entry;
+        const legacyEntry = { ...entry };
+        delete legacyEntry.evidenceAdmissionProtocolVersion;
+        return legacyEntry;
+      });
+    await writeFile(contractPath, `${JSON.stringify(legacyContract, null, 2)}\n`);
+    await writeFile(manifestPath, `${JSON.stringify(legacyManifest, null, 2)}\n`);
+    await writeFile(journalPath, `${creationJournal.map((entry) => JSON.stringify(entry)).join("\n")}\n`);
+    const legacyInput = await typedRecord({
+      runId: legacy.started.runId,
+      contract: legacyContract
+    }, "environment-genuine-legacy");
+    const admitted = await addEvidence(legacy.root, legacy.started.runId, legacyInput);
+    await rewriteEvidenceAsLegacy(legacy, legacyInput, admitted);
     const replay = await listEffectiveEvidenceRecords(legacy.root, legacy.started.runId);
     assert.equal(replay.length, 1);
     assert.equal(replay[0].admissionProtocolVersion, undefined);

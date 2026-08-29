@@ -1174,6 +1174,12 @@ export function validateContract(contract) {
   if (![1, 2].includes(contract.schemaVersion)) {
     throw new Error("TaskContract.schemaVersion must be 1 or 2");
   }
+  if (
+    contract.evidenceAdmissionProtocolVersion !== undefined &&
+    contract.evidenceAdmissionProtocolVersion !== EVIDENCE_ADMISSION_PROTOCOL_VERSION
+  ) {
+    throw new Error("TaskContract.evidenceAdmissionProtocolVersion is unsupported");
+  }
   if (typeof contract.goal !== "string" || !contract.goal.trim()) {
     throw new Error("TaskContract.goal is required");
   }
@@ -1459,6 +1465,7 @@ export function buildContract({
   ])];
   return validateContract({
     schemaVersion: isV2 ? 2 : 1,
+    evidenceAdmissionProtocolVersion: EVIDENCE_ADMISSION_PROTOCOL_VERSION,
     goal,
     template,
     scope: { include: scope, exclude: [] },
@@ -1520,6 +1527,9 @@ export async function ensureStateRoot(root = getStateRoot()) {
 
 export async function createRun({ root = getStateRoot(), contract, requestedMode = "auto", cwd, baselineRevision = null }) {
   validateContract(contract);
+  if (contract.evidenceAdmissionProtocolVersion === undefined) {
+    contract.evidenceAdmissionProtocolVersion = EVIDENCE_ADMISSION_PROTOCOL_VERSION;
+  }
   const mode = routeMode(contract, requestedMode);
   if (mode === "direct") {
     return { runId: null, mode, direct: true, contractDigest: digestObject(contract) };
@@ -1563,6 +1573,7 @@ export async function createRun({ root = getStateRoot(), contract, requestedMode
       pluginCacheRoot: getCodexPluginCacheRoot(),
       sourceBinding,
       initialSourceBindingDigest: sourceBinding?.digest ?? null,
+      evidenceAdmissionProtocolVersion: contract.evidenceAdmissionProtocolVersion,
       ...(contract.autonomyProfile
         ? {
             autonomyProfile: {
@@ -1609,7 +1620,11 @@ export async function createRun({ root = getStateRoot(), contract, requestedMode
       const { initializeLedger } = await import("./ledger.mjs");
       await initializeLedger(root, stagingDir, contract, runId);
     }
-    await appendJournal(root, stagingDir, "run.created", { mode, requestedMode });
+    await appendJournal(root, stagingDir, "run.created", {
+      mode,
+      requestedMode,
+      evidenceAdmissionProtocolVersion: contract.evidenceAdmissionProtocolVersion
+    });
     await rename(stagingDir, runDir);
   } catch (error) {
     await rm(stagingDir, { recursive: true, force: true }).catch(() => undefined);
@@ -3286,7 +3301,8 @@ function evidenceFreshnessTransitionBinding(recordId, entry) {
 function evidenceAdmissionJournalBinding(record, journal, {
   allowPending = false,
   intent = null,
-  runId = null
+  runId = null,
+  requiredProtocolVersion = null
 } = {}) {
   const added = journal.filter((entry) => entry.event === "evidence.added" && entry.evidenceId === record.id);
   if (
@@ -3299,6 +3315,12 @@ function evidenceAdmissionJournalBinding(record, journal, {
   const pending = journal.filter((entry) => (
     entry.event === EVIDENCE_ADMISSION_PENDING_EVENT && entry.evidenceId === record.id
   ));
+  if (
+    requiredProtocolVersion === EVIDENCE_ADMISSION_PROTOCOL_VERSION &&
+    record.admissionProtocolVersion !== EVIDENCE_ADMISSION_PROTOCOL_VERSION
+  ) {
+    throw new Error(`Evidence admission protocol downgrade is forbidden by run history: ${record.id}`);
+  }
   if (record.admissionProtocolVersion === undefined) {
     if (intent !== null || pending.length !== 0 || added[0].protocolVersion !== undefined) {
       throw new Error(`Legacy evidence admission was reinterpreted by a newer protocol: ${record.id}`);
@@ -3732,6 +3754,27 @@ async function appendEvidenceInvalidationParent(root, runDir, attemptId) {
 
 async function assertEvidenceJournalProvenance(root, run, records, journal, { ignoreEvidenceId = null } = {}) {
   if (ignoreEvidenceId !== null) validateRecordId(ignoreEvidenceId, "ignored evidence");
+  const runCreated = journal.filter((entry) => entry.event === "run.created");
+  const protocolMarkers = [
+    run.contract.evidenceAdmissionProtocolVersion,
+    run.manifest.evidenceAdmissionProtocolVersion,
+    runCreated.length === 1 ? runCreated[0].evidenceAdmissionProtocolVersion : undefined
+  ];
+  const presentProtocolMarkers = protocolMarkers.filter((value) => value !== undefined);
+  let requiredProtocolVersion = null;
+  if (presentProtocolMarkers.length > 0) {
+    if (
+      runCreated.length !== 1 ||
+      presentProtocolMarkers.length !== protocolMarkers.length ||
+      presentProtocolMarkers.some((value) => value !== EVIDENCE_ADMISSION_PROTOCOL_VERSION) ||
+      run.manifest.contractDigest !== digestObject(run.contract)
+    ) {
+      throw new Error("Evidence admission protocol run-history binding is inconsistent");
+    }
+    requiredProtocolVersion = EVIDENCE_ADMISSION_PROTOCOL_VERSION;
+  } else if (run.manifest.contractDigest !== digestObject(run.contract)) {
+    throw new Error("Legacy evidence admission contract binding is inconsistent");
+  }
   const relevantRecords = records.filter((record) => record.id !== ignoreEvidenceId);
   const intents = (await listIdentityBoundJsonRecords(
     root,
@@ -3773,6 +3816,12 @@ async function assertEvidenceJournalProvenance(root, run, records, journal, { ig
   const protocolRecordIds = new Set(relevantRecords
     .filter((record) => record.admissionProtocolVersion === EVIDENCE_ADMISSION_PROTOCOL_VERSION)
     .map((record) => record.id));
+  if (
+    requiredProtocolVersion === EVIDENCE_ADMISSION_PROTOCOL_VERSION &&
+    protocolRecordIds.size !== relevantRecords.length
+  ) {
+    throw new Error("Evidence admission protocol downgrade is forbidden by run history");
+  }
   const protocolAdded = added.filter((entry) => entry.protocolVersion !== undefined);
   const protocolPendingIds = new Set(pending.map((entry) => entry.evidenceId));
   const sameSet = (left, right) => (
@@ -3798,7 +3847,8 @@ async function assertEvidenceJournalProvenance(root, run, records, journal, { ig
     try {
       bindings.set(record.id, evidenceAdmissionJournalBinding(record, journal, {
         intent: intentsById.get(record.id) ?? null,
-        runId: run.manifest.runId
+        runId: run.manifest.runId,
+        requiredProtocolVersion
       }));
     } catch (error) {
       const label = record.stale === true ? "stale" : "admission";
@@ -8091,6 +8141,17 @@ export async function verifyRequiredChecksProvider(
     throw new Error("Required checks evidence does not match the live open pull request");
   }
   const headRefName = pull.head.ref;
+  const repositoryMetadata = JSON.parse((await execBoundGitHubCli(executablePath, [
+    "api",
+    `repos/${repositoryPath}`
+  ], { cwd, encoding: "utf8" })).stdout);
+  if (
+    typeof repositoryMetadata.default_branch !== "string" ||
+    !repositoryMetadata.default_branch ||
+    repositoryMetadata.default_branch.includes("\0")
+  ) {
+    throw new Error("GitHub repository metadata has no valid default branch");
+  }
   const humanApproval = payload.humanApproval
     ? await verifyMergeHumanApproval(cwd, payload)
     : null;
@@ -8140,6 +8201,7 @@ export async function verifyRequiredChecksProvider(
     throw new Error("Active repository ruleset listing contains an incomplete identity");
   }
   const branchRef = `refs/heads/${payload.baseRefName}`;
+  const defaultBranchRef = `refs/heads/${repositoryMetadata.default_branch}`;
   const rulesetRequiredStatusChecks = [];
   let rulesetStrictBaseSynchronization = false;
   const normalizeRulesetCheckAppId = (value) => {
@@ -8148,10 +8210,33 @@ export async function verifyRequiredChecksProvider(
     return Number.isInteger(appId) && appId >= 0 ? appId : undefined;
   };
   const refPatternMatches = (pattern) => {
-    if (pattern === "~ALL" || pattern === "~DEFAULT_BRANCH" || pattern === branchRef) return true;
-    if (typeof pattern !== "string" || !pattern.includes("*")) return false;
-    const escaped = pattern.split("*").map((part) => part.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join(".*");
-    return new RegExp(`^${escaped}$`).test(branchRef);
+    if (typeof pattern !== "string" || !pattern || pattern.includes("\0")) {
+      throw new Error("Active branch ruleset contains an invalid ref-name pattern");
+    }
+    if (pattern === "~ALL") return true;
+    if (pattern === "~DEFAULT_BRANCH") return branchRef === defaultBranchRef;
+    if (pattern.startsWith("~")) {
+      throw new Error(`Active branch ruleset contains an unsupported ref-name selector: ${pattern}`);
+    }
+    if (!/[?*]/.test(pattern)) return pattern === branchRef;
+    if (/[\[\]\\]/.test(pattern)) {
+      throw new Error(`Active branch ruleset contains an unsupported ref-name glob: ${pattern}`);
+    }
+    let expression = "";
+    for (let index = 0; index < pattern.length; index += 1) {
+      const character = pattern[index];
+      if (character === "*" && pattern[index + 1] === "*") {
+        expression += ".*";
+        index += 1;
+      } else if (character === "*") {
+        expression += "[^/]*";
+      } else if (character === "?") {
+        expression += "[^/]";
+      } else {
+        expression += character.replace(/[.+^${}()|]/g, "\\$&");
+      }
+    }
+    return new RegExp(`^${expression}$`).test(branchRef);
   };
   for (const listed of activeRulesets) {
     const detail = JSON.parse((await execBoundGitHubCli(executablePath, [
@@ -8159,10 +8244,17 @@ export async function verifyRequiredChecksProvider(
       `repos/${repositoryPath}/rulesets/${Number(listed.id)}`
     ], { cwd, encoding: "utf8" })).stdout);
     const includes = detail.conditions?.ref_name?.include;
-    if (detail.target === "branch" && !Array.isArray(includes)) {
+    const excludes = detail.conditions?.ref_name?.exclude;
+    if (detail.target === "branch" && (!Array.isArray(includes) || !Array.isArray(excludes))) {
       throw new Error("Active branch ruleset has no complete ref-name condition");
     }
-    const appliesToTarget = detail.target === "branch" && Array.isArray(includes) && includes.some(refPatternMatches);
+    const includeMatches = detail.target === "branch" ? includes.map(refPatternMatches) : [];
+    const excludeMatches = detail.target === "branch" ? excludes.map(refPatternMatches) : [];
+    const appliesToTarget = (
+      detail.target === "branch" &&
+      includeMatches.some(Boolean) &&
+      !excludeMatches.some(Boolean)
+    );
     if (appliesToTarget && !Array.isArray(detail.bypass_actors)) {
       throw new Error("Active protected branch ruleset has no complete bypass-actor policy");
     }
