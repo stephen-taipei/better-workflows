@@ -1646,8 +1646,7 @@ async function runPinnedArtifactPublisher({
   child.stdout.on("data", (chunk) => { stdout = append(stdout, chunk); });
   child.stderr.on("data", (chunk) => { stderr = append(stderr, chunk); });
   child.stdin.on("error", () => undefined);
-  child.stdin.end(mode === "link" ? artifactBytes : undefined);
-  const result = await new Promise((resolve, reject) => {
+  const completion = new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
       reject(recipeError("pinned artifact publisher timed out"));
@@ -1661,6 +1660,8 @@ async function runPinnedArtifactPublisher({
       resolve({ code, signal });
     });
   });
+  child.stdin.end(mode === "link" ? artifactBytes : undefined);
+  const result = await completion;
   if (outputExceeded) throw recipeError("pinned artifact publisher output exceeded 64 KiB");
   if (result.code !== 0 || result.signal) {
     throw recipeError(
