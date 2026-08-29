@@ -186,7 +186,10 @@ sbw recipe prune --apply
 ```
 
 `artifact.promote` is an independent action authority. A dry run executes only
-already trusted code and leaves no published artifact.
+already trusted code and leaves no published artifact. Successful
+`recipe.promote` and `artifact.promote` source writes are reconciled as exact,
+one-path provider-action transitions; extra workspace drift or a tampered
+transition is audited as non-authorizing.
 
 ## Model deliberation
 

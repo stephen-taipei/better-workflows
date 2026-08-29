@@ -295,6 +295,8 @@ node plugins/better-workflows/scripts/sbw.mjs recipe run <id> \
 
 只解析 Git root 的 `.codex/better-workflows/`；routing Profile `.codex/better-workflows.json` 不能授权 recipe。clone 后一律视为不可信并重新 promotion。dry-run 执行已信任程序但丢弃 staging；正式 run 才原子发布已声明且默认 ignored 的 artifacts。提升单一 artifact 另需 `artifact.promote` action。一般私密 receipt 只保存 digests、时间、artifact metadata 与 reconciliation，不保存 raw input、conversation、credentials 或 secrets。reconciled side-effect action record 会为 terminal state 验证私密保存 provider receipt，但不会进入 external handoff 或 graph projection。
 
+Recipe 程序本身仍没有 source-mutation authority。root-owned local provider 只能为 `recipe.promote` 精确启用 config，或为 `artifact.promote` 创建一个原本不存在的目标文件。receipt 会绑定 action attempt、path、前后 bytes、完整 sentinel 与 source binding；移除该唯一 path 后，两份 snapshot 必须完全一致。ignored artifact store 也只有在 tracked marker 内容精确符合内置 policy 时，才视为受管理的非 source 输出。任何额外 drift 或 transition history 篡改都不能授权 success。
+
 自我改进 evaluation 只使用已 checked-in、sanitized 且在 immutable baseline 冻结的 train/holdout corpus。candidate 必须先 staging；三次 read-only Codex holdout replay 必须在没有 safety failure 或 regression 的前提下严格超过 baseline median。Codex replay 需要 host-signed attestation，把精确 binary 与 model 绑定到固定的 `/etc/better-workflows/codex-trust-root.json`；该文件和父目录必须由 administrator 拥有且调用者不可写入。`PATH`、自行计算 hash、CLI 选择 trust root 或 model 自述都不是 provider attestation。tie、noise、缺少 evidence 或 fixture-only 结果都不会 auto-adopt。
 
 每次成功 replay 都使用独立的 host-owned witness：已安装 signer 精确执行 attested Codex binary 一次，由 host 捕获 prompt、parsed response、exit status、timestamps，并写入 root-owned execution ledger 与 `result receipt`。`sbw` 消费已保存的 witness，resume 或 delivery revalidation 不会重新执行 Codex；signed receipt 绑定 exact prompt digest、response digest、binary、model、execution、ledger 与 timestamps。

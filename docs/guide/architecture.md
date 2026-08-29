@@ -78,8 +78,11 @@ This is an operating model, not native runtime interoperability.
 ## Governed workspace recipes
 
 Recipes preserve deterministic SOP mechanics as workspace-local Node.js ESM.
-They do not choose models, orchestrate agents, accept risk, mutate source, or
-perform external side effects.
+Recipe code does not choose models, orchestrate agents, accept risk, mutate
+source, or perform external side effects. Two root-owned local-provider actions
+are narrow exceptions around the recipe runtime: `recipe.promote` may change
+only the tracked workspace config from `enabled: false` to `enabled: true`, and
+`artifact.promote` may create only its exact absent destination file.
 
 Trust binds the exact workspace, manifest, entry digest, plugin bundle, Node
 major, and promotion action. Digest drift invalidates execution immediately.
@@ -87,7 +90,12 @@ Node's Permission Model is defense in depth, not the primary trust boundary.
 
 Artifacts are staged and atomically published. Dry runs discard staging;
 moving a promotable artifact into tracked source requires a separate
-`artifact.promote` action.
+`artifact.promote` action. Each allowed source transition binds the action
+attempt, provider receipt, exact path, before/after bytes, source binding, and
+content-complete sentinel. Removing that one path must leave both authority
+snapshots identical; any extra status, index, ref, hook, config, evidence, or
+finding drift records the provider result as `unknown`. Canonical reconciliation
+then appends the transition to action, manifest, sentinel, and journal history.
 
 ## Derived Graph View
 
