@@ -772,6 +772,11 @@ const ACTION_PROVIDER_RECEIPT_SCHEMAS = {
   "plugin.cache.publish:local-workspace": { proofKind: "local-workspace:plugin.cache.publish" }
 };
 const PROVIDER_EXECUTION_SCHEMA_VERSION = 1;
+const PROVIDER_ACTION_SOURCE_MUTATIONS = new Set([
+  "recipe.promote:local-workspace",
+  "artifact.promote:local-workspace"
+]);
+const PROVIDER_ACTION_SOURCE_MUTATION_SCHEMA_VERSION = 1;
 
 function assertSupportedGovernedAction(action) {
   if (UNSUPPORTED_GOVERNED_ACTIONS.has(action)) {
@@ -2858,19 +2863,23 @@ async function assertFindingEvidence(root, run, runDir, record) {
 async function currentFindingDispositionBinding(root, runId, run) {
   const findings = await listJsonRecords(root, safeJoin(run.runDir, "findings"));
   const dispositions = [];
+  const inventory = [];
   for (const finding of findings) {
     validateFinding(finding);
     if (["P0", "P1"].includes(finding.severity) && finding.status === "open") {
       throw new Error("Action token denied by unresolved P0/P1 finding");
     }
     if (!["P0", "P1"].includes(finding.severity)) continue;
+    inventory.push({ id: finding.id, digest: digestObject(finding) });
     const binding = await assertFindingEvidence(root, run, run.runDir, finding);
     if (binding) dispositions.push(binding);
   }
+  inventory.sort((left, right) => left.id.localeCompare(right.id));
   dispositions.sort((left, right) => left.findingId.localeCompare(right.findingId));
   return {
     digest: digestObject(dispositions),
-    dispositions
+    dispositions,
+    inventory
   };
 }
 
@@ -3790,6 +3799,390 @@ async function currentEvidenceSupersessionFreshnessDigest(root, run) {
   return digestObject(projection);
 }
 
+function stableSentinelRecordDigest(sentinel) {
+  if (!sentinel || typeof sentinel !== "object" || Array.isArray(sentinel)) {
+    throw new Error("Source sentinel record is malformed");
+  }
+  const { checkedAt: _checkedAt, ...stable } = sentinel;
+  return digestObject(stable);
+}
+
+async function actionSourceAuthoritySnapshot(root, runDir, manifest, state, evidenceGateProjection) {
+  const sourceBinding = manifest.sourceBinding ?? null;
+  if (sourceBinding === null) {
+    return { schemaVersion: 1, sourceBinding: null, sourceSentinel: null };
+  }
+  if (
+    sourceBinding.schemaVersion !== 3 ||
+    !SHA256_DIGEST.test(sourceBinding.digest ?? "") ||
+    evidenceGateProjection?.sourceBindingDigest !== sourceBinding.digest
+  ) {
+    throw new Error("Action source authority snapshot is not bound to the evidence gate");
+  }
+  const label = state.lastSentinel?.label;
+  if (!SAFE_ID.test(label ?? "")) {
+    return { schemaVersion: 1, sourceBinding: structuredClone(sourceBinding), sourceSentinel: null };
+  }
+  const target = safeJoin(runDir, "sentinels", `${label}.json`);
+  if (!(await pathExists(target))) {
+    return { schemaVersion: 1, sourceBinding: structuredClone(sourceBinding), sourceSentinel: null };
+  }
+  const sentinel = await readJson(root, target);
+  if (
+    sentinel.complete !== true ||
+    sentinel.digest !== state.lastSentinel.digest ||
+    sentinel.digest !== evidenceGateProjection?.sourceSentinelDigest
+  ) {
+    throw new Error("Action source sentinel snapshot is stale or incomplete");
+  }
+  return {
+    schemaVersion: 1,
+    sourceBinding: structuredClone(sourceBinding),
+    sourceSentinel: {
+      label,
+      digest: sentinel.digest,
+      recordDigest: stableSentinelRecordDigest(sentinel)
+    }
+  };
+}
+
+function providerActionMutationPath(record, sourceMutation) {
+  const key = `${record.action}:${record.provider}`;
+  if (!PROVIDER_ACTION_SOURCE_MUTATIONS.has(key)) {
+    throw new Error("Provider action is not allowed to transition source authority");
+  }
+  const candidate = sourceMutation?.path;
+  if (
+    typeof candidate !== "string" || !candidate || candidate.includes("\\") ||
+    /[\0\r\n\t]/.test(candidate) || path.posix.isAbsolute(candidate) ||
+    path.posix.normalize(candidate) !== candidate || candidate === ".." || candidate.startsWith("../")
+  ) {
+    throw new Error("Provider action source mutation path is unsafe");
+  }
+  if (record.action === "recipe.promote") {
+    const expected = ".codex/better-workflows/config.json";
+    if (candidate !== expected) {
+      throw new Error("Recipe promotion may only transition the workspace recipe config");
+    }
+    return candidate;
+  }
+  const resource = /^artifact:([^:]+):([^:]+):(.+)$/.exec(record.resource ?? "");
+  if (!resource || resource[3] !== candidate) {
+    throw new Error("Artifact promotion source mutation path is not resource-bound");
+  }
+  const components = candidate.split("/");
+  const authorityFiles = new Set([".git", ".gitattributes", ".gitignore", ".gitmodules"]);
+  if (
+    components.some((component) => authorityFiles.has(component)) ||
+    candidate === ".codex/better-workflows" ||
+    candidate.startsWith(".codex/better-workflows/")
+  ) {
+    throw new Error("Artifact promotion cannot mutate Git authority or reserved recipe state");
+  }
+  return candidate;
+}
+
+function sentinelPathBinding(sentinel, relativePath) {
+  for (const collection of [sentinel.scopeDigest, sentinel.untracked]) {
+    if ((collection?.skipped ?? []).some((item) => item.path === relativePath)) {
+      throw new Error("Provider action source mutation path is outside complete sentinel coverage");
+    }
+  }
+  const matches = [
+    ...(sentinel.scopeDigest?.records ?? [])
+      .filter((item) => item.path === relativePath)
+      .map((record) => ({ surface: "tracked", record })),
+    ...(sentinel.untracked?.records ?? [])
+      .filter((item) => item.path === relativePath)
+      .map((record) => ({ surface: "untracked", record }))
+  ];
+  if (matches.length > 1) {
+    throw new Error("Provider action source mutation path has ambiguous sentinel coverage");
+  }
+  return matches[0] ?? null;
+}
+
+function normalizedSentinelOutsidePath(sentinel, relativePath) {
+  const normalizeCollection = (collection) => ({
+    records: (collection?.records ?? []).filter((item) => item.path !== relativePath),
+    skipped: (collection?.skipped ?? []).filter((item) => item.path !== relativePath),
+    complete: collection?.complete === true
+  });
+  const {
+    checkedAt: _checkedAt,
+    complete: _complete,
+    digest: _digest,
+    skipped: _skipped,
+    statusDigest: _statusDigest,
+    scopeDigest,
+    untracked,
+    ...stable
+  } = sentinel;
+  return {
+    ...stable,
+    scopeDigest: normalizeCollection(scopeDigest),
+    untracked: normalizeCollection(untracked)
+  };
+}
+
+function parsePorcelainV2Entries(stdout) {
+  if (typeof stdout !== "string") throw new Error("Git status returned non-text output");
+  const parts = stdout.split("\0");
+  if (parts.at(-1) === "") parts.pop();
+  const entries = [];
+  for (let index = 0; index < parts.length; index += 1) {
+    const record = parts[index];
+    if (!record) throw new Error("Git status returned an empty porcelain record");
+    const type = record[0];
+    if (["1", "u"].includes(type)) {
+      const separator = record.indexOf("\t");
+      if (separator < 0) throw new Error("Git status returned a malformed porcelain record");
+      entries.push({ type, paths: [record.slice(separator + 1)], parts: [record] });
+    } else if (type === "2") {
+      const separator = record.indexOf("\t");
+      const original = parts[index + 1];
+      if (separator < 0 || original === undefined) {
+        throw new Error("Git status returned a malformed rename record");
+      }
+      entries.push({ type, paths: [record.slice(separator + 1), original], parts: [record, original] });
+      index += 1;
+    } else if (["?", "!"].includes(type) && record[1] === " ") {
+      entries.push({ type, paths: [record.slice(2)], parts: [record] });
+    } else {
+      throw new Error("Git status returned an unsupported porcelain record");
+    }
+  }
+  return entries;
+}
+
+function statusDigestOutsideMutation(stdout, relativePath, expectedType) {
+  const entries = parsePorcelainV2Entries(stdout);
+  const matches = entries.filter((entry) => entry.paths.includes(relativePath));
+  if (
+    matches.length !== 1 || matches[0].type !== expectedType ||
+    matches[0].paths.length !== 1 || matches[0].paths[0] !== relativePath
+  ) {
+    throw new Error("Provider action source mutation does not have one exact Git status record");
+  }
+  const remaining = entries.filter((entry) => entry !== matches[0]);
+  const normalized = remaining.length > 0
+    ? `${remaining.flatMap((entry) => entry.parts).join("\0")}\0`
+    : "";
+  return sha256(normalized);
+}
+
+function comparableSourceBinding(sourceBinding) {
+  const {
+    digest: _digest,
+    worktreeClean: _worktreeClean,
+    worktreeStatusDigest: _worktreeStatusDigest,
+    ...stable
+  } = sourceBinding;
+  return stable;
+}
+
+function validateRecipeConfigMutation(sourceMutation, beforeBinding, afterBinding) {
+  assertExactObjectKeys(
+    sourceMutation.recipeConfig,
+    new Set(["before", "after"]),
+    "Recipe promotion config transition"
+  );
+  const before = sourceMutation.recipeConfig.before;
+  const after = sourceMutation.recipeConfig.after;
+  const keys = new Set(["schemaVersion", "enabled", "artifactRetentionDays", "workspaceArtifactCapBytes"]);
+  assertExactObjectKeys(before, keys, "Recipe promotion prior config");
+  assertExactObjectKeys(after, keys, "Recipe promotion current config");
+  if (
+    before.schemaVersion !== 1 || after.schemaVersion !== 1 ||
+    before.enabled !== false || after.enabled !== true ||
+    !Number.isInteger(before.artifactRetentionDays) ||
+    !Number.isInteger(before.workspaceArtifactCapBytes) ||
+    digestObject({ ...before, enabled: true }) !== digestObject(after)
+  ) {
+    throw new Error("Recipe promotion config transition is not the exact enabled false-to-true mutation");
+  }
+  const beforeBytes = Buffer.from(`${JSON.stringify(before, null, 2)}\n`);
+  const afterBytes = Buffer.from(`${JSON.stringify(after, null, 2)}\n`);
+  if (
+    beforeBinding?.surface !== "tracked" || afterBinding?.surface !== "tracked" ||
+    beforeBinding.record?.type !== "file" || afterBinding.record?.type !== "file" ||
+    beforeBinding.record.digest !== sha256(beforeBytes) || beforeBinding.record.size !== beforeBytes.length ||
+    afterBinding.record.digest !== sha256(afterBytes) || afterBinding.record.size !== afterBytes.length
+  ) {
+    throw new Error("Recipe promotion config bytes are not sentinel-bound");
+  }
+}
+
+async function loadActionBaselineSentinel(root, run, record) {
+  const authority = record.sourceAuthorityAtIssue;
+  const binding = authority?.sourceSentinel;
+  if (
+    authority?.schemaVersion !== 1 || authority.sourceBinding?.schemaVersion !== 3 ||
+    !SHA256_DIGEST.test(authority.sourceBinding?.digest ?? "") ||
+    !binding || !SAFE_ID.test(binding.label ?? "") ||
+    binding.digest !== record.treeDigest || !SHA256_DIGEST.test(binding.recordDigest ?? "")
+  ) {
+    throw new Error("Provider action source transition lacks immutable issued source authority");
+  }
+  const sentinel = await readJson(root, safeJoin(run.runDir, "sentinels", `${binding.label}.json`));
+  if (
+    sentinel.complete !== true || sentinel.digest !== binding.digest ||
+    stableSentinelRecordDigest(sentinel) !== binding.recordDigest
+  ) {
+    throw new Error("Provider action issued source sentinel was replaced or is incomplete");
+  }
+  return { authority, binding, sentinel };
+}
+
+async function validateProviderActionSourceMutation(root, run, record, providerReceipt) {
+  const sourceMutation = providerReceipt.sourceMutation;
+  const expectedKeys = new Set([
+    "schemaVersion", "kind", "actionAttemptId", "action", "provider", "resource",
+    "path", "sourceBinding", "sentinel", "pathTransition",
+    ...(record.action === "recipe.promote" ? ["recipeConfig"] : [])
+  ]);
+  assertExactObjectKeys(sourceMutation, expectedKeys, "Provider action source mutation");
+  if (
+    sourceMutation.schemaVersion !== PROVIDER_ACTION_SOURCE_MUTATION_SCHEMA_VERSION ||
+    sourceMutation.kind !== "provider-action" ||
+    sourceMutation.actionAttemptId !== record.attemptId ||
+    sourceMutation.action !== record.action || sourceMutation.provider !== record.provider ||
+    sourceMutation.resource !== record.resource
+  ) {
+    throw new Error("Provider action source mutation identity is invalid");
+  }
+  const relativePath = providerActionMutationPath(record, sourceMutation);
+  const baseline = await loadActionBaselineSentinel(root, run, record);
+  if (
+    record.evidenceGateProjection?.sourceBindingDigest !== baseline.authority.sourceBinding.digest ||
+    record.evidenceGateProjection?.sourceSentinelDigest !== baseline.sentinel.digest
+  ) {
+    throw new Error("Provider action source transition is not bound to the issued evidence projection");
+  }
+  const { captureSentinel, captureSourceBinding, runSourceGit } = await import("./git.mjs");
+  const currentSentinel = await captureSentinel(run.manifest.cwd, run.contract, await loadDefaults());
+  const currentSourceBinding = await captureSourceBinding(run.manifest.cwd, {
+    baseRevision: baseline.authority.sourceBinding.baseRevision,
+    requireClean: false
+  });
+  if (!currentSourceBinding || currentSentinel.complete !== true) {
+    throw new Error("Provider action current source authority is unavailable or incomplete");
+  }
+  const [sentinelStatus, sourceBindingStatus] = await Promise.all([
+    runSourceGit(run.manifest.cwd, ["status", "--porcelain=v2", "-z", "--untracked-files=all"]),
+    runSourceGit(run.manifest.cwd, ["status", "--porcelain=v2", "-z", "--untracked-files=all", "--ignored"])
+  ]);
+  if (
+    sha256(sentinelStatus.stdout) !== currentSentinel.statusDigest ||
+    sha256(sourceBindingStatus.stdout) !== currentSourceBinding.worktreeStatusDigest
+  ) {
+    throw new Error("Provider action source changed during transition verification");
+  }
+  const expectedStatusType = record.action === "recipe.promote" ? "1" : "?";
+  if (
+    statusDigestOutsideMutation(sentinelStatus.stdout, relativePath, expectedStatusType) !== baseline.sentinel.statusDigest ||
+    statusDigestOutsideMutation(sourceBindingStatus.stdout, relativePath, expectedStatusType) !==
+      baseline.authority.sourceBinding.worktreeStatusDigest
+  ) {
+    throw new Error("Provider action source mutation includes undeclared Git status drift");
+  }
+  if (
+    digestObject(normalizedSentinelOutsidePath(baseline.sentinel, relativePath)) !==
+      digestObject(normalizedSentinelOutsidePath(currentSentinel, relativePath)) ||
+    digestObject(comparableSourceBinding(baseline.authority.sourceBinding)) !==
+      digestObject(comparableSourceBinding(currentSourceBinding))
+  ) {
+    throw new Error("Provider action source mutation changed authority outside its declared path");
+  }
+  const beforePath = sentinelPathBinding(baseline.sentinel, relativePath);
+  const afterPath = sentinelPathBinding(currentSentinel, relativePath);
+  assertExactObjectKeys(sourceMutation.sourceBinding, new Set(["from", "to", "headRevision"]), "Provider action source binding transition");
+  assertExactObjectKeys(sourceMutation.sentinel, new Set(["from", "to"]), "Provider action sentinel transition");
+  assertExactObjectKeys(sourceMutation.pathTransition, new Set(["before", "after"]), "Provider action path transition");
+  if (
+    sourceMutation.sourceBinding.from !== baseline.authority.sourceBinding.digest ||
+    sourceMutation.sourceBinding.to !== currentSourceBinding.digest ||
+    sourceMutation.sourceBinding.headRevision !== currentSourceBinding.headRevision ||
+    sourceMutation.sentinel.from !== baseline.sentinel.digest ||
+    sourceMutation.sentinel.to !== currentSentinel.digest ||
+    digestObject(sourceMutation.pathTransition.before) !== digestObject(beforePath) ||
+    digestObject(sourceMutation.pathTransition.after) !== digestObject(afterPath) ||
+    baseline.authority.sourceBinding.headRevision !== currentSourceBinding.headRevision ||
+    currentSourceBinding.digest === baseline.authority.sourceBinding.digest ||
+    currentSentinel.digest === baseline.sentinel.digest
+  ) {
+    throw new Error("Provider action source mutation receipt does not match the exact live transition");
+  }
+  if (record.action === "recipe.promote") {
+    validateRecipeConfigMutation(sourceMutation, beforePath, afterPath);
+  } else if (
+    beforePath !== null || afterPath?.surface !== "untracked" ||
+    afterPath.record?.type !== "file" ||
+    afterPath.record.digest !== providerReceipt.digest
+  ) {
+    throw new Error("Artifact promotion must create one exact untracked artifact file");
+  }
+  return {
+    descriptor: sourceMutation,
+    descriptorDigest: digestObject(sourceMutation),
+    relativePath,
+    baselineSourceBinding: baseline.authority.sourceBinding,
+    currentSourceBinding,
+    baselineSentinel: baseline.sentinel,
+    currentSentinel,
+    baselineSentinelRecordDigest: baseline.binding.recordDigest,
+    currentSentinelRecordDigest: stableSentinelRecordDigest(currentSentinel)
+  };
+}
+
+async function assertFrozenProviderActionEvidenceGate(root, runId, run, record, context) {
+  const projection = record.evidenceGateProjection;
+  if (
+    !projection || digestObject(projection) !== record.evidenceGateDigest ||
+    projection.runId !== runId || projection.action !== record.action ||
+    projection.contractDigest !== digestObject(run.contract) ||
+    projection.authorityDigest !== digestObject(run.contract.authority ?? null) ||
+    projection.policyDigest !== canonicalEvidencePolicyDigest(run.contract) ||
+    projection.remoteRevision !== (run.contract.remoteRevision ?? null) ||
+    projection.workflowVersion !== VERSION
+  ) {
+    throw new Error(`${context} denied because the issued evidence projection is malformed`);
+  }
+  const evidence = await listIdentityBoundJsonRecords(root, safeJoin(run.runDir, "evidence"), "Evidence");
+  await assertEvidenceJournalProvenance(root, run, evidence, await readJournalRecords(root, run.runDir));
+  const gateKinds = new Set(record.evidenceGate);
+  const selected = evidence
+    .filter((item) => gateKinds.has(item.kind) && item.schemaVersion === 2 && item.typedAdmission && item.status === "complete" && item.stale !== true)
+    .map((item) => ({ kind: item.kind, evidenceId: item.id, evidenceDigest: digestObject(item) }))
+    .sort((left, right) => left.kind.localeCompare(right.kind) || left.evidenceId.localeCompare(right.evidenceId));
+  const expectedEvidence = (projection.evidence ?? [])
+    .map((item) => ({ kind: item.kind, evidenceId: item.evidenceId, evidenceDigest: item.evidenceDigest }))
+    .sort((left, right) => left.kind.localeCompare(right.kind) || left.evidenceId.localeCompare(right.evidenceId));
+  if (digestObject(selected) !== digestObject(expectedEvidence)) {
+    throw new Error(`${context} denied because issued gate evidence changed after provider invocation`);
+  }
+  const supersessions = (await listIdentityBoundJsonRecords(
+    root,
+    safeJoin(run.runDir, "evidence-supersessions"),
+    "Evidence supersession"
+  )).map((item) => ({ id: item.id, digest: digestObject(item) })).sort((left, right) => left.id.localeCompare(right.id));
+  if (digestObject(supersessions) !== digestObject(projection.effectiveSupersessions ?? [])) {
+    throw new Error(`${context} denied because evidence supersessions changed after provider invocation`);
+  }
+  const findings = (await listJsonRecords(root, safeJoin(run.runDir, "findings")))
+    .filter((item) => ["P0", "P1"].includes(item.severity))
+    .map((item) => {
+      validateFinding(item);
+      if (item.status === "open") throw new Error(`${context} denied by a post-invocation P0/P1 finding`);
+      return { id: item.id, digest: digestObject(item) };
+    })
+    .sort((left, right) => left.id.localeCompare(right.id));
+  if (digestObject(findings) !== digestObject(projection.findingInventory ?? [])) {
+    throw new Error(`${context} denied because finding dispositions changed after provider invocation`);
+  }
+  return projection;
+}
+
 async function currentActionSourceAuthorityBinding(root, run, action) {
   const sourceBinding = run.manifest.sourceBinding ?? null;
   if (!sourceBinding) {
@@ -3848,7 +4241,7 @@ async function currentActionSourceAuthorityBinding(root, run, action) {
     throw new Error("Action token denied because the initial source binding is malformed");
   }
   const journal = history.length > 0 ? await readJournalRecords(root, run.runDir) : [];
-  const actions = history.some((entry) => entry?.kind === "autonomous-commit")
+  const actions = history.some((entry) => ["autonomous-commit", "provider-action"].includes(entry?.kind))
     ? await listJsonRecords(root, safeJoin(run.runDir, "actions"))
     : [];
   const transitions = [];
@@ -3879,6 +4272,45 @@ async function currentActionSourceAuthorityBinding(root, run, action) {
       ) {
         throw new Error("Action token denied because an autonomous source transition is not replay-valid");
       }
+    } else if (entry.kind === "provider-action") {
+      const providerAction = actions.find((candidate) => candidate.attemptId === entry.actionAttemptId);
+      const transition = providerAction?.sourceBindingTransition;
+      const expectedHistory = transition
+        ? {
+            ...transition,
+            reason: "governed-provider-action-reconciled",
+            transitionDigest: digestObject(transition)
+          }
+        : null;
+      const journalEntries = journal.filter((candidate) => (
+        candidate.event === "source-binding.provider-action" &&
+        candidate.actionAttemptId === entry.actionAttemptId
+      ));
+      const beforeSentinelBinding = providerAction?.sourceAuthorityAtIssue?.sourceSentinel;
+      const beforeSentinel = beforeSentinelBinding?.label
+        ? await readJson(root, safeJoin(run.runDir, "sentinels", `${beforeSentinelBinding.label}.json`)).catch(() => null)
+        : null;
+      const afterSentinel = transition?.sourceSentinelLabel
+        ? await readJson(root, safeJoin(run.runDir, "sentinels", `${transition.sourceSentinelLabel}.json`)).catch(() => null)
+        : null;
+      if (
+        !providerAction || providerAction.status !== "spent" || providerAction.outcome !== "success" ||
+        !PROVIDER_ACTION_SOURCE_MUTATIONS.has(`${providerAction.action}:${providerAction.provider}`) ||
+        !transition || digestObject(entry) !== digestObject(expectedHistory) ||
+        transition.from !== entry.from || transition.to !== entry.to ||
+        transition.headRevision !== entry.headRevision ||
+        transition.providerReceiptDigest !== digestObject(providerAction.receipt?.providerReceipt ?? null) ||
+        transition.sourceMutationDigest !== digestObject(providerAction.receipt?.providerReceipt?.sourceMutation ?? null) ||
+        journalEntries.length !== 1 ||
+        digestObject({ ...journalEntries[0], at: undefined, event: undefined, attemptId: undefined }) !==
+          digestObject({ ...expectedHistory, at: undefined, reason: undefined }) ||
+        !beforeSentinel || beforeSentinel.digest !== transition.sourceSentinelFrom ||
+        stableSentinelRecordDigest(beforeSentinel) !== transition.sourceSentinelFromRecordDigest ||
+        !afterSentinel || afterSentinel.digest !== transition.sourceSentinelTo ||
+        stableSentinelRecordDigest(afterSentinel) !== transition.sourceSentinelToRecordDigest
+      ) {
+        throw new Error("Action token denied because a provider action source transition is not replay-valid");
+      }
     } else {
       const journalEntry = journal.find((candidate) => (
         candidate.event === "source-binding.rebound" &&
@@ -3892,9 +4324,17 @@ async function currentActionSourceAuthorityBinding(root, run, action) {
     transitions.push({
       kind: entry.kind ?? "source-rebind",
       actionAttemptId: entry.actionAttemptId ?? null,
+      action: entry.action ?? null,
+      provider: entry.provider ?? null,
+      resource: entry.resource ?? null,
+      path: entry.path ?? null,
       from: entry.from,
       to: entry.to,
       headRevision: entry.headRevision,
+      sourceSentinelFrom: entry.sourceSentinelFrom ?? null,
+      sourceSentinelTo: entry.sourceSentinelTo ?? null,
+      providerReceiptDigest: entry.providerReceiptDigest ?? null,
+      sourceMutationDigest: entry.sourceMutationDigest ?? null,
       reason: entry.reason,
       at: entry.at,
       digest: digestObject(entry)
@@ -3988,6 +4428,7 @@ export async function currentActionEvidenceGateBinding(root, runId, run, action)
     effectiveSupersessions: supersessions,
     findingDispositionDigest: findingDispositionBinding.digest,
     findingDispositions: findingDispositionBinding.dispositions,
+    findingInventory: findingDispositionBinding.inventory,
     evidence: selected
   };
   return {
@@ -6584,10 +7025,17 @@ async function verifyProviderReceipt(manifest, record, receipt, contract = null)
       : (await verifyRecordedGitHubExecutable(record)).path
     : await verifyOwnedResourceCreationProof(manifest, record, providerReceipt);
   if (key === "recipe.promote:local-workspace" || key === "artifact.promote:local-workspace") {
+    const sourceMutationDigest = providerReceipt.sourceMutation
+      ? digestObject(providerReceipt.sourceMutation)
+      : null;
     assertRecomputedProviderReceipt(
       providerReceipt,
       { action: record.action, provider: record.provider, resource: record.resource, remoteRevision: record.remoteRevision, idempotencyKey: record.idempotencyKey },
-      { kind: providerReceipt.kind, digest: providerReceipt.digest },
+      {
+        kind: providerReceipt.kind,
+        digest: providerReceipt.digest,
+        ...(sourceMutationDigest ? { sourceMutationDigest } : {})
+      },
       `local-workspace:${record.action}:${record.attemptId}`
     );
     return;
@@ -8925,7 +9373,15 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
         ...(finalActionEvidenceGateBinding
           ? {
               evidenceGate: finalActionEvidenceGateBinding.configuredGate,
-              evidenceGateDigest: finalActionEvidenceGateBinding.digest
+              evidenceGateDigest: finalActionEvidenceGateBinding.digest,
+              evidenceGateProjection: finalActionEvidenceGateBinding.projection,
+              sourceAuthorityAtIssue: await actionSourceAuthoritySnapshot(
+                root,
+                runDir,
+                manifest,
+                state,
+                finalActionEvidenceGateBinding.projection
+              )
             }
           : {}),
         idempotencyKey: `sbw-${runId}-${randomUUID()}`
@@ -10429,6 +10885,103 @@ async function finalizePluginCacheReadiness(runId, attemptId, providerReceipt) {
   return verifyPluginCacheReady(binding);
 }
 
+function providerActionSourceBindingTransition(record, receipt, validation, transitionedAt) {
+  return {
+    kind: "provider-action",
+    actionAttemptId: record.attemptId,
+    action: record.action,
+    provider: record.provider,
+    resource: record.resource,
+    path: validation.relativePath,
+    from: validation.baselineSourceBinding.digest,
+    to: validation.currentSourceBinding.digest,
+    headRevision: validation.currentSourceBinding.headRevision,
+    sourceSentinelFrom: validation.baselineSentinel.digest,
+    sourceSentinelTo: validation.currentSentinel.digest,
+    sourceSentinelFromRecordDigest: validation.baselineSentinelRecordDigest,
+    sourceSentinelToRecordDigest: validation.currentSentinelRecordDigest,
+    sourceSentinelLabel: `provider-action-${record.attemptId}`,
+    providerReceiptDigest: digestObject(receipt.providerReceipt),
+    sourceMutationDigest: validation.descriptorDigest,
+    at: transitionedAt
+  };
+}
+
+async function transitionProviderActionSourceBinding(root, runDir, record, receipt, validation) {
+  const manifestPath = safeJoin(runDir, "manifest.json");
+  const statePath = safeJoin(runDir, "state.json");
+  const manifest = await readJson(root, manifestPath);
+  const state = await readJson(root, statePath);
+  const history = Array.isArray(manifest.sourceBindingHistory) ? manifest.sourceBindingHistory : [];
+  const existing = history.find((item) => (
+    item.kind === "provider-action" && item.actionAttemptId === record.attemptId
+  ));
+  const transitionedAt = existing?.at ?? record.sourceBindingTransition?.at ?? nowIso();
+  const transition = providerActionSourceBindingTransition(record, receipt, validation, transitionedAt);
+  const historyEntry = {
+    ...transition,
+    reason: "governed-provider-action-reconciled",
+    transitionDigest: digestObject(transition)
+  };
+  if (existing && digestObject(existing) !== digestObject(historyEntry)) {
+    throw new Error("Provider action source transition history is rebound to another mutation");
+  }
+  if (record.sourceBindingTransition && digestObject(record.sourceBindingTransition) !== digestObject(transition)) {
+    throw new Error("Provider action persisted source transition is rebound to another mutation");
+  }
+  if (![transition.from, transition.to].includes(manifest.sourceBinding?.digest)) {
+    throw new Error("Provider action cannot replace an unrelated operational source binding");
+  }
+  const sentinelPath = safeJoin(runDir, "sentinels", `${transition.sourceSentinelLabel}.json`);
+  if (await pathExists(sentinelPath)) {
+    const persisted = await readJson(root, sentinelPath);
+    if (
+      persisted.digest !== transition.sourceSentinelTo ||
+      stableSentinelRecordDigest(persisted) !== transition.sourceSentinelToRecordDigest
+    ) {
+      throw new Error("Provider action source transition sentinel conflicts with persisted state");
+    }
+  } else {
+    await atomicWriteJson(root, sentinelPath, validation.currentSentinel);
+  }
+  if (manifest.sourceBinding.digest === transition.from) {
+    await atomicWriteJson(root, manifestPath, {
+      ...manifest,
+      sourceBinding: validation.currentSourceBinding,
+      sourceBindingHistory: [...history, historyEntry],
+      updatedAt: transitionedAt
+    });
+  } else if (!existing) {
+    throw new Error("Provider action current source binding lacks immutable transition history");
+  }
+  if (![transition.sourceSentinelFrom, transition.sourceSentinelTo].includes(state.lastSentinel?.digest)) {
+    throw new Error("Provider action cannot replace an unrelated source sentinel");
+  }
+  if (
+    state.lastSentinel?.digest !== transition.sourceSentinelTo ||
+    state.lastSentinelVerified !== true || state.lastSentinelComplete !== true ||
+    state.lastSentinel?.label !== transition.sourceSentinelLabel
+  ) {
+    await atomicWriteJson(root, statePath, {
+      ...state,
+      lastSentinel: {
+        label: transition.sourceSentinelLabel,
+        digest: transition.sourceSentinelTo,
+        path: sentinelPath
+      },
+      lastSentinelVerified: true,
+      lastSentinelComplete: true,
+      sentinelDrift: null,
+      updatedAt: transitionedAt
+    });
+  }
+  await appendJournalOnceForAttempt(root, runDir, "source-binding.provider-action", record.attemptId, {
+    ...transition,
+    transitionDigest: digestObject(transition)
+  });
+  return { transition, historyEntry, sourceBinding: validation.currentSourceBinding };
+}
+
 async function transitionAutonomousCommitSourceBinding(root, runDir, contract, record, onBoundary = () => {}) {
   const manifestPath = safeJoin(runDir, "manifest.json");
   const statePath = safeJoin(runDir, "state.json");
@@ -10692,6 +11245,42 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
       });
       return repaired;
     }
+    const repairingProviderActionTransition = (
+      record.status === "spent" && record.outcome === "success" && outcome === "success" &&
+      PROVIDER_ACTION_SOURCE_MUTATIONS.has(`${record.action}:${record.provider}`) &&
+      record.receipt?.providerReceipt?.sourceMutation
+    );
+    if (repairingProviderActionTransition) {
+      if (!record.receipt || !receipt || digestObject(record.receipt) !== digestObject(receipt)) {
+        throw new Error("Provider action source transition repair requires the exact persisted success receipt");
+      }
+      validateActionReceipt(record, outcome, receipt);
+      await validateActionEvidenceBinding(root, runDir, record, attemptId, outcome, receipt);
+      const manifest = await readJson(root, safeJoin(runDir, "manifest.json"));
+      await verifyProviderReceipt(manifest, { ...record, outcome: "success" }, receipt, run.contract);
+      await assertFrozenProviderActionEvidenceGate(
+        root,
+        runId,
+        run,
+        record,
+        "Provider action source transition repair"
+      );
+      const validation = await validateProviderActionSourceMutation(
+        root,
+        run,
+        record,
+        receipt.providerReceipt
+      );
+      await transitionProviderActionSourceBinding(root, runDir, record, receipt, validation);
+      await appendJournalOnceForAttempt(
+        root,
+        runDir,
+        "action.provider-source-transition-repaired",
+        attemptId,
+        { sourceMutationDigest: validation.descriptorDigest }
+      );
+      return readJson(root, safeJoin(runDir, "actions", `${record.tokenHash}.json`));
+    }
     const repairingAutonomousCommitTransition = (
       record.status === "spent" &&
       record.outcome === "success" &&
@@ -10871,8 +11460,48 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
       outcome === "success" &&
       record.autonomyDecision?.decision === "auto-approved"
     );
+    const providerActionSourceTransitionRequired = (
+      outcome === "success" && run.contract.schemaVersion === 2 &&
+      PROVIDER_ACTION_SOURCE_MUTATIONS.has(`${record.action}:${record.provider}`) &&
+      Boolean(receipt.providerReceipt.sourceMutation)
+    );
     const sourceMutatingReconciliation = autonomousCommitTransitionRequired ||
+      providerActionSourceTransitionRequired ||
       (record.action === "worktree.cleanup" && outcome === "success");
+    let providerActionSourceValidation = null;
+    if (providerActionSourceTransitionRequired) {
+      try {
+        await assertFrozenProviderActionEvidenceGate(
+          root,
+          runId,
+          run,
+          record,
+          "Provider action source reconciliation"
+        );
+        providerActionSourceValidation = await validateProviderActionSourceMutation(
+          root,
+          run,
+          record,
+          receipt.providerReceipt
+        );
+      } catch (error) {
+        await reserveProviderExecution(root, record, receipt.providerReceipt.executionId, "unknown");
+        await persistActionAuthorityDriftUnknown(
+          root,
+          runDir,
+          record,
+          receipt,
+          error,
+          { providerExecutionReservationOutcome: "unknown" }
+        );
+        throw Object.assign(
+          new Error("Provider source mutation is non-authorizing because action authority drifted before reconciliation", {
+            cause: error
+          }),
+          { code: "SBW_ACTION_AUTHORITY_INDETERMINATE" }
+        );
+      }
+    }
     if (outcome === "success" && run.contract.schemaVersion === 2 && !sourceMutatingReconciliation) {
       try {
         await assertSpentActionEvidenceGate(
@@ -10905,6 +11534,46 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
     }
     await reserveProviderExecution(root, record, receipt.providerReceipt.executionId, outcome);
     await onBoundary("provider-reservation");
+    if (providerActionSourceTransitionRequired) {
+      try {
+        await assertFrozenProviderActionEvidenceGate(
+          root,
+          runId,
+          await loadRun(root, runId),
+          record,
+          "Provider action source persistence"
+        );
+        const currentValidation = await validateProviderActionSourceMutation(
+          root,
+          await loadRun(root, runId),
+          record,
+          receipt.providerReceipt
+        );
+        if (
+          currentValidation.descriptorDigest !== providerActionSourceValidation.descriptorDigest ||
+          currentValidation.currentSourceBinding.digest !== providerActionSourceValidation.currentSourceBinding.digest ||
+          currentValidation.currentSentinel.digest !== providerActionSourceValidation.currentSentinel.digest
+        ) {
+          throw new Error("Provider action source mutation changed during reconciliation");
+        }
+        providerActionSourceValidation = currentValidation;
+      } catch (error) {
+        await persistActionAuthorityDriftUnknown(
+          root,
+          runDir,
+          record,
+          receipt,
+          error,
+          { providerExecutionReservationOutcome: "success" }
+        );
+        throw Object.assign(
+          new Error("Provider source mutation is non-authorizing because action authority drifted before persistence", {
+            cause: error
+          }),
+          { code: "SBW_ACTION_AUTHORITY_INDETERMINATE" }
+        );
+      }
+    }
     if (outcome === "success" && run.contract.schemaVersion === 2 && !sourceMutatingReconciliation) {
       try {
         await assertSpentActionEvidenceGate(
@@ -10934,6 +11603,9 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
     const autonomousCommitTransition = autonomousCommitTransitionRequired
       ? await transitionAutonomousCommitSourceBinding(root, runDir, run.contract, record, onBoundary)
       : null;
+    const providerSourceTransition = providerActionSourceTransitionRequired
+      ? providerActionSourceBindingTransition(record, receipt, providerActionSourceValidation, nowIso())
+      : null;
     const target = safeJoin(runDir, "actions", `${record.tokenHash}.json`);
     const next = {
       ...record,
@@ -10950,12 +11622,22 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
             }
           }
         : {}),
+      ...(providerSourceTransition ? { sourceBindingTransition: providerSourceTransition } : {}),
       ...(record.action === "pr.create" && outcome === "success"
         ? { ownedResource: `pull/${receipt.providerReceipt.number}` }
         : {})
     };
     await atomicWriteJson(root, target, next);
     await onBoundary("action-persistence");
+    if (providerSourceTransition) {
+      await transitionProviderActionSourceBinding(
+        root,
+        runDir,
+        next,
+        receipt,
+        providerActionSourceValidation
+      );
+    }
     if (autonomousCommitTransition) {
       await invalidateEvidenceAfterAutonomousCommit(
         root,

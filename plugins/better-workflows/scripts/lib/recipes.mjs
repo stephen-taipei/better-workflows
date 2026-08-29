@@ -35,7 +35,7 @@ import {
   safeJoin,
   sha256
 } from "./core.mjs";
-import { captureSentinel, runSourceGit } from "./git.mjs";
+import { captureSentinel, captureSourceBinding, runSourceGit } from "./git.mjs";
 import { pluginBundleDigest } from "./routing.mjs";
 
 const RUNTIME_PATH = fileURLToPath(new URL("./recipe-runtime.mjs", import.meta.url));
@@ -48,6 +48,7 @@ const SAFE_ARTIFACT_ID = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
 const SAFE_FILENAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 const SHA256 = /^[a-f0-9]{64}$/;
+const SAFE_SENTINEL_LABEL = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const RECEIPT_ID = /^recipe-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{12}$/;
 const DEFAULT_TIMEOUT_SECONDS = 60;
 const MAX_TIMEOUT_SECONDS = 300;
@@ -115,12 +116,91 @@ async function addActionEvidence(stateRoot, action, providerReceipt) {
           },
           payload,
           payloadDigest: digestObject(payload),
-          producedAt: nowIso()
+          producedAt: action.spentAt
         }
       : { payload }
   };
   if (run.contract.schemaVersion === 2) record.schemaVersion = 2;
+  const existing = run.evidence.find((item) => item.id === record.id);
+  if (existing) {
+    if (
+      existing.kind !== record.kind || existing.status !== "complete" ||
+      existing.sourceDigest !== record.sourceDigest ||
+      digestObject(existing.receipt?.payload ?? null) !== digestObject(payload)
+    ) {
+      throw recipeError("existing provider reconciliation evidence conflicts with this action receipt");
+    }
+    return existing;
+  }
   return addEvidence(stateRoot, action.runId, record);
+}
+
+function sentinelPathBinding(sentinel, relativePath) {
+  const matches = [
+    ...(sentinel.scopeDigest?.records ?? [])
+      .filter((item) => item.path === relativePath)
+      .map((record) => ({ surface: "tracked", record })),
+    ...(sentinel.untracked?.records ?? [])
+      .filter((item) => item.path === relativePath)
+      .map((record) => ({ surface: "untracked", record }))
+  ];
+  if (matches.length > 1) throw recipeError("source mutation path has ambiguous sentinel coverage");
+  return matches[0] ?? null;
+}
+
+async function issuedSourceSentinel(stateRoot, run, action) {
+  const binding = action.sourceAuthorityAtIssue?.sourceSentinel;
+  if (
+    !binding || !SAFE_SENTINEL_LABEL.test(binding.label ?? "") ||
+    binding.digest !== action.treeDigest || !SHA256.test(binding.recordDigest ?? "")
+  ) {
+    throw recipeError("action lacks an immutable issued source sentinel");
+  }
+  const sentinel = await readJson(
+    stateRoot,
+    safeJoin(run.runDir, "sentinels", `${binding.label}.json`)
+  );
+  if (!sentinel.complete || sentinel.digest !== binding.digest) {
+    throw recipeError("issued source sentinel is stale or incomplete");
+  }
+  return sentinel;
+}
+
+function providerActionSourceMutation({
+  action,
+  relativePath,
+  beforeSentinel,
+  afterSentinel,
+  beforeSourceBinding,
+  afterSourceBinding,
+  recipeConfig = null
+}) {
+  const sourceChanged = beforeSourceBinding.digest !== afterSourceBinding.digest;
+  const sentinelChanged = beforeSentinel.digest !== afterSentinel.digest;
+  if (!sourceChanged && !sentinelChanged) return null;
+  if (!sourceChanged || !sentinelChanged) {
+    throw recipeError("source mutation sentinel and source binding disagree");
+  }
+  return {
+    schemaVersion: 1,
+    kind: "provider-action",
+    actionAttemptId: action.attemptId,
+    action: action.action,
+    provider: action.provider,
+    resource: action.resource,
+    path: relativePath,
+    sourceBinding: {
+      from: beforeSourceBinding.digest,
+      to: afterSourceBinding.digest,
+      headRevision: afterSourceBinding.headRevision
+    },
+    sentinel: { from: beforeSentinel.digest, to: afterSentinel.digest },
+    pathTransition: {
+      before: sentinelPathBinding(beforeSentinel, relativePath),
+      after: sentinelPathBinding(afterSentinel, relativePath)
+    },
+    ...(recipeConfig ? { recipeConfig } : {})
+  };
 }
 
 async function exists(target) {
@@ -993,13 +1073,17 @@ async function assertPromotionRun(stateRoot, runIdValue, attemptId, recipe, bind
     action.action !== "recipe.promote" ||
     action.resource !== resource ||
     action.status !== "spent" ||
-    action.outcome !== "pending"
+    !["pending", "success"].includes(action.outcome)
   ) {
-    throw recipeError(`promotion requires one pending recipe.promote attempt bound to ${resource}`);
+    throw recipeError(`promotion requires one resumable recipe.promote attempt bound to ${resource}`);
   }
   const defaults = await loadDefaults();
+  const baselineSentinel = await issuedSourceSentinel(stateRoot, run, action);
   const sentinel = await captureSentinel(run.manifest.cwd, run.contract, defaults);
-  if (!sentinel.complete || sentinel.digest !== action.treeDigest) {
+  if (
+    !sentinel.complete ||
+    (sentinel.digest !== action.treeDigest && recipe.config.enabled !== true)
+  ) {
     throw recipeError("promotion action tree binding is stale or incomplete");
   }
   if (run.findings.some((item) => ["P0", "P1"].includes(item.severity) && item.status === "open")) {
@@ -1013,7 +1097,7 @@ async function assertPromotionRun(stateRoot, runIdValue, attemptId, recipe, bind
     if (preActionBlockers.length > 0) {
       throw recipeError(`promotion run is incomplete: ${preActionBlockers.join(", ")}`);
     }
-    return { run, action };
+    return { run, action, baselineSentinel, currentSentinel: sentinel };
   }
   const completeEvidence = run.evidence.filter((item) => item.status === "complete" && !item.stale);
   const kinds = new Set(completeEvidence.map((item) => item.kind));
@@ -1025,7 +1109,7 @@ async function assertPromotionRun(stateRoot, runIdValue, attemptId, recipe, bind
       `promotion run evidence is incomplete: ${[...missingKinds, ...missingAcceptance].join(", ")}`
     );
   }
-  return { run, action };
+  return { run, action, baselineSentinel, currentSentinel: sentinel };
 }
 
 export async function recipePromote(cwd, id, options) {
@@ -1085,12 +1169,13 @@ export async function recipePromote(cwd, id, options) {
   }
   const paths = privateRecipePaths(stateRoot, binding.workspaceDigest, recipe.manifest.id);
   await ensurePrivateDir(paths.root);
+  const promotedAt = promotion.action.spentAt;
   const trust = {
     schemaVersion: TRUST_SCHEMA_VERSION,
     status: "trusted",
     recipeId: recipe.manifest.id,
     recipeVersion: recipe.manifest.version,
-    promotedAt: nowIso(),
+    promotedAt,
     executionDigest: binding.executionDigest,
     bindings: binding,
     fixtureParityDigest: firstDigest,
@@ -1101,9 +1186,30 @@ export async function recipePromote(cwd, id, options) {
     }
   };
   await atomicWriteJson(stateRoot, paths.trust, trust);
+  const beforeConfig = { ...structuredClone(recipe.config), enabled: false };
   if (recipe.config.enabled !== true) {
     await writeWorkspaceJson(recipe.root, recipe.paths.config, { ...recipe.config, enabled: true });
   }
+  const afterConfig = validateConfig(JSON.parse(await readFile(recipe.paths.config, "utf8")));
+  const afterSentinel = await captureSentinel(recipe.root, promotion.run.contract, await loadDefaults());
+  const beforeSourceBinding = promotion.action.sourceAuthorityAtIssue?.sourceBinding;
+  if (!beforeSourceBinding) throw recipeError("promotion action source binding is missing");
+  const afterSourceBinding = await captureSourceBinding(recipe.root, {
+    baseRevision: beforeSourceBinding.baseRevision,
+    requireClean: false
+  });
+  if (![beforeSourceBinding.digest, afterSourceBinding?.digest].includes(promotion.run.manifest.sourceBinding?.digest)) {
+    throw recipeError("promotion run source binding is unrelated to the action transition");
+  }
+  const sourceMutation = providerActionSourceMutation({
+    action: promotion.action,
+    relativePath: ".codex/better-workflows/config.json",
+    beforeSentinel: promotion.baselineSentinel,
+    afterSentinel,
+    beforeSourceBinding,
+    afterSourceBinding,
+    recipeConfig: { before: beforeConfig, after: afterConfig }
+  });
   const providerReceipt = {
     provider: "local-workspace",
     action: "recipe.promote",
@@ -1116,11 +1222,16 @@ export async function recipePromote(cwd, id, options) {
     executionId: `local-workspace:recipe.promote:${promotion.action.attemptId}`,
     proofKind: "local-workspace:recipe.promote",
     requestDigest: sha256(canonicalJson({ action: promotion.action.action, provider: promotion.action.provider, resource: promotion.action.resource, remoteRevision: promotion.action.remoteRevision, idempotencyKey: promotion.action.idempotencyKey })),
-    responseDigest: sha256(canonicalJson({ kind: "workspace-recipe", digest: sha256(canonicalJson(trust)) })),
-    verifiedAt: nowIso(),
+    responseDigest: sha256(canonicalJson({
+      kind: "workspace-recipe",
+      digest: sha256(canonicalJson(trust)),
+      ...(sourceMutation ? { sourceMutationDigest: digestObject(sourceMutation) } : {})
+    })),
+    verifiedAt: promotedAt,
     terminalState: "success",
     kind: "workspace-recipe",
-    digest: sha256(canonicalJson(trust))
+    digest: sha256(canonicalJson(trust)),
+    ...(sourceMutation ? { sourceMutation } : {})
   };
   const actionEvidence = await addActionEvidence(stateRoot, promotion.action, providerReceipt);
   await reconcileAction(
@@ -1271,7 +1382,7 @@ async function findReceipt(stateRoot, receiptId, workspaceDigest) {
   return matches[0].receipt;
 }
 
-async function findPendingArtifactAction(stateRoot, resource) {
+async function findArtifactAction(stateRoot, resource) {
   const runsRoot = safeJoin(stateRoot, "runs");
   const matches = [];
   for (const entry of await readdir(runsRoot, { withFileTypes: true })) {
@@ -1283,14 +1394,14 @@ async function findPendingArtifactAction(stateRoot, resource) {
         action.action === "artifact.promote" &&
         action.resource === resource &&
         action.status === "spent" &&
-        action.outcome === "pending"
+        ["pending", "success"].includes(action.outcome)
       ) {
         matches.push({ runId: entry.name, action });
       }
     }
   }
   if (matches.length !== 1) {
-    throw recipeError(`artifact promotion requires one pending action attempt; found ${matches.length}`);
+    throw recipeError(`artifact promotion requires one resumable action attempt; found ${matches.length}`);
   }
   return matches[0];
 }
@@ -1314,31 +1425,40 @@ export async function recipeArtifactPromote(cwd, receiptId, artifactId, destinat
   const declaration = recipe.manifest.artifacts.find((item) => item.id === artifactId);
   if (!declaration?.promotable) throw recipeError(`artifact is not promotable: ${artifactId}`);
   const normalized = String(destination).replaceAll("\\", "/");
+  const destinationComponents = normalized.split("/");
   if (
     path.isAbsolute(normalized) ||
     normalized === ".." ||
     normalized.startsWith("../") ||
     path.posix.normalize(normalized) !== normalized ||
+    /[\0\r\n\t]/.test(normalized) ||
+    destinationComponents.some((component) =>
+      [".git", ".gitattributes", ".gitignore", ".gitmodules"].includes(component)
+    ) ||
     normalized === RESERVED_READ_ROOT ||
     normalized.startsWith(`${RESERVED_READ_ROOT}/`)
   ) {
-    throw recipeError("--to must be a safe tracked repo-relative path outside .codex/better-workflows");
+    throw recipeError("--to must be a safe tracked repo-relative path outside Git authority and .codex/better-workflows");
   }
   const target = path.join(workspace.root, ...normalized.split("/"));
   pathContained(workspace.root, target, "artifact destination");
-  if (await exists(target)) throw recipeError(`artifact destination already exists: ${normalized}`);
   const resource = `artifact:${receiptId}:${artifactId}:${normalized}`;
-  const pending = await findPendingArtifactAction(stateRoot, resource);
+  const pending = await findArtifactAction(stateRoot, resource);
   const pendingRun = await inspectRun(stateRoot, pending.runId);
   if (await realpath(pendingRun.manifest.cwd) !== workspace.root) {
     throw recipeError("artifact promotion action belongs to a different workspace");
   }
+  const baselineSentinel = await issuedSourceSentinel(stateRoot, pendingRun, pending.action);
   const currentSentinel = await captureSentinel(
     pendingRun.manifest.cwd,
     pendingRun.contract,
     await loadDefaults()
   );
-  if (!currentSentinel.complete || currentSentinel.digest !== pending.action.treeDigest) {
+  const targetExists = await exists(target);
+  if (
+    !currentSentinel.complete ||
+    (currentSentinel.digest !== pending.action.treeDigest && !targetExists)
+  ) {
     throw recipeError("artifact promotion action tree binding is stale or incomplete");
   }
   if (
@@ -1357,10 +1477,43 @@ export async function recipeArtifactPromote(cwd, receiptId, artifactId, destinat
   );
   if (sha256(await readFile(source)) !== artifact.sha256) throw recipeError("artifact digest drifted");
   await assertSafeDestination(workspace.root, target);
-  await mkdir(path.dirname(target), { recursive: true });
-  const temp = `${target}.${randomBytes(6).toString("hex")}.tmp`;
-  await copyFile(source, temp, fsConstants.COPYFILE_EXCL);
-  await rename(temp, target);
+  if (targetExists) {
+    const targetInfo = await lstat(target);
+    if (!targetInfo.isFile() || targetInfo.isSymbolicLink() || targetInfo.nlink !== 1) {
+      throw recipeError(`artifact destination is not a safe regular file: ${normalized}`);
+    }
+    if (sha256(await readFile(target)) !== artifact.sha256) {
+      throw recipeError(`artifact destination already exists with different bytes: ${normalized}`);
+    }
+  } else {
+    await mkdir(path.dirname(target), { recursive: true });
+    const temp = `${target}.${randomBytes(6).toString("hex")}.tmp`;
+    await copyFile(source, temp, fsConstants.COPYFILE_EXCL);
+    await rename(temp, target);
+  }
+  const afterSentinel = await captureSentinel(
+    pendingRun.manifest.cwd,
+    pendingRun.contract,
+    await loadDefaults()
+  );
+  const beforeSourceBinding = pending.action.sourceAuthorityAtIssue?.sourceBinding;
+  if (!beforeSourceBinding) throw recipeError("artifact action source binding is missing");
+  const afterSourceBinding = await captureSourceBinding(workspace.root, {
+    baseRevision: beforeSourceBinding.baseRevision,
+    requireClean: false
+  });
+  if (![beforeSourceBinding.digest, afterSourceBinding?.digest].includes(pendingRun.manifest.sourceBinding?.digest)) {
+    throw recipeError("artifact run source binding is unrelated to the action transition");
+  }
+  const sourceMutation = providerActionSourceMutation({
+    action: pending.action,
+    relativePath: normalized,
+    beforeSentinel: baselineSentinel,
+    afterSentinel,
+    beforeSourceBinding,
+    afterSourceBinding
+  });
+  if (!sourceMutation) throw recipeError("artifact promotion did not produce a source transition");
   const providerReceipt = {
     provider: "local-workspace",
     action: "artifact.promote",
@@ -1373,11 +1526,16 @@ export async function recipeArtifactPromote(cwd, receiptId, artifactId, destinat
     executionId: `local-workspace:artifact.promote:${pending.action.attemptId}`,
     proofKind: "local-workspace:artifact.promote",
     requestDigest: sha256(canonicalJson({ action: pending.action.action, provider: pending.action.provider, resource: pending.action.resource, remoteRevision: pending.action.remoteRevision, idempotencyKey: pending.action.idempotencyKey })),
-    responseDigest: sha256(canonicalJson({ kind: "workspace-artifact", digest: artifact.sha256 })),
-    verifiedAt: nowIso(),
+    responseDigest: sha256(canonicalJson({
+      kind: "workspace-artifact",
+      digest: artifact.sha256,
+      sourceMutationDigest: digestObject(sourceMutation)
+    })),
+    verifiedAt: pending.action.spentAt,
     terminalState: "success",
     kind: "workspace-artifact",
-    digest: artifact.sha256
+    digest: artifact.sha256,
+    sourceMutation
   };
   const actionEvidence = await addActionEvidence(stateRoot, pending.action, providerReceipt);
   await reconcileAction(
