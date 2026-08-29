@@ -201,7 +201,16 @@ async function replacePublication({
     expectedPriorSha256,
     expectedPriorBytes
   );
-  await createTemporary(temporaryName, bytes);
+  let temporary = await readRecord(temporaryName);
+  if (temporary) {
+    assertArtifact(temporary, expectedSha256, expectedBytes, "replacement temporary file");
+    if (temporary.nlink !== 1) fail("replacement temporary file has an unexpected link count");
+  } else {
+    await createTemporary(temporaryName, bytes);
+    temporary = await readRecord(temporaryName);
+    assertArtifact(temporary, expectedSha256, expectedBytes, "replacement temporary file");
+    if (temporary.nlink !== 1) fail("replacement temporary file has an unexpected link count");
+  }
   assertPriorTarget(
     await readRecord(targetName),
     expectedPriorIdentity,

@@ -1966,7 +1966,16 @@ export function assertProviderReceiptShape(record, providerReceipt, outcome = re
   }
 }
 
-async function reserveProviderExecution(root, record, executionId, outcome = record.outcome) {
+async function reserveProviderExecution(
+  root,
+  record,
+  executionId,
+  outcome = record.outcome,
+  { onBoundary = null } = {}
+) {
+  if (onBoundary !== null && typeof onBoundary !== "function") {
+    throw new Error("Provider execution reservation boundary hook must be a function");
+  }
   const directory = safeJoin(root, "provider-executions");
   let directoryCreated = false;
   try {
@@ -1980,7 +1989,11 @@ async function reserveProviderExecution(root, record, executionId, outcome = rec
     throw new Error("Provider execution reservation directory is unsafe");
   }
   await chmod(directory, 0o700);
-  if (directoryCreated) await fsyncDirectory(root);
+  if (directoryCreated) await onBoundary?.("provider-reservation-directory-created");
+  // Always sync the state root, including on replay. A prior process may have
+  // stopped after mkdir(2) but before making the directory entry durable.
+  await fsyncDirectory(root);
+  await onBoundary?.("provider-reservation-root-durable");
   const target = safeJoin(directory, `${sha256(executionId)}.json`);
   const reservations = await listJsonRecords(root, directory);
   const sameAttempt = reservations.filter((item) => (
@@ -2004,7 +2017,11 @@ async function reserveProviderExecution(root, record, executionId, outcome = rec
     if (exact.supersededBy && exact.supersededBy !== executionId) {
       throw new Error("Provider execution identity was superseded by another identity");
     }
-    if (exact.outcome === outcome) return;
+    if (exact.outcome === outcome) {
+      await fsyncDirectory(directory);
+      await onBoundary?.("provider-reservation-replay-durable");
+      return;
+    }
     const canResolveSameIdentity = (
       OWNED_RESOURCE_CREATION_ACTIONS.has(record.action) &&
       record.outcome === "unknown" &&
@@ -2017,6 +2034,8 @@ async function reserveProviderExecution(root, record, executionId, outcome = rec
         outcome,
         terminalAt: nowIso()
       });
+      await fsyncDirectory(directory);
+      await onBoundary?.("provider-reservation-replay-durable");
       return;
     }
     throw new Error("Provider execution identity is already bound to a different terminal outcome");
@@ -2048,10 +2067,12 @@ async function reserveProviderExecution(root, record, executionId, outcome = rec
     try {
       await handle.writeFile(`${JSON.stringify({ schemaVersion: PROVIDER_EXECUTION_SCHEMA_VERSION, executionId, runId: record.runId, attemptId: record.attemptId, tokenHash: record.tokenHash, action: record.action, outcome, recordedAt: nowIso() })}\n`);
       await handle.sync();
+      await onBoundary?.("provider-reservation-file-synced");
     } finally {
       await handle.close();
     }
     await fsyncDirectory(directory);
+    await onBoundary?.("provider-reservation-directory-durable");
   } catch (error) {
     if (error.code === "EEXIST") {
       const existing = await readJson(root, target).catch(() => null);
@@ -2067,7 +2088,11 @@ async function reserveProviderExecution(root, record, executionId, outcome = rec
         existing?.attemptId === record.attemptId &&
         existing?.tokenHash === record.tokenHash &&
         existing?.action === record.action
-      ) return;
+      ) {
+        await fsyncDirectory(directory);
+        await onBoundary?.("provider-reservation-replay-durable");
+        return;
+      }
       throw new Error("Provider execution identity is already reserved globally");
     }
     throw error;
@@ -2113,7 +2138,19 @@ function creationReservationLeasePath(root, identity) {
 async function withCreationReservationLock(root, identity, callback, options = {}) {
   const reservationIdentity = validateCreationReservationIdentity(identity);
   const directory = safeJoin(root, "creation-reservations");
-  await mkdir(directory, { recursive: true, mode: 0o700 });
+  try {
+    await mkdir(directory, { mode: 0o700 });
+  } catch (error) {
+    if (error.code !== "EEXIST") throw error;
+  }
+  const directoryInfo = await lstat(directory);
+  if (directoryInfo.isSymbolicLink() || !directoryInfo.isDirectory()) {
+    throw new Error("Creation reservation directory is unsafe");
+  }
+  await chmod(directory, 0o700);
+  // Replay must also sync the root because an earlier mkdir may have survived
+  // in cache without its parent directory entry reaching stable storage.
+  await fsyncDirectory(root);
   const lockPath = creationReservationLeasePath(root, reservationIdentity);
   const reservationKey = creationReservationKey(reservationIdentity);
   const token = randomBytes(24).toString("hex");
@@ -2133,6 +2170,7 @@ async function withCreationReservationLock(root, identity, callback, options = {
       })}\n`);
       await handle.sync();
       await handle.close();
+      await fsyncDirectory(directory);
       acquired = true;
       break;
     } catch (error) {
@@ -2146,6 +2184,7 @@ async function withCreationReservationLock(root, identity, callback, options = {
         throw new Error(`Creation resource is leased by pid ${existing?.pid ?? "unknown"}`);
       }
       await rename(lockPath, safeJoin(directory, `.${reservationKey}.lease.stale.${randomUUID()}`));
+      await fsyncDirectory(directory);
     }
   }
   if (!acquired) throw new Error("Unable to acquire creation reservation lease");
@@ -2153,13 +2192,17 @@ async function withCreationReservationLock(root, identity, callback, options = {
     return await callback();
   } finally {
     const existing = await readJson(root, lockPath).catch(() => null);
-    if (existing?.token === token) await unlink(lockPath).catch(() => undefined);
+    if (existing?.token === token) {
+      await unlink(lockPath).catch(() => undefined);
+      await fsyncDirectory(directory);
+    }
   }
 }
 
 async function reserveCreationResource(root, runId, identity, tokenHash, expiresAt) {
   const reservationIdentity = validateCreationReservationIdentity(identity);
   return withCreationReservationLock(root, reservationIdentity, async () => {
+    const directory = safeJoin(root, "creation-reservations");
     const legacyTarget = legacyCreationReservationPath(root, reservationIdentity.resource);
     if (await pathExists(legacyTarget)) {
       throw new Error("Legacy unscoped creation reservation requires explicit reconciliation");
@@ -2193,6 +2236,7 @@ async function reserveCreationResource(root, runId, identity, tokenHash, expires
     } finally {
       await handle.close();
     }
+    await fsyncDirectory(directory);
   });
 }
 
@@ -2200,12 +2244,16 @@ async function releaseCreationResource(root, runId, identity, tokenHash = null) 
   if (!identity) return;
   const reservationIdentity = validateCreationReservationIdentity(identity);
   return withCreationReservationLock(root, reservationIdentity, async () => {
+    const directory = safeJoin(root, "creation-reservations");
     const target = creationReservationPath(root, reservationIdentity);
     const reservation = await readJson(root, target).catch(() => null);
     if (
       reservation?.runId === runId &&
       (tokenHash === null || reservation.tokenHash === tokenHash)
-    ) await unlink(target).catch(() => undefined);
+    ) {
+      await unlink(target).catch(() => undefined);
+      await fsyncDirectory(directory);
+    }
   });
 }
 
@@ -3484,6 +3532,43 @@ async function writeEvidenceFreshnessTransition(
   if (onPrepared) await onPrepared(transition);
   await atomicWriteJson(root, safeJoin(runDir, "evidence", `${current.id}.json`), canonicalNext);
   return { record: canonicalNext, transition, recovered: false };
+}
+
+async function recoverPendingEvidenceFreshnessTransitions(root, runDir, records) {
+  const journal = await readJournalRecords(root, runDir);
+  const manifest = await readJson(root, safeJoin(runDir, "manifest.json"));
+  const recoveredIds = [];
+  const recoveredRecords = [];
+  for (const current of records) {
+    let admissionIntent = null;
+    if (current.admissionProtocolVersion === EVIDENCE_ADMISSION_PROTOCOL_VERSION) {
+      admissionIntent = await readJson(
+        root,
+        safeJoin(runDir, "evidence-admissions", `${current.id}.json`)
+      );
+    }
+    const binding = evidenceAdmissionJournalBinding(current, journal, {
+      allowPending: true,
+      intent: admissionIntent,
+      runId: manifest.runId
+    });
+    if (!binding.pendingTransition) {
+      recoveredRecords.push(current);
+      continue;
+    }
+    const pending = binding.pendingTransition;
+    const recovered = applyEvidenceFreshnessPatch(current, pending.freshnessPatch);
+    if (
+      pending.immutableEvidenceDigest !== binding.immutableEvidenceDigest ||
+      digestObject(recovered) !== pending.evidenceDigest
+    ) {
+      throw new Error(`Evidence freshness pending transition cannot be recovered: ${current.id}`);
+    }
+    await atomicWriteJson(root, safeJoin(runDir, "evidence", `${current.id}.json`), recovered);
+    recoveredIds.push(current.id);
+    recoveredRecords.push(recovered);
+  }
+  return { records: recoveredRecords, recoveredIds };
 }
 
 async function assertEvidenceSupersessionIdentity(run, target, replacement) {
@@ -4898,13 +4983,22 @@ export async function listEffectiveEvidenceRecords(root, runId, options = {}) {
   return (await loadEffectiveEvidenceState(root, runId, options)).records;
 }
 
-export async function refreshEvidence(root, runId) {
+export async function refreshEvidence(root, runId, { onTransitionPrepared = null } = {}) {
+  if (onTransitionPrepared !== null && typeof onTransitionPrepared !== "function") {
+    throw new Error("Evidence freshness transition hook must be a function");
+  }
   return withRunLock(root, runId, async ({ runDir }) => {
     const run = await loadRun(root, runId);
     assertMutableRun(run, "Evidence freshness");
-    const evidence = run.contract.schemaVersion === 2
+    let evidence = run.contract.schemaVersion === 2
       ? await listIdentityBoundJsonRecords(root, safeJoin(runDir, "evidence"), "Evidence")
       : await listJsonRecords(root, safeJoin(runDir, "evidence"));
+    let recoveredPending = [];
+    if (run.contract.schemaVersion === 2) {
+      const recovered = await recoverPendingEvidenceFreshnessTransitions(root, runDir, evidence);
+      evidence = recovered.records;
+      recoveredPending = recovered.recoveredIds;
+    }
     const supersessionState = run.contract.schemaVersion === 2
       ? await loadEvidenceSupersessions(root, run, evidence)
       : { records: [] };
@@ -4929,7 +5023,18 @@ export async function refreshEvidence(root, runId) {
         };
         if (freshness.stale) next.staleReason = "dependency-freshness-check";
         else delete next.staleReason;
-        await writeEvidenceFreshnessTransition(root, runDir, record, next, { kind: "dependency-refresh" });
+        await writeEvidenceFreshnessTransition(
+          root,
+          runDir,
+          record,
+          next,
+          { kind: "dependency-refresh" },
+          {
+            onPrepared: onTransitionPrepared
+              ? (transition) => onTransitionPrepared(record, transition)
+              : null
+          }
+        );
       }
       (freshness.stale ? stale : fresh).push(record.id);
     }
@@ -4937,7 +5042,8 @@ export async function refreshEvidence(root, runId) {
       stale,
       fresh,
       immutableEvidenceIds: [...immutableIds].sort(),
-      immutableStale: immutableStale.sort()
+      immutableStale: immutableStale.sort(),
+      recoveredPending: recoveredPending.sort()
     };
   });
 }
@@ -11602,6 +11708,11 @@ async function invalidateEvidenceAfterAutonomousCommit(root, runDir, record, tra
 }
 
 const AUTONOMOUS_COMMIT_RECONCILE_FAILURE_POINTS = new Set([
+  "provider-reservation-directory-created",
+  "provider-reservation-root-durable",
+  "provider-reservation-file-synced",
+  "provider-reservation-directory-durable",
+  "provider-reservation-replay-durable",
   "provider-reservation",
   "source-manifest",
   "source-state",
@@ -11948,7 +12059,13 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
           receipt.providerReceipt
         );
       } catch (error) {
-        await reserveProviderExecution(root, record, receipt.providerReceipt.executionId, "unknown");
+        await reserveProviderExecution(
+          root,
+          record,
+          receipt.providerReceipt.executionId,
+          "unknown",
+          { onBoundary }
+        );
         await persistActionAuthorityDriftUnknown(
           root,
           runDir,
@@ -11975,7 +12092,13 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
           "Action success reconciliation"
         );
       } catch (error) {
-        await reserveProviderExecution(root, record, receipt.providerReceipt.executionId, "unknown");
+        await reserveProviderExecution(
+          root,
+          record,
+          receipt.providerReceipt.executionId,
+          "unknown",
+          { onBoundary }
+        );
         await persistActionAuthorityDriftUnknown(
           root,
           runDir,
@@ -11995,7 +12118,13 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
     if (autonomousCommitTransitionRequired) {
       await assertAutonomousCommitEvidenceInvalidationSafe(root, runId, { run });
     }
-    await reserveProviderExecution(root, record, receipt.providerReceipt.executionId, outcome);
+    await reserveProviderExecution(
+      root,
+      record,
+      receipt.providerReceipt.executionId,
+      outcome,
+      { onBoundary }
+    );
     await onBoundary("provider-reservation");
     if (providerActionSourceTransitionRequired) {
       try {

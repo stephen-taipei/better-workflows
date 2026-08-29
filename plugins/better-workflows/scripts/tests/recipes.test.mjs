@@ -512,6 +512,51 @@ test("reference recipe completes governed promotion, dry-run, atomic run, artifa
     await readFile(path.join(workspaceConfigParent, "config.json"), "utf8")
   );
   assert.equal(unchangedRaceConfig.enabled, false);
+  const priorConfigCrashStateRoot = process.env.SBW_STATE_ROOT;
+  process.env.SBW_STATE_ROOT = stateRoot;
+  let interruptedConfigIntent;
+  try {
+    await assert.rejects(
+      recipePromote(cwd, "json-keyset-audit", {
+        run: runId,
+        attempt: attemptId,
+        confirmDigest: digest,
+        async onProviderBoundary(boundary, details) {
+          if (boundary !== "config-intent-prepared") return;
+          interruptedConfigIntent = details.intent;
+          await writeFile(
+            path.join(details.parent, details.intent.binding.temporaryName),
+            details.artifactBytes,
+            { flag: "wx", mode: 0o644 }
+          );
+          throw new Error("simulated crash after durable recipe config temporary creation");
+        }
+      }),
+      /simulated crash after durable recipe config temporary creation/
+    );
+  } finally {
+    if (priorConfigCrashStateRoot === undefined) delete process.env.SBW_STATE_ROOT;
+    else process.env.SBW_STATE_ROOT = priorConfigCrashStateRoot;
+  }
+  assert.equal(interruptedConfigIntent.status, "prepared");
+  const configIntentPath = path.join(
+    stateRoot,
+    "runs",
+    runId,
+    "local-provider-intents",
+    `${attemptId}.json`
+  );
+  const persistedConfigIntent = JSON.parse(await readFile(configIntentPath, "utf8"));
+  assert.equal(persistedConfigIntent.bindingDigest, interruptedConfigIntent.bindingDigest);
+  const interruptedConfigTemporary = path.join(
+    workspaceConfigParent,
+    persistedConfigIntent.binding.temporaryName
+  );
+  assert.equal((await lstat(interruptedConfigTemporary)).nlink, 1);
+  assert.equal(
+    JSON.parse(await readFile(path.join(workspaceConfigParent, "config.json"), "utf8")).enabled,
+    false
+  );
   const promoted = await cli(cwd, stateRoot, [
     "recipe",
     "promote",
@@ -524,6 +569,10 @@ test("reference recipe completes governed promotion, dry-run, atomic run, artifa
     digest
   ]);
   assert.equal(promoted.json.trusted, true);
+  const publishedConfigIntent = JSON.parse(await readFile(configIntentPath, "utf8"));
+  assert.equal(publishedConfigIntent.status, "published");
+  assert.match(publishedConfigIntent.targetIdentity, /^\d+:\d+$/);
+  await assert.rejects(access(interruptedConfigTemporary));
   const promotedRun = await inspectRun(stateRoot, runId);
   const promotedAction = promotedRun.actions.find((item) => item.attemptId === attemptId);
   assert.equal(promotedAction.outcome, "success");

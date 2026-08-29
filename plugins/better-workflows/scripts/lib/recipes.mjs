@@ -813,6 +813,111 @@ function privateRecipePaths(stateRoot, workspaceDigest, recipeId) {
   };
 }
 
+function recipeConfigReplacementIntentPath(runDir, actionAttemptId) {
+  if (!SAFE_SENTINEL_LABEL.test(actionAttemptId ?? "")) {
+    throw recipeError("recipe config replacement attempt identity is unsafe");
+  }
+  return safeJoin(runDir, "local-provider-intents", `${actionAttemptId}.json`);
+}
+
+function recipeConfigReplacementBinding({
+  runIdValue,
+  action,
+  target,
+  parent,
+  parentIdentity,
+  targetName,
+  artifact,
+  priorTarget,
+  publisherDigest
+}) {
+  const temporaryDigest = sha256(canonicalJson({
+    runId: runIdValue,
+    actionAttemptId: action.attemptId,
+    target,
+    artifactSha256: artifact.sha256,
+    artifactBytes: artifact.bytes
+  })).slice(0, 32);
+  return {
+    schemaVersion: 1,
+    kind: "recipe-config-replacement",
+    runId: runIdValue,
+    actionAttemptId: action.attemptId,
+    tokenHash: action.tokenHash,
+    action: action.action,
+    provider: action.provider,
+    resource: action.resource,
+    idempotencyKey: action.idempotencyKey,
+    remoteRevision: action.remoteRevision,
+    treeDigest: action.treeDigest,
+    evidenceGateDigest: action.evidenceGateDigest,
+    evidenceSupersessionFreshnessDigest: action.evidenceSupersessionFreshnessDigest,
+    target,
+    parent,
+    parentIdentity,
+    targetName,
+    temporaryName: `.sbw-workspace-json-${temporaryDigest}.tmp`,
+    artifactSha256: artifact.sha256,
+    artifactBytes: artifact.bytes,
+    priorTarget,
+    publisherDigest
+  };
+}
+
+function validateRecipeConfigReplacementIntent(intent, expected) {
+  const binding = intent?.binding;
+  if (
+    !intent || intent.schemaVersion !== 1 || intent.kind !== "recipe-config-replacement" ||
+    !["prepared", "published"].includes(intent.status) ||
+    digestObject(binding ?? null) !== intent.bindingDigest ||
+    binding.runId !== expected.runIdValue ||
+    binding.actionAttemptId !== expected.action.attemptId ||
+    binding.tokenHash !== expected.action.tokenHash ||
+    binding.action !== expected.action.action ||
+    binding.provider !== expected.action.provider ||
+    binding.resource !== expected.action.resource ||
+    binding.idempotencyKey !== expected.action.idempotencyKey ||
+    binding.remoteRevision !== expected.action.remoteRevision ||
+    binding.treeDigest !== expected.action.treeDigest ||
+    binding.evidenceGateDigest !== expected.action.evidenceGateDigest ||
+    binding.evidenceSupersessionFreshnessDigest !== expected.action.evidenceSupersessionFreshnessDigest ||
+    binding.target !== expected.target ||
+    binding.parent !== expected.parent ||
+    binding.parentIdentity !== expected.parentIdentity ||
+    binding.targetName !== expected.targetName ||
+    !/^\.sbw-workspace-json-[a-f0-9]{32}\.tmp$/.test(binding.temporaryName ?? "") ||
+    binding.artifactSha256 !== expected.artifact.sha256 ||
+    binding.artifactBytes !== expected.artifact.bytes ||
+    binding.priorTarget?.identity !== expected.priorTarget.identity ||
+    binding.priorTarget?.sha256 !== expected.priorTarget.sha256 ||
+    binding.priorTarget?.size !== expected.priorTarget.size ||
+    binding.priorTarget?.nlink !== 1 ||
+    binding.publisherDigest !== expected.publisherDigest ||
+    (intent.status === "published" && !/^\d+:\d+$/.test(intent.targetIdentity ?? ""))
+  ) {
+    throw recipeError("recipe config replacement intent is stale or malformed");
+  }
+  const canonicalBinding = recipeConfigReplacementBinding(expected);
+  if (digestObject(binding) !== digestObject(canonicalBinding)) {
+    throw recipeError("recipe config replacement intent identity changed");
+  }
+  return intent;
+}
+
+async function writeRecipeConfigReplacementIntent(stateRoot, run, intent, event) {
+  const target = recipeConfigReplacementIntentPath(run.runDir, intent.binding.actionAttemptId);
+  await ensurePrivateDir(path.dirname(target));
+  await atomicWriteJson(stateRoot, target, intent);
+  await appendJournal(stateRoot, run.runDir, event, {
+    attemptId: intent.binding.actionAttemptId,
+    intentDigest: digestObject(intent),
+    status: intent.status,
+    target: intent.binding.target,
+    targetIdentity: intent.targetIdentity ?? null
+  });
+  return intent;
+}
+
 async function readTrust(stateRoot, binding, recipeId) {
   const paths = privateRecipePaths(stateRoot, binding.workspaceDigest, recipeId);
   if (!(await exists(paths.trust))) return { paths, trust: null };
@@ -1042,7 +1147,12 @@ async function readWorkspaceFileRecord(target) {
   }
 }
 
-async function writeWorkspaceJson(root, target, value, { onBoundary = null } = {}) {
+async function writeWorkspaceJson(
+  root,
+  target,
+  value,
+  { onBoundary = null, replacementBinding = null } = {}
+) {
   if (onBoundary !== null && typeof onBoundary !== "function") {
     throw recipeError("workspace JSON boundary hook must be a function");
   }
@@ -1061,15 +1171,41 @@ async function writeWorkspaceJson(root, target, value, { onBoundary = null } = {
     sha256: sha256(bytes),
     bytes: bytes.length
   };
+  const normalizedTarget = path.relative(root, target).split(path.sep).join("/");
+  const normalizedParent = path.relative(root, parent).split(path.sep).join("/") || ".";
+  let temporaryName = `.sbw-workspace-json-${randomBytes(16).toString("hex")}.tmp`;
+  if (replacementBinding) {
+    if (
+      replacementBinding.kind !== "recipe-config-replacement" ||
+      replacementBinding.target !== normalizedTarget ||
+      replacementBinding.parent !== normalizedParent ||
+      replacementBinding.parentIdentity !== parentIdentity ||
+      replacementBinding.targetName !== path.basename(target) ||
+      !/^\.sbw-workspace-json-[a-f0-9]{32}\.tmp$/.test(replacementBinding.temporaryName ?? "") ||
+      replacementBinding.artifactSha256 !== artifact.sha256 ||
+      replacementBinding.artifactBytes !== artifact.bytes ||
+      digestObject(replacementBinding.priorTarget ?? null) !== digestObject(priorTarget)
+    ) {
+      throw recipeError("workspace JSON replacement binding is stale or malformed");
+    }
+    temporaryName = replacementBinding.temporaryName;
+  }
   if (onBoundary) {
-    await onBoundary("before-pinned-write", { target, parent, parentIdentity, priorTarget });
+    await onBoundary("before-pinned-write", {
+      target,
+      parent,
+      parentIdentity,
+      priorTarget,
+      temporaryName,
+      artifact
+    });
   }
   const published = await runPinnedArtifactPublisher({
     mode: "replace",
     parent,
     parentIdentity,
     targetName: path.basename(target),
-    temporaryName: `.sbw-workspace-json-${randomBytes(16).toString("hex")}.tmp`,
+    temporaryName,
     artifact,
     artifactBytes: bytes,
     targetIdentity: priorTarget?.identity ?? null,
@@ -1217,7 +1353,98 @@ async function fixtureInput(recipe) {
   return validateInputValue(recipe.manifest.inputSchema, JSON.parse(await readFile(target, "utf8")), recipe.root);
 }
 
-async function assertPromotionRun(stateRoot, runIdValue, attemptId, recipe, binding) {
+async function loadRecipeConfigRecoveryIntent(stateRoot, runIdValue, attemptId, recipe) {
+  const run = await inspectRun(stateRoot, runIdValue);
+  const action = run.actions.find((item) => item.attemptId === attemptId);
+  if (!action) return null;
+  const intentPath = recipeConfigReplacementIntentPath(run.runDir, attemptId);
+  if (!(await exists(intentPath))) return null;
+  const intent = await readJson(stateRoot, intentPath);
+  const target = recipe.paths.config;
+  const parent = path.dirname(target);
+  const parentChain = await assertSafeDestination(recipe.root, target, new Set(), {
+    requireCompleteParent: true
+  });
+  const parentIdentity = parentChain.at(-1)?.identity;
+  if (!/^\d+:\d+$/.test(parentIdentity ?? "")) {
+    throw recipeError("recipe config replacement parent identity is missing");
+  }
+  const normalizedTarget = path.relative(recipe.root, target).split(path.sep).join("/");
+  const normalizedParent = path.relative(recipe.root, parent).split(path.sep).join("/") || ".";
+  const beforeConfig = { ...structuredClone(recipe.config), enabled: false };
+  const afterConfig = { ...beforeConfig, enabled: true };
+  const beforeBytes = Buffer.from(`${JSON.stringify(beforeConfig, null, 2)}\n`, "utf8");
+  const afterBytes = Buffer.from(`${JSON.stringify(afterConfig, null, 2)}\n`, "utf8");
+  const artifact = { sha256: sha256(afterBytes), bytes: afterBytes.length };
+  const priorTarget = {
+    identity: intent.binding?.priorTarget?.identity,
+    nlink: 1,
+    size: beforeBytes.length,
+    sha256: sha256(beforeBytes)
+  };
+  const expected = {
+    runIdValue,
+    action,
+    target: normalizedTarget,
+    parent: normalizedParent,
+    parentIdentity,
+    targetName: path.basename(target),
+    artifact,
+    priorTarget,
+    publisherDigest: sha256(await readFile(ARTIFACT_PUBLISHER_PATH))
+  };
+  validateRecipeConfigReplacementIntent(intent, expected);
+  const currentTarget = await readWorkspaceFileRecord(target);
+  if (recipe.config.enabled === true) {
+    if (
+      !currentTarget || currentTarget.sha256 !== artifact.sha256 ||
+      currentTarget.size !== artifact.bytes ||
+      (intent.status === "published" && currentTarget.identity !== intent.targetIdentity)
+    ) {
+      throw recipeError("recipe config replacement target is not replay-valid");
+    }
+  } else if (digestObject(currentTarget) !== digestObject(priorTarget)) {
+    throw recipeError("recipe config replacement prior target changed");
+  }
+  const temporaryPath = path.join(parent, intent.binding.temporaryName);
+  const temporary = await readWorkspaceFileRecord(temporaryPath);
+  if (
+    temporary &&
+    (temporary.sha256 !== artifact.sha256 || temporary.size !== artifact.bytes || temporary.nlink !== 1)
+  ) {
+    throw recipeError("recipe config replacement temporary is not replay-valid");
+  }
+  if (recipe.config.enabled === true && temporary) {
+    throw recipeError("published recipe config retained an unexpected temporary file");
+  }
+  if (intent.status === "published" && recipe.config.enabled !== true) {
+    throw recipeError("published recipe config intent lost its target");
+  }
+  const temporaryRelative = normalizedParent === "."
+    ? intent.binding.temporaryName
+    : `${normalizedParent}/${intent.binding.temporaryName}`;
+  return {
+    run,
+    action,
+    intent,
+    intentPath,
+    expected,
+    beforeConfig,
+    afterConfig,
+    afterBytes,
+    parentChain,
+    allowedPaths: [normalizedTarget, temporaryRelative]
+  };
+}
+
+async function assertPromotionRun(
+  stateRoot,
+  runIdValue,
+  attemptId,
+  recipe,
+  binding,
+  { recoveryPaths = [] } = {}
+) {
   const run = await inspectRun(stateRoot, runIdValue);
   if (run.manifest.template !== "workspace-recipe") {
     throw recipeError("promotion run must use the workspace-recipe template");
@@ -1239,11 +1466,19 @@ async function assertPromotionRun(stateRoot, runIdValue, attemptId, recipe, bind
   const defaults = await loadDefaults();
   const baselineSentinel = await issuedSourceSentinel(stateRoot, run, action);
   const sentinel = await captureSentinel(run.manifest.cwd, run.contract, defaults);
-  if (
-    !sentinel.complete ||
-    (sentinel.digest !== action.treeDigest && recipe.config.enabled !== true)
-  ) {
+  if (!sentinel.complete) {
     throw recipeError("promotion action tree binding is stale or incomplete");
+  }
+  if (sentinel.digest !== action.treeDigest && recipe.config.enabled !== true) {
+    if (!Array.isArray(recoveryPaths) || recoveryPaths.length === 0) {
+      throw recipeError("promotion action tree binding is stale or incomplete");
+    }
+    assertExpectedSourceRecovery(
+      baselineSentinel,
+      sentinel,
+      recoveryPaths,
+      "recipe config intent recovery"
+    );
   }
   if (run.findings.some((item) => ["P0", "P1"].includes(item.severity) && item.status === "open")) {
     throw recipeError("promotion is blocked by an open P0/P1 finding");
@@ -1306,12 +1541,19 @@ export async function recipePromote(cwd, id, options) {
     throw recipeError(`confirmed digest does not match ${binding.executionDigest}`);
   }
   const stateRoot = getStateRoot();
+  const configRecovery = await loadRecipeConfigRecoveryIntent(
+    stateRoot,
+    options.run,
+    options.attempt,
+    recipe
+  );
   const promotion = await assertPromotionRun(
     stateRoot,
     options.run,
     options.attempt,
     recipe,
-    binding
+    binding,
+    { recoveryPaths: configRecovery?.allowedPaths ?? [] }
   );
   const priorTrust = await readTrust(stateRoot, binding, recipe.manifest.id);
   if (
@@ -1402,27 +1644,41 @@ export async function recipePromote(cwd, id, options) {
       "Recipe promotion provider invocation"
     );
     const liveConfig = validateConfig(JSON.parse(await readFile(recipe.paths.config, "utf8")));
-    const liveTrust = await readTrust(stateRoot, binding, recipe.manifest.id);
-    const recovery = (
-      liveConfig.enabled === true &&
-      digestObject(liveTrust.trust ?? null) === digestObject(trust)
-    );
-    if (recovery) {
-      await assertSpentActionNonSourceAuthority(
-        stateRoot,
-        options.run,
-        run,
-        action,
-        "Recipe promotion provider recovery"
-      );
+    const intentPath = recipeConfigReplacementIntentPath(run.runDir, action.attemptId);
+    let intent = await exists(intentPath) ? await readJson(stateRoot, intentPath) : null;
+    let context = configRecovery;
+    if (intent) {
+      if (!context || digestObject(intent) !== digestObject(context.intent)) {
+        throw recipeError("recipe config replacement intent changed after preflight");
+      }
       const currentSentinel = await captureSentinel(recipe.root, run.contract, await loadDefaults());
-      assertExpectedSourceRecovery(
-        promotion.baselineSentinel,
-        currentSentinel,
-        [".codex/better-workflows/config.json"],
-        "recipe promotion recovery"
-      );
+      if (currentSentinel.digest === action.treeDigest) {
+        await assertSpentActionProviderAuthority(
+          stateRoot,
+          options.run,
+          run,
+          action,
+          "Recipe promotion provider recovery"
+        );
+      } else {
+        await assertSpentActionNonSourceAuthority(
+          stateRoot,
+          options.run,
+          run,
+          action,
+          "Recipe promotion provider recovery"
+        );
+        assertExpectedSourceRecovery(
+          promotion.baselineSentinel,
+          currentSentinel,
+          context.allowedPaths,
+          "recipe promotion recovery"
+        );
+      }
     } else {
+      if (context || liveConfig.enabled === true) {
+        throw recipeError("recipe config source mutation is missing its durable replacement intent");
+      }
       await assertSpentActionProviderAuthority(
         stateRoot,
         options.run,
@@ -1430,6 +1686,70 @@ export async function recipePromote(cwd, id, options) {
         action,
         "Recipe promotion provider invocation"
       );
+      const currentSentinel = await captureSentinel(recipe.root, run.contract, await loadDefaults());
+      if (currentSentinel.digest !== action.treeDigest) {
+        throw recipeError("recipe promotion source changed before config replacement intent creation");
+      }
+      const target = recipe.paths.config;
+      const parent = path.dirname(target);
+      const parentChain = await assertSafeDestination(recipe.root, target, new Set(), {
+        requireCompleteParent: true
+      });
+      const parentIdentity = parentChain.at(-1)?.identity;
+      if (!/^\d+:\d+$/.test(parentIdentity ?? "")) {
+        throw recipeError("recipe config replacement parent identity is missing");
+      }
+      const normalizedTarget = path.relative(recipe.root, target).split(path.sep).join("/");
+      const normalizedParent = path.relative(recipe.root, parent).split(path.sep).join("/") || ".";
+      const replacementBefore = { ...structuredClone(liveConfig), enabled: false };
+      const replacementAfter = { ...replacementBefore, enabled: true };
+      const artifactBytes = Buffer.from(`${JSON.stringify(replacementAfter, null, 2)}\n`, "utf8");
+      const artifact = { sha256: sha256(artifactBytes), bytes: artifactBytes.length };
+      const priorTarget = await readWorkspaceFileRecord(target);
+      if (!priorTarget) throw recipeError("recipe config replacement prior target is missing");
+      const expected = {
+        runIdValue: options.run,
+        action,
+        target: normalizedTarget,
+        parent: normalizedParent,
+        parentIdentity,
+        targetName: path.basename(target),
+        artifact,
+        priorTarget,
+        publisherDigest: sha256(await readFile(ARTIFACT_PUBLISHER_PATH))
+      };
+      const replacementBinding = recipeConfigReplacementBinding(expected);
+      intent = await writeRecipeConfigReplacementIntent(stateRoot, run, {
+        schemaVersion: 1,
+        kind: "recipe-config-replacement",
+        binding: replacementBinding,
+        bindingDigest: digestObject(replacementBinding),
+        status: "prepared",
+        targetIdentity: null,
+        preparedAt: nowIso(),
+        updatedAt: nowIso()
+      }, "action.local-provider-config-intent-prepared");
+      const temporaryRelative = normalizedParent === "."
+        ? replacementBinding.temporaryName
+        : `${normalizedParent}/${replacementBinding.temporaryName}`;
+      context = {
+        intent,
+        expected,
+        beforeConfig: replacementBefore,
+        afterConfig: replacementAfter,
+        afterBytes: artifactBytes,
+        parentChain,
+        allowedPaths: [normalizedTarget, temporaryRelative]
+      };
+      if (onProviderBoundary) {
+        await onProviderBoundary("config-intent-prepared", {
+          intent,
+          target,
+          parent,
+          artifact,
+          artifactBytes
+        });
+      }
     }
     await ensurePrivateDir(paths.root);
     await atomicWriteJson(stateRoot, paths.trust, trust);
@@ -1439,11 +1759,30 @@ export async function recipePromote(cwd, id, options) {
         recipe.paths.config,
         { ...liveConfig, enabled: true },
         {
+          replacementBinding: intent.binding,
           onBoundary: onProviderBoundary
             ? async (boundary, details) => onProviderBoundary(`config-${boundary}`, details)
             : null
         }
       );
+    }
+    const currentTarget = await readWorkspaceFileRecord(recipe.paths.config);
+    if (
+      !currentTarget || currentTarget.sha256 !== intent.binding.artifactSha256 ||
+      currentTarget.size !== intent.binding.artifactBytes
+    ) {
+      throw recipeError("recipe config replacement target is not durable");
+    }
+    if (intent.status !== "published") {
+      intent = await writeRecipeConfigReplacementIntent(stateRoot, run, {
+        ...intent,
+        status: "published",
+        targetIdentity: currentTarget.identity,
+        publishedAt: nowIso(),
+        updatedAt: nowIso()
+      }, "action.local-provider-config-intent-published");
+    } else if (intent.targetIdentity !== currentTarget.identity) {
+      throw recipeError("recipe config replacement target identity changed during replay");
     }
     afterConfig = validateConfig(JSON.parse(await readFile(recipe.paths.config, "utf8")));
   }, { ttlMs: 300_000 });

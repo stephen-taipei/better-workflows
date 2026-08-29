@@ -64,6 +64,7 @@ import {
   loadDefaults,
   readBoundGitHubApi,
   readBoundGitHubCredential,
+  refreshEvidence,
   assertBoundCredentialWorkspace,
   optionalBoundGitAuthorityOutput,
   readJson,
@@ -1063,6 +1064,10 @@ test("autonomous commit reconciliation repairs every persisted transition bounda
   await cp(fixture.stateRoot, baselineState, { recursive: true });
 
   for (const failAfter of [
+    "provider-reservation-directory-created",
+    "provider-reservation-root-durable",
+    "provider-reservation-file-synced",
+    "provider-reservation-directory-durable",
     "provider-reservation",
     "source-manifest",
     "source-state",
@@ -1138,6 +1143,35 @@ test("autonomous commit reconciliation repairs every persisted transition bounda
     assert.equal(invalidationParent.invalidationDigest, digestObject(invalidationBinding));
   }
 
+  await rm(fixture.stateRoot, { recursive: true, force: true });
+  await cp(baselineState, fixture.stateRoot, { recursive: true });
+  await assert.rejects(
+    reconcileAction(
+      fixture.stateRoot,
+      fixture.run.runId,
+      spent.attemptId,
+      "success",
+      receipt,
+      { failAfter: "provider-reservation-file-synced" }
+    ),
+    /Injected autonomous Git commit reconciliation failure after provider-reservation-file-synced/
+  );
+  await assert.rejects(
+    reconcileAction(
+      fixture.stateRoot,
+      fixture.run.runId,
+      spent.attemptId,
+      "success",
+      receipt,
+      { failAfter: "provider-reservation-replay-durable" }
+    ),
+    /Injected autonomous Git commit reconciliation failure after provider-reservation-replay-durable/
+  );
+  await reconcileAction(fixture.stateRoot, fixture.run.runId, spent.attemptId, "success", receipt);
+  const replayed = await inspectRun(fixture.stateRoot, fixture.run.runId);
+  assert.equal(replayed.actions.find((item) => item.attemptId === spent.attemptId)?.outcome, "success");
+  assert.equal((await readdir(path.join(fixture.stateRoot, "provider-executions"))).length, 1);
+
   const journalPath = path.join(fixture.stateRoot, "runs", fixture.run.runId, "journal.jsonl");
   const originalJournalText = await readFile(journalPath, "utf8");
   const originalJournal = originalJournalText.split("\n").filter(Boolean).map((line) => JSON.parse(line));
@@ -1201,6 +1235,88 @@ test("autonomous commit reconciliation repairs every persisted transition bounda
     const target = path.join(evidenceDir, filename);
     await writeFile(target, contents, { mode: 0o600 });
   }
+});
+
+test("evidence refresh recovers a journaled freshness transition before strict provenance replay", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "sbw-freshness-recovery-workspace-"));
+  await execFileAsync("git", ["init", "-q"], { cwd: workspace });
+  await writeFile(path.join(workspace, "README.md"), "freshness recovery\n");
+  await execFileAsync("git", ["add", "README.md"], { cwd: workspace });
+  await execFileAsync("git", ["-c", "user.email=sbw@example.invalid", "-c", "user.name=SBW Test", "commit", "-qm", "baseline"], { cwd: workspace });
+  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-freshness-recovery-state-"));
+  const taskContract = buildContract({
+    template: "freshness-recovery-v2",
+    templateDefinition: {
+      requiredEvidence: ["environment-state"],
+      acceptance: [{ id: "done", description: "Freshness recovery is durable.", critical: true }],
+      controlPlane: {
+        evidencePolicy: "typed-v1",
+        ledgerPolicy: "ledger-v1",
+        reviewPolicy: "none",
+        designPacketPolicy: "none",
+        refinementPolicy: "none",
+        deliberationPolicy: "none"
+      },
+      executionStages: [{
+        id: "environment",
+        dependsOn: [],
+        requiredEvidence: ["environment-state"],
+        attemptBudget: 3,
+        kind: "regular"
+      }]
+    },
+    goal: "Recover pending evidence freshness",
+    scope: ["."],
+    risk: { risk: 1, uncertainty: 0, blastRadius: 1, irreversibility: 0, evidenceGap: 0 },
+    sensitivity: "internal",
+    authority: []
+  });
+  const started = await createRun({ root: stateRoot, contract: taskContract, requestedMode: "verified", cwd: workspace });
+  const payload = { items: [{ environment: "test" }] };
+  await addEvidence(stateRoot, started.runId, {
+    schemaVersion: 2,
+    id: "environment",
+    kind: "environment-state",
+    status: "complete",
+    summary: "Typed freshness recovery fixture",
+    receipt: {
+      contractId: "evidence-contracts-v1:environment-state",
+      contractVersion: 1,
+      runId: started.runId,
+      producer: { provider: "codex-root" },
+      inputBinding: {
+        runId: started.runId,
+        contractDigest: digestObject(taskContract),
+        remoteRevision: taskContract.remoteRevision ?? null
+      },
+      payload,
+      payloadDigest: digestObject(payload),
+      producedAt: new Date().toISOString()
+    }
+  });
+  let interruptedEvidenceId = null;
+  await assert.rejects(
+    refreshEvidence(stateRoot, started.runId, {
+      async onTransitionPrepared(record) {
+        interruptedEvidenceId = record.id;
+        throw new Error("simulated crash after freshness transition journal append");
+      }
+    }),
+    /simulated crash after freshness transition journal append/
+  );
+  assert.equal(interruptedEvidenceId, "environment");
+  const recovered = await refreshEvidence(stateRoot, started.runId);
+  assert.deepEqual(recovered.recoveredPending, ["environment"]);
+  assert.ok([...recovered.fresh, ...recovered.stale].includes("environment"));
+  const completion = await evaluateCompletion(stateRoot, started.runId);
+  assert.ok(!completion.blockers.some((item) => item.includes("provenance is invalid")));
+  const journal = (await readFile(
+    path.join(stateRoot, "runs", started.runId, "journal.jsonl"),
+    "utf8"
+  )).split("\n").filter(Boolean).map((line) => JSON.parse(line));
+  assert.equal(journal.filter((item) => (
+    item.event === "evidence.freshness-transition" && item.evidenceId === "environment"
+  )).length, 2);
 });
 
 test("git push action bindings persist the exact effective destination used by the fixed argv wrapper", () => {
@@ -2746,30 +2862,6 @@ test("owned-resource registration forwards the creation action tree binding to p
   assert.ok(registrationIndex >= 0);
   assert.ok(verificationIndex > registrationIndex);
   assert.ok(treeBindingIndex > verificationIndex);
-});
-
-test("provider execution reservations durably sync directory entries before reconciliation advances", async () => {
-  const source = await readFile(new URL("../lib/core.mjs", import.meta.url), "utf8");
-  const reservationStart = source.indexOf("async function reserveProviderExecution");
-  const reservationEnd = source.indexOf("function validateCreationReservationIdentity", reservationStart);
-  const directoryCreate = source.indexOf("await mkdir(directory, { mode: 0o700 })", reservationStart);
-  const rootDirectorySync = source.indexOf("if (directoryCreated) await fsyncDirectory(root)", directoryCreate);
-  const reservationOpen = source.indexOf('const handle = await open(target, "wx", 0o600)', rootDirectorySync);
-  const reservationFileSync = source.indexOf("await handle.sync()", reservationOpen);
-  const reservationDirectorySync = source.indexOf("await fsyncDirectory(directory)", reservationFileSync);
-  const reconcileStart = source.indexOf("export async function reconcileAction");
-  const reservationCall = source.indexOf("await reserveProviderExecution(root, record, receipt.providerReceipt.executionId, outcome)", reconcileStart);
-  const providerBoundary = source.indexOf('await onBoundary("provider-reservation")', reservationCall);
-
-  assert.ok(reservationStart >= 0);
-  assert.ok(directoryCreate > reservationStart);
-  assert.ok(rootDirectorySync > directoryCreate);
-  assert.ok(reservationOpen > rootDirectorySync);
-  assert.ok(reservationFileSync > reservationOpen);
-  assert.ok(reservationDirectorySync > reservationFileSync);
-  assert.ok(reservationDirectorySync < reservationEnd);
-  assert.ok(reservationCall > reconcileStart);
-  assert.ok(providerBoundary > reservationCall);
 });
 
 test("GitHub Actions dispatch reconciliation resumes an indeterminate observation exactly once", async () => {
