@@ -28,6 +28,7 @@ import {
   digestObject,
   ensurePrivateDir,
   evaluateCompletion,
+  execBoundProcess,
   getStateRoot,
   inspectRun,
   listJsonRecords,
@@ -1463,7 +1464,8 @@ async function writeWorkspaceJson(
     artifact,
     artifactBytes: bytes,
     targetIdentity: priorTarget?.identity ?? null,
-    priorTarget
+    priorTarget,
+    publisherDigest: replacementBinding?.publisherDigest ?? null
   });
   if (onBoundary) {
     await onBoundary("after-pinned-write", { target, parent, parentIdentity, priorTarget, receipt: published });
@@ -1795,7 +1797,8 @@ async function discardRecipeConfigRecoveryTemporary(
       artifact: currentRecovery.expected.artifact,
       artifactBytes: null,
       targetIdentity: currentRecovery.expected.priorTarget.identity,
-      priorTarget: currentRecovery.expected.priorTarget
+      priorTarget: currentRecovery.expected.priorTarget,
+      publisherDigest: currentRecovery.intent.binding.publisherDigest
     });
     const recoveredSentinel = await captureSentinel(recipe.root, run.contract, await loadDefaults());
     if (!recoveredSentinel.complete || recoveredSentinel.digest !== action.treeDigest) {
@@ -2410,30 +2413,72 @@ async function findArtifactAction(stateRoot, resource) {
   return matches[0];
 }
 
-export async function awaitPinnedChildTerminal(child, {
-  timeoutMs = 300_000,
-  timeoutMessage
-} = {}) {
-  if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || typeof timeoutMessage !== "string" || !timeoutMessage) {
-    throw recipeError("pinned child terminal wait requires a bounded timeout and message");
+async function boundArtifactPublisherSource(expectedDigest = null) {
+  const sourceBytes = await readFile(ARTIFACT_PUBLISHER_PATH);
+  const source = sourceBytes.toString("utf8");
+  if (!Buffer.from(source, "utf8").equals(sourceBytes)) {
+    throw recipeError("pinned artifact publisher source is not canonical UTF-8");
   }
-  let timedOut = false;
-  const result = await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      timedOut = true;
-      child.kill("SIGKILL");
-    }, timeoutMs);
-    child.once("error", (error) => {
-      clearTimeout(timer);
-      reject(error);
-    });
-    child.once("close", (code, signal) => {
-      clearTimeout(timer);
-      resolve({ code, signal });
-    });
-  });
-  if (timedOut) throw recipeError(timeoutMessage);
-  return result;
+  const publisherDigest = sha256(sourceBytes);
+  if (expectedDigest !== null && publisherDigest !== expectedDigest) {
+    throw recipeError("pinned artifact publisher source digest changed before execution");
+  }
+  return { source, publisherDigest };
+}
+
+function artifactPublisherEnvironment() {
+  return {
+    LANG: "C.UTF-8",
+    LC_ALL: "C.UTF-8",
+    TZ: "UTC",
+    NODE_NO_WARNINGS: "1"
+  };
+}
+
+async function executeBoundArtifactPublisher({
+  parent,
+  commandArgs,
+  artifactBytes = undefined,
+  expectedPublisherDigest = null,
+  label
+}) {
+  const publisher = await boundArtifactPublisherSource(expectedPublisherDigest);
+  let result;
+  try {
+    result = await execBoundProcess(
+      process.execPath,
+      [
+        "--input-type=module",
+        "--eval",
+        publisher.source,
+        "--",
+        "sbw-artifact-publisher",
+        ...commandArgs,
+        publisher.publisherDigest
+      ],
+      {
+        cwd: parent,
+        env: artifactPublisherEnvironment(),
+        timeoutMs: 300_000,
+        maxBuffer: 64 * 1024,
+        input: artifactBytes,
+        label
+      }
+    );
+  } catch (error) {
+    const stderr = typeof error?.stderr === "string" ? error.stderr.trim() : "";
+    throw recipeError(`${label.toLowerCase()} failed${stderr ? `: ${stderr}` : `: ${error.message}`}`);
+  }
+  let payload;
+  try {
+    payload = JSON.parse(result.stdout);
+  } catch {
+    throw recipeError(`${label.toLowerCase()} returned invalid JSON`);
+  }
+  if (payload?.publisherDigest !== publisher.publisherDigest) {
+    throw recipeError(`${label.toLowerCase()} receipt is not bound to the admitted publisher bytes`);
+  }
+  return { payload, publisherDigest: publisher.publisherDigest };
 }
 
 async function runPinnedArtifactPublisher({
@@ -2445,13 +2490,13 @@ async function runPinnedArtifactPublisher({
   artifact,
   artifactBytes,
   targetIdentity = null,
-  priorTarget = null
+  priorTarget = null,
+  publisherDigest = null
 }) {
   if (mode === "discard" && (!priorTarget || targetIdentity !== priorTarget.identity)) {
     throw recipeError("pinned artifact temporary discard requires the exact prior target identity");
   }
-  const args = [
-    ARTIFACT_PUBLISHER_PATH,
+  const commandArgs = [
     mode,
     parentIdentity,
     targetName,
@@ -2462,49 +2507,14 @@ async function runPinnedArtifactPublisher({
     priorTarget?.sha256 ?? "-",
     priorTarget ? String(priorTarget.size) : "-"
   ];
-  const child = spawn(process.execPath, args, {
-    cwd: parent,
-    shell: false,
-    stdio: ["pipe", "pipe", "pipe"],
-    env: {
-      LANG: "C.UTF-8",
-      LC_ALL: "C.UTF-8",
-      TZ: "UTC",
-      NODE_NO_WARNINGS: "1"
-    }
+  const executed = await executeBoundArtifactPublisher({
+    parent,
+    commandArgs,
+    artifactBytes: ["link", "replace"].includes(mode) ? artifactBytes : undefined,
+    expectedPublisherDigest: publisherDigest,
+    label: "Pinned artifact publisher"
   });
-  const completion = awaitPinnedChildTerminal(child, {
-    timeoutMessage: "pinned artifact publisher timed out"
-  });
-  let stdout = Buffer.alloc(0);
-  let stderr = Buffer.alloc(0);
-  let outputExceeded = false;
-  const append = (current, chunk) => {
-    const next = Buffer.concat([current, chunk]);
-    if (next.length > 64 * 1024) {
-      outputExceeded = true;
-      child.kill("SIGKILL");
-      return next.subarray(0, 64 * 1024);
-    }
-    return next;
-  };
-  child.stdout.on("data", (chunk) => { stdout = append(stdout, chunk); });
-  child.stderr.on("data", (chunk) => { stderr = append(stderr, chunk); });
-  child.stdin.on("error", () => undefined);
-  child.stdin.end(["link", "replace"].includes(mode) ? artifactBytes : undefined);
-  const result = await completion;
-  if (outputExceeded) throw recipeError("pinned artifact publisher output exceeded 64 KiB");
-  if (result.code !== 0 || result.signal) {
-    throw recipeError(
-      `pinned artifact publisher failed${stderr.length ? `: ${stderr.toString("utf8").trim()}` : ""}`
-    );
-  }
-  let payload;
-  try {
-    payload = JSON.parse(stdout.toString("utf8"));
-  } catch {
-    throw recipeError("pinned artifact publisher returned invalid JSON");
-  }
+  const { payload } = executed;
   const receiptSha256 = mode === "discard" ? priorTarget.sha256 : artifact.sha256;
   const receiptBytes = mode === "discard" ? priorTarget.size : artifact.bytes;
   if (
@@ -2521,54 +2531,30 @@ async function runPinnedArtifactPublisher({
   return payload;
 }
 
-async function runPinnedDestinationParentCreator({ parent, parentIdentity, component }) {
-  const args = [
-    ARTIFACT_PUBLISHER_PATH,
+async function runPinnedDestinationParentCreator({
+  parent,
+  parentIdentity,
+  component,
+  publisherDigest = null
+}) {
+  const commandArgs = [
     "mkdir",
     parentIdentity,
-    component
+    component,
+    "-",
+    "-",
+    "-",
+    "-",
+    "-",
+    "-"
   ];
-  const child = spawn(process.execPath, args, {
-    cwd: parent,
-    shell: false,
-    stdio: ["ignore", "pipe", "pipe"],
-    env: {
-      LANG: "C.UTF-8",
-      LC_ALL: "C.UTF-8",
-      TZ: "UTC",
-      NODE_NO_WARNINGS: "1"
-    }
+  const executed = await executeBoundArtifactPublisher({
+    parent,
+    commandArgs,
+    expectedPublisherDigest: publisherDigest,
+    label: "Pinned destination parent creator"
   });
-  const completion = awaitPinnedChildTerminal(child, {
-    timeoutMessage: "pinned destination parent creator timed out"
-  });
-  let stdout = Buffer.alloc(0);
-  let stderr = Buffer.alloc(0);
-  let outputExceeded = false;
-  const append = (current, chunk) => {
-    const next = Buffer.concat([current, chunk]);
-    if (next.length > 64 * 1024) {
-      outputExceeded = true;
-      child.kill("SIGKILL");
-      return next.subarray(0, 64 * 1024);
-    }
-    return next;
-  };
-  child.stdout.on("data", (chunk) => { stdout = append(stdout, chunk); });
-  child.stderr.on("data", (chunk) => { stderr = append(stderr, chunk); });
-  const result = await completion;
-  if (outputExceeded) throw recipeError("pinned destination parent creator output exceeded 64 KiB");
-  if (result.code !== 0 || result.signal) {
-    throw recipeError(
-      `pinned destination parent creator failed${stderr.length ? `: ${stderr.toString("utf8").trim()}` : ""}`
-    );
-  }
-  let payload;
-  try {
-    payload = JSON.parse(stdout.toString("utf8"));
-  } catch {
-    throw recipeError("pinned destination parent creator returned invalid JSON");
-  }
+  const { payload } = executed;
   if (
     payload?.ok !== true || payload.parentIdentity !== parentIdentity ||
     payload.state !== "directory-ready" || !/^\d+:\d+$/.test(payload.child?.identity ?? "")
@@ -2583,6 +2569,302 @@ function artifactPublicationIntentPath(runDir, action) {
     throw recipeError("artifact publication attempt identity is unsafe");
   }
   return safeJoin(runDir, "local-provider-intents", `${action.attemptId}.json`);
+}
+
+const ARTIFACT_PUBLICATION_STATUSES = ["prepared", "linked", "published"];
+
+function artifactPublicationIntentAdmissionPath(runDir, actionAttemptId, status) {
+  if (
+    !SAFE_SENTINEL_LABEL.test(actionAttemptId ?? "") ||
+    !ARTIFACT_PUBLICATION_STATUSES.includes(status)
+  ) {
+    throw recipeError("artifact publication admission identity is unsafe");
+  }
+  return safeJoin(
+    runDir,
+    "local-provider-intent-admissions",
+    `${actionAttemptId}.${status}.json`
+  );
+}
+
+function artifactPublicationIntentEvent(status) {
+  if (!ARTIFACT_PUBLICATION_STATUSES.includes(status)) {
+    throw recipeError("artifact publication intent phase is invalid");
+  }
+  return `action.local-provider-intent-${status}`;
+}
+
+function artifactPublicationIntentImmutableProjection(intent) {
+  const {
+    preparedAt: _preparedAt,
+    linkedAt: _linkedAt,
+    publishedAt: _publishedAt,
+    updatedAt: _updatedAt,
+    ...immutable
+  } = structuredClone(intent);
+  return immutable;
+}
+
+function artifactPublicationIntentAdmissionBinding(admission) {
+  return {
+    schemaVersion: admission.schemaVersion,
+    kind: admission.kind,
+    runId: admission.runId,
+    actionAttemptId: admission.actionAttemptId,
+    status: admission.status,
+    event: admission.event,
+    intentDigest: admission.intentDigest
+  };
+}
+
+function validateArtifactPublicationIntentAdmission(admission, run, actionAttemptId, status) {
+  const intent = admission?.intent;
+  const expectedIntentKeys = [
+    "binding",
+    "bindingDigest",
+    "kind",
+    ...(status === "linked" || status === "published" ? ["linkedAt"] : []),
+    ...(status === "published" ? ["publishedAt"] : []),
+    "preparedAt",
+    "schemaVersion",
+    "status",
+    "targetIdentity",
+    "updatedAt"
+  ].sort().join("\0");
+  const phaseTimes = [intent?.preparedAt];
+  if (status === "linked" || status === "published") phaseTimes.push(intent?.linkedAt);
+  if (status === "published") phaseTimes.push(intent?.publishedAt);
+  if (
+    !admission || admission.schemaVersion !== 1 ||
+    admission.kind !== "artifact-publication-intent-admission" ||
+    Object.keys(admission).sort().join("\0") !== [
+      "actionAttemptId",
+      "admissionDigest",
+      "event",
+      "intent",
+      "intentDigest",
+      "kind",
+      "runId",
+      "schemaVersion",
+      "status"
+    ].sort().join("\0") ||
+    admission.runId !== run.manifest.runId ||
+    admission.actionAttemptId !== actionAttemptId ||
+    admission.status !== status ||
+    admission.event !== artifactPublicationIntentEvent(status) ||
+    intent?.schemaVersion !== 1 ||
+    intent?.kind !== "artifact-publication" ||
+    Object.keys(intent ?? {}).sort().join("\0") !== expectedIntentKeys ||
+    intent?.binding?.actionAttemptId !== actionAttemptId ||
+    intent?.bindingDigest !== digestObject(intent?.binding ?? null) ||
+    intent?.status !== status ||
+    phaseTimes.some((value) => !Number.isFinite(Date.parse(value ?? ""))) ||
+    phaseTimes.some((value, index) => index > 0 && Date.parse(value) < Date.parse(phaseTimes[index - 1])) ||
+    !Number.isFinite(Date.parse(intent?.updatedAt ?? "")) ||
+    Date.parse(intent.updatedAt) < Date.parse(phaseTimes.at(-1)) ||
+    (status === "prepared"
+      ? intent?.targetIdentity !== null
+      : !/^\d+:\d+$/.test(intent?.targetIdentity ?? "")) ||
+    admission.intentDigest !== digestObject(intent ?? null) ||
+    admission.admissionDigest !== digestObject(artifactPublicationIntentAdmissionBinding(admission))
+  ) {
+    throw recipeError("artifact publication intent admission is stale or malformed");
+  }
+  return admission;
+}
+
+function artifactPublicationIntentJournalDetails(admission) {
+  return {
+    runId: admission.runId,
+    attemptId: admission.actionAttemptId,
+    status: admission.status,
+    intentDigest: admission.intentDigest,
+    admissionDigest: admission.admissionDigest,
+    target: admission.intent.binding.target,
+    targetIdentity: admission.intent.targetIdentity ?? null
+  };
+}
+
+function matchesArtifactPublicationIntentJournal(entry, event, admission) {
+  const expected = artifactPublicationIntentJournalDetails(admission);
+  return Boolean(
+    entry?.event === event &&
+    typeof entry.at === "string" &&
+    Number.isFinite(Date.parse(entry.at)) &&
+    Object.entries(expected).every(([key, value]) => entry[key] === value)
+  );
+}
+
+async function readArtifactPublicationIntentHistory(stateRoot, run, actionAttemptId) {
+  const journal = await readJournalRecords(stateRoot, run.runDir);
+  const admissions = [];
+  let missingSeen = false;
+  for (const status of ARTIFACT_PUBLICATION_STATUSES) {
+    const admissionPath = artifactPublicationIntentAdmissionPath(run.runDir, actionAttemptId, status);
+    if (!(await exists(admissionPath))) {
+      missingSeen = true;
+      continue;
+    }
+    if (missingSeen) throw recipeError("artifact publication intent admissions contain a phase gap");
+    const admission = validateArtifactPublicationIntentAdmission(
+      await readJson(stateRoot, admissionPath),
+      run,
+      actionAttemptId,
+      status
+    );
+    const pending = journal.filter((entry) => (
+      entry.event === "action.local-provider-artifact-intent-admission-pending" &&
+      entry.attemptId === actionAttemptId && entry.status === status
+    ));
+    const committed = journal.filter((entry) => (
+      entry.event === admission.event &&
+      entry.attemptId === actionAttemptId && entry.status === status
+    ));
+    if (
+      pending.length !== 1 ||
+      !matchesArtifactPublicationIntentJournal(
+        pending[0],
+        "action.local-provider-artifact-intent-admission-pending",
+        admission
+      ) ||
+      committed.length > 1 ||
+      (committed.length === 1 &&
+        !matchesArtifactPublicationIntentJournal(committed[0], admission.event, admission))
+    ) {
+      throw recipeError("artifact publication intent journal binding is missing or ambiguous");
+    }
+    admissions.push({ admission, committed: committed.length === 1 });
+  }
+  const expectedEvents = new Map();
+  for (const { admission } of admissions) {
+    expectedEvents.set(`pending:${admission.status}`, admission);
+    expectedEvents.set(`committed:${admission.status}`, admission);
+  }
+  const relevant = journal.filter((entry) => (
+    entry.attemptId === actionAttemptId &&
+    (
+      entry.event === "action.local-provider-artifact-intent-admission-pending" ||
+      ARTIFACT_PUBLICATION_STATUSES.map(artifactPublicationIntentEvent).includes(entry.event)
+    )
+  ));
+  for (const entry of relevant) {
+    const status = entry.status;
+    const key = entry.event === "action.local-provider-artifact-intent-admission-pending"
+      ? `pending:${status}`
+      : `committed:${status}`;
+    const admission = expectedEvents.get(key);
+    if (!admission || !matchesArtifactPublicationIntentJournal(entry, entry.event, admission)) {
+      throw recipeError("artifact publication journal contains an unadmitted phase record");
+    }
+  }
+  for (let index = 0; index < admissions.length - 1; index += 1) {
+    if (!admissions[index].committed) {
+      throw recipeError("artifact publication advanced before its prior phase committed");
+    }
+    if (
+      admissions[index].admission.intent.bindingDigest !==
+        admissions[index + 1].admission.intent.bindingDigest ||
+      admissions[index].admission.intent.targetIdentity !==
+        (index === 0 ? null : admissions[index + 1].admission.intent.targetIdentity)
+    ) {
+      throw recipeError("artifact publication admission chain changed immutable identity");
+    }
+  }
+  return { admissions, journal };
+}
+
+async function commitArtifactPublicationIntentAdmission(stateRoot, run, intent) {
+  let history = await readArtifactPublicationIntentHistory(
+    stateRoot,
+    run,
+    intent.binding.actionAttemptId
+  );
+  const latest = history.admissions.at(-1);
+  if (!latest || latest.admission.status !== intent.status || latest.admission.intentDigest !== digestObject(intent)) {
+    throw recipeError("artifact publication active intent is not the latest admitted phase");
+  }
+  if (!latest.committed) {
+    await appendJournal(
+      stateRoot,
+      run.runDir,
+      latest.admission.event,
+      artifactPublicationIntentJournalDetails(latest.admission)
+    );
+    history = await readArtifactPublicationIntentHistory(
+      stateRoot,
+      run,
+      intent.binding.actionAttemptId
+    );
+  }
+  const committed = history.admissions.at(-1);
+  if (!committed?.committed || committed.admission.intentDigest !== digestObject(intent)) {
+    throw recipeError("artifact publication intent commit was not durable");
+  }
+  return committed.admission.intent;
+}
+
+async function recoverArtifactPublicationPendingAdmissions(stateRoot, run, actionAttemptId) {
+  const journal = await readJournalRecords(stateRoot, run.runDir);
+  let missingSeen = false;
+  for (const status of ARTIFACT_PUBLICATION_STATUSES) {
+    const admissionPath = artifactPublicationIntentAdmissionPath(run.runDir, actionAttemptId, status);
+    if (!(await exists(admissionPath))) {
+      missingSeen = true;
+      continue;
+    }
+    if (missingSeen) throw recipeError("artifact publication intent admissions contain a phase gap");
+    const admission = validateArtifactPublicationIntentAdmission(
+      await readJson(stateRoot, admissionPath),
+      run,
+      actionAttemptId,
+      status
+    );
+    const pending = journal.filter((entry) => (
+      entry.event === "action.local-provider-artifact-intent-admission-pending" &&
+      entry.attemptId === actionAttemptId && entry.status === status
+    ));
+    const committed = journal.filter((entry) => (
+      entry.event === admission.event && entry.attemptId === actionAttemptId && entry.status === status
+    ));
+    if (pending.length === 0) {
+      if (committed.length !== 0) {
+        throw recipeError("artifact publication phase committed without its pending admission");
+      }
+      await appendJournal(
+        stateRoot,
+        run.runDir,
+        "action.local-provider-artifact-intent-admission-pending",
+        artifactPublicationIntentJournalDetails(admission)
+      );
+    } else if (
+      pending.length !== 1 ||
+      !matchesArtifactPublicationIntentJournal(
+        pending[0],
+        "action.local-provider-artifact-intent-admission-pending",
+        admission
+      )
+    ) {
+      throw recipeError("artifact publication pending admission is ambiguous during recovery");
+    }
+  }
+}
+
+async function loadArtifactPublicationIntent(stateRoot, run, actionAttemptId) {
+  const target = artifactPublicationIntentPath(run.runDir, { attemptId: actionAttemptId });
+  await recoverArtifactPublicationPendingAdmissions(stateRoot, run, actionAttemptId);
+  const history = await readArtifactPublicationIntentHistory(stateRoot, run, actionAttemptId);
+  if (history.admissions.length === 0) {
+    if (await exists(target)) {
+      throw recipeError("artifact publication active intent exists without immutable admissions");
+    }
+    return null;
+  }
+  const canonicalIntent = history.admissions.at(-1).admission.intent;
+  if (!(await exists(target)) || digestObject(await readJson(stateRoot, target)) !== digestObject(canonicalIntent)) {
+    await ensurePrivateDir(path.dirname(target));
+    await atomicWriteJson(stateRoot, target, canonicalIntent);
+  }
+  return commitArtifactPublicationIntentAdmission(stateRoot, run, canonicalIntent);
 }
 
 function artifactPublicationBinding({
@@ -2645,25 +2927,137 @@ function validateArtifactPublicationIntent(intent, expected) {
     intent.binding.artifactSha256 !== expected.artifact.sha256 ||
     intent.binding.artifactBytes !== expected.artifact.bytes ||
     intent.binding.publisherDigest !== expected.publisherDigest ||
+    (intent.status === "prepared" && intent.targetIdentity !== null) ||
     (["linked", "published"].includes(intent.status) && !/^\d+:\d+$/.test(intent.targetIdentity ?? ""))
   ) {
     throw recipeError("artifact publication intent is stale or malformed");
+  }
+  const canonicalBinding = artifactPublicationBinding({
+    ...expected,
+    temporaryName: intent.binding.temporaryName
+  });
+  if (digestObject(intent.binding) !== digestObject(canonicalBinding)) {
+    throw recipeError("artifact publication intent identity changed");
   }
   return intent;
 }
 
 async function writeArtifactPublicationIntent(stateRoot, run, intent, event) {
   const target = artifactPublicationIntentPath(run.runDir, { attemptId: intent.binding.actionAttemptId });
+  const admissionTarget = artifactPublicationIntentAdmissionPath(
+    run.runDir,
+    intent.binding.actionAttemptId,
+    intent.status
+  );
+  if (event !== artifactPublicationIntentEvent(intent.status)) {
+    throw recipeError("artifact publication intent event does not match its phase");
+  }
   await ensurePrivateDir(path.dirname(target));
-  await atomicWriteJson(stateRoot, target, intent);
-  await appendJournal(stateRoot, run.runDir, event, {
-    attemptId: intent.binding.actionAttemptId,
-    intentDigest: digestObject(intent),
-    status: intent.status,
-    target: intent.binding.target,
-    targetIdentity: intent.targetIdentity ?? null
-  });
-  return intent;
+  await ensurePrivateDir(path.dirname(admissionTarget));
+  let admission;
+  if (await exists(admissionTarget)) {
+    admission = validateArtifactPublicationIntentAdmission(
+      await readJson(stateRoot, admissionTarget),
+      run,
+      intent.binding.actionAttemptId,
+      intent.status
+    );
+    if (
+      digestObject(artifactPublicationIntentImmutableProjection(admission.intent)) !==
+      digestObject(artifactPublicationIntentImmutableProjection(intent))
+    ) {
+      throw recipeError("artifact publication intent retry conflicts with its durable admission");
+    }
+  } else {
+    const history = await readArtifactPublicationIntentHistory(
+      stateRoot,
+      run,
+      intent.binding.actionAttemptId
+    );
+    const expectedStatus = ARTIFACT_PUBLICATION_STATUSES[history.admissions.length];
+    if (intent.status !== expectedStatus || history.admissions.some(({ committed }) => !committed)) {
+      throw recipeError("artifact publication intent phase transition is not replay-valid");
+    }
+    const candidate = {
+      schemaVersion: 1,
+      kind: "artifact-publication-intent-admission",
+      runId: run.manifest.runId,
+      actionAttemptId: intent.binding.actionAttemptId,
+      status: intent.status,
+      event,
+      intent,
+      intentDigest: digestObject(intent)
+    };
+    admission = {
+      ...candidate,
+      admissionDigest: digestObject(artifactPublicationIntentAdmissionBinding(candidate))
+    };
+    await atomicWriteJson(stateRoot, admissionTarget, admission);
+  }
+  let journal = await readJournalRecords(stateRoot, run.runDir);
+  const pending = journal.filter((entry) => (
+    entry.event === "action.local-provider-artifact-intent-admission-pending" &&
+    entry.attemptId === admission.actionAttemptId && entry.status === admission.status
+  ));
+  if (pending.length === 0) {
+    await appendJournal(
+      stateRoot,
+      run.runDir,
+      "action.local-provider-artifact-intent-admission-pending",
+      artifactPublicationIntentJournalDetails(admission)
+    );
+  } else if (
+    pending.length !== 1 ||
+    !matchesArtifactPublicationIntentJournal(
+      pending[0],
+      "action.local-provider-artifact-intent-admission-pending",
+      admission
+    )
+  ) {
+    throw recipeError("artifact publication intent pending admission conflicts with replay");
+  }
+  const history = await readArtifactPublicationIntentHistory(
+    stateRoot,
+    run,
+    intent.binding.actionAttemptId
+  );
+  const latest = history.admissions.at(-1);
+  if (!latest || latest.admission.intentDigest !== admission.intentDigest) {
+    throw recipeError("artifact publication intent admission was not durable");
+  }
+  if (await exists(target)) {
+    const existing = await readJson(stateRoot, target);
+    const existingIndex = ARTIFACT_PUBLICATION_STATUSES.indexOf(existing.status);
+    const admissionIndex = ARTIFACT_PUBLICATION_STATUSES.indexOf(admission.status);
+    const existingAdmission = history.admissions.find(
+      (item) => item.admission.intentDigest === digestObject(existing)
+    );
+    if (
+      !existingAdmission ||
+      admissionIndex < existingIndex || admissionIndex > existingIndex + 1 ||
+      (admissionIndex !== existingIndex && existing.bindingDigest !== admission.intent.bindingDigest)
+    ) {
+      throw recipeError("artifact publication active intent conflicts with its admission");
+    }
+  }
+  await atomicWriteJson(stateRoot, target, admission.intent);
+  const committedIntent = await commitArtifactPublicationIntentAdmission(
+    stateRoot,
+    run,
+    admission.intent
+  );
+  journal = await readJournalRecords(stateRoot, run.runDir);
+  const committed = journal.filter((entry) => (
+    entry.event === event && entry.attemptId === admission.actionAttemptId &&
+    entry.status === admission.status
+  ));
+  if (
+    committed.length !== 1 ||
+    !matchesArtifactPublicationIntentJournal(committed[0], event, admission)
+  ) {
+    throw recipeError("artifact publication intent commit was not durable");
+  }
+  return committedIntent;
 }
 
 async function publishArtifactWithIntent({
@@ -2698,8 +3092,7 @@ async function publishArtifactWithIntent({
     const parentRelative = path.relative(workspace.root, parent).split(path.sep).join("/") || ".";
     const targetName = path.basename(target);
     const publisherDigest = sha256(await readFile(ARTIFACT_PUBLISHER_PATH));
-    const intentPath = artifactPublicationIntentPath(run.runDir, action);
-    let intent = await exists(intentPath) ? await readJson(stateRoot, intentPath) : null;
+    let intent = await loadArtifactPublicationIntent(stateRoot, run, action.attemptId);
     const currentSentinel = await captureSentinel(workspace.root, run.contract, await loadDefaults());
     if (intent) {
       checkedParentChain = await assertSafeDestination(
@@ -2765,7 +3158,8 @@ async function publishArtifactWithIntent({
         target,
         protectedIdentities,
         checkedParentChain,
-        onDestinationBoundary
+        onDestinationBoundary,
+        publisherDigest
       );
       const parentIdentity = checkedParentChain.at(-1)?.identity;
       if (!/^\d+:\d+$/.test(parentIdentity ?? "")) {
@@ -2825,7 +3219,8 @@ async function publishArtifactWithIntent({
       temporaryName: intent.binding.temporaryName,
       artifact,
       artifactBytes,
-      targetIdentity: intent.targetIdentity
+      targetIdentity: intent.targetIdentity,
+      publisherDigest: intent.binding.publisherDigest
     });
     if (onDestinationBoundary) {
       await onDestinationBoundary("after-artifact-link", { target, parent, intent, receipt: linked });
@@ -2848,7 +3243,8 @@ async function publishArtifactWithIntent({
       temporaryName: intent.binding.temporaryName,
       artifact,
       artifactBytes,
-      targetIdentity: intent.targetIdentity
+      targetIdentity: intent.targetIdentity,
+      publisherDigest: intent.binding.publisherDigest
     });
     if (onDestinationBoundary) {
       await onDestinationBoundary("after-artifact-finalize", { target, parent, intent, receipt: published });
@@ -3138,7 +3534,8 @@ async function ensureSafeDestinationParents(
   target,
   protectedIdentities,
   expectedParentChain,
-  onDestinationBoundary = null
+  onDestinationBoundary = null,
+  publisherDigest = null
 ) {
   const parent = path.dirname(target);
   let parentChain = expectedParentChain;
@@ -3166,7 +3563,8 @@ async function ensureSafeDestinationParents(
     const receipt = await runPinnedDestinationParentCreator({
       parent: pinnedParent,
       parentIdentity: pinnedParentIdentity,
-      component
+      component,
+      publisherDigest
     });
     if (onDestinationBoundary) {
       await onDestinationBoundary("after-parent-create", {

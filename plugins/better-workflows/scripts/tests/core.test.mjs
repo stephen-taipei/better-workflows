@@ -51,6 +51,7 @@ import {
   digestObject,
   execBoundGitProcess,
   execBoundGitHubCli,
+  execBoundProcess,
   findExactMergeHumanAuthorization,
   terminateBoundChildForTest,
   ensureStateRoot,
@@ -100,6 +101,24 @@ import { checkPluginCache, publishPluginCache, verifyPluginCacheReady } from "..
 
 const execFileAsync = promisify(execFile);
 const SBW_CLI = fileURLToPath(new URL("../sbw.mjs", import.meta.url));
+
+function creationReservationFixture(identity, owner, expiresAt, reservedAt = new Date().toISOString()) {
+  const binding = {
+    schemaVersion: 2,
+    ...identity,
+    reservationKey: creationReservationKey(identity),
+    runId: owner.runId,
+    attemptId: owner.attemptId,
+    tokenHash: owner.tokenHash,
+    idempotencyKey: owner.idempotencyKey,
+    expiresAt
+  };
+  return {
+    ...binding,
+    bindingDigest: digestObject(binding),
+    reservedAt
+  };
+}
 
 test("GitHub Actions dispatch ref endpoints encode slash-containing refs as one path parameter", () => {
   assert.equal(
@@ -157,16 +176,30 @@ test("provider execution EEXIST replay requires the exact outcome and unsupersed
     attemptId: "attempt-provider-race",
     tokenHash: "a".repeat(64),
     action: "pr.create",
+    provider: "github-cli",
+    providerRepository: "github.com/example/repo",
+    resource: "pull/new",
+    idempotencyKey: "provider-race-idempotency",
+    remoteRevision: "b".repeat(40),
     outcome: "unknown"
   };
   const executionId = "github:pr.create:provider-race";
-  const existing = {
-    schemaVersion: 1,
+  const identity = {
+    schemaVersion: 2,
     executionId,
     runId: record.runId,
     attemptId: record.attemptId,
     tokenHash: record.tokenHash,
     action: record.action,
+    provider: record.provider,
+    repository: record.providerRepository,
+    resource: record.resource,
+    idempotencyKey: record.idempotencyKey,
+    remoteRevision: record.remoteRevision
+  };
+  const existing = {
+    ...identity,
+    identityDigest: digestObject(identity),
     outcome: "unknown",
     recordedAt: "2026-08-30T00:00:00.000Z"
   };
@@ -192,16 +225,30 @@ test("provider execution create race rejects a conflicting winner and governs un
     attemptId: "attempt-provider-create-race",
     tokenHash: "c".repeat(64),
     action: "pr.create",
+    provider: "github-cli",
+    providerRepository: "github.com/example/repo",
+    resource: "pull/new",
+    idempotencyKey: "provider-create-race-idempotency",
+    remoteRevision: "d".repeat(40),
     outcome: "unknown"
   };
   const executionId = "github:pr.create:provider-create-race";
-  const reservation = (outcome) => ({
-    schemaVersion: 1,
+  const identity = {
+    schemaVersion: 2,
     executionId,
     runId: record.runId,
     attemptId: record.attemptId,
     tokenHash: record.tokenHash,
     action: record.action,
+    provider: record.provider,
+    repository: record.providerRepository,
+    resource: record.resource,
+    idempotencyKey: record.idempotencyKey,
+    remoteRevision: record.remoteRevision
+  };
+  const reservation = (outcome) => ({
+    ...identity,
+    identityDigest: digestObject(identity),
     outcome,
     recordedAt: "2026-08-30T00:00:00.000Z"
   });
@@ -237,6 +284,50 @@ test("provider execution create race rejects a conflicting winner and governs un
   ));
   assert.equal(recovered.outcome, "success");
   assert.match(recovered.terminalAt, /^\d{4}-\d{2}-\d{2}T/);
+});
+
+test("bound process input timeout terminates the target and every descendant before rejection", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-bound-process-input-"));
+  const script = path.join(root, "target.mjs");
+  const pidPath = path.join(root, "descendant.pid");
+  await writeFile(script, [
+    "import { spawn } from 'node:child_process';",
+    "import { writeFileSync } from 'node:fs';",
+    "let input = '';",
+    "process.stdin.setEncoding('utf8');",
+    "process.stdin.on('data', (chunk) => { input += chunk; });",
+    "process.stdin.on('end', () => {",
+    "  if (input !== 'bound-input') process.exit(41);",
+    "  const descendant = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });",
+    "  writeFileSync(process.argv[2], String(descendant.pid));",
+    "  setInterval(() => {}, 1000);",
+    "});"
+  ].join("\n"));
+  await assert.rejects(
+    execBoundProcess(process.execPath, [script, pidPath], {
+      cwd: root,
+      env: { LANG: "C", LC_ALL: "C", TZ: "UTC", NODE_NO_WARNINGS: "1" },
+      timeoutMs: 250,
+      maxBuffer: 64 * 1024,
+      input: "bound-input",
+      label: "Bound process input fixture"
+    }),
+    (error) => error?.code === "ETIMEDOUT"
+  );
+  const descendantPid = Number(await readFile(pidPath, "utf8"));
+  assert.equal(Number.isInteger(descendantPid), true);
+  let alive = true;
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    try {
+      process.kill(descendantPid, 0);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    } catch (error) {
+      if (error.code !== "ESRCH") throw error;
+      alive = false;
+      break;
+    }
+  }
+  assert.equal(alive, false, "bounded descendant must be gone before the test continues");
 });
 
 test("durable file removal propagates unexpected unlink failures and verifies absence", async () => {
@@ -5308,15 +5399,11 @@ test("failed PR creation preserves its reservation until provider absence is pro
   await writeFile(path.join(runDir, "actions", `${tokenHash}.json`), `${JSON.stringify(action)}\n`);
   const reservationPath = path.join(root, "creation-reservations", `${creationReservationKey(creationReservation)}.json`);
   await mkdir(path.dirname(reservationPath), { recursive: true });
-  await writeFile(reservationPath, `${JSON.stringify({
-    runId: run.runId,
-    ...creationReservation,
-    reservationKey: creationReservationKey(creationReservation),
-    resource,
-    tokenHash,
-    reservedAt: new Date().toISOString(),
-    expiresAt: new Date(Date.now() + 60_000).toISOString()
-  })}\n`);
+  await writeFile(reservationPath, `${JSON.stringify(creationReservationFixture(
+    creationReservation,
+    { runId: run.runId, attemptId, tokenHash, idempotencyKey },
+    new Date(Date.now() + 60_000).toISOString()
+  ))}\n`);
   const responsePath = path.join(root, "fake-pr-list.json");
   const actorPath = path.join(root, "fake-gh-actor.txt");
   const pushPath = path.join(root, "fake-gh-push.txt");
@@ -5469,6 +5556,7 @@ test("transferred PR ownership rejects self-asserted authorization", async () =>
     runId: sourceRun.runId,
     action: "pr.create",
     provider: "github-cli",
+    providerRepository: "github.com/example/repo",
     resource: "pull/new",
     remoteRevision,
     attemptId: sourceAttemptId,
@@ -5477,6 +5565,12 @@ test("transferred PR ownership rejects self-asserted authorization", async () =>
     targetRef: "dev",
     headBranch: "codex/feature",
     createRepository: "github.com/example/repo",
+    creationReservation: {
+      provider: "github-cli",
+      repository: "github.com/example/repo",
+      action: "pr.create",
+      resource: "pull/new"
+    },
     ownedResource: `pull/${number}`,
     providerAuthorization: {
       provider: "github-cli",
@@ -5507,12 +5601,23 @@ test("transferred PR ownership rejects self-asserted authorization", async () =>
     creationAttemptId: sourceAttemptId,
     creationActionDigest: digestObject({
       attemptId: sourceAction.attemptId,
+      tokenHash: sourceAction.tokenHash,
+      idempotencyKey: sourceAction.idempotencyKey,
       action: sourceAction.action,
+      provider: sourceAction.provider,
+      providerRepository: sourceAction.providerRepository,
       resource: sourceAction.resource,
+      creationReservation: sourceAction.creationReservation,
       outcome: sourceAction.outcome,
       receipt: sourceAction.receipt
     }),
     creationReservation: { provider: "github-cli", repository: "github.com/example/repo", action: "pr.create", resource: "pull/new" },
+    creationReservationOwner: {
+      runId: sourceRun.runId,
+      attemptId: sourceAttemptId,
+      tokenHash: sourceAction.tokenHash,
+      idempotencyKey: sourceIdempotencyKey
+    },
     registeredAt: new Date().toISOString()
   }];
   await writeFile(sourceManifestPath, `${JSON.stringify(sourceManifest)}\n`);
@@ -5764,14 +5869,12 @@ test("unknown PR creation can recover the same attempt into canonical ownership 
   await mkdir(path.join(root, "creation-reservations"), { recursive: true });
   await writeFile(
     path.join(root, "creation-reservations", `${creationReservationKey(creationReservation)}.json`),
-    `${JSON.stringify({
-      ...creationReservation,
-      reservationKey: creationReservationKey(creationReservation),
-      runId: run.runId,
-      tokenHash,
-      reservedAt: spentAt,
-      expiresAt: new Date(Date.now() + 60_000).toISOString()
-    })}\n`
+    `${JSON.stringify(creationReservationFixture(
+      creationReservation,
+      { runId: run.runId, attemptId, tokenHash, idempotencyKey },
+      new Date(Date.now() + 60_000).toISOString(),
+      spentAt
+    ))}\n`
   );
   const apiResponse = JSON.stringify({
     node_id: "node-17",
@@ -5805,7 +5908,7 @@ fi
   process.env.PATH = `${bin}:${priorPath}`;
   try {
     await addEvidence(root, run.runId, actionEvidence);
-    await reconcileAction(root, run.runId, attemptId, "unknown", {
+    const unknownReceipt = {
       action: "pr.create",
       provider: "github-cli",
       resource,
@@ -5831,50 +5934,40 @@ fi
         terminalState: "unknown",
         reason: "provider-timeout"
       }
-    });
-    const alternateExecutionId = `github:github.com/example/repo:pr.create:alternate:${head}`;
-    const alternateExecutionPath = path.join(
-      root,
-      "provider-executions",
-      `${sha256(alternateExecutionId)}.json`
-    );
-    await mkdir(path.dirname(alternateExecutionPath), { recursive: true });
-    await writeFile(alternateExecutionPath, `${JSON.stringify({
-      schemaVersion: 1,
-      executionId: alternateExecutionId,
-      runId: run.runId,
-      attemptId,
-      tokenHash,
-      action: "pr.create",
-      outcome: "success",
-      recordedAt: new Date().toISOString()
-    })}\n`);
-    const unknownExecutionPath = path.join(
+    };
+    const providerExecutionPath = path.join(
       root,
       "provider-executions",
       `${sha256(providerReceipt.executionId)}.json`
     );
-    const unknownReservation = JSON.parse(await readFile(unknownExecutionPath, "utf8"));
-    await writeFile(unknownExecutionPath, `${JSON.stringify({
-      ...unknownReservation,
-      supersededBy: alternateExecutionId,
-      supersededAt: new Date().toISOString()
+    await mkdir(path.dirname(providerExecutionPath), { recursive: true });
+    const conflictingIdentity = {
+      schemaVersion: 2,
+      executionId: providerReceipt.executionId,
+      runId: run.runId,
+      attemptId,
+      tokenHash,
+      action: "pr.create",
+      provider: "github-cli",
+      repository: creationReservation.repository,
+      resource,
+      idempotencyKey: `${idempotencyKey}-conflict`,
+      remoteRevision
+    };
+    await writeFile(providerExecutionPath, `${JSON.stringify({
+      ...conflictingIdentity,
+      identityDigest: digestObject(conflictingIdentity),
+      outcome: "unknown",
+      recordedAt: new Date().toISOString()
     })}\n`);
     await assert.rejects(
-      reconcileAction(root, run.runId, attemptId, "success", {
-        action: "pr.create",
-        provider: "github-cli",
-        resource,
-        outcome: "success",
-        runId: run.runId,
-        attemptId,
-        idempotencyKey,
-        remoteRevision,
-        providerReceipt,
-        evidenceIds: [actionEvidence.id]
-      }),
-      /superseded by another identity/
+      reconcileAction(root, run.runId, attemptId, "unknown", unknownReceipt),
+      /reserved globally/
     );
+    await unlink(providerExecutionPath);
+    await reconcileAction(root, run.runId, attemptId, "unknown", {
+      ...unknownReceipt
+    });
     await writeFile(fakeGh, `${ghScript}\n# spoofed provider binary\n`);
     await assert.rejects(
       reconcileAction(root, run.runId, attemptId, "success", {
@@ -5892,119 +5985,6 @@ fi
       /governed provider executable changed/
     );
     await writeFile(fakeGh, ghScript);
-    await assert.rejects(
-      reconcileAction(root, run.runId, attemptId, "success", {
-        action: "pr.create",
-        provider: "github-cli",
-        resource,
-        outcome: "success",
-        runId: run.runId,
-        attemptId,
-        idempotencyKey,
-        remoteRevision,
-        providerReceipt,
-        evidenceIds: [actionEvidence.id]
-      }),
-      /superseded by another identity/
-    );
-    await unlink(alternateExecutionPath);
-    const mismatchedActionId = `github:github.com/example/repo:other-action:${head}`;
-    const mismatchedActionPath = path.join(
-      root,
-      "provider-executions",
-      `${sha256(mismatchedActionId)}.json`
-    );
-    await writeFile(mismatchedActionPath, `${JSON.stringify({
-      schemaVersion: 1,
-      executionId: mismatchedActionId,
-      runId: run.runId,
-      attemptId,
-      tokenHash,
-      action: "other.action",
-      outcome: "success",
-      recordedAt: new Date().toISOString()
-    })}\n`);
-    await assert.rejects(
-      reconcileAction(root, run.runId, attemptId, "success", {
-        action: "pr.create",
-        provider: "github-cli",
-        resource,
-        outcome: "success",
-        runId: run.runId,
-        attemptId,
-        idempotencyKey,
-        remoteRevision,
-        providerReceipt,
-        evidenceIds: [actionEvidence.id]
-      }),
-      /bound to a different action/
-    );
-    await unlink(mismatchedActionPath);
-    const providerExecutionPath = path.join(
-      root,
-      "provider-executions",
-      `${sha256(providerReceipt.executionId)}.json`
-    );
-    await mkdir(path.dirname(providerExecutionPath), { recursive: true });
-    await writeFile(providerExecutionPath, `${JSON.stringify({
-      executionId: providerReceipt.executionId,
-      runId: run.runId,
-      attemptId,
-      tokenHash,
-      action: "pr.create",
-      outcome: "failure",
-      recordedAt: new Date().toISOString()
-    })}\n`);
-    await assert.rejects(
-      reconcileAction(root, run.runId, attemptId, "success", {
-        action: "pr.create",
-        provider: "github-cli",
-        resource,
-        outcome: "success",
-        runId: run.runId,
-        attemptId,
-        idempotencyKey,
-        remoteRevision,
-        providerReceipt,
-        evidenceIds: [actionEvidence.id]
-      }),
-      /Legacy provider execution reservation/
-    );
-    await writeFile(providerExecutionPath, `${JSON.stringify({
-      schemaVersion: 1,
-      executionId: providerReceipt.executionId,
-      runId: run.runId,
-      attemptId,
-      tokenHash,
-      action: "pr.create",
-      outcome: "failure",
-      recordedAt: new Date().toISOString()
-    })}\n`);
-    await assert.rejects(
-      reconcileAction(root, run.runId, attemptId, "success", {
-        action: "pr.create",
-        provider: "github-cli",
-        resource,
-        outcome: "success",
-        runId: run.runId,
-        attemptId,
-        idempotencyKey,
-        remoteRevision,
-        providerReceipt,
-        evidenceIds: [actionEvidence.id]
-      }),
-      /different terminal outcome/
-    );
-    await writeFile(providerExecutionPath, `${JSON.stringify({
-      schemaVersion: 1,
-      executionId: providerReceipt.executionId,
-      runId: run.runId,
-      attemptId,
-      tokenHash,
-      action: "pr.create",
-      outcome: "success",
-      recordedAt: new Date().toISOString()
-    })}\n`);
     const recovered = await reconcileAction(root, run.runId, attemptId, "success", {
       action: "pr.create",
       provider: "github-cli",
@@ -6134,15 +6114,12 @@ test("successful PR creation canonicalizes ownership and prevents a retry", asyn
   await writeFile(path.join(runDir, "actions", `${tokenHash}.json`), `${JSON.stringify(action)}\n`);
   const reservationPath = path.join(root, "creation-reservations", `${creationReservationKey(creationReservation)}.json`);
   await mkdir(path.dirname(reservationPath), { recursive: true });
-  await writeFile(reservationPath, `${JSON.stringify({
-    runId: run.runId,
-    ...creationReservation,
-    reservationKey: creationReservationKey(creationReservation),
-    resource,
-    tokenHash,
-    reservedAt: spentAt,
-    expiresAt: new Date(Date.now() + 60_000).toISOString()
-  })}\n`);
+  await writeFile(reservationPath, `${JSON.stringify(creationReservationFixture(
+    creationReservation,
+    { runId: run.runId, attemptId, tokenHash, idempotencyKey },
+    new Date(Date.now() + 60_000).toISOString(),
+    spentAt
+  ))}\n`);
   const fakeGh = path.join(bin, "gh");
   const apiResponse = JSON.stringify({
     node_id: "node-12",
@@ -6951,7 +6928,12 @@ test("destructive cleanup actions require an immutable run-owned resource receip
   }, "tree", await loadDefaults());
   const expiredReservationPath = path.join(root, "creation-reservations", `${creationReservationKey(expiredIssued.creationReservation)}.json`);
   const expiredReservation = JSON.parse(await readFile(expiredReservationPath, "utf8"));
-  await writeFile(expiredReservationPath, `${JSON.stringify({ ...expiredReservation, expiresAt: "2020-01-01T00:00:00.000Z" })}\n`);
+  await writeFile(expiredReservationPath, `${JSON.stringify(creationReservationFixture(
+    expiredIssued.creationReservation,
+    expiredIssued,
+    "2020-01-01T00:00:00.000Z",
+    expiredReservation.reservedAt
+  ))}\n`);
   const replacementIssued = await issueActionToken(root, registeredRun.runId, {
     action: "branch.create",
     provider: "git",
@@ -7034,6 +7016,47 @@ test("destructive cleanup actions require an immutable run-owned resource receip
     }
   };
   await addEvidence(root, registeredRun.runId, actionEvidence);
+  const providerExecutionPath = path.join(
+    root,
+    "provider-executions",
+    `${sha256(providerReceipt.executionId)}.json`
+  );
+  await mkdir(path.dirname(providerExecutionPath), { recursive: true });
+  const conflictingExecutionIdentity = {
+    schemaVersion: 2,
+    executionId: providerReceipt.executionId,
+    runId: creationSpent.runId,
+    attemptId: creationSpent.attemptId,
+    tokenHash: creationSpent.tokenHash,
+    action: creationSpent.action,
+    provider: creationSpent.provider,
+    repository: creationSpent.creationReservation.repository,
+    resource: creationSpent.resource,
+    idempotencyKey: `${creationSpent.idempotencyKey}-raced`,
+    remoteRevision: creationSpent.remoteRevision
+  };
+  await writeFile(providerExecutionPath, `${JSON.stringify({
+    ...conflictingExecutionIdentity,
+    identityDigest: digestObject(conflictingExecutionIdentity),
+    outcome: "success",
+    recordedAt: new Date().toISOString()
+  })}\n`);
+  await assert.rejects(
+    reconcileAction(root, registeredRun.runId, creationSpent.attemptId, "success", {
+      action: "branch.create",
+      provider: "git",
+      resource,
+      outcome: "success",
+      runId: creationSpent.runId,
+      attemptId: creationSpent.attemptId,
+      idempotencyKey: creationSpent.idempotencyKey,
+      remoteRevision: creationSpent.remoteRevision,
+      providerReceipt,
+      evidenceIds: [actionEvidence.id]
+    }),
+    /reserved globally/
+  );
+  await unlink(providerExecutionPath);
   await reconcileAction(root, registeredRun.runId, creationSpent.attemptId, "success", {
     action: "branch.create",
     provider: "git",
@@ -7061,6 +7084,26 @@ test("destructive cleanup actions require an immutable run-owned resource receip
     createdAt: "2026-08-01T00:00:00.000Z"
   };
   const registered = await registerOwnedResource(root, registeredRun.runId, { resource, creationReceipt });
+  const replayedRegistration = await registerOwnedResource(
+    root,
+    registeredRun.runId,
+    { resource, creationReceipt }
+  );
+  assert.deepEqual(replayedRegistration, registered);
+  const releaseRecords = await Promise.all((await readdir(
+    path.join(root, "creation-reservation-releases")
+  )).filter((name) => name.endsWith(".json")).map(async (name) => JSON.parse(await readFile(
+    path.join(root, "creation-reservation-releases", name),
+    "utf8"
+  ))));
+  const creationRelease = releaseRecords.find((record) => (
+    record.binding?.owner?.runId === creationSpent.runId &&
+    record.binding?.owner?.attemptId === creationSpent.attemptId &&
+    record.binding?.owner?.tokenHash === creationSpent.tokenHash &&
+    record.binding?.owner?.idempotencyKey === creationSpent.idempotencyKey
+  ));
+  assert.equal(creationRelease?.status, "released");
+  assert.deepEqual(creationRelease?.binding?.reservation, creationSpent.creationReservation);
   await addPlan(registeredRun, {
     objective: "Delete only the owned branch",
     ownerRunId: registeredRun.runId,

@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
-import { EventEmitter } from "node:events";
 import {
   access,
   appendFile,
@@ -36,7 +35,6 @@ import {
 import { captureSentinel, captureSourceBinding } from "../lib/git.mjs";
 import { transitionLedger } from "../lib/ledger.mjs";
 import {
-  awaitPinnedChildTerminal,
   recipeArtifactPromote,
   recipePromote
 } from "../lib/recipes.mjs";
@@ -84,33 +82,6 @@ async function repository() {
   return cwd;
 }
 
-test("pinned child timeout waits for terminal close after SIGKILL", async () => {
-  const child = new EventEmitter();
-  let killed = false;
-  child.kill = (signal) => {
-    assert.equal(signal, "SIGKILL");
-    killed = true;
-    return true;
-  };
-  let settled = false;
-  const terminal = awaitPinnedChildTerminal(child, {
-    timeoutMs: 10,
-    timeoutMessage: "fixture timed out"
-  }).then(
-    (value) => ({ ok: true, value }),
-    (error) => ({ ok: false, error })
-  );
-  terminal.then(() => { settled = true; });
-  await delay(30);
-  assert.equal(killed, true);
-  assert.equal(settled, false);
-  child.emit("close", null, "SIGKILL");
-  const result = await terminal;
-  assert.equal(result.ok, false);
-  assert.match(result.error.message, /fixture timed out/);
-  assert.equal(settled, true);
-});
-
 test("discard publisher quarantines a raced pathname without deleting the replacement inode", async () => {
   const parent = await mkdtemp(path.join(os.tmpdir(), "sbw-publisher-quarantine-"));
   const controls = await mkdtemp(path.join(os.tmpdir(), "sbw-publisher-controls-"));
@@ -125,6 +96,7 @@ test("discard publisher quarantines a raced pathname without deleting the replac
   const targetInfo = await lstat(path.join(parent, targetName));
   const parentIdentity = `${parentInfo.dev}:${parentInfo.ino}`;
   const targetIdentity = `${targetInfo.dev}:${targetInfo.ino}`;
+  const publisherDigest = sha256(await readFile(ARTIFACT_PUBLISHER));
   const child = spawn(process.execPath, [
     ARTIFACT_PUBLISHER,
     "discard",
@@ -135,7 +107,8 @@ test("discard publisher quarantines a raced pathname without deleting the replac
     String(artifactBytes.length),
     targetIdentity,
     sha256(priorBytes),
-    String(priorBytes.length)
+    String(priorBytes.length),
+    publisherDigest
   ], {
     cwd: parent,
     shell: false,
@@ -185,6 +158,165 @@ test("discard publisher quarantines a raced pathname without deleting the replac
   assert.equal(quarantinedInfo.dev, replacementInfo.dev);
   assert.equal(quarantinedInfo.ino, replacementInfo.ino);
   assert.deepEqual(await readFile(quarantinedPath), artifactBytes);
+});
+
+test("finalize publisher quarantines a raced temporary name without unlinking the replacement", async () => {
+  const parent = await mkdtemp(path.join(os.tmpdir(), "sbw-publisher-finalize-race-"));
+  const controls = await mkdtemp(path.join(os.tmpdir(), "sbw-publisher-finalize-controls-"));
+  const targetName = "report.md";
+  const temporaryName = ".report.tmp";
+  const displacedName = ".report.original";
+  const bytes = Buffer.from("# governed report\n");
+  await writeFile(path.join(parent, temporaryName), bytes);
+  await link(path.join(parent, temporaryName), path.join(parent, targetName));
+  const parentInfo = await lstat(parent);
+  const targetInfo = await lstat(path.join(parent, targetName));
+  const publisherDigest = sha256(await readFile(ARTIFACT_PUBLISHER));
+  const child = spawn(process.execPath, [
+    ARTIFACT_PUBLISHER,
+    "finalize",
+    `${parentInfo.dev}:${parentInfo.ino}`,
+    targetName,
+    temporaryName,
+    sha256(bytes),
+    String(bytes.length),
+    `${targetInfo.dev}:${targetInfo.ino}`,
+    "-",
+    "-",
+    publisherDigest
+  ], {
+    cwd: parent,
+    shell: false,
+    stdio: ["ignore", "pipe", "pipe"],
+    env: {
+      LANG: "C.UTF-8",
+      LC_ALL: "C.UTF-8",
+      TZ: "UTC",
+      NODE_NO_WARNINGS: "1",
+      SBW_RECIPE_PUBLISHER_TEST_ROOT: controls
+    }
+  });
+  let stderr = "";
+  child.stderr.setEncoding("utf8");
+  child.stderr.on("data", (chunk) => { stderr += chunk; });
+  const terminal = new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", (code, signal) => resolve({ code, signal }));
+  });
+  const ready = path.join(controls, "before-publication-finalize-quarantine-rename.ready");
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    try {
+      await access(ready);
+      break;
+    } catch (error) {
+      if (attempt === 199) throw error;
+      await delay(5);
+    }
+  }
+  await rename(path.join(parent, temporaryName), path.join(parent, displacedName));
+  await writeFile(path.join(parent, temporaryName), bytes, { flag: "wx" });
+  const replacementInfo = await lstat(path.join(parent, temporaryName));
+  await writeFile(
+    path.join(controls, "before-publication-finalize-quarantine-rename.continue"),
+    "continue\n"
+  );
+  const result = await terminal;
+  assert.notEqual(result.code, 0);
+  assert.match(stderr, /publication-finalize identity changed at the quarantine boundary/);
+  assert.deepEqual(await readFile(path.join(parent, targetName)), bytes);
+  assert.deepEqual(await readFile(path.join(parent, displacedName)), bytes);
+  const quarantineName = (await readdir(parent)).find((name) => name.startsWith(".sbw-discard-quarantine-"));
+  assert.ok(quarantineName);
+  const quarantinedInfo = await lstat(path.join(parent, quarantineName, "artifact"));
+  assert.equal(quarantinedInfo.dev, replacementInfo.dev);
+  assert.equal(quarantinedInfo.ino, replacementInfo.ino);
+});
+
+test("replace publisher never overwrites a target raced into the no-overwrite link boundary", async () => {
+  const parent = await mkdtemp(path.join(os.tmpdir(), "sbw-publisher-replace-race-"));
+  const controls = await mkdtemp(path.join(os.tmpdir(), "sbw-publisher-replace-controls-"));
+  const targetName = "config.json";
+  const temporaryName = ".config.tmp";
+  const priorBytes = Buffer.from("{\"enabled\":false}\n");
+  const artifactBytes = Buffer.from("{\"enabled\":true}\n");
+  const racedBytes = Buffer.from("{\"attacker\":true}\n");
+  await writeFile(path.join(parent, targetName), priorBytes);
+  const parentInfo = await lstat(parent);
+  const targetInfo = await lstat(path.join(parent, targetName));
+  const publisherDigest = sha256(await readFile(ARTIFACT_PUBLISHER));
+  const child = spawn(process.execPath, [
+    ARTIFACT_PUBLISHER,
+    "replace",
+    `${parentInfo.dev}:${parentInfo.ino}`,
+    targetName,
+    temporaryName,
+    sha256(artifactBytes),
+    String(artifactBytes.length),
+    `${targetInfo.dev}:${targetInfo.ino}`,
+    sha256(priorBytes),
+    String(priorBytes.length),
+    publisherDigest
+  ], {
+    cwd: parent,
+    shell: false,
+    stdio: ["pipe", "pipe", "pipe"],
+    env: {
+      LANG: "C.UTF-8",
+      LC_ALL: "C.UTF-8",
+      TZ: "UTC",
+      NODE_NO_WARNINGS: "1",
+      SBW_RECIPE_PUBLISHER_TEST_ROOT: controls
+    }
+  });
+  let stderr = "";
+  child.stderr.setEncoding("utf8");
+  child.stderr.on("data", (chunk) => { stderr += chunk; });
+  child.stdin.end(artifactBytes);
+  const terminal = new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", (code, signal) => resolve({ code, signal }));
+  });
+  const priorQuarantineReady = path.join(
+    controls,
+    "before-replacement-prior-target-quarantine-rename.ready"
+  );
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    try {
+      await access(priorQuarantineReady);
+      break;
+    } catch (error) {
+      if (attempt === 199) throw error;
+      await delay(5);
+    }
+  }
+  await writeFile(
+    path.join(controls, "before-replacement-prior-target-quarantine-rename.continue"),
+    "continue\n"
+  );
+  const ready = path.join(controls, "before-replacement-target-link.ready");
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    try {
+      await access(ready);
+      break;
+    } catch (error) {
+      if (attempt === 199) throw error;
+      await delay(5);
+    }
+  }
+  await writeFile(path.join(parent, targetName), racedBytes, { flag: "wx" });
+  const racedInfo = await lstat(path.join(parent, targetName));
+  await writeFile(path.join(controls, "before-replacement-target-link.continue"), "continue\n");
+  const result = await terminal;
+  assert.notEqual(result.code, 0);
+  assert.match(stderr, /replacement target appeared at the no-overwrite publication boundary/);
+  assert.deepEqual(await readFile(path.join(parent, targetName)), racedBytes);
+  const currentRacedInfo = await lstat(path.join(parent, targetName));
+  assert.equal(currentRacedInfo.dev, racedInfo.dev);
+  assert.equal(currentRacedInfo.ino, racedInfo.ino);
+  assert.deepEqual(await readFile(path.join(parent, temporaryName)), artifactBytes);
+  const quarantineName = (await readdir(parent)).find((name) => name.startsWith(".sbw-discard-quarantine-"));
+  assert.ok(quarantineName);
+  assert.deepEqual(await readFile(path.join(parent, quarantineName, "artifact")), priorBytes);
 });
 
 async function cli(cwd, stateRoot, args, { allowFailure = false } = {}) {
@@ -1069,12 +1201,84 @@ test("reference recipe completes governed promotion, dry-run, atomic run, artifa
   );
   const interruptedIntent = JSON.parse(await readFile(intentPath, "utf8"));
   assert.equal(interruptedIntent.status, "prepared");
+  const artifactAdmissionRoot = path.join(
+    stateRoot,
+    "runs",
+    runId,
+    "local-provider-intent-admissions"
+  );
+  const preparedArtifactAdmissionPath = path.join(
+    artifactAdmissionRoot,
+    `${artifactAttemptId}.prepared.json`
+  );
+  const preparedArtifactAdmission = JSON.parse(
+    await readFile(preparedArtifactAdmissionPath, "utf8")
+  );
+  assert.equal(preparedArtifactAdmission.intentDigest, digestObject(interruptedIntent));
+  const interruptedArtifactJournal = (await readFile(
+    path.join(stateRoot, "runs", runId, "journal.jsonl"),
+    "utf8"
+  )).split("\n").filter(Boolean).map((line) => JSON.parse(line));
+  assert.equal(interruptedArtifactJournal.filter((entry) => (
+    entry.event === "action.local-provider-artifact-intent-admission-pending" &&
+    entry.attemptId === artifactAttemptId && entry.status === "prepared"
+  )).length, 1);
+  assert.equal(interruptedArtifactJournal.filter((entry) => (
+    entry.event === "action.local-provider-intent-prepared" &&
+    entry.attemptId === artifactAttemptId && entry.status === "prepared"
+  )).length, 1);
   const interruptedTarget = await lstat(path.join(cwd, destination));
   const interruptedTemporaryPath = path.join(destinationParent, interruptedIntent.binding.temporaryName);
   const interruptedTemporary = await lstat(interruptedTemporaryPath);
   assert.equal(interruptedTarget.ino, interruptedTemporary.ino);
   assert.equal(interruptedTarget.nlink, 2);
   assert.equal(interruptedTemporary.nlink, 2);
+  const artifactIntentAttackState = await mkdtemp(
+    path.join(os.tmpdir(), "sbw-artifact-intent-admission-attack-")
+  );
+  await cp(stateRoot, artifactIntentAttackState, { recursive: true });
+  const attackedIntentPath = path.join(
+    artifactIntentAttackState,
+    "runs",
+    runId,
+    "local-provider-intents",
+    `${artifactAttemptId}.json`
+  );
+  const attackedAdmissionPath = path.join(
+    artifactIntentAttackState,
+    "runs",
+    runId,
+    "local-provider-intent-admissions",
+    `${artifactAttemptId}.prepared.json`
+  );
+  const attackedIntent = structuredClone(interruptedIntent);
+  attackedIntent.binding.parentIdentity = "1:1";
+  attackedIntent.bindingDigest = digestObject(attackedIntent.binding);
+  const attackedAdmission = structuredClone(preparedArtifactAdmission);
+  attackedAdmission.intent = attackedIntent;
+  attackedAdmission.intentDigest = digestObject(attackedIntent);
+  attackedAdmission.admissionDigest = digestObject({
+    schemaVersion: attackedAdmission.schemaVersion,
+    kind: attackedAdmission.kind,
+    runId: attackedAdmission.runId,
+    actionAttemptId: attackedAdmission.actionAttemptId,
+    status: attackedAdmission.status,
+    event: attackedAdmission.event,
+    intentDigest: attackedAdmission.intentDigest
+  });
+  await writeFile(attackedIntentPath, `${JSON.stringify(attackedIntent, null, 2)}\n`);
+  await writeFile(attackedAdmissionPath, `${JSON.stringify(attackedAdmission, null, 2)}\n`);
+  const priorArtifactAttackStateRoot = process.env.SBW_STATE_ROOT;
+  process.env.SBW_STATE_ROOT = artifactIntentAttackState;
+  try {
+    await assert.rejects(
+      recipeArtifactPromote(cwd, executed.json.receiptId, "report-markdown", destination),
+      /journal binding is missing or ambiguous|pending admission is ambiguous/
+    );
+  } finally {
+    if (priorArtifactAttackStateRoot === undefined) delete process.env.SBW_STATE_ROOT;
+    else process.env.SBW_STATE_ROOT = priorArtifactAttackStateRoot;
+  }
   const artifactPromotion = await cli(cwd, stateRoot, [
     "recipe",
     "artifact",
@@ -1088,6 +1292,26 @@ test("reference recipe completes governed promotion, dry-run, atomic run, artifa
   assert.equal(artifactPromotion.json.destination, destination);
   const publishedIntent = JSON.parse(await readFile(intentPath, "utf8"));
   assert.equal(publishedIntent.status, "published");
+  const completedArtifactJournal = (await readFile(
+    path.join(stateRoot, "runs", runId, "journal.jsonl"),
+    "utf8"
+  )).split("\n").filter(Boolean).map((line) => JSON.parse(line));
+  for (const status of ["prepared", "linked", "published"]) {
+    const admission = JSON.parse(await readFile(
+      path.join(artifactAdmissionRoot, `${artifactAttemptId}.${status}.json`),
+      "utf8"
+    ));
+    assert.equal(admission.intent.status, status);
+    assert.equal(admission.intentDigest, digestObject(admission.intent));
+    assert.equal(completedArtifactJournal.filter((entry) => (
+      entry.event === "action.local-provider-artifact-intent-admission-pending" &&
+      entry.attemptId === artifactAttemptId && entry.status === status
+    )).length, 1);
+    assert.equal(completedArtifactJournal.filter((entry) => (
+      entry.event === `action.local-provider-intent-${status}` &&
+      entry.attemptId === artifactAttemptId && entry.status === status
+    )).length, 1);
+  }
   assert.equal((await lstat(path.join(cwd, destination))).nlink, 1);
   await assert.rejects(access(interruptedTemporaryPath));
   const artifactRun = await inspectRun(stateRoot, runId);
