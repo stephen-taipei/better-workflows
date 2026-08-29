@@ -1246,6 +1246,9 @@ async function spawnRecipe(recipe, input, stagingPath, { preserve = false } = {}
       NODE_NO_WARNINGS: "1"
     }
   });
+  const completion = awaitPinnedChildTerminal(child, {
+    timeoutMessage: "pinned artifact publisher timed out"
+  });
   let stdout = Buffer.alloc(0);
   let stderr = Buffer.alloc(0);
   let outputBytes = 0;
@@ -2489,9 +2492,7 @@ async function runPinnedArtifactPublisher({
   child.stderr.on("data", (chunk) => { stderr = append(stderr, chunk); });
   child.stdin.on("error", () => undefined);
   child.stdin.end(["link", "replace"].includes(mode) ? artifactBytes : undefined);
-  const result = await awaitPinnedChildTerminal(child, {
-    timeoutMessage: "pinned artifact publisher timed out"
-  });
+  const result = await completion;
   if (outputExceeded) throw recipeError("pinned artifact publisher output exceeded 64 KiB");
   if (result.code !== 0 || result.signal) {
     throw recipeError(
@@ -2538,6 +2539,9 @@ async function runPinnedDestinationParentCreator({ parent, parentIdentity, compo
       NODE_NO_WARNINGS: "1"
     }
   });
+  const completion = awaitPinnedChildTerminal(child, {
+    timeoutMessage: "pinned destination parent creator timed out"
+  });
   let stdout = Buffer.alloc(0);
   let stderr = Buffer.alloc(0);
   let outputExceeded = false;
@@ -2552,9 +2556,7 @@ async function runPinnedDestinationParentCreator({ parent, parentIdentity, compo
   };
   child.stdout.on("data", (chunk) => { stdout = append(stdout, chunk); });
   child.stderr.on("data", (chunk) => { stderr = append(stderr, chunk); });
-  const result = await awaitPinnedChildTerminal(child, {
-    timeoutMessage: "pinned destination parent creator timed out"
-  });
+  const result = await completion;
   if (outputExceeded) throw recipeError("pinned destination parent creator output exceeded 64 KiB");
   if (result.code !== 0 || result.signal) {
     throw recipeError(
