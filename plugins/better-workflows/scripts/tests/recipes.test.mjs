@@ -750,7 +750,9 @@ test("reference recipe completes governed promotion, dry-run, atomic run, artifa
 
   const priorSourceBindingAttackStateRoot = process.env.SBW_STATE_ROOT;
   process.env.SBW_STATE_ROOT = stateRoot;
-  let hiddenIndexMutated = false;
+  const originalFixtureHeadRef = (await git(cwd, "symbolic-ref", "HEAD")).stdout.trim();
+  await git(cwd, "branch", "source-binding-attack", "HEAD");
+  let symbolicHeadMutated = false;
   try {
     await assert.rejects(
       recipePromote(cwd, "json-keyset-audit", {
@@ -759,18 +761,19 @@ test("reference recipe completes governed promotion, dry-run, atomic run, artifa
         confirmDigest: digest,
         async onProviderBoundary(boundary) {
           if (boundary !== "config-before-temporary-discard") return;
-          await git(cwd, "update-index", "--skip-worktree", ".codex/better-workflows/config.json");
-          hiddenIndexMutated = true;
+          await git(cwd, "symbolic-ref", "HEAD", "refs/heads/source-binding-attack");
+          symbolicHeadMutated = true;
         }
       }),
       /source authority changed before cleanup/
     );
-    assert.equal(hiddenIndexMutated, true);
+    assert.equal(symbolicHeadMutated, true);
     assert.equal((await lstat(interruptedConfigTemporary)).nlink, 1);
   } finally {
-    if (hiddenIndexMutated) {
-      await git(cwd, "update-index", "--no-skip-worktree", ".codex/better-workflows/config.json");
+    if (symbolicHeadMutated) {
+      await git(cwd, "symbolic-ref", "HEAD", originalFixtureHeadRef);
     }
+    await git(cwd, "branch", "-D", "source-binding-attack");
     if (priorSourceBindingAttackStateRoot === undefined) delete process.env.SBW_STATE_ROOT;
     else process.env.SBW_STATE_ROOT = priorSourceBindingAttackStateRoot;
   }
