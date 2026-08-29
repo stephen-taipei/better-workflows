@@ -10143,11 +10143,15 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
         throw new Error(`Action token denied until execution stage is ready: ${stageId}`);
       }
     }
-    const providerRepository = creationReservation?.repository ?? (
-      request.provider === "github-cli"
+    const providerRepository = creationReservation?.repository ??
+      actionBinding.remoteRepository ??
+      actionBinding.createRepository ??
+      actionBinding.dispatchRepository ??
+      (request.provider === "github-cli"
         ? repository ?? await currentRepositoryIdentity(manifest.cwd)
-        : await currentGitProviderIdentity(manifest.cwd)
-    );
+        : request.provider !== "git" || request.action === "git.commit"
+          ? `workspace:${sha256(await realpath(manifest.cwd))}`
+          : await currentGitProviderIdentity(manifest.cwd));
     actionBinding = { ...actionBinding, providerRepository };
     const token = randomBytes(32).toString("base64url");
     const tokenHash = sha256(token);
