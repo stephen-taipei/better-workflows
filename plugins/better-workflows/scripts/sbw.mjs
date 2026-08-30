@@ -50,6 +50,7 @@ import {
   setRunStatus,
   sha256,
   supersedeEvidence,
+  supersedeReviewEvidence,
   updateState,
   validateContract,
   withRunLock
@@ -2070,7 +2071,7 @@ function help() {
       "sbw ledger transition <run-id> --file <event.json>",
       "sbw ledger compile <run-id> --design-packet <packet.json>",
       "sbw refinement status|apply <run-id> [--file <receipt.json>]",
-      "sbw review package|finding|axis-digest|axis|verify-digest|verify|coverage|synthesize|status|repair|broad <run-id> ...",
+      "sbw review package|finding|axis-digest|axis|verify-digest|verify|coverage|synthesize|status|repair|supersede|broad <run-id> ...",
       "sbw review quorum run|verify|status <run-id> [--file <manifest.json>]",
       "sbw recipe init",
       "sbw recipe scaffold <id>",
@@ -2740,6 +2741,15 @@ async function main() {
       const result = JSON.parse(await readFile(path.resolve(String(options.file)), "utf8"));
       return { ok: true, reviewPackage: await recordRepairRound(root, runId, String(options.package), result) };
     }
+    if (subcommand === "supersede") {
+      assertKnownOptions(options, ["file"]);
+      if (!options.file) throw new Error("review supersede requires --file <supersession.json>");
+      const record = JSON.parse(await readFile(path.resolve(String(options.file)), "utf8"));
+      return {
+        ok: true,
+        supersession: await supersedeReviewEvidence(root, runId, record)
+      };
+    }
     if (subcommand === "broad") {
       if (!options.package || !options.head || !options["sentinel-digest"]) {
         throw new Error("review broad requires --package, --head, and --sentinel-digest");
@@ -2755,7 +2765,7 @@ async function main() {
         )
       };
     }
-    throw new Error("review subcommand must be package, finding, axis-digest, axis, verify-digest, verify, coverage, synthesize, status, repair, or broad");
+    throw new Error("review subcommand must be package, finding, axis-digest, axis, verify-digest, verify, coverage, synthesize, status, repair, supersede, or broad");
   }
   if (command === "refinement") {
     if (!runId) throw new Error("refinement requires run id");

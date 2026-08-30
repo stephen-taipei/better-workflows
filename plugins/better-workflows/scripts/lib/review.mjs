@@ -1062,6 +1062,42 @@ async function assertFindingEvidence(root, run, finding) {
   }
 }
 
+async function selectFinalDiffReviewEvidence(root, run, reviewPackage, evidence, validateTypedEvidenceRecord) {
+  const candidates = evidence.filter((item) => (
+    item.kind === "diff-review" &&
+    item.status === "complete" &&
+    item.receipt?.payload?.verdict === "PASS" &&
+    item.receipt?.payload?.packageId === reviewPackage.packageId &&
+    item.receipt?.payload?.base === reviewPackage.base &&
+    item.receipt?.payload?.head === reviewPackage.head &&
+    item.receipt?.payload?.scopeDigest === reviewPackage.scopeDigest &&
+    item.receipt?.payload?.diffManifestDigest === reviewPackage.diffManifestDigest &&
+    item.receipt?.payload?.instructionDigest === reviewPackage.instructionDigest
+  ));
+  if (candidates.length === 0) {
+    throw new Error("Broad review requires final package-bound diff-review evidence");
+  }
+  const invalid = [];
+  const fresh = [];
+  for (const candidate of candidates) {
+    try {
+      if (candidate.stale === true) throw new Error("persisted stale marker");
+      await validateTypedEvidenceRecord(candidate, { ...run, root, requireReconciled: true });
+      await assertCurrentEvidenceFreshness(run, candidate, "Broad review diff-review evidence");
+      fresh.push(candidate);
+    } catch (error) {
+      invalid.push(`${candidate.id}: ${error.message}`);
+    }
+  }
+  if (invalid.length > 0) {
+    throw new Error(`Broad review has stale or invalid unsuperseded diff-review evidence: ${invalid.join("; ")}`);
+  }
+  if (fresh.length !== 1) {
+    throw new Error(`Broad review diff-review evidence is ambiguous: ${fresh.map((item) => item.id).join(", ")}`);
+  }
+  return fresh[0];
+}
+
 async function assertBroadReviewEvidence(root, run, reviewPackage, kernel = null) {
   if (run.contract.controlPlane?.reviewPolicy === "none") return;
   const evidence = await listEffectiveEvidenceRecords(root, run.manifest.runId, { run });
@@ -1092,21 +1128,7 @@ async function assertBroadReviewEvidence(root, run, reviewPackage, kernel = null
     await assertCurrentEvidenceFreshness(run, summary, "Broad review kernel-summary evidence");
     return;
   }
-  const diff = evidence.find((item) => (
-    item.kind === "diff-review" &&
-    item.status === "complete" &&
-    !item.stale &&
-    item.receipt?.payload?.verdict === "PASS" &&
-    item.receipt?.payload?.packageId === reviewPackage.packageId &&
-    item.receipt?.payload?.base === reviewPackage.base &&
-    item.receipt?.payload?.head === reviewPackage.head &&
-    item.receipt?.payload?.scopeDigest === reviewPackage.scopeDigest &&
-    item.receipt?.payload?.diffManifestDigest === reviewPackage.diffManifestDigest &&
-    item.receipt?.payload?.instructionDigest === reviewPackage.instructionDigest
-  ));
-  if (!diff) throw new Error("Broad review requires final package-bound diff-review evidence");
-  await validateTypedEvidenceRecord(diff, { ...run, root, requireReconciled: true });
-  await assertCurrentEvidenceFreshness(run, diff, "Broad review diff-review evidence");
+  const diff = await selectFinalDiffReviewEvidence(root, run, reviewPackage, evidence, validateTypedEvidenceRecord);
   if (quorumReviewEnabled(run.contract.controlPlane?.reviewPolicy)) {
     const quorum = evidence.find((item) => isQuorumEvidence(item, {
       registryCwd: run.manifest.cwd,

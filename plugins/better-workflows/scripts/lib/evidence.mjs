@@ -26,6 +26,18 @@ const INDEPENDENT_CRITIC_PRODUCERS = new Set(["agy", "codex", "codex-native-suba
 const MAX_REQUIRED_CHECK_AGE_MS = 30 * 60 * 1000;
 let contractCache = null;
 
+function hasCanonicalDependencyInputs(value) {
+  return Boolean(
+    value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Object.keys(value).length === 1 &&
+    Object.hasOwn(value, "files") &&
+    Array.isArray(value.files) &&
+    value.files.every((candidate) => typeof candidate === "string" && candidate.length > 0)
+  );
+}
+
 export async function loadEvidenceContracts({ refresh = false } = {}) {
   if (contractCache && !refresh) return contractCache;
   const value = JSON.parse(await readFile(CONTRACT_FILE, "utf8"));
@@ -570,6 +582,9 @@ export async function admitTypedEvidence(record, run, { persisted = false } = {}
   if (record.status !== "complete") throw new Error("Typed evidence status must be complete");
   if (typeof record.summary !== "string" || !record.summary.trim()) {
     throw new Error("Typed evidence summary is required");
+  }
+  if (record.kind === "diff-review" && !hasCanonicalDependencyInputs(record.dependencyInputs)) {
+    throw new Error("Typed evidence diff-review dependencyInputs must be an object containing only a files array");
   }
   const receipt = record.receipt;
   if (!receipt || typeof receipt !== "object" || Array.isArray(receipt)) {

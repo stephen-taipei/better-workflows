@@ -3489,6 +3489,55 @@ const EVIDENCE_SUPERSESSION_ACTION_KEYS = new Set([
   "remoteRevision",
   "providerExecutionId"
 ]);
+const REVIEW_EVIDENCE_SUPERSESSION_SCHEMA_VERSION = 1;
+const REVIEW_EVIDENCE_SUPERSESSION_DIRECTORY = "review-evidence-supersessions";
+const REVIEW_EVIDENCE_SUPERSESSION_EVENT = "review.evidence.superseded";
+const REVIEW_EVIDENCE_SUPERSESSION_KIND = "review-evidence";
+const REVIEW_EVIDENCE_SUPERSESSION_TARGET_DISPOSITION = "invalidated";
+const REVIEW_EVIDENCE_SUPERSESSION_REPLACEMENT_DISPOSITION = "selected";
+const REVIEW_EVIDENCE_SUPERSESSION_SELECTION_POLICY = "effective-current-only";
+const REVIEW_EVIDENCE_SUPERSESSION_REASON_CODE = "missing-dependency-inputs";
+const REVIEW_EVIDENCE_SUPERSESSION_REASON_CODES = new Set([
+  REVIEW_EVIDENCE_SUPERSESSION_REASON_CODE,
+  "dependency-freshness-drift"
+]);
+const REVIEW_EVIDENCE_SUPERSESSION_KEYS = new Set([
+  "schemaVersion",
+  "id",
+  "runId",
+  "kind",
+  "targetDisposition",
+  "replacementDisposition",
+  "selectionPolicy",
+  "supersededEvidence",
+  "replacementEvidence",
+  "reviewBinding",
+  "contractDigest",
+  "sourceBindingDigest",
+  "policyDigest",
+  "reasonCode",
+  "reason",
+  "actor",
+  "createdAt"
+]);
+const REVIEW_EVIDENCE_SUPERSESSION_INPUT_KEYS = new Set([
+  "schemaVersion",
+  "id",
+  "supersededEvidenceId",
+  "supersededEvidenceDigest",
+  "replacementEvidenceId",
+  "replacementEvidenceDigest",
+  "reasonCode",
+  "reason"
+]);
+const REVIEW_EVIDENCE_REVIEW_BINDING_KEYS = new Set([
+  "packageId",
+  "base",
+  "head",
+  "scopeDigest",
+  "diffManifestDigest",
+  "instructionDigest"
+]);
 const EVIDENCE_DEPENDENCY_KEYS = new Set([
   "contractDigest",
   "workflowVersion",
@@ -3936,6 +3985,258 @@ async function assertEvidenceSupersessionIdentity(run, target, replacement) {
     }
   }
   return replacementIdentity;
+}
+
+function hasCanonicalEvidenceDependencyInputs(value) {
+  return Boolean(
+    value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Object.keys(value).length === 1 &&
+    Object.hasOwn(value, "files") &&
+    Array.isArray(value.files) &&
+    value.files.every((candidate) => typeof candidate === "string" && candidate.length > 0)
+  );
+}
+
+function reviewEvidenceBinding(record) {
+  const payload = record?.receipt?.payload;
+  return {
+    packageId: payload?.packageId,
+    base: payload?.base,
+    head: payload?.head,
+    scopeDigest: payload?.scopeDigest,
+    diffManifestDigest: payload?.diffManifestDigest,
+    instructionDigest: payload?.instructionDigest
+  };
+}
+
+function reviewEvidenceContentProjection(record) {
+  const projection = structuredClone(record);
+  delete projection.id;
+  for (const key of [
+    "createdAt",
+    "dependencyInputs",
+    "dependencies",
+    "stale",
+    "freshnessCheckedAt",
+    "currentDependencyFiles",
+    "staleReason"
+  ]) delete projection[key];
+  if (projection.typedAdmission) delete projection.typedAdmission.admittedAt;
+  if (projection.receipt) delete projection.receipt.producedAt;
+  return projection;
+}
+
+function reviewEvidencePackageBinding(reviewPackage) {
+  return {
+    packageId: reviewPackage.packageId,
+    base: reviewPackage.base,
+    head: reviewPackage.head,
+    scopeDigest: reviewPackage.scopeDigest,
+    diffManifestDigest: reviewPackage.diffManifestDigest,
+    instructionDigest: reviewPackage.instructionDigest
+  };
+}
+
+async function validateReviewEvidenceSupersessionRecord(root, run, recordsById, journal, record) {
+  assertExactObjectKeys(record, REVIEW_EVIDENCE_SUPERSESSION_KEYS, "Review evidence supersession record");
+  if (record.schemaVersion !== REVIEW_EVIDENCE_SUPERSESSION_SCHEMA_VERSION) {
+    throw new Error("Review evidence supersession schemaVersion must be 1");
+  }
+  validateRecordId(record.id, "review evidence supersession");
+  if (
+    record.runId !== run.manifest.runId ||
+    record.actor !== "root" ||
+    record.kind !== REVIEW_EVIDENCE_SUPERSESSION_KIND ||
+    record.targetDisposition !== REVIEW_EVIDENCE_SUPERSESSION_TARGET_DISPOSITION ||
+    record.replacementDisposition !== REVIEW_EVIDENCE_SUPERSESSION_REPLACEMENT_DISPOSITION ||
+    record.selectionPolicy !== REVIEW_EVIDENCE_SUPERSESSION_SELECTION_POLICY ||
+    !REVIEW_EVIDENCE_SUPERSESSION_REASON_CODES.has(record.reasonCode)
+  ) {
+    throw new Error("Review evidence supersession lifecycle binding is invalid");
+  }
+  if (typeof record.reason !== "string" || record.reason.trim().length < 12 || record.reason.length > 512) {
+    throw new Error("Review evidence supersession reason must be 12 to 512 characters");
+  }
+  if (typeof record.createdAt !== "string" || !Number.isFinite(Date.parse(record.createdAt))) {
+    throw new Error("Review evidence supersession createdAt is invalid");
+  }
+  assertExactObjectKeys(record.reviewBinding, REVIEW_EVIDENCE_REVIEW_BINDING_KEYS, "Review evidence supersession review binding");
+  validateRecordId(record.reviewBinding.packageId, "review package");
+  if (
+    !SHA.test(record.reviewBinding.base) ||
+    !SHA.test(record.reviewBinding.head) ||
+    !SHA256_DIGEST.test(record.reviewBinding.scopeDigest) ||
+    !SHA256_DIGEST.test(record.reviewBinding.diffManifestDigest) ||
+    !SHA256_DIGEST.test(record.reviewBinding.instructionDigest)
+  ) {
+    throw new Error("Review evidence supersession review binding is invalid");
+  }
+  if (
+    record.contractDigest !== run.manifest.contractDigest ||
+    record.contractDigest !== digestObject(run.contract) ||
+    record.sourceBindingDigest !== (run.manifest.sourceBinding?.digest ?? null) ||
+    !SHA256_DIGEST.test(record.contractDigest) ||
+    (
+      record.sourceBindingDigest !== null &&
+      !SHA256_DIGEST.test(record.sourceBindingDigest)
+    ) ||
+    !SHA256_DIGEST.test(record.policyDigest)
+  ) {
+    throw new Error("Review evidence supersession contract or source binding is stale");
+  }
+  for (const [label, binding] of [
+    ["superseded", record.supersededEvidence],
+    ["replacement", record.replacementEvidence]
+  ]) {
+    assertExactObjectKeys(binding, new Set(["id", "digest"]), `Review evidence supersession ${label} binding`);
+    validateRecordId(binding.id, `${label} review evidence`);
+    if (!SHA256_DIGEST.test(binding.digest)) {
+      throw new Error(`Review evidence supersession ${label} digest is invalid`);
+    }
+  }
+  if (record.supersededEvidence.id === record.replacementEvidence.id) {
+    throw new Error("Review evidence supersession target and replacement must differ");
+  }
+  const target = recordsById.get(record.supersededEvidence.id);
+  const replacement = recordsById.get(record.replacementEvidence.id);
+  if (!target || !replacement) {
+    throw new Error("Review evidence supersession target or replacement is missing");
+  }
+  if (
+    digestObject(target) !== record.supersededEvidence.digest ||
+    digestObject(replacement) !== record.replacementEvidence.digest
+  ) {
+    throw new Error("Review evidence supersession evidence digest changed");
+  }
+  if (
+    target.kind !== "diff-review" ||
+    replacement.kind !== "diff-review" ||
+    target.schemaVersion !== 2 ||
+    replacement.schemaVersion !== 2 ||
+    target.status !== "complete" ||
+    replacement.status !== "complete" ||
+    !target.typedAdmission ||
+    !replacement.typedAdmission
+  ) {
+    throw new Error("Review evidence supersession only supports typed diff-review records");
+  }
+  const packagePath = safeJoin(
+    run.runDir,
+    "review-packages",
+    `${record.reviewBinding.packageId}.json`
+  );
+  const reviewPackage = await readJson(root, packagePath);
+  if (
+    reviewPackage.schemaVersion !== 1 ||
+    reviewPackage.immutable !== true ||
+    digestObject(reviewEvidencePackageBinding(reviewPackage)) !== digestObject(record.reviewBinding)
+  ) {
+    throw new Error("Review evidence supersession package binding is invalid");
+  }
+  if (
+    digestObject(reviewEvidenceBinding(target)) !== digestObject(record.reviewBinding) ||
+    digestObject(reviewEvidenceBinding(replacement)) !== digestObject(record.reviewBinding)
+  ) {
+    throw new Error("Review evidence supersession receipt is bound to a different review package");
+  }
+  if (digestObject(reviewEvidenceContentProjection(target)) !== digestObject(reviewEvidenceContentProjection(replacement))) {
+    throw new Error("Review evidence supersession may only correct dependency inputs");
+  }
+  const targetDependencyInputsValid = hasCanonicalEvidenceDependencyInputs(target.dependencyInputs);
+  if (!hasCanonicalEvidenceDependencyInputs(replacement.dependencyInputs)) {
+    throw new Error("Review evidence supersession replacement dependencyInputs are invalid");
+  }
+  const targetFreshness = await currentEvidenceFreshness(run, target);
+  if (record.reasonCode === REVIEW_EVIDENCE_SUPERSESSION_REASON_CODE) {
+    if (targetDependencyInputsValid) {
+      throw new Error("Review evidence supersession target is not the missing-dependency-inputs predecessor");
+    }
+    if (digestObject(target.dependencies ?? null) !== digestObject(replacement.dependencies ?? null)) {
+      throw new Error("Review evidence supersession dependency projection changed");
+    }
+  } else {
+    if (!targetDependencyInputsValid || digestObject(target.dependencyInputs) !== digestObject(replacement.dependencyInputs)) {
+      throw new Error("Review evidence dependency-freshness correction changed its input paths");
+    }
+    const targetDependencies = structuredClone(target.dependencies ?? {});
+    const replacementDependencies = structuredClone(replacement.dependencies ?? {});
+    delete targetDependencies.files;
+    delete replacementDependencies.files;
+    if (digestObject(targetDependencies) !== digestObject(replacementDependencies)) {
+      throw new Error("Review evidence dependency-freshness correction changed its static binding");
+    }
+  }
+  const targetCreatedAt = Date.parse(target.createdAt ?? "");
+  const replacementCreatedAt = Date.parse(replacement.createdAt ?? "");
+  const supersededAt = Date.parse(record.createdAt);
+  if (
+    !Number.isFinite(targetCreatedAt) ||
+    !Number.isFinite(replacementCreatedAt) ||
+    targetCreatedAt > replacementCreatedAt ||
+    replacementCreatedAt > supersededAt
+  ) {
+    throw new Error("Review evidence supersession chronology is invalid");
+  }
+  const { validateTypedEvidenceRecord } = await import("./evidence.mjs");
+  const legacyDependencyInputs = {
+    files: Array.isArray(target.dependencies?.files)
+      ? target.dependencies.files.map((entry) => entry?.path).filter((value) => typeof value === "string" && value.length > 0)
+      : []
+  };
+  await validateTypedEvidenceRecord(
+    { ...target, dependencyInputs: legacyDependencyInputs },
+    {
+      manifest: run.manifest,
+      contract: run.contract,
+      state: run.state,
+      root,
+      runDir: run.runDir,
+      requireReconciled: false
+    }
+  );
+  if (!targetFreshness.stale) {
+    throw new Error("Review evidence supersession target is not stale");
+  }
+  if (
+    record.reasonCode === REVIEW_EVIDENCE_SUPERSESSION_REASON_CODE &&
+    (
+      targetFreshness.expectedDependencies !== null ||
+      targetFreshness.projectionDigest !== digestObject({ invalidDependencyInputs: true })
+    )
+  ) {
+    throw new Error("Review evidence supersession target is not stale solely from missing dependencyInputs");
+  }
+  await validateTypedEvidenceRecord(replacement, {
+    manifest: run.manifest,
+    contract: run.contract,
+    state: run.state,
+    root,
+    runDir: run.runDir,
+    requireReconciled: true
+  });
+  await assertCurrentEvidenceFreshness(run, replacement, "Review evidence supersession replacement");
+  const recordDigest = digestObject(record);
+  const matchingJournal = journal.filter((entry) => (
+    entry.event === REVIEW_EVIDENCE_SUPERSESSION_EVENT &&
+    entry.supersessionId === record.id &&
+    entry.supersessionDigest === recordDigest &&
+    entry.supersededEvidenceId === record.supersededEvidence.id &&
+    entry.supersededEvidenceDigest === record.supersededEvidence.digest &&
+    entry.replacementEvidenceId === record.replacementEvidence.id &&
+    entry.replacementEvidenceDigest === record.replacementEvidence.digest &&
+    entry.supersessionKind === record.kind &&
+    entry.selectionPolicy === record.selectionPolicy &&
+    entry.reasonCode === record.reasonCode &&
+    typeof entry.at === "string" &&
+    Number.isFinite(Date.parse(entry.at)) &&
+    Date.parse(entry.at) >= supersededAt
+  ));
+  if (matchingJournal.length !== 1) {
+    throw new Error("Review evidence supersession journal binding is missing or ambiguous");
+  }
+  return { record, target, replacement };
 }
 
 async function fingerprintEvidenceDependency(cwd, candidate) {
@@ -4441,6 +4742,60 @@ async function loadEvidenceSupersessions(root, run, records) {
   return { records: validated, supersededIds, journal };
 }
 
+async function loadReviewEvidenceSupersessions(root, run, records) {
+  const directory = safeJoin(run.runDir, REVIEW_EVIDENCE_SUPERSESSION_DIRECTORY);
+  const journal = await readJournalRecords(root, run.runDir);
+  await assertEvidenceJournalProvenance(root, run, records, journal);
+  const supersessions = await listIdentityBoundJsonRecords(root, directory, "Review evidence supersession");
+  const journalEntries = journal.filter((entry) => entry.event === REVIEW_EVIDENCE_SUPERSESSION_EVENT);
+  if (supersessions.length === 0 && journalEntries.length === 0) {
+    return { records: [], supersededIds: new Set(), journal };
+  }
+  const recordsById = new Map(records.map((record) => [record.id, record]));
+  const validated = [];
+  const supersededIds = new Set();
+  const replacementIds = new Set();
+  for (const supersession of supersessions) {
+    const result = await validateReviewEvidenceSupersessionRecord(root, run, recordsById, journal, supersession);
+    const targetId = result.record.supersededEvidence.id;
+    const replacementId = result.record.replacementEvidence.id;
+    if (supersededIds.has(targetId) || replacementIds.has(replacementId)) {
+      throw new Error("Review evidence supersession is duplicated or conflicting");
+    }
+    if (replacementIds.has(targetId) || supersededIds.has(replacementId)) {
+      throw new Error("Review evidence supersession chains or cycles are forbidden");
+    }
+    supersededIds.add(targetId);
+    replacementIds.add(replacementId);
+    validated.push(result.record);
+  }
+  if (journalEntries.length !== validated.length) {
+    throw new Error("Review evidence supersession journal contains an unbound event");
+  }
+  return { records: validated, supersededIds, journal };
+}
+
+function mergeEvidenceSupersessionStates(provider, review) {
+  const records = [...provider.records, ...review.records];
+  const supersededIds = new Set();
+  const replacementIds = new Set();
+  for (const supersession of records) {
+    const targetId = supersession.supersededEvidence.id;
+    const replacementId = supersession.replacementEvidence.id;
+    if (
+      supersededIds.has(targetId) ||
+      replacementIds.has(targetId) ||
+      supersededIds.has(replacementId) ||
+      replacementIds.has(replacementId)
+    ) {
+      throw new Error("Evidence supersession is duplicated or conflicting across lifecycles");
+    }
+    supersededIds.add(targetId);
+    replacementIds.add(replacementId);
+  }
+  return { records, supersededIds, replacementIds };
+}
+
 export async function loadEffectiveEvidenceState(root, runId, { run: suppliedRun = null } = {}) {
   const run = suppliedRun ?? await loadRun(root, runId);
   const records = run.contract.schemaVersion === 2
@@ -4463,7 +4818,12 @@ export async function loadEffectiveEvidenceState(root, runId, { run: suppliedRun
     }
     return { records, supersessions: [] };
   }
-  const { records: supersessions, supersededIds } = await loadEvidenceSupersessions(root, run, records);
+  const providerSupersessions = await loadEvidenceSupersessions(root, run, records);
+  const reviewSupersessions = await loadReviewEvidenceSupersessions(root, run, records);
+  const { records: supersessions, supersededIds } = mergeEvidenceSupersessionStates(
+    providerSupersessions,
+    reviewSupersessions
+  );
   return {
     records: records.filter((record) => !supersededIds.has(record.id)),
     supersessions
@@ -4472,15 +4832,22 @@ export async function loadEffectiveEvidenceState(root, runId, { run: suppliedRun
 
 async function currentEvidenceSupersessionFreshnessDigest(root, run) {
   const evidence = await listIdentityBoundJsonRecords(root, safeJoin(run.runDir, "evidence"), "Evidence");
-  const supersessionState = await loadEvidenceSupersessions(root, run, evidence);
+  const supersessionState = mergeEvidenceSupersessionStates(
+    await loadEvidenceSupersessions(root, run, evidence),
+    await loadReviewEvidenceSupersessions(root, run, evidence)
+  );
   const recordsById = new Map(evidence.map((record) => [record.id, record]));
   const projection = [];
   for (const supersession of supersessionState.records) {
     for (const role of ["supersededEvidence", "replacementEvidence"]) {
       const binding = supersession[role];
       const record = recordsById.get(binding.id);
-      const freshness = await currentEvidenceFreshness(run, record);
-      if (freshness.stale) {
+      const reviewTargetInvalidated = (
+        supersession.kind === REVIEW_EVIDENCE_SUPERSESSION_KIND &&
+        role === "supersededEvidence"
+      );
+      const freshness = reviewTargetInvalidated ? null : await currentEvidenceFreshness(run, record);
+      if (freshness?.stale) {
         throw new Error(`Action token denied by stale immutable supersession evidence: ${record.id}`);
       }
       projection.push({
@@ -4489,7 +4856,8 @@ async function currentEvidenceSupersessionFreshnessDigest(root, run) {
         role,
         evidenceId: record.id,
         evidenceDigest: digestObject(record),
-        freshnessProjectionDigest: freshness.projectionDigest
+        freshnessProjectionDigest: freshness?.projectionDigest ?? null,
+        invalidated: reviewTargetInvalidated
       });
     }
   }
@@ -4862,10 +5230,9 @@ async function assertFrozenProviderActionEvidenceGate(root, runId, run, record, 
   ) {
     throw new Error(`${context} denied because the issued evidence projection is malformed`);
   }
-  const evidence = await listIdentityBoundJsonRecords(root, safeJoin(run.runDir, "evidence"), "Evidence");
-  await assertEvidenceJournalProvenance(root, run, evidence, await readJournalRecords(root, run.runDir));
+  const effective = await loadEffectiveEvidenceState(root, runId, { run });
   const gateKinds = new Set(record.evidenceGate);
-  const selected = evidence
+  const selected = effective.records
     .filter((item) => gateKinds.has(item.kind) && item.schemaVersion === 2 && item.typedAdmission && item.status === "complete" && item.stale !== true)
     .map((item) => ({ kind: item.kind, evidenceId: item.id, evidenceDigest: digestObject(item) }))
     .sort((left, right) => left.kind.localeCompare(right.kind) || left.evidenceId.localeCompare(right.evidenceId));
@@ -4875,11 +5242,9 @@ async function assertFrozenProviderActionEvidenceGate(root, runId, run, record, 
   if (digestObject(selected) !== digestObject(expectedEvidence)) {
     throw new Error(`${context} denied because issued gate evidence changed after provider invocation`);
   }
-  const supersessions = (await listIdentityBoundJsonRecords(
-    root,
-    safeJoin(run.runDir, "evidence-supersessions"),
-    "Evidence supersession"
-  )).map((item) => ({ id: item.id, digest: digestObject(item) })).sort((left, right) => left.id.localeCompare(right.id));
+  const supersessions = effective.supersessions
+    .map((item) => ({ id: item.id, digest: digestObject(item) }))
+    .sort((left, right) => left.id.localeCompare(right.id));
   if (digestObject(supersessions) !== digestObject(projection.effectiveSupersessions ?? [])) {
     throw new Error(`${context} denied because evidence supersessions changed after provider invocation`);
   }
@@ -5166,6 +5531,7 @@ export async function currentActionNonSourceAuthorityBinding(root, runId, run, a
 export async function currentActionEvidenceGateBinding(root, runId, run, action) {
   const policy = await currentActionNonSourceAuthorityBinding(root, runId, run, action);
   const sourceAuthority = await currentActionSourceAuthorityBinding(root, run, action);
+  const evidenceSupersessionFreshnessDigest = await currentEvidenceSupersessionFreshnessDigest(root, run);
   const projection = {
     schemaVersion: policy.projection.schemaVersion,
     runId: policy.projection.runId,
@@ -5194,7 +5560,8 @@ export async function currentActionEvidenceGateBinding(root, runId, run, action)
     digest: digestObject(projection),
     projection,
     policyDigest: policy.digest,
-    policyProjection: policy.projection
+    policyProjection: policy.projection,
+    evidenceSupersessionFreshnessDigest
   };
 }
 
@@ -5248,14 +5615,24 @@ export async function assertAutonomousCommitEvidenceInvalidationSafe(
 ) {
   const run = suppliedRun ?? await loadRun(root, runId);
   if (run.contract.schemaVersion !== 2) return { ok: true, supersessionIds: [] };
-  const supersessions = await listIdentityBoundJsonRecords(
-    root,
-    safeJoin(run.runDir, "evidence-supersessions"),
-    "Evidence supersession"
-  );
+  const supersessions = [
+    ...(await listIdentityBoundJsonRecords(
+      root,
+      safeJoin(run.runDir, "evidence-supersessions"),
+      "Evidence supersession"
+    )),
+    ...(await listIdentityBoundJsonRecords(
+      root,
+      safeJoin(run.runDir, REVIEW_EVIDENCE_SUPERSESSION_DIRECTORY),
+      "Review evidence supersession"
+    ))
+  ];
   const journal = await readJournalRecords(root, run.runDir);
   const journalIds = journal
-    .filter((entry) => entry.event === "evidence.superseded")
+    .filter((entry) => (
+      entry.event === "evidence.superseded" ||
+      entry.event === REVIEW_EVIDENCE_SUPERSESSION_EVENT
+    ))
     .map((entry) => entry.supersessionId);
   if (supersessions.length === 0 && journalIds.length === 0) {
     return { ok: true, supersessionIds: [] };
@@ -5290,18 +5667,28 @@ export async function refreshEvidence(root, runId, { onTransitionPrepared = null
       recoveredPending = recovered.recoveredIds;
     }
     const supersessionState = run.contract.schemaVersion === 2
-      ? await loadEvidenceSupersessions(root, run, evidence)
-      : { records: [] };
+      ? mergeEvidenceSupersessionStates(
+        await loadEvidenceSupersessions(root, run, evidence),
+        await loadReviewEvidenceSupersessions(root, run, evidence)
+      )
+      : { records: [], supersededIds: new Set(), replacementIds: new Set() };
     const immutableIds = new Set(supersessionState.records.flatMap((record) => [
       record.supersededEvidence.id,
       record.replacementEvidence.id
     ]));
+    const invalidatedReviewIds = new Set(
+      supersessionState.records
+        .filter((record) => record.kind === REVIEW_EVIDENCE_SUPERSESSION_KIND)
+        .map((record) => record.supersededEvidence.id)
+    );
     const stale = [];
     const fresh = [];
     const immutableStale = [];
     for (const record of evidence) {
       const freshness = await currentEvidenceFreshness(run, record);
-      if (immutableIds.has(record.id)) {
+      if (invalidatedReviewIds.has(record.id)) {
+        stale.push(record.id);
+      } else if (immutableIds.has(record.id)) {
         if (freshness.stale) immutableStale.push(record.id);
       } else {
         const checkedAt = nowIso();
@@ -5452,6 +5839,142 @@ export async function supersedeEvidence(root, runId, input) {
     const refreshed = await loadEvidenceSupersessions(root, run, evidence);
     if (!refreshed.records.some((item) => item.id === record.id)) {
       throw new Error("Evidence supersession was not admitted by canonical replay");
+    }
+    return record;
+  });
+}
+
+export async function supersedeReviewEvidence(root, runId, input) {
+  return withRunLock(root, runId, async ({ runDir }) => {
+    const run = await loadRun(root, runId);
+    assertMutableRun(run, "Review evidence supersession");
+    if (run.contract.schemaVersion !== 2) {
+      throw new Error("Review evidence supersession requires a TaskContract v2 run");
+    }
+    assertExactObjectKeys(input, REVIEW_EVIDENCE_SUPERSESSION_INPUT_KEYS, "Review evidence supersession input");
+    if (input.schemaVersion !== REVIEW_EVIDENCE_SUPERSESSION_SCHEMA_VERSION) {
+      throw new Error("Review evidence supersession input schemaVersion must be 1");
+    }
+    validateRecordId(input.id, "review evidence supersession");
+    validateRecordId(input.supersededEvidenceId, "superseded review evidence");
+    validateRecordId(input.replacementEvidenceId, "replacement review evidence");
+    if (
+      !SHA256_DIGEST.test(input.supersededEvidenceDigest) ||
+      !SHA256_DIGEST.test(input.replacementEvidenceDigest)
+    ) {
+      throw new Error("Review evidence supersession input digests are invalid");
+    }
+    if (!REVIEW_EVIDENCE_SUPERSESSION_REASON_CODES.has(input.reasonCode)) {
+      throw new Error("Review evidence supersession reasonCode is unsupported");
+    }
+    if (typeof input.reason !== "string" || input.reason.trim().length < 12 || input.reason.length > 512) {
+      throw new Error("Review evidence supersession reason must be 12 to 512 characters");
+    }
+    const evidence = await listIdentityBoundJsonRecords(root, safeJoin(runDir, "evidence"), "Evidence");
+    const evidenceJournal = await readJournalRecords(root, runDir);
+    await assertEvidenceJournalProvenance(root, run, evidence, evidenceJournal);
+    const recordsById = new Map(evidence.map((record) => [record.id, record]));
+    const target = recordsById.get(input.supersededEvidenceId);
+    const replacement = recordsById.get(input.replacementEvidenceId);
+    if (!target || !replacement) {
+      throw new Error("Review evidence supersession target or replacement is missing");
+    }
+    if (
+      digestObject(target) !== input.supersededEvidenceDigest ||
+      digestObject(replacement) !== input.replacementEvidenceDigest
+    ) {
+      throw new Error("Review evidence supersession input digest does not match persisted evidence");
+    }
+    const targetPath = safeJoin(
+      runDir,
+      REVIEW_EVIDENCE_SUPERSESSION_DIRECTORY,
+      `${input.id}.json`
+    );
+    if (!(await pathExists(targetPath))) {
+      const existingSupersessions = await loadReviewEvidenceSupersessions(root, run, evidence);
+      if (
+        existingSupersessions.records.some((existing) => (
+          existing.supersededEvidence.id === target.id ||
+          existing.replacementEvidence.id === target.id ||
+          existing.supersededEvidence.id === replacement.id ||
+          existing.replacementEvidence.id === replacement.id
+        ))
+      ) {
+        throw new Error("Review evidence supersession target or replacement is already bound");
+      }
+    }
+    let record;
+    if (await pathExists(targetPath)) {
+      record = await readJson(root, targetPath);
+      if (
+        record.supersededEvidence?.id !== target.id ||
+        record.supersededEvidence?.digest !== input.supersededEvidenceDigest ||
+        record.replacementEvidence?.id !== replacement.id ||
+        record.replacementEvidence?.digest !== input.replacementEvidenceDigest ||
+        record.reasonCode !== input.reasonCode ||
+        record.reason !== input.reason
+      ) {
+        throw new Error(`Review evidence supersession already exists: ${input.id}`);
+      }
+    } else {
+      record = {
+        schemaVersion: REVIEW_EVIDENCE_SUPERSESSION_SCHEMA_VERSION,
+        id: input.id,
+        runId,
+        kind: REVIEW_EVIDENCE_SUPERSESSION_KIND,
+        targetDisposition: REVIEW_EVIDENCE_SUPERSESSION_TARGET_DISPOSITION,
+        replacementDisposition: REVIEW_EVIDENCE_SUPERSESSION_REPLACEMENT_DISPOSITION,
+        selectionPolicy: REVIEW_EVIDENCE_SUPERSESSION_SELECTION_POLICY,
+        supersededEvidence: { id: target.id, digest: input.supersededEvidenceDigest },
+        replacementEvidence: { id: replacement.id, digest: input.replacementEvidenceDigest },
+        reviewBinding: reviewEvidenceBinding(replacement),
+        contractDigest: run.manifest.contractDigest,
+        sourceBindingDigest: run.manifest.sourceBinding?.digest ?? null,
+        policyDigest: replacement.dependencies?.policyDigest ?? null,
+        reasonCode: input.reasonCode,
+        reason: input.reason,
+        actor: "root",
+        createdAt: nowIso()
+      };
+      await atomicWriteJson(root, targetPath, record);
+    }
+    const journal = await readJournalRecords(root, runDir);
+    const recordDigest = digestObject(record);
+    const journalDetails = {
+      supersessionId: record.id,
+      supersessionDigest: recordDigest,
+      supersededEvidenceId: record.supersededEvidence.id,
+      supersededEvidenceDigest: record.supersededEvidence.digest,
+      replacementEvidenceId: record.replacementEvidence.id,
+      replacementEvidenceDigest: record.replacementEvidence.digest,
+      supersessionKind: record.kind,
+      selectionPolicy: record.selectionPolicy,
+      reasonCode: record.reasonCode
+    };
+    const existingJournal = journal.filter(
+      (entry) => entry.event === REVIEW_EVIDENCE_SUPERSESSION_EVENT && entry.supersessionId === record.id
+    );
+    if (existingJournal.length === 0) {
+      await validateReviewEvidenceSupersessionRecord(
+        root,
+        run,
+        recordsById,
+        [...journal, { event: REVIEW_EVIDENCE_SUPERSESSION_EVENT, at: nowIso(), ...journalDetails }],
+        record
+      );
+      await appendJournal(root, runDir, REVIEW_EVIDENCE_SUPERSESSION_EVENT, journalDetails);
+    } else if (
+      existingJournal.length !== 1 ||
+      existingJournal[0].supersessionDigest !== recordDigest ||
+      existingJournal[0].supersessionKind !== record.kind ||
+      existingJournal[0].selectionPolicy !== record.selectionPolicy ||
+      existingJournal[0].reasonCode !== record.reasonCode
+    ) {
+      throw new Error("Review evidence supersession journal binding conflicts with the persisted record");
+    }
+    const refreshed = await loadReviewEvidenceSupersessions(root, run, evidence);
+    if (!refreshed.records.some((item) => item.id === record.id)) {
+      throw new Error("Review evidence supersession was not admitted by canonical replay");
     }
     return record;
   });
@@ -12617,6 +13140,10 @@ export async function inspectRun(root, runId) {
     ...run,
     evidence: await listJsonRecords(root, safeJoin(run.runDir, "evidence")),
     evidenceSupersessions: await listJsonRecords(root, safeJoin(run.runDir, "evidence-supersessions")),
+    reviewEvidenceSupersessions: await listJsonRecords(
+      root,
+      safeJoin(run.runDir, REVIEW_EVIDENCE_SUPERSESSION_DIRECTORY)
+    ),
     findings: await listJsonRecords(root, safeJoin(run.runDir, "findings")),
     actions: await listJsonRecords(root, safeJoin(run.runDir, "actions"))
   };

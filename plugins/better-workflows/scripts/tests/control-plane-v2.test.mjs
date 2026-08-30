@@ -9,6 +9,8 @@ import { promisify } from "node:util";
 import {
   addEvidence,
   addFinding,
+  appendJournal,
+  atomicWriteJson,
   assertAutonomousCommitEvidenceInvalidationSafe,
   buildContract,
   consumeActionToken,
@@ -26,6 +28,7 @@ import {
   rebindSourceBinding,
   sha256,
   supersedeEvidence,
+  supersedeReviewEvidence,
   VERSION
 } from "../lib/core.mjs";
 import { admitTypedEvidence, assertPayloadFields, loadEvidenceContracts } from "../lib/evidence.mjs";
@@ -366,6 +369,148 @@ async function providerReconciliationSupersessionFixture({
     dependencyPath: absoluteDependencyPath,
     dependencyOriginalBytes: absoluteDependencyPath ? Buffer.from("provider-dependency-v1\n") : null
   };
+}
+
+async function legacyDiffReviewSupersessionFixture() {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-v2-review-evidence-supersession-"));
+  const repository = path.join(root, "repository");
+  await mkdir(repository, { recursive: true });
+  await execFileAsync("git", ["init", "-q"], { cwd: repository });
+  await execFileAsync("git", ["config", "user.email", "test@example.com"], { cwd: repository });
+  await execFileAsync("git", ["config", "user.name", "Test User"], { cwd: repository });
+  await writeFile(path.join(repository, "README.md"), "base\n");
+  await execFileAsync("git", ["add", "README.md"], { cwd: repository });
+  await execFileAsync("git", ["commit", "-q", "-m", "base"], { cwd: repository });
+  const base = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repository })).stdout.trim();
+  await mkdir(path.join(repository, "src"));
+  await writeFile(path.join(repository, "src", "review.ts"), "export const reviewed = true;\n");
+  await execFileAsync("git", ["add", "src/review.ts"], { cwd: repository });
+  await execFileAsync("git", ["commit", "-q", "-m", "review"], { cwd: repository });
+  const head = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repository })).stdout.trim();
+  const contract = buildContract({
+    template: "test-review-evidence-supersession",
+    templateDefinition: {
+      ...contractTemplate,
+      scope: ["src", "README.md"],
+      reviewProfile: legacyReviewProfile,
+      controlPlane: { ...contractTemplate.controlPlane, reviewPolicy: "code-v1" }
+    },
+    goal: "Repair a legacy diff-review dependency binding",
+    scope: ["src", "README.md"],
+    risk: { risk: 1, uncertainty: 0, blastRadius: 1, irreversibility: 0, evidenceGap: 1 },
+    sensitivity: "internal",
+    authority: [],
+    remoteRevision: base
+  });
+  const started = await createRun({ root, contract, requestedMode: "verified", cwd: repository });
+  const run = await inspectRun(root, started.runId);
+  const sentinel = await captureSentinel(repository, contract, await loadDefaults());
+  await updateState(root, started.runId, (state) => ({
+    ...state,
+    lastSentinel: { label: "review-evidence", digest: sentinel.digest },
+    lastSentinelVerified: true,
+    lastSentinelComplete: true
+  }));
+  const reviewPackage = await createReviewPackage({
+    root,
+    runId: started.runId,
+    base,
+    head,
+    scope: ["src", "README.md"],
+    diffManifest: { files: [{ status: "A", path: "src/review.ts" }] },
+    instructionDigest: "f".repeat(64),
+    sentinelDigest: sentinel.digest
+  });
+  const payload = {
+    verdict: "PASS",
+    findingCount: 0,
+    packageId: reviewPackage.packageId,
+    base: reviewPackage.base,
+    head: reviewPackage.head,
+    scopeDigest: reviewPackage.scopeDigest,
+    diffManifestDigest: reviewPackage.diffManifestDigest,
+    instructionDigest: reviewPackage.instructionDigest
+  };
+  const dependencies = currentEvidenceDependencies(run, []);
+  const recordFor = (id, createdAt, dependencyInputs) => ({
+    schemaVersion: 2,
+    id,
+    kind: "diff-review",
+    status: "complete",
+    summary: "Package-bound diff review",
+    acceptanceIds: [],
+    ...(dependencyInputs === undefined ? {} : { dependencyInputs }),
+    dependencies,
+    sourceDigest: digestObject(payload),
+    producer: {},
+    stale: false,
+    createdAt,
+    admissionProtocolVersion: 1,
+    receipt: {
+      contractId: "evidence-contracts-v1:diff-review",
+      contractVersion: 1,
+      runId: started.runId,
+      producer: { provider: "codex-root" },
+      inputBinding: {
+        runId: started.runId,
+        contractDigest: digestObject(contract),
+        remoteRevision: contract.remoteRevision
+      },
+      payload,
+      payloadDigest: digestObject(payload),
+      producedAt: createdAt
+    },
+    typedAdmission: {
+      contractId: "evidence-contracts-v1:diff-review",
+      contractVersion: 1,
+      admittedAt: createdAt,
+      producer: "codex-root"
+    }
+  });
+  const malformed = recordFor(
+    "diff-review-legacy-missing-dependencies",
+    new Date(Date.now() - 2000).toISOString(),
+    undefined
+  );
+  const malformedPath = path.join(run.runDir, "evidence", `${malformed.id}.json`);
+  const immutableProjection = structuredClone(malformed);
+  delete immutableProjection.stale;
+  delete immutableProjection.freshnessCheckedAt;
+  delete immutableProjection.currentDependencyFiles;
+  delete immutableProjection.staleReason;
+  const immutableEvidenceDigest = digestObject(immutableProjection);
+  const malformedIntentBinding = {
+    protocolVersion: 1,
+    runId: started.runId,
+    evidenceId: malformed.id,
+    evidenceDigest: digestObject(malformed),
+    immutableEvidenceDigest
+  };
+  const malformedIntent = {
+    schemaVersion: 1,
+    id: malformed.id,
+    ...malformedIntentBinding,
+    evidenceRecord: malformed,
+    intentDigest: digestObject(malformedIntentBinding)
+  };
+  await atomicWriteJson(
+    root,
+    path.join(run.runDir, "evidence-admissions", `${malformed.id}.json`),
+    malformedIntent
+  );
+  const admissionDetails = {
+    ...malformedIntentBinding,
+    intentDigest: malformedIntent.intentDigest
+  };
+  await appendJournal(root, run.runDir, "evidence.admission-pending", admissionDetails);
+  await atomicWriteJson(root, malformedPath, malformed);
+  await appendJournal(root, run.runDir, "evidence.added", admissionDetails);
+  const replacement = await addEvidence(
+    root,
+    started.runId,
+    recordFor("diff-review-corrected-dependencies", new Date().toISOString(), { files: [] })
+  );
+  return { root, repository, started, run, sentinel, reviewPackage, malformed, replacement, malformedPath };
 }
 
 function reviewKernelTemplate() {
@@ -1206,6 +1351,109 @@ test("same-attempt provider evidence supersession is append-only and restores de
     assert.equal(completion.ok, true, completion.blockers.join(", "));
     assert.deepEqual(completion.evidence.map((record) => record.id), [fixture.replacement.id]);
     assert.deepEqual(completion.evidenceSupersessions.map((record) => record.id), [supersession.id]);
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("diff-review admission rejects missing dependencyInputs", async () => {
+  const fixture = await legacyDiffReviewSupersessionFixture();
+  try {
+    const malformed = structuredClone(fixture.replacement);
+    malformed.id = "diff-review-missing-dependency-rejected";
+    delete malformed.dependencyInputs;
+    await assert.rejects(
+      addEvidence(fixture.root, fixture.started.runId, malformed),
+      /diff-review dependencyInputs/
+    );
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("diff-review dependency supersession is append-only, replayable, and fail-closed", async () => {
+  const fixture = await legacyDiffReviewSupersessionFixture();
+  try {
+    const originalMalformedBytes = await readFile(fixture.malformedPath, "utf8");
+    await assert.rejects(
+      markBroadReviewComplete(
+        fixture.root,
+        fixture.started.runId,
+        fixture.reviewPackage.packageId,
+        fixture.reviewPackage.head,
+        fixture.sentinel.digest
+      ),
+      /stale or invalid unsuperseded diff-review evidence/
+    );
+
+    const input = {
+      schemaVersion: 1,
+      id: "review-evidence-dependency-correction-1",
+      supersededEvidenceId: fixture.malformed.id,
+      supersededEvidenceDigest: digestObject(fixture.malformed),
+      replacementEvidenceId: fixture.replacement.id,
+      replacementEvidenceDigest: digestObject(fixture.replacement),
+      reasonCode: "missing-dependency-inputs",
+      reason: "Restore canonical dependency inputs for the legacy review receipt"
+    };
+    const inputPath = path.join(fixture.root, "review-evidence-supersede.json");
+    await writeFile(inputPath, `${JSON.stringify(input, null, 2)}\n`);
+    const command = await execFileAsync(
+      process.execPath,
+      [SBW_CLI, "review", "supersede", fixture.started.runId, "--file", inputPath],
+      {
+        cwd: fixture.repository,
+        encoding: "utf8",
+        env: { ...process.env, SBW_STATE_ROOT: fixture.root }
+      }
+    );
+    const supersession = JSON.parse(command.stdout).supersession;
+    const retried = await supersedeReviewEvidence(fixture.root, fixture.started.runId, input);
+    assert.equal(digestObject(retried), digestObject(supersession));
+    assert.equal(await readFile(fixture.malformedPath, "utf8"), originalMalformedBytes);
+    assert.equal(supersession.kind, "review-evidence");
+    assert.equal(supersession.targetDisposition, "invalidated");
+    assert.equal(supersession.replacementDisposition, "selected");
+    assert.equal(supersession.selectionPolicy, "effective-current-only");
+    assert.equal(supersession.reasonCode, "missing-dependency-inputs");
+
+    const firstEffective = await listEffectiveEvidenceRecords(fixture.root, fixture.started.runId);
+    const secondEffective = await listEffectiveEvidenceRecords(fixture.root, fixture.started.runId);
+    assert.deepEqual(firstEffective.map((record) => record.id), [fixture.replacement.id]);
+    assert.deepEqual(secondEffective, firstEffective);
+    await markBroadReviewComplete(
+      fixture.root,
+      fixture.started.runId,
+      fixture.reviewPackage.packageId,
+      fixture.reviewPackage.head,
+      fixture.sentinel.digest
+    );
+    const review = await reviewStatus(fixture.root, fixture.started.runId);
+    assert.equal(review.broadReviewComplete, true);
+    const completionOne = await evaluateCompletion(fixture.root, fixture.started.runId);
+    const completionTwo = await evaluateCompletion(fixture.root, fixture.started.runId);
+    assert.deepEqual(completionTwo, completionOne);
+
+    const duplicateCandidate = structuredClone(fixture.replacement);
+    duplicateCandidate.id = "diff-review-duplicate-current";
+    await addEvidence(fixture.root, fixture.started.runId, duplicateCandidate);
+    await assert.rejects(
+      markBroadReviewComplete(
+        fixture.root,
+        fixture.started.runId,
+        fixture.reviewPackage.packageId,
+        fixture.reviewPackage.head,
+        fixture.sentinel.digest
+      ),
+      /diff-review evidence is ambiguous/
+    );
+    await assert.rejects(
+      supersedeReviewEvidence(fixture.root, fixture.started.runId, {
+        ...input,
+        id: "review-evidence-conflicting-target"
+      }),
+      /already bound/
+    );
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }
@@ -2896,6 +3144,19 @@ test("review packages reject head drift with stable finding identity, block afte
       digest: sha256(diffCurrentDependencyBytes)
     }])
   });
+  const staleDiffReview = JSON.parse(diffStaleBytes);
+  await supersedeReviewEvidence(root, started.runId, {
+    schemaVersion: 1,
+    id: "review-evidence-dependency-refresh",
+    supersededEvidenceId: staleDiffReview.id,
+    supersededEvidenceDigest: digestObject(staleDiffReview),
+    replacementEvidenceId: "diff-review-proof-current",
+    replacementEvidenceDigest: digestObject(
+      (await inspectRun(root, started.runId)).evidence.find((item) => item.id === "diff-review-proof-current")
+    ),
+    reasonCode: "dependency-freshness-drift",
+    reason: "Record the dependency refresh before selecting the corrected review receipt"
+  });
   await markBroadReviewComplete(root, started.runId, first.packageId, head, sentinel.digest);
   assert.equal((await reviewStatus(root, started.runId)).complete, true);
   const broadRetry = await createReviewPackage(input);
@@ -2925,7 +3186,7 @@ test("review packages reject head drift with stable finding identity, block afte
     remoteRevision: base,
     treeDigest: sentinel.digest,
     contractDigest: digestObject(contract),
-    evidenceSupersessionFreshnessDigest: digestObject([]),
+    evidenceSupersessionFreshnessDigest: cleanupGateBinding.evidenceSupersessionFreshnessDigest,
     evidenceGate: cleanupGateBinding.configuredGate,
     evidenceGateDigest: cleanupGateBinding.digest,
     idempotencyKey: "review-continuity-idempotency",
