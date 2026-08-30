@@ -1334,6 +1334,36 @@ test("reference recipe completes governed promotion, dry-run, atomic run, artifa
   )), false);
   await rmdir(transitionSentinelPath);
 
+  const priorPublishedCrashStateRoot = process.env.SBW_STATE_ROOT;
+  process.env.SBW_STATE_ROOT = stateRoot;
+  let interruptedPublishedIntent;
+  try {
+    await assert.rejects(
+      recipeArtifactPromote(
+        cwd,
+        executed.json.receiptId,
+        "report-markdown",
+        destination,
+        {
+          async onDestinationBoundary(boundary, details) {
+            if (boundary !== "after-artifact-published-intent") return;
+            interruptedPublishedIntent = details.intent;
+            throw new Error("simulated crash after durable published artifact intent");
+          }
+        }
+      ),
+      /simulated crash after durable published artifact intent/
+    );
+  } finally {
+    if (priorPublishedCrashStateRoot === undefined) delete process.env.SBW_STATE_ROOT;
+    else process.env.SBW_STATE_ROOT = priorPublishedCrashStateRoot;
+  }
+  assert.equal(interruptedPublishedIntent.status, "published");
+  const publishedCrashRun = await inspectRun(stateRoot, runId);
+  const publishedCrashAction = publishedCrashRun.actions.find(
+    (item) => item.attemptId === artifactAttemptId
+  );
+  assert.notEqual(publishedCrashAction.outcome, "success");
   const artifactPromotion = await cli(cwd, stateRoot, [
     "recipe",
     "artifact",

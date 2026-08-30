@@ -3180,6 +3180,24 @@ async function publishArtifactWithIntent({
           "artifact promotion recovery"
         );
       }
+      if (intent.status === "published") {
+        const currentTarget = await readWorkspaceFileRecord(target);
+        if (
+          !currentTarget ||
+          currentTarget.identity !== intent.targetIdentity ||
+          currentTarget.sha256 !== artifact.sha256 ||
+          currentTarget.size !== artifact.bytes
+        ) {
+          throw recipeError("published artifact target is not replay-valid");
+        }
+        const temporary = await readWorkspaceFileRecord(
+          path.join(parent, intent.binding.temporaryName)
+        );
+        if (temporary) {
+          throw recipeError("published artifact temporary is not replay-valid");
+        }
+        return { intent, publisherReceipt: null, parentChain: checkedParentChain };
+      }
     } else {
       await assertSpentActionProviderAuthority(
         stateRoot,
@@ -3293,6 +3311,14 @@ async function publishArtifactWithIntent({
       publishedAt: intent.publishedAt ?? nowIso(),
       updatedAt: nowIso()
     }, "action.local-provider-intent-published");
+    if (onDestinationBoundary) {
+      await onDestinationBoundary("after-artifact-published-intent", {
+        target,
+        parent,
+        intent,
+        receipt: published
+      });
+    }
     return { intent, publisherReceipt: published, parentChain: checkedParentChain };
   }, { ttlMs: 300_000 });
 }
