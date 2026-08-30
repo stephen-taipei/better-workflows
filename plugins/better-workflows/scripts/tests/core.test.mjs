@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import {
   access,
   chmod,
@@ -2554,44 +2554,113 @@ test("linked worktrees share the canonical Git reservation identity", async () =
   await execFileAsync("git", ["-c", "user.email=sbw@example.invalid", "-c", "user.name=SBW Test", "commit", "-qm", "baseline"], { cwd: repository });
   await execFileAsync("git", ["worktree", "add", "-q", "-b", "sbw-linked-worktree", linkedWorktree, "HEAD"], { cwd: repository });
 
-  const prepare = async (cwd) => {
-    const run = await createRun({
+  const coreModuleUrl = new URL("../lib/core.mjs", import.meta.url).href;
+  const childSource = [
+    "import { lstat } from 'node:fs/promises';",
+    "const config = JSON.parse(process.env.SBW_LINKED_WORKTREE_RESERVATION_CHILD);",
+    "const core = await import(config.coreModuleUrl);",
+    "const repositoryIdentity = await core.currentGitProviderIdentityForTest(config.cwd);",
+    "const repositoryInfo = await lstat(repositoryIdentity);",
+    "process.send({ kind: 'ready', label: config.label, pid: process.pid, repositoryIdentity, repositoryDevice: Number(repositoryInfo.dev), repositoryInode: Number(repositoryInfo.ino) });",
+    "process.once('message', async (message) => {",
+    "  const waitMs = Math.max(0, message.startAtEpochMs - Date.now());",
+    "  if (waitMs > 0) await new Promise((resolve) => setTimeout(resolve, waitMs));",
+    "  const startedAt = new Date().toISOString();",
+    "  try {",
+    "    await core.reserveCreationResourceForTest(config.root, { provider: 'git', repository: repositoryIdentity, action: 'branch.create', resource: config.resource }, config.owner, new Date(Date.now() + 60000).toISOString());",
+    "    process.send({ kind: 'result', label: config.label, pid: process.pid, status: 'fulfilled', startedAt, completedAt: new Date().toISOString(), repositoryIdentity });",
+    "  } catch (error) {",
+    "    process.send({ kind: 'result', label: config.label, pid: process.pid, status: 'rejected', startedAt, completedAt: new Date().toISOString(), repositoryIdentity, error: { name: error.name, code: error.code ?? null, message: error.message, cause: error.cause?.message ?? null } });",
+    "  } finally { process.disconnect(); }",
+    "});"
+  ].join("\n");
+  const resource = "branch:linked-shared";
+  const launch = (label, cwd, tokenByte) => {
+    const configuration = {
+      label,
+      cwd,
       root,
-      contract: contract({ authority: ["branch.create"] }),
-      requestedMode: "verified",
-      cwd
+      resource,
+      coreModuleUrl,
+      owner: {
+        runId: `linked-worktree-${label}`,
+        attemptId: `linked-worktree-${label}-attempt`,
+        tokenHash: tokenByte.repeat(64),
+        idempotencyKey: `linked-worktree-${label}-idempotency`
+      }
+    };
+    const child = spawn(process.execPath, ["--input-type=module", "--eval", childSource], {
+      cwd,
+      env: {
+        ...process.env,
+        GIT_OPTIONAL_LOCKS: "0",
+        SBW_LINKED_WORKTREE_RESERVATION_CHILD: JSON.stringify(configuration)
+      },
+      stdio: ["ignore", "pipe", "pipe", "ipc"]
     });
-    await addEvidence(root, run.runId, {
-      id: "preflight",
-      kind: "preflight",
-      summary: "Linked worktree reservation preflight",
-      status: "complete",
-      acceptanceIds: [],
-      sourceDigest: "g".repeat(64)
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    const message = (kind) => new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        child.kill("SIGTERM");
+        reject(new Error(`${label} reservation child timed out waiting for ${kind}: ${stderr}`));
+      }, 30_000);
+      const onMessage = (value) => {
+        if (value?.kind !== kind) return;
+        clearTimeout(timeout);
+        child.off("message", onMessage);
+        resolve(value);
+      };
+      child.on("message", onMessage);
+      child.once("error", (error) => {
+        clearTimeout(timeout);
+        reject(error);
+      });
     });
-    await updateState(root, run.runId, (state) => ({
-      ...state,
-      lastSentinel: { label: "test", digest: "tree" },
-      lastSentinelVerified: true,
-      lastSentinelComplete: true
-    }));
-    return run;
+    return { child, message, stdout: () => stdout, stderr: () => stderr };
   };
-  const [mainRun, linkedRun] = await Promise.all([prepare(repository), prepare(linkedWorktree)]);
-  const defaults = await loadDefaults();
-  const results = await Promise.allSettled([mainRun, linkedRun].map((run) => issueActionToken(root, run.runId, {
-    action: "branch.create",
-    provider: "git",
-    resource: "branch:linked-shared",
-    remoteRevision: "abc",
-    requiredEvidence: ["preflight"]
-  }, "tree", defaults)));
-  assert.equal(results.filter((item) => item.status === "fulfilled").length, 1);
-  assert.equal(results.filter((item) => item.status === "rejected").length, 1);
+
+  const children = [
+    launch("main", repository, "a"),
+    launch("linked", linkedWorktree, "b")
+  ];
+  const ready = await Promise.all(children.map((child) => child.message("ready")));
+  assert.equal(ready[0].repositoryIdentity, ready[1].repositoryIdentity, JSON.stringify(ready, null, 2));
+  assert.equal(ready[0].repositoryDevice, ready[1].repositoryDevice, JSON.stringify(ready, null, 2));
+  assert.equal(ready[0].repositoryInode, ready[1].repositoryInode, JSON.stringify(ready, null, 2));
+
+  const resultPromises = children.map((child) => child.message("result"));
+  const startAtEpochMs = Date.now() + 100;
+  for (const child of children) child.child.send({ startAtEpochMs });
+  const results = await Promise.all(resultPromises);
+  await Promise.all(children.map(({ child }) => new Promise((resolve) => {
+    if (child.exitCode !== null) resolve();
+    else child.once("exit", resolve);
+  })));
+  const context = JSON.stringify({
+    ready,
+    results,
+    stdout: children.map((child) => child.stdout()),
+    stderr: children.map((child) => child.stderr())
+  }, null, 2);
+  assert.equal(results.filter((item) => item.status === "fulfilled").length, 1, context);
+  assert.equal(results.filter((item) => item.status === "rejected").length, 1, context);
   assert.match(
-    results.find((item) => item.status === "rejected").reason.message,
-    /already reserved by another action|Creation resource is leased by pid/
+    results.find((item) => item.status === "rejected").error.message,
+    /already reserved by another action|Creation resource is leased by pid/,
+    context
   );
+  const identity = {
+    provider: "git",
+    repository: ready[0].repositoryIdentity,
+    action: "branch.create",
+    resource
+  };
+  await stat(path.join(root, "creation-reservations", `${creationReservationKey(identity)}.json`));
 });
 
 test("GitHub Actions dispatch adapter binds a fixed command and one observed run", () => {

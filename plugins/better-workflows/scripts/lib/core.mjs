@@ -2523,6 +2523,12 @@ async function reserveCreationResource(root, identity, owner, expiresAt) {
   });
 }
 
+// Test-only seam for exercising the durable cross-process reservation boundary
+// without coupling the regression to unrelated action-token admission gates.
+export async function reserveCreationResourceForTest(root, identity, owner, expiresAt) {
+  return reserveCreationResource(root, identity, owner, expiresAt);
+}
+
 async function releaseCreationResource(root, identity, owner) {
   const reservationIdentity = validateCreationReservationIdentity(identity);
   const reservationOwner = validateCreationReservationOwner(owner);
@@ -5955,6 +5961,12 @@ async function currentGitProviderIdentity(cwd) {
   const commonDirectory = (await execBoundGitAuthority(cwd, ["rev-parse", "--git-common-dir"])).stdout.trim();
   if (!commonDirectory) throw new Error("Git provider identity requires a common repository directory");
   return realpath(path.isAbsolute(commonDirectory) ? commonDirectory : path.resolve(cwd, commonDirectory));
+}
+
+// Test-only seam: linked-worktree regressions must observe the exact provider
+// identity used by production reservation issuance, not reimplement Git lookup.
+export async function currentGitProviderIdentityForTest(cwd) {
+  return currentGitProviderIdentity(cwd);
 }
 
 export async function currentProviderExecutableIdentity(command) {
