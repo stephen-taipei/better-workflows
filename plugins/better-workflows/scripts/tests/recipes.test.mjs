@@ -658,6 +658,165 @@ export default async function run() { return link; }
   }
 });
 
+test("published artifact intent replays after a crash before action reconciliation", async () => {
+  const cwd = await repository();
+  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-recipe-published-replay-"));
+  await cli(cwd, stateRoot, ["recipe", "init"]);
+  await cli(cwd, stateRoot, ["recipe", "scaffold", "json-keyset-audit"]);
+  await git(cwd, "add", ".");
+  await git(cwd, "commit", "-qm", "add governed recipe");
+
+  const validation = await cli(cwd, stateRoot, ["recipe", "validate", "json-keyset-audit"]);
+  const digest = validation.json.executionDigest;
+  const runId = await governedRun(cwd, stateRoot);
+  const configAttemptId = await issueAndConsume(
+    cwd,
+    stateRoot,
+    runId,
+    "recipe.promote",
+    `recipe:json-keyset-audit:${digest}`
+  );
+  const priorConfigStateRoot = process.env.SBW_STATE_ROOT;
+  process.env.SBW_STATE_ROOT = stateRoot;
+  try {
+    await recipePromote(cwd, "json-keyset-audit", {
+      run: runId,
+      attempt: configAttemptId,
+      confirmDigest: digest
+    });
+  } finally {
+    if (priorConfigStateRoot === undefined) delete process.env.SBW_STATE_ROOT;
+    else process.env.SBW_STATE_ROOT = priorConfigStateRoot;
+  }
+  await ledgerTransition(
+    stateRoot,
+    runId,
+    "trust-complete",
+    "complete",
+    "trust",
+    ["digest-confirmation", "promotion-decision"]
+  );
+  await ledgerTransition(stateRoot, runId, "artifact-start", "start", "artifact-promotion");
+
+  const executed = await cli(cwd, stateRoot, [
+    "recipe",
+    "run",
+    "json-keyset-audit",
+    "--input-file",
+    ".codex/better-workflows/recipes/json-keyset-audit/fixtures/input.json"
+  ]);
+  const artifactSentinel = await cli(
+    cwd,
+    stateRoot,
+    ["sentinel", "capture", runId, "--label", "artifact-published-replay"]
+  );
+  const artifactReview = await reviewStatus(stateRoot, runId);
+  const artifactHead = (await git(cwd, "rev-parse", "HEAD")).stdout.trim();
+  await markBroadReviewComplete(
+    stateRoot,
+    runId,
+    artifactReview.package.packageId,
+    artifactHead,
+    artifactSentinel.json.sentinel.digest
+  );
+
+  const destination = "reports/published-replay/keyset-report.md";
+  const artifactAttemptId = await issueAndConsume(
+    cwd,
+    stateRoot,
+    runId,
+    "artifact.promote",
+    `artifact:${executed.json.receiptId}:report-markdown:${destination}`
+  );
+  const intentPath = path.join(
+    stateRoot,
+    "runs",
+    runId,
+    "local-provider-intents",
+    `${artifactAttemptId}.json`
+  );
+  let publishedIntentFromCrash;
+  const priorCrashStateRoot = process.env.SBW_STATE_ROOT;
+  process.env.SBW_STATE_ROOT = stateRoot;
+  try {
+    await assert.rejects(
+      recipeArtifactPromote(
+        cwd,
+        executed.json.receiptId,
+        "report-markdown",
+        destination,
+        {
+          async onDestinationBoundary(boundary, details) {
+            if (boundary !== "after-artifact-published-intent") return;
+            publishedIntentFromCrash = details.intent;
+            throw new Error("simulated crash after durable published artifact intent");
+          }
+        }
+      ),
+      /simulated crash after durable published artifact intent/
+    );
+  } finally {
+    if (priorCrashStateRoot === undefined) delete process.env.SBW_STATE_ROOT;
+    else process.env.SBW_STATE_ROOT = priorCrashStateRoot;
+  }
+
+  const interruptedIntent = JSON.parse(await readFile(intentPath, "utf8"));
+  assert.equal(publishedIntentFromCrash.status, "published");
+  assert.equal(interruptedIntent.status, "published");
+  assert.equal(interruptedIntent.targetIdentity, publishedIntentFromCrash.targetIdentity);
+  assert.equal((await lstat(path.join(cwd, destination))).nlink, 1);
+  await assert.rejects(access(path.join(cwd, "reports/published-replay", interruptedIntent.binding.temporaryName)));
+  const interruptedRun = await inspectRun(stateRoot, runId);
+  const interruptedAction = interruptedRun.actions.find(
+    (item) => item.attemptId === artifactAttemptId
+  );
+  assert.notEqual(interruptedAction.outcome, "success");
+
+  const replayBoundaries = [];
+  const priorReplayStateRoot = process.env.SBW_STATE_ROOT;
+  process.env.SBW_STATE_ROOT = stateRoot;
+  let replayed;
+  try {
+    replayed = await recipeArtifactPromote(
+      cwd,
+      executed.json.receiptId,
+      "report-markdown",
+      destination,
+      {
+        async onDestinationBoundary(boundary) {
+          replayBoundaries.push(boundary);
+        }
+      }
+    );
+  } finally {
+    if (priorReplayStateRoot === undefined) delete process.env.SBW_STATE_ROOT;
+    else process.env.SBW_STATE_ROOT = priorReplayStateRoot;
+  }
+  assert.equal(replayed.destination, destination);
+  assert.deepEqual(replayBoundaries, ["before-authority-replay"]);
+  const replayedRun = await inspectRun(stateRoot, runId);
+  const replayedAction = replayedRun.actions.find(
+    (item) => item.attemptId === artifactAttemptId
+  );
+  assert.equal(replayedAction.outcome, "success");
+  assert.equal(replayedAction.sourceBindingTransition.path, destination);
+  assert.match(await readFile(path.join(cwd, destination), "utf8"), /JSON key-set audit/);
+  const journal = (await readFile(
+    path.join(stateRoot, "runs", runId, "journal.jsonl"),
+    "utf8"
+  )).split("\n").filter(Boolean).map((line) => JSON.parse(line));
+  for (const status of ["prepared", "linked", "published"]) {
+    assert.equal(journal.filter((entry) => (
+      entry.event === `action.local-provider-artifact-intent-admission-pending` &&
+      entry.attemptId === artifactAttemptId && entry.status === status
+    )).length, 1);
+    assert.equal(journal.filter((entry) => (
+      entry.event === `action.local-provider-intent-${status}` &&
+      entry.attemptId === artifactAttemptId && entry.status === status
+    )).length, 1);
+  }
+});
+
 test("reference recipe completes governed promotion, dry-run, atomic run, artifact promotion, drift rejection, and untrust", async () => {
   const cwd = await repository();
   const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-recipe-lifecycle-"));
@@ -1334,36 +1493,6 @@ test("reference recipe completes governed promotion, dry-run, atomic run, artifa
   )), false);
   await rmdir(transitionSentinelPath);
 
-  const priorPublishedCrashStateRoot = process.env.SBW_STATE_ROOT;
-  process.env.SBW_STATE_ROOT = stateRoot;
-  let interruptedPublishedIntent;
-  try {
-    await assert.rejects(
-      recipeArtifactPromote(
-        cwd,
-        executed.json.receiptId,
-        "report-markdown",
-        destination,
-        {
-          async onDestinationBoundary(boundary, details) {
-            if (boundary !== "after-artifact-published-intent") return;
-            interruptedPublishedIntent = details.intent;
-            throw new Error("simulated crash after durable published artifact intent");
-          }
-        }
-      ),
-      /simulated crash after durable published artifact intent/
-    );
-  } finally {
-    if (priorPublishedCrashStateRoot === undefined) delete process.env.SBW_STATE_ROOT;
-    else process.env.SBW_STATE_ROOT = priorPublishedCrashStateRoot;
-  }
-  assert.equal(interruptedPublishedIntent.status, "published");
-  const publishedCrashRun = await inspectRun(stateRoot, runId);
-  const publishedCrashAction = publishedCrashRun.actions.find(
-    (item) => item.attemptId === artifactAttemptId
-  );
-  assert.notEqual(publishedCrashAction.outcome, "success");
   const artifactPromotion = await cli(cwd, stateRoot, [
     "recipe",
     "artifact",
