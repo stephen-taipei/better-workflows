@@ -128,6 +128,7 @@ async function repository() {
   await git(cwd, "init", "-q", "-b", "dev");
   await git(cwd, "config", "user.name", "Graph View Tests");
   await git(cwd, "config", "user.email", "graph@example.invalid");
+  await git(cwd, "remote", "add", "origin", "https://github.com/example/graph-fixture.git");
   await mkdir(path.join(cwd, "src"));
   await writeFile(path.join(cwd, "src", "value.txt"), "one\n");
   await git(cwd, "add", ".");
@@ -1385,6 +1386,7 @@ test("warning-only run graphs do not block resume, authorized action issue, or c
   ]);
   assert.equal(issued.json.ok, true);
   assert.equal(issued.json.action.status, "issued");
+  assert.equal(issued.json.action.providerRepository, "github.com/example/graph-fixture");
 
   const completed = await cli(cwd, stateRoot, [
     "complete",

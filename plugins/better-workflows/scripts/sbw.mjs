@@ -42,12 +42,14 @@ import {
   pluginRoot,
   readJson,
   reconcileAction,
+  refreshEvidence,
   rebindSourceBinding,
   routeMode,
   registerOwnedResource,
   safeJoin,
   setRunStatus,
   sha256,
+  supersedeEvidence,
   updateState,
   validateContract,
   withRunLock
@@ -604,51 +606,6 @@ async function enrichEvidence(root, runId, record) {
       remoteRevision: record.dependencies?.remoteRevision ?? run.contract.remoteRevision ?? null
     }
   };
-}
-
-async function refreshEvidence(root, runId) {
-  return withRunLock(root, runId, async ({ runDir }) => {
-    const run = await loadRun(root, runId);
-    assertMutableRun(run, "Evidence freshness");
-    const evidence = await listJsonRecords(root, safeJoin(runDir, "evidence"));
-    const sourceBinding = run.manifest.sourceBinding
-      ? await captureSourceBinding(run.manifest.cwd, {
-          baseRevision: run.manifest.sourceBinding.baseRevision,
-          requireClean: run.manifest.template === "self-improve-ops"
-        })
-      : null;
-    const stale = [];
-    const fresh = [];
-    for (const record of evidence) {
-      const definition = await evidenceDefinition(record);
-      const sourceBindingRequired = definition?.freshnessBinding?.includes("sourceBindingDigest") === true;
-      const sourceSentinelRequired = definition?.freshnessBinding?.includes("sourceSentinelDigest") === true;
-      let current = [];
-      let isStale =
-        record.dependencies?.contractDigest !== run.manifest.contractDigest ||
-        record.dependencies?.workflowVersion !== VERSION ||
-        (sourceBindingRequired && (!run.manifest.sourceBinding || record.dependencies?.sourceBindingDigest !== sourceBinding?.digest));
-      if (sourceSentinelRequired && (!run.manifest.sourceBinding || record.dependencies?.sourceSentinelDigest !== run.state.lastSentinel?.digest)) {
-        isStale = true;
-      }
-      if (!Array.isArray(record.dependencyInputs?.files)) isStale = true;
-      else {
-        for (const candidate of record.dependencyInputs.files) {
-          current.push(await fingerprintPath(run.manifest.cwd, candidate));
-        }
-        if (digestObject(current) !== digestObject(record.dependencies?.files ?? [])) isStale = true;
-      }
-      const next = {
-        ...record,
-        stale: isStale,
-        freshnessCheckedAt: nowIso(),
-        currentDependencyFiles: current
-      };
-      await atomicWriteJson(root, safeJoin(runDir, "evidence", `${record.id}.json`), next);
-      (isStale ? stale : fresh).push(record.id);
-    }
-    return { stale, fresh };
-  });
 }
 
 async function evidenceDefinition(record) {
@@ -2092,7 +2049,7 @@ function help() {
       "sbw cancel <run-id> [--reason <text>]",
       "sbw source rebind <run-id> --reason <text>",
       "sbw sentinel capture|verify <run-id> --label <label>",
-      "sbw evidence add <run-id> --file <json>",
+      "sbw evidence add|supersede <run-id> --file <json>",
       "sbw self-improve evaluate --run <run-id> --cases <file> --baseline <git-revision> --candidate-root <path> --backend <codex|fixture> --split <train|holdout> [--trusted-codex-execution <host-file>] [--request-manifest <host-file> --request-manifest-digest <sha256>] [--purpose ordinary|evaluator-migration|safety-remediation-v1|quality-remediation-v1] [--next-cases <v2-file>]",
       "sbw self-improve host status",
       "sbw self-improve consent status|prepare|revoke",
@@ -2326,10 +2283,13 @@ async function main() {
     throw new Error("sentinel subcommand must be capture or verify");
   }
   if (command === "evidence") {
-    if (subcommand !== "add" || !runId || !options.file) {
-      throw new Error("evidence usage: sbw evidence add <run-id> --file <json>");
+    if (!["add", "supersede"].includes(subcommand) || !runId || !options.file) {
+      throw new Error("evidence usage: sbw evidence add|supersede <run-id> --file <json>");
     }
     const record = JSON.parse(await readFile(path.resolve(String(options.file)), "utf8"));
+    if (subcommand === "supersede") {
+      return { ok: true, supersession: await supersedeEvidence(root, runId, record) };
+    }
     if (record.sourceKind === "independent-critic") {
       throw new Error("Independent critic evidence must be emitted by a provider boundary, not sbw evidence add");
     }
@@ -2519,7 +2479,10 @@ async function main() {
         const graph = await runGraph(root, runId);
         if (graphHasErrors(graph)) return graphStructuralFailure(graph, "action.issue");
       }
-      await refreshEvidence(root, runId);
+      const freshness = await refreshEvidence(root, runId);
+      if (freshness.immutableStale.length > 0) {
+        throw new Error(`Action token denied by stale immutable supersession evidence: ${freshness.immutableStale.join(", ")}`);
+      }
       if (run.contract.templateDigest !== digestObject(template)) {
         throw new Error("Workflow template drifted after run creation");
       }

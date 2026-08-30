@@ -317,6 +317,8 @@ node plugins/better-workflows/scripts/sbw.mjs recipe run <id> \
 
 Git root의 `.codex/better-workflows/`만 사용하며 routing Profile `.codex/better-workflows.json`은 recipe를 승인할 수 없습니다. clone 후에는 항상 untrusted이므로 다시 promotion해야 합니다. dry-run은 trusted program을 실행한 뒤 staging을 버리고, 일반 run만 선언되고 기본 ignored인 artifacts를 atomic publish합니다. 단일 artifact를 tracked source로 promotion하려면 별도 `artifact.promote` action이 필요합니다. 일반 private receipt에는 digests, 시간, artifact metadata, reconciliation만 저장합니다. reconciled side-effect action record는 terminal state 검증을 위해 provider receipt를 private하게 보관하지만 external handoff나 graph projection에는 포함하지 않습니다.
 
+Recipe 프로그램 자체에는 source-mutation authority가 없습니다. root-owned local provider는 `recipe.promote`에서 config를 정확히 활성화하거나 `artifact.promote`에서 기존에 없던 대상 파일 하나를 만드는 경우에만 허용됩니다. receipt는 action attempt, path, 변경 전후 bytes, 완전한 sentinel과 source binding을 바인딩하며, 그 한 path를 제거한 snapshot은 완전히 일치해야 합니다. ignored artifact store도 tracked marker가 내장 policy와 정확히 일치할 때만 관리되는 비 source 출력으로 취급합니다. 추가 drift나 transition history 변조는 success를 승인할 수 없습니다.
+
 ### Derived Graph View
 
 Graph View는 installed workflow templates 또는 하나의 live run에서 typed

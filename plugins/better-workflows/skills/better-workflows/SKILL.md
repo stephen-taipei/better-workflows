@@ -250,12 +250,53 @@ Read [evidence-and-state.md](references/evidence-and-state.md) before adding evi
 
 ~~~bash
 sbw evidence add <run-id> --file <evidence.json>
+sbw evidence supersede <run-id> --file <supersession.json>
 sbw finding add <run-id> --file <finding.json>
 sbw finding update <run-id> --file <finding.json>
 sbw complete <run-id>
 ~~~
 
 Do not complete with open P0/P1 findings, stale evidence, expired accepted risk, unknown reconciliation, missing acceptance evidence, or an invalid current-tree sentinel.
+
+`evidence supersede` is a narrow recovery lifecycle for a typed
+`provider-reconciliation` candidate that was admitted before action
+reconciliation and later proven malformed by the persisted terminal action. It
+never edits or deletes the original record. The append-only supersession must
+bind both exact evidence digests and the same run, action attempt, execution,
+source, contract, policy, and remote revision; the replacement must be the exact
+evidence ID reconciled by the action. Missing, stale, cross-attempt, chained,
+conflicting, duplicate, filename-rebound, or hand-edited bindings fail closed.
+After admission, freshness checks preserve the target and replacement bytes and
+block instead of rewriting either digest-bound record. Do not use this lifecycle
+to hide valid evidence or as a substitute for source rebind.
+
+Canonical freshness writes use a journal-first protocol: the durable
+`evidence.freshness-transition` intent binds the admission digest, previous and
+next evidence digests, immutable projection, cause, and an exact replay patch
+before the evidence file is replaced. Resume must replay that same intent; it
+must not append a competing transition. Autonomous-commit invalidation also
+requires exactly one digest-bound `evidence.invalidated` parent covering the
+complete child transition set. Missing, duplicate, partial, or conflicting
+chains block every evidence consumer. Legacy transition records keep their
+original reader and are not silently upgraded.
+
+Review finding dispositions and final broad-review gates read only the
+effective journal-replayed evidence set and revalidate each selected record's
+current dependency fingerprints. A persisted `stale: false` field is never an
+authority source by itself. Action tokens additionally bind a canonical digest
+of every current typed record selected by the contract's complete configured
+gate, together with the immutable initial source anchor, replay-valid source
+transition chain, freshly captured source binding, content-complete sentinel,
+policy, authority, effective supersession state, and current evidence-backed
+P0/P1 finding dispositions. The digest is recomputed at the final issuance
+boundary, before token consumption, immediately before and after a governed
+provider call, and before successful reconciliation reservation and
+persistence. Pre-call drift is `not-sent`; post-call drift is an audited
+`unknown` bound to the invocation digest and cannot be retried or reconciled as
+success from the stale gate. If an autonomous commit encounters any
+supersession record, its
+reconciliation fails before provider reservation, source-state transition, or
+evidence mutation so both bound evidence byte streams remain unchanged.
 
 All newly-created non-direct template runs use TaskContract v2. The run creates
 an append-only execution ledger and accepts only typed evidence receipts from
@@ -355,7 +396,11 @@ receipt, or reconciliation probes. A `pr.create` wrapper failure after its
 preflight is `sent-or-indeterminate`, not immediate failure; an explicit
 preflight record marked `not-sent` can release `pull/new` directly, while a
 fresh pinned-provider absence proof may reconcile the same unknown attempt as
-failure.
+failure. If any configured evidence, finding disposition, source-transition,
+or sentinel authority changes after the wrapper has called the provider, the
+action record itself becomes terminal `unknown` and retains the provider
+invocation audit marker; never rewrite it to pending or invoke the provider a
+second time.
 Creation reservation, consume, release, and expiry-reap operations are
 serialized by a resource lease namespaced by provider repository, action, and
 resource, so unrelated repositories do not share a `pull/new` reservation. An

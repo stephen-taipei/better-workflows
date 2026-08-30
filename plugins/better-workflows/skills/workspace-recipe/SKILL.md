@@ -13,6 +13,13 @@ governs deterministic workspace-owned recipes; it does not let a recipe choose
 models, orchestrate agents, accept risk, mutate source, run arbitrary shell, or
 perform external side effects.
 
+The recipe runtime remains source-read-only. The root-owned local provider may
+reconcile only two tightly bound source transitions: the exact config
+false-to-true write for `recipe.promote`, or one absent destination file for
+`artifact.promote`. Each transition must replay the spent action evidence gate
+and bind before/after source bindings, complete sentinels, path bytes, receipt,
+history, and journal. Any additional drift is non-authorizing.
+
 ## Decide whether a recipe is appropriate
 
 A recipe is appropriate only when the SOP has stable mechanical inputs and
@@ -64,6 +71,11 @@ artifacts. A normal run atomically publishes only declared artifacts:
 sbw recipe run <id> --input-file <input.json> --dry-run
 sbw recipe run <id> --input-file <input.json>
 ```
+
+The ignored artifact store is a managed non-source surface only while its
+tracked `.gitignore` marker exactly matches the built-in policy. Never use this
+exception for tracked files, arbitrary ignored paths, Git authority metadata,
+or another recipe-state directory.
 
 Evidence candidates remain candidates until Root verifies source digests and
 freshness. Proposals describe later work only and never authorize it.

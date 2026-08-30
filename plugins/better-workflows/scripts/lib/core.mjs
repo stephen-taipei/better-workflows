@@ -9,6 +9,7 @@ import {
   open,
   readdir,
   readFile,
+  readlink,
   realpath,
   rename,
   rm,
@@ -43,7 +44,12 @@ const BOUND_GITHUB_CLI_TIMEOUT_MS = 30_000;
 const BOUND_GITHUB_CLI_MAX_BUFFER = 1024 * 1024;
 const BOUND_GIT_TIMEOUT_MS = 30_000;
 const BOUND_GIT_MAX_BUFFER = 4 * 1024 * 1024;
-// The in-process supervisor force-kills its dedicated group after 100 ms. A
+const BOUND_PROCESS_TIMEOUT_MS = 300_000;
+const BOUND_PROCESS_MAX_INPUT_BYTES = 100 * 1024 * 1024;
+// The in-process supervisor force-kills its dedicated group after 100 ms when
+// signalled. A completed target writes its result synchronously and schedules
+// immediate group teardown, avoiding per-command latency while retaining the
+// signal grace for hanging descendants. A
 // short parent grace keeps the cleanup proof bounded without adding a full
 // second of idle latency to every successful Git/provider call.
 const BOUND_PROCESS_GROUP_CLEANUP_GRACE_MS = 250;
@@ -70,13 +76,13 @@ const BOUND_PROCESS_SUPERVISOR_SOURCE = [
   "let reported = false;",
   "const parentPid = process.ppid;",
   "const forceKill = () => { try { process.kill(-process.pid, 'SIGKILL'); } catch {} };",
-  "const scheduleForceKill = () => { if (forceScheduled) return; forceScheduled = true; setTimeout(forceKill, 100); };",
+  "const scheduleForceKill = (delayMs = 100) => { if (forceScheduled) return; forceScheduled = true; setTimeout(forceKill, delayMs); };",
   "for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP', 'SIGQUIT']) process.on(signal, scheduleForceKill);",
   "const watchdog = setInterval(() => { if (process.ppid !== parentPid) { forceKill(); } }, 25);",
   "watchdog.unref();",
-  "const report = (code, signal) => { if (reported) return; reported = true; try { fs.writeSync(3, JSON.stringify({ schemaVersion: 1, code: code ?? null, signal: signal ?? null }) + '\\n'); } catch {} };",
+  "const report = (code, signal) => { if (reported) return; reported = true; try { fs.writeSync(3, JSON.stringify({ schemaVersion: 1, code: code ?? null, signal: signal ?? null }) + '\\n'); } catch {} finally { scheduleForceKill(0); } };",
   "let child;",
-  "try { child = spawn(target, targetArgs, { cwd, env: process.env, stdio: ['ignore', 'inherit', 'inherit', 'ignore'] }); } catch { report(126, null); }",
+  "try { child = spawn(target, targetArgs, { cwd, env: process.env, stdio: ['inherit', 'inherit', 'inherit', 'ignore'] }); } catch { report(126, null); }",
   "child?.once('error', () => report(126, null));",
   "child?.once('close', (code, signal) => report(code, signal));",
   "setInterval(() => {}, 1000);"
@@ -159,17 +165,31 @@ function execBoundChildProcess(executablePath, args, {
   env,
   timeoutMs,
   maxBuffer,
+  timeoutLimitMs = BOUND_GIT_TIMEOUT_MS,
+  input = undefined,
   encoding = "utf8",
   label = "Bound process"
 } = {}) {
   if (!env || typeof env !== "object" || Array.isArray(env)) {
     return Promise.reject(new Error(`${label} requires an explicit controlled environment`));
   }
-  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > BOUND_GIT_TIMEOUT_MS) {
+  if (!Number.isSafeInteger(timeoutLimitMs) || timeoutLimitMs < 1 || timeoutLimitMs > BOUND_PROCESS_TIMEOUT_MS) {
+    return Promise.reject(new Error(`${label} timeout policy is invalid`));
+  }
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > timeoutLimitMs) {
     return Promise.reject(new Error(`${label} timeout is outside the fixed bounded policy`));
   }
   if (!Number.isSafeInteger(maxBuffer) || maxBuffer < 1 || maxBuffer > BOUND_GIT_MAX_BUFFER) {
     return Promise.reject(new Error(`${label} output limit is outside the fixed bounded policy`));
+  }
+  if (
+    input !== undefined && !Buffer.isBuffer(input) && typeof input !== "string" &&
+    !(input instanceof Uint8Array)
+  ) {
+    return Promise.reject(new Error(`${label} input must be bytes or a string`));
+  }
+  if (input !== undefined && Buffer.byteLength(input) > BOUND_PROCESS_MAX_INPUT_BYTES) {
+    return Promise.reject(new Error(`${label} input exceeds the fixed bounded policy`));
   }
   return new Promise((resolve, reject) => {
     const supervised = process.platform !== "win32";
@@ -183,7 +203,9 @@ function execBoundChildProcess(executablePath, args, {
       cwd: supervisorCwd,
       env,
       detached: true,
-      stdio: supervised ? ["ignore", "pipe", "pipe", "pipe"] : ["ignore", "pipe", "pipe"],
+      stdio: supervised
+        ? [input === undefined ? "ignore" : "pipe", "pipe", "pipe", "pipe"]
+        : [input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
       windowsHide: true
       }
     );
@@ -238,6 +260,15 @@ function execBoundChildProcess(executablePath, args, {
     };
     child.stdout.on("data", (chunk) => collect(stdout, chunk));
     child.stderr.on("data", (chunk) => collect(stderr, chunk));
+    if (input !== undefined) {
+      child.stdin.on("error", (error) => {
+        if (!["EPIPE", "ERR_STREAM_DESTROYED"].includes(error.code)) {
+          supervisorProtocolError = new Error(`${label} input stream failed: ${error.message}`);
+          terminate();
+        }
+      });
+      child.stdin.end(input);
+    }
     child.stdio[3]?.on("data", (chunk) => {
       supervisor.push(chunk);
       supervisorBuffer += chunk.toString("utf8");
@@ -368,6 +399,7 @@ export function execBoundProcess(executablePath, args, {
   env,
   timeoutMs = BOUND_GIT_TIMEOUT_MS,
   maxBuffer = BOUND_GIT_MAX_BUFFER,
+  input = undefined,
   encoding = "utf8",
   label = "Bound process"
 } = {}) {
@@ -376,6 +408,8 @@ export function execBoundProcess(executablePath, args, {
     env,
     timeoutMs,
     maxBuffer,
+    timeoutLimitMs: BOUND_PROCESS_TIMEOUT_MS,
+    input,
     encoding,
     label
   });
@@ -688,8 +722,13 @@ function ownedResourceCleared(entry, actions) {
 function ownedResourceCreationActionDigest(action) {
   return digestObject({
     attemptId: action.attemptId,
+    tokenHash: action.tokenHash,
+    idempotencyKey: action.idempotencyKey,
     action: action.action,
+    provider: action.provider,
+    providerRepository: action.providerRepository,
     resource: action.resource,
+    creationReservation: action.creationReservation,
     outcome: action.outcome,
     receipt: action.receipt
   });
@@ -770,7 +809,14 @@ const ACTION_PROVIDER_RECEIPT_SCHEMAS = {
   "artifact.promote:local-workspace": { proofKind: "local-workspace:artifact.promote" },
   "plugin.cache.publish:local-workspace": { proofKind: "local-workspace:plugin.cache.publish" }
 };
-const PROVIDER_EXECUTION_SCHEMA_VERSION = 1;
+const PROVIDER_EXECUTION_SCHEMA_VERSION = 2;
+const CREATION_RESERVATION_SCHEMA_VERSION = 2;
+const CREATION_RESERVATION_RELEASE_SCHEMA_VERSION = 1;
+const PROVIDER_ACTION_SOURCE_MUTATIONS = new Set([
+  "recipe.promote:local-workspace",
+  "artifact.promote:local-workspace"
+]);
+const PROVIDER_ACTION_SOURCE_MUTATION_SCHEMA_VERSION = 1;
 
 function assertSupportedGovernedAction(action) {
   if (UNSUPPORTED_GOVERNED_ACTIONS.has(action)) {
@@ -829,6 +875,40 @@ export function buildGitPushActionBinding({
     expectedRevision,
     providerExecutable,
     pushCommand: ["git", "push", "--porcelain", pushUrl, `${expectedRevision}:${ref}`]
+  };
+}
+
+export function buildPrMergeActionBinding({
+  prior = {},
+  pullRequest,
+  reviewedHead,
+  remoteRevision,
+  targetRef = null,
+  providerExecutable,
+  repository
+}) {
+  return {
+    ...prior,
+    pullRequest,
+    reviewedHead,
+    remoteRevision,
+    ...(targetRef ? { targetRef } : {}),
+    mergeMethod: "merge",
+    adminBypass: false,
+    providerExecutable,
+    mergeRepository: repository,
+    mergeCommand: [
+      "gh",
+      "pr",
+      "merge",
+      String(pullRequest),
+      "--repo",
+      repository,
+      "--match-head-commit",
+      reviewedHead,
+      "--merge",
+      "--delete-branch=false"
+    ]
   };
 }
 
@@ -1008,6 +1088,30 @@ async function fsyncDirectory(directory) {
   }
 }
 
+async function readJsonIfExists(root, target) {
+  try {
+    return await readJson(root, target);
+  } catch (error) {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+export async function unlinkDurableFile(directory, target, { allowAbsent = false } = {}) {
+  let removed = true;
+  try {
+    await unlink(target);
+  } catch (error) {
+    if (error.code !== "ENOENT" || !allowAbsent) throw error;
+    removed = false;
+  }
+  await fsyncDirectory(directory);
+  if (await pathExists(target)) {
+    throw new Error(`Durable file removal did not reach an absent state: ${target}`);
+  }
+  return { removed };
+}
+
 export async function atomicWriteJson(root, target, value) {
   const parent = path.dirname(target);
   await assertNoSymlinkUnder(root, parent);
@@ -1058,6 +1162,20 @@ export async function appendJournal(root, runDir, event, details = {}) {
   }
   await chmod(target, 0o600);
   return record;
+}
+
+export async function readJournalRecords(root, runDir) {
+  const target = safeJoin(runDir, "journal.jsonl");
+  await assertNoSymlinkUnder(root, target);
+  if (!(await pathExists(target))) return [];
+  const info = await lstat(target);
+  if (info.isSymbolicLink() || !info.isFile() || info.nlink !== 1) {
+    throw new Error(`Unsafe journal path: ${target}`);
+  }
+  return (await readFile(target, "utf8"))
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line));
 }
 
 async function appendJournalOnceForAttempt(root, runDir, event, attemptId, details = {}) {
@@ -1116,6 +1234,12 @@ export function validateContract(contract) {
   }
   if (![1, 2].includes(contract.schemaVersion)) {
     throw new Error("TaskContract.schemaVersion must be 1 or 2");
+  }
+  if (
+    contract.evidenceAdmissionProtocolVersion !== undefined &&
+    contract.evidenceAdmissionProtocolVersion !== EVIDENCE_ADMISSION_PROTOCOL_VERSION
+  ) {
+    throw new Error("TaskContract.evidenceAdmissionProtocolVersion is unsupported");
   }
   if (typeof contract.goal !== "string" || !contract.goal.trim()) {
     throw new Error("TaskContract.goal is required");
@@ -1305,6 +1429,14 @@ export function validateContract(contract) {
           throw new Error(`TaskContract v2 action gate has no execution stage: ${action}`);
         }
       }
+      if (Object.hasOwn(contract.actionStages, "pr.merge")) {
+        if (!actionGates["pr.merge"]?.includes("required-checks")) {
+          throw new Error("TaskContract v2 pr.merge must be gated by required-checks for atomic protected-base synchronization");
+        }
+        if (!contract.requiredEvidence.includes("required-checks")) {
+          throw new Error("TaskContract v2 pr.merge must declare required-checks evidence");
+        }
+      }
     } else if (Object.keys(contract.actionGates ?? {}).length > 0) {
       throw new Error("TaskContract v2 action gates require actionStages");
     }
@@ -1394,6 +1526,7 @@ export function buildContract({
   ])];
   return validateContract({
     schemaVersion: isV2 ? 2 : 1,
+    evidenceAdmissionProtocolVersion: EVIDENCE_ADMISSION_PROTOCOL_VERSION,
     goal,
     template,
     scope: { include: scope, exclude: [] },
@@ -1455,6 +1588,9 @@ export async function ensureStateRoot(root = getStateRoot()) {
 
 export async function createRun({ root = getStateRoot(), contract, requestedMode = "auto", cwd, baselineRevision = null }) {
   validateContract(contract);
+  if (contract.evidenceAdmissionProtocolVersion === undefined) {
+    contract.evidenceAdmissionProtocolVersion = EVIDENCE_ADMISSION_PROTOCOL_VERSION;
+  }
   const mode = routeMode(contract, requestedMode);
   if (mode === "direct") {
     return { runId: null, mode, direct: true, contractDigest: digestObject(contract) };
@@ -1476,7 +1612,7 @@ export async function createRun({ root = getStateRoot(), contract, requestedMode
   }
   try {
     await chmod(stagingDir, 0o700);
-    for (const child of ["evidence", "findings", "sentinels", "actions"]) {
+    for (const child of ["evidence", "evidence-admissions", "findings", "sentinels", "actions"]) {
       await ensurePrivateDir(safeJoin(stagingDir, child));
     }
     const createdAt = nowIso();
@@ -1497,6 +1633,8 @@ export async function createRun({ root = getStateRoot(), contract, requestedMode
       evaluationPurpose: contract.selfImprovePurpose ?? "ordinary",
       pluginCacheRoot: getCodexPluginCacheRoot(),
       sourceBinding,
+      initialSourceBindingDigest: sourceBinding?.digest ?? null,
+      evidenceAdmissionProtocolVersion: contract.evidenceAdmissionProtocolVersion,
       ...(contract.autonomyProfile
         ? {
             autonomyProfile: {
@@ -1543,7 +1681,11 @@ export async function createRun({ root = getStateRoot(), contract, requestedMode
       const { initializeLedger } = await import("./ledger.mjs");
       await initializeLedger(root, stagingDir, contract, runId);
     }
-    await appendJournal(root, stagingDir, "run.created", { mode, requestedMode });
+    await appendJournal(root, stagingDir, "run.created", {
+      mode,
+      requestedMode,
+      evidenceAdmissionProtocolVersion: contract.evidenceAdmissionProtocolVersion
+    });
     await rename(stagingDir, runDir);
   } catch (error) {
     await rm(stagingDir, { recursive: true, force: true }).catch(() => undefined);
@@ -1885,9 +2027,121 @@ export function assertProviderReceiptShape(record, providerReceipt, outcome = re
   }
 }
 
-async function reserveProviderExecution(root, record, executionId, outcome = record.outcome) {
+function providerExecutionIdentity(record, executionId) {
+  const repository = record?.providerRepository ?? record?.creationReservation?.repository;
+  const identity = {
+    schemaVersion: PROVIDER_EXECUTION_SCHEMA_VERSION,
+    executionId,
+    runId: record?.runId,
+    attemptId: record?.attemptId,
+    tokenHash: record?.tokenHash,
+    action: record?.action,
+    provider: record?.provider,
+    repository,
+    resource: record?.resource,
+    idempotencyKey: record?.idempotencyKey,
+    remoteRevision: record?.remoteRevision
+  };
+  if (
+    typeof identity.executionId !== "string" || !identity.executionId ||
+    typeof identity.runId !== "string" || !identity.runId ||
+    typeof identity.attemptId !== "string" || !identity.attemptId ||
+    !SHA256_DIGEST.test(String(identity.tokenHash ?? "")) ||
+    typeof identity.action !== "string" || !identity.action ||
+    typeof identity.provider !== "string" || !identity.provider ||
+    typeof identity.repository !== "string" || !identity.repository ||
+    typeof identity.resource !== "string" || !identity.resource ||
+    typeof identity.idempotencyKey !== "string" || !identity.idempotencyKey ||
+    typeof identity.remoteRevision !== "string" || !identity.remoteRevision
+  ) {
+    throw new Error("Provider execution requires a complete immutable action identity");
+  }
+  return identity;
+}
+
+function providerExecutionReservation(identity, outcome, recordedAt = nowIso()) {
+  return {
+    ...identity,
+    identityDigest: digestObject(identity),
+    outcome,
+    recordedAt
+  };
+}
+
+export function classifyProviderExecutionReplay(existing, record, executionId, outcome) {
+  const identity = providerExecutionIdentity(record, executionId);
+  if (
+    existing?.schemaVersion !== PROVIDER_EXECUTION_SCHEMA_VERSION ||
+    typeof existing?.executionId !== "string" ||
+    typeof existing.identityDigest !== "string" ||
+    !["unknown", "success", "failure"].includes(existing?.outcome)
+  ) {
+    throw new Error("Legacy provider execution reservation cannot be recovered; preserve the reservation");
+  }
+  if (
+    existing.identityDigest !== digestObject(identity) ||
+    Object.entries(identity).some(([key, value]) => existing[key] !== value)
+  ) {
+    throw new Error("Provider execution identity is already reserved globally");
+  }
+  if (existing.supersededBy !== undefined && existing.supersededBy !== null) {
+    throw new Error("Provider execution identity was superseded by another identity");
+  }
+  const allowedKeys = new Set([
+    ...Object.keys(identity),
+    "identityDigest",
+    "outcome",
+    "recordedAt",
+    ...(existing.outcome === "unknown" ? [] : ["terminalAt"])
+  ]);
+  if (
+    Object.keys(existing).some((key) => !allowedKeys.has(key)) ||
+    !Number.isFinite(Date.parse(existing.recordedAt ?? "")) ||
+    (existing.terminalAt !== undefined && !Number.isFinite(Date.parse(existing.terminalAt)))
+  ) {
+    throw new Error("Provider execution reservation contains unbound fields");
+  }
+  if (existing.outcome === outcome) return "replay";
+  if (
+    OWNED_RESOURCE_CREATION_ACTIONS.has(record.action) &&
+    record.outcome === "unknown" &&
+    existing.outcome === "unknown" &&
+    ["success", "failure"].includes(outcome)
+  ) {
+    return "resolve";
+  }
+  throw new Error("Provider execution identity is already bound to a different terminal outcome");
+}
+
+export async function reserveProviderExecution(
+  root,
+  record,
+  executionId,
+  outcome = record.outcome,
+  { onBoundary = null } = {}
+) {
+  if (onBoundary !== null && typeof onBoundary !== "function") {
+    throw new Error("Provider execution reservation boundary hook must be a function");
+  }
   const directory = safeJoin(root, "provider-executions");
-  await mkdir(directory, { recursive: true, mode: 0o700 });
+  let directoryCreated = false;
+  try {
+    await mkdir(directory, { mode: 0o700 });
+    directoryCreated = true;
+  } catch (error) {
+    if (error.code !== "EEXIST") throw error;
+  }
+  const directoryInfo = await lstat(directory);
+  if (directoryInfo.isSymbolicLink() || !directoryInfo.isDirectory()) {
+    throw new Error("Provider execution reservation directory is unsafe");
+  }
+  await chmod(directory, 0o700);
+  if (directoryCreated) await onBoundary?.("provider-reservation-directory-created");
+  // Always sync the state root, including on replay. A prior process may have
+  // stopped after mkdir(2) but before making the directory entry durable.
+  await fsyncDirectory(root);
+  await onBoundary?.("provider-reservation-root-durable");
+  const identity = providerExecutionIdentity(record, executionId);
   const target = safeJoin(directory, `${sha256(executionId)}.json`);
   const reservations = await listJsonRecords(root, directory);
   const sameAttempt = reservations.filter((item) => (
@@ -1898,80 +2152,54 @@ async function reserveProviderExecution(root, record, executionId, outcome = rec
   if (sameAttempt.some((item) => (
     item.schemaVersion !== PROVIDER_EXECUTION_SCHEMA_VERSION ||
     typeof item.executionId !== "string" ||
+    typeof item.identityDigest !== "string" ||
     !["unknown", "success", "failure"].includes(item.outcome)
   ))) {
     throw new Error("Legacy provider execution reservation cannot be recovered; preserve the reservation");
   }
-  if (sameAttempt.some((item) => item.action !== record.action)) {
-    throw new Error("Provider execution identity is bound to a different action");
-  }
-  const actionReservations = sameAttempt.filter((item) => item.action === record.action);
-  const exact = actionReservations.find((item) => item.executionId === executionId);
+  const exact = sameAttempt.find((item) => item.executionId === executionId);
   if (exact) {
-    if (exact.supersededBy && exact.supersededBy !== executionId) {
-      throw new Error("Provider execution identity was superseded by another identity");
-    }
-    if (exact.outcome === outcome) return;
-    const canResolveSameIdentity = (
-      OWNED_RESOURCE_CREATION_ACTIONS.has(record.action) &&
-      record.outcome === "unknown" &&
-      exact.outcome === "unknown" &&
-      ["success", "failure"].includes(outcome)
-    );
-    if (canResolveSameIdentity) {
+    const replay = classifyProviderExecutionReplay(exact, record, executionId, outcome);
+    if (replay === "resolve") {
       await atomicWriteJson(root, target, {
         ...exact,
         outcome,
         terminalAt: nowIso()
       });
-      return;
     }
-    throw new Error("Provider execution identity is already bound to a different terminal outcome");
+    await fsyncDirectory(directory);
+    await onBoundary?.("provider-reservation-replay-durable");
+    return;
   }
-  const terminal = actionReservations.find((item) => ["success", "failure"].includes(item.outcome));
-  const unknown = actionReservations.find((item) => item.outcome === "unknown");
-  const canSupersedeUnknown = (
-    OWNED_RESOURCE_CREATION_ACTIONS.has(record.action) &&
-    record.outcome === "unknown" &&
-    ["success", "failure"].includes(outcome) &&
-    unknown &&
-    (!unknown.supersededBy || unknown.supersededBy === executionId)
-  );
-  if (actionReservations.length > 0 && terminal && terminal.executionId !== executionId) {
+  if (sameAttempt.length > 0) {
     throw new Error("Provider execution identity is already bound to this action attempt");
   }
-  if (actionReservations.length > 0 && !canSupersedeUnknown) {
-    throw new Error("Provider execution identity is already bound to this action attempt");
-  }
-  if (canSupersedeUnknown && unknown.supersededBy !== executionId) {
-    await atomicWriteJson(root, safeJoin(directory, `${sha256(unknown.executionId)}.json`), {
-      ...unknown,
-      supersededBy: executionId,
-      supersededAt: nowIso()
-    });
-  }
+  await onBoundary?.("provider-reservation-before-create");
   try {
     const handle = await open(target, "wx", 0o600);
-    await handle.writeFile(`${JSON.stringify({ schemaVersion: PROVIDER_EXECUTION_SCHEMA_VERSION, executionId, runId: record.runId, attemptId: record.attemptId, tokenHash: record.tokenHash, action: record.action, outcome, recordedAt: nowIso() })}\n`);
-    await handle.sync();
-    await handle.close();
+    try {
+      await handle.writeFile(`${JSON.stringify(providerExecutionReservation(identity, outcome))}\n`);
+      await handle.sync();
+      await onBoundary?.("provider-reservation-file-synced");
+    } finally {
+      await handle.close();
+    }
+    await fsyncDirectory(directory);
+    await onBoundary?.("provider-reservation-directory-durable");
   } catch (error) {
     if (error.code === "EEXIST") {
-      const existing = await readJson(root, target).catch(() => null);
-      if (
-        existing?.schemaVersion !== PROVIDER_EXECUTION_SCHEMA_VERSION ||
-        !["unknown", "success", "failure"].includes(existing?.outcome)
-      ) {
-        throw new Error("Legacy provider execution reservation cannot be recovered; preserve the reservation");
+      const existing = await readJson(root, target);
+      const replay = classifyProviderExecutionReplay(existing, record, executionId, outcome);
+      if (replay === "resolve") {
+        await atomicWriteJson(root, target, {
+          ...existing,
+          outcome,
+          terminalAt: nowIso()
+        });
       }
-      if (
-        existing?.executionId === executionId &&
-        existing?.runId === record.runId &&
-        existing?.attemptId === record.attemptId &&
-        existing?.tokenHash === record.tokenHash &&
-        existing?.action === record.action
-      ) return;
-      throw new Error("Provider execution identity is already reserved globally");
+      await fsyncDirectory(directory);
+      await onBoundary?.("provider-reservation-replay-durable");
+      return;
     }
     throw error;
   }
@@ -1997,6 +2225,70 @@ function validateCreationReservationIdentity(identity) {
   };
 }
 
+function validateCreationReservationOwner(owner) {
+  if (
+    !owner || typeof owner !== "object" || Array.isArray(owner) ||
+    typeof owner.runId !== "string" || !owner.runId ||
+    typeof owner.attemptId !== "string" || !owner.attemptId ||
+    !SHA256_DIGEST.test(String(owner.tokenHash ?? "")) ||
+    typeof owner.idempotencyKey !== "string" || !owner.idempotencyKey
+  ) {
+    throw new Error("Creation reservation owner identity is incomplete");
+  }
+  return {
+    runId: owner.runId,
+    attemptId: owner.attemptId,
+    tokenHash: owner.tokenHash,
+    idempotencyKey: owner.idempotencyKey
+  };
+}
+
+function creationReservationOwnerFromAction(record) {
+  return validateCreationReservationOwner(record);
+}
+
+function creationReservationRecord(identity, owner, expiresAt, reservedAt = nowIso()) {
+  const reservationIdentity = validateCreationReservationIdentity(identity);
+  const reservationOwner = validateCreationReservationOwner(owner);
+  if (!Number.isFinite(Date.parse(expiresAt ?? ""))) {
+    throw new Error("Creation reservation expiry is invalid");
+  }
+  const binding = {
+    schemaVersion: CREATION_RESERVATION_SCHEMA_VERSION,
+    ...reservationIdentity,
+    reservationKey: creationReservationKey(reservationIdentity),
+    ...reservationOwner,
+    expiresAt
+  };
+  return {
+    ...binding,
+    bindingDigest: digestObject(binding),
+    reservedAt
+  };
+}
+
+function validateCreationReservationRecord(record, identity, owner = null, expiresAt = null) {
+  const reservationIdentity = validateCreationReservationIdentity(identity);
+  const reservationOwner = owner === null
+    ? validateCreationReservationOwner(record)
+    : validateCreationReservationOwner(owner);
+  const expected = creationReservationRecord(
+    reservationIdentity,
+    reservationOwner,
+    expiresAt ?? record?.expiresAt,
+    record?.reservedAt
+  );
+  if (
+    record?.schemaVersion !== CREATION_RESERVATION_SCHEMA_VERSION ||
+    record.bindingDigest !== expected.bindingDigest ||
+    Object.keys(record ?? {}).sort().join("\0") !== Object.keys(expected).sort().join("\0") ||
+    Object.entries(expected).some(([key, value]) => record[key] !== value)
+  ) {
+    throw new Error("Creation reservation identity changed or is incomplete");
+  }
+  return record;
+}
+
 export function creationReservationKey(identity) {
   return digestObject(validateCreationReservationIdentity(identity));
 }
@@ -2013,10 +2305,128 @@ function creationReservationLeasePath(root, identity) {
   return safeJoin(root, "creation-reservations", `.${creationReservationKey(identity)}.lease`);
 }
 
+function creationReservationReleaseDirectory(root) {
+  return safeJoin(root, "creation-reservation-releases");
+}
+
+function creationReservationReleasePath(root, identity, owner) {
+  const key = {
+    reservation: validateCreationReservationIdentity(identity),
+    owner: validateCreationReservationOwner(owner)
+  };
+  return safeJoin(creationReservationReleaseDirectory(root), `${digestObject(key)}.json`);
+}
+
+function creationReservationReleaseBinding(identity, owner, reservationDigest) {
+  if (!SHA256_DIGEST.test(String(reservationDigest ?? ""))) {
+    throw new Error("Creation reservation release requires the exact reservation digest");
+  }
+  return {
+    schemaVersion: CREATION_RESERVATION_RELEASE_SCHEMA_VERSION,
+    reservation: validateCreationReservationIdentity(identity),
+    owner: validateCreationReservationOwner(owner),
+    reservationDigest
+  };
+}
+
+function validateCreationReservationRelease(record, identity, owner) {
+  if (
+    !record || record.schemaVersion !== CREATION_RESERVATION_RELEASE_SCHEMA_VERSION ||
+    !["prepared", "released"].includes(record.status) ||
+    !Number.isFinite(Date.parse(record.preparedAt ?? ""))
+  ) {
+    throw new Error("Creation reservation release tombstone is malformed");
+  }
+  const binding = creationReservationReleaseBinding(identity, owner, record.binding?.reservationDigest);
+  const expectedKeys = [
+    "binding",
+    "bindingDigest",
+    "preparedAt",
+    ...(record.status === "released" ? ["releasedAt"] : []),
+    "schemaVersion",
+    "status"
+  ].sort().join("\0");
+  if (
+    Object.keys(record).sort().join("\0") !== expectedKeys ||
+    record.bindingDigest !== digestObject(binding) ||
+    digestObject(record.binding) !== digestObject(binding)
+  ) {
+    throw new Error("Creation reservation release tombstone identity changed");
+  }
+  if (record.status === "released" && !Number.isFinite(Date.parse(record.releasedAt ?? ""))) {
+    throw new Error("Creation reservation release tombstone lacks a terminal timestamp");
+  }
+  return record;
+}
+
+async function releaseCreationResourceLocked(root, identity, owner) {
+  const reservationIdentity = validateCreationReservationIdentity(identity);
+  const reservationOwner = validateCreationReservationOwner(owner);
+  const directory = safeJoin(root, "creation-reservations");
+  const target = creationReservationPath(root, reservationIdentity);
+  const releaseDirectory = creationReservationReleaseDirectory(root);
+  await ensurePrivateDir(releaseDirectory);
+  await fsyncDirectory(root);
+  const releaseTarget = creationReservationReleasePath(root, reservationIdentity, reservationOwner);
+  const reservation = await readJsonIfExists(root, target);
+  const priorRelease = await readJsonIfExists(root, releaseTarget);
+  if (reservation === null) {
+    if (!priorRelease) {
+      throw new Error("Creation reservation absence is not bound to an exact release tombstone");
+    }
+    const release = validateCreationReservationRelease(priorRelease, reservationIdentity, reservationOwner);
+    if (release.status === "released") return release;
+    const terminal = { ...release, status: "released", releasedAt: nowIso() };
+    await atomicWriteJson(root, releaseTarget, terminal);
+    return terminal;
+  }
+  validateCreationReservationRecord(reservation, reservationIdentity, reservationOwner);
+  const binding = creationReservationReleaseBinding(
+    reservationIdentity,
+    reservationOwner,
+    digestObject(reservation)
+  );
+  let release = priorRelease;
+  if (release) {
+    release = validateCreationReservationRelease(release, reservationIdentity, reservationOwner);
+    if (release.bindingDigest !== digestObject(binding)) {
+      throw new Error("Creation reservation release tombstone is bound to different reservation bytes");
+    }
+    if (release.status === "released") {
+      throw new Error("Released creation reservation unexpectedly reappeared");
+    }
+  } else {
+    release = {
+      schemaVersion: CREATION_RESERVATION_RELEASE_SCHEMA_VERSION,
+      binding,
+      bindingDigest: digestObject(binding),
+      status: "prepared",
+      preparedAt: nowIso()
+    };
+    await atomicWriteJson(root, releaseTarget, release);
+  }
+  await unlinkDurableFile(directory, target);
+  const terminal = { ...release, status: "released", releasedAt: nowIso() };
+  await atomicWriteJson(root, releaseTarget, terminal);
+  return terminal;
+}
+
 async function withCreationReservationLock(root, identity, callback, options = {}) {
   const reservationIdentity = validateCreationReservationIdentity(identity);
   const directory = safeJoin(root, "creation-reservations");
-  await mkdir(directory, { recursive: true, mode: 0o700 });
+  try {
+    await mkdir(directory, { mode: 0o700 });
+  } catch (error) {
+    if (error.code !== "EEXIST") throw error;
+  }
+  const directoryInfo = await lstat(directory);
+  if (directoryInfo.isSymbolicLink() || !directoryInfo.isDirectory()) {
+    throw new Error("Creation reservation directory is unsafe");
+  }
+  await chmod(directory, 0o700);
+  // Replay must also sync the root because an earlier mkdir may have survived
+  // in cache without its parent directory entry reaching stable storage.
+  await fsyncDirectory(root);
   const lockPath = creationReservationLeasePath(root, reservationIdentity);
   const reservationKey = creationReservationKey(reservationIdentity);
   const token = randomBytes(24).toString("hex");
@@ -2036,11 +2446,12 @@ async function withCreationReservationLock(root, identity, callback, options = {
       })}\n`);
       await handle.sync();
       await handle.close();
+      await fsyncDirectory(directory);
       acquired = true;
       break;
     } catch (error) {
       if (error.code !== "EEXIST") throw error;
-      const existing = await readJson(root, lockPath).catch(() => null);
+      const existing = await readJsonIfExists(root, lockPath);
       const expired = existing && Date.parse(existing.expiresAt) < Date.now();
       if (!expired || existing?.host !== os.hostname() || processAlive(existing?.pid)) {
         if (expired && existing?.host && existing.host !== os.hostname()) {
@@ -2049,27 +2460,39 @@ async function withCreationReservationLock(root, identity, callback, options = {
         throw new Error(`Creation resource is leased by pid ${existing?.pid ?? "unknown"}`);
       }
       await rename(lockPath, safeJoin(directory, `.${reservationKey}.lease.stale.${randomUUID()}`));
+      await fsyncDirectory(directory);
     }
   }
   if (!acquired) throw new Error("Unable to acquire creation reservation lease");
   try {
     return await callback();
   } finally {
-    const existing = await readJson(root, lockPath).catch(() => null);
-    if (existing?.token === token) await unlink(lockPath).catch(() => undefined);
+    const existing = await readJsonIfExists(root, lockPath);
+    if (existing === null) {
+      await unlinkDurableFile(directory, lockPath, { allowAbsent: true });
+    } else if (existing.token !== token || existing.reservationKey !== reservationKey) {
+      throw new Error("Creation reservation lease identity changed before release");
+    } else {
+      await unlinkDurableFile(directory, lockPath);
+    }
   }
 }
 
-async function reserveCreationResource(root, runId, identity, tokenHash, expiresAt) {
+async function reserveCreationResource(root, identity, owner, expiresAt) {
   const reservationIdentity = validateCreationReservationIdentity(identity);
+  const reservationOwner = validateCreationReservationOwner(owner);
   return withCreationReservationLock(root, reservationIdentity, async () => {
+    const directory = safeJoin(root, "creation-reservations");
     const legacyTarget = legacyCreationReservationPath(root, reservationIdentity.resource);
     if (await pathExists(legacyTarget)) {
       throw new Error("Legacy unscoped creation reservation requires explicit reconciliation");
     }
     const target = creationReservationPath(root, reservationIdentity);
-    const existing = await readJson(root, target).catch(() => null);
-    const existingAction = existing?.runId && existing?.tokenHash
+    const existing = await readJsonIfExists(root, target);
+    const existingRecord = existing
+      ? validateCreationReservationRecord(existing, reservationIdentity)
+      : null;
+    const existingAction = existingRecord?.runId && existingRecord?.tokenHash
       ? await readJson(root, safeJoin(runDirectory(root, existing.runId), "actions", `${existing.tokenHash}.json`)).catch(() => null)
       : null;
     const expiredIssued = (
@@ -2078,57 +2501,48 @@ async function reserveCreationResource(root, runId, identity, tokenHash, expires
       Date.parse(existing.expiresAt) <= Date.now()
     );
     const knownFailure = existingAction?.status === "spent" && existingAction?.outcome === "failure";
-    if (existing && !expiredIssued && !knownFailure) {
+    if (existingRecord && !expiredIssued && !knownFailure) {
       throw new Error("Owned resource creation is already reserved by another action for this provider repository");
     }
-    if (existing) await unlink(target);
+    if (existingRecord) {
+      await releaseCreationResourceLocked(
+        root,
+        reservationIdentity,
+        validateCreationReservationOwner(existingRecord)
+      );
+    }
+    const value = creationReservationRecord(reservationIdentity, reservationOwner, expiresAt);
     const handle = await open(target, "wx", 0o600);
     try {
-      await handle.writeFile(`${JSON.stringify({
-        ...reservationIdentity,
-        reservationKey: creationReservationKey(reservationIdentity),
-        runId,
-        tokenHash,
-        reservedAt: nowIso(),
-        expiresAt
-      })}\n`);
+      await handle.writeFile(`${JSON.stringify(value)}\n`);
       await handle.sync();
     } finally {
       await handle.close();
     }
+    await fsyncDirectory(directory);
   });
 }
 
-async function releaseCreationResource(root, runId, identity, tokenHash = null) {
-  if (!identity) return;
+async function releaseCreationResource(root, identity, owner) {
   const reservationIdentity = validateCreationReservationIdentity(identity);
+  const reservationOwner = validateCreationReservationOwner(owner);
   return withCreationReservationLock(root, reservationIdentity, async () => {
-    const target = creationReservationPath(root, reservationIdentity);
-    const reservation = await readJson(root, target).catch(() => null);
-    if (
-      reservation?.runId === runId &&
-      (tokenHash === null || reservation.tokenHash === tokenHash)
-    ) await unlink(target).catch(() => undefined);
+    return releaseCreationResourceLocked(root, reservationIdentity, reservationOwner);
   });
 }
 
-async function assertCreationReservation(root, runId, identity, tokenHash, expiresAt) {
+async function assertCreationReservation(root, identity, owner, expiresAt) {
   const reservationIdentity = validateCreationReservationIdentity(identity);
-  const reservation = await readJson(root, creationReservationPath(root, reservationIdentity)).catch(() => null);
-  if (
-    reservation?.reservationKey !== creationReservationKey(reservationIdentity) ||
-    reservation?.provider !== reservationIdentity.provider ||
-    reservation?.repository !== reservationIdentity.repository ||
-    reservation?.action !== reservationIdentity.action ||
-    reservation?.resource !== reservationIdentity.resource ||
-    reservation?.runId !== runId ||
-    reservation.tokenHash !== tokenHash ||
-    reservation.expiresAt !== expiresAt ||
-    Date.parse(reservation.expiresAt ?? "") <= Date.now()
-  ) {
+  const reservationOwner = validateCreationReservationOwner(owner);
+  const reservation = await readJsonIfExists(root, creationReservationPath(root, reservationIdentity));
+  if (!reservation || Date.parse(reservation.expiresAt ?? "") <= Date.now()) {
     throw new Error("Action token creation reservation is missing, expired, or rebound");
   }
-  return reservation;
+  try {
+    return validateCreationReservationRecord(reservation, reservationIdentity, reservationOwner, expiresAt);
+  } catch (error) {
+    throw new Error("Action token creation reservation is missing, expired, or rebound", { cause: error });
+  }
 }
 
 function creationProviderResource(creationReceipt) {
@@ -2221,9 +2635,21 @@ async function registerOwnedResourceLocked(root, runId, run, runDir, { resource,
     expectedHead: creationAction.expectedHead
   }, creationReceipt.providerReceipt);
   const creationReservation = validateCreationReservationIdentity(creationAction.creationReservation);
-  const reservation = await readJson(root, creationReservationPath(root, creationReservation)).catch(() => null);
-  if (reservation?.runId !== runId || reservation.tokenHash !== creationAction.tokenHash) {
-    throw new Error("Owned resource registration requires an exclusive creation reservation");
+  const creationReservationOwner = creationReservationOwnerFromAction(creationAction);
+  const existing = Array.isArray(manifest.ownedResources)
+    ? manifest.ownedResources.find((item) => item?.resource === resource)
+    : null;
+  if (!existing) {
+    try {
+      await assertCreationReservation(
+        root,
+        creationReservation,
+        creationReservationOwner,
+        creationAction.expiresAt
+      );
+    } catch {
+      throw new Error("Owned resource registration requires an exclusive creation reservation");
+    }
   }
   await verifyProviderReceipt(
     manifest,
@@ -2250,12 +2676,14 @@ async function registerOwnedResourceLocked(root, runId, run, runDir, { resource,
   if (!Array.isArray(manifest.ownedResources)) {
     throw new Error("Run manifest has no owned resource registry");
   }
-  const existing = manifest.ownedResources.find((item) => item?.resource === resource);
   if (existing) {
-    if (existing.ownerRunId !== runId || existing.receiptDigest !== receiptDigest) {
+    if (
+      existing.ownerRunId !== runId || existing.receiptDigest !== receiptDigest ||
+      digestObject(existing.creationReservationOwner ?? null) !== digestObject(creationReservationOwner)
+    ) {
       throw new Error("Owned resource registration is immutable");
     }
-    await releaseCreationResource(root, runId, creationReservation, creationAction.tokenHash);
+    await releaseCreationResource(root, creationReservation, creationReservationOwner);
     return existing;
   }
   const entry = {
@@ -2266,6 +2694,7 @@ async function registerOwnedResourceLocked(root, runId, run, runDir, { resource,
     creationAttemptId: creationReceipt.attemptId,
     creationActionDigest: ownedResourceCreationActionDigest(creationAction),
     creationReservation,
+    creationReservationOwner,
     registeredAt: nowIso()
   };
   const nextManifest = {
@@ -2274,7 +2703,7 @@ async function registerOwnedResourceLocked(root, runId, run, runDir, { resource,
   };
   await atomicWriteJson(root, manifestPath, nextManifest);
   await appendJournal(root, runDir, "resource.registered", entry);
-  await releaseCreationResource(root, runId, creationReservation, creationAction.tokenHash);
+  await releaseCreationResource(root, creationReservation, creationReservationOwner);
   return entry;
 }
 
@@ -2493,11 +2922,18 @@ export async function rebindSourceBinding(root, runId, reason) {
     const evidence = await listJsonRecords(root, safeJoin(runDir, "evidence"));
     for (const record of evidence) {
       if (record.status === "complete" && record.stale !== true) {
-        await atomicWriteJson(root, safeJoin(runDir, "evidence", `${record.id}.json`), {
+        const next = {
           ...record,
           stale: true,
           freshnessCheckedAt: reboundAt,
           staleReason: "source-binding-rebound"
+        };
+        await writeEvidenceFreshnessTransition(root, runDir, record, next, {
+          kind: "source-binding-rebound",
+          from: run.manifest.sourceBinding?.digest ?? null,
+          to: current.digest,
+          headRevision: current.headRevision,
+          reason: normalizedReason
         });
       }
     }
@@ -2670,6 +3106,7 @@ export async function completeRun(root, runId, completionDecision) {
         sourceDigest: item.sourceDigest,
         stale: item.stale === true
       }))),
+      evidenceSupersessionDigest: digestObject(terminalResult.evidenceSupersessions ?? []),
       ledgerDigest: contract.schemaVersion === 2
         ? digestObject(await readJson(root, safeJoin(runDir, "ledger.json")))
         : null,
@@ -2695,10 +3132,88 @@ function validateRecordId(id, kind) {
   if (typeof id !== "string" || !SAFE_ID.test(id)) throw new Error(`Invalid ${kind} id`);
 }
 
-export async function addEvidence(root, runId, record) {
+function evidenceValueForAdmission(admitted, existing = null) {
+  const normalized = structuredClone(admitted);
+  if (existing?.typedAdmission?.admittedAt && normalized.typedAdmission) {
+    normalized.typedAdmission = {
+      ...normalized.typedAdmission,
+      admittedAt: existing.typedAdmission.admittedAt
+    };
+  }
+  return {
+    schemaVersion: 1,
+    stale: false,
+    createdAt: existing?.createdAt ?? nowIso(),
+    dependencies: {},
+    producer: {},
+    ...normalized,
+    admissionProtocolVersion: EVIDENCE_ADMISSION_PROTOCOL_VERSION
+  };
+}
+
+function evidenceAdmissionIntentBinding(intent) {
+  return {
+    protocolVersion: intent.protocolVersion,
+    runId: intent.runId,
+    evidenceId: intent.evidenceId,
+    evidenceDigest: intent.evidenceDigest,
+    immutableEvidenceDigest: intent.immutableEvidenceDigest
+  };
+}
+
+function validateEvidenceAdmissionIntent(intent, runId, evidenceId) {
+  assertExactObjectKeys(intent, EVIDENCE_ADMISSION_INTENT_KEYS, "Evidence admission intent");
+  if (
+    intent.schemaVersion !== 1 ||
+    intent.protocolVersion !== EVIDENCE_ADMISSION_PROTOCOL_VERSION ||
+    intent.id !== evidenceId ||
+    intent.evidenceId !== evidenceId ||
+    intent.runId !== runId ||
+    !intent.evidenceRecord ||
+    typeof intent.evidenceRecord !== "object" ||
+    Array.isArray(intent.evidenceRecord) ||
+    intent.evidenceRecord.id !== evidenceId ||
+    intent.evidenceRecord.admissionProtocolVersion !== EVIDENCE_ADMISSION_PROTOCOL_VERSION ||
+    intent.evidenceDigest !== digestObject(intent.evidenceRecord) ||
+    intent.immutableEvidenceDigest !== digestObject(evidenceImmutableProjection(intent.evidenceRecord)) ||
+    intent.intentDigest !== digestObject(evidenceAdmissionIntentBinding(intent))
+  ) {
+    throw new Error(`Evidence admission intent binding is invalid: ${evidenceId}`);
+  }
+  return intent;
+}
+
+function evidenceAdmissionJournalDetails(intent) {
+  return {
+    protocolVersion: EVIDENCE_ADMISSION_PROTOCOL_VERSION,
+    runId: intent.runId,
+    evidenceId: intent.evidenceId,
+    evidenceDigest: intent.evidenceDigest,
+    immutableEvidenceDigest: intent.immutableEvidenceDigest,
+    intentDigest: intent.intentDigest
+  };
+}
+
+function matchesEvidenceAdmissionJournalEntry(entry, event, intent) {
+  const expected = evidenceAdmissionJournalDetails(intent);
+  return Boolean(
+    entry?.event === event &&
+    typeof entry.at === "string" &&
+    Number.isFinite(Date.parse(entry.at)) &&
+    Object.entries(expected).every(([key, value]) => entry[key] === value)
+  );
+}
+
+export async function addEvidence(root, runId, record, { onAdmissionBoundary = null } = {}) {
   return withRunLock(root, runId, async ({ runDir }) => {
     const boundRun = await loadRun(root, runId);
     assertMutableRun(boundRun, "Evidence");
+    if (onAdmissionBoundary !== null && typeof onAdmissionBoundary !== "function") {
+      throw new Error("Evidence admission boundary hook must be a function");
+    }
+    if (boundRun.contract.schemaVersion === 2) {
+      await listIdentityBoundJsonRecords(root, safeJoin(runDir, "evidence"), "Evidence");
+    }
     const admitted = boundRun.contract.schemaVersion === 2
       ? await (await import("./evidence.mjs")).admitTypedEvidence(record, { ...boundRun, root, requireReconciled: false })
       : record;
@@ -2712,18 +3227,85 @@ export async function addEvidence(root, runId, record) {
       throw new Error("Evidence sourceDigest is required");
     }
     const target = safeJoin(runDir, "evidence", `${admitted.id}.json`);
-    if (await pathExists(target)) throw new Error(`Evidence already exists: ${record.id}`);
-    const value = {
-      schemaVersion: 1,
-      stale: false,
-      createdAt: nowIso(),
-      dependencies: {},
-      producer: {},
-      ...admitted
-    };
-    await atomicWriteJson(root, target, value);
-    await appendJournal(root, runDir, "evidence.added", { evidenceId: admitted.id });
-    return value;
+    const intentTarget = safeJoin(runDir, "evidence-admissions", `${admitted.id}.json`);
+    const existingRecords = await listIdentityBoundJsonRecords(root, safeJoin(runDir, "evidence"), "Evidence");
+    let journal = await readJournalRecords(root, runDir);
+    await assertEvidenceJournalProvenance(root, boundRun, existingRecords, journal, {
+      ignoreEvidenceId: admitted.id
+    });
+
+    let intent;
+    if (await pathExists(intentTarget)) {
+      intent = validateEvidenceAdmissionIntent(await readJson(root, intentTarget), runId, admitted.id);
+      const retryValue = evidenceValueForAdmission(admitted, intent.evidenceRecord);
+      if (digestObject(retryValue) !== intent.evidenceDigest) {
+        throw new Error(`Evidence admission retry conflicts with the durable intent: ${admitted.id}`);
+      }
+    } else {
+      const currentAdmissionEvents = journal.filter((entry) => (
+        [EVIDENCE_ADMISSION_PENDING_EVENT, "evidence.added"].includes(entry.event) &&
+        entry.evidenceId === admitted.id
+      ));
+      if ((await pathExists(target)) || currentAdmissionEvents.length > 0) {
+        throw new Error(`Evidence already exists without a recoverable admission intent: ${admitted.id}`);
+      }
+      const value = evidenceValueForAdmission(admitted);
+      const binding = {
+        protocolVersion: EVIDENCE_ADMISSION_PROTOCOL_VERSION,
+        runId,
+        evidenceId: admitted.id,
+        evidenceDigest: digestObject(value),
+        immutableEvidenceDigest: digestObject(evidenceImmutableProjection(value))
+      };
+      intent = {
+        schemaVersion: 1,
+        id: admitted.id,
+        ...binding,
+        evidenceRecord: value,
+        intentDigest: digestObject(binding)
+      };
+      await atomicWriteJson(root, intentTarget, intent);
+    }
+    await onAdmissionBoundary?.("intent-written");
+
+    journal = await readJournalRecords(root, runDir);
+    const pending = journal.filter((entry) => (
+      entry.event === EVIDENCE_ADMISSION_PENDING_EVENT && entry.evidenceId === admitted.id
+    ));
+    if (pending.length === 0) {
+      await appendJournal(root, runDir, EVIDENCE_ADMISSION_PENDING_EVENT, evidenceAdmissionJournalDetails(intent));
+    } else if (pending.length !== 1 || !matchesEvidenceAdmissionJournalEntry(
+      pending[0],
+      EVIDENCE_ADMISSION_PENDING_EVENT,
+      intent
+    )) {
+      throw new Error(`Evidence admission pending journal binding is missing or ambiguous: ${admitted.id}`);
+    }
+    await onAdmissionBoundary?.("pending-journaled");
+
+    if (await pathExists(target)) {
+      const existing = await readJson(root, target);
+      if (digestObject(existing) !== intent.evidenceDigest) {
+        throw new Error(`Evidence file conflicts with the durable admission intent: ${admitted.id}`);
+      }
+    } else {
+      await atomicWriteJson(root, target, intent.evidenceRecord);
+    }
+    await onAdmissionBoundary?.("evidence-written");
+
+    journal = await readJournalRecords(root, runDir);
+    const added = journal.filter((entry) => entry.event === "evidence.added" && entry.evidenceId === admitted.id);
+    if (added.length === 0) {
+      await appendJournal(root, runDir, "evidence.added", evidenceAdmissionJournalDetails(intent));
+    } else if (added.length !== 1 || !matchesEvidenceAdmissionJournalEntry(
+      added[0],
+      "evidence.added",
+      intent
+    )) {
+      throw new Error(`Evidence admission commit journal binding is missing or ambiguous: ${admitted.id}`);
+    }
+    await onAdmissionBoundary?.("admission-committed");
+    return intent.evidenceRecord;
   });
 }
 
@@ -2748,11 +3330,11 @@ function validateFinding(record) {
 }
 
 async function assertFindingEvidence(root, run, runDir, record) {
-  if (!["resolved", "rejected-with-evidence"].includes(record.status)) return;
+  if (!["resolved", "rejected-with-evidence"].includes(record.status)) return null;
   if (run.contract.schemaVersion !== 2) {
     throw new Error("Resolved or rejected findings require typed evidence");
   }
-  const evidence = (await listJsonRecords(root, safeJoin(runDir, "evidence"))).find(
+  const evidence = (await listEffectiveEvidenceRecords(root, run.manifest.runId, { run })).find(
     (item) => item.id === record.evidenceId
   );
   if (
@@ -2771,10 +3353,46 @@ async function assertFindingEvidence(root, run, runDir, record) {
     runDir,
     requireReconciled: true
   });
+  const freshness = await assertCurrentEvidenceFreshness(
+    run,
+    evidence,
+    "Finding disposition evidence"
+  );
   const payload = evidence.receipt?.payload;
   if (!Array.isArray(payload?.findingIds) || !payload.findingIds.includes(record.id)) {
     throw new Error("Finding disposition evidence is not bound to the finding");
   }
+  return {
+    findingId: record.id,
+    severity: record.severity,
+    status: record.status,
+    evidenceId: evidence.id,
+    evidenceDigest: digestObject(evidence),
+    freshnessProjectionDigest: freshness.projectionDigest
+  };
+}
+
+async function currentFindingDispositionBinding(root, runId, run) {
+  const findings = await listJsonRecords(root, safeJoin(run.runDir, "findings"));
+  const dispositions = [];
+  const inventory = [];
+  for (const finding of findings) {
+    validateFinding(finding);
+    if (["P0", "P1"].includes(finding.severity) && finding.status === "open") {
+      throw new Error("Action token denied by unresolved P0/P1 finding");
+    }
+    if (!["P0", "P1"].includes(finding.severity)) continue;
+    inventory.push({ id: finding.id, digest: digestObject(finding) });
+    const binding = await assertFindingEvidence(root, run, run.runDir, finding);
+    if (binding) dispositions.push(binding);
+  }
+  inventory.sort((left, right) => left.id.localeCompare(right.id));
+  dispositions.sort((left, right) => left.findingId.localeCompare(right.findingId));
+  return {
+    digest: digestObject(dispositions),
+    dispositions,
+    inventory
+  };
 }
 
 export async function addFinding(root, runId, record, { update = false } = {}) {
@@ -2809,12 +3427,2047 @@ export async function listJsonRecords(root, directory) {
   return Promise.all(entries.map((name) => readJson(root, safeJoin(directory, name))));
 }
 
+async function listIdentityBoundJsonRecords(root, directory, label) {
+  if (!(await pathExists(directory))) return [];
+  await assertNoSymlinkUnder(root, directory);
+  const entries = (await readdir(directory)).filter((name) => name.endsWith(".json")).sort();
+  const records = await Promise.all(entries.map(async (name) => ({
+    name,
+    record: await readJson(root, safeJoin(directory, name))
+  })));
+  const ids = new Set();
+  for (const { record } of records) {
+    validateRecordId(record?.id, label.toLowerCase());
+    if (ids.has(record.id)) throw new Error(`${label} record id is duplicated: ${record.id}`);
+    ids.add(record.id);
+  }
+  for (const { name, record } of records) {
+    if (name !== `${record.id}.json`) {
+      throw new Error(`${label} filename does not match record id: ${name}`);
+    }
+  }
+  return records.map(({ record }) => record);
+}
+
+const EVIDENCE_SUPERSESSION_SCHEMA_VERSION = 1;
+const EVIDENCE_SUPERSESSION_KEYS = new Set([
+  "schemaVersion",
+  "id",
+  "runId",
+  "supersededEvidence",
+  "replacementEvidence",
+  "action",
+  "contractDigest",
+  "sourceBindingDigest",
+  "policyDigest",
+  "reason",
+  "actor",
+  "createdAt"
+]);
+const EVIDENCE_SUPERSESSION_INPUT_KEYS = new Set([
+  "schemaVersion",
+  "id",
+  "supersededEvidenceId",
+  "supersededEvidenceDigest",
+  "replacementEvidenceId",
+  "replacementEvidenceDigest",
+  "actionAttemptId",
+  "reason"
+]);
+const EVIDENCE_SUPERSESSION_ACTION_KEYS = new Set([
+  "attemptId",
+  "action",
+  "provider",
+  "resource",
+  "idempotencyKey",
+  "remoteRevision",
+  "providerExecutionId"
+]);
+const EVIDENCE_DEPENDENCY_KEYS = new Set([
+  "contractDigest",
+  "workflowVersion",
+  "files",
+  "sourceBindingDigest",
+  "sourceSentinelDigest",
+  "policyDigest",
+  "promptDigest",
+  "model",
+  "reviewBinding",
+  "remoteRevision"
+]);
+const EVIDENCE_FRESHNESS_EVENT = "evidence.freshness-transition";
+const EVIDENCE_FRESHNESS_PROTOCOL_VERSION = 2;
+const EVIDENCE_ADMISSION_PROTOCOL_VERSION = 1;
+const EVIDENCE_ADMISSION_PENDING_EVENT = "evidence.admission-pending";
+const EVIDENCE_ADMISSION_INTENT_KEYS = new Set([
+  "schemaVersion",
+  "id",
+  "protocolVersion",
+  "runId",
+  "evidenceId",
+  "evidenceDigest",
+  "immutableEvidenceDigest",
+  "evidenceRecord",
+  "intentDigest"
+]);
+const EVIDENCE_INVALIDATION_PARENT_SCHEMA_VERSION = 1;
+
+function assertExactObjectKeys(value, expected, label) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${label} must be an object`);
+  }
+  const keys = Object.keys(value);
+  const unknown = keys.filter((key) => !expected.has(key));
+  const missing = [...expected].filter((key) => !Object.hasOwn(value, key));
+  if (unknown.length > 0 || missing.length > 0) {
+    throw new Error(`${label} keys are invalid`);
+  }
+}
+
+function actionProofIdentity(record) {
+  const proof = record?.receipt?.payload?.actionProof;
+  if (!proof || proof.schemaVersion !== 1) {
+    throw new Error("Evidence supersession requires a provider action proof");
+  }
+  return {
+    attemptId: proof.actionAttemptId,
+    action: proof.action,
+    provider: proof.provider,
+    resource: proof.resource,
+    idempotencyKey: proof.idempotencyKey,
+    remoteRevision: proof.remoteRevision,
+    providerExecutionId: proof.providerExecutionId
+  };
+}
+
+function canonicalEvidencePolicyDigest(contract) {
+  return digestObject({
+    authority: contract.authority,
+    sensitivity: contract.sensitivity,
+    volatileExclusions: contract.volatileExclusions,
+    highRiskIgnored: contract.highRiskIgnored
+  });
+}
+
+function evidenceImmutableProjection(record) {
+  const projection = structuredClone(record);
+  delete projection.stale;
+  delete projection.freshnessCheckedAt;
+  delete projection.currentDependencyFiles;
+  delete projection.staleReason;
+  return projection;
+}
+
+function evidenceFreshnessState(record) {
+  return {
+    stale: record.stale === true,
+    freshnessCheckedAt: record.freshnessCheckedAt ?? null,
+    currentDependencyFiles: record.currentDependencyFiles ?? null,
+    staleReason: record.staleReason ?? null
+  };
+}
+
+function evidenceFreshnessPatch(record) {
+  const currentDependencyFilesPresent = Object.hasOwn(record, "currentDependencyFiles");
+  const staleReasonPresent = Object.hasOwn(record, "staleReason");
+  return {
+    stale: record.stale === true,
+    freshnessCheckedAt: Object.hasOwn(record, "freshnessCheckedAt")
+      ? record.freshnessCheckedAt
+      : null,
+    currentDependencyFilesPresent,
+    currentDependencyFiles: currentDependencyFilesPresent
+      ? structuredClone(record.currentDependencyFiles)
+      : null,
+    staleReasonPresent,
+    staleReason: staleReasonPresent ? record.staleReason : null
+  };
+}
+
+function applyEvidenceFreshnessPatch(record, patch) {
+  assertExactObjectKeys(
+    patch,
+    new Set([
+      "stale",
+      "freshnessCheckedAt",
+      "currentDependencyFilesPresent",
+      "currentDependencyFiles",
+      "staleReasonPresent",
+      "staleReason"
+    ]),
+    "Evidence freshness patch"
+  );
+  if (
+    typeof patch.stale !== "boolean" ||
+    (patch.freshnessCheckedAt !== null && (
+      typeof patch.freshnessCheckedAt !== "string" ||
+      !Number.isFinite(Date.parse(patch.freshnessCheckedAt))
+    )) ||
+    typeof patch.currentDependencyFilesPresent !== "boolean" ||
+    (patch.currentDependencyFilesPresent
+      ? !Array.isArray(patch.currentDependencyFiles)
+      : patch.currentDependencyFiles !== null) ||
+    typeof patch.staleReasonPresent !== "boolean" ||
+    (patch.staleReasonPresent
+      ? typeof patch.staleReason !== "string" || patch.staleReason.length === 0
+      : patch.staleReason !== null)
+  ) {
+    throw new Error("Evidence freshness patch is invalid");
+  }
+  const next = evidenceImmutableProjection(record);
+  next.stale = patch.stale;
+  if (patch.freshnessCheckedAt !== null) next.freshnessCheckedAt = patch.freshnessCheckedAt;
+  if (patch.currentDependencyFilesPresent) {
+    next.currentDependencyFiles = structuredClone(patch.currentDependencyFiles);
+  }
+  if (patch.staleReasonPresent) next.staleReason = patch.staleReason;
+  return next;
+}
+
+function evidenceFreshnessTransitionBinding(recordId, entry) {
+  const binding = {
+    evidenceId: recordId,
+    previousEvidenceDigest: entry.previousEvidenceDigest,
+    evidenceDigest: entry.evidenceDigest,
+    immutableEvidenceDigest: entry.immutableEvidenceDigest,
+    freshnessState: entry.freshnessState,
+    cause: entry.cause
+  };
+  if (entry.protocolVersion === EVIDENCE_FRESHNESS_PROTOCOL_VERSION) {
+    return {
+      protocolVersion: EVIDENCE_FRESHNESS_PROTOCOL_VERSION,
+      ...binding,
+      freshnessPatch: entry.freshnessPatch
+    };
+  }
+  if (entry.protocolVersion !== undefined) {
+    throw new Error(`Evidence freshness protocol is unsupported: ${recordId}`);
+  }
+  return binding;
+}
+
+function evidenceAdmissionJournalBinding(record, journal, {
+  allowPending = false,
+  intent = null,
+  runId = null,
+  requiredProtocolVersion = null
+} = {}) {
+  const added = journal.filter((entry) => entry.event === "evidence.added" && entry.evidenceId === record.id);
+  if (
+    added.length !== 1 ||
+    !SHA256_DIGEST.test(added[0].evidenceDigest ?? "") ||
+    !SHA256_DIGEST.test(added[0].immutableEvidenceDigest ?? "")
+  ) {
+    throw new Error(`Evidence admission journal binding is missing or ambiguous: ${record.id}`);
+  }
+  const pending = journal.filter((entry) => (
+    entry.event === EVIDENCE_ADMISSION_PENDING_EVENT && entry.evidenceId === record.id
+  ));
+  if (
+    requiredProtocolVersion === EVIDENCE_ADMISSION_PROTOCOL_VERSION &&
+    record.admissionProtocolVersion !== EVIDENCE_ADMISSION_PROTOCOL_VERSION
+  ) {
+    throw new Error(`Evidence admission protocol downgrade is forbidden by run history: ${record.id}`);
+  }
+  if (record.admissionProtocolVersion === undefined) {
+    if (intent !== null || pending.length !== 0 || added[0].protocolVersion !== undefined) {
+      throw new Error(`Legacy evidence admission was reinterpreted by a newer protocol: ${record.id}`);
+    }
+  } else if (record.admissionProtocolVersion === EVIDENCE_ADMISSION_PROTOCOL_VERSION) {
+    if (runId === null || intent === null) {
+      throw new Error(`Evidence admission intent is missing: ${record.id}`);
+    }
+    validateEvidenceAdmissionIntent(intent, runId, record.id);
+    if (
+      pending.length !== 1 ||
+      !matchesEvidenceAdmissionJournalEntry(
+        pending[0],
+        EVIDENCE_ADMISSION_PENDING_EVENT,
+        intent
+      ) ||
+      !matchesEvidenceAdmissionJournalEntry(added[0], "evidence.added", intent)
+    ) {
+      throw new Error(`Evidence two-phase admission journal chain is invalid: ${record.id}`);
+    }
+  } else {
+    throw new Error(`Evidence admission protocol is unsupported: ${record.id}`);
+  }
+  const immutableEvidenceDigest = digestObject(evidenceImmutableProjection(record));
+  if (added[0].immutableEvidenceDigest !== immutableEvidenceDigest) {
+    throw new Error(`Evidence immutable admission binding changed: ${record.id}`);
+  }
+  let headDigest = added[0].evidenceDigest;
+  let lastTransition = null;
+  const transitions = journal.filter((candidate) => (
+    candidate.event === EVIDENCE_FRESHNESS_EVENT && candidate.evidenceId === record.id
+  ));
+  for (const entry of transitions) {
+    const transitionBinding = evidenceFreshnessTransitionBinding(record.id, entry);
+    if (
+      entry.previousEvidenceDigest !== headDigest ||
+      !SHA256_DIGEST.test(entry.evidenceDigest ?? "") ||
+      entry.immutableEvidenceDigest !== immutableEvidenceDigest ||
+      entry.transitionDigest !== digestObject(transitionBinding)
+    ) {
+      throw new Error(`Evidence freshness journal chain is invalid: ${record.id}`);
+    }
+    if (
+      entry.protocolVersion === EVIDENCE_FRESHNESS_PROTOCOL_VERSION &&
+      digestObject(applyEvidenceFreshnessPatch(record, entry.freshnessPatch)) !== entry.evidenceDigest
+    ) {
+      throw new Error(`Evidence freshness patch does not reproduce the journal digest: ${record.id}`);
+    }
+    headDigest = entry.evidenceDigest;
+    lastTransition = entry;
+  }
+  const recordDigest = digestObject(record);
+  let pendingTransition = null;
+  if (
+    headDigest !== recordDigest &&
+    allowPending &&
+    lastTransition?.protocolVersion === EVIDENCE_FRESHNESS_PROTOCOL_VERSION &&
+    lastTransition.previousEvidenceDigest === recordDigest
+  ) {
+    pendingTransition = lastTransition;
+  } else if (headDigest !== recordDigest) {
+    throw new Error(`Evidence bytes do not match the append-only freshness journal: ${record.id}`);
+  }
+  return {
+    immutableEvidenceDigest,
+    headDigest: pendingTransition ? recordDigest : headDigest,
+    lastTransition: pendingTransition ? transitions.at(-2) ?? null : lastTransition,
+    pendingTransition
+  };
+}
+
+function sameEvidenceFreshnessSemantics(left, right) {
+  return digestObject({
+    stale: left.stale === true,
+    currentDependencyFiles: left.currentDependencyFiles ?? null,
+    staleReason: left.staleReason ?? null
+  }) === digestObject({
+    stale: right.stale === true,
+    currentDependencyFiles: right.currentDependencyFiles ?? null,
+    staleReason: right.staleReason ?? null
+  });
+}
+
+async function writeEvidenceFreshnessTransition(
+  root,
+  runDir,
+  current,
+  next,
+  cause,
+  { onPrepared = null } = {}
+) {
+  const journal = await readJournalRecords(root, runDir);
+  let admissionIntent = null;
+  let admissionRunId = null;
+  if (current.admissionProtocolVersion === EVIDENCE_ADMISSION_PROTOCOL_VERSION) {
+    admissionRunId = (await readJson(root, safeJoin(runDir, "manifest.json"))).runId;
+    admissionIntent = await readJson(
+      root,
+      safeJoin(runDir, "evidence-admissions", `${current.id}.json`)
+    );
+  }
+  const binding = evidenceAdmissionJournalBinding(current, journal, {
+    allowPending: true,
+    intent: admissionIntent,
+    runId: admissionRunId
+  });
+  if (binding.pendingTransition) {
+    const pending = binding.pendingTransition;
+    if (
+      digestObject(pending.cause) !== digestObject(cause) ||
+      pending.immutableEvidenceDigest !== binding.immutableEvidenceDigest
+    ) {
+      throw new Error(`Evidence freshness transition has a conflicting pending intent: ${current.id}`);
+    }
+    const recovered = applyEvidenceFreshnessPatch(current, pending.freshnessPatch);
+    if (digestObject(recovered) !== pending.evidenceDigest) {
+      throw new Error(`Evidence freshness pending transition cannot be recovered: ${current.id}`);
+    }
+    await atomicWriteJson(root, safeJoin(runDir, "evidence", `${current.id}.json`), recovered);
+    if (!sameEvidenceFreshnessSemantics(recovered, next)) {
+      return writeEvidenceFreshnessTransition(root, runDir, recovered, next, cause);
+    }
+    return { record: recovered, transition: pending, recovered: true };
+  }
+  const immutableEvidenceDigest = digestObject(evidenceImmutableProjection(next));
+  if (immutableEvidenceDigest !== binding.immutableEvidenceDigest) {
+    throw new Error(`Evidence freshness transition attempted to mutate admitted bytes: ${current.id}`);
+  }
+  const freshnessPatch = evidenceFreshnessPatch(next);
+  const canonicalNext = applyEvidenceFreshnessPatch(current, freshnessPatch);
+  const transitionBinding = {
+    protocolVersion: EVIDENCE_FRESHNESS_PROTOCOL_VERSION,
+    evidenceId: current.id,
+    previousEvidenceDigest: digestObject(current),
+    evidenceDigest: digestObject(canonicalNext),
+    immutableEvidenceDigest,
+    freshnessState: evidenceFreshnessState(canonicalNext),
+    cause,
+    freshnessPatch
+  };
+  const transition = await appendJournal(root, runDir, EVIDENCE_FRESHNESS_EVENT, {
+    ...transitionBinding,
+    transitionDigest: digestObject(transitionBinding)
+  });
+  if (onPrepared) await onPrepared(transition);
+  await atomicWriteJson(root, safeJoin(runDir, "evidence", `${current.id}.json`), canonicalNext);
+  return { record: canonicalNext, transition, recovered: false };
+}
+
+async function recoverPendingEvidenceFreshnessTransitions(root, runDir, records) {
+  const journal = await readJournalRecords(root, runDir);
+  const manifest = await readJson(root, safeJoin(runDir, "manifest.json"));
+  const recoveredIds = [];
+  const recoveredRecords = [];
+  for (const current of records) {
+    let admissionIntent = null;
+    if (current.admissionProtocolVersion === EVIDENCE_ADMISSION_PROTOCOL_VERSION) {
+      admissionIntent = await readJson(
+        root,
+        safeJoin(runDir, "evidence-admissions", `${current.id}.json`)
+      );
+    }
+    const binding = evidenceAdmissionJournalBinding(current, journal, {
+      allowPending: true,
+      intent: admissionIntent,
+      runId: manifest.runId
+    });
+    if (!binding.pendingTransition) {
+      recoveredRecords.push(current);
+      continue;
+    }
+    const pending = binding.pendingTransition;
+    const recovered = applyEvidenceFreshnessPatch(current, pending.freshnessPatch);
+    if (
+      pending.immutableEvidenceDigest !== binding.immutableEvidenceDigest ||
+      digestObject(recovered) !== pending.evidenceDigest
+    ) {
+      throw new Error(`Evidence freshness pending transition cannot be recovered: ${current.id}`);
+    }
+    await atomicWriteJson(root, safeJoin(runDir, "evidence", `${current.id}.json`), recovered);
+    recoveredIds.push(current.id);
+    recoveredRecords.push(recovered);
+  }
+  return { records: recoveredRecords, recoveredIds };
+}
+
+async function assertEvidenceSupersessionIdentity(run, target, replacement) {
+  if (
+    target.kind !== "provider-reconciliation" ||
+    replacement.kind !== "provider-reconciliation" ||
+    target.schemaVersion !== 2 ||
+    replacement.schemaVersion !== 2 ||
+    !target.typedAdmission ||
+    !replacement.typedAdmission ||
+    target.status !== "complete" ||
+    replacement.status !== "complete" ||
+    target.stale === true ||
+    replacement.stale === true
+  ) {
+    throw new Error("Evidence supersession only supports current typed provider-reconciliation records");
+  }
+  const targetIdentity = actionProofIdentity(target);
+  const replacementIdentity = actionProofIdentity(replacement);
+  if (
+    !SAFE_ID.test(String(replacementIdentity.attemptId ?? "")) ||
+    Object.values(replacementIdentity).some((value) => typeof value !== "string" || !value)
+  ) {
+    throw new Error("Evidence supersession provider action identity is incomplete");
+  }
+  if (digestObject(targetIdentity) !== digestObject(replacementIdentity)) {
+    throw new Error("Evidence supersession requires the same provider action attempt");
+  }
+  if (
+    targetIdentity.remoteRevision !== (run.contract.remoteRevision ?? null) ||
+    target.receipt?.inputBinding?.remoteRevision !== (run.contract.remoteRevision ?? null) ||
+    replacement.receipt?.inputBinding?.remoteRevision !== (run.contract.remoteRevision ?? null)
+  ) {
+    throw new Error("Evidence supersession provider action remote revision is stale");
+  }
+  for (const [label, record] of [["target", target], ["replacement", replacement]]) {
+    assertExactObjectKeys(record.dependencies, EVIDENCE_DEPENDENCY_KEYS, `Evidence supersession ${label} dependencies`);
+  }
+  if (digestObject(target.dependencies) !== digestObject(replacement.dependencies)) {
+    throw new Error("Evidence supersession source or policy binding changed");
+  }
+  if ([target, replacement].some((record) => (
+    record.dependencies.promptDigest !== null ||
+    record.dependencies.model !== null ||
+    record.dependencies.reviewBinding !== null
+  ))) {
+    throw new Error("Evidence supersession provider reconciliation dependencies are not canonical");
+  }
+  if (
+    target.typedAdmission.contractId !== replacement.typedAdmission.contractId ||
+    target.typedAdmission.contractVersion !== replacement.typedAdmission.contractVersion ||
+    target.typedAdmission.producer !== replacement.typedAdmission.producer ||
+    digestObject(target.receipt?.producer ?? null) !== digestObject(replacement.receipt?.producer ?? null) ||
+    digestObject(target.receipt?.inputBinding ?? null) !== digestObject(replacement.receipt?.inputBinding ?? null) ||
+    digestObject(target.dependencyInputs ?? null) !== digestObject(replacement.dependencyInputs ?? null)
+  ) {
+    throw new Error("Evidence supersession admission provenance changed");
+  }
+  if (
+    !SHA256_DIGEST.test(target.dependencies?.contractDigest ?? "") ||
+    !SHA256_DIGEST.test(target.dependencies?.policyDigest ?? "") ||
+    target.dependencies?.workflowVersion !== VERSION ||
+    target.dependencies?.remoteRevision !== targetIdentity.remoteRevision ||
+    (
+      target.dependencies?.sourceBindingDigest !== null &&
+      !SHA256_DIGEST.test(target.dependencies?.sourceBindingDigest ?? "")
+    )
+  ) {
+    throw new Error("Evidence supersession requires complete current source and policy dependencies");
+  }
+  for (const [label, record] of [["target", target], ["replacement", replacement]]) {
+    const freshness = await currentEvidenceFreshness(run, record);
+    if (freshness.stale || digestObject(record.dependencies) !== digestObject(freshness.expectedDependencies)) {
+      throw new Error(`Evidence supersession ${label} is not bound to the current canonical dependency projection`);
+    }
+  }
+  return replacementIdentity;
+}
+
+async function fingerprintEvidenceDependency(cwd, candidate) {
+  const absolute = path.resolve(cwd, candidate);
+  const relative = path.relative(cwd, absolute);
+  if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    throw new Error(`Evidence dependency escapes workspace: ${candidate}`);
+  }
+  try {
+    const info = await lstat(absolute);
+    if (info.isSymbolicLink()) {
+      return { path: relative || ".", type: "symlink", target: await readlink(absolute), mode: info.mode };
+    }
+    if (!info.isFile()) {
+      return {
+        path: relative || ".",
+        type: info.isDirectory() ? "directory" : "other",
+        mode: info.mode,
+        mtimeMs: Math.trunc(info.mtimeMs)
+      };
+    }
+    const contents = await readFile(absolute);
+    return {
+      path: relative || ".",
+      type: "file",
+      mode: info.mode,
+      size: info.size,
+      digest: sha256(contents)
+    };
+  } catch (error) {
+    if (error.code === "ENOENT") return { path: relative || ".", type: "missing" };
+    throw error;
+  }
+}
+
+async function currentEvidenceFreshness(run, record) {
+  const { loadEvidenceContracts } = await import("./evidence.mjs");
+  const contracts = await loadEvidenceContracts();
+  const sourceKind = record.sourceKind ?? record.kind;
+  const kind = sourceKind === "independent-critic" || sourceKind === "evaluation-migration"
+    ? (sourceKind === "independent-critic" ? "patch-review" : "evaluation-suite")
+    : sourceKind;
+  const definition = contracts[kind];
+  const sourceBindingRequired = definition?.freshnessBinding?.includes("sourceBindingDigest") === true;
+  const sourceSentinelRequired = definition?.freshnessBinding?.includes("sourceSentinelDigest") === true;
+  let sourceBinding = null;
+  if (sourceBindingRequired && run.manifest.sourceBinding) {
+    const { captureSourceBinding } = await import("./git.mjs");
+    sourceBinding = await captureSourceBinding(run.manifest.cwd, {
+      baseRevision: run.manifest.sourceBinding.baseRevision,
+      requireClean: run.manifest.template === "self-improve-ops"
+    });
+  }
+  const inputBinding = record.receipt?.inputBinding;
+  const dependencyInputsValid = Boolean(
+    record.dependencyInputs &&
+    typeof record.dependencyInputs === "object" &&
+    !Array.isArray(record.dependencyInputs) &&
+    Object.keys(record.dependencyInputs).length === 1 &&
+    Object.hasOwn(record.dependencyInputs, "files") &&
+    Array.isArray(record.dependencyInputs.files) &&
+    record.dependencyInputs.files.every((candidate) => typeof candidate === "string" && candidate.length > 0)
+  );
+  let stale =
+    run.manifest.contractDigest !== digestObject(run.contract) ||
+    record.dependencies?.contractDigest !== run.manifest.contractDigest ||
+    record.dependencies?.workflowVersion !== VERSION ||
+    (sourceBindingRequired && (!sourceBinding || record.dependencies?.sourceBindingDigest !== sourceBinding.digest)) ||
+    (!sourceBindingRequired && (record.dependencies?.sourceBindingDigest ?? null) !== null) ||
+    (sourceSentinelRequired && record.dependencies?.sourceSentinelDigest !== run.state.lastSentinel?.digest) ||
+    (!sourceSentinelRequired && (record.dependencies?.sourceSentinelDigest ?? null) !== null) ||
+    (record.schemaVersion === 2 && (
+      record.dependencies?.policyDigest !== canonicalEvidencePolicyDigest(run.contract) ||
+      (record.dependencies?.remoteRevision ?? null) !== (run.contract.remoteRevision ?? null) ||
+      !inputBinding ||
+      inputBinding.runId !== run.manifest.runId ||
+      inputBinding.contractDigest !== digestObject(run.contract) ||
+      (inputBinding.remoteRevision ?? null) !== (run.contract.remoteRevision ?? null)
+    ));
+  if (!dependencyInputsValid) {
+    return {
+      stale: true,
+      currentDependencyFiles: [],
+      expectedDependencies: null,
+      projectionDigest: digestObject({ invalidDependencyInputs: true })
+    };
+  }
+  const current = [];
+  for (const candidate of record.dependencyInputs.files) {
+    current.push(await fingerprintEvidenceDependency(run.manifest.cwd, candidate));
+  }
+  if (digestObject(current) !== digestObject(record.dependencies?.files ?? [])) stale = true;
+  const canonicalReviewDependencies = kind === "provider-reconciliation"
+    ? { promptDigest: null, model: null, reviewBinding: null }
+    : {
+        promptDigest: record.dependencies?.promptDigest ?? null,
+        model: record.dependencies?.model ?? null,
+        reviewBinding: record.dependencies?.reviewBinding ?? null
+      };
+  const expectedDependencies = {
+    contractDigest: run.manifest.contractDigest,
+    workflowVersion: VERSION,
+    files: current,
+    sourceBindingDigest: sourceBindingRequired ? run.manifest.sourceBinding?.digest ?? null : null,
+    sourceSentinelDigest: sourceSentinelRequired ? run.state.lastSentinel?.digest ?? null : null,
+    policyDigest: canonicalEvidencePolicyDigest(run.contract),
+    ...canonicalReviewDependencies,
+    remoteRevision: run.contract.remoteRevision ?? null
+  };
+  if (digestObject(record.dependencies ?? null) !== digestObject(expectedDependencies)) stale = true;
+  const projectionDigest = digestObject({
+    dependencyInputs: record.dependencyInputs,
+    expectedDependencies,
+    currentSourceBindingDigest: sourceBinding?.digest ?? null
+  });
+  return { stale, currentDependencyFiles: current, expectedDependencies, projectionDigest };
+}
+
+export async function assertCurrentEvidenceFreshness(run, record, context = "Evidence") {
+  const freshness = await currentEvidenceFreshness(run, record);
+  if (freshness.stale) {
+    throw new Error(`${context} is stale: ${record?.id ?? "unknown"}`);
+  }
+  return freshness;
+}
+
+function autonomousInvalidationChildren(journal, attemptId, recordsById = null) {
+  const transitions = journal.filter((entry) => (
+    entry.event === EVIDENCE_FRESHNESS_EVENT &&
+    entry.protocolVersion === EVIDENCE_FRESHNESS_PROTOCOL_VERSION &&
+    entry.cause?.kind === "autonomous-commit-reconciled" &&
+    entry.cause.actionAttemptId === attemptId
+  ));
+  const children = transitions.map((entry) => {
+    if (recordsById && !recordsById.has(entry.evidenceId)) {
+      throw new Error(`Evidence invalidation journal references missing evidence: ${entry.evidenceId}`);
+    }
+    if (
+      !SHA256_DIGEST.test(entry.evidenceDigest ?? "") ||
+      !SHA256_DIGEST.test(entry.transitionDigest ?? "")
+    ) {
+      throw new Error(`Evidence invalidation child binding is invalid: ${entry.evidenceId ?? "unknown"}`);
+    }
+    return {
+      evidenceId: entry.evidenceId,
+      evidenceDigest: entry.evidenceDigest,
+      transitionDigest: entry.transitionDigest
+    };
+  }).sort((left, right) => left.evidenceId.localeCompare(right.evidenceId));
+  if (new Set(children.map((child) => child.evidenceId)).size !== children.length) {
+    throw new Error(`Evidence invalidation has duplicate child transitions: ${attemptId}`);
+  }
+  return children;
+}
+
+function evidenceInvalidationParentBinding(attemptId, children) {
+  return {
+    schemaVersion: EVIDENCE_INVALIDATION_PARENT_SCHEMA_VERSION,
+    actionAttemptId: attemptId,
+    reason: "autonomous-commit-reconciled",
+    invalidated: children.length,
+    children
+  };
+}
+
+function validateEvidenceInvalidationParent(journal, attemptId, recordsById = null) {
+  const children = autonomousInvalidationChildren(journal, attemptId, recordsById);
+  if (children.length === 0) {
+    throw new Error(`Evidence invalidation has no bound child transitions: ${attemptId}`);
+  }
+  const parents = journal.filter((entry) => (
+    entry.event === "evidence.invalidated" && entry.actionAttemptId === attemptId
+  ));
+  if (parents.length !== 1) {
+    throw new Error(`Evidence invalidation journal parent is missing or ambiguous: ${attemptId}`);
+  }
+  const expected = evidenceInvalidationParentBinding(attemptId, children);
+  const parent = parents[0];
+  if (
+    parent.schemaVersion !== expected.schemaVersion ||
+    parent.reason !== expected.reason ||
+    parent.invalidated !== expected.invalidated ||
+    digestObject(parent.children) !== digestObject(expected.children) ||
+    parent.invalidationDigest !== digestObject(expected)
+  ) {
+    throw new Error(`Evidence invalidation journal parent binding is invalid: ${attemptId}`);
+  }
+  return { parent, children, binding: expected };
+}
+
+async function appendEvidenceInvalidationParent(root, runDir, attemptId) {
+  const journal = await readJournalRecords(root, runDir);
+  const children = autonomousInvalidationChildren(journal, attemptId);
+  if (children.length === 0) return null;
+  const existing = journal.filter((entry) => (
+    entry.event === "evidence.invalidated" && entry.actionAttemptId === attemptId
+  ));
+  const binding = evidenceInvalidationParentBinding(attemptId, children);
+  if (existing.length === 0) {
+    return appendJournal(root, runDir, "evidence.invalidated", {
+      ...binding,
+      invalidationDigest: digestObject(binding)
+    });
+  }
+  return validateEvidenceInvalidationParent(journal, attemptId).parent;
+}
+
+async function assertEvidenceJournalProvenance(root, run, records, journal, { ignoreEvidenceId = null } = {}) {
+  if (ignoreEvidenceId !== null) validateRecordId(ignoreEvidenceId, "ignored evidence");
+  const runCreated = journal.filter((entry) => entry.event === "run.created");
+  const protocolMarkers = [
+    run.contract.evidenceAdmissionProtocolVersion,
+    run.manifest.evidenceAdmissionProtocolVersion,
+    runCreated.length === 1 ? runCreated[0].evidenceAdmissionProtocolVersion : undefined
+  ];
+  const presentProtocolMarkers = protocolMarkers.filter((value) => value !== undefined);
+  let requiredProtocolVersion = null;
+  if (presentProtocolMarkers.length > 0) {
+    if (
+      runCreated.length !== 1 ||
+      presentProtocolMarkers.length !== protocolMarkers.length ||
+      presentProtocolMarkers.some((value) => value !== EVIDENCE_ADMISSION_PROTOCOL_VERSION) ||
+      run.manifest.contractDigest !== digestObject(run.contract)
+    ) {
+      throw new Error("Evidence admission protocol run-history binding is inconsistent");
+    }
+    requiredProtocolVersion = EVIDENCE_ADMISSION_PROTOCOL_VERSION;
+  } else if (run.manifest.contractDigest !== digestObject(run.contract)) {
+    throw new Error("Legacy evidence admission contract binding is inconsistent");
+  }
+  const relevantRecords = records.filter((record) => record.id !== ignoreEvidenceId);
+  const intents = (await listIdentityBoundJsonRecords(
+    root,
+    safeJoin(run.runDir, "evidence-admissions"),
+    "Evidence admission"
+  )).filter((intent) => intent.id !== ignoreEvidenceId);
+  const admissionEvents = journal.filter((entry) => (
+    [EVIDENCE_ADMISSION_PENDING_EVENT, "evidence.added"].includes(entry.event) &&
+    entry.evidenceId !== ignoreEvidenceId
+  ));
+  for (const entry of admissionEvents) {
+    validateRecordId(entry.evidenceId, "evidence admission journal");
+  }
+  const recordsById = new Map(relevantRecords.map((record) => [record.id, record]));
+  const intentsById = new Map(intents.map((intent) => [intent.id, intent]));
+  const autonomousInvalidationAttemptIds = new Set([
+    ...journal.filter((entry) => (
+      entry.event === EVIDENCE_FRESHNESS_EVENT &&
+      entry.protocolVersion === EVIDENCE_FRESHNESS_PROTOCOL_VERSION &&
+      entry.cause?.kind === "autonomous-commit-reconciled"
+    )).map((entry) => entry.cause.actionAttemptId),
+    ...journal.filter((entry) => (
+      entry.event === "evidence.invalidated" && entry.schemaVersion !== undefined
+    )).map((entry) => entry.actionAttemptId)
+  ]);
+  const invalidationsByAttempt = new Map();
+  for (const attemptId of autonomousInvalidationAttemptIds) {
+    if (typeof attemptId !== "string" || !SAFE_ID.test(attemptId)) {
+      throw new Error("Evidence invalidation action attempt binding is invalid");
+    }
+    invalidationsByAttempt.set(
+      attemptId,
+      validateEvidenceInvalidationParent(journal, attemptId, recordsById)
+    );
+  }
+  const added = admissionEvents.filter((entry) => entry.event === "evidence.added");
+  const pending = admissionEvents.filter((entry) => entry.event === EVIDENCE_ADMISSION_PENDING_EVENT);
+  const addedIds = new Set(added.map((entry) => entry.evidenceId));
+  const protocolRecordIds = new Set(relevantRecords
+    .filter((record) => record.admissionProtocolVersion === EVIDENCE_ADMISSION_PROTOCOL_VERSION)
+    .map((record) => record.id));
+  if (
+    requiredProtocolVersion === EVIDENCE_ADMISSION_PROTOCOL_VERSION &&
+    protocolRecordIds.size !== relevantRecords.length
+  ) {
+    throw new Error("Evidence admission protocol downgrade is forbidden by run history");
+  }
+  const protocolAdded = added.filter((entry) => entry.protocolVersion !== undefined);
+  const protocolPendingIds = new Set(pending.map((entry) => entry.evidenceId));
+  const sameSet = (left, right) => (
+    left.size === right.size && [...left].every((value) => right.has(value))
+  );
+  if (
+    added.length !== relevantRecords.length ||
+    !sameSet(addedIds, new Set(recordsById.keys())) ||
+    intents.length !== protocolRecordIds.size ||
+    !sameSet(new Set(intentsById.keys()), protocolRecordIds) ||
+    pending.length !== protocolRecordIds.size ||
+    !sameSet(protocolPendingIds, protocolRecordIds) ||
+    protocolAdded.length !== protocolRecordIds.size ||
+    protocolAdded.some((entry) => (
+      entry.protocolVersion !== EVIDENCE_ADMISSION_PROTOCOL_VERSION ||
+      !protocolRecordIds.has(entry.evidenceId)
+    ))
+  ) {
+    throw new Error("Evidence admission journal and file inventory are not bijective");
+  }
+  const bindings = new Map();
+  for (const record of relevantRecords) {
+    try {
+      bindings.set(record.id, evidenceAdmissionJournalBinding(record, journal, {
+        intent: intentsById.get(record.id) ?? null,
+        runId: run.manifest.runId,
+        requiredProtocolVersion
+      }));
+    } catch (error) {
+      const label = record.stale === true ? "stale" : "admission";
+      throw new Error(`Evidence ${label} provenance is invalid: ${record.id ?? "unknown"}: ${error.message}`);
+    }
+  }
+  for (const record of relevantRecords) {
+    if (record.stale !== true) continue;
+    let authorized = false;
+    const binding = bindings.get(record.id);
+    const transition = binding?.lastTransition;
+    if (
+      transition?.freshnessState?.stale === true &&
+      transition.freshnessState.freshnessCheckedAt === record.freshnessCheckedAt &&
+      transition.freshnessState.staleReason === (record.staleReason ?? null) &&
+      digestObject(transition.freshnessState.currentDependencyFiles) === digestObject(record.currentDependencyFiles ?? null)
+    ) {
+      if (transition.cause?.kind === "source-binding-rebound") {
+        authorized = journal.some((entry) => (
+          entry.event === "source-binding.rebound" &&
+          entry.from === transition.cause.from &&
+          entry.to === transition.cause.to &&
+          entry.headRevision === transition.cause.headRevision &&
+          entry.reason === transition.cause.reason
+        ));
+      } else if (transition.cause?.kind === "autonomous-commit-reconciled") {
+        if (transition.protocolVersion === EVIDENCE_FRESHNESS_PROTOCOL_VERSION) {
+          const invalidation = invalidationsByAttempt.get(transition.cause.actionAttemptId);
+          authorized = invalidation.children.some((child) => (
+            child.evidenceId === record.id &&
+            child.evidenceDigest === transition.evidenceDigest &&
+            child.transitionDigest === transition.transitionDigest
+          ));
+        } else {
+          authorized = journal.some((entry) => (
+            entry.event === "evidence.invalidated" &&
+            entry.schemaVersion === undefined &&
+            entry.actionAttemptId === transition.cause.actionAttemptId &&
+            entry.reason === "autonomous-commit-reconciled"
+          ));
+        }
+      } else if (transition.cause?.kind === "dependency-refresh") {
+        authorized = (await currentEvidenceFreshness(run, record)).stale;
+      }
+    }
+    if (!authorized) {
+      throw new Error(`Evidence stale provenance is invalid: ${record.id ?? "unknown"}`);
+    }
+  }
+}
+
+async function validateEvidenceSupersessionRecord(root, run, recordsById, journal, record) {
+  assertExactObjectKeys(record, EVIDENCE_SUPERSESSION_KEYS, "Evidence supersession record");
+  if (record.schemaVersion !== EVIDENCE_SUPERSESSION_SCHEMA_VERSION) {
+    throw new Error("Evidence supersession schemaVersion must be 1");
+  }
+  validateRecordId(record.id, "evidence supersession");
+  if (record.runId !== run.manifest.runId || record.actor !== "root") {
+    throw new Error("Evidence supersession run or actor binding is invalid");
+  }
+  if (typeof record.reason !== "string" || record.reason.trim().length < 12 || record.reason.length > 512) {
+    throw new Error("Evidence supersession reason must be 12 to 512 characters");
+  }
+  if (typeof record.createdAt !== "string" || Number.isNaN(Date.parse(record.createdAt))) {
+    throw new Error("Evidence supersession createdAt is invalid");
+  }
+  for (const [label, binding] of [
+    ["superseded", record.supersededEvidence],
+    ["replacement", record.replacementEvidence]
+  ]) {
+    assertExactObjectKeys(binding, new Set(["id", "digest"]), `Evidence supersession ${label} binding`);
+    validateRecordId(binding.id, `${label} evidence`);
+    if (!SHA256_DIGEST.test(binding.digest)) {
+      throw new Error(`Evidence supersession ${label} digest is invalid`);
+    }
+  }
+  if (record.supersededEvidence.id === record.replacementEvidence.id) {
+    throw new Error("Evidence supersession target and replacement must differ");
+  }
+  assertExactObjectKeys(record.action, EVIDENCE_SUPERSESSION_ACTION_KEYS, "Evidence supersession action binding");
+  for (const value of Object.values(record.action)) {
+    if (typeof value !== "string" || !value) throw new Error("Evidence supersession action binding is incomplete");
+  }
+  if (
+    record.contractDigest !== run.manifest.contractDigest ||
+    record.contractDigest !== digestObject(run.contract) ||
+    record.sourceBindingDigest !== (run.manifest.sourceBinding?.digest ?? null)
+  ) {
+    throw new Error("Evidence supersession contract or source binding is stale");
+  }
+  const target = recordsById.get(record.supersededEvidence.id);
+  const replacement = recordsById.get(record.replacementEvidence.id);
+  if (!target || !replacement) throw new Error("Evidence supersession target or replacement is missing");
+  if (
+    digestObject(target) !== record.supersededEvidence.digest ||
+    digestObject(replacement) !== record.replacementEvidence.digest
+  ) {
+    throw new Error("Evidence supersession evidence digest changed");
+  }
+  const targetCreatedAt = Date.parse(target.createdAt ?? "");
+  const replacementCreatedAt = Date.parse(replacement.createdAt ?? "");
+  const supersededAt = Date.parse(record.createdAt);
+  if (
+    !Number.isFinite(targetCreatedAt) ||
+    !Number.isFinite(replacementCreatedAt) ||
+    targetCreatedAt > replacementCreatedAt ||
+    replacementCreatedAt > supersededAt
+  ) {
+    throw new Error("Evidence supersession chronology is invalid");
+  }
+  const identity = await assertEvidenceSupersessionIdentity(run, target, replacement);
+  if (digestObject(identity) !== digestObject(record.action)) {
+    throw new Error("Evidence supersession action binding changed");
+  }
+  if (
+    record.policyDigest !== (replacement.dependencies?.policyDigest ?? null) ||
+    record.policyDigest !== (target.dependencies?.policyDigest ?? null)
+  ) {
+    throw new Error("Evidence supersession policy binding changed");
+  }
+  const { validateTypedEvidenceRecord } = await import("./evidence.mjs");
+  await validateTypedEvidenceRecord(target, {
+    manifest: run.manifest,
+    contract: run.contract,
+    state: run.state,
+    requireReconciled: false
+  });
+  let targetStillValid = true;
+  try {
+    await validateTypedEvidenceRecord(target, {
+      manifest: run.manifest,
+      contract: run.contract,
+      state: run.state,
+      root,
+      runDir: run.runDir,
+      requireReconciled: true
+    });
+  } catch {
+    targetStillValid = false;
+  }
+  if (targetStillValid) throw new Error("Evidence supersession cannot replace already-valid evidence");
+  await validateTypedEvidenceRecord(replacement, {
+    manifest: run.manifest,
+    contract: run.contract,
+    state: run.state,
+    root,
+    runDir: run.runDir,
+    requireReconciled: true
+  });
+  const recordDigest = digestObject(record);
+  const matchingJournal = journal.filter((entry) => (
+    entry.event === "evidence.superseded" &&
+    entry.supersessionId === record.id &&
+    entry.supersessionDigest === recordDigest &&
+    entry.supersededEvidenceId === record.supersededEvidence.id &&
+    entry.supersededEvidenceDigest === record.supersededEvidence.digest &&
+    entry.replacementEvidenceId === record.replacementEvidence.id &&
+    entry.replacementEvidenceDigest === record.replacementEvidence.digest &&
+    entry.actionAttemptId === record.action.attemptId &&
+    typeof entry.at === "string" &&
+    Date.parse(entry.at) >= supersededAt
+  ));
+  if (matchingJournal.length !== 1) {
+    throw new Error("Evidence supersession journal binding is missing or ambiguous");
+  }
+  return { record, target, replacement };
+}
+
+async function loadEvidenceSupersessions(root, run, records) {
+  const directory = safeJoin(run.runDir, "evidence-supersessions");
+  const journal = await readJournalRecords(root, run.runDir);
+  await assertEvidenceJournalProvenance(root, run, records, journal);
+  const supersessions = await listIdentityBoundJsonRecords(root, directory, "Evidence supersession");
+  const journalEntries = journal.filter((entry) => entry.event === "evidence.superseded");
+  if (supersessions.length === 0 && journalEntries.length === 0) {
+    return { records: [], supersededIds: new Set(), journal };
+  }
+  const recordsById = new Map(records.map((record) => [record.id, record]));
+  const validated = [];
+  const supersededIds = new Set();
+  const replacementIds = new Set();
+  for (const supersession of supersessions) {
+    const result = await validateEvidenceSupersessionRecord(root, run, recordsById, journal, supersession);
+    const targetId = result.record.supersededEvidence.id;
+    const replacementId = result.record.replacementEvidence.id;
+    if (supersededIds.has(targetId) || replacementIds.has(replacementId)) {
+      throw new Error("Evidence supersession is duplicated or conflicting");
+    }
+    if (replacementIds.has(targetId) || supersededIds.has(replacementId)) {
+      throw new Error("Evidence supersession chains or cycles are forbidden");
+    }
+    supersededIds.add(targetId);
+    replacementIds.add(replacementId);
+    validated.push(result.record);
+  }
+  if (journalEntries.length !== validated.length) {
+    throw new Error("Evidence supersession journal contains an unbound event");
+  }
+  return { records: validated, supersededIds, journal };
+}
+
+export async function loadEffectiveEvidenceState(root, runId, { run: suppliedRun = null } = {}) {
+  const run = suppliedRun ?? await loadRun(root, runId);
+  const records = run.contract.schemaVersion === 2
+    ? await listIdentityBoundJsonRecords(root, safeJoin(run.runDir, "evidence"), "Evidence")
+    : await listJsonRecords(root, safeJoin(run.runDir, "evidence"));
+  if (run.contract.schemaVersion !== 2) {
+    const journal = await readJournalRecords(root, run.runDir);
+    const usesCanonicalFreshnessProtocol = journal.some((entry) => (
+      entry.event === EVIDENCE_FRESHNESS_EVENT && entry.protocolVersion !== undefined
+    ));
+    const usesCanonicalAdmissionProtocol = (
+      journal.some((entry) => (
+        entry.event === EVIDENCE_ADMISSION_PENDING_EVENT ||
+        (entry.event === "evidence.added" && entry.protocolVersion !== undefined)
+      )) ||
+      await pathExists(safeJoin(run.runDir, "evidence-admissions"))
+    );
+    if (usesCanonicalFreshnessProtocol || usesCanonicalAdmissionProtocol) {
+      await assertEvidenceJournalProvenance(root, run, records, journal);
+    }
+    return { records, supersessions: [] };
+  }
+  const { records: supersessions, supersededIds } = await loadEvidenceSupersessions(root, run, records);
+  return {
+    records: records.filter((record) => !supersededIds.has(record.id)),
+    supersessions
+  };
+}
+
+async function currentEvidenceSupersessionFreshnessDigest(root, run) {
+  const evidence = await listIdentityBoundJsonRecords(root, safeJoin(run.runDir, "evidence"), "Evidence");
+  const supersessionState = await loadEvidenceSupersessions(root, run, evidence);
+  const recordsById = new Map(evidence.map((record) => [record.id, record]));
+  const projection = [];
+  for (const supersession of supersessionState.records) {
+    for (const role of ["supersededEvidence", "replacementEvidence"]) {
+      const binding = supersession[role];
+      const record = recordsById.get(binding.id);
+      const freshness = await currentEvidenceFreshness(run, record);
+      if (freshness.stale) {
+        throw new Error(`Action token denied by stale immutable supersession evidence: ${record.id}`);
+      }
+      projection.push({
+        supersessionId: supersession.id,
+        supersessionDigest: digestObject(supersession),
+        role,
+        evidenceId: record.id,
+        evidenceDigest: digestObject(record),
+        freshnessProjectionDigest: freshness.projectionDigest
+      });
+    }
+  }
+  return digestObject(projection);
+}
+
+function stableSentinelRecordDigest(sentinel) {
+  if (!sentinel || typeof sentinel !== "object" || Array.isArray(sentinel)) {
+    throw new Error("Source sentinel record is malformed");
+  }
+  const { checkedAt: _checkedAt, ...stable } = sentinel;
+  return digestObject(stable);
+}
+
+async function actionSourceAuthoritySnapshot(root, runDir, manifest, state, evidenceGateProjection) {
+  const sourceBinding = manifest.sourceBinding ?? null;
+  if (sourceBinding === null) {
+    return { schemaVersion: 1, sourceBinding: null, sourceSentinel: null };
+  }
+  if (
+    sourceBinding.schemaVersion !== 3 ||
+    !SHA256_DIGEST.test(sourceBinding.digest ?? "") ||
+    evidenceGateProjection?.sourceBindingDigest !== sourceBinding.digest
+  ) {
+    throw new Error("Action source authority snapshot is not bound to the evidence gate");
+  }
+  const label = state.lastSentinel?.label;
+  if (!SAFE_ID.test(label ?? "")) {
+    return { schemaVersion: 1, sourceBinding: structuredClone(sourceBinding), sourceSentinel: null };
+  }
+  const target = safeJoin(runDir, "sentinels", `${label}.json`);
+  if (!(await pathExists(target))) {
+    return { schemaVersion: 1, sourceBinding: structuredClone(sourceBinding), sourceSentinel: null };
+  }
+  const sentinel = await readJson(root, target);
+  if (
+    sentinel.complete !== true ||
+    sentinel.digest !== state.lastSentinel.digest ||
+    sentinel.digest !== evidenceGateProjection?.sourceSentinelDigest
+  ) {
+    throw new Error("Action source sentinel snapshot is stale or incomplete");
+  }
+  return {
+    schemaVersion: 1,
+    sourceBinding: structuredClone(sourceBinding),
+    sourceSentinel: {
+      label,
+      digest: sentinel.digest,
+      recordDigest: stableSentinelRecordDigest(sentinel)
+    }
+  };
+}
+
+function providerActionMutationPath(record, sourceMutation) {
+  const key = `${record.action}:${record.provider}`;
+  if (!PROVIDER_ACTION_SOURCE_MUTATIONS.has(key)) {
+    throw new Error("Provider action is not allowed to transition source authority");
+  }
+  const candidate = sourceMutation?.path;
+  if (
+    typeof candidate !== "string" || !candidate || candidate.includes("\\") ||
+    /[\0\r\n\t]/.test(candidate) || path.posix.isAbsolute(candidate) ||
+    path.posix.normalize(candidate) !== candidate || candidate === ".." || candidate.startsWith("../")
+  ) {
+    throw new Error("Provider action source mutation path is unsafe");
+  }
+  if (record.action === "recipe.promote") {
+    const expected = ".codex/better-workflows/config.json";
+    if (candidate !== expected) {
+      throw new Error("Recipe promotion may only transition the workspace recipe config");
+    }
+    return candidate;
+  }
+  const resource = /^artifact:([^:]+):([^:]+):(.+)$/.exec(record.resource ?? "");
+  if (!resource || resource[3] !== candidate) {
+    throw new Error("Artifact promotion source mutation path is not resource-bound");
+  }
+  const components = candidate.toLowerCase().split("/");
+  const authorityFiles = new Set([".git", ".gitattributes", ".gitignore", ".gitmodules"]);
+  const foldedCandidate = candidate.toLowerCase();
+  if (
+    components.some((component) => authorityFiles.has(component)) ||
+    foldedCandidate === ".codex/better-workflows" ||
+    foldedCandidate.startsWith(".codex/better-workflows/")
+  ) {
+    throw new Error("Artifact promotion cannot mutate Git authority or reserved recipe state");
+  }
+  return candidate;
+}
+
+function sentinelPathBinding(sentinel, relativePath) {
+  for (const collection of [sentinel.scopeDigest, sentinel.untracked]) {
+    if ((collection?.skipped ?? []).some((item) => item.path === relativePath)) {
+      throw new Error("Provider action source mutation path is outside complete sentinel coverage");
+    }
+  }
+  const matches = [
+    ...(sentinel.scopeDigest?.records ?? [])
+      .filter((item) => item.path === relativePath)
+      .map((record) => ({ surface: "tracked", record })),
+    ...(sentinel.untracked?.records ?? [])
+      .filter((item) => item.path === relativePath)
+      .map((record) => ({ surface: "untracked", record }))
+  ];
+  if (matches.length > 1) {
+    throw new Error("Provider action source mutation path has ambiguous sentinel coverage");
+  }
+  return matches[0] ?? null;
+}
+
+function normalizedSentinelOutsidePath(sentinel, relativePath) {
+  const normalizeCollection = (collection) => ({
+    records: (collection?.records ?? []).filter((item) => item.path !== relativePath),
+    skipped: (collection?.skipped ?? []).filter((item) => item.path !== relativePath),
+    complete: collection?.complete === true
+  });
+  const {
+    checkedAt: _checkedAt,
+    complete: _complete,
+    digest: _digest,
+    skipped: _skipped,
+    statusDigest: _statusDigest,
+    scopeDigest,
+    untracked,
+    ...stable
+  } = sentinel;
+  return {
+    ...stable,
+    scopeDigest: normalizeCollection(scopeDigest),
+    untracked: normalizeCollection(untracked)
+  };
+}
+
+function parsePorcelainV2Entries(stdout) {
+  if (typeof stdout !== "string") throw new Error("Git status returned non-text output");
+  const parts = stdout.split("\0");
+  if (parts.at(-1) === "") parts.pop();
+  const entries = [];
+  const pathAfterFields = (record, fieldCount) => {
+    let separator = -1;
+    for (let count = 0; count < fieldCount; count += 1) {
+      separator = record.indexOf(" ", separator + 1);
+      if (separator < 0) throw new Error("Git status returned a malformed porcelain record");
+    }
+    return record.slice(separator + 1);
+  };
+  for (let index = 0; index < parts.length; index += 1) {
+    const record = parts[index];
+    if (!record) throw new Error("Git status returned an empty porcelain record");
+    const type = record[0];
+    if (type === "1") {
+      entries.push({ type, paths: [pathAfterFields(record, 8)], parts: [record] });
+    } else if (type === "u") {
+      entries.push({ type, paths: [pathAfterFields(record, 10)], parts: [record] });
+    } else if (type === "2") {
+      const original = parts[index + 1];
+      if (original === undefined) {
+        throw new Error("Git status returned a malformed rename record");
+      }
+      entries.push({ type, paths: [pathAfterFields(record, 9), original], parts: [record, original] });
+      index += 1;
+    } else if (["?", "!"].includes(type) && record[1] === " ") {
+      entries.push({ type, paths: [record.slice(2)], parts: [record] });
+    } else {
+      throw new Error("Git status returned an unsupported porcelain record");
+    }
+  }
+  return entries;
+}
+
+function statusDigestOutsideMutation(stdout, relativePath, expectedType) {
+  const entries = parsePorcelainV2Entries(stdout);
+  const matches = entries.filter((entry) => entry.paths.includes(relativePath));
+  if (
+    matches.length !== 1 || matches[0].type !== expectedType ||
+    matches[0].paths.length !== 1 || matches[0].paths[0] !== relativePath
+  ) {
+    throw new Error("Provider action source mutation does not have one exact Git status record");
+  }
+  const remaining = entries.filter((entry) => entry !== matches[0]);
+  const normalized = remaining.length > 0
+    ? `${remaining.flatMap((entry) => entry.parts).join("\0")}\0`
+    : "";
+  return sha256(normalized);
+}
+
+function comparableSourceBinding(sourceBinding) {
+  const {
+    digest: _digest,
+    worktreeClean: _worktreeClean,
+    worktreeStatusDigest: _worktreeStatusDigest,
+    ...stable
+  } = sourceBinding;
+  return stable;
+}
+
+function validateRecipeConfigMutation(sourceMutation, beforeBinding, afterBinding) {
+  assertExactObjectKeys(
+    sourceMutation.recipeConfig,
+    new Set(["before", "after"]),
+    "Recipe promotion config transition"
+  );
+  const before = sourceMutation.recipeConfig.before;
+  const after = sourceMutation.recipeConfig.after;
+  const keys = new Set(["schemaVersion", "enabled", "artifactRetentionDays", "workspaceArtifactCapBytes"]);
+  assertExactObjectKeys(before, keys, "Recipe promotion prior config");
+  assertExactObjectKeys(after, keys, "Recipe promotion current config");
+  if (
+    before.schemaVersion !== 1 || after.schemaVersion !== 1 ||
+    before.enabled !== false || after.enabled !== true ||
+    !Number.isInteger(before.artifactRetentionDays) ||
+    !Number.isInteger(before.workspaceArtifactCapBytes) ||
+    digestObject({ ...before, enabled: true }) !== digestObject(after)
+  ) {
+    throw new Error("Recipe promotion config transition is not the exact enabled false-to-true mutation");
+  }
+  const beforeBytes = Buffer.from(`${JSON.stringify(before, null, 2)}\n`);
+  const afterBytes = Buffer.from(`${JSON.stringify(after, null, 2)}\n`);
+  if (
+    beforeBinding?.surface !== "tracked" || afterBinding?.surface !== "tracked" ||
+    beforeBinding.record?.type !== "file" || afterBinding.record?.type !== "file" ||
+    beforeBinding.record.digest !== sha256(beforeBytes) || beforeBinding.record.size !== beforeBytes.length ||
+    afterBinding.record.digest !== sha256(afterBytes) || afterBinding.record.size !== afterBytes.length
+  ) {
+    throw new Error("Recipe promotion config bytes are not sentinel-bound");
+  }
+}
+
+async function loadActionBaselineSentinel(root, run, record) {
+  const authority = record.sourceAuthorityAtIssue;
+  const binding = authority?.sourceSentinel;
+  if (
+    authority?.schemaVersion !== 1 || authority.sourceBinding?.schemaVersion !== 3 ||
+    !SHA256_DIGEST.test(authority.sourceBinding?.digest ?? "") ||
+    !binding || !SAFE_ID.test(binding.label ?? "") ||
+    binding.digest !== record.treeDigest || !SHA256_DIGEST.test(binding.recordDigest ?? "")
+  ) {
+    throw new Error("Provider action source transition lacks immutable issued source authority");
+  }
+  const sentinel = await readJson(root, safeJoin(run.runDir, "sentinels", `${binding.label}.json`));
+  if (
+    sentinel.complete !== true || sentinel.digest !== binding.digest ||
+    stableSentinelRecordDigest(sentinel) !== binding.recordDigest
+  ) {
+    throw new Error("Provider action issued source sentinel was replaced or is incomplete");
+  }
+  return { authority, binding, sentinel };
+}
+
+async function validateProviderActionSourceMutation(root, run, record, providerReceipt) {
+  const sourceMutation = providerReceipt.sourceMutation;
+  const expectedKeys = new Set([
+    "schemaVersion", "kind", "actionAttemptId", "action", "provider", "resource",
+    "path", "sourceBinding", "sentinel", "pathTransition",
+    ...(record.action === "recipe.promote" ? ["recipeConfig"] : [])
+  ]);
+  assertExactObjectKeys(sourceMutation, expectedKeys, "Provider action source mutation");
+  if (
+    sourceMutation.schemaVersion !== PROVIDER_ACTION_SOURCE_MUTATION_SCHEMA_VERSION ||
+    sourceMutation.kind !== "provider-action" ||
+    sourceMutation.actionAttemptId !== record.attemptId ||
+    sourceMutation.action !== record.action || sourceMutation.provider !== record.provider ||
+    sourceMutation.resource !== record.resource
+  ) {
+    throw new Error("Provider action source mutation identity is invalid");
+  }
+  const relativePath = providerActionMutationPath(record, sourceMutation);
+  const baseline = await loadActionBaselineSentinel(root, run, record);
+  if (
+    record.evidenceGateProjection?.sourceBindingDigest !== baseline.authority.sourceBinding.digest ||
+    record.evidenceGateProjection?.sourceSentinelDigest !== baseline.sentinel.digest
+  ) {
+    throw new Error("Provider action source transition is not bound to the issued evidence projection");
+  }
+  const {
+    captureSentinel,
+    captureSourceBinding,
+    normalizeSourceBindingWorktreeStatus,
+    runSourceGit
+  } = await import("./git.mjs");
+  const currentSentinel = await captureSentinel(run.manifest.cwd, run.contract, await loadDefaults());
+  const currentSourceBinding = await captureSourceBinding(run.manifest.cwd, {
+    baseRevision: baseline.authority.sourceBinding.baseRevision,
+    requireClean: false
+  });
+  if (!currentSourceBinding || currentSentinel.complete !== true) {
+    throw new Error("Provider action current source authority is unavailable or incomplete");
+  }
+  const [sentinelStatus, sourceBindingStatus] = await Promise.all([
+    runSourceGit(run.manifest.cwd, ["status", "--porcelain=v2", "-z", "--untracked-files=all"]),
+    runSourceGit(run.manifest.cwd, ["status", "--porcelain=v2", "-z", "--untracked-files=all", "--ignored"])
+  ]);
+  const normalizedSourceBindingStatus = await normalizeSourceBindingWorktreeStatus(
+    run.manifest.cwd,
+    sourceBindingStatus.stdout
+  );
+  if (
+    sha256(sentinelStatus.stdout) !== currentSentinel.statusDigest ||
+    sha256(normalizedSourceBindingStatus) !== currentSourceBinding.worktreeStatusDigest
+  ) {
+    throw new Error("Provider action source changed during transition verification");
+  }
+  const expectedStatusType = record.action === "recipe.promote" ? "1" : "?";
+  if (
+    statusDigestOutsideMutation(sentinelStatus.stdout, relativePath, expectedStatusType) !== baseline.sentinel.statusDigest ||
+    statusDigestOutsideMutation(normalizedSourceBindingStatus, relativePath, expectedStatusType) !==
+      baseline.authority.sourceBinding.worktreeStatusDigest
+  ) {
+    throw new Error("Provider action source mutation includes undeclared Git status drift");
+  }
+  if (
+    digestObject(normalizedSentinelOutsidePath(baseline.sentinel, relativePath)) !==
+      digestObject(normalizedSentinelOutsidePath(currentSentinel, relativePath)) ||
+    digestObject(comparableSourceBinding(baseline.authority.sourceBinding)) !==
+      digestObject(comparableSourceBinding(currentSourceBinding))
+  ) {
+    throw new Error("Provider action source mutation changed authority outside its declared path");
+  }
+  const beforePath = sentinelPathBinding(baseline.sentinel, relativePath);
+  const afterPath = sentinelPathBinding(currentSentinel, relativePath);
+  assertExactObjectKeys(sourceMutation.sourceBinding, new Set(["from", "to", "headRevision"]), "Provider action source binding transition");
+  assertExactObjectKeys(sourceMutation.sentinel, new Set(["from", "to"]), "Provider action sentinel transition");
+  assertExactObjectKeys(sourceMutation.pathTransition, new Set(["before", "after"]), "Provider action path transition");
+  if (
+    sourceMutation.sourceBinding.from !== baseline.authority.sourceBinding.digest ||
+    sourceMutation.sourceBinding.to !== currentSourceBinding.digest ||
+    sourceMutation.sourceBinding.headRevision !== currentSourceBinding.headRevision ||
+    sourceMutation.sentinel.from !== baseline.sentinel.digest ||
+    sourceMutation.sentinel.to !== currentSentinel.digest ||
+    digestObject(sourceMutation.pathTransition.before) !== digestObject(beforePath) ||
+    digestObject(sourceMutation.pathTransition.after) !== digestObject(afterPath) ||
+    baseline.authority.sourceBinding.headRevision !== currentSourceBinding.headRevision ||
+    currentSourceBinding.digest === baseline.authority.sourceBinding.digest ||
+    currentSentinel.digest === baseline.sentinel.digest
+  ) {
+    throw new Error("Provider action source mutation receipt does not match the exact live transition");
+  }
+  if (record.action === "recipe.promote") {
+    validateRecipeConfigMutation(sourceMutation, beforePath, afterPath);
+  } else if (
+    beforePath !== null || afterPath?.surface !== "untracked" ||
+    afterPath.record?.type !== "file" ||
+    afterPath.record.digest !== providerReceipt.digest
+  ) {
+    throw new Error("Artifact promotion must create one exact untracked artifact file");
+  }
+  return {
+    descriptor: sourceMutation,
+    descriptorDigest: digestObject(sourceMutation),
+    relativePath,
+    baselineSourceBinding: baseline.authority.sourceBinding,
+    currentSourceBinding,
+    baselineSentinel: baseline.sentinel,
+    currentSentinel,
+    baselineSentinelRecordDigest: baseline.binding.recordDigest,
+    currentSentinelRecordDigest: stableSentinelRecordDigest(currentSentinel)
+  };
+}
+
+async function assertFrozenProviderActionEvidenceGate(root, runId, run, record, context) {
+  const projection = record.evidenceGateProjection;
+  if (
+    !projection || digestObject(projection) !== record.evidenceGateDigest ||
+    projection.runId !== runId || projection.action !== record.action ||
+    projection.contractDigest !== digestObject(run.contract) ||
+    projection.authorityDigest !== digestObject(run.contract.authority ?? null) ||
+    projection.policyDigest !== canonicalEvidencePolicyDigest(run.contract) ||
+    projection.remoteRevision !== (run.contract.remoteRevision ?? null) ||
+    projection.workflowVersion !== VERSION
+  ) {
+    throw new Error(`${context} denied because the issued evidence projection is malformed`);
+  }
+  const evidence = await listIdentityBoundJsonRecords(root, safeJoin(run.runDir, "evidence"), "Evidence");
+  await assertEvidenceJournalProvenance(root, run, evidence, await readJournalRecords(root, run.runDir));
+  const gateKinds = new Set(record.evidenceGate);
+  const selected = evidence
+    .filter((item) => gateKinds.has(item.kind) && item.schemaVersion === 2 && item.typedAdmission && item.status === "complete" && item.stale !== true)
+    .map((item) => ({ kind: item.kind, evidenceId: item.id, evidenceDigest: digestObject(item) }))
+    .sort((left, right) => left.kind.localeCompare(right.kind) || left.evidenceId.localeCompare(right.evidenceId));
+  const expectedEvidence = (projection.evidence ?? [])
+    .map((item) => ({ kind: item.kind, evidenceId: item.evidenceId, evidenceDigest: item.evidenceDigest }))
+    .sort((left, right) => left.kind.localeCompare(right.kind) || left.evidenceId.localeCompare(right.evidenceId));
+  if (digestObject(selected) !== digestObject(expectedEvidence)) {
+    throw new Error(`${context} denied because issued gate evidence changed after provider invocation`);
+  }
+  const supersessions = (await listIdentityBoundJsonRecords(
+    root,
+    safeJoin(run.runDir, "evidence-supersessions"),
+    "Evidence supersession"
+  )).map((item) => ({ id: item.id, digest: digestObject(item) })).sort((left, right) => left.id.localeCompare(right.id));
+  if (digestObject(supersessions) !== digestObject(projection.effectiveSupersessions ?? [])) {
+    throw new Error(`${context} denied because evidence supersessions changed after provider invocation`);
+  }
+  const findings = (await listJsonRecords(root, safeJoin(run.runDir, "findings")))
+    .filter((item) => ["P0", "P1"].includes(item.severity))
+    .map((item) => {
+      validateFinding(item);
+      if (item.status === "open") throw new Error(`${context} denied by a post-invocation P0/P1 finding`);
+      return { id: item.id, digest: digestObject(item) };
+    })
+    .sort((left, right) => left.id.localeCompare(right.id));
+  if (digestObject(findings) !== digestObject(projection.findingInventory ?? [])) {
+    throw new Error(`${context} denied because finding dispositions changed after provider invocation`);
+  }
+  return projection;
+}
+
+async function currentActionSourceAuthorityBinding(root, run, action) {
+  const sourceBinding = run.manifest.sourceBinding ?? null;
+  if (!sourceBinding) {
+    if (run.manifest.initialSourceBindingDigest !== null && run.manifest.initialSourceBindingDigest !== undefined) {
+      throw new Error("Action token denied because the initial source binding is malformed");
+    }
+    return {
+      initialSourceBindingDigest: null,
+      sourceBindingDigest: null,
+      currentSourceBindingDigest: null,
+      sourceTransitionDigest: digestObject([]),
+      sourceTransitions: [],
+      sourceSentinelDigest: run.state.lastSentinel?.digest ?? null
+    };
+  }
+  if (
+    sourceBinding.schemaVersion !== 3 ||
+    !SHA256_DIGEST.test(sourceBinding.digest ?? "") ||
+    run.state.lastSentinelVerified !== true ||
+    run.state.lastSentinelComplete !== true ||
+    !SHA256_DIGEST.test(run.state.lastSentinel?.digest ?? "")
+  ) {
+    throw new Error("Action token denied because current source authority is incomplete");
+  }
+  const { captureSentinel, captureSourceBinding } = await import("./git.mjs");
+  const currentSourceBinding = await captureSourceBinding(run.manifest.cwd, {
+    baseRevision: sourceBinding.baseRevision,
+    requireClean: false
+  });
+  let autonomySnapshotDigest = null;
+  if (!currentSourceBinding) {
+    throw new Error("Action token denied because the current source binding is unavailable");
+  }
+  if (currentSourceBinding.digest !== sourceBinding.digest) {
+    if (
+      action !== "git.commit" || !run.contract.autonomyProfile ||
+      run.state.autonomy?.status !== "ready" || !run.state.autonomy?.snapshot
+    ) {
+      throw new Error("Action token denied because the current source binding changed outside a governed transition");
+    }
+    const snapshot = await currentAutonomySnapshot(run.manifest, run.contract, run.state);
+    assertAutonomySnapshotIdentity(snapshot, run.state.autonomy.snapshot, "Action source authority");
+    autonomySnapshotDigest = digestObject(snapshot);
+  }
+  const currentSentinel = await captureSentinel(run.manifest.cwd, run.contract, await loadDefaults());
+  if (!currentSentinel.complete || currentSentinel.digest !== run.state.lastSentinel.digest) {
+    throw new Error("Action token denied because the content-complete source sentinel changed");
+  }
+
+  const history = Array.isArray(run.manifest.sourceBindingHistory)
+    ? run.manifest.sourceBindingHistory
+    : [];
+  const initialSourceBindingDigest = run.manifest.initialSourceBindingDigest ??
+    history[0]?.from ?? sourceBinding.digest;
+  if (initialSourceBindingDigest !== null && !SHA256_DIGEST.test(initialSourceBindingDigest)) {
+    throw new Error("Action token denied because the initial source binding is malformed");
+  }
+  const journal = history.length > 0 ? await readJournalRecords(root, run.runDir) : [];
+  const actions = history.some((entry) => ["autonomous-commit", "provider-action"].includes(entry?.kind))
+    ? await listJsonRecords(root, safeJoin(run.runDir, "actions"))
+    : [];
+  const transitions = [];
+  let prior = initialSourceBindingDigest;
+  for (const entry of history) {
+    if (
+      !entry || typeof entry !== "object" || Array.isArray(entry) ||
+      entry.from !== prior || !SHA256_DIGEST.test(entry.to ?? "") ||
+      !SHA.test(entry.headRevision ?? "") || !Number.isFinite(Date.parse(entry.at ?? ""))
+    ) {
+      throw new Error("Action token denied because source transition history is malformed");
+    }
+    if (entry.kind === "autonomous-commit") {
+      const action = actions.find((candidate) => candidate.attemptId === entry.actionAttemptId);
+      const journalEntry = journal.find((candidate) => (
+        candidate.event === "source-binding.autonomous-commit" &&
+        candidate.actionAttemptId === entry.actionAttemptId &&
+        candidate.from === entry.from && candidate.to === entry.to &&
+        candidate.headRevision === entry.headRevision
+      ));
+      if (
+        !action || action.action !== "git.commit" || action.provider !== "git" ||
+        action.status !== "spent" || action.outcome !== "success" ||
+        action.sourceBindingTransition?.from !== entry.from ||
+        action.sourceBindingTransition?.to !== entry.to ||
+        action.sourceBindingTransition?.headRevision !== entry.headRevision ||
+        !journalEntry
+      ) {
+        throw new Error("Action token denied because an autonomous source transition is not replay-valid");
+      }
+    } else if (entry.kind === "provider-action") {
+      const providerAction = actions.find((candidate) => candidate.attemptId === entry.actionAttemptId);
+      const transition = providerAction?.sourceBindingTransition;
+      const expectedHistory = transition
+        ? {
+            ...transition,
+            reason: "governed-provider-action-reconciled",
+            transitionDigest: digestObject(transition)
+          }
+        : null;
+      const journalEntries = journal.filter((candidate) => (
+        candidate.event === "source-binding.provider-action" &&
+        candidate.actionAttemptId === entry.actionAttemptId
+      ));
+      const beforeSentinelBinding = providerAction?.sourceAuthorityAtIssue?.sourceSentinel;
+      const beforeSentinel = beforeSentinelBinding?.label
+        ? await readJson(root, safeJoin(run.runDir, "sentinels", `${beforeSentinelBinding.label}.json`)).catch(() => null)
+        : null;
+      const afterSentinel = transition?.sourceSentinelLabel
+        ? await readJson(root, safeJoin(run.runDir, "sentinels", `${transition.sourceSentinelLabel}.json`)).catch(() => null)
+        : null;
+      if (
+        !providerAction || providerAction.status !== "spent" || providerAction.outcome !== "success" ||
+        !PROVIDER_ACTION_SOURCE_MUTATIONS.has(`${providerAction.action}:${providerAction.provider}`) ||
+        !transition || digestObject(entry) !== digestObject(expectedHistory) ||
+        transition.from !== entry.from || transition.to !== entry.to ||
+        transition.headRevision !== entry.headRevision ||
+        transition.providerReceiptDigest !== digestObject(providerAction.receipt?.providerReceipt ?? null) ||
+        transition.sourceMutationDigest !== digestObject(providerAction.receipt?.providerReceipt?.sourceMutation ?? null) ||
+        journalEntries.length !== 1 ||
+        digestObject({ ...journalEntries[0], at: undefined, event: undefined, attemptId: undefined }) !==
+          digestObject({ ...expectedHistory, at: undefined, reason: undefined }) ||
+        !beforeSentinel || beforeSentinel.digest !== transition.sourceSentinelFrom ||
+        stableSentinelRecordDigest(beforeSentinel) !== transition.sourceSentinelFromRecordDigest ||
+        !afterSentinel || afterSentinel.digest !== transition.sourceSentinelTo ||
+        stableSentinelRecordDigest(afterSentinel) !== transition.sourceSentinelToRecordDigest
+      ) {
+        throw new Error("Action token denied because a provider action source transition is not replay-valid");
+      }
+    } else {
+      const journalEntry = journal.find((candidate) => (
+        candidate.event === "source-binding.rebound" &&
+        candidate.from === entry.from && candidate.to === entry.to &&
+        candidate.headRevision === entry.headRevision && candidate.reason === entry.reason
+      ));
+      if (typeof entry.reason !== "string" || !entry.reason || !journalEntry) {
+        throw new Error("Action token denied because a source rebind is not replay-valid");
+      }
+    }
+    transitions.push({
+      kind: entry.kind ?? "source-rebind",
+      actionAttemptId: entry.actionAttemptId ?? null,
+      action: entry.action ?? null,
+      provider: entry.provider ?? null,
+      resource: entry.resource ?? null,
+      path: entry.path ?? null,
+      from: entry.from,
+      to: entry.to,
+      headRevision: entry.headRevision,
+      sourceSentinelFrom: entry.sourceSentinelFrom ?? null,
+      sourceSentinelTo: entry.sourceSentinelTo ?? null,
+      providerReceiptDigest: entry.providerReceiptDigest ?? null,
+      sourceMutationDigest: entry.sourceMutationDigest ?? null,
+      reason: entry.reason,
+      at: entry.at,
+      digest: digestObject(entry)
+    });
+    prior = entry.to;
+  }
+  if (prior !== sourceBinding.digest) {
+    throw new Error("Action token denied because source transition history does not reach the live source");
+  }
+  return {
+    initialSourceBindingDigest,
+    sourceBindingDigest: sourceBinding.digest,
+    currentSourceBindingDigest: currentSourceBinding.digest,
+    sourceTransitionDigest: digestObject(transitions),
+    sourceTransitions: transitions,
+    autonomySnapshotDigest,
+    sourceSentinelDigest: currentSentinel.digest
+  };
+}
+
+const ACTION_GATE_SOURCE_PROJECTION_FIELDS = new Set([
+  "initialSourceBindingDigest",
+  "sourceBindingDigest",
+  "currentSourceBindingDigest",
+  "sourceTransitionDigest",
+  "sourceTransitions",
+  "autonomySnapshotDigest",
+  "sourceSentinelDigest"
+]);
+
+function actionEvidencePolicyProjection(projection) {
+  if (!projection || typeof projection !== "object" || Array.isArray(projection)) {
+    throw new Error("Action evidence gate projection is missing");
+  }
+  return Object.fromEntries(
+    Object.entries(projection).filter(([key]) => !ACTION_GATE_SOURCE_PROJECTION_FIELDS.has(key))
+  );
+}
+
+export async function currentActionNonSourceAuthorityBinding(root, runId, run, action) {
+  const configuredGate = run.contract.actionGates?.[action];
+  if (!Array.isArray(configuredGate) || configuredGate.length === 0) {
+    throw new Error(`No pre-action evidence gate is defined for: ${action}`);
+  }
+  const gateKinds = new Set(configuredGate);
+  const effective = await loadEffectiveEvidenceState(root, runId, { run });
+  const findingDispositionBinding = await currentFindingDispositionBinding(root, runId, run);
+  const { validateTypedEvidenceRecord } = await import("./evidence.mjs");
+  const selected = [];
+  for (const record of effective.records.filter((item) => gateKinds.has(item.kind))) {
+    if (
+      record.schemaVersion !== 2 ||
+      !record.typedAdmission ||
+      record.status !== "complete" ||
+      record.stale === true
+    ) continue;
+    await validateTypedEvidenceRecord(record, {
+      manifest: run.manifest,
+      contract: run.contract,
+      state: run.state,
+      root,
+      runDir: run.runDir,
+      requireReconciled: true
+    });
+    const freshness = await assertCurrentEvidenceFreshness(
+      run,
+      record,
+      "Action token configured evidence gate"
+    );
+    selected.push({
+      kind: record.kind,
+      evidenceId: record.id,
+      evidenceDigest: digestObject(record),
+      admissionDigest: digestObject(record.typedAdmission),
+      dependencyBindingDigest: digestObject(record.dependencies ?? null),
+      expectedDependencyDigest: digestObject(freshness.expectedDependencies),
+      currentDependencyFilesDigest: digestObject(freshness.currentDependencyFiles),
+      freshnessProjectionDigest: freshness.projectionDigest
+    });
+  }
+  selected.sort((left, right) => (
+    left.kind.localeCompare(right.kind) || left.evidenceId.localeCompare(right.evidenceId)
+  ));
+  const available = new Set(selected.map((item) => item.kind));
+  const missing = configuredGate.filter((kind) => !available.has(kind));
+  if (missing.length > 0) {
+    throw new Error(`Action token missing evidence: ${missing.join(", ")}`);
+  }
+  const supersessions = [...effective.supersessions]
+    .sort((left, right) => left.id.localeCompare(right.id))
+    .map((record) => ({ id: record.id, digest: digestObject(record) }));
+  const projection = {
+    schemaVersion: 1,
+    runId,
+    action,
+    configuredGate: [...configuredGate],
+    contractDigest: digestObject(run.contract),
+    authorityDigest: digestObject(run.contract.authority ?? null),
+    policyDigest: canonicalEvidencePolicyDigest(run.contract),
+    remoteRevision: run.contract.remoteRevision ?? null,
+    workflowVersion: VERSION,
+    effectiveSupersessions: supersessions,
+    findingDispositionDigest: findingDispositionBinding.digest,
+    findingDispositions: findingDispositionBinding.dispositions,
+    findingInventory: findingDispositionBinding.inventory,
+    evidence: selected
+  };
+  return {
+    configuredGate: [...configuredGate],
+    digest: digestObject(projection),
+    projection
+  };
+}
+
+export async function currentActionEvidenceGateBinding(root, runId, run, action) {
+  const policy = await currentActionNonSourceAuthorityBinding(root, runId, run, action);
+  const sourceAuthority = await currentActionSourceAuthorityBinding(root, run, action);
+  const projection = {
+    schemaVersion: policy.projection.schemaVersion,
+    runId: policy.projection.runId,
+    action: policy.projection.action,
+    configuredGate: policy.projection.configuredGate,
+    contractDigest: policy.projection.contractDigest,
+    authorityDigest: policy.projection.authorityDigest,
+    policyDigest: policy.projection.policyDigest,
+    initialSourceBindingDigest: sourceAuthority.initialSourceBindingDigest,
+    sourceBindingDigest: sourceAuthority.sourceBindingDigest,
+    currentSourceBindingDigest: sourceAuthority.currentSourceBindingDigest,
+    sourceTransitionDigest: sourceAuthority.sourceTransitionDigest,
+    sourceTransitions: sourceAuthority.sourceTransitions,
+    autonomySnapshotDigest: sourceAuthority.autonomySnapshotDigest ?? null,
+    sourceSentinelDigest: sourceAuthority.sourceSentinelDigest,
+    remoteRevision: policy.projection.remoteRevision,
+    workflowVersion: policy.projection.workflowVersion,
+    effectiveSupersessions: policy.projection.effectiveSupersessions,
+    findingDispositionDigest: policy.projection.findingDispositionDigest,
+    findingDispositions: policy.projection.findingDispositions,
+    findingInventory: policy.projection.findingInventory,
+    evidence: policy.projection.evidence
+  };
+  return {
+    configuredGate: [...policy.configuredGate],
+    digest: digestObject(projection),
+    projection,
+    policyDigest: policy.digest,
+    policyProjection: policy.projection
+  };
+}
+
+export async function assertSpentActionNonSourceAuthority(root, runId, run, record, context) {
+  if (run.contract.schemaVersion !== 2) return null;
+  const configuredGate = run.contract.actionGates?.[record.action];
+  if (
+    record.status !== "spent" || !record.attemptId ||
+    !Array.isArray(configuredGate) || configuredGate.length === 0 ||
+    !Array.isArray(record.evidenceGate) ||
+    digestObject(record.evidenceGate) !== digestObject(configuredGate) ||
+    !SHA256_DIGEST.test(record.evidenceGateDigest ?? "") ||
+    !SHA256_DIGEST.test(record.evidenceSupersessionFreshnessDigest ?? "") ||
+    digestObject(record.evidenceGateProjection ?? null) !== record.evidenceGateDigest
+  ) {
+    throw new Error(`${context} denied because the spent action evidence gate is unbound`);
+  }
+  const supersessionFreshnessDigest = await currentEvidenceSupersessionFreshnessDigest(root, run);
+  if (supersessionFreshnessDigest !== record.evidenceSupersessionFreshnessDigest) {
+    throw new Error(`${context} denied because immutable evidence freshness changed`);
+  }
+  const expectedPolicyProjection = actionEvidencePolicyProjection(record.evidenceGateProjection);
+  const currentPolicy = await currentActionNonSourceAuthorityBinding(root, runId, run, record.action);
+  if (currentPolicy.digest !== digestObject(expectedPolicyProjection)) {
+    throw new Error(`${context} denied because non-source action authority changed`);
+  }
+  return currentPolicy;
+}
+
+async function assertSpentActionEvidenceGate(root, runId, run, record, context) {
+  if (run.contract.schemaVersion !== 2) return null;
+  await assertSpentActionNonSourceAuthority(root, runId, run, record, context);
+  const currentGate = await currentActionEvidenceGateBinding(root, runId, run, record.action);
+  if (currentGate.digest !== record.evidenceGateDigest) {
+    throw new Error(`${context} denied because the configured evidence gate changed`);
+  }
+  if (currentGate.projection.sourceSentinelDigest !== record.treeDigest) {
+    throw new Error(`${context} denied because the content-complete source sentinel changed`);
+  }
+  return currentGate;
+}
+
+export async function assertSpentActionProviderAuthority(root, runId, run, record, context) {
+  return assertSpentActionEvidenceGate(root, runId, run, record, context);
+}
+
+export async function assertAutonomousCommitEvidenceInvalidationSafe(
+  root,
+  runId,
+  { run: suppliedRun = null } = {}
+) {
+  const run = suppliedRun ?? await loadRun(root, runId);
+  if (run.contract.schemaVersion !== 2) return { ok: true, supersessionIds: [] };
+  const supersessions = await listIdentityBoundJsonRecords(
+    root,
+    safeJoin(run.runDir, "evidence-supersessions"),
+    "Evidence supersession"
+  );
+  const journal = await readJournalRecords(root, run.runDir);
+  const journalIds = journal
+    .filter((entry) => entry.event === "evidence.superseded")
+    .map((entry) => entry.supersessionId);
+  if (supersessions.length === 0 && journalIds.length === 0) {
+    return { ok: true, supersessionIds: [] };
+  }
+  const supersessionIds = [...new Set([
+    ...supersessions.map((record) => record.id),
+    ...journalIds
+  ])].sort();
+  throw new Error(
+    `Autonomous Git commit reconciliation cannot invalidate supersession-bound evidence without mutating admitted bytes: ${supersessionIds.join(", ")}`
+  );
+}
+
+export async function listEffectiveEvidenceRecords(root, runId, options = {}) {
+  return (await loadEffectiveEvidenceState(root, runId, options)).records;
+}
+
+export async function refreshEvidence(root, runId, { onTransitionPrepared = null } = {}) {
+  if (onTransitionPrepared !== null && typeof onTransitionPrepared !== "function") {
+    throw new Error("Evidence freshness transition hook must be a function");
+  }
+  return withRunLock(root, runId, async ({ runDir }) => {
+    const run = await loadRun(root, runId);
+    assertMutableRun(run, "Evidence freshness");
+    let evidence = run.contract.schemaVersion === 2
+      ? await listIdentityBoundJsonRecords(root, safeJoin(runDir, "evidence"), "Evidence")
+      : await listJsonRecords(root, safeJoin(runDir, "evidence"));
+    let recoveredPending = [];
+    if (run.contract.schemaVersion === 2) {
+      const recovered = await recoverPendingEvidenceFreshnessTransitions(root, runDir, evidence);
+      evidence = recovered.records;
+      recoveredPending = recovered.recoveredIds;
+    }
+    const supersessionState = run.contract.schemaVersion === 2
+      ? await loadEvidenceSupersessions(root, run, evidence)
+      : { records: [] };
+    const immutableIds = new Set(supersessionState.records.flatMap((record) => [
+      record.supersededEvidence.id,
+      record.replacementEvidence.id
+    ]));
+    const stale = [];
+    const fresh = [];
+    const immutableStale = [];
+    for (const record of evidence) {
+      const freshness = await currentEvidenceFreshness(run, record);
+      if (immutableIds.has(record.id)) {
+        if (freshness.stale) immutableStale.push(record.id);
+      } else {
+        const checkedAt = nowIso();
+        const next = {
+          ...record,
+          stale: freshness.stale,
+          freshnessCheckedAt: checkedAt,
+          currentDependencyFiles: freshness.currentDependencyFiles
+        };
+        if (freshness.stale) next.staleReason = "dependency-freshness-check";
+        else delete next.staleReason;
+        await writeEvidenceFreshnessTransition(
+          root,
+          runDir,
+          record,
+          next,
+          { kind: "dependency-refresh" },
+          {
+            onPrepared: onTransitionPrepared
+              ? (transition) => onTransitionPrepared(record, transition)
+              : null
+          }
+        );
+      }
+      (freshness.stale ? stale : fresh).push(record.id);
+    }
+    return {
+      stale,
+      fresh,
+      immutableEvidenceIds: [...immutableIds].sort(),
+      immutableStale: immutableStale.sort(),
+      recoveredPending: recoveredPending.sort()
+    };
+  });
+}
+
+export async function supersedeEvidence(root, runId, input) {
+  return withRunLock(root, runId, async ({ runDir }) => {
+    const run = await loadRun(root, runId);
+    assertMutableRun(run, "Evidence supersession");
+    if (run.contract.schemaVersion !== 2) {
+      throw new Error("Evidence supersession requires a TaskContract v2 run");
+    }
+    assertExactObjectKeys(input, EVIDENCE_SUPERSESSION_INPUT_KEYS, "Evidence supersession input");
+    if (input.schemaVersion !== EVIDENCE_SUPERSESSION_SCHEMA_VERSION) {
+      throw new Error("Evidence supersession input schemaVersion must be 1");
+    }
+    validateRecordId(input.id, "evidence supersession");
+    validateRecordId(input.supersededEvidenceId, "superseded evidence");
+    validateRecordId(input.replacementEvidenceId, "replacement evidence");
+    if (!SHA256_DIGEST.test(input.supersededEvidenceDigest) || !SHA256_DIGEST.test(input.replacementEvidenceDigest)) {
+      throw new Error("Evidence supersession input digests are invalid");
+    }
+    if (typeof input.actionAttemptId !== "string" || !SAFE_ID.test(input.actionAttemptId)) {
+      throw new Error("Evidence supersession actionAttemptId is required");
+    }
+    if (typeof input.reason !== "string" || input.reason.trim().length < 12 || input.reason.length > 512) {
+      throw new Error("Evidence supersession reason must be 12 to 512 characters");
+    }
+    const evidence = await listIdentityBoundJsonRecords(root, safeJoin(runDir, "evidence"), "Evidence");
+    const evidenceJournal = await readJournalRecords(root, runDir);
+    await assertEvidenceJournalProvenance(root, run, evidence, evidenceJournal);
+    const recordsById = new Map(evidence.map((record) => [record.id, record]));
+    const target = recordsById.get(input.supersededEvidenceId);
+    const replacement = recordsById.get(input.replacementEvidenceId);
+    if (!target || !replacement) throw new Error("Evidence supersession target or replacement is missing");
+    if (
+      digestObject(target) !== input.supersededEvidenceDigest ||
+      digestObject(replacement) !== input.replacementEvidenceDigest
+    ) {
+      throw new Error("Evidence supersession input digest does not match persisted evidence");
+    }
+    const action = await assertEvidenceSupersessionIdentity(run, target, replacement);
+    if (action.attemptId !== input.actionAttemptId) {
+      throw new Error("Evidence supersession actionAttemptId changed");
+    }
+    await listIdentityBoundJsonRecords(
+      root,
+      safeJoin(runDir, "evidence-supersessions"),
+      "Evidence supersession"
+    );
+    const targetPath = safeJoin(runDir, "evidence-supersessions", `${input.id}.json`);
+    let record;
+    if (await pathExists(targetPath)) {
+      record = await readJson(root, targetPath);
+      if (
+        record.supersededEvidence?.id !== target.id ||
+        record.supersededEvidence?.digest !== input.supersededEvidenceDigest ||
+        record.replacementEvidence?.id !== replacement.id ||
+        record.replacementEvidence?.digest !== input.replacementEvidenceDigest ||
+        record.action?.attemptId !== input.actionAttemptId ||
+        record.reason !== input.reason
+      ) {
+        throw new Error(`Evidence supersession already exists: ${input.id}`);
+      }
+    } else {
+      const existingSupersessions = await loadEvidenceSupersessions(root, run, evidence);
+      if (
+        existingSupersessions.records.some((existing) => (
+          existing.supersededEvidence.id === target.id ||
+          existing.replacementEvidence.id === target.id ||
+          existing.supersededEvidence.id === replacement.id ||
+          existing.replacementEvidence.id === replacement.id
+        ))
+      ) {
+        throw new Error("Evidence supersession target or replacement is already bound");
+      }
+      record = {
+        schemaVersion: EVIDENCE_SUPERSESSION_SCHEMA_VERSION,
+        id: input.id,
+        runId,
+        supersededEvidence: { id: target.id, digest: input.supersededEvidenceDigest },
+        replacementEvidence: { id: replacement.id, digest: input.replacementEvidenceDigest },
+        action,
+        contractDigest: run.manifest.contractDigest,
+        sourceBindingDigest: run.manifest.sourceBinding?.digest ?? null,
+        policyDigest: replacement.dependencies?.policyDigest ?? null,
+        reason: input.reason,
+        actor: "root",
+        createdAt: nowIso()
+      };
+      await atomicWriteJson(root, targetPath, record);
+    }
+    const journal = await readJournalRecords(root, runDir);
+    const recordDigest = digestObject(record);
+    const journalDetails = {
+      supersessionId: record.id,
+      supersessionDigest: recordDigest,
+      supersededEvidenceId: record.supersededEvidence.id,
+      supersededEvidenceDigest: record.supersededEvidence.digest,
+      replacementEvidenceId: record.replacementEvidence.id,
+      replacementEvidenceDigest: record.replacementEvidence.digest,
+      actionAttemptId: record.action.attemptId
+    };
+    const existingJournal = journal.filter((entry) => entry.event === "evidence.superseded" && entry.supersessionId === record.id);
+    if (existingJournal.length === 0) {
+      await validateEvidenceSupersessionRecord(
+        root,
+        run,
+        recordsById,
+        [...journal, { event: "evidence.superseded", at: nowIso(), ...journalDetails }],
+        record
+      );
+      await appendJournal(root, runDir, "evidence.superseded", journalDetails);
+    } else if (existingJournal.length !== 1 || existingJournal[0].supersessionDigest !== recordDigest) {
+      throw new Error("Evidence supersession journal binding conflicts with the persisted record");
+    }
+    const refreshed = await loadEvidenceSupersessions(root, run, evidence);
+    if (!refreshed.records.some((item) => item.id === record.id)) {
+      throw new Error("Evidence supersession was not admitted by canonical replay");
+    }
+    return record;
+  });
+}
+
 export async function evaluateCompletion(root, runId) {
   const { runDir, manifest, contract, state } = await loadRun(root, runId);
-  const evidence = await listJsonRecords(root, safeJoin(runDir, "evidence"));
+  let evidence = [];
+  let evidenceSupersessions = [];
   const findings = await listJsonRecords(root, safeJoin(runDir, "findings"));
   const actions = await listJsonRecords(root, safeJoin(runDir, "actions"));
   const blockers = [];
+  try {
+    const effective = await loadEffectiveEvidenceState(root, runId, {
+      run: { runDir, manifest, contract, state }
+    });
+    evidence = effective.records;
+    evidenceSupersessions = effective.supersessions;
+  } catch (error) {
+    blockers.push(`invalid-evidence-supersession:${error.message}`);
+    evidence = await listJsonRecords(root, safeJoin(runDir, "evidence"));
+  }
   for (const action of actions) {
     if (UNSUPPORTED_GOVERNED_ACTIONS.has(action.action)) {
       blockers.push(`unsupported-governed-action:${action.action}`);
@@ -2840,6 +5493,14 @@ export async function evaluateCompletion(root, runId) {
     }
   }
   for (const finding of findings) {
+    try {
+      validateFinding(finding);
+      if (["P0", "P1"].includes(finding.severity)) {
+        await assertFindingEvidence(root, { runDir, manifest, contract, state }, runDir, finding);
+      }
+    } catch (error) {
+      blockers.push(`invalid-finding-disposition:${finding.id}:${error.message}`);
+    }
     if (["P0", "P1"].includes(finding.severity) && finding.status === "open") {
       blockers.push(`open-${finding.severity}:${finding.id}`);
     }
@@ -3109,7 +5770,7 @@ export async function evaluateCompletion(root, runId) {
   ) {
     blockers.push("missing-required-agy-critic");
   }
-  return { ok: blockers.length === 0, blockers, evidence, findings, actions };
+  return { ok: blockers.length === 0, blockers, evidence, evidenceSupersessions, findings, actions };
 }
 
 function assertCleanupResourceBinding(manifest, runId, request, cleanupPlan, actions = []) {
@@ -4622,10 +7283,11 @@ async function verifyMergeProviderAtInvocation(root, runId, record, manifest) {
     throw new Error("PR merge provider actor or permission changed before invocation");
   }
   await verifyPullRequestBeforeMerge(manifest.cwd, record, providerExecutablePath);
-  const contract = await readJson(root, safeJoin(runDirectory(root, runId), "contract.json"));
-  if (!contract.actionGates?.[record.action]?.includes("required-checks")) return authorization;
   const run = await loadRun(root, runId);
-  const evidence = await listJsonRecords(root, safeJoin(run.runDir, "evidence"));
+  if (!run.contract.actionGates?.[record.action]?.includes("required-checks")) {
+    throw new Error("PR merge is deferred until required-checks provide atomic protected-base synchronization");
+  }
+  const evidence = await listEffectiveEvidenceRecords(root, runId, { run });
   const requiredChecks = assertPersistedRequiredChecksEvidence(record, evidence, { repository });
   const { validateTypedEvidenceRecord } = await import("./evidence.mjs");
   await validateTypedEvidenceRecord(requiredChecks, {
@@ -5156,10 +7818,17 @@ async function verifyProviderReceipt(manifest, record, receipt, contract = null)
       : (await verifyRecordedGitHubExecutable(record)).path
     : await verifyOwnedResourceCreationProof(manifest, record, providerReceipt);
   if (key === "recipe.promote:local-workspace" || key === "artifact.promote:local-workspace") {
+    const sourceMutationDigest = providerReceipt.sourceMutation
+      ? digestObject(providerReceipt.sourceMutation)
+      : null;
     assertRecomputedProviderReceipt(
       providerReceipt,
       { action: record.action, provider: record.provider, resource: record.resource, remoteRevision: record.remoteRevision, idempotencyKey: record.idempotencyKey },
-      { kind: providerReceipt.kind, digest: providerReceipt.digest },
+      {
+        kind: providerReceipt.kind,
+        digest: providerReceipt.digest,
+        ...(sourceMutationDigest ? { sourceMutationDigest } : {})
+      },
       `local-workspace:${record.action}:${record.attemptId}`
     );
     return;
@@ -5920,6 +8589,37 @@ export async function verifyRequiredChecksProvider(
     throw new Error("Required checks evidence must include the protected branch status-check set");
   }
   const repositoryPath = repository.slice(prefix.length);
+  if (!Number.isSafeInteger(payload.pr) || payload.pr < 1) {
+    throw new Error("Required checks evidence must include a safe pull-request identity");
+  }
+  const pull = JSON.parse((await execBoundGitHubCli(executablePath, [
+    "api",
+    `repos/${repositoryPath}/pulls/${payload.pr}`
+  ], { cwd, encoding: "utf8" })).stdout);
+  if (
+    pull.number !== payload.pr ||
+    pull.state !== "open" ||
+    pull.draft !== false ||
+    pull.head?.sha !== payload.head ||
+    typeof pull.head?.ref !== "string" ||
+    !pull.head.ref ||
+    pull.base?.sha !== payload.base ||
+    pull.base?.ref !== payload.baseRefName
+  ) {
+    throw new Error("Required checks evidence does not match the live open pull request");
+  }
+  const headRefName = pull.head.ref;
+  const repositoryMetadata = JSON.parse((await execBoundGitHubCli(executablePath, [
+    "api",
+    `repos/${repositoryPath}`
+  ], { cwd, encoding: "utf8" })).stdout);
+  if (
+    typeof repositoryMetadata.default_branch !== "string" ||
+    !repositoryMetadata.default_branch ||
+    repositoryMetadata.default_branch.includes("\0")
+  ) {
+    throw new Error("GitHub repository metadata has no valid default branch");
+  }
   const humanApproval = payload.humanApproval
     ? await verifyMergeHumanApproval(cwd, payload)
     : null;
@@ -5951,9 +8651,9 @@ export async function verifyRequiredChecksProvider(
   if (branchRules.some((rule) => !rule || typeof rule.type !== "string" || !rule.type)) {
     throw new Error("Protected branch rules contain an incomplete rule definition");
   }
-  if (branchRules.some((rule) => ["deletion", "non_fast_forward"].includes(rule.type))) {
-    throw new Error("Protected branch rules permit deletion or non-fast-forward updates");
-  }
+  // GitHub's `deletion` and `non_fast_forward` rule types are prohibitions.
+  // Their presence strengthens protection; the classic allow_* flags above
+  // remain the independent proof that these operations are not permitted.
   const rulesetPages = JSON.parse((await execBoundGitHubCli(executablePath, [
     "api",
     "--paginate",
@@ -5969,17 +8669,42 @@ export async function verifyRequiredChecksProvider(
     throw new Error("Active repository ruleset listing contains an incomplete identity");
   }
   const branchRef = `refs/heads/${payload.baseRefName}`;
+  const defaultBranchRef = `refs/heads/${repositoryMetadata.default_branch}`;
   const rulesetRequiredStatusChecks = [];
+  let rulesetStrictBaseSynchronization = false;
   const normalizeRulesetCheckAppId = (value) => {
     if (value === undefined || value === null || value === "" || value === -1 || value === "-1") return null;
     const appId = Number(value);
     return Number.isInteger(appId) && appId >= 0 ? appId : undefined;
   };
   const refPatternMatches = (pattern) => {
-    if (pattern === "~ALL" || pattern === "~DEFAULT_BRANCH" || pattern === branchRef) return true;
-    if (typeof pattern !== "string" || !pattern.includes("*")) return false;
-    const escaped = pattern.split("*").map((part) => part.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join(".*");
-    return new RegExp(`^${escaped}$`).test(branchRef);
+    if (typeof pattern !== "string" || !pattern || pattern.includes("\0")) {
+      throw new Error("Active branch ruleset contains an invalid ref-name pattern");
+    }
+    if (pattern === "~ALL") return true;
+    if (pattern === "~DEFAULT_BRANCH") return branchRef === defaultBranchRef;
+    if (pattern.startsWith("~")) {
+      throw new Error(`Active branch ruleset contains an unsupported ref-name selector: ${pattern}`);
+    }
+    if (!/[?*]/.test(pattern)) return pattern === branchRef;
+    if (/[\[\]\\]/.test(pattern)) {
+      throw new Error(`Active branch ruleset contains an unsupported ref-name glob: ${pattern}`);
+    }
+    let expression = "";
+    for (let index = 0; index < pattern.length; index += 1) {
+      const character = pattern[index];
+      if (character === "*" && pattern[index + 1] === "*") {
+        expression += ".*";
+        index += 1;
+      } else if (character === "*") {
+        expression += "[^/]*";
+      } else if (character === "?") {
+        expression += "[^/]";
+      } else {
+        expression += character.replace(/[.+^${}()|]/g, "\\$&");
+      }
+    }
+    return new RegExp(`^${expression}$`).test(branchRef);
   };
   for (const listed of activeRulesets) {
     const detail = JSON.parse((await execBoundGitHubCli(executablePath, [
@@ -5987,10 +8712,17 @@ export async function verifyRequiredChecksProvider(
       `repos/${repositoryPath}/rulesets/${Number(listed.id)}`
     ], { cwd, encoding: "utf8" })).stdout);
     const includes = detail.conditions?.ref_name?.include;
-    if (detail.target === "branch" && !Array.isArray(includes)) {
+    const excludes = detail.conditions?.ref_name?.exclude;
+    if (detail.target === "branch" && (!Array.isArray(includes) || !Array.isArray(excludes))) {
       throw new Error("Active branch ruleset has no complete ref-name condition");
     }
-    const appliesToTarget = detail.target === "branch" && Array.isArray(includes) && includes.some(refPatternMatches);
+    const includeMatches = detail.target === "branch" ? includes.map(refPatternMatches) : [];
+    const excludeMatches = detail.target === "branch" ? excludes.map(refPatternMatches) : [];
+    const appliesToTarget = (
+      detail.target === "branch" &&
+      includeMatches.some(Boolean) &&
+      !excludeMatches.some(Boolean)
+    );
     if (appliesToTarget && !Array.isArray(detail.bypass_actors)) {
       throw new Error("Active protected branch ruleset has no complete bypass-actor policy");
     }
@@ -6001,15 +8733,18 @@ export async function verifyRequiredChecksProvider(
       throw new Error("Active protected branch ruleset has no complete rule set");
     }
     const rules = Array.isArray(detail.rules) ? detail.rules : [];
-    if (appliesToTarget && rules.some((rule) => ["deletion", "non_fast_forward"].includes(rule?.type))) {
-      throw new Error("Active protected branch ruleset permits deletion or non-fast-forward updates");
-    }
+    // Ruleset `deletion` and `non_fast_forward` entries are protective
+    // restrictions, not permission grants.
     const requiredStatusRules = rules.filter((rule) => rule?.type === "required_status_checks");
     for (const requiredStatusRule of requiredStatusRules) {
       if (appliesToTarget && !Array.isArray(requiredStatusRule.parameters?.required_status_checks)) {
         throw new Error("Active protected branch ruleset has incomplete required status checks");
       }
       if (appliesToTarget) {
+        if (typeof requiredStatusRule.parameters?.strict_required_status_checks_policy !== "boolean") {
+          throw new Error("Active protected branch ruleset has incomplete strict status-check policy");
+        }
+        rulesetStrictBaseSynchronization ||= requiredStatusRule.parameters.strict_required_status_checks_policy === true;
         for (const check of requiredStatusRule.parameters.required_status_checks) {
           const name = check?.context ?? check?.name;
           if (typeof name !== "string" || !name) {
@@ -6042,6 +8777,13 @@ export async function verifyRequiredChecksProvider(
     "api",
     `repos/${repositoryPath}/branches/${encodeURIComponent(payload.baseRefName)}/protection/required_status_checks`
   ], { cwd, encoding: "utf8" })).stdout);
+  const protectionStrictBaseSynchronization = (
+    protection.required_status_checks?.strict === true &&
+    requiredStatusProtection.strict === true
+  );
+  if (!protectionStrictBaseSynchronization && !rulesetStrictBaseSynchronization) {
+    throw new Error("Protected branch policy does not atomically require the PR head to be current with its base");
+  }
   if (
     requiredStatusProtection.contexts !== undefined &&
     (!Array.isArray(requiredStatusProtection.contexts) ||
@@ -6115,12 +8857,13 @@ export async function verifyRequiredChecksProvider(
   if (!Array.isArray(workflowPages) || workflowPages.some((page) => !page || !Array.isArray(page.workflow_runs))) {
     throw new Error("Required check provider response is not a complete GitHub workflow-run set");
   }
-  const runs = workflowPages.flatMap((page) => page.workflow_runs)
+  const allHeadRuns = workflowPages.flatMap((page) => page.workflow_runs)
     .filter((run) => run?.head_sha === payload.head);
+  const runs = allHeadRuns.filter((run) => run.head_branch === headRefName);
   const workflowCount = workflowPages.reduce((sum, page) => sum + page.workflow_runs.length, 0);
   const workflowTotal = workflowPages[0]?.total_count;
   if (!Number.isInteger(workflowTotal) || workflowTotal !== workflowCount || runs.length === 0) {
-    throw new Error("Required check provider response is not a complete GitHub workflow-run set");
+    throw new Error("Required check provider response has no complete workflow-run set for the live pull-request head ref");
   }
   const observedAt = Date.parse(payload.observedAt ?? "");
   if (!Number.isFinite(observedAt)) {
@@ -6327,7 +9070,14 @@ export async function verifyRequiredChecksProvider(
       throw new Error(`Required check provider observation is not a fresh successful GitHub check: ${check.providerRunId}`);
     }
   }
-  return { humanApproval };
+  return {
+    humanApproval,
+    baseSynchronization: {
+      provider: "github",
+      policy: "strict-required-status-checks",
+      enforced: true
+    }
+  };
 }
 
 async function assertPullEvidenceBinding(admittedEvidence, request, reviewPackage, contract, expectedRepository) {
@@ -6810,7 +9560,12 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
       throw new Error(`Action token denied because bounded autopilot is not ready: ${state.autonomy?.blockedReason ?? "preflight-required"}`);
     }
     const findings = await listJsonRecords(root, safeJoin(runDir, "findings"));
-    const evidence = await listJsonRecords(root, safeJoin(runDir, "evidence"));
+    const evidence = await listEffectiveEvidenceRecords(root, runId, {
+      run: { runDir, manifest, contract, state }
+    });
+    const evidenceSupersessionFreshnessDigest = contract.schemaVersion === 2
+      ? await currentEvidenceSupersessionFreshnessDigest(root, { runDir, manifest, contract, state })
+      : null;
     const actions = await listJsonRecords(root, safeJoin(runDir, "actions"));
     let autonomyDecision = null;
     let autonomyDecisionReceipt = null;
@@ -6913,6 +9668,14 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
         item.schemaVersion === 2 && item.typedAdmission && item.stale !== true
       ));
     }
+    const initialActionEvidenceGateBinding = contract.schemaVersion === 2
+      ? await currentActionEvidenceGateBinding(
+          root,
+          runId,
+          { runDir, manifest, contract, state },
+          request.action
+        )
+      : null;
     if (
       contract.actionStages &&
       Object.hasOwn(contract.actionStages, request.action) &&
@@ -7137,28 +9900,15 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
       const currentHead = (await execBoundGitAuthority(manifest.cwd, [
         "rev-parse", "--verify", "HEAD^{commit}"
       ])).stdout.trim();
-      actionBinding = {
-        ...actionBinding,
+      actionBinding = buildPrMergeActionBinding({
+        prior: actionBinding,
         pullRequest,
         reviewedHead: currentHead,
-        ...(isDevDeliveryTemplate(contract.template) ? { targetRef: "dev" } : {}),
-        mergeMethod: "merge",
-        adminBypass: false,
+        remoteRevision: request.remoteRevision,
+        targetRef: isDevDeliveryTemplate(contract.template) ? "dev" : null,
         providerExecutable: providerExecutable ?? await currentProviderExecutableIdentity("gh"),
-        mergeRepository: repository,
-        mergeCommand: [
-          "gh",
-          "pr",
-          "merge",
-          String(pullRequest),
-          "--repo",
-          repository,
-          "--match-head-commit",
-          currentHead,
-          "--merge",
-          "--delete-branch=false"
-        ]
-      };
+        repository
+      });
     }
     if (providerAuthorization) actionBinding.providerAuthorization = providerAuthorization;
     if (providerAuthorizationExecutable) actionBinding.providerAuthorizationExecutable = providerAuthorizationExecutable;
@@ -7393,8 +10143,26 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
         throw new Error(`Action token denied until execution stage is ready: ${stageId}`);
       }
     }
+    const providerRepository = creationReservation?.repository ??
+      actionBinding.remoteRepository ??
+      actionBinding.createRepository ??
+      actionBinding.dispatchRepository ??
+      (request.provider === "github-cli"
+        ? repository ?? await currentRepositoryIdentity(manifest.cwd)
+        : request.provider !== "git" || request.action === "git.commit"
+          ? `workspace:${sha256(await realpath(manifest.cwd))}`
+          : await currentGitProviderIdentity(manifest.cwd));
+    actionBinding = { ...actionBinding, providerRepository };
     const token = randomBytes(32).toString("base64url");
     const tokenHash = sha256(token);
+    const attemptId = randomUUID();
+    const idempotencyKey = `sbw-${runId}-${randomUUID()}`;
+    const reservationOwner = {
+      runId,
+      attemptId,
+      tokenHash,
+      idempotencyKey
+    };
     const persistedScope = request.action === "pr.create" && isDevDeliveryTemplate(contract.template)
       ? "dev"
       : request.scope ?? request.resource;
@@ -7408,7 +10176,7 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
     try {
       if (OWNED_RESOURCE_CREATION_ACTIONS.has(request.action)) {
         // Reserve before observing absence so an external creator cannot win the gap.
-        await reserveCreationResource(root, runId, creationReservation, tokenHash, expiresAt);
+        await reserveCreationResource(root, creationReservation, reservationOwner, expiresAt);
         reservationHeld = true;
         creationPrecondition = await captureCreationPrecondition(
           manifest.cwd,
@@ -7435,9 +10203,27 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
             tokenHash
           })
         : null;
+      const finalEvidenceSupersessionFreshnessDigest = contract.schemaVersion === 2
+        ? await currentEvidenceSupersessionFreshnessDigest(root, { runDir, manifest, contract, state })
+        : null;
+      if (finalEvidenceSupersessionFreshnessDigest !== evidenceSupersessionFreshnessDigest) {
+        throw new Error("Action token denied because immutable evidence freshness changed during issuance");
+      }
+      const finalActionEvidenceGateBinding = contract.schemaVersion === 2
+        ? await currentActionEvidenceGateBinding(
+            root,
+            runId,
+            await loadRun(root, runId),
+            request.action
+          )
+        : null;
+      if (finalActionEvidenceGateBinding?.digest !== initialActionEvidenceGateBinding?.digest) {
+        throw new Error("Action token denied because the configured evidence gate changed during issuance");
+      }
       const record = {
         schemaVersion: 1,
         tokenHash,
+        attemptId,
         status: "issued",
         outcome: null,
         issuedAt,
@@ -7453,7 +10239,24 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
         ...(creationPrecondition ? { creationPrecondition } : {}),
         treeDigest: currentTreeDigest,
         contractDigest: digestObject(contract),
-        idempotencyKey: `sbw-${runId}-${randomUUID()}`
+        ...(finalEvidenceSupersessionFreshnessDigest
+          ? { evidenceSupersessionFreshnessDigest: finalEvidenceSupersessionFreshnessDigest }
+          : {}),
+        ...(finalActionEvidenceGateBinding
+          ? {
+              evidenceGate: finalActionEvidenceGateBinding.configuredGate,
+              evidenceGateDigest: finalActionEvidenceGateBinding.digest,
+              evidenceGateProjection: finalActionEvidenceGateBinding.projection,
+              sourceAuthorityAtIssue: await actionSourceAuthoritySnapshot(
+                root,
+                runDir,
+                manifest,
+                state,
+                finalActionEvidenceGateBinding.projection
+              )
+            }
+          : {}),
+        idempotencyKey
       };
       await atomicWriteJson(root, safeJoin(runDir, "actions", `${tokenHash}.json`), record);
       await appendJournal(root, runDir, "action.issued", {
@@ -7466,7 +10269,7 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
       });
       return { token, ...record };
     } catch (error) {
-      if (reservationHeld) await releaseCreationResource(root, runId, creationReservation, tokenHash);
+      if (reservationHeld) await releaseCreationResource(root, creationReservation, reservationOwner);
       throw error;
     }
   });
@@ -7479,6 +10282,7 @@ async function consumeActionTokenInternal(root, runId, token, currentTreeDigest,
     assertMutableRun({ state }, "Action token consumption");
     const target = safeJoin(runDir, "actions", `${tokenHash}.json`);
     const record = await readJson(root, target);
+    if (record.tokenHash !== tokenHash) throw new Error("Action token hash binding changed");
     assertSupportedGovernedAction(record.action);
     const contract = await readJson(root, safeJoin(runDir, "contract.json"));
     assertActionIsNotDeferred(contract, record.action);
@@ -7536,11 +10340,48 @@ async function consumeActionTokenInternal(root, runId, token, currentTreeDigest,
       throw new Error("Plugin cache action environment is bound to a different canonical cache root");
     }
     if (OWNED_RESOURCE_CREATION_ACTIONS.has(record.action)) {
-      await assertCreationReservation(root, runId, record.creationReservation, tokenHash, record.expiresAt);
+      await assertCreationReservation(
+        root,
+        record.creationReservation,
+        creationReservationOwnerFromAction(record),
+        record.expiresAt
+      );
     }
     if (record.treeDigest !== currentTreeDigest) throw new Error("Action token tree binding changed");
     if (record.contractDigest !== digestObject(contract)) throw new Error("Action token contract binding changed");
     const manifest = await readJson(root, safeJoin(runDir, "manifest.json"));
+    if (contract.schemaVersion === 2) {
+      if (!SHA256_DIGEST.test(record.evidenceSupersessionFreshnessDigest ?? "")) {
+        throw new Error("Action consumption denied because immutable evidence freshness is unbound");
+      }
+      const currentFreshnessDigest = await currentEvidenceSupersessionFreshnessDigest(root, {
+        runDir,
+        manifest,
+        contract,
+        state
+      });
+      if (currentFreshnessDigest !== record.evidenceSupersessionFreshnessDigest) {
+        throw new Error("Action consumption denied because immutable evidence freshness changed");
+      }
+      const configuredGate = contract.actionGates?.[record.action];
+      if (
+        !Array.isArray(record.evidenceGate) ||
+        !Array.isArray(configuredGate) ||
+        digestObject(record.evidenceGate) !== digestObject(configuredGate) ||
+        !SHA256_DIGEST.test(record.evidenceGateDigest ?? "")
+      ) {
+        throw new Error("Action consumption denied because the configured evidence gate is unbound");
+      }
+      const currentGateBinding = await currentActionEvidenceGateBinding(
+        root,
+        runId,
+        await loadRun(root, runId),
+        record.action
+      );
+      if (currentGateBinding.digest !== record.evidenceGateDigest) {
+        throw new Error("Action consumption denied because the configured evidence gate changed");
+      }
+    }
     if (record.action === "actions.dispatch" && record.provider === "github-cli") {
       const liveWorkflowCapability = await readBoundWorkflowDispatchCapability(
         manifest.cwd,
@@ -7638,7 +10479,9 @@ async function consumeActionTokenInternal(root, runId, token, currentTreeDigest,
       await verifyPullRequestBeforeMerge(manifest.cwd, record, githubProviderExecutable?.path);
       if (contract.actionGates?.[record.action]?.includes("required-checks")) {
         const repository = await currentRepositoryIdentity(manifest.cwd);
-        const evidence = await listJsonRecords(root, safeJoin(runDir, "evidence"));
+        const evidence = await listEffectiveEvidenceRecords(root, runId, {
+          run: await loadRun(root, runId)
+        });
         const requiredChecks = assertPersistedRequiredChecksEvidence(record, evidence, { repository });
         const run = await loadRun(root, runId);
         const { validateTypedEvidenceRecord } = await import("./evidence.mjs");
@@ -7675,11 +10518,39 @@ async function consumeActionTokenInternal(root, runId, token, currentTreeDigest,
       const actions = await listJsonRecords(root, safeJoin(runDir, "actions"));
       assertPersistedSuccessfulMergeAction(actions, record);
     }
+    if (contract.schemaVersion === 2) {
+      const finalFreshnessDigest = await currentEvidenceSupersessionFreshnessDigest(root, {
+        runDir,
+        manifest,
+        contract,
+        state
+      });
+      if (finalFreshnessDigest !== record.evidenceSupersessionFreshnessDigest) {
+        throw new Error("Action consumption denied because immutable evidence freshness changed before execution");
+      }
+      const finalGateBinding = await currentActionEvidenceGateBinding(
+        root,
+        runId,
+        await loadRun(root, runId),
+        record.action
+      );
+      if (finalGateBinding.digest !== record.evidenceGateDigest) {
+        throw new Error("Action consumption denied because the configured evidence gate changed before execution");
+      }
+    }
     const consume = async () => {
       if (OWNED_RESOURCE_CREATION_ACTIONS.has(record.action)) {
-        await assertCreationReservation(root, runId, record.creationReservation, tokenHash, record.expiresAt);
+        await assertCreationReservation(
+          root,
+          record.creationReservation,
+          creationReservationOwnerFromAction(record),
+          record.expiresAt
+        );
       }
-      const attemptId = randomUUID();
+      const attemptId = record.attemptId;
+      if (typeof attemptId !== "string" || !attemptId) {
+        throw new Error("Action token attempt identity is missing");
+      }
       const spentAt = nowIso();
       const next = {
         ...record,
@@ -7730,6 +10601,23 @@ function githubPreflightInvocation(runId, action, error) {
     exitCode: null,
     dispatchState: "not-sent",
     errorDigest: sha256(error?.message ?? "provider preflight failed")
+  };
+}
+
+function providerInvocationAuthorityFailure(action, invocation, error) {
+  return {
+    schemaVersion: 1,
+    kind: "post-invocation-action-authority-drift",
+    runId: action.runId,
+    actionAttemptId: action.attemptId,
+    action: action.action,
+    provider: action.provider,
+    resource: action.resource,
+    remoteRevision: action.remoteRevision,
+    providerInvocationId: invocation.id,
+    providerInvocationDigest: digestObject(invocation),
+    errorDigest: sha256(error?.message ?? "action authority drifted after provider invocation"),
+    observedAt: nowIso()
   };
 }
 
@@ -7881,7 +10769,8 @@ async function observeDispatchedWorkflow(cwd, record, providerExecutablePath, ex
 
 async function persistActionProviderInvocation(root, runId, action, invocation, {
   journalEvent = "action.provider-invoked",
-  expectedProviderInvocation
+  expectedProviderInvocation,
+  requireAuthorityGate = false
 } = {}) {
   return withRunLock(root, runId, async ({ runDir }) => {
     const target = safeJoin(runDir, "actions", `${action.tokenHash}.json`);
@@ -7896,14 +10785,62 @@ async function persistActionProviderInvocation(root, runId, action, invocation, 
     if (digestObject(currentInvocation) !== digestObject(expectedInvocation)) {
       throw new Error("GitHub Actions provider invocation changed during resumable reconciliation");
     }
-    const next = { ...current, providerInvocation: invocation };
+    let authorityGateError = null;
+    if (requireAuthorityGate) {
+      try {
+        await assertSpentActionEvidenceGate(
+          root,
+          runId,
+          await loadRun(root, runId),
+          current,
+          "GitHub Actions provider result persistence"
+        );
+      } catch (error) {
+        authorityGateError = error;
+      }
+    }
+    const persistedInvocation = authorityGateError
+      ? {
+          ...invocation,
+          dispatchState: "sent-or-indeterminate",
+          authorityGateStatus: "drifted-after-invocation",
+          authorityGateErrorDigest: sha256(
+            authorityGateError?.message ?? "action authority drifted before provider result persistence"
+          )
+        }
+      : requireAuthorityGate
+        ? { ...invocation, authorityGateStatus: "verified", authorityGateErrorDigest: null }
+        : invocation;
+    const authorityFailure = authorityGateError
+      ? providerInvocationAuthorityFailure(current, persistedInvocation, authorityGateError)
+      : null;
+    const next = {
+      ...current,
+      providerInvocation: persistedInvocation,
+      ...(authorityFailure ? { outcome: "unknown", authorityFailure } : {})
+    };
     await atomicWriteJson(root, target, next);
     await appendJournal(root, runDir, journalEvent, {
       attemptId: action.attemptId,
-      invocationId: invocation.id,
-      dispatchState: invocation.dispatchState,
-      exitCode: invocation.exitCode
+      invocationId: persistedInvocation.id,
+      dispatchState: persistedInvocation.dispatchState,
+      exitCode: persistedInvocation.exitCode,
+      authorityGateStatus: persistedInvocation.authorityGateStatus ?? null
     });
+    if (authorityGateError) {
+      await appendJournal(root, runDir, "action.authority-drifted", {
+        attemptId: current.attemptId,
+        outcome: "unknown",
+        providerInvocationId: persistedInvocation.id,
+        authorityFailureDigest: digestObject(authorityFailure)
+      });
+      throw Object.assign(
+        new Error("GitHub Actions provider result is non-authorizing because action authority drifted", {
+          cause: authorityGateError
+        }),
+        { code: "SBW_ACTION_AUTHORITY_INDETERMINATE", providerInvocation: persistedInvocation }
+      );
+    }
     return next;
   }, { ttlMs: 300_000 });
 }
@@ -8172,6 +11109,20 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
     }
     // Persist the observation lower bound before the provider call. A crash
     // after the call but before its result is durable must still be resumable.
+    await withRunLock(root, runId, async () => {
+      const run = await loadRun(root, runId);
+      const current = await readJson(
+        root,
+        safeJoin(run.runDir, "actions", `${consumed.tokenHash}.json`)
+      );
+      await assertSpentActionEvidenceGate(
+        root,
+        runId,
+        run,
+        current,
+        "GitHub Actions dispatch provider invocation"
+      );
+    });
     consumed = await persistActionProviderInvocation(root, runId, consumed, workflowDispatchInvocation(runId, consumed, {
       startedAt,
       exitCode: null,
@@ -8183,39 +11134,123 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
       observationStartedAt: dispatchObservationStartedAt
     }));
     let exitCode = 0;
-    try {
-      await execBoundGitHubCli(providerExecutablePath, expectedCommand.slice(1), { cwd: manifest.cwd });
-    } catch (error) {
-      exitCode = Number.isInteger(error?.code) ? error.code : 1;
-      const failedInvocation = workflowDispatchInvocation(runId, consumed, {
-        startedAt,
-        exitCode,
-        dispatchState: "sent-or-indeterminate",
-        preexistingRunIds: existingRunIds,
-        dispatchedAt: nowIso(),
-        observationStartedAt: dispatchObservationStartedAt,
-        errorDigest: sha256(error?.message ?? "workflow dispatch failed")
-      });
-      consumed = await persistActionProviderInvocation(root, runId, consumed, failedInvocation);
-      throw Object.assign(
-        new Error("GitHub Actions dispatch invocation failed; provider state is indeterminate and automatic retry is prohibited", {
-          cause: error
+    let providerError = null;
+    let authorityGateError = null;
+    let dispatchedAt = null;
+    consumed = await withRunLock(root, runId, async ({ runDir }) => {
+      const run = await loadRun(root, runId);
+      const target = safeJoin(runDir, "actions", `${consumed.tokenHash}.json`);
+      const current = await readJson(root, target);
+      if (current.status !== "spent" || current.attemptId !== consumed.attemptId) {
+        throw new Error("GitHub Actions dispatch invocation is not bound to the consumed action attempt");
+      }
+      try {
+        await assertSpentActionEvidenceGate(
+          root,
+          runId,
+          run,
+          current,
+          "GitHub Actions dispatch provider invocation"
+        );
+      } catch (error) {
+        const notSent = {
+          ...workflowDispatchInvocation(runId, current, {
+            startedAt,
+            exitCode: null,
+            dispatchState: "not-sent",
+            preexistingRunIds: existingRunIds,
+            observationStartedAt: dispatchObservationStartedAt,
+            errorDigest: sha256(error?.message ?? "action authority drifted before dispatch")
+          }),
+          authorityGateStatus: "drifted-before-invocation",
+          authorityGateErrorDigest: sha256(error?.message ?? "action authority drifted before dispatch")
+        };
+        const next = { ...current, providerInvocation: notSent };
+        await atomicWriteJson(root, target, next);
+        await appendJournal(root, runDir, "action.provider-preflight-failed", {
+          attemptId: current.attemptId,
+          invocationId: notSent.id,
+          dispatchState: notSent.dispatchState,
+          authorityGateStatus: notSent.authorityGateStatus
+        });
+        throw error;
+      }
+      try {
+        await execBoundGitHubCli(providerExecutablePath, expectedCommand.slice(1), { cwd: manifest.cwd });
+      } catch (error) {
+        providerError = error;
+        exitCode = Number.isInteger(error?.code) ? error.code : 1;
+      }
+      dispatchedAt = nowIso();
+      try {
+        await assertSpentActionEvidenceGate(
+          root,
+          runId,
+          await loadRun(root, runId),
+          current,
+          "GitHub Actions dispatch provider result persistence"
+        );
+      } catch (error) {
+        authorityGateError = error;
+      }
+      const invocation = {
+        ...workflowDispatchInvocation(runId, current, {
+          startedAt,
+          exitCode,
+          dispatchState: "sent-or-indeterminate",
+          preexistingRunIds: existingRunIds,
+          dispatchedAt,
+          observationStartedAt: dispatchObservationStartedAt,
+          ...(providerError
+            ? { errorDigest: sha256(providerError?.message ?? "workflow dispatch failed") }
+            : {})
         }),
-        {
-          code: "SBW_ACTIONS_DISPATCH_INDETERMINATE",
-          providerInvocation: failedInvocation
-        }
+        authorityGateStatus: authorityGateError ? "drifted-after-invocation" : "verified",
+        authorityGateErrorDigest: authorityGateError
+          ? sha256(authorityGateError?.message ?? "action authority drifted after dispatch")
+          : null
+      };
+      const authorityFailure = authorityGateError
+        ? providerInvocationAuthorityFailure(current, invocation, authorityGateError)
+        : null;
+      const next = {
+        ...current,
+        providerInvocation: invocation,
+        ...(authorityFailure ? { outcome: "unknown", authorityFailure } : {})
+      };
+      await atomicWriteJson(root, target, next);
+      await appendJournal(root, runDir, "action.provider-invoked", {
+        attemptId: current.attemptId,
+        invocationId: invocation.id,
+        exitCode,
+        authorityGateStatus: invocation.authorityGateStatus
+      });
+      if (authorityFailure) {
+        await appendJournal(root, runDir, "action.authority-drifted", {
+          attemptId: current.attemptId,
+          outcome: "unknown",
+          providerInvocationId: invocation.id,
+          authorityFailureDigest: digestObject(authorityFailure)
+        });
+      }
+      return next;
+    }, { ttlMs: 300_000 });
+    if (authorityGateError) {
+      throw Object.assign(
+        new Error("GitHub Actions dispatch provider state is indeterminate because action authority drifted after invocation", {
+          cause: authorityGateError
+        }),
+        { code: "SBW_ACTION_AUTHORITY_INDETERMINATE", providerInvocation: consumed.providerInvocation }
       );
     }
-    const dispatchedAt = nowIso();
-    consumed = await persistActionProviderInvocation(root, runId, consumed, workflowDispatchInvocation(runId, consumed, {
-      startedAt,
-      exitCode,
-      dispatchState: "sent-or-indeterminate",
-      preexistingRunIds: existingRunIds,
-      dispatchedAt,
-      observationStartedAt: dispatchObservationStartedAt
-    }));
+    if (providerError) {
+      throw Object.assign(
+        new Error("GitHub Actions dispatch invocation failed; provider state is indeterminate and automatic retry is prohibited", {
+          cause: providerError
+        }),
+        { code: "SBW_ACTIONS_DISPATCH_INDETERMINATE", providerInvocation: consumed.providerInvocation }
+      );
+    }
     try {
       const persistCandidate = async (observedRunId) => {
         const currentInvocation = consumed.providerInvocation;
@@ -8229,7 +11264,8 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
           observedRunId
         });
         consumed = await persistActionProviderInvocation(root, runId, consumed, candidateInvocation, {
-          expectedProviderInvocation: currentInvocation
+          expectedProviderInvocation: currentInvocation,
+          requireAuthorityGate: true
         });
       };
       const workflowRun = await observeDispatchedWorkflow(
@@ -8250,9 +11286,12 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
         observedRunId: consumed.providerInvocation?.observedRunId,
         workflowRun
       });
-      consumed = await persistActionProviderInvocation(root, runId, consumed, completedInvocation);
+      consumed = await persistActionProviderInvocation(root, runId, consumed, completedInvocation, {
+        requireAuthorityGate: true
+      });
       return consumed;
     } catch (error) {
+      if (error?.code === "SBW_ACTION_AUTHORITY_INDETERMINATE") throw error;
       const indeterminateInvocation = workflowDispatchInvocation(runId, consumed, {
         startedAt,
         exitCode,
@@ -8263,7 +11302,9 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
         observedRunId: consumed.providerInvocation?.observedRunId,
         errorDigest: sha256(error?.message ?? "workflow run observation failed")
       });
-      consumed = await persistActionProviderInvocation(root, runId, consumed, indeterminateInvocation);
+      consumed = await persistActionProviderInvocation(root, runId, consumed, indeterminateInvocation, {
+        requireAuthorityGate: true
+      });
       throw error;
     }
   }
@@ -8313,6 +11354,13 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
       if (current.status !== "spent" || current.attemptId !== consumed.attemptId) {
         throw new Error("Git push provider invocation is not bound to the consumed action attempt");
       }
+      await assertSpentActionEvidenceGate(
+        root,
+        runId,
+        run,
+        current,
+        "Git push provider invocation"
+      );
       const startedAt = nowIso();
       let exitCode = 0;
       try {
@@ -8327,6 +11375,18 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
       } catch (error) {
         exitCode = Number.isInteger(error?.code) ? error.code : 1;
       }
+      let authorityGateError = null;
+      try {
+        await assertSpentActionEvidenceGate(
+          root,
+          runId,
+          await loadRun(root, runId),
+          current,
+          "Git push provider result persistence"
+        );
+      } catch (error) {
+        authorityGateError = error;
+      }
       const invocation = {
         schemaVersion: 1,
         id: `git-push-wrapper:${runId}:${consumed.attemptId}`,
@@ -8340,15 +11400,43 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
         startedAt,
         finishedAt: nowIso(),
         exitCode,
-        dispatchState: exitCode === 0 ? "sent" : "sent-or-indeterminate"
+        dispatchState: exitCode === 0 && !authorityGateError ? "sent" : "sent-or-indeterminate",
+        authorityGateStatus: authorityGateError ? "drifted-after-invocation" : "verified",
+        authorityGateErrorDigest: authorityGateError
+          ? sha256(authorityGateError?.message ?? "action authority drifted after provider invocation")
+          : null
       };
-      const next = { ...current, providerInvocation: invocation };
+      const authorityFailure = authorityGateError
+        ? providerInvocationAuthorityFailure(current, invocation, authorityGateError)
+        : null;
+      const next = {
+        ...current,
+        providerInvocation: invocation,
+        ...(authorityFailure ? { outcome: "unknown", authorityFailure } : {})
+      };
       await atomicWriteJson(root, target, next);
       await appendJournal(root, runDir, "action.provider-invoked", {
         attemptId: consumed.attemptId,
         invocationId: invocation.id,
-        exitCode
+        exitCode,
+        authorityGateStatus: invocation.authorityGateStatus
       });
+      if (authorityFailure) {
+        await appendJournal(root, runDir, "action.authority-drifted", {
+          attemptId: current.attemptId,
+          outcome: "unknown",
+          providerInvocationId: invocation.id,
+          authorityFailureDigest: digestObject(authorityFailure)
+        });
+      }
+      if (authorityGateError) {
+        throw Object.assign(
+          new Error("Git push provider state is indeterminate because action authority drifted after invocation", {
+            cause: authorityGateError
+          }),
+          { code: "SBW_ACTION_AUTHORITY_INDETERMINATE", providerInvocation: invocation }
+        );
+      }
       return next;
     }, { ttlMs: 300_000 });
   }
@@ -8372,6 +11460,13 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
       if (current.status !== "spent" || current.attemptId !== consumed.attemptId) {
         throw new Error("PR creation provider invocation is not bound to the consumed action attempt");
       }
+      await assertSpentActionEvidenceGate(
+        root,
+        runId,
+        run,
+        current,
+        "PR creation provider invocation"
+      );
       const startedAt = nowIso();
       let exitCode = 0;
       try {
@@ -8380,6 +11475,18 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
         });
       } catch (error) {
         exitCode = Number.isInteger(error?.code) ? error.code : 1;
+      }
+      let authorityGateError = null;
+      try {
+        await assertSpentActionEvidenceGate(
+          root,
+          runId,
+          await loadRun(root, runId),
+          current,
+          "PR creation provider result persistence"
+        );
+      } catch (error) {
+        authorityGateError = error;
       }
       const invocation = {
         schemaVersion: 1,
@@ -8393,15 +11500,43 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
         startedAt,
         finishedAt: nowIso(),
         exitCode,
-        dispatchState: exitCode === 0 ? "sent" : "sent-or-indeterminate"
+        dispatchState: exitCode === 0 && !authorityGateError ? "sent" : "sent-or-indeterminate",
+        authorityGateStatus: authorityGateError ? "drifted-after-invocation" : "verified",
+        authorityGateErrorDigest: authorityGateError
+          ? sha256(authorityGateError?.message ?? "action authority drifted after provider invocation")
+          : null
       };
-      const next = { ...current, providerInvocation: invocation };
+      const authorityFailure = authorityGateError
+        ? providerInvocationAuthorityFailure(current, invocation, authorityGateError)
+        : null;
+      const next = {
+        ...current,
+        providerInvocation: invocation,
+        ...(authorityFailure ? { outcome: "unknown", authorityFailure } : {})
+      };
       await atomicWriteJson(root, target, next);
       await appendJournal(root, runDir, "action.provider-invoked", {
         attemptId: consumed.attemptId,
         invocationId: invocation.id,
-        exitCode
+        exitCode,
+        authorityGateStatus: invocation.authorityGateStatus
       });
+      if (authorityFailure) {
+        await appendJournal(root, runDir, "action.authority-drifted", {
+          attemptId: current.attemptId,
+          outcome: "unknown",
+          providerInvocationId: invocation.id,
+          authorityFailureDigest: digestObject(authorityFailure)
+        });
+      }
+      if (authorityGateError) {
+        throw Object.assign(
+          new Error("PR creation provider state is indeterminate because action authority drifted after invocation", {
+            cause: authorityGateError
+          }),
+          { code: "SBW_ACTION_AUTHORITY_INDETERMINATE", providerInvocation: invocation }
+        );
+      }
       return next;
     }, { ttlMs: 300_000 });
   }
@@ -8423,18 +11558,9 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
   if (!consumed.mergeRepository || JSON.stringify(consumed.mergeCommand) !== JSON.stringify(expectedCommand)) {
     throw new Error("PR merge execution command is not the fixed non-admin invocation");
   }
-  const manifest = await readJson(root, safeJoin(runDirectory(root, runId), "manifest.json"));
   const executable = await currentProviderExecutableIdentity("gh");
   if (digestObject(executable) !== digestObject(consumed.providerExecutable)) {
     throw new Error("PR merge execution denied because the governed provider executable changed");
-  }
-  // Re-check provider actor, branch policy, PR head, and fresh checks immediately before gh invocation.
-  let providerAuthorization;
-  try {
-    providerAuthorization = await verifyMergeProviderAtInvocation(root, runId, consumed, manifest);
-  } catch (error) {
-    await persistPreflightProviderInvocation(root, runId, consumed, error);
-    throw error;
   }
   return withRunLock(root, runId, async ({ runDir }) => {
     const run = await loadRun(root, runId);
@@ -8444,15 +11570,34 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
     if (current.status !== "spent" || current.attemptId !== consumed.attemptId) {
       throw new Error("PR merge provider invocation is not bound to the consumed action attempt");
     }
-    if (consumed.reviewPackageId) {
-      try {
+    // Keep the canonical evidence replay, provider/PR checks, and provider
+    // invocation inside one run lock. No local state writer can introduce an
+    // invalid supersession after the final replay but before `gh pr merge`.
+    let providerAuthorization;
+    try {
+      providerAuthorization = await verifyMergeProviderAtInvocation(root, runId, current, run.manifest);
+      // Provider observations may take time. Replay every local immutable gate
+      // once more at the last instruction boundary while the run lock is still
+      // held, so neither late review state nor a malformed supersession can be
+      // introduced between preflight and the provider call.
+      await listEffectiveEvidenceRecords(root, runId, { run: await loadRun(root, runId) });
+      if (current.reviewPackageId) {
         const { assertReviewContinuity } = await import("./review.mjs");
         await assertReviewContinuity(root, runId, {
-          packageId: consumed.reviewPackageId,
-          head: consumed.reviewedHead,
-          continuityDigest: consumed.reviewContinuityDigest
+          packageId: current.reviewPackageId,
+          head: current.reviewedHead,
+          continuityDigest: current.reviewContinuityDigest
         });
-      } catch (error) {
+      }
+      await assertSpentActionEvidenceGate(
+        root,
+        runId,
+        await loadRun(root, runId),
+        current,
+        "PR merge provider invocation"
+      );
+    } catch (error) {
+      if (!current.providerInvocation) {
         const invocation = githubPreflightInvocation(runId, consumed, error);
         const next = { ...current, providerInvocation: invocation };
         await atomicWriteJson(root, target, next);
@@ -8461,8 +11606,8 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
           invocationId: invocation.id,
           dispatchState: invocation.dispatchState
         });
-        throw error;
       }
+      throw error;
     }
     const startedAt = nowIso();
     let exitCode = 0;
@@ -8470,6 +11615,18 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
       await execBoundGitHubCli(executable.path, expectedCommand.slice(1), { cwd: run.manifest.cwd });
     } catch (error) {
       exitCode = Number.isInteger(error?.code) ? error.code : 1;
+    }
+    let authorityGateError = null;
+    try {
+      await assertSpentActionEvidenceGate(
+        root,
+        runId,
+        await loadRun(root, runId),
+        current,
+        "PR merge provider result persistence"
+      );
+    } catch (error) {
+      authorityGateError = error;
     }
     const invocation = {
       schemaVersion: 1,
@@ -8484,15 +11641,43 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
       startedAt,
       finishedAt: nowIso(),
       exitCode,
-      dispatchState: exitCode === 0 ? "sent" : "sent-or-indeterminate"
+      dispatchState: exitCode === 0 && !authorityGateError ? "sent" : "sent-or-indeterminate",
+      authorityGateStatus: authorityGateError ? "drifted-after-invocation" : "verified",
+      authorityGateErrorDigest: authorityGateError
+        ? sha256(authorityGateError?.message ?? "action authority drifted after provider invocation")
+        : null
     };
-    const next = { ...current, providerInvocation: invocation };
+    const authorityFailure = authorityGateError
+      ? providerInvocationAuthorityFailure(current, invocation, authorityGateError)
+      : null;
+    const next = {
+      ...current,
+      providerInvocation: invocation,
+      ...(authorityFailure ? { outcome: "unknown", authorityFailure } : {})
+    };
     await atomicWriteJson(root, target, next);
     await appendJournal(root, runDir, "action.provider-invoked", {
       attemptId: consumed.attemptId,
       invocationId: invocation.id,
-      exitCode
+      exitCode,
+      authorityGateStatus: invocation.authorityGateStatus
     });
+    if (authorityFailure) {
+      await appendJournal(root, runDir, "action.authority-drifted", {
+        attemptId: current.attemptId,
+        outcome: "unknown",
+        providerInvocationId: invocation.id,
+        authorityFailureDigest: digestObject(authorityFailure)
+      });
+    }
+    if (authorityGateError) {
+      throw Object.assign(
+        new Error("PR merge provider state is indeterminate because action authority drifted after invocation", {
+          cause: authorityGateError
+        }),
+        { code: "SBW_ACTION_AUTHORITY_INDETERMINATE", providerInvocation: invocation }
+      );
+    }
     return next;
   }, { ttlMs: 300_000 });
 }
@@ -8584,6 +11769,103 @@ async function finalizePluginCacheReadiness(runId, attemptId, providerReceipt) {
   };
   await markPluginCacheReady(binding);
   return verifyPluginCacheReady(binding);
+}
+
+function providerActionSourceBindingTransition(record, receipt, validation, transitionedAt) {
+  return {
+    kind: "provider-action",
+    actionAttemptId: record.attemptId,
+    action: record.action,
+    provider: record.provider,
+    resource: record.resource,
+    path: validation.relativePath,
+    from: validation.baselineSourceBinding.digest,
+    to: validation.currentSourceBinding.digest,
+    headRevision: validation.currentSourceBinding.headRevision,
+    sourceSentinelFrom: validation.baselineSentinel.digest,
+    sourceSentinelTo: validation.currentSentinel.digest,
+    sourceSentinelFromRecordDigest: validation.baselineSentinelRecordDigest,
+    sourceSentinelToRecordDigest: validation.currentSentinelRecordDigest,
+    sourceSentinelLabel: `provider-action-${record.attemptId}`,
+    providerReceiptDigest: digestObject(receipt.providerReceipt),
+    sourceMutationDigest: validation.descriptorDigest,
+    at: transitionedAt
+  };
+}
+
+async function transitionProviderActionSourceBinding(root, runDir, record, receipt, validation) {
+  const manifestPath = safeJoin(runDir, "manifest.json");
+  const statePath = safeJoin(runDir, "state.json");
+  const manifest = await readJson(root, manifestPath);
+  const state = await readJson(root, statePath);
+  const history = Array.isArray(manifest.sourceBindingHistory) ? manifest.sourceBindingHistory : [];
+  const existing = history.find((item) => (
+    item.kind === "provider-action" && item.actionAttemptId === record.attemptId
+  ));
+  const transitionedAt = existing?.at ?? record.sourceBindingTransition?.at ?? nowIso();
+  const transition = providerActionSourceBindingTransition(record, receipt, validation, transitionedAt);
+  const historyEntry = {
+    ...transition,
+    reason: "governed-provider-action-reconciled",
+    transitionDigest: digestObject(transition)
+  };
+  if (existing && digestObject(existing) !== digestObject(historyEntry)) {
+    throw new Error("Provider action source transition history is rebound to another mutation");
+  }
+  if (record.sourceBindingTransition && digestObject(record.sourceBindingTransition) !== digestObject(transition)) {
+    throw new Error("Provider action persisted source transition is rebound to another mutation");
+  }
+  if (![transition.from, transition.to].includes(manifest.sourceBinding?.digest)) {
+    throw new Error("Provider action cannot replace an unrelated operational source binding");
+  }
+  const sentinelPath = safeJoin(runDir, "sentinels", `${transition.sourceSentinelLabel}.json`);
+  if (await pathExists(sentinelPath)) {
+    const persisted = await readJson(root, sentinelPath);
+    if (
+      persisted.digest !== transition.sourceSentinelTo ||
+      stableSentinelRecordDigest(persisted) !== transition.sourceSentinelToRecordDigest
+    ) {
+      throw new Error("Provider action source transition sentinel conflicts with persisted state");
+    }
+  } else {
+    await atomicWriteJson(root, sentinelPath, validation.currentSentinel);
+  }
+  if (manifest.sourceBinding.digest === transition.from) {
+    await atomicWriteJson(root, manifestPath, {
+      ...manifest,
+      sourceBinding: validation.currentSourceBinding,
+      sourceBindingHistory: [...history, historyEntry],
+      updatedAt: transitionedAt
+    });
+  } else if (!existing) {
+    throw new Error("Provider action current source binding lacks immutable transition history");
+  }
+  if (![transition.sourceSentinelFrom, transition.sourceSentinelTo].includes(state.lastSentinel?.digest)) {
+    throw new Error("Provider action cannot replace an unrelated source sentinel");
+  }
+  if (
+    state.lastSentinel?.digest !== transition.sourceSentinelTo ||
+    state.lastSentinelVerified !== true || state.lastSentinelComplete !== true ||
+    state.lastSentinel?.label !== transition.sourceSentinelLabel
+  ) {
+    await atomicWriteJson(root, statePath, {
+      ...state,
+      lastSentinel: {
+        label: transition.sourceSentinelLabel,
+        digest: transition.sourceSentinelTo,
+        path: sentinelPath
+      },
+      lastSentinelVerified: true,
+      lastSentinelComplete: true,
+      sentinelDrift: null,
+      updatedAt: transitionedAt
+    });
+  }
+  await appendJournalOnceForAttempt(root, runDir, "source-binding.provider-action", record.attemptId, {
+    ...transition,
+    transitionDigest: digestObject(transition)
+  });
+  return { transition, historyEntry, sourceBinding: validation.currentSourceBinding };
 }
 
 async function transitionAutonomousCommitSourceBinding(root, runDir, contract, record, onBoundary = () => {}) {
@@ -8697,36 +11979,102 @@ async function transitionAutonomousCommitSourceBinding(root, runDir, contract, r
 }
 
 async function invalidateEvidenceAfterAutonomousCommit(root, runDir, record, transitionedAt, onBoundary = () => {}) {
+  const run = {
+    runDir,
+    manifest: await readJson(root, safeJoin(runDir, "manifest.json")),
+    contract: await readJson(root, safeJoin(runDir, "contract.json")),
+    state: await readJson(root, safeJoin(runDir, "state.json"))
+  };
+  await assertAutonomousCommitEvidenceInvalidationSafe(root, run.manifest.runId, { run });
   const evidence = await listJsonRecords(root, safeJoin(runDir, "evidence"));
-  let invalidated = 0;
+  let transitionBoundaryArmed = true;
   for (const item of evidence) {
-    if (item.status !== "complete" || item.stale === true) continue;
-    await atomicWriteJson(root, safeJoin(runDir, "evidence", `${item.id}.json`), {
+    if (item.status !== "complete") continue;
+    if (item.stale === true) {
+      if (item.staleReason === `autonomous-commit-reconciled:${record.attemptId}`) {
+        transitionBoundaryArmed = false;
+      }
+      continue;
+    }
+    const next = {
       ...item,
       stale: true,
       freshnessCheckedAt: transitionedAt,
       staleReason: `autonomous-commit-reconciled:${record.attemptId}`
-    });
-    invalidated += 1;
+    };
+    await writeEvidenceFreshnessTransition(
+      root,
+      runDir,
+      item,
+      next,
+      {
+        kind: "autonomous-commit-reconciled",
+        actionAttemptId: record.attemptId
+      },
+      {
+        onPrepared: transitionBoundaryArmed
+          ? () => onBoundary("evidence-transition-journal")
+          : null
+      }
+    );
+    transitionBoundaryArmed = false;
     await onBoundary("evidence-invalidation");
   }
-  if (invalidated > 0) {
-    await appendJournal(root, runDir, "evidence.invalidated", {
-      actionAttemptId: record.attemptId,
-      reason: "autonomous-commit-reconciled",
-      invalidated
-    });
-  }
-  return invalidated;
+  const parent = await appendEvidenceInvalidationParent(root, runDir, record.attemptId);
+  return parent?.invalidated ?? 0;
 }
 
 const AUTONOMOUS_COMMIT_RECONCILE_FAILURE_POINTS = new Set([
+  "provider-reservation-directory-created",
+  "provider-reservation-root-durable",
+  "provider-reservation-file-synced",
+  "provider-reservation-directory-durable",
+  "provider-reservation-replay-durable",
   "provider-reservation",
   "source-manifest",
   "source-state",
   "action-persistence",
+  "evidence-transition-journal",
   "evidence-invalidation"
 ]);
+
+async function persistActionAuthorityDriftUnknown(
+  root,
+  runDir,
+  record,
+  receipt,
+  error,
+  { providerExecutionReservationOutcome }
+) {
+  const observedAt = nowIso();
+  const authorityFailure = {
+    schemaVersion: 1,
+    kind: "post-invocation-action-authority-drift",
+    actionAttemptId: record.attemptId,
+    observedProviderOutcome: "success",
+    observedProviderExecutionId: receipt.providerReceipt.executionId,
+    observedProviderReceiptDigest: digestObject(receipt.providerReceipt),
+    providerExecutionReservationOutcome,
+    errorDigest: sha256(error?.message ?? "action authority drifted"),
+    observedAt
+  };
+  const next = {
+    ...record,
+    outcome: "unknown",
+    receipt: null,
+    reconciledAt: observedAt,
+    authorityFailure
+  };
+  await atomicWriteJson(root, safeJoin(runDir, "actions", `${record.tokenHash}.json`), next);
+  await appendJournal(root, runDir, "action.authority-drifted", {
+    attemptId: record.attemptId,
+    outcome: "unknown",
+    providerExecutionId: receipt.providerReceipt.executionId,
+    providerExecutionReservationOutcome,
+    authorityFailureDigest: digestObject(authorityFailure)
+  });
+  return next;
+}
 
 export async function reconcileAction(root, runId, attemptId, outcome, receipt = null, {
   failAfter = null
@@ -8788,6 +12136,42 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
       });
       return repaired;
     }
+    const repairingProviderActionTransition = (
+      record.status === "spent" && record.outcome === "success" && outcome === "success" &&
+      PROVIDER_ACTION_SOURCE_MUTATIONS.has(`${record.action}:${record.provider}`) &&
+      record.receipt?.providerReceipt?.sourceMutation
+    );
+    if (repairingProviderActionTransition) {
+      if (!record.receipt || !receipt || digestObject(record.receipt) !== digestObject(receipt)) {
+        throw new Error("Provider action source transition repair requires the exact persisted success receipt");
+      }
+      validateActionReceipt(record, outcome, receipt);
+      await validateActionEvidenceBinding(root, runDir, record, attemptId, outcome, receipt);
+      const manifest = await readJson(root, safeJoin(runDir, "manifest.json"));
+      await verifyProviderReceipt(manifest, { ...record, outcome: "success" }, receipt, run.contract);
+      await assertFrozenProviderActionEvidenceGate(
+        root,
+        runId,
+        run,
+        record,
+        "Provider action source transition repair"
+      );
+      const validation = await validateProviderActionSourceMutation(
+        root,
+        run,
+        record,
+        receipt.providerReceipt
+      );
+      await transitionProviderActionSourceBinding(root, runDir, record, receipt, validation);
+      await appendJournalOnceForAttempt(
+        root,
+        runDir,
+        "action.provider-source-transition-repaired",
+        attemptId,
+        { sourceMutationDigest: validation.descriptorDigest }
+      );
+      return readJson(root, safeJoin(runDir, "actions", `${record.tokenHash}.json`));
+    }
     const repairingAutonomousCommitTransition = (
       record.status === "spent" &&
       record.outcome === "success" &&
@@ -8803,6 +12187,7 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
       validateActionReceipt(record, outcome, receipt);
       const manifest = await readJson(root, safeJoin(runDir, "manifest.json"));
       await verifyProviderReceipt(manifest, { ...record, outcome: "success" }, receipt, run.contract);
+      await assertAutonomousCommitEvidenceInvalidationSafe(root, runId, { run });
       const transition = await transitionAutonomousCommitSourceBinding(root, runDir, run.contract, record, onBoundary);
       await invalidateEvidenceAfterAutonomousCommit(root, runDir, record, transition.transitionedAt, onBoundary);
       await appendJournalOnceForAttempt(root, runDir, "action.autonomous-commit-transition-repaired", attemptId, {
@@ -8862,6 +12247,7 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
         record.providerInvocation.adminBypass !== false ||
         record.providerInvocation.exitCode !== 0 ||
         record.providerInvocation.dispatchState === "not-sent" ||
+        String(record.providerInvocation.authorityGateStatus ?? "").startsWith("drifted-") ||
         digestObject(record.providerInvocation.providerExecutable) !== digestObject(record.providerExecutable) ||
         digestObject(record.providerInvocation.providerAuthorizationExecutable) !== digestObject(record.providerAuthorizationExecutable) ||
         JSON.stringify(record.providerInvocation.command) !== JSON.stringify(record.mergeCommand) ||
@@ -8876,6 +12262,7 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
         record.providerInvocation.provider !== "github-cli" ||
         (record.outcome !== "unknown" && record.providerInvocation.exitCode !== 0) ||
         record.providerInvocation.dispatchState === "not-sent" ||
+        String(record.providerInvocation.authorityGateStatus ?? "").startsWith("drifted-") ||
         digestObject(record.providerInvocation.providerExecutable) !== digestObject(record.providerExecutable) ||
         digestObject(record.providerInvocation.providerAuthorizationExecutable) !== digestObject(record.providerAuthorizationExecutable) ||
         digestObject(record.providerInvocation.providerAuthorization) !== digestObject(record.providerAuthorization) ||
@@ -8889,6 +12276,7 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
       (!record.providerInvocation ||
         record.providerInvocation.provider !== "git" ||
         record.providerInvocation.exitCode !== 0 ||
+        String(record.providerInvocation.authorityGateStatus ?? "").startsWith("drifted-") ||
         digestObject(record.providerInvocation.providerExecutable) !== digestObject(record.providerExecutable) ||
         digestObject(record.providerInvocation.providerAuthorizationExecutable) !== digestObject(record.providerAuthorizationExecutable) ||
         digestObject(record.providerInvocation.providerAuthorization) !== digestObject(record.providerAuthorization) ||
@@ -8910,6 +12298,7 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
       (!record.providerInvocation ||
         record.providerInvocation.provider !== "github-cli" ||
         record.providerInvocation.dispatchState !== "sent" ||
+        String(record.providerInvocation.authorityGateStatus ?? "").startsWith("drifted-") ||
         digestObject(record.providerInvocation.providerExecutable) !== digestObject(record.providerExecutable) ||
         digestObject(record.providerInvocation.providerAuthorizationExecutable) !== digestObject(record.providerAuthorizationExecutable) ||
         digestObject(record.providerInvocation.providerAuthorization) !== digestObject(record.providerAuthorization) ||
@@ -8956,15 +12345,175 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
       }
     }
     await verifyProviderReceipt(manifest, { ...record, outcome }, receipt, run.contract);
-    await reserveProviderExecution(root, record, receipt.providerReceipt.executionId, outcome);
-    await onBoundary("provider-reservation");
-    const autonomousCommitTransition = (
+    const autonomousCommitTransitionRequired = (
       record.action === "git.commit" &&
       record.provider === "git" &&
       outcome === "success" &&
       record.autonomyDecision?.decision === "auto-approved"
-    )
+    );
+    const providerActionSourceTransitionRequired = (
+      outcome === "success" && run.contract.schemaVersion === 2 &&
+      PROVIDER_ACTION_SOURCE_MUTATIONS.has(`${record.action}:${record.provider}`) &&
+      Boolean(receipt.providerReceipt.sourceMutation)
+    );
+    const sourceMutatingReconciliation = autonomousCommitTransitionRequired ||
+      providerActionSourceTransitionRequired ||
+      (record.action === "worktree.cleanup" && outcome === "success");
+    let providerActionSourceValidation = null;
+    if (providerActionSourceTransitionRequired) {
+      try {
+        await assertFrozenProviderActionEvidenceGate(
+          root,
+          runId,
+          run,
+          record,
+          "Provider action source reconciliation"
+        );
+        providerActionSourceValidation = await validateProviderActionSourceMutation(
+          root,
+          run,
+          record,
+          receipt.providerReceipt
+        );
+      } catch (error) {
+        await reserveProviderExecution(
+          root,
+          record,
+          receipt.providerReceipt.executionId,
+          "unknown",
+          { onBoundary }
+        );
+        await persistActionAuthorityDriftUnknown(
+          root,
+          runDir,
+          record,
+          receipt,
+          error,
+          { providerExecutionReservationOutcome: "unknown" }
+        );
+        throw Object.assign(
+          new Error("Provider source mutation is non-authorizing because action authority drifted before reconciliation", {
+            cause: error
+          }),
+          { code: "SBW_ACTION_AUTHORITY_INDETERMINATE" }
+        );
+      }
+    }
+    if (outcome === "success" && run.contract.schemaVersion === 2 && !sourceMutatingReconciliation) {
+      try {
+        await assertSpentActionEvidenceGate(
+          root,
+          runId,
+          await loadRun(root, runId),
+          record,
+          "Action success reconciliation"
+        );
+      } catch (error) {
+        await reserveProviderExecution(
+          root,
+          record,
+          receipt.providerReceipt.executionId,
+          "unknown",
+          { onBoundary }
+        );
+        await persistActionAuthorityDriftUnknown(
+          root,
+          runDir,
+          record,
+          receipt,
+          error,
+          { providerExecutionReservationOutcome: "unknown" }
+        );
+        throw Object.assign(
+          new Error("Provider result is non-authorizing because action authority drifted before reconciliation", {
+            cause: error
+          }),
+          { code: "SBW_ACTION_AUTHORITY_INDETERMINATE" }
+        );
+      }
+    }
+    if (autonomousCommitTransitionRequired) {
+      await assertAutonomousCommitEvidenceInvalidationSafe(root, runId, { run });
+    }
+    await reserveProviderExecution(
+      root,
+      record,
+      receipt.providerReceipt.executionId,
+      outcome,
+      { onBoundary }
+    );
+    await onBoundary("provider-reservation");
+    if (providerActionSourceTransitionRequired) {
+      try {
+        await assertFrozenProviderActionEvidenceGate(
+          root,
+          runId,
+          await loadRun(root, runId),
+          record,
+          "Provider action source persistence"
+        );
+        const currentValidation = await validateProviderActionSourceMutation(
+          root,
+          await loadRun(root, runId),
+          record,
+          receipt.providerReceipt
+        );
+        if (
+          currentValidation.descriptorDigest !== providerActionSourceValidation.descriptorDigest ||
+          currentValidation.currentSourceBinding.digest !== providerActionSourceValidation.currentSourceBinding.digest ||
+          currentValidation.currentSentinel.digest !== providerActionSourceValidation.currentSentinel.digest
+        ) {
+          throw new Error("Provider action source mutation changed during reconciliation");
+        }
+        providerActionSourceValidation = currentValidation;
+      } catch (error) {
+        await persistActionAuthorityDriftUnknown(
+          root,
+          runDir,
+          record,
+          receipt,
+          error,
+          { providerExecutionReservationOutcome: "success" }
+        );
+        throw Object.assign(
+          new Error("Provider source mutation is non-authorizing because action authority drifted before persistence", {
+            cause: error
+          }),
+          { code: "SBW_ACTION_AUTHORITY_INDETERMINATE" }
+        );
+      }
+    }
+    if (outcome === "success" && run.contract.schemaVersion === 2 && !sourceMutatingReconciliation) {
+      try {
+        await assertSpentActionEvidenceGate(
+          root,
+          runId,
+          await loadRun(root, runId),
+          record,
+          "Action success persistence"
+        );
+      } catch (error) {
+        await persistActionAuthorityDriftUnknown(
+          root,
+          runDir,
+          record,
+          receipt,
+          error,
+          { providerExecutionReservationOutcome: "success" }
+        );
+        throw Object.assign(
+          new Error("Provider result is non-authorizing because action authority drifted before persistence", {
+            cause: error
+          }),
+          { code: "SBW_ACTION_AUTHORITY_INDETERMINATE" }
+        );
+      }
+    }
+    const autonomousCommitTransition = autonomousCommitTransitionRequired
       ? await transitionAutonomousCommitSourceBinding(root, runDir, run.contract, record, onBoundary)
+      : null;
+    const providerSourceTransition = providerActionSourceTransitionRequired
+      ? providerActionSourceBindingTransition(record, receipt, providerActionSourceValidation, nowIso())
       : null;
     const target = safeJoin(runDir, "actions", `${record.tokenHash}.json`);
     const next = {
@@ -8982,12 +12531,22 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
             }
           }
         : {}),
+      ...(providerSourceTransition ? { sourceBindingTransition: providerSourceTransition } : {}),
       ...(record.action === "pr.create" && outcome === "success"
         ? { ownedResource: `pull/${receipt.providerReceipt.number}` }
         : {})
     };
     await atomicWriteJson(root, target, next);
     await onBoundary("action-persistence");
+    if (providerSourceTransition) {
+      await transitionProviderActionSourceBinding(
+        root,
+        runDir,
+        next,
+        receipt,
+        providerActionSourceValidation
+      );
+    }
     if (autonomousCommitTransition) {
       await invalidateEvidenceAfterAutonomousCommit(
         root,
@@ -9030,7 +12589,11 @@ export async function reconcileAction(root, runId, attemptId, outcome, receipt =
       });
     }
     if (outcome === "failure" && OWNED_RESOURCE_CREATION_ACTIONS.has(record.action)) {
-      await releaseCreationResource(root, runId, record.creationReservation, record.tokenHash);
+      await releaseCreationResource(
+        root,
+        record.creationReservation,
+        creationReservationOwnerFromAction(record)
+      );
     }
     return next;
   });
@@ -9041,6 +12604,7 @@ export async function inspectRun(root, runId) {
   return {
     ...run,
     evidence: await listJsonRecords(root, safeJoin(run.runDir, "evidence")),
+    evidenceSupersessions: await listJsonRecords(root, safeJoin(run.runDir, "evidence-supersessions")),
     findings: await listJsonRecords(root, safeJoin(run.runDir, "findings")),
     actions: await listJsonRecords(root, safeJoin(run.runDir, "actions"))
   };
@@ -9054,20 +12618,26 @@ async function reapExpiredCreationReservations(root) {
   for (const entry of entries) {
     if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
     const target = safeJoin(directory, entry.name);
-    const reservation = await readJson(root, target).catch(() => null);
-    if (
-      !reservation?.provider ||
-      !reservation?.repository ||
-      !reservation?.action ||
-      !reservation?.resource
-    ) continue;
+    const reservation = await readJson(root, target);
     const identity = validateCreationReservationIdentity(reservation);
+    validateCreationReservationRecord(reservation, identity);
+    const observedOwner = validateCreationReservationOwner(reservation);
     await withCreationReservationLock(root, identity, async () => {
-      const current = await readJson(root, creationReservationPath(root, identity)).catch(() => null);
-      if (!current?.runId || !current?.tokenHash || Date.parse(current.expiresAt ?? "") > Date.now()) return;
-      const action = await readJson(root, safeJoin(runDirectory(root, current.runId), "actions", `${current.tokenHash}.json`)).catch(() => null);
+      const current = await readJsonIfExists(root, creationReservationPath(root, identity));
+      if (!current) {
+        await releaseCreationResourceLocked(root, identity, observedOwner);
+        return;
+      }
+      validateCreationReservationRecord(current, identity);
+      if (digestObject(current) !== digestObject(reservation)) return;
+      if (Date.parse(current.expiresAt ?? "") > Date.now()) return;
+      const owner = validateCreationReservationOwner(current);
+      const action = await readJsonIfExists(
+        root,
+        safeJoin(runDirectory(root, current.runId), "actions", `${current.tokenHash}.json`)
+      );
       if (!action || action.status === "issued") {
-        await unlink(creationReservationPath(root, identity)).catch(() => undefined);
+        await releaseCreationResourceLocked(root, identity, owner);
       }
     });
   }
@@ -9136,7 +12706,11 @@ export async function cleanupRuns(root, { olderThanDays, apply = false }) {
             !quarantinedAction
           ) {
             for (const entry of ownedResources) {
-              await releaseCreationResource(root, runId, entry.creationReservation);
+              await releaseCreationResource(
+                root,
+                entry.creationReservation,
+                entry.creationReservationOwner
+              );
             }
             await rm(runDir, { recursive: true, force: false });
           }

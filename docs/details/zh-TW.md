@@ -323,6 +323,8 @@ node plugins/better-workflows/scripts/sbw.mjs recipe run <id> \
 
 只解析 Git root 的 `.codex/better-workflows/`；routing Profile `.codex/better-workflows.json` 不能授權 recipe。clone 後一律視為不可信並重新 promotion。dry-run 仍會執行已信任程式，但丟棄 staging；正式 run 才原子發布已宣告且預設 ignored 的 artifacts。提升單一 artifact 另需 `artifact.promote` action。一般私密 receipt 只保存 digests、時間、artifact metadata 與 reconciliation，不保存 raw input、conversation、credentials 或 secrets。reconciled side-effect action record 會為 terminal state 驗證私密保存 provider receipt，但不會進入 external handoff 或 graph projection。
 
+Recipe 程式本身仍沒有 source-mutation authority。root-owned local provider 只能為 `recipe.promote` 精確啟用 config，或為 `artifact.promote` 建立一個原本不存在的目的檔案。receipt 會綁定 action attempt、path、前後 bytes、完整 sentinel 與 source binding；移除該唯一 path 後，兩份 snapshot 必須完全一致。ignored artifact store 也只有在 tracked marker 內容精確符合內建 policy 時，才視為受管理的非 source 輸出。任何額外 drift 或 transition history 竄改都不能授權 success。
+
 ### 衍生 Graph View
 
 Graph View 會從已安裝 workflow templates 或單一 live run 衍生 typed、唯讀

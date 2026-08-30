@@ -6,7 +6,7 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { assertPolicyReceiptArtifact, assertSourcePolicyArtifactDigest, assertWorkflowRunTerminal, fetchPolicyReceiptArtifact, githubGraphqlUrl, pullRequestWorkflowObservation, releasePolicyPublisherAvailable, repositoryPullRequests, runReleaseTag as runReleaseTagImpl } from "../release-tag.mjs";
+import { assertPolicyReceiptArtifact, assertSourcePolicyArtifactDigest, assertWorkflowRunTerminal, fetchPolicyReceiptArtifact, githubGraphqlUrl, pullRequestTargetProviderBinding, pullRequestWorkflowObservation, releasePolicyPublisherAvailable, repositoryPullRequests, runReleaseTag as runReleaseTagImpl, verifyPolicyReceipt } from "../release-tag.mjs";
 import {
   compareStableVersions,
   findMergedPullRequest,
@@ -203,11 +203,11 @@ function successfulRequiredCheckResponse(url, sha, context = "test", pullNumber 
         conclusion: "success",
         created_at: "2026-08-14T23:30:00Z",
         completed_at: "2026-08-14T23:55:00Z",
-        pull_requests: Array.from({ length: 200 }, (_, index) => ({
-          number: index + 1,
+        pull_requests: [{
+          number: pullNumber,
           head: { sha },
           base: { ref: "dev", repo: { full_name: "example/repo" } }
-        }))
+        }]
       }]
     });
   }
@@ -268,11 +268,11 @@ function policyWorkflowResponse(url) {
     created_at: source ? "2026-08-14T23:30:00Z" : new Date(mergedMs + 60 * 1000).toISOString(),
     completed_at: source ? "2026-08-14T23:45:00Z" : closedAt,
     repository: { full_name: "example/repo" },
-    pull_requests: Array.from({ length: 200 }, (_, index) => ({
-      number: index + 1,
+    pull_requests: [{
+      number: latestPolicyReceiptMetadata.pullNumber,
       head: { sha: latestPolicyReceiptMetadata.headSha },
       base: { ref: latestPolicyReceiptMetadata.base, sha: latestPolicyReceiptMetadata.baseSha }
-    }))
+    }]
   };
   if (!source && policyWorkflowInProgressResponses > 0) policyWorkflowInProgressResponses -= 1;
   return jsonResponse(workflow);
@@ -438,24 +438,295 @@ test("workflow-run merge receipt requires its successful trusted trigger binding
   );
 });
 
-test("workflow-run terminal evidence requires completed_at and bounded terminal ordering", () => {
+test("pull-request workflow bindings reject multiply associated provider runs", () => {
+  const headSha = "b".repeat(40);
+  const baseSha = "c".repeat(40);
+  const exactPull = {
+    number: 17,
+    base: { ref: "dev", sha: baseSha, repo: { full_name: "example/repo" } },
+    head: { sha: headSha }
+  };
+  const exactRun = {
+    path: ".github/workflows/ci.yml",
+    event: "pull_request",
+    status: "completed",
+    conclusion: "success",
+    completed_at: "2026-08-18T00:00:00Z",
+    head_sha: baseSha,
+    repository: { full_name: "example/repo" },
+    pull_requests: [exactPull]
+  };
+  assert.equal(pullRequestTargetProviderBinding(exactRun, {
+    pullNumber: 17,
+    branch: "dev",
+    headSha,
+    headRef: "codex/source"
+  }).matches, true);
+  const multiplyAssociated = {
+    ...exactRun,
+    pull_requests: [
+      exactPull,
+      { number: 18, base: { ref: "dev", sha: baseSha }, head: { sha: "d".repeat(40) } }
+    ]
+  };
+  assert.equal(pullRequestTargetProviderBinding(multiplyAssociated, {
+    pullNumber: 17,
+    branch: "dev",
+    headSha,
+    headRef: "codex/source"
+  }).matches, false);
+  assert.equal(pullRequestWorkflowObservation({
+    workflowRuns: [multiplyAssociated],
+    pullNumber: 17,
+    expectedPreMergeSha: headSha,
+    branch: "dev",
+    repository: "example/repo"
+  }).state, "missing");
+});
+
+test("workflow-run terminal evidence uses completed_at or the completed provider updated_at and preserves bounded ordering", () => {
   const completedAt = Date.parse("2026-08-18T00:00:01Z");
   assert.equal(
     assertWorkflowRunTerminal({ status: "completed", conclusion: "success", created_at: "2026-08-17T23:59:00Z", completed_at: "2026-08-18T00:00:01Z" }),
     completedAt
   );
+  assert.equal(
+    assertWorkflowRunTerminal({ status: "completed", conclusion: "success", created_at: "2026-08-17T23:59:00Z", completed_at: null, updated_at: "2026-08-18T00:00:01Z" }),
+    completedAt
+  );
   assert.throws(
     () => assertWorkflowRunTerminal({ status: "completed", conclusion: "success", created_at: "2026-08-17T23:59:00Z" }),
-    /completed_at terminal receipt/
+    /completed workflow terminal receipt/
   );
   assert.throws(
     () => assertWorkflowRunTerminal({ status: "completed", conclusion: "success", completed_at: "not-a-timestamp" }),
-    /completed_at terminal receipt/
+    /completed workflow terminal receipt/
   );
   assert.throws(
     () => assertWorkflowRunTerminal({ status: "completed", conclusion: "success", completed_at: "2026-08-18T00:00:02Z" }, "workflow run", { notAfterMs: completedAt }),
-    /completed_at terminal receipt/
+    /completed workflow terminal receipt/
   );
+  assert.throws(
+    () => assertWorkflowRunTerminal({ status: "in_progress", conclusion: null, updated_at: "2026-08-18T00:00:01Z" }),
+    /completed workflow terminal receipt/
+  );
+});
+
+test("release receipt consumers accept sparse pull-request-target metadata only at the exact head branch and SHA", () => {
+  const headSha = "b".repeat(40);
+  const sparseRun = {
+    head_sha: headSha,
+    head_branch: "release/v3+hotfix@candidate",
+    pull_requests: []
+  };
+  const boundary = {
+    pullNumber: 17,
+    branch: "dev",
+    headSha,
+    headRef: "release/v3+hotfix@candidate"
+  };
+  assert.equal(pullRequestTargetProviderBinding(sparseRun, boundary).matches, true);
+  assert.equal(pullRequestTargetProviderBinding({ ...sparseRun, head_branch: "other/source" }, boundary).matches, false);
+  assert.equal(pullRequestTargetProviderBinding({ ...sparseRun, head_sha: "c".repeat(40) }, boundary).matches, false);
+  assert.equal(pullRequestTargetProviderBinding({ ...sparseRun, pull_requests: null }, boundary).matches, false);
+  assert.equal(pullRequestTargetProviderBinding(sparseRun, { ...boundary, headRef: null }).matches, false);
+
+  const baseSha = "1".repeat(40);
+  const associatedRun = {
+    head_sha: baseSha,
+    pull_requests: [{
+      number: 17,
+      head: { sha: headSha },
+      base: { ref: "dev", sha: baseSha }
+    }]
+  };
+  assert.equal(pullRequestTargetProviderBinding(associatedRun, boundary).matches, true);
+  assert.equal(pullRequestTargetProviderBinding({ ...associatedRun, head_sha: "2".repeat(40) }, boundary).matches, false);
+});
+
+test("release receipt consumer verifies sparse workflow-run, close-binding, and pre-merge artifact continuity end to end", async () => {
+  const repository = "example/repo";
+  const branch = "dev";
+  const pullNumber = 17;
+  const headSha = "b".repeat(40);
+  const headRef = "codex/release-3.4.14";
+  const mergeCommitSha = "c".repeat(40);
+  const mergedAt = "2026-08-18T00:00:00.000Z";
+  const mergeTimeMs = Date.parse(mergedAt);
+  const policy = [{ context: "test", appId: null, strict: true }];
+  const digest = createHash("sha256").update(JSON.stringify(policy)).digest("hex");
+  const sourceArtifact = {
+    schemaVersion: 1,
+    kind: "better-workflows/release-policy-receipt-v2",
+    repository,
+    workflowFile: ".github/workflows/ci.yml",
+    workflowRunId: "70",
+    workflowRunAttempt: "1",
+    eventName: "pull_request_target",
+    eventAction: "synchronize",
+    branch,
+    pullNumber,
+    headSha,
+    policy,
+    policyDigest: digest,
+    observedAt: "2026-08-17T23:59:54.000Z"
+  };
+  const sourceArchive = zipStoredJson("release-policy-receipt.json", sourceArtifact);
+  const sourceArchiveDigest = createHash("sha256").update(sourceArchive).digest("hex");
+  const receiptArtifact = {
+    ...sourceArtifact,
+    workflowFile: ".github/workflows/release-policy-reconcile.yml",
+    workflowRunId: "80",
+    workflowRunAttempt: "1",
+    eventName: "workflow_run",
+    eventAction: "closed",
+    observedAt: "2026-08-18T00:00:08.000Z",
+    mergeCommitSha,
+    mergedAt,
+    sourceWorkflowRunId: "70",
+    sourceWorkflowRunAttempt: "1",
+    sourcePolicyDigest: digest,
+    sourcePolicyArtifactDigest: sourceArchiveDigest,
+    triggerWorkflowRunId: "90",
+    closedMergeWorkflowRunId: "90",
+    closedMergeWorkflowRunAttempt: "2"
+  };
+  const closeBinding = {
+    schemaVersion: 1,
+    kind: "better-workflows/release-policy-close-binding-v1",
+    repository,
+    workflowFile: ".github/workflows/ci.yml",
+    workflowRunId: "90",
+    workflowRunAttempt: "2",
+    eventName: "pull_request_target",
+    eventAction: "closed",
+    branch,
+    pullNumber,
+    headSha,
+    mergeCommitSha,
+    mergedAt,
+    observedAt: "2026-08-18T00:00:04.000Z"
+  };
+  const receiptArchive = zipStoredJson("release-policy-receipt.json", receiptArtifact);
+  const closeArchive = zipStoredJson("release-policy-close-binding.json", closeBinding);
+  const archives = new Map([
+    ["https://artifact.invalid/receipt-80.zip", receiptArchive],
+    ["https://artifact.invalid/source-70.zip", sourceArchive],
+    ["https://artifact.invalid/close-90.zip", closeArchive]
+  ]);
+  const sparseRun = ({ id, runAttempt, conclusion, createdAt, updatedAt }) => ({
+    id,
+    run_attempt: runAttempt,
+    path: ".github/workflows/ci.yml",
+    event: "pull_request_target",
+    status: "completed",
+    conclusion,
+    head_sha: headSha,
+    head_branch: headRef,
+    created_at: createdAt,
+    completed_at: null,
+    updated_at: updatedAt,
+    repository: { full_name: repository },
+    pull_requests: []
+  });
+  const sourceRun = sparseRun({
+    id: 70,
+    runAttempt: 1,
+    conclusion: "success",
+    createdAt: "2026-08-17T23:59:40Z",
+    updatedAt: "2026-08-17T23:59:56Z"
+  });
+  const closedRun = sparseRun({
+    id: 90,
+    runAttempt: 2,
+    conclusion: "failure",
+    createdAt: "2026-08-18T00:00:01Z",
+    updatedAt: "2026-08-18T00:00:06Z"
+  });
+  const reconciliationRun = {
+    id: 80,
+    run_attempt: 1,
+    path: ".github/workflows/release-policy-reconcile.yml",
+    event: "workflow_run",
+    status: "completed",
+    conclusion: "success",
+    created_at: "2026-08-18T00:00:07Z",
+    completed_at: null,
+    updated_at: "2026-08-18T00:00:09Z",
+    repository: { full_name: repository },
+    pull_requests: []
+  };
+  const artifactListing = (id, name, archiveDownloadUrl, archive) => jsonResponse({ artifacts: [{
+    id,
+    name,
+    expired: false,
+    digest: `sha256:${createHash("sha256").update(archive).digest("hex")}`,
+    workflow_run: { id: Number(name.match(/-(\d+)-\d+$/)?.[1]) },
+    archive_download_url: archiveDownloadUrl
+  }] });
+  const fetchImpl = async (url) => {
+    if (url.endsWith("/repos/example/repo/actions/runs/80")) return jsonResponse(reconciliationRun);
+    if (url.endsWith("/repos/example/repo/actions/runs/90")) return jsonResponse(closedRun);
+    if (url.endsWith("/repos/example/repo/actions/runs/70")) return jsonResponse(sourceRun);
+    if (url.includes("/actions/runs/80/artifacts?")) {
+      return artifactListing(800, "better-workflows-release-policy-receipt-80-1", "https://artifact.invalid/receipt-80.zip", receiptArchive);
+    }
+    if (url.includes("/actions/runs/90/artifacts?")) {
+      return artifactListing(900, "better-workflows-release-policy-close-binding-90-2", "https://artifact.invalid/close-90.zip", closeArchive);
+    }
+    if (url.includes("/actions/runs/70/artifacts?")) {
+      return artifactListing(700, "better-workflows-release-policy-receipt-70-1", "https://artifact.invalid/source-70.zip", sourceArchive);
+    }
+    const archive = archives.get(url);
+    if (archive) return {
+      ok: true,
+      status: 200,
+      headers: { get() { return null; } },
+      async arrayBuffer() { return archive.buffer.slice(archive.byteOffset, archive.byteOffset + archive.byteLength); }
+    };
+    throw new Error(`Unexpected sparse receipt consumer URL: ${url}`);
+  };
+  const targetUrl = new URL("https://github.com/example/repo/actions/runs/80");
+  for (const [key, value] of Object.entries({
+    phase: "merge-bound",
+    attempt: "1",
+    pr: String(pullNumber),
+    head: headSha,
+    base: branch,
+    merge: mergeCommitSha,
+    source: "70",
+    sourceAttempt: "1",
+    trigger: "90",
+    closed: "90",
+    closedAttempt: "2"
+  })) targetUrl.searchParams.set(key, value);
+  const verified = await verifyPolicyReceipt({
+    record: {
+      id: 8000,
+      context: "better-workflows/release-policy-v1",
+      state: "success",
+      description: `better-workflows-policy-v1:${digest}`,
+      target_url: targetUrl.toString(),
+      created_at: "2026-08-18T00:00:08Z",
+      updated_at: "2026-08-18T00:00:09Z"
+    },
+    policyDigest: null,
+    apiUrl: "https://api.github.com",
+    repository,
+    branch,
+    mergeTimeMs,
+    token: "token",
+    fetchImpl,
+    candidateSha: mergeCommitSha,
+    preMergeSha: headSha,
+    preMergeHeadRef: headRef,
+    pullNumber,
+    mergeCommitSha
+  });
+  assert.equal(verified.workflowRun.id, 80);
+  assert.equal(verified.triggerWorkflowRun.id, 90);
+  assert.equal(verified.sourceWorkflowRun.id, 70);
+  assert.equal(verified.sourceArtifact.policyDigest, digest);
 });
 
 test("pull-request workflow selection does not fall back to an older pre-merge success", () => {

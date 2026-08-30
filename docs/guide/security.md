@@ -174,7 +174,16 @@ malicious code. Unreviewed or model-generated recipes must not be executed.
 
 Dry-run still executes already trusted code, but discards staged artifacts.
 Normal execution publishes only declared, verified artifacts. A tracked-source
-promotion needs an independent `artifact.promote` action.
+promotion needs an independent `artifact.promote` action. The ignored artifact
+store is treated as managed non-source output only when its tracked
+`.gitignore` marker has the exact built-in policy bytes; tracked or untracked
+changes elsewhere remain source-authority drift.
+
+`recipe.promote` and `artifact.promote` reconcile source changes through an
+append-only provider-action transition. The receipt is attempt-bound and must
+prove one exact path, before/after file records, complete sentinels, and source
+bindings with no other Git-status or authority change. A missing, conflicting,
+or replay-invalid transition fails closed and cannot authorize success.
 
 ## Host-signed self-improvement
 

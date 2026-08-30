@@ -611,6 +611,14 @@ conversation, credentials, or secrets. Reconciled side-effect action records
 retain provider receipts privately for terminal-state verification; they are not
 included in external handoffs or graph projections.
 
+Recipe code itself still has no source-mutation authority. The root-owned local
+provider may only reconcile the exact config enablement for `recipe.promote` or
+one absent destination for `artifact.promote`. Its receipt binds the action
+attempt, path, before/after bytes, complete sentinels, and source bindings;
+removing that path must leave the snapshots identical. The managed ignored
+artifact store is recognized only through its exact tracked marker. Any extra
+drift or transition-history tampering makes the provider result non-authorizing.
+
 ### Derived Graph View
 
 Graph View derives a typed, read-only graph from installed workflow templates
