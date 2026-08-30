@@ -11,6 +11,7 @@ import {
   readFile,
   readdir,
   rename,
+  rmdir,
   symlink,
   unlink,
   writeFile
@@ -1279,6 +1280,60 @@ test("reference recipe completes governed promotion, dry-run, atomic run, artifa
     if (priorArtifactAttackStateRoot === undefined) delete process.env.SBW_STATE_ROOT;
     else process.env.SBW_STATE_ROOT = priorArtifactAttackStateRoot;
   }
+  const transitionSentinelPath = path.join(
+    stateRoot,
+    "runs",
+    runId,
+    "sentinels",
+    `provider-action-${artifactAttemptId}.json`
+  );
+  const priorTransitionCrashStateRoot = process.env.SBW_STATE_ROOT;
+  process.env.SBW_STATE_ROOT = stateRoot;
+  try {
+    await assert.rejects(
+      recipeArtifactPromote(
+        cwd,
+        executed.json.receiptId,
+        "report-markdown",
+        destination,
+        {
+          async onDestinationBoundary(boundary) {
+            if (boundary !== "after-artifact-finalize") return;
+            await mkdir(transitionSentinelPath);
+          }
+        }
+      ),
+      (error) => /Unsafe JSON path/.test(error?.message ?? "")
+    );
+  } finally {
+    if (priorTransitionCrashStateRoot === undefined) delete process.env.SBW_STATE_ROOT;
+    else process.env.SBW_STATE_ROOT = priorTransitionCrashStateRoot;
+  }
+  const transitionInterruptedRun = await inspectRun(stateRoot, runId);
+  const transitionInterruptedAction = transitionInterruptedRun.actions.find(
+    (item) => item.attemptId === artifactAttemptId
+  );
+  assert.equal(transitionInterruptedAction.outcome, "success");
+  assert.equal(
+    transitionInterruptedRun.manifest.sourceBinding.digest,
+    transitionInterruptedAction.sourceBindingTransition.from
+  );
+  assert.equal(
+    transitionInterruptedRun.manifest.sourceBindingHistory.some(
+      (item) => item.actionAttemptId === artifactAttemptId
+    ),
+    false
+  );
+  const transitionInterruptedJournal = (await readFile(
+    path.join(stateRoot, "runs", runId, "journal.jsonl"),
+    "utf8"
+  )).split("\n").filter(Boolean).map((line) => JSON.parse(line));
+  assert.equal(transitionInterruptedJournal.some((entry) => (
+    entry.event === "source-binding.provider-action" &&
+    entry.actionAttemptId === artifactAttemptId
+  )), false);
+  await rmdir(transitionSentinelPath);
+
   const artifactPromotion = await cli(cwd, stateRoot, [
     "recipe",
     "artifact",

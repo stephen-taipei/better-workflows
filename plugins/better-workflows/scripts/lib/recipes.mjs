@@ -25,6 +25,7 @@ import {
   assertSpentActionProviderAuthority,
   atomicWriteJson,
   canonicalJson,
+  currentActionEvidenceGateBinding,
   digestObject,
   ensurePrivateDir,
   evaluateCompletion,
@@ -89,6 +90,43 @@ const ALLOWED_BUILTIN_IMPORTS = new Set([
 
 function recipeError(message) {
   return new Error(`Workspace recipe: ${message}`);
+}
+
+async function repairCompletedProviderSourceTransition(
+  stateRoot,
+  runIdValue,
+  action,
+  expectedPath
+) {
+  if (!action.receipt?.providerReceipt?.sourceMutation) {
+    throw recipeError("completed provider action lacks its persisted source mutation receipt");
+  }
+  await reconcileAction(
+    stateRoot,
+    runIdValue,
+    action.attemptId,
+    "success",
+    action.receipt
+  );
+  const run = await inspectRun(stateRoot, runIdValue);
+  const persisted = run.actions.find((item) => item.attemptId === action.attemptId);
+  const transition = persisted?.sourceBindingTransition;
+  if (
+    !persisted || persisted.outcome !== "success" ||
+    transition?.kind !== "provider-action" || transition.path !== expectedPath ||
+    run.manifest.sourceBinding?.digest !== transition.to ||
+    run.state.lastSentinel?.digest !== transition.sourceSentinelTo ||
+    run.state.lastSentinel?.label !== transition.sourceSentinelLabel
+  ) {
+    throw recipeError("completed provider action source transition was not repaired");
+  }
+  await currentActionEvidenceGateBinding(
+    stateRoot,
+    runIdValue,
+    run,
+    persisted.action
+  );
+  return { run, action: persisted };
 }
 
 async function addActionEvidence(stateRoot, action, providerReceipt) {
@@ -3351,6 +3389,12 @@ export async function recipeArtifactPromote(
     ) {
       throw recipeError("completed artifact promotion is not replay-valid");
     }
+    await repairCompletedProviderSourceTransition(
+      stateRoot,
+      pending.runId,
+      pending.action,
+      normalized
+    );
     return { ok: true, receiptId, artifactId, destination: normalized, sha256: artifact.sha256 };
   }
   if (onDestinationBoundary) {
