@@ -103,6 +103,17 @@ isolation protects mutation state; it does not replace evidence verification.
 Multiple repositories receive independent leases and serialized integration;
 there is no claim of cross-repository atomicity.
 
+### Transition policy and pilot retirement
+
+Legacy and v2 readers may coexist only as a bounded compatibility transition.
+The v2 control plane is the candidate path for new runs; the legacy reader is
+read-only and cannot issue a new action token. Graduation requires a paired,
+sanitized shadow replay over the same task batch, complete outcome and cost
+telemetry, no unexplained scope or completion regressions, and an operator
+record of the v1 deprecation date and rollback path. Shadow comparison must
+never perform Git/provider side effects. Until the exit record exists, keep the
+profiles version-disjoint and fail closed on migration ambiguity.
+
 Repository mutation is serialized by a lock that binds host, PID, and an
 OS-observed process-incarnation digest. An interrupted task may reclaim only a
 lock whose exact owner is proven gone or whose PID was reused; unknown or live

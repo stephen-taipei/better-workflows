@@ -99,6 +99,27 @@ these fields by repository and template to expose prompt loops, repeated
 infrastructure replacements, scope drift, and resume MTTR. A missing metric is
 `unknown`, never zero, and must not be used to claim an efficiency improvement.
 
+## Shadow replay and pilot exit criteria
+
+The v1/v2 transition is an observe-only comparison, not a second authority
+path. When a representative task batch is available, replay the same sanitized
+inputs against the immutable v1 and v2 contracts with the same source/base
+bindings. Shadow runs must be read-only: they may write isolated receipts and
+metrics, but cannot issue provider tokens, disclose private material, or mutate
+Git, worktrees, or remote state. Compare terminal outcome, scope-drift count,
+resume MTTR, repair waves, prompt count, and unknown/inconclusive rate from
+`sbw metrics summary`; an absent metric stays unknown.
+
+Do not claim that v2 is better from a single green run. A pilot may graduate
+only after an operator-configured batch has complete pair coverage, no
+unexplained v1/v2 binding differences, no new P0/P1 findings, and a documented
+review of false blocks, false completions, and infrastructure interruptions.
+Retire v1 for a template only when its v2 replacement has the same acceptance
+surface, a tested migration reader, a published rollback path, and a bounded
+deprecation date. Until those conditions are recorded, v1 remains a read-only
+compatibility reader and v2 remains the sole candidate for new runs; neither
+profile can bypass current freshness, review, action, or reconciliation gates.
+
 ## One launcher per governed operation
 
 Formal evaluation must use:
