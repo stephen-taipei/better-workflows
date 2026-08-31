@@ -597,7 +597,8 @@ test("skills have no placeholders and retired AI-meeting alias is absent", async
   assert.match(main, /root agent as the only authority/);
   assert.match(main, /Goal-first entry contract/);
   assert.match(main, /\$monorepo-refactor/);
-  assert.match(main, /direct.*do not invoke .*sbw/s);
+  assert.match(main, /`direct` therefore uses a persistent goal without\s+creating a Better Workflows journal/);
+  assert.match(main, /workspace preflight above still\s+applies to explicit Direct/);
   assert.match(main, /at most three direct native children/);
   assert.match(main, /Never decide by vote/);
   assert.match(main, /CLI-proven participant roster/);

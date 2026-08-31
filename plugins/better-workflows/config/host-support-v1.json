@@ -1,0 +1,388 @@
+{
+  "schemaVersion": 1,
+  "id": "host-support-v1",
+  "recommended": {
+    "hostId": "codex",
+    "osId": "macos",
+    "label": "macOS + Codex",
+    "reason": "Reference experience with the deepest native integration and the complete Better Workflows control surface."
+  },
+  "operatingSystems": [
+    {
+      "id": "macos",
+      "displayName": "macOS",
+      "nodePlatform": "darwin",
+      "releaseStatus": "tier1"
+    },
+    {
+      "id": "linux",
+      "displayName": "Linux",
+      "nodePlatform": "linux",
+      "releaseStatus": "tier1"
+    },
+    {
+      "id": "windows",
+      "displayName": "Windows",
+      "nodePlatform": "win32",
+      "releaseStatus": "preview"
+    }
+  ],
+  "capabilityDefinitions": [
+    {
+      "id": "task-contract",
+      "displayName": "TaskContract"
+    },
+    {
+      "id": "typed-evidence",
+      "displayName": "Typed evidence and freshness"
+    },
+    {
+      "id": "replay",
+      "displayName": "Replay decision evaluation"
+    },
+    {
+      "id": "action-gate",
+      "displayName": "Action gate and reconciliation"
+    },
+    {
+      "id": "task-worktree",
+      "displayName": "Task worktree lifecycle"
+    },
+    {
+      "id": "native-picker",
+      "displayName": "Native goal picker"
+    },
+    {
+      "id": "native-subagents",
+      "displayName": "Native subagents"
+    },
+    {
+      "id": "self-improve-host-trust",
+      "displayName": "Self-improve host trust"
+    },
+    {
+      "id": "plugin-cache-publication",
+      "displayName": "Governed plugin-cache publication"
+    }
+  ],
+  "hosts": [
+    {
+      "id": "codex",
+      "displayName": "Codex",
+      "supportTier": "tier1",
+      "executable": "codex",
+      "conformancePackage": {
+        "name": "@openai/codex",
+        "version": "0.150.1"
+      },
+      "conformanceProbe": {
+        "kind": "native-contract",
+        "arguments": [],
+        "installArguments": null,
+        "installedManifestPath": null
+      },
+      "distributionRoot": "plugin",
+      "helperPath": "scripts/sbw.mjs",
+      "manifestPath": ".codex-plugin/plugin.json",
+      "extensionMechanism": "Codex plugin",
+      "officialDocumentation": "https://developers.openai.com/codex/",
+      "osSupport": {
+        "macos": "tier1",
+        "linux": "tier1",
+        "windows": "preview"
+      },
+      "capabilities": {
+        "task-contract": "native",
+        "typed-evidence": "native",
+        "replay": "native",
+        "action-gate": "native",
+        "task-worktree": "core-bridge",
+        "native-picker": "native",
+        "native-subagents": "native",
+        "self-improve-host-trust": "native",
+        "plugin-cache-publication": "native"
+      },
+      "limitations": []
+    },
+    {
+      "id": "claude-code",
+      "displayName": "Claude Code",
+      "supportTier": "tier1",
+      "executable": "claude",
+      "conformancePackage": {
+        "name": "@anthropic-ai/claude-code",
+        "version": "2.1.247"
+      },
+      "conformanceProbe": {
+        "kind": "cli-validate",
+        "arguments": ["plugin", "validate", "{distributionRoot}", "--strict"],
+        "installArguments": null,
+        "installedManifestPath": null
+      },
+      "distributionRoot": "plugin",
+      "helperPath": "scripts/sbw.mjs",
+      "manifestPath": ".claude-plugin/plugin.json",
+      "extensionMechanism": "Claude Code plugin",
+      "officialDocumentation": "https://code.claude.com/docs/en/plugins",
+      "osSupport": {
+        "macos": "tier1",
+        "linux": "tier1",
+        "windows": "preview"
+      },
+      "capabilities": {
+        "task-contract": "core-bridge",
+        "typed-evidence": "core-bridge",
+        "replay": "core-bridge",
+        "action-gate": "core-bridge",
+        "task-worktree": "core-bridge",
+        "native-picker": "unavailable",
+        "native-subagents": "unverified",
+        "self-improve-host-trust": "unavailable",
+        "plugin-cache-publication": "unavailable"
+      },
+      "limitations": [
+        "Uses the host-neutral CLI and skills instead of the Codex-native picker, host trust, and cache publication path."
+      ]
+    },
+    {
+      "id": "gemini-cli",
+      "displayName": "Gemini CLI",
+      "supportTier": "tier1",
+      "executable": "gemini",
+      "conformancePackage": {
+        "name": "@google/gemini-cli",
+        "version": "0.57.0"
+      },
+      "conformanceProbe": {
+        "kind": "cli-validate-install",
+        "arguments": ["extensions", "validate", "{distributionRoot}"],
+        "installArguments": ["extensions", "install", "{distributionRoot}", "--consent"],
+        "installedManifestPath": ".gemini/extensions/better-workflows/gemini-extension.json"
+      },
+      "distributionRoot": "repository",
+      "helperPath": "plugins/better-workflows/scripts/sbw.mjs",
+      "manifestPath": "gemini-extension.json",
+      "extensionMechanism": "Gemini CLI extension",
+      "officialDocumentation": "https://geminicli.com/docs/extensions/reference/",
+      "osSupport": {
+        "macos": "tier1",
+        "linux": "tier1",
+        "windows": "preview"
+      },
+      "capabilities": {
+        "task-contract": "core-bridge",
+        "typed-evidence": "core-bridge",
+        "replay": "core-bridge",
+        "action-gate": "core-bridge",
+        "task-worktree": "core-bridge",
+        "native-picker": "unavailable",
+        "native-subagents": "unverified",
+        "self-improve-host-trust": "unavailable",
+        "plugin-cache-publication": "unavailable"
+      },
+      "limitations": [
+        "Extension changes require the host lifecycle documented by Gemini CLI and do not inherit Codex-native host attestations."
+      ]
+    },
+    {
+      "id": "qwen-code",
+      "displayName": "Qwen Code",
+      "supportTier": "tier1",
+      "executable": "qwen",
+      "conformancePackage": {
+        "name": "@qwen-code/qwen-code",
+        "version": "0.22.2"
+      },
+      "conformanceProbe": {
+        "kind": "isolated-install",
+        "arguments": ["extensions", "install", "{distributionRoot}", "--consent"],
+        "installArguments": null,
+        "installedManifestPath": ".qwen/extensions/better-workflows/qwen-extension.json"
+      },
+      "distributionRoot": "repository",
+      "helperPath": "plugins/better-workflows/scripts/sbw.mjs",
+      "manifestPath": "qwen-extension.json",
+      "extensionMechanism": "Qwen Code extension",
+      "officialDocumentation": "https://qwenlm.github.io/qwen-code-docs/en/developers/extensions/extension/",
+      "osSupport": {
+        "macos": "tier1",
+        "linux": "tier1",
+        "windows": "preview"
+      },
+      "capabilities": {
+        "task-contract": "core-bridge",
+        "typed-evidence": "core-bridge",
+        "replay": "core-bridge",
+        "action-gate": "core-bridge",
+        "task-worktree": "core-bridge",
+        "native-picker": "unavailable",
+        "native-subagents": "unverified",
+        "self-improve-host-trust": "unavailable",
+        "plugin-cache-publication": "unavailable"
+      },
+      "limitations": [
+        "Uses the shared extension bridge; Codex-native host trust and plugin-cache receipts are not portable."
+      ]
+    },
+    {
+      "id": "kimi-code-cli",
+      "displayName": "Kimi Code CLI",
+      "supportTier": "preview",
+      "executable": "kimi",
+      "conformancePackage": null,
+      "conformanceProbe": null,
+      "distributionRoot": null,
+      "helperPath": null,
+      "manifestPath": "compatibility/preview/kimi-code-cli.json",
+      "extensionMechanism": "Compatibility pack",
+      "officialDocumentation": null,
+      "osSupport": {
+        "macos": "preview",
+        "linux": "preview",
+        "windows": "preview"
+      },
+      "capabilities": {
+        "task-contract": "core-bridge",
+        "typed-evidence": "core-bridge",
+        "replay": "core-bridge",
+        "action-gate": "unverified",
+        "task-worktree": "core-bridge",
+        "native-picker": "unavailable",
+        "native-subagents": "unverified",
+        "self-improve-host-trust": "unavailable",
+        "plugin-cache-publication": "unavailable"
+      },
+      "limitations": [
+        "Preview compatibility only; no v4 Tier 1 conformance commitment."
+      ]
+    },
+    {
+      "id": "kiro",
+      "displayName": "Kiro",
+      "supportTier": "preview",
+      "executable": "kiro-cli",
+      "conformancePackage": null,
+      "conformanceProbe": null,
+      "distributionRoot": null,
+      "helperPath": null,
+      "manifestPath": "compatibility/preview/kiro.json",
+      "extensionMechanism": "Compatibility pack",
+      "officialDocumentation": null,
+      "osSupport": {
+        "macos": "preview",
+        "linux": "preview",
+        "windows": "preview"
+      },
+      "capabilities": {
+        "task-contract": "core-bridge",
+        "typed-evidence": "core-bridge",
+        "replay": "core-bridge",
+        "action-gate": "unverified",
+        "task-worktree": "core-bridge",
+        "native-picker": "unavailable",
+        "native-subagents": "unverified",
+        "self-improve-host-trust": "unavailable",
+        "plugin-cache-publication": "unavailable"
+      },
+      "limitations": [
+        "Preview compatibility only; no v4 Tier 1 conformance commitment."
+      ]
+    },
+    {
+      "id": "grok-build",
+      "displayName": "Grok Build",
+      "supportTier": "preview",
+      "executable": "grok",
+      "conformancePackage": null,
+      "conformanceProbe": null,
+      "distributionRoot": null,
+      "helperPath": null,
+      "manifestPath": "compatibility/preview/grok-build.json",
+      "extensionMechanism": "Compatibility pack",
+      "officialDocumentation": null,
+      "osSupport": {
+        "macos": "preview",
+        "linux": "preview",
+        "windows": "preview"
+      },
+      "capabilities": {
+        "task-contract": "core-bridge",
+        "typed-evidence": "core-bridge",
+        "replay": "core-bridge",
+        "action-gate": "unverified",
+        "task-worktree": "core-bridge",
+        "native-picker": "unavailable",
+        "native-subagents": "unverified",
+        "self-improve-host-trust": "unavailable",
+        "plugin-cache-publication": "unavailable"
+      },
+      "limitations": [
+        "Preview compatibility only; no v4 Tier 1 conformance commitment."
+      ]
+    },
+    {
+      "id": "cursor",
+      "displayName": "Cursor",
+      "supportTier": "preview",
+      "executable": "cursor",
+      "conformancePackage": null,
+      "conformanceProbe": null,
+      "distributionRoot": null,
+      "helperPath": null,
+      "manifestPath": "compatibility/preview/cursor.json",
+      "extensionMechanism": "Compatibility pack",
+      "officialDocumentation": null,
+      "osSupport": {
+        "macos": "preview",
+        "linux": "preview",
+        "windows": "preview"
+      },
+      "capabilities": {
+        "task-contract": "core-bridge",
+        "typed-evidence": "core-bridge",
+        "replay": "core-bridge",
+        "action-gate": "unverified",
+        "task-worktree": "core-bridge",
+        "native-picker": "unavailable",
+        "native-subagents": "unverified",
+        "self-improve-host-trust": "unavailable",
+        "plugin-cache-publication": "unavailable"
+      },
+      "limitations": [
+        "Preview compatibility only; editor-native UX is not equivalent to the Codex reference experience."
+      ]
+    },
+    {
+      "id": "github-copilot",
+      "displayName": "GitHub Copilot",
+      "supportTier": "preview",
+      "executable": "gh",
+      "conformancePackage": null,
+      "conformanceProbe": null,
+      "distributionRoot": null,
+      "helperPath": null,
+      "manifestPath": "compatibility/preview/github-copilot.json",
+      "extensionMechanism": "Compatibility pack",
+      "officialDocumentation": null,
+      "osSupport": {
+        "macos": "preview",
+        "linux": "preview",
+        "windows": "preview"
+      },
+      "capabilities": {
+        "task-contract": "core-bridge",
+        "typed-evidence": "core-bridge",
+        "replay": "core-bridge",
+        "action-gate": "unverified",
+        "task-worktree": "core-bridge",
+        "native-picker": "unavailable",
+        "native-subagents": "unverified",
+        "self-improve-host-trust": "unavailable",
+        "plugin-cache-publication": "unavailable"
+      },
+      "limitations": [
+        "Preview compatibility only; GitHub CLI presence alone does not prove a Copilot agent integration."
+      ]
+    }
+  ]
+}

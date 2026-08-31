@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "better-workflows",
+  "version": "4.0.0",
+  "description": "Evidence-first, risk-adaptive control plane for safe AI engineering delivery.",
+  "author": {
+    "name": "Stephen Chuang"
+  },
+  "homepage": "https://betterworkflows.dev",
+  "repository": "https://github.com/stephen-taipei/better-workflows",
+  "license": "MIT",
+  "keywords": [
+    "agent-workflows",
+    "evidence",
+    "worktree",
+    "delivery"
+  ]
+}

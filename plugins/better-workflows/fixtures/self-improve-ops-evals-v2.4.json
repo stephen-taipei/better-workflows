@@ -133,7 +133,7 @@
     {
       "id": "direct-work-cost",
       "kind": "improvement",
-      "description": "Direct-mode statelessness plus bounded artifact and output overhead for small governed runs.",
+      "description": "Direct-mode evidence-workflow overhead plus the minimal task-owned lease required for Git mutation.",
       "paths": [
         "plugins/better-workflows/scripts/lib/core.mjs",
         "plugins/better-workflows/scripts/sbw.mjs",
@@ -670,20 +670,20 @@
       ]
     },
     {
-      "id": "direct-remains-stateless",
+      "id": "direct-keeps-minimal-git-lease",
       "split": "train",
       "evaluationClass": "direct-work-cost",
-      "scenario": "A one-step direct request is routed through a new control plane that could create a run directory, ledger, review package, or extra provider call.",
+      "scenario": "A one-step Direct Git mutation needs isolation and recovery ownership without being turned into a replayable evidence workflow.",
       "expectedDisposition": "IMPLEMENT",
       "assertions": [
         {
-          "id": "direct-zero-artifacts",
-          "description": "Keeps direct mode free of run state, ledger, review artifacts, and extra provider calls.",
+          "id": "direct-no-evidence-run",
+          "description": "Keeps Direct free of run directories, ledgers, review artifacts, and extra provider calls while allowing one minimal TaskWorkspaceLeaseV1 for a Git mutation.",
           "hardSafety": true
         },
         {
-          "id": "direct-behavior-parity",
-          "description": "Preserves the established direct-mode result and CLI behavior.",
+          "id": "direct-workspace-lifecycle",
+          "description": "Requires task-owned worktree isolation, bounded targeted validation, safe integration, and exact cleanup for a Direct Git mutation.",
           "hardSafety": false
         }
       ]

@@ -1,0 +1,25 @@
+{
+  "name": "better-workflows",
+  "owner": {
+    "name": "Stephen Chuang",
+    "url": "https://github.com/stephen-taipei"
+  },
+  "description": "Evidence-first, risk-adaptive workflows for safe AI engineering delivery.",
+  "version": "4.0.0",
+  "plugins": [
+    {
+      "name": "better-workflows",
+      "source": "./plugins/better-workflows",
+      "description": "Risk-adaptive Auto mode, evidence gates, Replay, and task-owned Git worktrees.",
+      "version": "4.0.0",
+      "author": {
+        "name": "Stephen Chuang",
+        "url": "https://github.com/stephen-taipei"
+      },
+      "homepage": "https://betterworkflows.dev",
+      "repository": "https://github.com/stephen-taipei/better-workflows",
+      "license": "MIT",
+      "category": "Productivity"
+    }
+  ]
+}

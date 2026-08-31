@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "better-workflows-preview-host-pack",
+  "hostId": "grok-build",
+  "version": "4.0.0",
+  "supportTier": "preview",
+  "contextFileName": "compatibility/preview/INSTRUCTIONS.md",
+  "entrypoint": "scripts/sbw.mjs"
+}

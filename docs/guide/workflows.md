@@ -9,13 +9,50 @@
 
 | Mode | Use when | Behavior |
 | --- | --- | --- |
-| `direct` | Small, reversible, well-understood work | Root works normally; persistent Goal, no workflow journal |
+| `direct` | Small, reversible, well-understood work | No evidence journal; targeted check; Git mutation still requires a minimal task worktree lease |
 | `verified` | Normal engineering work | Root plus one to three bounded read-only research/review roles |
 | `deep` | Architecture, broad refactors, security | Verified flow plus up to two sequential independent critics |
 | `critical` | Release, migration, destructive or irreversible work | Complete fail-closed evidence, authority, and reconciliation gates |
 
 A user-selected mode is a floor. Profiles and model advice may raise it but
 never lower it.
+
+### How Auto decides
+
+Auto always inspects the Goal, scope, repository instructions, current source
+revision, mutation intent, capabilities, and integration target. Root records
+`AutoRiskAssessmentV1`. Direct is available only when acceptance is explicit,
+irreversibility is zero, every other risk dimension is at most one, the total
+is at most two, and no hard exclusion or protected/remote target applies.
+
+Direct is not “skip verification.” It runs a bounded targeted check with no
+network or external side effect and a total expected duration no longer than
+120 seconds. The v4 runner accepts only guarded Node checks, restricts reads to
+the task worktree and task scratch, confines writes to that scratch, and denies
+standard Node network and process-spawn surfaces. Checks that need
+package-manager scripts, checkout-external files or stronger hostile-code
+isolation use the governed route. A failed or unexplained result cannot be
+reported as complete.
+Scope or risk drift invalidates the assessment and triggers a new route.
+
+For a Git mutation, Direct creates no governed evidence run but keeps a minimal
+`TaskWorkspaceLeaseV1`. The task edits, tests, commits, validates,
+integrates, and cleans only its owned worktree and branch. A dirty source,
+detached or missing target, ownership conflict, merge conflict, failed check,
+unknown provider state, or target drift fails closed.
+
+The route receipt is claimed before that lease enters `working`. An interrupted
+start can resume only with the same repository, task, and lease ownership
+nonce; another or same-named replacement task cannot consume the receipt or
+inherit the partially started workspace.
+
+A clean host-provided task worktree can be explicitly registered at its exact
+pre-mutation base. Registration prevents nested worktrees but does not transfer
+deletion authority: host-owned task resources are preserved after integration.
+Protected targets remain evidence-required. Their lease reaches `integrated`
+only after `workspace reconcile` finds an exact successful governed PR merge
+and matching remote-sync action in the same run; squash cleanup additionally
+binds the reviewed task head to the provider merge commit.
 
 ## Picker entries
 
@@ -108,6 +145,20 @@ is a fail-closed error; CI never force-moves tags. The final publication uses
 GitHub's server-side atomic `updateRefs` mutation: all recovered tags and an
 expected-branch-tip CAS (`beforeOid` set to the push event SHA) are one
 transaction, so a branch move during publication rejects the entire batch.
+
+Stable tags are release outcomes, not merge side effects. A push or PR merge to
+`main` does **not** automatically create `vX.Y.Z`. `dev` may still receive an
+integration-only `vX.Y.Z-dev.<short-sha>` marker after its exact merged commit
+and fresh CI are proven.
+
+The stable release controller accepts an exact `main` SHA only after fresh CI,
+all eight authenticated Tier 1 host/OS conformance receipts, task-worktree
+lifecycle tests, an exact-SHA website deployment receipt, public QA of all 41
+locale URLs, version-manifest agreement, and explicit release authority. It
+then creates `vX.Y.Z` and the non-draft, non-prerelease GitHub Release as one
+governed publication sequence. Existing conflicting tags, branch drift,
+missing receipts, unknown provider state, or website digest mismatch fail
+closed; tags are never force-moved.
 
 ## Common paths
 

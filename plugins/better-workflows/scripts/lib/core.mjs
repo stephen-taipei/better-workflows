@@ -604,10 +604,40 @@ function assertNoAmbientGitAuthorityOverrides() {
   }
 }
 
-export const VERSION = "3.5.0";
-const PRIOR_MIGRATABLE_VERSION_FAMILIES = Object.freeze([
-  { major: 3, minor: 4, maximumPatch: 14 }
+export const VERSION = "4.0.0";
+const MIGRATABLE_LEGACY_EXACT_VERSIONS = new Set([
+  "1.0.0",
+  "2.0.1",
+  "2.1.0",
+  "2.5.0",
+  "2.6.0"
 ]);
+const MIGRATABLE_LEGACY_FAMILIES = Object.freeze([
+  // Before v4, every 3.4.x manifest no newer than the running plugin was
+  // eligible. Preserve that bounded final-v3.4 upgrade path after the major
+  // bump without exposing a historical patch label as an active version.
+  Object.freeze({ major: 3, minor: 4, maxPatch: 14 }),
+  Object.freeze({ major: 3, minor: 5, maxPatch: 0 })
+]);
+
+export function isMigratableWorkflowVersion(version) {
+  if (MIGRATABLE_LEGACY_EXACT_VERSIONS.has(version)) return true;
+  const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(
+    String(version ?? "")
+  );
+  if (!match) return false;
+  const [, majorText, minorText, patchText] = match;
+  const major = Number(majorText);
+  const minor = Number(minorText);
+  const patch = Number(patchText);
+  const [currentMajor, currentMinor, currentPatch] = VERSION.split(".").map(Number);
+  if (major === currentMajor && minor === currentMinor) {
+    return patch <= currentPatch;
+  }
+  return MIGRATABLE_LEGACY_FAMILIES.some((family) => (
+    major === family.major && minor === family.minor && patch <= family.maxPatch
+  ));
+}
 export const MODES = new Set(["auto", "direct", "verified", "deep", "critical"]);
 export const RUN_STATES = new Set([
   "pending",
@@ -887,6 +917,7 @@ export function buildPrMergeActionBinding({
   reviewedHead,
   remoteRevision,
   targetRef = null,
+  mergeMethod = "merge",
   providerExecutable,
   repository
 }) {
@@ -896,7 +927,7 @@ export function buildPrMergeActionBinding({
     reviewedHead,
     remoteRevision,
     ...(targetRef ? { targetRef } : {}),
-    mergeMethod: "merge",
+    mergeMethod,
     adminBypass: false,
     providerExecutable,
     mergeRepository: repository,
@@ -909,7 +940,7 @@ export function buildPrMergeActionBinding({
       repository,
       "--match-head-commit",
       reviewedHead,
-      "--merge",
+      mergeMethod === "merge" ? "--merge" : "--squash",
       "--delete-branch=false"
     ]
   };
@@ -1023,10 +1054,15 @@ export function digestObject(value) {
 
 export function getStateRoot(env = process.env) {
   if (env.SBW_STATE_ROOT) return path.resolve(env.SBW_STATE_ROOT);
-  const codexHome = env.CODEX_HOME
-    ? path.resolve(env.CODEX_HOME)
-    : path.join(os.homedir(), ".codex");
-  return path.join(codexHome, "sbw");
+  if (env.XDG_STATE_HOME) {
+    return path.join(path.resolve(env.XDG_STATE_HOME), "better-workflows");
+  }
+  const home = env.HOME
+    ? path.resolve(env.HOME)
+    : env.USERPROFILE
+      ? path.resolve(env.USERPROFILE)
+      : os.homedir();
+  return path.join(home, ".better-workflows");
 }
 
 export function getCodexPluginCacheRoot(env = process.env) {
@@ -1962,6 +1998,7 @@ export function assertProviderReceiptShape(record, providerReceipt, outcome = re
       typeof providerReceipt.repository !== "string" || !providerReceipt.repository ||
       typeof providerReceipt.baseRefName !== "string" || !providerReceipt.baseRefName ||
       (record.targetRef && providerReceipt.baseRefName !== record.targetRef) ||
+      !["merge", "squash"].includes(providerReceipt.mergeMethod) ||
       providerReceipt.mergeMethod !== record.mergeMethod ||
       providerReceipt.adminBypass !== false ||
       providerReceipt.invocationId !== record.providerInvocation?.id ||
@@ -2769,19 +2806,7 @@ export async function bindLegacyRunTemplate(
     ) {
       return { migrated: false, contract, manifest, state };
     }
-    const knownLegacyVersion = ["1.0.0", "2.0.1", "2.1.0", "2.5.0", "2.6.0"].includes(manifest.version);
-    const [currentMajor, currentMinor, currentPatch] = VERSION.split(".").map(Number);
-    const normalizedManifestVersion = String(manifest.version ?? "").split("+")[0];
-    const familyMatch = /^(\d+)\.(\d+)\.(\d+)$/.exec(normalizedManifestVersion);
-    const migratableFamilyVersion = familyMatch && [
-      { major: currentMajor, minor: currentMinor, maximumPatch: currentPatch },
-      ...PRIOR_MIGRATABLE_VERSION_FAMILIES
-    ].some((family) => (
-      Number(familyMatch[1]) === family.major &&
-      Number(familyMatch[2]) === family.minor &&
-      Number(familyMatch[3]) <= family.maximumPatch
-    ));
-    if (!knownLegacyVersion && !migratableFamilyVersion) {
+    if (!isMigratableWorkflowVersion(manifest.version)) {
       throw new Error(
         `Run ${runId} lacks current template minimums but was not created by a migratable workflow version`
       );
@@ -8698,7 +8723,8 @@ async function verifyProviderReceipt(manifest, record, receipt, contract = null)
       ? mergeDetails.parents.map((parent) => parent?.sha).filter(Boolean)
       : [];
     const mergeBase = mergeParents[0];
-    const mergeHead = mergeParents[1];
+    const mergeHead = record.mergeMethod === "squash" ? actual.headRefOid : mergeParents[1];
+    const expectedParentCount = record.mergeMethod === "squash" ? 1 : 2;
     const response = {
       number: actual.number,
       state: actual.state,
@@ -8739,7 +8765,7 @@ async function verifyProviderReceipt(manifest, record, receipt, contract = null)
       providerReceipt.repository !== repository ||
       providerReceipt.mergeBase !== record.remoteRevision ||
       mergeBase !== record.remoteRevision ||
-      mergeParents.length !== 2 ||
+      mergeParents.length !== expectedParentCount ||
       providerReceipt.mergeHead !== record.reviewedHead ||
       mergeHead !== record.reviewedHead ||
       providerReceipt.providerExecutableDigest !== record.providerExecutable?.digest
@@ -10460,6 +10486,10 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
     if (request.action === "pr.merge") {
       const pullRequest = Number(String(request.resource).replace(/^pull\//, ""));
       if (!Number.isInteger(pullRequest)) throw new Error("PR merge resources must use pull/<number>");
+      const mergeMethod = String(request.mergeMethod ?? "merge");
+      if (!["merge", "squash"].includes(mergeMethod)) {
+        throw new Error("Governed PR merge method must be merge or squash");
+      }
       const currentHead = (await execBoundGitAuthority(manifest.cwd, [
         "rev-parse", "--verify", "HEAD^{commit}"
       ])).stdout.trim();
@@ -10469,6 +10499,7 @@ export async function issueActionToken(root, runId, request, currentTreeDigest, 
         reviewedHead: currentHead,
         remoteRevision: request.remoteRevision,
         targetRef: isDevDeliveryTemplate(contract.template) ? "dev" : null,
+        mergeMethod,
         providerExecutable: providerExecutable ?? await currentProviderExecutableIdentity("gh"),
         repository
       });
@@ -12115,10 +12146,11 @@ export async function executeActionToken(root, runId, token, currentTreeDigest) 
     consumed.mergeRepository,
     "--match-head-commit",
     consumed.reviewedHead,
-    "--merge",
+    consumed.mergeMethod === "merge" ? "--merge" : consumed.mergeMethod === "squash" ? "--squash" : "--invalid-merge-method",
     "--delete-branch=false"
   ];
-  if (!consumed.mergeRepository || JSON.stringify(consumed.mergeCommand) !== JSON.stringify(expectedCommand)) {
+  if (!consumed.mergeRepository || !["merge", "squash"].includes(consumed.mergeMethod) ||
+      JSON.stringify(consumed.mergeCommand) !== JSON.stringify(expectedCommand)) {
     throw new Error("PR merge execution command is not the fixed non-admin invocation");
   }
   const executable = await currentProviderExecutableIdentity("gh");

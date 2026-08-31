@@ -90,6 +90,15 @@ const UNLOCALIZED_UI_PATTERNS = {
   my: [/\b(?:architecture map|use cases?|command run|completion|terminal state|source code|repository|templates?|tests?|theme)\b/iu]
 };
 
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
 test("locale catalog matches Connectors iOS, preserves key order, and rejects freshness calques", async () => {
   const connectorsFixture = JSON.parse(await readFile(path.join(testDirectory, "fixtures", "connectors-ios-locales.json"), "utf8"));
   assert.equal(locales.length, 41);
@@ -108,17 +117,18 @@ test("locale catalog matches Connectors iOS, preserves key order, and rejects fr
     const documentCopies = PUBLIC_DOC_PAGES.map((page) => publicDocCopy(locale, page.id));
     assert.equal(new Set(documentCopies.map(({ title }) => title)).size, PUBLIC_DOC_PAGES.length, `${locale.code}: document titles`);
     assert.equal(new Set(documentCopies.map(({ description }) => description)).size, PUBLIC_DOC_PAGES.length, `${locale.code}: document descriptions`);
+    assert.equal(locale.messages.V4_AUTO_FLOW.split("|").length, 5, `${locale.code}.V4_AUTO_FLOW`);
+    assert.equal(locale.messages.V4_BOUNDARIES.split("|").length, 3, `${locale.code}.V4_BOUNDARIES`);
+    assert.match(locale.messages.V4_RECOMMENDED, /macOS \+ Codex/, `${locale.code}.V4_RECOMMENDED`);
+    assert.ok(locale.messages.V4_CLAIM_LIMIT.length >= 80, `${locale.code}.V4_CLAIM_LIMIT`);
   }
-
   const traditionalTaiwan = locales.find((locale) => locale.code === "zh-Hant-TW").messages;
-  const simplifiedChinese = locales.find((locale) => locale.code === "zh-Hans").messages;
-  const japanese = locales.find((locale) => locale.code === "ja").messages;
-  const korean = locales.find((locale) => locale.code === "ko").messages;
   const italian = locales.find((locale) => locale.code === "it").messages;
-  assert.match(traditionalTaiwan.DESCRIPTION, /目前仍有效的證據/);
-  assert.match(simplifiedChinese.DESCRIPTION, /当前仍有效的证据/);
-  assert.match(japanese.DESCRIPTION, /現在のソースに紐付き、なお有効な証拠/);
-  assert.match(korean.DESCRIPTION, /현재 소스에 바인딩되어 여전히 유효한 증거/);
+  assert.match(locales.find((locale) => locale.code === "zh-Hant-TW").messages.DESCRIPTION, /依風險.*專屬 worktree/);
+  const englishPositioning = locales.find((locale) => locale.code === "en").messages.V4_POSITIONING;
+  for (const locale of locales.filter((item) => item.code !== "en")) {
+    assert.notEqual(locale.messages.V4_POSITIONING, englishPositioning, `${locale.code} must not fall back to English v4 copy`);
+  }
   assert.match(italian.HERO_TITLE, /degli agenti$/);
   assert.doesNotMatch(JSON.stringify(locales.filter((locale) => locale.code.startsWith("zh-"))), /即時證據|实时证据|新鮮(?:的)?證據|新鲜(?:的)?证据/);
   assert.equal(locales.find((locale) => locale.code === "ar").dir, "rtl");
@@ -214,6 +224,20 @@ test("build emits 41 localized homepages and five documentation routes with comp
       assert.match(html, new RegExp(sponsorUrl.replaceAll("/", "\\/")));
       assert.match(html, /id="sponsor"/);
       assert.match(html, /id="docs"/);
+      assert.match(html, /id="v4-overview"/);
+      assert.match(html, /id="host-support"/);
+      assert.match(html, /class="support-matrix"/);
+      assert.match(html, /class="capability-matrix"/);
+      assert.match(html, /macOS \+ Codex/);
+      assert.match(html, /Replay/);
+      assert.ok(
+        html.includes(escapeHtml(locale.messages.V4_CLAIM_LIMIT)),
+        `${locale.code}.V4_CLAIM_LIMIT must be rendered in its localized form`
+      );
+      assert.equal(occurrences(html, /class="auto-flow-list"/g), 1, locale.code);
+      assert.match(html, /\/styles\.css\?v=[a-f0-9]{12}/);
+      assert.match(html, /\/site\.js\?v=[a-f0-9]{12}/);
+      assert.match(html, /better-workflows#get-your-first-result/);
       assert.equal(occurrences(html, /<h1\b/g), 1, locale.code);
       assert.equal(occurrences(html, /<option\b/g), 41, locale.code);
       assert.equal(occurrences(html, /class="doc-card/g), PUBLIC_DOC_PAGES.length, locale.code);
@@ -224,6 +248,7 @@ test("build emits 41 localized homepages and five documentation routes with comp
       const source = jsonLd["@graph"].find((item) => item["@type"] === "SoftwareSourceCode");
       assert.equal(source.codeRepository, repositoryUrl);
       assert.equal(source.url, canonical);
+      assert.deepEqual(source.runtimePlatform, ["Codex", "Claude Code", "Gemini CLI", "Qwen Code"]);
       const structure = [...html.matchAll(/<section class="([^"]+)"(?: id="([^"]+)")?/g)].map((match) => [match[1], match[2] || null]);
       if (homepageStructure === null) homepageStructure = structure;
       else assert.deepEqual(structure, homepageStructure, `${locale.code}: homepage structure`);
@@ -260,6 +285,9 @@ test("build emits 41 localized homepages and five documentation routes with comp
     assert.equal(release.repository, repositoryUrl);
     assert.equal(release.sponsorUrl, sponsorUrl);
     assert.equal(release.sponsorMode, "one-time-only");
+    assert.equal(release.hostRegistryId, "host-support-v1");
+    assert.match(release.hostRegistryDigest, /^[a-f0-9]{64}$/);
+    assert.match(release.revision, /^[a-f0-9]{40}$/);
     const contentManifest = await readFile(path.join(outputDirectory, "manifest.sha256"), "utf8");
     assert.equal(createHash("sha256").update(contentManifest).digest("hex"), release.contentDigest);
     await execFileAsync("shasum", ["-a", "256", "--check", "manifest.sha256"], { cwd: outputDirectory });

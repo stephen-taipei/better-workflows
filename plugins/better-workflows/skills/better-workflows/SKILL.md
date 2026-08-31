@@ -46,12 +46,62 @@ Goal mode controls persistence; the Better Workflows mode controls verification
 depth. They are independent. `direct` therefore uses a persistent goal without
 creating a Better Workflows journal.
 
+## Preflight every workspace
+
+Before substantial work in every task, run the host-neutral read-only preflight:
+
+~~~bash
+sbw workspace preflight --intent read-only
+~~~
+
+Shared state defaults to `XDG_STATE_HOME/better-workflows` when available and
+otherwise `~/.better-workflows`; `SBW_STATE_ROOT` binds an explicit location.
+Do not infer the core state root from `CODEX_HOME`. A v3 Codex state remains
+usable only when its exact `<CODEX_HOME>/sbw` path is explicitly supplied as
+`SBW_STATE_ROOT`.
+
+This distinguishes a non-Git directory, read-only use of a repository, an
+existing task-owned worktree, and an ownership conflict without creating Git
+resources. If the task may modify a repository, rerun with `--intent modify`
+and bind the exact existing local integration target before any edit. A dirty
+source checkout stops. Never stash, copy, temporarily commit, or silently omit
+staged, unstaged, untracked, conflict, or dirty-submodule state.
+
+Every Git mutation, including Direct, uses either a newly created
+`TaskWorkspaceLeaseV1` or a host-provided worktree that has been explicitly
+registered and verified as exclusive to the current task. Never create a nested
+worktree from another task's worktree. Branches, worktrees, commits, checks,
+integration candidates, and cleanup belong to the lease; a name or path prefix
+alone is never ownership proof.
+
+Register a host-created worktree only before mutation, while it and a separate
+source checkout are clean and still bound to the exact base:
+
+~~~bash
+sbw workspace register --task-id <task-id> --base-revision <exact-sha> \
+  --integration-target <local-branch> --source-checkout <clean-checkout>
+~~~
+
+Registration records host ownership; Better Workflows must preserve that task
+branch and worktree during cleanup. For protected delivery, do not move the
+lease to integrated from prose or a copied receipt. After the governed run has
+reconciled its exact `pr.merge` and `remote.sync` actions, bind that run with
+`sbw workspace reconcile ... --run-id <run-id>`. Until it succeeds, retain the
+task resources and report PR-ready rather than completion.
+
+Detached HEAD, an absent source branch, or a target deleted or renamed during
+the task requires the user to select or rebind the integration target. Offer at
+most three evidence-ranked local candidates: repository Profile, task
+convention such as `dev`, then upstream/origin default or a local branch that
+contains the base revision. Never silently choose `main` from `origin/main`.
+
 ## Preview the route
 
 For `$better-workflows:auto`, natural-language `$better-workflows`, and every
 task selector except the explicit `direct` fast path, run a capability snapshot
-and route preview before substantial work. An explicit selector is the highest
-user-controlled route and Profiles may not replace it:
+and route preview before substantial work. The workspace preflight above still
+applies to explicit Direct. An explicit selector is the highest user-controlled
+route and Profiles may not replace it:
 
 ~~~bash
 sbw doctor --capabilities
@@ -70,7 +120,8 @@ Routing precedence is:
 1. host hard constraints;
 2. explicit entry, template, and mode;
 3. the first matching workspace Profile at
-   `<repo>/.codex/better-workflows.json`;
+   `<repo>/.better-workflows/profile.json` (or legacy
+   `<repo>/.codex/better-workflows.json` only when the v4 path is absent);
 4. the first matching personal Profile at
    `$SBW_STATE_ROOT/routing/profile.json`;
 5. built-in `auto`.
@@ -130,7 +181,7 @@ source/cache digest verification.
 
 1. Read all applicable `AGENTS.md` files and repo-local skills before acting.
 2. Classify the task using risk, uncertainty, blast radius, irreversibility, and evidence gap:
-   - `direct`: trivial, reversible, well-understood work. Continue normally and do not invoke `sbw`.
+   - `direct`: trivial, reversible, well-understood work. Do not create an evidence journal, but keep workspace preflight, task-owned worktree isolation for Git mutation, bounded targeted checks, safe integration, and exact cleanup.
    - `verified`: use one to three native research/review/refutation agents.
    - `deep`: run `verified`, then one or two sequential model-pinned Codex critics.
    - `critical`: require independent external evidence and all fail-closed gates.
@@ -138,7 +189,22 @@ source/cache digest verification.
 4. Select one template from [templates.md](references/templates.md).
    When changing a review-enabled template, also read
    [review-profiles.md](references/review-profiles.md) and keep its declared
-   capability profile aligned with the runtime policy.
+capability profile aligned with the runtime policy.
+
+For Auto, record `AutoRiskAssessmentV1`. Direct requires explicit acceptance
+and mutation intent, irreversibility `0`, every other score at most `1`, total
+at most `2`, no hard exclusion, and no selector, Profile, host constraint, or
+protected/remote target requiring more. Unknown is evidence-required. Scope,
+source, target, risk, or capability drift invalidates the assessment and route.
+
+Direct checks are local, offline, side-effect-free outside task scratch, and
+bounded to 120 seconds. Reads stay within the task worktree and scratch. They
+use only the guarded Node runner; npm/pnpm, child processes, workers, native
+addons, network use, checkout-external reads, or isolation-override flags
+require an evidence route. This is a trusted-code seat belt, not a malicious
+code sandbox. Failure or an unexplained result blocks completion. A Direct Git mutation keeps
+the minimal workspace lease but no evidence ledger. That lease is recovery and
+ownership state, not replayable proof.
 
 For `research-deliberation`, also read
 [deliberation-roster.md](references/deliberation-roster.md). It defines the

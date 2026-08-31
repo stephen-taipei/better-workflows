@@ -1,0 +1,83 @@
+name: Tier 1 host conformance
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.hosts.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24.12.0
+      - id: hosts
+        name: Build the exact Tier 1 matrix from host-support-v1
+        run: node plugins/better-workflows/scripts/host-conformance-matrix.mjs >> "${GITHUB_OUTPUT}"
+  conformance:
+    needs: matrix
+    name: ${{ matrix.host_id }} / ${{ matrix.os_id }}
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.matrix.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24.12.0
+      - name: Install the pinned official host CLI
+        run: |
+          npm install --prefix "${RUNNER_TEMP}/host-cli" \
+            "${{ matrix.package }}@${{ matrix.package_version }}" --no-save
+          echo "${RUNNER_TEMP}/host-cli/node_modules/.bin" >> "${GITHUB_PATH}"
+      - name: Exercise the shared safety semantics
+        run: |
+          node --test \
+            plugins/better-workflows/scripts/tests/hosts.test.mjs \
+            plugins/better-workflows/scripts/tests/routing.test.mjs \
+            plugins/better-workflows/scripts/tests/workspace.test.mjs \
+            plugins/better-workflows/scripts/tests/providers.test.mjs
+          node --test \
+            --test-name-pattern='CLI Direct Git route|CLI host list and conformance' \
+            plugins/better-workflows/scripts/tests/cli.test.mjs
+          node --test \
+            --test-name-pattern='single-task non-direct run|provider reconciliation rejects|ledger status reloads run state|completion validates sentinel-bound evidence|persisted typed evidence is revalidated' \
+            plugins/better-workflows/scripts/tests/control-plane-v2.test.mjs
+          node --test \
+            --test-name-pattern='standing-consent manifest generation and replay' \
+            plugins/better-workflows/scripts/tests/self-improve.test.mjs
+      - name: Create source-bound conformance envelope
+        env:
+          SBW_HOST_ID: ${{ matrix.host_id }}
+          SBW_OS_ID: ${{ matrix.os_id }}
+          SBW_HOST_PACKAGE: ${{ matrix.package }}
+          SBW_HOST_PACKAGE_VERSION: ${{ matrix.package_version }}
+          SBW_HOST_EXECUTABLE: ${{ matrix.executable }}
+          SBW_STATE_ROOT: ${{ runner.temp }}/sbw-state
+          SBW_CONFORMANCE_TEST_RESULT: PASS
+        run: node plugins/better-workflows/scripts/host-conformance-ci.mjs
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: better-workflows-host-conformance-${{ matrix.host_id }}-${{ matrix.os_id }}-${{ github.sha }}
+          path: ${{ runner.temp }}/sbw-state/release-conformance/${{ github.sha }}/${{ matrix.host_id }}-${{ matrix.os_id }}.json
+          if-no-files-found: error
+          retention-days: 90
+      - name: Attest the exact conformance envelope
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-path: ${{ runner.temp }}/sbw-state/release-conformance/${{ github.sha }}/${{ matrix.host_id }}-${{ matrix.os_id }}.json

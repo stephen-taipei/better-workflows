@@ -4,9 +4,9 @@
 
 **Goal-first · Evidence-driven · Fail-closed**
 
-Codex 작업을 “Prompt를 주고 성공을 기대하는” 상태에서 의도, 검증, provider 상태 대조를 거친 delivery로 전환합니다.
+여러 AI 브랜드의 agent가 위험에 따라 검증 강도를 선택하고 격리된 환경에서 안전하게 작업을 완료합니다.
 
-[![Version](https://img.shields.io/badge/version-3.5.0-2563EB?style=flat-square)](../plugins/better-workflows/package.json)
+[![Version](https://img.shields.io/badge/version-4.0.0-2563EB?style=flat-square)](../plugins/better-workflows/package.json)
 [![Node](https://img.shields.io/badge/Node.js-%E2%89%A524-3C873A?style=flat-square)](../plugins/better-workflows/package.json)
 [![Dependencies](https://img.shields.io/badge/runtime_dependencies-0-0F766E?style=flat-square)](../plugins/better-workflows/package.json)
 [![License](https://img.shields.io/badge/license-MIT-64748B?style=flat-square)](../LICENSE)
@@ -20,8 +20,13 @@ Codex 작업을 “Prompt를 주고 성공을 기대하는” 상태에서 의�
 <!-- readme-roster -->
 **Model roster:** Codex · Claude · Gemini · GPT-OSS · Grok · Cursor · Kimi · Qwen · Kiro. `agy`는 Gemini, Claude, GPT-OSS 브랜드 모델에 연결하는 전송 계층이며 그 자체가 모델 브랜드는 아닙니다.
 
+**정식 Tier 1:** Codex, Claude Code, Gemini CLI, Qwen Code × macOS/Linux. **공식 권장 조합: macOS + Codex**이며 Windows와 다른 host는 Preview입니다.
+
 <!-- readme-section:promise-audience -->
 ## Better Workflows가 필요한 이유
+
+쉽게 말하면 “증거를 최우선으로 하는 AI 엔지니어링 QA + 전달 게이트키퍼”입니다. 단순한 수정은 빠르게, 중요한 작업은 단계별로 검증하며, Git 변경은 기본적으로 task 전용 worktree를 사용합니다.
+AI host가 clean하고 전용인 worktree를 이미 만들었다면 명시적으로 등록해 nested worktree를 피하고 host 리소스를 보존합니다. Protected／squash 통합 cleanup은 같은 governed run의 exact merge 및 remote-sync receipts가 대조된 뒤에만 허용됩니다.
 
 Codex는 repository를 분석하고 코드를 수정하며 check를 실행하고 provider를 조작할 수
 있습니다. 능력이 강해질수록 “사용자가 원하는 것”과 “현재 증거와 권한이 실제로 허용하는

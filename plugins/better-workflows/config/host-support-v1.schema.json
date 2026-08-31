@@ -1,0 +1,160 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://betterworkflows.dev/schemas/host-support-v1.schema.json",
+  "title": "Better Workflows host-support-v1 registry",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "recommended",
+    "operatingSystems",
+    "capabilityDefinitions",
+    "hosts"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "id": {
+      "const": "host-support-v1"
+    },
+    "recommended": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hostId", "osId", "label", "reason"],
+      "properties": {
+        "hostId": { "type": "string" },
+        "osId": { "type": "string" },
+        "label": { "type": "string" },
+        "reason": { "type": "string" }
+      }
+    },
+    "operatingSystems": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "displayName", "nodePlatform", "releaseStatus"],
+        "properties": {
+          "id": { "type": "string" },
+          "displayName": { "type": "string" },
+          "nodePlatform": { "type": "string" },
+          "releaseStatus": { "$ref": "#/$defs/supportTier" }
+        }
+      }
+    },
+    "capabilityDefinitions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "displayName"],
+        "properties": {
+          "id": { "type": "string" },
+          "displayName": { "type": "string" }
+        }
+      }
+    },
+    "hosts": {
+      "type": "array",
+      "minItems": 4,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "displayName",
+          "supportTier",
+          "executable",
+          "conformancePackage",
+          "conformanceProbe",
+          "distributionRoot",
+          "helperPath",
+          "manifestPath",
+          "extensionMechanism",
+          "officialDocumentation",
+          "osSupport",
+          "capabilities",
+          "limitations"
+        ],
+        "properties": {
+          "id": { "type": "string" },
+          "displayName": { "type": "string" },
+          "supportTier": { "$ref": "#/$defs/supportTier" },
+          "executable": { "type": "string" },
+          "conformancePackage": {
+            "oneOf": [
+              { "type": "null" },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name", "version"],
+                "properties": {
+                  "name": { "type": "string" },
+                  "version": { "type": "string" }
+                }
+              }
+            ]
+          },
+          "conformanceProbe": {
+            "oneOf": [
+              { "type": "null" },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["kind", "arguments", "installArguments", "installedManifestPath"],
+                "properties": {
+                  "kind": { "enum": ["native-contract", "cli-validate", "isolated-install", "cli-validate-install"] },
+                  "arguments": {
+                    "type": "array",
+                    "maxItems": 8,
+                    "items": { "type": "string" }
+                  },
+                  "installArguments": {
+                    "oneOf": [
+                      { "type": "null" },
+                      {
+                        "type": "array",
+                        "maxItems": 8,
+                        "items": { "type": "string" }
+                      }
+                    ]
+                  },
+                  "installedManifestPath": { "type": ["string", "null"] }
+                }
+              }
+            ]
+          },
+          "distributionRoot": { "enum": ["plugin", "repository", null] },
+          "helperPath": { "type": ["string", "null"] },
+          "manifestPath": { "type": ["string", "null"] },
+          "extensionMechanism": { "type": "string" },
+          "officialDocumentation": { "type": ["string", "null"], "format": "uri" },
+          "osSupport": {
+            "type": "object",
+            "additionalProperties": { "$ref": "#/$defs/supportTier" }
+          },
+          "capabilities": {
+            "type": "object",
+            "additionalProperties": { "$ref": "#/$defs/capabilityStatus" }
+          },
+          "limitations": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "supportTier": {
+      "enum": ["tier1", "preview", "unsupported"]
+    },
+    "capabilityStatus": {
+      "enum": ["native", "core-bridge", "unavailable", "unverified"]
+    }
+  }
+}

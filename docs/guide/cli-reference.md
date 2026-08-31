@@ -21,11 +21,64 @@ sbw doctor
 sbw doctor --capabilities
 sbw route preview --goal "<goal>" --scope <path>
 sbw route preview --goal "<goal>" --scope <path> \
+  --mutation modify --acceptance-defined \
+  --risk 0 --uncertainty 0 --blast-radius 1 \
+  --irreversibility 0 --evidence-gap 0 \
+  --basic-check "<targeted check>" \
+  --integration-target <local-branch>
+sbw route preview --goal "<goal>" --scope <path> \
   --autonomy-profile bounded-autopilot-v1
 sbw route profile validate --file <profile.json>
 sbw route profile install --file <profile.json>
 sbw route profile show
 ```
+
+The recorded preview includes `AutoRiskAssessmentV1`. Direct is selected only
+when every low-risk condition passes. `--protected-target`, any hard exclusion,
+an unknown mutation intent, missing acceptance, an omitted risk score, or a
+missing targeted-check plan promotes the route to evidence-required. A Git
+mutation also requires an existing local integration target; its current exact
+revision is bound into the assessment, while a missing, remote, or protected
+target uses the governed route.
+Omitted risk scores normalize to the conservative value `3`, never to zero.
+
+## Hosts and workspaces
+
+```bash
+sbw host list
+sbw host doctor [host-id] [--os macos|linux|windows]
+sbw host conformance [host-id] [--os macos|linux|windows] [--write-receipt]
+
+sbw workspace preflight [--intent read-only|modify] \
+  [--task-id <id>] [--integration-target <local-branch>] \
+  [--profile-target <local-branch>]
+sbw workspace create --goal "<goal>" [--task-id <id>] \
+  [--integration-target <local-branch>] [--profile-target <local-branch>]
+sbw workspace register --task-id <id> --base-revision <sha> \
+  --integration-target <local-branch> [--source-checkout <path>] \
+  [--source-branch <local-branch>]
+sbw workspace validate --repository-id <id> --task-id <id> \
+  --check-file <checks.json>
+sbw workspace rebind --repository-id <id> --task-id <id> \
+  --integration-target <local-branch>
+sbw workspace integrate --repository-id <id> --task-id <id>
+sbw workspace reconcile --repository-id <id> --task-id <id> \
+  --run-id <governed-run-id>
+sbw workspace cleanup --repository-id <id> --task-id <id>
+sbw workspace status --repository-id <id> --task-id <id>
+sbw workspace completion-notice --repository-id <id> --task-id <id>
+```
+
+The workspace commands never infer cleanup ownership from a branch prefix or
+path. `register` reuses a clean exact-base host worktree without taking deletion
+authority over it. `integrate` supports only a clean, non-protected local
+target. Protected or remote delivery must continue through the governed PR and
+provider reconciliation commands; `reconcile` accepts only the matching
+successful merge and remote-sync actions from that governed run. Until both
+terminal receipts exist, the task lease and recovery resources remain in place.
+`completion-notice` derives the Direct message from the route-bound lease,
+successful actual checks, current target reconciliation, and exact cleanup
+receipt; it rejects caller-supplied completion claims.
 
 ## Runs, evidence, and findings
 

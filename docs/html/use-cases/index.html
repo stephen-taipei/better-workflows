@@ -744,7 +744,7 @@
   <header class="topbar">
     <a class="brand" href="#top" aria-label="回到頁首" data-i18n-aria-label="backTop">
       <span class="brand-mark">BW</span>
-      <span class="brand-copy"><strong data-i18n="brandTitle">Better Workflows 情境手冊</strong><span>SCENARIO PLAYBOOK · 3.4.14</span></span>
+      <span class="brand-copy"><strong data-i18n="brandTitle">Better Workflows 情境手冊</strong><span>SCENARIO PLAYBOOK · 4.0.0</span></span>
     </a>
     <div class="top-actions">
       <a class="book-link preview-link" href="preview.html" data-i18n="previewEdition">預覽版 →</a>
@@ -802,7 +802,7 @@
     </section>
 
     <div class="meta-strip" aria-label="研究版本資訊">
-      <div class="meta-cell"><span>Version</span><strong>3.4.14</strong></div>
+      <div class="meta-cell"><span>Version</span><strong>4.0.0</strong></div>
       <div class="meta-cell"><span>Revision</span><strong>c5abd1f</strong></div>
       <div class="meta-cell"><span>Entrypoints</span><strong>17</strong></div>
       <div class="meta-cell"><span>Templates</span><strong>14 / 66 stages</strong></div>
@@ -874,7 +874,7 @@
             <div class="legend-row" style="--c:var(--cyan);--w:80%"><i></i><span>verified</span><div class="bar"><span></span></div><b>4</b></div>
             <div class="legend-row" style="--c:var(--violet);--w:100%"><i></i><span>deep</span><div class="bar"><span></span></div><b>5</b></div>
             <div class="legend-row" style="--c:var(--coral);--w:100%"><i></i><span>critical</span><div class="bar"><span></span></div><b>5</b></div>
-            <p class="micro-note">direct 沒有模板：它保留 Goal persistence，但不建立 Better Workflows run、ledger 或 review package。</p>
+            <p class="micro-note">Direct 沒有 evidence template：它保留 Goal persistence；Git 修改另建立最小 workspace lease，並在本任務專屬 worktree 執行。</p>
           </div>
         </div>
       </div>
@@ -927,8 +927,8 @@ node plugins/better-workflows/scripts/sbw.mjs action issue &lt;run-id&gt; \
       <div class="container">
         <div class="section-heading"><span class="chapter-no">05</span><div><p class="kicker">Applied essays</p><h2>把規則放回真實工作的摩擦裡</h2><p>以下不是抽象規範，而是六篇可拿來做團隊共識、onboarding 或 ADR 前言的短文。每篇都指出何時要快、何時必須慢，以及證據如何改變決策。</p></div></div>
         <div class="essay-stack">
-          <details class="essay card" open><summary><span class="essay-no">01</span><div><h3>二十分鐘的小修，為什麼不必開完整 run</h3><p>Direct 的價值不是偷工，而是讓治理成本和風險成比例。</p></div><span class="essay-toggle">＋</span></summary><div class="essay-body"><div class="essay-copy"><p>一個拼字錯誤、一段明確的型別修正，若範圍單點、可逆，而且驗證方式早已確定，建立 ledger、review package 與獨立 critic 可能比變更本身更昂貴。此時 direct 是合理選擇：Root 直接完成工作，仍保留 persistent Goal，卻不建立 governed replay。</p><p>關鍵不在「檔案少」，而在<strong>不確定性、爆炸半徑與副作用</strong>。只要小修改開始牽涉 shared API、帳號狀態、production 或無法可靠回復，direct 就失去資格。快速路徑應該有清楚出口，而不是變成高風險工作的別名。</p></div><aside class="margin-note"><b>可直接引用</b>「我們不是為每一行程式碼建立儀式；我們只為無法靠記憶與直覺承擔的後果建立證明。」</aside></div></details>
-          <details class="essay card"><summary><span class="essay-no">02</span><div><h3>把 Code Review 變成可交付的 Issues</h3><p>找到問題只是中間產物；去重、證據時效性與 provider 終態才構成交付。</p></div><span class="essay-toggle">＋</span></summary><div class="essay-body"><div class="essay-copy"><p>傳統 review 容易把「看見」誤當「完成」。review-to-issues 把工作拆成 package、findings、dedupe、時效性驗證與 issue-action。Reviewer 維持唯讀；真正建立 issue 的外部副作用只由 Root 執行。</p><p>這個順序保護兩件事：第一，不把舊 SHA 的問題貼到已經修好的程式碼上；第二，不用重複 issue 污染 backlog。最後若 provider 回應 unknown，流程不能把它猜成失敗再送一次，而要查詢 provider 對帳。</p></div><aside class="margin-note"><b>團隊問題</b>我們的 review KPI 是「留言數」，還是「經過去重、可追蹤、綁定當前 revision 的有效 finding」？</aside></div></details>
+          <details class="essay card" open><summary><span class="essay-no">01</span><div><h3>二十分鐘的小修，為什麼不必開完整 run</h3><p>Direct 的價值不是偷工，而是讓治理成本和風險成比例。</p></div><span class="essay-toggle">＋</span></summary><div class="essay-body"><div class="essay-copy"><p>一個拼字錯誤、一段明確的型別修正，若範圍單點、可逆，而且驗證方式早已確定，建立 ledger、review package 與獨立 critic 可能比變更本身更昂貴。此時 Direct 是合理選擇：Root 不建立完整 evidence run；若要修改 Git repository，仍以最小 lease 綁定版本與任務，並在專屬 worktree 完成修改和基本檢查。</p><p>關鍵不在「檔案少」，而在<strong>不確定性、爆炸半徑與副作用</strong>。只要小修改開始牽涉 shared API、帳號狀態、production 或無法可靠回復，Direct 就失去資格。快速路徑應該有清楚出口，而不是變成高風險工作的別名。</p></div><aside class="margin-note"><b>可直接引用</b>「我們不是為每一行程式碼建立儀式；我們只為無法靠記憶與直覺承擔的後果建立證明。」</aside></div></details>
+          <details class="essay card"><summary><span class="essay-no">02</span><div><h3>把 Code Review 變成可交付的 Issues</h3><p>找到問題只是中間產物；去重、freshness 與 provider 終態才是交付。</p></div><span class="essay-toggle">＋</span></summary><div class="essay-body"><div class="essay-copy"><p>傳統 review 容易把「看見」誤當「完成」。review-to-issues 把工作拆成 package、findings、dedupe、freshness 與 issue-action。Reviewer 維持唯讀；真正建立 issue 的外部副作用只由 Root 執行。</p><p>這個順序保護兩件事：第一，不把舊 SHA 的問題貼到已經修好的程式碼上；第二，不用重複 issue 污染 backlog。最後若 provider 回應 unknown，流程不能把它猜成失敗再送一次，而要查詢 provider 對帳。</p></div><aside class="margin-note"><b>團隊問題</b>我們的 review KPI 是「留言數」，還是「經過去重、可追蹤、綁定當前 revision 的有效 finding」？</aside></div></details>
           <details class="essay card"><summary><span class="essay-no">03</span><div><h3>跨四端 API 變更，不能靠「同一天上線」</h3><p>Compatibility 是資料流，不是一場同步會議。</p></div><span class="essay-toggle">＋</span></summary><div class="essay-body"><div class="essay-copy"><p>Backend、Web、iOS、Android 的 release cadence 天生不同。「大家今天一起改」無法證明使用者手上的舊 mobile build 仍可運作。cross-platform-contract 先固定 server contract，再讓三個 client 分支檢查 model 與 headers，最後在 contract-tests 聚合。</p><p>若是 breaking change，two-phase policy 要求先擴充、再遷移、最後移除。Migration 與 API deploy 不是測試綠燈自然帶來的權限；它們仍是 Root-only action，必須綁定 scope、revision 與明確授權。</p></div><aside class="margin-note"><b>設計原則</b>「相容性窗口」要寫進 contract 與 evidence，而不是留在 release channel 的口頭約定。</aside></div></details>
           <details class="essay card"><summary><span class="essay-no">04</span><div><h3>CI 綠燈不是終點：外部世界還要對帳</h3><p>Run success、deploy success 與 live state 是三種不同證據。</p></div><span class="essay-toggle">＋</span></summary><div class="essay-body"><div class="essay-copy"><p>Workflow 顯示綠燈，只能證明那個 run 的 terminal result；它不能自動證明 target revision 正確、deploy 沒有被另一個 run 超車，或 production 已經 serving 新版本。ci-release-monitor 因此先 inventory、再 queue，序列化 monitor-execute，最後做 provider reconciliation。</p><p>目前同步版將沒有 immutable provider binding 的 actions 明確 deferred；GitHub Actions dispatch 不能用 mutable ref 原子綁定 preflight revision，因此不開放新的 executable token。缺少 provider authority 或 live reconciliation 時，正確終態是 blocked、inconclusive 或 indeterminate，而不是「大概成功」。</p></div><aside class="margin-note"><b>營運句型</b>「綠燈是 pipeline 的結論；完成是使用者要求的終態。兩者之間需要 revision 與 provider 證據。」</aside></div></details>
           <details class="essay card"><summary><span class="essay-no">05</span><div><h3>把 SOP 做成 Recipe，但不讓它偷偷寫 Source</h3><p>可重複執行不等於可以自由執行。</p></div><span class="essay-toggle">＋</span></summary><div class="essay-body"><div class="essay-copy"><p>當團隊反覆做同一組 deterministic 步驟，workspace recipe 能把 SOP 固化成受治理的 Node.js artifact。流程先定義 contract，再以 fixture dry-run 比對真實執行語義，經 digest-bound trust 後才 promotion。</p><p>安全界線刻意狹窄：預設不允許 network、child process 或 source write；candidate evidence 也不會自動等同 acceptance。Promotion、execution 與 artifact publication 是不同的決策，不能因為 scaffold 成功就一路自動放行。</p></div><aside class="margin-note"><b>判斷題</b>如果 SOP 仍頻繁改變、輸入不穩定，或需要人工語意判斷，先改善流程本身，不要急著 recipe 化。</aside></div></details>
@@ -1089,7 +1089,7 @@ node plugins/better-workflows/scripts/sbw.mjs action issue &lt;run-id&gt; \
       'TaskContract v2 可接收的 exact evidence kinds。': 'Exact evidence kinds accepted by TaskContract v2.',
       'regular / review / side-effect stage 的嘗試預算。': 'Attempt budgets for regular, review, and side-effect stages.',
       '14 條可機器驗證的任務路線': '14 machine-verifiable task routes',
-      'direct 沒有模板：它保留 Goal persistence，但不建立 Better Workflows run、ledger 或 review package。': 'Direct has no template. It keeps Goal persistence but creates no Better Workflows run, ledger, or review package.',
+      'Direct 沒有 evidence template：它保留 Goal persistence；Git 修改另建立最小 workspace lease，並在本任務專屬 worktree 執行。': 'Direct has no evidence template. It keeps Goal persistence; Git mutation creates a minimal workspace lease and runs in a task-owned worktree.',
       '十四種常見任務，從第一句話教到停手': 'Fourteen common tasks, from the first sentence to the stop condition',
       '左側挑情境；右側會顯示可直接改寫的任務描述、正確入口、stage 流、證據清單與 fail-closed 紅燈。direct 是快速路徑，另有一般 PR 的五角色 quorum 路線。': 'Choose a scenario on the left. The right side shows an adaptable task brief, the correct entry, stage flow, evidence checklist, and fail-closed stop lights. Direct is the fast path; ordinary PRs also have a five-role quorum route.',
       '把模糊願望改寫成可驗收的任務合約': 'Turn a vague wish into an acceptance-ready task contract',
@@ -1115,7 +1115,7 @@ node plugins/better-workflows/scripts/sbw.mjs action issue &lt;run-id&gt; \
       '以下不是抽象規範，而是六篇可拿來做團隊共識、onboarding 或 ADR 前言的短文。每篇都指出何時要快、何時必須慢，以及證據如何改變決策。': 'These six short essays are usable as team alignment notes, onboarding material, or ADR introductions. Each explains when to move quickly, when to slow down, and how evidence changes a decision.',
       '二十分鐘的小修，為什麼不必開完整 run': 'Why a twenty-minute fix may not need a full run',
       'Direct 的價值不是偷工，而是讓治理成本和風險成比例。': 'Direct is not a shortcut around quality; it keeps governance cost proportional to risk.',
-      '一個拼字錯誤、一段明確的型別修正，若範圍單點、可逆，而且驗證方式早已確定，建立 ledger、review package 與獨立 critic 可能比變更本身更昂貴。此時 direct 是合理選擇：Root 直接完成工作，仍保留 persistent Goal，卻不建立 governed replay。': 'For a typo or an obvious type correction that is local, reversible, and easy to verify, creating a ledger, review package, and independent critic can cost more than the change itself. Direct is appropriate here: Root performs the work under a persistent Goal without claiming governed replay.',
+      '一個拼字錯誤、一段明確的型別修正，若範圍單點、可逆，而且驗證方式早已確定，建立 ledger、review package 與獨立 critic 可能比變更本身更昂貴。此時 Direct 是合理選擇：Root 不建立完整 evidence run；若要修改 Git repository，仍以最小 lease 綁定版本與任務，並在專屬 worktree 完成修改和基本檢查。': 'For a typo or an obvious type correction that is local, reversible, and easy to verify, creating a ledger, review package, and independent critic can cost more than the change itself. Direct is appropriate here: Root creates no full evidence run; Git mutation still binds the task and revision with a minimal lease, then performs the change and guarded basic check in a task-owned worktree.',
       '關鍵不在「檔案少」，而在': 'The key is not “few files”; it is ', '不確定性、爆炸半徑與副作用': 'uncertainty, blast radius, and side effects',
       '。只要小修改開始牽涉 shared API、帳號狀態、production 或無法可靠回復，direct 就失去資格。快速路徑應該有清楚出口，而不是變成高風險工作的別名。': '. Once a small change touches a shared API, account state, production, or something that cannot be reliably reversed, direct no longer qualifies. A fast path needs a clear exit, not a high-risk alias.',
       '可直接引用': 'Reusable line', '「我們不是為每一行程式碼建立儀式；我們只為無法靠記憶與直覺承擔的後果建立證明。」': '“We do not build ceremony around every line of code. We build proof around consequences that memory and intuition cannot safely carry.”',
@@ -1180,7 +1180,7 @@ node plugins/better-workflows/scripts/sbw.mjs action issue &lt;run-id&gt; \
       '已被設計與測試支持': 'Supported by design and tests', 'TaskContract v2 只接受 102-kind catalog 中的 typed evidence，並重驗 digest 與 semantic success。': 'TaskContract v2 accepts only typed evidence from the 102-kind catalog and revalidates digest and semantic success.', 'Review-enabled templates 會綁定 capability profile；kernel pilot 與 ordinary quorum 都不會直接取得 action token。': 'Review-enabled templates bind a capability profile; the kernel pilot and ordinary quorum cannot issue an action token.',
       'Ledger append-only，依固定 reducer 重建狀態；嘗試預算耗盡是 machine-readable blocked。': 'The ledger is append-only and state is rebuilt by a fixed reducer; exhausted attempt budgets become machine-readable blocked states.',
       'Action token 短效且一次性；unknown provider outcome 不可被猜成 failure。': 'Action tokens are short-lived and one-time; an unknown provider outcome cannot be guessed into failure.',
-      'Direct 明確保持 stateless，不把沒有 journal 的工作宣稱成可 replay run。': 'Direct is explicitly stateless and never calls journal-free work a replayable run.',
+      'Direct 不建立可 replay 的證據流程；Git 修改仍保留最小 workspace lease。': 'Direct creates no replayable evidence run; Git mutation still keeps a minimal workspace lease.',
       '紅燈診療室': 'Stop-light clinic', '測試成功不等於 target revision、provider state 或 live environment 已對帳。': 'A passing test does not prove target revision, provider state, or live environment reconciliation.',
       'Graph View 是結構投影，不是 scheduler、policy input 或 authority source。': 'Graph View is a structural projection, not a scheduler, policy input, or authority source.',
       'Resume 重用 persisted evidence；不會恢復模型 hidden reasoning。': 'Resume reuses persisted evidence; it does not recover hidden model reasoning.',
@@ -1215,9 +1215,9 @@ node plugins/better-workflows/scripts/sbw.mjs action issue &lt;run-id&gt; \
     const modes = {
       direct: {
         level: 1,
-        title: 'direct · 快速、可逆、無 journal',
-        subtitle: 'Goal persistent · governed run none',
-        summary: '適用於單點、熟悉、低風險而且能快速驗證的工作。Root 直接執行，不呼叫 sbw，也不建立 run directory、ledger、review package 或額外 provider call。',
+        title: 'direct · 快速、可逆、最小 Git lease',
+        subtitle: 'Evidence run none · Git lease minimal',
+        summary: '適用於單點、熟悉、低風險且能快速驗證的工作。不建立 evidence run、ledger、review package 或額外 provider call；Git 修改仍由 sbw 建立最小 lease、隔離 worktree，並執行受限的基本檢查。',
         good: ['拼字與文件小修', '明確的局部型別修正', '可立即跑單一測試驗證'],
         stop: '一旦出現跨模組契約、外部 provider、production、不可回復資料或明顯證據缺口，就離開 direct。'
       },
@@ -1435,7 +1435,7 @@ node plugins/better-workflows/scripts/sbw.mjs action issue &lt;run-id&gt; \
       { id:'ev-entry-picker', type:'fact', path:'plugins/better-workflows/skills/better-workflows/SKILL.md:14–47', title:'App／CLI picker 與 Goal-first contract', note:'App 以 / 搜尋 better，CLI 以 @；auto 是推薦入口。Goal persistence 與 Better Workflows verification mode 互相獨立。' },
       { id:'ev-routing', type:'fact', path:'plugins/better-workflows/skills/better-workflows/SKILL.md:49–106', title:'Route preview 與 precedence', note:'Host hard constraints → explicit → workspace Profile → personal Profile → built-in auto；receipt 綁 workspace、scope、catalog、capabilities 與 bundle digest。' },
       { id:'ev-mode-routing', type:'fact', path:'plugins/better-workflows/skills/better-workflows/SKILL.md:129–147', title:'四種 mode 的選擇標準', note:'Risk、uncertainty、blast radius、irreversibility、evidence gap 共同決定 direct / verified / deep / critical；只能升不能降。' },
-      { id:'ev-contract', type:'fact', path:'plugins/better-workflows/scripts/lib/core.mjs:1022–1402', title:'TaskContract v2 與 run creation', note:'驗證 goal、scope、acceptance、root-only authority、execution stages 與 gates；direct 不建立 governed run。' },
+      { id:'ev-contract', type:'fact', path:'plugins/better-workflows/scripts/lib/core.mjs:1022–1402', title:'TaskContract v2 與 run creation', note:'驗證 goal、scope、acceptance、root-only authority、execution stages 與 gates；Direct 不建立 evidence run，Git 修改仍建立最小 workspace lease。' },
       { id:'ev-template-map', type:'fact', path:'plugins/better-workflows/skills/better-workflows/references/templates.md:1–38', title:'Template selection contract', note:'一次選一個 primary template；JSON definitions 是 required evidence 與 policy gate 的 machine-readable source，review-enabled template 另綁 capability profile。' },
       { id:'ev-template-inventory', type:'fact', path:'plugins/better-workflows/templates/*.json → executionStages', title:'14 templates / 66 stages', note:'本版對目前 machine-readable templates 做 inventory；分布為 verified 4、deep 5、critical 5。' },
       { id:'ev-dependabot-entry-gap', type:'inference', path:'entrypoint-catalog.json:3–105 + templates/dependabot-consolidation-pr-cleanup.json:2', title:'Dependabot template 的可發現性摩擦', note:'FACT：模板存在但 catalog 沒有同名 entry。INFERENCE：使用者需靠 auto/critical 再明確指定 template，學習成本較高。' },
@@ -1460,7 +1460,7 @@ node plugins/better-workflows/scripts/sbw.mjs action issue &lt;run-id&gt; \
     ];
 
     const modeEn = {
-      direct: { title:'direct · Fast, reversible, no journal', summary:'For local, familiar, low-risk work with immediate verification. Root acts directly without sbw and creates no run directory, ledger, review package, or extra provider call.', good:['Typos and small documentation fixes','Obvious local type correction','One focused test can verify it'], stop:'Leave direct as soon as the work crosses a module contract, touches a provider or production, changes irrecoverable data, or exposes a material evidence gap.' },
+      direct: { title:'direct · Fast, reversible, minimal Git lease', summary:'For familiar, low-risk work with immediate verification. It creates no evidence run, ledger, review package, or extra provider call; Git mutation still uses sbw to create a minimal task-owned workspace lease, an isolated worktree, and one guarded basic check.', good:['Typos and small documentation fixes','Obvious local type correction','One guarded Node check can verify it'], stop:'Leave direct as soon as the work crosses a module contract, touches a provider or production, changes irrecoverable data, or exposes a material evidence gap.' },
       verified: { title:'verified · Fresh evidence and independent checks', summary:'Creates a governed run and uses one to three read-only research or review roles for fresh evidence. Suitable for browser QA, static iOS review, review-to-issues, and recipe trust.', good:['Needs cross-checking','Depends on the current screen or revision','Has a controllable external side effect'], stop:'Reviewers may not edit files, accept risk, perform external actions, or declare completion. Root must revalidate.' },
       deep: { title:'deep · Verified wave plus independent critics', summary:'Adds one or two model-pinned Codex critics and stronger review convergence on top of verified. Designed for cross-platform work, research, 41 locales, and large refactors.', good:['Cross-module or cross-platform','Architecture decisions and refutation','High cognitive load and broad review'], stop:'Use critics only when evidence is missing, contradictory, or required by mode. Never replace Root claim reconciliation with a vote.' },
       critical: { title:'critical · Complete fail-closed gates', summary:'For protected merge, deploy, critical release, self-improvement, and high-risk delivery. Requires source binding, independent external evidence, exact action authority, and provider reconciliation.', good:['Irreversible or production impact','Protected branch, merge, or deploy','Self-improve adoption and publication'], stop:'Without authority, host attestation, fresh checks, or provider terminal state, remain blocked, inconclusive, or indeterminate.' }
@@ -1510,7 +1510,7 @@ node plugins/better-workflows/scripts/sbw.mjs action issue &lt;run-id&gt; \
       'ev-entry-picker':['App/CLI picker and Goal-first contract','Use / and search “better” in the App, or @ in the CLI. auto is the recommended default. Goal persistence and Better Workflows verification mode are independent.'],
       'ev-routing':['Route preview and precedence','Host hard constraints → explicit → workspace Profile → personal Profile → built-in auto. A receipt binds workspace, scope, catalog, capabilities, and bundle digest.'],
       'ev-mode-routing':['Selection criteria for four modes','Risk, uncertainty, blast radius, irreversibility, and evidence gap select direct, verified, deep, or critical. Mode may be raised, never lowered.'],
-      'ev-contract':['TaskContract v2 and run creation','Validates goal, scope, acceptance, root-only authority, execution stages, and gates. Direct creates no governed run.'],
+      'ev-contract':['TaskContract v2 and run creation','Validates goal, scope, acceptance, root-only authority, execution stages, and gates. Direct creates no evidence run; Git mutation still creates a minimal workspace lease.'],
       'ev-template-map':['Template selection contract','Select exactly one primary template. JSON definitions are the machine-readable source for required evidence and policy gates.'],
       'ev-template-inventory':['Fourteen templates and sixty-six stages','Live inventory of machine-readable templates with workflow dispatch deferred: four verified, five deep, and five critical.'],
       'ev-dependabot-entry-gap':['Dependabot template discoverability friction','FACT: the template exists but has no same-named catalog entry. INFERENCE: users must reach it through auto/critical and explicitly select the template.'],
@@ -1561,7 +1561,7 @@ node plugins/better-workflows/scripts/sbw.mjs action issue &lt;run-id&gt; \
     }
 
     function tutorialCommand(item) {
-      if (!item.template) return `# Codex App：輸入 /，搜尋 better，選 direct\n# direct 不呼叫 sbw，也不建立 run / ledger\n# cwd: repository root\n<執行範圍內修改與指定驗證>`;
+      if (!item.template) return `# Codex App：輸入 /，搜尋 better，選 direct\n# Direct 不建立 evidence run / ledger\n# Git 修改由技能以 sbw preflight + 最小 lease 建立專屬 worktree\n<只在 task worktree 執行範圍內修改與受限基本檢查>`;
       const entryLine = item.id === 'dependency'
         ? `--entry critical --template ${item.template}`
         : `--entry ${item.selector} --template ${item.template}`;
@@ -1577,9 +1577,9 @@ node plugins/better-workflows/scripts/sbw.mjs action issue &lt;run-id&gt; \
       item = localizeScenario(item);
       const command = tutorialCommand(item);
       const selectorLabel = `$better-workflows:${item.selector}`;
-      const templateLabel = item.template || 'none · direct stateless';
+      const templateLabel = item.template || 'none · direct, no evidence run';
       const source = item.template ? templates.find(t => t.id === item.template)?.source : 'evidence-and-state.md:58–77';
-      $('#tutorial-panel').innerHTML = `<header class="tutorial-hero"><div class="route-labels"><span class="pill">${esc(item.order)} · ${esc(item.group)}</span><span class="pill mode-${item.mode}">${item.mode}</span><span class="pill">${esc(selectorLabel)}</span></div><h3>${esc(item.title)}</h3><p>${esc(item.hook)}</p><div class="route-labels"><span class="pill">template: ${esc(templateLabel)}</span><a class="pill evidence-link" href="#source-files">${esc(source || '')}</a></div></header><div class="tutorial-body"><div class="two-col"><div class="use-box good"><h4>WHEN TO USE</h4><p>${esc(item.when)}</p></div><div class="use-box bad"><h4>WHEN NOT TO USE</h4><p>${esc(item.avoid)}</p></div></div><div class="subhead"><span>01</span><h4>${esc(tr('可以直接改寫的任務描述'))}</h4></div><div class="prompt-box"><div class="box-label">CODEX APP PROMPT</div><button class="copy-btn" type="button" data-copy-value="${encodeURIComponent(item.prompt)}">COPY</button><pre>${esc(item.prompt)}</pre></div><div class="subhead"><span>02</span><h4>${esc(tr('Stage 與 evidence 流'))}</h4></div><div class="stage-track">${item.stages.map(([stage,evidence]) => `<div class="stage-step"><b>${esc(stage)}</b><small>${esc(evidence)}</small></div>`).join('')}</div><div class="subhead"><span>03</span><h4>${esc(tr('驗收證據與紅燈'))}</h4></div><div class="check-grid"><ul class="check-list">${item.evidence.map(value => `<li>${esc(value)}</li>`).join('')}</ul><ul class="check-list stop">${item.stops.map(value => `<li>${esc(value)}</li>`).join('')}</ul></div><div class="subhead"><span>04</span><h4>${esc(tr('CLI 路線（手冊用途，不自動執行）'))}</h4></div><div class="code-box"><div class="box-label">${item.template ? 'STATE-WRITE AFTER PREVIEW' : 'DIRECT · STATELESS'}</div><button class="copy-btn" type="button" data-copy-value="${encodeURIComponent(item.prompt)}">COPY</button><pre>${esc(command)}</pre><div class="command-meta"><div><span>CWD</span><b>repository root</b></div><div><span>PREREQUISITE</span><b>${item.template ? 'Node ≥24 + route confirmed' : 'bounded local scope'}</b></div><div><span>SUCCESS</span><b>${esc(item.success)}</b></div><div><span>COMMON BLOCKER</span><b>${esc(item.failure)}</b></div></div></div></div>`;
+      $('#tutorial-panel').innerHTML = `<header class="tutorial-hero"><div class="route-labels"><span class="pill">${esc(item.order)} · ${esc(item.group)}</span><span class="pill mode-${item.mode}">${item.mode}</span><span class="pill">${esc(selectorLabel)}</span></div><h3>${esc(item.title)}</h3><p>${esc(item.hook)}</p><div class="route-labels"><span class="pill">template: ${esc(templateLabel)}</span><a class="pill evidence-link" href="#source-files">${esc(source || '')}</a></div></header><div class="tutorial-body"><div class="two-col"><div class="use-box good"><h4>WHEN TO USE</h4><p>${esc(item.when)}</p></div><div class="use-box bad"><h4>WHEN NOT TO USE</h4><p>${esc(item.avoid)}</p></div></div><div class="subhead"><span>01</span><h4>${esc(tr('可以直接改寫的任務描述'))}</h4></div><div class="prompt-box"><div class="box-label">CODEX APP PROMPT</div><button class="copy-btn" type="button" data-copy-value="${encodeURIComponent(item.prompt)}">COPY</button><pre>${esc(item.prompt)}</pre></div><div class="subhead"><span>02</span><h4>${esc(tr('Stage 與 evidence 流'))}</h4></div><div class="stage-track">${item.stages.map(([stage,evidence]) => `<div class="stage-step"><b>${esc(stage)}</b><small>${esc(evidence)}</small></div>`).join('')}</div><div class="subhead"><span>03</span><h4>${esc(tr('驗收證據與紅燈'))}</h4></div><div class="check-grid"><ul class="check-list">${item.evidence.map(value => `<li>${esc(value)}</li>`).join('')}</ul><ul class="check-list stop">${item.stops.map(value => `<li>${esc(value)}</li>`).join('')}</ul></div><div class="subhead"><span>04</span><h4>${esc(tr('CLI 路線（手冊用途，不自動執行）'))}</h4></div><div class="code-box"><div class="box-label">${item.template ? 'STATE-WRITE AFTER PREVIEW' : 'DIRECT · MINIMAL GIT LEASE'}</div><button class="copy-btn" type="button" data-copy-value="${encodeURIComponent(item.prompt)}">COPY</button><pre>${esc(command)}</pre><div class="command-meta"><div><span>CWD</span><b>repository root</b></div><div><span>PREREQUISITE</span><b>${item.template ? 'Node ≥24 + route confirmed' : 'bounded local scope'}</b></div><div><span>SUCCESS</span><b>${esc(item.success)}</b></div><div><span>COMMON BLOCKER</span><b>${esc(item.failure)}</b></div></div></div></div>`;
       bindCopyButtons($('#tutorial-panel'));
     }
 
@@ -1610,7 +1610,7 @@ node plugins/better-workflows/scripts/sbw.mjs action issue &lt;run-id&gt; \
         const effective = Object.keys(modeOrder).find(key => modeOrder[key] === effectiveRank);
         const directEscalated = !item.template && effective !== 'direct';
         const selectedEntry = directEscalated ? `$better-workflows:${effective}` : `$better-workflows:${item.selector}`;
-        const selectedTemplate = directEscalated ? (currentLocale === 'en' ? 'auto → choose a real template from evidence' : 'auto → 尚需依證據選真實 template') : (item.template || 'none · direct stateless');
+        const selectedTemplate = directEscalated ? (currentLocale === 'en' ? 'auto → choose a real template from evidence' : 'auto → 尚需依證據選真實 template') : (item.template || 'none · direct, no evidence run');
         const reasons = currentLocale === 'en' ? [
           `Task policy floor: ${item.mode}`,
           `Scope and uncertainty require: ${scopeMode}`,

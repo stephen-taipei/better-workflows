@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import {
   access,
   mkdir,
@@ -13,7 +14,9 @@ import {
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { promisify } from "node:util";
 import {
+  assessAutoRisk,
   capabilitySnapshot,
   claimRouteReceipt,
   installPersonalRoutingProfile,
@@ -25,11 +28,32 @@ import {
 import { bundleDigest } from "../lib/publication.mjs";
 import { digestObject } from "../lib/core.mjs";
 
+const execFileAsync = promisify(execFile);
+
 async function workspace() {
   return mkdtemp(path.join(os.tmpdir(), "sbw-routing-workspace-"));
 }
 
+async function gitWorkspace() {
+  const cwd = await workspace();
+  await execFileAsync("git", ["init", "-q", "-b", "feature"], { cwd });
+  await execFileAsync("git", ["config", "user.name", "Better Workflows Tests"], { cwd });
+  await execFileAsync("git", ["config", "user.email", "routing-tests@example.invalid"], { cwd });
+  await writeFile(path.join(cwd, "app.txt"), "base\n");
+  await execFileAsync("git", ["add", "app.txt"], { cwd });
+  await execFileAsync("git", ["commit", "-qm", "base"], { cwd });
+  return cwd;
+}
+
 async function writeProfile(root, profile) {
+  await mkdir(path.join(root, ".better-workflows"), { recursive: true });
+  await writeFile(
+    path.join(root, ".better-workflows", "profile.json"),
+    `${JSON.stringify(profile, null, 2)}\n`
+  );
+}
+
+async function writeLegacyProfile(root, profile) {
   await mkdir(path.join(root, ".codex"), { recursive: true });
   await writeFile(
     path.join(root, ".codex", "better-workflows.json"),
@@ -538,6 +562,42 @@ test("route receipts bind profiles and capabilities, expire safely, and are sing
     /already claimed/
   );
 
+  const resumable = await recordRouteReceipt({ stateRoot, cwd, preview });
+  const claimant = {
+    kind: "direct-workspace-v1",
+    ownershipNonce: "0123456789abcdef0123456789abcdef",
+    repositoryId: "0123456789abcdef",
+    taskId: "task-direct-claim"
+  };
+  const firstClaim = await claimRouteReceipt({
+    stateRoot,
+    receiptId: resumable.receiptId,
+    claimant
+  });
+  assert.equal(firstClaim.resumed, false);
+  const resumedClaim = await claimRouteReceipt({
+    stateRoot,
+    receiptId: resumable.receiptId,
+    claimant
+  });
+  assert.equal(resumedClaim.resumed, true);
+  const resumedValidation = await validateRouteReceipt({
+    stateRoot,
+    cwd,
+    receiptId: resumable.receiptId,
+    expectedClaimant: claimant
+  });
+  assert.equal(resumedValidation.claim.claimant.taskId, claimant.taskId);
+  await assert.rejects(
+    validateRouteReceipt({
+      stateRoot,
+      cwd,
+      receiptId: resumable.receiptId,
+      expectedClaimant: { ...claimant, taskId: "task-other-claim" }
+    }),
+    /different consumer/
+  );
+
   const secondPreview = await previewRoute({
     cwd,
     stateRoot,
@@ -546,7 +606,7 @@ test("route receipts bind profiles and capabilities, expire safely, and are sing
   });
   const second = await recordRouteReceipt({ stateRoot, cwd, preview: secondPreview });
   const rawProfile = JSON.parse(
-    await readFile(path.join(cwd, ".codex", "better-workflows.json"), "utf8")
+    await readFile(path.join(cwd, ".better-workflows", "profile.json"), "utf8")
   );
   rawProfile.rules[0].priority = 999;
   await writeProfile(cwd, rawProfile);
@@ -569,4 +629,186 @@ test("route receipts bind profiles and capabilities, expire safely, and are sing
     validateRouteReceipt({ stateRoot, cwd, receiptId: third.receiptId }),
     /expired/
   );
+});
+
+test("legacy Codex workspace Profiles remain a single-path fallback and ambiguity fails closed", async () => {
+  const cwd = await workspace();
+  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-routing-legacy-profile-"));
+  const legacy = profile([
+    rule("legacy-review", { match: { keywords: ["legacy"] }, entry: "review-issues" })
+  ]);
+  await writeLegacyProfile(cwd, legacy);
+  const fallback = await previewRoute({ cwd, stateRoot, goal: "legacy review", scope: ["."] });
+  assert.equal(fallback.source, "workspace-profile");
+  assert.equal(fallback.profileRule, "legacy-review");
+
+  await writeProfile(cwd, legacy);
+  await assert.rejects(
+    previewRoute({ cwd, stateRoot, goal: "legacy review", scope: ["."] }),
+    /Both v4 .* and legacy .* exist/
+  );
+});
+
+test("workspace Profile discovery is anchored to the canonical Git root", async () => {
+  const root = await gitWorkspace();
+  const nested = path.join(root, "packages", "feature");
+  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-routing-git-root-profile-"));
+  await mkdir(nested, { recursive: true });
+  await writeProfile(root, profile([
+    rule("root-review", { match: { keywords: ["root"] }, entry: "review-issues" })
+  ]));
+  const preview = await previewRoute({ cwd: nested, stateRoot, goal: "root review", scope: ["."] });
+  assert.equal(preview.source, "workspace-profile");
+  assert.equal(preview.profileRule, "root-review");
+});
+
+test("AutoRiskAssessmentV1 admits Direct only within every low-risk boundary", async () => {
+  const cwd = await workspace();
+  const direct = await assessAutoRisk({
+    cwd,
+    goal: "Rename one local label",
+    scope: ["src/label.txt"],
+    acceptanceDefined: true,
+    mutationIntent: "modify",
+    risk: {
+      risk: 1,
+      uncertainty: 0,
+      blastRadius: 1,
+      irreversibility: 0,
+      evidenceGap: 0
+    },
+    basicCheckPlan: ["node --test label.test.mjs"]
+  });
+  assert.equal(direct.kind, "AutoRiskAssessmentV1");
+  assert.equal(direct.decision, "direct-fast-path");
+  assert.equal(direct.riskTotal, 2);
+  assert.equal(direct.workspaceLifecycle, "not-applicable");
+  assert.deepEqual(direct.reasonCodes, ["direct-threshold-satisfied"]);
+  assert.match(direct.assessmentDigest, /^[a-f0-9]{64}$/);
+
+  const unassessed = await assessAutoRisk({
+    cwd,
+    goal: "Do not infer missing risk scores",
+    scope: ["src/label.txt"],
+    acceptanceDefined: true,
+    mutationIntent: "modify",
+    risk: { risk: 0, irreversibility: 0 }
+  });
+  assert.equal(unassessed.decision, "evidence-required");
+  assert.equal(unassessed.uncertainty, 3);
+  assert.ok(unassessed.reasonCodes.includes("uncertainty-above-direct-limit"));
+  assert.ok(unassessed.reasonCodes.includes("basic-check-plan-undefined"));
+
+  for (const input of [
+    { acceptanceDefined: false, expected: "acceptance-undefined" },
+    { mutationIntent: "unknown", expected: "mutation-intent-unknown" },
+    { risk: { risk: 1, uncertainty: 1, blastRadius: 1, irreversibility: 0, evidenceGap: 0 }, expected: "risk-total-above-direct-limit" },
+    { risk: { risk: 0, uncertainty: 0, blastRadius: 0, irreversibility: 1, evidenceGap: 0 }, expected: "irreversibility-nonzero" },
+    { hardExclusions: ["credential"], expected: "hard-exclusion:credential" },
+    { protectedTarget: true, expected: "protected-target" },
+    { integrationTarget: "origin/dev", expected: "remote-target" },
+    { routeConstraint: true, expected: "explicit-route-or-mode-constraint" }
+  ]) {
+    const assessment = await assessAutoRisk({
+      cwd,
+      goal: "Bounded change",
+      scope: ["src"],
+      acceptanceDefined: input.acceptanceDefined ?? true,
+      mutationIntent: input.mutationIntent ?? "modify",
+      risk: input.risk ?? {},
+      hardExclusions: input.hardExclusions ?? [],
+      protectedTarget: input.protectedTarget ?? false,
+      integrationTarget: input.integrationTarget ?? null,
+      routeConstraint: input.routeConstraint ?? false
+    });
+    assert.equal(assessment.decision, "evidence-required");
+    assert.ok(assessment.reasonCodes.includes(input.expected));
+  }
+});
+
+test("Auto Direct rejects a basic check plan that cannot be executed by the bounded runner", async () => {
+  const cwd = await workspace();
+  await assert.rejects(
+    assessAutoRisk({
+      cwd,
+      goal: "bounded change",
+      acceptanceDefined: true,
+      mutationIntent: "modify",
+      integrationTarget: "feature",
+      risk: { risk: 0, uncertainty: 0, blastRadius: 0, irreversibility: 0, evidenceGap: 0 },
+      basicCheckPlan: Array.from({ length: 17 }, (_, index) => `check-${index}`)
+    }),
+    /exceeds 16 items/
+  );
+  await assert.rejects(
+    assessAutoRisk({
+      cwd,
+      goal: "bounded change",
+      acceptanceDefined: true,
+      mutationIntent: "modify",
+      integrationTarget: "feature",
+      risk: { risk: 0, uncertainty: 0, blastRadius: 0, irreversibility: 0, evidenceGap: 0 },
+      basicCheckPlan: ["looks fine\nbut is not one line"]
+    }),
+    /one-line names/
+  );
+});
+
+test("Auto Direct requires an existing local integration target and explicit booleans", async () => {
+  const cwd = await gitWorkspace();
+  const base = {
+    cwd,
+    goal: "Bounded Git change",
+    scope: ["app.txt"],
+    acceptanceDefined: true,
+    mutationIntent: "modify",
+    risk: { risk: 0, uncertainty: 0, blastRadius: 0, irreversibility: 0, evidenceGap: 0 },
+    basicCheckPlan: ["targeted app check"]
+  };
+  const missing = await assessAutoRisk({ ...base, integrationTarget: "missing-target" });
+  assert.equal(missing.decision, "evidence-required");
+  assert.equal(missing.integrationTargetRevision, null);
+  assert.ok(missing.reasonCodes.includes("integration-target-unverified"));
+
+  const existing = await assessAutoRisk({ ...base, integrationTarget: "feature" });
+  assert.equal(existing.decision, "direct-fast-path");
+  assert.match(existing.integrationTargetRevision, /^[a-f0-9]{40}$/);
+
+  await assert.rejects(
+    assessAutoRisk({ ...base, acceptanceDefined: "yes", integrationTarget: "feature" }),
+    /explicit booleans/
+  );
+});
+
+test("built-in Auto returns a reviewable Direct route only when acceptance and mutation intent are explicit", async () => {
+  const cwd = await workspace();
+  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-routing-direct-"));
+  const direct = await previewRoute({
+    cwd,
+    stateRoot,
+    goal: "Update one local label",
+    scope: ["label.txt"],
+    acceptanceDefined: true,
+    mutationIntent: "modify",
+    risk: { risk: 1, uncertainty: 0, blastRadius: 0, irreversibility: 0, evidenceGap: 0 },
+    basicCheckPlan: ["targeted label test"]
+  });
+  assert.equal(direct.source, "built-in-auto");
+  assert.equal(direct.effectiveMode, "direct");
+  assert.equal(direct.needsSelection, false);
+  assert.equal(direct.autoRiskAssessment.decision, "direct-fast-path");
+
+  const protectedRoute = await previewRoute({
+    cwd,
+    stateRoot,
+    goal: "Update one local label",
+    scope: ["label.txt"],
+    acceptanceDefined: true,
+    mutationIntent: "modify",
+    integrationTarget: "dev",
+    protectedTarget: true
+  });
+  assert.equal(protectedRoute.needsSelection, true);
+  assert.equal(protectedRoute.autoRiskAssessment.decision, "evidence-required");
+  assert.ok(protectedRoute.autoRiskAssessment.reasonCodes.includes("protected-target"));
 });

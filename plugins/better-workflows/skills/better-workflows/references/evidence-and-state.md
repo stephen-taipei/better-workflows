@@ -176,5 +176,7 @@ Completion requires current acceptance evidence, no unresolved P0/P1, valid curr
 
 After successful v2 completion, `completionBlockers` is cleared and
 `completionDecision` stores the evaluated evidence, ledger, review, and sentinel
-digests. Direct mode remains stateless: it creates no run directory, ledger,
-review package, or extra provider call.
+digests. Direct mode creates no replayable evidence run, run directory, ledger,
+review package, or extra provider call. A Git mutation still keeps the minimal
+`TaskWorkspaceLeaseV1` needed for isolated ownership, recovery, integration,
+and exact cleanup; that lease is not an evidence journal.
