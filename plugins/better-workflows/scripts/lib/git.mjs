@@ -124,6 +124,77 @@ export function runSourceGit(cwd, args, options = {}) {
   return sourceGit(cwd, args, options);
 }
 
+/**
+ * Resolve a protected delivery base from the repository's exact live origin.
+ *
+ * A pr-to-dev run must never be created with a null base revision: the base is
+ * part of the source binding, required-check snapshot, and merge preflight.
+ * Prefer a locally verified tracking ref when available, then fall back to a
+ * credential-free ls-remote read. Both paths require one exact commit object;
+ * ambiguous, missing, or malformed output fails closed.
+ */
+export async function resolveRemoteBranchRevision(cwd, {
+  remote = "origin",
+  branch = "dev"
+} = {}) {
+  if (!/^[A-Za-z0-9._-]+$/.test(String(remote)) || !/^[A-Za-z0-9._/-]+$/.test(String(branch))) {
+    throw new Error("Remote branch resolution requires safe remote and branch names");
+  }
+  const repository = path.resolve(cwd);
+  const trackingRef = `refs/remotes/${remote}/${branch}`;
+  const tracking = await sourceGit(
+    repository,
+    ["rev-parse", "--verify", "--quiet", `${trackingRef}^{commit}`],
+    { allowFailure: true }
+  );
+  const trackingOutput = optionalSourceGitOutput(tracking, "Remote tracking revision read", {
+    absentCodes: [1]
+  });
+  const trackingRevision = parseOptionalSourceCommitRevision(
+    trackingOutput,
+    "Remote tracking revision read"
+  );
+  if (trackingRevision !== null) {
+    return {
+      revision: trackingRevision,
+      remote: String(remote),
+      branch: String(branch),
+      ref: trackingRef,
+      source: "local-tracking-ref"
+    };
+  }
+
+  const remoteResult = await sourceGit(
+    repository,
+    ["ls-remote", "--refs", String(remote), `refs/heads/${String(branch)}`],
+    { allowFailure: true }
+  );
+  if (remoteResult?.ok !== true) {
+    const detail = String(remoteResult?.stderr || remoteResult?.code || "unknown failure").trim();
+    throw new Error(`Remote branch revision lookup failed: ${detail}`);
+  }
+  if (typeof remoteResult.stdout !== "string") {
+    throw new Error("Remote branch revision lookup returned non-text output");
+  }
+  const lines = remoteResult.stdout === "" ? [] : remoteResult.stdout.split("\n");
+  if (lines.length > 0 && lines.at(-1) === "") lines.pop();
+  if (lines.length !== 1) {
+    throw new Error("Remote branch revision lookup must return exactly one ref");
+  }
+  const fields = lines[0].split("\t");
+  const [revision, ref, ...extra] = fields;
+  if (extra.length > 0 || !/^[a-f0-9]{40}$/i.test(revision ?? "") || ref !== `refs/heads/${String(branch)}`) {
+    throw new Error("Remote branch revision lookup returned a malformed ref");
+  }
+  return {
+    revision,
+    remote: String(remote),
+    branch: String(branch),
+    ref: `refs/heads/${String(branch)}`,
+    source: "ls-remote"
+  };
+}
+
 export async function canonicalSourceRoot(cwd) {
   const expectedWorkTree = await findCanonicalWorktree(cwd);
   await validateConfiguredWorktree(cwd, expectedWorkTree);

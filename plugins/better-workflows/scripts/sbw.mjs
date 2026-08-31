@@ -56,7 +56,7 @@ import {
   validateContract,
   withRunLock
 } from "./lib/core.mjs";
-import { captureSentinel, captureSourceBinding, compareSentinels, runSourceGit } from "./lib/git.mjs";
+import { captureSentinel, captureSourceBinding, compareSentinels, resolveRemoteBranchRevision, runSourceGit } from "./lib/git.mjs";
 import {
   doctorAgy,
   doctorCodex,
@@ -209,6 +209,7 @@ const RUN_MODE_RANK = new Map(
   ["direct", "verified", "deep", "critical"].map((mode, index) => [mode, index])
 );
 const GRAPH_ENFORCEMENT_ENABLED = true;
+const DEV_DELIVERY_TEMPLATE_NAMES = new Set(["pr-to-dev", "pr-to-dev-agent-quorum"]);
 
 function print(value) {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
@@ -1529,12 +1530,14 @@ async function commandRun(root, options) {
     "self-improve-run",
     "route-receipt",
     "autonomy-profile",
+    "interaction-mode",
+    "strict",
     "workspace-task-id",
     "workspace-repository-id"
   ]);
   let receiptBinding = null;
   if (options["route-receipt"]) {
-    for (const conflicting of ["template", "entry", "goal", "scope", "mode", "self-improve-run", "autonomy-profile"]) {
+    for (const conflicting of ["template", "entry", "goal", "scope", "mode", "self-improve-run", "autonomy-profile", "interaction-mode", "strict"]) {
       if (options[conflicting] !== undefined) {
         throw new Error(`--route-receipt cannot be combined with --${conflicting}`);
       }
@@ -1645,6 +1648,12 @@ async function commandRun(root, options) {
   const templateName = receiptBinding
     ? receiptBinding.preview.primary.template
     : String(options.template ?? "");
+  const interactionMode = optionEnabled(options.strict)
+    ? "strict"
+    : String(options["interaction-mode"] ?? "auto");
+  if (!["auto", "strict"].includes(interactionMode)) {
+    throw new Error("--interaction-mode must be auto or strict");
+  }
   const template = await loadTemplate(templateName);
   const purposeProvided = options["evaluation-purpose"] !== undefined;
   const requestedEvaluationPurpose = purposeProvided ? String(options["evaluation-purpose"]) : null;
@@ -1749,6 +1758,13 @@ async function commandRun(root, options) {
       }
     }
   } else {
+    let remoteRevision = options["remote-revision"] ? String(options["remote-revision"]) : null;
+    if (DEV_DELIVERY_TEMPLATE_NAMES.has(templateName) && remoteRevision === null) {
+      remoteRevision = (await resolveRemoteBranchRevision(process.cwd(), {
+        remote: "origin",
+        branch: "dev"
+      })).revision;
+    }
     contract = buildContract({
       template: templateName,
       templateDefinition: template,
@@ -1771,7 +1787,8 @@ async function commandRun(root, options) {
       agySanitized: options.sanitized === true || options.sanitized === "true",
       volatileExclusions: values(options["volatile-exclusion"]).map(String),
       highRiskIgnored: values(options["high-risk-ignored"]).map(String),
-      remoteRevision: options["remote-revision"] ? String(options["remote-revision"]) : null,
+      remoteRevision,
+      interactionMode,
       selfImprovePurpose: templateName === "self-improve-ops" && purposeProvided ? requestedEvaluationPurpose : null,
       autonomyProfile: autonomyBinding
     });
@@ -2402,7 +2419,7 @@ async function commandEval(options = {}) {
 function help() {
   return {
     usage: [
-      "sbw run --template <name> --mode <auto|direct|verified|deep|critical> --goal <text> [--scope <path>] [--autonomy-profile bounded-autopilot-v1] [--baseline <git-revision> for self-improve] [--evaluation-purpose ordinary|evaluator-migration|safety-remediation-v1|quality-remediation-v1] [--self-improve-run <run-id> for delegated pr-to-dev]",
+      "sbw run --template <name> --mode <auto|direct|verified|deep|critical> --interaction-mode <auto|strict> --goal <text> [--scope <path>] [--autonomy-profile bounded-autopilot-v1] [--baseline <git-revision> for self-improve] [--evaluation-purpose ordinary|evaluator-migration|safety-remediation-v1|quality-remediation-v1] [--self-improve-run <run-id> for delegated pr-to-dev]",
       "sbw run --route-receipt <route-receipt-id>",
       "sbw route preview --goal <text> [--scope <path>] [--entry <id>|--template <name>] [--mode <mode>] [--mutation unknown|read-only|modify] [--acceptance-defined] [--risk 0..3 --uncertainty 0..3 --blast-radius 0..3 --irreversibility 0..3 --evidence-gap 0..3] [--hard-exclusion <code>] [--basic-check <label>] [--integration-target <branch> --protected-target] [--record]",
       "sbw route profile validate|install --file <profile.json>",

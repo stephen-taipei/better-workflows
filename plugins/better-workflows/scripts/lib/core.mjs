@@ -1286,6 +1286,9 @@ export function validateContract(contract) {
   if (typeof contract.template !== "string" || !contract.template) {
     throw new Error("TaskContract.template is required");
   }
+  if (contract.interactionMode !== undefined && !["auto", "strict"].includes(contract.interactionMode)) {
+    throw new Error("TaskContract.interactionMode is invalid");
+  }
   if (contract.selfImprovePurpose !== undefined) {
     if (!new Set(["ordinary", "evaluator-migration", "safety-remediation-v1", "quality-remediation-v1"]).has(contract.selfImprovePurpose)) {
       throw new Error("TaskContract.selfImprovePurpose is invalid");
@@ -1548,6 +1551,7 @@ export function buildContract({
   volatileExclusions = [],
   highRiskIgnored = [],
   remoteRevision = null,
+  interactionMode = "auto",
   selfImprovePurpose = null,
   autonomyProfile = null
 }) {
@@ -1587,6 +1591,7 @@ export function buildContract({
     volatileExclusions,
     highRiskIgnored,
     remoteRevision,
+    interactionMode,
     ...(selfImprovePurpose !== null ? { selfImprovePurpose } : {}),
     ...(autonomyProfile !== null ? { autonomyProfile } : {}),
     ...(isV2

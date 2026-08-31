@@ -211,6 +211,7 @@ function contractProjection(contract) {
   return {
     schemaVersion: contract.schemaVersion,
     template: contract.template,
+    interactionMode: contract.interactionMode ?? "auto",
     templateDigest: contract.templateDigest ?? null,
     reviewProfile: contract.reviewProfile ?? null,
     acceptance: (contract.acceptance ?? []).map((item) => ({

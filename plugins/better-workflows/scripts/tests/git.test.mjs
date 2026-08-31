@@ -15,6 +15,7 @@ import {
   parseGitWorktreeProbeOutput,
   parseOptionalSourceCommitRevision,
   parseOptionalSourceSymbolicRef,
+  resolveRemoteBranchRevision,
   runSourceGit,
   validateSubmoduleStatusOutput
 } from "../lib/git.mjs";
@@ -149,6 +150,32 @@ test("source optional symbolic refs and commit revisions require exact framed su
   ]) {
     assert.throws(() => parseOptionalSourceCommitRevision(output), /malformed success output/);
   }
+});
+
+test("protected delivery resolves one exact live dev revision from tracking ref or ls-remote", async () => {
+  const cwd = await repository();
+  const head = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd, encoding: "utf8" })).stdout.trim();
+  await execFileAsync("git", ["update-ref", "refs/remotes/origin/dev", head], { cwd });
+  assert.deepEqual(await resolveRemoteBranchRevision(cwd), {
+    revision: head,
+    remote: "origin",
+    branch: "dev",
+    ref: "refs/remotes/origin/dev",
+    source: "local-tracking-ref"
+  });
+
+  const bare = await mkdtemp(path.join(os.tmpdir(), "sbw-git-remote-"));
+  await execFileAsync("git", ["init", "--bare", "-q", bare], { cwd });
+  await execFileAsync("git", ["remote", "add", "origin-live", bare], { cwd });
+  await execFileAsync("git", ["push", "-q", "origin-live", "dev:dev"], { cwd });
+  await execFileAsync("git", ["update-ref", "-d", "refs/remotes/origin-live/dev"], { cwd });
+  assert.deepEqual(await resolveRemoteBranchRevision(cwd, { remote: "origin-live" }), {
+    revision: head,
+    remote: "origin-live",
+    branch: "dev",
+    ref: "refs/heads/dev",
+    source: "ls-remote"
+  });
 });
 
 test("sentinel rejects recursive submodule status failures", async () => {
