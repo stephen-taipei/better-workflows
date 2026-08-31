@@ -13,6 +13,7 @@ export const INTERACTION_AUTHORIZATION_KIND = "standing-interaction-authorizatio
 export const INTERACTION_REQUEST_KIND = "interaction-authorization-request";
 export const INTERACTION_RECEIPT_KIND = "interaction-authorization-receipt";
 export const INTERACTION_AUTHORITY_CLASS = "interaction-only";
+export const DEFAULT_SOP_INTERACTION_POLICY = "sop-auto-v1";
 
 const SHA256 = /^[a-f0-9]{64}$/;
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
@@ -289,6 +290,29 @@ function hold(request, reason, materialChanges = []) {
   };
 }
 
+function implicitSopAutoEligible(scope) {
+  return scope?.safetyConstraints?.interactionPolicy === DEFAULT_SOP_INTERACTION_POLICY;
+}
+
+function autoApprove(request, { reason = "auto-mode-default", implicit = false, predecessorAuthorizationId = null, renewed = false } = {}) {
+  return {
+    ok: true,
+    decision: "auto-approved",
+    reason,
+    renewed,
+    implicit,
+    predecessorAuthorizationId,
+    requestDigest: request.requestDigest,
+    scopeDigest: request.scopeDigest,
+    authorityClass: INTERACTION_AUTHORITY_CLASS,
+    technicalGatesRequired: true,
+    suppressDuplicatePrompt: true,
+    // This field is intentionally explicit so callers cannot mistake this
+    // UX decision for an action-token or remote-authority grant.
+    grantsActionAuthority: false
+  };
+}
+
 export function decideInteractionAuthorization({
   request,
   standingAuthorization = null,
@@ -307,7 +331,17 @@ export function decideInteractionAuthorization({
   const missing = missingRequiredScope(normalizedRequest.scope, normalizedRequest.requiredScopeFields);
   if (missing.length > 0) return hold(normalizedRequest, "incomplete-scope", missing.map((field) => ({ field })));
   if (normalizedRequest.mode === "strict") return hold(normalizedRequest, "strict-mode");
-  if (standingAuthorization === null) return hold(normalizedRequest, "missing-standing-directive");
+  if (standingAuthorization === null) {
+    // Auto mode is the default for an in-process SOP route.  The route marks
+    // that bounded interaction explicitly; generic material-scope requests
+    // (for example a new private review disclosure) still require a fresh
+    // user directive.  This distinction removes repetitive SOP prompts
+    // without turning interaction UX into action authority.
+    if (implicitSopAutoEligible(normalizedRequest.scope)) {
+      return autoApprove(normalizedRequest, { implicit: true });
+    }
+    return hold(normalizedRequest, "missing-standing-directive");
+  }
   const standing = validateStandingInteractionAuthorization(standingAuthorization);
   const comparison = compareInteractionScopes(standing.scope, normalizedRequest.scope);
   if (!comparison.same) return hold(normalizedRequest, "material-scope-change", comparison.materialChanges);
@@ -318,21 +352,12 @@ export function decideInteractionAuthorization({
   if (stale && (staleReason !== null && !FRESHNESS_REASONS.has(String(staleReason)))) {
     return hold(normalizedRequest, "unknown-stale-reason");
   }
-  return {
-    ok: true,
-    decision: "auto-approved",
+  return autoApprove(normalizedRequest, {
     reason: stale ? "stale-scope-refresh" : "standing-scope-match",
-    renewed: stale,
+    implicit: false,
     predecessorAuthorizationId: standing.authorizationId,
-    requestDigest: normalizedRequest.requestDigest,
-    scopeDigest: normalizedRequest.scopeDigest,
-    authorityClass: INTERACTION_AUTHORITY_CLASS,
-    technicalGatesRequired: true,
-    suppressDuplicatePrompt: true,
-    // This field is intentionally explicit so callers cannot mistake this
-    // UX decision for an action-token or remote-authority grant.
-    grantsActionAuthority: false
-  };
+    renewed: stale
+  });
 }
 
 export function buildInteractionAuthorizationReceipt({ request, decision, predecessor = null, createdAt = new Date() } = {}) {
@@ -355,6 +380,7 @@ export function buildInteractionAuthorizationReceipt({ request, decision, predec
     decision: decision.decision,
     reason: decision.reason,
     renewed: decision.renewed === true,
+    implicit: decision.implicit === true,
     predecessorAuthorizationId: decision.predecessorAuthorizationId ?? predecessor?.authorizationId ?? null,
     grantsActionAuthority: false,
     technicalGatesRequired: true,
@@ -397,7 +423,8 @@ export function interactionScopeFromRoute({
     safetyConstraints: {
       effectiveMode,
       protectedTarget: protectedTarget === true,
-      mutationIntent
+      mutationIntent,
+      interactionPolicy: DEFAULT_SOP_INTERACTION_POLICY
     }
   });
 }
@@ -405,4 +432,3 @@ export function interactionScopeFromRoute({
 export function freshnessOnlyReason(value) {
   return FRESHNESS_REASONS.has(String(value ?? ""));
 }
-

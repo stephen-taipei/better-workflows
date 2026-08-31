@@ -48,7 +48,9 @@ creating a Better Workflows journal.
 
 ## Converge without repeated interaction
 
-The default interaction mode is `auto-deduplicated`. Reuse a current standing
+The default interaction mode is `auto-deduplicated`. A normal in-process SOP
+route receives one bounded implicit interaction approval so the root agent can
+continue without keeping the user at the computer. Reuse a current standing
 user directive without asking again when repository, goal, recipient/provider/
 model, disclosed data scope, side-effect kinds, and safety constraints are
 materially unchanged. A freshness-only receipt refresh preserves its
@@ -61,10 +63,11 @@ scope, or side-effect kind is a material scope change unless an existing
 standing directive expressly covers it. Record one structured HOLD when that
 authority is missing; do not ask the same question again on later turns. Use
 strict per-request prompting only when the user explicitly requests strict
-interaction mode. Never request, copy, pipe, or retain an administrator
-password. Use a matching installed non-interactive grant or trigger one exact
-native administrator interaction and observe it; failure remains HOLD without
-another prompt.
+interaction mode. New private review disclosures remain explicit authorization
+boundaries even when the surrounding route is auto. Never request, copy, pipe,
+or retain an administrator password. Use a matching installed non-interactive
+grant or trigger one exact native administrator interaction and observe it;
+failure remains HOLD without another prompt.
 
 The root agent may use the interaction-only bridge to make this deduplication
 observable and reproducible:

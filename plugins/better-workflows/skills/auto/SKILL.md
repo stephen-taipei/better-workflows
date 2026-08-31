@@ -13,6 +13,13 @@ material repository/goal/recipient/data/side-effect scope. Exact receipts and
 gates are still required. Strict per-request prompting is opt-in only. A genuine
 scope expansion produces one structured HOLD, not a password or copy/paste loop.
 
+For a normal in-process SOP route, `auto` also has a bounded implicit
+interaction approval so the root agent can continue without making the user
+stay at the computer. This is only prompt suppression: it never authorizes an
+action token, private disclosure, signer, provider, protected merge, deploy,
+release, or cleanup. New material disclosure identities still require their
+own explicit authorization, and `--strict` restores per-step user prompting.
+
 The root agent can inspect the stable interaction-only request fingerprint with
 `sbw interaction preview --scope-file <material-scope.json>`. A matching
 standing directive suppresses only the duplicate prompt; it never grants an

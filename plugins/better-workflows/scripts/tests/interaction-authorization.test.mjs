@@ -73,6 +73,43 @@ test("default auto mode emits one stable HOLD without a standing directive", () 
   assert.equal(first.technicalGatesRequired, true);
 });
 
+test("SOP route auto mode approves interaction without granting action authority", () => {
+  const request = buildInteractionRequest({
+    scope: scope({
+      safetyConstraints: {
+        ...scope().safetyConstraints,
+        interactionPolicy: "sop-auto-v1"
+      }
+    })
+  });
+  const decision = decideInteractionAuthorization({ request });
+  assert.equal(decision.ok, true);
+  assert.equal(decision.decision, "auto-approved");
+  assert.equal(decision.reason, "auto-mode-default");
+  assert.equal(decision.implicit, true);
+  assert.equal(decision.suppressDuplicatePrompt, true);
+  assert.equal(decision.grantsActionAuthority, false);
+  assert.equal(decision.technicalGatesRequired, true);
+  const receipt = buildInteractionAuthorizationReceipt({ request, decision });
+  assert.equal(receipt.implicit, true);
+  assert.equal(receipt.grantsActionAuthority, false);
+});
+
+test("strict mode still requires a user decision for an SOP route", () => {
+  const request = buildInteractionRequest({
+    mode: "strict",
+    scope: scope({
+      safetyConstraints: {
+        ...scope().safetyConstraints,
+        interactionPolicy: "sop-auto-v1"
+      }
+    })
+  });
+  const decision = decideInteractionAuthorization({ request });
+  assert.equal(decision.ok, false);
+  assert.equal(decision.reason, "strict-mode");
+});
+
 test("matching active standing scope suppresses a duplicate prompt but grants no action authority", () => {
   const request = buildInteractionRequest({ scope: scope() });
   const decision = decideInteractionAuthorization({
@@ -193,4 +230,3 @@ test("standing directives are closed, technical-gate-only records", () => {
     "src,tests"
   );
 });
-

@@ -41,7 +41,9 @@ test("SOP incident corpus covers convergence, launch, review, and fixture amplif
     "exact-sha-evaluator-retry-loop",
     "model-output-schema-blocks-tools",
     "reviewed-wrong-diff",
-    "same-process-timer-race"
+    "same-process-timer-race",
+    "duplicate-approval-prompt-loop",
+    "strict-mode-default-confusion"
   ]) assert.ok(ids.includes(required), required);
   assert.deepEqual(
     [...new Set(corpus.incidents.map((incident) => incident.class))].sort(),

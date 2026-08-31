@@ -1187,6 +1187,7 @@ export async function previewRoute({
       decision: interactionAuthorization.decision,
       reason: interactionAuthorization.reason,
       renewed: interactionAuthorization.renewed === true,
+      implicit: interactionAuthorization.implicit === true,
       predecessorAuthorizationId: interactionAuthorization.predecessorAuthorizationId ?? null,
       hold: interactionAuthorization.hold ?? null,
       authorityClass: interactionAuthorization.authorityClass,

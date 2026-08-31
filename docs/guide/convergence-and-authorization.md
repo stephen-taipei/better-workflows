@@ -11,6 +11,18 @@ package ID, nonce, or execution ID must never reset a bounded repair loop.
 
 The default interaction mode is `auto-deduplicated`:
 
+- An ordinary Better Workflows route is implicitly approved for its bounded
+  in-process SOP interaction. This removes the repeated “please approve this
+  same step” loop and does not wait for the user to copy a command or provide a
+  password.
+- This implicit decision is an interaction UX result only. It never issues an
+  action token, authorizes a provider, discloses a new private package, or
+  bypasses a required review, signer, check, merge, deploy, or cleanup gate.
+- A new recipient/model/provider, private disclosure package, or other
+  material boundary still requires its own explicit authorization. Native
+  macOS administrator prompts remain owned by the installed signer; the agent
+  must observe that session rather than collect credentials in chat.
+
 - Reuse a current standing user directive without asking again when repository,
   goal, recipient/provider/model, disclosed data scope, side-effect kinds, and
   safety constraints are materially unchanged.
@@ -24,7 +36,8 @@ The default interaction mode is `auto-deduplicated`:
   expressly covers that changed scope.
 - Use strict per-request prompting only when the user explicitly asks for
   strict interaction mode. Otherwise produce at most one structured HOLD for a
-  genuinely missing authority; do not repeat the same question in later turns.
+  genuinely missing material authority; do not repeat the same question in
+  later turns.
 - Never ask for an administrator password in chat, copy it, pipe it, or retry a
   privileged prompt. Use a matching installed standing grant with `sudo -n`, or
   trigger one exact native macOS administrator interaction and then observe that
@@ -45,11 +58,12 @@ The scope file must describe the repository, goal digest, recipient/provider/
 model, disclosed data scope, target, side-effect kinds, and safety constraints.
 For a review or delivery request it should also include the exact source,
 base/head, contract, package, instruction, diff-manifest, reviewer, and
-execution identities. The command emits at most one reusable HOLD for that
-fingerprint. Supplying a validated `--standing-file` can return
-`auto-approved` only when all material fields match exactly; timestamps and
-receipt freshness may be renewed with a predecessor link. `--strict` always
-requires a new user decision.
+execution identities. An SOP route can return one bounded implicit
+`auto-approved` decision for that fingerprint; a generic material-scope or
+private-disclosure request emits at most one reusable HOLD. Supplying a
+validated `--standing-file` can return `auto-approved` only when all material
+fields match exactly; timestamps and receipt freshness may be renewed with a
+predecessor link. `--strict` always requires a new user decision.
 
 Any new package, instruction, reviewer/execution identity, recipient/provider/
 model, repository, candidate bytes, or side-effect kind is material drift—even
@@ -73,6 +87,17 @@ the same goal. Terminalize as `campaign-repair-budget-exhausted`, preserve all
 receipts, and either redesign the workflow as a materially different goal or
 return the bounded BLOCK to the user. Renaming a goal, branch, run, state root,
 or package to evade the budget is prohibited.
+
+## Cost and convergence telemetry
+
+Every governed run should retain a small, sanitized cost record alongside its
+normal receipts: route mode, interaction decision, elapsed wall time, terminal
+outcome (`success`, `partial`, `blocked`, or `inconclusive`), repair-wave count,
+resume count, and (when a provider supplies it) input/output token totals. The
+record is diagnostic metadata only; it never changes an action gate. Aggregate
+these fields by repository and template to expose prompt loops, repeated
+infrastructure replacements, scope drift, and resume MTTR. A missing metric is
+`unknown`, never zero, and must not be used to claim an efficiency improvement.
 
 ## One launcher per governed operation
 

@@ -170,8 +170,9 @@ test("route preview exposes a stable interaction fingerprint without granting ac
     acceptanceDefined: true,
     interactionMode: "auto"
   });
-  assert.equal(first.interactionAuthorization.decision, "requires-user");
-  assert.equal(first.interactionAuthorization.reason, "missing-standing-directive");
+  assert.equal(first.interactionAuthorization.decision, "auto-approved");
+  assert.equal(first.interactionAuthorization.reason, "auto-mode-default");
+  assert.equal(first.interactionAuthorization.implicit, true);
   assert.equal(first.interactionAuthorization.grantsActionAuthority, false);
   assert.equal(first.interactionAuthorization.technicalGatesRequired, true);
   assert.equal(first.interactionAuthorization.requestDigest, second.interactionAuthorization.requestDigest);
