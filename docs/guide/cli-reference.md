@@ -98,6 +98,8 @@ sbw status <run-id>
 sbw resume <run-id>
 sbw metrics list [--limit <1..500>]
 sbw metrics summary [--limit <1..500>]
+sbw metrics shadow --baseline-file <sanitized.json> \
+  --candidate-file <sanitized.json> --binding-file <binding.json>
 sbw autonomy preview <run-id>
 sbw autonomy preflight <run-id>
 sbw autonomy revoke <run-id>
@@ -170,7 +172,20 @@ the foreground server and launch a fresh replay command.
 records. They expose sanitized mode, outcome, elapsed time, resume/scope-drift
 and replacement counts, plus provider token totals only when observed. Missing
 values remain `null` and are accompanied by warnings; the summary never treats
-unknown usage or terminal time as zero and cannot authorize an action.
+unknown usage or terminal time as zero and cannot authorize an action. Repository
+grouping uses a one-way `repositoryDigest`; local checkout paths are never
+included in exported metrics. Prompt counts are also `null` when no interaction
+observation event was recorded; an absent observation is never reported as zero.
+
+`metrics shadow` compares two operator-selected, sanitized metric batches only
+when their `ShadowReplayBindingV1` records match exactly. It rejects filesystem
+paths, prompts, provider payloads, duplicate runs, missing fields, and binding
+drift before producing a `ShadowReplayComparisonV1`. The result is always
+`observe-only`/`shadow-only` with `accepted: false`; cost regressions and
+unknown observations are reported for a pilot review, never used to switch a
+template or authorize a side effect. The binding file must contain the same
+repository, goal, scope, suite, acceptance, template, and mode digests for the
+v1 and v2 batches.
 
 A run-bound launch keeps the library navigation usable, but `/api/v1/runs`
 returns only that one bound run and rejects every other run replay route. Typed

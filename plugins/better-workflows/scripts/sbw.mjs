@@ -206,6 +206,7 @@ import { openReplayBrowserWithRecovery, replayStartedEvent, startReplayServer } 
 import { fixedToolPath, runFormalEvaluator } from "./lib/formal-evaluator.mjs";
 import { runNativeReview } from "./lib/native-review-runner.mjs";
 import { listRunMetrics, readRunMetrics, summarizeRunMetrics } from "./lib/metrics.mjs";
+import { compareShadowReplay } from "./lib/shadow-replay.mjs";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const TEMPLATE_DIR = path.join(pluginRoot(), "templates");
@@ -2445,6 +2446,7 @@ function help() {
       "sbw status <run-id>",
       "sbw inspect <run-id>",
       "sbw metrics <run-id> | sbw metrics list|summary [--limit <1..500>]",
+      "sbw metrics shadow --baseline-file <sanitized.json> --candidate-file <sanitized.json> --binding-file <binding.json>",
       "sbw resume <run-id>",
       "sbw autonomy preview|preflight|revoke <run-id>",
       "sbw cancel <run-id> [--reason <text>]",
@@ -2627,13 +2629,32 @@ async function main() {
   }
   if (command === "inspect") return { ok: true, ...(await inspectRun(root, subcommand)) };
   if (command === "metrics") {
-    assertKnownOptions(options, ["limit"]);
+    assertKnownOptions(options, ["limit", "baseline-file", "candidate-file", "binding-file"]);
     if (subcommand === "list") {
       return { ok: true, schemaVersion: 1, metrics: await listRunMetrics(root, { limit: options.limit ?? 50 }) };
     }
     if (subcommand === "summary") {
       const metrics = await listRunMetrics(root, { limit: options.limit ?? 500 });
       return { ok: true, summary: summarizeRunMetrics(metrics) };
+    }
+    if (subcommand === "shadow") {
+      for (const option of ["baseline-file", "candidate-file", "binding-file"]) {
+        if (!options[option]) throw new Error(`metrics shadow requires --${option}`);
+      }
+      const readInput = async (option, label) => {
+        const file = path.resolve(String(options[option]));
+        try {
+          return JSON.parse(await readFile(file, "utf8"));
+        } catch (error) {
+          throw new Error(`metrics shadow could not read ${label}: ${error.message}`);
+        }
+      };
+      const [baseline, candidate, binding] = await Promise.all([
+        readInput("baseline-file", "baseline metrics"),
+        readInput("candidate-file", "candidate metrics"),
+        readInput("binding-file", "comparison binding")
+      ]);
+      return { ok: true, shadow: compareShadowReplay({ baseline, candidate, binding }) };
     }
     if (!subcommand) throw new Error("metrics requires <run-id> or list");
     return { ok: true, metrics: await readRunMetrics(root, subcommand) };

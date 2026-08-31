@@ -108,7 +108,13 @@ bindings. Shadow runs must be read-only: they may write isolated receipts and
 metrics, but cannot issue provider tokens, disclose private material, or mutate
 Git, worktrees, or remote state. Compare terminal outcome, scope-drift count,
 resume MTTR, repair waves, prompt count, and unknown/inconclusive rate from
-`sbw metrics summary`; an absent metric stays unknown.
+`sbw metrics summary`; an absent metric stays unknown (including prompt counts
+when the journal has no interaction observation event). For an explicit paired
+pilot, export two sanitized `RunEfficiencyMetricsV1` arrays and a matching
+`ShadowReplayBindingV1`, then run `sbw metrics shadow --baseline-file
+<sanitized.json> --candidate-file <sanitized.json> --binding-file
+<binding.json>`. The comparison rejects path or binding leakage and is always
+observe-only.
 
 Do not claim that v2 is better from a single green run. A pilot may graduate
 only after an operator-configured batch has complete pair coverage, no

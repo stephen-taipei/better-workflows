@@ -3,7 +3,8 @@ import { campaignStatus } from "./campaign.mjs";
 import {
   inspectRun,
   readJournalRecords,
-  safeJoin
+  safeJoin,
+  sha256
 } from "./core.mjs";
 
 export const RUN_METRICS_SCHEMA_VERSION = 1;
@@ -121,6 +122,9 @@ function metricWarnings({ run, journal, usage, campaign }) {
   if (!usage) warnings.push("provider-token-usage-unavailable");
   if (campaign?.legacyUnbound) warnings.push("campaign-binding-unavailable");
   if (!journal.some((record) => record?.event === "run.created")) warnings.push("run-created-event-unavailable");
+  if (!journal.some((record) => /interaction|authorization.*(?:prompt|request|hold|decision)/i.test(String(record?.event ?? "")))) {
+    warnings.push("interaction-prompt-observation-unavailable");
+  }
   return warnings;
 }
 
@@ -144,7 +148,10 @@ export function buildRunMetrics({ run, journal = [], evidence = [], actions = []
   const resumeCount = countMatching(journal, (record) => /(?:^|[.:-])resume(?:d)?(?:$|[.:-])/i.test(String(record?.event ?? "")));
   const scopeDriftCount = countMatching(journal, (record) => /drift|rebound|stale/i.test(String(record?.event ?? "")));
   const replacementCount = countMatching(journal, (record) => /replacement|formal.*attempt/i.test(String(record?.event ?? "")));
-  const promptCount = countMatching(journal, (record) => /interaction|authorization.*prompt/i.test(String(record?.event ?? "")));
+  const interactionEvents = journal.filter((record) => /interaction|authorization.*(?:prompt|request|hold|decision)/i.test(String(record?.event ?? "")));
+  const promptCount = interactionEvents.length === 0
+    ? null
+    : countMatching(interactionEvents, (record) => /interaction|authorization.*(?:prompt|request|hold)/i.test(String(record?.event ?? "")));
   const actionOutcomes = Object.fromEntries(
     ["success", "failure", "pending", "unknown"].map((value) => [
       value,
@@ -155,7 +162,9 @@ export function buildRunMetrics({ run, journal = [], evidence = [], actions = []
     schemaVersion: RUN_METRICS_SCHEMA_VERSION,
     kind: "RunEfficiencyMetricsV1",
     runId: run.manifest.runId ?? run.state.runId ?? null,
-    repository: typeof run.manifest.cwd === "string" ? run.manifest.cwd : null,
+    // Keep cross-project grouping possible without disclosing a local
+    // checkout path.  Metrics are safe to export to a shadow comparison.
+    repositoryDigest: typeof run.manifest.cwd === "string" ? sha256(run.manifest.cwd) : null,
     template: run.manifest.template ?? run.contract?.template ?? null,
     mode: run.manifest.mode ?? run.state.mode ?? null,
     requestedMode: run.manifest.requestedMode ?? null,
@@ -187,12 +196,14 @@ export function summarizeRunMetrics(metrics = []) {
   if (!Array.isArray(metrics)) throw new Error("Run metrics must be an array");
   const ordered = metrics.slice().sort((left, right) => String(left?.runId ?? "").localeCompare(String(right?.runId ?? "")));
   const outcomeCounts = { success: 0, partial: 0, blocked: 0, inconclusive: 0, pending: 0 };
+  const repositoryCounts = {};
   const modeCounts = {};
   const templateCounts = {};
   const warningCounts = {};
   for (const metric of ordered) {
     const outcome = metric?.outcome === null || metric?.outcome === undefined ? "pending" : String(metric.outcome);
     outcomeCounts[outcome] = (outcomeCounts[outcome] ?? 0) + 1;
+    increment(repositoryCounts, metric?.repositoryDigest);
     increment(modeCounts, metric?.mode);
     increment(templateCounts, metric?.template);
     for (const warning of Array.isArray(metric?.metricWarnings) ? metric.metricWarnings : []) {
@@ -234,6 +245,7 @@ export function summarizeRunMetrics(metrics = []) {
     runCount: ordered.length,
     terminalCount: ordered.filter((metric) => metric?.outcome !== null && metric?.outcome !== undefined).length,
     outcomeCounts,
+    repositoryCounts,
     modeCounts,
     templateCounts,
     elapsedWallTimeMs: {

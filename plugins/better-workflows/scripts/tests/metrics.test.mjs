@@ -36,7 +36,12 @@ test("run metrics classify terminal cost without treating missing usage as zero"
   assert.equal(metrics.resumeCount, 1);
   assert.equal(metrics.repairWaveCount, 2);
   assert.equal(metrics.usage, null);
+  assert.equal(metrics.repository, undefined);
+  assert.match(metrics.repositoryDigest, /^[a-f0-9]{64}$/);
+  assert.doesNotMatch(JSON.stringify(metrics), /\/repo/);
   assert.ok(metrics.metricWarnings.includes("provider-token-usage-unavailable"));
+  assert.equal(metrics.interactionPromptCount, null);
+  assert.ok(metrics.metricWarnings.includes("interaction-prompt-observation-unavailable"));
   assert.equal(metrics.actionOutcomes.unknown, 1);
 });
 
@@ -60,7 +65,7 @@ test("run metrics preserve observed provider token totals and classify completed
     cache_write_input_tokens: 0,
     reasoning_output_tokens: 0
   });
-  assert.deepEqual(metrics.metricWarnings, []);
+  assert.deepEqual(metrics.metricWarnings, ["interaction-prompt-observation-unavailable"]);
 });
 
 test("run metrics anchor fallback terminal time to the terminal transition", () => {
@@ -89,6 +94,7 @@ test("run metrics summary exposes convergence cost without converting unknowns t
   assert.equal(summary.runCount, 3);
   assert.equal(summary.terminalCount, 2);
   assert.deepEqual(summary.outcomeCounts, { success: 1, partial: 0, blocked: 1, inconclusive: 0, pending: 1 });
+  assert.deepEqual(summary.repositoryCounts, { unknown: 3 });
   assert.equal(summary.elapsedWallTimeMs.total, 400);
   assert.equal(summary.elapsedWallTimeMs.medianMs, 100);
   assert.equal(summary.elapsedWallTimeMs.p95Ms, 300);
