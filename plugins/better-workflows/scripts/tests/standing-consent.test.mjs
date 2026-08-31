@@ -87,6 +87,7 @@ test("standing evaluator consent is exact, bounded, and delivery-denying", async
 test("standing-consent path catalog keeps generated HTML outside standing consent", async () => {
   const policy = await loadStandingConsentPolicy(REPOSITORY);
   assert.deepEqual(policy.value.sanitization.allowedPathPatterns, [...STANDING_CONSENT_ALLOWED_PATH_PATTERNS]);
+  assert.ok(STANDING_CONSENT_ALLOWED_PATH_PATTERNS.some((pattern) => pattern.includes("convergence-and-authorization")));
   assert.ok(STANDING_CONSENT_ALLOWED_PATH_PATTERNS.every((pattern) => !/docs\/html\/(?:index|preview)/.test(pattern)));
   assert.ok(STANDING_CONSENT_ALLOWED_PATH_PATTERNS.some((pattern) => pattern.includes("docs/html/use-cases/assets")));
 });
