@@ -2793,7 +2793,7 @@ test("release eligibility catches up a version bump after a later non-version pu
           RELEASE_TAG_DRY_RUN: "1"
         }
       }),
-      /below the highest published dev release 3\.4\.14/
+      /below the highest published dev release 3\.4\.15/
     );
     await writeFile(path.join(work, "plugins/better-workflows/package.json"), JSON.stringify({ version: "3.4.15" }));
     await writeFile(path.join(work, "plugins/better-workflows/.codex-plugin/plugin.json"), JSON.stringify({ version: "3.4.15+codex.test" }));
@@ -2826,7 +2826,7 @@ test("release eligibility catches up a version bump after a later non-version pu
           RELEASE_TAG_DRY_RUN: "1"
         }
       }),
-      /history contains 3\.4\.14 above current 3\.4\.13/
+      /history contains 3\.4\.15 above current 3\.4\.13/
     );
   } finally {
     await rm(root, { recursive: true, force: true });
