@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -32,6 +32,12 @@ let latestPolicyReceiptMetadata = {
 };
 let policyArtifactUnavailableResponses = 0;
 let policyWorkflowInProgressResponses = 0;
+
+test("stable release workflow exports the token required by its publisher", async () => {
+  const workflow = await readFile(path.resolve(".github/workflows/stable-release.yml"), "utf8");
+  assert.match(workflow, /GH_TOKEN:\s*\$\{\{\s*github\.token\s*\}\}/);
+  assert.match(workflow, /GITHUB_TOKEN:\s*\$\{\{\s*github\.token\s*\}\}/);
+});
 
 function zipStoredJson(filename, value) {
   const name = Buffer.from(filename);

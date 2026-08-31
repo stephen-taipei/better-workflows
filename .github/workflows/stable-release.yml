@@ -33,6 +33,7 @@ jobs:
     environment: stable-release
     env:
       GH_TOKEN: ${{ github.token }}
+      GITHUB_TOKEN: ${{ github.token }}
       SBW_STATE_ROOT: ${{ runner.temp }}/sbw-release-state
       SBW_RELEASE_REVISION: ${{ inputs.revision }}
     steps:
