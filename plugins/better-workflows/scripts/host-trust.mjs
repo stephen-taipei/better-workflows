@@ -840,6 +840,7 @@ const PUBLIC_DOCUMENT_SAMPLE_PRIORITY = new Map([
   "SECURITY.md",
   "docs/guide/security.md",
   "docs/guide/architecture.md",
+  "docs/guide/convergence-and-authorization.md",
   "docs/guide/readme-quality.md",
   "scripts/plugin-cache.mjs",
   "docs/assets/better-workflows-engineering-stack.svg"
