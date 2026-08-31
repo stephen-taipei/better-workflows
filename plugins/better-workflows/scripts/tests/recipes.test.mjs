@@ -720,6 +720,78 @@ test("published artifact intent replays after a crash before action reconciliati
     artifactSentinel.json.sentinel.digest
   );
 
+  const rootAlias = ".";
+  const rootAliasAttemptId = await issueAndConsume(
+    cwd,
+    stateRoot,
+    runId,
+    "artifact.promote",
+    `artifact:${executed.json.receiptId}:report-markdown:${rootAlias}`
+  );
+  const rootAliasIntentDirectory = path.join(
+    stateRoot,
+    "runs",
+    runId,
+    "local-provider-intents"
+  );
+  const rootAliasAdmissionDirectory = path.join(
+    stateRoot,
+    "runs",
+    runId,
+    "local-provider-intent-admissions"
+  );
+  const rootAliasRunBefore = await inspectRun(stateRoot, runId);
+  const rootAliasJournalBefore = await readFile(
+    path.join(stateRoot, "runs", runId, "journal.jsonl"),
+    "utf8"
+  );
+  const rootAliasIntentEntriesBefore = await readdir(rootAliasIntentDirectory);
+  const rootAliasAdmissionEntriesBefore = await readdir(rootAliasAdmissionDirectory);
+  const deniedRootAlias = await cli(
+    cwd,
+    stateRoot,
+    [
+      "recipe",
+      "artifact",
+      "promote",
+      executed.json.receiptId,
+      "--artifact",
+      "report-markdown",
+      "--to",
+      rootAlias
+    ],
+    { allowFailure: true }
+  );
+  assert.notEqual(deniedRootAlias.code, 0);
+  assert.match(
+    deniedRootAlias.stderr,
+    /safe tracked repo-relative path|non-root workspace-relative path/
+  );
+  const rootAliasRunAfter = await inspectRun(stateRoot, runId);
+  const rootAliasJournalAfter = await readFile(
+    path.join(stateRoot, "runs", runId, "journal.jsonl"),
+    "utf8"
+  );
+  assert.deepEqual(
+    rootAliasRunAfter.actions.find((item) => item.attemptId === rootAliasAttemptId),
+    rootAliasRunBefore.actions.find((item) => item.attemptId === rootAliasAttemptId)
+  );
+  assert.equal(rootAliasJournalAfter, rootAliasJournalBefore);
+  assert.deepEqual(await readdir(rootAliasIntentDirectory), rootAliasIntentEntriesBefore);
+  assert.deepEqual(
+    await readdir(rootAliasAdmissionDirectory),
+    rootAliasAdmissionEntriesBefore
+  );
+  await assert.rejects(
+    access(path.join(rootAliasIntentDirectory, `${rootAliasAttemptId}.json`))
+  );
+  assert.equal(
+    (await readdir(rootAliasAdmissionDirectory)).some((name) => (
+      name.startsWith(`${rootAliasAttemptId}.`)
+    )),
+    false
+  );
+
   const destination = "reports/published-replay/keyset-report.md";
   const artifactAttemptId = await issueAndConsume(
     cwd,

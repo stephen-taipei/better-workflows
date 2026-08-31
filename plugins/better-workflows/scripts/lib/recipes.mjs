@@ -3354,6 +3354,7 @@ export async function recipeArtifactPromote(
   const destinationComponents = normalized.split("/");
   if (
     path.isAbsolute(normalized) ||
+    normalized === "." ||
     normalized === ".." ||
     normalized.startsWith("../") ||
     path.posix.normalize(normalized) !== normalized ||
@@ -3563,10 +3564,29 @@ async function assertSafeDestination(
   protectedIdentities = new Set(),
   { expectedParentChain = null, requireCompleteParent = false } = {}
 ) {
-  pathContained(root, target, "artifact destination");
-  const relative = path.relative(root, path.dirname(target));
-  let current = path.resolve(root);
-  const rootInfo = await lstat(current);
+  const resolvedRoot = path.resolve(root);
+  const resolvedTarget = path.resolve(target);
+  const targetRelative = path.relative(resolvedRoot, resolvedTarget);
+  if (
+    !targetRelative ||
+    targetRelative === "." ||
+    targetRelative === ".." ||
+    targetRelative.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(targetRelative)
+  ) {
+    throw recipeError("artifact destination must be a non-root workspace-relative path");
+  }
+  pathContained(resolvedRoot, resolvedTarget, "artifact destination");
+  const relative = path.relative(resolvedRoot, path.dirname(resolvedTarget));
+  if (
+    relative === ".." ||
+    relative.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relative)
+  ) {
+    throw recipeError("artifact destination parent escapes the workspace");
+  }
+  let current = resolvedRoot;
+  const rootInfo = await lstat(resolvedRoot);
   if (rootInfo.isSymbolicLink() || !rootInfo.isDirectory()) {
     throw recipeError("Git worktree root is unsafe");
   }
@@ -3586,7 +3606,7 @@ async function assertSafeDestination(
       throw recipeError(`artifact destination resolves through Git authority or reserved recipe state: ${current}`);
     }
     parentChain.push({
-      relative: path.relative(root, current).split(path.sep).join("/"),
+      relative: path.relative(resolvedRoot, current).split(path.sep).join("/"),
       identity: filesystemIdentity(info)
     });
   }
