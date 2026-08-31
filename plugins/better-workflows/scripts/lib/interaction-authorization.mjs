@@ -124,11 +124,11 @@ function normalizeDigest(value, label, { nullable = false } = {}) {
   return normalized;
 }
 
-function normalizeRevisionOrDigest(value, label, { nullable = false } = {}) {
+function normalizeRevision(value, label, { nullable = false } = {}) {
   const normalized = normalizeString(value, label, { nullable });
   if (normalized === null) return null;
-  if (!GIT_SHA.test(normalized) && !SHA256.test(normalized)) {
-    throw new Error(`${label} must be a Git commit SHA or lowercase SHA-256 digest`);
+  if (!GIT_SHA.test(normalized)) {
+    throw new Error(`${label} must be a lowercase 40-character Git commit SHA`);
   }
   return normalized;
 }
@@ -161,7 +161,7 @@ function normalizeScopeForComparison(scope) {
     } else if (key === "safetyConstraints") {
       normalized[key] = normalizeConstraints(scope[key]);
     } else if (REVISION_FIELDS.has(key)) {
-      normalized[key] = normalizeRevisionOrDigest(scope[key], `Interaction scope.${key}`, { nullable: NULLABLE_FIELDS.has(key) });
+      normalized[key] = normalizeRevision(scope[key], `Interaction scope.${key}`, { nullable: NULLABLE_FIELDS.has(key) });
     } else if (DIGEST_FIELDS.has(key)) {
       normalized[key] = normalizeDigest(scope[key], `Interaction scope.${key}`, { nullable: NULLABLE_FIELDS.has(key) });
     } else {

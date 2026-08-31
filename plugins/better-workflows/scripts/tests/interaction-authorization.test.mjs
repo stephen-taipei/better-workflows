@@ -18,8 +18,8 @@ function scope(overrides = {}) {
     repository: "github.com/example/better-workflows",
     goalDigest: digest("a"),
     sourceBindingDigest: digest("b"),
-    base: digest("c"),
-    head: digest("d"),
+    base: "c".repeat(40),
+    head: "d".repeat(40),
     contractDigest: digest("e"),
     packageId: "review-123",
     packageDigest: digest("f"),
@@ -134,6 +134,17 @@ test("review scopes accept forty-character Git revisions for base and head", () 
   assert.equal(request.scope.base, "b".repeat(40));
   assert.equal(request.scope.head, "c".repeat(40));
   assert.match(request.scopeDigest, /^[a-f0-9]{64}$/);
+});
+
+test("review scopes reject SHA-256 digests in base and head revision fields", () => {
+  assert.throws(
+    () => buildInteractionRequest({ scope: scope({ base: digest("c") }) }),
+    /base must be a lowercase 40-character Git commit SHA/
+  );
+  assert.throws(
+    () => buildInteractionRequest({ scope: scope({ head: digest("d") }) }),
+    /head must be a lowercase 40-character Git commit SHA/
+  );
 });
 
 test("freshness-only renewal preserves the predecessor and never compares timestamps as scope", () => {

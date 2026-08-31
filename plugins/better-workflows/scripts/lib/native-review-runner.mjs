@@ -19,6 +19,8 @@ const execFileAsync = promisify(execFile);
 const SHA = /^[a-f0-9]{40}$/;
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,191}$/;
 const MAX_FILE_BYTES = 8 * 1024 * 1024;
+const NATIVE_REVIEW_TIMEOUT_MS = 45 * 60 * 1000;
+const NATIVE_REVIEW_TIMEOUT_GRACE_MS = 5 * 1000;
 const REVIEW_PROTOCOL = "native-review-tool-capable-v1";
 
 function sha256(value) {
@@ -185,7 +187,21 @@ function reviewProtocol({ base, head, packageId, manifestPaths }) {
   ].join("\n"), "utf8");
 }
 
-function spawnReview(command, args, { cwd, input, env = process.env }) {
+export function spawnReview(
+  command,
+  args,
+  {
+    cwd,
+    input,
+    env = process.env,
+    timeoutMs = NATIVE_REVIEW_TIMEOUT_MS,
+    timeoutGraceMs = NATIVE_REVIEW_TIMEOUT_GRACE_MS
+  }
+) {
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 ||
+      !Number.isSafeInteger(timeoutGraceMs) || timeoutGraceMs < 1) {
+    return Promise.reject(new Error("Native review timeout policy is invalid"));
+  }
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       cwd,
@@ -212,17 +228,33 @@ function spawnReview(command, args, { cwd, input, env = process.env }) {
     };
     process.once("SIGTERM", forwardTerm);
     process.once("SIGINT", forwardInt);
-    const timeout = setTimeout(() => terminateGroup("SIGTERM"), 45 * 60 * 1000);
+    let timeoutEscalation;
+    const clearTimers = () => {
+      clearTimeout(timeout);
+      if (timeoutEscalation) clearTimeout(timeoutEscalation);
+    };
+    const settleReject = (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimers();
+      cleanup();
+      reject(error);
+    };
+    const timeout = setTimeout(() => {
+      terminateGroup("SIGTERM");
+      timeoutEscalation = setTimeout(() => {
+        terminateGroup("SIGKILL");
+        settleReject(new Error(`Native review timed out after ${timeoutMs}ms`));
+      }, timeoutGraceMs);
+      timeoutEscalation.unref();
+    }, timeoutMs);
     timeout.unref();
     const collect = (target) => (chunk) => {
       size += chunk.length;
       if (size > MAX_FILE_BYTES) {
         terminateGroup("SIGTERM");
         if (!settled) {
-          settled = true;
-          clearTimeout(timeout);
-          cleanup();
-          reject(new Error("Native review transport output exceeded the bounded limit"));
+          settleReject(new Error("Native review transport output exceeded the bounded limit"));
         }
       } else target.push(chunk);
     };
@@ -231,7 +263,7 @@ function spawnReview(command, args, { cwd, input, env = process.env }) {
     child.once("error", (error) => {
       if (!settled) {
         settled = true;
-        clearTimeout(timeout);
+        clearTimers();
         cleanup();
         reject(error);
       }
@@ -239,7 +271,7 @@ function spawnReview(command, args, { cwd, input, env = process.env }) {
     child.once("close", (code, signal) => {
       if (!settled) {
         settled = true;
-        clearTimeout(timeout);
+        clearTimers();
         cleanup();
         resolve({
           pid: child.pid,
@@ -298,7 +330,9 @@ export async function runNativeReview({
   model,
   reviewerId,
   executionId,
-  resultPath
+  resultPath,
+  timeoutMs = NATIVE_REVIEW_TIMEOUT_MS,
+  timeoutGraceMs = NATIVE_REVIEW_TIMEOUT_GRACE_MS
 }) {
   if (!SAFE_ID.test(String(runId ?? "")) || !SHA.test(String(base ?? "")) || !SHA.test(String(head ?? "")) || !SAFE_ID.test(String(packageId ?? "")) ||
       !SAFE_ID.test(String(model ?? "")) || !SAFE_ID.test(String(reviewerId ?? "")) || !SAFE_ID.test(String(executionId ?? ""))) {
@@ -367,7 +401,11 @@ export async function runNativeReview({
   const reviewInput = Buffer.concat([protocol, instructionFile.bytes]);
   const codex = await locateCodex();
   const toolPath = await fixedToolPath();
-  const reviewPath = [toolPath, process.env.PATH].filter(Boolean).join(path.delimiter);
+  const reviewPath = [...new Set([
+    path.dirname(process.execPath),
+    toolPath,
+    process.env.PATH
+  ].filter(Boolean).flatMap((value) => value.split(path.delimiter)))].join(path.delimiter);
   const args = [
     "-a", "never",
     "exec",
@@ -429,7 +467,9 @@ export async function runNativeReview({
     execution = await spawnReview(codex, args, {
       cwd: repository,
       input: reviewInput,
-      env: { ...process.env, PATH: reviewPath }
+      env: { ...process.env, PATH: reviewPath },
+      timeoutMs,
+      timeoutGraceMs
     });
   } catch (error) {
     const finishedAt = new Date().toISOString();

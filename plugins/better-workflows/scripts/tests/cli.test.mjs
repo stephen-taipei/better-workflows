@@ -13,7 +13,7 @@ import {
   reconcileInterruptedFormalAttempt,
   stableBootIdentity
 } from "../lib/formal-evaluator.mjs";
-import { runNativeReview } from "../lib/native-review-runner.mjs";
+import { runNativeReview, spawnReview } from "../lib/native-review-runner.mjs";
 
 const execFileAsync = promisify(execFile);
 const CLI = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "sbw.mjs");
@@ -51,7 +51,7 @@ test("native review runner pins BASE..HEAD scope and validates final JSON after 
   await writeFile(packagePath, packageBytes);
   await writeFile(manifestPath, manifestBytes);
   await writeFile(instructionPath, instructionBytes);
-  await writeFile(fakeCodex, `#!${process.execPath}\nconst fs=require('node:fs');const a=process.argv.slice(2);if(a.includes('--output-schema'))process.exit(42);const i=a.indexOf('--output-last-message');fs.writeFileSync(a[i+1],JSON.stringify({schemaVersion:1,verdict:'PASS',scopeCoverage:{base:'${base}',head:'${head}',manifestPathCount:1,reviewedPathCount:1,complete:true},findings:[]}));\n`, { mode: 0o700 });
+  await writeFile(fakeCodex, `#!${process.execPath}\nconst fs=require('node:fs');const a=process.argv.slice(2);if(a.includes('--output-schema'))process.exit(42);const i=a.indexOf('--output-last-message');fs.writeFileSync('${path.join(fixture, "reviewer-path.txt")}',process.env.PATH);fs.writeFileSync(a[i+1],JSON.stringify({schemaVersion:1,verdict:'PASS',scopeCoverage:{base:'${base}',head:'${head}',manifestPathCount:1,reviewedPathCount:1,complete:true},findings:[]}));\n`, { mode: 0o700 });
   const repository = await realpath(cwd);
   const model = "gpt-5.5";
   const reviewerId = "codex-native-review-test";
@@ -87,6 +87,7 @@ test("native review runner pins BASE..HEAD scope and validates final JSON after 
     assert.equal(result.result.verdict, "PASS");
     assert.match(result.resultSha256, /^[a-f0-9]{64}$/);
     assert.equal(JSON.parse(await readFile(resultPath, "utf8")).verdict, "PASS");
+    assert.ok((await readFile(path.join(fixture, "reviewer-path.txt"), "utf8")).split(path.delimiter).includes(path.dirname(process.execPath)));
     const attempt = JSON.parse(await readFile(path.join(runDir, "native-review-attempts", `${packageId}.json`), "utf8"));
     assert.equal(attempt.status, "passed");
     await rm(resultPath);
@@ -97,6 +98,26 @@ test("native review runner pins BASE..HEAD scope and validates final JSON after 
   } finally {
     if (prior === undefined) delete process.env.CODEX_BINARY;
     else process.env.CODEX_BINARY = prior;
+    await rm(fixture, { recursive: true, force: true });
+  }
+});
+
+test("native review timeout escalates and rejects when the reviewer ignores SIGTERM", async () => {
+  const fixture = await mkdtemp(path.join(os.tmpdir(), "sbw-native-review-timeout-"));
+  try {
+    await assert.rejects(
+      spawnReview(process.execPath, [
+        "-e",
+        "process.stdin.resume(); process.on('SIGTERM', () => {}); setInterval(() => {}, 1000);"
+      ], {
+        cwd: fixture,
+        input: Buffer.alloc(0),
+        timeoutMs: 50,
+        timeoutGraceMs: 50
+      }),
+      /Native review timed out after 50ms/
+    );
+  } finally {
     await rm(fixture, { recursive: true, force: true });
   }
 });
