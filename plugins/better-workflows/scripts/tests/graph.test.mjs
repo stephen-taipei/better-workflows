@@ -40,6 +40,7 @@ test("workflow migration accepts only bounded shipped version families", () => {
     legacyV34(8),
     legacyV34(13),
     legacyV34(14, "+codex.20260824T024228"),
+    "3.5.0",
     "4.0.0",
     "4.0.0+codex.test"
   ]) {
@@ -49,7 +50,7 @@ test("workflow migration accepts only bounded shipped version families", () => {
     "2.6.0+codex.test",
     legacyV34(14, "-alpha.1"),
     legacyV34(15),
-    "3.5.0",
+    "3.5.1",
     "4.0.1",
     "5.0.0",
     `0${legacyV34(14)}`,
