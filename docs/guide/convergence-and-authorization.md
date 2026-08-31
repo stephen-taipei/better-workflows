@@ -30,6 +30,35 @@ The default interaction mode is `auto-deduplicated`:
   trigger one exact native macOS administrator interaction and then observe that
   session. If it is unavailable or fails, record HOLD once.
 
+## Main-agent approval bridge
+
+The root/main agent is the interaction coordinator. It may carry a user's
+standing directive forward and suppress a duplicate question, but the bridge is
+an interaction decision only; it is never an action token or provider
+authority. A caller can inspect a stable, non-secret request fingerprint with:
+
+```bash
+sbw interaction preview --scope-file <material-scope.json>
+```
+
+The scope file must describe the repository, goal digest, recipient/provider/
+model, disclosed data scope, target, side-effect kinds, and safety constraints.
+For a review or delivery request it should also include the exact source,
+base/head, contract, package, instruction, diff-manifest, reviewer, and
+execution identities. The command emits at most one reusable HOLD for that
+fingerprint. Supplying a validated `--standing-file` can return
+`auto-approved` only when all material fields match exactly; timestamps and
+receipt freshness may be renewed with a predecessor link. `--strict` always
+requires a new user decision.
+
+Any new package, instruction, reviewer/execution identity, recipient/provider/
+model, repository, candidate bytes, or side-effect kind is material drift—even
+when the goal text is unchanged. A consumed BLOCK is therefore a new
+authorization boundary, not a stale renewal. In every outcome, the result
+explicitly says that technical gates remain required and grants no action
+authority. Do not put passwords, tokens, or other credentials in a scope or
+standing file.
+
 ## Campaign-wide repair budget
 
 Every review-enabled run carries a repository campaign identity. The first

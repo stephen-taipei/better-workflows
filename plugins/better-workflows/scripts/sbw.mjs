@@ -169,6 +169,11 @@ import {
   validateRoutingProfileFile
 } from "./lib/routing.mjs";
 import {
+  buildInteractionAuthorizationReceipt,
+  buildInteractionRequest,
+  decideInteractionAuthorization
+} from "./lib/interaction-authorization.mjs";
+import {
   hostConformance,
   hostDoctor,
   hostList,
@@ -2176,7 +2181,9 @@ async function commandRoute(root, subcommand, action, options) {
       "mutation",
       "acceptance-defined",
       "integration-target",
-      "protected-target"
+      "protected-target",
+      "interaction-mode",
+      "strict"
     ]);
     const preview = await previewRoute({
       cwd: process.cwd(),
@@ -2201,7 +2208,10 @@ async function commandRoute(root, subcommand, action, options) {
       mutationIntent: String(options.mutation ?? "unknown"),
       acceptanceDefined: optionEnabled(options["acceptance-defined"]),
       integrationTarget: options["integration-target"] ? String(options["integration-target"]) : null,
-      protectedTarget: optionEnabled(options["protected-target"])
+      protectedTarget: optionEnabled(options["protected-target"]),
+      interactionMode: optionEnabled(options.strict)
+        ? "strict"
+        : String(options["interaction-mode"] ?? "auto")
     });
     if (optionEnabled(options.record)) {
       const receipt = await recordRouteReceipt({
@@ -2424,6 +2434,7 @@ function help() {
       "sbw route preview --goal <text> [--scope <path>] [--entry <id>|--template <name>] [--mode <mode>] [--mutation unknown|read-only|modify] [--acceptance-defined] [--risk 0..3 --uncertainty 0..3 --blast-radius 0..3 --irreversibility 0..3 --evidence-gap 0..3] [--hard-exclusion <code>] [--basic-check <label>] [--integration-target <branch> --protected-target] [--record]",
       "sbw route profile validate|install --file <profile.json>",
       "sbw route profile show",
+      "sbw interaction preview --scope-file <scope.json> [--standing-file <standing.json>] [--interaction-mode auto|strict] [--stale-reason freshness|time|receipt-refresh|nonce-refresh|exact-binding-refresh]",
       "sbw status <run-id>",
       "sbw inspect <run-id>",
       "sbw resume <run-id>",
@@ -2497,6 +2508,35 @@ async function main() {
   if (command === "graph") return commandGraph(root, subcommand, runId, options);
   if (command === "self-improve") return commandSelfImprove(root, subcommand, options, runId);
   if (command === "route") return commandRoute(root, subcommand, runId, options);
+  if (command === "interaction") {
+    if (subcommand !== "preview") {
+      throw new Error("interaction subcommand must be preview");
+    }
+    assertKnownOptions(options, ["scope-file", "standing-file", "interaction-mode", "strict", "stale-reason"]);
+    if (!options["scope-file"]) {
+      throw new Error("interaction preview requires --scope-file <scope.json>");
+    }
+    const scopeInput = JSON.parse(await readFile(path.resolve(String(options["scope-file"])), "utf8"));
+    const scope = scopeInput?.scope && !Array.isArray(scopeInput.scope) ? scopeInput.scope : scopeInput;
+    const mode = optionEnabled(options.strict)
+      ? "strict"
+      : String(options["interaction-mode"] ?? "auto");
+    const request = buildInteractionRequest({ scope, mode });
+    const standing = options["standing-file"]
+      ? JSON.parse(await readFile(path.resolve(String(options["standing-file"])), "utf8"))
+      : null;
+    const decision = decideInteractionAuthorization({
+      request,
+      standingAuthorization: standing,
+      staleReason: options["stale-reason"] ? String(options["stale-reason"]) : null
+    });
+    return {
+      ok: decision.ok,
+      request,
+      decision,
+      receipt: buildInteractionAuthorizationReceipt({ request, decision })
+    };
+  }
   if (command === "deliberation") return commandDeliberation(root, subcommand, options);
   if (command === "recipe") {
     if (subcommand === "init") {

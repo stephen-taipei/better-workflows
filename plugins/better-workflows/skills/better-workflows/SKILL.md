@@ -66,6 +66,22 @@ password. Use a matching installed non-interactive grant or trigger one exact
 native administrator interaction and observe it; failure remains HOLD without
 another prompt.
 
+The root agent may use the interaction-only bridge to make this deduplication
+observable and reproducible:
+
+```bash
+sbw interaction preview --scope-file <material-scope.json> \
+  [--standing-file <standing-directive.json>] [--strict]
+```
+
+The request fingerprint is stable across repeated prompts. A matching standing
+directive may suppress the duplicate question, including a freshness-only
+renewal with a predecessor link. The bridge never issues an action token or
+authorizes push, merge, deploy, cleanup, signing, or release; exact evidence,
+provider reconciliation, required checks, and host authority remain mandatory.
+New package/instruction/reviewer/execution identities after a BLOCK are a new
+authorization boundary and require fresh disclosure authority.
+
 Review repair limits are campaign-wide. The campaign ledger lives under the Git
 repository-independent host ledger root `~/.better-workflows/campaigns` and
 survives new clones, runs, state roots, packages, nonces, branches, and execution

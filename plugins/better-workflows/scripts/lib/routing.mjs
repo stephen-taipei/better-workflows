@@ -28,6 +28,11 @@ import { bundleDigest } from "./publication.mjs";
 import { autonomyProfileDigest, loadAutonomyProfile } from "./autonomy.mjs";
 import { canonicalSourceRoot, isGitRepository, runSourceGit } from "./git.mjs";
 import { isProtectedBranch, loadTaskWorktreePolicy } from "./workspace.mjs";
+import {
+  buildInteractionRequest,
+  decideInteractionAuthorization,
+  interactionScopeFromRoute
+} from "./interaction-authorization.mjs";
 
 const CATALOG_PATH = path.join(pluginRoot(), "config", "entrypoint-catalog.json");
 const PROFILE_RELATIVE_PATH = path.join(".better-workflows", "profile.json");
@@ -958,7 +963,9 @@ export async function previewRoute({
   mutationIntent = "unknown",
   acceptanceDefined = false,
   integrationTarget = null,
-  protectedTarget = false
+  protectedTarget = false,
+  interactionMode = "auto",
+  standingInteractionAuthorization = null
 } = {}) {
   const resolvedCwd = path.resolve(cwd);
   const routeGoal = String(goal ?? "").trim();
@@ -1061,6 +1068,25 @@ export async function previewRoute({
   const effectiveMode = source === "built-in-auto" && autoRiskAssessment.decision === "direct-fast-path"
     ? "direct"
     : strongestMode(selected.baseMode, minimumMode, mode);
+  const interactionScope = interactionScopeFromRoute({
+    repository: resolvedCwd,
+    goal: input.goal,
+    scope: input.scope,
+    integrationTarget,
+    protectedTarget,
+    effectiveMode,
+    template: selected.template ?? selected.entry ?? null,
+    mutationIntent
+  });
+  const interactionRequest = buildInteractionRequest({
+    scope: interactionScope,
+    mode: interactionMode,
+    requiredScopeFields: ["repository", "goalDigest", "dataScope", "safetyConstraints"]
+  });
+  const interactionAuthorization = decideInteractionAuthorization({
+    request: interactionRequest,
+    standingAuthorization: standingInteractionAuthorization
+  });
   const supportSkills = (profileRule?.route.supportSkills ?? []).slice(0, 3);
   const requiredCapabilities = [
     ...(selected.entry ? [`entry:${selected.entry}`] : []),
@@ -1106,7 +1132,10 @@ export async function previewRoute({
     capabilityDigest: snapshot.digest,
     bundleDigest: await pluginBundleDigest(),
     autonomy,
-    autoRiskAssessmentDigest: autoRiskAssessment.assessmentDigest
+    autoRiskAssessmentDigest: autoRiskAssessment.assessmentDigest,
+    interactionMode,
+    interactionScopeDigest: interactionRequest.scopeDigest,
+    interactionRequestDigest: interactionRequest.requestDigest
   };
   const primary = {
     entry: selected.entry,
@@ -1151,6 +1180,19 @@ export async function previewRoute({
     },
     autonomyProfile: autonomy,
     autoRiskAssessment,
+    interactionAuthorization: {
+      mode: interactionMode,
+      requestDigest: interactionRequest.requestDigest,
+      scopeDigest: interactionRequest.scopeDigest,
+      decision: interactionAuthorization.decision,
+      reason: interactionAuthorization.reason,
+      renewed: interactionAuthorization.renewed === true,
+      predecessorAuthorizationId: interactionAuthorization.predecessorAuthorizationId ?? null,
+      hold: interactionAuthorization.hold ?? null,
+      authorityClass: interactionAuthorization.authorityClass,
+      technicalGatesRequired: true,
+      grantsActionAuthority: false
+    },
     needsSelection: !selected.template && autoRiskAssessment.decision !== "direct-fast-path",
     input: {
       ...input,
@@ -1197,7 +1239,14 @@ export async function recordRouteReceipt({ stateRoot, cwd = process.cwd(), previ
       effectiveMode: preview.effectiveMode,
       profileRule: preview.profileRule,
       advisorySupportSkills: preview.advisorySupportSkills,
-      autonomyProfile: preview.autonomyProfile
+      autonomyProfile: preview.autonomyProfile,
+      interaction: preview.interactionAuthorization
+        ? {
+            mode: preview.interactionAuthorization.mode,
+            requestDigest: preview.interactionAuthorization.requestDigest,
+            scopeDigest: preview.interactionAuthorization.scopeDigest
+          }
+        : null
     },
     bindings: preview.bindings,
     routeDigest: preview.routeDigest
@@ -1288,6 +1337,7 @@ export async function validateRouteReceipt({
     template: receipt.requested.template,
     mode: receipt.requested.mode,
     autonomyProfile: receipt.route?.autonomyProfile?.id ?? null,
+    interactionMode: receipt.route?.interaction?.mode ?? "auto",
     risk: {
       risk: receipt.input.risk,
       uncertainty: receipt.input.uncertainty,

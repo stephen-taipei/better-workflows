@@ -149,6 +149,35 @@ test("route precedence is explicit, workspace, personal, then built-in auto", as
   assert.equal(personalFallback.needsSelection, true);
 });
 
+test("route preview exposes a stable interaction fingerprint without granting action authority", async () => {
+  const cwd = await workspace();
+  const stateRoot = path.join(cwd, "state");
+  const first = await previewRoute({
+    cwd,
+    stateRoot,
+    goal: "review a bounded source change",
+    scope: ["src", "tests"],
+    mutationIntent: "read-only",
+    acceptanceDefined: true,
+    interactionMode: "auto"
+  });
+  const second = await previewRoute({
+    cwd,
+    stateRoot,
+    goal: "review a bounded source change",
+    scope: ["tests", "src"],
+    mutationIntent: "read-only",
+    acceptanceDefined: true,
+    interactionMode: "auto"
+  });
+  assert.equal(first.interactionAuthorization.decision, "requires-user");
+  assert.equal(first.interactionAuthorization.reason, "missing-standing-directive");
+  assert.equal(first.interactionAuthorization.grantsActionAuthority, false);
+  assert.equal(first.interactionAuthorization.technicalGatesRequired, true);
+  assert.equal(first.interactionAuthorization.requestDigest, second.interactionAuthorization.requestDigest);
+  assert.equal(first.bindings.interactionScopeDigest, second.bindings.interactionScopeDigest);
+});
+
 test("workspace non-match falls back to personal and matching uses category AND with value OR", async () => {
   const cwd = await workspace();
   const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-routing-personal-"));

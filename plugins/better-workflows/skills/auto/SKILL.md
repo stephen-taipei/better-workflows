@@ -13,6 +13,12 @@ material repository/goal/recipient/data/side-effect scope. Exact receipts and
 gates are still required. Strict per-request prompting is opt-in only. A genuine
 scope expansion produces one structured HOLD, not a password or copy/paste loop.
 
+The root agent can inspect the stable interaction-only request fingerprint with
+`sbw interaction preview --scope-file <material-scope.json>`. A matching
+standing directive suppresses only the duplicate prompt; it never grants an
+action token or bypasses protected delivery gates. New package, reviewer,
+execution, recipient, provider, or model identities remain a fresh boundary.
+
 Before substantial work, always run a read-only repository preflight, even when
 the request initially looks non-Git:
 

@@ -16,6 +16,14 @@ action token, evidence gate, and provider reconciliation. If a required side
 effect was never covered or its material scope changed, emit one HOLD. Do not
 turn prompt suppression into admin bypass or global merge authority.
 
+For an auditable main-agent handoff, use `sbw interaction preview` with a
+scope file containing the exact repository, base/head, package/instruction,
+recipient/model, data scope, target, side-effect kinds, and safety constraints.
+The command returns a stable fingerprint and at most one deduplicated HOLD;
+`auto-approved` means only that the user question may be suppressed. It never
+authorizes a new package or execution identity after a BLOCK and never replaces
+the protected merge, signer, check, or reconciliation gates.
+
 Review repair budget is repository-campaign-wide. A new run, package, branch,
 state root, or execution identity does not reset it. On
 `campaign-repair-budget-exhausted`, stop before signer or remote action.
