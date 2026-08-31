@@ -1660,6 +1660,8 @@ export async function createRun({ root = getStateRoot(), contract, requestedMode
       baseRevision: baselineRevision ?? contract.remoteRevision ?? null,
       requireClean: contract.template === "self-improve-ops" || Boolean(contract.upstreamSelfImproveRunId)
     });
+    const { deriveCampaignBinding } = await import("./campaign.mjs");
+    const campaign = deriveCampaignBinding(contract, sourceBinding);
     const manifest = {
       schemaVersion: 1,
       runId,
@@ -1672,6 +1674,7 @@ export async function createRun({ root = getStateRoot(), contract, requestedMode
       evaluationPurpose: contract.selfImprovePurpose ?? "ordinary",
       pluginCacheRoot: getCodexPluginCacheRoot(),
       sourceBinding,
+      campaign,
       initialSourceBindingDigest: sourceBinding?.digest ?? null,
       evidenceAdmissionProtocolVersion: contract.evidenceAdmissionProtocolVersion,
       ...(contract.autonomyProfile
@@ -1723,6 +1726,7 @@ export async function createRun({ root = getStateRoot(), contract, requestedMode
     await appendJournal(root, stagingDir, "run.created", {
       mode,
       requestedMode,
+      campaignId: campaign.campaignId,
       evidenceAdmissionProtocolVersion: contract.evidenceAdmissionProtocolVersion
     });
     await rename(stagingDir, runDir);

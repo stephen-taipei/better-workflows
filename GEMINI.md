@@ -1,7 +1,6 @@
 # Better Workflows bridge for Gemini CLI
 
-Use the host-neutral control plane from the installed extension, never from a
-path relative to the user's current repository. Bind `<extension-root>` to the
+Use the host-neutral control plane from the installed extension, never from a path relative to the user's current repository. Bind `<extension-root>` to the
 directory from which Gemini CLI loaded this `GEMINI.md`; that same directory
 must contain `gemini-extension.json` with name `better-workflows`. If Gemini
 does not expose the context source path, the supported user-install fallback is

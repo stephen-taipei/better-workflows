@@ -1,7 +1,6 @@
 # Better Workflows bridge for Qwen Code
 
-Use the host-neutral control plane from the installed extension, never from a
-path relative to the user's current repository. Bind `<extension-root>` to the
+Use the host-neutral control plane from the installed extension, never from a path relative to the user's current repository. Bind `<extension-root>` to the
 directory from which Qwen Code loaded this `QWEN.md`; that same directory must
 contain `qwen-extension.json` with name `better-workflows`. If Qwen Code does
 not expose the context source path, the supported user-install fallback is

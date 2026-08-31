@@ -3457,21 +3457,30 @@ fi
 
     await writeFile(listPath, `${JSON.stringify([workflowRun])}\n`);
     await writeFile(path.join(actionDir, `${tokenHash}.json`), `${JSON.stringify(action)}\n`);
-    let mutationResolve;
-    const mutationDone = new Promise((resolve) => { mutationResolve = resolve; });
-    const mutationTimer = setTimeout(async () => {
-      await writeFile(path.join(actionDir, `${tokenHash}.json`), `${JSON.stringify({
-        ...action,
-        providerInvocation: { ...action.providerInvocation, errorDigest: sha256("concurrent-provider-writer") }
-      })}\n`);
-      mutationResolve();
-    }, 50);
+    const mutationTarget = path.join(actionDir, `${tokenHash}.json`);
+    const mutationPayload = `${JSON.stringify({
+      ...action,
+      providerInvocation: { ...action.providerInvocation, errorDigest: sha256("concurrent-provider-writer") }
+    })}\n`;
+    // Use a separate OS process for the concurrent writer.  A JavaScript
+    // timer in this process can be starved by a loaded bounded-provider
+    // supervisor, turning the race assertion into a false PASS/FAIL depending
+    // on event-loop scheduling.
+    const mutator = spawn(process.execPath, [
+      "-e",
+      "setTimeout(() => require('node:fs').writeFileSync(process.argv[1], process.argv[2]), 50)",
+      mutationTarget,
+      mutationPayload
+    ], { stdio: "ignore" });
+    const mutationDone = new Promise((resolve, reject) => {
+      mutator.once("error", reject);
+      mutator.once("close", (code) => code === 0 ? resolve() : reject(new Error(`mutation helper exited ${code}`)));
+    });
     await assert.rejects(
       resumeActionsDispatchObservation(root, run.runId, attemptId),
       /changed during resumable reconciliation/
     );
     await mutationDone;
-    clearTimeout(mutationTimer);
     const raced = JSON.parse(await readFile(path.join(actionDir, `${tokenHash}.json`), "utf8"));
     assert.equal(raced.providerInvocation.errorDigest, sha256("concurrent-provider-writer"));
   } finally {

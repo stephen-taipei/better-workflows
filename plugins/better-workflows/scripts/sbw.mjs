@@ -198,6 +198,8 @@ import {
   renderGraphMermaid
 } from "./lib/graph.mjs";
 import { openReplayBrowserWithRecovery, replayStartedEvent, startReplayServer } from "./lib/replay-server.mjs";
+import { runFormalEvaluator } from "./lib/formal-evaluator.mjs";
+import { runNativeReview } from "./lib/native-review-runner.mjs";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const TEMPLATE_DIR = path.join(pluginRoot(), "templates");
@@ -2320,7 +2322,7 @@ async function commandDeliberation(root, subcommand, options) {
   throw new Error("deliberation subcommand must be roster, deliberate, or arbitrate");
 }
 
-async function commandEval() {
+async function commandEvalSuites() {
   if (GRAPH_ENFORCEMENT_ENABLED) {
     const graph = await installedTemplateGraph();
     if (graphHasErrors(graph)) return graphStructuralFailure(graph, "eval");
@@ -2366,6 +2368,37 @@ async function commandEval() {
   return { ok: true, tests: tests.length };
 }
 
+async function commandEval(options = {}) {
+  assertKnownOptions(options, ["formal", "formal-child", "expected-head", "expected-base", "launch-root", "replacement-reason"]);
+  const formal = optionEnabled(options.formal);
+  const child = optionEnabled(options["formal-child"]);
+  if (formal && child) throw new Error("Formal evaluator parent and child modes are mutually exclusive");
+  if (child) {
+    if (options["expected-head"] || options["expected-base"] || options["launch-root"] || options["replacement-reason"]) {
+      throw new Error("Formal evaluator child cannot override parent bindings");
+    }
+    return commandEvalSuites();
+  }
+  if (!formal) {
+    if (options["expected-head"] || options["expected-base"] || options["launch-root"] || options["replacement-reason"]) {
+      throw new Error("Evaluator binding options require --formal");
+    }
+    return commandEvalSuites();
+  }
+  for (const required of ["expected-head", "expected-base", "launch-root"]) {
+    if (!options[required]) throw new Error(`Formal evaluator requires --${required}`);
+  }
+  return runFormalEvaluator({
+    cwd: process.cwd(),
+    scriptPath: fileURLToPath(import.meta.url),
+    nodePath: process.execPath,
+    expectedHead: String(options["expected-head"]),
+    expectedBase: String(options["expected-base"]),
+    launchRoot: String(options["launch-root"]),
+    replacementReason: options["replacement-reason"] ? String(options["replacement-reason"]) : null
+  });
+}
+
 function help() {
   return {
     usage: [
@@ -2404,6 +2437,7 @@ function help() {
       "sbw ledger compile <run-id> --design-packet <packet.json>",
       "sbw refinement status|apply <run-id> [--file <receipt.json>]",
       "sbw review package|finding|axis-digest|axis|verify-digest|verify|coverage|synthesize|status|repair|supersede|broad <run-id> ...",
+      "sbw review launch-native <run-id> --base <sha> --head <sha> --package <id> --package-file <json> --diff-manifest <json> --instruction <md> --authorization <json> --model <id> --reviewer-id <id> --execution-id <id> --result <absent-json>",
       "sbw review quorum run|verify|status <run-id> [--file <manifest.json>]",
       "sbw recipe init",
       "sbw recipe scaffold <id>",
@@ -2428,6 +2462,7 @@ function help() {
       "sbw workspace integrate|cleanup|status|completion-notice --repository-id <id> --task-id <id>",
       "sbw workspace reconcile --repository-id <id> --task-id <id> --run-id <governed-run-id>",
       "sbw eval",
+      "sbw eval --formal --expected-head <sha> --expected-base <sha> --launch-root </private/tmp/bw-*-formal-eval-*> [--replacement-reason host-sleep|sandbox-host-capability|launch-environment|command-interruption]",
       "sbw cleanup [--older-than-days 30] [--apply]",
       "sbw templates"
     ]
@@ -2951,6 +2986,35 @@ async function main() {
   }
   if (command === "review") {
     if (!runId) throw new Error("review requires run id");
+    if (subcommand === "launch-native") {
+      assertKnownOptions(options, [
+        "base", "head", "package", "package-file", "diff-manifest", "instruction",
+        "authorization", "model", "reviewer-id", "execution-id", "result"
+      ]);
+      for (const required of [
+        "base", "head", "package", "package-file", "diff-manifest", "instruction",
+        "authorization", "model", "reviewer-id", "execution-id", "result"
+      ]) {
+        if (!options[required]) throw new Error(`review launch-native requires --${required}`);
+      }
+      const run = await loadRun(root, runId);
+      return runNativeReview({
+        runId,
+        runDir: run.runDir,
+        cwd: run.manifest.cwd,
+        base: String(options.base),
+        head: String(options.head),
+        packageId: String(options.package),
+        packagePath: String(options["package-file"]),
+        manifestPath: String(options["diff-manifest"]),
+        instructionPath: String(options.instruction),
+        authorizationPath: String(options.authorization),
+        model: String(options.model),
+        reviewerId: String(options["reviewer-id"]),
+        executionId: String(options["execution-id"]),
+        resultPath: String(options.result)
+      });
+    }
     if (["axis-digest", "verify-digest"].includes(subcommand)) {
       assertKnownOptions(options, ["file"]);
       if (!options.file) throw new Error(`review ${subcommand} requires --file <receipt.json>`);
@@ -3029,6 +3093,7 @@ async function main() {
           })),
           openHigh: review.openHigh.map((item) => item.id),
           repairBudgetExhausted: review.repairBudgetExhausted,
+          campaign: review.campaign,
           scopedClosed: review.scopedClosed,
           kernel: review.kernel ? {
             workUniverseDigest: review.kernel.workUniverseDigest,
@@ -3114,7 +3179,7 @@ async function main() {
         )
       };
     }
-    throw new Error("review subcommand must be package, finding, axis-digest, axis, verify-digest, verify, coverage, synthesize, status, repair, supersede, or broad");
+    throw new Error("review subcommand must be package, finding, launch-native, axis-digest, axis, verify-digest, verify, coverage, synthesize, status, repair, supersede, or broad");
   }
   if (command === "refinement") {
     if (!runId) throw new Error("refinement requires run id");
@@ -3163,7 +3228,7 @@ async function main() {
   if (command === "doctor") return commandDoctor(root, options);
   if (command === "host") return commandHost(root, subcommand, runId, options);
   if (command === "workspace") return commandWorkspace(root, subcommand, options);
-  if (command === "eval") return commandEval();
+  if (command === "eval") return commandEval(options);
   if (command === "cleanup") {
     const defaults = await loadDefaults();
     return cleanupRuns(root, {

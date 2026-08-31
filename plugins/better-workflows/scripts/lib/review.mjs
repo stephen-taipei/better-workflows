@@ -2,6 +2,11 @@ import { appendJournal, assertCurrentEvidenceFreshness, assertMutableRun, atomic
 import { captureSentinel, runSourceGit } from "./git.mjs";
 import { quorumReviewEnabled, reviewKernelEnabled } from "./review-policy.mjs";
 import { changedPathsFromDiffManifest, isQuorumEvidence } from "./quorum.mjs";
+import {
+  assertCampaignRepairAvailable,
+  campaignStatus,
+  recordCampaignRepairEvent
+} from "./campaign.mjs";
 
 const SHA = /^[0-9a-f]{40}$/;
 const DIGEST = /^[0-9a-f]{64}$/;
@@ -299,6 +304,7 @@ export async function createReviewPackage(request) {
     } catch (error) {
       if (error.code !== "ENOENT") throw error;
     }
+    await assertCampaignRepairAvailable(run);
     await atomicWriteJson(root, target, value);
     return value;
   });
@@ -1237,13 +1243,37 @@ export async function addReviewFinding(root, runId, finding, { update = false } 
           if (!Object.hasOwn(disposition, key)) delete next[key];
         }
         await atomicWriteJson(root, target, next);
+        if (next.status === "open") {
+          await recordCampaignRepairEvent(run, {
+            eventId: `package-block:${next.packageId}`,
+            kind: "package-block",
+            packageId: next.packageId,
+            runId
+          });
+        }
         return next;
+      }
+      if (existing.status === "open") {
+        await recordCampaignRepairEvent(run, {
+          eventId: `package-block:${existing.packageId}`,
+          kind: "package-block",
+          packageId: existing.packageId,
+          runId
+        });
       }
       return existing;
     } catch (error) {
       if (error.code !== "ENOENT") throw error;
     }
     await atomicWriteJson(root, target, value);
+    if (value.status === "open") {
+      await recordCampaignRepairEvent(run, {
+        eventId: `package-block:${value.packageId}`,
+        kind: "package-block",
+        packageId: value.packageId,
+        runId
+      });
+    }
     return value;
   });
 }
@@ -1319,7 +1349,13 @@ export async function reviewStatus(root, runId) {
   const openHigh = scopedFindings.filter((item) => (
     ["P0", "P1"].includes(item.severity) && (scoped?.schemaVersion === 2 ? item.blocking : item.status === "open")
   ));
-  const repairBudgetExhausted = Boolean(scoped?.repairRounds >= 5 && openHigh.length > 0);
+  const campaign = await campaignStatus(run);
+  const openFindings = scopedFindings.filter((item) => (
+    scoped?.schemaVersion === 2 ? item.blocking : item.status === "open"
+  ));
+  const repairBudgetExhausted = Boolean(
+    (scoped?.repairRounds >= 5 || campaign.exhausted) && openFindings.length > 0
+  );
   const broadSentinelMatches = (
     run.state.lastSentinelVerified === true &&
     run.state.lastSentinelComplete === true &&
@@ -1389,6 +1425,7 @@ export async function reviewStatus(root, runId) {
     findings: scopedFindings,
     openHigh,
     repairBudgetExhausted,
+    campaign,
     scopedClosed,
     kernel,
     kernelReceiptsComplete,
@@ -1430,6 +1467,12 @@ export async function recordRepairRound(root, runId, packageIdValue, result) {
     }
     const nextRound = Number(value.repairRounds ?? 0) + 1;
     if (nextRound > 5) throw new Error("Scoped review repair budget exhausted");
+    await recordCampaignRepairEvent(run, {
+      eventId: `repair-round:${packageIdValue}:${repairAttemptId}`,
+      kind: "repair-round",
+      packageId: packageIdValue,
+      runId
+    });
     const next = {
       ...value,
       repairRounds: nextRound,

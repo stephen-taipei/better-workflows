@@ -128,6 +128,14 @@ sbw review quorum run <run-id> --file <quorum-manifest.json>
 sbw review finding <run-id> --file <finding.json>
 sbw review repair <run-id> --package <package-id> --file <result.json>
 sbw review broad <run-id> --package <package-id> --head <sha> --sentinel-digest <sha256>
+sbw review launch-native <run-id> --base <sha> --head <sha> \
+  --package <package-id> --package-file <package.json> \
+  --diff-manifest <manifest.json> --instruction <instruction.md> \
+  --authorization <authorization.json> --model <model> \
+  --reviewer-id <id> --execution-id <id> --result <new-absolute-result.json>
+sbw eval --formal --expected-head <sha> --expected-base <sha> \
+  --launch-root </private/tmp/bw-*-formal-eval-*> \
+  [--replacement-reason host-sleep|sandbox-host-capability|launch-environment|command-interruption]
 sbw refinement status <run-id>
 sbw refinement apply <run-id> --file <receipt.json>
 sbw complete <run-id>

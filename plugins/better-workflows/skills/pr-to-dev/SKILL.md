@@ -9,6 +9,17 @@ Read `../better-workflows/SKILL.md` completely and follow it, including the Goal
 
 Use template `pr-to-dev` with minimum mode `critical`. Inventory every in-scope change, stage explicit atomic commit batches, rebind the source after an intended commit wave with `sbw source rebind` before review (which invalidates all prior complete evidence and resets the v2 ledger), publish the candidate through the governed fixed-argv `pr.create` provider wrapper, require the PR to target the exact `dev` branch, verify fresh required checks for the current head, merge only the run-owned canonical PR without admin bypass, reconcile remote `dev`, and clean only resources owned by this run. A task that explicitly selects `bounded-autopilot-v1` may automate the bounded commit, cache, `codex/*` push, and `dev` PR stages after `sbw autonomy preflight`; protected merge, deploy, direct protected-branch push, and destructive cleanup remain separate human-authority gates.
 
+Use `auto-deduplicated` interaction by default: a standing user directive may
+suppress repeat questions for an unchanged material delivery scope, but each
+push, PR, merge, sync, and cleanup still requires its exact current contract,
+action token, evidence gate, and provider reconciliation. If a required side
+effect was never covered or its material scope changed, emit one HOLD. Do not
+turn prompt suppression into admin bypass or global merge authority.
+
+Review repair budget is repository-campaign-wide. A new run, package, branch,
+state root, or execution identity does not reset it. On
+`campaign-repair-budget-exhausted`, stop before signer or remote action.
+
 For a new ordinary, low-risk PR that does not touch governance or authority
 surfaces, use the isolated `pr-to-dev-agent-quorum` template instead. It keeps
 the same fresh-check, run-owned PR, protected merge, `adminBypass:false`, and

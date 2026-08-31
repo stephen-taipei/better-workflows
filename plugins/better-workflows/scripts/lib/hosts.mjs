@@ -852,8 +852,18 @@ export function renderHostSupportMarkdown(registry) {
   const tierOne = registry.hosts.filter((host) => host.supportTier === "tier1").map((host) => host.displayName).join(", ");
   const preview = registry.hosts.filter((host) => host.supportTier === "preview").map((host) => host.displayName).join(", ");
   const capabilityIds = registry.capabilityDefinitions.map((capability) => capability.id);
-  const capabilityRows = registry.hosts.map((host) => (
-    `| ${host.displayName} | ${capabilityIds.map((id) => host.capabilities[id]).join(" | ")} |`
+  const coreIds = capabilityIds.slice(0, 5);
+  const nativeIds = capabilityIds.slice(5);
+  const groups = new Map();
+  for (const host of registry.hosts) {
+    const key = JSON.stringify({ supportTier: host.supportTier, capabilities: host.capabilities });
+    const current = groups.get(key) ?? { hosts: [], host };
+    current.hosts.push(host.displayName);
+    groups.set(key, current);
+  }
+  const summarize = (host, ids) => ids.map((id) => `${id}: ${host.capabilities[id]}`).join("; ");
+  const capabilityRows = [...groups.values()].map(({ hosts, host }) => (
+    `| ${hosts.join(", ")} | ${host.supportTier} | ${summarize(host, coreIds)} | ${summarize(host, nativeIds)} |`
   ));
   return [
     "| Level | AI hosts | Operating systems | Promise |",
@@ -865,8 +875,8 @@ export function renderHostSupportMarkdown(registry) {
     "",
     "Capability status: `native` = host-native integration; `core-bridge` = shared Better Workflows control layer; `unverified` and `unavailable` are not equivalent to support.",
     "",
-    `| AI host | ${capabilityIds.join(" | ")} |`,
-    `| --- | ${capabilityIds.map(() => "---").join(" | ")} |`,
+    "| AI hosts | Support | Core control plane | Native and host-specific surfaces |",
+    "| --- | --- | --- | --- |",
     ...capabilityRows
   ].join("\n");
 }

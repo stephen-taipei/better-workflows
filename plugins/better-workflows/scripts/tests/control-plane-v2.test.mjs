@@ -53,6 +53,11 @@ import {
 } from "../lib/review.mjs";
 import { updateState } from "../lib/core.mjs";
 import { captureSentinel, captureSourceBinding } from "../lib/git.mjs";
+import {
+  assertCampaignRepairAvailable,
+  campaignStatus,
+  recordCampaignRepairEvent
+} from "../lib/campaign.mjs";
 
 const contractTemplate = {
   requiredEvidence: ["environment-state"],
@@ -86,6 +91,69 @@ const legacyReviewProfile = {
 
 const execFileAsync = promisify(execFile);
 const SBW_CLI = fileURLToPath(new URL("../sbw.mjs", import.meta.url));
+
+test("campaign repair budget survives fresh state roots, runs, and package identities", async () => {
+  const fixture = await mkdtemp(path.join(os.tmpdir(), "sbw-campaign-budget-"));
+  const repository = path.join(fixture, "repository");
+  const successorRepository = path.join(fixture, "repository-successor");
+  const firstRoot = path.join(fixture, "state-1");
+  const secondRoot = path.join(fixture, "state-2");
+  const campaignRoot = path.join(fixture, "campaigns");
+  await mkdir(repository);
+  await execFileAsync("git", ["init", "-q", "-b", "codex/campaign"], { cwd: repository });
+  await execFileAsync("git", ["config", "user.email", "campaign@example.invalid"], { cwd: repository });
+  await execFileAsync("git", ["config", "user.name", "Campaign Test"], { cwd: repository });
+  await execFileAsync("git", ["remote", "add", "origin", "https://github.com/example/campaign.git"], { cwd: repository });
+  await writeFile(path.join(repository, "README.md"), "campaign\n");
+  await execFileAsync("git", ["add", "README.md"], { cwd: repository });
+  await execFileAsync("git", ["commit", "-qm", "baseline"], { cwd: repository });
+  await execFileAsync("git", ["clone", "-q", repository, successorRepository]);
+  await execFileAsync("git", ["remote", "set-url", "origin", "https://github.com/example/campaign.git"], { cwd: successorRepository });
+  const priorCampaignRoot = process.env.SBW_CAMPAIGN_ROOT;
+  process.env.SBW_CAMPAIGN_ROOT = campaignRoot;
+  try {
+    const contract = buildContract({
+      template: "campaign-test",
+      templateDefinition: contractTemplate,
+      goal: "Fix one bounded campaign",
+      scope: ["."]
+    });
+    const first = await createRun({ root: firstRoot, contract: structuredClone(contract), requestedMode: "verified", cwd: repository });
+    const second = await createRun({ root: secondRoot, contract: structuredClone(contract), requestedMode: "verified", cwd: successorRepository });
+    const firstRun = await inspectRun(firstRoot, first.runId);
+    const secondRun = await inspectRun(secondRoot, second.runId);
+    assert.equal(firstRun.manifest.campaign.campaignId, secondRun.manifest.campaign.campaignId);
+    await recordCampaignRepairEvent(firstRun, {
+      eventId: "package-block:review-initial",
+      kind: "package-block",
+      packageId: "review-initial",
+      runId: first.runId
+    });
+    for (let round = 0; round < 5; round += 1) {
+      await recordCampaignRepairEvent(round % 2 === 0 ? firstRun : secondRun, {
+        eventId: `repair-round:review-${round}:attempt-${round}`,
+        kind: "repair-round",
+        packageId: `review-${round}`,
+        runId: round % 2 === 0 ? first.runId : second.runId
+      });
+    }
+    const status = await campaignStatus(secondRun);
+    assert.equal(status.repairEvents, 5);
+    assert.equal(status.exhausted, true);
+    await assert.rejects(assertCampaignRepairAvailable(secondRun), /Campaign repair budget exhausted/);
+  } finally {
+    if (priorCampaignRoot === undefined) delete process.env.SBW_CAMPAIGN_ROOT;
+    else process.env.SBW_CAMPAIGN_ROOT = priorCampaignRoot;
+    await rm(fixture, { recursive: true, force: true });
+  }
+});
+
+test("legacy runs without a campaign remain inspectable but cannot mint a fresh repair package", async () => {
+  const status = await campaignStatus({ manifest: {} });
+  assert.equal(status.legacyUnbound, true);
+  assert.equal(status.exhausted, true);
+  await assert.rejects(assertCampaignRepairAvailable({ manifest: {} }), /legacy-unbound-run/);
+});
 
 function gitWithInput(cwd, args, input) {
   return new Promise((resolve, reject) => {

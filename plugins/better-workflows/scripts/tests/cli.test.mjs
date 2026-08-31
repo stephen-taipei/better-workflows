@@ -1,15 +1,136 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { promisify } from "node:util";
-import { access, chmod, mkdir, mkdtemp, readFile, readdir, realpath, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { selectCodexBinaryPath } from "../lib/attestations.mjs";
+import { evaluateFormalAttemptPolicy, reconcileInterruptedFormalAttempt } from "../lib/formal-evaluator.mjs";
+import { runNativeReview } from "../lib/native-review-runner.mjs";
 
 const execFileAsync = promisify(execFile);
 const CLI = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "sbw.mjs");
+const hash = (value) => createHash("sha256").update(value).digest("hex");
+
+test("native review runner pins BASE..HEAD scope and validates final JSON after tool-capable launch", async () => {
+  const fixture = await mkdtemp(path.join(os.tmpdir(), "sbw-native-review-runner-"));
+  const cwd = path.join(fixture, "repository");
+  await mkdir(cwd);
+  await git(cwd, "init", "-q", "-b", "codex/native-review");
+  await git(cwd, "config", "user.name", "Native Review Test");
+  await git(cwd, "config", "user.email", "native-review@example.invalid");
+  await mkdir(path.join(cwd, "src"));
+  await writeFile(path.join(cwd, "src", "value.txt"), "before\n");
+  await git(cwd, "add", ".");
+  await git(cwd, "commit", "-qm", "base");
+  const base = await revision(cwd);
+  await writeFile(path.join(cwd, "src", "value.txt"), "after\n");
+  await git(cwd, "add", ".");
+  await git(cwd, "commit", "-qm", "head");
+  const head = await revision(cwd);
+  const packageId = "review-native-runner";
+  const runId = "sbw-native-review-runner";
+  const runDir = path.join(fixture, "run");
+  await mkdir(path.join(runDir, "review-packages"), { recursive: true });
+  const packagePath = path.join(runDir, "review-packages", `${packageId}.json`);
+  const manifestPath = path.join(fixture, "manifest.json");
+  const instructionPath = path.join(fixture, "instruction.md");
+  const authorizationPath = path.join(fixture, "authorization.json");
+  const resultPath = path.join(fixture, "result.json");
+  const fakeCodex = path.join(fixture, "codex");
+  const packageBytes = Buffer.from(`${JSON.stringify({ immutable: true, packageId, base, head })}\n`);
+  const manifestBytes = Buffer.from(`${JSON.stringify({ files: [{ status: "M", path: "src/value.txt" }] })}\n`);
+  const instructionBytes = Buffer.from("Inspect exact BASE..HEAD and return the frozen final JSON only.\n");
+  await writeFile(packagePath, packageBytes);
+  await writeFile(manifestPath, manifestBytes);
+  await writeFile(instructionPath, instructionBytes);
+  await writeFile(fakeCodex, `#!${process.execPath}\nconst fs=require('node:fs');const a=process.argv.slice(2);if(a.includes('--output-schema'))process.exit(42);const i=a.indexOf('--output-last-message');fs.writeFileSync(a[i+1],JSON.stringify({schemaVersion:1,verdict:'PASS',scopeCoverage:{base:'${base}',head:'${head}',manifestPathCount:1,reviewedPathCount:1,complete:true},findings:[]}));\n`, { mode: 0o700 });
+  const repository = await realpath(cwd);
+  const model = "gpt-5.5";
+  const reviewerId = "codex-native-review-test";
+  const executionId = "native-review-test-1";
+  await writeFile(authorizationPath, `${JSON.stringify({
+    schemaVersion: 1,
+    kind: "native-review-disclosure",
+    authorizationId: "native-review-test-authorization",
+    approvedAt: new Date().toISOString(),
+    authorized: true,
+    runId,
+    repository,
+    base,
+    head,
+    packageId,
+    packageSha256: hash(packageBytes),
+    manifestSha256: hash(manifestBytes),
+    instructionSha256: hash(instructionBytes),
+    reviewProtocol: "native-review-tool-capable-v1",
+    model,
+    reviewerId,
+    executionId,
+    resultPath,
+    readOnly: true,
+    ephemeral: true,
+    remoteSideEffects: false
+  })}\n`);
+  const prior = process.env.CODEX_BINARY;
+  process.env.CODEX_BINARY = fakeCodex;
+  try {
+    const result = await runNativeReview({ runId, runDir, cwd, base, head, packageId, packagePath, manifestPath, instructionPath, authorizationPath, model, reviewerId, executionId, resultPath });
+    assert.equal(result.ok, true);
+    assert.equal(result.result.verdict, "PASS");
+    assert.match(result.resultSha256, /^[a-f0-9]{64}$/);
+    assert.equal(JSON.parse(await readFile(resultPath, "utf8")).verdict, "PASS");
+    const attempt = JSON.parse(await readFile(path.join(runDir, "native-review-attempts", `${packageId}.json`), "utf8"));
+    assert.equal(attempt.status, "passed");
+    await rm(resultPath);
+    await assert.rejects(
+      runNativeReview({ runId, runDir, cwd, base, head, packageId, packagePath, manifestPath, instructionPath, authorizationPath, model, reviewerId, executionId, resultPath }),
+      /consumed model attempt/
+    );
+  } finally {
+    if (prior === undefined) delete process.env.CODEX_BINARY;
+    else process.env.CODEX_BINARY = prior;
+    await rm(fixture, { recursive: true, force: true });
+  }
+});
+
+test("formal evaluator permits one primary plus one classified infrastructure replacement only", () => {
+  assert.deepEqual(evaluateFormalAttemptPolicy([], null), { attemptNumber: 1, replacement: false });
+  assert.deepEqual(
+    evaluateFormalAttemptPolicy([{ status: "blocked" }], "command-interruption"),
+    { attemptNumber: 2, replacement: true }
+  );
+  assert.throws(() => evaluateFormalAttemptPolicy([], "host-sleep"), /primary attempt/);
+  assert.throws(() => evaluateFormalAttemptPolicy([{ status: "blocked" }], null), /approved infrastructure reason/);
+  assert.throws(() => evaluateFormalAttemptPolicy([{ status: "passed" }], "host-sleep"), /terminal PASS/);
+  assert.throws(() => evaluateFormalAttemptPolicy([{ status: "running" }], "host-sleep"), /in-progress/);
+  assert.throws(
+    () => evaluateFormalAttemptPolicy([{ status: "blocked" }, { status: "blocked" }], "host-sleep"),
+    /attempt budget exhausted/
+  );
+});
+
+test("formal evaluator terminalizes an orphaned running attempt before one bounded replacement", () => {
+  const attempts = [{ status: "running", attemptId: "formal-orphan", evaluatorPid: 4242 }];
+  const finishedAt = "2026-08-31T00:00:00.000Z";
+  assert.deepEqual(reconcileInterruptedFormalAttempt(attempts, { alive: false, finishedAt }), {
+    changed: true,
+    attempt: attempts[0]
+  });
+  assert.equal(attempts[0].status, "blocked");
+  assert.equal(attempts[0].blockReason, "recovered-command-interruption");
+  assert.deepEqual(evaluateFormalAttemptPolicy(attempts, "command-interruption"), {
+    attemptNumber: 2,
+    replacement: true
+  });
+  assert.throws(
+    () => reconcileInterruptedFormalAttempt([{ status: "running" }], { alive: true, finishedAt }),
+    /in-progress attempt/
+  );
+});
 
 test("attestation request defaults only to one host-approved Codex binary", () => {
   const approved = { path: "/private/var/db/better-workflows/bin/bw-host-codex.a", digest: "a".repeat(64) };

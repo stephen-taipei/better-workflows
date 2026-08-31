@@ -7,6 +7,12 @@ description: Goal-first 自動入口（推薦）；自動選 template、mode 與
 
 Read `../better-workflows/SKILL.md` completely and follow it, including the Goal-first entry contract.
 
+Use the main skill's default `auto-deduplicated` interaction mode. Do not repeat
+an authorization question when a current standing directive covers the same
+material repository/goal/recipient/data/side-effect scope. Exact receipts and
+gates are still required. Strict per-request prompting is opt-in only. A genuine
+scope expansion produces one structured HOLD, not a password or copy/paste loop.
+
 Before substantial work, always run a read-only repository preflight, even when
 the request initially looks non-Git:
 

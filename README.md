@@ -18,7 +18,7 @@ in a task-owned worktree and are integrated only when the target is safe.
 
 </div>
 
-[Quick start](docs/guide/getting-started.md) · [Workflows](docs/guide/workflows.md) · [Architecture](docs/guide/architecture.md) · [Security](docs/guide/security.md) · [CLI](docs/guide/cli-reference.md) · [Full details](docs/details/en.md)
+[Quick start](docs/guide/getting-started.md) · [Workflows](docs/guide/workflows.md) · [Convergence](docs/guide/convergence-and-authorization.md) · [Architecture](docs/guide/architecture.md) · [Security](docs/guide/security.md) · [CLI](docs/guide/cli-reference.md) · [Full details](docs/details/en.md)
 
 <!-- readme-roster -->
 **Host support:** Tier 1 is Codex, Claude Code, Gemini CLI, and Qwen Code on macOS/Linux. Kimi Code CLI, Kiro, Grok Build, Cursor, GitHub Copilot, and all Windows combinations are Preview. `agy` remains deliberation transport metadata, not another AI host.
@@ -50,20 +50,16 @@ Better Workflows cleanup.
 
 ### What Auto does before changing code
 
-1. Inspect the repository, goal, scope, instructions, source branch, and exact revision.
-2. Keep read-only work in place; create or reuse a task-owned worktree for Git mutation.
-3. Record `AutoRiskAssessmentV1` and choose Direct only when every low-risk condition passes.
-4. Validate the task result, then integrate a non-protected local target through a checked candidate and compare-and-swap update.
-5. Clean only resources owned by the same lease, and only after terminal integration proof.
+Auto inspects the repository, goal, scope, instructions, branch, and revision;
+records `AutoRiskAssessmentV1`; and uses Direct only when every low-risk rule
+passes. Read-only work stays in place, while Git mutation uses an owned
+worktree. Integration uses a checked candidate and compare-and-swap update;
+cleanup requires terminal proof from the same lease.
 
-Dirty source checkouts are never auto-stashed, copied, or committed. Detached
-HEAD or a missing/renamed target must be rebound by the user. `main`, `dev`,
-remote targets, releases, deployments, credentials, migrations, and other
-high-risk surfaces always use governed evidence and authority gates.
-Protected cleanup stays locked until the same governed run contains one exact
-successful PR merge receipt and one remote-sync receipt for the target. A
-squash result may delete the task ref only when those receipts bind the exact
-reviewed head and provider merge commit.
+Dirty state is never stashed or hidden. Detached or missing targets require
+rebind. Protected and remote work uses governed evidence; cleanup additionally
+requires exact merge and remote-sync receipts, including the reviewed head for
+a squash result.
 
 ### AI and operating-system support
 
@@ -82,33 +78,21 @@ claimed to be identical.
 
 Capability status: `native` = host-native integration; `core-bridge` = shared Better Workflows control layer; `unverified` and `unavailable` are not equivalent to support.
 
-| AI host | task-contract | typed-evidence | replay | action-gate | task-worktree | native-picker | native-subagents | self-improve-host-trust | plugin-cache-publication |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Codex | native | native | native | native | core-bridge | native | native | native | native |
-| Claude Code | core-bridge | core-bridge | core-bridge | core-bridge | core-bridge | unavailable | unverified | unavailable | unavailable |
-| Gemini CLI | core-bridge | core-bridge | core-bridge | core-bridge | core-bridge | unavailable | unverified | unavailable | unavailable |
-| Qwen Code | core-bridge | core-bridge | core-bridge | core-bridge | core-bridge | unavailable | unverified | unavailable | unavailable |
-| Kimi Code CLI | core-bridge | core-bridge | core-bridge | unverified | core-bridge | unavailable | unverified | unavailable | unavailable |
-| Kiro | core-bridge | core-bridge | core-bridge | unverified | core-bridge | unavailable | unverified | unavailable | unavailable |
-| Grok Build | core-bridge | core-bridge | core-bridge | unverified | core-bridge | unavailable | unverified | unavailable | unavailable |
-| Cursor | core-bridge | core-bridge | core-bridge | unverified | core-bridge | unavailable | unverified | unavailable | unavailable |
-| GitHub Copilot | core-bridge | core-bridge | core-bridge | unverified | core-bridge | unavailable | unverified | unavailable | unavailable |
+| AI hosts | Support | Core control plane | Native and host-specific surfaces |
+| --- | --- | --- | --- |
+| Codex | tier1 | task-contract: native; typed-evidence: native; replay: native; action-gate: native; task-worktree: core-bridge | native-picker: native; native-subagents: native; self-improve-host-trust: native; plugin-cache-publication: native |
+| Claude Code, Gemini CLI, Qwen Code | tier1 | task-contract: core-bridge; typed-evidence: core-bridge; replay: core-bridge; action-gate: core-bridge; task-worktree: core-bridge | native-picker: unavailable; native-subagents: unverified; self-improve-host-trust: unavailable; plugin-cache-publication: unavailable |
+| Kimi Code CLI, Kiro, Grok Build, Cursor, GitHub Copilot | preview | task-contract: core-bridge; typed-evidence: core-bridge; replay: core-bridge; action-gate: unverified; task-worktree: core-bridge | native-picker: unavailable; native-subagents: unverified; self-improve-host-trust: unavailable; plugin-cache-publication: unavailable |
 <!-- host-support-v1:end -->
 
-Use `sbw host list`, `sbw host doctor`, and `sbw host conformance` to inspect the
-registry and the current machine. A local PASS binds the pinned CLI version,
-source manifest and helper, official extension validation path, and core
-bridge. Gemini and Qwen conformance also install the repository distribution
-into an isolated home and compare the installed manifest, context, and helper
-digests. A local PASS does not become release proof until the same result is
-wrapped by an authenticated, source-bound CI/provider receipt for the exact
-host/OS combination.
+Use `sbw host list`, `host doctor`, and `host conformance` to inspect the pinned
+CLI, manifest, helper, extension path, and core bridge. Gemini and Qwen also
+validate an isolated installation. Local PASS is not release proof without an
+authenticated source-bound CI/provider receipt for that host and OS.
 
-Shared v4 state is host-neutral: `SBW_STATE_ROOT` overrides
-`XDG_STATE_HOME/better-workflows`, with `~/.better-workflows` as the portable
-default. `CODEX_HOME` is reserved for Codex-specific surfaces and no longer
-implicitly owns shared state. Existing v3 users can keep the old state by
-explicitly setting `SBW_STATE_ROOT` to their exact `<CODEX_HOME>/sbw` path.
+`SBW_STATE_ROOT` overrides `XDG_STATE_HOME/better-workflows`, with
+`~/.better-workflows` as the portable default. `CODEX_HOME` no longer owns shared state; it is Codex-specific;
+v3 users retain old state only by explicitly binding its exact `sbw` path.
 
 <!-- readme-section:problem-outcome -->
 ## From prompts to governed outcomes
@@ -140,18 +124,11 @@ those gaps into explicit gates.
 <!-- readme-claim:unknown-stop -->
 **Fail closed.** Drift, stale evidence, or unknown provider state always stops the workflow.
 
-**Review-kernel pilot.** `self-improve-ops` now inventories exact changed-file
-work units, separates independently attested finders from verifiers, binds
-findings to exact source anchors, and reduces private receipts into deterministic
-coverage and synthesis evidence. The pilot is shadow-only and cannot authorize
-side effects.
-
-Other review-enabled templates bind the legacy `review-contract-v1` capability
-profile into the TaskContract and review-package identity. It covers the
-immutable diff manifest, package-bound locations, broad-review receipt,
-provenance, and instruction digest; it does not claim kernel work-unit or
-finder/verifier guarantees. Only `self-improve-ops` may use the
-`review-kernel-v2-pilot`, and a profile never grants side-effect authority.
+**Review-kernel pilot.** `self-improve-ops` binds changed-file work units,
+independent finders/verifiers, source anchors, coverage, and synthesis. It is
+shadow-only. Other templates keep `review-contract-v1`, covering immutable diff,
+locations, broad review, provenance, and instruction digest. Neither profile
+grants side-effect authority.
 
 ![Better Workflows authority layers from prompt through read-only graph](docs/assets/better-workflows-engineering-stack.svg)
 
@@ -186,19 +163,12 @@ Then describe the outcome:
 $better-workflows:auto <describe the outcome you need>
 ```
 
-Success means the automatic route selects one concrete template and a minimum
-verification mode, or admits a fully bounded Direct route. Direct still cannot
-grant missing authority, install tools, widen scope, bypass a protected target,
-or skip the task worktree required for Git mutation. Its bounded runner accepts
-only guarded Node checks, reads only the task worktree/scratch, writes only to
-scratch, and promotes package-manager, network, child-process, native or
-checkout-external validation to the evidence route.
-
-Claude Code uses the plugin package; Gemini CLI and Qwen Code install the
-repository-root extension, whose bridge is the same
-`plugins/better-workflows` package. See the
-[getting-started guide](docs/guide/getting-started.md) for host-specific install
-commands and capability differences.
+Success selects one concrete template and minimum verification mode, or admits
+a bounded Direct route. Direct cannot invent authority, install tools, widen
+scope, bypass protection, or skip an owned worktree; package-manager, network,
+child-process, native, and checkout-external checks promote to evidence mode.
+Claude Code uses the plugin; Gemini and Qwen use the repository extension with
+the same core package. See [getting started](docs/guide/getting-started.md).
 
 [Install, verify, and run the first workflow →](docs/guide/getting-started.md)
 
@@ -216,9 +186,9 @@ commands and capability differences.
 | Preserve deterministic SOP mechanics | `$better-workflows:workspace-recipe` |
 | Improve Better Workflows from held-out evidence | `$better-workflows:self-improve` |
 
-Browse all selectors, modes, and templates in [Workflows](docs/guide/workflows.md).
-Security reviewers can start with [Security](docs/guide/security.md); operators
-can jump to the [CLI reference](docs/guide/cli-reference.md).
+Browse [Workflows](docs/guide/workflows.md), [Security](docs/guide/security.md),
+[CLI](docs/guide/cli-reference.md), and the [convergence and authorization
+guide](docs/guide/convergence-and-authorization.md).
 
 <!-- readme-section:lifecycle -->
 ## How delivery reaches completion
@@ -299,6 +269,7 @@ prove that the user's original goal was the right product decision.
 | Select a workflow or mode | [Workflows](docs/guide/workflows.md) |
 | Control-plane design and comparisons | [Architecture](docs/guide/architecture.md) |
 | Privacy, authority, actions, and attestations | [Security](docs/guide/security.md) |
+| Repair-loop termination and authorization deduplication | [Convergence](docs/guide/convergence-and-authorization.md) |
 | Commands and exit behavior | [CLI reference](docs/guide/cli-reference.md) |
 | Complete translated specification | [Full details](docs/details/en.md) |
 | README narrative and quality rules | [README quality blueprint](docs/guide/readme-quality.md) |

@@ -1,0 +1,110 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Sanitized regression corpus for workflow convergence and host launch reliability.",
+  "incidents": [
+    {
+      "id": "campaign-budget-reset",
+      "class": "convergence",
+      "symptom": "A fresh run, state root, or review package restarts the repair counter.",
+      "rootCause": "Repair accounting was stored only inside one run and package.",
+      "prevention": "Bind repair waves to a repository campaign ledger outside run state and reject work after the campaign budget is exhausted.",
+      "regression": "campaign-budget-cross-run"
+    },
+    {
+      "id": "zsh-readonly-variable",
+      "class": "launcher",
+      "symptom": "A host preflight exits before the evaluator starts.",
+      "rootCause": "A shell wrapper assigned a reserved zsh variable.",
+      "prevention": "Use the Node formal evaluator launcher without shell-local parsing.",
+      "regression": "formal-launcher-no-shell-parser"
+    },
+    {
+      "id": "process-scan-self-match",
+      "class": "launcher",
+      "symptom": "The long-suite check detects its own launcher command.",
+      "rootCause": "A process regex scanned literal command text from its own shell ancestry.",
+      "prevention": "Parse the process table in Node and exclude only the current process ancestry by PID.",
+      "regression": "formal-launcher-process-ancestry"
+    },
+    {
+      "id": "bsd-sed-alternation",
+      "class": "launcher",
+      "symptom": "The Mac lid parser returns an empty value.",
+      "rootCause": "A GNU-style expression was used with BSD sed.",
+      "prevention": "Inspect complete ioreg bytes in Node with exact string matching.",
+      "regression": "formal-launcher-host-preflight"
+    },
+    {
+      "id": "pipefail-short-reader",
+      "class": "launcher",
+      "symptom": "A successful host probe becomes exit 141.",
+      "rootCause": "A short-reading grep process closed a pipe while pipefail was enabled.",
+      "prevention": "Capture bounded command output first and parse it without a shell pipeline.",
+      "regression": "formal-launcher-host-preflight"
+    },
+    {
+      "id": "hardcoded-tool-location",
+      "class": "launcher",
+      "symptom": "A preflight cannot find rg or mkdir on a valid host.",
+      "rootCause": "The wrapper assumed one platform-specific binary path.",
+      "prevention": "Use Node filesystem APIs and resolve required executables from a fixed allowlisted PATH.",
+      "regression": "formal-launcher-fixed-path"
+    },
+    {
+      "id": "missing-tmp-parent",
+      "class": "launcher",
+      "symptom": "Every fixture using mkdtemp fails with ENOENT.",
+      "rootCause": "TMPDIR was bound to an absent directory.",
+      "prevention": "Exclusively create and stat the parent, state, cache, and tmp directories before launch.",
+      "regression": "formal-launcher-physical-paths"
+    },
+    {
+      "id": "incomplete-fixed-path",
+      "class": "launcher",
+      "symptom": "Child fixtures cannot spawn git or gh.",
+      "rootCause": "The evaluator replaced PATH with a set that omitted approved provider tools.",
+      "prevention": "Resolve git and gh before launch and pass one fixed Homebrew plus system PATH to the entire evaluator.",
+      "regression": "formal-launcher-fixed-path"
+    },
+    {
+      "id": "sandbox-host-identity-denied",
+      "class": "launcher",
+      "symptom": "Publication cannot bind the process incarnation.",
+      "rootCause": "The evaluator ran without host capability required for boot and process identity probes.",
+      "prevention": "Fail during formal preflight unless host sysctl and power identity probes succeed.",
+      "regression": "formal-launcher-host-preflight"
+    },
+    {
+      "id": "exact-sha-evaluator-retry-loop",
+      "class": "convergence",
+      "symptom": "Infrastructure replacements repeat indefinitely for one exact SHA.",
+      "rootCause": "Attempt accounting was encoded only in conversation coordination and disposable launch paths.",
+      "prevention": "Persist an exact-SHA attempt ledger and allow one primary plus at most one classified infrastructure replacement.",
+      "regression": "formal-evaluator-attempt-budget"
+    },
+    {
+      "id": "model-output-schema-blocks-tools",
+      "class": "review",
+      "symptom": "A reviewer returns review-not-executed without inspecting the diff.",
+      "rootCause": "The transport applied the final JSON schema to commentary and tool-call messages.",
+      "prevention": "Do not pass a model-time output schema; capture the final message and validate it independently.",
+      "regression": "native-review-tool-capable"
+    },
+    {
+      "id": "reviewed-wrong-diff",
+      "class": "review",
+      "symptom": "A PASS covers the local branch delta instead of the immutable package range.",
+      "rootCause": "The reviewer inferred scope from the current branch rather than the frozen BASE..HEAD manifest.",
+      "prevention": "Verify the exact Git path set before launch and require complete BASE..HEAD scope coverage in the final result.",
+      "regression": "native-review-exact-range"
+    },
+    {
+      "id": "same-process-timer-race",
+      "class": "test-fixture",
+      "symptom": "A reconciliation race sometimes misses the expected concurrent mutation.",
+      "rootCause": "The fixture scheduled the mutation on the same event loop as a blocking lifecycle.",
+      "prevention": "Run the concurrent mutation in a separate operating-system process.",
+      "regression": "dispatch-reconciliation-process-race"
+    }
+  ]
+}

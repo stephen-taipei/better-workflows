@@ -47,7 +47,8 @@ test("public host matrices are rendered from the registry without claiming nativ
   const markdown = renderHostSupportMarkdown(registry);
   const html = renderHostSupportHtml(registry);
   assert.match(markdown, /Recommended reference \| \*\*macOS \+ Codex\*\*/);
-  assert.match(markdown, /\| AI host \| task-contract \| typed-evidence \| replay \|/);
+  assert.match(markdown, /\| AI hosts \| Support \| Core control plane \| Native and host-specific surfaces \|/);
+  assert.match(markdown, /task-contract: native; typed-evidence: native; replay: native/);
   assert.match(markdown, /host-native UX may differ/);
   assert.match(markdown, /Windows \| Not covered by the v4\.0\.0 Tier 1 guarantee/);
   for (const host of registry.hosts) assert.match(html, new RegExp(host.displayName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
@@ -210,7 +211,7 @@ test("Tier 1 conformance fails closed on a mismatched package version or rejecte
   const rejectedExtension = await hostConformance({ hostId: "claude-code", osId: "linux", env: { PATH: bin } });
   assert.equal(rejectedExtension.result, "FAIL");
   assert.equal(rejectedExtension.extensionProbe.result, "FAIL");
-  assert.match(rejectedExtension.extensionProbe.reason, /Host extension probe claude-code failed/);
+  assert.match(rejectedExtension.extensionProbe.reason, /Host extension probe claude-code (?:primary )?failed/);
 });
 
 test("installed extension conformance rejects helper drift after a successful host install", async () => {
@@ -250,7 +251,7 @@ test("installed extension conformance rejects an incomplete runtime bundle", asy
   await chmod(qwen, 0o755);
   const receipt = await hostConformance({ hostId: "qwen-code", osId: "linux", env: { PATH: bin } });
   assert.equal(receipt.result, "FAIL");
-  assert.match(receipt.extensionProbe.reason, /Installed host bundle could not be inventoried/);
+  assert.match(receipt.extensionProbe.reason, /Installed host bundle differs from the complete source-bound distribution/);
 });
 
 test("host registry rejects Tier 1 Windows and duplicate host identities", async () => {
