@@ -74,6 +74,25 @@ function countMatching(records, predicate) {
   return records.reduce((count, record) => count + (predicate(record) ? 1 : 0), 0);
 }
 
+function increment(counter, key) {
+  const normalized = String(key ?? "unknown");
+  counter[normalized] = (counter[normalized] ?? 0) + 1;
+}
+
+function numericTotal(metrics, field) {
+  const observed = metrics.filter((metric) => Number.isInteger(metric?.[field]) && metric[field] >= 0);
+  return {
+    observedRuns: observed.length,
+    total: observed.reduce((sum, metric) => sum + metric[field], 0)
+  };
+}
+
+function percentile(values, fraction) {
+  if (values.length === 0) return null;
+  const index = Math.min(values.length - 1, Math.max(0, Math.ceil(values.length * fraction) - 1));
+  return values[index];
+}
+
 function metricWarnings({ run, journal, usage, campaign }) {
   const warnings = [];
   if (!TERMINAL_STATUSES.has(run.state?.status)) warnings.push("terminal-time-unknown");
@@ -137,6 +156,81 @@ export function buildRunMetrics({ run, journal = [], evidence = [], actions = []
   };
 }
 
+/**
+ * Aggregate sanitized run metrics without treating missing observations as
+ * zero. This is intentionally read-only and contains no prompts, payloads,
+ * provider responses, credentials, or filesystem paths.
+ */
+export function summarizeRunMetrics(metrics = []) {
+  if (!Array.isArray(metrics)) throw new Error("Run metrics must be an array");
+  const ordered = metrics.slice().sort((left, right) => String(left?.runId ?? "").localeCompare(String(right?.runId ?? "")));
+  const outcomeCounts = { success: 0, partial: 0, blocked: 0, inconclusive: 0, pending: 0 };
+  const modeCounts = {};
+  const templateCounts = {};
+  const warningCounts = {};
+  for (const metric of ordered) {
+    const outcome = metric?.outcome === null || metric?.outcome === undefined ? "pending" : String(metric.outcome);
+    outcomeCounts[outcome] = (outcomeCounts[outcome] ?? 0) + 1;
+    increment(modeCounts, metric?.mode);
+    increment(templateCounts, metric?.template);
+    for (const warning of Array.isArray(metric?.metricWarnings) ? metric.metricWarnings : []) {
+      increment(warningCounts, warning);
+    }
+  }
+  const elapsed = ordered
+    .map((metric) => metric?.elapsedWallTimeMs)
+    .filter((value) => Number.isInteger(value) && value >= 0)
+    .sort((left, right) => left - right);
+  const usageMetrics = ordered.filter((metric) => metric?.usage && typeof metric.usage === "object");
+  const usageTotals = usageMetrics.length === 0
+    ? null
+    : Object.fromEntries(USAGE_FIELDS.map((field) => [
+      field,
+      usageMetrics.reduce((sum, metric) => sum + (Number.isInteger(metric.usage[field]) && metric.usage[field] >= 0 ? metric.usage[field] : 0), 0)
+    ]));
+  const topCostRuns = ordered
+    .filter((metric) => Number.isInteger(metric?.elapsedWallTimeMs) && metric.elapsedWallTimeMs >= 0)
+    .sort((left, right) => right.elapsedWallTimeMs - left.elapsedWallTimeMs || String(left.runId).localeCompare(String(right.runId)))
+    .slice(0, 10)
+    .map((metric) => ({
+      runId: metric.runId ?? null,
+      template: metric.template ?? null,
+      mode: metric.mode ?? null,
+      outcome: metric.outcome ?? null,
+      elapsedWallTimeMs: metric.elapsedWallTimeMs,
+      repairWaveCount: Number.isInteger(metric.repairWaveCount) ? metric.repairWaveCount : null,
+      resumeCount: Number.isInteger(metric.resumeCount) ? metric.resumeCount : null,
+      scopeDriftCount: Number.isInteger(metric.scopeDriftCount) ? metric.scopeDriftCount : null,
+      infrastructureReplacementCount: Number.isInteger(metric.infrastructureReplacementCount)
+        ? metric.infrastructureReplacementCount
+        : null,
+      interactionPromptCount: Number.isInteger(metric.interactionPromptCount) ? metric.interactionPromptCount : null
+    }));
+  return {
+    schemaVersion: RUN_METRICS_SCHEMA_VERSION,
+    kind: "RunEfficiencySummaryV1",
+    runCount: ordered.length,
+    terminalCount: ordered.filter((metric) => metric?.outcome !== null && metric?.outcome !== undefined).length,
+    outcomeCounts,
+    modeCounts,
+    templateCounts,
+    elapsedWallTimeMs: {
+      observedRuns: elapsed.length,
+      total: elapsed.length > 0 ? elapsed.reduce((sum, value) => sum + value, 0) : null,
+      medianMs: elapsed.length > 0 ? percentile(elapsed, 0.5) : null,
+      p95Ms: elapsed.length > 0 ? percentile(elapsed, 0.95) : null
+    },
+    repairWaveCount: numericTotal(ordered, "repairWaveCount"),
+    resumeCount: numericTotal(ordered, "resumeCount"),
+    scopeDriftCount: numericTotal(ordered, "scopeDriftCount"),
+    infrastructureReplacementCount: numericTotal(ordered, "infrastructureReplacementCount"),
+    interactionPromptCount: numericTotal(ordered, "interactionPromptCount"),
+    usage: usageTotals === null ? null : { observedRuns: usageMetrics.length, totals: usageTotals },
+    warningCounts,
+    topCostRuns
+  };
+}
+
 export async function readRunMetrics(root, runId) {
   const inspected = await inspectRun(root, runId);
   const journal = await readJournalRecords(root, inspected.runDir);
@@ -168,4 +262,3 @@ export async function listRunMetrics(root, { limit = 50 } = {}) {
   metrics.sort((left, right) => (finiteTimestamp(right.createdAt) ?? 0) - (finiteTimestamp(left.createdAt) ?? 0));
   return metrics.slice(0, parsedLimit);
 }
-

@@ -96,6 +96,8 @@ sbw self-improve handoff <pr-to-dev-run-id> --source-run <self-improve-run-id>
 sbw run --route-receipt <route-receipt-id>
 sbw status <run-id>
 sbw resume <run-id>
+sbw metrics list [--limit <1..500>]
+sbw metrics summary [--limit <1..500>]
 sbw autonomy preview <run-id>
 sbw autonomy preflight <run-id>
 sbw autonomy revoke <run-id>
@@ -163,6 +165,12 @@ without its
 session, or reusing an expired/single-use bootstrap URL in a browser, shows one
 recovery state that hides the inactive player and tells the operator to stop
 the foreground server and launch a fresh replay command.
+
+`metrics list` and `metrics summary` are read-only views over the same run
+records. They expose sanitized mode, outcome, elapsed time, resume/scope-drift
+and replacement counts, plus provider token totals only when observed. Missing
+values remain `null` and are accompanied by warnings; the summary never treats
+unknown usage or terminal time as zero and cannot authorize an action.
 
 A run-bound launch keeps the library navigation usable, but `/api/v1/runs`
 returns only that one bound run and rejects every other run replay route. Typed

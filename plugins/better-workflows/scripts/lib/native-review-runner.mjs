@@ -13,6 +13,7 @@ import {
 import { createHash, randomBytes } from "node:crypto";
 import path from "node:path";
 import { promisify } from "node:util";
+import { fixedToolPath } from "./formal-evaluator.mjs";
 
 const execFileAsync = promisify(execFile);
 const SHA = /^[a-f0-9]{40}$/;
@@ -184,11 +185,11 @@ function reviewProtocol({ base, head, packageId, manifestPaths }) {
   ].join("\n"), "utf8");
 }
 
-function spawnReview(command, args, { cwd, input }) {
+function spawnReview(command, args, { cwd, input, env = process.env }) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       cwd,
-      env: process.env,
+      env,
       shell: false,
       detached: process.platform !== "win32",
       stdio: ["pipe", "pipe", "pipe"]
@@ -365,6 +366,8 @@ export async function runNativeReview({
   const protocol = reviewProtocol({ base, head, packageId, manifestPaths });
   const reviewInput = Buffer.concat([protocol, instructionFile.bytes]);
   const codex = await locateCodex();
+  const toolPath = await fixedToolPath();
+  const reviewPath = [toolPath, process.env.PATH].filter(Boolean).join(path.delimiter);
   const args = [
     "-a", "never",
     "exec",
@@ -423,7 +426,11 @@ export async function runNativeReview({
   }
   let execution;
   try {
-    execution = await spawnReview(codex, args, { cwd: repository, input: reviewInput });
+    execution = await spawnReview(codex, args, {
+      cwd: repository,
+      input: reviewInput,
+      env: { ...process.env, PATH: reviewPath }
+    });
   } catch (error) {
     const finishedAt = new Date().toISOString();
     await atomicJson(receiptPath, {

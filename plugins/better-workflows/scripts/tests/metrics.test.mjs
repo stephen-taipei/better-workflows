@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildRunMetrics } from "../lib/metrics.mjs";
+import { buildRunMetrics, summarizeRunMetrics } from "../lib/metrics.mjs";
 
 const run = {
   manifest: {
@@ -63,3 +63,23 @@ test("run metrics preserve observed provider token totals and classify completed
   assert.deepEqual(metrics.metricWarnings, []);
 });
 
+test("run metrics summary exposes convergence cost without converting unknowns to zero", () => {
+  const summary = summarizeRunMetrics([
+    { runId: "b", template: "pr-to-dev", mode: "critical", outcome: "blocked", elapsedWallTimeMs: 300, repairWaveCount: null, resumeCount: 2, scopeDriftCount: 1, infrastructureReplacementCount: 1, interactionPromptCount: 3, metricWarnings: ["provider-token-usage-unavailable"] },
+    { runId: "a", template: "pr-to-dev", mode: "critical", outcome: "success", elapsedWallTimeMs: 100, repairWaveCount: 1, resumeCount: 0, scopeDriftCount: 0, infrastructureReplacementCount: 0, interactionPromptCount: 0, usage: { input_tokens: 10, output_tokens: 5, cached_input_tokens: 0, cache_write_input_tokens: 0, reasoning_output_tokens: 0 }, metricWarnings: [] },
+    { runId: "c", template: "review-issues", mode: "deep", outcome: null, elapsedWallTimeMs: null, metricWarnings: ["terminal-time-unknown"] }
+  ]);
+  assert.equal(summary.runCount, 3);
+  assert.equal(summary.terminalCount, 2);
+  assert.deepEqual(summary.outcomeCounts, { success: 1, partial: 0, blocked: 1, inconclusive: 0, pending: 1 });
+  assert.equal(summary.elapsedWallTimeMs.total, 400);
+  assert.equal(summary.elapsedWallTimeMs.medianMs, 100);
+  assert.equal(summary.elapsedWallTimeMs.p95Ms, 300);
+  assert.deepEqual(summary.repairWaveCount, { observedRuns: 1, total: 1 });
+  assert.deepEqual(summary.resumeCount, { observedRuns: 2, total: 2 });
+  assert.equal(summary.usage.observedRuns, 1);
+  assert.equal(summary.usage.totals.input_tokens, 10);
+  assert.equal(summary.warningCounts["provider-token-usage-unavailable"], 1);
+  assert.equal(summary.warningCounts["terminal-time-unknown"], 1);
+  assert.deepEqual(summary.topCostRuns.map((run) => run.runId), ["b", "a"]);
+});

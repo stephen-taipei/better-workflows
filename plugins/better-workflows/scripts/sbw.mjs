@@ -203,9 +203,9 @@ import {
   renderGraphMermaid
 } from "./lib/graph.mjs";
 import { openReplayBrowserWithRecovery, replayStartedEvent, startReplayServer } from "./lib/replay-server.mjs";
-import { runFormalEvaluator } from "./lib/formal-evaluator.mjs";
+import { fixedToolPath, runFormalEvaluator } from "./lib/formal-evaluator.mjs";
 import { runNativeReview } from "./lib/native-review-runner.mjs";
-import { listRunMetrics, readRunMetrics } from "./lib/metrics.mjs";
+import { listRunMetrics, readRunMetrics, summarizeRunMetrics } from "./lib/metrics.mjs";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const TEMPLATE_DIR = path.join(pluginRoot(), "templates");
@@ -2371,13 +2371,19 @@ async function commandEvalSuites() {
     .sort()
     .map((name) => path.join(SCRIPT_DIR, "tests", name));
   if (tests.length === 0) throw new Error("No tests found");
+  // Keep local and formal suite children on the same allowlisted tool PATH.
+  // This prevents a host shell's partial PATH from turning every fixture that
+  // spawns git/gh into an avoidable ENOENT cascade.
+  const toolPath = await fixedToolPath();
+  const suitePath = [toolPath, process.env.PATH].filter(Boolean).join(path.delimiter);
+  const suiteEnv = { ...process.env, PATH: suitePath };
   for (const testPath of tests) {
     await new Promise((resolve, reject) => {
       const child = spawn(process.execPath, ["--test", "--test-concurrency=1", testPath], {
         cwd: process.cwd(),
         shell: false,
         stdio: ["ignore", "pipe", "pipe"],
-        env: process.env
+        env: suiteEnv
       });
       const stdout = [];
       const stderr = [];
@@ -2438,7 +2444,7 @@ function help() {
       "sbw interaction preview --scope-file <scope.json> [--standing-file <standing.json>] [--interaction-mode auto|strict] [--stale-reason freshness|time|receipt-refresh|nonce-refresh|exact-binding-refresh]",
       "sbw status <run-id>",
       "sbw inspect <run-id>",
-      "sbw metrics <run-id> | sbw metrics list [--limit <1..500>]",
+      "sbw metrics <run-id> | sbw metrics list|summary [--limit <1..500>]",
       "sbw resume <run-id>",
       "sbw autonomy preview|preflight|revoke <run-id>",
       "sbw cancel <run-id> [--reason <text>]",
@@ -2624,6 +2630,10 @@ async function main() {
     assertKnownOptions(options, ["limit"]);
     if (subcommand === "list") {
       return { ok: true, schemaVersion: 1, metrics: await listRunMetrics(root, { limit: options.limit ?? 50 }) };
+    }
+    if (subcommand === "summary") {
+      const metrics = await listRunMetrics(root, { limit: options.limit ?? 500 });
+      return { ok: true, summary: summarizeRunMetrics(metrics) };
     }
     if (!subcommand) throw new Error("metrics requires <run-id> or list");
     return { ok: true, metrics: await readRunMetrics(root, subcommand) };

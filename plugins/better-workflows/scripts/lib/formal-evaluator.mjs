@@ -53,7 +53,7 @@ async function executable(target) {
   try { await access(target, fsConstants.X_OK); return true; } catch { return false; }
 }
 
-async function fixedPath() {
+export async function fixedToolPath() {
   const available = [];
   for (const directory of FIXED_PATH_CANDIDATES) {
     if (await exists(directory)) available.push(directory);
@@ -494,7 +494,7 @@ async function runFormalEvaluatorLocked({
     throw new Error("Formal evaluator launch root must be a canonical /private/tmp/bw-*-formal-eval-* path");
   }
   if (await exists(launchRoot)) throw new Error("Formal evaluator launch root already exists; never reuse an attempt path");
-  const pathValue = await fixedPath();
+  const pathValue = await fixedToolPath();
   const gitPath = await locateExecutable("git", pathValue);
   const ghPath = await locateExecutable("gh", pathValue);
   const head = await git(canonicalCwd, gitPath, pathValue, ["rev-parse", "--verify", "HEAD^{commit}"]);
