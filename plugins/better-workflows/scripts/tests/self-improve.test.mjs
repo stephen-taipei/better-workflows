@@ -116,7 +116,7 @@ test("self-improve corpus validates split isolation, uniqueness, and secret-shap
   assert.equal(validateEvaluationSuite(suiteV23).classes.length, 10);
   assert.equal(validateEvaluationSuite(suiteV23).cases.length, 25);
   assert.equal(validateEvaluationSuite(suiteV24).classes.length, 11);
-  assert.equal(validateEvaluationSuite(suiteV24).cases.length, 27);
+  assert.equal(validateEvaluationSuite(suiteV24).cases.length, 28);
   const duplicate = structuredClone(suite);
   duplicate.cases[1].id = duplicate.cases[0].id;
   assert.throws(() => validateEvaluationSuite(duplicate), /unique/);
@@ -332,7 +332,7 @@ test("evaluation v2.4 adds review work-unit integrity without mutating the v2.3 
     assert.deepEqual(suiteV24.cases.find((item) => item.id === inheritedCase.id), inheritedCase);
   }
   assert.equal(suiteV23Digest, SELF_IMPROVE_MIGRATION_SOURCE_SUITE_DIGEST);
-  assert.equal(suiteV24Digest, "df214391423c9d738a41dd7122ed9428857d6918616acf18ff996eaff9a143f3");
+  assert.equal(suiteV24Digest, "22ff863e60bceff747eb6361792ee81e74e96ab308c80c3b0bd6a5216bdc61d1");
   assert.deepEqual(SELF_IMPROVE_MIGRATION_SOURCE_CORPORA, [
     "plugins/better-workflows/fixtures/self-improve-ops-evals.json",
     "plugins/better-workflows/fixtures/self-improve-ops-evals-v2.json",
@@ -1495,7 +1495,7 @@ test("evaluator migration preserves complete source and target coverage while bi
   });
   assert.deepEqual(calibration.materialGroups, ["fixtures", "runtime", "tests"]);
   assert.deepEqual(calibration.targetOnlyCaseIds, {
-    train: ["review-kernel-total-accounting"],
+    train: ["direct-keeps-minimal-git-lease", "review-kernel-total-accounting"],
     holdout: ["review-kernel-independent-synthesis"]
   });
   assert.deepEqual(calibration.trainCaseIds, suiteV24.cases.filter((item) => item.split === "train").map((item) => item.id).sort());

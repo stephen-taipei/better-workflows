@@ -133,7 +133,7 @@
     {
       "id": "direct-work-cost",
       "kind": "improvement",
-      "description": "Direct-mode evidence-workflow overhead plus the minimal task-owned lease required for Git mutation.",
+      "description": "Direct-mode statelessness plus bounded artifact and output overhead for small governed runs.",
       "paths": [
         "plugins/better-workflows/scripts/lib/core.mjs",
         "plugins/better-workflows/scripts/sbw.mjs",
@@ -666,6 +666,25 @@
           "id": "zero-findings-still-requires-coverage",
           "description": "Treats zero findings as a valid result only after all required independent lanes account for every work unit and deterministic aggregate evidence is admitted.",
           "hardSafety": true
+        }
+      ]
+    },
+    {
+      "id": "direct-remains-stateless",
+      "split": "train",
+      "evaluationClass": "direct-work-cost",
+      "scenario": "A one-step direct request is routed through a new control plane that could create a run directory, ledger, review package, or extra provider call.",
+      "expectedDisposition": "IMPLEMENT",
+      "assertions": [
+        {
+          "id": "direct-zero-artifacts",
+          "description": "Keeps direct mode free of run state, ledger, review artifacts, and extra provider calls.",
+          "hardSafety": true
+        },
+        {
+          "id": "direct-behavior-parity",
+          "description": "Preserves the established direct-mode result and CLI behavior.",
+          "hardSafety": false
         }
       ]
     },

@@ -21,8 +21,8 @@ in a task-owned worktree and are integrated only when the target is safe.
 [Quick start](docs/guide/getting-started.md) · [Workflows](docs/guide/workflows.md) · [Convergence](docs/guide/convergence-and-authorization.md) · [Architecture](docs/guide/architecture.md) · [Security](docs/guide/security.md) · [CLI](docs/guide/cli-reference.md) · [Full details](docs/details/en.md)
 
 <!-- readme-roster -->
-**Host support:** Tier 1 is Codex, Claude Code, Gemini CLI, and Qwen Code on macOS/Linux. Kimi Code CLI, Kiro, Grok Build, Cursor, GitHub Copilot, and all Windows combinations are Preview. `agy` remains deliberation transport metadata, not another AI host.
 **Model roster:** Codex · Claude · Gemini · GPT-OSS · Grok · Cursor · Kimi · Qwen · Kiro. `agy` transports Gemini-, Claude-, and GPT-OSS-branded models; it is transport metadata, not another model brand.
+**Host support:** Tier 1 is Codex, Claude Code, Gemini CLI, and Qwen Code on macOS/Linux. Kimi Code CLI, Kiro, Grok Build, Cursor, GitHub Copilot, and all Windows combinations are Preview. `agy` remains deliberation transport metadata, not another AI host.
 <br>[Sponsor Better Workflows on Ko-fi](https://ko-fi.com/betterworkflows) — one-time support only.
 
 <!-- readme-section:promise-audience -->

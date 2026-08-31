@@ -467,7 +467,11 @@ test("evaluator migration requires accepted training before holdout and binds im
     "run", "--template", "self-improve-ops", "--mode", "critical", "--goal", "Migrate evaluator", "--scope", ".", "--baseline", baseline, "--authority", "git.commit"
   ]);
   const fixture = await fixtureResult(cwd, "self-improve-ops-evals-v2.4.json", {
-    baselineUnsatisfiedCaseIds: ["review-kernel-total-accounting", "review-kernel-independent-synthesis"]
+    baselineUnsatisfiedCaseIds: [
+      "review-kernel-total-accounting",
+      "review-kernel-independent-synthesis",
+      "direct-keeps-minimal-git-lease"
+    ]
   });
   const common = [
     "self-improve", "evaluate",
@@ -490,7 +494,7 @@ test("evaluator migration requires accepted training before holdout and binds im
   assert.equal(train.json.migrationTrainingComparison.accepted, true);
   assert.deepEqual(
     train.json.calibration.targetOnlyCaseIds.train,
-    ["review-kernel-total-accounting"]
+    ["direct-keeps-minimal-git-lease", "review-kernel-total-accounting"]
   );
   assert.equal(train.json.evidence.length, 4);
   const holdout = await cli(cwd, stateRoot, [...common, "--split", "holdout"], { env: { SBW_TEST_FIXTURE_BACKEND: "1" } });
