@@ -201,17 +201,19 @@ test("repository locks reclaim only proven stale process incarnations and preser
 test("unowned task branch or path collisions allocate a new task id without overwriting", async () => {
   const cwd = await repository();
   const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-workspace-collision-state-"));
-  await git(cwd, "branch", "codex/change-app-collision", "HEAD");
+  const requestedTaskId = "task-branch-collision";
+  const collidingBranch = `codex/change-app-${requestedTaskId.replace(/^task-/, "").slice(-8)}`;
+  await git(cwd, "branch", collidingBranch, "HEAD");
   const branchCollision = await workspaceCreate({
     cwd,
     stateRoot,
     goal: "Change app",
-    taskId: "task-branch-collision"
+    taskId: requestedTaskId
   });
   assert.equal(branchCollision.ok, true);
   assert.equal(branchCollision.taskIdRegenerated, true);
-  assert.notEqual(branchCollision.lease.taskId, "task-branch-collision");
-  assert.equal((await git(cwd, "rev-parse", "refs/heads/codex/change-app-collision")).stdout.trim(), branchCollision.lease.baseRevision);
+  assert.notEqual(branchCollision.lease.taskId, requestedTaskId);
+  assert.equal((await git(cwd, "rev-parse", `refs/heads/${collidingBranch}`)).stdout.trim(), branchCollision.lease.baseRevision);
   await workspaceValidate({
     stateRoot,
     repositoryId: branchCollision.lease.repository.repositoryId,
@@ -1213,7 +1215,7 @@ test("a dirty target checkout blocks integration and preserves the validated tas
   assert.equal(await readFile(path.join(cwd, "target-untracked.txt"), "utf8"), "do not overwrite\n");
 });
 
-test("branch collisions and task-owned subdirectories never overwrite or share resources", async () => {
+test("branch collisions allocate fresh tasks and task-owned subdirectories never share resources", async () => {
   const cwd = await repository();
   const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-workspace-state-"));
   const first = await workspaceCreate({
@@ -1237,11 +1239,13 @@ test("branch collisions and task-owned subdirectories never overwrite or share r
     goal: "Collision task",
     taskId: "task-beta-12345678"
   });
-  assert.equal(collision.ok, false);
-  assert.equal(collision.status, "ownership-conflict");
-  assert.equal(collision.lease.taskBranch, first.lease.taskBranch);
+  assert.equal(collision.ok, true);
+  assert.equal(collision.taskIdRegenerated, true);
+  assert.notEqual(collision.lease.taskId, "task-beta-12345678");
+  assert.notEqual(collision.lease.taskBranch, first.lease.taskBranch);
   assert.notEqual(collision.lease.taskWorktree, first.lease.taskWorktree);
   assert.equal(await realpath(first.lease.taskWorktree), first.lease.taskWorktree);
+  assert.equal(await realpath(collision.lease.taskWorktree), collision.lease.taskWorktree);
 });
 
 test("ownership discovery scans beyond 256 historical leases instead of silently truncating", async () => {

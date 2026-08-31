@@ -8,7 +8,11 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { selectCodexBinaryPath } from "../lib/attestations.mjs";
-import { evaluateFormalAttemptPolicy, reconcileInterruptedFormalAttempt } from "../lib/formal-evaluator.mjs";
+import {
+  evaluateFormalAttemptPolicy,
+  reconcileInterruptedFormalAttempt,
+  stableBootIdentity
+} from "../lib/formal-evaluator.mjs";
 import { runNativeReview } from "../lib/native-review-runner.mjs";
 
 const execFileAsync = promisify(execFile);
@@ -111,6 +115,18 @@ test("formal evaluator permits one primary plus one classified infrastructure re
     () => evaluateFormalAttemptPolicy([{ status: "blocked" }, { status: "blocked" }], "host-sleep"),
     /attempt budget exhausted/
   );
+});
+
+test("formal evaluator binds the stable kern.boottime seconds instead of volatile microseconds", () => {
+  assert.equal(
+    stableBootIdentity("{ sec = 1787904209, usec = 609073 } Fri Aug 28 16:03:29 2026"),
+    "1787904209"
+  );
+  assert.equal(
+    stableBootIdentity("{ sec = 1787904209, usec = 690116 } Fri Aug 28 16:03:29 2026"),
+    "1787904209"
+  );
+  assert.throws(() => stableBootIdentity("unavailable"), /cannot parse/);
 });
 
 test("formal evaluator terminalizes an orphaned running attempt before one bounded replacement", () => {

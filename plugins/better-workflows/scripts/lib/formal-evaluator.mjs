@@ -121,6 +121,12 @@ async function assertNoCompetingSuite() {
   }
 }
 
+export function stableBootIdentity(value) {
+  const match = /(?:^|[,{\s])sec\s*=\s*(\d+)/.exec(String(value ?? ""));
+  if (!match) throw new Error("Formal evaluator cannot parse kern.boottime seconds");
+  return match[1];
+}
+
 async function hostPreflight() {
   if (process.platform !== "darwin") return { platform: process.platform };
   let bootTime;
@@ -141,7 +147,14 @@ async function hostPreflight() {
   })).stdout);
   const sleepWakeUuid = /"SleepWakeUUID"\s*=\s*"([^"]+)"/.exec(power)?.[1] ?? null;
   if (!sleepWakeUuid) throw new Error("Formal evaluator cannot bind the current SleepWakeUUID");
-  return { platform: process.platform, bootTime, sleepWakeUuid, clamshell: "open", userActive: true };
+  return {
+    platform: process.platform,
+    bootTime,
+    bootIdentity: stableBootIdentity(bootTime),
+    sleepWakeUuid,
+    clamshell: "open",
+    userActive: true
+  };
 }
 
 async function physicalDirectory(target, mode = 0o700) {
@@ -564,7 +577,7 @@ async function runFormalEvaluatorLocked({
     const postStatus = await git(canonicalCwd, gitPath, pathValue, ["-c", "core.fsmonitor=false", "status", "--porcelain=v1"]);
     await assertNoCompetingSuite();
     const postHost = await hostPreflight();
-    const stableHost = host.bootTime === postHost.bootTime && host.sleepWakeUuid === postHost.sleepWakeUuid;
+    const stableHost = host.bootIdentity === postHost.bootIdentity && host.sleepWakeUuid === postHost.sleepWakeUuid;
     const passed = terminal.code === 0 && result?.ok === true && postHead === expectedHead && !postStatus && stableHost;
     const finalReceipt = {
       ...started,
