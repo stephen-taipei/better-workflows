@@ -179,6 +179,26 @@ test("route preview exposes a stable interaction fingerprint without granting ac
   assert.equal(first.bindings.interactionScopeDigest, second.bindings.interactionScopeDigest);
 });
 
+test("strict interaction mode cannot be recorded or replayed as an executable route", async () => {
+  const cwd = await workspace();
+  const stateRoot = path.join(cwd, "state");
+  const strict = await previewRoute({
+    cwd,
+    stateRoot,
+    goal: "perform a bounded review",
+    scope: ["src"],
+    mutationIntent: "read-only",
+    acceptanceDefined: true,
+    interactionMode: "strict"
+  });
+  assert.equal(strict.ok, true);
+  assert.equal(strict.interactionAuthorization.decision, "requires-user");
+  await assert.rejects(
+    recordRouteReceipt({ stateRoot, cwd, preview: strict }),
+    /approved interaction authorization/
+  );
+});
+
 test("workspace non-match falls back to personal and matching uses category AND with value OR", async () => {
   const cwd = await workspace();
   const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-routing-personal-"));

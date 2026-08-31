@@ -1220,6 +1220,9 @@ function generateReceiptId(date = new Date()) {
 export async function recordRouteReceipt({ stateRoot, cwd = process.cwd(), preview }) {
   if (!preview || preview.schemaVersion !== 1) throw new Error("A route preview is required");
   if (!preview.ok) throw new Error(`Cannot record blocked route: ${preview.blockers.join(", ")}`);
+  if (preview.interactionAuthorization?.decision !== "auto-approved") {
+    throw new Error("Cannot record route without an approved interaction authorization");
+  }
   await ensurePrivateDir(stateRoot);
   const receiptId = generateReceiptId();
   const receipt = {
@@ -1245,7 +1248,10 @@ export async function recordRouteReceipt({ stateRoot, cwd = process.cwd(), previ
         ? {
             mode: preview.interactionAuthorization.mode,
             requestDigest: preview.interactionAuthorization.requestDigest,
-            scopeDigest: preview.interactionAuthorization.scopeDigest
+            scopeDigest: preview.interactionAuthorization.scopeDigest,
+            decision: preview.interactionAuthorization.decision,
+            reason: preview.interactionAuthorization.reason,
+            implicit: preview.interactionAuthorization.implicit === true
           }
         : null
     },
@@ -1361,6 +1367,9 @@ export async function validateRouteReceipt({
     throw new Error(`Route receipt is stale: ${[...new Set(changed)].join(", ")}`);
   }
   if (!preview.ok) throw new Error(`Route receipt is blocked: ${preview.blockers.join(", ")}`);
+  if (preview.interactionAuthorization?.decision !== "auto-approved") {
+    throw new Error("Route receipt requires an approved interaction authorization");
+  }
   return { receipt, preview, path: target, claim };
 }
 
