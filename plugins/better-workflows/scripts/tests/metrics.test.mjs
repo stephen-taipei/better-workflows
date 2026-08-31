@@ -63,6 +63,23 @@ test("run metrics preserve observed provider token totals and classify completed
   assert.deepEqual(metrics.metricWarnings, []);
 });
 
+test("run metrics anchor fallback terminal time to the terminal transition", () => {
+  const metrics = buildRunMetrics({
+    run: {
+      ...run,
+      state: { ...run.state, status: "blocked", completedAt: null, finishedAt: null }
+    },
+    journal: [
+      { at: "2026-08-31T01:02:03.000Z", event: "run.created" },
+      { at: "2026-08-31T01:12:03.000Z", event: "run.status", from: "running", to: "blocked" },
+      { at: "2026-08-31T01:22:03.000Z", event: "evidence.added" }
+    ]
+  });
+  assert.equal(metrics.terminalAt, "2026-08-31T01:12:03.000Z");
+  assert.equal(metrics.elapsedWallTimeMs, 600_000);
+  assert.ok(!metrics.metricWarnings.includes("terminal-time-unknown"));
+});
+
 test("run metrics summary exposes convergence cost without converting unknowns to zero", () => {
   const summary = summarizeRunMetrics([
     { runId: "b", template: "pr-to-dev", mode: "critical", outcome: "blocked", elapsedWallTimeMs: 300, repairWaveCount: null, resumeCount: 2, scopeDriftCount: 1, infrastructureReplacementCount: 1, interactionPromptCount: 3, metricWarnings: ["provider-token-usage-unavailable"] },

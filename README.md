@@ -36,9 +36,11 @@ workflow stops and asks for a decision instead of pretending the task is done.
 
 It is not heavy ceremony for every edit. Auto first reads the goal, scope,
 repository instructions, current Git state, and risk. A clear, reversible,
-low-risk change may use Direct with a small targeted check. Everything else is
-promoted to the evidence workflow and the verification strength required by
-the risk.
+low-risk change may use Direct with a small targeted check. Normal SOP
+interaction is auto-approved within its bounded scope, while evidence,
+review, provider reconciliation, and protected side-effect gates remain
+mandatory. Everything else is promoted to the evidence workflow and the
+verification strength required by the risk.
 
 For mutating Git work, “Direct” does not mean “edit the user's checkout.” The
 task still receives a minimal `TaskWorkspaceLeaseV1`, its own branch, and its

@@ -63,11 +63,33 @@ function usageFrom(records) {
 
 function latestRecordTime(records) {
   let latest = null;
+  let latestValue = null;
   for (const record of records) {
-    const parsed = finiteTimestamp(record?.at ?? record?.createdAt ?? record?.finishedAt);
-    if (parsed !== null && (latest === null || parsed > latest)) latest = parsed;
+    const value = record?.at ?? record?.createdAt ?? record?.finishedAt;
+    const parsed = finiteTimestamp(value);
+    if (parsed !== null && (latest === null || parsed > latest)) {
+      latest = parsed;
+      latestValue = value;
+    }
   }
-  return latest;
+  return latestValue;
+}
+
+function terminalJournalTime(records) {
+  let latest = null;
+  let latestValue = null;
+  for (const record of records) {
+    if (!["run.status", "state.updated"].includes(record?.event)) continue;
+    const nextStatus = record?.to ?? record?.status ?? record?.payload?.to ?? record?.details?.to;
+    if (!TERMINAL_STATUSES.has(String(nextStatus))) continue;
+    const value = record?.at ?? record?.createdAt ?? record?.finishedAt;
+    const parsed = finiteTimestamp(value);
+    if (parsed !== null && (latest === null || parsed > latest)) {
+      latest = parsed;
+      latestValue = value;
+    }
+  }
+  return latestValue;
 }
 
 function countMatching(records, predicate) {
@@ -111,7 +133,7 @@ export function buildRunMetrics({ run, journal = [], evidence = [], actions = []
   const status = String(run.state.status ?? "unknown");
   const createdAt = run.manifest.createdAt ?? run.state.createdAt ?? journal.find((record) => record?.event === "run.created")?.at ?? null;
   const terminalAt = run.state.completedAt ?? run.state.finishedAt ?? (
-    TERMINAL_STATUSES.has(status) ? latestRecordTime(journal) : null
+    TERMINAL_STATUSES.has(status) ? terminalJournalTime(journal) ?? latestRecordTime(journal) : null
   );
   const createdMs = finiteTimestamp(createdAt);
   const terminalMs = finiteTimestamp(terminalAt);

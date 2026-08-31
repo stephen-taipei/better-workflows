@@ -9,12 +9,15 @@ Read `../better-workflows/SKILL.md` completely and follow it, including the Goal
 
 Use template `pr-to-dev` with minimum mode `critical`. Inventory every in-scope change, stage explicit atomic commit batches, rebind the source after an intended commit wave with `sbw source rebind` before review (which invalidates all prior complete evidence and resets the v2 ledger), publish the candidate through the governed fixed-argv `pr.create` provider wrapper, require the PR to target the exact `dev` branch, verify fresh required checks for the current head, merge only the run-owned canonical PR without admin bypass, reconcile remote `dev`, and clean only resources owned by this run. A task that explicitly selects `bounded-autopilot-v1` may automate the bounded commit, cache, `codex/*` push, and `dev` PR stages after `sbw autonomy preflight`; protected merge, deploy, direct protected-branch push, and destructive cleanup remain separate human-authority gates.
 
-Use `auto-deduplicated` interaction by default: a standing user directive may
-suppress repeat questions for an unchanged material delivery scope, but each
-push, PR, merge, sync, and cleanup still requires its exact current contract,
-action token, evidence gate, and provider reconciliation. If a required side
-effect was never covered or its material scope changed, emit one HOLD. Do not
-turn prompt suppression into admin bypass or global merge authority.
+Use the default `auto-deduplicated` interaction for the normal SOP path. The
+root/main agent may implicitly approve the bounded in-process interaction so
+the user does not have to remain at the computer or copy commands for every
+step. A standing user directive may also renew an unchanged material delivery
+scope without another prompt. This convenience is interaction-only: each push,
+PR, merge, sync, and cleanup still requires its exact current contract, action
+token, evidence gate, and provider reconciliation. If a required side effect
+was never covered or its material scope changed, emit one HOLD. Do not turn
+prompt suppression into admin bypass or global merge authority.
 
 For an auditable main-agent handoff, use `sbw interaction preview` with a
 scope file containing the exact repository, base/head, package/instruction,
