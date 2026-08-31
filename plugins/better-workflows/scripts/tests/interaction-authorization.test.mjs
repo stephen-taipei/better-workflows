@@ -124,6 +124,18 @@ test("matching active standing scope suppresses a duplicate prompt but grants no
   assert.equal(decision.technicalGatesRequired, true);
 });
 
+test("review scopes accept forty-character Git revisions for base and head", () => {
+  const request = buildInteractionRequest({
+    scope: scope({
+      base: "b".repeat(40),
+      head: "c".repeat(40)
+    })
+  });
+  assert.equal(request.scope.base, "b".repeat(40));
+  assert.equal(request.scope.head, "c".repeat(40));
+  assert.match(request.scopeDigest, /^[a-f0-9]{64}$/);
+});
+
 test("freshness-only renewal preserves the predecessor and never compares timestamps as scope", () => {
   const request = buildInteractionRequest({ scope: scope() });
   const decision = decideInteractionAuthorization({

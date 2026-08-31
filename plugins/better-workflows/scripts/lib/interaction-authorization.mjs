@@ -16,6 +16,7 @@ export const INTERACTION_AUTHORITY_CLASS = "interaction-only";
 export const DEFAULT_SOP_INTERACTION_POLICY = "sop-auto-v1";
 
 const SHA256 = /^[a-f0-9]{64}$/;
+const GIT_SHA = /^[a-f0-9]{40}$/;
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const FRESHNESS_REASONS = new Set([
   "freshness",
@@ -52,13 +53,12 @@ export const INTERACTION_SCOPE_FIELDS = Object.freeze([
 const DIGEST_FIELDS = new Set([
   "goalDigest",
   "sourceBindingDigest",
-  "base",
-  "head",
   "contractDigest",
   "packageDigest",
   "instructionDigest",
   "diffManifestDigest"
 ]);
+const REVISION_FIELDS = new Set(["base", "head"]);
 const NULLABLE_FIELDS = new Set([
   "sourceBindingDigest",
   "base",
@@ -124,6 +124,15 @@ function normalizeDigest(value, label, { nullable = false } = {}) {
   return normalized;
 }
 
+function normalizeRevisionOrDigest(value, label, { nullable = false } = {}) {
+  const normalized = normalizeString(value, label, { nullable });
+  if (normalized === null) return null;
+  if (!GIT_SHA.test(normalized) && !SHA256.test(normalized)) {
+    throw new Error(`${label} must be a Git commit SHA or lowercase SHA-256 digest`);
+  }
+  return normalized;
+}
+
 function normalizeStringArray(value, label) {
   if (value === undefined || value === null) return [];
   if (!Array.isArray(value) || value.some((item) => typeof item !== "string" || !item.trim() || item.includes("\0"))) {
@@ -151,6 +160,8 @@ function normalizeScopeForComparison(scope) {
       normalized[key] = normalizeStringArray(scope[key], `Interaction scope.${key}`);
     } else if (key === "safetyConstraints") {
       normalized[key] = normalizeConstraints(scope[key]);
+    } else if (REVISION_FIELDS.has(key)) {
+      normalized[key] = normalizeRevisionOrDigest(scope[key], `Interaction scope.${key}`, { nullable: NULLABLE_FIELDS.has(key) });
     } else if (DIGEST_FIELDS.has(key)) {
       normalized[key] = normalizeDigest(scope[key], `Interaction scope.${key}`, { nullable: NULLABLE_FIELDS.has(key) });
     } else {
