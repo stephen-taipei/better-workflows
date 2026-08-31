@@ -1790,14 +1790,25 @@ function recordedCandidateAttempt(lease) {
   return Number(inferred[1]);
 }
 
+async function stableWorkspacePath(value) {
+  const resolved = await realpath(value).catch(() => path.resolve(value));
+  if (process.platform === "darwin") {
+    if (resolved === "/var" || resolved.startsWith("/var/")) return `/private${resolved}`;
+    if (resolved === "/tmp" || resolved.startsWith("/tmp/")) return `/private${resolved}`;
+  }
+  return resolved;
+}
+
 async function prepareIntegrationCandidate({ stateRoot, target, repositoryId, lease, attempt, targetRevision }) {
   const identity = integrationCandidateIdentity(stateRoot, repositoryId, lease.taskId, attempt);
   const recordedAttempt = recordedCandidateAttempt(lease);
   if (recordedAttempt !== null) {
+    const recordedWorktree = await stableWorkspacePath(lease.resources.integrationWorktree.path);
+    const expectedWorktree = await stableWorkspacePath(identity.worktree);
     if (
       recordedAttempt !== attempt ||
       lease.resources.integrationBranch.name !== identity.branch ||
-      path.resolve(lease.resources.integrationWorktree.path) !== path.resolve(identity.worktree) ||
+      recordedWorktree !== expectedWorktree ||
       !SHA1.test(lease.resources.integrationBranch.createdFrom)
     ) {
       throw new Error("Recorded integration candidate identity does not match this attempt");
