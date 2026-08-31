@@ -50,6 +50,9 @@ sbw source rebind <run-id> --reason <text>
 sbw sentinel capture <run-id> --label <label>
 sbw sentinel verify <run-id> --label <label>
 sbw evidence add <run-id> --file <evidence.json>
+sbw evidence replay
+sbw evidence replay <run-id>
+sbw evidence replay [<run-id>] --no-open
 sbw finding add <run-id> --file <finding.json>
 sbw finding update <run-id> --file <finding.json>
 sbw ledger status <run-id>
@@ -76,6 +79,49 @@ sbw refinement status <run-id>
 sbw refinement apply <run-id> --file <receipt.json>
 sbw complete <run-id>
 ```
+
+`evidence replay` starts a foreground-only, read-only cinema at
+`http://localhost:9300` and opens a single-use bootstrap URL in the default
+browser. With a run ID it opens that recorded reel directly; without one it
+shows the local run library. Press `Ctrl+C` to stop it. The ordinary launch
+path never invokes `sudo`, the host signer, providers, action issuance, or
+completion. It reads bounded, symlink-free snapshots from `SBW_STATE_ROOT`,
+serves only allowlisted sanitized metadata, and marks active runs `UNSEALED`.
+Recorded outcomes are presentation-only and are not live re-verification.
+For a manual handoff, `--no-open` does not launch a browser and prints a
+short-lived, single-use `bootstrapUrl`; open that URL rather than the clean
+URL. The bootstrap transfers a per-process bearer through the URL fragment,
+stores it only in that `localhost:9300` tab's `sessionStorage`, removes the
+fragment from browser history, and sends it only in the replay API header.
+Replay never sets a localhost cookie, so the bearer is not forwarded to a
+different localhost port. If the default browser opener fails or times out,
+the URL given to that possibly late opener is revoked and a newly issued
+`bootstrapUrl` is printed with the warning for manual opening. A spawned opener
+counts as successful only after its terminal exit is zero. Opening a clean URL
+without its
+session, or reusing an expired/single-use bootstrap URL in a browser, shows one
+recovery state that hides the inactive player and tells the operator to stop
+the foreground server and launch a fresh replay command.
+
+A run-bound launch keeps the library navigation usable, but `/api/v1/runs`
+returns only that one bound run and rejects every other run replay route. Typed
+records are rechecked with the installed kind-specific deterministic validators
+at their recorded admission time. Action proofs, required-check observations,
+review-kernel summaries, and quorum receipts therefore fail closed after
+semantic mutation even if an attacker recomputes the unkeyed payload digests.
+Resolved or evidence-rejected findings must still reference exactly one valid,
+current typed record whose payload names that finding; legacy review findings
+also require an exact immutable package/base/head/scope/diff binding. Missing,
+duplicate, stale, invalid, unrelated, or cross-package disposition evidence is
+therefore a recorded `HOLD`. Recorded required-check human approvals accept
+attestations only from the canonical administrator attestation root. The same
+nonblocking, no-follow file handle verifies regular-file type, single-link
+identity, owner/mode, bounded size, content digest, and JSON before signature
+verification, so state-controlled FIFO, device, symlink, oversized, or external
+paths are rejected before an unbounded read.
+Legacy independent-critic records without a replay-verifiable attestation
+reference, and self-improve handoffs that require live source-run validation,
+are shown as `UNVERIFIABLE_TYPED_EVIDENCE` and keep the reel on `HOLD`.
 
 `source rebind` is root-only and pre-review/pre-side-effect. It invalidates all
 prior complete evidence and resets the v2 execution ledger, so the next

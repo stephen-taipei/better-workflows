@@ -604,7 +604,10 @@ function assertNoAmbientGitAuthorityOverrides() {
   }
 }
 
-export const VERSION = "3.4.14";
+export const VERSION = "3.5.0";
+const PRIOR_MIGRATABLE_VERSION_FAMILIES = Object.freeze([
+  { major: 3, minor: 4, maximumPatch: 14 }
+]);
 export const MODES = new Set(["auto", "direct", "verified", "deep", "critical"]);
 export const RUN_STATES = new Set([
   "pending",
@@ -2769,9 +2772,16 @@ export async function bindLegacyRunTemplate(
     const knownLegacyVersion = ["1.0.0", "2.0.1", "2.1.0", "2.5.0", "2.6.0"].includes(manifest.version);
     const [currentMajor, currentMinor, currentPatch] = VERSION.split(".").map(Number);
     const normalizedManifestVersion = String(manifest.version ?? "").split("+")[0];
-    const currentFamilyMatch = new RegExp(`^${currentMajor}\\.${currentMinor}\\.(\\d+)$`).exec(normalizedManifestVersion);
-    const currentFamilyVersion = currentFamilyMatch && Number(currentFamilyMatch[1]) <= currentPatch;
-    if (!knownLegacyVersion && !currentFamilyVersion) {
+    const familyMatch = /^(\d+)\.(\d+)\.(\d+)$/.exec(normalizedManifestVersion);
+    const migratableFamilyVersion = familyMatch && [
+      { major: currentMajor, minor: currentMinor, maximumPatch: currentPatch },
+      ...PRIOR_MIGRATABLE_VERSION_FAMILIES
+    ].some((family) => (
+      Number(familyMatch[1]) === family.major &&
+      Number(familyMatch[2]) === family.minor &&
+      Number(familyMatch[3]) <= family.maximumPatch
+    ));
+    if (!knownLegacyVersion && !migratableFamilyVersion) {
       throw new Error(
         `Run ${runId} lacks current template minimums but was not created by a migratable workflow version`
       );
@@ -8198,11 +8208,11 @@ export async function verifyTransferredPullRequestOwnership(manifest, record, pr
   const attestation = await verifyTrustedNativeCriticAttestation({
     attestationPath: authorizationAttestation.path,
     workspaceRoot: manifest.cwd,
-    binding: authorizationBinding
+    binding: authorizationBinding,
+    expectedFileDigest: authorizationAttestation.fileDigest
   });
-  const authorizationFileDigest = sha256(await readFile(authorizationAttestation.path));
   if (
-    authorizationFileDigest !== authorizationAttestation.fileDigest ||
+    attestation.fileDigest !== authorizationAttestation.fileDigest ||
     attestation.attestationDigest !== authorizationAttestation.attestationDigest
   ) {
     throw new Error("Transferred pull request ownership authorization receipt digest changed");
@@ -8991,7 +9001,10 @@ export function assertPersistedSuccessfulMergeActionForRequiredChecks(
   return action;
 }
 
-export async function verifyMergeHumanApproval(cwd, payload) {
+export async function verifyMergeHumanApproval(cwd, payload, {
+  now = Date.now(),
+  recordedSourceBinding = null
+} = {}) {
   const approval = payload?.humanApproval;
   const authorization = approval?.authorization;
   const attestation = approval?.attestation;
@@ -9020,8 +9033,9 @@ export async function verifyMergeHumanApproval(cwd, payload) {
   ) {
     throw new Error("Governed PR merge human approval binding is incomplete");
   }
+  const nowMs = now instanceof Date ? now.getTime() : Number(now);
   const approvedAt = Date.parse(authorization.approvedAt ?? "");
-  if (!Number.isFinite(approvedAt) || approvedAt > Date.now() + 300_000 || Date.now() - approvedAt > 24 * 60 * 60 * 1000) {
+  if (!Number.isFinite(nowMs) || !Number.isFinite(approvedAt) || approvedAt > nowMs + 300_000 || nowMs - approvedAt > 24 * 60 * 60 * 1000) {
     throw new Error("Governed PR merge human approval is stale or invalid");
   }
   const expectedAuthorization = {
@@ -9063,19 +9077,30 @@ export async function verifyMergeHumanApproval(cwd, payload) {
     runId: authorization.runId,
     sentinelDigest: authorization.sourceSentinelDigest
   };
-  const attestationPath = await realpath(attestation.path);
-  if (sha256(await readFile(attestationPath)) !== attestation.fileDigest) {
-    throw new Error("Governed PR merge human approval attestation changed after authorization");
-  }
-  const { captureSourceBinding } = await import("./git.mjs");
   let currentSource;
-  try {
-    currentSource = await captureSourceBinding(path.resolve(cwd), {
-      baseRevision: payload.base,
-      requireClean: true
-    });
-  } catch (error) {
-    throw new Error(`Governed PR merge human approval source registry binding is stale: ${error.message}`);
+  if (recordedSourceBinding !== null) {
+    const { digest, ...identity } = recordedSourceBinding ?? {};
+    const canonicalCwd = await realpath(path.resolve(cwd));
+    if (
+      !recordedSourceBinding || typeof recordedSourceBinding !== "object" || Array.isArray(recordedSourceBinding) ||
+      digestObject(identity) !== digest ||
+      recordedSourceBinding.cwd !== canonicalCwd ||
+      recordedSourceBinding.baseRevision !== payload.base ||
+      recordedSourceBinding.headRevision !== payload.head
+    ) {
+      throw new Error("Governed PR merge human approval recorded source registry binding is invalid");
+    }
+    currentSource = recordedSourceBinding;
+  } else {
+    const { captureSourceBinding } = await import("./git.mjs");
+    try {
+      currentSource = await captureSourceBinding(path.resolve(cwd), {
+        baseRevision: payload.base,
+        requireClean: true
+      });
+    } catch (error) {
+      throw new Error(`Governed PR merge human approval source registry binding is stale: ${error.message}`);
+    }
   }
   if (
     currentSource?.headRevision !== payload.head ||
@@ -9085,14 +9110,17 @@ export async function verifyMergeHumanApproval(cwd, payload) {
   }
   const { verifyTrustedNativeCriticAttestation } = await import("./providers.mjs");
   const verified = await verifyTrustedNativeCriticAttestation({
-    attestationPath,
+    attestationPath: attestation.path,
     workspaceRoot: cwd,
-    binding
+    binding,
+    now: nowMs,
+    requireFixedHostRoot: recordedSourceBinding !== null,
+    expectedFileDigest: attestation.fileDigest
   });
   if (
     verified.attestationDigest !== attestation.attestationDigest ||
-    verified.attestationPath !== attestationPath ||
-    sha256(await readFile(verified.attestationPath)) !== attestation.fileDigest
+    verified.attestationPath !== attestation.path ||
+    verified.fileDigest !== attestation.fileDigest
   ) {
     throw new Error("Governed PR merge human approval attestation changed after authorization");
   }

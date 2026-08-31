@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="zh-Hant" data-ending="verified" data-replay-mode="runtime" data-asset-base="/assets/">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="description" content="Better Workflows 本機唯讀證據重播劇場。">
+  <title>Better Workflows 證據重播劇場</title>
+  <link rel="stylesheet" href="/assets/cinema.css">
+  <script src="/assets/renderer.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main-content">跳到主要內容</a>
+  <header class="masthead">
+    <a class="brand" href="/" aria-label="回到 run library">
+      <span class="brand-mark" aria-hidden="true">BW</span>
+      <span class="brand-copy"><strong>證據劇場</strong><span>LOCALHOST · READ ONLY</span></span>
+    </a>
+    <nav class="nav-links" aria-label="本機劇場導覽">
+      <a href="/">Run library</a>
+      <a href="/demo">教學示範</a>
+      <a href="">重新整理快照</a>
+    </nav>
+  </header>
+
+  <main id="main-content" class="runtime-shell">
+    <div class="runtime-error" id="runtime-error" role="alert" hidden></div>
+
+    <section class="runtime-intro" id="run-library" hidden aria-labelledby="library-heading">
+      <div class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Recorded evidence · local projection</p>
+          <h1 id="library-heading">選一卷證據，<span>隨選重播。</span></h1>
+          <p class="hero-lead">所有資料都從本機 state root 建立 sanitized 快照。這裡不重驗 provider、不修改 run，也不把 recorded outcome 冒充成新的 PASS。</p>
+          <div class="hero-actions">
+            <a class="button primary" href="#run-list">選擇 run ↓</a>
+            <a class="button" href="/demo">觀看教學劇場</a>
+          </div>
+        </div>
+        <figure class="hero-art">
+          <img src="/assets/cast-lineup.webp" width="1693" height="929" alt="Captain Root、Scout Pixel、Ledger、Vera、Sentinel 與 Echo 六位證據劇場角色" fetchpriority="high">
+          <figcaption><span>SIX ROLES · ONE RECORDED REEL</span><strong>原始比例 1693 × 929</strong></figcaption>
+        </figure>
+      </div>
+      <div class="section run-library-panel" id="run-list">
+        <div class="section-head">
+          <span class="section-no" aria-hidden="true">01</span>
+          <div><p class="kicker">Run library</p><h2>可重播的本機 runs</h2><p class="section-summary">依 updatedAt 新到舊排列；執行中的 run 清楚標示 UNSEALED。</p></div>
+        </div>
+        <div class="run-library-list" id="run-library-list"></div>
+      </div>
+    </section>
+
+    <section class="section" id="cinema" aria-labelledby="cinema-heading">
+      <div class="section-head">
+        <span class="section-no runtime-section-label" aria-hidden="true">REPLAY</span>
+        <div>
+          <p class="kicker">Eight-scene evidence reel</p>
+          <h2 id="cinema-heading">Goal 到 Reconciliation，逐幕對帳</h2>
+          <p class="section-summary">真實 run 的結局由 recorded state 鎖定；手動重新整理才會建立下一份快照。</p>
+          <p class="runtime-context" id="runtime-context">Sanitized teaching replay · not a live verification</p>
+        </div>
+      </div>
+
+      <div class="cinema-shell">
+        <div class="marquee">
+          <span><i aria-hidden="true"></i> EVIDENCE REPLAY CINEMA <i aria-hidden="true"></i></span>
+          <span class="demo-ticket">DEMO</span>
+        </div>
+        <div class="player-grid">
+          <div class="film-column">
+            <div class="film-stage" id="film-stage">
+              <img class="scene-image is-entering" id="scene-image" src="/assets/scene-01-goal.webp" width="1693" height="909" alt="">
+              <div class="scene-shade" aria-hidden="true"></div>
+              <div class="film-grain" aria-hidden="true"></div>
+              <div class="film-sprockets" aria-hidden="true"></div>
+              <div class="scanline" aria-hidden="true"></div>
+              <div class="scene-topline">
+                <span class="scene-index" id="scene-index">SCENE 01 / 08</span>
+                <span class="scene-state" id="scene-state" data-terminal="false">CONTRACT BOUND</span>
+              </div>
+              <div class="subtitle-card" aria-live="polite">
+                <div class="actor-avatar"><img id="actor-avatar" src="/assets/character-root.webp" width="180" height="180" alt="Captain Root 角色肖像"></div>
+                <div>
+                  <div class="subtitle-meta"><strong id="actor-name">Captain Root</strong><span id="scene-role">GOAL KEEPER</span></div>
+                  <h3 id="scene-title">先把「要完成什麼」拍成底片</h3>
+                  <p id="scene-dialogue">沒有凍結的目標、範圍與驗收條件，就沒有可被重播的結局。</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="controls" aria-label="電影播放控制">
+              <div class="transport">
+                <button type="button" id="previous-button" aria-label="上一幕"><span aria-hidden="true">↤</span></button>
+                <button type="button" id="play-button" class="play" aria-label="播放電影" aria-pressed="false"><span aria-hidden="true">▶</span> 播放</button>
+                <button type="button" id="next-button" aria-label="下一幕"><span aria-hidden="true">↦</span></button>
+                <button type="button" id="restart-button" aria-label="從頭播放"><span aria-hidden="true">↻</span></button>
+              </div>
+              <div class="scrubber">
+                <label for="story-progress">故事進度</label>
+                <input id="story-progress" type="range" min="0" max="64" value="0" step="0.1">
+                <span class="timecode"><span id="current-time">00:00</span> / <span id="total-time">01:04</span></span>
+              </div>
+              <label class="speed-wrap" for="speed-select">速度
+                <select id="speed-select">
+                  <option value="0.75">0.75×</option><option value="1" selected>1×</option><option value="1.25">1.25×</option><option value="1.5">1.5×</option>
+                </select>
+              </label>
+            </div>
+
+            <div class="branch-control">
+              <div class="branch-copy"><strong>選擇教學示範的 provider 狀態</strong><span>真實 run 不提供此控制。</span></div>
+              <div class="branch-options" role="group" aria-label="選擇電影結局">
+                <button type="button" data-ending="verified" aria-pressed="true">證據完整</button>
+                <button type="button" data-ending="unknown" aria-pressed="false">Outcome unknown</button>
+              </div>
+            </div>
+          </div>
+
+          <aside class="evidence-panel" aria-labelledby="evidence-title">
+            <div class="evidence-head"><div><small>CURRENT RECORDS</small><h3 id="evidence-title">這一幕憑什麼成立？</h3></div><span class="demo-ticket">DEMO</span></div>
+            <p class="record-note" id="scene-fact">Sanitized recorded projection; presentation only.</p>
+            <div class="derived-state"><span>Derived</span><code id="derived-state">run.created → pending</code></div>
+            <div class="record-list" id="record-list" aria-live="polite"></div>
+            <a class="record-source" id="record-source" hidden></a>
+            <details class="raw-record"><summary>展開本幕 sanitized JSON</summary><pre id="raw-record"></pre></details>
+          </aside>
+        </div>
+
+        <nav class="timeline-wrap" aria-label="電影場景時間軸">
+          <div class="timeline-head"><strong>FILM REEL · 8 SCENES</strong><span>點一格即可跳幕</span></div>
+          <ol class="timeline" id="timeline"></ol>
+        </nav>
+      </div>
+
+      <p class="boundary-note">Replay 是唯讀呈現層：不執行 provider、host signer、sudo、action、completion 或 live source verification。</p>
+    </section>
+  </main>
+
+  <footer><span>Better Workflows Evidence Replay Cinema · localhost:9300</span><span>Foreground only · Ctrl+C stops</span></footer>
+  <noscript><p class="boundary-note">本機證據劇場需要 JavaScript 取得 sanitized replay manifest。</p></noscript>
+</body>
+</html>

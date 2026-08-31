@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { createHash, createPublicKey, verify } from "node:crypto";
-import { createReadStream } from "node:fs";
-import { chmod, lstat, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { constants as fsConstants, createReadStream } from "node:fs";
+import { chmod, lstat, mkdtemp, open, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { canonicalJson, sha256 } from "./core.mjs";
@@ -48,6 +48,7 @@ const HOST_TRUST_ROOT_PATH = `${HOST_ETC}/better-workflows/codex-trust-root.json
 const HOST_CODEX_ALLOWLIST_PATH = `${HOST_ETC}/better-workflows/codex-binary-allowlist.json`;
 const HOST_ATTESTATIONS_ROOT = "/private/var/db/better-workflows/attestations";
 const HOST_EXECUTIONS_ROOT = "/private/var/db/better-workflows/executions";
+const SECURE_JSON_FILE_MAX_BYTES = 4 * 1024 * 1024;
 const EVALUATOR_MODEL_COMP_HASH = "3000";
 const EVALUATOR_MODEL_CATALOG_POLICY = "root-owned-tool-free-model-catalog-v1";
 const EVALUATOR_DISABLED_FEATURES = Object.freeze([
@@ -283,24 +284,87 @@ function requiredString(value, label) {
   return value;
 }
 
-async function secureJsonFile(file, label) {
+async function secureJsonFile(file, label, {
+  fixedRoot = null,
+  requiredUid = null,
+  requiredMode = null
+} = {}) {
   if (!path.isAbsolute(file)) throw new Error(`${label} must be an absolute host path`);
-  const info = await lstat(file);
-  if (info.isSymbolicLink() || !info.isFile()) throw new Error(`${label} must be a regular non-symlink file`);
-  if (((info.mode & 0o777) & 0o022) !== 0) throw new Error(`${label} must not be group/world writable`);
-  return { path: await realpath(file), info, value: JSON.parse(await readFile(file, "utf8")) };
+  if (path.resolve(file) !== file) throw new Error(`${label} path must already be canonical`);
+  const resolvedRoot = fixedRoot === null
+    ? null
+    : await secureHostRoot(fixedRoot, `${label} root`);
+  if (resolvedRoot !== null && !isWithin(resolvedRoot, file)) {
+    throw new Error(`${label} must be inside the fixed administrator artifact root`);
+  }
+  const flags = fsConstants.O_RDONLY |
+    (fsConstants.O_NOFOLLOW ?? 0) |
+    (fsConstants.O_NONBLOCK ?? 0) |
+    (fsConstants.O_CLOEXEC ?? 0);
+  const handle = await open(file, flags);
+  try {
+    const info = await handle.stat();
+    if (!info.isFile() || info.nlink !== 1) {
+      throw new Error(`${label} must be a single-link regular non-symlink file`);
+    }
+    if (info.size < 1 || info.size > SECURE_JSON_FILE_MAX_BYTES) {
+      throw new Error(`${label} exceeds the bounded JSON file size`);
+    }
+    if (((info.mode & 0o777) & 0o022) !== 0) {
+      throw new Error(`${label} must not be group/world writable`);
+    }
+    if (requiredUid !== null && info.uid !== requiredUid) {
+      throw new Error(`${label} must be owned by the host administrator`);
+    }
+    if (requiredMode !== null && (info.mode & 0o777) !== requiredMode) {
+      throw new Error(`${label} must have mode ${requiredMode.toString(8)}`);
+    }
+    const canonicalPath = await realpath(file);
+    if (resolvedRoot !== null && (canonicalPath !== file || !isWithin(resolvedRoot, canonicalPath))) {
+      throw new Error(`${label} path must remain inside the fixed canonical artifact root`);
+    }
+    const pathnameInfo = await lstat(canonicalPath);
+    if (
+      pathnameInfo.isSymbolicLink() || !pathnameInfo.isFile() ||
+      pathnameInfo.dev !== info.dev || pathnameInfo.ino !== info.ino
+    ) {
+      throw new Error(`${label} pathname identity changed before reading`);
+    }
+    const bytes = Buffer.alloc(info.size);
+    let offset = 0;
+    while (offset < bytes.length) {
+      const { bytesRead } = await handle.read(bytes, offset, bytes.length - offset, offset);
+      if (bytesRead === 0) break;
+      offset += bytesRead;
+    }
+    const extra = Buffer.alloc(1);
+    const { bytesRead: extraBytes } = await handle.read(extra, 0, 1, offset);
+    const after = await handle.stat();
+    if (
+      offset !== info.size || extraBytes !== 0 ||
+      after.dev !== info.dev || after.ino !== info.ino || after.size !== info.size ||
+      after.mtimeMs !== info.mtimeMs || after.ctimeMs !== info.ctimeMs
+    ) {
+      throw new Error(`${label} changed while it was being read`);
+    }
+    return {
+      path: canonicalPath,
+      info,
+      bytes,
+      digest: sha256(bytes),
+      value: JSON.parse(bytes.toString("utf8"))
+    };
+  } finally {
+    await handle.close();
+  }
 }
 
 async function secureHostArtifact(file, label, root) {
-  const resolvedRoot = await secureHostRoot(root, `${label} root`);
-  const artifact = await secureJsonFile(file, label);
-  if (artifact.info.uid !== 0 || (artifact.info.mode & 0o777) !== 0o644) {
-    throw new Error(`${label} must be an administrator-owned 0644 file`);
-  }
-  if (!isWithin(resolvedRoot, artifact.path)) {
-    throw new Error(`${label} must be inside the fixed administrator artifact root`);
-  }
-  return artifact;
+  return secureJsonFile(file, label, {
+    fixedRoot: root,
+    requiredUid: 0,
+    requiredMode: 0o644
+  });
 }
 
 async function secureHostRoot(root, label) {
@@ -358,7 +422,7 @@ async function hostAnchoredCodexAllowlist() {
     if (parent === directory) break;
     directory = parent;
   }
-  const bytes = await readFile(allowlist.path);
+  const bytes = allowlist.bytes;
   const value = allowlist.value;
   if (value?.schemaVersion !== 1 || value.kind !== "codex-binary-allowlist" || !Array.isArray(value.entries) || value.entries.length === 0 ||
       value.entries.some((entry) => !entry || Object.keys(entry).sort().join("\0") !== "digest\0path" || typeof entry.path !== "string" || !path.isAbsolute(entry.path) || path.resolve(entry.path) !== entry.path || !/^[a-f0-9]{64}$/.test(entry.digest))) {
@@ -901,13 +965,23 @@ export function nativeCriticBindingFields(binding) {
   ];
 }
 
-export async function verifyTrustedNativeCriticAttestation({ attestationPath, workspaceRoot, binding }) {
+export async function verifyTrustedNativeCriticAttestation({
+  attestationPath,
+  workspaceRoot,
+  binding,
+  now = Date.now(),
+  requireFixedHostRoot = false,
+  expectedFileDigest = null
+}) {
   if (!attestationPath) throw new Error("Native critic requires a host-signed attestation");
   const workspace = await realpath(workspaceRoot);
-  const [attestationFile, trustRootFile] = await Promise.all([
-    secureJsonFile(path.resolve(attestationPath), "Native critic attestation"),
-    hostAnchoredTrustRoot()
-  ]);
+  const attestationFile = requireFixedHostRoot
+    ? await secureHostArtifact(path.resolve(attestationPath), "Native critic attestation", HOST_ATTESTATIONS_ROOT)
+    : await secureJsonFile(path.resolve(attestationPath), "Native critic attestation");
+  if (expectedFileDigest !== null && attestationFile.digest !== expectedFileDigest) {
+    throw new Error("Native critic attestation changed after authorization");
+  }
+  const trustRootFile = await hostAnchoredTrustRoot();
   if (isWithin(workspace, attestationFile.path)) {
     throw new Error("Native critic attestation must be a host-provided file outside the repository");
   }
@@ -927,7 +1001,8 @@ export async function verifyTrustedNativeCriticAttestation({ attestationPath, wo
   if (!key || typeof key.publicKey !== "string") throw new Error("Native critic attestation key is not available in the trust root");
   const issuedAt = Date.parse(requiredString(attestation.issuedAt, "Native critic attestation issuedAt"));
   const expiresAt = Date.parse(requiredString(attestation.expiresAt, "Native critic attestation expiresAt"));
-  if (!Number.isFinite(issuedAt) || !Number.isFinite(expiresAt) || issuedAt > Date.now() + 300_000 || expiresAt <= Date.now()) {
+  const nowMs = now instanceof Date ? now.getTime() : Number(now);
+  if (!Number.isFinite(nowMs) || !Number.isFinite(issuedAt) || !Number.isFinite(expiresAt) || issuedAt > nowMs + 300_000 || expiresAt <= nowMs) {
     throw new Error("Native critic attestation is not currently valid");
   }
   const publicKey = createPublicKey({ key: Buffer.from(key.publicKey, "base64"), format: "der", type: "spki" });
@@ -938,6 +1013,7 @@ export async function verifyTrustedNativeCriticAttestation({ attestationPath, wo
   return {
     ...attestation,
     attestationDigest: sha256(canonicalJson(unsignedAttestation(attestation))),
+    fileDigest: attestationFile.digest,
     trustRootDigest: sha256(canonicalJson(trustRoot)),
     attestationPath: attestationFile.path
   };

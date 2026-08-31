@@ -780,6 +780,7 @@ export function processLiveness(pid, probe = process.kill) {
 
 const DARWIN_PROCESS_IDENTITY_SCRIPT = [
   "import ctypes, os, struct, sys",
+  "if sys.flags.isolated != 1 or sys.flags.no_site != 1: raise SystemExit(5)",
   "pid = int(sys.argv[1])",
   "lib = ctypes.CDLL('/usr/lib/libproc.dylib')",
   "proc_pidinfo = lib.proc_pidinfo",
@@ -792,64 +793,274 @@ const DARWIN_PROCESS_IDENTITY_SCRIPT = [
   "print(f'{seconds}:{microseconds}')"
 ].join("\n");
 
-let cachedDarwinBootTime = null;
+// `sysctl kern.boottime` can be denied by the macOS sandbox used by Codex. The
+// public utmpx API exposes the same kernel-maintained boot timeval without
+// requiring elevated authority. Render the legacy sysctl string exactly so
+// process-incarnation digests remain compatible with already-live leases.
+const DARWIN_BOOT_IDENTITY_SCRIPT = [
+  "import ctypes, time",
+  "class Timeval(ctypes.Structure):",
+  "    _fields_ = [('tv_sec', ctypes.c_long), ('tv_usec', ctypes.c_int)]",
+  "class Utmpx(ctypes.Structure):",
+  "    _fields_ = [",
+  "        ('ut_user', ctypes.c_char * 256),",
+  "        ('ut_id', ctypes.c_char * 4),",
+  "        ('ut_line', ctypes.c_char * 32),",
+  "        ('ut_pid', ctypes.c_int),",
+  "        ('ut_type', ctypes.c_short),",
+  "        ('ut_tv', Timeval),",
+  "        ('ut_host', ctypes.c_char * 256),",
+  "        ('ut_pad', ctypes.c_uint32 * 16),",
+  "    ]",
+  "if ctypes.sizeof(ctypes.c_long) != 8: raise SystemExit(2)",
+  "if ctypes.sizeof(Timeval) != 16 or ctypes.sizeof(Utmpx) != 640: raise SystemExit(2)",
+  "if Utmpx.ut_type.offset != 296 or Utmpx.ut_tv.offset != 304: raise SystemExit(2)",
+  "libc = ctypes.CDLL('/usr/lib/libSystem.B.dylib')",
+  "libc.setutxent.argtypes = []",
+  "libc.setutxent.restype = None",
+  "libc.getutxent.argtypes = []",
+  "libc.getutxent.restype = ctypes.POINTER(Utmpx)",
+  "libc.endutxent.argtypes = []",
+  "libc.endutxent.restype = None",
+  "matches = []",
+  "libc.setutxent()",
+  "try:",
+  "    while True:",
+  "        record = libc.getutxent()",
+  "        if not record: break",
+  "        if record.contents.ut_type == 2:",
+  "            matches.append((record.contents.ut_tv.tv_sec, record.contents.ut_tv.tv_usec))",
+  "finally:",
+  "    libc.endutxent()",
+  "if len(matches) != 1: raise SystemExit(3)",
+  "seconds, microseconds = matches[0]",
+  "if seconds <= 0 or not 0 <= microseconds < 1000000: raise SystemExit(4)",
+  "display = time.strftime('%a %b %e %H:%M:%S %Y', time.localtime(seconds))",
+  "print(f'{{ sec = {seconds}, usec = {microseconds} }} {display}')"
+].join("\n");
 
-async function processBootIdentity() {
-  if (process.platform === "darwin") {
-    if (cachedDarwinBootTime) return cachedDarwinBootTime;
-    const { stdout } = await execFileAsync("/usr/sbin/sysctl", ["-n", "kern.boottime"], {
-      encoding: "utf8",
-      timeout: 5_000,
-      killSignal: "SIGKILL",
-      env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", LC_ALL: "C" }
-    });
-    const bootTime = stdout.trim().replace(/\s+/g, " ");
-    if (!bootTime) throw new Error("macOS boot identity was empty");
-    cachedDarwinBootTime = bootTime;
-    return bootTime;
+const DARWIN_BOOT_IDENTITY_PATTERN = /^\{ sec = [1-9]\d*, usec = \d{1,6} \} (?:Sun|Mon|Tue|Wed|Thu|Fri|Sat) (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (?:[1-9]|[12]\d|3[01]) (?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d \d{4}$/;
+const DARWIN_PYTHON_TEMP_ROOT = "/private/tmp";
+
+export function canonicalizeDarwinBootIdentity(value) {
+  if (typeof value !== "string") throw new Error("macOS boot identity was malformed");
+  const bootTime = value.trim().replace(/\s+/g, " ");
+  if (!DARWIN_BOOT_IDENTITY_PATTERN.test(bootTime)) {
+    throw new Error("macOS boot identity was malformed");
   }
-  if (process.platform === "linux") {
-    return (await readFile("/proc/sys/kernel/random/boot_id", "utf8")).trim();
+  const microseconds = Number(bootTime.match(/usec = (\d{1,6})/u)?.[1]);
+  if (!Number.isInteger(microseconds) || microseconds >= 1_000_000) {
+    throw new Error("macOS boot identity was malformed");
   }
-  return null;
+  return bootTime;
 }
 
-export async function processIncarnationDigest(pid, { liveness = processLiveness } = {}) {
+export function validateDarwinPythonTempRoot(info, resolvedPath) {
+  if (
+    !info
+      || typeof info.isDirectory !== "function"
+      || !info.isDirectory()
+      || (typeof info.isSymbolicLink === "function" && info.isSymbolicLink())
+      || info.uid !== 0
+      || (info.mode & 0o7777) !== 0o1777
+      || resolvedPath !== DARWIN_PYTHON_TEMP_ROOT
+  ) {
+    throw new Error("Unsafe fixed macOS Python temporary root");
+  }
+}
+
+async function assertDarwinPythonTempRoot() {
+  const [info, resolvedPath] = await Promise.all([
+    lstat(DARWIN_PYTHON_TEMP_ROOT),
+    realpath(DARWIN_PYTHON_TEMP_ROOT)
+  ]);
+  validateDarwinPythonTempRoot(info, resolvedPath);
+}
+
+async function readDarwinBootIdentityWithSysctl() {
+  const { stdout, stderr } = await execFileAsync("/usr/sbin/sysctl", ["-n", "kern.boottime"], {
+    encoding: "utf8",
+    timeout: 5_000,
+    killSignal: "SIGKILL",
+    maxBuffer: 4_096,
+    shell: false,
+    env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", LC_ALL: "C" }
+  });
+  if (stderr !== "") throw new Error("macOS sysctl boot identity emitted stderr");
+  return stdout;
+}
+
+async function readDarwinBootIdentityWithUtmpx() {
+  await assertDarwinPythonTempRoot();
+  const { stdout, stderr } = await execFileAsync("/usr/bin/python3", ["-I", "-S", "-c", DARWIN_BOOT_IDENTITY_SCRIPT], {
+    encoding: "utf8",
+    timeout: 5_000,
+    killSignal: "SIGKILL",
+    maxBuffer: 4_096,
+    shell: false,
+    env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", LC_ALL: "C", TMPDIR: DARWIN_PYTHON_TEMP_ROOT }
+  });
+  if (stderr !== "") throw new Error("macOS utmpx boot identity emitted stderr");
+  return stdout;
+}
+
+export function isDarwinSysctlPermissionDenied(error) {
+  return Boolean(
+    error
+      && Number.isInteger(error.code)
+      && error.code !== 0
+      && error.signal == null
+      && error.killed !== true
+      && typeof error.stdout === "string"
+      && error.stdout.trim() === ""
+      && typeof error.stderr === "string"
+      && /^sysctl: [^\r\n]*Operation not permitted\r?\n?$/.test(error.stderr)
+  );
+}
+
+async function readLinuxBootIdentity() {
+  return (await readFile("/proc/sys/kernel/random/boot_id", "utf8")).trim();
+}
+
+export function createProcessBootIdentityProbe({
+  platform = process.platform,
+  darwinPrimaryProbe = readDarwinBootIdentityWithSysctl,
+  darwinFallbackProbe = readDarwinBootIdentityWithUtmpx,
+  darwinFallbackEligible = isDarwinSysctlPermissionDenied,
+  linuxProbe = readLinuxBootIdentity
+} = {}) {
+  let cachedDarwinBootTime = null;
+  let pendingDarwinBootTime = null;
+
+  return async function processBootIdentity() {
+    if (platform === "darwin") {
+      if (cachedDarwinBootTime !== null) return cachedDarwinBootTime;
+      if (pendingDarwinBootTime !== null) return pendingDarwinBootTime;
+      const probe = (async () => {
+        let value;
+        try {
+          value = await darwinPrimaryProbe();
+        } catch (error) {
+          if (!darwinFallbackEligible(error)) throw error;
+          value = await darwinFallbackProbe();
+        }
+        const bootTime = canonicalizeDarwinBootIdentity(value);
+        cachedDarwinBootTime = bootTime;
+        return bootTime;
+      })();
+      pendingDarwinBootTime = probe;
+      try {
+        return await probe;
+      } finally {
+        if (pendingDarwinBootTime === probe) pendingDarwinBootTime = null;
+      }
+    }
+    if (platform === "linux") return linuxProbe();
+    return null;
+  };
+}
+
+const processBootIdentity = createProcessBootIdentityProbe();
+
+export async function readDarwinProcessStartIdentity(pid, {
+  execute = execFileAsync,
+  validateTempRoot = assertDarwinPythonTempRoot
+} = {}) {
+  if (!Number.isInteger(pid) || pid < 1) throw new Error("macOS process identity PID was invalid");
+  await validateTempRoot();
+  const { stdout, stderr } = await execute("/usr/bin/python3", ["-I", "-S", "-c", DARWIN_PROCESS_IDENTITY_SCRIPT, String(pid)], {
+    encoding: "utf8",
+    timeout: 5_000,
+    killSignal: "SIGKILL",
+    maxBuffer: 4_096,
+    shell: false,
+    env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", LC_ALL: "C", TMPDIR: DARWIN_PYTHON_TEMP_ROOT }
+  });
+  if (stderr !== "") throw new Error("macOS process start identity emitted stderr");
+  return stdout.trim();
+}
+
+async function readLinuxProcessStartIdentity(pid) {
+  const stat = await readFile(`/proc/${pid}/stat`, "utf8");
+  const closing = stat.lastIndexOf(")");
+  const fields = closing >= 0 ? stat.slice(closing + 1).trim().split(/\s+/) : [];
+  return fields[19];
+}
+
+export function createProcessStartIdentityProbe({
+  platform = process.platform,
+  selfPid = process.pid,
+  darwinProbe = readDarwinProcessStartIdentity,
+  linuxProbe = readLinuxProcessStartIdentity
+} = {}) {
+  let cachedDarwinSelfIdentity = null;
+  let pendingDarwinSelfIdentity = null;
+
+  return async function processStartIdentity(pid) {
+    if (platform === "darwin") {
+      if (pid === selfPid && cachedDarwinSelfIdentity !== null) return cachedDarwinSelfIdentity;
+      if (pid === selfPid && pendingDarwinSelfIdentity !== null) return pendingDarwinSelfIdentity;
+      const probe = (async () => {
+        const value = await darwinProbe(pid);
+        if (!/^\d+:\d+$/.test(value ?? "")) throw new Error("macOS process start identity was malformed");
+        if (pid === selfPid) cachedDarwinSelfIdentity = value;
+        return value;
+      })();
+      if (pid !== selfPid) return probe;
+      pendingDarwinSelfIdentity = probe;
+      try {
+        return await probe;
+      } finally {
+        if (pendingDarwinSelfIdentity === probe) pendingDarwinSelfIdentity = null;
+      }
+    }
+    if (platform === "linux") {
+      const value = await linuxProbe(pid);
+      if (!/^\d+$/.test(value ?? "")) throw new Error("Linux process start ticks were unavailable");
+      return value;
+    }
+    throw new Error("Process start identity is unavailable on this platform");
+  };
+}
+
+const processStartIdentity = createProcessStartIdentityProbe();
+
+const waitForProcessIdentityRetry = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+const PROCESS_IDENTITY_RETRY_DELAYS_MS = Object.freeze([50, 250]);
+
+export async function processIncarnationDigest(pid, {
+  liveness = processLiveness,
+  startIdentity = processStartIdentity,
+  bootIdentity = processBootIdentity,
+  wait = waitForProcessIdentityRetry
+} = {}) {
   if (!Number.isInteger(pid) || pid < 1) return null;
   const initialLiveness = liveness(pid);
   if (initialLiveness === "absent") return null;
   if (initialLiveness === "unknown") return "unknown";
-  try {
-    let startIdentity;
-    if (process.platform === "darwin") {
-      const { stdout } = await execFileAsync("/usr/bin/python3", ["-c", DARWIN_PROCESS_IDENTITY_SCRIPT, String(pid)], {
-        encoding: "utf8",
-        timeout: 5_000,
-        killSignal: "SIGKILL",
-        env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", LC_ALL: "C" }
-      });
-      startIdentity = stdout.trim();
-      if (!/^\d+:\d+$/.test(startIdentity)) throw new Error("macOS process start identity was malformed");
-    } else if (process.platform === "linux") {
-      const stat = await readFile(`/proc/${pid}/stat`, "utf8");
-      const closing = stat.lastIndexOf(")");
-      const fields = closing >= 0 ? stat.slice(closing + 1).trim().split(/\s+/) : [];
-      startIdentity = fields[19];
-      if (!/^\d+$/.test(startIdentity ?? "")) throw new Error("Linux process start ticks were unavailable");
-    } else {
-      return "unknown";
+  for (let attempt = 0; attempt <= PROCESS_IDENTITY_RETRY_DELAYS_MS.length; attempt += 1) {
+    try {
+      const start = await startIdentity(pid);
+      const boot = await bootIdentity();
+      if (typeof start !== "string" || !start || typeof boot !== "string" || !boot) {
+        throw new Error("Process incarnation identity was incomplete");
+      }
+      const finalLiveness = liveness(pid);
+      if (finalLiveness === "absent") return null;
+      if (finalLiveness === "unknown") return "unknown";
+      return sha256(`${process.platform}\0${pid}\0${boot}\0${start}`);
+    } catch {
+      const finalLiveness = liveness(pid);
+      if (finalLiveness === "absent") return null;
+      if (finalLiveness === "unknown") return "unknown";
+      if (attempt < PROCESS_IDENTITY_RETRY_DELAYS_MS.length) {
+        await wait(PROCESS_IDENTITY_RETRY_DELAYS_MS[attempt]);
+      }
     }
-    const bootIdentity = await processBootIdentity();
-    if (!bootIdentity) return "unknown";
-    return sha256(`${process.platform}\0${pid}\0${bootIdentity}\0${startIdentity}`);
-  } catch {
-    const finalLiveness = liveness(pid);
-    if (finalLiveness === "absent") return null;
-    // A live or unobservable process whose incarnation cannot be read is not
-    // reclaimable, even when the failure was EPERM/EACCES or another host
-    // inspection error.
-    return "unknown";
   }
+  // A live process whose incarnation cannot be read after the fixed retry
+  // budget is not reclaimable. Availability retries never weaken this HOLD.
+  return "unknown";
 }
 
 async function readPublicationLockRecord(lockPath, { allowHardlink = false, pinned = null } = {}) {
