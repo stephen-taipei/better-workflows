@@ -450,7 +450,7 @@ test("delegated pr-to-dev runs require the typed self-improve handoff gate", asy
     "run", "--template", "self-improve-ops", "--mode", "critical", "--goal", "Prepare delivery", "--scope", ".", "--baseline", baseline
   ]);
   const target = await cli(cwd, stateRoot, [
-    "run", "--template", "pr-to-dev", "--mode", "critical", "--goal", "Deliver accepted improvement", "--scope", ".", "--self-improve-run", source.json.runId
+    "run", "--template", "pr-to-dev", "--mode", "critical", "--goal", "Deliver accepted improvement", "--scope", ".", "--self-improve-run", source.json.runId, "--remote-revision", baseline
   ]);
   const contract = JSON.parse(await readFile(path.join(stateRoot, "runs", target.json.runId, "contract.json"), "utf8"));
   assert.equal(contract.upstreamSelfImproveRunId, source.json.runId);
