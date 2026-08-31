@@ -205,6 +205,7 @@ import {
 import { openReplayBrowserWithRecovery, replayStartedEvent, startReplayServer } from "./lib/replay-server.mjs";
 import { runFormalEvaluator } from "./lib/formal-evaluator.mjs";
 import { runNativeReview } from "./lib/native-review-runner.mjs";
+import { listRunMetrics, readRunMetrics } from "./lib/metrics.mjs";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const TEMPLATE_DIR = path.join(pluginRoot(), "templates");
@@ -2437,6 +2438,7 @@ function help() {
       "sbw interaction preview --scope-file <scope.json> [--standing-file <standing.json>] [--interaction-mode auto|strict] [--stale-reason freshness|time|receipt-refresh|nonce-refresh|exact-binding-refresh]",
       "sbw status <run-id>",
       "sbw inspect <run-id>",
+      "sbw metrics <run-id> | sbw metrics list [--limit <1..500>]",
       "sbw resume <run-id>",
       "sbw autonomy preview|preflight|revoke <run-id>",
       "sbw cancel <run-id> [--reason <text>]",
@@ -2618,6 +2620,14 @@ async function main() {
     };
   }
   if (command === "inspect") return { ok: true, ...(await inspectRun(root, subcommand)) };
+  if (command === "metrics") {
+    assertKnownOptions(options, ["limit"]);
+    if (subcommand === "list") {
+      return { ok: true, schemaVersion: 1, metrics: await listRunMetrics(root, { limit: options.limit ?? 50 }) };
+    }
+    if (!subcommand) throw new Error("metrics requires <run-id> or list");
+    return { ok: true, metrics: await readRunMetrics(root, subcommand) };
+  }
   if (command === "cancel") {
     return {
       ok: true,
