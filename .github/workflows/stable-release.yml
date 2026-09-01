@@ -17,11 +17,9 @@ on:
         type: string
 
 permissions:
-  contents: write
+  contents: read
   actions: read
   checks: read
-  id-token: write
-  attestations: write
 
 concurrency:
   group: better-workflows-stable-release
@@ -31,17 +29,46 @@ jobs:
   release:
     runs-on: ubuntu-latest
     environment: stable-release
+    permissions:
+      contents: write
+      actions: read
+      checks: read
+      id-token: write
+      attestations: write
     env:
       GH_TOKEN: ${{ github.token }}
       GITHUB_TOKEN: ${{ github.token }}
       SBW_STATE_ROOT: ${{ runner.temp }}/sbw-release-state
       SBW_RELEASE_REVISION: ${{ inputs.revision }}
     steps:
+      - name: Verify release revision against live origin/main before checkout
+        env:
+          RELEASE_REVISION: ${{ inputs.revision }}
+        run: |
+          set -euo pipefail
+          if [[ ! "${RELEASE_REVISION}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "The release revision must be an exact lowercase commit SHA" >&2
+            exit 1
+          fi
+          live_revision="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
+          if [[ "${live_revision}" != "${RELEASE_REVISION}" ]]; then
+            echo "The requested release revision is not the current origin/main commit" >&2
+            exit 1
+          fi
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ inputs.revision }}
           fetch-depth: 0
           fetch-tags: true
+          persist-credentials: false
+      - name: Reconfirm release binding before executing repository code
+        env:
+          RELEASE_REVISION: ${{ inputs.revision }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${RELEASE_REVISION}"
+          live_revision="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
+          test "${live_revision}" = "${RELEASE_REVISION}"
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24.12.0

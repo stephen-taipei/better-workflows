@@ -39,6 +39,20 @@ test("stable release workflow exports the token required by its publisher", asyn
   assert.match(workflow, /GITHUB_TOKEN:\s*\$\{\{\s*github\.token\s*\}\}/);
 });
 
+test("stable release verifies origin/main before privileged checkout and code execution", async () => {
+  const workflow = await readFile(path.resolve(".github/workflows/stable-release.yml"), "utf8");
+  const preflight = workflow.indexOf("name: Verify release revision against live origin/main before checkout");
+  const checkout = workflow.indexOf("uses: actions/checkout@");
+  const reconfirm = workflow.indexOf("name: Reconfirm release binding before executing repository code");
+  assert.ok(preflight >= 0 && preflight < checkout, "trusted revision preflight must precede checkout");
+  assert.ok(checkout >= 0 && checkout < reconfirm, "checkout must precede the immediate binding reconfirmation");
+  const preflightBlock = workflow.slice(preflight, checkout);
+  assert.match(preflightBlock, /gh api\s+\"repos\/\$\{GITHUB_REPOSITORY\}\/git\/ref\/heads\/main\"/);
+  assert.match(preflightBlock, /RELEASE_REVISION/);
+  assert.match(workflow.slice(checkout, reconfirm), /persist-credentials:\s*false/);
+  assert.match(workflow.slice(reconfirm), /gh api\s+\"repos\/\$\{GITHUB_REPOSITORY\}\/git\/ref\/heads\/main\"/);
+});
+
 function zipStoredJson(filename, value) {
   const name = Buffer.from(filename);
   const data = Buffer.from(JSON.stringify(value));
