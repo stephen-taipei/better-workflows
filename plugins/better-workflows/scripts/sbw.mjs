@@ -241,6 +241,35 @@ function fail(error, code = 1) {
   process.exitCode = code;
 }
 
+// A value passed to an option may legitimately begin with `--` (for example
+// the randomly generated action token used by `action consume`).  Treating
+// every such token as another option silently converted that value to the
+// boolean `true`, producing a different token hash and an apparently missing
+// action record.  Keep the small set of valueless switches explicit so all
+// other options consume their following argument verbatim.
+const BOOLEAN_OPTIONS = new Set([
+  "help",
+  "refresh",
+  "allow-codex",
+  "allow-external-providers",
+  "sanitized",
+  "allow-agy",
+  "require-agy",
+  "dry-run",
+  "apply",
+  "update",
+  "strict",
+  "capabilities",
+  "agy",
+  "write-receipt",
+  "no-open",
+  "formal",
+  "formal-child",
+  "acceptance-defined",
+  "protected-target",
+  "record"
+]);
+
 function parseArgs(argv) {
   const positional = [];
   const options = {};
@@ -259,7 +288,7 @@ function parseArgs(argv) {
     } else {
       key = token.slice(2);
       const next = argv[index + 1];
-      if (next !== undefined && !next.startsWith("--")) {
+      if (next !== undefined && (!next.startsWith("--") || !BOOLEAN_OPTIONS.has(key))) {
         value = next;
         index += 1;
       } else {
