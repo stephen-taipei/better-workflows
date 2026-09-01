@@ -45,13 +45,14 @@ test("native review runner pins BASE..HEAD scope and validates final JSON after 
   const authorizationPath = path.join(fixture, "authorization.json");
   const resultPath = path.join(fixture, "result.json");
   const fakeCodex = path.join(fixture, "codex");
+  const protocolPath = path.join(fixture, "review-protocol.txt");
   const packageBytes = Buffer.from(`${JSON.stringify({ immutable: true, packageId, base, head })}\n`);
   const manifestBytes = Buffer.from(`${JSON.stringify({ files: [{ status: "M", path: "src/value.txt" }] })}\n`);
   const instructionBytes = Buffer.from("Inspect exact BASE..HEAD and return the frozen final JSON only.\n");
   await writeFile(packagePath, packageBytes);
   await writeFile(manifestPath, manifestBytes);
   await writeFile(instructionPath, instructionBytes);
-  await writeFile(fakeCodex, `#!${process.execPath}\nconst fs=require('node:fs');const a=process.argv.slice(2);if(a.includes('--output-schema'))process.exit(42);const i=a.indexOf('--output-last-message');fs.writeFileSync('${path.join(fixture, "reviewer-path.txt")}',process.env.PATH);fs.writeFileSync(a[i+1],JSON.stringify({schemaVersion:1,verdict:'PASS',scopeCoverage:{base:'${base}',head:'${head}',manifestPathCount:1,reviewedPathCount:1,complete:true},findings:[]}));\n`, { mode: 0o700 });
+  await writeFile(fakeCodex, `#!${process.execPath}\nconst fs=require('node:fs');const a=process.argv.slice(2);if(a.includes('--output-schema'))process.exit(42);const i=a.indexOf('--output-last-message');const chunks=[];process.stdin.on('data',d=>chunks.push(d));process.stdin.on('end',()=>{fs.writeFileSync('${path.join(fixture, "reviewer-path.txt")}',process.env.PATH);fs.writeFileSync('${protocolPath}',Buffer.concat(chunks));fs.writeFileSync(a[i+1],JSON.stringify({schemaVersion:1,verdict:'PASS',scopeCoverage:{base:'${base}',head:'${head}',manifestPathCount:1,reviewedPathCount:1,complete:true},findings:[]}));});\n`, { mode: 0o700 });
   const repository = await realpath(cwd);
   const model = "gpt-5.5";
   const reviewerId = "codex-native-review-test";
@@ -88,6 +89,9 @@ test("native review runner pins BASE..HEAD scope and validates final JSON after 
     assert.match(result.resultSha256, /^[a-f0-9]{64}$/);
     assert.equal(JSON.parse(await readFile(resultPath, "utf8")).verdict, "PASS");
     assert.ok((await readFile(path.join(fixture, "reviewer-path.txt"), "utf8")).split(path.delimiter).includes(path.dirname(process.execPath)));
+    const protocol = await readFile(protocolPath, "utf8");
+    assert.match(protocol, new RegExp(`Review only the exact Git range ${base}\\.\\.${head}\\.`));
+    assert.doesNotMatch(protocol, new RegExp(`${base}\\.\\.\\.${head}`));
     const attempt = JSON.parse(await readFile(path.join(runDir, "native-review-attempts", `${packageId}.json`), "utf8"));
     assert.equal(attempt.status, "passed");
     await rm(resultPath);
@@ -98,6 +102,103 @@ test("native review runner pins BASE..HEAD scope and validates final JSON after 
   } finally {
     if (prior === undefined) delete process.env.CODEX_BINARY;
     else process.env.CODEX_BINARY = prior;
+    await rm(fixture, { recursive: true, force: true });
+  }
+});
+
+test("native review runner reconciles the exact two-dot range for divergent bases", async () => {
+  const fixture = await mkdtemp(path.join(os.tmpdir(), "sbw-native-review-divergent-base-"));
+  const cwd = path.join(fixture, "repository");
+  const runDir = path.join(fixture, "run");
+  const packageId = "review-native-divergent-base";
+  const runId = "sbw-native-review-divergent-base";
+  const resultPath = path.join(fixture, "result.json");
+  const packagePath = path.join(runDir, "review-packages", `${packageId}.json`);
+  const manifestPath = path.join(fixture, "manifest.json");
+  const instructionPath = path.join(fixture, "instruction.md");
+  const authorizationPath = path.join(fixture, "authorization.json");
+  const fakeCodex = path.join(fixture, "codex");
+  try {
+    await mkdir(cwd, { recursive: true });
+    await git(cwd, "init", "-q", "-b", "main");
+    await git(cwd, "config", "user.name", "Native Review Test");
+    await git(cwd, "config", "user.email", "native-review@example.invalid");
+    await mkdir(path.join(cwd, "src"));
+    await writeFile(path.join(cwd, "src", "common.txt"), "root\n");
+    await git(cwd, "add", ".");
+    await git(cwd, "commit", "-qm", "root");
+    const rootRevision = await revision(cwd);
+    await writeFile(path.join(cwd, "src", "base.txt"), "base\n");
+    await git(cwd, "add", ".");
+    await git(cwd, "commit", "-qm", "base");
+    const base = await revision(cwd);
+    await git(cwd, "checkout", "-qb", "head", rootRevision);
+    await writeFile(path.join(cwd, "src", "head.txt"), "head\n");
+    await git(cwd, "add", ".");
+    await git(cwd, "commit", "-qm", "head");
+    const head = await revision(cwd);
+    await mkdir(path.join(runDir, "review-packages"), { recursive: true });
+    const packageBytes = Buffer.from(`${JSON.stringify({ immutable: true, packageId, base, head })}\n`);
+    const manifestBytes = Buffer.from(`${JSON.stringify({ files: [
+      { status: "D", path: "src/base.txt" },
+      { status: "A", path: "src/head.txt" }
+    ] })}\n`);
+    const instructionBytes = Buffer.from("Inspect exact BASE..HEAD and return the frozen final JSON only.\n");
+    await writeFile(packagePath, packageBytes);
+    await writeFile(manifestPath, manifestBytes);
+    await writeFile(instructionPath, instructionBytes);
+    await writeFile(fakeCodex, `#!${process.execPath}\nconst fs=require('node:fs');const a=process.argv.slice(2);const i=a.indexOf('--output-last-message');process.stdin.resume();process.stdin.on('data',()=>{});process.stdin.on('end',()=>fs.writeFileSync(a[i+1],JSON.stringify({schemaVersion:1,verdict:'PASS',scopeCoverage:{base:'${base}',head:'${head}',manifestPathCount:2,reviewedPathCount:2,complete:true},findings:[]})));\n`, { mode: 0o700 });
+    const repository = await realpath(cwd);
+    await writeFile(authorizationPath, `${JSON.stringify({
+      schemaVersion: 1,
+      kind: "native-review-disclosure",
+      authorizationId: "native-review-divergent-base-authorization",
+      approvedAt: new Date().toISOString(),
+      authorized: true,
+      runId,
+      repository,
+      base,
+      head,
+      packageId,
+      packageSha256: hash(packageBytes),
+      manifestSha256: hash(manifestBytes),
+      instructionSha256: hash(instructionBytes),
+      reviewProtocol: "native-review-tool-capable-v1",
+      model: "gpt-5.5",
+      reviewerId: "codex-native-review-divergent-base",
+      executionId: "native-review-divergent-base-1",
+      resultPath,
+      readOnly: true,
+      ephemeral: true,
+      remoteSideEffects: false
+    })}\n`);
+    const prior = process.env.CODEX_BINARY;
+    process.env.CODEX_BINARY = fakeCodex;
+    try {
+      const result = await runNativeReview({
+        runId,
+        runDir,
+        cwd,
+        base,
+        head,
+        packageId,
+        packagePath,
+        manifestPath,
+        instructionPath,
+        authorizationPath,
+        model: "gpt-5.5",
+        reviewerId: "codex-native-review-divergent-base",
+        executionId: "native-review-divergent-base-1",
+        resultPath
+      });
+      assert.equal(result.ok, true);
+      assert.equal(result.result.scopeCoverage.manifestPathCount, 2);
+      assert.equal(result.result.scopeCoverage.reviewedPathCount, 2);
+    } finally {
+      if (prior === undefined) delete process.env.CODEX_BINARY;
+      else process.env.CODEX_BINARY = prior;
+    }
+  } finally {
     await rm(fixture, { recursive: true, force: true });
   }
 });

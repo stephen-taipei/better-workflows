@@ -155,7 +155,7 @@ function validateReview(value, { base, head, pathCount }) {
 function reviewProtocol({ base, head, packageId, manifestPaths }) {
   return Buffer.from([
     `Better Workflows native review protocol: ${REVIEW_PROTOCOL}`,
-    `Review only the exact Git range ${base}...${head}.`,
+    `Review only the exact Git range ${base}..${head}.`,
     `The immutable package is ${packageId}.`,
     "Do not substitute the current branch, working-tree diff, or another merge base.",
     `Reconcile every one of these ${manifestPaths.length} manifest paths exactly once:`,
@@ -372,7 +372,7 @@ export async function runNativeReview({
   if (headResult !== head) throw new Error("Native review HEAD changed before launch");
   const clean = String((await execFileAsync(gitPath, ["-c", "core.fsmonitor=false", "status", "--porcelain=v1"], { cwd: repository, encoding: "utf8" })).stdout);
   if (clean) throw new Error("Native review requires a clean committed tree");
-  const diff = await execFileAsync(gitPath, ["diff", "--name-status", "-z", `${base}...${head}`], {
+  const diff = await execFileAsync(gitPath, ["diff", "--name-status", "-z", `${base}..${head}`], {
     cwd: repository,
     encoding: "buffer",
     maxBuffer: MAX_FILE_BYTES
