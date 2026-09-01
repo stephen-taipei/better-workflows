@@ -124,6 +124,8 @@ test("locale catalog matches Connectors iOS, preserves key order, and rejects fr
   }
   const traditionalTaiwan = locales.find((locale) => locale.code === "zh-Hant-TW").messages;
   const italian = locales.find((locale) => locale.code === "it").messages;
+  const japanese = locales.find((locale) => locale.code === "ja").messages;
+  const korean = locales.find((locale) => locale.code === "ko").messages;
   assert.match(locales.find((locale) => locale.code === "zh-Hant-TW").messages.DESCRIPTION, /依風險.*專屬 worktree/);
   const englishPositioning = locales.find((locale) => locale.code === "en").messages.V4_POSITIONING;
   for (const locale of locales.filter((item) => item.code !== "en")) {

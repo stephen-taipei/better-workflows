@@ -2,7 +2,7 @@
 
 # Better Workflows
 
-Güncel kanıt, inceleme kapıları, kaynak bağlama ve sağlayıcı uzlaştırması içeren açık kaynaklı, goal-first agent iş akışı kontrol düzlemi.
+AI agent doğrulama gücünü riske göre seçer ve işi yalıtılmış bir ortamda güvenle tamamlar. Basit değişiklikler hızlı ilerler; önemli işler evidence gates kullanır; Git değişiklikleri varsayılan olarak özel bir worktree kullanır.
 
 [English](en.md) · [繁體中文](zh-Hant.md) · [繁體中文（台灣）](zh-Hant-TW.md) · [繁體中文（香港）](zh-Hant-HK.md) · [简体中文](zh-Hans.md) · [Tiếng Việt](vi.md) · [Українська](uk.md) · **Türkçe** · [ไทย](th.md) · [Svenska](sv.md) · [Slovenčina](sk.md) · [Русский](ru.md) · [Română](ro.md) · [Português](pt.md) · [Português (Brasil)](pt-BR.md) · [Polski](pl.md) · [Nederlands](nl.md) · [Norsk bokmål](nb.md) · [မြန်မာ](my.md) · [Bahasa Melayu](ms.md) · [ລາວ](lo.md) · [한국어](ko.md) · [ខ្មែរ](km.md) · [日本語](ja.md) · [Italiano](it.md) · [Bahasa Indonesia](id.md) · [Magyar](hu.md) · [Hrvatski](hr.md) · [हिन्दी](hi.md) · [עברית](he.md) · [Français](fr.md) · [Filipino](fil.md) · [Suomi](fi.md) · [Español](es.md) · [Español (México)](es-MX.md) · [Ελληνικά](el.md) · [Deutsch](de.md) · [Dansk](da.md) · [Čeština](cs.md) · [Català](ca.md) · [العربية](ar.md)
 
@@ -19,7 +19,7 @@ Better Workflows hedefi, kapsamı ve yetkiyi sabitler; her kararı güncel ve ye
 Sözleşmeyi tanımlayın, kaynağı ve kanıtı doğrulayın, dış etkileri uzlaştırın ve yalnızca son durum bilindiğinde tamamlandı deyin.
 
 - **01 · `TaskContract`** — Better Workflows hedefi, kapsamı ve yetkiyi sabitler; her kararı güncel ve yeniden doğrulanabilir kanıta ve uzlaştırılmış dış sonuca bağlar.
-- **02 · `evidence`** — Güncel kanıt, inceleme kapıları, kaynak bağlama ve sağlayıcı uzlaştırması içeren açık kaynaklı, goal-first agent iş akışı kontrol düzlemi.
+- **02 · `evidence`** — AI agent doğrulama gücünü riske göre seçer ve işi yalıtılmış bir ortamda güvenle tamamlar. Basit değişiklikler hızlı ilerler; önemli işler evidence gates kullanır; Git değişiklikleri varsayılan olarak özel bir worktree kullanır.
 - **03 · `reconciliation`** — Sözleşmeyi tanımlayın, kaynağı ve kanıtı doğrulayın, dış etkileri uzlaştırın ve yalnızca son durum bilindiğinde tamamlandı deyin.
 - **04 · `terminal state`** — Bir komutun çalışması tamamlanmayı kanıtlamaz; yeniden doğrulanabilir sonuç kanıtlar.
 

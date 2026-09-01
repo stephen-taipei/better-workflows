@@ -2,7 +2,7 @@
 
 # Better Workflows
 
-שכבת בקרה בקוד פתוח ובגישת goal-first לתהליכי agent, עם ראיות עדכניות, שערי ביקורת והתאמה מול הספק.
+סוכן ה-AI מתאים את עוצמת האימות לסיכון ומשלים עבודה בבטחה בסביבה מבודדת. שינויים פשוטים מתקדמים מהר; עבודה חשובה עוברת evidence gates; שינויי Git משתמשים כברירת מחדל ב-worktree ייעודי.
 
 [English](en.md) · [繁體中文](zh-Hant.md) · [繁體中文（台灣）](zh-Hant-TW.md) · [繁體中文（香港）](zh-Hant-HK.md) · [简体中文](zh-Hans.md) · [Tiếng Việt](vi.md) · [Українська](uk.md) · [Türkçe](tr.md) · [ไทย](th.md) · [Svenska](sv.md) · [Slovenčina](sk.md) · [Русский](ru.md) · [Română](ro.md) · [Português](pt.md) · [Português (Brasil)](pt-BR.md) · [Polski](pl.md) · [Nederlands](nl.md) · [Norsk bokmål](nb.md) · [မြန်မာ](my.md) · [Bahasa Melayu](ms.md) · [ລາວ](lo.md) · [한국어](ko.md) · [ខ្មែរ](km.md) · [日本語](ja.md) · [Italiano](it.md) · [Bahasa Indonesia](id.md) · [Magyar](hu.md) · [Hrvatski](hr.md) · [हिन्दी](hi.md) · **עברית** · [Français](fr.md) · [Filipino](fil.md) · [Suomi](fi.md) · [Español](es.md) · [Español (México)](es-MX.md) · [Ελληνικά](el.md) · [Deutsch](de.md) · [Dansk](da.md) · [Čeština](cs.md) · [Català](ca.md) · [العربية](ar.md)
 
@@ -19,7 +19,7 @@ Better Workflows מקבע את היעד, ההיקף והסמכות, וקושר �
 הגדירו את החוזה, אמתו את המקור והראיות, התאימו את ההשפעות החיצוניות והכריזו על השלמה רק כשהמצב הסופי ידוע.
 
 - **01 · `TaskContract`** — Better Workflows מקבע את היעד, ההיקף והסמכות, וקושר כל החלטה לראיות עדכניות שניתן לאמת שוב ולתוצאה חיצונית שעברה התאמה.
-- **02 · `evidence`** — שכבת בקרה בקוד פתוח ובגישת goal-first לתהליכי agent, עם ראיות עדכניות, שערי ביקורת והתאמה מול הספק.
+- **02 · `evidence`** — סוכן ה-AI מתאים את עוצמת האימות לסיכון ומשלים עבודה בבטחה בסביבה מבודדת. שינויים פשוטים מתקדמים מהר; עבודה חשובה עוברת evidence gates; שינויי Git משתמשים כברירת מחדל ב-worktree ייעודי.
 - **03 · `reconciliation`** — הגדירו את החוזה, אמתו את המקור והראיות, התאימו את ההשפעות החיצוניות והכריזו על השלמה רק כשהמצב הסופי ידוע.
 - **04 · `terminal state`** — פקודה שרצה אינה הוכחה להשלמה; תוצאה שניתן לאמת שוב היא כן.
 

@@ -2,7 +2,7 @@
 
 # Better Workflows
 
-Kontrollplan med öppen källkod och goal-first för agentarbetsflöden med aktuella bevis, granskningsgrindar och leverantörsavstämning.
+AI-agenten anpassar verifieringen efter risken och slutför arbetet säkert i en isolerad miljö. Enkla ändringar går snabbt; viktigt arbete använder evidence gates; Git-ändringar använder som standard en egen worktree.
 
 [English](en.md) · [繁體中文](zh-Hant.md) · [繁體中文（台灣）](zh-Hant-TW.md) · [繁體中文（香港）](zh-Hant-HK.md) · [简体中文](zh-Hans.md) · [Tiếng Việt](vi.md) · [Українська](uk.md) · [Türkçe](tr.md) · [ไทย](th.md) · **Svenska** · [Slovenčina](sk.md) · [Русский](ru.md) · [Română](ro.md) · [Português](pt.md) · [Português (Brasil)](pt-BR.md) · [Polski](pl.md) · [Nederlands](nl.md) · [Norsk bokmål](nb.md) · [မြန်မာ](my.md) · [Bahasa Melayu](ms.md) · [ລາວ](lo.md) · [한국어](ko.md) · [ខ្មែរ](km.md) · [日本語](ja.md) · [Italiano](it.md) · [Bahasa Indonesia](id.md) · [Magyar](hu.md) · [Hrvatski](hr.md) · [हिन्दी](hi.md) · [עברית](he.md) · [Français](fr.md) · [Filipino](fil.md) · [Suomi](fi.md) · [Español](es.md) · [Español (México)](es-MX.md) · [Ελληνικά](el.md) · [Deutsch](de.md) · [Dansk](da.md) · [Čeština](cs.md) · [Català](ca.md) · [العربية](ar.md)
 
@@ -19,7 +19,7 @@ Better Workflows låser mål, scope och authority och knyter varje beslut till a
 Definiera kontraktet, verifiera källa och bevis, stäm av externa effekter och markera arbetet som slutfört först när sluttillståndet är känt.
 
 - **01 · `TaskContract`** — Better Workflows låser mål, scope och authority och knyter varje beslut till aktuella, återvaliderbara bevis och ett avstämt externt resultat.
-- **02 · `evidence`** — Kontrollplan med öppen källkod och goal-first för agentarbetsflöden med aktuella bevis, granskningsgrindar och leverantörsavstämning.
+- **02 · `evidence`** — AI-agenten anpassar verifieringen efter risken och slutför arbetet säkert i en isolerad miljö. Enkla ändringar går snabbt; viktigt arbete använder evidence gates; Git-ändringar använder som standard en egen worktree.
 - **03 · `reconciliation`** — Definiera kontraktet, verifiera källa och bevis, stäm av externa effekter och markera arbetet som slutfört först när sluttillståndet är känt.
 - **04 · `terminal state`** — Att ett kommando kördes bevisar inte slutförande; ett återvaliderbart resultat gör det.
 

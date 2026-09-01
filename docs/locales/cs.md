@@ -2,7 +2,7 @@
 
 # Better Workflows
 
-Open-source řídicí vrstva zaměřená na cíle pro pracovní postupy agentů s aktuálními důkazy, kontrolami a vyrovnáním stavu poskytovatele.
+AI agent volí sílu ověření podle rizika a práci bezpečně dokončí v izolovaném prostředí. Jednoduché změny proběhnou rychle; důležitá práce používá evidence gates; změny Git mají ve výchozím stavu vlastní worktree.
 
 [English](en.md) · [繁體中文](zh-Hant.md) · [繁體中文（台灣）](zh-Hant-TW.md) · [繁體中文（香港）](zh-Hant-HK.md) · [简体中文](zh-Hans.md) · [Tiếng Việt](vi.md) · [Українська](uk.md) · [Türkçe](tr.md) · [ไทย](th.md) · [Svenska](sv.md) · [Slovenčina](sk.md) · [Русский](ru.md) · [Română](ro.md) · [Português](pt.md) · [Português (Brasil)](pt-BR.md) · [Polski](pl.md) · [Nederlands](nl.md) · [Norsk bokmål](nb.md) · [မြန်မာ](my.md) · [Bahasa Melayu](ms.md) · [ລາວ](lo.md) · [한국어](ko.md) · [ខ្មែរ](km.md) · [日本語](ja.md) · [Italiano](it.md) · [Bahasa Indonesia](id.md) · [Magyar](hu.md) · [Hrvatski](hr.md) · [हिन्दी](hi.md) · [עברית](he.md) · [Français](fr.md) · [Filipino](fil.md) · [Suomi](fi.md) · [Español](es.md) · [Español (México)](es-MX.md) · [Ελληνικά](el.md) · [Deutsch](de.md) · [Dansk](da.md) · **Čeština** · [Català](ca.md) · [العربية](ar.md)
 
@@ -19,7 +19,7 @@ Better Workflows ukotví cíl, rozsah a oprávnění a každé rozhodnutí svá�
 Definujte smlouvu, ověřte zdroj a důkazy, vyrovnejte externí dopady a dokončení potvrďte teprve tehdy, když je koncový stav známý.
 
 - **01 · `TaskContract`** — Better Workflows ukotví cíl, rozsah a oprávnění a každé rozhodnutí sváže s aktuálními, znovu ověřitelnými důkazy a vyrovnaným externím výsledkem.
-- **02 · `evidence`** — Open-source řídicí vrstva zaměřená na cíle pro pracovní postupy agentů s aktuálními důkazy, kontrolami a vyrovnáním stavu poskytovatele.
+- **02 · `evidence`** — AI agent volí sílu ověření podle rizika a práci bezpečně dokončí v izolovaném prostředí. Jednoduché změny proběhnou rychle; důležitá práce používá evidence gates; změny Git mají ve výchozím stavu vlastní worktree.
 - **03 · `reconciliation`** — Definujte smlouvu, ověřte zdroj a důkazy, vyrovnejte externí dopady a dokončení potvrďte teprve tehdy, když je koncový stav známý.
 - **04 · `terminal state`** — Spuštěný příkaz není důkaz dokončení; znovu ověřitelný výsledek ano.
 

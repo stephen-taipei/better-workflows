@@ -2,7 +2,7 @@
 
 # Better Workflows
 
-control plane แบบ open-source และ goal-first สำหรับเวิร์กโฟลว์ agent พร้อมหลักฐานที่เป็นปัจจุบัน จุดตรวจ review และ provider reconciliation
+ให้ AI agent เลือกระดับการตรวจสอบตามความเสี่ยงและทำงานให้เสร็จอย่างปลอดภัยใน environment ที่แยกออกมา การแก้ไขง่าย ๆ เดินหน้าได้เร็ว งานสำคัญใช้ evidence gates และการแก้ Git ใช้ worktree เฉพาะเป็นค่าเริ่มต้น
 
 [English](en.md) · [繁體中文](zh-Hant.md) · [繁體中文（台灣）](zh-Hant-TW.md) · [繁體中文（香港）](zh-Hant-HK.md) · [简体中文](zh-Hans.md) · [Tiếng Việt](vi.md) · [Українська](uk.md) · [Türkçe](tr.md) · **ไทย** · [Svenska](sv.md) · [Slovenčina](sk.md) · [Русский](ru.md) · [Română](ro.md) · [Português](pt.md) · [Português (Brasil)](pt-BR.md) · [Polski](pl.md) · [Nederlands](nl.md) · [Norsk bokmål](nb.md) · [မြန်မာ](my.md) · [Bahasa Melayu](ms.md) · [ລາວ](lo.md) · [한국어](ko.md) · [ខ្មែរ](km.md) · [日本語](ja.md) · [Italiano](it.md) · [Bahasa Indonesia](id.md) · [Magyar](hu.md) · [Hrvatski](hr.md) · [हिन्दी](hi.md) · [עברית](he.md) · [Français](fr.md) · [Filipino](fil.md) · [Suomi](fi.md) · [Español](es.md) · [Español (México)](es-MX.md) · [Ελληνικά](el.md) · [Deutsch](de.md) · [Dansk](da.md) · [Čeština](cs.md) · [Català](ca.md) · [العربية](ar.md)
 
@@ -19,7 +19,7 @@ Better Workflows ตรึง goal, scope และ authority แล้วผู
 กำหนด contract ตรวจสอบ source และ evidence กระทบยอดผลกระทบภายนอก และประกาศว่าเสร็จสมบูรณ์เมื่อทราบ terminal state แล้วเท่านั้น
 
 - **01 · `TaskContract`** — Better Workflows ตรึง goal, scope และ authority แล้วผูกทุกการตัดสินใจกับหลักฐานที่เป็นปัจจุบันและตรวจซ้ำได้ รวมถึงผลลัพธ์ภายนอกที่ reconcile แล้ว
-- **02 · `evidence`** — control plane แบบ open-source และ goal-first สำหรับเวิร์กโฟลว์ agent พร้อมหลักฐานที่เป็นปัจจุบัน จุดตรวจ review และ provider reconciliation
+- **02 · `evidence`** — ให้ AI agent เลือกระดับการตรวจสอบตามความเสี่ยงและทำงานให้เสร็จอย่างปลอดภัยใน environment ที่แยกออกมา การแก้ไขง่าย ๆ เดินหน้าได้เร็ว งานสำคัญใช้ evidence gates และการแก้ Git ใช้ worktree เฉพาะเป็นค่าเริ่มต้น
 - **03 · `reconciliation`** — กำหนด contract ตรวจสอบ source และ evidence กระทบยอดผลกระทบภายนอก และประกาศว่าเสร็จสมบูรณ์เมื่อทราบ terminal state แล้วเท่านั้น
 - **04 · `terminal state`** — การรันคำสั่งไม่ใช่หลักฐานว่างานเสร็จ ผลลัพธ์ที่ตรวจสอบซ้ำได้ต่างหากคือหลักฐาน
 

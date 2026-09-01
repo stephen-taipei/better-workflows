@@ -421,7 +421,7 @@ for (const page of PUBLIC_DOC_PAGES) {
 // The generated cinema page was authored from the repository root, where
 // ../../../plugins resolves from docs/html/evidence-cinema. After the docs
 // tree is mounted at /docs, the equivalent public path is ../../plugins.
-const cinemaPagePath = path.join(outputDirectory, "docs", "evidence-cinema", "index.html");
+const cinemaPagePath = path.join(outputDirectory, "docs", "reference", "evidence-cinema", "index.html");
 const cinemaPage = await readFile(cinemaPagePath, "utf8");
 await writeFile(cinemaPagePath, cinemaPage.replaceAll("../../../plugins/", "../../plugins/"));
 

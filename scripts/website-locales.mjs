@@ -837,10 +837,10 @@ const v4Copy = {
     "QA sa AI engineering at delivery gatekeeper na inuuna ang ebidensya.",
     "Inaangkop ng AI agent ang lakas ng beripikasyon sa panganib at ligtas na tinatapos ang trabaho sa hiwalay na environment.",
     "Mabilis ang simpleng pagbabago; gumagamit ng evidence gates ang mahalagang trabaho; may sariling worktree ang Git changes bilang default.",
-    "Suriin ang repository, goal, scope, at source branch|Gumawa ng isolated task worktree|Piliin ang Direct o evidence-required|I-validate at ligtas na i-integrate|Linisin lamang ang task-owned branches at worktrees",
+    "Suriin ang imbakan ng proyekto, layunin, saklaw, at sangay ng pinagmulan|Gumawa ng isolated task worktree|Piliin ang Direct o evidence-required|I-validate at ligtas na i-integrate|Linisin lamang ang task-owned branches at worktrees",
     "Opisyal na rekomendasyon: macOS + Codex — pinakamalalim na native integration at kumpletong reference experience.",
     "May targeted checks pa rin ang Direct at hindi nito nilalampasan ang protected branches|Ang protected o remote targets ay gumagamit ng governed PR, fresh checks, at merge authority|Muling sinusuri ng Replay ang naitalang ebidensya; hindi nito inuulit ang merge, push, o deploy",
-    "Kayang harangin ng Better Workflows ang nakikitang error gaya ng maling repository o revision, stale evidence, hindi awtorisadong epekto, at maagang cleanup. Hindi pa nito napatunayang estadistikal na bumababa ang pangmatagalang scope drift, rework, o maling desisyon."
+    "Kayang harangin ng Better Workflows ang nakikitang error gaya ng maling imbakan ng proyekto o revision, stale evidence, hindi awtorisadong epekto, at maagang cleanup. Hindi pa nito napatunayang estadistikal na bumababa ang pangmatagalang scope drift, rework, o maling desisyon."
   ],
   fr: [
     "QA d’ingénierie IA et gardien de livraison centré sur les preuves.",
@@ -918,28 +918,28 @@ const v4Copy = {
     "QA វិស្វកម្ម AI និងអ្នកយាមច្រកដឹកជញ្ជូនដែលផ្តល់អាទិភាពដល់ភស្តុតាង។",
     "ឱ្យ AI agent កំណត់កម្រិតផ្ទៀងផ្ទាត់តាមហានិភ័យ និងបញ្ចប់ការងារដោយសុវត្ថិភាពក្នុង environment ដាច់ដោយឡែក។",
     "ការកែប្រែសាមញ្ញដំណើរការលឿន; ការងារសំខាន់ប្រើ evidence gates; ការកែប្រែ Git ប្រើ worktree ផ្ទាល់ខ្លួនជាលំនាំដើម។",
-    "ពិនិត្យ repository, goal, scope និង source branch|បង្កើត task worktree ដាច់ដោយឡែក|ជ្រើស Direct ឬ evidence-required|validate និង integrate ដោយសុវត្ថិភាព|សម្អាតតែ branch និង worktree ដែល task កាន់កាប់",
+    "ពិនិត្យឃ្លាំងគម្រោង, គោលដៅ, វិសាលភាព និងសាខាប្រភព|បង្កើត task worktree ដាច់ដោយឡែក|ជ្រើស Direct ឬ evidence-required|validate និង integrate ដោយសុវត្ថិភាព|សម្អាតតែ branch និង worktree ដែល task កាន់កាប់",
     "ការណែនាំផ្លូវការ៖ macOS + Codex — native integration ជ្រៅបំផុត និងបទពិសោធន៍យោងពេញលេញ។",
     "Direct នៅតែដំណើរការ targeted checks និងមិនរំលង protected branches|protected ឬ remote targets ប្រើ governed PR, fresh checks និង merge authority|Replay វាយតម្លៃ evidence ដែលបានកត់ត្រាឡើងវិញ; មិនធ្វើ merge, push ឬ deploy ម្តងទៀតទេ",
-    "Better Workflows អាចទប់ស្កាត់កំហុសដែលមើលឃើញ ដូចជា repository ឬ revision ខុស, stale evidence, side effect គ្មានសិទ្ធិ និង cleanup មុនពេល។ វាមិនទាន់បង្ហាញតាមស្ថិតិថា scope drift, rework ឬកំហុសសម្រេចចិត្តរយៈពេលវែងថយចុះទេ។"
+    "Better Workflows អាចទប់ស្កាត់កំហុសដែលមើលឃើញ ដូចជា ឃ្លាំងគម្រោង ឬ revision ខុស, stale evidence, side effect គ្មានសិទ្ធិ និង cleanup មុនពេល។ វាមិនទាន់បង្ហាញតាមស្ថិតិថា scope drift, rework ឬកំហុសសម្រេចចិត្តរយៈពេលវែងថយចុះទេ។"
   ],
   ko: [
     "증거를 최우선으로 하는 AI 엔지니어링 QA + 전달 게이트키퍼.",
     "AI agent가 위험에 따라 검증 강도를 선택하고 격리된 환경에서 안전하게 작업을 완료합니다.",
     "단순한 수정은 빠르게 끝내고, 중요한 작업은 evidence gate를 사용하며, Git 변경은 기본적으로 전용 worktree에서 수행합니다.",
-    "repository, Goal, scope, 원본 branch 확인|격리된 task worktree 생성|Direct 또는 evidence-required 선택|검증 후 안전하게 통합|task 소유 branch와 worktree만 cleanup",
+    "프로젝트 저장소, 목표, 범위, 원본 branch 확인|격리된 task worktree 생성|Direct 또는 evidence-required 선택|검증 후 안전하게 통합|task 소유 branch와 worktree만 cleanup",
     "공식 권장 조합: macOS + Codex — 가장 깊은 native 통합과 완전한 기준 경험을 제공합니다.",
     "Direct도 targeted check를 실행하며 protected branch를 우회하지 않습니다|protected 또는 remote target은 governed PR, fresh checks, merge authority를 사용합니다|Replay는 기록된 evidence의 판단만 재평가하며 merge, push, deploy를 다시 실행하지 않습니다",
-    "Better Workflows는 잘못된 repository나 revision, stale evidence, 승인되지 않은 부작용, 이른 cleanup 같은 관찰 가능한 오류를 차단할 수 있습니다. 장기 작업의 전체 scope drift, rework, 의사결정 오류 감소는 아직 통계적으로 입증되지 않았습니다."
+    "Better Workflows는 잘못된 프로젝트 저장소나 revision, stale evidence, 승인되지 않은 부작용, 이른 cleanup 같은 관찰 가능한 오류를 차단할 수 있습니다. 장기 작업의 전체 scope drift, rework, 의사결정 오류 감소는 아직 통계적으로 입증되지 않았습니다."
   ],
   lo: [
     "QA ວິສະວະກຳ AI ແລະຜູ້ເຝົ້າປະຕູການສົ່ງມອບທີ່ເອົາຫຼັກຖານເປັນຫຼັກ.",
     "ໃຫ້ AI agent ເລືອກຄວາມເຂັ້ມການກວດຕາມຄວາມສ່ຽງ ແລະສຳເລັດວຽກຢ່າງປອດໄພໃນ environment ແຍກ.",
-    "ການແກ້ໄຂງ່າຍໆເຮັດໄດ້ໄວ; ວຽກສຳຄັນໃຊ້ evidence gates; ການແກ້ Git ໃຊ້ worktree ສະເພາະເປັນຄ່າເລີ່ມຕົ້ນ.",
-    "ກວດ repository, goal, scope ແລະ source branch|ສ້າງ task worktree ທີ່ແຍກ|ເລືອກ Direct ຫຼື evidence-required|validate ແລະ integrate ຢ່າງປອດໄພ|cleanup ສະເພາະ branch ແລະ worktree ຂອງ task",
+    "ການແກ້ໄຂງ່າຍໆເຮັດໄດ້ໄວ; ວຽກສຳຄັນໃຊ້ດ່ານຫຼັກຖານ; ການແກ້ Git ໃຊ້ worktree ສະເພາະເປັນຄ່າເລີ່ມຕົ້ນ.",
+    "ກວດຄັງລະຫັດ, ເປົ້າໝາຍ, ຂອບເຂດ ແລະ ແບຣນຊ໌ແຫຼ່ງທີ່ມາ|ສ້າງ task worktree ທີ່ແຍກ|ເລືອກ Direct ຫຼື ວຽກທີ່ຕ້ອງມີຫຼັກຖານ|ກວດຢືນຢັນ ແລະ ລວມຢ່າງປອດໄພ|ລ້າງສະເພາະ branch ແລະ worktree ຂອງ task",
     "ຄຳແນະນຳທາງການ: macOS + Codex — native integration ເລິກສຸດ ແລະປະສົບການອ້າງອີງຄົບຖ້ວນ.",
-    "Direct ຍັງຮັນ targeted checks ແລະບໍ່ຂ້າມ protected branches|protected ຫຼື remote targets ໃຊ້ governed PR, fresh checks ແລະ merge authority|Replay ປະເມີນ evidence ທີ່ບັນທຶກໃໝ່; ບໍ່ເຮັດ merge, push ຫຼື deploy ຊ້ຳ",
-    "Better Workflows ສາມາດຂັດຂວາງຂໍ້ຜິດພາດທີ່ສັງເກດໄດ້ ເຊັ່ນ repository ຫຼື revision ຜິດ, stale evidence, side effect ບໍ່ມີສິດ ແລະ cleanup ໄວເກີນໄປ. ຍັງບໍ່ມີຫຼັກຖານສະຖິຕິວ່າ scope drift, rework ຫຼືການຕັດສິນຜິດລະຍະຍາວຫຼຸດລົງ."
+    "Direct ຍັງຮັນ targeted checks ແລະບໍ່ຂ້າມ protected branches|protected ຫຼື remote targets ໃຊ້ PR ທີ່ມີການຄວບຄຸມ, ການກວດໃໝ່ ແລະ ສິດອະນຸຍາດການລວມ|Replay ປະເມີນຫຼັກຖານທີ່ບັນທຶກໃໝ່; ບໍ່ເຮັດ merge, push ຫຼື deploy ຊ້ຳ",
+    "Better Workflows ສາມາດຂັດຂວາງຂໍ້ຜິດພາດທີ່ສັງເກດໄດ້ ເຊັ່ນ ຄັງລະຫັດ ຫຼື revision ຜິດ, ຫຼັກຖານລ້າສະໄໝ, side effect ບໍ່ມີສິດ ແລະ ລ້າງໄວເກີນໄປ. ຍັງບໍ່ມີຫຼັກຖານສະຖິຕິວ່າ ຂອບເຂດຄາດເຄື່ອນ, rework ຫຼື ການຕັດສິນຜິດລະຍະຍາວຫຼຸດລົງ."
   ],
   ms: [
     "QA kejuruteraan AI dan penjaga penghantaran yang mengutamakan bukti.",
@@ -954,10 +954,10 @@ const v4Copy = {
     "အထောက်အထားကို ဦးစားပေးသော AI engineering QA နှင့် delivery gatekeeper။",
     "AI agent သည် အန္တရာယ်အလိုက် verification အားကိုရွေးကာ isolated environment တွင် အလုပ်ကို လုံခြုံစွာပြီးစီးစေသည်။",
     "ရိုးရှင်းသောပြင်ဆင်မှုများ မြန်မြန်ပြီးသည်; အရေးကြီးအလုပ်တွင် evidence gates သုံးသည်; Git ပြင်ဆင်မှုများသည် သီးသန့် worktree ကို default သုံးသည်။",
-    "repository, goal, scope နှင့် source branch ကိုစစ်ပါ|isolated task worktree ဖန်တီးပါ|Direct သို့မဟုတ် evidence-required ကိုရွေးပါ|validate ပြီး လုံခြုံစွာ integrate လုပ်ပါ|task-owned branch နှင့် worktree များကိုသာ cleanup လုပ်ပါ",
+    "ကုဒ်သိုလှောင်ရုံ၊ goal, scope နှင့် source branch ကိုစစ်ပါ|isolated task worktree ဖန်တီးပါ|Direct သို့မဟုတ် evidence-required ကိုရွေးပါ|validate ပြီး လုံခြုံစွာ integrate လုပ်ပါ|task-owned branch နှင့် worktree များကိုသာ cleanup လုပ်ပါ",
     "တရားဝင်အကြံပြုချက်: macOS + Codex — အနက်ရှိုင်းဆုံး native integration နှင့် ပြည့်စုံသော reference experience။",
     "Direct သည် targeted checks ဆက်လုပ်ပြီး protected branches ကိုမကျော်ပါ|protected သို့မဟုတ် remote targets သည် governed PR, fresh checks နှင့် merge authority ကိုသုံးသည်|Replay သည် မှတ်တမ်းတင် evidence ကိုပြန်သုံးသပ်သည်; merge, push သို့မဟုတ် deploy ကိုထပ်မလုပ်ပါ",
-    "Better Workflows သည် repository သို့မဟုတ် revision မှားခြင်း၊ stale evidence၊ ခွင့်မရှိသော side effect နှင့် cleanup စောလွန်းခြင်းကဲ့သို့ မြင်နိုင်သောအမှားများကို တားနိုင်သည်။ ရေရှည် scope drift, rework သို့မဟုတ် ဆုံးဖြတ်ချက်အမှား လျော့နည်းကြောင်း စာရင်းအင်းဖြင့် မသက်သေပြရသေးပါ။"
+    "Better Workflows သည် ကုဒ်သိုလှောင်ရုံ သို့မဟုတ် revision မှားခြင်း၊ stale evidence၊ ခွင့်မရှိသော side effect နှင့် cleanup စောလွန်းခြင်းကဲ့သို့ မြင်နိုင်သောအမှားများကို တားနိုင်သည်။ ရေရှည် scope drift, rework သို့မဟုတ် ဆုံးဖြတ်ချက်အမှား လျော့နည်းကြောင်း စာရင်းအင်းဖြင့် မသက်သေပြရသေးပါ။"
   ],
   nb: [
     "Evidensbasert QA for AI-utvikling og portvakt for levering.",
@@ -1080,37 +1080,37 @@ const v4Copy = {
     "证据至上的 AI 工程 QA＋交付守门人。",
     "让 AI agent 依风险选择验证强度，在隔离环境中安全完成工作。",
     "简单修改快速完成；重要工作使用证据 gate；Git 修改默认使用专属 worktree。",
-    "检查 repository、Goal、scope 与原分支|建立隔离 task worktree|判断 Direct 或 evidence-required|验证后安全集成|只清理本任务拥有的 branch 与 worktree",
+    "检查代码仓库、Goal、scope 与原分支|建立隔离 task worktree|判断 Direct 或 evidence-required|验证后安全集成|只清理本任务拥有的 branch 与 worktree",
     "官方推荐：macOS + Codex——原生集成最深、参考体验最完整。",
     "Direct 仍会执行 targeted check，且绝不绕过 protected branch|protected 或 remote target 必须走受治理 PR、fresh checks 与 merge authority|Replay 是重播已记录证据的判断，不会重新 merge、push 或 deploy",
-    "Better Workflows 能阻挡错 repository、错 revision、stale evidence、未授权副作用与过早 cleanup 等可观测错误；但尚未以统计证明长期任务的整体 scope drift、rework 或错误决策率下降。"
+    "Better Workflows 能阻挡错误代码仓库、错 revision、stale evidence、未授权副作用与过早 cleanup 等可观测错误；但尚未以统计证明长期任务的整体 scope drift、rework 或错误决策率下降。"
   ],
   "zh-Hant": [
     "證據至上的 AI 工程 QA＋交付守門人。",
     "讓 AI agent 依風險選擇驗證強度，在隔離環境安全完成工作。",
     "單純修改快速完成；重要工作使用證據 gate；Git 修改預設使用專屬 worktree。",
-    "檢查 repository、Goal、scope 與原分支|建立隔離 task worktree|判斷 Direct 或 evidence-required|驗證後安全整合|只清理本任務擁有的 branch 與 worktree",
+    "檢查程式碼儲存庫、Goal、scope 與原分支|建立隔離 task worktree|判斷 Direct 或 evidence-required|驗證後安全整合|只清理本任務擁有的 branch 與 worktree",
     "官方推薦：macOS + Codex——原生整合最深、參考體驗最完整。",
     "Direct 仍會執行 targeted check，且絕不繞過 protected branch|protected 或 remote target 必須走受治理 PR、fresh checks 與 merge authority|Replay 是重播已記錄證據的判斷，不會重新 merge、push 或 deploy",
-    "Better Workflows 能阻擋錯 repository、錯 revision、stale evidence、未授權副作用與過早 cleanup 等可觀測錯誤；但尚未以統計證明長期任務的整體 scope drift、rework 或錯誤決策率下降。"
+    "Better Workflows 能阻擋錯誤程式碼儲存庫、錯 revision、stale evidence、未授權副作用與過早 cleanup 等可觀測錯誤；但尚未以統計證明長期任務的整體 scope drift、rework 或錯誤決策率下降。"
   ],
   "zh-Hant-HK": [
     "證據至上嘅 AI 工程 QA＋交付守門人。",
     "等 AI agent 按風險選擇驗證強度，喺隔離環境安全完成工作。",
     "簡單修改快速完成；重要工作使用證據 gate；Git 修改預設使用專屬 worktree。",
-    "檢查 repository、Goal、scope 同原 branch|建立隔離 task worktree|判斷 Direct 或 evidence-required|驗證後安全整合|只清理本任務擁有嘅 branch 同 worktree",
+    "檢查程式碼儲存庫、Goal、scope 同原 branch|建立隔離 task worktree|判斷 Direct 或 evidence-required|驗證後安全整合|只清理本任務擁有嘅 branch 同 worktree",
     "官方推薦：macOS + Codex——原生整合最深、參考體驗最完整。",
     "Direct 仍然會執行 targeted check，而且絕不繞過 protected branch|protected 或 remote target 必須經受治理 PR、fresh checks 同 merge authority|Replay 只係重播已記錄證據嘅判斷，唔會重新 merge、push 或 deploy",
-    "Better Workflows 可以阻擋錯 repository、錯 revision、stale evidence、未授權副作用同過早 cleanup 等可觀察錯誤；但仍未有統計證明長期任務嘅整體 scope drift、rework 或錯誤決策率下降。"
+    "Better Workflows 可以阻擋錯誤程式碼儲存庫、錯 revision、stale evidence、未授權副作用同過早 cleanup 等可觀察錯誤；但仍未有統計證明長期任務嘅整體 scope drift、rework 或錯誤決策率下降。"
   ],
   "zh-Hant-TW": [
     "證據至上的 AI 工程 QA＋交付守門人。",
     "讓 AI agent 依風險選擇驗證強度，在隔離環境安全完成工作。",
     "單純修改快速完成；重要工作使用證據 gate；Git 修改預設使用專屬 worktree。",
-    "檢查 repository、Goal、scope 與原分支|建立隔離 task worktree|判斷 Direct 或 evidence-required|驗證後安全回併|只清理本任務擁有的 branch 與 worktree",
+    "檢查程式碼儲存庫、Goal、scope 與原分支|建立隔離 task worktree|判斷 Direct 或 evidence-required|驗證後安全回併|只清理本任務擁有的 branch 與 worktree",
     "官方推薦：macOS + Codex——原生整合最深、參考體驗最完整。",
     "Direct 仍會執行 targeted check，且絕不繞過 protected branch|protected 或 remote target 必須走受治理 PR、fresh checks 與 merge authority|Replay 是重播已記錄證據的判斷，不會重新 merge、push 或 deploy",
-    "Better Workflows 能阻擋錯 repository、錯 revision、stale evidence、未授權副作用與過早 cleanup 等可觀測錯誤；但尚未以統計證明長期任務的整體 scope drift、rework 或錯誤決策率下降。"
+    "Better Workflows 能阻擋錯誤程式碼儲存庫、錯 revision、stale evidence、未授權副作用與過早 cleanup 等可觀測錯誤；但尚未以統計證明長期任務的整體 scope drift、rework 或錯誤決策率下降。"
   ]
 };
 

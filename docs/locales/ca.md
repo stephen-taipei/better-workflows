@@ -2,7 +2,7 @@
 
 # Better Workflows
 
-Pla de control de codi obert i orientat a objectius per a fluxos d’agents amb evidència actualitzada, revisions i conciliació del proveïdor.
+Permet que l’agent d’IA ajusti la verificació al risc i acabi la feina amb seguretat en un entorn aïllat. Els canvis simples avancen ràpid; la feina important usa gates d’evidència; els canvis Git fan servir un worktree dedicat per defecte.
 
 [English](en.md) · [繁體中文](zh-Hant.md) · [繁體中文（台灣）](zh-Hant-TW.md) · [繁體中文（香港）](zh-Hant-HK.md) · [简体中文](zh-Hans.md) · [Tiếng Việt](vi.md) · [Українська](uk.md) · [Türkçe](tr.md) · [ไทย](th.md) · [Svenska](sv.md) · [Slovenčina](sk.md) · [Русский](ru.md) · [Română](ro.md) · [Português](pt.md) · [Português (Brasil)](pt-BR.md) · [Polski](pl.md) · [Nederlands](nl.md) · [Norsk bokmål](nb.md) · [မြန်မာ](my.md) · [Bahasa Melayu](ms.md) · [ລາວ](lo.md) · [한국어](ko.md) · [ខ្មែរ](km.md) · [日本語](ja.md) · [Italiano](it.md) · [Bahasa Indonesia](id.md) · [Magyar](hu.md) · [Hrvatski](hr.md) · [हिन्दी](hi.md) · [עברית](he.md) · [Français](fr.md) · [Filipino](fil.md) · [Suomi](fi.md) · [Español](es.md) · [Español (México)](es-MX.md) · [Ελληνικά](el.md) · [Deutsch](de.md) · [Dansk](da.md) · [Čeština](cs.md) · **Català** · [العربية](ar.md)
 
@@ -19,7 +19,7 @@ Better Workflows fixa l’objectiu, l’abast i l’autoritat, i vincula cada de
 Defineix el contracte, verifica la font i l’evidència, concilia els efectes externs i només declara la finalització quan l’estat terminal és conegut.
 
 - **01 · `TaskContract`** — Better Workflows fixa l’objectiu, l’abast i l’autoritat, i vincula cada decisió a evidència actualitzada i revalidable i a un resultat extern conciliat.
-- **02 · `evidence`** — Pla de control de codi obert i orientat a objectius per a fluxos d’agents amb evidència actualitzada, revisions i conciliació del proveïdor.
+- **02 · `evidence`** — Permet que l’agent d’IA ajusti la verificació al risc i acabi la feina amb seguretat en un entorn aïllat. Els canvis simples avancen ràpid; la feina important usa gates d’evidència; els canvis Git fan servir un worktree dedicat per defecte.
 - **03 · `reconciliation`** — Defineix el contracte, verifica la font i l’evidència, concilia els efectes externs i només declara la finalització quan l’estat terminal és conegut.
 - **04 · `terminal state`** — Executar una ordre no prova que la feina s’hagi acabat; un resultat revalidable sí.
 

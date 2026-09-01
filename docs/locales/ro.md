@@ -2,7 +2,7 @@
 
 # Better Workflows
 
-Plan de control open-source și goal-first pentru fluxuri de agenți, cu dovezi actualizate, porți de review și reconcilierea cu furnizorul.
+Agentul AI adaptează intensitatea verificării la risc și finalizează lucrul în siguranță într-un mediu izolat. Modificările simple merg repede; lucrul important folosește evidence gates; modificările Git folosesc implicit un worktree dedicat.
 
 [English](en.md) · [繁體中文](zh-Hant.md) · [繁體中文（台灣）](zh-Hant-TW.md) · [繁體中文（香港）](zh-Hant-HK.md) · [简体中文](zh-Hans.md) · [Tiếng Việt](vi.md) · [Українська](uk.md) · [Türkçe](tr.md) · [ไทย](th.md) · [Svenska](sv.md) · [Slovenčina](sk.md) · [Русский](ru.md) · **Română** · [Português](pt.md) · [Português (Brasil)](pt-BR.md) · [Polski](pl.md) · [Nederlands](nl.md) · [Norsk bokmål](nb.md) · [မြန်မာ](my.md) · [Bahasa Melayu](ms.md) · [ລາວ](lo.md) · [한국어](ko.md) · [ខ្មែរ](km.md) · [日本語](ja.md) · [Italiano](it.md) · [Bahasa Indonesia](id.md) · [Magyar](hu.md) · [Hrvatski](hr.md) · [हिन्दी](hi.md) · [עברית](he.md) · [Français](fr.md) · [Filipino](fil.md) · [Suomi](fi.md) · [Español](es.md) · [Español (México)](es-MX.md) · [Ελληνικά](el.md) · [Deutsch](de.md) · [Dansk](da.md) · [Čeština](cs.md) · [Català](ca.md) · [العربية](ar.md)
 
@@ -19,7 +19,7 @@ Better Workflows fixează obiectivul, domeniul și autoritatea și leagă fiecar
 Definiți contractul, verificați sursa și dovezile, reconciliați efectele externe și declarați finalizarea doar când starea terminală este cunoscută.
 
 - **01 · `TaskContract`** — Better Workflows fixează obiectivul, domeniul și autoritatea și leagă fiecare decizie de dovezi actualizate, revalidabile și de un rezultat extern reconciliat.
-- **02 · `evidence`** — Plan de control open-source și goal-first pentru fluxuri de agenți, cu dovezi actualizate, porți de review și reconcilierea cu furnizorul.
+- **02 · `evidence`** — Agentul AI adaptează intensitatea verificării la risc și finalizează lucrul în siguranță într-un mediu izolat. Modificările simple merg repede; lucrul important folosește evidence gates; modificările Git folosesc implicit un worktree dedicat.
 - **03 · `reconciliation`** — Definiți contractul, verificați sursa și dovezile, reconciliați efectele externe și declarați finalizarea doar când starea terminală este cunoscută.
 - **04 · `terminal state`** — Rularea unei comenzi nu dovedește finalizarea; un rezultat revalidabil o dovedește.
 

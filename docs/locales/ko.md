@@ -2,7 +2,7 @@
 
 # Better Workflows
 
-현재 소스에 바인딩되어 여전히 유효한 증거, 리뷰 게이트, 소스 바인딩, provider 상태 대조를 갖춘 오픈 소스 목표 우선 에이전트 워크플로 제어 플레인입니다.
+AI agent가 위험에 따라 검증 강도를 선택하고 격리된 환경에서 안전하게 작업을 완료합니다. 단순한 수정은 빠르게 끝내고, 중요한 작업은 evidence gate를 사용하며, Git 변경은 기본적으로 전용 worktree에서 수행합니다.
 
 [English](en.md) · [繁體中文](zh-Hant.md) · [繁體中文（台灣）](zh-Hant-TW.md) · [繁體中文（香港）](zh-Hant-HK.md) · [简体中文](zh-Hans.md) · [Tiếng Việt](vi.md) · [Українська](uk.md) · [Türkçe](tr.md) · [ไทย](th.md) · [Svenska](sv.md) · [Slovenčina](sk.md) · [Русский](ru.md) · [Română](ro.md) · [Português](pt.md) · [Português (Brasil)](pt-BR.md) · [Polski](pl.md) · [Nederlands](nl.md) · [Norsk bokmål](nb.md) · [မြန်မာ](my.md) · [Bahasa Melayu](ms.md) · [ລາວ](lo.md) · **한국어** · [ខ្មែរ](km.md) · [日本語](ja.md) · [Italiano](it.md) · [Bahasa Indonesia](id.md) · [Magyar](hu.md) · [Hrvatski](hr.md) · [हिन्दी](hi.md) · [עברית](he.md) · [Français](fr.md) · [Filipino](fil.md) · [Suomi](fi.md) · [Español](es.md) · [Español (México)](es-MX.md) · [Ελληνικά](el.md) · [Deutsch](de.md) · [Dansk](da.md) · [Čeština](cs.md) · [Català](ca.md) · [العربية](ar.md)
 
@@ -19,7 +19,7 @@ Better Workflows는 goal, scope, authority를 고정하고 모든 판단을 현�
 contract를 정의하고 source와 evidence를 검증하며 외부 작업 결과를 대조한 뒤, terminal state가 확인된 경우에만 완료를 선언합니다.
 
 - **01 · `TaskContract`** — Better Workflows는 goal, scope, authority를 고정하고 모든 판단을 현재 소스에 바인딩되어 여전히 유효하고 재검증 가능한 증거 및 대조가 끝난 외부 결과에 연결합니다.
-- **02 · `evidence`** — 현재 소스에 바인딩되어 여전히 유효한 증거, 리뷰 게이트, 소스 바인딩, provider 상태 대조를 갖춘 오픈 소스 목표 우선 에이전트 워크플로 제어 플레인입니다.
+- **02 · `evidence`** — AI agent가 위험에 따라 검증 강도를 선택하고 격리된 환경에서 안전하게 작업을 완료합니다. 단순한 수정은 빠르게 끝내고, 중요한 작업은 evidence gate를 사용하며, Git 변경은 기본적으로 전용 worktree에서 수행합니다.
 - **03 · `reconciliation`** — contract를 정의하고 source와 evidence를 검증하며 외부 작업 결과를 대조한 뒤, terminal state가 확인된 경우에만 완료를 선언합니다.
 - **04 · `terminal state`** — 명령이 실행됐다는 사실은 완료의 증거가 아닙니다. 재검증 가능한 결과가 증거입니다.
 

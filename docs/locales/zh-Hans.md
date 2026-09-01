@@ -2,7 +2,7 @@
 
 # Better Workflows
 
-开源、goal-first 的 agent 工作流控制面，以当前仍有效的证据、审查关卡、来源绑定与 provider 状态核对，确保结果可重新验证。
+让 AI agent 依风险选择验证强度，在隔离环境中安全完成工作。 简单修改快速完成；重要工作使用证据 gate；Git 修改默认使用专属 worktree。
 
 [English](en.md) · [繁體中文](zh-Hant.md) · [繁體中文（台灣）](zh-Hant-TW.md) · [繁體中文（香港）](zh-Hant-HK.md) · **简体中文** · [Tiếng Việt](vi.md) · [Українська](uk.md) · [Türkçe](tr.md) · [ไทย](th.md) · [Svenska](sv.md) · [Slovenčina](sk.md) · [Русский](ru.md) · [Română](ro.md) · [Português](pt.md) · [Português (Brasil)](pt-BR.md) · [Polski](pl.md) · [Nederlands](nl.md) · [Norsk bokmål](nb.md) · [မြန်မာ](my.md) · [Bahasa Melayu](ms.md) · [ລາວ](lo.md) · [한국어](ko.md) · [ខ្មែរ](km.md) · [日本語](ja.md) · [Italiano](it.md) · [Bahasa Indonesia](id.md) · [Magyar](hu.md) · [Hrvatski](hr.md) · [हिन्दी](hi.md) · [עברית](he.md) · [Français](fr.md) · [Filipino](fil.md) · [Suomi](fi.md) · [Español](es.md) · [Español (México)](es-MX.md) · [Ελληνικά](el.md) · [Deutsch](de.md) · [Dansk](da.md) · [Čeština](cs.md) · [Català](ca.md) · [العربية](ar.md)
 
@@ -19,7 +19,7 @@ Better Workflows 固定 goal、scope 与 authority，把每个判断绑定到当
 先定义 contract，再验证 source 与 evidence、核对外部操作结果；只有 terminal state 已知时，才宣布完成。
 
 - **01 · `TaskContract`** — Better Workflows 固定 goal、scope 与 authority，把每个判断绑定到当前仍有效且可重新验证的证据，以及已核对的外部结果。
-- **02 · `evidence`** — 开源、goal-first 的 agent 工作流控制面，以当前仍有效的证据、审查关卡、来源绑定与 provider 状态核对，确保结果可重新验证。
+- **02 · `evidence`** — 让 AI agent 依风险选择验证强度，在隔离环境中安全完成工作。 简单修改快速完成；重要工作使用证据 gate；Git 修改默认使用专属 worktree。
 - **03 · `reconciliation`** — 先定义 contract，再验证 source 与 evidence、核对外部操作结果；只有 terminal state 已知时，才宣布完成。
 - **04 · `terminal state`** — 执行命令并不代表工作已经完成；可重新验证的结果才是证明。
 
