@@ -117,6 +117,7 @@ sbw ledger transition <run-id> --file <event.json>
 sbw ledger compile <run-id> --design-packet <packet.json>
 sbw review package <run-id> --base <sha> --head <sha> --scope <path> \
   --diff-manifest <json> --instruction-digest <sha256> --sentinel-digest <sha256>
+sbw review diff <run-id> --package <package-id> [--native-evidence <evidence-id>]
 sbw review axis-digest <run-id> --file <axis-receipt.json>
 sbw review axis <run-id> --file <axis-receipt.json> \
   --reviewer-id <native-agent-id> --attestation <host-file>

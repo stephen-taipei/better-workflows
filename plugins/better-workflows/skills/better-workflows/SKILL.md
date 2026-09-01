@@ -434,8 +434,13 @@ requesting any action token:
 sbw review package <run-id> --base <40-char-sha> --head <40-char-sha> \
   --scope <path> --diff-manifest <json> \
   --instruction-digest <sha256> --sentinel-digest <sha256>
+sbw review diff <run-id> --package <package-id> [--native-evidence <evidence-id>]
 sbw review status <run-id>
 ~~~
+
+`review diff` is the governed admission path that derives exactly one
+package-bound `diff-review` record from a current, independently attested
+native `patch-review`; do not hand-author or copy diff-review evidence.
 
 `review status` includes the repository campaign budget. Before creating a
 successor package, verify that the campaign has remaining repairs. Never treat a

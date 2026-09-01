@@ -46,6 +46,7 @@ import {
   recordReviewAxis,
   recordReviewCoverage,
   recordReviewSynthesis,
+  recordDiffReviewFromNative,
   reviewKernelStatus,
   reviewPackageDigest,
   reviewStatus,
@@ -2819,6 +2820,134 @@ test("review package identity is pure across repeated and frozen digest inputs",
   const frozen = Object.freeze({ schemaVersion: 1, immutable: true, identityFields: Object.freeze(["base"]) });
   assert.doesNotThrow(() => reviewPackageDigest(frozen));
   assert.equal(reviewPackageDigest(frozen), reviewPackageDigest(frozen));
+});
+
+test("official diff review admission derives one package-bound record from an exact native critic", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-v2-diff-admission-"));
+  const repository = path.join(root, "repository");
+  await mkdir(repository, { recursive: true });
+  await execFileAsync("git", ["init", "-q", "-b", "dev"], { cwd: repository });
+  await execFileAsync("git", ["config", "user.email", "test@example.com"], { cwd: repository });
+  await execFileAsync("git", ["config", "user.name", "Test User"], { cwd: repository });
+  await execFileAsync("git", ["remote", "add", "origin", "https://github.com/example/repo.git"], { cwd: repository });
+  await writeFile(path.join(repository, "README.md"), "base\n");
+  await execFileAsync("git", ["add", "README.md"], { cwd: repository });
+  await execFileAsync("git", ["commit", "-q", "-m", "base"], { cwd: repository });
+  const base = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repository })).stdout.trim();
+  await mkdir(path.join(repository, "src"));
+  await writeFile(path.join(repository, "src", "value.txt"), "candidate\n");
+  await execFileAsync("git", ["add", "src/value.txt"], { cwd: repository });
+  await execFileAsync("git", ["commit", "-q", "-m", "candidate"], { cwd: repository });
+  const head = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repository })).stdout.trim();
+  const contract = buildContract({
+    template: "test-diff-admission",
+    templateDefinition: {
+      ...contractTemplate,
+      requiredEvidence: ["environment-state"],
+      scope: ["src", "README.md"],
+      reviewProfile: legacyReviewProfile,
+      controlPlane: { ...contractTemplate.controlPlane, reviewPolicy: "code-v1" }
+    },
+    goal: "admit diff review",
+    scope: ["src", "README.md"],
+    risk: { risk: 1, uncertainty: 0, blastRadius: 1, irreversibility: 0, evidenceGap: 0 },
+    sensitivity: "internal",
+    authority: ["pr.merge"],
+    remoteRevision: base
+  });
+  const started = await createRun({ root, contract, requestedMode: "verified", cwd: repository });
+  const sentinel = await captureSentinel(repository, contract, await loadDefaults());
+  await updateState(root, started.runId, (state) => ({
+    ...state,
+    lastSentinel: { label: "initial", digest: sentinel.digest },
+    lastSentinelVerified: true,
+    lastSentinelComplete: true
+  }));
+  const reviewPackage = await createReviewPackage({
+    root,
+    runId: started.runId,
+    base,
+    head,
+    scope: ["src", "README.md"],
+    diffManifest: { files: [{ status: "A", path: "src/value.txt" }] },
+    instructionDigest: "a".repeat(64),
+    sentinelDigest: sentinel.digest
+  });
+  const nativeReview = {
+    schemaVersion: 1,
+    verdict: "PASS",
+    scopeCoverage: {
+      base,
+      head,
+      manifestPathCount: 1,
+      reviewedPathCount: 1,
+      complete: true
+    },
+    findings: []
+  };
+  const nativeReviewDigest = digestObject(nativeReview);
+  const promptDigest = reviewPackage.instructionDigest;
+  const reviewBinding = {
+    packageId: reviewPackage.packageId,
+    base,
+    head,
+    scopeDigest: reviewPackage.scopeDigest,
+    diffManifestDigest: reviewPackage.diffManifestDigest,
+    instructionDigest: reviewPackage.instructionDigest,
+    sentinelDigest: sentinel.digest
+  };
+  const execution = {
+    provider: "codex-native-subagent",
+    model: "gpt-5.5",
+    modelAssurance: "host-signed-attestation",
+    trustAttested: true,
+    promptDigest,
+    reviewDigest: nativeReviewDigest,
+    transport: "native-subagent",
+    sandbox: "read-only"
+  };
+  await addEvidence(root, started.runId, {
+    schemaVersion: 2,
+    id: "native-critic-for-diff-admission",
+    kind: "patch-review",
+    sourceKind: "independent-critic",
+    status: "complete",
+    summary: "Exact native critic pass",
+    acceptanceIds: [],
+    dependencyInputs: { files: [] },
+    dependencies: {
+      ...currentEvidenceDependencies({ manifest: { contractDigest: digestObject(contract) }, contract }),
+      promptDigest,
+      model: "gpt-5.5",
+      reviewBinding
+    },
+    providerExecution: {
+      ...execution,
+      executionDigest: digestObject(execution)
+    },
+    nativeReviewer: { id: "codex-native-test", attestationDigest: "b".repeat(64) },
+    review: nativeReview,
+    receipt: {
+      contractId: "evidence-contracts-v1:patch-review",
+      contractVersion: 1,
+      runId: started.runId,
+      producer: { provider: "codex-native-subagent" },
+      inputBinding: { runId: started.runId, contractDigest: digestObject(contract), remoteRevision: base },
+      payload: { verdict: "PASS", findingCount: 0 },
+      payloadDigest: digestObject({ verdict: "PASS", findingCount: 0 }),
+      producedAt: new Date().toISOString()
+    },
+    sourceDigest: digestObject({ verdict: "PASS", findingCount: 0 })
+  });
+  const result = await recordDiffReviewFromNative(root, started.runId, reviewPackage.packageId, "native-critic-for-diff-admission");
+  assert.equal(result.kind, "diff-review");
+  assert.equal(result.receipt.payload.packageId, reviewPackage.packageId);
+  assert.equal(result.receipt.payload.changedPathCount, 1);
+  assert.equal(result.receipt.payload.nativeReviewEvidenceId, "native-critic-for-diff-admission");
+  await assert.rejects(
+    recordDiffReviewFromNative(root, started.runId, reviewPackage.packageId, "missing-native-critic"),
+    /not a current exact independent critic/
+  );
 });
 
 test("review packages reject head drift with stable finding identity, block after the fifth scoped repair round, and require final broad review", async () => {

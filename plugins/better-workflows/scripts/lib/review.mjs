@@ -1,7 +1,8 @@
-import { appendJournal, assertCurrentEvidenceFreshness, assertMutableRun, atomicWriteJson, canonicalizeScope, digestObject, listEffectiveEvidenceRecords, listJsonRecords, loadDefaults, loadRun, nowIso, readJson, safeJoin, sha256, withRunLock } from "./core.mjs";
+import { addEvidence, appendJournal, assertCurrentEvidenceFreshness, assertMutableRun, atomicWriteJson, canonicalizeScope, digestObject, listEffectiveEvidenceRecords, listJsonRecords, loadDefaults, loadRun, nowIso, readJson, safeJoin, sha256, VERSION, withRunLock } from "./core.mjs";
 import { captureSentinel, runSourceGit } from "./git.mjs";
 import { quorumReviewEnabled, reviewKernelEnabled } from "./review-policy.mjs";
 import { changedPathsFromDiffManifest, isQuorumEvidence } from "./quorum.mjs";
+import { isIndependentCriticEvidence, validateTypedEvidenceRecord } from "./evidence.mjs";
 import {
   assertCampaignRepairAvailable,
   campaignStatus,
@@ -1434,6 +1435,139 @@ export async function reviewStatus(root, runId) {
     broadReviewComplete,
     complete: Boolean(scopedClosed && broadReviewComplete)
   };
+}
+
+/**
+ * Derive the final diff-review evidence from one exact, independently
+ * attested native review.  This is intentionally an admission path rather
+ * than a file-copy helper: the package, current sentinel, BASE..HEAD diff,
+ * and the native review's complete scope coverage are all revalidated before
+ * the typed record is persisted through addEvidence().
+ */
+export async function recordDiffReviewFromNative(root, runId, packageIdValue, nativeEvidenceId = null) {
+  if (typeof packageIdValue !== "string" || !SAFE_ID.test(packageIdValue)) {
+    throw new Error("review diff requires a valid package id");
+  }
+  const run = await loadRun(root, runId);
+  assertMutableRun(run, "Diff review");
+  const status = await reviewStatus(root, runId);
+  const reviewPackage = status.package;
+  if (!reviewPackage || reviewPackage.packageId !== packageIdValue || reviewPackage.immutable !== true) {
+    throw new Error("review diff requires the current immutable package");
+  }
+  const currentHead = (await runSourceGit(run.manifest.cwd, ["rev-parse", "--verify", "HEAD^{commit}"])).stdout.trim();
+  if (currentHead !== reviewPackage.head) {
+    throw new Error("review diff must bind the current HEAD");
+  }
+  if (
+    run.state.lastSentinelVerified !== true ||
+    run.state.lastSentinelComplete !== true ||
+    !run.state.lastSentinel?.digest
+  ) {
+    throw new Error("review diff requires a verified complete sentinel");
+  }
+  const currentSentinel = await captureSentinel(run.manifest.cwd, run.contract, await loadDefaults());
+  if (!currentSentinel.complete || currentSentinel.digest !== run.state.lastSentinel.digest) {
+    throw new Error("review diff sentinel is stale");
+  }
+  const evidence = await listEffectiveEvidenceRecords(root, runId, { run });
+  const expectedBinding = { reviewPackage, sentinelDigest: run.state.lastSentinel.digest };
+  const validCandidates = evidence.filter((item) => isIndependentCriticEvidence(item, expectedBinding));
+  const candidates = nativeEvidenceId
+    ? validCandidates.filter((item) => item.id === nativeEvidenceId)
+    : validCandidates;
+  if (candidates.length === 0) {
+    throw new Error(nativeEvidenceId
+      ? "review diff native evidence id is not a current exact independent critic"
+      : "review diff requires a current exact independent critic");
+  }
+  if (candidates.length !== 1) {
+    throw new Error(`review diff native evidence is ambiguous: ${candidates.map((item) => item.id).join(", ")}`);
+  }
+  const nativeEvidence = candidates[0];
+  await validateTypedEvidenceRecord(nativeEvidence, { ...run, root, requireReconciled: true });
+  await assertCurrentEvidenceFreshness(run, nativeEvidence, "Diff review native evidence");
+  const coverage = nativeEvidence.review?.scopeCoverage;
+  const changedPathCount = reviewPackage.diffManifest?.files?.length;
+  if (
+    !coverage ||
+    coverage.base !== reviewPackage.base ||
+    coverage.head !== reviewPackage.head ||
+    coverage.manifestPathCount !== changedPathCount ||
+    coverage.reviewedPathCount !== changedPathCount ||
+    coverage.complete !== true ||
+    !Array.isArray(nativeEvidence.review?.findings) ||
+    nativeEvidence.review.findings.length !== 0
+  ) {
+    throw new Error("review diff native evidence has incomplete package-bound scope coverage");
+  }
+  const payload = {
+    verdict: "PASS",
+    findingCount: 0,
+    packageId: reviewPackage.packageId,
+    base: reviewPackage.base,
+    head: reviewPackage.head,
+    scopeDigest: reviewPackage.scopeDigest,
+    diffManifestDigest: reviewPackage.diffManifestDigest,
+    instructionDigest: reviewPackage.instructionDigest,
+    changedPathCount,
+    diffCheck: "PASS",
+    nativeReviewEvidenceId: nativeEvidence.id,
+    nativeReviewDigest: digestObject(nativeEvidence.review)
+  };
+  const payloadDigest = digestObject(payload);
+  const id = `diff-review-${sha256(digestObject({
+    runId,
+    packageId: reviewPackage.packageId,
+    nativeReviewEvidenceId: nativeEvidence.id,
+    payloadDigest
+  })).slice(0, 32)}`;
+  const policyDigest = digestObject({
+    authority: run.contract.authority,
+    sensitivity: run.contract.sensitivity,
+    volatileExclusions: run.contract.volatileExclusions,
+    highRiskIgnored: run.contract.highRiskIgnored
+  });
+  const record = {
+    schemaVersion: 2,
+    stale: false,
+    createdAt: nowIso(),
+    dependencies: {
+      contractDigest: digestObject(run.contract),
+      workflowVersion: VERSION,
+      files: [],
+      sourceBindingDigest: null,
+      sourceSentinelDigest: null,
+      policyDigest,
+      promptDigest: null,
+      model: null,
+      reviewBinding: null,
+      remoteRevision: run.contract.remoteRevision ?? null
+    },
+    producer: {},
+    id,
+    kind: "diff-review",
+    status: "complete",
+    summary: `Final package-bound diff gate: exact BASE..HEAD scope coverage is complete and native review ${nativeEvidence.id} is PASS with zero findings.`,
+    acceptanceIds: [],
+    dependencyInputs: { files: [] },
+    receipt: {
+      contractId: "evidence-contracts-v1:diff-review",
+      contractVersion: 1,
+      runId,
+      producer: { provider: "codex-root" },
+      inputBinding: {
+        runId,
+        contractDigest: digestObject(run.contract),
+        remoteRevision: run.contract.remoteRevision ?? null
+      },
+      payload,
+      payloadDigest,
+      producedAt: nowIso()
+    },
+    sourceDigest: payloadDigest
+  };
+  return addEvidence(root, runId, record);
 }
 
 export async function recordRepairRound(root, runId, packageIdValue, result) {

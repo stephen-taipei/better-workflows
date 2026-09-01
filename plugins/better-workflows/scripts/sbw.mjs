@@ -131,6 +131,7 @@ import {
   recordReviewAxis,
   recordReviewCoverage,
   recordReviewSynthesis,
+  recordDiffReviewFromNative,
   reviewPackageDigest,
   reviewKernelStatus,
   reviewStatus
@@ -2474,7 +2475,8 @@ function help() {
       "sbw ledger transition <run-id> --file <event.json>",
       "sbw ledger compile <run-id> --design-packet <packet.json>",
       "sbw refinement status|apply <run-id> [--file <receipt.json>]",
-      "sbw review package|finding|axis-digest|axis|verify-digest|verify|coverage|synthesize|status|repair|supersede|broad <run-id> ...",
+      "sbw review package|diff|finding|axis-digest|axis|verify-digest|verify|coverage|synthesize|status|repair|supersede|broad <run-id> ...",
+      "sbw review diff <run-id> --package <package-id> [--native-evidence <evidence-id>]",
       "sbw review launch-native <run-id> --base <sha> --head <sha> --package <id> --package-file <json> --diff-manifest <json> --instruction <md> --authorization <json> --model <id> --reviewer-id <id> --execution-id <id> --result <absent-json>",
       "sbw review quorum run|verify|status <run-id> [--file <manifest.json>]",
       "sbw recipe init",
@@ -3242,6 +3244,19 @@ async function main() {
         }
       };
     }
+    if (subcommand === "diff") {
+      assertKnownOptions(options, ["package", "native-evidence"]);
+      if (!options.package) throw new Error("review diff requires --package <package-id>");
+      return {
+        ok: true,
+        evidence: await recordDiffReviewFromNative(
+          root,
+          runId,
+          String(options.package),
+          options["native-evidence"] ? String(options["native-evidence"]) : null
+        )
+      };
+    }
     if (subcommand === "finding") {
       assertKnownOptions(options, ["file", "update"]);
       if (!options.file) throw new Error("review finding requires --file <finding.json>");
@@ -3277,7 +3292,7 @@ async function main() {
         )
       };
     }
-    throw new Error("review subcommand must be package, finding, launch-native, axis-digest, axis, verify-digest, verify, coverage, synthesize, status, repair, supersede, or broad");
+    throw new Error("review subcommand must be package, diff, finding, launch-native, axis-digest, axis, verify-digest, verify, coverage, synthesize, status, repair, supersede, or broad");
   }
   if (command === "refinement") {
     if (!runId) throw new Error("refinement requires run id");
