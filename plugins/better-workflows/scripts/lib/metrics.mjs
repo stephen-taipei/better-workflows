@@ -8,6 +8,7 @@ import {
 } from "./core.mjs";
 
 export const RUN_METRICS_SCHEMA_VERSION = 1;
+export const COST_ANOMALY_SCHEMA_VERSION = 1;
 
 const USAGE_FIELDS = Object.freeze([
   "input_tokens",
@@ -25,6 +26,16 @@ const TERMINAL_STATUSES = new Set([
   "cancelled_superseded",
   "cancelled_evidence_sufficient"
 ]);
+
+const DEFAULT_COST_ANOMALY_OPTIONS = Object.freeze({
+  baselineWindow: 5,
+  candidateWindow: 2,
+  minBaselineRuns: 3,
+  elapsedRatio: 1.5,
+  elapsedAbsoluteMs: 60_000,
+  tokenRatio: 1.5,
+  tokenAbsolute: 500
+});
 
 function finiteTimestamp(value) {
   const parsed = Date.parse(String(value ?? ""));
@@ -114,6 +125,163 @@ function percentile(values, fraction) {
   if (values.length === 0) return null;
   const index = Math.min(values.length - 1, Math.max(0, Math.ceil(values.length * fraction) - 1));
   return values[index];
+}
+
+function positiveInteger(value, fallback, maximum = 500) {
+  return Number.isInteger(value) && value > 0 && value <= maximum ? value : fallback;
+}
+
+function nonNegativeNumber(value, fallback) {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+
+function normalizedCostAnomalyOptions(options = {}) {
+  const baselineWindow = positiveInteger(options.baselineWindow, DEFAULT_COST_ANOMALY_OPTIONS.baselineWindow);
+  const candidateWindow = positiveInteger(options.candidateWindow, DEFAULT_COST_ANOMALY_OPTIONS.candidateWindow);
+  return {
+    baselineWindow,
+    candidateWindow,
+    minBaselineRuns: Math.min(
+      baselineWindow,
+      positiveInteger(options.minBaselineRuns, DEFAULT_COST_ANOMALY_OPTIONS.minBaselineRuns)
+    ),
+    elapsedRatio: Math.max(1, nonNegativeNumber(options.elapsedRatio, DEFAULT_COST_ANOMALY_OPTIONS.elapsedRatio)),
+    elapsedAbsoluteMs: nonNegativeNumber(options.elapsedAbsoluteMs, DEFAULT_COST_ANOMALY_OPTIONS.elapsedAbsoluteMs),
+    tokenRatio: Math.max(1, nonNegativeNumber(options.tokenRatio, DEFAULT_COST_ANOMALY_OPTIONS.tokenRatio)),
+    tokenAbsolute: nonNegativeNumber(options.tokenAbsolute, DEFAULT_COST_ANOMALY_OPTIONS.tokenAbsolute)
+  };
+}
+
+function metricTokenTotal(metric) {
+  if (!metric?.usage || typeof metric.usage !== "object" || Array.isArray(metric.usage)) return null;
+  const values = USAGE_FIELDS.map((field) => metric.usage[field]);
+  if (values.some((value) => !Number.isInteger(value) || value < 0)) return null;
+  return values.reduce((sum, value) => sum + value, 0);
+}
+
+function costGroup(metric) {
+  return {
+    repositoryDigest: metric?.repositoryDigest ?? "unknown",
+    template: metric?.template ?? "unknown",
+    mode: metric?.mode ?? "unknown",
+    interactionMode: metric?.interactionMode ?? "unknown"
+  };
+}
+
+function costGroupKey(group) {
+  return [group.repositoryDigest, group.template, group.mode, group.interactionMode].join("|");
+}
+
+function medianObserved(metrics, selector) {
+  const values = metrics.map(selector).filter((value) => Number.isInteger(value) && value >= 0).sort((left, right) => left - right);
+  return { observedRuns: values.length, median: values.length > 0 ? percentile(values, 0.5) : null };
+}
+
+function materialIncrease(baseline, candidate, ratio, absolute) {
+  if (baseline === null || candidate === null || candidate <= baseline + absolute) return false;
+  return baseline === 0 ? candidate > absolute : candidate >= baseline * ratio;
+}
+
+/**
+ * Identify recent, materially more expensive runs without converting missing
+ * observations to zero. The report is diagnostic only; it never changes a
+ * route, grants authority, or triggers a provider action.
+ */
+export function detectCostAnomalies(metrics = [], options = {}) {
+  if (!Array.isArray(metrics)) throw new Error("Run metrics must be an array");
+  const normalized = normalizedCostAnomalyOptions(options);
+  const ordered = metrics.slice().sort((left, right) => (
+    (finiteTimestamp(left?.createdAt) ?? Number.MIN_SAFE_INTEGER) -
+    (finiteTimestamp(right?.createdAt) ?? Number.MIN_SAFE_INTEGER)
+  ) || String(left?.runId ?? "").localeCompare(String(right?.runId ?? "")));
+  const groups = new Map();
+  for (const metric of ordered) {
+    const group = costGroup(metric);
+    const key = costGroupKey(group);
+    if (!groups.has(key)) groups.set(key, { group, metrics: [] });
+    groups.get(key).metrics.push(metric);
+  }
+  const anomalies = [];
+  const unknowns = [];
+  for (const { group, metrics: grouped } of groups.values()) {
+    if (grouped.length <= normalized.minBaselineRuns) {
+      unknowns.push({
+        id: "insufficient-baseline-runs",
+        group,
+        observedRuns: grouped.length,
+        requiredRuns: normalized.minBaselineRuns + 1
+      });
+      continue;
+    }
+    const candidate = grouped.slice(-normalized.candidateWindow);
+    const baseline = grouped.slice(0, -normalized.candidateWindow).slice(-normalized.baselineWindow);
+    if (baseline.length < normalized.minBaselineRuns) {
+      unknowns.push({
+        id: "insufficient-baseline-runs",
+        group,
+        observedRuns: baseline.length,
+        requiredRuns: normalized.minBaselineRuns
+      });
+      continue;
+    }
+    const baselineElapsed = medianObserved(baseline, (metric) => metric?.elapsedWallTimeMs);
+    const candidateElapsed = medianObserved(candidate, (metric) => metric?.elapsedWallTimeMs);
+    if (baselineElapsed.median === null || candidateElapsed.median === null) {
+      unknowns.push({ id: "elapsed-time-unavailable", group, baselineObservedRuns: baselineElapsed.observedRuns, candidateObservedRuns: candidateElapsed.observedRuns });
+    } else if (materialIncrease(
+      baselineElapsed.median,
+      candidateElapsed.median,
+      normalized.elapsedRatio,
+      normalized.elapsedAbsoluteMs
+    )) {
+      const ratio = baselineElapsed.median === 0 ? null : candidateElapsed.median / baselineElapsed.median;
+      anomalies.push({
+        id: "elapsed-wall-time-increase",
+        severity: ratio !== null && ratio >= 2 ? "P1" : "P2",
+        metric: "elapsedWallTimeMs",
+        group,
+        baseline: { runCount: baseline.length, observedRuns: baselineElapsed.observedRuns, median: baselineElapsed.median },
+        candidate: { runCount: candidate.length, observedRuns: candidateElapsed.observedRuns, median: candidateElapsed.median },
+        delta: candidateElapsed.median - baselineElapsed.median,
+        ratio
+      });
+    }
+    const baselineTokens = medianObserved(baseline, metricTokenTotal);
+    const candidateTokens = medianObserved(candidate, metricTokenTotal);
+    if (baselineTokens.median === null || candidateTokens.median === null) {
+      unknowns.push({ id: "provider-token-usage-unavailable", group, baselineObservedRuns: baselineTokens.observedRuns, candidateObservedRuns: candidateTokens.observedRuns });
+    } else if (materialIncrease(
+      baselineTokens.median,
+      candidateTokens.median,
+      normalized.tokenRatio,
+      normalized.tokenAbsolute
+    )) {
+      const ratio = baselineTokens.median === 0 ? null : candidateTokens.median / baselineTokens.median;
+      anomalies.push({
+        id: "provider-token-increase",
+        severity: ratio !== null && ratio >= 2 ? "P1" : "P2",
+        metric: "providerTokens",
+        group,
+        baseline: { runCount: baseline.length, observedRuns: baselineTokens.observedRuns, median: baselineTokens.median },
+        candidate: { runCount: candidate.length, observedRuns: candidateTokens.observedRuns, median: candidateTokens.median },
+        delta: candidateTokens.median - baselineTokens.median,
+        ratio
+      });
+    }
+  }
+  anomalies.sort((left, right) => (
+    (left.severity === "P1" ? 0 : 1) - (right.severity === "P1" ? 0 : 1) ||
+    left.id.localeCompare(right.id) ||
+    costGroupKey(left.group).localeCompare(costGroupKey(right.group))
+  ));
+  unknowns.sort((left, right) => left.id.localeCompare(right.id) || costGroupKey(left.group).localeCompare(costGroupKey(right.group)));
+  return {
+    schemaVersion: COST_ANOMALY_SCHEMA_VERSION,
+    kind: "CostAnomalyReportV1",
+    observeOnly: true,
+    anomalies,
+    unknowns
+  };
 }
 
 function metricWarnings({ run, journal, usage, campaign }) {
@@ -261,7 +429,8 @@ export function summarizeRunMetrics(metrics = []) {
     interactionPromptCount: numericTotal(ordered, "interactionPromptCount"),
     usage: usageTotals === null ? null : { observedRuns: usageMetrics.length, totals: usageTotals },
     warningCounts,
-    topCostRuns
+    topCostRuns,
+    costAnomalies: detectCostAnomalies(ordered)
   };
 }
 

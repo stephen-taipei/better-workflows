@@ -177,6 +177,10 @@ unknown usage or terminal time as zero and cannot authorize an action. Repositor
 grouping uses a one-way `repositoryDigest`; local checkout paths are never
 included in exported metrics. Prompt counts are also `null` when no interaction
 observation event was recorded; an absent observation is never reported as zero.
+The summary also includes an observe-only `CostAnomalyReportV1` with bounded
+baseline/recent windows. Material wall-time or provider-token increases are
+reported as P1/P2 investigation candidates; insufficient or missing
+observations remain explicit unknowns.
 
 `metrics shadow` compares two operator-selected, sanitized metric batches only
 when their `ShadowReplayBindingV1` records match exactly. It rejects filesystem

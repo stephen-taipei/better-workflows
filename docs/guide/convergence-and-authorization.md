@@ -98,6 +98,11 @@ record is diagnostic metadata only; it never changes an action gate. Aggregate
 these fields by repository and template to expose prompt loops, repeated
 infrastructure replacements, scope drift, and resume MTTR. A missing metric is
 `unknown`, never zero, and must not be used to claim an efficiency improvement.
+`sbw metrics summary` also emits an observe-only `CostAnomalyReportV1`: it
+compares a recent bounded window with preceding runs and flags material
+wall-time or provider-token increases as P1/P2 investigation candidates. The
+report requires a minimum baseline, keeps missing elapsed/token observations as
+unknown, and never changes routing or grants action authority.
 
 ## Shadow replay and pilot exit criteria
 

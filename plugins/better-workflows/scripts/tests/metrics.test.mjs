@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildRunMetrics, summarizeRunMetrics } from "../lib/metrics.mjs";
+import { buildRunMetrics, detectCostAnomalies, summarizeRunMetrics } from "../lib/metrics.mjs";
 
 const run = {
   manifest: {
@@ -105,4 +105,78 @@ test("run metrics summary exposes convergence cost without converting unknowns t
   assert.equal(summary.warningCounts["provider-token-usage-unavailable"], 1);
   assert.equal(summary.warningCounts["terminal-time-unknown"], 1);
   assert.deepEqual(summary.topCostRuns.map((run) => run.runId), ["b", "a"]);
+});
+
+function costMetric(runId, createdAt, elapsedWallTimeMs, tokens, overrides = {}) {
+  return {
+    runId,
+    repositoryDigest: "a".repeat(64),
+    template: "pr-to-dev",
+    mode: "critical",
+    interactionMode: "auto",
+    createdAt,
+    elapsedWallTimeMs,
+    usage: tokens === null ? null : {
+      input_tokens: tokens,
+      output_tokens: 0,
+      cached_input_tokens: 0,
+      cache_write_input_tokens: 0,
+      reasoning_output_tokens: 0
+    },
+    ...overrides
+  };
+}
+
+test("cost anomaly report prioritizes material recent wall-time and token increases", () => {
+  const metrics = [
+    costMetric("baseline-1", "2026-08-31T01:00:00.000Z", 100, 100),
+    costMetric("baseline-2", "2026-08-31T01:01:00.000Z", 110, 110),
+    costMetric("baseline-3", "2026-08-31T01:02:00.000Z", 120, 120),
+    costMetric("candidate-1", "2026-08-31T02:00:00.000Z", 300, 300),
+    costMetric("candidate-2", "2026-08-31T02:01:00.000Z", 320, 320)
+  ];
+  const report = detectCostAnomalies(metrics, {
+    baselineWindow: 3,
+    candidateWindow: 2,
+    minBaselineRuns: 3,
+    elapsedAbsoluteMs: 50,
+    elapsedRatio: 1.5,
+    tokenAbsolute: 50,
+    tokenRatio: 1.5
+  });
+  assert.equal(report.observeOnly, true);
+  assert.deepEqual(report.anomalies.map((finding) => finding.id), ["elapsed-wall-time-increase", "provider-token-increase"]);
+  assert.deepEqual(report.anomalies.map((finding) => finding.severity), ["P1", "P1"]);
+  assert.equal(report.anomalies[0].baseline.median, 110);
+  assert.equal(report.anomalies[0].candidate.median, 300);
+  assert.equal(report.unknowns.length, 0);
+});
+
+test("cost anomaly report keeps missing observations unknown", () => {
+  const metrics = [
+    costMetric("baseline-1", "2026-08-31T01:00:00.000Z", 100, null),
+    costMetric("baseline-2", "2026-08-31T01:01:00.000Z", 110, null),
+    costMetric("baseline-3", "2026-08-31T01:02:00.000Z", 120, null),
+    costMetric("candidate-1", "2026-08-31T02:00:00.000Z", 300, null),
+    costMetric("candidate-2", "2026-08-31T02:01:00.000Z", 320, null)
+  ];
+  const report = detectCostAnomalies(metrics, {
+    baselineWindow: 3,
+    candidateWindow: 2,
+    minBaselineRuns: 3,
+    elapsedAbsoluteMs: 50,
+    elapsedRatio: 1.5
+  });
+  assert.deepEqual(report.anomalies.map((finding) => finding.id), ["elapsed-wall-time-increase"]);
+  assert.ok(report.unknowns.some((unknown) => unknown.id === "provider-token-usage-unavailable"));
+  assert.ok(!report.unknowns.some((unknown) => unknown.id === "elapsed-time-unavailable"));
+});
+
+test("cost anomaly report does not infer a regression without a baseline window", () => {
+  const report = detectCostAnomalies([
+    costMetric("only-1", "2026-08-31T01:00:00.000Z", 900, 900),
+    costMetric("only-2", "2026-08-31T02:00:00.000Z", 900, 900)
+  ], { minBaselineRuns: 3 });
+  assert.deepEqual(report.anomalies, []);
+  assert.equal(report.unknowns[0].id, "insufficient-baseline-runs");
 });
