@@ -2402,6 +2402,21 @@ async function commandEvalSuites() {
     .sort()
     .map((name) => path.join(SCRIPT_DIR, "tests", name));
   if (tests.length === 0) throw new Error("No tests found");
+  // Test fixtures use mkdtemp() beneath TMPDIR. Launchers are allowed to
+  // provide a fresh, task-scoped TMPDIR that does not exist yet, so establish
+  // and validate that root before spawning any child suite. This prevents one
+  // missing parent from turning every fixture into an unrelated ENOENT burst.
+  const suiteTempRoot = process.env.TMPDIR;
+  if (suiteTempRoot) {
+    if (!path.isAbsolute(suiteTempRoot) || path.resolve(suiteTempRoot) !== suiteTempRoot) {
+      throw new Error("Evaluator TMPDIR must be an absolute path");
+    }
+    await mkdir(suiteTempRoot, { recursive: true, mode: 0o700 });
+    const tempInfo = await lstat(suiteTempRoot);
+    if (!tempInfo.isDirectory() || tempInfo.isSymbolicLink()) {
+      throw new Error("Evaluator TMPDIR must be a physical directory");
+    }
+  }
   // Keep local and formal suite children on the same allowlisted tool PATH.
   // This prevents a host shell's partial PATH from turning every fixture that
   // spawns git/gh into an avoidable ENOENT cascade.
