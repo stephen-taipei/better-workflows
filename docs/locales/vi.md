@@ -2,7 +2,7 @@
 
 # Better Workflows
 
-Mặt phẳng điều khiển mã nguồn mở, goal-first cho quy trình agent với bằng chứng cập nhật, cổng review và đối soát provider.
+AI agent điều chỉnh mức xác minh theo rủi ro và hoàn tất công việc an toàn trong môi trường cô lập. Thay đổi đơn giản đi nhanh; công việc quan trọng dùng evidence gates; thay đổi Git mặc định dùng worktree riêng.
 
 [English](en.md) · [繁體中文](zh-Hant.md) · [繁體中文（台灣）](zh-Hant-TW.md) · [繁體中文（香港）](zh-Hant-HK.md) · [简体中文](zh-Hans.md) · **Tiếng Việt** · [Українська](uk.md) · [Türkçe](tr.md) · [ไทย](th.md) · [Svenska](sv.md) · [Slovenčina](sk.md) · [Русский](ru.md) · [Română](ro.md) · [Português](pt.md) · [Português (Brasil)](pt-BR.md) · [Polski](pl.md) · [Nederlands](nl.md) · [Norsk bokmål](nb.md) · [မြန်မာ](my.md) · [Bahasa Melayu](ms.md) · [ລາວ](lo.md) · [한국어](ko.md) · [ខ្មែរ](km.md) · [日本語](ja.md) · [Italiano](it.md) · [Bahasa Indonesia](id.md) · [Magyar](hu.md) · [Hrvatski](hr.md) · [हिन्दी](hi.md) · [עברית](he.md) · [Français](fr.md) · [Filipino](fil.md) · [Suomi](fi.md) · [Español](es.md) · [Español (México)](es-MX.md) · [Ελληνικά](el.md) · [Deutsch](de.md) · [Dansk](da.md) · [Čeština](cs.md) · [Català](ca.md) · [العربية](ar.md)
 
@@ -19,7 +19,7 @@ Better Workflows cố định goal, scope và authority, rồi gắn mỗi quy�
 Xác định contract, kiểm tra source và evidence, đối soát tác động bên ngoài, rồi chỉ tuyên bố hoàn tất khi terminal state đã rõ.
 
 - **01 · `TaskContract`** — Better Workflows cố định goal, scope và authority, rồi gắn mỗi quyết định với bằng chứng cập nhật có thể kiểm tra lại và kết quả bên ngoài đã được đối soát.
-- **02 · `evidence`** — Mặt phẳng điều khiển mã nguồn mở, goal-first cho quy trình agent với bằng chứng cập nhật, cổng review và đối soát provider.
+- **02 · `evidence`** — AI agent điều chỉnh mức xác minh theo rủi ro và hoàn tất công việc an toàn trong môi trường cô lập. Thay đổi đơn giản đi nhanh; công việc quan trọng dùng evidence gates; thay đổi Git mặc định dùng worktree riêng.
 - **03 · `reconciliation`** — Xác định contract, kiểm tra source và evidence, đối soát tác động bên ngoài, rồi chỉ tuyên bố hoàn tất khi terminal state đã rõ.
 - **04 · `terminal state`** — Việc một lệnh đã chạy không chứng minh công việc hoàn tất; kết quả có thể kiểm tra lại mới là bằng chứng.
 

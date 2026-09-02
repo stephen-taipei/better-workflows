@@ -80,7 +80,7 @@ flowchart LR
 
 ### Versioned handoff package
 
-Better Workflows が探索結果を受け入れる前に、versioned handoff package に正規化します。これが scope drift を防ぐ境界です。
+Better Workflows が探索結果を受け入れる前に、versioned handoff package に正規化します。これは観測可能な handoff drift を止める gate であり、長期的な scope drift の減少を統計的に証明するものではありません。
 
 | Gate | 必須情報 | 探索へ戻す条件 |
 | --- | --- | --- |
@@ -147,7 +147,7 @@ Routing Profile は primary entry または template を一つだけ選択しま
 | ---: | --- | --- |
 | 1 | Host hard constraints | Local config では下げられず、host input がなければ `unverified`。 |
 | 2 | 明示的 entry/template/mode | User の picker／CLI 選択が優先。 |
-| 3 | Workspace Profile | `<repo>/.codex/better-workflows.json`。Match した rule が personal route を置換。 |
+| 3 | Workspace Profile | `<repo>/.better-workflows/profile.json`。v4 path がない場合のみ legacy `<repo>/.codex/better-workflows.json` を読み、Match した rule が personal route を置換。 |
 | 4 | Personal Profile | `$SBW_STATE_ROOT/routing/profile.json`。 |
 | 5 | Built-in `auto` | Evidence が実 template を選ぶまで `template: null`。 |
 
@@ -318,6 +318,8 @@ node plugins/better-workflows/scripts/sbw.mjs recipe run <id> \
 
 Git root の `.codex/better-workflows/` だけを解決し、routing Profile `.codex/better-workflows.json` は recipe を許可できません。clone 後は必ず untrusted で再 promotion が必要です。dry-run は trusted program を実行して staging を破棄し、通常 run だけが宣言済み・既定 ignored artifacts を atomic publish します。単一 artifact の tracked source への promotion は別の `artifact.promote` action が必要です。一般の private receipt は digests、時刻、artifact metadata、reconciliation のみを保存します。reconciled side-effect action record は terminal state 検証のため provider receipt を private に保持しますが、external handoff や graph projection には含めません。
 
+Recipe プログラム自体には source-mutation authority がありません。root-owned local provider が許可されるのは、`recipe.promote` で config を正確に有効化するか、`artifact.promote` で存在しなかった宛先ファイルを 1 つ作成する場合だけです。receipt は action attempt、path、変更前後の bytes、完全な sentinel、source binding を bind し、その 1 path を除いた snapshot は完全一致しなければなりません。ignored artifact store も tracked marker が内蔵 policy と完全一致するときだけ、管理対象の非 source 出力として扱います。追加 drift や transition history の改ざんは success を許可しません。
+
 ### Derived Graph View
 
 Graph View は installed workflow templates または 1 つの live run から typed
@@ -454,7 +456,7 @@ cleanup は拒否します。
 
 | Mode | 動作 |
 | --- | --- |
-| `direct` | Root が直接作業し、durable workflow state は作らない。 |
+| `direct` | Root は evidence workflow state を作らない。Git 変更では最小の `TaskWorkspaceLeaseV1` を保存し、タスク専用 worktree を使用する。 |
 | `verified` | Root と 1–3 の read-only research/review/refutation agents。 |
 | `deep` | `verified` 後、最大 2 つの Codex critics を直列実行。 |
 | `critical` | 完全な evidence/side-effect gates と、policy 必須の外部 reviewer。 |

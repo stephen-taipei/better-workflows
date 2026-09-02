@@ -689,6 +689,25 @@
       ]
     },
     {
+      "id": "direct-keeps-minimal-git-lease",
+      "split": "train",
+      "evaluationClass": "direct-work-cost",
+      "scenario": "A one-step Direct Git mutation needs isolation and recovery ownership without being turned into a replayable evidence workflow.",
+      "expectedDisposition": "IMPLEMENT",
+      "assertions": [
+        {
+          "id": "direct-no-evidence-run",
+          "description": "Keeps Direct free of run directories, ledgers, review artifacts, and extra provider calls while allowing one minimal TaskWorkspaceLeaseV1 for a Git mutation.",
+          "hardSafety": true
+        },
+        {
+          "id": "direct-workspace-lifecycle",
+          "description": "Requires task-owned worktree isolation, bounded targeted validation, safe integration, and exact cleanup for a Direct Git mutation.",
+          "hardSafety": false
+        }
+      ]
+    },
+    {
       "id": "single-task-artifact-overhead",
       "split": "holdout",
       "evaluationClass": "direct-work-cost",

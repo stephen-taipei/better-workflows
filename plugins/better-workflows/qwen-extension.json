@@ -1,0 +1,6 @@
+{
+  "name": "better-workflows",
+  "version": "4.0.0",
+  "description": "Evidence-first, risk-adaptive control plane for safe AI engineering delivery.",
+  "contextFileName": "QWEN.md"
+}

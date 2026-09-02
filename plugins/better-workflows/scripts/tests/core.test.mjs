@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import {
   access,
   chmod,
@@ -38,10 +38,12 @@ import {
   buildActionsDispatchProviderReceipt,
   BOUND_CREDENTIAL_WORKSPACE_ROOT,
   buildGitPushActionBinding,
+  buildPrMergeActionBinding,
   buildPrCreateCommand,
   buildContract,
   captureAutonomyReadinessSnapshot,
   cleanupRuns,
+  classifyProviderExecutionReplay,
   consumeActionToken,
   completeRun,
   createRun,
@@ -49,6 +51,7 @@ import {
   digestObject,
   execBoundGitProcess,
   execBoundGitHubCli,
+  execBoundProcess,
   findExactMergeHumanAuthorization,
   terminateBoundChildForTest,
   ensureStateRoot,
@@ -63,11 +66,13 @@ import {
   loadDefaults,
   readBoundGitHubApi,
   readBoundGitHubCredential,
+  refreshEvidence,
   assertBoundCredentialWorkspace,
   optionalBoundGitAuthorityOutput,
   readJson,
   registerOwnedResource,
   reconcileAction,
+  reserveProviderExecution,
   resumeActionsDispatchObservation,
   resolveGitFetchOrigin,
   resolveGitPushDestination,
@@ -79,6 +84,7 @@ import {
   sha256,
   setRunStatus,
   updateState,
+  unlinkDurableFile,
   verifyRequiredChecksProvider,
   verifyMergeHumanApproval,
   verifyTransferredPullRequestOwnership,
@@ -95,6 +101,24 @@ import { checkPluginCache, publishPluginCache, verifyPluginCacheReady } from "..
 
 const execFileAsync = promisify(execFile);
 const SBW_CLI = fileURLToPath(new URL("../sbw.mjs", import.meta.url));
+
+function creationReservationFixture(identity, owner, expiresAt, reservedAt = new Date().toISOString()) {
+  const binding = {
+    schemaVersion: 2,
+    ...identity,
+    reservationKey: creationReservationKey(identity),
+    runId: owner.runId,
+    attemptId: owner.attemptId,
+    tokenHash: owner.tokenHash,
+    idempotencyKey: owner.idempotencyKey,
+    expiresAt
+  };
+  return {
+    ...binding,
+    bindingDigest: digestObject(binding),
+    reservedAt
+  };
+}
 
 test("GitHub Actions dispatch ref endpoints encode slash-containing refs as one path parameter", () => {
   assert.equal(
@@ -119,6 +143,209 @@ test("GitHub Actions dispatch ref endpoints encode slash-containing refs as one 
     () => workflowDispatchObservationRef("release/3.4"),
     /fully qualified refs\/heads or refs\/tags/
   );
+});
+
+test("PR merge action binding carries the exact reviewed base into live verification", () => {
+  const reviewedHead = "a".repeat(40);
+  const remoteRevision = "b".repeat(40);
+  const providerExecutable = { path: "/usr/bin/false", digest: "c".repeat(64) };
+  const binding = buildPrMergeActionBinding({
+    prior: { requiredChecksEvidenceId: "checks" },
+    pullRequest: 41,
+    reviewedHead,
+    remoteRevision,
+    targetRef: "dev",
+    providerExecutable,
+    repository: "github.com/example/repo"
+  });
+
+  assert.equal(binding.remoteRevision, remoteRevision);
+  assert.equal(binding.targetRef, "dev");
+  assert.equal(binding.reviewedHead, reviewedHead);
+  assert.equal(binding.adminBypass, false);
+  assert.equal(binding.requiredChecksEvidenceId, "checks");
+  assert.deepEqual(binding.mergeCommand, [
+    "gh", "pr", "merge", "41", "--repo", "github.com/example/repo",
+    "--match-head-commit", reviewedHead, "--merge", "--delete-branch=false"
+  ]);
+});
+
+test("provider execution EEXIST replay requires the exact outcome and unsuperseded identity", () => {
+  const record = {
+    runId: "run-provider-race",
+    attemptId: "attempt-provider-race",
+    tokenHash: "a".repeat(64),
+    action: "pr.create",
+    provider: "github-cli",
+    providerRepository: "github.com/example/repo",
+    resource: "pull/new",
+    idempotencyKey: "provider-race-idempotency",
+    remoteRevision: "b".repeat(40),
+    outcome: "unknown"
+  };
+  const executionId = "github:pr.create:provider-race";
+  const identity = {
+    schemaVersion: 2,
+    executionId,
+    runId: record.runId,
+    attemptId: record.attemptId,
+    tokenHash: record.tokenHash,
+    action: record.action,
+    provider: record.provider,
+    repository: record.providerRepository,
+    resource: record.resource,
+    idempotencyKey: record.idempotencyKey,
+    remoteRevision: record.remoteRevision
+  };
+  const existing = {
+    ...identity,
+    identityDigest: digestObject(identity),
+    outcome: "unknown",
+    recordedAt: "2026-08-30T00:00:00.000Z"
+  };
+  assert.equal(classifyProviderExecutionReplay(existing, record, executionId, "unknown"), "replay");
+  assert.equal(classifyProviderExecutionReplay(existing, record, executionId, "success"), "resolve");
+  assert.throws(
+    () => classifyProviderExecutionReplay({ ...existing, outcome: "failure" }, record, executionId, "success"),
+    /different terminal outcome/
+  );
+  assert.throws(
+    () => classifyProviderExecutionReplay({ ...existing, supersededBy: "replacement-execution" }, record, executionId, "unknown"),
+    /superseded by another identity/
+  );
+  assert.throws(
+    () => classifyProviderExecutionReplay({ ...existing, tokenHash: "b".repeat(64) }, record, executionId, "unknown"),
+    /reserved globally/
+  );
+});
+
+test("provider execution create race rejects a conflicting winner and governs unknown resolution", async () => {
+  const record = {
+    runId: "run-provider-create-race",
+    attemptId: "attempt-provider-create-race",
+    tokenHash: "c".repeat(64),
+    action: "pr.create",
+    provider: "github-cli",
+    providerRepository: "github.com/example/repo",
+    resource: "pull/new",
+    idempotencyKey: "provider-create-race-idempotency",
+    remoteRevision: "d".repeat(40),
+    outcome: "unknown"
+  };
+  const executionId = "github:pr.create:provider-create-race";
+  const identity = {
+    schemaVersion: 2,
+    executionId,
+    runId: record.runId,
+    attemptId: record.attemptId,
+    tokenHash: record.tokenHash,
+    action: record.action,
+    provider: record.provider,
+    repository: record.providerRepository,
+    resource: record.resource,
+    idempotencyKey: record.idempotencyKey,
+    remoteRevision: record.remoteRevision
+  };
+  const reservation = (outcome) => ({
+    ...identity,
+    identityDigest: digestObject(identity),
+    outcome,
+    recordedAt: "2026-08-30T00:00:00.000Z"
+  });
+  const conflictRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-provider-create-conflict-"));
+  await assert.rejects(
+    reserveProviderExecution(conflictRoot, record, executionId, "success", {
+      async onBoundary(boundary) {
+        if (boundary !== "provider-reservation-before-create") return;
+        await writeFile(
+          path.join(conflictRoot, "provider-executions", `${sha256(executionId)}.json`),
+          `${JSON.stringify(reservation("failure"))}\n`,
+          { flag: "wx", mode: 0o600 }
+        );
+      }
+    }),
+    /different terminal outcome/
+  );
+
+  const recoveryRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-provider-create-recovery-"));
+  await reserveProviderExecution(recoveryRoot, record, executionId, "success", {
+    async onBoundary(boundary) {
+      if (boundary !== "provider-reservation-before-create") return;
+      await writeFile(
+        path.join(recoveryRoot, "provider-executions", `${sha256(executionId)}.json`),
+        `${JSON.stringify(reservation("unknown"))}\n`,
+        { flag: "wx", mode: 0o600 }
+      );
+    }
+  });
+  const recovered = JSON.parse(await readFile(
+    path.join(recoveryRoot, "provider-executions", `${sha256(executionId)}.json`),
+    "utf8"
+  ));
+  assert.equal(recovered.outcome, "success");
+  assert.match(recovered.terminalAt, /^\d{4}-\d{2}-\d{2}T/);
+});
+
+test("bound process input timeout terminates the target and every descendant before rejection", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-bound-process-input-"));
+  const script = path.join(root, "target.mjs");
+  const pidPath = path.join(root, "descendant.pid");
+  await writeFile(script, [
+    "import { spawn } from 'node:child_process';",
+    "import { writeFileSync } from 'node:fs';",
+    "let input = '';",
+    "process.stdin.setEncoding('utf8');",
+    "process.stdin.on('data', (chunk) => { input += chunk; });",
+    "process.stdin.on('end', () => {",
+    "  if (input !== 'bound-input') process.exit(41);",
+    "  const descendant = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });",
+    "  writeFileSync(process.argv[2], String(descendant.pid));",
+    "  setInterval(() => {}, 1000);",
+    "});"
+  ].join("\n"));
+  await assert.rejects(
+    execBoundProcess(process.execPath, [script, pidPath], {
+      cwd: root,
+      env: { LANG: "C", LC_ALL: "C", TZ: "UTC", NODE_NO_WARNINGS: "1" },
+      timeoutMs: 250,
+      maxBuffer: 64 * 1024,
+      input: "bound-input",
+      label: "Bound process input fixture"
+    }),
+    (error) => error?.code === "ETIMEDOUT"
+  );
+  const descendantPid = Number(await readFile(pidPath, "utf8"));
+  assert.equal(Number.isInteger(descendantPid), true);
+  let alive = true;
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    try {
+      process.kill(descendantPid, 0);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    } catch (error) {
+      if (error.code !== "ESRCH") throw error;
+      alive = false;
+      break;
+    }
+  }
+  assert.equal(alive, false, "bounded descendant must be gone before the test continues");
+});
+
+test("durable file removal propagates unexpected unlink failures and verifies absence", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "sbw-durable-unlink-"));
+  const target = path.join(directory, "reservation.json");
+  await writeFile(target, "{}\n");
+  assert.deepEqual(await unlinkDurableFile(directory, target), { removed: true });
+  await assert.rejects(access(target));
+  assert.deepEqual(
+    await unlinkDurableFile(directory, target, { allowAbsent: true }),
+    { removed: false }
+  );
+  await mkdir(target);
+  await assert.rejects(
+    unlinkDurableFile(directory, target),
+    /EISDIR|EPERM|operation not permitted|illegal operation/i
+  );
+  assert.equal((await lstat(target)).isDirectory(), true);
 });
 
 test("annotated workflow refs peel tag objects to a commit and reject cycles", async () => {
@@ -1037,10 +1264,15 @@ test("autonomous commit reconciliation repairs every persisted transition bounda
   await cp(fixture.stateRoot, baselineState, { recursive: true });
 
   for (const failAfter of [
+    "provider-reservation-directory-created",
+    "provider-reservation-root-durable",
+    "provider-reservation-file-synced",
+    "provider-reservation-directory-durable",
     "provider-reservation",
     "source-manifest",
     "source-state",
     "action-persistence",
+    "evidence-transition-journal",
     "evidence-invalidation"
   ]) {
     await rm(fixture.stateRoot, { recursive: true, force: true });
@@ -1084,7 +1316,207 @@ test("autonomous commit reconciliation repairs every persisted transition bounda
     assert.equal(journal.filter((item) => (
       item.event === "action.autonomous-commit-transition-repaired" && item.attemptId === spent.attemptId
     )).length, 1);
+    const invalidationParents = journal.filter((item) => (
+      item.event === "evidence.invalidated" && item.actionAttemptId === spent.attemptId
+    ));
+    assert.equal(invalidationParents.length, 1);
+    const invalidationParent = invalidationParents[0];
+    const childTransitions = journal.filter((item) => (
+      item.event === "evidence.freshness-transition" &&
+      item.protocolVersion === 2 &&
+      item.cause?.kind === "autonomous-commit-reconciled" &&
+      item.cause.actionAttemptId === spent.attemptId
+    )).map((item) => ({
+      evidenceId: item.evidenceId,
+      evidenceDigest: item.evidenceDigest,
+      transitionDigest: item.transitionDigest
+    })).sort((left, right) => left.evidenceId.localeCompare(right.evidenceId));
+    const invalidationBinding = {
+      schemaVersion: 1,
+      actionAttemptId: spent.attemptId,
+      reason: "autonomous-commit-reconciled",
+      invalidated: childTransitions.length,
+      children: childTransitions
+    };
+    assert.deepEqual(invalidationParent.children, childTransitions);
+    assert.equal(invalidationParent.invalidated, childTransitions.length);
+    assert.equal(invalidationParent.invalidationDigest, digestObject(invalidationBinding));
   }
+
+  await rm(fixture.stateRoot, { recursive: true, force: true });
+  await cp(baselineState, fixture.stateRoot, { recursive: true });
+  await assert.rejects(
+    reconcileAction(
+      fixture.stateRoot,
+      fixture.run.runId,
+      spent.attemptId,
+      "success",
+      receipt,
+      { failAfter: "provider-reservation-file-synced" }
+    ),
+    /Injected autonomous Git commit reconciliation failure after provider-reservation-file-synced/
+  );
+  await assert.rejects(
+    reconcileAction(
+      fixture.stateRoot,
+      fixture.run.runId,
+      spent.attemptId,
+      "success",
+      receipt,
+      { failAfter: "provider-reservation-replay-durable" }
+    ),
+    /Injected autonomous Git commit reconciliation failure after provider-reservation-replay-durable/
+  );
+  await reconcileAction(fixture.stateRoot, fixture.run.runId, spent.attemptId, "success", receipt);
+  const replayed = await inspectRun(fixture.stateRoot, fixture.run.runId);
+  assert.equal(replayed.actions.find((item) => item.attemptId === spent.attemptId)?.outcome, "success");
+  assert.equal((await readdir(path.join(fixture.stateRoot, "provider-executions"))).length, 1);
+
+  const journalPath = path.join(fixture.stateRoot, "runs", fixture.run.runId, "journal.jsonl");
+  const originalJournalText = await readFile(journalPath, "utf8");
+  const originalJournal = originalJournalText.split("\n").filter(Boolean).map((line) => JSON.parse(line));
+  const parentIndex = originalJournal.findIndex((item) => (
+    item.event === "evidence.invalidated" && item.actionAttemptId === spent.attemptId
+  ));
+  assert.notEqual(parentIndex, -1);
+  const parent = originalJournal[parentIndex];
+  const parentForChildren = (children) => {
+    const binding = {
+      schemaVersion: 1,
+      actionAttemptId: spent.attemptId,
+      reason: "autonomous-commit-reconciled",
+      invalidated: children.length,
+      children
+    };
+    return { ...parent, ...binding, invalidationDigest: digestObject(binding) };
+  };
+  const tamperedJournals = [
+    [...originalJournal, parent],
+    originalJournal.map((item, index) => index === parentIndex
+      ? { ...item, invalidated: item.invalidated + 1 }
+      : item),
+    originalJournal.map((item, index) => index === parentIndex
+      ? parentForChildren(item.children.slice(1))
+      : item),
+    originalJournal.map((item, index) => index === parentIndex
+      ? parentForChildren([
+          ...item.children,
+          {
+            evidenceId: "unbound-evidence-child",
+            evidenceDigest: "a".repeat(64),
+            transitionDigest: "b".repeat(64)
+          }
+        ].sort((left, right) => left.evidenceId.localeCompare(right.evidenceId)))
+      : item)
+  ];
+  for (const tamperedJournal of tamperedJournals) {
+    await writeFile(journalPath, `${tamperedJournal.map((item) => JSON.stringify(item)).join("\n")}\n`);
+    const completion = await evaluateCompletion(fixture.stateRoot, fixture.run.runId);
+    assert.ok(completion.blockers.some((item) => (
+      item.includes("Evidence invalidation journal parent") ||
+      item.includes("Evidence invalidation")
+    )));
+  }
+  await writeFile(journalPath, originalJournalText);
+
+  const evidenceDir = path.join(fixture.stateRoot, "runs", fixture.run.runId, "evidence");
+  const evidenceFiles = await readdir(evidenceDir);
+  const evidenceSnapshots = new Map();
+  for (const filename of evidenceFiles) {
+    const target = path.join(evidenceDir, filename);
+    evidenceSnapshots.set(filename, await readFile(target));
+    await rm(target);
+  }
+  const missingChildren = await evaluateCompletion(fixture.stateRoot, fixture.run.runId);
+  assert.ok(missingChildren.blockers.some((item) => (
+    item.includes("Evidence invalidation journal references missing evidence")
+  )));
+  for (const [filename, contents] of evidenceSnapshots) {
+    const target = path.join(evidenceDir, filename);
+    await writeFile(target, contents, { mode: 0o600 });
+  }
+});
+
+test("evidence refresh recovers a journaled freshness transition before strict provenance replay", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "sbw-freshness-recovery-workspace-"));
+  await execFileAsync("git", ["init", "-q"], { cwd: workspace });
+  await writeFile(path.join(workspace, "README.md"), "freshness recovery\n");
+  await execFileAsync("git", ["add", "README.md"], { cwd: workspace });
+  await execFileAsync("git", ["-c", "user.email=sbw@example.invalid", "-c", "user.name=SBW Test", "commit", "-qm", "baseline"], { cwd: workspace });
+  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-freshness-recovery-state-"));
+  const taskContract = buildContract({
+    template: "freshness-recovery-v2",
+    templateDefinition: {
+      requiredEvidence: ["environment-state"],
+      acceptance: [{ id: "done", description: "Freshness recovery is durable.", critical: true }],
+      controlPlane: {
+        evidencePolicy: "typed-v1",
+        ledgerPolicy: "ledger-v1",
+        reviewPolicy: "none",
+        designPacketPolicy: "none",
+        refinementPolicy: "none",
+        deliberationPolicy: "none"
+      },
+      executionStages: [{
+        id: "environment",
+        dependsOn: [],
+        requiredEvidence: ["environment-state"],
+        attemptBudget: 3,
+        kind: "regular"
+      }]
+    },
+    goal: "Recover pending evidence freshness",
+    scope: ["."],
+    risk: { risk: 1, uncertainty: 0, blastRadius: 1, irreversibility: 0, evidenceGap: 0 },
+    sensitivity: "internal",
+    authority: []
+  });
+  const started = await createRun({ root: stateRoot, contract: taskContract, requestedMode: "verified", cwd: workspace });
+  const payload = { items: [{ environment: "test" }] };
+  await addEvidence(stateRoot, started.runId, {
+    schemaVersion: 2,
+    id: "environment",
+    kind: "environment-state",
+    status: "complete",
+    summary: "Typed freshness recovery fixture",
+    receipt: {
+      contractId: "evidence-contracts-v1:environment-state",
+      contractVersion: 1,
+      runId: started.runId,
+      producer: { provider: "codex-root" },
+      inputBinding: {
+        runId: started.runId,
+        contractDigest: digestObject(taskContract),
+        remoteRevision: taskContract.remoteRevision ?? null
+      },
+      payload,
+      payloadDigest: digestObject(payload),
+      producedAt: new Date().toISOString()
+    }
+  });
+  let interruptedEvidenceId = null;
+  await assert.rejects(
+    refreshEvidence(stateRoot, started.runId, {
+      async onTransitionPrepared(record) {
+        interruptedEvidenceId = record.id;
+        throw new Error("simulated crash after freshness transition journal append");
+      }
+    }),
+    /simulated crash after freshness transition journal append/
+  );
+  assert.equal(interruptedEvidenceId, "environment");
+  const recovered = await refreshEvidence(stateRoot, started.runId);
+  assert.deepEqual(recovered.recoveredPending, ["environment"]);
+  assert.ok([...recovered.fresh, ...recovered.stale].includes("environment"));
+  const completion = await evaluateCompletion(stateRoot, started.runId);
+  assert.ok(!completion.blockers.some((item) => item.includes("provenance is invalid")));
+  const journal = (await readFile(
+    path.join(stateRoot, "runs", started.runId, "journal.jsonl"),
+    "utf8"
+  )).split("\n").filter(Boolean).map((line) => JSON.parse(line));
+  assert.equal(journal.filter((item) => (
+    item.event === "evidence.freshness-transition" && item.evidenceId === "environment"
+  )).length, 2);
 });
 
 test("git push action bindings persist the exact effective destination used by the fixed argv wrapper", () => {
@@ -1417,6 +1849,22 @@ test("bound Git process terminates a hanging process group at the fixed deadline
   );
 });
 
+test("bound process supervisor self-terminates after every successful target result", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-bound-success-cleanup-"));
+  const successful = path.join(root, "git");
+  await writeFile(successful, "#!/bin/sh\nexit 0\n", { mode: 0o700 });
+  const executable = await realpath(successful);
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const result = await execBoundGitProcess(executable, ["status"], {
+      cwd: root,
+      env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", HOME: root, LC_ALL: "C" },
+      timeoutMs: 2_000
+    });
+    assert.equal(result.code, 0);
+    assert.equal(result.groupTerminated, true);
+  }
+});
+
 async function assertBoundProcessGone(pid) {
   const deadline = Date.now() + 5_000;
   while (Date.now() < deadline) {
@@ -1430,6 +1878,11 @@ async function assertBoundProcessGone(pid) {
   }
   assert.fail(`bound child ${pid} survived process-group cleanup`);
 }
+
+// These fixtures must first prove that a real descendant was created. The
+// bounded deadline still forces cleanup, but must tolerate supervisor and
+// target startup on loaded hosts before the PID receipt is written.
+const FORKING_PROCESS_TIMEOUT_MS = 5_000;
 
 async function successfulForkLauncher(root) {
   const launcher = path.join(root, "fork-success");
@@ -1471,7 +1924,7 @@ test("bound GitHub CLI timeout cleans a SIGTERM-ignoring descendant before rejec
       () => execBoundGitHubCli(executable, [pidPath], {
         cwd: root,
         env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", HOME: root, LC_ALL: "C" },
-        timeoutMs: 500
+        timeoutMs: FORKING_PROCESS_TIMEOUT_MS
       }),
       (error) => error?.code === "ETIMEDOUT"
     );
@@ -1490,7 +1943,7 @@ test("bound Git timeout cleans a SIGTERM-ignoring descendant before rejecting", 
       () => execBoundGitProcess(executable, [pidPath], {
         cwd: root,
         env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", HOME: root, LC_ALL: "C" },
-        timeoutMs: 500
+        timeoutMs: FORKING_PROCESS_TIMEOUT_MS
       }),
       (error) => error?.code === "ETIMEDOUT"
     );
@@ -1758,6 +2211,57 @@ test("remote synchronization receipts bind the raw source remote identity", () =
     ...receipt,
     sourceRemoteBindingDigest: record.sourceRemoteBindingDigest
   }));
+});
+
+test("governed PR merge receipts bind an exact squash result to the reviewed head", () => {
+  const base = "a".repeat(40);
+  const head = "b".repeat(40);
+  const mergeCommit = "c".repeat(40);
+  const providerExecutable = { path: "/usr/bin/false", digest: "d".repeat(64) };
+  const command = [
+    "gh", "pr", "merge", "12", "--repo", "github.com/example/repository",
+    "--match-head-commit", head, "--squash", "--delete-branch=false"
+  ];
+  const record = {
+    action: "pr.merge",
+    provider: "github-cli",
+    resource: "pull/12",
+    outcome: "success",
+    remoteRevision: base,
+    reviewedHead: head,
+    targetRef: "dev",
+    mergeRepository: "github.com/example/repository",
+    mergeMethod: "squash",
+    mergeCommand: command,
+    providerExecutable,
+    providerInvocation: { id: "squash-invocation" }
+  };
+  const receipt = {
+    executionId: `github:example/repository:pr.merge:12:${mergeCommit}`,
+    proofKind: "github-pr-merge",
+    requestDigest: "e".repeat(64),
+    responseDigest: "f".repeat(64),
+    verifiedAt: new Date().toISOString(),
+    terminalState: "success",
+    pr: 12,
+    state: "MERGED",
+    repository: record.mergeRepository,
+    baseRefName: "dev",
+    mergeMethod: "squash",
+    adminBypass: false,
+    invocationId: record.providerInvocation.id,
+    mergeCommand: command,
+    head,
+    mergeCommit,
+    mergeBase: base,
+    mergeHead: head,
+    providerExecutableDigest: providerExecutable.digest
+  };
+  assert.doesNotThrow(() => assertProviderReceiptShape(record, receipt));
+  assert.throws(
+    () => assertProviderReceiptShape(record, { ...receipt, mergeHead: base }),
+    /merge proof is incomplete/
+  );
 });
 
 test("PR creation receipts bind to the exact candidate source head", () => {
@@ -2101,44 +2605,113 @@ test("linked worktrees share the canonical Git reservation identity", async () =
   await execFileAsync("git", ["-c", "user.email=sbw@example.invalid", "-c", "user.name=SBW Test", "commit", "-qm", "baseline"], { cwd: repository });
   await execFileAsync("git", ["worktree", "add", "-q", "-b", "sbw-linked-worktree", linkedWorktree, "HEAD"], { cwd: repository });
 
-  const prepare = async (cwd) => {
-    const run = await createRun({
+  const coreModuleUrl = new URL("../lib/core.mjs", import.meta.url).href;
+  const childSource = [
+    "import { lstat } from 'node:fs/promises';",
+    "const config = JSON.parse(process.env.SBW_LINKED_WORKTREE_RESERVATION_CHILD);",
+    "const core = await import(config.coreModuleUrl);",
+    "const repositoryIdentity = await core.currentGitProviderIdentityForTest(config.cwd);",
+    "const repositoryInfo = await lstat(repositoryIdentity);",
+    "process.send({ kind: 'ready', label: config.label, pid: process.pid, repositoryIdentity, repositoryDevice: Number(repositoryInfo.dev), repositoryInode: Number(repositoryInfo.ino) });",
+    "process.once('message', async (message) => {",
+    "  const waitMs = Math.max(0, message.startAtEpochMs - Date.now());",
+    "  if (waitMs > 0) await new Promise((resolve) => setTimeout(resolve, waitMs));",
+    "  const startedAt = new Date().toISOString();",
+    "  try {",
+    "    await core.reserveCreationResourceForTest(config.root, { provider: 'git', repository: repositoryIdentity, action: 'branch.create', resource: config.resource }, config.owner, new Date(Date.now() + 60000).toISOString());",
+    "    process.send({ kind: 'result', label: config.label, pid: process.pid, status: 'fulfilled', startedAt, completedAt: new Date().toISOString(), repositoryIdentity });",
+    "  } catch (error) {",
+    "    process.send({ kind: 'result', label: config.label, pid: process.pid, status: 'rejected', startedAt, completedAt: new Date().toISOString(), repositoryIdentity, error: { name: error.name, code: error.code ?? null, message: error.message, cause: error.cause?.message ?? null } });",
+    "  } finally { process.disconnect(); }",
+    "});"
+  ].join("\n");
+  const resource = "branch:linked-shared";
+  const launch = (label, cwd, tokenByte) => {
+    const configuration = {
+      label,
+      cwd,
       root,
-      contract: contract({ authority: ["branch.create"] }),
-      requestedMode: "verified",
-      cwd
+      resource,
+      coreModuleUrl,
+      owner: {
+        runId: `linked-worktree-${label}`,
+        attemptId: `linked-worktree-${label}-attempt`,
+        tokenHash: tokenByte.repeat(64),
+        idempotencyKey: `linked-worktree-${label}-idempotency`
+      }
+    };
+    const child = spawn(process.execPath, ["--input-type=module", "--eval", childSource], {
+      cwd,
+      env: {
+        ...process.env,
+        GIT_OPTIONAL_LOCKS: "0",
+        SBW_LINKED_WORKTREE_RESERVATION_CHILD: JSON.stringify(configuration)
+      },
+      stdio: ["ignore", "pipe", "pipe", "ipc"]
     });
-    await addEvidence(root, run.runId, {
-      id: "preflight",
-      kind: "preflight",
-      summary: "Linked worktree reservation preflight",
-      status: "complete",
-      acceptanceIds: [],
-      sourceDigest: "g".repeat(64)
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    const message = (kind) => new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        child.kill("SIGTERM");
+        reject(new Error(`${label} reservation child timed out waiting for ${kind}: ${stderr}`));
+      }, 30_000);
+      const onMessage = (value) => {
+        if (value?.kind !== kind) return;
+        clearTimeout(timeout);
+        child.off("message", onMessage);
+        resolve(value);
+      };
+      child.on("message", onMessage);
+      child.once("error", (error) => {
+        clearTimeout(timeout);
+        reject(error);
+      });
     });
-    await updateState(root, run.runId, (state) => ({
-      ...state,
-      lastSentinel: { label: "test", digest: "tree" },
-      lastSentinelVerified: true,
-      lastSentinelComplete: true
-    }));
-    return run;
+    return { child, message, stdout: () => stdout, stderr: () => stderr };
   };
-  const [mainRun, linkedRun] = await Promise.all([prepare(repository), prepare(linkedWorktree)]);
-  const defaults = await loadDefaults();
-  const results = await Promise.allSettled([mainRun, linkedRun].map((run) => issueActionToken(root, run.runId, {
-    action: "branch.create",
-    provider: "git",
-    resource: "branch:linked-shared",
-    remoteRevision: "abc",
-    requiredEvidence: ["preflight"]
-  }, "tree", defaults)));
-  assert.equal(results.filter((item) => item.status === "fulfilled").length, 1);
-  assert.equal(results.filter((item) => item.status === "rejected").length, 1);
+
+  const children = [
+    launch("main", repository, "a"),
+    launch("linked", linkedWorktree, "b")
+  ];
+  const ready = await Promise.all(children.map((child) => child.message("ready")));
+  assert.equal(ready[0].repositoryIdentity, ready[1].repositoryIdentity, JSON.stringify(ready, null, 2));
+  assert.equal(ready[0].repositoryDevice, ready[1].repositoryDevice, JSON.stringify(ready, null, 2));
+  assert.equal(ready[0].repositoryInode, ready[1].repositoryInode, JSON.stringify(ready, null, 2));
+
+  const resultPromises = children.map((child) => child.message("result"));
+  const startAtEpochMs = Date.now() + 100;
+  for (const child of children) child.child.send({ startAtEpochMs });
+  const results = await Promise.all(resultPromises);
+  await Promise.all(children.map(({ child }) => new Promise((resolve) => {
+    if (child.exitCode !== null) resolve();
+    else child.once("exit", resolve);
+  })));
+  const context = JSON.stringify({
+    ready,
+    results,
+    stdout: children.map((child) => child.stdout()),
+    stderr: children.map((child) => child.stderr())
+  }, null, 2);
+  assert.equal(results.filter((item) => item.status === "fulfilled").length, 1, context);
+  assert.equal(results.filter((item) => item.status === "rejected").length, 1, context);
   assert.match(
-    results.find((item) => item.status === "rejected").reason.message,
-    /already reserved by another action|Creation resource is leased by pid/
+    results.find((item) => item.status === "rejected").error.message,
+    /already reserved by another action|Creation resource is leased by pid/,
+    context
   );
+  const identity = {
+    provider: "git",
+    repository: ready[0].repositoryIdentity,
+    action: "branch.create",
+    resource
+  };
+  await stat(path.join(root, "creation-reservations", `${creationReservationKey(identity)}.json`));
 });
 
 test("GitHub Actions dispatch adapter binds a fixed command and one observed run", () => {
@@ -2338,6 +2911,7 @@ test("GitHub Actions preflight failure has an explicit not-sent terminal proof",
   const record = {
     action: "actions.dispatch",
     provider: "github-cli",
+    providerRepository: "github.com/example/repo",
     resource: "workflow:.github/workflows/ci.yml",
     remoteRevision,
     dispatchRepository: "github.com/example/repo",
@@ -2503,6 +3077,7 @@ fi
     runId: run.runId,
     action: "actions.dispatch",
     provider: "github-cli",
+    providerRepository: "github.com/example/repo",
     resource,
     remoteRevision,
     attemptId,
@@ -2882,21 +3457,30 @@ fi
 
     await writeFile(listPath, `${JSON.stringify([workflowRun])}\n`);
     await writeFile(path.join(actionDir, `${tokenHash}.json`), `${JSON.stringify(action)}\n`);
-    let mutationResolve;
-    const mutationDone = new Promise((resolve) => { mutationResolve = resolve; });
-    const mutationTimer = setTimeout(async () => {
-      await writeFile(path.join(actionDir, `${tokenHash}.json`), `${JSON.stringify({
-        ...action,
-        providerInvocation: { ...action.providerInvocation, errorDigest: sha256("concurrent-provider-writer") }
-      })}\n`);
-      mutationResolve();
-    }, 50);
+    const mutationTarget = path.join(actionDir, `${tokenHash}.json`);
+    const mutationPayload = `${JSON.stringify({
+      ...action,
+      providerInvocation: { ...action.providerInvocation, errorDigest: sha256("concurrent-provider-writer") }
+    })}\n`;
+    // Use a separate OS process for the concurrent writer.  A JavaScript
+    // timer in this process can be starved by a loaded bounded-provider
+    // supervisor, turning the race assertion into a false PASS/FAIL depending
+    // on event-loop scheduling.
+    const mutator = spawn(process.execPath, [
+      "-e",
+      "setTimeout(() => require('node:fs').writeFileSync(process.argv[1], process.argv[2]), 50)",
+      mutationTarget,
+      mutationPayload
+    ], { stdio: "ignore" });
+    const mutationDone = new Promise((resolve, reject) => {
+      mutator.once("error", reject);
+      mutator.once("close", (code) => code === 0 ? resolve() : reject(new Error(`mutation helper exited ${code}`)));
+    });
     await assert.rejects(
       resumeActionsDispatchObservation(root, run.runId, attemptId),
       /changed during resumable reconciliation/
     );
     await mutationDone;
-    clearTimeout(mutationTimer);
     const raced = JSON.parse(await readFile(path.join(actionDir, `${tokenHash}.json`), "utf8"));
     assert.equal(raced.providerInvocation.errorDigest, sha256("concurrent-provider-writer"));
   } finally {
@@ -3841,6 +4425,38 @@ test("host-signed PR merge approval production verifier rejects missing, altered
       verifyMergeHumanApproval(repository, payload),
       /source registry binding is stale/
     );
+    const { digest: recordedSourceDigest, ...recordedSourceIdentity } = sourceBinding;
+    assert.equal(digestObject(recordedSourceIdentity), recordedSourceDigest);
+    assert.equal(sourceBinding.cwd, await realpath(repository));
+    assert.equal(sourceBinding.baseRevision, base);
+    assert.equal(sourceBinding.headRevision, head);
+    await assert.rejects(
+      verifyMergeHumanApproval(repository, payload, {
+        now: Date.parse(authorization.approvedAt),
+        recordedSourceBinding: { ...sourceBinding, digest: "e".repeat(64) }
+      }),
+      /recorded source registry binding is invalid/
+    );
+    await assert.rejects(
+      verifyMergeHumanApproval(repository, payload, {
+        now: Date.parse(authorization.approvedAt),
+        recordedSourceBinding: sourceBinding
+      }),
+      /fixed administrator artifact root/
+    );
+    await assert.rejects(
+      verifyMergeHumanApproval(repository, {
+        ...payload,
+        humanApproval: {
+          ...payload.humanApproval,
+          attestation: { ...payload.humanApproval.attestation, path: "/dev/zero" }
+        }
+      }, {
+        now: Date.parse(authorization.approvedAt),
+        recordedSourceBinding: sourceBinding
+      }),
+      /fixed administrator artifact root/
+    );
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -4100,12 +4716,15 @@ test("required-check completion accepts only one exact issued and successfully i
   );
 });
 
-test("required-check verifier ignores optional skipped jobs and selects the newest protected context", async () => {
+test("required-check verifier binds workflows to the live PR head ref and selects the newest protected context", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "sbw-required-check-optional-skipped-"));
   const bin = path.join(root, "bin");
   await mkdir(bin, { recursive: true });
   const fakeGh = path.join(bin, "gh");
   const head = "a".repeat(40);
+  const base = "b".repeat(40);
+  const pr = 21;
+  const headRefName = "codex/current-required-checks";
   const observedAt = new Date(Date.now() - 1000).toISOString();
   const oldCreatedAt = new Date(Date.parse(observedAt) - 3000).toISOString();
   const newestCreatedAt = new Date(Date.parse(observedAt) - 2000).toISOString();
@@ -4116,6 +4735,7 @@ test("required-check verifier ignores optional skipped jobs and selects the newe
   const protection = {
     enforce_admins: { enabled: true },
     required_status_checks: {
+      strict: true,
       contexts: ["test"],
       checks: [{ context: "test", app_id: 15368 }]
     },
@@ -4124,15 +4744,33 @@ test("required-check verifier ignores optional skipped jobs and selects the newe
     allow_deletions: { enabled: false }
   };
   const requiredStatusProtection = protection.required_status_checks;
+  const pull = {
+    number: pr,
+    state: "open",
+    draft: false,
+    head: { sha: head, ref: headRefName },
+    base: { sha: base, ref: "dev" }
+  };
   const workflowPage = {
-    total_count: 1,
-    workflow_runs: [{
-      id: 501,
-      head_sha: head,
-      status: "completed",
-      conclusion: "success",
-      updated_at: oldCompletedAt
-    }]
+    total_count: 2,
+    workflow_runs: [
+      {
+        id: 501,
+        head_sha: head,
+        head_branch: headRefName,
+        status: "completed",
+        conclusion: "success",
+        updated_at: oldCompletedAt
+      },
+      {
+        id: 502,
+        head_sha: head,
+        head_branch: "codex/closed-required-checks",
+        status: "completed",
+        conclusion: "skipped",
+        updated_at: oldCompletedAt
+      }
+    ]
   };
   const checkPage = {
     total_count: 3,
@@ -4225,6 +4863,20 @@ test("required-check verifier ignores optional skipped jobs and selects the newe
     created_at: newestCompletedAt,
     updated_at: newestCompletedAt
   }];
+  const branchRules = [];
+  const rulesetPages = [[]];
+  const protectiveBranchRules = [{ type: "deletion" }, { type: "non_fast_forward" }];
+  const protectiveRulesetPages = [[{ id: 88, enforcement: "active" }]];
+  const protectiveRuleset = {
+    id: 88,
+    target: "branch",
+    enforcement: "active",
+    conditions: {
+      ref_name: { include: ["refs/heads/dev"], exclude: [] }
+    },
+    bypass_actors: [],
+    rules: [{ type: "deletion" }, { type: "non_fast_forward" }]
+  };
   const emit = (value) => JSON.stringify(JSON.stringify(value));
   const ghScript = [
     "#!/bin/sh",
@@ -4232,8 +4884,11 @@ test("required-check verifier ignores optional skipped jobs and selects the newe
     "endpoint=\"$2\"",
     "if [ \"$2\" = --paginate ]; then endpoint=\"$4\"; fi",
     `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo/branches/dev/protection")} ]; then printf '%s\\n' ${emit(protection)}; exit 0; fi`,
-    `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo/rules/branches/dev")} ]; then printf '%s\\n' '[]'; exit 0; fi`,
-    `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo/rulesets?includes_parents=true")} ]; then printf '%s\\n' '[[]]'; exit 0; fi`,
+    `if [ \"$endpoint\" = ${JSON.stringify(`repos/example/repo/pulls/${pr}`)} ]; then printf '%s\\n' ${emit(pull)}; exit 0; fi`,
+    `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo")} ]; then printf '%s\\n' ${emit({ default_branch: "dev" })}; exit 0; fi`,
+    `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo/rules/branches/dev")} ]; then printf '%s\\n' ${emit(branchRules)}; exit 0; fi`,
+    `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo/rulesets?includes_parents=true")} ]; then printf '%s\\n' ${emit(rulesetPages)}; exit 0; fi`,
+    `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo/rulesets/88")} ]; then printf '%s\\n' ${emit(protectiveRuleset)}; exit 0; fi`,
     `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo/branches/dev/protection/required_status_checks")} ]; then printf '%s\\n' ${emit(requiredStatusProtection)}; exit 0; fi`,
     `if [ \"$endpoint\" = ${JSON.stringify(`repos/example/repo/actions/runs?head_sha=${head}&per_page=100`)} ]; then printf '%s\\n' ${emit([workflowPage])}; exit 0; fi`,
     `if [ \"$endpoint\" = ${JSON.stringify(`repos/example/repo/commits/${head}/check-runs?per_page=100`)} ]; then printf '%s\\n' ${emit([checkPage])}; exit 0; fi`,
@@ -4247,7 +4902,9 @@ test("required-check verifier ignores optional skipped jobs and selects the newe
     provider: "github",
     repository: "github.com/example/repo",
     baseRefName: "dev",
+    pr,
     head,
+    base,
     requiredStatusChecks: ["test"],
     requiredStatusCheckApps: [{ context: "test", appId: 15368 }],
     checkSet: ["test"],
@@ -4267,10 +4924,56 @@ test("required-check verifier ignores optional skipped jobs and selects the newe
   const priorPath = process.env.PATH;
   process.env.PATH = `${bin}:${priorPath}`;
   try {
-    await verifyRequiredChecksProvider(root, payload, providerExecutable);
+    const verified = await verifyRequiredChecksProvider(root, payload, providerExecutable);
+    assert.deepEqual(verified.baseSynchronization, {
+      provider: "github",
+      policy: "strict-required-status-checks",
+      enforced: true
+    });
+    const protectiveRulesGhScript = ghScript
+      .replace(emit(branchRules), emit(protectiveBranchRules))
+      .replace(emit(rulesetPages), emit(protectiveRulesetPages));
+    await writeFile(fakeGh, protectiveRulesGhScript, { mode: 0o700 });
+    await verifyRequiredChecksProvider(root, payload, {
+      path: providerExecutable.path,
+      digest: sha256(protectiveRulesGhScript)
+    });
+    await writeFile(fakeGh, ghScript, { mode: 0o700 });
+    const nonStrictProtection = {
+      ...protection,
+      required_status_checks: { ...requiredStatusProtection, strict: false }
+    };
+    const nonStrictGhScript = ghScript
+      .replace(emit(protection), emit(nonStrictProtection))
+      .replace(emit(requiredStatusProtection), emit(nonStrictProtection.required_status_checks));
+    await writeFile(fakeGh, nonStrictGhScript, { mode: 0o700 });
+    await assert.rejects(
+      verifyRequiredChecksProvider(root, payload, {
+        path: providerExecutable.path,
+        digest: sha256(nonStrictGhScript)
+      }),
+      /does not atomically require the PR head to be current with its base/
+    );
+    await writeFile(fakeGh, ghScript, { mode: 0o700 });
+    const sameBranchSkippedPage = {
+      ...workflowPage,
+      workflow_runs: workflowPage.workflow_runs.map((run) => (
+        run.id === 502 ? { ...run, head_branch: headRefName } : run
+      ))
+    };
+    const sameBranchSkippedGhScript = ghScript.replace(emit([workflowPage]), emit([sameBranchSkippedPage]));
+    await writeFile(fakeGh, sameBranchSkippedGhScript, { mode: 0o700 });
+    await assert.rejects(
+      verifyRequiredChecksProvider(root, payload, {
+        path: providerExecutable.path,
+        digest: sha256(sameBranchSkippedGhScript)
+      }),
+      /Required check workflow run is not a fresh successful GitHub run: 502/
+    );
+    await writeFile(fakeGh, ghScript, { mode: 0o700 });
     const collisionProtection = {
       ...protection,
-      required_status_checks: { contexts: ["test", "lint"], checks: [] }
+      required_status_checks: { strict: true, contexts: ["test", "lint"], checks: [] }
     };
     const collisionRequiredStatusProtection = collisionProtection.required_status_checks;
     const collisionCheckPage = {
@@ -4357,7 +5060,7 @@ test("required-check verifier ignores optional skipped jobs and selects the newe
     );
     const contextOnlyProtection = {
       ...protection,
-      required_status_checks: { contexts: ["test"], checks: [] }
+      required_status_checks: { strict: true, contexts: ["test"], checks: [] }
     };
     const contextOnlyGhScript = ghScript
       .replace(emit(protection), emit(contextOnlyProtection))
@@ -4458,6 +5161,7 @@ test("required-check verifier ignores optional skipped jobs and selects the newe
     const duplicateContextProtection = {
       ...protection,
       required_status_checks: {
+        strict: true,
         contexts: [],
         checks: [{ context: "test", app_id: 15368 }, { context: "test", app_id: 9876 }]
       }
@@ -4643,10 +5347,13 @@ test("required-check verifier preserves ruleset integration identity for same-na
   await mkdir(bin, { recursive: true });
   const fakeGh = path.join(bin, "gh");
   const head = "b".repeat(40);
+  const base = "c".repeat(40);
+  const pr = 22;
+  const headRefName = "codex/ruleset-required-checks";
   const observedAt = new Date(Date.now() - 1000).toISOString();
   const protection = {
     enforce_admins: { enabled: true },
-    required_status_checks: { contexts: [], checks: [] },
+    required_status_checks: { strict: true, contexts: [], checks: [] },
     required_pull_request_reviews: { required_approving_review_count: 1 },
     allow_force_pushes: { enabled: false },
     allow_deletions: { enabled: false }
@@ -4658,7 +5365,7 @@ test("required-check verifier preserves ruleset integration identity for same-na
     target: "branch",
     enforcement: "active",
     bypass_actors: [],
-    conditions: { ref_name: { include: ["refs/heads/dev"] } },
+    conditions: { ref_name: { include: ["refs/heads/dev"], exclude: [] } },
     rules: [
       { type: "required_status_checks", parameters: {
         strict_required_status_checks_policy: true,
@@ -4682,7 +5389,14 @@ test("required-check verifier preserves ruleset integration identity for same-na
   };
   const workflowPage = {
     total_count: 1,
-    workflow_runs: [{ id: 901, head_sha: head, status: "completed", conclusion: "success", updated_at: observedAt }]
+    workflow_runs: [{ id: 901, head_sha: head, head_branch: headRefName, status: "completed", conclusion: "success", updated_at: observedAt }]
+  };
+  const pull = {
+    number: pr,
+    state: "open",
+    draft: false,
+    head: { sha: head, ref: headRefName },
+    base: { sha: base, ref: "dev" }
   };
   const emit = (value) => JSON.stringify(JSON.stringify(value));
   const ghScript = [
@@ -4691,6 +5405,8 @@ test("required-check verifier preserves ruleset integration identity for same-na
     "endpoint=\"$2\"",
     "if [ \"$2\" = --paginate ]; then endpoint=\"$4\"; fi",
     `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo/branches/dev/protection")} ]; then printf '%s\\n' ${emit(protection)}; exit 0; fi`,
+    `if [ \"$endpoint\" = ${JSON.stringify(`repos/example/repo/pulls/${pr}`)} ]; then printf '%s\\n' ${emit(pull)}; exit 0; fi`,
+    `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo")} ]; then printf '%s\\n' ${emit({ default_branch: "dev" })}; exit 0; fi`,
     `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo/rules/branches/dev")} ]; then printf '%s\\n' '[]'; exit 0; fi`,
     `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo/rulesets?includes_parents=true")} ]; then printf '%s\\n' ${emit([rulesetSummary])}; exit 0; fi`,
     `if [ \"$endpoint\" = ${JSON.stringify("repos/example/repo/rulesets/9")} ]; then printf '%s\\n' ${emit(rulesetDetail)}; exit 0; fi`,
@@ -4707,7 +5423,9 @@ test("required-check verifier preserves ruleset integration identity for same-na
     provider: "github",
     repository: "github.com/example/repo",
     baseRefName: "dev",
+    pr,
     head,
+    base,
     requiredStatusChecks: ["test"],
     requiredStatusCheckApps: [{ context: "test", appId: 15368 }],
     checkSet: ["test"],
@@ -4721,6 +5439,50 @@ test("required-check verifier preserves ruleset integration identity for same-na
   process.env.PATH = `${bin}:${priorPath}`;
   try {
     await verifyRequiredChecksProvider(root, payload, providerExecutable);
+    const nonStrictProtection = {
+      ...protection,
+      required_status_checks: { ...protection.required_status_checks, strict: false }
+    };
+    const nonStrictRequiredStatusProtection = {
+      ...requiredStatusProtection,
+      strict: false
+    };
+    const rulesetScript = (detail, repositoryMetadata = { default_branch: "dev" }) => ghScript
+      .replace(emit(protection), emit(nonStrictProtection))
+      .replace(emit(requiredStatusProtection), emit(nonStrictRequiredStatusProtection))
+      .replace(emit(rulesetDetail), emit(detail))
+      .replace(emit({ default_branch: "dev" }), emit(repositoryMetadata));
+    const excludedRulesetScript = rulesetScript({
+      ...rulesetDetail,
+      conditions: { ref_name: { include: ["~ALL"], exclude: ["refs/heads/dev"] } }
+    });
+    await writeFile(fakeGh, excludedRulesetScript, { mode: 0o700 });
+    await assert.rejects(
+      verifyRequiredChecksProvider(root, payload, {
+        path: providerExecutable.path,
+        digest: sha256(excludedRulesetScript)
+      }),
+      /does not atomically require the PR head to be current with its base/
+    );
+    const defaultBranchRuleset = {
+      ...rulesetDetail,
+      conditions: { ref_name: { include: ["~DEFAULT_BRANCH"], exclude: [] } }
+    };
+    const nonDefaultBranchScript = rulesetScript(defaultBranchRuleset, { default_branch: "main" });
+    await writeFile(fakeGh, nonDefaultBranchScript, { mode: 0o700 });
+    await assert.rejects(
+      verifyRequiredChecksProvider(root, payload, {
+        path: providerExecutable.path,
+        digest: sha256(nonDefaultBranchScript)
+      }),
+      /does not atomically require the PR head to be current with its base/
+    );
+    const actualDefaultBranchScript = rulesetScript(defaultBranchRuleset);
+    await writeFile(fakeGh, actualDefaultBranchScript, { mode: 0o700 });
+    await verifyRequiredChecksProvider(root, payload, {
+      path: providerExecutable.path,
+      digest: sha256(actualDefaultBranchScript)
+    });
     const unauthorizedCheckPage = {
       ...checkPage,
       check_runs: [{ ...checkPage.check_runs[0], app: { id: 9876 } }]
@@ -4800,15 +5562,11 @@ test("failed PR creation preserves its reservation until provider absence is pro
   await writeFile(path.join(runDir, "actions", `${tokenHash}.json`), `${JSON.stringify(action)}\n`);
   const reservationPath = path.join(root, "creation-reservations", `${creationReservationKey(creationReservation)}.json`);
   await mkdir(path.dirname(reservationPath), { recursive: true });
-  await writeFile(reservationPath, `${JSON.stringify({
-    runId: run.runId,
-    ...creationReservation,
-    reservationKey: creationReservationKey(creationReservation),
-    resource,
-    tokenHash,
-    reservedAt: new Date().toISOString(),
-    expiresAt: new Date(Date.now() + 60_000).toISOString()
-  })}\n`);
+  await writeFile(reservationPath, `${JSON.stringify(creationReservationFixture(
+    creationReservation,
+    { runId: run.runId, attemptId, tokenHash, idempotencyKey },
+    new Date(Date.now() + 60_000).toISOString()
+  ))}\n`);
   const responsePath = path.join(root, "fake-pr-list.json");
   const actorPath = path.join(root, "fake-gh-actor.txt");
   const pushPath = path.join(root, "fake-gh-push.txt");
@@ -4961,6 +5719,7 @@ test("transferred PR ownership rejects self-asserted authorization", async () =>
     runId: sourceRun.runId,
     action: "pr.create",
     provider: "github-cli",
+    providerRepository: "github.com/example/repo",
     resource: "pull/new",
     remoteRevision,
     attemptId: sourceAttemptId,
@@ -4969,6 +5728,12 @@ test("transferred PR ownership rejects self-asserted authorization", async () =>
     targetRef: "dev",
     headBranch: "codex/feature",
     createRepository: "github.com/example/repo",
+    creationReservation: {
+      provider: "github-cli",
+      repository: "github.com/example/repo",
+      action: "pr.create",
+      resource: "pull/new"
+    },
     ownedResource: `pull/${number}`,
     providerAuthorization: {
       provider: "github-cli",
@@ -4999,12 +5764,23 @@ test("transferred PR ownership rejects self-asserted authorization", async () =>
     creationAttemptId: sourceAttemptId,
     creationActionDigest: digestObject({
       attemptId: sourceAction.attemptId,
+      tokenHash: sourceAction.tokenHash,
+      idempotencyKey: sourceAction.idempotencyKey,
       action: sourceAction.action,
+      provider: sourceAction.provider,
+      providerRepository: sourceAction.providerRepository,
       resource: sourceAction.resource,
+      creationReservation: sourceAction.creationReservation,
       outcome: sourceAction.outcome,
       receipt: sourceAction.receipt
     }),
     creationReservation: { provider: "github-cli", repository: "github.com/example/repo", action: "pr.create", resource: "pull/new" },
+    creationReservationOwner: {
+      runId: sourceRun.runId,
+      attemptId: sourceAttemptId,
+      tokenHash: sourceAction.tokenHash,
+      idempotencyKey: sourceIdempotencyKey
+    },
     registeredAt: new Date().toISOString()
   }];
   await writeFile(sourceManifestPath, `${JSON.stringify(sourceManifest)}\n`);
@@ -5256,14 +6032,12 @@ test("unknown PR creation can recover the same attempt into canonical ownership 
   await mkdir(path.join(root, "creation-reservations"), { recursive: true });
   await writeFile(
     path.join(root, "creation-reservations", `${creationReservationKey(creationReservation)}.json`),
-    `${JSON.stringify({
-      ...creationReservation,
-      reservationKey: creationReservationKey(creationReservation),
-      runId: run.runId,
-      tokenHash,
-      reservedAt: spentAt,
-      expiresAt: new Date(Date.now() + 60_000).toISOString()
-    })}\n`
+    `${JSON.stringify(creationReservationFixture(
+      creationReservation,
+      { runId: run.runId, attemptId, tokenHash, idempotencyKey },
+      new Date(Date.now() + 60_000).toISOString(),
+      spentAt
+    ))}\n`
   );
   const apiResponse = JSON.stringify({
     node_id: "node-17",
@@ -5297,7 +6071,7 @@ fi
   process.env.PATH = `${bin}:${priorPath}`;
   try {
     await addEvidence(root, run.runId, actionEvidence);
-    await reconcileAction(root, run.runId, attemptId, "unknown", {
+    const unknownReceipt = {
       action: "pr.create",
       provider: "github-cli",
       resource,
@@ -5323,50 +6097,40 @@ fi
         terminalState: "unknown",
         reason: "provider-timeout"
       }
-    });
-    const alternateExecutionId = `github:github.com/example/repo:pr.create:alternate:${head}`;
-    const alternateExecutionPath = path.join(
-      root,
-      "provider-executions",
-      `${sha256(alternateExecutionId)}.json`
-    );
-    await mkdir(path.dirname(alternateExecutionPath), { recursive: true });
-    await writeFile(alternateExecutionPath, `${JSON.stringify({
-      schemaVersion: 1,
-      executionId: alternateExecutionId,
-      runId: run.runId,
-      attemptId,
-      tokenHash,
-      action: "pr.create",
-      outcome: "success",
-      recordedAt: new Date().toISOString()
-    })}\n`);
-    const unknownExecutionPath = path.join(
+    };
+    const providerExecutionPath = path.join(
       root,
       "provider-executions",
       `${sha256(providerReceipt.executionId)}.json`
     );
-    const unknownReservation = JSON.parse(await readFile(unknownExecutionPath, "utf8"));
-    await writeFile(unknownExecutionPath, `${JSON.stringify({
-      ...unknownReservation,
-      supersededBy: alternateExecutionId,
-      supersededAt: new Date().toISOString()
+    await mkdir(path.dirname(providerExecutionPath), { recursive: true });
+    const conflictingIdentity = {
+      schemaVersion: 2,
+      executionId: providerReceipt.executionId,
+      runId: run.runId,
+      attemptId,
+      tokenHash,
+      action: "pr.create",
+      provider: "github-cli",
+      repository: creationReservation.repository,
+      resource,
+      idempotencyKey: `${idempotencyKey}-conflict`,
+      remoteRevision
+    };
+    await writeFile(providerExecutionPath, `${JSON.stringify({
+      ...conflictingIdentity,
+      identityDigest: digestObject(conflictingIdentity),
+      outcome: "unknown",
+      recordedAt: new Date().toISOString()
     })}\n`);
     await assert.rejects(
-      reconcileAction(root, run.runId, attemptId, "success", {
-        action: "pr.create",
-        provider: "github-cli",
-        resource,
-        outcome: "success",
-        runId: run.runId,
-        attemptId,
-        idempotencyKey,
-        remoteRevision,
-        providerReceipt,
-        evidenceIds: [actionEvidence.id]
-      }),
-      /superseded by another identity/
+      reconcileAction(root, run.runId, attemptId, "unknown", unknownReceipt),
+      /reserved globally/
     );
+    await unlink(providerExecutionPath);
+    await reconcileAction(root, run.runId, attemptId, "unknown", {
+      ...unknownReceipt
+    });
     await writeFile(fakeGh, `${ghScript}\n# spoofed provider binary\n`);
     await assert.rejects(
       reconcileAction(root, run.runId, attemptId, "success", {
@@ -5384,119 +6148,6 @@ fi
       /governed provider executable changed/
     );
     await writeFile(fakeGh, ghScript);
-    await assert.rejects(
-      reconcileAction(root, run.runId, attemptId, "success", {
-        action: "pr.create",
-        provider: "github-cli",
-        resource,
-        outcome: "success",
-        runId: run.runId,
-        attemptId,
-        idempotencyKey,
-        remoteRevision,
-        providerReceipt,
-        evidenceIds: [actionEvidence.id]
-      }),
-      /superseded by another identity/
-    );
-    await unlink(alternateExecutionPath);
-    const mismatchedActionId = `github:github.com/example/repo:other-action:${head}`;
-    const mismatchedActionPath = path.join(
-      root,
-      "provider-executions",
-      `${sha256(mismatchedActionId)}.json`
-    );
-    await writeFile(mismatchedActionPath, `${JSON.stringify({
-      schemaVersion: 1,
-      executionId: mismatchedActionId,
-      runId: run.runId,
-      attemptId,
-      tokenHash,
-      action: "other.action",
-      outcome: "success",
-      recordedAt: new Date().toISOString()
-    })}\n`);
-    await assert.rejects(
-      reconcileAction(root, run.runId, attemptId, "success", {
-        action: "pr.create",
-        provider: "github-cli",
-        resource,
-        outcome: "success",
-        runId: run.runId,
-        attemptId,
-        idempotencyKey,
-        remoteRevision,
-        providerReceipt,
-        evidenceIds: [actionEvidence.id]
-      }),
-      /bound to a different action/
-    );
-    await unlink(mismatchedActionPath);
-    const providerExecutionPath = path.join(
-      root,
-      "provider-executions",
-      `${sha256(providerReceipt.executionId)}.json`
-    );
-    await mkdir(path.dirname(providerExecutionPath), { recursive: true });
-    await writeFile(providerExecutionPath, `${JSON.stringify({
-      executionId: providerReceipt.executionId,
-      runId: run.runId,
-      attemptId,
-      tokenHash,
-      action: "pr.create",
-      outcome: "failure",
-      recordedAt: new Date().toISOString()
-    })}\n`);
-    await assert.rejects(
-      reconcileAction(root, run.runId, attemptId, "success", {
-        action: "pr.create",
-        provider: "github-cli",
-        resource,
-        outcome: "success",
-        runId: run.runId,
-        attemptId,
-        idempotencyKey,
-        remoteRevision,
-        providerReceipt,
-        evidenceIds: [actionEvidence.id]
-      }),
-      /Legacy provider execution reservation/
-    );
-    await writeFile(providerExecutionPath, `${JSON.stringify({
-      schemaVersion: 1,
-      executionId: providerReceipt.executionId,
-      runId: run.runId,
-      attemptId,
-      tokenHash,
-      action: "pr.create",
-      outcome: "failure",
-      recordedAt: new Date().toISOString()
-    })}\n`);
-    await assert.rejects(
-      reconcileAction(root, run.runId, attemptId, "success", {
-        action: "pr.create",
-        provider: "github-cli",
-        resource,
-        outcome: "success",
-        runId: run.runId,
-        attemptId,
-        idempotencyKey,
-        remoteRevision,
-        providerReceipt,
-        evidenceIds: [actionEvidence.id]
-      }),
-      /different terminal outcome/
-    );
-    await writeFile(providerExecutionPath, `${JSON.stringify({
-      schemaVersion: 1,
-      executionId: providerReceipt.executionId,
-      runId: run.runId,
-      attemptId,
-      tokenHash,
-      action: "pr.create",
-      outcome: "success",
-      recordedAt: new Date().toISOString()
-    })}\n`);
     const recovered = await reconcileAction(root, run.runId, attemptId, "success", {
       action: "pr.create",
       provider: "github-cli",
@@ -5626,15 +6277,12 @@ test("successful PR creation canonicalizes ownership and prevents a retry", asyn
   await writeFile(path.join(runDir, "actions", `${tokenHash}.json`), `${JSON.stringify(action)}\n`);
   const reservationPath = path.join(root, "creation-reservations", `${creationReservationKey(creationReservation)}.json`);
   await mkdir(path.dirname(reservationPath), { recursive: true });
-  await writeFile(reservationPath, `${JSON.stringify({
-    runId: run.runId,
-    ...creationReservation,
-    reservationKey: creationReservationKey(creationReservation),
-    resource,
-    tokenHash,
-    reservedAt: spentAt,
-    expiresAt: new Date(Date.now() + 60_000).toISOString()
-  })}\n`);
+  await writeFile(reservationPath, `${JSON.stringify(creationReservationFixture(
+    creationReservation,
+    { runId: run.runId, attemptId, tokenHash, idempotencyKey },
+    new Date(Date.now() + 60_000).toISOString(),
+    spentAt
+  ))}\n`);
   const fakeGh = path.join(bin, "gh");
   const apiResponse = JSON.stringify({
     node_id: "node-12",
@@ -6121,8 +6769,19 @@ test("direct mode creates no state directory", async () => {
   await assert.rejects(access(root));
 });
 
-test("the SBW state root and generated run IDs use the canonical command name", async () => {
-  assert.equal(getStateRoot({ CODEX_HOME: "/tmp/codex-home" }), "/tmp/codex-home/sbw");
+test("the SBW state root is host-neutral and generated run IDs use the canonical command name", async () => {
+  assert.equal(
+    getStateRoot({ HOME: "/tmp/sbw-home", CODEX_HOME: "/tmp/codex-home" }),
+    "/tmp/sbw-home/.better-workflows"
+  );
+  assert.equal(
+    getStateRoot({ XDG_STATE_HOME: "/tmp/xdg-state", CODEX_HOME: "/tmp/codex-home" }),
+    "/tmp/xdg-state/better-workflows"
+  );
+  assert.equal(
+    getStateRoot({ USERPROFILE: "/tmp/windows-profile", CODEX_HOME: "/tmp/codex-home" }),
+    "/tmp/windows-profile/.better-workflows"
+  );
   assert.equal(getStateRoot({ SBW_STATE_ROOT: "/tmp/custom-sbw-state" }), "/tmp/custom-sbw-state");
   const root = await mkdtemp(path.join(os.tmpdir(), "sbw-name-contract-"));
   const result = await createRun({
@@ -6443,7 +7102,12 @@ test("destructive cleanup actions require an immutable run-owned resource receip
   }, "tree", await loadDefaults());
   const expiredReservationPath = path.join(root, "creation-reservations", `${creationReservationKey(expiredIssued.creationReservation)}.json`);
   const expiredReservation = JSON.parse(await readFile(expiredReservationPath, "utf8"));
-  await writeFile(expiredReservationPath, `${JSON.stringify({ ...expiredReservation, expiresAt: "2020-01-01T00:00:00.000Z" })}\n`);
+  await writeFile(expiredReservationPath, `${JSON.stringify(creationReservationFixture(
+    expiredIssued.creationReservation,
+    expiredIssued,
+    "2020-01-01T00:00:00.000Z",
+    expiredReservation.reservedAt
+  ))}\n`);
   const replacementIssued = await issueActionToken(root, registeredRun.runId, {
     action: "branch.create",
     provider: "git",
@@ -6526,6 +7190,47 @@ test("destructive cleanup actions require an immutable run-owned resource receip
     }
   };
   await addEvidence(root, registeredRun.runId, actionEvidence);
+  const providerExecutionPath = path.join(
+    root,
+    "provider-executions",
+    `${sha256(providerReceipt.executionId)}.json`
+  );
+  await mkdir(path.dirname(providerExecutionPath), { recursive: true });
+  const conflictingExecutionIdentity = {
+    schemaVersion: 2,
+    executionId: providerReceipt.executionId,
+    runId: creationSpent.runId,
+    attemptId: creationSpent.attemptId,
+    tokenHash: creationSpent.tokenHash,
+    action: creationSpent.action,
+    provider: creationSpent.provider,
+    repository: creationSpent.creationReservation.repository,
+    resource: creationSpent.resource,
+    idempotencyKey: `${creationSpent.idempotencyKey}-raced`,
+    remoteRevision: creationSpent.remoteRevision
+  };
+  await writeFile(providerExecutionPath, `${JSON.stringify({
+    ...conflictingExecutionIdentity,
+    identityDigest: digestObject(conflictingExecutionIdentity),
+    outcome: "success",
+    recordedAt: new Date().toISOString()
+  })}\n`);
+  await assert.rejects(
+    reconcileAction(root, registeredRun.runId, creationSpent.attemptId, "success", {
+      action: "branch.create",
+      provider: "git",
+      resource,
+      outcome: "success",
+      runId: creationSpent.runId,
+      attemptId: creationSpent.attemptId,
+      idempotencyKey: creationSpent.idempotencyKey,
+      remoteRevision: creationSpent.remoteRevision,
+      providerReceipt,
+      evidenceIds: [actionEvidence.id]
+    }),
+    /reserved globally/
+  );
+  await unlink(providerExecutionPath);
   await reconcileAction(root, registeredRun.runId, creationSpent.attemptId, "success", {
     action: "branch.create",
     provider: "git",
@@ -6553,6 +7258,26 @@ test("destructive cleanup actions require an immutable run-owned resource receip
     createdAt: "2026-08-01T00:00:00.000Z"
   };
   const registered = await registerOwnedResource(root, registeredRun.runId, { resource, creationReceipt });
+  const replayedRegistration = await registerOwnedResource(
+    root,
+    registeredRun.runId,
+    { resource, creationReceipt }
+  );
+  assert.deepEqual(replayedRegistration, registered);
+  const releaseRecords = await Promise.all((await readdir(
+    path.join(root, "creation-reservation-releases")
+  )).filter((name) => name.endsWith(".json")).map(async (name) => JSON.parse(await readFile(
+    path.join(root, "creation-reservation-releases", name),
+    "utf8"
+  ))));
+  const creationRelease = releaseRecords.find((record) => (
+    record.binding?.owner?.runId === creationSpent.runId &&
+    record.binding?.owner?.attemptId === creationSpent.attemptId &&
+    record.binding?.owner?.tokenHash === creationSpent.tokenHash &&
+    record.binding?.owner?.idempotencyKey === creationSpent.idempotencyKey
+  ));
+  assert.equal(creationRelease?.status, "released");
+  assert.deepEqual(creationRelease?.binding?.reservation, creationSpent.creationReservation);
   await addPlan(registeredRun, {
     objective: "Delete only the owned branch",
     ownerRunId: registeredRun.runId,

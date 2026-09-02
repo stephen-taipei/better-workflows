@@ -80,7 +80,7 @@ flowchart LR
 
 ### 버전이 있는 handoff package
 
-Better Workflows가 탐색 결과를 받기 전에 versioned handoff package로 정규화합니다. 이것이 scope drift를 막는 경계입니다.
+Better Workflows가 탐색 결과를 받기 전에 versioned handoff package로 정규화합니다. 이는 관찰 가능한 handoff drift를 차단하는 gate이며, 장기 scope drift 감소를 통계적으로 입증했다는 뜻은 아닙니다.
 
 | Gate | 필요한 자료 | 탐색으로 되돌리는 조건 |
 | --- | --- | --- |
@@ -147,7 +147,7 @@ required capabilities, 최대 3개의**자문 전용** support skills를 지정�
 | ---: | --- | --- |
 | 1 | Host hard constraints | Local config로 낮출 수 없고 host input이 없으면 `unverified`. |
 | 2 | 명시적 entry/template/mode | 사용자의 picker 또는 CLI 선택이 우선. |
-| 3 | Workspace Profile | `<repo>/.codex/better-workflows.json`; match 시 personal route를 대체. |
+| 3 | Workspace Profile | `<repo>/.better-workflows/profile.json`; v4 path가 없을 때만 legacy `<repo>/.codex/better-workflows.json`을 읽고, match 시 personal route를 대체. |
 | 4 | Personal Profile | `$SBW_STATE_ROOT/routing/profile.json`. |
 | 5 | Built-in `auto` | Evidence가 실제 template을 고를 때까지 `template: null`. |
 
@@ -317,6 +317,8 @@ node plugins/better-workflows/scripts/sbw.mjs recipe run <id> \
 
 Git root의 `.codex/better-workflows/`만 사용하며 routing Profile `.codex/better-workflows.json`은 recipe를 승인할 수 없습니다. clone 후에는 항상 untrusted이므로 다시 promotion해야 합니다. dry-run은 trusted program을 실행한 뒤 staging을 버리고, 일반 run만 선언되고 기본 ignored인 artifacts를 atomic publish합니다. 단일 artifact를 tracked source로 promotion하려면 별도 `artifact.promote` action이 필요합니다. 일반 private receipt에는 digests, 시간, artifact metadata, reconciliation만 저장합니다. reconciled side-effect action record는 terminal state 검증을 위해 provider receipt를 private하게 보관하지만 external handoff나 graph projection에는 포함하지 않습니다.
 
+Recipe 프로그램 자체에는 source-mutation authority가 없습니다. root-owned local provider는 `recipe.promote`에서 config를 정확히 활성화하거나 `artifact.promote`에서 기존에 없던 대상 파일 하나를 만드는 경우에만 허용됩니다. receipt는 action attempt, path, 변경 전후 bytes, 완전한 sentinel과 source binding을 바인딩하며, 그 한 path를 제거한 snapshot은 완전히 일치해야 합니다. ignored artifact store도 tracked marker가 내장 policy와 정확히 일치할 때만 관리되는 비 source 출력으로 취급합니다. 추가 drift나 transition history 변조는 success를 승인할 수 없습니다.
+
 ### Derived Graph View
 
 Graph View는 installed workflow templates 또는 하나의 live run에서 typed
@@ -453,7 +455,7 @@ admin bypass, stale checks, 미검토 commit, remote reconciliation 전 cleanup�
 
 | Mode | 동작 |
 | --- | --- |
-| `direct` | Root가 직접 작업하며 durable workflow state를 만들지 않음. |
+| `direct` | Root는 evidence workflow state를 만들지 않음. Git 변경은 최소 `TaskWorkspaceLeaseV1`를 저장하고 작업 전용 worktree를 사용함. |
 | `verified` | Root와 1–3 read-only research/review/refutation agents. |
 | `deep` | `verified` 후 최대 2개의 Codex critics를 직렬 실행. |
 | `critical` | 전체 evidence/side-effect gates와 policy 필수 외부 reviewer. |

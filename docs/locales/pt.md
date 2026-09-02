@@ -2,7 +2,7 @@
 
 # Better Workflows
 
-Plano de controlo open source e goal-first para fluxos de agentes com evidência atualizada, revisões, ligação à origem e reconciliação do fornecedor.
+O agente de IA ajusta a força da verificação ao risco e conclui o trabalho em segurança num ambiente isolado. Alterações simples avançam depressa; trabalho importante usa evidence gates; alterações Git usam por omissão uma worktree dedicada.
 
 [English](en.md) · [繁體中文](zh-Hant.md) · [繁體中文（台灣）](zh-Hant-TW.md) · [繁體中文（香港）](zh-Hant-HK.md) · [简体中文](zh-Hans.md) · [Tiếng Việt](vi.md) · [Українська](uk.md) · [Türkçe](tr.md) · [ไทย](th.md) · [Svenska](sv.md) · [Slovenčina](sk.md) · [Русский](ru.md) · [Română](ro.md) · **Português** · [Português (Brasil)](pt-BR.md) · [Polski](pl.md) · [Nederlands](nl.md) · [Norsk bokmål](nb.md) · [မြန်မာ](my.md) · [Bahasa Melayu](ms.md) · [ລາວ](lo.md) · [한국어](ko.md) · [ខ្មែរ](km.md) · [日本語](ja.md) · [Italiano](it.md) · [Bahasa Indonesia](id.md) · [Magyar](hu.md) · [Hrvatski](hr.md) · [हिन्दी](hi.md) · [עברית](he.md) · [Français](fr.md) · [Filipino](fil.md) · [Suomi](fi.md) · [Español](es.md) · [Español (México)](es-MX.md) · [Ελληνικά](el.md) · [Deutsch](de.md) · [Dansk](da.md) · [Čeština](cs.md) · [Català](ca.md) · [العربية](ar.md)
 
@@ -19,7 +19,7 @@ O Better Workflows fixa o objetivo, o âmbito e a autoridade e liga cada decisã
 Defina o contrato, verifique a origem e a evidência, reconcilie os efeitos externos e declare a conclusão apenas quando o estado terminal for conhecido.
 
 - **01 · `TaskContract`** — O Better Workflows fixa o objetivo, o âmbito e a autoridade e liga cada decisão a evidência atualizada e revalidável e a um resultado externo reconciliado.
-- **02 · `evidence`** — Plano de controlo open source e goal-first para fluxos de agentes com evidência atualizada, revisões, ligação à origem e reconciliação do fornecedor.
+- **02 · `evidence`** — O agente de IA ajusta a força da verificação ao risco e conclui o trabalho em segurança num ambiente isolado. Alterações simples avançam depressa; trabalho importante usa evidence gates; alterações Git usam por omissão uma worktree dedicada.
 - **03 · `reconciliation`** — Defina o contrato, verifique a origem e a evidência, reconcilie os efeitos externos e declare a conclusão apenas quando o estado terminal for conhecido.
 - **04 · `terminal state`** — Executar um comando não comprova a conclusão; um resultado revalidável comprova.
 

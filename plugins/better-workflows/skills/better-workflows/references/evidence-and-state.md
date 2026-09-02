@@ -35,6 +35,88 @@ such as `PASS` never changes a task state.
 An event may include an `expectedLedgerDigest`; stale values and non-root
 actors are rejected.
 
+Evidence is append-only. A typed `provider-reconciliation` record admitted
+before terminal action reconciliation can be superseded only when the
+replacement is already the exact evidence ID in the same persisted successful
+action receipt. Use:
+
+~~~sh
+sbw evidence supersede <run-id> --file <supersession.json>
+~~~
+
+The input is exact-keyed and uses the two persisted full-record digests:
+
+~~~json
+{
+  "schemaVersion": 1,
+  "id": "provider-proof-correction-1",
+  "supersededEvidenceId": "provider-proof-malformed",
+  "supersededEvidenceDigest": "<sha256>",
+  "replacementEvidenceId": "provider-proof-corrected",
+  "replacementEvidenceDigest": "<sha256>",
+  "actionAttemptId": "<persisted-attempt-id>",
+  "reason": "Correct a malformed receipt for the same terminal provider attempt"
+}
+~~~
+
+The supersession record and journal event bind the run, action attempt,
+execution identity, both complete record digests, contract, source, policy, and
+remote revision. The original evidence file remains unchanged and auditable;
+reducers omit it only after validating the complete supersession. Cross-run,
+cross-attempt, stale, missing, chained, duplicate, conflicting, or manually
+forged stale/supersession state is blocking. Each evidence and supersession ID
+must also match its canonical JSON filename and be unique in its directory.
+Once a supersession binds its target and replacement digests, routine resume or
+action freshness checks never rewrite either file; a later freshness failure
+blocks the action while preserving both original byte streams.
+
+Freshness mutation is itself append-only. Protocol v2 first appends an
+`evidence.freshness-transition` intent that binds the admission digest, prior
+and next full evidence digests, immutable projection, transition cause, and an
+exact freshness patch. Only then does it atomically replace the evidence file.
+If the process stops between those writes, canonical resume reconstructs the
+same next bytes from the pending intent and completes it without adding a
+second transition. Every consumer replays the complete admission-to-current
+journal chain, including records whose persisted `stale` flag is false.
+
+Review finding and broad-review consumers select evidence only from that
+effective replay and then recompute the selected records' dependency
+fingerprints. Action issuance derives a canonical projection of every current
+typed record selected by the complete configured action gate. The projection
+also binds the contract authority, policy, initial source anchor, persisted and
+freshly captured source bindings, replay-valid append-only source-transition
+history, content-complete verified source sentinel, remote revision, effective
+supersession set, and the fresh evidence-backed dispositions of every P0/P1
+finding. The source sentinel hashes untracked file bytes as well as tracked
+state; replacing an untracked file with different same-size bytes is drift. A
+reconciled autonomous commit or explicit pre-review source rebind may advance
+the operational source only through its canonical journal-bound transition;
+the initial source anchor remains immutable.
+
+The complete projection is checked at the final issuance boundary,
+immediately before token consumption is persisted, immediately before a
+governed provider invocation, after that invocation before its result is
+persisted, and again before provider reservation and successful reconciliation
+persistence. Live source or transition drift, a sentinel mismatch, changed
+finding disposition, or stale, missing, added, replaced, superseded, or
+dependency-drifted gate evidence invalidates the action. Drift detected before
+the provider call is recorded as `not-sent`. Drift detected after a provider
+call is durably recorded as an audited `unknown` outcome with the exact
+invocation digest; it cannot authorize success or an automatic retry.
+
+An autonomous commit additionally appends exactly one
+`evidence.invalidated` parent for its action attempt. That parent binds the
+sorted complete child set by evidence ID, resulting evidence digest, and
+transition digest. A missing or duplicate parent, omitted or extra child,
+digest mismatch, unsupported protocol, or evidence bytes edited back to fresh
+is blocking. Legacy freshness entries remain readable under their original
+format; a run is checked under protocol v2 once it records a versioned
+transition, and no existing legacy bytes are rewritten as an upgrade.
+Because supersession targets and replacements are immutable full-record
+bindings, autonomous-commit reconciliation rejects any run containing a
+supersession before provider reservation, source-state transition, or evidence
+mutation. It never rewrites either bound file to express invalidation.
+
 Code-review templates additionally use immutable review packages and stable
 finding IDs. Scoped repair is bounded to five unique rounds and each repair
 result must bind `repairAttemptId`, `idempotencyKey`, and the immutable
@@ -73,7 +155,12 @@ requires complete lane coverage. Any later axis, verification, finding,
 coverage, or synthesis digest invalidates broad completion. This pilot cannot
 issue side-effect action tokens.
 
-Findings use only `open`, `resolved`, `accepted-risk` with owner/reason/future expiry, or `rejected-with-evidence`. P0 findings cannot be accepted automatically.
+Findings use only `open`, `resolved`, `accepted-risk` with
+owner/reason/future expiry, or `rejected-with-evidence`. P0 findings cannot be
+accepted automatically. Every resolved or rejected P0/P1 disposition is
+replayed against its current typed-evidence freshness both at action gates and
+at completion; a stale generic finding receipt cannot remain authoritative
+merely because the finding JSON still says `resolved`.
 
 Run states are:
 
@@ -89,5 +176,7 @@ Completion requires current acceptance evidence, no unresolved P0/P1, valid curr
 
 After successful v2 completion, `completionBlockers` is cleared and
 `completionDecision` stores the evaluated evidence, ledger, review, and sentinel
-digests. Direct mode remains stateless: it creates no run directory, ledger,
-review package, or extra provider call.
+digests. Direct mode creates no replayable evidence run, run directory, ledger,
+review package, or extra provider call. A Git mutation still keeps the minimal
+`TaskWorkspaceLeaseV1` needed for isolated ownership, recovery, integration,
+and exact cleanup; that lease is not an evidence journal.

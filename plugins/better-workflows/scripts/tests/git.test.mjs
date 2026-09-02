@@ -15,6 +15,7 @@ import {
   parseGitWorktreeProbeOutput,
   parseOptionalSourceCommitRevision,
   parseOptionalSourceSymbolicRef,
+  resolveRemoteBranchRevision,
   runSourceGit,
   validateSubmoduleStatusOutput
 } from "../lib/git.mjs";
@@ -151,6 +152,32 @@ test("source optional symbolic refs and commit revisions require exact framed su
   }
 });
 
+test("protected delivery resolves one exact live dev revision from tracking ref or ls-remote", async () => {
+  const cwd = await repository();
+  const head = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd, encoding: "utf8" })).stdout.trim();
+  await execFileAsync("git", ["update-ref", "refs/remotes/origin/dev", head], { cwd });
+  assert.deepEqual(await resolveRemoteBranchRevision(cwd), {
+    revision: head,
+    remote: "origin",
+    branch: "dev",
+    ref: "refs/remotes/origin/dev",
+    source: "local-tracking-ref"
+  });
+
+  const bare = await mkdtemp(path.join(os.tmpdir(), "sbw-git-remote-"));
+  await execFileAsync("git", ["init", "--bare", "-q", bare], { cwd });
+  await execFileAsync("git", ["remote", "add", "origin-live", bare], { cwd });
+  await execFileAsync("git", ["push", "-q", "origin-live", "dev:dev"], { cwd });
+  await execFileAsync("git", ["update-ref", "-d", "refs/remotes/origin-live/dev"], { cwd });
+  assert.deepEqual(await resolveRemoteBranchRevision(cwd, { remote: "origin-live" }), {
+    revision: head,
+    remote: "origin-live",
+    branch: "dev",
+    ref: "refs/heads/dev",
+    source: "ls-remote"
+  });
+});
+
 test("sentinel rejects recursive submodule status failures", async () => {
   const cwd = await repository();
   const head = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd, encoding: "utf8" })).stdout.trim();
@@ -186,6 +213,19 @@ test("bounded sentinel detects tracked, untracked, symlink, and high-risk ignore
   assert.ok(comparison.changed.includes("scopeDigest"));
   assert.ok(comparison.changed.includes("symlinks"));
   assert.ok(comparison.changed.includes("highRiskIgnored"));
+});
+
+test("bounded sentinel hashes same-path untracked content instead of trusting surface metadata", async () => {
+  const cwd = await repository();
+  const defaults = await loadDefaults();
+  const target = path.join(cwd, "src", "untracked.txt");
+  await writeFile(target, "one\n");
+  const before = await captureSentinel(cwd, taskContract(), defaults);
+  await writeFile(target, "two\n");
+  const after = await captureSentinel(cwd, taskContract(), defaults);
+  assert.equal(before.statusDigest, after.statusDigest);
+  assert.notEqual(before.untracked.digest, after.untracked.digest);
+  assert.equal(compareSentinels(before, after).same, false);
 });
 
 test("volatile exclusions are explicit and do not pretend to be complete coverage", async () => {

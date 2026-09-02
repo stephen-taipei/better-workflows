@@ -2,7 +2,7 @@
 
 # Better Workflows
 
-Open-source, goal-first control plane voor agentworkflows met actueel bewijs, reviewpoorten, bronbinding en providerafstemming.
+De AI-agent stemt de verificatiesterkte af op het risico en rondt werk veilig af in een geïsoleerde omgeving. Eenvoudige wijzigingen gaan snel; belangrijk werk gebruikt evidence gates; Git-wijzigingen gebruiken standaard een eigen worktree.
 
 [English](en.md) · [繁體中文](zh-Hant.md) · [繁體中文（台灣）](zh-Hant-TW.md) · [繁體中文（香港）](zh-Hant-HK.md) · [简体中文](zh-Hans.md) · [Tiếng Việt](vi.md) · [Українська](uk.md) · [Türkçe](tr.md) · [ไทย](th.md) · [Svenska](sv.md) · [Slovenčina](sk.md) · [Русский](ru.md) · [Română](ro.md) · [Português](pt.md) · [Português (Brasil)](pt-BR.md) · [Polski](pl.md) · **Nederlands** · [Norsk bokmål](nb.md) · [မြန်မာ](my.md) · [Bahasa Melayu](ms.md) · [ລາວ](lo.md) · [한국어](ko.md) · [ខ្មែរ](km.md) · [日本語](ja.md) · [Italiano](it.md) · [Bahasa Indonesia](id.md) · [Magyar](hu.md) · [Hrvatski](hr.md) · [हिन्दी](hi.md) · [עברית](he.md) · [Français](fr.md) · [Filipino](fil.md) · [Suomi](fi.md) · [Español](es.md) · [Español (México)](es-MX.md) · [Ελληνικά](el.md) · [Deutsch](de.md) · [Dansk](da.md) · [Čeština](cs.md) · [Català](ca.md) · [العربية](ar.md)
 
@@ -19,7 +19,7 @@ Better Workflows legt doel, scope en bevoegdheid vast en koppelt elke beslissing
 Definieer het contract, verifieer bron en bewijs, stem externe effecten af en verklaar pas voltooid wanneer de eindstatus bekend is.
 
 - **01 · `TaskContract`** — Better Workflows legt doel, scope en bevoegdheid vast en koppelt elke beslissing aan actueel, opnieuw verifieerbaar bewijs en een afgestemde externe uitkomst.
-- **02 · `evidence`** — Open-source, goal-first control plane voor agentworkflows met actueel bewijs, reviewpoorten, bronbinding en providerafstemming.
+- **02 · `evidence`** — De AI-agent stemt de verificatiesterkte af op het risico en rondt werk veilig af in een geïsoleerde omgeving. Eenvoudige wijzigingen gaan snel; belangrijk werk gebruikt evidence gates; Git-wijzigingen gebruiken standaard een eigen worktree.
 - **03 · `reconciliation`** — Definieer het contract, verifieer bron en bewijs, stem externe effecten af en verklaar pas voltooid wanneer de eindstatus bekend is.
 - **04 · `terminal state`** — Een uitgevoerd commando bewijst geen voltooiing; een opnieuw verifieerbare uitkomst wel.
 

@@ -1,15 +1,274 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { promisify } from "node:util";
-import { access, mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { selectCodexBinaryPath } from "../lib/attestations.mjs";
+import {
+  evaluateFormalAttemptPolicy,
+  reconcileInterruptedFormalAttempt,
+  stableBootIdentity
+} from "../lib/formal-evaluator.mjs";
+import { runNativeReview, spawnReview } from "../lib/native-review-runner.mjs";
 
 const execFileAsync = promisify(execFile);
 const CLI = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "sbw.mjs");
+const hash = (value) => createHash("sha256").update(value).digest("hex");
+
+test("native review runner pins BASE..HEAD scope and validates final JSON after tool-capable launch", async () => {
+  const fixture = await mkdtemp(path.join(os.tmpdir(), "sbw-native-review-runner-"));
+  const cwd = path.join(fixture, "repository");
+  await mkdir(cwd);
+  await git(cwd, "init", "-q", "-b", "codex/native-review");
+  await git(cwd, "config", "user.name", "Native Review Test");
+  await git(cwd, "config", "user.email", "native-review@example.invalid");
+  await mkdir(path.join(cwd, "src"));
+  await writeFile(path.join(cwd, "src", "value.txt"), "before\n");
+  await git(cwd, "add", ".");
+  await git(cwd, "commit", "-qm", "base");
+  const base = await revision(cwd);
+  await writeFile(path.join(cwd, "src", "value.txt"), "after\n");
+  await git(cwd, "add", ".");
+  await git(cwd, "commit", "-qm", "head");
+  const head = await revision(cwd);
+  const packageId = "review-native-runner";
+  const runId = "sbw-native-review-runner";
+  const runDir = path.join(fixture, "run");
+  await mkdir(path.join(runDir, "review-packages"), { recursive: true });
+  const packagePath = path.join(runDir, "review-packages", `${packageId}.json`);
+  const manifestPath = path.join(fixture, "manifest.json");
+  const instructionPath = path.join(fixture, "instruction.md");
+  const authorizationPath = path.join(fixture, "authorization.json");
+  const resultPath = path.join(fixture, "result.json");
+  const fakeCodex = path.join(fixture, "codex");
+  const protocolPath = path.join(fixture, "review-protocol.txt");
+  const packageBytes = Buffer.from(`${JSON.stringify({ immutable: true, packageId, base, head })}\n`);
+  const manifestBytes = Buffer.from(`${JSON.stringify({ files: [{ status: "M", path: "src/value.txt" }] })}\n`);
+  const instructionBytes = Buffer.from("Inspect exact BASE..HEAD and return the frozen final JSON only.\n");
+  await writeFile(packagePath, packageBytes);
+  await writeFile(manifestPath, manifestBytes);
+  await writeFile(instructionPath, instructionBytes);
+  await writeFile(fakeCodex, `#!${process.execPath}\nconst fs=require('node:fs');const a=process.argv.slice(2);if(a.includes('--output-schema'))process.exit(42);const i=a.indexOf('--output-last-message');const chunks=[];process.stdin.on('data',d=>chunks.push(d));process.stdin.on('end',()=>{fs.writeFileSync('${path.join(fixture, "reviewer-path.txt")}',process.env.PATH);fs.writeFileSync('${protocolPath}',Buffer.concat(chunks));fs.writeFileSync(a[i+1],JSON.stringify({schemaVersion:1,verdict:'PASS',scopeCoverage:{base:'${base}',head:'${head}',manifestPathCount:1,reviewedPathCount:1,complete:true},findings:[]}));});\n`, { mode: 0o700 });
+  const repository = await realpath(cwd);
+  const model = "gpt-5.5";
+  const reviewerId = "codex-native-review-test";
+  const executionId = "native-review-test-1";
+  await writeFile(authorizationPath, `${JSON.stringify({
+    schemaVersion: 1,
+    kind: "native-review-disclosure",
+    authorizationId: "native-review-test-authorization",
+    approvedAt: new Date().toISOString(),
+    authorized: true,
+    runId,
+    repository,
+    base,
+    head,
+    packageId,
+    packageSha256: hash(packageBytes),
+    manifestSha256: hash(manifestBytes),
+    instructionSha256: hash(instructionBytes),
+    reviewProtocol: "native-review-tool-capable-v1",
+    model,
+    reviewerId,
+    executionId,
+    resultPath,
+    readOnly: true,
+    ephemeral: true,
+    remoteSideEffects: false
+  })}\n`);
+  const prior = process.env.CODEX_BINARY;
+  process.env.CODEX_BINARY = fakeCodex;
+  try {
+    const result = await runNativeReview({ runId, runDir, cwd, base, head, packageId, packagePath, manifestPath, instructionPath, authorizationPath, model, reviewerId, executionId, resultPath });
+    assert.equal(result.ok, true);
+    assert.equal(result.result.verdict, "PASS");
+    assert.match(result.resultSha256, /^[a-f0-9]{64}$/);
+    assert.equal(JSON.parse(await readFile(resultPath, "utf8")).verdict, "PASS");
+    assert.ok((await readFile(path.join(fixture, "reviewer-path.txt"), "utf8")).split(path.delimiter).includes(path.dirname(process.execPath)));
+    const protocol = await readFile(protocolPath, "utf8");
+    assert.match(protocol, new RegExp(`Review only the exact Git range ${base}\\.\\.${head}\\.`));
+    assert.doesNotMatch(protocol, new RegExp(`${base}\\.\\.\\.${head}`));
+    const attempt = JSON.parse(await readFile(path.join(runDir, "native-review-attempts", `${packageId}.json`), "utf8"));
+    assert.equal(attempt.status, "passed");
+    await rm(resultPath);
+    await assert.rejects(
+      runNativeReview({ runId, runDir, cwd, base, head, packageId, packagePath, manifestPath, instructionPath, authorizationPath, model, reviewerId, executionId, resultPath }),
+      /consumed model attempt/
+    );
+  } finally {
+    if (prior === undefined) delete process.env.CODEX_BINARY;
+    else process.env.CODEX_BINARY = prior;
+    await rm(fixture, { recursive: true, force: true });
+  }
+});
+
+test("native review runner reconciles the exact two-dot range for divergent bases", async () => {
+  const fixture = await mkdtemp(path.join(os.tmpdir(), "sbw-native-review-divergent-base-"));
+  const cwd = path.join(fixture, "repository");
+  const runDir = path.join(fixture, "run");
+  const packageId = "review-native-divergent-base";
+  const runId = "sbw-native-review-divergent-base";
+  const resultPath = path.join(fixture, "result.json");
+  const packagePath = path.join(runDir, "review-packages", `${packageId}.json`);
+  const manifestPath = path.join(fixture, "manifest.json");
+  const instructionPath = path.join(fixture, "instruction.md");
+  const authorizationPath = path.join(fixture, "authorization.json");
+  const fakeCodex = path.join(fixture, "codex");
+  try {
+    await mkdir(cwd, { recursive: true });
+    await git(cwd, "init", "-q", "-b", "main");
+    await git(cwd, "config", "user.name", "Native Review Test");
+    await git(cwd, "config", "user.email", "native-review@example.invalid");
+    await mkdir(path.join(cwd, "src"));
+    await writeFile(path.join(cwd, "src", "common.txt"), "root\n");
+    await git(cwd, "add", ".");
+    await git(cwd, "commit", "-qm", "root");
+    const rootRevision = await revision(cwd);
+    await writeFile(path.join(cwd, "src", "base.txt"), "base\n");
+    await git(cwd, "add", ".");
+    await git(cwd, "commit", "-qm", "base");
+    const base = await revision(cwd);
+    await git(cwd, "checkout", "-qb", "head", rootRevision);
+    await writeFile(path.join(cwd, "src", "head.txt"), "head\n");
+    await git(cwd, "add", ".");
+    await git(cwd, "commit", "-qm", "head");
+    const head = await revision(cwd);
+    await mkdir(path.join(runDir, "review-packages"), { recursive: true });
+    const packageBytes = Buffer.from(`${JSON.stringify({ immutable: true, packageId, base, head })}\n`);
+    const manifestBytes = Buffer.from(`${JSON.stringify({ files: [
+      { status: "D", path: "src/base.txt" },
+      { status: "A", path: "src/head.txt" }
+    ] })}\n`);
+    const instructionBytes = Buffer.from("Inspect exact BASE..HEAD and return the frozen final JSON only.\n");
+    await writeFile(packagePath, packageBytes);
+    await writeFile(manifestPath, manifestBytes);
+    await writeFile(instructionPath, instructionBytes);
+    await writeFile(fakeCodex, `#!${process.execPath}\nconst fs=require('node:fs');const a=process.argv.slice(2);const i=a.indexOf('--output-last-message');process.stdin.resume();process.stdin.on('data',()=>{});process.stdin.on('end',()=>fs.writeFileSync(a[i+1],JSON.stringify({schemaVersion:1,verdict:'PASS',scopeCoverage:{base:'${base}',head:'${head}',manifestPathCount:2,reviewedPathCount:2,complete:true},findings:[]})));\n`, { mode: 0o700 });
+    const repository = await realpath(cwd);
+    await writeFile(authorizationPath, `${JSON.stringify({
+      schemaVersion: 1,
+      kind: "native-review-disclosure",
+      authorizationId: "native-review-divergent-base-authorization",
+      approvedAt: new Date().toISOString(),
+      authorized: true,
+      runId,
+      repository,
+      base,
+      head,
+      packageId,
+      packageSha256: hash(packageBytes),
+      manifestSha256: hash(manifestBytes),
+      instructionSha256: hash(instructionBytes),
+      reviewProtocol: "native-review-tool-capable-v1",
+      model: "gpt-5.5",
+      reviewerId: "codex-native-review-divergent-base",
+      executionId: "native-review-divergent-base-1",
+      resultPath,
+      readOnly: true,
+      ephemeral: true,
+      remoteSideEffects: false
+    })}\n`);
+    const prior = process.env.CODEX_BINARY;
+    process.env.CODEX_BINARY = fakeCodex;
+    try {
+      const result = await runNativeReview({
+        runId,
+        runDir,
+        cwd,
+        base,
+        head,
+        packageId,
+        packagePath,
+        manifestPath,
+        instructionPath,
+        authorizationPath,
+        model: "gpt-5.5",
+        reviewerId: "codex-native-review-divergent-base",
+        executionId: "native-review-divergent-base-1",
+        resultPath
+      });
+      assert.equal(result.ok, true);
+      assert.equal(result.result.scopeCoverage.manifestPathCount, 2);
+      assert.equal(result.result.scopeCoverage.reviewedPathCount, 2);
+    } finally {
+      if (prior === undefined) delete process.env.CODEX_BINARY;
+      else process.env.CODEX_BINARY = prior;
+    }
+  } finally {
+    await rm(fixture, { recursive: true, force: true });
+  }
+});
+
+test("native review timeout escalates and rejects when the reviewer ignores SIGTERM", async () => {
+  const fixture = await mkdtemp(path.join(os.tmpdir(), "sbw-native-review-timeout-"));
+  try {
+    await assert.rejects(
+      spawnReview(process.execPath, [
+        "-e",
+        "process.stdin.resume(); process.on('SIGTERM', () => {}); setInterval(() => {}, 1000);"
+      ], {
+        cwd: fixture,
+        input: Buffer.alloc(0),
+        timeoutMs: 50,
+        timeoutGraceMs: 50
+      }),
+      /Native review timed out after 50ms/
+    );
+  } finally {
+    await rm(fixture, { recursive: true, force: true });
+  }
+});
+
+test("formal evaluator permits one primary plus one classified infrastructure replacement only", () => {
+  assert.deepEqual(evaluateFormalAttemptPolicy([], null), { attemptNumber: 1, replacement: false });
+  assert.deepEqual(
+    evaluateFormalAttemptPolicy([{ status: "blocked" }], "command-interruption"),
+    { attemptNumber: 2, replacement: true }
+  );
+  assert.throws(() => evaluateFormalAttemptPolicy([], "host-sleep"), /primary attempt/);
+  assert.throws(() => evaluateFormalAttemptPolicy([{ status: "blocked" }], null), /approved infrastructure reason/);
+  assert.throws(() => evaluateFormalAttemptPolicy([{ status: "passed" }], "host-sleep"), /terminal PASS/);
+  assert.throws(() => evaluateFormalAttemptPolicy([{ status: "running" }], "host-sleep"), /in-progress/);
+  assert.throws(
+    () => evaluateFormalAttemptPolicy([{ status: "blocked" }, { status: "blocked" }], "host-sleep"),
+    /attempt budget exhausted/
+  );
+});
+
+test("formal evaluator binds the stable kern.boottime seconds instead of volatile microseconds", () => {
+  assert.equal(
+    stableBootIdentity("{ sec = 1787904209, usec = 609073 } Fri Aug 28 16:03:29 2026"),
+    "1787904209"
+  );
+  assert.equal(
+    stableBootIdentity("{ sec = 1787904209, usec = 690116 } Fri Aug 28 16:03:29 2026"),
+    "1787904209"
+  );
+  assert.throws(() => stableBootIdentity("unavailable"), /cannot parse/);
+});
+
+test("formal evaluator terminalizes an orphaned running attempt before one bounded replacement", () => {
+  const attempts = [{ status: "running", attemptId: "formal-orphan", evaluatorPid: 4242 }];
+  const finishedAt = "2026-08-31T00:00:00.000Z";
+  assert.deepEqual(reconcileInterruptedFormalAttempt(attempts, { alive: false, finishedAt }), {
+    changed: true,
+    attempt: attempts[0]
+  });
+  assert.equal(attempts[0].status, "blocked");
+  assert.equal(attempts[0].blockReason, "recovered-command-interruption");
+  assert.deepEqual(evaluateFormalAttemptPolicy(attempts, "command-interruption"), {
+    attemptNumber: 2,
+    replacement: true
+  });
+  assert.throws(
+    () => reconcileInterruptedFormalAttempt([{ status: "running" }], { alive: true, finishedAt }),
+    /in-progress attempt/
+  );
+});
 
 test("attestation request defaults only to one host-approved Codex binary", () => {
   const approved = { path: "/private/var/db/better-workflows/bin/bw-host-codex.a", digest: "a".repeat(64) };
@@ -313,7 +572,7 @@ test("delegated pr-to-dev runs require the typed self-improve handoff gate", asy
     "run", "--template", "self-improve-ops", "--mode", "critical", "--goal", "Prepare delivery", "--scope", ".", "--baseline", baseline
   ]);
   const target = await cli(cwd, stateRoot, [
-    "run", "--template", "pr-to-dev", "--mode", "critical", "--goal", "Deliver accepted improvement", "--scope", ".", "--self-improve-run", source.json.runId
+    "run", "--template", "pr-to-dev", "--mode", "critical", "--goal", "Deliver accepted improvement", "--scope", ".", "--self-improve-run", source.json.runId, "--remote-revision", baseline
   ]);
   const contract = JSON.parse(await readFile(path.join(stateRoot, "runs", target.json.runId, "contract.json"), "utf8"));
   assert.equal(contract.upstreamSelfImproveRunId, source.json.runId);
@@ -346,7 +605,11 @@ test("evaluator migration requires accepted training before holdout and binds im
     "run", "--template", "self-improve-ops", "--mode", "critical", "--goal", "Migrate evaluator", "--scope", ".", "--baseline", baseline, "--authority", "git.commit"
   ]);
   const fixture = await fixtureResult(cwd, "self-improve-ops-evals-v2.4.json", {
-    baselineUnsatisfiedCaseIds: ["review-kernel-total-accounting", "review-kernel-independent-synthesis"]
+    baselineUnsatisfiedCaseIds: [
+      "review-kernel-total-accounting",
+      "review-kernel-independent-synthesis",
+      "direct-keeps-minimal-git-lease"
+    ]
   });
   const common = [
     "self-improve", "evaluate",
@@ -369,7 +632,7 @@ test("evaluator migration requires accepted training before holdout and binds im
   assert.equal(train.json.migrationTrainingComparison.accepted, true);
   assert.deepEqual(
     train.json.calibration.targetOnlyCaseIds.train,
-    ["review-kernel-total-accounting"]
+    ["direct-keeps-minimal-git-lease", "review-kernel-total-accounting"]
   );
   assert.equal(train.json.evidence.length, 4);
   const holdout = await cli(cwd, stateRoot, [...common, "--split", "holdout"], { env: { SBW_TEST_FIXTURE_BACKEND: "1" } });
@@ -724,6 +987,200 @@ test("CLI built-in auto receipt remains reviewable but cannot start without a co
   );
   assert.notEqual(run.code, 0);
   assert.match(run.stderr, /does not resolve a concrete template/);
+});
+
+test("CLI Direct Git route requires an isolated lease and completes the owned workspace lifecycle without a run ledger", async () => {
+  const cwd = await repository();
+  await git(cwd, "checkout", "-qb", "feature");
+  const stateRoot = path.join(await mkdtemp(path.join(os.tmpdir(), "sbw-cli-direct-git-")), "state");
+  const preview = await cli(cwd, stateRoot, [
+    "route",
+    "preview",
+    "--goal",
+    "Update one value",
+    "--scope",
+    "src/value.txt",
+    "--mutation",
+    "modify",
+    "--acceptance-defined",
+    "--risk",
+    "1",
+    "--uncertainty",
+    "0",
+    "--blast-radius",
+    "0",
+    "--irreversibility",
+    "0",
+    "--evidence-gap",
+    "0",
+    "--integration-target",
+    "feature",
+    "--basic-check",
+    "targeted node check",
+    "--record"
+  ]);
+  assert.equal(preview.json.effectiveMode, "direct");
+  assert.equal(preview.json.autoRiskAssessment.workspaceLifecycle, "isolated-worktree");
+  const missingLease = await cli(
+    cwd,
+    stateRoot,
+    ["run", "--route-receipt", preview.json.receipt.id],
+    { allowFailure: true }
+  );
+  assert.notEqual(missingLease.code, 0);
+  assert.match(missingLease.stderr, /Direct Git mutation requires/);
+
+  const created = await cli(cwd, stateRoot, [
+    "workspace",
+    "create",
+    "--goal",
+    "Update one value",
+    "--task-id",
+    "task-cli-direct",
+    "--integration-target",
+    "feature"
+  ]);
+  assert.equal(created.json.status, "isolated");
+  const started = await cli(cwd, stateRoot, [
+    "run",
+    "--route-receipt",
+    preview.json.receipt.id,
+    "--workspace-task-id",
+    created.json.lease.taskId,
+    "--workspace-repository-id",
+    created.json.lease.repository.repositoryId
+  ]);
+  assert.equal(started.json.direct, true);
+  assert.equal(started.json.runId, null);
+  assert.equal(started.json.workspaceLease.taskWorktree, created.json.lease.taskWorktree);
+  assert.equal(started.json.workspaceLease.lifecycleState, "working");
+  const resumedStart = await cli(cwd, stateRoot, [
+    "run",
+    "--route-receipt",
+    preview.json.receipt.id,
+    "--workspace-task-id",
+    created.json.lease.taskId,
+    "--workspace-repository-id",
+    created.json.lease.repository.repositoryId
+  ]);
+  assert.equal(resumedStart.json.direct, true);
+  assert.equal(resumedStart.json.workspaceLease.lifecycleState, "working");
+  const conflictingLease = await cli(cwd, stateRoot, [
+    "workspace",
+    "create",
+    "--goal",
+    "Update a conflicting value",
+    "--task-id",
+    "task-conflicting-claim",
+    "--integration-target",
+    "feature"
+  ]);
+  assert.equal(conflictingLease.json.status, "isolated");
+  const conflictingStart = await cli(cwd, stateRoot, [
+    "run",
+    "--route-receipt",
+    preview.json.receipt.id,
+    "--workspace-task-id",
+    conflictingLease.json.lease.taskId,
+    "--workspace-repository-id",
+    conflictingLease.json.lease.repository.repositoryId
+  ], { allowFailure: true });
+  assert.notEqual(conflictingStart.code, 0);
+  assert.match(conflictingStart.stderr, /different consumer/);
+  await assert.rejects(access(path.join(stateRoot, "runs")));
+
+  await writeFile(path.join(created.json.lease.taskWorktree, "src", "value.txt"), "two\n");
+  await git(created.json.lease.taskWorktree, "add", "src/value.txt");
+  await git(created.json.lease.taskWorktree, "commit", "-qm", "update value");
+  const checkFile = path.join(stateRoot, "checks.json");
+  await writeFile(checkFile, `${JSON.stringify([{ name: "targeted node check", argv: ["node", "-e", "process.exit(0)"] }])}\n`);
+  const common = [
+    "--repository-id",
+    created.json.lease.repository.repositoryId,
+    "--task-id",
+    created.json.lease.taskId
+  ];
+  const validated = await cli(cwd, stateRoot, ["workspace", "validate", ...common, "--check-file", checkFile]);
+  assert.equal(validated.json.status, "integration-ready");
+  const integrated = await cli(cwd, stateRoot, ["workspace", "integrate", ...common]);
+  assert.equal(integrated.json.status, "integrated");
+  const cleaned = await cli(cwd, stateRoot, ["workspace", "cleanup", ...common]);
+  assert.equal(cleaned.json.status, "cleaned");
+  const completion = await cli(cwd, stateRoot, ["workspace", "completion-notice", ...common]);
+  assert.equal(completion.json.status, "complete");
+  assert.equal(completion.json.targetBranch, "feature");
+  assert.deepEqual(completion.json.checks, ["targeted node check"]);
+  assert.match(completion.json.notice, /補做證據驗證/);
+  assert.equal(await readFile(path.join(cwd, "src", "value.txt"), "utf8"), "two\n");
+  await assert.rejects(access(created.json.lease.taskWorktree));
+});
+
+test("CLI registers and reuses an exact host-provided worktree without nesting or claiming cleanup ownership", async () => {
+  const cwd = await repository();
+  await git(cwd, "checkout", "-qb", "feature");
+  const stateRoot = path.join(await mkdtemp(path.join(os.tmpdir(), "sbw-cli-host-worktree-state-")), "state");
+  const hostRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-cli-host-worktree-"));
+  const taskWorktree = path.join(hostRoot, "task");
+  const baseRevision = await revision(cwd);
+  await git(cwd, "worktree", "add", "-q", "-b", "codex/cli-host-task", taskWorktree, baseRevision);
+  const before = (await execFileAsync("git", ["worktree", "list", "--porcelain"], {
+    cwd,
+    encoding: "utf8"
+  })).stdout;
+  const args = [
+    "workspace",
+    "register",
+    "--task-id",
+    "task-cli-host-worktree",
+    "--base-revision",
+    baseRevision,
+    "--integration-target",
+    "feature",
+    "--source-checkout",
+    cwd
+  ];
+  const registered = await cli(taskWorktree, stateRoot, args);
+  assert.equal(registered.json.status, "registered");
+  assert.equal(registered.json.lease.resourceOrigin, "host-provided");
+  assert.equal(registered.json.lease.taskWorktree, await realpath(taskWorktree));
+  assert.equal(registered.json.registration.resourceDisposition, "preserve-host-provided");
+  const reused = await cli(taskWorktree, stateRoot, args);
+  assert.equal(reused.json.status, "reused");
+  const mismatchedTarget = await cli(taskWorktree, stateRoot, [
+    ...args.slice(0, 7),
+    "dev",
+    ...args.slice(8)
+  ], { allowFailure: true });
+  assert.notEqual(mismatchedTarget.code, 0);
+  assert.equal(mismatchedTarget.json.status, "ownership-conflict");
+  const after = (await execFileAsync("git", ["worktree", "list", "--porcelain"], {
+    cwd,
+    encoding: "utf8"
+  })).stdout;
+  assert.equal(after, before);
+});
+
+test("CLI host list and conformance expose registry truth without turning a local receipt into release proof", async () => {
+  const cwd = await repository();
+  const stateRoot = path.join(await mkdtemp(path.join(os.tmpdir(), "sbw-cli-host-state-")), "state");
+  const listed = await cli(cwd, stateRoot, ["host", "list"]);
+  assert.equal(listed.json.recommended.label, "macOS + Codex");
+  assert.equal(listed.json.releaseConformanceMatrix.length, 8);
+  await assert.rejects(access(stateRoot));
+
+  const bin = await mkdtemp(path.join(os.tmpdir(), "sbw-cli-host-bin-"));
+  const executable = path.join(bin, "codex");
+  await writeFile(executable, "#!/bin/sh\nprintf 'codex-cli 0.150.1\\n'\n");
+  await chmod(executable, 0o755);
+  const conformance = await cli(
+    cwd,
+    stateRoot,
+    ["host", "conformance", "codex", "--os", "macos", "--write-receipt"],
+    { env: { PATH: bin } }
+  );
+  assert.equal(conformance.json.result, "PASS");
+  assert.equal(conformance.json.authentication.releaseEligible, false);
+  assert.match(conformance.json.receiptPath, /host-conformance/);
 });
 
 test("CLI custom contracts cannot remove template required evidence minimums", async () => {

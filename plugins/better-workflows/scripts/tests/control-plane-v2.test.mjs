@@ -4,21 +4,32 @@ import { execFile, spawn } from "node:child_process";
 import { chmod, mkdtemp, mkdir, readdir, readFile, realpath, rm, stat, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import {
   addEvidence,
   addFinding,
+  appendJournal,
+  atomicWriteJson,
+  assertAutonomousCommitEvidenceInvalidationSafe,
   buildContract,
   consumeActionToken,
   createRun,
+  currentActionEvidenceGateBinding,
   digestObject,
   evaluateCompletion,
   executeActionToken,
   inspectRun,
   issueActionToken,
+  listEffectiveEvidenceRecords,
   loadDefaults,
+  reconcileAction,
+  refreshEvidence,
   rebindSourceBinding,
-  sha256
+  sha256,
+  supersedeEvidence,
+  supersedeReviewEvidence,
+  VERSION
 } from "../lib/core.mjs";
 import { admitTypedEvidence, assertPayloadFields, loadEvidenceContracts } from "../lib/evidence.mjs";
 import { compileLedger, deriveLedgerStatus, transitionLedger } from "../lib/ledger.mjs";
@@ -35,6 +46,7 @@ import {
   recordReviewAxis,
   recordReviewCoverage,
   recordReviewSynthesis,
+  recordDiffReviewFromNative,
   reviewKernelStatus,
   reviewPackageDigest,
   reviewStatus,
@@ -42,6 +54,11 @@ import {
 } from "../lib/review.mjs";
 import { updateState } from "../lib/core.mjs";
 import { captureSentinel, captureSourceBinding } from "../lib/git.mjs";
+import {
+  assertCampaignRepairAvailable,
+  campaignStatus,
+  recordCampaignRepairEvent
+} from "../lib/campaign.mjs";
 
 const contractTemplate = {
   requiredEvidence: ["environment-state"],
@@ -74,6 +91,70 @@ const legacyReviewProfile = {
 };
 
 const execFileAsync = promisify(execFile);
+const SBW_CLI = fileURLToPath(new URL("../sbw.mjs", import.meta.url));
+
+test("campaign repair budget survives fresh state roots, runs, and package identities", async () => {
+  const fixture = await mkdtemp(path.join(os.tmpdir(), "sbw-campaign-budget-"));
+  const repository = path.join(fixture, "repository");
+  const successorRepository = path.join(fixture, "repository-successor");
+  const firstRoot = path.join(fixture, "state-1");
+  const secondRoot = path.join(fixture, "state-2");
+  const campaignRoot = path.join(fixture, "campaigns");
+  await mkdir(repository);
+  await execFileAsync("git", ["init", "-q", "-b", "codex/campaign"], { cwd: repository });
+  await execFileAsync("git", ["config", "user.email", "campaign@example.invalid"], { cwd: repository });
+  await execFileAsync("git", ["config", "user.name", "Campaign Test"], { cwd: repository });
+  await execFileAsync("git", ["remote", "add", "origin", "https://github.com/example/campaign.git"], { cwd: repository });
+  await writeFile(path.join(repository, "README.md"), "campaign\n");
+  await execFileAsync("git", ["add", "README.md"], { cwd: repository });
+  await execFileAsync("git", ["commit", "-qm", "baseline"], { cwd: repository });
+  await execFileAsync("git", ["clone", "-q", repository, successorRepository]);
+  await execFileAsync("git", ["remote", "set-url", "origin", "https://github.com/example/campaign.git"], { cwd: successorRepository });
+  const priorCampaignRoot = process.env.SBW_CAMPAIGN_ROOT;
+  process.env.SBW_CAMPAIGN_ROOT = campaignRoot;
+  try {
+    const contract = buildContract({
+      template: "campaign-test",
+      templateDefinition: contractTemplate,
+      goal: "Fix one bounded campaign",
+      scope: ["."]
+    });
+    const first = await createRun({ root: firstRoot, contract: structuredClone(contract), requestedMode: "verified", cwd: repository });
+    const second = await createRun({ root: secondRoot, contract: structuredClone(contract), requestedMode: "verified", cwd: successorRepository });
+    const firstRun = await inspectRun(firstRoot, first.runId);
+    const secondRun = await inspectRun(secondRoot, second.runId);
+    assert.equal(firstRun.manifest.campaign.campaignId, secondRun.manifest.campaign.campaignId);
+    await recordCampaignRepairEvent(firstRun, {
+      eventId: "package-block:review-initial",
+      kind: "package-block",
+      packageId: "review-initial",
+      runId: first.runId
+    });
+    for (let round = 0; round < 5; round += 1) {
+      await recordCampaignRepairEvent(round % 2 === 0 ? firstRun : secondRun, {
+        eventId: `repair-round:review-${round}:attempt-${round}`,
+        kind: "repair-round",
+        packageId: `review-${round}`,
+        runId: round % 2 === 0 ? first.runId : second.runId
+      });
+    }
+    const status = await campaignStatus(secondRun);
+    assert.equal(status.repairEvents, 5);
+    assert.equal(status.exhausted, true);
+    await assert.rejects(assertCampaignRepairAvailable(secondRun), /Campaign repair budget exhausted/);
+  } finally {
+    if (priorCampaignRoot === undefined) delete process.env.SBW_CAMPAIGN_ROOT;
+    else process.env.SBW_CAMPAIGN_ROOT = priorCampaignRoot;
+    await rm(fixture, { recursive: true, force: true });
+  }
+});
+
+test("legacy runs without a campaign remain inspectable but cannot mint a fresh repair package", async () => {
+  const status = await campaignStatus({ manifest: {} });
+  assert.equal(status.legacyUnbound, true);
+  assert.equal(status.exhausted, true);
+  await assert.rejects(assertCampaignRepairAvailable({ manifest: {} }), /legacy-unbound-run/);
+});
 
 function gitWithInput(cwd, args, input) {
   return new Promise((resolve, reject) => {
@@ -154,6 +235,353 @@ async function gateRecord(run, kind, payload, id = kind) {
   };
 }
 
+function currentEvidenceDependencies(run, files = []) {
+  return {
+    contractDigest: run.manifest.contractDigest,
+    workflowVersion: VERSION,
+    files,
+    sourceBindingDigest: null,
+    sourceSentinelDigest: null,
+    policyDigest: digestObject({
+      authority: run.contract.authority,
+      sensitivity: run.contract.sensitivity,
+      volatileExclusions: run.contract.volatileExclusions,
+      highRiskIgnored: run.contract.highRiskIgnored
+    }),
+    promptDigest: null,
+    model: null,
+    reviewBinding: null,
+    remoteRevision: run.contract.remoteRevision ?? null
+  };
+}
+
+async function providerReconciliationSupersessionFixture({
+  dependencyPath = null,
+  malformedDependencies = {},
+  replacementDependencies = {}
+} = {}) {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-v2-evidence-supersession-"));
+  let dependencyInputs = { files: [] };
+  let dependencyFiles = [];
+  let absoluteDependencyPath = null;
+  if (dependencyPath) {
+    absoluteDependencyPath = path.join(root, dependencyPath);
+    const dependencyBytes = Buffer.from("provider-dependency-v1\n");
+    await writeFile(absoluteDependencyPath, dependencyBytes);
+    const info = await stat(absoluteDependencyPath);
+    dependencyInputs = { files: [dependencyPath] };
+    dependencyFiles = [{
+      path: dependencyPath,
+      type: "file",
+      mode: info.mode,
+      size: info.size,
+      digest: sha256(dependencyBytes)
+    }];
+  }
+  const taskContract = buildContract({
+    template: "test-v2-evidence-supersession",
+    templateDefinition: {
+      ...contractTemplate,
+      requiredEvidence: ["provider-reconciliation"],
+      executionStages: [{
+        id: "provider",
+        dependsOn: [],
+        requiredEvidence: ["provider-reconciliation"],
+        attemptBudget: 3,
+        kind: "regular"
+      }],
+      actionStages: { "artifact.promote": "provider" },
+      actionGates: { "artifact.promote": ["provider-reconciliation"] }
+    },
+    goal: "Recover a corrected same-attempt provider receipt",
+    scope: ["."],
+    risk: { risk: 2, uncertainty: 1, blastRadius: 1, irreversibility: 1, evidenceGap: 1 },
+    sensitivity: "internal",
+    authority: ["artifact.promote"],
+    remoteRevision: "b".repeat(40)
+  });
+  const started = await createRun({ root, contract: taskContract, requestedMode: "verified", cwd: root });
+  const run = await inspectRun(root, started.runId);
+  const attemptId = "provider-attempt-1";
+  const idempotencyKey = "provider-idempotency-1";
+  const tokenHash = "a".repeat(64);
+  const response = {
+    artifact: "fixture-artifact",
+    digest: "c".repeat(64),
+    location: "/private/tmp/fixture-artifact"
+  };
+  const commonReceipt = {
+    action: "artifact.promote",
+    provider: "local-workspace",
+    resource: "artifact/fixture-artifact",
+    outcome: "success",
+    runId: started.runId,
+    attemptId,
+    idempotencyKey,
+    remoteRevision: taskContract.remoteRevision,
+    executionId: `local:artifact.promote:${response.digest}`,
+    proofKind: "local-workspace:artifact.promote",
+    requestDigest: "d".repeat(64),
+    verifiedAt: new Date().toISOString(),
+    terminalState: "success",
+    ...response
+  };
+  const malformedReceipt = {
+    ...commonReceipt,
+    responseDigest: digestObject({ ...response, baseRevision: taskContract.remoteRevision })
+  };
+  const correctedReceipt = {
+    ...commonReceipt,
+    responseDigest: digestObject(response)
+  };
+  const actionPath = path.join(run.runDir, "actions", `${tokenHash}.json`);
+  const action = {
+    schemaVersion: 1,
+    tokenHash,
+    status: "spent",
+    outcome: "unknown",
+    runId: started.runId,
+    action: "artifact.promote",
+    provider: "local-workspace",
+    resource: "artifact/fixture-artifact",
+    remoteRevision: taskContract.remoteRevision,
+    attemptId,
+    idempotencyKey
+  };
+  await writeFile(actionPath, `${JSON.stringify(action, null, 2)}\n`);
+  const recordFor = (id, providerReceipt, dependencyOverrides = {}) => {
+    const payload = {
+      provider: "local-workspace",
+      receipt: providerReceipt,
+      actionProof: {
+        schemaVersion: 1,
+        runId: started.runId,
+        actionAttemptId: attemptId,
+        action: "artifact.promote",
+        provider: "local-workspace",
+        resource: "artifact/fixture-artifact",
+        outcome: "success",
+        idempotencyKey,
+        remoteRevision: taskContract.remoteRevision,
+        providerExecutionId: providerReceipt.executionId,
+        providerReceiptDigest: digestObject(providerReceipt)
+      }
+    };
+    return {
+      schemaVersion: 2,
+      id,
+      kind: "provider-reconciliation",
+      status: "complete",
+      summary: `Provider reconciliation ${id}`,
+      dependencyInputs,
+      dependencies: {
+        ...currentEvidenceDependencies(run, dependencyFiles),
+        ...dependencyOverrides
+      },
+      receipt: {
+        contractId: "evidence-contracts-v1:provider-reconciliation",
+        contractVersion: 1,
+        runId: started.runId,
+        producer: { provider: "provider" },
+        inputBinding: {
+          runId: started.runId,
+          contractDigest: digestObject(taskContract),
+          remoteRevision: taskContract.remoteRevision
+        },
+        payload,
+        payloadDigest: digestObject(payload),
+        producedAt: new Date().toISOString()
+      }
+    };
+  };
+  const malformed = await addEvidence(
+    root,
+    started.runId,
+    recordFor("provider-proof-malformed", malformedReceipt, malformedDependencies)
+  );
+  const replacement = await addEvidence(
+    root,
+    started.runId,
+    recordFor("provider-proof-corrected", correctedReceipt, replacementDependencies)
+  );
+  const actionReceipt = {
+    action: "artifact.promote",
+    provider: "local-workspace",
+    resource: "artifact/fixture-artifact",
+    outcome: "success",
+    runId: started.runId,
+    attemptId,
+    idempotencyKey,
+    remoteRevision: taskContract.remoteRevision,
+    providerReceipt: correctedReceipt,
+    evidenceIds: [replacement.id]
+  };
+  await writeFile(actionPath, `${JSON.stringify({
+    ...action,
+    outcome: "success",
+    receipt: actionReceipt,
+    reconciledAt: new Date().toISOString()
+  }, null, 2)}\n`);
+  await updateState(root, started.runId, (state) => ({
+    ...state,
+    lastSentinel: { label: "fixture", digest: "e".repeat(64) },
+    lastSentinelVerified: true,
+    lastSentinelComplete: true
+  }));
+  return {
+    root,
+    run,
+    started,
+    attemptId,
+    malformed,
+    replacement,
+    dependencyPath: absoluteDependencyPath,
+    dependencyOriginalBytes: absoluteDependencyPath ? Buffer.from("provider-dependency-v1\n") : null
+  };
+}
+
+async function legacyDiffReviewSupersessionFixture() {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-v2-review-evidence-supersession-"));
+  const repository = path.join(root, "repository");
+  await mkdir(repository, { recursive: true });
+  await execFileAsync("git", ["init", "-q"], { cwd: repository });
+  await execFileAsync("git", ["config", "user.email", "test@example.com"], { cwd: repository });
+  await execFileAsync("git", ["config", "user.name", "Test User"], { cwd: repository });
+  await writeFile(path.join(repository, "README.md"), "base\n");
+  await execFileAsync("git", ["add", "README.md"], { cwd: repository });
+  await execFileAsync("git", ["commit", "-q", "-m", "base"], { cwd: repository });
+  const base = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repository })).stdout.trim();
+  await mkdir(path.join(repository, "src"));
+  await writeFile(path.join(repository, "src", "review.ts"), "export const reviewed = true;\n");
+  await execFileAsync("git", ["add", "src/review.ts"], { cwd: repository });
+  await execFileAsync("git", ["commit", "-q", "-m", "review"], { cwd: repository });
+  const head = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repository })).stdout.trim();
+  const contract = buildContract({
+    template: "test-review-evidence-supersession",
+    templateDefinition: {
+      ...contractTemplate,
+      scope: ["src", "README.md"],
+      reviewProfile: legacyReviewProfile,
+      controlPlane: { ...contractTemplate.controlPlane, reviewPolicy: "code-v1" }
+    },
+    goal: "Repair a legacy diff-review dependency binding",
+    scope: ["src", "README.md"],
+    risk: { risk: 1, uncertainty: 0, blastRadius: 1, irreversibility: 0, evidenceGap: 1 },
+    sensitivity: "internal",
+    authority: [],
+    remoteRevision: base
+  });
+  const started = await createRun({ root, contract, requestedMode: "verified", cwd: repository });
+  const run = await inspectRun(root, started.runId);
+  const sentinel = await captureSentinel(repository, contract, await loadDefaults());
+  await updateState(root, started.runId, (state) => ({
+    ...state,
+    lastSentinel: { label: "review-evidence", digest: sentinel.digest },
+    lastSentinelVerified: true,
+    lastSentinelComplete: true
+  }));
+  const reviewPackage = await createReviewPackage({
+    root,
+    runId: started.runId,
+    base,
+    head,
+    scope: ["src", "README.md"],
+    diffManifest: { files: [{ status: "A", path: "src/review.ts" }] },
+    instructionDigest: "f".repeat(64),
+    sentinelDigest: sentinel.digest
+  });
+  const payload = {
+    verdict: "PASS",
+    findingCount: 0,
+    packageId: reviewPackage.packageId,
+    base: reviewPackage.base,
+    head: reviewPackage.head,
+    scopeDigest: reviewPackage.scopeDigest,
+    diffManifestDigest: reviewPackage.diffManifestDigest,
+    instructionDigest: reviewPackage.instructionDigest
+  };
+  const dependencies = currentEvidenceDependencies(run, []);
+  const recordFor = (id, createdAt, dependencyInputs) => ({
+    schemaVersion: 2,
+    id,
+    kind: "diff-review",
+    status: "complete",
+    summary: "Package-bound diff review",
+    acceptanceIds: [],
+    ...(dependencyInputs === undefined ? {} : { dependencyInputs }),
+    dependencies,
+    sourceDigest: digestObject(payload),
+    producer: {},
+    stale: false,
+    createdAt,
+    admissionProtocolVersion: 1,
+    receipt: {
+      contractId: "evidence-contracts-v1:diff-review",
+      contractVersion: 1,
+      runId: started.runId,
+      producer: { provider: "codex-root" },
+      inputBinding: {
+        runId: started.runId,
+        contractDigest: digestObject(contract),
+        remoteRevision: contract.remoteRevision
+      },
+      payload,
+      payloadDigest: digestObject(payload),
+      producedAt: createdAt
+    },
+    typedAdmission: {
+      contractId: "evidence-contracts-v1:diff-review",
+      contractVersion: 1,
+      admittedAt: createdAt,
+      producer: "codex-root"
+    }
+  });
+  const malformed = recordFor(
+    "diff-review-legacy-missing-dependencies",
+    new Date(Date.now() - 2000).toISOString(),
+    undefined
+  );
+  const malformedPath = path.join(run.runDir, "evidence", `${malformed.id}.json`);
+  const immutableProjection = structuredClone(malformed);
+  delete immutableProjection.stale;
+  delete immutableProjection.freshnessCheckedAt;
+  delete immutableProjection.currentDependencyFiles;
+  delete immutableProjection.staleReason;
+  const immutableEvidenceDigest = digestObject(immutableProjection);
+  const malformedIntentBinding = {
+    protocolVersion: 1,
+    runId: started.runId,
+    evidenceId: malformed.id,
+    evidenceDigest: digestObject(malformed),
+    immutableEvidenceDigest
+  };
+  const malformedIntent = {
+    schemaVersion: 1,
+    id: malformed.id,
+    ...malformedIntentBinding,
+    evidenceRecord: malformed,
+    intentDigest: digestObject(malformedIntentBinding)
+  };
+  await atomicWriteJson(
+    root,
+    path.join(run.runDir, "evidence-admissions", `${malformed.id}.json`),
+    malformedIntent
+  );
+  const admissionDetails = {
+    ...malformedIntentBinding,
+    intentDigest: malformedIntent.intentDigest
+  };
+  await appendJournal(root, run.runDir, "evidence.admission-pending", admissionDetails);
+  await atomicWriteJson(root, malformedPath, malformed);
+  await appendJournal(root, run.runDir, "evidence.added", admissionDetails);
+  const replacement = await addEvidence(
+    root,
+    started.runId,
+    recordFor("diff-review-corrected-dependencies", new Date().toISOString(), { files: [] })
+  );
+  return { root, repository, started, run, sentinel, reviewPackage, malformed, replacement, malformedPath };
+}
+
 function reviewKernelTemplate() {
   return {
     ...contractTemplate,
@@ -228,6 +656,7 @@ async function admitKernelEvidence(root, run, kind, kernel) {
     summary: `Typed ${kind}`,
     acceptanceIds: [],
     dependencyInputs: { files: [] },
+    dependencies: currentEvidenceDependencies(run, []),
     receipt: {
       contractId: `evidence-contracts-v1:${kind}`,
       contractVersion: 1,
@@ -671,6 +1100,151 @@ test("typed evidence rejects cross-run and caller-forged digests", async () => {
   await assert.rejects(addEvidence(root, started.runId, wrongRun), /run binding is invalid/);
 });
 
+test("evidence admission recovers every durable boundary, rejects conflicts and deleted files, and preserves legacy replay", async () => {
+  const createFixture = async (label) => {
+    const root = await mkdtemp(path.join(os.tmpdir(), `sbw-v2-admission-${label}-`));
+    const contract = buildContract({
+      template: "test-v2-admission",
+      templateDefinition: contractTemplate,
+      goal: "recover evidence admission",
+      scope: ["."],
+      risk: { risk: 1, uncertainty: 0, blastRadius: 1, irreversibility: 0, evidenceGap: 0 },
+      sensitivity: "internal",
+      authority: []
+    });
+    const started = await createRun({ root, contract, requestedMode: "verified", cwd: root });
+    const run = await inspectRun(root, started.runId);
+    const input = await typedRecord({ runId: started.runId, contract: run.contract }, `environment-${label}`);
+    return { root, started, run, input };
+  };
+
+  for (const boundary of ["intent-written", "pending-journaled", "evidence-written", "admission-committed"]) {
+    const fixture = await createFixture(boundary);
+    try {
+      await assert.rejects(
+        addEvidence(fixture.root, fixture.started.runId, fixture.input, {
+          onAdmissionBoundary(current) {
+            if (current === boundary) throw new Error(`injected admission failure: ${boundary}`);
+          }
+        }),
+        new RegExp(`injected admission failure: ${boundary}`)
+      );
+      if (boundary === "intent-written") {
+        await assert.rejects(
+          addEvidence(fixture.root, fixture.started.runId, {
+            ...fixture.input,
+            summary: "Conflicting evidence bytes"
+          }),
+          /retry conflicts with the durable intent/
+        );
+      }
+      const recovered = await addEvidence(fixture.root, fixture.started.runId, fixture.input);
+      const idempotent = await addEvidence(fixture.root, fixture.started.runId, fixture.input);
+      assert.deepEqual(idempotent, recovered);
+      const replay = await listEffectiveEvidenceRecords(fixture.root, fixture.started.runId);
+      assert.deepEqual(replay.map((record) => record.id), [fixture.input.id]);
+      const journal = (await readFile(path.join(fixture.run.runDir, "journal.jsonl"), "utf8"))
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => JSON.parse(line));
+      assert.equal(journal.filter((entry) => (
+        entry.event === "evidence.admission-pending" && entry.evidenceId === fixture.input.id
+      )).length, 1);
+      assert.equal(journal.filter((entry) => (
+        entry.event === "evidence.added" && entry.evidenceId === fixture.input.id
+      )).length, 1);
+      if (boundary === "evidence-written") {
+        await unlink(path.join(fixture.run.runDir, "evidence", `${fixture.input.id}.json`));
+        await assert.rejects(
+          listEffectiveEvidenceRecords(fixture.root, fixture.started.runId),
+          /admission journal and file inventory are not bijective/
+        );
+      }
+    } finally {
+      await rm(fixture.root, { recursive: true, force: true });
+    }
+  }
+
+  const rewriteEvidenceAsLegacy = async (fixture, input, admitted) => {
+    const evidencePath = path.join(fixture.run.runDir, "evidence", `${input.id}.json`);
+    const legacyRecord = structuredClone(admitted);
+    delete legacyRecord.admissionProtocolVersion;
+    const legacyImmutableRecord = structuredClone(legacyRecord);
+    delete legacyImmutableRecord.stale;
+    delete legacyImmutableRecord.freshnessCheckedAt;
+    delete legacyImmutableRecord.currentDependencyFiles;
+    delete legacyImmutableRecord.staleReason;
+    await writeFile(evidencePath, `${JSON.stringify(legacyRecord, null, 2)}\n`);
+    await unlink(path.join(fixture.run.runDir, "evidence-admissions", `${input.id}.json`));
+    const journalPath = path.join(fixture.run.runDir, "journal.jsonl");
+    const journal = (await readFile(journalPath, "utf8"))
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line))
+      .filter((entry) => !(
+        entry.event === "evidence.admission-pending" && entry.evidenceId === input.id
+      ))
+      .map((entry) => entry.event === "evidence.added" && entry.evidenceId === input.id
+        ? {
+            at: entry.at,
+            event: entry.event,
+            evidenceId: input.id,
+            evidenceDigest: digestObject(legacyRecord),
+            immutableEvidenceDigest: digestObject(legacyImmutableRecord)
+          }
+        : entry);
+    await writeFile(journalPath, `${journal.map((entry) => JSON.stringify(entry)).join("\n")}\n`);
+  };
+
+  const downgrade = await createFixture("downgrade");
+  try {
+    const admitted = await addEvidence(downgrade.root, downgrade.started.runId, downgrade.input);
+    await rewriteEvidenceAsLegacy(downgrade, downgrade.input, admitted);
+    await assert.rejects(
+      listEffectiveEvidenceRecords(downgrade.root, downgrade.started.runId),
+      /protocol downgrade is forbidden by run history/
+    );
+  } finally {
+    await rm(downgrade.root, { recursive: true, force: true });
+  }
+
+  const legacy = await createFixture("genuine-legacy");
+  try {
+    const contractPath = path.join(legacy.run.runDir, "contract.json");
+    const manifestPath = path.join(legacy.run.runDir, "manifest.json");
+    const journalPath = path.join(legacy.run.runDir, "journal.jsonl");
+    const legacyContract = JSON.parse(await readFile(contractPath, "utf8"));
+    const legacyManifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    delete legacyContract.evidenceAdmissionProtocolVersion;
+    delete legacyManifest.evidenceAdmissionProtocolVersion;
+    legacyManifest.contractDigest = digestObject(legacyContract);
+    const creationJournal = (await readFile(journalPath, "utf8"))
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line))
+      .map((entry) => {
+        if (entry.event !== "run.created") return entry;
+        const legacyEntry = { ...entry };
+        delete legacyEntry.evidenceAdmissionProtocolVersion;
+        return legacyEntry;
+      });
+    await writeFile(contractPath, `${JSON.stringify(legacyContract, null, 2)}\n`);
+    await writeFile(manifestPath, `${JSON.stringify(legacyManifest, null, 2)}\n`);
+    await writeFile(journalPath, `${creationJournal.map((entry) => JSON.stringify(entry)).join("\n")}\n`);
+    const legacyInput = await typedRecord({
+      runId: legacy.started.runId,
+      contract: legacyContract
+    }, "environment-genuine-legacy");
+    const admitted = await addEvidence(legacy.root, legacy.started.runId, legacyInput);
+    await rewriteEvidenceAsLegacy(legacy, legacyInput, admitted);
+    const replay = await listEffectiveEvidenceRecords(legacy.root, legacy.started.runId);
+    assert.equal(replay.length, 1);
+    assert.equal(replay[0].admissionProtocolVersion, undefined);
+  } finally {
+    await rm(legacy.root, { recursive: true, force: true });
+  }
+});
+
 test("typed gate evidence rejects a failed result even when its shape is valid", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "sbw-v2-semantic-evidence-"));
   const contract = buildContract({
@@ -774,6 +1348,1000 @@ test("provider reconciliation rejects structurally forged action proofs", async 
   );
 });
 
+test("same-attempt provider evidence supersession is append-only and restores deterministic ledger completion", async () => {
+  const fixture = await providerReconciliationSupersessionFixture();
+  try {
+    const before = await deriveLedgerStatus(fixture.root, fixture.started.runId);
+    assert.ok(before.blockers.includes(`invalid-typed-evidence:${fixture.malformed.id}`));
+    const malformedPath = path.join(fixture.run.runDir, "evidence", `${fixture.malformed.id}.json`);
+    const malformedBytes = await readFile(malformedPath, "utf8");
+    const input = {
+      schemaVersion: 1,
+      id: "provider-proof-correction-1",
+      supersededEvidenceId: fixture.malformed.id,
+      supersededEvidenceDigest: digestObject(fixture.malformed),
+      replacementEvidenceId: fixture.replacement.id,
+      replacementEvidenceDigest: digestObject(fixture.replacement),
+      actionAttemptId: fixture.attemptId,
+      reason: "Correct the response digest while preserving the exact provider action attempt"
+    };
+    const inputPath = path.join(fixture.root, "supersession-input.json");
+    await writeFile(inputPath, `${JSON.stringify(input, null, 2)}\n`);
+    const command = await execFileAsync(process.execPath, [
+      SBW_CLI,
+      "evidence",
+      "supersede",
+      fixture.started.runId,
+      "--file",
+      inputPath
+    ], {
+      cwd: fixture.root,
+      encoding: "utf8",
+      env: { ...process.env, SBW_STATE_ROOT: fixture.root }
+    });
+    const supersession = JSON.parse(command.stdout).supersession;
+    const retried = await supersedeEvidence(fixture.root, fixture.started.runId, input);
+    assert.equal(digestObject(retried), digestObject(supersession));
+    await assert.rejects(
+      supersedeEvidence(fixture.root, fixture.started.runId, {
+        ...input,
+        id: "provider-proof-conflicting-correction"
+      }),
+      /already bound/
+    );
+    const journal = (await readFile(path.join(fixture.run.runDir, "journal.jsonl"), "utf8"))
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+    assert.equal(journal.filter((entry) => entry.event === "evidence.superseded").length, 1);
+    assert.equal(await readFile(malformedPath, "utf8"), malformedBytes);
+    assert.equal(supersession.actor, "root");
+    assert.equal(supersession.action.attemptId, fixture.attemptId);
+    const effective = await listEffectiveEvidenceRecords(fixture.root, fixture.started.runId);
+    assert.deepEqual(effective.map((record) => record.id), [fixture.replacement.id]);
+    const after = await deriveLedgerStatus(fixture.root, fixture.started.runId);
+    assert.equal(after.blockers.some((item) => item.startsWith("invalid-typed-evidence:")), false);
+    await transitionLedger(fixture.root, fixture.started.runId, {
+      eventId: "start-provider",
+      type: "start",
+      taskId: "provider"
+    });
+    await transitionLedger(fixture.root, fixture.started.runId, {
+      eventId: "complete-provider",
+      type: "complete",
+      taskId: "provider",
+      evidenceKinds: ["provider-reconciliation"]
+    });
+    const terminalOne = await deriveLedgerStatus(fixture.root, fixture.started.runId);
+    const terminalTwo = await deriveLedgerStatus(fixture.root, fixture.started.runId);
+    assert.deepEqual(terminalTwo, terminalOne);
+    assert.equal(terminalOne.complete, true);
+    const completion = await evaluateCompletion(fixture.root, fixture.started.runId);
+    assert.equal(completion.ok, true, completion.blockers.join(", "));
+    assert.deepEqual(completion.evidence.map((record) => record.id), [fixture.replacement.id]);
+    assert.deepEqual(completion.evidenceSupersessions.map((record) => record.id), [supersession.id]);
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("diff-review admission rejects missing dependencyInputs", async () => {
+  const fixture = await legacyDiffReviewSupersessionFixture();
+  try {
+    const malformed = structuredClone(fixture.replacement);
+    malformed.id = "diff-review-missing-dependency-rejected";
+    delete malformed.dependencyInputs;
+    await assert.rejects(
+      addEvidence(fixture.root, fixture.started.runId, malformed),
+      /diff-review dependencyInputs/
+    );
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("diff-review dependency supersession is append-only, replayable, and fail-closed", async () => {
+  const fixture = await legacyDiffReviewSupersessionFixture();
+  try {
+    const originalMalformedBytes = await readFile(fixture.malformedPath, "utf8");
+    await assert.rejects(
+      markBroadReviewComplete(
+        fixture.root,
+        fixture.started.runId,
+        fixture.reviewPackage.packageId,
+        fixture.reviewPackage.head,
+        fixture.sentinel.digest
+      ),
+      /stale or invalid unsuperseded diff-review evidence/
+    );
+
+    const input = {
+      schemaVersion: 1,
+      id: "review-evidence-dependency-correction-1",
+      supersededEvidenceId: fixture.malformed.id,
+      supersededEvidenceDigest: digestObject(fixture.malformed),
+      replacementEvidenceId: fixture.replacement.id,
+      replacementEvidenceDigest: digestObject(fixture.replacement),
+      reasonCode: "missing-dependency-inputs",
+      reason: "Restore canonical dependency inputs for the legacy review receipt"
+    };
+    const inputPath = path.join(fixture.root, "review-evidence-supersede.json");
+    await writeFile(inputPath, `${JSON.stringify(input, null, 2)}\n`);
+    const command = await execFileAsync(
+      process.execPath,
+      [SBW_CLI, "review", "supersede", fixture.started.runId, "--file", inputPath],
+      {
+        cwd: fixture.repository,
+        encoding: "utf8",
+        env: { ...process.env, SBW_STATE_ROOT: fixture.root }
+      }
+    );
+    const supersession = JSON.parse(command.stdout).supersession;
+    const retried = await supersedeReviewEvidence(fixture.root, fixture.started.runId, input);
+    assert.equal(digestObject(retried), digestObject(supersession));
+    assert.equal(await readFile(fixture.malformedPath, "utf8"), originalMalformedBytes);
+    assert.equal(supersession.kind, "review-evidence");
+    assert.equal(supersession.targetDisposition, "invalidated");
+    assert.equal(supersession.replacementDisposition, "selected");
+    assert.equal(supersession.selectionPolicy, "effective-current-only");
+    assert.equal(supersession.reasonCode, "missing-dependency-inputs");
+
+    const firstEffective = await listEffectiveEvidenceRecords(fixture.root, fixture.started.runId);
+    const secondEffective = await listEffectiveEvidenceRecords(fixture.root, fixture.started.runId);
+    assert.deepEqual(firstEffective.map((record) => record.id), [fixture.replacement.id]);
+    assert.deepEqual(secondEffective, firstEffective);
+    await markBroadReviewComplete(
+      fixture.root,
+      fixture.started.runId,
+      fixture.reviewPackage.packageId,
+      fixture.reviewPackage.head,
+      fixture.sentinel.digest
+    );
+    const review = await reviewStatus(fixture.root, fixture.started.runId);
+    assert.equal(review.broadReviewComplete, true);
+    const completionOne = await evaluateCompletion(fixture.root, fixture.started.runId);
+    const completionTwo = await evaluateCompletion(fixture.root, fixture.started.runId);
+    assert.deepEqual(completionTwo, completionOne);
+
+    const duplicateCandidate = structuredClone(fixture.replacement);
+    duplicateCandidate.id = "diff-review-duplicate-current";
+    await addEvidence(fixture.root, fixture.started.runId, duplicateCandidate);
+    await assert.rejects(
+      markBroadReviewComplete(
+        fixture.root,
+        fixture.started.runId,
+        fixture.reviewPackage.packageId,
+        fixture.reviewPackage.head,
+        fixture.sentinel.digest
+      ),
+      /diff-review evidence is ambiguous/
+    );
+    await assert.rejects(
+      supersedeReviewEvidence(fixture.root, fixture.started.runId, {
+        ...input,
+        id: "review-evidence-conflicting-target"
+      }),
+      /already bound/
+    );
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("resume freshness and action issuance preserve supersession-bound evidence bytes", async () => {
+  const fixture = await providerReconciliationSupersessionFixture();
+  try {
+    const supersession = await supersedeEvidence(fixture.root, fixture.started.runId, {
+      schemaVersion: 1,
+      id: "provider-proof-immutable-refresh",
+      supersededEvidenceId: fixture.malformed.id,
+      supersededEvidenceDigest: digestObject(fixture.malformed),
+      replacementEvidenceId: fixture.replacement.id,
+      replacementEvidenceDigest: digestObject(fixture.replacement),
+      actionAttemptId: fixture.attemptId,
+      reason: "Preserve both provider receipts across resume and action freshness checks"
+    });
+    const malformedPath = path.join(fixture.run.runDir, "evidence", `${fixture.malformed.id}.json`);
+    const replacementPath = path.join(fixture.run.runDir, "evidence", `${fixture.replacement.id}.json`);
+    const originalBytes = await Promise.all([readFile(malformedPath, "utf8"), readFile(replacementPath, "utf8")]);
+    const firstRefresh = await refreshEvidence(fixture.root, fixture.started.runId);
+    const secondRefresh = await refreshEvidence(fixture.root, fixture.started.runId);
+    assert.deepEqual(firstRefresh.immutableEvidenceIds, [fixture.replacement.id, fixture.malformed.id].sort());
+    assert.deepEqual(secondRefresh.immutableEvidenceIds, firstRefresh.immutableEvidenceIds);
+    assert.deepEqual(firstRefresh.immutableStale, []);
+    const issued = await issueActionToken(fixture.root, fixture.started.runId, {
+      action: "artifact.promote",
+      provider: "local-workspace",
+      resource: "artifact/fixture-artifact",
+      remoteRevision: fixture.run.contract.remoteRevision,
+      requiredEvidence: ["provider-reconciliation"]
+    }, "e".repeat(64), await loadDefaults());
+    assert.equal(issued.action, "artifact.promote");
+    assert.equal(typeof issued.token, "string");
+    assert.match(issued.evidenceSupersessionFreshnessDigest, /^[a-f0-9]{64}$/);
+    assert.deepEqual(
+      await Promise.all([readFile(malformedPath, "utf8"), readFile(replacementPath, "utf8")]),
+      originalBytes
+    );
+    const replayOne = await listEffectiveEvidenceRecords(fixture.root, fixture.started.runId);
+    const replayTwo = await listEffectiveEvidenceRecords(fixture.root, fixture.started.runId);
+    assert.deepEqual(replayTwo, replayOne);
+    assert.deepEqual(replayOne.map((record) => record.id), [fixture.replacement.id]);
+    assert.equal(supersession.replacementEvidence.id, fixture.replacement.id);
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("action authority recomputes immutable supersession freshness at issue and consume", async () => {
+  const fixture = await providerReconciliationSupersessionFixture({
+    dependencyPath: "provider-dependency.txt"
+  });
+  try {
+    await supersedeEvidence(fixture.root, fixture.started.runId, {
+      schemaVersion: 1,
+      id: "provider-proof-freshness-authority",
+      supersededEvidenceId: fixture.malformed.id,
+      supersededEvidenceDigest: digestObject(fixture.malformed),
+      replacementEvidenceId: fixture.replacement.id,
+      replacementEvidenceDigest: digestObject(fixture.replacement),
+      actionAttemptId: fixture.attemptId,
+      reason: "Bind immutable provider receipts to action issue and consumption freshness"
+    });
+    const request = {
+      action: "artifact.promote",
+      provider: "local-workspace",
+      resource: "artifact/fixture-artifact",
+      remoteRevision: fixture.run.contract.remoteRevision,
+      requiredEvidence: ["provider-reconciliation"]
+    };
+    await writeFile(fixture.dependencyPath, "provider-dependency-drifted\n");
+    await assert.rejects(
+      issueActionToken(
+        fixture.root,
+        fixture.started.runId,
+        request,
+        "e".repeat(64),
+        await loadDefaults()
+      ),
+      /stale immutable supersession evidence|current canonical dependency projection/
+    );
+
+    await writeFile(fixture.dependencyPath, fixture.dependencyOriginalBytes);
+    const issued = await issueActionToken(
+      fixture.root,
+      fixture.started.runId,
+      request,
+      "e".repeat(64),
+      await loadDefaults()
+    );
+    assert.match(issued.evidenceSupersessionFreshnessDigest, /^[a-f0-9]{64}$/);
+    await writeFile(fixture.dependencyPath, "provider-dependency-drifted-after-issue\n");
+    await assert.rejects(
+      consumeActionToken(fixture.root, fixture.started.runId, issued.token, "e".repeat(64)),
+      /stale immutable supersession evidence|current canonical dependency projection|immutable evidence freshness changed/
+    );
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("action consumption replays the complete configured evidence gate without supersessions", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-v2-action-evidence-gate-"));
+  try {
+    const dependencyPath = path.join(root, "gate-input.txt");
+    await writeFile(dependencyPath, "gate-input-v1\n");
+    const taskContract = buildContract({
+      template: "test-v2-action-evidence-gate",
+      templateDefinition: {
+        ...contractTemplate,
+        actionStages: { "artifact.promote": "environment" },
+        actionGates: { "artifact.promote": ["environment-state"] }
+      },
+      goal: "Bind every configured evidence gate record through consumption",
+      scope: ["."],
+      risk: { risk: 2, uncertainty: 1, blastRadius: 1, irreversibility: 1, evidenceGap: 1 },
+      sensitivity: "internal",
+      authority: ["artifact.promote"],
+      remoteRevision: "b".repeat(40)
+    });
+    const started = await createRun({ root, contract: taskContract, requestedMode: "verified", cwd: root });
+    const run = await inspectRun(root, started.runId);
+    await updateState(root, started.runId, (state) => ({
+      ...state,
+      lastSentinel: { label: "action-evidence-gate", digest: "e".repeat(64) },
+      lastSentinelVerified: true,
+      lastSentinelComplete: true
+    }));
+    const dependencyBytes = Buffer.from("gate-input-v1\n");
+    const dependencyInfo = await stat(dependencyPath);
+    await addEvidence(root, started.runId, {
+      ...await typedRecord({ runId: started.runId, contract: run.contract }),
+      dependencyInputs: { files: ["gate-input.txt"] },
+      dependencies: currentEvidenceDependencies(run, [{
+        path: "gate-input.txt",
+        type: "file",
+        mode: dependencyInfo.mode,
+        size: dependencyInfo.size,
+        digest: sha256(dependencyBytes)
+      }])
+    });
+    const issued = await issueActionToken(root, started.runId, {
+      action: "artifact.promote",
+      provider: "local-workspace",
+      resource: "artifact/fixture-artifact",
+      remoteRevision: taskContract.remoteRevision,
+      requiredEvidence: ["environment-state"]
+    }, "e".repeat(64), await loadDefaults());
+    assert.deepEqual(issued.evidenceGate, ["environment-state"]);
+    assert.match(issued.evidenceGateDigest, /^[a-f0-9]{64}$/);
+    await writeFile(dependencyPath, "gate-input-v2\n");
+    const refreshed = await refreshEvidence(root, started.runId);
+    assert.deepEqual(refreshed.stale, ["environment"]);
+    await assert.rejects(
+      consumeActionToken(root, started.runId, issued.token, "e".repeat(64)),
+      /configured evidence gate|Evidence stale provenance|Action token missing evidence/
+    );
+    const action = (await inspectRun(root, started.runId)).actions.find((item) => item.tokenHash === issued.tokenHash);
+    assert.equal(action.status, "issued");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("successful external reconciliation becomes audited unknown when its issued gate drifts", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-v2-reconcile-gate-drift-"));
+  try {
+    const dependencyPath = path.join(root, "environment-input.txt");
+    const dependencyBytes = Buffer.from("environment-v1\n");
+    await writeFile(dependencyPath, dependencyBytes);
+    const dependencyInfo = await stat(dependencyPath);
+    const taskContract = buildContract({
+      template: "test-v2-reconcile-gate-drift",
+      templateDefinition: {
+        ...contractTemplate,
+        actionStages: { "artifact.promote": "environment" },
+        actionGates: { "artifact.promote": ["environment-state"] }
+      },
+      goal: "Prevent post-invocation evidence drift from authorizing success",
+      scope: ["."],
+      risk: { risk: 2, uncertainty: 1, blastRadius: 1, irreversibility: 1, evidenceGap: 1 },
+      sensitivity: "internal",
+      authority: ["artifact.promote"],
+      remoteRevision: "b".repeat(40)
+    });
+    const started = await createRun({ root, contract: taskContract, requestedMode: "verified", cwd: root });
+    const run = await inspectRun(root, started.runId);
+    await updateState(root, started.runId, (state) => ({
+      ...state,
+      lastSentinel: { label: "reconcile-gate", digest: "e".repeat(64) },
+      lastSentinelVerified: true,
+      lastSentinelComplete: true
+    }));
+    await addEvidence(root, started.runId, {
+      ...await typedRecord({ runId: started.runId, contract: run.contract }),
+      dependencyInputs: { files: ["environment-input.txt"] },
+      dependencies: currentEvidenceDependencies(run, [{
+        path: "environment-input.txt",
+        type: "file",
+        mode: dependencyInfo.mode,
+        size: dependencyInfo.size,
+        digest: sha256(dependencyBytes)
+      }])
+    });
+    const issued = await issueActionToken(root, started.runId, {
+      action: "artifact.promote",
+      provider: "local-workspace",
+      resource: "artifact/fixture-artifact",
+      remoteRevision: taskContract.remoteRevision,
+      requiredEvidence: ["environment-state"]
+    }, "e".repeat(64), await loadDefaults());
+    const spent = await consumeActionToken(root, started.runId, issued.token, "e".repeat(64));
+    const request = {
+      action: spent.action,
+      provider: spent.provider,
+      resource: spent.resource,
+      remoteRevision: spent.remoteRevision,
+      idempotencyKey: spent.idempotencyKey
+    };
+    const response = { kind: "fixture-artifact", digest: "c".repeat(64) };
+    const providerReceipt = {
+      action: spent.action,
+      provider: spent.provider,
+      resource: spent.resource,
+      outcome: "success",
+      runId: started.runId,
+      attemptId: spent.attemptId,
+      idempotencyKey: spent.idempotencyKey,
+      remoteRevision: spent.remoteRevision,
+      executionId: `local-workspace:artifact.promote:${spent.attemptId}`,
+      proofKind: "local-workspace:artifact.promote",
+      requestDigest: digestObject(request),
+      responseDigest: digestObject(response),
+      verifiedAt: new Date().toISOString(),
+      terminalState: "success",
+      ...response
+    };
+    const actionProof = {
+      schemaVersion: 1,
+      runId: started.runId,
+      actionAttemptId: spent.attemptId,
+      action: spent.action,
+      provider: spent.provider,
+      resource: spent.resource,
+      outcome: "success",
+      idempotencyKey: spent.idempotencyKey,
+      remoteRevision: spent.remoteRevision,
+      providerExecutionId: providerReceipt.executionId,
+      providerReceiptDigest: digestObject(providerReceipt)
+    };
+    const providerEvidence = await gateRecord(
+      run,
+      "provider-reconciliation",
+      { provider: "local-workspace", receipt: providerReceipt, actionProof },
+      "provider-reconciliation-proof"
+    );
+    providerEvidence.dependencyInputs = { files: [] };
+    providerEvidence.dependencies = currentEvidenceDependencies(run, []);
+    await addEvidence(root, started.runId, providerEvidence);
+    const receipt = {
+      ...request,
+      outcome: "success",
+      runId: started.runId,
+      attemptId: spent.attemptId,
+      providerReceipt,
+      evidenceIds: [providerEvidence.id]
+    };
+    await writeFile(dependencyPath, "environment-drifted-after-provider-invocation\n");
+    await assert.rejects(
+      reconcileAction(root, started.runId, spent.attemptId, "success", receipt),
+      (error) => error?.code === "SBW_ACTION_AUTHORITY_INDETERMINATE"
+    );
+    const persisted = (await inspectRun(root, started.runId)).actions.find(
+      (item) => item.attemptId === spent.attemptId
+    );
+    assert.equal(persisted.outcome, "unknown");
+    assert.equal(persisted.receipt, null);
+    assert.equal(persisted.authorityFailure.observedProviderExecutionId, providerReceipt.executionId);
+    assert.equal(persisted.authorityFailure.providerExecutionReservationOutcome, "unknown");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("action gates reject direct source writes and same-dirty-path content drift", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-v2-action-source-gate-"));
+  const repository = path.join(root, "repository");
+  try {
+    await mkdir(repository, { recursive: true });
+    await execFileAsync("git", ["init", "-q"], { cwd: repository });
+    await execFileAsync("git", ["config", "user.email", "test@example.com"], { cwd: repository });
+    await execFileAsync("git", ["config", "user.name", "Test User"], { cwd: repository });
+    await writeFile(path.join(repository, "README.md"), "source-v1\n");
+    await execFileAsync("git", ["add", "README.md"], { cwd: repository });
+    await execFileAsync("git", ["commit", "-q", "-m", "source"], { cwd: repository });
+    const head = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repository })).stdout.trim();
+    const taskContract = buildContract({
+      template: "test-v2-action-source-gate",
+      templateDefinition: {
+        ...contractTemplate,
+        actionStages: { "artifact.promote": "environment" },
+        actionGates: { "artifact.promote": ["environment-state"] }
+      },
+      goal: "Bind the live source snapshot through action consumption",
+      scope: ["."],
+      risk: { risk: 2, uncertainty: 1, blastRadius: 1, irreversibility: 1, evidenceGap: 1 },
+      sensitivity: "internal",
+      authority: ["artifact.promote"],
+      remoteRevision: head
+    });
+    const started = await createRun({ root, contract: taskContract, requestedMode: "verified", cwd: repository });
+    const run = await inspectRun(root, started.runId);
+    await addEvidence(root, started.runId, {
+      ...await typedRecord({ runId: started.runId, contract: run.contract }),
+      dependencyInputs: { files: [] },
+      dependencies: currentEvidenceDependencies(run, [])
+    });
+    const baselineSentinel = await captureSentinel(repository, taskContract, await loadDefaults());
+    await updateState(root, started.runId, (state) => ({
+      ...state,
+      lastSentinel: { label: "action-source-gate-baseline", digest: baselineSentinel.digest },
+      lastSentinelVerified: true,
+      lastSentinelComplete: true
+    }));
+    const issued = await issueActionToken(root, started.runId, {
+      action: "artifact.promote",
+      provider: "local-workspace",
+      resource: "artifact/fixture-artifact",
+      remoteRevision: head,
+      requiredEvidence: ["environment-state"]
+    }, baselineSentinel.digest, await loadDefaults());
+    await writeFile(path.join(repository, "README.md"), "same-path-content-drift\n");
+    await assert.rejects(
+      // Supplying the old caller digest must not bypass the internally captured
+      // content-complete source sentinel.
+      consumeActionToken(root, started.runId, issued.token, baselineSentinel.digest),
+      /current source binding changed outside a governed transition|content-complete source sentinel changed/
+    );
+    const driftedSentinel = await captureSentinel(repository, taskContract, await loadDefaults());
+    await updateState(root, started.runId, (state) => ({
+      ...state,
+      lastSentinel: { label: "action-source-gate-direct-write", digest: driftedSentinel.digest },
+      lastSentinelVerified: true,
+      lastSentinelComplete: true
+    }));
+    await assert.rejects(
+      issueActionToken(root, started.runId, {
+        action: "artifact.promote",
+        provider: "local-workspace",
+        resource: "artifact/second-fixture",
+        remoteRevision: head,
+        requiredEvidence: ["environment-state"]
+      }, driftedSentinel.digest, await loadDefaults()),
+      /current source binding changed outside a governed transition/
+    );
+    const action = (await inspectRun(root, started.runId)).actions.find((item) => item.tokenHash === issued.tokenHash);
+    assert.equal(action.status, "issued");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("autonomous invalidation preflight preserves supersession-bound evidence bytes", async () => {
+  const fixture = await providerReconciliationSupersessionFixture();
+  try {
+    const supersession = await supersedeEvidence(fixture.root, fixture.started.runId, {
+      schemaVersion: 1,
+      id: "provider-proof-autonomous-invalidation-guard",
+      supersededEvidenceId: fixture.malformed.id,
+      supersededEvidenceDigest: digestObject(fixture.malformed),
+      replacementEvidenceId: fixture.replacement.id,
+      replacementEvidenceDigest: digestObject(fixture.replacement),
+      actionAttemptId: fixture.attemptId,
+      reason: "Preserve supersession-bound evidence before autonomous invalidation"
+    });
+    const paths = [
+      path.join(fixture.run.runDir, "evidence", `${fixture.malformed.id}.json`),
+      path.join(fixture.run.runDir, "evidence", `${fixture.replacement.id}.json`),
+      path.join(fixture.run.runDir, "evidence-supersessions", `${supersession.id}.json`),
+      path.join(fixture.run.runDir, "journal.jsonl"),
+      path.join(fixture.run.runDir, "manifest.json"),
+      path.join(fixture.run.runDir, "state.json")
+    ];
+    const before = await Promise.all(paths.map((target) => readFile(target)));
+    await assert.rejects(
+      assertAutonomousCommitEvidenceInvalidationSafe(fixture.root, fixture.started.runId),
+      /cannot invalidate supersession-bound evidence without mutating admitted bytes/
+    );
+    const after = await Promise.all(paths.map((target) => readFile(target)));
+    assert.deepEqual(after, before);
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("freshness transitions preserve an append-only digest chain from admitted evidence", async () => {
+  const fixture = await providerReconciliationSupersessionFixture({
+    dependencyPath: "provider-freshness-input.txt"
+  });
+  try {
+    await writeFile(fixture.dependencyPath, "provider-freshness-input-drifted\n");
+    const freshness = await refreshEvidence(fixture.root, fixture.started.runId);
+    assert.deepEqual(freshness.stale.sort(), [fixture.malformed.id, fixture.replacement.id].sort());
+    const journal = (await readFile(path.join(fixture.run.runDir, "journal.jsonl"), "utf8"))
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+    const transitions = journal.filter((entry) => entry.event === "evidence.freshness-transition");
+    assert.equal(transitions.length, 2);
+    assert.ok(transitions.every((entry) => (
+      /^[a-f0-9]{64}$/.test(entry.previousEvidenceDigest) &&
+      /^[a-f0-9]{64}$/.test(entry.evidenceDigest) &&
+      /^[a-f0-9]{64}$/.test(entry.immutableEvidenceDigest) &&
+      /^[a-f0-9]{64}$/.test(entry.transitionDigest) &&
+      entry.cause?.kind === "dependency-refresh"
+    )));
+    const replay = await listEffectiveEvidenceRecords(fixture.root, fixture.started.runId);
+    assert.ok(replay.every((record) => record.stale === true));
+
+    const malformedPath = path.join(fixture.run.runDir, "evidence", `${fixture.malformed.id}.json`);
+    const staleRecord = JSON.parse(await readFile(malformedPath, "utf8"));
+    await writeFile(malformedPath, `${JSON.stringify({
+      ...staleRecord,
+      dependencyInputs: { files: ["forged-missing-input.txt"] },
+      dependencies: {
+        ...staleRecord.dependencies,
+        files: [{ path: "forged-missing-input.txt", type: "missing" }]
+      },
+      currentDependencyFiles: [{ path: "forged-missing-input.txt", type: "missing" }]
+    }, null, 2)}\n`);
+    await assert.rejects(
+      listEffectiveEvidenceRecords(fixture.root, fixture.started.runId),
+      /Evidence stale provenance is invalid/
+    );
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("legacy freshness transitions retain their original replay semantics", async () => {
+  const fixture = await providerReconciliationSupersessionFixture({
+    dependencyPath: "provider-legacy-freshness-input.txt"
+  });
+  try {
+    await writeFile(fixture.dependencyPath, "provider-legacy-freshness-input-drifted\n");
+    await refreshEvidence(fixture.root, fixture.started.runId);
+    const journalPath = path.join(fixture.run.runDir, "journal.jsonl");
+    const journal = (await readFile(journalPath, "utf8"))
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+    const legacyJournal = journal.map((entry) => {
+      if (entry.event !== "evidence.freshness-transition") return entry;
+      const binding = {
+        evidenceId: entry.evidenceId,
+        previousEvidenceDigest: entry.previousEvidenceDigest,
+        evidenceDigest: entry.evidenceDigest,
+        immutableEvidenceDigest: entry.immutableEvidenceDigest,
+        freshnessState: entry.freshnessState,
+        cause: entry.cause
+      };
+      return {
+        at: entry.at,
+        event: entry.event,
+        ...binding,
+        transitionDigest: digestObject(binding)
+      };
+    });
+    await writeFile(journalPath, `${legacyJournal.map((entry) => JSON.stringify(entry)).join("\n")}\n`);
+    const replay = await listEffectiveEvidenceRecords(fixture.root, fixture.started.runId);
+    assert.equal(replay.length, 2);
+    assert.ok(replay.every((record) => record.stale === true));
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("freshness replay rejects a journaled stale record edited back to fresh across every consumer", async () => {
+  const fixture = await providerReconciliationSupersessionFixture({
+    dependencyPath: "provider-journal-replay-input.txt"
+  });
+  try {
+    await writeFile(fixture.dependencyPath, "provider-journal-replay-input-drifted\n");
+    await refreshEvidence(fixture.root, fixture.started.runId);
+    const malformedPath = path.join(fixture.run.runDir, "evidence", `${fixture.malformed.id}.json`);
+    const journaledStale = JSON.parse(await readFile(malformedPath, "utf8"));
+    const forgedFresh = { ...journaledStale, stale: false };
+    delete forgedFresh.freshnessCheckedAt;
+    delete forgedFresh.currentDependencyFiles;
+    delete forgedFresh.staleReason;
+    await writeFile(malformedPath, `${JSON.stringify(forgedFresh, null, 2)}\n`);
+
+    await assert.rejects(
+      listEffectiveEvidenceRecords(fixture.root, fixture.started.runId),
+      /Evidence admission provenance is invalid|append-only freshness journal/
+    );
+    const ledger = await deriveLedgerStatus(fixture.root, fixture.started.runId);
+    assert.ok(ledger.blockers.some((item) => item.includes("Evidence admission provenance is invalid")));
+    const completion = await evaluateCompletion(fixture.root, fixture.started.runId);
+    assert.ok(completion.blockers.some((item) => item.includes("Evidence admission provenance is invalid")));
+    await assert.rejects(
+      supersedeEvidence(fixture.root, fixture.started.runId, {
+        schemaVersion: 1,
+        id: "forged-fresh-journal-correction",
+        supersededEvidenceId: forgedFresh.id,
+        supersededEvidenceDigest: digestObject(forgedFresh),
+        replacementEvidenceId: fixture.replacement.id,
+        replacementEvidenceDigest: digestObject(
+          JSON.parse(await readFile(
+            path.join(fixture.run.runDir, "evidence", `${fixture.replacement.id}.json`),
+            "utf8"
+          ))
+        ),
+        actionAttemptId: fixture.attemptId,
+        reason: "A stale record edited back to fresh must not enter evidence supersession"
+      }),
+      /Evidence admission provenance is invalid|append-only freshness journal/
+    );
+    await assert.rejects(
+      issueActionToken(
+        fixture.root,
+        fixture.started.runId,
+        {
+          action: "artifact.promote",
+          provider: "local-workspace",
+          resource: "artifact/fixture-artifact",
+          remoteRevision: fixture.run.contract.remoteRevision,
+          requiredEvidence: ["provider-reconciliation"]
+        },
+        "e".repeat(64),
+        await loadDefaults()
+      ),
+      /Evidence admission provenance is invalid|append-only freshness journal/
+    );
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("evidence supersession replay rejects duplicate and filename-rebound identities", async () => {
+  const duplicateCases = [
+    {
+      label: "target",
+      duplicateName: "duplicate-target.json",
+      record(fixture) { return fixture.malformed; }
+    },
+    {
+      label: "replacement",
+      duplicateName: "duplicate-replacement.json",
+      record(fixture) { return fixture.replacement; }
+    },
+    {
+      label: "valid and malformed target",
+      duplicateName: "valid-target-alias.json",
+      record(fixture) { return { ...fixture.replacement, id: fixture.malformed.id }; }
+    }
+  ];
+  for (const duplicateCase of duplicateCases) {
+    const fixture = await providerReconciliationSupersessionFixture();
+    try {
+      await supersedeEvidence(fixture.root, fixture.started.runId, {
+        schemaVersion: 1,
+        id: `provider-proof-duplicate-${duplicateCase.label.replaceAll(" ", "-")}`,
+        supersededEvidenceId: fixture.malformed.id,
+        supersededEvidenceDigest: digestObject(fixture.malformed),
+        replacementEvidenceId: fixture.replacement.id,
+        replacementEvidenceDigest: digestObject(fixture.replacement),
+        actionAttemptId: fixture.attemptId,
+        reason: "Reject duplicate persisted evidence identities during deterministic replay"
+      });
+      await writeFile(
+        path.join(fixture.run.runDir, "evidence", duplicateCase.duplicateName),
+        `${JSON.stringify(duplicateCase.record(fixture), null, 2)}\n`
+      );
+      await assert.rejects(
+        listEffectiveEvidenceRecords(fixture.root, fixture.started.runId),
+        /Evidence record id is duplicated/
+      );
+    } finally {
+      await rm(fixture.root, { recursive: true, force: true });
+    }
+  }
+
+  const supersessionDuplicate = await providerReconciliationSupersessionFixture();
+  try {
+    const record = await supersedeEvidence(supersessionDuplicate.root, supersessionDuplicate.started.runId, {
+      schemaVersion: 1,
+      id: "provider-proof-duplicate-supersession",
+      supersededEvidenceId: supersessionDuplicate.malformed.id,
+      supersededEvidenceDigest: digestObject(supersessionDuplicate.malformed),
+      replacementEvidenceId: supersessionDuplicate.replacement.id,
+      replacementEvidenceDigest: digestObject(supersessionDuplicate.replacement),
+      actionAttemptId: supersessionDuplicate.attemptId,
+      reason: "Reject a duplicated supersession identity before evidence reduction"
+    });
+    await writeFile(
+      path.join(supersessionDuplicate.run.runDir, "evidence-supersessions", "duplicate-supersession.json"),
+      `${JSON.stringify(record, null, 2)}\n`
+    );
+    await assert.rejects(
+      supersedeEvidence(supersessionDuplicate.root, supersessionDuplicate.started.runId, {
+        schemaVersion: 1,
+        id: record.id,
+        supersededEvidenceId: supersessionDuplicate.malformed.id,
+        supersededEvidenceDigest: digestObject(supersessionDuplicate.malformed),
+        replacementEvidenceId: supersessionDuplicate.replacement.id,
+        replacementEvidenceDigest: digestObject(supersessionDuplicate.replacement),
+        actionAttemptId: supersessionDuplicate.attemptId,
+        reason: record.reason
+      }),
+      /Evidence supersession record id is duplicated/
+    );
+    await assert.rejects(
+      listEffectiveEvidenceRecords(supersessionDuplicate.root, supersessionDuplicate.started.runId),
+      /Evidence supersession record id is duplicated/
+    );
+  } finally {
+    await rm(supersessionDuplicate.root, { recursive: true, force: true });
+  }
+
+  const filenameMismatch = await providerReconciliationSupersessionFixture();
+  try {
+    await writeFile(
+      path.join(filenameMismatch.run.runDir, "evidence", "wrong-filename.json"),
+      `${JSON.stringify({ ...filenameMismatch.replacement, id: "filename-bound-evidence" }, null, 2)}\n`
+    );
+    await assert.rejects(
+      listEffectiveEvidenceRecords(filenameMismatch.root, filenameMismatch.started.runId),
+      /Evidence filename does not match record id/
+    );
+    await assert.rejects(
+      addEvidence(filenameMismatch.root, filenameMismatch.started.runId, {
+        ...filenameMismatch.replacement,
+        id: "new-provider-proof"
+      }),
+      /Evidence filename does not match record id/
+    );
+  } finally {
+    await rm(filenameMismatch.root, { recursive: true, force: true });
+  }
+});
+
+test("evidence supersession rejects cross-attempt input and manually forged stale state", async () => {
+  const fixture = await providerReconciliationSupersessionFixture();
+  try {
+    await assert.rejects(
+      supersedeEvidence(fixture.root, fixture.started.runId, {
+        schemaVersion: 1,
+        id: "cross-attempt-correction",
+        supersededEvidenceId: fixture.malformed.id,
+        supersededEvidenceDigest: digestObject(fixture.malformed),
+        replacementEvidenceId: fixture.replacement.id,
+        replacementEvidenceDigest: digestObject(fixture.replacement),
+        actionAttemptId: "different-attempt",
+        reason: "A different attempt must never supersede this evidence"
+      }),
+      /actionAttemptId changed/
+    );
+    await assert.rejects(
+      supersedeEvidence(fixture.root, fixture.started.runId, {
+        schemaVersion: 1,
+        id: "missing-replacement-correction",
+        supersededEvidenceId: fixture.malformed.id,
+        supersededEvidenceDigest: digestObject(fixture.malformed),
+        replacementEvidenceId: "missing-provider-proof",
+        replacementEvidenceDigest: "f".repeat(64),
+        actionAttemptId: fixture.attemptId,
+        reason: "A missing replacement must leave the original evidence blocking"
+      }),
+      /target or replacement is missing/
+    );
+    const replacementPath = path.join(fixture.run.runDir, "evidence", `${fixture.replacement.id}.json`);
+    const replacementBytes = await readFile(replacementPath, "utf8");
+    const policyDrifted = {
+      ...fixture.replacement,
+      dependencies: { ...fixture.replacement.dependencies, policyDigest: "f".repeat(64) }
+    };
+    await writeFile(replacementPath, `${JSON.stringify(policyDrifted, null, 2)}\n`);
+    await assert.rejects(
+      supersedeEvidence(fixture.root, fixture.started.runId, {
+        schemaVersion: 1,
+        id: "policy-drift-correction",
+        supersededEvidenceId: fixture.malformed.id,
+        supersededEvidenceDigest: digestObject(fixture.malformed),
+        replacementEvidenceId: policyDrifted.id,
+        replacementEvidenceDigest: digestObject(policyDrifted),
+        actionAttemptId: fixture.attemptId,
+        reason: "A policy-drifted replacement must not supersede current evidence"
+      }),
+      /Evidence immutable admission binding changed/
+    );
+    await writeFile(replacementPath, replacementBytes);
+    const malformedPath = path.join(fixture.run.runDir, "evidence", `${fixture.malformed.id}.json`);
+    await writeFile(malformedPath, `${JSON.stringify({ ...fixture.malformed, stale: true }, null, 2)}\n`);
+    const forged = await deriveLedgerStatus(fixture.root, fixture.started.runId);
+    assert.ok(forged.blockers.some((item) => item.includes("Evidence stale provenance is invalid")));
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("evidence supersession requires the current canonical policy dependency projection", async () => {
+  const arbitraryPolicyDigest = "f".repeat(64);
+  const fixture = await providerReconciliationSupersessionFixture({
+    malformedDependencies: { policyDigest: arbitraryPolicyDigest },
+    replacementDependencies: { policyDigest: arbitraryPolicyDigest }
+  });
+  try {
+    await assert.rejects(
+      supersedeEvidence(fixture.root, fixture.started.runId, {
+        schemaVersion: 1,
+        id: "forged-shared-policy-correction",
+        supersededEvidenceId: fixture.malformed.id,
+        supersededEvidenceDigest: digestObject(fixture.malformed),
+        replacementEvidenceId: fixture.replacement.id,
+        replacementEvidenceDigest: digestObject(fixture.replacement),
+        actionAttemptId: fixture.attemptId,
+        reason: "Reject two identically forged policy projections for one provider action"
+      }),
+      /current canonical dependency projection/
+    );
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("evidence supersession requires one complete canonical dependency projection", async () => {
+  const cases = [
+    {
+      label: "prompt digest mismatch",
+      malformedDependencies: { promptDigest: "a".repeat(64) },
+      replacementDependencies: {}
+    },
+    {
+      label: "model mismatch",
+      malformedDependencies: { model: "gpt-fixture" },
+      replacementDependencies: {}
+    },
+    {
+      label: "review binding mismatch",
+      malformedDependencies: { reviewBinding: { packageId: "review-fixture" } },
+      replacementDependencies: {}
+    },
+    {
+      label: "shared self-authorized review fields",
+      malformedDependencies: {
+        promptDigest: "b".repeat(64),
+        model: "gpt-fixture",
+        reviewBinding: { packageId: "review-fixture" }
+      },
+      replacementDependencies: {
+        promptDigest: "b".repeat(64),
+        model: "gpt-fixture",
+        reviewBinding: { packageId: "review-fixture" }
+      }
+    }
+  ];
+  for (const testCase of cases) {
+    const fixture = await providerReconciliationSupersessionFixture(testCase);
+    try {
+      await assert.rejects(
+        supersedeEvidence(fixture.root, fixture.started.runId, {
+          schemaVersion: 1,
+          id: `non-canonical-${testCase.label.replaceAll(" ", "-")}`,
+          supersededEvidenceId: fixture.malformed.id,
+          supersededEvidenceDigest: digestObject(fixture.malformed),
+          replacementEvidenceId: fixture.replacement.id,
+          replacementEvidenceDigest: digestObject(fixture.replacement),
+          actionAttemptId: fixture.attemptId,
+          reason: "Provider reconciliation review dependencies must be canonical and identical"
+        }),
+        /source or policy binding changed|provider reconciliation dependencies are not canonical/
+      );
+    } finally {
+      await rm(fixture.root, { recursive: true, force: true });
+    }
+  }
+});
+
+test("evidence supersession replay rejects tampered records and unjournaled legacy-shaped files", async () => {
+  const fixture = await providerReconciliationSupersessionFixture();
+  try {
+    const input = {
+      schemaVersion: 1,
+      id: "provider-proof-correction-2",
+      supersededEvidenceId: fixture.malformed.id,
+      supersededEvidenceDigest: digestObject(fixture.malformed),
+      replacementEvidenceId: fixture.replacement.id,
+      replacementEvidenceDigest: digestObject(fixture.replacement),
+      actionAttemptId: fixture.attemptId,
+      reason: "Correct the malformed receipt using the reconciled replacement"
+    };
+    const record = await supersedeEvidence(fixture.root, fixture.started.runId, input);
+    const supersessionPath = path.join(fixture.run.runDir, "evidence-supersessions", `${record.id}.json`);
+    await writeFile(supersessionPath, `${JSON.stringify({ ...record, reason: `${record.reason} tampered` }, null, 2)}\n`);
+    const tampered = await deriveLedgerStatus(fixture.root, fixture.started.runId);
+    assert.ok(tampered.blockers.some((item) => item.startsWith("invalid-evidence-supersession:")));
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+
+  const legacy = await providerReconciliationSupersessionFixture();
+  try {
+    const directory = path.join(legacy.run.runDir, "evidence-supersessions");
+    await mkdir(directory, { recursive: true });
+    await writeFile(path.join(directory, "manual.json"), `${JSON.stringify({
+      schemaVersion: 1,
+      id: "manual",
+      runId: legacy.started.runId
+    })}\n`);
+    const status = await deriveLedgerStatus(legacy.root, legacy.started.runId);
+    assert.ok(status.blockers.some((item) => item.startsWith("invalid-evidence-supersession:")));
+  } finally {
+    await rm(legacy.root, { recursive: true, force: true });
+  }
+});
+
 test("cache publication evidence requires a bound local-workspace action proof", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "sbw-v2-cache-proof-"));
   const templateDefinition = {
@@ -846,7 +2414,11 @@ test("ledger reducer derives ready set and rejects duplicate event identity", as
   });
   const started = await createRun({ root, contract, requestedMode: "verified", cwd: root });
   const run = await inspectRun(root, started.runId);
-  await addEvidence(root, started.runId, await typedRecord({ runId: started.runId, contract: run.contract }));
+  await addEvidence(root, started.runId, {
+    ...await typedRecord({ runId: started.runId, contract: run.contract }),
+    dependencyInputs: { files: [] },
+    dependencies: currentEvidenceDependencies(run, [])
+  });
   const initialLedger = JSON.parse(await readFile(path.join(run.runDir, "ledger.json"), "utf8"));
   await transitionLedger(root, started.runId, { eventId: "start-environment", type: "start", taskId: "environment", expectedLedgerDigest: digestObject(initialLedger) });
   await assert.rejects(
@@ -1061,7 +2633,11 @@ test("persisted typed evidence is revalidated before ledger admission", async ()
   });
   const started = await createRun({ root, contract, requestedMode: "verified", cwd: root });
   const run = await inspectRun(root, started.runId);
-  await addEvidence(root, started.runId, await typedRecord({ runId: started.runId, contract: run.contract }));
+  await addEvidence(root, started.runId, {
+    ...await typedRecord({ runId: started.runId, contract: run.contract }),
+    dependencyInputs: { files: [] },
+    dependencies: currentEvidenceDependencies(run, [])
+  });
   const evidencePath = path.join(run.runDir, "evidence", "environment.json");
   const tampered = JSON.parse(await readFile(evidencePath, "utf8"));
   tampered.receipt.payloadDigest = "0".repeat(64);
@@ -1072,12 +2648,12 @@ test("persisted typed evidence is revalidated before ledger admission", async ()
       type: "start",
       taskId: "environment"
     }),
-    /invalid-typed-evidence:environment/
+    /Evidence immutable admission binding changed: environment/
   );
   const ledger = JSON.parse(await readFile(path.join(run.runDir, "ledger.json"), "utf8"));
   assert.equal(ledger.events.length, 0);
   const status = await deriveLedgerStatus(root, started.runId);
-  assert.ok(status.blockers.includes("invalid-typed-evidence:environment"));
+  assert.ok(status.blockers.some((item) => item.includes("Evidence immutable admission binding changed: environment")));
   assert.equal(status.complete, false);
 });
 
@@ -1085,16 +2661,25 @@ test("generic finding dispositions and terminal mutations fail closed", async ()
   const root = await mkdtemp(path.join(os.tmpdir(), "sbw-v2-terminal-mutations-"));
   const contract = buildContract({
     template: "test-terminal-mutations",
-    templateDefinition: contractTemplate,
+    templateDefinition: {
+      ...contractTemplate,
+      actionStages: { "artifact.promote": "environment" },
+      actionGates: { "artifact.promote": ["environment-state"] }
+    },
     goal: "terminal mutation guards",
     scope: ["."],
     risk: { risk: 1, uncertainty: 0, blastRadius: 1, irreversibility: 0, evidenceGap: 0 },
     sensitivity: "internal",
-    authority: []
+    authority: ["artifact.promote"],
+    remoteRevision: "b".repeat(40)
   });
   const started = await createRun({ root, contract, requestedMode: "verified", cwd: root });
   const run = await inspectRun(root, started.runId);
-  await addEvidence(root, started.runId, await typedRecord({ runId: started.runId, contract: run.contract }));
+  await addEvidence(root, started.runId, {
+    ...await typedRecord({ runId: started.runId, contract: run.contract }),
+    dependencyInputs: { files: [] },
+    dependencies: currentEvidenceDependencies(run, [])
+  });
   await addFinding(root, started.runId, {
     id: "generic-finding",
     severity: "P1",
@@ -1119,6 +2704,61 @@ test("generic finding dispositions and terminal mutations fail closed", async ()
       summary: "unbound disposition proof"
     }, { update: true }),
     /not bound to the finding/
+  );
+  const dependencyPath = path.join(root, "finding-disposition.txt");
+  const dependencyBytes = Buffer.from("finding-disposition-v1\n");
+  await writeFile(dependencyPath, dependencyBytes);
+  const dependencyInfo = await stat(dependencyPath);
+  const disposition = await typedRecord(
+    { runId: started.runId, contract: run.contract },
+    "finding-disposition"
+  );
+  disposition.receipt.payload.findingIds = ["generic-finding"];
+  disposition.receipt.payloadDigest = digestObject(disposition.receipt.payload);
+  disposition.dependencyInputs = { files: ["finding-disposition.txt"] };
+  disposition.dependencies = currentEvidenceDependencies(run, [{
+    path: "finding-disposition.txt",
+    type: "file",
+    mode: dependencyInfo.mode,
+    size: dependencyInfo.size,
+    digest: sha256(dependencyBytes)
+  }]);
+  await addEvidence(root, started.runId, disposition);
+  await writeFile(dependencyPath, "finding-disposition-drifted-before-resolution\n");
+  await assert.rejects(
+    addFinding(root, started.runId, {
+      id: "generic-finding",
+      severity: "P1",
+      status: "resolved",
+      evidenceId: "finding-disposition",
+      summary: "stale disposition proof"
+    }, { update: true }),
+    /Finding disposition evidence is stale/
+  );
+  await writeFile(dependencyPath, dependencyBytes);
+  await addFinding(root, started.runId, {
+    id: "generic-finding",
+    severity: "P1",
+    status: "resolved",
+    evidenceId: "finding-disposition",
+    summary: "fresh disposition proof"
+  }, { update: true });
+  await updateState(root, started.runId, (state) => ({
+    ...state,
+    lastSentinel: { label: "finding-disposition", digest: "e".repeat(64) },
+    lastSentinelVerified: true,
+    lastSentinelComplete: true
+  }));
+  await writeFile(dependencyPath, "finding-disposition-drifted-after-resolution\n");
+  await assert.rejects(
+    issueActionToken(root, started.runId, {
+      action: "artifact.promote",
+      provider: "local-workspace",
+      resource: "artifact/finding-disposition",
+      remoteRevision: contract.remoteRevision,
+      requiredEvidence: ["environment-state"]
+    }, "e".repeat(64), await loadDefaults()),
+    /Finding disposition evidence is stale/
   );
   await updateState(root, started.runId, (state) => ({ ...state, status: "completed" }));
   await assert.rejects(
@@ -1182,6 +2822,134 @@ test("review package identity is pure across repeated and frozen digest inputs",
   assert.equal(reviewPackageDigest(frozen), reviewPackageDigest(frozen));
 });
 
+test("official diff review admission derives one package-bound record from an exact native critic", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sbw-v2-diff-admission-"));
+  const repository = path.join(root, "repository");
+  await mkdir(repository, { recursive: true });
+  await execFileAsync("git", ["init", "-q", "-b", "dev"], { cwd: repository });
+  await execFileAsync("git", ["config", "user.email", "test@example.com"], { cwd: repository });
+  await execFileAsync("git", ["config", "user.name", "Test User"], { cwd: repository });
+  await execFileAsync("git", ["remote", "add", "origin", "https://github.com/example/repo.git"], { cwd: repository });
+  await writeFile(path.join(repository, "README.md"), "base\n");
+  await execFileAsync("git", ["add", "README.md"], { cwd: repository });
+  await execFileAsync("git", ["commit", "-q", "-m", "base"], { cwd: repository });
+  const base = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repository })).stdout.trim();
+  await mkdir(path.join(repository, "src"));
+  await writeFile(path.join(repository, "src", "value.txt"), "candidate\n");
+  await execFileAsync("git", ["add", "src/value.txt"], { cwd: repository });
+  await execFileAsync("git", ["commit", "-q", "-m", "candidate"], { cwd: repository });
+  const head = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repository })).stdout.trim();
+  const contract = buildContract({
+    template: "test-diff-admission",
+    templateDefinition: {
+      ...contractTemplate,
+      requiredEvidence: ["environment-state"],
+      scope: ["src", "README.md"],
+      reviewProfile: legacyReviewProfile,
+      controlPlane: { ...contractTemplate.controlPlane, reviewPolicy: "code-v1" }
+    },
+    goal: "admit diff review",
+    scope: ["src", "README.md"],
+    risk: { risk: 1, uncertainty: 0, blastRadius: 1, irreversibility: 0, evidenceGap: 0 },
+    sensitivity: "internal",
+    authority: ["pr.merge"],
+    remoteRevision: base
+  });
+  const started = await createRun({ root, contract, requestedMode: "verified", cwd: repository });
+  const sentinel = await captureSentinel(repository, contract, await loadDefaults());
+  await updateState(root, started.runId, (state) => ({
+    ...state,
+    lastSentinel: { label: "initial", digest: sentinel.digest },
+    lastSentinelVerified: true,
+    lastSentinelComplete: true
+  }));
+  const reviewPackage = await createReviewPackage({
+    root,
+    runId: started.runId,
+    base,
+    head,
+    scope: ["src", "README.md"],
+    diffManifest: { files: [{ status: "A", path: "src/value.txt" }] },
+    instructionDigest: "a".repeat(64),
+    sentinelDigest: sentinel.digest
+  });
+  const nativeReview = {
+    schemaVersion: 1,
+    verdict: "PASS",
+    scopeCoverage: {
+      base,
+      head,
+      manifestPathCount: 1,
+      reviewedPathCount: 1,
+      complete: true
+    },
+    findings: []
+  };
+  const nativeReviewDigest = digestObject(nativeReview);
+  const promptDigest = reviewPackage.instructionDigest;
+  const reviewBinding = {
+    packageId: reviewPackage.packageId,
+    base,
+    head,
+    scopeDigest: reviewPackage.scopeDigest,
+    diffManifestDigest: reviewPackage.diffManifestDigest,
+    instructionDigest: reviewPackage.instructionDigest,
+    sentinelDigest: sentinel.digest
+  };
+  const execution = {
+    provider: "codex-native-subagent",
+    model: "gpt-5.5",
+    modelAssurance: "host-signed-attestation",
+    trustAttested: true,
+    promptDigest,
+    reviewDigest: nativeReviewDigest,
+    transport: "native-subagent",
+    sandbox: "read-only"
+  };
+  await addEvidence(root, started.runId, {
+    schemaVersion: 2,
+    id: "native-critic-for-diff-admission",
+    kind: "patch-review",
+    sourceKind: "independent-critic",
+    status: "complete",
+    summary: "Exact native critic pass",
+    acceptanceIds: [],
+    dependencyInputs: { files: [] },
+    dependencies: {
+      ...currentEvidenceDependencies({ manifest: { contractDigest: digestObject(contract) }, contract }),
+      promptDigest,
+      model: "gpt-5.5",
+      reviewBinding
+    },
+    providerExecution: {
+      ...execution,
+      executionDigest: digestObject(execution)
+    },
+    nativeReviewer: { id: "codex-native-test", attestationDigest: "b".repeat(64) },
+    review: nativeReview,
+    receipt: {
+      contractId: "evidence-contracts-v1:patch-review",
+      contractVersion: 1,
+      runId: started.runId,
+      producer: { provider: "codex-native-subagent" },
+      inputBinding: { runId: started.runId, contractDigest: digestObject(contract), remoteRevision: base },
+      payload: { verdict: "PASS", findingCount: 0 },
+      payloadDigest: digestObject({ verdict: "PASS", findingCount: 0 }),
+      producedAt: new Date().toISOString()
+    },
+    sourceDigest: digestObject({ verdict: "PASS", findingCount: 0 })
+  });
+  const result = await recordDiffReviewFromNative(root, started.runId, reviewPackage.packageId, "native-critic-for-diff-admission");
+  assert.equal(result.kind, "diff-review");
+  assert.equal(result.receipt.payload.packageId, reviewPackage.packageId);
+  assert.equal(result.receipt.payload.changedPathCount, 1);
+  assert.equal(result.receipt.payload.nativeReviewEvidenceId, "native-critic-for-diff-admission");
+  await assert.rejects(
+    recordDiffReviewFromNative(root, started.runId, reviewPackage.packageId, "missing-native-critic"),
+    /not a current exact independent critic/
+  );
+});
+
 test("review packages reject head drift with stable finding identity, block after the fifth scoped repair round, and require final broad review", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "sbw-v2-review-"));
   const repository = path.join(root, "repository");
@@ -1189,6 +2957,10 @@ test("review packages reject head drift with stable finding identity, block afte
   await execFileAsync("git", ["init", "-q"], { cwd: repository });
   await execFileAsync("git", ["config", "user.email", "test@example.com"], { cwd: repository });
   await execFileAsync("git", ["config", "user.name", "Test User"], { cwd: repository });
+  const patchReviewDependencyPath = path.join(repository, ".git", "sbw-patch-review.dep");
+  const diffReviewDependencyPath = path.join(repository, ".git", "sbw-diff-review.dep");
+  await writeFile(patchReviewDependencyPath, "patch-review-v1\n");
+  await writeFile(diffReviewDependencyPath, "diff-review-v1\n");
   await writeFile(path.join(repository, "README.md"), "base\n");
   await execFileAsync("git", ["add", "README.md"], { cwd: repository });
   await execFileAsync("git", ["commit", "-q", "-m", "base"], { cwd: repository });
@@ -1198,19 +2970,29 @@ test("review packages reject head drift with stable finding identity, block afte
   await execFileAsync("git", ["add", "src/a.ts"], { cwd: repository });
   await execFileAsync("git", ["commit", "-q", "-m", "change"], { cwd: repository });
   const head = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repository })).stdout.trim();
+  await execFileAsync("git", ["remote", "add", "origin", "https://github.com/example/repo.git"], { cwd: repository });
   const contract = buildContract({
     template: "test-review",
     templateDefinition: {
       ...contractTemplate,
+      requiredEvidence: ["environment-state", "required-checks"],
       scope: ["src", "README.md"],
       reviewProfile: legacyReviewProfile,
-      controlPlane: { ...contractTemplate.controlPlane, reviewPolicy: "code-v1" }
+      controlPlane: { ...contractTemplate.controlPlane, reviewPolicy: "code-v1" },
+      actionStages: {
+        "pr.merge": "environment",
+        "worktree.cleanup": "environment"
+      },
+      actionGates: {
+        "pr.merge": ["diff-review", "required-checks"],
+        "worktree.cleanup": ["diff-review"]
+      }
     },
     goal: "review",
     scope: ["src", "README.md"],
     risk: { risk: 1, uncertainty: 0, blastRadius: 1, irreversibility: 0, evidenceGap: 0 },
     sensitivity: "internal",
-    authority: ["pr.merge"],
+    authority: ["pr.merge", "worktree.cleanup"],
     remoteRevision: base
   });
   const started = await createRun({ root, contract, requestedMode: "verified", cwd: repository });
@@ -1360,7 +3142,11 @@ test("review packages reject head drift with stable finding identity, block afte
   assert.equal(accepted.owner, "owner");
   assert.equal(accepted.reason, "bounded exception");
   assert.ok(accepted.expiry);
-  await addEvidence(root, started.runId, await gateRecord(
+  const patchReviewRun = await inspectRun(root, started.runId);
+  const patchDependencyBytes = Buffer.from("patch-review-v1\n");
+  const patchDependencyInfo = await stat(patchReviewDependencyPath);
+  const patchReviewInput = {
+    ...await gateRecord(
     { runId: started.runId, contract: (await inspectRun(root, started.runId)).contract },
     "patch-review",
     {
@@ -1374,7 +3160,51 @@ test("review packages reject head drift with stable finding identity, block afte
       diffManifestDigest: first.diffManifestDigest
     },
     "review-proof"
-  ));
+    ),
+    dependencyInputs: { files: [".git/sbw-patch-review.dep"] },
+    dependencies: currentEvidenceDependencies(patchReviewRun, [{
+      path: ".git/sbw-patch-review.dep",
+      type: "file",
+      mode: patchDependencyInfo.mode,
+      size: patchDependencyInfo.size,
+      digest: sha256(patchDependencyBytes)
+    }])
+  };
+  await addEvidence(root, started.runId, patchReviewInput);
+  const patchEvidencePath = path.join((await inspectRun(root, started.runId)).runDir, "evidence", "review-proof.json");
+  const patchFreshBytes = await readFile(patchEvidencePath);
+  await writeFile(patchReviewDependencyPath, "patch-review-v2\n");
+  await refreshEvidence(root, started.runId);
+  const patchStaleBytes = await readFile(patchEvidencePath);
+  await writeFile(patchEvidencePath, patchFreshBytes);
+  await assert.rejects(
+    addReviewFinding(root, started.runId, {
+      packageId: first.packageId,
+      path: "src/a.ts",
+      location: "1",
+      rule: "unsafe",
+      severity: "P1",
+      status: "resolved",
+      evidenceId: "review-proof",
+      summary: "forged fresh review evidence must fail"
+    }, { update: true }),
+    /Evidence admission provenance is invalid|append-only freshness journal/
+  );
+  await writeFile(patchEvidencePath, patchStaleBytes);
+  const patchCurrentDependencyBytes = Buffer.from("patch-review-v2\n");
+  const patchCurrentDependencyInfo = await stat(patchReviewDependencyPath);
+  await addEvidence(root, started.runId, {
+    ...patchReviewInput,
+    id: "review-proof-current",
+    dependencyInputs: { files: [".git/sbw-patch-review.dep"] },
+    dependencies: currentEvidenceDependencies(patchReviewRun, [{
+      path: ".git/sbw-patch-review.dep",
+      type: "file",
+      mode: patchCurrentDependencyInfo.mode,
+      size: patchCurrentDependencyInfo.size,
+      digest: sha256(patchCurrentDependencyBytes)
+    }])
+  });
   const packageDigest = reviewPackageDigest(first);
   const repairResult = (round) => ({
     repairAttemptId: `repair-${round}`,
@@ -1399,7 +3229,7 @@ test("review packages reject head drift with stable finding identity, block afte
     rule: "unsafe",
     severity: "P1",
     status: "resolved",
-    evidenceId: "review-proof",
+    evidenceId: "review-proof-current",
     summary: "fixed"
   }, { update: true });
   const closed = await reviewStatus(root, started.runId);
@@ -1411,11 +3241,15 @@ test("review packages reject head drift with stable finding identity, block afte
     rule: "risk",
     severity: "P2",
     status: "resolved",
-    evidenceId: "review-proof",
+    evidenceId: "review-proof-current",
     summary: "accepted risk expired by policy"
   }, { update: true });
   assert.equal((await reviewStatus(root, started.runId)).scopedClosed, true);
-  await addEvidence(root, started.runId, await gateRecord(
+  const diffReviewRun = await inspectRun(root, started.runId);
+  const diffDependencyBytes = Buffer.from("diff-review-v1\n");
+  const diffDependencyInfo = await stat(diffReviewDependencyPath);
+  const diffReviewInput = {
+    ...await gateRecord(
     { runId: started.runId, contract: (await inspectRun(root, started.runId)).contract },
     "diff-review",
     {
@@ -1429,7 +3263,17 @@ test("review packages reject head drift with stable finding identity, block afte
       instructionDigest: first.instructionDigest
     },
     "diff-review-proof"
-  ));
+    ),
+    dependencyInputs: { files: [".git/sbw-diff-review.dep"] },
+    dependencies: currentEvidenceDependencies(diffReviewRun, [{
+      path: ".git/sbw-diff-review.dep",
+      type: "file",
+      mode: diffDependencyInfo.mode,
+      size: diffDependencyInfo.size,
+      digest: sha256(diffDependencyBytes)
+    }])
+  };
+  await addEvidence(root, started.runId, diffReviewInput);
   const driftPath = path.join(repository, "workspace-drift.txt");
   await writeFile(driftPath, "drift\n");
   await assert.rejects(
@@ -1439,119 +3283,91 @@ test("review packages reject head drift with stable finding identity, block afte
   await unlink(driftPath);
   const restoredSentinel = await captureSentinel(repository, contract, await loadDefaults());
   assert.equal(restoredSentinel.digest, sentinel.digest);
+  const diffEvidencePath = path.join((await inspectRun(root, started.runId)).runDir, "evidence", "diff-review-proof.json");
+  const diffFreshBytes = await readFile(diffEvidencePath);
+  await writeFile(diffReviewDependencyPath, "diff-review-v2\n");
+  await refreshEvidence(root, started.runId);
+  const diffStaleBytes = await readFile(diffEvidencePath);
+  const patchBroadDependencyInfo = await stat(patchReviewDependencyPath);
+  await addEvidence(root, started.runId, {
+    ...patchReviewInput,
+    id: "review-proof-broad",
+    dependencyInputs: { files: [".git/sbw-patch-review.dep"] },
+    dependencies: currentEvidenceDependencies(patchReviewRun, [{
+      path: ".git/sbw-patch-review.dep",
+      type: "file",
+      mode: patchBroadDependencyInfo.mode,
+      size: patchBroadDependencyInfo.size,
+      digest: sha256(patchCurrentDependencyBytes)
+    }])
+  });
+  await addReviewFinding(root, started.runId, {
+    packageId: first.packageId,
+    path: "src/a.ts",
+    location: "1",
+    rule: "unsafe",
+    severity: "P1",
+    status: "resolved",
+    evidenceId: "review-proof-broad",
+    summary: "fresh proof after broad-review dependency refresh"
+  }, { update: true });
+  await addReviewFinding(root, started.runId, {
+    packageId: first.packageId,
+    path: "src/a.ts",
+    location: "2",
+    rule: "risk",
+    severity: "P2",
+    status: "resolved",
+    evidenceId: "review-proof-broad",
+    summary: "fresh risk proof after broad-review dependency refresh"
+  }, { update: true });
+  await writeFile(diffEvidencePath, diffFreshBytes);
+  await assert.rejects(
+    markBroadReviewComplete(root, started.runId, first.packageId, head, sentinel.digest),
+    /Evidence admission provenance is invalid|append-only freshness journal/
+  );
+  await writeFile(diffEvidencePath, diffStaleBytes);
+  const diffCurrentDependencyBytes = Buffer.from("diff-review-v2\n");
+  const diffCurrentDependencyInfo = await stat(diffReviewDependencyPath);
+  await addEvidence(root, started.runId, {
+    ...diffReviewInput,
+    id: "diff-review-proof-current",
+    dependencyInputs: { files: [".git/sbw-diff-review.dep"] },
+    dependencies: currentEvidenceDependencies(diffReviewRun, [{
+      path: ".git/sbw-diff-review.dep",
+      type: "file",
+      mode: diffCurrentDependencyInfo.mode,
+      size: diffCurrentDependencyInfo.size,
+      digest: sha256(diffCurrentDependencyBytes)
+    }])
+  });
+  const staleDiffReview = JSON.parse(diffStaleBytes);
+  await supersedeReviewEvidence(root, started.runId, {
+    schemaVersion: 1,
+    id: "review-evidence-dependency-refresh",
+    supersededEvidenceId: staleDiffReview.id,
+    supersededEvidenceDigest: digestObject(staleDiffReview),
+    replacementEvidenceId: "diff-review-proof-current",
+    replacementEvidenceDigest: digestObject(
+      (await inspectRun(root, started.runId)).evidence.find((item) => item.id === "diff-review-proof-current")
+    ),
+    reasonCode: "dependency-freshness-drift",
+    reason: "Record the dependency refresh before selecting the corrected review receipt"
+  });
   await markBroadReviewComplete(root, started.runId, first.packageId, head, sentinel.digest);
   assert.equal((await reviewStatus(root, started.runId)).complete, true);
   const broadRetry = await createReviewPackage(input);
   assert.equal(broadRetry.packageId, first.packageId);
   const continuity = await assertReviewContinuity(root, started.runId);
   const runDir = (await inspectRun(root, started.runId)).runDir;
-  await execFileAsync("git", ["remote", "add", "origin", "https://github.com/example/repo.git"], { cwd: repository });
-  const bin = path.join(root, "bin");
-  await mkdir(bin);
-  const fakeGh = path.join(bin, "gh");
-  const providerCounter = path.join(root, "provider-counter");
-  const providerMergeMarker = path.join(root, "provider-merge-invoked");
-  const lateFindingId = stableFindingId({
-    packageId: first.packageId,
-    path: "src/a.ts",
-    location: "late-provider-preflight",
-    rule: "provider-preflight-continuity"
-  });
-  const lateFindingSource = path.join(root, "late-provider-finding.json");
-  const lateFindingTarget = path.join(runDir, "review-findings", `${lateFindingId}.json`);
-  await writeFile(lateFindingSource, `${JSON.stringify({
-    schemaVersion: 1,
-    id: lateFindingId,
-    packageId: first.packageId,
-    path: "src/a.ts",
-    location: "late-provider-preflight",
-    rule: "provider-preflight-continuity",
-    severity: "P2",
-    status: "open",
-    summary: "A finding appeared after provider preflight began.",
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  })}\n`);
-  const fakeGhScript = `#!/bin/sh
-if [ "$1" = "api" ] && [ "$2" = "user" ]; then
-  printf '%s\\n' '{"login":"alice"}'
-elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo" ]; then
-  printf '%s\\n' '{"full_name":"example/repo","permissions":{"admin":false,"maintain":false,"push":true}}'
-elif [ "$1" = "api" ] && [ "$2" = "repos/example/repo/pulls/12" ]; then
-  count=0
-  if [ -f '${providerCounter}' ]; then count=$(/bin/cat '${providerCounter}'); fi
-  count=$((count + 1))
-  printf '%s' "$count" > '${providerCounter}'
-  if [ "$count" -eq 2 ]; then /bin/cp '${lateFindingSource}' '${lateFindingTarget}'; fi
-  printf '%s\\n' '{"number":12,"state":"open","head":{"sha":"${head}"},"base":{"ref":"main","sha":"${base}"},"mergeable":true,"mergeable_state":"clean"}'
-elif [ "$1" = "pr" ] && [ "$2" = "merge" ]; then
-  /usr/bin/touch '${providerMergeMarker}'
-  printf '%s\\n' '{"merged":true}'
-else
-  exit 2
-fi
-`;
-  await writeFile(fakeGh, fakeGhScript);
-  await chmod(fakeGh, 0o755);
-  const mergeToken = "review-provider-continuity-token";
-  const mergeTokenHash = sha256(mergeToken);
-  const providerExecutable = { path: await realpath(fakeGh), digest: sha256(fakeGhScript) };
-  const providerAuthorization = {
-    provider: "github-cli",
-    actor: "alice",
-    repository: "github.com/example/repo",
-    permissions: { admin: false, maintain: false, push: true }
-  };
-  const mergeCommand = [
-    "gh", "pr", "merge", "12", "--repo", "github.com/example/repo",
-    "--match-head-commit", head, "--merge", "--delete-branch=false"
-  ];
-  await writeFile(path.join(runDir, "actions", `${mergeTokenHash}.json`), `${JSON.stringify({
-    schemaVersion: 1,
-    tokenHash: mergeTokenHash,
-    status: "issued",
-    outcome: null,
-    issuedAt: new Date().toISOString(),
-    expiresAt: new Date(Date.now() + 60_000).toISOString(),
-    runId: started.runId,
-    action: "pr.merge",
-    provider: "github-cli",
-    resource: "pull/12",
-    remoteRevision: base,
-    treeDigest: sentinel.digest,
-    contractDigest: digestObject(contract),
-    idempotencyKey: "review-provider-continuity-idempotency",
-    reviewedHead: continuity.head,
-    reviewPackageId: continuity.packageId,
-    reviewContinuityDigest: continuity.continuityDigest,
-    pullRequest: 12,
-    mergeRepository: "github.com/example/repo",
-    mergeCommand,
-    mergeMethod: "merge",
-    adminBypass: false,
-    providerExecutable,
-    providerAuthorizationExecutable: providerExecutable,
-    providerAuthorization
-  }, null, 2)}\n`);
-  const priorPath = process.env.PATH;
-  process.env.PATH = `${bin}:${priorPath}`;
-  try {
-    await assert.rejects(
-      executeActionToken(root, started.runId, mergeToken, sentinel.digest),
-      /Review continuity requires a complete current review/
-    );
-  } finally {
-    process.env.PATH = priorPath;
-  }
-  await assert.rejects(stat(providerMergeMarker));
-  const stoppedMerge = (await inspectRun(root, started.runId)).actions.find((item) => item.tokenHash === mergeTokenHash);
-  assert.equal(stoppedMerge.status, "spent");
-  assert.equal(stoppedMerge.providerInvocation.dispatchState, "not-sent");
-  await unlink(path.join(runDir, "actions", `${mergeTokenHash}.json`));
-  await unlink(lateFindingTarget);
-  assert.equal((await reviewStatus(root, started.runId)).complete, true);
   const token = "review-continuity-token";
   const tokenHash = sha256(token);
+  const cleanupGateBinding = await currentActionEvidenceGateBinding(
+    root,
+    started.runId,
+    await inspectRun(root, started.runId),
+    "worktree.cleanup"
+  );
   await writeFile(path.join(runDir, "actions", `${tokenHash}.json`), `${JSON.stringify({
     schemaVersion: 1,
     tokenHash,
@@ -1567,6 +3383,9 @@ fi
     remoteRevision: base,
     treeDigest: sentinel.digest,
     contractDigest: digestObject(contract),
+    evidenceSupersessionFreshnessDigest: cleanupGateBinding.evidenceSupersessionFreshnessDigest,
+    evidenceGate: cleanupGateBinding.configuredGate,
+    evidenceGateDigest: cleanupGateBinding.digest,
     idempotencyKey: "review-continuity-idempotency",
     reviewedHead: continuity.head,
     reviewPackageId: continuity.packageId,
@@ -1778,7 +3597,11 @@ test("action tokens require the mapped ledger stage to be ready", async () => {
   });
   const started = await createRun({ root, contract, requestedMode: "verified", cwd: root });
   const run = await inspectRun(root, started.runId);
-  await addEvidence(root, started.runId, await typedRecord({ runId: started.runId, contract: run.contract }));
+  await addEvidence(root, started.runId, {
+    ...await typedRecord({ runId: started.runId, contract: run.contract }),
+    dependencyInputs: { files: [] },
+    dependencies: currentEvidenceDependencies(run, [])
+  });
   await updateState(root, started.runId, (state) => ({
     ...state,
     lastSentinel: { label: "test", digest: "tree" },

@@ -273,6 +273,21 @@ long-running task for another evaluator confirmation. If `sudo -n` or any
 root-side validation fails, record the mismatch and fail closed; never weaken
 the rule or silently switch to a password prompt. A new administrator approval
 is required only to install, replace, or revoke the standing grant.
+
+The broader interaction default is `auto-deduplicated`: reuse an applicable
+standing user directive for freshness-only exact-binding refreshes without
+asking again. Never infer added evaluator, disclosure, signer, or delivery
+scope. A material source/data/recipient/provider/side-effect change is one
+structured HOLD unless the standing directive expressly covers it. Strict
+per-request prompts are used only when the user explicitly requests strict
+mode. Never ask the user to paste or repeat an administrator password.
+
+Self-improvement review repairs share the repository campaign budget with every
+successor run and package. After five repair waves, terminalize as
+`campaign-repair-budget-exhausted`; do not create another package to reset the
+counter. Use only `sbw eval --formal` for formal evaluation and
+`sbw review launch-native` for package-bound native review; ad-hoc shell
+launchers and ad-hoc `codex exec` reviews are non-admissible diagnostics.
 Before execution, the root signer independently revalidates the signed grant,
 policy and command digests, owner/mode and canonical paths, exact source-bound
 manifest, request count, model, purpose, prompt schema, complete changed-file

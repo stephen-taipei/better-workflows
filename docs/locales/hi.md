@@ -2,7 +2,7 @@
 
 # Better Workflows
 
-अद्यतन साक्ष्य, समीक्षा-द्वार और सेवा प्रदाता से मिलान के साथ लक्ष्य-प्रथम मुक्त-स्रोत एजेंट कार्यप्रवाह नियंत्रण-परत।
+AI agent जोखिम के अनुसार verification की ताकत चुने और isolated environment में काम सुरक्षित रूप से पूरा करे। सरल बदलाव तेज़ी से पूरे होते हैं; महत्वपूर्ण काम evidence gates से गुजरता है; Git बदलाव default रूप से dedicated worktree में होते हैं।
 
 [English](en.md) · [繁體中文](zh-Hant.md) · [繁體中文（台灣）](zh-Hant-TW.md) · [繁體中文（香港）](zh-Hant-HK.md) · [简体中文](zh-Hans.md) · [Tiếng Việt](vi.md) · [Українська](uk.md) · [Türkçe](tr.md) · [ไทย](th.md) · [Svenska](sv.md) · [Slovenčina](sk.md) · [Русский](ru.md) · [Română](ro.md) · [Português](pt.md) · [Português (Brasil)](pt-BR.md) · [Polski](pl.md) · [Nederlands](nl.md) · [Norsk bokmål](nb.md) · [မြန်မာ](my.md) · [Bahasa Melayu](ms.md) · [ລາວ](lo.md) · [한국어](ko.md) · [ខ្មែរ](km.md) · [日本語](ja.md) · [Italiano](it.md) · [Bahasa Indonesia](id.md) · [Magyar](hu.md) · [Hrvatski](hr.md) · **हिन्दी** · [עברית](he.md) · [Français](fr.md) · [Filipino](fil.md) · [Suomi](fi.md) · [Español](es.md) · [Español (México)](es-MX.md) · [Ελληνικά](el.md) · [Deutsch](de.md) · [Dansk](da.md) · [Čeština](cs.md) · [Català](ca.md) · [العربية](ar.md)
 
@@ -19,7 +19,7 @@ Better Workflows लक्ष्य, दायरा और अधिकार �
 Contract तय करें, source और evidence सत्यापित करें, बाहरी प्रभावों का मिलान करें और अंतिम स्थिति ज्ञात होने पर ही कार्य पूर्ण घोषित करें।
 
 - **01 · `TaskContract`** — Better Workflows लक्ष्य, दायरा और अधिकार स्थिर करता है और हर निर्णय को अद्यतन, दोबारा सत्यापित किए जा सकने वाले साक्ष्य तथा मिलान किए गए बाहरी परिणाम से बाँधता है।
-- **02 · `evidence`** — अद्यतन साक्ष्य, समीक्षा-द्वार और सेवा प्रदाता से मिलान के साथ लक्ष्य-प्रथम मुक्त-स्रोत एजेंट कार्यप्रवाह नियंत्रण-परत।
+- **02 · `evidence`** — AI agent जोखिम के अनुसार verification की ताकत चुने और isolated environment में काम सुरक्षित रूप से पूरा करे। सरल बदलाव तेज़ी से पूरे होते हैं; महत्वपूर्ण काम evidence gates से गुजरता है; Git बदलाव default रूप से dedicated worktree में होते हैं।
 - **03 · `reconciliation`** — Contract तय करें, source और evidence सत्यापित करें, बाहरी प्रभावों का मिलान करें और अंतिम स्थिति ज्ञात होने पर ही कार्य पूर्ण घोषित करें।
 - **04 · `terminal state`** — सिर्फ़ कमांड चलना पूर्णता का प्रमाण नहीं है; दोबारा सत्यापित परिणाम ही प्रमाण है।
 

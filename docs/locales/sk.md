@@ -2,7 +2,7 @@
 
 # Better Workflows
 
-Open-source, goal-first riadiaca vrstva pre pracovné postupy agentov s aktuálnymi dôkazmi, kontrolami a zosúladením poskytovateľa.
+AI agent prispôsobí silu overenia riziku a bezpečne dokončí prácu v izolovanom prostredí. Jednoduché zmeny idú rýchlo; dôležitá práca používa evidence gates; zmeny Git používajú predvolene vlastný worktree.
 
 [English](en.md) · [繁體中文](zh-Hant.md) · [繁體中文（台灣）](zh-Hant-TW.md) · [繁體中文（香港）](zh-Hant-HK.md) · [简体中文](zh-Hans.md) · [Tiếng Việt](vi.md) · [Українська](uk.md) · [Türkçe](tr.md) · [ไทย](th.md) · [Svenska](sv.md) · **Slovenčina** · [Русский](ru.md) · [Română](ro.md) · [Português](pt.md) · [Português (Brasil)](pt-BR.md) · [Polski](pl.md) · [Nederlands](nl.md) · [Norsk bokmål](nb.md) · [မြန်မာ](my.md) · [Bahasa Melayu](ms.md) · [ລາວ](lo.md) · [한국어](ko.md) · [ខ្មែរ](km.md) · [日本語](ja.md) · [Italiano](it.md) · [Bahasa Indonesia](id.md) · [Magyar](hu.md) · [Hrvatski](hr.md) · [हिन्दी](hi.md) · [עברית](he.md) · [Français](fr.md) · [Filipino](fil.md) · [Suomi](fi.md) · [Español](es.md) · [Español (México)](es-MX.md) · [Ελληνικά](el.md) · [Deutsch](de.md) · [Dansk](da.md) · [Čeština](cs.md) · [Català](ca.md) · [العربية](ar.md)
 
@@ -19,7 +19,7 @@ Better Workflows ukotví cieľ, rozsah a oprávnenia a každé rozhodnutie previ
 Definujte zmluvu, overte zdroj a dôkazy, zosúlaďte externé účinky a dokončenie vyhláste až vtedy, keď je koncový stav známy.
 
 - **01 · `TaskContract`** — Better Workflows ukotví cieľ, rozsah a oprávnenia a každé rozhodnutie previaže s aktuálnymi, opätovne overiteľnými dôkazmi a zosúladeným externým výsledkom.
-- **02 · `evidence`** — Open-source, goal-first riadiaca vrstva pre pracovné postupy agentov s aktuálnymi dôkazmi, kontrolami a zosúladením poskytovateľa.
+- **02 · `evidence`** — AI agent prispôsobí silu overenia riziku a bezpečne dokončí prácu v izolovanom prostredí. Jednoduché zmeny idú rýchlo; dôležitá práca používa evidence gates; zmeny Git používajú predvolene vlastný worktree.
 - **03 · `reconciliation`** — Definujte zmluvu, overte zdroj a dôkazy, zosúlaďte externé účinky a dokončenie vyhláste až vtedy, keď je koncový stav známy.
 - **04 · `terminal state`** — Spustenie príkazu nedokazuje dokončenie; opätovne overiteľný výsledok áno.
 

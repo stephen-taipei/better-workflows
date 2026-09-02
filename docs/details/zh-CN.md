@@ -80,7 +80,7 @@ flowchart LR
 
 ### 版本化 handoff package
 
-Better Workflows 接受探索结果前，先将其规范化为版本化 handoff package，作为防止 scope drift 的边界：
+Better Workflows 接受探索结果前，先将其规范化为版本化 handoff package，用来阻挡可观测的 handoff drift；这不等于已用统计证明长期 scope drift 下降：
 
 | Gate | 必要资料 | 何时拒绝并回到探索 |
 | --- | --- | --- |
@@ -145,7 +145,7 @@ required capabilities，以及最多三个**仅提供建议**的 support skills�
 | ---: | --- | --- |
 | 1 | Host hard constraints | 本地配置不能降低；host 未提供输入时显示 `unverified`。 |
 | 2 | 明确 entry/template/mode | 用户的 picker 或 CLI 选择优先。 |
-| 3 | Workspace Profile | `<repo>/.codex/better-workflows.json`；匹配时取代 personal route。 |
+| 3 | Workspace Profile | `<repo>/.better-workflows/profile.json`；仅在 v4 路径不存在时读取旧版 `<repo>/.codex/better-workflows.json`，匹配时取代 personal route。 |
 | 4 | Personal Profile | `$SBW_STATE_ROOT/routing/profile.json`。 |
 | 5 | 内置 `auto` | 在证据选出真实 template 前返回 `template: null`。 |
 
@@ -294,6 +294,8 @@ node plugins/better-workflows/scripts/sbw.mjs recipe run <id> \
 ```
 
 只解析 Git root 的 `.codex/better-workflows/`；routing Profile `.codex/better-workflows.json` 不能授权 recipe。clone 后一律视为不可信并重新 promotion。dry-run 执行已信任程序但丢弃 staging；正式 run 才原子发布已声明且默认 ignored 的 artifacts。提升单一 artifact 另需 `artifact.promote` action。一般私密 receipt 只保存 digests、时间、artifact metadata 与 reconciliation，不保存 raw input、conversation、credentials 或 secrets。reconciled side-effect action record 会为 terminal state 验证私密保存 provider receipt，但不会进入 external handoff 或 graph projection。
+
+Recipe 程序本身仍没有 source-mutation authority。root-owned local provider 只能为 `recipe.promote` 精确启用 config，或为 `artifact.promote` 创建一个原本不存在的目标文件。receipt 会绑定 action attempt、path、前后 bytes、完整 sentinel 与 source binding；移除该唯一 path 后，两份 snapshot 必须完全一致。ignored artifact store 也只有在 tracked marker 内容精确符合内置 policy 时，才视为受管理的非 source 输出。任何额外 drift 或 transition history 篡改都不能授权 success。
 
 自我改进 evaluation 只使用已 checked-in、sanitized 且在 immutable baseline 冻结的 train/holdout corpus。candidate 必须先 staging；三次 read-only Codex holdout replay 必须在没有 safety failure 或 regression 的前提下严格超过 baseline median。Codex replay 需要 host-signed attestation，把精确 binary 与 model 绑定到固定的 `/etc/better-workflows/codex-trust-root.json`；该文件和父目录必须由 administrator 拥有且调用者不可写入。`PATH`、自行计算 hash、CLI 选择 trust root 或 model 自述都不是 provider attestation。tie、noise、缺少 evidence 或 fixture-only 结果都不会 auto-adopt。
 
@@ -447,7 +449,7 @@ node plugins/better-workflows/scripts/sbw.mjs run \
 
 | Mode | 行为 |
 | --- | --- |
-| `direct` | Root 直接工作，不创建 durable workflow state。 |
+| `direct` | Root 不创建 evidence workflow state；Git 修改仍保存最小 `TaskWorkspaceLeaseV1`，并使用当前任务专属 worktree。 |
 | `verified` | Root 加 1–3 个只读研究／Review／反证 agents。 |
 | `deep` | `verified` 后串行加入最多两个 Codex critics。 |
 | `critical` | 完整 evidence、side-effect gates 与 policy 要求的外部 reviewer。 |

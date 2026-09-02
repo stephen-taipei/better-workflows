@@ -2,7 +2,7 @@
 
 # Better Workflows
 
-Control plane sumber terbuka dan goal-first untuk aliran kerja agent dengan bukti terkini, gerbang semakan dan penyelarasan provider.
+AI agent melaras kekuatan pengesahan mengikut risiko dan menyiapkan kerja dengan selamat dalam persekitaran terasing. Perubahan mudah bergerak pantas; kerja penting menggunakan evidence gates; perubahan Git menggunakan worktree khusus secara lalai.
 
 [English](en.md) · [繁體中文](zh-Hant.md) · [繁體中文（台灣）](zh-Hant-TW.md) · [繁體中文（香港）](zh-Hant-HK.md) · [简体中文](zh-Hans.md) · [Tiếng Việt](vi.md) · [Українська](uk.md) · [Türkçe](tr.md) · [ไทย](th.md) · [Svenska](sv.md) · [Slovenčina](sk.md) · [Русский](ru.md) · [Română](ro.md) · [Português](pt.md) · [Português (Brasil)](pt-BR.md) · [Polski](pl.md) · [Nederlands](nl.md) · [Norsk bokmål](nb.md) · [မြန်မာ](my.md) · **Bahasa Melayu** · [ລາວ](lo.md) · [한국어](ko.md) · [ខ្មែរ](km.md) · [日本語](ja.md) · [Italiano](it.md) · [Bahasa Indonesia](id.md) · [Magyar](hu.md) · [Hrvatski](hr.md) · [हिन्दी](hi.md) · [עברית](he.md) · [Français](fr.md) · [Filipino](fil.md) · [Suomi](fi.md) · [Español](es.md) · [Español (México)](es-MX.md) · [Ελληνικά](el.md) · [Deutsch](de.md) · [Dansk](da.md) · [Čeština](cs.md) · [Català](ca.md) · [العربية](ar.md)
 
@@ -19,7 +19,7 @@ Better Workflows menetapkan goal, scope dan authority, kemudian mengikat setiap 
 Tetapkan contract, sahkan source dan evidence, selaraskan kesan luaran, dan isytiharkan completion hanya apabila terminal state diketahui.
 
 - **01 · `TaskContract`** — Better Workflows menetapkan goal, scope dan authority, kemudian mengikat setiap keputusan kepada bukti terkini yang boleh disahkan semula serta hasil luaran yang telah diselaraskan.
-- **02 · `evidence`** — Control plane sumber terbuka dan goal-first untuk aliran kerja agent dengan bukti terkini, gerbang semakan dan penyelarasan provider.
+- **02 · `evidence`** — AI agent melaras kekuatan pengesahan mengikut risiko dan menyiapkan kerja dengan selamat dalam persekitaran terasing. Perubahan mudah bergerak pantas; kerja penting menggunakan evidence gates; perubahan Git menggunakan worktree khusus secara lalai.
 - **03 · `reconciliation`** — Tetapkan contract, sahkan source dan evidence, selaraskan kesan luaran, dan isytiharkan completion hanya apabila terminal state diketahui.
 - **04 · `terminal state`** — Arahan yang dilaksanakan bukan bukti kerja selesai; hasil yang boleh disahkan semula ialah buktinya.
 

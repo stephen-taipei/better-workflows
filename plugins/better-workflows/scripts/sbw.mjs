@@ -8,6 +8,7 @@ import {
   readFile,
   readdir,
   readlink,
+  realpath,
   stat
 } from "node:fs/promises";
 import path from "node:path";
@@ -42,17 +43,20 @@ import {
   pluginRoot,
   readJson,
   reconcileAction,
+  refreshEvidence,
   rebindSourceBinding,
   routeMode,
   registerOwnedResource,
   safeJoin,
   setRunStatus,
   sha256,
+  supersedeEvidence,
+  supersedeReviewEvidence,
   updateState,
   validateContract,
   withRunLock
 } from "./lib/core.mjs";
-import { captureSentinel, captureSourceBinding, compareSentinels, runSourceGit } from "./lib/git.mjs";
+import { captureSentinel, captureSourceBinding, compareSentinels, resolveRemoteBranchRevision, runSourceGit } from "./lib/git.mjs";
 import {
   doctorAgy,
   doctorCodex,
@@ -127,6 +131,7 @@ import {
   recordReviewAxis,
   recordReviewCoverage,
   recordReviewSynthesis,
+  recordDiffReviewFromNative,
   reviewPackageDigest,
   reviewKernelStatus,
   reviewStatus
@@ -165,6 +170,32 @@ import {
   validateRoutingProfileFile
 } from "./lib/routing.mjs";
 import {
+  buildInteractionAuthorizationReceipt,
+  buildInteractionRequest,
+  decideInteractionAuthorization
+} from "./lib/interaction-authorization.mjs";
+import {
+  hostConformance,
+  hostDoctor,
+  hostList,
+  normalizeHostOs,
+  releaseConformanceMatrix
+} from "./lib/hosts.mjs";
+import {
+  workspaceBeginDirect,
+  workspaceCleanup,
+  workspaceCreate,
+  workspaceDirectCompletionNotice,
+  workspaceIntegrate,
+  workspacePreflight,
+  readWorkspaceLease,
+  workspaceReconcileProtected,
+  workspaceRegister,
+  workspaceRebindTarget,
+  workspaceStatus,
+  workspaceValidate
+} from "./lib/workspace.mjs";
+import {
   applyDelegatedSelfImproveContract,
   buildRunGraph,
   buildTemplateCatalogGraph,
@@ -172,6 +203,11 @@ import {
   graphHasErrors,
   renderGraphMermaid
 } from "./lib/graph.mjs";
+import { openReplayBrowserWithRecovery, replayStartedEvent, startReplayServer } from "./lib/replay-server.mjs";
+import { fixedToolPath, runFormalEvaluator } from "./lib/formal-evaluator.mjs";
+import { runNativeReview } from "./lib/native-review-runner.mjs";
+import { listRunMetrics, readRunMetrics, summarizeRunMetrics } from "./lib/metrics.mjs";
+import { compareShadowReplay } from "./lib/shadow-replay.mjs";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const TEMPLATE_DIR = path.join(pluginRoot(), "templates");
@@ -181,9 +217,14 @@ const RUN_MODE_RANK = new Map(
   ["direct", "verified", "deep", "critical"].map((mode, index) => [mode, index])
 );
 const GRAPH_ENFORCEMENT_ENABLED = true;
+const DEV_DELIVERY_TEMPLATE_NAMES = new Set(["pr-to-dev", "pr-to-dev-agent-quorum"]);
 
 function print(value) {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
+}
+
+function printEvent(value, stream = process.stdout) {
+  stream.write(`${JSON.stringify(value)}\n`);
 }
 
 function fail(error, code = 1) {
@@ -199,6 +240,35 @@ function fail(error, code = 1) {
   );
   process.exitCode = code;
 }
+
+// A value passed to an option may legitimately begin with `--` (for example
+// the randomly generated action token used by `action consume`).  Treating
+// every such token as another option silently converted that value to the
+// boolean `true`, producing a different token hash and an apparently missing
+// action record.  Keep the small set of valueless switches explicit so all
+// other options consume their following argument verbatim.
+const BOOLEAN_OPTIONS = new Set([
+  "help",
+  "refresh",
+  "allow-codex",
+  "allow-external-providers",
+  "sanitized",
+  "allow-agy",
+  "require-agy",
+  "dry-run",
+  "apply",
+  "update",
+  "strict",
+  "capabilities",
+  "agy",
+  "write-receipt",
+  "no-open",
+  "formal",
+  "formal-child",
+  "acceptance-defined",
+  "protected-target",
+  "record"
+]);
 
 function parseArgs(argv) {
   const positional = [];
@@ -218,7 +288,7 @@ function parseArgs(argv) {
     } else {
       key = token.slice(2);
       const next = argv[index + 1];
-      if (next !== undefined && !next.startsWith("--")) {
+      if (next !== undefined && (!next.startsWith("--") || !BOOLEAN_OPTIONS.has(key))) {
         value = next;
         index += 1;
       } else {
@@ -604,51 +674,6 @@ async function enrichEvidence(root, runId, record) {
       remoteRevision: record.dependencies?.remoteRevision ?? run.contract.remoteRevision ?? null
     }
   };
-}
-
-async function refreshEvidence(root, runId) {
-  return withRunLock(root, runId, async ({ runDir }) => {
-    const run = await loadRun(root, runId);
-    assertMutableRun(run, "Evidence freshness");
-    const evidence = await listJsonRecords(root, safeJoin(runDir, "evidence"));
-    const sourceBinding = run.manifest.sourceBinding
-      ? await captureSourceBinding(run.manifest.cwd, {
-          baseRevision: run.manifest.sourceBinding.baseRevision,
-          requireClean: run.manifest.template === "self-improve-ops"
-        })
-      : null;
-    const stale = [];
-    const fresh = [];
-    for (const record of evidence) {
-      const definition = await evidenceDefinition(record);
-      const sourceBindingRequired = definition?.freshnessBinding?.includes("sourceBindingDigest") === true;
-      const sourceSentinelRequired = definition?.freshnessBinding?.includes("sourceSentinelDigest") === true;
-      let current = [];
-      let isStale =
-        record.dependencies?.contractDigest !== run.manifest.contractDigest ||
-        record.dependencies?.workflowVersion !== VERSION ||
-        (sourceBindingRequired && (!run.manifest.sourceBinding || record.dependencies?.sourceBindingDigest !== sourceBinding?.digest));
-      if (sourceSentinelRequired && (!run.manifest.sourceBinding || record.dependencies?.sourceSentinelDigest !== run.state.lastSentinel?.digest)) {
-        isStale = true;
-      }
-      if (!Array.isArray(record.dependencyInputs?.files)) isStale = true;
-      else {
-        for (const candidate of record.dependencyInputs.files) {
-          current.push(await fingerprintPath(run.manifest.cwd, candidate));
-        }
-        if (digestObject(current) !== digestObject(record.dependencies?.files ?? [])) isStale = true;
-      }
-      const next = {
-        ...record,
-        stale: isStale,
-        freshnessCheckedAt: nowIso(),
-        currentDependencyFiles: current
-      };
-      await atomicWriteJson(root, safeJoin(runDir, "evidence", `${record.id}.json`), next);
-      (isStale ? stale : fresh).push(record.id);
-    }
-    return { stale, fresh };
-  });
 }
 
 async function evidenceDefinition(record) {
@@ -1541,27 +1566,131 @@ async function commandRun(root, options) {
     "evaluation-purpose",
     "self-improve-run",
     "route-receipt",
-    "autonomy-profile"
+    "autonomy-profile",
+    "interaction-mode",
+    "strict",
+    "workspace-task-id",
+    "workspace-repository-id"
   ]);
   let receiptBinding = null;
   if (options["route-receipt"]) {
-    for (const conflicting of ["template", "entry", "goal", "scope", "mode", "self-improve-run", "autonomy-profile"]) {
+    for (const conflicting of ["template", "entry", "goal", "scope", "mode", "self-improve-run", "autonomy-profile", "interaction-mode", "strict"]) {
       if (options[conflicting] !== undefined) {
         throw new Error(`--route-receipt cannot be combined with --${conflicting}`);
       }
     }
+    const hasWorkspaceTask = Boolean(options["workspace-task-id"]);
+    const hasWorkspaceRepository = Boolean(options["workspace-repository-id"]);
+    if (hasWorkspaceTask !== hasWorkspaceRepository) {
+      throw new Error("Direct Git mutation requires both --workspace-task-id and --workspace-repository-id");
+    }
+    const pendingWorkspaceLease = hasWorkspaceTask
+      ? await readWorkspaceLease({
+          stateRoot: root,
+          repositoryId: String(options["workspace-repository-id"]),
+          taskId: String(options["workspace-task-id"])
+        })
+      : null;
+    const expectedClaimant = pendingWorkspaceLease
+      ? {
+          kind: "direct-workspace-v1",
+          ownershipNonce: pendingWorkspaceLease.ownershipNonce,
+          repositoryId: String(options["workspace-repository-id"]),
+          taskId: String(options["workspace-task-id"])
+        }
+      : null;
     receiptBinding = await validateRouteReceipt({
       stateRoot: root,
       cwd: process.cwd(),
-      receiptId: String(options["route-receipt"])
+      receiptId: String(options["route-receipt"]),
+      expectedClaimant
     });
+    if (receiptBinding.preview.primary.template && pendingWorkspaceLease) {
+      throw new Error("Workspace lease options are only valid for a Direct Git mutation route");
+    }
     if (!receiptBinding.preview.primary.template) {
-      throw new Error("Route receipt does not resolve a concrete template");
+      const assessment = receiptBinding.preview.autoRiskAssessment;
+      if (assessment?.decision !== "direct-fast-path") {
+        throw new Error("Route receipt does not resolve a concrete template");
+      }
+      let workspaceLease = null;
+      if (assessment.workspaceLifecycle === "isolated-worktree") {
+        if (!options["workspace-task-id"] || !options["workspace-repository-id"]) {
+          throw new Error("Direct Git mutation requires --workspace-task-id and --workspace-repository-id");
+        }
+        const claimant = expectedClaimant;
+        const receiptWorkspace = await realpath(receiptBinding.receipt.cwd);
+        const pendingLeaseWorkspace = await realpath(pendingWorkspaceLease.sourceCheckout);
+        if (pendingLeaseWorkspace !== receiptWorkspace) {
+          throw new Error("Direct Git mutation workspace lease does not match the route receipt");
+        }
+        await claimRouteReceipt({
+          stateRoot: root,
+          receiptId: receiptBinding.receipt.receiptId,
+          claimant
+        });
+        const startedWorkspace = await workspaceBeginDirect({
+          stateRoot: root,
+          repositoryId: String(options["workspace-repository-id"]),
+          taskId: String(options["workspace-task-id"]),
+          routeReceiptId: receiptBinding.receipt.receiptId,
+          assessmentDigest: assessment.assessmentDigest,
+          sourceRevision: assessment.sourceRevision,
+          integrationTarget: assessment.integrationTarget,
+          integrationTargetRevision: assessment.integrationTargetRevision,
+          basicCheckPlan: assessment.basicCheckPlan
+        });
+        workspaceLease = startedWorkspace.lease;
+        const startedLeaseWorkspace = await realpath(workspaceLease.sourceCheckout);
+        if (startedLeaseWorkspace !== receiptWorkspace) {
+          throw new Error("Direct Git mutation workspace lease does not match the route receipt");
+        }
+      } else if (options["workspace-task-id"] || options["workspace-repository-id"]) {
+        throw new Error("Workspace lease options are only valid for a Direct Git mutation route");
+      }
+      if (assessment.workspaceLifecycle !== "isolated-worktree") {
+        await claimRouteReceipt({
+          stateRoot: root,
+          receiptId: receiptBinding.receipt.receiptId
+        });
+      }
+      await markRouteReceiptUsed({
+        stateRoot: root,
+        receiptId: receiptBinding.receipt.receiptId,
+        runId: null
+      });
+      return {
+        ok: true,
+        direct: true,
+        runId: null,
+        mode: "direct",
+        routeReceipt: receiptBinding.receipt.receiptId,
+        autoRiskAssessment: assessment,
+        workspaceLease: workspaceLease
+          ? {
+              taskId: workspaceLease.taskId,
+              repositoryId: workspaceLease.repository.repositoryId,
+              taskBranch: workspaceLease.taskBranch,
+              taskWorktree: workspaceLease.taskWorktree,
+              integrationTarget: workspaceLease.integrationTarget,
+              lifecycleState: workspaceLease.lifecycleState
+            }
+          : null,
+        instruction: workspaceLease
+          ? "Direct Git mode: make, test, and commit changes only inside the task-owned worktree."
+          : "Direct mode: perform only the bounded work and targeted local checks recorded in the assessment."
+      };
     }
   }
   const templateName = receiptBinding
     ? receiptBinding.preview.primary.template
     : String(options.template ?? "");
+  const interactionMode = optionEnabled(options.strict)
+    ? "strict"
+    : String(options["interaction-mode"] ?? "auto");
+  if (!["auto", "strict"].includes(interactionMode)) {
+    throw new Error("--interaction-mode must be auto or strict");
+  }
   const template = await loadTemplate(templateName);
   const purposeProvided = options["evaluation-purpose"] !== undefined;
   const requestedEvaluationPurpose = purposeProvided ? String(options["evaluation-purpose"]) : null;
@@ -1666,6 +1795,13 @@ async function commandRun(root, options) {
       }
     }
   } else {
+    let remoteRevision = options["remote-revision"] ? String(options["remote-revision"]) : null;
+    if (DEV_DELIVERY_TEMPLATE_NAMES.has(templateName) && remoteRevision === null) {
+      remoteRevision = (await resolveRemoteBranchRevision(process.cwd(), {
+        remote: "origin",
+        branch: "dev"
+      })).revision;
+    }
     contract = buildContract({
       template: templateName,
       templateDefinition: template,
@@ -1688,7 +1824,8 @@ async function commandRun(root, options) {
       agySanitized: options.sanitized === true || options.sanitized === "true",
       volatileExclusions: values(options["volatile-exclusion"]).map(String),
       highRiskIgnored: values(options["high-risk-ignored"]).map(String),
-      remoteRevision: options["remote-revision"] ? String(options["remote-revision"]) : null,
+      remoteRevision,
+      interactionMode,
       selfImprovePurpose: templateName === "self-improve-ops" && purposeProvided ? requestedEvaluationPurpose : null,
       autonomyProfile: autonomyBinding
     });
@@ -1801,6 +1938,153 @@ async function commandDoctor(root, options) {
       maxPromptBytes: defaults.providers.agy.maxPromptBytes
     }
   };
+}
+
+async function commandHost(root, subcommand, hostId, options) {
+  if (subcommand === "list") {
+    assertKnownOptions(options, []);
+    return { ok: true, ...(await hostList()), releaseConformanceMatrix: await releaseConformanceMatrix() };
+  }
+  if (subcommand === "doctor") {
+    assertKnownOptions(options, ["os"]);
+    return hostDoctor({
+      hostId: String(hostId ?? "codex"),
+      osId: String(options.os ?? normalizeHostOs())
+    });
+  }
+  if (subcommand === "conformance") {
+    assertKnownOptions(options, ["os", "write-receipt"]);
+    return hostConformance({
+      hostId: String(hostId ?? "codex"),
+      osId: String(options.os ?? normalizeHostOs()),
+      stateRoot: root,
+      writeReceipt: optionEnabled(options["write-receipt"])
+    });
+  }
+  throw new Error("host subcommand must be list, doctor, or conformance");
+}
+
+async function commandWorkspace(root, subcommand, options) {
+  if (subcommand === "preflight") {
+    assertKnownOptions(options, ["intent", "task-id", "integration-target", "profile-target"]);
+    return workspacePreflight({
+      cwd: process.cwd(),
+      stateRoot: root,
+      intent: String(options.intent ?? "read-only"),
+      taskId: options["task-id"] ? String(options["task-id"]) : null,
+      integrationTarget: options["integration-target"] ? String(options["integration-target"]) : null,
+      profileTarget: options["profile-target"] ? String(options["profile-target"]) : null
+    });
+  }
+  if (subcommand === "create") {
+    assertKnownOptions(options, ["goal", "task-id", "integration-target", "profile-target"]);
+    if (!options.goal) throw new Error("workspace create requires --goal");
+    return workspaceCreate({
+      cwd: process.cwd(),
+      stateRoot: root,
+      goal: String(options.goal),
+      taskId: options["task-id"] ? String(options["task-id"]) : null,
+      integrationTarget: options["integration-target"] ? String(options["integration-target"]) : null,
+      profileTarget: options["profile-target"] ? String(options["profile-target"]) : null
+    });
+  }
+  if (subcommand === "register") {
+    assertKnownOptions(options, ["task-id", "base-revision", "integration-target", "source-checkout", "source-branch"]);
+    for (const required of ["task-id", "base-revision", "integration-target"]) {
+      if (!options[required]) throw new Error(`workspace register requires --${required}`);
+    }
+    return workspaceRegister({
+      cwd: process.cwd(),
+      stateRoot: root,
+      taskId: String(options["task-id"]),
+      baseRevision: String(options["base-revision"]),
+      integrationTarget: String(options["integration-target"]),
+      sourceCheckout: options["source-checkout"] ? String(options["source-checkout"]) : null,
+      sourceBranch: options["source-branch"] ? String(options["source-branch"]) : null
+    });
+  }
+  if (subcommand === "validate") {
+    assertKnownOptions(options, ["repository-id", "task-id", "check-file"]);
+    for (const required of ["repository-id", "task-id", "check-file"]) {
+      if (!options[required]) throw new Error(`workspace validate requires --${required}`);
+    }
+    const checks = JSON.parse(await readFile(path.resolve(String(options["check-file"])), "utf8"));
+    return workspaceValidate({
+      stateRoot: root,
+      repositoryId: String(options["repository-id"]),
+      taskId: String(options["task-id"]),
+      checks
+    });
+  }
+  if (subcommand === "integrate") {
+    assertKnownOptions(options, ["repository-id", "task-id"]);
+    if (!options["repository-id"] || !options["task-id"]) {
+      throw new Error("workspace integrate requires --repository-id and --task-id");
+    }
+    return workspaceIntegrate({
+      stateRoot: root,
+      repositoryId: String(options["repository-id"]),
+      taskId: String(options["task-id"])
+    });
+  }
+  if (subcommand === "reconcile") {
+    assertKnownOptions(options, ["repository-id", "task-id", "run-id"]);
+    for (const required of ["repository-id", "task-id", "run-id"]) {
+      if (!options[required]) throw new Error(`workspace reconcile requires --${required}`);
+    }
+    return workspaceReconcileProtected({
+      stateRoot: root,
+      repositoryId: String(options["repository-id"]),
+      taskId: String(options["task-id"]),
+      runId: String(options["run-id"])
+    });
+  }
+  if (subcommand === "rebind") {
+    assertKnownOptions(options, ["repository-id", "task-id", "integration-target"]);
+    if (!options["repository-id"] || !options["task-id"] || !options["integration-target"]) {
+      throw new Error("workspace rebind requires --repository-id, --task-id, and --integration-target");
+    }
+    return workspaceRebindTarget({
+      stateRoot: root,
+      repositoryId: String(options["repository-id"]),
+      taskId: String(options["task-id"]),
+      integrationTarget: String(options["integration-target"])
+    });
+  }
+  if (subcommand === "cleanup") {
+    assertKnownOptions(options, ["repository-id", "task-id"]);
+    if (!options["repository-id"] || !options["task-id"]) {
+      throw new Error("workspace cleanup requires --repository-id and --task-id");
+    }
+    return workspaceCleanup({
+      stateRoot: root,
+      repositoryId: String(options["repository-id"]),
+      taskId: String(options["task-id"])
+    });
+  }
+  if (subcommand === "status") {
+    assertKnownOptions(options, ["repository-id", "task-id"]);
+    if (!options["repository-id"] || !options["task-id"]) {
+      throw new Error("workspace status requires --repository-id and --task-id");
+    }
+    return workspaceStatus({
+      stateRoot: root,
+      repositoryId: String(options["repository-id"]),
+      taskId: String(options["task-id"])
+    });
+  }
+  if (subcommand === "completion-notice") {
+    assertKnownOptions(options, ["repository-id", "task-id"]);
+    if (!options["repository-id"] || !options["task-id"]) {
+      throw new Error("workspace completion-notice requires --repository-id and --task-id");
+    }
+    return workspaceDirectCompletionNotice({
+      stateRoot: root,
+      repositoryId: String(options["repository-id"]),
+      taskId: String(options["task-id"])
+    });
+  }
+  throw new Error("workspace subcommand must be preflight, create, register, validate, integrate, reconcile, rebind, cleanup, status, or completion-notice");
 }
 
 function quorumExpectedBindings(run, reviewPackage = null) {
@@ -1918,7 +2202,20 @@ async function commandRoute(root, subcommand, action, options) {
       "domain",
       "tag",
       "record",
-      "autonomy-profile"
+      "autonomy-profile",
+      "risk",
+      "uncertainty",
+      "blast-radius",
+      "irreversibility",
+      "evidence-gap",
+      "hard-exclusion",
+      "basic-check",
+      "mutation",
+      "acceptance-defined",
+      "integration-target",
+      "protected-target",
+      "interaction-mode",
+      "strict"
     ]);
     const preview = await previewRoute({
       cwd: process.cwd(),
@@ -1930,7 +2227,23 @@ async function commandRoute(root, subcommand, action, options) {
       mode: String(options.mode ?? "auto"),
       domains: values(options.domain).map(String),
       tags: values(options.tag).map(String),
-      autonomyProfile: options["autonomy-profile"] ? String(options["autonomy-profile"]) : null
+      autonomyProfile: options["autonomy-profile"] ? String(options["autonomy-profile"]) : null,
+      risk: {
+        risk: integer(options.risk, null),
+        uncertainty: integer(options.uncertainty, null),
+        blastRadius: integer(options["blast-radius"], null),
+        irreversibility: integer(options.irreversibility, null),
+        evidenceGap: integer(options["evidence-gap"], null)
+      },
+      hardExclusions: values(options["hard-exclusion"]).map(String),
+      basicCheckPlan: values(options["basic-check"]).map(String),
+      mutationIntent: String(options.mutation ?? "unknown"),
+      acceptanceDefined: optionEnabled(options["acceptance-defined"]),
+      integrationTarget: options["integration-target"] ? String(options["integration-target"]) : null,
+      protectedTarget: optionEnabled(options["protected-target"]),
+      interactionMode: optionEnabled(options.strict)
+        ? "strict"
+        : String(options["interaction-mode"] ?? "auto")
     });
     if (optionEnabled(options.record)) {
       const receipt = await recordRouteReceipt({
@@ -1975,6 +2288,43 @@ async function commandRoute(root, subcommand, action, options) {
 
 function optionEnabled(value) {
   return value === true || value === "true";
+}
+
+async function commandEvidenceReplay(root, runId, options) {
+  assertKnownOptions(options, ["no-open"]);
+  const noOpen = optionEnabled(options["no-open"]);
+  const replay = await startReplayServer({ stateRoot: root, runId });
+  let opened = false;
+  if (!noOpen) {
+    try {
+      await openReplayBrowserWithRecovery(replay);
+      opened = true;
+    } catch (error) {
+      printEvent({
+        ok: false,
+        event: "replay.browser-open-warning",
+        error: ["REPLAY_BROWSER_OPEN_FAILED", "REPLAY_BROWSER_OPEN_TIMEOUT"].includes(error?.code)
+          ? error.code
+          : "REPLAY_BROWSER_OPEN_FAILED"
+      }, process.stderr);
+    }
+  }
+  printEvent(replayStartedEvent(replay, { opened, noOpen }));
+  let onSigint;
+  let onSigterm;
+  try {
+    await new Promise((resolve) => {
+      onSigint = () => resolve();
+      onSigterm = () => resolve();
+      process.once("SIGINT", onSigint);
+      process.once("SIGTERM", onSigterm);
+    });
+  } finally {
+    if (onSigint) process.off("SIGINT", onSigint);
+    if (onSigterm) process.off("SIGTERM", onSigterm);
+    await replay.close();
+  }
+  printEvent({ ok: true, event: "replay.stopped", url: replay.cleanUrl });
 }
 
 async function commandDeliberation(root, subcommand, options) {
@@ -2031,7 +2381,7 @@ async function commandDeliberation(root, subcommand, options) {
   throw new Error("deliberation subcommand must be roster, deliberate, or arbitrate");
 }
 
-async function commandEval() {
+async function commandEvalSuites() {
   if (GRAPH_ENFORCEMENT_ENABLED) {
     const graph = await installedTemplateGraph();
     if (graphHasErrors(graph)) return graphStructuralFailure(graph, "eval");
@@ -2052,13 +2402,34 @@ async function commandEval() {
     .sort()
     .map((name) => path.join(SCRIPT_DIR, "tests", name));
   if (tests.length === 0) throw new Error("No tests found");
+  // Test fixtures use mkdtemp() beneath TMPDIR. Launchers are allowed to
+  // provide a fresh, task-scoped TMPDIR that does not exist yet, so establish
+  // and validate that root before spawning any child suite. This prevents one
+  // missing parent from turning every fixture into an unrelated ENOENT burst.
+  const suiteTempRoot = process.env.TMPDIR;
+  if (suiteTempRoot) {
+    if (!path.isAbsolute(suiteTempRoot) || path.resolve(suiteTempRoot) !== suiteTempRoot) {
+      throw new Error("Evaluator TMPDIR must be an absolute path");
+    }
+    await mkdir(suiteTempRoot, { recursive: true, mode: 0o700 });
+    const tempInfo = await lstat(suiteTempRoot);
+    if (!tempInfo.isDirectory() || tempInfo.isSymbolicLink()) {
+      throw new Error("Evaluator TMPDIR must be a physical directory");
+    }
+  }
+  // Keep local and formal suite children on the same allowlisted tool PATH.
+  // This prevents a host shell's partial PATH from turning every fixture that
+  // spawns git/gh into an avoidable ENOENT cascade.
+  const toolPath = await fixedToolPath();
+  const suitePath = [toolPath, process.env.PATH].filter(Boolean).join(path.delimiter);
+  const suiteEnv = { ...process.env, PATH: suitePath };
   for (const testPath of tests) {
     await new Promise((resolve, reject) => {
       const child = spawn(process.execPath, ["--test", "--test-concurrency=1", testPath], {
         cwd: process.cwd(),
         shell: false,
         stdio: ["ignore", "pipe", "pipe"],
-        env: process.env
+        env: suiteEnv
       });
       const stdout = [];
       const stderr = [];
@@ -2077,22 +2448,57 @@ async function commandEval() {
   return { ok: true, tests: tests.length };
 }
 
+async function commandEval(options = {}) {
+  assertKnownOptions(options, ["formal", "formal-child", "expected-head", "expected-base", "launch-root", "replacement-reason"]);
+  const formal = optionEnabled(options.formal);
+  const child = optionEnabled(options["formal-child"]);
+  if (formal && child) throw new Error("Formal evaluator parent and child modes are mutually exclusive");
+  if (child) {
+    if (options["expected-head"] || options["expected-base"] || options["launch-root"] || options["replacement-reason"]) {
+      throw new Error("Formal evaluator child cannot override parent bindings");
+    }
+    return commandEvalSuites();
+  }
+  if (!formal) {
+    if (options["expected-head"] || options["expected-base"] || options["launch-root"] || options["replacement-reason"]) {
+      throw new Error("Evaluator binding options require --formal");
+    }
+    return commandEvalSuites();
+  }
+  for (const required of ["expected-head", "expected-base", "launch-root"]) {
+    if (!options[required]) throw new Error(`Formal evaluator requires --${required}`);
+  }
+  return runFormalEvaluator({
+    cwd: process.cwd(),
+    scriptPath: fileURLToPath(import.meta.url),
+    nodePath: process.execPath,
+    expectedHead: String(options["expected-head"]),
+    expectedBase: String(options["expected-base"]),
+    launchRoot: String(options["launch-root"]),
+    replacementReason: options["replacement-reason"] ? String(options["replacement-reason"]) : null
+  });
+}
+
 function help() {
   return {
     usage: [
-      "sbw run --template <name> --mode <auto|direct|verified|deep|critical> --goal <text> [--scope <path>] [--autonomy-profile bounded-autopilot-v1] [--baseline <git-revision> for self-improve] [--evaluation-purpose ordinary|evaluator-migration|safety-remediation-v1|quality-remediation-v1] [--self-improve-run <run-id> for delegated pr-to-dev]",
+      "sbw run --template <name> --mode <auto|direct|verified|deep|critical> --interaction-mode <auto|strict> --goal <text> [--scope <path>] [--autonomy-profile bounded-autopilot-v1] [--baseline <git-revision> for self-improve] [--evaluation-purpose ordinary|evaluator-migration|safety-remediation-v1|quality-remediation-v1] [--self-improve-run <run-id> for delegated pr-to-dev]",
       "sbw run --route-receipt <route-receipt-id>",
-      "sbw route preview --goal <text> [--scope <path>] [--entry <id>|--template <name>] [--mode <mode>] [--domain <name>] [--tag <name>] [--record]",
+      "sbw route preview --goal <text> [--scope <path>] [--entry <id>|--template <name>] [--mode <mode>] [--mutation unknown|read-only|modify] [--acceptance-defined] [--risk 0..3 --uncertainty 0..3 --blast-radius 0..3 --irreversibility 0..3 --evidence-gap 0..3] [--hard-exclusion <code>] [--basic-check <label>] [--integration-target <branch> --protected-target] [--record]",
       "sbw route profile validate|install --file <profile.json>",
       "sbw route profile show",
+      "sbw interaction preview --scope-file <scope.json> [--standing-file <standing.json>] [--interaction-mode auto|strict] [--stale-reason freshness|time|receipt-refresh|nonce-refresh|exact-binding-refresh]",
       "sbw status <run-id>",
       "sbw inspect <run-id>",
+      "sbw metrics <run-id> | sbw metrics list|summary [--limit <1..500>]",
+      "sbw metrics shadow --baseline-file <sanitized.json> --candidate-file <sanitized.json> --binding-file <binding.json>",
       "sbw resume <run-id>",
       "sbw autonomy preview|preflight|revoke <run-id>",
       "sbw cancel <run-id> [--reason <text>]",
       "sbw source rebind <run-id> --reason <text>",
       "sbw sentinel capture|verify <run-id> --label <label>",
-      "sbw evidence add <run-id> --file <json>",
+      "sbw evidence add|supersede <run-id> --file <json>",
+      "sbw evidence replay [<run-id>] [--no-open]",
       "sbw self-improve evaluate --run <run-id> --cases <file> --baseline <git-revision> --candidate-root <path> --backend <codex|fixture> --split <train|holdout> [--trusted-codex-execution <host-file>] [--request-manifest <host-file> --request-manifest-digest <sha256>] [--purpose ordinary|evaluator-migration|safety-remediation-v1|quality-remediation-v1] [--next-cases <v2-file>]",
       "sbw self-improve host status",
       "sbw self-improve consent status|prepare|revoke",
@@ -2106,14 +2512,16 @@ function help() {
       "sbw deliberation arbitrate --prompt-file <sanitized-file> [--mode <auto|direct|verified|deep|critical>] [--reasoning-effort <auto|medium|high>] [--allow-external-providers --sanitized]",
       "sbw graph validate [--template <name>|--run <run-id>]",
       "sbw graph inspect (--template <name>|--run <run-id>) [--format json|mermaid]",
-      "sbw action issue <run-id> --action <kind> --provider <provider> --resource <id> --remote-revision <sha> [--scope <ref> --workflow-file <.github/workflows/file.yml> --input <key=value> ... --input-file <json>]",
+      "sbw action issue <run-id> --action <kind> --provider <provider> --resource <id> --remote-revision <sha> [--scope <ref> --merge-method <merge|squash> --workflow-file <.github/workflows/file.yml> --input <key=value> ... --input-file <json>]",
       "sbw action consume|execute|reconcile <run-id> ...",
       "sbw resource register <run-id> --resource <id> --receipt <creation-receipt.json>",
       "sbw ledger status <run-id>",
       "sbw ledger transition <run-id> --file <event.json>",
       "sbw ledger compile <run-id> --design-packet <packet.json>",
       "sbw refinement status|apply <run-id> [--file <receipt.json>]",
-      "sbw review package|finding|axis-digest|axis|verify-digest|verify|coverage|synthesize|status|repair|broad <run-id> ...",
+      "sbw review package|diff|finding|axis-digest|axis|verify-digest|verify|coverage|synthesize|status|repair|supersede|broad <run-id> ...",
+      "sbw review diff <run-id> --package <package-id> [--native-evidence <evidence-id>]",
+      "sbw review launch-native <run-id> --base <sha> --head <sha> --package <id> --package-file <json> --diff-manifest <json> --instruction <md> --authorization <json> --model <id> --reviewer-id <id> --execution-id <id> --result <absent-json>",
       "sbw review quorum run|verify|status <run-id> [--file <manifest.json>]",
       "sbw recipe init",
       "sbw recipe scaffold <id>",
@@ -2127,7 +2535,18 @@ function help() {
       "sbw complete <run-id>",
       "sbw doctor [--agy --model <model>]",
       "sbw doctor --capabilities",
+      "sbw host list",
+      "sbw host doctor [host-id] [--os macos|linux|windows]",
+      "sbw host conformance [host-id] [--os macos|linux|windows] [--write-receipt]",
+      "sbw workspace preflight [--intent read-only|modify] [--task-id <id>] [--integration-target <local-branch>] [--profile-target <local-branch>]",
+      "sbw workspace create --goal <text> [--task-id <id>] [--integration-target <local-branch>] [--profile-target <local-branch>]",
+      "sbw workspace register --task-id <id> --base-revision <sha> --integration-target <local-branch> [--source-checkout <path>] [--source-branch <local-branch>]",
+      "sbw workspace validate --repository-id <id> --task-id <id> --check-file <checks.json>",
+      "sbw workspace rebind --repository-id <id> --task-id <id> --integration-target <local-branch>",
+      "sbw workspace integrate|cleanup|status|completion-notice --repository-id <id> --task-id <id>",
+      "sbw workspace reconcile --repository-id <id> --task-id <id> --run-id <governed-run-id>",
       "sbw eval",
+      "sbw eval --formal --expected-head <sha> --expected-base <sha> --launch-root </private/tmp/bw-*-formal-eval-*> [--replacement-reason host-sleep|sandbox-host-capability|launch-environment|command-interruption]",
       "sbw cleanup [--older-than-days 30] [--apply]",
       "sbw templates"
     ]
@@ -2145,6 +2564,35 @@ async function main() {
   if (command === "graph") return commandGraph(root, subcommand, runId, options);
   if (command === "self-improve") return commandSelfImprove(root, subcommand, options, runId);
   if (command === "route") return commandRoute(root, subcommand, runId, options);
+  if (command === "interaction") {
+    if (subcommand !== "preview") {
+      throw new Error("interaction subcommand must be preview");
+    }
+    assertKnownOptions(options, ["scope-file", "standing-file", "interaction-mode", "strict", "stale-reason"]);
+    if (!options["scope-file"]) {
+      throw new Error("interaction preview requires --scope-file <scope.json>");
+    }
+    const scopeInput = JSON.parse(await readFile(path.resolve(String(options["scope-file"])), "utf8"));
+    const scope = scopeInput?.scope && !Array.isArray(scopeInput.scope) ? scopeInput.scope : scopeInput;
+    const mode = optionEnabled(options.strict)
+      ? "strict"
+      : String(options["interaction-mode"] ?? "auto");
+    const request = buildInteractionRequest({ scope, mode });
+    const standing = options["standing-file"]
+      ? JSON.parse(await readFile(path.resolve(String(options["standing-file"])), "utf8"))
+      : null;
+    const decision = decideInteractionAuthorization({
+      request,
+      standingAuthorization: standing,
+      staleReason: options["stale-reason"] ? String(options["stale-reason"]) : null
+    });
+    return {
+      ok: decision.ok,
+      request,
+      decision,
+      receipt: buildInteractionAuthorizationReceipt({ request, decision })
+    };
+  }
   if (command === "deliberation") return commandDeliberation(root, subcommand, options);
   if (command === "recipe") {
     if (subcommand === "init") {
@@ -2226,6 +2674,37 @@ async function main() {
     };
   }
   if (command === "inspect") return { ok: true, ...(await inspectRun(root, subcommand)) };
+  if (command === "metrics") {
+    assertKnownOptions(options, ["limit", "baseline-file", "candidate-file", "binding-file"]);
+    if (subcommand === "list") {
+      return { ok: true, schemaVersion: 1, metrics: await listRunMetrics(root, { limit: options.limit ?? 50 }) };
+    }
+    if (subcommand === "summary") {
+      const metrics = await listRunMetrics(root, { limit: options.limit ?? 500 });
+      return { ok: true, summary: summarizeRunMetrics(metrics) };
+    }
+    if (subcommand === "shadow") {
+      for (const option of ["baseline-file", "candidate-file", "binding-file"]) {
+        if (!options[option]) throw new Error(`metrics shadow requires --${option}`);
+      }
+      const readInput = async (option, label) => {
+        const file = path.resolve(String(options[option]));
+        try {
+          return JSON.parse(await readFile(file, "utf8"));
+        } catch (error) {
+          throw new Error(`metrics shadow could not read ${label}: ${error.message}`);
+        }
+      };
+      const [baseline, candidate, binding] = await Promise.all([
+        readInput("baseline-file", "baseline metrics"),
+        readInput("candidate-file", "candidate metrics"),
+        readInput("binding-file", "comparison binding")
+      ]);
+      return { ok: true, shadow: compareShadowReplay({ baseline, candidate, binding }) };
+    }
+    if (!subcommand) throw new Error("metrics requires <run-id> or list");
+    return { ok: true, metrics: await readRunMetrics(root, subcommand) };
+  }
   if (command === "cancel") {
     return {
       ok: true,
@@ -2326,10 +2805,16 @@ async function main() {
     throw new Error("sentinel subcommand must be capture or verify");
   }
   if (command === "evidence") {
-    if (subcommand !== "add" || !runId || !options.file) {
-      throw new Error("evidence usage: sbw evidence add <run-id> --file <json>");
+    if (subcommand === "replay") {
+      return commandEvidenceReplay(root, runId, options);
+    }
+    if (!["add", "supersede"].includes(subcommand) || !runId || !options.file) {
+      throw new Error("evidence usage: sbw evidence add|supersede <run-id> --file <json> | sbw evidence replay [<run-id>] [--no-open]");
     }
     const record = JSON.parse(await readFile(path.resolve(String(options.file)), "utf8"));
+    if (subcommand === "supersede") {
+      return { ok: true, supersession: await supersedeEvidence(root, runId, record) };
+    }
     if (record.sourceKind === "independent-critic") {
       throw new Error("Independent critic evidence must be emitted by a provider boundary, not sbw evidence add");
     }
@@ -2493,7 +2978,7 @@ async function main() {
     if (subcommand === "issue") {
       assertKnownOptions(options, [
         "action", "provider", "resource", "scope", "remote-revision", "ttl",
-        "workflow-file", "input", "input-file"
+        "workflow-file", "input", "input-file", "merge-method"
       ]);
       const run = await loadRun(root, runId);
       const template = await loadTemplate(run.manifest.template);
@@ -2510,6 +2995,9 @@ async function main() {
       if (action !== "actions.dispatch" && workflowOptionKeys.some((key) => options[key] !== undefined)) {
         throw new Error("Workflow dispatch options --workflow-file, --input, and --input-file are only valid for actions.dispatch");
       }
+      if (action !== "pr.merge" && options["merge-method"] !== undefined) {
+        throw new Error("--merge-method is only valid for pr.merge");
+      }
       assertActionIsNotDeferred(run.contract, action);
       const requiredEvidence = run.contract.actionGates?.[action];
       if (!Array.isArray(requiredEvidence) || requiredEvidence.length === 0) {
@@ -2519,7 +3007,10 @@ async function main() {
         const graph = await runGraph(root, runId);
         if (graphHasErrors(graph)) return graphStructuralFailure(graph, "action.issue");
       }
-      await refreshEvidence(root, runId);
+      const freshness = await refreshEvidence(root, runId);
+      if (freshness.immutableStale.length > 0) {
+        throw new Error(`Action token denied by stale immutable supersession evidence: ${freshness.immutableStale.join(", ")}`);
+      }
       if (run.contract.templateDigest !== digestObject(template)) {
         throw new Error("Workflow template drifted after run creation");
       }
@@ -2559,6 +3050,7 @@ async function main() {
             ttlSeconds: options.ttl ? integer(options.ttl) : undefined,
             workflowFile: options["workflow-file"] ? String(options["workflow-file"]) : undefined,
             dispatchInputs,
+            mergeMethod: options["merge-method"] ? String(options["merge-method"]) : undefined,
             requiredEvidence
           },
           digest,
@@ -2638,6 +3130,35 @@ async function main() {
   }
   if (command === "review") {
     if (!runId) throw new Error("review requires run id");
+    if (subcommand === "launch-native") {
+      assertKnownOptions(options, [
+        "base", "head", "package", "package-file", "diff-manifest", "instruction",
+        "authorization", "model", "reviewer-id", "execution-id", "result"
+      ]);
+      for (const required of [
+        "base", "head", "package", "package-file", "diff-manifest", "instruction",
+        "authorization", "model", "reviewer-id", "execution-id", "result"
+      ]) {
+        if (!options[required]) throw new Error(`review launch-native requires --${required}`);
+      }
+      const run = await loadRun(root, runId);
+      return runNativeReview({
+        runId,
+        runDir: run.runDir,
+        cwd: run.manifest.cwd,
+        base: String(options.base),
+        head: String(options.head),
+        packageId: String(options.package),
+        packagePath: String(options["package-file"]),
+        manifestPath: String(options["diff-manifest"]),
+        instructionPath: String(options.instruction),
+        authorizationPath: String(options.authorization),
+        model: String(options.model),
+        reviewerId: String(options["reviewer-id"]),
+        executionId: String(options["execution-id"]),
+        resultPath: String(options.result)
+      });
+    }
     if (["axis-digest", "verify-digest"].includes(subcommand)) {
       assertKnownOptions(options, ["file"]);
       if (!options.file) throw new Error(`review ${subcommand} requires --file <receipt.json>`);
@@ -2716,6 +3237,7 @@ async function main() {
           })),
           openHigh: review.openHigh.map((item) => item.id),
           repairBudgetExhausted: review.repairBudgetExhausted,
+          campaign: review.campaign,
           scopedClosed: review.scopedClosed,
           kernel: review.kernel ? {
             workUniverseDigest: review.kernel.workUniverseDigest,
@@ -2766,6 +3288,19 @@ async function main() {
         }
       };
     }
+    if (subcommand === "diff") {
+      assertKnownOptions(options, ["package", "native-evidence"]);
+      if (!options.package) throw new Error("review diff requires --package <package-id>");
+      return {
+        ok: true,
+        evidence: await recordDiffReviewFromNative(
+          root,
+          runId,
+          String(options.package),
+          options["native-evidence"] ? String(options["native-evidence"]) : null
+        )
+      };
+    }
     if (subcommand === "finding") {
       assertKnownOptions(options, ["file", "update"]);
       if (!options.file) throw new Error("review finding requires --file <finding.json>");
@@ -2776,6 +3311,15 @@ async function main() {
       if (!options.package || !options.file) throw new Error("review repair requires --package and --file");
       const result = JSON.parse(await readFile(path.resolve(String(options.file)), "utf8"));
       return { ok: true, reviewPackage: await recordRepairRound(root, runId, String(options.package), result) };
+    }
+    if (subcommand === "supersede") {
+      assertKnownOptions(options, ["file"]);
+      if (!options.file) throw new Error("review supersede requires --file <supersession.json>");
+      const record = JSON.parse(await readFile(path.resolve(String(options.file)), "utf8"));
+      return {
+        ok: true,
+        supersession: await supersedeReviewEvidence(root, runId, record)
+      };
     }
     if (subcommand === "broad") {
       if (!options.package || !options.head || !options["sentinel-digest"]) {
@@ -2792,7 +3336,7 @@ async function main() {
         )
       };
     }
-    throw new Error("review subcommand must be package, finding, axis-digest, axis, verify-digest, verify, coverage, synthesize, status, repair, or broad");
+    throw new Error("review subcommand must be package, diff, finding, launch-native, axis-digest, axis, verify-digest, verify, coverage, synthesize, status, repair, supersede, or broad");
   }
   if (command === "refinement") {
     if (!runId) throw new Error("refinement requires run id");
@@ -2839,7 +3383,9 @@ async function main() {
     return completeRun(root, subcommand, completionDecision);
   }
   if (command === "doctor") return commandDoctor(root, options);
-  if (command === "eval") return commandEval();
+  if (command === "host") return commandHost(root, subcommand, runId, options);
+  if (command === "workspace") return commandWorkspace(root, subcommand, options);
+  if (command === "eval") return commandEval(options);
   if (command === "cleanup") {
     const defaults = await loadDefaults();
     return cleanupRuns(root, {
@@ -2852,7 +3398,7 @@ async function main() {
 
 main()
   .then((result) => {
-    print(result);
+    if (result !== undefined) print(result);
     if (result?.ok === false) process.exitCode = 2;
   })
-  .catch((error) => fail(error));
+  .catch((error) => fail(error, error?.exitCode ?? 1));

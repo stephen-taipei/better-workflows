@@ -37,7 +37,7 @@
       "^scripts/plugin-cache\\.mjs$",
       "^docs/README\\.(?:zh-TW|zh-CN|ja|ko)\\.md$",
       "^docs/details/(?:en|zh-TW|zh-CN|ja|ko)\\.md$",
-      "^docs/guide/(?:architecture|cli-reference|getting-started|readme-quality|security|workflows)\\.md$",
+      "^docs/guide/(?:architecture|cli-reference|convergence-and-authorization|getting-started|readme-quality|security|workflows)\\.md$",
       "^docs/assets/better-workflows-engineering-stack\\.svg$",
       "^docs/html/use-cases/assets/[A-Za-z0-9._-]+\\.md$",
       "^plugins/better-workflows/(?:scripts/.+\\.(?:mjs|c)|skills/.+\\.md|templates/.+\\.json|fixtures/.+\\.(?:json|md|mjs)|config/.+\\.json|package\\.json|\\.codex-plugin/plugin\\.json)$"

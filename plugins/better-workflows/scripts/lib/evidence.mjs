@@ -26,6 +26,18 @@ const INDEPENDENT_CRITIC_PRODUCERS = new Set(["agy", "codex", "codex-native-suba
 const MAX_REQUIRED_CHECK_AGE_MS = 30 * 60 * 1000;
 let contractCache = null;
 
+function hasCanonicalDependencyInputs(value) {
+  return Boolean(
+    value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Object.keys(value).length === 1 &&
+    Object.hasOwn(value, "files") &&
+    Array.isArray(value.files) &&
+    value.files.every((candidate) => typeof candidate === "string" && candidate.length > 0)
+  );
+}
+
 export async function loadEvidenceContracts({ refresh = false } = {}) {
   if (contractCache && !refresh) return contractCache;
   const value = JSON.parse(await readFile(CONTRACT_FILE, "utf8"));
@@ -86,7 +98,7 @@ function assertDigest(value, label) {
   }
 }
 
-async function assertActionProofPayload(payload, kind, run, evidenceId) {
+export async function assertActionProofPayload(payload, kind, run, evidenceId) {
   if (!(["cache-publication", "provider-reconciliation", "remote-sync"].includes(kind))) return;
   const proof = payload.actionProof;
   const receipt = payload.receipt;
@@ -306,11 +318,13 @@ function assertIndependentCriticBinding(record, run) {
   }
 }
 
-async function assertReviewKernelEvidence(payload, kind, run) {
+async function assertReviewKernelEvidence(payload, kind, run, { recorded = false } = {}) {
   if (!["work-unit-accounting", "review-kernel-summary"].includes(kind)) return;
   if (!run.root) throw new Error(`Typed evidence ${kind} requires live review-kernel state`);
-  const { reviewKernelStatus } = await import("./review.mjs");
-  const kernel = await reviewKernelStatus(run.root, run.manifest.runId);
+  const { recordedReviewKernelStatus, reviewKernelStatus } = await import("./review.mjs");
+  const kernel = recorded
+    ? await recordedReviewKernelStatus(run.root, run.manifest.runId, payload.packageId)
+    : await reviewKernelStatus(run.root, run.manifest.runId);
   if (!kernel) throw new Error(`Typed evidence ${kind} requires a current v2 review package`);
   const commonMatches = (
     payload.result === true && payload.packageId === kernel.packageId &&
@@ -332,7 +346,7 @@ async function assertReviewKernelEvidence(payload, kind, run) {
   ) throw new Error("Typed evidence review-kernel-summary does not match deterministic synthesis");
 }
 
-async function assertQuorumEvidence(payload, kind, run) {
+async function assertQuorumEvidence(payload, kind, run, { now } = {}) {
   if (kind !== QUORUM_EVIDENCE_KIND) return;
   const manifest = payload?.manifest;
   const packageId = manifest?.reviewPackageId;
@@ -353,6 +367,7 @@ async function assertQuorumEvidence(payload, kind, run) {
   }
   validateQuorumEvidencePayload(payload, {
     registryCwd: run.manifest.cwd,
+    ...(now === undefined ? {} : { now }),
     expected: {
       runId: run.manifest.runId,
       sourceBindingDigest: run.manifest.sourceBinding?.digest,
@@ -368,6 +383,146 @@ async function assertQuorumEvidence(payload, kind, run) {
       changedPaths: changedPathsFromDiffManifest(reviewPackage.diffManifest)
     }
   });
+}
+
+async function assertRequiredChecksPayload(payload, run, {
+  now = Date.now(),
+  recordedSourceBinding = null
+} = {}) {
+  const nowMs = now instanceof Date ? now.getTime() : Number(now);
+  if (!Number.isFinite(nowMs)) {
+    throw new Error("Typed evidence required-checks reference time is invalid");
+  }
+  const humanApproval = payload?.humanApproval;
+  if (humanApproval !== undefined) {
+    const authorization = humanApproval?.authorization;
+    const attestation = humanApproval?.attestation;
+    if (
+      humanApproval?.schemaVersion !== 1 ||
+      authorization?.schemaVersion !== 1 ||
+      authorization.kind !== "host-signed-pr-merge-authorization" ||
+      authorization.action !== "pr.merge" ||
+      authorization.resource !== `pull/${payload?.pr}` ||
+      authorization.repository !== payload?.repository ||
+      authorization.pr !== payload?.pr ||
+      authorization.head !== payload?.head ||
+      authorization.base !== payload?.base ||
+      authorization.baseRefName !== payload?.baseRefName ||
+      authorization.adminBypass !== false ||
+      authorization.reviewPolicyException !== "solo-repository-zero-review-v1" ||
+      typeof authorization.actor !== "string" || !authorization.actor ||
+      authorization.runId !== run.manifest.runId ||
+      authorization.contractDigest !== digestObject(run.contract) ||
+      authorization.sourceBindingDigest !== run.manifest.sourceBinding?.digest ||
+      typeof authorization.reviewPackageId !== "string" ||
+      !/^review-[a-f0-9]{32}$/.test(authorization.reviewPackageId) ||
+      !attestation || typeof attestation.path !== "string" || !path.isAbsolute(attestation.path) ||
+      !HEX_DIGEST.test(attestation.attestationDigest ?? "") ||
+      !HEX_DIGEST.test(attestation.fileDigest ?? "")
+    ) {
+      throw new Error("Typed evidence required-checks human approval binding is incomplete");
+    }
+    const state = run.state ?? (run.runDir
+      ? JSON.parse(await readFile(safeJoin(run.runDir, "state.json"), "utf8"))
+      : null);
+    if (!state?.lastSentinel?.digest || authorization.sourceSentinelDigest !== state.lastSentinel.digest) {
+      throw new Error("Typed evidence required-checks human approval sentinel binding is stale");
+    }
+    const reviewPackage = run.runDir
+      ? JSON.parse(await readFile(safeJoin(
+        run.runDir,
+        "review-packages",
+        `${authorization.reviewPackageId}.json`
+      ), "utf8"))
+      : null;
+    if (
+      reviewPackage?.packageId !== authorization.reviewPackageId ||
+      reviewPackage?.head !== payload.head ||
+      reviewPackage?.base !== payload.base ||
+      reviewPackage?.broadReview?.complete !== true
+    ) {
+      throw new Error("Typed evidence required-checks human approval review package binding is stale");
+    }
+    const expectedAuthorization = {
+      schemaVersion: 1,
+      kind: "host-signed-pr-merge-authorization",
+      action: "pr.merge",
+      resource: `pull/${payload.pr}`,
+      runId: authorization.runId,
+      contractDigest: authorization.contractDigest,
+      sourceBindingDigest: authorization.sourceBindingDigest,
+      sourceSentinelDigest: authorization.sourceSentinelDigest,
+      reviewPackageId: authorization.reviewPackageId,
+      repository: payload.repository,
+      pr: payload.pr,
+      head: payload.head,
+      base: payload.base,
+      baseRefName: payload.baseRefName,
+      actor: authorization.actor,
+      adminBypass: false,
+      reviewPolicyException: "solo-repository-zero-review-v1",
+      approvedAt: authorization.approvedAt
+    };
+    if (
+      !Number.isFinite(Date.parse(authorization.approvedAt ?? "")) ||
+      digestObject(authorization) !== digestObject(expectedAuthorization) ||
+      humanApproval.authorizationDigest !== digestObject(expectedAuthorization)
+    ) {
+      throw new Error("Typed evidence required-checks human approval authorization is invalid");
+    }
+    const attestationVerification = await verifyMergeHumanApproval(run.manifest.cwd, payload, {
+      now: nowMs,
+      recordedSourceBinding
+    });
+    if (
+      attestationVerification.authorizationDigest !== humanApproval.authorizationDigest ||
+      attestationVerification.attestationDigest !== attestation.attestationDigest ||
+      attestationVerification.sourceBindingDigest !== authorization.sourceBindingDigest ||
+      attestationVerification.actor !== authorization.actor ||
+      attestationVerification.reviewPolicyException !== authorization.reviewPolicyException
+    ) {
+      throw new Error("Typed evidence required-checks human approval attestation is invalid");
+    }
+  }
+  const checks = payload?.checks;
+  const observedAt = Date.parse(payload?.observedAt ?? "");
+  if (!Number.isFinite(observedAt) || observedAt > nowMs + 5 * 60 * 1000 || nowMs - observedAt > MAX_REQUIRED_CHECK_AGE_MS) {
+    throw new Error("Typed evidence required-checks observation is stale or invalid");
+  }
+  if (
+    !Array.isArray(checks) ||
+    checks.length === 0 ||
+    !Array.isArray(payload?.checkSet) ||
+    payload.checkSet.length === 0 ||
+    !Array.isArray(payload?.providerRunIds) ||
+    payload.providerRunIds.length === 0 ||
+    checks.length !== payload.checkSet.length ||
+    checks.length !== payload.providerRunIds.length ||
+    payload.checkSet.length !== payload.providerRunIds.length ||
+    !Array.isArray(payload?.conclusions) ||
+    payload.conclusions.length !== checks.length ||
+    new Set(checks.map((check) => check?.name)).size !== checks.length ||
+    new Set(checks.map((check) => check?.providerName ?? check?.name)).size !== checks.length ||
+    new Set(checks.map((check) => `${check?.observationKind}:${check?.providerRunId}`)).size !== checks.length ||
+    checks.some((check, index) => (
+      !check ||
+      typeof check.name !== "string" || check.name.trim() === "" ||
+      (check.providerName !== undefined && (typeof check.providerName !== "string" || check.providerName.trim() === "")) ||
+      !["check-run", "commit-status"].includes(check.observationKind) ||
+      typeof check.providerRunId !== "string" || check.providerRunId.trim() === "" ||
+      typeof check.completedAt !== "string" || !Number.isFinite(Date.parse(check.completedAt)) ||
+      Date.parse(check.completedAt) > observedAt ||
+      !["SUCCESS", "success", "PASS", "pass"].includes(String(check.conclusion)) ||
+      payload.checkSet[index] !== (check.providerName ?? check.name) ||
+      payload.providerRunIds[index] !== check.providerRunId ||
+      String(payload.conclusions[index]) !== String(check.conclusion)
+    )) ||
+    payload.checkSet.some((value) => typeof value !== "string" || value.trim() === "") ||
+    payload.providerRunIds.some((value) => typeof value !== "string" || value.trim() === "") ||
+    payload.conclusions.some((value) => !["SUCCESS", "success", "PASS", "pass"].includes(String(value)))
+  ) {
+    throw new Error("Typed evidence required-checks provider observation is incomplete");
+  }
 }
 
 async function assertFreshBinding(receipt, run, definition, kind) {
@@ -422,135 +577,32 @@ async function assertFreshBinding(receipt, run, definition, kind) {
     }
   }
   if (kind === "required-checks") {
-    const payload = receipt.payload;
-    const humanApproval = payload?.humanApproval;
-    if (humanApproval !== undefined) {
-      const authorization = humanApproval?.authorization;
-      const attestation = humanApproval?.attestation;
-      if (
-        humanApproval?.schemaVersion !== 1 ||
-        authorization?.schemaVersion !== 1 ||
-        authorization.kind !== "host-signed-pr-merge-authorization" ||
-        authorization.action !== "pr.merge" ||
-        authorization.resource !== `pull/${payload?.pr}` ||
-        authorization.repository !== payload?.repository ||
-        authorization.pr !== payload?.pr ||
-        authorization.head !== payload?.head ||
-        authorization.base !== payload?.base ||
-        authorization.baseRefName !== payload?.baseRefName ||
-        authorization.adminBypass !== false ||
-        authorization.reviewPolicyException !== "solo-repository-zero-review-v1" ||
-        typeof authorization.actor !== "string" || !authorization.actor ||
-        authorization.runId !== run.manifest.runId ||
-        authorization.contractDigest !== digestObject(run.contract) ||
-        authorization.sourceBindingDigest !== run.manifest.sourceBinding?.digest ||
-        typeof authorization.reviewPackageId !== "string" ||
-        !/^review-[a-f0-9]{32}$/.test(authorization.reviewPackageId) ||
-        !attestation || typeof attestation.path !== "string" || !path.isAbsolute(attestation.path) ||
-        !HEX_DIGEST.test(attestation.attestationDigest ?? "") ||
-        !HEX_DIGEST.test(attestation.fileDigest ?? "")
-      ) {
-        throw new Error("Typed evidence required-checks human approval binding is incomplete");
-      }
-      const state = run.state ?? (run.runDir
-        ? JSON.parse(await readFile(safeJoin(run.runDir, "state.json"), "utf8"))
-        : null);
-      if (!state?.lastSentinel?.digest || authorization.sourceSentinelDigest !== state.lastSentinel.digest) {
-        throw new Error("Typed evidence required-checks human approval sentinel binding is stale");
-      }
-      const reviewPackage = run.runDir
-        ? JSON.parse(await readFile(safeJoin(
-          run.runDir,
-          "review-packages",
-          `${authorization.reviewPackageId}.json`
-        ), "utf8"))
-        : null;
-      if (
-        reviewPackage?.packageId !== authorization.reviewPackageId ||
-        reviewPackage?.head !== payload.head ||
-        reviewPackage?.base !== payload.base ||
-        reviewPackage?.broadReview?.complete !== true
-      ) {
-        throw new Error("Typed evidence required-checks human approval review package binding is stale");
-      }
-      const expectedAuthorization = {
-        schemaVersion: 1,
-        kind: "host-signed-pr-merge-authorization",
-        action: "pr.merge",
-        resource: `pull/${payload.pr}`,
-        runId: authorization.runId,
-        contractDigest: authorization.contractDigest,
-        sourceBindingDigest: authorization.sourceBindingDigest,
-        sourceSentinelDigest: authorization.sourceSentinelDigest,
-        reviewPackageId: authorization.reviewPackageId,
-        repository: payload.repository,
-        pr: payload.pr,
-        head: payload.head,
-        base: payload.base,
-        baseRefName: payload.baseRefName,
-        actor: authorization.actor,
-        adminBypass: false,
-        reviewPolicyException: "solo-repository-zero-review-v1",
-        approvedAt: authorization.approvedAt
-      };
-      if (
-        !Number.isFinite(Date.parse(authorization.approvedAt ?? "")) ||
-        digestObject(authorization) !== digestObject(expectedAuthorization) ||
-        humanApproval.authorizationDigest !== digestObject(expectedAuthorization)
-      ) {
-        throw new Error("Typed evidence required-checks human approval authorization is invalid");
-      }
-      const attestationVerification = await verifyMergeHumanApproval(run.manifest.cwd, payload);
-      if (
-        attestationVerification.authorizationDigest !== humanApproval.authorizationDigest ||
-        attestationVerification.attestationDigest !== attestation.attestationDigest ||
-        attestationVerification.sourceBindingDigest !== authorization.sourceBindingDigest ||
-        attestationVerification.actor !== authorization.actor ||
-        attestationVerification.reviewPolicyException !== authorization.reviewPolicyException
-      ) {
-        throw new Error("Typed evidence required-checks human approval attestation is invalid");
-      }
-    }
-    const checks = payload?.checks;
-    const observedAt = Date.parse(payload?.observedAt ?? "");
-    if (!Number.isFinite(observedAt) || observedAt > Date.now() + 5 * 60 * 1000 || Date.now() - observedAt > MAX_REQUIRED_CHECK_AGE_MS) {
-      throw new Error("Typed evidence required-checks observation is stale or invalid");
-    }
-    if (
-      !Array.isArray(checks) ||
-      checks.length === 0 ||
-      !Array.isArray(payload?.checkSet) ||
-      payload.checkSet.length === 0 ||
-      !Array.isArray(payload?.providerRunIds) ||
-      payload.providerRunIds.length === 0 ||
-      checks.length !== payload.checkSet.length ||
-      checks.length !== payload.providerRunIds.length ||
-      payload.checkSet.length !== payload.providerRunIds.length ||
-      !Array.isArray(payload?.conclusions) ||
-      payload.conclusions.length !== checks.length ||
-      new Set(checks.map((check) => check?.name)).size !== checks.length ||
-      new Set(checks.map((check) => check?.providerName ?? check?.name)).size !== checks.length ||
-      new Set(checks.map((check) => `${check?.observationKind}:${check?.providerRunId}`)).size !== checks.length ||
-      checks.some((check, index) => (
-        !check ||
-        typeof check.name !== "string" || check.name.trim() === "" ||
-        (check.providerName !== undefined && (typeof check.providerName !== "string" || check.providerName.trim() === "")) ||
-        !["check-run", "commit-status"].includes(check.observationKind) ||
-        typeof check.providerRunId !== "string" || check.providerRunId.trim() === "" ||
-        typeof check.completedAt !== "string" || !Number.isFinite(Date.parse(check.completedAt)) ||
-        Date.parse(check.completedAt) > observedAt ||
-        !["SUCCESS", "success", "PASS", "pass"].includes(String(check.conclusion)) ||
-        payload.checkSet[index] !== (check.providerName ?? check.name) ||
-        payload.providerRunIds[index] !== check.providerRunId ||
-        String(payload.conclusions[index]) !== String(check.conclusion)
-      )) ||
-      new Set(checks.map((check) => `${check.observationKind}:${check.providerRunId}`)).size !== checks.length ||
-      payload.checkSet.some((value) => typeof value !== "string" || value.trim() === "") ||
-      payload.providerRunIds.some((value) => typeof value !== "string" || value.trim() === "") ||
-      payload.conclusions.some((value) => !["SUCCESS", "success", "PASS", "pass"].includes(String(value)))
-    ) {
-      throw new Error("Typed evidence required-checks provider observation is incomplete");
-    }
+    await assertRequiredChecksPayload(receipt.payload, run);
+  }
+}
+
+export async function assertRecordedEvidenceSemantics(record, run) {
+  const admittedAt = Date.parse(record?.typedAdmission?.admittedAt ?? "");
+  if (!Number.isFinite(admittedAt)) {
+    throw new Error("Recorded typed evidence admission time is invalid");
+  }
+  if (record?.sourceKind === "independent-critic") {
+    assertIndependentCriticBinding(record, run);
+    throw new Error("Recorded independent critic evidence lacks a replay-verifiable attestation reference");
+  }
+  const payload = record?.receipt?.payload;
+  const kind = record?.kind;
+  await assertActionProofPayload(payload, kind, { ...run, requireReconciled: true }, record?.id);
+  if (kind === "required-checks") {
+    await assertRequiredChecksPayload(payload, run, {
+      now: admittedAt,
+      recordedSourceBinding: run.manifest?.sourceBinding ?? null
+    });
+  }
+  await assertReviewKernelEvidence(payload, kind, run, { recorded: true });
+  await assertQuorumEvidence(payload, kind, run, { now: admittedAt });
+  if (kind === SELF_IMPROVE_HANDOFF_KIND) {
+    throw new Error("Recorded self-improve delivery handoff requires live source-run revalidation");
   }
 }
 
@@ -570,6 +622,9 @@ export async function admitTypedEvidence(record, run, { persisted = false } = {}
   if (record.status !== "complete") throw new Error("Typed evidence status must be complete");
   if (typeof record.summary !== "string" || !record.summary.trim()) {
     throw new Error("Typed evidence summary is required");
+  }
+  if (record.kind === "diff-review" && !hasCanonicalDependencyInputs(record.dependencyInputs)) {
+    throw new Error("Typed evidence diff-review dependencyInputs must be an object containing only a files array");
   }
   const receipt = record.receipt;
   if (!receipt || typeof receipt !== "object" || Array.isArray(receipt)) {

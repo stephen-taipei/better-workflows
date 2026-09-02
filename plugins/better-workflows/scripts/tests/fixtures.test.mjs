@@ -20,6 +20,46 @@ test("all historical and adversarial routing fixtures select the expected mode",
   }
 });
 
+test("SOP incident corpus covers convergence, launch, review, and fixture amplification regressions", async () => {
+  const corpus = JSON.parse(
+    await readFile(path.join(pluginRoot(), "fixtures", "sop-incidents-v4.json"), "utf8")
+  );
+  assert.equal(corpus.schemaVersion, 1);
+  assert.ok(Array.isArray(corpus.incidents));
+  const ids = corpus.incidents.map((incident) => incident.id);
+  assert.equal(new Set(ids).size, ids.length);
+  for (const required of [
+    "campaign-budget-reset",
+    "zsh-readonly-variable",
+    "process-scan-self-match",
+    "bsd-sed-alternation",
+    "pipefail-short-reader",
+    "hardcoded-tool-location",
+    "missing-tmp-parent",
+    "incomplete-fixed-path",
+    "sandbox-host-identity-denied",
+    "exact-sha-evaluator-retry-loop",
+    "model-output-schema-blocks-tools",
+    "reviewed-wrong-diff",
+    "same-process-timer-race",
+    "duplicate-approval-prompt-loop",
+    "strict-mode-default-confusion"
+  ]) assert.ok(ids.includes(required), required);
+  assert.deepEqual(
+    [...new Set(corpus.incidents.map((incident) => incident.class))].sort(),
+    ["convergence", "launcher", "review", "test-fixture"]
+  );
+  for (const incident of corpus.incidents) {
+    for (const field of ["id", "class", "symptom", "rootCause", "prevention", "regression"]) {
+      assert.equal(typeof incident[field], "string", `${incident.id}:${field}`);
+      assert.ok(incident[field].trim(), `${incident.id}:${field}`);
+    }
+    const serialized = JSON.stringify(incident);
+    assert.doesNotMatch(serialized, /\/Users\//);
+    assert.doesNotMatch(serialized, /(?:password|token|secret)\s*[:=]/i);
+  }
+});
+
 test("bounded-autopilot policy is separate from templates and cannot authorize protected actions", async () => {
   const profile = await loadAutonomyProfile();
   const schema = JSON.parse(await readFile(path.join(pluginRoot(), "config", "autonomy", "bounded-autopilot-v1.schema.json"), "utf8"));
@@ -597,7 +637,8 @@ test("skills have no placeholders and retired AI-meeting alias is absent", async
   assert.match(main, /root agent as the only authority/);
   assert.match(main, /Goal-first entry contract/);
   assert.match(main, /\$monorepo-refactor/);
-  assert.match(main, /direct.*do not invoke .*sbw/s);
+  assert.match(main, /`direct` therefore uses a persistent goal without\s+creating a Better Workflows journal/);
+  assert.match(main, /workspace preflight above still\s+applies to explicit Direct/);
   assert.match(main, /at most three direct native children/);
   assert.match(main, /Never decide by vote/);
   assert.match(main, /CLI-proven participant roster/);

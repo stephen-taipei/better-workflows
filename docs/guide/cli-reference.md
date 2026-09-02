@@ -21,11 +21,64 @@ sbw doctor
 sbw doctor --capabilities
 sbw route preview --goal "<goal>" --scope <path>
 sbw route preview --goal "<goal>" --scope <path> \
+  --mutation modify --acceptance-defined \
+  --risk 0 --uncertainty 0 --blast-radius 1 \
+  --irreversibility 0 --evidence-gap 0 \
+  --basic-check "<targeted check>" \
+  --integration-target <local-branch>
+sbw route preview --goal "<goal>" --scope <path> \
   --autonomy-profile bounded-autopilot-v1
 sbw route profile validate --file <profile.json>
 sbw route profile install --file <profile.json>
 sbw route profile show
 ```
+
+The recorded preview includes `AutoRiskAssessmentV1`. Direct is selected only
+when every low-risk condition passes. `--protected-target`, any hard exclusion,
+an unknown mutation intent, missing acceptance, an omitted risk score, or a
+missing targeted-check plan promotes the route to evidence-required. A Git
+mutation also requires an existing local integration target; its current exact
+revision is bound into the assessment, while a missing, remote, or protected
+target uses the governed route.
+Omitted risk scores normalize to the conservative value `3`, never to zero.
+
+## Hosts and workspaces
+
+```bash
+sbw host list
+sbw host doctor [host-id] [--os macos|linux|windows]
+sbw host conformance [host-id] [--os macos|linux|windows] [--write-receipt]
+
+sbw workspace preflight [--intent read-only|modify] \
+  [--task-id <id>] [--integration-target <local-branch>] \
+  [--profile-target <local-branch>]
+sbw workspace create --goal "<goal>" [--task-id <id>] \
+  [--integration-target <local-branch>] [--profile-target <local-branch>]
+sbw workspace register --task-id <id> --base-revision <sha> \
+  --integration-target <local-branch> [--source-checkout <path>] \
+  [--source-branch <local-branch>]
+sbw workspace validate --repository-id <id> --task-id <id> \
+  --check-file <checks.json>
+sbw workspace rebind --repository-id <id> --task-id <id> \
+  --integration-target <local-branch>
+sbw workspace integrate --repository-id <id> --task-id <id>
+sbw workspace reconcile --repository-id <id> --task-id <id> \
+  --run-id <governed-run-id>
+sbw workspace cleanup --repository-id <id> --task-id <id>
+sbw workspace status --repository-id <id> --task-id <id>
+sbw workspace completion-notice --repository-id <id> --task-id <id>
+```
+
+The workspace commands never infer cleanup ownership from a branch prefix or
+path. `register` reuses a clean exact-base host worktree without taking deletion
+authority over it. `integrate` supports only a clean, non-protected local
+target. Protected or remote delivery must continue through the governed PR and
+provider reconciliation commands; `reconcile` accepts only the matching
+successful merge and remote-sync actions from that governed run. Until both
+terminal receipts exist, the task lease and recovery resources remain in place.
+`completion-notice` derives the Direct message from the route-bound lease,
+successful actual checks, current target reconciliation, and exact cleanup
+receipt; it rejects caller-supplied completion claims.
 
 ## Runs, evidence, and findings
 
@@ -43,6 +96,10 @@ sbw self-improve handoff <pr-to-dev-run-id> --source-run <self-improve-run-id>
 sbw run --route-receipt <route-receipt-id>
 sbw status <run-id>
 sbw resume <run-id>
+sbw metrics list [--limit <1..500>]
+sbw metrics summary [--limit <1..500>]
+sbw metrics shadow --baseline-file <sanitized.json> \
+  --candidate-file <sanitized.json> --binding-file <binding.json>
 sbw autonomy preview <run-id>
 sbw autonomy preflight <run-id>
 sbw autonomy revoke <run-id>
@@ -50,6 +107,9 @@ sbw source rebind <run-id> --reason <text>
 sbw sentinel capture <run-id> --label <label>
 sbw sentinel verify <run-id> --label <label>
 sbw evidence add <run-id> --file <evidence.json>
+sbw evidence replay
+sbw evidence replay <run-id>
+sbw evidence replay [<run-id>] --no-open
 sbw finding add <run-id> --file <finding.json>
 sbw finding update <run-id> --file <finding.json>
 sbw ledger status <run-id>
@@ -57,6 +117,7 @@ sbw ledger transition <run-id> --file <event.json>
 sbw ledger compile <run-id> --design-packet <packet.json>
 sbw review package <run-id> --base <sha> --head <sha> --scope <path> \
   --diff-manifest <json> --instruction-digest <sha256> --sentinel-digest <sha256>
+sbw review diff <run-id> --package <package-id> [--native-evidence <evidence-id>]
 sbw review axis-digest <run-id> --file <axis-receipt.json>
 sbw review axis <run-id> --file <axis-receipt.json> \
   --reviewer-id <native-agent-id> --attestation <host-file>
@@ -72,10 +133,84 @@ sbw review quorum run <run-id> --file <quorum-manifest.json>
 sbw review finding <run-id> --file <finding.json>
 sbw review repair <run-id> --package <package-id> --file <result.json>
 sbw review broad <run-id> --package <package-id> --head <sha> --sentinel-digest <sha256>
+sbw review launch-native <run-id> --base <sha> --head <sha> \
+  --package <package-id> --package-file <package.json> \
+  --diff-manifest <manifest.json> --instruction <instruction.md> \
+  --authorization <authorization.json> --model <model> \
+  --reviewer-id <id> --execution-id <id> --result <new-absolute-result.json>
+sbw eval --formal --expected-head <sha> --expected-base <sha> \
+  --launch-root </private/tmp/bw-*-formal-eval-*> \
+  [--replacement-reason host-sleep|sandbox-host-capability|launch-environment|command-interruption]
 sbw refinement status <run-id>
 sbw refinement apply <run-id> --file <receipt.json>
 sbw complete <run-id>
 ```
+
+`evidence replay` starts a foreground-only, read-only cinema at
+`http://localhost:9300` and opens a single-use bootstrap URL in the default
+browser. With a run ID it opens that recorded reel directly; without one it
+shows the local run library. Press `Ctrl+C` to stop it. The ordinary launch
+path never invokes `sudo`, the host signer, providers, action issuance, or
+completion. It reads bounded, symlink-free snapshots from `SBW_STATE_ROOT`,
+serves only allowlisted sanitized metadata, and marks active runs `UNSEALED`.
+Recorded outcomes are presentation-only and are not live re-verification.
+For a manual handoff, `--no-open` does not launch a browser and prints a
+short-lived, single-use `bootstrapUrl`; open that URL rather than the clean
+URL. The bootstrap transfers a per-process bearer through the URL fragment,
+stores it only in that `localhost:9300` tab's `sessionStorage`, removes the
+fragment from browser history, and sends it only in the replay API header.
+Replay never sets a localhost cookie, so the bearer is not forwarded to a
+different localhost port. If the default browser opener fails or times out,
+the URL given to that possibly late opener is revoked and a newly issued
+`bootstrapUrl` is printed with the warning for manual opening. A spawned opener
+counts as successful only after its terminal exit is zero. Opening a clean URL
+without its
+session, or reusing an expired/single-use bootstrap URL in a browser, shows one
+recovery state that hides the inactive player and tells the operator to stop
+the foreground server and launch a fresh replay command.
+
+`metrics list` and `metrics summary` are read-only views over the same run
+records. They expose sanitized mode, outcome, elapsed time, resume/scope-drift
+and replacement counts, plus provider token totals only when observed. Missing
+values remain `null` and are accompanied by warnings; the summary never treats
+unknown usage or terminal time as zero and cannot authorize an action. Repository
+grouping uses a one-way `repositoryDigest`; local checkout paths are never
+included in exported metrics. Prompt counts are also `null` when no interaction
+observation event was recorded; an absent observation is never reported as zero.
+The summary also includes an observe-only `CostAnomalyReportV1` with bounded
+baseline/recent windows. Material wall-time or provider-token increases are
+reported as P1/P2 investigation candidates; insufficient or missing
+observations remain explicit unknowns.
+
+`metrics shadow` compares two operator-selected, sanitized metric batches only
+when their `ShadowReplayBindingV1` records match exactly. It rejects filesystem
+paths, prompts, provider payloads, duplicate runs, missing fields, and binding
+drift before producing a `ShadowReplayComparisonV1`. The result is always
+`observe-only`/`shadow-only` with `accepted: false`; cost regressions and
+unknown observations are reported for a pilot review, never used to switch a
+template or authorize a side effect. The binding file must contain the same
+repository, goal, scope, suite, acceptance, template, and mode digests for the
+v1 and v2 batches.
+
+A run-bound launch keeps the library navigation usable, but `/api/v1/runs`
+returns only that one bound run and rejects every other run replay route. Typed
+records are rechecked with the installed kind-specific deterministic validators
+at their recorded admission time. Action proofs, required-check observations,
+review-kernel summaries, and quorum receipts therefore fail closed after
+semantic mutation even if an attacker recomputes the unkeyed payload digests.
+Resolved or evidence-rejected findings must still reference exactly one valid,
+current typed record whose payload names that finding; legacy review findings
+also require an exact immutable package/base/head/scope/diff binding. Missing,
+duplicate, stale, invalid, unrelated, or cross-package disposition evidence is
+therefore a recorded `HOLD`. Recorded required-check human approvals accept
+attestations only from the canonical administrator attestation root. The same
+nonblocking, no-follow file handle verifies regular-file type, single-link
+identity, owner/mode, bounded size, content digest, and JSON before signature
+verification, so state-controlled FIFO, device, symlink, oversized, or external
+paths are rejected before an unbounded read.
+Legacy independent-critic records without a replay-verifiable attestation
+reference, and self-improve handoffs that require live source-run validation,
+are shown as `UNVERIFIABLE_TYPED_EVIDENCE` and keep the reel on `HOLD`.
 
 `source rebind` is root-only and pre-review/pre-side-effect. It invalidates all
 prior complete evidence and resets the v2 execution ledger, so the next
@@ -186,7 +321,10 @@ sbw recipe prune --apply
 ```
 
 `artifact.promote` is an independent action authority. A dry run executes only
-already trusted code and leaves no published artifact.
+already trusted code and leaves no published artifact. Successful
+`recipe.promote` and `artifact.promote` source writes are reconciled as exact,
+one-path provider-action transitions; extra workspace drift or a tampered
+transition is audited as non-authorizing.
 
 ## Model deliberation
 

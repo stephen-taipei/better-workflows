@@ -2,7 +2,7 @@
 
 # Better Workflows
 
-Åpen kildekode og goal-first kontrollplan for agent-workflyter med oppdatert evidens, kontrollporter og avstemming mot leverandøren.
+AI-agenten tilpasser verifiseringen til risikoen og fullfører arbeidet trygt i et isolert miljø. Enkle endringer går raskt; viktig arbeid bruker evidence gates; Git-endringer bruker som standard en egen worktree.
 
 [English](en.md) · [繁體中文](zh-Hant.md) · [繁體中文（台灣）](zh-Hant-TW.md) · [繁體中文（香港）](zh-Hant-HK.md) · [简体中文](zh-Hans.md) · [Tiếng Việt](vi.md) · [Українська](uk.md) · [Türkçe](tr.md) · [ไทย](th.md) · [Svenska](sv.md) · [Slovenčina](sk.md) · [Русский](ru.md) · [Română](ro.md) · [Português](pt.md) · [Português (Brasil)](pt-BR.md) · [Polski](pl.md) · [Nederlands](nl.md) · **Norsk bokmål** · [မြန်မာ](my.md) · [Bahasa Melayu](ms.md) · [ລາວ](lo.md) · [한국어](ko.md) · [ខ្មែរ](km.md) · [日本語](ja.md) · [Italiano](it.md) · [Bahasa Indonesia](id.md) · [Magyar](hu.md) · [Hrvatski](hr.md) · [हिन्दी](hi.md) · [עברית](he.md) · [Français](fr.md) · [Filipino](fil.md) · [Suomi](fi.md) · [Español](es.md) · [Español (México)](es-MX.md) · [Ελληνικά](el.md) · [Deutsch](de.md) · [Dansk](da.md) · [Čeština](cs.md) · [Català](ca.md) · [العربية](ar.md)
 
@@ -19,7 +19,7 @@ Better Workflows låser mål, scope og authority og knytter hver beslutning til 
 Definer kontrakten, verifiser kilde og evidens, avstem eksterne effekter, og erklær først fullført når sluttilstanden er kjent.
 
 - **01 · `TaskContract`** — Better Workflows låser mål, scope og authority og knytter hver beslutning til oppdatert, revaliderbar evidens og et avstemt eksternt resultat.
-- **02 · `evidence`** — Åpen kildekode og goal-first kontrollplan for agent-workflyter med oppdatert evidens, kontrollporter og avstemming mot leverandøren.
+- **02 · `evidence`** — AI-agenten tilpasser verifiseringen til risikoen og fullfører arbeidet trygt i et isolert miljø. Enkle endringer går raskt; viktig arbeid bruker evidence gates; Git-endringer bruker som standard en egen worktree.
 - **03 · `reconciliation`** — Definer kontrakten, verifiser kilde og evidens, avstem eksterne effekter, og erklær først fullført når sluttilstanden er kjent.
 - **04 · `terminal state`** — At en kommando kjørte, beviser ikke fullføring; et revaliderbart resultat gjør det.
 

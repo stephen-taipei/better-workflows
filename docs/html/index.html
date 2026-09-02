@@ -878,7 +878,7 @@
       </button>
       <a class="brand" href="#top">
         <span class="brand-mark">BW</span>
-        <span class="brand-copy"><strong data-i18n="brand.full">Better Workflows 解剖書</strong><span>CODEBASE FIELD GUIDE · 3.4.14</span></span>
+        <span class="brand-copy"><strong data-i18n="brand.full">Better Workflows 解剖書</strong><span>CODEBASE FIELD GUIDE · 4.0.0</span></span>
       </a>
       <nav class="topbar-nav" aria-label="快速章節" data-i18n-aria-label="a11y.quickNav">
         <a href="#architecture-map" data-i18n="nav.architecture">架構地圖</a>
@@ -910,7 +910,7 @@
       <div class="drawer-head">
         <a class="brand" href="#top">
           <span class="brand-mark">BW</span>
-          <span class="brand-copy"><strong data-i18n="brand.full">Better Workflows 解剖書</strong><span>CODEBASE FIELD GUIDE · 3.4.14</span></span>
+          <span class="brand-copy"><strong data-i18n="brand.full">Better Workflows 解剖書</strong><span>CODEBASE FIELD GUIDE · 4.0.0</span></span>
         </a>
         <button class="drawer-close" id="close-nav" type="button" aria-label="關閉章節目錄" data-i18n-aria-label="a11y.closeContents">×</button>
       </div>
@@ -950,7 +950,7 @@
     <main id="main">
       <header class="hero" id="top" data-search="Better Workflows 解剖書 從意圖到可證明完成">
         <div>
-          <p class="eyebrow" data-i18n="hero.eyebrow">Evidence-driven control plane · 3.4.14</p>
+          <p class="eyebrow" data-i18n="hero.eyebrow">Evidence-driven control plane · 4.0.0</p>
           <h1 data-i18n-html="hero.title">從意圖，走到<span class="accent">可證明完成。</span></h1>
           <p class="hero-lead" data-i18n-html="hero.lead">這不是一份 API 名稱清單，而是一本解釋 <strong>Better Workflows 如何做決定、留下證據、重播狀態，以及在副作用前停下來驗證</strong>的互動式解剖書。</p>
           <div class="hero-actions">
@@ -1060,7 +1060,7 @@
             <div>
               <p class="kicker">Mechanism inventory</p>
               <h2>Mode 決定驗證強度；Template 決定工作骨架</h2>
-              <p class="chapter-summary">Routing 先依優先序選入口與 template，再用五個風險軸推導 mode。Mode 可以被提高，不能被低於 policy floor；direct 則是刻意的例外：它不建立 governed run。</p>
+              <p class="chapter-summary">Routing 先依優先序選入口與 template，再用五個風險軸推導 mode。Mode 可以被提高，不能被低於 policy floor；Direct 不建立完整 evidence run，但 Git 修改仍必須保留最小 lease 並在專屬 worktree 隔離執行。</p>
             </div>
           </div>
           <div class="mode-switch" role="tablist" aria-label="模式比較">
@@ -1072,7 +1072,7 @@
           <div class="card mode-panel" id="mode-panel" aria-live="polite"></div>
 
           <div class="grid-3" style="margin-top:22px">
-            <div class="card blue"><h3>Route precedence</h3><p>明確 entry / template → workspace selector → personal selector → built-in auto。Route receipt 會綁定 catalog、profile、goal、scope、capability、bundle 與 autonomy digests，並且只能 claim 一次。</p><a class="evidence-chip" href="#ev-routing">routing.mjs:788–1055</a></div>
+            <div class="card blue"><h3>Route precedence</h3><p>明確 entry / template → workspace selector → personal selector → built-in auto。Route receipt 會綁定 catalog、profile、goal、scope、capability、bundle 與 autonomy digests；Direct 的單次 claim 只允許同一份 lease identity 中斷續跑。</p><a class="evidence-chip" href="#ev-routing">routing.mjs · assessAutoRisk / receipt claim</a></div>
             <div class="card indigo"><h3>TaskContract v2</h3><p>凍結 goal、scope、acceptance、evidence、authority、stages、gates 與 control-plane policy。Mutation authority 固定由 root 持有，autonomy 也必須明列。</p><a class="evidence-chip" href="#ev-contract">core.mjs:1022–1402</a></div>
             <div class="card violet"><h3>Template graph</h3><p>14 個 template 合計 66 stages。Graph validation 檢查 cycle、dangling edge、endpoint 相容性與 provenance；目前基線 diagnostics 為 0。</p><a class="evidence-chip" href="#ev-graph-code">graph.mjs:400–627</a></div>
           </div>
@@ -1553,7 +1553,7 @@ git status --short<button class="copy-btn" type="button">複製</button></div>
           'nav.lenses': '角色閱讀路徑', 'nav.change': '改 Code 守則', 'nav.sources': '來源檔案',
           'search.global': '搜尋章節與證據…', 'search.sources': '搜尋 path、主題或 locator…',
           'action.print': '列印或匯出 PDF', 'action.collapse': '收合所有來源群組',
-          'hero.eyebrow': 'Evidence-driven control plane · 3.4.14',
+          'hero.eyebrow': 'Evidence-driven control plane · 4.0.0',
           'hero.title': '從意圖，走到<span class="accent">可證明完成。</span>',
           'hero.lead': '這不是一份 API 名稱清單，而是一本解釋 <strong>Better Workflows 如何做決定、留下證據、重播狀態，以及在副作用前停下來驗證</strong>的互動式解剖書。',
           'hero.start': '開始閱讀', 'hero.replay': '先看 Replay', 'hero.cinema': '證據動畫劇場 ↗', 'hero.useCases': '情境應用手冊 ↗', 'hero.print': '列印版',
@@ -1583,7 +1583,7 @@ git status --short<button class="copy-btn" type="button">複製</button></div>
           'nav.lenses': 'Reading paths', 'nav.change': 'Change-code rules', 'nav.sources': 'Source explorer',
           'search.global': 'Search chapters and evidence…', 'search.sources': 'Search path, topic, or locator…',
           'action.print': 'Print or export PDF', 'action.collapse': 'Collapse all source groups',
-          'hero.eyebrow': 'Evidence-driven control plane · 3.4.14',
+          'hero.eyebrow': 'Evidence-driven control plane · 4.0.0',
           'hero.title': 'From intent to <span class="accent">provable completion.</span>',
           'hero.lead': 'Not an API-name inventory, but an interactive field guide to <strong>how Better Workflows decides, records evidence, replays state, and pauses to verify before side effects</strong>.',
           'hero.start': 'Start reading', 'hero.replay': 'See replay first', 'hero.cinema': 'Evidence cinema ↗', 'hero.useCases': 'Use-case handbook ↗', 'hero.print': 'Print edition',
@@ -1604,7 +1604,7 @@ git status --short<button class="copy-btn" type="button">複製</button></div>
       const chapterEnglish = {
         executive: ['A fail-closed workflow control plane', 'Better Workflows separates routing, execution, evidence, review, side effects, and completion into independently verifiable state boundaries. A broken binding never becomes a soft pass; it returns to blocked or indeterminate.'],
         'architecture-map': ['One request crosses eight authority boundaries', 'Select a node to inspect what each boundary accepts, produces, and is forbidden to overrule. The map shows authority and data direction; not every template must execute every node.'],
-        'mechanism-inventory': ['Mode sets assurance depth; template sets the work skeleton', 'Routing selects an entry and template by precedence, then derives a mode from five risk axes. Policy may raise that mode, never lower it beneath the floor; direct is the deliberate non-governed exception.'],
+        'mechanism-inventory': ['Mode sets assurance depth; template sets the work skeleton', 'Routing selects an entry and template by precedence, then derives a mode from five risk axes. Policy may raise that mode, never lower it beneath the floor. Direct creates no full evidence run, while Git mutation still requires a minimal lease and an isolated task worktree.'],
         'evidence-flow': ['Evidence is input to state transition, not an attachment', 'An evidence item must satisfy its kind contract, producer allowlist, payload schema, success predicate, freshness binding, and recomputed digest before ledger or completion can consume it.'],
         'ledger-replay': ['State is replayed from events, not stored as a conclusion', 'This reduced teaching simulation builds intuition for the real reducer, which validates the TaskContract, dependencies, fixed budgets, root actor, ledger digest, and admitted typed evidence.'],
         'review-action': ['A side effect is not complete when the call returns', 'For merge, push, or cache publication, the system freezes an exact review identity, issues a short-lived one-shot token, executes through a fixed provider wrapper, and reconciles the receipt to success, failure, or unknown.'],
@@ -1672,8 +1672,8 @@ git status --short<button class="copy-btn" type="button">複製</button></div>
       }
 
       const archData = {
-        routing: { index: '01 · DECIDE', title: 'Routing', summary: '把使用者意圖、可用能力、風險與明確 selector 轉成 template / mode。', bullets: ['優先序：explicit → workspace → personal → built-in auto', 'mode 由五個風險軸評分，policy floor 只能提高不能降低', 'route receipt 綁定多個 digest，24 小時到期且只能 claim 一次'], evidence: 'routing.mjs:556–1055', href: '#ev-routing' },
-        contract: { index: '02 · FREEZE', title: 'TaskContract', summary: '在執行前凍結目標、範圍、驗收、證據、權限、stage 與 gate。', bullets: ['v2 是 governed control-plane contract', 'mutation authority 固定 root-only', 'direct mode 是例外：不建立 governed run'], evidence: 'core.mjs:1022–1402', href: '#ev-contract' },
+        routing: { index: '01 · DECIDE', title: 'Routing', summary: '把使用者意圖、可用能力、風險與明確 selector 轉成 template / mode。', bullets: ['優先序：explicit → workspace → personal → built-in auto', 'mode 由五個風險軸評分，policy floor 只能提高不能降低', 'route receipt 綁定多個 digest、24 小時到期；Direct claim 只允許同一 lease identity 續跑'], evidence: 'routing.mjs · previewRoute / recordRouteReceipt / claimRouteReceipt', href: '#ev-routing' },
+        contract: { index: '02 · FREEZE', title: 'TaskContract', summary: '在執行前凍結目標、範圍、驗收、證據、權限、stage 與 gate。', bullets: ['v2 是 governed control-plane contract', 'mutation authority 固定 root-only', 'Direct 不建立 evidence run；Git 修改仍建立最小 lease'], evidence: 'core.mjs:1022–1402', href: '#ev-contract' },
         source: { index: '03 · BIND', title: 'Source Binding', summary: '建立 repository 當下狀態的可重算身分，讓後續證據知道自己屬於哪個 source。', bullets: ['固定 /usr/bin/git 與最小環境', '綁 HEAD、index、status、tracked/untracked、submodule、config 等', '操作前後重捕 sentinel；drift 轉為 indeterminate'], evidence: 'git.mjs:450–690', href: '#ev-source-binding' },
         ledger: { index: '04 · DERIVE', title: 'Append-only Ledger', summary: '只保存事件，透過 deterministic reducer 推導 task state、ready set 與 budget。', bullets: ['dependency 必須靜態、已知、無 cycle', 'expectedLedgerDigest 防 concurrent stale writer', 'complete 必須帶 admitted typed evidence'], evidence: 'ledger.mjs:3–348', href: '#ev-ledger' },
         evidence: { index: '05 · PROVE', title: 'Typed Evidence', summary: '用 contract 驗證 kind、producer、payload、semantic success、時效性與 digest。', bullets: ['102 kinds / 10 payload families', 'caller acceptanceIds 不具權威', 'persisted evidence 會在消費時再次驗證'], evidence: 'evidence.mjs:7–565', href: '#ev-evidence' },
@@ -1685,8 +1685,8 @@ git status --short<button class="copy-btn" type="button">複製</button></div>
       };
 
       const modeData = {
-        direct: { level: 1, title: 'direct · Root 直接執行', summary: '適合範圍小、風險低、可快速驗證的工作。它不建立 run directory、journal、ledger 或 critics；因此也不應被誤認為 governed replay。', meta: ['run: none', 'critics: 0', 'journal: none', '適用：低風險、可回復'] },
-        verified: { level: 2, title: 'verified · 具時效性的證據 + 獨立檢查', summary: '建立 governed run，加入 1–3 個唯讀 agent / reviewer，並使用與目前來源一致且仍有效、可重驗的 evidence，適合需要交叉驗證但尚非關鍵不可逆的工作。', meta: ['run: v2', 'read-only critics', 'current evidence', 'root-only mutation'] },
+        direct: { level: 1, title: 'direct · Root 直接執行', summary: '適合範圍小、風險低、可快速驗證的工作。它不建立 evidence run、journal、ledger 或 critics；Git 修改仍使用最小 TaskWorkspaceLeaseV1、專屬 worktree 與受限基本檢查，不能被誤認為完整可重播驗證。', meta: ['evidence run: none', 'Git: minimal lease', 'critics: 0', '適用：低風險、可回復'] },
+        verified: { level: 2, title: 'verified · 當前證據 + 獨立檢查', summary: '建立 governed run，加入 1–3 個唯讀 agent / reviewer，並使用與目前來源一致且仍有效、可重驗的 evidence，適合需要交叉驗證但尚非關鍵不可逆的工作。', meta: ['run: v2', 'read-only critics', 'current evidence', 'root-only mutation'] },
         deep: { level: 3, title: 'deep · Verified wave + Codex critics', summary: '在 verified 的基礎上加入獨立 Codex critics 與更完整的 review convergence，用於架構、跨模組或高認知負荷變更。', meta: ['run: v2', 'max Codex critics: 2', 'broad review', '更高驗證成本'] },
         critical: { level: 4, title: 'critical · Fail-closed critical gates', summary: '用於不可逆 side effects、自我改善與高風險交付；要求完整 source binding、host / provider authority、exact critic 與 reconciliation。', meta: ['run: v2', 'exact independent critic', 'action token', 'unknown → indeterminate'] }
       };
@@ -1727,7 +1727,7 @@ git status --short<button class="copy-btn" type="button">複製</button></div>
 
       const sources = [
         { id:'ev-architecture', group:'架構與路由', type:'fact', path:'docs/guide/architecture.md:6–47', topic:'系統定位與 canonical flow', note:'明示 governed control plane 定位、端到端流程與 routing precedence。' },
-        { id:'ev-routing', group:'架構與路由', type:'fact', path:'plugins/better-workflows/scripts/lib/routing.mjs:556–1055', topic:'能力快照、rule matching、路由與 receipt', note:'Node-only capability snapshot；category AND/value OR；explicit → workspace → personal → built-in auto；receipt 綁 digests、24h 且 single claim。' },
+        { id:'ev-routing', group:'架構與路由', type:'fact', path:'plugins/better-workflows/scripts/lib/routing.mjs · previewRoute / recordRouteReceipt / claimRouteReceipt', topic:'能力快照、rule matching、路由與 receipt', note:'Node-only capability snapshot；category AND/value OR；explicit → workspace → personal → built-in auto；receipt 綁 digests、24h，Direct 只能由同一 lease identity 中斷續跑。' },
         { id:'ev-mode', group:'架構與路由', type:'fact', path:'plugins/better-workflows/scripts/lib/core.mjs:1003–1019', topic:'Auto mode 風險評分', note:'五個風險軸映射 direct / verified / deep / critical。' },
         { id:'ev-template-inventory', group:'架構與路由', type:'fact', path:'plugins/better-workflows/templates/*.json → execution.stages', topic:'Current template / stage inventory', note:'本次 live parse：14 個 template、66 個 execution stages；Graph View 由同一份 template 結構投影。' },
         { id:'ev-contract', group:'Contract、Ledger、Evidence', type:'fact', path:'plugins/better-workflows/scripts/lib/core.mjs:1022–1402', topic:'TaskContract v2 與 run creation', note:'驗證／建立 goal、scope、acceptance、evidence、root-only authority、stages、gates；direct 不建立 run。' },
@@ -1769,8 +1769,8 @@ git status --short<button class="copy-btn" type="button">複製</button></div>
 
       const englishData = {
         arch: {
-          routing: { summary: 'Turns user intent, available capability, risk, and explicit selectors into a template and mode.', bullets: ['Precedence: explicit → workspace → personal → built-in auto', 'Five risk axes derive mode; policy may raise but never lower the floor', 'Route receipts bind multiple digests, expire after 24 hours, and can be claimed once'] },
-          contract: { summary: 'Freezes goal, scope, acceptance, evidence, authority, stages, and gates before execution.', bullets: ['v2 is the governed control-plane contract', 'Mutation authority remains root-only', 'Direct mode is the exception and creates no governed run'] },
+          routing: { summary: 'Turns user intent, available capability, risk, and explicit selectors into a template and mode.', bullets: ['Precedence: explicit → workspace → personal → built-in auto', 'Five risk axes derive mode; policy may raise but never lower the floor', 'Route receipts bind multiple digests and expire after 24 hours; a Direct claim resumes only for the same lease identity'] },
+          contract: { summary: 'Freezes goal, scope, acceptance, evidence, authority, stages, and gates before execution.', bullets: ['v2 is the governed control-plane contract', 'Mutation authority remains root-only', 'Direct creates no evidence run; Git mutation still creates a minimal lease'] },
           source: { summary: 'Creates a reproducible identity for repository state so later evidence can prove which source it belongs to.', bullets: ['Uses a fixed /usr/bin/git with a minimal environment', 'Binds HEAD, index, status, tracked and untracked files, submodules, and configuration', 'Recaptures sentinels around actions; drift becomes indeterminate'] },
           ledger: { summary: 'Stores only events and derives task state, ready set, and budget through a deterministic reducer.', bullets: ['Dependencies are static, known, and acyclic', 'expectedLedgerDigest rejects concurrent stale writers', 'Completion requires admitted typed evidence'] },
           evidence: { summary: 'Validates kind, producer, payload, semantic success, freshness, and digest against the evidence contract.', bullets: ['102 kinds across 10 payload families', 'Caller-supplied acceptanceIds have no authority', 'Persisted evidence is revalidated whenever consumed'] },
@@ -1781,7 +1781,7 @@ git status --short<button class="copy-btn" type="button">複製</button></div>
           graph: { summary: 'Produces a safe structural projection and diagnostics from a template or live run.', bullets: ['Projects allowlisted structural fields only', 'Cycle, dangling, incompatible, or provenance errors block critical operations', 'JSON is canonical; Mermaid is presentation only'] }
         },
         mode: {
-          direct: { title: 'direct · Root executes directly', summary: 'For small, low-risk, quickly verifiable work. It creates no run directory, journal, ledger, or critics and must not be mistaken for governed replay.', meta: ['run: none', 'critics: 0', 'journal: none', 'fit: low risk, reversible'] },
+          direct: { title: 'direct · Root executes directly', summary: 'For small, low-risk, quickly verifiable work. It creates no evidence run, journal, ledger, or critics. Git mutation still uses a minimal TaskWorkspaceLeaseV1, an isolated task worktree, and constrained basic checks, so Direct must not be mistaken for full replayable verification.', meta: ['evidence run: none', 'Git: minimal lease', 'critics: 0', 'fit: low risk, reversible'] },
           verified: { title: 'verified · Fresh evidence + independent checks', summary: 'Creates a governed run with one to three read-only reviewers and freshness evidence for work that needs cross-checking without critical irreversible risk.', meta: ['run: v2', 'read-only critics', 'fresh evidence', 'root-only mutation'] },
           deep: { title: 'deep · Verified wave + Codex critics', summary: 'Adds independent Codex critics and broader review convergence for architecture, cross-module, or cognitively demanding changes.', meta: ['run: v2', 'max Codex critics: 2', 'broad review', 'higher assurance cost'] },
           critical: { title: 'critical · Fail-closed critical gates', summary: 'For irreversible side effects, self-improvement, and high-risk delivery; requires full source binding, host and provider authority, exact critics, and reconciliation.', meta: ['run: v2', 'exact independent critic', 'action token', 'unknown → indeterminate'] }

@@ -5,25 +5,51 @@ import {
   appendFile,
   cp,
   link,
+  lstat,
   mkdir,
   mkdtemp,
   readFile,
   readdir,
+  rename,
+  rmdir,
   symlink,
+  unlink,
   writeFile
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
-import { digestObject, pluginRoot, sha256 } from "../lib/core.mjs";
+import {
+  addEvidence as addCoreEvidence,
+  addFinding,
+  currentActionEvidenceGateBinding,
+  digestObject,
+  inspectRun,
+  loadDefaults,
+  pluginRoot,
+  reconcileAction,
+  sha256
+} from "../lib/core.mjs";
+import { captureSentinel, captureSourceBinding } from "../lib/git.mjs";
 import { transitionLedger } from "../lib/ledger.mjs";
+import {
+  recipeArtifactPromote,
+  recipePromote
+} from "../lib/recipes.mjs";
 import { createReviewPackage, markBroadReviewComplete, reviewStatus } from "../lib/review.mjs";
 
 const execFileAsync = promisify(execFile);
 const CLI = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "sbw.mjs");
 const RUNTIME = path.join(pluginRoot(), "scripts", "lib", "recipe-runtime.mjs");
+const ARTIFACT_PUBLISHER = path.join(
+  pluginRoot(),
+  "scripts",
+  "lib",
+  "recipe-artifact-publisher.mjs"
+);
 
 function runRuntime(request) {
   return new Promise((resolve, reject) => {
@@ -56,6 +82,243 @@ async function repository() {
   await git(cwd, "commit", "-qm", "fixture");
   return cwd;
 }
+
+test("discard publisher quarantines a raced pathname without deleting the replacement inode", async () => {
+  const parent = await mkdtemp(path.join(os.tmpdir(), "sbw-publisher-quarantine-"));
+  const controls = await mkdtemp(path.join(os.tmpdir(), "sbw-publisher-controls-"));
+  const targetName = "config.json";
+  const temporaryName = ".replacement.tmp";
+  const displacedName = ".replacement.original";
+  const priorBytes = Buffer.from("{\"enabled\":false}\n");
+  const artifactBytes = Buffer.from("{\"enabled\":true}\n");
+  await writeFile(path.join(parent, targetName), priorBytes);
+  await writeFile(path.join(parent, temporaryName), artifactBytes);
+  const parentInfo = await lstat(parent);
+  const targetInfo = await lstat(path.join(parent, targetName));
+  const parentIdentity = `${parentInfo.dev}:${parentInfo.ino}`;
+  const targetIdentity = `${targetInfo.dev}:${targetInfo.ino}`;
+  const publisherDigest = sha256(await readFile(ARTIFACT_PUBLISHER));
+  const child = spawn(process.execPath, [
+    ARTIFACT_PUBLISHER,
+    "discard",
+    parentIdentity,
+    targetName,
+    temporaryName,
+    sha256(artifactBytes),
+    String(artifactBytes.length),
+    targetIdentity,
+    sha256(priorBytes),
+    String(priorBytes.length),
+    publisherDigest
+  ], {
+    cwd: parent,
+    shell: false,
+    stdio: ["ignore", "pipe", "pipe"],
+    env: {
+      LANG: "C.UTF-8",
+      LC_ALL: "C.UTF-8",
+      TZ: "UTC",
+      NODE_NO_WARNINGS: "1",
+      SBW_RECIPE_PUBLISHER_TEST_ROOT: controls
+    }
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  child.stdout.on("data", (chunk) => { stdout += chunk; });
+  child.stderr.on("data", (chunk) => { stderr += chunk; });
+  const terminal = new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", (code, signal) => resolve({ code, signal }));
+  });
+  const ready = path.join(controls, "before-discard-quarantine-rename.ready");
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    try {
+      await access(ready);
+      break;
+    } catch (error) {
+      if (attempt === 199) throw error;
+      await delay(5);
+    }
+  }
+  await rename(path.join(parent, temporaryName), path.join(parent, displacedName));
+  await writeFile(path.join(parent, temporaryName), artifactBytes, { flag: "wx" });
+  const replacementInfo = await lstat(path.join(parent, temporaryName));
+  await writeFile(path.join(controls, "before-discard-quarantine-rename.continue"), "continue\n");
+  const result = await terminal;
+  assert.notEqual(result.code, 0, stdout);
+  assert.match(stderr, /identity changed at the quarantine boundary/);
+  assert.deepEqual(await readFile(path.join(parent, targetName)), priorBytes);
+  assert.deepEqual(await readFile(path.join(parent, displacedName)), artifactBytes);
+  await assert.rejects(access(path.join(parent, temporaryName)));
+  const quarantineNames = (await readdir(parent)).filter((name) => name.startsWith(".sbw-discard-quarantine-"));
+  assert.equal(quarantineNames.length, 1);
+  const quarantinedPath = path.join(parent, quarantineNames[0], "artifact");
+  const quarantinedInfo = await lstat(quarantinedPath);
+  assert.equal(quarantinedInfo.dev, replacementInfo.dev);
+  assert.equal(quarantinedInfo.ino, replacementInfo.ino);
+  assert.deepEqual(await readFile(quarantinedPath), artifactBytes);
+});
+
+test("finalize publisher quarantines a raced temporary name without unlinking the replacement", async () => {
+  const parent = await mkdtemp(path.join(os.tmpdir(), "sbw-publisher-finalize-race-"));
+  const controls = await mkdtemp(path.join(os.tmpdir(), "sbw-publisher-finalize-controls-"));
+  const targetName = "report.md";
+  const temporaryName = ".report.tmp";
+  const displacedName = ".report.original";
+  const bytes = Buffer.from("# governed report\n");
+  await writeFile(path.join(parent, temporaryName), bytes);
+  await link(path.join(parent, temporaryName), path.join(parent, targetName));
+  const parentInfo = await lstat(parent);
+  const targetInfo = await lstat(path.join(parent, targetName));
+  const publisherDigest = sha256(await readFile(ARTIFACT_PUBLISHER));
+  const child = spawn(process.execPath, [
+    ARTIFACT_PUBLISHER,
+    "finalize",
+    `${parentInfo.dev}:${parentInfo.ino}`,
+    targetName,
+    temporaryName,
+    sha256(bytes),
+    String(bytes.length),
+    `${targetInfo.dev}:${targetInfo.ino}`,
+    "-",
+    "-",
+    publisherDigest
+  ], {
+    cwd: parent,
+    shell: false,
+    stdio: ["ignore", "pipe", "pipe"],
+    env: {
+      LANG: "C.UTF-8",
+      LC_ALL: "C.UTF-8",
+      TZ: "UTC",
+      NODE_NO_WARNINGS: "1",
+      SBW_RECIPE_PUBLISHER_TEST_ROOT: controls
+    }
+  });
+  let stderr = "";
+  child.stderr.setEncoding("utf8");
+  child.stderr.on("data", (chunk) => { stderr += chunk; });
+  const terminal = new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", (code, signal) => resolve({ code, signal }));
+  });
+  const ready = path.join(controls, "before-publication-finalize-quarantine-rename.ready");
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    try {
+      await access(ready);
+      break;
+    } catch (error) {
+      if (attempt === 199) throw error;
+      await delay(5);
+    }
+  }
+  await rename(path.join(parent, temporaryName), path.join(parent, displacedName));
+  await writeFile(path.join(parent, temporaryName), bytes, { flag: "wx" });
+  const replacementInfo = await lstat(path.join(parent, temporaryName));
+  await writeFile(
+    path.join(controls, "before-publication-finalize-quarantine-rename.continue"),
+    "continue\n"
+  );
+  const result = await terminal;
+  assert.notEqual(result.code, 0);
+  assert.match(stderr, /publication-finalize identity changed at the quarantine boundary/);
+  assert.deepEqual(await readFile(path.join(parent, targetName)), bytes);
+  assert.deepEqual(await readFile(path.join(parent, displacedName)), bytes);
+  const quarantineName = (await readdir(parent)).find((name) => name.startsWith(".sbw-discard-quarantine-"));
+  assert.ok(quarantineName);
+  const quarantinedInfo = await lstat(path.join(parent, quarantineName, "artifact"));
+  assert.equal(quarantinedInfo.dev, replacementInfo.dev);
+  assert.equal(quarantinedInfo.ino, replacementInfo.ino);
+});
+
+test("replace publisher never overwrites a target raced into the no-overwrite link boundary", async () => {
+  const parent = await mkdtemp(path.join(os.tmpdir(), "sbw-publisher-replace-race-"));
+  const controls = await mkdtemp(path.join(os.tmpdir(), "sbw-publisher-replace-controls-"));
+  const targetName = "config.json";
+  const temporaryName = ".config.tmp";
+  const priorBytes = Buffer.from("{\"enabled\":false}\n");
+  const artifactBytes = Buffer.from("{\"enabled\":true}\n");
+  const racedBytes = Buffer.from("{\"attacker\":true}\n");
+  await writeFile(path.join(parent, targetName), priorBytes);
+  const parentInfo = await lstat(parent);
+  const targetInfo = await lstat(path.join(parent, targetName));
+  const publisherDigest = sha256(await readFile(ARTIFACT_PUBLISHER));
+  const child = spawn(process.execPath, [
+    ARTIFACT_PUBLISHER,
+    "replace",
+    `${parentInfo.dev}:${parentInfo.ino}`,
+    targetName,
+    temporaryName,
+    sha256(artifactBytes),
+    String(artifactBytes.length),
+    `${targetInfo.dev}:${targetInfo.ino}`,
+    sha256(priorBytes),
+    String(priorBytes.length),
+    publisherDigest
+  ], {
+    cwd: parent,
+    shell: false,
+    stdio: ["pipe", "pipe", "pipe"],
+    env: {
+      LANG: "C.UTF-8",
+      LC_ALL: "C.UTF-8",
+      TZ: "UTC",
+      NODE_NO_WARNINGS: "1",
+      SBW_RECIPE_PUBLISHER_TEST_ROOT: controls
+    }
+  });
+  let stderr = "";
+  child.stderr.setEncoding("utf8");
+  child.stderr.on("data", (chunk) => { stderr += chunk; });
+  child.stdin.end(artifactBytes);
+  const terminal = new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", (code, signal) => resolve({ code, signal }));
+  });
+  const priorQuarantineReady = path.join(
+    controls,
+    "before-replacement-prior-target-quarantine-rename.ready"
+  );
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    try {
+      await access(priorQuarantineReady);
+      break;
+    } catch (error) {
+      if (attempt === 199) throw error;
+      await delay(5);
+    }
+  }
+  await writeFile(
+    path.join(controls, "before-replacement-prior-target-quarantine-rename.continue"),
+    "continue\n"
+  );
+  const ready = path.join(controls, "before-replacement-target-link.ready");
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    try {
+      await access(ready);
+      break;
+    } catch (error) {
+      if (attempt === 199) throw error;
+      await delay(5);
+    }
+  }
+  await writeFile(path.join(parent, targetName), racedBytes, { flag: "wx" });
+  const racedInfo = await lstat(path.join(parent, targetName));
+  await writeFile(path.join(controls, "before-replacement-target-link.continue"), "continue\n");
+  const result = await terminal;
+  assert.notEqual(result.code, 0);
+  assert.match(stderr, /replacement target appeared at the no-overwrite publication boundary/);
+  assert.deepEqual(await readFile(path.join(parent, targetName)), racedBytes);
+  const currentRacedInfo = await lstat(path.join(parent, targetName));
+  assert.equal(currentRacedInfo.dev, racedInfo.dev);
+  assert.equal(currentRacedInfo.ino, racedInfo.ino);
+  assert.deepEqual(await readFile(path.join(parent, temporaryName)), artifactBytes);
+  const quarantineName = (await readdir(parent)).find((name) => name.startsWith(".sbw-discard-quarantine-"));
+  assert.ok(quarantineName);
+  assert.deepEqual(await readFile(path.join(parent, quarantineName, "artifact")), priorBytes);
+});
 
 async function cli(cwd, stateRoot, args, { allowFailure = false } = {}) {
   try {
@@ -264,6 +527,13 @@ async function issueAndConsume(cwd, stateRoot, runId, action, resource) {
   return consumed.json.action.attemptId;
 }
 
+function testSentinelPathBinding(sentinel, relativePath) {
+  const tracked = (sentinel.scopeDigest?.records ?? []).find((item) => item.path === relativePath);
+  if (tracked) return { surface: "tracked", record: tracked };
+  const untracked = (sentinel.untracked?.records ?? []).find((item) => item.path === relativePath);
+  return untracked ? { surface: "untracked", record: untracked } : null;
+}
+
 test("recipe commands never initialize silently and strict validation rejects unknown fields", async () => {
   const cwd = await repository();
   const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-recipe-state-"));
@@ -388,6 +658,237 @@ export default async function run() { return link; }
   }
 });
 
+test("published artifact intent replays after a crash before action reconciliation", async () => {
+  const cwd = await repository();
+  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-recipe-published-replay-"));
+  await cli(cwd, stateRoot, ["recipe", "init"]);
+  await cli(cwd, stateRoot, ["recipe", "scaffold", "json-keyset-audit"]);
+  await git(cwd, "add", ".");
+  await git(cwd, "commit", "-qm", "add governed recipe");
+
+  const validation = await cli(cwd, stateRoot, ["recipe", "validate", "json-keyset-audit"]);
+  const digest = validation.json.executionDigest;
+  const runId = await governedRun(cwd, stateRoot);
+  const configAttemptId = await issueAndConsume(
+    cwd,
+    stateRoot,
+    runId,
+    "recipe.promote",
+    `recipe:json-keyset-audit:${digest}`
+  );
+  const priorConfigStateRoot = process.env.SBW_STATE_ROOT;
+  process.env.SBW_STATE_ROOT = stateRoot;
+  try {
+    await recipePromote(cwd, "json-keyset-audit", {
+      run: runId,
+      attempt: configAttemptId,
+      confirmDigest: digest
+    });
+  } finally {
+    if (priorConfigStateRoot === undefined) delete process.env.SBW_STATE_ROOT;
+    else process.env.SBW_STATE_ROOT = priorConfigStateRoot;
+  }
+  await ledgerTransition(
+    stateRoot,
+    runId,
+    "trust-complete",
+    "complete",
+    "trust",
+    ["digest-confirmation", "promotion-decision"]
+  );
+  await ledgerTransition(stateRoot, runId, "artifact-start", "start", "artifact-promotion");
+
+  const executed = await cli(cwd, stateRoot, [
+    "recipe",
+    "run",
+    "json-keyset-audit",
+    "--input-file",
+    ".codex/better-workflows/recipes/json-keyset-audit/fixtures/input.json"
+  ]);
+  const artifactSentinel = await cli(
+    cwd,
+    stateRoot,
+    ["sentinel", "capture", runId, "--label", "artifact-published-replay"]
+  );
+  const artifactReview = await reviewStatus(stateRoot, runId);
+  const artifactHead = (await git(cwd, "rev-parse", "HEAD")).stdout.trim();
+  await markBroadReviewComplete(
+    stateRoot,
+    runId,
+    artifactReview.package.packageId,
+    artifactHead,
+    artifactSentinel.json.sentinel.digest
+  );
+
+  const rootAlias = ".";
+  const rootAliasAttemptId = await issueAndConsume(
+    cwd,
+    stateRoot,
+    runId,
+    "artifact.promote",
+    `artifact:${executed.json.receiptId}:report-markdown:${rootAlias}`
+  );
+  const rootAliasIntentDirectory = path.join(
+    stateRoot,
+    "runs",
+    runId,
+    "local-provider-intents"
+  );
+  const rootAliasAdmissionDirectory = path.join(
+    stateRoot,
+    "runs",
+    runId,
+    "local-provider-intent-admissions"
+  );
+  const rootAliasRunBefore = await inspectRun(stateRoot, runId);
+  const rootAliasJournalBefore = await readFile(
+    path.join(stateRoot, "runs", runId, "journal.jsonl"),
+    "utf8"
+  );
+  const rootAliasIntentEntriesBefore = await readdir(rootAliasIntentDirectory);
+  const rootAliasAdmissionEntriesBefore = await readdir(rootAliasAdmissionDirectory);
+  const deniedRootAlias = await cli(
+    cwd,
+    stateRoot,
+    [
+      "recipe",
+      "artifact",
+      "promote",
+      executed.json.receiptId,
+      "--artifact",
+      "report-markdown",
+      "--to",
+      rootAlias
+    ],
+    { allowFailure: true }
+  );
+  assert.notEqual(deniedRootAlias.code, 0);
+  assert.match(
+    deniedRootAlias.stderr,
+    /safe tracked repo-relative path|non-root workspace-relative path/
+  );
+  const rootAliasRunAfter = await inspectRun(stateRoot, runId);
+  const rootAliasJournalAfter = await readFile(
+    path.join(stateRoot, "runs", runId, "journal.jsonl"),
+    "utf8"
+  );
+  assert.deepEqual(
+    rootAliasRunAfter.actions.find((item) => item.attemptId === rootAliasAttemptId),
+    rootAliasRunBefore.actions.find((item) => item.attemptId === rootAliasAttemptId)
+  );
+  assert.equal(rootAliasJournalAfter, rootAliasJournalBefore);
+  assert.deepEqual(await readdir(rootAliasIntentDirectory), rootAliasIntentEntriesBefore);
+  assert.deepEqual(
+    await readdir(rootAliasAdmissionDirectory),
+    rootAliasAdmissionEntriesBefore
+  );
+  await assert.rejects(
+    access(path.join(rootAliasIntentDirectory, `${rootAliasAttemptId}.json`))
+  );
+  assert.equal(
+    (await readdir(rootAliasAdmissionDirectory)).some((name) => (
+      name.startsWith(`${rootAliasAttemptId}.`)
+    )),
+    false
+  );
+
+  const destination = "reports/published-replay/keyset-report.md";
+  const artifactAttemptId = await issueAndConsume(
+    cwd,
+    stateRoot,
+    runId,
+    "artifact.promote",
+    `artifact:${executed.json.receiptId}:report-markdown:${destination}`
+  );
+  const intentPath = path.join(
+    stateRoot,
+    "runs",
+    runId,
+    "local-provider-intents",
+    `${artifactAttemptId}.json`
+  );
+  let publishedIntentFromCrash;
+  const priorCrashStateRoot = process.env.SBW_STATE_ROOT;
+  process.env.SBW_STATE_ROOT = stateRoot;
+  try {
+    await assert.rejects(
+      recipeArtifactPromote(
+        cwd,
+        executed.json.receiptId,
+        "report-markdown",
+        destination,
+        {
+          async onDestinationBoundary(boundary, details) {
+            if (boundary !== "after-artifact-published-intent") return;
+            publishedIntentFromCrash = details.intent;
+            throw new Error("simulated crash after durable published artifact intent");
+          }
+        }
+      ),
+      /simulated crash after durable published artifact intent/
+    );
+  } finally {
+    if (priorCrashStateRoot === undefined) delete process.env.SBW_STATE_ROOT;
+    else process.env.SBW_STATE_ROOT = priorCrashStateRoot;
+  }
+
+  const interruptedIntent = JSON.parse(await readFile(intentPath, "utf8"));
+  assert.equal(publishedIntentFromCrash.status, "published");
+  assert.equal(interruptedIntent.status, "published");
+  assert.equal(interruptedIntent.targetIdentity, publishedIntentFromCrash.targetIdentity);
+  assert.equal((await lstat(path.join(cwd, destination))).nlink, 1);
+  await assert.rejects(access(path.join(cwd, "reports/published-replay", interruptedIntent.binding.temporaryName)));
+  const interruptedRun = await inspectRun(stateRoot, runId);
+  const interruptedAction = interruptedRun.actions.find(
+    (item) => item.attemptId === artifactAttemptId
+  );
+  assert.notEqual(interruptedAction.outcome, "success");
+
+  const replayBoundaries = [];
+  const priorReplayStateRoot = process.env.SBW_STATE_ROOT;
+  process.env.SBW_STATE_ROOT = stateRoot;
+  let replayed;
+  try {
+    replayed = await recipeArtifactPromote(
+      cwd,
+      executed.json.receiptId,
+      "report-markdown",
+      destination,
+      {
+        async onDestinationBoundary(boundary) {
+          replayBoundaries.push(boundary);
+        }
+      }
+    );
+  } finally {
+    if (priorReplayStateRoot === undefined) delete process.env.SBW_STATE_ROOT;
+    else process.env.SBW_STATE_ROOT = priorReplayStateRoot;
+  }
+  assert.equal(replayed.destination, destination);
+  assert.deepEqual(replayBoundaries, ["before-authority-replay"]);
+  const replayedRun = await inspectRun(stateRoot, runId);
+  const replayedAction = replayedRun.actions.find(
+    (item) => item.attemptId === artifactAttemptId
+  );
+  assert.equal(replayedAction.outcome, "success");
+  assert.equal(replayedAction.sourceBindingTransition.path, destination);
+  assert.match(await readFile(path.join(cwd, destination), "utf8"), /JSON key-set audit/);
+  const journal = (await readFile(
+    path.join(stateRoot, "runs", runId, "journal.jsonl"),
+    "utf8"
+  )).split("\n").filter(Boolean).map((line) => JSON.parse(line));
+  for (const status of ["prepared", "linked", "published"]) {
+    assert.equal(journal.filter((entry) => (
+      entry.event === `action.local-provider-artifact-intent-admission-pending` &&
+      entry.attemptId === artifactAttemptId && entry.status === status
+    )).length, 1);
+    assert.equal(journal.filter((entry) => (
+      entry.event === `action.local-provider-intent-${status}` &&
+      entry.attemptId === artifactAttemptId && entry.status === status
+    )).length, 1);
+  }
+});
+
 test("reference recipe completes governed promotion, dry-run, atomic run, artifact promotion, drift rejection, and untrust", async () => {
   const cwd = await repository();
   const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-recipe-lifecycle-"));
@@ -421,6 +922,225 @@ test("reference recipe completes governed promotion, dry-run, atomic run, artifa
     "recipe.promote",
     `recipe:json-keyset-audit:${digest}`
   );
+  const stalePromotionState = await mkdtemp(path.join(os.tmpdir(), "sbw-recipe-stale-authority-"));
+  await cp(stateRoot, stalePromotionState, { recursive: true });
+  const priorPromotionStateRoot = process.env.SBW_STATE_ROOT;
+  process.env.SBW_STATE_ROOT = stalePromotionState;
+  try {
+    await assert.rejects(
+      recipePromote(cwd, "json-keyset-audit", {
+        run: runId,
+        attempt: attemptId,
+        confirmDigest: digest,
+        async onProviderBoundary(boundary) {
+          if (boundary !== "before-authority-replay") return;
+          await addFinding(stalePromotionState, runId, {
+            id: "late-p1-before-recipe-provider-write",
+            severity: "P1",
+            status: "open",
+            summary: "Late review finding must invalidate the spent action before local writes"
+          });
+        }
+      }),
+      /unresolved P0\/P1 finding|non-source action authority changed/
+    );
+    const unchangedConfig = JSON.parse(
+      await readFile(path.join(cwd, ".codex", "better-workflows", "config.json"), "utf8")
+    );
+    assert.equal(unchangedConfig.enabled, false);
+  } finally {
+    if (priorPromotionStateRoot === undefined) delete process.env.SBW_STATE_ROOT;
+    else process.env.SBW_STATE_ROOT = priorPromotionStateRoot;
+  }
+  const configRaceState = await mkdtemp(path.join(os.tmpdir(), "sbw-recipe-config-parent-race-"));
+  await cp(stateRoot, configRaceState, { recursive: true });
+  const workspaceConfigParent = path.join(cwd, ".codex", "better-workflows");
+  const displacedConfigParent = path.join(cwd, ".codex", "better-workflows-displaced");
+  const configAttackDirectory = path.join(cwd, ".git", "hooks");
+  const configAttackTarget = path.join(configAttackDirectory, "config.json");
+  const priorConfigRaceStateRoot = process.env.SBW_STATE_ROOT;
+  process.env.SBW_STATE_ROOT = configRaceState;
+  let configParentSwapped = false;
+  try {
+    await assert.rejects(access(configAttackTarget));
+    await assert.rejects(
+      recipePromote(cwd, "json-keyset-audit", {
+        run: runId,
+        attempt: attemptId,
+        confirmDigest: digest,
+        async onProviderBoundary(boundary) {
+          if (boundary !== "config-before-pinned-write") return;
+          await rename(workspaceConfigParent, displacedConfigParent);
+          await symlink(configAttackDirectory, workspaceConfigParent);
+          configParentSwapped = true;
+        }
+      }),
+      /process cwd is not the immutable destination parent|destination ancestry changed at the write boundary/
+    );
+    assert.equal(configParentSwapped, true);
+    await assert.rejects(access(configAttackTarget));
+  } finally {
+    if (configParentSwapped) {
+      await unlink(workspaceConfigParent);
+      await rename(displacedConfigParent, workspaceConfigParent);
+    }
+    if (priorConfigRaceStateRoot === undefined) delete process.env.SBW_STATE_ROOT;
+    else process.env.SBW_STATE_ROOT = priorConfigRaceStateRoot;
+  }
+  const unchangedRaceConfig = JSON.parse(
+    await readFile(path.join(workspaceConfigParent, "config.json"), "utf8")
+  );
+  assert.equal(unchangedRaceConfig.enabled, false);
+  const priorConfigCrashStateRoot = process.env.SBW_STATE_ROOT;
+  process.env.SBW_STATE_ROOT = stateRoot;
+  let interruptedConfigIntent;
+  try {
+    await assert.rejects(
+      recipePromote(cwd, "json-keyset-audit", {
+        run: runId,
+        attempt: attemptId,
+        confirmDigest: digest,
+        async onProviderBoundary(boundary, details) {
+          if (boundary !== "config-intent-intent-written") return;
+          interruptedConfigIntent = details.admission.intent;
+          const artifactBytes = Buffer.from(`${JSON.stringify({
+            ...unchangedRaceConfig,
+            enabled: true
+          }, null, 2)}\n`);
+          await writeFile(
+            path.join(workspaceConfigParent, interruptedConfigIntent.binding.temporaryName),
+            artifactBytes,
+            { flag: "wx", mode: 0o644 }
+          );
+          throw new Error("simulated crash after admitted config intent write and temporary creation");
+        }
+      }),
+      /simulated crash after admitted config intent write and temporary creation/
+    );
+  } finally {
+    if (priorConfigCrashStateRoot === undefined) delete process.env.SBW_STATE_ROOT;
+    else process.env.SBW_STATE_ROOT = priorConfigCrashStateRoot;
+  }
+  assert.equal(interruptedConfigIntent.status, "prepared");
+  const configIntentPath = path.join(
+    stateRoot,
+    "runs",
+    runId,
+    "local-provider-intents",
+    `${attemptId}.json`
+  );
+  const persistedConfigIntent = JSON.parse(await readFile(configIntentPath, "utf8"));
+  assert.equal(persistedConfigIntent.bindingDigest, interruptedConfigIntent.bindingDigest);
+  const preparedAdmissionPath = path.join(
+    stateRoot,
+    "runs",
+    runId,
+    "local-provider-intent-admissions",
+    `${attemptId}.prepared.json`
+  );
+  const preparedAdmission = JSON.parse(await readFile(preparedAdmissionPath, "utf8"));
+  assert.equal(preparedAdmission.intentDigest, digestObject(persistedConfigIntent));
+  const interruptedJournal = (await readFile(
+    path.join(stateRoot, "runs", runId, "journal.jsonl"),
+    "utf8"
+  )).split("\n").filter(Boolean).map((line) => JSON.parse(line));
+  assert.equal(interruptedJournal.filter((entry) => (
+    entry.event === "action.local-provider-config-intent-admission-pending" &&
+    entry.attemptId === attemptId && entry.status === "prepared"
+  )).length, 1);
+  assert.equal(interruptedJournal.filter((entry) => (
+    entry.event === "action.local-provider-config-intent-prepared" &&
+    entry.attemptId === attemptId && entry.status === "prepared"
+  )).length, 0);
+  const interruptedConfigTemporary = path.join(
+    workspaceConfigParent,
+    persistedConfigIntent.binding.temporaryName
+  );
+  assert.equal((await lstat(interruptedConfigTemporary)).nlink, 1);
+  assert.equal(
+    JSON.parse(await readFile(path.join(workspaceConfigParent, "config.json"), "utf8")).enabled,
+    false
+  );
+
+  const tamperedIntentState = await mkdtemp(path.join(os.tmpdir(), "sbw-recipe-intent-journal-attack-"));
+  await cp(stateRoot, tamperedIntentState, { recursive: true });
+  const tamperedIntentPath = path.join(
+    tamperedIntentState,
+    "runs",
+    runId,
+    "local-provider-intents",
+    `${attemptId}.json`
+  );
+  const tamperedAdmissionPath = path.join(
+    tamperedIntentState,
+    "runs",
+    runId,
+    "local-provider-intent-admissions",
+    `${attemptId}.prepared.json`
+  );
+  const tamperedIntent = structuredClone(persistedConfigIntent);
+  tamperedIntent.binding.priorTarget.identity = "1:1";
+  tamperedIntent.bindingDigest = digestObject(tamperedIntent.binding);
+  const tamperedAdmission = structuredClone(preparedAdmission);
+  tamperedAdmission.intent = tamperedIntent;
+  tamperedAdmission.intentDigest = digestObject(tamperedIntent);
+  tamperedAdmission.admissionDigest = digestObject({
+    schemaVersion: tamperedAdmission.schemaVersion,
+    kind: tamperedAdmission.kind,
+    runId: tamperedAdmission.runId,
+    actionAttemptId: tamperedAdmission.actionAttemptId,
+    status: tamperedAdmission.status,
+    event: tamperedAdmission.event,
+    intentDigest: tamperedAdmission.intentDigest
+  });
+  await writeFile(tamperedIntentPath, `${JSON.stringify(tamperedIntent, null, 2)}\n`);
+  await writeFile(tamperedAdmissionPath, `${JSON.stringify(tamperedAdmission, null, 2)}\n`);
+  const priorTamperedStateRoot = process.env.SBW_STATE_ROOT;
+  process.env.SBW_STATE_ROOT = tamperedIntentState;
+  try {
+    await assert.rejects(
+      recipePromote(cwd, "json-keyset-audit", {
+        run: runId,
+        attempt: attemptId,
+        confirmDigest: digest
+      }),
+      /pending journal binding is missing or ambiguous|not the admitted journal-bound record/
+    );
+  } finally {
+    if (priorTamperedStateRoot === undefined) delete process.env.SBW_STATE_ROOT;
+    else process.env.SBW_STATE_ROOT = priorTamperedStateRoot;
+  }
+  assert.equal((await lstat(interruptedConfigTemporary)).nlink, 1);
+
+  const priorSourceBindingAttackStateRoot = process.env.SBW_STATE_ROOT;
+  process.env.SBW_STATE_ROOT = stateRoot;
+  const originalFixtureHeadRef = (await git(cwd, "symbolic-ref", "HEAD")).stdout.trim();
+  await git(cwd, "branch", "source-binding-attack", "HEAD");
+  let symbolicHeadMutated = false;
+  try {
+    await assert.rejects(
+      recipePromote(cwd, "json-keyset-audit", {
+        run: runId,
+        attempt: attemptId,
+        confirmDigest: digest,
+        async onProviderBoundary(boundary) {
+          if (boundary !== "config-before-temporary-discard") return;
+          await git(cwd, "symbolic-ref", "HEAD", "refs/heads/source-binding-attack");
+          symbolicHeadMutated = true;
+        }
+      }),
+      /source authority changed before cleanup/
+    );
+    assert.equal(symbolicHeadMutated, true);
+    assert.equal((await lstat(interruptedConfigTemporary)).nlink, 1);
+  } finally {
+    if (symbolicHeadMutated) {
+      await git(cwd, "symbolic-ref", "HEAD", originalFixtureHeadRef);
+    }
+    await git(cwd, "branch", "-D", "source-binding-attack");
+    if (priorSourceBindingAttackStateRoot === undefined) delete process.env.SBW_STATE_ROOT;
+    else process.env.SBW_STATE_ROOT = priorSourceBindingAttackStateRoot;
+  }
   const promoted = await cli(cwd, stateRoot, [
     "recipe",
     "promote",
@@ -433,6 +1153,37 @@ test("reference recipe completes governed promotion, dry-run, atomic run, artifa
     digest
   ]);
   assert.equal(promoted.json.trusted, true);
+  const publishedConfigIntent = JSON.parse(await readFile(configIntentPath, "utf8"));
+  assert.equal(publishedConfigIntent.status, "published");
+  assert.match(publishedConfigIntent.targetIdentity, /^\d+:\d+$/);
+  const completedJournal = (await readFile(
+    path.join(stateRoot, "runs", runId, "journal.jsonl"),
+    "utf8"
+  )).split("\n").filter(Boolean).map((line) => JSON.parse(line));
+  for (const status of ["prepared", "published"]) {
+    assert.equal(completedJournal.filter((entry) => (
+      entry.event === "action.local-provider-config-intent-admission-pending" &&
+      entry.attemptId === attemptId && entry.status === status
+    )).length, 1);
+    assert.equal(completedJournal.filter((entry) => (
+      entry.event === `action.local-provider-config-intent-${status}` &&
+      entry.attemptId === attemptId && entry.status === status
+    )).length, 1);
+  }
+  await assert.rejects(access(interruptedConfigTemporary));
+  const promotedRun = await inspectRun(stateRoot, runId);
+  const promotedAction = promotedRun.actions.find((item) => item.attemptId === attemptId);
+  assert.equal(promotedAction.outcome, "success");
+  assert.equal(promotedAction.sourceBindingTransition.kind, "provider-action");
+  assert.equal(promotedAction.sourceBindingTransition.path, ".codex/better-workflows/config.json");
+  assert.equal(
+    promotedRun.manifest.sourceBinding.digest,
+    promotedAction.sourceBindingTransition.to
+  );
+  assert.equal(
+    promotedRun.state.lastSentinel.digest,
+    promotedAction.sourceBindingTransition.sourceSentinelTo
+  );
   await ledgerTransition(stateRoot, runId, "trust-complete", "complete", "trust", ["digest-confirmation", "promotion-decision"]);
   await ledgerTransition(stateRoot, runId, "artifact-start", "start", "artifact-promotion");
   const config = JSON.parse(
@@ -520,14 +1271,300 @@ test("reference recipe completes governed promotion, dry-run, atomic run, artifa
   const artifactReview = await reviewStatus(stateRoot, runId);
   const artifactHead = (await git(cwd, "rev-parse", "HEAD")).stdout.trim();
   await markBroadReviewComplete(stateRoot, runId, artifactReview.package.packageId, artifactHead, artifactSentinel.json.sentinel.digest);
-  const destination = "reports/keyset-report.md";
+  const authorityAliasDestination = ".GIT/hooks/better-workflows-artifact-attack";
   await issueAndConsume(
+    cwd,
+    stateRoot,
+    runId,
+    "artifact.promote",
+    `artifact:${executed.json.receiptId}:report-markdown:${authorityAliasDestination}`
+  );
+  const authorityAliasAttempt = await cli(cwd, stateRoot, [
+    "recipe",
+    "artifact",
+    "promote",
+    executed.json.receiptId,
+    "--artifact",
+    "report-markdown",
+    "--to",
+    authorityAliasDestination
+  ], { allowFailure: true });
+  assert.notEqual(authorityAliasAttempt.code, 0);
+  assert.match(authorityAliasAttempt.stderr, /safe tracked repo-relative path outside Git authority/);
+  await assert.rejects(access(path.join(cwd, ".git", "hooks", "better-workflows-artifact-attack")));
+  const destination = "reports/nested-pinned-parent/keyset-report.md";
+  const artifactAttemptId = await issueAndConsume(
     cwd,
     stateRoot,
     runId,
     "artifact.promote",
     `artifact:${executed.json.receiptId}:report-markdown:${destination}`
   );
+  const destinationAncestor = path.join(cwd, "reports");
+  const destinationParent = path.join(destinationAncestor, "nested-pinned-parent");
+  const gitHooks = path.join(cwd, ".git", "hooks");
+  const priorStateRoot = process.env.SBW_STATE_ROOT;
+  process.env.SBW_STATE_ROOT = stateRoot;
+  try {
+    const staleArtifactState = await mkdtemp(path.join(os.tmpdir(), "sbw-artifact-stale-authority-"));
+    await cp(stateRoot, staleArtifactState, { recursive: true });
+    process.env.SBW_STATE_ROOT = staleArtifactState;
+    try {
+      await assert.rejects(
+        recipeArtifactPromote(
+          cwd,
+          executed.json.receiptId,
+          "report-markdown",
+          destination,
+          {
+            async onDestinationBoundary(boundary) {
+              if (boundary !== "before-authority-replay") return;
+              await addFinding(staleArtifactState, runId, {
+                id: "late-p1-before-artifact-provider-write",
+                severity: "P1",
+                status: "open",
+                summary: "Late review finding must invalidate artifact publication authority"
+              });
+            }
+          }
+        ),
+        /unresolved P0\/P1 finding|non-source action authority changed/
+      );
+      await assert.rejects(access(path.join(cwd, destination)));
+      await assert.rejects(access(destinationAncestor));
+    } finally {
+      process.env.SBW_STATE_ROOT = stateRoot;
+    }
+    await mkdir(destinationAncestor, { mode: 0o755 });
+    const displacedAncestor = path.join(cwd, "reports-parent-create-displaced");
+    let ancestorSwapped = false;
+    try {
+      await assert.rejects(
+        recipeArtifactPromote(
+          cwd,
+          executed.json.receiptId,
+          "report-markdown",
+          destination,
+          {
+            async onDestinationBoundary(boundary, details) {
+              if (boundary !== "before-parent-create" || details.component !== "nested-pinned-parent") return;
+              await rename(destinationAncestor, displacedAncestor);
+              await symlink(gitHooks, destinationAncestor);
+              ancestorSwapped = true;
+            }
+          }
+        ),
+        /process cwd is not the immutable destination parent|destination ancestry changed at the write boundary/
+      );
+      assert.equal(ancestorSwapped, true);
+      await assert.rejects(access(path.join(gitHooks, "nested-pinned-parent")));
+    } finally {
+      if (ancestorSwapped) {
+        await unlink(destinationAncestor);
+        await rename(displacedAncestor, destinationAncestor);
+      }
+    }
+    for (const boundary of ["before-copy", "before-link", "after-parent-check"]) {
+      const displacedParent = path.join(cwd, `reports-${boundary}`);
+      let swapped = false;
+      try {
+        await assert.rejects(
+          recipeArtifactPromote(
+            cwd,
+            executed.json.receiptId,
+            "report-markdown",
+            destination,
+            {
+              async onDestinationBoundary(current) {
+                if (current !== boundary) return;
+                await rename(destinationParent, displacedParent);
+                await symlink(gitHooks, destinationParent);
+                swapped = true;
+              }
+            }
+          ),
+          /unsafe artifact destination parent|destination ancestry changed at the write boundary|process cwd is not the immutable destination parent/
+        );
+        assert.equal(swapped, true);
+        await assert.rejects(access(path.join(gitHooks, path.basename(destination))));
+      } finally {
+        if (swapped) {
+          await unlink(destinationParent);
+          await rename(displacedParent, destinationParent);
+          for (const name of await readdir(destinationParent)) {
+            if (name.endsWith(".tmp")) await unlink(path.join(destinationParent, name));
+          }
+        }
+      }
+    }
+  } finally {
+    if (priorStateRoot === undefined) delete process.env.SBW_STATE_ROOT;
+    else process.env.SBW_STATE_ROOT = priorStateRoot;
+  }
+  const priorCrashStateRoot = process.env.SBW_STATE_ROOT;
+  process.env.SBW_STATE_ROOT = stateRoot;
+  try {
+    await assert.rejects(
+      recipeArtifactPromote(
+        cwd,
+        executed.json.receiptId,
+        "report-markdown",
+        destination,
+        {
+          async onDestinationBoundary(boundary) {
+            if (boundary === "after-artifact-link") {
+              throw new Error("simulated crash after durable artifact link");
+            }
+          }
+        }
+      ),
+      /simulated crash after durable artifact link/
+    );
+  } finally {
+    if (priorCrashStateRoot === undefined) delete process.env.SBW_STATE_ROOT;
+    else process.env.SBW_STATE_ROOT = priorCrashStateRoot;
+  }
+  const intentPath = path.join(
+    stateRoot,
+    "runs",
+    runId,
+    "local-provider-intents",
+    `${artifactAttemptId}.json`
+  );
+  const interruptedIntent = JSON.parse(await readFile(intentPath, "utf8"));
+  assert.equal(interruptedIntent.status, "prepared");
+  const artifactAdmissionRoot = path.join(
+    stateRoot,
+    "runs",
+    runId,
+    "local-provider-intent-admissions"
+  );
+  const preparedArtifactAdmissionPath = path.join(
+    artifactAdmissionRoot,
+    `${artifactAttemptId}.prepared.json`
+  );
+  const preparedArtifactAdmission = JSON.parse(
+    await readFile(preparedArtifactAdmissionPath, "utf8")
+  );
+  assert.equal(preparedArtifactAdmission.intentDigest, digestObject(interruptedIntent));
+  const interruptedArtifactJournal = (await readFile(
+    path.join(stateRoot, "runs", runId, "journal.jsonl"),
+    "utf8"
+  )).split("\n").filter(Boolean).map((line) => JSON.parse(line));
+  assert.equal(interruptedArtifactJournal.filter((entry) => (
+    entry.event === "action.local-provider-artifact-intent-admission-pending" &&
+    entry.attemptId === artifactAttemptId && entry.status === "prepared"
+  )).length, 1);
+  assert.equal(interruptedArtifactJournal.filter((entry) => (
+    entry.event === "action.local-provider-intent-prepared" &&
+    entry.attemptId === artifactAttemptId && entry.status === "prepared"
+  )).length, 1);
+  const interruptedTarget = await lstat(path.join(cwd, destination));
+  const interruptedTemporaryPath = path.join(destinationParent, interruptedIntent.binding.temporaryName);
+  const interruptedTemporary = await lstat(interruptedTemporaryPath);
+  assert.equal(interruptedTarget.ino, interruptedTemporary.ino);
+  assert.equal(interruptedTarget.nlink, 2);
+  assert.equal(interruptedTemporary.nlink, 2);
+  const artifactIntentAttackState = await mkdtemp(
+    path.join(os.tmpdir(), "sbw-artifact-intent-admission-attack-")
+  );
+  await cp(stateRoot, artifactIntentAttackState, { recursive: true });
+  const attackedIntentPath = path.join(
+    artifactIntentAttackState,
+    "runs",
+    runId,
+    "local-provider-intents",
+    `${artifactAttemptId}.json`
+  );
+  const attackedAdmissionPath = path.join(
+    artifactIntentAttackState,
+    "runs",
+    runId,
+    "local-provider-intent-admissions",
+    `${artifactAttemptId}.prepared.json`
+  );
+  const attackedIntent = structuredClone(interruptedIntent);
+  attackedIntent.binding.parentIdentity = "1:1";
+  attackedIntent.bindingDigest = digestObject(attackedIntent.binding);
+  const attackedAdmission = structuredClone(preparedArtifactAdmission);
+  attackedAdmission.intent = attackedIntent;
+  attackedAdmission.intentDigest = digestObject(attackedIntent);
+  attackedAdmission.admissionDigest = digestObject({
+    schemaVersion: attackedAdmission.schemaVersion,
+    kind: attackedAdmission.kind,
+    runId: attackedAdmission.runId,
+    actionAttemptId: attackedAdmission.actionAttemptId,
+    status: attackedAdmission.status,
+    event: attackedAdmission.event,
+    intentDigest: attackedAdmission.intentDigest
+  });
+  await writeFile(attackedIntentPath, `${JSON.stringify(attackedIntent, null, 2)}\n`);
+  await writeFile(attackedAdmissionPath, `${JSON.stringify(attackedAdmission, null, 2)}\n`);
+  const priorArtifactAttackStateRoot = process.env.SBW_STATE_ROOT;
+  process.env.SBW_STATE_ROOT = artifactIntentAttackState;
+  try {
+    await assert.rejects(
+      recipeArtifactPromote(cwd, executed.json.receiptId, "report-markdown", destination),
+      /journal binding is missing or ambiguous|pending admission is ambiguous/
+    );
+  } finally {
+    if (priorArtifactAttackStateRoot === undefined) delete process.env.SBW_STATE_ROOT;
+    else process.env.SBW_STATE_ROOT = priorArtifactAttackStateRoot;
+  }
+  const transitionSentinelPath = path.join(
+    stateRoot,
+    "runs",
+    runId,
+    "sentinels",
+    `provider-action-${artifactAttemptId}.json`
+  );
+  const priorTransitionCrashStateRoot = process.env.SBW_STATE_ROOT;
+  process.env.SBW_STATE_ROOT = stateRoot;
+  try {
+    await assert.rejects(
+      recipeArtifactPromote(
+        cwd,
+        executed.json.receiptId,
+        "report-markdown",
+        destination,
+        {
+          async onDestinationBoundary(boundary) {
+            if (boundary !== "after-artifact-finalize") return;
+            await mkdir(transitionSentinelPath);
+          }
+        }
+      ),
+      (error) => /Unsafe JSON path/.test(error?.message ?? "")
+    );
+  } finally {
+    if (priorTransitionCrashStateRoot === undefined) delete process.env.SBW_STATE_ROOT;
+    else process.env.SBW_STATE_ROOT = priorTransitionCrashStateRoot;
+  }
+  const transitionInterruptedRun = await inspectRun(stateRoot, runId);
+  const transitionInterruptedAction = transitionInterruptedRun.actions.find(
+    (item) => item.attemptId === artifactAttemptId
+  );
+  assert.equal(transitionInterruptedAction.outcome, "success");
+  assert.equal(
+    transitionInterruptedRun.manifest.sourceBinding.digest,
+    transitionInterruptedAction.sourceBindingTransition.from
+  );
+  assert.equal(
+    transitionInterruptedRun.manifest.sourceBindingHistory.some(
+      (item) => item.actionAttemptId === artifactAttemptId
+    ),
+    false
+  );
+  const transitionInterruptedJournal = (await readFile(
+    path.join(stateRoot, "runs", runId, "journal.jsonl"),
+    "utf8"
+  )).split("\n").filter(Boolean).map((line) => JSON.parse(line));
+  assert.equal(transitionInterruptedJournal.some((entry) => (
+    entry.event === "source-binding.provider-action" &&
+    entry.actionAttemptId === artifactAttemptId
+  )), false);
+  await rmdir(transitionSentinelPath);
+
   const artifactPromotion = await cli(cwd, stateRoot, [
     "recipe",
     "artifact",
@@ -539,6 +1576,56 @@ test("reference recipe completes governed promotion, dry-run, atomic run, artifa
     destination
   ]);
   assert.equal(artifactPromotion.json.destination, destination);
+  const publishedIntent = JSON.parse(await readFile(intentPath, "utf8"));
+  assert.equal(publishedIntent.status, "published");
+  const completedArtifactJournal = (await readFile(
+    path.join(stateRoot, "runs", runId, "journal.jsonl"),
+    "utf8"
+  )).split("\n").filter(Boolean).map((line) => JSON.parse(line));
+  for (const status of ["prepared", "linked", "published"]) {
+    const admission = JSON.parse(await readFile(
+      path.join(artifactAdmissionRoot, `${artifactAttemptId}.${status}.json`),
+      "utf8"
+    ));
+    assert.equal(admission.intent.status, status);
+    assert.equal(admission.intentDigest, digestObject(admission.intent));
+    assert.equal(completedArtifactJournal.filter((entry) => (
+      entry.event === "action.local-provider-artifact-intent-admission-pending" &&
+      entry.attemptId === artifactAttemptId && entry.status === status
+    )).length, 1);
+    assert.equal(completedArtifactJournal.filter((entry) => (
+      entry.event === `action.local-provider-intent-${status}` &&
+      entry.attemptId === artifactAttemptId && entry.status === status
+    )).length, 1);
+  }
+  assert.equal((await lstat(path.join(cwd, destination))).nlink, 1);
+  await assert.rejects(access(interruptedTemporaryPath));
+  const artifactRun = await inspectRun(stateRoot, runId);
+  const artifactAction = artifactRun.actions.find((item) => item.attemptId === artifactAttemptId);
+  assert.equal(artifactAction.outcome, "success");
+  assert.equal(artifactAction.sourceBindingTransition.kind, "provider-action");
+  assert.equal(artifactAction.sourceBindingTransition.path, destination);
+  assert.equal(artifactRun.manifest.sourceBinding.digest, artifactAction.sourceBindingTransition.to);
+  assert.equal(
+    artifactRun.manifest.sourceBindingHistory.filter((item) => item.kind === "provider-action").length,
+    2
+  );
+  const tamperState = await mkdtemp(path.join(os.tmpdir(), "sbw-recipe-transition-tamper-"));
+  await cp(stateRoot, tamperState, { recursive: true });
+  const tamperManifestPath = path.join(tamperState, "runs", runId, "manifest.json");
+  const tamperManifest = JSON.parse(await readFile(tamperManifestPath, "utf8"));
+  tamperManifest.sourceBindingHistory.at(-1).sourceMutationDigest = "0".repeat(64);
+  await writeFile(tamperManifestPath, `${JSON.stringify(tamperManifest)}\n`);
+  const tamperedRun = await inspectRun(tamperState, runId);
+  await assert.rejects(
+    currentActionEvidenceGateBinding(
+      tamperState,
+      runId,
+      tamperedRun,
+      "artifact.promote"
+    ),
+    /provider action source transition is not replay-valid/
+  );
   await ledgerTransition(stateRoot, runId, "artifact-complete", "complete", "artifact-promotion", ["artifact-receipt"]);
   assert.match(await readFile(path.join(cwd, destination), "utf8"), /JSON key-set audit/);
 
@@ -587,6 +1674,147 @@ test("reference recipe completes governed promotion, dry-run, atomic run, artifa
   await cli(cwd, stateRoot, ["recipe", "untrust", "json-keyset-audit"]);
   const untrusted = await cli(cwd, stateRoot, ["recipe", "status", "json-keyset-audit"]);
   assert.equal(untrusted.json.trusted, false);
+});
+
+test("recipe promotion source transition rejects one undeclared extra path", async () => {
+  const cwd = await repository();
+  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "sbw-recipe-source-transition-attack-"));
+  await cli(cwd, stateRoot, ["recipe", "init"]);
+  await cli(cwd, stateRoot, ["recipe", "scaffold", "json-keyset-audit"]);
+  await git(cwd, "add", ".");
+  await git(cwd, "commit", "-qm", "add governed recipe");
+  const validation = await cli(cwd, stateRoot, ["recipe", "validate", "json-keyset-audit"]);
+  const runId = await governedRun(cwd, stateRoot);
+  const attemptId = await issueAndConsume(
+    cwd,
+    stateRoot,
+    runId,
+    "recipe.promote",
+    `recipe:json-keyset-audit:${validation.json.executionDigest}`
+  );
+  const run = await inspectRun(stateRoot, runId);
+  const action = run.actions.find((item) => item.attemptId === attemptId);
+  const configPath = path.join(cwd, ".codex", "better-workflows", "config.json");
+  const beforeConfig = JSON.parse(await readFile(configPath, "utf8"));
+  const afterConfig = { ...beforeConfig, enabled: true };
+  await writeFile(configPath, `${JSON.stringify(afterConfig, null, 2)}\n`);
+  await writeFile(path.join(cwd, "undeclared-provider-write.txt"), "must be rejected\n");
+  const baselineSentinel = JSON.parse(await readFile(
+    path.join(
+      stateRoot,
+      "runs",
+      runId,
+      "sentinels",
+      `${action.sourceAuthorityAtIssue.sourceSentinel.label}.json`
+    ),
+    "utf8"
+  ));
+  const afterSentinel = await captureSentinel(cwd, run.contract, await loadDefaults());
+  const afterSourceBinding = await captureSourceBinding(cwd, {
+    baseRevision: action.sourceAuthorityAtIssue.sourceBinding.baseRevision,
+    requireClean: false
+  });
+  const sourceMutation = {
+    schemaVersion: 1,
+    kind: "provider-action",
+    actionAttemptId: action.attemptId,
+    action: action.action,
+    provider: action.provider,
+    resource: action.resource,
+    path: ".codex/better-workflows/config.json",
+    sourceBinding: {
+      from: action.sourceAuthorityAtIssue.sourceBinding.digest,
+      to: afterSourceBinding.digest,
+      headRevision: afterSourceBinding.headRevision
+    },
+    sentinel: { from: baselineSentinel.digest, to: afterSentinel.digest },
+    pathTransition: {
+      before: testSentinelPathBinding(baselineSentinel, ".codex/better-workflows/config.json"),
+      after: testSentinelPathBinding(afterSentinel, ".codex/better-workflows/config.json")
+    },
+    recipeConfig: { before: beforeConfig, after: afterConfig }
+  };
+  const request = {
+    action: action.action,
+    provider: action.provider,
+    resource: action.resource,
+    remoteRevision: action.remoteRevision,
+    idempotencyKey: action.idempotencyKey
+  };
+  const providerReceipt = {
+    ...request,
+    outcome: "success",
+    runId,
+    attemptId,
+    executionId: `local-workspace:recipe.promote:${attemptId}`,
+    proofKind: "local-workspace:recipe.promote",
+    requestDigest: digestObject(request),
+    responseDigest: digestObject({
+      kind: "workspace-recipe",
+      digest: "c".repeat(64),
+      sourceMutationDigest: digestObject(sourceMutation)
+    }),
+    verifiedAt: action.spentAt,
+    terminalState: "success",
+    kind: "workspace-recipe",
+    digest: "c".repeat(64),
+    sourceMutation
+  };
+  const payload = {
+    provider: action.provider,
+    actionProof: {
+      schemaVersion: 1,
+      runId,
+      actionAttemptId: attemptId,
+      action: action.action,
+      provider: action.provider,
+      resource: action.resource,
+      outcome: "success",
+      idempotencyKey: action.idempotencyKey,
+      remoteRevision: action.remoteRevision,
+      providerExecutionId: providerReceipt.executionId,
+      providerReceiptDigest: digestObject(providerReceipt)
+    },
+    receipt: providerReceipt
+  };
+  const providerEvidence = await addCoreEvidence(stateRoot, runId, {
+    schemaVersion: 2,
+    id: `action-proof-${attemptId}`,
+    kind: "provider-reconciliation",
+    status: "complete",
+    summary: "Provider receipt for attacked recipe promotion",
+    acceptanceIds: [],
+    dependencyInputs: { files: [] },
+    sourceDigest: digestObject(payload),
+    receipt: {
+      contractId: "evidence-contracts-v1:provider-reconciliation",
+      contractVersion: 1,
+      runId,
+      producer: { provider: "codex-root" },
+      inputBinding: {
+        runId,
+        contractDigest: digestObject(run.contract),
+        remoteRevision: run.contract.remoteRevision ?? null
+      },
+      payload,
+      payloadDigest: digestObject(payload),
+      producedAt: action.spentAt
+    }
+  });
+  await assert.rejects(
+    reconcileAction(stateRoot, runId, attemptId, "success", {
+      ...request,
+      outcome: "success",
+      runId,
+      attemptId,
+      providerReceipt,
+      evidenceIds: [providerEvidence.id]
+    }),
+    (error) => error?.code === "SBW_ACTION_AUTHORITY_INDETERMINATE"
+  );
+  const persisted = (await inspectRun(stateRoot, runId)).actions.find((item) => item.attemptId === attemptId);
+  assert.equal(persisted.outcome, "unknown");
+  assert.equal(persisted.receipt, null);
 });
 
 test("candidate runner rejects source writes, undeclared reads, timeouts, and oversized output", async () => {

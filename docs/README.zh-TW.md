@@ -4,9 +4,9 @@
 
 **Goal-first · Evidence-driven · Fail-closed**
 
-讓 Codex 工作不再停在「只輸入 prompt 就期待成功」，而是沿著有界路徑，從意圖走到已驗證、已對帳的交付。
+讓多品牌 AI agent 依風險選擇驗證強度，在隔離環境安全完成工作。
 
-[![Version](https://img.shields.io/badge/version-3.4.14-2563EB?style=flat-square)](../plugins/better-workflows/package.json)
+[![Version](https://img.shields.io/badge/version-4.0.0-2563EB?style=flat-square)](../plugins/better-workflows/package.json)
 [![Node](https://img.shields.io/badge/Node.js-%E2%89%A524-3C873A?style=flat-square)](../plugins/better-workflows/package.json)
 [![Dependencies](https://img.shields.io/badge/runtime_dependencies-0-0F766E?style=flat-square)](../plugins/better-workflows/package.json)
 [![License](https://img.shields.io/badge/license-MIT-64748B?style=flat-square)](../LICENSE)
@@ -20,8 +20,17 @@
 <!-- readme-roster -->
 **Model roster：** Codex · Claude · Gemini · GPT-OSS · Grok · Cursor · Kimi · Qwen · Kiro。`agy` 傳輸 Gemini、Claude 與 GPT-OSS 品牌模型；它是 transport metadata，不是另一個模型品牌。
 
+**正式 Tier 1：** Codex、Claude Code、Gemini CLI、Qwen Code × macOS／Linux。**官方推薦：macOS + Codex**；Windows 與其他 host 為 Preview。
+
 <!-- readme-section:promise-audience -->
 ## 為什麼需要 Better Workflows
+
+白話來說，它是「證據至上的 AI 工程 QA＋交付守門人」：單純修改快速完成；重要工作逐階段驗證；Git 修改預設使用本任務專屬 worktree。
+若 AI host 已建立乾淨且專屬的 worktree，可明確註冊後直接使用而不再巢狀建立；host 資源會保留。Protected／squash 整合只有在同一 governed run 的 exact merge 與 remote-sync receipts 對帳成功後才允許 cleanup。
+
+### 預設互動承諾
+
+一般 SOP 路徑由 root agent 在有界 scope 內自動核准互動，因此長任務不會因為重複的「是否核准同一步驟」或複製貼上要求而中斷。這只降低互動摩擦，不會移除 exact source/evidence binding、review、required checks、provider reconciliation 或 protected side-effect authority 等技術 gates。只有明確要求時才使用逐次詢問的 strict 模式；新的 repository、私有 disclosure、recipient/model、candidate scope 或 side-effect kind 仍需明確授權，macOS 管理員對話框也仍由已安裝 signer 處理，不在聊天中收集密碼。
 
 Codex 可以分析 repository、修改程式、執行檢查並操作 provider。能力越強，
 越需要清楚區分「使用者想要什麼」與「目前證據和權限實際允許什麼」。

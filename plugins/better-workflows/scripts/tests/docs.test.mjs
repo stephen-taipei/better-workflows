@@ -3,6 +3,7 @@ import { access, readFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 import { pluginRoot, VERSION } from "../lib/core.mjs";
+import { loadHostSupportRegistry, renderHostSupportMarkdown } from "../lib/hosts.mjs";
 
 const repoRoot = path.resolve(pluginRoot(), "../..");
 const overview = path.join(repoRoot, "README.md");
@@ -516,7 +517,7 @@ test("README quality rejects hidden comments, fenced examples, wrong-section cla
       label: "table columns",
       content: content.replace(
         "| Without governance | With Better Workflows |",
-        "| A | B | C |\n| --- | --- | --- |\n| 1 | 2 | 3 |\n\n| Without governance | With Better Workflows |"
+        "| A | B | C | D | E |\n| --- | --- | --- | --- | --- |\n| 1 | 2 | 3 | 4 | 5 |\n\n| Without governance | With Better Workflows |"
       )
     },
     {
@@ -578,7 +579,7 @@ test("README quality rejects hidden comments, fenced examples, wrong-section cla
     },
     {
       label: "H2 narrative order",
-      content: `${content.replace("## Why Better Workflows", "## A different visible heading")}\n\`\`\`text\n## Why Better Workflows\n\`\`\`\n`
+      content: `${content.replace("## Better Workflows in plain language", "## A different visible heading")}\n\`\`\`text\n## Better Workflows in plain language\n\`\`\`\n`
     }
   ];
   for (const item of cases) {
@@ -613,6 +614,75 @@ test("all five README version badges match the runtime semantic version", async 
   }
 });
 
+test("public host support matrix and extension versions stay bound to host-support-v1", async (context) => {
+  try {
+    await access(overview);
+  } catch {
+    context.skip("repository public files are not part of the installed plugin cache bundle");
+    return;
+  }
+  const registry = await loadHostSupportRegistry();
+  const readme = await readFile(overview, "utf8");
+  const block = readme.match(/<!-- host-support-v1:start -->\n([\s\S]*?)\n<!-- host-support-v1:end -->/);
+  assert.ok(block, "README host-support-v1 block");
+  assert.equal(block[1], renderHostSupportMarkdown(registry));
+  assert.match(readme, /Official recommendation: macOS \+ Codex/);
+  assert.match(readme, /host-native UX may differ/);
+  assert.match(readme, /XDG_STATE_HOME\/better-workflows/);
+  assert.match(readme, /CODEX_HOME[\s\S]{0,120}no longer[\s\S]{0,80}shared state/);
+
+  for (const [hostId, contextFile] of [["gemini-cli", "GEMINI.md"], ["qwen-code", "QWEN.md"]]) {
+    const host = registry.hosts.find((candidate) => candidate.id === hostId);
+    assert.equal(host.distributionRoot, "repository", hostId);
+    assert.equal(host.helperPath, "plugins/better-workflows/scripts/sbw.mjs", hostId);
+    const context = await readFile(path.join(repoRoot, contextFile), "utf8");
+    assert.match(context, /<extension-root>\/plugins\/better-workflows\/scripts\/sbw\.mjs/);
+    assert.match(context, /never from a path relative to the user's current repository/i);
+    assert.match(context, /XDG_STATE_HOME\/better-workflows/);
+    assert.match(context, /SBW_STATE_ROOT/);
+  }
+
+  for (const relativePath of [
+    ".claude-plugin/marketplace.json",
+    "gemini-extension.json",
+    "qwen-extension.json",
+    "plugins/better-workflows/.claude-plugin/plugin.json",
+    "plugins/better-workflows/gemini-extension.json",
+    "plugins/better-workflows/qwen-extension.json"
+  ]) {
+    const manifest = JSON.parse(await readFile(path.join(repoRoot, relativePath), "utf8"));
+    const declared = relativePath.endsWith("marketplace.json") ? manifest.plugins[0].version : manifest.version;
+    assert.equal(declared, VERSION, relativePath);
+  }
+});
+
+test("Auto and Direct skills enforce repository preflight, risk admission, isolation, and honest completion", async () => {
+  const files = [
+    path.join(pluginRoot(), "skills", "auto", "SKILL.md"),
+    path.join(pluginRoot(), "skills", "direct", "SKILL.md"),
+    path.join(pluginRoot(), "skills", "better-workflows", "SKILL.md")
+  ];
+  const content = (await Promise.all(files.map((file) => readFile(file, "utf8")))).join("\n");
+  assert.match(content, /workspace preflight --intent read-only/);
+  assert.match(content, /workspace preflight[^\n]*--intent modify|--intent modify/);
+  assert.match(content, /AutoRiskAssessmentV1/);
+  assert.match(content, /irreversibility[^\n]*zero|irreversibility `0`/);
+  assert.match(content, /total[^\n]*two|total[^\n]*`2`/);
+  assert.match(content, /TaskWorkspaceLeaseV1/);
+  assert.match(content, /workspace register/);
+  assert.match(content, /host[^\n]*preserv|preserve[^\n]*host/i);
+  assert.match(content, /workspace reconcile/);
+  assert.match(content, /squash[^\n]*receipt|receipt[^\n]*squash/i);
+  assert.match(content, /Never auto-stash|Never stash/);
+  assert.match(content, /120-second/);
+  assert.match(content, /workspace completion-notice/);
+  assert.match(content, /pr-required[^\n]*not completion/);
+  assert.match(content, /補做證據驗證/);
+  assert.match(content, /XDG_STATE_HOME\/better-workflows/);
+  assert.match(content, /Do not infer the core state root from `CODEX_HOME`/);
+  assert.match(content, /\.better-workflows\/profile\.json/);
+});
+
 test("split English guides preserve the complete detailed contract", async (context) => {
   try {
     await access(overview);
@@ -638,6 +708,10 @@ test("localized details pages preserve complete detailed coverage", async (conte
   for (const document of localizedDocuments) {
     const content = await readFile(document.details, "utf8");
     assertDetailedCoverage(content, document.details);
+    assert.match(content, /TaskWorkspaceLeaseV1/, document.details);
+    assert.match(content, /worktree/i, document.details);
+    assert.match(content, /\.better-workflows\/profile\.json/, document.details);
+    assert.doesNotMatch(content, /direct[^\n]*without durable workflow state/i, document.details);
     assert.doesNotMatch(content, /Gemini[（(](?:經|经|Agy 経由|Agy 경유).*Agy.*Grok/);
   }
 });

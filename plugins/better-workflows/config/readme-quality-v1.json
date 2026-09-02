@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "kind": "better-workflows-readme-quality",
   "landing": {
-    "maxLines": 220,
+    "maxLines": 300,
     "maxParagraphCharacters": 600,
-    "maxTableColumns": 2,
+    "maxTableColumns": 4,
     "maxTableBodyRows": 12,
     "sectionOrder": [
       "promise-audience",
@@ -72,7 +72,7 @@
         "detailsTarget": "docs/details/en.md",
         "preambleRoster": "**Model roster:** Codex · Claude · Gemini · GPT-OSS · Grok · Cursor · Kimi · Qwen · Kiro. `agy` transports Gemini-, Claude-, and GPT-OSS-branded models; it is transport metadata, not another model brand.",
         "headings": [
-          "Why Better Workflows",
+          "Better Workflows in plain language",
           "From prompts to governed outcomes",
           "What you can trust",
           "Get your first result",

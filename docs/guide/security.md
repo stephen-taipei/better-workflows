@@ -44,6 +44,71 @@ evidence and cannot be sanitized, reject the proposal without harvesting or
 transmitting that source. Persist only a redacted `REJECTED_WITH_EVIDENCE`
 rationale.
 
+## Task worktree isolation
+
+`task-worktree-v1` grants a deliberately narrow local capability: discover a
+repository, create a unique task branch and worktree from an exact base SHA,
+make bounded commits there, validate a candidate integration, compare-and-swap
+a clean non-protected local target, and remove exact resources owned by the
+same `TaskWorkspaceLeaseV1`.
+
+It does not authorize push, PR merge, deploy, release, protected-branch bypass,
+force removal, `git worktree prune`, stash, patch copying, or temporary commits
+in a dirty source checkout. Read-only and non-Git work do not create worktrees.
+Detached HEAD, a missing or renamed target, dirty source or target, ownership
+conflict, repeated target drift, merge conflict, failed validation, and unknown
+provider state all stop before integration or cleanup.
+
+Repository locks bind the owning host, PID, and OS-observed process
+incarnation. Crash recovery quarantines and removes only an exact lock whose
+owner is proven absent or replaced; a live, cross-host, malformed, or
+unobservable lock is preserved. Lease lookup never truncates a large registry:
+it scans every record within the bounded limit and otherwise stops.
+
+Cleanup requires terminal integration proof, a clean task worktree, exact
+lease ownership, and target reconciliation. Failure preserves the task branch
+and worktree as recovery state. Names, path prefixes, or globs are never used as
+cleanup authority. Integration and cleanup are restart-safe at their mutation
+boundaries: the lease records a candidate before creation and records each
+resource removal before proceeding. A repeated cleanup call must reconcile and
+return the same digested receipt. Nested repositories and submodules require
+independent leases; multiple-repository integration is serialized and is not
+atomic.
+
+Host-provided worktrees are accepted only through explicit registration while
+the worktree and separate source checkout are clean, the task branch is a
+distinct `codex/*` ref, and both share the same Git common directory and exact
+base commit. Their lease records `resourceOrigin: host-provided`; cleanup
+removes Better Workflows integration candidates but preserves the host branch
+and worktree.
+
+## Direct check isolation
+
+Direct does not run arbitrary package-manager scripts. Its bounded check runner
+accepts only the current Node.js executable, rejects flags that can weaken the
+runner, enables the Node 24 Permission Model, denies child processes, workers,
+native addons, WASI, inspector access, and filesystem reads outside the task
+worktree and task scratch. Filesystem writes are limited to that scratch, and a
+source-digested guard denies standard Node network surfaces. The scratch
+directory is removed before the check can pass. The same guarded check is
+repeated on the complete local integration candidate.
+
+This is a seat belt for trusted repository checks, not a sandbox for malicious
+code. Node's own [Permission Model documentation](https://nodejs.org/docs/latest-v24.x/api/permissions.html)
+states that it does not provide a malicious-code security boundary, and Node 24
+does not expose the later `--allow-net` permission. If a check needs npm/pnpm,
+child processes, native code, workers, network access, checkout-external files
+or symlinked dependency stores, or an OS-enforced hostile-code sandbox, Direct
+must stop and use the governed evidence route.
+
+Protected integration is not accepted from prose or a standalone JSON file.
+`workspace reconcile` reads the private governed run and requires exactly one
+successful `pr.merge` action plus its matching successful `remote.sync` action,
+both bound to the validated task head and target. Merge commits must contain
+the task head. Squash cleanup is allowed only when the provider receipt binds
+that exact reviewed head and its merge commit, and the synchronized local
+target contains that commit.
+
 ## Local state
 
 - Private state directories use mode `0700`.
@@ -174,7 +239,16 @@ malicious code. Unreviewed or model-generated recipes must not be executed.
 
 Dry-run still executes already trusted code, but discards staged artifacts.
 Normal execution publishes only declared, verified artifacts. A tracked-source
-promotion needs an independent `artifact.promote` action.
+promotion needs an independent `artifact.promote` action. The ignored artifact
+store is treated as managed non-source output only when its tracked
+`.gitignore` marker has the exact built-in policy bytes; tracked or untracked
+changes elsewhere remain source-authority drift.
+
+`recipe.promote` and `artifact.promote` reconcile source changes through an
+append-only provider-action transition. The receipt is attempt-bound and must
+prove one exact path, before/after file records, complete sentinels, and source
+bindings with no other Git-status or authority change. A missing, conflicting,
+or replay-invalid transition fails closed and cannot authorize success.
 
 ## Host-signed self-improvement
 

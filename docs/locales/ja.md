@@ -2,7 +2,7 @@
 
 # Better Workflows
 
-現在のソースに紐付き、なお有効な証拠、レビューゲート、ソースへの結び付け、provider 状態の照合を備えた、オープンソースで目標優先のエージェントワークフロー制御プレーンです。
+AI agent がリスクに応じて検証強度を選び、隔離環境で安全に作業を完了します。 単純な変更は素早く完了し、重要な作業は evidence gate を通し、Git 変更は既定で専用 worktree を使います。
 
 [English](en.md) · [繁體中文](zh-Hant.md) · [繁體中文（台灣）](zh-Hant-TW.md) · [繁體中文（香港）](zh-Hant-HK.md) · [简体中文](zh-Hans.md) · [Tiếng Việt](vi.md) · [Українська](uk.md) · [Türkçe](tr.md) · [ไทย](th.md) · [Svenska](sv.md) · [Slovenčina](sk.md) · [Русский](ru.md) · [Română](ro.md) · [Português](pt.md) · [Português (Brasil)](pt-BR.md) · [Polski](pl.md) · [Nederlands](nl.md) · [Norsk bokmål](nb.md) · [မြန်မာ](my.md) · [Bahasa Melayu](ms.md) · [ລາວ](lo.md) · [한국어](ko.md) · [ខ្មែរ](km.md) · **日本語** · [Italiano](it.md) · [Bahasa Indonesia](id.md) · [Magyar](hu.md) · [Hrvatski](hr.md) · [हिन्दी](hi.md) · [עברית](he.md) · [Français](fr.md) · [Filipino](fil.md) · [Suomi](fi.md) · [Español](es.md) · [Español (México)](es-MX.md) · [Ελληνικά](el.md) · [Deutsch](de.md) · [Dansk](da.md) · [Čeština](cs.md) · [Català](ca.md) · [العربية](ar.md)
 
@@ -19,7 +19,7 @@ Better Workflows は goal、scope、authority を固定し、すべての判断�
 contract を定義し、source と evidence を検証し、外部で生じた結果を照合したうえで、終端状態が判明したときだけ完了を宣言します。
 
 - **01 · `TaskContract`** — Better Workflows は goal、scope、authority を固定し、すべての判断を現在のソースに紐付き、なお有効で再検証可能な証拠と、照合済みの外部結果に結び付けます。
-- **02 · `evidence`** — 現在のソースに紐付き、なお有効な証拠、レビューゲート、ソースへの結び付け、provider 状態の照合を備えた、オープンソースで目標優先のエージェントワークフロー制御プレーンです。
+- **02 · `evidence`** — AI agent がリスクに応じて検証強度を選び、隔離環境で安全に作業を完了します。 単純な変更は素早く完了し、重要な作業は evidence gate を通し、Git 変更は既定で専用 worktree を使います。
 - **03 · `reconciliation`** — contract を定義し、source と evidence を検証し、外部で生じた結果を照合したうえで、終端状態が判明したときだけ完了を宣言します。
 - **04 · `terminal state`** — コマンドが動いたことは完了の証明ではありません。再検証できる結果こそが証拠です。
 

@@ -4,9 +4,9 @@
 
 **Goal-first · Evidence-driven · Fail-closed**
 
-让 Codex 工作不再停留在“只输入 prompt 就期待成功”，而是沿着有界路径，从意图走到已验证、已对账的交付。
+让多品牌 AI agent 依风险选择验证强度，在隔离环境中安全完成工作。
 
-[![Version](https://img.shields.io/badge/version-3.4.14-2563EB?style=flat-square)](../plugins/better-workflows/package.json)
+[![Version](https://img.shields.io/badge/version-4.0.0-2563EB?style=flat-square)](../plugins/better-workflows/package.json)
 [![Node](https://img.shields.io/badge/Node.js-%E2%89%A524-3C873A?style=flat-square)](../plugins/better-workflows/package.json)
 [![Dependencies](https://img.shields.io/badge/runtime_dependencies-0-0F766E?style=flat-square)](../plugins/better-workflows/package.json)
 [![License](https://img.shields.io/badge/license-MIT-64748B?style=flat-square)](../LICENSE)
@@ -20,8 +20,13 @@
 <!-- readme-roster -->
 **Model roster：** Codex · Claude · Gemini · GPT-OSS · Grok · Cursor · Kimi · Qwen · Kiro。`agy` 传输 Gemini、Claude 与 GPT-OSS 品牌模型；它是 transport metadata，不是另一个模型品牌。
 
+**正式 Tier 1：** Codex、Claude Code、Gemini CLI、Qwen Code × macOS／Linux。**官方推荐：macOS + Codex**；Windows 与其他 host 为 Preview。
+
 <!-- readme-section:promise-audience -->
 ## 为什么需要 Better Workflows
+
+用白话说，它是“证据至上的 AI 工程 QA＋交付守门人”：简单修改快速完成；重要工作逐阶段验证；Git 修改默认使用本任务专属 worktree。
+若 AI host 已创建干净且专属的 worktree，可明确注册后直接使用而不再嵌套创建；host 资源会保留。Protected／squash 集成只有在同一 governed run 的 exact merge 与 remote-sync receipts 对账成功后才允许 cleanup。
 
 Codex 可以分析 repository、修改代码、运行检查并操作 provider。能力越强，越需要
 清楚区分“用户想要什么”与“当前证据和权限实际允许什么”。

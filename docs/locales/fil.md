@@ -2,7 +2,7 @@
 
 # Better Workflows
 
-Open-source na control plane na inuuna ang layunin para sa mga daloy ng trabaho ng agent, na may napapanahong ebidensya, mga tarangkahan ng pagsusuri, at pagtutugma sa provider.
+Inaangkop ng AI agent ang lakas ng beripikasyon sa panganib at ligtas na tinatapos ang trabaho sa hiwalay na environment. Mabilis ang simpleng pagbabago; gumagamit ng evidence gates ang mahalagang trabaho; may sariling worktree ang Git changes bilang default.
 
 [English](en.md) · [繁體中文](zh-Hant.md) · [繁體中文（台灣）](zh-Hant-TW.md) · [繁體中文（香港）](zh-Hant-HK.md) · [简体中文](zh-Hans.md) · [Tiếng Việt](vi.md) · [Українська](uk.md) · [Türkçe](tr.md) · [ไทย](th.md) · [Svenska](sv.md) · [Slovenčina](sk.md) · [Русский](ru.md) · [Română](ro.md) · [Português](pt.md) · [Português (Brasil)](pt-BR.md) · [Polski](pl.md) · [Nederlands](nl.md) · [Norsk bokmål](nb.md) · [မြန်မာ](my.md) · [Bahasa Melayu](ms.md) · [ລາວ](lo.md) · [한국어](ko.md) · [ខ្មែរ](km.md) · [日本語](ja.md) · [Italiano](it.md) · [Bahasa Indonesia](id.md) · [Magyar](hu.md) · [Hrvatski](hr.md) · [हिन्दी](hi.md) · [עברית](he.md) · [Français](fr.md) · **Filipino** · [Suomi](fi.md) · [Español](es.md) · [Español (México)](es-MX.md) · [Ελληνικά](el.md) · [Deutsch](de.md) · [Dansk](da.md) · [Čeština](cs.md) · [Català](ca.md) · [العربية](ar.md)
 
@@ -19,7 +19,7 @@ Itinatakda ng Better Workflows ang layunin, saklaw, at awtoridad, at itinatali a
 Itakda ang kasunduan, beripikahin ang pinagmulan at ebidensya, itugma ang mga panlabas na epekto, at ideklarang kumpleto lamang kapag tiyak na ang panghuling kalagayan.
 
 - **01 · `TaskContract`** — Itinatakda ng Better Workflows ang layunin, saklaw, at awtoridad, at itinatali ang bawat desisyon sa napapanahon at muling mapapatunayang ebidensya at naipagtugmang panlabas na resulta.
-- **02 · `evidence`** — Open-source na control plane na inuuna ang layunin para sa mga daloy ng trabaho ng agent, na may napapanahong ebidensya, mga tarangkahan ng pagsusuri, at pagtutugma sa provider.
+- **02 · `evidence`** — Inaangkop ng AI agent ang lakas ng beripikasyon sa panganib at ligtas na tinatapos ang trabaho sa hiwalay na environment. Mabilis ang simpleng pagbabago; gumagamit ng evidence gates ang mahalagang trabaho; may sariling worktree ang Git changes bilang default.
 - **03 · `reconciliation`** — Itakda ang kasunduan, beripikahin ang pinagmulan at ebidensya, itugma ang mga panlabas na epekto, at ideklarang kumpleto lamang kapag tiyak na ang panghuling kalagayan.
 - **04 · `terminal state`** — Ang pagpapatakbo ng utos ay hindi patunay ng pagkumpleto; ang muling mapapatunayang resulta ang patunay.
 

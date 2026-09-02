@@ -13,7 +13,7 @@ import {
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { digestObject, pluginRoot } from "../lib/core.mjs";
+import { digestObject, isMigratableWorkflowVersion, pluginRoot } from "../lib/core.mjs";
 import {
   applyDelegatedSelfImproveContract,
   buildRunGraph,
@@ -30,6 +30,36 @@ import { createReviewPackage, markBroadReviewComplete } from "../lib/review.mjs"
 const execFileAsync = promisify(execFile);
 const CLI = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "sbw.mjs");
 const DIGEST = "a".repeat(64);
+const legacyV34 = (patch, suffix = "") => `3.4.${patch}${suffix}`;
+
+test("workflow migration accepts only bounded shipped version families", () => {
+  for (const version of [
+    "1.0.0",
+    "2.6.0",
+    legacyV34(0),
+    legacyV34(8),
+    legacyV34(13),
+    legacyV34(14, "+codex.20260824T024228"),
+    "3.5.0",
+    "4.0.0",
+    "4.0.0+codex.test"
+  ]) {
+    assert.equal(isMigratableWorkflowVersion(version), true, version);
+  }
+  for (const version of [
+    "2.6.0+codex.test",
+    legacyV34(14, "-alpha.1"),
+    legacyV34(15),
+    "3.5.1",
+    "4.0.1",
+    "5.0.0",
+    `0${legacyV34(14)}`,
+    "not-a-version",
+    null
+  ]) {
+    assert.equal(isMigratableWorkflowVersion(version), false, String(version));
+  }
+});
 
 function template(overrides = {}) {
   return {
@@ -128,6 +158,7 @@ async function repository() {
   await git(cwd, "init", "-q", "-b", "dev");
   await git(cwd, "config", "user.name", "Graph View Tests");
   await git(cwd, "config", "user.email", "graph@example.invalid");
+  await git(cwd, "remote", "add", "origin", "https://github.com/example/graph-fixture.git");
   await mkdir(path.join(cwd, "src"));
   await writeFile(path.join(cwd, "src", "value.txt"), "one\n");
   await git(cwd, "add", ".");
@@ -1116,7 +1147,11 @@ test("legacy resume migrates a persisted v2 run that predates the required revie
     ["resume", started.json.runId],
     { allowFailure: true, executable: copied.cli }
   );
-  assert.equal(resumed.code, 2);
+  assert.equal(
+    resumed.code,
+    2,
+    `resume stdout=${resumed.stdout.slice(0, 2_000)} stderr=${resumed.stderr.slice(0, 2_000)}`
+  );
   assert.equal(resumed.json.migration.migrated, true);
   const migrated = JSON.parse(await readFile(contractPath, "utf8"));
   const templateDefinition = JSON.parse(
@@ -1385,6 +1420,7 @@ test("warning-only run graphs do not block resume, authorized action issue, or c
   ]);
   assert.equal(issued.json.ok, true);
   assert.equal(issued.json.action.status, "issued");
+  assert.equal(issued.json.action.providerRepository, "github.com/example/graph-fixture");
 
   const completed = await cli(cwd, stateRoot, [
     "complete",

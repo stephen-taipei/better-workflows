@@ -9,6 +9,11 @@ import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { CONNECTORS_LOCALES, DEFAULT_LOCALE, LOCALE_KEYS, locales } from "./website-locales.mjs";
 import { PUBLIC_DOC_PAGES, homepagePath, publicDocCards, publicDocCopy, publicDocPath } from "./public-docs.mjs";
+import {
+  loadHostSupportRegistry,
+  renderHostSupportHtml
+} from "../plugins/better-workflows/scripts/lib/hosts.mjs";
+import { digestObject } from "../plugins/better-workflows/scripts/lib/core.mjs";
 
 const execFileAsync = promisify(execFile);
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
@@ -81,7 +86,7 @@ const openGraphLocales = {
 
 async function gitRevision() {
   try {
-    const { stdout } = await execFileAsync("git", ["rev-parse", "--short=12", "HEAD"], { cwd: repoRoot });
+    const { stdout } = await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: repoRoot });
     return stdout.trim() || "unknown";
   } catch {
     return "unknown";
@@ -186,7 +191,7 @@ function localeOptions(currentLocale = null, pathForLocale = localePath) {
   }).join("");
 }
 
-function structuredData({ locale, title, description, canonical, version }) {
+function structuredData({ locale, title, description, canonical, version, runtimePlatforms }) {
   return JSON.stringify({
     "@context": "https://schema.org",
     "@graph": [
@@ -209,7 +214,7 @@ function structuredData({ locale, title, description, canonical, version }) {
         codeRepository: repositoryUrl,
         license: `${repositoryUrl}/blob/main/LICENSE`,
         programmingLanguage: ["JavaScript", "HTML", "CSS"],
-        runtimePlatform: "Codex",
+        runtimePlatform: runtimePlatforms,
         version,
         inLanguage: locale,
         isPartOf: { "@id": `${canonicalOrigin}/#website` }
@@ -243,6 +248,11 @@ function replaceSiteTokens(content, values) {
   return content.replace(/__SITE_([A-Z0-9_]+)__/g, (_, key) => values[key] ?? "unknown");
 }
 
+function renderLocalizedList(value, className) {
+  const items = String(value).split("|").map((item) => item.trim()).filter(Boolean);
+  return `<ol class="${className}">${items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ol>`;
+}
+
 function renderLocalizedPage(template, locale, commonValues) {
   let content = template;
   for (const key of LOCALE_KEYS) content = content.replaceAll(`__I18N_${key}__`, escapeHtml(locale.messages[key]));
@@ -260,7 +270,16 @@ function renderLocalizedPage(template, locale, commonValues) {
     DOCS_PATH: publicDocPath(locale.code, "guide"),
     CINEMA_PATH: publicDocPath(locale.code, "evidence-cinema"),
     DOC_CARDS: renderDocumentCards(locale, null),
-    STRUCTURED_DATA: structuredData({ locale: locale.code, title: locale.messages.TITLE, description: locale.messages.DESCRIPTION, canonical, version: commonValues.VERSION })
+    AUTO_FLOW_ITEMS: renderLocalizedList(locale.messages.V4_AUTO_FLOW, "auto-flow-list"),
+    BOUNDARY_ITEMS: renderLocalizedList(locale.messages.V4_BOUNDARIES, "boundary-list"),
+    STRUCTURED_DATA: structuredData({
+      locale: locale.code,
+      title: locale.messages.TITLE,
+      description: locale.messages.DESCRIPTION,
+      canonical,
+      version: commonValues.VERSION,
+      runtimePlatforms: commonValues.RUNTIME_PLATFORMS
+    })
   });
 }
 
@@ -364,7 +383,19 @@ const revision = await gitRevision();
 const sourceModifiedAt = await gitSourceModifiedAt();
 const builtAt = buildTime();
 const assetVersion = await websiteAssetVersion();
-const commonValues = { VERSION: version, REVISION: revision, BUILD_TIME: builtAt, ASSET_VERSION: assetVersion };
+const hostSupportRegistry = await loadHostSupportRegistry();
+const hostRegistryDigest = digestObject(hostSupportRegistry);
+const runtimePlatforms = hostSupportRegistry.hosts
+  .filter((host) => host.supportTier === "tier1")
+  .map((host) => host.displayName);
+const commonValues = {
+  VERSION: version,
+  REVISION: revision,
+  BUILD_TIME: builtAt,
+  ASSET_VERSION: assetVersion,
+  HOST_SUPPORT_MATRIX: renderHostSupportHtml(hostSupportRegistry),
+  RUNTIME_PLATFORMS: runtimePlatforms
+};
 const defaultLocale = locales.find((locale) => locale.code === DEFAULT_LOCALE);
 
 if (locales.length !== 41 || JSON.stringify(locales.map((locale) => locale.code)) !== JSON.stringify(CONNECTORS_LOCALES)) {
@@ -386,6 +417,13 @@ for (const page of PUBLIC_DOC_PAGES) {
   const referencePath = path.join(outputDirectory, "docs", "reference", page.reference);
   await writeFile(referencePath, injectReferenceMetadata(await readFile(referencePath, "utf8"), page));
 }
+
+// The generated cinema page was authored from the repository root, where
+// ../../../plugins resolves from docs/html/evidence-cinema. After the docs
+// tree is mounted at /docs, the equivalent public path is ../../plugins.
+const cinemaPagePath = path.join(outputDirectory, "docs", "reference", "evidence-cinema", "index.html");
+const cinemaPage = await readFile(cinemaPagePath, "utf8");
+await writeFile(cinemaPagePath, cinemaPage.replaceAll("../../../plugins/", "../../plugins/"));
 
 const localizedTemplate = await readFile(localizedTemplatePath, "utf8");
 for (const locale of locales) {
@@ -466,8 +504,10 @@ await writeFile(path.join(outputDirectory, "release.json"), `${JSON.stringify({
   publicDocumentationPages: PUBLIC_DOC_PAGES.length,
   defaultLocale: DEFAULT_LOCALE,
   assetVersion,
+  hostRegistryId: hostSupportRegistry.id,
+  hostRegistryDigest,
   contentDigest: artifactContentDigest,
   artifact: "static-frontend"
 }, null, 2)}\n`);
 
-console.log(JSON.stringify({ outputDirectory, version, revision, builtAt, sourceModifiedAt, assetVersion, contentDigest: artifactContentDigest, locales: locales.length, repository: repositoryUrl, sponsorUrl, sponsorMode }, null, 2));
+console.log(JSON.stringify({ outputDirectory, version, revision, builtAt, sourceModifiedAt, assetVersion, hostRegistryDigest, contentDigest: artifactContentDigest, locales: locales.length, repository: repositoryUrl, sponsorUrl, sponsorMode }, null, 2));

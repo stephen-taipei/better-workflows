@@ -697,7 +697,7 @@ const STANDING_CONSENT_ALLOWED_PATH_PATTERNS = Object.freeze([
   "^scripts/plugin-cache\\.mjs$",
   "^docs/README\\.(?:zh-TW|zh-CN|ja|ko)\\.md$",
   "^docs/details/(?:en|zh-TW|zh-CN|ja|ko)\\.md$",
-  "^docs/guide/(?:architecture|cli-reference|getting-started|readme-quality|security|workflows)\\.md$",
+  "^docs/guide/(?:architecture|cli-reference|convergence-and-authorization|getting-started|readme-quality|security|workflows)\\.md$",
   "^docs/assets/better-workflows-engineering-stack\\.svg$",
   "^docs/html/use-cases/assets/[A-Za-z0-9._-]+\\.md$",
   "^plugins/better-workflows/(?:scripts/.+\\.(?:mjs|c)|skills/.+\\.md|templates/.+\\.json|fixtures/.+\\.(?:json|md|mjs)|config/.+\\.json|package\\.json|\\.codex-plugin/plugin\\.json)$"
@@ -807,6 +807,8 @@ export const HOST_MATERIAL_SAMPLE_PRIORITY = Object.freeze([
   "plugins/better-workflows/scripts/lib/review.mjs",
   "plugins/better-workflows/scripts/lib/self-improve.mjs",
   "plugins/better-workflows/scripts/lib/self-improve-replay.mjs",
+  "plugins/better-workflows/scripts/lib/metrics.mjs",
+  "plugins/better-workflows/scripts/lib/shadow-replay.mjs",
   "plugins/better-workflows/scripts/lib/ledger.mjs",
   "plugins/better-workflows/scripts/lib/evidence.mjs",
   "plugins/better-workflows/scripts/sbw.mjs",
@@ -815,6 +817,7 @@ export const HOST_MATERIAL_SAMPLE_PRIORITY = Object.freeze([
   "plugins/better-workflows/scripts/tests/graph.test.mjs",
   "plugins/better-workflows/scripts/tests/publication.test.mjs",
   "plugins/better-workflows/scripts/tests/self-improve.test.mjs",
+  "plugins/better-workflows/scripts/tests/shadow-replay.test.mjs",
   "plugins/better-workflows/scripts/tests/cli.test.mjs",
   "plugins/better-workflows/scripts/tests/fixtures.test.mjs",
   "plugins/better-workflows/scripts/tests/docs.test.mjs",
@@ -837,11 +840,12 @@ const PUBLIC_DOCUMENT_SAMPLE_PRIORITY = new Map([
   "SECURITY.md",
   "docs/guide/security.md",
   "docs/guide/architecture.md",
+  "docs/guide/convergence-and-authorization.md",
   "docs/guide/readme-quality.md",
   "scripts/plugin-cache.mjs",
   "docs/assets/better-workflows-engineering-stack.svg"
 ].map((file, index) => [file, index]));
-const CRITICAL_MATERIAL_ANCHOR = /resolveGitPushDestination|git push destination binds a divergent pushurl|buildBoundGitPushArgs|buildBoundGitPushEnvironment|isolatedGitEnvironment|reconstructStandingBatch|validateAuthoritativeStandingManifestBindings|runEvaluatorPolicyProbe|evaluatorCommandArgs|delegatedSelfImproveContractProjection|applyDelegatedSelfImproveContract|delegated-contract-drift|candidate-self-authorized-(?:evidence|acceptance)|upstream run|orphan cache-only signals|required cache evidence|acceptance cache evidence|stage (?:handoff|cache) evidence|action handoff gate|unexpected (?:required evidence|acceptance id)|expectedReplayKeys|migrationTrainingComparison|alignedRuns|train-(?:candidate|baseline):1|(?:candidate|baseline):[1-3]|release metadata classification|every other byte change|migration gap repair|eight distinct migration witnesses|every target-only case|hidden comments|fenced examples|wrong-section|suite saturation|pendingMarkerMatchesPublication|publication failure preserves a pending marker|acquirePublicationLock|releasePublicationLock|reclaimStalePublicationLock|legacy stale-lock quarantine|landingMarkdownStructure|reduceLedger|attempt-budget-exhausted|budget-exhausted|fifth scoped repair round|repair budget exhausted|final broad review|single-task non-direct run|automatic design or review artifacts|direct mode creates no state directory|self-reported evidence without a typed receipt|complete-without-typed-evidence|review kernel accounts every work unit|review kernel rejects finder self-verification|reviewKernelStatus|recordReviewAxis|recordFindingVerification|assertReviewContinuity|workUniverseDigest|axisSetDigest|verificationSetDigest|convergenceDigest|code-v2-pilot|work-unit-accounting|review-kernel-summary/i;
+const CRITICAL_MATERIAL_ANCHOR = /resolveGitPushDestination|git push destination binds a divergent pushurl|buildBoundGitPushArgs|buildBoundGitPushEnvironment|isolatedGitEnvironment|reconstructStandingBatch|validateAuthoritativeStandingManifestBindings|runEvaluatorPolicyProbe|evaluatorCommandArgs|delegatedSelfImproveContractProjection|applyDelegatedSelfImproveContract|delegated-contract-drift|candidate-self-authorized-(?:evidence|acceptance)|upstream run|orphan cache-only signals|required cache evidence|acceptance cache evidence|stage (?:handoff|cache) evidence|action handoff gate|unexpected (?:required evidence|acceptance id)|expectedReplayKeys|migrationTrainingComparison|evaluator migration requires accepted training before holdout|alignedRuns|train-(?:candidate|baseline):1|(?:candidate|baseline):[1-3]|release metadata classification|every other byte change|migration gap repair|eight distinct migration witnesses|every target-only case|hidden comments|fenced examples|wrong-section|suite saturation|pendingMarkerMatchesPublication|publication failure preserves a pending marker|acquirePublicationLock|releasePublicationLock|reclaimStalePublicationLock|legacy stale-lock quarantine|landingMarkdownStructure|supersedeEvidence|loadEffectiveEvidenceState|evidence\.superseded|reduceLedger|attempt-budget-exhausted|budget-exhausted|fifth scoped repair round|repair budget exhausted|final broad review|single-task non-direct run|automatic design or review artifacts|direct mode creates no state directory|self-reported evidence without a typed receipt|complete-without-typed-evidence|review kernel accounts every work unit|review kernel rejects finder self-verification|reviewKernelStatus|recordReviewAxis|recordFindingVerification|assertReviewContinuity|workUniverseDigest|axisSetDigest|verificationSetDigest|convergenceDigest|code-v2-pilot|work-unit-accounting|review-kernel-summary|compareShadowReplay|ShadowReplayBindingV1|shadow-only|materialCostFindings|repositoryDigest/i;
 export const HOST_CRITICAL_MATERIAL_ANCHOR_SOURCE = CRITICAL_MATERIAL_ANCHOR.source;
 const RELEASE_BADGE_PATHS = new Set([
   "README.md",

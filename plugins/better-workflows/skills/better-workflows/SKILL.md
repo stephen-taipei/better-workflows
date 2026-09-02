@@ -46,12 +46,110 @@ Goal mode controls persistence; the Better Workflows mode controls verification
 depth. They are independent. `direct` therefore uses a persistent goal without
 creating a Better Workflows journal.
 
+## Converge without repeated interaction
+
+The default interaction mode is `auto-deduplicated`. A normal in-process SOP
+route receives one bounded implicit interaction approval so the root agent can
+continue without keeping the user at the computer. Reuse a current standing
+user directive without asking again when repository, goal, recipient/provider/
+model, disclosed data scope, side-effect kinds, and safety constraints are
+materially unchanged. A freshness-only receipt refresh preserves its
+predecessor and exact scope digest. This suppresses duplicate questions; it does
+not grant authority or relax current TaskContract, evidence, action-token,
+required-check, provider-reconciliation, or completion gates.
+
+A changed repository, candidate bytes, recipient/model/provider, disclosed data
+scope, or side-effect kind is a material scope change unless an existing
+standing directive expressly covers it. Record one structured HOLD when that
+authority is missing; do not ask the same question again on later turns. Use
+strict per-request prompting only when the user explicitly requests strict
+interaction mode. New private review disclosures remain explicit authorization
+boundaries even when the surrounding route is auto. Never request, copy, pipe,
+or retain an administrator password. Use a matching installed non-interactive
+grant or trigger one exact native administrator interaction and observe it;
+failure remains HOLD without another prompt.
+
+The root agent may use the interaction-only bridge to make this deduplication
+observable and reproducible:
+
+```bash
+sbw interaction preview --scope-file <material-scope.json> \
+  [--standing-file <standing-directive.json>] [--strict]
+```
+
+The request fingerprint is stable across repeated prompts. A matching standing
+directive may suppress the duplicate question, including a freshness-only
+renewal with a predecessor link. The bridge never issues an action token or
+authorizes push, merge, deploy, cleanup, signing, or release; exact evidence,
+provider reconciliation, required checks, and host authority remain mandatory.
+New package/instruction/reviewer/execution identities after a BLOCK are a new
+authorization boundary and require fresh disclosure authority.
+
+Review repair limits are campaign-wide. The campaign ledger lives under the Git
+repository-independent host ledger root `~/.better-workflows/campaigns` and
+survives new clones, runs, state roots, packages, nonces, branches, and execution
+identities. The first blocked package is the baseline and only
+five subsequent repair waves are allowed. `campaign.exhausted=true` is terminal
+`campaign-repair-budget-exhausted`; never evade it by minting another identity.
+Read [convergence-and-authorization.md](../../../../docs/guide/convergence-and-authorization.md)
+before formal evaluation, native review, or any authorization refresh.
+
+## Preflight every workspace
+
+Before substantial work in every task, run the host-neutral read-only preflight:
+
+~~~bash
+sbw workspace preflight --intent read-only
+~~~
+
+Shared state defaults to `XDG_STATE_HOME/better-workflows` when available and
+otherwise `~/.better-workflows`; `SBW_STATE_ROOT` binds an explicit location.
+Do not infer the core state root from `CODEX_HOME`. A v3 Codex state remains
+usable only when its exact `<CODEX_HOME>/sbw` path is explicitly supplied as
+`SBW_STATE_ROOT`.
+
+This distinguishes a non-Git directory, read-only use of a repository, an
+existing task-owned worktree, and an ownership conflict without creating Git
+resources. If the task may modify a repository, rerun with `--intent modify`
+and bind the exact existing local integration target before any edit. A dirty
+source checkout stops. Never stash, copy, temporarily commit, or silently omit
+staged, unstaged, untracked, conflict, or dirty-submodule state.
+
+Every Git mutation, including Direct, uses either a newly created
+`TaskWorkspaceLeaseV1` or a host-provided worktree that has been explicitly
+registered and verified as exclusive to the current task. Never create a nested
+worktree from another task's worktree. Branches, worktrees, commits, checks,
+integration candidates, and cleanup belong to the lease; a name or path prefix
+alone is never ownership proof.
+
+Register a host-created worktree only before mutation, while it and a separate
+source checkout are clean and still bound to the exact base:
+
+~~~bash
+sbw workspace register --task-id <task-id> --base-revision <exact-sha> \
+  --integration-target <local-branch> --source-checkout <clean-checkout>
+~~~
+
+Registration records host ownership; Better Workflows must preserve that task
+branch and worktree during cleanup. For protected delivery, do not move the
+lease to integrated from prose or a copied receipt. After the governed run has
+reconciled its exact `pr.merge` and `remote.sync` actions, bind that run with
+`sbw workspace reconcile ... --run-id <run-id>`. Until it succeeds, retain the
+task resources and report PR-ready rather than completion.
+
+Detached HEAD, an absent source branch, or a target deleted or renamed during
+the task requires the user to select or rebind the integration target. Offer at
+most three evidence-ranked local candidates: repository Profile, task
+convention such as `dev`, then upstream/origin default or a local branch that
+contains the base revision. Never silently choose `main` from `origin/main`.
+
 ## Preview the route
 
 For `$better-workflows:auto`, natural-language `$better-workflows`, and every
 task selector except the explicit `direct` fast path, run a capability snapshot
-and route preview before substantial work. An explicit selector is the highest
-user-controlled route and Profiles may not replace it:
+and route preview before substantial work. The workspace preflight above still
+applies to explicit Direct. An explicit selector is the highest user-controlled
+route and Profiles may not replace it:
 
 ~~~bash
 sbw doctor --capabilities
@@ -70,7 +168,8 @@ Routing precedence is:
 1. host hard constraints;
 2. explicit entry, template, and mode;
 3. the first matching workspace Profile at
-   `<repo>/.codex/better-workflows.json`;
+   `<repo>/.better-workflows/profile.json` (or legacy
+   `<repo>/.codex/better-workflows.json` only when the v4 path is absent);
 4. the first matching personal Profile at
    `$SBW_STATE_ROOT/routing/profile.json`;
 5. built-in `auto`.
@@ -130,7 +229,7 @@ source/cache digest verification.
 
 1. Read all applicable `AGENTS.md` files and repo-local skills before acting.
 2. Classify the task using risk, uncertainty, blast radius, irreversibility, and evidence gap:
-   - `direct`: trivial, reversible, well-understood work. Continue normally and do not invoke `sbw`.
+   - `direct`: trivial, reversible, well-understood work. Do not create an evidence journal, but keep workspace preflight, task-owned worktree isolation for Git mutation, bounded targeted checks, safe integration, and exact cleanup.
    - `verified`: use one to three native research/review/refutation agents.
    - `deep`: run `verified`, then one or two sequential model-pinned Codex critics.
    - `critical`: require independent external evidence and all fail-closed gates.
@@ -138,7 +237,22 @@ source/cache digest verification.
 4. Select one template from [templates.md](references/templates.md).
    When changing a review-enabled template, also read
    [review-profiles.md](references/review-profiles.md) and keep its declared
-   capability profile aligned with the runtime policy.
+capability profile aligned with the runtime policy.
+
+For Auto, record `AutoRiskAssessmentV1`. Direct requires explicit acceptance
+and mutation intent, irreversibility `0`, every other score at most `1`, total
+at most `2`, no hard exclusion, and no selector, Profile, host constraint, or
+protected/remote target requiring more. Unknown is evidence-required. Scope,
+source, target, risk, or capability drift invalidates the assessment and route.
+
+Direct checks are local, offline, side-effect-free outside task scratch, and
+bounded to 120 seconds. Reads stay within the task worktree and scratch. They
+use only the guarded Node runner; npm/pnpm, child processes, workers, native
+addons, network use, checkout-external reads, or isolation-override flags
+require an evidence route. This is a trusted-code seat belt, not a malicious
+code sandbox. Failure or an unexplained result blocks completion. A Direct Git mutation keeps
+the minimal workspace lease but no evidence ledger. That lease is recovery and
+ownership state, not replayable proof.
 
 For `research-deliberation`, also read
 [deliberation-roster.md](references/deliberation-roster.md). It defines the
@@ -250,12 +364,53 @@ Read [evidence-and-state.md](references/evidence-and-state.md) before adding evi
 
 ~~~bash
 sbw evidence add <run-id> --file <evidence.json>
+sbw evidence supersede <run-id> --file <supersession.json>
 sbw finding add <run-id> --file <finding.json>
 sbw finding update <run-id> --file <finding.json>
 sbw complete <run-id>
 ~~~
 
 Do not complete with open P0/P1 findings, stale evidence, expired accepted risk, unknown reconciliation, missing acceptance evidence, or an invalid current-tree sentinel.
+
+`evidence supersede` is a narrow recovery lifecycle for a typed
+`provider-reconciliation` candidate that was admitted before action
+reconciliation and later proven malformed by the persisted terminal action. It
+never edits or deletes the original record. The append-only supersession must
+bind both exact evidence digests and the same run, action attempt, execution,
+source, contract, policy, and remote revision; the replacement must be the exact
+evidence ID reconciled by the action. Missing, stale, cross-attempt, chained,
+conflicting, duplicate, filename-rebound, or hand-edited bindings fail closed.
+After admission, freshness checks preserve the target and replacement bytes and
+block instead of rewriting either digest-bound record. Do not use this lifecycle
+to hide valid evidence or as a substitute for source rebind.
+
+Canonical freshness writes use a journal-first protocol: the durable
+`evidence.freshness-transition` intent binds the admission digest, previous and
+next evidence digests, immutable projection, cause, and an exact replay patch
+before the evidence file is replaced. Resume must replay that same intent; it
+must not append a competing transition. Autonomous-commit invalidation also
+requires exactly one digest-bound `evidence.invalidated` parent covering the
+complete child transition set. Missing, duplicate, partial, or conflicting
+chains block every evidence consumer. Legacy transition records keep their
+original reader and are not silently upgraded.
+
+Review finding dispositions and final broad-review gates read only the
+effective journal-replayed evidence set and revalidate each selected record's
+current dependency fingerprints. A persisted `stale: false` field is never an
+authority source by itself. Action tokens additionally bind a canonical digest
+of every current typed record selected by the contract's complete configured
+gate, together with the immutable initial source anchor, replay-valid source
+transition chain, freshly captured source binding, content-complete sentinel,
+policy, authority, effective supersession state, and current evidence-backed
+P0/P1 finding dispositions. The digest is recomputed at the final issuance
+boundary, before token consumption, immediately before and after a governed
+provider call, and before successful reconciliation reservation and
+persistence. Pre-call drift is `not-sent`; post-call drift is an audited
+`unknown` bound to the invocation digest and cannot be retried or reconciled as
+success from the stale gate. If an autonomous commit encounters any
+supersession record, its
+reconciliation fails before provider reservation, source-state transition, or
+evidence mutation so both bound evidence byte streams remain unchanged.
 
 All newly-created non-direct template runs use TaskContract v2. The run creates
 an append-only execution ledger and accepts only typed evidence receipts from
@@ -279,8 +434,47 @@ requesting any action token:
 sbw review package <run-id> --base <40-char-sha> --head <40-char-sha> \
   --scope <path> --diff-manifest <json> \
   --instruction-digest <sha256> --sentinel-digest <sha256>
+sbw review diff <run-id> --package <package-id> [--native-evidence <evidence-id>]
 sbw review status <run-id>
 ~~~
+
+`review diff` is the governed admission path that derives exactly one
+package-bound `diff-review` record from a current, independently attested
+native `patch-review`; do not hand-author or copy diff-review evidence.
+
+`review status` includes the repository campaign budget. Before creating a
+successor package, verify that the campaign has remaining repairs. Never treat a
+fresh run, state root, package, or execution as a reset.
+
+For a formal full evaluator, use only the host-capable Node launcher:
+
+~~~bash
+sbw eval --formal --expected-head <40-char-sha> \
+  --expected-base <40-char-sha> \
+  --launch-root </private/tmp/bw-*-formal-eval-*>
+~~~
+
+Do not compose shell wrappers for PATH, lid state, process scans, TMPDIR, or
+caffeinate. The launcher creates and verifies those bindings and retains one
+terminal receipt. One exact SHA receives one primary attempt and at most one
+classified infrastructure replacement; a third attempt is rejected and a
+source/fixture failure requires a repaired SHA.
+
+For a package-bound independent Codex review, use only:
+
+~~~bash
+sbw review launch-native <run-id> --base <40-char-sha> --head <40-char-sha> \
+  --package <package-id> --package-file <package.json> \
+  --diff-manifest <manifest.json> --instruction <instruction.md> \
+  --authorization <authorization.json> --model <model> \
+  --reviewer-id <id> --execution-id <id> --result <new-absolute-result.json>
+~~~
+
+The runner must remain tool-capable: never add model-time `--output-schema` and
+never substitute the current branch diff for the frozen `BASE...HEAD` manifest.
+One immutable package may consume only one model attempt; a new result path or
+execution ID does not reset it. Ad-hoc `codex exec` output is not admissible
+native-review evidence.
 
 For ordinary, low-risk PR delivery, use the isolated `pr-to-dev-agent-quorum`
 template. After the immutable review package is closed, provide a source-bound
@@ -355,7 +549,11 @@ receipt, or reconciliation probes. A `pr.create` wrapper failure after its
 preflight is `sent-or-indeterminate`, not immediate failure; an explicit
 preflight record marked `not-sent` can release `pull/new` directly, while a
 fresh pinned-provider absence proof may reconcile the same unknown attempt as
-failure.
+failure. If any configured evidence, finding disposition, source-transition,
+or sentinel authority changes after the wrapper has called the provider, the
+action record itself becomes terminal `unknown` and retains the provider
+invocation audit marker; never rewrite it to pending or invoke the provider a
+second time.
 Creation reservation, consume, release, and expiry-reap operations are
 serialized by a resource lease namespaced by provider repository, action, and
 resource, so unrelated repositories do not share a `pull/new` reservation. An

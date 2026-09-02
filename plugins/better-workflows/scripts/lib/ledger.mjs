@@ -1,4 +1,4 @@
-import { atomicWriteJson, assertMutableRun, digestObject, listJsonRecords, loadRun, nowIso, readJson, safeJoin, withRunLock } from "./core.mjs";
+import { atomicWriteJson, assertMutableRun, digestObject, listEffectiveEvidenceRecords, loadRun, nowIso, readJson, safeJoin, withRunLock } from "./core.mjs";
 
 const LEDGER_SCHEMA_VERSION = 1;
 const EVENT_TYPES = new Set(["start", "complete", "fail", "block", "release", "cancel"]);
@@ -237,6 +237,14 @@ function reduceLedger(ledger, typedEvidenceKinds = new Set()) {
   };
 }
 
+// Evidence Replay needs the same deterministic reducer without using the
+// stateful run reader. Keep this boundary pure: it validates a caller-owned
+// snapshot and never reads, writes, or re-verifies provider state.
+export function reduceLedgerSnapshot(value, typedEvidenceKinds = []) {
+  const ledger = normalizeLedger(structuredClone(value));
+  return reduceLedger(ledger, new Set(typedEvidenceKinds));
+}
+
 export async function initializeLedger(root, runDir, contract, runIdOverride = null) {
   if (contract.schemaVersion !== 2) return null;
   const tasks = contract.executionStages.map(normalizeStage);
@@ -269,7 +277,17 @@ export async function deriveLedgerStatus(root, runId) {
     requireReconciled: true
   };
   if (ledger.runId !== runId) throw new Error("Execution ledger runId is stale");
-  const records = await listJsonRecords(root, safeJoin(runDir, "evidence"));
+  let records;
+  try {
+    records = await listEffectiveEvidenceRecords(root, runId, { run });
+  } catch (error) {
+    const reduced = reduceLedger(ledger, new Set());
+    return {
+      ...reduced,
+      blockers: [...new Set([...reduced.blockers, `invalid-evidence-supersession:${error.message}`])].sort(),
+      complete: false
+    };
+  }
   const typedKinds = new Set();
   const evidenceBlockers = [];
   if (run.contract.schemaVersion === 2) {
@@ -314,7 +332,12 @@ export async function transitionLedger(root, runId, event) {
   if (!EVENT_TYPES.has(event.type)) throw new Error(`Unknown ledger event type: ${event.type}`);
   if (event.actor !== undefined && event.actor !== "root") throw new Error("Ledger transitions are root-owned");
   assertExpectedLedgerDigest(event, ledger);
-  const records = await listJsonRecords(root, safeJoin(runDir, "evidence"));
+  let records;
+  try {
+    records = await listEffectiveEvidenceRecords(root, runId, { run });
+  } catch (error) {
+    throw new Error(`Ledger transition rejected: invalid-evidence-supersession:${error.message}`);
+  }
   const typedKinds = new Set();
   if (run.contract.schemaVersion === 2) {
     const { validateTypedEvidenceRecord } = await import("./evidence.mjs");
