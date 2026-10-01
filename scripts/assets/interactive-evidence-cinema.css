@@ -1,0 +1,50 @@
+/* Public teaching edition only. The local replay service keeps its own UI. */
+:root{--faint:#b3bfd5}
+.cinema-draft{max-inline-size:84rem;margin:1.2rem auto 0;padding:0 1.3rem;color:var(--muted);font-size:.875rem}
+.cinema-locales{position:relative;font-size:.85rem}
+.cinema-locales summary{cursor:pointer;min-block-size:44px;padding:.6rem}
+.cinema-locales nav{position:absolute;inset-inline-end:0;inset-block-start:100%;z-index:100;display:grid;gap:.25rem;inline-size:19rem;max-inline-size:calc(100vw - 2rem);max-block-size:min(65vh,32rem);overflow:auto;overscroll-behavior:contain;padding:.7rem;border:1px solid var(--line-strong);border-radius:.8rem;background:var(--surface);box-shadow:var(--shadow)}
+.cinema-locales nav a{color:var(--ink);min-block-size:2.5rem}
+.cinema-locales nav a[aria-current="page"]{outline:2px solid var(--amber);outline-offset:-2px}
+.brand-copy strong,.brand-copy span,.eyebrow,.kicker,.demo-ticket,.marquee-title strong,.marquee-title span,.hero-art figcaption span,.subtitle-meta strong,.subtitle-meta span,.scene-index,.scene-state,.evidence-head small,.timeline-head strong{line-height:1.6;letter-spacing:0}
+.brand-copy span,.demo-ticket,.scene-state,.subtitle-card p,.nav-links a{display:block}
+h1{line-height:1.2;overflow-wrap:anywhere}h2{line-height:1.3;overflow-wrap:anywhere}
+.hero{min-block-size:0;padding-block:3.5rem;gap:3rem}.hero-art figcaption{flex-wrap:wrap}
+.hero-lead strong{display:block;margin-block-start:.5rem}
+.marquee-title{min-inline-size:0}.marquee-title strong,.marquee-title span{font-size:.875rem;line-height:1.8;overflow-wrap:anywhere}
+.marquee .demo-ticket{font-size:.75rem;line-height:1.8;white-space:normal;overflow-wrap:anywhere}
+.subtitle-meta span{font-size:.75rem;line-height:1.7}
+.film-stage{aspect-ratio:auto;min-height:0}.scene-image{position:relative;inset:auto;display:block;block-size:auto;aspect-ratio:1693/909;object-fit:contain;transform:none;animation:none!important}
+.film-stage::before,.film-stage::after,.scene-shade,.film-grain,.projector-beam,.spark-field{display:none}
+.scene-topline{position:relative;inset:auto;padding:1rem 1rem 0;flex-wrap:wrap}
+.subtitle-card{position:relative;inset:auto;margin:1rem;max-inline-size:none;animation:none;border-left-width:1px;border-inline-start:4px solid var(--scene-accent);background:var(--surface)}
+.subtitle-card h3{line-height:1.4}.subtitle-card p{font-size:1rem;line-height:1.7}
+.record-note{font-size:.875rem;line-height:1.7;border-left:0;border-inline-start:3px solid var(--amber)}
+.record::before{left:auto;inset-inline-start:-1px}.record strong{font-size:.9rem;line-height:1.6}
+.record dl{grid-template-columns:max-content minmax(0,1fr);font-size:.78rem;line-height:1.6}.record dd{min-inline-size:0}
+.record-kind,.record-status{font-size:.72rem}.derived-state{font-size:.8rem;line-height:1.6}
+.record-source,.raw-record summary{font-size:.85rem;line-height:1.6}.raw-record pre{font-size:.78rem}
+.branch-options{flex-wrap:wrap}.branch-copy span{font-size:.8rem;line-height:1.7}.branch-options button{min-block-size:44px}
+.controls{grid-template-columns:1fr;gap:1rem}.transport{flex-wrap:wrap}.transport button{min-block-size:44px}
+.timeline{grid-template-columns:repeat(4,minmax(0,1fr));gap:1rem}.timeline::before{display:none}
+.timeline a{display:block;position:relative;text-align:center;text-decoration:none;padding:.4rem;color:var(--muted);border-radius:.5rem}
+.timeline a b{font-size:.8rem;line-height:1.6}.timeline a[aria-current="step"]{color:var(--ink);outline:2px solid var(--amber)}
+.timeline a[aria-current="step"] .dot{color:var(--night);background:var(--amber);border-color:var(--amber)}
+.timeline-head{flex-wrap:wrap}.cast-card{text-decoration:none;text-align:start}.cast-copy{display:block}.cast-copy span{font-size:.875rem;line-height:1.7}
+.cast-copy small,.cast-copy em{font-size:.75rem;line-height:1.6;letter-spacing:0}.source-card span{font-size:.875rem;line-height:1.7}
+.principle p,.boundary-note{font-size:.9rem;line-height:1.7}.principle{border-right:0;border-inline-end:1px solid var(--line)}.principle:last-child{border-inline-end:0}
+.cinema-transcript{margin-block-start:3rem}.cinema-transcript>p{max-inline-size:65rem;color:var(--muted)}
+.cinema-chapter{margin-block:2rem;padding:clamp(1rem,3vw,2rem);border:1px solid var(--line);border-radius:1rem;background:var(--surface);scroll-margin-block-start:7rem;overflow-wrap:anywhere}
+.cinema-chapter h3{font:700 clamp(1.4rem,2.5vw,2rem)/1.5 var(--serif);margin:0 0 1rem}.cinema-chapter h4{font-size:1.2rem}
+.cinema-chapter figure{margin:0;max-inline-size:60rem}.cinema-chapter figure img{display:block;inline-size:100%;block-size:auto;border-radius:.8rem}
+.cinema-chapter figcaption{margin-block:.5rem;font-size:.875rem;color:var(--muted)}
+.cinema-chapter .record-list{grid-template-columns:repeat(2,minmax(0,1fr));margin-block:1rem}.cinema-chapter .record{background:var(--night-2)}
+.transcript-json{max-inline-size:100%;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;padding:1rem;background:var(--night);border-radius:.6rem;font-size:.8rem}
+pre,code,.timecode{direction:ltr;unicode-bidi:isolate;text-align:start}pre,code{overflow-wrap:anywhere}
+button:disabled,input:disabled,select:disabled{opacity:.55;cursor:not-allowed}
+html:is(:lang(my),:lang(th),:lang(km),:lang(lo),:lang(hi)) body{line-height:1.9}
+html:is(:lang(my),:lang(th),:lang(km),:lang(lo),:lang(hi)) :is(h1,h2,h3,h4,.brand-copy strong,.cast-copy strong){line-height:1.7;letter-spacing:0}
+html:is(:lang(my),:lang(th),:lang(km),:lang(lo),:lang(hi)) h1{font-size:clamp(2.5rem,5vw,4.4rem)}
+@media(max-width:1120px){.evidence-panel{display:block}.film-column{border-inline-end:0}}
+@media(max-width:640px){.masthead{position:relative;flex-direction:column;align-items:stretch;gap:.4rem}.nav-links{justify-content:flex-start}.hero{padding-inline:1.2rem;gap:2rem}.hero h1{font-size:2.8rem}.section-head{grid-template-columns:2.5rem minmax(0,1fr);gap:1rem}.section-no{font-size:2.5rem}.cinema-chapter .record-list{grid-template-columns:1fr}.marquee{flex-wrap:wrap}.subtitle-card{grid-template-columns:2.5rem minmax(0,1fr);gap:.6rem;padding:.7rem;margin:.7rem}.actor-avatar{inline-size:2.5rem;block-size:2.5rem}.principles{grid-template-columns:1fr}.principle{border-inline-end:0}.timeline{grid-template-columns:repeat(2,minmax(0,1fr))}.cast-stage{grid-template-columns:repeat(2,minmax(0,1fr))}footer{flex-wrap:wrap}}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*::before,*::after{animation:none!important;transition:none!important}}

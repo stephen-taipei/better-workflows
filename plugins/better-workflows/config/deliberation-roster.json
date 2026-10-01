@@ -1,0 +1,190 @@
+{
+  "schemaVersion": 3,
+  "terminology": {
+    "modelBrands": ["Codex", "Claude", "Gemini", "GPT-OSS", "Grok", "Cursor", "Kimi", "Qwen", "Kiro"],
+    "transportCommand": "agy",
+    "transportModelBrands": ["Gemini", "Claude", "GPT-OSS"],
+    "transportIsModelBrand": false
+  },
+  "probeMarker": "SBW_DELIBERATION_PROBE_OK",
+  "probeTimeoutSeconds": 45,
+  "rosterCacheHours": 24,
+  "maxParticipants": 24,
+  "reasoningEffort": {
+    "default": "auto",
+    "allowed": ["medium", "high"],
+    "modeDefaults": {
+      "direct": "medium",
+      "verified": "medium",
+      "auto": "high",
+      "deep": "high",
+      "critical": "high"
+    }
+  },
+  "providers": [
+    {
+      "id": "codex",
+      "command": "codex",
+      "probe": "codex",
+      "external": false,
+      "supportedBrands": ["Codex"],
+      "role": "final-arbiter",
+      "capabilityRank": 1,
+      "reasoningEfforts": ["medium", "high"],
+      "effortTransport": "native",
+      "modelDiscovery": {
+        "type": "environment",
+        "variable": "SBW_CODEX_MODELS",
+        "format": "json-v1",
+        "defaultBrand": "Codex"
+      }
+    },
+    {
+      "id": "claude",
+      "command": "claude",
+      "probe": "claude",
+      "external": true,
+      "supportedBrands": ["Claude"],
+      "role": "strategic-synthesizer",
+      "capabilityRank": 4,
+      "reasoningEfforts": ["medium", "high"],
+      "effortTransport": "prompt-guidance",
+      "modelDiscovery": {
+        "type": "environment",
+        "variable": "SBW_CLAUDE_MODELS",
+        "format": "json-v1",
+        "defaultBrand": "Claude"
+      }
+    },
+    {
+      "id": "gemini",
+      "command": "agy",
+      "probe": "agy",
+      "external": true,
+      "supportedBrands": ["Gemini"],
+      "role": "independent-researcher",
+      "capabilityRank": 19,
+      "reasoningEfforts": ["medium", "high"],
+      "effortTransport": "native",
+      "modelDiscovery": {
+        "key": "agy-model-catalog",
+        "type": "command",
+        "args": ["models"],
+        "format": "agy-lines-v1",
+        "brandMatchers": [
+          {"brand": "Gemini", "pattern": "^gemini(?:[-_]|$)"}
+        ]
+      }
+    },
+    {
+      "id": "agy",
+      "command": "agy",
+      "probe": "agy",
+      "external": true,
+      "supportedBrands": ["Claude", "GPT-OSS"],
+      "role": "independent-researcher",
+      "capabilityRank": 22,
+      "reasoningEfforts": ["medium", "high"],
+      "effortTransport": "native",
+      "modelDiscovery": {
+        "key": "agy-model-catalog",
+        "type": "command",
+        "args": ["models"],
+        "format": "agy-lines-v1",
+        "brandMatchers": [
+          {"brand": "Claude", "pattern": "^claude(?:[-_]|$)"},
+          {"brand": "GPT-OSS", "pattern": "^gpt-oss(?:[-_]|$)"}
+        ]
+      }
+    },
+    {
+      "id": "grok",
+      "command": "grok",
+      "probe": "text",
+      "external": true,
+      "supportedBrands": ["Grok"],
+      "role": "counterfactual-analyst",
+      "capabilityRank": 30,
+      "reasoningEfforts": ["medium", "high"],
+      "effortTransport": "prompt-guidance",
+      "modelDiscovery": {
+        "type": "environment",
+        "variable": "SBW_GROK_MODELS",
+        "format": "json-v1",
+        "defaultBrand": "Grok"
+      }
+    },
+    {
+      "id": "cursor",
+      "command": "cursor-agent",
+      "probe": "cursor",
+      "external": true,
+      "supportedBrands": ["Cursor"],
+      "role": "code-change-reviewer",
+      "capabilityRank": 31,
+      "reasoningEfforts": ["medium", "high"],
+      "effortTransport": "prompt-guidance",
+      "modelDiscovery": {
+        "type": "environment",
+        "variable": "SBW_CURSOR_MODELS",
+        "format": "json-v1",
+        "defaultBrand": "Cursor"
+      }
+    },
+    {
+      "id": "kimi",
+      "command": "kimi",
+      "probe": "text",
+      "external": true,
+      "supportedBrands": ["Kimi"],
+      "role": "long-context-researcher",
+      "capabilityRank": 32,
+      "reasoningEfforts": ["medium", "high"],
+      "effortTransport": "prompt-guidance",
+      "modelDiscovery": {
+        "type": "environment",
+        "variable": "SBW_KIMI_MODELS",
+        "format": "json-v1",
+        "defaultBrand": "Kimi"
+      }
+    },
+    {
+      "id": "qwen",
+      "command": "qwen",
+      "probe": "text",
+      "external": true,
+      "supportedBrands": ["Qwen"],
+      "role": "open-model-compatibility-reviewer",
+      "capabilityRank": 33,
+      "reasoningEfforts": ["medium", "high"],
+      "effortTransport": "prompt-guidance",
+      "modelDiscovery": {
+        "type": "environment",
+        "variable": "SBW_QWEN_MODELS",
+        "format": "json-v1",
+        "defaultBrand": "Qwen"
+      }
+    },
+    {
+      "id": "kiro",
+      "command": "kiro-cli",
+      "probe": "unsupported",
+      "external": true,
+      "supportedBrands": ["Kiro"],
+      "role": "developer-experience-planner",
+      "capabilityRank": 34,
+      "reasoningEfforts": ["medium", "high"],
+      "effortTransport": "prompt-guidance",
+      "modelDiscovery": {
+        "type": "environment",
+        "variable": "SBW_KIRO_MODELS",
+        "format": "json-v1",
+        "defaultBrand": "Kiro"
+      }
+    }
+  ],
+  "arbiterPriority": [
+    {"provider": "codex", "brand": "Codex"},
+    {"provider": "claude", "brand": "Claude"}
+  ]
+}

@@ -1,0 +1,11 @@
+Better Workflows Wire Framing
+Copyright 2026 Better Workflows contributors
+
+This is an original, standalone implementation in the Better Workflows
+repository. No third-party source code or runtime dependency is included in
+this package. The package does not import or re-export Better Workflows core
+code.
+
+The Apache License 2.0 text is reproduced from the official source:
+https://www.apache.org/licenses/LICENSE-2.0.txt
+Source verified: 2026-09-14.

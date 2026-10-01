@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "kind": "ProductReleaseScopeV1",
+  "id": "v5.0-rc1-macos-auto-bilingual-20261002-r1",
+  "productVersion": "5.0.0",
+  "publicEntrypointIds": ["auto"],
+  "publicTemplateIds": ["auto"],
+  "publicSkillIds": ["auto"],
+  "publicLocaleIds": ["en", "zh-Hant-TW"],
+  "deferredLocaleReleaseTag": "V5.0.rc2",
+  "hostIds": ["codex", "gemini-cli", "qwen-code"],
+  "hostOsIds": ["macos"],
+  "runtimeLanes": [
+    { "platform": "darwin", "nodeMajor": 22 },
+    { "platform": "darwin", "nodeMajor": 24 }
+  ],
+  "deferredPlatforms": ["linux", "win32"],
+  "deferredUntil": "5.1.0"
+}

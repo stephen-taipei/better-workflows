@@ -1,0 +1,109 @@
+{
+  "schemaVersion": 1,
+  "kind": "AutoPolicyCatalogV1",
+  "name": "auto",
+  "description": "Select a bounded, evidence-backed workflow from the declared task intent and target.",
+  "variants": {
+    "read-only-v1": {
+      "name": "auto",
+      "autoPolicyId": "read-only-v1",
+      "description": "Inspect current sources and record a reviewable result without changing repository or provider state.",
+      "defaultMode": "verified",
+      "controlPlane": {
+        "evidencePolicy": "typed-v1",
+        "ledgerPolicy": "ledger-v1",
+        "reviewPolicy": "none",
+        "designPacketPolicy": "none",
+        "refinementPolicy": "none",
+        "deliberationPolicy": "none"
+      },
+      "executionStages": [
+        {"id":"inventory","goal":"inventory","dependsOn":[],"requiredEvidence":["source-inventory"],"attemptBudget":3,"kind":"regular"},
+        {"id":"result","goal":"result","dependsOn":["inventory"],"requiredEvidence":["observed-result"],"attemptBudget":3,"kind":"regular"}
+      ],
+      "requiredEvidence": ["source-inventory", "observed-result"],
+      "acceptance": [
+        {"id":"task-complete","description":"The requested read-only outcome is supported by current source and observation evidence.","critical":true}
+      ],
+      "policyGates": ["root-only-mutation", "current-source-binding", "no-undeclared-side-effects", "unknown-outcome-fails-closed"],
+      "actionGates": {},
+      "actionStages": {},
+      "domainSkills": [],
+      "rootOnlyActions": []
+    },
+    "code-change-v1": {
+      "name": "auto",
+      "autoPolicyId": "code-change-v1",
+      "description": "Make a bounded source change with current validation and independent code review.",
+      "defaultMode": "deep",
+      "reviewProfile": {"schemaVersion":1,"id":"review-contract-v1","changedSurfaceAccounting":"diff-manifest-v1","anchorResolution":"package-bound-location-v1","findingVerification":"broad-review-v1","provenanceBinding":"review-package-v1","specBinding":"instruction-digest-v1"},
+      "controlPlane": {
+        "evidencePolicy": "typed-v1",
+        "ledgerPolicy": "ledger-v1",
+        "reviewPolicy": "code-v1",
+        "designPacketPolicy": "none",
+        "refinementPolicy": "none",
+        "deliberationPolicy": "none"
+      },
+      "executionStages": [
+        {"id":"inventory-plan","goal":"inventory-plan","dependsOn":[],"requiredEvidence":["base-revision","change-inventory","slice-plan"],"attemptBudget":3,"kind":"regular"},
+        {"id":"implementation","goal":"implementation","dependsOn":["inventory-plan"],"requiredEvidence":["slice-validation"],"attemptBudget":3,"kind":"regular"},
+        {"id":"review","goal":"review","dependsOn":["implementation"],"requiredEvidence":["patch-review","diff-review"],"attemptBudget":5,"kind":"review"},
+        {"id":"final-validation","goal":"final-validation","dependsOn":["review"],"requiredEvidence":["repo-gates","final-validation","rollback-plan"],"attemptBudget":3,"kind":"regular"}
+      ],
+      "requiredEvidence": ["base-revision", "change-inventory", "slice-plan", "slice-validation", "patch-review", "diff-review", "repo-gates", "final-validation", "rollback-plan"],
+      "acceptance": [
+        {"id":"task-complete","description":"The requested source change is validated, reviewed, and has a bounded rollback path.","critical":true}
+      ],
+      "policyGates": ["root-only-mutation", "current-source-binding", "complete-diff-review", "current-repo-gates", "no-undeclared-side-effects", "unknown-outcome-fails-closed"],
+      "actionGates": {},
+      "actionStages": {},
+      "domainSkills": [],
+      "rootOnlyActions": []
+    },
+    "dev-publish-v1": {
+      "name": "auto",
+      "autoPolicyId": "dev-publish-v1",
+      "description": "Publish a reviewed candidate through a PR to the protected dev branch, verify current checks, reconcile the provider result, and clean only owned resources.",
+      "defaultMode": "critical",
+      "reviewProfile": {"schemaVersion":1,"id":"review-contract-v1","changedSurfaceAccounting":"diff-manifest-v1","anchorResolution":"package-bound-location-v1","findingVerification":"broad-review-v1","provenanceBinding":"review-package-v1","specBinding":"instruction-digest-v1"},
+      "controlPlane": {
+        "evidencePolicy": "typed-v1",
+        "ledgerPolicy": "ledger-v1",
+        "reviewPolicy": "code-v1",
+        "designPacketPolicy": "none",
+        "refinementPolicy": "none",
+        "deliberationPolicy": "none"
+      },
+      "executionStages": [
+        {"id":"inventory-plan","goal":"inventory-plan","dependsOn":[],"requiredEvidence":["base-revision","change-inventory","commit-plan"],"attemptBudget":3,"kind":"regular"},
+        {"id":"commits","goal":"commits","dependsOn":["inventory-plan"],"requiredEvidence":["commit-manifest","commit-history"],"attemptBudget":3,"kind":"regular"},
+        {"id":"review","goal":"review","dependsOn":["commits"],"requiredEvidence":["patch-review","diff-review"],"attemptBudget":5,"kind":"review"},
+        {"id":"pr-checks","goal":"pr-checks","dependsOn":["review"],"requiredEvidence":["pr-state","required-checks"],"attemptBudget":1,"kind":"side-effect"},
+        {"id":"merge-sync","goal":"merge-sync","dependsOn":["pr-checks"],"requiredEvidence":["merge-result","provider-reconciliation"],"attemptBudget":1,"kind":"side-effect"},
+        {"id":"cleanup","goal":"cleanup","dependsOn":["merge-sync"],"requiredEvidence":["remote-sync","actions-cleanup-plan","cleanup-manifest"],"attemptBudget":1,"kind":"side-effect"}
+      ],
+      "actionStages": {"worktree.create":"inventory-plan","git.commit":"commits","git.push":"pr-checks","pr.create":"pr-checks","pr.merge":"merge-sync","remote.sync":"merge-sync","worktree.cleanup":"cleanup"},
+      "requiredEvidence": ["base-revision","change-inventory","commit-plan","commit-manifest","commit-history","patch-review","diff-review","repo-gates","target-branch-dev","pr-state","required-checks","merge-result","remote-sync","cleanup-manifest","actions-cleanup-plan","provider-reconciliation","remote-authorization","current-branch"],
+      "acceptance": [
+        {"id":"reviewed-candidate","description":"The current candidate and every commit are in the reviewed scope.","critical":true},
+        {"id":"protected-dev-pr","description":"The run-owned PR targets the exact protected dev revision and current reviewed head.","critical":true},
+        {"id":"fresh-required-checks","description":"Required checks pass for the current PR head before merge.","critical":true},
+        {"id":"reconciled-publish","description":"The provider confirms merge and the exact local and remote dev revisions reconcile.","critical":true},
+        {"id":"owned-cleanup","description":"Only resources proven to belong to this run are cleaned after reconciliation.","critical":true}
+      ],
+      "policyGates": ["root-only-mutation","explicit-target-branch-dev","atomic-commit-batches","explicit-path-staging","no-empty-or-unvalidated-commit","broad-review-before-publication","serialized-pr-publication","current-pr-head-before-merge","fresh-required-checks","protected-merge-no-admin-bypass","remote-reconciliation-before-cleanup","exact-run-owned-cleanup","unknown-provider-state-fails-closed"],
+      "actionGates": {
+        "worktree.create": ["base-revision","change-inventory","repo-gates"],
+        "git.commit": ["change-inventory","commit-plan","repo-gates"],
+        "git.push": ["commit-manifest","commit-history","repo-gates","target-branch-dev","remote-authorization","current-branch"],
+        "pr.create": ["commit-manifest","commit-history","patch-review","repo-gates","target-branch-dev","remote-authorization"],
+        "pr.merge": ["pr-state","required-checks","repo-gates","target-branch-dev","remote-authorization"],
+        "remote.sync": ["merge-result","target-branch-dev","provider-reconciliation"],
+        "worktree.cleanup": ["merge-result","remote-sync","actions-cleanup-plan","provider-reconciliation"]
+      },
+      "domainSkills": [],
+      "rootOnlyActions": ["git add","git commit","git push","gh pr create","gh pr merge","git worktree add","git worktree remove"]
+    }
+  }
+}

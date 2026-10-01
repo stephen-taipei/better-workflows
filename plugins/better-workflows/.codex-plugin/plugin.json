@@ -1,0 +1,42 @@
+{
+  "name": "better-workflows",
+  "version": "5.0.0-rc.1+codex.auto.20260928T114027",
+  "description": "Auto-routed, evidence-driven Codex workflow with deterministic safety gates.",
+  "author": {
+    "name": "stephen-taipei",
+    "url": "https://github.com/stephen-taipei"
+  },
+  "homepage": "https://github.com/stephen-taipei/better-workflows#readme",
+  "repository": "https://github.com/stephen-taipei/better-workflows",
+  "license": "AGPL-3.0-only",
+  "keywords": [
+    "codex",
+    "workflow",
+    "subagents",
+    "review",
+    "evidence",
+    "auto-routing",
+    "graph-validation",
+    "protected-delivery"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Better Workflows",
+    "shortDescription": "One Auto entrypoint with evidence-driven routing.",
+    "longDescription": "One public Auto template and skill with bound read-only, code-change, and protected dev-publish policies; root-owned mutation, freshness checks, independent review, and fail-closed side-effect gates.",
+    "developerName": "stephen-taipei",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write",
+      "Interactive"
+    ],
+    "websiteURL": "https://github.com/stephen-taipei/better-workflows",
+    "defaultPrompt": [
+      "Use $better-workflows:auto to handle this task with a bound policy, current evidence, and the required action gates.",
+      "Use $better-workflows:auto to review an exact repository scope and report revision-bound findings.",
+      "Use $better-workflows:auto to deliver authorized changes through a PR targeting protected dev."
+    ],
+    "brandColor": "#2563EB"
+  }
+}

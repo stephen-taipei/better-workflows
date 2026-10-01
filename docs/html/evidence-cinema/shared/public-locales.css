@@ -1,0 +1,27 @@
+.locale-control select {
+  min-height: 34px;
+  max-width: 150px;
+  padding: 0 28px 0 9px;
+  border: 1px solid rgba(255,255,255,.18);
+  border-radius: 8px;
+  color: var(--ink);
+  background: rgba(255,255,255,.06);
+  font: 700 11px/1 var(--mono);
+  cursor: pointer;
+}
+.locale-control select:hover { border-color: rgba(255,255,255,.42); }
+.locale-menu { position: relative; display: inline-flex; align-items: center; }
+.locale-menu summary { min-height: 34px; padding: 0 9px; display: inline-flex; align-items: center; gap: 5px; border: 1px solid rgba(255,255,255,.18); border-radius: 8px; color: var(--ink); background: rgba(255,255,255,.06); font: 700 11px/1 var(--mono); cursor: pointer; list-style: none; }
+.locale-menu summary::-webkit-details-marker { display: none; }
+.locale-menu summary::after { content: "⌄"; }
+.locale-menu-links { position: absolute; z-index: 90; inset-inline-end: 0; top: calc(100% + 6px); display: grid; grid-template-columns: repeat(2, minmax(130px, 1fr)); gap: 4px; width: min(330px, 82vw); max-height: 65vh; overflow: auto; padding: 8px; border: 1px solid rgba(255,255,255,.18); border-radius: 12px; background: #17243a; box-shadow: 0 16px 34px rgba(0,0,0,.3); }
+.locale-menu-links a { padding: 7px 8px; border-radius: 7px; color: #c8d5eb; font: 650 11px/1.25 var(--mono); text-decoration: none; }
+.locale-menu-links a:hover, .locale-menu-links a[aria-current="page"] { color: #fff; background: rgba(255,255,255,.12); }
+.locale-noscript-links { display: grid; grid-template-columns: repeat(2, minmax(130px, 1fr)); gap: 4px; max-width: 330px; margin: 8px 0 0 auto; padding: 8px; border: 1px solid rgba(255,255,255,.18); border-radius: 12px; background: #17243a; }
+.locale-noscript-links a { padding: 7px 8px; border-radius: 7px; color: #c8d5eb; font: 650 11px/1.25 var(--mono); text-decoration: none; }
+.locale-noscript-links a:hover, .locale-noscript-links a[aria-current="page"] { color: #fff; background: rgba(255,255,255,.12); }
+.locale-button-section { max-width: 1180px; margin: 18px auto 0; padding: 0 24px; }
+.locale-button-label { margin: 0 0 8px; color: #9fb0c8; font: 760 11px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+.locale-button-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 6px; padding: 10px; border: 1px solid rgba(255,255,255,.18); border-radius: 12px; background: #17243a; }
+.locale-button-grid a { padding: 8px 9px; border: 1px solid transparent; border-radius: 8px; color: #c8d5eb; font: 650 11px/1.25 var(--mono); text-decoration: none; }
+.locale-button-grid a:hover, .locale-button-grid a[aria-current="page"] { color: #fff; border-color: rgba(255,255,255,.28); background: rgba(255,255,255,.12); }

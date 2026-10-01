@@ -1,0 +1,61 @@
+name: Exact source website public QA
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: better-workflows-website-public-qa
+  cancel-in-progress: false
+
+jobs:
+  website-public-qa:
+    name: website-public-qa
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24.21.0
+      - name: Require exact public main source before executing QA
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_ACTIONS}" = true
+          test "${GITHUB_REF}" = refs/heads/main
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          test "${GITHUB_WORKFLOW_SHA}" = "${GITHUB_SHA}"
+          test "${GITHUB_WORKFLOW_REF}" = "${GITHUB_REPOSITORY}/.github/workflows/website-public-qa.yml@refs/heads/main"
+          test "${GITHUB_EVENT_NAME}" = workflow_dispatch
+          test "${RUNNER_ENVIRONMENT}" = github-hosted
+      - name: Initialize isolated QA receipt root
+        shell: bash
+        run: printf 'SBW_STATE_ROOT=%s/sbw-website-public-qa\n' "${RUNNER_TEMP}" >> "${GITHUB_ENV}"
+      - name: Run live source-bound public QA
+        env:
+          SBW_RELEASE_REVISION: ${{ github.sha }}
+          SBW_WEBSITE_PUBLIC_QA_ATTESTATION_REQUIRED: '1'
+          GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
+        run: node scripts/website-public-qa.mjs
+      - name: Upload exact website QA receipt
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: better-workflows-website-public-qa-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/sbw-website-public-qa/release-gates/${{ github.sha }}/website-public-qa.json
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+      - name: Attest exact website QA receipt
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-path: ${{ runner.temp }}/sbw-website-public-qa/release-gates/${{ github.sha }}/website-public-qa.json

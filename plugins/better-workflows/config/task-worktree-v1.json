@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 1,
+  "id": "task-worktree-v1",
+  "taskBranchPrefix": "codex/",
+  "integrationBranchPrefix": "codex/integrate-",
+  "protectedBranchPatterns": [
+    "main",
+    "master",
+    "dev",
+    "develop",
+    "release/*"
+  ],
+  "directCheck": {
+    "timeoutMs": 120000,
+    "maxOutputBytes": 1048576,
+    "allowedExecutables": [
+      "node"
+    ],
+    "isolation": {
+      "id": "trusted-node-offline-v1",
+      "nodePermissionModel": true,
+      "networkGuard": "deny-standard-node-network",
+      "filesystemReads": "task-worktree-and-scratch-only",
+      "filesystemWrites": "task-scoped-scratch-only"
+    }
+  },
+  "integration": {
+    "casRetries": 1,
+    "allowRebase": false,
+    "allowForce": false
+  },
+  "lifecycle": [
+    "planned",
+    "target-bound",
+    "isolated",
+    "working",
+    "validated",
+    "integration-ready",
+    "integrated",
+    "cleanup-ready",
+    "cleaned"
+  ],
+  "blockedStates": [
+    "dirty-source",
+    "target-missing",
+    "target-drift",
+    "ownership-conflict",
+    "merge-conflict",
+    "validation-failed",
+    "unknown-integration"
+  ],
+  "authorizedActions": [
+    "worktree.create",
+    "host-worktree.register-preserve",
+    "task-branch.create",
+    "task-branch.commit",
+    "local-target.integrate-cas",
+    "protected-receipt.reconcile",
+    "owned-worktree.cleanup",
+    "owned-branch.cleanup"
+  ],
+  "forbiddenActions": [
+    "push",
+    "pull-request.merge",
+    "deploy",
+    "release",
+    "protected-branch.bypass",
+    "git.worktree.prune",
+    "git.force"
+  ]
+}

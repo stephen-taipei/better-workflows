@@ -1,0 +1,22 @@
+{
+  "name": "better-workflows",
+  "version": "5.0.0-rc.1",
+  "description": "Evidence-first, risk-adaptive workflows for multiple AI engineering hosts.",
+  "license": "AGPL-3.0-only",
+  "private": true,
+  "type": "module",
+  "types": "types/host-support-v1.d.ts",
+  "engines": {
+    "node": ">=22.14.0"
+  },
+  "bin": {
+    "sbw": "scripts/sbw.mjs"
+  },
+  "scripts": {
+    "test": "node scripts/sbw.mjs eval",
+    "validate": "node scripts/sbw.mjs eval",
+    "test:release-tag": "node --test scripts/tests/release-tag.test.mjs",
+    "eval:verification-pairs": "node scripts/verification-paired-eval-v1.mjs",
+    "test:verification-pairs": "node --test scripts/tests/verification-paired-evaluation-v1.test.mjs scripts/tests/verification-paired-cli-v1.test.mjs"
+  }
+}

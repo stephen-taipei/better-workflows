@@ -1,0 +1,22 @@
+<!-- Generated from THIRD_PARTY_NOTICES.md; source-sha256: 6d0b1ef72f31dfb1cd7ad49f22d894e2b6b514e487fada58ddbca40f19b0677d; edit docs/rc1-catalogs/public-docs/*.json. -->
+# Third\-party notices
+
+**English** · [繁體中文（台灣）](../zh-Hant-TW/notices.md)
+
+[RC1 planned public routes cover en and zh\-Hant\-TW\; the 41\-locale source catalog is private](../../../docs/LANGUAGES.md)\. This legal notice remains canonical in English\.
+
+Better Workflows was independently implemented with Node\.js standard\-library modules\. It does not vendor source code\, workflow definitions\, or runtime components from the projects below\.
+
+The following projects informed the architectural research and are acknowledged as conceptual references only\:
+
+- [plugin\-ultracode](https://github.com/just-every/plugin-ultracode)
+- [open\-dynamic\-workflows](https://github.com/xz1220/open-dynamic-workflows)
+- [claude\-dynamic\-workflows\-codex](https://github.com/scasella/claude-dynamic-workflows-codex)
+- [QuintinShaw\/pi\-dynamic\-workflows](https://github.com/QuintinShaw/pi-dynamic-workflows)
+- [open\-dynamic\-workflow](https://github.com/travisliu/open-dynamic-workflow)
+- [Michaelliv\/pi\-dynamic\-workflows](https://github.com/Michaelliv/pi-dynamic-workflows)
+- [ultracode\-skill](https://github.com/PabloNAX/ultracode-skill)
+- [swarms](https://github.com/am-will/swarms)
+- [awesome\-claude\-dynamic\-workflows](https://github.com/peymanvahidi/awesome-claude-dynamic-workflows)
+
+Review each upstream project\'s current license before copying or incorporating any of its code in a future change\.

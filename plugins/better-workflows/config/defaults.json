@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "maxNativeChildren": 3,
+  "maxCodexCritics": 2,
+  "thirdCriticOnContradictionOnly": true,
+  "sentinel": {
+    "maxFiles": 12000,
+    "maxBytes": 209715200,
+    "maxSingleFileBytes": 4194304,
+    "volatileExclusions": ["node_modules", "DerivedData", ".derivedData", "dist", "build", ".nx/cache", ".cache"]
+  },
+  "providers": {
+    "codex": {
+      "fast_critic": {"model": "gpt-5.6-terra", "effort": "high"},
+      "deep_verifier": {"model": "gpt-5.6-sol", "effort": "xhigh"},
+      "fresh_critic": {"model": "gpt-5.6-luna", "effort": "max"}
+    },
+    "agy": {
+      "enabled": true,
+      "transport": "argv",
+      "maxPromptBytes": 24000,
+      "timeoutSeconds": 90,
+      "allowedSensitivities": ["public", "internal"]
+    }
+  },
+  "actionToken": {"ttlSeconds": 300},
+  "retentionDays": 30,
+  "nativeExecution": {
+    "schemaVersion": 1,
+    "kind": "NativeV3TrustPolicyV1",
+    "requiredTrustMode": "cooperative-user-mode"
+  },
+  "interaction": {
+    "defaultMode": "auto",
+    "strictOptIn": true,
+    "sopPolicy": "sop-auto-v1",
+    "deduplicatePrompts": true,
+    "defaultAutonomyProfile": null,
+    "autoTemplateStrategy": "evidence-safe"
+  }
+}

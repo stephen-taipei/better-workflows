@@ -1,0 +1,32 @@
+{
+  "name": "@better-workflows/wire",
+  "version": "0.1.0",
+  "description": "Neutral, bounded JSONL frame encoding and decoding for transport adapters.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22.14.0"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "import": "./src/index.mjs",
+      "default": "./src/index.mjs"
+    }
+  },
+  "types": "./src/index.d.ts",
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "scripts": {
+    "build": "node --check src/index.mjs",
+    "check": "node --check src/index.mjs && node --check scripts/closure-check.mjs && node --check test/wire.test.mjs && node --check test/closure-check.test.mjs",
+    "test": "node --experimental-vm-modules --test test/*.test.mjs",
+    "closure:check": "node --experimental-vm-modules scripts/closure-check.mjs",
+    "closure:test": "node --experimental-vm-modules --test test/closure-check.test.mjs",
+    "pack:dry": "npm pack --dry-run"
+  }
+}

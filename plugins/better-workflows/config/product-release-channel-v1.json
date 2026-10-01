@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "kind": "ProductReleaseChannelContractV1",
+  "id": "v5.0-macos-auto-rc-ga-20261002-r2",
+  "productVersion": "5.0.0",
+  "productReleaseScopeId": "v5.0-rc1-macos-auto-bilingual-20261002-r1",
+  "commonAcceptance": [
+    "rights-and-corresponding-source",
+    "exact-public-candidate-and-source-scope",
+    "macos-node22-node24-runtime",
+    "codex-gemini-cli-qwen-code-host-conformance",
+    "full-formal-evaluation-and-applicable-accepted-coverage",
+    "independent-review",
+    "maintained-document-disposition",
+    "exact-candidate-publication-operation-and-publisher-authority",
+    "provider-readback",
+    "owned-resource-cleanup"
+  ],
+  "gaCanaryAcceptance": {
+    "minimumNaturalDays": 30,
+    "minimumConsecutiveEligibleStarts": 20,
+    "minimumDistinctRepositories": 3
+  },
+  "rc1ManualPublication": {
+    "schemaVersion": 1,
+    "kind": "OwnerControlledManualRcPublicationContractV1",
+    "id": "v5.0.rc1-owner-controlled-manual-20261002-r1",
+    "adoptedAt": "2026-10-02",
+    "releaseVersion": "5.0.0-rc.1",
+    "publicationMode": "OWNER_CONTROLLED_MANUAL",
+    "publisherAuthority": "OWNER_EXACT_AUTHORIZATION",
+    "repository": { "name": "stephen-taipei/better-workflows", "id": 1400546180 },
+    "sourceHistory": "FRESH_SOURCE_ONLY",
+    "effectPolicy": "CREATE_ONLY",
+    "allowedEffects": ["create-source-main", "create-rc-tag", "create-rc-prerelease"],
+    "orderedStages": ["prepared", "sourcepublished", "remotechecks", "tagcreated", "released", "readback", "cleanup"],
+    "requiredEvidence": [
+      "owner-exact-candidate-and-target-authorization",
+      "fresh-exact-numeric-public-target-and-create-only-absence",
+      "exact-candidate-public-docs-ci-host-site-and-changelog-readback"
+    ],
+    "operationRecord": "OPERATOR_OWNED_DURABLE_EXACT_BINDING",
+    "unknownRecovery": "SAME_OPERATION_QUERY_RECONCILE_BEFORE_RETRY",
+    "receiptKind": "OwnerControlledManualRcPublicationReceiptV1",
+    "protectedAdmission": "NOT_ESTABLISHED",
+    "authority": "none",
+    "releaseEligible": false
+  },
+  "channels": {
+    "stable": {
+      "version": "5.0.0",
+      "prerelease": false,
+      "makeLatest": "true",
+      "canaryRequiredForPublication": true,
+      "publicationBeforeCanaryStartAllowed": false,
+      "claimDisposition": "GA_REQUIRES_FULL_ACCEPTANCE_AND_CANARY"
+    },
+    "rc": {
+      "versionPattern": "^5\\.0\\.0-rc\\.(0|[1-9][0-9]*)$",
+      "prerelease": true,
+      "makeLatest": "false",
+      "canaryRequiredForPublication": false,
+      "publicationBeforeCanaryStartAllowed": true,
+      "claimDisposition": "RC_ONLY_NO_GA_OR_COMPLETION_CLAIM"
+    }
+  },
+  "authority": "none",
+  "releaseEligible": false
+}

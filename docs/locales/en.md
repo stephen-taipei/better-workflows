@@ -1,0 +1,93 @@
+<div align="center">
+
+# Better Workflows
+
+An open-source, goal-first control plane for agent workflows with current evidence, review gates, source binding, and provider reconciliation.
+
+**English** · [繁體中文（台灣）](zh-Hant-TW.md)
+
+[Explore the documentation](https://betterworkflows.dev/en/docs/) · [Open GitHub](https://github.com/stephen-taipei/better-workflows) · [Support with USDT (TRC20)](https://betterworkflows.dev/#sponsor)
+
+</div>
+
+V5.0: macOS × Node 22/24, with qualification still pending. Linux and Windows qualification is deferred to V5.1. Claude Code qualification is also deferred to V5.1.
+
+## Take agent work<br>to a provable finish.
+
+Better Workflows freezes the goal, scope, and authority, then binds every decision to current, re-verifiable evidence and a reconciled external outcome.
+
+## Four explicit boundaries from intent to completion.
+
+Define the contract, verify source and evidence, reconcile external effects, and declare completion only when the terminal state is known.
+
+- **01 · `TaskContract`** — Better Workflows freezes the goal, scope, and authority, then binds every decision to current, re-verifiable evidence and a reconciled external outcome.
+- **02 · `evidence`** — An open-source, goal-first control plane for agent workflows with current evidence, review gates, source binding, and provider reconciliation.
+- **03 · `reconciliation`** — Define the contract, verify source and evidence, reconcile external effects, and declare completion only when the terminal state is known.
+- **04 · `terminal state`** — Running a command is not proof of completion; a re-verifiable outcome is.
+
+## Quick start
+
+```bash
+codex plugin marketplace add stephen-taipei/better-workflows
+codex plugin add better-workflows@better-workflows
+```
+
+```text
+$better-workflows:auto <goal>
+```
+
+## Move from the architecture map to practical use cases.
+
+- [Four explicit boundaries from intent to completion.](https://betterworkflows.dev/en/docs/)
+- [Quick start](https://betterworkflows.dev/en/docs/quick/)
+- [Move from the architecture map to practical use cases.](https://betterworkflows.dev/en/docs/use-cases/)
+- [Quick start — Move from the architecture map to practical use cases.](https://betterworkflows.dev/en/docs/use-cases/quick/)
+- [Evidence Cinema](https://betterworkflows.dev/en/docs/evidence-cinema/)
+
+### Explore the documentation · `en`
+
+This reference page has a localized overview; its interactive content is not fully translated across all locales.
+
+- **01 · Four explicit boundaries from intent to completion.** — Define the contract, verify source and evidence, reconcile external effects, and declare completion only when the terminal state is known.
+- **02 · Move from the architecture map to practical use cases.** — Better Workflows freezes the goal, scope, and authority, then binds every decision to current, re-verifiable evidence and a reconciled external outcome.
+- **03 · Quick start** — An open-source, goal-first control plane for agent workflows with current evidence, review gates, source binding, and provider reconciliation.
+
+- [`Four explicit boundaries from intent to completion.`](https://betterworkflows.dev/docs/reference/en/index.html) · `en`
+- [`Quick start`](https://betterworkflows.dev/docs/reference/en/preview.html) · `en`
+- [`Move from the architecture map to practical use cases.`](https://betterworkflows.dev/docs/reference/en/use-cases/index.html) · `en`
+- [`Quick start — Move from the architecture map to practical use cases.`](https://betterworkflows.dev/docs/reference/en/use-cases/preview.html) · `en`
+- [`Evidence Cinema`](https://betterworkflows.dev/docs/reference/en/evidence-cinema/index.html) · `en`
+
+- [Explore the documentation · `en`](../details/en.md)
+- [`README · en`](../../README.md)
+- [`LOCALIZATION`](../LOCALIZATION.md)
+
+### Explore the documentation · `en`
+
+
+
+### Explore the documentation · `en`
+
+- [Security policy](en/security.md) · `en`
+- [Contributing](en/contributing.md) · `en`
+- [Governance](en/governance.md) · `en`
+- [Code of conduct](en/conduct.md) · `en`
+- [Third-party notices](en/notices.md) · `en`
+- [README quality blueprint](en/readme-quality.md) · `en`
+- [Editorial color system](en/color-system.md) · `en`
+- [Architecture](en/architecture.md) · `en`
+- [Security](en/security-guide.md) · `en`
+- [CLI reference](en/cli-reference.md) · `en`
+- [Getting started](en/getting-started.md) · `en`
+- [Workflows](en/workflows.md) · `en`
+- [Support](en/support.md) · `en`
+
+## Help keep Better Workflows maintained.
+
+A one-time contribution supports open-source maintenance, English and Traditional Chinese documentation, and website hosting. It does not buy membership, roadmap priority, or support priority.
+
+[Support with USDT (TRC20)](https://betterworkflows.dev/#sponsor)
+
+---
+
+Running a command is not proof of completion; a re-verifiable outcome is.

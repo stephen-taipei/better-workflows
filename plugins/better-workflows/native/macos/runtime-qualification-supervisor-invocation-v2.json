@@ -1,0 +1,315 @@
+{
+  "schemaVersion": 1,
+  "runtimeProtocolVersion": 2,
+  "kind": "RuntimeQualificationSupervisorInvocationContractV2",
+  "status": "SOURCE_ONLY_NOT_BUILT_OR_QUALIFIED",
+  "authority": "none",
+  "releaseEligible": false,
+  "decisionBoundary": "Source artifact describing the consumer entry and shell replacement contract. It is not an executable policy, installed runtime profile, authorization, host qualification or release receipt.",
+  "qualificationScope": {
+    "platform": "Darwin",
+    "architecture": "arm64",
+    "scopeStatus": "SELECTED_ARM64_SCOPE; NOT_A_FREEZE_RECEIPT",
+    "macOSVersion": "NOT_SPECIFIED_HERE",
+    "x86_64": "NOT_QUALIFIED",
+    "sourceCompileGuard": "C source allows Apple arm64/aarch64 or x86_64; that compile guard does not widen the frozen qualification scope."
+  },
+  "fixedProtectedPaths": {
+    "installRoot": "/private/var/db/better-workflows/runtime-verifier-v2",
+    "nativeEntry": "/private/var/db/better-workflows/runtime-verifier-v2/runtime-qualification-supervisor-v2",
+    "bootstrapManifest": "/private/var/db/better-workflows/runtime-verifier-v2/bootstrap-v2.json",
+    "launcher": "/private/var/db/better-workflows/runtime-verifier-v2/runtime-qualification-launch-v2.sh",
+    "shell": "/bin/sh",
+    "node": "/private/var/db/better-workflows/runtime-verifier-v2/node",
+    "bundle": "/private/var/db/better-workflows/runtime-verifier-v2/bundle",
+    "gate": "/private/var/db/better-workflows/runtime-verifier-v2/bundle/plugins/better-workflows/scripts/runtime-qualification-gate-v2.mjs",
+    "targetPolicy": "/private/etc/better-workflows/runtime-qualification-target-v2.json",
+    "targetPolicyPrerequisite": "REQUIRES_SEPARATE_OWNER_AUTHORIZED_INSTALLATION; no policy values or grants are supplied here"
+  },
+  "nativeInvocation": {
+    "execMode": "direct exec of fixedProtectedPaths.nativeEntry",
+    "cwd": "/",
+    "incomingEnvp": [],
+    "incomingEnvpTerminatedByNull": true,
+    "incomingEnvironmentMustBeEmpty": true,
+    "identity": {
+      "uid": "existing unprivileged UID; nonzero and getuid() == geteuid()",
+      "gid": "existing GID and getgid() == getegid(); no numeric GID is pinned",
+      "identityChanges": "none; no setuid, setgid, run-as selection, or privilege elevation"
+    },
+    "argv": {
+      "argcIncludingArgv0": 11,
+      "additionalArguments": "forbidden",
+      "ordered": [
+        {
+          "index": 0,
+          "kind": "fixed",
+          "value": "/private/var/db/better-workflows/runtime-verifier-v2/runtime-qualification-supervisor-v2"
+        },
+        {
+          "index": 1,
+          "kind": "fixed",
+          "value": "--release-revision"
+        },
+        {
+          "index": 2,
+          "kind": "symbolicRuntimeInput",
+          "name": "approvedSourceRevision",
+          "format": "lowercase SHA-1, exactly 40 hex characters",
+          "authority": "none"
+        },
+        {
+          "index": 3,
+          "kind": "fixed",
+          "value": "--run-id"
+        },
+        {
+          "index": 4,
+          "kind": "symbolicRuntimeInput",
+          "name": "exactPublicWorkflowRunId",
+          "format": "positive decimal, 1 to 64 digits, no leading zero",
+          "authority": "none"
+        },
+        {
+          "index": 5,
+          "kind": "fixed",
+          "value": "--source-root"
+        },
+        {
+          "index": 6,
+          "kind": "symbolicRuntimeInput",
+          "name": "canonicalAbsoluteSourceRoot",
+          "format": "lexically canonical absolute UTF-8 path shorter than PATH_MAX; no control bytes, empty, dot or dot-dot components; no trailing slash except root",
+          "authority": "none"
+        },
+        {
+          "index": 7,
+          "kind": "fixed",
+          "value": "--artifact-dir"
+        },
+        {
+          "index": 8,
+          "kind": "symbolicRuntimeInput",
+          "name": "canonicalAbsoluteArtifactDirectory",
+          "format": "same lexical absolute path rules; this check alone does not establish physical path identity",
+          "authority": "none"
+        },
+        {
+          "index": 9,
+          "kind": "fixed",
+          "value": "--state-root"
+        },
+        {
+          "index": 10,
+          "kind": "symbolicRuntimeInput",
+          "name": "canonicalAbsoluteOwnerStateRoot",
+          "format": "same lexical absolute path rules; this check alone does not establish physical path identity",
+          "authority": "none"
+        }
+      ],
+      "runtimeInputsAreAuthorization": false
+    },
+    "processSetup": {
+      "umask": "0077",
+      "cwdAfterMain": "/",
+      "standardFds0to2MustBeOpenOnEntry": true
+    }
+  },
+  "shellInvocation": {
+    "execPath": "/bin/sh",
+    "argv": [
+      "/bin/sh",
+      "/private/var/db/better-workflows/runtime-verifier-v2/runtime-qualification-launch-v2.sh"
+    ],
+    "cwd": "/",
+    "additionalArguments": "none",
+    "envpTerminatedByNull": true,
+    "envpCount": 9,
+    "orderedEnvp": [
+      {
+        "key": "PATH",
+        "value": "/usr/bin:/bin"
+      },
+      {
+        "key": "LC_ALL",
+        "value": "C"
+      },
+      {
+        "key": "LANG",
+        "value": "C"
+      },
+      {
+        "key": "HOME",
+        "valueFrom": "physical passwd home for current UID; getpwuid_r UID/GID must match and realpath must equal pw_dir"
+      },
+      {
+        "key": "SBW_RELEASE_REVISION",
+        "valueFrom": "native argv[2]"
+      },
+      {
+        "key": "SBW_CONFORMANCE_RUN_ID",
+        "valueFrom": "native argv[4]"
+      },
+      {
+        "key": "SBW_PUBLIC_SOURCE_ROOT",
+        "valueFrom": "native argv[6]"
+      },
+      {
+        "key": "SBW_RUNTIME_ARTIFACT_DIR",
+        "valueFrom": "native argv[8]"
+      },
+      {
+        "key": "SBW_STATE_ROOT",
+        "valueFrom": "native argv[10]"
+      }
+    ],
+    "stdioAndFds": {
+      "stdin": "opened as /dev/null, O_RDONLY",
+      "stdout": "inherit caller fd 1",
+      "stderr": "inherit caller fd 2",
+      "otherFds": "not inherited; POSIX_SPAWN_CLOEXEC_DEFAULT",
+      "processReplacement": "POSIX_SPAWN_SETEXEC; successful spawn replaces the supervisor image and creates no persistent child"
+    },
+    "signals": {
+      "childSignalMask": "empty",
+      "childSignalDispositions": "default for all signals except SIGKILL and SIGSTOP, whose dispositions cannot be changed"
+    },
+    "spawnFlags": [
+      "POSIX_SPAWN_SETEXEC",
+      "POSIX_SPAWN_CLOEXEC_DEFAULT",
+      "POSIX_SPAWN_SETSIGMASK",
+      "POSIX_SPAWN_SETSIGDEF"
+    ]
+  },
+  "compileTimePins": [
+    {
+      "macro": "SBW_EXPECTED_BOOTSTRAP_SHA256",
+      "value": null,
+      "status": "NOT_PROVIDED",
+      "purpose": "exact approved bootstrap-v2.json bytes SHA-256"
+    },
+    {
+      "macro": "SBW_EXPECTED_LAUNCHER_SHA256",
+      "value": null,
+      "status": "NOT_PROVIDED",
+      "purpose": "exact approved fixed launcher bytes SHA-256"
+    },
+    {
+      "macro": "SBW_SUPERVISOR_SIGNING_REQUIREMENT",
+      "value": null,
+      "status": "NOT_PROVIDED",
+      "purpose": "independently approved requirement constraining signer and identifier"
+    }
+  ],
+  "signingProfile": {
+    "selectedProfile": "conservative non-ad-hoc hardened-runtime profile",
+    "requiredFlags": [
+      "runtime",
+      "library validation",
+      "hard",
+      "kill"
+    ],
+    "entitlements": "empty",
+    "adHocOrLinkerSignedAccepted": false,
+    "uniqueNecessityForInvariantProven": false,
+    "signerIdentity": null,
+    "signingRequirement": null,
+    "signerAuthorizationOrCapability": "NOT_ESTABLISHED_BY_THIS_SOURCE",
+    "performsSigningOrInstallation": false
+  },
+  "externalPrerequisites": [
+    "An independently reviewed protected installer and external installation receipt must establish native image provenance, final signed-image SHA-256/CDHashes, signer/identifier, flags, entitlements, load commands/dependencies, and actual host protection.",
+    "macOS/OS-enforced pre-main protection of the native image is required. The source's Security checks and environment clearing run after main and cannot establish pre-main trust.",
+    "The fixed install namespace and every ancestor/leaf must be root-owned, non-symlinked, ACL-free, not group/other writable, and free of special permission bits; regular protected files must have one link. Unreadable or unsupported ACL state is HOLD.",
+    "The fixed native image, bootstrap manifest, launcher, and /bin/sh must match the source bounds and protected-file checks; manifest and launcher hashes must match independently approved compile-time pins.",
+    "Only fixed Apple system-library/framework dependencies are allowed; no candidate or user-writable load command, @rpath, @loader_path, or @executable_path dependency. Actual hardened-runtime/preloader behavior on the frozen host still requires independent evidence.",
+    "The separately protected target policy at fixedProtectedPaths.targetPolicy must be independently owner-authorized and installed before qualification. This contract supplies no repository, target ID, owner grant, revision, run, policy values or expiry.",
+    "Installer changes must be serialized against active invocations. Root/kernel compromise and concurrent privileged replacement remain outside this unprivileged threat contract."
+  ],
+  "currentDownstreamAlignment": {
+    "launcher": "requires zero script arguments and receives the same nine-key environment; validates the fixed installation, manifest, Node, launcher, and gate before invoking Node",
+    "nodeAndGateArgv": [
+      "/private/var/db/better-workflows/runtime-verifier-v2/node",
+      "/private/var/db/better-workflows/runtime-verifier-v2/bundle/plugins/better-workflows/scripts/runtime-qualification-gate-v2.mjs"
+    ],
+    "gateBoundary": "requires fixed Node and gate paths, process.argv length 2, no process.execArgv, the nine-key allowlist, and rejects NODE_OPTIONS, NODE_PATH, DYLD_*, and LD_*",
+    "alignment": "shell -> installed Node -> gate arguments/environment are source-compatible with the proposed shell replacement"
+  },
+  "mismatchesAndLimitations": [
+    {
+      "issue": "The native supervisor validates exact argv[0..10], but cannot establish the incoming executable startup environment before main. Empty incoming envp and actual OS pre-main protection require separate caller and installation evidence.",
+      "sourceFile": "plugins/better-workflows/native/macos/runtime-qualification-supervisor-v2.c",
+      "sourceSymbols": [
+        "main"
+      ]
+    },
+    {
+      "issue": "The C compile guard permits x86_64, while selected qualification scope remains ARM64 and the current installed target reader rejects x64. Compilation eligibility does not establish host qualification.",
+      "sourceFile": "plugins/better-workflows/scripts/lib/runtime-qualification-v2.mjs",
+      "sourceSymbols": [
+        "readInstalledRuntimeQualificationTargetV2"
+      ]
+    },
+    {
+      "issue": "The non-ad-hoc profile and four static signature flags are conservative selected build conditions. They are not proven to be the unique necessary profile; no signer, approved signing requirement, authorization or capability is supplied.",
+      "sourceFile": "plugins/better-workflows/native/macos/runtime-qualification-supervisor-v2.c",
+      "sourceSymbols": [
+        "require_native_signature"
+      ]
+    },
+    {
+      "issue": "Source integration does not establish protected installation, external OS pre-main enforcement, a trusted self-receipt or release acceptance. Signature checks and environ clearing occur after main.",
+      "sourceFile": "plugins/better-workflows/native/macos/runtime-qualification-supervisor-v2.c",
+      "sourceSymbols": [
+        "main",
+        "require_native_signature"
+      ]
+    },
+    {
+      "issue": "Runtime input path syntax is checked lexically by the supervisor. It does not establish physical source/artifact/state identity or replace downstream path, source and policy validators.",
+      "sourceFile": "plugins/better-workflows/native/macos/runtime-qualification-supervisor-v2.c",
+      "sourceSymbols": [
+        "require_canonical_input_path"
+      ]
+    }
+  ],
+  "sourcePointers": [
+    {
+      "file": "plugins/better-workflows/native/macos/runtime-qualification-supervisor-v2.c",
+      "symbols": [
+        "SBW_EXPECTED_BOOTSTRAP_SHA256",
+        "SBW_EXPECTED_LAUNCHER_SHA256",
+        "SBW_SUPERVISOR_SIGNING_REQUIREMENT",
+        "main"
+      ],
+      "covers": "fixed native/shell paths, compile guards and pins; complete ordered argv/environment/UID/GID/cwd/stdio/FD/signal contract"
+    },
+    {
+      "file": "plugins/better-workflows/native/macos/runtime-qualification-supervisor-v2.c",
+      "symbols": [
+        "open_protected_file",
+        "require_digest",
+        "require_native_signature",
+        "recheck_file"
+      ],
+      "covers": "protected path/ACL/descriptor checks, pinned file hashes, post-main signature profile and pre-exec rechecks"
+    },
+    {
+      "file": "plugins/better-workflows/scripts/runtime-qualification-launch-v2.sh",
+      "symbols": [
+        "check_chain",
+        "check_sha"
+      ],
+      "covers": "zero script arguments, nine-key environment and fixed installed Node/gate handoff"
+    },
+    {
+      "file": "plugins/better-workflows/scripts/runtime-qualification-gate-v2.mjs",
+      "covers": "fixed paths, nine-key startup allowlist, protected bundle snapshot and consumer import boundary"
+    },
+    {
+      "file": "plugins/better-workflows/scripts/lib/runtime-qualification-v2.mjs",
+      "covers": "fixed target policy path, ARM64-only installed target reader and physical source-tree locator validation"
+    }
+  ],
+  "repositoryPath": "plugins/better-workflows/native/macos/runtime-qualification-supervisor-invocation-v2.json"
+}

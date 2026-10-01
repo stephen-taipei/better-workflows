@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "skills": [
+    {
+      "id": "auto",
+      "description": "Better Workflows：自動選擇任務流程與審查強度（推薦）",
+      "template": "auto",
+      "mode": "auto"
+    }
+  ]
+}
