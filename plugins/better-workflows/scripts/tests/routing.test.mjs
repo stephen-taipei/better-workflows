@@ -29,7 +29,8 @@ import {
   validateRoutingProfile
 } from "../lib/routing.mjs";
 import { bundleDigest } from "../lib/publication.mjs";
-import { digestObject } from "../lib/core.mjs";
+import { buildContract, digestObject } from "../lib/core.mjs";
+import { autoPolicyDefinition } from "../lib/auto-policy-v1.mjs";
 
 const execFileAsync = promisify(execFile);
 
@@ -78,6 +79,18 @@ async function writeLegacyProfile(root, profile) {
     path.join(root, ".codex", "better-workflows.json"),
     `${JSON.stringify(profile, null, 2)}\n`
   );
+}
+
+function canonicalAutoContractForTest(policyId, goal) {
+  const definition = autoPolicyDefinition(policyId);
+  const contract = buildContract({
+    template: "auto",
+    templateDefinition: definition,
+    goal,
+    authority: []
+  });
+  contract.templateDigest = digestObject(definition);
+  return contract;
 }
 
 function profile(rules) {
@@ -353,6 +366,7 @@ test("routing accepts a digest-bound schema-v2 ready marker for a cached skill",
     headRevision: "c".repeat(40),
     digest: "d".repeat(64)
   };
+  const contract = canonicalAutoContractForTest("read-only-v1", "Verify digest-bound cached skill readiness");
   const providerReceipt = {
     action: "plugin.cache.publish",
     provider: "local-workspace",
@@ -382,10 +396,12 @@ test("routing accepts a digest-bound schema-v2 ready marker for a cached skill",
   };
   await mkdir(path.join(stateRoot, "runs", runId, "actions"), { recursive: true });
   await writeFile(path.join(stateRoot, "runs", runId, "manifest.json"), `${JSON.stringify({
+    template: "auto",
+    contractDigest: digestObject(contract),
     pluginCacheRoot: cachePluginRoot,
     sourceBinding
   })}\n`);
-  await writeFile(path.join(stateRoot, "runs", runId, "contract.json"), "{}\n");
+  await writeFile(path.join(stateRoot, "runs", runId, "contract.json"), `${JSON.stringify(contract)}\n`);
   await writeFile(path.join(stateRoot, "runs", runId, "state.json"), "{}\n");
   const actionProof = {
     schemaVersion: 1,

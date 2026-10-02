@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -14,6 +14,7 @@ import {
   renderHostSupportMarkdown
 } from "../lib/hosts.mjs";
 import { VERSION } from "../lib/core.mjs";
+import { inspectProductPublicSurface, productReleaseScope } from "../lib/product-release-scope-v1.mjs";
 
 const pluginRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -88,16 +89,51 @@ test("every Preview host ships an exact manual compatibility pack", async () => 
 
 test("Tier 1 bridge contexts use the host-neutral state root contract", async () => {
   const repoRoot = path.resolve(pluginRoot, "../..");
-  for (const file of [
+  const rootContexts = [
     path.join(repoRoot, "GEMINI.md"),
-    path.join(repoRoot, "QWEN.md"),
+    path.join(repoRoot, "QWEN.md")
+  ];
+  const pluginContexts = [
     path.join(pluginRoot, "GEMINI.md"),
     path.join(pluginRoot, "QWEN.md")
-  ]) {
+  ];
+  for (const file of rootContexts) {
     const content = await readFile(file, "utf8");
     assert.match(content, /XDG_STATE_HOME\/better-workflows/, file);
     assert.match(content, /SBW_STATE_ROOT/, file);
   }
+
+  const pluginContextPresence = await Promise.all(pluginContexts.map(async (file) => {
+    try {
+      const info = await lstat(file);
+      assert.ok(info.isFile() && !info.isSymbolicLink(), `${file} must be a regular file when packaged`);
+      return true;
+    } catch (error) {
+      if (error?.code === "ENOENT") return false;
+      throw error;
+    }
+  }));
+  if (pluginContextPresence.some(Boolean)) {
+    assert.deepEqual(pluginContextPresence, [true, true], "plugin-local Gemini and Qwen bridge contexts must ship as a pair");
+    for (const file of pluginContexts) {
+      const content = await readFile(file, "utf8");
+      assert.match(content, /XDG_STATE_HOME\/better-workflows/, file);
+      assert.match(content, /SBW_STATE_ROOT/, file);
+    }
+    return;
+  }
+
+  const { scope } = await productReleaseScope();
+  const publicSurface = await inspectProductPublicSurface();
+  assert.deepEqual(scope?.publicEntrypointIds, ["auto"], "plugin bridge omission requires the public Auto-only entrypoint scope");
+  assert.deepEqual(scope?.publicTemplateIds, ["auto"], "plugin bridge omission requires the public Auto-only template scope");
+  assert.deepEqual(scope?.publicSkillIds, ["auto"], "plugin bridge omission requires the public Auto-only skill scope");
+  assert.equal(publicSurface.applicable, true, "plugin bridge omission requires the declared public product surface");
+  assert.equal(publicSurface.matches, true, "plugin bridge omission requires the actual public Auto surface to match its manifest");
+  const geminiManifest = JSON.parse(await readFile(path.join(repoRoot, "gemini-extension.json"), "utf8"));
+  const qwenManifest = JSON.parse(await readFile(path.join(repoRoot, "qwen-extension.json"), "utf8"));
+  assert.equal(geminiManifest.contextFileName, "GEMINI.md", "the public Gemini extension must load the root Gemini context");
+  assert.equal(qwenManifest.contextFileName, "QWEN.md", "the public Qwen extension must load the root Qwen context");
 });
 
 test("host doctor and conformance bind an executable, manifest, registry, and non-release local receipt", async () => {

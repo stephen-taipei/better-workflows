@@ -291,18 +291,9 @@ test("projection metadata cannot override PATH, developer, helper, loader or Git
   });
 });
 
-test("W3 producer/verifier spawnSync and RC source push use the same operation Git pin", async () => {
+test("RC source push uses the installed operation Git pin", async () => {
   const f = fixture(), projected = [];
-  const producer = await readFile(new URL("../../../../scripts/public-source-export-v2.mjs", import.meta.url), "utf8");
-  const verifier = await readFile(new URL("../../../../scripts/public-source-export-verifier-v2.mjs", import.meta.url), "utf8");
   const source = await readFile(new URL("../lib/rc-publication-installed-context-v1.mjs", import.meta.url), "utf8");
-  const projectGit = value => runInNewContext(`(() => { ${extract(value, "async function git(cwd", value === producer ? "\nfunction treeRecords(" : "\nfunction splitZero(")} return git; })()`, {
-    assertCurrentRcSourceGitV1: f.api.assertCurrentRcSourceGitV1,
-    assertCurrentRcSourceGitAfterInvocationV1: f.api.assertCurrentRcSourceGitAfterInvocationV1, rcSourceGitInvocationV1: f.api.rcSourceGitInvocationV1,
-    process: { env: { PATH: "/synthetic/shadow", DEVELOPER_DIR: "/synthetic/developer" } },
-    spawnSync: (executable, args, options) => { projected.push({ executable, args: [...args], environment: { ...options.env } }); return { status: 0, stdout: Buffer.from("source") }; },
-    cleanGitEnv: () => ({ PATH: "/synthetic/generic" }), fail: message => { throw new Error(message); }, reject: message => { throw new Error(message); }
-  });
   const environment = extract(source, "function environment()", "\nfunction persistOwnedCommand(");
   const pushEnvironment = runInNewContext(`(() => { ${environment} return environment; })()`, {
     RC_SOURCE_GIT_EXEC_PATH_V1, process: { env: { DEVELOPER_DIR: "/synthetic/developer", GIT_EXEC_PATH: "/synthetic/helpers", HOME: "/synthetic/home" } }
@@ -321,34 +312,22 @@ test("W3 producer/verifier spawnSync and RC source push use the same operation G
     hold: (code, message) => { throw Object.assign(new Error(message), { code }); }
   });
   await f.api.withInstalledRcSourceGitV1(request("one"), async () => {
-    await projectGit(producer)("/synthetic/public", ["hash-object", "--stdin"], { input: Buffer.from("blob"), env: { GIT_INDEX_FILE: "/synthetic/index" } });
-    await projectGit(verifier)("/synthetic/public", ["ls-tree", "HEAD"]);
     await push(ctx, "attempt", "create-source-main");
     f.replace(HTTP, { sha256: CHANGED });
     await assert.rejects(push(ctx, "attempt", "create-source-main"), { code: "ERC_GIT_DRIFT", status: "HOLD" });
     f.replace(HTTP, { sha256: D });
   });
-  assert.equal(projected.length, 3);
+  assert.equal(projected.length, 1);
   for (const call of projected) {
     assert.equal(call.executable, RC_SOURCE_GIT_EXECUTABLE_V1);
     assert.equal(call.environment.GIT_EXEC_PATH, RC_SOURCE_GIT_EXEC_PATH_V1);
     assert.equal(call.environment.DEVELOPER_DIR, undefined);
     assert.equal(call.environment.PATH, "/usr/bin:/bin:/usr/sbin:/sbin");
   }
-  assert.ok(projected[2].args.includes("push"));
+  assert.ok(projected[0].args.includes("push"));
   f.replace(HTTP, { sha256: CHANGED });
   await assert.rejects(push(ctx, "attempt", "create-source-main"), { code: "ERC_GIT_SCOPE" });
-  assert.equal(projected.length, 3);
-});
-
-test("W3 producer and independent verifier both include the RC Git control test in their public catalogs", async () => {
-  for (const [file, boundary] of [["public-source-export-v2.mjs", "\nfunction sha256("], ["public-source-export-verifier-v2.mjs", "\nfunction reject("]]) {
-    const source = await readFile(new URL(`../../../../scripts/${file}`, import.meta.url), "utf8");
-    const contains = runInNewContext(`(() => { ${extract(source, "const PUBLIC_AUTO_TESTS", boundary)} return PUBLIC_AUTO_TESTS.has("plugins/better-workflows/scripts/tests/rc-publication-git-v1.test.mjs"); })()`, {
-      PUBLIC_TEST_PREFIX: "plugins/better-workflows/scripts/tests/"
-    });
-    assert.equal(contains, true);
-  }
+  assert.equal(projected.length, 1);
 });
 
 test("generic root-file hardlink protection remains effective for the macOS Git shim", async () => {

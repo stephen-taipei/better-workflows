@@ -23,7 +23,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          fetch-depth: 1
+          fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
@@ -71,9 +71,9 @@ jobs:
           EXPECTED_NODE: ${{ matrix.node }}
         run: |
           set -euo pipefail
-          extra=()
-          case "${EXPECTED_NODE}" in 22.*) extra=(--experimental-test-isolation=none) ;; esac
-          node "${extra[@]}" --experimental-vm-modules --test --test-reporter=tap --test-concurrency=1 \
+          set --
+          case "${EXPECTED_NODE}" in 22.*) set -- --experimental-test-isolation=none ;; esac
+          node "$@" --experimental-vm-modules --test --test-reporter=tap --test-concurrency=1 \
             scripts/tests/runtime-support.test.mjs \
             scripts/tests/workspace.test.mjs \
             scripts/tests/auto-policy-v1.test.mjs
@@ -133,7 +133,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.sha }}
-          fetch-depth: 1
+          fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
