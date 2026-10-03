@@ -220,13 +220,13 @@ function languageIndex() {
   }).join("\n");
   return `# Better Workflows language index
 
-V5.0.rc1 plans public routes for \`en\` and \`zh-Hant-TW\` only. The other 39 locale editions remain in private development source for V5.0.rc2. These links describe planned scope; they are not deployment or semantic-acceptance receipts. Technical identifiers and commands remain exact English identifiers inside translated prose. See the [localization terminology policy](LOCALIZATION.md).
+V5.0.rc1 provides public routes for \`en\` and \`zh-Hant-TW\` only. The other 39 locale editions remain in private development source for V5.0.rc2. The release is publicly available; these links do not replace exact-source deployment or semantic-acceptance receipts. Technical identifiers and commands remain exact English identifiers inside translated prose. See the [localization terminology policy](LOCALIZATION.md).
 
 | Locale | Native label | RC1 status | Planned RC1 route links |
 | --- | --- | --- | --- |
 ${rows}
 
-Default locale: \`${DEFAULT_LOCALE}\`. The two in-scope locales have ten planned public documentation routes. English remains canonical for runtime contracts. Any additional locale requires a separate accepted RC2 candidate and public readback.
+Default locale: \`${DEFAULT_LOCALE}\`. The two in-scope locales have ten public documentation routes. English remains canonical for runtime contracts. Any additional locale requires a separate accepted RC2 candidate and public readback.
 `;
 }
 

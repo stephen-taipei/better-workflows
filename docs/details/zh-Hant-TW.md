@@ -12,7 +12,7 @@
 
 ## 查看官方文件
 
-開源、goal-first 的 agent 工作流程控制面，以目前仍有效的證據、審查關卡、來源綁定與 provider 狀態核對，確保結果可重新驗證。
+Better Workflows V5.0 RC1 已公開上架：免費開源的 AI 工程 QA 與交付守門人，以 Auto 入口、有效證據、審查關卡與外部狀態核對，確保結果可重新驗證。
 
 先定義 contract，再驗證 source 與 evidence、核對外部操作結果；只有 terminal state 已知時，才宣告完成。
 

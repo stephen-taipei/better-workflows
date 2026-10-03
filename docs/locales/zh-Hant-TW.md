@@ -2,7 +2,7 @@
 
 # Better Workflows
 
-開源、goal-first 的 agent 工作流程控制面，以目前仍有效的證據、審查關卡、來源綁定與 provider 狀態核對，確保結果可重新驗證。
+Better Workflows V5.0 RC1 已公開上架：免費開源的 AI 工程 QA 與交付守門人，以 Auto 入口、有效證據、審查關卡與外部狀態核對，確保結果可重新驗證。
 
 [English](en.md) · **繁體中文（台灣）**
 
@@ -10,18 +10,18 @@
 
 </div>
 
-V5.0：macOS × Node 22/24，驗收尚未完成。Linux 與 Windows 的驗收延至 V5.1。 Claude Code 的驗收也延至 V5.1。
+V5.0 RC1 涵蓋 macOS × Node 22/24 上的 Codex、Gemini CLI 與 Qwen Code。Claude Code、Linux 與 Windows 的驗收延至 V5.1。GA 仍需至少 30 個自然 canary 日、20 次連續符合資格的啟動，以及三個不同儲存庫。
 
 ## 讓 agent 工作<br>完成，並留下可驗證的結果。
 
-Better Workflows 固定 goal、scope 與 authority，把每個判斷綁定到目前仍有效且可重新驗證的證據，以及已核對的外部結果。
+V5.0 RC1 已公開上架。Auto 先檢查目標、範圍、儲存庫與風險，再選擇精簡檢查或證據流程。Git 修改使用專屬 worktree；交付必須有授權，並核對外部結果。
 
 ## 從意圖到完成，明確劃分四道邊界。
 
 先定義 contract，再驗證 source 與 evidence、核對外部操作結果；只有 terminal state 已知時，才宣告完成。
 
-- **01 · `TaskContract`** — Better Workflows 固定 goal、scope 與 authority，把每個判斷綁定到目前仍有效且可重新驗證的證據，以及已核對的外部結果。
-- **02 · `evidence`** — 開源、goal-first 的 agent 工作流程控制面，以目前仍有效的證據、審查關卡、來源綁定與 provider 狀態核對，確保結果可重新驗證。
+- **01 · `TaskContract`** — V5.0 RC1 已公開上架。Auto 先檢查目標、範圍、儲存庫與風險，再選擇精簡檢查或證據流程。Git 修改使用專屬 worktree；交付必須有授權，並核對外部結果。
+- **02 · `evidence`** — Better Workflows V5.0 RC1 已公開上架：免費開源的 AI 工程 QA 與交付守門人，以 Auto 入口、有效證據、審查關卡與外部狀態核對，確保結果可重新驗證。
 - **03 · `reconciliation`** — 先定義 contract，再驗證 source 與 evidence、核對外部操作結果；只有 terminal state 已知時，才宣告完成。
 - **04 · `terminal state`** — 命令成功執行不代表工作已經完成；可重新驗證的結果才是證明。
 
@@ -49,8 +49,8 @@ $better-workflows:auto <goal>
 此參考頁已提供本語系摘要；互動內容尚未完整翻譯。
 
 - **01 · 從意圖到完成，明確劃分四道邊界。** — 先定義 contract，再驗證 source 與 evidence、核對外部操作結果；只有 terminal state 已知時，才宣告完成。
-- **02 · 從架構地圖繼續深入實際使用情境。** — Better Workflows 固定 goal、scope 與 authority，把每個判斷綁定到目前仍有效且可重新驗證的證據，以及已核對的外部結果。
-- **03 · 快速開始** — 開源、goal-first 的 agent 工作流程控制面，以目前仍有效的證據、審查關卡、來源綁定與 provider 狀態核對，確保結果可重新驗證。
+- **02 · 從架構地圖繼續深入實際使用情境。** — V5.0 RC1 已公開上架。Auto 先檢查目標、範圍、儲存庫與風險，再選擇精簡檢查或證據流程。Git 修改使用專屬 worktree；交付必須有授權，並核對外部結果。
+- **03 · 快速開始** — Better Workflows V5.0 RC1 已公開上架：免費開源的 AI 工程 QA 與交付守門人，以 Auto 入口、有效證據、審查關卡與外部狀態核對，確保結果可重新驗證。
 
 - [`從意圖到完成，明確劃分四道邊界。`](https://betterworkflows.dev/docs/reference/zh-Hant-TW/index.html) · `zh-Hant-TW`
 - [`快速開始`](https://betterworkflows.dev/docs/reference/zh-Hant-TW/preview.html) · `zh-Hant-TW`

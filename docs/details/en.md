@@ -4,7 +4,7 @@
 
 ## Auto documentation
 
-V5.0 is planned to publish one workflow template and one skill: `auto`. It selects a bounded policy from the stated goal, risk, and required evidence.
+V5.0 RC1 is publicly available with one workflow template and one skill: `auto`. It selects a bounded policy from the stated goal, risk, and required evidence.
 
 Start with `$better-workflows:auto` or `sbw route preview --entry auto`. The public policies are `read-only-v1`, `code-change-v1`, and `dev-publish-v1`; protected actions still require their own authority and evidence.
 

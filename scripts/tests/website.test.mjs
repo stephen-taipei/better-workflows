@@ -193,16 +193,16 @@ test("official website build serves Auto-only public docs without archived templ
     assert.match(landing, /class="capability-matrix"/);
     assert.match(landing, /Replay 是重播/);
     for (const [label, html] of [["default", landing]]) {
-      assert.match(html, /<section class="section shell v5-status-section" id="v5-status">[\s\S]*V5 正在開發，尚未正式發布。/,
+      assert.match(html, /<section class="section shell v5-status-section" id="v5-status">[\s\S]*V5.0 RC1 已公開上架，GA 仍待完成。/,
         `${label}: canonical V5 status must survive homepage rendering`);
       assert.match(html, /AGPL-3\.0-only/);
       assert.match(html, /Apache-2\.0/);
       assert.match(html, /Professional Pack/);
       assert.match(html, /Cloud/);
-      assert.match(html, /V4 既有文件範圍不代表 V5 已驗證/);
+      assert.match(html, /V4 支援矩陣仍屬歷史文件範圍/);
     }
     const englishStatus = englishHomepage.match(/<section class="section shell v5-status-section" id="v5-status">([\s\S]*?)<\/section>/)?.[1] || "";
-    assert.match(englishStatus, /V5 is in development and has not been formally released\./,
+    assert.match(englishStatus, /V5\.0 RC1 is publicly available\. GA remains pending\./,
       "English must receive the complete localized V5 product copy");
     assert.match(landing, /href="\/docs\/assets\/sponsor-usdt-trc20\.jpeg\?sha256=ef7c46831b0992d69ce5c89883ea61b5f98807df9d0a071556a6f2615436910e" target="_blank" rel="noopener noreferrer"/);
     assert.match(landing, /class="sponsor-address" dir="ltr">TGuMUi1d8MoBQcuFrGJZnu4JrbaeP3wy9a<\/code>/);
