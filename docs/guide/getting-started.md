@@ -3,9 +3,9 @@
 | [Overview](../../README.md) | [Details](../details/en.md) | **Quick start** | [Workflows](workflows.md) | [Architecture](architecture.md) | [Security](security.md) | [CLI](cli-reference.md) |
 | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 
-[RC1 planned public routes cover en and zh-Hant-TW; the 41-locale source catalog is private](../LANGUAGES.md). Commands and identifiers remain canonical in English.
+[RC1 public routes cover en and zh-Hant-TW; the 41-locale source catalog is private](../LANGUAGES.md). Commands and identifiers remain canonical in English.
 
-The accepted public candidate target is `5.0.0-rc.1`; it has not been published, and macOS Node 22/24 qualification remains pending. The candidate covers Auto only. Linux and Windows qualification is deferred to V5.1, as is Claude Code qualification. GA `5.0.0` remains pending until at least 30 natural canary days, 20 consecutive eligible starts, and three distinct repositories are recorded.
+V5.0 RC1 (`5.0.0-rc.1`, tag `V5.0.rc1`) is publicly available. Its release scope covers Auto only, with Codex, Gemini CLI, and Qwen Code on macOS Node 22/24. Linux and Windows qualification is deferred to V5.1, as is Claude Code qualification. GA `5.0.0` remains pending until at least 30 natural canary days, 20 consecutive eligible starts, and three distinct repositories are recorded.
 
 ## Requirements
 
@@ -20,15 +20,14 @@ without moving it, set `SBW_STATE_ROOT` explicitly to that exact
 `<CODEX_HOME>/sbw` directory before invoking `sbw`.
 
 V5.0 GA (`5.0.0`) remains pending. The installation commands below target the
-`5.0.0-rc.1` candidate and apply only after that candidate is publicly
-available.
+publicly available V5.0 RC1 (`5.0.0-rc.1`, tag `V5.0.rc1`).
 
 ## Install
 
 ### Codex — recommended reference
 
 ```bash
-# Run only after the V5.0.rc1 candidate tag is publicly available.
+# Install the publicly available V5.0.rc1 release candidate.
 codex plugin marketplace add stephen-taipei/better-workflows
 codex plugin add better-workflows@better-workflows
 node plugins/better-workflows/scripts/sbw.mjs version --json
@@ -51,7 +50,7 @@ Open a new Codex task after installation so its skill catalog refreshes.
 ### Gemini CLI
 
 ```bash
-# Run only after the V5.0.rc1 public candidate tag is available.
+# Install the publicly available V5.0.rc1 release candidate.
 gemini extensions install https://github.com/stephen-taipei/better-workflows \
   --ref V5.0.rc1
 ```
@@ -77,7 +76,7 @@ by the host. Do not substitute a similarly named checkout.
 Pin the release before installing the local extension copy:
 
 ```bash
-# Run only after the V5.0.rc1 public candidate tag is available.
+# Install the publicly available V5.0.rc1 release candidate.
 git clone --branch V5.0.rc1 --depth 1 \
   https://github.com/stephen-taipei/better-workflows.git
 qwen extensions install ./better-workflows

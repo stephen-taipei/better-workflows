@@ -39,10 +39,10 @@ export const locales = [
   {
     code: "en", label: "English", messages: {
       TITLE: "Better Workflows | Provable agent workflows",
-      DESCRIPTION: "An open-source, goal-first control plane for agent workflows with current evidence, review gates, source binding, and provider reconciliation.",
+      DESCRIPTION: "Better Workflows V5.0 RC1 is publicly available: a free, open-source Auto workflow for AI engineering QA and delivery, with current evidence, review gates, and provider reconciliation.",
       SKIP: "Skip to main content", MENU: "Menu", LANGUAGE: "Language",
       HERO_TITLE: "Take agent work", HERO_ACCENT: "to a provable finish.",
-      HERO_LEAD: "Better Workflows freezes the goal, scope, and authority, then binds every decision to current, re-verifiable evidence and a reconciled external outcome.",
+      HERO_LEAD: "V5.0 RC1 is publicly available. Auto checks the goal, scope, repository, and risk, then selects targeted checks or an evidence workflow. Git changes use a task-owned worktree; delivery requires authorization and a verified external outcome.",
       DOCS_CTA: "Explore the documentation", GITHUB_CTA: "Open GitHub",
       CONTROL_TITLE: "Four explicit boundaries from intent to completion.",
       CONTROL_SUMMARY: "Define the contract, verify source and evidence, reconcile external effects, and declare completion only when the terminal state is known.",
@@ -54,10 +54,10 @@ export const locales = [
   {
     code: "zh-Hant-TW", label: "繁體中文（台灣）", messages: {
       TITLE: "Better Workflows｜讓 agent 工作完成且可驗證",
-      DESCRIPTION: "開源、goal-first 的 agent 工作流程控制面，以目前仍有效的證據、審查關卡、來源綁定與 provider 狀態核對，確保結果可重新驗證。",
+      DESCRIPTION: "Better Workflows V5.0 RC1 已公開上架：免費開源的 AI 工程 QA 與交付守門人，以 Auto 入口、有效證據、審查關卡與外部狀態核對，確保結果可重新驗證。",
       SKIP: "跳到主要內容", MENU: "選單", LANGUAGE: "語言",
       HERO_TITLE: "讓 agent 工作", HERO_ACCENT: "完成，並留下可驗證的結果。",
-      HERO_LEAD: "Better Workflows 固定 goal、scope 與 authority，把每個判斷綁定到目前仍有效且可重新驗證的證據，以及已核對的外部結果。",
+      HERO_LEAD: "V5.0 RC1 已公開上架。Auto 先檢查目標、範圍、儲存庫與風險，再選擇精簡檢查或證據流程。Git 修改使用專屬 worktree；交付必須有授權，並核對外部結果。",
       DOCS_CTA: "查看官方文件", GITHUB_CTA: "開啟 GitHub",
       CONTROL_TITLE: "從意圖到完成，明確劃分四道邊界。",
       CONTROL_SUMMARY: "先定義 contract，再驗證 source 與 evidence、核對外部操作結果；只有 terminal state 已知時，才宣告完成。",
@@ -70,18 +70,18 @@ export const locales = [
 
 const v5ProductCopy = {
   en: {
-    eyebrow: "V5 · Development status and licensing",
-    title: "V5 is in development and has not been formally released.",
-    boundary: "The V4 documentation scope does not mean V5 has been verified; verification for the new version is still pending.",
-    scope: "V5.0: macOS × Node 22/24, with qualification still pending. Linux and Windows qualification is deferred to V5.1. Claude Code qualification is also deferred to V5.1.",
+    eyebrow: "V5.0 RC1 · Public release and licensing",
+    title: "V5.0 RC1 is publicly available. GA remains pending.",
+    boundary: "V5.0 RC1 (5.0.0-rc.1, tag V5.0.rc1) is a controlled prerelease with one public Auto entrypoint. The V4 support matrix remains historical; RC1 does not establish GA acceptance or V5 completion.",
+    scope: "V5.0 RC1 covers Codex, Gemini CLI, and Qwen Code on macOS × Node 22/24. Claude Code, Linux, and Windows qualification is deferred to V5.1. GA requires at least 30 natural canary days, 20 consecutive eligible starts, and three distinct repositories.",
     license: "The first-party Better Workflows core is AGPL-3.0-only. The physically separate minimal wire package is Apache-2.0; its LICENSE and NOTICE apply to that package.",
     plan: "The basic product is free. Professional Pack is planned as a proprietary product, and Cloud is a separate product planned for later; neither is currently available."
   },
   "zh-Hant-TW": {
-    eyebrow: "V5 · 開發狀態與授權",
-    title: "V5 正在開發，尚未正式發布。",
-    boundary: "V4 既有文件範圍不代表 V5 已驗證；新版本驗證尚待完成。",
-    scope: "V5.0：macOS × Node 22/24，驗收尚未完成。Linux 與 Windows 的驗收延至 V5.1。 Claude Code 的驗收也延至 V5.1。",
+    eyebrow: "V5.0 RC1 · 公開上架與授權",
+    title: "V5.0 RC1 已公開上架，GA 仍待完成。",
+    boundary: "V5.0 RC1（5.0.0-rc.1，tag V5.0.rc1）是受控預發行版本，公開入口僅有 Auto。V4 支援矩陣仍屬歷史文件範圍；RC1 不代表 GA 驗收或 V5 全面完成。",
+    scope: "V5.0 RC1 涵蓋 macOS × Node 22/24 上的 Codex、Gemini CLI 與 Qwen Code。Claude Code、Linux 與 Windows 的驗收延至 V5.1。GA 仍需至少 30 個自然 canary 日、20 次連續符合資格的啟動，以及三個不同儲存庫。",
     license: "第一方 Better Workflows 核心採 AGPL-3.0-only。實體獨立的 minimal wire package 另採 Apache-2.0；其 LICENSE 與 NOTICE 適用於該 package。",
     plan: "基本產品免費。Professional Pack 規劃為專有產品，Cloud 是後續獨立產品；兩者目前尚未提供。"
   }

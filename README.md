@@ -23,9 +23,9 @@ The V5.0.rc1 public website and documentation cover these two languages. Other l
 
 [Quick start](docs/guide/getting-started.md) · [Workflows](docs/guide/workflows.md) · [Convergence](docs/guide/convergence-and-authorization.md) · [Architecture](docs/guide/architecture.md) · [Security](docs/guide/security.md) · [CLI](docs/guide/cli-reference.md) · [Full details](docs/details/en.md)
 
-**V5 status:** The accepted public candidate target is `5.0.0-rc.1`, a controlled prerelease; publication and macOS Node 22/24 qualification remain pending. It covers one public Auto entrypoint, Codex/Gemini CLI/Qwen Code on macOS, and Node 22/24. RC1 is not GA or a V5 completion claim. GA `5.0.0` remains pending and requires at least 30 natural canary days, 20 consecutive eligible starts, and three distinct repositories. Claude Code, Linux, and Windows qualification is deferred to V5.1.
+**V5 status:** [V5.0 RC1](https://github.com/stephen-taipei/better-workflows/releases/tag/V5.0.rc1) (`5.0.0-rc.1`, tag `V5.0.rc1`) is publicly available as a controlled prerelease, published on October 3, 2026 (Asia/Taipei). It covers one public Auto entrypoint, Codex/Gemini CLI/Qwen Code on macOS, and Node 22/24. RC1 is not GA or a V5 completion claim. GA `5.0.0` remains pending and requires at least 30 natural canary days, 20 consecutive eligible starts, and three distinct repositories. Claude Code, Linux, and Windows qualification is deferred to V5.1.
 
-**Licensing:** The free first-party core is **AGPL-3.0-only**; the physically separate wire package is **Apache-2.0** under its `LICENSE` and `NOTICE`. Professional Pack is planned as proprietary; Cloud is a separate later product. Existing support and guarantee claims describe V4; V5 verification is pending.
+**Licensing:** The free first-party core is **AGPL-3.0-only**; the physically separate wire package is **Apache-2.0** under its `LICENSE` and `NOTICE`. Professional Pack is planned as proprietary; Cloud is a separate later product. The historical V4 support matrix does not expand the V5.0 RC1 release scope.
 <!-- readme-roster -->
 **Model roster:** Codex · Claude · Gemini · GPT-OSS · Grok · Cursor · Kimi · Qwen · Kiro. `agy` transports Gemini-, Claude-, and GPT-OSS-branded models; it is transport metadata, not another model brand.
 **Historical V4 host support:** Tier 1 was Codex, Claude Code, Gemini CLI, and Qwen Code on macOS/Linux. Kimi Code CLI, Kiro, Grok Build, Cursor, GitHub Copilot, and all Windows combinations were Preview. These are not V5 release receipts. `agy` remains deliberation transport metadata, not another AI host.
@@ -131,9 +131,9 @@ authority source. Missing evidence or authority stops progress.
 <!-- readme-section:first-success -->
 ## Get your first result
 
-V5.0 GA (`5.0.0`) has not been released. The accepted public candidate target
-is `5.0.0-rc.1`; its publication and qualification remain pending. After that
-candidate is publicly available, use the following marketplace commands.
+V5.0 RC1 (`5.0.0-rc.1`, tag `V5.0.rc1`) is publicly available. Install it
+with the marketplace commands below. GA (`5.0.0`) remains pending; its
+canary acceptance conditions are listed above.
 
 Install the marketplace and plugin:
 
@@ -155,7 +155,7 @@ cannot invent authority, install tools, widen scope, bypass protection, or skip 
 owned worktree; package-manager, network,
 child-process, native, and checkout-external checks promote to evidence mode.
 Gemini and Qwen use the repository extension with the same core package; their
-V5.0 qualification is pending. See [getting started](docs/guide/getting-started.md).
+V5.0 RC1 release scope is macOS × Node 22/24. See [getting started](docs/guide/getting-started.md).
 
 [Install, verify, and run the first workflow →](docs/guide/getting-started.md)
 

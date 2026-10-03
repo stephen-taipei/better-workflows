@@ -19,9 +19,9 @@
 
 [快速開始](guide/getting-started.md) · [工作流程](guide/workflows.md) · [收斂與授權（English）](guide/convergence-and-authorization.md) · [架構](guide/architecture.md) · [安全](guide/security.md) · [CLI](guide/cli-reference.md) · [完整細節](details/zh-TW.md) · [透過 USDT (TRC20) 單次贊助](https://betterworkflows.dev/#sponsor)
 
-**V5 狀態與授權：** V5.0 GA（`5.0.0`）尚未發布。已接受的公開候選目標為 `5.0.0-rc.1`，其公開發布與 macOS Node 22/24 qualification 仍待完成。第一方核心採 **AGPL-3.0-only**；實體獨立的 minimal wire package 依自己的 `LICENSE` 與 `NOTICE` 採 **Apache-2.0**。基本產品免費；Professional Pack 規劃為專有產品，Cloud 是後續獨立產品。現有支援與 guarantee 文字屬 V4 既有文件範圍，不代表 V5 已驗證；新版本驗證尚待完成。
+**V5 狀態與授權：** V5.0 GA（`5.0.0`）尚未發布。[V5.0 RC1](https://github.com/stephen-taipei/better-workflows/releases/tag/V5.0.rc1)（`5.0.0-rc.1`，tag `V5.0.rc1`）已於台灣時間 2026 年 10 月 3 日公開上架，屬受控預發行版本。GA 仍需至少 30 個自然 canary 日、20 次連續符合資格的啟動，以及三個不同儲存庫。第一方核心採 **AGPL-3.0-only**；實體獨立的 minimal wire package 依自己的 `LICENSE` 與 `NOTICE` 採 **Apache-2.0**。基本產品免費；Professional Pack 規劃為專有產品，Cloud 是後續獨立產品。V4 支援矩陣仍屬歷史文件範圍，不擴大 V5.0 RC1 的公開發布範圍。
 
-V5.0 目前範圍：公開入口、模板與 skill 僅有 Auto；host qualification 範圍僅限 macOS 上的 Codex、Gemini CLI、Qwen Code，以及 Node 22/24；驗收尚未完成。Claude Code、Linux 與 Windows 的驗收延至 V5.1。
+V5.0 RC1 公開範圍：入口、模板與 skill 僅有 Auto；涵蓋 macOS 上的 Codex、Gemini CLI、Qwen Code，以及 Node 22/24。Claude Code、Linux 與 Windows 的驗收延至 V5.1。
 
 <!-- readme-roster -->
 **Model roster：** Codex · Claude · Gemini · GPT-OSS · Grok · Cursor · Kimi · Qwen · Kiro。`agy` 傳輸 Gemini、Claude 與 GPT-OSS 品牌模型；它是 transport metadata，不是另一個模型品牌。
@@ -44,7 +44,7 @@ Codex 可以分析 repository、修改程式、執行檢查並操作 provider。
 Better Workflows 適合希望小任務仍然快速，但在 blast radius 增加時，
 不放棄明確 scope、review、證據時效性與受保護交付的開發者和團隊。
 
-V5.0 公開候選規劃提供單一 Auto template 與唯讀 Graph View。
+V5.0 RC1 提供單一 Auto template 與唯讀 Graph View。
 你選擇成果，Auto 只加入當前風險所需的驗證。
 
 ### Auto 在修改前做什麼
@@ -117,7 +117,7 @@ policy input 或 authority source。缺少證據或權限時就停止。
 <!-- readme-section:first-success -->
 ## 完成第一次成功執行
 
-V5.0 GA（`5.0.0`）尚未發布。候選 `5.0.0-rc.1` 公開後，可使用以下 marketplace 指令安裝。
+V5.0 RC1（`5.0.0-rc.1`，tag `V5.0.rc1`）已公開上架，可使用以下 marketplace 指令安裝。V5.0 GA（`5.0.0`）仍待完成上述 canary 條件。
 
 ```bash
 codex plugin marketplace add stephen-taipei/better-workflows

@@ -2,7 +2,7 @@
 
 # Better Workflows
 
-An open-source, goal-first control plane for agent workflows with current evidence, review gates, source binding, and provider reconciliation.
+Better Workflows V5.0 RC1 is publicly available: a free, open-source Auto workflow for AI engineering QA and delivery, with current evidence, review gates, and provider reconciliation.
 
 **English** · [繁體中文（台灣）](zh-Hant-TW.md)
 
@@ -10,18 +10,18 @@ An open-source, goal-first control plane for agent workflows with current eviden
 
 </div>
 
-V5.0: macOS × Node 22/24, with qualification still pending. Linux and Windows qualification is deferred to V5.1. Claude Code qualification is also deferred to V5.1.
+V5.0 RC1 covers Codex, Gemini CLI, and Qwen Code on macOS × Node 22/24. Claude Code, Linux, and Windows qualification is deferred to V5.1. GA requires at least 30 natural canary days, 20 consecutive eligible starts, and three distinct repositories.
 
 ## Take agent work<br>to a provable finish.
 
-Better Workflows freezes the goal, scope, and authority, then binds every decision to current, re-verifiable evidence and a reconciled external outcome.
+V5.0 RC1 is publicly available. Auto checks the goal, scope, repository, and risk, then selects targeted checks or an evidence workflow. Git changes use a task-owned worktree; delivery requires authorization and a verified external outcome.
 
 ## Four explicit boundaries from intent to completion.
 
 Define the contract, verify source and evidence, reconcile external effects, and declare completion only when the terminal state is known.
 
-- **01 · `TaskContract`** — Better Workflows freezes the goal, scope, and authority, then binds every decision to current, re-verifiable evidence and a reconciled external outcome.
-- **02 · `evidence`** — An open-source, goal-first control plane for agent workflows with current evidence, review gates, source binding, and provider reconciliation.
+- **01 · `TaskContract`** — V5.0 RC1 is publicly available. Auto checks the goal, scope, repository, and risk, then selects targeted checks or an evidence workflow. Git changes use a task-owned worktree; delivery requires authorization and a verified external outcome.
+- **02 · `evidence`** — Better Workflows V5.0 RC1 is publicly available: a free, open-source Auto workflow for AI engineering QA and delivery, with current evidence, review gates, and provider reconciliation.
 - **03 · `reconciliation`** — Define the contract, verify source and evidence, reconcile external effects, and declare completion only when the terminal state is known.
 - **04 · `terminal state`** — Running a command is not proof of completion; a re-verifiable outcome is.
 
@@ -49,8 +49,8 @@ $better-workflows:auto <goal>
 This reference page has a localized overview; its interactive content is not fully translated across all locales.
 
 - **01 · Four explicit boundaries from intent to completion.** — Define the contract, verify source and evidence, reconcile external effects, and declare completion only when the terminal state is known.
-- **02 · Move from the architecture map to practical use cases.** — Better Workflows freezes the goal, scope, and authority, then binds every decision to current, re-verifiable evidence and a reconciled external outcome.
-- **03 · Quick start** — An open-source, goal-first control plane for agent workflows with current evidence, review gates, source binding, and provider reconciliation.
+- **02 · Move from the architecture map to practical use cases.** — V5.0 RC1 is publicly available. Auto checks the goal, scope, repository, and risk, then selects targeted checks or an evidence workflow. Git changes use a task-owned worktree; delivery requires authorization and a verified external outcome.
+- **03 · Quick start** — Better Workflows V5.0 RC1 is publicly available: a free, open-source Auto workflow for AI engineering QA and delivery, with current evidence, review gates, and provider reconciliation.
 
 - [`Four explicit boundaries from intent to completion.`](https://betterworkflows.dev/docs/reference/en/index.html) · `en`
 - [`Quick start`](https://betterworkflows.dev/docs/reference/en/preview.html) · `en`
