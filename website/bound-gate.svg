@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc" shape-rendering="geometricPrecision">
-  <title id="title">Better Workflows Bound Gate mark</title>
-  <desc id="desc">Two facing square brackets crossed by a single gold authorization gate.</desc>
-  <g fill="#17213A">
-    <path d="M180 152H424Q452 152 452 180V272H272V752H452V844Q452 872 424 872H180Q152 872 152 844V180Q152 152 180 152Z"/>
-    <path d="M844 152H600Q572 152 572 180V272H752V752H572V844Q572 872 600 872H844Q872 872 872 844V180Q872 152 844 152Z"/>
-  </g>
-  <path fill="#D6A42F" d="M272 452H752V572H272Z"/>
-</svg>

@@ -146,7 +146,7 @@ function buildTime() {
 
 async function websiteAssetVersion() {
   const hash = createHash("sha256");
-  for (const fileName of ["styles.css", "site.js", "bound-gate.svg", "favicon.svg"]) {
+  for (const fileName of ["styles.css", "site.js", "better-workflows-mark.svg", "favicon.svg"]) {
     hash.update(fileName);
     hash.update("\0");
     hash.update(await readFile(path.join(websiteSource, fileName)));
