@@ -157,18 +157,18 @@ test("official website build serves Auto-only public docs without archived templ
     assert.match(release.revision, /^[a-f0-9]{40}$/);
     assert.match(release.assetVersion, /^[a-f0-9]{12}$/);
     assert.match(release.contentDigest, /^[a-f0-9]{64}$/);
-    const canonicalLogo = await readFile(path.join(repoRoot, "website", "bound-gate.svg"), "utf8");
-    for (const asset of ["bound-gate.svg", "favicon.svg"]) {
+    const canonicalLogo = await readFile(path.join(repoRoot, "docs", "html", "assets", "better-workflows-mark.svg"), "utf8");
+    for (const asset of ["better-workflows-mark.svg", "favicon.svg"]) {
       assert.equal(await readFile(path.join(outputDirectory, asset), "utf8"), canonicalLogo, `${asset}: exact approved source asset`);
     }
     const englishV5Title = locales.find((locale) => locale.code === "en").v5Product.title;
     for (const code of PUBLIC_RC1_LOCALE_IDS) {
       const homepage = path.join(outputDirectory, ...(code === DEFAULT_LOCALE ? [] : [code]), "index.html");
       const body = await readFile(homepage, "utf8");
-      const marks = [...body.matchAll(/<img class="brand-mark brand-mark--bound-gate"[^>]*>/g)];
+      const marks = [...body.matchAll(/<img class="brand-mark brand-mark--converge"[^>]*>/g)];
       assert.equal(marks.length, 2, `${code}: header and footer brand marks`);
       for (const [mark] of marks) {
-        assert.ok(mark.includes(`src="/bound-gate.svg?v=${release.assetVersion}"`), `${code}: content-bound asset`);
+        assert.ok(mark.includes(`src="/better-workflows-mark.svg?v=${release.assetVersion}"`), `${code}: content-bound asset`);
         assert.match(mark, /width="36" height="36" alt="" aria-hidden="true"/, `${code}: stable decorative image layout`);
       }
       const v5Status = body.match(/<section class="section shell v5-status-section" id="v5-status">([\s\S]*?)<\/section>/)?.[1] || "";
