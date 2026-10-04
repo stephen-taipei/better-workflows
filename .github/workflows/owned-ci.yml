@@ -1,0 +1,53 @@
+# Trusted-source Linux proof. This runner must never receive approved fork jobs.
+name: Owned Linux CI
+
+on:
+  push:
+    branches: [codex/owned-ci-runner]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: owned-linux-ci
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    if: github.actor == github.repository_owner && github.ref == 'refs/heads/codex/owned-ci-runner'
+    runs-on: ${{ fromJSON('["self-hosted", "Linux", "X64", "bw-owned-ci", "trusted-source"]') }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24.21.0'
+      - name: Verify owned Linux runtime and exact source
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "${RUNNER_ENVIRONMENT}" = self-hosted
+          test "$(uname -s)" = Linux
+          test "$(uname -m)" = x86_64
+          test "$(id -u)" != 0
+          test "$(git rev-parse HEAD)" = "${EXPECTED_SHA}"
+          test "$(node --version)" = v24.21.0
+          test ! -e /var/www
+          test ! -e /opt/actions-runner
+          test ! -e /home/stephen
+          test ! -e /etc/sudoers
+          python3 /usr/local/libexec/negative-probe.py
+          printf 'runner=%s\nsha=%s\nnode=%s\nos=%s\n' "${RUNNER_NAME}" "${EXPECTED_SHA}" "$(node --version)" "$(uname -s)" >> "${GITHUB_STEP_SUMMARY}"
+      - name: Exercise public website contracts
+        run: |
+          node --test --test-concurrency=1 \
+            scripts/tests/rc1-bilingual-site-contract.test.mjs \
+            scripts/tests/structured-data-source.test.mjs \
+            scripts/tests/website-public-qa-documents.test.mjs \
+            scripts/tests/website.test.mjs
+      - name: Exercise Apache wire package
+        run: npm test --prefix packages/better-workflows-wire
