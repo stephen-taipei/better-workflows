@@ -1,3 +1,4 @@
+import { applyPublicSiteShell } from './public-site-shell.mjs';
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { CONNECTORS_LOCALES, DEFAULT_LOCALE, PUBLIC_RC1_LOCALE_IDS, locales } from "./website-locales.mjs";
@@ -257,7 +258,7 @@ export function renderPolicyHtml(policy, code) {
     inLanguage: code, url: canonical, description };
   if (policy.sourceRevision !== null) structuredDataFields.isBasedOn = sourceUrl(policy.source, policy.sourceRevision);
   const structuredData = JSON.stringify(structuredDataFields).replaceAll("<", "\\u003c");
-  return `<!doctype html>
+  return applyPublicSiteShell(`<!doctype html>
 <html lang="${code}" dir="${locale.dir || "ltr"}">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(title)}</title><meta name="description" content="${escapeHtml(description)}">
@@ -286,5 +287,5 @@ ${PUBLIC_RC1_LOCALE_IDS.map((other) => `<a class="locale-option locale-button" d
 <main id="main" data-source="${policy.source}" data-source-sha256="${policy.sha256}"${policy.sourceRevision ? ` data-source-revision="${escapeHtml(policy.sourceRevision)}"` : ""}${policy.sourceStatus ? ` data-source-status="${escapeHtml(policy.sourceStatus)}"` : ""}>
 ${bodyBlocks(policy, code, "html").join("\n")}
 </main><footer><a href="${repository}">${escapeHtml(m.GITHUB_CTA)}</a> · <a href="${SPONSORSHIP.url}">${escapeHtml(m.SPONSOR_CTA)}</a><p>${escapeHtml(m.SPONSOR_BODY)}</p></footer>
-</body></html>\n`;
+</body></html>\n`, { code, path: publicTextPath(code, policy.id), kind: 'document' });
 }

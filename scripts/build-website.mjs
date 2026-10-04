@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+import { applyPublicSiteShell } from './public-site-shell.mjs';
+import { renderHomepageContent } from './homepage-content.mjs';
+import { scanHtml, applyHtmlEdits } from './html-source.mjs';
 
 import { createHash } from "node:crypto";
 import { cp, lstat, mkdir, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
@@ -299,7 +302,7 @@ function renderLocalizedPage(template, locale, commonValues) {
   let content = template;
   for (const key of LOCALE_KEYS) content = content.replaceAll(`__I18N_${key}__`, escapeHtml(locale.messages[key]));
   const canonical = localeUrl(locale.code);
-  return replaceSiteTokens(content, {
+  const rendered = replaceSiteTokens(content, {
     ...commonValues,
     SUPPORT_PATH: supportPath(locale.code),
     SUPPORT_TITLE: escapeHtml(supportCopy[locale.code].title),
@@ -329,6 +332,19 @@ function renderLocalizedPage(template, locale, commonValues) {
       runtimePlatforms: commonValues.RUNTIME_PLATFORMS
     })
   });
+  const tree = scanHtml(rendered);
+  const main = tree.elements.find(n => n.tag === 'main');
+  const sponsor = tree.elements.find(n => n.attributes.id === 'sponsor');
+  const removed = tree.elements.filter(n => n.parent === main && ['sponsor','docs','control-plane'].includes(n.attributes.id)
+    || n.parent === main && /(?:locale-section|closing|metric-bar|hero shell)/.test(n.attributes.class || ''));
+  let reference = applyHtmlEdits(rendered.slice(main.openEnd,main.contentEnd), removed.map(n => ({ start:n.start-main.openEnd,end:n.end-main.openEnd,value:'' })));
+  reference = reference.replace(/<h1\b/g,'<h2').replaceAll('</h1>','</h2>');
+  // The exact historical source copy remains inspectable, outside the visitor's first-read path.
+  const label = locale.code === 'en' ? 'Technical details, release scope & V4 historical reference' : '技術細節、版本範圍與 V4 歷史參考';
+  const note = locale.code === 'en' ? 'The V4 matrices below are historical. Current RC1 supports macOS with Codex, Gemini CLI and Qwen Code on Node 22/24; GA remains pending.' : '下方 V4 支援矩陣屬於歷史資料。目前 RC1 範圍為 macOS、Codex／Gemini CLI／Qwen Code 與 Node 22/24；GA 尚未完成。';
+  const body = renderHomepageContent(locale.code).replace('</main>',`${rendered.slice(sponsor.start,sponsor.end)}<details class="technical-reference shell"><summary>${label}</summary><p>${note}</p><p>${locale.code === "en" ? "Site source revision" : "網站來源版本"}：<code>${commonValues.REVISION}</code></p><div class="legacy-content">${reference}</div></details></main>`);
+  const page = rendered.slice(0,main.start)+body+rendered.slice(main.end);
+  return applyPublicSiteShell(page, { code:locale.code,path:homepagePath(locale.code),kind:'home' });
 }
 
 const docCardIcons = {
@@ -631,7 +647,7 @@ const notFoundData = Object.fromEntries(releaseLocales.map((locale) => [locale.c
   home: homepagePath(locale.code),
   docs: publicDocPath(locale.code, "guide")
 }]));
-await writeFile(notFoundPath, replaceSiteTokens(await readFile(notFoundPath, "utf8"), {
+await writeFile(notFoundPath, applyPublicSiteShell(replaceSiteTokens(await readFile(notFoundPath, "utf8"), {
   ...commonValues,
   DEFAULT_LOCALE: DEFAULT_LOCALE,
   DEFAULT_LOCALE_JSON: JSON.stringify(DEFAULT_LOCALE),
@@ -646,7 +662,7 @@ await writeFile(notFoundPath, replaceSiteTokens(await readFile(notFoundPath, "ut
   LOCALE_LINKS: localeLinks(null),
   LOCALE_BUTTONS: localeButtonLinks(null),
   NOT_FOUND_DATA: JSON.stringify(notFoundData).replaceAll("<", "\\u003c")
-}));
+}), { code: DEFAULT_LOCALE, path: "/404.html", kind: "document" }));
 
 await writeFile(path.join(outputDirectory, "locales.json"), `${JSON.stringify({
   defaultLocale: DEFAULT_LOCALE,

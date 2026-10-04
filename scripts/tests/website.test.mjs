@@ -7,6 +7,8 @@ import { promisify } from "node:util";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { CONNECTORS_LOCALES, DEFAULT_LOCALE, PUBLIC_RC1_LOCALE_IDS, locales } from "../website-locales.mjs";
+import { scanHtml } from "../html-source.mjs";
+import { publicTextPath } from "../policy-routes.mjs";
 import { PUBLIC_DOC_PAGES, publicDocPath } from "../public-docs.mjs";
 
 const execFileAsync = promisify(execFile);
@@ -210,7 +212,7 @@ test("official website build serves Auto-only public docs without archived templ
     assert.equal(await readFile(path.join(outputDirectory, "healthz"), "utf8"), "ok\n");
 
     const defaultDocs = await readFile(path.join(outputDirectory, "docs", "index.html"), "utf8");
-    assert.match(defaultDocs, /<h2>Auto<\/h2>/);
+    assert.match(defaultDocs, /<h1>從這裡開始<\/h1>/);
     assert.match(defaultDocs, /read-only-v1/);
     assert.match(defaultDocs, /code-change-v1/);
     assert.match(defaultDocs, /dev-publish-v1/);
@@ -276,7 +278,7 @@ test("official website build serves Auto-only public docs without archived templ
     assert.equal(pluginManifest.version, sourcePluginManifest.version);
     assert.match(
       await readFile(path.join(outputDirectory, "docs", "evidence-cinema", "index.html"), "utf8"),
-      /BETTER WORKFLOWS · 5\.0\.0/
+      /V5.0 RC1 已公開/
     );
 
     for (const relativePath of ["docs/index.html", "docs/use-cases/index.html"]) {
@@ -337,6 +339,36 @@ test("official website build serves Auto-only public docs without archived templ
       assert.doesNotMatch(html, /<iframe|data-bw-localized-reference/);
     }
 
+    const visitableRoutes = ["/", "/en/", "/support/", "/en/support/", "/404.html",
+      ...PUBLIC_RC1_LOCALE_IDS.flatMap(code => PUBLIC_DOC_PAGES.map(page => publicDocPath(code,page.id))),
+      ...PUBLIC_RC1_LOCALE_IDS.flatMap(code => ["security","contributing","governance","conduct","getting-started","workflows","architecture","security-guide","cli-reference"].map(id => publicTextPath(code,id)))];
+    for (const route of visitableRoutes) {
+      const html = await readFile(path.join(outputDirectory, route === "/404.html" ? "404.html" : route.slice(1)+"index.html"), "utf8");
+      const nodes = scanHtml(html).elements;
+      if (/<meta http-equiv="refresh"/.test(html)) {
+        assert.ok(/\/guides\/(architecture|security-guide|cli-reference)\/$/.test(route),route+": only documented retired routes may redirect here");
+        assert.match(html, /<meta name="robots" content="noindex,follow">/);
+        assert.equal(nodes.filter(n => Object.hasOwn(n.attributes,"data-locale-button")).length,2,route+": redirect keeps both locale routes");
+        continue;
+      }
+      assert.equal(nodes.filter(n => n.tag === "header" && n.attributes.class === "site-header").length,1, route+": shared header");
+      assert.equal(nodes.filter(n => n.tag === "main").length,1, route+": one main landmark");
+      assert.equal(nodes.filter(n => n.tag === "h1").length,1, route+": one primary heading");
+      assert.equal(nodes.filter(n => Object.hasOwn(n.attributes,"data-theme-toggle")).length,1, route+": one theme control");
+      const language = nodes.filter(n => n.tag === "details" && n.attributes.class === "locale-menu");
+      assert.equal(language.length,1, route+": one language control");
+      assert.ok(!Object.hasOwn(language[0].attributes,"open"), route+": language starts closed");
+      assert.equal(nodes.filter(n => n.tag === "select").filter(n => /locale/i.test(n.attributes.id||"")).length,0, route+": no duplicate locale selector");
+      const ids=nodes.map(n=>n.attributes.id).filter(Boolean);
+      assert.equal(new Set(ids).size,ids.length, route+": unique IDs");
+      const home=route.startsWith("/en/") ? "/en/" : "/";
+      for (const anchor of ["product","workflow","install","principles"]) assert.ok(html.includes(`href="${home}#${anchor}"`),route+": homepage navigation "+anchor);
+      const menuLinks=nodes.filter(n=>Object.hasOwn(n.attributes,"data-locale-button"));
+      assert.equal(menuLinks.length,2,route+": bilingual links work without scripts");
+      assert.doesNotMatch(html,/<iframe\b/);
+    }
+    const pageBodies=await Promise.all(["docs/index.html","docs/quick/index.html","docs/use-cases/index.html","docs/use-cases/quick/index.html"].map(file=>readFile(path.join(outputDirectory,file),"utf8")));
+    assert.equal(new Set(pageBodies.map(html=>html.match(/<article class="document-content">([\s\S]*?)<\/article>/)?.[1])).size,4,"four documentation pages have distinct content");
     const outputStats = await stat(outputDirectory);
     assert.equal(outputStats.isDirectory(), true);
     await verifyBuiltSiteWithPublicQaFixture(temporaryRoot, outputDirectory, release.revision);
@@ -354,5 +386,5 @@ test("sponsorship address and responsive navigation remain readable", async () =
   const styles = await readFile(path.join(repoRoot, "website", "styles.css"), "utf8");
   assert.match(styles, /\.sponsor-address\s*\{[^}]*overflow-wrap:\s*anywhere;[^}]*direction:\s*ltr;[^}]*user-select:\s*all;/);
   assert.match(styles, /\.sponsor-qr\s*\{[^}]*background:\s*#fff;/);
-  assert.match(styles, /@media \(max-width: 1080px\)[^{]*\{[^}]*\.header-inner/);
+  assert.match(styles, /@media\s*\(max-width:\s*1100px\)[^{]*\{[^}]*\.header-inner/);
 });

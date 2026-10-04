@@ -1,3 +1,4 @@
+import { applyPublicSiteShell } from './public-site-shell.mjs';
 import { createHash } from "node:crypto";
 import { readFile, lstat } from "node:fs/promises";
 import path from "node:path";
@@ -247,5 +248,6 @@ function renderPage(guide, code, publicPage) {
   const head = source.tree.elements.find((node) => node.tag === "head"), main = nodeById("main");
   edits.push({ start: head.contentEnd, end: head.contentEnd, value: '\n<meta name="robots" content="noindex,follow"><link rel="canonical" href="https://betterworkflows.dev' + publicDocPath(code, "evidence-cinema") + '">' + (publicPage ? [...PUBLIC_RC1_LOCALE_IDS, "x-default"].map((item) => '<link rel="alternate" hreflang="' + item + '" href="https://betterworkflows.dev' + publicDocPath(item === "x-default" ? DEFAULT_LOCALE : item, "evidence-cinema") + '">').join("") : "") });
   edits.push({ start: main.openEnd, end: main.openEnd, value: '<p class="cinema-draft">' + escapeHtml(ui.draft) + '</p>' });
-  return applyHtmlEdits(source.html, edits);
+  const rendered = applyHtmlEdits(source.html, edits);
+  return publicPage ? applyPublicSiteShell(rendered, { code, path: publicDocPath(code, "evidence-cinema"), kind: "cinema" }) : rendered;
 }

@@ -1,3 +1,4 @@
+import { applyPublicSiteShell } from './public-site-shell.mjs';
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
@@ -152,7 +153,7 @@ export function renderSupportHtml(code) {
   const structuredData = JSON.stringify({ "@context": "https://schema.org", "@type": "WebPage", name: title,
     inLanguage: code, url: canonical, description: t.helpIntro,
     isBasedOn: sourceUrl(SUPPORT_SOURCE.path) }).replaceAll("<", "\\u003c");
-  return `<!doctype html>
+  return applyPublicSiteShell(`<!doctype html>
 <html lang="${code}" dir="${locale.dir || "ltr"}">
 <head>
 <meta charset="utf-8">
@@ -190,7 +191,7 @@ ${publicRc1Locales.map((item) => `<a class="locale-option locale-button" data-lo
 <nav aria-label="${html(m.MENU)}">${navigation.map(([key, target]) => link(t[key] || key, target)).join("\n")}</nav>
 <p><a href="${publicDocPath(code, "guide")}">${html(m.DOCS_CTA)}</a></p>
 <h2>${html(t.start)}</h2>
-<ul>${guideLinks.map(([key, target]) => `<li>${link(t[key], target)} · <code>${Object.hasOwn(PUBLIC_TEXT_ROUTES, target) ? code : "en"}</code></li>`).join("\n")}</ul>
+<ul>${guideLinks.map(([key, target]) => `<li>${link(t[key], target)}</li>`).join("\n")}</ul>
 <h2>${html(t.help)}</h2><p>${html(t.helpIntro)}</p>
 <ul>${detailKeys.map((key) => `<li>${html(t[key])}</li>`).join("\n")}</ul>
 <p class="notice">${html(t.sensitive)}</p><p>${html(t.feature)}</p>
@@ -198,5 +199,5 @@ ${publicRc1Locales.map((item) => `<a class="locale-option locale-button" data-lo
 </main>
 <footer><a href="https://github.com/stephen-taipei/better-workflows">${html(m.GITHUB_CTA)}</a> · <a href="${SPONSORSHIP.url}">${html(m.SPONSOR_CTA)}</a><p>${html(m.SPONSOR_BODY)}</p></footer>
 </body></html>
-`;
+`, { code, path: supportPath(code), kind: 'document' });
 }
