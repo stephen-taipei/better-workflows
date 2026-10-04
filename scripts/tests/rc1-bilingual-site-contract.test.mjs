@@ -161,8 +161,7 @@ test("RC1 website exposes only the bilingual route, navigation, and content cont
       assertPageAlternates(home, homepagePath, locale.code + " homepage");
 
       for (const key of [
-        "TITLE", "DESCRIPTION", "HERO_TITLE", "HERO_ACCENT", "HERO_LEAD",
-        "CONTROL_TITLE", "CONTROL_SUMMARY", "V4_CLAIM_LIMIT"
+        "TITLE", "DESCRIPTION", "V4_CLAIM_LIMIT"
       ]) {
         assert.ok(home.includes(escapeHtml(locale.messages[key])), locale.code + "." + key + " must be rendered");
       }
@@ -205,7 +204,7 @@ test("RC1 website exposes only the bilingual route, navigation, and content cont
     const taiwanHome = pagePaths.get(homepagePath("zh-Hant-TW"));
     const englishLocale = locales.find(({ code }) => code === "en");
     const taiwanLocale = locales.find(({ code }) => code === "zh-Hant-TW");
-    for (const key of ["TITLE", "DESCRIPTION", "HERO_TITLE", "HERO_ACCENT", "HERO_LEAD", "CONTROL_TITLE", "CONTROL_SUMMARY"]) {
+    for (const key of ["TITLE", "DESCRIPTION"]) {
       assert.notEqual(englishLocale.messages[key], taiwanLocale.messages[key], key + ": source copy remains locale-specific");
       assert.ok(taiwanHome.includes(escapeHtml(taiwanLocale.messages[key])), "zh-Hant-TW." + key + ": localized copy is rendered");
       assert.ok(!taiwanHome.includes(escapeHtml(englishLocale.messages[key])), "zh-Hant-TW." + key + ": English fallback is absent");

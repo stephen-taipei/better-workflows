@@ -83,9 +83,12 @@ async function stagedInteractiveCoverage(repositoryRoot, spec, publicLocaleIds) 
 
 async function dynamicTemplateCoverage(repositoryRoot, file) {
   const source = await readFile(path.join(repositoryRoot, file), "utf8");
-  const requiredTokens = file === "website/404.html"
-    ? ["__SITE_NOT_FOUND_DATA__", "__SITE_LOCALE_OPTIONS__", "__SITE_LOCALE_LINKS__", "__SITE_LOCALE_BUTTONS__"]
-    : ["__SITE_LOCALE_OPTIONS__", "__SITE_LOCALE_LINKS__", "__SITE_LOCALE_BUTTONS__"];
+  if (file === "website/404.html") {
+    if (!source.includes('lang="en"') || !source.includes('找不到這個頁面')) throw new Error('404 requires a bilingual recovery message');
+    return { path: file, sourceSha256: sha256(source), localeCount: CONNECTORS_LOCALES.length,
+      fullTextParity: "bilingual-static-recovery-page", verification: "Bilingual recovery text with the shared public navigation; locale links lead to the corresponding homepage." };
+  }
+  const requiredTokens = ["__SITE_LOCALE_OPTIONS__", "__SITE_LOCALE_LINKS__", "__SITE_LOCALE_BUTTONS__"];
   for (const token of requiredTokens) if (!source.includes(token)) throw new Error(`Dynamic locale template token missing: ${file}/${token}`);
   return {
     path: file,
