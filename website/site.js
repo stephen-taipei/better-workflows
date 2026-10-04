@@ -83,7 +83,12 @@
     if (dd && dd.open && !narrow()) { dd.open = false; const s = $('summary', dd); s && s.focus(); }
     if (menuBtn && menuBtn.getAttribute('aria-expanded') === 'true') { setMenu(false); menuBtn.focus(); }
   });
-  window.addEventListener('resize', () => { if (!narrow()) setMenu(false); });
+  window.addEventListener('resize', () => {
+    if (!narrow()) {
+      setMenu(false);
+      if (dd) dd.open = false;
+    }
+  });
 
   /* ---------- Reading progress ---------- */
   const header = $('[data-site-header]');
