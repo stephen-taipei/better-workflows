@@ -160,8 +160,27 @@ test("official website build serves Auto-only public docs without archived templ
     assert.match(release.assetVersion, /^[a-f0-9]{12}$/);
     assert.match(release.contentDigest, /^[a-f0-9]{64}$/);
     const canonicalLogo = await readFile(path.join(repoRoot, "docs", "html", "assets", "better-workflows-mark.svg"), "utf8");
-    for (const asset of ["better-workflows-mark.svg", "favicon.svg"]) {
-      assert.equal(await readFile(path.join(outputDirectory, asset), "utf8"), canonicalLogo, `${asset}: exact approved source asset`);
+    assert.equal(await readFile(path.join(outputDirectory, "better-workflows-mark.svg"), "utf8"), canonicalLogo, "better-workflows-mark.svg: exact approved source asset");
+    // The tab icon is the same approved Converge geometry on a square canvas, so it stays centred and legible at 16px.
+    const logoGeometry = (svg) => svg.match(/<path\b[^>]*\sd="([^"]+)"/)?.[1];
+    const logoFill = (svg) => svg.match(/<path\b[^>]*\sfill="([^"]+)"/)?.[1];
+    const favicon = await readFile(path.join(outputDirectory, "favicon.svg"), "utf8");
+    assert.ok(logoGeometry(canonicalLogo), "canonical logo has path geometry");
+    assert.equal(logoGeometry(favicon), logoGeometry(canonicalLogo), "favicon.svg: exact approved Converge geometry");
+    assert.equal(logoFill(favicon), logoFill(canonicalLogo), "favicon.svg: approved brand orange");
+    const [, , faviconWidth, faviconHeight] = favicon.match(/viewBox="([^"]+)"/)[1].split(/\s+/).map(Number);
+    assert.equal(faviconWidth, faviconHeight, "favicon.svg: square canvas");
+    const iconHeader = (await readFile(path.join(outputDirectory, "favicon.ico"))).subarray(0, 6);
+    assert.deepEqual([...iconHeader.subarray(0, 4)], [0, 0, 1, 0], "favicon.ico: ICO container for browsers without SVG icon support");
+    const touchIcon = await readFile(path.join(outputDirectory, "apple-touch-icon.png"));
+    assert.equal(touchIcon.subarray(1, 4).toString("latin1"), "PNG", "apple-touch-icon.png: PNG");
+    assert.equal(touchIcon.readUInt32BE(16), 180);
+    assert.equal(touchIcon.readUInt32BE(20), 180);
+    for (const code of PUBLIC_RC1_LOCALE_IDS) {
+      const home = await readFile(path.join(outputDirectory, ...(code === DEFAULT_LOCALE ? [] : [code]), "index.html"), "utf8");
+      assert.match(home, new RegExp(`<link rel="icon" href="/favicon\\.svg\\?v=${release.assetVersion}" type="image/svg\\+xml"`), `${code}: content-bound SVG icon`);
+      assert.match(home, new RegExp(`<link rel="apple-touch-icon" href="/apple-touch-icon\\.png\\?v=${release.assetVersion}">`), `${code}: content-bound touch icon`);
+      assert.equal((home.match(/rel="icon"/g) || []).length, 2, `${code}: exactly the .ico and .svg icons`);
     }
     const englishV5Title = locales.find((locale) => locale.code === "en").v5Product.title;
     for (const code of PUBLIC_RC1_LOCALE_IDS) {
@@ -171,7 +190,7 @@ test("official website build serves Auto-only public docs without archived templ
       assert.equal(marks.length, 2, `${code}: header and footer brand marks`);
       for (const [mark] of marks) {
         assert.ok(mark.includes(`src="/better-workflows-mark.svg?v=${release.assetVersion}"`), `${code}: content-bound asset`);
-        assert.match(mark, /width="36" height="36" alt="" aria-hidden="true"/, `${code}: stable decorative image layout`);
+        assert.match(mark, /width="34" height="27" alt="" aria-hidden="true"/, `${code}: stable decorative image layout matching the 756:608 mark`);
       }
       const v5Status = body.match(/<section class="section shell v5-status-section" id="v5-status">([\s\S]*?)<\/section>/)?.[1] || "";
       assert.ok(v5Status.trim(), `${code}: V5 product status must be rendered`);
@@ -355,9 +374,9 @@ test("official website build serves Auto-only public docs without archived templ
       assert.equal(nodes.filter(n => n.tag === "main").length,1, route+": one main landmark");
       assert.equal(nodes.filter(n => n.tag === "h1").length,1, route+": one primary heading");
       assert.equal(nodes.filter(n => Object.hasOwn(n.attributes,"data-theme-toggle")).length,1, route+": one theme control");
-      const language = nodes.filter(n => n.tag === "details" && n.attributes.class === "locale-menu");
+      const language = nodes.filter(n => n.tag === "nav" && n.attributes.class === "lang" && Object.hasOwn(n.attributes,"data-public-locale-buttons"));
       assert.equal(language.length,1, route+": one language control");
-      assert.ok(!Object.hasOwn(language[0].attributes,"open"), route+": language starts closed");
+      assert.equal(nodes.filter(n => n.tag === "details" && n.attributes.class === "locale-menu").length,0, route+": no legacy language dropdown");
       assert.equal(nodes.filter(n => n.tag === "select").filter(n => /locale/i.test(n.attributes.id||"")).length,0, route+": no duplicate locale selector");
       const ids=nodes.map(n=>n.attributes.id).filter(Boolean);
       assert.equal(new Set(ids).size,ids.length, route+": unique IDs");

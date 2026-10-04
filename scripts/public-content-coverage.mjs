@@ -88,7 +88,10 @@ async function dynamicTemplateCoverage(repositoryRoot, file) {
     return { path: file, sourceSha256: sha256(source), localeCount: CONNECTORS_LOCALES.length,
       fullTextParity: "bilingual-static-recovery-page", verification: "Bilingual recovery text with the shared public navigation; locale links lead to the corresponding homepage." };
   }
-  const requiredTokens = ["__SITE_LOCALE_OPTIONS__", "__SITE_LOCALE_LINKS__", "__SITE_LOCALE_BUTTONS__"];
+  // The homepage renders its locale controls in the shared public shell; the retired doc shell keeps its own.
+  const requiredTokens = file === "scripts/templates/localized-homepage.html"
+    ? ["__SITE_HREFLANG_LINKS__", "__SITE_HOME_MAIN__"]
+    : ["__SITE_LOCALE_OPTIONS__", "__SITE_LOCALE_LINKS__", "__SITE_LOCALE_BUTTONS__"];
   for (const token of requiredTokens) if (!source.includes(token)) throw new Error(`Dynamic locale template token missing: ${file}/${token}`);
   return {
     path: file,

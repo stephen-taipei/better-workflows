@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import { applyPublicSiteShell } from './public-site-shell.mjs';
 import { renderHomepageContent } from './homepage-content.mjs';
-import { scanHtml, applyHtmlEdits } from './html-source.mjs';
 
 import { createHash } from "node:crypto";
 import { cp, lstat, mkdir, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
@@ -11,8 +10,8 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { CONNECTORS_LOCALES, DEFAULT_LOCALE, LOCALE_KEYS, PUBLIC_RC1_LOCALE_IDS, locales, publicRc1Locales } from "./website-locales.mjs";
-import { PUBLIC_DOC_PAGES, homepagePath, publicDocCards, publicDocPath } from "./public-docs.mjs";
-import { renderSupportHtml, supportCopy, supportPath } from "./localized-support.mjs";
+import { PUBLIC_DOC_PAGES, homepagePath, publicDocPath } from "./public-docs.mjs";
+import { renderSupportHtml, supportPath } from "./localized-support.mjs";
 import { publicContentCoverage } from "./public-content-coverage.mjs";
 import { isIndexablePolicy, policyTitle, renderPolicyHtml } from "./localized-policies.mjs";
 import { loadPublicTexts } from "./localized-public-text.mjs";
@@ -149,7 +148,7 @@ function buildTime() {
 
 async function websiteAssetVersion() {
   const hash = createHash("sha256");
-  for (const fileName of ["styles.css", "site.js", "better-workflows-mark.svg", "favicon.svg"]) {
+  for (const fileName of ["styles.css", "site.js", "better-workflows-mark.svg", "favicon.svg", "favicon.ico", "apple-touch-icon.png"]) {
     hash.update(fileName);
     hash.update("\0");
     hash.update(await readFile(path.join(websiteSource, fileName)));
@@ -277,52 +276,32 @@ function replaceSiteTokens(content, values) {
   return content.replace(/__SITE_([A-Z0-9_]+)__/g, (_, key) => values[key] ?? "unknown");
 }
 
-function renderLocalizedList(value, className) {
-  const items = String(value).split("|").map((item) => item.trim()).filter(Boolean);
-  return `<ol class="${className}">${items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ol>`;
-}
-
-function renderV5ProductStatus(locale) {
-  const copy = locale?.v5Product;
-  const fields = ["eyebrow", "title", "boundary", "scope", "license", "plan"];
-  if (!copy || fields.some((field) => typeof copy[field] !== "string" || copy[field].trim() === "")) {
-    throw new Error("Missing complete V5 product copy: " + (locale?.code || "unknown"));
-  }
-  return [
-    `<p class="eyebrow">${escapeHtml(copy.eyebrow)}</p>`,
-    `<h2>${escapeHtml(copy.title)}</h2>`,
-    `<p>${escapeHtml(copy.boundary)}</p>`,
-    `<p>${escapeHtml(copy.scope)}</p>`,
-    `<p>${escapeHtml(copy.license)}</p>`,
-    `<p>${escapeHtml(copy.plan)}</p>`
-  ].join("\n");
-}
-
 function renderLocalizedPage(template, locale, commonValues) {
   let content = template;
   for (const key of LOCALE_KEYS) content = content.replaceAll(`__I18N_${key}__`, escapeHtml(locale.messages[key]));
   const canonical = localeUrl(locale.code);
+  const homeMain = renderHomepageContent(locale.code, {
+    messages: locale.messages,
+    v5Product: locale.v5Product,
+    hostMatrixHtml: commonValues.HOST_SUPPORT_MATRIX,
+    revision: commonValues.REVISION,
+    sponsor: {
+      address: SPONSORSHIP.address,
+      qr: commonValues.SPONSOR_QR,
+      cta: locale.messages.SPONSOR_CTA,
+      title: locale.messages.SPONSOR_TITLE,
+      body: locale.messages.SPONSOR_BODY
+    }
+  });
   const rendered = replaceSiteTokens(content, {
     ...commonValues,
-    SUPPORT_PATH: supportPath(locale.code),
-    SUPPORT_TITLE: escapeHtml(supportCopy[locale.code].title),
-    POLICIES_NAV: policies.map((policy) => `<a href="${publicTextPath(locale.code, policy.id)}">${escapeHtml(policyTitle(policy, locale.code))}</a>`).join("\n"),
     LOCALE: locale.code,
     DIRECTION: locale.dir || "ltr",
     OG_LOCALE: openGraphLocales[locale.code],
     CANONICAL: canonical,
-    HOME_PATH: homepagePath(locale.code),
     IMAGE_ALT: escapeHtml(`${locale.messages.CONTROL_TITLE} — Better Workflows`),
     HREFLANG_LINKS: hreflangLinks(),
-    LOCALE_OPTIONS: localeOptions(locale.code),
-    LOCALE_LINKS: localeLinks(locale.code),
-    LOCALE_BUTTONS: localeButtonLinks(locale.code),
-    DOCS_PATH: publicDocPath(locale.code, "guide"),
-    CINEMA_PATH: publicDocPath(locale.code, "evidence-cinema"),
-    DOC_CARDS: renderDocumentCards(locale, null),
-    AUTO_FLOW_ITEMS: renderLocalizedList(locale.messages.V4_AUTO_FLOW, "auto-flow-list"),
-    BOUNDARY_ITEMS: renderLocalizedList(locale.messages.V4_BOUNDARIES, "boundary-list"),
-    V5_PRODUCT_STATUS: renderV5ProductStatus(locale),
+    HOME_MAIN: homeMain,
     STRUCTURED_DATA: structuredData({
       locale: locale.code,
       title: locale.messages.TITLE,
@@ -332,36 +311,7 @@ function renderLocalizedPage(template, locale, commonValues) {
       runtimePlatforms: commonValues.RUNTIME_PLATFORMS
     })
   });
-  const tree = scanHtml(rendered);
-  const main = tree.elements.find(n => n.tag === 'main');
-  const sponsor = tree.elements.find(n => n.attributes.id === 'sponsor');
-  const removed = tree.elements.filter(n => n.parent === main && ['sponsor','docs','control-plane'].includes(n.attributes.id)
-    || n.parent === main && /(?:locale-section|closing|metric-bar|hero shell)/.test(n.attributes.class || ''));
-  let reference = applyHtmlEdits(rendered.slice(main.openEnd,main.contentEnd), removed.map(n => ({ start:n.start-main.openEnd,end:n.end-main.openEnd,value:'' })));
-  reference = reference.replace(/<h1\b/g,'<h2').replaceAll('</h1>','</h2>');
-  // The exact historical source copy remains inspectable, outside the visitor's first-read path.
-  const label = locale.code === 'en' ? 'Technical details, release scope & V4 historical reference' : '技術細節、版本範圍與 V4 歷史參考';
-  const note = locale.code === 'en' ? 'The V4 matrices below are historical. Current RC1 supports macOS with Codex, Gemini CLI and Qwen Code on Node 22/24; GA remains pending.' : '下方 V4 支援矩陣屬於歷史資料。目前 RC1 範圍為 macOS、Codex／Gemini CLI／Qwen Code 與 Node 22/24；GA 尚未完成。';
-  const body = renderHomepageContent(locale.code).replace('</main>',`${rendered.slice(sponsor.start,sponsor.end)}<details class="technical-reference shell"><summary>${label}</summary><p>${note}</p><p>${locale.code === "en" ? "Site source revision" : "網站來源版本"}：<code>${commonValues.REVISION}</code></p><div class="legacy-content">${reference}</div></details></main>`);
-  const page = rendered.slice(0,main.start)+body+rendered.slice(main.end);
-  return applyPublicSiteShell(page, { code:locale.code,path:homepagePath(locale.code),kind:'home' });
-}
-
-const docCardIcons = {
-  guide: "◎",
-  quick: "▱",
-  "use-cases": "↯",
-  "use-cases-quick": "≡",
-  "evidence-cinema": "▶"
-};
-
-function renderDocumentCards(locale, currentPageId) {
-  return publicDocCards(locale).map((card) => {
-    const current = card.id === currentPageId ? ' aria-current="page"' : "";
-    return `<a class="doc-card${card.id === "guide" ? " doc-card-featured" : ""}" href="${card.path}"${current}>
-      <div class="doc-icon">${docCardIcons[card.id]}</div><div><h3>${escapeHtml(card.title)}</h3><p>${escapeHtml(card.description)}</p></div><span class="doc-arrow">↗</span>
-    </a>`;
-  }).join("\n");
+  return applyPublicSiteShell(rendered, { code: locale.code, path: homepagePath(locale.code), kind: "home" });
 }
 
 async function ensurePhysicalOutputDirectory(directory) {
@@ -662,7 +612,7 @@ await writeFile(notFoundPath, applyPublicSiteShell(replaceSiteTokens(await readF
   LOCALE_LINKS: localeLinks(null),
   LOCALE_BUTTONS: localeButtonLinks(null),
   NOT_FOUND_DATA: JSON.stringify(notFoundData).replaceAll("<", "\\u003c")
-}), { code: DEFAULT_LOCALE, path: "/404.html", kind: "document" }));
+}), { code: DEFAULT_LOCALE, path: "/404.html", kind: "notfound" }));
 
 await writeFile(path.join(outputDirectory, "locales.json"), `${JSON.stringify({
   defaultLocale: DEFAULT_LOCALE,
