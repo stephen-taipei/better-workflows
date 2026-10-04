@@ -4,8 +4,8 @@ import path from "node:path";
 
 export const POLICY_SPECS = Object.freeze([
   { id: "security", source: "SECURITY.md", sha256: "a16157ba5c7878255a8c6b83a10edfb8d157f03df3a2b1a542a5e2f34ee0b808" },
-  { id: "contributing", source: "CONTRIBUTING.md", sha256: "8255b9afa55125d7078e94e7ba08228ed7ee383a05319271213c5e95feafd20e" },
-  { id: "governance", source: "GOVERNANCE.md", sha256: "037565854db49b1dd4eea8c02d6216df9c0ae4940fbfe89750c2dd50586ffa57" }
+  { id: "contributing", source: "CONTRIBUTING.md", sha256: "2dcb0c18d578937b481e6588ae76784829d1a33855ea6bede5d003dfe33a935d" },
+  { id: "governance", source: "GOVERNANCE.md", sha256: "1639c4634b05d69d4512a56cd48a9554ef5530423cc72b7d1f20387b22c9ce04" }
 ]);
 
 export function markdownBlocks(source) {

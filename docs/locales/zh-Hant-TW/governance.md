@@ -1,4 +1,4 @@
-<!-- Generated from GOVERNANCE.md; source-sha256: 037565854db49b1dd4eea8c02d6216df9c0ae4940fbfe89750c2dd50586ffa57; edit docs/rc1-catalogs/policies/*.json. -->
+<!-- Generated from GOVERNANCE.md; source-sha256: 1639c4634b05d69d4512a56cd48a9554ef5530423cc72b7d1f20387b22c9ce04; edit docs/rc1-catalogs/policies/*.json. -->
 # 專案治理
 
 [English](../en/governance.md) · **繁體中文（台灣）**
@@ -21,6 +21,8 @@ Better Workflows 由維護者主導。
 在一次 Better Workflows 執行中，Root 是唯一有權執行狀態變更並接受風險的主體。 這項執行階段規則不授予儲存庫擁有權，也不會凌駕 GitHub 權限。
 
 ## 版本發布
+
+V5\.1 從公開 RC1 基準於隔離功能分支開發。功能PR以受保護的 `dev` 為目標；維護者協調最後release PR由 `dev` 至 `main`。merge前需獨立審查、最新必要checks與provider對帳。開發許可不代表activation、pilot或GA。
 
 外掛快取建置版本不可變更。候選發布版本必須在發布前通過適用的測試、評估、證據時效性、證據、受保護分支，以及來源／快取核對關卡。
 

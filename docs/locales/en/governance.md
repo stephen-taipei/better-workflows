@@ -1,4 +1,4 @@
-<!-- Generated from GOVERNANCE.md; source-sha256: 037565854db49b1dd4eea8c02d6216df9c0ae4940fbfe89750c2dd50586ffa57; edit docs/rc1-catalogs/policies/*.json. -->
+<!-- Generated from GOVERNANCE.md; source-sha256: 1639c4634b05d69d4512a56cd48a9554ef5530423cc72b7d1f20387b22c9ce04; edit docs/rc1-catalogs/policies/*.json. -->
 # Governance
 
 **English** · [繁體中文（台灣）](../zh-Hant-TW/governance.md)
@@ -21,6 +21,8 @@ Better Workflows is maintainer\-led\.
 Within a Better Workflows run\, Root is the only mutation and risk\-acceptance authority\. This runtime rule does not grant repository ownership or override GitHub permissions\.
 
 ## Releases
+
+V5\.1 development starts from the public RC1 baseline in isolated feature branches\. Feature pull requests target protected `dev`\; the maintainer coordinates the final release pull request from `dev` to `main`\. Independent review\, fresh required checks and provider reconciliation precede merge\. Development permission does not establish activation\, pilot or GA\.
 
 Plugin cache builds are immutable\. A release candidate must pass the applicable tests\, evaluation\, freshness\, evidence\, protected\-branch\, and source\/cache reconciliation gates before publication\.
 

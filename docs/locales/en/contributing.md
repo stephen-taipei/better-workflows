@@ -1,4 +1,4 @@
-<!-- Generated from CONTRIBUTING.md; source-sha256: 8255b9afa55125d7078e94e7ba08228ed7ee383a05319271213c5e95feafd20e; edit docs/rc1-catalogs/policies/*.json. -->
+<!-- Generated from CONTRIBUTING.md; source-sha256: 2dcb0c18d578937b481e6588ae76784829d1a33855ea6bede5d003dfe33a935d; edit docs/rc1-catalogs/policies/*.json. -->
 # Contributing
 
 **English** · [繁體中文（台灣）](../zh-Hant-TW/contributing.md)
@@ -17,6 +17,8 @@ Thank you for helping improve Better Workflows\.
 - Report vulnerabilities privately as described in [SECURITY\.md](security.md)\.
 
 ## Development setup
+
+For V5\.1 development\, use a task\-owned feature branch and worktree based on the current protected `dev`\. Target feature pull requests at `dev`\. The maintainer integrates reviewed changes through fresh required checks\; workers preserve other owners\' paths and hand shared integration to Root\.
 
 Requirements\:
 

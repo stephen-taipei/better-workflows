@@ -24,6 +24,12 @@ override GitHub permissions.
 
 ## Releases
 
+V5.1 development starts from the public RC1 baseline in isolated feature
+branches. Feature pull requests target protected `dev`; the maintainer
+coordinates the final release pull request from `dev` to `main`.
+Independent review, fresh required checks and provider reconciliation precede
+merge. Development permission does not establish activation, pilot or GA.
+
 Plugin cache builds are immutable. A release candidate must pass the applicable
 tests, evaluation, freshness, evidence, protected-branch, and source/cache
 reconciliation gates before publication.

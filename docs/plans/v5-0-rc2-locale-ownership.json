@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "existing": [
+    "en",
+    "zh-Hant-TW"
+  ],
+  "deferred": {
+    "RC2-L12": [
+      "zh-Hant",
+      "zh-Hant-HK",
+      "zh-Hans",
+      "vi",
+      "uk",
+      "tr",
+      "th",
+      "sv",
+      "sk",
+      "ru",
+      "ro",
+      "pt"
+    ],
+    "RC2-L14": [
+      "pt-BR",
+      "pl",
+      "nl",
+      "nb",
+      "my",
+      "ms",
+      "lo",
+      "ko",
+      "km",
+      "ja",
+      "it",
+      "id",
+      "hu",
+      "hr"
+    ],
+    "RC2-L13": [
+      "hi",
+      "he",
+      "fr",
+      "fil",
+      "fi",
+      "es",
+      "es-MX",
+      "el",
+      "de",
+      "da",
+      "cs",
+      "ca",
+      "ar"
+    ]
+  },
+  "deferredCount": 39,
+  "total": 41,
+  "state": "identities-frozen-content-rights-HOLD"
+}

@@ -111,6 +111,7 @@ jobs:
             scripts/tests/structured-data-source.test.mjs \
             scripts/tests/website-public-qa-documents.test.mjs \
             scripts/tests/website.test.mjs
+          node --test scripts/tests/v51-plan-catalog.test.mjs
   runtime-qualification-v2:
     name: Runtime qualification v2 / ${{ matrix.lane }}
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'

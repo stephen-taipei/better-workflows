@@ -1,0 +1,1771 @@
+{
+  "schemaVersion": 1,
+  "kind": "V51RequirementsCatalog",
+  "sourceDigest": "2694daf569ea621e21bbb607631c037034399a7f21c81042a7188acab4c4934b",
+  "developmentBase": "9afb9e119d74ff721fe6e0cb75760a0c32e7de25",
+  "counts": {
+    "必交": 74,
+    "決策": 17,
+    "條件": 9,
+    "研究": 2
+  },
+  "rows": [
+    {
+      "id": "1",
+      "requirement": "保存本 V5.1 規格與矩陣，且不修改 r4 的任何 row、要求或分母",
+      "owner": "Root／Docs",
+      "evidence": "本檔 diff；`docs/plans/v5-r4.md` 與 `v5-r4-execution.md` 未變更的證明",
+      "negative": "把 V5.1 項目併入 r4 矩陣；以 V5.1 evidence 改變 r4 Status；把計畫當成實作",
+      "rollback": "回 plan-only，所有功能維持 pending",
+      "status": "pending",
+      "wave": "文件",
+      "category": "必交",
+      "dependencies": "—",
+      "control": "契約／gate；無獨立開關"
+    },
+    {
+      "id": "2",
+      "requirement": "區分公開 RC1 隔離開發與功能啟用／pilot／發布前置",
+      "owner": "Release",
+      "evidence": "public development base 9afb9e119d74ff721fe6e0cb75760a0c32e7de25；protected dev、feature/worktree；promotion前重核適用V5 gates及正式GA baseline；RC1終態不改寫",
+      "negative": "把RC1開發許可當enable／pilot／GA；使用不同SHA的receipt",
+      "rollback": "停止受影響啟用與發布；保留隔離開發成果及HOLD",
+      "status": "pending",
+      "wave": "G",
+      "category": "必交",
+      "dependencies": "開發：公開RC1；啟用／發布：適用V5 gates",
+      "control": "契約／gate；無獨立開關"
+    },
+    {
+      "id": "3",
+      "requirement": "`types/workflow-plan-v1.d.ts` 與實作同步（至少補 `WorkflowTaskV1.verification`）",
+      "owner": "Core",
+      "evidence": "`.d.ts` 與 `scripts/lib/workflow-plan-v1.mjs` 的欄位逐項對照",
+      "negative": "sidecar 設計建立在不完整型別認知上",
+      "rollback": "回既有 `.d.ts`，延後 sidecar 設計",
+      "status": "pending",
+      "wave": "G",
+      "category": "必交",
+      "dependencies": "1、86",
+      "control": "契約／gate；無獨立開關"
+    },
+    {
+      "id": "4",
+      "requirement": "完整 blocker inventory：AST + call graph 盤點所有 source site 到 consumer，五個計數分開統計；另記 launch／preflight／execution phase 與六類 incident 觀測標籤",
+      "owner": "Core／QA",
+      "evidence": "盤點表含 §3.1 全部欄位與未分類標籤；定點搜尋為指定 SHA 的 scripts/lib/*.mjs 加 scripts/sbw.mjs 中 725 個雙引號 E 前綴候選字串（非 AST error-code 數量）；未分類項標 `unclassified`；AST 盤點腳本與其輸出",
+      "negative": "以字串搜尋宣稱找齊所有可達路徑；把 fixture 的 expected HOLD 當成真實使用事件；由觀測標籤臆測根因",
+      "rollback": "保留現有保守行為，inventory 標 incomplete",
+      "status": "pending",
+      "wave": "W0",
+      "category": "必交",
+      "dependencies": "86",
+      "control": "blockerDiagnostics"
+    },
+    {
+      "id": "5",
+      "requirement": "建立 reason-code registry 與逐層 mapping；先覆蓋核准恢復子集，未分類維持原行為",
+      "owner": "Core",
+      "evidence": "registry 與 AST 確認的 source site／wrapper／consumer 對照；725 個文字候選逐一分類，排除項保留理由；CI 檢查新 throw site 必須使用 registry",
+      "negative": "新增 code 未進 registry 仍通過 CI；registry 與實際 throw site 漂移",
+      "rollback": "保留字面量，registry 標 incomplete",
+      "status": "pending",
+      "wave": "W1",
+      "category": "必交",
+      "dependencies": "4、88a",
+      "control": "blockerDiagnostics"
+    },
+    {
+      "id": "6",
+      "requirement": "保留既有 verdict，補結構化原因與明確 mapping；未分類仍保守 HOLD",
+      "owner": "Core",
+      "evidence": "`scripts/lib/native-v3-plan-runner-core.mjs` 的 `errorClass()`／`RUN_STATUSES`／`TASK_STATUSES`／`finalize()`；`scripts/lib/incident-recovery-v1.mjs` 與 `execution-budget-ledger-v1.mjs` 的 Error class 預設值；新舊分類對照測試",
+      "negative": "新分類遮蔽另一個並存 blocker；改寫 `sourceStatus`；把 UNKNOWN 降級成 hold；預設值改為非 HOLD 而讓未分類錯誤靜默通過",
+      "rollback": "回既有二元分類",
+      "status": "pending",
+      "wave": "W1",
+      "category": "必交",
+      "dependencies": "4、88a",
+      "control": "blockerDiagnostics"
+    },
+    {
+      "id": "7",
+      "requirement": "收斂 `\"graph-invalid\"` 第四狀態進入統一分類",
+      "owner": "Core",
+      "evidence": "`scripts/sbw.mjs` 的 `graphStructuralFailure()` 與 `GRAPH_ENFORCEMENT_ENABLED` 的五個呼叫點（`run.create`／`eval`／`run.resume`／`action.issue`／`run.complete`）",
+      "negative": "第四狀態在 CLI、checkpoint 與 UI 之間語義不一致",
+      "rollback": "保留現狀並明確記錄",
+      "status": "pending",
+      "wave": "W1",
+      "category": "必交",
+      "dependencies": "4、88a",
+      "control": "blockerDiagnostics"
+    },
+    {
+      "id": "8",
+      "requirement": "盤點並收斂重複的 UNKNOWN 升級慣用語",
+      "owner": "Core",
+      "evidence": "`status: error?.status === \"UNKNOWN\" ? \"UNKNOWN\" : \"HOLD\"` 的全部出現點；收斂後的回歸測試",
+      "negative": "收斂時改變任一處的既有語義",
+      "rollback": "回原地複製形式",
+      "status": "pending",
+      "wave": "W1",
+      "category": "必交",
+      "dependencies": "4、88a",
+      "control": "blockerDiagnostics"
+    },
+    {
+      "id": "9",
+      "requirement": "`BlockerDiagnosticV1` 與多原因 `BlockerEpisodeV1` versioned sidecar，不改既有 strict shape；階段與 outcome coverage 僅作非權威投影",
+      "owner": "Core",
+      "evidence": "schema + validator；形狀沿用 `scripts/lib/interaction-authorization.mjs` 既有的 hold 記錄（含 `materialChanges` 的 per-field diff 與 `requiredAuthority`）與 `scripts/lib/graph.mjs` 診斷的 `subjects[]`；launch／preflight／execution 對照及舊 consumer 相容性測試（CLI、checkpoint reader、host adapter）；§3.1 tagged wakeup／owner／authority refs、BlockerEpisodeV1 形狀、same-cause exact-key 折疊與原始事件索引",
+      "negative": "嚴格欄位驗證拒絕額外欄位；舊 consumer 把 HOLD 誤讀成成功；`PARTIAL`／`STALE` 投影變成新的放行狀態；僅憑 429／503 判斷無 effect；折疊隱藏 revocation／金流／CAS material change",
+      "rollback": "停用 sidecar，回原診斷輸出",
+      "status": "pending",
+      "wave": "W1",
+      "category": "必交",
+      "dependencies": "4、88a",
+      "control": "blockerDiagnostics"
+    },
+    {
+      "id": "10",
+      "requirement": "六種處理族群的 disposition mapping 與有限 transition table，沿用既有 runtime 狀態，未分類維持保守",
+      "owner": "Core／Security",
+      "evidence": "每個 reasonCode → condition／disposition／准許的轉移與終止條件對照；未 mapping 時 CI 阻止宣稱恢復能力完成",
+      "negative": "把任意 429／5xx／timeout 當成無副作用證明；產生第二套互相矛盾的狀態機；自動擴權",
+      "rollback": "mapping／轉移表停用，全部回 `stop-and-investigate`",
+      "status": "pending",
+      "wave": "W1",
+      "category": "必交",
+      "dependencies": "4、88a",
+      "control": "blockerDiagnostics"
+    },
+    {
+      "id": "11",
+      "requirement": "Greedy preflight 重排候選：便宜、pure、合法重排；必交檢查本身不變",
+      "owner": "Core",
+      "evidence": "排序前後的 fail-latency 與浪費 token 對照；preflight PASS 與 effect-time admission 是兩筆紀錄的證明",
+      "negative": "以成功機率替代授權與完整性要求；preflight PASS 取代 fresh admission",
+      "rollback": "回原順序",
+      "status": "pending",
+      "wave": "W1",
+      "category": "決策",
+      "dependencies": "35、36a",
+      "control": "preflightOrder"
+    },
+    {
+      "id": "12",
+      "requirement": "Recovery recipe registry：每個可恢復 reason 映射到少數已登錄 primitive",
+      "owner": "Core／Security",
+      "evidence": "registry 內容；`RecoveryPlanV1` 綁定；每個 primitive 的授權邊界宣告；`scripts/sbw.mjs` 的 `blocked(reason, requiredAuthority)` 可供既有恢復路徑的語義對照",
+      "negative": "不可信 template／README／模型輸出自行登錄 executable handler；讀取 primitive 忽略 private egress 與費用邊界",
+      "rollback": "registry 清空，全部人工處理",
+      "status": "pending",
+      "wave": "W2",
+      "category": "必交",
+      "dependencies": "5、9、10、88a",
+      "control": "boundedRecovery"
+    },
+    {
+      "id": "13",
+      "requirement": "多任務 DAG 的 incident recovery；從可信 checkpoint 求當前必要 frontier，保留合格的已完成階段",
+      "owner": "Core",
+      "evidence": "`scripts/sbw.mjs` 的 `EINCIDENT_RECOVERY_GRAPH_UNSUPPORTED`（現要求「one dependency-free WorkflowPlan task」）；既有 DAG 元件及 GA resume bridge 的差異清單；多任務恢復、stale invalidation、exact identity／binding／freshness／closure 與重入准入測試",
+      "negative": "以單任務恢復的 evidence 宣稱 DAG 恢復成立；恢復時重開舊 terminal record；只憑「command 跑過」跳過必要階段；UNKNOWN effect 被重新送出",
+      "rollback": "維持單任務限制",
+      "status": "pending",
+      "wave": "W2",
+      "category": "必交",
+      "dependencies": "12、16、18",
+      "control": "boundedRecovery"
+    },
+    {
+      "id": "14",
+      "requirement": "Execution coalescing／singleflight 與 heap 採用決策；診斷 exact-key 去重仍由 #9 必交",
+      "owner": "Core",
+      "evidence": "`scripts/lib/interaction-authorization.mjs` 既有的 19 欄位封閉 scope、兩層 digest、`dedupeKey` 與 `decideInteractionAuthorization()`；**`dedupeInteractionRequest()` 目前生產呼叫點為零**的證明；三種 key、wakeup／deadline 與佇列成本量測",
+      "negative": "同一 key 混合不同 authority／recipient／revision／effect intent；合併獨立 reviewer 或 human approval；取消一個 waiter 停掉共用 producer；無熱點仍強制 heap",
+      "rollback": "停用 coalescing，回逐事件處理",
+      "status": "pending",
+      "wave": "W1",
+      "category": "決策",
+      "dependencies": "9、35、36a、87a",
+      "control": "eventCoalescing"
+    },
+    {
+      "id": "15",
+      "requirement": "Standing directive 持久化儲存",
+      "owner": "Core／Security",
+      "evidence": "§3.2 source record／writer receipt、issuer／subject identity、scope digest、expiry、revocation epoch 及撤銷生效上限；未授權寫入、重播、撤銷延遲與當次 admission 的證據；routing／interaction preview 基線於 #86 重核",
+      "negative": "偽造 writer、錯身分／scope、過期或撤銷 directive 仍被消費；read-only 續期；storage 故障轉較寬 implicit 授權",
+      "rollback": "standingDirectiveStore read-only／off，停止新的 directive 消費；保留 grant／revocation，回當次明確授權",
+      "status": "pending",
+      "wave": "W2",
+      "category": "必交",
+      "dependencies": "5、9、10、88a",
+      "control": "standingDirectiveStore"
+    },
+    {
+      "id": "16",
+      "requirement": "有界 retry：單一 retry owner，全部計數 durable",
+      "owner": "Core",
+      "evidence": "delay／max attempts／absolute deadline／spent tokens／same-cause count 的持久化；restart 與 resume 後不歸零的測試",
+      "negative": "多層重試放大；以 backoff 證明重送 effect 安全；UNKNOWN 未先 reconcile 就 retry",
+      "rollback": "回既有 attempt budget 行為",
+      "status": "pending",
+      "wave": "W2",
+      "category": "必交",
+      "dependencies": "5、9、10、88a",
+      "control": "boundedRecovery"
+    },
+    {
+      "id": "17",
+      "requirement": "無進展循環防護：blocker fingerprint + 無新證據 ⇒ 不重做診斷",
+      "owner": "Core",
+      "evidence": "fingerprint 組成；no-progress 計數；相同條件兩次無新增 evidence 後必須換路徑或收斂為有 owner 的 HOLD；耗盡 budget／deadline 時停到具體原因的測試",
+      "negative": "用錯誤訊息字串判定同一原因；無限 negative cache 吞掉受控周期性觀察；相同嘗試失敗後仍無限重建候選或重跑同一 stage",
+      "rollback": "停用防護，回原重試行為",
+      "status": "pending",
+      "wave": "W2",
+      "category": "必交",
+      "dependencies": "5、9、10、88a",
+      "control": "boundedRecovery"
+    },
+    {
+      "id": "18",
+      "requirement": "受影響 worklist：BFS/DFS reachability，只把受影響 unit 放回待處理",
+      "owner": "Core",
+      "evidence": "`scripts/lib/verification-cli-v1.mjs` 的 `affectedUnits` **目前永遠是單元素陣列**的證明；可建構基礎為 `compareDependencyManifests()`、`verification-shadow-run-v1.mjs` 的 `dependencyDelta`、`native-v3-plan-runner-core.mjs` 的 `readyTasks()` 與 `anyDependencyTerminalFailure()`",
+      "negative": "以「圖上沒有 edge」證明兩工作獨立；closure 不完整仍局部前進；以遍歷複雜度冒充整體成本",
+      "rollback": "回 full 重驗",
+      "status": "pending",
+      "wave": "W2",
+      "category": "必交",
+      "dependencies": "4、86、88a",
+      "control": "boundedRecovery；增量採用另依 verificationReuse"
+    },
+    {
+      "id": "19",
+      "requirement": "增量驗證可信評估鏈、隔離 candidate measurement、資格啟用及持續 differential 監測（§3.3）",
+      "owner": "Core／QA",
+      "evidence": "`scripts/lib/verification-shadow-run-v1.mjs` 的 `VERIFICATION_SHADOW_RUN_DECISION = \"shadow-only\"`；`scripts/lib/verification-incremental-v1.mjs` 的 `evaluateAutoQualification()` 現回傳字面 `mode: \"off\", accepted: false`；`scripts/lib/workflow-plan-v1.mjs` 的 verification mode 現僅 `off|shadow`；r4 §4 的 full → shadow → validator correctness → end-to-end net benefit 四段證據；95% 統計信賴區間 下界嚴格大於 0 的 receipt",
+      "negative": "未取得四段證據就翻開 gate；cache 決定省略驗證而無 differential 保證；mode 新值未經舊 consumer 相容性測試",
+      "rollback": "`mode` 回 `\"off\"`，`decision` 回 `\"shadow-only\"`",
+      "status": "pending",
+      "wave": "W3",
+      "category": "決策",
+      "dependencies": "18、21、87a、88a",
+      "control": "verificationReuse"
+    },
+    {
+      "id": "20",
+      "requirement": "Scoped continuation：只對已明確隔離、無副作用的 unit，且 §3.3 七項條件全部成立",
+      "owner": "Core／Security",
+      "evidence": "七項條件逐項的驗證證據；shadow 期間的差異報告",
+      "negative": "共用受污染 mutable resource；繞過 mandatory stage 或 required role；恢復後重開舊 terminal record；對 UNKNOWN effect 創造新 logical operation",
+      "rollback": "回原有 run／global fence",
+      "status": "pending",
+      "wave": "W3",
+      "category": "決策",
+      "dependencies": "12、13、18、71、87a、88a",
+      "control": "scopedContinuation"
+    },
+    {
+      "id": "21",
+      "requirement": "純驗證與 review reuse 分流",
+      "owner": "Core",
+      "evidence": "`VerificationUnitV1`／`CarryForwardV1` 路徑與 review sealed result 路徑的分離證明",
+      "negative": "以 symbol similarity 或摘要相似度跨 revision 借用語意 PASS；把 hash／reference／summary 當成模型已讀取內容",
+      "rollback": "停用 reuse，回 full",
+      "status": "pending",
+      "wave": "W2",
+      "category": "必交",
+      "dependencies": "18、86",
+      "control": "verificationReuse"
+    },
+    {
+      "id": "22",
+      "requirement": "解決 `MAX_PARALLELISM` 32 與 CLI 上限 64 的不一致",
+      "owner": "Core",
+      "evidence": "`scripts/lib/native-v3-plan-runner-core.mjs` 與 `scripts/lib/native-v3-cli-boundary.mjs` 的上限對照；33–64 的行為測試",
+      "negative": "A4 建立在不一致的並行語義上",
+      "rollback": "取兩者較小值",
+      "status": "pending",
+      "wave": "W2",
+      "category": "必交",
+      "dependencies": "86",
+      "control": "契約／gate；無獨立開關"
+    },
+    {
+      "id": "23",
+      "requirement": "`OptimizationProposalV1` + `ProposalValidator` + baseline fallback（盤點 r4 bounded K1 的設計與 GA 實際能力；未交付者不得當成可重用實作）",
+      "owner": "Core",
+      "evidence": "proposal 契約；validator 拒絕條件；逾時／無效／不可用一律回 baseline 的測試；bounded envelope 遵循 r4 §9（128 units／256 KiB／1 秒）",
+      "negative": "proposal 持有 authority／budget／evidence；permutation 不完整或有重複 unit；coverage < 100%",
+      "rollback": "停用 Optimization Plane，回 `readyTasks()` 既有排序",
+      "status": "pending",
+      "wave": "W3",
+      "category": "必交",
+      "dependencies": "22、86",
+      "control": "priorityScheduling"
+    },
+    {
+      "id": "24",
+      "requirement": "Topological legality 層",
+      "owner": "Core",
+      "evidence": "`scripts/lib/native-v3-plan-runner-core.mjs` 的 `readyTasks()`（現以 `id.localeCompare` tie-break）；`scripts/lib/native-v3-cli-boundary.mjs` 的 `topologicalTasks()`（Kahn）與 `ENATIVE_V3_GRAPH_INVALID`",
+      "negative": "排序改變了 legal set 而不只是順序",
+      "rollback": "回 `id.localeCompare` tie-break",
+      "status": "pending",
+      "wave": "W3",
+      "category": "必交",
+      "dependencies": "22、86",
+      "control": "priorityScheduling"
+    },
+    {
+      "id": "25",
+      "requirement": "Critical-path DP priority 獨立 shadow 實驗，含公平性約束；僅淨收益成立才啟用",
+      "owner": "Core／QA",
+      "evidence": "`CriticalRemaining` 的 DP 實作與 replay determinism；starvation、baseline 對照與端到端收益紀錄；負面實驗以不啟用紀錄結案",
+      "negative": "排序把收益歸因成 token 節省；低 priority 必要工作永遠不前進；無收益仍 promotion",
+      "rollback": "回 baseline 排序",
+      "status": "pending",
+      "wave": "W3",
+      "category": "決策",
+      "dependencies": "23、24、35、87a",
+      "control": "priorityScheduling"
+    },
+    {
+      "id": "26",
+      "requirement": "Greedy list scheduling 獨立 shadow 實驗，於合法 ready set 內運作；同樣僅淨收益成立才啟用",
+      "owner": "Core／QA",
+      "evidence": "dispatch loop 與既有 admission 的介面；shadow 對照與 §9.5 promotion gate；負面結果不啟用並結案",
+      "negative": "把經典 approximation bound 宣稱成 BW 保證；無收益仍 promotion",
+      "rollback": "回既有 dispatch",
+      "status": "pending",
+      "wave": "W3",
+      "category": "決策",
+      "dependencies": "23、24、35、87a",
+      "control": "priorityScheduling"
+    },
+    {
+      "id": "27",
+      "requirement": "Dependency-aware sharding：最小化 cross-shard dependency edges",
+      "owner": "Core",
+      "evidence": "分割前後的 cross-shard edge 數；r4 §5 的 role × unit 完整性維持",
+      "negative": "平均切分取代依賴感知；大檔案缺 subunit 或 whole-file integration",
+      "rollback": "回既有 size sharding",
+      "status": "pending",
+      "wave": "W3",
+      "category": "決策",
+      "dependencies": "18、24、35、36a、88a",
+      "control": "reviewPartitioning"
+    },
+    {
+      "id": "28",
+      "requirement": "SCC 用於 wait-for graph 的候選循環偵測（CI 用途；**新增，非擴充** — `graph.mjs` 目前無 SCC 與 transitive closure）",
+      "owner": "QA",
+      "evidence": "Tarjan／Kosaraju 實作；`scripts/lib/graph.mjs` 現有的 `hard-dependency-cycle` 遞迴 DFS（回傳原始 back-edge 路徑）對照；cycle 交由資源語意判定的證明",
+      "negative": "看見 cycle 就終止工作或新增權限；把 cycle 直接當成 deadlock",
+      "rollback": "停用 SCC 檢查",
+      "status": "pending",
+      "wave": "W1",
+      "category": "必交",
+      "dependencies": "35、36a、88a",
+      "control": "CI／diagnostic"
+    },
+    {
+      "id": "29",
+      "requirement": "Context 表示 CTX-BASE／SHARED／DELTA：共用欄位、精確去重及有界 delta 的獨立採用決策",
+      "owner": "Core",
+      "evidence": "`scripts/lib/native-review-content.mjs` 的既有 frame 結構與 byte budget；三版對照的 token／延遲／品質報告",
+      "negative": "把不同原因折疊成模糊標籤；刪除低頻安全條件；欄位共用跨越不同 attempt／epoch／binding；delta 送給沒有 baseline 的接收端",
+      "rollback": "回版本 A",
+      "status": "pending",
+      "wave": "W1",
+      "category": "決策",
+      "dependencies": "35、36a、88a",
+      "control": "contextProjection"
+    },
+    {
+      "id": "30",
+      "requirement": "消除 frame 封套重複：`binding` 的不變欄位提升為批次層級",
+      "owner": "Core",
+      "evidence": "`scripts/lib/native-review-content.mjs` 與 `native-review-shards.mjs` 的相同性斷言；改造前後的封套佔比實測（基線：64 小檔情境 69.5%、約 3.3 倍頁數）",
+      "negative": "改變既有 byte budget 語義；破壞 digest chain 或 cursor 綁定",
+      "rollback": "回逐 frame binding",
+      "status": "pending",
+      "wave": "W1",
+      "category": "決策",
+      "dependencies": "35、36a、88a",
+      "control": "contextProjection"
+    },
+    {
+      "id": "31",
+      "requirement": "仲裁材料壓縮：`deliberation.mjs` 的 perspectives 序列化",
+      "owner": "Core",
+      "evidence": "`scripts/lib/deliberation.mjs` 的 `arbitrationMaterial()`（現為 2 空格 `JSON.stringify`）；改造前後 byte 與 token 對照",
+      "negative": "移除仲裁者判斷所需的 metadata；改變 `MAX_PERSPECTIVE_BYTES` 語義",
+      "rollback": "回 2 空格 `JSON.stringify`",
+      "status": "pending",
+      "wave": "W1",
+      "category": "決策",
+      "dependencies": "35、36a、88a",
+      "control": "contextProjection"
+    },
+    {
+      "id": "32",
+      "requirement": "Token 量測誠實化必交；可取得對應 tokenizer 時使用，否則標記校準估計／unknown，不硬稱精確",
+      "owner": "Core",
+      "evidence": "`scripts/lib/native-review-content.mjs` 的 `HISTORY_TOKEN_LIMIT * 4`（既有啟發式，非實際 provider token）；各 provider 的實測校準曲線；不能取得 provider tokenizer／usage 時的標記與估計誤差",
+      "negative": "把不同 provider 的 token 視為同一物理單位；以估計值取代 provider 回報的實際用量；把 sharded-review V2 的合成 `tokenUnits` 誤當 provider token",
+      "rollback": "回既有啟發式",
+      "status": "pending",
+      "wave": "W1",
+      "category": "必交",
+      "dependencies": "35、36a、88a",
+      "control": "量測契約；表示啟用另依 contextProjection"
+    },
+    {
+      "id": "33",
+      "requirement": "A8 消除重複計算（子項彙總；不獨立派工）",
+      "owner": "Core",
+      "evidence": "各子項的直接 evidence 與採用／未採用／未觸發結論；不得以任一子項代替全組",
+      "negative": "只完成 a 段就把後段記為完成；以彙總列重複計入 GA 分母",
+      "rollback": "依各子項處理",
+      "status": "pending（由子項推導）",
+      "wave": "彙總",
+      "category": "彙總",
+      "dependencies": "33a、33b、33c、33d、33e、33f",
+      "control": "依子項；不另設開關"
+    },
+    {
+      "id": "33a",
+      "requirement": "A8：addUnknown 改 Set，保留輸出次序與內容",
+      "owner": "Core",
+      "evidence": "verification-incremental-v1.mjs；相同輸入的 exact 輸出與 CPU／wall time",
+      "negative": "Set 改變 deterministic 輸出次序",
+      "rollback": "回原 addUnknown",
+      "status": "pending",
+      "wave": "W1",
+      "category": "決策",
+      "dependencies": "35、36a、88a",
+      "control": "computeReuse"
+    },
+    {
+      "id": "33b",
+      "requirement": "A8：shardDigest 移出不變輸入的迴圈",
+      "owner": "Core",
+      "evidence": "native-review-shards.mjs；source／policy 不變範圍與 bytes 相等",
+      "negative": "迴圈內輸入已變仍共用舊 digest",
+      "rollback": "回原 digest 計算",
+      "status": "pending",
+      "wave": "W1",
+      "category": "決策",
+      "dependencies": "35、36a、88a",
+      "control": "computeReuse"
+    },
+    {
+      "id": "33c",
+      "requirement": "A8：verifyContent 的同一 immutable snapshot 重複 I/O 評估",
+      "owner": "Core／Security",
+      "evidence": "native-review-runner.mjs；每次 admission 的語義保留、內容身份與 TOCTOU／path swap 負向證據",
+      "negative": "以檔名／mtime 代表 immutable bytes；刪掉必要 revalidation",
+      "rollback": "回完整讀取及驗證",
+      "status": "pending",
+      "wave": "W2",
+      "category": "決策",
+      "dependencies": "35、36a、88a",
+      "control": "computeReuse"
+    },
+    {
+      "id": "33d",
+      "requirement": "A8：immutable shard bytes 共用與複製成本",
+      "owner": "Core／Security",
+      "evidence": "content-addressed bytes、ownership／retention、修改隔離及冷熱讀取量測",
+      "negative": "共享可寫 hardlink；其他 writer 污染已驗 bytes",
+      "rollback": "回獨立副本",
+      "status": "pending",
+      "wave": "W2",
+      "category": "決策",
+      "dependencies": "35、36a、88a",
+      "control": "computeReuse"
+    },
+    {
+      "id": "33e",
+      "requirement": "A8：canonicalJson／digest 計算重用",
+      "owner": "Core／Security",
+      "evidence": "core.mjs；Exact Canonical Bytes 向量、數值／key 順序與 immutable operation 範圍、成本量測",
+      "negative": "跨 mutable object／revision cache；序列化位元組改變",
+      "rollback": "回原 canonical 計算",
+      "status": "pending",
+      "wave": "W2",
+      "category": "決策",
+      "dependencies": "35、36a、88a",
+      "control": "computeReuse"
+    },
+    {
+      "id": "33f",
+      "requirement": "A8：journal replay／尾端快取",
+      "owner": "Core／Security",
+      "evidence": "core.mjs readJournalRecords；參考 execution-runtime-v1.mjs validatedReplayCache；prefix／append／truncate／crash／revocation／budget replay invariance",
+      "negative": "尾端變更未失效；cache 遺失造成 budget 或 consumed grant 歸零",
+      "rollback": "回完整 authoritative replay",
+      "status": "pending",
+      "wave": "W2",
+      "category": "決策",
+      "dependencies": "35、36a、88a",
+      "control": "computeReuse"
+    },
+    {
+      "id": "34",
+      "requirement": "儲存與傳輸壓縮的條件式格式比較（§3.7：gzip／Deflate、Zstd、LZ4、XZ／LZMA2）",
+      "owner": "Core／QA",
+      "evidence": "W5.1-0 的 bytes／讀寫次數／I/O 耗時／保留時間與預註冊熱點門檻；觸發後同資料成對比較及未比較格式的原因；各格式 bytes、p50／p95 壓縮與解壓、CPU、峰值記憶體、端到端時間、讀取端相容性及依賴成本；原始 bytes 往返、digest、解壓資源上限",
+      "negative": "改動使用中的 ledger 格式；無熱點仍預選格式；因壓縮成功就刪原始資料；把 bytes 收益算成 token 收益",
+      "rollback": "不採用候選格式，保留原始資料與讀取路徑",
+      "status": "pending",
+      "wave": "W1",
+      "category": "條件",
+      "dependencies": "35、36a、87a",
+      "control": "storageCodec"
+    },
+    {
+      "id": "35",
+      "requirement": "本機計算與運作成本量測基線：monotonic 階段耗時、event-loop delay／utilization、CPU、記憶體峰值、stop responsiveness；§8.1 的 resume、重播、ceremony、授權與 slot 觀測",
+      "owner": "Core／QA",
+      "evidence": "`scripts/lib/metrics.mjs` 的既有 run 層級指標（`elapsedWallTimeMs` 現由 ISO timestamp 相減）；`perf_hooks` 現僅 3 個檔案使用；`monitorEventLoopDelay`／`eventLoopUtilization`／`process.cpuUsage`／`process.memoryUsage` 現零命中；新增各指標的起迄事件、分母與 unknown 規則；recovery timing 的五個 monotonic stage marker 與逐段 duration；OptimizationObservationV1.schemaVersion、metrics.mjs usageFrom() 缺值不補零及來源綁定；未觀測維度保持 unknown",
+      "negative": "以 ISO timestamp 相減冒充 monotonic 量測；沒有各段 evidence 就調高 timeout 或將失敗歸因於負載；沒有 baseline 就宣稱加速；無新增 evidence 的 operation 被直接當成可刪 mandatory gate",
+      "rollback": "回既有 run 層級 metrics",
+      "status": "pending",
+      "wave": "W0",
+      "category": "必交",
+      "dependencies": "52、53、54、86、88a",
+      "control": "契約／gate；無獨立開關"
+    },
+    {
+      "id": "36",
+      "requirement": "W0 共用 baseline／Node harness；R 觸發後才加入其餘對照（現有 Node → 改良 Node → Node worker pool → Rust／Wasm）（子項彙總；不獨立派工）",
+      "owner": "QA",
+      "evidence": "各子項的直接 evidence 與採用／未採用／未觸發結論；不得以任一子項代替全組",
+      "negative": "只完成 a 段就把後段記為完成；以彙總列重複計入 GA 分母",
+      "rollback": "依各子項處理",
+      "status": "pending（由子項推導）",
+      "wave": "彙總",
+      "category": "彙總",
+      "dependencies": "36a、36b",
+      "control": "依子項；不另設開關"
+    },
+    {
+      "id": "36a",
+      "requirement": "W0：baseline／Node 共用 harness 與可重播量測",
+      "owner": "Core／QA",
+      "evidence": "現有 Node baseline、monotonic clocks／可信採集與 cold／warm／大小任務／取消／錯誤 harness；recovery 測試即使 latency assertion fail 仍產生完整 stage、安全狀態與 cleanup evidence；不要求尚未實作的 candidate 數字",
+      "negative": "尚未觸發 R 卻索取 Rust 結果；fixture JSON 冒充受信 receipt；首個 deadline assertion 失敗導致後續 safety assertion 未執行",
+      "rollback": "無 harness 不進後續採用比較",
+      "status": "pending",
+      "wave": "W0",
+      "category": "必交",
+      "dependencies": "35、88a",
+      "control": "契約／gate；無獨立開關"
+    },
+    {
+      "id": "36b",
+      "requirement": "R 觸發後：現有 Node → 改良 Node → worker → Rust／Wasm 公平對照",
+      "owner": "QA",
+      "evidence": "相同演算法、payload、資源與 endpoint；未啟用後端的適用性／未觸發紀錄",
+      "negative": "同時換語言與演算法；只測熱機長運算",
+      "rollback": "未具可比較證據不採用加速器",
+      "status": "pending",
+      "wave": "R",
+      "category": "條件",
+      "dependencies": "33、36a、37、38、87a",
+      "control": "契約／gate；無獨立開關"
+    },
+    {
+      "id": "37",
+      "requirement": "有界 Node worker pool（與換語言分開決策）",
+      "owner": "Core",
+      "evidence": "worker pool 的生命週期與重用；主執行緒 cancel／heartbeat／CLI 回應的改善量測；`worker_threads` 現零命中",
+      "negative": "每次工作都建立新 worker；把 worker 化與 Rust 化混為一談",
+      "rollback": "停用 worker pool",
+      "status": "pending",
+      "wave": "R",
+      "category": "條件",
+      "dependencies": "33、35、36a、87a、89a",
+      "control": "nativeAccelerator"
+    },
+    {
+      "id": "38",
+      "requirement": "Rust 候選模組選定：僅限 Track A 量測已證明且 Node 側改良已達上限的熱點",
+      "owner": "Core",
+      "evidence": "熱點量測證據；候選清單與 §4.3 的邊界對照",
+      "negative": "未經量測就建立通用 native engine；假設重寫 SHA-256 會更快（`node:crypto` 已是 OpenSSL 原生）",
+      "rollback": "不選定任何模組",
+      "status": "pending",
+      "wave": "R",
+      "category": "條件",
+      "dependencies": "33、35、36a、87a、89a",
+      "control": "nativeAccelerator"
+    },
+    {
+      "id": "39",
+      "requirement": "正確性信任邊界：differential tests、固定測試向量、故障注入、shadow comparison、無法證明 closure 完整時回 full",
+      "owner": "Core／Security",
+      "evidence": "每個加速器的四類測試；fallback 路徑測試",
+      "negative": "只驗 JSON schema 就當結果可靠；加速器決定省略必要工作而無 differential 保證",
+      "rollback": "停用加速器，回 Node baseline",
+      "status": "pending",
+      "wave": "R",
+      "category": "條件",
+      "dependencies": "37、38、88a、89a",
+      "control": "nativeAccelerator"
+    },
+    {
+      "id": "40",
+      "requirement": "供應鏈：CI 預建、固定 toolchain／依賴／artifact digest、使用者不需安裝 compiler、Cargo build script 納入審查",
+      "owner": "Release／Security",
+      "evidence": "建置流程與 digest 清冊；r4 §2.1「免使用者自行編譯、免管理員權限」的符合證明",
+      "negative": "沿用 `scripts/host-trust.mjs` 的 `compileNativeArtifact()` runtime clang 編譯模式（需 root、僅 macOS、無預建 binary）；下載並執行未核驗的 native binary",
+      "rollback": "不發布原生 artifact",
+      "status": "pending",
+      "wave": "R",
+      "category": "條件",
+      "dependencies": "37、38、88a、89a",
+      "control": "nativeAccelerator"
+    },
+    {
+      "id": "41",
+      "requirement": "授權邊界判定：加速器的封裝位置與 AGPL／Apache 分界",
+      "owner": "Legal／Packaging",
+      "evidence": "`packages/better-workflows-wire/` 的 Apache-2.0 邊界（`@better-workflows/wire`，純 JS）；closure graph 證明無 direct／indirect AGPL import",
+      "negative": "AGPL import 或 re-export 進入 Apache 套件",
+      "rollback": "加速器不封裝進 Apache 套件",
+      "status": "pending",
+      "wave": "R",
+      "category": "條件",
+      "dependencies": "37、38、88a、89a",
+      "control": "nativeAccelerator"
+    },
+    {
+      "id": "42",
+      "requirement": "recipe sandbox 的既有封鎖維持不變",
+      "owner": "Security",
+      "evidence": "`scripts/lib/recipes.mjs` 的 `validateRecipeScript()` 封鎖清單（含 `Worker`／`SharedWorker`／`WebAssembly`）；新核心能力未經 recipe 路徑暴露的證明",
+      "negative": "核心新增 worker／Wasm 後放寬 recipe 封鎖",
+      "rollback": "回既有封鎖清單",
+      "status": "pending",
+      "wave": "R",
+      "category": "條件",
+      "dependencies": "37、38、88a、89a",
+      "control": "nativeAccelerator"
+    },
+    {
+      "id": "43",
+      "requirement": "Track R 採用門檻：預註冊主要指標、95% 統計信賴區間 下界 > 0、實務最低收益門檻、整合成本未吃掉收益",
+      "owner": "QA",
+      "evidence": "成對評估報告；最低門檻的預先定義",
+      "negative": "為極小改善永久增加工具鏈；以效能收益抵銷 safety／coverage 退步",
+      "rollback": "不採用該模組",
+      "status": "pending",
+      "wave": "R",
+      "category": "條件",
+      "dependencies": "36b、39–42、87a",
+      "control": "nativeAccelerator"
+    },
+    {
+      "id": "44",
+      "requirement": "`WorkItemV1`：跨 run 持久的工單身分，含 §5.3 七類必要內容",
+      "owner": "Core",
+      "evidence": "既有契約可承載程度的對照（`TaskContractV3` 已有 dependencies／writeOwner／modelPolicy／budget／acceptance）；`scripts/lib/campaign.mjs` 是既有跨 run ledger 例子（持有修復預算而非工作清單）；versioned extension 設計",
+      "negative": "換模型／重啟／重新拆單就清空已花預算與失敗紀錄；小任務被迫產生大 PRD",
+      "rollback": "停用工單面，回 plan-scoped 執行",
+      "status": "pending",
+      "wave": "W2",
+      "category": "必交",
+      "dependencies": "63、67、70、88a",
+      "control": "workItemPlane"
+    },
+    {
+      "id": "45",
+      "requirement": "三種身分分離：work item／plan revision／attempt",
+      "owner": "Core",
+      "evidence": "三者的識別與關聯；resume 不重設共享預算的既有要求維持",
+      "negative": "以新 attempt 重新取得完整預算；rollback 抹除歷史或 pending reconciliation",
+      "rollback": "回既有 run／attempt 模型",
+      "status": "pending",
+      "wave": "W2",
+      "category": "必交",
+      "dependencies": "63、67、70、88a",
+      "control": "workItemPlane"
+    },
+    {
+      "id": "46",
+      "requirement": "看板狀態投影：不製造第二套狀態機",
+      "owner": "Core／UX",
+      "evidence": "投影與 runtime 狀態的對照；HOLD／UNKNOWN／Needs-you／Wait-quota 作為原因投影的證明",
+      "negative": "拖到 Ready 即派工；拖到 Done 即產生完成證據；已阻擋工單偷偷移回 Backlog",
+      "rollback": "停用看板投影",
+      "status": "pending",
+      "wave": "W2",
+      "category": "必交",
+      "dependencies": "63、67、70、88a",
+      "control": "workItemPlane"
+    },
+    {
+      "id": "47",
+      "requirement": "WIP 限制含 verification 與 integration 積壓；觀察 reviewer／signer／provider slot 等待與閒置",
+      "owner": "Core",
+      "evidence": "WIP 計算涵蓋後段工作的證明；各 slot 作用範圍及 requested／queued／acquired／active／released／expired 事件；積壓時降低新實作派工的策略測試；現況為無 pending 佇列（`readyTasks()` 每輪重算後丟棄）",
+      "negative": "只計算「幾個 Agent 正在寫程式」；以拆更多小單美化吞吐量；由 slot 可用推論已有授權或獨立審查",
+      "rollback": "停用 WIP 限制",
+      "status": "pending",
+      "wave": "W4",
+      "category": "必交",
+      "dependencies": "44、45、87a、88a",
+      "control": "restrictedExecutor"
+    },
+    {
+      "id": "48",
+      "requirement": "區分 capability admission 與 resource admission",
+      "owner": "Core",
+      "evidence": "`scripts/lib/execution-admission-v1.mjs` 目前是 capability／authorization 鏈、無資源與並行維度的證明；`scripts/lib/execution-runtime-v1.mjs` 的 `RUNTIME_CRITICAL_SECTION_MAX_ACTIVE = 128` 是 queue safety bound 而非 authority decision",
+      "negative": "把 in-process 安全上限當成 backpressure；預算耗盡的硬 HOLD 被誤當節流",
+      "rollback": "維持現有區分，不新增 resource admission",
+      "status": "pending",
+      "wave": "W4",
+      "category": "必交",
+      "dependencies": "44、45、87a、88a",
+      "control": "restrictedExecutor"
+    },
+    {
+      "id": "49",
+      "requirement": "確定性派工規則（§5.5 八步），不新增 Scheduler Agent",
+      "owner": "Core",
+      "evidence": "八步的實作與 replay determinism；`scripts/lib/native-v3-plan-runner-core.mjs` 的既有 ready-set dispatch 對照",
+      "negative": "額度未知時自動放大並行；指定模型不可用時靜默替換；UNKNOWN 時改派另一 Agent 重做同一 effect",
+      "rollback": "回既有 dispatch loop",
+      "status": "pending",
+      "wave": "W4",
+      "category": "必交",
+      "dependencies": "44、45、87a、88a",
+      "control": "restrictedExecutor"
+    },
+    {
+      "id": "50",
+      "requirement": "受控巢狀 fan-out：計入 Agent 自己啟動的子代理",
+      "owner": "Core／Security",
+      "evidence": "巢狀派工的可見性與上限；宿主無法回報時拒絕 fan-out 的測試",
+      "negative": "首版允許不受控 fan-out；只核對頂層模型參數就宣稱掌握實際用量",
+      "rollback": "禁止所有巢狀 fan-out",
+      "status": "pending",
+      "wave": "W4",
+      "category": "必交",
+      "dependencies": "44、45、87a、88a",
+      "control": "restrictedExecutor"
+    },
+    {
+      "id": "51",
+      "requirement": "`QuotaObservationV1`：四種限制分離，每筆含來源／CLI 版本／bucket scope／時間／用量／重設／資料狀態",
+      "owner": "Core",
+      "evidence": "`scripts/lib/native-review-cli-v2.mjs` 的 `PROVIDER_QUOTA_STATUS = \"UNVERIFIED\"` 與 `providerQuotaAuthority: false` 基線；provider 額度觀測現完全零命中的證明；各 host adapter 的 conformance 測試",
+      "negative": "用 context 餘額冒充訂閱餘額；unknown 填成 0 或無限；每個 Agent 把同一份餘額當成自己獨有",
+      "rollback": "全部回 `unknown`，維持保守並行",
+      "status": "pending",
+      "wave": "W4",
+      "category": "必交",
+      "dependencies": "44、45、87a、88a",
+      "control": "restrictedExecutor"
+    },
+    {
+      "id": "52",
+      "requirement": "預算維度誠實化：`cost` 與 `tokens` 現結構性恆為 `null`",
+      "owner": "Core",
+      "evidence": "`scripts/lib/execution-budget-ledger-v1.mjs` 的 `limitsFromAdmission()` 無條件回 `cost: null`、`trustedRuntimeUsage()` 固定回 `tokens: null, cost: null`；`ExecutionAdmissionBudgetV1` 僅 `{attempts, seconds, tokens}`",
+      "negative": "宣告四維但只有兩維可用而未標示；把宣告維度當成已量測",
+      "rollback": "明確記錄僅 attempts 與 seconds 可用",
+      "status": "pending",
+      "wave": "W0",
+      "category": "必交",
+      "dependencies": "86、88a",
+      "control": "可信量測／budget 契約；無獨立開關"
+    },
+    {
+      "id": "53",
+      "requirement": "統一 plan runner 與 ledger 的 usage 詞彙",
+      "owner": "Core",
+      "evidence": "`scripts/lib/native-v3-plan-runner-core.mjs` 的 `{seconds, tokens}` 與 `scripts/lib/execution-budget-ledger-v1.mjs` 的 `{attempts, seconds, tokens, cost}` 對照",
+      "negative": "兩套會計詞彙並存造成錯誤歸因",
+      "rollback": "保留版本化 mapping 與明確 unknown，不以不相容合併重置既有 ledger",
+      "status": "pending",
+      "wave": "W0",
+      "category": "必交",
+      "dependencies": "86、88a",
+      "control": "可信量測／budget 契約；無獨立開關"
+    },
+    {
+      "id": "54",
+      "requirement": "保留 `markUnobservedUsage` 的 sticky-UNKNOWN 語義",
+      "owner": "Core",
+      "evidence": "`scripts/lib/native-v3-plan-runner-core.mjs` 的 `markUnobservedUsage()`／`hasNotStartedProof()`／`validateUsage()` 現行行為的回歸測試；`ExecutionUsageObservationV1` 的 usage payload 僅 `attempts`（恆為 1）+ `elapsedMs`",
+      "negative": "以 STOPPED receipt 單獨證明未進入 effect 邊界；把未觀察維度填 0",
+      "rollback": "不修改該模組",
+      "status": "pending",
+      "wave": "W0",
+      "category": "必交",
+      "dependencies": "86、88a",
+      "control": "可信量測／budget 契約；無獨立開關"
+    },
+    {
+      "id": "55",
+      "requirement": "版本化 admission 將 capability scope 收斂到 task `writeOwner.paths`，舊 V1 限既有單寫者",
+      "owner": "Core／Security",
+      "evidence": "`scripts/lib/execution-admission-v1.mjs` 目前綁 `run.taskContract.scope`（整份契約 scope）的證明；`scripts/lib/workflow-plan-v1.mjs` 的 plan-time 兩兩不重疊檢查是目前唯一防線；收斂後的隔離測試",
+      "negative": "兩個並行 task 即使 `writeOwner` 互斥仍取得相同檔案系統權限",
+      "rollback": "回 scope-wide 綁定，且**不得啟用多寫者**",
+      "status": "pending",
+      "wave": "W4",
+      "category": "必交",
+      "dependencies": "44、45、48、88a、89a",
+      "control": "restrictedExecutor"
+    },
+    {
+      "id": "56",
+      "requirement": "provisioning queue 以 canonical Git common dir 跨 state root 互斥，資源分片／公平／取消／crash 可驗",
+      "owner": "Core",
+      "evidence": "`scripts/lib/workspace.mjs` 目前「偵測到活著的持有者即 throw」的證明；兩個不同 SBW_STATE_ROOT／process、同一 canonical Git common dir 的競態與互斥測試；取消、逾時、owner crash／路徑別名；host 無可共享 coordination primitive 時拒絕多寫者；§5.7a coordinator locator／private-root receipt、SQLite transaction／fencing、Git 子程序 crash 後對帳；讀寫 phase 分離",
+      "negative": "兩個並行 DAG task 對同一 repo 做 `workspaceCreate` 得到硬錯誤；不同 coordinationRoot 雙 writer；timeout／PID 死亡就刪 Git .lock；排隊占用外部鎖",
+      "rollback": "回 throw 語義，且**不得啟用並行 lease**",
+      "status": "pending",
+      "wave": "W4",
+      "category": "必交",
+      "dependencies": "44、45、48、88a、89a",
+      "control": "restrictedExecutor"
+    },
+    {
+      "id": "57",
+      "requirement": "workspace lease 接入 DAG runner",
+      "owner": "Core",
+      "evidence": "`scripts/lib/workspace.mjs` 與 `scripts/lib/native-v3-plan-runner-core.mjs` 目前互不相通（lease 僅能從 `sbw workspace …` 進入）的證明；接通後的 per-task worktree 測試",
+      "negative": "每個品牌自行再建一層 worktree；ownership 與 cleanup 無法追蹤",
+      "rollback": "回 `sbw workspace` 獨立路徑",
+      "status": "pending",
+      "wave": "W4",
+      "category": "必交",
+      "dependencies": "44、45、48、55、56、88a、89a",
+      "control": "restrictedExecutor"
+    },
+    {
+      "id": "58",
+      "requirement": "Role 從標籤升級為能力：capability／permission／provider／model 綁定，並進入 admission",
+      "owner": "Core／Security",
+      "evidence": "`scripts/lib/workflow-plan-v1.mjs` 的 `normalizeRoles()` 目前只有 `{id, required}` 且 role 從不進入 `ExecutionAdmissionV1` 的證明；role 進入 admission 的測試",
+      "negative": "role-based 排程建立在無能力語義的標籤上",
+      "rollback": "回標籤模型，且**不得啟用 role-based 派工**",
+      "status": "pending",
+      "wave": "W4",
+      "category": "必交",
+      "dependencies": "44、45、48、88a、89a",
+      "control": "restrictedExecutor"
+    },
+    {
+      "id": "59",
+      "requirement": "受限 Implementation Executor profile（擴充 `bounded-autopilot-v1`，不新建核心）",
+      "owner": "Core／Security",
+      "evidence": "`scripts/lib/autonomy.mjs` 與 `config/autonomy/bounded-autopilot-v1.json` 的既有形狀（config 驅動 + auto-action allowlist + canonical limits）；新 profile 的 allowlist 與 limits",
+      "negative": "把 reviewer 換個名稱就讓它寫程式；executor 修改其他工作區、授權紀錄、受保護 target 或自行發布",
+      "rollback": "停用新 profile，回唯讀 delegated role",
+      "status": "pending",
+      "wave": "W4",
+      "category": "必交",
+      "dependencies": "44、45、48、88a、89a",
+      "control": "restrictedExecutor"
+    },
+    {
+      "id": "60",
+      "requirement": "public contract 全面同步（§10.6），含 security authority boundaries 與既有釘選測試",
+      "owner": "Docs／Security",
+      "evidence": "`docs/guide/security.md` 的 native delegated role 列（現為「不可 Edit, deploy, mutate Git/provider state, accept risk」）；`scripts/lib/providers.mjs` 的 `--sandbox read-only`／`--sandbox --mode plan` argv 與 ephemeral `mkdtemp` cwd；`scripts/lib/native-review-runner.mjs` 的 `validateDisclosure()`；`scripts/tests/docs.test.mjs` 通過",
+      "negative": "程式碼放寬但文件未更新；文件更新但無對應程式碼強制",
+      "rollback": "回原表述，且**不得啟用 executor**",
+      "status": "pending",
+      "wave": "W4",
+      "category": "必交",
+      "dependencies": "55–59、61、88a、89a",
+      "control": "restrictedExecutor"
+    },
+    {
+      "id": "61",
+      "requirement": "多寫者隔離四層治理（寫入／共享資源／Git／程序與權限）",
+      "owner": "Core／Security",
+      "evidence": "四層各自的限制與測試；lockfile／schema／migration 的單一 owner 或獨立整合單",
+      "negative": "把 worktree 當成完整安全 sandbox；把 prompt 或工作目錄當成強隔離",
+      "rollback": "回單一寫者",
+      "status": "pending",
+      "wave": "W4",
+      "category": "必交",
+      "dependencies": "44、45、48、88a、89a",
+      "control": "restrictedExecutor"
+    },
+    {
+      "id": "62",
+      "requirement": "整合為獨立階段：組合後候選重新驗證；資料保全不刪 worktree；法遵邊界",
+      "owner": "Core／Legal／Security",
+      "evidence": "組合候選的 source 綁定、獨立審查、重新驗證流程；取消／失敗／換模型／關單的 worktree 保留測試；adapter 合規判定與 token 處理路徑審查",
+      "negative": "各分支單獨 PASS 就宣稱組合正確；直接刪除 worktree；因 BW 包裝了 CLI 就推定產品模式合規",
+      "rollback": "回單分支交付，不啟用自動 cleanup，僅保留手動 handoff",
+      "status": "pending",
+      "wave": "W4",
+      "category": "必交",
+      "dependencies": "49、50、55–61、88a、89a",
+      "control": "restrictedExecutor"
+    },
+    {
+      "id": "63",
+      "requirement": "`ProblemFrameV1` 契約增量與清楚小任務 fast path；先盤點 GA 基線",
+      "owner": "Core",
+      "evidence": "r4 §3.1 的既定邊界；小型 direct 工作保持輕量的證明；§6.1a resolved scope／effect／acceptance checklist；單檔 config 的高風險反例",
+      "negative": "對小任務強制完整 framing 儀式",
+      "rollback": "不實作，Track C 其餘 row 一併停止",
+      "status": "pending",
+      "wave": "W2",
+      "category": "必交",
+      "dependencies": "81、86、88a",
+      "control": "intentNavigation"
+    },
+    {
+      "id": "64",
+      "requirement": "語意關係產生候選，且詞彙圖與目標圖分離",
+      "owner": "Core",
+      "evidence": "候選產生與整理的實作；候選分為可共存目標／互斥替代／必要前提／可選延伸",
+      "negative": "把語言關聯當成需求必然關係；把手段與目的當成上下義；語意相近被當成操作等價",
+      "rollback": "停用語意擴展",
+      "status": "pending",
+      "wave": "W3",
+      "category": "決策",
+      "dependencies": "63、65、66、67",
+      "control": "intentNavigation"
+    },
+    {
+      "id": "65",
+      "requirement": "情境框架八維，允許未知",
+      "owner": "Core／UX",
+      "evidence": "八個欄位的實作；未知欄位不阻擋流程的測試",
+      "negative": "強迫使用者一次填完；把「更簡單」直接轉成具體刪減",
+      "rollback": "停用框架",
+      "status": "pending",
+      "wave": "W2",
+      "category": "必交",
+      "dependencies": "81、86、88a",
+      "control": "intentNavigation"
+    },
+    {
+      "id": "66",
+      "requirement": "選擇性澄清與 `needsClarification` 契約：缺口／來源／決策影響／假設分離",
+      "owner": "Core／UX",
+      "evidence": "確定性優先規則表的實作；澄清收益量測；澄清預算、無新資訊不重問、owner／wakeup／退出及可先行共同工作",
+      "negative": "變成問卷系統；引導式提問；已有答案仍重複詢問；兩輪／逾時後自動推進缺授權的工作",
+      "rollback": "停用澄清，回既有規劃流程",
+      "status": "pending",
+      "wave": "W2",
+      "category": "必交",
+      "dependencies": "81、86、88a",
+      "control": "intentNavigation"
+    },
+    {
+      "id": "67",
+      "requirement": "需求 provenance 六類，與 action authorization 分開",
+      "owner": "Core／Security",
+      "evidence": "六類標記的實作；`ApprovalEnvelope` 與 `ActionCapabilityV1` 分離的既有要求維持",
+      "negative": "模型假設被後續流程當成使用者明說的要求；語意圖產生 execution dependency 或 grant",
+      "rollback": "停用 provenance 標記",
+      "status": "pending",
+      "wave": "W2",
+      "category": "必交",
+      "dependencies": "81、86、88a",
+      "control": "intentNavigation"
+    },
+    {
+      "id": "68",
+      "requirement": "候選數量上限（每輪最多三個主要方向）與成本歸屬",
+      "owner": "Core／QA",
+      "evidence": "上限的實作；候選展開的推理與輸出 token 量測；與既有規劃呼叫合併的證明",
+      "negative": "以「沒有新增模型呼叫」宣稱沒有新增 token",
+      "rollback": "停用新增候選展開，回既有規劃",
+      "status": "pending",
+      "wave": "W2",
+      "category": "必交",
+      "dependencies": "81、86、88a",
+      "control": "intentNavigation"
+    },
+    {
+      "id": "69",
+      "requirement": "Track C INT-0／LEX／FRAME／BOTH 對照分離詞彙擴展與情境澄清的貢獻",
+      "owner": "QA",
+      "evidence": "四組對照報告；需求貼合度、無依據需求增加率、硬限制保留、澄清收益、需求返工、達成可用計畫的成本、清楚任務的退步程度",
+      "negative": "只讓同一個主 Agent 評分自己的企劃；把使用者沒有反對當成意圖已確認",
+      "rollback": "LEX 候選可 off；必要 FRAME／fast-path／硬限制契約失敗則 Track C 未完成，V5.1 GA No-Go，不能停用整個 C 後仍宣稱 GA",
+      "status": "pending",
+      "wave": "W3",
+      "category": "必交",
+      "dependencies": "63–68、87a",
+      "control": "intentNavigation"
+    },
+    {
+      "id": "70",
+      "requirement": "三層驗收分離（technical verification／delivery confirmation／outcome validation），只啟用本輪契約要求的部分；Outcome Vector 僅作非權威結果投影",
+      "owner": "Core／QA",
+      "evidence": "三個結果欄位及各 required stage 的 evidence refs、binding、觀測時間與未知值；`scripts/lib/evidence.mjs`、`core.mjs`、`graph.mjs`、`routing.mjs`、`metrics.mjs` 的既有 acceptance 錨點",
+      "negative": "把「程式寫完」等同「問題改善」；主 Agent 完成後自行重新定義驗收；只採信 Agent 的完成敘述；投影回寫 `sourceStatus` 或授予完成證明",
+      "rollback": "回既有保守 completion 契約，不把未知 outcome 改成 Done",
+      "status": "pending",
+      "wave": "W2",
+      "category": "必交",
+      "dependencies": "63、67、88a",
+      "control": "closedLoopAcceptance"
+    },
+    {
+      "id": "71",
+      "requirement": "目標到證據的追溯鏈，雙向可查；適用來源型交付時核對重要主張與實際支持片段",
+      "owner": "Core／QA",
+      "evidence": "七段關係及向下／向上檢查；來源型 cohort 的非權威 sidecar（索引主張／精確來源位置／版本／時間及既有 typed evidence／review receipt，本身不作完成證據）與 paired comparison；`requirementRef`／`goalRef` 目前零命中的證明；沿用既有契約與 evidence refs；fast-path 邏輯角色折疊與真實 refs、W0 凍結的 source-delivery cohort 適用清單",
+      "negative": "企劃、工單與測試各自存在卻對不上；Agent 擅自增加無需求依據的工作；URL 存在卻不支持主張、過期來源或未處理矛盾被當成完成證據；同一產生者自行採信引用",
+      "rollback": "停用新增追溯投影，回既有 evidence 與保守驗收",
+      "status": "pending",
+      "wave": "W2",
+      "category": "必交",
+      "dependencies": "63、67、87a、88a",
+      "control": "closedLoopAcceptance"
+    },
+    {
+      "id": "72",
+      "requirement": "成效觀測中的狀態分開呈現，不因功能清單完成就宣稱目標達成",
+      "owner": "Core／UX",
+      "evidence": "「使用成效：觀測中」「尚未證實」的呈現；本輪承諾與觀測期的區分",
+      "negative": "本輪承諾「證明效率改善」卻在觀測完成前宣稱達成",
+      "rollback": "只呈現技術驗證結果",
+      "status": "pending",
+      "wave": "W3",
+      "category": "必交",
+      "dependencies": "44、45、70、71",
+      "control": "closedLoopAcceptance"
+    },
+    {
+      "id": "73",
+      "requirement": "下一步候選卡：最多三個、允許少於三個、六個必要欄位、不直接觸發執行",
+      "owner": "Core／UX",
+      "evidence": "候選卡實作；`scripts/lib/providers.mjs` 與 `self-improve.mjs` 的 `DISPOSITIONS`（含 `NO_CHANGE` 作為成功終止結果）既有語義沿用",
+      "negative": "每次強迫湊滿三個；候選卡直接觸發任意執行；推薦排序追求點擊率或開單數",
+      "rollback": "停用候選卡",
+      "status": "pending",
+      "wave": "W3",
+      "category": "必交",
+      "dependencies": "44、45、70、71",
+      "control": "closedLoopAcceptance"
+    },
+    {
+      "id": "74",
+      "requirement": "三種循環分離，且包含結束能力；BW 自身改善候選保留來源、recurrence、impact 與淨新增 ceremony 的評估欄位",
+      "owner": "Core",
+      "evidence": "三種循環的邊界；「本輪結束」與「稍後再看」的實作；BW 自身改善候選的來源與效果／成本紀錄；使用者停止後不再開單的測試",
+      "negative": "原功能未通過驗收卻包裝成新的可選改善；使用者沒選候選就讓原任務保持未完成；推薦引擎持續開單；模型分數自動變成採用／發布權限",
+      "rollback": "回單一循環",
+      "status": "pending",
+      "wave": "W3",
+      "category": "必交",
+      "dependencies": "44、45、70、71",
+      "control": "closedLoopAcceptance"
+    },
+    {
+      "id": "75",
+      "requirement": "完整版本主比較、§9.1 次要拆解與 §9.2 全部適用 fixture；包含 Bash 3.2 空參數、immutable ancestry、canonical public Auto projection、public-test dependency closure、Node VM capability／diagnostic provenance、protected attestation schema／same-attempt、時間型 recovery safety assertions、policy exact bytes 與 interrupted evaluator slot 回歸；Track P P1 專屬 fixture 只在啟動後適用",
+      "owner": "QA",
+      "evidence": "對照報告；每個 named fixture 的通過紀錄及 source／projection／OS／shell／Node／Git-depth／argv／runAttempt binding；public/private test surface 分別對帳；scanner 與 publisher raw-output／bundle digest 及 normalized adapter receipts；同 workflow run/attempt 的 matrix coverage；review provenance、policy bytes 與 timing receipts",
+      "negative": "把混合效果冒充單項歸因；aggregate PASS 抵銷必交 fail／skip；public tests 讀 private 工具；未知 attestation schema 被接受、signed payload 被改寫或 certificate binding 不符仍放行；Node22 attempt1 與 Node24 attempt2 被合成 same-attempt gate；latency fail 短路 safety assertions；錯誤 policy bytes／尾端 LF 通過",
+      "rollback": "不進行相關功能 promotion；保留失敗 receipt，修正後只重驗受影響且重新綁定的項目",
+      "status": "pending",
+      "wave": "G",
+      "category": "必交",
+      "dependencies": "3–34、36b、37–74、81、82、83、87a、88a、89b、87b",
+      "control": "契約／gate；無獨立開關"
+    },
+    {
+      "id": "76",
+      "requirement": "Safety gates：§9.3 全部 observed count = 0，未看完的 audit site 標 `unclassified`",
+      "owner": "Security／QA",
+      "evidence": "負向案例報告；unclassified 清單",
+      "negative": "以百分比 confidence 代替負向測試與恢復測試",
+      "rollback": "回 baseline",
+      "status": "pending",
+      "wave": "G",
+      "category": "必交",
+      "dependencies": "3–34、36b、37–74、81、82、83、87a、88a、89b",
+      "control": "契約／gate；無獨立開關"
+    },
+    {
+      "id": "77",
+      "requirement": "Liveness gates：無無期限、無 wakeup、無 owner 的 recoverable blocker；無飢餓；包含 interrupted evaluator slot 的安全 reconciliation",
+      "owner": "QA",
+      "evidence": "bounded model checking 報告；partial-order reduction 僅用於已證明互不干涉事件的證明；fresh owner/process/ledger receipts；舊 launch 缺 completion 時保留 UNKNOWN 並證明安全釋放流程",
+      "negative": "消掉 revocation／budget／cancel／shared-resource／UNKNOWN callback 的重要交錯；以 PID 不存在或人工改檔直接宣稱 slot 已結案",
+      "rollback": "回 baseline；未能證明 ownership 或 terminal state 時維持 HOLD，不建立新的同時 evaluator",
+      "status": "pending",
+      "wave": "G",
+      "category": "必交",
+      "dependencies": "3–34、36b、37–74、81、82、83、87a、88a、89b",
+      "control": "契約／gate；無獨立開關"
+    },
+    {
+      "id": "78",
+      "requirement": "按 §9.5 分開功能驗收、效能採用及版本主收益；預註冊 endpoint／H／N／cluster、非劣界限與 held-out；Track P P1 僅依離線研究結案",
+      "owner": "QA",
+      "evidence": "promotion 報告；denominator 與排除規則的預先定義；P1 不進主要收益的對照",
+      "negative": "事後挑選有利案例或改分母；以 P1 模型分數取代 V5.1 收益；假設相關樣本獨立",
+      "rollback": "效能候選 off，主比較不過則 GA No-Go；必要安全修正按功能驗收",
+      "status": "pending",
+      "wave": "G",
+      "category": "必交",
+      "dependencies": "75–77、79、87b、88b、89b",
+      "control": "契約／gate；無獨立開關"
+    },
+    {
+      "id": "79",
+      "requirement": "§9.6 正式功能的自動回滾條件全部實作並測試；P1 專屬停用條件僅於研究啟動後適用",
+      "owner": "Core／Security",
+      "evidence": "正式功能每一條的觸發測試；P1 若啟動則另附隔離與停用紀錄",
+      "negative": "敏感資料外送後才發現無回滾路徑；未啟動 P1 卻把其 fixture 當成發布缺口",
+      "rollback": "停止新動作，保全／對帳在途 state；依 §0.2 安全 fallback，P1 獨立停用",
+      "status": "pending",
+      "wave": "G",
+      "category": "必交",
+      "dependencies": "3–34、36b、37–74、81、82、83、87a、88a、89b",
+      "control": "契約／gate；無獨立開關"
+    },
+    {
+      "id": "80",
+      "requirement": "A／B／C／D 必交與 §13 完整版本 GA 逐項成立，P0 有結論、P1 研究與發布分母分離",
+      "owner": "Root",
+      "evidence": "§13 必要項目的直接 evidence；P0 的 owner 簽核結論；P1 紀錄另存且不作為本列通過條件",
+      "negative": "以局部 slice 或 P1 模型分數宣稱 V5.1 完成；P1 未觸發時算作發布缺口",
+      "rollback": "保持 HOLD／No-Go，依 §0.2 保全與安全退回；維護修正獨立驗收",
+      "status": "pending",
+      "wave": "W5",
+      "category": "必交",
+      "dependencies": "75–79、83、87b、88b、89b、90",
+      "control": "契約／gate；無獨立開關"
+    },
+    {
+      "id": "81",
+      "requirement": "ADRM 四個能力域與四個運作 plane 的責任對照；Governance 跨域，契約草案不直接改 strict reader",
+      "owner": "Core／Security",
+      "evidence": "§2.1 對照；Track C／D 已有契約與擬議欄位的差異；舊 reader 相容性評估",
+      "negative": "把能力域誤作固定呼叫順序；Primitive 判斷自動變成授權；新欄位讓舊 reader 拒絕",
+      "rollback": "回既有契約，只保留設計對照",
+      "status": "pending",
+      "wave": "W0",
+      "category": "必交",
+      "dependencies": "86",
+      "control": "契約／gate；無獨立開關"
+    },
+    {
+      "id": "82",
+      "requirement": "P0 兩段必交（子項彙總；不獨立派工）",
+      "owner": "Core／QA",
+      "evidence": "各子項的直接 evidence 與採用／未採用／未觸發結論；不得以任一子項代替全組",
+      "negative": "只完成 a 段就把後段記為完成；以彙總列重複計入 GA 分母",
+      "rollback": "依各子項處理",
+      "status": "pending（由子項推導）",
+      "wave": "彙總",
+      "category": "彙總",
+      "dependencies": "82a、82b",
+      "control": "依子項；不另設開關"
+    },
+    {
+      "id": "82a",
+      "requirement": "P0 W0：既有入口的語義決策成本／返工 baseline",
+      "owner": "Core／QA",
+      "evidence": "來源、cohort、wall time／token／owner rework 及分母；不可分離部分明列 unknown",
+      "negative": "只有模型自評或 fixture 數量就宣布熱點",
+      "rollback": "維持診斷，不新增模型",
+      "status": "pending",
+      "wave": "W0",
+      "category": "必交",
+      "dependencies": "35、36a",
+      "control": "契約／gate；無獨立開關"
+    },
+    {
+      "id": "82b",
+      "requirement": "P0 W3：C cohort 的 needsClarification 量測／資料可行性",
+      "owner": "Core／QA",
+      "evidence": "66／69 真實輸出、owner 裁定、資料權利與成本分離；具體 unknown 亦須原因",
+      "negative": "C 未實作就宣稱已量測；臆測省時",
+      "rollback": "維持診斷，不新增正式路由",
+      "status": "pending",
+      "wave": "W3",
+      "category": "必交",
+      "dependencies": "66、69、82a",
+      "control": "契約／gate；無獨立開關"
+    },
+    {
+      "id": "83",
+      "requirement": "P0 決定 P1 的資料權限、標註 owner、現行 baseline 與啟動結論；可評估時先凍結數值化熱點／比較門檻",
+      "owner": "QA／Security／Owner",
+      "evidence": "帶時間與來源綁定的 P0 報告、資料用途決定、門檻或無法設定門檻的原因、啟動／不啟動原因",
+      "negative": "看完模型結果才改門檻；用無權限或無代表性樣本啟動 P1；`unknown` 充當 PASS",
+      "rollback": "P1 保持未觸發，P0 誠實記 `unknown`",
+      "status": "pending",
+      "wave": "W3",
+      "category": "必交",
+      "dependencies": "82",
+      "control": "契約／gate；無獨立開關"
+    },
+    {
+      "id": "84",
+      "requirement": "P1 若啟動，離線契約與本機執行環境不連到正式 consumer",
+      "owner": "Core／Security",
+      "evidence": "owner 啟動紀錄、固定模型與資料 digest、隔離資料流、無正式 import／查詢／等待路徑的審查",
+      "negative": "Shadow 輸出進當輪 decision、effect 或 completion；把 confidence 當 admission",
+      "rollback": "停止 P1、封存觀測、正式流程回既有 baseline",
+      "status": "pending（未觸發；研究）",
+      "wave": "P",
+      "category": "研究",
+      "dependencies": "66、82、83",
+      "control": "decisionShadow（研究）"
+    },
+    {
+      "id": "85",
+      "requirement": "P1 若啟動，DecisionBench 和 calibration 對照現行 baseline，負面與樣本不足結果如實結案",
+      "owner": "QA／Owner",
+      "evidence": "held-out／時間分割、語言及風險 slice、coverage／abstention／calibration／成本報告，綁定模型與資料版本；事後供下一輪參考的紀錄",
+      "negative": "以公開 benchmark 或同一主 Agent 自評宣稱 BW 成效；把 P1 分數列作 V5.1 主要收益",
+      "rollback": "停止 P1 並保留失敗結論；不升級為正式 provider",
+      "status": "pending（未觸發；研究）",
+      "wave": "P",
+      "category": "研究",
+      "dependencies": "84",
+      "control": "decisionShadow（研究）"
+    },
+    {
+      "id": "86",
+      "requirement": "公開 RC1 delta inventory、ADRM 與 scope freeze；promotion 前再核正式 V5 GA baseline",
+      "owner": "Root／Core",
+      "evidence": "開發base 9afb9e119d74ff721fe6e0cb75760a0c32e7de25 的source／consumer／rights差額、A/B/C/D及pilot、有限清單、task DAG、Root owner、retry上限；正式比較baseline另依GA gate凍結",
+      "negative": "把 source 存在當 GA；事後縮必交範圍；把每個 matrix leaf 擴成新 issue；沒有進展仍重複重建候選",
+      "rollback": "停止不符合基線的波次",
+      "status": "pending",
+      "wave": "W0",
+      "category": "必交",
+      "dependencies": "1；development前置依修訂後2",
+      "control": "契約／gate；無獨立開關"
+    },
+    {
+      "id": "87",
+      "requirement": "統計契約與版本效益（子項彙總；不獨立派工）",
+      "owner": "QA／Core",
+      "evidence": "各子項的直接 evidence 與採用／未採用／未觸發結論；不得以任一子項代替全組",
+      "negative": "只完成 a 段就把後段記為完成；以彙總列重複計入 GA 分母",
+      "rollback": "依各子項處理",
+      "status": "pending（由子項推導）",
+      "wave": "彙總",
+      "category": "彙總",
+      "dependencies": "87a、87b",
+      "control": "依子項；不另設開關"
+    },
+    {
+      "id": "87a",
+      "requirement": "W0：統計協定、可信採集、joint power／預算可行性與 cohort 凍結",
+      "owner": "QA／Core",
+      "evidence": "§8.7／§9.1／§9.5a；pilot 與確認樣本分離、H／N／cluster／oracle／endpoint／producer、方法假設、來源型 cohort、真人研究方案；go／修訂／HOLD 結論",
+      "negative": "信賴區間寬度當 power；simple tasks 移出主分母；固定回答 replay 冒充真人；看 candidate 後改門檻",
+      "rollback": "維持 W0，按 §0.1 新協定或 §0.2 維護出口",
+      "status": "pending",
+      "wave": "W0",
+      "category": "必交",
+      "dependencies": "35、36a、82a、86",
+      "control": "契約／gate；無獨立開關"
+    },
+    {
+      "id": "87b",
+      "requirement": "W5：完整版本主比較與必要品質／成本／fast-path 護欄",
+      "owner": "QA／Core",
+      "evidence": "§9.5a 指定方法、完整分母、independent receipt、unknown 敏感度與適用分布；真人／replay 分報",
+      "negative": "快 fail、縮目標、補零；多方法選通過者；以 canary 安全替代效益",
+      "rollback": "GA No-Go，效能候選 off；安全修正另行驗收",
+      "status": "pending",
+      "wave": "W5",
+      "category": "必交",
+      "dependencies": "3–34、36b、37–74、81、82、83、87a、88b、89b",
+      "control": "契約／gate；無獨立開關"
+    },
+    {
+      "id": "88",
+      "requirement": "資料契約與生命週期（子項彙總；不獨立派工）",
+      "owner": "Core／Security",
+      "evidence": "各子項的直接 evidence 與採用／未採用／未觸發結論；不得以任一子項代替全組",
+      "negative": "只完成 a 段就把後段記為完成；以彙總列重複計入 GA 分母",
+      "rollback": "依各子項處理",
+      "status": "pending（由子項推導）",
+      "wave": "彙總",
+      "category": "彙總",
+      "dependencies": "88a、88b",
+      "control": "依子項；不另設開關"
+    },
+    {
+      "id": "88a",
+      "requirement": "W0：versioned 資料契約、locator registry 與既有 backend 核對",
+      "owner": "Core／Security",
+      "evidence": "§3.1 schema／validator、§10.2 kill writer 權限、§10.5 paths／ACL／retention／容量／migration／reader；控制 state 與投影分離",
+      "negative": "以 sidecar 建第二份 grant／budget 真相；executor 寫 kill policy",
+      "rollback": "契約未成立不進新增 reader／writer",
+      "status": "pending",
+      "wave": "W0",
+      "category": "必交",
+      "dependencies": "86",
+      "control": "契約／gate；無獨立開關"
+    },
+    {
+      "id": "88b",
+      "requirement": "W5：各正式功能資料生命週期與失效驗收",
+      "owner": "Core／Security",
+      "evidence": "缺失／corruption／磁碟滿／migration／舊 reader／revocation／kill CAS／rollback；保留必要 control state",
+      "negative": "缺 sidecar 導致 budget 歸零；刪唯一 evidence；不安全 downgrade",
+      "rollback": "投影重建；控制缺失 HOLD／對帳",
+      "status": "pending",
+      "wave": "W5",
+      "category": "必交",
+      "dependencies": "3–34、36b、37–74、81、82、83、88a、89b",
+      "control": "契約／gate；無獨立開關"
+    },
+    {
+      "id": "89",
+      "requirement": "平台與多寫者 pilot（子項彙總；不獨立派工）",
+      "owner": "Core／Release",
+      "evidence": "各子項的直接 evidence 與採用／未採用／未觸發結論；不得以任一子項代替全組",
+      "negative": "只完成 a 段就把後段記為完成；以彙總列重複計入 GA 分母",
+      "rollback": "依各子項處理",
+      "status": "pending（由子項推導）",
+      "wave": "彙總",
+      "category": "彙總",
+      "dependencies": "89a、89b",
+      "control": "依子項；不另設開關"
+    },
+    {
+      "id": "89a",
+      "requirement": "W0：正式平台盤點與 B pilot advertised scope 凍結",
+      "owner": "Core／Release",
+      "evidence": "六組核心契約、OS／Node／host／provider／action scope、coordinator 與 enforcement 能力盤點",
+      "negative": "以 source／本機 fixture 當所有 OS 實證",
+      "rollback": "不支援 surface 維持單寫者；無可行 pilot 則 W0 HOLD",
+      "status": "pending",
+      "wave": "W0",
+      "category": "必交",
+      "dependencies": "86、88a",
+      "control": "契約／gate；無獨立開關"
+    },
+    {
+      "id": "89b",
+      "requirement": "W4：pilot enforcement／跨 root coordinator／public contract 驗收",
+      "owner": "Core／Release",
+      "evidence": "55–62 整合、實際平台 conformance、hook／config／path／process 隔離、protected attestation transport／schema adapter 與 RuntimeQualificationGateV2 same-attempt contract；文件一致",
+      "negative": "worktreeConfig 當 sandbox；未驗平台默認可寫；未知 attestation schema 被接受；跨 runAttempt 合成 qualification PASS",
+      "rollback": "停止多寫者；必交 pilot 未過則 GA No-Go",
+      "status": "pending",
+      "wave": "W4",
+      "category": "必交",
+      "dependencies": "55–62、89a",
+      "control": "契約／gate；無獨立開關"
+    },
+    {
+      "id": "90",
+      "requirement": "完整 candidate canary、rollback 與 same-SHA release reconciliation；產品 5.1.0／tag v5.1.0；先完成首次 public projection 的有限資格檢查",
+      "owner": "Release／QA",
+      "evidence": "§10.6 的 source／workflow／projection digest、canonical policy immutable bytes／variable／checksum linkage、numeric repo binding、runner／environment／permissions／policy-variable inventory、精確 scope/expiry authorization；protected publisher raw output／signed bundle digest 與嚴格 schema adapter receipt；RuntimeQualificationGateV2 same workflow run/attempt matrix coverage；同 OS／shell／Node／Git-depth 的 §9.2 named checks；complete public snapshot review 的 SHA/tree/scope/coverage/report digest/raw outcome/unknowns；reviewed amendment exact old/new binding 與受影響 receipts rebinding；canary 分母、時間／repo coverage；rights closure；package／plugin／artifact manifests、官網與文件公開 readback、版本／tag 對帳",
+      "negative": "個別功能 PASS 代替版本；先公開再補跑資格檢查；public test 依賴未發布的 private 工具或 skip 必交案例；未知／錯誤 attestation schema 被寬鬆接受、signed data 被改寫、subject/certificate binding 不符仍放行；Node22 attempt1 與 Node24 attempt2 合成 same-attempt qualification；policy bytes/checksum/variables 來源不一致或尾端 LF 被接受；latency fail 短路 safety assertions 或以任意調高 timeout 掩蓋；缺原始 snapshot review receipt 卻從摘要／requested model 升為 PASS；一般 CREATE_ONLY 被一次性 exception 放寬；force push、receipt 未按 old/new source 重新綁定、UNKNOWN 未先 reconcile 就重送，或未達各自 gate 即 tag／prerelease；其他 named fail 被 aggregate PASS 抵銷",
+      "rollback": "停止 rollout，保留失敗與在途對帳，回可安全執行的 V5 baseline；修正後以新 SHA 重驗受影響 gate",
+      "status": "pending",
+      "wave": "W5",
+      "category": "必交",
+      "dependencies": "75–79、86、87b、88b、89b、91、92",
+      "control": "契約／gate；無獨立開關"
+    },
+    {
+      "id": "92",
+      "requirement": "README、guide／HTML、CLI／skill／security／governance 與版本說明同步 V5.1",
+      "owner": "Docs／Security",
+      "evidence": "公開文件與實際 contract／package 5.1.0 對照；root-only／executor 權限差別、受限 pilot／unsupported／P1 說明；`scripts/public-docs.mjs` 與 `scripts/website-public-qa-documents.mjs` 的路徑 inventory、版本／連結／聲稱 QA 及公開 readback；CLI example 從另一 repo CWD 仍解析到 installed plugin root 的絕對 `scripts/sbw.mjs`",
+      "negative": "文件只列功能清單；安裝版號與 artifact 不符；舊安全說明殘留；路徑清單漏頁；將尚未驗證結果標為 GA；CLI example 誤依賴呼叫端 CWD",
+      "rollback": "回前一已驗證文件並修正候選；不改動實際權限或 release gate",
+      "status": "pending",
+      "wave": "W5",
+      "category": "必交",
+      "dependencies": "60、75–79、87b、89b",
+      "control": "契約／gate；無獨立開關"
+    },
+    {
+      "id": "91",
+      "requirement": "官網、41 語系首頁、頁面與導航同步 V5.1；planned／pilot／正式發布狀態與 candidate 一致；固定 RC1 `en`／`zh-Hant-TW` 及既有路徑／行為相容性",
+      "owner": "Docs／Release",
+      "evidence": "官網 source inventory、41 語系分母、版本／連結／宣稱 QA、部署 identity 與 same-SHA origin readback；39 deferred 逐項對帳；`PUBLIC_RC1_LOCALE_IDS`／ownership `existing` 固定 `en`、`zh-Hant-TW`，預設 `zh-Hant-TW`、首頁 `/`／`/en/`；`publicDocPath`／`publicReferencePath` 完整入口、連結、locale 切換與安裝命令回歸；website／public QA tests、生成 checks，兩語系逐頁同 SHA／deployment identity origin readback",
+      "negative": "以2已啟用語系冒充41；把planned／P1描述為正式能力；不同SHA或未知部署身份仍放行；RC1 語系或入口遭刪除／同數量替换、預設／切換／連結／命令退步、以新增語系抵銷既有退步",
+      "rollback": "保留前一已驗證網站；候選未通過保持HOLD",
+      "status": "pending",
+      "wave": "W5",
+      "category": "必交",
+      "dependencies": "75–79、87b、89b；發布前QA，origin readback由90消費；R8建置前置RC2-SITE（39 deferred＋2existing）",
+      "control": "契約／gate；無獨立開關"
+    }
+  ],
+  "coverage": {
+    "1": [
+      "M-01"
+    ],
+    "2": [
+      "GOV-01"
+    ],
+    "3": [
+      "W0-08"
+    ],
+    "4": [
+      "W0-07"
+    ],
+    "5": [
+      "A-01"
+    ],
+    "6": [
+      "A-01"
+    ],
+    "7": [
+      "A-01"
+    ],
+    "8": [
+      "A-01"
+    ],
+    "9": [
+      "A-02a",
+      "A-02b"
+    ],
+    "10": [
+      "A-03"
+    ],
+    "11": [
+      "A-04"
+    ],
+    "12": [
+      "A-12"
+    ],
+    "13": [
+      "A-15"
+    ],
+    "14": [
+      "A-05"
+    ],
+    "15": [
+      "A-13"
+    ],
+    "16": [
+      "A-12"
+    ],
+    "17": [
+      "A-12"
+    ],
+    "18": [
+      "A-14"
+    ],
+    "19": [
+      "A-21"
+    ],
+    "20": [
+      "A-22"
+    ],
+    "21": [
+      "A-16"
+    ],
+    "22": [
+      "A-17a"
+    ],
+    "23": [
+      "A-17b"
+    ],
+    "24": [
+      "A-17b"
+    ],
+    "25": [
+      "A-23"
+    ],
+    "26": [
+      "A-24"
+    ],
+    "27": [
+      "A-25"
+    ],
+    "28": [
+      "A-06"
+    ],
+    "29": [
+      "A-07"
+    ],
+    "30": [
+      "A-08a"
+    ],
+    "31": [
+      "A-08b"
+    ],
+    "32": [
+      "A-09"
+    ],
+    "33a": [
+      "A-10"
+    ],
+    "33b": [
+      "A-10"
+    ],
+    "33c": [
+      "A-18"
+    ],
+    "33d": [
+      "A-19"
+    ],
+    "33e": [
+      "A-20"
+    ],
+    "33f": [
+      "A-20"
+    ],
+    "34": [
+      "A-11"
+    ],
+    "35": [
+      "W0-03",
+      "REL-B"
+    ],
+    "36a": [
+      "W0-03",
+      "REL-B"
+    ],
+    "36b": [
+      "R-06"
+    ],
+    "37": [
+      "R-01"
+    ],
+    "38": [
+      "R-02"
+    ],
+    "39": [
+      "R-03"
+    ],
+    "40": [
+      "R-04"
+    ],
+    "41": [
+      "R-04"
+    ],
+    "42": [
+      "R-05"
+    ],
+    "43": [
+      "R-06"
+    ],
+    "44": [
+      "B-01a"
+    ],
+    "45": [
+      "B-01a"
+    ],
+    "46": [
+      "B-01b"
+    ],
+    "47": [
+      "B-02"
+    ],
+    "48": [
+      "B-02"
+    ],
+    "49": [
+      "B-03"
+    ],
+    "50": [
+      "B-03"
+    ],
+    "51": [
+      "B-04a",
+      "B-04b",
+      "B-04c",
+      "B-04d"
+    ],
+    "52": [
+      "W0-03"
+    ],
+    "53": [
+      "W0-03"
+    ],
+    "54": [
+      "W0-03"
+    ],
+    "55": [
+      "B-05"
+    ],
+    "56": [
+      "B-06"
+    ],
+    "57": [
+      "B-07"
+    ],
+    "58": [
+      "B-08"
+    ],
+    "59": [
+      "B-08"
+    ],
+    "60": [
+      "B-11"
+    ],
+    "61": [
+      "B-09a",
+      "B-09b",
+      "B-09c",
+      "B-09d"
+    ],
+    "62": [
+      "B-10"
+    ],
+    "63": [
+      "C-01"
+    ],
+    "64": [
+      "C-03"
+    ],
+    "65": [
+      "C-01"
+    ],
+    "66": [
+      "C-02a",
+      "C-02b"
+    ],
+    "67": [
+      "C-01"
+    ],
+    "68": [
+      "C-01"
+    ],
+    "69": [
+      "C-04"
+    ],
+    "70": [
+      "D-01"
+    ],
+    "71": [
+      "D-02a",
+      "D-02b"
+    ],
+    "72": [
+      "D-03a"
+    ],
+    "73": [
+      "D-03b"
+    ],
+    "74": [
+      "D-03c"
+    ],
+    "75": [
+      "G-01",
+      "REL-C",
+      "PUB-03",
+      "PUB-04"
+    ],
+    "76": [
+      "G-02",
+      "REL-C"
+    ],
+    "77": [
+      "G-03",
+      "REL-B"
+    ],
+    "78": [
+      "G-06"
+    ],
+    "79": [
+      "G-04"
+    ],
+    "80": [
+      "M-02"
+    ],
+    "81": [
+      "W0-01"
+    ],
+    "82a": [
+      "W0-04"
+    ],
+    "82b": [
+      "P-01"
+    ],
+    "83": [
+      "P-01"
+    ],
+    "84": [
+      "P-02a"
+    ],
+    "85": [
+      "P-02b"
+    ],
+    "86": [
+      "W0-01"
+    ],
+    "87a": [
+      "W0-05"
+    ],
+    "87b": [
+      "G-06"
+    ],
+    "88a": [
+      "W0-02"
+    ],
+    "88b": [
+      "G-04"
+    ],
+    "89a": [
+      "W0-06",
+      "PL-01"
+    ],
+    "89b": [
+      "B-04b",
+      "B-04c",
+      "B-04d",
+      "G-05",
+      "REL-E1",
+      "REL-E2",
+      "REL-E3",
+      "REL-G",
+      "PL-01",
+      "PL-02",
+      "PL-03",
+      "PL-04",
+      "PL-05",
+      "PL-06"
+    ],
+    "90": [
+      "REL-A",
+      "REL-C",
+      "REL-D",
+      "REL-E1",
+      "REL-E2",
+      "REL-E3",
+      "REL-F1",
+      "REL-F2",
+      "REL-G",
+      "REL-H",
+      "REL-I",
+      "REL-01",
+      "PUB-03",
+      "PUB-04"
+    ],
+    "92": [
+      "PUB-01"
+    ],
+    "91": [
+      "PUB-02"
+    ]
+  },
+  "leafTrackingTotal": 102,
+  "gaEligibleTotal": 100
+}

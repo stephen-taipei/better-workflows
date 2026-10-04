@@ -1,4 +1,4 @@
-<!-- Generated from CONTRIBUTING.md; source-sha256: 8255b9afa55125d7078e94e7ba08228ed7ee383a05319271213c5e95feafd20e; edit docs/rc1-catalogs/policies/*.json. -->
+<!-- Generated from CONTRIBUTING.md; source-sha256: 2dcb0c18d578937b481e6588ae76784829d1a33855ea6bede5d003dfe33a935d; edit docs/rc1-catalogs/policies/*.json. -->
 # 參與貢獻
 
 [English](../en/contributing.md) · **繁體中文（台灣）**
@@ -17,6 +17,8 @@
 - 請依照 [SECURITY\.md](security.md) 的說明，以私密方式回報漏洞。
 
 ## 開發環境設定
+
+V5\.1 開發使用以當前受保護的 `dev` 為基礎、由任務持有的功能分支與worktree。功能PR以 `dev` 為目標。維護者透過最新必要checks整合已審查變更；worker保留其他owner路徑，共享整合交給 Root。
 
 需求：
 

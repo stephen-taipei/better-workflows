@@ -18,6 +18,11 @@ Thank you for helping improve Better Workflows.
 
 ## Development setup
 
+For V5.1 development, use a task-owned feature branch and worktree based on
+the current protected `dev`. Target feature pull requests at `dev`.
+The maintainer integrates reviewed changes through fresh required checks;
+workers preserve other owners' paths and hand shared integration to Root.
+
 Requirements:
 
 - Node.js 24 or newer;

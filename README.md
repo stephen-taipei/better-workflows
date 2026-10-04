@@ -235,6 +235,11 @@ prove that the user's original goal was the right product decision.
 <!-- readme-section:learn-help-contribute -->
 ## Learn, get help, and contribute
 
+V5.1 isolated development is tracked in the [execution plan](docs/plans/v5-1.md),
+[version issue](https://github.com/stephen-taipei/better-workflows/issues/1) and
+[acceptance and integration issue](https://github.com/stephen-taipei/better-workflows/issues/2).
+These track planned work; they do not establish V5.1 activation or GA.
+
 | Need | Destination |
 | --- | --- |
 | First installation and route | [Getting started](docs/guide/getting-started.md) |
