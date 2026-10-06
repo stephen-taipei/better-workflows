@@ -897,6 +897,7 @@ html:not(.js) .copy { display: none; }
 .document-content input[type="checkbox"] { width: 16px; height: 16px; margin: 0 10px 0 0; vertical-align: -2px; accent-color: var(--bw-signal); }
 .document-content pre { position: relative; margin: 0 0 18px; padding: 16px 18px; border: 1px solid #2a2f37; border-radius: 10px; background: #0f1114; color: #e6e8eb; overflow-x: auto; font: 13.5px/1.75 var(--bw-font-mono); direction: ltr; text-align: left; }
 .document-content pre code { padding: 0; background: none; color: inherit; font-size: inherit; white-space: pre; }
+.document-content :not(pre) > code { white-space: normal; overflow-wrap: anywhere; }
 .document-content pre.has-copy { padding-right: 92px; }
 .document-content pre .copy { position: absolute; top: 10px; right: 10px; background: #171a1f; border-color: #323840; color: #aab0b9; }
 .document-content pre .copy:hover { color: #eceef1; border-color: #818993; }
