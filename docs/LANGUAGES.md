@@ -46,4 +46,4 @@ Better Workflows publishes 41 locale editions. Each locale has a website, a loca
 | `ca` | Català | [Overview](locales/ca.md) · [Details](details/ca.md) · [Website](https://betterworkflows.dev/ca/) · [Docs entry](https://betterworkflows.dev/ca/docs/) |
 | `ar` | العربية | [Overview](locales/ar.md) · [Details](details/ar.md) · [Website](https://betterworkflows.dev/ar/) · [Docs entry](https://betterworkflows.dev/ar/docs/) |
 
-Default locale: `zh-Hant-TW`. English remains canonical for runtime contracts. Editions other than `en` and `zh-Hant-TW` are machine-assisted translations that still need native-speaker review.
+Default locale: `zh-Hant-TW`. English remains canonical for runtime contracts. Editions other than `en` and `zh-Hant-TW` are machine-assisted translations.

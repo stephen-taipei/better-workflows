@@ -225,7 +225,7 @@ Better Workflows publishes ${locales.length} locale editions. Each locale has a 
 | --- | --- | --- |
 ${rows}
 
-Default locale: \`${DEFAULT_LOCALE}\`. English remains canonical for runtime contracts. Editions other than \`en\` and \`zh-Hant-TW\` are machine-assisted translations that still need native-speaker review.
+Default locale: \`${DEFAULT_LOCALE}\`. English remains canonical for runtime contracts. Editions other than \`en\` and \`zh-Hant-TW\` are machine-assisted translations.
 `;
 }
 
