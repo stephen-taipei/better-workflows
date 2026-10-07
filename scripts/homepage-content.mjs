@@ -25,16 +25,16 @@ const COPY = Object.freeze({
     taglineLabel: "四項原則",
     ctaInstall: "開始安裝",
     ctaDemo: "看閘門如何運作",
-    spec: { title: "發布狀態", since: "2026-10-03", ga: "尚未發布", status: "受控預發布（controlled prerelease）", scope: "macOS × Node.js 22/24 · Codex · Gemini CLI · Qwen Code", notes: "閱讀 RC1 發布說明" },
+    spec: { title: "發行狀態", since: "2026-10-03", ga: "尚未發行", status: "受控預發行（controlled prerelease）", scope: "macOS × Node.js 22/24 · Codex · Gemini CLI · Qwen Code", notes: "閱讀 RC1 發行說明" },
     demo: {
-      title: "閘門走查",
-      illus: "示意走查，並非即時執行",
+      title: "閘門逐步演示",
+      illus: "示意演示，並非即時執行",
       termLabel: "終端機示意輸出",
       prompt: "&lt;描述你要的結果&gt;",
       lines: [
         ["route", "evidence-required · policy <code>dev-publish-v1</code>"],
         ["goal", "凍結 goal、scope、acceptance 與 authority <em class=\"r ok\">已綁定</em>"],
-        ["source", "綁定目前 repository 與 revision，擷取 source sentinel <em class=\"r ok\">新鮮</em>"],
+        ["source", "綁定目前 repository 與 revision，擷取 source sentinel <em class=\"r ok\">有效</em>"],
         ["worktree", "建立 task-owned branch 與 worktree，不動你的 checkout <em class=\"r ok\">已隔離</em>"],
         ["execute", "在綁定的 scope 內執行有界工作 <em class=\"r ok\">完成</em>"],
         ["verify", "typed evidence 綁定目前 source，review receipt 齊備 <em class=\"r ok\">通過</em>"],
@@ -47,15 +47,15 @@ const COPY = Object.freeze({
       completeConfirmed: "重新取樣 sentinel，重驗 acceptance，清理 task-owned 資源 <em class=\"r ok\">完成</em>",
       halt: "provider 結果未知：不重試、不宣告完成，先停下來等你決定。",
       complete: "終態的 provider 與 repository 證據齊備，已清理本任務擁有的 branch 與 worktree。",
-      gates: [["目標凍結", "GOAL"], ["來源綁定", "SOURCE"], ["隔離 worktree", "WORKTREE"], ["有界執行", "EXECUTE"], ["證據新鮮且已審查", "VERIFY · GATE"], ["此 target 已授權", "AUTHORITY · GATE"], ["單一副作用", "ACT"], ["核對 provider 狀態", "RECONCILE · GATE"], ["完成並清理", "COMPLETE"]],
-      controls: "走查控制", replay: "重播", step: "單步", outcomeLabel: "切換 provider 結果", outcomeKicker: "PROVIDER 結果",
+      gates: [["目標凍結", "GOAL"], ["來源綁定", "SOURCE"], ["隔離 worktree", "WORKTREE"], ["有界執行", "EXECUTE"], ["證據有效且已審查", "VERIFY · GATE"], ["此 target 已授權", "AUTHORITY · GATE"], ["單一副作用", "ACT"], ["核對 provider 狀態", "RECONCILE · GATE"], ["完成並清理", "COMPLETE"]],
+      controls: "演示控制", replay: "重播", step: "單步", outcomeLabel: "切換 provider 結果", outcomeKicker: "PROVIDER 結果",
       unknown: "未知 ⇒ 停止", confirmed: "已確認 ⇒ 完成",
-      note: "這是示意走查。欄位與狀態僅用來說明閘門如何通過、又在哪裡停下；另一種結局是 provider 結果已確認，流程走到完成。"
+      note: "這是示意演示。欄位與狀態僅用來說明閘門如何通過、又在哪裡停下；另一種結局是 provider 結果已確認，流程走到完成。"
     },
     stripLabel: "數字一覽",
     strip: [
       ["102", "型別化證據合約", "typed evidence contracts"],
-      ["0", "執行期相依套件", "runtime dependencies"],
+      ["0", "執行階段相依套件", "runtime dependencies"],
       ["1", "公開入口", "<code>$better-workflows:auto</code>"],
       ["3", "Auto 政策", "<code>read-only-v1</code><code>code-change-v1</code><code>dev-publish-v1</code>"],
       ["<small>≥</small>22.14", "Node.js 版本", "隨附 helper 的最低需求"],
@@ -67,7 +67,7 @@ const COPY = Object.freeze({
       lead: "階段只有在證據屬於目前的儲存庫、revision、scope 與目標，且可被再次檢查時才會通過。證據缺漏、過期、衝突或結果未知時，流程會停止並請你決定，而不是假裝任務已完成。",
       pillars: [
         ["root", "只有 Root 能動手", "只有 Root 可以編輯、回併、部署、接受風險或宣告完成。Prompt 只描述意圖，不會授予權限。"],
-        ["doc", "行動之前，先有證據", "每個副作用都需要新鮮的證據、清楚的出處，以及綁定預定目標的動作。"],
+        ["doc", "行動之前，先有證據", "每個副作用都需要有效的證據、清楚的出處，以及綁定預期目標的動作。"],
         ["lock", "失敗時一律關閉", "漂移、過期的證據或未知的 provider 狀態，一律讓流程停止，而不是繼續往前。"]
       ],
       compareTitle: "沒有治理，與有 Better Workflows", compareAspect: "面向", without: "沒有治理", with: "有 Better Workflows",
@@ -90,15 +90,15 @@ const COPY = Object.freeze({
     workflow: {
       idx: "工作流程", en: "WORKFLOW",
       title: "風險決定驗證強度，<br class=\"br-lg\">而不是儀式。",
-      lead: "清楚、可回復、低風險的變更可以走 Auto 快速路徑，只做小而聚焦的檢查；其餘一律升級為證據工作流，驗證強度與風險相稱。",
+      lead: "清楚、可復原、低風險的變更可以走 Auto 快速路徑，只做小而聚焦的檢查；其餘一律升級為證據工作流，驗證強度與風險相稱。",
       flowTitle: "Auto 的五個步驟",
       routingTitle: "快速路徑，或證據工作流", bindsPolicy: "BINDS ONE POLICY", autoDecides: "AUTO 判斷", autoDecidesText: "依任務與風險，選擇驗證強度",
-      fast: { name: "Auto 快速路徑", sub: "清楚、可回復、低風險的變更", body: "只做小而聚焦的 targeted check，不走完整證據流程。", guardsK: "即使走快速路徑，仍然", guards: ["不繞過 protected branch", "不擴大 scope", "不安裝工具", "不略過 task-owned worktree"] },
+      fast: { name: "Auto 快速路徑", sub: "清楚、可復原、低風險的變更", body: "只做小而聚焦的 targeted check，不走完整證據流程。", guardsK: "即使走快速路徑，仍然", guards: ["不繞過 protected branch", "不擴大 scope", "不安裝工具", "不略過 task-owned worktree"] },
       evidence: { name: "證據工作流", sub: "其餘所有變更", body: "驗證強度依風險調整；證據必須屬於目前的 source 與 target。", promoteK: "這些檢查會立即升級為證據模式" },
       lifecycleTitle: "用四個問題取代「完成」",
       stages: [
         ["Define", "TaskContract", "目標、範圍、驗收、權限與風險路線，凍結了嗎？", [["", "陳述目標", ""], ["", "綁定範圍與目前脈絡", ""], ["branch", "要修改 Git？", "是 ⇒ 建立或重用 task-owned worktree"]]],
-        ["Verify", "Evidence", "證據綁定到目前的原始碼了嗎？", [["", "在界線內執行有界工作", ""], ["gate", "審查並驗證新鮮證據", "source sentinel · typed evidence · graph 與 review receipt"]]],
+        ["Verify", "Evidence", "證據綁定到目前的原始碼了嗎？", [["", "在界線內執行有界工作", ""], ["gate", "審查並驗證有效證據", "source sentinel · typed evidence · graph 與 review receipt"]]],
         ["Reconcile", "Provider truth", "外部副作用的結果，已經確認了嗎？", [["gate stop", "此 target 已授權？", "否／未知 ⇒ 安全停止"], ["", "執行「一次」副作用", "一次性授權"], ["gate stop", "核對 provider 與 repository 狀態", "未知 ⇒ 調查，不盲目重試；安全停止"]]],
         ["Complete", "Terminal decision", "重新取樣之後，驗收仍然成立嗎？", [["", "重新取樣 sentinel，重新驗證 acceptance、ledger、review 與遠端結果", ""], ["end", "完成，並清理本任務擁有的資源", ""]]]
       ],
@@ -108,31 +108,31 @@ const COPY = Object.freeze({
       gitFigDesc: "你的 checkout 維持不變；修改在專屬的 task branch 與 worktree 完成，並以已檢查的候選版本透過 compare-and-swap 回併。",
       gitFigCheckout: "你的 checkout（唯讀工作留在這裡）",
       gitFigCaption: "修改在專屬 worktree 完成，回併走已檢查的候選版本與 compare-and-swap。",
-      gitRules: ["唯讀工作留在原處。", "會修改 Git 的工作一律使用專屬的 task branch 與 task-owned worktree，絕不動你的 checkout。", "回併使用已檢查的候選版本，並以 compare-and-swap 完成。", "只在有證明時，才清理本任務擁有的 branch 與 worktree。", "髒狀態不會被 stash，也不會被隱藏。", "乾淨、由宿主建立的獨占 worktree 會被採用，而不是再巢狀建立一個。"]
+      gitRules: ["唯讀工作留在原處。", "會修改 Git 的工作一律使用專屬的 task branch 與 task-owned worktree，絕不動你的 checkout。", "回併使用已檢查的候選版本，並以 compare-and-swap 完成。", "只在有證明時，才清理本任務擁有的 branch 與 worktree。", "未提交的變更（dirty state）不會被 stash，也不會被隱藏。", "乾淨、由AI 工具建立的專屬 worktree 會被採用，而不是再巢狀建立一個。"]
     },
     hosts: {
       idx: "支援範圍", en: "HOSTS &amp; PLATFORMS",
       title: "RC1 支援到哪裡，<br class=\"br-lg\">我們直接標出來。",
       lead: "V5.0 RC1 只涵蓋 macOS × Node.js 22/24 上的 Codex、Gemini CLI 與 Qwen Code。Claude Code、Linux 與 Windows 的資格驗收延至 V5.1，目前不算已支援。",
-      caption: "V5.0 RC1 公開範圍：宿主與作業系統", hostCol: "宿主", recommended: "官方推薦", rc1: "RC1 公開", deferred: "V5.1 延後",
+      caption: "V5.0 RC1 公開範圍：工具與作業系統", hostCol: "工具", recommended: "官方推薦", rc1: "RC1 公開", deferred: "V5.1 延後",
       matrixNote: "NODE.JS 22/24 · 隨附 helper 需要 ≥ 22.14.0", matrixNoteSub: "V5.1 延後 = 資格驗收尚未完成，不算已支援",
       recoTitle: "官方推薦：macOS + Codex", recoBody: "原生整合最深，是參考體驗最完整的組合。", recoV4: "V4 能力矩陣 · 歷史參考", native: "原生支援",
-      recoFoot: "其他宿主透過共用的 core bridge；<code>unverified</code> 與 <code>unavailable</code> 都不算支援。",
+      recoFoot: "其他工具透過共用的 core bridge；<code>unverified</code> 與 <code>unavailable</code> 都不算支援。",
       refSummary: "技術細節：V4 歷史支援矩陣（僅供參考）",
       refNote: "下方 V4 支援矩陣屬於歷史資料。目前 RC1 範圍為 macOS、Codex／Gemini CLI／Qwen Code 與 Node 22/24；GA 尚未完成。",
       scrollLabel: "可水平捲動", revision: "網站來源版本"
     },
     install: {
       idx: "開始使用", en: "INSTALL",
-      title: "選擇你的宿主，<br class=\"br-lg\">貼上指令。",
+      title: "選擇你的工具，<br class=\"br-lg\">貼上指令。",
       lead: "RC1 在 macOS 上提供 Codex、Gemini CLI 與 Qwen Code 的安裝路徑。隨附的 helper 需要 Node.js 22.14.0 或更新版本。請選擇你信任的本機儲存庫；Better Workflows 不宣稱能隔離惡意的儲存庫程式碼。",
       steps: [
-        ["安裝", "選擇你的宿主，複製指令到終端機執行。<span class=\"nb\">官方推薦 macOS + Codex</span>。"],
+        ["安裝", "選擇你的工具，複製指令到終端機執行。<span class=\"nb\">官方推薦 macOS + Codex</span>。"],
         ["重新載入", "Codex：開啟「新的」任務，讓 skill 清單更新。Gemini CLI 與 Qwen Code：安裝後重新啟動 session。"],
         ["提出第一個請求", "在對話中輸入 <code>$better-workflows:auto</code>，接著描述你需要的結果。"]
       ],
       stepsNote: "RC1 尚非 GA。完整安裝步驟請見", quickLink: "快速開始",
-      tabsLabel: "選擇宿主", recommendedShort: "推薦", copy: "複製", copyCommand: "複製這行指令",
+      tabsLabel: "選擇工具", recommendedShort: "推薦", copy: "複製", copyCommand: "複製這行指令",
       codexNote: "然後開啟一個「新的」Codex 任務，skill 清單才會更新。", restartNote: "安裝後請重新啟動 session。",
       firstK: "FIRST REQUEST · 第一個請求",
       firstFix: "$better-workflows:auto 檢視這個儲存庫並修正已確認的缺陷。",
@@ -152,11 +152,11 @@ const COPY = Object.freeze({
       rulesLabel: "Auto 的三條底線"
     },
     status: {
-      idx: "發布狀態與授權", en: "STATUS &amp; LICENSE",
+      idx: "發行狀態與授權", en: "STATUS &amp; LICENSE",
       lead: "RC1 是受控預發行版本，公開入口僅有 Auto。GA 需要的條件與延後的項目都列在下面，不會預先宣稱。",
       now: { kicker: "2026-10-03 公開", ver: "5.0.0-rc.1 · V5.0.rc1", body: "macOS × Node.js 22/24 上的 Codex、Gemini CLI 與 Qwen Code。唯一公開入口是 Auto。" },
-      ga: { kicker: "尚未發布", ver: "需要同時滿足", crit: ["至少 30 個自然 canary 日", "20 次連續符合資格的啟動", "三個不同的儲存庫"] },
-      next: { kicker: "延至 V5.1", ver: "Claude Code · Linux · Windows", body: "這些宿主與作業系統的資格驗收延至 V5.1，目前尚未發布。" },
+      ga: { kicker: "尚未發行", ver: "需要同時滿足", crit: ["至少 30 個自然 canary 日", "20 次連續符合資格的啟動", "三個不同的儲存庫"] },
+      next: { kicker: "延至 V5.1", ver: "Claude Code · Linux · Windows", body: "這些工具與作業系統的資格驗收延至 V5.1，目前尚未發行。" },
       statementTitle: "正式聲明",
       licTitle: "授權與提供狀態", licItem: "項目", licForm: "授權或形式", licState: "狀態",
       lic: [
@@ -184,17 +184,17 @@ const COPY = Object.freeze({
       lead: (support) => `沒找到答案？到 <a href="${REPOSITORY}" ${ext}>GitHub</a> 或 <a href="${support}">支援頁面</a> 詢問。`,
       items: [
         ["Better Workflows 是什麼？", "它是開源的 AI 工程 QA＋交付守門人，像一位要求嚴格的資深 QA 工程師，替 AI agent 把關。階段只有在證據屬於目前的儲存庫、revision、scope 與目標，且能被再次檢查時才會通過；證據缺漏、過期、衝突或未知時，流程會停下來請你決定，而不是假裝完成。"],
-        ["它會自己推送、合併或部署嗎？", "不會單憑 prompt 就做。Prompt 只描述意圖，從不授予權限。只有 Root 可以編輯、回併、部署、接受風險或宣告完成；每個副作用都需要新鮮證據、出處與綁定預定目標的動作，而且一次只執行一個副作用。"],
-        ["小改動也要跑完整流程嗎？", "不用。清楚、可回復的低風險變更可以走 Auto 快速路徑，只做小而聚焦的檢查；其餘會升級為證據工作流。即使走快速路徑，也不會繞過 protected branch、不擴大 scope、不安裝工具，也不略過 task-owned worktree。"],
-        ["它會動到我目前的 checkout 嗎？", "唯讀工作留在原處。會修改 Git 的工作一律使用專屬的 task branch 與 task-owned worktree，不會動你的 checkout；髒狀態不會被 stash，也不會被隱藏。"],
-        ["RC1 支援哪些環境？Claude Code、Linux 與 Windows 呢？", "V5.0 RC1 的公開範圍是 macOS × Node.js 22/24，搭配 Codex、Gemini CLI 與 Qwen Code；官方推薦 macOS + Codex。Claude Code、Linux 與 Windows 的資格驗收延至 V5.1，目前尚未發布。"],
+        ["它會自己推送、合併或部署嗎？", "不會單憑 prompt 就做。Prompt 只描述意圖，從不授予權限。只有 Root 可以編輯、回併、部署、接受風險或宣告完成；每個副作用都需要有效證據、出處與綁定預期目標的動作，而且一次只執行一個副作用。"],
+        ["小改動也要跑完整流程嗎？", "不用。清楚、可復原的低風險變更可以走 Auto 快速路徑，只做小而聚焦的檢查；其餘會升級為證據工作流。即使走快速路徑，也不會繞過 protected branch、不擴大 scope、不安裝工具，也不略過 task-owned worktree。"],
+        ["它會動到我目前的 checkout 嗎？", "唯讀工作留在原處。會修改 Git 的工作一律使用專屬的 task branch 與 task-owned worktree，不會動你的 checkout；未提交的變更（dirty state）不會被 stash，也不會被隱藏。"],
+        ["RC1 支援哪些環境？Claude Code、Linux 與 Windows 呢？", "V5.0 RC1 的公開範圍是 macOS × Node.js 22/24，搭配 Codex、Gemini CLI 與 Qwen Code；官方推薦 macOS + Codex。Claude Code、Linux 與 Windows 的資格驗收延至 V5.1，目前尚未發行。"],
         ["它能保證程式沒有錯誤嗎？", "不能。它能阻擋錯誤的儲存庫或 revision、stale evidence、未授權副作用與過早 cleanup 等可觀測錯誤，但尚未以統計證明長期任務的 scope drift、rework 或決策錯誤率下降，也無法證明你最初的目標是正確的產品決策。"],
         ["它是 sandbox 嗎？", "不是。它不宣稱隔離惡意的儲存庫程式碼，請選擇你信任的本機儲存庫；它也不是無限制的 agent runtime，並且不會收集敏感或私人的歷史紀錄。"],
         ["授權與費用是什麼？", "第一方核心採 AGPL-3.0-only，實體獨立的 minimal wire package 採 Apache-2.0。基本產品免費；Professional Pack 規劃為專有產品，Cloud 是後續獨立產品，兩者目前尚未提供。"]
       ]
     },
     sponsor: { idx: "贊助", en: "SUPPORT", qrLabel: "在新分頁開啟 USDT（TRC20）QR 圖片", copyAddress: "複製 USDT 地址" },
-    cta: { kicker: "V5.0 RC1 · 已公開上架", title: "讓下一次「完成」，<br class=\"br-lg\">有證據可查。", body: "安裝公開的 RC1，從 <code>$better-workflows:auto</code> 開始。GA 仍待完成，這點我們會一直寫在最前面。", notes: "RC1 發布說明" }
+    cta: { kicker: "V5.0 RC1 · 已公開上架", title: "讓下一次「完成」，<br class=\"br-lg\">有證據可查。", body: "安裝公開的 RC1，從 <code>$better-workflows:auto</code> 開始。GA 仍待完成，這點我們會一直寫在最前面。", notes: "RC1 發行說明" }
   },
   en: {
     badge: "V5.0 RC1 is publicly available. GA remains pending.",
