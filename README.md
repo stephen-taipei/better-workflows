@@ -15,9 +15,19 @@ Simple changes move fast. Important work must prove each stage. Git changes run 
 [![Dependencies](https://img.shields.io/badge/runtime_dependencies-0-0F766E?style=flat-square)](plugins/better-workflows/package.json)
 [![License](https://img.shields.io/badge/license-AGPL--3.0--only-64748B?style=flat-square)](LICENSE)
 
-[English](README.md) · [繁體中文（台灣）](docs/README.zh-TW.md)
-
-The V5.0.rc1 public website and documentation cover these two languages. Other locale drafts are scheduled for V5.0.rc2.
+| 🌐 | 🌐 | 🌐 | 🌐 |
+| --- | --- | --- | --- |
+| [English](docs/locales/en.md) | [繁體中文](docs/locales/zh-Hant.md) | [繁體中文（台灣）](docs/locales/zh-Hant-TW.md) | [繁體中文（香港）](docs/locales/zh-Hant-HK.md) |
+| [简体中文](docs/locales/zh-Hans.md) | [Tiếng Việt](docs/locales/vi.md) | [Українська](docs/locales/uk.md) | [Türkçe](docs/locales/tr.md) |
+| [ไทย](docs/locales/th.md) | [Svenska](docs/locales/sv.md) | [Slovenčina](docs/locales/sk.md) | [Русский](docs/locales/ru.md) |
+| [Română](docs/locales/ro.md) | [Português](docs/locales/pt.md) | [Português (Brasil)](docs/locales/pt-BR.md) | [Polski](docs/locales/pl.md) |
+| [Nederlands](docs/locales/nl.md) | [Norsk bokmål](docs/locales/nb.md) | [မြန်မာ](docs/locales/my.md) | [Bahasa Melayu](docs/locales/ms.md) |
+| [ລາວ](docs/locales/lo.md) | [한국어](docs/locales/ko.md) | [ខ្មែរ](docs/locales/km.md) | [日本語](docs/locales/ja.md) |
+| [Italiano](docs/locales/it.md) | [Bahasa Indonesia](docs/locales/id.md) | [Magyar](docs/locales/hu.md) | [Hrvatski](docs/locales/hr.md) |
+| [हिन्दी](docs/locales/hi.md) | [עברית](docs/locales/he.md) | [Français](docs/locales/fr.md) | [Filipino](docs/locales/fil.md) |
+| [Suomi](docs/locales/fi.md) | [Español](docs/locales/es.md) | [Español (México)](docs/locales/es-MX.md) | [Ελληνικά](docs/locales/el.md) |
+| [Deutsch](docs/locales/de.md) | [Dansk](docs/locales/da.md) | [Čeština](docs/locales/cs.md) | [Català](docs/locales/ca.md) |
+| [العربية](docs/locales/ar.md) |  |  |  |
 
 </div>
 
@@ -249,7 +259,7 @@ prove that the user's original goal was the right product decision.
 [Contributing](CONTRIBUTING.md) · [Code of conduct](CODE_OF_CONDUCT.md) ·
 [Governance](GOVERNANCE.md) · [Support](SUPPORT.md) · [Security policy](SECURITY.md)
 
-One-time [USDT (TRC20) support](https://betterworkflows.dev/#sponsor) helps maintain the open-source code, English and Traditional Chinese documentation, and website hosting. It does not provide membership, roadmap priority, or support priority.<br>**USDT · TRON (TRC20)** · `TGuMUi1d8MoBQcuFrGJZnu4JrbaeP3wy9a`<br><img src="docs/html/assets/sponsor-usdt-trc20.jpeg" alt="USDT (TRC20) QR: TGuMUi1d8MoBQcuFrGJZnu4JrbaeP3wy9a" width="160">
+One-time [USDT (TRC20) support](https://betterworkflows.dev/#sponsor) helps maintain the open-source code, documentation, 41-language localization, and website hosting. It does not provide membership, roadmap priority, or support priority.<br>**USDT · TRON (TRC20)** · `TGuMUi1d8MoBQcuFrGJZnu4JrbaeP3wy9a`<br><img src="docs/html/assets/sponsor-usdt-trc20.jpeg" alt="USDT (TRC20) QR: TGuMUi1d8MoBQcuFrGJZnu4JrbaeP3wy9a" width="160">
 
 <details>
 <summary>Develop Better Workflows</summary>

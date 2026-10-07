@@ -14,7 +14,7 @@ import { SPONSORSHIP } from "./sponsorship.mjs";
 // A changed source requires an explicit translation review; never refresh automatically.
 export const SUPPORT_SOURCE = Object.freeze({
   path: "SUPPORT.md",
-  sha256: "bb85877ffbe731396df86b3a0a7b78d87e67a6affca815a73fec98d397122a09"
+  sha256: "ca057985be574c2fbc72ad73b2c79a381344c14ff304505a45b8d5bc4b9edc36"
 });
 
 export const SUPPORT_KEYS = Object.freeze([

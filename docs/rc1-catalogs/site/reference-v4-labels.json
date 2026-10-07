@@ -1,0 +1,314 @@
+{
+  "zh-Hant": {
+    "/0": "主機中立核心與主機適配器",
+    "/1": "風險自適應 Auto 與工作區所有權",
+    "/2": "過渡政策與試行退場",
+    "/3": "任務工作樹隔離",
+    "/4": "Auto 快速路徑檢查隔離",
+    "/5": "主機與工作區"
+  },
+  "zh-Hant-HK": {
+    "/0": "主機中立核心與主機適配器",
+    "/1": "風險自適應 Auto 與工作區擁有權",
+    "/2": "過渡政策與試行退場",
+    "/3": "任務工作樹隔離",
+    "/4": "Auto 快速路徑檢查隔離",
+    "/5": "主機與工作區"
+  },
+  "zh-Hans": {
+    "/0": "主机中立核心与主机适配器",
+    "/1": "风险自适应 Auto 与工作区所有权",
+    "/2": "过渡策略与试点退出",
+    "/3": "任务工作树隔离",
+    "/4": "Auto 快速通道检查隔离",
+    "/5": "主机与工作区"
+  },
+  "vi": {
+    "/0": "Lõi độc lập với máy chủ và bộ điều hợp máy chủ",
+    "/1": "Auto thích ứng rủi ro và quyền sở hữu không gian làm việc",
+    "/2": "Chính sách chuyển tiếp và kết thúc thí điểm",
+    "/3": "Cách ly cây làm việc của tác vụ",
+    "/4": "Auto fast path kiểm tra tính cô lập",
+    "/5": "Máy chủ và không gian làm việc"
+  },
+  "uk": {
+    "/0": "Незалежне від хоста ядро й адаптери хостів",
+    "/1": "Auto з адаптацією до ризику та володіння робочим простором",
+    "/2": "Політика переходу та завершення пілотного режиму",
+    "/3": "Ізоляція робочого дерева завдання",
+    "/4": "Перевірка ізоляції fast path в Auto",
+    "/5": "Хости й робочі простори"
+  },
+  "tr": {
+    "/0": "Ana bilgisayardan bağımsız çekirdek ve ana bilgisayar bağdaştırıcıları",
+    "/1": "Riske uyarlanan Auto ve çalışma alanı sahipliği",
+    "/2": "Geçiş politikası ve pilotun sonlandırılması",
+    "/3": "Görev çalışma ağacı yalıtımı",
+    "/4": "Auto fast path denetim yalıtımı",
+    "/5": "Ana bilgisayarlar ve çalışma alanları"
+  },
+  "th": {
+    "/0": "แกนกลางที่ไม่ผูกกับโฮสต์และตัวปรับต่อโฮสต์",
+    "/1": "Auto ที่ปรับตามความเสี่ยงและความเป็นเจ้าของพื้นที่ทำงาน",
+    "/2": "นโยบายการเปลี่ยนผ่านและการยุติโครงการนำร่อง",
+    "/3": "การแยกเวิร์กทรีของงาน",
+    "/4": "การแยกการตรวจสอบ fast path ของ Auto",
+    "/5": "โฮสต์และพื้นที่ทำงาน"
+  },
+  "sv": {
+    "/0": "Värdoberoende kärna och värdadaptrar",
+    "/1": "Riskanpassad Auto och ägarskap för arbetsytan",
+    "/2": "Övergångspolicy och avveckling av pilot",
+    "/3": "Isolering av uppgiftens arbetsträd",
+    "/4": "Auto fast path-kontrollisolering",
+    "/5": "Värdar och arbetsytor"
+  },
+  "sk": {
+    "/0": "Jadro nezávislé od hostiteľa a adaptéry hostiteľov",
+    "/1": "Auto prispôsobené riziku a vlastníctvo pracovného priestoru",
+    "/2": "Politika prechodu a ukončenie pilotnej prevádzky",
+    "/3": "Izolácia pracovného stromu úlohy",
+    "/4": "Izolácia kontroly rýchlej cesty Auto",
+    "/5": "Hostitelia a pracovné priestory"
+  },
+  "ru": {
+    "/0": "Независимое от хоста ядро и адаптеры хостов",
+    "/1": "Auto с адаптацией к риску и владение рабочим пространством",
+    "/2": "Политика перехода и завершение пилотного режима",
+    "/3": "Изоляция рабочего дерева задачи",
+    "/4": "Auto fast path с проверкой изоляции",
+    "/5": "Хосты и рабочие пространства"
+  },
+  "ro": {
+    "/0": "Nucleu independent de gazdă și adaptoare de gazdă",
+    "/1": "Auto adaptat riscului și proprietatea spațiului de lucru",
+    "/2": "Politica de tranziție și încheierea pilotului",
+    "/3": "Izolarea arborelui de lucru al sarcinii",
+    "/4": "Izolarea verificărilor pe calea rapidă Auto",
+    "/5": "Gazde și spații de lucru"
+  },
+  "pt": {
+    "/0": "Núcleo independente do anfitrião e adaptadores de anfitrião",
+    "/1": "Auto adaptado ao risco e propriedade do espaço de trabalho",
+    "/2": "Política de transição e encerramento do piloto",
+    "/3": "Isolamento da árvore de trabalho da tarefa",
+    "/4": "Isolamento de verificações do Auto fast path",
+    "/5": "Anfitriões e espaços de trabalho"
+  },
+  "pt-BR": {
+    "/0": "Núcleo independente do host e adaptadores de host",
+    "/1": "Auto adaptado ao risco e propriedade do espaço de trabalho",
+    "/2": "Política de transição e encerramento do piloto",
+    "/3": "Isolamento da árvore de trabalho da tarefa",
+    "/4": "Auto fast path verifica isolamento",
+    "/5": "Hosts e espaços de trabalho"
+  },
+  "pl": {
+    "/0": "Rdzeń niezależny od hosta i adaptery hostów",
+    "/1": "Auto dostosowane do ryzyka i własność obszaru roboczego",
+    "/2": "Polityka przejścia i zakończenie pilotażu",
+    "/3": "Izolacja drzewa roboczego zadania",
+    "/4": "Izolacja sprawdzania szybkiej ścieżki Auto",
+    "/5": "Hosty i obszary robocze"
+  },
+  "nl": {
+    "/0": "Hostonafhankelijke kern en hostadapters",
+    "/1": "Risicoafhankelijke Auto en eigenaarschap van de werkruimte",
+    "/2": "Overgangsbeleid en beëindiging van de pilot",
+    "/3": "Isolatie van de werkboom van de taak",
+    "/4": "Auto fast path-controle-isolatie",
+    "/5": "Hosts en werkruimten"
+  },
+  "nb": {
+    "/0": "Vertsuavhengig kjerne og vertsadaptere",
+    "/1": "Risikotilpasset Auto og eierskap til arbeidsområdet",
+    "/2": "Overgangspolicy og avvikling av pilot",
+    "/3": "Isolering av oppgavens arbeidstre",
+    "/4": "Auto hurtigspor sjekker isolasjon",
+    "/5": "Verter og arbeidsområder"
+  },
+  "my": {
+    "/0": "Host အပေါ် မမှီခိုသော အဓိကစနစ်နှင့် host ချိတ်ဆက်ကိရိယာများ",
+    "/1": "အန္တရာယ်အလိုက် လိုက်လျောညီထွေဖြစ်သော Auto နှင့် အလုပ်နေရာပိုင်ဆိုင်မှု",
+    "/2": "ကူးပြောင်းရေးမူဝါဒနှင့် ရှေ့ပြေးအစီအစဉ် ရပ်ဆိုင်းခြင်း",
+    "/3": "လုပ်ငန်း၏ အလုပ်လုပ်ရာဖိုင်သစ်ပင်ကို သီးခြားခွဲထားခြင်း",
+    "/4": "Auto လျင်မြန်သောလမ်းကြောင်း စစ်ဆေးမှု သီးခြားခွဲထုတ်ခြင်း",
+    "/5": "Host များနှင့် အလုပ်နေရာများ"
+  },
+  "ms": {
+    "/0": "Teras bebas hos dan penyesuai hos",
+    "/1": "Auto mengikut risiko dan pemilikan ruang kerja",
+    "/2": "Dasar peralihan dan penamatan perintis",
+    "/3": "Pengasingan pepohon kerja tugas",
+    "/4": "Pengasingan semakan Auto fast path",
+    "/5": "Hos dan ruang kerja"
+  },
+  "lo": {
+    "/0": "ແກນກາງທີ່ບໍ່ຂຶ້ນກັບໂຮສ ແລະຕົວປັບຕໍ່ໂຮສ",
+    "/1": "Auto ທີ່ປັບຕາມຄວາມສ່ຽງ ແລະກຳມະສິດພື້ນທີ່ເຮັດວຽກ",
+    "/2": "ນະໂຍບາຍການປ່ຽນຜ່ານ ແລະການຍຸດໂຄງການທົດລອງ",
+    "/3": "ການແຍກຕົ້ນໄມ້ໄຟລ໌ເຮັດວຽກຂອງວຽກ",
+    "/4": "ການກວດສອບການແຍກສະພາບແວດລ້ອມຂອງ Auto fast path",
+    "/5": "ໂຮສ ແລະພື້ນທີ່ເຮັດວຽກ"
+  },
+  "ko": {
+    "/0": "호스트 중립 코어와 호스트 어댑터",
+    "/1": "위험 적응형 Auto와 작업 공간 소유권",
+    "/2": "전환 정책과 파일럿 종료",
+    "/3": "작업 워크트리 격리",
+    "/4": "Auto 빠른 경로 격리 확인",
+    "/5": "호스트와 작업 공간"
+  },
+  "km": {
+    "/0": "ស្នូលឯករាជ្យពីហូស្ត និងអាដាប់ទ័រហូស្ត",
+    "/1": "Auto សម្របតាមហានិភ័យ និងកម្មសិទ្ធិលើលំហការងារ",
+    "/2": "គោលនយោបាយអន្តរកាល និងការបញ្ចប់ការសាកល្បង",
+    "/3": "ការបំបែកមែកធាងឯកសារការងាររបស់ភារកិច្ច",
+    "/4": "ភាពដាច់ដោយឡែកនៃការពិនិត្យ Auto fast path",
+    "/5": "ហូស្ត និងលំហការងារ"
+  },
+  "ja": {
+    "/0": "ホスト非依存のコアとホストアダプター",
+    "/1": "リスク適応型 Auto とワークスペースの所有権",
+    "/2": "移行方針とパイロットの終了",
+    "/3": "タスクのワークツリー分離",
+    "/4": "Auto fast path のチェックと隔離",
+    "/5": "ホストとワークスペース"
+  },
+  "it": {
+    "/0": "Nucleo indipendente dall’host e adattatori host",
+    "/1": "Auto adattato al rischio e proprietà dello spazio di lavoro",
+    "/2": "Politica di transizione e chiusura del progetto pilota",
+    "/3": "Isolamento dell’albero di lavoro dell’attività",
+    "/4": "Isolamento delle verifiche del fast path di Auto",
+    "/5": "Host e spazi di lavoro"
+  },
+  "id": {
+    "/0": "Inti independen host dan adaptor host",
+    "/1": "Auto adaptif risiko dan kepemilikan ruang kerja",
+    "/2": "Kebijakan transisi dan penghentian uji coba",
+    "/3": "Isolasi pohon kerja tugas",
+    "/4": "Isolasi pemeriksaan jalur cepat Auto",
+    "/5": "Host dan ruang kerja"
+  },
+  "hu": {
+    "/0": "Gazdafüggetlen mag és gazdaadapterek",
+    "/1": "Kockázathoz igazodó Auto és a munkaterület tulajdonjoga",
+    "/2": "Átállási szabályzat és a pilot kivezetése",
+    "/3": "A feladat munkafájának elkülönítése",
+    "/4": "Az Auto gyorsútvonal ellenőrzési izolációja",
+    "/5": "Gazdák és munkaterületek"
+  },
+  "hr": {
+    "/0": "Jezgra neovisna o domaćinu i adapteri domaćina",
+    "/1": "Auto prilagođen riziku i vlasništvo radnog prostora",
+    "/2": "Pravila prijelaza i završetak pilot-projekta",
+    "/3": "Izolacija radnog stabla zadatka",
+    "/4": "Auto brza provjera izolacije",
+    "/5": "Domaćini i radni prostori"
+  },
+  "hi": {
+    "/0": "होस्ट-स्वतंत्र कोर और होस्ट एडेप्टर",
+    "/1": "जोखिम-अनुकूल Auto और कार्यस्थान का स्वामित्व",
+    "/2": "संक्रमण नीति और पायलट की समाप्ति",
+    "/3": "कार्य के वर्कट्री का पृथक्करण",
+    "/4": "Auto fast path जाँच isolation",
+    "/5": "होस्ट और कार्यस्थान"
+  },
+  "he": {
+    "/0": "ליבה שאינה תלויה במארח ומתאמי מארחים",
+    "/1": "Auto מותאם לסיכון ובעלות על סביבת העבודה",
+    "/2": "מדיניות מעבר וסיום הפיילוט",
+    "/3": "בידוד עץ העבודה של המשימה",
+    "/4": "בידוד בדיקות ב-Auto fast path",
+    "/5": "מארחים וסביבות עבודה"
+  },
+  "fr": {
+    "/0": "Noyau indépendant de l’hôte et adaptateurs d’hôte",
+    "/1": "Auto adapté au risque et propriété de l’espace de travail",
+    "/2": "Politique de transition et retrait du pilote",
+    "/3": "Isolation de l’arbre de travail de la tâche",
+    "/4": "Vérifier l’isolation de la voie rapide d’Auto",
+    "/5": "Hôtes et espaces de travail"
+  },
+  "fil": {
+    "/0": "Core na hiwalay sa host at mga host adapter",
+    "/1": "Auto na umaangkop sa panganib at pagmamay-ari ng workspace",
+    "/2": "Patakaran sa transisyon at pagtatapos ng pilot",
+    "/3": "Paghihiwalay ng worktree ng gawain",
+    "/4": "Pagsusuri sa isolation ng Auto fast path",
+    "/5": "Mga host at workspace"
+  },
+  "fi": {
+    "/0": "Isäntäriippumaton ydin ja isäntäsovittimet",
+    "/1": "Riskiin mukautuva Auto ja työtilan omistajuus",
+    "/2": "Siirtymäkäytäntö ja pilotin lopettaminen",
+    "/3": "Tehtävän työpuun eristys",
+    "/4": "Auto fast path -tarkistuksen eristys",
+    "/5": "Isännät ja työtilat"
+  },
+  "es": {
+    "/0": "Núcleo independiente del anfitrión y adaptadores de anfitrión",
+    "/1": "Auto adaptado al riesgo y propiedad del espacio de trabajo",
+    "/2": "Política de transición y retirada del piloto",
+    "/3": "Aislamiento del árbol de trabajo de la tarea",
+    "/4": "Aislamiento de comprobaciones en la vía rápida de Auto",
+    "/5": "Anfitriones y espacios de trabajo"
+  },
+  "es-MX": {
+    "/0": "Núcleo independiente del host y adaptadores de host",
+    "/1": "Auto adaptado al riesgo y propiedad del espacio de trabajo",
+    "/2": "Política de transición y cierre del piloto",
+    "/3": "Aislamiento del árbol de trabajo de la tarea",
+    "/4": "Aislamiento de verificación de fast path de Auto",
+    "/5": "Hosts y espacios de trabajo"
+  },
+  "el": {
+    "/0": "Πυρήνας ανεξάρτητος από τον κεντρικό υπολογιστή και προσαρμογείς",
+    "/1": "Auto προσαρμοσμένο στον κίνδυνο και ιδιοκτησία χώρου εργασίας",
+    "/2": "Πολιτική μετάβασης και τερματισμός πιλοτικής λειτουργίας",
+    "/3": "Απομόνωση δέντρου εργασίας της διεργασίας",
+    "/4": "Έλεγχος απομόνωσης Auto fast path",
+    "/5": "Κεντρικοί υπολογιστές και χώροι εργασίας"
+  },
+  "de": {
+    "/0": "Hostunabhängiger Kern und Hostadapter",
+    "/1": "Risikoadaptives Auto und Eigentümerschaft des Arbeitsbereichs",
+    "/2": "Übergangsrichtlinie und Beendigung des Pilotbetriebs",
+    "/3": "Isolation des Aufgaben-Arbeitsbaums",
+    "/4": "Auto-Fast-Path-Prüfungsisolation",
+    "/5": "Hosts und Arbeitsbereiche"
+  },
+  "da": {
+    "/0": "Værtsuafhængig kerne og værtsadaptere",
+    "/1": "Risikotilpasset Auto og ejerskab af arbejdsområdet",
+    "/2": "Overgangspolitik og afvikling af pilot",
+    "/3": "Isolering af opgavens arbejdstræ",
+    "/4": "Auto fast path-kontrol af isolering",
+    "/5": "Værter og arbejdsområder"
+  },
+  "cs": {
+    "/0": "Jádro nezávislé na hostiteli a adaptéry hostitelů",
+    "/1": "Auto přizpůsobené riziku a vlastnictví pracovního prostoru",
+    "/2": "Pravidla přechodu a ukončení pilotního provozu",
+    "/3": "Izolace pracovního stromu úlohy",
+    "/4": "Kontrola izolace rychlé cesty Auto",
+    "/5": "Hostitelé a pracovní prostory"
+  },
+  "ca": {
+    "/0": "Nucli independent de l’amfitrió i adaptadors d’amfitrió",
+    "/1": "Auto adaptat al risc i propietat de l’espai de treball",
+    "/2": "Política de transició i retirada del pilot",
+    "/3": "Aïllament de l’arbre de treball de la tasca",
+    "/4": "Aïllament de comprovació de la via ràpida d'Auto",
+    "/5": "Amfitrions i espais de treball"
+  },
+  "ar": {
+    "/0": "نواة مستقلة عن المضيف ومهايئات المضيف",
+    "/1": "Auto المتكيف مع المخاطر وملكية مساحة العمل",
+    "/2": "سياسة الانتقال وإنهاء المرحلة التجريبية",
+    "/3": "عزل شجرة عمل المهمة",
+    "/4": "فحص عزل المسار السريع في Auto",
+    "/5": "المضيفون ومساحات العمل"
+  }
+}

@@ -35,7 +35,8 @@ const testDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(testDirectory, "../..");
 const buildScript = path.join(repoRoot, "scripts", "build-website.mjs");
 const canonicalOrigin = "https://betterworkflows.dev";
-const expectedLocaleIds = ["en", "zh-Hant-TW"];
+const expectedLocaleIds = ["en", "zh-Hant", "zh-Hant-TW", "zh-Hant-HK", "zh-Hans", "vi", "uk", "tr", "th", "sv", "sk", "ru", "ro", "pt", "pt-BR", "pl", "nl", "nb", "my", "ms", "lo", "ko", "km", "ja", "it", "id", "hu", "hr", "hi", "he", "fr", "fil", "fi", "es", "es-MX", "el", "de", "da", "cs", "ca", "ar"];
+const translatedLocaleIds = expectedLocaleIds.filter((code) => code !== "en");
 const expectedDocIds = ["guide", "quick", "use-cases", "use-cases-quick", "evidence-cinema"];
 
 function escapeHtml(value) {
@@ -83,7 +84,7 @@ async function assertPageAlternates(html, routeForLocale, label) {
   assert.deepEqual(alternateRows(html), expected, label + ": exact reciprocal hreflang set");
 }
 
-test("RC1 website exposes only the bilingual route, navigation, and content contract", async () => {
+test("Public website exposes the exact 41-locale route, navigation, and content contract", async () => {
   assert.deepEqual(CONNECTORS_LOCALES, expectedLocaleIds);
   assert.deepEqual(PUBLIC_RC1_LOCALE_IDS, expectedLocaleIds);
   assert.deepEqual(locales.map(({ code }) => code), expectedLocaleIds);
@@ -91,7 +92,7 @@ test("RC1 website exposes only the bilingual route, navigation, and content cont
   assert.deepEqual(PUBLIC_DOC_PAGES.map(({ id }) => id), expectedDocIds);
   assert.deepEqual(Object.keys(EVIDENCE_CINEMA_TITLES).sort(), [...expectedLocaleIds].sort());
   assert.deepEqual(Object.keys(REFERENCE_CONTENT_NOTICES), expectedLocaleIds);
-  assert.deepEqual(Object.keys(LOCALE_OVERVIEW_LABELS), ["zh-Hant-TW"]);
+  assert.deepEqual(Object.keys(LOCALE_OVERVIEW_LABELS), translatedLocaleIds);
   for (const code of expectedLocaleIds) assert.equal(v4ReferenceHeadingEntries(code).length, 6);
 
   const privateReferenceLoaders = [
@@ -102,14 +103,14 @@ test("RC1 website exposes only the bilingual route, navigation, and content cont
   for (const [load, catalog] of privateReferenceLoaders) {
     const source = await load(repoRoot);
     assert.deepEqual(Object.keys(source.bodyTranslations), [],
-      source.id + ": deferred reference bodies are not loaded into the RC1 public source");
-    assert.deepEqual(Object.keys(catalog(source).locales), ["zh-Hant-TW"],
-      source.id + ": only the RC1 non-English heading/copy map is available");
+      source.id + ": reference bodies stay canonical English in the public source");
+    assert.deepEqual(Object.keys(catalog(source).locales), translatedLocaleIds,
+      source.id + ": every non-English locale has its heading/copy map");
   }
   const publicTexts = await loadPublicTexts(repoRoot);
   for (const document of publicTexts) {
     assert.deepEqual(Object.keys(document.translations), expectedLocaleIds,
-      document.id + ": public text translations have exact RC1 scope");
+      document.id + ": public text translations cover every public locale");
   }
 
   const builderSource = await readFile(buildScript, "utf8");
@@ -249,8 +250,8 @@ test("RC1 website exposes only the bilingual route, navigation, and content cont
     const localeDirectoryPattern = /^[a-z]{2,3}(?:-[A-Z][a-z]{3})?(?:-[A-Z]{2}|-[0-9]{3})?$/;
     const referenceLocales = referencePageDirectories.filter((entry) => entry.isDirectory() && localeDirectoryPattern.test(entry.name))
       .map(({ name }) => name).sort();
-    assert.deepEqual(referenceLocales, expectedLocaleIds,
-      "legacy reference redirects are generated only for the RC1 locales");
+    assert.deepEqual(referenceLocales, [...expectedLocaleIds].sort(),
+      "legacy reference redirects are generated for every public locale");
     for (const page of PUBLIC_DOC_PAGES) {
       const defaultRedirect = path.posix.join("docs", "reference", page.reference);
       const html = await readFile(path.join(outputDirectory, defaultRedirect), "utf8");
@@ -317,7 +318,8 @@ test("RC1 website exposes only the bilingual route, navigation, and content cont
       .filter((file) => file.endsWith("/index.html"))
       .map((file) => file.split("/")[0])
       .filter((segment) => localeDirectoryPattern.test(segment)))].sort();
-    assert.deepEqual(rootLocalePrefixes, ["en"], "only English has a prefixed public route; zh-Hant-TW is the default root");
+    assert.deepEqual(rootLocalePrefixes, translatedLocaleIds.filter((code) => code !== DEFAULT_LOCALE).concat("en").sort(),
+      "every non-default locale has a prefixed public route; zh-Hant-TW is the default root");
   } finally {
     await rm(temporaryRoot, { recursive: true, force: true });
   }
@@ -327,4 +329,3 @@ test("RC1 website exposes only the bilingual route, navigation, and content cont
 // repository. Keep this unresolved release gate visible until CI receives that
 // manifest and verifies its exact exclude decisions; website packaging alone
 // does not prove Git source projection exclusion.
-test.todo("RC1 source projection manifest excludes the private RC2 locale catalog and all 39 deferred reference-body editions");

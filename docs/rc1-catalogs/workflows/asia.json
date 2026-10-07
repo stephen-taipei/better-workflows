@@ -2,5 +2,201 @@
   "sourceDigests": {
     "workflows": "2acaf671415fc972265bcc5c4f20484c1a6cbea2dd1e6aa3fb22f54943786bb0"
   },
-  "locales": {}
+  "locales": {
+    "vi": {
+      "workflows": [
+        "# Quy trình làm việc",
+        "| [Tổng quan]({LINK_0}) | [Chi tiết]({LINK_1}) | [Bắt đầu nhanh]({LINK_2}) | **Quy trình làm việc** | [Kiến trúc]({LINK_3}) | [Bảo mật]({LINK_4}) | [CLI]({LINK_5}) |\n| :---: | :---: | :---: | :---: | :---: | :---: | :---: |",
+        "## Sử dụng Auto",
+        "## Các lộ trình phổ biến",
+        "Kết quả là gì?",
+        "Chỉ xem xét",
+        "Sửa và bàn giao",
+        "So sánh các phương án",
+        "Phát hành hoặc hành động không thể hoàn tác",
+        "Lặp lại cơ chế ổn định",
+        "Chưa chắc chắn"
+      ]
+    },
+    "th": {
+      "workflows": [
+        "# เวิร์กโฟลว์",
+        "| [ภาพรวม]({LINK_0}) | [รายละเอียด]({LINK_1}) | [เริ่มต้นอย่างรวดเร็ว]({LINK_2}) | **เวิร์กโฟลว์** | [สถาปัตยกรรม]({LINK_3}) | [ความปลอดภัย]({LINK_4}) | [CLI]({LINK_5}) |\n| :---: | :---: | :---: | :---: | :---: | :---: | :---: |",
+        "## ใช้งาน Auto",
+        "## เส้นทางทั่วไป",
+        "ผลลัพธ์คืออะไร",
+        "ตรวจทานเท่านั้น",
+        "แก้ไขและส่งมอบ",
+        "เปรียบเทียบตัวเลือก",
+        "เผยแพร่หรือการดำเนินการที่ย้อนกลับไม่ได้",
+        "ทำซ้ำกลไกที่เสถียร",
+        "ไม่แน่ใจ"
+      ]
+    },
+    "id": {
+      "workflows": [
+        "# Alur kerja",
+        "| [Ikhtisar]({LINK_0}) | [Detail]({LINK_1}) | [Mulai cepat]({LINK_2}) | **Alur kerja** | [Arsitektur]({LINK_3}) | [Keamanan]({LINK_4}) | [CLI]({LINK_5}) |\n| :---: | :---: | :---: | :---: | :---: | :---: | :---: |",
+        "## Gunakan Auto",
+        "## Jalur umum",
+        "Apa hasilnya?",
+        "Hanya tinjau",
+        "Perbaiki dan kirim",
+        "Bandingkan opsi",
+        "Rilis atau tindakan ireversibel",
+        "Ulangi mekanika stabil",
+        "Tidak yakin"
+      ]
+    },
+    "ms": {
+      "workflows": [
+        "# Workflow",
+        "| [Gambaran keseluruhan]({LINK_0}) | [Butiran]({LINK_1}) | [Mula pantas]({LINK_2}) | **Workflow** | [Seni bina]({LINK_3}) | [Keselamatan]({LINK_4}) | [CLI]({LINK_5}) |\n| :---: | :---: | :---: | :---: | :---: | :---: | :---: |",
+        "## Gunakan Auto",
+        "## Laluan biasa",
+        "Apakah hasilnya?",
+        "Semakan sahaja",
+        "Baiki dan serah",
+        "Bandingkan pilihan",
+        "Pelepasan atau tindakan tidak boleh diundur",
+        "Ulang mekanik stabil",
+        "Tidak pasti"
+      ]
+    },
+    "fil": {
+      "workflows": [
+        "# Mga Workflow",
+        "| [Pangkalahatang-ideya]({LINK_0}) | [Mga Detalye]({LINK_1}) | [Mabilis na pagsisimula]({LINK_2}) | **Mga Workflow** | [Arkitektura]({LINK_3}) | [Seguridad]({LINK_4}) | [CLI]({LINK_5}) |\n| :---: | :---: | :---: | :---: | :---: | :---: | :---: |",
+        "## Gamitin ang Auto",
+        "## Mga karaniwang path",
+        "Ano ang resulta?",
+        "Suriin lamang",
+        "Ayusin at ihatid",
+        "Ihambing ang mga opsyon",
+        "Pag-release o aksyong hindi mababawi",
+        "Ulitin ang matatag na mekaniks",
+        "Hindi sigurado"
+      ]
+    },
+    "my": {
+      "workflows": [
+        "# လုပ်ငန်းစဉ်များ",
+        "| [ခြုံငုံသုံးသပ်ချက်]({LINK_0}) | [အသေးစိတ်]({LINK_1}) | [အမြန်စတင်ရန်]({LINK_2}) | **Workflows** | [ဗိသုကာ]({LINK_3}) | [လုံခြုံရေး]({LINK_4}) | [CLI]({LINK_5}) |\n| :---: | :---: | :---: | :---: | :---: | :---: | :---: |",
+        "## Auto ကို အသုံးပြုခြင်း",
+        "## အသုံးများသော လမ်းကြောင်းများ",
+        "ရလဒ်က ဘာလဲ?",
+        "ပြန်လည်သုံးသပ်ရုံသာ",
+        "ပြင်ဆင်ပြီး ပေးပို့ရန်",
+        "ရွေးချယ်စရာများ နှိုင်းယှဉ်ရန်",
+        "ဖြန့်ချိခြင်း သို့မဟုတ် ပြန်ပြင်မရသော လုပ်ဆောင်ချက်",
+        "တည်ငြိမ်သော လုပ်ငန်းစဉ်များ ထပ်လုပ်ရန်",
+        "မသေချာပါ"
+      ]
+    },
+    "lo": {
+      "workflows": [
+        "# ຂະບວນການເຮັດວຽກ",
+        "| [ພາບລວມ]({LINK_0}) | [ລາຍລະອຽດ]({LINK_1}) | [ເລີ່ມຕົ້ນດ່ວນ]({LINK_2}) | **Workflows** | [ສະຖາປັດຕະຍະກຳ]({LINK_3}) | [ຄວາມປອດໄພ]({LINK_4}) | [CLI]({LINK_5}) |\n| :---: | :---: | :---: | :---: | :---: | :---: | :---: |",
+        "## ໃຊ້ Auto",
+        "## ເສັ້ນທາງທົ່ວໄປ",
+        "ຜົນໄດ້ຮັບແມ່ນຫຍັງ?",
+        "ກວດສອບເທົ່ານັ້ນ",
+        "ແກ້ໄຂແລະສົ່ງມອບ",
+        "ປຽບທຽບຕົວເລືອກ",
+        "ປ່ອຍອອກ ຫຼື ການກະທຳທີ່ຍ້ອນກັບບໍ່ໄດ້",
+        "ເຮັດຊ້ຳກົນໄກທີ່ໝັ້ນຄົງ",
+        "ບໍ່ແນ່ໃຈ"
+      ]
+    },
+    "km": {
+      "workflows": [
+        "# លំហូរការងារ",
+        "| [ទិដ្ឋភាពទូទៅ]({LINK_0}) | [ព័ត៌មានលម្អិត]({LINK_1}) | [ការចាប់ផ្តើមរហ័ស]({LINK_2}) | **Workflows** | [ស្ថាបត្យកម្ម]({LINK_3}) | [សុវត្ថិភាព]({LINK_4}) | [CLI]({LINK_5}) |\n| :---: | :---: | :---: | :---: | :---: | :---: | :---: |",
+        "## ប្រើ Auto",
+        "## ផ្លូវទូទៅ",
+        "តើលទ្ធផលជាអ្វី?",
+        "ពិនិត្យឡើងវិញតែប៉ុណ្ណោះ",
+        "ជួសជុលនិងប្រគល់",
+        "ប្រៀបធៀបជម្រើស",
+        "ចេញផ្សាយ ឬសកម្មភាពមិនអាចត្រឡប់ក្រោយ",
+        "ធ្វើឡើងវិញនូវយន្តការស្ថិរភាព",
+        "មិនច្បាស់"
+      ]
+    },
+    "pt": {
+      "workflows": [
+        "# Fluxos de trabalho",
+        "| [Visão geral]({LINK_0}) | [Detalhes]({LINK_1}) | [Início rápido]({LINK_2}) | **Fluxos de trabalho** | [Arquitetura]({LINK_3}) | [Segurança]({LINK_4}) | [CLI]({LINK_5}) |\n| :---: | :---: | :---: | :---: | :---: | :---: | :---: |",
+        "## Usar o Auto",
+        "## Caminhos comuns",
+        "Qual é o resultado?",
+        "Apenas revisão",
+        "Corrigir e entregar",
+        "Comparar opções",
+        "Release ou ação irreversível",
+        "Repetir mecânica estável",
+        "Incerto"
+      ]
+    },
+    "pt-BR": {
+      "workflows": [
+        "# Fluxos de trabalho",
+        "| [Visão geral]({LINK_0}) | [Detalhes]({LINK_1}) | [Início rápido]({LINK_2}) | **Workflows** | [Arquitetura]({LINK_3}) | [Segurança]({LINK_4}) | [CLI]({LINK_5}) |\n| :---: | :---: | :---: | :---: | :---: | :---: | :---: |",
+        "## Usar o Auto",
+        "## Caminhos comuns",
+        "Qual é o resultado?",
+        "Apenas revisão",
+        "Corrigir e entregar",
+        "Comparar opções",
+        "Lançamento ou ação irreversível",
+        "Repetir mecânicas estáveis",
+        "Não tenho certeza"
+      ]
+    },
+    "fr": {
+      "workflows": [
+        "# Flux de travail",
+        "| [Vue d’ensemble]({LINK_0}) | [Détails]({LINK_1}) | [Démarrage rapide]({LINK_2}) | **Workflows** | [Architecture]({LINK_3}) | [Sécurité]({LINK_4}) | [CLI]({LINK_5}) |\n| :---: | :---: | :---: | :---: | :---: | :---: | :---: |",
+        "## Utiliser Auto",
+        "## Parcours courants",
+        "Quel est le résultat ?",
+        "Revue uniquement",
+        "Corriger et livrer",
+        "Comparer les options",
+        "Publication ou action irréversible",
+        "Répéter les mécaniques stables",
+        "Incertain"
+      ]
+    },
+    "de": {
+      "workflows": [
+        "# Arbeitsabläufe",
+        "| [Übersicht]({LINK_0}) | [Details]({LINK_1}) | [Schnellstart]({LINK_2}) | **Workflows** | [Architektur]({LINK_3}) | [Sicherheit]({LINK_4}) | [CLI]({LINK_5}) |\n| :---: | :---: | :---: | :---: | :---: | :---: | :---: |",
+        "## Auto verwenden",
+        "## Häufige Pfade",
+        "Was ist das Ergebnis?",
+        "Nur Review",
+        "Beheben und liefern",
+        "Optionen vergleichen",
+        "Release oder irreversible Aktion",
+        "Stabile Abläufe wiederholen",
+        "Unsicher"
+      ]
+    },
+    "it": {
+      "workflows": [
+        "# Workflow",
+        "| [Panoramica]({LINK_0}) | [Dettagli]({LINK_1}) | [Guida rapida]({LINK_2}) | **Workflow** | [Architettura]({LINK_3}) | [Sicurezza]({LINK_4}) | [CLI]({LINK_5}) |\n| :---: | :---: | :---: | :---: | :---: | :---: | :---: |",
+        "## Usa Auto",
+        "## Percorsi comuni",
+        "Qual è il risultato?",
+        "Solo revisione",
+        "Correggi e consegna",
+        "Confronta opzioni",
+        "Rilascio o azione irreversibile",
+        "Ripeti meccanismi stabili",
+        "Non sicuro"
+      ]
+    }
+  }
 }

@@ -1,11 +1,11 @@
-<!-- Generated from docs/guide/architecture.md; source-sha256: 9d2102eed653f2e009a0f032bc9fe4ca3100781e022dfc64ed6df55a767d9b6c; edit scripts/architecture-source.mjs. -->
+<!-- Generated from docs/guide/architecture.md; source-sha256: 1f08135c0c999c6556d1957adc78ce36c4920674bf117e67077e9ae6e47b5f93; edit scripts/architecture-source.mjs. -->
 # 架構
 
-[English](../en/architecture.md) · **繁體中文（台灣）**
+[English](../en/architecture.md) · [繁體中文](../zh-Hant/architecture.md) · **繁體中文（台灣）** · [繁體中文（香港）](../zh-Hant-HK/architecture.md) · [简体中文](../zh-Hans/architecture.md) · [Tiếng Việt](../vi/architecture.md) · [Українська](../uk/architecture.md) · [Türkçe](../tr/architecture.md) · [ไทย](../th/architecture.md) · [Svenska](../sv/architecture.md) · [Slovenčina](../sk/architecture.md) · [Русский](../ru/architecture.md) · [Română](../ro/architecture.md) · [Português](../pt/architecture.md) · [Português \(Brasil\)](../pt-BR/architecture.md) · [Polski](../pl/architecture.md) · [Nederlands](../nl/architecture.md) · [Norsk bokmål](../nb/architecture.md) · [မြန်မာ](../my/architecture.md) · [Bahasa Melayu](../ms/architecture.md) · [ລາວ](../lo/architecture.md) · [한국어](../ko/architecture.md) · [ខ្មែរ](../km/architecture.md) · [日本語](../ja/architecture.md) · [Italiano](../it/architecture.md) · [Bahasa Indonesia](../id/architecture.md) · [Magyar](../hu/architecture.md) · [Hrvatski](../hr/architecture.md) · [हिन्दी](../hi/architecture.md) · [עברית](../he/architecture.md) · [Français](../fr/architecture.md) · [Filipino](../fil/architecture.md) · [Suomi](../fi/architecture.md) · [Español](../es/architecture.md) · [Español \(México\)](../es-MX/architecture.md) · [Ελληνικά](../el/architecture.md) · [Deutsch](../de/architecture.md) · [Dansk](../da/architecture.md) · [Čeština](../cs/architecture.md) · [Català](../ca/architecture.md) · [العربية](../ar/architecture.md)
 
 [README](../../../README.md) · [參與貢獻](contributing.md) · [行為準則](conduct.md) · [資安政策](security.md) · [專案治理](governance.md) · [使用支援](support.md)
 
-[RC1 雙語公開總覽與官網入口（41 語系來源目錄為私有）](../../../docs/LANGUAGES.md)\. This normative guide remains canonical in English\.
+[41 個語系版本的在地化總覽與官網入口](../../../docs/LANGUAGES.md)\. This normative guide remains canonical in English\.
 
 ## 設計契約
 

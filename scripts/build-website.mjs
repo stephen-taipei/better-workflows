@@ -110,9 +110,11 @@ async function assertSafeOutputDirectory() {
   }
 }
 
-const openGraphLocales = Object.freeze({ en: "en_US", "zh-Hant-TW": "zh_TW" });
+const openGraphLocales = Object.freeze({
+  "en": "en_US", "zh-Hant": "zh_TW", "zh-Hant-TW": "zh_TW", "zh-Hant-HK": "zh_HK", "zh-Hans": "zh_CN", "vi": "vi_VN", "uk": "uk_UA", "tr": "tr_TR", "th": "th_TH", "sv": "sv_SE", "sk": "sk_SK", "ru": "ru_RU", "ro": "ro_RO", "pt": "pt_PT", "pt-BR": "pt_BR", "pl": "pl_PL", "nl": "nl_NL", "nb": "nb_NO", "my": "my_MM", "ms": "ms_MY", "lo": "lo_LA", "ko": "ko_KR", "km": "km_KH", "ja": "ja_JP", "it": "it_IT", "id": "id_ID", "hu": "hu_HU", "hr": "hr_HR", "hi": "hi_IN", "he": "he_IL", "fr": "fr_FR", "fil": "fil_PH", "fi": "fi_FI", "es": "es_ES", "es-MX": "es_MX", "el": "el_GR", "de": "de_DE", "da": "da_DK", "cs": "cs_CZ", "ca": "ca_ES", "ar": "ar_AR"
+});
 if (JSON.stringify(Object.keys(openGraphLocales)) !== JSON.stringify(CONNECTORS_LOCALES)) {
-  throw new Error("Open Graph locales must match the RC1 public locale catalog");
+  throw new Error("Open Graph locales must match the public locale catalog");
 }
 
 async function gitRevision() {

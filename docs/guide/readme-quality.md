@@ -1,6 +1,6 @@
 # README quality blueprint
 
-[RC1 planned public routes cover en and zh-Hant-TW; the 41-locale source catalog is private](../LANGUAGES.md). This editorial blueprint remains canonical in English.
+[41-locale localized overview and official web entry points](../LANGUAGES.md). This editorial blueprint remains canonical in English.
 
 A Better Workflows README is a landing page, not a compressed reference
 manual. Its job is to help a reader answer five questions in order:

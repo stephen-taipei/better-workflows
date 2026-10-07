@@ -2,5 +2,216 @@
   "sourceDigests": {
     "workflows": "2acaf671415fc972265bcc5c4f20484c1a6cbea2dd1e6aa3fb22f54943786bb0"
   },
-  "locales": {}
+  "locales": {
+    "sv": {
+      "workflows": [
+        "# Arbetsflöden",
+        "| [Översikt]({LINK_0}) | [Detaljer]({LINK_1}) | [Snabbstart]({LINK_2}) | **Arbetsflöden** | [Arkitektur]({LINK_3}) | [Säkerhet]({LINK_4}) | [CLI]({LINK_5}) |\n| :---: | :---: | :---: | :---: | :---: | :---: | :---: |",
+        "## Använd Auto",
+        "## Vanliga vägar",
+        "Vad är resultatet?",
+        "Endast granskning",
+        "Åtgärda och leverera",
+        "Jämför alternativ",
+        "Release eller irreversibel åtgärd",
+        "Upprepa stabil mekanik",
+        "Osäker"
+      ]
+    },
+    "da": {
+      "workflows": [
+        "# Arbejdsgange",
+        "| [Oversigt]({LINK_0}) | [Detaljer]({LINK_1}) | [Hurtig start]({LINK_2}) | **Workflows** | [Arkitektur]({LINK_3}) | [Sikkerhed]({LINK_4}) | [CLI]({LINK_5}) |\n| :---: | :---: | :---: | :---: | :---: | :---: | :---: |",
+        "## Brug Auto",
+        "## Almindelige stier",
+        "Hvad er resultatet?",
+        "Kun gennemgang",
+        "Ret og levér",
+        "Sammenlign muligheder",
+        "Udgivelse eller irreversibel handling",
+        "Gentag stabil mekanik",
+        "Usikker"
+      ]
+    },
+    "fi": {
+      "workflows": [
+        "# Työnkulut",
+        "| [Yleiskatsaus]({LINK_0}) | [Yksityiskohdat]({LINK_1}) | [Pikaopas]({LINK_2}) | **Työnkulut** | [Arkkitehtuuri]({LINK_3}) | [Tietoturva]({LINK_4}) | [CLI]({LINK_5}) |\n| :---: | :---: | :---: | :---: | :---: | :---: | :---: |",
+        "## Käytä Autoa",
+        "## Yleiset polut",
+        "Mikä on lopputulos?",
+        "Vain katselmointi",
+        "Korjaa ja toimita",
+        "Vertaile vaihtoehtoja",
+        "Julkaisu tai peruuttamaton toiminto",
+        "Toista vakaa mekaniikka",
+        "Epävarma"
+      ]
+    },
+    "nb": {
+      "workflows": [
+        "# Arbeidsflyter",
+        "| [Oversikt]({LINK_0}) | [Detaljer]({LINK_1}) | [Hurtigstart]({LINK_2}) | **Arbeidsflyter** | [Arkitektur]({LINK_3}) | [Sikkerhet]({LINK_4}) | [CLI]({LINK_5}) |\n| :---: | :---: | :---: | :---: | :---: | :---: | :---: |",
+        "## Bruk Auto",
+        "## Vanlige baner",
+        "Hva er utfallet?",
+        "Kun gjennomgang",
+        "Fiks og lever",
+        "Sammenlign alternativer",
+        "Utgivelse eller irreversibel handling",
+        "Gjenta stabil mekanikk",
+        "Usikker"
+      ]
+    },
+    "ro": {
+      "workflows": [
+        "# Fluxuri de lucru",
+        "| [Prezentare generală]({LINK_0}) | [Detalii]({LINK_1}) | [Ghid rapid]({LINK_2}) | **Fluxuri de lucru** | [Arhitectură]({LINK_3}) | [Securitate]({LINK_4}) | [CLI]({LINK_5}) |\n| :---: | :---: | :---: | :---: | :---: | :---: | :---: |",
+        "## Folosește Auto",
+        "## Căi comune",
+        "Care este rezultatul?",
+        "Doar revizuire",
+        "Rezolvă și livrează",
+        "Compară opțiunile",
+        "Lansare sau acțiune ireversibilă",
+        "Repetă mecanisme stabile",
+        "Nesigur"
+      ]
+    },
+    "pl": {
+      "workflows": [
+        "# Przepływy pracy",
+        "| [Przegląd]({LINK_0}) | [Szczegóły]({LINK_1}) | [Szybki start]({LINK_2}) | **Przepływy pracy** | [Architektura]({LINK_3}) | [Bezpieczeństwo]({LINK_4}) | [CLI]({LINK_5}) |\n| :---: | :---: | :---: | :---: | :---: | :---: | :---: |",
+        "## Użyj Auto",
+        "## Typowe ścieżki",
+        "Jaki jest rezultat?",
+        "Tylko przegląd",
+        "Napraw i dostarcz",
+        "Porównaj opcje",
+        "Wydanie lub działanie nieodwracalne",
+        "Powtórz stabilne mechanizmy",
+        "Brak pewności"
+      ]
+    },
+    "hu": {
+      "workflows": [
+        "# Munkafolyamatok",
+        "| [Áttekintés]({LINK_0}) | [Részletek]({LINK_1}) | [Gyors útmutató]({LINK_2}) | **Munkafolyamatok** | [Architektúra]({LINK_3}) | [Biztonság]({LINK_4}) | [CLI]({LINK_5}) |\n| :---: | :---: | :---: | :---: | :---: | :---: | :---: |",
+        "## Az Auto használata",
+        "## Gyakori útvonalak",
+        "Mi az eredmény?",
+        "Csak felülvizsgálat",
+        "Javítás és szállítás",
+        "Lehetőségek összehasonlítása",
+        "Kiadás vagy visszafordíthatatlan művelet",
+        "Stabil mechanizmusok ismétlése",
+        "Bizonytalan"
+      ]
+    },
+    "hr": {
+      "workflows": [
+        "# Tijekovi rada",
+        "| [Pregled]({LINK_0}) | [Pojedinosti]({LINK_1}) | [Brzi početak]({LINK_2}) | **Tijekovi rada** | [Arhitektura]({LINK_3}) | [Sigurnost]({LINK_4}) | [CLI]({LINK_5}) |\n| :---: | :---: | :---: | :---: | :---: | :---: | :---: |",
+        "## Koristite Auto",
+        "## Uobičajeni putevi",
+        "Koji je ishod?",
+        "Samo pregled",
+        "Ispravi i isporuči",
+        "Usporedi opcije",
+        "Izdanje ili nepovratna radnja",
+        "Ponovi stabilnu mehaniku",
+        "Nisam siguran"
+      ]
+    },
+    "hi": {
+      "workflows": [
+        "# वर्कफ़्लो",
+        "| [अवलोकन]({LINK_0}) | [विवरण]({LINK_1}) | [त्वरित शुरुआत]({LINK_2}) | **वर्कफ़्लो** | [आर्किटेक्चर]({LINK_3}) | [सुरक्षा]({LINK_4}) | [CLI]({LINK_5}) |\n| :---: | :---: | :---: | :---: | :---: | :---: | :---: |",
+        "## Auto का उपयोग करें",
+        "## सामान्य पथ",
+        "परिणाम क्या है?",
+        "केवल समीक्षा",
+        "ठीक करें और डिलीवर करें",
+        "विकल्पों की तुलना करें",
+        "रिलीज़ या अपरिवर्तनीय कार्रवाई",
+        "स्थिर प्रक्रिया दोहराएं",
+        "अनिश्चित"
+      ]
+    },
+    "es": {
+      "workflows": [
+        "# Flujos de trabajo",
+        "| [Resumen]({LINK_0}) | [Detalles]({LINK_1}) | [Inicio rápido]({LINK_2}) | **Flujos de trabajo** | [Arquitectura]({LINK_3}) | [Seguridad]({LINK_4}) | [CLI]({LINK_5}) |\n| :---: | :---: | :---: | :---: | :---: | :---: | :---: |",
+        "## Usar Auto",
+        "## Rutas comunes",
+        "¿Cuál es el resultado?",
+        "Solo revisión",
+        "Corregir y entregar",
+        "Comparar opciones",
+        "Lanzamiento o acción irreversible",
+        "Repetir mecánicas estables",
+        "No estoy seguro"
+      ]
+    },
+    "es-MX": {
+      "workflows": [
+        "# Flujos de trabajo",
+        "| [Descripción general]({LINK_0}) | [Detalles]({LINK_1}) | [Inicio rápido]({LINK_2}) | **Flujos de trabajo** | [Arquitectura]({LINK_3}) | [Seguridad]({LINK_4}) | [CLI]({LINK_5}) |\n| :---: | :---: | :---: | :---: | :---: | :---: | :---: |",
+        "## Usar Auto",
+        "## Rutas comunes",
+        "¿Cuál es el resultado?",
+        "Solo revisión",
+        "Corregir y entregar",
+        "Comparar opciones",
+        "Lanzamiento o acción irreversible",
+        "Repetir mecánicas estables",
+        "No estoy seguro"
+      ]
+    },
+    "el": {
+      "workflows": [
+        "# Ροές εργασίας",
+        "| [Επισκόπηση]({LINK_0}) | [Λεπτομέρειες]({LINK_1}) | [Γρήγορη εκκίνηση]({LINK_2}) | **Ροές εργασίας** | [Αρχιτεκτονική]({LINK_3}) | [Ασφάλεια]({LINK_4}) | [CLI]({LINK_5}) |\n| :---: | :---: | :---: | :---: | :---: | :---: | :---: |",
+        "## Χρήση του Auto",
+        "## Συνήθεις διαδρομές",
+        "Ποιο είναι το αποτέλεσμα;",
+        "Μόνο επισκόπηση",
+        "Διόρθωση και παράδοση",
+        "Σύγκριση επιλογών",
+        "Κυκλοφορία ή μη αναστρέψιμη ενέργεια",
+        "Επανάληψη σταθερών μηχανισμών",
+        "Αβέβαιο"
+      ]
+    },
+    "cs": {
+      "workflows": [
+        "# Workflow",
+        "| [Přehled]({LINK_0}) | [Podrobnosti]({LINK_1}) | [Rychlý start]({LINK_2}) | **Workflow** | [Architektura]({LINK_3}) | [Zabezpečení]({LINK_4}) | [CLI]({LINK_5}) |\n| :---: | :---: | :---: | :---: | :---: | :---: | :---: |",
+        "## Použijte Auto",
+        "## Běžné cesty",
+        "Jaký je výsledek?",
+        "Pouze revize",
+        "Opravit a doručit",
+        "Porovnat možnosti",
+        "Vydání nebo nevratná akce",
+        "Opakovat stabilní mechaniky",
+        "Nejisté"
+      ]
+    },
+    "ca": {
+      "workflows": [
+        "# Fluxos de treball",
+        "| [Visió general]({LINK_0}) | [Detalls]({LINK_1}) | [Inici ràpid]({LINK_2}) | **Fluxos de treball** | [Arquitectura]({LINK_3}) | [Seguretat]({LINK_4}) | [CLI]({LINK_5}) |\n| :---: | :---: | :---: | :---: | :---: | :---: | :---: |",
+        "## Utilitza Auto",
+        "## Rutes habituals",
+        "Quin és el resultat?",
+        "Només revisió",
+        "Corregir i lliurar",
+        "Comparar opcions",
+        "Llançament o acció irreversible",
+        "Repetir mecàniques estables",
+        "No n'estic segur"
+      ]
+    }
+  }
 }

@@ -1,14 +1,14 @@
-<!-- Generated from docs/guide/getting-started.md; source-sha256: ebc32288ff5e0273341400f754e50ee8e9a30174d21fc479e5736bb9fee758e5; edit docs/rc1-catalogs/onboarding/*.json. -->
+<!-- Generated from docs/guide/getting-started.md; source-sha256: f133cee692e9577917690ea23d8e67a3bd603237406ebe65ae9c9ef056d91af6; edit docs/rc1-catalogs/onboarding/*.json. -->
 # 入門指南
 
-[English](../en/getting-started.md) · **繁體中文（台灣）**
+[English](../en/getting-started.md) · [繁體中文](../zh-Hant/getting-started.md) · **繁體中文（台灣）** · [繁體中文（香港）](../zh-Hant-HK/getting-started.md) · [简体中文](../zh-Hans/getting-started.md) · [Tiếng Việt](../vi/getting-started.md) · [Українська](../uk/getting-started.md) · [Türkçe](../tr/getting-started.md) · [ไทย](../th/getting-started.md) · [Svenska](../sv/getting-started.md) · [Slovenčina](../sk/getting-started.md) · [Русский](../ru/getting-started.md) · [Română](../ro/getting-started.md) · [Português](../pt/getting-started.md) · [Português \(Brasil\)](../pt-BR/getting-started.md) · [Polski](../pl/getting-started.md) · [Nederlands](../nl/getting-started.md) · [Norsk bokmål](../nb/getting-started.md) · [မြန်မာ](../my/getting-started.md) · [Bahasa Melayu](../ms/getting-started.md) · [ລາວ](../lo/getting-started.md) · [한국어](../ko/getting-started.md) · [ខ្មែរ](../km/getting-started.md) · [日本語](../ja/getting-started.md) · [Italiano](../it/getting-started.md) · [Bahasa Indonesia](../id/getting-started.md) · [Magyar](../hu/getting-started.md) · [Hrvatski](../hr/getting-started.md) · [हिन्दी](../hi/getting-started.md) · [עברית](../he/getting-started.md) · [Français](../fr/getting-started.md) · [Filipino](../fil/getting-started.md) · [Suomi](../fi/getting-started.md) · [Español](../es/getting-started.md) · [Español \(México\)](../es-MX/getting-started.md) · [Ελληνικά](../el/getting-started.md) · [Deutsch](../de/getting-started.md) · [Dansk](../da/getting-started.md) · [Čeština](../cs/getting-started.md) · [Català](../ca/getting-started.md) · [العربية](../ar/getting-started.md)
 
 V5\.0 RC1 涵蓋 macOS × Node 22\/24 上的 Codex、Gemini CLI 與 Qwen Code。Claude Code、Linux 與 Windows 的驗收延至 V5\.1。GA 仍需至少 30 個自然 canary 日、20 次連續符合資格的啟動，以及三個不同儲存庫。
 
 | [總覽](../../../README.md) | [詳細說明](../../../docs/details/en.md) | **快速入門** | [工作流程](workflows.md) | [架構](architecture.md) | [資安](security-guide.md) | [CLI](cli-reference.md) |
 | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 
-[RC1 公開路由涵蓋 en 與 zh\-Hant\-TW；41 語系來源目錄為私有](../../../docs/LANGUAGES.md)。指令與識別碼維持標準英文形式。
+[41 個語系版本的在地化總覽與官網入口](../../../docs/LANGUAGES.md)。指令與識別碼維持標準英文形式。
 
 V5\.0 RC1（`5.0.0-rc.1`，tag `V5.0.rc1`）已公開上架。公開範圍僅有 Auto，涵蓋 macOS 搭配 Node 22\/24 上的 Codex、Gemini CLI 與 Qwen Code。Linux 與 Windows 的資格驗收延至 V5\.1，Claude Code 也同樣延後。GA `5.0.0` 仍待完成至少 30 個自然 canary 日、20 次連續符合資格的啟動，並記錄三個不同的儲存庫。
 

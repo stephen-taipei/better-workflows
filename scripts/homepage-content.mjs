@@ -1,6 +1,8 @@
 import { publicDocPath } from "./public-docs.mjs";
+import { overlayLocales } from "./locale-overlay.mjs";
+import { CONNECTORS_LOCALES } from "./website-locales.mjs";
 
-// Homepage body for the bilingual RC1 site ("control console" design).
+// Homepage body for the localized public site ("control console" design).
 // Copy is authored HTML; every value taken from the shared locale catalog is escaped.
 const REPOSITORY = "https://github.com/stephen-taipei/better-workflows";
 const RELEASE_URL = `${REPOSITORY}/releases/tag/V5.0.rc1`;
@@ -16,7 +18,7 @@ const esc = (value) => String(value)
 const ic = (name, extra = "") => `<svg class="ic${extra ? ` ${extra}` : ""}" aria-hidden="true"><use href="#i-${name}"/></svg>`;
 const ext = 'target="_blank" rel="noopener noreferrer"';
 
-const COPY = Object.freeze({
+const COPY = Object.freeze(overlayLocales({
   "zh-Hant-TW": {
     badge: "V5.0 RC1 已公開上架，GA 仍待完成。",
     h1: "證據齊備，才算完成。",
@@ -170,7 +172,7 @@ const COPY = Object.freeze({
     docs: {
       idx: "文件", en: "DOCS",
       title: "依你的下一步閱讀。",
-      lead: "5 個文件頁面，繁體中文與英文都有。想先看一次完整的過程，從 Evidence Cinema 開始。",
+      lead: "5 個文件頁面，提供 41 種語言版本。想先看一次完整的過程，從 Evidence Cinema 開始。",
       cinemaAlt: "卡通場景：藍色狐狸向舉手攔阻的琥珀色陸龜出示證明，青綠色機器人在一旁等候。",
       cinemaTag: "INTERACTIVE · 互動示範", cinemaK: "EVIDENCE CINEMA · 證據劇場",
       cinemaTitle: "證據不是字幕，它決定結局。",
@@ -349,7 +351,7 @@ const COPY = Object.freeze({
     docs: {
       idx: "Docs", en: "DOCS",
       title: "Read for your next step.",
-      lead: "Five documentation pages in English and Traditional Chinese. To see the whole process first, start with Evidence Cinema.",
+      lead: "Five documentation pages, available in 41 languages. To see the whole process first, start with Evidence Cinema.",
       cinemaAlt: "Cartoon scene: a blue fox shows a glowing token to an amber tortoise who raises a hand to stop it, while a teal robot waits nearby.",
       cinemaTag: "INTERACTIVE DEMO", cinemaK: "EVIDENCE CINEMA",
       cinemaTitle: "Evidence isn't a subtitle. It decides the ending.",
@@ -375,7 +377,7 @@ const COPY = Object.freeze({
     sponsor: { idx: "Sponsor", en: "SUPPORT", qrLabel: "Open the USDT (TRC20) QR image in a new tab", copyAddress: "Copy the USDT address" },
     cta: { kicker: "V5.0 RC1 · publicly available", title: "Make the next “done”<br class=\"br-lg\"> something you can check.", body: "Install the public RC1 and start with <code>$better-workflows:auto</code>. GA is still pending, and we will keep saying so up front.", notes: "RC1 release notes" }
   }
-});
+}, "homepage-copy", CONNECTORS_LOCALES));
 
 function secHead(idx, number, en, titleId, title, lead) {
   return `<header class="sec-head"><p class="home-eyebrow mono"><span class="idx">${number}</span>${idx}<span class="en">${en}</span></p><h2 id="${titleId}">${title}</h2>${lead ? `<p class="lead">${lead}</p>` : ""}</header>`;

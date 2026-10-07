@@ -2,7 +2,8 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { scanHtml, escapeHtml } from './html-source.mjs';
 import { homepagePath, PUBLIC_DOC_PAGES, publicDocPath } from './public-docs.mjs';
-import { PUBLIC_RC1_LOCALE_IDS } from './website-locales.mjs';
+import { DEFAULT_LOCALE, PUBLIC_RC1_LOCALE_IDS, locales } from './website-locales.mjs';
+import { overlayLocales } from './locale-overlay.mjs';
 
 // Stable inputs: build and source-bound public QA render the same complete page.
 const assetHash = createHash('sha256');
@@ -10,7 +11,7 @@ for (const name of ['styles.css','site.js','better-workflows-mark.svg','favicon.
 export const SITE_SHELL_VERSION = assetHash.digest('hex').slice(0,12);
 const repository = 'https://github.com/stephen-taipei/better-workflows';
 const releaseNotes = `${repository}/releases/tag/V5.0.rc1`;
-const copy = {
+const copy = overlayLocales({
   'zh-Hant-TW': {
     skip:'跳到主要內容', product:'產品', workflow:'工作流程', install:'開始使用', docs:'文件', principles:'設計原則', support:'支援', sponsor:'贊助',
     menu:'選單', menuOpen:'開啟選單', menuClose:'關閉選單', language:'語言', themeToDark:'切換為深色模式', themeToLight:'切換為淺色模式', themeToggle:'切換深淺色模式',
@@ -29,7 +30,7 @@ const copy = {
     resources:'Resources', project:'Open source', releaseNotes:'RC1 release notes', contribute:'Contributing', security:'Security', governance:'Governance', conduct:'Code of conduct', sponsorFooter:'Support development',
     license:'Core AGPL-3.0 · wire Apache-2.0', alias:'(betterworkflows.org redirects here)', chip:'V5.0 RC1 available · GA pending', installCta:'Install', overview:'Overview', hosts:'Hosts', boundary:'Proof boundary', statusNav:'Release status', faq:'FAQ', docDescriptions:['Find the right guide for your next task','Install Better Workflows and run a first task','Choose a path for reviewing, changing code, or delivery','Start with a request you can adapt','An interactive demo of how checks lead to delivery']
   }
-};
+}, "site-shell", PUBLIC_RC1_LOCALE_IDS);
 export function siteCopy(code) { if(!copy[code]) throw new Error(`Unsupported site locale: ${code}`); return copy[code]; }
 const e = escapeHtml;
 const SPRITE = '<svg class="sprite" width="0" height="0" aria-hidden="true" focusable="false">'
@@ -52,20 +53,23 @@ const SPRITE = '<svg class="sprite" width="0" height="0" aria-hidden="true" focu
   + '</svg>';
 const icon = (name, cls = 'ic') => `<svg class="${cls}" aria-hidden="true"><use href="#i-${name}"/></svg>`;
 const brand = (code, tag = true) => `<a class="brand" href="${homepagePath(code)}" aria-label="${e(siteCopy(code).homeLabel)}"><img class="brand-mark brand-mark--converge" src="/better-workflows-mark.svg?v=${SITE_SHELL_VERSION}" width="34" height="27" alt="" aria-hidden="true"><span class="brand-name">Better Workflows</span>${tag ? '<span class="brand-tag" title="V5.0 RC1">RC1</span>' : ''}</a>`;
-const localizedPath = (code, path) => { if(path==='/404.html') return homepagePath(code); const withoutLocale = path.replace(/^\/en(?=\/)/, ''); return code === 'en' ? `/en${withoutLocale}` : withoutLocale; };
+// Strip any non-default locale prefix, then add the target locale's prefix.
+const localePrefixPattern = new RegExp(`^/(?:${PUBLIC_RC1_LOCALE_IDS.filter((c) => c !== DEFAULT_LOCALE).map((c) => c.replace(/[-]/g, '\\-')).join('|')})(?=/)`);
+const localeLabel = (code) => locales.find((locale) => locale.code === code).label;
+const localizedPath = (code, path) => { if(path==='/404.html') return homepagePath(code); const withoutLocale = path.replace(localePrefixPattern, ''); return code === DEFAULT_LOCALE ? withoutLocale : `/${code}${withoutLocale}`; };
 const docsLabels = (c) => [c.guide,c.quick,c.cases,c.examples,c.cinema];
 const isDocsPath = (code, path) => PUBLIC_DOC_PAGES.some((page) => publicDocPath(code, page.id) === path);
 export function siteHeader(code, currentPath) {
   const c=siteCopy(code), home=homepagePath(code);
   const onSupport = currentPath === localizedPath(code,'/support/');
-  const localeLinks=PUBLIC_RC1_LOCALE_IDS.map(other => `<a data-locale-button="${other}" data-locale-link="${other}" data-locale-static="true" data-auto-locale="${other}" data-cinema-locale="${other}" lang="${other}" hreflang="${other}" href="${e(localizedPath(other,currentPath))}"${other===code?' aria-current="page"':''}>${other==='en'?'EN':'繁中'}</a>`).join('');
+  const localeLinks=PUBLIC_RC1_LOCALE_IDS.map(other => `<a data-locale-button="${other}" data-locale-link="${other}" data-locale-static="true" data-auto-locale="${other}" data-cinema-locale="${other}" lang="${other}" hreflang="${other}" href="${e(localizedPath(other,currentPath))}"${other===code?' aria-current="page"':''}>${e(localeLabel(other))}</a>`).join('');
   const docs = PUBLIC_DOC_PAGES.map((page,i) => { const href = publicDocPath(code,page.id); return `<a href="${href}"${currentPath===href?' aria-current="page"':''}><b>${docsLabels(c)[i]}</b><small>${c.docDescriptions[i]}</small></a>`; }).join('');
   const docsCurrent = isDocsPath(code, currentPath) ? ' aria-current="true"' : '';
   return `<a class="skip-link" href="#main">${c.skip}</a><header class="site-header" data-site-header><span class="read-bar" aria-hidden="true"></span><div class="shell header-inner">${brand(code)}`
     + `<nav class="site-nav" id="site-nav" aria-label="${c.menu}" data-site-nav><a href="${home}#product" data-spy="product">${c.product}</a><a href="${home}#principles" data-spy="principles">${c.principles}</a><a href="${home}#workflow" data-spy="workflow">${c.workflow}</a><a href="${home}#install" data-spy="install">${c.install}</a>`
     + `<details class="nav-dd" data-site-dropdown><summary data-spy="docs"${docsCurrent}><span>${c.docs}</span>${icon('chev')}</summary><div class="dd-panel">${docs}</div></details>`
     + `<a href="${localizedPath(code,'/support/')}"${onSupport?' aria-current="page"':''}>${c.support}</a><a href="${home}#sponsor" data-spy="sponsor">${c.sponsor}</a><a class="nav-gh" href="${repository}" target="_blank" rel="noopener noreferrer">GitHub${icon('ext')}</a><a class="nav-cta btn btn-primary" href="${home}#install">${c.installCta}${icon('arrow')}</a></nav>`
-    + `<div class="header-tools"><nav class="lang" aria-label="${c.language}" data-public-locale-buttons>${localeLinks}</nav>`
+    + `<div class="header-tools"><details class="lang-menu"><summary aria-label="${c.language}">${e(localeLabel(code))}</summary><nav class="lang" aria-label="${c.language}" data-public-locale-buttons>${localeLinks}</nav></details>`
     + `<button class="icon-btn theme-toggle" type="button" data-theme-toggle data-label-to-dark="${c.themeToDark}" data-label-to-light="${c.themeToLight}" aria-label="${c.themeToggle}" aria-pressed="false">${icon('sun','ic ic-sun')}${icon('moon','ic ic-moon')}</button>`
     + `<button class="icon-btn nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav" data-menu-toggle data-label-open="${c.menuOpen}" data-label-close="${c.menuClose}" aria-label="${c.menuOpen}">${icon('menu','ic ic-menu')}${icon('x','ic ic-close')}</button></div></div></header>`;
 }

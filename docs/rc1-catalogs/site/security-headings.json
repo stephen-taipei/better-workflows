@@ -1,0 +1,275 @@
+{
+  "zh-Hant": {
+    "/0": "安全性",
+    "/1": "權限邊界",
+    "/2": "本機狀態",
+    "/3": "外部模型傳輸",
+    "/4": "威脅模型邊界"
+  },
+  "zh-Hant-HK": {
+    "/0": "保安",
+    "/1": "權限邊界",
+    "/2": "本機狀態",
+    "/3": "外部模型傳輸",
+    "/4": "威脅模型邊界"
+  },
+  "zh-Hans": {
+    "/0": "安全",
+    "/1": "权限边界",
+    "/2": "本地状态",
+    "/3": "外部模型传输",
+    "/4": "威胁模型边界"
+  },
+  "vi": {
+    "/0": "Bảo mật",
+    "/1": "Ranh giới quyền hạn",
+    "/2": "Trạng thái cục bộ",
+    "/3": "Truyền mô hình bên ngoài",
+    "/4": "Ranh giới mô hình mối đe dọa"
+  },
+  "uk": {
+    "/0": "Безпека",
+    "/1": "Межі повноважень",
+    "/2": "Локальний стан",
+    "/3": "Передавання зовнішньої моделі",
+    "/4": "Межа моделі загроз"
+  },
+  "tr": {
+    "/0": "Güvenlik",
+    "/1": "Yetki sınırları",
+    "/2": "Yerel durum",
+    "/3": "Harici model aktarımı",
+    "/4": "Tehdit modeli sınırı"
+  },
+  "th": {
+    "/0": "ความปลอดภัย",
+    "/1": "ขอบเขตอำนาจ",
+    "/2": "สถานะภายในเครื่อง",
+    "/3": "การส่งต่อโมเดลภายนอก",
+    "/4": "ขอบเขตของแบบจำลองภัยคุกคาม"
+  },
+  "sv": {
+    "/0": "Säkerhet",
+    "/1": "Behörighetsgränser",
+    "/2": "Lokalt tillstånd",
+    "/3": "Transport av externa modeller",
+    "/4": "Hotmodellens gräns"
+  },
+  "sk": {
+    "/0": "Bezpečnosť",
+    "/1": "Hranice oprávnení",
+    "/2": "Miestny stav",
+    "/3": "Prenos externého modelu",
+    "/4": "Hranica modelu hrozieb"
+  },
+  "ru": {
+    "/0": "Безопасность",
+    "/1": "Границы полномочий",
+    "/2": "Локальное состояние",
+    "/3": "Передача внешней модели",
+    "/4": "Граница модели угроз"
+  },
+  "ro": {
+    "/0": "Securitate",
+    "/1": "Limitele autorității",
+    "/2": "Stare locală",
+    "/3": "Transportul modelelor externe",
+    "/4": "Limita modelului de amenințări"
+  },
+  "pt": {
+    "/0": "Segurança",
+    "/1": "Limites de autoridade",
+    "/2": "Estado local",
+    "/3": "Transporte de modelo externo",
+    "/4": "Limite do modelo de ameaça"
+  },
+  "pt-BR": {
+    "/0": "Segurança",
+    "/1": "Limites de autoridade",
+    "/2": "Estado local",
+    "/3": "Transporte de modelo externo",
+    "/4": "Limite do modelo de ameaça"
+  },
+  "pl": {
+    "/0": "Bezpieczeństwo",
+    "/1": "Granice uprawnień",
+    "/2": "Stan lokalny",
+    "/3": "Transport zewnętrznego modelu",
+    "/4": "Granica modelu zagrożeń"
+  },
+  "nl": {
+    "/0": "Beveiliging",
+    "/1": "Grenzen van bevoegdheid",
+    "/2": "Lokale toestand",
+    "/3": "Transport van externe modellen",
+    "/4": "Grens van het dreigingsmodel"
+  },
+  "nb": {
+    "/0": "Sikkerhet",
+    "/1": "Autoritetsgrenser",
+    "/2": "Lokal tilstand",
+    "/3": "Transport av eksterne modeller",
+    "/4": "Trusselmodellens grense"
+  },
+  "my": {
+    "/0": "လုံခြုံရေး",
+    "/1": "အာဏာပိုင်ခွင့် အကန့်အသတ်များ",
+    "/2": "ဒေသတွင်း အခြေအနေ",
+    "/3": "ပြင်ပမော်ဒယ် ပို့ဆောင်မှု",
+    "/4": "ခြိမ်းခြောက်မှုမော်ဒယ် အကန့်အသတ်"
+  },
+  "ms": {
+    "/0": "Keselamatan",
+    "/1": "Sempadan kuasa",
+    "/2": "Keadaan setempat",
+    "/3": "Pengangkutan model luaran",
+    "/4": "Sempadan model ancaman"
+  },
+  "lo": {
+    "/0": "ຄວາມປອດໄພ",
+    "/1": "ຂອບເຂດອຳນາດ",
+    "/2": "ສະຖານະພາບທ້ອງຖິ່ນ",
+    "/3": "ການຂົນສົ່ງໂມເດວພາຍນອກ",
+    "/4": "ຂອບເຂດໂມເດວໄພຄຸກຄາມ"
+  },
+  "ko": {
+    "/0": "보안",
+    "/1": "권한 경계",
+    "/2": "로컬 상태",
+    "/3": "외부 모델 전송",
+    "/4": "위협 모델 경계"
+  },
+  "km": {
+    "/0": "សុវត្ថិភាព",
+    "/1": "ព្រំដែនសិទ្ធិអនុញ្ញាត",
+    "/2": "ស្ថានភាពមូលដ្ឋាន",
+    "/3": "ការដឹកជញ្ជូនម៉ូដែលខាងក្រៅ",
+    "/4": "ព្រំដែនម៉ូដែលការគំរាមកំហែង"
+  },
+  "ja": {
+    "/0": "セキュリティ",
+    "/1": "権限の境界",
+    "/2": "ローカル状態",
+    "/3": "外部モデルの転送",
+    "/4": "脅威モデルの境界"
+  },
+  "it": {
+    "/0": "Sicurezza",
+    "/1": "Confini dell’autorità",
+    "/2": "Stato locale",
+    "/3": "Trasporto di modelli esterni",
+    "/4": "Limite del modello di minaccia"
+  },
+  "id": {
+    "/0": "Keamanan",
+    "/1": "Batas otoritas",
+    "/2": "Keadaan lokal",
+    "/3": "Transportasi model eksternal",
+    "/4": "Batas model ancaman"
+  },
+  "hu": {
+    "/0": "Biztonság",
+    "/1": "A jogosultság határai",
+    "/2": "Helyi állapot",
+    "/3": "Külső modell átvitele",
+    "/4": "A fenyegetési modell határa"
+  },
+  "hr": {
+    "/0": "Sigurnost",
+    "/1": "Granice ovlasti",
+    "/2": "Lokalno stanje",
+    "/3": "Prijenos vanjskog modela",
+    "/4": "Granica modela prijetnji"
+  },
+  "hi": {
+    "/0": "सुरक्षा",
+    "/1": "प्राधिकरण की सीमाएँ",
+    "/2": "स्थानीय स्थिति",
+    "/3": "बाहरी मॉडल परिवहन",
+    "/4": "थ्रेट मॉडल की सीमा"
+  },
+  "he": {
+    "/0": "אבטחה",
+    "/1": "גבולות הסמכות",
+    "/2": "מצב מקומי",
+    "/3": "העברת מודל חיצוני",
+    "/4": "גבול מודל האיומים"
+  },
+  "fr": {
+    "/0": "Sécurité",
+    "/1": "Limites d’autorité",
+    "/2": "État local",
+    "/3": "Transport d’un modèle externe",
+    "/4": "Limite du modèle de menace"
+  },
+  "fil": {
+    "/0": "Seguridad",
+    "/1": "Mga hangganan ng awtoridad",
+    "/2": "Lokal na estado",
+    "/3": "Transportasyon ng panlabas na modelo",
+    "/4": "Hangganan ng threat model"
+  },
+  "fi": {
+    "/0": "Tietoturva",
+    "/1": "Valtuuksien rajat",
+    "/2": "Paikallinen tila",
+    "/3": "Ulkoisen mallin siirto",
+    "/4": "Uhkamallin raja"
+  },
+  "es": {
+    "/0": "Seguridad",
+    "/1": "Límites de autoridad",
+    "/2": "Estado local",
+    "/3": "Transporte de modelos externos",
+    "/4": "Límite del modelo de amenazas"
+  },
+  "es-MX": {
+    "/0": "Seguridad",
+    "/1": "Límites de autoridad",
+    "/2": "Estado local",
+    "/3": "Transporte de modelos externos",
+    "/4": "Límite del modelo de amenazas"
+  },
+  "el": {
+    "/0": "Ασφάλεια",
+    "/1": "Όρια εξουσιοδότησης",
+    "/2": "Τοπική κατάσταση",
+    "/3": "Μεταφορά εξωτερικού μοντέλου",
+    "/4": "Όριο μοντέλου απειλών"
+  },
+  "de": {
+    "/0": "Sicherheit",
+    "/1": "Grenzen der Autorität",
+    "/2": "Lokaler Zustand",
+    "/3": "Transport externer Modelle",
+    "/4": "Grenze des Bedrohungsmodells"
+  },
+  "da": {
+    "/0": "Sikkerhed",
+    "/1": "Autoritetsgrænser",
+    "/2": "Lokal tilstand",
+    "/3": "Transport af eksterne modeller",
+    "/4": "Trusselmodellens grænse"
+  },
+  "cs": {
+    "/0": "Bezpečnost",
+    "/1": "Hranice oprávnění",
+    "/2": "Místní stav",
+    "/3": "Přenos externího modelu",
+    "/4": "Hranice modelu hrozeb"
+  },
+  "ca": {
+    "/0": "Seguretat",
+    "/1": "Límits d’autoritat",
+    "/2": "Estat local",
+    "/3": "Transport de models externs",
+    "/4": "Límit del model d’amenaça"
+  },
+  "ar": {
+    "/0": "الأمان",
+    "/1": "حدود الصلاحيات",
+    "/2": "الحالة المحلية",
+    "/3": "نقل النموذج الخارجي",
+    "/4": "حدود نموذج التهديد"
+  }
+}

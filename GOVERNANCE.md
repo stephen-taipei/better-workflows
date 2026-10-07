@@ -3,7 +3,7 @@
 | [README](README.md) | [Contributing](CONTRIBUTING.md) | [Code of conduct](CODE_OF_CONDUCT.md) | [Security](SECURITY.md) | **Governance** | [Support](SUPPORT.md) |
 | :---: | :---: | :---: | :---: | :---: | :---: |
 
-[RC1 planned public routes cover en and zh-Hant-TW; the 41-locale source catalog is private](docs/LANGUAGES.md). This normative governance policy remains canonical in English.
+[41-locale localized overview and official web entry points](docs/LANGUAGES.md). This normative governance policy remains canonical in English.
 
 Better Workflows is maintainer-led.
 

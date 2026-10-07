@@ -6,7 +6,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { PUBLIC_DOC_PAGES, publicDocPath } from "../public-docs.mjs";
-import { DEFAULT_LOCALE, PUBLIC_RC1_LOCALE_IDS, publicRc1Locales } from "../website-locales.mjs";
+import { CONNECTORS_LOCALES, DEFAULT_LOCALE, PUBLIC_RC1_LOCALE_IDS, publicRc1Locales } from "../website-locales.mjs";
 import {
   loadPublicDocumentationExpectations,
   verifyPublicDocumentationResponse
@@ -32,10 +32,9 @@ function manifestFor(expected, body = nativeBody(expected)) {
   return new Map([[expected.relativePath, sha256(body)]]);
 }
 
-test("public documentation expectations contain every RC1 locale-page body", () => {
+test("public documentation expectations contain every public locale-page body", () => {
   assert.ok(Array.isArray(expectations));
-  assert.deepEqual(PUBLIC_RC1_LOCALE_IDS, ["en", "zh-Hant-TW"]);
-  assert.equal(expectations.length, 10);
+  assert.deepEqual(PUBLIC_RC1_LOCALE_IDS, CONNECTORS_LOCALES);
   assert.equal(expectations.length, PUBLIC_RC1_LOCALE_IDS.length * PUBLIC_DOC_PAGES.length);
   assert.deepEqual(expectations.map((item) => `${item.locale}/${item.page}`), expectedLocalePageOrder);
   assert.equal(new Set(expectations.map(({ path: route }) => route)).size, expectations.length);

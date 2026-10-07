@@ -6,7 +6,7 @@ import { describePolicySource } from "./policy-source.mjs";
 // only after the clean V5 source export is accepted.
 export const ONBOARDING_SPECS = Object.freeze([{
   id: "getting-started", kind: "guide", source: "docs/guide/getting-started.md",
-  sha256: "ebc32288ff5e0273341400f754e50ee8e9a30174d21fc479e5736bb9fee758e5",
+  sha256: "f133cee692e9577917690ea23d8e67a3bd603237406ebe65ae9c9ef056d91af6",
   sourceRevision: null,
   sourceStatus: "local-candidate-not-public-source-bound",
   fixedHeadings: ["### Gemini CLI", "### Qwen Code"],

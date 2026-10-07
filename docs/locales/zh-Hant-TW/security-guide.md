@@ -1,11 +1,11 @@
-<!-- Generated from docs/guide/security.md; source-sha256: 83e112d4b882e688df175ee925d4e4b91ce1bff1c5832eb645e9c297f482dce2; edit scripts/security-source.mjs. -->
+<!-- Generated from docs/guide/security.md; source-sha256: 07f9bf8812f6c52c36d33db446c1f75e984154fef0da6a6baac0300d2a3480a8; edit scripts/security-source.mjs. -->
 # 安全性
 
-[English](../en/security-guide.md) · **繁體中文（台灣）**
+[English](../en/security-guide.md) · [繁體中文](../zh-Hant/security-guide.md) · **繁體中文（台灣）** · [繁體中文（香港）](../zh-Hant-HK/security-guide.md) · [简体中文](../zh-Hans/security-guide.md) · [Tiếng Việt](../vi/security-guide.md) · [Українська](../uk/security-guide.md) · [Türkçe](../tr/security-guide.md) · [ไทย](../th/security-guide.md) · [Svenska](../sv/security-guide.md) · [Slovenčina](../sk/security-guide.md) · [Русский](../ru/security-guide.md) · [Română](../ro/security-guide.md) · [Português](../pt/security-guide.md) · [Português \(Brasil\)](../pt-BR/security-guide.md) · [Polski](../pl/security-guide.md) · [Nederlands](../nl/security-guide.md) · [Norsk bokmål](../nb/security-guide.md) · [မြန်မာ](../my/security-guide.md) · [Bahasa Melayu](../ms/security-guide.md) · [ລາວ](../lo/security-guide.md) · [한국어](../ko/security-guide.md) · [ខ្មែរ](../km/security-guide.md) · [日本語](../ja/security-guide.md) · [Italiano](../it/security-guide.md) · [Bahasa Indonesia](../id/security-guide.md) · [Magyar](../hu/security-guide.md) · [Hrvatski](../hr/security-guide.md) · [हिन्दी](../hi/security-guide.md) · [עברית](../he/security-guide.md) · [Français](../fr/security-guide.md) · [Filipino](../fil/security-guide.md) · [Suomi](../fi/security-guide.md) · [Español](../es/security-guide.md) · [Español \(México\)](../es-MX/security-guide.md) · [Ελληνικά](../el/security-guide.md) · [Deutsch](../de/security-guide.md) · [Dansk](../da/security-guide.md) · [Čeština](../cs/security-guide.md) · [Català](../ca/security-guide.md) · [العربية](../ar/security-guide.md)
 
 [README](../../../README.md) · [參與貢獻](contributing.md) · [行為準則](conduct.md) · [資安政策](security.md) · [專案治理](governance.md) · [使用支援](support.md)
 
-[RC1 雙語公開總覽與官網入口（41 語系來源目錄為私有）](../../../docs/LANGUAGES.md)\. This normative security guide remains canonical in English\.
+[41 個語系版本的在地化總覽與官網入口](../../../docs/LANGUAGES.md)\. This normative security guide remains canonical in English\.
 
 ## 權限邊界
 

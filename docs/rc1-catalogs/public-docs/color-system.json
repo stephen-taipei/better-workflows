@@ -3,6 +3,15 @@
     "color-system": "edf32956ca99c7a6e6ffb1e978a1db935a54cfe2cd9cb22c06735b1078cd5120"
   },
   "locales": {
+    "zh-Hant": {
+      "color-system": [
+        "# 編輯用色系統",
+        "本版本採用編輯式的午夜藍、鈷藍與古金色調，取代先前以綠色為主的系統。這套用色旨在保留暖紙張與水彩插畫的書籍感，同時讓路由、證據與終態呈現為清楚的技術訊號。",
+        "這套色盤刻意以角色區分，並限制在少數色系。它遵循 USWDS 建議，選取小而明確的專案 token 子集，而不是暴露整套系統色彩；色彩只是漸進式增強，不是唯一訊號。一般文字配色已依 WCAG AA 4.5:1 基準檢查：淺色墨色 14.19:1、淺色次要文字 5.51:1、淺色主色 6.16:1、深色墨色 15.79:1、深色次要文字 10.30:1，以及深色主色 8.39:1。",
+        "參考資料：",
+        "- [WCAG 2.2、1.4.3 對比（最低要求）]({LINK_0})\n- [USWDS 使用色彩]({LINK_1})\n- [USWDS 主題色彩 token]({LINK_2})\n- [IBM Carbon 無障礙色彩指南]({LINK_3})"
+      ]
+    },
     "zh-Hant-TW": {
       "color-system": [
         "# 編輯用色系統",
@@ -10,6 +19,348 @@
         "這套色盤刻意依角色分組，並限制在少數色系。它遵循 USWDS 建議，選取小而明確的專案 token 子集，而不是暴露整套系統色彩；色彩是漸進式增強，不是唯一訊號。一般文字配色已依 WCAG AA 4.5:1 基準檢查：淺色墨色 14.19:1、淺色次要文字 5.51:1、淺色主色 6.16:1、深色墨色 15.79:1、深色次要文字 10.30:1，以及深色主色 8.39:1。",
         "參考資料：",
         "- [WCAG 2.2、1.4.3 對比（最低要求）]({LINK_0})\n- [USWDS 使用色彩]({LINK_1})\n- [USWDS 主題色彩 token]({LINK_2})\n- [IBM Carbon 無障礙色彩指南]({LINK_3})"
+      ]
+    },
+    "zh-Hant-HK": {
+      "color-system": [
+        "# 編輯用色系統",
+        "本版本採用編輯式的午夜藍、鈷藍與古金色調，取代先前以綠色為主的系統。這套用色保留暖紙張與水彩插畫的書籍感，同時令路由、證據及終態顯示為清晰的技術訊號。",
+        "這套色盤刻意按角色分組，並限制於少數色系。它遵循 USWDS 建議，選取小而明確的專案 token 子集，而非暴露整套系統色彩；色彩只是漸進式增強，不是唯一訊號。一般文字配色已按 WCAG AA 4.5:1 基準檢查：淺色墨色 14.19:1、淺色次要文字 5.51:1、淺色主色 6.16:1、深色墨色 15.79:1、深色次要文字 10.30:1，以及深色主色 8.39:1。",
+        "參考資料：",
+        "- [WCAG 2.2、1.4.3 對比（最低要求）]({LINK_0})\n- [USWDS 使用色彩]({LINK_1})\n- [USWDS 主題色彩 token]({LINK_2})\n- [IBM Carbon 無障礙色彩指南]({LINK_3})"
+      ]
+    },
+    "zh-Hans": {
+      "color-system": [
+        "# 编辑用色系统",
+        "本版本采用编辑式的午夜蓝、钴蓝与古金色调，取代先前以绿色为主的系统。这套用色旨在保留暖纸张与水彩插画的书籍感，同时让路由、证据与终态呈现为清晰的技术信号。",
+        "这套色盘刻意按角色区分，并限制在少数色系。它遵循 USWDS 建议，选取小而明确的项目 token 子集，而不是暴露整套系统色彩；色彩只是渐进式增强，不是唯一信号。一般文字配色已按 WCAG AA 4.5:1 基准检查：浅色墨色 14.19:1、浅色次要文字 5.51:1、浅色主色 6.16:1、深色墨色 15.79:1、深色次要文字 10.30:1，以及深色主色 8.39:1。",
+        "参考资料：",
+        "- [WCAG 2.2、1.4.3 对比（最低要求）]({LINK_0})\n- [USWDS 使用色彩]({LINK_1})\n- [USWDS 主题色彩 token]({LINK_2})\n- [IBM Carbon 无障碍色彩指南]({LINK_3})"
+      ]
+    },
+    "vi": {
+      "color-system": [
+        "# Hệ màu biên tập",
+        "Phiên bản này dùng bảng màu xanh đêm, xanh cobalt và vàng cổ điển theo phong cách biên tập, thay cho hệ thống trước đây thiên về xanh lá. Mục tiêu là giữ cảm giác như một cuốn sách với nền giấy ấm và tranh màu nước, đồng thời để tuyến, bằng chứng và trạng thái kết thúc được đọc như các tín hiệu kỹ thuật.",
+        "Bảng màu được phân theo vai trò và cố ý giới hạn trong một vài nhóm. Cách này tuân theo hướng dẫn USWDS: chọn một tập token nhỏ của dự án thay vì phơi bày mọi màu hệ thống; màu sắc chỉ là lớp tăng cường, không phải tín hiệu duy nhất. Các cặp màu văn bản thông thường đã được kiểm tra theo mức WCAG AA 4.5:1: mực sáng 14.19:1, chữ phụ sáng 5.51:1, màu chính sáng 6.16:1, mực tối 15.79:1, chữ phụ tối 10.30:1 và màu chính tối 8.39:1.",
+        "Tài liệu tham khảo:",
+        "- [WCAG 2.2, 1.4.3 Độ tương phản (Tối thiểu)]({LINK_0})\n- [USWDS Sử dụng màu]({LINK_1})\n- [USWDS Token màu chủ đề]({LINK_2})\n- [Hướng dẫn màu cho khả năng tiếp cận của IBM Carbon]({LINK_3})"
+      ]
+    },
+    "uk": {
+      "color-system": [
+        "# Редакційна система кольорів",
+        "У цій версії використано редакційну палітру опівнічного синього, кобальту та старого золота замість попередньої системи з перевагою зеленого. Вона зберігає книжкове відчуття теплого паперу й акварельних ілюстрацій, водночас роблячи маршрут, доказ і фінальний стан зрозумілими технічними сигналами.",
+        "Палітра навмисно поділена за ролями й обмежена кількома родинами. Це відповідає рекомендаціям USWDS: обирати невелику підмножину токенів проєкту, а не відкривати всі системні кольори; колір є прогресивним доповненням, а не єдиним сигналом. Звичайні пари кольорів тексту перевірено за базовим рівнем WCAG AA 4.5:1: світлий чорнильний 14.19:1, світлий приглушений 5.51:1, світлий основний 6.16:1, темний чорнильний 15.79:1, темний приглушений 10.30:1 і темний основний 8.39:1.",
+        "Довідкові матеріали:",
+        "- [WCAG 2.2, 1.4.3 Контрастність (мінімум)]({LINK_0})\n- [USWDS Використання кольору]({LINK_1})\n- [USWDS Токени кольорів теми]({LINK_2})\n- [Настанови IBM Carbon щодо доступності кольорів]({LINK_3})"
+      ]
+    },
+    "tr": {
+      "color-system": [
+        "# Editoryal renk sistemi",
+        "Bu sürüm, önceki yeşil ağırlıklı sistemin yerine editoryal bir gece mavisi, kobalt ve antika altın paleti kullanır. Amaç, sıcak kâğıt ve suluboya çizimlerin kitap hissini korurken rota, kanıt ve terminal durumlarının teknik sinyaller olarak okunmasını sağlamaktır.",
+        "Palet bilinçli olarak rollere ayrılmış ve birkaç aileyle sınırlandırılmıştır. USWDS yönlendirmesini izleyerek her sistem rengini açığa çıkarmak yerine küçük bir proje token alt kümesi seçer; renk tek sinyal değil, ilerlemeli bir geliştirmedir. Normal metin çiftleri WCAG AA 4.5:1 tabanına göre kontrol edildi: açık mürekkep 14.19:1, açık ikincil 5.51:1, açık ana renk 6.16:1, koyu mürekkep 15.79:1, koyu ikincil 10.30:1 ve koyu ana renk 8.39:1.",
+        "Kaynaklar:",
+        "- [WCAG 2.2, 1.4.3 Kontrast (Minimum)]({LINK_0})\n- [USWDS Renk kullanımı]({LINK_1})\n- [USWDS Tema renk token'ları]({LINK_2})\n- [IBM Carbon erişilebilirlik renk kılavuzu]({LINK_3})"
+      ]
+    },
+    "th": {
+      "color-system": [
+        "# ระบบสีสำหรับงานบรรณาธิการ",
+        "ฉบับนี้ใช้ชุดสีสีน้ำเงินยามค่ำ โคบอลต์ และทองโบราณในแบบงานบรรณาธิการ แทนระบบเดิมที่เน้นสีเขียว เป้าหมายคือคงบรรยากาศเหมือนหนังสือของกระดาษโทนอุ่นและภาพสีน้ำ พร้อมทำให้เส้นทาง หลักฐาน และสถานะสิ้นสุดอ่านเป็นสัญญาณทางเทคนิคได้ชัดเจน",
+        "จานสีนี้แบ่งตามบทบาทอย่างตั้งใจและจำกัดไว้เพียงไม่กี่กลุ่ม โดยทำตามแนวทาง USWDS ที่ให้เลือกชุดย่อยของโทเคนโครงการขนาดเล็กแทนการเปิดเผยสีทั้งระบบ สีเป็นเพียงการเพิ่มประสิทธิภาพแบบค่อยเป็นค่อยไป ไม่ใช่สัญญาณเดียว คู่สีของข้อความปกติผ่านการตรวจตามเกณฑ์ WCAG AA 4.5:1: หมึกโทนอ่อน 14.19:1, สีรองโทนอ่อน 5.51:1, สีหลักโทนอ่อน 6.16:1, หมึกโทนเข้ม 15.79:1, สีรองโทนเข้ม 10.30:1 และสีหลักโทนเข้ม 8.39:1",
+        "แหล่งอ้างอิง:",
+        "- [WCAG 2.2, 1.4.3 คอนทราสต์ (ขั้นต่ำ)]({LINK_0})\n- [USWDS การใช้สี]({LINK_1})\n- [USWDS โทเคนสีของธีม]({LINK_2})\n- [แนวทางสีเพื่อการเข้าถึงของ IBM Carbon]({LINK_3})"
+      ]
+    },
+    "sv": {
+      "color-system": [
+        "# Redaktionellt färgsystem",
+        "Den här versionen använder en redaktionell palett med midnattsblått, kobolt och antikguld i stället för det tidigare grönledda systemet. Målet är att behålla känslan av en bok med varmt papper och akvarellillustrationer, samtidigt som rutter, bevis och slutlägen läses som tekniska signaler.",
+        "Paletten är medvetet rollbaserad och begränsad till några få familjer. Den följer USWDS vägledning genom att välja en liten delmängd av projektets token i stället för att exponera alla systemfärger; färg är progressiv förstärkning, inte den enda signalen. Normala textpar kontrollerades mot WCAG AA 4.5:1: ljust bläck 14.19:1, ljus dämpad text 5.51:1, ljus primärfärg 6.16:1, mörkt bläck 15.79:1, mörk dämpad text 10.30:1 och mörk primärfärg 8.39:1.",
+        "Referenser:",
+        "- [WCAG 2.2, 1.4.3 Kontrast (minimum)]({LINK_0})\n- [USWDS Använda färg]({LINK_1})\n- [USWDS Färgtoken för teman]({LINK_2})\n- [IBM Carbon riktlinjer för tillgängliga färger]({LINK_3})"
+      ]
+    },
+    "sk": {
+      "color-system": [
+        "# Redakčný farebný systém",
+        "Táto verzia používa redakčnú paletu polnočnej modrej, kobaltu a starého zlata namiesto pôvodného systému založeného na zelenej. Zámerom je zachovať knižný charakter teplého papiera a akvarelových ilustrácií a zároveň čítať trasy, dôkazy a koncové stavy ako technické signály.",
+        "Paleta je zámerne založená na úlohách a obmedzená na niekoľko skupín. Riadi sa odporúčaním USWDS vybrať malú podmnožinu projektových tokenov namiesto vystavenia všetkých systémových farieb; farba je progresívne vylepšenie, nie jediný signál. Bežné páry farieb textu boli overené podľa WCAG AA 4.5:1: svetlý atrament 14.19:1, svetlá tlmená 5.51:1, svetlá primárna 6.16:1, tmavý atrament 15.79:1, tmavá tlmená 10.30:1 a tmavá primárna 8.39:1.",
+        "Referencie:",
+        "- [WCAG 2.2, 1.4.3 Kontrast (minimum)]({LINK_0})\n- [USWDS Používanie farieb]({LINK_1})\n- [USWDS Farebné tokeny témy]({LINK_2})\n- [Usmernenie IBM Carbon pre prístupné farby]({LINK_3})"
+      ]
+    },
+    "ru": {
+      "color-system": [
+        "# Редакционная цветовая система",
+        "В этой версии вместо прежней системы с преобладанием зелёного используется редакционная палитра полуночного синего, кобальта и старого золота. Она сохраняет книжное ощущение тёплой бумаги и акварельных иллюстраций, а маршруты, доказательства и конечные состояния делает читаемыми как технические сигналы.",
+        "Палитра намеренно разделена по ролям и ограничена несколькими семействами. Она следует рекомендациям USWDS: выбирать небольшой набор токенов проекта, а не раскрывать все системные цвета; цвет служит прогрессивным улучшением, а не единственным сигналом. Обычные пары цветов текста проверены по базовому уровню WCAG AA 4.5:1: светлые чернила 14.19:1, светлый приглушённый 5.51:1, светлый основной 6.16:1, тёмные чернила 15.79:1, тёмный приглушённый 10.30:1 и тёмный основной 8.39:1.",
+        "Справочные материалы:",
+        "- [WCAG 2.2, 1.4.3 Контрастность (минимум)]({LINK_0})\n- [USWDS Использование цвета]({LINK_1})\n- [USWDS Цветовые токены темы]({LINK_2})\n- [Рекомендации IBM Carbon по доступным цветам]({LINK_3})"
+      ]
+    },
+    "ro": {
+      "color-system": [
+        "# Sistem cromatic editorial",
+        "Această versiune folosește o paletă editorială de albastru nocturn, cobalt și auriu antic în locul sistemului anterior dominat de verde. Scopul este să păstreze aspectul de carte al hârtiei calde și al ilustrațiilor în acuarelă, făcând în același timp ca rutele, dovezile și stările terminale să fie citite ca semnale tehnice.",
+        "Paleta este intenționat bazată pe roluri și limitată la câteva familii. Urmează recomandarea USWDS de a selecta un subset mic de tokenuri ale proiectului, nu de a expune toate culorile sistemului; culoarea este o îmbunătățire progresivă, nu singurul semnal. Perechile de text normal au fost verificate la nivelul de bază WCAG AA 4.5:1: cerneală deschisă 14.19:1, text secundar deschis 5.51:1, culoare principală deschisă 6.16:1, cerneală închisă 15.79:1, text secundar închis 10.30:1 și culoare principală închisă 8.39:1.",
+        "Referințe:",
+        "- [WCAG 2.2, 1.4.3 Contrast (minim)]({LINK_0})\n- [USWDS Utilizarea culorii]({LINK_1})\n- [USWDS Tokenuri de culoare pentru teme]({LINK_2})\n- [Ghidul IBM Carbon pentru culori accesibile]({LINK_3})"
+      ]
+    },
+    "pt": {
+      "color-system": [
+        "# Sistema de cores editorial",
+        "Esta versão usa uma paleta editorial de azul-noite, cobalto e dourado antigo em vez do sistema anterior centrado no verde. A intenção é preservar o aspecto de livro do papel quente e das ilustrações em aquarela, fazendo com que rotas, evidências e estados terminais sejam lidos como sinais técnicos.",
+        "A paleta é intencionalmente baseada em papéis e limitada a poucas famílias. Ela segue a orientação da USWDS de selecionar um pequeno subconjunto de tokens do projeto em vez de expor todas as cores do sistema; a cor é um aprimoramento progressivo, não o único sinal. Os pares de texto normal foram verificados contra a linha de base WCAG AA 4.5:1: tinta clara 14.19:1, texto secundário claro 5.51:1, cor primária clara 6.16:1, tinta escura 15.79:1, texto secundário escuro 10.30:1 e cor primária escura 8.39:1.",
+        "Referências:",
+        "- [WCAG 2.2, 1.4.3 Contraste (mínimo)]({LINK_0})\n- [USWDS Uso de cores]({LINK_1})\n- [USWDS Tokens de cores de tema]({LINK_2})\n- [Orientações de acessibilidade de cores do IBM Carbon]({LINK_3})"
+      ]
+    },
+    "pt-BR": {
+      "color-system": [
+        "# Sistema de cores editorial",
+        "Esta versão usa uma paleta editorial de azul-noite, cobalto e dourado antigo em vez do sistema anterior centrado no verde. A intenção é manter a sensação de livro do papel quente e das ilustrações em aquarela, fazendo com que rotas, evidências e estados finais sejam lidos como sinais técnicos.",
+        "A paleta é intencionalmente baseada em papéis e limitada a poucas famílias. Ela segue a orientação da USWDS de selecionar um pequeno subconjunto de tokens do projeto em vez de expor todas as cores do sistema; a cor é um aprimoramento progressivo, não o único sinal. Os pares de texto normal foram verificados contra a linha de base WCAG AA 4.5:1: tinta clara 14.19:1, texto secundário claro 5.51:1, cor primária clara 6.16:1, tinta escura 15.79:1, texto secundário escuro 10.30:1 e cor primária escura 8.39:1.",
+        "Referências:",
+        "- [WCAG 2.2, 1.4.3 Contraste (mínimo)]({LINK_0})\n- [USWDS Uso de cores]({LINK_1})\n- [USWDS Tokens de cores do tema]({LINK_2})\n- [Orientações de acessibilidade de cores do IBM Carbon]({LINK_3})"
+      ]
+    },
+    "pl": {
+      "color-system": [
+        "# Redakcyjny system kolorów",
+        "Ta wersja używa redakcyjnej palety granatu, kobaltu i starego złota zamiast wcześniejszego systemu opartego głównie na zieleni. Ma zachować książkowy charakter ciepłego papieru i akwarelowych ilustracji, a jednocześnie sprawić, że trasy, dowody i stany końcowe będą czytelne jako sygnały techniczne.",
+        "Paleta jest celowo oparta na rolach i ograniczona do kilku rodzin. Zgodnie z zaleceniami USWDS wybiera mały podzbiór tokenów projektu zamiast ujawniać wszystkie kolory systemowe; kolor jest progresywnym ulepszeniem, a nie jedynym sygnałem. Zwykłe pary tekstu sprawdzono względem poziomu WCAG AA 4.5:1: jasny atrament 14.19:1, jasny tekst wyciszony 5.51:1, jasny kolor główny 6.16:1, ciemny atrament 15.79:1, ciemny tekst wyciszony 10.30:1 i ciemny kolor główny 8.39:1.",
+        "Materiały referencyjne:",
+        "- [WCAG 2.2, 1.4.3 Kontrast (minimum)]({LINK_0})\n- [USWDS Używanie koloru]({LINK_1})\n- [USWDS Tokeny kolorów motywu]({LINK_2})\n- [Wytyczne IBM Carbon dotyczące dostępności kolorów]({LINK_3})"
+      ]
+    },
+    "nl": {
+      "color-system": [
+        "# Redactioneel kleurensysteem",
+        "Deze versie gebruikt een redactioneel palet van nachtblauw, kobalt en antiek goud in plaats van het eerdere, groen gedomineerde systeem. Het doel is het boekachtige gevoel van warm papier en aquarelillustraties te behouden en routes, bewijs en eindstatussen als technische signalen leesbaar te maken.",
+        "Het palet is bewust rolgebaseerd en beperkt tot enkele families. Het volgt de USWDS-richtlijn om een kleine subset projecttokens te kiezen in plaats van alle systeemkleuren bloot te leggen; kleur is progressieve verbetering, niet het enige signaal. Normale tekstparen zijn getoetst aan de WCAG AA 4.5:1-basis: lichte inkt 14.19:1, lichte gedempte tekst 5.51:1, lichte primaire kleur 6.16:1, donkere inkt 15.79:1, donkere gedempte tekst 10.30:1 en donkere primaire kleur 8.39:1.",
+        "Referenties:",
+        "- [WCAG 2.2, 1.4.3 Contrast (minimum)]({LINK_0})\n- [USWDS Kleur gebruiken]({LINK_1})\n- [USWDS Kleurentokens voor thema's]({LINK_2})\n- [IBM Carbon-richtlijn voor toegankelijke kleuren]({LINK_3})"
+      ]
+    },
+    "nb": {
+      "color-system": [
+        "# Redaksjonelt fargesystem",
+        "Denne utgaven bruker en redaksjonell palett med midnattsblått, kobolt og antikkgull i stedet for det tidligere grønnpregede systemet. Målet er å beholde bokfølelsen fra varmt papir og akvarellillustrasjoner, samtidig som ruter, bevis og sluttstatuser kan leses som tekniske signaler.",
+        "Paletten er bevisst rollebasert og begrenset til noen få familier. Den følger USWDS-rådet om å velge et lite delsett av prosjektets token i stedet for å eksponere alle systemfarger; farge er progressiv forbedring, ikke det eneste signalet. Vanlige tekstpar ble kontrollert mot WCAG AA 4.5:1: lyst blekk 14.19:1, lys dempet tekst 5.51:1, lys primærfarge 6.16:1, mørkt blekk 15.79:1, mørk dempet tekst 10.30:1 og mørk primærfarge 8.39:1.",
+        "Referanser:",
+        "- [WCAG 2.2, 1.4.3 Kontrast (minimum)]({LINK_0})\n- [USWDS Bruk av farger]({LINK_1})\n- [USWDS Fargetoken for temaer]({LINK_2})\n- [IBM Carbon-retningslinjer for tilgjengelige farger]({LINK_3})"
+      ]
+    },
+    "my": {
+      "color-system": [
+        "# အယ်ဒီတာရေးရာ အရောင်စနစ်",
+        "ဤထုတ်ဝေမှုတွင် ယခင်အစိမ်းရောင်အခြေပြုစနစ်အစား အယ်ဒီတာရေးရာ ညသန်းခေါင်ပြာ၊ ကိုဘော့နှင့် ရှေးဟောင်းရွှေရောင် palette ကို အသုံးပြုထားသည်။ နွေးထွေးသော စက္ကူနှင့် ရေဆေးပန်းချီပုံများ၏ စာအုပ်ဆန်သောခံစားချက်ကို ထိန်းထားပြီး လမ်းကြောင်း၊ သက်သေခံချက်နှင့် အဆုံးသတ်အခြေအနေများကို နည်းပညာဆိုင်ရာ အချက်ပြများအဖြစ် ဖတ်ရှုနိုင်စေရန် ရည်ရွယ်သည်။",
+        "Palette ကို အခန်းကဏ္ဍအလိုက် ရည်ရွယ်ချက်ရှိရှိ ခွဲထားပြီး အုပ်စုအနည်းငယ်အတွင်း ကန့်သတ်ထားသည်။ စနစ်တစ်ခုလုံး၏ အရောင်အားလုံးကို ဖော်ပြမည့်အစား ပရောဂျက် token အစုငယ်ကို ရွေးချယ်ရန် USWDS လမ်းညွှန်ချက်ကို လိုက်နာသည်။ အရောင်သည် တစ်ခုတည်းသော အချက်ပြမဟုတ်ဘဲ တဖြည်းဖြည်းမြှင့်တင်မှုဖြစ်သည်။ ပုံမှန်စာသားအတွဲများကို WCAG AA 4.5:1 အခြေခံနှုန်းဖြင့် စစ်ဆေးထားသည်: အလင်းရောင်မှင် 14.19:1၊ အလင်းရောင်ဖျော့စာ 5.51:1၊ အလင်းရောင်အဓိကအရောင် 6.16:1၊ အမှောင်မှင် 15.79:1၊ အမှောင်ရောင်ဖျော့စာ 10.30:1 နှင့် အမှောင်အဓိကအရောင် 8.39:1။",
+        "ရည်ညွှန်းချက်များ:",
+        "- [WCAG 2.2, 1.4.3 Contrast (Minimum)]({LINK_0})\n- [USWDS အရောင်အသုံးပြုခြင်း]({LINK_1})\n- [USWDS အပြင်အဆင်အရောင် token များ]({LINK_2})\n- [IBM Carbon အသုံးပြုနိုင်သောအရောင် လမ်းညွှန်]({LINK_3})"
+      ]
+    },
+    "ms": {
+      "color-system": [
+        "# Sistem warna editorial",
+        "Edisi ini menggunakan palet editorial biru tengah malam, kobalt dan emas antik menggantikan sistem terdahulu yang berteraskan hijau. Tujuannya ialah mengekalkan rasa seperti buku melalui kertas hangat dan ilustrasi cat air, sambil menjadikan laluan, bukti dan keadaan terminal mudah dibaca sebagai isyarat teknikal.",
+        "Palet ini sengaja berasaskan peranan dan dihadkan kepada beberapa keluarga. Ia mengikut panduan USWDS untuk memilih subset token projek yang kecil dan bukannya mendedahkan semua warna sistem; warna ialah peningkatan progresif, bukan satu-satunya isyarat. Pasangan teks biasa diperiksa mengikut asas WCAG AA 4.5:1: dakwat cerah 14.19:1, teks diredam cerah 5.51:1, warna utama cerah 6.16:1, dakwat gelap 15.79:1, teks diredam gelap 10.30:1 dan warna utama gelap 8.39:1.",
+        "Rujukan:",
+        "- [WCAG 2.2, 1.4.3 Kontras (Minimum)]({LINK_0})\n- [USWDS Menggunakan warna]({LINK_1})\n- [USWDS Token warna tema]({LINK_2})\n- [Panduan warna kebolehcapaian IBM Carbon]({LINK_3})"
+      ]
+    },
+    "lo": {
+      "color-system": [
+        "# ລະບົບສີສຳລັບບົດບັນນາທິການ",
+        "ສະບັບນີ້ໃຊ້ຈານສີສະໄຕລ໌ບົດບັນນາທິການທີ່ມີສີຟ້າກາງຄືນ, ສີໂຄບອນ ແລະສີຄຳເກົ່າ ແທນລະບົບເກົ່າທີ່ເນັ້ນສີຂຽວ. ຈຸດປະສົງແມ່ນຮັກສາອາລົມຄືປຶ້ມຈາກເຈ້ຍອົບອຸ່ນ ແລະຮູບສີນ້ຳ ພ້ອມເຮັດໃຫ້ເສັ້ນທາງ, ຫຼັກຖານ ແລະສະຖານະສິ້ນສຸດອ່ານໄດ້ເປັນສັນຍານທາງເຕັກນິກ.",
+        "ຈານສີນີ້ຖືກແບ່ງຕາມບົດບາດຢ່າງຕັ້ງໃຈ ແລະຈຳກັດໄວ້ພຽງບາງກຸ່ມ. ມັນປະຕິບັດຕາມຄຳແນະນຳ USWDS ໃຫ້ເລືອກ token ຂອງໂຄງການຊຸດນ້ອຍ ແທນການເປີດເຜີຍສີທັງໝົດຂອງລະບົບ; ສີເປັນການເສີມທີ່ຄ່ອຍໆເພີ່ມ ບໍ່ແມ່ນສັນຍານດຽວ. ຄູ່ສີຂໍ້ຄວາມປົກກະຕິຖືກກວດຕາມພື້ນຖານ WCAG AA 4.5:1: ໝຶກສີອ່ອນ 14.19:1, ຂໍ້ຄວາມອ່ອນລົງ 5.51:1, ສີຫຼັກອ່ອນ 6.16:1, ໝຶກສີເຂັ້ມ 15.79:1, ຂໍ້ຄວາມອ່ອນລົງເຂັ້ມ 10.30:1 ແລະສີຫຼັກເຂັ້ມ 8.39:1.",
+        "ເອກະສານອ້າງອີງ:",
+        "- [WCAG 2.2, 1.4.3 ຄວາມຄົມຕ່າງ (ຂັ້ນຕ່ຳ)]({LINK_0})\n- [USWDS ການໃຊ້ສີ]({LINK_1})\n- [USWDS token ສີຂອງຫົວຂໍ້]({LINK_2})\n- [ຄຳແນະນຳສີເພື່ອການເຂົ້າເຖິງຂອງ IBM Carbon]({LINK_3})"
+      ]
+    },
+    "ko": {
+      "color-system": [
+        "# 편집용 색상 시스템",
+        "이 버전은 기존의 녹색 중심 시스템 대신 미드나이트 블루, 코발트, 앤티크 골드로 구성된 편집용 팔레트를 사용합니다. 따뜻한 종이와 수채화 일러스트의 책 같은 느낌을 유지하면서 경로, 증거, 종료 상태를 기술적 신호로 읽을 수 있게 하는 것이 목적입니다.",
+        "이 팔레트는 역할을 기준으로 의도적으로 나누고 몇 가지 계열로 제한했습니다. 모든 시스템 색상을 노출하기보다 작은 프로젝트 토큰 하위 집합을 선택하라는 USWDS 지침을 따르며, 색상은 유일한 신호가 아니라 점진적 향상으로 사용합니다. 일반 텍스트 조합은 WCAG AA 4.5:1 기준으로 확인했습니다: 밝은 잉크 14.19:1, 밝은 보조색 5.51:1, 밝은 기본색 6.16:1, 어두운 잉크 15.79:1, 어두운 보조색 10.30:1, 어두운 기본색 8.39:1.",
+        "참고 자료:",
+        "- [WCAG 2.2, 1.4.3 대비 (최소)]({LINK_0})\n- [USWDS 색상 사용]({LINK_1})\n- [USWDS 테마 색상 토큰]({LINK_2})\n- [IBM Carbon 접근성 색상 지침]({LINK_3})"
+      ]
+    },
+    "km": {
+      "color-system": [
+        "# ប្រព័ន្ធពណ៌សម្រាប់ការរៀបចំមាតិកា",
+        "កំណែនេះប្រើក្ដារពណ៌បែបការរៀបចំមាតិកាដែលមានពណ៌ខៀវអធ្រាត្រ ខៀវ cobalt និងមាសចាស់ ជំនួសប្រព័ន្ធមុនដែលផ្អែកលើពណ៌បៃតង។ គោលបំណងគឺរក្សាអារម្មណ៍ដូចសៀវភៅរបស់ក្រដាសកក់ក្តៅ និងរូបគំនូរពណ៌ទឹក ខណៈធ្វើឱ្យផ្លូវ ភស្តុតាង និងស្ថានភាពចុងក្រោយអាចអានបានជាសញ្ញាបច្ចេកទេស។",
+        "ក្ដារពណ៌ត្រូវបានបែងចែកតាមតួនាទីដោយចេតនា និងកំណត់នៅត្រឹមគ្រួសារមួយចំនួន។ វាអនុវត្តតាមការណែនាំរបស់ USWDS ឱ្យជ្រើសសំណុំរង token របស់គម្រោងដែលតូច ជំនួសឱ្យការបង្ហាញពណ៌ប្រព័ន្ធទាំងអស់។ ពណ៌គ្រាន់តែជាការបង្កើនបែបបន្តបន្ទាប់ មិនមែនជាសញ្ញាតែមួយទេ។ គូពណ៌អក្សរធម្មតាត្រូវបានពិនិត្យតាមមូលដ្ឋាន WCAG AA 4.5:1: ទឹកថ្នាំស្រាល 14.19:1, អក្សរស្រាលបន្ថយ 5.51:1, ពណ៌ចម្បងស្រាល 6.16:1, ទឹកថ្នាំងងឹត 15.79:1, អក្សរងងឹតបន្ថយ 10.30:1 និងពណ៌ចម្បងងងឹត 8.39:1។",
+        "ឯកសារយោង៖",
+        "- [WCAG 2.2, 1.4.3 កម្រិតកម្រិតពណ៌ (អប្បបរមា)]({LINK_0})\n- [USWDS ការប្រើពណ៌]({LINK_1})\n- [USWDS token ពណ៌ស្បែក]({LINK_2})\n- [គោលការណ៍ពណ៌សម្រាប់ភាពងាយស្រួលរបស់ IBM Carbon]({LINK_3})"
+      ]
+    },
+    "ja": {
+      "color-system": [
+        "# エディトリアル・カラーシステム",
+        "この版では、従来のグリーン中心のシステムに代えて、ミッドナイト、コバルト、アンティークゴールドによる編集向けの配色を使います。温かい紙と水彩イラストの本らしさを保ちながら、ルート、証拠、終端状態を技術的なシグナルとして読み取れるようにすることが狙いです。",
+        "このパレットは役割を基準に意図的に分け、少数のファミリーに限定しています。システムの全色を公開するのではなく、小さなプロジェクト用トークン集合を選ぶという USWDS の方針に従っています。色は唯一のシグナルではなく、段階的な補助です。通常のテキスト配色は WCAG AA 4.5:1 の基準で確認しました：明るいインク 14.19:1、明るい補助色 5.51:1、明るいプライマリ 6.16:1、暗いインク 15.79:1、暗い補助色 10.30:1、暗いプライマリ 8.39:1。",
+        "参考資料：",
+        "- [WCAG 2.2、1.4.3 コントラスト（最低限）]({LINK_0})\n- [USWDS 色の使用]({LINK_1})\n- [USWDS テーマカラーのトークン]({LINK_2})\n- [IBM Carbon のアクセシブルな色に関するガイダンス]({LINK_3})"
+      ]
+    },
+    "it": {
+      "color-system": [
+        "# Sistema cromatico editoriale",
+        "Questa versione usa una palette editoriale blu notte, cobalto e oro antico al posto del precedente sistema dominato dal verde. L’obiettivo è mantenere l’atmosfera da libro della carta calda e delle illustrazioni ad acquerello, facendo leggere percorsi, prove e stati terminali come segnali tecnici.",
+        "La palette è volutamente basata sui ruoli e limitata a poche famiglie. Segue l’indicazione USWDS di scegliere un piccolo sottoinsieme di token del progetto invece di esporre tutti i colori di sistema; il colore è un miglioramento progressivo, non l’unico segnale. Le coppie di testo normale sono state controllate rispetto alla base WCAG AA 4.5:1: inchiostro chiaro 14.19:1, testo attenuato chiaro 5.51:1, colore primario chiaro 6.16:1, inchiostro scuro 15.79:1, testo attenuato scuro 10.30:1 e colore primario scuro 8.39:1.",
+        "Riferimenti:",
+        "- [WCAG 2.2, 1.4.3 Contrasto (minimo)]({LINK_0})\n- [USWDS Uso del colore]({LINK_1})\n- [Token colore del tema USWDS]({LINK_2})\n- [Linee guida sui colori accessibili di IBM Carbon]({LINK_3})"
+      ]
+    },
+    "id": {
+      "color-system": [
+        "# Sistem warna editorial",
+        "Edisi ini menggunakan palet editorial biru tengah malam, kobalt, dan emas antik, bukan sistem sebelumnya yang didominasi hijau. Tujuannya adalah mempertahankan nuansa seperti buku dari kertas hangat dan ilustrasi cat air, sekaligus membuat rute, bukti, dan keadaan terminal terbaca sebagai sinyal teknis.",
+        "Palet ini sengaja berbasis peran dan dibatasi pada beberapa keluarga. Palet ini mengikuti panduan USWDS untuk memilih subset token proyek yang kecil, bukan membuka semua warna sistem; warna adalah peningkatan progresif, bukan satu-satunya sinyal. Pasangan teks normal diperiksa terhadap dasar WCAG AA 4.5:1: tinta terang 14.19:1, teks redup terang 5.51:1, warna utama terang 6.16:1, tinta gelap 15.79:1, teks redup gelap 10.30:1, dan warna utama gelap 8.39:1.",
+        "Referensi:",
+        "- [WCAG 2.2, 1.4.3 Kontras (Minimum)]({LINK_0})\n- [USWDS Menggunakan warna]({LINK_1})\n- [Token warna tema USWDS]({LINK_2})\n- [Panduan warna aksesibilitas IBM Carbon]({LINK_3})"
+      ]
+    },
+    "hu": {
+      "color-system": [
+        "# Szerkesztői színrendszer",
+        "Ez a kiadás szerkesztői éjkék, kobalt és antik arany palettát használ a korábbi, zöldközpontú rendszer helyett. A cél a meleg papír és az akvarellillusztrációk könyvszerű hangulatának megőrzése, miközben az útvonalak, a bizonyítékok és a végállapotok technikai jelzésként olvashatók.",
+        "A paletta szándékosan szerepköralapú, és csak néhány családra korlátozódik. Követi az USWDS útmutatását: kis projekt-token részhalmazt válasszunk a teljes rendszer színeinek feltárása helyett; a szín fokozatos kiegészítés, nem az egyetlen jelzés. A normál szövegpárokat a WCAG AA 4.5:1 alapértékhez ellenőriztük: világos tinta 14.19:1, világos tompított 5.51:1, világos elsődleges 6.16:1, sötét tinta 15.79:1, sötét tompított 10.30:1 és sötét elsődleges 8.39:1.",
+        "Hivatkozások:",
+        "- [WCAG 2.2, 1.4.3 Kontraszt (minimum)]({LINK_0})\n- [USWDS Színhasználat]({LINK_1})\n- [USWDS Téma színtokenjei]({LINK_2})\n- [IBM Carbon akadálymentes színekre vonatkozó útmutatója]({LINK_3})"
+      ]
+    },
+    "hr": {
+      "color-system": [
+        "# Urednički sustav boja",
+        "Ovo izdanje koristi uredničku paletu ponoćnoplave, kobalta i starog zlata umjesto prethodnog sustava u kojem je prevladavala zelena. Namjera je zadržati knjiški dojam toplog papira i akvarelnih ilustracija, a rute, dokaze i završna stanja učiniti čitljivima kao tehničke signale.",
+        "Paleta je namjerno utemeljena na ulogama i ograničena na nekoliko obitelji. Slijedi smjernice USWDS-a: odabrati mali podskup tokena projekta umjesto izlaganja svih boja sustava; boja je progresivno poboljšanje, a ne jedini signal. Uobičajeni parovi boja teksta provjereni su prema osnovi WCAG AA 4.5:1: svijetla tinta 14.19:1, svijetla prigušena 5.51:1, svijetla primarna 6.16:1, tamna tinta 15.79:1, tamna prigušena 10.30:1 i tamna primarna 8.39:1.",
+        "Reference:",
+        "- [WCAG 2.2, 1.4.3 Kontrast (minimum)]({LINK_0})\n- [USWDS Upotreba boja]({LINK_1})\n- [USWDS Tokeni boja teme]({LINK_2})\n- [Smjernice IBM Carbon za pristupačne boje]({LINK_3})"
+      ]
+    },
+    "hi": {
+      "color-system": [
+        "# संपादकीय रंग प्रणाली",
+        "इस संस्करण में पहले की हरे रंग पर आधारित प्रणाली के स्थान पर मध्यरात्रि नीला, कोबाल्ट और प्राचीन सोने का संपादकीय पैलेट इस्तेमाल किया गया है। उद्देश्य गर्म कागज़ और जलरंग चित्रों का पुस्तक जैसा एहसास बनाए रखना है, साथ ही रूट, प्रमाण और अंतिम अवस्थाओं को तकनीकी संकेतों की तरह स्पष्ट बनाना है।",
+        "यह पैलेट जानबूझकर भूमिकाओं पर आधारित है और कुछ ही परिवारों तक सीमित है। यह USWDS के उस मार्गदर्शन का पालन करता है जिसमें सभी सिस्टम रंग दिखाने के बजाय प्रोजेक्ट token का छोटा उपसमुच्चय चुना जाता है; रंग क्रमिक सुधार है, एकमात्र संकेत नहीं। सामान्य पाठ युग्मों को WCAG AA 4.5:1 आधार पर जाँचा गया: हल्की स्याही 14.19:1, हल्का मंद पाठ 5.51:1, हल्का प्राथमिक रंग 6.16:1, गहरी स्याही 15.79:1, गहरा मंद पाठ 10.30:1 और गहरा प्राथमिक रंग 8.39:1।",
+        "संदर्भ:",
+        "- [WCAG 2.2, 1.4.3 कंट्रास्ट (न्यूनतम)]({LINK_0})\n- [USWDS रंग का उपयोग]({LINK_1})\n- [USWDS थीम रंग token]({LINK_2})\n- [IBM Carbon सुलभ रंग मार्गदर्शन]({LINK_3})"
+      ]
+    },
+    "he": {
+      "color-system": [
+        "# מערכת צבעים עריכתית",
+        "במהדורה הזו נעשה שימוש בפלטת כחול־חצות, קובלט וזהב עתיק בסגנון עריכתי, במקום המערכת הקודמת שהתבססה על ירוק. המטרה היא לשמור על התחושה הספרית של נייר חם ואיורי צבעי מים, ובו בזמן לאפשר לקרוא מסלולים, ראיות ומצבי סיום כסימנים טכניים.",
+        "הפלטה מבוססת בכוונה על תפקידים ומוגבלת לכמה משפחות. היא פועלת לפי הנחיות USWDS לבחור תת־קבוצה קטנה של token בפרויקט במקום לחשוף את כל צבעי המערכת; צבע הוא שיפור הדרגתי ולא הסימן היחיד. זוגות טקסט רגילים נבדקו מול בסיס WCAG AA 4.5:1: דיו בהיר 14.19:1, טקסט בהיר מעומעם 5.51:1, צבע ראשי בהיר 6.16:1, דיו כהה 15.79:1, טקסט כהה מעומעם 10.30:1 וצבע ראשי כהה 8.39:1.",
+        "מקורות:",
+        "- [WCAG 2.2, 1.4.3 ניגודיות (מינימום)]({LINK_0})\n- [USWDS שימוש בצבע]({LINK_1})\n- [USWDS אסימוני צבע של ערכת נושא]({LINK_2})\n- [הנחיות IBM Carbon לצבעים נגישים]({LINK_3})"
+      ]
+    },
+    "fr": {
+      "color-system": [
+        "# Système de couleurs éditorial",
+        "Cette édition utilise une palette éditoriale bleu nuit, cobalt et or antique au lieu du système précédent dominé par le vert. L’objectif est de conserver l’aspect de livre du papier chaud et des illustrations à l’aquarelle, tout en faisant lire les parcours, les preuves et les états finaux comme des signaux techniques.",
+        "La palette est volontairement fondée sur les rôles et limitée à quelques familles. Elle suit les recommandations de l’USWDS : choisir un petit sous-ensemble de tokens du projet plutôt que d’exposer toutes les couleurs du système ; la couleur est une amélioration progressive, pas l’unique signal. Les paires de texte normal ont été vérifiées selon la base WCAG AA 4.5:1 : encre claire 14.19:1, texte atténué clair 5.51:1, couleur primaire claire 6.16:1, encre sombre 15.79:1, texte atténué sombre 10.30:1 et couleur primaire sombre 8.39:1.",
+        "Références :",
+        "- [WCAG 2.2, 1.4.3 Contraste (minimum)]({LINK_0})\n- [USWDS Utiliser la couleur]({LINK_1})\n- [USWDS Tokens de couleur de thème]({LINK_2})\n- [Guide IBM Carbon sur les couleurs accessibles]({LINK_3})"
+      ]
+    },
+    "fil": {
+      "color-system": [
+        "# Editoryal na sistema ng kulay",
+        "Gumagamit ang edisyong ito ng editoryal na palette ng midnight blue, cobalt, at antique gold sa halip na dating sistemang nakasentro sa berde. Layunin nitong panatilihin ang pakiramdam na parang aklat ng mainit na papel at watercolor na ilustrasyon, habang ginagawang madaling basahin bilang teknikal na signal ang mga ruta, ebidensya, at terminal na estado.",
+        "Sadyang nakabatay sa papel ang palette at nililimitahan sa ilang pamilya. Sinusunod nito ang gabay ng USWDS na pumili ng maliit na subset ng project token sa halip na ilantad ang lahat ng kulay ng system; ang kulay ay progresibong dagdag, hindi nag-iisang signal. Sinuri ang mga pares ng normal na teksto batay sa WCAG AA 4.5:1: light ink 14.19:1, light muted 5.51:1, light primary 6.16:1, dark ink 15.79:1, dark muted 10.30:1, at dark primary 8.39:1.",
+        "Mga sanggunian:",
+        "- [WCAG 2.2, 1.4.3 Contrast (Minimum)]({LINK_0})\n- [USWDS Paggamit ng kulay]({LINK_1})\n- [USWDS Mga token ng kulay ng tema]({LINK_2})\n- [Gabay ng IBM Carbon sa accessible na kulay]({LINK_3})"
+      ]
+    },
+    "fi": {
+      "color-system": [
+        "# Toimituksellinen värijärjestelmä",
+        "Tässä versiossa käytetään toimituksellista yönsinisen, koboltin ja antiikkikullan palettia aiemman vihreäpainotteisen järjestelmän sijaan. Tavoitteena on säilyttää lämpimän paperin ja vesivärikuvitusten kirjallinen tunnelma ja tehdä reiteistä, todisteista ja päätetiloista teknisiä signaaleja.",
+        "Paletti perustuu tarkoituksella rooleihin ja on rajattu muutamaan perheeseen. Se noudattaa USWDS:n ohjetta valita pieni projektin tokenien osajoukko sen sijaan, että kaikki järjestelmän värit paljastetaan; väri on asteittainen parannus, ei ainoa signaali. Tavalliset tekstiparit tarkistettiin WCAG AA 4.5:1 -perustaa vasten: vaalea muste 14.19:1, vaalea himmennetty 5.51:1, vaalea pääväri 6.16:1, tumma muste 15.79:1, tumma himmennetty 10.30:1 ja tumma pääväri 8.39:1.",
+        "Viitteet:",
+        "- [WCAG 2.2, 1.4.3 Kontrasti (minimi)]({LINK_0})\n- [USWDS Värin käyttö]({LINK_1})\n- [USWDS Teeman väritokenit]({LINK_2})\n- [IBM Carbonin esteettömien värien ohje]({LINK_3})"
+      ]
+    },
+    "es": {
+      "color-system": [
+        "# Sistema de color editorial",
+        "Esta edición utiliza una paleta editorial de azul medianoche, cobalto y oro antiguo en lugar del sistema anterior dominado por el verde. La intención es conservar el aire de libro del papel cálido y las ilustraciones de acuarela, y hacer que las rutas, las evidencias y los estados finales se lean como señales técnicas.",
+        "La paleta se basa deliberadamente en roles y se limita a unas pocas familias. Sigue la guía de USWDS de elegir un subconjunto pequeño de tokens del proyecto en vez de exponer todos los colores del sistema; el color es una mejora progresiva, no la única señal. Las combinaciones de texto normal se comprobaron con la base WCAG AA 4.5:1: tinta clara 14.19:1, texto atenuado claro 5.51:1, color primario claro 6.16:1, tinta oscura 15.79:1, texto atenuado oscuro 10.30:1 y color primario oscuro 8.39:1.",
+        "Referencias:",
+        "- [WCAG 2.2, 1.4.3 Contraste (mínimo)]({LINK_0})\n- [USWDS Uso del color]({LINK_1})\n- [USWDS Tokens de color del tema]({LINK_2})\n- [Guía de color accesible de IBM Carbon]({LINK_3})"
+      ]
+    },
+    "es-MX": {
+      "color-system": [
+        "# Sistema de color editorial",
+        "Esta edición usa una paleta editorial de azul medianoche, cobalto y oro antiguo en lugar del sistema anterior dominado por el verde. La intención es conservar el aire de libro del papel cálido y las ilustraciones de acuarela, y hacer que las rutas, las evidencias y los estados finales se lean como señales técnicas.",
+        "La paleta está organizada por roles y se limita deliberadamente a unas cuantas familias. Sigue la guía de USWDS de elegir un subconjunto pequeño de tokens del proyecto en vez de mostrar todos los colores del sistema; el color es una mejora progresiva, no la única señal. Las combinaciones de texto normal se revisaron con la base WCAG AA 4.5:1: tinta clara 14.19:1, texto atenuado claro 5.51:1, color primario claro 6.16:1, tinta oscura 15.79:1, texto atenuado oscuro 10.30:1 y color primario oscuro 8.39:1.",
+        "Referencias:",
+        "- [WCAG 2.2, 1.4.3 Contraste (mínimo)]({LINK_0})\n- [USWDS Uso del color]({LINK_1})\n- [USWDS Tokens de color del tema]({LINK_2})\n- [Guía de color accesible de IBM Carbon]({LINK_3})"
+      ]
+    },
+    "el": {
+      "color-system": [
+        "# Εκδοτικό σύστημα χρωμάτων",
+        "Αυτή η έκδοση χρησιμοποιεί μια εκδοτική παλέτα midnight blue, κοβαλτίου και παλαιού χρυσού αντί για το προηγούμενο σύστημα που βασιζόταν στο πράσινο. Στόχος είναι να διατηρηθεί η αίσθηση βιβλίου του ζεστού χαρτιού και των υδατογραφιών, ενώ οι διαδρομές, τα τεκμήρια και οι τελικές καταστάσεις να διαβάζονται ως τεχνικά σήματα.",
+        "Η παλέτα βασίζεται σκόπιμα σε ρόλους και περιορίζεται σε λίγες οικογένειες. Ακολουθεί την οδηγία του USWDS να επιλέγεται ένα μικρό υποσύνολο token του έργου αντί να εκτίθενται όλα τα χρώματα του συστήματος· το χρώμα είναι προοδευτική ενίσχυση και όχι το μοναδικό σήμα. Τα ζεύγη κανονικού κειμένου ελέγχθηκαν με βάση WCAG AA 4.5:1: ανοιχτό μελάνι 14.19:1, ανοιχτό απαλό 5.51:1, ανοιχτό κύριο 6.16:1, σκούρο μελάνι 15.79:1, σκούρο απαλό 10.30:1 και σκούρο κύριο 8.39:1.",
+        "Αναφορές:",
+        "- [WCAG 2.2, 1.4.3 Αντίθεση (ελάχιστη)]({LINK_0})\n- [USWDS Χρήση χρώματος]({LINK_1})\n- [USWDS Token χρωμάτων θέματος]({LINK_2})\n- [Οδηγίες προσβάσιμων χρωμάτων IBM Carbon]({LINK_3})"
+      ]
+    },
+    "de": {
+      "color-system": [
+        "# Redaktionelles Farbsystem",
+        "Diese Ausgabe verwendet eine redaktionelle Palette aus Nachtblau, Kobalt und Antikgold statt des bisherigen grüngeprägten Systems. Sie soll das buchartige Gefühl von warmem Papier und Aquarellillustrationen erhalten und zugleich Routen, Nachweise und Endzustände als technische Signale lesbar machen.",
+        "Die Palette ist bewusst rollenbasiert und auf wenige Familien begrenzt. Sie folgt der USWDS-Empfehlung, eine kleine Teilmenge von Projekt-Tokens zu wählen, statt alle Systemfarben offenzulegen; Farbe ist eine progressive Ergänzung und nicht das einzige Signal. Normale Textpaare wurden gegen die WCAG-AA-Basis 4.5:1 geprüft: helles Schwarz 14.19:1, heller gedämpfter Text 5.51:1, helle Primärfarbe 6.16:1, dunkles Schwarz 15.79:1, dunkler gedämpfter Text 10.30:1 und dunkle Primärfarbe 8.39:1.",
+        "Referenzen:",
+        "- [WCAG 2.2, 1.4.3 Kontrast (Minimum)]({LINK_0})\n- [USWDS Farben verwenden]({LINK_1})\n- [USWDS Farb-Tokens für Themes]({LINK_2})\n- [IBM Carbon Leitfaden für barrierefreie Farben]({LINK_3})"
+      ]
+    },
+    "da": {
+      "color-system": [
+        "# Redaktionelt farvesystem",
+        "Denne udgave bruger en redaktionel palet med midnatsblå, kobolt og antikguld i stedet for det tidligere grønne system. Målet er at bevare bogfornemmelsen fra varmt papir og akvarelillustrationer og samtidig få ruter, evidens og terminaltilstande til at fremstå som tekniske signaler.",
+        "Paletten er bevidst rollebaseret og begrænset til få familier. Den følger USWDS' anbefaling om at vælge et lille undersæt af projektets tokens i stedet for at eksponere alle systemfarver; farve er progressiv forbedring, ikke det eneste signal. Normale tekstpar blev kontrolleret mod WCAG AA 4.5:1: lyst blæk 14.19:1, lys dæmpet tekst 5.51:1, lys primærfarve 6.16:1, mørkt blæk 15.79:1, mørk dæmpet tekst 10.30:1 og mørk primærfarve 8.39:1.",
+        "Referencer:",
+        "- [WCAG 2.2, 1.4.3 Kontrast (minimum)]({LINK_0})\n- [USWDS Brug af farver]({LINK_1})\n- [USWDS Farvetokens til temaer]({LINK_2})\n- [IBM Carbon-retningslinjer for tilgængelige farver]({LINK_3})"
+      ]
+    },
+    "cs": {
+      "color-system": [
+        "# Redakční barevný systém",
+        "Tato verze používá redakční paletu půlnoční modři, kobaltu a starého zlata namísto dřívějšího systému založeného na zelené. Záměrem je zachovat knižní dojem teplého papíru a akvarelových ilustrací a současně nechat trasy, důkazy a koncové stavy číst jako technické signály.",
+        "Paleta je záměrně založená na rolích a omezená na několik rodin. Řídí se doporučením USWDS vybrat malou podmnožinu tokenů projektu místo zpřístupnění všech systémových barev; barva je postupné vylepšení, nikoli jediný signál. Běžné dvojice barev textu byly ověřeny proti základu WCAG AA 4.5:1: světlý inkoust 14.19:1, světlý tlumený text 5.51:1, světlá primární barva 6.16:1, tmavý inkoust 15.79:1, tmavý tlumený text 10.30:1 a tmavá primární barva 8.39:1.",
+        "Reference:",
+        "- [WCAG 2.2, 1.4.3 Kontrast (minimum)]({LINK_0})\n- [USWDS Používání barev]({LINK_1})\n- [USWDS Barevné tokeny motivu]({LINK_2})\n- [Pokyny IBM Carbon pro přístupné barvy]({LINK_3})"
+      ]
+    },
+    "ca": {
+      "color-system": [
+        "# Sistema de colors editorial",
+        "Aquesta edició utilitza una paleta editorial de blau nit, cobalt i or antic en lloc del sistema anterior dominat pel verd. La intenció és conservar l’aire de llibre del paper càlid i les il·lustracions d’aquarel·la, i fer que les rutes, les proves i els estats finals es llegeixin com a senyals tècnics.",
+        "La paleta es basa deliberadament en rols i es limita a poques famílies. Segueix la guia de l’USWDS de triar un subconjunt petit de tokens del projecte en lloc d’exposar tots els colors del sistema; el color és una millora progressiva, no l’únic senyal. Les parelles de text normal es van comprovar amb la base WCAG AA 4.5:1: tinta clara 14.19:1, text atenuat clar 5.51:1, color primari clar 6.16:1, tinta fosca 15.79:1, text atenuat fosc 10.30:1 i color primari fosc 8.39:1.",
+        "Referències:",
+        "- [WCAG 2.2, 1.4.3 Contrast (mínim)]({LINK_0})\n- [USWDS Ús del color]({LINK_1})\n- [USWDS Tokens de color del tema]({LINK_2})\n- [Guia de colors accessibles d’IBM Carbon]({LINK_3})"
+      ]
+    },
+    "ar": {
+      "color-system": [
+        "# نظام ألوان تحريري",
+        "يستخدم هذا الإصدار لوحة ألوان تحريرية من الأزرق الليلي والكوبالت والذهبي العتيق بدل النظام السابق الذي كان يغلب عليه الأخضر. والهدف هو الحفاظ على إحساس الكتاب الذي تمنحه الورقة الدافئة والرسوم المائية، مع جعل المسارات والأدلة والحالات النهائية تُقرأ كإشارات تقنية.",
+        "تعتمد اللوحة عمداً على الأدوار ومحصورة في عدد قليل من العائلات. وهي تتبع إرشادات USWDS لاختيار مجموعة فرعية صغيرة من رموز المشروع بدلاً من كشف كل ألوان النظام؛ فاللون تحسين تدريجي وليس الإشارة الوحيدة. فُحصت أزواج النص العادي وفق أساس WCAG AA 4.5:1: حبر فاتح 14.19:1، نص فاتح خافت 5.51:1، لون أساسي فاتح 6.16:1، حبر داكن 15.79:1، نص داكن خافت 10.30:1 ولون أساسي داكن 8.39:1.",
+        "مراجع:",
+        "- [WCAG 2.2، 1.4.3 التباين (الحد الأدنى)]({LINK_0})\n- [USWDS استخدام الألوان]({LINK_1})\n- [USWDS رموز ألوان السمة]({LINK_2})\n- [إرشادات IBM Carbon للألوان الميسّرة]({LINK_3})"
       ]
     }
   }

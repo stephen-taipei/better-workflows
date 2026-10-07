@@ -9,7 +9,7 @@ import { readStructuredDataArray, readStructuredDataObject } from "./structured-
 
 export const EVIDENCE_CINEMA_SOURCE = Object.freeze({
   path: "docs/html/evidence-cinema/index.html",
-  sha256: "19effa3c20ef8b409e85938c0bbdce17f873e4e3ce57a74a83c8a8838c8a2e40",
+  sha256: "281a3a9b5aeff93bc79ee7ac9874517bbc8c3897d8e7f6b3132854bc16f48d10",
   rendererPath: "docs/html/evidence-cinema/shared/renderer.js",
   rendererSha256: "6886ea7b87c8a392ab8f2d2abc2f0c2e3fabad173bf1944a6bba780ec99abdf7",
   cssPath: "docs/html/evidence-cinema/shared/cinema.css",

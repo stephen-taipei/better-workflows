@@ -4,7 +4,7 @@
 
 Better Workflows V5.0 RC1 已公開上架：免費開源的 AI 工程 QA 與交付守門人，以 Auto 入口、有效證據、審查關卡與外部狀態核對，確保結果可重新驗證。
 
-[English](en.md) · **繁體中文（台灣）**
+[English](en.md) · [繁體中文](zh-Hant.md) · **繁體中文（台灣）** · [繁體中文（香港）](zh-Hant-HK.md) · [简体中文](zh-Hans.md) · [Tiếng Việt](vi.md) · [Українська](uk.md) · [Türkçe](tr.md) · [ไทย](th.md) · [Svenska](sv.md) · [Slovenčina](sk.md) · [Русский](ru.md) · [Română](ro.md) · [Português](pt.md) · [Português (Brasil)](pt-BR.md) · [Polski](pl.md) · [Nederlands](nl.md) · [Norsk bokmål](nb.md) · [မြန်မာ](my.md) · [Bahasa Melayu](ms.md) · [ລາວ](lo.md) · [한국어](ko.md) · [ខ្មែរ](km.md) · [日本語](ja.md) · [Italiano](it.md) · [Bahasa Indonesia](id.md) · [Magyar](hu.md) · [Hrvatski](hr.md) · [हिन्दी](hi.md) · [עברית](he.md) · [Français](fr.md) · [Filipino](fil.md) · [Suomi](fi.md) · [Español](es.md) · [Español (México)](es-MX.md) · [Ελληνικά](el.md) · [Deutsch](de.md) · [Dansk](da.md) · [Čeština](cs.md) · [Català](ca.md) · [العربية](ar.md)
 
 [查看官方文件](https://betterworkflows.dev/docs/) · [開啟 GitHub](https://github.com/stephen-taipei/better-workflows) · [透過 USDT（TRC20）單次贊助](https://betterworkflows.dev/#sponsor)
 
@@ -84,7 +84,7 @@ $better-workflows:auto <goal>
 
 ## 一起支持 Better Workflows 持續維護。
 
-單次贊助將用於開源維護、英文與繁體中文文件及網站託管；不包含會員資格，也不提供產品路線圖或技術支援優先權。
+單次贊助將用於開源維護、文件、41 個在地化版本與網站託管；不包含會員資格，也不提供產品路線圖或技術支援優先權。
 
 [透過 USDT（TRC20）單次贊助](https://betterworkflows.dev/#sponsor)
 

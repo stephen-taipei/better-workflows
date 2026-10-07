@@ -367,7 +367,7 @@ test("official website build serves Auto-only public docs without archived templ
       if (/<meta http-equiv="refresh"/.test(html)) {
         assert.ok(/\/guides\/(architecture|security-guide|cli-reference)\/$/.test(route),route+": only documented retired routes may redirect here");
         assert.match(html, /<meta name="robots" content="noindex,follow">/);
-        assert.equal(nodes.filter(n => Object.hasOwn(n.attributes,"data-locale-button")).length,2,route+": redirect keeps both locale routes");
+        assert.equal(nodes.filter(n => Object.hasOwn(n.attributes,"data-locale-button")).length,PUBLIC_RC1_LOCALE_IDS.length,route+": redirect keeps every locale route");
         continue;
       }
       assert.equal(nodes.filter(n => n.tag === "header" && n.attributes.class === "site-header").length,1, route+": shared header");
@@ -380,10 +380,10 @@ test("official website build serves Auto-only public docs without archived templ
       assert.equal(nodes.filter(n => n.tag === "select").filter(n => /locale/i.test(n.attributes.id||"")).length,0, route+": no duplicate locale selector");
       const ids=nodes.map(n=>n.attributes.id).filter(Boolean);
       assert.equal(new Set(ids).size,ids.length, route+": unique IDs");
-      const home=route.startsWith("/en/") ? "/en/" : "/";
+      const segment=route.split("/")[1], home=PUBLIC_RC1_LOCALE_IDS.includes(segment) && segment !== DEFAULT_LOCALE ? `/${segment}/` : "/";
       for (const anchor of ["product","workflow","install","principles"]) assert.ok(html.includes(`href="${home}#${anchor}"`),route+": homepage navigation "+anchor);
       const menuLinks=nodes.filter(n=>Object.hasOwn(n.attributes,"data-locale-button"));
-      assert.equal(menuLinks.length,2,route+": bilingual links work without scripts");
+      assert.equal(menuLinks.length,PUBLIC_RC1_LOCALE_IDS.length,route+": every locale link works without scripts");
       assert.doesNotMatch(html,/<iframe\b/);
     }
     const pageBodies=await Promise.all(["docs/index.html","docs/quick/index.html","docs/use-cases/index.html","docs/use-cases/quick/index.html"].map(file=>readFile(path.join(outputDirectory,file),"utf8")));

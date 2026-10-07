@@ -1,11 +1,11 @@
-<!-- Generated from docs/guide/cli-reference.md; source-sha256: 8b4f66fb9d36fad4b2362696ab81a2055a5166670b420d46a2abe445b5feb02f; edit scripts/cli-reference-source.mjs. -->
+<!-- Generated from docs/guide/cli-reference.md; source-sha256: ec70ac76f8954078ccebb620d79dc0cacf952122f33062a66307d5003483e961; edit scripts/cli-reference-source.mjs. -->
 # CLI reference
 
-**English** · [繁體中文（台灣）](../zh-Hant-TW/cli-reference.md)
+**English** · [繁體中文](../zh-Hant/cli-reference.md) · [繁體中文（台灣）](../zh-Hant-TW/cli-reference.md) · [繁體中文（香港）](../zh-Hant-HK/cli-reference.md) · [简体中文](../zh-Hans/cli-reference.md) · [Tiếng Việt](../vi/cli-reference.md) · [Українська](../uk/cli-reference.md) · [Türkçe](../tr/cli-reference.md) · [ไทย](../th/cli-reference.md) · [Svenska](../sv/cli-reference.md) · [Slovenčina](../sk/cli-reference.md) · [Русский](../ru/cli-reference.md) · [Română](../ro/cli-reference.md) · [Português](../pt/cli-reference.md) · [Português \(Brasil\)](../pt-BR/cli-reference.md) · [Polski](../pl/cli-reference.md) · [Nederlands](../nl/cli-reference.md) · [Norsk bokmål](../nb/cli-reference.md) · [မြန်မာ](../my/cli-reference.md) · [Bahasa Melayu](../ms/cli-reference.md) · [ລາວ](../lo/cli-reference.md) · [한국어](../ko/cli-reference.md) · [ខ្មែរ](../km/cli-reference.md) · [日本語](../ja/cli-reference.md) · [Italiano](../it/cli-reference.md) · [Bahasa Indonesia](../id/cli-reference.md) · [Magyar](../hu/cli-reference.md) · [Hrvatski](../hr/cli-reference.md) · [हिन्दी](../hi/cli-reference.md) · [עברית](../he/cli-reference.md) · [Français](../fr/cli-reference.md) · [Filipino](../fil/cli-reference.md) · [Suomi](../fi/cli-reference.md) · [Español](../es/cli-reference.md) · [Español \(México\)](../es-MX/cli-reference.md) · [Ελληνικά](../el/cli-reference.md) · [Deutsch](../de/cli-reference.md) · [Dansk](../da/cli-reference.md) · [Čeština](../cs/cli-reference.md) · [Català](../ca/cli-reference.md) · [العربية](../ar/cli-reference.md)
 
 [README](../../../README.md) · [Contributing](contributing.md) · [Code of conduct](conduct.md) · [Security](security.md) · [Governance](governance.md) · [Support](support.md)
 
-[RC1 planned public routes cover en and zh\-Hant\-TW\; the 41\-locale source catalog is private](../../../docs/LANGUAGES.md)\. Commands and identifiers remain canonical in English\.
+[41\-locale localized overview and official web entry points](../../../docs/LANGUAGES.md)\. Commands and identifiers remain canonical in English\.
 
 Run from a checkout with\:
 
