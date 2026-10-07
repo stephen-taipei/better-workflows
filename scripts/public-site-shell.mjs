@@ -18,8 +18,8 @@ const copy = overlayLocales({
     home:'首頁', breadcrumb:'頁面位置', homeLabel:'Better Workflows 首頁', onThisPage:'本頁內容',
     guide:'文件總覽', quick:'快速開始', cases:'使用情境', examples:'實用範例', cinema:'Evidence Cinema', cinemaSub:'證據劇場',
     tagline:'證據至上的 AI 工程 QA＋交付守門人。', status:'V5.0 RC1 已公開上架，GA 仍待完成。',
-    resources:'使用資源', project:'開源專案', releaseNotes:'RC1 發布說明', contribute:'參與貢獻', security:'資安政策', governance:'專案治理', conduct:'行為準則', sponsorFooter:'支持開發',
-    license:'核心 AGPL-3.0 · wire Apache-2.0', alias:'（betterworkflows.org 轉址至此）', chip:'V5.0 RC1 已公開 · GA 準備中', installCta:'開始安裝', overview:'產品導覽', hosts:'支援範圍', boundary:'證明邊界', statusNav:'發布狀態', faq:'常見問題', docDescriptions:['找到適合你下一個任務的使用指南','安裝 Better Workflows，執行第一個任務','從檢查、修改到交付，選擇適合的路線','複製需求範例，再依任務調整','證據劇場：互動示範檢查如何串起交付']
+    resources:'使用資源', project:'開源專案', releaseNotes:'RC1 發行說明', contribute:'參與貢獻', security:'資安政策', governance:'專案治理', conduct:'行為準則', sponsorFooter:'支持開發',
+    license:'核心 AGPL-3.0 · wire Apache-2.0', alias:'（betterworkflows.org 轉址至此）', chip:'V5.0 RC1 已公開 · GA 準備中', installCta:'開始安裝', overview:'產品導覽', hosts:'支援範圍', boundary:'證明邊界', statusNav:'發行狀態', faq:'常見問題', docDescriptions:['找到適合你下一個任務的使用指南','安裝 Better Workflows，執行第一個任務','從檢查、修改到交付，選擇適合的路線','複製需求範例，再依任務調整','證據劇場：互動示範檢查如何串起交付']
   },
   en: {
     skip:'Skip to main content', product:'Product', workflow:'Workflow', install:'Get started', docs:'Docs', principles:'Principles', support:'Support', sponsor:'Sponsor',

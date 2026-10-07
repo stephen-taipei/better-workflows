@@ -22,10 +22,10 @@
   } : {
     copied: '已複製', copyFailed: '請手動複製', copiedLive: '已複製到剪貼簿', copyFailedLive: '無法自動複製，請手動選取文字', copy: '複製', copyCode: '複製這段程式碼',
     say: {
-      5: 'VERIFY：證據新鮮且已審查，通過。',
+      5: 'VERIFY：證據有效且已審查，通過。',
       6: 'AUTHORITY：此 target 已授權，通過。',
       8: { unknown: 'RECONCILE：provider 結果未知，閘門封鎖，流程安全停止。', confirmed: 'RECONCILE：provider 與 repository 狀態一致，通過。' },
-      9: { unknown: '走查結束：流程停在 reconcile，不重試、不宣告完成。', confirmed: '走查結束：已完成並清理本任務擁有的資源。' }
+      9: { unknown: '演示結束：流程停在 reconcile，不重試、不宣告完成。', confirmed: '演示結束：已完成並清理本任務擁有的資源。' }
     }
   };
 
