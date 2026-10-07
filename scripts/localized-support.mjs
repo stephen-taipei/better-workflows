@@ -2,7 +2,7 @@ import { applyPublicSiteShell } from './public-site-shell.mjs';
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { CONNECTORS_LOCALES, DEFAULT_LOCALE, locales, publicRc1Locales } from "./website-locales.mjs";
+import { CONNECTORS_LOCALES, DEFAULT_LOCALE, locales, publicLocales } from "./website-locales.mjs";
 import { publicDocPath } from "./public-docs.mjs";
 import { PUBLIC_TEXT_ROUTES, publicTextPath } from "./policy-routes.mjs";
 import core from "../docs/rc1-catalogs/support/core.json" with { type: "json" };
@@ -147,7 +147,7 @@ export function renderSupportHtml(code) {
     ? `<a href="${publicTextPath(code, PUBLIC_TEXT_ROUTES[target])}" hreflang="${code}">${html(label)}</a>`
     : `<a href="${sourceUrl(target)}" hreflang="en">${html(label)}</a>`;
   const title = `${t.title} | Better Workflows`;
-  const alternates = [...publicRc1Locales.map((item) => `<link rel="alternate" hreflang="${item.code}" href="${origin}${supportPath(item.code)}">`),
+  const alternates = [...publicLocales.map((item) => `<link rel="alternate" hreflang="${item.code}" href="${origin}${supportPath(item.code)}">`),
     `<link rel="alternate" hreflang="x-default" href="${origin}${supportPath(DEFAULT_LOCALE)}">`].join("\n");
   // WebPage describes real translated body content; no completion/quality claim is implied.
   const structuredData = JSON.stringify({ "@context": "https://schema.org", "@type": "WebPage", name: title,
@@ -184,7 +184,7 @@ footer{margin-block-start:3rem;padding-block-start:1rem;border-block-start:1px s
 <header><nav aria-label="${html(m.MENU)}"><a href="${code === DEFAULT_LOCALE ? "/" : `/${code}/`}">Better Workflows</a>
 <a href="${code === DEFAULT_LOCALE ? "/docs/" : `/${code}/docs/`}">${html(m.DOCS_CTA)}</a></nav>
 <details class="locale-menu" open><summary>${html(m.LANGUAGE)}: ${html(locale.label)}</summary><nav class="locale-button-grid" data-public-locale-buttons aria-label="${html(m.LANGUAGE)}">
-${publicRc1Locales.map((item) => `<a class="locale-option locale-button" data-locale-button="${item.code}" data-locale-static="true" href="${supportPath(item.code)}" lang="${item.code}" hreflang="${item.code}"${item.code === code ? ' aria-current="page"' : ""}>${html(item.label)}</a>`).join("\n")}
+${publicLocales.map((item) => `<a class="locale-option locale-button" data-locale-button="${item.code}" data-locale-static="true" href="${supportPath(item.code)}" lang="${item.code}" hreflang="${item.code}"${item.code === code ? ' aria-current="page"' : ""}>${html(item.label)}</a>`).join("\n")}
 </nav></details></header>
 <main id="main" data-source="SUPPORT.md" data-source-sha256="${SUPPORT_SOURCE.sha256}">
 <h1>${html(t.title)}</h1>

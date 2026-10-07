@@ -1,7 +1,7 @@
 import { applyPublicSiteShell } from './public-site-shell.mjs';
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { CONNECTORS_LOCALES, DEFAULT_LOCALE, PUBLIC_RC1_LOCALE_IDS, locales } from "./website-locales.mjs";
+import { CONNECTORS_LOCALES, DEFAULT_LOCALE, PUBLIC_LOCALE_IDS, locales } from "./website-locales.mjs";
 import { loadPolicySources, validatePolicyText } from "./policy-source.mjs";
 import { supportCopy, supportPath, escapeSupportMarkdownText } from "./localized-support.mjs";
 import { PUBLIC_TEXT_ROUTES as targets, publicTextPath } from "./policy-routes.mjs";
@@ -252,7 +252,7 @@ export function renderPolicyHtml(policy, code) {
   const canonical = `${origin}${publicTextPath(code, policy.id)}`;
   const description = `${policyTitle(policy, code)} — Better Workflows`;
   const robots = isIndexablePolicy(policy) ? "index,follow" : "noindex,follow";
-  const alternates = [...PUBLIC_RC1_LOCALE_IDS.map((other) => `<link rel="alternate" hreflang="${other}" href="${origin}${publicTextPath(other, policy.id)}">`),
+  const alternates = [...PUBLIC_LOCALE_IDS.map((other) => `<link rel="alternate" hreflang="${other}" href="${origin}${publicTextPath(other, policy.id)}">`),
     `<link rel="alternate" hreflang="x-default" href="${origin}${publicTextPath(DEFAULT_LOCALE, policy.id)}">`].join("\n");
   const structuredDataFields = { "@context": "https://schema.org", "@type": "WebPage", name: title,
     inLanguage: code, url: canonical, description };
@@ -282,7 +282,7 @@ footer{margin-block-start:3rem;padding-block-start:1rem;border-block-start:1px s
 </style></head><body><a href="#main">${escapeHtml(m.SKIP)}</a>
 <header><nav aria-label="${escapeHtml(m.MENU)}"><a href="${code === DEFAULT_LOCALE ? "/" : `/${code}/`}">Better Workflows</a><a href="${code === DEFAULT_LOCALE ? "/docs/" : `/${code}/docs/`}">${escapeHtml(m.DOCS_CTA)}</a><a href="${supportPath(code)}">${escapeHtml(supportCopy[code].title)}</a></nav>
 <details class="locale-menu" open><summary>${escapeHtml(m.LANGUAGE)}: ${escapeHtml(locale.label)}</summary><nav class="locale-button-grid" data-public-locale-buttons aria-label="${escapeHtml(m.LANGUAGE)}">
-${PUBLIC_RC1_LOCALE_IDS.map((other) => `<a class="locale-option locale-button" data-locale-button="${other}" data-locale-static="true" href="${publicTextPath(other, policy.id)}" lang="${other}" hreflang="${other}"${other === code ? ' aria-current="page"' : ""}>${escapeHtml(requireLocale(other).label)}</a>`).join("\n")}
+${PUBLIC_LOCALE_IDS.map((other) => `<a class="locale-option locale-button" data-locale-button="${other}" data-locale-static="true" href="${publicTextPath(other, policy.id)}" lang="${other}" hreflang="${other}"${other === code ? ' aria-current="page"' : ""}>${escapeHtml(requireLocale(other).label)}</a>`).join("\n")}
 </nav></details></header>
 <main id="main" data-source="${policy.source}" data-source-sha256="${policy.sha256}"${policy.sourceRevision ? ` data-source-revision="${escapeHtml(policy.sourceRevision)}"` : ""}${policy.sourceStatus ? ` data-source-status="${escapeHtml(policy.sourceStatus)}"` : ""}>
 ${bodyBlocks(policy, code, "html").join("\n")}

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import { loadInteractiveDocumentPages } from "./interactive-document-build.mjs";
 import { PUBLIC_DOC_PAGES, publicDocPath } from "./public-docs.mjs";
-import { PUBLIC_RC1_LOCALE_IDS } from "./website-locales.mjs";
+import { PUBLIC_LOCALE_IDS } from "./website-locales.mjs";
 
 const SHA256 = /^[a-f0-9]{64}$/;
 const sha256 = (body) => createHash("sha256").update(body).digest("hex");
@@ -18,7 +18,7 @@ export async function loadPublicDocumentationExpectations(repositoryRoot) {
   if (!(documents instanceof Map) || JSON.stringify([...documents.keys()]) !== JSON.stringify(pageIds)) {
     throw new Error("Public documentation requires the exact five-document inventory");
   }
-  const expectations = PUBLIC_RC1_LOCALE_IDS.flatMap((locale) => PUBLIC_DOC_PAGES.map(({ id: page }) => {
+  const expectations = PUBLIC_LOCALE_IDS.flatMap((locale) => PUBLIC_DOC_PAGES.map(({ id: page }) => {
     const body = documents.get(page).pages.get(locale);
     if (typeof body !== "string" || !body) throw new Error(`Missing native documentation body: ${locale}/${page}`);
     const publicPath = publicDocPath(locale, page);
@@ -31,7 +31,7 @@ export async function loadPublicDocumentationExpectations(repositoryRoot) {
       expectedBodySha256: sha256(body)
     });
   }));
-  const expectedRoutes = PUBLIC_RC1_LOCALE_IDS.length * PUBLIC_DOC_PAGES.length;
+  const expectedRoutes = PUBLIC_LOCALE_IDS.length * PUBLIC_DOC_PAGES.length;
   if (pageIds.length !== 5 || expectations.length !== expectedRoutes ||
       new Set(expectations.map((item) => item.path)).size !== expectedRoutes ||
       new Set(expectations.map((item) => item.relativePath)).size !== expectedRoutes) {
@@ -44,7 +44,7 @@ export async function loadPublicDocumentationExpectations(repositoryRoot) {
 // the checked-out source. Require raw-byte equality with both bindings.
 export function verifyPublicDocumentationResponse(expected, body, manifestEntries) {
   if (!expected || !SHA256.test(expected.expectedBodySha256) ||
-      !PUBLIC_RC1_LOCALE_IDS.includes(expected.locale) || !PUBLIC_DOC_PAGES.some(({ id }) => id === expected.page) ||
+      !PUBLIC_LOCALE_IDS.includes(expected.locale) || !PUBLIC_DOC_PAGES.some(({ id }) => id === expected.page) ||
       expected.path !== publicDocPath(expected.locale, expected.page) ||
       expected.relativePath !== `${expected.path.slice(1)}index.html`) {
     throw new TypeError("Invalid public documentation expectation or path binding");

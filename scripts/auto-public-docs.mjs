@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { CONNECTORS_LOCALES, PUBLIC_RC1_LOCALE_IDS, locales } from "./website-locales.mjs";
+import { CONNECTORS_LOCALES, PUBLIC_LOCALE_IDS, locales } from "./website-locales.mjs";
 import { publicDocPath } from "./public-docs.mjs";
 import { applyPublicSiteShell } from "./public-site-shell.mjs";
 import { overlayLocales } from "./locale-overlay.mjs";
@@ -516,7 +516,7 @@ export function renderAutoPublicDocs(guide, code, pageId) {
   const copy = PAGE_COPY[code]?.[pageId];
   if (!copy) throw new Error("Auto public documentation has incomplete page copy: " + code + "/" + pageId);
   const canonical = "https://betterworkflows.dev" + publicDocPath(code, pageId);
-  const alternatives = PUBLIC_RC1_LOCALE_IDS.map((candidate) =>
+  const alternatives = PUBLIC_LOCALE_IDS.map((candidate) =>
     '<link rel="alternate" hreflang="' + escapeHtml(candidate) + '" href="https://betterworkflows.dev' +
     escapeHtml(publicDocPath(candidate, pageId)) + '">').join("\n") +
     '\n<link rel="alternate" hreflang="x-default" href="https://betterworkflows.dev' +

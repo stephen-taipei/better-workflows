@@ -9,8 +9,10 @@ import { fileURLToPath } from "node:url";
 import {
   CONNECTORS_LOCALES,
   DEFAULT_LOCALE,
+  PUBLIC_LOCALE_IDS,
   PUBLIC_RC1_LOCALE_IDS,
   locales,
+  publicLocales,
   publicRc1Locales
 } from "../website-locales.mjs";
 import {
@@ -86,9 +88,11 @@ async function assertPageAlternates(html, routeForLocale, label) {
 
 test("Public website exposes the exact 41-locale route, navigation, and content contract", async () => {
   assert.deepEqual(CONNECTORS_LOCALES, expectedLocaleIds);
-  assert.deepEqual(PUBLIC_RC1_LOCALE_IDS, expectedLocaleIds);
+  assert.deepEqual(PUBLIC_LOCALE_IDS, expectedLocaleIds);
+  assert.deepEqual(PUBLIC_RC1_LOCALE_IDS, ["en", "zh-Hant-TW"], "RC1 editions keep their existing ownership");
+  assert.deepEqual(publicRc1Locales.map(({ code }) => code), ["en", "zh-Hant-TW"]);
   assert.deepEqual(locales.map(({ code }) => code), expectedLocaleIds);
-  assert.deepEqual(publicRc1Locales.map(({ code }) => code), expectedLocaleIds);
+  assert.deepEqual(publicLocales.map(({ code }) => code), expectedLocaleIds);
   assert.deepEqual(PUBLIC_DOC_PAGES.map(({ id }) => id), expectedDocIds);
   assert.deepEqual(Object.keys(EVIDENCE_CINEMA_TITLES).sort(), [...expectedLocaleIds].sort());
   assert.deepEqual(Object.keys(REFERENCE_CONTENT_NOTICES), expectedLocaleIds);
@@ -151,7 +155,7 @@ test("Public website exposes the exact 41-locale route, navigation, and content 
 
     const completeDocuments = await loadInteractiveDocumentPages(repoRoot);
     const pagePaths = new Map();
-    for (const locale of publicRc1Locales) {
+    for (const locale of publicLocales) {
       const homeRoute = homepagePath(locale.code);
       const home = await readFile(outputFile(outputDirectory, homeRoute), "utf8");
       pagePaths.set(homeRoute, home);
@@ -215,7 +219,7 @@ test("Public website exposes the exact 41-locale route, navigation, and content 
       "the current source contract marks only the quick guide as an indexable public documentation page");
     for (const page of PUBLIC_DOC_PAGES) {
       const indexable = indexableDocs.some(({ id }) => id === page.id);
-      for (const locale of publicRc1Locales) {
+      for (const locale of publicLocales) {
         const html = pagePaths.get(publicDocPath(locale.code, page.id));
         const robots = robotsContent(html);
         assert.equal(robots, indexable ? "index,follow" : "noindex,follow",
@@ -224,7 +228,7 @@ test("Public website exposes the exact 41-locale route, navigation, and content 
     }
 
     for (const policy of publicTexts) {
-      for (const locale of publicRc1Locales) {
+      for (const locale of publicLocales) {
         const route = publicTextPath(locale.code, policy.id);
         const html = await readFile(outputFile(outputDirectory, route), "utf8");
         pagePaths.set(route, html);
@@ -257,7 +261,7 @@ test("Public website exposes the exact 41-locale route, navigation, and content 
       const html = await readFile(path.join(outputDirectory, defaultRedirect), "utf8");
       assert.equal(robotsContent(html), "noindex,follow", page.id + ": default reference redirect");
       assert.deepEqual(localeNavigationRows(html, "data-locale-button").map(([code]) => code), expectedLocaleIds);
-      for (const locale of publicRc1Locales) {
+      for (const locale of publicLocales) {
         const localizedRedirect = path.posix.join("docs", "reference", locale.code, page.reference);
         const localizedHtml = await readFile(path.join(outputDirectory, localizedRedirect), "utf8");
         assert.equal(robotsContent(localizedHtml), "noindex,follow", locale.code + "/" + page.id + ": legacy reference redirect");

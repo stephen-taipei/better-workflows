@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { scanHtml, escapeHtml } from './html-source.mjs';
 import { homepagePath, PUBLIC_DOC_PAGES, publicDocPath } from './public-docs.mjs';
-import { DEFAULT_LOCALE, PUBLIC_RC1_LOCALE_IDS, locales } from './website-locales.mjs';
+import { DEFAULT_LOCALE, PUBLIC_LOCALE_IDS, locales } from './website-locales.mjs';
 import { overlayLocales } from './locale-overlay.mjs';
 
 // Stable inputs: build and source-bound public QA render the same complete page.
@@ -30,7 +30,7 @@ const copy = overlayLocales({
     resources:'Resources', project:'Open source', releaseNotes:'RC1 release notes', contribute:'Contributing', security:'Security', governance:'Governance', conduct:'Code of conduct', sponsorFooter:'Support development',
     license:'Core AGPL-3.0 · wire Apache-2.0', alias:'(betterworkflows.org redirects here)', chip:'V5.0 RC1 available · GA pending', installCta:'Install', overview:'Overview', hosts:'Hosts', boundary:'Proof boundary', statusNav:'Release status', faq:'FAQ', docDescriptions:['Find the right guide for your next task','Install Better Workflows and run a first task','Choose a path for reviewing, changing code, or delivery','Start with a request you can adapt','An interactive demo of how checks lead to delivery']
   }
-}, "site-shell", PUBLIC_RC1_LOCALE_IDS);
+}, "site-shell", PUBLIC_LOCALE_IDS);
 export function siteCopy(code) { if(!copy[code]) throw new Error(`Unsupported site locale: ${code}`); return copy[code]; }
 const e = escapeHtml;
 const SPRITE = '<svg class="sprite" width="0" height="0" aria-hidden="true" focusable="false">'
@@ -54,7 +54,7 @@ const SPRITE = '<svg class="sprite" width="0" height="0" aria-hidden="true" focu
 const icon = (name, cls = 'ic') => `<svg class="${cls}" aria-hidden="true"><use href="#i-${name}"/></svg>`;
 const brand = (code, tag = true) => `<a class="brand" href="${homepagePath(code)}" aria-label="${e(siteCopy(code).homeLabel)}"><img class="brand-mark brand-mark--converge" src="/better-workflows-mark.svg?v=${SITE_SHELL_VERSION}" width="34" height="27" alt="" aria-hidden="true"><span class="brand-name">Better Workflows</span>${tag ? '<span class="brand-tag" title="V5.0 RC1">RC1</span>' : ''}</a>`;
 // Strip any non-default locale prefix, then add the target locale's prefix.
-const localePrefixPattern = new RegExp(`^/(?:${PUBLIC_RC1_LOCALE_IDS.filter((c) => c !== DEFAULT_LOCALE).map((c) => c.replace(/[-]/g, '\\-')).join('|')})(?=/)`);
+const localePrefixPattern = new RegExp(`^/(?:${PUBLIC_LOCALE_IDS.filter((c) => c !== DEFAULT_LOCALE).map((c) => c.replace(/[-]/g, '\\-')).join('|')})(?=/)`);
 const localeLabel = (code) => locales.find((locale) => locale.code === code).label;
 const localizedPath = (code, path) => { if(path==='/404.html') return homepagePath(code); const withoutLocale = path.replace(localePrefixPattern, ''); return code === DEFAULT_LOCALE ? withoutLocale : `/${code}${withoutLocale}`; };
 const docsLabels = (c) => [c.guide,c.quick,c.cases,c.examples,c.cinema];
@@ -62,7 +62,7 @@ const isDocsPath = (code, path) => PUBLIC_DOC_PAGES.some((page) => publicDocPath
 export function siteHeader(code, currentPath) {
   const c=siteCopy(code), home=homepagePath(code);
   const onSupport = currentPath === localizedPath(code,'/support/');
-  const localeLinks=PUBLIC_RC1_LOCALE_IDS.map(other => `<a data-locale-button="${other}" data-locale-link="${other}" data-locale-static="true" data-auto-locale="${other}" data-cinema-locale="${other}" lang="${other}" hreflang="${other}" href="${e(localizedPath(other,currentPath))}"${other===code?' aria-current="page"':''}>${e(localeLabel(other))}</a>`).join('');
+  const localeLinks=PUBLIC_LOCALE_IDS.map(other => `<a data-locale-button="${other}" data-locale-link="${other}" data-locale-static="true" data-auto-locale="${other}" data-cinema-locale="${other}" lang="${other}" hreflang="${other}" href="${e(localizedPath(other,currentPath))}"${other===code?' aria-current="page"':''}>${e(localeLabel(other))}</a>`).join('');
   const docs = PUBLIC_DOC_PAGES.map((page,i) => { const href = publicDocPath(code,page.id); return `<a href="${href}"${currentPath===href?' aria-current="page"':''}><b>${docsLabels(c)[i]}</b><small>${c.docDescriptions[i]}</small></a>`; }).join('');
   const docsCurrent = isDocsPath(code, currentPath) ? ' aria-current="true"' : '';
   return `<a class="skip-link" href="#main">${c.skip}</a><header class="site-header" data-site-header><span class="read-bar" aria-hidden="true"></span><div class="shell header-inner">${brand(code)}`

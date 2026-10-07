@@ -32,9 +32,10 @@ export const LOCALE_KEYS = [
 
 export const CONNECTORS_LOCALES = ["en", "zh-Hant", "zh-Hant-TW", "zh-Hant-HK", "zh-Hans", "vi", "uk", "tr", "th", "sv", "sk", "ru", "ro", "pt", "pt-BR", "pl", "nl", "nb", "my", "ms", "lo", "ko", "km", "ja", "it", "id", "hu", "hr", "hi", "he", "fr", "fil", "fi", "es", "es-MX", "el", "de", "da", "cs", "ca", "ar"];
 
-// Every public locale has a site, document and support edition. The name is
-// kept for existing consumers of the RC1 public locale contract.
-export const PUBLIC_RC1_LOCALE_IDS = Object.freeze([...CONNECTORS_LOCALES]);
+// Every public locale has a site, document and support edition.
+export const PUBLIC_LOCALE_IDS = Object.freeze([...CONNECTORS_LOCALES]);
+// The two RC1 editions keep their existing routes and ownership.
+export const PUBLIC_RC1_LOCALE_IDS = Object.freeze(["en", "zh-Hant-TW"]);
 
 const LOCALE_LABELS = {
   "en": "English",
@@ -169,11 +170,13 @@ if (locales.length !== CONNECTORS_LOCALES.length || new Set(locales.map(({ code 
 }
 const localeOrder = new Map(CONNECTORS_LOCALES.map((code, index) => [code, index]));
 locales.sort((left, right) => localeOrder.get(left.code) - localeOrder.get(right.code));
-export const publicRc1Locales = Object.freeze(PUBLIC_RC1_LOCALE_IDS.map((code) => {
+const localesFor = (ids) => Object.freeze(ids.map((code) => {
   const locale = locales.find((entry) => entry.code === code);
-  if (!locale) throw new Error(`RC1 public locale is absent from the source catalog: ${code}`);
+  if (!locale) throw new Error(`Public locale is absent from the source catalog: ${code}`);
   return locale;
 }));
+export const publicLocales = localesFor(PUBLIC_LOCALE_IDS);
+export const publicRc1Locales = localesFor(PUBLIC_RC1_LOCALE_IDS);
 
 const v4Copy = overlayLocales({
   en: [

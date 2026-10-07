@@ -3,7 +3,7 @@
 import { mkdir, readFile, readdir, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { CONNECTORS_LOCALES, DEFAULT_LOCALE, PUBLIC_RC1_LOCALE_IDS, locales } from "./website-locales.mjs";
+import { CONNECTORS_LOCALES, DEFAULT_LOCALE, PUBLIC_LOCALE_IDS, locales } from "./website-locales.mjs";
 import { EVIDENCE_CINEMA_TITLES, publicDocCards, publicDocPath, publicDocSections } from "./public-docs.mjs";
 import { supportCopy } from "./localized-support.mjs";
 import { policyTitle } from "./localized-policies.mjs";
